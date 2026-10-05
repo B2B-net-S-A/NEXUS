@@ -1,4 +1,4 @@
-"""Jednorazowe przeniesienie kart z portali do „Do przejrzenia” (30.09.2026).
+"""Przeniesienie kart z portali do „Do przejrzenia” (30.09.2026, 05.10.2026).
 
 Scraper JJIT/RocketJobs dodawał dopasowania wprost na Tablicę (etap
 „Ogłoszenia”, ``entry_source='auto_match'``). Zmierzone 30.09.2026: 1 819 kart,
@@ -8,47 +8,75 @@ zakłada propozycję ``job_board`` (``proposals_bulk.propose_candidates_for_job`
 Ta naprawa przenosi NIETKNIĘTE stare karty tą samą drogą, co ręczne „Usuń
 z rekrutacji”, i zakłada w ich miejsce propozycję z oryginalnym wynikiem.
 
+**Stan 05.10.2026 — karty bez plakietki.** Zewnętrzny scraper (klient OAuth
+„Scrapery pracuj.pl + JJIT”) od 30.09 do 05.10 NIE wysyłał pola ``auto_match``,
+więc serwer zakładał karty (``entry_source='auto_match'``, PUSTE
+``entry_meta``), a wynik dopisywał osobną notatką przez ``POST /api/notes``
+(autor = użytkownik serwisowy klienta OAuth, ``kind='automatch'``)::
+
+    Źródło: Pracuj.pl — oferta: <tytuł>
+    Auto-match score: 71/100 (<Imię Nazwisko>)
+    Must-have trafione: Python, Django
+
+Na rekrutacjach z NEXUSA takich kart jest ~1 100; dawna wersja tej naprawy
+liczyła je jako 0 (wymagała plakietki, a każda notatka dyskwalifikowała
+parę). Teraz baza obejmuje je, gdy w parze jest taka notatka automatu, a
+plakietkę propozycji składa się z notatki (``entry_meta_from_note``). Bez
+notatki automatu karta zostaje — to może być prawdziwe zgłoszenie z pracuj.pl
+(te mają notatki ``kind='application_form'`` i dalej blokują). Scraper już
+wysyła ``auto_match``.
+
 Karta kwalifikuje się wyłącznie, gdy spełnia WSZYSTKO:
 
 * rekrutacja opublikowana i założona w NEXUSIE (``external_source`` różne
   od ``traffit`` — rekrutacje z Traffita są archiwum);
-* para ma dokładnie jeden proces, ``entry_source='auto_match'``, otwarty,
-  z plakietką auto-matcha od integracji (``entry_meta.kind='auto_match'``,
+* para ma dokładnie jeden proces, ``entry_source='auto_match'``, otwarty, i
+  ALBO plakietkę auto-matcha od integracji (``entry_meta.kind='auto_match'``,
   ``source`` różne od ``nexus`` — wewnętrzny auto-match w trybie ``add`` to
-  decyzja administratora, nie scraper; wejścia integracji BEZ wyniku, np.
-  zgłoszenia z pracuj.pl, zostają);
+  decyzja administratora, nie scraper), ALBO puste ``entry_meta`` (NULL,
+  ``{}``, bez ``kind``) i notatkę automatu tej pary z „Auto-match score:”;
+  notatka bez czytelnego wyniku = powód ``automatch_note_unreadable``;
 * dokładnie jeden wiersz etapu pary, na etapie ``posting``, bez odpowiedzi
   screeningu i scorecardu;
-* żadnej notatki z tą rekrutacją, żadnego ``application_screenings``, żadnej
-  notatki screeningu (``screening_notes``) tej pary;
+* żadnej notatki z tą rekrutacją POZA notatkami automatu (``kind='automatch'``
+  od użytkownika serwisowego dowolnego klienta OAuth), żadnego
+  ``application_screenings``, żadnej notatki screeningu (``screening_notes``)
+  tej pary;
 * CV etapu wyłącznie jako automatyczna migawka z dodania (nikt nie zaczął CV
   firmowego) i nic, co na tę migawkę wskazuje;
 * ZERO wierszy w jakiejkolwiek tabeli z FK do tego wiersza etapu albo tego
   procesu — lista FK czytana z ``pg_constraint`` w chwili biegu (poza
   wskaźnikiem ``recruitment_processes.legacy_current_candidate_stage_id``
   i migawką CV z punktu wyżej), więc tabela dopisana później też blokuje.
+  Notatki nie mają FK do etapu ani procesu (wiążą je ``candidate_id`` i
+  ``job_id``), więc ten punkt ich nie dotyczy.
 
 Wykonanie na parę, w savepoincie: blokada kandydata, ponowne sprawdzenie
 wszystkich warunków, archiwum etapów (``candidate_stage_removals``),
 ``void_process`` → ``delete_voided_stage_history`` → zamknięcie okazji
 kontaktu (jak ``DELETE /api/candidates/{id}/recruitments/{job_id}``), potem
-propozycja ``job_board`` z wynikiem z ``entry_meta``. Wiersze skrzynki tej pary
-w statusie ``added`` (postawione przy dodaniu karty) wracają do ``proposed`` —
-karty już nie ma, więc „dodana” przestała być prawdą, a bez tego osoba nie
-pokazałaby się w „Do przejrzenia”.
+propozycja ``job_board`` z wynikiem z ``entry_meta`` albo z notatki automatu.
+Wiersze skrzynki tej pary w statusie ``added`` (postawione przy dodaniu karty)
+wracają do ``proposed`` — karty już nie ma, więc „dodana” przestała być
+prawdą, a bez tego osoba nie pokazałaby się w „Do przejrzenia”. Notatki
+automatu ZOSTAJĄ (nic nie znika — decyzja Artura 03.10.2026; są systemowe,
+pod filtrem), a ich id trafiają do danych do odwrócenia.
 
 Zasady jak przy innych naprawach z panelu: przebieg próbny niczego nie zapisuje
 poza raportem (liczby per rekrutacja, powody odrzucenia, do 20 przykładów —
 same identyfikatory); zapis wymaga próby z ostatnich 7 dni; paragon w stanie =
 liczby i ID; dane do odwrócenia (id archiwum, proces, etap, cofnięte wiersze
-skrzynki, oryginalny ``entry_meta``) pod ``repair_details_…``. Ponowny bieg nic
-nie zmienia: przeniesiona para ma proces ``voided`` i żadnego etapu.
+skrzynki, oryginalny i użyty ``entry_meta``, id notatek automatu) pod
+``repair_details_…``. Ponowny bieg nic nie zmienia: przeniesiona para ma
+proces ``voided`` i żadnego etapu.
 """
 
 from __future__ import annotations
 
+import html
 import json
 import logging
+import re
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
@@ -97,17 +125,53 @@ WHERE c.contype = 'f'
 ORDER BY cl.relname, a.attname
 """
 
-# Baza: otwarte procesy z plakietką auto-matcha od integracji. ``stage_id`` =
-# najnowszy wiersz etapu pary (warunki niżej wymagają, żeby był jedyny).
-_BASE_SQL = """
+
+def _automatch_note(alias: str) -> str:
+    """Notatka automatu: ``kind='automatch'`` od użytkownika serwisowego OAuth.
+
+    Nigdy NULL (``COALESCE``), więc bezpieczna pod ``NOT``.
+    """
+    return (
+        f"(COALESCE({alias}.kind = 'automatch', false) AND EXISTS ("
+        f"SELECT 1 FROM oauth_clients oc WHERE oc.acting_user_id = {alias}.author_id))"
+    )
+
+
+def _pair_notes(alias: str) -> str:
+    return (
+        f"FROM notes {alias} WHERE {alias}.candidate_id = rp.candidate_id "
+        f"AND {alias}.job_id = rp.job_id AND {_automatch_note(alias)}"
+    )
+
+
+# Wynik czytelny = „Auto-match score:” i cyfra (lustro ``_SCORE_RE``). Bez
+# klas POSIX (``[[:space:]]``): ``text()`` czytałby ``:spac`` jako parametr.
+_SCORE_MARK = "Auto-match score:"
+_SCORE_REGEX_SQL = r"Auto-match score:\s*[0-9]"
+
+# Baza: otwarte procesy z plakietką auto-matcha od integracji ALBO z pustym
+# ``entry_meta`` i notatką automatu (scraper 30.09–05.10). ``stage_id`` =
+# najnowszy wiersz etapu pary (warunki niżej wymagają, żeby był jedyny);
+# ``automatch_note`` = najnowsza notatka automatu z czytelnym wynikiem.
+_BASE_SQL = f"""
 SELECT rp.id AS process_id, rp.candidate_id, rp.job_id, rp.entry_meta,
        (SELECT max(c.id) FROM candidate_stages c
-        WHERE c.candidate_id = rp.candidate_id AND c.job_id = rp.job_id) AS stage_id
+        WHERE c.candidate_id = rp.candidate_id AND c.job_id = rp.job_id) AS stage_id,
+       (SELECT array_agg(an.id ORDER BY an.id) {_pair_notes("an")})
+           AS automatch_note_ids,
+       (SELECT an.content {_pair_notes("an")}
+          AND an.content ~ '{_SCORE_REGEX_SQL}'
+        ORDER BY an.created_at DESC, an.id DESC LIMIT 1) AS automatch_note
 FROM recruitment_processes rp
 WHERE rp.entry_source = 'auto_match'
   AND rp.status = 'open'
-  AND rp.entry_meta ->> 'kind' = 'auto_match'
-  AND (rp.entry_meta ->> 'source') IS DISTINCT FROM 'nexus'
+  AND (
+      (rp.entry_meta ->> 'kind' = 'auto_match'
+       AND (rp.entry_meta ->> 'source') IS DISTINCT FROM 'nexus')
+      OR ((rp.entry_meta ->> 'kind') IS NULL
+          AND EXISTS (SELECT 1 {_pair_notes("an")}
+                      AND strpos(an.content, '{_SCORE_MARK}') > 0))
+  )
 """
 
 # (powód, predykat PRAWDZIWY, gdy para NIE kwalifikuje się). Alias bazy: ``b``.
@@ -139,9 +203,14 @@ _STATIC_DISQUALIFIERS: tuple[tuple[str, str], ...] = (
                  AND jsonb_typeof(c4.scorecard_answers) <> 'null')))""",
     ),
     (
+        "automatch_note_unreadable",
+        "((b.entry_meta ->> 'kind') IS NULL AND b.automatch_note IS NULL)",
+    ),
+    (
         "notes",
-        """EXISTS (SELECT 1 FROM notes nt
-                  WHERE nt.candidate_id = b.candidate_id AND nt.job_id = b.job_id)""",
+        f"""EXISTS (SELECT 1 FROM notes nt
+                  WHERE nt.candidate_id = b.candidate_id AND nt.job_id = b.job_id
+                    AND NOT {_automatch_note("nt")})""",
     ),
     (
         "application_screening",
@@ -164,6 +233,57 @@ _STATIC_DISQUALIFIERS: tuple[tuple[str, str], ...] = (
                              AND sc.branded_finalized_at IS NULL))""",
     ),
 )
+
+
+_SCORE_RE = re.compile(r"Auto-match score:\s*(\d+(?:[.,]\d+)?)")
+_SOURCE_LINE_RE = re.compile(r"^\s*Źródło:\s*(.*)$", re.MULTILINE)
+_MUST_LINE_RE = re.compile(r"^\s*Must-have trafione:\s*(.*)$", re.MULTILINE)
+_TAG_RE = re.compile(r"<[^>]+>")
+_EMPTY_MUST = frozenset({"", "—", "–", "-"})
+
+
+def entry_meta_from_note(content: Any) -> Optional[dict[str, Any]]:
+    """Plakietka auto-matcha z notatki scrapera (30.09–05.10.2026).
+
+    ``None`` = brak czytelnego wyniku. Źródło: ``pracuj`` przy „Pracuj.pl”
+    w linii „Źródło:”, inaczej ``jjit`` (RocketJobs/JJIT). Must-have z linii
+    „Must-have trafione:” po przecinkach, „—” = pusta lista.
+    """
+    from app.services.process_entry_meta import auto_match_entry_meta
+
+    if not isinstance(content, str):
+        return None
+    plain = html.unescape(_TAG_RE.sub("\n", content))
+    score_match = _SCORE_RE.search(plain)
+    if score_match is None:
+        return None
+    score = float(score_match.group(1).replace(",", "."))
+    source_line = _SOURCE_LINE_RE.search(plain)
+    where = source_line.group(1) if source_line else plain
+    source = "pracuj" if "pracuj" in where.lower() else "jjit"
+    must_hit: list[str] = []
+    must_line = _MUST_LINE_RE.search(plain)
+    if must_line is not None:
+        must_hit = [
+            part.strip()
+            for part in must_line.group(1).split(",")
+            if part.strip() not in _EMPTY_MUST
+        ]
+    return auto_match_entry_meta(
+        score=score, source=source, must_hit=must_hit, must_total=None
+    )
+
+
+def _has_process_badge(row: Any) -> bool:
+    meta = row.get("entry_meta")
+    return isinstance(meta, dict) and meta.get("kind") == "auto_match"
+
+
+def effective_entry_meta(row: Any) -> Optional[dict[str, Any]]:
+    """Plakietka propozycji: z procesu, a przy pustym ``entry_meta`` z notatki."""
+    if _has_process_badge(row):
+        return row.get("entry_meta")
+    return entry_meta_from_note(row.get("automatch_note"))
 
 
 def fk_disqualifiers(fks: list[dict[str, str]]) -> list[tuple[str, str]]:
@@ -203,7 +323,8 @@ def qualifying_sql(disqualifiers: list[tuple[str, str]], *, one_pair: bool) -> s
     where = " AND ".join(f"NOT ({pred})" for _, pred in disqualifiers) or "TRUE"
     pair = "WHERE base.process_id = :process_id" if one_pair else ""
     return (
-        f"SELECT b.process_id, b.candidate_id, b.job_id, b.entry_meta, b.stage_id "
+        "SELECT b.process_id, b.candidate_id, b.job_id, b.entry_meta, b.stage_id, "
+        "b.automatch_note_ids, b.automatch_note "
         f"FROM (SELECT * FROM ({_BASE_SQL}) base {pair}) b "
         f"WHERE {where} ORDER BY b.job_id, b.candidate_id"
     )
@@ -277,10 +398,12 @@ async def plan(db: AsyncSession) -> dict[str, Any]:
         (await db.execute(text(blocked_counts_sql(disqualifiers)))).mappings().one()
     )
     per_job: Counter[int] = Counter(int(r["job_id"]) for r in rows)
+    from_notes = sum(1 for r in rows if not _has_process_badge(r))
     return {
         "dry_run": True,
         "base_pairs": int(blocked_row["base"] or 0),
         "qualifying_pairs": len(rows),
+        "qualifying_from_automatch_notes": from_notes,
         "jobs": len(per_job),
         "per_job": [
             {"job_id": job_id, "pairs": count}
@@ -354,7 +477,14 @@ async def _convert_pair(
     )
     if fresh is None:
         return None
-    entry_meta = fresh["entry_meta"] if isinstance(fresh["entry_meta"], dict) else {}
+    entry_meta = effective_entry_meta(fresh)
+    if entry_meta is None:
+        return None
+    original_entry_meta = fresh["entry_meta"]
+    # Notatki automatu ZOSTAJĄ (decyzja Artura 03.10.2026) — tylko ich id do
+    # danych odwrócenia. Nie mają FK do etapu ani procesu, więc
+    # ``void_process``/``delete_voided_stage_history`` ich nie dotykają.
+    automatch_note_ids = [int(i) for i in (fresh["automatch_note_ids"] or [])]
     stage_rows = (
         (
             await db.execute(
@@ -442,6 +572,7 @@ async def _convert_pair(
                 "process_id": process_id,
                 "removal_id": removal.id,
                 "source": "job_board",
+                "automatch_note_ids": automatch_note_ids,
             },
         )
     )
@@ -455,6 +586,8 @@ async def _convert_pair(
         "stage_def_id": stage_def_id,
         "reverted_proposal_ids": [int(i) for i in reverted],
         "entry_meta": entry_meta,
+        "original_entry_meta": original_entry_meta,
+        "automatch_note_ids": automatch_note_ids,
     }
 
 
@@ -647,6 +780,8 @@ __all__ = [
     "STATE_KEY",
     "apply",
     "blocked_counts_sql",
+    "effective_entry_meta",
+    "entry_meta_from_note",
     "fk_disqualifiers",
     "finish_run",
     "fresh_dry_run_exists",
