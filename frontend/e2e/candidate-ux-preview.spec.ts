@@ -78,16 +78,16 @@ test.describe("candidate UX deterministic previews", () => {
     });
   }
 
-  // Profil ma od 22.09.2026 CZTERY zakładki (Profil · Rekrutacje · Historia ·
-  // Pliki i umowy, #1689) w jednym pasku, który na telefonie przewija się
-  // poziomo — dawnej listy rozwijanej „Sekcja profilu" już nie ma.
-  test("profile exposes four sections and they stay usable on mobile", async ({ page }) => {
+  // Profil ma od 04.10.2026 PIĘĆ zakładek (Przegląd · Rekrutacje · Odpowiedzi
+  // ze screeningu · Notatki i historia · CV i dokumenty) w jednym pasku, który
+  // na telefonie przewija się poziomo.
+  test("profile exposes five sections and they stay usable on mobile", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/preview/candidate-profile");
 
     const tabs = page.getByRole("tablist", { name: "Sekcje profilu kandydata" });
     await expect(tabs).toBeVisible();
-    const history = tabs.getByRole("tab", { name: /Historia/ });
+    const history = tabs.getByRole("tab", { name: /Notatki i historia/ });
     await history.scrollIntoViewIfNeeded();
     await history.click();
     await expect(history).toHaveAttribute("aria-selected", "true");
@@ -95,7 +95,13 @@ test.describe("candidate UX deterministic previews", () => {
 
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.reload();
-    for (const label of ["Profil", "Rekrutacje", "Historia", "Pliki i umowy"]) {
+    for (const label of [
+      "Przegląd",
+      "Rekrutacje",
+      "Odpowiedzi ze screeningu",
+      "Notatki i historia",
+      "CV i dokumenty",
+    ]) {
       await expect(page.getByRole("tab", { name: new RegExp(label) })).toBeVisible();
     }
   });

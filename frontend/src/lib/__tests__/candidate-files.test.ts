@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   fileAddedLabel,
   formatFileDate,
+  isClientCvFilename,
   sortCandidateFiles,
+  splitClientCvFiles,
   type CandidateFileListItem,
 } from "@/lib/candidate-files";
 
@@ -46,5 +48,27 @@ describe("candidate-files", () => {
   it("dzień liczony w strefie firmy (Europe/Warsaw)", () => {
     expect(formatFileDate("2026-09-29T22:30:00Z")).toBe("30.09.2026");
     expect(formatFileDate("nie-data")).toBeNull();
+  });
+});
+
+describe("isClientCvFilename / splitClientCvFiles (D4, 04.10.2026)", () => {
+  it("rozpoznaje „B2B” jako osobny człon nazwy", () => {
+    expect(isClientCvFilename("Jan_Kowalski_B2B_PKO.docx")).toBe(true);
+    expect(isClientCvFilename("CV B2B.pdf")).toBe(true);
+    expect(isClientCvFilename("b2b-cv.docx")).toBe(true);
+    expect(isClientCvFilename("cv.pdf")).toBe(false);
+    expect(isClientCvFilename("b2bnetwork_logo.png")).toBe(false);
+    expect(isClientCvFilename(null)).toBe(false);
+  });
+
+  it("dzieli listę bez zmiany kolejności", () => {
+    const docs = [
+      { ...doc({ id: 1 }), filename: "cv.pdf" },
+      { ...doc({ id: 2 }), filename: "A_B2B.docx" },
+      { ...doc({ id: 3 }), filename: "list.pdf" },
+    ];
+    const { own, client } = splitClientCvFiles(docs);
+    expect(own.map((d) => d.id)).toEqual([1, 3]);
+    expect(client.map((d) => d.id)).toEqual([2]);
   });
 });

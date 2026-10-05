@@ -1,13 +1,16 @@
 "use client";
 
 // Zakładka „Pliki" profilu kandydata — lista załączników + upload nowych.
+// 04.10.2026: klik w nazwę otwiera podgląd, reszta akcji (pobierz, rodzaj,
+// główne CV, nieaktualne) w menu „⋯” wiersza; CV dla klientów (pliki
+// „…B2B…” i CV z generatora) stoją osobno, zwinięte (decyzja D4).
 // Wydzielona z `CandidateDetailV2.tsx` (plik ~4,7 tys. linii) przy dodawaniu
 // write-pathu, żeby dało się ją renderować i testować w izolacji.
 
 import * as React from "react";
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Eye, Loader2, Upload } from "lucide-react";
+import { ChevronDown, Loader2, MoreHorizontal, Upload } from "lucide-react";
 
 import api, { extractErrorMsg } from "@/lib/api";
 import { useToast } from "@/components/Toast";
@@ -28,7 +31,22 @@ import {
   fileAddedLabel,
   formatFileDate,
   sortCandidateFiles,
+  splitClientCvFiles,
 } from "@/lib/candidate-files";
+import type { GeneratedCvItem } from "@/lib/api";
+import { downloadGeneratedCv } from "@/components/v2/cv-generator/cv-generated-files";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 
 export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  const { showError, showToast } = useToast();
@@ -256,150 +274,45 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  ? "Brak plików. Dodaj CV, certyfikat lub inny dokument."
  : "Brak plików."}
  </div>
+ <ClientCvGroup candidateId={candidateId} files={[]} renderRow={() => null} />
  <OrderDocumentsSection candidateId={candidateId} />
  </div>
  );
  }
 
+ const { own: ownDocs, client: clientDocs } = splitClientCvFiles(docs);
+ const renderRow = (doc: CandidateDocument) => (
+ <FileRow
+ key={doc.id}
+ doc={doc}
+ canEdit={canEditDocuments}
+ busy={metadataMutation.isPending}
+ onPreview={() => handlePreview(doc)}
+ onDownload={() => handleDownload(doc)}
+ onChangeKind={(documentKind) =>
+ metadataMutation.mutate({ docId: doc.id, documentKind })
+ }
+ onSetPrimary={() => metadataMutation.mutate({ docId: doc.id, isPrimary: true })}
+ onToggleOutdated={() =>
+ metadataMutation.mutate({ docId: doc.id, outdated: !doc.outdated_at })
+ }
+ />
+ );
+
  return (
  <>
  <div className="space-y-3">
  {uploader}
- <div className="space-y-2">
- {docs.map((doc) => (
- <div
- key={doc.id}
- className="flex flex-col gap-2 rounded-lg bg-background/40 border border-border p-3 hover:bg-background/60 transition-colors sm:flex-row sm:items-center sm:gap-3"
- >
- <div className="flex min-w-0 flex-1 items-center gap-3">
- {fileIcon(doc.content_type)}
- <div className="flex-1 min-w-0">
- <div className="flex items-baseline gap-2 flex-wrap">
- <span className="font-medium text-sm text-foreground truncate">
- {doc.filename}
- </span>
- {doc.is_primary && (
- <Badge size="sm" variant="success">
- główne CV
- </Badge>
+ {ownDocs.length > 0 ? (
+ <div className="divide-y divide-border rounded-lg border border-border">
+ {ownDocs.map(renderRow)}
+ </div>
+ ) : (
+ <p className="text-sm text-muted-foreground">
+ Kandydat nie ma własnych plików — poniżej są tylko CV przygotowane dla klientów.
+ </p>
  )}
- {doc.outdated_at ? (
- <Badge
- size="sm"
- variant="neutral"
- title={[
- "Oznaczone jako nieaktualne",
- formatFileDate(doc.outdated_at),
- doc.outdated_by_name,
- ]
- .filter(Boolean)
- .join(" · ")}
- >
- nieaktualne
- </Badge>
- ) : null}
- <Badge size="sm" variant="neutral">
- {doc.document_kind === "cv"
- ? "CV"
- : doc.document_kind === "cover_letter"
- ? "list motywacyjny"
- : doc.document_kind === "certificate"
- ? "certyfikat"
- : "inny"}
- </Badge>
- </div>
- <div className="text-xs text-muted-foreground mt-0.5">
- <span>{fileAddedLabel(doc)}</span>
- {formatFileSize(doc.size_bytes) && (
- <>
- <span className="mx-1.5">·</span>
- <span>{formatFileSize(doc.size_bytes)}</span>
- </>
- )}
- {fileTypeLabel(doc.content_type, doc.filename) && (
- <>
- <span className="mx-1.5">·</span>
- <span>{fileTypeLabel(doc.content_type, doc.filename)}</span>
- </>
- )}
- </div>
- </div>
- </div>
- <div className="flex flex-wrap items-center gap-x-3 gap-y-2 sm:shrink-0">
- {canEditDocuments ? (
- <select
- value={doc.document_kind}
- onChange={(event) =>
- metadataMutation.mutate({
- docId: doc.id,
- documentKind: event.target
- .value as CandidateDocument["document_kind"],
- })
- }
- disabled={metadataMutation.isPending}
- aria-label={`Rodzaj dokumentu ${doc.filename}`}
- className="min-h-10 rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground sm:min-h-0"
- >
- <option value="cv">CV</option>
- <option value="cover_letter">List motywacyjny</option>
- <option value="certificate">Certyfikat</option>
- <option value="other">Inny</option>
- </select>
- ) : null}
- {canEditDocuments && doc.document_kind === "cv" && !doc.is_primary && !doc.outdated_at ? (
- <button
- type="button"
- onClick={() =>
- metadataMutation.mutate({ docId: doc.id, isPrimary: true })
- }
- disabled={metadataMutation.isPending}
- className="text-xs font-medium text-[hsl(var(--accent-primary))] hover:underline disabled:opacity-50"
- >
- Ustaw jako główne CV
- </button>
- ) : null}
- {canEditDocuments && !doc.is_primary ? (
- <button
- type="button"
- onClick={() =>
- metadataMutation.mutate({
- docId: doc.id,
- outdated: !doc.outdated_at,
- })
- }
- disabled={metadataMutation.isPending}
- aria-label={
- doc.outdated_at
- ? `Cofnij oznaczenie „nieaktualne”: ${doc.filename}`
- : `Oznacz jako nieaktualne: ${doc.filename}`
- }
- className="text-xs font-medium text-muted-foreground hover:text-foreground hover:underline disabled:opacity-50"
- >
- {doc.outdated_at ? "Cofnij" : "Oznacz jako nieaktualne"}
- </button>
- ) : null}
- <button
- type="button"
- onClick={() => handlePreview(doc)}
- className="inline-flex items-center gap-1 text-sm text-[hsl(var(--accent-primary))] hover:underline"
- title="Otwórz podgląd pliku"
- >
- <Eye className="h-3.5 w-3.5" />
- Podgląd
- </button>
- <button
- type="button"
- onClick={() => handleDownload(doc)}
- className="inline-flex items-center gap-1 text-sm text-[hsl(var(--accent-primary))] hover:underline"
- title="Pobierz plik na dysk"
- >
- <Download className="h-3.5 w-3.5" />
- Pobierz
- </button>
- </div>
- </div>
- ))}
- </div>
+ <ClientCvGroup candidateId={candidateId} files={clientDocs} renderRow={renderRow} />
  <OrderDocumentsSection candidateId={candidateId} />
  </div>
  <FilePreviewModal
@@ -417,5 +330,256 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  onDownload={handleDownload}
  />
  </>
+ );
+}
+
+const KIND_LABEL: Record<CandidateDocument["document_kind"], string> = {
+ cv: "CV",
+ cover_letter: "list motywacyjny",
+ certificate: "certyfikat",
+ other: "inny",
+};
+
+const KIND_OPTIONS: { value: CandidateDocument["document_kind"]; label: string }[] = [
+ { value: "cv", label: "CV" },
+ { value: "cover_letter", label: "List motywacyjny" },
+ { value: "certificate", label: "Certyfikat" },
+ { value: "other", label: "Inny" },
+];
+
+function FileRow({
+ doc,
+ canEdit,
+ busy,
+ onPreview,
+ onDownload,
+ onChangeKind,
+ onSetPrimary,
+ onToggleOutdated,
+}: {
+ doc: CandidateDocument;
+ canEdit: boolean;
+ busy: boolean;
+ onPreview: () => void;
+ onDownload: () => void;
+ onChangeKind: (kind: CandidateDocument["document_kind"]) => void;
+ onSetPrimary: () => void;
+ onToggleOutdated: () => void;
+}) {
+ // Radix: akcja z menu po zamknięciu menu (issue 533 — fokus i okna).
+ const later = (fn: () => void) => () => window.setTimeout(fn, 0);
+ const typeLabel = fileTypeLabel(doc.content_type, doc.filename);
+ const size = formatFileSize(doc.size_bytes);
+ return (
+ <div className="flex items-center gap-3 px-3 py-2.5" data-testid="candidate-file-row">
+ {fileIcon(doc.content_type)}
+ <div className="min-w-0 flex-1">
+ <div className="flex flex-wrap items-baseline gap-2">
+ <button
+ type="button"
+ onClick={onPreview}
+ title="Otwórz podgląd pliku"
+ className="min-w-0 truncate text-left text-sm font-medium text-foreground hover:text-primary hover:underline"
+ >
+ {doc.filename}
+ </button>
+ {doc.is_primary ? (
+ <Badge size="sm" variant="success">
+ główne CV
+ </Badge>
+ ) : null}
+ {doc.outdated_at ? (
+ <Badge
+ size="sm"
+ variant="neutral"
+ title={[
+ "Oznaczone jako nieaktualne",
+ formatFileDate(doc.outdated_at),
+ doc.outdated_by_name,
+ ]
+ .filter(Boolean)
+ .join(" · ")}
+ >
+ nieaktualne
+ </Badge>
+ ) : null}
+ <Badge size="sm" variant="neutral">
+ {KIND_LABEL[doc.document_kind] ?? "inny"}
+ </Badge>
+ </div>
+ <div className="mt-0.5 text-xs text-muted-foreground">
+ <span>{fileAddedLabel(doc)}</span>
+ {size ? (
+ <>
+ <span className="mx-1.5">·</span>
+ <span>{size}</span>
+ </>
+ ) : null}
+ {typeLabel ? (
+ <>
+ <span className="mx-1.5">·</span>
+ <span>{typeLabel}</span>
+ </>
+ ) : null}
+ </div>
+ </div>
+ <DropdownMenu modal={false}>
+ <DropdownMenuTrigger asChild>
+ <Button
+ size="icon"
+ variant="ghost"
+ aria-label={`Akcje pliku ${doc.filename}`}
+ disabled={busy}
+ >
+ <MoreHorizontal className="size-4" />
+ </Button>
+ </DropdownMenuTrigger>
+ <DropdownMenuContent align="end" className="w-60">
+ <DropdownMenuItem onSelect={later(onPreview)}>Podgląd</DropdownMenuItem>
+ <DropdownMenuItem onSelect={later(onDownload)}>Pobierz</DropdownMenuItem>
+ {canEdit ? (
+ <>
+ <DropdownMenuSeparator />
+ <DropdownMenuLabel className="text-xs text-muted-foreground">Rodzaj</DropdownMenuLabel>
+ <DropdownMenuRadioGroup
+ value={doc.document_kind}
+ onValueChange={(value) =>
+ onChangeKind(value as CandidateDocument["document_kind"])
+ }
+ >
+ {KIND_OPTIONS.map((option) => (
+ <DropdownMenuRadioItem key={option.value} value={option.value}>
+ {option.label}
+ </DropdownMenuRadioItem>
+ ))}
+ </DropdownMenuRadioGroup>
+ {doc.document_kind === "cv" && !doc.is_primary && !doc.outdated_at ? (
+ <>
+ <DropdownMenuSeparator />
+ <DropdownMenuItem onSelect={later(onSetPrimary)}>
+ Ustaw jako główne CV
+ </DropdownMenuItem>
+ </>
+ ) : null}
+ {!doc.is_primary ? (
+ <DropdownMenuItem onSelect={later(onToggleOutdated)}>
+ {doc.outdated_at
+ ? "Cofnij oznaczenie „nieaktualne”"
+ : "Oznacz jako nieaktualne"}
+ </DropdownMenuItem>
+ ) : null}
+ </>
+ ) : null}
+ </DropdownMenuContent>
+ </DropdownMenu>
+ </div>
+ );
+}
+
+/**
+ * „CV dla klientów” (D4): pliki „…B2B…” z listy kandydata i CV wygenerowane
+ * w NEXUSIE. Zwinięte z licznikiem — to dokumenty dla klienta, nie od
+ * kandydata. Awaria listy z generatora nie chowa plików z teczki.
+ */
+function ClientCvGroup({
+ candidateId,
+ files,
+ renderRow,
+}: {
+ candidateId: number;
+ files: CandidateDocument[];
+ renderRow: (doc: CandidateDocument) => React.ReactNode;
+}) {
+ const { showError } = useToast();
+ const [open, setOpen] = useState(false);
+ const generatedQuery = useQuery<GeneratedCvItem[]>({
+ queryKey: ["candidate-generated-cvs", candidateId],
+ queryFn: () =>
+ api
+ .get<GeneratedCvItem[]>("/api/cv-generator/generated", {
+ params: { candidate_id: candidateId, limit: 50 },
+ })
+ .then((r) => (Array.isArray(r.data) ? r.data : [])),
+ enabled: candidateId > 0,
+ staleTime: 60_000,
+ retry: false,
+ });
+ const generated = (generatedQuery.data ?? []).filter((item) => item.status === "ready");
+ const total = files.length + generated.length;
+ if (generatedQuery.isPending && files.length === 0) return null;
+ if (total === 0 && !generatedQuery.isError) return null;
+
+ return (
+ <section aria-labelledby="candidate-client-cv-heading" className="rounded-lg border border-border">
+ <button
+ type="button"
+ aria-expanded={open}
+ aria-controls="candidate-client-cv-body"
+ onClick={() => setOpen((value) => !value)}
+ className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left"
+ >
+ <span id="candidate-client-cv-heading" className="text-sm font-medium text-foreground">
+ CV dla klientów{" "}
+ <span className="ml-0.5 tabular-nums text-muted-foreground">· {total}</span>
+ </span>
+ <ChevronDown
+ className={cn("size-4 text-muted-foreground transition-transform", open && "rotate-180")}
+ aria-hidden
+ />
+ </button>
+ {open ? (
+ <div id="candidate-client-cv-body" className="border-t border-border">
+ {files.length > 0 ? (
+ <div className="divide-y divide-border">{files.map(renderRow)}</div>
+ ) : null}
+ {generatedQuery.isError ? (
+ <p role="alert" className="px-3 py-2.5 text-sm text-destructive">
+ Nie udało się wczytać CV z generatora.{" "}
+ <button
+ type="button"
+ className="font-medium underline"
+ onClick={() => void generatedQuery.refetch()}
+ >
+ Ponów
+ </button>
+ </p>
+ ) : null}
+ {generated.length > 0 ? (
+ <ul className="divide-y divide-border border-t border-border" aria-label="CV z generatora">
+ {generated.map((item) => (
+ <li key={item.id} className="flex items-center gap-3 px-3 py-2.5 text-sm">
+ <div className="min-w-0 flex-1">
+ <p className="truncate font-medium text-foreground">{item.filename}</p>
+ <p className="text-xs text-muted-foreground">
+ {[
+ "z generatora",
+ item.job_title ?? item.client_name ?? null,
+ item.language?.toUpperCase() ?? null,
+ formatFileDate(item.created_at ?? null),
+ item.created_by_name ?? null,
+ ]
+ .filter(Boolean)
+ .join(" · ")}
+ </p>
+ </div>
+ {item.can_download ? (
+ <Button
+ size="sm"
+ variant="outline"
+ onClick={async () => {
+ const problem = await downloadGeneratedCv(item);
+ if (problem) showError(problem);
+ }}
+ >
+ Pobierz
+ </Button>
+ ) : null}
+ </li>
+ ))}
+ </ul>
+ ) : null}
+ </div>
+ ) : null}
+ </section>
  );
 }

@@ -34,12 +34,21 @@ vi.mock("@/components/v2/forms/MentionTextarea", () => ({
   MentionTextarea: ({
     value,
     onChange,
+    onFocus,
     ariaLabel,
   }: {
     value: string;
     onChange: (v: string) => void;
+    onFocus?: () => void;
     ariaLabel: string;
-  }) => <textarea aria-label={ariaLabel} value={value} onChange={(e) => onChange(e.target.value)} />,
+  }) => (
+    <textarea
+      aria-label={ariaLabel}
+      value={value}
+      onFocus={onFocus}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  ),
 }));
 vi.mock("@/components/emails/EmailThreadList", () => ({
   default: () => <div>skrzynka M365</div>,
@@ -121,7 +130,6 @@ function Harness({
       candidate={{ name: "Tomasz", lastname: "Wzorcowy", email: null, cv_filename: null }}
       activityView={view}
       onActivityViewChange={setView}
-      timeline={{ items: [], isPending: false, error: null, refetch: vi.fn() }}
       recruitments={[]}
       defaultJobId={null}
       readOnly={readOnly}
@@ -258,6 +266,45 @@ describe("Historia — zakładki notatek po rodzaju", () => {
     expect(screen.queryByRole("button", { name: "Karta rekomendacji z tej rozmowy" })).toBeNull();
     // Odpowiedź bez `group_counts` (starszy serwer): liczniki z pobranej listy.
     expect(screen.getByRole("tab", { name: "Rozmowy · 2" })).toBeTruthy();
+  });
+
+  it("rodzaje bez notatek znikają z filtrów, „Rozmowy” zostają zawsze (04.10.2026)", async () => {
+    respond({ talks: 0, contact: 0, delivery: 2, email: 0, automat: 0 });
+    renderTab();
+    const tabs = screen.getByRole("tablist", { name: "Filtr historii" });
+    expect(await within(tabs).findByRole("tab", { name: "Rozmowy · 0" })).toBeTruthy();
+    expect(within(tabs).getByRole("tab", { name: "Delivery Lead · 2" })).toBeTruthy();
+    expect(within(tabs).queryByRole("tab", { name: /Próby kontaktu/ })).toBeNull();
+    expect(within(tabs).queryByRole("tab", { name: /Automat/ })).toBeNull();
+    // Maile, oś czasu, telefony i czat — liczby nie znamy z góry, zostają.
+    expect(within(tabs).getByRole("tab", { name: "Maile" })).toBeTruthy();
+    expect(within(tabs).getByRole("tab", { name: "Wszystko" })).toBeTruthy();
+  });
+
+  it("„Wszystko” nie ma liczby, a oś czasu pobiera się dopiero po wejściu w filtr", async () => {
+    const user = userEvent.setup();
+    renderTab();
+    const tabs = screen.getByRole("tablist", { name: "Filtr historii" });
+    await within(tabs).findByRole("tab", { name: "Rozmowy · 40" });
+    expect(apiGet.mock.calls.some(([url]) => String(url).includes("/timeline"))).toBe(false);
+
+    await user.click(within(tabs).getByRole("tab", { name: "Wszystko" }));
+    await waitFor(() =>
+      expect(apiGet).toHaveBeenCalledWith(
+        "/api/candidates/42/timeline?limit=50",
+        expect.anything(),
+      ),
+    );
+  });
+
+  it("pole notatki jest zwinięte, dopóki ktoś do niego nie wejdzie", async () => {
+    const user = userEvent.setup();
+    renderTab();
+    await screen.findByRole("tab", { name: "Rozmowy · 40" });
+    expect(screen.queryByRole("button", { name: "Dodaj notatkę" })).toBeNull();
+
+    await user.click(screen.getByRole("textbox", { name: "Treść nowej notatki" }));
+    expect(screen.getByRole("button", { name: "Dodaj notatkę" })).toBeTruthy();
   });
 
   it("podgląd tylko do odczytu nie ma kompozytora ani „Nie odebrał”", async () => {

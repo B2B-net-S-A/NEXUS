@@ -1,12 +1,17 @@
 "use client";
 
 /**
- * Zakładka „Historia”: jeden kompozytor notatki u góry i filtry. Od
+ * Zakładka „Notatki i historia” (do 04.10.2026 „Historia”): jeden kompozytor notatki u góry i filtry. Od
  * 03.10.2026 notatki mają zakładkę na każdy rodzaj — „Rozmowy · Próby
  * kontaktu · Delivery Lead · Maile · Automat” — z licznikami z serwera
  * (decyzja: nic nie znika, szum ma własne miejsce). Dalej „Wszystko” (oś
  * czasu), „Telefony” (rejestr połączeń) i „Czat zespołu”. Domyślnie
  * „Rozmowy” (klucz `notes`).
+ *
+ * 04.10.2026: pole notatki zwinięte do jednej linii, filtry rodzajów bez
+ * notatek są schowane (poza „Rozmowami” i wybranym), „Wszystko” nie ma liczby
+ * (pokazywało limit pobrania, 50), a oś czasu ładuje się dopiero tutaj, z
+ * „Pokaż więcej” do 200 wpisów.
  *
  * Czytnik maili (`EmailThreadList`) MUSI mieć tu wejście — raz już osierociał
  * (PR #539), a synchronizacja M365 zapisuje treści maili pod RODO.
@@ -55,7 +60,7 @@ import { cn } from "@/lib/utils";
 import { NoteComposer, NotesList } from "./Notes";
 import { TimelineTab } from "./Timeline";
 import { SectionError, SectionLoading } from "./profile-shared";
-import { useNoteActions } from "./useNoteActions";
+import { useNoAnswer, useNoteActions } from "./useNoteActions";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- oś czasu i notatki są luźno typowane */
 
@@ -81,11 +86,34 @@ const FILTER_ORDER: CandidateActivityView[] = [
   "chat",
 ];
 
-export interface HistoryTimelineState {
-  items: any[];
-  isPending: boolean;
-  error: unknown;
-  refetch: () => void;
+/** Oś czasu: pierwsza porcja i sufit backendu (`/timeline?limit=` ≤ 200). */
+const TIMELINE_FIRST_PAGE = 50;
+const TIMELINE_MAX = 200;
+
+/** Rodzaje notatek, których filtr stoi zawsze — także przy zerze. */
+const ALWAYS_VISIBLE: ReadonlySet<CandidateActivityView> = new Set([
+  "notes",
+  "emails",
+  "timeline",
+  "calls",
+  "chat",
+]);
+
+/**
+ * Filtry do pokazania: rodzaj notatek bez żadnej notatki znika (decyzja D1,
+ * 04.10.2026), chyba że jest wybrany albo liczby jeszcze nie znamy.
+ */
+export function visibleActivityFilters(
+  active: CandidateActivityView,
+  counts: Partial<Record<CandidateActivityView, number>>,
+): CandidateActivityView[] {
+  return FILTER_ORDER.filter(
+    (value) =>
+      ALWAYS_VISIBLE.has(value) ||
+      value === active ||
+      counts[value] === undefined ||
+      (counts[value] ?? 0) > 0,
+  );
 }
 
 export interface HistoryTabProps {
@@ -98,7 +126,6 @@ export interface HistoryTabProps {
   };
   activityView: CandidateActivityView;
   onActivityViewChange: (view: CandidateActivityView) => void;
-  timeline: HistoryTimelineState;
   recruitments: any[];
   defaultJobId: number | null;
   readOnly: boolean;
@@ -116,7 +143,6 @@ export function HistoryTab({
   candidate,
   activityView,
   onActivityViewChange,
-  timeline,
   recruitments,
   defaultJobId,
   readOnly,
@@ -128,11 +154,27 @@ export function HistoryTab({
   composeRequest,
   onComposeHandled,
 }: HistoryTabProps) {
-  const { showError, showInfo } = useToast();
+  const { showError } = useToast();
   const queryClient = useQueryClient();
   const [noteText, setNoteText] = useState("");
   const [noteSaving, setNoteSaving] = useState(false);
-  const [noAnswerSaving, setNoAnswerSaving] = useState(false);
+  const { recordNoAnswer, saving: noAnswerSaving } = useNoAnswer(candidateId, readOnly);
+  const [timelineLimit, setTimelineLimit] = useState(TIMELINE_FIRST_PAGE);
+  const timelineQuery = useQuery<{ timeline?: any[] } | any[]>({
+    queryKey: candidateQueryKeys.timeline(candidateId, timelineLimit),
+    queryFn: ({ signal }) =>
+      api
+        .get(`/api/candidates/${candidateId}/timeline?limit=${timelineLimit}`, { signal })
+        .then((r) => r.data),
+    enabled: candidateId > 0 && activityView === "timeline",
+    staleTime: 30_000,
+    placeholderData: (previous) => previous,
+  });
+  const timelineItems: any[] = Array.isArray(timelineQuery.data)
+    ? timelineQuery.data
+    : (timelineQuery.data?.timeline ?? []);
+  const timelineMayHaveMore =
+    timelineItems.length >= timelineLimit && timelineLimit < TIMELINE_MAX;
   const [openCard, setOpenCard] = useState<CandidateCardNoteLink | null>(null);
   // „Pokaż CV obok” — domyślnie po wejściu z rekrutacji (widok z Traffita),
   // ale tylko od `lg`: węższy ekran stawia CV NAD historią, więc historia
@@ -225,33 +267,10 @@ export function HistoryTab({
     }
   };
 
-  // „Nie odebrał” jednym kliknięciem: notatka-próba kontaktu (rodzaj podany
-  // wprost, typ ogólny — follow-up nie liczy jej jako rozmowy z kandydatem).
-  // Tekst wpisany w polu notatki zostaje nietknięty.
-  const handleNoAnswer = async (jobId?: number | null) => {
-    if (readOnly || noAnswerSaving) return;
-    setNoAnswerSaving(true);
-    try {
-      await api.post("/api/notes", {
-        candidate_id: candidateId,
-        content: "Nie odebrał.",
-        note_type: "general",
-        kind: "contact_attempt",
-        ...(jobId ? { job_id: jobId } : {}),
-      });
-      invalidateNotes();
-      showInfo("Zapisano próbę kontaktu.");
-    } catch (e) {
-      showError(extractErrorMsg(e) || "Nie udało się zapisać próby kontaktu");
-    } finally {
-      setNoAnswerSaving(false);
-    }
-  };
-
   const noteCount = (group: keyof typeof VIEW_BY_NOTE_GROUP) =>
     notesQuery.isSuccess ? groupCounts[group] : undefined;
   const counts: Partial<Record<CandidateActivityView, number>> = {
-    timeline: timeline.isPending ? undefined : timeline.items.length,
+    // „Wszystko” bez liczby: pokazywała limit pobrania (50), nie liczbę zdarzeń.
     // Liczniki notatek liczy serwer dla całej historii (bez odpowiedzi).
     notes: noteCount("talks"),
     contact: noteCount("contact"),
@@ -291,7 +310,7 @@ export function HistoryTab({
           setNoteText={setNoteText}
           onAdd={handleAddNote}
           saving={noteSaving}
-          onNoAnswer={handleNoAnswer}
+          onNoAnswer={recordNoAnswer}
           noAnswerSaving={noAnswerSaving}
           viewers={viewers}
           currentUserId={currentUserId}
@@ -309,7 +328,7 @@ export function HistoryTab({
           aria-label="Filtr historii"
           className="flex max-w-full gap-1 overflow-x-auto rounded-lg bg-muted p-1"
         >
-          {FILTER_ORDER.map((value) => {
+          {visibleActivityFilters(activityView, counts).map((value) => {
             const active = value === activityView;
             const count = counts[value];
             return (
@@ -354,22 +373,43 @@ export function HistoryTab({
       </div>
 
       {activityView === "timeline" ? (
-        timeline.isPending ? (
+        timelineQuery.isPending ? (
           <SectionLoading label="Ładowanie historii…" />
-        ) : timeline.error && timeline.items.length === 0 ? (
+        ) : timelineQuery.error && timelineItems.length === 0 ? (
           <SectionError
             title="Nie udało się pobrać historii"
-            onRetry={timeline.refetch}
+            onRetry={() => void timelineQuery.refetch()}
           />
-        ) : showCv && candidate.cv_filename ? (
-          <CvSidePane
-            candidateId={candidateId}
-            cvFilename={candidate.cv_filename}
-          >
-            <TimelineTab items={timeline.items} />
-          </CvSidePane>
         ) : (
-          <TimelineTab items={timeline.items} />
+          <>
+            {showCv && candidate.cv_filename ? (
+              <CvSidePane
+                candidateId={candidateId}
+                cvFilename={candidate.cv_filename}
+              >
+                <TimelineTab items={timelineItems} />
+              </CvSidePane>
+            ) : (
+              <TimelineTab items={timelineItems} />
+            )}
+            {timelineMayHaveMore ? (
+              <Button
+                size="sm"
+                variant="outline"
+                loading={timelineQuery.isFetching}
+                onClick={() =>
+                  setTimelineLimit((limit) => Math.min(TIMELINE_MAX, limit * 2))
+                }
+              >
+                Pokaż więcej
+              </Button>
+            ) : timelineItems.length >= TIMELINE_MAX ? (
+              <p className="text-xs text-muted-foreground">
+                Pokazujemy {TIMELINE_MAX} najnowszych zdarzeń. Starsze notatki są
+                w filtrach rodzajów notatek.
+              </p>
+            ) : null}
+          </>
         )
       ) : null}
 

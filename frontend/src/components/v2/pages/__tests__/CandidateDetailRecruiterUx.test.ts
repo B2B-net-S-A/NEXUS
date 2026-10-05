@@ -51,11 +51,15 @@ describe("profil kandydata — kontrakt zmian UX rekrutera", () => {
     }
   });
 
-  it("ma „Dodaj notatkę” obok primary „Przypisz do rekrutacji” i fokusuje kompozytor", () => {
-    const addNote = HEADER.indexOf("Dodaj notatkę");
+  it("ma primary „Przypisz do rekrutacji”, pod nim „Dodaj notatkę” i „Nie odebrał”, i fokusuje kompozytor", () => {
+    // Wariant B, wersja 5 (04.10.2026): „Przypisz” na pełną szerokość karty
+    // osoby, pod nim dwie akcje dnia.
     const assign = HEADER.indexOf("Przypisz do rekrutacji");
-    expect(addNote).toBeGreaterThan(-1);
-    expect(assign).toBeGreaterThan(addNote);
+    const addNote = HEADER.indexOf("Dodaj notatkę");
+    const noAnswer = HEADER.lastIndexOf("Nie odebrał");
+    expect(assign).toBeGreaterThan(-1);
+    expect(addNote).toBeGreaterThan(assign);
+    expect(noAnswer).toBeGreaterThan(addNote);
     expect(ROOT).toContain("onAddNote: openNoteComposer");
     expect(NOTES).toContain("textareaRef={composerTextareaRef}");
     expect(ROOT).toContain('params.delete("compose")');
@@ -68,6 +72,8 @@ describe("profil kandydata — kontrakt zmian UX rekrutera", () => {
       "Zaproś na prep",
       "Generuj CV",
       "Edytuj dane",
+      "Tagi i pule",
+      "Konflikty i weta",
       "Wrzuć na targ",
       "Usuń profil",
     ]) {
@@ -80,9 +86,9 @@ describe("profil kandydata — kontrakt zmian UX rekrutera", () => {
     expect(HEADER).toMatch(/canWrite && canCall \? \(\s*<CallButton/);
   });
 
-  it("ma JEDNĄ kartę AI: „Podsumowanie” z akapitem z CV", () => {
-    expect(PROFILE_TAB).toContain("cvSummary={candidate.ai_summary ?? null}");
-    expect(PROFILE_TAB).toContain('title="Podsumowanie"');
+  it("ma JEDNĄ kartę AI: „W skrócie” w karcie „Podsumowanie”, z tekstem z CV", () => {
+    expect(ROOT).toContain("cvSummary={candidate.ai_summary ?? null}");
+    expect(ROOT).toContain('variant="compact"');
     expect(occurrences("<CandidateActivitySummaryCard")).toBe(1);
     expect(ALL).not.toContain("CandidateNotesInsightsCard");
     // Dawna karta „Screeningi” czytała nieużywaną tabelę notatek
@@ -90,16 +96,36 @@ describe("profil kandydata — kontrakt zmian UX rekrutera", () => {
     expect(ALL).not.toContain("ScreeningSummary");
   });
 
-  it("odpowiedzi z rozmów screeningowych są w zakładce Profil, zaraz pod Podsumowaniem", () => {
+  it("odpowiedzi z rozmów screeningowych mają własną zakładkę", () => {
     // Zgłoszenie 02.10.2026: po przejściu wszystkich etapów profil nie
-    // pokazywał, co kandydat odpowiedział na pytania screeningowe.
+    // pokazywał, co kandydat odpowiedział na pytania screeningowe. Od
+    // 04.10.2026 zakładka „Odpowiedzi ze screeningu” między Rekrutacjami
+    // a Notatkami i historią.
     expect(occurrences("<CandidateScreeningAnswersCard")).toBe(1);
-    const summary = PROFILE_TAB.indexOf("<CandidateActivitySummaryCard");
-    const answers = PROFILE_TAB.indexOf("<CandidateScreeningAnswersCard");
-    const notesFacts = PROFILE_TAB.indexOf("<CandidateNotesFactsCard");
-    expect(summary).toBeGreaterThan(-1);
-    expect(answers).toBeGreaterThan(summary);
-    expect(notesFacts).toBeGreaterThan(answers);
+    expect(ROOT).toMatch(/value="screening"[\s\S]{0,200}<CandidateScreeningAnswersCard[^>]*variant="tab"/);
+    const recruitments = ROOT.indexOf('value: "recruitments"');
+    const screening = ROOT.indexOf('value: "screening"');
+    const activity = ROOT.indexOf('value: "activity"');
+    expect(screening).toBeGreaterThan(recruitments);
+    expect(activity).toBeGreaterThan(screening);
+  });
+
+  it("zakładki nazywają się Przegląd · Rekrutacje · Odpowiedzi ze screeningu · Notatki i historia · CV i dokumenty", () => {
+    for (const label of [
+      'label: "Przegląd"',
+      'label: "Rekrutacje"',
+      'label: "Odpowiedzi ze screeningu"',
+      'label: "Notatki i historia"',
+      'label: "CV i dokumenty"',
+    ]) {
+      expect(ROOT).toContain(label);
+    }
+  });
+
+  it("ustalenia z notatek otwiera link w karcie „Podsumowanie”, nie osobna karta", () => {
+    expect(ROOT).toContain('data-help="candidate.profile.notes_facts"');
+    expect(occurrences("<CandidateNotesFactsCard")).toBe(1);
+    expect(read(`${PROFILE_DIR}/ProfileMenuDialogs.tsx`)).toContain("<CandidateNotesFactsCard");
   });
 
   it("nie montuje martwego ScreeningSheet", () => {
@@ -109,8 +135,9 @@ describe("profil kandydata — kontrakt zmian UX rekrutera", () => {
   it("nie dubluje rekrutacji widżetem pipeline'ów ani panelem stawek", () => {
     expect(ALL).not.toContain("<CandidatePipelinesWidget");
     expect(ALL).not.toContain("SellRatePanel");
-    expect(occurrences("<RecruitmentCard")).toBe(2); // aktywne + zakończone
-    expect(occurrences("<CandidateRecentRecruitmentsCard")).toBe(1);
+    // W toku + rozwinięcie wiersza tabeli zakończonych (tylko do odczytu).
+    expect(occurrences("<RecruitmentCard")).toBe(2);
+    expect(ALL).not.toContain("CandidateRecentRecruitmentsCard");
   });
 
   it("„Wróć do rekrutacji” otwiera dok tej osoby", () => {
@@ -122,7 +149,7 @@ describe("profil kandydata — kontrakt zmian UX rekrutera", () => {
     expect(TIMELINE).toContain('"zmiana etapu" : "przypisanie do etapu"');
   });
 
-  it("ma jeden kompozytor notatki — u góry Historii", () => {
+  it("ma jeden kompozytor notatki — u góry „Notatek i historii”", () => {
     expect(occurrences("<NoteComposer")).toBe(1);
     expect(HISTORY).toContain("<NoteComposer");
   });
@@ -130,7 +157,7 @@ describe("profil kandydata — kontrakt zmian UX rekrutera", () => {
   it("używa jednego stylu potwierdzenia (ConfirmV2)", () => {
     expect(ALL).not.toContain("<ConfirmModal");
     expect(ALL).not.toMatch(/window\.confirm/);
-    expect(occurrences("<ConfirmV2")).toBeGreaterThanOrEqual(4);
+    expect(occurrences("<ConfirmV2")).toBeGreaterThanOrEqual(3);
   });
 
   it("wywołania nawigacji używają kanonicznych kluczy, nie starych zakładek", () => {
@@ -150,17 +177,21 @@ describe("profil kandydata — każdy fakt w jednym miejscu", () => {
     expect(occurrences("<CandidateProfileFactsBar")).toBe(1);
   });
 
-  it("zakładka Profil nie ma siatki kluczowych faktów ani mini-feedu 5 zdarzeń", () => {
+  it("Przegląd mówi „Teraz” i „Ostatnia rozmowa” — bez siatki faktów i osi czasu", () => {
     expect(PROFILE_TAB).not.toContain("FactTile");
-    expect(PROFILE_TAB).not.toContain("timeline(candidate.id, 5)");
+    expect(PROFILE_TAB).not.toContain("timeline(");
     expect(PROFILE_TAB).not.toContain("Firmy z CV");
-    expect(PROFILE_TAB).toContain("recentActivity.items.slice(0, 2)");
+    expect(PROFILE_TAB).toContain("Teraz");
+    expect(PROFILE_TAB).toContain("Ostatnia rozmowa");
+    // Oś czasu ładuje się dopiero w „Notatkach i historii”.
+    expect(ROOT).not.toContain("/timeline?limit=");
+    expect(HISTORY).toContain("/timeline?limit=");
   });
 
-  it("dane handlowe mają nagłówek tylko przy treści", () => {
+  it("Rekrutacje: pasujące otwarte rekrutacje w głównej kolumnie, bez paska danych handlowych", () => {
     const recruitments = read(`${PROFILE_DIR}/RecruitmentsTab.tsx`);
-    expect(recruitments).toContain("has-[[data-commercial-slot]>*]:block");
-    expect(occurrences("<RateHistorySummary")).toBe(1);
+    expect(recruitments).not.toContain("data-commercial-slot");
+    expect(ALL).not.toContain("<RateHistorySummary");
     expect(recruitments).toMatch(/<SuggestedJobsWidget[\s\S]{0,200}hideWhenEmpty/);
   });
 

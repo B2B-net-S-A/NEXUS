@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/components/v2/pages/CandidateProfileFactsBar", () => ({
@@ -25,21 +26,26 @@ const actions = {
   onGenerateCv: noop,
   onEdit: noop,
   onMarketplace: noop,
+  onTagsPools: noop,
+  onConflicts: noop,
 };
 
-function renderHeader(candidate: Record<string, unknown>) {
+function renderHeader(candidate: Record<string, unknown>, canWrite = false) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, enabled: false } } });
   return render(
-    <ProfileHeader
-      candidate={{ id: 5, name: "Anna", lastname: "Nowak", status: "active", ...candidate }}
-      candidateId={5}
-      canWrite={false}
-      canCall={false}
-      showContactStatus={false}
-      viewers={[]}
-      editingIdentity={false}
-      onCloseIdentityEditor={noop}
-      actions={actions}
-    />,
+    <QueryClientProvider client={client}>
+      <ProfileHeader
+        candidate={{ id: 5, name: "Anna", lastname: "Nowak", status: "active", ...candidate }}
+        candidateId={5}
+        canWrite={canWrite}
+        canCall={false}
+        showContactStatus={false}
+        viewers={[]}
+        editingIdentity={false}
+        onCloseIdentityEditor={noop}
+        actions={actions}
+      />
+    </QueryClientProvider>,
   );
 }
 
@@ -58,5 +64,29 @@ describe("ProfileHeader — link do LinkedIna", () => {
     expect(linkedinHref("  ")).toBeNull();
     renderHeader({ linkedin: "javascript:alert(1)" });
     expect(screen.queryByRole("link", { name: /LinkedIn/ })).toBeNull();
+  });
+});
+
+// Przegląd kodu 04.10.2026: tagi, pule, konflikty i weta zeszły z widoku do
+// menu „⋯” — rola bez zapisu nie może ich stracić z oczu.
+describe("ProfileHeader — menu „⋯” bez prawa zapisu", () => {
+  it("pokazuje okna do odczytu, chowa akcje zapisu", () => {
+    renderHeader({}, false);
+    expect(screen.queryByRole("button", { name: /Przypisz do rekrutacji/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Dodaj notatkę/ })).toBeNull();
+    fireEvent.keyDown(screen.getByRole("button", { name: "Więcej akcji" }), { key: "Enter" });
+    expect(screen.getByRole("menuitem", { name: /Tagi i pule/ })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /Konflikty i weta/ })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: /Edytuj dane/ })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /Napisz maila/ })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /Wrzuć na targ/ })).toBeNull();
+  });
+
+  it("z prawem zapisu ma „Przypisz” i pełne menu", () => {
+    renderHeader({}, true);
+    expect(screen.getByRole("button", { name: /Przypisz do rekrutacji/ })).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole("button", { name: "Więcej akcji" }), { key: "Enter" });
+    expect(screen.getByRole("menuitem", { name: /Edytuj dane/ })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /Tagi i pule/ })).toBeTruthy();
   });
 });

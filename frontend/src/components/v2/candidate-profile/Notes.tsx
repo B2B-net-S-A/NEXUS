@@ -108,8 +108,13 @@ export function NoteComposer({
   onFocusHandled,
 }: NoteComposerProps) {
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  // 04.10.2026: pole zwinięte do jednej linii, dopóki ktoś do niego nie wejdzie
+  // — trzy puste linie i rząd przycisków zabierały połowę ekranu historii.
+  const [expanded, setExpanded] = useState(false);
+  const open = expanded || noteText.trim().length > 0;
   useEffect(() => {
     if (focusRequest <= 0) return;
+    setExpanded(true);
     const textarea = composerTextareaRef.current;
     if (!textarea) return;
     textarea.scrollIntoView?.({ block: "center" });
@@ -159,10 +164,13 @@ export function NoteComposer({
         value={noteText}
         onChange={setNoteText}
         scope={mentionScope}
-        onFocus={() => setEditing?.("notes", true)}
+        onFocus={() => {
+          setExpanded(true);
+          setEditing?.("notes", true);
+        }}
         onBlur={() => setEditing?.("notes", false)}
         placeholder="Nowa notatka… (@email aby oznaczyć osobę)"
-        rows={3}
+        rows={open ? 3 : 1}
         ariaLabel="Treść nowej notatki"
         textareaRef={composerTextareaRef}
       />
@@ -186,7 +194,8 @@ export function NoteComposer({
             : `${othersEditingNotes.map((v) => v.name).join(", ")} edytują notatki`}
         </div>
       ) : null}
-      <div className="flex flex-wrap items-center justify-end gap-2">
+      {open ? (
+      <div className="flex flex-wrap items-center justify-end gap-2" data-testid="note-composer-actions">
         {recList.length > 0 ? (
           <div className="mr-auto flex min-w-0 items-center gap-1.5">
             <label
@@ -238,7 +247,13 @@ export function NoteComposer({
           <Plus className="h-3.5 w-3.5" />
           Dodaj notatkę
         </Button>
+        {!noteText.trim() ? (
+          <Button size="sm" variant="ghost" onClick={() => setExpanded(false)}>
+            Zwiń
+          </Button>
+        ) : null}
       </div>
+      ) : null}
     </div>
   );
 }

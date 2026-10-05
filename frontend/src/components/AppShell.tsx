@@ -765,7 +765,7 @@ function CandidateFormFields({
         </FieldGroup>
         <FieldGroup label="Aktualnie u klienta (opcjonalnie)">
           <div className="text-xs text-muted-foreground dark:text-muted-foreground px-3 py-2 bg-muted dark:bg-card/40 rounded-lg">
-            W profilu kandydata: <strong>Podsumowanie → Dane handlowe → Dodaj konflikt</strong>,
+            W profilu kandydata: <strong>⋯ → Konflikty i weta → Dodaj konflikt</strong>,
             typ <strong>Obecne zatrudnienie</strong> (albo „Oznacz jako zatrudnionego”
             w szybkim podglądzie). Dzięki temu karta dostanie burgundowy alert „U KLIENTA”.
           </div>

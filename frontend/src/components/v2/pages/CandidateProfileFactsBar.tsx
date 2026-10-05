@@ -11,7 +11,6 @@ import {
   Languages,
   Loader2,
   LockKeyhole,
-  PhoneCall,
   MapPin,
   PencilLine,
   Plus,
@@ -19,14 +18,6 @@ import {
   Trash2,
   WalletCards,
 } from "lucide-react";
-import { useCandidateFollowup } from "@/lib/api/candidateFollowups";
-import { CandidateFollowupDialog } from "@/components/v2/followups/CandidateFollowupDialog";
-import { pluralPl } from "@/lib/plural-pl";
-import {
-  followupDueLabel,
-  lastContactLabel,
-  shortPersonName,
-} from "@/lib/candidate-followup";
 
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
@@ -110,6 +101,15 @@ import {
   type RateFromFields,
 } from "@/lib/candidate-rate";
 import { RateHistoryDialog } from "@/components/v2/candidate-profile/RateHistoryDialog";
+import api from "@/lib/api";
+import {
+  AVAILABILITY_STATUS_OPTIONS,
+  NOTICE_PERIOD_UNITS,
+  availabilityDraft,
+  availabilityDraftError,
+  availabilityPatch,
+  type AvailabilityDraft,
+} from "@/lib/candidate-availability-edit";
 
 const CEFR_LEVELS: CandidateLanguageCefrLevel[] = [
   "A1",
@@ -128,6 +128,20 @@ const AVAILABILITY_LABELS: Record<string, string> = {
 };
 
 const LANGUAGE_CODE_RE = /^[a-z][a-z0-9-]{1,15}$/;
+
+/** Podpowiedzi pola „Hub” (dawniej panel „Lokalizacja” w szczegółach profilu). */
+const HUB_SUGGESTIONS = [
+  "Warszawa",
+  "Kraków",
+  "Wrocław",
+  "Trójmiasto",
+  "Poznań",
+  "Śląsk",
+  "Łódź",
+  "Lublin",
+  "Rzeszów",
+  "Remote",
+];
 
 /** Wiersz okna „Języki kandydata” — `other` = język spoza listy („Inny…”). */
 type LanguageRow = CandidateLanguageInput & { other: boolean };
@@ -242,10 +256,20 @@ type RateQueryData = {
 };
 
 interface CandidateProfileFactsBarProps {
+  /**
+   * `column` (od 04.10.2026) = karta „Podsumowanie” w lewej kolumnie profilu:
+   * fakty jeden pod drugim, ołówki dopiero po „Edytuj”, a pod faktami treść
+   * z `children` („W skrócie”, „Ustalenia z notatek”). `grid` = dawny pasek
+   * kafelków (zostaje dla wąskich wariantów i testów).
+   */
+  layout?: "grid" | "column";
+  children?: React.ReactNode;
   candidate: {
     id: number;
     city?: string | null;
     country?: string | null;
+    region?: string | null;
+    hub_city?: string | null;
     location?: string | null;
     availability_status?: string | null;
     availability_date?: string | null;
@@ -255,36 +279,6 @@ interface CandidateProfileFactsBarProps {
     max_onsite_days_per_week?: number | null;
   } & CandidateCallFacts &
     RateFromFields;
-}
-
-/**
- * 0372: „Kontakt” — kiedy ostatnio ktoś z nami rozmawiał z kandydatem i kto
- * zadzwoni następny, gdy klient milczy. Tylko przy procesach czekających na
- * klienta; bez sekcji Pipeline (403) i przy awarii fakt po prostu znika —
- * to podpowiedź, nie dane profilu.
- */
-function FollowupFact({ candidateId }: { candidateId: number }) {
-  const [open, setOpen] = React.useState(false);
-  const query = useCandidateFollowup(candidateId);
-  const row = query.data?.followup;
-  const hasMeetings = (query.data?.meetings?.length ?? 0) > 0;
-  if (!row && !hasMeetings) return null;
-  const caller = row?.caller_name ? shortPersonName(row.caller_name) : "brak opiekuna";
-  return (
-    <>
-    <FactShell icon={<PhoneCall className="size-4" />} label="Kontakt">
-      {row && <>
-        {row.processes.length}{" "}
-        {pluralPl(row.processes.length, "proces czeka", "procesy czekają", "procesów czeka")} na
-        klienta · {lastContactLabel(row)} · następny: {followupDueLabel(row)}, {caller}
-      </>}
-      <button type="button" className="ml-2 text-primary underline" onClick={() => setOpen(true)}>
-        {hasMeetings ? "Spotkania i transkrypty Teams" : "Zaplanuj follow-up w Teams"}
-      </button>
-    </FactShell>
-    <CandidateFollowupDialog candidateId={candidateId} open={open} onOpenChange={setOpen} />
-    </>
-  );
 }
 
 function requestStatus(error: unknown): number | null {
@@ -352,11 +346,21 @@ function cardOrigin(
   return fact && text ? { text, title: cardFactTitle(fact) } : undefined;
 }
 
+/**
+ * Układ faktów: `column` = wiersze karty „Podsumowanie” (ołówki tylko w trybie
+ * edycji), inaczej kafelki paska.
+ */
+const FactsLayoutContext = React.createContext<{ column: boolean; editing: boolean }>({
+  column: false,
+  editing: true,
+});
+
 function FactShell({
   icon,
   label,
   children,
   action,
+  actionAlways,
   muted,
   origin,
   footer,
@@ -365,12 +369,44 @@ function FactShell({
   label: string;
   children: React.ReactNode;
   action?: React.ReactNode;
+  /** Akcja widoczna także poza trybem edycji (np. „Ponów” po awarii). */
+  actionAlways?: boolean;
   muted?: boolean;
   /** Źródło i data ustalenia z rozmowy (karta rekomendacji). */
   origin?: { text: string; title: string };
   /** Akcja pod opisem źródła (np. „Historia stawek”). */
   footer?: React.ReactNode;
 }) {
+  const layout = React.useContext(FactsLayoutContext);
+  if (layout.column) {
+    const showAction = actionAlways || layout.editing;
+    return (
+      <div className="flex min-w-0 items-start gap-2 py-2.5 md:max-2xl:py-2">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs text-muted-foreground">{label}</p>
+          <div
+            className={cn(
+              "min-w-0 break-words text-sm font-semibold leading-5 text-foreground",
+              muted && "font-normal text-muted-foreground",
+            )}
+          >
+            {children}
+          </div>
+          {origin ? (
+            <p
+              className="mt-0.5 break-words text-[11px] leading-4 text-muted-foreground"
+              title={origin.title}
+              data-fact-origin
+            >
+              {origin.text}
+            </p>
+          ) : null}
+          {footer}
+        </div>
+        {showAction ? action : null}
+      </div>
+    );
+  }
   return (
     <div className="min-w-0 rounded-lg border border-border bg-card p-3 md:max-2xl:p-2">
       <div className="flex min-h-11 items-start gap-2.5">
@@ -764,23 +800,55 @@ function LocationEditor({
   const { showError, showSuccess } = useToast();
   const [city, setCity] = React.useState("");
   const [country, setCountry] = React.useState("");
+  const [region, setRegion] = React.useState("");
+  const [hub, setHub] = React.useState("");
   const [mutationError, setMutationError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (!open) return;
     setCity(candidate.city ?? "");
     setCountry(candidate.country ?? "");
+    setRegion(candidate.region ?? "");
+    setHub(candidate.hub_city ?? "");
     setMutationError(null);
-  }, [candidate.city, candidate.country, open]);
+  }, [candidate.city, candidate.country, candidate.region, candidate.hub_city, open]);
+
+  // Tylko zmienione pola — każde zapisane pole dostaje ręczną blokadę przed
+  // kolejnym odczytem CV, więc nietknięty region nie może jej dostać „przy okazji”.
+  const locationPatch = () => {
+    const next = {
+      city: city.trim() || null,
+      country: country.trim().toUpperCase() || null,
+      region: region.trim() || null,
+      hub_city: hub.trim() || null,
+    };
+    const before = {
+      city: candidate.city?.trim() || null,
+      country: candidate.country?.trim().toUpperCase() || null,
+      region: candidate.region?.trim() || null,
+      hub_city: candidate.hub_city?.trim() || null,
+    };
+    return Object.fromEntries(
+      (Object.keys(next) as Array<keyof typeof next>)
+        .filter((key) => next[key] !== before[key])
+        .map((key) => [key, next[key]]),
+    );
+  };
 
   const mutation = useMutation({
-    mutationFn: () =>
-      candidateProfileApi.updateLocation(candidate.id, {
-        city: city.trim() || null,
-        country: country.trim().toUpperCase() || null,
-      }),
-    onSuccess: () => {
+    // Bez zmian nic nie wysyłamy — serwer odpowiedziałby 422 „No location fields”.
+    mutationFn: async () => {
+      const patch = locationPatch();
+      if (Object.keys(patch).length === 0) return "unchanged" as const;
+      await candidateProfileApi.updateLocation(candidate.id, patch);
+      return "saved" as const;
+    },
+    onSuccess: (result) => {
       setMutationError(null);
+      if (result === "unchanged") {
+        onOpenChange(false);
+        return;
+      }
       // Runda 10 (R10-N15-10): lista (miasto pod nazwiskiem) i podgląd też.
       invalidateCandidateMutation(queryClient, candidate.id, "edit");
       onOpenChange(false);
@@ -828,6 +896,32 @@ function LocationEditor({
               maxLength={2}
             />
           </div>
+          <div>
+            <Label htmlFor="candidate-profile-region">Region / województwo</Label>
+            <Input
+              id="candidate-profile-region"
+              className="mt-1 min-h-11"
+              value={region}
+              onChange={(event) => setRegion(event.target.value)}
+              placeholder="np. mazowieckie"
+            />
+          </div>
+          <div>
+            <Label htmlFor="candidate-profile-hub">Hub</Label>
+            <Input
+              id="candidate-profile-hub"
+              className="mt-1 min-h-11"
+              value={hub}
+              onChange={(event) => setHub(event.target.value)}
+              placeholder="np. Warszawa"
+              list="candidate-profile-hub-suggestions"
+            />
+            <datalist id="candidate-profile-hub-suggestions">
+              {HUB_SUGGESTIONS.map((suggestion) => (
+                <option key={suggestion} value={suggestion} />
+              ))}
+            </datalist>
+          </div>
           {mutationError ? (
             <p
               role="alert"
@@ -852,10 +946,160 @@ function LocationEditor({
             loading={mutation.isPending}
             onClick={() => {
               setMutationError(null);
+              if (Object.keys(locationPatch()).length === 0) {
+                onOpenChange(false);
+                return;
+              }
               mutation.mutate();
             }}
           >
             Zapisz lokalizację
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AvailabilityEditor({
+  open,
+  onOpenChange,
+  candidate,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  candidate: CandidateProfileFactsBarProps["candidate"];
+}) {
+  const queryClient = useQueryClient();
+  const { showError, showSuccess } = useToast();
+  const [initial, setInitial] = React.useState<AvailabilityDraft>(() =>
+    availabilityDraft(candidate),
+  );
+  const [draft, setDraft] = React.useState<AvailabilityDraft>(initial);
+  const [mutationError, setMutationError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const fresh = availabilityDraft(candidate);
+    setInitial(fresh);
+    setDraft(fresh);
+    setMutationError(null);
+    // Stan z chwili otwarcia — zapis wysyła tylko różnice względem niego.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const validationError = availabilityDraftError(draft);
+  const patch = availabilityPatch(initial, draft);
+  const mutation = useMutation({
+    mutationFn: () => api.patch(`/api/candidates/${candidate.id}`, patch),
+    onSuccess: () => {
+      setMutationError(null);
+      invalidateCandidateMutation(queryClient, candidate.id, "edit");
+      onOpenChange(false);
+      showSuccess("Dostępność zapisana");
+    },
+    onError: (error) => {
+      const message = extractErrorMsg(error) || "Nie udało się zapisać dostępności";
+      setMutationError(message);
+      showError(message);
+    },
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent aria-describedby="candidate-availability-dialog-description">
+        <DialogHeader>
+          <DialogTitle>Dostępność kandydata</DialogTitle>
+          <DialogDescription id="candidate-availability-dialog-description">
+            Od kiedy kandydat może zacząć i czy szuka teraz pracy. Po tych
+            polach filtruje lista kandydatów.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody className="grid gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <Label htmlFor="candidate-availability-status">Czy szuka pracy</Label>
+            <select
+              id="candidate-availability-status"
+              className="mt-1 min-h-11 w-full rounded-lg border border-border bg-card px-3 text-sm"
+              value={draft.status}
+              onChange={(event) => setDraft((d) => ({ ...d, status: event.target.value }))}
+            >
+              {AVAILABILITY_STATUS_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label htmlFor="candidate-availability-date">Dostępny od</Label>
+            <Input
+              id="candidate-availability-date"
+              type="date"
+              className="mt-1 min-h-11"
+              value={draft.date}
+              onChange={(event) => setDraft((d) => ({ ...d, date: event.target.value }))}
+            />
+          </div>
+          <div>
+            <Label htmlFor="candidate-notice-period">Okres wypowiedzenia</Label>
+            <div className="mt-1 grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] gap-2">
+              <Input
+                id="candidate-notice-period"
+                inputMode="numeric"
+                className="min-h-11"
+                value={draft.noticePeriod}
+                onChange={(event) =>
+                  setDraft((d) => ({ ...d, noticePeriod: event.target.value }))
+                }
+                placeholder="np. 30"
+                aria-invalid={validationError ? true : undefined}
+              />
+              <select
+                aria-label="Okres wypowiedzenia — jednostka"
+                className="min-h-11 rounded-lg border border-border bg-card px-2 text-sm"
+                value={draft.noticeUnit}
+                onChange={(event) =>
+                  setDraft((d) => ({ ...d, noticeUnit: event.target.value }))
+                }
+              >
+                {NOTICE_PERIOD_UNITS.map((unit) => (
+                  <option key={unit.value} value={unit.value}>
+                    {unit.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {validationError || mutationError ? (
+            <p
+              role="alert"
+              className="rounded-lg border border-destructive/30 bg-destructive-muted px-3 py-2 text-sm text-destructive-muted-foreground [overflow-wrap:anywhere] sm:col-span-2"
+            >
+              {validationError ?? mutationError}
+            </p>
+          ) : null}
+        </DialogBody>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            className="min-h-11 min-w-11"
+            onClick={() => onOpenChange(false)}
+          >
+            Anuluj
+          </Button>
+          <Button
+            type="button"
+            className="min-h-11 min-w-11"
+            loading={mutation.isPending}
+            disabled={Boolean(validationError) || Object.keys(patch).length === 0}
+            onClick={() => {
+              setMutationError(null);
+              mutation.mutate();
+            }}
+          >
+            Zapisz dostępność
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1448,6 +1692,8 @@ function EditFactButton({
 
 export function CandidateProfileFactsBar({
   candidate,
+  layout = "grid",
+  children,
 }: CandidateProfileFactsBarProps) {
   // GET/PATCH /api/candidates/{id}/profile-rate stoi na
   // CandidateProfileFacts{Read,Write}Access = _INTERNAL_OPERATIONAL_ROLES —
@@ -1461,8 +1707,17 @@ export function CandidateProfileFactsBar({
   // bez prawa zapisu kończył się 403 po kliknięciu „Zapisz”.
   const canViewAndEditRate = useCapability("candidate.profile_fact.manage");
   const canEditFacts = canViewAndEditRate;
+  // Dostępność zapisuje PATCH /api/candidates/{id} (jak „Edytuj dane”), więc
+  // potrzebuje też prawa zapisu kandydata.
+  const canWriteCandidate = useCapability("candidate.write");
+  const canEditAvailability = canEditFacts && canWriteCandidate;
+  const column = layout === "column";
+  // Karta „Podsumowanie”: ołówki dopiero po „Edytuj” (jedno wejście w edycję
+  // zamiast sześciu ikon stale na widoku). Pasek kafelków pokazuje je zawsze.
+  const [editing, setEditing] = React.useState(false);
   const [languagesOpen, setLanguagesOpen] = React.useState(false);
   const [locationOpen, setLocationOpen] = React.useState(false);
+  const [availabilityOpen, setAvailabilityOpen] = React.useState(false);
   const [rateOpen, setRateOpen] = React.useState(false);
   const [rateHistoryOpen, setRateHistoryOpen] = React.useState(false);
   const [rateAsMinimum, setRateAsMinimum] = React.useState(false);
@@ -1470,8 +1725,10 @@ export function CandidateProfileFactsBar({
   const [callFactsOpen, setCallFactsOpen] = React.useState(false);
 
   React.useEffect(() => {
+    setEditing(false);
     setLanguagesOpen(false);
     setLocationOpen(false);
+    setAvailabilityOpen(false);
     setRateOpen(false);
     setRateHistoryOpen(false);
     setWorkModeOpen(false);
@@ -1533,244 +1790,252 @@ export function CandidateProfileFactsBar({
   const languagesForbidden = requestStatus(languagesQuery.error) === 403;
   const rateForbidden = requestStatus(rateQuery.error) === 403;
 
-  return (
+  // Kolejność od 04.10.2026: najpierw to, o co rekruter pyta przed
+  // zaproponowaniem osoby (dostępność, stawka, tryb, miasto), potem języki
+  // i narodowość.
+  const facts = (
     <>
-      <section
-        aria-label="Najważniejsze fakty o kandydacie"
-        data-help="candidate.profile.facts"
-        // Liczba kolumn wynika z szerokości PASKA, nie okna: obok listy
-        // „Kandydaci — ostatnio wyświetlani” pasek bywa o połowę węższy niż
-        // ekran, a `xl:grid-cols-5` wciskało pięć kafelków w ~900 px. Kafelek
-        // ma najmniej 15rem (ikona, etykieta, wartość i przycisk edycji), resztę
-        // dzieli po równo; za mało miejsca = kolejny wiersz.
-        className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-3 md:max-2xl:gap-2"
-      >
-        {languagesQuery.isPending ? (
-          <FactLoading label="Języki" />
-        ) : languagesQuery.isError ? (
-          <FactShell
-            icon={
-              languagesForbidden ? (
-                <LockKeyhole className="size-4" />
-              ) : (
-                <Languages className="size-4" />
-              )
-            }
-            label="Języki"
-            muted
-            action={
-              languagesForbidden ? null : (
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant="ghost"
-                  className="min-h-11 min-w-11"
-                  aria-label="Ponów pobieranie języków"
-                  onClick={() => languagesQuery.refetch()}
-                >
-                  <RefreshCw aria-hidden="true" className="size-4" />
-                </Button>
-              )
-            }
-          >
-            <span role={languagesForbidden ? "status" : "alert"}>
-              {languagesForbidden ? "Brak dostępu" : "Dane niedostępne"}
-            </span>
-          </FactShell>
-        ) : (
-          <FactShell
-            icon={<Languages className="size-4" />}
-            label="Języki"
-            muted={languageSummary.length === 0}
-            origin={cardOrigin(cardFacts.english)}
-            action={
-              canEditFacts ? (
-                <EditFactButton
-                  label="Edytuj języki"
-                  onClick={() => setLanguagesOpen(true)}
-                />
-              ) : null
-            }
-          >
-            {languageSummary.length ? (
-              <span className="flex flex-wrap gap-1">
-                {languageSummary.slice(0, 2).map((language) => (
-                  <Badge
-                    key={language.id}
-                    variant="soft"
-                    size="sm"
-                    className="h-auto max-w-full whitespace-normal break-words py-0.5"
-                  >
-                    {languageLabel(language)}
-                  </Badge>
-                ))}
-                {languageSummary.length > 2 ? (
-                  <Badge variant="neutral" size="sm">
-                    +{languageSummary.length - 2}
-                  </Badge>
-                ) : null}
-              </span>
-            ) : (
-              "Nie uzupełniono"
-            )}
-          </FactShell>
-        )}
-
-        <FactShell
-          icon={<MapPin className="size-4" />}
-          label="Lokalizacja"
-          muted={!location}
-          action={
-            canEditFacts ? (
-              <EditFactButton
-                label="Edytuj lokalizację"
-                onClick={() => setLocationOpen(true)}
-              />
-            ) : null
-          }
-        >
-          {location || "Nie uzupełniono"}
-        </FactShell>
-
-        <FactShell
-          icon={<CalendarClock className="size-4" />}
-          label="Dostępność"
-          muted={!candidate.availability_status}
-          origin={cardOrigin(cardFacts.availability)}
-        >
-          {availabilityValue(candidate)}
-        </FactShell>
-
-        <FactShell
-          icon={<Briefcase className="size-4" />}
-          label="Tryb pracy"
-          muted={!workModeLabel}
-          origin={cardOrigin(cardFacts.work_mode)}
-          action={
-            canEditFacts ? (
-              <EditFactButton
-                label="Edytuj tryb pracy"
-                onClick={() => setWorkModeOpen(true)}
-              />
-            ) : null
-          }
-        >
-          {workModeLabel ?? "Nie uzupełniono"}
-        </FactShell>
-
-        {canViewAndEditRate && !rateForbidden ? (
-          rateQuery.isPending ? (
-            <FactLoading label={rateLabel} />
-          ) : rateQuery.isError ? (
-            <FactShell
-              icon={<WalletCards className="size-4" />}
-              label={rateLabel}
-              muted
-              action={
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant="ghost"
-                  className="min-h-11 min-w-11"
-                  aria-label="Ponów pobieranie stawki"
-                  onClick={() => rateQuery.refetch()}
-                >
-                  <RefreshCw aria-hidden="true" className="size-4" />
-                </Button>
-              }
-            >
-              <span role="alert">Dane niedostępne</span>
-            </FactShell>
-          ) : rateQuery.data ? (
-            <FactShell
-              icon={<WalletCards className="size-4" />}
-              label={rateFrom ? "Stawka od" : rateLabel}
-              muted={rateQuery.data.data.amount == null && !rateFrom}
-              origin={
-                rateFrom
-                  ? rateSecond
-                    ? {
-                        text: rateSecond,
-                        title: "Ostatnio podana stawka i liczba stawek w historii",
-                      }
-                    : undefined
-                  : cardOrigin(cardFacts.rate, profileRate)
-              }
-              action={
-                <EditFactButton
-                  label="Edytuj globalną stawkę B2B"
-                  onClick={() => setRateOpen(true)}
-                />
-              }
-              footer={
-                <button
-                  type="button"
-                  className="mt-1 block min-h-6 text-xs font-medium text-primary hover:underline"
-                  onClick={() => setRateHistoryOpen(true)}
-                >
-                  Historia stawek
-                  {candidate.rate_observation_count
-                    ? ` (${candidate.rate_observation_count})`
-                    : ""}
-                </button>
-              }
-            >
-              {rateFrom ?? formatRate(rateQuery.data.data.amount)}
-            </FactShell>
+      <FactShell
+        icon={<CalendarClock className="size-4" />}
+        label="Dostępność"
+        muted={!candidate.availability_status}
+        origin={cardOrigin(cardFacts.availability)}
+        action={
+          canEditAvailability ? (
+            <EditFactButton
+              label="Edytuj dostępność"
+              onClick={() => setAvailabilityOpen(true)}
+            />
           ) : null
-        ) : null}
-        {cardFacts.nationality ? (
-          <FactShell
-            icon={<Globe2 className="size-4" />}
-            label="Narodowość"
-            origin={{
-              text: cardFactOrigin(cardFacts.nationality),
-              title: cardFactTitle(cardFacts.nationality),
-            }}
-          >
-            {cardFacts.nationality.raw}
-          </FactShell>
-        ) : null}
-        <FollowupFact candidateId={candidate.id} />
-      </section>
+        }
+      >
+        {availabilityValue(candidate)}
+      </FactShell>
 
-      {verifiedLabel || callFacts.length ? (
-        <div
-          aria-label="Fakty z rozmowy telefonicznej"
-          className="mt-2 flex flex-wrap items-center gap-1.5"
-        >
-          {verifiedLabel ? (
-            <Badge
-              variant="success"
-              className="h-auto max-w-full whitespace-normal break-words py-0.5"
-            >
-              {verifiedLabel}
-            </Badge>
-          ) : null}
-          {callFacts.map((fact) => (
-            <Badge
-              key={fact.key}
-              variant={fact.tone === "danger" ? "danger" : "outline"}
-              className="h-auto max-w-full whitespace-normal break-words py-0.5"
-            >
-              {fact.label}
-            </Badge>
-          ))}
-          {canEditFacts && callFacts.length ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="min-h-11"
-              aria-label="Popraw fakty z rozmowy"
-              onClick={() => setCallFactsOpen(true)}
-            >
-              <PencilLine aria-hidden="true" className="size-4" />
-              Popraw
-            </Button>
-          ) : null}
-        </div>
+      {canViewAndEditRate && !rateForbidden ? (
+        rateQuery.isPending ? (
+          <FactLoading label={rateLabel} />
+        ) : rateQuery.isError ? (
+          <FactShell
+            icon={<WalletCards className="size-4" />}
+            label={rateLabel}
+            muted
+            actionAlways
+            action={
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="ghost"
+                className="min-h-11 min-w-11"
+                aria-label="Ponów pobieranie stawki"
+                onClick={() => rateQuery.refetch()}
+              >
+                <RefreshCw aria-hidden="true" className="size-4" />
+              </Button>
+            }
+          >
+            <span role="alert">Dane niedostępne</span>
+          </FactShell>
+        ) : rateQuery.data ? (
+          <FactShell
+            icon={<WalletCards className="size-4" />}
+            label={rateFrom ? "Stawka od" : rateLabel}
+            muted={rateQuery.data.data.amount == null && !rateFrom}
+            origin={
+              rateFrom
+                ? rateSecond
+                  ? {
+                      text: rateSecond,
+                      title: "Ostatnio podana stawka i liczba stawek w historii",
+                    }
+                  : undefined
+                : cardOrigin(cardFacts.rate, profileRate)
+            }
+            action={
+              <EditFactButton
+                label="Edytuj globalną stawkę B2B"
+                onClick={() => setRateOpen(true)}
+              />
+            }
+            footer={
+              <button
+                type="button"
+                className="mt-1 block min-h-6 text-xs font-medium text-primary hover:underline"
+                onClick={() => setRateHistoryOpen(true)}
+              >
+                Historia stawek
+                {candidate.rate_observation_count
+                  ? ` (${candidate.rate_observation_count})`
+                  : ""}
+              </button>
+            }
+          >
+            {rateFrom ?? formatRate(rateQuery.data.data.amount)}
+          </FactShell>
+        ) : null
       ) : null}
+
+      <FactShell
+        icon={<Briefcase className="size-4" />}
+        label="Tryb pracy"
+        muted={!workModeLabel}
+        origin={cardOrigin(cardFacts.work_mode)}
+        action={
+          canEditFacts ? (
+            <EditFactButton
+              label="Edytuj tryb pracy"
+              onClick={() => setWorkModeOpen(true)}
+            />
+          ) : null
+        }
+      >
+        {workModeLabel ?? "Nie uzupełniono"}
+      </FactShell>
+
+      <FactShell
+        icon={<MapPin className="size-4" />}
+        label={column ? "Miasto" : "Lokalizacja"}
+        muted={!location}
+        action={
+          canEditFacts ? (
+            <EditFactButton
+              label="Edytuj lokalizację"
+              onClick={() => setLocationOpen(true)}
+            />
+          ) : null
+        }
+      >
+        {location || "Nie uzupełniono"}
+      </FactShell>
+
+      {languagesQuery.isPending ? (
+        <FactLoading label="Języki" />
+      ) : languagesQuery.isError ? (
+        <FactShell
+          icon={
+            languagesForbidden ? (
+              <LockKeyhole className="size-4" />
+            ) : (
+              <Languages className="size-4" />
+            )
+          }
+          label="Języki"
+          muted
+          actionAlways
+          action={
+            languagesForbidden ? null : (
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="ghost"
+                className="min-h-11 min-w-11"
+                aria-label="Ponów pobieranie języków"
+                onClick={() => languagesQuery.refetch()}
+              >
+                <RefreshCw aria-hidden="true" className="size-4" />
+              </Button>
+            )
+          }
+        >
+          <span role={languagesForbidden ? "status" : "alert"}>
+            {languagesForbidden ? "Brak dostępu" : "Dane niedostępne"}
+          </span>
+        </FactShell>
+      ) : (
+        <FactShell
+          icon={<Languages className="size-4" />}
+          label="Języki"
+          muted={languageSummary.length === 0}
+          origin={cardOrigin(cardFacts.english)}
+          action={
+            canEditFacts ? (
+              <EditFactButton
+                label="Edytuj języki"
+                onClick={() => setLanguagesOpen(true)}
+              />
+            ) : null
+          }
+        >
+          {languageSummary.length ? (
+            <span className="flex flex-wrap gap-1">
+              {languageSummary.slice(0, 2).map((language) => (
+                <Badge
+                  key={language.id}
+                  variant="soft"
+                  size="sm"
+                  className="h-auto max-w-full whitespace-normal break-words py-0.5"
+                >
+                  {languageLabel(language)}
+                </Badge>
+              ))}
+              {languageSummary.length > 2 ? (
+                <Badge variant="neutral" size="sm">
+                  +{languageSummary.length - 2}
+                </Badge>
+              ) : null}
+            </span>
+          ) : (
+            "Nie uzupełniono"
+          )}
+        </FactShell>
+      )}
+
+      {cardFacts.nationality ? (
+        <FactShell
+          icon={<Globe2 className="size-4" />}
+          label="Narodowość"
+          origin={{
+            text: cardFactOrigin(cardFacts.nationality),
+            title: cardFactTitle(cardFacts.nationality),
+          }}
+        >
+          {cardFacts.nationality.raw}
+        </FactShell>
+      ) : null}
+    </>
+  );
+
+  const callFactsRow =
+    verifiedLabel || callFacts.length ? (
+      <div
+        aria-label="Fakty z rozmowy telefonicznej"
+        className="mt-2 flex flex-wrap items-center gap-1.5"
+      >
+        {verifiedLabel ? (
+          <Badge
+            variant="success"
+            className="h-auto max-w-full whitespace-normal break-words py-0.5"
+          >
+            {verifiedLabel}
+          </Badge>
+        ) : null}
+        {callFacts.map((fact) => (
+          <Badge
+            key={fact.key}
+            variant={fact.tone === "danger" ? "danger" : "outline"}
+            className="h-auto max-w-full whitespace-normal break-words py-0.5"
+          >
+            {fact.label}
+          </Badge>
+        ))}
+        {canEditFacts && callFacts.length && (!column || editing) ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="min-h-11"
+            aria-label="Popraw fakty z rozmowy"
+            onClick={() => setCallFactsOpen(true)}
+          >
+            <PencilLine aria-hidden="true" className="size-4" />
+            Popraw
+          </Button>
+        ) : null}
+      </div>
+    ) : null;
+
+  const editors = (
+    <>
       {canEditFacts ? (
         <CallFactsEditor
           open={callFactsOpen}
@@ -1791,6 +2056,13 @@ export function CandidateProfileFactsBar({
         <LocationEditor
           open={locationOpen}
           onOpenChange={setLocationOpen}
+          candidate={candidate}
+        />
+      ) : null}
+      {canEditAvailability ? (
+        <AvailabilityEditor
+          open={availabilityOpen}
+          onOpenChange={setAvailabilityOpen}
           candidate={candidate}
         />
       ) : null}
@@ -1830,6 +2102,68 @@ export function CandidateProfileFactsBar({
           }
         />
       ) : null}
+    </>
+  );
+
+  if (column) {
+    return (
+      <FactsLayoutContext.Provider value={{ column: true, editing }}>
+        <section
+          aria-labelledby="candidate-summary-heading"
+          data-help="candidate.profile.facts"
+          className="rounded-xl border border-border bg-card px-4 py-3 md:max-2xl:px-3"
+        >
+          <div className="flex min-h-9 items-center justify-between gap-2">
+            <h2
+              id="candidate-summary-heading"
+              className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+            >
+              Podsumowanie
+            </h2>
+            {canEditFacts ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="min-h-9 px-2 text-primary"
+                aria-pressed={editing}
+                onClick={() => setEditing((value) => !value)}
+              >
+                {editing ? "Gotowe" : "Edytuj"}
+              </Button>
+            ) : null}
+          </div>
+          <div
+            aria-label="Najważniejsze fakty o kandydacie"
+            className="divide-y divide-border"
+          >
+            {facts}
+          </div>
+          {callFactsRow}
+          {children}
+        </section>
+        {editors}
+      </FactsLayoutContext.Provider>
+    );
+  }
+
+  return (
+    <>
+      <section
+        aria-label="Najważniejsze fakty o kandydacie"
+        data-help="candidate.profile.facts"
+        // Liczba kolumn wynika z szerokości PASKA, nie okna: obok listy
+        // „Kandydaci — ostatnio wyświetlani” pasek bywa o połowę węższy niż
+        // ekran, a `xl:grid-cols-5` wciskało pięć kafelków w ~900 px. Kafelek
+        // ma najmniej 15rem (ikona, etykieta, wartość i przycisk edycji), resztę
+        // dzieli po równo; za mało miejsca = kolejny wiersz.
+        className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-3 md:max-2xl:gap-2"
+      >
+        {facts}
+      </section>
+      {callFactsRow}
+      {children}
+      {editors}
     </>
   );
 }
