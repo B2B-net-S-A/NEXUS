@@ -130,6 +130,15 @@ async def gate_stage_row(
 # z „QC CV” i dalszych („Wróć do poprawy”) przechodzi bez sprawdzenia.
 VERIFIED_GATE_FROM_COLUMNS = frozenset({"new", "screening"})
 
+# Kolumny docelowe objęte bramką: „Zweryfikowany” i każda dalsza — skok
+# z Nowych/Screeningu ponad „Zweryfikowany” (API, Jarvis, ruch zbiorczy)
+# omijał arkusz i stawkę, a para bez wiersza `verified` traciła kredyt
+# weryfikacji w KPI, wyścigach i Lidze (audyt 05.10.2026). Front blokował
+# taki skok od początku (`move_requirements` liczy pominięte kolumny).
+VERIFIED_GATE_TARGETS = frozenset(
+    BOARD_COLUMN_ORDER[BOARD_COLUMN_ORDER.index("verified") :]
+)
+
 VERIFIED_REQUIREMENT_LABELS = {
     "screening_sheet": "arkusz screeningu",
     "candidate_rate": "stawka kandydata",
@@ -159,7 +168,7 @@ async def assert_verified_requirements(
     from app.models.candidate import Candidate  # noqa: PLC0415
     from app.services import move_requirements  # noqa: PLC0415
 
-    if not settings.VERIFIED_GATE_ENABLED or target_column != "verified":
+    if not settings.VERIFIED_GATE_ENABLED or target_column not in VERIFIED_GATE_TARGETS:
         return
     _row, column = await gate_stage_row(db, candidate_id=candidate_id, job_id=job.id)
     if column not in VERIFIED_GATE_FROM_COLUMNS:

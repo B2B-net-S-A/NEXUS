@@ -160,6 +160,39 @@ async def test_verified_needs_screening_sheet_and_candidate_rate(
 
 
 @pytest.mark.asyncio
+async def test_skipping_over_verified_is_gated_too(
+    api_client: AsyncClient, gates_on
+) -> None:
+    """Audyt 05.10.2026: skok z Nowych ponad „Zweryfikowany” (API, Jarvis)
+    omijał arkusz i stawkę — a para bez wiersza `verified` traciła kredyt
+    weryfikacji w statystykach."""
+
+    world = await _seed_world()
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    rec = await _login(api_client, rec_creds)
+    try:
+        await seed_entry_row(world["candidate_id"], world["job_id"])
+        skip = await _post_move(
+            api_client, rec, world, stage_def_id=world["defs"]["qc"]
+        )
+        assert skip.status_code == 409, skip.text
+        assert skip.json()["detail"]["code"] == "VERIFIED_REQUIREMENTS_MISSING"
+    finally:
+        await _cleanup(world, [rec_id])
+
+
+def test_every_column_from_verified_on_is_gated() -> None:
+    assert rules.VERIFIED_GATE_TARGETS == {
+        "verified",
+        "cv_qc",
+        "cv_sent",
+        "client_interview",
+        "contract",
+        "hired",
+    }
+
+
+@pytest.mark.asyncio
 async def test_return_from_qc_to_verified_is_not_gated(
     api_client: AsyncClient, gates_on
 ) -> None:

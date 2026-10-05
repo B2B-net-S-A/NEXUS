@@ -821,3 +821,30 @@ async def test_stage_row_delete_removes_remembered_hints() -> None:
             )
     finally:
         await _cleanup(world, [])
+
+
+# ── Polska odmiana nazw technologii (audyt 05.10.2026) ───────────────────────
+
+
+@pytest.mark.parametrize(
+    ("name", "text", "expected"),
+    [
+        ("Python", "Rozwój bramki płatności w Pythonie z FastAPI", True),
+        ("Python", "pracował z Pythonem na co dzień", True),
+        ("Java", "aplikacje w Javie i Spring Boot", True),
+        ("Java", "znajomość Javy", True),
+        ("Docker", "wdrożenia z Dockerem", True),
+        ("Django", "projekty z Djangiem", True),
+        ("Java", "frontend w JavaScript", False),
+        ("Python", "Pythonista z pasją", False),
+    ],
+)
+def test_requirement_matches_polish_inflection(name, text, expected):
+    req = svc.Requirement(label=name, alternatives=(name,))
+    assert svc._found(text, req) is expected
+
+
+def test_base_forms_of_an_inflected_word():
+    assert "docker" in svc.polish_base_forms("dockera")
+    assert "python" in svc.polish_base_forms("pythonie")
+    assert "java" in svc.polish_base_forms("javy")

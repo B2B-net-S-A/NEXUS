@@ -202,7 +202,12 @@ def _phrase_in_sources(phrase: str, sources: str) -> bool:
         return True
     words = [w.casefold() for w in _WORD.findall(phrase) if len(w) >= 2]
     haystack = _norm(sources)
-    return bool(words) and all(w in haystack for w in words)
+    # Pogrubienie odmienione („Dockera”) pokrywa forma podstawowa w oryginale
+    # („Docker”) — audyt 05.10.2026.
+    return bool(words) and all(
+        w in haystack or any(base in haystack for base in dz.polish_base_forms(w))
+        for w in words
+    )
 
 
 def match_in(text: str, req: Requirement) -> Optional[str]:
