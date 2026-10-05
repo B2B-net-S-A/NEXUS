@@ -19,6 +19,11 @@ interface SuggestedPool {
 interface Props {
   candidateId: number;
   canAdd?: boolean;
+  /**
+   * Zdanie zamiast pustki — w oknie „Tagi i pule” (profil kandydata) karta
+   * jest jedyną treścią sekcji, więc „nic” czytałoby się jak awaria.
+   */
+  emptyText?: string;
 }
 
 /**
@@ -26,7 +31,7 @@ interface Props {
  * pools ranked by centroid similarity. Rekruter jednym klikiem dodaje
  * kandydata do puli (akceptacja sugestii AI).
  */
-export function SuggestedPoolsWidget({ candidateId, canAdd = true }: Props) {
+export function SuggestedPoolsWidget({ candidateId, canAdd = true, emptyText }: Props) {
   const qc = useQueryClient();
   const { showError } = useToast();
   const [addedIds, setAddedIds] = useState<Set<number>>(new Set());
@@ -68,6 +73,14 @@ export function SuggestedPoolsWidget({ candidateId, canAdd = true }: Props) {
   // loading or when there is nothing to suggest (most candidates have no pool
   // embedding yet) render nothing instead of a "brak sugestii" placeholder that
   // only pushes the profile content further down the drawer.
+  if (emptyText) {
+    if (isLoading) {
+      return <p className="text-sm text-muted-foreground">Ładowanie podpowiedzi pul…</p>;
+    }
+    if (suggestions.length === 0) {
+      return <p className="text-sm text-muted-foreground">{emptyText}</p>;
+    }
+  }
   if (isLoading || suggestions.length === 0) return null;
 
   return (

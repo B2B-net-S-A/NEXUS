@@ -4,7 +4,8 @@
  * Harness wizualny profilu kandydata — produkcyjny `CandidateDetailV2` bez API
  * i bez logowania. Zakładki przełącza `?tab=` (np. `?tab=recruitments`,
  * `?tab=activity&activity=notes`, `?tab=documents&documents=contracts`,
- * stare `?tab=matching` / `?tab=emails` też działają).
+ * stare `?tab=matching` / `?tab=emails` też działają). `?employed=1` pokazuje
+ * osobę pracującą u naszego klienta (dopisek w karcie osoby).
  *
  * ZERO zapytań sieciowych:
  *   1. cache react-query jest zasiany tymi samymi kluczami co komponenty
@@ -19,6 +20,7 @@
  */
 
 import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   AxiosError,
@@ -90,13 +92,23 @@ const CANDIDATE = {
   cv_parsed_at: daysAgo(10),
   ai_summary:
     "Doświadczona programistka Java (8 lat), ostatnio w systemach płatności. Mocna w Spring Boot i Kafce, zna AWS.",
+  // Warianty tej samej nazwy („Kafka” / „Apache Kafka”, „Clean Code i SOLID”
+  // / „Clean Code / SOLID”) łączą się w widoku (D3, 04.10.2026).
   skills: [
     { name: "Java", level: "expert", years: 8 },
     { name: "Spring Boot", level: "senior", years: 6 },
     { name: "Kafka", level: "mid", years: 3 },
-    { name: "PostgreSQL" },
+    { name: "Apache Kafka", years: 4 },
+    { name: "Clean Code i SOLID" },
+    { name: "Clean Code / SOLID" },
+    { name: "PostgreSQL", level: "mid", years: 5 },
     { name: "AWS" },
     { name: "Docker" },
+    { name: "Kubernetes" },
+    { name: "Git", level: "senior", years: 8 },
+    { name: "Hibernate", level: "mid", years: 5 },
+    { name: "JUnit", level: "mid", years: 6 },
+    { name: "REST API" },
   ],
   verified_tech: ["Java", "Spring Boot"],
   experience: [
@@ -136,7 +148,14 @@ const HISTORY = {
       latest_stage_id: null,
       first_seen: daysAgo(18),
       last_seen: daysAgo(3),
-      stages: [{ stage: "verified" }, { stage: "cv_sent" }],
+      next_action_owner: "client",
+      // Najnowsze pierwsze — tak oddaje je `/history`.
+      stages: [
+        { stage: "cv_sent", moved_at: daysAgo(3) },
+        { stage: "verified", moved_at: daysAgo(10) },
+        { stage: "screening", moved_at: daysAgo(14) },
+        { stage: "new", moved_at: daysAgo(18) },
+      ],
       client_rate: { value: 185, unit: "hourly", currency: "PLN" },
       expected_rate: { value: 160, unit: "hourly", currency: "PLN" },
     },
@@ -149,7 +168,11 @@ const HISTORY = {
       latest_stage_id: null,
       first_seen: daysAgo(18),
       last_seen: daysAgo(5),
-      stages: [{ stage: "verified" }],
+      next_action_owner: "recruiter",
+      stages: [
+        { stage: "verified", moved_at: daysAgo(5) },
+        { stage: "new", moved_at: daysAgo(18) },
+      ],
       client_rate: null,
       expected_rate: { value: 160, unit: "hourly", currency: "PLN" },
     },
@@ -163,7 +186,30 @@ const HISTORY = {
       first_seen: daysAgo(120),
       last_seen: daysAgo(100),
       rejection_reason: "Klient wybrał innego kandydata",
-      stages: [{ stage: "verified" }, { stage: "rejected" }],
+      next_action_owner: null,
+      stages: [
+        { stage: "rejected", moved_at: daysAgo(100) },
+        { stage: "client_interview", moved_at: daysAgo(108) },
+        { stage: "cv_sent", moved_at: daysAgo(112) },
+        { stage: "verified", moved_at: daysAgo(118) },
+      ],
+      client_rate: null,
+      expected_rate: null,
+    },
+    {
+      job_id: 455,
+      job_title: "Senior Java Developer",
+      client_name: "Logistyka Demo",
+      job_status: "closed",
+      latest_stage: "withdrawn",
+      latest_stage_id: null,
+      first_seen: daysAgo(220),
+      last_seen: daysAgo(205),
+      next_action_owner: null,
+      stages: [
+        { stage: "withdrawn", moved_at: daysAgo(205) },
+        { stage: "verified", moved_at: daysAgo(215) },
+      ],
       client_rate: null,
       expected_rate: null,
     },
@@ -338,6 +384,16 @@ const DOCUMENTS = [
     content_type: "application/pdf",
     size_bytes: 182_000,
     created_at: daysAgo(10),
+  },
+  {
+    id: 13,
+    filename: "Marta_Kowalczyk_B2B_Bank_Przykladowy.docx",
+    document_kind: "cv",
+    is_primary: false,
+    content_type:
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    size_bytes: 64_000,
+    created_at: daysAgo(4),
   },
   {
     id: 12,
@@ -560,32 +616,6 @@ const PROFILE_RATE = {
   updated_at: daysAgo(20),
 };
 
-const RECENT_RECRUITMENTS = {
-  candidate_id: CANDIDATE_ID,
-  items: [
-    {
-      job_id: 501,
-      job_title: "Java Developer",
-      client_id: 1,
-      client_name: "Bank Przykładowy",
-      latest_stage_id: 1,
-      stage: "cv_sent",
-      stage_label: "CV wysłane",
-      last_activity_at: daysAgo(3),
-    },
-    {
-      job_id: 502,
-      job_title: "Backend Engineer",
-      client_id: 2,
-      client_name: "Ubezpieczenia Demo",
-      latest_stage_id: 2,
-      stage: "verified",
-      stage_label: "Zweryfikowany",
-      last_activity_at: daysAgo(5),
-    },
-  ],
-};
-
 const job = (id: number, title: string, score: number) => ({
   job: {
     id,
@@ -693,6 +723,61 @@ const CARD_OVERVIEW: CandidateCardOverview = {
   ],
 };
 
+// Telefon po ciszy klienta (0372) — zaległy, „Teraz” w Przeglądzie.
+const FOLLOWUP = {
+  followup: {
+    candidate_id: CANDIDATE_ID,
+    state: "overdue",
+    overdue_days: 2,
+    due_on: daysAgo(2).slice(0, 10),
+    caller_id: 1,
+    caller_name: "Ola Nowak",
+    caller_reason: "furthest",
+    last_contact_at: daysAgo(16),
+    last_contact_by: "Ola Nowak",
+    last_contact_kind: "call",
+    processes: [
+      {
+        job_id: 501,
+        job_title: "Java Developer",
+        client_name: "Bank Przykładowy",
+        column: "cv_sent",
+        silent_days: 16,
+      },
+    ],
+  },
+  history: [],
+  meetings: [],
+};
+
+const SKILLS_DICTIONARY = [
+  { id: 1, name: "Kafka", category: "messaging", aliases: ["Apache Kafka"] },
+  { id: 2, name: "Spring Boot", category: "framework", aliases: ["springboot"] },
+  { id: 3, name: "Java", category: "language", aliases: [] },
+];
+
+const GENERATED_CVS = [
+  {
+    id: 801,
+    filename: "Marta_Kowalczyk_CV_PL.docx",
+    status: "ready",
+    candidate_id: CANDIDATE_ID,
+    candidate_name: "Marta Kowalczyk",
+    job_id: 501,
+    job_title: "Java Developer",
+    language: "pl",
+    blind: false,
+    mode: "polished",
+    created_at: daysAgo(4),
+    created_by_name: "Ola Nowak",
+    can_download: true,
+    can_delete: false,
+  },
+];
+
+/** Skrzynka M365 niepodłączona — okno maila pokazuje drogę do Ustawień. */
+const M365_CONNECTION = { connected: false };
+
 /** Odpowiedzi lokalnego adaptera: [wzorzec ścieżki, dane]. */
 const ROUTES: Array<[RegExp, (config: InternalAxiosRequestConfig) => unknown]> = [
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}$`), () => CANDIDATE],
@@ -708,7 +793,6 @@ const ROUTES: Array<[RegExp, (config: InternalAxiosRequestConfig) => unknown]> =
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/screening-answers$`), () => SCREENING_ANSWERS],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/languages$`), () => LANGUAGES],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/profile-rate$`), () => PROFILE_RATE],
-  [new RegExp(`^/api/candidates/${CANDIDATE_ID}/recent-recruitments$`), () => RECENT_RECRUITMENTS],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/recommendations$`), () => RECOMMENDATIONS],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/suggested-pools$`), () => []],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/rate-overview$`), () => RATE_OVERVIEW],
@@ -723,6 +807,11 @@ const ROUTES: Array<[RegExp, (config: InternalAxiosRequestConfig) => unknown]> =
   [/^\/api\/presence\//, () => ({ viewers: [] })],
   [/^\/api\/users\/mentionable/, () => []],
   [/^\/api\/clients-lookup/, () => []],
+  [new RegExp(`^/api/candidate-followups/candidates/${CANDIDATE_ID}$`), () => FOLLOWUP],
+  [/^\/api\/skills$/, () => ({ items: SKILLS_DICTIONARY, total: SKILLS_DICTIONARY.length })],
+  [/^\/api\/cv-generator\/generated$/, () => GENERATED_CVS],
+  [/^\/api\/microsoft365\/connection$/, () => M365_CONNECTION],
+  [/^\/api\/interview-feedback$/, () => []],
 ];
 
 /**
@@ -844,7 +933,7 @@ function installLocalApi(): () => void {
   };
 }
 
-function seededClient(): QueryClient {
+function seededClient(employed: boolean): QueryClient {
   const qc = new QueryClient({
     defaultOptions: {
       queries: {
@@ -857,7 +946,22 @@ function seededClient(): QueryClient {
     },
   });
   const scope = candidateViewerScopeKey(PREVIEW_USER) ?? "unauthenticated";
-  qc.setQueryData(candidateQueryKeys.detail(CANDIDATE_ID), CANDIDATE);
+  qc.setQueryData(
+    candidateQueryKeys.detail(CANDIDATE_ID),
+    employed
+      ? {
+          ...CANDIDATE,
+          employment: {
+            state: "employed_at_client",
+            client_id: 31,
+            client_name: "Bank Przykładowy",
+            contract_id: 77,
+            contract_end_date: null,
+            source: "contract",
+          },
+        }
+      : CANDIDATE,
+  );
   qc.setQueryData(candidateQueryKeys.history(CANDIDATE_ID, scope), HISTORY);
   qc.setQueryData(candidateQueryKeys.timeline(CANDIDATE_ID, 50), TIMELINE);
   qc.setQueryData(candidateQueryKeys.notes(CANDIDATE_ID), NOTES);
@@ -883,10 +987,11 @@ function seededClient(): QueryClient {
     data: PROFILE_RATE,
     etag: '"preview-v1"',
   });
-  qc.setQueryData(
-    candidateQueryKeys.recentRecruitments(CANDIDATE_ID, 5, scope),
-    RECENT_RECRUITMENTS,
-  );
+  qc.setQueryData(["candidate-followup", CANDIDATE_ID], FOLLOWUP);
+  qc.setQueryData(["skills-dictionary", 500], SKILLS_DICTIONARY);
+  qc.setQueryData(["candidate-generated-cvs", CANDIDATE_ID], GENERATED_CVS);
+  qc.setQueryData(["m365-connection"], M365_CONNECTION);
+  qc.setQueryData(["interview-feedback", "by-candidate", CANDIDATE_ID], []);
   qc.setQueryData(candidateQueryKeys.recommendations(CANDIDATE_ID, 10), RECOMMENDATIONS);
   qc.setQueryData(["suggested-pools", CANDIDATE_ID], []);
   qc.setQueryData(["candidate-pin-state", CANDIDATE_ID], { pinned: false });
@@ -899,8 +1004,17 @@ function seededClient(): QueryClient {
 }
 
 export default function CandidateProfilePreviewPage() {
+  return (
+    <Suspense fallback={null}>
+      <CandidateProfilePreview />
+    </Suspense>
+  );
+}
+
+function CandidateProfilePreview() {
+  const employed = useSearchParams()?.get("employed") === "1";
   const [ready, setReady] = useState(false);
-  const [qc] = useState(seededClient);
+  const [qc] = useState(() => seededClient(employed));
 
   useEffect(() => {
     const uninstall = installLocalApi();

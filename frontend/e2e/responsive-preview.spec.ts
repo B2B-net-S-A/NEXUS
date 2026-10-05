@@ -26,6 +26,8 @@ const PAGES = [
   "/preview/candidates-list?dialog=1",
   "/preview/candidate-profile",
   "/preview/candidate-profile?tab=recruitments",
+  "/preview/candidate-profile?tab=screening",
+  "/preview/candidate-profile?employed=1",
   "/preview/candidate-profile?tab=activity",
   "/preview/candidate-profile?tab=documents",
   "/preview/career-share",
@@ -178,8 +180,9 @@ const PRIMARY_CONTENT = [
   { path: "/preview/jobs-list-v3", selector: "tbody tr", maxTop: 0.5, shell: false },
   // Kandydaci: pierwszy wiersz listy (0,59 — panel słów kluczowych jest duży z założenia).
   { path: "/preview/candidates-list", selector: "[data-testid^='candidate-row-']", maxTop: 0.65, shell: false },
-  // Profil: zakładki pod nagłówkiem i faktami — fakty SĄ treścią profilu (0,76).
-  { path: "/preview/candidate-profile", selector: "[role='tablist']", maxTop: 0.8, shell: false },
+  // Profil (04.10.2026): karta osoby i „Podsumowanie” po lewej, zakładki po
+  // prawej, od góry (0,18 przy 1280 × 720; do 04.10.2026 0,76).
+  { path: "/preview/candidate-profile", selector: "[role='tablist']", maxTop: 0.3, shell: false },
   // Zamówienia klienta (wersja B): pierwszy kafelek zamówienia. Od #1959 każde
   // zamówienie MD i kosztowe jest osobnym kafelkiem z numerem i okresem w
   // nagłówku — to on jest pierwszą treścią listy, a `tbody tr` (pierwsza osoba)

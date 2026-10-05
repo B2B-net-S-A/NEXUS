@@ -38,6 +38,12 @@ interface CandidateActivitySummaryCardProps {
   cvSummary?: string | null;
   /** Nagłówek karty. Profil kandydata: „Podsumowanie” (jedyna karta AI). */
   title?: string;
+  /**
+   * `compact` (04.10.2026) = blok „W skrócie” w karcie „Podsumowanie” w lewej
+   * kolumnie profilu: sam tekst (AI, a bez niego podsumowanie z CV) i mała
+   * akcja „Aktualizuj / Wygeneruj”. Źródła i model zostają w wariancie karty.
+   */
+  variant?: "card" | "compact";
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -168,6 +174,7 @@ export function CandidateActivitySummaryCard({
   candidateId,
   cvSummary = null,
   title = "Podsumowanie AI",
+  variant = "card",
 }: CandidateActivitySummaryCardProps) {
   const { showError, showSuccess } = useToast();
   const queryClient = useQueryClient();
@@ -262,6 +269,78 @@ export function CandidateActivitySummaryCard({
     ? sourcePolicyCounts(data)
     : { redacted: 0, truncated: 0 };
   const isPartial = policyCounts.redacted > 0 || policyCounts.truncated > 0;
+
+  if (variant === "compact") {
+    const busy = refreshMutation.isPending;
+    const cvText = cvSummary?.trim() ?? "";
+    return (
+      <section
+        aria-labelledby="candidate-short-summary-title"
+        aria-busy={query.isPending || busy}
+        className="space-y-1.5"
+        data-testid="candidate-short-summary"
+      >
+        <div className="flex items-center justify-between gap-2">
+          <h3
+            id="candidate-short-summary-title"
+            className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground"
+          >
+            W skrócie
+          </h3>
+          {viewerScope && !query.isError ? (
+            <button
+              type="button"
+              onClick={refreshSummary}
+              disabled={busy}
+              className="inline-flex min-h-8 items-center gap-1 text-xs font-medium text-primary hover:underline disabled:opacity-60"
+            >
+              <RefreshCw aria-hidden className={cn("size-3", busy && "animate-spin")} />
+              {busy ? "Generuję…" : hasSummary ? "Aktualizuj" : "Wygeneruj AI"}
+            </button>
+          ) : null}
+        </div>
+        {refreshError ? (
+          <p role="alert" className="text-xs text-destructive-muted-foreground">
+            {refreshError}
+          </p>
+        ) : null}
+        {hasSummary && data ? (
+          <>
+            <div className="text-sm leading-6 text-foreground">
+              <ExpandableText text={data.summary!} maxLines={5} />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {data.is_stale ? "AI · wymaga aktualizacji" : "AI"} · zweryfikuj przed decyzją
+            </p>
+          </>
+        ) : unsafeSummary ? (
+          <p role="alert" className="text-sm text-destructive-muted-foreground">
+            Podsumowanie AI ukryte — nie przeszło kontroli treści. Wygeneruj je ponownie.
+          </p>
+        ) : cvText ? (
+          <>
+            <div className="text-sm leading-6 text-foreground">
+              <ExpandableText text={cvText} maxLines={5} />
+            </div>
+            <p className="text-xs text-muted-foreground">z CV</p>
+          </>
+        ) : query.isPending ? (
+          <p className="text-sm text-muted-foreground">Ładowanie…</p>
+        ) : query.isError && errorStatus !== 403 && errorStatus !== 503 ? (
+          <p role="alert" className="text-sm text-muted-foreground">
+            Podsumowanie jest chwilowo niedostępne.{" "}
+            <button type="button" className="text-primary underline" onClick={() => query.refetch()}>
+              Ponów
+            </button>
+          </p>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Brak podsumowania. AI streści rekrutacje, feedback i rozmowy — bez kwot.
+          </p>
+        )}
+      </section>
+    );
+  }
 
   return (
     <Card aria-labelledby="candidate-activity-summary-title">

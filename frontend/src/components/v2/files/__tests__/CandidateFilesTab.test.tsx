@@ -1,6 +1,7 @@
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import api from "@/lib/api";
@@ -233,8 +234,13 @@ describe("CandidateFilesTab labels (UAT M01-B10)", () => {
     });
     renderTab();
 
+    const user = userEvent.setup();
     expect(await screen.findByText("główne CV")).toBeInTheDocument();
-    expect(screen.getByText("Ustaw jako główne CV")).toBeInTheDocument();
+    // 04.10.2026: akcje wiersza są w menu „⋯”.
+    await user.click(screen.getByRole("button", { name: "Akcje pliku cv-stare.pdf" }));
+    expect(
+      await screen.findByRole("menuitem", { name: "Ustaw jako główne CV" }),
+    ).toBeInTheDocument();
     expect(screen.getAllByText("PDF").length).toBeGreaterThan(0);
     expect(screen.queryByText("application/pdf")).not.toBeInTheDocument();
     expect(screen.queryByText(/primary/)).not.toBeInTheDocument();
@@ -297,28 +303,105 @@ describe("CandidateFilesTab labels (UAT M01-B10)", () => {
       .getAllByText(/^cv(-stare|-drugie)?\.pdf$/)
       .map((node) => node.textContent);
     expect(names).toEqual(["cv.pdf", "cv-drugie.pdf", "cv-stare.pdf"]);
-    // Tylko drugie (aktualne) CV da się ustawić jako główne.
-    expect(screen.getAllByText("Ustaw jako główne CV")).toHaveLength(1);
-    // Główne CV nie ma akcji „nieaktualne”.
-    expect(
-      screen.queryByRole("button", { name: /nieaktualne: cv\.pdf$/ }),
-    ).not.toBeInTheDocument();
+    const user = userEvent.setup();
+    // Główne CV: w menu nie ma „nieaktualne” ani „Ustaw jako główne”.
+    await user.click(screen.getByRole("button", { name: "Akcje pliku cv.pdf" }));
+    const primaryMenu = await screen.findByRole("menu");
+    expect(within(primaryMenu).queryByRole("menuitem", { name: /nieaktualne/ })).toBeNull();
+    expect(within(primaryMenu).queryByRole("menuitem", { name: "Ustaw jako główne CV" })).toBeNull();
+    await user.keyboard("{Escape}");
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Cofnij oznaczenie „nieaktualne”: cv-stare.pdf" }),
+    // Nieaktualne CV: „Cofnij”, bez „Ustaw jako główne”.
+    await user.click(screen.getByRole("button", { name: "Akcje pliku cv-stare.pdf" }));
+    const staleMenu = await screen.findByRole("menu");
+    expect(within(staleMenu).queryByRole("menuitem", { name: "Ustaw jako główne CV" })).toBeNull();
+    await user.click(
+      within(staleMenu).getByRole("menuitem", { name: "Cofnij oznaczenie „nieaktualne”" }),
     );
     await waitFor(() =>
       expect(api.patch).toHaveBeenCalledWith("/api/candidates/42/documents/2", {
         outdated: false,
       }),
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Oznacz jako nieaktualne: cv-drugie.pdf" }),
+
+    await user.click(screen.getByRole("button", { name: "Akcje pliku cv-drugie.pdf" }));
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Oznacz jako nieaktualne" }),
     );
     await waitFor(() =>
       expect(api.patch).toHaveBeenCalledWith("/api/candidates/42/documents/3", {
         outdated: true,
       }),
     );
+  });
+});
+
+describe("CandidateFilesTab — CV dla klientów (D4, 04.10.2026)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    currentRole = "recruiter";
+  });
+
+  it("plik „…B2B…” i CV z generatora stoją osobno, zwinięte z licznikiem", async () => {
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url === "/api/candidates/42/documents") {
+        return {
+          data: [
+            {
+              id: 1,
+              filename: "cv.pdf",
+              content_type: "application/pdf",
+              size_bytes: 1024,
+              document_kind: "cv",
+              is_primary: true,
+              uploaded_at: null,
+              external_source: null,
+            },
+            {
+              id: 2,
+              filename: "Jan_Kowalski_B2B_PKO.docx",
+              content_type:
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              size_bytes: 2048,
+              document_kind: "cv",
+              is_primary: false,
+              uploaded_at: null,
+              external_source: null,
+            },
+          ],
+        };
+      }
+      if (url === "/api/cv-generator/generated") {
+        return {
+          data: [
+            {
+              id: 70,
+              filename: "Kowalski_CV_PL.docx",
+              status: "ready",
+              candidate_name: "Jan Kowalski",
+              language: "pl",
+              blind: false,
+              mode: "polished",
+              job_title: "Java Developer",
+              can_download: true,
+              can_delete: false,
+            },
+          ],
+        };
+      }
+      return { data: [] };
+    });
+    const user = userEvent.setup();
+    renderTab();
+
+    expect(await screen.findByText("cv.pdf")).toBeInTheDocument();
+    const toggle = await screen.findByRole("button", { name: /CV dla klientów · 2/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("Jan_Kowalski_B2B_PKO.docx")).toBeNull();
+
+    await user.click(toggle);
+    expect(screen.getByText("Jan_Kowalski_B2B_PKO.docx")).toBeInTheDocument();
+    expect(screen.getByText("Kowalski_CV_PL.docx")).toBeInTheDocument();
+    expect(screen.getByText(/z generatora · Java Developer · PL/)).toBeInTheDocument();
   });
 });

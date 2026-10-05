@@ -9,6 +9,7 @@
  * i czyści pole odpowiedzi); błąd = toast po polsku i `false`.
  */
 
+import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import api, { extractErrorMsg } from "@/lib/api";
@@ -95,4 +96,38 @@ export function useNoteActions(candidateId: number, readOnly: boolean) {
   };
 
   return { invalidateNotes, editNote, pinNote, replyToNote, deleteNote };
+}
+
+/**
+ * „Nie odebrał” jednym kliknięciem: notatka-próba kontaktu (rodzaj podany
+ * wprost, typ ogólny — follow-up nie liczy jej jako rozmowy z kandydatem).
+ * Wspólne dla karty osoby (lewa kolumna profilu) i pola notatki w „Notatki
+ * i historia” — jedna reguła zapisu, jeden komunikat.
+ */
+export function useNoAnswer(candidateId: number, readOnly: boolean) {
+  const { invalidateNotes } = useNoteActions(candidateId, readOnly);
+  const { showError, showInfo } = useToast();
+  const [saving, setSaving] = useState(false);
+
+  const recordNoAnswer = async (jobId?: number | null) => {
+    if (readOnly || saving) return;
+    setSaving(true);
+    try {
+      await api.post("/api/notes", {
+        candidate_id: candidateId,
+        content: "Nie odebrał.",
+        note_type: "general",
+        kind: "contact_attempt",
+        ...(jobId ? { job_id: jobId } : {}),
+      });
+      invalidateNotes();
+      showInfo("Zapisano próbę kontaktu.");
+    } catch (e) {
+      showError(extractErrorMsg(e) || "Nie udało się zapisać próby kontaktu");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return { recordNoAnswer, saving };
 }

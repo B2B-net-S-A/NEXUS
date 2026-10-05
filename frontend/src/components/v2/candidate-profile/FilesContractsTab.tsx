@@ -1,9 +1,11 @@
 "use client";
 
 /**
- * Zakładka „Pliki i umowy” — jedna strona bez podzakładek: najpierw pliki
- * kandydata (upload bez zmian), potem umowy (aktualne, draft, historia).
- * `?documents=contracts` (np. stary link `?tab=umowa`) przewija do umów.
+ * Zakładka „CV i dokumenty” (do 04.10.2026 „Pliki i umowy”) — jedna strona
+ * bez podzakładek: „CV i umiejętności” (przeniesione z Profilu), „Dane do
+ * umowy” (JDG), umowy (aktualne, draft, historia) i pliki kandydata z grupą
+ * „CV dla klientów”. `?documents=contracts` (np. stary link `?tab=umowa`)
+ * przewija do umów.
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -30,6 +32,8 @@ import { AutentiEnvelopeCard } from "@/components/v2/contract/AutentiEnvelopeCar
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import type { CandidateDocumentView } from "@/components/v2/pages/candidate-profile-navigation";
 import { formatDate } from "@/lib/utils";
+import { CvSkillsSection } from "./CvSkillsSection";
+import { JDGPanel } from "./JdgPanel";
 import {
   SectionError,
   SectionHeading,
@@ -65,24 +69,58 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export interface FilesContractsTabProps {
-  candidateId: number;
+  /** Payload kandydata — CV, umiejętności, doświadczenie, dane JDG. */
+  candidate: any;
   candidateName: string;
-  candidatePhone: string | null;
-  jdgComplete: boolean;
+  readOnly: boolean;
   focus: CandidateDocumentView;
-  /** Otwiera edycję danych do umowy (JDG). Brak = brak prawa zapisu. */
-  onFillJdg?: () => void;
+  /** Otwiera okno generatora CV. Brak = brak prawa zapisu. */
+  onGenerateCv?: () => void;
 }
 
 export function FilesContractsTab({
-  candidateId,
+  candidate,
   candidateName,
-  candidatePhone,
-  jdgComplete,
+  readOnly,
   focus,
-  onFillJdg,
+  onGenerateCv,
 }: FilesContractsTabProps) {
+  const candidateId = Number(candidate.id);
+  const candidatePhone: string | null = candidate.phone ?? null;
+  const jdgComplete = Boolean(candidate.legal_name && candidate.nip);
   const contractsRef = useRef<HTMLElement | null>(null);
+  const jdgInitial = useMemo(
+    () => ({
+      legal_name: candidate.legal_name,
+      nip: candidate.nip,
+      regon: candidate.regon,
+      business_address: candidate.business_address,
+      business_form: candidate.business_form,
+    }),
+    [
+      candidate.legal_name,
+      candidate.nip,
+      candidate.regon,
+      candidate.business_address,
+      candidate.business_form,
+    ],
+  );
+  // Dane do umowy (JDG) zwinięte — potrzebne rzadko, a formularz zajmował pół
+  // ekranu. „Uzupełnij dane do umowy” spod umów rozwija je i przewija.
+  const [jdgOpen, setJdgOpen] = useState(false);
+  const [jdgFocus, setJdgFocus] = useState(0);
+  useEffect(() => {
+    if (jdgFocus <= 0) return;
+    const panel = document.getElementById("candidate-jdg-panel");
+    panel?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+    panel?.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true });
+  }, [jdgFocus]);
+  const onFillJdg = readOnly
+    ? undefined
+    : () => {
+        setJdgOpen(true);
+        setJdgFocus((value) => value + 1);
+      };
   const contractsQuery = useQuery<{ items?: any[] } | any[]>({
     queryKey: candidateQueryKeys.contracts(candidateId),
     queryFn: () =>
@@ -105,10 +143,17 @@ export function FilesContractsTab({
 
   return (
     <div className="space-y-6">
-      <section id="candidate-files-section" aria-labelledby="candidate-files-heading">
-        <SectionHeading id="candidate-files-heading">Pliki</SectionHeading>
-        <CandidateFilesTab candidateId={candidateId} />
-      </section>
+      <CvSkillsSection
+        candidate={candidate}
+        readOnly={readOnly}
+        onGenerateCv={onGenerateCv}
+        onOpenFiles={() =>
+          document
+            .getElementById("candidate-files-section")
+            ?.scrollIntoView?.({ block: "start", behavior: "smooth" })
+        }
+      />
+
 
       <section
         ref={contractsRef}
@@ -133,6 +178,44 @@ export function FilesContractsTab({
             onFillJdg={onFillJdg}
           />
         )}
+      </section>
+
+      {!readOnly ? (
+        <section aria-label="Dane do umowy" className="space-y-2">
+          <button
+            type="button"
+            aria-expanded={jdgOpen}
+            aria-controls="candidate-jdg-body"
+            onClick={() => setJdgOpen((value) => !value)}
+            className="flex w-full items-center justify-between gap-2 rounded-lg border border-border px-3 py-2.5 text-left text-sm"
+          >
+            <span className="font-medium text-foreground">
+              Dane do umowy (JDG / firma)
+              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                {jdgComplete ? "uzupełnione" : "brak nazwy prawnej lub NIP"}
+              </span>
+            </span>
+            {jdgOpen ? (
+              <ChevronUp className="size-4 text-muted-foreground" aria-hidden />
+            ) : (
+              <ChevronDown className="size-4 text-muted-foreground" aria-hidden />
+            )}
+          </button>
+          {jdgOpen ? (
+            <div id="candidate-jdg-body">
+              <JDGPanel candidateId={candidateId} initial={jdgInitial} />
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      <section
+        id="candidate-files-section"
+        aria-labelledby="candidate-files-heading"
+        className="scroll-mt-4"
+      >
+        <SectionHeading id="candidate-files-heading">Pliki kandydata</SectionHeading>
+        <CandidateFilesTab candidateId={candidateId} />
       </section>
     </div>
   );

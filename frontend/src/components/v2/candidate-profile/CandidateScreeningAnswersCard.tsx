@@ -175,7 +175,18 @@ function NoteConversation({
   );
 }
 
-export function CandidateScreeningAnswersCard({ candidateId }: { candidateId: number }) {
+export function CandidateScreeningAnswersCard({
+  candidateId,
+  variant = "card",
+}: {
+  candidateId: number;
+  /**
+   * `tab` (04.10.2026) = zakładka „Odpowiedzi ze screeningu”: bez ramki karty,
+   * szukanie już przy jednej rozmowie, a brak rozmów to zdanie, nie pustka.
+   */
+  variant?: "card" | "tab";
+}) {
+  const asTab = variant === "tab";
   const viewerScope = candidateViewerScopeKey(useAuthStore((state) => state.user));
   const query = useCandidateScreeningAnswers(candidateId, viewerScope);
   const [phrase, setPhrase] = useState("");
@@ -210,6 +221,20 @@ export function CandidateScreeningAnswersCard({ candidateId }: { candidateId: nu
       .filter((conversation) => conversation.answers.length > 0);
   }, [noteConversations, phrase]);
 
+  if (query.isError && asTab) {
+    return (
+      <p role="alert" className="text-sm text-destructive-muted-foreground">
+        Nie udało się wczytać odpowiedzi z rozmów.{" "}
+        <button
+          type="button"
+          className="font-medium underline underline-offset-2"
+          onClick={() => void query.refetch()}
+        >
+          Ponów
+        </button>
+      </p>
+    );
+  }
   if (query.isError) {
     return (
       <Card role="region" aria-labelledby="candidate-screening-answers-title">
@@ -234,6 +259,50 @@ export function CandidateScreeningAnswersCard({ candidateId }: { candidateId: nu
       </Card>
     );
   }
+  if (asTab && !query.isSuccess) {
+    return (
+      <p className="text-sm text-muted-foreground" aria-busy="true">
+        Wczytuję odpowiedzi z rozmów…
+      </p>
+    );
+  }
+  // Karty rekomendacji dochodzą osobnym zapytaniem: zanim odpowiedzą, „nikt
+  // nie zapisał” byłoby nieprawdą, a ich awaria nie może udawać pustki.
+  const cardsLoading = cards.isPending && cards.fetchStatus !== "idle";
+  const cardsRetry = (
+    <button
+      type="button"
+      className="font-medium underline underline-offset-2"
+      onClick={() => void cards.refetch()}
+    >
+      Ponów
+    </button>
+  );
+  if (asTab && conversations.length + noteConversations.length === 0 && cardsLoading) {
+    return (
+      <p className="text-sm text-muted-foreground" aria-busy="true">
+        Wczytuję odpowiedzi z rozmów…
+      </p>
+    );
+  }
+  if (asTab && conversations.length + noteConversations.length === 0 && cards.isError) {
+    return (
+      <p role="alert" className="text-sm text-destructive-muted-foreground">
+        Nie udało się wczytać odpowiedzi z kart rekomendacji. {cardsRetry}
+      </p>
+    );
+  }
+  if (asTab && conversations.length + noteConversations.length === 0) {
+    return (
+      <p
+        className="text-sm text-muted-foreground"
+        data-help="candidate.profile.screening_answers"
+      >
+        Nikt jeszcze nie zapisał odpowiedzi z rozmowy screeningowej z tą osobą — ani
+        w arkuszu, ani w karcie rekomendacji.
+      </p>
+    );
+  }
   // Brak rozmów = brak karty (pusta ramka nic by nie mówiła).
   if (!query.isSuccess || conversations.length + noteConversations.length === 0) return null;
 
@@ -245,23 +314,9 @@ export function CandidateScreeningAnswersCard({ candidateId }: { candidateId: nu
   const isOpen = (conversation: FilteredConversation) =>
     toggled[conversation.stage_id] ?? (searching || conversation.stage_id === newestStageId);
 
-  return (
-    <Card
-      role="region"
-      aria-labelledby="candidate-screening-answers-title"
-      data-help="candidate.profile.screening_answers"
-    >
-      <CardHeader className="pb-1">
-        <CardTitle id="candidate-screening-answers-title" className="flex items-center gap-2">
-          <MessagesSquare aria-hidden className="size-4 text-primary" />
-          Odpowiedzi z rozmów screeningowych
-        </CardTitle>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Co kandydat odpowiedział na pytania z rekrutacji — sprawdź, zanim zapytasz o to samo.
-        </p>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {conversations.length + noteConversations.length >= 2 ? (
+  const body = (
+    <>
+        {conversations.length + noteConversations.length >= (asTab ? 1 : 2) ? (
           <div className="relative">
             <Search
               aria-hidden
@@ -318,7 +373,46 @@ export function CandidateScreeningAnswersCard({ candidateId }: { candidateId: nu
             </ul>
           </section>
         ) : null}
-      </CardContent>
+    </>
+  );
+
+  if (asTab) {
+    return (
+      <div
+        role="region"
+        aria-label="Odpowiedzi z rozmów screeningowych"
+        data-help="candidate.profile.screening_answers"
+        className="space-y-3"
+      >
+        <p className="text-sm text-muted-foreground">
+          Co kandydat odpowiedział na pytania z rekrutacji — sprawdź, zanim zapytasz o to samo.
+        </p>
+        {body}
+        {cards.isError ? (
+          <p role="alert" className="text-xs text-destructive-muted-foreground">
+            Nie udało się wczytać odpowiedzi z kart rekomendacji. {cardsRetry}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <Card
+      role="region"
+      aria-labelledby="candidate-screening-answers-title"
+      data-help="candidate.profile.screening_answers"
+    >
+      <CardHeader className="pb-1">
+        <CardTitle id="candidate-screening-answers-title" className="flex items-center gap-2">
+          <MessagesSquare aria-hidden className="size-4 text-primary" />
+          Odpowiedzi z rozmów screeningowych
+        </CardTitle>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Co kandydat odpowiedział na pytania z rekrutacji — sprawdź, zanim zapytasz o to samo.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-3">{body}</CardContent>
     </Card>
   );
 }

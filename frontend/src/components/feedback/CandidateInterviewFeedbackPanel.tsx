@@ -24,6 +24,12 @@ export interface CandidateInterviewFeedbackPanelProps {
   candidateId: number;
   /** `job_id → tytuł` z historii rekrutacji kandydata (bez drugiego zapytania). */
   jobTitles: ReadonlyMap<number, string>;
+  /**
+   * Profil kandydata (04.10.2026): pusta karta „Brak zapisanego feedbacku”
+   * stała zawsze. Z tą flagą sekcja pojawia się dopiero, gdy jest co pokazać;
+   * awaria nadal się pokazuje (awaria nie może udawać pustki).
+   */
+  hideWhenEmpty?: boolean;
 }
 
 export function groupFeedbackByJob(
@@ -42,8 +48,12 @@ export function groupFeedbackByJob(
 export function CandidateInterviewFeedbackPanel({
   candidateId,
   jobTitles,
+  hideWhenEmpty = false,
 }: CandidateInterviewFeedbackPanelProps) {
   const query = useInterviewFeedbackByCandidate(candidateId);
+  if (hideWhenEmpty && (query.isPending || (query.isSuccess && query.data.length === 0))) {
+    return null;
+  }
 
   return (
     <section

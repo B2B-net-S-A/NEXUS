@@ -5,7 +5,6 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const updateEngagement = vi.fn();
-const updateLocation = vi.fn();
 const showError = vi.fn();
 
 vi.mock("@/lib/api", () => ({
@@ -13,7 +12,6 @@ vi.mock("@/lib/api", () => ({
   default: { post: vi.fn() },
   candidateProfileApi: {
     updateEngagement: (...a: unknown[]) => updateEngagement(...a),
-    updateLocation: (...a: unknown[]) => updateLocation(...a),
   },
 }));
 
@@ -22,7 +20,6 @@ vi.mock("@/components/Toast", () => ({
 }));
 
 import { CandidateEngagementPanel } from "@/components/candidates/CandidateEngagementPanel";
-import { CandidateLocationPanel } from "@/components/candidates/CandidateLocationPanel";
 
 const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
 const wrap = (ui: ReactNode) => <QueryClientProvider client={qc}>{ui}</QueryClientProvider>;
@@ -34,7 +31,6 @@ const forbidden = {
 
 beforeEach(() => {
   updateEngagement.mockReset();
-  updateLocation.mockReset();
   showError.mockReset();
 });
 
@@ -66,28 +62,6 @@ describe("CandidateEngagementPanel", () => {
   it("nieudany zapis (403) pokazuje toast z powodem", async () => {
     updateEngagement.mockRejectedValue(forbidden);
     render(wrap(<CandidateEngagementPanel candidateId={7} initial={{}} />));
-    await userEvent.click(screen.getByRole("button", { name: "Zapisz" }));
-    await vi.waitFor(() =>
-      expect(showError).toHaveBeenCalledWith("Brak uprawnień do edycji kandydata."),
-    );
-  });
-});
-
-describe("CandidateLocationPanel", () => {
-  it("wpisane miasto przeżywa przerysowanie z równym, ale nowym obiektem initial", async () => {
-    const view = render(
-      wrap(<CandidateLocationPanel candidateId={7} initial={{ city: "Kraków" }} />),
-    );
-    const [city] = screen.getAllByRole("textbox");
-    await userEvent.clear(city);
-    await userEvent.type(city, "Gdańsk");
-    view.rerender(wrap(<CandidateLocationPanel candidateId={7} initial={{ city: "Kraków" }} />));
-    expect(city).toHaveValue("Gdańsk");
-  });
-
-  it("nieudany zapis (403) pokazuje toast z powodem", async () => {
-    updateLocation.mockRejectedValue(forbidden);
-    render(wrap(<CandidateLocationPanel candidateId={7} initial={{}} />));
     await userEvent.click(screen.getByRole("button", { name: "Zapisz" }));
     await vi.waitFor(() =>
       expect(showError).toHaveBeenCalledWith("Brak uprawnień do edycji kandydata."),

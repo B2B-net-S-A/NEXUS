@@ -72,9 +72,12 @@ export interface RecruitmentHistoryItem {
   [key: string]: unknown;
 }
 
-const ENDED_STAGES = new Set(["rejected", "withdrawn"]);
+// Zatrudnienie też kończy proces (04.10.2026): zatrudniona osoba trafia do
+// „Zakończone” z wynikiem „Zatrudniony”, a nie wisi „w toku” do zamknięcia
+// rekrutacji.
+const ENDED_STAGES = new Set(["rejected", "withdrawn", "hired", "onboarding"]);
 
-/** Rekrutacja zakończona dla tej osoby: zamknięta albo odrzucenie/wycofanie. */
+/** Rekrutacja zakończona dla tej osoby: zamknięta, zatrudnienie, odrzucenie albo wycofanie. */
 export function isRecruitmentEnded(item: RecruitmentHistoryItem): boolean {
   if (item.job_status === "closed") return true;
   return ENDED_STAGES.has(String(item.latest_stage ?? ""));

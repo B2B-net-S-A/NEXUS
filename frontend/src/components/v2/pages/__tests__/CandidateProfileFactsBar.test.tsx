@@ -63,7 +63,10 @@ vi.mock("@/lib/rate-change", () => ({
   },
 }));
 
+const apiPatch = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/api", () => ({
+  __esModule: true,
+  default: { patch: apiPatch },
   candidateFactsApi: {
     getLanguages: vi.fn(),
     updateLanguages: vi.fn(),
@@ -119,7 +122,10 @@ type FactsCandidate = ComponentProps<
 
 let lastClient: QueryClient | null = null;
 
-function renderBar(candidateOverrides: Partial<FactsCandidate> = {}) {
+function renderBar(
+  candidateOverrides: Partial<FactsCandidate> = {},
+  layout: "grid" | "column" = "grid",
+) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -135,6 +141,7 @@ function renderBar(candidateOverrides: Partial<FactsCandidate> = {}) {
           availability_date: "2026-08-15",
           ...candidateOverrides,
         }}
+        layout={layout}
       />
     </QueryClientProvider>,
   );
@@ -388,7 +395,7 @@ describe("CandidateProfileFactsBar", () => {
     expect(screen.getByLabelText("Język")).toHaveTextContent("niemiecki");
   });
 
-  it("saves canonical city and country through the existing location endpoint", async () => {
+  it("saves the changed city through the existing location endpoint", async () => {
     mockedProfileApi.updateLocation.mockResolvedValue({ data: {} } as never);
     const user = userEvent.setup();
     renderBar();
@@ -405,9 +412,10 @@ describe("CandidateProfileFactsBar", () => {
     );
 
     await waitFor(() =>
+      // 04.10.2026: wysyłamy tylko zmienione pola — nietknięty kraj nie
+      // dostaje ręcznej blokady przed kolejnym odczytem CV.
       expect(mockedProfileApi.updateLocation).toHaveBeenCalledWith(7, {
         city: "Kraków",
-        country: "PL",
       }),
     );
     // R10-N15-10: miasto pod nazwiskiem na liście i w podglądzie też.
@@ -833,5 +841,48 @@ describe("CandidateProfileFactsBar", () => {
     expect(
       screen.queryByLabelText("Fakty z rozmowy telefonicznej"),
     ).not.toBeInTheDocument();
+  });
+
+  describe("karta „Podsumowanie” w lewej kolumnie (04.10.2026)", () => {
+    it("ma nagłówek „Podsumowanie”, a ołówki pokazuje dopiero „Edytuj”", async () => {
+      const user = userEvent.setup();
+      renderBar({}, "column");
+      expect(
+        screen.getByRole("heading", { name: "Podsumowanie" }),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Edytuj lokalizację" })).toBeNull();
+
+      await user.click(screen.getByRole("button", { name: "Edytuj" }));
+      expect(
+        await screen.findByRole("button", { name: "Edytuj lokalizację" }),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Gotowe" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+    });
+
+    it("zapisuje dostępność tylko ze zmienionymi polami", async () => {
+      apiPatch.mockResolvedValue({ data: {} });
+      const user = userEvent.setup();
+      renderBar({ notice_period: 1, notice_period_unit: "months" }, "column");
+
+      await user.click(screen.getByRole("button", { name: "Edytuj" }));
+      await user.click(await screen.findByRole("button", { name: "Edytuj dostępność" }));
+      await user.selectOptions(screen.getByLabelText("Czy szuka pracy"), "actively_looking");
+      await user.click(screen.getByRole("button", { name: "Zapisz dostępność" }));
+
+      await waitFor(() =>
+        expect(apiPatch).toHaveBeenCalledWith("/api/candidates/7", {
+          availability_status: "actively_looking",
+        }),
+      );
+    });
+
+    it("bez prawa zapisu nie ma przycisku „Edytuj”", () => {
+      auth.role = "user";
+      renderBar({}, "column");
+      expect(screen.queryByRole("button", { name: "Edytuj" })).toBeNull();
+    });
   });
 });

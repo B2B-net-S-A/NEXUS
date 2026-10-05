@@ -35,6 +35,22 @@ describe("candidate profile navigation", () => {
     ).toMatchObject({ section: "documents", documents: "contracts" });
   });
 
+  it("opens the screening answers tab, also from its Polish aliases (04.10.2026)", () => {
+    for (const tab of ["screening", "odpowiedzi", "screeningi"]) {
+      expect(
+        parseCandidateProfileView(new URLSearchParams(`tab=${tab}`)),
+      ).toMatchObject({ section: "screening" });
+    }
+    expect(
+      withCandidateProfileView(new URLSearchParams(), {
+        section: "screening",
+        activity: "notes",
+        documents: "files",
+        recruitments: "list",
+      }).get("tab"),
+    ).toBe("screening");
+  });
+
   it("keeps the mail reader reachable: `tab=emails` opens Historia → Maile (UAT M01-B03)", () => {
     expect(
       parseCandidateProfileView(new URLSearchParams("tab=emails")),

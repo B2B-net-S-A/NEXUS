@@ -46,3 +46,26 @@ export function fileAddedLabel(doc: CandidateFileListItem): string {
   const who = name ? name : doc.external_source === "traffit" ? "z Traffita" : null;
   return [date ? `dodano ${date}` : "dodano", who].filter(Boolean).join(" · ");
 }
+
+/**
+ * CV przygotowane dla klienta (plik „…_B2B_….docx”) — od 04.10.2026 stoi
+ * osobno od plików kandydata, w grupie „CV dla klientów” (decyzja D4).
+ * Rozpoznajemy je wyłącznie po nazwie: „B2B” jako osobny człon nazwy. QC CV
+ * i kolejka Cpro (`dz_review.pick_document_cv`) szukają szerzej (`%b2b%`), ale
+ * tu chodzi tylko o grupę na liście — pomyłka nie zmienia żadnej decyzji.
+ */
+const CLIENT_CV_NAME = /(^|[_\s-])b2b([_\s.-]|$)/i;
+
+export function isClientCvFilename(filename: string | null | undefined): boolean {
+  return CLIENT_CV_NAME.test(filename ?? "");
+}
+
+/** Pliki kandydata i CV dla klientów — kolejność z `sortCandidateFiles`. */
+export function splitClientCvFiles<T extends CandidateFileListItem & { filename?: string | null }>(
+  docs: readonly T[],
+): { own: T[]; client: T[] } {
+  const own: T[] = [];
+  const client: T[] = [];
+  for (const doc of docs) (isClientCvFilename(doc.filename) ? client : own).push(doc);
+  return { own, client };
+}
