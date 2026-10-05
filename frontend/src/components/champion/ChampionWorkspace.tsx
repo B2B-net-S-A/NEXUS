@@ -64,6 +64,8 @@ export interface ChampionWorkspaceProps {
    */
   fullFormDirty?: boolean;
   canEditChampion: boolean;
+  /** Zapis weryfikacji i briefingu (serwer: admin albo Delivery Lead). */
+  canVerifyChampion?: boolean;
   canWritePipeline: boolean;
   /** Uprawnienie do prowadzenia rekrutacji — pasek „Do dopięcia”. */
   canSeeGate: boolean;
@@ -89,6 +91,7 @@ export function ChampionWorkspace({
   onEditBlockChange,
   fullFormDirty = false,
   canEditChampion,
+  canVerifyChampion,
   canWritePipeline,
   canSeeGate,
   canEditJob,
@@ -151,6 +154,7 @@ export function ChampionWorkspace({
             canSeeGate={canSeeGate}
             canWritePipeline={canWritePipeline}
             canEditChampion={canEditChampion}
+            canVerifyChampion={canVerifyChampion}
             canEditJob={canEditJob}
             onGoChampion={goChampion}
             onEditJob={onEditJob}

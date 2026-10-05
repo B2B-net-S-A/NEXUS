@@ -484,6 +484,16 @@ async def apply_document(
         await refresh_order_gaps_safely(
             db, contract_ids=sorted(touched_contracts), actor_id=actor_user_id
         )
+        # D3 (04.10.2026) jak w ``commit_order_write``: uzupełnione zamówienie
+        # z maila zamyka sprawę po zatrudnieniu — dzwonek Finansów i kartę DL
+        # (bez tego dzwonek „bez zamówienia” wisiał bez końca; audyt 05.10.2026).
+        from app.services.hired_order_status import (  # noqa: PLC0415
+            resolve_hired_order_cases_safely,
+        )
+
+        await resolve_hired_order_cases_safely(
+            db, contract_ids=sorted(touched_contracts)
+        )
     return result
 
 

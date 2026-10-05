@@ -187,9 +187,33 @@ def overwrite_edited_job_columns(
     if rate_value is not None and 0 < rate_value <= _MAX_RATE_BUDGET_HOURLY:
         targets["rate_budget_hourly"] = rate_value
 
-    days_raw = _as_number(edited("onsite_days_per_week"))
-    if days_raw is not None and days_raw.is_integer() and 0 <= days_raw <= 7:
+    # 0407: wpis „N dni w miesiącu” niesie liczbę tygodniową wyliczoną przez
+    # serwer, a wpis tygodniowy czyści miesięczny — oba pola idą razem, jak
+    # przy uzupełnianiu pustych pól i w PATCH rekrutacji. Bez tego zmiana
+    # w edytorze zostawiała w rekrutacji stare „2 dni w miesiącu”, które
+    # strona kariery i portale czytają pierwsze (audyt 05.10.2026).
+    month_new = _as_number(new_basics.get("onsite_days_per_month"))
+    month_old = _as_number(old_basics.get("onsite_days_per_month"))
+    month_valid = (
+        month_new is not None and month_new.is_integer() and 1 <= month_new <= 22
+    )
+    days_raw = _as_number(new_basics.get("onsite_days_per_week"))
+    days_valid = days_raw is not None and days_raw.is_integer() and 0 <= days_raw <= 7
+    if month_valid and month_new != month_old:
+        from app.services.office_days import weekly_from_monthly
+
+        targets["onsite_days_per_month"] = int(month_new)
+        targets["onsite_days_per_week"] = weekly_from_monthly(int(month_new))
+    elif (
+        month_new is None
+        and days_valid
+        and (
+            days_raw != _as_number(old_basics.get("onsite_days_per_week"))
+            or month_old is not None
+        )
+    ):
         targets["onsite_days_per_week"] = int(days_raw)
+        targets["onsite_days_per_month"] = None
 
     remote = champion_work_mode_to_remote(edited("work_mode"))
     if remote is not None:

@@ -6437,7 +6437,7 @@ async def contract_timeline(
     items: list[ContractTimelineItem] = []
 
     for note, author_email in notes_res.all():
-        items.append(_note_timeline_item(note, author_email))
+        items.append(_note_timeline_item(note, author_email, viewer=current_user))
 
     for call, author_email in calls_res.all():
         items.append(
@@ -6464,13 +6464,20 @@ async def contract_timeline(
 
 
 def _note_timeline_item(
-    note: Note, author_email: Optional[str]
+    note: Note, author_email: Optional[str], *, viewer: Optional[User] = None
 ) -> ContractTimelineItem:
+    # Notatka kontraktu niesie też candidate_id — w profilu kandydata wpis
+    # o stawce do klienta (0412) jest zakryty, więc na osi kontraktu też
+    # (podgląd Delivery da się nadać rekruterowi). Audyt 05.10.2026.
+    from app.api.candidate_access import visible_note_content
+
     return ContractTimelineItem(
         id=note.id,
         kind="note",
         at=note.created_at,
-        content=note.content,
+        content=visible_note_content(viewer, note)
+        if viewer is not None
+        else note.content,
         sub_type=note.note_type.value
         if hasattr(note.note_type, "value")
         else str(note.note_type),

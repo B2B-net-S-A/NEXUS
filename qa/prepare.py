@@ -11,6 +11,27 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 from uuid import uuid4
 
 
+# A Champion profile that passes the handoff gate (same as the E2E helper).
+READY_CHAMPION = {
+    "project": {"about": "Platforma płatności B2B dla banku — rozwój usług."},
+    "screening_questions": [
+        {
+            "id": "q1",
+            "question": "Doświadczenie z Pythonem?",
+            "deal_breaker": "Brak komercyjnego projektu w Pythonie.",
+        },
+        {
+            "id": "q2",
+            "question": "Doświadczenie z Postgres?",
+            "deal_breaker": "Nie pracował z relacyjną bazą.",
+        },
+    ],
+    "stack": {"rows": [{"words": ["Python"], "level": "must"}], "critical": []},
+    "basics": {"rate_value": 150, "work_mode": "zdalnie"},
+    "search": {"requirements": [["Python"]]},
+}
+
+
 class NoRedirects(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         raise RuntimeError("QA requests must not redirect to another service")
@@ -82,6 +103,10 @@ def main() -> None:
         sessions[role] = {"token": token, "id": call("/api/auth/me", token=token)["id"]}
     admin = sessions["admin"]["token"]
     suffix = uuid4().hex[:10]
+    categories = call("/api/competence-categories", token=admin)
+    if not categories:
+        raise RuntimeError("QA stack has no competence categories")
+    category_id = categories[0]["id"]
     candidates, clients, jobs, contracts = [], [], [], []
     start, end = (
         (date.today() - timedelta(days=10)).isoformat(),
@@ -99,10 +124,25 @@ def main() -> None:
             "/api/jobs",
             token=admin,
             status=201,
+            # Since 04.10.2026 a recruitment is never a draft: POST /api/jobs
+            # creates, hands off and publishes in one transaction, so the body
+            # carries everything the handoff gate needs (mirror of
+            # frontend/e2e/helpers/entities.ts::createJob).
             data={
                 "title": f"QA Python {suffix} {i}",
                 "client_id": client["id"],
-                "recruiter_id": sessions["recruiter"]["id"],
+                "auto_suggest_cc": False,
+                "competence_category_id": category_id,
+                "remote_policy": "remote",
+                "rate_budget_hourly": 150,
+                "headcount": 1,
+                "deadline_not_provided": True,
+                "hiring_manager": {"not_provided": True},
+                "champion_profile": READY_CHAMPION,
+                "handoff": {
+                    "assignment_mode": "manual",
+                    "recruiter_id": sessions["recruiter"]["id"],
+                },
             },
         )
         jobs.append(job["id"])

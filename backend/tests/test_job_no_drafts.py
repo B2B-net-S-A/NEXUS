@@ -773,6 +773,8 @@ async def test_legacy_drafts_close_seven_days_after_deploy_and_leave_a_receipt()
         assert draft.status == JobStatus.closed
         assert draft.close_reason == JobCloseReason.other
         assert draft.close_notes == autoclose.CLOSE_NOTE
+        # Szkic nie wchodzi do mianownika hit ratio Ligi DL (audyt 05.10.2026).
+        assert draft.closed_at is None
         activity = await db.scalar(
             select(Activity).where(
                 Activity.entity_type == "job",

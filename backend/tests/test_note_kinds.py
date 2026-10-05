@@ -306,6 +306,25 @@ def test_client_rate_note_is_hidden_from_recruiter_but_not_from_its_author():
     assert not note_content_hidden(recruiter, kind=None, author_id=2)
 
 
+def test_text_search_never_matches_a_client_rate_note():
+    """`q` (lista, wyszukiwarka dosłowna, alerty v1) przeszukuje notatki —
+    trafienie w zakrytą notatkę zdradzałoby kwotę samym wynikiem
+    (q=161 zwraca osobę, q=162 nie). Audyt 05.10.2026."""
+    from sqlalchemy.dialects import postgresql
+
+    from app.services.advanced_candidate_search import _phrase_match
+
+    for phrase in ("161", "Wyślijmy za 161"):
+        compiled = _phrase_match(phrase).compile(dialect=postgresql.dialect())
+        sql = str(compiled)
+        params = [v for v in compiled.params.values()]
+        flat = [x for v in params for x in (v if isinstance(v, (list, tuple)) else [v])]
+        assert "notes.kind NOT IN" in sql, sql
+        assert "dl_rate" in flat, compiled.params
+        # Notatki systemowe zostają — reszta wyników v1 bez zmian.
+        assert "external_source" not in sql, sql
+
+
 # ── z bazą ───────────────────────────────────────────────────────────────────
 
 

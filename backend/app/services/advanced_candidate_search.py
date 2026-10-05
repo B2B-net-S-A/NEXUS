@@ -270,6 +270,7 @@ def _phrase_match(phrase: str, *, fuzzy: bool = False) -> ColumnElement:
     notes_branch = select(Note.candidate_id).where(
         Note.candidate_id.is_not(None),
         Note.content.ilike(pattern, escape="\\"),
+        note_kinds.not_client_rate_clause(),
     )
     if _fts_eligible(phrase):
         # `phrase` is guaranteed alphanumeric, so `phrase + ":*"` is always valid
