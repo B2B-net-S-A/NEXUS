@@ -241,3 +241,172 @@ async def test_dispatch_stores_a_link_to_the_event() -> None:
     assert notes[0].message.startswith("Za 5 minut:") or notes[0].message.startswith(
         "Za 4 minuty:"
     ), notes[0].message
+
+
+# ── Tylko wydarzenia rekrutacyjne (pomiar 05.10.2026) ───────────────────────
+#
+# W 7 dni 136 przypomnień, 0% przeczytanych; 120 z nich to zwykłe spotkania
+# z Outlooka bez kandydata i rekrutacji — Outlook przypomina o nich sam.
+
+
+async def _seed_candidate() -> int:
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate, CandidateStatus
+
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        candidate = Candidate(
+            name="Przypomnienie",
+            lastname=f"Kandydat{tag}",
+            email=f"reminder-cand-{tag}@example.com",
+            status=CandidateStatus.active,
+        )
+        db.add(candidate)
+        await db.commit()
+        return candidate.id
+
+
+async def _notifications_for(user_id: int) -> list:
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.notification import Notification
+
+    async with AsyncSessionLocal() as db:
+        return list(
+            (
+                await db.scalars(
+                    select(Notification).where(Notification.user_id == user_id)
+                )
+            ).all()
+        )
+
+
+async def _reminder_stamp(event_id: int):
+    from app.core.database import AsyncSessionLocal
+    from app.models.calendar_event import CalendarEvent
+
+    async with AsyncSessionLocal() as db:
+        event = await db.get(CalendarEvent, event_id)
+        return event.reminder_sent_at
+
+
+async def _due_now() -> set[int]:
+    from app.api.calendar import _due_reminder_ids
+    from app.core.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+        return set(await _due_reminder_ids(db, datetime.now(UTC)))
+
+
+def _outlook(**extra) -> dict:
+    from app.models.calendar_event import EventType
+
+    return {
+        "event_type": EventType.meeting,
+        "external_source": "microsoft365",
+        "external_id": f"graph-{uuid.uuid4().hex}",
+        "reminder_minutes": 15,
+        **extra,
+    }
+
+
+async def test_plain_outlook_meeting_gets_no_reminder() -> None:
+    from app.api.calendar import _dispatch_reminder
+
+    user_id = await _seed_user()
+    outlook = await _seed_event(user_id, lead=timedelta(minutes=10), **_outlook())
+    ical = await _seed_event(
+        user_id,
+        lead=timedelta(minutes=10),
+        **_outlook(external_source="ical", external_id=f"uid-{uuid.uuid4().hex}"),
+    )
+
+    due = await _due_now()
+    assert outlook not in due, "Outlook przypomina o swoich spotkaniach sam"
+    assert ical not in due
+
+    # Pod blokadą ta sama reguła: wywołanie wprost nic nie wysyła i nie
+    # stempluje (skan i tak tego wydarzenia nie wybiera).
+    with patch("app.api.ws.notify_user", new=AsyncMock()):
+        await _dispatch_reminder(outlook)
+    assert await _notifications_for(user_id) == []
+    assert await _reminder_stamp(outlook) is None
+
+
+async def test_outlook_meeting_with_candidate_is_reminded() -> None:
+    from app.api.calendar import _dispatch_reminder
+
+    user_id = await _seed_user()
+    candidate_id = await _seed_candidate()
+    with_candidate = await _seed_event(
+        user_id, lead=timedelta(minutes=10), **_outlook(candidate_id=candidate_id)
+    )
+
+    assert with_candidate in await _due_now()
+    with patch("app.api.ws.notify_user", new=AsyncMock()):
+        await _dispatch_reminder(with_candidate)
+    notes = await _notifications_for(user_id)
+    assert len(notes) == 1
+    assert notes[0].title == "Przypomnienie o wydarzeniu"
+    assert await _reminder_stamp(with_candidate) is not None
+
+
+async def test_meeting_created_in_nexus_without_candidate_is_reminded() -> None:
+    from app.models.calendar_event import EventType
+
+    user_id = await _seed_user()
+    # Formularz w NEXUSIE: źródło `manual`, właściciel operacyjny ustawiony.
+    manual = await _seed_event(
+        user_id,
+        lead=timedelta(minutes=10),
+        event_type=EventType.meeting,
+        external_source="manual",
+        operational_owner_id=user_id,
+        reminder_minutes=15,
+    )
+    # Zaproszenie z NEXUSA przez Outlooka: źródło `microsoft365`, ale
+    # `operational_owner_id` mówi, że wydarzenie powstało w NEXUSIE.
+    invite = await _seed_event(
+        user_id,
+        lead=timedelta(minutes=10),
+        **_outlook(operational_owner_id=user_id),
+    )
+
+    due = await _due_now()
+    assert manual in due
+    assert invite in due
+
+
+async def test_client_interview_is_reminded_even_from_outlook() -> None:
+    from app.models.calendar_event import EventType
+
+    user_id = await _seed_user()
+    client_interview = await _seed_event(
+        user_id,
+        lead=timedelta(minutes=10),
+        **_outlook(event_type=EventType.client_interview),
+    )
+    nexus_client_interview = await _seed_event(
+        user_id,
+        lead=timedelta(minutes=10),
+        event_type=EventType.client_interview,
+        reminder_minutes=15,
+    )
+
+    due = await _due_now()
+    assert client_interview in due
+    assert nexus_client_interview in due
+
+
+def test_reminder_rule_mirrors_the_frontend_recruitment_types() -> None:
+    """Typy rekrutacyjne mają lustro we froncie (`isOtherOutlookMeeting`)."""
+    from app.api.calendar import REMINDER_RECRUITMENT_EVENT_TYPES
+
+    config = (
+        BACKEND.parent / "frontend/src/components/calendar/calendar-config.tsx"
+    ).read_text(encoding="utf-8")
+    block = config[config.index("const RECRUITMENT_EVENT_TYPES") :]
+    block = block[: block.index("]);")]
+    front = set(re.findall(r'"([a-z_]+)"', block))
+    assert front == {t.value for t in REMINDER_RECRUITMENT_EVENT_TYPES}
