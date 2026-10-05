@@ -6,7 +6,9 @@
 * wbudowany runner JJIT liczy ``proposed`` jako udane dopasowanie;
 * jednorazowe przeniesienie starych, nietkniętych kart
   (``services/job_board_cards_to_proposals.py``): próba nic nie zapisuje,
-  każdy warunek wyklucza parę, zapis jest idempotentny.
+  każdy warunek wyklucza parę, zapis jest idempotentny; od 05.10.2026 także
+  karty z pustym ``entry_meta`` i notatką automatu (scraper 30.09–05.10) —
+  plakietka z notatki, notatka zostaje.
 """
 
 from __future__ import annotations
@@ -270,6 +272,7 @@ async def test_dry_run_writes_only_its_report():
     db = _RecordingDb()
     report = await conversion.plan(db)
     assert report["qualifying_pairs"] == 1 and report["base_pairs"] == 4
+    assert report["qualifying_from_automatch_notes"] == 0
     assert report["per_job"] == [{"job_id": 31, "pairs": 1}]
     assert report["samples"] == [
         {"candidate_id": 21, "job_id": 31, "process_id": 11, "stage_id": 41}
@@ -302,8 +305,47 @@ def test_qualifying_sql_carries_every_rule():
         "FROM screening_notes sn",
         "branded_status = 'none'",
         "base.process_id = :process_id",
+        "oauth_clients oc",
+        "COALESCE(nt.kind = 'automatch', false)",
+        "strpos(an.content, 'Auto-match score:')",
+        "b.automatch_note_ids",
     ):
         assert needle in sql
+
+
+_PRACUJ_NOTE = (
+    "Źródło: Pracuj.pl — oferta: Programista Python\n"
+    "Auto-match score: 71/100 (Jan Testowy)\n"
+    "Must-have trafione: Python, Django"
+)
+
+
+def test_entry_meta_from_scraper_note():
+    assert conversion.entry_meta_from_note(_PRACUJ_NOTE) == auto_match_entry_meta(
+        score=71, source="pracuj", must_hit=["Python", "Django"], must_total=None
+    )
+    jjit = conversion.entry_meta_from_note(
+        "<p>Źródło: RocketJobs/JJIT — oferta: X</p>"
+        "<p>Auto-match score: 63,5/100 (A B)</p><p>Must-have trafione: —</p>"
+    )
+    assert jjit["source"] == "jjit" and jjit["score"] == 64
+    assert jjit["must_hit"] == [] and jjit["must_total"] is None
+    assert conversion.entry_meta_from_note("Auto-match score: ?/100") is None
+    assert conversion.entry_meta_from_note(None) is None
+
+
+def test_process_badge_wins_over_note():
+    assert (
+        conversion.effective_entry_meta(
+            {"entry_meta": _META, "automatch_note": _PRACUJ_NOTE}
+        )
+        == _META
+    )
+    from_note = conversion.effective_entry_meta(
+        {"entry_meta": {}, "automatch_note": _PRACUJ_NOTE}
+    )
+    assert from_note["source"] == "pracuj"
+    assert conversion.effective_entry_meta({"entry_meta": None}) is None
 
 
 # ── z bazą (CI) ──────────────────────────────────────────────────────────────
@@ -362,7 +404,9 @@ async def _seed_candidate() -> int:
         return c.id
 
 
-async def _seed_card(job_id: int, candidate_id: int, actor_id: int) -> int:
+async def _seed_card(
+    job_id: int, candidate_id: int, actor_id: int, entry_meta: object = _META
+) -> int:
     """Karta jak od starej integracji: „Ogłoszenia”, auto_match, z wynikiem."""
     from app.core.database import AsyncSessionLocal
     from app.models.job import Job
@@ -378,7 +422,7 @@ async def _seed_card(job_id: int, candidate_id: int, actor_id: int) -> int:
             initial_stage_legacy="posting",
             entry_source="auto_match",
             claim=False,
-            entry_meta=_META,
+            entry_meta=entry_meta,
         )
         assert result.added == [candidate_id]
         await db.commit()
@@ -402,6 +446,94 @@ async def _qualifies(process_id: int) -> bool:
             )
         ).first()
         return row is not None
+
+
+async def _seed_integration_user() -> int:
+    """Użytkownik serwisowy klienta OAuth (jak scraper pracuj.pl + JJIT)."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.oauth_client import OAuthClient
+    from app.models.user import User, UserRole
+
+    unique = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        user = User(
+            email=f"jb-scraper-{unique}@example.com",
+            password_hash="!no-login!",
+            name=f"JB Scraper {unique}",
+            role=UserRole.recruiter,
+            roles=[UserRole.recruiter.value],
+            is_active=True,
+        )
+        db.add(user)
+        await db.flush()
+        db.add(
+            OAuthClient(
+                name=f"JB scraper {unique}",
+                client_id=f"jb-scraper-{unique}",
+                secret_hash="!test-no-secret!",
+                scopes=["candidate:write"],
+                enabled=True,
+                acting_user_id=user.id,
+            )
+        )
+        await db.commit()
+        return user.id
+
+
+async def _add_note(
+    cand_id: int, job_id: int, author_id: int, content: str, kind: str
+) -> int:
+    from app.core.database import AsyncSessionLocal
+    from app.models.note import Note, NoteType
+
+    async with AsyncSessionLocal() as db:
+        note = Note(
+            content=content,
+            note_type=NoteType.general,
+            candidate_id=cand_id,
+            job_id=job_id,
+            author_id=author_id,
+            kind=kind,
+            external_source="system",
+        )
+        db.add(note)
+        await db.commit()
+        return note.id
+
+
+async def _scraper_world(
+    note: str = _PRACUJ_NOTE,
+) -> tuple[int, int, int, int, int, int]:
+    """Karta bez plakietki (puste ``entry_meta``) + notatka automatu scrapera."""
+    actor = await _seed_admin()
+    scraper = await _seed_integration_user()
+    job_id = await _seed_job()
+    cand_id = await _seed_candidate()
+    process_id = await _seed_card(job_id, cand_id, scraper, entry_meta=None)
+    note_id = await _add_note(cand_id, job_id, scraper, note, "automatch")
+    return actor, scraper, job_id, cand_id, process_id, note_id
+
+
+async def _blocked_reasons(process_id: int) -> set[str]:
+    from app.core.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+        rules = await conversion.load_disqualifiers(db)
+        columns = ", ".join(f"({pred}) AS c{i}" for i, (_, pred) in enumerate(rules))
+        row = (
+            (
+                await db.execute(
+                    text(
+                        f"SELECT {columns} FROM ({conversion._BASE_SQL}) b "
+                        "WHERE b.process_id = :p"
+                    ),
+                    {"p": process_id},
+                )
+            )
+            .mappings()
+            .one()
+        )
+        return {reason for i, (reason, _) in enumerate(rules) if row[f"c{i}"]}
 
 
 async def _world(**job_fields) -> tuple[int, int, int, int]:
@@ -584,6 +716,97 @@ async def test_card_without_integration_score_is_left_alone(app_client):
         )
         await db.commit()
     assert not await _qualifies(process_id)
+
+
+@pytest.mark.asyncio
+async def test_scraper_card_without_badge_moves_with_score_from_note(app_client):
+    from app.core.database import AsyncSessionLocal
+    from app.models.job_proposal import JobProposal
+    from app.models.note import Note
+    from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
+    from app.models.user import User
+
+    actor_id, _, job_id, cand_id, process_id, note_id = await _scraper_world()
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text(
+                "UPDATE recruitment_processes SET entry_meta = CAST('{}' AS jsonb) "
+                "WHERE id = :p"
+            ),
+            {"p": process_id},
+        )
+        await db.commit()
+    assert await _qualifies(process_id)
+
+    async with AsyncSessionLocal() as db:
+        actor = await db.get(User, actor_id)
+        report = await conversion.apply(db, actor=actor, only_process_ids={process_id})
+    assert report["counts"]["moved"] == 1, report
+
+    async with AsyncSessionLocal() as db:
+        process = await db.get(RecruitmentProcess, process_id)
+        assert process.status == ProcessStatus.voided
+        proposal = await db.scalar(
+            select(JobProposal).where(
+                JobProposal.job_id == job_id,
+                JobProposal.candidate_id == cand_id,
+                JobProposal.source == "job_board",
+            )
+        )
+        assert proposal is not None and proposal.status == "proposed"
+        assert float(proposal.score) == 71.0
+        assert proposal.evidence["auto_match"]["source"] == "pracuj"
+        assert proposal.evidence["matched_must"] == ["Python", "Django"]
+        # Nic nie znika: notatka automatu zostaje, jej id jest w danych odwrócenia.
+        assert await db.get(Note, note_id) is not None
+        details = await db.scalar(
+            text("SELECT value FROM app_settings WHERE key = :k"),
+            {"k": conversion.DETAILS_KEY},
+        )
+        moved = [e for e in details["moved"] if e["process_id"] == process_id]
+        assert moved and moved[0]["automatch_note_ids"] == [note_id]
+        assert moved[0]["original_entry_meta"] == {}
+
+
+@pytest.mark.asyncio
+async def test_scraper_card_with_application_form_note_stays(app_client):
+    _, scraper, job_id, cand_id, process_id, _ = await _scraper_world()
+    await _add_note(
+        cand_id, job_id, scraper, "Formularz aplikacyjny pracuj.pl", "application_form"
+    )
+    assert not await _qualifies(process_id)
+    assert "notes" in await _blocked_reasons(process_id)
+
+
+@pytest.mark.asyncio
+async def test_application_card_without_automatch_note_is_not_in_base(app_client):
+    scraper = await _seed_integration_user()
+    job_id = await _seed_job()
+    cand_id = await _seed_candidate()
+    process_id = await _seed_card(job_id, cand_id, scraper, entry_meta=None)
+    await _add_note(
+        cand_id, job_id, scraper, "Formularz aplikacyjny pracuj.pl", "application_form"
+    )
+    assert not await _qualifies(process_id)
+
+
+@pytest.mark.asyncio
+async def test_scraper_card_with_human_note_stays(app_client):
+    actor, _, job_id, cand_id, process_id, _ = await _scraper_world()
+    await _add_note(cand_id, job_id, actor, "dzwoniłam, oddzwoni", "human")
+    assert not await _qualifies(process_id)
+    assert "notes" in await _blocked_reasons(process_id)
+
+
+@pytest.mark.asyncio
+async def test_scraper_note_without_score_is_skipped_with_reason(app_client):
+    _, _, _, _, process_id, _ = await _scraper_world(
+        note="Źródło: Pracuj.pl — oferta: X\nAuto-match score: brak (Jan Testowy)"
+    )
+    assert not await _qualifies(process_id)
+    reasons = await _blocked_reasons(process_id)
+    assert "automatch_note_unreadable" in reasons
+    assert "notes" not in reasons
 
 
 @pytest.mark.asyncio
