@@ -31,6 +31,7 @@ import {
   type PipelineMovePayload,
   type PipelineMoveResult,
 } from "@/lib/pipeline-move-core";
+import { invalidateAfterPipelineMove } from "@/lib/pipeline-move-invalidation";
 import { invalidateAfterPipelineVersionConflict } from "@/lib/pipeline-version-conflict";
 import { announceRejectionEmail } from "@/lib/rejection-email";
 import type { VerifiedRequirementsMissing } from "@/lib/verified-gate";
@@ -77,16 +78,18 @@ export function usePipelineMoveCore({ jobId }: { jobId: number }): PipelineMoveC
   const [debrief, setDebrief] = useState<DebriefState | null>(null);
   const sendRef = useRef<PipelineMoveCore["send"] | null>(null);
 
-  const syncBoard = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
-    void queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
-  }, [queryClient, jobId]);
+  // Ta sama lista co Tablica (`lib/pipeline-move-invalidation`): oba klucze
+  // tablicy, follow-up osoby, „Czeka na Ciebie”, wymagania ruchu.
+  const syncBoard = useCallback(
+    (candidateId?: number) => invalidateAfterPipelineMove(queryClient, jobId, candidateId),
+    [queryClient, jobId],
+  );
 
   const send = useCallback<PipelineMoveCore["send"]>(
     async (payload, handlers = {}) => {
       try {
         const res = await postPipelineMove(payload);
-        syncBoard();
+        syncBoard(payload.candidate_id);
         announceRejectionEmail(res.data, {
           requested: payload.send_rejection_email,
           reportSkip: !handlers.silent,
@@ -114,7 +117,7 @@ export function usePipelineMoveCore({ jobId }: { jobId: number }): PipelineMoveC
                 else resolve({ ok: false, refusal });
               },
               () => {
-                syncBoard();
+                syncBoard(payload.candidate_id);
                 resolve({ ok: false, refusal });
               },
               handlers.eligibilitySubject,
@@ -131,7 +134,7 @@ export function usePipelineMoveCore({ jobId }: { jobId: number }): PipelineMoveC
           );
           setDebrief(null);
           if (saved) return (await sendRef.current?.(payload, handlers)) ?? { ok: false, refusal };
-          syncBoard();
+          syncBoard(payload.candidate_id);
           return { ok: false, refusal };
         }
 
@@ -139,7 +142,7 @@ export function usePipelineMoveCore({ jobId }: { jobId: number }): PipelineMoveC
         if (refusal.kind === "version_conflict") {
           invalidateAfterPipelineVersionConflict(queryClient, jobId, payload.candidate_id);
         } else {
-          syncBoard();
+          syncBoard(payload.candidate_id);
         }
         if (refusal.kind === "verified_missing") handlers.onVerifiedMissing?.(refusal.info);
         if (refusal.kind === "cv_qc_failed") handlers.onCvQcFailed?.(refusal.failure);

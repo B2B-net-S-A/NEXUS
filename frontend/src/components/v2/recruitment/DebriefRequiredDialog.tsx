@@ -3,6 +3,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 
 import { DebriefDialog } from "@/components/calendar/cycle/DebriefDialog";
+import { invalidateAfterPipelineMove } from "@/lib/pipeline-move-invalidation";
 
 /**
  * Bramka „telefon po rozmowie u klienta” na tablicy rekrutacji (pipeline v4,
@@ -17,8 +18,8 @@ import { DebriefDialog } from "@/components/calendar/cycle/DebriefDialog";
  * po rozmowie, której jeszcze nie było.
  *
  * Debrief zapisuje się pod wydarzeniem rozmowy (`eventId`); `jobId` służy
- * odświeżeniu tablicy (odznaka „Debrief ✓” na karcie) — oba klucze kanbana,
- * jak po każdym ruchu.
+ * odświeżeniu tablicy (odznaka „Debrief ✓” na karcie) i panelu osoby —
+ * ta sama lista co po każdym ruchu (`invalidateAfterPipelineMove`).
  */
 export function DebriefRequiredDialog({
   open,
@@ -45,8 +46,7 @@ export function DebriefRequiredDialog({
       description={candidateName}
       submitLabel="Zapisz i przenieś dalej"
       onSaved={() => {
-        qc.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
-        qc.invalidateQueries({ queryKey: ["kanban", jobId] });
+        invalidateAfterPipelineMove(qc, jobId);
         onSaved();
       }}
       intro={

@@ -50,11 +50,28 @@ vi.mock("@/components/Toast", () => ({
 vi.mock("@/lib/celebrate", () => ({ celebrate: vi.fn() }));
 // Okno debriefu ma własne testy — tu liczy się tylko, że hook je otwiera
 // i po zapisie powtarza TEN SAM ruch.
+// Kolejność jak w `DebriefDialog`: po zapisie najpierw `onSaved`, potem
+// zamknięcie okna (`onOpenChange(false)`).
 vi.mock("@/components/v2/recruitment/DebriefRequiredDialog", () => ({
-  DebriefRequiredDialog: (p: { eventId: number; onSaved: () => void }) => (
-    <button type="button" onClick={p.onSaved}>
-      zapisz debrief {p.eventId}
-    </button>
+  DebriefRequiredDialog: (p: {
+    eventId: number;
+    onSaved: () => void;
+    onOpenChange: (open: boolean) => void;
+  }) => (
+    <div>
+      <button
+        type="button"
+        onClick={() => {
+          p.onSaved();
+          p.onOpenChange(false);
+        }}
+      >
+        zapisz debrief {p.eventId}
+      </button>
+      <button type="button" onClick={() => p.onOpenChange(false)}>
+        anuluj debrief
+      </button>
+    </div>
   ),
 }));
 
@@ -490,6 +507,77 @@ describe("usePipelineMove — ruch pojedynczy", () => {
     fireEvent.click(save);
     await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
     expect(post.mock.calls[1][1]).toMatchObject({ candidate_id: 110, stage: "screening" });
+  });
+
+  it("po zapisie debriefu tablica odświeża się dopiero PO ponowionym ruchu", async () => {
+    // Produkcja 05.10.2026: odczyt tablicy startował razem z ponowionym ruchem
+    // i wracał później niż on — karta zostawała w „Rozmowie u klienta”.
+    const item = card({ id: 12, candidate_id: 120, process_state_version: 3 });
+    const b = board({ fresh: [item] });
+    let finishMove!: (value: unknown) => void;
+    post
+      .mockRejectedValueOnce(conflict("DEBRIEF_REQUIRED", { event_id: 78 }))
+      .mockReturnValueOnce(new Promise((resolve) => (finishMove = resolve)));
+    const sync = vi.fn().mockResolvedValue(undefined);
+    const { invalidate } = mount(b.all, { apply: vi.fn(), confirm: vi.fn(), sync });
+
+    React.act(() => controls.requestMove(item, b.fresh, b.screening));
+    fireEvent.click(await screen.findByRole("button", { name: "zapisz debrief 78" }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+    // Zamknięcie okna po zapisie NIE ściąga tablicy w trakcie ruchu.
+    expect(sync).not.toHaveBeenCalled();
+
+    await React.act(async () => {
+      finishMove({ data: { id: 505, process_state_version: 4 } });
+    });
+    await waitFor(() => expect(sync).toHaveBeenCalledTimes(1));
+    const keys = invalidate.mock.calls.map((c) => (c[0] as { queryKey: unknown[] }).queryKey);
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        ["kanban", String(JOB_ID)],
+        ["kanban", JOB_ID],
+        ["candidate-followup"],
+        ["board-tasks"],
+        ["move-requirements"],
+        ["candidate-stage-history", 120, JOB_ID],
+      ])
+    );
+  });
+
+  it("„Anuluj” w oknie debriefu wraca do prawdy serwera bez ponowienia ruchu", async () => {
+    const item = card({ id: 13, candidate_id: 130, process_state_version: 3 });
+    const b = board({ fresh: [item] });
+    post.mockRejectedValueOnce(conflict("DEBRIEF_REQUIRED", { event_id: 79 }));
+    const sync = vi.fn().mockResolvedValue(undefined);
+    mount(b.all, { apply: vi.fn(), sync });
+
+    React.act(() => controls.requestMove(item, b.fresh, b.screening));
+    fireEvent.click(await screen.findByRole("button", { name: "anuluj debrief" }));
+    await waitFor(() => expect(sync).toHaveBeenCalledTimes(1));
+    expect(post).toHaveBeenCalledTimes(1);
+  });
+
+  it("udany ruch odświeża follow-up osoby, „Czeka na Ciebie” i wymagania ruchu", async () => {
+    const item = card({ id: 14, candidate_id: 140, process_state_version: 1 });
+    const b = board({ fresh: [item] });
+    post.mockResolvedValue({ data: { id: 506, process_state_version: 2 } });
+    const { invalidate } = mount(b.all);
+
+    React.act(() => controls.requestMove(item, b.fresh, b.screening));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    await waitFor(() => {
+      const keys = invalidate.mock.calls.map((c) => (c[0] as { queryKey: unknown[] }).queryKey);
+      expect(keys).toEqual(
+        expect.arrayContaining([
+          ["kanban", String(JOB_ID)],
+          ["kanban", JOB_ID],
+          ["candidate-followup"],
+          ["board-tasks"],
+          ["move-requirements"],
+          ["candidate-stage-history", 140, JOB_ID],
+        ])
+      );
+    });
   });
 
   it("409 PIPELINE_VERSION_CONFLICT → toast, sync, oba klucze, BEZ ponowienia", async () => {

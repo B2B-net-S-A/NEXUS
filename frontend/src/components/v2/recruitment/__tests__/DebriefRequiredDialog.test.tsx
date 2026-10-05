@@ -107,6 +107,10 @@ describe("DebriefRequiredDialog", () => {
     );
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["kanban", "22"] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["kanban", 22] });
+    // Panel osoby po debriefie: follow-up, kolejka i wymagania ruchu.
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["candidate-followup"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["board-tasks"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["move-requirements"] });
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
