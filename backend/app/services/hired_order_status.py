@@ -34,6 +34,7 @@ from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus
+from app.models.job import Job
 from app.models.notification import Notification, NotificationType
 from app.models.user import User, UserRole
 
@@ -59,24 +60,67 @@ def complete_order_clause():
     )
 
 
+_LIVE_CONTRACT_STATUSES = (ContractStatus.active, ContractStatus.ending)
+
+
+def pair_contract_clause():
+    """Kontrakt należy do pary (osoba, rekrutacja ``Job``) — warunek SQL.
+
+    Ta sama osoba (``Contract.candidate_id``) i jedno z trzech: kontrakt tej
+    rekrutacji, kontrakt tej osoby u KLIENTA rekrutacji bez rekrutacji albo
+    jej żywy kontrakt u tego klienta (``active``/``ending``) z innej
+    rekrutacji. Podpis i ręczne „Zatrudniony” podpinają właśnie taki żywy
+    kontrakt bez zmiany ``job_id`` (``_live_contracts_of_person_at_client``)
+    — liczone samym ``job_id`` konsultant zatrudniony drugi raz u tego
+    samego klienta dostawał „bez zamówienia”, które nigdy się nie zamykało
+    (audyt 05.10.2026). Zakończony kontrakt z innej rekrutacji się nie
+    liczy: jego zamówienie dotyczyło poprzedniej współpracy.
+    """
+    return and_(
+        Contract.status != ContractStatus.void,
+        or_(
+            Contract.job_id == Job.id,
+            and_(
+                Contract.client_id == Job.client_id,
+                or_(
+                    Contract.job_id.is_(None),
+                    Contract.status.in_(_LIVE_CONTRACT_STATUSES),
+                ),
+            ),
+        ),
+    )
+
+
 async def order_status_for_pairs(
     db: AsyncSession, pairs: Sequence[tuple[int, int]]
 ) -> dict[tuple[int, int], OrderStatus]:
     """``{(candidate_id, job_id): "complete" | "missing"}`` — jedno zapytanie.
 
-    Para liczy się po kontraktach (``Contract.candidate_id``/``job_id``, bez
-    unieważnionych) i ich zamówieniach. Para bez kontraktu = ``"missing"``.
+    Para liczy się po kontraktach tej osoby należących do pary
+    (``pair_contract_clause``: ta rekrutacja albo klient rekrutacji) i ich
+    zamówieniach. Para bez kontraktu = ``"missing"``.
     """
     keys = sorted({(int(c), int(j)) for c, j in pairs})
     if not keys:
         return {}
     result: dict[tuple[int, int], OrderStatus] = {key: "missing" for key in keys}
+    candidate_ids = sorted({c for c, _ in keys})
+    job_ids = sorted({j for _, j in keys})
     rows = await db.execute(
-        select(Contract.candidate_id, Contract.job_id)
+        select(Contract.candidate_id, Job.id)
+        .select_from(Contract)
+        .join(
+            Job,
+            and_(
+                Job.id.in_(job_ids),
+                or_(Job.id == Contract.job_id, Job.client_id == Contract.client_id),
+            ),
+        )
         .join(ClientOrder, ClientOrder.contract_id == Contract.id)
         .where(
-            tuple_(Contract.candidate_id, Contract.job_id).in_(keys),
-            Contract.status != ContractStatus.void,
+            Contract.candidate_id.in_(candidate_ids),
+            tuple_(Contract.candidate_id, Job.id).in_(keys),
+            pair_contract_clause(),
             complete_order_clause(),
         )
         .distinct()
@@ -229,9 +273,27 @@ async def resolve_hired_order_cases_safely(
                 ).all()
             }
             status = await order_status_for_pairs(db, list(pairs.values()))
-            done = [
+            done_set = {
                 cid for cid, pair in pairs.items() if status.get(pair) == "complete"
-            ]
+            }
+            # Kontrakt bez rekrutacji (``job_id`` NULL) nie ma pary — liczy się
+            # wtedy jego WŁASNE uzupełnione zamówienie. Do 05.10.2026 taki
+            # kontrakt był pomijany i jego sprawa nie zamykała się nigdy.
+            done_set.update(
+                (
+                    await db.scalars(
+                        select(Contract.id)
+                        .join(ClientOrder, ClientOrder.contract_id == Contract.id)
+                        .where(
+                            Contract.id.in_(ids),
+                            Contract.status != ContractStatus.void,
+                            complete_order_clause(),
+                        )
+                        .distinct()
+                    )
+                ).all()
+            )
+            done = sorted(done_set)
             if not done:
                 return 0
             await db.execute(

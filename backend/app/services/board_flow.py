@@ -509,19 +509,43 @@ async def _pdfs_new(db: AsyncSession, user: User, today: date) -> int:
     return sum(1 for e in entries if (e.kind, e.id) not in downloaded)
 
 
+# Zatrudnieni z okna `HIRED_WINDOW_DAYS`, którzy NADAL są w kolumnie „Zatrudniony”
+# (najnowszy wiersz pary to `hired` albo `onboarding`) i nie są wykluczonym
+# placementem (lustro `placement_exclusions.excluded_pair_exists_sql` —
+# literał, żeby `test_raw_sql_prepares` sprawdzał zapytanie). Do 05.10.2026
+# lista brała każdy wiersz `hired` z okna, więc osoba zatrudniona i potem
+# odrzucona/wycofana albo masowa rejestracja z Traffita wisiała Finansom jako
+# „bez zamówienia”.
 _HIRED_SQL = text(
     """
-    SELECT DISTINCT ON (cs.candidate_id, cs.job_id)
-           cs.candidate_id, cs.job_id, cs.moved_at,
+    WITH hired AS (
+        SELECT cs.candidate_id, cs.job_id, max(cs.moved_at) AS moved_at
+          FROM candidate_stages cs
+         WHERE cs.stage = 'hired'
+           AND cs.moved_at >= :since
+         GROUP BY cs.candidate_id, cs.job_id
+    ),
+    latest AS (
+        SELECT DISTINCT ON (cs.candidate_id, cs.job_id)
+               cs.candidate_id, cs.job_id, cs.stage
+          FROM candidate_stages cs
+          JOIN hired h
+            ON h.candidate_id = cs.candidate_id AND h.job_id = cs.job_id
+         ORDER BY cs.candidate_id, cs.job_id, cs.moved_at DESC, cs.id DESC
+    )
+    SELECT h.candidate_id, h.job_id, h.moved_at,
            j.title, j.working_title, cl.name AS client_name,
            c.name AS cname, c.lastname AS clastname
-      FROM candidate_stages cs
-      JOIN jobs j ON j.id = cs.job_id
-      JOIN candidates c ON c.id = cs.candidate_id
+      FROM hired h
+      JOIN latest l
+        ON l.candidate_id = h.candidate_id AND l.job_id = h.job_id
+      JOIN jobs j ON j.id = h.job_id
+      JOIN candidates c ON c.id = h.candidate_id
       LEFT JOIN clients cl ON cl.id = j.client_id
-     WHERE cs.stage = 'hired'
-       AND cs.moved_at >= :since
-     ORDER BY cs.candidate_id, cs.job_id, cs.moved_at DESC, cs.id DESC
+     WHERE l.stage::text IN ('hired', 'onboarding')
+       AND NOT EXISTS (SELECT 1 FROM placement_exclusions pe
+                        WHERE pe.candidate_id = h.candidate_id
+                          AND pe.job_id = h.job_id)
     """
 )
 

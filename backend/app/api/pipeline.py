@@ -1647,6 +1647,13 @@ async def move_candidate(
                         "job_id": job.id,
                         "stage": legacy_enum.value,
                         "order_id": (employment.order.id if employment.order else None),
+                        # Stawka z tej rekrutacji wpisana w szkic — po niej
+                        # podpis w Generatorze rozpoznaje zaślepkę.
+                        "seeded_rate_candidate": (
+                            str(employment.seeded_rate_candidate)
+                            if employment.seeded_rate_candidate is not None
+                            else None
+                        ),
                     },
                 )
             )
@@ -1735,87 +1742,15 @@ async def move_candidate(
                     link=f"/clients/{job.client_id}?tab=zamowienia",
                 )
 
-    # Obsada kompletna → PODPOWIEDŹ zamknięcia rekrutacji, nie automat.
-    #
-    # Zatrudnienie nie zmieniało dotąd stanu rekrutacji: `headcount` nie był
-    # dekrementowany, a `close_reason = filled_by_us` nie był ustawiany nigdzie
-    # w kodzie pipeline'u — stąd 315 rekrutacji zamkniętych w 90 dni BEZ powodu
-    # i raport wygranych/przegranych bez czego liczyć wygranej.
-    #
-    # Automatu tu nie ma świadomie (decyzja właściciela 2026-09-03): 99,6% ruchu
-    # pochodzi z importu, więc automatyczne domykanie działałoby retroaktywnie
-    # na tysiącach rekrutacji, o które nikt nie prosił. Powiadomienie prowadzi
-    # do ISTNIEJĄCEGO `POST /api/jobs/{job_id}/close`, który zapisuje powód
-    # i loguje `Activity`.
+    # Obsada kompletna → PODPOWIEDŹ zamknięcia rekrutacji, nie automat
+    # (`job_fill.suggest_closing_when_fully_staffed` — ta sama reguła woła
+    # potwierdzenie podpisu B2B). Savepoint, nigdy nie rzuca.
     if legacy_enum == PipelineStage.hired:
-        try:
-            from app.services.job_fill import is_fully_staffed, placements_by_job
+        from app.services.job_fill import (  # noqa: PLC0415
+            suggest_closing_when_fully_staffed,
+        )
 
-            # Skrót: właśnie kogoś zatrudniliśmy, więc obsada >= 1. Przy
-            # `headcount = 1` (default) wiemy to bez pytania widoku
-            # `analytics_first_milestones` — a to gorąca ścieżka `/move`.
-            headcount = int(job.headcount or 1)
-            filled = (
-                1
-                if headcount <= 1
-                else (await placements_by_job(db, [job.id])).get(job.id, 0)
-            )
-            already_hinted = await db.scalar(
-                select(Notification.id)
-                .where(
-                    Notification.related_entity_type == "job",
-                    Notification.related_entity_id == job.id,
-                    Notification.notification_type
-                    == NotificationType.suggest_next_step,
-                )
-                .limit(1)
-            )
-            if (
-                is_fully_staffed(headcount, filled)
-                and job.status != JobStatus.closed
-                # Bez dedupu KAŻDE kolejne zatrudnienie na tej rekrutacji
-                # rozsyłałoby ten sam komunikat do wszystkich admin/DL/TAC.
-                # Podpowiedź ma być jedna — jeśli ktoś ją zignorował, powtórka
-                # niczego nie doda, a nauczy ignorować powiadomienia.
-                and already_hinted is None
-            ):
-                # Odbiorcy = zespół TEJ rekrutacji (właściciel, DL, TAC,
-                # współpracownicy) + admini z `list_job_member_ids`, nie każdy
-                # DL/TAC w firmie — podpowiedź o cudzej rekrutacji uczyła
-                # ignorować powiadomienia.
-                from app.services.job_membership import list_job_member_ids
-
-                recipient_ids = await list_job_member_ids(db, job.id)
-                from app.services.notification_triggers import emit
-
-                title = f"Rekrutacja '{job.title}' ma komplet obsady"
-                message = (
-                    f"Obsadzono {filled} z {job.headcount or 1} "
-                    "etatów. Jeśli to koniec — zamknij rekrutację "
-                    "z powodem „Obsadzone przez nas”, żeby raport "
-                    "wygranych i przegranych miał z czego liczyć."
-                )
-                job_id = job.id
-                # `emit` zapisuje w savepoincie. `ix_notif_dedup_daily` nie zna
-                # typu encji, więc powiadomienie o KANDYDACIE #N z tego dnia
-                # blokowało podpowiedź dla REKRUTACJI #N — a `db.add` bez flush
-                # wywracał dopiero commit zatrudnienia (500 na /move).
-                for uid in recipient_ids:
-                    await emit(
-                        db,
-                        user_id=uid,
-                        title=title,
-                        message=message,
-                        ntype=NotificationType.suggest_next_step,
-                        related_entity_type="job",
-                        related_entity_id=job_id,
-                        link=f"/jobs/{job_id}",
-                    )
-        except Exception as _exc:  # noqa: BLE001
-            # Podpowiedź nie może wywrócić zatrudnienia.
-            logger.warning(
-                "fully-staffed hint failed for job=%s (%s)", job.id, type(_exc).__name__
-            )
+        await suggest_closing_when_fully_staffed(db, job)
 
     # Mail odrzucenia (0045_rejection_emails) jest OPT-IN od 17.09.2026:
     # planujemy WYŁĄCZNIE gdy klient przysłał `send_rejection_email=True`
@@ -2453,9 +2388,10 @@ async def build_kanban_view(
     interview_badges = await interview_badges_for_job(
         db, job_id=job_id, candidate_ids=candidate_ids, now=board_now
     )
-    hired_ids = [
-        s.candidate_id for s in seen.values() if s.stage == PipelineStage.hired
-    ]
+    # „Zatrudniony” na Tablicy to też Onboarding (`job_similarity.HIRED_STAGES`).
+    from app.services.job_similarity import HIRED_STAGES  # noqa: PLC0415
+
+    hired_ids = [s.candidate_id for s in seen.values() if s.stage in HIRED_STAGES]
     order_statuses = (
         await order_status_for_pairs(db, [(cid, job_id) for cid in hired_ids])
         if hired_ids
@@ -2622,7 +2558,7 @@ async def build_kanban_view(
         payload["interview_badge"] = interview_badges.get(e.candidate_id)
         payload["followup"] = _followup_badge(e.candidate_id)
         payload["rate_change"] = rate_change_by_candidate.get(e.candidate_id)
-        if e.stage == PipelineStage.hired:
+        if e.stage in HIRED_STAGES:
             payload["order_status"] = order_statuses.get((e.candidate_id, job_id))
         payload["agreement"] = agreements.get(e.candidate_id)
         v4 = v4_processes.get(e.candidate_id)
