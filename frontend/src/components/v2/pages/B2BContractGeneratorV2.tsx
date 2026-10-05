@@ -152,7 +152,11 @@ import {
   type GeneratorTab,
 } from "@/lib/b2b-generator-register";
 import { PickerQueryState } from "@/components/v2/filters/PickerQueryState";
-import { pairColumnLabel, prefillRateSource } from "@/lib/b2b-agreement";
+import {
+  agreementProjectDescription,
+  pairColumnLabel,
+  prefillRateSource,
+} from "@/lib/b2b-agreement";
 
 // Router generatora ma szeroką bramkę Sourcing, ale operacje na dokumentach
 // ze stawką mają osobne, konfigurowalne uprawnienie. Poziom `view` dostaje
@@ -258,6 +262,10 @@ type JobDetail = {
   description?: string | null;
   location?: string | null;
   client_name?: string | null;
+  // Źródło rekrutacji i Profil Championa — opis projektu do umowy wybiera
+  // `agreementProjectDescription` (surowy mail klienta nie trafia do § 1).
+  external_source?: string | null;
+  champion_profile?: unknown;
 };
 
 type Lang = "pl" | "en";
@@ -3889,8 +3897,9 @@ export function GeneratorForm({
     // inaczej umowa dostawała miasto i klienta z poprzednio wybranej.
     const replace = jobFieldsFromJob.current;
     jobFieldsFromJob.current = true;
-    if (j.description) {
-      setProjectDescription(j.description);
+    const jobDescription = agreementProjectDescription(j);
+    if (jobDescription) {
+      setProjectDescription(jobDescription);
       descTouched.current = true; // opis z rekrutacji ma priorytet nad smart-prefillem
     } else if (replace) {
       descTouched.current = false;

@@ -112,3 +112,41 @@ export function signedAgreementWithContract(
     ? agreement
     : null;
 }
+
+/** Pola rekrutacji, z których Generator bierze opis projektu do § 1 umowy. */
+export interface AgreementJobSource {
+  external_source?: string | null;
+  description?: string | null;
+  champion_profile?: unknown;
+}
+
+function textAt(source: unknown, section: string, key: string): string | null {
+  if (!source || typeof source !== "object") return null;
+  const block = (source as Record<string, unknown>)[section];
+  if (!block || typeof block !== "object") return null;
+  const value = (block as Record<string, unknown>)[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/**
+ * Opis projektu do umowy z kontraktorem (05.10.2026).
+ *
+ * Rekrutacja z Traffita ma w `description` ogłoszenie — zostaje jak było.
+ * Rekrutacja założona w NEXUSIE (`/jobs/new`, od 25.09.2026) ma tam SUROWY
+ * mail klienta, często ze stawką, którą płaci klient — ten tekst nie może
+ * trafić do umowy. Wtedy opis idzie z Profilu Championa („O projekcie”),
+ * a bez niego `null` (Generator podpowiada wtedy opis z obszaru).
+ */
+export function agreementProjectDescription(
+  job: AgreementJobSource | null | undefined,
+): string | null {
+  if (!job) return null;
+  if (job.external_source === "traffit") {
+    return job.description?.trim() ? job.description : null;
+  }
+  return (
+    textAt(job.champion_profile, "project", "about") ??
+    // Profil w starym kształcie (przed przebudową 09.2026).
+    textAt(job.champion_profile, "project_context", "about")
+  );
+}
