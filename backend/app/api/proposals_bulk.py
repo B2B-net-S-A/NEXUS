@@ -32,7 +32,6 @@ from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.job import Job
-from app.models.job_proposal import JobProposal
 from app.models.note import SYSTEM_NOTE_SOURCE, Note, NoteType
 from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import (
@@ -54,6 +53,7 @@ from app.services.priority_work_policy import milestone_counts_scope
 from app.services.recruitment_process_commands import (
     canonical_candidate_lock_order,
     open_process,
+    open_reassign_sources,
 )
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
@@ -406,25 +406,15 @@ def _merge_tags(existing: list, incoming: list[str]) -> list:
 async def _reassign_sources(
     db: AsyncSession, job_id: int, candidate_ids: list[int]
 ) -> dict[int, Optional[int]]:
-    """Kandydat → rekrutacja, z której przyszło otwarte przepięcie."""
+    """Kandydat → rekrutacja, z której przyszło otwarte przepięcie.
 
-    if not candidate_ids:
-        return {}
-    rows = (
-        await db.execute(
-            select(JobProposal.candidate_id, JobProposal.evidence).where(
-                JobProposal.job_id == job_id,
-                JobProposal.candidate_id.in_(candidate_ids),
-                JobProposal.source == "reassign",
-                JobProposal.status == "proposed",
-            )
-        )
-    ).all()
-    out: dict[int, Optional[int]] = {}
-    for candidate_id, evidence in rows:
-        source_job = ((evidence or {}).get("reassign") or {}).get("job_id")
-        out[candidate_id] = source_job if isinstance(source_job, int) else None
-    return out
+    Ta sama kwerenda co rozpoznanie przy zakładaniu procesu
+    (``recruitment_process_commands.open_reassign_sources``) — tu liczona raz
+    na całą paczkę, bo ścieżka zbiorcza oznacza też propozycję źródłem
+    ``proposal`` jako przepięcie.
+    """
+
+    return await open_reassign_sources(db, job_id=job_id, candidate_ids=candidate_ids)
 
 
 # Ekran → źródło wejścia (0352). Propozycje systemu to „proposal", reszta to

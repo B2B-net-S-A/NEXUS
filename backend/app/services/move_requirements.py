@@ -815,7 +815,26 @@ async def load_pair_facts(
     from_column = (
         await candidate_claim.stage_column(db, latest) if latest is not None else None
     )
-    screening_row = next((r for r in rows if sheet_filled(r.screening_answers)), None)
+    # Arkusz tylko bieżącej próby procesu (audyt 05.10.2026): osoba, która
+    # wraca do rekrutacji po długiej przerwie, nie przechodzi na
+    # „Zweryfikowany” arkuszem sprzed roku. Ta sama reguła przenosi arkusz
+    # przy ruchu (``recruitment_process_commands.screening_window``).
+    from app.services.recruitment_process_commands import (  # noqa: PLC0415
+        screening_window,
+    )
+
+    process = await candidate_claim.load_process(
+        db, candidate_id=candidate.id, job_id=job.id
+    )
+    window = screening_window(process)
+    screening_row = next(
+        (
+            r
+            for r in rows
+            if sheet_filled(r.screening_answers) and window.covers(r.moved_at)
+        ),
+        None,
+    )
     from app.services.candidate_rate_from import effective_rate
 
     candidate_rate = effective_rate(candidate)[0] is not None or any(
@@ -945,11 +964,7 @@ async def load_pair_facts(
             card_row.fields_notes or {},
             card_row.fields_manual or {},
             card_row.note_answers,
-            started=recommendation_cards.attempt_started(
-                await candidate_claim.load_process(
-                    db, candidate_id=candidate.id, job_id=job.id
-                )
-            ),
+            started=recommendation_cards.attempt_started(process),
         )
 
     return PairFacts(

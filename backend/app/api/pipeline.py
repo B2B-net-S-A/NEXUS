@@ -3078,11 +3078,29 @@ async def get_stage_screening(
 async def _latest_filled_screening(
     db: AsyncSession, stage: CandidateStage
 ) -> tuple[Optional[dict], Optional[int]]:
-    """Arkusz screeningu etapu, a gdy pusty — najnowszy wypełniony tej pary."""
+    """Arkusz screeningu etapu, a gdy pusty — najnowszy wypełniony tej pary
+    z próby procesu, do której należy etap (audyt 05.10.2026: karta osoby,
+    która wróciła po przerwie, nie pokazuje arkusza sprzed roku).
+
+    Wiersz poprzedniej próby (historia w „Zamkniętych”) czyta arkusze pary jak
+    dotąd; nowa próba (``attempt_no > 1``) — tylko od swojego początku.
+    """
     if _sheet_filled(stage.screening_answers):
         return stage.screening_answers, None
+    from app.services.recommendation_cards import attempt_started  # noqa: PLC0415
+
+    started = attempt_started(
+        await candidate_claim.load_process(
+            db, candidate_id=stage.candidate_id, job_id=stage.job_id
+        )
+    )
+    if started is not None and stage.moved_at is not None:
+        if stage.moved_at < started:
+            started = None
     rows = await db.execute(
-        select(CandidateStage.id, CandidateStage.screening_answers)
+        select(
+            CandidateStage.id, CandidateStage.screening_answers, CandidateStage.moved_at
+        )
         .where(
             CandidateStage.candidate_id == stage.candidate_id,
             CandidateStage.job_id == stage.job_id,
@@ -3091,9 +3109,12 @@ async def _latest_filled_screening(
         )
         .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
     )
-    for row_id, answers in rows.all():
-        if _sheet_filled(answers):
-            return answers, row_id
+    for row_id, answers, moved_at in rows.all():
+        if not _sheet_filled(answers):
+            continue
+        if started is not None and (moved_at is None or moved_at < started):
+            continue
+        return answers, row_id
     return stage.screening_answers or None, None
 
 

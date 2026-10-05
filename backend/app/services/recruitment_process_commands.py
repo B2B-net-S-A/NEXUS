@@ -16,7 +16,7 @@ from app.services.operational_tasks import nominal_task_owner
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from fastapi import HTTPException, status
@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import Candidate
 from app.models.job import Job
+from app.models.job_proposal import JobProposal
 from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import (
     CandidateStage,
@@ -620,29 +621,135 @@ def _screening_filled(payload: object) -> bool:
     return any(value not in (None, "", [], {}) for value in payload.values())
 
 
+# Powrót z „Zamkniętych” krótko po zamknięciu poprzedniej próby to ta sama
+# rozmowa z kandydatem — arkusz idzie z nim. Po dłuższej przerwie osoba wraca
+# jako nowa próba i musi przejść screening od nowa (audyt 05.10.2026: osoba
+# odrzucona rok temu wchodziła na „Zweryfikowany” ze starym arkuszem).
+SCREENING_REOPEN_GRACE = timedelta(days=30)
+
+
+@dataclass(frozen=True)
+class ScreeningWindow:
+    """Które wiersze etapów pary niosą arkusz screeningu bieżącej próby.
+
+    ``counts`` = False: żaden zapisany arkusz się nie liczy (następny ruch
+    otworzy nową próbę po długiej przerwie). ``since`` = początek próby, od
+    którego liczą się wiersze; ``None`` = wszystkie wiersze pary.
+    """
+
+    counts: bool
+    since: Optional[datetime]
+
+    def covers(self, moved_at: Optional[datetime]) -> bool:
+        if not self.counts:
+            return False
+        if self.since is None:
+            return True
+        if moved_at is None:
+            return False
+        return _aware(moved_at) >= _aware(self.since)
+
+
+def _aware(moment: datetime) -> datetime:
+    return moment if moment.tzinfo is not None else moment.replace(tzinfo=timezone.utc)
+
+
+def screening_window(
+    process: Optional[RecruitmentProcess], *, at: Optional[datetime] = None
+) -> ScreeningWindow:
+    """Okno arkusza screeningu dla NAJNOWSZEJ próby pary.
+
+    Jedna reguła dla przeniesienia arkusza przy ruchu (``transition_process``)
+    i wymagań ruchu (``move_requirements.load_pair_facts``):
+
+    * proces otwarty — wiersze od początku tej próby (próba 1 = wszystkie,
+      lustro ``recommendation_cards.attempt_started``);
+    * proces zamknięty krócej niż ``SCREENING_REOPEN_GRACE`` temu — ruch
+      otworzy nową próbę, ale arkusz poprzedniej przechodzi z osobą;
+    * zamknięty dawniej — żaden stary arkusz się nie liczy.
+    """
+    if process is None:
+        return ScreeningWindow(counts=True, since=None)
+    started = process.opened_at if (process.attempt_no or 1) > 1 else None
+    if process.status == ProcessStatus.open:
+        return ScreeningWindow(counts=True, since=started)
+    closed_at = process.closed_at or process.opened_at
+    if closed_at is None:
+        return ScreeningWindow(counts=False, since=None)
+    moment = _aware(at or datetime.now(timezone.utc))
+    if moment - _aware(closed_at) <= SCREENING_REOPEN_GRACE:
+        return ScreeningWindow(counts=True, since=started)
+    return ScreeningWindow(counts=False, since=None)
+
+
 async def _latest_screening_answers(
-    db: AsyncSession, *, candidate_id: int, job_id: int
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    job_id: int,
+    window: ScreeningWindow,
 ) -> Optional[dict]:
     """Najnowszy wypełniony arkusz screeningu pary (Pipeline v4, 23.09.2026).
 
     Screening robi się w „Nowych", a portal klienta, generator CV i przegląd
     DL czytają arkusz z BIEŻĄCEGO wiersza etapu — bez przeniesienia odpowiedzi
-    znikały po pierwszym ruchu. Arkusz należy do pary, nie do etapu.
+    znikały po pierwszym ruchu. Arkusz należy do pary, nie do etapu — ale
+    tylko do bieżącej próby (``screening_window``).
     """
+    if not window.counts:
+        return None
+    query = select(CandidateStage.screening_answers).where(
+        CandidateStage.candidate_id == candidate_id,
+        CandidateStage.job_id == job_id,
+        CandidateStage.screening_answers.isnot(None),
+    )
+    if window.since is not None:
+        query = query.where(CandidateStage.moved_at >= window.since)
     rows = await db.execute(
-        select(CandidateStage.screening_answers)
-        .where(
-            CandidateStage.candidate_id == candidate_id,
-            CandidateStage.job_id == job_id,
-            CandidateStage.screening_answers.isnot(None),
+        query.order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc()).limit(
+            20
         )
-        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
-        .limit(20)
     )
     for (answers,) in rows.all():
         if _screening_filled(answers):
             return dict(answers)
     return None
+
+
+async def open_reassign_sources(
+    db: AsyncSession, *, job_id: int, candidate_ids: Iterable[int]
+) -> dict[int, Optional[int]]:
+    """Kandydat → rekrutacja, z której przyszło otwarte przepięcie.
+
+    Otwarta propozycja ``source='reassign'`` daje procesowi wejście
+    „przepięcie” niezależnie od ekranu dodania (0352). Wartość ``None`` =
+    przepięcie bez znanej rekrutacji źródłowej.
+    """
+    ids = sorted({int(c) for c in candidate_ids})
+    if not ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(JobProposal.candidate_id, JobProposal.evidence).where(
+                JobProposal.job_id == job_id,
+                JobProposal.candidate_id.in_(ids),
+                JobProposal.source == "reassign",
+                JobProposal.status == "proposed",
+            )
+        )
+    ).all()
+    out: dict[int, Optional[int]] = {}
+    for candidate_id, evidence in rows:
+        reassign = (evidence or {}).get("reassign") or {}
+        source_job = reassign.get("job_id") if isinstance(reassign, dict) else None
+        out[candidate_id] = source_job if isinstance(source_job, int) else None
+    return out
+
+
+# Źródła wejścia, które rozpoznanie przepięcia może doprecyzować: brak
+# źródła i zwykłe ręczne dodanie. Jawne źródła (zgłoszenie, propozycja,
+# automat, import) zostają, jak podał wołający.
+_REASSIGN_DETECTABLE_SOURCES = frozenset({None, candidate_claim.ENTRY_ADDED_MANUAL})
 
 
 async def transition_process(
@@ -787,7 +894,10 @@ async def transition_process(
         values.pop(owned, None)
     if not values.get("screening_answers"):
         carried = await _latest_screening_answers(
-            db, candidate_id=candidate_id, job_id=job_id
+            db,
+            candidate_id=candidate_id,
+            job_id=job_id,
+            window=screening_window(previous_process, at=moved_at),
         )
         if carried is not None:
             values["screening_answers"] = carried
@@ -822,6 +932,17 @@ async def transition_process(
             source_authority=source_authority,
             semantics=semantics,
         )
+        if (
+            entry_source in _REASSIGN_DETECTABLE_SOURCES
+            and reassign_from_job_id is None
+            and source_authority == "live_command"
+        ):
+            reassign = await open_reassign_sources(
+                db, job_id=job_id, candidate_ids=[candidate_id]
+            )
+            if candidate_id in reassign:
+                entry_source = candidate_claim.ENTRY_REASSIGN
+                reassign_from_job_id = reassign[candidate_id]
         if entry_source is not None:
             process.entry_source = entry_source
         if reassign_from_job_id is not None:
