@@ -56,10 +56,16 @@ import {
 } from "@/lib/dashboard-tiles/layout"
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature"
 import { useAuthStore } from "@/store/auth"
+import {
+  canCustomizeBoardPanel,
+  effectiveHiddenPanels,
+  type DashboardPanelKey,
+} from "@/lib/dashboard-panels"
 
 import { DashboardGrid, type DashboardGridMode } from "./DashboardGrid"
 import { EmptyDashboard } from "./EmptyDashboard"
 import { BoardTasksPanel } from "../BoardTasksPanel"
+import { BoardPanelsMenu } from "./BoardPanelsMenu"
 import { TileCatalogSheet } from "./TileCatalogSheet"
 import { TileSettingsDialog } from "./TileSettingsDialog"
 
@@ -152,6 +158,20 @@ export function CustomDashboard() {
   const query = useUserDashboard()
   const setPanelHidden = useSetDashboardPanelHidden()
   const save = useSaveUserDashboard()
+  const storedHiddenPanels = query.data?.hidden_panels
+  const hiddenPanels = useMemo(
+    () => effectiveHiddenPanels(user, storedHiddenPanels),
+    [user, storedHiddenPanels],
+  )
+  const canCustomizePanels = canCustomizeBoardPanel(user)
+  const togglePanel = (panel: DashboardPanelKey, hidden: boolean) =>
+    setPanelHidden.mutate(
+      { panel, hidden },
+      {
+        onError: (error) =>
+          showError(apiErrorMessage(error, "Nie udało się zapisać list nad pulpitem.")),
+      },
+    )
 
   const [editing, setEditing] = useState(false)
   // Tryb siatki mierzony przez `DashboardGrid` (szerokość kontenera). „Edytuj
@@ -418,6 +438,13 @@ export function CustomDashboard() {
                   </Link>
                 </Button>
               ) : null}
+              {canCustomizePanels && query.isSuccess ? (
+                <BoardPanelsMenu
+                  hidden={hiddenPanels}
+                  disabled={setPanelHidden.isPending}
+                  onChange={togglePanel}
+                />
+              ) : null}
               {saved.length > 0 && gridMode === "grid" ? (
                 <Button variant="outline" onClick={startEditing}>
                   <LayoutGrid className="h-4 w-4" />
@@ -435,7 +462,7 @@ export function CustomDashboard() {
 
       {/* Kolejka „Czeka na Ciebie" (przegląd DL, Cpro) stoi nad układem, a nie jako
           kafelek: zadanie ma dotrzeć do osoby, która pulpitu nie układała. */}
-      {editing ? null : <BoardTasksPanel />}
+      {editing ? null : <BoardTasksPanel hiddenPanels={hiddenPanels} />}
 
       {editing ? (
         <div
@@ -615,7 +642,7 @@ export function CustomDashboard() {
         user={user}
         onPick={pickTemplate}
         onCustomMetric={() => pickTemplate(CUSTOM_METRIC_TEMPLATE)}
-        hiddenPanels={query.data?.hidden_panels ?? []}
+        hiddenPanels={[...hiddenPanels]}
         onRestorePanel={(panel) =>
           setPanelHidden.mutate(
             { panel, hidden: false },

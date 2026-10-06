@@ -51,7 +51,7 @@
  */
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Clock, Eye, ListOrdered } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -73,6 +73,7 @@ import {
 } from "@/lib/api/boardTasks";
 import { formatDayLabel, formatTime } from "@/lib/interview-cycle";
 import { countPl } from "@/lib/plural-pl";
+import { withoutHiddenPanels, type DashboardPanelKey } from "@/lib/dashboard-panels";
 import { boardCardBadge } from "@/lib/recommendation-card";
 
 import {
@@ -135,7 +136,15 @@ function RowMeta({ row }: { row: BoardTaskRow }) {
 
 export { BOARD_TASKS_ROWS } from "./BoardTasksSection";
 
-export function BoardTasksPanel() {
+interface BoardTasksPanelProps {
+  /** Listy usunięte z pulpitu (Head of Recruitment — `lib/dashboard-panels.ts`).
+   *  Ukryta lista wygląda dla panelu jak pusta. */
+  hiddenPanels?: ReadonlySet<DashboardPanelKey>;
+}
+
+const NO_HIDDEN_PANELS: ReadonlySet<DashboardPanelKey> = new Set();
+
+export function BoardTasksPanel({ hiddenPanels = NO_HIDDEN_PANELS }: BoardTasksPanelProps = {}) {
   const query = useBoardTasks();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [reviewing, setReviewing] = useState<BoardTaskRow | null>(null);
@@ -144,7 +153,10 @@ export function BoardTasksPanel() {
   const toggle = (kind: string) => setExpanded((prev) => ({ ...prev, [kind]: !prev[kind] }));
   const shown = <T,>(kind: string, rows: T[]): T[] =>
     expanded[kind] ? rows : rows.slice(0, BOARD_TASKS_ROWS);
-  const data = query.data;
+  const data = useMemo(
+    () => (query.data ? withoutHiddenPanels(query.data, hiddenPanels) : undefined),
+    [query.data, hiddenPanels],
+  );
   const hasCpro = (data?.cpro_to_send.length ?? 0) > 0;
   // Osobę od Cpro ustawia admin albo DL Nordei (25.09.2026) — przełącznik
   // stoi u nich także przy pustej kolejce, inaczej martwe konto albo brak

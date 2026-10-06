@@ -69,12 +69,36 @@ TileType = Literal[
 # Jedna lista: Literal waliduje zapis, krotka służy testowi lustra frontu.
 TILE_TYPES: tuple[str, ...] = get_args(TileType)
 
-# Listy stojące NAD kafelkami, które każdy ma domyślnie i może usunąć
-# z pulpitu (02.10.2026). To nie kafelki siatki: usunięcie zapisuje się
-# w `layout["hidden_panels"]`, obok `tiles`.
-PanelKey = Literal["cv_in_transit"]
+# Listy panelu „Czeka na Ciebie” stojące NAD kafelkami. To nie kafelki
+# siatki: usunięcie zapisuje się w `layout["hidden_panels"]`, obok `tiles`.
+# „Twoje CV w drodze” usuwa każdy (02.10.2026); pozostałe listy wyłącznie
+# Head of Recruitment (decyzja Artura 06.10.2026) — osobom pracującym przy
+# kandydatach zadanie ma dotrzeć, nawet gdy pulpitu nie układały.
+# Lustro: `frontend/src/lib/dashboard-panels.ts`.
+PanelKey = Literal[
+    "cv_in_transit",
+    "allocation_proposals",
+    "new_job_leads",
+    "pending_jobs",
+    "board_flow",
+    "followups",
+    "agreements",
+    "rate_changes",
+    "dl_review",
+    "cpro",
+    "prep_attention",
+]
 PANEL_KEYS: tuple[str, ...] = get_args(PanelKey)
 PANEL_CV_IN_TRANSIT = "cv_in_transit"
+PANEL_EDIT_ROLES: tuple[str, ...] = ("head_of_recruitment",)
+
+
+def may_hide_panel(user: Any, panel: str) -> bool:
+    """Czy osoba może usunąć listę z pulpitu (przywrócić może zawsze)."""
+
+    if panel == PANEL_CV_IN_TRANSIT:
+        return True
+    return any(user.has_role(role) for role in PANEL_EDIT_ROLES)
 
 
 def hidden_panels(raw: Any) -> list[str]:
