@@ -114,7 +114,7 @@ describe("ManualSearchPanel — lista Kandydatów osadzona w rekrutacji", () => 
     expect(lastEmbed().readOnly).toBe(false);
   });
 
-  it("wymagania z Championa: wiersze i wykluczenia na start, bez tytułu po znaczeniu", async () => {
+  it("wymagania z Championa: obowiązkowe tylko krytyczne z serwera, z wariantami (D1/W1/W4)", async () => {
     mocks.getReqs.mockResolvedValue({ must: ["SQL"] });
     mocks.getChampion.mockResolvedValue({
       data: {
@@ -124,44 +124,82 @@ describe("ManualSearchPanel — lista Kandydatów osadzona w rekrutacji", () => 
             exclude: ["junior"],
           },
         },
+        critical_resolution: {
+          stored: ["Kafka lub RabbitMQ"],
+          decided: true,
+          effective: ["Kafka lub RabbitMQ"],
+          source: "dl",
+          suggested: [],
+          search_rows: [["Kafka", "Apache Kafka", "RabbitMQ"]],
+        },
       },
     });
     renderPanel();
     await screen.findByTestId("candidates-list");
     const embed = lastEmbed();
     expect(mocks.getChampion).toHaveBeenCalledWith(7);
-    // Obowiązkowe tylko technologie; „bankowość” i wzorzec z gwiazdką podnoszą.
-    expect(embed.initialFilters.qAny).toEqual([["Java"], ["Kafka", "RabbitMQ"]]);
-    expect(embed.initialFilters.qPreferred).toEqual([["bankowość"], ["bankow*"]]);
+    // Wiersz z krytyczną dostaje warianty z serwera; reszta tylko podnosi.
+    expect(embed.initialFilters.qAny).toEqual([["Kafka", "RabbitMQ", "Apache Kafka"]]);
+    expect(embed.initialFilters.qPreferred).toEqual([["Java"], ["bankowość"], ["bankow*"]]);
     expect(embed.initialFilters.qNone).toEqual(["junior"]);
-    // Wzorca z gwiazdką nie trzeba pytać serwera.
-    expect(mocks.classify).not.toHaveBeenCalledWith("bankow*");
+    // Klasyfikacja „technologia / nie” nie decyduje już o obowiązkowości.
+    expect(mocks.classify).not.toHaveBeenCalled();
     expect(embed.initialFilters.q).toBe("");
-    // Must-have zostają w rankingu jak dotąd.
-    expect(embed.initialFilters.skillsPreferred).toEqual(["SQL"]);
-    expect(embed.keywordsNote).toMatch(/ustawione przy tworzeniu rekrutacji/);
+    // D2: przy wierszach must-have nie liczą się drugi raz w „Umiejętnościach”.
+    expect(embed.initialFilters.skillsPreferred).toEqual([]);
+    expect(embed.keywordsNote).toMatch(/wybrane przez Delivery Leada: Kafka lub RabbitMQ/);
   });
 
-  it("błąd klasyfikacji — wiersz zostaje obowiązkowy, jak przed zmianą", async () => {
+  it("podpowiedź z historii — ekran mówi, że DL nie wybrał krytycznych (W2)", async () => {
     mocks.getReqs.mockResolvedValue({ must: [] });
     mocks.getChampion.mockResolvedValue({
-      data: { champion_profile: { search: { requirements: [["bankowość"]] } } },
+      data: {
+        champion_profile: { search: { requirements: [["Java"], ["Spring"]] } },
+        critical_resolution: {
+          stored: null,
+          decided: false,
+          effective: ["Java"],
+          source: "suggested",
+          suggested: ["Java"],
+          search_rows: [["Java", "j2ee"]],
+        },
+      },
     });
-    mocks.classify.mockResolvedValue(null);
     renderPanel();
     await screen.findByTestId("candidates-list");
-    expect(lastEmbed().initialFilters.qAny).toEqual([["bankowość"]]);
-    expect(lastEmbed().initialFilters.qPreferred).toEqual([]);
+    expect(lastEmbed().initialFilters.qAny).toEqual([["Java", "j2ee"]]);
+    expect(lastEmbed().initialFilters.qPreferred).toEqual([["Spring"]]);
+    expect(lastEmbed().keywordsNote).toMatch(/podpowiedzi z historii/);
   });
 
-  it("powrót do karty po >10 min nie klasyfikuje wierszy od nowa i nie przemontowuje listy (R8-N14-7)", async () => {
+  it("„Brak krytycznych” — nic nie wycina, ekran mówi to wprost", async () => {
+    mocks.getReqs.mockResolvedValue({ must: [] });
+    mocks.getChampion.mockResolvedValue({
+      data: {
+        champion_profile: { search: { requirements: [["Java"]] } },
+        critical_resolution: {
+          stored: [],
+          decided: true,
+          effective: [],
+          source: "none",
+          suggested: ["Java"],
+          search_rows: [],
+        },
+      },
+    });
+    renderPanel();
+    await screen.findByTestId("candidates-list");
+    expect(lastEmbed().initialFilters.qAny).toEqual([]);
+    expect(lastEmbed().initialFilters.qPreferred).toEqual([["Java"]]);
+    expect(lastEmbed().keywordsNote).toMatch(/nic nie jest obowiązkowe/);
+  });
+
+  it("powrót do karty po >10 min nie przemontowuje listy (R8-N14-7)", async () => {
     mocks.mounts = 0;
     mocks.getReqs.mockResolvedValue({ must: [] });
     mocks.getChampion.mockResolvedValue({
       data: { champion_profile: { search: { requirements: [["bankowość"]] } } },
     });
-    // Pierwsza klasyfikacja przekroczyła limit (null), kolejna by się udała.
-    mocks.classify.mockResolvedValueOnce(null).mockResolvedValue({ skills: [], as_requirements: false });
     renderPanel();
     await screen.findByTestId("candidates-list");
     expect(mocks.mounts).toBe(1);
@@ -177,7 +215,6 @@ describe("ManualSearchPanel — lista Kandydatów osadzona w rekrutacji", () => 
       clock.mockRestore();
       focusManager.setFocused(undefined);
     }
-    expect(mocks.classify).toHaveBeenCalledTimes(1);
     expect(mocks.mounts).toBe(1);
   });
 
@@ -196,35 +233,61 @@ describe("ManualSearchPanel — lista Kandydatów osadzona w rekrutacji", () => 
       job: { ...JOB, champion_profile: { search: { requirements: [["Python"]] } } },
     });
     await screen.findByTestId("candidates-list");
-    expect(lastEmbed().initialFilters.qAny).toEqual([["Python"]]);
+    // Bez odpowiedzi serwera nie wiemy, co krytyczne — nic nie wycina.
+    expect(lastEmbed().initialFilters.qAny).toEqual([]);
+    expect(lastEmbed().initialFilters.qPreferred).toEqual([["Python"]]);
+    expect(lastEmbed().keywordsNote).toMatch(/Nie udało się wczytać/);
   });
 
-  it("rekrutacja prowadzona wierszami: obowiązkowe są tylko wiersze krytyczne", () => {
+  it("wiersze „mile widziane” ze stack.rows tylko podnoszą (W6)", () => {
     const champion_profile = {
       stack: {
         rows: [
           { words: ["Java"], level: "must" },
           { words: ["Kafka", "RabbitMQ"], level: "must" },
-          { words: ["płatności", "płatnoś*"], level: "must" },
+          { words: ["Grafana"], level: "nice" },
         ],
         critical: ["Kafka lub RabbitMQ"],
       },
-      search: { requirements: [["Java"], ["Kafka", "RabbitMQ"], ["płatności", "płatnoś*"]] },
+      search: { requirements: [["Java"], ["Kafka", "RabbitMQ"]] },
     };
-    // Klasyfikacja „technologia / nie” nie ma tu głosu — decyduje poziom wiersza.
-    const filters = jobListFilters({ ...JOB, champion_profile }, null, [true, true, false]);
+    const filters = jobListFilters({ ...JOB, champion_profile }, null, {
+      stored: ["Kafka lub RabbitMQ"],
+      decided: true,
+      effective: ["Kafka lub RabbitMQ"],
+      source: "dl",
+      suggested: [],
+    });
+    // Odpowiedź bez `search_rows` (sprzed zmiany) — opcje etykiety.
     expect(filters.qAny).toEqual([["Kafka", "RabbitMQ"]]);
-    expect(filters.qPreferred).toEqual([["Java"], ["płatności", "płatnoś*"]]);
+    expect(filters.qPreferred).toEqual([["Java"], ["Grafana"]]);
   });
 
-  it("wiersze bez krytycznych nikogo nie wycinają — wszystkie tylko podnoszą", () => {
-    const champion_profile = {
-      stack: { rows: [{ words: ["Java"], level: "must" }], critical: [] },
-      search: { requirements: [["Java"]] },
-    };
-    const filters = jobListFilters({ ...JOB, champion_profile }, null, [true]);
-    expect(filters.qAny).toEqual([]);
-    expect(filters.qPreferred).toEqual([["Java"]]);
+  it("krytyczna spoza wierszy (profil bez stack.rows) dochodzi jako nowy wiersz (W3)", () => {
+    const champion_profile = { search: { requirements: [["bankowość"]] } };
+    const filters = jobListFilters({ ...JOB, champion_profile }, null, {
+      stored: null,
+      decided: false,
+      effective: ["Java"],
+      source: "suggested",
+      suggested: ["Java"],
+      search_rows: [["Java"]],
+    });
+    expect(filters.qAny).toEqual([["Java"]]);
+    expect(filters.qPreferred).toEqual([["bankowość"]]);
+  });
+
+  it("bez wierszy w Championie krytyczne i tak obowiązują, must zostaje w rankingu", () => {
+    const filters = jobListFilters(JOB, ["Java", "SQL"], {
+      stored: null,
+      decided: false,
+      effective: ["Java"],
+      source: "suggested",
+      suggested: ["Java"],
+      search_rows: [["Java"]],
+    });
+    expect(filters.qAny).toEqual([["Java"]]);
+    expect(filters.skillsPreferred).toEqual(["Java", "SQL"]);
   });
 
   it("rekrutacja zdalna nie zawęża po mieście", () => {

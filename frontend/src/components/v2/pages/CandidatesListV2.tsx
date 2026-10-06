@@ -10,6 +10,7 @@ import {
 } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
+  Check,
   ChevronDown,
   ChevronRight,
   Columns3,
@@ -1047,7 +1048,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  let rows = qAny;
  setConvertedText(null);
  if (textMode === "auto" && mayBeSkillList(text)) {
- const result = await classifyKeywords(text.trim());
+ const result = await classifyKeywords(text.trim(), "top");
  if (result?.as_requirements && result.skills.length > 0) {
  const existing = new Set(qAny.flat().map((word) => word.toLowerCase()));
  const added = classificationRows(result).filter(
@@ -1342,15 +1343,22 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  // „Szukaj ręcznie” z rekrutacji: dopasowanie do TEJ rekrutacji (tylko
  // wiersze na ekranie, paczki po 20) i dodanie wprost do „Nowych” — ta sama
  // trasa co wyszukiwarka dotąd (`proposals/bulk`, źródło `manual_search`).
- const matchScores = useVisibleMatchScores(embedJobId, embed ? items : null);
+ // U5 (audyt 06.10.2026): pierwsza strona okna zapisuje wyświetlenia.
+ const matchScores = useVisibleMatchScores(embedJobId, embed ? items : null, {
+ impressionSurface: embed && page === 1 ? "manual_search" : undefined,
+ });
  const [addingIds, setAddingIds] = useState<ReadonlySet<number>>(() => new Set());
+ // U4 (audyt 06.10.2026): dodana osoba zostaje na liście, zanim odświeżenie
+ // ją zdejmie — do tego czasu wiersz mówi „Dodano” zamiast drugiego „Dodaj”.
+ const [addedIds, setAddedIds] = useState<ReadonlySet<number>>(() => new Set());
  const embedOnAdded = embed?.onAdded;
  const addToEmbedJob = useCallback(
  async (candidateIds: number[]) => {
  if (embedJobId == null || candidateIds.length === 0) return;
  setAddingIds((prev) => new Set([...prev, ...candidateIds]));
  try {
- const result = await proposalsBulkApi.add(embedJobId, {
+ // U3: zaznaczenie przeżywa zmianę strony — paczki po 100.
+ const result = await proposalsBulkApi.addInChunks(embedJobId, {
  candidate_ids: candidateIds,
  initial_stage_legacy: "new",
  source: "manual_search",
@@ -1369,11 +1377,13 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  }
  if (result.total_added > 0) showSuccess(parts.join(" "));
  else showError(parts.join(" "));
- setSelectedIds((prev) => {
- const next = new Set(prev);
- for (const id of result.added) next.delete(id);
- return next;
- });
+ // Z zaznaczenia schodzą dodani ORAZ osoby, które już są w rekrutacji.
+ const gone = new Set<number>(result.added);
+ result.skipped
+ .filter((row) => row.reason === "already_in_job")
+ .forEach((row) => gone.add(row.candidate_id));
+ setAddedIds((prev) => new Set([...prev, ...gone]));
+ setSelectedIds((prev) => new Set([...prev].filter((id) => !gone.has(id))));
  void queryClient.invalidateQueries({ queryKey: ["candidates-v2"] });
  void queryClient.invalidateQueries({ queryKey: ["kanban", String(embedJobId)] });
  void queryClient.invalidateQueries({ queryKey: ["kanban", embedJobId] });
@@ -1816,6 +1826,18 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  >
  Wyczyść filtry
  </Button>
+ {embed && !embed.readOnly ? (
+ <p className="mt-3">
+ Nie ma tej osoby w bazie?{" "}
+ <button
+ className="text-primary hover:underline"
+ onClick={() => setShowAdd(true)}
+ >
+ dodaj nowego kandydata
+ </button>{" "}
+ — trafi też do „Nowych” tej rekrutacji.
+ </p>
+ ) : null}
  </>
  ) : (
  <>
@@ -2524,16 +2546,32 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                               size="sm"
                               variant="outline"
                               className="h-8 gap-1 border-primary/40 bg-primary/5 px-2 text-primary hover:bg-primary hover:text-primary-foreground"
-                              disabled={embed.readOnly || addingIds.has(candidate.id)}
+                              disabled={
+                                embed.readOnly ||
+                                addingIds.has(candidate.id) ||
+                                addedIds.has(candidate.id)
+                              }
                               onClick={(e) => {
                                 e.stopPropagation();
                                 void addToEmbedJob([candidate.id]);
                               }}
-                              aria-label={`Dodaj ${fullName} do Nowych`}
+                              aria-label={
+                                addedIds.has(candidate.id)
+                                  ? `${fullName} — dodano do Nowych`
+                                  : `Dodaj ${fullName} do Nowych`
+                              }
                               title={`Dodaj do „Nowych” w „${embed.jobTitle}”`}
                             >
-                              <UserPlus className="h-3.5 w-3.5" aria-hidden />
-                              {addingIds.has(candidate.id) ? "Dodaję…" : "Dodaj"}
+                              {addedIds.has(candidate.id) ? (
+                                <Check className="h-3.5 w-3.5" aria-hidden />
+                              ) : (
+                                <UserPlus className="h-3.5 w-3.5" aria-hidden />
+                              )}
+                              {addedIds.has(candidate.id)
+                                ? "Dodano"
+                                : addingIds.has(candidate.id)
+                                  ? "Dodaję…"
+                                  : "Dodaj"}
                             </Button>
                           </div>
                                   ) : (
@@ -2746,7 +2784,17 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
       )}
 
       {showAdd && (
-        <AddCandidateModal onClose={() => setShowAdd(false)} onSuccess={toastOnSuccess} />
+        <AddCandidateModal
+          onClose={() => setShowAdd(false)}
+          onSuccess={toastOnSuccess}
+          // U8 (audyt 06.10.2026): nowy kandydat dodany z okna rekrutacji
+          // trafia też do tej rekrutacji („Nowi”), nie tylko do bazy.
+          onCreated={
+            embedJobId != null && !embed?.readOnly
+              ? (candidateId) => void addToEmbedJob([candidateId])
+              : undefined
+          }
+        />
       )}
       <ImportCandidatesV2
         open={showImport}

@@ -42,6 +42,12 @@ export interface CriticalResolution {
   effective: string[];
   source: "dl" | "suggested" | "none";
   suggested: string[];
+  /**
+   * Wiersze obowiązkowe wyszukiwania (06.10.2026): po jednym na pozycję
+   * `effective`, z wariantami nazwy („PostgreSQL”, „postgres”). Brak pola =
+   * odpowiedź sprzed tej zmiany — wtedy wiersz to opcje etykiety „A lub B”.
+   */
+  search_rows?: string[][];
 }
 
 const fold = (value: string) => value.trim().toLocaleLowerCase("pl");

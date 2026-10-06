@@ -181,6 +181,23 @@ async def test_manual_search_first_page_is_recorded_as_impressions(
     assert len(call["run_id"]) <= 64
     assert [(e.candidate_id, e.rank) for e in call["entries"]] == [(2, 1), (1, 2)]
 
+    # Pozycje na stronie z przeglądarki (zapytanie o wiersze widoczne niżej).
+    await candidate_match_scores(
+        None,
+        MatchScoresRequest(
+            job_id=7,
+            candidate_ids=[2, 1],
+            impression_surface="manual_search",
+            impression_ranks=[14, 15],
+        ),
+        current_user=user,
+        db=_db(candidates),
+    )
+    assert [(e.candidate_id, e.rank) for e in recorded[1]["entries"]] == [
+        (2, 14),
+        (1, 15),
+    ]
+
 
 @pytest.mark.asyncio
 async def test_must_items_that_are_not_technologies_are_named(wiring):

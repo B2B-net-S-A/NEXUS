@@ -50,11 +50,8 @@ import {
   type ProposalFacts,
   type ProposalInboxItem,
 } from "@/lib/job-proposals-api";
-import {
-  candidatesListFiltersForQuery,
-  championSearchRequirements,
-  jobListFilters,
-} from "@/lib/job-search-filters";
+import type { CriticalResolution } from "@/lib/critical-skills";
+import { candidatesListFiltersForQuery, jobListFilters } from "@/lib/job-search-filters";
 import type { MatchBreakdown } from "@/lib/match-breakdown";
 import { requirementLabels, type MatchingRequirements } from "@/lib/matching-requirements";
 import {
@@ -77,6 +74,16 @@ const CHAMPION_PROFILE = {
     requirements: [["Angular"], ["TypeScript"], ["RxJS", "NgRx"], ["bankow*", "banking"]],
     exclude: ["junior"],
   },
+};
+
+/** Krytyczne liczone przez serwer (`critical_resolution`, 06.10.2026). */
+const CRITICAL_RESOLUTION: CriticalResolution = {
+  stored: ["Angular"],
+  decided: true,
+  effective: ["Angular"],
+  source: "dl",
+  suggested: ["Angular"],
+  search_rows: [["Angular", "AngularJS"]],
 };
 
 const JOB = {
@@ -580,12 +587,12 @@ function seededClient(): QueryClient {
 
   // „Szukaj w bazie”: te same trzy odczyty i TE SAME funkcje filtrów co okno.
   seedFresh(qc, ["matching-requirements", JOB_ID], REQUIREMENTS);
-  seedFresh(qc, ["champion-profile", JOB_ID], { champion_profile: CHAMPION_PROFILE });
-  const rows = championSearchRequirements(JOB).rows;
-  const techRows = [true, true, true, false];
-  seedFresh(qc, ["manual-search-row-kinds", rows], techRows);
+  seedFresh(qc, ["champion-profile", JOB_ID], {
+    champion_profile: CHAMPION_PROFILE,
+    critical_resolution: CRITICAL_RESOLUTION,
+  });
   const filters = candidatesListFiltersForQuery(
-    jobListFilters(JOB, requirementLabels(REQUIREMENTS, "must"), techRows),
+    jobListFilters(JOB, requirementLabels(REQUIREMENTS, "must"), CRITICAL_RESOLUTION),
     { jobId: JOB_ID },
   );
   const filtersKey = JSON.stringify(filters);

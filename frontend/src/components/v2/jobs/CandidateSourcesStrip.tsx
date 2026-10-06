@@ -242,6 +242,9 @@ export function CandidateSourcesStrip({
   };
   const screenedOut = counts.data?.screened_out ?? 0;
   const words = [...seed.required, ...seed.preferred].slice(0, 2).map(requirementLabel).join(", ");
+  // Kafel mówi to samo co zakładka i „Szukaj ręcznie” (W1, audyt 06.10.2026):
+  // obowiązkowe są tylko krytyczne, reszta słów tylko podnosi.
+  const mandatory = seed.required.map((row) => row[0]).filter(Boolean).join(", ");
 
   const tiles: CandidateSourceTile[] = [
     {
@@ -282,7 +285,9 @@ export function CandidateSourcesStrip({
       description: !seed.ready
         ? "Po słowach z Championa"
         : seed.hasRows
-          ? `Po słowach z Championa: ${words}`
+          ? mandatory
+            ? `Obowiązkowe: ${mandatory} · reszta słów tylko podnosi`
+            : `Po słowach z Championa: ${words} · nic nie jest obowiązkowe`
           : "W Championie nie ma jeszcze słów do wyszukiwania",
     },
   ];

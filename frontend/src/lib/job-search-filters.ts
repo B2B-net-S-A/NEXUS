@@ -8,9 +8,8 @@
 
 import { searchRequestToListFilters } from "@/lib/candidates-search-redirect";
 import { buildJobSearchPrefill, parseJobLocationCities } from "@/lib/job-search-prefill";
-import { cleanRows } from "@/lib/keyword-requirements";
-import { splitRequirementRows } from "@/lib/requirement-row-kinds";
-import { rowHead } from "@/lib/requirement-rows";
+import type { CriticalResolution } from "@/lib/critical-skills";
+import { cleanRows, foldWord } from "@/lib/keyword-requirements";
 import type { CandidateFilters } from "@/lib/url-filters";
 
 /** Pola rekrutacji, z których powstaje prefill filtrów. */
@@ -48,26 +47,110 @@ export function championSearchRequirements(job: Pick<ManualSearchJob, "champion_
   return { rows, exclude };
 }
 
-/**
- * Rekrutacja prowadzona wierszami wymagań (`stack.rows`, 02.10.2026): które
- * wiersze wyszukiwania są krytyczne. `null` = profil na starych polach —
- * wtedy o obowiązkowości wiersza decyduje to, czy jest technologią.
- */
-export function championCriticalRowFlags(
-  job: Pick<ManualSearchJob, "champion_profile">,
-  rows: readonly (readonly string[])[],
-): boolean[] | null {
+/** Wiersze „mile widziane” z `stack.rows` (W6) — nie trafiają do `search.requirements`. */
+export function championNiceRows(job: Pick<ManualSearchJob, "champion_profile">): string[][] {
   const profile = job.champion_profile;
   const stack =
     profile && typeof profile === "object"
-      ? (profile as { stack?: { rows?: unknown; critical?: unknown } }).stack
+      ? (profile as { stack?: { rows?: unknown } }).stack
       : undefined;
-  if (!Array.isArray(stack?.rows) || stack.rows.length === 0) return null;
-  const critical = (Array.isArray(stack.critical) ? stack.critical : [])
-    .filter((label): label is string => typeof label === "string")
-    // Etykieta „Kafka lub RabbitMQ” wskazuje wiersz zaczynający się od „Kafka”.
-    .map((label) => label.split(" lub ")[0].trim().toLocaleLowerCase("pl"));
-  return rows.map((row) => critical.includes(rowHead(row).toLocaleLowerCase("pl")));
+  if (!Array.isArray(stack?.rows)) return [];
+  const rows: string[][] = [];
+  for (const row of stack.rows) {
+    if (!row || typeof row !== "object") continue;
+    const { words, level } = row as { words?: unknown; level?: unknown };
+    if (level !== "nice" || !Array.isArray(words)) continue;
+    rows.push(words.filter((w): w is string => typeof w === "string"));
+  }
+  return cleanRows(rows);
+}
+
+const foldKey = (word: string) => foldWord(word.replace(/\*+$/, ""));
+
+/**
+ * Wiersze obowiązkowe z serwera (`critical_resolution.search_rows`): po
+ * jednym na krytyczną, z wariantami nazwy. Odpowiedź sprzed 06.10.2026 nie
+ * ma `search_rows` — wtedy wiersz to opcje etykiety „A lub B”.
+ */
+export function criticalSearchRows(critical: CriticalResolution | null | undefined): string[][] {
+  if (!critical) return [];
+  if (Array.isArray(critical.search_rows)) return cleanRows(critical.search_rows);
+  return cleanRows((critical.effective ?? []).map((label) => label.split(" lub ")));
+}
+
+/** Skąd są obowiązkowe wiersze — ekran mówi to zdaniem. */
+export type MandatorySource = "dl" | "suggested" | "none" | "unknown";
+
+export interface MandatorySplit {
+  /** Wiersze, które wycinają (krytyczne) — z wariantami. */
+  required: string[][];
+  /** Wiersze, które tylko podnoszą w kolejności. */
+  preferred: string[][];
+  source: MandatorySource;
+  /** Etykiety krytycznych („Kafka lub RabbitMQ”). */
+  labels: string[];
+}
+
+/**
+ * Jedna reguła obowiązkowości dla „Szukaj ręcznie”, „Szukaj w bazie” i kafla
+ * (audyt 06.10.2026, D1/W1–W5): wycinają WYŁĄCZNIE umiejętności krytyczne
+ * tak, jak liczy je serwer (`critical_resolution`: wybór Delivery Leada albo
+ * podpowiedź z historii) — te same, którymi propozycje AI ukrywają
+ * kandydatów. Wiersz Championa z tą technologią dostaje warianty nazwy
+ * z serwera; krytyczna bez wiersza (profil bez `stack.rows`, W3) dochodzi jako
+ * nowy wiersz. Reszta wierszy i wiersze „mile widziane” (W6) tylko podnoszą.
+ * Klasyfikacja „technologia / nie” nie decyduje już o obowiązkowości.
+ */
+export function splitByCritical(
+  rows: readonly (readonly string[])[],
+  niceRows: readonly (readonly string[])[],
+  critical: CriticalResolution | null | undefined,
+): MandatorySplit {
+  const criticalRows = criticalSearchRows(critical);
+  const required: string[][] = [];
+  const used = new Set<number>();
+  for (const words of criticalRows) {
+    const keys = new Set(words.map(foldKey));
+    const index = rows.findIndex(
+      (row, i) => !used.has(i) && row.some((word) => keys.has(foldKey(word))),
+    );
+    if (index < 0) {
+      required.push([...words]);
+      continue;
+    }
+    used.add(index);
+    const merged = [...rows[index]];
+    for (const word of words) {
+      if (!merged.some((w) => foldKey(w) === foldKey(word))) merged.push(word);
+    }
+    required.push(merged);
+  }
+  const preferred: string[][] = rows.filter((_, i) => !used.has(i)).map((row) => [...row]);
+  for (const row of niceRows) {
+    const key = row.map(foldKey).join("|");
+    if (!preferred.some((r) => r.map(foldKey).join("|") === key)) preferred.push([...row]);
+  }
+  return {
+    required,
+    preferred,
+    source: critical ? critical.source : "unknown",
+    labels: critical ? [...(critical.effective ?? [])] : [],
+  };
+}
+
+/** Zdanie o obowiązkowych wierszach — „Szukaj ręcznie”, „Szukaj w bazie”, kafel. */
+export function mandatorySourceNote(split: Pick<MandatorySplit, "source" | "labels">): string {
+  const labels = split.labels.join(", ");
+  if (split.source === "dl" && labels) {
+    return `Obowiązkowe są tylko umiejętności krytyczne wybrane przez Delivery Leada: ${labels}. Pozostałe wymagania tylko podnoszą w kolejności.`;
+  }
+  if (split.source === "suggested" && labels) {
+    return `Obowiązkowe są tylko umiejętności krytyczne z podpowiedzi z historii (Delivery Lead ich nie wybrał): ${labels}. Pozostałe wymagania tylko podnoszą w kolejności.`;
+  }
+  if (split.source === "unknown") {
+    return "Nie udało się wczytać umiejętności krytycznych — nic nie jest obowiązkowe, wymagania tylko podnoszą w kolejności.";
+  }
+  return "Brak umiejętności krytycznych — nic nie jest obowiązkowe, wymagania tylko podnoszą w kolejności.";
 }
 
 /**
@@ -76,36 +159,30 @@ export function championCriticalRowFlags(
  *
  * Miasto i kategoria rekrutacji tylko podnoszą w kolejności, nigdy nie tną
  * (audyt 26.09.2026: jako filtry wycinały 55,6% osób, które zespół potem
- * zweryfikował albo wysłał klientowi — samo miasto 58%). Wiersze wymagań:
- * obowiązkowe zostają wiersze technologii (`techRows[i] !== false`), reszta
- * („bankowość”, „narzędzia case”) tylko podnosi — wszystkie wiersze naraz
- * spełniało 39% wybranych.
+ * zweryfikował albo wysłał klientowi — samo miasto 58%).
  *
  * Bez wymagań w Championie (decyzja Artura 25.09.2026): cała baza spoza
  * rekrutacji ułożona według dopasowania do rekrutacji (`sort=match`, ten sam
  * wektor co kolumna „Dop.”). Dawniej tytuł szedł jako tekst po znaczeniu,
- * co ucinało listę do 200 osób; test na 120 rekrutacjach: właściwa osoba na
- * pierwszej stronie w 80% rekrutacji przy całej bazie według dopasowania.
+ * co ucinało listę do 200 osób.
  *
- * Z wymaganiami do wyszukiwania (sekcja 2 Championa, decyzja Artura
- * 25.09.2026) start to wiersze i wykluczenia DL-a, a tytuł NIE idzie jako
- * tekst po znaczeniu: pula semantyczna zawęża wyniki i wycinałaby osoby,
- * które spełniają wymagania. Must-have zostają w rankingu jak dotąd.
- *
- * Rekrutacja prowadzona wierszami (02.10.2026): obowiązkowe są wyłącznie
- * wiersze KRYTYCZNE, pozostałe „musi mieć” tylko podnoszą. Sześć–dziesięć
- * wierszy łączonych przez „i” zostawiało garstkę osób (audyt 26.09: wszystkie
- * wiersze naraz spełniało 39% wybranych), a krytyczne to te same słowa,
- * którymi propozycje AI ukrywają kandydatów.
+ * Obowiązkowe są wyłącznie umiejętności krytyczne z serwera
+ * (`splitByCritical`, audyt 06.10.2026) — dla profili z wierszami i bez.
+ * Przy wierszach wymagań must-have NIE idą dodatkowo do „Umiejętności → Mile
+ * widziane” (D2): ta sama technologia liczyła się dwa razy, a „Mile widziane”
+ * wygrywało z „Dop.” w kolejności.
  */
 export function jobListFilters(
   job: ManualSearchJob,
   mustLabels: readonly string[] | null,
-  techRows: ReadonlyArray<boolean | null> | null = null,
+  critical: CriticalResolution | null = null,
 ): CandidateFilters {
   const prefill = searchRequestToListFilters(buildJobSearchPrefill(job, mustLabels));
   const filters: CandidateFilters = {
     ...prefill,
+    q: "",
+    textMode: "auto",
+    status: ["active", "passive"],
     location: "",
     locationRadiusKm: null,
     competenceCategoryIds: [],
@@ -114,26 +191,22 @@ export function jobListFilters(
     competenceCategoryPreferred: job.competence_category_id ? [job.competence_category_id] : [],
   };
   const { rows, exclude } = championSearchRequirements(job);
+  const split = splitByCritical(rows, championNiceRows(job), critical);
   if (rows.length > 0) {
-    const criticalFlags = championCriticalRowFlags(job, rows);
-    const { required, preferred } = splitRequirementRows(rows, criticalFlags ?? techRows);
     return {
       ...filters,
-      q: "",
-      textMode: "auto",
+      skillsPreferred: [],
+      skillsExpr: "",
       qAll: [],
-      qAny: required,
-      qPreferred: preferred,
+      qAny: split.required,
+      qPreferred: split.preferred,
       qNone: exclude,
-      status: ["active", "passive"],
     };
   }
-  return {
-    ...filters,
-    q: "",
-    textMode: "auto",
-    status: ["active", "passive"],
-  };
+  if (split.required.length > 0 || split.preferred.length > 0) {
+    return { ...filters, qAll: [], qAny: split.required, qPreferred: split.preferred };
+  }
+  return filters;
 }
 
 /** Filtry zapytania listy; w trybie osadzonym z ukryciem osób z rekrutacji. */

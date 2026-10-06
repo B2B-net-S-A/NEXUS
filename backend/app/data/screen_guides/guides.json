@@ -71,7 +71,7 @@
       },
       {
         "q": "Jak dodać kandydatów?",
-        "a": "Kliknij kafel nad tablicą: „Podobne rekrutacje”, „Nowi z ogłoszeń” (ostatnie 7 dni), „Propozycje z bazy” albo „Szukaj w bazie” (po słowach z Championa). Otworzy się jedno okno z listą; klik w nazwisko pokazuje podgląd osoby obok. Zaznacz osoby i kliknij „Dodaj do Nowych” — przez 12 godzin są zarezerwowane dla Ciebie.",
+        "a": "Kliknij kafel nad tablicą: „Podobne rekrutacje”, „Nowi z ogłoszeń” (7 dni), „Propozycje z bazy” albo „Szukaj w bazie” (słowa z Championa; obowiązkowe tylko umiejętności krytyczne). Klik w nazwisko pokazuje podgląd osoby obok. Zaznacz osoby i kliknij „Dodaj do Nowych” — przez 12 godzin są zarezerwowane dla Ciebie.",
         "anchor": "jobs.board.sources"
       },
       {

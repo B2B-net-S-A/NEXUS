@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -84,7 +84,10 @@ vi.mock("@/components/v2/recruitment/useJobProposals", () => ({
   useJobProposals: () => proposalsState,
 }));
 vi.mock("@/lib/candidate-search-api", () => ({
-  proposalsBulkApi: { add: (...a: unknown[]) => bulkAdd(...a) },
+  proposalsBulkApi: {
+    add: (...a: unknown[]) => bulkAdd(...a),
+    addInChunks: (...a: unknown[]) => bulkAdd(...a),
+  },
   candidateSearchApi: { matchScores: (...a: unknown[]) => matchScores(...a) },
 }));
 vi.mock("@/lib/job-proposals-api", async (importOriginal) => {
@@ -323,6 +326,40 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
     await userEvent.click(submit);
     expect(addToJob).toHaveBeenCalledWith([1]);
     expect(bulkAdd).not.toHaveBeenCalled();
+  });
+
+  it("każda zakładka ma swoje zaznaczenie — „Dodaj N” nie bierze osób z niewidocznej (U7)", async () => {
+    proposalsState.entries = [
+      entry(1, "Anna Baza", ["inbox"], { sources: ["full_base"] }),
+      entry(2, "Piotr Ogłoszenie", ["inbox"], { sources: ["job_board"], postingRecent: true }),
+    ];
+    const { rerender } = renderPanel();
+    const base = await screen.findByRole("list", { name: "Propozycje z bazy" });
+    await userEvent.click(within(base).getByRole("checkbox", { name: "Zaznacz Anna Baza" }));
+    expect(screen.getByTestId("add-candidates-submit")).toHaveTextContent("Dodaj 1 do Nowych");
+
+    rerender({ tab: "postings" });
+    const postings = await screen.findByRole("list", { name: "Nowi z ogłoszeń" });
+    expect(screen.getByTestId("add-candidates-submit")).toHaveTextContent("Dodaj 0 do Nowych");
+    await userEvent.click(within(postings).getByRole("checkbox", { name: "Zaznacz Piotr Ogłoszenie" }));
+    await userEvent.click(screen.getByTestId("add-candidates-submit"));
+    expect(addToJob).toHaveBeenCalledWith([2]);
+
+    // Zaznaczenie z drugiej zakładki czeka tam, gdzie je zostawiono.
+    rerender({ tab: "base" });
+    expect(screen.getByTestId("add-candidates-submit")).toHaveTextContent("Dodaj 1 do Nowych");
+  });
+
+  it("strzałki przechodzą między zakładkami źródeł (U7)", async () => {
+    const { props } = renderPanel();
+    const current = await screen.findByRole("tab", { name: /Propozycje z bazy/ });
+    current.focus();
+    fireEvent.keyDown(current, { key: "ArrowRight" });
+    expect(props.onTabChange).toHaveBeenCalledWith("search");
+    fireEvent.keyDown(current, { key: "ArrowLeft" });
+    expect(props.onTabChange).toHaveBeenCalledWith("postings");
+    expect(current).toHaveAttribute("tabindex", "0");
+    expect(screen.getByRole("tab", { name: /Nowi z ogłoszeń/ })).toHaveAttribute("tabindex", "-1");
   });
 
   it("weto HM blokuje zaznaczenie, ostrzeżenie zostaje widoczne", async () => {
@@ -570,6 +607,16 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
           champion_profile: {
             search: { requirements: [["KYC", "AML"], ["bankow*"]], exclude: ["junior"] },
           },
+          // Krytyczne liczy serwer (06.10.2026) — klasyfikacja wierszy nie
+          // decyduje już o obowiązkowości.
+          critical_resolution: {
+            stored: ["KYC"],
+            decided: true,
+            effective: ["KYC"],
+            source: "dl",
+            suggested: [],
+            search_rows: [["KYC"]],
+          },
         },
       });
       classifyRows.mockResolvedValue([true, false]);
@@ -596,6 +643,9 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
 
       const words = await screen.findByRole("list", { name: "Wymagania do wyszukiwania" }, SLOW);
       expect(within(words).getByText("Musi mieć")).toBeTruthy();
+      expect(screen.getByTestId("search-base-source")).toHaveTextContent(
+        "wybrane przez Delivery Leada: KYC",
+      );
       expect(within(words).getByText("KYC")).toBeTruthy();
       expect(within(words).getByText("AML")).toBeTruthy();
       expect(within(words).getByText("Mile widziane")).toBeTruthy();
@@ -651,6 +701,34 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
         }),
       );
       await waitFor(() => expect(showSuccess).toHaveBeenCalledWith("Dodano do Nowych: 1."));
+      // U4 (audyt 06.10.2026): do odświeżenia listy wiersz mówi „Dodano”
+      // i nie da się go zaznaczyć drugi raz.
+      expect(within(results).getByText("Dodano do „Nowych”")).toBeTruthy();
+      expect(within(results).getByRole("checkbox", { name: "Zaznacz Hanna Pietrzyk" })).toBeDisabled();
+      expect(screen.getByTestId("search-base-submit")).toHaveTextContent("Dodaj 0 do Nowych");
+    });
+
+    it("osoba, która już jest w rekrutacji, schodzi z zaznaczenia (U4)", async () => {
+      withRows();
+      listPage.mockResolvedValue({
+        items: [{ id: 33, name: "Jan", lastname: "Kos", match_snippets: [] }],
+        total: 1, page: 1, page_size: 20,
+      });
+      matchScores.mockResolvedValue({ scores: {}, breakdowns: {} });
+      bulkAdd.mockResolvedValue({
+        added: [],
+        skipped: [{ candidate_id: 33, reason: "already_in_job" }],
+        warnings: [],
+        total_added: 0,
+        total_skipped: 1,
+      });
+      renderPanel({ tab: "search" });
+      const results = await screen.findByRole("list", { name: "Wyniki wyszukiwania" }, SLOW);
+      await userEvent.click(within(results).getByRole("checkbox", { name: "Zaznacz Jan Kos" }));
+      await userEvent.click(screen.getByTestId("search-base-submit"));
+      await waitFor(() =>
+        expect(screen.getByTestId("search-base-submit")).toHaveTextContent("Dodaj 0 do Nowych"),
+      );
     });
 
     it("bez słów w Championie nie udaje wyników całej bazy — odsyła do Championa i ręcznego szukania", async () => {

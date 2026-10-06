@@ -259,12 +259,25 @@ export const candidateSearchApi = {
   matchScores: (
     jobId: number,
     candidateIds: number[],
-    options?: { signal?: AbortSignal },
+    options?: {
+      signal?: AbortSignal;
+      /** U5: wyświetlenia pierwszej strony „Szukaj ręcznie” (pozycje na stronie). */
+      impression?: { surface: "manual_search"; ranks: number[] };
+    },
   ): Promise<MatchScoresResponse> =>
     api
       .post<MatchScoresResponse>(
         "/api/search/candidates/scores",
-        { job_id: jobId, candidate_ids: candidateIds },
+        {
+          job_id: jobId,
+          candidate_ids: candidateIds,
+          ...(options?.impression
+            ? {
+                impression_surface: options.impression.surface,
+                impression_ranks: options.impression.ranks,
+              }
+            : {}),
+        },
         { signal: options?.signal },
       )
       .then((r) => r.data),
@@ -360,6 +373,23 @@ export interface AssignableStage {
   order: number;
 }
 
+/** Serwer przyjmuje najwyżej tyle osób w jednym żądaniu (`proposals_bulk.py`). */
+export const BULK_ADD_CHUNK = 100;
+
+/** Suma odpowiedzi z kilku paczek dodania. */
+export function mergeBulkResponses(parts: BulkProposalsResponse[]): BulkProposalsResponse {
+  return parts.reduce<BulkProposalsResponse>(
+    (acc, part) => ({
+      added: [...acc.added, ...part.added],
+      skipped: [...acc.skipped, ...part.skipped],
+      warnings: [...(acc.warnings ?? []), ...(part.warnings ?? [])],
+      total_added: acc.total_added + part.total_added,
+      total_skipped: acc.total_skipped + part.total_skipped,
+    }),
+    { added: [], skipped: [], warnings: [], total_added: 0, total_skipped: 0 },
+  );
+}
+
 export const proposalsBulkApi = {
   add: (
     jobId: number,
@@ -368,6 +398,27 @@ export const proposalsBulkApi = {
     api
       .post<BulkProposalsResponse>(`/api/jobs/${jobId}/proposals/bulk`, body)
       .then((r) => r.data),
+  /**
+   * U3 (audyt 06.10.2026): zaznaczenie przeżywa zmianę strony, więc bywa
+   * większe niż 100 osób — serwer odpowiadał wtedy angielskim 422
+   * („List should have at most 100 items”). Paczki po 100, jedna po drugiej.
+   */
+  addInChunks: async (
+    jobId: number,
+    body: BulkProposalsRequest,
+  ): Promise<BulkProposalsResponse> => {
+    const ids = [...new Set(body.candidate_ids)];
+    const parts: BulkProposalsResponse[] = [];
+    for (let start = 0; start < ids.length; start += BULK_ADD_CHUNK) {
+      parts.push(
+        await proposalsBulkApi.add(jobId, {
+          ...body,
+          candidate_ids: ids.slice(start, start + BULK_ADD_CHUNK),
+        }),
+      );
+    }
+    return mergeBulkResponses(parts);
+  },
   assignableStages: (jobId: number): Promise<AssignableStage[]> =>
     api
       .get<AssignableStage[]>(`/api/jobs/${jobId}/assignable-stages`)

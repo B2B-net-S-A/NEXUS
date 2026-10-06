@@ -1,11 +1,10 @@
-"use client";
-
 /**
  * Filtry startowe „Szukaj w bazie” dla rekrutacji: wiersze wymagań z sekcji 2
  * Championa (wpisuje je Delivery Lead), podzielone na obowiązkowe
- * (technologie) i „mile widziane”. Te same trzy odczyty i te same klucze
- * zapytań co okno „Szukaj ręcznie” (`ManualSearchPanel`), więc kafel nad
- * Tablicą, zakładka okna i pełna wyszukiwarka startują z identycznych filtrów.
+ * (umiejętności krytyczne z serwera) i „mile widziane”. Te same dwa odczyty
+ * i te same klucze zapytań co okno „Szukaj ręcznie” (`ManualSearchPanel`),
+ * więc kafel nad Tablicą, zakładka okna i pełna wyszukiwarka startują
+ * z identycznych filtrów i mówią to samo (audyt 06.10.2026, W1).
  */
 
 import { useMemo } from "react";
@@ -14,22 +13,29 @@ import { useQuery } from "@tanstack/react-query";
 import { championApi } from "@/lib/api";
 import {
   candidatesListFiltersForQuery,
+  championNiceRows,
   championSearchRequirements,
   jobListFilters,
+  mandatorySourceNote,
+  splitByCritical,
+  type MandatorySource,
   type ManualSearchJob,
 } from "@/lib/job-search-filters";
 import { matchingRequirementsApi, requirementLabels } from "@/lib/matching-requirements";
-import { classifyRequirementRows, splitRequirementRows } from "@/lib/requirement-row-kinds";
 import type { CandidateFilters } from "@/lib/url-filters";
 
 export interface JobSearchSeed {
-  /** Wszystkie trzy odczyty się rozstrzygnęły (sukces albo błąd). */
+  /** Oba odczyty się rozstrzygnęły (sukces albo błąd). */
   ready: boolean;
   /** Delivery Lead wpisał w Championie choć jeden wiersz wymagań. */
   hasRows: boolean;
   required: string[][];
   preferred: string[][];
   exclude: string[];
+  /** Skąd są obowiązkowe wiersze (DL, podpowiedź z historii, brak). */
+  source: MandatorySource;
+  /** Zdanie dla ekranu — to samo w „Szukaj ręcznie”. */
+  sourceNote: string;
   /** Filtry zapytania listy (bez osób już w rekrutacji); `null` przed `ready`. */
   filters: CandidateFilters | null;
 }
@@ -62,42 +68,29 @@ export function useJobSearchSeed(
           : job,
     [job, champion.isSuccess, champion.data],
   );
-  const search = useMemo(
-    () => (source ? championSearchRequirements(source) : { rows: [], exclude: [] }),
-    [source],
-  );
-  const rowKinds = useQuery({
-    queryKey: ["manual-search-row-kinds", search.rows],
-    queryFn: () => classifyRequirementRows(search.rows),
-    enabled: on && championSettled && search.rows.length > 0,
-    staleTime: Infinity,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-  });
+  const critical = champion.isSuccess ? (champion.data?.critical_resolution ?? null) : null;
   const reqsSettled = savedReqs.isSuccess || savedReqs.isError;
-  const kindsSettled = search.rows.length === 0 || rowKinds.isSuccess || rowKinds.isError;
-  const ready = on && reqsSettled && championSettled && kindsSettled;
+  const ready = on && reqsSettled && championSettled;
   const mustLabels = useMemo(
     () => (savedReqs.isSuccess ? requirementLabels(savedReqs.data, "must") : null),
     [savedReqs.isSuccess, savedReqs.data],
   );
-  const techRows = rowKinds.isSuccess ? rowKinds.data : null;
 
   return useMemo(() => {
-    const split = splitRequirementRows(search.rows, techRows);
+    const search = source ? championSearchRequirements(source) : { rows: [], exclude: [] };
+    const split = splitByCritical(search.rows, source ? championNiceRows(source) : [], critical);
     return {
       ready,
       hasRows: search.rows.length > 0,
       required: split.required,
       preferred: split.preferred,
       exclude: search.exclude,
+      source: split.source,
+      sourceNote: mandatorySourceNote(split),
       filters:
         ready && source
-          ? candidatesListFiltersForQuery(
-              jobListFilters(source, mustLabels, techRows),
-              { jobId },
-            )
+          ? candidatesListFiltersForQuery(jobListFilters(source, mustLabels, critical), { jobId })
           : null,
     };
-  }, [ready, source, search, techRows, mustLabels, jobId]);
+  }, [ready, source, critical, mustLabels, jobId]);
 }

@@ -479,7 +479,7 @@ async def candidate_match_scores(
         }
     if body.impression_surface and not _previewing(request):
         await _record_manual_search_impressions(
-            db, job, current_user, candidate_ids, fits
+            db, job, current_user, body, candidate_ids, fits
         )
     return MatchScoresResponse(
         scores=scores,
@@ -496,7 +496,7 @@ def _previewing(request: Optional[Request]) -> bool:
 
 
 async def _record_manual_search_impressions(
-    db: AsyncSession, job: Job, user: Any, candidate_ids: list[int], fits
+    db: AsyncSession, job: Job, user: Any, body, candidate_ids: list[int], fits
 ) -> None:
     """U5 (audyt 06.10.2026): wyświetlenia pierwszej strony „Szukaj ręcznie”.
 
@@ -518,11 +518,20 @@ async def _record_manual_search_impressions(
         user_ref = (pseudonymize(getattr(user, "id", None)) or "anon")[:16]
         run_id = f"manual_search:{job.id}:{business_today().isoformat()}:{user_ref}"
         score_of = {int(f.breakdown.candidate_id): f.fit_score for f in fits}
+        ranks = body.impression_ranks
+        if not ranks or len(ranks) != len(body.candidate_ids):
+            rank_of = {cid: i for i, cid in enumerate(candidate_ids, start=1)}
+        else:
+            rank_of = {}
+            for cid, rank in zip(body.candidate_ids, ranks):
+                rank_of.setdefault(int(cid), max(1, int(rank)))
         entries = [
             ImpressionEntry(
-                candidate_id=cid, rank=rank, fit_score=score_of.get(int(cid))
+                candidate_id=cid,
+                rank=rank_of.get(cid, index),
+                fit_score=score_of.get(int(cid)),
             )
-            for rank, cid in enumerate(candidate_ids, start=1)
+            for index, cid in enumerate(candidate_ids, start=1)
         ]
         await record_impressions(
             db,

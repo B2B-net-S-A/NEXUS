@@ -14,6 +14,27 @@
 /** Najwięcej wierszy w edytorze (serwer przyjmuje 20 — zapas na stare adresy). */
 export const MAX_REQUIREMENT_ROWS = 10;
 
+/**
+ * Jednoliterowe nazwy technologii ze słownika (K4, audyt 06.10.2026): „C”
+ * i „R” były wycinane po cichu (minimum 2 znaki). Lustro serwera:
+ * `SINGLE_LETTER_SKILLS` w `backend/app/services/keyword_terms.py`.
+ */
+export const SINGLE_LETTER_SKILLS: readonly string[] = ["c", "r"];
+
+/** Słowo kluczowe ma co najmniej 2 znaki albo jest „C”/„R”. */
+export function keywordLongEnough(word: string): boolean {
+  const trimmed = word.trim();
+  return trimmed.length >= 2 || SINGLE_LETTER_SKILLS.includes(trimmed.toLowerCase());
+}
+
+/** Komunikat dla słowa, którego nie da się szukać (zamiast cichego pominięcia). */
+export function tooShortKeywordMessage(words: readonly string[]): string {
+  const list = words.map((w) => `„${w}”`).join(", ");
+  return words.length > 1
+    ? `${list} są za krótkie — słowo musi mieć co najmniej 2 znaki (wyjątek: C i R).`
+    : `${list} jest za krótkie — słowo musi mieć co najmniej 2 znaki (wyjątek: C i R).`;
+}
+
 /** `|` rozdziela słowa grupy w adresie — w samym słowie zamieniamy go na spację. */
 export function sanitizeKeyword(word: string): string {
   return word.replace(/\|/g, " ").replace(/\s+/g, " ").trim();
@@ -121,7 +142,7 @@ export function splitAlternatives(word: string): string[] | null {
   const parts = word
     .split(/\s+(?:\/|lub|or)\s+/i)
     .map(sanitizeKeyword)
-    .filter((part) => part.length >= 2);
+    .filter(keywordLongEnough);
   return parts.length >= 2 ? parts : null;
 }
 
@@ -230,7 +251,7 @@ export function addToRow(
     const out = [...row];
     for (const raw of words) {
       const word = sanitizeKeyword(raw);
-      if (word.length < 2 || seen.has(foldWord(word))) continue;
+      if (!keywordLongEnough(word) || seen.has(foldWord(word))) continue;
       seen.add(foldWord(word));
       out.push(word);
     }

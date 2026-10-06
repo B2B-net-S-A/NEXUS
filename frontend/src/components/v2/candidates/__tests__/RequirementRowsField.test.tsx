@@ -70,6 +70,29 @@ describe("RequirementRowsField", () => {
     ).toBe("Rabbit");
   });
 
+  it("po „Usuń wymaganie” kursor zostaje w polu, nie ucieka na stronę (U8)", async () => {
+    render(<Harness initial={[["Java"], ["Kafka"], ["Spring"]]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Usuń wymaganie 2" }));
+    expect(rows()).toEqual([["Java"], ["Spring"]]);
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByLabelText("Wymaganie 2 — słowo albo wariant"),
+      ),
+    );
+  });
+
+  it("„C” i „R” wchodzą jako słowa; inna pojedyncza litera daje komunikat (K4)", () => {
+    render(<Harness initial={[]} />);
+    const input = screen.getByLabelText("Wymaganie 1 — słowo albo wariant");
+    fireEvent.change(input, { target: { value: "C" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(rows()).toEqual([["C"]]);
+    fireEvent.change(input, { target: { value: "x" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(rows()).toEqual([["C"]]);
+    expect(screen.getByText(/„x” jest za krótkie/)).toBeTruthy();
+  });
+
   it("limit 10 wymagań", () => {
     render(<Harness initial={Array.from({ length: 10 }, (_, i) => [`s${i}`])} />);
     expect(screen.getByRole("button", { name: "Dodaj wymaganie" })).toBeDisabled();
