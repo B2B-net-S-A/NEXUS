@@ -135,8 +135,12 @@ export interface OrderLineRead {
   removed_from_order?: boolean;
   /** Data zakończenia współpracy, gdy się skończyła (linia zostaje). */
   cooperation_ended_on?: string | null;
-  /** Zaraportowane MD tej osoby na zamówieniu (operacyjne). */
+  /** Zaraportowane MD tej osoby na zamówieniu (operacyjne). Przy wspólnej
+   *  puli — suma z podziału zejść miesięcznych na osoby (jak „Zejścia MD”). */
   md_used?: number | null;
+  /** Wspólna pula: ile miesięcy zejść nie ma podziału na osoby — `md_used`
+   *  osoby ich nie obejmuje. `null`/brak poza wspólną pulą. */
+  shared_md_unattributed_months?: number | null;
   /** Rozwiązanie UMOWY osoby (0367) — odróżnia „Zakończył współpracę"
    *  (umowa rozwiązana) od „Zakończył projekt" (umowa B2B trwa). */
   contract_type?: "b2b" | "uop" | "uzlecenie" | null;

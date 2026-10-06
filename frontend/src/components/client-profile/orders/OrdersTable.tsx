@@ -113,16 +113,9 @@ function tileHeaders(costSection: boolean, groupTile: boolean): string[] {
 }
 
 function LineBudgetCell({ group, line, ended }: { group: OrderGroupRead; line: OrderLineRead; ended: boolean }) {
-  if (group.is_cost_based) {
-    return (
-      <span className="text-xs text-muted-foreground">
-        zafakturowano{" "}
-        <span className="font-medium text-foreground">
-          {line.invoiced_total == null || line.invoiced_total === 0 ? "—" : formatPLN(line.invoiced_total)}
-        </span>
-      </span>
-    );
-  }
+  // Kwota kosztowego jest jedna na całe zamówienie (nagłówek), a to, co
+  // zafakturowała osoba, stoi w „Zużyciu”.
+  if (group.is_cost_based) return <span className="text-xs text-muted-foreground">wspólny budżet</span>;
   if (usesSharedMdPool(group)) return <span className="text-xs text-muted-foreground">wspólna pula</span>;
   // MD przeniesione na następcę nie są już „pozostało" u osoby odchodzącej.
   const transferredOut =
@@ -165,10 +158,135 @@ function lineNotes(line: OrderLineRead): Array<{ label: string; tone: keyof type
 
 /** Kolumna „Zostało MD” / „Budżet” u osoby, która już nie pracuje na zamówieniu. */
 function endedBudgetText(group: OrderGroupRead, line: OrderLineRead): string | null {
-  if (group.is_cost_based) {
-    return line.invoiced_total == null ? null : `zafakturowano ${formatPLN(line.invoiced_total)}`;
-  }
+  if (group.is_cost_based) return "wspólny budżet";
+  if (usesSharedMdPool(group)) return "wspólna pula";
   return line.md_remaining == null ? null : `zostało ${formatMd(line.md_remaining)} MD`;
+}
+
+interface GroupBudget {
+  /** Etykieta całości: „Kwota” / „Budżet” / „Wspólna pula: budżet”. */
+  totalLabel: string;
+  usedLabel: string;
+  total: number;
+  used: number;
+  remaining: number;
+  format: (value: number) => string;
+}
+
+const mdText = (value: number) => `${formatMd(value)} MD`;
+
+/**
+ * Budżet całego zamówienia w nagłówku — te same liczby co panel zamówienia
+ * (kosztowe: `budget_*`, wspólna pula: `md_budget_*`, MD per osoba: suma
+ * pozycji `md_positions_total` / `md_used_total` liczona na serwerze).
+ * `null` = nie ma czego pokazać (brak kwoty albo brak uprawnień do kwot —
+ * kosztowe przychodzi wtedy jako `null`, nie zero).
+ */
+function groupBudget(group: OrderGroupRead): GroupBudget | null {
+  if (group.is_cost_based) {
+    if (group.budget_amount == null) return null;
+    return {
+      totalLabel: "Kwota",
+      usedLabel: "zafakturowano",
+      total: group.budget_amount,
+      used: Math.max(0, group.budget_used ?? 0),
+      remaining: group.budget_remaining ?? 0,
+      format: formatPLN,
+    };
+  }
+  if (usesSharedMdPool(group)) {
+    if (group.md_budget_total == null) return null;
+    return {
+      totalLabel: "Wspólna pula: budżet",
+      usedLabel: "wykorzystano",
+      total: group.md_budget_total,
+      used: Math.max(0, group.md_budget_used ?? 0),
+      // Jak `SharedMdBudgetBar` w panelu: pula nie schodzi pod zero —
+      // przekroczenie mówi plakietka „Budżet wyczerpany”.
+      remaining: Math.max(0, group.md_budget_remaining ?? 0),
+      format: mdText,
+    };
+  }
+  if (group.md_positions_total == null || group.md_positions_total <= 0) return null;
+  const used = Math.max(0, group.md_used_total ?? 0);
+  return {
+    totalLabel: "Budżet",
+    usedLabel: "wykorzystano",
+    total: group.md_positions_total,
+    used,
+    // Per osoba przekroczenie jest faktem handlowym — liczba może być ujemna
+    // (jak „X / Y MD” w wierszu osoby).
+    remaining: group.md_positions_total - used,
+    format: mdText,
+  };
+}
+
+function GroupBudgetSummary({ group }: { group: OrderGroupRead }) {
+  const budget = groupBudget(group);
+  if (!budget) return null;
+  const pct = budget.total > 0 ? Math.max(0, Math.min(100, (budget.remaining / budget.total) * 100)) : 0;
+  const depleted = budget.remaining <= 0;
+  const low = !depleted && pct <= 15;
+  return (
+    <span className="flex items-center gap-2" data-group-budget>
+      {/* Pasek opada razem z „pozostało” — ta sama konwencja co w wierszach osób. */}
+      <span
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(pct)}
+        aria-label="Pozostało w zamówieniu"
+        className="block h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-muted"
+      >
+        <span
+          className={cn(
+            "block h-full rounded-full",
+            depleted ? "bg-destructive" : low ? "bg-warning" : "bg-primary",
+          )}
+          style={{ width: `${pct}%` }}
+        />
+      </span>
+      <span className="text-xs tabular-nums text-muted-foreground">
+        {budget.totalLabel} <span className="font-medium text-foreground">{budget.format(budget.total)}</span>
+        {` · ${budget.usedLabel} `}
+        <span className="font-medium text-foreground">{budget.format(budget.used)}</span>
+        {" · pozostało "}
+        <span className={cn("font-semibold", depleted ? "text-destructive" : "text-foreground")}>
+          {budget.format(budget.remaining)}
+        </span>
+      </span>
+    </span>
+  );
+}
+
+/** Kolumna „Zużycie” przy wspólnej puli i kosztowym: suma osoby na tym
+ *  zamówieniu od jego początku (serwer: `md_used` / `invoiced_total`). */
+function pooledUsage(group: OrderGroupRead, line: OrderLineRead): React.ReactNode {
+  if (group.is_cost_based) {
+    return (
+      <span className="text-xs text-muted-foreground">
+        zafakturowano{" "}
+        <span className="font-medium text-foreground">
+          {line.invoiced_total == null || line.invoiced_total === 0 ? "—" : formatPLN(line.invoiced_total)}
+        </span>
+      </span>
+    );
+  }
+  if (line.md_used == null) return null;
+  const unattributed = line.shared_md_unattributed_months ?? 0;
+  return (
+    <span className="text-xs tabular-nums">
+      <span className="font-medium text-foreground">{formatMd(line.md_used)} MD</span>
+      {unattributed > 0 ? (
+        <span
+          className={CALM_SUBLINE}
+          title="Te miesiące zapisano samą sumą puli — nie wiadomo, ile przypadło na osobę."
+        >
+          +{unattributed} mies. bez podziału
+        </span>
+      ) : null}
+    </span>
+  );
 }
 
 export function OrdersTable({
@@ -430,27 +548,29 @@ function OrdersTableRowView({
             <td colSpan={2} className={CELL} />
           </>
         ) : (
-          // Pas zamówienia: numer, typ, okres i liczba osób w jednej linii.
-          // Nie powtarza zużycia — pasek i „X / Y MD” stoją w wierszach osób,
-          // a pula całego zamówienia w panelu po kliknięciu pasa.
+          // Pas zamówienia: numer, typ, okres i liczba osób, a pod nimi budżet
+          // całego zamówienia — te same liczby co panel po kliknięciu pasa.
           <td colSpan={5} className="px-3 py-2 align-middle">
-            <span className="sticky left-3 flex w-fit max-w-full flex-wrap items-center gap-x-2 gap-y-0.5">
-              <span className="select-text text-sm font-semibold text-foreground">Zamówienie nr {group.order_number}</span>
-              <OrderTypeBadge type={effectiveGroupOrderType(group)} />
-              {group.status !== "active" ? (
-                <StatusDot tone={GROUP_STATUS_TONE[group.status] ?? "neutral"}>{group.status_label}</StatusDot>
-              ) : null}
-              <span className="text-xs text-muted-foreground">
-                {periodLabel(group)}
-                {group.closure_date ? ` · zakończone ${formatDate(group.closure_date)}` : ""}
-                {group.status === "cancelled" && group.cancelled_at
-                  ? ` · anulowane ${formatDate(warsawDateOf(group.cancelled_at) ?? group.cancelled_at)}`
-                  : ""}
-                {` · ${row.roster.current.length} os.`}
+            <span className="sticky left-3 flex w-fit max-w-full flex-col gap-1">
+              <span className="flex w-fit max-w-full flex-wrap items-center gap-x-2 gap-y-0.5">
+                <span className="select-text text-sm font-semibold text-foreground">Zamówienie nr {group.order_number}</span>
+                <OrderTypeBadge type={effectiveGroupOrderType(group)} />
+                {group.status !== "active" ? (
+                  <StatusDot tone={GROUP_STATUS_TONE[group.status] ?? "neutral"}>{group.status_label}</StatusDot>
+                ) : null}
+                <span className="text-xs text-muted-foreground">
+                  {periodLabel(group)}
+                  {group.closure_date ? ` · zakończone ${formatDate(group.closure_date)}` : ""}
+                  {group.status === "cancelled" && group.cancelled_at
+                    ? ` · anulowane ${formatDate(warsawDateOf(group.cancelled_at) ?? group.cancelled_at)}`
+                    : ""}
+                  {` · ${row.roster.current.length} os.`}
+                </span>
+                {group.executive_contract ? (
+                  <span className="text-xs text-muted-foreground">{executiveContractLabel(group.executive_contract)}</span>
+                ) : null}
               </span>
-              {group.executive_contract ? (
-                <span className="text-xs text-muted-foreground">{executiveContractLabel(group.executive_contract)}</span>
-              ) : null}
+              <GroupBudgetSummary group={group} />
             </span>
           </td>
         )}
@@ -526,17 +646,18 @@ function OrdersTableRowView({
       </td>
       <td className={CELL}>
         {ended ? (
-          // Kosztowe: „zafakturowano …” stoi już w kolumnie budżetu.
-          !group.is_cost_based && endedUsage(group, line) ? (
+          endedUsage(group, line) ? (
             <span className="text-xs tabular-nums text-muted-foreground" title="Wykorzystane na tym zamówieniu">
-              {endedUsage(group, line)}
+              {group.is_cost_based ? `zafakturowano ${endedUsage(group, line)}` : endedUsage(group, line)}
             </span>
           ) : null
         ) : perPersonMd ? (
           <span data-row-stop>
             <ConsumptionButton line={line} onClick={() => onSelect(row.key, "zuzycie")} />
           </span>
-        ) : null}
+        ) : (
+          pooledUsage(group, line)
+        )}
       </td>
       <td className={cn(CELL, "space-x-1 [&>span]:whitespace-normal")}>
         {needsDecision ? (

@@ -318,3 +318,68 @@ async def shared_md_import_breakdowns(
             (order_id, quantize_md(sums[(month, order_id, batch_id)]))
         )
     return out
+
+
+def shared_md_month_people(
+    row: ClientOrderGroupMdConsumption,
+    import_breakdowns: dict[str, list[tuple[int, Decimal]]],
+) -> tuple[Optional[list[tuple[int, Decimal]]], Optional[str]]:
+    """Podział jednego miesiąca puli na osoby i jego źródło.
+
+    Ręczny ``breakdown`` wygrywa; bez niego miesiąc z importu dostaje podział
+    z wierszy importu — tylko gdy składa się w zapisaną sumę, inaczej
+    przypisalibyśmy osobom liczby, których suma nie zgadza się z tym, co
+    zeszło z puli. ``(None, None)`` = miesiąc bez podziału na osoby.
+    Jedna reguła dla sekcji „Zejścia MD” panelu i kolumny „Zużycie” listy.
+    """
+
+    if row.breakdown:
+        return (
+            [
+                (int(item["order_id"]), Decimal(str(item["md"])))
+                for item in row.breakdown
+            ],
+            "manual",
+        )
+    if row.source == "import":
+        derived = import_breakdowns.get(row.period_month) or []
+        if derived and quantize_md(sum((md for _, md in derived), ZERO)) == quantize_md(
+            row.md_reported
+        ):
+            return derived, "import"
+    return None, None
+
+
+async def shared_md_person_usage(
+    db: AsyncSession, group_id: int
+) -> tuple[dict[int, Decimal], int]:
+    """Narastające MD każdej osoby na wspólnej puli i liczba miesięcy bez podziału.
+
+    Suma po miesiącach z tego samego podziału co sekcja „Zejścia MD”
+    (``shared_md_month_people``) — bez nowego liczenia. Miesiąc, którego nie da
+    się rozpisać na osoby (ręczna suma bez podziału), nie trafia do żadnej
+    osoby; wołający pokazuje, ile takich miesięcy jest, żeby suma osoby nie
+    udawała kompletnej.
+    """
+
+    rows = (
+        await db.scalars(
+            select(ClientOrderGroupMdConsumption).where(
+                ClientOrderGroupMdConsumption.group_id == group_id
+            )
+        )
+    ).all()
+    if not rows:
+        return {}, 0
+    import_breakdowns = await shared_md_import_breakdowns(db, group_id)
+    totals: dict[int, Decimal] = {}
+    unattributed = 0
+    for row in rows:
+        people, _source = shared_md_month_people(row, import_breakdowns)
+        if people is None:
+            if quantize_md(row.md_reported) > ZERO:
+                unattributed += 1
+            continue
+        for order_id, md in people:
+            totals[order_id] = totals.get(order_id, ZERO) + md
+    return {key: quantize_md(value) for key, value in totals.items()}, unattributed

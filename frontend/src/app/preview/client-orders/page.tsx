@@ -162,6 +162,9 @@ const PENDING_CASE: OrderOffboardingCaseRead = {
  *  zakończeni (decyzja czeka, zastąpiony, zostawiony jako historia)
  *  i przyszłe zamówienie. */
 const MD_GROUP = group({
+  // Sumy pozycji liczy serwer (`md_positions_total` / `md_used_total`).
+  md_positions_total: 120,
+  md_used_total: 69,
   lines: [
     line({
       consumption_recent: [
@@ -355,7 +358,9 @@ const SHARED_GROUP = group({
       consultant_name: "Igor Wspólny",
       md_total: null,
       md_remaining: null,
-      md_used: null,
+      // Suma osoby z podziału zejść (sierpień 25 MD); lipiec zapisano samą sumą.
+      md_used: 25,
+      shared_md_unattributed_months: 1,
       input_mode: null,
       input_value: null,
     }),
