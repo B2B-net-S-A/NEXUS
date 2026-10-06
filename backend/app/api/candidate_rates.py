@@ -45,7 +45,7 @@ router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 
 _PAID_STATUSES = (ContractStatus.active, ContractStatus.ending, ContractStatus.ended)
 _KEY_PATTERN = (
-    r"^(card|stage|profile|apply):[0-9]+$|^profile-current$"
+    r"^(card|stage|profile|apply|note):[0-9]+$|^profile-current$"
     r"|^rchange:[0-9]+:(req|agreed|prev)$"
 )
 

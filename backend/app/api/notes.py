@@ -38,7 +38,13 @@ from app.api.candidate_access import (
 from app.api.deps import DeliveryLeadPlus
 from app.api.recruitment_access import ensure_delivery_lead_job_visible
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
-from app.services import candidate_claim, note_kinds, recommendation_card_import
+from app.services import (
+    candidate_claim,
+    candidate_rate_from,
+    client_rate_notes,
+    note_kinds,
+    recommendation_card_import,
+)
 from app.services.recommendation_cards import CARD_KINDS
 from app.services.ai_quota import AIQuotaExceeded
 from app.services.mention_dispatch import (
@@ -274,6 +280,21 @@ async def list_notes(
     return EnrichedNoteList(items=items, total=len(items), group_counts=group_counts)
 
 
+async def _refresh_rate_from_after_dl_pair(
+    db: AsyncSession, candidate_id: Optional[int], *had_pair: bool
+) -> None:
+    """Wpis DL-a „X/Y” to obserwacja „Stawki od” (``note:{id}``) — przelicz od razu.
+
+    Wyzwalacz ``trg_rate_from_notes`` i tak kolejkuje kandydata (także przy
+    imporcie Traffita); tu tylko nie czekamy na pętlę. Nigdy nie cofa zapisu
+    notatki (``recompute_safely``).
+    """
+    if candidate_id is None or not any(had_pair):
+        return
+    await db.flush()
+    await candidate_rate_from.recompute_safely(db, [candidate_id])
+
+
 @router.post("", response_model=NoteResponse, status_code=status.HTTP_201_CREATED)
 async def create_note(
     data: NoteCreate,
@@ -412,6 +433,13 @@ async def create_note(
         await recommendation_card_import.refresh_candidate_safely(
             db, candidate_id=note.candidate_id, job_id=note.job_id
         )
+    if note.parent_note_id is None:
+        await db.flush()
+        await _refresh_rate_from_after_dl_pair(
+            db,
+            note.candidate_id,
+            client_rate_notes.note_has_dl_pair(note.kind, note.content),
+        )
 
     # Explicit commit — Notification rows muszą być trwałe ZANIM odpalimy email/WS.
     await db.commit()
@@ -529,6 +557,9 @@ async def update_note(
         select(NoteMention.user_id).where(NoteMention.note_id == note.id)
     )
     old_ids = {uid for (uid,) in old_rows.all()}
+    had_dl_pair = note.parent_note_id is None and client_rate_notes.note_has_dl_pair(
+        note.kind, note.content
+    )
 
     for k, v in data.model_dump(exclude_unset=True).items():
         setattr(note, k, v)
@@ -578,6 +609,13 @@ async def update_note(
     await recommendation_card_import.refresh_candidate_safely(
         db, candidate_id=note.candidate_id, job_id=note.job_id
     )
+    await _refresh_rate_from_after_dl_pair(
+        db,
+        note.candidate_id,
+        had_dl_pair,
+        note.parent_note_id is None
+        and client_rate_notes.note_has_dl_pair(note.kind, note.content),
+    )
 
     await db.commit()
 
@@ -618,6 +656,9 @@ async def delete_note(
     for retracted_id in (note.id, *reply_ids):
         await retract_note_mention_notifications(db, retracted_id)
     candidate_id = note.candidate_id
+    had_dl_pair = note.parent_note_id is None and client_rate_notes.note_has_dl_pair(
+        note.kind, note.content
+    )
     await db.delete(note)
     await db.flush()
     if candidate_id is not None:
@@ -626,6 +667,7 @@ async def delete_note(
         await recommendation_card_import.refresh_candidate_safely(
             db, candidate_id=candidate_id
         )
+        await _refresh_rate_from_after_dl_pair(db, candidate_id, had_dl_pair)
 
 
 _TRAFFIT_NOTE_ACTIONS = (

@@ -29,6 +29,8 @@ LanguageProvenance = Literal[
     "csv",
     "legacy",
     "unknown",
+    # 0423: języki zaobserwowane w notatkach rekruterów.
+    "notes",
 ]
 
 _LANGUAGE_CODE_RE = re.compile(r"^[a-z][a-z0-9-]{1,15}$")

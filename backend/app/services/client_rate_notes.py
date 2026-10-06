@@ -7,8 +7,15 @@ dla rekrutera. Ten moduł przenosi JEDNOZNACZNE wpisy do pola — nic nie kasuje
 i niczego nie nadpisuje:
 
 * tylko notatka z rekrutacją, z jedną kwotą i czasownikiem wysyłki przed nią
-  („wyślijmy / wysyłamy / wysłany za N”); para kwot („150/110”), sama liczba
-  przy wzmiance, inna waluta albo stawka dzienna/miesięczna zostają w notatce;
+  („wyślijmy / wysyłamy / wysłany za N”); sama liczba przy wzmiance, inna
+  waluta albo stawka dzienna/miesięczna zostają w notatce;
+* albo krótki wpis „X/Y” (07.10.2026, ``dl_pair_from_note``): X — stawka do
+  klienta, Y — oczekiwanie kandydata. Notatka rodzaju ``dl_rate`` liczy się
+  zawsze, zwykła (``human``) — tylko gdy jej autor ma rolę Delivery Leada albo
+  admina (rekruter pisze „Codility 85/60”, „oczekiwania 130/120”). Pomiar na produkcji: tam, gdzie
+  oczekiwanie kandydata w tej rekrutacji jest znane, niższa liczba zgadza się
+  z nim w 94% (834 z 886), wyższa w 7 przypadkach. Y nie trafia do pola
+  etapu — czyta go historia stawek („Stawka od”, źródło ``note:{id}``);
 * tylko para (kandydat, rekrutacja), która nie ma stawki do klienta na żadnym
   wierszu etapu; kwota trafia na pierwszy wiersz „CV wysłane” albo późniejszy;
 * para z dwiema różnymi kwotami albo z dodatkowym wpisem o cenie, którego nie
@@ -71,6 +78,111 @@ _DOUBT_RE = re.compile(
     r"\b(?:nie|bez|ani|czy|chyba|mo[zż]e|gdyby|albo|lub)\b|je[sś]li|je[zż]eli|\?"
 )
 
+# ── Wpis „X/Y” (stawka do klienta / oczekiwanie kandydata) ───────────────────
+
+#: Rodzaje notatek, w których „X/Y” czytamy jako parę stawek. Wpisy automatu,
+#: formularze, maile i karty mają własne reguły albo nie są wpisem DL-a.
+DL_PAIR_KINDS: tuple[str, ...] = (note_kinds.DL_RATE, note_kinds.HUMAN)
+#: Dłuższa notatka to rozmowa, w której „100/110” bywa widełkami kandydata,
+#: procentem albo liczbą klientów — tam nie zgadujemy.
+DL_PAIR_MAX_CHARS = 160
+_PAIR_RE = re.compile(r"(?<![\d.,/])(\d{2,3})\s*/\s*(\d{2,3})(?![\d.,]|\s*%)")
+_MD_RE = re.compile(r"(?<![\d.,])(\d{3,4})\s*md\b")
+_DIGIT_RE = re.compile(r"\d")
+# Jednostki i waluty, przy których para nie jest stawką PLN/h.
+_PAIR_FOREIGN_RE = re.compile(
+    r"%|score|eur|€|usd|\$|gbp|£|chf|brutto|tys|mies|/\s*mc\b|\bmsc\b|"
+    r"dzie[nń]|/\s*d\b|/\s*md\b|month|\bday\b|\bk\b"
+)
+# Słowa, przy których „X/Y” jest wynikiem testu albo widełkami oczekiwań
+# kandydata, nie parą DL-a (przegląd #2062: „Codility 85/60”, „test 90/50
+# pkt”, „oczekiwania 130/120”, „140/120 zakres”).
+_PAIR_NOT_RATE_RE = re.compile(
+    r"\bpkt\b|\bpunkt\w*|\btest(?:y|u|ów|em|ach|ami|owe\w*)?\b|\bwynik\w*"
+    r"|\bzadani\w*|codility|hackerrank|\bocen\w*|\bwide[łl]k\w*|\bzakres\w*"
+    r"|\boczekiwa\w*"
+)
+#: Wzorzec SQL (Postgres ARE) do zawężenia odczytu — ostateczną decyzję
+#: podejmuje ``dl_pair_from_note``. To samo wyrażenie czyta wyzwalacz kolejki
+#: „Stawki od” (``notes_facts_schema``) — wyzwalacz kolejkuje szerzej (nie zna
+#: autora), przeliczenie i tak stosuje regułę w Pythonie.
+DL_PAIR_SQL_PATTERN = r"[0-9]{2,3}\s*/\s*[0-9]{2,3}"
+#: Role autora, przy których ZWYKŁA notatka (``human``) z „X/Y” jest wpisem
+#: DL-a. Notatki ``dl_rate`` nie potrzebują tej bramki.
+DL_PAIR_AUTHOR_ROLES: tuple[str, ...] = ("delivery_lead", "admin")
+#: Wyrażenie SQL „autor notatki ma rolę z ``DL_PAIR_AUTHOR_ROLES``” dla
+#: zapytań z ``LEFT JOIN users u ON u.id = n.author_id`` (rola główna albo
+#: lista ``roles``). Brak autora = fałsz.
+DL_PAIR_AUTHOR_SQL = (
+    "COALESCE(u.role::text IN ('delivery_lead', 'admin') "
+    "OR COALESCE(u.roles, '[]'::jsonb) ?| ARRAY['delivery_lead', 'admin'], false)"
+)
+
+
+def parse_dl_pair(content: Optional[str]) -> Optional[tuple[Decimal, Decimal]]:
+    """(stawka do klienta, oczekiwanie kandydata) z krótkiego wpisu „X/Y”.
+
+    Tylko gdy: notatka po zdjęciu HTML i wzmianek ma najwyżej 160 znaków,
+    niesie dokładnie jedną parę „X/Y” z X > Y, obie w zakresie 40–400 PLN/h,
+    po parze stoi najwyżej „zł / h / netto”, a jedyna inna liczba to
+    „NNNN MD” równe X × 8 (stawka dzienna do klienta). Procent, „score”, inna
+    waluta, stawka dzienna/miesięczna, wynik testu („Codility”, „pkt”,
+    „wynik”), widełki i oczekiwania („zakres”, „widełki”, „oczekiwania”),
+    przeczenie, warunek albo pytanie = ``None``. Autora reguła nie zna —
+    sprawdza go ``dl_pair_from_note``. Pierwsza liczba niższa („Rate: 100/110 PLN/h”) to widełki
+    kandydata, nie para DL-a.
+    """
+    plain = _plain(content)
+    if not plain or len(plain) > DL_PAIR_MAX_CHARS:
+        return None
+    # „1520 MD” jest dozwolone (zgodność z X × 8 sprawdzana niżej) — reszta
+    # oceniana bez tej frazy.
+    without_md = _MD_RE.sub(" ", plain)
+    if (
+        _DOUBT_RE.search(without_md)
+        or _PAIR_FOREIGN_RE.search(without_md)
+        or _PAIR_NOT_RATE_RE.search(without_md)
+    ):
+        return None
+    pairs = _PAIR_RE.findall(plain)
+    if len(pairs) != 1:
+        return None
+    client, candidate = (Decimal(value) for value in pairs[0])
+    if not (RATE_MIN <= candidate < client <= RATE_MAX):
+        return None
+    rest = _PAIR_RE.sub(" ", plain)
+    for md in _MD_RE.findall(rest):
+        if Decimal(md) != client * 8:
+            return None
+    rest = _MD_RE.sub(" ", rest)
+    if _DIGIT_RE.search(rest):
+        return None
+    return client, candidate
+
+
+def dl_pair_from_note(
+    kind: Optional[str], content: Optional[str], *, author_is_dl: bool
+) -> Optional[tuple[Decimal, Decimal]]:
+    """Para „X/Y” z notatki — JEDNA reguła dla planu stawki do klienta
+    i obserwacji „Stawki od” (``note:{id}``).
+
+    ``dl_rate`` — zawsze reguła ``parse_dl_pair``; ``human`` — tylko gdy autor
+    ma rolę z ``DL_PAIR_AUTHOR_ROLES`` (``author_is_dl``); inne rodzaje nigdy.
+    """
+    if kind == note_kinds.DL_RATE or (kind == note_kinds.HUMAN and author_is_dl):
+        return parse_dl_pair(content)
+    return None
+
+
+def note_has_dl_pair(kind: Optional[str], content: Optional[str]) -> bool:
+    """Czy notatka MOŻE nieść parę „X/Y” (ścieżki zapisu notatki → „Stawka od”).
+
+    Bez sprawdzania autora: to tylko decyzja, czy przeliczyć „Stawkę od” od
+    razu. Przeliczenie czyta notatki przez ``dl_pair_from_note`` z autorem,
+    więc za szeroka odpowiedź kosztuje jedno zbędne przeliczenie, nie błąd.
+    """
+    return kind in DL_PAIR_KINDS and parse_dl_pair(content) is not None
+
 
 def _plain(content: Optional[str]) -> str:
     plain = _WS_RE.sub(" ", html.unescape(_TAG_RE.sub(" ", content or ""))).lower()
@@ -106,14 +218,19 @@ class PlannedRate:
 
 _NOTES_SQL = text(
     f"""
-    SELECT id, candidate_id, job_id, content
-      FROM notes
-     WHERE kind = '{note_kinds.DL_RATE}'
-       AND parent_note_id IS NULL
-       AND source_deleted_at IS NULL
-       AND candidate_id IS NOT NULL
-       AND job_id IS NOT NULL
-     ORDER BY created_at, id
+    SELECT n.id, n.candidate_id, n.job_id, n.content, n.kind,
+           {DL_PAIR_AUTHOR_SQL} AS author_is_dl
+      FROM notes n
+      LEFT JOIN users u ON u.id = n.author_id
+     WHERE (
+               n.kind = '{note_kinds.DL_RATE}'
+               OR (n.kind = '{note_kinds.HUMAN}' AND n.content ~ '{DL_PAIR_SQL_PATTERN}')
+           )
+       AND n.parent_note_id IS NULL
+       AND n.source_deleted_at IS NULL
+       AND n.candidate_id IS NOT NULL
+       AND n.job_id IS NOT NULL
+     ORDER BY n.created_at, n.id
     """
 )
 
@@ -135,9 +252,23 @@ async def build_plan(db: AsyncSession) -> tuple[list[PlannedRate], dict[str, int
     by_pair: dict[tuple[int, int], list[tuple[int, Decimal]]] = {}
     unclear_pairs: set[tuple[int, int]] = set()
     for row in (await db.execute(_NOTES_SQL)).all():
-        counts["notes_with_job"] += 1
         pair = (row.candidate_id, row.job_id)
-        value = extract_client_rate(row.content)
+        value = (
+            extract_client_rate(row.content) if row.kind == note_kinds.DL_RATE else None
+        )
+        if value is None:
+            dl_pair = dl_pair_from_note(
+                row.kind, row.content, author_is_dl=bool(row.author_is_dl)
+            )
+            if dl_pair is not None:
+                value = dl_pair[0]
+                counts["notes_dl_pair"] += 1
+        if row.kind != note_kinds.DL_RATE and value is None:
+            # Zwykła notatka z „X/Y”, którego reguła nie przyjęła (widełki
+            # kandydata, procent, wynik testu, autor bez roli DL-a) — nie
+            # jest wpisem o cenie, nie psuje pary.
+            continue
+        counts["notes_with_job"] += 1
         if value is None:
             counts["notes_not_unambiguous"] += 1
             unclear_pairs.add(pair)

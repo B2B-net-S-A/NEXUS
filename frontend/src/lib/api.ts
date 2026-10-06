@@ -803,7 +803,8 @@ export type CandidateLanguageProvenance =
   | "tr_legacy"
   | "csv"
   | "legacy"
-  | "unknown";
+  | "unknown"
+  | "notes";
 
 export interface CandidateLanguage {
   id: number;

@@ -37,7 +37,7 @@ def _cand(**kw):
     return SimpleNamespace(**defaults)
 
 
-def _apply(cand, parsed, fp="fp-1"):
+def _apply(cand, parsed, fp="fp-1", as_of=None, latest_note_day=None):
     # flag_modified wymaga instrumentacji ORM — SimpleNamespace jej nie ma,
     # więc podmieniamy na no-op przez monkeypatching modułu w teście wywołań.
     import app.services.candidate_notes_facts as facts_mod
@@ -48,7 +48,13 @@ def _apply(cand, parsed, fp="fp-1"):
     mod.flag_modified = lambda *a, **k: None
     facts_mod.flag_modified = lambda *a, **k: None
     try:
-        return apply_insights(cand, parsed, fingerprint=fp)
+        return apply_insights(
+            cand,
+            parsed,
+            fingerprint=fp,
+            as_of=as_of,
+            latest_note_day=latest_note_day,
+        )
     finally:
         mod.flag_modified = original
         facts_mod.flag_modified = original_facts
@@ -407,19 +413,29 @@ async def test_invalid_ai_shape_is_rejected_before_caller_can_apply(monkeypatch)
     from unittest.mock import AsyncMock
     from app.services import notes_insights_extractor as extractor
 
-    provider = AsyncMock(return_value=SimpleNamespace(content=[SimpleNamespace(type="text", text='{"skills_evidenced":"SQL"}')]))
+    provider = AsyncMock(
+        return_value=SimpleNamespace(
+            content=[SimpleNamespace(type="text", text='{"skills_evidenced":"SQL"}')]
+        )
+    )
     monkeypatch.setattr(extractor, "run_in_threadpool", provider)
     with pytest.raises(ValueError, match="invalid_notes_field_type"):
         await extractor.extract_insights("Synthetic notes")
     assert provider.await_count == 1
 
 
-async def test_unrecoverable_ai_json_does_not_receive_extra_provider_retries(monkeypatch):
+async def test_unrecoverable_ai_json_does_not_receive_extra_provider_retries(
+    monkeypatch,
+):
     import pytest
     from unittest.mock import AsyncMock
     from app.services import notes_insights_extractor as extractor
 
-    provider = AsyncMock(return_value=SimpleNamespace(content=[SimpleNamespace(type="text", text='{"skills_evidenced": ???}')]))
+    provider = AsyncMock(
+        return_value=SimpleNamespace(
+            content=[SimpleNamespace(type="text", text='{"skills_evidenced": ???}')]
+        )
+    )
     monkeypatch.setattr(extractor, "run_in_threadpool", provider)
     with pytest.raises(ValueError):
         await extractor.extract_insights("Synthetic notes")
@@ -446,7 +462,9 @@ async def test_rate_absent_from_notes_never_reaches_the_profile(monkeypatch):
     monkeypatch.setattr(
         extractor,
         "run_in_threadpool",
-        _model_reply('{"expected_rate": {"value": 160, "currency": "PLN", "period": "h"}}'),
+        _model_reply(
+            '{"expected_rate": {"value": 160, "currency": "PLN", "period": "h"}}'
+        ),
     )
     parsed = await extractor.extract_insights(
         "[2026-09-12]\nKandydat oczekuje 150 zł/h netto na B2B, start za miesiąc."
@@ -464,7 +482,9 @@ async def test_rate_present_in_notes_is_kept(monkeypatch):
     monkeypatch.setattr(
         extractor,
         "run_in_threadpool",
-        _model_reply('{"expected_rate": {"value": 160, "currency": "PLN", "period": "h"}}'),
+        _model_reply(
+            '{"expected_rate": {"value": 160, "currency": "PLN", "period": "h"}}'
+        ),
     )
     parsed = await extractor.extract_insights(
         "[2026-09-12]\nWidełki 150-160zł/h, elastyczny przy dłuższym projekcie."
@@ -481,7 +501,9 @@ async def test_date_header_digits_do_not_ground_a_rate(monkeypatch):
     monkeypatch.setattr(
         extractor,
         "run_in_threadpool",
-        _model_reply('{"expected_rate": {"value": 12, "currency": "PLN", "period": "h"}}'),
+        _model_reply(
+            '{"expected_rate": {"value": 12, "currency": "PLN", "period": "h"}}'
+        ),
     )
     parsed = await extractor.extract_insights("[2026-09-12]\nRozmowa o dostępności.")
     assert parsed["expected_rate"]["value"] is None
@@ -501,3 +523,140 @@ async def test_monthly_amount_in_words_is_left_for_the_card(monkeypatch):
     )
     parsed = await extractor.extract_insights("[2026-05-10]\nUoP od 20 tysięcy.")
     assert parsed["expected_rate"]["value"] == 20000
+
+
+# ── Dostępność od dnia notatki (07.10.2026) ───────────────────────────────────
+
+
+def test_notice_period_counts_availability_from_the_note_day_not_today():
+    cand = _cand()
+    stats = _apply(
+        cand,
+        {"availability": {"notice_period": "1 miesiąc"}},
+        as_of=date(2025, 3, 10),
+    )
+    assert cand.availability_date == date(2025, 4, 10)
+    assert stats["avail_date_filled"] == 1
+    marker = cand.cv_extracted_data["_notes_insights"]["_availability_from_notes"]
+    assert marker == {"date": "2025-04-10", "as_of": "2025-03-10", "basis": "notice"}
+
+
+def test_asap_month_and_polish_date_formats_fill_the_empty_date():
+    cases = [
+        ({"raw": "dostępny od zaraz"}, date(2026, 2, 3), "asap"),
+        ({"available_from": "11.2026"}, date(2026, 11, 1), "month"),
+        ({"available_from": "od listopada"}, date(2025, 11, 1), "month"),
+        ({"available_from": "05.01.2027"}, date(2027, 1, 5), "date"),
+    ]
+    for availability, expected, basis in cases:
+        cand = _cand()
+        _apply(
+            cand,
+            {"availability": availability},
+            as_of=date(2026, 2, 3) if basis == "asap" else date(2025, 10, 1),
+        )
+        assert cand.availability_date == expected, availability
+        marker = cand.cv_extracted_data["_notes_insights"]["_availability_from_notes"]
+        assert marker["basis"] == basis
+
+
+def test_relative_availability_needs_the_note_day():
+    cand = _cand()
+    stats = _apply(cand, {"availability": {"raw": "od zaraz"}}, as_of=None)
+    assert cand.availability_date is None
+    assert stats["avail_date_filled"] == 0
+
+
+def test_negated_asap_is_not_availability():
+    cand = _cand()
+    _apply(cand, {"availability": {"raw": "nie od zaraz"}}, as_of=date(2026, 1, 5))
+    assert cand.availability_date is None
+    assert getattr(cand.availability_status, "value", cand.availability_status) == (
+        "unknown"
+    )
+
+
+def test_availability_filled_by_a_person_is_never_overwritten():
+    cand = _cand(availability_date=date(2026, 12, 1))
+    stats = _apply(
+        cand,
+        {"availability": {"raw": "od zaraz"}},
+        as_of=date(2026, 10, 1),
+    )
+    assert cand.availability_date == date(2026, 12, 1)
+    assert stats["avail_date_filled"] == 0 and stats["avail_date_updated"] == 0
+    assert "_availability_from_notes" not in cand.cv_extracted_data["_notes_insights"]
+
+
+def test_newer_note_updates_availability_written_by_notes():
+    cand = _cand()
+    _apply(cand, {"availability": {"raw": "od zaraz"}}, as_of=date(2025, 1, 2))
+    assert cand.availability_date == date(2025, 1, 2)
+    stats = _apply(
+        cand,
+        {"availability": {"available_from": "2026-11-15"}},
+        as_of=date(2026, 10, 1),
+    )
+    assert cand.availability_date == date(2026, 11, 15)
+    assert stats["avail_date_updated"] == 1
+    # Człowiek poprawił datę — od teraz notatki jej nie ruszają.
+    cand.availability_date = date(2027, 1, 1)
+    _apply(cand, {"availability": {"raw": "od zaraz"}}, as_of=date(2026, 10, 5))
+    assert cand.availability_date == date(2027, 1, 1)
+
+
+def test_note_days_split_the_availability_note_from_the_newest_note():
+    from app.services.notes_profile_fill import notes_days
+
+    rows = [
+        (2, None, date(2026, 1, 2), "Zna Pythona i Django.", date(2026, 9, 30)),
+        (1, None, date(2026, 1, 1), "Dostępny od zaraz.", date(2023, 5, 4)),
+    ]
+    days = notes_days(rows)
+    assert days.availability == date(2023, 5, 4)
+    assert days.latest == date(2026, 9, 30)
+    assert notes_days([]).availability is None and notes_days([]).latest is None
+    # Wiersze w starym kształcie (4 kolumny) nie mają dnia notatki.
+    old_shape = notes_days([(1, None, date(2026, 1, 1), "od zaraz")])
+    assert old_shape.availability is None and old_shape.latest is None
+
+
+def test_asap_counts_from_the_availability_note_not_the_newest_note():
+    """Przegląd #2062: „od zaraz” z 2023 + „zna Pythona” z 30.09.2026."""
+    from app.services.notes_profile_fill import notes_days
+
+    rows = [
+        (2, None, date(2026, 9, 30), "Zna Pythona.", date(2026, 9, 30)),
+        (1, None, date(2023, 5, 4), "Kandydat dostępny od zaraz.", date(2023, 5, 4)),
+    ]
+    days = notes_days(rows)
+    cand = _cand()
+    _apply(cand, {"availability": {"raw": "od zaraz"}}, as_of=days.availability)
+    assert cand.availability_date == date(2023, 5, 4)
+    marker = cand.cv_extracted_data["_notes_insights"]["_availability_from_notes"]
+    assert marker == {"date": "2023-05-04", "as_of": "2023-05-04", "basis": "asap"}
+
+
+def test_without_an_availability_note_only_explicit_dates_are_written():
+    # Brak notatki o dostępności: „od zaraz” i okres wypowiedzenia nie dają daty.
+    for availability in ({"raw": "od zaraz"}, {"notice_period": "1 miesiąc"}):
+        cand = _cand()
+        stats = _apply(
+            cand,
+            {"availability": availability},
+            as_of=None,
+            latest_note_day=date(2026, 9, 30),
+        )
+        assert cand.availability_date is None, availability
+        assert stats["avail_date_filled"] == 0
+    # Pełna data i miesiąc tak — „stan na” to dzień najnowszej notatki.
+    cand = _cand()
+    _apply(
+        cand,
+        {"availability": {"available_from": "od listopada"}},
+        as_of=None,
+        latest_note_day=date(2026, 9, 30),
+    )
+    assert cand.availability_date == date(2026, 11, 1)
+    marker = cand.cv_extracted_data["_notes_insights"]["_availability_from_notes"]
+    assert marker == {"date": "2026-11-01", "as_of": "2026-09-30", "basis": "month"}

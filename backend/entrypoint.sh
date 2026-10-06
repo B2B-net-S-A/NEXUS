@@ -880,6 +880,20 @@ except Exception as _rate_change_err:  # noqa: BLE001
     print(f"candidate rate change DDL unavailable: {_rate_change_err!r}")
     _RATE_CHANGE_DDL = []
 
+# Dane z notatek do pól (migracja 0423): wyzwalacz kolejki „Stawki od” na
+# notatkach z wpisem „X/Y” i jednorazowe zakolejkowanie kandydatów — JEDNO
+# źródło z migracją (`app/services/notes_facts_schema.py`). CHECK źródła
+# języków (`notes`) stoi niżej literalnie, w `_CONSTRAINT_STATEMENTS`.
+try:
+    from app.services import notes_facts_schema as _notes_facts
+
+    _NOTES_FACTS_DDL = list(_notes_facts.TRIGGER_DDL)
+    _NOTES_FACTS_BACKFILL = list(_notes_facts.BACKFILL_DDL)
+except Exception as _notes_facts_err:  # noqa: BLE001
+    print(f"notes facts DDL unavailable: {_notes_facts_err!r}")
+    _NOTES_FACTS_DDL = []
+    _NOTES_FACTS_BACKFILL = []
+
 # Stawki linii MD z trzema miejscami i podział zejść wspólnej puli MD
 # (migracja 0419) — JEDNO źródło z migracją
 # (`app/services/md_order_precision_schema.py`).
@@ -935,6 +949,7 @@ _COLUMN_STATEMENTS = [
     *_APPLICATION_SCREENING_DDL,
     *_RATE_FROM_DDL,
     *_RATE_CHANGE_DDL,
+    *_NOTES_FACTS_DDL,
     *_MD_PRECISION_DDL,
     *_B2B_DOCUMENTS_DDL,
     *_B2B_REGISTER_DDL,
@@ -6184,6 +6199,7 @@ _DATA_STATEMENTS = [
     "ON CONFLICT (key) DO NOTHING",
     *_B2B_DOCUMENTS_BACKFILL,
     *_RATE_FROM_BACKFILL,
+    *_NOTES_FACTS_BACKFILL,
     # 0412: „Reply” z Traffita to odpowiedź na notatkę, nie mail — jednorazowa
     # zmiana typu (znacznik w app_settings), bez ruszania `updated_at`.
     # Lustro `note_kind_schema.REPLY_RETYPE`.
@@ -8473,12 +8489,15 @@ _CONSTRAINT_STATEMENTS = [
     # importu dostaje `tr_legacy`. Oba CHECK-i przyjmują starą I nową wartość,
     # żeby rollback (redeploy poprzedniego obrazu, który wciąż pisze
     # `talent_radar`) nie wywalał się na naruszeniu constraintu.
+    # 0423: + `notes` — języki zaobserwowane w notatkach rekruterów
+    # (lustro `notes_facts_schema.LANGUAGE_PROVENANCE_DDL`).
     "ALTER TABLE candidate_languages DROP CONSTRAINT IF EXISTS ck_candidate_languages_provenance",
     """DO $$ BEGIN
         ALTER TABLE candidate_languages
             ADD CONSTRAINT ck_candidate_languages_provenance
             CHECK (provenance IN ('manual', 'cv', 'traffit', 'talent_radar',
-                                  'tr_legacy', 'csv', 'legacy', 'unknown'));
+                                  'tr_legacy', 'csv', 'legacy', 'unknown',
+                                  'notes'));
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     "ALTER TABLE candidate_source_identity_reviews DROP CONSTRAINT IF EXISTS ck_candidate_source_identity_review_kind",
     """DO $$ BEGIN

@@ -40,7 +40,9 @@ async def _seed(profile_rate: str | None = "140.00") -> tuple[int, int]:
         return candidate.id, job.id
 
 
-async def _card(candidate_id: int, job_id: int, value: float, *, days_ago: int = 30) -> int:
+async def _card(
+    candidate_id: int, job_id: int, value: float, *, days_ago: int = 30
+) -> int:
     at = (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat()
     async with AsyncSessionLocal() as db:
         card = RecommendationCard(
@@ -219,3 +221,89 @@ async def test_minimum_leaving_the_window_is_requeued_and_recomputed(
     row = await _row(candidate_id)
     assert row.rate_from_hourly == Decimal("150.00")
     assert not await _queued(candidate_id)
+
+
+# ── Wpis DL-a „X/Y” w notatce (07.10.2026) ────────────────────────────────────
+
+
+async def _note(candidate_id: int, job_id: int, content: str) -> int:
+    from app.models.note import Note
+
+    async with AsyncSessionLocal() as db:
+        note = Note(candidate_id=candidate_id, job_id=job_id, content=content)
+        db.add(note)
+        await db.commit()
+        return note.id
+
+
+@pytest.mark.asyncio
+async def test_dl_pair_note_is_a_candidate_rate_observation_without_client_rate(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    candidate_id, job_id = await _seed("140.00")
+    await _drain()
+    note_id = await _note(candidate_id, job_id, "160/115 @Jan Testowy")
+    # Wyzwalacz na notatkach kolejkuje kandydata (także przy imporcie Traffita).
+    assert await _queued(candidate_id)
+    await _drain()
+    assert (await _row(candidate_id)).rate_from_hourly == Decimal("115.00")
+
+    resp = await app_client.get(
+        f"/api/candidates/{candidate_id}/rate-overview", headers=app_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    observation = next(o for o in body["observations"] if o["key"] == f"note:{note_id}")
+    assert observation["source"] == "note"
+    assert observation["raw"] == "115 PLN/h"
+    # Stawka do klienta nie wychodzi w historii stawek (widzi ją każda rola).
+    assert "160" not in resp.text
+
+    # „Nie licz jako minimum” działa także na wpisie z notatki.
+    resp = await app_client.put(
+        f"/api/candidates/{candidate_id}/rate-observations/note:{note_id}",
+        json={"decision": "exclude"},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert (await _row(candidate_id)).rate_from_hourly == Decimal("140.00")
+
+
+@pytest.mark.asyncio
+async def test_candidate_range_and_long_notes_are_not_observations():
+    from app.services.candidate_rate_observations import collect
+
+    candidate_id, job_id = await _seed(None)
+    await _note(candidate_id, job_id, "Rate: 100/110 PLN/h")
+    await _note(candidate_id, job_id, "score: 67/100")
+    await _note(
+        candidate_id,
+        job_id,
+        "Rozmowa o projekcie, zespół rozproszony, Java i Spring, kandydat "
+        "pracuje zdalnie, ustalenia z klientem z poprzedniej rekrutacji "
+        "obejmowały też widełki 160/115 i termin startu po wypowiedzeniu",
+    )
+    async with AsyncSessionLocal() as db:
+        observations = (await collect(db, [candidate_id]))[candidate_id]
+    assert not [o for o in observations if o.key.startswith("note:")]
+
+
+@pytest.mark.asyncio
+async def test_note_api_recomputes_rate_from_right_away(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    candidate_id, job_id = await _seed("140.00")
+    await _drain()
+    resp = await app_client.post(
+        "/api/notes",
+        json={"candidate_id": candidate_id, "job_id": job_id, "content": "170/120"},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    assert (await _row(candidate_id)).rate_from_hourly == Decimal("120.00")
+
+    resp = await app_client.delete(
+        f"/api/notes/{resp.json()['id']}", headers=app_auth_headers
+    )
+    assert resp.status_code == 204, resp.text
+    assert (await _row(candidate_id)).rate_from_hourly == Decimal("140.00")
