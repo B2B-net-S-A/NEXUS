@@ -1287,7 +1287,6 @@ SCREENING_REASSIGN_SUGGEST = PromptTemplate(
 )
 
 
-
 # ── Karta rekomendacji z notatki rekrutera (0421, 06.10.2026) ───────────────
 # Rekruter wgrywa albo wkleja swoją notatkę z rozmowy. Model (Luna, F28)
 # wskazuje wartości pól karty i odpowiedzi na pytania Championa — każdą

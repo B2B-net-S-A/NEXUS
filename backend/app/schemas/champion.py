@@ -859,9 +859,7 @@ class ScreeningAnswerItem(BaseModel):
     # przyjął podpowiedź Luny z poprzedniej rekrutacji (przepięcie). Od 0421:
     # `note_import` = przyjęta z notatki wgranej/wklejonej w oknie karty,
     # `phrased` = zdanie ułożone z haseł rekrutera („Ułóż w zdanie”).
-    origin: Literal["manual", "reassign_suggested", "note_import", "phrased"] = (
-        "manual"
-    )
+    origin: Literal["manual", "reassign_suggested", "note_import", "phrased"] = "manual"
     # Hasła rekrutera, z których powstało zdanie (`phrased`) albo fragment
     # notatki (`note_import`). Wewnętrzne — poza białą listą dla klienta.
     keywords: Optional[str] = Field(default=None, max_length=SCREENING_TEXT_MAX_CHARS)
