@@ -786,6 +786,16 @@ def _without_contact(line: str) -> str:
     return _CONTACT_TAIL_RE.sub("", cleaned).strip(" \t,;|/")
 
 
+def strip_contacts(text: str) -> str:
+    """Tekst bez adresów e-mail, numerów telefonów i adresów LinkedIn (0421).
+
+    Wiersz po wierszu — ta sama reguła co odczyt pól karty. Używa jej odczyt
+    notatki przez model (``recommendation_card_assist``): kontakt do kandydata
+    nie jest potrzebny do wypełnienia karty.
+    """
+    return "\n".join(_without_contact(line) for line in (text or "").split("\n"))
+
+
 def _clean_lines(segment: str) -> list[str]:
     lines = (
         _without_contact(_BULLET_RE.sub("", line).strip())

@@ -91,6 +91,9 @@ class TestFeatureKeyEnum:
             "plain_knowledge_research",
             # 0404: przegląd zgłoszeń z linku rekrutacji przed „Nowi”.
             "application_screening",
+            # 0421: karta rekomendacji z notatki i „Ułóż w zdanie”.
+            "recommendation_card_note_read",
+            "screening_answer_phrasing",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

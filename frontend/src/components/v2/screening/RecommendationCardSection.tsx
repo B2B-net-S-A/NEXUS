@@ -23,6 +23,8 @@ export interface RecommendationCardSectionProps {
   readOnly?: boolean;
   /** Okno całej karty otwarte z zewnątrz (akcja „Uzupełnij kartę”). */
   fullOpen?: boolean;
+  /** Arkusz screeningu ma niezapisane odpowiedzi (warsztat screeningu). */
+  screeningDirty?: boolean;
   onFullOpenChange?: (open: boolean) => void;
 }
 
@@ -33,6 +35,7 @@ export function RecommendationCardSection({
   readOnly = false,
   fullOpen,
   onFullOpenChange,
+  screeningDirty = false,
 }: RecommendationCardSectionProps) {
   const { showError } = useToast();
   const query = useRecommendationCard(candidateId, jobId);
@@ -60,10 +63,13 @@ export function RecommendationCardSection({
           readOnly={readOnly}
           saving={save.isPending}
           onSave={(fields) =>
-            save.mutate(fields, {
-              onError: (err) =>
-                showError(apiErrorMessage(err, "Nie udało się zapisać pola. Spróbuj ponownie.")),
-            })
+            save.mutate(
+              { fields },
+              {
+                onError: (err) =>
+                  showError(apiErrorMessage(err, "Nie udało się zapisać pola. Spróbuj ponownie.")),
+              },
+            )
           }
           onOpenFull={() => setOpen(true)}
         />
@@ -75,6 +81,7 @@ export function RecommendationCardSection({
         jobId={jobId}
         candidateName={candidateName}
         readOnly={readOnly}
+        screeningDirty={screeningDirty}
       />
     </>
   );

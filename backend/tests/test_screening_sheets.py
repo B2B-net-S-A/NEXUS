@@ -364,6 +364,9 @@ async def test_profile_endpoint_returns_the_conversations(
             "response": "Głównie monolit.",
             "deal_breaker_hit": True,
             "skipped": False,
+            # 0421: pochodzenie odpowiedzi (plakietka „zdanie z haseł”).
+            "origin": "manual",
+            "keywords": None,
         }
     ]
     assert newer["experience_checks"] == [

@@ -5275,12 +5275,20 @@ export interface HistoricalMatchesResponse {
 
 // Screening answers
 
+export type ScreeningAnswerOrigin = "manual" | "reassign_suggested" | "note_import" | "phrased";
+
 export interface ScreeningAnswerItem {
   question_id: string;
   response: string;
   deal_breaker_hit: boolean;
-  /** `reassign_suggested` = przyjęta podpowiedź Luny (przepięcie, 23.09.2026). */
-  origin?: "manual" | "reassign_suggested";
+  /**
+   * `reassign_suggested` = przyjęta podpowiedź Luny (przepięcie, 23.09.2026);
+   * `note_import` = przyjęta z notatki w oknie karty, `phrased` = zdanie
+   * ułożone z haseł rekrutera (0421).
+   */
+  origin?: ScreeningAnswerOrigin;
+  /** Hasła rekrutera, z których powstało zdanie — tylko dla zespołu (0421). */
+  keywords?: string | null;
   /** Pytanie pominięte przy przepięciu — nie idzie do klienta ani do dopasowania. */
   skipped?: boolean;
   /**

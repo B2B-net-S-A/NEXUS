@@ -112,6 +112,9 @@ import {
 } from "@/components/v2/jobs/workbench-chrome";
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
 import { RecommendationCardSection } from "@/components/v2/screening/RecommendationCardSection";
+import { PhraseAllBar } from "@/components/v2/screening/PhraseAllBar";
+import { usePhraseSuggestions } from "@/components/v2/screening/PhraseSuggestion";
+import { useRecommendationCard } from "@/lib/api/recommendationCards";
 import type { JobDetailTab } from "@/components/v2/jobs/JobDetailCompactHeader";
 import type { WorkbenchPanelProps } from "@/components/v2/recruitment/types";
 
@@ -275,6 +278,19 @@ export function ScreeningWorkbench({
   });
   const screeningSaved = screening.data?.screening_answers ?? null;
   const screeningDirty = screening.methods.formState.isDirty;
+
+  // ── „Ułóż w zdanie” (0421) — tylko przy włączonej funkcji karty z notatki ─
+  const cardQuery = useRecommendationCard(
+    selected?.item.candidate_id ?? -1,
+    jobId,
+    selected != null && !readOnly,
+  );
+  const phraseController = usePhraseSuggestions({
+    candidateId: selected?.item.candidate_id ?? -1,
+    jobId,
+    defaultLanguage: cardQuery.data?.phrase_language,
+  });
+  const phrase = cardQuery.data?.assist_enabled && !readOnly ? phraseController : undefined;
   const answers = screening.questions.map((q) => ({
     id: q.id,
     question: q.question,
@@ -564,6 +580,7 @@ export function ScreeningWorkbench({
               jobId={jobId}
               candidateName={selectedName ?? "Kandydat"}
               readOnly={readOnly}
+              screeningDirty={screeningDirty}
             />
           ) : dockTab === "notes" ? (
             <DockNotesPanel
@@ -752,6 +769,13 @@ export function ScreeningWorkbench({
                 />
               ) : (
                 <Form methods={screening.methods} onSubmit={screening.onSubmit}>
+                  {phrase ? (
+                    <PhraseAllBar
+                      phrase={phrase}
+                      questions={screening.questions}
+                      methods={screening.methods}
+                    />
+                  ) : null}
                   {selected ? (
                     <ScreeningReassignSuggestions
                       key={selected.item.id}
@@ -766,6 +790,7 @@ export function ScreeningWorkbench({
                           questions={screening.questions}
                           methods={screening.methods}
                           renderQuestionExtra={renderQuestionExtra}
+                          phrase={phrase}
                         />
                       )}
                     </ScreeningReassignSuggestions>
@@ -773,6 +798,7 @@ export function ScreeningWorkbench({
                     <ScreeningFormFields
                       questions={screening.questions}
                       methods={screening.methods}
+                      phrase={phrase}
                     />
                   )}
                   {screening.submitError && (

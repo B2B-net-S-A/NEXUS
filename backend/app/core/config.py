@@ -606,6 +606,13 @@ class Settings(BaseSettings):
     # Wyłączona = karty z notatek nie powstają; API karty i pola wpisane
     # ręcznie działają bez niej. Włączenie przez workflow „Coolify set env”.
     RECOMMENDATION_CARD_IMPORT_ENABLED: bool = False
+    # Karta rekomendacji z notatki rekrutera i „Ułóż w zdanie” (0421, decyzje
+    # Artura 06.10.2026). Wyłączona = okno karty bez kafli „Wgraj notatkę” /
+    # „Wklej tekst”, bez przycisków „Ułóż w zdanie”, a trasy odpowiadają 404.
+    # Ręczne wypełnianie karty i arkusza działa bez zmian. Włączenie po
+    # pomiarze (`scripts/eval_recommendation_card_note.py`) przez workflow
+    # „Coolify set env”.
+    RECOMMENDATION_CARD_ASSIST_ENABLED: bool = False
 
     # „Stawka od” (0414): filtry, AI i plakietki budżetu czytają najniższą
     # stawkę kandydata z ostatnich 18 miesięcy (karty rekomendacji, etapy,

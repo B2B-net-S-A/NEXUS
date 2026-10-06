@@ -15,6 +15,7 @@
 import { AlertTriangle } from "lucide-react";
 
 import { EXPERIENCE_KIND_LABEL } from "@/lib/champion-experience";
+import { answerOriginBadge } from "@/lib/recommendation-card";
 import { cn } from "@/lib/utils";
 
 export interface ScreeningAnswerRow {
@@ -23,6 +24,10 @@ export interface ScreeningAnswerRow {
   response?: string | null;
   deal_breaker_hit?: boolean;
   skipped?: boolean;
+  /** Pochodzenie odpowiedzi (0421): „zdanie z haseł”, „z notatki”. */
+  origin?: string | null;
+  /** Hasła rekrutera, z których powstało zdanie — w dymku plakietki. */
+  keywords?: string | null;
   /**
    * Numer pytania w arkuszu (od 1). Podaje go lista przefiltrowana szukaniem —
    * bez niego pytanie nr 4 stałoby się po filtrze „pytaniem 1”.
@@ -101,6 +106,7 @@ export function ScreeningAnswersList({
                       <AlertTriangle className="size-3" aria-hidden /> deal-breaker
                     </span>
                   ) : null}
+                  <AnswerOriginBadge origin={answer.origin} keywords={answer.keywords} />
                 </p>
                 <p className="whitespace-pre-line text-muted-foreground [overflow-wrap:anywhere]">
                   {response ? (
@@ -153,5 +159,25 @@ export function ScreeningAnswersList({
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** Plakietka pochodzenia odpowiedzi (0421) — hasła rekrutera w dymku. */
+export function AnswerOriginBadge({
+  origin,
+  keywords,
+}: {
+  origin?: string | null;
+  keywords?: string | null;
+}) {
+  const label = answerOriginBadge(origin);
+  if (!label) return null;
+  return (
+    <span
+      className="ml-1.5 inline-flex rounded-full bg-primary/10 px-1.5 py-px text-[10.5px] font-medium text-primary"
+      title={keywords ? `Hasła rekrutera: ${keywords}` : undefined}
+    >
+      {label}
+    </span>
   );
 }

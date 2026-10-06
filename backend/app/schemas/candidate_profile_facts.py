@@ -219,6 +219,9 @@ class ScreeningConversationAnswer(BaseModel):
     response: str = ""
     deal_breaker_hit: bool = False
     skipped: bool = False
+    # Pochodzenie odpowiedzi (0421): plakietka „zdanie z haseł” / „z notatki”.
+    origin: str = "manual"
+    keywords: Optional[str] = None
 
 
 class ScreeningConversationCheck(BaseModel):

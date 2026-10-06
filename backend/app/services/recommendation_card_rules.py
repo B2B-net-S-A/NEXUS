@@ -95,9 +95,45 @@ def max_length(key: str) -> int:
     return TEXT_MAX if key in _MULTILINE else LINE_MAX
 
 
-def manual_value(key: str, raw: str, *, user_id: int, now: datetime) -> dict[str, Any]:
-    """Pole wpisane w NEXUSIE — znormalizowane tą samą regułą co notatka."""
-    return {**normalize_field(key, raw), "by": user_id, "at": _aware(now).isoformat()}
+# Skąd pochodzi pole wpisane w NEXUSIE (0421): przyjęte z notatki odczytanej
+# przez AI albo regułą wzoru, albo zdanie ułożone z haseł rekrutera. Każda
+# późniejsza zwykła edycja zapisuje pole bez pochodzenia (plakietka znika).
+CARD_ORIGINS: tuple[str, ...] = ("note_ai", "note_rule", "phrased")
+# Pola opisowe karty, które przyjmują „Ułóż w zdanie” (D4).
+PHRASABLE_FIELDS: tuple[str, ...] = ("recommendation", "motivation", "red_flags")
+KEYWORDS_MAX = 2000
+
+
+def manual_value(
+    key: str,
+    raw: str,
+    *,
+    user_id: int,
+    now: datetime,
+    provenance: Optional[Mapping[str, Any]] = None,
+) -> dict[str, Any]:
+    """Pole wpisane w NEXUSIE — znormalizowane tą samą regułą co notatka.
+
+    ``provenance`` (opcjonalnie): ``origin`` z ``CARD_ORIGINS``, ``keywords``
+    (hasła, z których powstało zdanie) i ``note_id`` (notatka-źródło).
+    Nieznane klucze i wartości są pomijane.
+    """
+    value: dict[str, Any] = {
+        **normalize_field(key, raw),
+        "by": user_id,
+        "at": _aware(now).isoformat(),
+    }
+    if provenance:
+        origin = provenance.get("origin")
+        if origin in CARD_ORIGINS:
+            value["origin"] = origin
+            keywords = str(provenance.get("keywords") or "").strip()
+            if origin == "phrased" and keywords:
+                value["keywords"] = keywords[:KEYWORDS_MAX]
+            note_id = provenance.get("note_id")
+            if isinstance(note_id, int) and not isinstance(note_id, bool):
+                value["note_id"] = note_id
+    return value
 
 
 def _moment(value: Any) -> Optional[datetime]:
@@ -252,14 +288,23 @@ def merge_questions(
             (by_question.get(question_id) or {}).get("response") or ""
         ).strip()
         from_note = str((by_number.get(number) or {}).get("answer") or "").strip()
-        merged.append(
-            {
-                "number": number,
-                "question": text,
-                "answer": from_sheet or from_note,
-                "source": "sheet" if from_sheet else "note" if from_note else None,
-            }
-        )
+        item: dict[str, Any] = {
+            "number": number,
+            "question": text,
+            "answer": from_sheet or from_note,
+            "source": "sheet" if from_sheet else "note" if from_note else None,
+        }
+        if from_sheet:
+            # Pochodzenie odpowiedzi z arkusza (0421): „zdanie z haseł” albo
+            # „z notatki” — plakietka w karcie i w przeglądzie DL.
+            sheet_item = by_question.get(question_id) or {}
+            origin = sheet_item.get("origin")
+            if origin in ("note_import", "phrased"):
+                item["origin"] = origin
+                keywords = str(sheet_item.get("keywords") or "").strip()
+                if keywords:
+                    item["keywords"] = keywords
+        merged.append(item)
     return merged
 
 

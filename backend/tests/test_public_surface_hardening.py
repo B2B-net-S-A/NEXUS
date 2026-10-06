@@ -56,6 +56,8 @@ _RATE_LIMITED_MODULES = (
     "api/job_board_connection.py",
     # „Champion po ludzku” (0403): odświeżenie = płatny model i research w internecie.
     "api/plain_brief_refresh.py",
+    # Karta z notatki i „Ułóż w zdanie” (0421): każde wywołanie to płatny model.
+    "api/recommendation_card_assist.py",
 )
 
 # Moduły, których docstringi tras trafiają do publicznego /openapi.json.

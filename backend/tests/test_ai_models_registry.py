@@ -144,6 +144,9 @@ DECISION_2026_09_16 = {
     AIFeatureKey.plain_knowledge_research: ("F26", "claude-sonnet-5"),
     # F27 — decyzja 29.09.2026: przegląd zgłoszeń z linku rekrutacji, jak F23.
     AIFeatureKey.application_screening: ("F27", "gpt-6-luna"),
+    # F28/F29 — decyzja 06.10.2026: karta z notatki i „Ułóż w zdanie”.
+    AIFeatureKey.recommendation_card_note_read: ("F28", "gpt-6-luna"),
+    AIFeatureKey.screening_answer_phrasing: ("F29", "gpt-6-luna"),
 }
 
 
@@ -206,6 +209,8 @@ def test_legacy_settings_defaults_agree_with_the_registry():
         AIFeatureKey.screening_reassign_suggest,
         AIFeatureKey.academy_screening,
         AIFeatureKey.application_screening,
+        AIFeatureKey.recommendation_card_note_read,
+        AIFeatureKey.screening_answer_phrasing,
     ],
 )
 def test_non_anthropic_functions_fall_back_to_sonnet_5(monkeypatch, feature):
