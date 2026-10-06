@@ -10579,10 +10579,28 @@ w bazie (ts_rank, słowa w profilu, świeżość CV) NIE pomagały — nie wraca
   przed brakami → osoby z wektorem wg podobieństwa → najnowsi (decyzje Artura).
   Zbiór > 30 tys. = 3 000 najbliższych z indeksu, reszta od najnowszych.
   Gotowa kolejność 5 min we WŁASNEJ, ograniczonej pamięci modułu (32 wpisy,
-  LRU; klucz: filtry, wektor, osoba, ostatni ruch w rekrutacji) — NIE
+  LRU; klucz: filtry, wektor, osoba, odcisk kontekstu) — NIE
   w `app/core/cache.py`, który nie ma limitu ani sprzątania, a lista bywa
   długa na ~60 tys. id. Brak wektora/awaria = „najnowsi” i
   `sort_applied="newest"` w odpowiedzi — front mówi to zdaniem.
+- **Osoby z rekrutacji odpadają przy ODCZYCIE strony, nie w kolejności**
+  (K11/K5, audyt 06.10.2026): kolejność „Szukaj ręcznie” liczy się z filtrów
+  bez `not_assigned` (`candidate_match_order.order_base_filters`), a
+  `ordered_result` zdejmuje osoby z wierszem etapu w tej rekrutacji
+  (`ids_in_job`). Do tej daty klucz pamięci miał sól z `max(stage.id)` —
+  każde „Dodaj” liczyło kolejność od nowa, a strona 2 pomijała tylu ludzi,
+  ilu dodano. Eksport (`ordered_ids`) i lista używają tej samej pamięci —
+  obie budują zapytanie z `order_base_filters`.
+- **Za ułożonym początkiem (top `CANDIDATE_MATCH_RERANK_TOP`) strona też
+  dostaje pełną ocenę** (`rerank_page`, K10): osoby strony spoza początku są
+  ułożone „Dop.” w obrębie strony i grup, niezmierzeni (także z nieaktualnym
+  wektorem) na końcu grupy. Do 06.10.2026 od pozycji 201 była sama kolejność
+  wektorowa i „Dop.” przestawało maleć.
+- **„Trafność” bez tekstu = „Dopasowanie”** (K6,
+  `_relevance_without_text_means_match`, lista i eksport): przy samych słowach
+  kluczowych trafność liczyła podobieństwo trigramowe imienia do słów, czyli
+  kolejność losową. „Mile widziane” (`q_preferred_group`) liczą się w tym samym
+  zakresie pola co słowa kluczowe (`q_scope`).
 - **Front** (`lib/url-filters.ts` `effectiveSort`/`matchSortAvailable`): bez
   tekstu i bez jawnego wyboru, przy wierszach wymagań albo w „Szukaj ręcznie”
   → `match`; jawne „Najnowsi” wygrywa. `ManualSearchPanel` bez wymagań
@@ -10592,6 +10610,9 @@ w bazie (ts_rank, słowa w profilu, świeżość CV) NIE pomagały — nie wraca
   (`keyword_suggest.classify_skills` — dokładna nazwa/alias ze słownika, każde
   słowo) zamienia same nazwy technologii na wiersze wymagań; słowo będące
   imieniem/nazwiskiem w bazie albo miastem ≥ 20 tys. zostawia tekst.
+  Imiona/nazwiska sprawdzamy WYŁĄCZNIE przy `context=top` (górne pole;
+  `classifyKeywords(text, "top")`) — K8, 06.10.2026: wiersz „SAP”, „Ada”,
+  „Julia” nie był technologią, bo ktoś w bazie tak się nazywa.
   „Szukaj „…” po znaczeniu” cofa zamianę (tryb `semantic`). Wywołanie bez
   ponowień i z limitem 1,5 s — podpowiedź, nie bramka.
 
@@ -10609,14 +10630,32 @@ must-have łączone przez I znajdowały 39%. Reguły, które łatwo cofnąć:
   `skills_preferred`. Nigdy nie tną i nie wchodzą do braków danych
   (`unknown_count_rank`). To samo `preferred_rank` prowadzi każde sortowanie
   i `sort=match`.
-- **„Szukaj ręcznie”** (`ManualSearchPanel.jobListFilters`): WSZYSTKIE miasta
-  rekrutacji i jej kategoria idą do „Mile widziane”, twarde `location`/
-  `competenceCategoryIds` puste. Z wierszy Championa obowiązkowe są tylko
-  technologie (`lib/requirement-row-kinds.ts` → `/keywords/classify`, jedno
-  wywołanie na wiersz); reszta idzie do `qPreferred`. Błąd klasyfikacji = wiersz
-  obowiązkowy (dawne zachowanie). Licznik w edytorze Championa liczy tę samą
-  regułą. Chip „Mile widziane” ma „Wymagaj” (zamiana w filtr).
-  Pamięć okna rekrutacji ma klucz `job2`, bo stary niósł twarde filtry.
+- **„Szukaj ręcznie”** (`lib/job-search-filters.ts` `jobListFilters`): WSZYSTKIE
+  miasta rekrutacji i jej kategoria idą do „Mile widziane”, twarde `location`/
+  `competenceCategoryIds` puste. Chip „Mile widziane” ma „Wymagaj” (zamiana
+  w filtr). Pamięć okna rekrutacji ma klucz `job2`, bo stary niósł twarde filtry.
+- **Obowiązkowe są WYŁĄCZNIE umiejętności krytyczne z serwera** (audyt
+  06.10.2026, D1/W1–W6; `splitByCritical`): wiersze z
+  `critical_resolution.search_rows` (`GET …/champion-profile`, po jednym na
+  krytyczną, z wariantami z `keyword_suggest.requirement_search_words` —
+  „PostgreSQL lub postgres”), czyli te same, którymi propozycje AI ukrywają
+  kandydatów: wybór Delivery Leada, a bez niego podpowiedź z historii.
+  Wiersz Championa z tą technologią dostaje warianty; krytyczna bez wiersza
+  (profil bez `stack.rows`) dochodzi jako nowy wiersz — także dla rekrutacji
+  bez wymagań do wyszukiwania. Reszta wierszy i wiersze „mile widziane” ze
+  `stack.rows` (W6) idą do `qPreferred`. Klasyfikacja „technologia / nie”
+  NIE decyduje już o obowiązkowości (do 06.10.2026 ekran opisywał jako „Musi
+  mieć” wszystkie wiersze-technologie, a filtr wymagał tylko krytycznych).
+  Jedna funkcja zasila okno „Szukaj ręcznie”, zakładkę „Szukaj w bazie”
+  i kafel; zdanie o źródle (`mandatorySourceNote`: „wybrane przez Delivery
+  Leada” / „podpowiedź z historii” / „brak — nic nie jest obowiązkowe”) stoi
+  na każdym z nich. Błąd odczytu Championa = nic nie jest obowiązkowe.
+  Licznik w edytorze Championa (`SearchRequirementsEditor`) nadal liczy
+  klasyfikacją — do wyrównania razem z edytorem (osobny PR).
+- **Przy wierszach wymagań must-have NIE idą do „Umiejętności → Mile
+  widziane”** (D2): ta sama technologia liczyła się dwa razy, a „Mile
+  widziane” (stopnie leksykograficzne) wygrywało z „Dop.”. Bez wierszy
+  must-have zostają w rankingu jak dotąd.
 - **Kraj i adres to nie miasto** (`parseJobLocationCities`): „Polska
   (lokalizacja obowiązkowa)” jako filtr miasta wycinała 91% wybranych.
 - **Początek „Szukaj ręcznie” układa pełny „Dop.”** (`candidate_match_order`,
