@@ -8,6 +8,13 @@
   Leada o stawce do klienta („Wyślijmy za 161 zł/h”) → pole stawki etapu.
   Próba oddaje liczby i nic nie zapisuje; ``dry_run=false`` wymaga podania
   liczby wierszy z próby (``expected=``). Reguły: ``services/client_rate_notes.py``.
+  Od 07.10.2026 także krótkie wpisy „X/Y” (X — stawka do klienta).
+
+- ``POST /api/admin/notes-insights/profile-fill?dry_run=true`` — fakty z już
+  odczytanych notatek do PUSTYCH pól profilu (dostępność od dnia notatki,
+  okres wypowiedzenia, lata, tryb pracy, języki). Ta sama reguła co nocna
+  ekstrakcja, bez modelu; próba → ``expected=`` → paragon.
+  Reguły: ``services/notes_profile_backfill.py``.
 
 RBAC: admin JWT. Świadomie bez scope'u konta serwisowego na start — pętla
 dzienna obsługuje rutynę sama, trigger jest do aktywacji i nadganiania
@@ -27,7 +34,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.core.tasks import spawn
-from app.services import client_rate_notes
+from app.services import client_rate_notes, notes_profile_backfill
 from app.tasks.notes_insights_sync import run_and_persist, sync_is_running
 
 router = APIRouter()
@@ -134,3 +141,47 @@ async def backfill_client_rates_from_notes(
         )
     receipt = await client_rate_notes.apply_plan(db, plan, counts, user_id=admin.id)
     return {"dry_run": False, "counts": receipt["counts"]}
+
+
+@router.post("/profile-fill")
+@limiter.limit("10/minute")
+async def backfill_profile_from_notes(
+    request: Request,
+    admin: AdminUser,
+    dry_run: bool = Query(True),
+    expected: Optional[int] = Query(None, ge=0),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Fakty z zapisanych odczytów notatek do pustych pól profilu.
+
+    Nic nie nadpisuje (poza datą dostępności, którą wcześniej wpisały same
+    notatki). Zapis wymaga ``expected`` równego liczbie kandydatów z próby —
+    gdy dane zmieniły się od próby, odpowiedź to 409 i nic się nie zapisuje.
+    ``request`` — wymóg slowapi.
+    """
+    admin_id = admin.id
+    if not dry_run:
+        await notes_profile_backfill.lock_for_apply(db)
+    plan, counts = await notes_profile_backfill.build_plan(db)
+    if dry_run:
+        return {
+            "dry_run": True,
+            "counts": counts,
+            "sample": notes_profile_backfill.sample(plan),
+        }
+    if not plan:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Nie ma czego uzupełnić — puste pola z faktami z notatek są już wypełnione.",
+        )
+    if expected is None or expected != len(plan):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Liczba kandydatów do uzupełnienia różni się od próby "
+                f"(teraz {len(plan)}). Uruchom próbę (dry_run=true) jeszcze raz "
+                "i podaj jej wynik w parametrze expected."
+            ),
+        )
+    run = await notes_profile_backfill.apply_plan(db, plan, counts, user_id=admin_id)
+    return {"dry_run": False, "counts": run["counts"]}

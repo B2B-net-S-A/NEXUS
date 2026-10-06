@@ -2318,6 +2318,24 @@ faktów (`PATCH /api/candidates/{id}/work-mode`). Jedna reguła:
 - **„Zapisz w profilu” wskazuje POLE, wartość wylicza serwer** z zapisanych
   faktów (rate, work_mode, contract_form, availability, office_cities).
   Zastrzeżenia do klientów są tylko pokazywane — nie tworzą konfliktu.
+- **Puste pola profilu wypełnia JEDNA reguła** (07.10.2026,
+  `services/notes_profile_fill.py`: nocna ekstrakcja i jednorazowe
+  `POST /api/admin/notes-insights/profile-fill` — próba → `expected=` →
+  paragon `notes_profile_fill_backfill_2026_10` + `repair_details_…`). Tylko
+  puste pola; bez progu czasowego, ale **dostępność liczona od DNIA NOTATKI**
+  (najnowsza `coalesce(source_created_at, created_at)` wejścia, 5. kolumna
+  `load_note_rows`): pełna data, miesiąc („11.2026”, „od listopada”), „od
+  zaraz” = dzień notatki, okres wypowiedzenia = dzień notatki + okres.
+  Znacznik `_availability_from_notes` (`date`, `as_of`, `basis`) — profil
+  pokazuje „z notatek · stan na DD.MM.RRRR”; nowsza notatka poprawia datę,
+  którą wpisały notatki, poprawki człowieka nie rusza. Do 07.10 datę dawał
+  wyłącznie ISO w `available_from` (6 327 osób z dostępnością w notatkach
+  miało pustą datę). **Języki** z `languages_observed` zapisuje writer ze
+  źródłem `notes` (CHECK `ck_candidate_languages_provenance`, 0422): tylko
+  DOPISUJE język, którego profil nie zna — wiersza z CV, Traffita ani
+  ręcznego nie zmienia (także poziomu), nigdy nie usuwa (nagrobek blokowałby
+  później język z CV). Status „szuka aktywnie” z „od zaraz” stawia tylko
+  nocna ścieżka, nie domknięcie historii.
 - **Doganianie starszej wersji promptu:** po kandydatach ze zmienionymi
   notatkami bieg dobiera najwyżej `NOTES_INSIGHTS_SYNC_UPGRADE_LIMIT` (700)
   kandydatów z `_extractor` innym niż bieżąca wersja (bez wierszy
@@ -2632,6 +2650,13 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
   z rekrutacją, 1 378 par do uzupełnienia, wszystkie w zamkniętych
   rekrutacjach z archiwum; przed zapisem stawkę do klienta miało 17 wierszy.
   Zmieniasz regułę — przelicz plan na produkcji w transakcji tylko do odczytu.
+  **Od 07.10.2026 także krótki wpis „X/Y”** (`parse_dl_pair`: ≤ 160 znaków
+  po zdjęciu HTML i wzmianek, rodzaj `dl_rate` albo `human`, X > Y, obie
+  40–400, jedyna inna liczba to „NNNN MD” = X × 8; procent, „score”, waluta,
+  stawka dzienna i pytanie odpadają): X idzie tym samym planem do stawki do
+  klienta, Y — do „Stawki od” (`note:{id}`). Pomiar 06.10.2026: niższa liczba
+  zgadza się ze znanym oczekiwaniem kandydata w 94% (834 z 886); „100/110”
+  (pierwsza niższa) to widełki kandydata, nie para DL-a.
 - **Jarvis czyta kartę narzędziem `get_recommendation_card`** — kształt
   wyniku (`_shape_recommendation_card`) nie przepuszcza narodowości,
   podpowiedzi ani `legacy_text` (pilnuje `test_recommendation_card_ai_privacy.py`).
@@ -2738,6 +2763,13 @@ Artura 04.10.2026 (makiety: https://claude.ai/artifact/SxV3wMXBL8FhA2Q743HwEd).
   bieżąca stawka profilu bez śladu w dzienniku (`profile-current`) i zgłoszenia
   osób z bazy (`apply:{id}`). Karta NIE pisze do profilu (decyzja z 03.10
   zostaje) — wpływa na wartość LICZONĄ.
+  Od 07.10.2026 także wpis DL-a „X/Y” w notatce (`note:{id}`,
+  `client_rate_notes.parse_dl_pair`): obserwacją jest WYŁĄCZNIE Y, `raw` =
+  „{Y} PLN/h” — X to stawka do klienta, a historię stawek widzi każda rola.
+  Wpis powtarzający kwotę etapu albo karty tej rekrutacji nie dubluje
+  historii. Kolejkę przelicza wyzwalacz `trg_rate_from_notes` (0422,
+  `notes_facts_schema.py`; łapie też surowy SQL Traffita), a zapis, edycja
+  i usunięcie notatki w API przeliczają od razu.
 - **Wynik w kolumnach `candidates.rate_from_*`, `rate_latest_*`,
   `rate_observation_count`**, zapisywany surowym SQL-em — `updated_at`
   nietknięte, więc alerty zapisanych wyszukiwań nie widzą przeliczenia.

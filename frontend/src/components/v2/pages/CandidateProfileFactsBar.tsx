@@ -103,6 +103,7 @@ import {
 } from "@/lib/candidate-rate";
 import { RateHistoryDialog } from "@/components/v2/candidate-profile/RateHistoryDialog";
 import api from "@/lib/api";
+import { notesAvailabilityOrigin } from "@/lib/notes-facts";
 import {
   AVAILABILITY_STATUS_OPTIONS,
   NOTICE_PERIOD_UNITS,
@@ -274,6 +275,8 @@ interface CandidateProfileFactsBarProps {
     location?: string | null;
     availability_status?: string | null;
     availability_date?: string | null;
+    /** Znacznik dostępności z notatek („stan na”) — `notesAvailabilityOrigin`. */
+    cv_extracted_data?: unknown;
     notice_period?: number | null;
     notice_period_unit?: string | null;
     preferences?: unknown;
@@ -1883,7 +1886,10 @@ export function CandidateProfileFactsBar({
         icon={<CalendarClock className="size-4" />}
         label="Dostępność"
         muted={!candidate.availability_status}
-        origin={cardOrigin(cardFacts.availability)}
+        origin={
+          cardOrigin(cardFacts.availability) ??
+          notesAvailabilityOrigin(candidate)
+        }
         action={
           canEditAvailability ? (
             <EditFactButton

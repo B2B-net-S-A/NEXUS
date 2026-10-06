@@ -178,6 +178,78 @@ def test_automated_writer_never_overwrites_manual_or_resurrects_tombstone():
     assert {row.language_code for row in rows} == {"en", "de", "pl"}
 
 
+def test_notes_only_add_missing_languages_and_never_touch_cv_or_manual():
+    """07.10.2026: języki z notatek tylko dopisują to, czego profil nie zna."""
+    cv_fact = _row("en", provenance="cv")  # B1 z CV
+    manual = _row("de", provenance="manual", manual_lock=True)
+    tombstone = _row("fr", provenance="cv", deleted=True)
+    incoming, _ = normalize_language_payload(
+        [
+            {"name": "angielski", "level": "A2"},
+            {"name": "niemiecki", "level": "C2"},
+            {"name": "francuski", "level": "B2"},
+            {"name": "hiszpański", "level": "B1"},
+        ]
+    )
+
+    rows, result = merge_automated_languages(
+        candidate_id=7,
+        existing_rows=[cv_fact, manual, tombstone],
+        incoming=incoming,
+        provenance="notes",
+        source_ref="notes_insights",
+        # Nawet prośba o pełną migawkę nie może usuwać — nagrobek blokowałby
+        # później ten język z CV.
+        replace_source_snapshot=True,
+    )
+
+    assert cv_fact.cefr_level == "B1" and cv_fact.provenance == "cv"
+    assert manual.cefr_level == "B1"
+    assert tombstone.deleted_at is not None
+    assert result.protected_other_source == 1
+    assert result.protected_manual == 1
+    assert result.protected_tombstone == 1
+    assert result.inserted == 1 and result.tombstoned == 0
+    added = next(row for row in rows if row.language_code == "es")
+    assert added.provenance == "notes" and added.cefr_level == "B1"
+
+    # Kolejny odczyt notatek może poprawić własny wpis, ale niczego nie usuwa.
+    later, _ = normalize_language_payload([{"name": "hiszpański", "level": "B2"}])
+    _, again = merge_automated_languages(
+        candidate_id=7,
+        existing_rows=rows,
+        incoming=later,
+        provenance="notes",
+        source_ref="notes_insights",
+        replace_source_snapshot=False,
+    )
+    assert added.cefr_level == "B2" and again.updated == 1
+    assert cv_fact.deleted_at is None and again.tombstoned == 0
+
+
+def test_notes_source_is_allowed_by_every_mirror_of_the_check():
+    """Źródło `notes` w modelu, schemacie odpowiedzi, migracji i entrypoincie."""
+    from pathlib import Path
+    from typing import get_args
+
+    from app.schemas.candidate_profile_facts import LanguageProvenance
+    from app.services import notes_facts_schema
+
+    backend = Path(__file__).resolve().parents[1]
+    model = (backend / "app/models/candidate_language.py").read_text("utf-8")
+    entrypoint = (backend / "entrypoint.sh").read_text("utf-8")
+    assert "'notes'" in model
+    assert "notes" in get_args(LanguageProvenance)
+    assert any("'notes'" in stmt for stmt in notes_facts_schema.LANGUAGE_PROVENANCE_DDL)
+    block = entrypoint[
+        entrypoint.index("ADD CONSTRAINT ck_candidate_languages_provenance") :
+    ]
+    assert "'notes'" in block[:300]
+    assert "from app.services import notes_facts_schema as _notes_facts" in entrypoint
+    assert "*_NOTES_FACTS_DDL," in entrypoint
+    assert "*_NOTES_FACTS_BACKFILL," in entrypoint
+
+
 def test_complete_snapshot_only_tombstones_its_own_unlocked_source():
     cv_fact = _row("en", provenance="cv")
     traffit_fact = _row("de", provenance="traffit")

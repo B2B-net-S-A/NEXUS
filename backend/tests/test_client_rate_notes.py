@@ -14,7 +14,11 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from app.services.client_rate_notes import extract_client_rate
+from app.services.client_rate_notes import (
+    extract_client_rate,
+    note_has_dl_pair,
+    parse_dl_pair,
+)
 
 # ── bez bazy ─────────────────────────────────────────────────────────────────
 
@@ -38,7 +42,7 @@ def test_unambiguous_send_note_gives_the_hourly_rate(content: str, expected: str
 @pytest.mark.parametrize(
     "content",
     [
-        # Para kwot — nie wiadomo, która jest dla klienta.
+        # Para kwot czyta `parse_dl_pair`, nie ta reguła.
         "150/110",
         "wyślijmy za 160, kandydat chce 140",
         # Sama liczba przy wzmiance — bez czasownika wysyłki.
@@ -71,6 +75,81 @@ def test_unambiguous_send_note_gives_the_hourly_rate(content: str, expected: str
 )
 def test_anything_ambiguous_stays_in_the_note(content):
     assert extract_client_rate(content) is None
+
+
+# ── wpis „X/Y” (07.10.2026) ──────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "content, client_rate, candidate_rate",
+    [
+        ("160/115 @Jan Testowy", "160", "115"),
+        ("<p>160/115 @osoba</p>", "160", "115"),
+        ("190/145 1520 MD", "190", "145"),
+        ("160 / 115 zł/h netto", "160", "115"),
+        ("wyślijmy za 160/115", "160", "115"),
+        ("Stawka 170/140 dla klienta", "170", "140"),
+    ],
+)
+def test_short_dl_pair_gives_client_and_candidate_rate(
+    content, client_rate, candidate_rate
+):
+    assert parse_dl_pair(content) == (Decimal(client_rate), Decimal(candidate_rate))
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        # Widełki kandydata — pierwsza liczba niższa albo równa.
+        "Rate: 100/110 PLN/h",
+        "150/155",
+        "150/150",
+        # Procent, liczba klientów, wynik dopasowania.
+        "60/70 %",
+        "60/70 klientów",
+        "score: 67/100",
+        "Auto-match score: 167/100",
+        # MD niezgodne z X × 8, inna liczba, waluta, jednostka dzienna.
+        "190/145 1500 MD",
+        "160/115 od 01.11",
+        "160/115 eur",
+        "170/140 zł/dzień",
+        "160/115 brutto",
+        # Pytanie, przeczenie, dwie pary, poza zakresem.
+        "160/115?",
+        "nie 160/115",
+        "160/115 i 150/110",
+        "50/30",
+        "450/300",
+        # Długa notatka to rozmowa, nie wpis DL-a.
+        "Rozmowa z kandydatem o projekcie w banku, zespół 8 osób, "
+        "Java i Spring, pracuje zdalnie, oczekiwania omówione wcześniej, "
+        "wszystko ustalone z klientem przy okazji poprzedniej rekrutacji 160/115",
+        "",
+        None,
+    ],
+)
+def test_anything_else_is_not_a_dl_pair(content):
+    assert parse_dl_pair(content) is None
+
+
+def test_dl_pair_only_in_dl_and_human_notes():
+    assert note_has_dl_pair("dl_rate", "160/115")
+    assert note_has_dl_pair("human", "160/115")
+    for kind in ("card", "automatch", "application_form", "email", None):
+        assert not note_has_dl_pair(kind, "160/115"), kind
+
+
+def test_schema_trigger_mirrors_the_parser_prefilter():
+    from app.services import client_rate_notes, notes_facts_schema
+
+    trigger = notes_facts_schema.TRIGGER_DDL[0]
+    assert client_rate_notes.DL_PAIR_SQL_PATTERN in trigger
+    for kind in client_rate_notes.DL_PAIR_KINDS:
+        assert f"'{kind}'" in trigger
+    for stmt in notes_facts_schema.ALL_DDL:
+        # entrypoint wykonuje instrukcje wprost — dwukropek byłby parametrem.
+        assert ":" not in stmt.replace("::", ""), stmt[:60]
 
 
 # ── z bazą ───────────────────────────────────────────────────────────────────
@@ -173,7 +252,10 @@ async def test_dry_run_writes_nothing_and_apply_fills_only_empty_pairs(
         [("cv_sent", None)], ["Wyślijmy za 140", "Wyślijmy za 155"]
     )
     never_sent = await _seed_pair([("verified", None)], ["Wyślijmy za 130"])
-    ambiguous = await _seed_pair([("cv_sent", None)], ["150/110"])
+    # Krótki wpis DL-a „X/Y” (07.10.2026): wyższa liczba to stawka do klienta.
+    dl_pair = await _seed_pair([("cv_sent", None)], ["150/110 @Jan Testowy"])
+    # Pierwsza liczba niższa = widełki kandydata, nie para DL-a.
+    ambiguous = await _seed_pair([("cv_sent", None)], ["100/110"])
     # Czytelna cena i późniejszy wpis, którego nie da się odczytać — mógł ją
     # zmienić, więc para odpada.
     revised = await _seed_pair([("cv_sent", None)], ["Wyślijmy za 150", "160/130"])
@@ -184,6 +266,7 @@ async def test_dry_run_writes_nothing_and_apply_fills_only_empty_pairs(
         *never_sent["stages"],
         *ambiguous["stages"],
         *revised["stages"],
+        *dl_pair["stages"],
     ]
     before = await _rates(all_stages)
 
@@ -221,6 +304,7 @@ async def test_dry_run_writes_nothing_and_apply_fills_only_empty_pairs(
     # Istniejąca stawka zostaje; dwie różne kwoty, para nigdy niewysłana
     # i wpis niejednoznaczny nie dają nic.
     assert after[has_rate["stages"][0]][0] == Decimal("150.00")
+    assert after[dl_pair["stages"][0]] == (Decimal("150.00"), "hourly", "PLN")
     for pair in (two_amounts, never_sent, ambiguous, revised):
         assert after[pair["stages"][0]] == (None, None, None)
 

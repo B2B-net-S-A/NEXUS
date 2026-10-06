@@ -34,7 +34,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from starlette.concurrency import run_in_threadpool
 
 from app.core.terminal_failure import terminal_operation
-from app.models.candidate import AvailabilityStatus, Candidate
+from app.models.candidate import Candidate
 from app.services.cv_enrichment import normalize_llm_skills
 from app.models.ai_feature import AIFeatureKey
 from app.services import note_kinds
@@ -128,15 +128,13 @@ _INSIGHT_KEYS = (
     "matching_facts",
 )
 
-_NOTICE_RE = re.compile(
-    r"(\d+)\s*(tydz|tyg|week|mies|miesiąc|miesiec|month|dni|dzień|dzien|day|mc)", re.I
-)
-_ASAP_RE = re.compile(r"od zaraz|asap|natychmiast|od ręki|immediately", re.I)
-_ISO_RE = re.compile(r"(\d{4})-(\d{1,2})-(\d{1,2})")
-
 
 async def load_note_rows(db: AsyncSession, candidate_id: int) -> list[tuple]:
-    """(id, updated_at, dzień warszawski created_at, content) — najnowsze najpierw.
+    """(id, updated_at, dzień warszawski created_at, content, dzień notatki).
+
+    Najnowsze najpierw. Ostatnia kolumna to dzień warszawski
+    ``coalesce(source_created_at, created_at)`` — od niego liczymy dostępność
+    z notatek (``notes_profile_fill``, decyzja 07.10.2026).
 
     Runda 8 (R8-X1-5): dzień notatki liczony w Europe/Warsaw, nie w UTC sesji —
     notatka z 00:30 dostawała w prompcie datę poprzedniego dnia, a model liczył
@@ -149,9 +147,11 @@ async def load_note_rows(db: AsyncSession, candidate_id: int) -> list[tuple]:
     result = await db.execute(
         text(
             "SELECT id, updated_at, "
-            "(created_at AT TIME ZONE 'Europe/Warsaw')::date AS d, content "
+            "(created_at AT TIME ZONE 'Europe/Warsaw')::date AS d, content, "
+            "(COALESCE(source_created_at, created_at) AT TIME ZONE 'Europe/Warsaw')"
+            "::date AS note_day "
             "FROM ("
-            "SELECT id, updated_at, created_at, content FROM notes "
+            "SELECT id, updated_at, created_at, source_created_at, content FROM notes "
             f"WHERE candidate_id = :c AND {note_kinds.facts_readable_sql()} "
             f"ORDER BY (kind IN ({priority})) DESC NULLS LAST, "
             "created_at DESC LIMIT :lim"
@@ -397,28 +397,18 @@ def _safe_rate_value(raw: Any) -> Optional[float]:
         return None
 
 
-def _parse_notice(raw: Any) -> Optional[tuple[int, str]]:
-    if not isinstance(raw, str):
-        return None
-    m = _NOTICE_RE.search(raw)
-    if not m:
-        return None
-    n, unit = int(m.group(1)), m.group(2).lower()
-    if unit.startswith(("tydz", "tyg", "week")):
-        return n, "weeks"
-    if unit.startswith(("mies", "month", "mc")):
-        return n, "months"
-    return n, "days"
-
-
 def apply_insights(
     candidate: Candidate,
     parsed: dict,
     *,
     fingerprint: str,
     now_iso: Optional[str] = None,
+    as_of: Optional[date] = None,
 ) -> dict[str, Any]:
     """Zastosuj wynik ekstrakcji do kandydata (mutuje obiekt ORM, bez commitu).
+
+    ``as_of`` — dzień najnowszej notatki wejścia (``notes_as_of``): od niego
+    liczymy dostępność („od zaraz”, okres wypowiedzenia), nie od dziś.
 
     Zwraca statystyki zmian; ``changed`` > 0 oznacza, że wołający powinien
     zbudować reindeks + unieważnić cache score'ów tego kandydata.
@@ -431,6 +421,7 @@ def apply_insights(
         "rate_updated": 0,
         "notice_filled": 0,
         "avail_date_filled": 0,
+        "avail_date_updated": 0,
         "status_set": 0,
         "locked_skills": 0,
         "onsite_days_filled": 0,
@@ -477,18 +468,6 @@ def apply_insights(
             candidate.skills = existing + new_items
             stats["skills_added"] = len(new_items)
             changed = True
-
-    # ── years_confirmed → years_it_experience (FILL_EMPTY) ─────────────────
-    yc = parsed.get("years_confirmed")
-    if (
-        candidate.years_it_experience is None
-        and isinstance(yc, (int, float))
-        and not isinstance(yc, bool)
-        and 0 < yc <= 60
-    ):
-        candidate.years_it_experience = int(yc)
-        stats["years_filled"] = 1
-        changed = True
 
     # ── expected_rate → kolumna: FILL_EMPTY + aktualizacja własnego wpisu ──
     rate = (
@@ -539,56 +518,29 @@ def apply_insights(
                 "version": candidate.profile_rate_version,
             }
 
-    # ── dostępność → kolumny (FILL_EMPTY) ──────────────────────────────────
-    availability = parsed.get("availability")
-    availability = availability if isinstance(availability, dict) else {}
-    if candidate.notice_period is None:
-        parsed_notice = _parse_notice(
-            availability.get("notice_period")
-        ) or _parse_notice(availability.get("raw"))
-        if parsed_notice:
-            candidate.notice_period, candidate.notice_period_unit = parsed_notice
-            stats["notice_filled"] = 1
-            changed = True
-    if candidate.availability_date is None:
-        m = _ISO_RE.search(str(availability.get("available_from") or ""))
-        if m:
-            try:
-                candidate.availability_date = date(
-                    int(m.group(1)), int(m.group(2)), int(m.group(3))
-                )
-                stats["avail_date_filled"] = 1
-                changed = True
-            except ValueError:
-                pass
-    raw_txt = " ".join(
-        str(availability.get(k) or "")
-        for k in ("raw", "notice_period", "available_from")
-    )
-    current_status = getattr(
-        candidate.availability_status, "value", candidate.availability_status
-    )
-    if current_status == "unknown" and _ASAP_RE.search(raw_txt):
-        candidate.availability_status = AvailabilityStatus.actively_looking
-        stats["status_set"] = 1
+    # ── lata, dostępność, okres wypowiedzenia, tryb pracy (FILL_EMPTY) ─────
+    # Jedna reguła z jednorazowym domknięciem historii
+    # (`notes_profile_fill.plan_profile_fill`): wartość człowieka i CV zostaje
+    # zawsze, dostępność liczona od dnia notatki („stan na” w znaczniku).
+    from app.services.notes_profile_fill import apply_profile_fill, plan_profile_fill
+
+    had_date = candidate.availability_date is not None
+    changes, markers = plan_profile_fill(candidate, parsed, prior=prior, as_of=as_of)
+    apply_profile_fill(candidate, changes)
+    insights.update(markers)
+    for field, key in (
+        ("years_it_experience", "years_filled"),
+        ("notice_period", "notice_filled"),
+        ("availability_status", "status_set"),
+        ("remote_modes", "remote_modes_filled"),
+        ("max_onsite_days_per_week", "onsite_days_filled"),
+    ):
+        if field in changes:
+            stats[key] = 1
+    if "availability_date" in changes:
+        stats["avail_date_updated" if had_date else "avail_date_filled"] = 1
+    if changes:
         changed = True
-
-    # ── tryb pracy + dni w biurze → profil (FILL_EMPTY, każde pole osobno) ──
-    # Reguła jest JEDNA (`candidate_notes_facts.work_mode_from_insights`) i tę
-    # samą czyta profil kandydata: dni podane wprost > „tylko zdalnie” (0) >
-    # „stacjonarnie” (5), a tryby wynikają z dni (N dni w biurze akceptuje też
-    # mniej). Wartość CZŁOWIEKA (modal edycji, pasek faktów) zostaje zawsze.
-    from app.services.candidate_notes_facts import fill_work_mode_from_notes
-
-    mode_stats = fill_work_mode_from_notes(candidate, parsed)
-    if mode_stats["onsite_days_filled"]:
-        insights["_onsite_days_from_notes"] = True
-    if mode_stats["remote_modes_filled"]:
-        insights["_remote_modes_from_notes"] = True
-    for key, value in mode_stats.items():
-        if value:
-            stats[key] = value
-            changed = True
 
     extracted["_notes_insights"] = insights
     candidate.cv_extracted_data = extracted
