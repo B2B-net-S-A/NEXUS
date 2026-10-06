@@ -497,6 +497,21 @@ async def assign_cc_after_embed(candidate_id: int) -> None:
             if candidate is None:
                 return
             await assign_primary_cc_if_empty(candidate, s)
+            if candidate.competence_category_id is not None:
+                # Audyt 06.10.2026 (Q2): kategoria wchodzi do tekstu wektora
+                # i do payloadu punktu, a zapis wyżej nie zostawiał intencji
+                # przeindeksowania — wektor zostawał bez kategorii do
+                # przebiegu reconcilera. Intencja w tej samej transakcji.
+                await s.flush()
+                await load_unloaded_columns(s, candidate)
+                state = desired_state(CANDIDATE, candidate)
+                await enqueue(
+                    s,
+                    entity_type=CANDIDATE,
+                    entity_id=candidate_id,
+                    revision=state.revision,
+                    desired_hash=state.desired_hash,
+                )
             await s.commit()
     except Exception as exc:  # noqa: BLE001 — wzbogacenie, nie warunek
         logger.warning(

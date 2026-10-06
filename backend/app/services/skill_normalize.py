@@ -179,6 +179,31 @@ def is_gate_technology(name: str) -> bool:
     return taxonomy_category(name) in GATE_TECH_CATEGORIES
 
 
+def is_single_letter_skill(word: str) -> bool:
+    """Jednoliterowa nazwa technologii ze słownika („C”, „R”) — nie szum.
+
+    Wspólna reguła wierszy wymagań, odczytu maila i słów kluczowych (audyt
+    06.10.2026, P4/K4): limit „co najmniej 2 znaki” wycinał je po cichu, więc
+    rekrutacji na programistę C nie dało się opisać wierszem. Każda inna
+    pojedyncza litera dalej jest szumem. ``False`` bez wczytanego słownika.
+    """
+    text = (word or "").strip()
+    return len(text) == 1 and text.isalpha() and is_gate_technology(text)
+
+
+def cut_at_word(text: str, limit: int) -> str:
+    """Tekst przycięty do ``limit`` znaków na granicy słowa (bez urwanego wyrazu).
+
+    Słowo dłuższe niż limit (bez spacji) jest przycinane twardo — nie ma tu
+    granicy, na której można by się zatrzymać.
+    """
+    if len(text) <= limit:
+        return text
+    head = text[: limit + 1]
+    cut = head.rfind(" ")
+    return (head[:cut] if cut > 0 else text[:limit]).rstrip()
+
+
 def is_non_technology_concept(name: str) -> bool:
     """Nazwa ze słownika, która jest rolą albo metodyką („QA”, „Software
     developer”, „Scrum”) — nie technologią, więc nie bramkuje."""

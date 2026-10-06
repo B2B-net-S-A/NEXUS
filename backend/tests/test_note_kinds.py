@@ -144,6 +144,16 @@ def test_system_source_and_prep_summary_win_over_content():
     )
 
 
+def test_card_assist_note_stays_a_human_note_after_edit():
+    """Audyt 06.10.2026 (Q3): notatka z „Zastosuj zaznaczone” wyglądająca jak
+    karta zostaje zwykłą notatką — także po edycji treści."""
+    card_like = "Dostępność: od zaraz\nStawka: 150 zł/h\nDlaczego ten kandydat: X"
+    assert (
+        classify(card_like, external_source=note_kinds.CARD_ASSIST_SOURCE)
+        == note_kinds.HUMAN
+    )
+
+
 def test_only_real_mail_threads_are_email():
     thread = (
         "Podpisane dokumenty w załącznikach. Pozdrawiam, Jan. "

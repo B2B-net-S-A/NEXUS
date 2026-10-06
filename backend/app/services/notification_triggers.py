@@ -1184,9 +1184,17 @@ async def run_all_triggers(db: AsyncSession, now: datetime) -> dict[str, int]:
             db, now, latest
         ),
         "board_tasks_digest": await check_board_tasks_digest(db, now),
+        "proposals_morning": await _proposals_morning(db, now),
         "prep_attention": await check_prep_attention(db, now),
         "rate_change_reminders": await _rate_change_reminders(db, now),
     }
+
+
+async def _proposals_morning(db: AsyncSession, now: datetime) -> int:
+    """Poranny dzwonek „Do przejrzenia” dla Rekruterów rekrutacji (R3)."""
+    from app.services.proposals_morning_bell import send_morning_bells  # noqa: PLC0415
+
+    return await send_morning_bells(db, now)
 
 
 async def _rate_change_reminders(db: AsyncSession, now: datetime) -> int:

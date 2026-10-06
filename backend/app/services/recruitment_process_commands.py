@@ -988,9 +988,20 @@ async def open_process(
     db: AsyncSession,
     **kwargs: Any,
 ) -> CandidateStage:
-    """Named entry command for assign/import endpoints."""
+    """Named entry command for assign/import endpoints.
 
-    return await transition_process(db, _strict_open=True, **kwargs)
+    Audyt 06.10.2026 (R5): każda droga dodania osoby do rekrutacji zamyka jej
+    propozycję w „Do przejrzenia” (``added``) — do tej daty robił to tylko
+    ``proposals_bulk``, więc po „Usuń z rekrutacji” osoba dodana inną drogą
+    wracała do propozycji. Savepoint: awaria stempla nie cofa dodania.
+    """
+    from app.services.job_proposals import mark_added_fail_soft  # noqa: PLC0415
+
+    stage = await transition_process(db, _strict_open=True, **kwargs)
+    await mark_added_fail_soft(
+        db, job_id=stage.job_id, candidate_ids=[stage.candidate_id]
+    )
+    return stage
 
 
 async def record_accepted_verification(

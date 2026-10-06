@@ -23,6 +23,7 @@ listę, która nie jest już prawdą.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Mapping, Optional
 
 from app.schemas.champion import (
@@ -53,43 +54,101 @@ def _head(words: list[str]) -> str:
     return _plain(words[0]) if words else ""
 
 
-def clean_rows(value: Any) -> list[dict[str, Any]]:
-    """Wiersze w kształcie zapisu: słowa jak w wyszukiwarce, poziom ze słownika.
+_ALTERNATIVE_SPLIT = re.compile(r"\s+(?:lub|or)\s+", re.IGNORECASE)
+
+
+def _row_words(value: Any) -> list[str]:
+    """Słowa wiersza po rozbiciu „A lub B” na warianty (P3) i bez gwiazdki
+    przy technologii ze słownika (P5) — przed regułami ``_search_words``.
+
+    Słowo „Kafka lub RabbitMQ” w jednym polu kasowało ``stack.rows`` przy
+    walidacji (etykieta przestawała pasować do słów), a „Java*” łapało
+    JavaScript.
+    """
+    from app.services.skill_normalize import is_gate_technology
+
+    raw_words = [value] if isinstance(value, str) else value
+    if not isinstance(raw_words, list):
+        return []
+    out: list[str] = []
+    for raw in raw_words:
+        if not isinstance(raw, str):
+            continue
+        for part in _ALTERNATIVE_SPLIT.split(raw):
+            word = part.strip()
+            if word.endswith("*") and is_gate_technology(_plain(word)):
+                word = _plain(word)
+            out.append(word)
+    return _search_words(out)
+
+
+def split_rows(value: Any) -> tuple[list[dict[str, Any]], list[str]]:
+    """Wiersze w kształcie zapisu + etykiety wierszy, które się nie zmieściły.
 
     Dwa wiersze o tym samym pierwszym słowie to to samo wymaganie — zostaje
     pierwszy. Limity jak w edytorze: 10 wierszy obowiązkowych, 20 mile
     widzianych, najwyżej 2 krytyczne (kolejne schodzą do „musi mieć”).
+
+    Nadmiar wierszy obowiązkowych schodzi do „mile widziane”, dopóki jest
+    tam miejsce; dopiero reszta wraca jako lista etykiet (audyt 06.10.2026,
+    N3 — 11. i dalszy wiersz „musi mieć” znikał po cichu, a 662 z 1 208
+    profili ma ponad 10 pozycji must).
     """
     if not isinstance(value, list):
-        return []
-    rows: list[dict[str, Any]] = []
+        return [], []
+    parsed: list[dict[str, Any]] = []
     heads: set[str] = set()
-    required = nice = critical = 0
     for raw in value:
         data = raw.model_dump() if hasattr(raw, "model_dump") else raw
         if not isinstance(data, Mapping):
             continue
-        words = _search_words(data.get("words"))
+        words = _row_words(data.get("words"))
         head = _head(words).casefold()
         if not head or head in heads:
             continue
         level = data.get("level")
         if level not in REQUIREMENT_ROW_LEVELS:
             level = "must"
+        heads.add(head)
+        parsed.append({"words": words, "level": level})
+
+    rows: list[dict[str, Any]] = []
+    overflow: list[dict[str, Any]] = []
+    required = nice = critical = 0
+    for row in parsed:
+        level = row["level"]
         if level == "critical" and critical >= CRITICAL_MAX:
             level = "must"
         if level == "nice":
             if nice >= REQUIREMENT_NICE_MAX_ROWS:
+                overflow.append(row)
                 continue
             nice += 1
         else:
             if required >= SEARCH_REQUIREMENT_MAX_ROWS:
+                overflow.append(row)
                 continue
             required += 1
             critical += level == "critical"
-        heads.add(head)
-        rows.append({"words": words, "level": level})
-    return rows
+        rows.append({"words": row["words"], "level": level})
+    dropped: list[str] = []
+    for row in overflow:
+        if row["level"] != "nice" and nice < REQUIREMENT_NICE_MAX_ROWS:
+            nice += 1
+            rows.append({"words": row["words"], "level": "nice"})
+        else:
+            dropped.append(row_label(row["words"]))
+    return rows, dropped
+
+
+def clean_rows(value: Any) -> list[dict[str, Any]]:
+    """Wiersze w kształcie zapisu (``split_rows`` bez listy nadmiaru)."""
+    return split_rows(value)[0]
+
+
+def overflow_note(dropped: list[str]) -> str:
+    """Zdanie do opisu wymagań o wierszach, które nie zmieściły się w limitach."""
+    return "Nie zmieściło się w wymaganiach: " + ", ".join(dropped) + "."
 
 
 def row_label(words: list[str]) -> str:
@@ -160,7 +219,7 @@ def _kept_critical(given: Any, rows: list[dict[str, Any]]) -> Optional[list[str]
     return kept[:CRITICAL_MAX] or None
 
 
-def expand_patch(patch: Any) -> Any:
+def expand_patch(patch: Any, *, previous_notes: Optional[str] = None) -> Any:
     """Ładunek zapisu profilu z `stack.rows` → te same wiersze plus pola z nich
     wyprowadzone. Ładunek bez `stack.rows` wraca nietknięty.
 
@@ -175,7 +234,7 @@ def expand_patch(patch: Any) -> Any:
     stack = patch.get("stack")
     if not isinstance(stack, Mapping) or not isinstance(stack.get("rows"), list):
         return patch
-    rows = clean_rows(stack["rows"])
+    rows, dropped = split_rows(stack["rows"])
     derived = derive(rows)
     critical: Optional[list[str]] = derived["critical"] or _kept_critical(
         stack.get("critical"), rows
@@ -187,10 +246,20 @@ def expand_patch(patch: Any) -> Any:
     stored = [
         {**row, "level": "nice" if row["level"] == "nice" else "must"} for row in rows
     ]
+    extra: dict[str, Any] = {}
+    if dropped:
+        # Wiersz, który nie zmieścił się nawet w „mile widziane”, zostaje
+        # zdaniem w opisie wymagań — czyta go rekruter i generator CV.
+        notes = stack.get("notes") if "notes" in stack else previous_notes
+        base = str(notes or "").strip()
+        extra["notes"] = "\n".join(
+            part for part in (base, overflow_note(dropped)) if part
+        )
     return {
         **patch,
         "stack": {
             **stack,
+            **extra,
             "rows": stored,
             "must": derived["must"],
             "nice": derived["nice"],
@@ -201,6 +270,24 @@ def expand_patch(patch: Any) -> Any:
             "requirements": derived["requirements"],
         },
     }
+
+
+ROWS_OWN_COLUMNS_DETAIL = (
+    "Wymagania tej rekrutacji są prowadzone wierszami w Profilu Championa — "
+    "edytuj je tam (zakładka „Profil Championa”), a kolumny must/nice "
+    "zaktualizują się same."
+)
+
+
+def profile_has_rows(profile: Any) -> bool:
+    """Czy profil prowadzi wymagania wierszami (``stack.rows``)."""
+    stack = profile.get("stack") if isinstance(profile, Mapping) else None
+    return isinstance(stack, Mapping) and isinstance(stack.get("rows"), list)
+
+
+def skill_column_names(value: Any) -> list[str]:
+    """Nazwy z kolumny ``must_skills``/``nice_skills`` (napisy albo słowniki)."""
+    return [name.strip().casefold() for name in _names(value) if name.strip()]
 
 
 def _names(items: Any) -> list[str]:

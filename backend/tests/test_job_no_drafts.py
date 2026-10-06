@@ -212,7 +212,9 @@ def test_job_create_requires_the_complete_recruitment():
     )
     # Pole `status` nie istnieje — szkic nie powstaje nigdy.
     assert "status" not in created.model_dump()
-    assert created.headcount == 1
+    # Audyt 06.10.2026 (N6): bez domyślnej „1” — pominięte pole zamienia na 1
+    # dopiero `create_job_core`, a jawne `null` zatrzymuje bramka przekazania.
+    assert created.headcount is None
 
 
 @pytest.mark.parametrize(

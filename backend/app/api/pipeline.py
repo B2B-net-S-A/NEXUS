@@ -3067,7 +3067,7 @@ async def get_stage_screening(
 
 
 async def _latest_filled_screening(
-    db: AsyncSession, stage: CandidateStage
+    db: AsyncSession, stage: CandidateStage, *, for_write: bool = False
 ) -> tuple[Optional[dict], Optional[int]]:
     """Arkusz screeningu etapu, a gdy pusty — najnowszy wypełniony tej pary
     z próby procesu, do której należy etap (audyt 05.10.2026: karta osoby,
@@ -3075,16 +3075,29 @@ async def _latest_filled_screening(
 
     Wiersz poprzedniej próby (historia w „Zamkniętych”) czyta arkusze pary jak
     dotąd; nowa próba (``attempt_no > 1``) — tylko od swojego początku.
+
+    ``for_write`` (audyt 06.10.2026, Q4): podstawa NOWEGO zapisu arkusza
+    (zapis screeningu, odpowiedzi z notatki) — ta sama reguła okna co ruch
+    karty (``screening_window``): proces zamknięty dawno temu nie przenosi
+    starego arkusza do nowej próby.
     """
     if _sheet_filled(stage.screening_answers):
         return stage.screening_answers, None
     from app.services.recommendation_cards import attempt_started  # noqa: PLC0415
 
-    started = attempt_started(
-        await candidate_claim.load_process(
-            db, candidate_id=stage.candidate_id, job_id=stage.job_id
-        )
+    process = await candidate_claim.load_process(
+        db, candidate_id=stage.candidate_id, job_id=stage.job_id
     )
+    window = None
+    if for_write:
+        from app.services.recruitment_process_commands import (  # noqa: PLC0415
+            screening_window,
+        )
+
+        window = screening_window(process)
+        if not window.counts:
+            return stage.screening_answers or None, None
+    started = attempt_started(process)
     if started is not None and stage.moved_at is not None:
         if stage.moved_at < started:
             started = None
@@ -3104,6 +3117,8 @@ async def _latest_filled_screening(
         if not _sheet_filled(answers):
             continue
         if started is not None and (moved_at is None or moved_at < started):
+            continue
+        if window is not None and not window.covers(moved_at):
             continue
         return answers, row_id
     return stage.screening_answers or None, None
@@ -3164,7 +3179,7 @@ async def submit_stage_screening(
     if answers.answers and not _sheet_filled(previous):
         # Arkusz należy do pary — wiersz bez własnej kopii porównujemy
         # z najnowszym wypełnionym arkuszem tej pary.
-        previous, _ = await _latest_filled_screening(db, stage)
+        previous, _ = await _latest_filled_screening(db, stage, for_write=True)
     job = await db.scalar(select(Job).where(Job.id == stage.job_id))
     screening_sheets.stamp_sheet(
         answers,

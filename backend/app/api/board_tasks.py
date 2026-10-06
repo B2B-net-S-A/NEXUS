@@ -174,8 +174,12 @@ class NewJobLeadRow(BaseModel):
     # pola `lead_*` opisują osobę proponowaną.
     proposed: bool = False
     # Nikt nie prowadzi: automat właśnie przydziela, rekrutacja tylko
-    # przyjmuje kandydatów albo po prostu nikogo nie ma.
-    pending_reason: Optional[Literal["assigning", "passive", "none"]] = None
+    # przyjmuje kandydatów albo po prostu nikogo nie ma. `not_handed_off`
+    # (audyt 06.10.2026, H7): opublikowana, ale nigdy nie przekazana do
+    # searchu — `handed_off_at` niesie wtedy datę założenia.
+    pending_reason: Optional[
+        Literal["assigning", "passive", "none", "not_handed_off"]
+    ] = None
 
 
 class PendingJobRow(BaseModel):
@@ -283,6 +287,18 @@ class FlowPostingRow(BaseModel):
     oldest_at: datetime
 
 
+class FlowNewRequestRow(BaseModel):
+    """„Nowe requesty dla Ciebie” (audyt 06.10.2026, H2)."""
+
+    job_id: int
+    job_title: str
+    job_working_title: Optional[str] = None
+    client_name: Optional[str] = None
+    assigned_at: datetime
+    # `None` = przydział automatu.
+    assigned_by_name: Optional[str] = None
+
+
 class FlowPairRow(BaseModel):
     candidate_id: int
     candidate_name: str
@@ -310,6 +326,8 @@ class FlowBlockOut(BaseModel):
     """„Twój ruch” od Ogłoszeń do umowy (`services/board_flow.py`)."""
 
     applies: bool
+    new_requests: list[FlowNewRequestRow] = []
+    new_request_days: int = board_flow.NEW_REQUEST_DAYS
     postings: list[FlowPostingRow]
     postings_total: int
     claimed: list[FlowPairRow]
@@ -628,6 +646,7 @@ def _flow_block(
         return None
     return FlowBlockOut(
         applies=flow.applies,
+        new_requests=[FlowNewRequestRow(**asdict(r)) for r in flow.new_requests],
         postings=[FlowPostingRow(**asdict(r)) for r in flow.postings],
         postings_total=flow.postings_total,
         claimed=[_pair(r) for r in flow.claimed],

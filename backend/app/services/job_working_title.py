@@ -69,6 +69,25 @@ def _is_prose(name: str) -> bool:
     )
 
 
+def _dictionary_loaded() -> bool:
+    from app.services.skill_normalize import CANONICAL_CATEGORY  # noqa: PLC0415
+
+    return bool(CANONICAL_CATEGORY)
+
+
+def _is_title_technology(name: str) -> bool:
+    """Do tytułu wchodzą tylko technologie ze słownika (audyt 06.10.2026, P10).
+
+    Słowa kluczowe wierszy („banking”, „communication”) to też must-have, ale
+    w tytule zajmowały oba miejsca technologii. Reguła działa wyłącznie przy
+    wczytanym słowniku — bez niego (front, testy bez bazy) tytuł składa się
+    jak dotąd, więc wspólny plik przypadków z frontem dalej obowiązuje.
+    """
+    from app.services.skill_normalize import is_gate_technology, strip_version
+
+    return bool(name) and is_gate_technology(strip_version(name)[0])
+
+
 def _years_label(years: int) -> str:
     if years == 1:
         return "1+ rok"
@@ -92,11 +111,14 @@ def compose_working_title(
     role_text = _clean(role)
     names: list[str] = []
     seen: set[str] = set()
+    only_technologies = _dictionary_loaded()
     for item in must or ():
         # „Kafka lub RabbitMQ” w tytule to sama „Kafka” — zamienniki widać
         # w wymaganiach, a tytuł ma się mieścić w wierszu listy.
         name = _clean(item.get("name") if isinstance(item, dict) else item)
         name = name.split(" lub ")[0].strip()
+        if only_technologies and not _is_title_technology(name):
+            continue
         if name and not _is_prose(name) and name.casefold() not in seen:
             seen.add(name.casefold())
             names.append(name)

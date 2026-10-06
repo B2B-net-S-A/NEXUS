@@ -532,6 +532,60 @@ def _requirement_names(requirements, *, met: bool) -> list[str]:
     return out
 
 
+async def _already_decided(
+    db, job_id: int, candidates: dict[int, Candidate]
+) -> set[int]:
+    """Osoby, które nie mogą zająć miejsca w top-K propozycji tej rekrutacji.
+
+    Audyt 06.10.2026 (R1): 54 miejsca z 60 zajmowały osoby już w rekrutacji,
+    pominięte albo dodane — skrzynka ich nie pokazywała, więc nocny przegląd
+    dawał mniej propozycji, niż mógł. Pomijamy:
+
+    * osoby z jakimkolwiek wierszem etapu w tej rekrutacji,
+    * globalną czarną listę,
+    * pary ``added`` i pary ``dismissed`` z tą samą wersją CV (inna wersja
+      wskrzesza pominięcie — ta sama reguła co ``_resurrect_on_new_cv``).
+    """
+    from app.models.job_proposal import JobProposal
+    from app.models.recruitment_pipeline import CandidateStage
+    from app.services.auto_match_outbox import candidate_revision
+
+    if not candidates:
+        return set()
+    ids = sorted(candidates)
+    skip = set(
+        (
+            await db.scalars(
+                select(CandidateStage.candidate_id).where(
+                    CandidateStage.job_id == job_id,
+                    CandidateStage.candidate_id.in_(ids),
+                )
+            )
+        ).all()
+    )
+    skip.update(
+        cid
+        for cid, candidate in candidates.items()
+        if getattr(candidate.status, "value", candidate.status) == "blacklisted"
+    )
+    for cid, status, dismissed_revision in (
+        await db.execute(
+            select(
+                JobProposal.candidate_id,
+                JobProposal.status,
+                JobProposal.dismissed_cv_revision,
+            ).where(JobProposal.job_id == job_id, JobProposal.candidate_id.in_(ids))
+        )
+    ).all():
+        if status == "added":
+            skip.add(cid)
+        elif status == "dismissed":
+            current = candidate_revision(candidates[cid])
+            if not current or current == dismissed_revision:
+                skip.add(cid)
+    return skip
+
+
 async def publish_run_proposals(db, run: CandidateSearchRun) -> int:
     """Top-K wyników przeglądu → `job_proposals` (źródło `full_base`). Bez commitu."""
     from app.services.auto_match_outbox import candidate_revision
@@ -574,8 +628,21 @@ async def publish_run_proposals(db, run: CandidateSearchRun) -> int:
         .scalars()
         .all()
     )
+    candidates = {
+        c.id: c
+        for c in (
+            await db.scalars(
+                select(Candidate).where(
+                    Candidate.id.in_([row.candidate_id for row in rows])
+                )
+            )
+        ).all()
+    }
+    skip = await _already_decided(db, run.job_id, candidates)
     picked = []
     for row in rows:
+        if row.candidate_id not in candidates or row.candidate_id in skip:
+            continue
         requirements = (row.evidence or {}).get("requirements") or []
         rec = {
             "score": float(row.fit_score),
@@ -594,16 +661,6 @@ async def publish_run_proposals(db, run: CandidateSearchRun) -> int:
             break
     if not picked:
         return 0
-    candidates = {
-        c.id: c
-        for c in (
-            await db.scalars(
-                select(Candidate).where(
-                    Candidate.id.in_([row.candidate_id for row, _, _ in picked])
-                )
-            )
-        ).all()
-    }
     payload = [
         {
             "candidate_id": row.candidate_id,

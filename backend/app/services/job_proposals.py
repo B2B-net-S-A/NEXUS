@@ -3,6 +3,8 @@
 Reguły, które łatwo cofnąć „przy okazji":
 
 * ``added`` nigdy się nie cofa.
+* ``expired`` (0422) — propozycja zamkniętej rekrutacji; czytelnicy traktują
+  ją jak obsłużoną (nie jest otwarta), ponowne otwarcie jej nie wskrzesza.
 * „Pomiń" (``dismissed``) obowiązuje CAŁY zespół i WSZYSTKIE źródła. Kolejny
   przegląd tej samej wersji CV nie wskrzesza osoby; wraca ona wyłącznie wtedy,
   gdy przychodzi z NOWĄ wersją CV (``cv_revision`` inne niż
@@ -459,6 +461,39 @@ async def restore(db: AsyncSession, *, job_id: int, candidate_id: int) -> int:
     return int(result.rowcount or 0)
 
 
+async def expire_open_for_job(db: AsyncSession, *, job_id: int) -> int:
+    """Zamknięcie rekrutacji wygasza jej otwarte propozycje (0422, R6).
+
+    Do 06.10.2026 172 propozycje wisiały w zamkniętych rekrutacjach i liczyły
+    się w skrótach. ``added`` i ``dismissed`` zostają — to decyzje ludzi.
+    Ponowne otwarcie rekrutacji ich nie wskrzesza. Zwraca liczbę wierszy.
+    """
+    result = await db.execute(
+        update(JobProposal)
+        .where(JobProposal.job_id == job_id, JobProposal.status == "proposed")
+        .values(status="expired")
+        .execution_options(synchronize_session=False)
+    )
+    return int(result.rowcount or 0)
+
+
+async def record_inbox_open(
+    db: AsyncSession, *, job_id: int, user_id: int, opened_on: Any
+) -> bool:
+    """Jedno zdarzenie „otwarcie Do przejrzenia” na (rekrutację, osobę, dzień).
+
+    Idempotentne (``ON CONFLICT DO NOTHING``). Zwraca, czy zapisano nowe.
+    """
+    from app.models.job_proposal import JobProposalInboxOpen  # noqa: PLC0415
+
+    result = await db.execute(
+        pg_insert(JobProposalInboxOpen)
+        .values(job_id=job_id, user_id=user_id, opened_on=opened_on)
+        .on_conflict_do_nothing(constraint="uq_job_proposal_inbox_opens_day")
+    )
+    return bool(result.rowcount)
+
+
 async def mark_added(
     db: AsyncSession, *, job_id: int, candidate_ids: Sequence[int]
 ) -> int:
@@ -516,11 +551,18 @@ def _globally_blacklisted(candidate_col):
 
 
 def _pair_status():
-    """Status pary z wierszy źródeł: added > dismissed > proposed."""
+    """Status pary z wierszy źródeł: added > dismissed > proposed > expired.
+
+    ``expired`` (0422) dostaje para, której WSZYSTKIE wiersze wygasły przy
+    zamknięciu rekrutacji. Nowe źródło po ponownym otwarciu proponuje osobę
+    od nowa; wygasły wiersz tego samego źródła zostaje wygasły (upsert nie
+    rusza statusu).
+    """
     return case(
         (func.bool_or(JobProposal.status == "added"), "added"),
         (func.bool_or(JobProposal.status == "dismissed"), "dismissed"),
-        else_="proposed",
+        (func.bool_or(JobProposal.status == "proposed"), "proposed"),
+        else_="expired",
     )
 
 
@@ -563,6 +605,40 @@ async def open_counts_for_jobs(
         select(pairs.c.job_id, func.count()).group_by(pairs.c.job_id)
     )
     return {int(job_id): int(n) for job_id, n in rows.all()}
+
+
+async def fresh_open_pairs(
+    db: AsyncSession,
+    *,
+    since: datetime,
+    sources: Sequence[str],
+    job_ids_subquery: Any,
+) -> list[tuple[int, int]]:
+    """Otwarte pary (rekrutacja, kandydat), których pierwszy wiersz z ``sources``
+    pojawił się od ``since`` — najlepszy wynik pierwszy w obrębie rekrutacji.
+
+    Ta sama widoczność co skrzynka (bez osób w rekrutacji i czarnej listy,
+    status pary ``proposed``). Czyta poranny dzwonek „Do przejrzenia”.
+    """
+    first_seen = func.min(JobProposal.first_seen_at).filter(
+        JobProposal.source.in_(list(sources))
+    )
+    rows = await db.execute(
+        select(JobProposal.job_id, JobProposal.candidate_id)
+        .where(
+            JobProposal.job_id.in_(job_ids_subquery),
+            ~_in_pipeline(JobProposal.job_id, JobProposal.candidate_id),
+            ~_globally_blacklisted(JobProposal.candidate_id),
+        )
+        .group_by(JobProposal.job_id, JobProposal.candidate_id)
+        .having(_pair_status() == "proposed", first_seen >= since)
+        .order_by(
+            JobProposal.job_id,
+            func.max(JobProposal.score).desc().nullslast(),
+            JobProposal.candidate_id,
+        )
+    )
+    return [(int(job_id), int(cid)) for job_id, cid in rows.all()]
 
 
 # Runda 10 (R10-N7-1): sufit listy pominiętych w odpowiedzi skrzynki — pamięć

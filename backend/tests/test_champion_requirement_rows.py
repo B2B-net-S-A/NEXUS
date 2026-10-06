@@ -18,7 +18,8 @@ def _row(*words: str, level: str = "must") -> dict:
 
 def _save(old: dict, patch: dict) -> dict:
     """Zapis tak, jak robi go handler: najpierw wiersze → pola, potem edycja."""
-    return user_edit(old, expand_patch(patch), actor_id=1)
+    previous = (old.get("stack") or {}).get("notes")
+    return user_edit(old, expand_patch(patch, previous_notes=previous), actor_id=1)
 
 
 ROWS = [
@@ -100,7 +101,8 @@ def test_a_third_critical_row_is_stored_as_must():
 def test_limits_and_duplicates():
     many = [_row(f"Tech{i}") for i in range(14)] + [_row("tech0", "inne")]
     cleaned = rows_service.clean_rows(many)
-    assert len(cleaned) == 10
+    # 06.10.2026 (N3): 11.+ „musi mieć” schodzi do „mile widziane”, nie znika.
+    assert [row["level"] for row in cleaned] == ["must"] * 10 + ["nice"] * 4
     assert rows_service.clean_rows([_row("C"), _row("  "), {"words": "x"}]) == []
     assert rows_service.clean_rows("nie lista") == []
     nice = rows_service.clean_rows([_row(f"N{i}x", level="nice") for i in range(25)])
@@ -203,3 +205,54 @@ def test_conversion_remembers_an_explicit_no_critical_decision():
         ]
         is False
     )
+
+
+def test_overflowing_must_rows_move_to_nice_and_the_rest_to_notes():
+    """Audyt 06.10.2026 (N3): 749969 straciło „CI/CD” i „automated testing”,
+    bo 11. i 12. wiersz „musi mieć” znikał po cichu."""
+    many = [_row(f"Must{i}") for i in range(12)]
+    many += [_row(f"Nice{i}", level="nice") for i in range(19)]
+    rows, dropped = rows_service.split_rows(many)
+    assert [r["words"][0] for r in rows if r["level"] == "must"] == [
+        f"Must{i}" for i in range(10)
+    ]
+    nice = [r["words"][0] for r in rows if r["level"] == "nice"]
+    # Nadmiar must wchodzi do „mile widziane”, dopóki jest miejsce (limit 20).
+    assert nice == [f"Nice{i}" for i in range(19)] + ["Must10"]
+    assert dropped == ["Must11"]
+    saved = _save({"stack": {"notes": "Java 17+"}}, {"stack": {"rows": many}})
+    assert "Must11" in saved["stack"]["notes"]
+    assert saved["stack"]["notes"].startswith("Java 17+")
+
+
+def test_word_with_or_is_split_into_variants():
+    """Audyt 06.10.2026 (P3): „Kafka lub RabbitMQ” w jednym słowie kasowało
+    `stack.rows` przy walidacji (etykieta nie pasowała do słów)."""
+    rows = rows_service.clean_rows([_row("Kafka lub RabbitMQ", "AMQ or IBM MQ")])
+    assert rows[0]["words"] == ["Kafka", "RabbitMQ", "AMQ", "IBM MQ"]
+    saved = _save({}, {"stack": {"rows": [_row("Kafka lub RabbitMQ")]}})
+    assert saved["stack"]["rows"][0]["words"] == ["Kafka", "RabbitMQ"]
+
+
+def test_star_is_removed_from_a_dictionary_technology():
+    """Audyt 06.10.2026 (P5): „Java*” łapie JavaScript."""
+    with hydrated_taxonomy():
+        rows = rows_service.clean_rows([_row("Java*", "bankow*")])
+    assert rows[0]["words"] == ["Java", "bankow*"]
+
+
+def test_single_letter_dictionary_skill_is_a_valid_word():
+    """Audyt 06.10.2026 (P4): „C” i „R” nie dało się wpisać."""
+    from tests.test_skill_inflection import WITH_C
+
+    with hydrated_taxonomy(WITH_C):
+        rows = rows_service.clean_rows([_row("C"), _row("X", "Rust")])
+    assert [row["words"] for row in rows] == [["C"], ["Rust"]]
+
+
+def test_long_word_is_cut_at_a_word_boundary():
+    long = "automatyzacja " * 10
+    rows = rows_service.clean_rows([_row(long)])
+    word = rows[0]["words"][0]
+    assert len(word) <= 100
+    assert word.endswith("automatyzacja")

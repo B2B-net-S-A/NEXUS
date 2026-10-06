@@ -122,6 +122,23 @@ def test_summary_counts_people_in_totals_and_rows_per_source():
     assert report["jobs"][0]["pending"] == 1 and report["jobs"][0]["title"] == "R1"
 
 
+def test_expired_proposals_are_neither_pending_nor_dismissed():
+    """0422 (R6): propozycja zamkniętej rekrutacji wygasła — nie czeka na
+    decyzję i nie jest pominięciem bez powodu."""
+    report = outcomes.summarize(
+        [
+            _row(1, 10, "full_base", "expired"),
+            _row(1, 11, "full_base", "expired"),
+            _row(1, 11, "new_cv", "dismissed", "too_junior"),
+        ]
+    )
+    totals = report["totals"]
+    assert totals["pending"] == 0
+    assert totals["expired"] == 1
+    assert totals["dismissed"] == 1
+    assert totals["dismissed_by_reason"][outcomes.NO_REASON] == 0
+
+
 def test_empty_window_is_zeros_not_missing_keys():
     report = outcomes.summarize([])
     assert report["totals"]["proposed"] == 0

@@ -925,9 +925,22 @@ except Exception as _proposal_feedback_err:  # noqa: BLE001
     _JOB_PROPOSAL_FEEDBACK_COLUMNS = []
     _JOB_PROPOSAL_FEEDBACK_CONSTRAINTS = []
 
+# Propozycje: status „wygasła” i otwarcia skrzynki (migracja 0422, audyt
+# 06.10.2026) — JEDNO źródło z migracją (`app/services/job_proposal_expiry_schema.py`).
+try:
+    from app.services import job_proposal_expiry_schema as _proposal_expiry
+
+    _JOB_PROPOSAL_EXPIRY_TABLES = list(_proposal_expiry.TABLE_DDL)
+    _JOB_PROPOSAL_EXPIRY_CONSTRAINTS = list(_proposal_expiry.CONSTRAINT_DDL)
+except Exception as _proposal_expiry_err:  # noqa: BLE001
+    print(f"job proposal expiry DDL unavailable: {_proposal_expiry_err!r}")
+    _JOB_PROPOSAL_EXPIRY_TABLES = []
+    _JOB_PROPOSAL_EXPIRY_CONSTRAINTS = []
+
 _COLUMN_STATEMENTS = [
     *_KEYWORD_CORPUS_DDL,
     *_JOB_PROPOSAL_FEEDBACK_COLUMNS,
+    *_JOB_PROPOSAL_EXPIRY_TABLES,
     *_PLAIN_KNOWLEDGE_DDL,
     *_APPLICATION_SCREENING_DDL,
     *_RATE_FROM_DDL,
@@ -5365,7 +5378,7 @@ END $$""",
             source IN ('full_base', 'new_cv', 'similar_projects',
                        'recommendation', 'marketplace', 'reassign')),
         CONSTRAINT ck_job_proposals_status CHECK (
-            status IN ('proposed', 'dismissed', 'added')),
+            status IN ('proposed', 'dismissed', 'added', 'expired')),
         -- 0405: powód „Pomiń” (kolejny DO-blok niżej trzyma tę samą regułę).
         CONSTRAINT ck_job_proposals_dismiss_reason CHECK (
             dismiss_reason IS NULL OR dismiss_reason IN (
@@ -7981,6 +7994,9 @@ _CONSTRAINT_STATEMENTS = [
     # 0405: powód „Pomiń” — JEDNO źródło z migracją
     # (`app/services/job_proposal_feedback_schema.py`).
     *_JOB_PROPOSAL_FEEDBACK_CONSTRAINTS,
+    # 0422: status „wygasła” (zamknięta rekrutacja) — JEDNO źródło z migracją
+    # (`app/services/job_proposal_expiry_schema.py`).
+    *_JOB_PROPOSAL_EXPIRY_CONSTRAINTS,
     """DO $$ BEGIN
         ALTER TABLE candidates ADD CONSTRAINT ck_candidates_b2b_willingness
             CHECK (b2b_willingness IS NULL OR b2b_willingness IN ('b2b', 'would_switch', 'employment_only')) NOT VALID;
@@ -9662,6 +9678,32 @@ async def repair():
             await db.rollback()
             raise
     print(f"notification backlog repair: {summary or 'already done'}")
+
+asyncio.run(repair())
+PY
+
+# Propozycje (06.10.2026, audyt R6) — jednorazowo: otwarte propozycje
+# rekrutacji zamkniętych przed 0422 wygasają (`proposed` → `expired`; nic nie
+# jest kasowane). Od 0422 robi to zamknięcie rekrutacji. Logika
+# w `app/services/job_proposal_closed_expiry.py`; marker w `app_settings`
+# + advisory lock. Log: same liczby.
+startup_phase "repair-closed-job-proposals"
+echo "Job proposals: one-shot expiry on closed recruitments..."
+python - <<'PY' || echo "closed job proposal expiry skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.job_proposal_closed_expiry import run_closed_job_proposal_expiry
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_closed_job_proposal_expiry(db)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+    print(f"closed job proposal expiry: {summary or 'already done'}")
 
 asyncio.run(repair())
 PY
