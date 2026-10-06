@@ -94,9 +94,11 @@ describe("OrdersTable — kafelki zamówień MD i kosztowych (ticket 11)", () =>
     expect(tiles[1]).toContainElement(rowOf(5));
   });
 
-  it("nagłówek kafla nie powtarza zużycia — pasek i „X / Y MD” są tylko w wierszach osób", () => {
+  it("nagłówek MD per osoba pokazuje budżet zamówienia — te same liczby co panel", () => {
     renderTable([
       group({
+        md_positions_total: 200,
+        md_used_total: 24.625,
         lines: [
           line({ id: 1, md_total: 85, md_remaining: 76 }),
           line({ id: 2, consultant_name: "Robert Drugi", md_total: 60, md_remaining: 20 }),
@@ -106,15 +108,17 @@ describe("OrdersTable — kafelki zamówień MD i kosztowych (ticket 11)", () =>
     const header = document.getElementById("order-group-anchor-15")!;
     expect(header).toHaveTextContent("Zamówienie nr");
     expect(header).toHaveTextContent("2 os.");
-    expect(within(header).queryByRole("progressbar")).toBeNull();
-    expect(header).not.toHaveTextContent(/\d\s*\/\s*\d+\s*MD/);
-    // Wiersze osób bez zmian.
+    expect(header).toHaveTextContent(
+      "Budżet 200 MD · wykorzystano 24,625 MD · pozostało 175,375 MD",
+    );
+    expect(within(header).getByRole("progressbar", { name: "Pozostało w zamówieniu" })).toBeInTheDocument();
+    // Wiersze osób bez zmian — pasek i „X / Y MD” per osoba.
     expect(within(rowOf(1)!).getByRole("progressbar", { name: "Pozostałe MD" })).toBeInTheDocument();
     expect(rowOf(1)).toHaveTextContent(/76\s*\/\s*85\s*MD/);
     expect(rowOf(2)).toHaveTextContent(/20\s*\/\s*60\s*MD/);
   });
 
-  it("nagłówek kosztowego i wspólnej puli MD też nie pokazuje budżetu — jest w panelu", () => {
+  it("nagłówek kosztowego: kwota · zafakturowano · pozostało; bez kwot (brak uprawnień) — nic", () => {
     const { unmount } = renderTable([
       group({
         is_cost_based: true,
@@ -124,21 +128,38 @@ describe("OrdersTable — kafelki zamówień MD i kosztowych (ticket 11)", () =>
         lines: [line({ md_total: null, md_remaining: null })],
       }),
     ]);
-    expect(document.getElementById("order-group-anchor-15")).not.toHaveTextContent(/pozostało/);
+    expect(document.getElementById("order-group-anchor-15")).toHaveTextContent(
+      /Kwota 1000,00\szł · zafakturowano 400,00\szł · pozostało 600,00\szł/,
+    );
     unmount();
 
+    // Rola bez VIEW_FINANCE dostaje kwoty grupy jako `null` — nie „pozostało 0”.
+    renderTable([
+      group({
+        is_cost_based: true,
+        lines: [line({ md_total: null, md_remaining: null, invoiced_total: null })],
+      }),
+    ]);
+    const header = document.getElementById("order-group-anchor-15")!;
+    expect(header).not.toHaveTextContent(/pozostało/);
+    expect(within(header).queryByRole("progressbar")).toBeNull();
+  });
+
+  it("nagłówek wspólnej puli MD: budżet · wykorzystano · pozostało, bez schodzenia pod zero", () => {
     renderTable([
       group({
         is_md_budget_based: true,
         md_budget_mode: "shared",
         md_budget_total: 100,
-        md_budget_used: 100,
-        md_budget_remaining: 0,
+        md_budget_used: 104,
+        md_budget_remaining: -4,
         lines: [line({ md_total: null, md_remaining: null })],
       }),
     ]);
     const header = document.getElementById("order-group-anchor-15")!;
-    expect(within(header).queryByRole("progressbar")).toBeNull();
+    expect(header).toHaveTextContent(
+      "Wspólna pula: budżet 100 MD · wykorzystano 104 MD · pozostało 0 MD",
+    );
     // Wyczerpanie nadal sygnalizuje plakietka w „Uwagach”.
     expect(within(header).getByText("Budżet wyczerpany")).toBeInTheDocument();
   });
@@ -580,8 +601,8 @@ describe("OrdersTable — budżet i zużycie w wierszach", () => {
     expect(row.querySelector('[aria-label="Opcja — wykorzystano MD"]')).not.toBeNull();
     const groupRow = document.getElementById("order-group-anchor-15")!;
     expect(groupRow).toHaveTextContent("Umowa wykonawcza UW/242/2031 · Cz. II");
-    // Łączne MD i kwoty umowy są w panelu, nie w nagłówku kafla.
-    expect(groupRow).not.toHaveTextContent(/wykorzystano/);
+    // Łączne MD zamówienia w nagłówku; kwoty umowy zostają w panelu.
+    expect(groupRow).toHaveTextContent("Budżet 360 MD · wykorzystano 154 MD · pozostało 206 MD");
     expect(groupRow).not.toHaveTextContent(/2\s295\s200/);
   });
 
@@ -620,6 +641,83 @@ describe("OrdersTable — budżet i zużycie w wierszach", () => {
     ]);
     expect(screen.queryByRole("button", { name: /Zużycie MD/ })).toBeNull();
     expect(rowOf(1)).toHaveTextContent("zafakturowano —");
+  });
+
+  it("kosztowe: „Budżet” = wspólny budżet, „zafakturowano” osoby w kolumnie „Zużycie”", () => {
+    renderTable([
+      group({
+        is_cost_based: true,
+        budget_amount: 50_000,
+        budget_used: 12_000,
+        budget_remaining: 38_000,
+        lines: [
+          line({ id: 1, md_total: null, md_remaining: null, invoiced_total: 12_000 }),
+          line({
+            id: 2,
+            consultant_name: "Ewa Odeszła",
+            md_total: null,
+            md_remaining: null,
+            invoiced_total: 3_500,
+            status: "completed",
+            is_active: false,
+            end_date: "2026-08-31",
+            cooperation_ended_on: "2026-08-31",
+            history_kept_at: "2026-09-01T09:00:00Z",
+          }),
+        ],
+      }),
+    ]);
+    const cells = (id: number) => Array.from(rowOf(id)!.querySelectorAll("td")).map((td) => td.textContent);
+    expect(cells(1)[3]).toBe("wspólny budżet");
+    expect(cells(1)[4]).toMatch(/zafakturowano 12\s000,00\szł/);
+    fireEvent.click(screen.getByRole("button", { name: /^Zakończone/ }));
+    expect(cells(2)[3]).toBe("wspólny budżet");
+    expect(cells(2)[4]).toMatch(/zafakturowano 3500,00\szł/);
+  });
+
+  it("wspólna pula: „Zużycie” = suma MD osoby na zamówieniu, także zakończonej", () => {
+    renderTable([
+      group({
+        is_md_budget_based: true,
+        md_budget_mode: "shared",
+        md_budget_total: 458,
+        md_budget_used: 232,
+        md_budget_remaining: 226,
+        lines: [
+          line({ id: 1, md_total: null, md_remaining: null, md_used: 20, shared_md_unattributed_months: 0 }),
+          line({
+            id: 2,
+            consultant_name: "Tomasz Bezpodziału",
+            md_total: null,
+            md_remaining: null,
+            md_used: 8,
+            shared_md_unattributed_months: 2,
+          }),
+          line({
+            id: 3,
+            consultant_name: "Zofia Odeszła",
+            md_total: null,
+            md_remaining: null,
+            md_used: 12,
+            rate_revenue: null,
+            status: "completed",
+            is_active: false,
+            end_date: "2026-08-31",
+            cooperation_ended_on: "2026-08-31",
+            history_kept_at: "2026-09-01T09:00:00Z",
+          }),
+        ],
+      }),
+    ]);
+    const cells = (id: number) => Array.from(rowOf(id)!.querySelectorAll("td")).map((td) => td.textContent);
+    expect(cells(1)[3]).toBe("wspólna pula");
+    expect(cells(1)[4]).toBe("20 MD");
+    // Miesiące zapisane samą sumą nie mają osoby — lista mówi to wprost.
+    expect(cells(2)[4]).toMatch(/^8 MD\+2 mies\. bez podziału$/);
+    expect(screen.queryByRole("button", { name: /Zużycie MD/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /^Zakończone/ }));
+    expect(cells(3)[3]).toBe("wspólna pula");
+    expect(cells(3)[4]).toBe("12 MD");
   });
 
   it("anulowane zamówienie pokazuje datę anulowania w kalendarzu firmy", () => {

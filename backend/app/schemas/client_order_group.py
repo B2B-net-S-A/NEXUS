@@ -648,6 +648,10 @@ class OrderLineRead(BaseModel):
 
     md_used: Optional[MdValue] = None
     """Zaraportowane MD tej osoby na tym zamówieniu (operacyjne, bez redakcji)."""
+    shared_md_unattributed_months: Optional[int] = None
+    """Wspólna pula MD: ile miesięcy zejść nie ma podziału na osoby (ręczna
+    suma bez rozpisania). ``md_used`` osoby nie obejmuje tych miesięcy, więc
+    lista mówi to obok sumy. ``None`` poza wspólną pulą."""
 
     history_kept_at: Optional[datetime] = None
     history_kept_by_name: Optional[str] = None

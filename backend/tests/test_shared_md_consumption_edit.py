@@ -217,3 +217,96 @@ async def test_line_rates_keep_three_decimals(app_client, app_auth_headers):
     [saved] = created.json()["lines"]
     assert saved["rate_cost"] == 291.375
     assert saved["rate_revenue"] == 1100.125
+
+
+@pytest.mark.asyncio
+async def test_list_shows_each_consultants_sum_of_shared_pool_months(
+    app_client, app_auth_headers
+):
+    """Kolumna „Zużycie” listy (ticket 10.2026): suma MD osoby ze zejść puli
+    od początku zamówienia — 10 MD w jednym miesiącu + 10 w drugim = 20."""
+    from sqlalchemy import update
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order_group import ClientOrderGroupMdConsumption
+
+    url, group = await _active_shared_group(app_client, app_auth_headers)
+    first, second = (line["id"] for line in group["lines"])
+    this_month = business_today().replace(day=1)
+    previous = (this_month - timedelta(days=1)).strftime("%Y-%m")
+    current = this_month.strftime("%Y-%m")
+    for month, first_md in ((previous, 10), (current, 10)):
+        saved = await app_client.put(
+            f"{url}/md-consumptions/{month}",
+            headers=app_auth_headers,
+            json={
+                "lines": [
+                    {"order_id": first, "md": first_md},
+                    {"order_id": second, "md": 2.5},
+                ]
+            },
+        )
+        assert saved.status_code == 200, saved.text
+
+    async def lines_by_id() -> dict[int, dict]:
+        listed = await app_client.get(url.rsplit("/", 1)[0], headers=app_auth_headers)
+        assert listed.status_code == 200, listed.text
+        same = next(g for g in listed.json()["groups"] if g["id"] == group["id"])
+        return {line["id"]: line for line in same["lines"]}
+
+    lines = await lines_by_id()
+    assert lines[first]["md_used"] == 20
+    assert lines[second]["md_used"] == 5
+    assert lines[first]["shared_md_unattributed_months"] == 0
+
+    # Miesiąc zapisany samą sumą (bez podziału) nie trafia do żadnej osoby —
+    # lista mówi, ile takich miesięcy jest, zamiast udawać kompletną sumę.
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(ClientOrderGroupMdConsumption)
+            .where(
+                ClientOrderGroupMdConsumption.group_id == group["id"],
+                ClientOrderGroupMdConsumption.period_month == previous,
+            )
+            .values(breakdown=None)
+        )
+        await db.commit()
+    lines = await lines_by_id()
+    assert lines[first]["md_used"] == 10
+    assert lines[second]["md_used"] == 2.5
+    assert lines[first]["shared_md_unattributed_months"] == 1
+
+
+def test_month_people_rule_prefers_manual_split_then_matching_import():
+    from decimal import Decimal
+    from types import SimpleNamespace
+
+    from app.services.shared_md_orders import shared_md_month_people
+
+    manual = SimpleNamespace(
+        breakdown=[{"order_id": 1, "md": "4.5"}],
+        source="manual",
+        period_month="2026-09",
+        md_reported=Decimal("4.5"),
+    )
+    assert shared_md_month_people(manual, {}) == ([(1, Decimal("4.5"))], "manual")
+
+    imported = SimpleNamespace(
+        breakdown=None,
+        source="import",
+        period_month="2026-09",
+        md_reported=Decimal("7"),
+    )
+    split = {"2026-09": [(1, Decimal("4")), (2, Decimal("3"))]}
+    assert shared_md_month_people(imported, split) == (split["2026-09"], "import")
+    # Wiersze importu nie składają się w sumę miesiąca → bez podziału.
+    mismatch = {"2026-09": [(1, Decimal("4"))]}
+    assert shared_md_month_people(imported, mismatch) == (None, None)
+
+    manual_sum = SimpleNamespace(
+        breakdown=None,
+        source="manual",
+        period_month="2026-09",
+        md_reported=Decimal("7"),
+    )
+    assert shared_md_month_people(manual_sum, split) == (None, None)

@@ -29,9 +29,18 @@ Sekcja **Okresowe** to jedna **tabela**: jeden wiersz to jedna osoba
 (numer zamówienia, okres, stawki i stan). Sekcje **MD** i **Kosztowe** też są
 jedną tabelą: **nagłówki kolumn** (Koszt, Przychód, Zostało MD albo Budżet,
 Zużycie, Uwagi) stoją **raz, na górze sekcji**, a każde zamówienie zaczyna się
-szarym **pasem zamówienia** (numer, typ, okres, liczba osób i uwagi — zużycie
-MD widać w wierszach osób, a budżet całego zamówienia w panelu po kliknięciu
-pasa). Pod pasem są wiersze jego **konsultantów**, zwijany wiersz
+szarym **pasem zamówienia** (numer, typ, okres, liczba osób i uwagi), a pod
+numerem stoi **budżet całego zamówienia** z paskiem — te same liczby co
+w panelu: przy MD „Budżet · wykorzystano · pozostało" (wspólna pula:
+„Wspólna pula: budżet …"), przy kosztowym „Kwota · zafakturowano · pozostało".
+W wierszach osób kolumna **Zużycie** pokazuje, ile dana osoba wykorzystała na
+tym zamówieniu od jego początku: przy budżecie per osoba przycisk „Zużycie",
+przy wspólnej puli sumę jej MD ze zejść miesięcznych (kolumna „Zostało MD"
+mówi wtedy „wspólna pula"), a przy kosztowym „zafakturowano …" (kolumna
+„Budżet" mówi „wspólny budżet"). Osoby w „Zakończonych" mają w „Zużyciu" swoją
+sumę liczoną tak samo. Miesiąc wspólnej puli zapisany samą sumą, bez podziału
+na osoby, nie trafia do sumy nikogo — wiersz mówi wtedy „+N mies. bez
+podziału". Pod pasem są wiersze jego **konsultantów**, zwijany wiersz
 **„Zakończone (N)"** i wiersze **przyszłych zamówień**. Osoba, której
 pojedyncze zamówienie ma taki typ, ma własny pas.
 
@@ -146,8 +155,8 @@ Polsatu pozostają wspólne; nowych zamówień tych klientów dotyczy ten sam wy
 co u pozostałych klientów.
 
 Przy wspólnej puli import z Finansów wymaga numeru zamówienia w kolumnie
-„Uwagi” i sumuje zużycie wszystkich konsultantów. Panel zamówienia oraz Excel pokazują
-budżet, łączne zużycie i pozostałość raz na całe zamówienie. Przy budżecie
+„Uwagi” i sumuje zużycie wszystkich konsultantów. Pas zamówienia, panel oraz
+Excel pokazują budżet, łączne zużycie i pozostałość raz na całe zamówienie. Przy budżecie
 per osoba liczby i ostrzeżenia dotyczą poszczególnych konsultantów.
 
 **Każdy klient ma wszystkie trzy typy do wyboru.** Okno „Nowe zamówienie"

@@ -309,6 +309,8 @@ from app.services.order_rate_snapshots import convert_order_rate
 from app.services.shared_md_orders import (
     delete_shared_md_consumption,
     shared_md_import_breakdowns,
+    shared_md_month_people,
+    shared_md_person_usage,
     upsert_shared_md_consumption,
     client_uses_shared_md_pool,
     normalize_empty_generic_explicit_md_group,
@@ -1295,6 +1297,13 @@ async def _group_to_read(
         reads.append(item)
     await _apply_line_history(db, group, lines, reads)
     await _apply_consumption_signals(db, group, lines, reads)
+    if uses_shared_md_budget and lines:
+        # Kolumna „Zużycie” listy: suma MD osoby ze zejść wspólnej puli —
+        # ten sam podział miesięcy co sekcja „Zejścia MD” panelu.
+        person_md, unattributed = await shared_md_person_usage(db, group.id)
+        for item in reads:
+            item.md_used = person_md.get(item.id, quantize_md(0))
+            item.shared_md_unattributed_months = unattributed
     reads.sort(
         key=lambda item: (
             normalize_person_name_part(item.consultant_name),
@@ -7241,28 +7250,11 @@ async def _shared_md_consumptions_read(
     months: list[SharedMdConsumptionMonth] = []
     for row, author_name in result.all():
         total = quantize_md(row.md_reported)
-        breakdown: Optional[list[SharedMdConsumptionPerson]] = None
-        breakdown_source: Optional[str] = None
-        if row.breakdown:
-            breakdown = _shared_people(
-                [
-                    (int(item["order_id"]), Decimal(str(item["md"])))
-                    for item in row.breakdown
-                ],
-                names,
-            )
-            breakdown_source = "manual"
-        elif row.source == "import":
-            derived = import_breakdowns.get(row.period_month) or []
-            # Podział z wierszy importu pokazujemy tylko, gdy składa się
-            # w zapisaną sumę — inaczej przypisalibyśmy osobom liczby, których
-            # suma nie zgadza się z tym, co zeszło z puli.
-            if (
-                derived
-                and quantize_md(sum((md for _, md in derived), Decimal("0"))) == total
-            ):
-                breakdown = _shared_people(derived, names)
-                breakdown_source = "import"
+        # Ta sama reguła co kolumna „Zużycie” listy (`shared_md_person_usage`).
+        people, breakdown_source = shared_md_month_people(row, import_breakdowns)
+        breakdown: Optional[list[SharedMdConsumptionPerson]] = (
+            _shared_people(people, names) if people is not None else None
+        )
         months.append(
             SharedMdConsumptionMonth(
                 period_month=row.period_month,
