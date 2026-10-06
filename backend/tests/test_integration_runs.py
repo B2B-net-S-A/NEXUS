@@ -252,3 +252,35 @@ async def test_alert_cooldown_persists_in_db(monkeypatch):
         assert second["pracuj"] == "cooldown", (
             "drugi przebieg w tej samej dobie = cooldown"
         )
+
+
+# ── 4. Run zabity bez `finish` nie wisi jako „trwa” (06.10.2026) ────────────
+
+
+@pytest.mark.asyncio
+async def test_stuck_running_run_is_closed_as_failed_after_6h(monkeypatch):
+    from app.services.integration_runs import STUCK_RUN_ERROR
+    from app.tasks import integration_stale_alerts as task
+
+    monkeypatch.delenv("SLACK_WEBHOOK_URL", raising=False)
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        stuck = IntegrationRun(
+            source="pracuj", status="running", started_at=now - timedelta(hours=7)
+        )
+        fresh = IntegrationRun(
+            source="pracuj", status="running", started_at=now - timedelta(hours=1)
+        )
+        db.add_all([stuck, fresh])
+        await db.commit()
+        stuck_id, fresh_id = stuck.id, fresh.id
+
+    await task.run_once(now=now)
+
+    async with AsyncSessionLocal() as db:
+        closed = await db.get(IntegrationRun, stuck_id)
+        running = await db.get(IntegrationRun, fresh_id)
+        assert closed.status == "failed"
+        assert closed.finished_at is not None
+        assert closed.error == STUCK_RUN_ERROR
+        assert running.status == "running" and running.finished_at is None

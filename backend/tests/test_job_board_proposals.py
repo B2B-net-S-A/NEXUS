@@ -2,7 +2,8 @@
 
 * ``POST /api/jobs/{id}/proposals/bulk`` od tokenu integracji Z ``auto_match``
   zakłada propozycję ``job_board`` zamiast karty na Tablicy; integracja BEZ
-  wyniku (np. zgłoszenia z pracuj.pl) i człowiek dodają jak dotąd;
+  wyniku też (06.10.2026), chyba że osoba zgłosiła się do tej rekrutacji —
+  wtedy, jak człowiek, dodaje kartę;
 * wbudowany runner JJIT liczy ``proposed`` jako udane dopasowanie;
 * jednorazowe przeniesienie starych, nietkniętych kart
   (``services/job_board_cards_to_proposals.py``): próba nic nie zapisuje,
@@ -119,8 +120,39 @@ async def test_integration_auto_match_becomes_a_proposal(routed):
     assert resp.total_skipped == 1
 
 
+def _evidence(monkeypatch, applied: set[int]) -> None:
+    from app.services import integration_intake
+
+    async def fake(db, *, job_id, candidate_ids):
+        return {c for c in candidate_ids if c in applied}
+
+    monkeypatch.setattr(
+        integration_intake, "candidates_with_application_evidence", fake
+    )
+
+
 @pytest.mark.asyncio
-async def test_integration_without_score_still_adds_a_card(routed):
+async def test_integration_without_score_and_application_proposes(
+    routed, monkeypatch
+):
+    # 06.10.2026: integracja bez `auto_match` nie zakłada kart, chyba że osoba
+    # zgłosiła się do tej rekrutacji (scraper 01–05.10: 357 kart).
+    _evidence(monkeypatch, applied=set())
+    resp = await proposals_bulk.bulk_add_proposals(
+        request=_INTEGRATION,
+        job_id=5,
+        body=_body(initial_stage_legacy="posting"),
+        current_user=SimpleNamespace(id=9),
+        db=_FakeJobDb(),
+    )
+    assert routed["add"] == []
+    assert routed["propose"] == [([3, 4], None)]
+    assert resp.added == [] and resp.proposed == [3]
+
+
+@pytest.mark.asyncio
+async def test_integration_application_still_adds_a_card(routed, monkeypatch):
+    _evidence(monkeypatch, applied={3, 4})
     await proposals_bulk.bulk_add_proposals(
         request=_INTEGRATION,
         job_id=5,
@@ -130,6 +162,26 @@ async def test_integration_without_score_still_adds_a_card(routed):
     )
     assert routed["propose"] == []
     assert routed["add"][0]["entry_source"] == "auto_match"
+    assert routed["add"][0]["candidate_ids"] == [3, 4]
+
+
+@pytest.mark.asyncio
+async def test_integration_mixed_batch_splits_cards_and_proposals(
+    routed, monkeypatch
+):
+    _evidence(monkeypatch, applied={4})
+    resp = await proposals_bulk.bulk_add_proposals(
+        request=_INTEGRATION,
+        job_id=5,
+        body=_body(initial_stage_legacy="posting"),
+        current_user=SimpleNamespace(id=9),
+        db=_FakeJobDb(),
+    )
+    assert routed["propose"] == [([3], None)]
+    assert routed["add"][0]["candidate_ids"] == [4]
+    assert resp.proposed == [3] and resp.total_proposed == 1
+    # Pominięcia propozycji wracają w odpowiedzi (kształt bez zmian).
+    assert resp.total_skipped == 1
 
 
 @pytest.mark.asyncio

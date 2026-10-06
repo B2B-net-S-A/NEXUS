@@ -688,9 +688,13 @@ async def propose_candidates_for_job(
     *,
     job: Job,
     candidate_ids: list[int],
-    entry_meta: dict,
+    entry_meta: Optional[dict],
 ) -> ProposeResult:
     """Dopasowanie z portalu → propozycja ``job_board`` w „Do przejrzenia”.
+
+    ``entry_meta=None`` (06.10.2026): integracja bez wyniku auto-matcha i bez
+    dowodu zgłoszenia do tej rekrutacji — propozycja bez wyniku i dowodów
+    (``integration_intake``), nigdy wymyślone „0/100”.
 
     Decyzja 30.09.2026: scraper JJIT/RocketJobs zakładał karty na Tablicy
     (1 819 kart na „Ogłoszeniach”, każda osoba w ~3,9 rekrutacjach, dalej
@@ -804,16 +808,37 @@ async def bulk_add_proposals(
     await ensure_job_membership(db, current_user, job_id)
     from_integration = candidate_claim.is_integration_request(request)
 
-    if from_integration and body.auto_match is not None:
-        # Dopasowanie z portalu (scraper JJIT/RocketJobs) → „Do przejrzenia”,
-        # nie karta na Tablicy. Integracja bez ``auto_match`` (np. zgłoszenia
-        # z pracuj.pl do konkretnej rekrutacji) dodaje jak dotąd.
+    # Integracja nie zakłada kart bez dowodu zgłoszenia (06.10.2026):
+    # dopasowanie z portalu (``auto_match``) → zawsze propozycja; bez
+    # ``auto_match`` → propozycja, chyba że osoba zgłosiła się do TEJ rekrutacji
+    # (formularz, źródło „ogłoszenie”, notatka z formularza aplikacji).
+    propose_ids: list[int] = []
+    propose_meta: Optional[dict] = None
+    add_ids: list[int] = list(body.candidate_ids)
+    if from_integration:
+        if body.auto_match is not None:
+            propose_ids, add_ids = list(body.candidate_ids), []
+            propose_meta = body.auto_match.as_entry_meta()
+        else:
+            from app.services.integration_intake import (  # noqa: PLC0415
+                candidates_with_application_evidence,
+            )
+
+            applied = await candidates_with_application_evidence(
+                db, job_id=job.id, candidate_ids=body.candidate_ids
+            )
+            propose_ids = [c for c in body.candidate_ids if c not in applied]
+            add_ids = [c for c in body.candidate_ids if c in applied]
+
+    proposal: Optional[ProposeResult] = None
+    if propose_ids:
         proposal = await propose_candidates_for_job(
             db,
             job=job,
-            candidate_ids=body.candidate_ids,
-            entry_meta=body.auto_match.as_entry_meta(),
+            candidate_ids=propose_ids,
+            entry_meta=propose_meta,
         )
+    if proposal is not None and not add_ids:
         await db.commit()
         return BulkProposalsResponse(
             added=[],
@@ -828,7 +853,7 @@ async def bulk_add_proposals(
     result = await add_candidates_to_job(
         db,
         job=job,
-        candidate_ids=body.candidate_ids,
+        candidate_ids=add_ids,
         actor_user_id=current_user.id,
         initial_stage_def_id=body.initial_stage_def_id,
         initial_stage_legacy=body.initial_stage_legacy,
@@ -842,6 +867,11 @@ async def bulk_add_proposals(
         claim=not from_integration,
     )
     added, skipped, warnings = result.added, result.skipped, result.warnings
+    proposed: list[int] = []
+    if proposal is not None:
+        skipped = [*proposal.skipped, *skipped]
+        warnings = [*proposal.warnings, *warnings]
+        proposed = proposal.proposed
 
     actor_id = current_user.id
     await db.commit()
@@ -873,4 +903,6 @@ async def bulk_add_proposals(
         warnings=warnings,
         total_added=len(added),
         total_skipped=len(skipped),
+        proposed=proposed,
+        total_proposed=len(proposed),
     )

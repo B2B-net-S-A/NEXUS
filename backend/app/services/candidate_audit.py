@@ -44,6 +44,9 @@ BULK_ACTION_EXECUTED = "bulk_action_executed"
 # non-finance-redacted read surface (e.g. the candidate timeline feed).
 CLIENT_RATE_CHANGED = "client_rate_changed"
 PROFILE_RATE_CHANGED = "profile_rate_changed"
+# Cofnięcie stawki wpisanej przez scraper (audyt 06.10.2026, D5) — osobna akcja,
+# żeby nie stała się nową obserwacją „Stawki od” z dzisiejszą datą.
+PROFILE_RATE_SCRAPER_REVERTED = "profile_rate_scraper_reverted"
 LANGUAGES_REPLACED = "candidate_languages_replaced"
 LOCATION_CHANGED = "candidate_location_changed"
 WORK_MODE_CHANGED = "candidate_work_mode_changed"

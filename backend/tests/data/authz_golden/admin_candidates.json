@@ -29,6 +29,7 @@
   "POST /api/admin/candidates/backfill-cc": "PDDDDDDDDDDDDDDDDDD",
   "POST /api/admin/candidates/backfill-cv-fields": "PDDDDDDDDDDDDDDDDDD",
   "POST /api/admin/candidates/backfill-experience-dates": "PDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/candidates/backfill-names": "PDDDDDDDDDDDDDDDDDD"
+  "POST /api/admin/candidates/backfill-names": "PDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/candidates/scraper-rates/revert": "PDDDDDDDDDDDDDDDDDD"
  }
 }
