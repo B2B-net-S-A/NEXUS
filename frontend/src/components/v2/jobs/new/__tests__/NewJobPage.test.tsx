@@ -1755,7 +1755,7 @@ describe("NewJobPage — termin i liczba osób", () => {
     expect(screen.getByLabelText("Liczba osób")).toHaveValue(2);
     expect(
       screen.getByText(
-        "Rekruter widzi go przy kandydatach jako plakietkę „ponad budżet”. Nikogo nie ukrywa.",
+        "Jedna stawka — wpisz tylko „do”. Plakietka „ponad budżet” liczy się od górnej granicy i nikogo nie ukrywa.",
       ),
     ).toBeInTheDocument();
     await createJob();

@@ -233,4 +233,14 @@ def overwrite_edited_job_columns(
             continue
         apply_requirement_source_update(job, column, value)
         changed.append(column)
+    # 0420: budżet obniżony w edytorze poniżej zapisanego „od” czyści „od”
+    # (lustro PATCH rekrutacji) — budżetem jest górna granica.
+    if "rate_budget_hourly" in changed:
+        from app.services.job_budget_range import min_below_max
+
+        if not min_below_max(
+            getattr(job, "rate_budget_hourly_min", None), job.rate_budget_hourly
+        ):
+            job.rate_budget_hourly_min = None
+            changed.append("rate_budget_hourly_min")
     return changed

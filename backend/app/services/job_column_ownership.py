@@ -99,6 +99,7 @@ NEXUS_OWNED: frozenset[str] = frozenset(
         "salary_min",
         "salary_max",
         "rate_budget_hourly",
+        "rate_budget_hourly_min",
         "remote_policy",
         "onsite_days_per_week",
         "onsite_days_per_month",

@@ -1527,6 +1527,8 @@ interface JobFormData {
   salary_min: string;
   salary_max: string;
   rate_budget_hourly: string;
+  // 0420: „od” z przedziału budżetu — tylko do wyświetlania.
+  rate_budget_hourly_min: string;
   priority: string;
   deadline: string;
   recruiter_id: string;
@@ -1556,6 +1558,7 @@ function jobToForm(j: any): JobFormData {
     salary_min: j.salary_min ? String(j.salary_min) : "",
     salary_max: j.salary_max ? String(j.salary_max) : "",
     rate_budget_hourly: j.rate_budget_hourly ? String(j.rate_budget_hourly) : "",
+    rate_budget_hourly_min: j.rate_budget_hourly_min ? String(j.rate_budget_hourly_min) : "",
     priority: j.priority ?? "medium",
     deadline: j.deadline ? j.deadline.slice(0, 10) : "",
     recruiter_id: j.recruiter_id ? String(j.recruiter_id) : "",
@@ -1754,7 +1757,12 @@ function JobFormFields({
           PLN/h, ale importy/seed trzymają tam PLN/mies. — scoring odmawia tej
           kolumny właśnie przez to. To pole jest ZAWSZE PLN/h. */}
       <FieldGroup label="Budżet PLN/h dla kandydata (switch „poza budżetem”)">
-        <Input type="number" value={form.rate_budget_hourly} onChange={e => onChange("rate_budget_hourly", e.target.value)} placeholder="np. 150 — puste = użyjemy stawki Championa" />
+        {/* 0420: przedział „od–do” — budżetem jest „do”, „od” jest opcjonalne. */}
+        <div className="flex items-center gap-1.5">
+          <Input type="number" aria-label="Budżet PLN/h od (opcjonalnie)" className="w-28 shrink-0" value={form.rate_budget_hourly_min} onChange={e => onChange("rate_budget_hourly_min", e.target.value)} placeholder="od" />
+          <span aria-hidden className="text-muted-foreground">–</span>
+          <Input type="number" value={form.rate_budget_hourly} onChange={e => onChange("rate_budget_hourly", e.target.value)} placeholder="do, np. 150 — puste = użyjemy stawki Championa" />
+        </div>
       </FieldGroup>
       {/* 02.10.2026: rola nazywa się „Rekruter” (dawniej „Rekruter prowadzący”
           i „Współpracownicy”) — zmieniły się tylko etykiety, zapis jest ten sam. */}
@@ -2026,6 +2034,7 @@ export function EditJobModal({
         // polegać na stawce z Profilu Championa (`resolve_job_budget_hourly`
         // preferuje kolumnę, więc bez tego budżetu nie dałoby się cofnąć).
         rate_budget_hourly: form.rate_budget_hourly ? Number(form.rate_budget_hourly) : null,
+        rate_budget_hourly_min: form.rate_budget_hourly_min ? Number(form.rate_budget_hourly_min) : null,
         deadline: form.deadline || undefined,
         recruiter_id: form.recruiter_id ? Number(form.recruiter_id) : undefined,
         // Pola usunięte z formularza 22.09.2026 (TAC, typ, widełki, priorytet,

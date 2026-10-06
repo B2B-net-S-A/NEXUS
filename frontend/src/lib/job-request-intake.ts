@@ -118,6 +118,8 @@ export interface IntakeForm {
   descriptive: string[];
   seniorityYears: number | null;
   rateBudget: string;
+  /** 0420: „od” z przedziału budżetu — opcjonalne, tylko do wyświetlania. */
+  rateBudgetMin: string;
   rateNote: string | null;
   /** v7 (27.09.2026): uwagi z odczytu (np. „bankowość” przeniesiona do mile widzianych). */
   intakeNotes: string[];
@@ -180,6 +182,8 @@ export interface RequestIntakeResponse {
   nice: string[];
   seniority_min_years: number | null;
   rate_budget_hourly: number | null;
+  /** 0420: „od” z przedziału („60–80”); budżetem jest `rate_budget_hourly`. */
+  rate_budget_hourly_min?: number | null;
   rate_quote: string | null;
   rate_note: string | null;
   remote_policy: RemotePolicyValue | null;
@@ -272,6 +276,7 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   descriptive: [],
   seniorityYears: null,
   rateBudget: "",
+  rateBudgetMin: "",
   rateNote: null,
   intakeNotes: [],
   remotePolicy: "",
@@ -444,6 +449,10 @@ export function formFromIntake(intake: RequestIntakeResponse): IntakeForm {
       intake.rate_budget_hourly != null
         ? String(intake.rate_budget_hourly)
         : "",
+    rateBudgetMin:
+      intake.rate_budget_hourly_min != null
+        ? String(intake.rate_budget_hourly_min)
+        : "",
     rateNote: intake.rate_note ?? null,
     intakeNotes: intake.advisories ?? [],
     remotePolicy: intake.remote_policy ?? "",
@@ -604,6 +613,19 @@ export function parseBudget(value: string): number | null {
   return Number.isFinite(n) && n > 0 && n <= 2000 ? n : null;
 }
 
+/**
+ * Błąd pola „od” albo `null` (0420). „Od” jest opcjonalne, ale wpisane musi
+ * być liczbą mniejszą niż budżet — lustro `job_budget_range.min_below_max`.
+ */
+export function budgetRangeError(form: Pick<IntakeForm, "rateBudget" | "rateBudgetMin">): string | null {
+  if (!form.rateBudgetMin.trim()) return null;
+  const low = parseBudget(form.rateBudgetMin);
+  if (low == null) return "Stawka „od” musi być liczbą od 0 do 2000.";
+  const high = parseBudget(form.rateBudget);
+  if (high != null && low >= high) return "Stawka „od” musi być mniejsza niż „do”.";
+  return null;
+}
+
 /** Liczba osób: liczba całkowita 1–99 (lustro `JobCreate.headcount`). */
 export function parseHeadcount(value: string): number | null {
   const trimmed = value.trim();
@@ -696,7 +718,8 @@ export function missingFor(
   if (mustOf(form).length === 0) missing.push("must");
   else if (criticalDecisionMissing(form.rows, form.noCritical, opts.criticalInfo))
     missing.push("critical");
-  if (parseBudget(form.rateBudget) == null) missing.push("budget");
+  if (parseBudget(form.rateBudget) == null || budgetRangeError(form) != null)
+    missing.push("budget");
   if (!form.remotePolicy) {
     missing.push("work_mode");
   } else if (form.remotePolicy !== "remote") {
@@ -836,6 +859,9 @@ export function buildJobPayload(
     payload.location = form.city.trim();
   const budget = parseBudget(form.rateBudget);
   if (budget != null) payload.rate_budget_hourly = budget;
+  const budgetMin = parseBudget(form.rateBudgetMin);
+  if (budget != null && budgetMin != null && budgetMin < budget)
+    payload.rate_budget_hourly_min = budgetMin;
   // Termin: data albo świadome „klient nie podał” (04.10.2026).
   payload.deadline = form.deadlineNotProvided ? null : form.deadline || null;
   payload.deadline_time =
@@ -1075,6 +1101,7 @@ export interface TemplateSourceJob {
   description?: string | null;
   location?: string | null;
   rate_budget_hourly?: number | null;
+  rate_budget_hourly_min?: number | null;
   remote_policy?: RemotePolicyValue | null;
   onsite_days_per_week?: number | null;
   onsite_days_per_month?: number | null;
@@ -1230,6 +1257,8 @@ export function applyTemplate(
   }
   if (!next.rateBudget && src.rate_budget_hourly != null) {
     next.rateBudget = String(src.rate_budget_hourly);
+    if (!next.rateBudgetMin && src.rate_budget_hourly_min != null)
+      next.rateBudgetMin = String(src.rate_budget_hourly_min);
   }
   if (!next.remotePolicy && src.remote_policy)
     next.remotePolicy = src.remote_policy;

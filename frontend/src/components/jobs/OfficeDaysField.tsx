@@ -93,6 +93,11 @@ export function OfficeDaysField({
           );
         })}
       </div>
+      {!disabled && (
+        <p className="basis-full text-xs text-muted-foreground">
+          Gdy klient podaje przedział (np. 4–6), wpisz górną liczbę.
+        </p>
+      )}
     </div>
   );
 }

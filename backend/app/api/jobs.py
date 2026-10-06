@@ -348,6 +348,7 @@ _LIST_ONLY_STRIPPED_JOB_FIELDS: tuple[str, ...] = (
     "close_notes",
     # Wyliczany także ze stawki Championa — lista nie jest jego powierzchnią.
     "effective_budget_hourly",
+    "effective_budget_hourly_min",
 )
 
 
@@ -1995,6 +1996,33 @@ def _normalize_office_days_for_update(job: Job, updates: dict) -> None:
         updates["onsite_days_per_month"] = None
 
 
+def _normalize_budget_range_for_update(job: Job, updates: dict) -> None:
+    """PATCH: „od” musi być mniejsze niż budżet (0420).
+
+    Jawnie wysłane „od” nie mniejsze od budżetu = 422 (pole widać w oknie
+    edycji). Sama zmiana budżetu poniżej zapisanego „od” czyści „od” —
+    budżetem jest górna granica, a „od” jest tylko do wyświetlania.
+    """
+    from app.services import job_budget_range
+    from app.services.scoring_service import get_champion_hourly_rate
+
+    if "rate_budget_hourly" not in updates and "rate_budget_hourly_min" not in updates:
+        return
+    budget = updates.get("rate_budget_hourly", job.rate_budget_hourly)
+    if budget is None:
+        budget = get_champion_hourly_rate(job)
+    if "rate_budget_hourly_min" in updates:
+        if not job_budget_range.min_below_max(
+            updates["rate_budget_hourly_min"], budget
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=job_budget_range.MSG_MIN_NOT_BELOW_MAX,
+            )
+    elif not job_budget_range.min_below_max(job.rate_budget_hourly_min, budget):
+        updates["rate_budget_hourly_min"] = None
+
+
 @router.post("", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
 async def create_job(
     data: JobCreate,
@@ -2420,6 +2448,7 @@ async def update_job(
         except (ValueError, TypeError, AttributeError) as exc:
             raise invalid_champion_profile(exc) from exc
     _normalize_office_days_for_update(job, updates)
+    _normalize_budget_range_for_update(job, updates)
     from app.services.requirement_contract import invalidate_changed_requirements
 
     invalidate_changed_requirements(job, updates)

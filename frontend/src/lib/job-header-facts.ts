@@ -5,7 +5,7 @@
  * „Zlecenie i Champion”.
  */
 
-import { formatBudgetHourly, jobBudgetHourly, type JobBudgetSource } from "@/lib/job-budget";
+import { formatJobBudgetLabel, type JobBudgetSource } from "@/lib/job-budget";
 import { officeDaysLabel } from "@/lib/office-days";
 
 export interface JobHeaderFactsSource extends JobBudgetSource {
@@ -47,7 +47,7 @@ export function jobWorkModeFact(job: JobHeaderFactsSource): string | null {
 }
 
 export function jobHeaderFacts(job: JobHeaderFactsSource): JobHeaderFact[] {
-  const budget = jobBudgetHourly(job);
+  const budget = formatJobBudgetLabel(job);
   return [
     { key: "client", label: "Klient", value: job.client_name?.trim() || null },
     {
@@ -55,7 +55,7 @@ export function jobHeaderFacts(job: JobHeaderFactsSource): JobHeaderFact[] {
       label: "Budżet",
       value:
         budget != null
-          ? `do ${formatBudgetHourly(budget)} PLN/h`
+          ? budget
           : job.has_budget_hourly
             ? "ukryty dla Twojej roli"
             : null,

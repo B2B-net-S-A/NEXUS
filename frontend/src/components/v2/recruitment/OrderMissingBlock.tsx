@@ -29,7 +29,7 @@ import {
   type ReadinessKey,
   type ReadinessMissing,
 } from "@/lib/order-readiness";
-import { formatBudgetHourly, jobBudgetHourly } from "@/lib/job-budget";
+import { formatJobBudgetLabel } from "@/lib/job-budget";
 import { extractSkills } from "@/lib/job-skills";
 import { countPl } from "@/lib/plural-pl";
 import { httpStatusFromError } from "@/lib/view-state";
@@ -299,8 +299,8 @@ function doneLabel(key: ReadinessKey, job: OrderJob): string {
       return must.length > 0 ? `${label}: ${must.slice(0, 3).join(", ")}${must.length > 3 ? "…" : ""}` : label;
     }
     case "budget": {
-      const budget = jobBudgetHourly(job as Parameters<typeof jobBudgetHourly>[0]);
-      return budget != null ? `${label}: do ${formatBudgetHourly(budget)} PLN/h` : label;
+      const budget = formatJobBudgetLabel(job as Parameters<typeof formatJobBudgetLabel>[0]);
+      return budget != null ? `${label}: ${budget}` : label;
     }
     case "work_mode":
       return `${label}: ${formatJobLocation(job as Parameters<typeof formatJobLocation>[0])}`;

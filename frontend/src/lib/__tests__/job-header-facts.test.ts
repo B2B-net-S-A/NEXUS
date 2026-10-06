@@ -31,6 +31,9 @@ describe("jobHeaderFacts — klient, budżet, tryb pracy", () => {
 
   it("budżet z jawnego pola, gdy serwer nie podał efektywnego", () => {
     expect(jobHeaderFacts({ rate_budget_hourly: "120.5" })[1].value).toBe("do 120,50 PLN/h");
+    expect(
+      jobHeaderFacts({ rate_budget_hourly: 80, rate_budget_hourly_min: 60 })[1].value,
+    ).toBe("60,00–80,00 PLN/h");
   });
 });
 

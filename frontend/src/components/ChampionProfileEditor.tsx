@@ -962,6 +962,9 @@ export function ChampionProfileEditor({
               placeholder="np. 122.50"
               className={inputClass}
             />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Przedział (np. 60–80) — tu górna granica, „od” wpiszesz w edycji rekrutacji.
+            </p>
           </Labeled>
           <Labeled label="Tryb pracy" field="basics.work_mode">
             <select disabled={disabled} value={draft.basics.work_mode ?? ""} onChange={e => patchBasics({work_mode: e.target.value || null})} className={inputClass}>

@@ -782,6 +782,7 @@ JOB_MEMBER_LOCKED_FIELDS: frozenset[str] = frozenset(
         "salary_max",
         "deadline",
         "rate_budget_hourly",
+        "rate_budget_hourly_min",
         "headcount",
         "priority",
         "needs_sourcing",

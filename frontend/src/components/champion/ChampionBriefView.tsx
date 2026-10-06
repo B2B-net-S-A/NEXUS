@@ -31,7 +31,7 @@ import { usePlainBrief, type GlossaryTerm } from "@/lib/api/plainKnowledge";
 import type { ChampionBlock } from "@/lib/champion-blocks";
 import { JOB_WORK_MODE_LABEL, seedChampionFromJob } from "@/lib/champion-job-seed";
 import { criticalBriefLine, includesLabel } from "@/lib/critical-skills";
-import { formatBudgetHourly } from "@/lib/job-budget";
+import { formatBudgetHourly, formatJobBudgetLabel, type JobBudgetSource } from "@/lib/job-budget";
 import { formatJobDeadline } from "@/lib/job-deadline";
 import { recruitersOf, workingRecruiters, type JobTeamSource } from "@/lib/job-team";
 import { officeDaysLabel } from "@/lib/office-days";
@@ -39,7 +39,7 @@ import { buildGlossaryLookup, glossaryKey } from "@/lib/plain-glossary-lookup";
 import { resolveViewState } from "@/lib/view-state";
 
 /** Pola rekrutacji, które Brief czyta obok profilu. */
-export interface ChampionBriefJob extends JobTeamSource {
+export interface ChampionBriefJob extends JobTeamSource, JobBudgetSource {
   title?: string | null;
   client_id?: number | null;
   client_name?: string | null;
@@ -457,9 +457,13 @@ export function ChampionBriefView({
           >
             <dl className="divide-y divide-border/60">
               <Fact
-                label="Budżet (sufit)"
-                value={basics.rate_value != null ? `do ${formatBudgetHourly(basics.rate_value)} PLN/h` : "nie podano"}
-                muted={basics.rate_value == null}
+                label="Budżet"
+                value={
+                  // Przedział „od–do” z rekrutacji (0420); bez niego — stawka profilu.
+                  formatJobBudgetLabel(job) ??
+                  (basics.rate_value != null ? `do ${formatBudgetHourly(basics.rate_value)} PLN/h` : "nie podano")
+                }
+                muted={basics.rate_value == null && formatJobBudgetLabel(job) == null}
               />
               <Fact
                 label="Tryb i biuro"
