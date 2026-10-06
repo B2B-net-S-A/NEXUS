@@ -4501,13 +4501,16 @@ wysłał do klienta, budżet — 32%, dni w biurze — 8%. Decyzje Artura 30.09.
   we wcześniejszym; pytania o stawkę, dostępność, lokalizację i tryb pracy są
   pomijane. Punkty `MAX_POINTS × tak/(tak+nie)` (wydźwięk: `is_negative_answer`
   + jawne potwierdzenie), same „nie wiadomo” = warstwa bez oceny (wynik bez
-  zmian). Deal-breaker = 0 pkt i plakietka `fit.prior_screening`, nigdy
-  ukrycie. Decyzję niesie żądanie (`versions["prior_screening"]`), nie flaga
+  zmian). Deal-breaker (warunek przy pytaniu TEJ rekrutacji + wcześniejsza
+  odpowiedź oceniona jako trafienie; samo „nie” nim nie jest) = 0 pkt
+  i plakietka `fit.prior_screening`, nigdy ukrycie. Uwaga przed włączeniem:
+  przeskalowanie ×100/105 przy jednym „nie” spycha wynik 72 poniżej progu
+  nocnych propozycji (70) — zmierzyć w etapie 2. Decyzję niesie żądanie (`versions["prior_screening"]`), nie flaga
   z chwili oceny — przy OFF odcisk, `scoring_algorithm_version` i
   `ScoreBreakdown.as_dict` są bajt w bajt jak bez warstwy. Zmiana progu,
   budżetu albo reguły = podbij `prior_screening.VERSION`. Włączenie dopiero po
   pomiarze (`scripts/eval_prior_screening.py`, etap 0: pokrycie wysłanych
-  ≥ 5%) i po zapisie arkuszy z notatek.
+  ≥ 5%, tylko rekrutacje z `opened_at`) i po zapisie arkuszy z notatek.
 - **v10 (07.10.2026, audyt AI Search, `critical-v10`):**
   - Dowód z notatek: z `_notes_insights` liczą się tylko `skills_evidenced`
     i `certifications` (`must_text_evidence._NOTES_INSIGHTS_EVIDENCE_FIELDS`)

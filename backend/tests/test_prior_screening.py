@@ -151,7 +151,7 @@ def test_no_matches_or_only_unknown_polarity_leaves_layer_unscored():
     assert not ps.layer_for(candidate, job).scored
 
 
-def test_deal_breaker_hit_or_no_to_deal_breaker_question_gives_zero_and_badge():
+def test_deal_breaker_needs_this_jobs_condition_and_an_earlier_hit():
     job = _job(
         [
             {"id": "q1", "question": Q_CLOUD, "deal_breaker": "brak chmury"},
@@ -160,13 +160,28 @@ def test_deal_breaker_hit_or_no_to_deal_breaker_question_gives_zero_and_badge():
     )
     candidate = make_candidate(id=1)
     candidate._prior_screening = _material(
-        _answer(Q_CLOUD, "Nie"), _answer(Q_SCRUM, "Tak")
+        _answer(Q_CLOUD, "Nie", hit=True), _answer(Q_SCRUM, "Tak")
     )
     result = ps.evaluate(candidate, job)
     assert result.deal_breaker and result.points == 0
     assert result.status == ps.STATUS_DEAL_BREAKER
+
+
+def test_plain_no_to_a_deal_breaker_question_is_not_a_deal_breaker():
+    # Przegląd #2063: „Czy potrzebujesz sponsorowania wizy?” — „nie” to dobra
+    # odpowiedź; samo „nie” nie może dawać plakietki deal-breaker.
+    job = _job([{"id": "q1", "question": Q_CLOUD, "deal_breaker": "brak chmury"}])
+    candidate = make_candidate(id=1)
+    candidate._prior_screening = _material(_answer(Q_CLOUD, "Nie"))
+    assert not ps.evaluate(candidate, job).deal_breaker
+
+
+def test_earlier_hit_without_a_condition_here_is_not_a_deal_breaker():
+    # Tam warunkiem było 5 lat, tu pytanie nie ma warunku.
+    job = _job([{"id": "q1", "question": Q_SCRUM}])
+    candidate = make_candidate(id=1)
     candidate._prior_screening = _material(_answer(Q_SCRUM, "Tak", hit=True))
-    assert ps.evaluate(candidate, job).deal_breaker
+    assert not ps.evaluate(candidate, job).deal_breaker
 
 
 def test_material_for_another_job_is_ignored():
@@ -285,15 +300,49 @@ async def test_attach_excludes_target_job_and_respects_before_in_query():
     )
     assert "job_id != 10" in sql
     assert "moved_at <" in sql
-    assert "DISTINCT ON" in sql
+    assert "CASE WHEN" in sql
     assert len(candidate._prior_screening.answers) == 1
     assert ps.layer_for(candidate, job).scored
 
 
 @pytest.mark.asyncio
+async def test_newest_sheet_with_only_skipped_answers_does_not_hide_an_older_one():
+    skipped = {
+        "answered_at": JULY.isoformat(),
+        "answers": [
+            {
+                "question_id": "q1",
+                "response": "",
+                "skipped": True,
+                "question_text": Q_CLOUD,
+            }
+        ],
+    }
+    older = {
+        "answered_at": JUNE.isoformat(),
+        "answers": [{"question_id": "q1", "response": "Tak", "question_text": Q_CLOUD}],
+    }
+    db = _FakeDb([(1, 7, skipped, JULY), (1, 7, older, JUNE)])
+    candidate = make_candidate(id=1)
+    job = _job([{"id": "q1", "question": Q_CLOUD}])
+    await ps.attach_prior_screening(db, job, [candidate])
+    assert [a.response for a in candidate._prior_screening.answers] == ["Tak"]
+
+
+@pytest.mark.asyncio
+async def test_job_without_questions_does_not_query():
+    db = _FakeDb([], fail=True)
+    candidate = make_candidate(id=1)
+    await ps.attach_prior_screening(db, _job([]), [candidate])
+    assert db.statements == []
+    assert candidate._prior_screening.answers == ()
+
+
+@pytest.mark.asyncio
 async def test_attach_survives_query_failure():
     candidate = make_candidate(id=1)
-    await ps.attach_prior_screening(_FakeDb([], fail=True), _job([]), [candidate])
+    job = _job([{"id": "q1", "question": Q_CLOUD}])
+    await ps.attach_prior_screening(_FakeDb([], fail=True), job, [candidate])
     assert getattr(candidate, "_prior_screening", None) is None
 
 
@@ -382,7 +431,7 @@ async def test_unscored_layer_keeps_total_and_deal_breaker_lowers_it():
         prior_screening=True,
     )
     assert unscored.total == plain.total
-    candidate._prior_screening = _material(_answer(Q_CLOUD, "Nie"))
+    candidate._prior_screening = _material(_answer(Q_CLOUD, "Nie", hit=True))
     hit = await scoring.score_candidate_job(
         candidate,
         job,

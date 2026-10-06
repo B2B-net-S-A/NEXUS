@@ -6,8 +6,9 @@ technologie), wcześniejsza odpowiedź mówi coś o kandydacie, zanim ktokolwiek
 do niego zadzwoni. Warstwa jest DODATKIEM do kanonicznego fitu:
 
 * materiał — najnowszy wypełniony arkusz kandydata w każdej INNEJ rekrutacji
-  (reguła ``screening_sheets.candidate_conversations``, tu hurtem po
-  ``DISTINCT ON (candidate_id, job_id)``), bez odpowiedzi pominiętych
+  (reguła ``screening_sheets.candidate_conversations``: najnowszy arkusz pary,
+  który daje odpowiedzi — sam z pominięciami nie zasłania starszego), bez
+  odpowiedzi pominiętych
   (``skipped``) i przyjętych z podpowiedzi przepięcia (``reassign_suggested`` —
   to echo wcześniejszej rozmowy, nie nowa wiedza);
 * pytania tej rekrutacji o stawkę, dostępność, lokalizację i tryb pracy są
@@ -17,9 +18,11 @@ do niego zadzwoni. Warstwa jest DODATKIEM do kanonicznego fitu:
   się powiedzieć;
 * punkty ``MAX_POINTS × pos / (pos + neg)``; brak dopasowań albo same ``None``
   = warstwa bez oceny (wynik bez zmian);
-* deal-breaker (``deal_breaker_hit`` na dopasowanej odpowiedzi albo „nie”
-  przy pytaniu z niepustym ``deal_breaker``) = 0 pkt i plakietka. Nigdy nie
-  ukrywa kandydata.
+* deal-breaker = pytanie TEJ rekrutacji ma warunek (``deal_breaker``),
+  a dopasowana wcześniejsza odpowiedź była oceniona jako trafienie
+  (``deal_breaker_hit``) — 0 pkt i plakietka. Samo „nie” nim nie jest (pytania
+  odwrotne: „Czy potrzebujesz wizy?”), cudzy warunek bez naszego też nie.
+  Nigdy nie ukrywa kandydata.
 
 Wyłącznik ``PRIOR_SCREENING_LAYER_ENABLED`` (domyślnie OFF): przy OFF odcisk
 żądania, ``scoring_algorithm_version`` i ``ScoreBreakdown.as_dict`` są bajt
@@ -398,8 +401,11 @@ def evaluate(candidate, job) -> Optional[PriorScreeningResult]:
                 question_id=question["id"],
                 question=question["question"],
                 polarity=sign,
-                deal_breaker=answer.deal_breaker_hit
-                or (question["deal_breaker"] and sign == -1),
+                # Deal-breaker tylko wtedy, gdy TA rekrutacja ma warunek przy
+                # pytaniu, a wcześniejsza odpowiedź była oceniona jako trafienie.
+                # Samo „nie” nim nie jest („Czy potrzebujesz wizy?” — „nie” to
+                # dobra odpowiedź), a cudzy próg (5 lat) nie jest naszym (2 lata).
+                deal_breaker=question["deal_breaker"] and answer.deal_breaker_hit,
                 similarity=score,
                 answered_at=answer.answered_at,
             )
@@ -501,7 +507,7 @@ def _needs_profile(sheet: Any) -> bool:
 async def _load_material(
     db, ids: Sequence[int], target_job_id: Optional[int], before
 ) -> dict[int, list[PriorAnswer]]:
-    from sqlalchemy import func, select
+    from sqlalchemy import case, func, select
 
     from app.models.job import Job
     from app.models.recruitment_pipeline import CandidateStage
@@ -515,13 +521,20 @@ async def _load_material(
             CandidateStage.screening_answers,
             CandidateStage.moved_at,
         )
-        .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
         .where(
             CandidateStage.candidate_id.in_(list(ids)),
             CandidateStage.job_id.isnot(None),
             CandidateStage.screening_answers.isnot(None),
-            func.jsonb_typeof(answers_col) == "array",
-            func.jsonb_array_length(answers_col) > 0,
+            # CASE: Postgres nie gwarantuje kolejności warunków w AND, więc
+            # `jsonb_array_length` na obiekcie wywracałby całe zapytanie.
+            case(
+                (
+                    func.jsonb_typeof(answers_col) == "array",
+                    func.jsonb_array_length(answers_col),
+                ),
+                else_=0,
+            )
+            > 0,
         )
         .order_by(
             CandidateStage.candidate_id,
@@ -546,12 +559,18 @@ async def _load_material(
             )
         ).all():
             texts[job_id] = question_texts(profile)
+    # Najnowszy arkusz pary, który daje odpowiedzi — arkusz z samymi
+    # pominięciami nie zasłania starszego z prawdziwymi odpowiedziami.
     out: dict[int, list[PriorAnswer]] = {}
+    taken: set[tuple[int, int]] = set()
     for candidate_id, job_id, raw, moved_at in rows:
+        if (candidate_id, job_id) in taken:
+            continue
         found = answers_from_sheet(
             job_id, raw, texts.get(job_id, {}), moved_at=moved_at, before=before
         )
         if found:
+            taken.add((candidate_id, job_id))
             out.setdefault(candidate_id, []).extend(found)
     return out
 
@@ -569,6 +588,14 @@ async def attach_prior_screening(
     if db is None or not candidates:
         return
     target_job_id = getattr(job, "id", None)
+    if not current_questions(job):
+        # Rekrutacja bez pytań do porównania (Radar, brak pytań screeningu):
+        # warstwa i tak byłaby bez oceny — pusty materiał bez zapytania.
+        for candidate in candidates:
+            candidate._prior_screening = PriorScreeningMaterial(
+                target_job_id=target_job_id, answers=()
+            )
+        return
     try:
         async with db.begin_nested():
             material = await _load_material(

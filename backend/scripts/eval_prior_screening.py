@@ -3,7 +3,8 @@
 Pytanie: u ilu osób WYSŁANYCH do klienta (``cv_sent`` z
 ``analytics_first_milestones``) była wcześniejsza odpowiedź na to samo pytanie
 screeningowe — z arkusza innej rekrutacji wypełnionego PRZED otwarciem
-rekrutacji docelowej (``COALESCE(opened_at, created_at)``), czyli bez przecieku.
+rekrutacji docelowej (tylko rekrutacje z ``opened_at`` — ``created_at`` z Traffita
+to data importu), czyli bez przecieku.
 No-go, gdy pokrycie < 5%.
 
 Transakcja jest ``READ ONLY`` — skrypt nic nie zapisuje. Wynik: liczby par,
@@ -31,11 +32,12 @@ COVERAGE_NO_GO = 0.05
 
 _SENT_SQL = """
     SELECT m.candidate_id, m.job_id,
-           COALESCE(j.opened_at, j.created_at) AS opened_at,
+           j.opened_at AS opened_at,
            j.champion_profile
     FROM analytics_first_milestones m
     JOIN jobs j ON j.id = m.job_id
     WHERE m.stage::text = 'cv_sent'
+      AND j.opened_at IS NOT NULL
       AND m.first_reached_at > now() - make_interval(months => :months)
     ORDER BY md5(m.candidate_id::text || ':' || m.job_id::text || :seed)
     LIMIT :n
