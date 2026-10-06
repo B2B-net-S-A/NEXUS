@@ -1327,6 +1327,35 @@ async def assign_candidate_to_job(
         now=datetime.now(timezone.utc),
     )
 
+    from app.services import candidate_claim
+
+    from_integration = candidate_claim.is_integration_request(request)
+    if from_integration:
+        # 06.10.2026: integracja wstawia kartę tylko przy dowodzie zgłoszenia
+        # do TEJ rekrutacji; bez niego osoba czeka w „Do przejrzenia”
+        # (`services/integration_intake.py`). Kształt odpowiedzi bez zmian,
+        # `status = "proposed"` i puste `stage_id`.
+        from app.api.proposals_bulk import propose_candidates_for_job
+        from app.services.integration_intake import (
+            candidates_with_application_evidence,
+        )
+
+        applied = await candidates_with_application_evidence(
+            db, job_id=job_id, candidate_ids=[candidate_id]
+        )
+        if candidate_id not in applied:
+            proposal = await propose_candidates_for_job(
+                db, job=job, candidate_ids=[candidate_id], entry_meta=None
+            )
+            await db.commit()
+            return {
+                "status": "proposed" if proposal.proposed else "skipped",
+                "candidate_id": candidate_id,
+                "job_id": job_id,
+                "stage_id": None,
+                "stage_def_id": None,
+            }
+
     # Resolve initial stage from the job's template
     template_id = job.pipeline_template_id
     if not template_id:
@@ -1350,9 +1379,6 @@ async def assign_candidate_to_job(
         except ValueError:
             legacy_enum = PipelineStage.new
 
-    from app.services import candidate_claim
-
-    from_integration = candidate_claim.is_integration_request(request)
     stage = await open_process(
         db,
         candidate_id=candidate_id,

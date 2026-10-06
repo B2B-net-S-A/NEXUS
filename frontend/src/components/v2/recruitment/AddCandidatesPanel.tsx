@@ -38,7 +38,12 @@ import { SIMILAR_TAB_DESCRIPTION, useSimilarJobsTab } from "@/components/v2/jobs
 import { useCapability } from "@/hooks/useCapability";
 import { apiErrorMessage } from "@/lib/api-error";
 import type { MatchEligibility } from "@/lib/api";
-import { OFFICE_DAYS_WARNING, overBudgetLabel } from "@/lib/fit-badges";
+import {
+  OFFICE_DAYS_WARNING,
+  REMOTE_ONLY_BADGE_PL,
+  REMOTE_ONLY_WARNING,
+  overBudgetLabel,
+} from "@/lib/fit-badges";
 import { searchIsRunning } from "@/lib/full-candidate-search-api";
 import type { ManualSearchJob } from "@/lib/job-search-filters";
 import {
@@ -117,6 +122,7 @@ const WARNING_LABEL: Record<string, string> = {
   hm_veto: "Weto HM",
   over_budget: "Ponad budżet",
   [OFFICE_DAYS_WARNING]: "Mniej dni w biurze",
+  [REMOTE_ONLY_WARNING]: REMOTE_ONLY_BADGE_PL,
   rejected_by_same_client: "Odrzucony przez tego klienta",
   employment_only: EMPLOYMENT_ONLY_WARNING_PL,
   city_mismatch: CITY_MISMATCH_WARNING_PL,
@@ -158,6 +164,7 @@ function proposalRow(
     }
     if (
       code === OFFICE_DAYS_WARNING ||
+      code === REMOTE_ONLY_WARNING ||
       code === "rejected_by_same_client" ||
       code === "part_time_only" ||
       code === "full_time_only" ||
@@ -287,13 +294,28 @@ function AddCandidatesPanelOpen({
   const postingsCount = split.postings.length;
   const baseCount = split.base.length;
   const sourcesSettled = proposals.status.settled;
+  // Skrzynka ma kolejne strony (od 07.10.2026 nocny przegląd publikuje każdego
+  // powyżej progu, więc bywa ich kilkaset): wczytana część zaniżyłaby liczbę
+  // na kaflu. Wtedy kafle wracają do liczb serwera (`…/proposal-counts`).
+  const inboxHasMore = proposals.status.inbox.hasMore;
   useEffect(() => {
     if (!sourcesSettled) return;
-    queryClient.setQueryData(jobProposalsKeys.visibleSplit(jobId), {
-      postings: postingsCount,
-      base: baseCount,
-    });
-  }, [queryClient, jobId, sourcesSettled, postingsCount, baseCount]);
+    queryClient.setQueryData(
+      jobProposalsKeys.visibleSplit(jobId),
+      inboxHasMore ? null : { postings: postingsCount, base: baseCount },
+    );
+  }, [queryClient, jobId, sourcesSettled, inboxHasMore, postingsCount, baseCount]);
+
+  // Telemetria otwarcia „Propozycji z bazy” — raz na wejście w zakładkę
+  // (serwer i tak zapisuje najwyżej raz dziennie). Błąd nie ma znaczenia.
+  const openedSent = useRef(false);
+  useEffect(() => {
+    if (tab !== "base" || readOnly || openedSent.current) return;
+    openedSent.current = true;
+    void Promise.resolve()
+      .then(() => jobProposalsApi.opened(jobId))
+      .catch(() => undefined);
+  }, [tab, readOnly, jobId]);
   const listTab: "postings" | "base" | null = tab === "postings" || tab === "base" ? tab : null;
   const listEntries = listTab === "postings" ? split.postings : split.base;
 
@@ -492,11 +514,16 @@ function AddCandidatesPanelOpen({
   }, [tab]);
 
   const similarTotal = similarPeopleTotal(similarJobs.data);
-  const more = proposals.status.inbox.hasMore ? "+" : "";
+  // Gdy skrzynka ma kolejne strony, liczba z serwera mówi, ile osób naprawdę
+  // czeka; bez niej wczytana część z „+”.
+  const listCount = (loaded: number, server: number | undefined): string =>
+    !inboxHasMore ? String(loaded) : server != null ? String(Math.max(loaded, server)) : `${loaded}+`;
   const tabCount: Record<CandidateSourceTab, string | null> = {
     similar: similarTotal ? String(similarTotal.total) : null,
-    postings: proposals.status.settled ? `${split.postings.length}${more}` : null,
-    base: proposals.status.settled ? `${split.base.length}${more}` : null,
+    postings: proposals.status.settled
+      ? listCount(split.postings.length, counts.data?.postings_recent)
+      : null,
+    base: proposals.status.settled ? listCount(split.base.length, counts.data?.base) : null,
     search: searchTab.total != null ? String(searchTab.total) : null,
   };
 

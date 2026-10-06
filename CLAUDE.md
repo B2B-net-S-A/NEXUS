@@ -2367,13 +2367,26 @@ Decyzje Artura 29.09.2026 — historia kandydata ma być tym, co napisali ludzie
   weto HM — w `skipped`), potem propozycja `job_board` w „Do przejrzenia”
   (wynik = `score`, `evidence.auto_match` + `matched_must`, `cv_revision` =
   `candidate_revision`). Odpowiedź: `added=[]` + nowe `proposed`/`total_proposed`;
-  runner JJIT liczy `proposed` jako dopasowanie. Integracja BEZ `auto_match`
-  (zgłoszenia z pracuj.pl do konkretnej rekrutacji) i człowiek dodają kartę jak
-  dotąd. Front: etykieta „Z portalu (JJIT/RocketJobs)”. Stare karty przenosi
+  runner JJIT liczy `proposed` jako dopasowanie. **Integracja BEZ `auto_match`
+  też nie zakłada karty (06.10.2026)** — `proposals/bulk`, `assign-to-job`
+  i `/move` dla nowej osoby dają propozycję `job_board` bez wyniku, chyba że
+  jest dowód zgłoszenia do TEJ rekrutacji (`services/integration_intake.py`:
+  `application_submissions` z `matched_candidate_id`, źródło `posting` z tym
+  `job_id`, notatka `application_form` z tym `job_id`); `/move` odpowiada wtedy
+  202, a `/bulk-move` takiej osoby nie przyjmuje (422). Scraper wysyła źródło
+  i notatkę formularza BEZ `job_id`, więc dziś każde jego dodanie bez
+  `auto_match` (także zgłoszenia z pracuj.pl do konkretnej rekrutacji) jest
+  propozycją — kartę daje dopiero dowód z `job_id`. Człowiek dodaje kartę
+  jak dotąd. Front: etykieta „Z portalu (JJIT/RocketJobs)”. Stare karty przenosi
   jednorazowo `POST /api/admin/proposals/convert-integration-cards?dry_run=true`
   (admin; próba oddaje liczby per rekrutacja, `blocked_by` per powód i ≤ 20
-  przykładów z samymi ID) → `dry_run=false` (w tle, wymaga próby z 7 dni;
-  `GET …/status`). Bierze WYŁĄCZNIE nietknięte karty: rekrutacja opublikowana
+  przykładów z samymi ID) → `dry_run=false&expected=N` (w tle; wymaga próby
+  z 7 dni zrobionej PO ostatnim deployu i `expected` = liczbie par teraz;
+  `GET …/status`). `mode=delete` (06.10.2026) — ta sama reguła dla kart na
+  rekrutacjach ZAMKNIĘTYCH (z Traffita i z NEXUSA): karta znika drogą „Usuń
+  z rekrutacji” (`reason=job_board_closed_job_cleanup`), bez propozycji,
+  osobne klucze stanu i odwrócenia (`…closed_cleanup_2026_10`). Propozycja
+  z przeniesionej karty ma `first_seen_at` = data otwarcia procesu. Bierze WYŁĄCZNIE nietknięte karty: rekrutacja opublikowana
   spoza Traffita, jeden otwarty proces `auto_match` z plakietką integracji
   (`source` ≠ `nexus`), jeden wiersz etapu `posting` bez screeningu/scorecardu,
   bez notatek z tą rekrutacją, `application_screenings` i `screening_notes`,
@@ -2421,6 +2434,34 @@ Decyzje Artura 29.09.2026 — historia kandydata ma być tym, co napisali ludzie
   Licznik zakładki = notatki ludzi. Oś czasu nie pokazuje `traffit:Email`,
   `traffit:Reply`, `traffit:Rozmowa telefoniczna`, `traffit:Spotkanie` —
   promocja robi z nich notatki. Reguły listy: `lib/candidate-notes-view.ts`.
+
+## Dane po scraperze — narzędzia naprawy (06.10.2026)
+
+Audyt `docs/audits/2026-10-06/rekrutacja-przekazanie-i-wyszukiwanie.md` (D4, D5).
+Oba narzędzia: admin, próba `dry_run=true` niczego nie zmienia (liczby + przykłady
+z samymi ID), zapis wymaga `expected=` = liczbie z próby (409 przy rozjeździe
+i przy pustym planie), paragon = liczby i ID, kwoty pod `repair_details_…`.
+
+- **Karty scrapera** — `POST /api/admin/proposals/convert-integration-cards`
+  (`mode=convert|delete`, sekcja „Notatki: przypięcie…” wyżej). Wynik w notatce
+  automatu bywa HTML-em (`score:&nbsp;71`) — wzorzec SQL go łapie.
+- **Stawki od scrapera** — `POST /api/admin/candidates/scraper-rates/revert`
+  (`services/scraper_rate_revert.py`). Bierze zapisy `profile_rate_changed`
+  ze źródłem `manual` od użytkowników serwisowych klientów OAuth, tylko gdy
+  wersja stawki profilu nadal jest wersją z zapisu scrapera (człowiek później =
+  zostaje). Przywraca stawkę sprzed scrapera z datą POPRZEDNIEJ stawki
+  (`write_profile_rate(rate_updated_at=…)`), zdejmuje `_manual_override_rate`
+  (chyba że wcześniej pisał człowiek), wyłącza każdy zapis scrapera z „Stawki
+  od” (`candidate_rate_decisions`, klucz `profile:{activity_id}`). Stawka
+  sprzed scrapera w walucie innej niż PLN zostaje (`non_pln_previous`), zapis
+  idzie paczkami po 200 z commitem i paragonem na paczkę. Wpis w
+  dzienniku: `profile_rate_scraper_reverted`. Nocny odczyt notatek wycina linię
+  „szacunek stawki B2B …” (`notes_insights_extractor.strip_scraper_rate_estimate`).
+- **Runy integracji wiszące w `running` > 6 h** zamyka pętla alertów zastoju
+  (`integration_runs.close_stuck_runs` → `failed`).
+- **Job JJIT w NEXUSIE (`services/integrations/jjit/`, dziś `dry_run`)** nie ma
+  sita `check-duplicates` ani ponowień przy 503, które ma scraper na Macu —
+  przed przełączeniem go na zapis trzeba je dołożyć.
 
 ## Rodzaj notatki — co czyta AI, wyszukiwanie i rekruter (0412, 03.10.2026)
 
@@ -2517,10 +2558,41 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
   Zmieniasz regułę — porównaj starą i nową wersję na produkcji (tylko
   odczyt): dwie poprawki z przeglądu kodu pogorszyły odczyt prawdziwych kart,
   zanim zostały zawężone. Zmiana znaczenia = podbij `PARSER_VERSION`
-  (wchodzi do odcisku, więc karty przeliczą się same).
-- **Odpowiedzi z notatek NIE trafiają do arkusza screeningu** — arkusz
-  zmienia punktację, wymagania ruchu i wychodzi do klienta. Karta tylko je
-  pokazuje.
+  (wchodzi do odcisku, więc karty przeliczą się same). v2 (07.10.2026):
+  krótka odpowiedź po „? ” w wierszu pytania („tak/nie…”, liczba, mała
+  litera; tylko bez wiersza odpowiedzi pod spodem), pytania zawinięte na 2–3
+  wiersze (dalszy ciąg małą literą, początek wygląda na pytanie), „Stawka:
+  160/115” (pierwsza wyższa, ukośnik) = kandydat 115. Lista numerowana staje
+  się pytaniami jak w v1 — tylko z odpowiedzią w osobnym wierszu.
+- **Odpowiedzi z notatek trafiają do arkusza screeningu (decyzje Artura
+  07.10.2026 — do tej daty reguła brzmiała „nie trafiają”).** Jedyne miejsce
+  zapisu: `services/screening_note_sync.py` (strażnik
+  `test_screening_note_sync_guard.py`), wyłącznik `SCREENING_NOTE_SYNC_ENABLED`
+  (domyślnie OFF). Odpowiedź z notatki ma pochodzenie `note_sync`; taki arkusz
+  **od razu widzi klient** (`client_safe_screening` go nie odfiltrowuje)
+  i **liczy się w ocenie pary** jak arkusz człowieka — zapis oznacza wyniki
+  kandydata jako stare. Arkusz „należy do automatu” wyłącznie, gdy wszystkie
+  odpowiedzi to `note_sync` bez trafienia „Odpada, gdy…”, a
+  `experience_checks`/`notes`/`internal_note` są puste i `overall_fit ==
+  "uncertain"`; każdy inny niepusty arkusz jest ludzki i automat go nie
+  dotyka (także kopii na innych wierszach pary). Zapis człowieka (arkusz,
+  okno karty, trafienie „Odpada, gdy…”) zamienia `note_sync` na
+  `note_import`. Przypięcie do pytań (`map_note_answers`, rapidfuzz): po
+  treści ≥ 0,5 z przewagą ≥ 0,1, jeden do jednego, a słowa jednego pytania
+  mieszczą się w drugim („AWS” ≠ „Azure”, choć podobieństwo 0,90); po numerze
+  tylko odpowiedź bez treści pytania, przy komplecie odpowiedzi i numeracji
+  zgodnej z dopasowaniami po treści; szara strefa 0,3–0,5, treść niepasująca
+  do żadnego pytania i konflikty pomijane. Arkusz idzie na najnowszy wiersz pary
+  (blokada wierszy pary), kopie automatu na starszych wierszach bieżącej próby
+  dostają tę samą treść albo `NULL`; notatka sprzed bieżącej próby nie zasila
+  arkusza. `answered_at`/`answered_by` = data i autor notatki; zamiast
+  `Activity screening_answered` (liczą ją statystyki zespołu) zapis zostawia
+  `screening_synced_from_note`. Przelicza się przy zmianie karty
+  (`recommendation_card_import.refresh_candidate`, `repair_orphans`); historię
+  uzupełnia admin: `POST /api/admin/screening-note-backfill?dry_run=true` →
+  raport → `dry_run=false&expected=<to_change>` (próba z 7 dni; paragon
+  `screening_note_backfill_2026_10`, dane do odwrócenia
+  `repair_details_screening_note_backfill_2026_10`).
 - **Import karty nie pisze do profilu kandydata.** Fakty profilu (stawka,
   dostępność, tryb pracy) dalej wypełnia nocny odczyt notatek i „Zapisz
   w profilu”.
@@ -4494,6 +4566,27 @@ wysłał do klienta, budżet — 32%, dni w biurze — 8%. Decyzje Artura 30.09.
   rekrutacji): wybór DL, a bez niego podpowiedź z historii — niezależnie od
   `MUST_GATE_MODE`. Podpowiedź przelicza się co tydzień, więc werdykt QC
   rekrutacji bez wyboru DL może się zmienić bez zmiany CV; okno QC nazywa źródło.
+- **v10 (07.10.2026, audyt AI Search, `critical-v10`):**
+  - Dowód z notatek: z `_notes_insights` liczą się tylko `skills_evidenced`
+    i `certifications` (`must_text_evidence._NOTES_INSIGHTS_EVIDENCE_FIELDS`)
+    — braki („nie zna Kafki”) i weta dawały 1 791 fałszywych trafień. W karcie
+    rekomendacji (`card`, `screening_facts`) pytanie z przeczącą odpowiedzią
+    znika razem z odpowiedzią (`evidence_note_text`, słownik
+    `_NEGATIVE_ANSWER_RE`; „podstawy”, „słabo” to wciąż znajomość). Ten sam
+    tekst czytają statystyki podpowiedzi (`critical_skills.compute_stats`).
+  - „Tylko zdalnie” z notatek ukrywa wyłącznie przy pracy stacjonarnej, od
+    4 dni w biurze albo przy jawnym `exclude_remote_only`
+    (`DealbreakerInputs.remote_only_hides`); przy hybrydzie wiersz niesie
+    plakietkę `remote_fit = "prefers_remote"` („Preferuje pracę zdalną”) —
+    76% osób z tą flagą zweryfikowanych do biura zespół wysłał do klienta.
+  - Podpowiedź krytycznych tylko z tytułu albo z pierwszych 3 pozycji listy
+    must, która ma najwyżej 8 pozycji (`SUGGEST_MAX_POSITION`,
+    `SUGGEST_MAX_LIST`); ukryci zweryfikowani 7,1% → 2,7%. Dotyczy też QC CV.
+  - Dopasowanie nazw: krótkie formy ze znakiem (`C#`, `F#`, `C++`) bez
+    rozróżniania wielkości liter; implikacje `skill_normalize.IMPLIED_BY`
+    (rodzina SQL ⇒ SQL, PlantUML ⇒ UML — jednokierunkowe, NIE alias); „rest
+    of”, „the rest”, „at rest” to nie REST API (`_patterns`,
+    `is_technology_mention`).
 
 ## Hiring manager rekrutacji: lista albo nowa osoba (25.09.2026)
 
@@ -8649,13 +8742,30 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   odczyt też porównuje odcisk tym profilem — osobisty profil oglądającego nie
   daje 409.
 - **A. Publikacja:** w transakcji kończącej przegląd, w savepoincie
-  (`publish_on_finish`, nigdy nie rzuca): top `AUTO_FULL_REVIEW_TOP_K` (60)
-  wierszy `eligible ∧ measured ∧ fit_score ≥ AUTO_FULL_REVIEW_MIN_SCORE`
+  (`publish_on_finish`, nigdy nie rzuca): WSZYSTKIE wiersze
+  `eligible ∧ measured ∧ fit_score ≥ AUTO_FULL_REVIEW_MIN_SCORE`
   (osobny próg — przegląd punktuje kanonicznym fitem, auto-match starszym
   scoringiem), które
   przechodzą `is_good_match` → `upsert_proposals(source="full_base")` z wersją
   CV i dowodami przez `sanitize_evidence` (same nazwy wymagań). Znacznik
   `metrics.auto_proposals`; `reconcile_unpublished` domyka przeglądy bez niego.
+- **A. Bez limitu, `expired`, `added` tylko z człowieka (0422, decyzja Artura
+  07.10.2026).** Limitu 60 nie ma (`AUTO_FULL_REVIEW_TOP_K` nieczytane, zostaje
+  dla skryptów audytów); publikacja idzie paczkami (`_PUBLISH_PAGE`). Po
+  kompletnym przeglądzie (bez niepełnego pokrycia — także zaakceptowanego),
+  który jest najnowszym przeglądem rekrutacji z wynikami (`_newest_result_run`,
+  także w `reconcile_unpublished`), otwarte `full_base` z innym `run_id`
+  dostają `expired` (`job_proposals.expire_full_base`); powrót osoby w kolejnym
+  przeglądzie = `proposed`. Wierszy NIE kasujemy (`request_allocation` czyta
+  istnienie `full_base`); po 30 dniach `queue_retention` czyści im `evidence`.
+  `expired` nie głosuje w statusie pary (`_live()` w każdym liczniku i liście).
+  `added` stawia wyłącznie dodanie przez człowieka
+  (`add_candidates_to_job(mark_proposals=True)` — trasa bez tokenu integracji
+  i przepięcie); karta z integracji i automat propozycji nie zamykają.
+  Otwarcie zakładki „Propozycje z bazy” zapisuje `POST …/proposal-inbox/opened`
+  (`Activity proposal_inbox_opened`, raz na osobę/rekrutację/dzień), a
+  „Czeka na Ciebie” rekrutera ma blok `flow.top_proposals` (3 najlepsze na
+  rekrutację, `job_proposals.top_open_by_job`).
 - **B. `AUTO_MATCH_MODE = dry_run | propose | add`** (`auto_match_outbox.auto_match_mode`
   — JEDNO miejsce; puste = `propose`, literówka = `dry_run`). W `propose`
   dobry wynik daje decyzję `proposed` w dzienniku i wiersz `job_proposals`

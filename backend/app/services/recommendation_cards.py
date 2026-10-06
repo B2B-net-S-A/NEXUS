@@ -7,8 +7,10 @@ Karta to PROJEKCJA notatek rekrutera plus pola wpisane w NEXUSIE:
   wygrywa pole po polu; każde pole pamięta notatkę-źródło i jej datę.
 * ``fields_manual`` — wpisane w NEXUSIE. Zawsze wygrywają z notatką.
 * ``note_answers`` — pytania i odpowiedzi z najnowszej notatki, która je ma.
-  Tylko do odczytu: NIE trafiają do arkusza screeningu (arkusz zmienia
-  punktację i wychodzi do klienta).
+  Od 07.10.2026 (decyzje Artura, zmiana reguły 0413) ``screening_note_sync``
+  przepisuje je do arkusza screeningu pary z pochodzeniem ``note_sync`` —
+  arkusz widzi klient i liczy się w ocenie. Arkusza wypełnionego przez
+  człowieka automat nie dotyka.
 
 Czego ten moduł świadomie nie robi:
 

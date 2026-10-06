@@ -82,7 +82,7 @@ def stamp_sheet(
     *,
     questions: Mapping[str, str],
     previous: Any,
-    user_id: int,
+    user_id: Optional[int],
     now: datetime,
 ) -> ScreeningAnswers:
     """Stempel serwera przed zapisem: tekst pytań oraz kto i kiedy.
@@ -94,7 +94,9 @@ def stamp_sheet(
       po ruchu karty) zostawia pierwotne „kto i kiedy”.
 
     ``question_text`` z żądania jest ignorowane. ``previous`` to arkusz pary
-    sprzed zapisu (surowy JSONB) albo ``None``.
+    sprzed zapisu (surowy JSONB) albo ``None``. ``user_id`` bywa ``None``:
+    arkusz z notatki (``screening_note_sync``) ma autora notatki, a notatka
+    z Traffita bywa bez autora.
     """
 
     old = _parsed(previous)

@@ -4494,6 +4494,7 @@ _HIDDEN_TIMELINE_ACTIONS = (
     # timeline feed is served to non-finance roles without redaction (P1-11).
     candidate_audit.CLIENT_RATE_CHANGED,
     candidate_audit.PROFILE_RATE_CHANGED,
+    candidate_audit.PROFILE_RATE_SCRAPER_REVERTED,
 )
 
 

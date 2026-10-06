@@ -8,6 +8,7 @@ from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy import exists, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -260,6 +261,48 @@ def _fresh_pair_entry_kwargs(user: User, request: Optional[Request]) -> dict:
         "entry_source": candidate_claim.ENTRY_ADDED_MANUAL,
         "claim_for_user_id": user.id,
     }
+
+
+INTEGRATION_PROPOSED = (
+    "Osoba czeka w „Do przejrzenia” tej rekrutacji — integracja dodaje na "
+    "Tablicę tylko osoby, które zgłosiły się do tej rekrutacji."
+)
+
+
+async def _integration_fresh_pair_proposal(
+    db: AsyncSession, request: Optional[Request], *, job: Job, candidate_id: int
+) -> Optional[JSONResponse]:
+    """Integracja dodaje NOWĄ osobę ruchem ``/move`` → propozycja (06.10.2026).
+
+    Bez dowodu zgłoszenia do tej rekrutacji (``integration_intake``) karta nie
+    powstaje; osoba trafia do „Do przejrzenia” jako propozycja ``job_board``.
+    Odpowiedź 202 (nie kształt etapu — etapu nie ma). ``None`` = dodaj jak
+    dotąd (człowiek albo osoba ze zgłoszeniem).
+    """
+    if not candidate_claim.is_integration_request(request):
+        return None
+    from app.api.proposals_bulk import propose_candidates_for_job
+    from app.services.integration_intake import candidates_with_application_evidence
+
+    applied = await candidates_with_application_evidence(
+        db, job_id=job.id, candidate_ids=[candidate_id]
+    )
+    if candidate_id in applied:
+        return None
+    proposal = await propose_candidates_for_job(
+        db, job=job, candidate_ids=[candidate_id], entry_meta=None
+    )
+    await db.commit()
+    return JSONResponse(
+        status_code=202,
+        content={
+            "status": "proposed" if proposal.proposed else "skipped",
+            "candidate_id": candidate_id,
+            "job_id": job.id,
+            "proposed": proposal.proposed,
+            "detail": INTEGRATION_PROPOSED,
+        },
+    )
 
 
 def _assert_fresh_pair_entry(
@@ -1027,6 +1070,11 @@ async def move_candidate(
             job=job,
             now=datetime.now(timezone.utc),
         )
+        proposed = await _integration_fresh_pair_proposal(
+            db, request, job=job, candidate_id=data.candidate_id
+        )
+        if proposed is not None:
+            return proposed
 
     # Rekrutacja v5 (0361): QC CV przed „CV wysłane”/Cpro. Tu, przed
     # pierwszym zapisem ruchu — odmowa zapisuje przebieg QC i nic więcej.
@@ -3118,6 +3166,11 @@ async def submit_stage_screening(
         # z najnowszym wypełnionym arkuszem tej pary.
         previous, _ = await _latest_filled_screening(db, stage)
     job = await db.scalar(select(Job).where(Job.id == stage.job_id))
+    # Zapis człowieka przejmuje arkusz z notatki (07.10.2026): odpowiedzi
+    # `note_sync` stają się `note_import`, więc automat już ich nie poprawi.
+    from app.services.screening_note_sync import humanize_origins
+
+    humanize_origins(answers)
     screening_sheets.stamp_sheet(
         answers,
         questions=screening_sheets.question_texts(
@@ -3707,6 +3760,27 @@ async def bulk_move_candidates(
                 status_code=exc.status_code,
                 detail=f"{exc.detail} (kandydaci: {fresh_ids[:20]})",
             ) from None
+        if candidate_claim.is_integration_request(request):
+            # 06.10.2026: integracja nie wstawia nowych osób paczką bez dowodu
+            # zgłoszenia do tej rekrutacji — propozycje idą przez
+            # `proposals/bulk` (pojedynczy `/move` zakłada je sam).
+            from app.services.integration_intake import (
+                candidates_with_application_evidence,
+            )
+
+            applied = await candidates_with_application_evidence(
+                db, job_id=job.id, candidate_ids=fresh_ids
+            )
+            unproven = [cid for cid in fresh_ids if cid not in applied]
+            if unproven:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Integracja dodaje nowe osoby przez „Do przejrzenia” "
+                        "(POST /api/jobs/{id}/proposals/bulk) — bez zgłoszenia "
+                        f"do tej rekrutacji (kandydaci: {unproven[:20]})."
+                    ),
+                )
 
     # Pipeline v4: „CV wysłane" poza Nordeą — DL + stawka (jak pojedynczy /move).
     # Runda 9 (R9-N11-6): tylko dla osób, które do klienta dopiero idą — cofnięcie

@@ -90,6 +90,8 @@ export const CARD_PHRASABLE_FIELDS: ReadonlySet<string> = new Set([
 export function answerOriginBadge(origin: string | null | undefined): string | null {
   if (origin === "phrased") return "zdanie z haseł";
   if (origin === "note_import") return "z notatki";
+  // Automat przepisał odpowiedź z notatki (karty z Traffita, 07.10.2026).
+  if (origin === "note_sync") return "z notatki (Traffit)";
   if (origin === "reassign_suggested") return "z podpowiedzi Luny";
   return null;
 }

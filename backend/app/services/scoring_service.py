@@ -279,10 +279,10 @@ def scoring_algorithm_version() -> str:
     payload["skill_evidence_contract"] = "2026-09-08-source-union-modality"
     payload["requirement_contract"] = "2026-09-09-and-of-or"
     payload["budget_contract"] = "2026-09-09-explicit-budget-currency"
-    payload["skill_canon_contract"] = "2026-09-22-significant-signs"
+    payload["skill_canon_contract"] = "2026-10-07-implied-by"
     payload["location_contract"] = "2026-09-27-place-dictionary"
-    payload["alias_mention_contract"] = "2026-09-25-polish-short-aliases"
-    payload["skill_text_evidence"] = "2026-09-30-anywhere-tech-denominator"
+    payload["alias_mention_contract"] = "2026-10-07-rest-plain-word"
+    payload["skill_text_evidence"] = "2026-10-07-no-gaps-no-negated-answers"
     # „Stawka od” (0414): stawka kandydata = najniższa z 18 miesięcy.
     from app.services.candidate_rate_from import enabled as _rate_from_enabled
 
@@ -651,6 +651,20 @@ def skill_name_variants(raw) -> List[str]:
 POLISH_WORD_ALIASES = frozenset({"jest", "go"})
 
 
+# „rest” jako zwykłe angielskie słowo: „the rest of the team”, „data at rest”,
+# „Rest of World”. Bez tego alias REST API dawał ok. 390 fałszywych trafień
+# w CV (pomiar 07.10.2026).
+_REST_BEFORE_RE = re.compile(r"(?:\bthe|\bat)\s+$", re.I)
+_REST_AFTER_RE = re.compile(r"^\s+of\b", re.I)
+
+
+def _rest_is_plain_word(text: str, start: int, end: int) -> bool:
+    return bool(
+        _REST_BEFORE_RE.search(text[max(0, start - 6) : start])
+        or _REST_AFTER_RE.match(text[end : end + 6])
+    )
+
+
 def is_technology_mention(text: str, match: re.Match) -> bool:
     """Czy trafienie wzorca taksonomii to naprawdę technologia w polskim tekście.
 
@@ -666,6 +680,8 @@ def is_technology_mention(text: str, match: re.Match) -> bool:
     """
     found = match.group(1)
     lowered = found.lower()
+    if lowered == "rest" and _rest_is_plain_word(text, *match.span(1)):
+        return False
     if len(found) > 2 and lowered not in POLISH_WORD_ALIASES:
         return True
     start, end = match.span(1)
@@ -1136,8 +1152,11 @@ def skill_present(required: str, candidate_skills) -> bool:
         )
     if required in candidate_skills:
         return True
-    req_canon = _canon_skill(required)
-    return any(_canon_skill(c) == req_canon for c in candidate_skills)
+    from app.services.skill_normalize import implied_forms
+
+    wanted = {_canon_skill(required)}
+    wanted.update(_canon_skill(form) for form in implied_forms(required))
+    return any(_canon_skill(c) in wanted for c in candidate_skills)
 
 
 def _skill_recency_weights(

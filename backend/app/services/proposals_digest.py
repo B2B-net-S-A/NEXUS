@@ -21,7 +21,7 @@ from datetime import datetime
 from typing import Iterable, Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -104,25 +104,33 @@ def plan_digests(rows: Iterable[PendingJob]) -> dict[int, DigestPlan]:
 
 
 async def _pending_jobs(db: AsyncSession) -> list[PendingJob]:
+    """Ile osób czeka w skrzynce — ta sama reguła co lista i licznik skrzynki.
+
+    ``open_counts_for_jobs``: status PARY ``proposed`` (pominięta albo dodana
+    para się nie liczy, wygasłe wiersze też nie), bez osób już w pipeline'ie
+    i z globalnej czarnej listy. Do 07.10.2026 skrót liczył surowe wiersze
+    ``proposed`` — od publikacji bez limitu urósłby o osoby, których lista
+    nie pokazuje.
+    """
+    from app.services.job_proposals import open_counts_for_jobs  # noqa: PLC0415
     from app.services.job_working_title import job_display_title_expr  # noqa: PLC0415
 
-    pending = func.count(func.distinct(JobProposal.candidate_id))
-    rows = (
+    jobs = (
         await db.execute(
-            select(Job.id, job_display_title_expr(), Job.delivery_lead_id, pending)
-            .join(JobProposal, JobProposal.job_id == Job.id)
-            .where(
+            select(Job.id, job_display_title_expr(), Job.delivery_lead_id).where(
                 Job.status == JobStatus.published,
                 Job.work_state.in_(IN_WORK_STATES),
                 Job.delivery_lead_id.is_not(None),
-                JobProposal.status == "proposed",
+                exists().where(
+                    JobProposal.job_id == Job.id, JobProposal.status == "proposed"
+                ),
             )
-            .group_by(Job.id, job_display_title_expr(), Job.delivery_lead_id)
         )
     ).all()
+    counts = await open_counts_for_jobs(db, [int(jid) for jid, _t, _dl in jobs])
     return [
-        PendingJob(int(jid), str(title or f"#{jid}"), int(dl), int(n))
-        for jid, title, dl, n in rows
+        PendingJob(int(jid), str(title or f"#{jid}"), int(dl), counts.get(int(jid), 0))
+        for jid, title, dl in jobs
     ]
 
 

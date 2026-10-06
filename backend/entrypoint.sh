@@ -934,10 +934,13 @@ try:
     _JOB_PROPOSAL_FEEDBACK_COLUMNS = list(_proposal_feedback.COLUMN_DDL)
     # Źródło (`ck_job_proposals_source`) stoi niżej literalnie; stąd tylko powód.
     _JOB_PROPOSAL_FEEDBACK_CONSTRAINTS = list(_proposal_feedback.CONSTRAINT_DDL[1:])
+    # 0422: status `expired` (propozycja, której nowszy przegląd nie zaproponował).
+    _JOB_PROPOSAL_STATUS_CONSTRAINTS = list(_proposal_feedback.STATUS_CONSTRAINT_DDL)
 except Exception as _proposal_feedback_err:  # noqa: BLE001
     print(f"job proposal feedback DDL unavailable: {_proposal_feedback_err!r}")
     _JOB_PROPOSAL_FEEDBACK_COLUMNS = []
     _JOB_PROPOSAL_FEEDBACK_CONSTRAINTS = []
+    _JOB_PROPOSAL_STATUS_CONSTRAINTS = []
 
 _COLUMN_STATEMENTS = [
     *_KEYWORD_CORPUS_DDL,
@@ -5380,7 +5383,7 @@ END $$""",
             source IN ('full_base', 'new_cv', 'similar_projects',
                        'recommendation', 'marketplace', 'reassign')),
         CONSTRAINT ck_job_proposals_status CHECK (
-            status IN ('proposed', 'dismissed', 'added')),
+            status IN ('proposed', 'dismissed', 'added', 'expired')),
         -- 0405: powód „Pomiń” (kolejny DO-blok niżej trzyma tę samą regułę).
         CONSTRAINT ck_job_proposals_dismiss_reason CHECK (
             dismiss_reason IS NULL OR dismiss_reason IN (
@@ -7997,6 +8000,8 @@ _CONSTRAINT_STATEMENTS = [
     # 0405: powód „Pomiń” — JEDNO źródło z migracją
     # (`app/services/job_proposal_feedback_schema.py`).
     *_JOB_PROPOSAL_FEEDBACK_CONSTRAINTS,
+    # 0422: status `expired` — JEDNO źródło z migracją (ten sam moduł).
+    *_JOB_PROPOSAL_STATUS_CONSTRAINTS,
     """DO $$ BEGIN
         ALTER TABLE candidates ADD CONSTRAINT ck_candidates_b2b_willingness
             CHECK (b2b_willingness IS NULL OR b2b_willingness IN ('b2b', 'would_switch', 'employment_only')) NOT VALID;
@@ -9681,6 +9686,36 @@ async def repair():
             await db.rollback()
             raise
     print(f"notification backlog repair: {summary or 'already done'}")
+
+asyncio.run(repair())
+PY
+
+# Propozycje z bazy (07.10.2026) — jednorazowo: `added` stawia już wyłącznie
+# dodanie przez człowieka, więc propozycje oznaczone jako dodane przez kartę
+# z integracji (każdy proces pary z `entry_source='auto_match'`) wracają do
+# `proposed`. Warunek SQL, nie lista ID; logika w
+# `app/services/proposal_added_repair.py`, marker w `app_settings` + advisory
+# lock. Log: same liczby.
+startup_phase "repair-proposals-added-by-integration"
+echo "Proposals: one-shot revert of 'added' set by integration cards..."
+python - <<'PY' || echo "proposal added repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.proposal_added_repair import run_proposal_added_repair
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_proposal_added_repair(db)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+    if summary is None:
+        print("proposal added repair: already done")
+    else:
+        print(f"proposal added repair: pairs={summary['pairs']} rows={summary['rows']}")
 
 asyncio.run(repair())
 PY

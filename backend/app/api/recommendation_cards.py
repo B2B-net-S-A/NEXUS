@@ -38,6 +38,7 @@ from app.models.user import User
 from app.services import candidate_claim, champion_view, screening_sheets
 from app.services import recommendation_cards as cards
 from app.services.recommendation_card_assist import phrase_language
+from app.services.screening_note_sync import humanize_origins
 
 logger = logging.getLogger(__name__)
 
@@ -443,10 +444,11 @@ async def mark_recommendation_card_deal_breaker(
             raise HTTPException(
                 status_code=422, detail="Arkusz screeningu ma już komplet odpowiedzi."
             )
-        # Odpowiedzi z notatek NIE trafiają do arkusza (reguła 0413: arkusz
-        # zmienia punktację i wymagania ruchu). Bez arkusza pary nie ma gdzie
-        # zapisać trafienia — pusta pozycja zaliczałaby wymóg „Arkusz
-        # screeningu” przy ruchu na „Zweryfikowany”.
+        # Arkusz pary to arkusz człowieka albo — od 07.10.2026 — odpowiedzi
+        # przepisane z notatki przez automat (`screening_note_sync`, pochodzenie
+        # `note_sync`). Bez żadnego arkusza nie ma gdzie zapisać trafienia —
+        # pusta pozycja zaliczałaby wymóg „Arkusz screeningu” przy ruchu na
+        # „Zweryfikowany”.
         if previous is None:
             raise HTTPException(
                 status_code=409,
@@ -463,6 +465,9 @@ async def mark_recommendation_card_deal_breaker(
         changed = answer.deal_breaker_hit != data.hit
         answer.deal_breaker_hit = data.hit
     if changed:
+        # Trafienie zaznacza człowiek — arkusz z notatki przechodzi na niego
+        # (`note_sync` → `note_import`), automat już go nie poprawi.
+        humanize_origins(sheet)
         screening_sheets.stamp_sheet(
             sheet,
             questions=questions,

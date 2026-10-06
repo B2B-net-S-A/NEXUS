@@ -858,8 +858,14 @@ class ScreeningAnswerItem(BaseModel):
     # Skąd odpowiedź (Pipeline v4, 23.09.2026): `reassign_suggested` = rekruter
     # przyjął podpowiedź Luny z poprzedniej rekrutacji (przepięcie). Od 0421:
     # `note_import` = przyjęta z notatki wgranej/wklejonej w oknie karty,
-    # `phrased` = zdanie ułożone z haseł rekrutera („Ułóż w zdanie”).
-    origin: Literal["manual", "reassign_suggested", "note_import", "phrased"] = "manual"
+    # `phrased` = zdanie ułożone z haseł rekrutera („Ułóż w zdanie”). Od
+    # 07.10.2026: `note_sync` = automat przepisał odpowiedź z notatki (karty
+    # rekomendacji z Traffita, `screening_note_sync`). Arkusz z samych
+    # `note_sync` należy do automatu; zapis człowieka zamienia je na
+    # `note_import`.
+    origin: Literal[
+        "manual", "reassign_suggested", "note_import", "phrased", "note_sync"
+    ] = "manual"
     # Hasła rekrutera, z których powstało zdanie (`phrased`) albo fragment
     # notatki (`note_import`). Wewnętrzne — poza białą listą dla klienta.
     keywords: Optional[str] = Field(default=None, max_length=SCREENING_TEXT_MAX_CHARS)

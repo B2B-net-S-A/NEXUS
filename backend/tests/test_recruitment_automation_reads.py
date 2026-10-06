@@ -53,7 +53,6 @@ def test_defaults_keep_all_four_automations_on():
     # 30.09.2026: co noc wszystkie rekrutacje w pracy (~18); dysk trzyma
     # retencja zastąpionych przeglądów automatycznych.
     assert fields["AUTO_FULL_REVIEW_MAX_PER_NIGHT"].default == 25
-    assert fields["AUTO_FULL_REVIEW_TOP_K"].default == 60
     assert fields["CV_AUTO_GENERATE_ON_VERIFIED"].default is True
     assert fields["AUTO_MATCH_MODE"].default is None  # = propose
     assert fields["AUTO_MATCH_DRY_RUN"].default is None

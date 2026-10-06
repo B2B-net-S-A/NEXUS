@@ -365,6 +365,8 @@ async def reassign_from_similar_jobs(
             initial_stage_legacy="new",
             entry_source=candidate_claim.ENTRY_ADDED_MANUAL,
             claim=True,
+            # Przepięcie wybiera człowiek — propozycje pary stają się „dodane”.
+            mark_proposals=True,
         )
     added = result.added if result else []
     db.add(

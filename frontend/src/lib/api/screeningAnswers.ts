@@ -17,7 +17,7 @@ export interface ScreeningConversationAnswer {
   response: string;
   deal_breaker_hit: boolean;
   skipped: boolean;
-  /** Pochodzenie odpowiedzi (0421): `phrased`, `note_import`, `reassign_suggested`, `manual`. */
+  /** Pochodzenie odpowiedzi (0421): `phrased`, `note_import`, `reassign_suggested`, `manual`; od 07.10.2026 `note_sync` (automat z notatki). */
   origin?: string;
   /** Hasła rekrutera, z których powstało zdanie. */
   keywords?: string | null;

@@ -1271,3 +1271,278 @@ async def test_counts_require_login_and_an_existing_recruitment(
     assert (await app_client.get(_counts(1))).status_code == 401
     missing = await app_client.get(_counts(2_000_000_000), headers=headers)
     assert missing.status_code == 404, missing.text
+
+
+# ── 0422: `expired`, `added` tylko z człowieka, telemetria (07.10.2026) ─────
+
+
+async def _set_status(job_id: int, candidate_id: int, status: str) -> None:
+    async with AsyncSessionLocal() as db:
+        row = await db.scalar(
+            select(JobProposal).where(
+                JobProposal.job_id == job_id,
+                JobProposal.candidate_id == candidate_id,
+                JobProposal.source == "full_base",
+            )
+        )
+        row.status = status
+        await db.commit()
+
+
+async def test_expired_rows_are_invisible_and_revive_on_return():
+    world = await _world(people=3)
+    await _seed_inbox(world)
+    job_id = world["job_id"]
+    gone, kept, mixed = world["candidate_ids"]
+    await _set_status(job_id, gone, "expired")
+    await _set_status(job_id, mixed, "expired")
+    async with AsyncSessionLocal() as db:
+        # Para z żywym wierszem innego źródła nadal czeka — wygasły wiersz
+        # nie głosuje ani nie dokłada wyniku.
+        await proposals.upsert_proposals(
+            db, job_id, [{"candidate_id": mixed, "score": 40}], "new_cv"
+        )
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        rows, total = await proposals.list_for_job(db, job_id=job_id)
+        assert total == 2
+        by_id = {r.candidate_id: r for r in rows}
+        assert set(by_id) == {kept, mixed}
+        assert by_id[mixed].sources == ["new_cv"] and by_id[mixed].score == 40.0
+        assert (await proposals.open_counts_for_jobs(db, [job_id]))[job_id] == 2
+        assert (await proposals.open_counts_for_jobs(db, [job_id], source="full_base"))[
+            job_id
+        ] == 1
+        split = await proposals.open_split_counts(
+            db, job_id=job_id, since=datetime.now(timezone.utc) - timedelta(days=7)
+        )
+        assert split["postings_recent"] + split["base"] == 2
+        assert await proposals.dismissed_candidate_ids(db, job_id=job_id) == []
+
+    # Kolejny przegląd znowu proponuje osobę → wraca do skrzynki.
+    async with AsyncSessionLocal() as db:
+        await proposals.upsert_proposals(
+            db, job_id, [{"candidate_id": gone, "score": 77}], "full_base"
+        )
+        await db.commit()
+    assert (await _statuses(job_id))[(gone, "full_base")] == "proposed"
+    # Bez wskrzeszania (zaległa publikacja starszego przeglądu) zostaje wygasła.
+    async with AsyncSessionLocal() as db:
+        await proposals.upsert_proposals(
+            db,
+            job_id,
+            [{"candidate_id": mixed, "score": 77}],
+            "full_base",
+            revive_expired=False,
+        )
+        await db.commit()
+    assert (await _statuses(job_id))[(mixed, "full_base")] == "expired"
+
+
+async def test_expire_full_base_touches_only_open_rows_of_other_runs():
+    world = await _world(people=4)
+    job_id = world["job_id"]
+    current, stale, dismissed, other_source = world["candidate_ids"]
+    async with AsyncSessionLocal() as db:
+        await proposals.upsert_proposals(
+            db,
+            job_id,
+            [{"candidate_id": c, "score": 80} for c in (stale, dismissed)],
+            "full_base",
+            run_id="run-old",
+        )
+        await proposals.upsert_proposals(
+            db,
+            job_id,
+            [{"candidate_id": current, "score": 90}],
+            "full_base",
+            run_id="run-new",
+        )
+        await proposals.upsert_proposals(
+            db, job_id, [{"candidate_id": other_source, "score": 70}], "new_cv"
+        )
+        await proposals.dismiss(db, job_id=job_id, candidate_id=dismissed, user_id=None)
+        expired = await proposals.expire_full_base(db, job_id=job_id, run_id="run-new")
+        await db.commit()
+    assert expired == 1
+    statuses = await _statuses(job_id)
+    assert statuses[(current, "full_base")] == "proposed"
+    assert statuses[(stale, "full_base")] == "expired"
+    assert statuses[(dismissed, "full_base")] == "dismissed"
+    assert statuses[(other_source, "new_cv")] == "proposed"
+
+
+async def test_top_open_by_job_uses_the_inbox_visibility():
+    world = await _world(people=5)
+    job_id = world["job_id"]
+    best, second, third, fourth, in_pipeline = world["candidate_ids"]
+    async with AsyncSessionLocal() as db:
+        await proposals.upsert_proposals(
+            db,
+            job_id,
+            [
+                {"candidate_id": best, "score": 95},
+                {"candidate_id": second, "score": 90},
+                {"candidate_id": third, "score": 85},
+                {"candidate_id": fourth, "score": 80},
+                {"candidate_id": in_pipeline, "score": 99},
+            ],
+            "full_base",
+        )
+        db.add(
+            CandidateStage(
+                candidate_id=in_pipeline, job_id=job_id, stage=PipelineStage.new
+            )
+        )
+        await db.commit()
+    await _set_status(job_id, second, "expired")
+    async with AsyncSessionLocal() as db:
+        top = await proposals.top_open_by_job(db, [job_id], per_job=3)
+    assert [(t.job_id, t.candidate_id, t.score) for t in top] == [
+        (job_id, best, 95.0),
+        (job_id, third, 85.0),
+        (job_id, fourth, 80.0),
+    ]
+
+
+async def test_only_a_human_add_marks_the_proposal_added():
+    from app.api import proposals_bulk
+
+    recruiter_id, _ = await _user(UserRole.recruiter)
+    world = await _world(people=2, recruiter_id=recruiter_id)
+    await _seed_inbox(world)
+    job_id = world["job_id"]
+    by_integration, by_human = world["candidate_ids"]
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        auto = await proposals_bulk.add_candidates_to_job(
+            db,
+            job=job,
+            candidate_ids=[by_integration],
+            actor_user_id=recruiter_id,
+            entry_source="auto_match",
+            claim=False,
+        )
+        human = await proposals_bulk.add_candidates_to_job(
+            db,
+            job=job,
+            candidate_ids=[by_human],
+            actor_user_id=recruiter_id,
+            mark_proposals=True,
+        )
+        await db.commit()
+    assert auto.added == [by_integration] and human.added == [by_human]
+    statuses = await _statuses(job_id)
+    assert statuses[(by_integration, "full_base")] == "proposed"
+    assert statuses[(by_human, "full_base")] == "added"
+
+
+async def test_opening_the_inbox_is_recorded_once_a_day(app_client: AsyncClient):
+    from app.models.activity import Activity
+
+    recruiter_id, recruiter = await _user(UserRole.recruiter)
+    world = await _world(people=0, recruiter_id=recruiter_id)
+    job_id = world["job_id"]
+    url = f"/api/jobs/{job_id}/proposal-inbox/opened"
+    first = await app_client.post(url, headers=recruiter)
+    assert first.status_code == 200, first.text
+    assert first.json() == {"job_id": job_id, "recorded": True}
+    again = await app_client.post(url, headers=recruiter)
+    assert again.status_code == 200, again.text
+    assert again.json()["recorded"] is False
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.scalars(
+                select(Activity).where(
+                    Activity.entity_type == "job",
+                    Activity.entity_id == job_id,
+                    Activity.action == "proposal_inbox_opened",
+                )
+            )
+        ).all()
+    assert len(rows) == 1 and rows[0].user_id == recruiter_id
+    # GET listy nadal niczego nie zapisuje.
+    listed = await app_client.get(_inbox(job_id), headers=recruiter)
+    assert listed.status_code == 200, listed.text
+
+
+async def test_integration_added_proposals_repair_is_one_shot():
+    from app.models.app_setting import AppSetting
+    from app.models.recruitment_process import RecruitmentProcess
+    from app.services import proposal_added_repair as repair
+
+    recruiter_id, _ = await _user(UserRole.recruiter)
+    world = await _world(people=2, recruiter_id=recruiter_id)
+    await _seed_inbox(world)
+    job_id = world["job_id"]
+    by_card, by_human = world["candidate_ids"]
+    from app.api import proposals_bulk
+
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        await proposals_bulk.add_candidates_to_job(
+            db,
+            job=job,
+            candidate_ids=[by_card],
+            actor_user_id=recruiter_id,
+            entry_source="auto_match",
+            claim=False,
+        )
+        await proposals_bulk.add_candidates_to_job(
+            db,
+            job=job,
+            candidate_ids=[by_human],
+            actor_user_id=recruiter_id,
+            mark_proposals=True,
+        )
+        # Stan sprzed 07.10.2026: karta z integracji też stawiała `added`.
+        await proposals.mark_added(db, job_id=job_id, candidate_ids=[by_card])
+        await db.commit()
+        sources = dict(
+            (
+                await db.execute(
+                    select(
+                        RecruitmentProcess.candidate_id, RecruitmentProcess.entry_source
+                    ).where(RecruitmentProcess.job_id == job_id)
+                )
+            ).all()
+        )
+    assert sources[by_card] == "auto_match" and sources[by_human] != "auto_match"
+
+    async with AsyncSessionLocal() as db:
+        marker = await db.get(AppSetting, repair.REPAIR_MARKER)
+        if marker is not None:
+            # Baza testowa jest wspólna — wcześniejszy przebieg zostawił znacznik.
+            await db.delete(marker)
+            await db.commit()
+    async with AsyncSessionLocal() as db:
+        summary = await repair.run_proposal_added_repair(db)
+        await db.commit()
+    assert summary is not None and [job_id, by_card] in summary["pair_ids"]
+    assert [job_id, by_human] not in summary["pair_ids"]
+    statuses = await _statuses(job_id)
+    assert statuses[(by_card, "full_base")] == "proposed"
+    assert statuses[(by_human, "full_base")] == "added"
+    async with AsyncSessionLocal() as db:
+        assert await repair.run_proposal_added_repair(db) is None
+
+
+def test_statuses_agree_everywhere() -> None:
+    from app.models.job_proposal import JOB_PROPOSAL_STATUSES
+    from app.services import job_proposal_feedback_schema as schema
+
+    assert tuple(JOB_PROPOSAL_STATUSES) == schema.STATUSES
+    check = next(
+        str(c.sqltext)
+        for c in JobProposal.__table__.constraints
+        if c.name == "ck_job_proposals_status"
+    )
+    for status in schema.STATUSES:
+        assert f"'{status}'" in check
+    entry = (_BACKEND / "entrypoint.sh").read_text(encoding="utf-8")
+    assert "*_JOB_PROPOSAL_STATUS_CONSTRAINTS," in entry
+    assert "status IN ('proposed', 'dismissed', 'added', 'expired')" in entry
+    migration = (_BACKEND / "alembic/versions/0422_job_proposals_expired.py").read_text(
+        encoding="utf-8"
+    )
+    assert "STATUS_CONSTRAINT_DDL" in migration

@@ -46,7 +46,7 @@ export interface CandidateSearchRow {
   eligibility: MatchEligibility | null;
   /** Budżet i biuro z chwili przeglądu — plakietka, nie ukrycie (v9).
    *  `null`, gdy dane kandydata zmieniły się od przeglądu. */
-  fit?: { rate?: string | null; office?: string | null } | null;
+  fit?: { rate?: string | null; office?: string | null; remote?: string | null } | null;
 }
 
 export interface CandidateSearchPage {

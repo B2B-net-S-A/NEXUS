@@ -105,7 +105,12 @@ def requirements_for_job(job) -> MatchingRequirements:
 # role i metodyki ze słownika nie są technologią (`must_gate_terms`).
 # v9.1 (30.09.2026): słowna wersja („Java (minimalna 11)”, „Oracle (min.
 # 19c)”) jest odcinana jak „Java 11+” — wcześniej cała pozycja nie bramkowała.
-MUST_GATE_POLICY_VERSION = "critical-v9.1"
+# v10 (07.10.2026, audyt AI Search): braki z notatek i przeczące odpowiedzi
+# z karty nie są dowodem; „tylko zdalnie” ukrywa tylko przy pracy
+# stacjonarnej/4+ dniach (hybryda = plakietka `remote_fit`); podpowiedź
+# krytycznych z tytułu albo z pierwszych 3 pozycji listy ≤ 8; „C#” bez
+# rozróżniania wielkości liter, rodzina SQL ⇒ SQL, PlantUML ⇒ UML.
+MUST_GATE_POLICY_VERSION = "critical-v10"
 
 
 def search_dealbreaker_inputs(job, *, exclude_missing_must: bool | None = None):

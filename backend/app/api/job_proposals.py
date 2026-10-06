@@ -14,6 +14,9 @@ skrzynka nie zna (wyszukiwarka, rekomendacja) — wiersz powstaje od razu jako
 pominięty. Pominięta osoba wraca z nową wersją CV albo przez „Cofnij"
 (``…/restore``, ta sama bramka). Nie ma znacznika „widziane" per użytkownik.
 
+``…/proposal-inbox/opened`` (07.10.2026) zapisuje otwarcie skrzynki
+(``Activity proposal_inbox_opened``, raz na osobę/rekrutację/dzień).
+
 ``…/proposal-counts`` (02.10.2026) dzieli otwarte propozycje na świeże
 z ogłoszeń (nowe CV, portale) i resztę — te same pary co lista skrzynki.
 
@@ -42,6 +45,11 @@ from app.services.candidate_rate_from import rate_summary
 logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
+
+# Telemetria otwarcia skrzynki (07.10.2026) — ile osób w ogóle patrzy na
+# „Propozycje z bazy” (do tego dnia nie wiedzieliśmy, czy brak decyzji to
+# złe propozycje, czy nieotwierana zakładka).
+PROPOSAL_INBOX_OPENED = "proposal_inbox_opened"
 
 # Lustro CHECK-a `ck_job_proposals_source` (`JOB_PROPOSAL_SOURCES`).
 ProposalSource = Literal[
@@ -297,6 +305,52 @@ async def list_job_proposals(
         "offset": offset,
         "next_offset": offset + limit if offset + limit < total else None,
     }
+
+
+@router.post("/jobs/{job_id}/proposal-inbox/opened")
+async def record_proposal_inbox_opened(
+    job_id: int,
+    user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Telemetria: osoba otworzyła „Propozycje z bazy” tej rekrutacji (07.10.2026).
+
+    Osobny POST, nie zapis w GET listy — GET zostaje odczytem. Wpis
+    ``Activity proposal_inbox_opened`` (encja: rekrutacja) najwyżej raz na
+    osobę, rekrutację i dzień w kalendarzu firmy; niezależnie od
+    ``AI_MATCH_TELEMETRY_ENABLED``. Tryb „podgląd jako” jest tylko do odczytu
+    (zależność odmawia POST-u wcześniej), więc nic się wtedy nie zapisuje.
+    Odpowiedź mówi, czy wpis powstał.
+    """
+    from app.core.scheduling import business_today, local_day_start_utc  # noqa: PLC0415
+    from app.models.activity import Activity  # noqa: PLC0415
+
+    await _job(db, user, job_id)
+    since = local_day_start_utc(business_today())
+    already = await db.scalar(
+        select(Activity.id)
+        .where(
+            Activity.entity_type == "job",
+            Activity.entity_id == job_id,
+            Activity.action == PROPOSAL_INBOX_OPENED,
+            Activity.user_id == user.id,
+            Activity.created_at >= since,
+        )
+        .limit(1)
+    )
+    if already is not None:
+        return {"job_id": job_id, "recorded": False}
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job_id,
+            action=PROPOSAL_INBOX_OPENED,
+            user_id=user.id,
+            details={},
+        )
+    )
+    await db.commit()
+    return {"job_id": job_id, "recorded": True}
 
 
 @router.get("/jobs/{job_id}/proposal-counts")

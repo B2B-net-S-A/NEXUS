@@ -1288,6 +1288,9 @@ export const matchingApi = {
         /** Wymiar pracy z rozmowy praktykanta wobec `Job.work_mode` — plakietka,
          *  nie ukrycie (24.09.2026). Opcjonalne: starszy backend go nie wysyła. */
         work_time_fit?: WorkTimeFit;
+        /** „Tylko zdalnie” z notatek przy rekrutacji hybrydowej — plakietka
+         *  (07.10.2026). Opcjonalne: starszy backend go nie wysyła. */
+        remote_fit?: "prefers_remote" | "ok" | "not_required";
         /** Must-have z `rubrics.must_skills`, których TEMU kandydatowi brakuje
          *  — węższe niż `gaps` (to porównuje z `required_skills`, który bywa
          *  wywiedziony regexem; `missing_must` tylko z jawnym must bramki). */
@@ -5276,7 +5279,12 @@ export interface HistoricalMatchesResponse {
 
 // Screening answers
 
-export type ScreeningAnswerOrigin = "manual" | "reassign_suggested" | "note_import" | "phrased";
+export type ScreeningAnswerOrigin =
+  | "manual"
+  | "reassign_suggested"
+  | "note_import"
+  | "phrased"
+  | "note_sync";
 
 export interface ScreeningAnswerItem {
   question_id: string;
@@ -5285,7 +5293,8 @@ export interface ScreeningAnswerItem {
   /**
    * `reassign_suggested` = przyjęta podpowiedź Luny (przepięcie, 23.09.2026);
    * `note_import` = przyjęta z notatki w oknie karty, `phrased` = zdanie
-   * ułożone z haseł rekrutera (0421).
+   * ułożone z haseł rekrutera (0421), `note_sync` = przepisana z notatki
+   * (karty z Traffita) przez automat (07.10.2026).
    */
   origin?: ScreeningAnswerOrigin;
   /** Hasła rekrutera, z których powstało zdanie — tylko dla zespołu (0421). */

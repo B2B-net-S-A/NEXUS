@@ -11,6 +11,7 @@ const startRun = vi.fn();
 const bulkAdd = vi.fn();
 const factsApi = vi.fn();
 const countsApi = vi.fn();
+const openedApi = vi.fn();
 const matchScores = vi.fn();
 const championGet = vi.fn();
 const classifyRows = vi.fn();
@@ -94,6 +95,7 @@ vi.mock("@/lib/job-proposals-api", async (importOriginal) => {
       ...actual.jobProposalsApi,
       facts: (...a: unknown[]) => factsApi(...a),
       counts: (...a: unknown[]) => countsApi(...a),
+      opened: (...a: unknown[]) => openedApi(...a),
     },
   };
 });
@@ -205,6 +207,8 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
     proposalsState.status.settled = true;
     similarPayload = undefined;
     factsApi.mockResolvedValue({ job_id: 5, items: [] });
+    openedApi.mockResolvedValue({ job_id: 5, recorded: true });
+    proposalsState.status.inbox.hasMore = false;
     countsApi.mockResolvedValue({
       job_id: 5,
       days: 7,
@@ -243,6 +247,41 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
 
     await userEvent.click(screen.getByRole("tab", { name: /Nowi z ogłoszeń/ }));
     expect(props.onTabChange).toHaveBeenCalledWith("postings");
+  });
+
+  it("wejście w „Propozycje z bazy” zapisuje otwarcie raz, inne zakładki nie", async () => {
+    const { rerender } = renderPanel({ tab: "postings" });
+    await screen.findByRole("tablist", { name: "Źródło kandydatów" });
+    expect(openedApi).not.toHaveBeenCalled();
+    rerender({ tab: "base" });
+    await waitFor(() => expect(openedApi).toHaveBeenCalledWith(5));
+    rerender({ tab: "postings" });
+    rerender({ tab: "base" });
+    expect(openedApi).toHaveBeenCalledTimes(1);
+  });
+
+  it("tylko do odczytu nie zapisuje otwarcia", async () => {
+    renderPanel({ readOnly: true });
+    await screen.findByRole("tablist", { name: "Źródło kandydatów" });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(openedApi).not.toHaveBeenCalled();
+  });
+
+  it("skrzynka z kolejnymi stronami: zakładka mówi liczbę z serwera, nie wczytaną część", async () => {
+    proposalsState.status.inbox.hasMore = true;
+    countsApi.mockResolvedValue({
+      job_id: 5,
+      days: 7,
+      postings_recent: 0,
+      base: 240,
+      screened_out: 0,
+      not_searchable_must: [],
+    });
+    proposalsState.entries = [entry(1, "Anna Baza", ["inbox"], { sources: ["full_base"] })];
+    renderPanel();
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: /Propozycje z bazy/ })).toHaveTextContent("240"),
+    );
   });
 
   it("„Propozycje z bazy” i „Nowi z ogłoszeń” dzielą listę — nikt nie wypada i nikt się nie dubluje", async () => {

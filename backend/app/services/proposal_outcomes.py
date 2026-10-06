@@ -53,6 +53,9 @@ def _empty_counts() -> dict:
         "added": 0,
         "dismissed": 0,
         "pending": 0,
+        # 0422: zaproponowana, bez decyzji, a nowszy przegląd już jej nie
+        # proponuje — nie „czeka” i nie jest „pominięta”.
+        "expired": 0,
         "dismissed_by_reason": {key: 0 for key in REASON_KEYS},
     }
 
@@ -65,19 +68,28 @@ def _bump(counts: dict, status: str, reason: Optional[str]) -> None:
         counts["dismissed"] += 1
         key = reason if reason in DISMISS_REASONS else NO_REASON
         counts["dismissed_by_reason"][key] += 1
+    elif status == "expired":
+        counts["expired"] += 1
     else:
         counts["pending"] += 1
 
 
 def _pair_status(rows: list[ProposalRow]) -> tuple[str, Optional[str]]:
-    """Decyzja o OSOBIE: dodana > czeka > pominięta (powód z pominiętego wiersza)."""
+    """Decyzja o OSOBIE: dodana > czeka > pominięta > wygasła.
+
+    Powód pominięcia z pominiętego wiersza. Para z samych wierszy ``expired``
+    (0422) to osoba, której nikt nie obsłużył, a nowszy przegląd już jej nie
+    proponuje.
+    """
     statuses = {r.status for r in rows}
     if "added" in statuses:
         return "added", None
     if "proposed" in statuses:
         return "proposed", None
-    reason = next((r.dismiss_reason for r in rows if r.dismiss_reason), None)
-    return "dismissed", reason
+    if "dismissed" in statuses:
+        reason = next((r.dismiss_reason for r in rows if r.dismiss_reason), None)
+        return "dismissed", reason
+    return "expired", None
 
 
 def summarize(rows: Iterable[ProposalRow]) -> dict:
