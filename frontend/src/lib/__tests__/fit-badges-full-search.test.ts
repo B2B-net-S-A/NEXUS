@@ -14,6 +14,13 @@ describe("fullSearchFitBadges", () => {
     ]);
   });
 
+  it("names a remote-only preference at a hybrid job (07.10.2026)", () => {
+    expect(fullSearchFitBadges({ rate: "ok", office: "ok", remote: "prefers_remote" })).toEqual([
+      "Preferuje pracę zdalną",
+    ]);
+    expect(fullSearchFitBadges({ remote: "not_required" })).toEqual([]);
+  });
+
   it("says nothing when the row fits, is unknown or changed since the scan", () => {
     expect(fullSearchFitBadges({ rate: "ok", office: "ok" })).toEqual([]);
     expect(fullSearchFitBadges({ rate: "unknown", office: "not_required" })).toEqual([]);

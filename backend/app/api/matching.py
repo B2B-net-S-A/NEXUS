@@ -34,6 +34,7 @@ from app.services.dealbreaker_filters import (
     missing_must_skills,
     office_fit_status,
     rate_fit_status,
+    remote_fit_status,
     work_time_fit_status,
     resolve_job_budget_hourly,
 )
@@ -250,6 +251,10 @@ def _build_match_info(
         # Wymiar pracy z rozmowy praktykanta: plakietka, nie ukrycie (24.09.2026).
         "work_time_fit": (
             work_time_fit_status(candidate, inputs) if inputs else "not_applicable"
+        ),
+        # „Tylko zdalnie” przy hybrydzie: plakietka, nie ukrycie (07.10.2026).
+        "remote_fit": (
+            remote_fit_status(candidate, inputs) if inputs else "not_required"
         ),
         "missing_must": (
             missing_must_skills(

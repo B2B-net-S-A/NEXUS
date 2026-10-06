@@ -477,6 +477,7 @@ async def search_results(
             else {
                 "rate": frozen_filters.get("rate"),
                 "office": frozen_filters.get("office"),
+                "remote": frozen_filters.get("remote"),
             }
         )
         results.append(

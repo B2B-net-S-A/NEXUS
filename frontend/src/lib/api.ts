@@ -1287,6 +1287,9 @@ export const matchingApi = {
         /** Wymiar pracy z rozmowy praktykanta wobec `Job.work_mode` — plakietka,
          *  nie ukrycie (24.09.2026). Opcjonalne: starszy backend go nie wysyła. */
         work_time_fit?: WorkTimeFit;
+        /** „Tylko zdalnie” z notatek przy rekrutacji hybrydowej — plakietka
+         *  (07.10.2026). Opcjonalne: starszy backend go nie wysyła. */
+        remote_fit?: "prefers_remote" | "ok" | "not_required";
         /** Must-have z `rubrics.must_skills`, których TEMU kandydatowi brakuje
          *  — węższe niż `gaps` (to porównuje z `required_skills`, który bywa
          *  wywiedziony regexem; `missing_must` tylko z jawnym must bramki). */

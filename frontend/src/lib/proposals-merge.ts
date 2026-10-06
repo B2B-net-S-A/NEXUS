@@ -12,7 +12,7 @@
  *    odświeżenie w tle nie przetasowywało tabeli pod kursorem.
  */
 
-import { OFFICE_DAYS_WARNING } from "@/lib/fit-badges";
+import { OFFICE_DAYS_WARNING, REMOTE_ONLY_WARNING } from "@/lib/fit-badges";
 import type {
   HistoricalCandidate,
   MatchEligibility,
@@ -69,6 +69,8 @@ export interface ProposalDetail {
   officeFit: string | null;
   /** Sprzeczny wymiar pracy (plakietka, nie ukrycie) — z żywego przeglądu. */
   workTimeFit?: WorkTimeFit | null;
+  /** „Tylko zdalnie” przy hybrydzie (07.10.2026) — plakietka. */
+  remoteFit?: string | null;
   similarProjects: ProposalSimilarProject[];
   /** Ten sam klient już tę osobę rozważał / odrzucił (z podobnych projektów). */
   sameClient: boolean;
@@ -207,6 +209,7 @@ function emptyDetail(candidateId: number): ProposalDetail {
     rateFit: null,
     officeFit: null,
     workTimeFit: null,
+    remoteFit: null,
     similarProjects: [],
     sameClient: false,
     rejectedBySameClient: false,
@@ -361,6 +364,7 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
       d.detail.rateFit = row.match?.rate_fit ?? d.detail.rateFit;
       d.detail.officeFit = row.match?.office_fit ?? d.detail.officeFit;
       d.detail.workTimeFit = row.match?.work_time_fit ?? d.detail.workTimeFit;
+      d.detail.remoteFit = row.match?.remote_fit ?? d.detail.remoteFit;
       const summary = row.match?.candidate.ai_summary?.trim();
       if (summary) d.detail.aiSummary = summary;
       d.detail.missingMustGate = (row.match?.missing_must ?? []).filter(Boolean);
@@ -439,6 +443,7 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
     if (detail.officeFit === "city_mismatch") warnings.push("city_mismatch");
     // 30.09.2026: dni w biurze już nie ukrywają — plakietka „mniej dni w biurze”.
     if (detail.officeFit === "days_exceeded") warnings.push(OFFICE_DAYS_WARNING);
+    if (detail.remoteFit === REMOTE_ONLY_WARNING) warnings.push(REMOTE_ONLY_WARNING);
     if (detail.traineeHandover?.employment_only) warnings.push("employment_only");
     const handoverNote = detail.traineeHandover?.note?.trim() || null;
     entries.push({
