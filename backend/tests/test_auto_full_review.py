@@ -10,8 +10,10 @@ Kontrakty:
 - przegląd automatyczny nie zajmuje slotu autora, nie jest chroniony przez
   retencję i czyta go każdy, kto przechodzi bramkę rekrutacji — także osoba
   z własnym profilem punktacji; cudzy RĘCZNY przegląd zostaje prywatny;
-- po zakończeniu top-K trafia do skrzynki „Propozycje" z dowodami bez tekstu
-  z CV; awaria publikacji nie psuje przeglądu i jest domykana później;
+- po zakończeniu wszystkie osoby powyżej progu trafiają do skrzynki
+  „Propozycje" z dowodami bez tekstu z CV (bez limitu, 07.10.2026); nowszy,
+  kompletny przegląd wygasza (`expired`) propozycje, których już nie ma;
+  awaria publikacji nie psuje przeglądu i jest domykana później;
 - wyłącznik OFF = pętla nie robi nic.
 
 Baza testowa jest wspólna i nieczyszczona: asercje dotyczą własnych wierszy,
@@ -737,40 +739,174 @@ async def test_finished_auto_run_publishes_only_good_matches(monkeypatch):
         assert event.details["proposals"] == 1 and event.details["run_id"] == run_id
 
 
-async def test_top_k_caps_the_number_of_proposals(monkeypatch):
-    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_TOP_K", 2)
+async def test_every_good_match_above_the_threshold_is_published(monkeypatch):
+    """07.10.2026: bez limitu 60 — każda osoba powyżej progu trafia do skrzynki."""
     monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_SCORE", 70.0)
+    # Mała paczka: publikacja ma przejść przez kilka stron wyników przeglądu.
+    monkeypatch.setattr(afr, "_PUBLISH_PAGE", 2)
     owner_id, _ = await _user()
     world = await _job(owner_id=owner_id, event=False, people=5)
-    run_id = str(uuid.uuid4())
+    run_id = await _run_with(
+        world,
+        owner_id,
+        {cid: 80 + index for index, cid in enumerate(world["candidate_ids"])},
+    )
     async with AsyncSessionLocal() as db:
-        db.add(
-            CandidateSearchRun(
-                id=run_id,
-                created_by=owner_id,
-                client_id=world["client_id"],
-                job_id=world["job_id"],
-                state="complete",
-                request_fingerprint="k" * 64,
-                request_context={},
-                version_trace={"origin": "auto"},
-                population_size=5,
-                metrics={},
-                completed_at=datetime.now(timezone.utc),
-            )
-        )
-        await db.flush()
-        db.add_all(
-            [
-                _result(run_id, cid, 80 + index)
-                for index, cid in enumerate(world["candidate_ids"])
-            ]
-        )
-        await db.commit()
         await afr.publish_on_finish(db, run_id, eligible=5)
         await db.commit()
     rows = await _proposals(world["job_id"])
-    assert sorted(float(r.score) for r in rows) == [83.0, 84.0]
+    assert sorted(float(r.score) for r in rows) == [80.0, 81.0, 82.0, 83.0, 84.0]
+    assert {r.status for r in rows} == {"proposed"}
+
+
+async def _run_with(
+    world: dict,
+    owner_id: int,
+    scores: dict[int, int],
+    *,
+    created_at: datetime | None = None,
+    failed: tuple[int, ...] = (),
+    error_code: str | None = None,
+) -> str:
+    """Zakończony przegląd automatyczny z podanymi wynikami (i ewentualną awarią)."""
+    run_id = str(uuid.uuid4())
+    async with AsyncSessionLocal() as db:
+        run = CandidateSearchRun(
+            id=run_id,
+            created_by=owner_id,
+            client_id=world["client_id"],
+            job_id=world["job_id"],
+            state="partial" if failed else "complete",
+            request_fingerprint=uuid.uuid4().hex * 2,
+            request_context={},
+            version_trace={"origin": "auto"},
+            population_size=len(scores) + len(failed),
+            metrics={},
+            error_code=error_code,
+            completed_at=datetime.now(timezone.utc),
+        )
+        if created_at is not None:
+            run.created_at = created_at
+        db.add(run)
+        await db.flush()
+        db.add_all([_result(run_id, cid, score) for cid, score in scores.items()])
+        db.add_all([_failed_row(cid)(run_id) for cid in failed])
+        await db.commit()
+    return run_id
+
+
+async def _statuses(job_id: int) -> dict[int, str]:
+    return {p.candidate_id: p.status for p in await _proposals(job_id)}
+
+
+async def _publish(run_id: str) -> None:
+    async with AsyncSessionLocal() as db:
+        await afr.publish_on_finish(db, run_id, eligible=None)
+        await db.commit()
+
+
+async def test_newer_complete_review_expires_people_it_no_longer_proposes(monkeypatch):
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_SCORE", 70.0)
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id, event=False, people=3)
+    stays, leaves, dismissed = world["candidate_ids"]
+    now = datetime.now(timezone.utc)
+    first = await _run_with(
+        world,
+        owner_id,
+        {stays: 90, leaves: 85, dismissed: 80},
+        created_at=now - timedelta(days=2),
+    )
+    await _publish(first)
+    from app.services import job_proposals as proposals
+
+    async with AsyncSessionLocal() as db:
+        await proposals.dismiss(
+            db, job_id=world["job_id"], candidate_id=dismissed, user_id=owner_id
+        )
+        await db.commit()
+
+    second = await _run_with(
+        world, owner_id, {stays: 91}, created_at=now - timedelta(days=1)
+    )
+    await _publish(second)
+    assert await _statuses(world["job_id"]) == {
+        stays: "proposed",
+        leaves: "expired",
+        # Pominięcie zostaje — wygasza się wyłącznie otwarta propozycja.
+        dismissed: "dismissed",
+    }
+    async with AsyncSessionLocal() as db:
+        # Licznik i lista nie widzą wygasłej osoby.
+        counts = await proposals.open_counts_for_jobs(db, [world["job_id"]])
+        assert counts[world["job_id"]] == 1
+        rows, total = await proposals.list_for_job(db, job_id=world["job_id"])
+        assert total == 1 and [r.candidate_id for r in rows] == [stays]
+        # Wiersz został — `request_allocation` czyta go jako dowód przeglądu.
+        event = (
+            await db.scalars(
+                select(Activity)
+                .where(
+                    Activity.entity_type == afr.ACTIVITY_ENTITY,
+                    Activity.entity_id == world["job_id"],
+                )
+                .order_by(Activity.id.desc())
+            )
+        ).first()
+        assert event.details["expired"] == 1
+
+    # Osoba wraca w kolejnym przeglądzie → znowu propozycja.
+    third = await _run_with(world, owner_id, {stays: 91, leaves: 86}, created_at=now)
+    await _publish(third)
+    statuses = await _statuses(world["job_id"])
+    assert statuses[leaves] == "proposed" and statuses[stays] == "proposed"
+
+
+async def test_incomplete_review_does_not_expire(monkeypatch):
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_SCORE", 70.0)
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id, event=False, people=2)
+    kept, unscored = world["candidate_ids"]
+    now = datetime.now(timezone.utc)
+    first = await _run_with(
+        world, owner_id, {kept: 90, unscored: 85}, created_at=now - timedelta(days=1)
+    )
+    await _publish(first)
+    # Partia z `unscored` padła — przegląd nie ocenił tej osoby, więc nie może
+    # jej wygasić.
+    second = await _run_with(
+        world,
+        owner_id,
+        {kept: 90},
+        created_at=now,
+        failed=(unscored,),
+        error_code="TimeoutError",
+    )
+    await _publish(second)
+    assert await _statuses(world["job_id"]) == {
+        kept: "proposed",
+        unscored: "proposed",
+    }
+
+
+async def test_late_publication_of_an_older_review_does_not_expire(monkeypatch):
+    """`reconcile_unpublished` starszego przeglądu po nowszym nie wygasza
+    propozycji nowszego i nie wskrzesza wygasłych."""
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_SCORE", 70.0)
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id, event=False, people=2)
+    newest_only, oldest_only = world["candidate_ids"]
+    now = datetime.now(timezone.utc)
+    older = await _run_with(
+        world, owner_id, {oldest_only: 88}, created_at=now - timedelta(days=1)
+    )
+    newer = await _run_with(world, owner_id, {newest_only: 90}, created_at=now)
+    await _publish(newer)
+    await _publish(older)
+    assert await _statuses(world["job_id"]) == {
+        newest_only: "proposed",
+        oldest_only: "proposed",
+    }
 
 
 async def test_manual_run_publishes_nothing():
@@ -793,7 +929,7 @@ async def test_publish_failure_never_raises_and_is_reconciled_later(monkeypatch)
     run_id = await _finished_auto_run(world, owner_id)
     real = afr.publish_run_proposals
 
-    async def _boom(db, run):
+    async def _boom(db, run, **_kwargs):
         raise RuntimeError("storage down")
 
     monkeypatch.setattr(afr, "publish_run_proposals", _boom)

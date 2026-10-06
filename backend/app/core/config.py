@@ -518,15 +518,18 @@ class Settings(BaseSettings):
     # ── Automatyczny pełny przegląd bazy (21.09.2026) ────────────────────────
     # Nocna pętla (okno w `BUSINESS_TZ`) uruchamia pełny przegląd bazy dla
     # rekrutacji opublikowanych albo istotnie zmienionych od ostatniego
-    # przeglądu automatycznego. Wynik (top-K po regule `is_good_match`) trafia
-    # do skrzynki „Propozycje" (źródło `full_base`). False = pętla kończy się
-    # przed startem, nic się nie dzieje (stan sprzed 21.09).
+    # przeglądu automatycznego. Wynik (każda osoba powyżej progu po regule
+    # `is_good_match`) trafia do skrzynki „Propozycje" (źródło `full_base`).
+    # False = pętla kończy się przed startem, nic się nie dzieje (stan sprzed
+    # 21.09).
     AUTO_FULL_REVIEW_ENABLED: bool = True
     # audyt 22.09 r2 (PROD-03): 5/noc — przegląd to ~190 MB, 20/noc zapełniało
     # wolumen. 30.09.2026 (decyzja Artura): co noc wszystkie rekrutacje w pracy
     # (~18) — dysk trzyma retencja zastąpionych przeglądów automatycznych
     # (jeden na rekrutację, ~75 MB; `candidate_search_retention`).
     AUTO_FULL_REVIEW_MAX_PER_NIGHT: int = 25
+    # NIEUŻYWANE od 07.10.2026 (decyzja Artura: propozycje bez limitu, tylko
+    # próg). Zostaje, bo czytają je skrypty audytów w `docs/audits/`.
     AUTO_FULL_REVIEW_TOP_K: int = 60
     # Osobny próg, bo pełny przegląd punktuje kanonicznym fitem, a auto-match
     # nowych CV starszym scoringiem — wspólny próg stroiłby dwa różne pomiary.

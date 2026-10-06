@@ -8606,13 +8606,30 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   odczyt też porównuje odcisk tym profilem — osobisty profil oglądającego nie
   daje 409.
 - **A. Publikacja:** w transakcji kończącej przegląd, w savepoincie
-  (`publish_on_finish`, nigdy nie rzuca): top `AUTO_FULL_REVIEW_TOP_K` (60)
-  wierszy `eligible ∧ measured ∧ fit_score ≥ AUTO_FULL_REVIEW_MIN_SCORE`
+  (`publish_on_finish`, nigdy nie rzuca): WSZYSTKIE wiersze
+  `eligible ∧ measured ∧ fit_score ≥ AUTO_FULL_REVIEW_MIN_SCORE`
   (osobny próg — przegląd punktuje kanonicznym fitem, auto-match starszym
   scoringiem), które
   przechodzą `is_good_match` → `upsert_proposals(source="full_base")` z wersją
   CV i dowodami przez `sanitize_evidence` (same nazwy wymagań). Znacznik
   `metrics.auto_proposals`; `reconcile_unpublished` domyka przeglądy bez niego.
+- **A. Bez limitu, `expired`, `added` tylko z człowieka (0422, decyzja Artura
+  07.10.2026).** Limitu 60 nie ma (`AUTO_FULL_REVIEW_TOP_K` nieczytane, zostaje
+  dla skryptów audytów); publikacja idzie paczkami (`_PUBLISH_PAGE`). Po
+  kompletnym przeglądzie (bez niepełnego pokrycia — także zaakceptowanego),
+  który jest najnowszym przeglądem rekrutacji z wynikami (`_newest_result_run`,
+  także w `reconcile_unpublished`), otwarte `full_base` z innym `run_id`
+  dostają `expired` (`job_proposals.expire_full_base`); powrót osoby w kolejnym
+  przeglądzie = `proposed`. Wierszy NIE kasujemy (`request_allocation` czyta
+  istnienie `full_base`); po 30 dniach `queue_retention` czyści im `evidence`.
+  `expired` nie głosuje w statusie pary (`_live()` w każdym liczniku i liście).
+  `added` stawia wyłącznie dodanie przez człowieka
+  (`add_candidates_to_job(mark_proposals=True)` — trasa bez tokenu integracji
+  i przepięcie); karta z integracji i automat propozycji nie zamykają.
+  Otwarcie zakładki „Propozycje z bazy” zapisuje `POST …/proposal-inbox/opened`
+  (`Activity proposal_inbox_opened`, raz na osobę/rekrutację/dzień), a
+  „Czeka na Ciebie” rekrutera ma blok `flow.top_proposals` (3 najlepsze na
+  rekrutację, `job_proposals.top_open_by_job`).
 - **B. `AUTO_MATCH_MODE = dry_run | propose | add`** (`auto_match_outbox.auto_match_mode`
   — JEDNO miejsce; puste = `propose`, literówka = `dry_run`). W `propose`
   dobry wynik daje decyzję `proposed` w dzienniku i wiersz `job_proposals`

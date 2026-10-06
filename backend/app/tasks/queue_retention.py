@@ -22,6 +22,12 @@ Od 04.10.2026 (0416) ta sama pętla kasuje niedokończone formularze
 ``job_intake_forms.RETENTION_DAYS`` (30) dni — formularz niesie treść maila
 klienta, więc nie leży bez końca.
 
+Od 07.10.2026 (0422) pętla czyści też dowody wygasłych propozycji nocnego
+przeglądu (``job_proposals.status = 'expired'``) starszych niż
+``job_proposals.EXPIRED_EVIDENCE_RETENTION_DAYS`` (30) dni — sam wiersz
+zostaje, bo ``request_allocation`` czyta istnienie ``full_base`` jako dowód,
+że przegląd był, a publikacja bez limitu zostawia ich setki.
+
 Kasujemy paczkami po ``BATCH_SIZE`` z commitem po każdej, najwyżej
 ``MAX_BATCHES`` paczek na tabelę w jednym cyklu — zaległość po wdrożeniu
 schodzi w kilka cykli zamiast jednej wielominutowej transakcji.
@@ -37,7 +43,7 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
-from app.services import job_intake_forms
+from app.services import job_intake_forms, job_proposals
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +134,11 @@ async def prune_once(*, now: datetime | None = None) -> dict[str, int]:
         "job_intake_forms": await _prune(
             job_intake_forms.PRUNE_STATEMENT,
             cutoff=now - timedelta(days=job_intake_forms.RETENTION_DAYS),
+        ),
+        # UPDATE, nie DELETE — ta sama pętla paczek (`:cutoff`, `:batch`).
+        "expired_proposal_evidence": await _prune(
+            job_proposals.PRUNE_EXPIRED_EVIDENCE,
+            cutoff=now - timedelta(days=job_proposals.EXPIRED_EVIDENCE_RETENTION_DAYS),
         ),
     }
 

@@ -27,6 +27,12 @@ Reguły, które łatwo cofnąć „przy okazji":
 * Publikacja propozycji dzieje się w transakcji kończącej przegląd, w
   savepoincie; jej awaria nigdy nie psuje przeglądu. `reconcile_unpublished`
   domyka przeglądy, którym publikacja się nie udała.
+* Od 07.10.2026 (decyzja Artura) publikujemy WSZYSTKIE osoby powyżej progu
+  `AUTO_FULL_REVIEW_MIN_SCORE`, które przechodzą `is_good_match` — bez limitu
+  liczby (dawne `AUTO_FULL_REVIEW_TOP_K` = 60 nie jest czytane). Propozycje
+  `full_base`, których przegląd już nie zaproponował, dostają `expired`
+  (`job_proposals.expire_full_base`) — tylko po kompletnym przeglądzie, który
+  jest najnowszym przeglądem tej rekrutacji z wynikami (`_newest_result_run`).
 """
 
 from __future__ import annotations
@@ -532,8 +538,31 @@ def _requirement_names(requirements, *, met: bool) -> list[str]:
     return out
 
 
-async def publish_run_proposals(db, run: CandidateSearchRun) -> int:
-    """Top-K wyników przeglądu → `job_proposals` (źródło `full_base`). Bez commitu."""
+# Wiersze przeglądu czytane paczkami: powyżej progu bywa ich kilkaset, a każdy
+# niesie dowody wymagań (JSONB).
+_PUBLISH_PAGE = 500
+
+
+async def _job_accepts_proposals(db, job_id: int) -> bool:
+    """Rekrutacja opublikowana i w pracy — tylko taka dostaje propozycje."""
+    job = await db.get(Job, job_id)
+    return (
+        job is not None
+        and job.status == JobStatus.published
+        and job.work_state in IN_WORK_STATES
+    )
+
+
+async def publish_run_proposals(
+    db, run: CandidateSearchRun, *, revive_expired: bool = True
+) -> int:
+    """Wszystkie wyniki przeglądu powyżej progu → `job_proposals` (`full_base`).
+
+    Bez limitu liczby (07.10.2026): każda osoba dopuszczona, zmierzona,
+    z wynikiem ≥ `AUTO_FULL_REVIEW_MIN_SCORE` i przechodząca `is_good_match`.
+    Paczkami po `_PUBLISH_PAGE` wierszy przeglądu, upsert też paczkami
+    (`job_proposals._UPSERT_CHUNK`). Bez commitu.
+    """
     from app.services.auto_match_outbox import candidate_revision
     from app.services.job_proposals import upsert_proposals
 
@@ -542,86 +571,116 @@ async def publish_run_proposals(db, run: CandidateSearchRun) -> int:
     # Rekrutacja zamknięta albo już nie w pracy (np. „Klient milczy”,
     # „Zakończony”) nie dostaje nowych propozycji — także z zaległej
     # publikacji `reconcile_unpublished` (runda 6 audytu).
-    job = await db.get(Job, run.job_id)
-    if (
-        job is None
-        or job.status != JobStatus.published
-        or job.work_state not in IN_WORK_STATES
-    ):
+    if not await _job_accepts_proposals(db, run.job_id):
         return 0
-    top_k = max(1, int(settings.AUTO_FULL_REVIEW_TOP_K))
     min_score = float(settings.AUTO_FULL_REVIEW_MIN_SCORE)
-    rows = (
-        (
-            await db.execute(
-                select(CandidateSearchResult)
-                .where(
-                    CandidateSearchResult.run_id == run.id,
-                    CandidateSearchResult.state == "evaluated",
-                    CandidateSearchResult.eligible.is_(True),
-                    # Wynik bez zmierzonej semantyki nie jest rankingiem.
-                    CandidateSearchResult.measurement == "measured",
-                    CandidateSearchResult.fit_score >= min_score,
+    require_must = bool(settings.AUTO_MATCH_REQUIRE_MUST)
+    published = 0
+    offset = 0
+    while True:
+        rows = (
+            (
+                await db.execute(
+                    select(CandidateSearchResult)
+                    .where(
+                        CandidateSearchResult.run_id == run.id,
+                        CandidateSearchResult.state == "evaluated",
+                        CandidateSearchResult.eligible.is_(True),
+                        # Wynik bez zmierzonej semantyki nie jest rankingiem.
+                        CandidateSearchResult.measurement == "measured",
+                        CandidateSearchResult.fit_score >= min_score,
+                    )
+                    .order_by(
+                        CandidateSearchResult.fit_score.desc(),
+                        CandidateSearchResult.candidate_id,
+                    )
+                    .offset(offset)
+                    .limit(_PUBLISH_PAGE)
                 )
-                .order_by(
-                    CandidateSearchResult.fit_score.desc(),
-                    CandidateSearchResult.candidate_id,
-                )
-                # Reguła must-have odsiewa część wierszy — bierzemy zapas.
-                .limit(top_k * 3)
+            )
+            .scalars()
+            .all()
+        )
+        if not rows:
+            break
+        offset += len(rows)
+        picked = []
+        for row in rows:
+            requirements = (row.evidence or {}).get("requirements") or []
+            rec = {
+                "score": float(row.fit_score),
+                "status": "published",
+                "matching_must": _requirement_names(requirements, met=True),
+                "gap_must": _requirement_names(requirements, met=False),
+            }
+            if not is_good_match(rec, min_score=min_score, require_must=require_must):
+                continue
+            picked.append((row, rec, requirements))
+        if picked:
+            candidates = {
+                c.id: c
+                for c in (
+                    await db.scalars(
+                        select(Candidate).where(
+                            Candidate.id.in_([row.candidate_id for row, _, _ in picked])
+                        )
+                    )
+                ).all()
+            }
+            payload = [
+                {
+                    "candidate_id": row.candidate_id,
+                    "score": rec["score"],
+                    "cv_revision": candidate_revision(candidates[row.candidate_id]),
+                    # `sanitize_evidence` przepuszcza wyłącznie nazwy wymagań i liczby.
+                    "evidence": {
+                        "requirements": requirements,
+                        "matched_must": rec["matching_must"],
+                        "missing_must": rec["gap_must"],
+                    },
+                }
+                for row, rec, requirements in picked
+                if row.candidate_id in candidates
+            ]
+            published += await upsert_proposals(
+                db,
+                run.job_id,
+                payload,
+                source="full_base",
+                run_id=run.id,
+                revive_expired=revive_expired,
+            )
+        if len(rows) < _PUBLISH_PAGE:
+            break
+    return published
+
+
+async def _newest_result_run(db, run: CandidateSearchRun) -> bool:
+    """Czy to najnowszy przegląd automatyczny tej rekrutacji z wynikami.
+
+    Nowszy przegląd bez wektora zapytania (``SEMANTIC_BLIND_METRIC``) niczego
+    nie opublikował, więc się nie liczy. Nowszy przegląd jeszcze bez publikacji
+    — liczy się (opublikuje i wygasi sam). Bez tego zaległa publikacja
+    starszego przeglądu (`reconcile_unpublished`) wygaszałaby propozycje
+    nowszego.
+    """
+    if run.job_id is None or run.created_at is None:
+        return False
+    newer = await db.scalar(
+        select(
+            exists().where(
+                store.auto_origin_clause(),
+                CandidateSearchRun.job_id == run.job_id,
+                CandidateSearchRun.id != run.id,
+                CandidateSearchRun.state.in_(store.RESULT_STATES),
+                CandidateSearchRun.created_at > run.created_at,
+                ~func.coalesce(
+                    CandidateSearchRun.metrics.has_key(SEMANTIC_BLIND_METRIC), False
+                ),
             )
         )
-        .scalars()
-        .all()
     )
-    picked = []
-    for row in rows:
-        requirements = (row.evidence or {}).get("requirements") or []
-        rec = {
-            "score": float(row.fit_score),
-            "status": "published",
-            "matching_must": _requirement_names(requirements, met=True),
-            "gap_must": _requirement_names(requirements, met=False),
-        }
-        if not is_good_match(
-            rec,
-            min_score=min_score,
-            require_must=bool(settings.AUTO_MATCH_REQUIRE_MUST),
-        ):
-            continue
-        picked.append((row, rec, requirements))
-        if len(picked) >= top_k:
-            break
-    if not picked:
-        return 0
-    candidates = {
-        c.id: c
-        for c in (
-            await db.scalars(
-                select(Candidate).where(
-                    Candidate.id.in_([row.candidate_id for row, _, _ in picked])
-                )
-            )
-        ).all()
-    }
-    payload = [
-        {
-            "candidate_id": row.candidate_id,
-            "score": rec["score"],
-            "cv_revision": candidate_revision(candidates[row.candidate_id]),
-            # `sanitize_evidence` przepuszcza wyłącznie nazwy wymagań i liczby.
-            "evidence": {
-                "requirements": requirements,
-                "matched_must": rec["matching_must"],
-                "missing_must": rec["gap_must"],
-            },
-        }
-        for row, rec, requirements in picked
-        if row.candidate_id in candidates
-    ]
-    return await upsert_proposals(
-        db, run.job_id, payload, source="full_base", run_id=run.id
-    )
+    return not newer
 
 
 async def _semantic_blind(db, run: CandidateSearchRun) -> bool:
@@ -722,13 +781,29 @@ async def _publish(db, run: CandidateSearchRun, *, eligible: Optional[int]) -> i
         )
         await db.flush()
         return 0
-    count = await publish_run_proposals(db, run)
+    newest = await _newest_result_run(db, run)
+    count = await publish_run_proposals(db, run, revive_expired=newest)
     incomplete = await _incomplete_coverage(db, run)
+    # Wygaszanie tylko po przeglądzie, który naprawdę zamyka temat: kompletny
+    # (bez niepełnego pokrycia — także zaakceptowanego po serii, bo pominięci
+    # w awarii nie zostali ocenieni), najnowszy z wynikami i w rekrutacji, która
+    # przyjmuje propozycje (inaczej publikacja niczego nie zapisała).
+    expired = 0
+    if (
+        not incomplete
+        and newest
+        and run.job_id is not None
+        and await _job_accepts_proposals(db, run.job_id)
+    ):
+        from app.services.job_proposals import expire_full_base
+
+        expired = await expire_full_base(db, job_id=run.job_id, run_id=run.id)
     # Po `finish_run` telemetria już nie nadpisuje `metrics`.
     metrics = {**(run.metrics or {}), PROPOSALS_METRIC: count}
     details = {
         "run_id": run.id,
         "proposals": count,
+        "expired": expired,
         "eligible": eligible,
         "state": run.state,
         # Pamięć automatu po retencji przeglądu (runda 6 audytu).

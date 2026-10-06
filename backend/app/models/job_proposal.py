@@ -10,6 +10,10 @@ CAŁY zespół i wszystkie źródła, dopóki osoba nie dostanie NOWEJ wersji CV
 (``cv_revision`` inne niż ``dismissed_cv_revision``) — wtedy wraca jako
 ``proposed`` z flagą ``previously_dismissed`` w ``evidence``.
 
+``expired`` (0422): propozycja nocnego przeglądu bazy (``full_base``), której
+nowszy, kompletny przegląd tej rekrutacji już nie zaproponował. Wiersz zostaje,
+status pary go pomija, a powrót osoby w kolejnym przeglądzie = ``proposed``.
+
 Licznik na liście rekrutacji jest zespołowy (propozycja liczy się, dopóki ktoś
 jej nie obsłuży: „Dodaj" albo „Pomiń") — nie ma znacznika „widziane" per osoba.
 
@@ -52,7 +56,9 @@ JOB_PROPOSAL_SOURCES = (
     # 0405: dopasowanie z integracji (JJIT/RocketJobs) — nigdy karta na tablicy.
     "job_board",
 )
-JOB_PROPOSAL_STATUSES = ("proposed", "dismissed", "added")
+# 0422: ``expired`` = nowszy, kompletny nocny przegląd już tej osoby nie
+# zaproponował. Status pary go pomija; powrót w kolejnym przeglądzie = ``proposed``.
+JOB_PROPOSAL_STATUSES = ("proposed", "dismissed", "added", "expired")
 
 
 class JobProposal(Base):
@@ -72,7 +78,7 @@ class JobProposal(Base):
             name="ck_job_proposals_dismiss_reason",
         ),
         CheckConstraint(
-            "status IN ('proposed', 'dismissed', 'added')",
+            "status IN ('proposed', 'dismissed', 'added', 'expired')",
             name="ck_job_proposals_status",
         ),
         Index("ix_job_proposals_job_status_seen", "job_id", "status", "first_seen_at"),

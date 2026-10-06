@@ -1115,6 +1115,61 @@ describe("BoardTasksPanel — przepływ rekrutacji i Finanse (04.10.2026)", () =
     ).toHaveTextContent("Ewa Dąb");
   });
 
+  it("najlepsze propozycje z bazy: „Dodaj” idzie przez skrzynkę, dodana osoba znika", async () => {
+    mockQueue({
+      flow: emptyFlow({
+        top_proposals: [
+          {
+            job_id: 31,
+            job_title: "Java Developer",
+            job_working_title: null,
+            client_name: "Bank Kappa",
+            total: 40,
+            people: [
+              { candidate_id: 51, candidate_name: "Jan Lis", score: 91.4 },
+              { candidate_id: 52, candidate_name: "Ewa Dąb", score: 88 },
+            ],
+          },
+        ],
+      }),
+    });
+    post.mockImplementation((url: string) =>
+      Promise.resolve({
+        data: url.endsWith("/proposals/bulk")
+          ? { added: [51], skipped: [], warnings: [], total_added: 1, total_skipped: 0 }
+          : {},
+      }),
+    );
+    renderPanel();
+    const section = await screen.findByRole("region", { name: "Najlepsze propozycje z bazy" });
+    expect(within(section).getByText("2")).toHaveClass("text-primary");
+    expect(within(section).getByText("91 pkt")).toBeTruthy();
+    expect(within(section).getByText("i 38 kolejnych osób w skrzynce")).toBeTruthy();
+    expect(within(section).getByRole("link", { name: "Wszystkie: 40" })).toHaveAttribute(
+      "href",
+      "/jobs/31?win=add&wintab=base",
+    );
+    await userEvent.click(
+      within(section).getByRole("button", { name: "Dodaj Jan Lis do rekrutacji Java Developer" }),
+    );
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/jobs/31/proposals/bulk", {
+        candidate_ids: [51],
+        source: "proposal_inbox",
+      }),
+    );
+    await waitFor(() => expect(within(section).queryByText("Jan Lis")).toBeNull());
+    expect(showSuccess).toHaveBeenCalledWith("Dodano do rekrutacji.");
+
+    // „Pomiń” najpierw pyta o powód — nic jeszcze nie idzie do serwera.
+    await userEvent.click(within(section).getByRole("button", { name: "Pomiń Ewa Dąb" }));
+    expect(await screen.findByRole("dialog", { name: "Dlaczego pomijasz tę osobę?" })).toBeTruthy();
+    expect(post).not.toHaveBeenCalledWith(
+      "/api/jobs/31/proposal-inbox/52/dismiss",
+      expect.anything(),
+    );
+  });
+
   it("DL: „Czeka na klienta” jest w „U innych”, umowy do podpisu i zamówienia z maila w „Twój ruch”", async () => {
     useAuthStore.setState({ user: { id: 1, role: "delivery_lead" }, realUser: null } as never);
     mockQueue({

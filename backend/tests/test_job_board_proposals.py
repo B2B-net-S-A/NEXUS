@@ -130,6 +130,8 @@ async def test_integration_without_score_still_adds_a_card(routed):
     )
     assert routed["propose"] == []
     assert routed["add"][0]["entry_source"] == "auto_match"
+    # 07.10.2026: karta z integracji nie zamyka propozycji („dodana” = człowiek).
+    assert routed["add"][0]["mark_proposals"] is False
 
 
 @pytest.mark.asyncio
@@ -143,6 +145,7 @@ async def test_human_request_ignores_auto_match_and_adds(routed):
     )
     assert routed["propose"] == []
     assert routed["add"][0]["entry_source"] == "added_manual"
+    assert routed["add"][0]["mark_proposals"] is True
 
 
 @pytest.mark.asyncio

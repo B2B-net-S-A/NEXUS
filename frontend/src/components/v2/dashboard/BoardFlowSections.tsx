@@ -13,7 +13,8 @@
  *  - umowy B2B czekające na podpis i zamówienia z maila (DL),
  *  - „Czeka na klienta” (DL) — w grupie „U innych”,
  *  - blok Finansów (zmiany w zamówieniach, braki, nowe PDF-y, nieudane maile,
- *    zatrudnieni bez zamówienia).
+ *    zatrudnieni bez zamówienia),
+ *  - „Najlepsze propozycje z bazy” (07.10.2026) — `BoardTopProposals`.
  */
 
 import Link from "next/link";
@@ -33,6 +34,7 @@ import { countPl } from "@/lib/plural-pl";
 import { ORDER_CHANGES_POLL_MS } from "@/lib/polling";
 
 import { Section } from "./BoardTasksSection";
+import { BoardTopProposals, topProposalsCount } from "./BoardTopProposals";
 
 const MISSING_LABEL = { sheet: "arkusz", rate: "stawka" } as const;
 
@@ -93,7 +95,8 @@ export function flowWorkCount(
       flow.verified.length +
       flow.postings_total +
       flow.unsigned_contracts.length +
-      flow.order_mail_review
+      flow.order_mail_review +
+      topProposalsCount(flow.top_proposals)
     : 0;
   const fin = finance
     ? finance.gaps_open +
@@ -212,6 +215,15 @@ export function BoardFlowSections({
             </li>
           ))}
         </Section>
+      )}
+
+      {flow && (flow.top_proposals?.length ?? 0) > 0 && (
+        <BoardTopProposals
+          rows={flow.top_proposals}
+          expanded={expanded["flow_top_proposals"] === true}
+          onToggle={() => onToggle("flow_top_proposals")}
+          shown={shown}
+        />
       )}
 
       {flow && flow.unsigned_contracts.length > 0 && (
