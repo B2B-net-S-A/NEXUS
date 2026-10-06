@@ -96,6 +96,41 @@ FAILED_SAMPLE = 50
 DRY_RUN_MAX_AGE = timedelta(days=7)
 REMOVAL_REASON = "job_board_to_proposals"
 
+# Tryb ``delete`` (06.10.2026): karty scrapera na rekrutacjach ZAMKNIĘTYCH
+# (z Traffita i z NEXUSA, audyt 06.10: 1 271 kart). Propozycja w zamkniętej
+# rekrutacji nie ma sensu, więc para znika tą samą drogą co „Usuń
+# z rekrutacji” i nic w jej miejsce nie powstaje. Osobne klucze stanu, próby
+# i danych odwrócenia — dwa tryby nie mogą nadpisać sobie raportów.
+MODE_CONVERT = "convert"
+MODE_DELETE = "delete"
+MODES = (MODE_CONVERT, MODE_DELETE)
+DELETE_STATE_KEY = "job_board_cards_closed_cleanup_2026_10"
+DELETE_DRY_RUN_KEY = "job_board_cards_closed_cleanup_2026_10_dry_run"
+DELETE_DETAILS_KEY = "repair_details_job_board_cards_closed_cleanup_2026_10"
+DELETE_REMOVAL_REASON = "job_board_closed_job_cleanup"
+
+_KEYS: dict[str, dict[str, str]] = {
+    MODE_CONVERT: {"state": STATE_KEY, "dry_run": DRY_RUN_KEY, "details": DETAILS_KEY},
+    MODE_DELETE: {
+        "state": DELETE_STATE_KEY,
+        "dry_run": DELETE_DRY_RUN_KEY,
+        "details": DELETE_DETAILS_KEY,
+    },
+}
+_DETAILS_FIELD = {MODE_CONVERT: "moved", MODE_DELETE: "deleted"}
+_DONE_COUNTER = {MODE_CONVERT: "moved", MODE_DELETE: "deleted"}
+
+# Próba na sucho musi być młodsza niż ten proces (06.10.2026): zapis po
+# deployu bez nowej próby liczyłby się regułami, których nikt nie oglądał.
+PROCESS_STARTED_AT = datetime.now(timezone.utc)
+
+
+def _mode(mode: str) -> str:
+    if mode not in MODES:
+        raise ValueError(f"Unknown mode: {mode!r}")
+    return mode
+
+
 # FK pomijane w ogólnym sprawdzeniu: wskaźnik migracyjny procesu na jego własny
 # ostatni etap i migawka CV z dodania (ta ma własny warunek „nietknięta”).
 _SKIPPED_FKS = frozenset(
@@ -146,8 +181,12 @@ def _pair_notes(alias: str) -> str:
 
 # Wynik czytelny = „Auto-match score:” i cyfra (lustro ``_SCORE_RE``). Bez
 # klas POSIX (``[[:space:]]``): ``text()`` czytałby ``:spac`` jako parametr.
+# Między dwukropkiem a liczbą bywa HTML (audyt 06.10.2026, Q6):
+# ``score:&nbsp;71``, ``&#160;``, twarda spacja albo znacznik — ``\s`` przy
+# ctype ``C`` produkcji zna tylko ASCII. Python (``_SCORE_RE``) czyta tekst
+# po ``html.unescape``, więc tam ``\s`` wystarcza.
 _SCORE_MARK = "Auto-match score:"
-_SCORE_REGEX_SQL = r"Auto-match score:\s*[0-9]"
+_SCORE_REGEX_SQL = "Auto-match score:(\\s|&nbsp;|&#160;|\u00a0|<[^>]*>)*[0-9]"
 
 # Baza: otwarte procesy z plakietką auto-matcha od integracji ALBO z pustym
 # ``entry_meta`` i notatką automatu (scraper 30.09–05.10). ``stage_id`` =
@@ -155,6 +194,7 @@ _SCORE_REGEX_SQL = r"Auto-match score:\s*[0-9]"
 # ``automatch_note`` = najnowsza notatka automatu z czytelnym wynikiem.
 _BASE_SQL = f"""
 SELECT rp.id AS process_id, rp.candidate_id, rp.job_id, rp.entry_meta,
+       rp.opened_at,
        (SELECT max(c.id) FROM candidate_stages c
         WHERE c.candidate_id = rp.candidate_id AND c.job_id = rp.job_id) AS stage_id,
        (SELECT array_agg(an.id ORDER BY an.id) {_pair_notes("an")})
@@ -324,7 +364,7 @@ def qualifying_sql(disqualifiers: list[tuple[str, str]], *, one_pair: bool) -> s
     pair = "WHERE base.process_id = :process_id" if one_pair else ""
     return (
         "SELECT b.process_id, b.candidate_id, b.job_id, b.entry_meta, b.stage_id, "
-        "b.automatch_note_ids, b.automatch_note "
+        "b.automatch_note_ids, b.automatch_note, b.opened_at "
         f"FROM (SELECT * FROM ({_BASE_SQL}) base {pair}) b "
         f"WHERE {where} ORDER BY b.job_id, b.candidate_id"
     )
@@ -360,35 +400,72 @@ async def _write_setting(db: AsyncSession, key: str, value: dict[str, Any]) -> N
     )
 
 
-async def _append_details(db: AsyncSession, entries: list[dict[str, Any]]) -> None:
-    """Dopisz dane do odwrócenia przeniesienia (same identyfikatory i wynik)."""
+async def _append_details(
+    db: AsyncSession, entries: list[dict[str, Any]], mode: str = MODE_CONVERT
+) -> None:
+    """Dopisz dane do odwrócenia (same identyfikatory i wynik).
+
+    Pole (``moved`` / ``deleted``) jest stałą trybu, nie wartością z żądania.
+    """
+    field = _DETAILS_FIELD[_mode(mode)]
     await db.execute(
         text(
-            """
+            f"""
             INSERT INTO app_settings (key, value, updated_at)
-            VALUES (:key, jsonb_build_object('moved', CAST(:value AS jsonb)), now())
+            VALUES (:key, jsonb_build_object('{field}', CAST(:value AS jsonb)), now())
             ON CONFLICT (key) DO UPDATE SET
                 value = jsonb_build_object(
-                    'moved',
-                    COALESCE(app_settings.value -> 'moved', '[]'::jsonb)
+                    '{field}',
+                    COALESCE(app_settings.value -> '{field}', '[]'::jsonb)
                     || CAST(:value AS jsonb)
                 ),
                 updated_at = now()
             """
         ),
-        {"key": DETAILS_KEY, "value": json.dumps(entries, default=str)},
+        {"key": _KEYS[mode]["details"], "value": json.dumps(entries, default=str)},
     )
 
 
-async def load_disqualifiers(db: AsyncSession) -> list[tuple[str, str]]:
+# Tryb ``delete``: rekrutacja MUSI być zamknięta (dowolne pochodzenie).
+_JOB_NOT_CLOSED = (
+    "job_not_closed",
+    """NOT EXISTS (SELECT 1 FROM jobs j WHERE j.id = b.job_id
+              AND j.status = 'closed')""",
+)
+
+
+def static_disqualifiers(mode: str = MODE_CONVERT) -> list[tuple[str, str]]:
+    """Warunki bez katalogu FK. ``delete`` odwraca warunek rekrutacji
+    i nie wymaga czytelnego wyniku (propozycji nie zakłada)."""
+    if _mode(mode) == MODE_CONVERT:
+        return list(_STATIC_DISQUALIFIERS)
+    out: list[tuple[str, str]] = [_JOB_NOT_CLOSED]
+    for reason, predicate in _STATIC_DISQUALIFIERS:
+        if reason in {"job_not_eligible", "automatch_note_unreadable"}:
+            continue
+        out.append((reason, predicate))
+    return out
+
+
+async def load_disqualifiers(
+    db: AsyncSession, mode: str = MODE_CONVERT
+) -> list[tuple[str, str]]:
     rows = (await db.execute(text(_FK_SQL))).mappings().all()
     fks = [dict(r) for r in rows]
-    return list(_STATIC_DISQUALIFIERS) + fk_disqualifiers(fks)
+    return static_disqualifiers(mode) + fk_disqualifiers(fks)
 
 
-async def plan(db: AsyncSession) -> dict[str, Any]:
+async def count_targets(db: AsyncSession, mode: str = MODE_CONVERT) -> int:
+    """Ile par zapis wziąłby TERAZ (porównanie z ``expected`` z próby)."""
+    disqualifiers = await load_disqualifiers(db, mode)
+    sql = qualifying_sql(disqualifiers, one_pair=False)
+    return int(await db.scalar(text(f"SELECT count(*) FROM ({sql}) q")) or 0)
+
+
+async def plan(db: AsyncSession, mode: str = MODE_CONVERT) -> dict[str, Any]:
     """Przebieg próbny: liczby per rekrutacja, powody odrzucenia, przykłady."""
-    disqualifiers = await load_disqualifiers(db)
+    mode = _mode(mode)
+    disqualifiers = await load_disqualifiers(db, mode)
     rows = (
         (await db.execute(text(qualifying_sql(disqualifiers, one_pair=False))))
         .mappings()
@@ -401,6 +478,7 @@ async def plan(db: AsyncSession) -> dict[str, Any]:
     from_notes = sum(1 for r in rows if not _has_process_badge(r))
     return {
         "dry_run": True,
+        "mode": mode,
         "base_pairs": int(blocked_row["base"] or 0),
         "qualifying_pairs": len(rows),
         "qualifying_from_automatch_notes": from_notes,
@@ -548,6 +626,8 @@ async def _convert_pair(
         .scalars()
         .all()
     )
+    # Data karty = data otwarcia procesu (audyt 06.10.2026, R7): inaczej 1 160
+    # osób naraz w kaflu „Nowi z ogłoszeń (7 dni)” z dniem przeniesienia.
     await upsert_proposals(
         db,
         job_id,
@@ -560,6 +640,7 @@ async def _convert_pair(
             }
         ],
         source="job_board",
+        first_seen_at=fresh["opened_at"],
     )
     db.add(
         Activity(
@@ -591,10 +672,131 @@ async def _convert_pair(
     }
 
 
+async def _delete_pair(
+    db: AsyncSession,
+    *,
+    process_id: int,
+    candidate_id: int,
+    job_id: int,
+    actor: Any,
+    disqualifiers: list[tuple[str, str]],
+) -> Optional[dict[str, Any]]:
+    """Usuń kartę z ZAMKNIĘTEJ rekrutacji (tryb ``delete``). ``None`` = para
+    przestała się kwalifikować. Ta sama droga co „Usuń z rekrutacji”, bez
+    propozycji; notatki automatu zostają."""
+    from app.models.activity import Activity
+    from app.models.candidate import Candidate
+    from app.models.candidate_stage_removal import CandidateStageRemoval
+    from app.models.recruitment_pipeline import CandidateStage
+    from app.services.candidate_contact_hooks import (
+        has_active_contact_trigger,
+        maybe_close_contact_opportunity,
+    )
+    from app.services.candidate_stage_removal_snapshot import (
+        ordered_stage_rows,
+        stage_removal_snapshot,
+    )
+    from app.services.recruitment_process_commands import (
+        delete_voided_stage_history,
+        void_process,
+    )
+
+    candidate = await db.scalar(
+        select(Candidate).where(Candidate.id == candidate_id).with_for_update()
+    )
+    if candidate is None:
+        return None
+    fresh = (
+        (
+            await db.execute(
+                text(qualifying_sql(disqualifiers, one_pair=True)),
+                {"process_id": process_id},
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if fresh is None:
+        return None
+    automatch_note_ids = [int(i) for i in (fresh["automatch_note_ids"] or [])]
+    stage_rows = (
+        (
+            await db.execute(
+                select(CandidateStage)
+                .where(
+                    CandidateStage.candidate_id == candidate_id,
+                    CandidateStage.job_id == job_id,
+                )
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if len(stage_rows) != 1:
+        return None
+    ordered = ordered_stage_rows(stage_rows)
+    removed_stages = stage_removal_snapshot(ordered)
+    removal = CandidateStageRemoval(
+        candidate_id=candidate_id,
+        job_id=job_id,
+        removed_by=actor.id,
+        reason=DELETE_REMOVAL_REASON,
+        last_stage=ordered[-1].stage.value,
+        stage_count=len(stage_rows),
+        stages_snapshot=removed_stages,
+    )
+    db.add(removal)
+    await db.flush()
+    stage_id = ordered[-1].id
+    stage_def_id = ordered[-1].stage_def_id
+
+    await void_process(db, candidate_id=candidate_id, job_id=job_id, actor_user=actor)
+    await delete_voided_stage_history(db, candidate_id=candidate_id, job_id=job_id)
+    if not await has_active_contact_trigger(
+        db, candidate_id=candidate_id, job_id=job_id
+    ):
+        await maybe_close_contact_opportunity(
+            db,
+            candidate_id=candidate_id,
+            job_id=job_id,
+            actor_user_id=actor.id,
+            reason="removed_from_recruitment",
+        )
+    db.add(
+        Activity(
+            entity_type="candidate",
+            entity_id=candidate_id,
+            action="removed_from_recruitment",
+            user_id=actor.id,
+            details={
+                "job_id": job_id,
+                "process_id": process_id,
+                "removal_id": removal.id,
+                "removed_stage_count": len(stage_rows),
+                "reason": DELETE_REMOVAL_REASON,
+                "automatch_note_ids": automatch_note_ids,
+            },
+        )
+    )
+    await db.flush()
+    return {
+        "candidate_id": candidate_id,
+        "job_id": job_id,
+        "process_id": process_id,
+        "removal_id": removal.id,
+        "stage_id": stage_id,
+        "stage_def_id": stage_def_id,
+        "original_entry_meta": fresh["entry_meta"],
+        "automatch_note_ids": automatch_note_ids,
+    }
+
+
 async def apply(
     db: AsyncSession,
     *,
     actor: Any,
+    mode: str = MODE_CONVERT,
     only_process_ids: Optional[set[int]] = None,
 ) -> dict[str, Any]:
     """Zapis: para po parze w savepointach, paczki po ``CHUNK`` z commitem.
@@ -604,8 +806,11 @@ async def apply(
     """
     from app.models.user import User
 
+    mode = _mode(mode)
+    pair_fn = _convert_pair if mode == MODE_CONVERT else _delete_pair
+    done = _DONE_COUNTER[mode]
     actor_id = int(actor.id)
-    disqualifiers = await load_disqualifiers(db)
+    disqualifiers = await load_disqualifiers(db, mode)
     targets = [
         (int(r["process_id"]), int(r["candidate_id"]), int(r["job_id"]))
         for r in (await db.execute(text(qualifying_sql(disqualifiers, one_pair=False))))
@@ -618,7 +823,7 @@ async def apply(
     # w pętli doczytywałby leniwie (MissingGreenlet w async).
     actor = await db.get(User, actor_id)
 
-    counts: Counter[str] = Counter({"moved": 0, "changed_meanwhile": 0, "failed": 0})
+    counts: Counter[str] = Counter({done: 0, "changed_meanwhile": 0, "failed": 0})
     per_job: Counter[int] = Counter()
     samples: list[dict[str, Any]] = []
     failed_process_ids: list[int] = []
@@ -635,7 +840,7 @@ async def apply(
             for process_id, candidate_id, job_id in chunk:
                 try:
                     async with db.begin_nested():
-                        entry = await _convert_pair(
+                        entry = await pair_fn(
                             db,
                             process_id=process_id,
                             candidate_id=candidate_id,
@@ -655,10 +860,10 @@ async def apply(
                 if entry is None:
                     chunk_counts["changed_meanwhile"] += 1
                     continue
-                chunk_counts["moved"] += 1
+                chunk_counts[done] += 1
                 moved.append(entry)
             if moved:
-                await _append_details(db, moved)
+                await _append_details(db, moved, mode)
             await db.commit()
         except Exception as exc:  # noqa: BLE001
             await db.rollback()
@@ -682,6 +887,7 @@ async def apply(
                 )
     return {
         "dry_run": False,
+        "mode": mode,
         "targets": len(targets),
         "stopped_on_error": stopped,
         "counts": dict(counts),
@@ -697,23 +903,24 @@ async def apply(
 async def finish_run(
     db: AsyncSession, report: dict[str, Any], *, started: datetime
 ) -> None:
-    """Próba → ``DRY_RUN_KEY``; zapis → stan z sumami (paragon: liczby i ID)."""
+    """Próba → klucz próby trybu; zapis → stan z sumami (paragon: liczby i ID)."""
+    keys = _KEYS[_mode(report.get("mode") or MODE_CONVERT)]
     report = {
         **report,
         "started_at": started.isoformat(),
         "finished_at": datetime.now(timezone.utc).isoformat(),
     }
     if report["dry_run"]:
-        await _write_setting(db, DRY_RUN_KEY, report)
+        await _write_setting(db, keys["dry_run"], report)
         await db.commit()
         return
-    state = await _read_setting(db, STATE_KEY) or {}
+    state = await _read_setting(db, keys["state"]) or {}
     totals = dict(state.get("totals") or {})
     for key, value in report["counts"].items():
         totals[key] = int(totals.get(key) or 0) + int(value)
     await _write_setting(
         db,
-        STATE_KEY,
+        keys["state"],
         {
             "runs": int(state.get("runs") or 0) + 1,
             "totals": totals,
@@ -726,32 +933,58 @@ async def finish_run(
 
 # ── Przebieg w tle ───────────────────────────────────────────────────────────
 
-_running: dict[str, bool] = {"convert": False}
+_running: dict[str, bool] = {MODE_CONVERT: False, MODE_DELETE: False}
 
 
-def is_running() -> bool:
-    return _running["convert"]
+def is_running(mode: str = MODE_CONVERT) -> bool:
+    return _running[_mode(mode)]
 
 
-async def fresh_dry_run_exists(db: AsyncSession) -> bool:
-    report = await _read_setting(db, DRY_RUN_KEY)
+def reserve(mode: str = MODE_CONVERT) -> bool:
+    """Zajmij tryb synchronicznie w handlerze (dwa szybkie POST-y nie
+    uruchomią dwóch zapisów — ``spawn`` startuje zadanie dopiero w kolejnej
+    iteracji pętli). ``False`` = zapis już trwa."""
+    mode = _mode(mode)
+    if _running[mode]:
+        return False
+    _running[mode] = True
+    return True
+
+
+def release(mode: str = MODE_CONVERT) -> None:
+    _running[_mode(mode)] = False
+
+
+def dry_run_is_fresh(
+    report: Optional[dict[str, Any]], *, now: Optional[datetime] = None
+) -> bool:
+    """Próba z ostatnich 7 dni i młodsza niż ten proces (po deployu — nowa)."""
     if not report or not report.get("finished_at"):
         return False
     try:
         finished = datetime.fromisoformat(str(report["finished_at"]))
     except ValueError:
         return False
-    return datetime.now(timezone.utc) - finished <= DRY_RUN_MAX_AGE
+    if finished.tzinfo is None:
+        finished = finished.replace(tzinfo=timezone.utc)
+    now = now or datetime.now(timezone.utc)
+    return finished >= PROCESS_STARTED_AT and now - finished <= DRY_RUN_MAX_AGE
 
 
-async def run_apply(*, actor_user_id: int) -> None:
-    """Zapis w tle (spawn z endpointu) — ~2 tys. par to kilka minut."""
+async def fresh_dry_run_exists(db: AsyncSession, mode: str = MODE_CONVERT) -> bool:
+    return dry_run_is_fresh(await _read_setting(db, _KEYS[_mode(mode)]["dry_run"]))
+
+
+async def run_apply(*, actor_user_id: int, mode: str = MODE_CONVERT) -> None:
+    """Zapis w tle (spawn z endpointu) — ~2 tys. par to kilka minut.
+
+    Endpoint rezerwuje tryb (``reserve``) przed ``spawn``; zwalnia go ten bieg.
+    """
     from app.core.database import AsyncSessionLocal
     from app.models.user import User
 
-    if _running["convert"]:
-        return
-    _running["convert"] = True
+    mode = _mode(mode)
+    _running[mode] = True
     started = datetime.now(timezone.utc)
     try:
         async with AsyncSessionLocal() as db:
@@ -759,22 +992,41 @@ async def run_apply(*, actor_user_id: int) -> None:
             if actor is None:
                 logger.error("job_board cards: actor %s missing", actor_user_id)
                 return
-            report = await apply(db, actor=actor)
+            report = await apply(db, actor=actor, mode=mode)
             await finish_run(db, report, started=started)
-            logger.info("job_board cards done: %s", json.dumps(report["counts"]))
+            logger.info(
+                "job_board cards (%s) done: %s", mode, json.dumps(report["counts"])
+            )
     finally:
-        _running["convert"] = False
+        _running[mode] = False
 
 
 async def read_status(db: AsyncSession) -> dict[str, Any]:
     return {
-        "running": is_running(),
+        "running": is_running(MODE_CONVERT),
         "dry_run": await _read_setting(db, DRY_RUN_KEY),
         "state": await _read_setting(db, STATE_KEY),
+        "delete": {
+            "running": is_running(MODE_DELETE),
+            "dry_run": await _read_setting(db, DELETE_DRY_RUN_KEY),
+            "state": await _read_setting(db, DELETE_STATE_KEY),
+        },
+        "process_started_at": PROCESS_STARTED_AT.isoformat(),
     }
 
 
 __all__ = [
+    "DELETE_DETAILS_KEY",
+    "DELETE_DRY_RUN_KEY",
+    "DELETE_REMOVAL_REASON",
+    "DELETE_STATE_KEY",
+    "MODE_CONVERT",
+    "MODE_DELETE",
+    "count_targets",
+    "dry_run_is_fresh",
+    "release",
+    "reserve",
+    "static_disqualifiers",
     "DETAILS_KEY",
     "DRY_RUN_KEY",
     "STATE_KEY",

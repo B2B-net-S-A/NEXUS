@@ -197,8 +197,13 @@ async def upsert_proposals(
     source: str,
     run_id: Optional[str] = None,
     cv_revision: Optional[str] = None,
+    first_seen_at: Optional[datetime] = None,
 ) -> int:
     """Zapisz propozycje jednego źródła. Zwraca liczbę przetworzonych par.
+
+    ``first_seen_at`` (06.10.2026, R7) ustawia datę NOWEGO wiersza — przeniesienie
+    starej karty niesie datę otwarcia procesu zamiast dnia przeniesienia.
+    Istniejącego wiersza nie zmienia (konflikt nie rusza ``first_seen_at``).
 
     ``rows``: ``{"candidate_id": int, "score": number|None, "evidence":
     dict|None, "cv_revision": str|None}``. Wersja CV to ta sama wartość co
@@ -234,6 +239,8 @@ async def upsert_proposals(
             "run_id": run_id,
             "cv_revision": _revision(row.get("cv_revision")) or default_revision,
         }
+        if first_seen_at is not None:
+            by_candidate[candidate_id]["first_seen_at"] = first_seen_at
     # Rosnąco po kandydacie — stała kolejność blokad wierszy między
     # równoległymi zapisami tego samego źródła.
     values = [by_candidate[cid] for cid in sorted(by_candidate)]

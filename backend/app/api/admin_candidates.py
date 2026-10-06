@@ -19,6 +19,11 @@
   report for current identity values that differ from the latest unresolved
   manual submission or were preserved by the first-sync bootstrap guard. It
   never repairs data or backfills identity ownership.
+- ``POST /api/admin/candidates/scraper-rates/revert?dry_run=true`` — cofnięcie
+  stawek profilu wpisanych przez scrapery jako ręczne (audyt 06.10.2026, D5).
+  Próba oddaje liczby i przykłady z samymi ID; ``dry_run=false`` wymaga
+  ``expected`` równego liczbie kandydatów z próby. Reguły:
+  ``services/scraper_rate_revert.py``.
 
 RBAC: admin only (``AdminUser`` dependency).
 """
@@ -1100,3 +1105,47 @@ async def suspected_name_overwrites(
         "candidates": suspects,
         "limitations": list(_NAME_OVERWRITE_LIMITATIONS),
     }
+
+
+@router.post("/scraper-rates/revert")
+async def revert_scraper_rates(
+    admin: AdminUser,
+    dry_run: bool = Query(True),
+    expected: Optional[int] = Query(None, ge=0),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Cofnij stawki profilu wpisane przez scrapery (D5, 06.10.2026).
+
+    Zapis wymaga ``expected`` równego liczbie kandydatów z próby — gdy dane
+    zmieniły się od próby, odpowiedź to 409 i nic się nie zapisuje.
+    """
+    from app.services import scraper_rate_revert
+
+    if not dry_run:
+        # Jeden zapis naraz; plan liczymy już pod blokadą.
+        await scraper_rate_revert.lock_for_apply(db)
+    plan, counts = await scraper_rate_revert.build_plan(db)
+    if dry_run:
+        return {
+            "dry_run": True,
+            "counts": counts,
+            "sample": scraper_rate_revert.sample(plan),
+        }
+    if not plan:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Nie ma stawek do cofnięcia — wszystkie zostały już cofnięte "
+            "albo zmienione później przez człowieka.",
+        )
+    if expected is None or expected != len(plan):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Liczba kandydatów do cofnięcia różni się od próby "
+                f"(teraz {len(plan)}). Uruchom próbę (dry_run=true) jeszcze raz "
+                "i podaj jej wynik w parametrze expected."
+            ),
+        )
+    run = await scraper_rate_revert.apply_plan(db, plan, counts, user_id=admin.id)
+    await db.commit()
+    return {"dry_run": False, "counts": run["counts"]}
