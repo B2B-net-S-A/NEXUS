@@ -289,7 +289,7 @@ async def test_unknown_panel_is_rejected_and_each_person_hides_their_own(app_cli
 @pytest.mark.asyncio
 async def test_only_head_of_recruitment_hides_task_lists(app_client):
     """Listy „Czeka na Ciebie” poza „CV w drodze” usuwa wyłącznie Head of
-    Recruitment (06.10.2026); przywrócić może każdy."""
+    Recruitment i admin (06.10.2026); przywrócić może każdy."""
     url = f"{URL}/panels/allocation_proposals"
     recruiter, _ = await _login()
     denied = await app_client.put(url, headers=recruiter, json={"hidden": True})
@@ -299,18 +299,19 @@ async def test_only_head_of_recruitment_hides_task_lists(app_client):
         await app_client.put(url, headers=recruiter, json={"hidden": False})
     ).status_code == 200
 
-    head, _ = await _login("head_of_recruitment")
-    for panel in ("allocation_proposals", "new_job_leads", "pending_jobs"):
-        hide = await app_client.put(
-            f"{URL}/panels/{panel}", headers=head, json={"hidden": True}
-        )
-        assert hide.status_code == 200, hide.text
-    read = await app_client.get(URL, headers=head)
-    assert read.json()["hidden_panels"] == [
-        "allocation_proposals",
-        "new_job_leads",
-        "pending_jobs",
-    ]
+    for role in ("head_of_recruitment", "admin"):
+        leader, _ = await _login(role)
+        for panel in ("allocation_proposals", "new_job_leads", "pending_jobs"):
+            hide = await app_client.put(
+                f"{URL}/panels/{panel}", headers=leader, json={"hidden": True}
+            )
+            assert hide.status_code == 200, hide.text
+        read = await app_client.get(URL, headers=leader)
+        assert read.json()["hidden_panels"] == [
+            "allocation_proposals",
+            "new_job_leads",
+            "pending_jobs",
+        ]
 
 
 def test_panel_keys_mirror_the_frontend():
@@ -320,8 +321,7 @@ def test_panel_keys_mirror_the_frontend():
     from app.services.dashboard_tiles import PANEL_KEYS
 
     src = (
-        Path(__file__).resolve().parents[2]
-        / "frontend/src/lib/dashboard-panels.ts"
+        Path(__file__).resolve().parents[2] / "frontend/src/lib/dashboard-panels.ts"
     ).read_text(encoding="utf-8")
     block = src[src.index("DASHBOARD_PANEL_KEYS = [") : src.index("] as const")]
     assert tuple(re.findall(r'"([a-z_]+)"', block)) == PANEL_KEYS

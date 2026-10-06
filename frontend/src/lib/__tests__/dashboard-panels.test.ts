@@ -9,6 +9,7 @@ import {
 } from "@/lib/dashboard-panels"
 
 const head = { role: "head_of_recruitment" as const }
+const admin = { role: "admin" as const }
 const recruiter = { role: "recruiter" as const }
 
 function tasks(): BoardTasksResponse {
@@ -25,11 +26,13 @@ function tasks(): BoardTasksResponse {
 }
 
 describe("listy nad pulpitem", () => {
-  it("„CV w drodze” usuwa każdy, resztę tylko Head of Recruitment", () => {
+  it("„CV w drodze” usuwa każdy, resztę tylko Head of Recruitment i admin", () => {
     expect(canHidePanel(recruiter, "cv_in_transit")).toBe(true)
     expect(canHidePanel(recruiter, "new_job_leads")).toBe(false)
     expect(canHidePanel(head, "new_job_leads")).toBe(true)
+    expect(canHidePanel(admin, "allocation_proposals")).toBe(true)
     expect(canCustomizeBoardPanel(head)).toBe(true)
+    expect(canCustomizeBoardPanel(admin)).toBe(true)
     expect(canCustomizeBoardPanel(recruiter)).toBe(false)
   })
 

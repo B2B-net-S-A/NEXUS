@@ -158,7 +158,7 @@ async def set_panel_visibility(
     if payload.hidden and not may_hide_panel(current_user, panel):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Tę listę może usunąć z pulpitu tylko Head of Recruitment.",
+            detail="Tę listę może usunąć z pulpitu tylko Head of Recruitment albo administrator.",
         )
     await db.execute(
         pg_insert(UserDashboard)
