@@ -122,6 +122,28 @@ def test_summary_counts_people_in_totals_and_rows_per_source():
     assert report["jobs"][0]["pending"] == 1 and report["jobs"][0]["title"] == "R1"
 
 
+def test_expired_pair_is_neither_pending_nor_dismissed():
+    """0422: osoba, którą nowszy przegląd już nie proponuje, nie „czeka”."""
+    report = outcomes.summarize(
+        [
+            _row(1, 10, "full_base", "expired"),
+            # Pominięcie innym źródłem wygrywa z wygasłym wierszem.
+            _row(1, 11, "full_base", "expired"),
+            _row(1, 11, "new_cv", "dismissed", "too_junior"),
+            # Żywa propozycja innego źródła — osoba nadal czeka.
+            _row(1, 12, "full_base", "expired"),
+            _row(1, 12, "new_cv", "proposed"),
+        ]
+    )
+    totals = report["totals"]
+    assert (totals["expired"], totals["dismissed"], totals["pending"]) == (1, 1, 1)
+    assert totals["dismissed_by_reason"]["too_junior"] == 1
+    assert {s["source"]: s["expired"] for s in report["by_source"]} == {
+        "full_base": 3,
+        "new_cv": 0,
+    }
+
+
 def test_empty_window_is_zeros_not_missing_keys():
     report = outcomes.summarize([])
     assert report["totals"]["proposed"] == 0

@@ -33,6 +33,10 @@ DISMISS_REASONS = (
     "other",
 )
 DISMISS_NOTE_MAX = 500
+# 0422 (07.10.2026): ``expired`` — propozycja nocnego przeglądu, której nowszy,
+# kompletny przegląd tej rekrutacji już nie zaproponował. Wiersz zostaje
+# (``request_allocation`` czyta istnienie ``full_base`` jako dowód przeglądu).
+STATUSES = ("proposed", "dismissed", "added", "expired")
 
 
 def _in(values: tuple[str, ...]) -> str:
@@ -40,6 +44,7 @@ def _in(values: tuple[str, ...]) -> str:
 
 
 SOURCE_CHECK_SQL = f"source IN ({_in(SOURCES)})"
+STATUS_CHECK_SQL = f"status IN ({_in(STATUSES)})"
 DISMISS_REASON_CHECK_SQL = (
     f"dismiss_reason IS NULL OR dismiss_reason IN ({_in(DISMISS_REASONS)})"
 )
@@ -62,5 +67,14 @@ CONSTRAINT_DDL: list[str] = [
             DROP CONSTRAINT IF EXISTS ck_job_proposals_dismiss_reason;
         ALTER TABLE job_proposals ADD CONSTRAINT ck_job_proposals_dismiss_reason
             CHECK ({DISMISS_REASON_CHECK_SQL});
+    END $$""",
+]
+
+# 0422: status ``expired``. Osobna lista, bo 0405 czyta ``CONSTRAINT_DDL``.
+STATUS_CONSTRAINT_DDL: list[str] = [
+    f"""DO $$ BEGIN
+        ALTER TABLE job_proposals DROP CONSTRAINT IF EXISTS ck_job_proposals_status;
+        ALTER TABLE job_proposals ADD CONSTRAINT ck_job_proposals_status
+            CHECK ({STATUS_CHECK_SQL});
     END $$""",
 ]

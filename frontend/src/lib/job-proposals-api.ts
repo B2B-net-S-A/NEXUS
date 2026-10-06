@@ -234,6 +234,15 @@ export const jobProposalsApi = {
         dismissRequestBody(source, feedback),
       )
       .then((r) => r.data),
+  /**
+   * Telemetria (07.10.2026): osoba otworzyła „Propozycje z bazy” tej
+   * rekrutacji. Serwer zapisuje najwyżej raz na osobę i dzień; w trybie
+   * „podgląd jako” odmawia — wołający ignoruje błąd.
+   */
+  opened: (jobId: number): Promise<{ job_id: number; recorded: boolean }> =>
+    api
+      .post<{ job_id: number; recorded: boolean }>(`/api/jobs/${jobId}/proposal-inbox/opened`)
+      .then((r) => r.data),
   /** „Cofnij" po „Pomiń" — osoba wraca do skrzynki całego zespołu. */
   restore: (jobId: number, candidateId: number): Promise<RestoreProposalResponse> =>
     api

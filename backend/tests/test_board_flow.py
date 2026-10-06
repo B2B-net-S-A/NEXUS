@@ -468,3 +468,89 @@ def test_unsigned_contracts_already_in_agreements_are_not_repeated() -> None:
     out = _flow_block(flow, skip_contract_ids=_agreement_ids(agreements))
     assert [c.id for c in out.unsigned_contracts] == [2]
     assert _agreement_ids(None) == frozenset()
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_recruiter_sees_the_best_open_base_proposals_per_job() -> None:
+    """07.10.2026: po 3 najlepsze otwarte propozycje z bazy w rekrutacjach
+    osoby — bez osób w pipeline'ie, bez pominiętych, z łączną liczbą."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.user import User
+    from app.services import board_flow
+    from app.services import job_proposals as proposals
+
+    candidates: list[int] = []
+    async with AsyncSessionLocal() as db:
+        rec = await _user(db, "recruiter")
+        other = await _user(db, "recruiter")
+        world = await _world(db, recruiter_id=rec.id)
+        people = []
+        for index in range(5):
+            cand = Candidate(
+                name="Ewa",
+                lastname=f"Prop{index}{world['marker']}",
+                email=f"p{index}-{world['marker']}@ex.com",
+            )
+            db.add(cand)
+            await db.flush()
+            people.append(cand.id)
+        in_pipeline = await _person_at(db, world, "new", ago=timedelta(hours=1))
+        candidates += [*people, in_pipeline]
+        await proposals.upsert_proposals(
+            db,
+            world["job_id"],
+            [
+                {"candidate_id": cid, "score": 90 - index}
+                for index, cid in enumerate(people)
+            ]
+            + [{"candidate_id": in_pipeline, "score": 99}],
+            "full_base",
+        )
+        await proposals.dismiss(
+            db, job_id=world["job_id"], candidate_id=people[0], user_id=rec.id
+        )
+        await db.commit()
+        rec_id, other_id = rec.id, other.id
+
+    try:
+        async with AsyncSessionLocal() as db:
+            flow = await board_flow.load_flow(db, await db.get(User, rec_id))
+            assert flow is not None
+            [row] = _for_job(flow.top_proposals, world["job_id"])
+            assert row.total == 4
+            assert [p.candidate_id for p in row.people] == people[1:4]
+            assert [p.score for p in row.people] == [89.0, 88.0, 87.0]
+            assert row.people[0].candidate_name.startswith("Ewa Prop1")
+
+            stranger = await board_flow.load_flow(db, await db.get(User, other_id))
+            assert _for_job(stranger.top_proposals, world["job_id"]) == []
+    finally:
+        await _cleanup([world], candidates, [rec_id, other_id])
+
+
+def test_flow_block_carries_top_proposals() -> None:
+    from app.api.board_tasks import _flow_block
+    from app.services import board_flow
+
+    flow = board_flow.FlowBlock(
+        top_proposals=[
+            board_flow.JobProposalsRow(
+                job_id=7,
+                job_title="Java",
+                job_working_title=None,
+                client_name="Klient",
+                total=12,
+                people=(board_flow.ProposalPick(3, "Anna Nowak", 88.5),),
+            )
+        ]
+    )
+    out = _flow_block(flow)
+    assert out.top_proposals[0].total == 12
+    assert out.top_proposals[0].people[0].model_dump() == {
+        "candidate_id": 3,
+        "candidate_name": "Anna Nowak",
+        "score": 88.5,
+    }
+    assert out.top_proposals_per_job == board_flow.TOP_PROPOSALS_PER_JOB

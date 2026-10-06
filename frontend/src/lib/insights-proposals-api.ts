@@ -36,6 +36,8 @@ export interface ProposalOutcomeCounts {
   added: number;
   dismissed: number;
   pending: number;
+  /** Bez decyzji, a nowszy przegląd bazy już tej osoby nie proponuje (0422). */
+  expired?: number;
   dismissed_by_reason: Partial<Record<ProposalOutcomeReason, number>>;
 }
 
