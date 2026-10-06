@@ -477,12 +477,68 @@ async def candidate_match_scores(
             "measurement": fit.measurement,
             **extra,
         }
+    if body.impression_surface and not _previewing(request):
+        await _record_manual_search_impressions(
+            db, job, current_user, candidate_ids, fits
+        )
     return MatchScoresResponse(
         scores=scores,
         breakdowns=breakdowns,
         profile_key=_profile_key(context.weights),
         non_technology_must=_non_technology_must(breakdowns),
     )
+
+
+def _previewing(request: Optional[Request]) -> bool:
+    """„Podgląd jako” nie zapisuje telemetrii w imieniu podglądanej osoby."""
+    state = getattr(request, "state", None)
+    return getattr(state, "impersonator_id", None) is not None
+
+
+async def _record_manual_search_impressions(
+    db: AsyncSession, job: Job, user: Any, candidate_ids: list[int], fits
+) -> None:
+    """U5 (audyt 06.10.2026): wyświetlenia pierwszej strony „Szukaj ręcznie”.
+
+    `match_impressions.run_id` jest wymagany, a to okno nie ma trwałego
+    przeglądu — identyfikator to (rekrutacja, dzień firmy, pseudonim osoby),
+    więc powtórne otwarcie tego samego dnia nic nie dopisuje (`ON CONFLICT`).
+    Dodania z tego okna (`source=manual_search`) zostają bez przypięcia do
+    przeglądu — mianownik do pomiaru jest tu, nie w wyniku dodania.
+    Telemetria nigdy nie psuje odpowiedzi.
+    """
+    from app.core.scheduling import business_today  # noqa: PLC0415
+    from app.services.match_telemetry_service import (  # noqa: PLC0415
+        ImpressionEntry,
+        pseudonymize,
+        record_impressions,
+    )
+
+    try:
+        user_ref = (pseudonymize(getattr(user, "id", None)) or "anon")[:16]
+        run_id = f"manual_search:{job.id}:{business_today().isoformat()}:{user_ref}"
+        score_of = {int(f.breakdown.candidate_id): f.fit_score for f in fits}
+        entries = [
+            ImpressionEntry(
+                candidate_id=cid, rank=rank, fit_score=score_of.get(int(cid))
+            )
+            for rank, cid in enumerate(candidate_ids, start=1)
+        ]
+        await record_impressions(
+            db,
+            run_id=run_id[:64],
+            surface="manual_search",
+            entries=entries,
+            job_id=job.id,
+            user_id=getattr(user, "id", None),
+            client_id=getattr(job, "client_id", None),
+        )
+    except Exception as exc:  # noqa: BLE001 — telemetria nie psuje odpowiedzi
+        import logging  # noqa: PLC0415
+
+        logging.getLogger(__name__).warning(
+            "[telemetry] manual-search impressions skipped: %s", type(exc).__name__
+        )
 
 
 def _non_technology_must(breakdowns: dict[str, Any]) -> list[str]:
