@@ -78,6 +78,38 @@ def test_previous_rate_in_foreign_currency_is_left_for_a_human():
     assert revert.plan_for_candidate([empty], current_version=4)[1] == "to_revert"
 
 
+def test_merged_duplicate_with_matching_version_does_not_touch_human_rate():
+    # Scalenie przepina dziennik duplikatu na ocalałego: zapis scrapera 0→1
+    # z duplikatu ma tę samą wersję co ręczna stawka rekrutera 0→1 (przegląd
+    # PR #2055). Bieżąca stawka (150) to nie kwota scrapera (48), a ostatni
+    # wpis dziennika to zapis człowieka — nic nie cofamy.
+    writes = [_write(1, None, "48.00", 0)]
+    chain, reason = revert.plan_for_candidate(
+        writes,
+        current_version=1,
+        current_amount=Decimal("150.00"),
+        current_currency="PLN",
+        latest_activity_id=99,
+    )
+    assert chain is None and reason == "rate_differs"
+    chain, reason = revert.plan_for_candidate(
+        writes,
+        current_version=1,
+        current_amount=Decimal("48.00"),
+        current_currency="PLN",
+        latest_activity_id=99,
+    )
+    assert chain is None and reason == "later_rate_change"
+    chain, reason = revert.plan_for_candidate(
+        writes,
+        current_version=1,
+        current_amount=Decimal("48.00"),
+        current_currency="PLN",
+        latest_activity_id=1,
+    )
+    assert reason == "to_revert" and [w.activity_id for w in chain] == [1]
+
+
 def test_only_the_latest_scraper_run_counts_after_a_human_gap():
     # Scraper (v1→2), człowiek (v2→3), scraper (v3→4): cofa się tylko ostatni.
     writes = [_write(1, None, "40.00", 1), _write(2, "150.00", "48.00", 3, 9)]

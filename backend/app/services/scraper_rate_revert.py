@@ -59,7 +59,7 @@ HUMAN_RATE_SOURCES = frozenset(
 
 _SCRAPER_WRITES_SQL = text(
     """
-    SELECT a.id, a.entity_id AS candidate_id, a.created_at, a.details
+    SELECT a.id, a.entity_id AS candidate_id, a.created_at, a.details, a.user_id
     FROM activities a
     WHERE a.entity_type = 'candidate'
       AND a.action = 'profile_rate_changed'
@@ -72,9 +72,32 @@ _SCRAPER_WRITES_SQL = text(
     """
 )
 
+# Bieżąca stawka i OSTATNI wpis dziennika stawki — sama wersja nie wystarcza:
+# scalenie kandydatów przepina dziennik duplikatu (z jego numerami wersji) na
+# ocalałego, więc zapis scrapera 0→1 bywa „bieżący” obok ręcznej stawki 0→1
+# (przegląd PR #2055).
 _VERSIONS_SQL = text(
-    "SELECT id, profile_rate_version FROM candidates WHERE id = ANY(:ids)"
+    """
+    SELECT c.id, c.profile_rate_version, c.expected_rate_hourly,
+           c.expected_rate_currency,
+           (SELECT a.id FROM activities a
+             WHERE a.entity_type = 'candidate' AND a.entity_id = c.id
+               AND a.action = 'profile_rate_changed'
+             ORDER BY a.created_at DESC, a.id DESC LIMIT 1) AS latest_activity_id
+    FROM candidates c WHERE c.id = ANY(:ids)
+    """
 )
+
+_LATEST_SQL = text(
+    """
+    SELECT a.id FROM activities a
+    WHERE a.entity_type = 'candidate' AND a.entity_id = :cid
+      AND a.action = 'profile_rate_changed'
+    ORDER BY a.created_at DESC, a.id DESC LIMIT 1
+    """
+)
+
+_UNCHECKED: Any = object()
 
 # Wcześniejsze zapisy stawki tego kandydata (data poprzedniej stawki, właściciel).
 _EARLIER_SQL = text(
@@ -177,13 +200,24 @@ def _parse(row: Any) -> Optional[ScraperWrite]:
     )
 
 
+def _same_amount(a: Optional[Decimal], b: Any) -> bool:
+    return _amount(b) == a
+
+
 def plan_for_candidate(
-    writes: list[ScraperWrite], current_version: Optional[int]
+    writes: list[ScraperWrite],
+    current_version: Optional[int],
+    *,
+    current_amount: Any = _UNCHECKED,
+    current_currency: Any = _UNCHECKED,
+    latest_activity_id: Any = _UNCHECKED,
 ) -> tuple[Optional[list[ScraperWrite]], str]:
     """Łańcuch zapisów scrapera kończący się na bieżącej wersji albo powód.
 
     Czyste — bez bazy. Zapis, po którym ktoś zmienił stawkę (wersja bieżąca
-    inna), zostaje: decyzja człowieka wygrywa ze sprzątaniem.
+    inna), zostaje: decyzja człowieka wygrywa ze sprzątaniem. Poza wersją
+    bieżąca stawka musi być kwotą scrapera w PLN, a ostatni wpis dziennika
+    stawki — zapisem scrapera (scalenie kandydatów dubluje numery wersji).
     """
     if current_version is None:
         return None, "candidate_missing"
@@ -191,6 +225,16 @@ def plan_for_candidate(
     head = by_new.get(current_version)
     if head is None:
         return None, "changed_after_scraper"
+    if current_amount is not _UNCHECKED and (
+        not _same_amount(head.new_amount, current_amount)
+        or (
+            current_currency is not _UNCHECKED
+            and not is_canonical_profile_rate_currency(current_currency)
+        )
+    ):
+        return None, "rate_differs"
+    if latest_activity_id is not _UNCHECKED and latest_activity_id != head.activity_id:
+        return None, "later_rate_change"
     chain = [head]
     while (prev := by_new.get(chain[0].old_version)) is not None and prev not in chain:
         chain.insert(0, prev)
@@ -211,23 +255,34 @@ async def build_plan(db: AsyncSession) -> tuple[list[PlannedRevert], dict[str, i
     by_candidate: dict[int, list[ScraperWrite]] = {}
     for row in (await db.execute(_SCRAPER_WRITES_SQL)).mappings():
         counts["scraper_writes"] += 1
+        # Konto, które pisało — do sprawdzenia w próbie, że to wyłącznie konta
+        # serwisowe integracji, a nie rekruter podpięty jako acting_user.
+        counts[f"writes_by_user_{row['user_id']}"] += 1
         parsed = _parse(row)
         if parsed is None:
             counts["writes_without_version"] += 1
             continue
         by_candidate.setdefault(int(row["candidate_id"]), []).append(parsed)
     counts["candidates_with_scraper_writes"] = len(by_candidate)
-    versions: dict[int, int] = {}
+    current: dict[int, Any] = {}
     if by_candidate:
         for row in (
             await db.execute(_VERSIONS_SQL, {"ids": sorted(by_candidate)})
         ).mappings():
-            versions[int(row["id"])] = int(row["profile_rate_version"] or 0)
+            current[int(row["id"])] = row
     plan: list[PlannedRevert] = []
     for candidate_id in sorted(by_candidate):
-        chain, reason = plan_for_candidate(
-            by_candidate[candidate_id], versions.get(candidate_id)
-        )
+        row = current.get(candidate_id)
+        if row is None:
+            chain, reason = None, "candidate_missing"
+        else:
+            chain, reason = plan_for_candidate(
+                by_candidate[candidate_id],
+                int(row["profile_rate_version"] or 0),
+                current_amount=row["expected_rate_hourly"],
+                current_currency=row["expected_rate_currency"],
+                latest_activity_id=row["latest_activity_id"],
+            )
         if chain is None:
             counts[reason] += 1
             continue
@@ -277,6 +332,10 @@ async def _revert_one(
     if (
         candidate is None
         or (candidate.profile_rate_version or 0) != item.expected_version
+        or not _same_amount(item.scraper_amount, candidate.expected_rate_hourly)
+        or not is_canonical_profile_rate_currency(candidate.expected_rate_currency)
+        or await db.scalar(_LATEST_SQL, {"cid": item.candidate_id})
+        != item.chain[-1].activity_id
     ):
         return None
     first = item.chain[0]
