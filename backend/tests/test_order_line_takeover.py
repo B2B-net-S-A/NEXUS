@@ -972,3 +972,88 @@ async def test_dismiss_refuses_a_card_with_a_live_order(
         headers=app_auth_headers,
     )
     assert resp.status_code == 409, resp.text
+
+
+# ── Waluta stawek przy zastępstwie i zamianie (ticket 10.2026) ─────────────
+
+
+def _eur_at_four(monkeypatch) -> None:
+    from app.api import client_order_groups
+
+    async def fx(_db, currencies, _date):
+        return {c: Decimal("4") if c == "EUR" else Decimal("1") for c in currencies}
+
+    monkeypatch.setattr(client_order_groups, "rates_to_pln", fx)
+
+
+async def test_takeover_in_eur_converts_rates_before_moving_the_pool(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """250 EUR × 4 = 1000 PLN/MD — pula liczy się jak przy 1000 zł, nie 250."""
+    seed = await _seed(input_mode="amount")
+    _enable_multi(monkeypatch, seed["client_id"])
+    _eur_at_four(monkeypatch)
+    resp = await app_client.post(
+        _takeover_url(seed),
+        json={
+            "contract_id": seed["kamila_contract_id"],
+            "departing_order_id": seed["line_id"],
+            "entry_date": (seed["departure"] + timedelta(days=1)).isoformat(),
+            "rate_cost": 170,
+            "rate_revenue": 250,
+            "rate_candidate_currency": "EUR",
+            "rate_client_currency": "EUR",
+            "md_transfer_method": "incoming_rate",
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    # 187 MD × 800 zł ÷ (250 EUR × 4) = 149,6 MD
+    assert Decimal(str(body["md_remaining"])) == Decimal("149.6")
+    assert Decimal(str(body["rate_cost"])) == Decimal("680")
+    assert Decimal(str(body["rate_revenue"])) == Decimal("1000")
+    assert body["source_rate_revenue"] == 250
+    assert body["rate_candidate_currency"] == body["rate_client_currency"] == "EUR"
+
+
+async def test_swap_in_eur_converts_rates_before_moving_the_pool(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.contract import Contract, ContractStatus
+
+    seed = await _seed(source_state="leaving", input_mode="amount")
+    _enable_multi(monkeypatch, seed["client_id"])
+    _eur_at_four(monkeypatch)
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, seed["konrad_contract_id"])
+        contract.end_date = None
+        contract.terminated_at = None
+        contract.status = ContractStatus.active
+        line = await db.get(ClientOrder, seed["line_id"])
+        line.end_date = None
+        line.status = ClientOrderStatus.active
+        await db.commit()
+
+    resp = await app_client.post(
+        f"/api/clients/{seed['client_id']}/order-groups/{seed['group_id']}"
+        f"/lines/{seed['line_id']}/swap",
+        json={
+            "contract_id": seed["kamila_contract_id"],
+            "rate_cost": 170,
+            "rate_revenue": 250,
+            "rate_candidate_currency": "EUR",
+            "rate_client_currency": "EUR",
+            "swap_date": business_today().isoformat(),
+            "md_transfer_method": "incoming_rate",
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    total = Decimal(str(body["md_total"])) + Decimal(str(body["md_optional_total"]))
+    assert total == Decimal("149.6")
+    assert Decimal(str(body["rate_revenue"])) == Decimal("1000")
+    assert body["rate_client_currency"] == "EUR"

@@ -402,6 +402,11 @@ class OrderLineSwapRequest(BaseModel):
     contract_id: int
     rate_cost: MoneyPLN = Field(..., ge=0, max_digits=12, decimal_places=3)
     rate_revenue: MoneyPLN = Field(..., gt=0, max_digits=12, decimal_places=3)
+    rate_candidate_currency: str = Field("PLN", pattern=r"^[A-Z]{3}$")
+    """Waluta stawki kosztowej (ticket 10.2026). Brak = PLN — klienci API
+    sprzed waluty w tym oknie wysyłali stawki w PLN/MD."""
+    rate_client_currency: str = Field("PLN", pattern=r"^[A-Z]{3}$")
+    """Waluta stawki przychodowej; serwer przelicza do PLN/MD po kursie z dnia."""
     swap_date: date
     md_transfer_method: Optional[MdTransferMethod] = None
     """Brak = dotychczasowe przeliczenie z zachowaniem wartości w PLN (klienci
@@ -418,6 +423,11 @@ class OrderLineTakeoverRequest(BaseModel):
     entry_date: date
     rate_cost: MoneyPLN = Field(..., ge=0, max_digits=12, decimal_places=3)
     rate_revenue: MoneyPLN = Field(..., gt=0, max_digits=12, decimal_places=3)
+    rate_candidate_currency: str = Field("PLN", pattern=r"^[A-Z]{3}$")
+    """Waluta stawki kosztowej (ticket 10.2026). Brak = PLN — klienci API
+    sprzed waluty w tym oknie wysyłali stawki w PLN/MD."""
+    rate_client_currency: str = Field("PLN", pattern=r"^[A-Z]{3}$")
+    """Waluta stawki przychodowej; serwer przelicza do PLN/MD po kursie z dnia."""
     md_transfer_method: Optional[MdTransferMethod] = None
     """Wymagany przy puli w kwocie; przy puli w MD jedyną odpowiedzią jest 1:1."""
     expected_case_version: Optional[int] = Field(None, ge=1)

@@ -6192,6 +6192,15 @@ async def take_over_consultant(
     ):
         raise HTTPException(422, detail="Data wejścia wykracza poza okres zamówienia")
 
+    # Stawki w walucie operatora → kanoniczne PLN/MD (jak „Dodaj konsultanta”):
+    # przeliczenie puli MD, marża i alerty czytają `md_rate_*` w PLN.
+    canonical_cost = await _canonical_currency_rate(
+        db, payload.rate_cost, payload.rate_candidate_currency, payload.entry_date
+    )
+    canonical_revenue = await _canonical_currency_rate(
+        db, payload.rate_revenue, payload.rate_client_currency, payload.entry_date
+    )
+
     for removed_order_id in await absorb_auto_draft_shells(db, incoming.id):
         db.add(
             Activity(
@@ -6231,15 +6240,15 @@ async def take_over_consultant(
         start_date=payload.entry_date,
         end_date=group.end_date,
         filled_at=None if scheduled else now,
-        md_rate_cost=payload.rate_cost,
-        md_rate_revenue=payload.rate_revenue,
+        md_rate_cost=canonical_cost,
+        md_rate_revenue=canonical_revenue,
         rate_candidate=payload.rate_cost,
         rate_client=payload.rate_revenue,
         rate_unit=RateUnit.daily,
         billing_hours_per_month=HOURS_PER_MONTH,
-        currency="PLN",
-        rate_client_currency="PLN",
-        rate_candidate_currency="PLN",
+        currency=payload.rate_client_currency,
+        rate_client_currency=payload.rate_client_currency,
+        rate_candidate_currency=payload.rate_candidate_currency,
         md_manual_adjustment=Decimal("0"),
         predecessor_order_id=source.id,
         executive_contract_id=source.executive_contract_id
@@ -6256,7 +6265,7 @@ async def take_over_consultant(
             base_new, opt_new = projected_budget(
                 source=source,
                 method=method,
-                incoming_rate=payload.rate_revenue,
+                incoming_rate=canonical_revenue,
                 base_remaining=base_rem,
                 optional_remaining=opt_rem,
             )
@@ -6395,6 +6404,15 @@ async def swap_consultant(
     group = await _load_group(db, client_id, group_id)
     _assert_group_not_cancelled(group)
 
+    # Stawki w walucie operatora → kanoniczne PLN/MD (jak „Dodaj konsultanta”):
+    # przeliczenie puli MD, marża i alerty czytają `md_rate_*` w PLN.
+    canonical_cost = await _canonical_currency_rate(
+        db, payload.rate_cost, payload.rate_candidate_currency, payload.swap_date
+    )
+    canonical_revenue = await _canonical_currency_rate(
+        db, payload.rate_revenue, payload.rate_client_currency, payload.swap_date
+    )
+
     await lock_contract_then_orders(db, order_ids=[line_id])
     old = await db.scalar(
         select(ClientOrder)
@@ -6515,19 +6533,19 @@ async def swap_consultant(
                     optional_remaining=optional_remaining_old,
                     has_optional=old.md_optional_total is not None,
                     departing_rate=old.md_rate_revenue,
-                    incoming_rate=payload.rate_revenue,
+                    incoming_rate=canonical_revenue,
                 )
             else:
                 md_total_new = swap_md_total(
                     md_remaining_old=base_remaining_old,
                     rate_revenue_old=old.md_rate_revenue,
-                    rate_revenue_new=payload.rate_revenue,
+                    rate_revenue_new=canonical_revenue,
                 )
                 if old.md_optional_total is not None:
                     md_optional_new = swap_md_total(
                         md_remaining_old=optional_remaining_old,
                         rate_revenue_old=old.md_rate_revenue,
-                        rate_revenue_new=payload.rate_revenue,
+                        rate_revenue_new=canonical_revenue,
                     )
         except TakeoverError as exc:
             raise HTTPException(exc.status, detail=str(exc)) from exc
@@ -6618,15 +6636,15 @@ async def swap_consultant(
         start_date=payload.swap_date,
         end_date=planned_end if planned_end is not None else group.end_date,
         filled_at=datetime.now(timezone.utc),
-        md_rate_cost=payload.rate_cost,
-        md_rate_revenue=payload.rate_revenue,
+        md_rate_cost=canonical_cost,
+        md_rate_revenue=canonical_revenue,
         rate_candidate=payload.rate_cost,
         rate_client=payload.rate_revenue,
         rate_unit=RateUnit.daily,
         billing_hours_per_month=HOURS_PER_MONTH,
-        currency="PLN",
-        rate_client_currency="PLN",
-        rate_candidate_currency="PLN",
+        currency=payload.rate_client_currency,
+        rate_client_currency=payload.rate_client_currency,
+        rate_candidate_currency=payload.rate_candidate_currency,
         # Tryb „md": budżet nowej linii POWSTAŁ z przeliczenia, a nie z kwoty
         # wpisanej przez operatora. Zapisanie go jako „amount" sugerowałoby
         # kwotę, której nikt nie podał.
@@ -6666,8 +6684,8 @@ async def swap_consultant(
         "old_rate_revenue": str(old.md_rate_revenue),
         "new_order_id": new_line.id,
         "new_consultant": new_who,
-        "new_rate_cost": str(payload.rate_cost),
-        "new_rate_revenue": str(payload.rate_revenue),
+        "new_rate_cost": str(canonical_cost),
+        "new_rate_revenue": str(canonical_revenue),
         "cost_based": is_cost,
         "md_budget_based": is_shared_md,
     }
@@ -6680,7 +6698,7 @@ async def swap_consultant(
             f"Zamiana kontraktora {payload.swap_date.isoformat()} "
             f"(zamówienie kosztowe): "
             f"{old_who} ({format_md(old.md_rate_revenue)} zł/MD) → "
-            f"{new_who} ({format_md(payload.rate_revenue)} zł/MD). "
+            f"{new_who} ({format_md(canonical_revenue)} zł/MD). "
             f"Kwota zamówienia zostaje wspólna dla całej grupy."
         )
     elif is_shared_md:
@@ -6688,7 +6706,7 @@ async def swap_consultant(
             f"Zamiana kontraktora {payload.swap_date.isoformat()} "
             f"(zamówienie ze wspólną pulą MD): "
             f"{old_who} ({format_md(old.md_rate_revenue)} zł/MD) → "
-            f"{new_who} ({format_md(payload.rate_revenue)} zł/MD). "
+            f"{new_who} ({format_md(canonical_revenue)} zł/MD). "
             f"Budżet MD zostaje wspólny dla całej grupy."
         )
     else:
@@ -6711,7 +6729,7 @@ async def swap_consultant(
                 f"Zamiana kontraktora {payload.swap_date.isoformat()}: "
                 f"{old_who} ({format_md(old.md_rate_revenue)} zł/MD, "
                 f"pozostało {format_md(md_remaining_old)} MD) → "
-                f"{new_who} ({format_md(payload.rate_revenue)} zł/MD, "
+                f"{new_who} ({format_md(canonical_revenue)} zł/MD, "
                 f"{format_md(md_total_new)} MD). "
                 f"Wartość pozostała bez zmian: {format_md(value_pln)} zł."
             )

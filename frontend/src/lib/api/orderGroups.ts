@@ -460,6 +460,9 @@ export interface OrderLineTakeoverInput {
   entry_date: string;
   rate_cost: number;
   rate_revenue: number;
+  /** Waluty stawek; brak = PLN. Serwer przelicza do PLN/MD. */
+  rate_candidate_currency?: string;
+  rate_client_currency?: string;
   md_transfer_method?: MdTransferMethod | null;
   expected_case_version?: number | null;
 }
@@ -731,6 +734,9 @@ export interface SwapConsultantInput {
   contract_id: number;
   rate_cost: number;
   rate_revenue: number;
+  /** Waluty stawek; brak = PLN. Serwer przelicza do PLN/MD. */
+  rate_candidate_currency?: string;
+  rate_client_currency?: string;
   swap_date: string;
   /** Pula per osoba: sposób przeniesienia pozostałych MD (ticket 09.2026). */
   md_transfer_method?: MdTransferMethod | null;

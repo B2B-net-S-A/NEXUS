@@ -779,6 +779,13 @@ osobie — przy wspólnej puli i przy zamówieniu kosztowym nie ma czego zapisa�
 Dotyczy każdego przeniesienia pozostałych MD na inną osobę: „Wejdź za
 konsultanta", decyzji o MD, „Zastąp kimś innym" i „Zamień kontraktora".
 
+Stawki nowej osoby podajesz w walucie z listy obok każdej stawki (PLN, EUR, USD,
+GBP). Stawkę w obcej walucie system przelicza na PLN/MD po ostatnim znanym
+kursie z dnia wejścia albo zamiany (albo wcześniejszym) — i to ta kwota w PLN
+liczy pozostałe MD. Brak kursu = zapis odmawia („Brak kursu EUR/PLN”). Okno nie zna
+kursu, więc przy stawce w obcej walucie zamiast liczby MD pokazuje „po kursie
+przy zapisie”; wynik zobaczysz na linii po zapisie.
+
 * **Pula w MD** (budżet osoby wpisany jako liczba dni) — pozostałe MD przechodzą
   **1:1**. Pola „Przelicz po stawce" nie ma; okno mówi „Zamówienie ma pulę w MD —
   [osoba] przejmuje X MD 1:1".
