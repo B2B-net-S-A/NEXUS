@@ -420,6 +420,11 @@ class Settings(BaseSettings):
     # krytyczne (decyzja DL albo podpowiedź z historii, `critical_skills`);
     # `all` = awaryjny powrót do bramki v8 (każde must-technologia ukrywa).
     MUST_GATE_MODE: str = "critical"
+    # Warstwa `prior_screening` w ocenie AI (07.10.2026): odpowiedzi kandydata
+    # z wcześniejszych rozmów na te same pytania. OFF = odcisk żądania
+    # i rozbicie wyniku bajt w bajt jak bez warstwy; włączenie dopiero po
+    # pomiarze (`scripts/eval_prior_screening.py`).
+    PRIOR_SCREENING_LAYER_ENABLED: bool = False
     # Rozmiar puli trybu semantycznego w RĘCZNEJ wyszukiwarce kandydatów.
     # To jednocześnie SUFIT liczby wyników, którą widzi rekruter, i liczba
     # dokumentów wysyłanych do rerankera Voyage przy KAŻDYM żądaniu strony

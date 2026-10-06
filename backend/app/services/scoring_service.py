@@ -430,8 +430,24 @@ class ScoreBreakdown:
     # evidence backed this score (a full score built on a near-empty profile is
     # low-confidence). None when not computed (e.g. hydrated legacy cache row).
     fit_confidence: Optional[float] = None
+    # Warstwa `prior_screening` (07.10.2026, `services/prior_screening.py`):
+    # odpowiedzi z wcześniejszych rozmów. ``None`` = warstwy nie liczono
+    # (wyłącznik OFF albo brak materiału) i wtedy NIE ma jej w `as_dict` —
+    # rozbicie zostaje bajt w bajt jak bez warstwy.
+    prior_screening: Optional[LayerResult] = None
 
     def as_dict(self) -> dict:
+        out = self._as_dict()
+        if self.prior_screening is not None:
+            out["prior_screening"] = {
+                "points": round(self.prior_screening.points, 1),
+                "max": self.prior_screening.max_points,
+                "reason": self.prior_screening.reason,
+                "status": self.prior_screening.status or "scored",
+            }
+        return out
+
+    def _as_dict(self) -> dict:
         return {
             "candidate_id": self.candidate_id,
             "job_id": self.job_id,
@@ -2120,8 +2136,14 @@ async def score_candidate_job(
     context: Optional[JobScoringContext] = None,
     semantic_unavailable: bool = False,
     base_fit: bool = False,
+    prior_screening: bool = False,
 ) -> ScoreBreakdown:
-    """Compute the full ScoreBreakdown for one (candidate, job) pair."""
+    """Compute the full ScoreBreakdown for one (candidate, job) pair.
+
+    ``prior_screening`` (tylko z ``base_fit``) dokłada warstwę odpowiedzi
+    z wcześniejszych rozmów — materiał musi być dołączony wcześniej przez
+    ``prior_screening.attach_prior_screening``.
+    """
     import time as _time
 
     t0 = _time.perf_counter()
@@ -2147,6 +2169,19 @@ async def score_candidate_job(
         else await _check_penalties_and_warnings(candidate, job, db, context=context)
     )
 
+    prior_layer = None
+    if prior_screening and base_fit:
+        from app.services import prior_screening as prior_screening_service
+
+        prior_layer = prior_screening_service.layer_for(candidate, job)
+    # Oceniona warstwa wcześniejszych rozmów wchodzi do licznika i mianownika;
+    # bez oceny (albo bez warstwy) wynik liczy się dokładnie jak dotąd.
+    extra = (
+        (prior_layer,)
+        if prior_layer is not None and prior_layer.scored and prior_layer.max_points > 0
+        else ()
+    )
+
     layers = (semantic, skills, salary, location, availability, champion_fit)
     if penalties:
         total = 0.0
@@ -2155,11 +2190,15 @@ async def score_candidate_job(
         # "of what we could assess, this candidate is X%". A layer with no
         # signal contributes to neither numerator nor denominator, so it can no
         # longer inflate or deflate everyone equally.
-        earned = sum(layer.points for layer in layers if layer.scored)
-        available = sum(layer.max_points for layer in layers if layer.scored)
+        earned = sum(layer.points for layer in layers + extra if layer.scored)
+        available = sum(layer.max_points for layer in layers + extra if layer.scored)
         total = (earned / available * 100.0) if available > 0 else 0.0
     else:
         total = sum(layer.points for layer in layers)
+        if extra:
+            # Budżet bazowy to 100 pkt (`base_fit_profile`); dodatkowa
+            # warstwa skaluje wynik z powrotem do 0–100, zamiast go przekraczać.
+            total = (total + extra[0].points) * 100.0 / (100.0 + extra[0].max_points)
 
     # v1.1: niedobór seniority względem Championa tnie total MNOŻNIKOWO —
     # stała punktowa znaczyłaby co innego w trybie sumy i renormalizacji.
@@ -2230,6 +2269,7 @@ async def score_candidate_job(
         penalties=penalties,
         warnings=score_warnings,
         fit_confidence=compute_fit_confidence(candidate, job),
+        prior_screening=prior_layer,
     )
 
 

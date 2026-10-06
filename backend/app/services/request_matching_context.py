@@ -149,6 +149,12 @@ def build_request_context(job, profile: WeightProfile) -> RequestMatchingContext
         "must_gate_policy": MUST_GATE_POLICY_VERSION,
         "must_gate_mode": gate_mode(),
     }
+    from app.services import prior_screening
+
+    # Warstwa wcześniejszych rozmów (07.10.2026) zmienia ranking, więc wchodzi
+    # do odcisku — ale tylko włączona: przy OFF odcisk zostaje bajt w bajt.
+    if prior_screening.enabled():
+        versions["prior_screening"] = prior_screening.VERSION
     fingerprint = hashlib.sha256(
         json.dumps(
             {"job": values, "weights": weights, "versions": versions, "query": query},

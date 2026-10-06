@@ -82,6 +82,15 @@ export function ScoreBreakdownTooltip({ breakdown, compact }: Props) {
           {breakdown.champion_fit && (
             <Row label="Champion" {...breakdown.champion_fit} />
           )}
+          {/* Warstwa bez oceny ma max 0 — mówi tylko, że nic nie pasowało. */}
+          {breakdown.prior_screening && breakdown.prior_screening.max > 0 && (
+            <Row
+              label="Wcześniej"
+              points={breakdown.prior_screening.points}
+              max={breakdown.prior_screening.max}
+              reason={breakdown.prior_screening.reason}
+            />
+          )}
           {(breakdown.historical_sources_count ?? 0) > 0 && (
             <div className="flex items-center gap-2 text-xs">
               <span className="w-24 text-muted-foreground dark:text-muted-foreground">

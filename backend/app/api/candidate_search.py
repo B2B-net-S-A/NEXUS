@@ -483,18 +483,23 @@ async def search_results(
         # które to pole zapisały; starsze zostają w dotychczasowym kształcie.
         if fit is not None and "remote" in frozen_filters:
             fit["remote"] = frozen_filters["remote"]
-        results.append(
-            {
-                "match": details,
-                "candidate": shape_radar_candidate(current[row.candidate_id]),
-                "fit_score": fit_score,
-                "measurement": measurement,
-                "breakdown": breakdown,
-                "requirements": requirements,
-                "eligibility": annotation,
-                "fit": fit,
-            }
-        )
+        # Wcześniejsze rozmowy (07.10.2026) — tylko w przeglądach liczonych
+        # z warstwą `prior_screening`; pozostałe bez zmiany kształtu.
+        if fit is not None and "prior_screening" in frozen_filters:
+            fit["prior_screening"] = frozen_filters["prior_screening"]
+        item = {
+            "match": details,
+            "candidate": shape_radar_candidate(current[row.candidate_id]),
+            "fit_score": fit_score,
+            "measurement": measurement,
+            "breakdown": breakdown,
+            "requirements": requirements,
+            "eligibility": annotation,
+            "fit": fit,
+        }
+        if not row_changed and "prior_screening" in (row.evidence or {}):
+            item["prior_screening"] = row.evidence["prior_screening"]
+        results.append(item)
     from app.services.dealbreaker_filters import resolve_job_budget_hourly
 
     if impressions:
