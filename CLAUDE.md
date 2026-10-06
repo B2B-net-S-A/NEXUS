@@ -10548,6 +10548,15 @@ kluczowe 0,9–2 s, „c#” 5,9 s; 68% czasu „java” zjadał regex po `keywo
   (stara vs nowa ścieżka, tylko odczyt) i zgoda Artura. Gwiazdka z przodu
   zostaje przy regexie. Świadome różnice: „lodz” znajduje „Łódź” w CV,
   „scrum” znajduje „Agile/Scrum”, nazwy znaczników HTML w notatkach nie są słowami.
+- **Czasy ścieżek porównuj na ciepłym cache** (pomiar 06.10.2026). Fraza
+  (`<->`) na indeksie GIN zawsze sprawdza pozycje w samym tsvectorze wiersza,
+  więc pierwsze zapytanie o frazę czyta z dysku tsvector każdego trafienia —
+  obie ścieżki, każda swoją kolumnę. Pierwszy bieg skryptu porównującego mierzył
+  każdą ścieżkę raz, starą pierwszą: „ci/cd” wyszło 1 047 → 7 811 ms, choć
+  EXPLAIN (ANALYZE, BUFFERS) na ciepłym cache daje 1 097 → 379 ms, a na zimnym
+  nowa czyta mniej bloków („power bi” 14,1 → 8,2 s). Skrypt mierzy teraz obie
+  ścieżki na przemian (`measure_alternating`) i porównuje ciepłą rundę; zimną
+  pokazuje osobno. Nie wyciągaj wniosków z jednego pomiaru po kolei.
 - **`TRIGGER_FUNCTION_DDL_0350` jest zamrożony** — migracja 0350 nie może
   dotykać kolumny z 0385 (łańcuch migracji na świeżej bazie).
 - **Notatki z Traffita zapisane jako JSON** (`{"content":"…\u0144…"}` — Traffit
