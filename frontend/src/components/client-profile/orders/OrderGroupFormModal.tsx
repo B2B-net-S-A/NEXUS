@@ -54,6 +54,7 @@ import {
 
 import { ExtractionConflictDialog } from "./ExtractionConflictDialog";
 import { OrderPlanLineCard } from "./OrderPlanLineCard";
+import { SharedMdConsumptionsSection } from "./SharedMdConsumptionsSection";
 
 const inputClass =
   "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring";
@@ -153,8 +154,6 @@ export function OrderGroupFormModal({
   const [notes, setNotes] = useState("");
   const [budgetAmount, setBudgetAmount] = useState("");
   const [mdBudgetTotal, setMdBudgetTotal] = useState("");
-  const [consumptionMonth, setConsumptionMonth] = useState("");
-  const [consumptionValue, setConsumptionValue] = useState("");
   const [sharedChoice, setSharedChoice] = useState(false);
   const [draftStatus, setDraftStatus] = useState<"draft" | "active">("draft");
   const modeLocked = Boolean(
@@ -230,8 +229,6 @@ export function OrderGroupFormModal({
     setBudgetAmount(numberToField(group?.budget_amount));
     setMdBudgetTotal(numberToField(group?.md_budget_total));
     setSharedChoice(group ? usesSharedMdPool(group) : false);
-    setConsumptionMonth("");
-    setConsumptionValue("");
     // Nowe zamówienie powstaje od razu z konsultantami, więc domyślnie jest
     // aktywne. Szkic zostaje świadomym wyborem („do uzupełnienia").
     setDraftStatus(group ? (group.status === "draft" ? "draft" : "active") : "active");
@@ -504,10 +501,7 @@ export function OrderGroupFormModal({
     startDate !== "" &&
     !budgetMissing &&
     !linesBlocked &&
-    !executiveContractMissing &&
-    ((!consumptionMonth && !consumptionValue) ||
-      (Boolean(consumptionMonth) &&
-        (parseDecimalInput(consumptionValue) ?? -1) >= 0));
+    !executiveContractMissing;
 
   const fileEndpoint = group
     ? `/api/clients/${clientId}/order-groups/${group.id}/file`
@@ -559,12 +553,6 @@ export function OrderGroupFormModal({
         // niesie, a przepięcie zamówienia pod inną umowę to osobna decyzja.
         ...(ezdrowie && !editing && executiveContractId
           ? { executive_contract_id: Number(executiveContractId) }
-          : {}),
-        ...(sharedMd && consumptionMonth && consumptionValue
-          ? {
-              md_consumption_month: consumptionMonth,
-              md_consumption_value: parseDecimalInput(consumptionValue)!,
-            }
           : {}),
         ...(isMdOrder && !modeLocked
           ? {
@@ -1168,35 +1156,12 @@ export function OrderGroupFormModal({
                 <p className="mt-1 text-xs text-muted-foreground">
                   Zużycie wszystkich konsultantów pomniejsza tę jedną pulę MD.
                 </p>
-                {group && ["active", "exhausted"].includes(group.status) ? (
-                  <div className="my-3 space-y-2">
-                    <label className={labelClass}>
-                      Miesiąc rozliczenia
-                      <input
-                        aria-label="Miesiąc rozliczenia"
-                        type="month"
-                        value={consumptionMonth}
-                        onChange={(event) => setConsumptionMonth(event.target.value)}
-                        className={inputClass}
-                      />
-                    </label>
-                    <label className={labelClass}>
-                      Łączne zużycie MD w miesiącu
-                      <input
-                        aria-label="Łączne zużycie MD w miesiącu"
-                        inputMode="decimal"
-                        value={consumptionValue}
-                        onChange={(event) =>
-                          setConsumptionValue(sanitizeDecimalInput(event.target.value))
-                        }
-                        className={inputClass}
-                      />
-                    </label>
-                    <p className="text-xs text-muted-foreground">
-                      Wpisz sumę MD wszystkich konsultantów za wybrany miesiąc.
-                      Zapis zastępuje dotychczasowe rozliczenie tego miesiąca,
-                      także z importu.
-                    </p>
+{group && group.status !== "draft" && group.status !== "cancelled" ? (
+                  <div className="my-3">
+                    <span className={labelClass}>Zejścia MD</span>
+                    {/* Zapis od razu (nie przy „Zapisz” okna) — ten sam
+                        komponent co w panelu zamówienia. */}
+                    <SharedMdConsumptionsSection clientId={clientId} group={group} canEdit />
                   </div>
                 ) : null}
                 <label htmlFor="group-md-used" className={`${labelClass} mt-3`}>

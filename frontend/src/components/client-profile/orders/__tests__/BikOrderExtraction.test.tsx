@@ -246,7 +246,7 @@ describe("BIK — odczyt zamówienia wieloosobowego", () => {
     const piotr = screen.getByRole("article", { name: "Konsultant: Piotr Łęcki" });
     expect(piotr).toHaveTextContent("z PDF, poz. 20");
     expect(screen.getAllByLabelText("Liczba MD")[1]).toHaveValue("42");
-    expect(screen.getAllByLabelText("Stawka przychodowa")[1]).toHaveValue("1280");
+    expect(screen.getAllByLabelText("Stawka przychodowa")[1]).toHaveValue("1280.000");
   });
 
   it("uzupełnienie: „bezterminowo” zastępuje wpisaną datę dopiero po zgodzie", async () => {
@@ -307,11 +307,11 @@ describe("BIK — odczyt zamówienia wieloosobowego", () => {
 
     expect(screen.getByLabelText("Liczba MD — Krystian Sowiński")).toHaveValue("35");
     expect(screen.getByLabelText("Stawka przychodowa — Krystian Sowiński")).toHaveValue(
-      "1080",
+      "1080.000",
     );
     // Osoba spoza dokumentu zostaje nietknięta — nie dostaje cudzego limitu.
     expect(screen.getByLabelText("Liczba MD — Sowa Anna")).toHaveValue("");
-    expect(screen.getByLabelText("Stawka przychodowa — Sowa Anna")).toHaveValue("1500");
+    expect(screen.getByLabelText("Stawka przychodowa — Sowa Anna")).toHaveValue("1500.000");
     expect(screen.getByLabelText("Obowiązuje do (puste = bezterminowo)")).toHaveValue("");
   });
 
@@ -339,7 +339,7 @@ describe("BIK — odczyt zamówienia wieloosobowego", () => {
     await readDocument(user);
     expect(screen.getByLabelText("Liczba MD — Krystian Sowiński")).toHaveValue("");
     expect(screen.getByLabelText("Stawka przychodowa — Krystian Sowiński")).toHaveValue(
-      "1080",
+      "1080.000",
     );
   });
 });

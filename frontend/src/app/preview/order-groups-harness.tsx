@@ -24,6 +24,7 @@ import { OrderGroupPanel } from "@/components/client-profile/orders/OrderGroupPa
 import { orderHistoryQueryKey } from "@/components/client-profile/orders/OrderHistoryPanel";
 import { OrderLinePanel } from "@/components/client-profile/orders/OrderLinePanel";
 import { OrdersTable, type LinePanelTab } from "@/components/client-profile/orders/OrdersTable";
+import { sharedMdConsumptionsQueryKey } from "@/components/client-profile/orders/SharedMdConsumptionsSection";
 import {
   buildSectionRows,
   findGroup,
@@ -38,6 +39,7 @@ import type { ContractWithOrdersRead, OrderType } from "@/lib/api/dlPortal";
 import type {
   LineConsumptionsResponse,
   OrderGroupRead,
+  SharedMdConsumptionsResponse,
   OrderHistoryEntry,
   OrderLineRead,
 } from "@/lib/api/orderGroups";
@@ -45,6 +47,7 @@ import {
   ORDER_TYPE_ORDER,
   contractorOrderType,
   effectiveGroupOrderType,
+  usesSharedMdPool,
 } from "@/lib/client-order-list";
 
 function allGroups(groups: readonly OrderGroupRead[]): OrderGroupRead[] {
@@ -60,9 +63,30 @@ export function seedOrderGroupPanels(
   data: {
     history?: Record<number, OrderHistoryEntry[]>;
     consumptions?: Record<number, LineConsumptionsResponse>;
+    /** Zejścia wspólnej puli MD per zamówienie (sekcja „Zejścia MD”). */
+    sharedConsumptions?: Record<number, SharedMdConsumptionsResponse>;
   } = {},
 ): void {
   for (const group of allGroups(groups)) {
+    if (usesSharedMdPool(group)) {
+      const sharedKey = sharedMdConsumptionsQueryKey(clientId, group.id);
+      if (qc.getQueryData(sharedKey) === undefined) {
+        qc.setQueryData<SharedMdConsumptionsResponse>(
+          sharedKey,
+          data.sharedConsumptions?.[group.id] ?? {
+            months: [],
+            consultants: group.lines.map((line) => ({
+              order_id: line.id,
+              consultant_name: line.consultant_name,
+              status: line.status,
+            })),
+            md_budget_total: group.md_budget_total ?? null,
+            md_used: group.md_budget_used ?? null,
+            md_remaining: group.md_budget_remaining ?? null,
+          },
+        );
+      }
+    }
     const historyKey = orderHistoryQueryKey(clientId, group.id);
     if (qc.getQueryData(historyKey) === undefined) {
       const entries = data.history?.[group.id] ?? [];

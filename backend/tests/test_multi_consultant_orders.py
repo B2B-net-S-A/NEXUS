@@ -1386,8 +1386,9 @@ async def test_options_label_candidate_cost_with_its_own_currency(
 @pytest.mark.parametrize(
     ("rate_unit", "raw_rate", "expected_per_md"),
     [
-        pytest.param("daily", Decimal("560.125"), 560.13, id="daily"),
-        pytest.param("monthly", Decimal("12600.125"), 600.01, id="monthly"),  # ÷ 21 MD
+        # Od 0419 stawka linii ma trzy miejsca — PLN/MD nie traci 3. miejsca.
+        pytest.param("daily", Decimal("560.125"), 560.125, id="daily"),
+        pytest.param("monthly", Decimal("12600.125"), 600.006, id="monthly"),  # ÷ 21 MD
     ],
 )
 async def test_options_preserve_raw_daily_and_monthly_rate_with_three_decimals(

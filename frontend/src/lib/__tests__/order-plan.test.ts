@@ -99,9 +99,9 @@ describe("karty konsultantów z odczytu PDF-a", () => {
 
     expect(draft.person?.contractId).toBe(11);
     expect(draft.confirmed).toBe(true);
-    expect(draft.rateCost).toBe("148.75");
+    expect(draft.rateCost).toBe("148.750");
     expect(sourceLabel(draft.costSource, draft)).toBe("z kontraktu");
-    expect(draft.rateRevenue).toBe("1080");
+    expect(draft.rateRevenue).toBe("1080.000");
     expect(sourceLabel(draft.revenueSource, draft)).toBe("z PDF, poz. 10");
     expect(sourceLabel(draft.mdSource, draft)).toBe("z PDF, poz. 10");
     expect(lineIssues(draft, md)).toEqual([]);
@@ -151,7 +151,7 @@ describe("karty konsultantów z odczytu PDF-a", () => {
 
     const chosen = chooseContract(draft, options[1]);
     expect(chosen.person?.contractId).toBe(22);
-    expect(chosen.rateCost).toBe("150");
+    expect(chosen.rateCost).toBe("150.000");
     expect(chosen.match).toBe("manual");
     expect(lineIssues(chosen, md)).toEqual([]);
   });
@@ -162,7 +162,7 @@ describe("karty konsultantów z odczytu PDF-a", () => {
 
     expect(rejected.person).toBeNull();
     expect(rejected.rateCost).toBe("");
-    expect(rejected.rateRevenue).toBe("1080");
+    expect(rejected.rateRevenue).toBe("1080.000");
   });
 
   it("linia do zapisu zawsze niesie stawki w zł/MD i MD osoby", () => {
@@ -272,7 +272,7 @@ describe("karty konsultantów z odczytu PDF-a", () => {
     );
     const typed = { ...draft, rateCost: "999", costSource: "manual" as const };
 
-    expect(chooseContract(typed, options[0]).rateCost).toBe("130");
+    expect(chooseContract(typed, options[0]).rateCost).toBe("130.000");
     expect(rejectMatch(typed).rateCost).toBe("");
   });
 });

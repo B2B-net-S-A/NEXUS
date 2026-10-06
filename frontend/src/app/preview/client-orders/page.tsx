@@ -37,6 +37,7 @@ import type {
   OrderHistoryEntry,
   OrderLineRead,
   OrderOffboardingCaseRead,
+  SharedMdConsumptionsResponse,
 } from "@/lib/api/orderGroups";
 import { useAuthStore } from "@/store/auth";
 
@@ -364,6 +365,34 @@ const SHARED_GROUP = group({
 
 const GROUPS = [MD_GROUP, COST_GROUP, SHARED_GROUP];
 
+/** Zejścia wspólnej puli (40 MD z 100): miesiąc z podziałem i stara suma. */
+const SHARED_CONSUMPTIONS: SharedMdConsumptionsResponse = {
+  months: [
+    {
+      period_month: "2026-08",
+      md_reported: 25,
+      source: "manual",
+      breakdown: [{ order_id: 5041, consultant_name: "Igor Wspólny", md: 25 }],
+      breakdown_source: "manual",
+      created_by_name: "Delivery Lead Przykładowy",
+      updated_at: "2026-09-02T09:00:00Z",
+    },
+    {
+      period_month: "2026-07",
+      md_reported: 15,
+      source: "manual",
+      breakdown: null,
+      breakdown_source: null,
+      created_by_name: "Delivery Lead Przykładowy",
+      updated_at: "2026-08-03T09:00:00Z",
+    },
+  ],
+  consultants: [{ order_id: 5041, consultant_name: "Igor Wspólny", status: "active" }],
+  md_budget_total: 100,
+  md_used: 40,
+  md_remaining: 60,
+};
+
 function entry(overrides: Partial<OrderHistoryEntry>): OrderHistoryEntry {
   return {
     key: "ev-1",
@@ -642,6 +671,7 @@ function seededClient(): QueryClient {
   seedOrderGroupPanels(qc, CLIENT_ID, GROUPS, {
     history: { 501: MD_HISTORY },
     consumptions: { 5011: ANNA_CONSUMPTIONS },
+    sharedConsumptions: { 504: SHARED_CONSUMPTIONS },
   });
   return qc;
 }

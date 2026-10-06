@@ -247,7 +247,7 @@ describe("ConsultantLineModal — wybór konsultanta", () => {
 
     expect(
       screen.getByRole("textbox", { name: /Stawka kosztowa/ }),
-    ).toHaveValue("560");
+    ).toHaveValue("560.000");
   });
 
   it("pokazuje godzinową stawkę kontraktu 60 bez normalizacji 168/21 i zapisuje 480 PLN/MD", async () => {
@@ -280,14 +280,14 @@ describe("ConsultantLineModal — wybór konsultanta", () => {
 
     expect(
       screen.getByRole("textbox", { name: /Stawka kosztowa/ }),
-    ).toHaveValue("60");
+    ).toHaveValue("60.000");
     const costUnits = screen.getByRole("group", {
       name: "Jednostka stawki kosztowej",
     });
     expect(
       within(costUnits).getByRole("button", { name: "godzinowa (zł/h)" }),
     ).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText(/Zapis w PLN\/MD: 480 zł/)).toBeInTheDocument();
+    expect(screen.getByText(/Zapis w PLN\/MD: 480\.000 zł/)).toBeInTheDocument();
 
     await fillRevenueAndBudget(user);
     await user.click(screen.getByRole("button", { name: "Dodaj konsultanta" }));
@@ -321,19 +321,20 @@ describe("ConsultantLineModal — wybór konsultanta", () => {
 
     expect(
       screen.getByRole("textbox", { name: /Stawka kosztowa/ }),
-    ).toHaveValue("1024.87");
+    ).toHaveValue("1024.870");
     const costUnits = screen.getByRole("group", {
       name: "Jednostka stawki kosztowej",
     });
     expect(
       within(costUnits).getByRole("button", { name: "miesięczna (zł/mc)" }),
     ).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText(/Zapis w PLN\/MD: 48\.8 zł/)).toBeInTheDocument();
+    expect(screen.getByText(/Zapis w PLN\/MD: 48\.803 zł/)).toBeInTheDocument();
 
     await fillRevenueAndBudget(user);
     await user.click(screen.getByRole("button", { name: "Dodaj konsultanta" }));
 
-    expect((onSubmit.mock.calls[0][0] as LineFormValues).rate_cost).toBe(48.8);
+    // 1024,87 ÷ 21 = 48,8033… — trzy miejsca (0419), nie 48,8.
+    expect((onSubmit.mock.calls[0][0] as LineFormValues).rate_cost).toBe(48.803);
   });
 
   it("zachowuje walutę i surową stawkę kontraktu, przekazując konwersję PLN backendowi", async () => {
@@ -362,14 +363,14 @@ describe("ConsultantLineModal — wybór konsultanta", () => {
 
     expect(
       screen.getByRole("textbox", { name: "Stawka kosztowa (EUR) *" }),
-    ).toHaveValue("100");
+    ).toHaveValue("100.000");
     const costUnits = screen.getByRole("group", {
       name: "Jednostka stawki kosztowej",
     });
     expect(
       within(costUnits).getByRole("button", { name: "godzinowa (EUR/h)" }),
     ).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText(/Zapis w EUR\/MD: 800 EUR/)).toBeInTheDocument();
+    expect(screen.getByText(/Zapis w EUR\/MD: 800\.000 EUR/)).toBeInTheDocument();
 
     await fillRevenueAndBudget(user);
     await user.click(screen.getByRole("button", { name: "Dodaj konsultanta" }));
@@ -418,7 +419,7 @@ describe("ConsultantLineModal — wybór konsultanta", () => {
     );
     expect(
       screen.getByRole("textbox", { name: /Stawka kosztowa/ }),
-    ).toHaveValue("560");
+    ).toHaveValue("560.000");
   });
 
   it("bez kontraktu u klienta zostawia koszt pusty i nie pokazuje ostrzeżenia", async () => {
@@ -705,7 +706,7 @@ describe("ConsultantLineModal — odczyt PDF", () => {
       expect(dlPortalApi.extractOrderPdf).toHaveBeenCalledWith(7, file, 5),
     );
     await waitFor(() =>
-      expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("1300"),
+      expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("1300.000"),
     );
     // „Liczba MD" jest też etykietą radia trybu budżetu — bierzemy POLE.
     expect(screen.getByRole("textbox", { name: "Liczba MD" })).toHaveValue(
@@ -740,7 +741,7 @@ describe("ConsultantLineModal — odczyt PDF", () => {
 
     expect(
       await screen.findByText(
-        /Z dokumentu: 123 PLN\/h brutto → 100 PLN\/h netto/i,
+        /Z dokumentu: 123\.000 PLN\/h brutto → 100\.000 PLN\/h netto/i,
       ),
     ).toBeInTheDocument();
   });
@@ -786,7 +787,7 @@ describe("ConsultantLineModal — odczyt PDF", () => {
         input_value: "60.000000",
       } as unknown as OrderLineRead,
     });
-    expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("1300");
+    expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("1300.000");
     addPdf();
     await user.click(
       screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
@@ -822,7 +823,7 @@ describe("ConsultantLineModal — odczyt PDF", () => {
 
     await user.click(extractButton);
     await waitFor(() =>
-      expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("1300"),
+      expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("1300.000"),
     );
     expect(screen.getByRole("textbox", { name: "Liczba MD" })).toHaveValue(
       "60",
@@ -846,7 +847,7 @@ describe("ConsultantLineModal — odczyt PDF", () => {
       ),
     );
     await waitFor(() =>
-      expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("1400"),
+      expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("1400.000"),
     );
   });
 
@@ -876,7 +877,7 @@ describe("ConsultantLineModal — odczyt PDF", () => {
     expect(
       within(revenueUnits).getByRole("button", { name: "godzinowa (zł/h)" }),
     ).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("150");
+    expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("150.000");
 
     await user.click(screen.getByRole("button", { name: "Dodaj konsultanta" }));
     expect((onSubmit.mock.calls[0][0] as LineFormValues).rate_revenue).toBe(
@@ -920,8 +921,8 @@ describe("ConsultantLineModal — odczyt PDF", () => {
     expect(
       within(revenueUnits).getByRole("button", { name: "godzinowa (zł/h)" }),
     ).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("150");
-    expect(screen.getByLabelText(/Stawka kosztowa/i)).toHaveValue("70");
+    expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("150.000");
+    expect(screen.getByLabelText(/Stawka kosztowa/i)).toHaveValue("70.000");
   });
 
   it("nowy PDF resetuje jednostkę poprzedniej stawki automatycznej", async () => {
@@ -943,7 +944,7 @@ describe("ConsultantLineModal — odczyt PDF", () => {
       screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
     );
     await waitFor(() =>
-      expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("150"),
+      expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("150.000"),
     );
 
     addPdf("B-nowy.pdf");
@@ -982,7 +983,7 @@ describe("ConsultantLineModal — odczyt PDF", () => {
 
     addPdf("B-nowy.pdf");
 
-    expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("1300");
+    expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("1300.000");
     expect(screen.getByRole("textbox", { name: "Liczba MD" })).toHaveValue(
       "60",
     );
@@ -1003,7 +1004,7 @@ describe("ConsultantLineModal — odczyt PDF", () => {
     });
     await user.click(extractButton);
     await waitFor(() =>
-      expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("1300"),
+      expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("1300.000"),
     );
 
     await user.click(extractButton);
@@ -1048,7 +1049,7 @@ describe("ConsultantLineModal — odczyt PDF", () => {
     });
     await user.click(extractButton);
     await waitFor(() =>
-      expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("1300"),
+      expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("1300.000"),
     );
 
     await user.click(extractButton);
@@ -1157,7 +1158,7 @@ describe("ConsultantLineModal — odczyt PDF", () => {
 
     await user.click(screen.getByRole("button", { name: "Dodaj konsultanta" }));
     expect((onSubmit.mock.calls[0][0] as LineFormValues).rate_revenue).toBe(
-      571.43,
+      571.429,
     );
   });
 
@@ -1188,7 +1189,7 @@ describe("ConsultantLineModal — odczyt PDF", () => {
     });
     await user.click(button);
     await waitFor(() =>
-      expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("1300"),
+      expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("1300.000"),
     );
     expect(screen.getByRole("textbox", { name: "Liczba MD" })).toHaveValue(
       "60",
@@ -1308,12 +1309,13 @@ describe("ConsultantLineModal — odczyt PDF", () => {
       await screen.findByText(/Odczytane dane różnią się od wpisanych/i),
     ).toBeInTheDocument();
     // Nic nie zostało jeszcze nadpisane — to cała treść obietnicy dialogu.
-    expect(revenue).toHaveValue("1200");
+    // (Po wyjściu z pola stawka ma trzy miejsca — to format, nie odczyt PDF.)
+    expect(revenue).toHaveValue("1200.000");
 
     await user.click(
       screen.getByRole("button", { name: /Tak — zapisz dane z dokumentu/i }),
     );
-    await waitFor(() => expect(revenue).toHaveValue("1300"));
+    await waitFor(() => expect(revenue).toHaveValue("1300.000"));
   });
 
   it("odmowa zostawia dane wpisane ręcznie", async () => {
@@ -1338,7 +1340,7 @@ describe("ConsultantLineModal — odczyt PDF", () => {
       }),
     );
 
-    expect(revenue).toHaveValue("1200");
+    expect(revenue).toHaveValue("1200.000");
   });
 
   it('baner „Sprawdź dane!" pojawia się przy niepewnym odczycie', async () => {
@@ -1389,7 +1391,7 @@ describe("ConsultantLineModal — odczyt PDF", () => {
     );
 
     expect(await screen.findByText("Sprawdź dane!")).toBeInTheDocument();
-    expect(revenue).toHaveValue("1200");
+    expect(revenue).toHaveValue("1200.000");
     expect(md).toHaveValue("50");
   });
 
@@ -1568,14 +1570,14 @@ describe("waluty zapisanej linii", () => {
     const revenue = screen.getByRole("textbox", { name: /Stawka przychodowa/ });
     const costCurrency = screen.getByRole("combobox", { name: "Waluta stawki kosztowej" });
     const revenueCurrency = screen.getByRole("combobox", { name: "Waluta stawki przychodowej" });
-    expect(cost).toHaveValue("176");
-    expect(revenue).toHaveValue("218.75");
+    expect(cost).toHaveValue("176.000");
+    expect(revenue).toHaveValue("218.750");
     expect(costCurrency).toHaveValue("EUR");
     expect(revenueCurrency).toHaveValue("EUR");
     expect(cost.parentElement).toContainElement(costCurrency);
     expect(revenue.parentElement).toContainElement(revenueCurrency);
     await user.selectOptions(revenueCurrency, "USD");
-    expect(revenue).toHaveValue("218.75");
+    expect(revenue).toHaveValue("218.750");
     await user.click(screen.getByRole("button", { name: "Zapisz" }));
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
       rate_cost: 176, rate_revenue: 218.75, rate_candidate_currency: "EUR", rate_client_currency: "USD",

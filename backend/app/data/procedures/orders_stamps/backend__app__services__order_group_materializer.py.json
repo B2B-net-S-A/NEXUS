@@ -1,4 +1,4 @@
 {
-  "sha256": "b4f4ce068840a81dbeb32be87593a13b42df1af4c3481041597c5804fa36d234",
+  "sha256": "d87ee6204df1646d2ee9eece40ab2d99fc5670aead919f301d134550112ff450",
   "source": "backend/app/services/order_group_materializer.py"
 }

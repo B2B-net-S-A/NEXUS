@@ -54,21 +54,6 @@ export function contractRateUnitToInputUnit(
 }
 
 /**
- * Zaokrąglenie do 2 miejsc, half-up, ODPORNE na błąd binarny.
- *
- * `Math.round(x * 100) / 100` gubi się na wartościach, których zapis
- * zmiennoprzecinkowy leży minimalnie poniżej połowy (klasyczne 1.005 → 1),
- * a tutaj chodzi o kwoty widoczne obok siebie w dwóch jednostkach: operator
- * natychmiast zauważy, że ×8 i ÷8 nie wracają do tej samej liczby.
- */
-export function roundTo2(value: number): number {
-  if (!Number.isFinite(value)) return NaN;
-  return new Decimal(value)
-    .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
-    .toNumber();
-}
-
-/**
  * Przelicz kwotę między jednostkami. Zwraca `null` dla wejścia, którego nie da
  * się przeliczyć (NaN/Infinity) — wołający zostawia wtedy pole nietknięte
  * zamiast wpisywać do niego „NaN”.
@@ -79,13 +64,43 @@ export function convertRate(
   to: RateUnit,
 ): number | null {
   if (!Number.isFinite(value)) return null;
-  if (from === to) return roundTo2(value);
+  if (from === to) return decimalToMoney(new Decimal(value));
   const md = toMdDecimal(value, from);
   return decimalToMoney(fromMdDecimal(md, to));
 }
 
+/**
+ * Stawki linii zamówienia MD mają TRZY miejsca po przecinku (kolumny
+ * `md_rate_*` = Numeric(12,3) od migracji 0419). Przeliczenie 291 zł/MD → zł/h
+ * daje 36,375 — dwa miejsca pokazywały „36.38”, a zapis z powrotem ×8 dawał
+ * 291,04 zamiast 291.
+ */
+export const RATE_DECIMALS = 3;
+
 function decimalToMoney(value: Decimal): number {
-  return value.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber();
+  return value.toDecimalPlaces(RATE_DECIMALS, Decimal.ROUND_HALF_UP).toNumber();
+}
+
+/**
+ * Wartość pola stawki: zawsze trzy miejsca po przecinku („36.375”, „1000.000”).
+ * Pole wstawione przez program (podpowiedź, przeliczenie jednostki, odczyt
+ * PDF) i pole po opuszczeniu go przez operatora wyglądają tak samo — bez tego
+ * jedna stawka miała dwa miejsca, druga żadnego. Pusta / niepoprawna = „”.
+ */
+export function formatRateField(value: number | string | null | undefined): string {
+  if (value === null || value === undefined) return "";
+  // API bywa, że serializuje Decimal jako tekst („1300.000000”).
+  const parsed = typeof value === "string" ? Number.parseFloat(value) : value;
+  if (!Number.isFinite(parsed)) return "";
+  return new Decimal(parsed).toFixed(RATE_DECIMALS, Decimal.ROUND_HALF_UP);
+}
+
+/** Tekst pola po opuszczeniu go: liczba → trzy miejsca, reszta bez zmian. */
+export function normalizeRateField(raw: string): string {
+  const normalized = raw.trim().replace(",", ".");
+  if (normalized === "") return "";
+  const parsed = Number.parseFloat(normalized);
+  return Number.isFinite(parsed) ? formatRateField(parsed) : raw;
 }
 
 function toMdDecimal(value: number, unit: RateUnit): Decimal {

@@ -96,7 +96,7 @@ describe("Przypisz do zamówienia (CeZ)", () => {
     expect(screen.queryByRole("option", { name: /Jan Aktywny/ })).not.toBeInTheDocument();
     await userEvent.selectOptions(who, "672");
     expect(screen.getByLabelText(/Data wejścia/)).toHaveValue("2026-09-01");
-    expect(screen.getByLabelText(/Stawka koszt/)).toHaveValue("680");
+    expect(screen.getByLabelText(/Stawka koszt/)).toHaveValue("680.000");
     expect(screen.getByText("Z kontraktu: 85 PLN/h × 8")).toBeInTheDocument();
     expect(screen.getByText(/przejmuje/)).toHaveTextContent("187 MD");
     await userEvent.type(screen.getByLabelText(/Stawka przychód/), "800");

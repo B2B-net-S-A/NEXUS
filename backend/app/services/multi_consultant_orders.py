@@ -47,6 +47,11 @@ MD_SCALE = Decimal("0.000001")
 # Pełne sześć miejsc MD pozostaje w bazie i obliczeniach.
 MD_DISPLAY_SCALE = Decimal("0.001")
 
+# Skala stawek linii MD (``client_orders.md_rate_*`` = Numeric(12,3) od 0419).
+# Ta sama skala co surowe ``rate_client``/``rate_candidate`` — do 0419 stawka
+# MD traciła trzecie miejsce, a obok stała kolumna, która go nie traciła.
+MD_RATE_SCALE = Decimal("0.001")
+
 # Tryb wprowadzania budżetu linii konsultanta.
 INPUT_MODE_MD = "md"
 INPUT_MODE_AMOUNT = "amount"

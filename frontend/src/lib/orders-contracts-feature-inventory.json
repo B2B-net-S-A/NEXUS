@@ -485,6 +485,13 @@
    "b_home": "Panel"
   },
   {
+   "id": "g.shared-consumptions",
+   "opis": "Zejścia wspólnej puli MD: edycja per konsultant i usunięcie miesiąca",
+   "file": "components/client-profile/orders/OrderGroupPanel.tsx",
+   "marker": "SharedMdConsumptionsSection",
+   "b_home": "Panel, sekcja „Zejścia MD”"
+  },
+  {
    "id": "l.badges",
    "opis": "Odznaki osoby",
    "file": "components/client-profile/orders/OrdersTable.tsx",

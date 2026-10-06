@@ -25,12 +25,14 @@
   "DELETE /api/clients/{client_id}/order-groups/{group_id}/file": "PPDBDDDDBBBDDPDDDDD",
   "DELETE /api/clients/{client_id}/order-groups/{group_id}/lines/{line_id}": "PPDBDDDDBBBDDPDDDDD",
   "DELETE /api/clients/{client_id}/order-groups/{group_id}/lines/{line_id}/consumptions/{period_month}": "PPDBDDDDBBBDDPDDDDD",
+  "DELETE /api/clients/{client_id}/order-groups/{group_id}/md-consumptions/{period_month}": "PPDBDDDDBBBDDPDDDDD",
   "GET /api/clients/{client_id}/order-groups": "PPDBPDDDBBBDPPPPDPP",
   "GET /api/clients/{client_id}/order-groups/consultant-options": "PPDBDDDDBBBDDPDDDDD",
   "GET /api/clients/{client_id}/order-groups/{group_id}/events": "PPDBPDDDBBBDPPPPDPP",
   "GET /api/clients/{client_id}/order-groups/{group_id}/file": "PPDBDDDDBBBDDDDDDPP",
   "GET /api/clients/{client_id}/order-groups/{group_id}/history": "PPDBPDDDBBBDPPPPDPP",
   "GET /api/clients/{client_id}/order-groups/{group_id}/lines/{line_id}/consumptions": "PPDBPDDDBBBDPPPPDPP",
+  "GET /api/clients/{client_id}/order-groups/{group_id}/md-consumptions": "PPDBPDDDBBBDPPPPDPP",
   "PATCH /api/clients/{client_id}/order-groups/{group_id}": "PPDBDDDDBBBDDPDDDDP",
   "PATCH /api/clients/{client_id}/order-groups/{group_id}/lines/{line_id}": "PPDBDDDDBBBDDPDDDDP",
   "POST /api/clients/{client_id}/order-groups": "PPDBDDDDBBBDDPDDDDD",
@@ -48,6 +50,7 @@
   "POST /api/clients/{client_id}/order-groups/{group_id}/restore": "PPDBDDDDBBBDDPDDDDD",
   "POST /api/clients/{client_id}/order-groups/{group_id}/takeover": "PPDBDDDDBBBDDPDDDDD",
   "PUT /api/clients/{client_id}/order-groups/{group_id}/file": "PPDBDDDDBBBDDPDDDDD",
-  "PUT /api/clients/{client_id}/order-groups/{group_id}/lines/{line_id}/consumptions/{period_month}": "PPDBDDDDBBBDDPDDDDD"
+  "PUT /api/clients/{client_id}/order-groups/{group_id}/lines/{line_id}/consumptions/{period_month}": "PPDBDDDDBBBDDPDDDDD",
+  "PUT /api/clients/{client_id}/order-groups/{group_id}/md-consumptions/{period_month}": "PPDBDDDDBBBDDPDDDDD"
  }
 }

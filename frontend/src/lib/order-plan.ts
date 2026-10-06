@@ -20,6 +20,7 @@ import type {
 } from "@/lib/api/orderGroups";
 import {
   contractRateUnitToInputUnit,
+  formatRateField,
   toMdRate,
   type RateUnit,
 } from "@/lib/rate-unit";
@@ -128,7 +129,7 @@ function costFromContract(
     return { rateCost: "", costUnit: "md", costCurrency: "PLN", costSource: null };
   }
   return {
-    rateCost: String(contract.rate_cost),
+    rateCost: formatRateField(contract.rate_cost),
     costUnit: contractRateUnitToInputUnit(contract.rate_cost_unit),
     costCurrency: contract.rate_cost_currency?.trim().toUpperCase() || "PLN",
     costSource: "contract",
@@ -171,7 +172,8 @@ export function draftsFromPlan(plan: OrderGroupExtraction): OrderLineDraft[] {
       ...(matched && line.contract
         ? costFromContract(line.contract)
         : { rateCost: "", costUnit: "md" as RateUnit, costCurrency: "PLN", costSource: null }),
-      rateRevenue: numberField(line.rate_revenue),
+      // Trzy miejsca jak kolumny stawek linii (0419) — „36.375”, nie „36.38”.
+      rateRevenue: formatRateField(line.rate_revenue),
       // Bez kwoty jednostka nie ma znaczenia — domyślnie MD, jak w formularzu.
       revenueUnit: hasRevenue ? revenueUnitFromDocument(line.rate_revenue_unit) : "md",
       revenueCurrency: currency,
@@ -288,7 +290,7 @@ export function chooseConsultant(
     option.suggested_contract_rate_cost !== undefined;
   const cost = hasRaw
         ? {
-            rateCost: String(option.suggested_contract_rate_cost),
+            rateCost: formatRateField(option.suggested_contract_rate_cost),
             costUnit: contractRateUnitToInputUnit(option.suggested_rate_cost_unit),
             costCurrency:
               option.suggested_rate_cost_currency?.trim().toUpperCase() || "PLN",
@@ -297,7 +299,7 @@ export function chooseConsultant(
         : option.suggested_rate_cost !== null &&
             option.suggested_rate_cost !== undefined
           ? {
-              rateCost: String(option.suggested_rate_cost),
+              rateCost: formatRateField(option.suggested_rate_cost),
               costUnit: "md" as RateUnit,
               costCurrency: "PLN",
               costSource: "contract" as LineSource,

@@ -47,6 +47,7 @@ import {
   periodLabel,
 } from "./order-group-parts";
 import { displayLineRate } from "./order-line-display";
+import { SharedMdConsumptionsSection } from "./SharedMdConsumptionsSection";
 import { groupRoster } from "./orders-table-model";
 
 /** Callbacki zamówienia — te same, które wołała dawna karta zamówienia.
@@ -302,6 +303,16 @@ export function OrderGroupPanel({
           {sharedMd ? (
             <DetailSection title="Wspólna pula MD">
               <SharedMdBudgetBar group={group} />
+            </DetailSection>
+          ) : null}
+          {sharedMd && group.status !== "draft" ? (
+            <DetailSection title="Zejścia MD">
+              <SharedMdConsumptionsSection
+                clientId={clientId}
+                group={group}
+                // Ta sama bramka co „Zakończ” — lustro uprawnień zejść linii.
+                canEdit={canManageLifecycle && !isCancelled}
+              />
             </DetailSection>
           ) : null}
 

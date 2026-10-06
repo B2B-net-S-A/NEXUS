@@ -23,7 +23,7 @@ from __future__ import annotations
 import io
 import re
 from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Optional
 
 from fastapi import (
@@ -125,6 +125,11 @@ from app.schemas.client_order_group import (
     LineConsumptionRow,
     LineConsumptionsResponse,
     LineConsumptionUpsert,
+    SharedMdConsultant,
+    SharedMdConsumptionMonth,
+    SharedMdConsumptionPerson,
+    SharedMdConsumptionsResponse,
+    SharedMdConsumptionUpsert,
     OrderDraftRead,
     OrderGroupCancel,
     OrderGroupClose,
@@ -271,6 +276,7 @@ from app.services.multi_consultant_orders import (
     INPUT_MODE_MD,
     LINE_DECISION_KEEP_HISTORY,
     LINE_DECISION_REMOVED,
+    MD_RATE_SCALE,
     compute_md_total,
     format_md,
     is_multi_consultant_client,
@@ -301,6 +307,8 @@ from app.services.order_types import (
 from app.services.fx_service import rates_to_pln
 from app.services.order_rate_snapshots import convert_order_rate
 from app.services.shared_md_orders import (
+    delete_shared_md_consumption,
+    shared_md_import_breakdowns,
     upsert_shared_md_consumption,
     client_uses_shared_md_pool,
     normalize_empty_generic_explicit_md_group,
@@ -395,13 +403,14 @@ _GROUP_FINANCE_FIELDS = frozenset(
 async def _canonical_currency_rate(
     db: AsyncSession, value: Decimal, currency: str, on: date
 ) -> Decimal:
+    # Trzy miejsca = skala kolumn ``md_rate_*`` od 0419.
     if currency == "PLN":
-        return value.quantize(Decimal("0.01"))
+        return value.quantize(MD_RATE_SCALE, rounding=ROUND_HALF_UP)
     fx = await rates_to_pln(db, {currency}, on)
     factor = fx.get(currency)
     if factor is None:
         raise HTTPException(422, detail=f"Brak kursu {currency}/PLN")
-    return (value * factor).quantize(Decimal("0.01"))
+    return (value * factor).quantize(MD_RATE_SCALE, rounding=ROUND_HALF_UP)
 
 
 async def _assert_client(
@@ -3960,7 +3969,9 @@ async def _assert_group_is_disposable(
             + ", ".join(blockers)
             + ". Usunięcie skasowałoby też jego historię. Jeżeli współpraca "
             "się skończyła — użyj „Zakończ”. Jeżeli to pomyłka do wycofania, "
-            "najpierw usuń z niego rozliczenia."
+            "najpierw usuń z niego rozliczenia: zejścia wspólnej puli w panelu "
+            "zamówienia („Zejścia MD”), zejścia osoby w jej panelu („Zużycie "
+            "MD”)."
         ),
     )
 
@@ -5309,13 +5320,17 @@ async def _add_line_to_group(
 
 
 def _money_md(value: Optional[Decimal]) -> str:
-    """„1 280 zł/MD" — kwota stawki PLN/MD do wpisu historii."""
+    """„1 280 zł/MD", „36,375 zł/MD" — stawka PLN/MD do wpisu historii.
+
+    Stawka ma trzy miejsca (0419): ułamek zawsze z trzema, pełne złote bez
+    zer po przecinku, żeby wpis „1 000 → 1 100" został czytelny.
+    """
     if value is None:
         return "—"
-    amount = Decimal(str(value)).quantize(Decimal("0.01"))
-    text = f"{amount:,.2f}".replace(",", " ").replace(".", ",")
-    if text.endswith(",00"):
-        text = text[:-3]
+    amount = Decimal(str(value)).quantize(MD_RATE_SCALE, rounding=ROUND_HALF_UP)
+    text = f"{amount:,.3f}".replace(",", " ").replace(".", ",")
+    if text.endswith(",000"):
+        text = text[:-4]
     return f"{text} zł/MD"
 
 
@@ -7159,3 +7174,264 @@ async def delete_line_consumption(
         line_id=line.id,
         with_finance=await _can_see_finance(db, user, client_id),
     )
+
+
+# ── Zejścia wspólnej puli MD (ticket 10.2026) ────────────────────────────────
+#
+# Do tej zmiany miesiąc wspólnej puli dało się wyłącznie DOPISAĆ (pole
+# „Łączne zużycie MD w miesiącu” w „Uzupełnij zamówienie”). Nie dało się go
+# poprawić ani usunąć, a usunięcie zamówienia blokowały właśnie te rozliczenia
+# — komunikat kazał je usunąć, a ekranu do tego nie było.
+
+
+def _shared_md_group_or_422(group: ClientOrderGroup) -> None:
+    if not uses_shared_md_pool(group):
+        raise HTTPException(
+            422,
+            detail=(
+                "To zamówienie nie ma wspólnej puli MD — zejścia wpisuje się "
+                "przy konsultancie"
+            ),
+        )
+
+
+def _shared_people(
+    rows: list[tuple[int, Decimal]], names: dict[int, str]
+) -> list[SharedMdConsumptionPerson]:
+    return [
+        SharedMdConsumptionPerson(
+            order_id=order_id,
+            consultant_name=names.get(order_id, f"Linia #{order_id}"),
+            md=quantize_md(md),
+        )
+        for order_id, md in rows
+    ]
+
+
+async def _shared_md_consumptions_read(
+    db: AsyncSession, group: ClientOrderGroup
+) -> SharedMdConsumptionsResponse:
+    lines = await lines_for_group(db, group.id)
+    names = {line.id: consultant_display_name(line) for line in lines}
+    result = await db.execute(
+        select(ClientOrderGroupMdConsumption, User.name)
+        .outerjoin(User, User.id == ClientOrderGroupMdConsumption.created_by_user_id)
+        .where(ClientOrderGroupMdConsumption.group_id == group.id)
+        .order_by(ClientOrderGroupMdConsumption.period_month.desc())
+    )
+    import_breakdowns = await shared_md_import_breakdowns(db, group.id)
+    months: list[SharedMdConsumptionMonth] = []
+    for row, author_name in result.all():
+        total = quantize_md(row.md_reported)
+        breakdown: Optional[list[SharedMdConsumptionPerson]] = None
+        breakdown_source: Optional[str] = None
+        if row.breakdown:
+            breakdown = _shared_people(
+                [
+                    (int(item["order_id"]), Decimal(str(item["md"])))
+                    for item in row.breakdown
+                ],
+                names,
+            )
+            breakdown_source = "manual"
+        elif row.source == "import":
+            derived = import_breakdowns.get(row.period_month) or []
+            # Podział z wierszy importu pokazujemy tylko, gdy składa się
+            # w zapisaną sumę — inaczej przypisalibyśmy osobom liczby, których
+            # suma nie zgadza się z tym, co zeszło z puli.
+            if (
+                derived
+                and quantize_md(sum((md for _, md in derived), Decimal("0"))) == total
+            ):
+                breakdown = _shared_people(derived, names)
+                breakdown_source = "import"
+        months.append(
+            SharedMdConsumptionMonth(
+                period_month=row.period_month,
+                md_reported=total,
+                source=row.source,  # type: ignore[arg-type]
+                breakdown=breakdown,
+                breakdown_source=breakdown_source,  # type: ignore[arg-type]
+                created_by_name=author_name,
+                updated_at=row.updated_at,
+            )
+        )
+    used = await shared_md_used_total(db, group.id)
+    return SharedMdConsumptionsResponse(
+        months=months,
+        consultants=[
+            SharedMdConsultant(
+                order_id=line.id, consultant_name=names[line.id], status=line.status
+            )
+            for line in lines
+            if line.status != "cancelled"
+        ],
+        md_budget_total=group.md_budget_total,
+        md_used=used,
+        md_remaining=group.md_budget_remaining,
+    )
+
+
+@router.get(
+    "/{client_id}/order-groups/{group_id}/md-consumptions",
+    response_model=SharedMdConsumptionsResponse,
+)
+async def list_shared_md_consumptions(
+    client_id: int,
+    group_id: int,
+    user: DeliveryViewUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Zejścia wspólnej puli MD miesiąc po miesiącu, z podziałem na osoby.
+
+    Bramka odczytu jak historia zejść linii: liczby MD są operacyjne.
+    """
+    await _require_safe_group_read(db, user, client_id)
+    _assert_multi_client(client_id)
+    group = await _load_group(db, client_id, group_id)
+    _shared_md_group_or_422(group)
+    return await _shared_md_consumptions_read(db, group)
+
+
+@router.put(
+    "/{client_id}/order-groups/{group_id}/md-consumptions/{period_month}",
+    response_model=SharedMdConsumptionsResponse,
+)
+async def upsert_shared_md_month(
+    client_id: int,
+    group_id: int,
+    period_month: str,
+    payload: SharedMdConsumptionUpsert,
+    user: ContractsOrdersEditUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Ręczny zapis zejścia wspólnej puli za miesiąc — MD per konsultant.
+
+    Suma podziału nadpisuje miesiąc (ten sam klucz co import), pula liczy się
+    od zera. Uprawnienia jak przy zejściach linii (``upsert_line_consumption``).
+    """
+    await _require_order_lifecycle(db, user, client_id)
+    _assert_multi_client(client_id)
+    period_month = _validated_period_month(period_month)
+    group = await _load_group(db, client_id, group_id)
+    _assert_group_not_cancelled(group)
+    _shared_md_group_or_422(group)
+    if group.status == "draft":
+        raise HTTPException(
+            409, detail="Zejścia MD wpisuje się na zamówieniu, które nie jest szkicem"
+        )
+    await _assert_no_pending_offboarding_case(db, group_id=group.id)
+
+    lines = {line.id: line for line in await lines_for_group(db, group.id)}
+    unknown = [item.order_id for item in payload.lines if item.order_id not in lines]
+    if unknown:
+        raise HTTPException(
+            422,
+            detail="Konsultant spoza tego zamówienia — odśwież okno i spróbuj ponownie",
+        )
+    breakdown = [
+        {"order_id": item.order_id, "md": str(quantize_md(item.md))}
+        for item in payload.lines
+    ]
+    total = quantize_md(
+        sum((quantize_md(item.md) for item in payload.lines), Decimal("0"))
+    )
+    previous = await db.scalar(
+        select(ClientOrderGroupMdConsumption.md_reported).where(
+            ClientOrderGroupMdConsumption.group_id == group.id,
+            ClientOrderGroupMdConsumption.period_month == period_month,
+        )
+    )
+    was_exhausted = group.status == GROUP_STATUS_EXHAUSTED
+    _row, remaining = await upsert_shared_md_consumption(
+        db,
+        group=group,
+        period_month=period_month,
+        md_reported=total,
+        source="manual",
+        user_id=user.id,
+        breakdown=breakdown,
+    )
+    people = ", ".join(
+        f"{consultant_display_name(lines[item.order_id])} {format_md(item.md)} MD"
+        for item in payload.lines
+    )
+    overwritten = (
+        f", wcześniej {format_md(previous)} MD"
+        if previous is not None and quantize_md(previous) != total
+        else ""
+    )
+    record_event(
+        db,
+        group_id=group.id,
+        event_type=EVENT_MANUAL_EDIT,
+        description=(
+            f"Zejście wspólnej puli MD za {format_period_month(period_month)}: "
+            f"{format_md(total)} MD ({people}{overwritten}). "
+            f"Pozostało {format_md(remaining)} MD."
+        ),
+        payload={
+            "changed": ["zejście wspólnej puli MD"],
+            "period_month": period_month,
+            "md_reported": str(total),
+            "previous": None if previous is None else str(quantize_md(previous)),
+            "breakdown": breakdown,
+            "md_remaining": str(remaining),
+        },
+        user_id=user.id,
+    )
+    if not was_exhausted and group.status == GROUP_STATUS_EXHAUSTED:
+        await emit_shared_md_pool_exhausted(db, group)
+    await commit_order_write(db)
+    return await _shared_md_consumptions_read(db, group)
+
+
+@router.delete(
+    "/{client_id}/order-groups/{group_id}/md-consumptions/{period_month}",
+    response_model=SharedMdConsumptionsResponse,
+)
+async def delete_shared_md_month(
+    client_id: int,
+    group_id: int,
+    period_month: str,
+    user: ContractsOrdersEditUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Usunięcie zejścia wspólnej puli za miesiąc — pula liczona od zera.
+
+    Działa dla miesięcy z importu i ręcznych: to jedyna droga do usunięcia
+    zamówienia, które blokują rozliczenia wspólnej puli.
+    """
+    await _require_order_lifecycle(db, user, client_id)
+    _assert_multi_client(client_id)
+    period_month = _validated_period_month(period_month)
+    group = await _load_group(db, client_id, group_id)
+    _assert_group_not_cancelled(group)
+    _shared_md_group_or_422(group)
+    await _assert_no_pending_offboarding_case(db, group_id=group.id)
+
+    outcome = await delete_shared_md_consumption(
+        db, group=group, period_month=period_month
+    )
+    if outcome is None:
+        raise HTTPException(404, detail="Brak zejścia MD za ten miesiąc")
+    removed, remaining = outcome
+    record_event(
+        db,
+        group_id=group.id,
+        event_type=EVENT_MANUAL_EDIT,
+        description=(
+            f"Usunięto zejście wspólnej puli MD za "
+            f"{format_period_month(period_month)} ({format_md(removed)} MD). "
+            f"Pozostało {format_md(remaining)} MD."
+        ),
+        payload={
+            "changed": ["zejście wspólnej puli MD"],
+            "period_month": period_month,
+            "removed_md": str(removed),
+            "md_remaining": str(remaining),
+        },
+        user_id=user.id,
+    )
+    await commit_order_write(db)
+    return await _shared_md_consumptions_read(db, group)
