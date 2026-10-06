@@ -140,6 +140,9 @@ def test_only_listed_modules_read_recommendation_cards():
         # `redact_card_text` (bez narodowości), zapis idzie przez `save_manual`.
         "app/api/recommendation_card_assist.py",
         "app/services/recommendation_card_assist.py",
+        # Odpowiedzi z notatek do arkusza screeningu (07.10.2026): czyta
+        # WYŁĄCZNIE `note_answers` karty (pytania i odpowiedzi), nie pola.
+        "app/services/screening_note_sync.py",
     }
     pattern = re.compile(
         r"^\s*(?:from|import)\s.*\brecommendation_card(?:s|_rules|_import)?\b"

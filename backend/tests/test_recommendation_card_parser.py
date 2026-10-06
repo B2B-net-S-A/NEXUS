@@ -13,6 +13,7 @@ import pytest
 from app.services.recommendation_card_parser import (
     AI_HIDDEN_FIELDS,
     CV_HIDDEN_FIELDS,
+    PARSER_VERSION,
     parse_availability,
     parse_card,
     parse_english,
@@ -636,7 +637,7 @@ def test_free_note_is_not_a_card():
         "fields": {},
         "answers": [],
         "labels": [],
-        "parser_version": 1,
+        "parser_version": PARSER_VERSION,
     }
 
 
@@ -900,4 +901,150 @@ def test_short_word_before_the_label_goes_with_it():
             "Punkty ryzyka: długo bez projektu\nLokalizacja: Warszawa", CV_HIDDEN_FIELDS
         )
         == "Lokalizacja: Warszawa"
+    )
+
+
+# ── Parser v2 (07.10.2026) ─────────────────────────────────────────────────
+
+
+def test_parser_version_is_two():
+    # Zmiana wersji zmienia odcisk notatek — pętla importu przelicza karty.
+    assert PARSER_VERSION == 2
+
+
+@pytest.mark.parametrize(
+    ("raw", "value"),
+    [
+        ("160/115", 115.0),
+        ("160 / 115 zł/h", 115.0),
+        ("Stawka 150/120 netto", 120.0),
+    ],
+)
+def test_higher_first_slash_pair_is_client_rate_then_candidate(raw, value):
+    rate = parse_rate(raw)
+
+    assert rate["value"] == value
+    assert "value_max" not in rate
+    assert (rate["currency"], rate["period"]) == ("PLN", "h")
+
+
+def test_higher_first_pair_in_a_card_reads_the_candidate_rate():
+    card = parse_card("Stawka: 160/115\nDostępność: ASAP")
+
+    assert card.fields["rate"]["value"] == 115.0
+
+
+def test_dash_range_written_higher_first_keeps_v1_reading():
+    # Myślnik to widełki, nie para „klient/kandydat” — v1 bez zmian.
+    assert parse_rate("140-120")["value"] == 140.0
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (
+            "Pytanie 1: Czy znasz Kafkę? Tak\n"
+            "Pytanie 2: Czy znasz Kubernetes? Nie",
+            [
+                (1, "Czy znasz Kafkę?", "Tak"),
+                (2, "Czy znasz Kubernetes?", "Nie"),
+            ],
+        ),
+        (
+            "Pytanie 1: Czy używasz Kafki? tak, 2 lata\n"
+            "Pytanie 2: Ile lat pracujesz z Javą? 8",
+            [
+                (1, "Czy używasz Kafki?", "tak, 2 lata"),
+                (2, "Ile lat pracujesz z Javą?", "8"),
+            ],
+        ),
+        (
+            "1. Jak wygląda Twoje doświadczenie\n"
+            "z testami automatycznymi w projekcie?\n"
+            "Selenium i Playwright.\n"
+            "2. Czy pracowałeś w metodyce Scrum?\n"
+            "Tak, cztery lata.",
+            [
+                (
+                    1,
+                    "Jak wygląda Twoje doświadczenie "
+                    "z testami automatycznymi w projekcie?",
+                    "Selenium i Playwright.",
+                ),
+                (2, "Czy pracowałeś w metodyce Scrum?", "Tak, cztery lata."),
+            ],
+        ),
+    ],
+)
+def test_v2_question_layouts(text, expected):
+    answers = parse_card(text).answers
+
+    assert [(a["number"], a["question"], a["answer"]) for a in answers] == expected
+
+
+def test_bare_questions_wrapped_over_two_lines_are_glued():
+    answers = parse_card(
+        "Stawka: 120\n"
+        "Jak oceniasz swoje doświadczenie z testami\n"
+        "wydajnościowymi w JMeter?\n"
+        "Dobrze, dwa projekty.\n"
+        "Czy pracowałeś z bazami danych Oracle na produkcji?\n"
+        "Tak, w banku."
+    ).answers
+
+    assert [(a["question"], a["answer"]) for a in answers] == [
+        (
+            "Jak oceniasz swoje doświadczenie z testami wydajnościowymi w JMeter?",
+            "Dobrze, dwa projekty.",
+        ),
+        (
+            "Czy pracowałeś z bazami danych Oracle na produkcji?",
+            "Tak, w banku.",
+        ),
+    ]
+
+
+def test_note_after_question_mark_is_not_an_answer():
+    answers = parse_card(
+        "Pytanie 1: Czy znasz Kafkę? (wymagane)\nPytanie 2: Opisz projekt? Jakie role"
+    ).answers
+
+    assert [a["answer"] for a in answers] == ["", ""]
+
+
+def test_remark_after_question_mark_stays_in_the_question_when_answer_is_below():
+    answers = parse_card(
+        "Pytanie 1: Czy znasz angielski? Poziom min. B2\nTak, C1"
+    ).answers
+
+    assert [(a["question"], a["answer"]) for a in answers] == [
+        ("Czy znasz angielski? Poziom min. B2", "Tak, C1")
+    ]
+
+
+def test_short_remark_after_question_mark_is_not_an_answer():
+    answers = parse_card("Pytanie 1: Czy znasz angielski? Poziom min. B2").answers
+
+    assert [a["answer"] for a in answers] == [""]
+
+
+def test_numbered_list_with_inline_answers_under_a_field_stays_the_field():
+    card = parse_card("Uwagi:\n1. Termin rozmowy? czwartek\n2. Kontakt z HM? brak")
+
+    assert card.answers == ()
+    assert card.fields["recommendation"]["raw"].startswith("1. Termin rozmowy?")
+
+
+def test_wrapped_question_does_not_take_the_previous_field_line():
+    card = parse_card(
+        "Motywacja: chce zmienić projekt\nbo obecny się kończy\n"
+        "czy zna kafkę od dłuższego czasu w projekcie?\ntak, 2 lata\n"
+        "Jak ocenia swoją znajomość Kubernetes w produkcji?\nDobrze."
+    )
+
+    assert card.fields["motivation"]["raw"] == (
+        "chce zmienić projekt\nbo obecny się kończy"
+    )
+    assert card.answers[0]["question"] == (
+        "czy zna kafkę od dłuższego czasu w projekcie?"
     )

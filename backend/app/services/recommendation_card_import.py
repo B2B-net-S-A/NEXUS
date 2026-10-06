@@ -16,6 +16,11 @@ Dwie siatki bezpieczeństwa:
 
 Stemplowanie odcisku NIE rusza ``notes.updated_at`` (odcisk nocnego odczytu
 faktów stoi na tej kolumnie).
+
+Karta, która się zmieniła, przelicza też arkusz screeningu pary z odpowiedzi
+w notatce (``screening_note_sync``, decyzje 07.10.2026; wyłącznik
+``SCREENING_NOTE_SYNC_ENABLED``). Zapis notatki w NEXUSIE i scalanie
+kandydatów idą tą samą drogą (``refresh_candidate``).
 """
 
 from __future__ import annotations
@@ -28,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.services import recommendation_cards as cards
+from app.services import screening_note_sync
 from app.services.recommendation_card_parser import PARSER_VERSION
 
 logger = logging.getLogger(__name__)
@@ -85,9 +91,11 @@ async def refresh_candidate(
         job_ids.add(job_id)
     changed = 0
     for pair_job_id in sorted(job_ids):
-        changed += await cards.rebuild_pair(
-            db, candidate_id=candidate_id, job_id=pair_job_id
-        )
+        if await cards.rebuild_pair(db, candidate_id=candidate_id, job_id=pair_job_id):
+            changed += 1
+            await screening_note_sync.sync_pair_safely(
+                db, candidate_id=candidate_id, job_id=pair_job_id
+            )
     return changed
 
 
@@ -156,5 +164,10 @@ async def repair_orphans(db: AsyncSession, *, limit: int = DEFAULT_BATCH) -> int
     """Karty wskazujące na notatkę, której już nie ma. Zwraca liczbę kart."""
     rows = (await db.execute(_ORPHANS_SQL, {"limit": limit})).all()
     for row in rows:
-        await cards.rebuild_pair(db, candidate_id=row.candidate_id, job_id=row.job_id)
+        if await cards.rebuild_pair(
+            db, candidate_id=row.candidate_id, job_id=row.job_id
+        ):
+            await screening_note_sync.sync_pair_safely(
+                db, candidate_id=row.candidate_id, job_id=row.job_id
+            )
     return len(rows)

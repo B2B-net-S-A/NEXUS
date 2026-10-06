@@ -2534,10 +2534,41 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
   Zmieniasz regułę — porównaj starą i nową wersję na produkcji (tylko
   odczyt): dwie poprawki z przeglądu kodu pogorszyły odczyt prawdziwych kart,
   zanim zostały zawężone. Zmiana znaczenia = podbij `PARSER_VERSION`
-  (wchodzi do odcisku, więc karty przeliczą się same).
-- **Odpowiedzi z notatek NIE trafiają do arkusza screeningu** — arkusz
-  zmienia punktację, wymagania ruchu i wychodzi do klienta. Karta tylko je
-  pokazuje.
+  (wchodzi do odcisku, więc karty przeliczą się same). v2 (07.10.2026):
+  krótka odpowiedź po „? ” w wierszu pytania („tak/nie…”, liczba, mała
+  litera; tylko bez wiersza odpowiedzi pod spodem), pytania zawinięte na 2–3
+  wiersze (dalszy ciąg małą literą, początek wygląda na pytanie), „Stawka:
+  160/115” (pierwsza wyższa, ukośnik) = kandydat 115. Lista numerowana staje
+  się pytaniami jak w v1 — tylko z odpowiedzią w osobnym wierszu.
+- **Odpowiedzi z notatek trafiają do arkusza screeningu (decyzje Artura
+  07.10.2026 — do tej daty reguła brzmiała „nie trafiają”).** Jedyne miejsce
+  zapisu: `services/screening_note_sync.py` (strażnik
+  `test_screening_note_sync_guard.py`), wyłącznik `SCREENING_NOTE_SYNC_ENABLED`
+  (domyślnie OFF). Odpowiedź z notatki ma pochodzenie `note_sync`; taki arkusz
+  **od razu widzi klient** (`client_safe_screening` go nie odfiltrowuje)
+  i **liczy się w ocenie pary** jak arkusz człowieka — zapis oznacza wyniki
+  kandydata jako stare. Arkusz „należy do automatu” wyłącznie, gdy wszystkie
+  odpowiedzi to `note_sync` bez trafienia „Odpada, gdy…”, a
+  `experience_checks`/`notes`/`internal_note` są puste i `overall_fit ==
+  "uncertain"`; każdy inny niepusty arkusz jest ludzki i automat go nie
+  dotyka (także kopii na innych wierszach pary). Zapis człowieka (arkusz,
+  okno karty, trafienie „Odpada, gdy…”) zamienia `note_sync` na
+  `note_import`. Przypięcie do pytań (`map_note_answers`, rapidfuzz): po
+  treści ≥ 0,5 z przewagą ≥ 0,1, jeden do jednego, a słowa jednego pytania
+  mieszczą się w drugim („AWS” ≠ „Azure”, choć podobieństwo 0,90); po numerze
+  tylko odpowiedź bez treści pytania, przy komplecie odpowiedzi i numeracji
+  zgodnej z dopasowaniami po treści; szara strefa 0,3–0,5, treść niepasująca
+  do żadnego pytania i konflikty pomijane. Arkusz idzie na najnowszy wiersz pary
+  (blokada wierszy pary), kopie automatu na starszych wierszach bieżącej próby
+  dostają tę samą treść albo `NULL`; notatka sprzed bieżącej próby nie zasila
+  arkusza. `answered_at`/`answered_by` = data i autor notatki; zamiast
+  `Activity screening_answered` (liczą ją statystyki zespołu) zapis zostawia
+  `screening_synced_from_note`. Przelicza się przy zmianie karty
+  (`recommendation_card_import.refresh_candidate`, `repair_orphans`); historię
+  uzupełnia admin: `POST /api/admin/screening-note-backfill?dry_run=true` →
+  raport → `dry_run=false&expected=<to_change>` (próba z 7 dni; paragon
+  `screening_note_backfill_2026_10`, dane do odwrócenia
+  `repair_details_screening_note_backfill_2026_10`).
 - **Import karty nie pisze do profilu kandydata.** Fakty profilu (stawka,
   dostępność, tryb pracy) dalej wypełnia nocny odczyt notatek i „Zapisz
   w profilu”.

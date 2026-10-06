@@ -129,6 +129,7 @@ from app.api import admin_index_coverage, admin_schema_drift
 from app.api import admin_index_cleanup
 from app.api import admin_match_score_repair
 from app.api import admin_job_board_cards
+from app.api import admin_screening_note_backfill
 from app.api import admin_workflows
 from app.api import admin_recruitment_processes
 from app.api import ai_matching_diagnostics
@@ -1300,6 +1301,11 @@ app.include_router(
     admin_job_board_cards.router,
     prefix="/api/admin",
     tags=["admin-job-board-cards"],
+)
+app.include_router(
+    admin_screening_note_backfill.router,
+    prefix="/api/admin",
+    tags=["admin-screening-note-backfill"],
 )
 app.include_router(
     admin_workflows.router,
