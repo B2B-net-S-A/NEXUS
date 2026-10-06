@@ -1162,6 +1162,7 @@ def response_context(job):
 def critical_resolution_payload(job) -> dict:
     """Krytyczne dla ekranu: decyzja DL, podpowiedź i to, na czym działa bramka."""
     from app.services.critical_skills import effective_critical, stored_critical
+    from app.services.keyword_suggest import requirement_search_words
 
     resolution = effective_critical(job)
     return {
@@ -1170,6 +1171,12 @@ def critical_resolution_payload(job) -> dict:
         "effective": list(resolution.labels),
         "source": resolution.source,
         "suggested": list(resolution.suggested),
+        # Wiersze obowiązkowe „Szukaj ręcznie” / „Szukaj w bazie” (W1/W4,
+        # audyt 06.10.2026): po jednym na krytyczną, z wariantami nazwy —
+        # ta sama lista, którą propozycje AI ukrywają kandydatów.
+        "search_rows": [
+            list(requirement_search_words(label)) for label in resolution.labels
+        ],
     }
 
 

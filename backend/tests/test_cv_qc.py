@@ -1790,3 +1790,34 @@ def test_years_in_one_company_must_match_the_role_dates() -> None:
         )
         == []
     )
+
+
+def test_bold_term_needs_a_whole_word_in_the_original() -> None:
+    """Q1 (audyt 06.10.2026): „Scala” nie ma pokrycia w „scalanie danych”,
+    „Ruby” w „rubryce” — porównanie podłańcuchem przepuszczało zmyśloną
+    technologię przez blokujące sprawdzenie."""
+    assert not qc._phrase_in_sources("Scala", "Odpowiadał za scalanie danych w ETL")
+    assert not qc._phrase_in_sources("Ruby", "Uzupełniał każdą rubrykę raportu")
+    # Odmiana dalej pokryta formą podstawową w oryginale.
+    assert qc._phrase_in_sources("Dockera", "Wdrożenia: Docker, Kubernetes")
+    assert qc._phrase_in_sources("Java 11", "Java (wersja 11)")
+
+
+def test_company_claim_needs_two_words_not_a_generic_first_word() -> None:
+    """Q5: „IT”, „Bank”, „Grupa” na początku nazwy to nie firma — klucz po
+    pierwszym słowie łączył „3 lata w IT Kontrakt” z „IT Solutions”."""
+    history = [
+        {"company": "IT Solutions Sp. z o.o.", "start": "2025-01", "end": "obecnie"},
+        {"company": "Bank Pekao S.A.", "start": "2024-01", "end": "obecnie"},
+    ]
+    blocks = _blocks(
+        "<ul><li>8 lat w IT Kontrakt, w tym 6 lat w Bank Millennium.</li></ul>"
+    )
+    assert qc.company_year_claims(blocks, history, today=date(2026, 10, 5)) == []
+    # Ta sama firma (dwa słowa nazwy) — uwaga zostaje.
+    claims = qc.company_year_claims(
+        _blocks("<ul><li>w tym 6 lat w Bank Pekao</li></ul>"),
+        history,
+        today=date(2026, 10, 5),
+    )
+    assert [c[2] for c in claims] == ["Bank Pekao S.A."]

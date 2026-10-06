@@ -45,8 +45,24 @@ _RIGHT_PG = f"($|[^{WORD_CLASS_PG}])"
 _LEFT_PY = f"(?<![{WORD_CHARS_PY}])"
 _RIGHT_PY = f"(?![{WORD_CHARS_PY}])"
 
-_PHRASE_GAP_PG = "[[:space:]/-]+"
-_PHRASE_GAP_PY = r"[\s/-]+"
+# Odstęp frazy: spacja, ukośnik, myślnik — i od 06.10.2026 także nawias,
+# dwukropek, przecinek i kropka (K7): „Spring (Boot, Data)” to Spring Boot.
+# Indeks pełnotekstowy (wyszukiwanie ręczne) już tak czytał, a bramka AI
+# (wzorzec Pythona) ukrywała przez to doświadczonych Javowców (`missing_must`).
+_PHRASE_GAP_PG = "[[:space:]/(),:.-]+"
+_PHRASE_GAP_PY = r"[\s/(),:.-]+"
+
+# Jednoliterowe nazwy technologii ze słownika (K4, audyt 06.10.2026): „C”
+# i „R” były wycinane z wierszy słów kluczowych po cichu (minimum 2 znaki).
+# Lustro frontu: `SINGLE_LETTER_SKILLS` w `frontend/src/lib/keyword-requirements.ts`.
+SINGLE_LETTER_SKILLS: frozenset[str] = frozenset({"c", "r"})
+
+
+def keyword_long_enough(word: str) -> bool:
+    """Słowo kluczowe ma co najmniej 2 znaki albo jest „C”/„R”."""
+    trimmed = (word or "").strip()
+    return len(trimmed) >= 2 or trimmed.casefold() in SINGLE_LETTER_SKILLS
+
 
 # Znaki specjalne wyrażeń regularnych Postgresa (ARE) i Pythona.
 _REGEX_SPECIAL = set("\\^$.|?*+()[]{}")
@@ -110,8 +126,9 @@ def _core_pg(text: str) -> str:
     parts = []
     for word in text.split():
         parts.append("".join(_escape_char(ch) for ch in word))
-    # Fraza: słowa rozdzielone odstępem, myślnikiem albo ukośnikiem — tak jak
-    # `spring <-> boot` z indeksu pełnotekstowego łapie „Spring-Boot”.
+    # Fraza: słowa rozdzielone odstępem, myślnikiem, ukośnikiem, nawiasem,
+    # dwukropkiem, przecinkiem albo kropką — tak jak `spring <-> boot` z indeksu
+    # pełnotekstowego łapie „Spring-Boot” i „Spring (Boot, Data)”.
     return _PHRASE_GAP_PG.join(parts)
 
 

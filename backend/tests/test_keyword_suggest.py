@@ -97,6 +97,38 @@ def test_variants_skip_short_polish_and_redundant_aliases(catalog):
     )
 
 
+def test_critical_label_searches_the_name_and_its_variants():
+    """W4 (audyt 06.10.2026): obowiązkowy wiersz „PostgreSQL” szuka też
+    „Postgres” — słowa kluczowe nie rozwijają aliasów same, a krytyczna
+    ukrywa kandydata, więc ~2% osób z samym „postgres” w CV wypadało."""
+    saved = keyword_suggest._catalog
+    keyword_suggest.load_catalog(
+        [(1, "PostgreSQL", "database"), (2, "Apache Kafka", "tool")],
+        [(1, "postgres"), (1, "pg"), (2, "kafka")],
+    )
+    try:
+        assert keyword_suggest.requirement_search_words("PostgreSQL") == (
+            "PostgreSQL",
+            "postgres",
+        )
+        # Wpisany alias prowadzi; nazwa ze słownika dochodzi jako wariant.
+        assert keyword_suggest.requirement_search_words("Postgres") == (
+            "Postgres",
+            "PostgreSQL",
+        )
+        # „A lub B” — każda opcja ze swoimi wariantami.
+        assert keyword_suggest.requirement_search_words("Kafka lub PostgreSQL") == (
+            "Kafka",
+            "Apache Kafka",
+            "PostgreSQL",
+            "postgres",
+        )
+        # Spoza słownika — samo słowo.
+        assert keyword_suggest.requirement_search_words("Pega") == ("Pega",)
+    finally:
+        keyword_suggest._catalog = saved
+
+
 def test_every_equivalent_parses_as_a_keyword():
     """Kontrakt słownika odpowiedników: każde słowo da się wyszukać, gwiazdka
     ma co najmniej 3 litery rdzenia, a grupa ma co najmniej dwa słowa."""

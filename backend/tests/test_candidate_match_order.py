@@ -367,6 +367,58 @@ async def test_qdrant_failure_falls_back_to_newest(
 
 
 @pytest.mark.asyncio
+async def test_relevance_with_only_keywords_means_match(
+    app_client, app_auth_headers, fake_vectors
+):
+    """K6 (audyt 06.10.2026): „trafność” bez tekstu liczyła podobieństwo
+    trigramowe imienia do słów kluczowych — kolejność losowa. Same słowa
+    kluczowe = kolejność „Dopasowanie”."""
+    fake_vectors.update(await _seed())
+    resp = await app_client.get(
+        "/api/candidates",
+        params=[
+            ("current_company", NONCE),
+            ("semantics_version", 2),
+            ("q_any_group", "java"),
+            ("sort", "relevance"),
+        ],
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    by_id = {v: k for k, v in _IDS.items()}
+    order = [by_id[i["id"]] for i in body["items"] if i["id"] in by_id]
+    assert body["sort_applied"] == "match"
+    assert order == ["oldest_best", "middle", "newest_weak"]
+
+
+@pytest.mark.asyncio
+async def test_preferred_rows_follow_the_keyword_scope(app_client, app_auth_headers):
+    """K6: wiersz „Mile widziane” liczy się w tym samym zakresie co słowa
+    kluczowe — „Kotlin” w CV nie podnosi przy zakresie „Stanowisko”."""
+    await _seed()
+
+    async def first(scope: str) -> str:
+        resp = await app_client.get(
+            "/api/candidates",
+            params=[
+                ("current_company", NONCE),
+                ("semantics_version", 2),
+                ("q_preferred_group", "kotlin"),
+                ("q_scope", scope),
+                ("sort", "oldest"),
+            ],
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 200, resp.text
+        by_id = {v: k for k, v in _IDS.items()}
+        return [by_id[i["id"]] for i in resp.json()["items"] if i["id"] in by_id][0]
+
+    assert await first("all") == "middle"
+    assert await first("title") == "oldest_best"
+
+
+@pytest.mark.asyncio
 async def test_switch_off_means_newest(app_client, app_auth_headers, monkeypatch):
     from app.core.config import settings
 
@@ -384,6 +436,40 @@ async def test_classify_endpoint(app_client, app_auth_headers):
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["as_requirements"] is False
+
+
+@pytest.mark.asyncio
+async def test_classify_checks_person_names_only_for_the_top_field(
+    app_client, app_auth_headers, monkeypatch
+):
+    """K8 (audyt 06.10.2026): „SAP”, „Ada”, „Julia” to też imiona/nazwiska
+    w bazie — sprawdzamy to tylko dla górnego pola listy (``context=top``),
+    gdzie ktoś mógł wpisać osobę. Wiersz wymagań to zawsze technologia."""
+    from app.services import candidate_search_predicates as predicates
+    from app.services import keyword_suggest
+
+    async def everyone_is_a_person(db, word):
+        return True
+
+    monkeypatch.setattr(predicates, "person_token_exists", everyone_is_a_person)
+    previous = keyword_suggest.catalog()
+    keyword_suggest.load_catalog([(1, "SAP", "tool")], [])
+    try:
+        rows = await app_client.get(
+            "/api/candidates/keywords/classify",
+            params={"q": "SAP"},
+            headers=app_auth_headers,
+        )
+        top = await app_client.get(
+            "/api/candidates/keywords/classify",
+            params={"q": "SAP", "context": "top"},
+            headers=app_auth_headers,
+        )
+    finally:
+        keyword_suggest._catalog = previous
+    assert rows.status_code == 200, rows.text
+    assert rows.json()["as_requirements"] is True
+    assert top.json()["as_requirements"] is False
 
 
 # ── „Szukaj ręcznie”: ułożenie początku listy oceną „Dop.” ─────────────────
@@ -494,6 +580,80 @@ async def test_job_rerank_switch_off_keeps_vector_order(
     order, _ = await _ids(app_client, app_auth_headers, sort="match")
     assert order == ["oldest_best", "middle", "newest_weak"]
     assert job_vectors["calls"] == 0
+
+
+@pytest.mark.asyncio
+async def test_beyond_the_reranked_top_the_page_is_ordered_by_fit(
+    app_client, app_auth_headers, job_vectors, monkeypatch
+):
+    """K10 (audyt 06.10.2026): „Dop.” przestawało maleć od pozycji 201 —
+    dalej była sama kolejność wektorowa. Strona za ułożonym początkiem dostaje
+    pełną ocenę i układ w swoim obrębie; niezmierzeni na końcu."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "CANDIDATE_MATCH_RERANK_TOP", 1)
+    job_vectors["ids"].update(await _seed())
+    job_vectors["fits"] = {"oldest_best": 10.0, "middle": 50.0, "newest_weak": 90.0}
+    order, _ = await _ids(app_client, app_auth_headers, sort="match", page_size=3)
+    # Początek (1 osoba) ułożony, reszta strony też — według oceny.
+    assert order == ["oldest_best", "newest_weak", "middle"]
+
+    cmo.clear_cache()
+    job_vectors["fits"] = {"oldest_best": 10.0, "middle": 50.0, "newest_weak": None}
+    order, _ = await _ids(app_client, app_auth_headers, sort="match", page_size=3)
+    assert order == ["oldest_best", "middle", "newest_weak"]
+
+
+@pytest.mark.asyncio
+async def test_people_added_to_the_job_drop_out_at_read_not_in_the_cache_key(
+    app_client, app_auth_headers, job_vectors, monkeypatch
+):
+    """K11 + K5 (audyt 06.10.2026): klucz kolejności zależał od ostatniego
+    ruchu w rekrutacji — każde „Dodaj” liczyło kolejność od nowa i przesuwało
+    strony. Teraz kolejność jest stała, a osoby z rekrutacji odpadają przy
+    odczycie strony (dodana znika od razu, usunięta wraca od razu)."""
+    job_vectors["ids"].update(await _seed())
+    job_vectors["fits"] = {"oldest_best": 10.0, "middle": 50.0, "newest_weak": 90.0}
+    in_job: set[int] = set()
+
+    async def fake_in_job(db, job_id):
+        return set(in_job)
+
+    monkeypatch.setattr(cmo, "ids_in_job", fake_in_job)
+    scope = {"recruitment_id": 999_999_001, "recruitment_match": "not_assigned"}
+
+    first, _ = await _ids(app_client, app_auth_headers, sort="match", **scope)
+    assert first == ["newest_weak", "middle", "oldest_best"]
+
+    in_job.add(job_vectors["ids"]["middle"])
+    added, body = await _ids(app_client, app_auth_headers, sort="match", **scope)
+    assert added == ["newest_weak", "oldest_best"]
+
+    in_job.clear()
+    back, _ = await _ids(app_client, app_auth_headers, sort="match", **scope)
+    assert back == first
+    # Jedna ocena na całą serię — kolejność z pamięci, bez przeliczania.
+    assert job_vectors["calls"] == 1
+
+
+def test_cache_key_does_not_read_the_job_pipeline():
+    """K5: klucz pamięci nie pyta bazy o ostatni ruch w rekrutacji."""
+
+    class F:
+        recruitment_id = [5]
+        recruitment_match = "not_assigned"
+
+        @staticmethod
+        def model_dump(**_kwargs):
+            return {"recruitment_id": [5]}
+
+    class U:
+        id = 7
+
+    import asyncio
+
+    key = asyncio.run(cmo._cache_key(None, F, "job:5:x", U, "fp", 200))
+    assert key.startswith("candidate-match-order:")
 
 
 @pytest.mark.asyncio

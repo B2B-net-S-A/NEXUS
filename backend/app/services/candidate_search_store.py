@@ -483,14 +483,32 @@ async def run_counts(db, run_id: str) -> dict:
     return counts
 
 
+# K12 (audyt 06.10.2026): przegląd z 7 niezmierzonymi na 3 087 widocznych był
+# na stałe „częściowy”, a ekran mówił to jak o awarii. Pojedynczy niezmierzeni
+# mają własną plakietkę („Ocena niepełna”), więc cały przegląd jest pełny,
+# dopóki takich osób jest mniej niż 1% widocznych.
+UNMEASURED_PARTIAL_SHARE = 0.01
+
+
+def run_state_for(counts: dict) -> str:
+    """„complete” albo „partial” z liczników ``run_counts``."""
+    if counts.get("failed"):
+        return "partial"
+    unmeasured = int(counts.get("needs_verification") or 0)
+    if unmeasured == 0:
+        return "complete"
+    eligible = int(counts.get("eligible") or 0)
+    if eligible <= 0 or unmeasured >= UNMEASURED_PARTIAL_SHARE * eligible:
+        return "partial"
+    return "complete"
+
+
 async def finish_run(db, run_id: str, token: str):
     run = await _locked_run(db, run_id, token)
     counts = await run_counts(db, run_id)
     if counts["pending"] or counts["population"] != run.population_size:
         raise ValueError("Cannot finalize a run with unaccounted population")
-    run.state = (
-        "partial" if counts["failed"] or counts["needs_verification"] else "complete"
-    )
+    run.state = run_state_for(counts)
     run.completed_at = datetime.now(timezone.utc)
     run.metrics = {
         **(run.metrics or {}),

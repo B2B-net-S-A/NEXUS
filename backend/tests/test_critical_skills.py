@@ -92,6 +92,26 @@ def test_dl_choice_wins_and_matches_by_canonical_name():
     assert res.source == "dl"
 
 
+def test_resolution_payload_carries_search_rows_with_variants():
+    """W1/W4 (audyt 06.10.2026): ekran wyszukiwania bierze obowiązkowe wiersze
+    z serwera — po jednym na krytyczną, z wariantami nazwy."""
+    from app.services import keyword_suggest
+    from app.services.champion_intake import critical_resolution_payload
+
+    saved = keyword_suggest._catalog
+    keyword_suggest.load_catalog([(1, "Kubernetes", "devops")], [(1, "k8s")])
+    try:
+        payload = critical_resolution_payload(
+            _job(["Java", "Kubernetes"], critical=["kubernetes"])
+        )
+    finally:
+        keyword_suggest._catalog = saved
+    assert payload["source"] == "dl"
+    assert [[w.lower() for w in row] for row in payload["search_rows"]] == [
+        ["kubernetes", "k8s"]
+    ]
+
+
 def test_dl_choice_outside_must_or_not_technology_is_dropped():
     res = critical_skills.effective_critical(
         _job(["Java", "QA"], critical=["QA", "Python"])

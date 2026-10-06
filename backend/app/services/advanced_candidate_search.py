@@ -92,6 +92,7 @@ from app.services import note_kinds
 from app.services import keyword_corpus
 from app.services.keyword_terms import (
     KeywordTerm,
+    keyword_long_enough,
     parse_keyword,
     pg_regex,
     tsquery_path_variants,
@@ -622,7 +623,8 @@ def _clean(phrases: Optional[list[str]]) -> list[str]:
             continue
         trimmed = raw.strip()
         key = trimmed.lower()
-        if len(trimmed) >= _MIN_PHRASE_LEN and key not in seen:
+        # „C” i „R” (słownik) przechodzą mimo jednej litery — K4, 06.10.2026.
+        if keyword_long_enough(trimmed) and key not in seen:
             seen.add(key)
             cleaned.append(trimmed)
         if len(cleaned) >= _MAX_PHRASES_PER_BUCKET:

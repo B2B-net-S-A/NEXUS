@@ -323,23 +323,15 @@ async def _cache_key(
     fingerprint: Optional[str] = None,
     rerank_top: int = 0,
 ) -> str:
-    from app.models.recruitment_pipeline import CandidateStage
-
+    # K5 (audyt 06.10.2026): bez soli z ostatniego ruchu w rekrutacji. Osoby
+    # z rekrutacji odpadają przy odczycie strony (`ordered_result`), więc
+    # „Dodaj” nie przelicza całej kolejności i nie przesuwa kolejnych stron.
     payload = filters.model_dump(mode="json", exclude={"page", "sort"})
-    salt = ""
-    job_id = job_scope(filters)
-    if job_id is not None:
-        # Osoba dodana do rekrutacji znika z „Szukaj ręcznie” od razu, nie po TTL.
-        last_stage = await db.scalar(
-            select(func.max(CandidateStage.id)).where(CandidateStage.job_id == job_id)
-        )
-        salt = str(last_stage or 0)
     raw = json.dumps(
         [
             payload,
             vector_key,
             getattr(user, "id", None),
-            salt,
             fingerprint,
             rerank_top,
         ],
@@ -349,18 +341,55 @@ async def _cache_key(
     return "candidate-match-order:" + hashlib.sha256(raw.encode()).hexdigest()
 
 
-async def ordered_ids(
+def order_base_filters(filters: Any) -> Any:
+    """Filtry do policzenia kolejności „Szukaj ręcznie”: bez wykluczenia osób
+    z rekrutacji (K11) — to wykluczenie stosuje ``ordered_result`` przy
+    odczycie. Poza zakresem rekrutacji filtry bez zmian."""
+    if job_scope(filters) is None:
+        return filters
+    return filters.model_copy(
+        update={"recruitment_id": None, "recruitment_match": "assigned"}
+    )
+
+
+async def ids_in_job(db: AsyncSession, job_id: int) -> set[int]:
+    """Osoby z jakimkolwiek wierszem etapu w rekrutacji — ten sam warunek co
+    filtr listy ``recruitment_match=not_assigned``."""
+    from app.models.recruitment_pipeline import CandidateStage
+
+    rows = await db.execute(
+        select(CandidateStage.candidate_id)
+        .where(CandidateStage.job_id == job_id)
+        .distinct()
+    )
+    return {int(row[0]) for row in rows}
+
+
+@dataclass(frozen=True)
+class OrderResult:
+    """Kolejność do pokazania + to, czego potrzebuje układ dalszych stron."""
+
+    ids: list[int]
+    context: Optional[Any] = None
+    rerank_top: int = 0
+    # Osoby, które początek listy już ułożył pełną oceną (K10).
+    head: frozenset[int] = frozenset()
+
+
+async def ordered_result(
     db: AsyncSession,
     user: Any,
     filters: Any,
     ids_query,
     q_any_groups: Sequence[Sequence[str]],
     prefix: Sequence[Any],
-) -> Optional[list[int]]:
+) -> Optional[OrderResult]:
     """Pełna kolejność identyfikatorów albo ``None`` (wołający: „najnowsi”).
 
-    ``ids_query`` — przefiltrowany ``select(Candidate.id)``; ``prefix`` — dwa
-    wyrażenia SQL („Mile widziane”, braki danych) albo ``None`` w ich miejscu.
+    ``ids_query`` — przefiltrowany ``select(Candidate.id)`` z filtrów
+    ``order_base_filters(filters)``; ``prefix`` — dwa wyrażenia SQL („Mile
+    widziane”, braki danych) albo ``None`` w ich miejscu. W „Szukaj ręcznie”
+    osoby z rekrutacji odpadają tutaj, po pamięci kolejności (K11).
     """
     from app.core.config import settings
 
@@ -377,18 +406,85 @@ async def ordered_ids(
         getattr(context, "fingerprint", None),
         rerank_top,
     )
-    cached = _cache_get(key)
-    if cached is not None:
-        return list(cached)
-    # Runda 7 (R7-N10-4): jeden wykonawca na klucz — dwa równoległe żądania tej
-    # samej listy (odświeżenie, druga karta) liczyły ~60 tys. wierszy dwa razy.
-    async with cache_single_flight(key, db=db):
-        cached = _cache_get(key)
-        if cached is not None:
-            return list(cached)
-        return await _compute_order(
-            db, key, ids_query, prefix, match_vector, context, rerank_top
-        )
+    ordered = _cache_get(key)
+    if ordered is None:
+        # Runda 7 (R7-N10-4): jeden wykonawca na klucz — dwa równoległe
+        # żądania tej samej listy (odświeżenie, druga karta) liczyły ~60 tys.
+        # wierszy dwa razy.
+        async with cache_single_flight(key, db=db):
+            ordered = _cache_get(key)
+            if ordered is None:
+                computed = await _compute_order(
+                    db, key, ids_query, prefix, match_vector, context, rerank_top
+                )
+                if computed is None:
+                    return None
+                ordered = tuple(computed)
+    head = frozenset(ordered[:rerank_top]) if rerank_top > 0 else frozenset()
+    ids = list(ordered)
+    job_id = job_scope(filters)
+    if job_id is not None:
+        in_job = await ids_in_job(db, job_id)
+        if in_job:
+            ids = [cid for cid in ids if cid not in in_job]
+    return OrderResult(ids=ids, context=context, rerank_top=rerank_top, head=head)
+
+
+async def ordered_ids(
+    db: AsyncSession,
+    user: Any,
+    filters: Any,
+    ids_query,
+    q_any_groups: Sequence[Sequence[str]],
+    prefix: Sequence[Any],
+) -> Optional[list[int]]:
+    """Sama lista identyfikatorów z ``ordered_result`` (eksport)."""
+    result = await ordered_result(db, user, filters, ids_query, q_any_groups, prefix)
+    return None if result is None else result.ids
+
+
+async def rerank_page(
+    db: AsyncSession,
+    result: OrderResult,
+    ids_query,
+    prefix: Sequence[Any],
+    page_ids: Sequence[int],
+) -> list[int]:
+    """K10 (audyt 06.10.2026): strona za ułożonym początkiem listy.
+
+    Pełna ocena liczy się dla pierwszych ``rerank_top`` osób; dalej była sama
+    kolejność wektorowa, więc „Dop.” przestawało maleć od pozycji 201. Osoby
+    strony spoza ułożonego początku dostają ocenę i układ w obrębie strony
+    (i grup „Mile widziane”/braki), niezmierzeni — także z nieaktualnym
+    wektorem — na końcu grupy. Awaria oceny = kolejność bez zmian.
+    """
+    from app.models.candidate import Candidate
+
+    page = list(page_ids)
+    if result.context is None or result.rerank_top <= 0:
+        return page
+    tail = [cid for cid in page if cid not in result.head]
+    if len(tail) < 2:
+        return page
+    preferred_expr, unknown_expr = prefix
+    try:
+        async with db.begin_nested():
+            fits = await _fit_scores(db, result.context, tail)
+            rows = (
+                await db.execute(
+                    ids_query.with_only_columns(
+                        Candidate.id,
+                        preferred_expr if preferred_expr is not None else literal(0),
+                        unknown_expr if unknown_expr is not None else literal(0),
+                    ).where(Candidate.id.in_(tail))
+                )
+            ).all()
+    except Exception as exc:  # noqa: BLE001 — ocena to dodatek, nie bramka
+        logger.warning("match order: page rerank failed (%s)", type(exc).__name__)
+        return page
+    groups = {int(r[0]): (float(r[1] or 0), float(r[2] or 0)) for r in rows}
+    reordered = iter(rerank_within_groups(tail, groups, fits, len(tail)))
+    return [cid if cid in result.head else next(reordered) for cid in page]
 
 
 def _normalize_rows(raw: Sequence[Any]) -> list[tuple[int, float, float, float]]:

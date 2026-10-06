@@ -575,6 +575,49 @@ def skill_variants(entry: SkillEntry) -> tuple[str, ...]:
     return tuple(out)
 
 
+def entry_for(word: str) -> Optional[SkillEntry]:
+    """Umiejętność ze słownika o tej nazwie albo aliasie (bez wielkości liter)."""
+    key = fold(word)
+    if not key:
+        return None
+    for entry in _catalog:
+        if entry.key == key or key in entry.alias_keys:
+            return entry
+    return None
+
+
+def requirement_search_words(label: str) -> tuple[str, ...]:
+    """Słowa wiersza wyszukiwania dla wymagania („A lub B”) — z wariantami.
+
+    W4 (audyt 06.10.2026): wiersz obowiązkowy z umiejętności krytycznej ma
+    znaleźć też „Postgres” przy „PostgreSQL” — słowa kluczowe nie rozwijają
+    aliasów same, a krytyczna jest jedynym wierszem, który WYCINA. Kolejność:
+    opcja tak, jak ją wpisano, nazwa ze słownika (gdy wpisano alias), potem
+    warianty z ``skill_variants``.
+    """
+    words: list[str] = []
+    seen: set[str] = set()
+
+    def add(word: str) -> None:
+        key = fold(word)
+        if key and key not in seen and parse_keyword(word) is not None:
+            seen.add(key)
+            words.append(word)
+
+    for option in (label or "").split(" lub "):
+        option = " ".join(option.split())
+        if not option:
+            continue
+        add(option)
+        entry = entry_for(option)
+        if entry is None:
+            continue
+        add(entry.label)
+        for variant in skill_variants(entry):
+            add(variant)
+    return tuple(words)
+
+
 @dataclass(frozen=True)
 class SuggestResult:
     items: list[Suggestion]

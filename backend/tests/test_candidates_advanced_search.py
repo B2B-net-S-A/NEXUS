@@ -557,6 +557,17 @@ async def test_full_name_query_matches_only_exact_pair(
             await db.commit()
 
 
+def test_single_letter_skill_names_survive_cleaning():
+    """K4 (audyt 06.10.2026): „C” i „R” to technologie ze słownika — były
+    wycinane po cichu (minimum 2 znaki) i wiersz szukał bez nich. Inne
+    pojedyncze litery dalej odpadają (front mówi o tym komunikatem)."""
+    from app.services.advanced_candidate_search import _clean
+    from app.services.keyword_terms import SINGLE_LETTER_SKILLS
+
+    assert _clean(["C", "x", "r", "Java"]) == ["C", "r", "Java"]
+    assert SINGLE_LETTER_SKILLS == frozenset({"c", "r"})
+
+
 def test_fold_polish_helper():
     """The Python fold must mirror the SQL `lower(translate(...))` of
     `search_doc_unaccented` (migration 0159), including NFD → NFC handling."""

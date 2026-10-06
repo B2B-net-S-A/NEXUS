@@ -1508,7 +1508,11 @@ def _preferred_rank(filters: CandidateFilterSpec):
             points.append(case((cc, 1), else_=0))
     for group in filters.q_preferred_group or []:
         words = predicates.split_pipe_group(group)
-        clause = build_advanced_filter(None, None, None, [words], whole_words=True)
+        # K6 (audyt 06.10.2026): ten sam zakres pola co słowa kluczowe —
+        # „Mile widziane” przy zakresie „Stanowisko” nie liczy CV.
+        clause = build_advanced_filter(
+            None, None, None, [words], whole_words=True, scope=filters.q_scope
+        )
         if clause is not None:
             points.append(case((clause, 1), else_=0))
     if not points:
@@ -1517,6 +1521,26 @@ def _preferred_rank(filters: CandidateFilterSpec):
     for point in points[1:]:
         total = total + point
     return total
+
+
+def _relevance_without_text_means_match(
+    filters: CandidateFilterSpec, pool_ids: Optional[list[int]]
+) -> CandidateFilterSpec:
+    """K6 (audyt 06.10.2026): „trafność” przy samych słowach kluczowych
+    (bez tekstu i bez puli semantycznej) to podobieństwo trigramowe imienia
+    i e-maila do słów — kolejność w praktyce losowa. Wtedy „Dopasowanie”."""
+    if filters.sort != "relevance" or pool_ids is not None:
+        return filters
+    if (filters.q or "").strip():
+        return filters
+    if not (
+        filters.q_all
+        or filters.q_any
+        or filters.q_any_group
+        or filters.q_preferred_group
+    ):
+        return filters
+    return filters.model_copy(update={"sort": "match"})
 
 
 def _sort_prefix_exprs(filters: CandidateFilterSpec):
@@ -1705,22 +1729,27 @@ async def _list_page_match(
     """Strona w kolejności „Dopasowanie” albo ``None`` (wołający: „najnowsi”)."""
     from app.services import candidate_match_order
 
+    # K11 (audyt 06.10.2026): kolejność liczona bez wykluczenia osób
+    # z rekrutacji — odpadają one przy odczycie strony (`ordered_result`).
     query, q_any_groups = await _build_candidate_filtered_query(
-        db, filters, semantic_pool_ids=pool_ids
-    )
-    ordered = await candidate_match_order.ordered_ids(
         db,
-        user,
-        filters,
-        query.with_only_columns(Candidate.id),
-        q_any_groups,
-        _sort_prefix_exprs(filters),
+        candidate_match_order.order_base_filters(filters),
+        semantic_pool_ids=pool_ids,
     )
-    if ordered is None:
+    ids_query = query.with_only_columns(Candidate.id)
+    prefix = _sort_prefix_exprs(filters)
+    result = await candidate_match_order.ordered_result(
+        db, user, filters, ids_query, q_any_groups, prefix
+    )
+    if result is None:
         return None
+    ordered = result.ids
     page_ids = ordered[(page - 1) * page_size : page * page_size]
     if not page_ids:
         return [], len(ordered), q_any_groups
+    page_ids = await candidate_match_order.rerank_page(
+        db, result, ids_query, prefix, page_ids
+    )
     loaded = (
         await db.execute(
             select(Candidate)
@@ -2484,6 +2513,7 @@ async def list_candidates(
     if semantic_pool is not None and "sort" not in request.query_params:
         filters = filters.model_copy(update={"sort": "relevance"})
     pool_ids = semantic_pool.ids if semantic_pool is not None else None
+    filters = _relevance_without_text_means_match(filters, pool_ids)
     sort_applied = filters.sort
     match_page = None
     if filters.sort == "match":
@@ -3183,11 +3213,17 @@ async def classify_keywords(
     current_user: CandidateSearchAccess,
     db: AsyncSession = Depends(get_db),
     q: str = Query("", max_length=200),
+    context: Literal["top", "rows"] = Query("rows"),
 ) -> KeywordClassifyResponse:
     """Górne pole listy: czy wpisano same nazwy technologii (decyzja Artura
     25.09.2026). Wtedy lista szuka ich jak wierszy wymagań — wszyscy ze słowem,
-    a nie 200 osób „po znaczeniu”. Słowo, które jest też imieniem/nazwiskiem
-    w bazie albo miejscowością, zostawia tekst bez zmian."""
+    a nie 200 osób „po znaczeniu”. Słowo, które jest też miejscowością,
+    zostawia tekst bez zmian.
+
+    Imię/nazwisko w bazie sprawdzamy WYŁĄCZNIE dla górnego pola
+    (``context=top``) — tam ktoś mógł wpisać osobę. K8 (audyt 06.10.2026):
+    przy wierszu wymagań „SAP”, „Ada”, „Julia” nigdy nie były technologią,
+    bo w bazie jest ktoś o takim nazwisku."""
     from app.services import keyword_suggest, pl_places
     from app.services import candidate_search_predicates as predicates
 
@@ -3200,9 +3236,9 @@ async def classify_keywords(
         place = pl_places.resolve(word)
         # Tylko miasta (≥ 20 tys.) — jak podpowiedź lokalizacji w wierszach
         # wymagań: „Kotlin” to też wieś, a nikt nie szuka jej w tym polu.
-        if (
-            place is not None and place.population >= _CLASSIFY_CITY_POPULATION
-        ) or await predicates.person_token_exists(db, word):
+        if (place is not None and place.population >= _CLASSIFY_CITY_POPULATION) or (
+            context == "top" and await predicates.person_token_exists(db, word)
+        ):
             return KeywordClassifyResponse(
                 skills=list(result.skills), as_requirements=False
             )
@@ -3467,6 +3503,9 @@ async def export_candidates_v2(
         export_pool, _ = await _resolve_semantic_text(db, export_filters)
         if export_pool is not None and "sort" not in export_filters.model_fields_set:
             export_filters = export_filters.model_copy(update={"sort": "relevance"})
+        export_filters = _relevance_without_text_means_match(
+            export_filters, export_pool.ids if export_pool is not None else None
+        )
         query, q_any_groups = await _build_candidate_filtered_query(
             db,
             export_filters,
@@ -3491,11 +3530,20 @@ async def export_candidates_v2(
             if settings.CANDIDATE_MATCH_SORT:
                 from app.services import candidate_match_order
 
+                # Ta sama pamięć kolejności co lista (K11): liczona bez
+                # wykluczenia osób z rekrutacji, wykluczenie przy odczycie.
+                order_query, _ = await _build_candidate_filtered_query(
+                    db,
+                    candidate_match_order.order_base_filters(export_filters),
+                    semantic_pool_ids=(
+                        export_pool.ids if export_pool is not None else None
+                    ),
+                )
                 match_ids = await candidate_match_order.ordered_ids(
                     db,
                     current_user,
                     export_filters,
-                    query.with_only_columns(Candidate.id),
+                    order_query.with_only_columns(Candidate.id),
                     q_any_groups,
                     _sort_prefix_exprs(export_filters),
                 )
