@@ -24,7 +24,7 @@ import { MissingBlock, scrollToWhenReady } from "@/components/v2/recruitment/Ord
 import { formatJobLocation } from "@/components/v2/jobs/JobSummaryCard";
 import type { RecruitmentSlideOver } from "@/components/v2/recruitment/types";
 import api from "@/lib/api";
-import { formatBudgetHourly, jobBudgetHourly } from "@/lib/job-budget";
+import { formatJobBudgetLabel } from "@/lib/job-budget";
 import { extractSkills } from "@/lib/job-skills";
 import { countPl } from "@/lib/plural-pl";
 import { formatJobDeadline } from "@/lib/job-deadline";
@@ -173,10 +173,10 @@ function OrderBody({
   // Pole podlega redakcji finansowej: rola bez uprawnień dostaje `null`.
   // „Brak" twierdziłoby, że budżetu nie ustalono — dlatego przy `null`
   // czytamy `has_budget_hourly` (sam fakt, bez kwoty) i mówimy, co wiemy.
-  const budget = jobBudgetHourly(job);
+  const budget = formatJobBudgetLabel(job);
   const budgetLabel =
     budget != null
-      ? `do ${formatBudgetHourly(budget)} PLN/h`
+      ? budget
       : job.has_budget_hourly === true
         ? "ustawiony (kwota niewidoczna dla Twojej roli)"
         : "nie ustawiono";

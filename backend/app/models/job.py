@@ -94,6 +94,9 @@ class Job(Base, TimestampMixin):
     # porównywalna z candidate.expected_rate_hourly — salary_min/max wyżej to
     # legacy PLN/mies. bez polityki konwersji. Fallback: stawka Championa.
     rate_budget_hourly: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 2))
+    # 0420: „od” z przedziału budżetu — tylko do wyświetlania; budżetem
+    # dla całej logiki jest `rate_budget_hourly` (services/job_budget_range.py).
+    rate_budget_hourly_min: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 2))
 
     # 0278: bez `default=` — przed tą migracją każda oferta bez ręcznie
     # ustawionego trybu dostawała 'hybrid' (m.in. na sztywno stemplowane przez

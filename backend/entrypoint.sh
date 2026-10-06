@@ -4637,6 +4637,8 @@ END $$""",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS onsite_days_per_week INTEGER NULL",
     # 0407: dni w biurze w miesiącu (services/office_days.py).
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS onsite_days_per_month INTEGER NULL",
+    # 0420: dolna granica budżetu „od–do” (services/job_budget_range.py).
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS rate_budget_hourly_min NUMERIC(8,2) NULL",
     "ALTER TABLE jobs ALTER COLUMN remote_policy DROP NOT NULL",
     "ALTER TABLE jobs ALTER COLUMN remote_policy DROP DEFAULT",
     # 0282: sprawdzone wymagania wyszukiwania (wspólne dla Radaru i pipeline'u).

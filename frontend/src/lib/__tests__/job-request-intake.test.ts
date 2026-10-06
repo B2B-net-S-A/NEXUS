@@ -8,6 +8,7 @@ import {
   applyTemplate,
   approveQuestions,
   buildChampionPayload,
+  budgetRangeError,
   buildJobPayload,
   clientReferenceFor,
   clientTitleWithReference,
@@ -330,6 +331,36 @@ describe("missingFor — lustro bramki „Przekaż do searchu”", () => {
     expect(missingFor({ ...complete(), rateBudget: "160,5" })).not.toContain(
       "budget",
     );
+  });
+
+  it("„od” jest opcjonalne, ale musi być mniejsze niż budżet (0420)", () => {
+    expect(budgetRangeError({ rateBudget: "80", rateBudgetMin: "" })).toBeNull();
+    expect(budgetRangeError({ rateBudget: "80", rateBudgetMin: "60" })).toBeNull();
+    expect(budgetRangeError({ rateBudget: "80", rateBudgetMin: "80" })).toMatch(/mniejsza/);
+    expect(budgetRangeError({ rateBudget: "80", rateBudgetMin: "abc" })).toMatch(/liczbą/);
+    expect(missingFor({ ...complete(), rateBudget: "80", rateBudgetMin: "90" })).toContain("budget");
+    expect(missingFor({ ...complete(), rateBudget: "80", rateBudgetMin: "60" })).not.toContain(
+      "budget",
+    );
+  });
+
+  it("przedział z odczytu maila trafia do obu pól i do zapisu", () => {
+    const form = formFromIntake({ ...INTAKE, rate_budget_hourly: 80, rate_budget_hourly_min: 60 });
+    expect(form.rateBudget).toBe("80");
+    expect(form.rateBudgetMin).toBe("60");
+    const payload = buildJobPayload(approveQuestions(form), {
+      clientId: 7,
+      requestText: "",
+      templateJobId: null,
+    });
+    expect(payload.rate_budget_hourly).toBe(80);
+    expect(payload.rate_budget_hourly_min).toBe(60);
+  });
+
+  it("stary zapisany formularz bez „od” doczytuje pole puste", () => {
+    const { rateBudgetMin: _drop, ...old } = complete();
+    void _drop;
+    expect(restoreIntakeForm(old as unknown as IntakeForm).rateBudgetMin).toBe("");
   });
 
   it("krytyczne: brak decyzji blokuje, gdy serwer zna wiersz jako technologię", () => {

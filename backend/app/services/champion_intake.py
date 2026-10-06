@@ -198,6 +198,48 @@ def pln_hourly_bounds(value):
     return None
 
 
+# A BARE range in a pasted request ("Stawka: 60-80", 06.10.2026). REC-07 keeps
+# a bare number out of the budget — "1100" is just as often a man-day rate.
+# A range of two numbers that both sit in the usual hourly band is not that
+# ambiguous: the request form ACCEPTS it as a SUGGESTION, always with a
+# "sprawdź" note. One bare number still answers None.
+_BARE_RANGE = re.compile(rf"(?:od\s*)?({_RATE_NUMBER})\s*(?:-|do)\s*({_RATE_NUMBER})")
+BARE_RANGE_MIN = 30.0
+BARE_RANGE_MAX = 400.0
+
+
+def bare_hourly_range(value):
+    """``(low, high)`` of a range written WITHOUT currency and unit, else None.
+
+    Only "60-80", "60 – 80", "od 60 do 80" (optionally after a "Stawka:" label
+    and with "netto"/"B2B"), both numbers within 30–400 and low < high. Any
+    currency or unit, any other word and one single number answer None — a
+    text with its own unit is `pln_hourly_bounds`'s call, never this one.
+    """
+    text = folded(str(value or ""))
+    text = re.sub(r"[\u2010-\u2015\u2212]", "-", text)
+    text = re.sub(r"[\u00a0\u2007\u202f]", " ", text).strip()
+    if _PLN.search(text) or _PER_HOUR.search(text):
+        return None
+    text = _RATE_LABEL.sub("", text, count=1)
+    text = _NET_QUALIFIER.sub(" ", text)
+    text = re.sub(r"\([\s,;/]*\)", " ", text)
+    text = re.sub(r"\s+", " ", text).strip(" .,;:")
+    match = _BARE_RANGE.fullmatch(text)
+    if not match:
+        return None
+    low, high = (_rate_float(v) for v in match.groups())
+    if not BARE_RANGE_MIN <= low < high <= BARE_RANGE_MAX:
+        return None
+    return low, high
+
+
+def range_label(low: float, high: float) -> str:
+    """„60–80 zł/h” — kanoniczny tekst przedziału, który `pln_hourly_bounds`
+    czyta z powrotem (zapis w `basics.rate_raw`)."""
+    return f"{low:g}–{high:g} zł/h"
+
+
 # A rate phrase inside free text (a pasted request, not a rate field): an
 # optional label, an optional bound word, one value or a range, the currency
 # and net qualifiers, then the per-hour unit. Only the WINDOW is found here;

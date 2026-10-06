@@ -812,6 +812,7 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
                 "recruiter_name",
                 "location",
                 "rate_budget_hourly",
+                "rate_budget_hourly_min",
             )
         ),
     ),

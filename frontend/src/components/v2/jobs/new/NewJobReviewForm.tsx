@@ -27,6 +27,7 @@ import {
   FORM_SECTIONS,
   MISSING_LABEL,
   approveQuestions,
+  budgetRangeError,
   clientReferenceFor,
   editQuestion,
   effectiveWorkingTitle,
@@ -64,7 +65,7 @@ const ORIGIN_LABEL: Record<QuestionOrigin, string> = {
 };
 
 export const BUDGET_HELP_TEXT =
-  "Rekruter widzi go przy kandydatach jako plakietkę „ponad budżet”. Nikogo nie ukrywa.";
+  "Jedna stawka — wpisz tylko „do”. Plakietka „ponad budżet” liczy się od górnej granicy i nikogo nie ukrywa.";
 
 export const DEAL_BREAKER_REQUIRED_TEXT =
   "Wpisz odpowiedź, która dyskwalifikuje kandydata — bez niej rekrutacja nie trafi do searchu.";
@@ -486,6 +487,7 @@ export function NewJobReviewForm({
     headcount: useId(),
     clientTitle: useId(),
     rate: useId(),
+    rateMin: useId(),
     days: useId(),
     years: useId(),
     language: useId(),
@@ -712,15 +714,34 @@ export function NewJobReviewForm({
             <FieldLabel htmlFor={ids.rate} missing={isMissing("budget")} basis={basis("rate")}>
               Budżet PLN/h
             </FieldLabel>
-            <Input
-              id={ids.rate}
-              inputMode="decimal"
-              value={form.rateBudget}
-              onChange={(e) => set("rateBudget", e.target.value, "rate")}
-              placeholder="np. 160"
-              className={cn(isMissing("budget") && MISSING_RING)}
-            />
-            <MissingNote show={isMissing("budget")} />
+            {/* 0420: przedział „od–do”; budżetem jest „do”, „od” jest opcjonalne. */}
+            <div className="flex items-center gap-1.5">
+              <Input
+                id={ids.rateMin}
+                aria-label="Budżet PLN/h od (opcjonalnie)"
+                inputMode="decimal"
+                value={form.rateBudgetMin}
+                onChange={(e) => set("rateBudgetMin", e.target.value, "rate")}
+                placeholder="od"
+                className={cn("min-w-0", budgetRangeError(form) && MISSING_RING)}
+              />
+              <span aria-hidden className="text-muted-foreground">–</span>
+              <Input
+                id={ids.rate}
+                inputMode="decimal"
+                value={form.rateBudget}
+                onChange={(e) => set("rateBudget", e.target.value, "rate")}
+                placeholder="do"
+                className={cn("min-w-0", isMissing("budget") && MISSING_RING)}
+              />
+            </div>
+            {budgetRangeError(form) ? (
+              <span className="text-xs font-medium text-warning-muted-foreground">
+                {budgetRangeError(form)}
+              </span>
+            ) : (
+              <MissingNote show={isMissing("budget")} />
+            )}
             {form.rateNote && (
               <span className="text-xs text-muted-foreground">{form.rateNote}</span>
             )}

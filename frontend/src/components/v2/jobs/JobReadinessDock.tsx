@@ -75,6 +75,7 @@ import {
   recruitersOf,
   workingRecruiters,
 } from "@/lib/job-team";
+import { formatJobBudgetLabel } from "@/lib/job-budget";
 import { invalidateJobTeam } from "@/lib/job-team-cache";
 import { priorityLevelOf, type PrioritySource } from "@/lib/request-priority";
 
@@ -607,7 +608,7 @@ export function JobReadinessDock({
     title: "Budżet kandydacki",
     description: job.has_budget_hourly
       ? job.rate_budget_hourly != null
-        ? `do ${job.rate_budget_hourly} PLN/h`
+        ? (formatJobBudgetLabel(job) ?? `do ${job.rate_budget_hourly} PLN/h`)
         : "Ustawiony — ze stawki w Profilu Championa."
       : "Brak — dodaj budżet PLN/h do rekrutacji lub stawkę w Profilu Championa.",
   };

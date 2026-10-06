@@ -232,7 +232,7 @@
     "pitfalls": [
       "Wymagania z „Czego szukamy” są tym, po czym system dopasowuje kandydatów — sama proza w opisie projektu wystarcza gorzej.",
       "Kandydata z list AI ukrywa tylko brak umiejętności krytycznej (gwiazdka w „Czego szukamy”). Pozostałe wymagania dają punkty. Bez decyzji działa podpowiedź z historii; „Brak krytycznych” znaczy, że nikt nie jest ukrywany.",
-      "Budżet podany zakresem jest zapisywany jako górna granica stawki godzinowej.",
+      "Budżet podany zakresem (np. 60–80) widać jako przedział, a plakietki liczą się od górnej granicy.",
       "Tytuł w nagłówku to tytuł dla rekrutera: składa się sam z profilu (rola, must-have, lata, dziedzina), dopóki nikt go nie zmieni w „Edytuj rekrutację”. Do klienta idą nazwa i numer od klienta."
     ],
     "anchors": [

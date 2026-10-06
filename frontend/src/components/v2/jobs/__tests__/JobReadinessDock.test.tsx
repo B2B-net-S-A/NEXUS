@@ -361,7 +361,7 @@ describe("JobReadinessDock — dane", () => {
     ).toBeInTheDocument();
 
     expect(screen.getByText("Budżet kandydacki")).toBeInTheDocument();
-    expect(screen.getByText("do 122.5 PLN/h")).toBeInTheDocument();
+    expect(screen.getByText("do 122,50 PLN/h")).toBeInTheDocument();
 
     expect(screen.getByText("Must / nice zsynchronizowane")).toBeInTheDocument();
     expect(

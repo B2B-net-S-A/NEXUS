@@ -180,6 +180,13 @@ def collect_inputs(
     )
     if month is not None:
         inputs["onsite_days_per_month"] = month
+    # 0420: „od” z przedziału budżetu — klucz tylko przy przedziale (ta sama
+    # zasada co wyżej: inaczej wszystkie teksty stałyby się „nieaktualne”).
+    from app.services.job_budget_range import effective_min
+
+    budget_min = effective_min(job) if budget else None
+    if budget_min is not None and round(budget_min) < round(float(budget)):
+        inputs["budget_pln_hourly_b2b_net_min"] = round(budget_min)
     return inputs
 
 
@@ -277,6 +284,9 @@ def rate_sentence(inputs: dict[str, Any]) -> Optional[str]:
     budget = inputs.get("budget_pln_hourly_b2b_net")
     if not budget:
         return None
+    low = inputs.get("budget_pln_hourly_b2b_net_min")
+    if low:
+        return f"Od {low} do {budget} zł netto za godzinę na B2B."
     return f"Do {budget} zł netto za godzinę na B2B."
 
 
@@ -316,6 +326,12 @@ def _with_rate(pitch: Optional[str], inputs: dict[str, Any]) -> Optional[str]:
         return pitch
     if str(inputs["budget_pln_hourly_b2b_net"]) in _numbers(pitch):
         return pitch
+    low = inputs.get("budget_pln_hourly_b2b_net_min")
+    if low:
+        return (
+            f"{pitch} Umowa B2B od {low} do "
+            f"{inputs['budget_pln_hourly_b2b_net']} zł netto za godzinę."
+        )
     return f"{pitch} Umowa B2B do {inputs['budget_pln_hourly_b2b_net']} zł netto za godzinę."
 
 

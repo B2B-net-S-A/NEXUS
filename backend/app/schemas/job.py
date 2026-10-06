@@ -35,6 +35,9 @@ class JobCreate(BaseModel):
     salary_max: Optional[int] = None
     # Budżet PLN/h dla kandydata (dealbreaker-switch; 0235).
     rate_budget_hourly: Optional[float] = Field(default=None, gt=0, le=2000)
+    # 0420: „od” z przedziału budżetu — tylko do wyświetlania; budżetem jest
+    # górna granica (`rate_budget_hourly`, services/job_budget_range.py).
+    rate_budget_hourly_min: Optional[float] = Field(default=None, gt=0, le=2000)
     # 0278: bez domyślnej — „nieznane” jest stanem uczciwym, „hybrid” domyślne
     # kłamało dla każdej oferty, której nikt ręcznie nie ustawił.
     remote_policy: Optional[RemotePolicy] = None
@@ -130,6 +133,14 @@ class JobCreate(BaseModel):
     def _normalize_skills(cls, v: Any) -> Any:
         return _normalize_skill_list(v)
 
+    @model_validator(mode="after")
+    def _budget_range(self) -> "JobCreate":
+        from app.services.job_budget_range import MSG_MIN_NOT_BELOW_MAX, min_below_max
+
+        if not min_below_max(self.rate_budget_hourly_min, self.rate_budget_hourly):
+            raise ValueError(MSG_MIN_NOT_BELOW_MAX)
+        return self
+
 
 _JOB_UPDATE_NOT_NULL_FIELDS = {
     "title": "Nazwa rekrutacji",
@@ -153,6 +164,9 @@ class JobUpdate(BaseModel):
     salary_max: Optional[int] = None
     # Budżet PLN/h dla kandydata (dealbreaker-switch; 0235).
     rate_budget_hourly: Optional[float] = Field(default=None, gt=0, le=2000)
+    # 0420: „od” z przedziału budżetu — tylko do wyświetlania; budżetem jest
+    # górna granica (`rate_budget_hourly`, services/job_budget_range.py).
+    rate_budget_hourly_min: Optional[float] = Field(default=None, gt=0, le=2000)
     remote_policy: Optional[RemotePolicy] = None
     onsite_days_per_week: Optional[int] = Field(default=None, ge=0, le=7)
     onsite_days_per_month: Optional[int] = Field(default=None, ge=1, le=22)
@@ -279,6 +293,7 @@ class JobResponse(BaseModel):
     salary_min: Optional[int]
     salary_max: Optional[int]
     rate_budget_hourly: Optional[float] = None
+    rate_budget_hourly_min: Optional[float] = None
     # 0278: nullable — patrz komentarz w JobCreate.
     remote_policy: Optional[RemotePolicy] = None
     onsite_days_per_week: Optional[int] = None
@@ -443,6 +458,18 @@ class JobResponse(BaseModel):
         from app.services.dealbreaker_filters import resolve_job_budget_hourly
 
         return resolve_job_budget_hourly(self)
+
+    @computed_field
+    @property
+    def effective_budget_hourly_min(self) -> Optional[float]:
+        """Dolna granica budżetu („60–80 zł/h”) — tylko do wyświetlania.
+
+        Jawne „od” albo przedział z tekstu stawki Championa; None, gdy nie
+        jest mniejsze od budżetu (`job_budget_range.effective_min`).
+        """
+        from app.services.job_budget_range import effective_min
+
+        return effective_min(self)
 
 
 class JobList(BaseModel):

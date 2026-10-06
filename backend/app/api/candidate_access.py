@@ -269,6 +269,8 @@ _VIEWER_REDACTED_JOB_FIELDS: tuple[str, ...] = (
     "salary_max",
     "rate_budget_hourly",
     "effective_budget_hourly",
+    "rate_budget_hourly_min",
+    "effective_budget_hourly_min",
     "champion_profile",
     "close_notes",
     "close_reason",

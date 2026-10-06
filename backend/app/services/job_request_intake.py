@@ -119,6 +119,8 @@ class RequestIntake:
     nice: list[str] = field(default_factory=list)
     seniority_min_years: Optional[int] = None
     rate_budget_hourly: Optional[float] = None
+    # 0420: „od” z przedziału „60–80” — tylko do wyświetlania; budżet = góra.
+    rate_budget_hourly_min: Optional[float] = None
     rate_quote: Optional[str] = None
     rate_note: Optional[str] = None
     remote_policy: Optional[str] = None
@@ -897,6 +899,7 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
 
     rate_quote = _text(data.get("rate_quote"), 200)
     rate_budget: Optional[float] = None
+    rate_budget_min: Optional[float] = None
     rate_note: Optional[str] = None
     if rate_quote and not _in_text(rate_quote, folded_text):
         rate_quote = None
@@ -915,17 +918,31 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
         # — budżet 1100 PLN/h to cicha pomyłka o rząd wielkości.
         bounds = champion_intake.pln_hourly_bounds(rate_quote)
         value = champion_intake.rate(bounds[1]) if bounds else None
-        if value is None:
+        # 06.10.2026: goły PRZEDZIAŁ („Stawka: 60-80”) w paśmie godzinowym
+        # to podpowiedź, zawsze z prośbą o sprawdzenie. Goła pojedyncza
+        # liczba dalej nie jest budżetem (REC-07).
+        bare = champion_intake.bare_hourly_range(rate_quote) if value is None else None
+        if bare is not None:
+            rate_budget_min, rate_budget = bare
+            rate_note = (
+                f"W requeście jest „{rate_quote}” bez waluty i jednostki — "
+                "przyjęto jako PLN/h netto. Sprawdź."
+            )
+        elif value is None:
             rate_note = (
                 f"W requeście jest „{rate_quote}” — to nie jest stawka w PLN/h "
                 "netto (brak waluty albo jednostki). Wpisz budżet ręcznie."
             )
         else:
             rate_budget = value
-            # „do 170 zł/h” to po prostu budżet 170; notatka tylko przy
-            # prawdziwym przedziale, bo tam budżetem jest jego GÓRA.
+            # „do 170 zł/h” to po prostu budżet 170; przedział daje też „od”,
+            # a budżetem zostaje jego GÓRA.
             if 0 < bounds[0] < bounds[1]:
-                rate_note = f"„{rate_quote}” — przyjęto górną granicę jako budżet."
+                rate_budget_min = bounds[0]
+                rate_note = (
+                    f"„{rate_quote}” — przedział: „od” {bounds[0]:g}, "
+                    f"budżetem jest górna granica {bounds[1]:g} zł/h."
+                )
 
     work_mode = _text(data.get("work_mode"), 30)
     remote_policy = _WORK_MODES.get((work_mode or "").casefold())
@@ -1128,6 +1145,7 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
         nice=nice,
         seniority_min_years=seniority_min_years,
         rate_budget_hourly=rate_budget,
+        rate_budget_hourly_min=rate_budget_min,
         rate_quote=rate_quote,
         rate_note=rate_note,
         remote_policy=remote_policy,

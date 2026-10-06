@@ -362,6 +362,20 @@ def _ground_basics_rate(basics: dict[str, Any], source_text: str) -> Optional[st
         )
     grounded = _grounded_rate(quote)
     if grounded is None:
+        # 06.10.2026: goły przedział w paśmie godzinowym (lustro odczytu maila
+        # na /jobs/new) — `rate_raw` dostaje kanoniczny tekst „60–80 zł/h”,
+        # bo ten czytają `prepare_profile` i ekrany (inaczej normalizacja
+        # stawki odrzuciłaby go przy zapisie).
+        from app.services import champion_intake
+
+        bare = champion_intake.bare_hourly_range(quote)
+        if bare is not None:
+            basics["rate_value"] = bare[1]
+            basics["rate_raw"] = champion_intake.range_label(*bare)
+            return (
+                f"W źródle jest „{quote}” bez waluty i jednostki — przyjęto jako "
+                f"PLN/h netto, budżetem jest górna granica {bare[1]:g}. Sprawdź."
+            )
         return (
             f"W źródle jest „{quote}” — to nie jest stawka w PLN/h netto "
             "(brak waluty albo jednostki godzinowej). Wpisz budżet ręcznie."
