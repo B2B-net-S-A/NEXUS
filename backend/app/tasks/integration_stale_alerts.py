@@ -32,7 +32,11 @@ from app.models.integration_run import (
     IntegrationAlertState,
 )
 from app.services import loop_heartbeat
-from app.services.integration_runs import is_stale, last_success_per_source
+from app.services.integration_runs import (
+    close_stuck_runs,
+    is_stale,
+    last_success_per_source,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +74,10 @@ async def run_once(*, now: datetime | None = None) -> dict:
     outcome: dict[str, str] = {}
 
     async with AsyncSessionLocal() as db:
+        # Runy zabite bez `finish` (06.10.2026) — inaczej wiszą jako „trwa”.
+        stuck = await close_stuck_runs(db, now=now)
+        if stuck:
+            logger.info("integration runs closed as stuck: %s", stuck)
         last_success = await last_success_per_source(db)
         for source in INTEGRATION_SOURCES:
             last = last_success.get(source)

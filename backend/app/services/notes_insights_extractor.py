@@ -179,10 +179,29 @@ def notes_fingerprint(rows: Sequence[tuple]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+# Szacunek scrapera w notatce formularza aplikacji (audyt 06.10.2026, D5):
+# „→ szacunek stawki B2B: 48 zł/h netto (dolny próg widełek ÷ 168 h) — …”.
+# To dolny próg widełek UoP podzielony przez godziny, nie stawka podana przez
+# kandydata — model czytał go jako oczekiwaną stawkę B2B i wpisywał z powrotem
+# stawkę cofniętą narzędziem ``scraper_rate_revert``. Linia ginie przed
+# modelem; reszta notatki (widełki miesięczne) zostaje. ``[^<\n]*`` — notatka
+# bywa HTML-em w jednej linii.
+_SCRAPER_RATE_ESTIMATE_RE = re.compile(
+    r"(?:→|-&gt;|->)?[ \t]*szacunek stawki B2B:[^<\n]*", re.IGNORECASE
+)
+
+
+def strip_scraper_rate_estimate(content: str) -> str:
+    return _SCRAPER_RATE_ESTIMATE_RE.sub("", content)
+
+
 def build_notes_blob(rows: Sequence[tuple]) -> str:
     # 0413: narodowość z karty rekomendacji nie trafia do żadnego modelu.
     blob = "\n\n".join(
-        f"[{r[2]}]\n{redact_card_text(r[3], AI_HIDDEN_FIELDS)[:NOTE_CHAR_LIMIT]}"
+        f"[{r[2]}]\n"
+        + redact_card_text(strip_scraper_rate_estimate(r[3]), AI_HIDDEN_FIELDS)[
+            :NOTE_CHAR_LIMIT
+        ]
         for r in rows
         if r[3]
     )

@@ -19,7 +19,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.integration_run import (
@@ -88,6 +88,36 @@ def run_to_dict(run: IntegrationRun) -> dict:
         "stats": run.stats or {},
         "error": run.error,
     }
+
+
+#: Run „running” dłużej niż tyle godzin = proces zabity bez ``finish``.
+STUCK_RUN_HOURS = 6
+STUCK_RUN_ERROR = (
+    "Przerwany: brak zakończenia przez 6 h (proces scrapera zatrzymany bez "
+    "raportu końca)."
+)
+
+
+async def close_stuck_runs(
+    db: AsyncSession, *, now: Optional[datetime] = None
+) -> list[int]:
+    """Runy wiszące w ``running`` > ``STUCK_RUN_HOURS`` → ``failed`` (06.10.2026).
+
+    Scraper zabity w trakcie (restart Maca, launchd) nie wysyła ``finish``.
+    Audyt 06.10.2026: takie runy wisiały w Insights jako „trwa” bez końca.
+    Zwraca ID zamkniętych runów; zapis idzie w sesji wołającego (bez commita).
+    """
+    now = now or _utcnow()
+    cutoff = now - timedelta(hours=STUCK_RUN_HOURS)
+
+    result = await db.execute(
+        update(IntegrationRun)
+        .where(IntegrationRun.status == "running", IntegrationRun.started_at < cutoff)
+        .values(status="failed", finished_at=now, error=STUCK_RUN_ERROR)
+        .returning(IntegrationRun.id)
+        .execution_options(synchronize_session=False)
+    )
+    return [int(i) for i in result.scalars().all()]
 
 
 async def last_success_per_source(db: AsyncSession) -> dict[str, Optional[datetime]]:
