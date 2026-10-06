@@ -168,6 +168,16 @@ describe("mergeProposals", () => {
     expect(entry.row.warnings).toContain("office_days");
   });
 
+  it("„tylko zdalnie” przy hybrydzie (07.10.2026) to plakietka, nie ukrycie", () => {
+    const remote = {
+      candidate: { id: 1, name: "Anna", lastname: "Nowak1" },
+      match_score: 0.8, matching_skills: [], gaps: [], remote_fit: "prefers_remote",
+    } as unknown as CandidateSearchRow["match"];
+    const [entry] = mergeProposals({ run: { runId: "run-1", rows: [runRow(1, 80, { match: remote })] } });
+    expect(entry.row.warnings).toContain("prefers_remote");
+    expect(entry.detail.remoteFit).toBe("prefers_remote");
+  });
+
   it("sprzeczny wymiar pracy (24.09.2026) to plakietka na wierszu, nie ukrycie", () => {
     const partTime = {
       candidate: { id: 1, name: "Anna", lastname: "Nowak1" },

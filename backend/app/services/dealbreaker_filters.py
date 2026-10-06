@@ -229,6 +229,12 @@ class DealbreakerInputs:
     # i notatek dołącza się RAZ na paczkę (bramka, plakietki, ocena).
     critical_source: Optional[str] = None
     evidence_labels: tuple[str, ...] = ()
+    # „Tylko zdalnie” z notatek UKRYWA wyłącznie przy pracy (prawie)
+    # stacjonarnej albo przy jawnym „wyklucz tylko zdalnych”; przy hybrydzie
+    # 1–3 dni to plakietka `remote_fit` (decyzja Artura 07.10.2026 — 76% osób
+    # z tą flagą, które zespół zweryfikował do biura, wysłano do klienta).
+    # Domyślnie True: wołający bez `inputs` zachowuje się jak dotąd.
+    remote_only_hides: bool = True
 
     @property
     def gate_evidence_labels(self) -> tuple[str, ...]:
@@ -600,10 +606,16 @@ def dealbreaker_inputs_for_job(job) -> DealbreakerInputs:
 
     office_tokens = frozenset(location_tokens(office_location))
     policy = resolve_effective_remote_policy(job)
+    explicit_remote_exclusion = bool(getattr(job, "exclude_remote_only", False))
     wants_office = (
         bool(days and days > 0)
         or policy in ("onsite", "hybrid")
-        or bool(getattr(job, "exclude_remote_only", False))
+        or explicit_remote_exclusion
+    )
+    remote_only_hides = (
+        bool(days and days >= OFFICE_CITY_HARD_MIN_DAYS)
+        or policy == "onsite"
+        or explicit_remote_exclusion
     )
 
     work_mode = getattr(job, "work_mode", None)
@@ -620,6 +632,7 @@ def dealbreaker_inputs_for_job(job) -> DealbreakerInputs:
         remote_policy=policy,
         critical_source=critical_source,
         evidence_labels=evidence_labels,
+        remote_only_hides=remote_only_hides,
     )
 
 
@@ -684,6 +697,21 @@ def office_fit_status(candidate, inputs: DealbreakerInputs) -> str:
     cand_days = getattr(candidate, "max_onsite_days_per_week", None)
     if not isinstance(cand_days, int) or isinstance(cand_days, bool):
         return "unknown"
+    return "ok"
+
+
+def remote_fit_status(candidate, inputs: DealbreakerInputs) -> str:
+    """`"prefers_remote" | "ok" | "not_required"` — plakietka „tylko zdalnie”.
+
+    `"prefers_remote"`: rekrutacja chce biura, ale tylko w trybie hybrydowym
+    (nie ukrywamy — rekruter widzi ostrzeżenie), a z notatek wiadomo, że
+    kandydat chce pracować wyłącznie zdalnie. Gdy rekrutacja jest stacjonarna,
+    taki kandydat jest ukryty i plakietki nie zobaczy nikt.
+    """
+    if not inputs.wants_office:
+        return "not_required"
+    if not inputs.remote_only_hides and remote_only_refuses_office(candidate):
+        return "prefers_remote"
     return "ok"
 
 
@@ -871,7 +899,11 @@ def apply_dealbreakers(
             if (candidate_id := getattr(candidate, "id", None)) is not None:
                 result.exclusion_reasons[candidate_id] = "office_city_mismatch"
             continue
-        if exclude_remote_only and remote_only_refuses_office(candidate):
+        if (
+            exclude_remote_only
+            and effective_inputs.remote_only_hides
+            and remote_only_refuses_office(candidate)
+        ):
             result.hidden_remote_only += 1
             if (candidate_id := getattr(candidate, "id", None)) is not None:
                 result.exclusion_reasons[candidate_id] = "remote_only"

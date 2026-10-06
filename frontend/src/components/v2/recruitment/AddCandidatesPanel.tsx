@@ -38,7 +38,12 @@ import { SIMILAR_TAB_DESCRIPTION, useSimilarJobsTab } from "@/components/v2/jobs
 import { useCapability } from "@/hooks/useCapability";
 import { apiErrorMessage } from "@/lib/api-error";
 import type { MatchEligibility } from "@/lib/api";
-import { OFFICE_DAYS_WARNING, overBudgetLabel } from "@/lib/fit-badges";
+import {
+  OFFICE_DAYS_WARNING,
+  REMOTE_ONLY_BADGE_PL,
+  REMOTE_ONLY_WARNING,
+  overBudgetLabel,
+} from "@/lib/fit-badges";
 import { searchIsRunning } from "@/lib/full-candidate-search-api";
 import type { ManualSearchJob } from "@/lib/job-search-filters";
 import {
@@ -117,6 +122,7 @@ const WARNING_LABEL: Record<string, string> = {
   hm_veto: "Weto HM",
   over_budget: "Ponad budżet",
   [OFFICE_DAYS_WARNING]: "Mniej dni w biurze",
+  [REMOTE_ONLY_WARNING]: REMOTE_ONLY_BADGE_PL,
   rejected_by_same_client: "Odrzucony przez tego klienta",
   employment_only: EMPLOYMENT_ONLY_WARNING_PL,
   city_mismatch: CITY_MISMATCH_WARNING_PL,
@@ -158,6 +164,7 @@ function proposalRow(
     }
     if (
       code === OFFICE_DAYS_WARNING ||
+      code === REMOTE_ONLY_WARNING ||
       code === "rejected_by_same_client" ||
       code === "part_time_only" ||
       code === "full_time_only" ||

@@ -8,7 +8,7 @@
  * świadomie otwarte okno weryfikacji wymagania.
  */
 
-import { overBudgetLabel } from "@/lib/fit-badges";
+import { REMOTE_ONLY_BADGE_PL, REMOTE_ONLY_WARNING, overBudgetLabel } from "@/lib/fit-badges";
 import type { ReactNode } from "react";
 import Link from "next/link";
 
@@ -277,6 +277,7 @@ export function ProposalPanel({
             <dd className="text-right text-foreground">
               {detail.city ?? "brak danych"}
               {detail.officeFit && OFFICE_FIT_LABEL[detail.officeFit] ? ` · ${OFFICE_FIT_LABEL[detail.officeFit]}` : ""}
+              {detail.remoteFit === REMOTE_ONLY_WARNING ? ` · ${REMOTE_ONLY_BADGE_PL}` : ""}
             </dd>
           </div>
           {detail.workTimeFit && WORK_TIME_FIT_WARNING_PL[detail.workTimeFit] ? (

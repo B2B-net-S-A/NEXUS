@@ -141,7 +141,7 @@ def build_request_context(job, profile: WeightProfile) -> RequestMatchingContext
     versions = {
         **current_version_trace().as_dict(),
         "request_schema": "request-full-v2",
-        "result_schema": "full-result-filters-v1",
+        "result_schema": "full-result-filters-v2",
         "fit_profile": "base-fit-v1",
         "evidence_gate": "reviewed-evidence-v3",
         # Which candidates the must-have gate hides; a ranking built under an

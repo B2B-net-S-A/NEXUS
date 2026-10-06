@@ -132,7 +132,7 @@
     "pitfalls": [
       "Wynik „nie policzono” to brak danych, nie słabe dopasowanie.",
       "Osoby z ostrzeżeniem (np. konflikt z klientem) są widoczne i da się je dodać — sprawdź powód przed wysłaniem do klienta; weto hiring managera blokuje dodanie.",
-    "Budżet i dni w biurze nikogo nie ukrywają — to plakietki: „oczekuje +X% ponad budżet”, „mniej dni w biurze”, „poniżej minimum — zgoda na telefon” (budżet niższy niż minimum kandydata, ale zgodził się na telefon z taką ofertą).",
+    "Budżet i dni w biurze nikogo nie ukrywają — to plakietki: „oczekuje +X% ponad budżet”, „mniej dni w biurze”, „poniżej minimum — zgoda na telefon”, „preferuje pracę zdalną” (przy hybrydzie; przy pracy w biurze od 4 dni taka osoba jest ukryta).",
     "Plakietka „Szuka części etatu” albo „Tylko pełny etat” znaczy, że wymiar pracy z rozmowy nie pasuje do rekrutacji. Osoba zostaje na liście — sprawdź to z nią przed dodaniem."
     ],
     "anchors": [

@@ -4492,6 +4492,27 @@ wysłał do klienta, budżet — 32%, dni w biurze — 8%. Decyzje Artura 30.09.
   rekrutacji): wybór DL, a bez niego podpowiedź z historii — niezależnie od
   `MUST_GATE_MODE`. Podpowiedź przelicza się co tydzień, więc werdykt QC
   rekrutacji bez wyboru DL może się zmienić bez zmiany CV; okno QC nazywa źródło.
+- **v10 (07.10.2026, audyt AI Search, `critical-v10`):**
+  - Dowód z notatek: z `_notes_insights` liczą się tylko `skills_evidenced`
+    i `certifications` (`must_text_evidence._NOTES_INSIGHTS_EVIDENCE_FIELDS`)
+    — braki („nie zna Kafki”) i weta dawały 1 791 fałszywych trafień. W karcie
+    rekomendacji (`card`, `screening_facts`) pytanie z przeczącą odpowiedzią
+    znika razem z odpowiedzią (`evidence_note_text`, słownik
+    `_NEGATIVE_ANSWER_RE`; „podstawy”, „słabo” to wciąż znajomość). Ten sam
+    tekst czytają statystyki podpowiedzi (`critical_skills.compute_stats`).
+  - „Tylko zdalnie” z notatek ukrywa wyłącznie przy pracy stacjonarnej, od
+    4 dni w biurze albo przy jawnym `exclude_remote_only`
+    (`DealbreakerInputs.remote_only_hides`); przy hybrydzie wiersz niesie
+    plakietkę `remote_fit = "prefers_remote"` („Preferuje pracę zdalną”) —
+    76% osób z tą flagą zweryfikowanych do biura zespół wysłał do klienta.
+  - Podpowiedź krytycznych tylko z tytułu albo z pierwszych 3 pozycji listy
+    must, która ma najwyżej 8 pozycji (`SUGGEST_MAX_POSITION`,
+    `SUGGEST_MAX_LIST`); ukryci zweryfikowani 7,1% → 2,7%. Dotyczy też QC CV.
+  - Dopasowanie nazw: krótkie formy ze znakiem (`C#`, `F#`, `C++`) bez
+    rozróżniania wielkości liter; implikacje `skill_normalize.IMPLIED_BY`
+    (rodzina SQL ⇒ SQL, PlantUML ⇒ UML — jednokierunkowe, NIE alias); „rest
+    of”, „the rest”, „at rest” to nie REST API (`_patterns`,
+    `is_technology_mention`).
 
 ## Hiring manager rekrutacji: lista albo nowa osoba (25.09.2026)
 

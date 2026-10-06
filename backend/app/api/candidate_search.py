@@ -479,6 +479,10 @@ async def search_results(
                 "office": frozen_filters.get("office"),
             }
         )
+        # „Tylko zdalnie” przy hybrydzie (07.10.2026) — tylko w przeglądach,
+        # które to pole zapisały; starsze zostają w dotychczasowym kształcie.
+        if fit is not None and "remote" in frozen_filters:
+            fit["remote"] = frozen_filters["remote"]
         results.append(
             {
                 "match": details,
