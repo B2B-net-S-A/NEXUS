@@ -181,6 +181,69 @@ def test_same_word_means_same_stem_with_an_inflection_ending(left, right, same):
     assert sync._same_word(left, right) is same
 
 
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        # Ostatnia odpowiedź karty połyka notatkę wewnętrzną — ucinamy.
+        (
+            "Certified Pega System Architect\nNOTATKA\nByła w procesie u innego klienta",
+            "Certified Pega System Architect",
+        ),
+        ("Tak, 5 lat.\nRed flags brak", "Tak, 5 lat."),
+        (
+            "Tak, regularnie.\nNotatka dodatkowa\nAktualnie pracuje w X",
+            "Tak, regularnie.",
+        ),
+        (
+            "Pracuje z Kafką.\n@Anna Nowak notatka i motywacja w odpowiedzi",
+            "Pracuje z Kafką.",
+        ),
+        (
+            "Webpack, Gulp\n4. Czy korzystałeś z preprocesorów CSS?\nTAK",
+            "Webpack, Gulp",
+        ),
+        (
+            "Spore doświadczenie z bazami\n3. Jakie masz doświadczenie w tworzeniu aplikacji\nfrontendowych? Angular",
+            "Spore doświadczenie z bazami",
+        ),
+        ("Monitoring w Grafanie\nczekam na cv i stawkę", "Monitoring w Grafanie"),
+        (
+            "Tabele w fundacji\n3. : Jak podchodzisz do UX\ndla formularzy?",
+            "Tabele w fundacji",
+        ),
+        ("Diagramy ERD\np3 Z którymi technologiami pracowałeś", "Diagramy ERD"),
+        # Wyliczenie w odpowiedzi zostaje.
+        (
+            "Bazy:\n3) relacyjne - postgres, oracle",
+            "Bazy:\n3) relacyjne - postgres, oracle",
+        ),
+        # Kwota albo para stawek po ucięciu — odpowiedź nie trafia do klienta.
+        ("Projekt w banku.\nkosztorys:\n138/90", "Projekt w banku."),
+        ("Robił to w projekcie za 90 zł/h", ""),
+        ("Stawka 140/110", ""),
+        # Powtórzone pytanie w innym języku zamiast odpowiedzi.
+        ("[PL] Jak wykorzystujesz narzędzia AI? Na co dzień Copilot", ""),
+        # Zwykłe odpowiedzi bez zmian (także „dostępność” jako słowo).
+        (
+            "Dbam o dostępność (accessibility) i WCAG.",
+            "Dbam o dostępność (accessibility) i WCAG.",
+        ),
+        ("Tak\n2 lata komercyjnie", "Tak\n2 lata komercyjnie"),
+    ],
+)
+def test_client_safe_response_cuts_internal_sections(raw, expected):
+    assert sync.client_safe_response(raw) == expected
+
+
+def test_answer_with_only_internal_content_is_skipped():
+    result = sync.map_note_answers(
+        QUESTIONS,
+        [_item(3, "Jaki jest Twój okres wypowiedzenia?", "Stawka 140/110")],
+    )
+    assert result.matches == ()
+    assert result.skipped == {"internal": 1}
+
+
 def test_questions_unlike_the_profile_are_not_mapped_by_number():
     # Profil zmieniony po notatce: trzy odpowiedzi na trzy INNE pytania.
     result = sync.map_note_answers(
