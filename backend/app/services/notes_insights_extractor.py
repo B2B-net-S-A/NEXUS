@@ -134,32 +134,50 @@ async def load_note_rows(db: AsyncSession, candidate_id: int) -> list[tuple]:
 
     Najnowsze najpierw. Ostatnia kolumna to dzień warszawski
     ``coalesce(source_created_at, created_at)`` — od niego liczymy dostępność
-    z notatek (``notes_profile_fill``, decyzja 07.10.2026).
+    z notatek (``notes_profile_fill.notes_days``, decyzja 07.10.2026).
 
     Runda 8 (R8-X1-5): dzień notatki liczony w Europe/Warsaw, nie w UTC sesji —
     notatka z 00:30 dostawała w prompcie datę poprzedniego dnia, a model liczył
     od niej dostępność („od przyszłego miesiąca”).
     """
+    return (await load_note_rows_bulk(db, [candidate_id])).get(candidate_id, [])
+
+
+async def load_note_rows_bulk(
+    db: AsyncSession, candidate_ids: Sequence[int]
+) -> dict[int, list[tuple]]:
+    """``load_note_rows`` dla wielu kandydatów naraz — TEN SAM wybór notatek.
+
+    Jedyne miejsce, które wybiera notatki wejścia odczytu: nocna ekstrakcja
+    (przez ``load_note_rows``) i domknięcie historii
+    (``notes_profile_backfill``) liczą z nich ten sam „dzień notatki”.
+    """
+    if not candidate_ids:
+        return {}
     # Wybór: tylko notatki, które wolno czytać modelowi; karty rekomendacji
     # i fakty ze screeningu mają pierwszeństwo przed limitem (u 373 kandydatów
     # karta wypadała poza 20 najnowszych). Wynik nadal od najnowszej.
     priority = ", ".join(f"'{kind}'" for kind in note_kinds.AI_PRIORITY_KINDS)
     result = await db.execute(
         text(
-            "SELECT id, updated_at, "
+            "SELECT candidate_id, id, updated_at, "
             "(created_at AT TIME ZONE 'Europe/Warsaw')::date AS d, content, "
             "(COALESCE(source_created_at, created_at) AT TIME ZONE 'Europe/Warsaw')"
             "::date AS note_day "
             "FROM ("
-            "SELECT id, updated_at, created_at, source_created_at, content FROM notes "
-            f"WHERE candidate_id = :c AND {note_kinds.facts_readable_sql()} "
-            f"ORDER BY (kind IN ({priority})) DESC NULLS LAST, "
-            "created_at DESC LIMIT :lim"
-            ") picked ORDER BY created_at DESC"
+            "SELECT candidate_id, id, updated_at, created_at, source_created_at, "
+            "content, row_number() OVER (PARTITION BY candidate_id "
+            f"ORDER BY (kind IN ({priority})) DESC NULLS LAST, created_at DESC) "
+            "AS rn FROM notes "
+            f"WHERE candidate_id = ANY(:ids) AND {note_kinds.facts_readable_sql()}"
+            ") picked WHERE rn <= :lim ORDER BY candidate_id, created_at DESC"
         ),
-        {"c": candidate_id, "lim": NOTES_LIMIT},
+        {"ids": list(candidate_ids), "lim": NOTES_LIMIT},
     )
-    return list(result.all())
+    out: dict[int, list[tuple]] = {}
+    for row in result.all():
+        out.setdefault(row[0], []).append(tuple(row[1:]))
+    return out
 
 
 def notes_fingerprint(rows: Sequence[tuple]) -> str:
@@ -404,11 +422,15 @@ def apply_insights(
     fingerprint: str,
     now_iso: Optional[str] = None,
     as_of: Optional[date] = None,
+    latest_note_day: Optional[date] = None,
 ) -> dict[str, Any]:
     """Zastosuj wynik ekstrakcji do kandydata (mutuje obiekt ORM, bez commitu).
 
-    ``as_of`` — dzień najnowszej notatki wejścia (``notes_as_of``): od niego
-    liczymy dostępność („od zaraz”, okres wypowiedzenia), nie od dziś.
+    ``as_of`` — dzień najnowszej notatki wejścia, która mówi o dostępności
+    (``notes_days(rows).availability``): od niego liczymy „od zaraz” i okres
+    wypowiedzenia, nie od dziś. ``latest_note_day`` — dzień najnowszej
+    notatki wejścia (``notes_days(rows).latest``), odniesienie dla pełnej daty
+    i miesiąca, gdy notatki o dostępności nie ma.
 
     Zwraca statystyki zmian; ``changed`` > 0 oznacza, że wołający powinien
     zbudować reindeks + unieważnić cache score'ów tego kandydata.
@@ -525,7 +547,13 @@ def apply_insights(
     from app.services.notes_profile_fill import apply_profile_fill, plan_profile_fill
 
     had_date = candidate.availability_date is not None
-    changes, markers = plan_profile_fill(candidate, parsed, prior=prior, as_of=as_of)
+    changes, markers = plan_profile_fill(
+        candidate,
+        parsed,
+        prior=prior,
+        as_of=as_of,
+        latest_note_day=latest_note_day,
+    )
     apply_profile_fill(candidate, changes)
     insights.update(markers)
     for field, key in (

@@ -24,9 +24,10 @@ podnosimy statusu z historycznych notatek.
 from __future__ import annotations
 
 import json
+import logging
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any, Optional
 
@@ -34,14 +35,18 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.services import note_kinds
+from app.services.notes_insights_extractor import load_note_rows_bulk
 from app.services.notes_profile_fill import (
     AVAILABILITY_MARKER,
+    NotesDays,
     apply_profile_fill,
     fill_languages_from_notes,
     languages_to_add,
+    notes_days,
     plan_profile_fill,
 )
+
+logger = logging.getLogger(__name__)
 
 RECEIPT_KEY = "notes_profile_fill_backfill_2026_10"
 # Wartości sprzed zmiany (daty, tryby pracy) leżą pod kluczem innego kształtu —
@@ -76,14 +81,6 @@ _ROWS_SQL = text(
     "AND id > :after ORDER BY id LIMIT :limit"
 )
 
-_AS_OF_SQL = text(
-    "SELECT candidate_id, "
-    "max((COALESCE(source_created_at, created_at) AT TIME ZONE 'Europe/Warsaw')"
-    "::date) AS note_day "
-    "FROM notes WHERE candidate_id = ANY(:ids) "
-    f"AND {note_kinds.facts_readable_sql()} GROUP BY candidate_id"
-)
-
 _LANGUAGE_CODES_SQL = text(
     "SELECT candidate_id, language_code FROM candidate_languages "
     "WHERE candidate_id = ANY(:ids)"
@@ -96,9 +93,15 @@ def _insights(value: Any) -> dict:
     return value if isinstance(value, dict) else {}
 
 
-async def _as_of(db: AsyncSession, ids: list[int]) -> dict[int, date]:
-    rows = await db.execute(_AS_OF_SQL, {"ids": ids})
-    return {row.candidate_id: row.note_day for row in rows}
+async def _note_days(db: AsyncSession, ids: list[int]) -> dict[int, NotesDays]:
+    """Dni notatek liczone na TYM SAMYM zbiorze, który czyta odczyt AI.
+
+    ``load_note_rows_bulk`` to ten sam wybór co ``load_note_rows`` nocnej
+    ekstrakcji, a ``notes_days`` ta sama funkcja — obie drogi wpisują tę samą
+    datę dostępności i ten sam „stan na”.
+    """
+    rows = await load_note_rows_bulk(db, ids)
+    return {cid: notes_days(rows.get(cid, [])) for cid in ids}
 
 
 async def _language_codes(db: AsyncSession, ids: list[int]) -> dict[int, set[str]]:
@@ -108,11 +111,19 @@ async def _language_codes(db: AsyncSession, ids: list[int]) -> dict[int, set[str
     return out
 
 
+_NO_DAYS = NotesDays(availability=None, latest=None)
+
+
 def _plan_one(
-    view: Any, insights: dict, *, as_of: Optional[date], codes: set[str]
+    view: Any, insights: dict, *, days: NotesDays, codes: set[str]
 ) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
     changes, markers = plan_profile_fill(
-        view, insights, prior=insights, as_of=as_of, include_status=False
+        view,
+        insights,
+        prior=insights,
+        as_of=days.availability,
+        latest_note_day=days.latest,
+        include_status=False,
     )
     return changes, markers, languages_to_add(insights, codes)
 
@@ -128,7 +139,7 @@ async def build_plan(db: AsyncSession) -> tuple[list[PlannedFill], dict[str, int
             break
         after = rows[-1].id
         ids = [row.id for row in rows]
-        as_of = await _as_of(db, ids)
+        days = await _note_days(db, ids)
         codes = await _language_codes(db, ids)
         for row in rows:
             counts["candidates_with_facts"] += 1
@@ -142,7 +153,10 @@ async def build_plan(db: AsyncSession) -> tuple[list[PlannedFill], dict[str, int
                 max_onsite_days_per_week=row.max_onsite_days_per_week,
             )
             changes, markers, langs = _plan_one(
-                view, insights, as_of=as_of.get(row.id), codes=codes.get(row.id, set())
+                view,
+                insights,
+                days=days.get(row.id, _NO_DAYS),
+                codes=codes.get(row.id, set()),
             )
             if not changes and not langs:
                 continue
@@ -211,6 +225,9 @@ def _before(candidate: Any, fields: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+APPLY_BATCH = 200
+
+
 async def apply_plan(
     db: AsyncSession, plan: list[PlannedFill], counts: dict[str, int], *, user_id: int
 ) -> dict[str, Any]:
@@ -218,17 +235,33 @@ async def apply_plan(
 
     Plan liczony od nowa pod blokadą wierszy kandydatów — zapisujemy tylko to,
     co nadal jest puste (ta sama reguła co nocna ścieżka).
+
+    Paczkami po ``APPLY_BATCH`` kandydatów, każda we własnej transakcji
+    (blokady ``FOR UPDATE`` nie wiszą na tysiącach wierszy do końca biegu),
+    kandydat w savepoincie (błąd jednego nie cofa paczki). Paragon jest
+    JEDEN na bieg: wpis biegu i szczegóły dopisywane po każdej paczce w jej
+    transakcji, więc przerwany bieg zostawia ślad tego, co zapisał.
+    ``expected`` sprawdza wołający przed pierwszą paczką.
     """
     from app.models.candidate import Candidate
     from app.services.match_score_cache import mark_stale_for_candidates
 
     filled_ids: list[int] = []
-    details_rows: list[dict[str, Any]] = []
     field_counts: Counter[str] = Counter()
+    errors = 0
     now = datetime.now(timezone.utc).isoformat()
-    for start in range(0, len(plan), 200):
-        ids = [item.candidate_id for item in plan[start : start + 200]]
-        as_of = await _as_of(db, ids)
+    run: dict[str, Any] = {
+        "applied_at": now,
+        "applied_by": user_id,
+        "counts": {**counts, "filled": 0},
+        "candidate_ids": [],
+    }
+    for start in range(0, len(plan), APPLY_BATCH):
+        # Blokada doradcza żyje do końca transakcji — bierzemy ją w każdej
+        # paczce (pierwszą wziął wołający razem z liczeniem planu).
+        await lock_for_apply(db)
+        ids = [item.candidate_id for item in plan[start : start + APPLY_BATCH]]
+        days = await _note_days(db, ids)
         codes = await _language_codes(db, ids)
         candidates = (
             await db.scalars(
@@ -239,65 +272,114 @@ async def apply_plan(
                 .with_for_update()
             )
         ).all()
+        batch_ids: list[int] = []
+        batch_details: list[dict[str, Any]] = []
         for candidate in candidates:
-            extracted = (
-                dict(candidate.cv_extracted_data)
-                if isinstance(candidate.cv_extracted_data, dict)
-                else {}
-            )
-            insights = extracted.get("_notes_insights")
-            if not isinstance(insights, dict):
+            candidate_id = candidate.id
+            try:
+                async with db.begin_nested():
+                    outcome = await _apply_one(
+                        db,
+                        candidate,
+                        days=days.get(candidate_id, _NO_DAYS),
+                        codes=codes.get(candidate_id, set()),
+                    )
+            except Exception:  # noqa: BLE001 — jeden kandydat nie zatrzymuje biegu
+                logger.exception(
+                    "notes-profile-fill: kandydat id=%s padł", candidate_id
+                )
+                errors += 1
                 continue
-            changes, markers, langs = _plan_one(
-                candidate,
-                insights,
-                as_of=as_of.get(candidate.id),
-                codes=codes.get(candidate.id, set()),
-            )
-            if not changes and not langs:
+            if outcome is None:
                 continue
-            before = _before(candidate, changes)
-            apply_profile_fill(candidate, changes)
-            if markers:
-                extracted["_notes_insights"] = {**insights, **markers}
-                candidate.cv_extracted_data = extracted
-                flag_modified(candidate, "cv_extracted_data")
-            added = (
-                await fill_languages_from_notes(db, candidate.id, insights)
-                if langs
-                else 0
-            )
-            if not changes and not added:
-                continue
+            changes, langs, added, before = outcome
             for name in changes:
                 field_counts[_FIELD_COUNTS[name]] += 1
             if added:
                 field_counts["languages_candidates"] += 1
                 field_counts["languages_codes"] += added
-            filled_ids.append(candidate.id)
-            details_rows.append(
+            batch_ids.append(candidate_id)
+            batch_details.append(
                 {
-                    "candidate_id": candidate.id,
+                    "candidate_id": candidate_id,
                     "before": before,
                     "languages_added": list(langs) if added else [],
                     "applied_at": now,
                 }
             )
         await db.flush()
-    if filled_ids:
-        await mark_stale_for_candidates(db, filled_ids)
+        if batch_ids:
+            await mark_stale_for_candidates(db, batch_ids)
+            filled_ids.extend(batch_ids)
+            run = {
+                **run,
+                "counts": {
+                    **counts,
+                    "filled": len(filled_ids),
+                    "errors": errors,
+                    **dict(field_counts),
+                },
+                "candidate_ids": list(filled_ids),
+            }
+            await _write_receipt(db, run, batch_details)
+        await db.commit()
     run = {
-        "applied_at": now,
-        "applied_by": user_id,
-        "counts": {**counts, "filled": len(filled_ids), **dict(field_counts)},
-        "candidate_ids": filled_ids,
+        **run,
+        "counts": {
+            **counts,
+            "filled": len(filled_ids),
+            "errors": errors,
+            **dict(field_counts),
+        },
+        "candidate_ids": list(filled_ids),
     }
-    if not filled_ids:
-        return run
+    return run
+
+
+async def _apply_one(
+    db: AsyncSession, candidate: Any, *, days: NotesDays, codes: set[str]
+) -> Optional[tuple[dict[str, Any], list[str], int, dict[str, Any]]]:
+    """Zapis jednego kandydata (w savepoincie wołającego) albo ``None``."""
+    extracted = (
+        dict(candidate.cv_extracted_data)
+        if isinstance(candidate.cv_extracted_data, dict)
+        else {}
+    )
+    insights = extracted.get("_notes_insights")
+    if not isinstance(insights, dict):
+        return None
+    changes, markers, langs = _plan_one(candidate, insights, days=days, codes=codes)
+    if not changes and not langs:
+        return None
+    before = _before(candidate, changes)
+    apply_profile_fill(candidate, changes)
+    if markers:
+        extracted["_notes_insights"] = {**insights, **markers}
+        candidate.cv_extracted_data = extracted
+        flag_modified(candidate, "cv_extracted_data")
+    added = await fill_languages_from_notes(db, candidate.id, insights) if langs else 0
+    await db.flush()
+    if not changes and not added:
+        return None
+    return changes, langs, added, before
+
+
+async def _write_receipt(
+    db: AsyncSession, run: dict[str, Any], details_rows: list[dict[str, Any]]
+) -> None:
+    """Jeden wpis biegu (po ``applied_at``) + dopisane szczegóły paczki."""
     receipt = await _stored(db, RECEIPT_KEY)
     details = await _stored(db, DETAILS_KEY)
-    receipt["runs"] = [*receipt.get("runs", []), run]
+    runs = [
+        item
+        for item in receipt.get("runs", [])
+        if not (
+            isinstance(item, dict)
+            and item.get("applied_at") == run["applied_at"]
+            and item.get("applied_by") == run["applied_by"]
+        )
+    ]
+    receipt["runs"] = [*runs, run]
     details["rows"] = [*details.get("rows", []), *details_rows]
     await db.execute(_WRITE_SQL, {"key": RECEIPT_KEY, "value": json.dumps(receipt)})
     await db.execute(_WRITE_SQL, {"key": DETAILS_KEY, "value": json.dumps(details)})
-    return run

@@ -218,13 +218,22 @@ _RATE_CHANGES_SQL = text(
     "ORDER BY candidate_id, job_id, created_at, id"
 )
 
-_NOTE_PAIRS_SQL = text(
-    "SELECT id, candidate_id, job_id, author_id, kind, content, "
-    "COALESCE(source_created_at, created_at) AS at "
-    "FROM notes WHERE candidate_id = ANY(:ids) "
-    "AND kind = ANY(:kinds) AND parent_note_id IS NULL "
-    "AND source_deleted_at IS NULL AND content ~ :pattern"
-)
+
+def _note_pairs_sql() -> Any:
+    # Import w funkcji: reguła wpisu (i jej wyrażenie autora) żyje przy stawce
+    # do klienta.
+    from app.services import client_rate_notes
+
+    return text(
+        "SELECT n.id, n.candidate_id, n.job_id, n.author_id, n.kind, n.content, "
+        "COALESCE(n.source_created_at, n.created_at) AS at, "
+        f"{client_rate_notes.DL_PAIR_AUTHOR_SQL} AS author_is_dl "
+        "FROM notes n LEFT JOIN users u ON u.id = n.author_id "
+        "WHERE n.candidate_id = ANY(:ids) "
+        "AND n.kind = ANY(:kinds) AND n.parent_note_id IS NULL "
+        "AND n.source_deleted_at IS NULL AND n.content ~ :pattern"
+    )
+
 
 _SUBMISSIONS_SQL = text(
     "SELECT id, matched_candidate_id AS candidate_id, job_id, created_at, "
@@ -333,12 +342,16 @@ async def collect(
 async def _add_note_pair_observations(
     db: AsyncSession, out: dict[int, list[RateObservation]], ids: list[int]
 ) -> None:
-    """Oczekiwanie kandydata z wpisu „X/Y” (``client_rate_notes.parse_dl_pair``)."""
+    """Oczekiwanie kandydata z wpisu „X/Y” (``client_rate_notes.dl_pair_from_note``).
+
+    Zwykła notatka (``human``) liczy się tylko, gdy jej autor ma rolę DL-a albo
+    admina — ta sama reguła co plan stawki do klienta.
+    """
     # Import w funkcji: reguła wpisu żyje przy stawce do klienta.
     from app.services import client_rate_notes
 
     rows = await db.execute(
-        _NOTE_PAIRS_SQL,
+        _note_pairs_sql(),
         {
             "ids": ids,
             "kinds": list(client_rate_notes.DL_PAIR_KINDS),
@@ -346,7 +359,9 @@ async def _add_note_pair_observations(
         },
     )
     for row in rows.mappings():
-        pair = client_rate_notes.parse_dl_pair(row["content"])
+        pair = client_rate_notes.dl_pair_from_note(
+            row["kind"], row["content"], author_is_dl=bool(row["author_is_dl"])
+        )
         if pair is None:
             continue
         amount = pair[1].quantize(_CENT)

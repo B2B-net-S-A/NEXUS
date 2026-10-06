@@ -121,6 +121,17 @@ def test_short_dl_pair_gives_client_and_candidate_rate(
         "160/115 i 150/110",
         "50/30",
         "450/300",
+        # Wynik testu i widełki oczekiwań kandydata (przegląd #2062).
+        "Codility 85/60",
+        "HackerRank 95/70",
+        "wynik 90/45",
+        "zadanie: 100/60",
+        "test 90/50 pkt",
+        "oczekiwania 130/120",
+        "140/120 zakres",
+        "120/100 widełki",
+        "120/100 widelki",
+        "ocena 90/60",
         # Długa notatka to rozmowa, nie wpis DL-a.
         "Rozmowa z kandydatem o projekcie w banku, zespół 8 osób, "
         "Java i Spring, pracuje zdalnie, oczekiwania omówione wcześniej, "
@@ -138,6 +149,30 @@ def test_dl_pair_only_in_dl_and_human_notes():
     assert note_has_dl_pair("human", "160/115")
     for kind in ("card", "automatch", "application_form", "email", None):
         assert not note_has_dl_pair(kind, "160/115"), kind
+
+
+def test_plain_note_pair_counts_only_from_a_delivery_lead_or_admin():
+    from app.services.client_rate_notes import dl_pair_from_note
+
+    pair = (Decimal("170"), Decimal("140"))
+    # Wpis `dl_rate` — zawsze, niezależnie od autora.
+    assert dl_pair_from_note("dl_rate", "170/140", author_is_dl=False) == pair
+    # Zwykła notatka rekrutera („170/140” bywa wynikiem albo widełkami) — nie.
+    assert dl_pair_from_note("human", "Stawka 170/140", author_is_dl=False) is None
+    assert dl_pair_from_note("human", "Stawka 170/140", author_is_dl=True) == pair
+    # Słowa testu wykluczają też notatkę DL-a.
+    assert dl_pair_from_note("human", "Codility 85/60", author_is_dl=True) is None
+    for kind in ("card", "automatch", "email", None):
+        assert dl_pair_from_note(kind, "170/140", author_is_dl=True) is None, kind
+
+
+def test_author_sql_checks_the_primary_role_and_the_roles_list():
+    from app.services import client_rate_notes
+
+    sql = client_rate_notes.DL_PAIR_AUTHOR_SQL
+    for role in client_rate_notes.DL_PAIR_AUTHOR_ROLES:
+        assert sql.count(f"'{role}'") == 2, role
+    assert "u.role::text" in sql and "u.roles" in sql
 
 
 def test_schema_trigger_mirrors_the_parser_prefilter():

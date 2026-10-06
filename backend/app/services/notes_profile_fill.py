@@ -13,8 +13,12 @@ Reguły (decyzje Artura 07.10.2026):
   ``_availability_from_notes`` z tą samą datą) — nowsza notatka ją poprawia.
 * **Bez progu czasowego, ale dostępność od DNIA NOTATKI.** „Od zaraz”,
   „miesiąc wypowiedzenia” czy „od listopada” liczymy od dnia najnowszej
-  notatki wejścia (``as_of``), nie od dziś, i zapisujemy w znaczniku
-  ``{"date", "as_of", "basis"}`` — profil pokazuje „stan na DD.MM.RRRR”.
+  notatki wejścia, która MÓWI O DOSTĘPNOŚCI (``notes_days(rows).availability``),
+  nie od dziś i nie od dnia najnowszej notatki w ogóle (przegląd #2062:
+  „od zaraz” z 2023 + „zna Pythona” z 30.09.2026 dawało datę 30.09.2026).
+  Bez takiej notatki „od zaraz” i okres wypowiedzenia nie dają daty; pełna
+  data i miesiąc tak — ich „stan na” to wtedy dzień najnowszej notatki.
+  Znacznik ``{"date", "as_of", "basis"}`` — profil pokazuje „stan na DD.MM.RRRR”.
 * Do 07.10.2026 data dostępności powstawała WYŁĄCZNIE z pełnej daty ISO
   w ``available_from`` (pomiar: 6 327 z 9 607 osób z dostępnością
   w notatkach miało pustą datę). Okres wypowiedzenia trafiał tylko do
@@ -26,6 +30,7 @@ from __future__ import annotations
 
 import calendar
 import re
+from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Optional
 
@@ -46,6 +51,13 @@ _ASAP_RE = re.compile(r"od zaraz|asap|natychmiast|od r[eę]ki|immediately", re.I
 # „nie od zaraz”, „niedostępny od zaraz” — to nie jest gotowość.
 _NOT_ASAP_RE = re.compile(
     r"\bnie(?:\s+\w+)?\s+(?:od zaraz|od r[eę]ki|natychmiast)", re.I
+)
+# Notatka, która mówi o dostępności — od jej dnia liczymy „od zaraz”
+# i okres wypowiedzenia (``notes_days``).
+_AVAILABILITY_TEXT_RE = re.compile(
+    r"od zaraz|asap|natychmiast|od r[eę]ki|wypowiedz|dost[eę]pn|notice"
+    r"|availab|\bstart",
+    re.I,
 )
 _ISO_DATE_RE = re.compile(r"(?<!\d)(\d{4})-(\d{1,2})-(\d{1,2})(?!\d)")
 _PL_DATE_RE = re.compile(r"(?<![\d.])(\d{1,2})[./](\d{1,2})[./](\d{4})(?!\d)")
@@ -138,29 +150,40 @@ def _asap(text: str) -> bool:
     return bool(_ASAP_RE.search(text)) and not _NOT_ASAP_RE.search(text)
 
 
+RELATIVE_BASES = frozenset({"asap", "notice"})
+
+
 def availability_from_notes(
-    availability: Any, *, as_of: Optional[date]
+    availability: Any,
+    *,
+    as_of: Optional[date],
+    latest_note_day: Optional[date] = None,
 ) -> Optional[tuple[date, str]]:
     """(data dostępności, podstawa) z faktu notatek albo ``None``.
+
+    ``as_of`` — dzień najnowszej notatki o dostępności; ``latest_note_day`` —
+    dzień najnowszej notatki wejścia (tylko odniesienie dla pełnej daty
+    i miesiąca bez roku, gdy notatki o dostępności nie ma).
 
     Kolejność: pełna data w „od kiedy” → miesiąc („11.2026”, „od listopada”)
     → „od zaraz” w „od kiedy” = dzień notatki → okres wypowiedzenia od dnia
     notatki → „od zaraz” w pozostałych polach.
-    Bez dnia notatki (``as_of``) liczą się wyłącznie daty podane wprost.
-    Podstawy: ``date``, ``month``, ``notice``, ``asap``.
+    Bez dnia notatki o dostępności (``as_of``) liczą się wyłącznie daty
+    podane wprost. Podstawy: ``date``, ``month``, ``notice``, ``asap``.
     """
     if not isinstance(availability, dict):
         return None
     from_text = str(availability.get("available_from") or "")
     notice_text = str(availability.get("notice_period") or "")
     raw_text = str(availability.get("raw") or "")
+    reference = as_of or latest_note_day
     day = _explicit_date(from_text)
     if day is not None:
-        valid = _valid(day, as_of)
+        valid = _valid(day, reference)
         return (valid, "date") if valid else None
-    month = _month_start(from_text, as_of)
+    month = _month_start(from_text, reference)
     if month is not None:
-        valid = _valid(month, as_of)
+        valid = _valid(month, reference)
         return (valid, "month") if valid else None
     if as_of is None:
         return None
@@ -197,9 +220,13 @@ def plan_profile_fill(
     *,
     prior: dict,
     as_of: Optional[date],
+    latest_note_day: Optional[date] = None,
     include_status: bool = True,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """(zmiany pól, znaczniki do ``_notes_insights``). Czysta — nic nie zapisuje.
+
+    ``as_of`` i ``latest_note_day`` — ``notes_days(rows)`` (dzień najnowszej
+    notatki o dostępności i dzień najnowszej notatki wejścia).
 
     ``candidate`` to obiekt z atrybutami profilu (ORM albo wiersz odczytu).
     Znaczniki zwracane są zawsze, gdy dalej obowiązują (także bez zmiany).
@@ -228,12 +255,15 @@ def plan_profile_fill(
     owned = _owned_availability(candidate, prior)
     current_date = getattr(candidate, "availability_date", None)
     if current_date is None or owned is not None:
-        found = availability_from_notes(availability, as_of=as_of)
+        found = availability_from_notes(
+            availability, as_of=as_of, latest_note_day=latest_note_day
+        )
         if found is not None:
             day, basis = found
+            stated = as_of if basis in RELATIVE_BASES else (as_of or latest_note_day)
             markers[AVAILABILITY_MARKER] = {
                 "date": day.isoformat(),
-                "as_of": as_of.isoformat() if as_of else None,
+                "as_of": stated.isoformat() if stated else None,
                 "basis": basis,
             }
             if day != current_date:
@@ -291,10 +321,33 @@ def apply_profile_fill(candidate: Any, changes: dict[str, Any]) -> None:
         set_office_days_limit(candidate, changes["max_onsite_days_per_week"])
 
 
-def notes_as_of(rows: Any) -> Optional[date]:
-    """Dzień najnowszej notatki wejścia (5. kolumna ``load_note_rows``)."""
-    days = [row[4] for row in rows or () if len(row) > 4 and row[4] is not None]
-    return max(days) if days else None
+@dataclass(frozen=True)
+class NotesDays:
+    """Dni notatek wejścia, od których liczymy dostępność."""
+
+    #: Dzień najnowszej notatki, której treść mówi o dostępności.
+    availability: Optional[date]
+    #: Dzień najnowszej notatki wejścia w ogóle.
+    latest: Optional[date]
+
+
+def notes_days(rows: Any) -> NotesDays:
+    """Dni z wierszy ``load_note_rows`` / ``load_note_rows_bulk``.
+
+    JEDNA funkcja dla nocnej ekstrakcji i domknięcia historii — obie drogi
+    liczą ją na tym samym zbiorze notatek (tym, który czyta odczyt AI).
+    Kolumny: 4. — treść, 5. — dzień notatki.
+    """
+    latest: Optional[date] = None
+    availability: Optional[date] = None
+    for row in rows or ():
+        if len(row) <= 4 or row[4] is None:
+            continue
+        day = row[4]
+        latest = day if latest is None else max(latest, day)
+        if _AVAILABILITY_TEXT_RE.search(str(row[3] or "")):
+            availability = day if availability is None else max(availability, day)
+    return NotesDays(availability=availability, latest=latest)
 
 
 LANGUAGE_SOURCE_REF = "notes_insights"

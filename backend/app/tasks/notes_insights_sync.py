@@ -45,7 +45,7 @@ from app.services.notes_insights_extractor import (
     notes_fingerprint,
     stamp_no_content,
 )
-from app.services.notes_profile_fill import fill_languages_from_notes, notes_as_of
+from app.services.notes_profile_fill import fill_languages_from_notes, notes_days
 
 logger = logging.getLogger(__name__)
 
@@ -365,8 +365,13 @@ async def run_notes_insights_sync() -> dict[str, Any]:
                 )
                 if cand is None:
                     continue
+                days = notes_days(rows)
                 row_stats = apply_insights(
-                    cand, parsed, fingerprint=fingerprint, as_of=notes_as_of(rows)
+                    cand,
+                    parsed,
+                    fingerprint=fingerprint,
+                    as_of=days.availability,
+                    latest_note_day=days.latest,
                 )
                 # Języki z notatek tylko dopisują brakujące (07.10.2026) —
                 # w savepoincie: błąd zapisu języków nie cofa faktów kandydata

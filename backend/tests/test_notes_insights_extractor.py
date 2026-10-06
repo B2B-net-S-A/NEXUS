@@ -37,7 +37,7 @@ def _cand(**kw):
     return SimpleNamespace(**defaults)
 
 
-def _apply(cand, parsed, fp="fp-1", as_of=None):
+def _apply(cand, parsed, fp="fp-1", as_of=None, latest_note_day=None):
     # flag_modified wymaga instrumentacji ORM — SimpleNamespace jej nie ma,
     # więc podmieniamy na no-op przez monkeypatching modułu w teście wywołań.
     import app.services.candidate_notes_facts as facts_mod
@@ -48,7 +48,13 @@ def _apply(cand, parsed, fp="fp-1", as_of=None):
     mod.flag_modified = lambda *a, **k: None
     facts_mod.flag_modified = lambda *a, **k: None
     try:
-        return apply_insights(cand, parsed, fingerprint=fp, as_of=as_of)
+        return apply_insights(
+            cand,
+            parsed,
+            fingerprint=fp,
+            as_of=as_of,
+            latest_note_day=latest_note_day,
+        )
     finally:
         mod.flag_modified = original
         facts_mod.flag_modified = original_facts
@@ -599,14 +605,58 @@ def test_newer_note_updates_availability_written_by_notes():
     assert cand.availability_date == date(2027, 1, 1)
 
 
-def test_note_day_is_the_newest_input_note():
-    from app.services.notes_profile_fill import notes_as_of
+def test_note_days_split_the_availability_note_from_the_newest_note():
+    from app.services.notes_profile_fill import notes_days
 
     rows = [
-        (1, None, date(2026, 1, 1), "a", date(2024, 5, 1)),
-        (2, None, date(2026, 1, 2), "b", date(2025, 7, 9)),
+        (2, None, date(2026, 1, 2), "Zna Pythona i Django.", date(2026, 9, 30)),
+        (1, None, date(2026, 1, 1), "Dostępny od zaraz.", date(2023, 5, 4)),
     ]
-    assert notes_as_of(rows) == date(2025, 7, 9)
-    assert notes_as_of([]) is None
+    days = notes_days(rows)
+    assert days.availability == date(2023, 5, 4)
+    assert days.latest == date(2026, 9, 30)
+    assert notes_days([]).availability is None and notes_days([]).latest is None
     # Wiersze w starym kształcie (4 kolumny) nie mają dnia notatki.
-    assert notes_as_of([(1, None, date(2026, 1, 1), "a")]) is None
+    old_shape = notes_days([(1, None, date(2026, 1, 1), "od zaraz")])
+    assert old_shape.availability is None and old_shape.latest is None
+
+
+def test_asap_counts_from_the_availability_note_not_the_newest_note():
+    """Przegląd #2062: „od zaraz” z 2023 + „zna Pythona” z 30.09.2026."""
+    from app.services.notes_profile_fill import notes_days
+
+    rows = [
+        (2, None, date(2026, 9, 30), "Zna Pythona.", date(2026, 9, 30)),
+        (1, None, date(2023, 5, 4), "Kandydat dostępny od zaraz.", date(2023, 5, 4)),
+    ]
+    days = notes_days(rows)
+    cand = _cand()
+    _apply(cand, {"availability": {"raw": "od zaraz"}}, as_of=days.availability)
+    assert cand.availability_date == date(2023, 5, 4)
+    marker = cand.cv_extracted_data["_notes_insights"]["_availability_from_notes"]
+    assert marker == {"date": "2023-05-04", "as_of": "2023-05-04", "basis": "asap"}
+
+
+def test_without_an_availability_note_only_explicit_dates_are_written():
+    # Brak notatki o dostępności: „od zaraz” i okres wypowiedzenia nie dają daty.
+    for availability in ({"raw": "od zaraz"}, {"notice_period": "1 miesiąc"}):
+        cand = _cand()
+        stats = _apply(
+            cand,
+            {"availability": availability},
+            as_of=None,
+            latest_note_day=date(2026, 9, 30),
+        )
+        assert cand.availability_date is None, availability
+        assert stats["avail_date_filled"] == 0
+    # Pełna data i miesiąc tak — „stan na” to dzień najnowszej notatki.
+    cand = _cand()
+    _apply(
+        cand,
+        {"availability": {"available_from": "od listopada"}},
+        as_of=None,
+        latest_note_day=date(2026, 9, 30),
+    )
+    assert cand.availability_date == date(2026, 11, 1)
+    marker = cand.cv_extracted_data["_notes_insights"]["_availability_from_notes"]
+    assert marker == {"date": "2026-11-01", "as_of": "2026-09-30", "basis": "month"}

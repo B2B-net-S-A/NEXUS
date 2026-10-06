@@ -25,7 +25,12 @@ URL = "/api/admin/notes-insights/profile-fill"
 
 
 async def _seed(
-    insights: dict, *, availability_date: date | None = None, note_day: datetime
+    insights: dict,
+    *,
+    availability_date: date | None = None,
+    note_day: datetime,
+    content: str = "Rozmowa telefoniczna: okres wypowiedzenia miesiąc, dostępny po nim.",
+    extra_notes: tuple[tuple[str, datetime], ...] = (),
 ) -> int:
     unique = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
@@ -38,14 +43,15 @@ async def _seed(
         )
         db.add(candidate)
         await db.flush()
-        db.add(
-            Note(
-                candidate_id=candidate.id,
-                content="Rozmowa telefoniczna: kandydat opowiadał o projekcie.",
-                created_at=datetime.now(timezone.utc),
-                source_created_at=note_day,
+        for text_value, day in ((content, note_day), *extra_notes):
+            db.add(
+                Note(
+                    candidate_id=candidate.id,
+                    content=text_value,
+                    created_at=datetime.now(timezone.utc),
+                    source_created_at=day,
+                )
             )
-        )
         await db.commit()
         return candidate.id
 
@@ -167,6 +173,60 @@ async def test_dry_run_then_apply_fills_only_empty_fields(
 
     # Drugi przebieg nie ma już czego uzupełnić u tej osoby.
     assert fillable not in await _planned_ids()
+
+
+@pytest.mark.asyncio
+async def test_asap_counts_from_the_availability_note_like_the_nightly_path():
+    """Przegląd #2062: „od zaraz” z 2023 + „zna Pythona” z 30.09.2026.
+
+    „Stan na” to dzień notatki o dostępności, nie najnowszej notatki — i ta
+    sama funkcja (``notes_days`` na ``load_note_rows``) co nocna ekstrakcja.
+    """
+    from app.services.notes_insights_extractor import load_note_rows
+    from app.services.notes_profile_fill import notes_days
+
+    candidate_id = await _seed(
+        {"availability": {"raw": "od zaraz"}},
+        content="Kandydat dostępny od zaraz.",
+        note_day=datetime(2023, 5, 4, 12, tzinfo=timezone.utc),
+        extra_notes=(
+            (
+                "Rozmowa: zna Pythona i Django.",
+                datetime(2026, 9, 30, 12, tzinfo=timezone.utc),
+            ),
+        ),
+    )
+    async with AsyncSessionLocal() as db:
+        days = notes_days(await load_note_rows(db, candidate_id))
+    assert days.availability == date(2023, 5, 4)
+    assert days.latest == date(2026, 9, 30)
+    assert candidate_id in await _planned_ids()
+
+    async with AsyncSessionLocal() as db:
+        await notes_profile_backfill.lock_for_apply(db)
+        plan, counts = await notes_profile_backfill.build_plan(db)
+        mine = [item for item in plan if item.candidate_id == candidate_id]
+        await notes_profile_backfill.apply_plan(db, mine, counts, user_id=1)
+        await db.commit()
+    candidate = await _candidate(candidate_id)
+    assert candidate.availability_date == date(2023, 5, 4)
+    marker = candidate.cv_extracted_data["_notes_insights"]["_availability_from_notes"]
+    assert marker == {"date": "2023-05-04", "as_of": "2023-05-04", "basis": "asap"}
+
+
+@pytest.mark.asyncio
+async def test_relative_availability_without_an_availability_note_stays_empty():
+    candidate_id = await _seed(
+        {"availability": {"notice_period": "1 miesiąc"}},
+        content="Rozmowa: zna Pythona i Django.",
+        note_day=datetime(2026, 9, 30, 12, tzinfo=timezone.utc),
+    )
+    async with AsyncSessionLocal() as db:
+        plan, _ = await notes_profile_backfill.build_plan(db)
+    mine = [item for item in plan if item.candidate_id == candidate_id]
+    # Okres wypowiedzenia wypełnia własne pole, ale nie datę dostępności.
+    assert mine and "availability_date" not in mine[0].fields
+    assert "notice_period" in mine[0].fields
 
 
 @pytest.mark.asyncio
