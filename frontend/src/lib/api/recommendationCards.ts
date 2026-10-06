@@ -31,7 +31,7 @@ export interface RecommendationCardField {
 }
 
 export type CardFieldOrigin = "note_ai" | "note_rule" | "phrased";
-export type CardAnswerOrigin = "note_import" | "phrased";
+export type CardAnswerOrigin = "note_import" | "phrased" | "note_sync";
 
 export interface RecommendationCardQuestion {
   number: number;

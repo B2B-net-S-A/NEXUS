@@ -69,14 +69,21 @@ export const FIT_OPTIONS = [
   },
 ];
 
-export type ScreeningAnswerOrigin = "manual" | "reassign_suggested" | "note_import" | "phrased";
+export type ScreeningAnswerOrigin =
+  | "manual"
+  | "reassign_suggested"
+  | "note_import"
+  | "phrased"
+  | "note_sync";
 
 export interface ScreeningFormAnswer {
   response: string;
   deal_breaker_hit: boolean;
   /**
    * `reassign_suggested` = odpowiedź przyjęta z podpowiedzi (wcześniejsza
-   * rozmowa) bez zmian; `note_import` = przyjęta z notatki w oknie karty.
+   * rozmowa) bez zmian; `note_import` = przyjęta z notatki w oknie karty;
+   * `note_sync` = przepisana z notatki przez automat (07.10.2026) — zapis
+   * arkusza przez człowieka zamienia ją na serwerze na `note_import`.
    * Poprawione ręcznie wracają do `manual`. `phrased` = zdanie ułożone
    * z haseł (0421) — zostaje po poprawce, bo hasła nadal są jego źródłem.
    */
@@ -153,7 +160,9 @@ export function makeSchema(questions: ScreeningQuestion[]) {
       z.object({
         response: z.string(),
         deal_breaker_hit: z.boolean(),
-        origin: z.enum(["manual", "reassign_suggested", "note_import", "phrased"]).optional(),
+        origin: z
+          .enum(["manual", "reassign_suggested", "note_import", "phrased", "note_sync"])
+          .optional(),
         keywords: z.string().nullable().optional(),
       }),
     ]),
@@ -336,7 +345,11 @@ export function useScreeningForm({
       const origin = `answers.${match[1]}.origin` as const;
       const keywords = `answers.${match[1]}.keywords` as const;
       const current = methods.getValues(origin);
-      if (current === "reassign_suggested" || current === "note_import") {
+      if (
+        current === "reassign_suggested" ||
+        current === "note_import" ||
+        current === "note_sync"
+      ) {
         methods.setValue(origin, "manual", { shouldDirty: true });
         methods.setValue(keywords, null, { shouldDirty: true });
       } else if (

@@ -613,6 +613,15 @@ class Settings(BaseSettings):
     # pomiarze (`scripts/eval_recommendation_card_note.py`) przez workflow
     # „Coolify set env”.
     RECOMMENDATION_CARD_ASSIST_ENABLED: bool = False
+    # Odpowiedzi z notatek (karty rekomendacji) do arkusza screeningu pary
+    # (decyzje Artura 07.10.2026 — zmienia regułę 0413). Arkusz z notatki ma
+    # pochodzenie `note_sync`, od razu widzi go klient i liczy się w ocenie
+    # pary. Automat nigdy nie dotyka arkusza wypełnionego przez człowieka.
+    # Wyłączony = przeliczenie karty nie pisze arkusza; jednorazowe
+    # uzupełnienie historii (`/api/admin/screening-note-backfill`) działa
+    # niezależnie. Włączenie przez workflow „Coolify set env” po przeglądzie
+    # próby uzupełnienia.
+    SCREENING_NOTE_SYNC_ENABLED: bool = False
 
     # „Stawka od” (0414): filtry, AI i plakietki budżetu czytają najniższą
     # stawkę kandydata z ostatnich 18 miesięcy (karty rekomendacji, etapy,

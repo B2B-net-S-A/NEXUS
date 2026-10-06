@@ -40,6 +40,7 @@ import {
   DEFAULT_SKIP_NOTE,
   ScreeningFormFields,
   buildScreeningPayload,
+  makeSchema,
   useScreeningForm,
 } from "@/components/v2/screening/ScreeningForm";
 import {
@@ -423,6 +424,20 @@ describe("buildScreeningPayload", () => {
     const payload = buildScreeningPayload(QUESTIONS, values);
     expect(payload.answers.map((a) => a.skipped)).toEqual([false, false]);
     expect(payload.internal_note).toBeNull();
+  });
+
+  it("odpowiedź przepisana z notatki (`note_sync`) przechodzi walidację i zapis", () => {
+    const fromNote = {
+      ...values,
+      answers: {
+        q1: { response: "tak", deal_breaker_hit: false, origin: "note_sync" as const },
+        q2: { response: "miesiąc", deal_breaker_hit: false, origin: "note_sync" as const },
+      },
+    };
+    expect(makeSchema(QUESTIONS).safeParse(fromNote).success).toBe(true);
+    const payload = buildScreeningPayload(QUESTIONS, fromNote);
+    // Serwer zamienia `note_sync` na `note_import` przy zapisie człowieka.
+    expect(payload.answers.map((a) => a.origin)).toEqual(["note_sync", "note_sync"]);
   });
 
   it("pominięcie bez własnej notatki dostaje notatkę domyślną", () => {

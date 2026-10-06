@@ -29,7 +29,11 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-PARSER_VERSION = 1
+# 2 (07.10.2026): krótka odpowiedź po „? ” w wierszu pytania, pytania
+# zawinięte na 2–3 wiersze, „Stawka: 160/115” (pierwsza wyższa = stawka do
+# klienta / oczekiwanie kandydata) czytana jako 115. Zmiana wersji zmienia
+# odcisk notatek, więc pętla importu przelicza karty sama.
+PARSER_VERSION = 2
 
 # Notatka jest kartą, gdy ma co najmniej tyle rozpoznanych etykiet pól.
 MIN_LABELS = 2
@@ -216,7 +220,7 @@ _THOUSANDS_RE = re.compile(r"\d{1,3}[ .]\d{3}\b|\d+\s*(?:k|tys)\b", re.I)
 # „35-40 tys.”, „35,5k” — znacznik tysięcy za ostatnią liczbą kwoty.
 _THOUSANDS_SUFFIX_RE = re.compile(r"\s*(?:k|tys)\b", re.I)
 _RATE_NUMBER = r"(?<![\d.,])(\d{2,3}(?:[.,]\d{1,2})?)(?!\d)"
-_RATE_RE = re.compile(_RATE_NUMBER + r"(?:\s*[-–/]\s*" + _RATE_NUMBER + r")?")
+_RATE_RE = re.compile(_RATE_NUMBER + r"(?:\s*([-–/])\s*" + _RATE_NUMBER + r")?")
 _FOREIGN_RE = re.compile(r"eur|€|usd|\$|gbp|£|chf", re.I)
 _MONTHLY_RE = re.compile(r"mies|/\s*mc|\bmc\b|/\s*m\b|brutto|uop|etat", re.I)
 _DAILY_RE = re.compile(r"/\s*md|\bmd\b|dzie[nń]|dziennie|/\s*d\b", re.I)
@@ -449,11 +453,16 @@ def parse_rate(raw: str) -> dict[str, Any]:
         return out
     if not _HOURLY_MIN <= value <= _HOURLY_MAX:
         return out
+    second = _number(match.group(3)) if match.group(3) else None
+    if second is not None and match.group(2) == "/" and _HOURLY_MIN <= second < value:
+        # „160/115” w notatce Delivery Leada: wyższa to stawka do klienta,
+        # niższa — oczekiwanie kandydata (pomiar 06.10.2026: zgodne w 94%).
+        # Karta mówi o kandydacie, więc bierzemy niższą.
+        out.update(value=second, currency="PLN", period="h")
+        return out
     out.update(value=value, currency="PLN", period="h")
-    if match.group(2):
-        upper = _number(match.group(2))
-        if value < upper <= _HOURLY_MAX:
-            out["value_max"] = upper
+    if second is not None and value < second <= _HOURLY_MAX:
+        out["value_max"] = second
     return out
 
 
@@ -715,20 +724,43 @@ def _bare_questions(text: str, taken: list[_Label]) -> list[_Label]:
     """Pytania bez numeru i etykiety: wiersz z pytajnikiem i odpowiedź pod nim."""
     starts = {item[0] for item in taken}
     found: list[_Label] = []
-    offset = 0
     lines = text.split("\n")
+    offsets: list[int] = []
+    position = 0
+    for line in lines:
+        offsets.append(position)
+        position += len(line) + 1
+    last_question = -2
     for index, line in enumerate(lines):
         following = lines[index + 1] if index + 1 < len(lines) else ""
-        if (
-            len(line) >= 25
-            and line.endswith("?")
+        if not (
+            line.endswith("?")
             and following
             and not following.endswith("?")
-            and offset not in starts
+            and offsets[index] not in starts
             and not _LABELLED_LINE_RE.match(line)
         ):
-            found.append((offset, offset, "_question", len(found) + 1))
-        offset += len(line) + 1
+            continue
+        # Pytanie zawinięte na 2–3 wiersze (v2): wcześniejsze wiersze bez
+        # kropki na końcu, po których tekst idzie dalej małą literą. Nie
+        # sięgamy po odpowiedź poprzedniego pytania.
+        start = index
+        while (
+            start > max(index - 2, last_question + 2)
+            and _wraps_into(lines[start - 1], lines[start])
+            and offsets[start - 1] not in starts
+            and not _LABELLED_LINE_RE.match(lines[start - 1])
+            and not (start >= 2 and lines[start - 2].endswith("?"))
+        ):
+            start -= 1
+        question = " ".join(lines[start : index + 1])
+        if (
+            len(question) >= 25
+            and offsets[start] not in starts
+            and not _LABELLED_LINE_RE.match(lines[start])
+        ):
+            found.append((offsets[start], offsets[start], "_question", len(found) + 1))
+            last_question = index
     return found if 2 <= len(found) <= 9 else []
 
 
@@ -820,20 +852,62 @@ def _split_question(segment: str) -> tuple[str, str]:
     lines = _clean_lines(segment)
     if not lines:
         return "", ""
-    asked = 0
-    while asked < min(len(lines), 4) and lines[asked].endswith("?"):
-        asked += 1
+    asked = _question_lines(lines)
     if asked:
         return " ".join(lines[:asked]), "\n".join(lines[asked:])
     if not head.strip() and not (len(lines) > 1 and _ASKING_RE.match(lines[0])):
         return "", "\n".join(lines)
-    first = lines[0]
-    if len(lines) > 1:
-        return first, "\n".join(lines[1:])
+    first, rest = lines[0], lines[1:]
     cut = first.rfind("? ")
-    if cut != -1 and len(first) - cut > 20:
-        return first[: cut + 1], first[cut + 2 :].strip()
+    if cut != -1:
+        tail = first[cut + 2 :].strip()
+        # v2: krótka odpowiedź w wierszu pytania („Czy znasz Kafkę? Tak”).
+        # Dłuższy dopisek bez wiersza odpowiedzi pod spodem był odpowiedzią
+        # już w v1.
+        if _answer_like(tail) or (not rest and len(first) - cut > 20):
+            return first[: cut + 1], "\n".join([tail, *rest])
+    if rest:
+        return first, "\n".join(rest)
     return first, ""
+
+
+_TERMINAL_RE = re.compile(r"[.!?:;]$")
+
+
+def _wraps_into(line: str, following: str) -> bool:
+    """Wiersz zawinięty: bez kropki na końcu, dalszy ciąg małą literą."""
+    return bool(line) and not _TERMINAL_RE.search(line) and following[:1].islower()
+
+
+def _question_lines(lines: list[str]) -> int:
+    """Ile pierwszych wierszy odcinka to pytanie (0 = żaden).
+
+    Wiersze z pytajnikiem jeden po drugim (do czterech) albo pytanie
+    zawinięte na kolejne wiersze — zawinięcie liczy się tylko przed pierwszym
+    pytajnikiem, żeby odpowiedź pisana małą literą nie wpadła do pytania.
+    """
+    asked = 0
+    limit = min(len(lines), 4)
+    for index in range(limit):
+        line = lines[index]
+        if line.endswith("?"):
+            asked = index + 1
+            continue
+        if asked == 0 and index + 1 < limit and _wraps_into(line, lines[index + 1]):
+            continue
+        break
+    return asked
+
+
+def _answer_like(tail: str) -> bool:
+    """Tekst po „? ” w wierszu pytania wygląda na odpowiedź, nie na dopisek."""
+    return (
+        bool(tail)
+        and tail[0] not in '([„"*'
+        and any(char.isalnum() for char in tail)
+        and not _ASKING_RE.match(tail)
+        and not tail.endswith("?")
+    )
 
 
 # Pola karty, których nie czyta żaden model (narodowość) i których nie czyta

@@ -118,6 +118,7 @@ describe("karta z notatki — podpisy i plakietki", () => {
   it("plakietki odpowiedzi", () => {
     expect(answerOriginBadge("phrased")).toBe("zdanie z haseł");
     expect(answerOriginBadge("note_import")).toBe("z notatki");
+    expect(answerOriginBadge("note_sync")).toBe("z notatki (Traffit)");
     expect(answerOriginBadge("manual")).toBeNull();
   });
 
