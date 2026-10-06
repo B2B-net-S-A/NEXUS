@@ -203,8 +203,8 @@ export function ChipField({
       .map((x) => x.replace(/\|/g, " ").replace(/\s+/g, " ").trim())
       .filter(Boolean);
     const fresh = words.filter(keywordLongEnough);
-    // K4 (audyt 06.10.2026): słowo, którego nie da się szukać, nie znika po
-    // cichu — pole mówi dlaczego („C” i „R” przechodzą, to technologie).
+    // Słowo, którego nie da się szukać, nie znika po cichu — pole mówi
+    // dlaczego i gdzie szukać pojedynczej litery (przegląd PR #2056).
     const rejected = words.filter((x) => !keywordLongEnough(x));
     setTooShort(rejected.length > 0 ? tooShortKeywordMessage(rejected) : null);
     if (fresh.length > 0) onChange(dedupeCaseInsensitive([...chips, ...fresh]));

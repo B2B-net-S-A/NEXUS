@@ -32,6 +32,7 @@ from app.services.polish_ilike import contains_pattern
 from app.services import keyword_corpus
 from app.services.keyword_terms import (
     MIN_WILDCARD_CORE,
+    keyword_long_enough,
     parse_keyword,
     pg_regex,
     tsquery_path_variants,
@@ -586,28 +587,51 @@ def entry_for(word: str) -> Optional[SkillEntry]:
     return None
 
 
+def requirement_options(label: str) -> tuple[str, ...]:
+    """Opcje wymagania tak, jak czyta je bramka AI (bez wersji, „/”, „lub”,
+    przykłady w nawiasie) — ``must_gate_terms.gate_requirement``. Etykieta,
+    której bramka nie czyta, to jej opcje „A lub B”."""
+    from app.services.must_gate_terms import gate_requirement  # noqa: PLC0415
+
+    requirement = gate_requirement(label or "")
+    if requirement is not None:
+        return requirement.options
+    options = (" ".join(o.split()) for o in (label or "").split(" lub "))
+    return tuple(o for o in options if o)
+
+
 def requirement_search_words(label: str) -> tuple[str, ...]:
-    """Słowa wiersza wyszukiwania dla wymagania („A lub B”) — z wariantami.
+    """Słowa wiersza wyszukiwania dla wymagania — z wariantami.
 
     W4 (audyt 06.10.2026): wiersz obowiązkowy z umiejętności krytycznej ma
     znaleźć też „Postgres” przy „PostgreSQL” — słowa kluczowe nie rozwijają
     aliasów same, a krytyczna jest jedynym wierszem, który WYCINA. Kolejność:
-    opcja tak, jak ją wpisano, nazwa ze słownika (gdy wpisano alias), potem
-    warianty z ``skill_variants``.
+    opcja (``requirement_options`` — tak jak bramka AI: „Java 11+” → „Java”,
+    „Docker/Kubernetes” → dwie opcje), nazwa ze słownika (gdy wpisano alias),
+    potem warianty z ``skill_variants``.
+
+    Opcja jednoliterowa („C”, „R”) = pusty wiersz: jako słowo kluczowe
+    znajduje prawie całą bazę, a wiersz bez niej (sam „C++” przy „C lub C++”)
+    wycinałby osoby znające tylko „C”. Bramka AI czyta ją z profilu.
     """
+    options = requirement_options(label)
+    if any(not keyword_long_enough(option) for option in options):
+        return ()
     words: list[str] = []
     seen: set[str] = set()
 
     def add(word: str) -> None:
         key = fold(word)
-        if key and key not in seen and parse_keyword(word) is not None:
+        if (
+            key
+            and key not in seen
+            and keyword_long_enough(word)
+            and parse_keyword(word) is not None
+        ):
             seen.add(key)
             words.append(word)
 
-    for option in (label or "").split(" lub "):
-        option = " ".join(option.split())
-        if not option:
-            continue
+    for option in options:
         add(option)
         entry = entry_for(option)
         if entry is None:

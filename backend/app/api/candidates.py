@@ -76,6 +76,7 @@ from app.models.invite_link import CandidateInviteLink
 from app.models.user_activity import UserActivity, UserActionType
 from app.models.note import SYSTEM_NOTE_SOURCE, Note
 from app.services import note_kinds
+from app.services.keyword_terms import KeywordTooShort
 from app.models.notification import Notification, NotificationType
 from app.models.pipeline_template import PipelineStageDef, RejectionReason
 from app.models.recruitment_process import RecruitmentProcess
@@ -1208,7 +1209,11 @@ async def _build_candidate_filtered_query(
         q_all=f.q_all, q_any=f.q_any, q_none=f.q_none, q_any_groups=f.q_any_group
     )
     q_any_groups = q_groups.as_lists()
-    advanced = q_groups.clause(sem, f.q_scope)
+    try:
+        advanced = q_groups.clause(sem, f.q_scope)
+    except KeywordTooShort as exc:
+        # v2: „R”/„C” jako słowo kluczowe znajdowały prawie całą bazę.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if advanced is not None:
         query = query.where(advanced)
 

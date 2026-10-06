@@ -1165,6 +1165,14 @@ def critical_resolution_payload(job) -> dict:
     from app.services.keyword_suggest import requirement_search_words
 
     resolution = effective_critical(job)
+    rows: list[list[str]] = []
+    skipped: list[str] = []
+    for label in resolution.labels:
+        words = requirement_search_words(label)
+        if words:
+            rows.append(list(words))
+        else:
+            skipped.append(label)
     return {
         "stored": stored_critical(job),
         "decided": resolution.decided,
@@ -1173,10 +1181,12 @@ def critical_resolution_payload(job) -> dict:
         "suggested": list(resolution.suggested),
         # Wiersze obowiązkowe „Szukaj ręcznie” / „Szukaj w bazie” (W1/W4,
         # audyt 06.10.2026): po jednym na krytyczną, z wariantami nazwy —
-        # ta sama lista, którą propozycje AI ukrywają kandydatów.
-        "search_rows": [
-            list(requirement_search_words(label)) for label in resolution.labels
-        ],
+        # ta sama lista, którą propozycje AI ukrywają kandydatów. Opcje czyta
+        # tak jak bramka AI (`must_gate_terms.gate_requirement`).
+        "search_rows": rows,
+        # Krytyczne bez wiersza słów kluczowych („C”, „R” — jedna litera
+        # znajduje prawie całą bazę); bramka AI czyta je z profilu.
+        "search_rows_skipped": skipped,
     }
 
 

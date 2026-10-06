@@ -36,6 +36,7 @@ from app.schemas.candidate_search import (
     WaterfallStage,
 )
 from app.services import candidate_search_predicates as predicates
+from app.services.keyword_terms import KeywordTooShort
 from app.services.ai_health import ai_status
 from app.services.eligibility_annotation import eligibility_annotation
 from app.services.candidate_text_retrieval import (
@@ -174,12 +175,16 @@ async def _resort_hybrid_pool(
 
 def _boolean_clause(body: CandidateSearchRequest) -> Any:
     """Kubełki `q_all`/`q_any`/`q_none` — ten sam parser co na liście."""
-    return predicates.parse_q_groups(
-        q_all=body.q_all,
-        q_any=body.q_any,
-        q_none=body.q_none,
-        q_any_groups=body.q_any_groups,
-    ).clause(request_semantics(body))
+    try:
+        return predicates.parse_q_groups(
+            q_all=body.q_all,
+            q_any=body.q_any,
+            q_none=body.q_none,
+            q_any_groups=body.q_any_groups,
+        ).clause(request_semantics(body))
+    except KeywordTooShort as exc:
+        # v2: „R”/„C” jako słowo kluczowe znajdowały prawie całą bazę.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 async def _text_plan(

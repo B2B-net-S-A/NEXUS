@@ -1165,6 +1165,8 @@ class QGroups:
             [list(g) for g in self.extra_any_groups],
             whole_words=unified,
             scope=(scope or "all") if unified else "all",
+            # v2: jednoliterowe słowo to 422 ze zdaniem (przegląd PR #2056).
+            reject_short=unified,
         )
 
     def as_lists(self) -> Optional[list[list[str]]]:

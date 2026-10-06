@@ -81,16 +81,17 @@ describe("RequirementRowsField", () => {
     );
   });
 
-  it("„C” i „R” wchodzą jako słowa; inna pojedyncza litera daje komunikat (K4)", () => {
+  it("pojedyncza litera nie jest słowem kluczowym — pole mówi, gdzie ją wyszukać", () => {
+    // Przegląd PR #2056: „R” i „C” jako słowo kluczowe znajdowały prawie całą
+    // bazę („2019 r.”, „C++”). Nie znikają po cichu — pole tłumaczy.
     render(<Harness initial={[]} />);
     const input = screen.getByLabelText("Wymaganie 1 — słowo albo wariant");
-    fireEvent.change(input, { target: { value: "C" } });
+    fireEvent.change(input, { target: { value: "R" } });
     fireEvent.keyDown(input, { key: "Enter" });
-    expect(rows()).toEqual([["C"]]);
-    fireEvent.change(input, { target: { value: "x" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-    expect(rows()).toEqual([["C"]]);
-    expect(screen.getByText(/„x” jest za krótkie/)).toBeTruthy();
+    expect(rows()).toEqual([]);
+    expect(screen.getByText(/„R” jest za krótkie/)).toHaveTextContent(
+      "Pojedynczą literę (np. C albo R) wyszukaj w polu „Umiejętności”.",
+    );
   });
 
   it("limit 10 wymagań", () => {

@@ -4532,6 +4532,11 @@ wysłał do klienta, budżet — 32%, dni w biurze — 8%. Decyzje Artura 30.09.
   „Java (minimalna 11)”, „Oracle (min. 19c)”, „Java od 11” odcinają się jak
   „Java 11+”. Do 30.09.2026 taka pozycja nie bramkowała i nie dało się jej
   oznaczyć jako krytycznej.
+- **v10.1 (07.10.2026, PR #2056)**: fraza przechodzi przez nawias, dwukropek,
+  przecinek i kropkę („Spring (Boot, Data)” = Spring Boot), must-have liczy
+  się w odmianie (rdzeń ≥ 4 litery) w CV i notatkach, a kandydat z CV
+  czekającym na odczyt tekstu nie jest „bez danych” (`must_text_evidence`).
+  To zmienia, kogo bramka ukrywa — stąd bump `MUST_GATE_POLICY_VERSION`.
 - **Budżet i dni w biurze to plakietki** (`rate_fit`, `office_fit`); ocena
   stawki jest neutralna z opisem „ponad budżet o X%”. Wiersz pełnego przeglądu (Radar, cała
   baza) niesie `fit` (`rate`/`office` z chwili przeglądu) → plakietki `fullSearchFitBadges`. **Kandydat bez CV,
@@ -10659,8 +10664,24 @@ must-have łączone przez I znajdowały 39%. Reguły, które łatwo cofnąć:
   i kafel; zdanie o źródle (`mandatorySourceNote`: „wybrane przez Delivery
   Leada” / „podpowiedź z historii” / „brak — nic nie jest obowiązkowe”) stoi
   na każdym z nich. Błąd odczytu Championa = nic nie jest obowiązkowe.
+  Opcje krytycznej serwer czyta TAK JAK BRAMKA AI
+  (`keyword_suggest.requirement_options` → `must_gate_terms.gate_requirement`):
+  „Java 11+” → „Java”, „Docker/Kubernetes” → dwie opcje, „Bazy danych
+  (Oracle, PostgreSQL)” → Oracle i PostgreSQL. Front łączy krytyczną
+  z wierszem Championa po nazwie bez wersji (`withoutVersion`), więc „Java 17”
+  w Championie dostaje wariant „Java” zamiast osobnego wiersza. Krytyczna
+  z opcją jednoliterową („C”, „R”) nie daje wiersza słów kluczowych
+  (`search_rows_skipped`, zdanie na ekranie) — bramka AI czyta ją z profilu.
+  „Są wiersze do szukania” liczy JEDNA funkcja `jobSearchPlan` (wiersze
+  Championa, krytyczne albo „mile widziane”) dla okna, zakładki i kafla.
   Licznik w edytorze Championa (`SearchRequirementsEditor`) nadal liczy
   klasyfikacją — do wyrównania razem z edytorem (osobny PR).
+- **Słowo kluczowe ma co najmniej 2 znaki — także „C” i „R”** (przegląd
+  PR #2056): jako słowo kluczowe znajdowały prawie całą bazę (token `r`
+  z „2019 r.”, `c` z „C++”/„C#”). Front mówi to przy polu („Pojedynczą literę
+  wyszukaj w polu „Umiejętności””), v2 listy i wyszukiwarki odpowiada 422
+  tym samym zdaniem (`KeywordTooShort`); v1 (alerty starych zapisów) pomija
+  je po cichu jak dotąd.
 - **Przy wierszach wymagań must-have NIE idą do „Umiejętności → Mile
   widziane”** (D2): ta sama technologia liczyła się dwa razy, a „Mile
   widziane” (stopnie leksykograficzne) wygrywało z „Dop.”. Bez wierszy

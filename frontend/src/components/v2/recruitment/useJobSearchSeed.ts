@@ -13,11 +13,9 @@ import { useQuery } from "@tanstack/react-query";
 import { championApi } from "@/lib/api";
 import {
   candidatesListFiltersForQuery,
-  championNiceRows,
-  championSearchRequirements,
   jobListFilters,
+  jobSearchPlan,
   mandatorySourceNote,
-  splitByCritical,
   type MandatorySource,
   type ManualSearchJob,
 } from "@/lib/job-search-filters";
@@ -27,7 +25,7 @@ import type { CandidateFilters } from "@/lib/url-filters";
 export interface JobSearchSeed {
   /** Oba odczyty się rozstrzygnęły (sukces albo błąd). */
   ready: boolean;
-  /** Delivery Lead wpisał w Championie choć jeden wiersz wymagań. */
+  /** Jest czego szukać: wiersze Championa, krytyczne z serwera albo „mile widziane”. */
   hasRows: boolean;
   required: string[][];
   preferred: string[][];
@@ -77,14 +75,17 @@ export function useJobSearchSeed(
   );
 
   return useMemo(() => {
-    const search = source ? championSearchRequirements(source) : { rows: [], exclude: [] };
-    const split = splitByCritical(search.rows, source ? championNiceRows(source) : [], critical);
+    // Ta sama reguła „są wiersze do szukania” co okno „Szukaj ręcznie”
+    // (`jobSearchPlan`): profil bez wymagań, ale z krytyczną z serwera, też
+    // szuka (przegląd PR #2056).
+    const plan = jobSearchPlan(source ?? {}, critical);
+    const { split } = plan;
     return {
       ready,
-      hasRows: search.rows.length > 0,
+      hasRows: plan.hasRows,
       required: split.required,
       preferred: split.preferred,
-      exclude: search.exclude,
+      exclude: plan.exclude,
       source: split.source,
       sourceNote: mandatorySourceNote(split),
       filters:

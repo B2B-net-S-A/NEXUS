@@ -15,24 +15,26 @@
 export const MAX_REQUIREMENT_ROWS = 10;
 
 /**
- * Jednoliterowe nazwy technologii ze słownika (K4, audyt 06.10.2026): „C”
- * i „R” były wycinane po cichu (minimum 2 znaki). Lustro serwera:
- * `SINGLE_LETTER_SKILLS` w `backend/app/services/keyword_terms.py`.
+ * Słowo kluczowe ma co najmniej 2 znaki. „C” i „R” jako słowo kluczowe
+ * znajdowały prawie całą bazę („2019 r.”, „C++”), więc nie przechodzą — pole
+ * mówi, gdzie je wyszukać (przegląd PR #2056). Lustro serwera:
+ * `keyword_long_enough` / `too_short_keyword_message` w `keyword_terms.py`.
  */
-export const SINGLE_LETTER_SKILLS: readonly string[] = ["c", "r"];
+export const KEYWORD_MIN_CHARS = 2;
 
-/** Słowo kluczowe ma co najmniej 2 znaki albo jest „C”/„R”. */
+export const SINGLE_LETTER_HINT =
+  "Pojedynczą literę (np. C albo R) wyszukaj w polu „Umiejętności”.";
+
+/** Słowo kluczowe ma co najmniej 2 znaki. */
 export function keywordLongEnough(word: string): boolean {
-  const trimmed = word.trim();
-  return trimmed.length >= 2 || SINGLE_LETTER_SKILLS.includes(trimmed.toLowerCase());
+  return word.trim().length >= KEYWORD_MIN_CHARS;
 }
 
 /** Komunikat dla słowa, którego nie da się szukać (zamiast cichego pominięcia). */
 export function tooShortKeywordMessage(words: readonly string[]): string {
   const list = words.map((w) => `„${w}”`).join(", ");
-  return words.length > 1
-    ? `${list} są za krótkie — słowo musi mieć co najmniej 2 znaki (wyjątek: C i R).`
-    : `${list} jest za krótkie — słowo musi mieć co najmniej 2 znaki (wyjątek: C i R).`;
+  const verb = words.length > 1 ? "są za krótkie" : "jest za krótkie";
+  return `${list} ${verb} — słowo kluczowe musi mieć co najmniej ${KEYWORD_MIN_CHARS} znaki. ${SINGLE_LETTER_HINT}`;
 }
 
 /** `|` rozdziela słowa grupy w adresie — w samym słowie zamieniamy go na spację. */

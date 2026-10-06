@@ -731,6 +731,30 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
       );
     });
 
+    it("profil bez wymagań do wyszukiwania, ale z krytyczną z serwera — szuka tak samo jak okno ręczne", async () => {
+      // Przegląd PR #2056: zakładka i kafel liczyły „są wiersze” tylko
+      // z `search.requirements`, okno ręczne — też z krytycznych.
+      championGet.mockResolvedValue({
+        data: {
+          champion_profile: { stack: { must: [{ name: "Kafka" }] } },
+          critical_resolution: {
+            stored: ["Kafka"],
+            decided: true,
+            effective: ["Kafka"],
+            source: "dl",
+            suggested: [],
+            search_rows: [["Kafka", "Apache Kafka"]],
+          },
+        },
+      });
+      listPage.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20 });
+      renderPanel({ tab: "search" });
+      await waitFor(() => expect(listPage).toHaveBeenCalled(), SLOW);
+      const params = listPage.mock.calls[0][0] as Record<string, unknown>;
+      expect(params.q_any_group).toEqual(["Kafka|Apache Kafka"]);
+      expect(screen.queryByTestId("search-base-empty")).toBeNull();
+    });
+
     it("bez słów w Championie nie udaje wyników całej bazy — odsyła do Championa i ręcznego szukania", async () => {
       const { props } = renderPanel({ tab: "search" });
       const empty = await screen.findByTestId("search-base-empty", undefined, SLOW);

@@ -17,11 +17,10 @@ import { useQuery } from "@tanstack/react-query";
 
 import { CandidatesListV2 } from "@/components/v2/pages/CandidatesListV2";
 import {
-  championNiceRows,
   championSearchRequirements,
   jobListFilters,
+  jobSearchPlan,
   mandatorySourceNote,
-  splitByCritical,
   type ManualSearchJob,
 } from "@/lib/job-search-filters";
 import {
@@ -77,8 +76,9 @@ export function ManualSearchPanel({
   const mustLabels = savedReqs.isSuccess
     ? requirementLabels(savedReqs.data, "must")
     : null;
-  const split = splitByCritical(search.rows, championNiceRows(source), critical);
-  const hasRows = search.rows.length > 0 || split.required.length > 0;
+  // Ta sama reguła „są wiersze do szukania” co zakładka „Szukaj w bazie”
+  // i kafel (`jobSearchPlan`, przegląd PR #2056).
+  const { split, hasRows } = jobSearchPlan(source, critical);
 
   return (
     <CandidatesListV2
