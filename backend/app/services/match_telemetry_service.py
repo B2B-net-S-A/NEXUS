@@ -60,6 +60,8 @@ _BREAKDOWN_LAYERS = (
     "location",
     "availability",
     "champion_fit",
+    # Tylko gdy warstwa była liczona (`PRIOR_SCREENING_LAYER_ENABLED`).
+    "prior_screening",
 )
 
 

@@ -21,6 +21,14 @@ describe("fullSearchFitBadges", () => {
     expect(fullSearchFitBadges({ remote: "not_required" })).toEqual([]);
   });
 
+  it("names a deal-breaker answered in an earlier conversation (prior_screening)", () => {
+    expect(fullSearchFitBadges({ prior_screening: "deal_breaker" })).toEqual([
+      "Wcześniej: deal-breaker / odpowiedział „nie”",
+    ]);
+    expect(fullSearchFitBadges({ prior_screening: "answered" })).toEqual([]);
+    expect(fullSearchFitBadges({ prior_screening: null })).toEqual([]);
+  });
+
   it("says nothing when the row fits, is unknown or changed since the scan", () => {
     expect(fullSearchFitBadges({ rate: "ok", office: "ok" })).toEqual([]);
     expect(fullSearchFitBadges({ rate: "unknown", office: "not_required" })).toEqual([]);

@@ -145,7 +145,8 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
         evaluate_requirements,
         search_dealbreaker_inputs,
     )
-    from app.services.canonical_fit import score_pair
+    from app.services import prior_screening
+    from app.services.canonical_fit import score_pair, uses_prior_screening
 
     with stage("sql_load"):
         candidates = await load_snapshot_batch(db, batch)
@@ -163,6 +164,10 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
             exclusion_reasons=exclusion_reasons,
         )
     visible = {candidate.id for candidate in kept}
+    with_prior = uses_prior_screening(request)
+    if with_prior:
+        with stage("sql_load"):
+            await prior_screening.attach_prior_screening(db, target, kept)
     with stage("retrieval") as outcome:
         measurements = await measure_candidates(vector, kept)
         outcome["failed"] = any(
@@ -191,6 +196,32 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
         fit = await score_pair(db, request, candidate, measurement)
         breakdown = fit.breakdown
         requirements = evaluate_requirements(criteria, candidate, job_id=target.id)
+        evidence = {
+            "breakdown": breakdown.as_dict(),
+            "requirements": requirements,
+            "filters": {
+                "skills": [
+                    " lub ".join(r["any_of"]).lower()
+                    for r in requirements
+                    if r["status"] == "met"
+                ],
+                "rate": rate_fit_status(candidate, inputs),
+                # Inne miasto przy hybrydzie 1–3 dni nie ukrywa —
+                # wiersz niesie plakietkę (27.09.2026).
+                "office": office_fit_status(candidate, inputs),
+                # „Tylko zdalnie” przy hybrydzie (07.10.2026).
+                "remote": remote_fit_status(candidate, inputs),
+                "locations": sorted(location_tokens(candidate.location)),
+            },
+            "eligibility": annotations.get(cid),
+            "brief_status": request.brief_status,
+        }
+        if with_prior:
+            # Pytania TEJ rekrutacji z dopasowaną wcześniejszą odpowiedzią —
+            # bez tytułu, klienta i treści odpowiedzi z innej rekrutacji.
+            prior = prior_screening.evaluate(candidate, target)
+            evidence["filters"]["prior_screening"] = prior.status if prior else None
+            evidence["prior_screening"] = prior.evidence() if prior else []
         results.append(
             CandidateEvaluation(
                 cid,
@@ -198,26 +229,7 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
                 True,
                 fit.fit_score,
                 measurement.status,
-                evidence={
-                    "breakdown": breakdown.as_dict(),
-                    "requirements": requirements,
-                    "filters": {
-                        "skills": [
-                            " lub ".join(r["any_of"]).lower()
-                            for r in requirements
-                            if r["status"] == "met"
-                        ],
-                        "rate": rate_fit_status(candidate, inputs),
-                        # Inne miasto przy hybrydzie 1–3 dni nie ukrywa —
-                        # wiersz niesie plakietkę (27.09.2026).
-                        "office": office_fit_status(candidate, inputs),
-                        # „Tylko zdalnie” przy hybrydzie (07.10.2026).
-                        "remote": remote_fit_status(candidate, inputs),
-                        "locations": sorted(location_tokens(candidate.location)),
-                    },
-                    "eligibility": annotations.get(cid),
-                    "brief_status": request.brief_status,
-                },
+                evidence=evidence,
             )
         )
     return results

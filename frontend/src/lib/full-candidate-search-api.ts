@@ -1,6 +1,7 @@
 import { api, type matchingApi, type MatchEligibility } from "@/lib/api";
 import type { TalentRadarCandidate, TalentRadarSearchRequest } from "@/lib/talent-radar-api";
 import { httpStatusFromError } from "@/lib/view-state";
+import type { FullSearchFit } from "@/lib/fit-badges";
 
 /** `failed` is terminal: the run will never finish and holds no ranking. */
 export type SearchState = "queued" | "running" | "complete" | "partial" | "failed";
@@ -46,7 +47,17 @@ export interface CandidateSearchRow {
   eligibility: MatchEligibility | null;
   /** Budżet i biuro z chwili przeglądu — plakietka, nie ukrycie (v9).
    *  `null`, gdy dane kandydata zmieniły się od przeglądu. */
-  fit?: { rate?: string | null; office?: string | null; remote?: string | null } | null;
+  fit?: FullSearchFit | null;
+  /** Pytania TEJ rekrutacji z dopasowaną odpowiedzią z wcześniejszej rozmowy
+   *  (warstwa `prior_screening`) — tylko w przeglądach liczonych z warstwą. */
+  prior_screening?: Array<{
+    question_id: string;
+    question: string;
+    polarity: 1 | -1 | null;
+    deal_breaker: boolean;
+    similarity: number;
+    answered_at: string | null;
+  }>;
 }
 
 export interface CandidateSearchPage {

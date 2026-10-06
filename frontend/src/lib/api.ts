@@ -2798,6 +2798,8 @@ export interface ScoreBreakdown {
   availability: LayerPoints;
   /** Phase 10: Champion screening layer — optional for backwards-compat. */
   champion_fit?: LayerPoints;
+  /** Odpowiedzi z wcześniejszych rozmów (07.10.2026) — tylko gdy warstwa była liczona. */
+  prior_screening?: LayerPoints & { status?: string };
   matching_must: string[];
   gap_must: string[];
   matching_nice: string[];

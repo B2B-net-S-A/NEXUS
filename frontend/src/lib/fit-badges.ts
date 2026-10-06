@@ -37,11 +37,22 @@ export const OFFICE_DAYS_WARNING = "office_days";
 export const REMOTE_ONLY_WARNING = "prefers_remote";
 export const REMOTE_ONLY_BADGE_PL = "Preferuje pracę zdalną";
 
+/** Odpowiedź z wcześniejszej rozmowy na to samo pytanie trafiła w deal-breaker
+ *  (warstwa `prior_screening`, 07.10.2026): plakietka, nie ukrycie. */
+export const PRIOR_DEAL_BREAKER = "deal_breaker";
+export const PRIOR_DEAL_BREAKER_BADGE_PL = "Wcześniej: deal-breaker / odpowiedział „nie”";
+
+export interface FullSearchFit {
+  rate?: string | null;
+  office?: string | null;
+  remote?: string | null;
+  /** Tylko w przeglądach liczonych z warstwą wcześniejszych rozmów. */
+  prior_screening?: string | null;
+}
+
 /** Plakietki wiersza pełnego przeglądu (Radar, cała baza) z `row.fit`.
  *  Stawki kandydata ten widok nie niesie, więc bez procentu. */
-export function fullSearchFitBadges(
-  fit: { rate?: string | null; office?: string | null; remote?: string | null } | null | undefined,
-): string[] {
+export function fullSearchFitBadges(fit: FullSearchFit | null | undefined): string[] {
   if (!fit) return [];
   const out: string[] = [];
   if (fit.rate === "over_budget") out.push("Ponad budżet");
@@ -50,5 +61,6 @@ export function fullSearchFitBadges(
   else if (fit.office === "over_consented") out.push("Więcej dni w biurze — zgoda na telefon");
   else if (fit.office === "city_mismatch") out.push("Inne miasto niż biuro");
   if (fit.remote === REMOTE_ONLY_WARNING) out.push(REMOTE_ONLY_BADGE_PL);
+  if (fit.prior_screening === PRIOR_DEAL_BREAKER) out.push(PRIOR_DEAL_BREAKER_BADGE_PL);
   return out;
 }
