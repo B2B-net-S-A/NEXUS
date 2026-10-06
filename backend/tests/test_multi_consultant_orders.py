@@ -1651,7 +1651,7 @@ async def test_options_ignore_other_clients_and_same_client_rates_do_not_warn(
 async def test_options_compare_historical_rates_at_line_storage_precision(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
-    """Różnica poniżej grosza nie ostrzega, jeśli zapis linii jest identyczny."""
+    """Różnica poniżej 3. miejsca nie ostrzega, jeśli zapis linii jest identyczny."""
     from app.core.database import AsyncSessionLocal
     from app.models.contract import Contract, ContractStatus, RateUnit
 
@@ -1662,7 +1662,7 @@ async def test_options_compare_historical_rates_at_line_storage_precision(
         client_id=client_id,
         first="Piotr",
         last=surname,
-        rate_candidate=Decimal("100.005"),
+        rate_candidate=Decimal("100.0051"),
         rate_unit="daily",
     )
 
@@ -1673,7 +1673,7 @@ async def test_options_compare_historical_rates_at_line_storage_precision(
                 client_id=client_id,
                 status=ContractStatus.ended,
                 start_date=business_today() - timedelta(days=300),
-                rate_candidate=Decimal("100.006"),
+                rate_candidate=Decimal("100.0054"),
                 rate_unit=RateUnit.daily,
             )
         )
@@ -1681,10 +1681,10 @@ async def test_options_compare_historical_rates_at_line_storage_precision(
 
     data = await _options(app_client, app_auth_headers, client_id, q=surname)
     row = next(o for o in data["options"] if o["candidate_id"] == candidate_id)
-    assert row["suggested_rate_cost"] == 100.01
-    assert row["suggested_contract_rate_cost"] == 100.005
+    assert row["suggested_rate_cost"] == 100.005
+    assert row["suggested_contract_rate_cost"] == 100.0051
     assert row["suggested_rate_cost_unit"] == "daily"
-    # Obie wartości zapisują się jako 100,01 w Numeric(12,2).
+    # Obie wartości zapisują się jako 100,005 w Numeric(12,3) (0419).
     assert row["has_different_client_contract_rates"] is False
 
 
