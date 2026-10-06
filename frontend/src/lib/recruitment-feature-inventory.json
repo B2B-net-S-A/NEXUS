@@ -1321,6 +1321,22 @@
    "v3_home": "Tablica → dok osoby → Otwórz całą kartę"
   },
   {
+   "id": "card.note-import",
+   "area": "panel osoby",
+   "opis": "Karta rekomendacji z notatki: wgraj plik albo wklej tekst, przegląd „obecnie → propozycja”, zapis zaznaczonych pól i odpowiedzi (0421)",
+   "file": "components/v2/screening/RecommendationCardDialog.tsx",
+   "marker": "Zastosuj zaznaczone",
+   "v3_home": "Tablica → dok osoby → Otwórz całą kartę → Wgraj notatkę / Wklej tekst"
+  },
+  {
+   "id": "screening.phrase",
+   "area": "warsztat screeningu",
+   "opis": "„Ułóż w zdanie” — hasła rekrutera w pełnym zdaniu przy odpowiedziach i polach opisowych karty (0421)",
+   "file": "components/v2/screening/PhraseSuggestion.tsx",
+   "marker": "Ułóż w zdanie",
+   "v3_home": "Screening → odpowiedź → Ułóż w zdanie"
+  },
+  {
    "id": "card.move-next",
    "area": "tablica",
    "opis": "Braki karty rekomendacji w oknie „Przesuń dalej” (nie blokują) z przyciskiem „Uzupełnij kartę”",

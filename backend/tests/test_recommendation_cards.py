@@ -136,6 +136,10 @@ def test_only_listed_modules_read_recommendation_cards():
         # „Czeka na Ciebie” (przepływ): tylko czy para ma odpowiedzi na karcie,
         # nie treść karty.
         "app/services/board_flow.py",
+        # Karta z notatki i „Ułóż w zdanie” (0421): model dostaje notatkę po
+        # `redact_card_text` (bez narodowości), zapis idzie przez `save_manual`.
+        "app/api/recommendation_card_assist.py",
+        "app/services/recommendation_card_assist.py",
     }
     pattern = re.compile(
         r"^\s*(?:from|import)\s.*\brecommendation_card(?:s|_rules|_import)?\b"

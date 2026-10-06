@@ -37,6 +37,7 @@ _ANSWER_CONTENT_KEYS = (
     "response",
     "deal_breaker_hit",
     "origin",
+    "keywords",
     "skipped",
 )
 _SHEET_CONTENT_KEYS = ("experience_checks", "overall_fit", "notes", "internal_note")

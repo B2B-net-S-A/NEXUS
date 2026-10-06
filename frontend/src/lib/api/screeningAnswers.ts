@@ -17,6 +17,10 @@ export interface ScreeningConversationAnswer {
   response: string;
   deal_breaker_hit: boolean;
   skipped: boolean;
+  /** Pochodzenie odpowiedzi (0421): `phrased`, `note_import`, `reassign_suggested`, `manual`. */
+  origin?: string;
+  /** Hasła rekrutera, z których powstało zdanie. */
+  keywords?: string | null;
 }
 
 export interface ScreeningConversationCheck {

@@ -88,6 +88,8 @@ def test_every_model_reader_of_notes_redacts_the_card():
         # Recenzja przy zatwierdzaniu CV czyta notatki zamrożone przy
         # generacji — także sprzed #1998 (audyt 05.10.2026).
         "app/services/cv_review_sources.py",
+        # Karta z notatki rekrutera (0421): notatka wgrana/wklejona w oknie karty.
+        "app/services/recommendation_card_assist.py",
     )
     for path in readers:
         source = (_BACKEND / path).read_text(encoding="utf-8")

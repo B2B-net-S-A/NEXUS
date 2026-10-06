@@ -69,10 +69,40 @@ export function cardFieldValue(key: string, field: RecommendationCardField | und
 export function cardFieldSource(field: RecommendationCardField | undefined): string | null {
   if (!field) return null;
   if (field.source === "manual") {
+    const who = field.by_name ? ` · ${field.by_name}` : "";
+    if (field.origin === "note_ai") return `z notatki (AI)${who}`;
+    if (field.origin === "note_rule") return `z notatki${who}`;
+    if (field.origin === "phrased") return `zdanie z haseł${who}`;
     return field.by_name ? `wpisał(a) ${field.by_name}` : "wpisane w NEXUSIE";
   }
   if (field.source === "note") return "z notatki";
   return null;
+}
+
+/** Pola opisowe karty, które przyjmują „Ułóż w zdanie” (lustro `PHRASABLE_FIELDS`). */
+export const CARD_PHRASABLE_FIELDS: ReadonlySet<string> = new Set([
+  "recommendation",
+  "motivation",
+  "red_flags",
+]);
+
+/** Plakietka pochodzenia odpowiedzi ze screeningu (0421) — `null` = wpisana ręcznie. */
+export function answerOriginBadge(origin: string | null | undefined): string | null {
+  if (origin === "phrased") return "zdanie z haseł";
+  if (origin === "note_import") return "z notatki";
+  if (origin === "reassign_suggested") return "z podpowiedzi Luny";
+  return null;
+}
+
+/**
+ * Odpowiedzi warte „Ułóż w zdanie”: niepuste i pisane hasłami — bez kropki na
+ * końcu albo krótsze niż 12 słów.
+ */
+export function looksLikeKeywords(text: string | null | undefined): boolean {
+  const value = String(text ?? "").trim();
+  if (!value) return false;
+  const words = value.split(/\s+/).length;
+  return !/[.!?]$/.test(value) || words < 12;
 }
 
 export function cardStatusLabel(card: Pick<RecommendationCard, "completeness">): string {

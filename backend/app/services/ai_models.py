@@ -48,6 +48,8 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F25 | interview_question_import        | gpt-6-luna (z Sonnet 5)  |
 | F26 | plain_knowledge_research         | claude-sonnet-5 (z Haiku)|
 | F27 | application_screening            | gpt-6-luna (z Sonnet 5)  |
+| F28 | recommendation_card_note_read    | gpt-6-luna (z Sonnet 5)  |
+| F29 | screening_answer_phrasing        | gpt-6-luna (z Sonnet 5)  |
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -341,6 +343,23 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "powód bez cytatu obecnego w CV odrzuca kod, a werdykt „nie pasuje” wymaga "
         "zgody kodu (must-have < 50%). Awaria modelu = osoba wchodzi do „Nowi”. "
         "Przed włączeniem pomiar na ~40 historycznych zgłoszeniach.",
+    ),
+    AIFeatureKey.recommendation_card_note_read: ModelChoice(
+        default=GPT_LUNA,
+        env_vars=("RECOMMENDATION_CARD_NOTE_READ_MODEL",),
+        fallbacks=(SONNET_5,),
+        rationale="F28 (decyzja Artura 06.10.2026, POZA badaniem 16.09). Odczyt "
+        "notatki rekrutera to „znajdź i zacytuj” jak F21/F23: pole bez cytatu "
+        "obecnego w notatce odrzuca kod, narodowość czyta wyłącznie reguła wzoru. "
+        "Wynik zatwierdza rekruter. Przed włączeniem pomiar na ~40 notatkach-kartach.",
+    ),
+    AIFeatureKey.screening_answer_phrasing: ModelChoice(
+        default=GPT_LUNA,
+        env_vars=("SCREENING_ANSWER_PHRASING_MODEL",),
+        fallbacks=(SONNET_5,),
+        rationale="F29 (decyzja Artura 06.10.2026, POZA badaniem 16.09). Przeformułowanie "
+        "haseł w zdanie bez nowych faktów — liczby, daty, nazwy własne i technologie "
+        "spoza haseł odrzuca kod. Zdanie wstawia rekruter („Użyj zdania”).",
     ),
     AIFeatureKey.cv_name_backfill: ModelChoice(
         default=GPT_LUNA,

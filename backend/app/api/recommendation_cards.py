@@ -16,10 +16,10 @@ karcie to oczekiwania kandydata, które widzi każda rola wewnętrzna.
 import logging
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,6 +27,7 @@ from app.api.candidate_access import CandidateWriteAccess
 from app.api.deps import OperationalUser
 from app.api.recruitment_access import ensure_job_read_access
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.candidate import Candidate
@@ -36,6 +37,7 @@ from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User
 from app.services import candidate_claim, champion_view, screening_sheets
 from app.services import recommendation_cards as cards
+from app.services.recommendation_card_assist import phrase_language
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +70,19 @@ class CardResponse(BaseModel):
     editable_fields: list[str]
     legacy_text: str
     updated_at: Optional[datetime] = None
+    # 0421: kafle „Wgraj notatkę” / „Wklej tekst” i „Ułóż w zdanie” — tylko
+    # przy włączonym ``RECOMMENDATION_CARD_ASSIST_ENABLED``.
+    assist_enabled: bool = False
+    # Język zdań = język CV klienta rekrutacji (D3); ``None`` przy wyłączonej
+    # funkcji.
+    phrase_language: Optional[str] = None
+
+
+class CardFieldProvenance(BaseModel):
+    """Pole opisowe karty ułożone z haseł („Ułóż w zdanie”, 0421)."""
+
+    origin: Literal["phrased"]
+    keywords: str = Field(min_length=1, max_length=cards.KEYWORDS_MAX)
 
 
 class DealBreakerUpdate(BaseModel):
@@ -84,6 +99,10 @@ class CardUpdate(BaseModel):
     # Klucz = pole karty, wartość = tekst; ``null`` albo pusty tekst zdejmuje
     # pole wpisane ręcznie (wraca wartość z notatki, jeśli jest).
     fields: dict[str, Optional[str]] = Field(min_length=1)
+    # Pochodzenie pól opisowych ułożonych z haseł (0421). Klucz musi być też
+    # w ``fields`` z niepustą wartością; pole bez wpisu zapisuje się bez
+    # pochodzenia (zwykła edycja zdejmuje plakietkę).
+    origins: Optional[dict[str, CardFieldProvenance]] = None
 
     @field_validator("fields")
     @classmethod
@@ -97,6 +116,15 @@ class CardUpdate(BaseModel):
                     f"{cards.max_length(key)} znaków."
                 )
         return value
+
+    @model_validator(mode="after")
+    def _known_origins(self) -> "CardUpdate":
+        for key in self.origins or {}:
+            if key not in cards.PHRASABLE_FIELDS:
+                raise ValueError(f"Pole „{key}” nie przyjmuje zdania z haseł.")
+            if not (self.fields.get(key) or "").strip():
+                raise ValueError("Zdanie z haseł wymaga treści pola.")
+        return self
 
 
 async def _pair(
@@ -212,7 +240,17 @@ async def _response(
             project=(job.client_reference or job.title or "").strip(),
         ),
         updated_at=card.updated_at if card else None,
+        assist_enabled=settings.RECOMMENDATION_CARD_ASSIST_ENABLED,
+        phrase_language=(
+            await phrase_language(db, job)
+            if settings.RECOMMENDATION_CARD_ASSIST_ENABLED
+            else None
+        ),
     )
+
+
+# Wspólne wejście dla tras karty z notatki (``recommendation_card_assist``).
+card_response = _response
 
 
 @router.get("/recommendation-cards", response_model=CardResponse)
@@ -279,28 +317,50 @@ async def update_recommendation_card(
         changes=data.fields,
         user_id=user.id,
         attempt_started=cards.attempt_started(process),
+        provenance={
+            key: value.model_dump() for key, value in (data.origins or {}).items()
+        },
     )
-    if changed:
-        # Same nazwy pól — treść karty (narodowość, red flags) nie trafia
-        # do dziennika zdarzeń.
-        db.add(
-            Activity(
-                entity_type="candidate",
-                entity_id=data.candidate_id,
-                action="recommendation_card_updated",
-                details={"job_id": data.job_id, "fields": sorted(changed)},
-                user_id=user.id,
-            )
-        )
-        await db.flush()
-        if "rate" in changed:
-            await _card_rate_change(db, card=card, user=user)
-            # „Stawka od” (0414) — od razu, nie czekając na pętlę kolejki.
-            from app.services.candidate_rate_from import recompute_safely
-
-            await recompute_safely(db, [data.candidate_id])
-        await db.refresh(card)
+    await after_card_save(db, card=card, changed=changed, user=user)
     return await _response(db, candidate, job, card)
+
+
+async def after_card_save(
+    db: AsyncSession,
+    *,
+    card: RecommendationCard,
+    changed: list[str],
+    user: User,
+    source: Optional[str] = None,
+) -> None:
+    """Skutki zapisu pól karty — wspólne dla zapisu ręcznego i karty z notatki.
+
+    Dziennik z samymi nazwami pól (treść karty — narodowość, red flags — nie
+    trafia do dziennika zdarzeń), zmiana stawki w procesie (0418) i „Stawka
+    od” (0414).
+    """
+    if not changed:
+        return
+    details: dict[str, Any] = {"job_id": card.job_id, "fields": sorted(changed)}
+    if source:
+        details["source"] = source
+    db.add(
+        Activity(
+            entity_type="candidate",
+            entity_id=card.candidate_id,
+            action="recommendation_card_updated",
+            details=details,
+            user_id=user.id,
+        )
+    )
+    await db.flush()
+    if "rate" in changed:
+        await _card_rate_change(db, card=card, user=user)
+        # „Stawka od” (0414) — od razu, nie czekając na pętlę kolejki.
+        from app.services.candidate_rate_from import recompute_safely
+
+        await recompute_safely(db, [card.candidate_id])
+    await db.refresh(card)
 
 
 @router.post("/recommendation-cards/deal-breaker", response_model=CardResponse)

@@ -2665,6 +2665,53 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
   jawnego od rozjechanego z regułą, a pomyłka odsłoniłaby rekruterowi notatkę
   o stawce do klienta.
 
+## Karta rekomendacji z notatki i „Ułóż w zdanie” (0421, 06.10.2026)
+
+Propozycja Olafa, decyzje Artura D1–D5 z 06.10.2026 (makieta:
+https://claude.ai/artifact/3xRoTbWQpYWX33ME3Z4BPr). Kod:
+`services/recommendation_card_assist.py` (reguły i model),
+`api/recommendation_card_assist.py` (trasy), front
+`components/v2/screening/RecommendationCardNoteImport.tsx`,
+`PhraseSuggestion.tsx`, `lib/recommendation-card-note.ts`. Harness
+`/preview/recommendation-card?state=import|phrase`. Raport:
+`docs/recommendation-card-from-note-completion-report.md`.
+
+- **Wyłącznik `RECOMMENDATION_CARD_ASSIST_ENABLED` (domyślnie OFF)** — trasy
+  404, karta niesie `assist_enabled: false`, okno karty i arkusz działają
+  ręcznie jak dotąd. Włączenie po pomiarze `python -m
+  scripts.eval_recommendation_card_note --limit 40` w kontenerze backendu.
+- **Tylko z okna karty (D5).** Kafle „Wgraj notatkę” / „Wklej tekst” /
+  „Wpisz ręcznie”; odczyt (`/note/read`, `/note/read-file`) NIC nie zapisuje,
+  zapis robi `/note/apply` po „Zastosuj zaznaczone”. Pliku nie zapisujemy (D1)
+  — jego tekst trafia do historii jako zwykła notatka (rodzaj `human`, NIE
+  `card`: projekcja kart 0413 wpisałaby do karty pola, które rekruter
+  odznaczył). Kolejność w `apply`: notatka → odpowiedzi (walidacja może
+  odmówić) → pola karty (zmiana stawki bywa z commitem i mailem do DL).
+- **Najpierw reguła wzoru, potem Luna** (`AIFeatureKey.recommendation_card_note_read`,
+  F28). Pole z reguły wygrywa. Narodowość czyta WYŁĄCZNIE reguła; model dostaje
+  tekst po `redact_card_text` i `strip_contacts`. Wartość bez dosłownego cytatu
+  odpada; stawka musi mieć swoją liczbę w cytacie.
+- **`phrase_guard` odrzuca zdanie z nowym faktem** — liczba, miesiąc, słowo
+  wielką literą w środku zdania albo z `+`/`#`/cyfrą spoza haseł i pytania
+  (odmiana tolerowana po wspólnym rdzeniu). Fałszywy alarm („w 12” →
+  „grudniu”) jest świadomy: rekruter zostawia hasła albo poprawia. Nie luzuj
+  reguły bez pomiaru.
+- **Odpowiedzi z notatki trafiają do arkusza screeningu (D2)** — świadome
+  odstępstwo od 0413, bo zatwierdza je człowiek. Najnowszy wiersz etapu pary,
+  arkusz bazowy z `_latest_filled_screening`, tylko pytania z profilu Championa.
+  `ScreeningAnswerItem.origin` += `note_import`, `phrased`; `keywords` = hasła
+  rekrutera, poza białą listą `client_safe_screening` (klient widzi samo zdanie).
+- **Pola karty pamiętają pochodzenie** (`manual_value(provenance=…)`:
+  `origin` `note_ai`/`note_rule`/`phrased`, `keywords`, `note_id`). Zwykła
+  edycja zapisuje pole bez pochodzenia. `PUT` karty przyjmuje `origins` tylko
+  dla pól opisowych (`PHRASABLE_FIELDS`, D4). Skutki zapisu pól (dziennik,
+  zmiana stawki 0418, „Stawka od”) idą jedną funkcją `after_card_save`.
+- **Język zdań = język CV klienta (D3)** — `phrase_language`
+  (`resolve_client_rule`, przy 503 polski), przełącznik PL/EN w oknie i nad
+  arkuszem. `AIFeatureKey.screening_answer_phrasing` (F29).
+- Odczyt notatki jest zablokowany przy niezapisanym arkuszu screeningu
+  (`screeningDirty`) albo karcie — zapis odświeża arkusz i nadpisałby formularz.
+
 ## „Stawka od” i historia stawek kandydata (0414, 04.10.2026)
 
 Kandydat podaje różne stawki na różne role (140 zł/h jako DevOps, 80 jako

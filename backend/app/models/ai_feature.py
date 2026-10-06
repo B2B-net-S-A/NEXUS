@@ -147,6 +147,13 @@ class AIFeatureKey(str, enum.Enum):
     # doświadczenia z rolą, każdy powód z cytatem z CV. Werdykt liczy kod
     # razem z must-have; „nie pasuje” zostawia osobę w bazie z „Dodaj mimo to”.
     application_screening = "application_screening"
+    # Karta rekomendacji z notatki rekrutera (0421): Luna czyta wgraną albo
+    # wklejoną notatkę i proponuje pola karty i odpowiedzi — każda wartość
+    # z cytatem; zapis dopiero po zatwierdzeniu przez rekrutera.
+    recommendation_card_note_read = "recommendation_card_note_read"
+    # „Ułóż w zdanie” (0421): hasła rekrutera w odpowiedzi screeningowej albo
+    # polu opisowym karty → pełne zdanie. Kod odrzuca zdanie z nowym faktem.
+    screening_answer_phrasing = "screening_answer_phrasing"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -179,6 +186,8 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.interview_question_import: "Import archiwum pytań z rozmów u klienta",
     AIFeatureKey.plain_knowledge_research: "Champion po ludzku — research technologii, ról i klientów w internecie",
     AIFeatureKey.application_screening: "Zgłoszenia z linku rekrutacji — przegląd CV przed wejściem do „Nowi”",
+    AIFeatureKey.recommendation_card_note_read: "Karta rekomendacji — wypełnienie z notatki rekrutera",
+    AIFeatureKey.screening_answer_phrasing: "„Ułóż w zdanie” — odpowiedzi ze screeningu i pola karty",
 }
 
 
@@ -310,6 +319,15 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Tekst CV z formularza zgłoszenia (tak, jak przesłał go kandydat)",
         "Tytuł rekrutacji, must-have, nice-to-have i opis projektu",
         "(bez pól formularza, danych z profilu kandydata, stawek i notatek)",
+    ],
+    AIFeatureKey.recommendation_card_note_read: [
+        "Tekst notatki z rozmowy wgranej albo wklejonej przez rekrutera",
+        "Pytania screeningowe z Profilu Championa i nazwy pól karty",
+        "(bez narodowości, e-maili, telefonów i linków — wycinane przed wysłaniem)",
+    ],
+    AIFeatureKey.screening_answer_phrasing: [
+        "Hasła rekrutera z jednej odpowiedzi albo pola karty i treść pytania",
+        "(bez danych z profilu kandydata, nazwy klienta i stawek do klienta)",
     ],
 }
 

@@ -46,7 +46,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { FormField, TextareaField } from "@/components/v2/forms";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
+import { answerOriginBadge } from "@/lib/recommendation-card";
 import { cn } from "@/lib/utils";
+
+import { type PhraseController, PhraseButton, PhraseProposal } from "./PhraseSuggestion";
 
 export const FIT_OPTIONS = [
   {
@@ -66,16 +69,20 @@ export const FIT_OPTIONS = [
   },
 ];
 
-export type ScreeningAnswerOrigin = "manual" | "reassign_suggested";
+export type ScreeningAnswerOrigin = "manual" | "reassign_suggested" | "note_import" | "phrased";
 
 export interface ScreeningFormAnswer {
   response: string;
   deal_breaker_hit: boolean;
   /**
    * `reassign_suggested` = odpowiedź przyjęta z podpowiedzi (wcześniejsza
-   * rozmowa) bez zmian. Poprawiona ręcznie wraca do `manual`.
+   * rozmowa) bez zmian; `note_import` = przyjęta z notatki w oknie karty.
+   * Poprawione ręcznie wracają do `manual`. `phrased` = zdanie ułożone
+   * z haseł (0421) — zostaje po poprawce, bo hasła nadal są jego źródłem.
    */
   origin?: ScreeningAnswerOrigin;
+  /** Hasła, z których powstało zdanie (`phrased`) — tylko dla zespołu. */
+  keywords?: string | null;
 }
 
 /**
@@ -146,7 +153,8 @@ export function makeSchema(questions: ScreeningQuestion[]) {
       z.object({
         response: z.string(),
         deal_breaker_hit: z.boolean(),
-        origin: z.enum(["manual", "reassign_suggested"]).optional(),
+        origin: z.enum(["manual", "reassign_suggested", "note_import", "phrased"]).optional(),
+        keywords: z.string().nullable().optional(),
       }),
     ]),
   );
@@ -209,6 +217,9 @@ export function buildScreeningPayload(
       response,
       deal_breaker_hit: !!value?.deal_breaker_hit,
       origin: value?.origin ?? "manual",
+      ...((value?.origin === "phrased" || value?.origin === "note_import") && value.keywords?.trim()
+        ? { keywords: value.keywords.trim() }
+        : {}),
       skipped: skipMissing && !response.trim(),
     };
   });
@@ -298,6 +309,7 @@ export function useScreeningForm({
         response: existingAnswer?.response ?? "",
         deal_breaker_hit: existingAnswer?.deal_breaker_hit ?? false,
         origin: existingAnswer?.origin ?? "manual",
+        keywords: existingAnswer?.keywords ?? null,
       };
     }
     methods.reset({
@@ -322,8 +334,18 @@ export function useScreeningForm({
       const match = type === "change" && name ? /^answers\.(.+)\.response$/.exec(name) : null;
       if (!match) return;
       const origin = `answers.${match[1]}.origin` as const;
-      if (methods.getValues(origin) === "reassign_suggested") {
+      const keywords = `answers.${match[1]}.keywords` as const;
+      const current = methods.getValues(origin);
+      if (current === "reassign_suggested" || current === "note_import") {
         methods.setValue(origin, "manual", { shouldDirty: true });
+        methods.setValue(keywords, null, { shouldDirty: true });
+      } else if (
+        current === "phrased" &&
+        !(methods.getValues(`answers.${match[1]}.response`) ?? "").trim()
+      ) {
+        // Zdanie wyczyszczone — nie ma już czego wiązać z hasłami.
+        methods.setValue(origin, "manual", { shouldDirty: true });
+        methods.setValue(keywords, null, { shouldDirty: true });
       }
     });
     return () => subscription.unsubscribe();
@@ -385,6 +407,7 @@ export function ScreeningFormFields({
   questions,
   methods,
   renderQuestionExtra,
+  phrase,
 }: {
   questions: ScreeningQuestion[];
   methods: UseFormReturn<ScreeningFormValues>;
@@ -393,6 +416,8 @@ export function ScreeningFormFields({
    * kandydata z innej rozmowy (`ScreeningReassignSuggestions`).
    */
   renderQuestionExtra?: (question: ScreeningQuestion, index: number) => ReactNode;
+  /** „Ułóż w zdanie” przy odpowiedziach (0421) — bez niego przycisku nie ma. */
+  phrase?: PhraseController;
 }) {
   return (
     <div className="space-y-5">
@@ -407,8 +432,15 @@ export function ScreeningFormFields({
         );
         const dealBreakerHit = Boolean(methods.watch(dealBreakerName));
         const skipped = Boolean(methods.watch("skip_missing")) && !answered;
-        const fromLuna =
-          methods.watch(`answers.${q.id}.origin`) === "reassign_suggested";
+        const originBadge = answerOriginBadge(methods.watch(`answers.${q.id}.origin`));
+        const responseName = `answers.${q.id}.response` as const;
+        const suggestion = phrase?.results[q.id];
+        const applySentence = (sentence: string, keywords: string) => {
+          methods.setValue(responseName, sentence, { shouldDirty: true, shouldValidate: true });
+          methods.setValue(`answers.${q.id}.origin`, "phrased", { shouldDirty: true });
+          methods.setValue(`answers.${q.id}.keywords`, keywords, { shouldDirty: true });
+          phrase?.dismiss(q.id);
+        };
         return (
           <div
             key={q.id}
@@ -421,9 +453,14 @@ export function ScreeningFormFields({
               <p className="min-w-0 flex-1 text-sm font-semibold text-foreground">
                 {q.question}
               </p>
-              {fromLuna && (
-                <Badge variant="soft" size="sm" className="shrink-0">
-                  z podpowiedzi Luny
+              {originBadge && (
+                <Badge
+                  variant="soft"
+                  size="sm"
+                  className="shrink-0"
+                  title={methods.watch(`answers.${q.id}.keywords`) ?? undefined}
+                >
+                  {originBadge}
                 </Badge>
               )}
               <span
@@ -474,9 +511,35 @@ export function ScreeningFormFields({
               <TextareaField
                 name={`answers.${q.id}.response`}
                 rows={3}
-                placeholder="Jak odpowiedział kandydat?"
+                placeholder={
+                  phrase
+                    ? "Jak odpowiedział kandydat? Możesz wpisać hasła i ułożyć z nich zdanie."
+                    : "Jak odpowiedział kandydat?"
+                }
               />
             </FormField>
+            {phrase && !suggestion ? (
+              <PhraseButton
+                disabled={!answered}
+                pending={phrase.isPending(q.id)}
+                onClick={() =>
+                  void phrase.request([
+                    { key: q.id, keywords: methods.getValues(responseName) ?? "", question: q.question },
+                  ])
+                }
+              />
+            ) : null}
+            {phrase && suggestion ? (
+              <PhraseProposal
+                suggestion={suggestion}
+                onUse={(sentence) => applySentence(sentence, suggestion.keywords)}
+                onEdit={(sentence) => {
+                  applySentence(sentence, suggestion.keywords);
+                  methods.setFocus(responseName);
+                }}
+                onKeep={() => phrase.dismiss(q.id)}
+              />
+            ) : null}
             <label className="inline-flex cursor-pointer items-center gap-2 text-xs">
               <Checkbox
                 checked={dealBreakerHit}

@@ -40,9 +40,12 @@ from app.models.user import User
 from app.services.client_identity import client_display_name_expression
 from app.services.recommendation_card_rules import (  # noqa: F401 — jedno wejście dla wołających
     CARD_KINDS,
+    CARD_ORIGINS,
     DISPLAY_LABELS,
     EDITABLE_FIELDS,
+    KEYWORDS_MAX,
     LABELS,
+    PHRASABLE_FIELDS,
     REQUIRED_FIELDS,
     NoteInput,
     attach_deal_breakers,
@@ -313,6 +316,7 @@ async def save_manual(
     user_id: int,
     now: Optional[datetime] = None,
     attempt_started: Optional[datetime] = None,
+    provenance: Optional[Mapping[str, Mapping[str, Any]]] = None,
 ) -> tuple[RecommendationCard, list[str]]:
     """Zapisuje pola wpisane w NEXUSIE; ``None`` zdejmuje pole ręczne.
 
@@ -320,6 +324,9 @@ async def save_manual(
     wysłana ponownie nie jest zmianą — chyba że pole pochodzi sprzed bieżącej
     próby procesu (``attempt_started``): wtedy zapis potwierdza podpowiedź
     i pole zaczyna się liczyć do kompletności.
+
+    ``provenance`` (0421): pochodzenie pola przyjętego z notatki albo zdania
+    ułożonego z haseł — ``{pole: {origin, keywords?, note_id?}}``.
     """
     moment = now or datetime.now(timezone.utc)
     table = RecommendationCard.__table__
@@ -345,7 +352,13 @@ async def save_manual(
             existing, attempt_started
         ):
             continue
-        manual[key] = manual_value(key, value, user_id=user_id, now=moment)
+        manual[key] = manual_value(
+            key,
+            value,
+            user_id=user_id,
+            now=moment,
+            provenance=(provenance or {}).get(key),
+        )
         changed.append(key)
     if changed:
         card.fields_manual = manual

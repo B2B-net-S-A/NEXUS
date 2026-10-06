@@ -34,6 +34,7 @@ import {
   cardStatusLabel,
 } from "@/lib/recommendation-card";
 import { cn } from "@/lib/utils";
+import { AnswerOriginBadge } from "./ScreeningAnswersList";
 
 export interface RecommendationCardViewProps {
   card: RecommendationCard;
@@ -159,6 +160,10 @@ export function RecommendationCardQuestions({
               </p>
               {item.source === "note" ? (
                 <p className="mt-1 text-[11px] text-muted-foreground">odpowiedź z notatki</p>
+              ) : item.origin ? (
+                <p className="mt-1">
+                  <AnswerOriginBadge origin={item.origin} keywords={item.keywords} />
+                </p>
               ) : null}
               {dealBreaker ? (
                 <p className="mt-1 text-[11px] text-destructive">Odpada, gdy: {dealBreaker}</p>

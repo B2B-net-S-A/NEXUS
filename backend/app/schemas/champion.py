@@ -856,8 +856,15 @@ class ScreeningAnswerItem(BaseModel):
     response: str = Field(default="", max_length=SCREENING_TEXT_MAX_CHARS)
     deal_breaker_hit: bool = False
     # Skąd odpowiedź (Pipeline v4, 23.09.2026): `reassign_suggested` = rekruter
-    # przyjął podpowiedź Luny z poprzedniej rekrutacji (przepięcie).
-    origin: Literal["manual", "reassign_suggested"] = "manual"
+    # przyjął podpowiedź Luny z poprzedniej rekrutacji (przepięcie). Od 0421:
+    # `note_import` = przyjęta z notatki wgranej/wklejonej w oknie karty,
+    # `phrased` = zdanie ułożone z haseł rekrutera („Ułóż w zdanie”).
+    origin: Literal["manual", "reassign_suggested", "note_import", "phrased"] = (
+        "manual"
+    )
+    # Hasła rekrutera, z których powstało zdanie (`phrased`) albo fragment
+    # notatki (`note_import`). Wewnętrzne — poza białą listą dla klienta.
+    keywords: Optional[str] = Field(default=None, max_length=SCREENING_TEXT_MAX_CHARS)
     # Pytanie świadomie pominięte przy przepięciu — odpowiedź bywa pusta.
     # Pominięte odpowiedzi nie liczą się do dopasowania i NIGDY nie wychodzą
     # do klienta (`client_safe_screening`).

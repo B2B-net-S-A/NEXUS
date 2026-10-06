@@ -188,6 +188,7 @@ from app.api import proposals_bulk as proposals_bulk_api
 from app.api import job_proposals as job_proposals_api
 from app.api import application_screenings as application_screenings_api
 from app.api import recommendation_cards as recommendation_cards_api
+from app.api import recommendation_card_assist as recommendation_card_assist_api
 from app.api import candidate_rate_changes as candidate_rate_changes_api
 from app.api import job_similar as job_similar_api
 from app.api import plain_brief as plain_brief_api
@@ -1643,6 +1644,11 @@ app.include_router(job_proposals_api.router, prefix="/api", tags=["proposals"])
 app.include_router(application_screenings_api.router, prefix="/api", tags=["proposals"])
 app.include_router(
     recommendation_cards_api.router, prefix="/api", tags=["recommendation-cards"]
+)
+app.include_router(
+    recommendation_card_assist_api.router,
+    prefix="/api",
+    tags=["recommendation-cards"],
 )
 app.include_router(
     candidate_rate_changes_api.router, prefix="/api", tags=["rate-changes"]
