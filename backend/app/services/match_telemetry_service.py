@@ -428,6 +428,9 @@ PIPELINE_ADD_SOURCES = frozenset(
         "integration",
     }
 )
+# Źródła nadawane przez SERWER, nigdy przyjmowane z żądania (`BulkAddSource`
+# ich nie zna — człowiek nie podpisze dodania jako „integracja”).
+SERVER_ONLY_ADD_SOURCES = frozenset({"integration"})
 
 # Surfaces that show the TEAM a run nobody on it started (the automatic
 # proposals run). Only they may pin an add to a run owned by someone else.
