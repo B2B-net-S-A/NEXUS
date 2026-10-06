@@ -457,17 +457,17 @@ describe("MultiConsultantOrdersTab", () => {
     const cells = lineRow.querySelectorAll("td");
     const cost = cells[headers.indexOf("Koszt")];
     const revenue = cells[headers.indexOf("Przychód")];
-    expect(cost).toHaveTextContent(/^1\D?000,00 zł\/MD$/);
+    expect(cost).toHaveTextContent(/^1\D?000,000 zł\/MD$/);
     expect(cost).toHaveClass("whitespace-nowrap");
-    expect(revenue).toHaveTextContent(/^1\D?200,00 zł\/MD$/);
+    expect(revenue).toHaveTextContent(/^1\D?200,000 zł\/MD$/);
     expect(revenue).toHaveClass("whitespace-nowrap");
 
     await openRow("order-line-1");
     await userEvent.click(linePanel().getByRole("tab", { name: "Szczegóły" }));
     const label = linePanel().getByText("Koszt");
-    expect(label.nextElementSibling).toHaveTextContent(/^1\D?000,00 zł\/MD$/);
+    expect(label.nextElementSibling).toHaveTextContent(/^1\D?000,000 zł\/MD$/);
     expect(linePanel().getByText("Przychód").nextElementSibling).toHaveTextContent(
-      /^1\D?200,00 zł\/MD$/,
+      /^1\D?200,000 zł\/MD$/,
     );
     expect(linePanel().queryByText("Marża")).not.toBeInTheDocument();
     // Jedna linia siatki: obie stawki są dziećmi tego samego <dl>.
@@ -638,7 +638,7 @@ describe("MultiConsultantOrdersTab", () => {
     ).toBeInTheDocument();
     // Backend nie redaguje mu stawek, bo to on je ustawia.
     // Jednostka stoi drobnym drukiem w osobnym elemencie — liczy się tekst wiersza.
-    expect(await row("order-line-1")).toHaveTextContent("1200,00 zł/MD");
+    expect(await row("order-line-1")).toHaveTextContent("1200,000 zł/MD");
 
     await openRow("order-group-anchor-10");
     expect(

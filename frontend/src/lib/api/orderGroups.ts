@@ -460,13 +460,14 @@ export interface OrderLineTakeoverInput {
   entry_date: string;
   rate_cost: number;
   rate_revenue: number;
+  /** Waluty stawek; brak = PLN. Serwer przelicza do PLN/MD. */
+  rate_candidate_currency?: string;
+  rate_client_currency?: string;
   md_transfer_method?: MdTransferMethod | null;
   expected_case_version?: number | null;
 }
 
 export interface OrderGroupInput {
-  md_consumption_month?: string;
-  md_consumption_value?: number;
   status?: "draft" | "active";
   md_budget_mode?: "per_person" | "shared" | null;
   md_budget_mode_locked?: boolean;
@@ -486,8 +487,6 @@ export interface OrderGroupInput {
 }
 
 export interface OrderGroupPatch {
-  md_consumption_month?: string;
-  md_consumption_value?: number;
   status?: "draft" | "active";
   md_budget_mode?: "per_person" | "shared" | null;
   md_budget_mode_locked?: boolean;
@@ -686,6 +685,45 @@ export interface ClientMdImportDetail extends ClientMdImportSummary {
   rows: ClientMdImportRow[];
 }
 
+/** MD jednego konsultanta w miesięcznym zejściu wspólnej puli. */
+export interface SharedMdConsumptionPerson {
+  order_id: number;
+  consultant_name: string;
+  md: number;
+}
+
+/** Zejście wspólnej puli MD za miesiąc (ticket 10.2026: edycja i usunięcie). */
+export interface SharedMdConsumptionMonth {
+  period_month: string;
+  /** Suma miesiąca — to ona pomniejsza pulę. */
+  md_reported: number;
+  source: "import" | "manual";
+  /** `null` = zapis bez podziału na osoby (stara ręczna suma albo import,
+   *  którego wiersze nie składają się w zapisaną sumę). */
+  breakdown: SharedMdConsumptionPerson[] | null;
+  breakdown_source: "manual" | "import" | null;
+  created_by_name: string | null;
+  updated_at: string | null;
+}
+
+export interface SharedMdConsultant {
+  order_id: number;
+  consultant_name: string;
+  status: string;
+}
+
+export interface SharedMdConsumptionsResponse {
+  months: SharedMdConsumptionMonth[];
+  consultants: SharedMdConsultant[];
+  md_budget_total: number | null;
+  md_used: number | null;
+  md_remaining: number | null;
+}
+
+export interface SharedMdConsumptionUpsert {
+  lines: { order_id: number; md: number }[];
+}
+
 export interface LineConsumptionUpsert {
   md_reported: number;
   status?: LineConsumptionStatus | null;
@@ -696,6 +734,9 @@ export interface SwapConsultantInput {
   contract_id: number;
   rate_cost: number;
   rate_revenue: number;
+  /** Waluty stawek; brak = PLN. Serwer przelicza do PLN/MD. */
+  rate_candidate_currency?: string;
+  rate_client_currency?: string;
   swap_date: string;
   /** Pula per osoba: sposób przeniesienia pozostałych MD (ticket 09.2026). */
   md_transfer_method?: MdTransferMethod | null;
@@ -980,6 +1021,29 @@ export const orderGroupsApi = {
   ) =>
     api.delete<OrderLineRead>(
       `/api/clients/${clientId}/order-groups/${groupId}/lines/${lineId}/consumptions/${periodMonth}`,
+    ),
+
+  /** Zejścia wspólnej puli MD — miesiąc po miesiącu, z podziałem na osoby. */
+  listSharedMdConsumptions: (clientId: number, groupId: number) =>
+    api.get<SharedMdConsumptionsResponse>(
+      `/api/clients/${clientId}/order-groups/${groupId}/md-consumptions`,
+    ),
+
+  /** Zapis miesiąca wspólnej puli (MD per konsultant) — NADPISUJE miesiąc. */
+  putSharedMdConsumption: (
+    clientId: number,
+    groupId: number,
+    periodMonth: string,
+    payload: SharedMdConsumptionUpsert,
+  ) =>
+    api.put<SharedMdConsumptionsResponse>(
+      `/api/clients/${clientId}/order-groups/${groupId}/md-consumptions/${periodMonth}`,
+      payload,
+    ),
+
+  deleteSharedMdConsumption: (clientId: number, groupId: number, periodMonth: string) =>
+    api.delete<SharedMdConsumptionsResponse>(
+      `/api/clients/${clientId}/order-groups/${groupId}/md-consumptions/${periodMonth}`,
     ),
 
   /** „Wejdź za konsultanta" (albo zaplanowane zastępstwo za osobę, która

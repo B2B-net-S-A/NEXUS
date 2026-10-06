@@ -877,6 +877,17 @@ except Exception as _rate_change_err:  # noqa: BLE001
     print(f"candidate rate change DDL unavailable: {_rate_change_err!r}")
     _RATE_CHANGE_DDL = []
 
+# Stawki linii MD z trzema miejscami i podział zejść wspólnej puli MD
+# (migracja 0419) — JEDNO źródło z migracją
+# (`app/services/md_order_precision_schema.py`).
+try:
+    from app.services import md_order_precision_schema as _md_precision
+
+    _MD_PRECISION_DDL = list(_md_precision.ALL_DDL)
+except Exception as _md_precision_err:  # noqa: BLE001
+    print(f"md order precision DDL unavailable: {_md_precision_err!r}")
+    _MD_PRECISION_DDL = []
+
 # Ocena zgłoszeń z linku rekrutacji przez AI (migracja 0404) — JEDNO źródło
 # z migracją (`app/services/application_screening_schema.py`).
 try:
@@ -918,6 +929,7 @@ _COLUMN_STATEMENTS = [
     *_APPLICATION_SCREENING_DDL,
     *_RATE_FROM_DDL,
     *_RATE_CHANGE_DDL,
+    *_MD_PRECISION_DDL,
     *_B2B_DOCUMENTS_DDL,
     *_B2B_REGISTER_DDL,
     *_CONTRACT_DOCS_SP_DDL,
@@ -1225,9 +1237,9 @@ _COLUMN_STATEMENTS = [
     """CREATE INDEX IF NOT EXISTS ix_client_orders_order_group
        ON client_orders (order_group_id)""",
     """ALTER TABLE client_orders
-       ADD COLUMN IF NOT EXISTS md_rate_cost NUMERIC(12, 2) NULL""",
+       ADD COLUMN IF NOT EXISTS md_rate_cost NUMERIC(12, 3) NULL""",
     """ALTER TABLE client_orders
-       ADD COLUMN IF NOT EXISTS md_rate_revenue NUMERIC(12, 2) NULL""",
+       ADD COLUMN IF NOT EXISTS md_rate_revenue NUMERIC(12, 3) NULL""",
     """ALTER TABLE client_orders
        ADD COLUMN IF NOT EXISTS md_input_mode VARCHAR(8) NULL""",
     """ALTER TABLE client_orders
@@ -4329,6 +4341,9 @@ END $$""",
     )""",
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_group_md_consumptions_group_month "
     "ON client_order_group_md_consumptions (group_id, period_month)",
+    # 0419: podział miesięcznego zejścia wspólnej puli na konsultantów.
+    "ALTER TABLE client_order_group_md_consumptions "
+    "ADD COLUMN IF NOT EXISTS breakdown JSONB NULL",
     # 0233: rozliczenie fakturami. Lustro client_order_md_consumptions —
     # UNIQUE na (order_id, period_month) jest tu KLUCZEM IDEMPOTENCJI, więc
     # tworzone razem z tabelą, nie w _INDEX_STATEMENTS (tabela bez niego przez

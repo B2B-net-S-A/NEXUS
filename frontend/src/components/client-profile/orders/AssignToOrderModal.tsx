@@ -18,6 +18,8 @@ import {
   mdOverFreePool,
   takeoverSources,
 } from "@/lib/order-takeover";
+import { OrderCurrencySelect } from "@/components/orders/OrderRateUnitToggle";
+import { formatRateField, normalizeRateField } from "@/lib/rate-unit";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import { warsawToday } from "@/lib/warsaw-date";
 import { formatDate } from "@/types/client-profile";
@@ -80,7 +82,7 @@ export function AssignToOrderModal({
     contractor?.rate_candidate ?? null,
     contractor?.rate_unit ?? null,
   );
-  const suggestedCost = costSuggestion ? String(costSuggestion.value) : "";
+  const suggestedCost = costSuggestion ? formatRateField(costSuggestion.value) : "";
 
   // Dołącz
   const [joinGroupId, setJoinGroupId] = useState("");
@@ -89,6 +91,8 @@ export function AssignToOrderModal({
   const [joinOptional, setJoinOptional] = useState("");
   const [joinCost, setJoinCost] = useState("");
   const [joinRevenue, setJoinRevenue] = useState("");
+  const [joinCostCurrency, setJoinCostCurrency] = useState("PLN");
+  const [joinRevenueCurrency, setJoinRevenueCurrency] = useState("PLN");
 
   // Wejdź za konsultanta
   const [takeoverLineId, setTakeoverLineId] = useState("");
@@ -103,6 +107,8 @@ export function AssignToOrderModal({
     setJoinOptional("");
     setJoinCost(suggestedCost);
     setJoinRevenue("");
+    setJoinCostCurrency("PLN");
+    setJoinRevenueCurrency("PLN");
     setTakeoverLineId("");
     setTerms(emptyTakeoverTerms(warsawToday(), suggestedCost));
     // Formularz startuje od nowa przy każdym otwarciu dla tej osoby.
@@ -154,6 +160,8 @@ export function AssignToOrderModal({
       onJoin(joinGroup.id, {
         contract_id: contractor.contract_id,
         start_date: joinStart,
+        rate_candidate_currency: joinCostCurrency,
+        rate_client_currency: joinRevenueCurrency,
         rate_cost: parseDecimalInput(joinCost) as number,
         rate_revenue: parseDecimalInput(joinRevenue) as number,
         ...(joinPerPerson
@@ -345,14 +353,20 @@ export function AssignToOrderModal({
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label htmlFor="assign-join-cost" className={labelClass}>
-                  Stawka koszt (zł/MD) *
+                  Stawka koszt ({joinCostCurrency === "PLN" ? "zł" : joinCostCurrency}/MD) *
                 </label>
                 <input
                   id="assign-join-cost"
                   inputMode="decimal"
                   value={joinCost}
                   onChange={(event) => setJoinCost(sanitizeDecimalInput(event.target.value))}
+                  onBlur={(event) => setJoinCost(normalizeRateField(event.target.value))}
                   className={inputClass}
+                />
+                <OrderCurrencySelect
+                  value={joinCostCurrency}
+                  onChange={setJoinCostCurrency}
+                  label="Waluta stawki kosztowej"
                 />
                 {costSuggestion ? (
                   <p className="mt-1 text-xs text-muted-foreground">
@@ -362,7 +376,7 @@ export function AssignToOrderModal({
               </div>
               <div>
                 <label htmlFor="assign-join-revenue" className={labelClass}>
-                  Stawka przychód (zł/MD) *
+                  Stawka przychód ({joinRevenueCurrency === "PLN" ? "zł" : joinRevenueCurrency}/MD) *
                 </label>
                 <input
                   id="assign-join-revenue"
@@ -371,7 +385,13 @@ export function AssignToOrderModal({
                   onChange={(event) =>
                     setJoinRevenue(sanitizeDecimalInput(event.target.value))
                   }
+                  onBlur={(event) => setJoinRevenue(normalizeRateField(event.target.value))}
                   className={inputClass}
+                />
+                <OrderCurrencySelect
+                  value={joinRevenueCurrency}
+                  onChange={setJoinRevenueCurrency}
+                  label="Waluta stawki przychodowej"
                 />
               </div>
             </div>

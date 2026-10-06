@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 05.10.2026
+> **Zgodność z systemem sprawdzona:** 06.10.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -425,8 +425,11 @@ całkowity (PLN)".
 
 Każdą wartość możesz poprawić — opis źródła zmienia się wtedy na **„wpisano
 ręcznie"**. Jednostkę stawki (zł/MD, zł/h, zł/mc) zmieniasz obok liczby, kwota
-przelicza się sama. Waluta pochodzi z kontraktu i z dokumentu; gdy trzeba ją
-zmienić, zrób to po zapisie w **Edytuj linię**. Na zamówieniu kosztowym i przy
+przelicza się sama. Obok jednostki jest **waluta** każdej stawki (PLN, EUR,
+USD, GBP) — podpowiada się z kontraktu i z dokumentu, a zmiana waluty nie
+przelicza kwoty (zmienia, w czym jest liczba, którą widzisz). Stawki mają
+zawsze **trzy miejsca po przecinku** (np. 291 zł/MD = 36,375 zł/h) — tak są
+pokazywane i zapisywane w oknach osoby, na kartach i w tabeli zamówień. Na zamówieniu kosztowym i przy
 wspólnej puli MD karta nie ma pola **Liczba MD** — budżet jest wtedy wspólny
 dla całego zamówienia.
 
@@ -545,7 +548,7 @@ zamówienia i zakładkę **Historia**.
 
 | Przycisk | Co robi |
 |---|---|
-| **Uzupełnij zamówienie** | edycja numeru, budżetu, dat, notatek, podmiana PDF-a; w nowym szkicu MD także wybór trybu i aktywacja, a przy aktywnej wspólnej puli — miesięczne zużycie. **Zczytaj dane z dokumentu** czyta tu PDF tak samo jak w „Nowe zamówienie": osoby z dokumentu, których **nie ma jeszcze na zamówieniu**, dostają karty do dopisania (z tymi samymi odznakami i decyzjami — także osoba bez aktywnej współpracy albo nieznaleziona), a osoby, które **już są**, wypisane są w ramce „Już na zamówieniu" bez drugiej karty (gdy dokument podaje dla niej inne MD albo stawkę, ramka to mówi — zmieniasz je w „Edytuj linię"). Osoby, która już pracuje na tym zamówieniu, nie dopiszesz drugi raz — także wskazanej ręcznie. **Zapisz** dopisuje wszystkie karty naraz albo żadnej; przy aktywacji szkicu najpierw dopisuje osoby, potem aktywuje |
+| **Uzupełnij zamówienie** | edycja numeru, budżetu, dat, notatek, podmiana PDF-a; w nowym szkicu MD także wybór trybu i aktywacja, a przy wspólnej puli — sekcja **Zejścia MD** (dodanie, edycja i usunięcie miesiąca, zapisywane od razu). **Zczytaj dane z dokumentu** czyta tu PDF tak samo jak w „Nowe zamówienie": osoby z dokumentu, których **nie ma jeszcze na zamówieniu**, dostają karty do dopisania (z tymi samymi odznakami i decyzjami — także osoba bez aktywnej współpracy albo nieznaleziona), a osoby, które **już są**, wypisane są w ramce „Już na zamówieniu" bez drugiej karty (gdy dokument podaje dla niej inne MD albo stawkę, ramka to mówi — zmieniasz je w „Edytuj linię"). Osoby, która już pracuje na tym zamówieniu, nie dopiszesz drugi raz — także wskazanej ręcznie. **Zapisz** dopisuje wszystkie karty naraz albo żadnej; przy aktywacji szkicu najpierw dopisuje osoby, potem aktywuje |
 | **Dodaj przedłużenie** | zakłada **nowe** zamówienie podpięte pod obecne (patrz niżej) |
 | **Zakończ** | okienko „Zakończ zamówienie": obowiązkowa data + opcjonalny powód |
 | **Przywróć** | cofa zakończenie — pokazuje się przy **każdym** zamówieniu ze statusem „Zakończone", także takim, które system domknął sam; przy zamówieniu MD z budżetem przy osobie wskrzesza też konsultantów, którym zostały dni i nie minęła data. Osoba, której umowę w międzyczasie **unieważniono**, nie wraca, a jej data końca zostaje z dnia zakończenia zamówienia; osoba z umową **zakończoną** wraca jako zakończona z datą zakończenia umowy, a przy zamówieniu MD z niewykorzystanymi dniami — ze sprawą o pozostałe MD (jak po „Zakończ współpracę”). Datę końca sprzed zakończenia odzyskują tylko osoby, które wracają na zamówienie. Zamówienia **wyczerpanego** nie przywrócisz — tam trzeba podnieść budżet; dotyczy to też zamówienia, które było wyczerpane w chwili zakończenia |
@@ -775,6 +778,13 @@ osobie — przy wspólnej puli i przy zamówieniu kosztowym nie ma czego zapisa�
 
 Dotyczy każdego przeniesienia pozostałych MD na inną osobę: „Wejdź za
 konsultanta", decyzji o MD, „Zastąp kimś innym" i „Zamień kontraktora".
+
+Stawki nowej osoby podajesz w walucie z listy obok każdej stawki (PLN, EUR, USD,
+GBP). Stawkę w obcej walucie system przelicza na PLN/MD po ostatnim znanym
+kursie z dnia wejścia albo zamiany (albo wcześniejszym) — i to ta kwota w PLN
+liczy pozostałe MD. Brak kursu = zapis odmawia („Brak kursu EUR/PLN”). Okno nie zna
+kursu, więc przy stawce w obcej walucie zamiast liczby MD pokazuje „po kursie
+przy zapisie”; wynik zobaczysz na linii po zapisie.
 
 * **Pula w MD** (budżet osoby wpisany jako liczba dni) — pozostałe MD przechodzą
   **1:1**. Pola „Przelicz po stawce" nie ma; okno mówi „Zamówienie ma pulę w MD —
@@ -1633,11 +1643,18 @@ i uruchamia powiadomienia o budżecie.
 ## Skąd biorą się liczby zużycia
 
 Zużycie — dni albo złotówek — wpisuje **miesięczny import raportu z Finansów**.
-Przy aktywnej lub wyczerpanej wspólnej puli MD osoba uprawniona do edycji
-finansowych pól zamówienia może też w **Uzupełnij zamówienie** podać miesiąc
-i łączne zużycie MD za ten miesiąc. To suma wszystkich konsultantów:
-**kolejny zapis zastępuje sumę danego miesiąca, także pochodzącą z importu**,
-a nie dodaje kolejnej pozycji. Suma miesięcy pomniejsza jedną wspólną pulę.
+Przy wspólnej puli MD miesiące zużycia widać w sekcji **Zejścia MD** — w panelu
+zamówienia i w **Uzupełnij zamówienie**. Osoba prowadząca zamówienia może tam
+**dodać miesiąc, zmienić MD każdego konsultanta za miesiąc albo usunąć cały
+miesiąc** (z potwierdzeniem). Zapis dotyczy całego miesiąca: suma MD osób
+**zastępuje** dotychczasowy wpis, także z importu, a nie dodaje kolejnej pozycji;
+osoba bez wpisu nie wchodzi do miesiąca. Po każdej zmianie wykorzystanie
+i pozostały budżet puli przeliczają się od zera, a zamówienie wyczerpane wraca na
+„Aktywne”, gdy znów zostały MD. Miesiąc zapisany dawniej jako sama suma (bez
+podziału na osoby) pokazuje się jako „bez podziału na osoby” — edycja prosi
+o MD każdej osoby. Miesiąc z importu pokazuje podział z wierszy importu, gdy
+składają się w zapisaną sumę. Usunięcie wszystkich miesięcy zdejmuje blokadę
+**Usuń zamówienie** („są na nim rozliczenia”).
 Korekta pozostałości to osobna operacja opisana na końcu tej sekcji.
 
 * Import robi rola Finanse albo administrator, w **Finanse → Import zużycia MD**.

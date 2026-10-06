@@ -14,6 +14,7 @@ import type {
   OrderLineRead,
 } from "@/lib/api/orderGroups";
 import { usesSharedMdPool } from "@/lib/client-order-list";
+import { toMdRate } from "@/lib/rate-unit";
 
 export const MD_TRANSFER_METHOD_LABELS: Record<MdTransferMethod, string> = {
   one_to_one: "1:1",
@@ -145,7 +146,8 @@ export function contractCostRatePerMd(
   if (rate == null || rate <= 0) return null;
   if (unit === "hourly") {
     return {
-      value: Math.round(rate * 8 * 100) / 100,
+      // Trzy miejsca jak kolumny `md_rate_*` (0419): 36,375 × 8 = 291, nie 291,04.
+      value: toMdRate(rate, "hour") ?? rate * 8,
       note: `Z kontraktu: ${plNumber(rate)} PLN/h × 8`,
     };
   }

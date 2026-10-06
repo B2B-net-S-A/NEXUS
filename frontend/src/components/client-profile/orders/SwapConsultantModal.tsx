@@ -14,11 +14,13 @@ import type {
 } from "@/lib/api/orderGroups";
 import { usesSharedMdPool } from "@/lib/client-order-list";
 import { effectiveTransferMethod, transferPreview } from "@/lib/order-takeover";
+import { OrderCurrencySelect } from "@/components/orders/OrderRateUnitToggle";
+import { normalizeRateField } from "@/lib/rate-unit";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
-import { formatPLN } from "@/types/client-profile";
 
 import { formatMd } from "./MdBudgetBar";
 import { MdTransferChoice } from "./MdTransferChoice";
+import { displayLineRate } from "./order-line-display";
 import { warsawToday } from "@/lib/warsaw-date";
 
 const inputClass =
@@ -49,6 +51,10 @@ export function SwapConsultantModal({
   const [contractId, setContractId] = useState("");
   const [rateCost, setRateCost] = useState("");
   const [rateRevenue, setRateRevenue] = useState("");
+  // Waluty stawek (ticket 10.2026) — serwer przelicza do PLN/MD po kursie
+  // z dnia zamiany, tak jak przy „Dodaj konsultanta”.
+  const [costCurrency, setCostCurrency] = useState("PLN");
+  const [revenueCurrency, setRevenueCurrency] = useState("PLN");
   const [swapDate, setSwapDate] = useState("");
   const [method, setMethod] = useState<MdTransferMethod | null>(null);
 
@@ -64,6 +70,8 @@ export function SwapConsultantModal({
     setContractId("");
     setRateCost("");
     setRateRevenue("");
+    setCostCurrency("PLN");
+    setRevenueCurrency("PLN");
     setSwapDate(warsawToday());
     setMethod(null);
   }, [open]);
@@ -87,10 +95,13 @@ export function SwapConsultantModal({
             unit: line?.pool_unit ?? (line?.md_total != null ? "md" : null),
             remaining: line?.md_remaining ?? null,
             departingRate: line?.rate_revenue ?? null,
-            incomingRate: parseDecimalInput(rateRevenue),
+            // Stawka w obcej walucie nie porówna się z PLN/MD odchodzącego
+            // bez kursu — liczbę MD policzy serwer przy zapisie.
+            incomingRate:
+              revenueCurrency === "PLN" ? parseDecimalInput(rateRevenue) : null,
           })
         : null,
-    [perPerson, line, rateRevenue],
+    [perPerson, line, rateRevenue, revenueCurrency],
   );
   const transferMethod = perPerson
     ? effectiveTransferMethod(preview?.unit ?? null, method)
@@ -135,6 +146,8 @@ export function SwapConsultantModal({
                 contract_id: Number(contractId),
                 rate_cost: parseDecimalInput(rateCost) as number,
                 rate_revenue: parseDecimalInput(rateRevenue) as number,
+                rate_candidate_currency: costCurrency,
+                rate_client_currency: revenueCurrency,
                 swap_date: swapDate,
                 ...(transferMethod ? { md_transfer_method: transferMethod } : {}),
               })
@@ -157,9 +170,7 @@ export function SwapConsultantModal({
           <p className="text-muted-foreground">Odchodzi</p>
           <p className="font-medium text-foreground">
             {line?.consultant_name} —{" "}
-            {line?.rate_revenue === null || line?.rate_revenue === undefined
-              ? "—"
-              : `${formatPLN(line.rate_revenue)}/MD`}
+            {line ? displayLineRate(line, "revenue") : "—"}
             {/* „pozostało — MD" przy zamówieniu kosztowym opisywało pole,
                 którego linia nigdy nie miała — czytało się jak zerowy budżet,
                 a nie jak jego brak. */}
@@ -204,26 +215,38 @@ export function SwapConsultantModal({
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <div>
             <label htmlFor="swap-cost" className={labelClass}>
-              Stawka kosztowa (zł/MD) *
+              Stawka kosztowa ({costCurrency === "PLN" ? "zł" : costCurrency}/MD) *
             </label>
             <input
               id="swap-cost"
               inputMode="decimal"
               value={rateCost}
               onChange={(e) => setRateCost(sanitizeDecimalInput(e.target.value))}
+              onBlur={(e) => setRateCost(normalizeRateField(e.target.value))}
               className={inputClass}
+            />
+            <OrderCurrencySelect
+              value={costCurrency}
+              onChange={setCostCurrency}
+              label="Waluta stawki kosztowej"
             />
           </div>
           <div>
             <label htmlFor="swap-revenue" className={labelClass}>
-              Stawka przychodowa (zł/MD) *
+              Stawka przychodowa ({revenueCurrency === "PLN" ? "zł" : revenueCurrency}/MD) *
             </label>
             <input
               id="swap-revenue"
               inputMode="decimal"
               value={rateRevenue}
               onChange={(e) => setRateRevenue(sanitizeDecimalInput(e.target.value))}
+              onBlur={(e) => setRateRevenue(normalizeRateField(e.target.value))}
               className={inputClass}
+            />
+            <OrderCurrencySelect
+              value={revenueCurrency}
+              onChange={setRevenueCurrency}
+              label="Waluta stawki przychodowej"
             />
           </div>
           <div>
@@ -249,6 +272,9 @@ export function SwapConsultantModal({
               departingName={line?.consultant_name ?? ""}
               value={method}
               onChange={setMethod}
+              pendingIncomingLabel={
+                revenueCurrency === "PLN" ? undefined : "po kursie przy zapisie"
+              }
             />
             <p className="text-xs text-muted-foreground">
               Zamiana działa od dnia zamiany w przód. MD zaraportowane wcześniej

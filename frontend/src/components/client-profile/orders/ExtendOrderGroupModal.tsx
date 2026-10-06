@@ -25,6 +25,7 @@ import {
   type ExtractionConflict,
   type ExtractionFieldSpec,
 } from "@/lib/order-extraction";
+import { formatRateField, normalizeRateField } from "@/lib/rate-unit";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 
 import { ExtractionConflictDialog } from "./ExtractionConflictDialog";
@@ -132,8 +133,9 @@ export function ExtendOrderGroupModal({
           contractId: line.contract_id,
           consultantName: line.consultant_name,
           selected: true,
-          rateCost: numberToField(line.rate_cost),
-          rateRevenue: numberToField(line.rate_revenue),
+          // Trzy miejsca jak kolumny stawek linii (0419).
+          rateCost: formatRateField(line.rate_cost),
+          rateRevenue: formatRateField(line.rate_revenue),
           mdTotal: "",
         })),
     );
@@ -174,7 +176,7 @@ export function ExtendOrderGroupModal({
                 : null;
             const rate =
               row.rate_client != null && row.rate_unit === "day"
-                ? numberToField(row.rate_client)
+                ? formatRateField(row.rate_client)
                 : null;
             return md == null && rate == null ? [] : [{ line, md, rate }];
           })
@@ -534,6 +536,14 @@ export function ExtendOrderGroupModal({
                           ),
                         )
                       }
+                      onBlur={(e) => {
+                        const normalized = normalizeRateField(e.target.value);
+                        setLines((prev) =>
+                          prev.map((item, i) =>
+                            i === index ? { ...item, rateCost: normalized } : item,
+                          ),
+                        );
+                      }}
                       className={inputClass}
                     />
                   </div>
@@ -556,6 +566,14 @@ export function ExtendOrderGroupModal({
                           ),
                         )
                       }
+                      onBlur={(e) => {
+                        const normalized = normalizeRateField(e.target.value);
+                        setLines((prev) =>
+                          prev.map((item, i) =>
+                            i === index ? { ...item, rateRevenue: normalized } : item,
+                          ),
+                        );
+                      }}
                       className={inputClass}
                     />
                   </div>

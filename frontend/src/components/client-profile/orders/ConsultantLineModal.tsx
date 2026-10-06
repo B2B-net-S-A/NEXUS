@@ -21,8 +21,11 @@ import type {
 import { usesSharedMdPool } from "@/lib/client-order-list";
 import { isEzdrowieClient } from "@/lib/ezdrowie";
 import {
+  contractRateField,
   contractRateUnitToInputUnit,
   convertRate,
+  formatRateField,
+  normalizeRateField,
   rateUnitLabel,
   toMdRate,
   type RateUnit,
@@ -147,7 +150,7 @@ function RateUnitToggle({
     const parsed = parseDecimalInput(value);
     if (parsed !== null) {
       const converted = convertRate(parsed, unit, next);
-      if (converted !== null) onValueChange(String(converted));
+      if (converted !== null) onValueChange(formatRateField(converted));
     }
     onUnitChange(next);
   };
@@ -399,11 +402,12 @@ export function ConsultantLineModal({
     // `suggested_rate_cost` MUSI pozostać PLN/MD, bo starszy frontend zapisuje
     // je bez metadanych. Nowe pole wybieramy tylko, gdy rzeczywiście istnieje.
     const hasRawSuggestion = next?.suggested_contract_rate_cost != null;
-    setCostUnit(
-      hasRawSuggestion
-        ? contractRateUnitToInputUnit(next?.suggested_rate_cost_unit)
-        : "md",
+    // Stawka spoza 3 miejsc w swojej jednostce wchodzi od razu w MD.
+    const rawField = contractRateField(
+      next?.suggested_contract_rate_cost,
+      contractRateUnitToInputUnit(next?.suggested_rate_cost_unit),
     );
+    setCostUnit(hasRawSuggestion ? rawField.unit : "md");
     setCostCurrency(
       hasRawSuggestion
         ? next?.suggested_rate_cost_currency?.trim().toUpperCase() || "PLN"
@@ -418,11 +422,7 @@ export function ConsultantLineModal({
         : 1,
     );
     setRateCost(
-      hasRawSuggestion
-        ? String(next.suggested_contract_rate_cost)
-        : next?.suggested_rate_cost != null
-          ? String(next.suggested_rate_cost)
-          : "",
+      hasRawSuggestion ? rawField.value : formatRateField(next?.suggested_rate_cost),
     );
   };
 
@@ -432,9 +432,9 @@ export function ConsultantLineModal({
     if (!open) return;
     setPerson(null);
     const sourceCost = line?.source_rate_cost ?? line?.rate_cost;
-    setRateCost(numberToField(sourceCost));
+    setRateCost(formatRateField(sourceCost));
     const sourceRevenue = line?.source_rate_revenue ?? line?.rate_revenue;
-    setRateRevenue(numberToField(sourceRevenue));
+    setRateRevenue(formatRateField(sourceRevenue));
     // Wartości z API są w zł/MD, więc formularz otwiera się w tej jednostce —
     // inaczej pierwszy render pokazywałby liczbę ośmiokrotnie za dużą pod
     // etykietą „zł/h”.
@@ -483,7 +483,7 @@ export function ConsultantLineModal({
         data.rate_client != null && extractedRateUnit == null;
       const extractedRate =
         data.rate_client != null && extractedRateUnit != null
-          ? numberToField(data.rate_client)
+          ? formatRateField(data.rate_client)
           : null;
       const explicitUnitMismatch =
         extractedRate != null &&
@@ -585,7 +585,7 @@ export function ConsultantLineModal({
                 currentForm.costUnit,
                 extractedRateUnit,
               );
-              if (convertedCost !== null) setRateCost(String(convertedCost));
+              if (convertedCost !== null) setRateCost(formatRateField(convertedCost));
             }
             setCostUnit(extractedRateUnit);
             setUnitChangeNotice(
@@ -597,7 +597,7 @@ export function ConsultantLineModal({
           setGrossConversion(
             data.rate_client_gross != null
               ? {
-                  gross: numberToField(data.rate_client_gross),
+                  gross: formatRateField(data.rate_client_gross),
                   net: extractedRate,
                 }
               : null,
@@ -894,6 +894,7 @@ export function ConsultantLineModal({
               inputMode="decimal"
               value={rateCost}
               onChange={(e) => setRateCost(sanitizeDecimalInput(e.target.value))}
+              onBlur={(e) => setRateCost(normalizeRateField(e.target.value))}
               className={inputClass}
               placeholder={
                 costUnit === "hour"
@@ -921,7 +922,7 @@ export function ConsultantLineModal({
             {costUnit !== "md" ? (
               <p className="mt-1 text-xs text-muted-foreground">
                 Zapis w {costCurrency}/MD:{" "}
-                {toMdRate(parseDecimalInput(rateCost) ?? 0, costUnit)}{" "}
+                {formatRateField(toMdRate(parseDecimalInput(rateCost) ?? 0, costUnit))}{" "}
                 {costCurrency === "PLN" ? "zł" : costCurrency}
               </p>
             ) : null}
@@ -968,6 +969,7 @@ export function ConsultantLineModal({
               inputMode="decimal"
               value={rateRevenue}
               onChange={(e) => setRateRevenue(sanitizeDecimalInput(e.target.value))}
+              onBlur={(e) => setRateRevenue(normalizeRateField(e.target.value))}
               className={inputClass}
               placeholder={revenueUnit === "hour" ? "150" : "1200"}
             />

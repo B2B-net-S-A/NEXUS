@@ -96,7 +96,7 @@ describe("Przypisz do zamówienia (CeZ)", () => {
     expect(screen.queryByRole("option", { name: /Jan Aktywny/ })).not.toBeInTheDocument();
     await userEvent.selectOptions(who, "672");
     expect(screen.getByLabelText(/Data wejścia/)).toHaveValue("2026-09-01");
-    expect(screen.getByLabelText(/Stawka koszt/)).toHaveValue("680");
+    expect(screen.getByLabelText(/Stawka koszt/)).toHaveValue("680.000");
     expect(screen.getByText("Z kontraktu: 85 PLN/h × 8")).toBeInTheDocument();
     expect(screen.getByText(/przejmuje/)).toHaveTextContent("187 MD");
     await userEvent.type(screen.getByLabelText(/Stawka przychód/), "800");
@@ -107,9 +107,36 @@ describe("Przypisz do zamówienia (CeZ)", () => {
       entry_date: "2026-09-01",
       rate_cost: 680,
       rate_revenue: 800,
+      rate_candidate_currency: "PLN",
+      rate_client_currency: "PLN",
       md_transfer_method: "one_to_one",
       expected_case_version: 1,
     });
+  });
+
+  it("wejście za konsultanta wysyła walutę każdej stawki", async () => {
+    const props = renderModal();
+    await userEvent.click(screen.getByRole("button", { name: /Wejdź za konsultanta/ }));
+    await userEvent.selectOptions(screen.getByLabelText(/Za kogo wchodzi/), "672");
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: "Waluta stawki kosztowej" }),
+      "EUR",
+    );
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: "Waluta stawki przychodowej" }),
+      "EUR",
+    );
+    expect(screen.getByLabelText(/Stawka przychód \(EUR\/MD\)/)).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText(/Stawka przychód/), "200");
+    await userEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+    expect(props.onTakeover).toHaveBeenCalledWith(
+      96,
+      expect.objectContaining({
+        rate_revenue: 200,
+        rate_candidate_currency: "EUR",
+        rate_client_currency: "EUR",
+      }),
+    );
   });
 
   it("dołączenie ostrzega o MD ponad wolną pulę, ale pozwala zapisać", async () => {

@@ -65,6 +65,7 @@ from app.services.multi_consultant_orders import (
     EVENT_MD_TRANSFER,
     LINE_DECISION_KEEP_HISTORY,
     LINE_DECISION_REMOVED,
+    MD_RATE_SCALE,
     format_md,
     is_multi_consultant_client,
     quantize_md,
@@ -80,7 +81,6 @@ _REBALANCE_CHAIN_KEY = "md_rebalance_chain_order_ids"
 ZERO = Decimal("0")
 HOURS_PER_MD = HOURS_PER_MD_DEC
 STANDARD_WORKING_DAYS_PER_MONTH = MD_PER_MONTH_DEC
-MONEY_SCALE = Decimal("0.01")
 
 # Nazwy miesięcy w MIANOWNIKU — wpis historii brzmi „Za lipiec 2026", a nie
 # „Za 2026-07". Forma mianownikowa jest poprawna po przyimku „za" dla każdego
@@ -297,9 +297,9 @@ def contract_rate_cost_per_md_pln(
         rate_per_md = rate
     else:  # RateUnit.monthly
         rate_per_md = rate / STANDARD_WORKING_DAYS_PER_MONTH
-    # Linia zapisuje Numeric(12,2), więc pole zgodności i ostrzeżenie
+    # Linia zapisuje Numeric(12,3) (0419), więc pole zgodności i ostrzeżenie
     # operują dokładnie na wartościach, które mogą się różnić po zapisie.
-    return (rate_per_md * rate_to_pln).quantize(MONEY_SCALE, rounding=ROUND_HALF_UP)
+    return (rate_per_md * rate_to_pln).quantize(MD_RATE_SCALE, rounding=ROUND_HALF_UP)
 
 
 @dataclass(frozen=True)

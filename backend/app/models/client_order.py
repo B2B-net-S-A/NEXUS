@@ -262,11 +262,13 @@ class ClientOrder(Base, TimestampMixin):
     # `Contract.rate_unit` (h/dzień/mc) i zasilają marżę miesięczną w widokach
     # jednoosobowych. Wpisanie tu stawki dziennej do pola czytanego jako
     # miesięczne dałoby cichy, 22-krotny błąd marży u trzech klientów.
+    # Numeric(12,3) od 0419 — stawki z zamówień bywają trzymiejscowe
+    # (36.375 PLN/h ↔ 291 PLN/MD), a do 0419 trzecie miejsce ginęło przy zapisie.
     md_rate_cost: Mapped[Optional[Decimal]] = mapped_column(
-        Numeric(12, 2), nullable=True
+        Numeric(12, 3), nullable=True
     )
     md_rate_revenue: Mapped[Optional[Decimal]] = mapped_column(
-        Numeric(12, 2), nullable=True
+        Numeric(12, 3), nullable=True
     )
 
     md_input_mode: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)

@@ -18,6 +18,9 @@ interface Props {
   onChange: (method: MdTransferMethod) => void;
   /** Nazwa grupy radiowej — unikalna w obrębie okna. */
   name: string;
+  /** Tekst w miejscu liczby MD „stawką nowej osoby”, gdy jej nie da się
+   *  policzyć w przeglądarce (np. stawka w EUR — kurs zna serwer). */
+  pendingIncomingLabel?: string;
 }
 
 /** Przejęcie pozostałych MD (B1): pula w MD → komunikat 1:1 bez przelicznika;
@@ -30,6 +33,7 @@ export function MdTransferChoice({
   value,
   onChange,
   name,
+  pendingIncomingLabel = "podaj stawkę",
 }: Props) {
   if (!preview) return null;
   if (preview.unit === "md") {
@@ -71,7 +75,7 @@ export function MdTransferChoice({
             {MD_TRANSFER_METHOD_LABELS[option.method]}
           </span>
           <span className="text-sm font-semibold text-foreground">
-            {option.md == null ? "podaj stawkę" : `${formatMd(option.md)} MD`}
+            {option.md == null ? pendingIncomingLabel : `${formatMd(option.md)} MD`}
           </span>
         </label>
       ))}

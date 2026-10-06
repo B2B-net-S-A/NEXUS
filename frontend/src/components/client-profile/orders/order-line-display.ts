@@ -2,7 +2,7 @@
 // tabeli zamówień (`OrdersTable`) i paneli szczegółów (wersja B, 29.09.2026).
 
 import type { OrderLineRead } from "@/lib/api/orderGroups";
-import { formatPLN } from "@/types/client-profile";
+import { RATE_DECIMALS } from "@/lib/rate-unit";
 
 /** Kotwica wiersza osoby w tabeli — cel przewinięcia przy linku z
  *  powiadomienia (`?order=`) i przy przejściu „→ następca" z panelu. */
@@ -18,9 +18,16 @@ export function displayLineRate(line: OrderLineRead, side: "cost" | "revenue"): 
       ? (line.source_rate_cost ?? line.rate_cost)
       : (line.source_rate_revenue ?? line.rate_revenue);
   if (amount == null) return "—";
-  if (currency === "PLN") return `${formatPLN(amount)}/MD`;
-  return `${new Intl.NumberFormat("pl-PL", { maximumFractionDigits: 3 }).format(amount)} ${currency}/MD`;
+  // Zawsze trzy miejsca po przecinku (kolumny `md_rate_*` = Numeric(12,3)):
+  // „36,375 zł/MD” i „1 000,000 zł/MD” obok siebie, nie „36,38” i „1 000”.
+  const text = RATE_FORMAT.format(amount);
+  return `${text} ${currency === "PLN" ? "zł" : currency}/MD`;
 }
+
+const RATE_FORMAT = new Intl.NumberFormat("pl-PL", {
+  minimumFractionDigits: RATE_DECIMALS,
+  maximumFractionDigits: RATE_DECIMALS,
+});
 
 /** Kwota i jednostka stawki osobno („1 000,00” + „zł/MD”) — tabela i panele
  *  pokazują jednostkę drobnym drukiem. `null` = brak stawki („—”). */

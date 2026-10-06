@@ -19,7 +19,13 @@ import {
   type LineSource,
   type OrderLineDraft,
 } from "@/lib/order-plan";
-import { convertRate, type RateUnit } from "@/lib/rate-unit";
+import { ORDER_CURRENCIES } from "@/components/orders/OrderRateUnitToggle";
+import {
+  convertRate,
+  formatRateField,
+  normalizeRateField,
+  type RateUnit,
+} from "@/lib/rate-unit";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 
 import { ConsultantPicker } from "./ConsultantPicker";
@@ -88,6 +94,8 @@ interface ValueTileProps {
   unit?: RateUnit | null;
   currency?: string;
   onUnitChange?: (unit: RateUnit) => void;
+  /** Stawka: wybór waluty i trzy miejsca po przecinku po opuszczeniu pola. */
+  onCurrencyChange?: (currency: string) => void;
   suffix?: string;
   hint?: string | null;
 }
@@ -100,9 +108,13 @@ function ValueTile({
   unit,
   currency = "PLN",
   onUnitChange,
+  onCurrencyChange,
   suffix,
   hint,
 }: ValueTileProps) {
+  const currencies = ORDER_CURRENCIES.includes(currency as (typeof ORDER_CURRENCIES)[number])
+    ? ORDER_CURRENCIES
+    : [currency, ...ORDER_CURRENCIES];
   return (
     <div className="min-w-0 rounded-md border border-border bg-muted/30 px-3 py-2">
       <label className="block text-xs text-muted-foreground">
@@ -114,8 +126,30 @@ function ValueTile({
             value={value}
             placeholder="—"
             onChange={(event) => onValueChange(sanitizeDecimalInput(event.target.value))}
+            onBlur={
+              onCurrencyChange
+                ? (event) => {
+                    const normalized = normalizeRateField(event.target.value);
+                    if (normalized !== event.target.value) onValueChange(normalized);
+                  }
+                : undefined
+            }
             className={tileInput}
           />
+          {onCurrencyChange ? (
+            <select
+              aria-label={`${label} — waluta`}
+              value={currency}
+              onChange={(event) => onCurrencyChange(event.target.value)}
+              className="shrink-0 bg-transparent text-xs text-muted-foreground focus:outline-none"
+            >
+              {currencies.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          ) : null}
           {onUnitChange ? (
             <select
               aria-label={`${label} — jednostka`}
@@ -196,7 +230,7 @@ export function OrderPlanLineCard({
       parsed === null || current === null ? null : convertRate(parsed, current, next);
     edit({
       [unitField]: next,
-      ...(converted !== null ? { [field]: String(converted) } : {}),
+      ...(converted !== null ? { [field]: formatRateField(converted) } : {}),
     } as Partial<OrderLineDraft>);
   };
 
@@ -260,6 +294,8 @@ export function OrderPlanLineCard({
           unit={draft.costUnit}
           currency={draft.costCurrency}
           onUnitChange={(unit) => switchUnit("rateCost", "costUnit", unit)}
+          // Inna waluta to inna kwota — opis „z kontraktu” przestałby być prawdą.
+          onCurrencyChange={(currency) => edit({ costCurrency: currency, costSource: manual })}
         />
         <ValueTile
           label="Stawka przychodowa"
@@ -271,6 +307,9 @@ export function OrderPlanLineCard({
           unit={draft.revenueUnit}
           currency={draft.revenueCurrency}
           onUnitChange={(unit) => switchUnit("rateRevenue", "revenueUnit", unit)}
+          onCurrencyChange={(currency) =>
+            edit({ revenueCurrency: currency, revenueSource: manual, revenueGross: null })
+          }
           hint={
             draft.revenueGross !== null
               ? `w PDF brutto ${draft.revenueGross} → netto (÷ 1,23)`

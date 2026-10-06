@@ -187,7 +187,7 @@ describe("Nowe zamówienie z PDF-a — jedno okno", () => {
       name: "Konsultant: Krzysztof Suwała",
     });
     expect(within(suwala).getByText("Dopasowano automatycznie")).toBeInTheDocument();
-    expect(within(suwala).getByLabelText("Stawka kosztowa")).toHaveValue("148.75");
+    expect(within(suwala).getByLabelText("Stawka kosztowa")).toHaveValue("148.750");
     expect(within(suwala).getByText("z kontraktu")).toBeInTheDocument();
     expect(within(suwala).getByLabelText("Liczba MD")).toHaveValue("35");
     expect(within(suwala).getAllByText("z PDF, poz. 10")).toHaveLength(2);

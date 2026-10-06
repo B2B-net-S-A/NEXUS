@@ -135,6 +135,6 @@ describe("ConsultantLineModal — ostrzeżenie o rozbieżnych stawkach", () => {
     expect(warning).not.toHaveTextContent(/żaden nie jest aktywny/i);
     expect(
       screen.getByRole("textbox", { name: /Stawka kosztowa/ }),
-    ).toHaveValue("560");
+    ).toHaveValue("560.000");
   });
 });

@@ -1,4 +1,4 @@
 {
-  "sha256": "07697cb40b21ec10b8236adb940cd0e060738aa42fc8f1800afe5d2d0c1c4ce3",
+  "sha256": "148c7723f2a3f536eadaaa05c78ca8583db796709f261eb3dc684158e96e4b3a",
   "source": "frontend/src/components/client-profile/orders/OrderGroupFormModal.tsx"
 }

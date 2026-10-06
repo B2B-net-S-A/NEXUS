@@ -43,7 +43,10 @@ def _money_out(value: Decimal) -> float:
 
 
 def _contract_rate_out(value: Decimal) -> float:
-    return float(Decimal(value).quantize(Decimal("0.001")))
+    # Pełna skala kontraktu (Numeric(16,6) od 0309): 1001,55 zł/MD to
+    # 125,19375 zł/h. Ucięte do 3 miejsc (125,194) wracało ×8 jako 1001,552,
+    # odkąd linia MD trzyma trzecie miejsce (0419).
+    return float(Decimal(value).quantize(MD_SCALE))
 
 
 # Pełna precyzja wewnątrz, JSON number na drucie. Zaokrąglenie do 3 miejsc
@@ -55,7 +58,7 @@ MdValue = Annotated[
 MoneyPLN = Annotated[
     Decimal, PlainSerializer(_money_out, return_type=float, when_used="json")
 ]
-# Stawki kontraktu są Numeric(12,3), więc podpowiedź nie może przechodzić
+# Stawki kontraktu są Numeric(16,6), więc podpowiedź nie może przechodzić
 # przez MoneyPLN (3 miejsca). JSON number zachowuje pełną skalę źródła.
 ContractRateValue = Annotated[
     Decimal, PlainSerializer(_contract_rate_out, return_type=float, when_used="json")
@@ -93,8 +96,8 @@ class OrderLineCreate(BaseModel):
     własny, walidowany cykl życia (``contract_lifecycle.activate_contract``)
     i obsada zamówienia nie może go obchodzić bokiem."""
 
-    rate_cost: MoneyPLN = Field(..., ge=0, max_digits=12, decimal_places=2)
-    rate_revenue: MoneyPLN = Field(..., gt=0, max_digits=12, decimal_places=2)
+    rate_cost: MoneyPLN = Field(..., ge=0, max_digits=12, decimal_places=3)
+    rate_revenue: MoneyPLN = Field(..., gt=0, max_digits=12, decimal_places=3)
     """Stawka przychodowa jest dzielnikiem (kwota→MD, przeliczenie przy
     zamianie kontraktora), więc zero jest odrzucane już na wejściu."""
 
@@ -363,9 +366,9 @@ class OrderLineUpdate(BaseModel):
     rate_candidate_currency: Optional[str] = Field(None, pattern=r"^[A-Z]{3}$")
     rate_client_currency: Optional[str] = Field(None, pattern=r"^[A-Z]{3}$")
 
-    rate_cost: Optional[MoneyPLN] = Field(None, ge=0, max_digits=12, decimal_places=2)
+    rate_cost: Optional[MoneyPLN] = Field(None, ge=0, max_digits=12, decimal_places=3)
     rate_revenue: Optional[MoneyPLN] = Field(
-        None, gt=0, max_digits=12, decimal_places=2
+        None, gt=0, max_digits=12, decimal_places=3
     )
     input_mode: Optional[str] = None
     input_value: Optional[MdValue] = Field(None, ge=0, max_digits=16, decimal_places=6)
@@ -397,8 +400,13 @@ class OrderLineSwapRequest(BaseModel):
     """Zamiana kontraktora na linii."""
 
     contract_id: int
-    rate_cost: MoneyPLN = Field(..., ge=0, max_digits=12, decimal_places=2)
-    rate_revenue: MoneyPLN = Field(..., gt=0, max_digits=12, decimal_places=2)
+    rate_cost: MoneyPLN = Field(..., ge=0, max_digits=12, decimal_places=3)
+    rate_revenue: MoneyPLN = Field(..., gt=0, max_digits=12, decimal_places=3)
+    rate_candidate_currency: str = Field("PLN", pattern=r"^[A-Z]{3}$")
+    """Waluta stawki kosztowej (ticket 10.2026). Brak = PLN — klienci API
+    sprzed waluty w tym oknie wysyłali stawki w PLN/MD."""
+    rate_client_currency: str = Field("PLN", pattern=r"^[A-Z]{3}$")
+    """Waluta stawki przychodowej; serwer przelicza do PLN/MD po kursie z dnia."""
     swap_date: date
     md_transfer_method: Optional[MdTransferMethod] = None
     """Brak = dotychczasowe przeliczenie z zachowaniem wartości w PLN (klienci
@@ -413,8 +421,13 @@ class OrderLineTakeoverRequest(BaseModel):
     departing_order_id: int = Field(..., gt=0)
     """Linia osoby odchodzącej na tym zamówieniu."""
     entry_date: date
-    rate_cost: MoneyPLN = Field(..., ge=0, max_digits=12, decimal_places=2)
-    rate_revenue: MoneyPLN = Field(..., gt=0, max_digits=12, decimal_places=2)
+    rate_cost: MoneyPLN = Field(..., ge=0, max_digits=12, decimal_places=3)
+    rate_revenue: MoneyPLN = Field(..., gt=0, max_digits=12, decimal_places=3)
+    rate_candidate_currency: str = Field("PLN", pattern=r"^[A-Z]{3}$")
+    """Waluta stawki kosztowej (ticket 10.2026). Brak = PLN — klienci API
+    sprzed waluty w tym oknie wysyłali stawki w PLN/MD."""
+    rate_client_currency: str = Field("PLN", pattern=r"^[A-Z]{3}$")
+    """Waluta stawki przychodowej; serwer przelicza do PLN/MD po kursie z dnia."""
     md_transfer_method: Optional[MdTransferMethod] = None
     """Wymagany przy puli w kwocie; przy puli w MD jedyną odpowiedzią jest 1:1."""
     expected_case_version: Optional[int] = Field(None, ge=1)
@@ -882,6 +895,70 @@ class LineConsumptionUpsert(BaseModel):
             return None
         cleaned = value.strip()
         return cleaned or None
+
+
+class SharedMdConsumptionPerson(BaseModel):
+    """MD jednego konsultanta w miesięcznym zejściu wspólnej puli."""
+
+    order_id: int
+    consultant_name: str = ""
+    md: MdValue
+
+
+class SharedMdConsumptionMonth(BaseModel):
+    """Zejście wspólnej puli MD za miesiąc (ticket 10.2026: edycja i usunięcie)."""
+
+    period_month: str
+    md_reported: MdValue
+    """Suma miesiąca — to ona pomniejsza pulę."""
+    source: Literal["import", "manual"]
+    breakdown: Optional[list[SharedMdConsumptionPerson]] = None
+    """Podział na konsultantów. ``None`` = zapis bez podziału (stara ręczna
+    suma albo import, którego wierszy nie da się złożyć w tę sumę)."""
+    breakdown_source: Optional[Literal["manual", "import"]] = None
+    created_by_name: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+
+class SharedMdConsultant(BaseModel):
+    """Konsultant zamówienia — wiersz formularza edycji zejścia."""
+
+    order_id: int
+    consultant_name: str = ""
+    status: str
+
+
+class SharedMdConsumptionsResponse(BaseModel):
+    months: list[SharedMdConsumptionMonth] = Field(default_factory=list)
+    consultants: list[SharedMdConsultant] = Field(default_factory=list)
+    md_budget_total: Optional[MdValue] = None
+    md_used: Optional[MdValue] = None
+    md_remaining: Optional[MdValue] = None
+
+
+class SharedMdConsumptionLineIn(BaseModel):
+    order_id: int = Field(..., gt=0)
+    md: MdValue = Field(..., ge=0, max_digits=16, decimal_places=6)
+
+
+class SharedMdConsumptionUpsert(BaseModel):
+    """Ręczny zapis zejścia wspólnej puli za miesiąc (``PUT …/{RRRR-MM}``).
+
+    Podział na konsultantów; suma trafia do ``md_reported`` i to ona liczy
+    pulę. Miesiąc jest w ścieżce — powtórny PUT NADPISUJE miesiąc.
+    """
+
+    lines: list[SharedMdConsumptionLineIn] = Field(..., min_length=1, max_length=200)
+
+    @field_validator("lines")
+    @classmethod
+    def _unique_people(
+        cls, value: list[SharedMdConsumptionLineIn]
+    ) -> list[SharedMdConsumptionLineIn]:
+        ids = [line.order_id for line in value]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Każdy konsultant może wystąpić tylko raz")
+        return value
 
 
 class OrderDraftRead(BaseModel):

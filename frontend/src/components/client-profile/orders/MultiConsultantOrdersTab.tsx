@@ -533,12 +533,6 @@ export function MultiConsultantOrdersTab({
             start_date: values.start_date,
             end_date: values.end_date,
             notes: values.notes,
-            ...(values.md_consumption_month
-              ? {
-                  md_consumption_month: values.md_consumption_month,
-                  md_consumption_value: values.md_consumption_value,
-                }
-              : {}),
             ...(values.md_budget_mode != null
               ? { md_budget_mode: values.md_budget_mode }
               : {}),
