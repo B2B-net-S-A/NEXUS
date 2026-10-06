@@ -1,7 +1,7 @@
 """Dane z notatek do pól: wpis „X/Y” w „Stawce od” i języki z notatek.
 
-Revision ID: 0422_notes_facts_to_fields
-Revises: 0421_recommendation_card_assist
+Revision ID: 0423_notes_facts_to_fields
+Revises: 0422_job_proposals_expired
 
 * Wyzwalacz ``trg_rate_from_notes`` — wpis Delivery Leada „X/Y” (stawka do
   klienta / oczekiwanie kandydata) jest obserwacją „Stawki od”, więc zmiana
@@ -18,8 +18,8 @@ from alembic import op
 
 from app.services import notes_facts_schema as schema
 
-revision = "0422_notes_facts_to_fields"
-down_revision = "0421_recommendation_card_assist"
+revision = "0423_notes_facts_to_fields"
+down_revision = "0422_job_proposals_expired"
 branch_labels = None
 depends_on = None
 

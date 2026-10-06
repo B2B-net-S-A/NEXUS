@@ -1,6 +1,6 @@
-"""Dane z notatek do pól profilu (07.10.2026) — SQL migracji 0422 i lustra w ``entrypoint.sh``.
+"""Dane z notatek do pól profilu (07.10.2026) — SQL migracji 0423 i lustra w ``entrypoint.sh``.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0422_notes_facts_to_fields.py``
+JEDNO źródło instrukcji dla ``alembic/versions/0423_notes_facts_to_fields.py``
 i ``entrypoint.sh`` (alembic na prodzie bywa osierocony; ciało wyzwalacza jest
 w ``$$``, więc entrypoint importuje ten moduł zamiast przepisywać SQL).
 
@@ -18,7 +18,7 @@ w ``$$``, więc entrypoint importuje ten moduł zamiast przepisywać SQL).
 
 from __future__ import annotations
 
-BACKFILL_MARKER = "0422_notes_dl_pair_rate_from_queued"
+BACKFILL_MARKER = "0423_notes_dl_pair_rate_from_queued"
 
 # Lustro ``client_rate_notes.DL_PAIR_SQL_PATTERN`` i ``DL_PAIR_KINDS``
 # (pilnuje test) — tu literalnie, bo instrukcje idą do bazy wprost.

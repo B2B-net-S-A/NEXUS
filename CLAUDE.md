@@ -2337,7 +2337,7 @@ faktów (`PATCH /api/candidates/{id}/work-mode`). Jedna reguła:
   którą wpisały notatki, poprawki człowieka nie rusza. Do 07.10 datę dawał
   wyłącznie ISO w `available_from` (6 327 osób z dostępnością w notatkach
   miało pustą datę). **Języki** z `languages_observed` zapisuje writer ze
-  źródłem `notes` (CHECK `ck_candidate_languages_provenance`, 0422): tylko
+  źródłem `notes` (CHECK `ck_candidate_languages_provenance`, 0423): tylko
   DOPISUJE język, którego profil nie zna — wiersza z CV, Traffita ani
   ręcznego nie zmienia (także poziomu), nigdy nie usuwa (nagrobek blokowałby
   później język z CV). Status „szuka aktywnie” z „od zaraz” stawia tylko
@@ -2850,7 +2850,7 @@ Artura 04.10.2026 (makiety: https://claude.ai/artifact/SxV3wMXBL8FhA2Q743HwEd).
   plan stawki do klienta; wyzwalacz kolejkuje szerzej, decyduje Python): obserwacją jest WYŁĄCZNIE Y, `raw` =
   „{Y} PLN/h” — X to stawka do klienta, a historię stawek widzi każda rola.
   Wpis powtarzający kwotę etapu albo karty tej rekrutacji nie dubluje
-  historii. Kolejkę przelicza wyzwalacz `trg_rate_from_notes` (0422,
+  historii. Kolejkę przelicza wyzwalacz `trg_rate_from_notes` (0423,
   `notes_facts_schema.py`; łapie też surowy SQL Traffita), a zapis, edycja
   i usunięcie notatki w API przeliczają od razu.
 - **Wynik w kolumnach `candidates.rate_from_*`, `rate_latest_*`,

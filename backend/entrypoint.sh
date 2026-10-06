@@ -880,7 +880,7 @@ except Exception as _rate_change_err:  # noqa: BLE001
     print(f"candidate rate change DDL unavailable: {_rate_change_err!r}")
     _RATE_CHANGE_DDL = []
 
-# Dane z notatek do pól (migracja 0422): wyzwalacz kolejki „Stawki od” na
+# Dane z notatek do pól (migracja 0423): wyzwalacz kolejki „Stawki od” na
 # notatkach z wpisem „X/Y” i jednorazowe zakolejkowanie kandydatów — JEDNO
 # źródło z migracją (`app/services/notes_facts_schema.py`). CHECK źródła
 # języków (`notes`) stoi niżej literalnie, w `_CONSTRAINT_STATEMENTS`.
@@ -8489,7 +8489,7 @@ _CONSTRAINT_STATEMENTS = [
     # importu dostaje `tr_legacy`. Oba CHECK-i przyjmują starą I nową wartość,
     # żeby rollback (redeploy poprzedniego obrazu, który wciąż pisze
     # `talent_radar`) nie wywalał się na naruszeniu constraintu.
-    # 0422: + `notes` — języki zaobserwowane w notatkach rekruterów
+    # 0423: + `notes` — języki zaobserwowane w notatkach rekruterów
     # (lustro `notes_facts_schema.LANGUAGE_PROVENANCE_DDL`).
     "ALTER TABLE candidate_languages DROP CONSTRAINT IF EXISTS ck_candidate_languages_provenance",
     """DO $$ BEGIN

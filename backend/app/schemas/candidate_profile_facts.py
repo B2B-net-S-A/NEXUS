@@ -29,7 +29,7 @@ LanguageProvenance = Literal[
     "csv",
     "legacy",
     "unknown",
-    # 0422: języki zaobserwowane w notatkach rekruterów.
+    # 0423: języki zaobserwowane w notatkach rekruterów.
     "notes",
 ]
 
