@@ -951,8 +951,8 @@ def test_dash_range_written_higher_first_keeps_v1_reading():
             ],
         ),
         (
-            "1. Czy używasz Kafki? tak, 2 lata\n"
-            "2. Ile lat pracujesz z Javą? 8",
+            "Pytanie 1: Czy używasz Kafki? tak, 2 lata\n"
+            "Pytanie 2: Ile lat pracujesz z Javą? 8",
             [
                 (1, "Czy używasz Kafki?", "tak, 2 lata"),
                 (2, "Ile lat pracujesz z Javą?", "8"),
@@ -1010,3 +1010,41 @@ def test_note_after_question_mark_is_not_an_answer():
     ).answers
 
     assert [a["answer"] for a in answers] == ["", ""]
+
+
+def test_remark_after_question_mark_stays_in_the_question_when_answer_is_below():
+    answers = parse_card(
+        "Pytanie 1: Czy znasz angielski? Poziom min. B2\nTak, C1"
+    ).answers
+
+    assert [(a["question"], a["answer"]) for a in answers] == [
+        ("Czy znasz angielski? Poziom min. B2", "Tak, C1")
+    ]
+
+
+def test_short_remark_after_question_mark_is_not_an_answer():
+    answers = parse_card("Pytanie 1: Czy znasz angielski? Poziom min. B2").answers
+
+    assert [a["answer"] for a in answers] == [""]
+
+
+def test_numbered_list_with_inline_answers_under_a_field_stays_the_field():
+    card = parse_card("Uwagi:\n1. Termin rozmowy? czwartek\n2. Kontakt z HM? brak")
+
+    assert card.answers == ()
+    assert card.fields["recommendation"]["raw"].startswith("1. Termin rozmowy?")
+
+
+def test_wrapped_question_does_not_take_the_previous_field_line():
+    card = parse_card(
+        "Motywacja: chce zmienić projekt\nbo obecny się kończy\n"
+        "czy zna kafkę od dłuższego czasu w projekcie?\ntak, 2 lata\n"
+        "Jak ocenia swoją znajomość Kubernetes w produkcji?\nDobrze."
+    )
+
+    assert card.fields["motivation"]["raw"] == (
+        "chce zmienić projekt\nbo obecny się kończy"
+    )
+    assert card.answers[0]["question"] == (
+        "czy zna kafkę od dłuższego czasu w projekcie?"
+    )

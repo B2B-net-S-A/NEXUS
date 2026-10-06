@@ -98,8 +98,8 @@ def test_number_contradicting_a_content_match_disables_numbering():
 
 
 def test_gray_zone_is_skipped_even_with_numbers():
-    gray = "Doświadczenie z chmurą Azure i Terraform"
-    score = sync.similarity(gray, QUESTIONS["q1"])
+    gray = "Kubernetes?"
+    score = sync.match_score(gray, QUESTIONS["q1"])
     assert sync.GRAY_MIN <= score < sync.CONTENT_MIN, score
 
     result = sync.map_note_answers(
@@ -109,6 +109,49 @@ def test_gray_zone_is_skipped_even_with_numbers():
 
     assert "q1" not in [m.question_id for m in result.matches]
     assert result.skipped.get("gray") == 1
+
+
+def test_question_about_a_different_keyword_is_not_matched():
+    # Wspólna reszta zdania: „AWS” i „Azure” mają podobieństwo 0,90.
+    questions = {
+        "q1": "Czy masz doświadczenie z Azure?",
+        "q2": "Jaki jest Twój okres wypowiedzenia?",
+    }
+    assert sync.similarity("Czy masz doświadczenie z AWS?", questions["q1"]) > 0.8
+
+    result = sync.map_note_answers(
+        questions, [_item(1, "Czy masz doświadczenie z AWS?", "Nie")]
+    )
+
+    assert result.matches == ()
+    assert result.skipped == {"different": 1}
+
+
+def test_note_question_shortened_or_with_a_remark_still_matches():
+    assert sync.match_score("Czy pracowałeś z Kafką", QUESTIONS["q2"]) >= (
+        sync.CONTENT_MIN
+    )
+    assert sync.match_score(
+        "Czy pracowałeś z Apache Kafka? (min. 2 lata)", QUESTIONS["q2"]
+    ) >= sync.CONTENT_MIN
+    assert sync.match_score("Doświadczenie z Kubernetes", QUESTIONS["q1"]) >= (
+        sync.CONTENT_MIN
+    )
+
+
+def test_questions_unlike_the_profile_are_not_mapped_by_number():
+    # Profil zmieniony po notatce: trzy odpowiedzi na trzy INNE pytania.
+    result = sync.map_note_answers(
+        QUESTIONS,
+        [
+            _item(1, "Stawka?", "140"),
+            _item(2, "Angielski?", "B2"),
+            _item(3, "Dostępność?", "od zaraz"),
+        ],
+    )
+
+    assert result.matches == ()
+    assert result.skipped == {"different": 3}
 
 
 def test_two_answers_claiming_one_question_are_both_dropped():

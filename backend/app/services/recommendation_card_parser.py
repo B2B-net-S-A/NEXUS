@@ -715,7 +715,9 @@ def _numbered_questions(text: str, taken: list[_Label]) -> list[_Label]:
     bounds = sorted(starts | {item[0] for item in run} | {len(text)})
     for start, end, _ in run:
         stop = next(bound for bound in bounds if bound > start)
-        if _split_question(text[end:stop])[1]:
+        # Reguła z v1: lista staje się pytaniami tylko z odpowiedzią w osobnym
+        # wierszu — „Uwagi:\n1. Termin rozmowy? czwartek” zostaje polem.
+        if _split_question(text[end:stop], short_answers=False)[1]:
             return [(start, end, "_question", number) for start, end, number in run]
     return []
 
@@ -753,6 +755,10 @@ def _bare_questions(text: str, taken: list[_Label]) -> list[_Label]:
             and not (start >= 2 and lines[start - 2].endswith("?"))
         ):
             start -= 1
+        # Doklejony początek musi wyglądać na początek pytania — inaczej to
+        # dalszy ciąg poprzedniego pola („Motywacja: … / bo obecny się kończy”).
+        while start < index and not _question_start(lines[start]):
+            start += 1
         question = " ".join(lines[start : index + 1])
         if (
             len(question) >= 25
@@ -840,7 +846,7 @@ def _clean_lines(segment: str) -> list[str]:
     ]
 
 
-def _split_question(segment: str) -> tuple[str, str]:
+def _split_question(segment: str, *, short_answers: bool = True) -> tuple[str, str]:
     """Pytanie i odpowiedź z odcinka bez etykiety „Odpowiedź:”.
 
     Tekst w wierszu etykiety jest pytaniem, kolejne wiersze odpowiedzią.
@@ -863,9 +869,12 @@ def _split_question(segment: str) -> tuple[str, str]:
         tail = first[cut + 2 :].strip()
         # v2: krótka odpowiedź w wierszu pytania („Czy znasz Kafkę? Tak”).
         # Dłuższy dopisek bez wiersza odpowiedzi pod spodem był odpowiedzią
-        # już w v1.
-        if _answer_like(tail) or (not rest and len(first) - cut > 20):
-            return first[: cut + 1], "\n".join([tail, *rest])
+        # już w v1. Z odpowiedzią w kolejnym wierszu tekst po „? ” zostaje
+        # częścią pytania („Czy znasz angielski? Poziom min. B2”) — jak w v1.
+        if not rest and (
+            (short_answers and _short_answer(tail)) or len(first) - cut > 20
+        ):
+            return first[: cut + 1], tail
     if rest:
         return first, "\n".join(rest)
     return first, ""
@@ -899,15 +908,30 @@ def _question_lines(lines: list[str]) -> int:
     return asked
 
 
-def _answer_like(tail: str) -> bool:
-    """Tekst po „? ” w wierszu pytania wygląda na odpowiedź, nie na dopisek."""
+_SHORT_ANSWER_RE = re.compile(
+    r"(?:tak|nie|yes|no|brak|raczej|cz[eę][sś]ciowo|troch[eę]|ok)\b|\d", re.I
+)
+
+
+def _short_answer(tail: str) -> bool:
+    """Tekst po „? ” w wierszu pytania wygląda na odpowiedź, nie na dopisek.
+
+    Tylko odpowiedź z góry rozpoznawalna: „tak/nie…”, liczba albo tekst małą
+    literą („tak, 2 lata”, „8”, „miesiąc”). „Poziom min. B2” to dopisek do
+    pytania.
+    """
     return (
         bool(tail)
         and tail[0] not in '([„"*'
-        and any(char.isalnum() for char in tail)
         and not _ASKING_RE.match(tail)
         and not tail.endswith("?")
+        and (bool(_SHORT_ANSWER_RE.match(tail)) or tail[0].islower())
     )
+
+
+def _question_start(line: str) -> bool:
+    """Wiersz, od którego może zaczynać się pytanie."""
+    return bool(_ASKING_RE.match(line)) or line[:1].isupper()
 
 
 # Pola karty, których nie czyta żaden model (narodowość) i których nie czyta

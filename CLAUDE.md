@@ -2494,9 +2494,11 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
   odczyt): dwie poprawki z przeglądu kodu pogorszyły odczyt prawdziwych kart,
   zanim zostały zawężone. Zmiana znaczenia = podbij `PARSER_VERSION`
   (wchodzi do odcisku, więc karty przeliczą się same). v2 (07.10.2026):
-  krótka odpowiedź po „? ” w wierszu pytania, pytania zawinięte na 2–3
-  wiersze (dalszy ciąg małą literą), „Stawka: 160/115” (pierwsza wyższa,
-  ukośnik) = kandydat 115.
+  krótka odpowiedź po „? ” w wierszu pytania („tak/nie…”, liczba, mała
+  litera; tylko bez wiersza odpowiedzi pod spodem), pytania zawinięte na 2–3
+  wiersze (dalszy ciąg małą literą, początek wygląda na pytanie), „Stawka:
+  160/115” (pierwsza wyższa, ukośnik) = kandydat 115. Lista numerowana staje
+  się pytaniami jak w v1 — tylko z odpowiedzią w osobnym wierszu.
 - **Odpowiedzi z notatek trafiają do arkusza screeningu (decyzje Artura
   07.10.2026 — do tej daty reguła brzmiała „nie trafiają”).** Jedyne miejsce
   zapisu: `services/screening_note_sync.py` (strażnik
@@ -2511,9 +2513,11 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
   dotyka (także kopii na innych wierszach pary). Zapis człowieka (arkusz,
   okno karty, trafienie „Odpada, gdy…”) zamienia `note_sync` na
   `note_import`. Przypięcie do pytań (`map_note_answers`, rapidfuzz): po
-  treści ≥ 0,5 z przewagą ≥ 0,1 i jeden do jednego; po numerze tylko przy
-  komplecie odpowiedzi i numeracji zgodnej z dopasowaniami po treści; szara
-  strefa 0,3–0,5 i konflikty pomijane. Arkusz idzie na najnowszy wiersz pary
+  treści ≥ 0,5 z przewagą ≥ 0,1, jeden do jednego, a słowa jednego pytania
+  mieszczą się w drugim („AWS” ≠ „Azure”, choć podobieństwo 0,90); po numerze
+  tylko odpowiedź bez treści pytania, przy komplecie odpowiedzi i numeracji
+  zgodnej z dopasowaniami po treści; szara strefa 0,3–0,5, treść niepasująca
+  do żadnego pytania i konflikty pomijane. Arkusz idzie na najnowszy wiersz pary
   (blokada wierszy pary), kopie automatu na starszych wierszach bieżącej próby
   dostają tę samą treść albo `NULL`; notatka sprzed bieżącej próby nie zasila
   arkusza. `answered_at`/`answered_by` = data i autor notatki; zamiast

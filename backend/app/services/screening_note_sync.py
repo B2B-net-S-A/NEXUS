@@ -18,10 +18,13 @@ To JEDYNE miejsce, w którym notatka pisze arkusz (strażnik
   automat go nie dotyka (także jego kopii na innych wierszach pary). Zapis
   człowieka zamienia ``note_sync`` na ``note_import``.
 * Przypięcie do pytań Championa (``map_note_answers``): po treści pytania
-  (podobieństwo ≥ 0,5 z przewagą ≥ 0,1, jeden do jednego); po numerze tylko
-  wtedy, gdy liczba odpowiedzi w notatce = liczba pytań, numeracja jest
-  kompletna i nie przeczy dopasowaniom po treści. Szara strefa (0,3–0,5)
-  i konflikty są pomijane, puste odpowiedzi też.
+  (podobieństwo ≥ 0,5 z przewagą ≥ 0,1, jeden do jednego, a słowa jednego
+  pytania mieszczą się w drugim — „AWS” to nie „Azure”); po numerze tylko
+  odpowiedź bez treści pytania (albo pasującej do kilku pytań) i tylko wtedy,
+  gdy liczba odpowiedzi w notatce = liczba pytań, numeracja jest kompletna
+  i nie przeczy dopasowaniom po treści. Szara strefa (0,3–0,5), treść
+  niepasująca do żadnego pytania i konflikty są pomijane, puste odpowiedzi
+  też.
 * Arkusz trafia na najnowszy wiersz etapu pary (blokada wszystkich wierszy
   pary); kopie arkusza automatu na starszych wierszach bieżącej próby
   dostają tę samą treść albo ``NULL``. Notatka sprzed bieżącej próby
@@ -118,6 +121,47 @@ def similarity(left: str, right: str) -> float:
     return max(fuzz.ratio(a, b), fuzz.token_sort_ratio(a, b)) / 100.0
 
 
+# Krótkie słowa funkcyjne nie odróżniają pytań („z”, „w”, „na”).
+_FILLER = frozenset(
+    {"z", "o", "w", "i", "a", "u", "na", "do", "ze", "we", "po", "od", "za", "sie"}
+)
+_STEM = 5
+
+
+def _words(text: str) -> list[str]:
+    return [word for word in _normalize(text).split() if word not in _FILLER]
+
+
+def _same_word(left: str, right: str) -> bool:
+    """To samo słowo z dokładnością do odmiany („kafka”/„kafke”, „kubernetesem”)."""
+    if left == right:
+        return True
+    if min(len(left), len(right)) < _STEM:
+        return False
+    return left[:_STEM] == right[:_STEM]
+
+
+def _covers(inner: list[str], outer: list[str]) -> bool:
+    return all(any(_same_word(word, other) for other in outer) for word in inner)
+
+
+def match_score(note_question: str, champion_question: str) -> float:
+    """Podobieństwo do przypięcia — 0, gdy pytania różnią się słowem kluczowym.
+
+    Wspólna reszta zdania daje wysokie podobieństwo pytaniom o różne rzeczy
+    („doświadczenie z AWS” / „… z Azure” = 0,90). Dlatego słowa jednego
+    pytania muszą się mieścić w drugim (notatka bywa skrótem albo ma dopisek);
+    dwa pytania z własnymi, różnymi słowami nie są tym samym pytaniem.
+    """
+    score = similarity(note_question, champion_question)
+    if score <= 0.0:
+        return 0.0
+    left, right = _words(note_question), _words(champion_question)
+    if _covers(left, right) or _covers(right, left):
+        return score
+    return 0.0
+
+
 @dataclass(frozen=True)
 class AnswerMatch:
     question_id: str
@@ -181,7 +225,7 @@ def map_note_answers(
         if not text:
             status[index] = "no_text"
             continue
-        row = [similarity(text, questions[qid]) for qid in question_ids]
+        row = [match_score(text, questions[qid]) for qid in question_ids]
         scores[index] = row
         ranked = sorted(row, reverse=True)
         best = ranked[0]
@@ -223,7 +267,10 @@ def map_note_answers(
         if numbering_ok and number is not None:
             qid = question_ids[number - 1]
             row = scores.get(index)
-            allowed = reason in ("no_text", "different") or (
+            # Po numerze tylko odpowiedź bez treści pytania albo z treścią
+            # pasującą do kilku pytań — numer rozstrzyga. Treść niepasująca
+            # do żadnego pytania przeczy numerowi (profil zmieniony po notatce).
+            allowed = reason == "no_text" or (
                 reason == "ambiguous"
                 and row is not None
                 and row[number - 1] >= max(row) - CONTENT_MARGIN
@@ -597,6 +644,7 @@ __all__ = [
     "is_blank",
     "is_sync_owned",
     "map_note_answers",
+    "match_score",
     "plan_pair",
     "plan_rows",
     "similarity",
