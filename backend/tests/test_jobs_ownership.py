@@ -678,6 +678,9 @@ async def test_new_owner_gets_a_work_assignment_only_in_the_pool(
 
     manual_add = AsyncMock()
     monkeypatch.setattr(jobs_api, "manual_add", manual_add)
+    # Dzwonek dla nowej osoby (H1) ma własny test na bazie.
+    notify = AsyncMock()
+    monkeypatch.setattr(jobs_api, "_notify_new_owner", notify)
     db = AsyncMock()
     owner = User(id=9, role=UserRole(roles[0]), roles=roles, is_active=True)
 
@@ -689,6 +692,8 @@ async def test_new_owner_gets_a_work_assignment_only_in_the_pool(
         actor_id=1,
     )
 
+    # Nowa osoba (≠ wykonujący, ≠ poprzedni prowadzący) dostaje dzwonek.
+    notify.assert_awaited_once()
     # Nie było poprzedniego rekrutera — nie ma komu zwalniać przypisania.
     if expected_role is None:
         # Poza pulą nie powstaje wiersz pracy; jedyny UPDATE znosi wcześniejsze
@@ -715,6 +720,7 @@ async def test_previous_owner_is_released_only_when_the_owner_changes(monkeypatc
     from app.api import jobs as jobs_api
 
     monkeypatch.setattr(jobs_api, "manual_add", AsyncMock())
+    monkeypatch.setattr(jobs_api, "_notify_new_owner", AsyncMock())
     owner = User(id=9, role=UserRole.recruiter, roles=["recruiter"], is_active=True)
     job = _pool_job(work_state="to_review")
 
@@ -1457,3 +1463,66 @@ async def test_users_directory_and_mentions_include_secondary_roles(
     assert directory_row["role"] == UserRole.delivery_lead.value
     assert UserRole.recruiter.value in directory_row["roles"]
     assert hybrid_id in {user["id"] for user in mentionable.json()}
+
+
+# ── Audyt 06.10.2026 (H1): dzwonek przy ręcznym ustawieniu rekrutera ─────────
+
+
+async def _assignment_bells(user_id: int, job_id: int) -> int:
+    from sqlalchemy import func
+
+    from app.models.notification import Notification, NotificationType
+
+    async with AsyncSessionLocal() as db:
+        return int(
+            await db.scalar(
+                select(func.count(Notification.id)).where(
+                    Notification.user_id == user_id,
+                    Notification.notification_type
+                    == NotificationType.request_assignment_changed,
+                    Notification.related_entity_type == "job",
+                    Notification.related_entity_id == job_id,
+                )
+            )
+            or 0
+        )
+
+
+@pytest.mark.asyncio
+async def test_owner_set_by_someone_else_rings_the_new_owner(
+    ownership_client: AsyncClient,
+):
+    """Do 06.10.2026 dzwonek dawał tylko handoff i automat — `/owner`,
+    `/claim` i okno edycji nie mówiły przypisanej osobie nic."""
+    admin_id, admin_email, admin_pass = await _seed_user(UserRole.admin)
+    rec_id, _, _ = await _seed_user(UserRole.recruiter)
+    job_id = await _seed_job(in_pool=True)
+    try:
+        headers = await _login(ownership_client, admin_email, admin_pass)
+        resp = await ownership_client.post(
+            f"/api/jobs/{job_id}/owner", headers=headers, json={"user_id": rec_id}
+        )
+        assert resp.status_code == 200, resp.text
+        assert await _assignment_bells(rec_id, job_id) == 1
+        assert await _assignment_bells(admin_id, job_id) == 0
+        # Ponowne ustawienie tej samej osoby nie dzwoni drugi raz.
+        again = await ownership_client.post(
+            f"/api/jobs/{job_id}/owner", headers=headers, json={"user_id": rec_id}
+        )
+        assert again.status_code == 200, again.text
+        assert await _assignment_bells(rec_id, job_id) == 1
+    finally:
+        await _drop_jobs([job_id])
+
+
+@pytest.mark.asyncio
+async def test_claim_rings_no_bell_for_yourself(ownership_client: AsyncClient):
+    rec_id, rec_email, rec_pass = await _seed_user(UserRole.recruiter)
+    job_id = await _seed_job(in_pool=True)
+    try:
+        headers = await _login(ownership_client, rec_email, rec_pass)
+        resp = await ownership_client.post(f"/api/jobs/{job_id}/claim", headers=headers)
+        assert resp.status_code == 200, resp.text
+        assert await _assignment_bells(rec_id, job_id) == 0
+    finally:
+        await _drop_jobs([job_id])

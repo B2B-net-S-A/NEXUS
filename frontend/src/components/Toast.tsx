@@ -48,6 +48,14 @@ export function useToast(): ToastContextValue {
   return ctx;
 }
 
+/**
+ * Jak `useToast`, ale bez wyjątku poza `ToastProvider` — dla komponentów
+ * montowanych też w testach i harnessach bez dostawcy (edytor Championa).
+ */
+export function useOptionalToast(): ToastContextValue | null {
+  return useContext(ToastContext);
+}
+
 // ── Provider ──────────────────────────────────────────────────────────────────
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {

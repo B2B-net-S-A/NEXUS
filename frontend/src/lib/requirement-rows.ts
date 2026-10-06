@@ -42,6 +42,16 @@ export const LEVEL_LABEL: Record<RequirementLevel, string> = {
   nice: "Mile widziane",
 };
 
+/**
+ * Słowo, które wolno wpisać w wiersz wymagań: co najmniej 2 znaki albo jedna
+ * litera („C”, „R” — technologie ze słownika). Czy to technologia, rozstrzyga
+ * serwer (audyt 06.10.2026, P4). Lista kandydatów zostaje przy 2 znakach.
+ */
+export function acceptRequirementWord(word: string): boolean {
+  const trimmed = word.trim();
+  return trimmed.length >= 2 || /^\p{L}$/u.test(trimmed);
+}
+
 let rowSeq = 0;
 export function newRowKey(): string {
   rowSeq += 1;
@@ -119,6 +129,19 @@ export function countLevel(
   return filledRows(rows).filter((row) => row.level === level).length;
 }
 
+/**
+ * Miejsca „mile widzianych” zajęte przez te wiersze: same „mile widziane”
+ * i nadmiar obowiązkowych ponad 10 — serwer (`split_rows`) zapisuje go jako
+ * „mile widziane”, dopóki jest tam miejsce (audyt 06.10.2026, N3).
+ */
+function niceSlotsUsed(rows: readonly RequirementRowForm[]): number {
+  const required = rows.filter(isRequired).length;
+  return (
+    rows.filter((row) => row.level === "nice").length +
+    Math.max(0, required - REQUIRED_ROWS_MAX)
+  );
+}
+
 /** Czy wiersz może dostać ten poziom (limity z serwera); `null` = tak. */
 export function levelBlockedReason(
   rows: readonly RequirementRowForm[],
@@ -131,14 +154,43 @@ export function levelBlockedReason(
   if (level === "critical") {
     if (others.filter((row) => row.level === "critical").length >= CRITICAL_ROWS_MAX)
       return `Najwyżej ${CRITICAL_ROWS_MAX} krytyczne — zdejmij jedno, żeby dodać kolejne.`;
+    // Wiersz ponad dziesiąty obowiązkowy serwer zapisuje jako „mile widziane”,
+    // więc krytyczny musi się zmieścić w pierwszych dziesięciu.
+    if (current.level === "nice" && others.filter(isRequired).length >= REQUIRED_ROWS_MAX)
+      return `Najwyżej ${REQUIRED_ROWS_MAX} wierszy obowiązkowych — krytyczne musi się w nich zmieścić.`;
+    return null;
   }
   if (level === "nice") {
-    if (others.filter((row) => row.level === "nice").length >= NICE_ROWS_MAX)
+    // Obowiązkowy ponad limitem już zajmuje miejsce „mile widzianego”.
+    const alreadyOverflow =
+      isRequired(current) && others.filter(isRequired).length >= REQUIRED_ROWS_MAX;
+    if (!alreadyOverflow && niceSlotsUsed(others) >= NICE_ROWS_MAX)
       return `Najwyżej ${NICE_ROWS_MAX} wierszy „mile widziane”.`;
     return null;
   }
-  if (current.level === "nice" && others.filter(isRequired).length >= REQUIRED_ROWS_MAX)
-    return `Najwyżej ${REQUIRED_ROWS_MAX} wierszy obowiązkowych.`;
+  // „Musi mieć” ponad 10 nie jest blokowane — serwer zapisze go jako „mile
+  // widziane”, a edytor mówi to zdaniem (`requiredOverflowNotice`).
+  return null;
+}
+
+/** Zdanie pod listą, gdy obowiązkowych jest więcej niż serwer zapisze jako „musi mieć”. */
+export function requiredOverflowNotice(rows: readonly RequirementRowForm[]): string | null {
+  return requiredRows(rows).length > REQUIRED_ROWS_MAX
+    ? `Ponad ${REQUIRED_ROWS_MAX} wymagań „musi mieć” — kolejne zapiszą się jako „mile widziane”.`
+    : null;
+}
+
+/** Słowo, które ma więcej osób w bazie, nic nie zawęża (audyt 06.10.2026, N8). */
+export const BROAD_WORD_PEOPLE = 15_000;
+
+/**
+ * Podpowiedź przy liczbie osób w bazie dla wiersza — tylko podpowiedź, nic
+ * nie blokuje. `undefined` (liczę…) i `null` (nie policzono) to nie zero.
+ */
+export function rowCountHint(count: number | null | undefined): string | null {
+  if (count == null) return null;
+  if (count === 0) return "Nikt w bazie nie ma tego słowa — sprawdź pisownię.";
+  if (count > BROAD_WORD_PEOPLE) return "Słowo bardzo ogólne — zawęź (np. dodaj technologię).";
   return null;
 }
 
@@ -158,12 +210,9 @@ export function addRow(rows: readonly RequirementRowForm[]): RequirementRowForm[
   return [...rows, { key: newRowKey(), words: [], level }];
 }
 
+/** Miejsce na kolejny wiersz: 10 obowiązkowych + 20 „mile widzianych” (z nadmiarem). */
 export function canAddRow(rows: readonly RequirementRowForm[]): boolean {
-  const filled = filledRows(rows);
-  return (
-    filled.filter(isRequired).length < REQUIRED_ROWS_MAX ||
-    filled.filter((row) => row.level === "nice").length < NICE_ROWS_MAX
-  );
+  return filledRows(rows).length < REQUIRED_ROWS_MAX + NICE_ROWS_MAX;
 }
 
 /** Wiersze do `stack.rows` w zapisie profilu (poziom „krytyczne” czyta serwer). */

@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import {
+  PROPOSAL_EXPIRED_HINT,
   PROPOSAL_OUTCOME_REASON_LABEL,
   PROPOSAL_OUTCOME_REASONS,
   PROPOSAL_OUTCOME_SOURCE_LABEL,
@@ -72,17 +73,20 @@ export function ProposalOutcomesReport() {
 
 function Summary({ counts, days }: { counts: ProposalOutcomeCounts; days: number }) {
   const rate = decisionRate(counts);
-  const tiles = [
+  const expired = counts.expired ?? 0;
+  const tiles: Array<{ label: string; value: number; hint?: string }> = [
     { label: "Zaproponowano osób", value: counts.proposed },
     { label: "Dodano do rekrutacji", value: counts.added },
     { label: "Pominięto", value: counts.dismissed },
     { label: "Czeka na decyzję", value: counts.pending },
   ];
+  // Kafel tylko, gdy coś wygasło — zero w piątym kaflu byłoby szumem.
+  if (expired > 0) tiles.push({ label: "Wygasło", value: expired, hint: PROPOSAL_EXPIRED_HINT });
   return (
     <section aria-label="Podsumowanie" className="space-y-2">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className={cn("grid grid-cols-2 gap-3", tiles.length > 4 ? "md:grid-cols-5" : "md:grid-cols-4")}>
         {tiles.map((tile) => (
-          <div key={tile.label} className="rounded-xl border border-border bg-card p-4">
+          <div key={tile.label} className="rounded-xl border border-border bg-card p-4" title={tile.hint}>
             <p className="text-xs text-muted-foreground">{tile.label}</p>
             <p className="text-2xl font-semibold tabular-nums text-foreground">{tile.value}</p>
           </div>
@@ -114,12 +118,28 @@ function ReasonBreakdown({ counts }: { counts: ProposalOutcomeCounts }) {
   );
 }
 
-const COUNT_COLUMNS: Array<{ key: keyof Omit<ProposalOutcomeCounts, "dismissed_by_reason">; label: string }> = [
+const COUNT_COLUMNS: Array<{
+  key: keyof Omit<ProposalOutcomeCounts, "dismissed_by_reason">;
+  label: string;
+  hint?: string;
+}> = [
   { key: "proposed", label: "Zaproponowano" },
   { key: "added", label: "Dodano" },
   { key: "dismissed", label: "Pominięto" },
   { key: "pending", label: "Czeka" },
+  { key: "expired", label: "Wygasłe", hint: PROPOSAL_EXPIRED_HINT },
 ];
+
+function CountHeader({ column }: { column: (typeof COUNT_COLUMNS)[number] }) {
+  return (
+    <th
+      className={cn("px-3 py-2.5 text-right font-semibold", column.hint && "cursor-help")}
+      title={column.hint}
+    >
+      {column.label}
+    </th>
+  );
+}
 
 function SourceTable({ rows }: { rows: Array<ProposalOutcomeCounts & { source: string }> }) {
   return (
@@ -134,7 +154,7 @@ function SourceTable({ rows }: { rows: Array<ProposalOutcomeCounts & { source: s
             <tr className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
               <th className="sticky left-0 bg-card px-4 py-2.5 text-left font-semibold">Źródło</th>
               {COUNT_COLUMNS.map((c) => (
-                <th key={c.key} className="px-3 py-2.5 text-right font-semibold">{c.label}</th>
+                <CountHeader key={c.key} column={c} />
               ))}
             </tr>
           </thead>
@@ -145,7 +165,7 @@ function SourceTable({ rows }: { rows: Array<ProposalOutcomeCounts & { source: s
                   {PROPOSAL_OUTCOME_SOURCE_LABEL[row.source] ?? row.source}
                 </td>
                 {COUNT_COLUMNS.map((c) => (
-                  <td key={c.key} className="px-3 py-2.5 text-right tabular-nums">{row[c.key]}</td>
+                  <td key={c.key} className="px-3 py-2.5 text-right tabular-nums">{row[c.key] ?? 0}</td>
                 ))}
               </tr>
             ))}
@@ -166,7 +186,7 @@ function JobTable({ rows }: { rows: Array<ProposalOutcomeCounts & { job_id: numb
             <tr className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
               <th className="sticky left-0 bg-card px-4 py-2.5 text-left font-semibold">Rekrutacja</th>
               {COUNT_COLUMNS.map((c) => (
-                <th key={c.key} className="px-3 py-2.5 text-right font-semibold">{c.label}</th>
+                <CountHeader key={c.key} column={c} />
               ))}
             </tr>
           </thead>
@@ -189,7 +209,7 @@ function JobTable({ rows }: { rows: Array<ProposalOutcomeCounts & { job_id: numb
                       c.key === "pending" && row.pending > 0 && "font-semibold text-foreground",
                     )}
                   >
-                    {row[c.key]}
+                    {row[c.key] ?? 0}
                   </td>
                 ))}
               </tr>

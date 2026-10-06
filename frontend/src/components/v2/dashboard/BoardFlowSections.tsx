@@ -8,6 +8,8 @@
  * w Ogłoszeniach czekało ponad tysiąc osób. Serwer (`services/board_flow.py`)
  * liczy teraz cały przepływ rekrutacji, w których osoba pracuje — tu tylko
  * prezentacja i linki do istniejących ekranów:
+ *  - „Nowe requesty dla Ciebie” — rekrutacje przypisane w ostatnich dniach,
+ *    w których nikt jeszcze nie ruszył karty (na górze „Twój ruch”),
  *  - blokady 12 h, Screening bez arkusza/stawki, Zweryfikowani bez QC CV,
  *    Ogłoszenia per rekrutacja (rekruter, TCM, DL),
  *  - umowy B2B czekające na podpis i zamówienia z maila (DL),
@@ -28,6 +30,7 @@ import {
   type FlowPairRow,
 } from "@/lib/api/boardTasks";
 import { ORDER_CHANGES_SUMMARY_KEY, financeApi } from "@/lib/api/finance";
+import { shortDate } from "@/lib/candidate-followup";
 import { formatTime } from "@/lib/interview-cycle";
 import { countPl } from "@/lib/plural-pl";
 import { ORDER_CHANGES_POLL_MS } from "@/lib/polling";
@@ -88,7 +91,8 @@ export function flowWorkCount(
   finance: FinanceBlock | null | undefined,
 ): number {
   const f = flow
-    ? flow.claimed.length +
+    ? (flow.new_requests?.length ?? 0) +
+      flow.claimed.length +
       flow.screening.length +
       flow.verified.length +
       flow.postings_total +
@@ -125,6 +129,31 @@ export function BoardFlowSections({
 }: { flow: FlowBlock | null | undefined; finance: FinanceBlock | null | undefined } & Toggle) {
   return (
     <>
+      {flow && (flow.new_requests?.length ?? 0) > 0 && (
+        <Section
+          title="Nowe requesty dla Ciebie"
+          hint={`Przypisane w ostatnich ${flow.new_request_days ?? 3} dniach — nikt jeszcze nie ruszył w nich karty.`}
+          count={flow.new_requests!.length}
+          expanded={expanded["flow_new_requests"] === true}
+          onToggle={() => onToggle("flow_new_requests")}
+        >
+          {shown("flow_new_requests", flow.new_requests!).map((row) => (
+            <li key={row.job_id} className="flex items-center gap-2 px-3 py-2">
+              <div className="min-w-0 flex-1">
+                <Link href={`/jobs/${row.job_id}`} className="block truncate text-sm font-medium hover:underline">
+                  {jobLabel(row)}
+                </Link>
+                <p className="truncate text-xs text-muted-foreground">
+                  {row.client_name ? `${row.client_name} · ` : ""}
+                  przypisano {shortDate(row.assigned_at)}
+                  {row.assigned_by_name ? ` przez ${row.assigned_by_name}` : " · automat"}
+                </p>
+              </div>
+            </li>
+          ))}
+        </Section>
+      )}
+
       {flow && flow.claimed.length > 0 && (
         <Section
           title="Twoje blokady (12 h)"

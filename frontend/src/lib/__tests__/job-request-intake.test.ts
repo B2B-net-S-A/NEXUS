@@ -12,11 +12,13 @@ import {
   buildJobPayload,
   clientReferenceFor,
   clientTitleWithReference,
+  droppedRequirementsText,
   editQuestion,
   effectiveWorkingTitle,
   formFromIntake,
   highlightSegments,
   hiringManagerFromIntake,
+  jobTitleFor,
   joinCities,
   loadTemplateSource,
   markEdited,
@@ -45,6 +47,9 @@ import type { RowCriticalInfo } from "@/lib/requirement-rows";
 /** Odczyt v10 (02.10.2026): wymagania jako wiersze słów kluczowych. */
 const INTAKE: RequestIntakeResponse = {
   role_name: "Senior Java Developer",
+  // Audyt 06.10.2026, P9: `jobs.title` tylko z dosłownej nazwy od klienta —
+  // odczyt, który jej nie podaje, zostawia pole puste.
+  client_title: "Senior Java Developer",
   // Etykiety dla starszych ekranów — formularz czyta `requirements`.
   must: ["Java 17+", "Spring Boot"],
   nice: ["Kubernetes"],
@@ -197,11 +202,28 @@ describe("numer zapytania z maila poza nazwą od klienta (audyt 05.10.2026)", ()
     expect(buildJobPayload(form, opts).client_reference).toBe("ZOB-9905");
   });
 
-  it("bez nazwy od klienta bierze rolę; numer już w nazwie zostawia bez zmian", () => {
-    expect(clientTitleWithReference("", "Tester", "ZOB 1")).toBe("Tester (ZOB 1)");
+  // Audyt 06.10.2026, P9: nazwa od klienta idzie do klienta (CV, nazwa
+  // pliku) — nie może jej złożyć model z własnej nazwy roli. Do tej daty
+  // „Python Developer (ZOB-9905)” powstawało z `role_name`.
+  it("bez nazwy od klienta zostaje pusto — nazwy nie składa się z roli; numer już w nazwie zostawia bez zmian", () => {
+    expect(clientTitleWithReference("", "Tester", "ZOB 1")).toBe("");
     expect(clientTitleWithReference("Tester (zob 1)", "Tester", "ZOB 1")).toBe("Tester (zob 1)");
     expect(clientTitleWithReference("Tester", "Tester", "")).toBe("Tester");
     expect(clientTitleWithReference("", "", "ZOB 1")).toBe("");
+  });
+
+  it("odczyt bez nazwy od klienta: pole puste, tytuł rekrutacji pusty, numer z odczytu zostaje", () => {
+    const form = formFromIntake({
+      ...INTAKE,
+      role_name: "Python Developer",
+      client_title: null,
+      client_reference: "ZOB-9905",
+    });
+    expect(form.clientTitle).toBe("");
+    expect(jobTitleFor(form)).toBe("");
+    expect(clientReferenceFor(form)).toBe("ZOB-9905");
+    const opts = { clientId: 7, requestText: "", templateJobId: null };
+    expect(buildJobPayload(form, opts).client_reference).toBe("ZOB-9905");
   });
 });
 
@@ -240,7 +262,13 @@ describe("clientReferenceFor — numer u klienta bez osobnego pola", () => {
 
   it("bez numeru w nazwie i bez podpowiedzi — pusto", () => {
     expect(clientReferenceFor(base({ clientTitle: "Programista Java" }))).toBe("");
-    expect(clientReferenceFor(base({ referenceHint: "ZOB 48213" }))).toBe("");
+  });
+
+  // Audyt 06.10.2026, P9: bez nazwy od klienta numer z odczytu nie ma się
+  // gdzie „schować” — obowiązuje, dopóki DL nie wpisze nazwy.
+  it("pusta nazwa od klienta: numer z odczytu", () => {
+    expect(clientReferenceFor(base({ referenceHint: "ZOB 48213" }))).toBe("ZOB 48213");
+    expect(clientReferenceFor(base({ referenceHint: "  " }))).toBe("");
   });
 
   it("„To nie ten numer”: wpis ręczny wygrywa, także pusty", () => {
@@ -267,6 +295,8 @@ describe("missingFor — lustro bramki „Przekaż do searchu”", () => {
       "budget",
       "work_mode",
       "deadline",
+      // Audyt 06.10.2026, N6: liczby osób nikt nie podaje za DL-a.
+      "headcount",
       "context",
       "questions",
       "category",
@@ -1277,7 +1307,8 @@ describe("restoreIntakeForm — formularz z konta", () => {
   it("zapis sprzed nowych pól dostaje wartości domyślne", () => {
     const form = restoreIntakeForm({ title: "Java", rows: [] });
     expect(form.title).toBe("Java");
-    expect(form.headcount).toBe("1");
+    // Audyt 06.10.2026, N6: bez domyślnej „1” — liczbę osób wpisuje DL.
+    expect(form.headcount).toBe("");
     expect(form.deadlineNotProvided).toBe(false);
     expect(form.experience).toEqual(EMPTY_INTAKE_FORM.experience);
   });
@@ -1285,5 +1316,50 @@ describe("restoreIntakeForm — formularz z konta", () => {
   it("śmieci zamiast formularza dają pusty formularz", () => {
     expect(restoreIntakeForm(null)).toEqual(EMPTY_INTAKE_FORM);
     expect(restoreIntakeForm("x")).toEqual(EMPTY_INTAKE_FORM);
+  });
+});
+
+// Audyt 06.10.2026, N6: liczba osób bez domyślnej „1”.
+describe("liczba osób — wpisuje DL albo podaje mail", () => {
+  it("odczyt bez liczby osób zostawia pole puste, a to brak", () => {
+    const form = formFromIntake({ ...INTAKE, headcount: null });
+    expect(form.headcount).toBe("");
+    expect(missingFor({ ...complete(), headcount: form.headcount })).toEqual(["headcount"]);
+    expect(EMPTY_INTAKE_FORM.headcount).toBe("");
+  });
+
+  it("puste pole jedzie jako `headcount: null` — serwer odmawia zamiast wpisać 1", () => {
+    const opts = { clientId: 7, requestText: "", templateJobId: null };
+    expect(buildJobPayload({ ...complete(), headcount: "" }, opts).headcount).toBeNull();
+    expect(buildJobPayload({ ...complete(), headcount: "abc" }, opts).headcount).toBeNull();
+    expect(buildJobPayload({ ...complete(), headcount: "3" }, opts).headcount).toBe(3);
+  });
+
+  it("szablon (`?from=`) podstawia liczbę osób rekrutacji źródłowej do pustego pola", () => {
+    expect(applyTemplate({ ...EMPTY_INTAKE_FORM }, { id: 5, headcount: 4 }).headcount).toBe("4");
+    expect(
+      applyTemplate({ ...EMPTY_INTAKE_FORM, headcount: "2" }, { id: 5, headcount: 4 }).headcount,
+    ).toBe("2");
+    expect(applyTemplate({ ...EMPTY_INTAKE_FORM }, { id: 5 }).headcount).toBe("");
+  });
+});
+
+// Audyt 06.10.2026, N3: wiersze, które nie zmieściły się nawet w „mile widziane”.
+describe("odczyt: wiersze, które się nie zmieściły", () => {
+  it("`dropped` z odczytu trafia do formularza i przeżywa zapis na koncie", () => {
+    const form = formFromIntake({ ...INTAKE, dropped: ["Ansible", "Terraform"] });
+    expect(form.droppedRequirements).toEqual(["Ansible", "Terraform"]);
+    expect(formFromIntake(INTAKE).droppedRequirements).toEqual([]);
+    expect(restoreIntakeForm({ title: "x" }).droppedRequirements).toEqual([]);
+    expect(
+      restoreIntakeForm({ title: "x", droppedRequirements: ["Ansible"] }).droppedRequirements,
+    ).toEqual(["Ansible"]);
+  });
+
+  it("zdanie dla Delivery Leada", () => {
+    expect(droppedRequirementsText(["Ansible", "Terraform"])).toBe(
+      "Nie zmieściło się w wymaganiach: Ansible, Terraform.",
+    );
+    expect(droppedRequirementsText([])).toBeNull();
   });
 });

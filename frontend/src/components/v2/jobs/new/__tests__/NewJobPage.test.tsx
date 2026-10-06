@@ -94,6 +94,8 @@ const REQUEST =
 /** Odczyt v10: wymagania jako wiersze słów kluczowych, pytania z deal breakerem. */
 const INTAKE: RequestIntakeResponse = {
   role_name: "Senior Java Developer",
+  // Audyt 06.10.2026, P9: tytuł rekrutacji to wyłącznie nazwa od klienta.
+  client_title: "Senior Java Developer",
   must: ["Java 17+", "Spring Boot"],
   nice: [],
   seniority_min_years: null,
@@ -427,8 +429,9 @@ describe("NewJobPage — krok 1: klient i źródło", () => {
     expect(screen.getByText("Wypełniasz ręcznie — bez requestu.")).toBeInTheDocument();
     expect(postsTo("/api/job-intake/read")).toHaveLength(0);
     expect(postsTo("/api/job-intake/read-file")).toHaveLength(0);
-    // Wszystko poza biurem (tryb nieznany) jest do uzupełnienia.
-    expect(screen.getByText("Brakuje 9 rzeczy do publikacji")).toBeInTheDocument();
+    // Wszystko poza biurem (tryb nieznany) jest do uzupełnienia — od 06.10.2026
+    // także liczba osób (N6: bez domyślnej „1”).
+    expect(screen.getByText("Brakuje 10 rzeczy do publikacji")).toBeInTheDocument();
   });
 
   it("„Wgraj plik” wysyła plik do odczytu razem z klientem", async () => {
@@ -855,7 +858,7 @@ describe("NewJobPage", () => {
       await categorySettled();
       expect(bodiesOf("/api/job-intake/category-suggestion").at(-1)).toEqual({
         role: "Senior Java Developer",
-        client_title: undefined,
+        client_title: "Senior Java Developer",
         description: REQUEST,
         must_skills: ["Java", "Spring Boot"],
       });
@@ -1324,8 +1327,10 @@ describe("NewJobPage", () => {
     expect(await screen.findByTestId("new-job-autosave")).toHaveTextContent(
       /^Formularz zapisany \d{2}:\d{2}$/,
     );
-    // Kolejna zmiana idzie PUT-em na ten sam formularz.
-    fireEvent.change(screen.getByLabelText("Rola"), { target: { value: "Java Developer" } });
+    // Kolejna zmiana idzie PUT-em na ten sam formularz (etykieta = nazwa od klienta).
+    fireEvent.change(screen.getByLabelText("Nazwa od klienta, razem z numerem"), {
+      target: { value: "Java Developer" },
+    });
     await waitFor(() =>
       expect(mocks.put).toHaveBeenCalledWith(
         "/api/job-intake/forms/55",
@@ -1340,7 +1345,9 @@ describe("NewJobPage", () => {
   it("zmiana sprzed końca odliczania autozapisu zapisuje się przy wyjściu ze strony", async () => {
     await readRequest();
     await waitFor(() => expect(postsTo("/api/job-intake/forms")).toHaveLength(1));
-    fireEvent.change(screen.getByLabelText("Rola"), { target: { value: "Kotlin Developer" } });
+    fireEvent.change(screen.getByLabelText("Nazwa od klienta, razem z numerem"), {
+      target: { value: "Kotlin Developer" },
+    });
     // Wyjście przed upływem 3 s — bez zapisu przy odmontowaniu zmiana by przepadła.
     cleanup();
     await waitFor(() =>
@@ -1349,6 +1356,38 @@ describe("NewJobPage", () => {
         expect.objectContaining({ label: "Kotlin Developer" }),
       ),
     );
+  });
+
+  // Audyt 06.10.2026, N7: ukrycie karty w trakcie `POST /api/jobs` zakładało
+  // nowy formularz na koncie (serwer kasował stary w tej samej transakcji).
+  it("autozapis stoi od „Utwórz” do końca POST /api/jobs; po odmowie wraca", async () => {
+    await readRequest();
+    await waitFor(() => expect(postsTo("/api/job-intake/forms")).toHaveLength(1));
+    let rejectCreate: (reason: unknown) => void = () => undefined;
+    const fallback = mocks.post.getMockImplementation()!;
+    mocks.post.mockImplementation((url: string, ...rest: unknown[]) =>
+      url === "/api/jobs"
+        ? new Promise((_, reject) => {
+            rejectCreate = reject;
+          })
+        : fallback(url, ...rest),
+    );
+    await closeGaps();
+    await pickRecruiter();
+    // Niezapisana zmiana tuż przed „Utwórz”.
+    fireEvent.change(screen.getByLabelText("Budżet PLN/h"), { target: { value: "175" } });
+    fireEvent.click(handoffButton());
+    await waitFor(() => expect(postsTo("/api/jobs")).toHaveLength(1));
+    const formWrites = () => postsTo("/api/job-intake/forms").length + mocks.put.mock.calls.length;
+    const before = formWrites();
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(formWrites()).toBe(before);
+    // Odmowa: nic nie powstało — autozapis wraca i zapisuje formularz.
+    rejectCreate({ response: { status: 500, data: { detail: "awaria" } } });
+    await waitFor(() => expect(formWrites()).toBeGreaterThan(before));
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
   });
 
   it("„Zmień źródło” wraca do kroku 1 z zachowanym requestem", async () => {
@@ -1423,6 +1462,59 @@ describe("NewJobPage", () => {
   });
 });
 
+// Audyt 06.10.2026: nazwa od klienta (P9), liczba osób (N6), uwagi odczytu (N3).
+describe("NewJobPage — nazwa od klienta, liczba osób i uwagi z odczytu (06.10.2026)", () => {
+  it("odczyt bez nazwy od klienta: pole puste, „Utwórz” zatrzymuje się z komunikatem przy polu", async () => {
+    await readRequest({ ...INTAKE, client_title: null, client_reference: "ZOB-9905" });
+    const field = screen.getByLabelText("Nazwa od klienta, razem z numerem") as HTMLInputElement;
+    // Nie „Senior Java Developer (ZOB-9905)” złożone z roli.
+    expect(field.value).toBe("");
+    // Numer z odczytu obowiązuje bez nazwy.
+    expect(screen.getByTestId("client-reference")).toHaveTextContent("ZOB-9905");
+    await closeGaps();
+    await pickRecruiter();
+    await waitFor(() => expect(handoffButton()).toBeEnabled());
+    fireEvent.click(handoffButton());
+    expect(await screen.findByTestId("new-job-client-title-error")).toHaveTextContent(
+      "Wpisz nazwę stanowiska tak, jak podał klient",
+    );
+    expect(field).toHaveAttribute("aria-invalid", "true");
+    expect(postsTo("/api/jobs")).toHaveLength(0);
+
+    fireEvent.change(field, { target: { value: "Python Developer (ZOB-9905)" } });
+    expect(screen.queryByTestId("new-job-client-title-error")).toBeNull();
+    await handoffTo();
+    expect(jobPostBody()).toMatchObject({
+      title: "Python Developer (ZOB-9905)",
+      client_reference: "ZOB-9905",
+    });
+  });
+
+  it("mail bez liczby osób: pole puste i brak na liście — bez domyślnej „1”", async () => {
+    await readRequest({ ...INTAKE, headcount: null });
+    expect(screen.getByLabelText("Liczba osób")).toHaveValue(null);
+    expect(screen.getByRole("link", { name: "liczba osób" })).toHaveAttribute(
+      "href",
+      "#new-job-section-terms",
+    );
+    fireEvent.change(screen.getByLabelText("Liczba osób"), { target: { value: "4" } });
+    await createJob();
+    expect(jobPostBody()).toMatchObject({ headcount: 4 });
+  });
+
+  it("uwagi z odczytu i wiersze, które się nie zmieściły, stoją na wierzchu przy wymaganiach", async () => {
+    await readRequest({
+      ...INTAKE,
+      advisories: ["„Ansible” nie stoi w treści requestu — wiersz pominięty."],
+      dropped: ["Terraform", "Helm"],
+    });
+    const notes = screen.getByTestId("new-job-intake-advisories");
+    expect(notes.closest("details")).toBeNull();
+    expect(notes).toHaveTextContent("„Ansible” nie stoi w treści requestu — wiersz pominięty.");
+    expect(notes).toHaveTextContent("Nie zmieściło się w wymaganiach: Terraform, Helm.");
+  });
+});
+
 describe("NewJobPage — szablon z podobnej rekrutacji (`?from=`)", () => {
   const TEMPLATE_JOB = {
     id: 55,
@@ -1433,6 +1525,8 @@ describe("NewJobPage — szablon z podobnej rekrutacji (`?from=`)", () => {
     rate_budget_hourly: 160,
     remote_policy: "remote",
     must_skills: ["z kolumny rekrutacji"],
+    // N6 (06.10.2026): kopia przenosi liczbę osób do pustego pola.
+    headcount: 3,
   };
   const QUESTIONS = [
     { question: "Kafka w produkcji?", ideal_answer: "tak", deal_breaker: "Brak Kafki." },
@@ -1522,9 +1616,18 @@ describe("NewJobPage — szablon z podobnej rekrutacji (`?from=`)", () => {
     expect(screen.getByText("Zatwierdzone 0 z 2")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Rola"), { target: { value: "Java Developer" } });
+    // P9 (06.10.2026): tytuł rekrutacji to nazwa od klienta — szablon jej nie podaje.
+    expect(
+      (screen.getByLabelText("Nazwa od klienta, razem z numerem") as HTMLInputElement).value,
+    ).toBe("");
+    fireEvent.change(screen.getByLabelText("Nazwa od klienta, razem z numerem"), {
+      target: { value: "Java Developer" },
+    });
+    expect(screen.getByLabelText("Liczba osób")).toHaveValue(3);
     await createJob();
     expect(jobPostBody()).toMatchObject({
       title: "Java Developer",
+      headcount: 3,
       client_id: 7,
       from_job_id: 55,
       copy_questions: true,
@@ -1772,8 +1875,9 @@ describe("NewJobPage — termin i liczba osób", () => {
     expect(
       screen.getByRole("link", { name: "termin (albo „Klient nie podał”)" }),
     ).toHaveAttribute("href", "#new-job-section-terms");
-    // Liczba osób bez maila zaczyna od 1.
-    expect(screen.getByLabelText("Liczba osób")).toHaveValue(1);
+    // Liczba osób bez maila: pole puste, wpisuje DL (audyt 06.10.2026, N6).
+    expect(screen.getByLabelText("Liczba osób")).toHaveValue(null);
+    fireEvent.change(screen.getByLabelText("Liczba osób"), { target: { value: "1" } });
 
     fireEvent.click(
       within(screen.getByTestId("new-job-deadline")).getByRole("checkbox", {
@@ -1862,7 +1966,8 @@ describe("NewJobPage — niedokończone formularze", () => {
     fireEvent.click(within(list).getByRole("button", { name: "Dokończ" }));
     expect(await screen.findByLabelText("Rola")).toHaveValue("Java Developer");
     expect(screen.getByLabelText("Budżet PLN/h")).toHaveValue("150");
-    expect(screen.getByLabelText("Liczba osób")).toHaveValue(1);
+    // Zapis bez liczby osób wraca z pustym polem (N6, 06.10.2026: bez domyślnej „1”).
+    expect(screen.getByLabelText("Liczba osób")).toHaveValue(null);
     expect(
       screen.getByRole("heading", { name: "Request od klienta · Alior Bank" }),
     ).toBeInTheDocument();

@@ -4305,8 +4305,11 @@ z „wymagań do wyszukiwania” powtarzało must, deal breaker miały 3 z 99 py
   kategorii i co godzinę (`tasks/cc_participants_sync.py`, heartbeat). Zakres:
   rekrutacje niezamknięte i nie „Zakończone”. Nie rusza wierszy `manual`;
   osoba zdjęta przez człowieka zostaje zdjęta (`removed_from_auto_cc`).
-  Uczestnik widzi rekrutację w „Moja kategoria” i dostaje jej powiadomienia,
-  ale NIE jest „Rekruterem” (`job_team` bez zmian). Pole „Kolejne osoby”
+  Uczestnik widzi rekrutację w „Moja kategoria”, ale NIE jest „Rekruterem”
+  (`job_team` bez zmian) i od 06.10.2026 NIE dostaje dzwonków rekrutacji (D7:
+  `list_job_member_ids(..., include_category_participants=False)` w
+  producentach dzwonków — zmiana Championa, alerty terminu, „komplet obsady”).
+  Członkostwo (dostęp, czat) nadal go liczy. Pole „Kolejne osoby”
   zniknęło z `/jobs/new` (osobę dopisuje się w panelu „Zespół”).
 - **Rekruter prowadzący: automat przydziela OD RAZU** (tryb `auto`), bez
   akceptacji Head of Recruitment i bez danych o urlopach. Planer blokuje tryb
@@ -4328,6 +4331,86 @@ z „wymagań do wyszukiwania” powtarzało must, deal breaker miały 3 z 99 py
   podpowiedź dla pustej roli migała i znikała, razem z przyciskiem „Potwierdzam”.
 - Harness `/preview/new-job?state=request|noclient|manual|review|gaps|shadow|passive|off`;
   profil z wierszami: przypadek 4 w `/preview/champion-profile`.
+
+## Przekazanie, propozycje i Champion po audycie 06.10.2026 (0422)
+
+Raport: `docs/audits/2026-10-06/rekrutacja-przekazanie-i-wyszukiwanie.md`.
+Decyzje Artura: bez maila przy przypisaniu, bez zmiany top-K przeglądu i bez
+nocnego wygaszania propozycji — wygasają przy zamknięciu rekrutacji.
+
+- **Dzwonek „dostałeś request” ma JEDNO miejsce:**
+  `_sync_work_assignments_with_owner` (`api/jobs.py`) przy każdej zmianie
+  prowadzącego (`/owner`, `/claim`, okno edycji, przekazanie, `POST /api/jobs`),
+  bez dzwonka dla siebie i dla poprzedniego prowadzącego. Dodanie z pulpitu
+  (`POST /api/request-board/jobs/{id}/people`) dzwoni przez `_notify_assigned`,
+  ale nie do osoby, która już przy requeście pracuje. Nie dokładaj drugiego
+  `notify_assigned` w ścieżce przekazania.
+- **„Nowe requesty dla Ciebie”** (`board_flow._new_requests`, pole
+  `flow.new_requests`): aktywne przypisanie z ostatnich `NEW_REQUEST_DAYS` (3)
+  dni, rekrutacja w pracy, a od przypisania nikt nie przesunął karty
+  (`candidate_stages.moved_by` po `assigned_at`). Pierwszy ruch zdejmuje wiersz.
+- **Kolejka Head of Recruitment pokazuje opublikowane bez przekazania**
+  (`new_job_leads._not_handed_off`, `pending_reason = "not_handed_off"`,
+  `is_open` nie `True`, bez okna 7 dni, na końcu listy).
+- **Uczestnicy kategorii (`auto_cc`) nie dostają dzwonków rekrutacji (D7)**
+  — producenci dzwonków wołają `list_job_member_ids(...,
+  include_category_participants=False)`; domyślne `True` zostaje dla dostępu.
+  Odbiorcami zmiany Championa jest też Delivery Lead rekrutacji.
+- **Poranny dzwonek „Do przejrzenia”** (`services/proposals_morning_bell.py`,
+  wołany z `run_all_triggers`): raz dziennie 8–17, jeden na (rekrutacja,
+  Rekruter z `job_team.working`), pary z `full_base` i `new_cv` z ostatnich
+  24 h (`job_proposals.fresh_open_pairs` — te same reguły widoczności co
+  skrzynka), trzy nazwiska w treści. Zastąpił dzienny skrót z nowych CV
+  (`auto_match_service._notify_proposals` usunięty — szedł tylko do
+  `recruiter_id`/`tac_id`). Poniedziałkowy skrót DL liczy `open_counts_for_jobs`.
+- **Nocny przegląd nie zajmuje top-K osobami już rozstrzygniętymi**
+  (`auto_full_review._already_decided`: w rekrutacji, czarna lista, `added`,
+  `dismissed` z tą samą wersją CV).
+- **Każde dodanie do rekrutacji zamyka propozycję** — `open_process` woła
+  `mark_added_fail_soft` (savepoint).
+- **Status propozycji `expired` (0422, lustro w `entrypoint.sh`, DDL
+  w `job_proposal_expiry_schema.py`)**: `close_job_core` wygasza otwarte
+  propozycje (`expire_open_for_job`); `added` i `dismissed` zostają, ponowne
+  otwarcie ich nie wskrzesza. Jednorazowo `job_proposal_closed_expiry`
+  (marker `job_proposals_closed_jobs_expired_2026_10`, paragon = liczby).
+  Raport „Propozycje AI” ma licznik „Wygasłe”.
+- **„Pomiń zaznaczone”**: `POST /api/jobs/{id}/proposal-inbox/dismiss-bulk`
+  (≤ 100 osób, powód obowiązkowy jak przy pojedynczym, osoby spoza skrzynki
+  i już w rekrutacji wracają w `skipped`). Otwarcie skrzynki:
+  `POST …/proposal-inbox/opened` → `job_proposal_inbox_opens` (jedno na
+  rekrutację, osobę i dzień; pomiar, nigdy błąd). Nie mieszaj z `match_impressions`.
+- **„Przypisz do rekrutacji” z listy i profilu kandydata** (człowiek) idzie
+  przez `proposals_bulk.add_candidates_to_job`: etap „Nowi”, blokada 12 h,
+  `entry_source = added_manual`, telemetria `candidate_list`. Kształty odpowiedzi
+  (200 `assigned` / `already_in_pipeline`, 409) bez zmian. Integracja zostaje
+  przy starej ścieżce. Telemetria dodań niesie id procesu w `event_id`
+  (`latest_process_ids`), integracja ma źródło `integration`.
+- **Zapis Championa ma ochronę przed nadpisaniem:** `PUT …/champion-profile`
+  przyjmuje `expected_profile_hash` (= `champion_intake.profile_hash`,
+  skrót samego `champion_profile`, zwracany jako `profile_hash`); rozjazd = 409
+  `champion_profile_conflict` z aktualnym profilem. Bez pola — jak dotąd.
+  Odpowiedź zapisu niesie `notices`.
+- **Krytyczne, które przestało być technologią** (zmienione słowa wiersza)
+  nie daje 422: zostaje „musi mieć”, zapis zwraca uwagę w `notices`; bez
+  pozostałych krytycznych pole znika („nie zdecydowano”).
+- **Kolumny `must_skills`/`nice_skills` rekrutacji z wierszami wymagań idą
+  wyłącznie za Championem:** PATCH z innymi nazwami i „Kryteria”
+  (`refresh-criteria`) = 409 (`ROWS_OWN_COLUMNS_DETAIL`); zapis z wierszami
+  zawsze wyrównuje kolumny z etykietami wierszy.
+- **Wiersze wymagań:** najwyżej 10 „musi mieć” — nadmiar schodzi do „mile
+  widziane” (do 20), reszta trafia zdaniem do `stack.notes` („Nie zmieściło się
+  w wymaganiach: …”). „A lub B” w słowie wiersza dzieli się na warianty,
+  gwiazdka przy technologii ze słownika znika, jednoliterowe technologie ze
+  słownika („C”, „R”) są dozwolone. Odczyt maila uzgadnia słowa z odmianą
+  (`services/skill_inflection.py` na regułach `dz_review`) i mówi w uwagach,
+  które wiersze pominął jako nieobecne w treści.
+- **Szablon od innego klienta** przenosi z Championa wyłącznie `stack.notes`.
+- **`headcount: null` w `POST /api/jobs` = „nie podano”** (bramka odmawia);
+  pole pominięte zostaje przy dawnym 1.
+- **Indeks:** kategoria nadana po wektorze (`assign_cc_after_embed`) kolejkuje
+  ponowny zapis punktu z kategorią. Notatka z „Karty z notatki” ma
+  `external_source = card_note_import` (rodzaj `human`), a odpowiedzi z niej
+  czytają arkusz tylko z bieżącej próby procesu (`screening_window`).
 
 ## Budżet rekrutacji „od–do” (0420, 06.10.2026)
 
@@ -5703,7 +5786,9 @@ tylko `recruiter_id`), a Head of Recruitment nie mógł zmienić rekrutera.
   są w zakresie **„Moja kategoria”** (`my_category`, URL `mycat=1`: GŁÓWNA
   kategoria rekrutacji ∈ kategorie osoby, tylko niezamknięte; osoba bez
   kategorii nie widzi zakresu — `quick-counts.my_category = null`). Wiersze
-  `auto_cc` zostają w bazie i jako odbiorcy powiadomień rekrutacji. „Moje
+  `auto_cc` zostają w bazie i w członkostwie rekrutacji, ale od 06.10.2026
+  nie są odbiorcami jej dzwonków (sekcja „Przekazanie, propozycje i Champion
+  po audycie 06.10.2026”). „Moje
   przypisane” w operacjach rekrutacji też liczy tylko ręcznych
   współpracowników (`manual_collaborator_job_ids`).
 - **Zdjęcie osoby = `job_team.remove_recruiter`** — ze wszystkich trzech miejsc

@@ -1126,6 +1126,14 @@
    "v3_home": "kafel nad Tablicą (?win=add&wintab=…)"
   },
   {
+   "id": "board.sources-dismiss-bulk",
+   "area": "pipeline",
+   "opis": "„Pomiń zaznaczone (N)” w „Nowi z ogłoszeń” i „Propozycje z bazy”: jeden powód dla wszystkich, jedno żądanie zbiorcze (`dismiss-bulk`)",
+   "file": "components/v2/recruitment/AddCandidatesPanel.tsx",
+   "marker": "Pomiń zaznaczone",
+   "v3_home": "okno „Kandydaci do dodania” → stopka obok „Dodaj N do Nowych”"
+  },
+  {
    "id": "board.sources-postings",
    "area": "pipeline",
    "opis": "„Nowi z ogłoszeń”: osoby z ogłoszeń z ostatnich 7 dni pasujące do rekrutacji + zgłoszenia odłożone przez AI",

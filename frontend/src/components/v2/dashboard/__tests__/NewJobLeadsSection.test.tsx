@@ -260,6 +260,35 @@ describe("NewJobLeadsSection — „Nowe rekrutacje — kto prowadzi”", () => 
     );
   });
 
+  it("rekrutacja nigdy nieprzekazana do searchu: komunikat zamiast prowadzącego, link „Przekaż do searchu”, data założenia", () => {
+    const none = { lead_user_id: null, lead_name: null, lead_role: null, lead_source: null };
+    expect(leadState(lead({ ...none, pending_reason: "not_handed_off" }))).toEqual({
+      name: null,
+      note: "Bez przekazania do searchu",
+      warning: true,
+    });
+    renderSection([
+      lead({
+        job_id: 7,
+        title: "Bez handoffu",
+        ...none,
+        pending_reason: "not_handed_off",
+        handed_off_at: "2026-09-28T08:00:00Z",
+      }),
+    ]);
+    const row = within(rowOf("Bez handoffu"));
+    expect(row.getByTestId("lead-person")).toHaveTextContent("Bez przekazania do searchu");
+    expect(row.getByRole("link", { name: "Przekaż do searchu: Bez handoffu" })).toHaveAttribute(
+      "href",
+      "/jobs/7",
+    );
+    const meta = row.getByTestId("lead-request-meta");
+    expect(meta).toHaveTextContent("założona 28.09");
+    expect(meta).not.toHaveTextContent("przekazano");
+    // Prowadzącego nie wybiera się przed przekazaniem — tylko link.
+    expect(row.queryByRole("button")).toBeNull();
+  });
+
   it("lista informacyjna: sama liczba, bez plakietki zadania", () => {
     renderSection([lead(), lead({ job_id: 12, title: "Tester" })]);
     const section = screen.getByRole("region", { name: "Nowe rekrutacje — kto prowadzi" });

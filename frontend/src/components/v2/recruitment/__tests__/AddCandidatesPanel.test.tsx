@@ -17,6 +17,7 @@ const classifyRows = vi.fn();
 const listPage = vi.fn();
 const showSuccess = vi.fn();
 const showError = vi.fn();
+const recordOpened = vi.fn();
 let similarPayload: unknown = undefined;
 
 function entry(id: number, name: string, origins: string[], extra: Record<string, unknown> = {}) {
@@ -97,6 +98,9 @@ vi.mock("@/lib/job-proposals-api", async (importOriginal) => {
     },
   };
 });
+vi.mock("@/lib/proposal-inbox-opened", () => ({
+  recordProposalInboxOpened: (...a: unknown[]) => recordOpened(...a),
+}));
 vi.mock("@/lib/matching-requirements", () => ({
   matchingRequirementsApi: { get: () => Promise.resolve({ all_of: [] }) },
   requirementLabels: () => [],
@@ -348,12 +352,65 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
     expect(dismiss).toHaveBeenCalledWith([7], { reason: "too_expensive" });
   });
 
+  it("„Pomiń zaznaczone (N)”: jeden powód dla wszystkich, zaznaczenie znika", async () => {
+    proposalsState.entries = [
+      entry(1, "Anna Pierwsza", ["inbox"], { sources: ["full_base"] }),
+      entry(2, "Bartek Drugi", ["inbox"], { sources: ["full_base"] }),
+      entry(3, "Celina Trzecia", ["inbox"], { sources: ["full_base"] }),
+    ];
+    renderPanel();
+    const list = await screen.findByRole("list", { name: "Propozycje z bazy" });
+    const skip = screen.getByTestId("add-candidates-dismiss");
+    expect(skip).toBeDisabled();
+    expect(skip).toHaveTextContent("Pomiń zaznaczone (0)");
+
+    await userEvent.click(within(list).getByRole("checkbox", { name: "Zaznacz Anna Pierwsza" }));
+    await userEvent.click(within(list).getByRole("checkbox", { name: "Zaznacz Celina Trzecia" }));
+    expect(skip).toHaveTextContent("Pomiń zaznaczone (2)");
+    await userEvent.click(skip);
+    const dialog = await screen.findByRole("dialog", { name: "Pomiń 2 osoby — dlaczego?" });
+    await userEvent.click(within(dialog).getByLabelText("Nieaktualne CV"));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Pomiń" }));
+    expect(dismiss).toHaveBeenCalledWith([1, 3], { reason: "outdated_cv" });
+    expect(within(list).getByRole("checkbox", { name: "Zaznacz Anna Pierwsza" })).not.toBeChecked();
+    expect(screen.getByTestId("add-candidates-submit")).toHaveTextContent("Dodaj 0 do Nowych");
+  });
+
+  it("anulowane okno powodu nie pomija nikogo i nie zdejmuje zaznaczenia", async () => {
+    proposalsState.entries = [
+      entry(1, "Anna Pierwsza", ["inbox"], { sources: ["full_base"] }),
+      entry(2, "Bartek Drugi", ["inbox"], { sources: ["full_base"] }),
+    ];
+    renderPanel();
+    const list = await screen.findByRole("list", { name: "Propozycje z bazy" });
+    await userEvent.click(within(list).getByRole("checkbox", { name: "Zaznacz Anna Pierwsza" }));
+    await userEvent.click(within(list).getByRole("checkbox", { name: "Zaznacz Bartek Drugi" }));
+    await userEvent.click(screen.getByTestId("add-candidates-dismiss"));
+    const dialog = await screen.findByRole("dialog", { name: "Pomiń 2 osoby — dlaczego?" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Anuluj" }));
+    expect(dismiss).not.toHaveBeenCalled();
+    expect(within(list).getByRole("checkbox", { name: "Zaznacz Bartek Drugi" })).toBeChecked();
+  });
+
+  it("pierwsze wejście w „Propozycje z bazy” / „Nowi z ogłoszeń” zapisuje otwarcie skrzynki", async () => {
+    proposalsState.entries = [entry(1, "Anna Pierwsza", ["inbox"])];
+    const { rerender } = renderPanel({ tab: "similar" });
+    await screen.findByTestId("similar-body");
+    expect(recordOpened).not.toHaveBeenCalled();
+    rerender({ tab: "base" });
+    await waitFor(() => expect(recordOpened).toHaveBeenCalledWith(5));
+    rerender({ tab: "postings" });
+    rerender({ tab: "base" });
+    expect(recordOpened).toHaveBeenCalledTimes(1);
+  });
+
   it("bez prawa zapisu okno jest do odczytu: bez dodawania i bez „Pomiń”", async () => {
     proposalsState.entries = [entry(1, "Anna Pierwsza", ["inbox"])];
     renderPanel({ readOnly: true });
     await screen.findByRole("list", { name: "Propozycje z bazy" });
     expect(screen.queryByTestId("add-candidates-submit")).toBeNull();
     expect(screen.queryByRole("button", { name: /Pomiń:/ })).toBeNull();
+    expect(screen.queryByTestId("add-candidates-dismiss")).toBeNull();
     expect(screen.getByTestId("add-candidates-summary")).toHaveTextContent("Masz tu tylko podgląd");
     expect(screen.getByRole("checkbox", { name: "Zaznacz Anna Pierwsza" })).toBeDisabled();
   });

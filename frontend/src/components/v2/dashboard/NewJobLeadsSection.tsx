@@ -14,7 +14,9 @@
  * admina i Head of Recruitment; pozostali dostają pustą listę i sekcji nie ma.
  * Propozycja automatu czekająca na akceptację (tryb „shadow”) ma swoje
  * przyciski w sekcji „Propozycje automatu do akceptacji” — tu jest tylko
- * opisana.
+ * opisana. Rekrutacja opublikowana, której nikt nigdy nie przekazał do searchu
+ * (`pending_reason: "not_handed_off"`), ma zamiast prowadzącego komunikat
+ * i link „Przekaż do searchu” — prowadzącego wybiera się przy przekazaniu.
  */
 
 import Link from "next/link";
@@ -49,6 +51,7 @@ import {
   type NewJobLeadRow,
 } from "@/lib/api/boardTasks";
 import { useRequestBoard, type LoadPerson } from "@/lib/api/requestAllocation";
+import { shortDate } from "@/lib/candidate-followup";
 import { transitAgo } from "@/lib/cv-in-transit";
 import { formatTime } from "@/lib/interview-cycle";
 import { formatDeadlineShort, shortenPersonName } from "@/lib/job-header-subtitle";
@@ -91,6 +94,9 @@ export interface LeadState {
 
 /** Kto prowadzi i skąd — same fakty z wiersza. */
 export function leadState(row: NewJobLeadRow): LeadState {
+  if (row.pending_reason === "not_handed_off") {
+    return { name: null, note: "Bez przekazania do searchu", warning: true };
+  }
   if (row.lead_user_id == null) {
     if (row.pending_reason === "assigning") {
       return { name: null, note: "Automat przydziela…", warning: false };
@@ -317,10 +323,15 @@ export function NewJobLeadsSection({ rows, standalone = false }: NewJobLeadsSect
           const categoryLabel = row.category_name
             ? (competenceShortLabel(row.category_slug) ?? row.category_name)
             : null;
-          const when = handoffWhen(row.handed_off_at);
+          const notHandedOff = row.pending_reason === "not_handed_off";
+          const when = notHandedOff ? "" : handoffWhen(row.handed_off_at);
           const meta: { key: string; node: ReactNode }[] = [];
           if (row.client_name) meta.push({ key: "client", node: row.client_name });
           if (when) meta.push({ key: "when", node: `przekazano ${when}` });
+          // Bez przekazania `handed_off_at` niesie datę założenia rekrutacji.
+          if (notHandedOff && row.handed_off_at) {
+            meta.push({ key: "created", node: `założona ${shortDate(row.handed_off_at)}` });
+          }
           if (row.delivery_lead_name) {
             meta.push({
               key: "dl",
@@ -406,7 +417,17 @@ export function NewJobLeadsSection({ rows, standalone = false }: NewJobLeadsSect
                 ) : null}
               </div>
               {/* Propozycję automatu rozstrzyga sekcja propozycji wyżej. */}
-              {canAct && !row.proposed ? (
+              {notHandedOff ? (
+                <div className="flex items-center @min-[780px]/leads:justify-end">
+                  <Link
+                    href={`/jobs/${row.job_id}`}
+                    aria-label={`Przekaż do searchu: ${row.title}`}
+                    className="text-xs font-medium text-primary hover:underline"
+                  >
+                    Przekaż do searchu
+                  </Link>
+                </div>
+              ) : canAct && !row.proposed ? (
                 <div className="flex items-center @min-[780px]/leads:justify-end">
                   <LeadPicker
                     row={row}

@@ -68,6 +68,43 @@ describe("ProposalOutcomesReport", () => {
     expect(mocks.get).toHaveBeenCalledWith("/api/insights/proposals/outcomes", { params: { days: 7 } });
   });
 
+  it("wygasłe propozycje (zamknięta rekrutacja) mają własną liczbę i kolumnę z wyjaśnieniem", async () => {
+    mocks.get.mockResolvedValue({
+      data: body({
+        totals: { ...counts(10, 2, 3, 3), expired: 2 },
+        by_source: [{ source: "full_base", ...counts(10, 2, 3, 3), expired: 2 }],
+        jobs: [{ job_id: 11, title: "Java Developer", ...counts(10, 2, 3, 3), expired: 2 }],
+      }),
+    });
+    renderReport();
+    const summary = within(await screen.findByRole("region", { name: "Podsumowanie" }));
+    expect(summary.getByText("Wygasło").nextElementSibling).toHaveTextContent("2");
+    const headers = screen.getAllByRole("columnheader", { name: "Wygasłe" });
+    expect(headers).toHaveLength(2);
+    expect(headers[0]).toHaveAttribute(
+      "title",
+      "Rekrutacja zamknięta — propozycje bez decyzji wygasły",
+    );
+    const jobRow = screen.getByRole("link", { name: "Java Developer" }).closest("tr")!;
+    expect(within(jobRow).getAllByRole("cell").map((c) => c.textContent)).toEqual([
+      "Java Developer",
+      "10",
+      "2",
+      "3",
+      "3",
+      "2",
+    ]);
+  });
+
+  it("starszy serwer bez licznika wygasłych: kolumna pokazuje 0, bez kafla", async () => {
+    mocks.get.mockResolvedValue({ data: body() });
+    renderReport();
+    const summary = within(await screen.findByRole("region", { name: "Podsumowanie" }));
+    expect(summary.queryByText("Wygasło")).toBeNull();
+    const jobRow = screen.getByRole("link", { name: "Java Developer" }).closest("tr")!;
+    expect(within(jobRow).getAllByRole("cell").at(-1)).toHaveTextContent("0");
+  });
+
   it("zmiana okna pyta o nowe dni", async () => {
     mocks.get.mockResolvedValue({ data: body() });
     renderReport();

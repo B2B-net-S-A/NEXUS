@@ -249,6 +249,7 @@ const NEW_JOB_LEADS: NewJobLeadRow[] = [
   jobLead({ job_id: 313, title: "Analityk biznesowy · bankowość", client_name: "Bank Kappa", category_id: 5, category_name: "Management & Delivery (PM & BA)", category_slug: "management_delivery", participants: 3, pending_reason: "assigning" }),
   jobLead({ job_id: 314, title: "Tester manualny · aplikacje mobilne", client_name: "Ubezpieczenia Wzorcowe", category_id: 4, category_name: "QA", category_slug: "security_quality", participants: 1, priority_level: "accepting", pending_reason: "passive", handed_off_at: daysAgo(2) }),
   jobLead({ job_id: 315, title: "Administrator sieci · Cisco", client_name: "Energetyka Wzorcowa", category_id: null, category_name: null, category_slug: null, participants: 0, pending_reason: "none", handed_off_at: daysAgo(3) }),
+  jobLead({ job_id: 316, title: "Projektant UX · aplikacje webowe", client_name: "Bank Kappa", category_id: 2, category_name: "Development", category_slug: "software_development", participants: 0, pending_reason: "not_handed_off", handed_off_at: daysAgo(5) }),
 ];
 
 // Obłożenie dla listy „Zmień” — te same osoby co w propozycjach i kilka wolnych.
@@ -307,6 +308,11 @@ const flowPair = (over: Partial<FlowBlock["claimed"][number]>): FlowBlock["claim
 });
 const FLOW: FlowBlock = {
   applies: true,
+  new_requests: [
+    { job_id: 504, job_title: "Programista Python · Django", job_working_title: "Python · Django · 4+ lat", client_name: "Bank Kappa", assigned_at: daysAgo(0), assigned_by_name: "Piotr Zieliński" },
+    { job_id: 505, job_title: "Analityk systemowy · UML", job_working_title: null, client_name: "Fundusz Przykładowy", assigned_at: daysAgo(2), assigned_by_name: null },
+  ],
+  new_request_days: 3,
   postings: [
     { job_id: 501, job_title: "Senior Java Developer", client_name: "Bank Północny", count: 46, oldest_at: daysAgo(9) },
     { job_id: 502, job_title: "Tester automatyzujący · Python", client_name: "Bank Kappa", count: 18, oldest_at: daysAgo(4) },

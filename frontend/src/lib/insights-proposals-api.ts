@@ -36,6 +36,11 @@ export interface ProposalOutcomeCounts {
   added: number;
   dismissed: number;
   pending: number;
+  /**
+   * Propozycje zamkniętej rekrutacji bez decyzji (audyt 06.10.2026) — nie
+   * czekają i nie są pominięte. Starszy serwer pola nie oddaje (brak = 0).
+   */
+  expired?: number;
   dismissed_by_reason: Partial<Record<ProposalOutcomeReason, number>>;
 }
 
@@ -57,6 +62,9 @@ export interface ProposalOutcomesResponse {
   by_source: ProposalOutcomeSource[];
   jobs: ProposalOutcomeJob[];
 }
+
+/** Podpowiedź przy liczbie „Wygasłe”. */
+export const PROPOSAL_EXPIRED_HINT = "Rekrutacja zamknięta — propozycje bez decyzji wygasły";
 
 export const PROPOSAL_OUTCOME_WINDOWS = [7, 30, 90] as const;
 

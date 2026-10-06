@@ -5,8 +5,9 @@
  *
  * „Edytuj” przy bloku Briefu otwiera z prawej ten sam edytor co pełny
  * formularz, ale tylko z sekcjami tego bloku (`CHAMPION_BLOCKS`). Zapis to ten
- * sam `PUT …/champion-profile` — serwer scala profil, a sekcje spoza szuflady
- * jadą w nim niezmienione. Zamknięcie z niezapisanymi zmianami pyta.
+ * sam `PUT …/champion-profile` — jedzie w nim tylko to, co zmieniono
+ * (`lib/champion-save.ts`), serwer scala resztę. Zamknięcie z niezapisanymi
+ * zmianami pyta.
  */
 
 import { useState } from "react";

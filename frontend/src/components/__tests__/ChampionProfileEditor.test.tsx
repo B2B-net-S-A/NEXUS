@@ -12,11 +12,12 @@
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
+import { ToastProvider } from "@/components/Toast";
 import { CHAMPION_SECTIONS } from "@/lib/champion-section-state";
 import { useAuthStore, type User } from "@/store/auth";
 
@@ -405,7 +406,10 @@ describe("ChampionProfileEditor — wymagania jako wiersze słów kluczowych (02
     ]);
     // Nikt nie zaznaczył „Brak krytycznych”, więc decyzji nie ma.
     expect(payload.stack.critical).toBeNull();
-    expect(payload.search.requirements).toEqual([["Java"], ["Kafka", "RabbitMQ"]]);
+    // Audyt 06.10.2026 (N2): krytyczne → „musi mieć” nie zmienia wierszy
+    // wyszukiwania, więc sekcja `search` nie jedzie (serwer i tak wyprowadza
+    // ją z wierszy).
+    expect(payload).not.toHaveProperty("search");
   });
 
   it("„Uprość do słów kluczowych” zamienia stare pola na wiersze, a zdania klienta idą do niuansów", async () => {
@@ -624,11 +628,14 @@ describe("ChampionProfileEditor — sekcja 1 startuje z pól rekrutacji (PR 5)",
     await userEvent.click(screen.getByTestId("save-champion-profile"));
     await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
     const payload = putMock.mock.calls[0][1] as {
-      basics: Record<string, unknown>;
+      basics?: Record<string, unknown>;
     };
-    expect("role_name" in payload.basics).toBe(false);
-    expect("rate_value" in payload.basics).toBe(false);
-    expect("work_mode" in payload.basics).toBe(false);
+    // Audyt 06.10.2026 (N2): nietknięta sekcja nie jedzie wcale — tym
+    // bardziej pola wczytane z rekrutacji.
+    const basics = payload.basics ?? {};
+    expect("role_name" in basics).toBe(false);
+    expect("rate_value" in basics).toBe(false);
+    expect("work_mode" in basics).toBe(false);
   });
 
   it("edycja JEDNEGO wczytanego pola (stawki) wysyła TYLKO tę zmianę", async () => {
@@ -1056,5 +1063,261 @@ describe("ChampionProfileEditor — szuflada bloku (`onlySections`)", () => {
     await userEvent.click(screen.getByTestId("cancel-champion-profile"));
     expect(onCancel).toHaveBeenCalled();
     expect(putMock).not.toHaveBeenCalled();
+  });
+});
+
+// Audyt 06.10.2026: odświeżenie profilu nie kasuje niezapisanych zmian (N1),
+// zapis wysyła tylko zmienione sekcje z odciskiem profilu (N2/N5), 409
+// `champion_profile_conflict` daje wybór, a 422 `handoff_regression` listę
+// braków z sekcjami (N4).
+describe("ChampionProfileEditor — zapis zmienionych sekcji i konflikty (06.10.2026)", () => {
+  const PROFILE = {
+    basics: { role_name: "QA" },
+    project: { about: "Migracja płatności." },
+    insights: [],
+  };
+
+  function renderWithClient(jobId: number, withToasts = false) {
+    useAuthStore.setState({ user: { ...recruiter, role: "admin", roles: ["admin"] } as User });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const editor = (
+      <QueryClientProvider client={client}>
+        <ChampionProfileEditor jobId={jobId} canEdit clientId={null} />
+      </QueryClientProvider>
+    );
+    render(withToasts ? <ToastProvider>{editor}</ToastProvider> : editor);
+    return client;
+  }
+
+  const lastPayload = () => putMock.mock.calls.at(-1)![1] as Record<string, unknown>;
+
+  function axiosError(status: number, detail: unknown) {
+    return Object.assign(new Error(`Request failed with status code ${status}`), {
+      isAxiosError: true,
+      response: { status, data: { detail } },
+    });
+  }
+
+  it("zapis wysyła tylko zmienione sekcje i odcisk wczytanego profilu", async () => {
+    getMock.mockResolvedValue({
+      data: { job_id: 61, champion_profile: PROFILE, profile_hash: "h1" },
+    });
+    putMock.mockResolvedValue({
+      data: { job_id: 61, champion_profile: PROFILE, profile_hash: "h2", notices: [] },
+    });
+    renderWithClient(61);
+    const role = await screen.findByLabelText("Nazwa roli");
+    fireEvent.change(role, { target: { value: "QA Lead" } });
+    await userEvent.click(screen.getByTestId("save-champion-profile"));
+    await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+    expect(Object.keys(lastPayload()).sort()).toEqual(["basics", "expected_profile_hash"]);
+    expect(lastPayload()).toMatchObject({
+      basics: { role_name: "QA Lead" },
+      expected_profile_hash: "h1",
+    });
+  });
+
+  it("odświeżony profil przy niezapisanych zmianach: szkic zostaje, baner „Przeładuj”", async () => {
+    getMock.mockResolvedValue({
+      data: { job_id: 62, champion_profile: PROFILE, profile_hash: "h1" },
+    });
+    const client = renderWithClient(62);
+    const role = await screen.findByLabelText("Nazwa roli");
+    fireEvent.change(role, { target: { value: "QA Lead" } });
+
+    act(() => {
+      client.setQueryData(["champion-profile", 62], {
+        job_id: 62,
+        champion_profile: { ...PROFILE, basics: { role_name: "Tester" } },
+        profile_hash: "h2",
+      });
+    });
+    const banner = await screen.findByTestId("champion-profile-conflict");
+    expect(banner).toHaveTextContent("Profil zmienił się w międzyczasie");
+    expect(screen.getByLabelText("Nazwa roli")).toHaveValue("QA Lead");
+
+    await userEvent.click(within(banner).getByRole("button", { name: "Przeładuj" }));
+    expect(screen.getByLabelText("Nazwa roli")).toHaveValue("Tester");
+    expect(screen.queryByTestId("champion-profile-conflict")).toBeNull();
+  });
+
+  it("„Zostaw moje”: szkic zostaje, zapis idzie z nowym odciskiem i tylko zmienionymi sekcjami", async () => {
+    getMock.mockResolvedValue({
+      data: { job_id: 63, champion_profile: PROFILE, profile_hash: "h1" },
+    });
+    putMock.mockResolvedValue({ data: { job_id: 63, champion_profile: PROFILE, profile_hash: "h3" } });
+    const client = renderWithClient(63);
+    fireEvent.change(await screen.findByLabelText("Nazwa roli"), { target: { value: "QA Lead" } });
+    act(() => {
+      client.setQueryData(["champion-profile", 63], {
+        job_id: 63,
+        champion_profile: { ...PROFILE, project: { about: "Nowy opis od kolegi." } },
+        profile_hash: "h2",
+      });
+    });
+    const banner = await screen.findByTestId("champion-profile-conflict");
+    await userEvent.click(within(banner).getByRole("button", { name: "Zostaw moje" }));
+    expect(screen.queryByTestId("champion-profile-conflict")).toBeNull();
+    expect(screen.getByLabelText("Nazwa roli")).toHaveValue("QA Lead");
+
+    await userEvent.click(screen.getByTestId("save-champion-profile"));
+    await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+    // Opis projektu kolegi nie jedzie z powrotem — tylko sekcja zmieniona przez DL-a.
+    expect(Object.keys(lastPayload()).sort()).toEqual(["basics", "expected_profile_hash"]);
+    expect(lastPayload().expected_profile_hash).toBe("h2");
+  });
+
+  it("odświeżony profil bez niezapisanych zmian: pola po prostu się odświeżają", async () => {
+    getMock.mockResolvedValue({
+      data: { job_id: 64, champion_profile: PROFILE, profile_hash: "h1" },
+    });
+    const client = renderWithClient(64);
+    await screen.findByLabelText("Nazwa roli");
+    act(() => {
+      client.setQueryData(["champion-profile", 64], {
+        job_id: 64,
+        champion_profile: { ...PROFILE, basics: { role_name: "Tester" } },
+        profile_hash: "h2",
+      });
+    });
+    await waitFor(() => expect(screen.getByLabelText("Nazwa roli")).toHaveValue("Tester"));
+    expect(screen.queryByTestId("champion-profile-conflict")).toBeNull();
+  });
+
+  it("ten sam profil (np. zmienił się tylko termin rekrutacji) nie zakłóca edycji", async () => {
+    getMock.mockResolvedValue({
+      data: { job_id: 65, champion_profile: PROFILE, profile_hash: "h1" },
+    });
+    const client = renderWithClient(65);
+    fireEvent.change(await screen.findByLabelText("Nazwa roli"), { target: { value: "QA Lead" } });
+    act(() => {
+      client.setQueryData(["champion-profile", 65], {
+        job_id: 65,
+        champion_profile: PROFILE,
+        profile_hash: "h1",
+        job_values: { deadline: "2026-11-01" },
+      });
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(screen.queryByTestId("champion-profile-conflict")).toBeNull();
+    expect(screen.getByLabelText("Nazwa roli")).toHaveValue("QA Lead");
+  });
+
+  it("409 `champion_profile_conflict`: baner zamiast błędu, szkic zostaje, „Zostaw moje” bierze nowy odcisk", async () => {
+    getMock.mockResolvedValue({
+      data: { job_id: 66, champion_profile: PROFILE, profile_hash: "h1" },
+    });
+    putMock
+      .mockRejectedValueOnce(
+        axiosError(409, {
+          code: "champion_profile_conflict",
+          message: "Ktoś zmienił Profil Championa, gdy go edytowałeś.",
+          champion_profile: { ...PROFILE, basics: { role_name: "Tester" } },
+          profile_hash: "h9",
+        }),
+      )
+      .mockResolvedValueOnce({ data: { job_id: 66, champion_profile: PROFILE, profile_hash: "h10" } });
+    renderWithClient(66);
+    fireEvent.change(await screen.findByLabelText("Nazwa roli"), { target: { value: "QA Lead" } });
+    await userEvent.click(screen.getByTestId("save-champion-profile"));
+    const banner = await screen.findByTestId("champion-profile-conflict");
+    expect(banner).toHaveTextContent("Ktoś zmienił Profil Championa");
+    expect(screen.queryByTestId("champion-profile-save-error")).toBeNull();
+    expect(screen.getByLabelText("Nazwa roli")).toHaveValue("QA Lead");
+
+    await userEvent.click(within(banner).getByRole("button", { name: "Zostaw moje" }));
+    await userEvent.click(screen.getByTestId("save-champion-profile"));
+    await waitFor(() => expect(putMock).toHaveBeenCalledTimes(2));
+    expect(lastPayload()).toMatchObject({
+      basics: { role_name: "QA Lead" },
+      expected_profile_hash: "h9",
+    });
+  });
+
+  it("wiersze wymagań: `stack` jedzie w całości, nietknięte sekcje i notatki — nie", async () => {
+    const rowsProfile = {
+      ...PROFILE,
+      stack: {
+        must: [{ name: "Java" }],
+        nice: [],
+        critical: [],
+        notes: "Zdanie klienta.",
+        rows: [{ words: ["Java"], level: "must" }],
+      },
+      search: { requirements: [["Java"]] },
+    };
+    getMock.mockResolvedValue({
+      data: { job_id: 67, champion_profile: rowsProfile, profile_hash: "h1" },
+    });
+    putMock.mockResolvedValue({ data: { job_id: 67, champion_profile: rowsProfile } });
+    renderWithClient(67);
+    const java = await screen.findByRole("radiogroup", { name: "Poziom wymagania: Java" });
+    await userEvent.click(
+      Array.from(java.querySelectorAll("button")).find((b) => b.textContent === "Mile widziane")!,
+    );
+    await userEvent.click(screen.getByTestId("save-champion-profile"));
+    await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+    const payload = lastPayload() as { stack: Record<string, unknown> };
+    expect(payload).not.toHaveProperty("insights");
+    expect(payload).not.toHaveProperty("project");
+    expect(payload).not.toHaveProperty("basics");
+    expect(payload.stack).toMatchObject({
+      rows: [{ words: ["Java"], level: "nice" }],
+      critical: [],
+      notes: "Zdanie klienta.",
+    });
+  });
+
+  it("uwagi zapisu (`notices`) idą do powiadomienia", async () => {
+    getMock.mockResolvedValue({
+      data: { job_id: 68, champion_profile: PROFILE, profile_hash: "h1" },
+    });
+    putMock.mockResolvedValue({
+      data: {
+        job_id: 68,
+        champion_profile: PROFILE,
+        profile_hash: "h2",
+        notices: ["„Ansible” nie jest już technologią ze słownika — zostaje „musi mieć”."],
+      },
+    });
+    renderWithClient(68, true);
+    fireEvent.change(await screen.findByLabelText("Nazwa roli"), { target: { value: "QA Lead" } });
+    await userEvent.click(screen.getByTestId("save-champion-profile"));
+    expect(
+      await screen.findByText(
+        "„Ansible” nie jest już technologią ze słownika — zostaje „musi mieć”.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("422 `handoff_regression`: lista braków z sekcjami, w których się je usuwa", async () => {
+    getMock.mockResolvedValue({
+      data: { job_id: 69, champion_profile: PROFILE, profile_hash: "h1" },
+    });
+    putMock.mockRejectedValue(
+      axiosError(422, {
+        code: "handoff_regression",
+        message: "Tej zmiany nie da się zapisać — rekrutacja w pracy straciłaby wymaganą informację.",
+        blockers: [
+          { code: "questions", message: "Dodaj co najmniej 2 pytania screeningowe w Profilu Championa." },
+          { code: "hiring_manager", message: "Wskaż hiring managera albo zaznacz „Klient nie podał”." },
+        ],
+      }),
+    );
+    renderWithClient(69);
+    fireEvent.change(await screen.findByLabelText("Nazwa roli"), { target: { value: "QA Lead" } });
+    await userEvent.click(screen.getByTestId("save-champion-profile"));
+    const alert = await screen.findByTestId("champion-profile-save-error");
+    expect(alert).toHaveTextContent("rekrutacja w pracy straciłaby wymaganą informację");
+    const items = within(alert).getAllByRole("listitem");
+    expect(items).toHaveLength(2);
+    expect(items[0]).toHaveTextContent("Dodaj co najmniej 2 pytania screeningowe");
+    expect(within(items[0]).getByRole("link", { name: "6 · Pytania screeningowe" })).toHaveAttribute(
+      "href",
+      "#champion-section-screening",
+    );
+    // Brak spoza profilu — bez linku do sekcji.
+    expect(within(items[1]).queryByRole("link")).toBeNull();
+    expect(screen.getByLabelText("Nazwa roli")).toHaveValue("QA Lead");
   });
 });

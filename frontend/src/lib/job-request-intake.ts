@@ -123,6 +123,11 @@ export interface IntakeForm {
   rateNote: string | null;
   /** v7 (27.09.2026): uwagi z odczytu (np. „bankowość” przeniesiona do mile widzianych). */
   intakeNotes: string[];
+  /**
+   * Audyt 06.10.2026 (N3): etykiety wierszy z odczytu, które nie zmieściły się
+   * nawet w „mile widziane” (serwer dopisuje je do opisu wymagań).
+   */
+  droppedRequirements: string[];
   remotePolicy: RemotePolicyValue | "";
   onsiteDays: string;
   /** 0407: „w tygodniu” albo „w miesiącu” (miesięcznie tylko hybrydowo). */
@@ -195,6 +200,8 @@ export interface RequestIntakeResponse {
   office_cities?: string[];
   /** v7: co kod zmienił w odczycie modelu (przeniesione wymagania, lata dziedzin). */
   advisories?: string[];
+  /** Audyt 06.10.2026 (N3): wiersze, które nie zmieściły się nawet w „mile widziane”. */
+  dropped?: string[];
   start_date: string | null;
   project_about: string | null;
   responsibilities: string | null;
@@ -279,6 +286,7 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   rateBudgetMin: "",
   rateNote: null,
   intakeNotes: [],
+  droppedRequirements: [],
   remotePolicy: "",
   onsiteDays: "",
   onsiteDaysPeriod: "week",
@@ -300,7 +308,8 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   deadline: "",
   deadlineTime: "",
   deadlineNotProvided: false,
-  headcount: "1",
+  // Audyt 06.10.2026 (N6): bez domyślnej „1” — liczbę osób wpisuje DL albo podaje mail.
+  headcount: "",
   competenceCategoryId: null,
   suggestedCategoryId: null,
   categoryConfirmed: false,
@@ -381,14 +390,20 @@ export function hiringManagerFromIntake(
  * z Traffita. `clientReferenceFor` bierze numer tylko z nazwy, więc bez tego
  * numer odczytany z maila („zapytanie nr ZOB-9905. Szukamy…”) przepadał,
  * a formularz pisał „Nie widzę numeru zapytania w nazwie” (audyt 05.10.2026).
+ *
+ * Audyt 06.10.2026 (P9): wyłącznie z DOSŁOWNEJ nazwy od klienta — ta nazwa
+ * idzie do klienta (CV, nazwa pliku), więc nie składa się jej z nazwy roli
+ * nadanej przez model. Bez nazwy od klienta pole zostaje puste, a numer
+ * obowiązuje z odczytu (`clientReferenceFor`). `roleName` zostaje w podpisie
+ * dla zgodności wywołań.
  */
 export function clientTitleWithReference(
   clientTitle: string,
-  roleName: string,
+  _roleName: string,
   reference: string,
 ): string {
   const ref = reference.replace(/\s+/g, " ").trim();
-  const base = clientTitle.trim() || roleName.trim();
+  const base = clientTitle.trim();
   if (!ref || !base) return clientTitle;
   if (base.toLocaleLowerCase("pl").includes(ref.toLocaleLowerCase("pl"))) return clientTitle;
   return `${base} (${ref})`;
@@ -425,7 +440,7 @@ export function formFromIntake(intake: RequestIntakeResponse): IntakeForm {
     deadlineTime: intake.deadline ? (intake.deadline_time ?? "") : "",
     deadlineNotProvided: false,
     headcount:
-      intake.headcount != null && intake.headcount >= 1 ? String(intake.headcount) : "1",
+      intake.headcount != null && intake.headcount >= 1 ? String(intake.headcount) : "",
     competenceCategoryId: null,
     suggestedCategoryId: null,
     categoryConfirmed: false,
@@ -455,6 +470,7 @@ export function formFromIntake(intake: RequestIntakeResponse): IntakeForm {
         : "",
     rateNote: intake.rate_note ?? null,
     intakeNotes: intake.advisories ?? [],
+    droppedRequirements: intake.dropped ?? [],
     remotePolicy: intake.remote_policy ?? "",
     onsiteDays: officeDaysFormValue(
       intake.onsite_days_per_week,
@@ -502,6 +518,8 @@ export function clientReferenceFor(form: IntakeForm): string {
   if (form.referenceOverride != null) return form.referenceOverride.trim();
   const title = form.clientTitle.replace(/\s+/g, " ").toLocaleLowerCase("pl");
   const hint = form.referenceHint.replace(/\s+/g, " ").trim();
+  // P9 (06.10.2026): bez nazwy od klienta numer z odczytu obowiązuje wprost.
+  if (!title.trim()) return hint;
   if (hint && title.includes(hint.toLocaleLowerCase("pl"))) return hint;
   const found = new Set<string>();
   for (const match of form.clientTitle.matchAll(ZOB)) found.add(match[1]);
@@ -522,9 +540,21 @@ export function effectiveWorkingTitle(form: IntakeForm): string {
   return form.workingTitleTouched ? form.workingTitle : suggestedWorkingTitle(form);
 }
 
-/** Tytuł rekrutacji (`jobs.title`): nazwa od klienta, a bez niej rola. */
+/**
+ * Tytuł rekrutacji (`jobs.title`): WYŁĄCZNIE nazwa od klienta (audyt
+ * 06.10.2026, P9). Bez niej utworzenie się zatrzymuje (`CLIENT_TITLE_REQUIRED_TEXT`).
+ */
 export function jobTitleFor(form: IntakeForm): string {
-  return form.clientTitle.trim() || form.title.trim();
+  return form.clientTitle.trim();
+}
+
+/** Komunikat przy polu „Nazwa od klienta”, gdy jest puste przy „Utwórz”. */
+export const CLIENT_TITLE_REQUIRED_TEXT =
+  "Wpisz nazwę stanowiska tak, jak podał klient — ta nazwa trafia do CV i nazwy pliku.";
+
+/** „Nie zmieściło się w wymaganiach: …” — zdanie o wierszach odciętych przez serwer. */
+export function droppedRequirementsText(dropped: readonly string[]): string | null {
+  return dropped.length > 0 ? `Nie zmieściło się w wymaganiach: ${dropped.join(", ")}.` : null;
 }
 
 // ── Braki wobec „Przekaż do searchu” ─────────────────────────────────────────
@@ -867,8 +897,9 @@ export function buildJobPayload(
   payload.deadline_time =
     !form.deadlineNotProvided && form.deadline && form.deadlineTime ? form.deadlineTime : null;
   payload.deadline_not_provided = form.deadlineNotProvided;
-  const headcount = parseHeadcount(form.headcount);
-  if (headcount != null) payload.headcount = headcount;
+  // Audyt 06.10.2026 (N6): brak liczby osób jedzie jako `null` — serwer
+  // odmawia (`job_not_ready`, kod `headcount`) zamiast po cichu wpisać 1.
+  payload.headcount = parseHeadcount(form.headcount);
   if (opts.templateJobId != null) {
     payload.from_job_id = opts.templateJobId;
     payload.copy_questions = true;
@@ -1029,6 +1060,7 @@ export function restoreIntakeForm(saved: unknown): IntakeForm {
     askClient: Array.isArray(raw.askClient) ? raw.askClient : [],
     descriptive: Array.isArray(raw.descriptive) ? raw.descriptive : [],
     intakeNotes: Array.isArray(raw.intakeNotes) ? raw.intakeNotes : [],
+    droppedRequirements: Array.isArray(raw.droppedRequirements) ? raw.droppedRequirements : [],
     disqualifiers: Array.isArray(raw.disqualifiers) ? raw.disqualifiers : [],
     searchExclude: Array.isArray(raw.searchExclude) ? raw.searchExclude : [],
   };
@@ -1108,6 +1140,8 @@ export interface TemplateSourceJob {
   must_skills?: unknown;
   nice_skills?: unknown;
   champion_profile?: unknown;
+  /** Liczba osób rekrutacji-źródła (N6, 06.10.2026). */
+  headcount?: number | null;
 }
 
 /**
@@ -1271,6 +1305,9 @@ export function applyTemplate(
     next.onsiteDaysPeriod = office.period;
   }
   if (!next.city && src.location) next.city = src.location;
+  // N6 (06.10.2026): liczba osób z rekrutacji-źródła, gdy pole jest puste.
+  if (!next.headcount.trim() && typeof src.headcount === "number" && src.headcount >= 1)
+    next.headcount = String(src.headcount);
   // Pola, które `POST /api/jobs` z `from_job_id` kopiuje z profilu źródłowego,
   // muszą trafić też do formularza: PUT profilu zaraz po utworzeniu wysyła je
   // i serwer scala sekcje płytko — puste pole w formularzu skasowałoby kopię.

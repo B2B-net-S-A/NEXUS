@@ -1123,6 +1123,9 @@ async def _seed_job_leads(hor_id: int, dl_id: int) -> dict:
                 status=fields.pop("status", JobStatus.published),
                 work_state=fields.pop("work_state", "searching"),
                 work_state_changed_at=now - handed_off,
+                # Przekazanie do searchu stawia `is_open` (audyt 06.10.2026, H7:
+                # opublikowana bez przekazania ma własny wiersz w kolejce).
+                is_open=fields.pop("is_open", True),
                 client_id=cli.id,
                 delivery_lead_id=dl_id,
                 **fields,
@@ -1150,6 +1153,12 @@ async def _seed_job_leads(hor_id: int, dl_id: int) -> dict:
             "old": job("old", handed_off=timedelta(days=8)),
             "to_review": job("to-review", handed_off=fresh, work_state="to_review"),
             "closed": job("closed", handed_off=fresh, status=JobStatus.closed),
+            "not_handed_off": job(
+                "not-handed-off",
+                handed_off=timedelta(days=20),
+                work_state="to_review",
+                is_open=False,
+            ),
         }
         await db.flush()
         db.add_all(
@@ -1257,7 +1266,8 @@ async def test_new_job_leads_show_who_leads_fresh_handoffs(
         assert resp.status_code == 200, resp.text
         listed = resp.json()["new_job_leads"]
         mine = {row["job_id"]: row for row in listed if row["job_id"] in jobs.values()}
-        # Przekazane dawniej niż 7 dni, nieprzekazane i zamknięte nie wchodzą.
+        # Przekazane dawniej niż 7 dni, „Do przejrzenia” i zamknięte nie wchodzą.
+        # Opublikowana bez przekazania wchodzi zawsze (H7, audyt 06.10.2026).
         assert set(mine) == {
             jobs[key]
             for key in (
@@ -1268,11 +1278,18 @@ async def test_new_job_leads_show_who_leads_fresh_handoffs(
                 "passive",
                 "fresh_empty",
                 "stale_empty",
+                "not_handed_off",
             )
         }
-        # Od najnowszego przekazania.
-        handed_off = [datetime.fromisoformat(row["handed_off_at"]) for row in listed]
+        assert mine[jobs["not_handed_off"]]["pending_reason"] == "not_handed_off"
+        assert mine[jobs["not_handed_off"]]["lead_user_id"] is None
+        # Od najnowszego przekazania; nieprzekazane na końcu.
+        handed = [r for r in listed if r["pending_reason"] != "not_handed_off"]
+        handed_off = [datetime.fromisoformat(row["handed_off_at"]) for row in handed]
         assert handed_off == sorted(handed_off, reverse=True)
+        assert listed[len(handed) :] == [
+            r for r in listed if r["pending_reason"] == "not_handed_off"
+        ]
 
         async with AsyncSessionLocal() as db:
             names = dict(

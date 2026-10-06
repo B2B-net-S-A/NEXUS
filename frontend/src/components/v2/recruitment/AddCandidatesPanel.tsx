@@ -56,6 +56,7 @@ import {
   type ProposalFacts,
 } from "@/lib/job-proposals-api";
 import { unmeasuredReason } from "@/lib/match-breakdown";
+import { recordProposalInboxOpened } from "@/lib/proposal-inbox-opened";
 import {
   clientHistoryLine,
   proposalFactsLine,
@@ -248,7 +249,13 @@ function AddCandidatesPanelOpen({
     pipelineCandidateIds,
     readOnly,
   });
-  const dismissPrompt = useDismissReasonPrompt(proposals.dismiss);
+  // „Pomiń” jednej osoby i „Pomiń zaznaczone” (R8) — jeden powód dla całej
+  // grupy; zaznaczenie znika dopiero po potwierdzeniu powodu.
+  const dismissPrompt = useDismissReasonPrompt((ids, feedback) => {
+    proposals.dismiss(ids, feedback);
+    const gone = new Set(ids);
+    setSelected((prev) => new Set([...prev].filter((id) => !gone.has(id))));
+  });
   const counts = useQuery({
     queryKey: jobProposalsKeys.counts(jobId),
     queryFn: ({ signal }) => jobProposalsApi.counts(jobId, signal),
@@ -296,6 +303,15 @@ function AddCandidatesPanelOpen({
   }, [queryClient, jobId, sourcesSettled, postingsCount, baseCount]);
   const listTab: "postings" | "base" | null = tab === "postings" || tab === "base" ? tab : null;
   const listEntries = listTab === "postings" ? split.postings : split.base;
+  // Telemetria otwarcia „Do przejrzenia” (audyt 06.10.2026): raz na otwarcie
+  // okna, przy pierwszym wejściu w zakładkę propozycji. Raz na dzień pilnuje
+  // `recordProposalInboxOpened` (pamięć przeglądarki) i serwer.
+  const inboxOpenRecorded = useRef(false);
+  useEffect(() => {
+    if (listTab === null || inboxOpenRecorded.current) return;
+    inboxOpenRecorded.current = true;
+    recordProposalInboxOpened(jobId);
+  }, [listTab, jobId]);
 
   // Klucz ze zbioru id — odświeżenie listy z tymi samymi osobami nie gubi
   // faktów ani policzonych dopasowań.
@@ -533,15 +549,26 @@ function AddCandidatesPanelOpen({
             : "Zaznacz osoby — trafią do »Nowych«, zarezerwowane dla Ciebie na 12 h."}
       </p>
       {readOnly ? null : (
-        <Button
-          onClick={addSelected}
-          disabled={count === 0 || proposals.adding}
-          loading={proposals.adding}
-          data-testid="add-candidates-submit"
-        >
-          <UserPlus className="h-4 w-4" aria-hidden="true" />
-          Dodaj {count} do Nowych
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => dismissPrompt.ask([...selectedIds])}
+            disabled={count === 0 || proposals.dismissing}
+            loading={proposals.dismissing}
+            data-testid="add-candidates-dismiss"
+          >
+            Pomiń zaznaczone ({count})
+          </Button>
+          <Button
+            onClick={addSelected}
+            disabled={count === 0 || proposals.adding}
+            loading={proposals.adding}
+            data-testid="add-candidates-submit"
+          >
+            <UserPlus className="h-4 w-4" aria-hidden="true" />
+            Dodaj {count} do Nowych
+          </Button>
+        </div>
       )}
     </div>
   );

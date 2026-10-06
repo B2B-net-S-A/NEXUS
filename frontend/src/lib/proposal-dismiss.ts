@@ -7,6 +7,7 @@
  */
 
 import type { ProposalSource } from "@/components/v2/recruitment/types";
+import { countPl } from "@/lib/plural-pl";
 
 export const DISMISS_REASONS = [
   "missing_critical",
@@ -45,6 +46,23 @@ export function dismissFeedbackError(
   if (clean.length > DISMISS_NOTE_MAX) return `Opis może mieć najwyżej ${DISMISS_NOTE_MAX} znaków.`;
   if (reason === "other" && !clean) return "Przy „Inne” opisz w jednym zdaniu, dlaczego pomijasz.";
   return null;
+}
+
+/** Ciało `POST …/proposal-inbox/dismiss-bulk` — jeden powód dla wszystkich. */
+export function dismissBulkRequestBody(
+  candidateIds: readonly number[],
+  feedback: DismissFeedback,
+): { candidate_ids: number[]; reason: DismissReason; note?: string } {
+  const note = (feedback.note ?? "").trim();
+  const body = { candidate_ids: [...candidateIds], reason: feedback.reason };
+  return note ? { ...body, note } : body;
+}
+
+/** „Pominięto 3 osoby · 1 bez zmian. Wrócą tylko z nową wersją CV.” */
+export function bulkDismissMessage(dismissed: number, skipped: number): string {
+  const unchanged = skipped > 0 ? ` · ${skipped} bez zmian` : "";
+  if (dismissed === 0) return `Nikogo nie pominięto${unchanged}.`;
+  return `Pominięto ${countPl(dismissed, "osobę", "osoby", "osób")}${unchanged}. Wrócą tylko z nową wersją CV.`;
 }
 
 /** Ciało `POST …/proposal-inbox/{id}/dismiss` — pusty opis nie jedzie wcale. */
