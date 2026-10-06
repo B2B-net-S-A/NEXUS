@@ -134,8 +134,6 @@ def write_profile_rate(
     candidate.expected_rate_currency = details["new_currency"]
     candidate.profile_rate_version = old_version + 1
     candidate.profile_rate_updated_at = (
-        datetime.now(timezone.utc)
-        if rate_updated_at is _STAMP_NOW
-        else rate_updated_at
+        datetime.now(timezone.utc) if rate_updated_at is _STAMP_NOW else rate_updated_at
     )
     return details

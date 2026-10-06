@@ -274,15 +274,26 @@ async def _revert_one(
     candidate = await db.scalar(
         select(Candidate).where(Candidate.id == item.candidate_id).with_for_update()
     )
-    if candidate is None or (candidate.profile_rate_version or 0) != item.expected_version:
+    if (
+        candidate is None
+        or (candidate.profile_rate_version or 0) != item.expected_version
+    ):
         return None
     first = item.chain[0]
     earlier = (
-        await db.execute(
-            _EARLIER_SQL,
-            {"cid": item.candidate_id, "at": first.created_at, "aid": first.activity_id},
+        (
+            await db.execute(
+                _EARLIER_SQL,
+                {
+                    "cid": item.candidate_id,
+                    "at": first.created_at,
+                    "aid": first.activity_id,
+                },
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     previous_rate_at = earlier[0]["created_at"] if earlier else None
     human_owned = any(
         (row["source"] in HUMAN_RATE_SOURCES) and not row["by_integration"]
@@ -403,7 +414,11 @@ async def apply_plan(
     return {
         "applied_at": applied_at,
         "applied_by": user_id,
-        "counts": {**counts, "reverted": len(reverted_ids), "changed_meanwhile": changed},
+        "counts": {
+            **counts,
+            "reverted": len(reverted_ids),
+            "changed_meanwhile": changed,
+        },
         "candidate_ids": reverted_ids,
     }
 

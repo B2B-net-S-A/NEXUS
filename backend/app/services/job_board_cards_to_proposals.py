@@ -130,6 +130,7 @@ def _mode(mode: str) -> str:
         raise ValueError(f"Unknown mode: {mode!r}")
     return mode
 
+
 # FK pomijane w ogólnym sprawdzeniu: wskaźnik migracyjny procesu na jego własny
 # ostatni etap i migawka CV z dodania (ta ma własny warunek „nietknięta”).
 _SKIPPED_FKS = frozenset(
