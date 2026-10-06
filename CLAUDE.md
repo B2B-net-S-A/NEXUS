@@ -2349,7 +2349,10 @@ Decyzje Artura 29.09.2026 — historia kandydata ma być tym, co napisali ludzie
   jest dowód zgłoszenia do TEJ rekrutacji (`services/integration_intake.py`:
   `application_submissions` z `matched_candidate_id`, źródło `posting` z tym
   `job_id`, notatka `application_form` z tym `job_id`); `/move` odpowiada wtedy
-  202, a `/bulk-move` takiej osoby nie przyjmuje (422). Człowiek dodaje kartę
+  202, a `/bulk-move` takiej osoby nie przyjmuje (422). Scraper wysyła źródło
+  i notatkę formularza BEZ `job_id`, więc dziś każde jego dodanie bez
+  `auto_match` (także zgłoszenia z pracuj.pl do konkretnej rekrutacji) jest
+  propozycją — kartę daje dopiero dowód z `job_id`. Człowiek dodaje kartę
   jak dotąd. Front: etykieta „Z portalu (JJIT/RocketJobs)”. Stare karty przenosi
   jednorazowo `POST /api/admin/proposals/convert-integration-cards?dry_run=true`
   (admin; próba oddaje liczby per rekrutacja, `blocked_by` per powód i ≤ 20
@@ -2425,7 +2428,9 @@ i przy pustym planie), paragon = liczby i ID, kwoty pod `repair_details_…`.
   zostaje). Przywraca stawkę sprzed scrapera z datą POPRZEDNIEJ stawki
   (`write_profile_rate(rate_updated_at=…)`), zdejmuje `_manual_override_rate`
   (chyba że wcześniej pisał człowiek), wyłącza każdy zapis scrapera z „Stawki
-  od” (`candidate_rate_decisions`, klucz `profile:{activity_id}`). Wpis w
+  od” (`candidate_rate_decisions`, klucz `profile:{activity_id}`). Stawka
+  sprzed scrapera w walucie innej niż PLN zostaje (`non_pln_previous`), zapis
+  idzie paczkami po 200 z commitem i paragonem na paczkę. Wpis w
   dzienniku: `profile_rate_scraper_reverted`. Nocny odczyt notatek wycina linię
   „szacunek stawki B2B …” (`notes_insights_extractor.strip_scraper_rate_estimate`).
 - **Runy integracji wiszące w `running` > 6 h** zamyka pętla alertów zastoju

@@ -42,12 +42,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.services.candidate_audit import PROFILE_RATE_SCRAPER_REVERTED
+from app.services.candidate_profile_rate import is_canonical_profile_rate_currency
 
 RECEIPT_KEY = "scraper_rate_revert_2026_10"
 DETAILS_KEY = "repair_details_scraper_rate_revert_2026_10"
 REVERT_SOURCE = "scraper_revert"
 REVERT_ACTION = PROFILE_RATE_SCRAPER_REVERTED
 SAMPLE_SIZE = 20
+#: Kandydaci na jedną transakcję (blokady wierszy trzymane do commita).
+CHUNK = 200
 
 #: Źródła zapisu stawki przez człowieka — po nich znacznik „ręcznie” zostaje.
 HUMAN_RATE_SOURCES = frozenset(
@@ -134,6 +137,7 @@ class ScraperWrite:
     old_version: int
     new_version: int
     accepts_below_min_rate_cleared: Any = None
+    old_currency: Optional[str] = None
 
 
 @dataclass
@@ -169,6 +173,7 @@ def _parse(row: Any) -> Optional[ScraperWrite]:
         old_version=old_version,
         new_version=new_version,
         accepts_below_min_rate_cleared=details.get("accepts_below_min_rate_cleared"),
+        old_currency=details.get("old_currency"),
     )
 
 
@@ -189,6 +194,14 @@ def plan_for_candidate(
     chain = [head]
     while (prev := by_new.get(chain[0].old_version)) is not None and prev not in chain:
         chain.insert(0, prev)
+    # Stawka sprzed scrapera w innej walucie niż PLN: ``write_profile_rate``
+    # zapisuje zawsze PLN/h, więc „50 EUR” wróciłoby jako 50 zł/h — zostaje
+    # do decyzji człowieka.
+    first = chain[0]
+    if first.old_amount is not None and not is_canonical_profile_rate_currency(
+        first.old_currency
+    ):
+        return None, "non_pln_previous"
     return chain, "to_revert"
 
 
@@ -335,38 +348,64 @@ async def _revert_one(
 async def apply_plan(
     db: AsyncSession, plan: list[PlannedRevert], counts: dict[str, int], *, user_id: int
 ) -> dict[str, Any]:
-    """Zapis planu; kandydat zmieniony od próby zostaje. Paragon dopisywany."""
+    """Zapis planu paczkami po ``CHUNK`` z commitem; kandydat zmieniony od
+    próby zostaje. Paragon i dane odwrócenia DOPISYWANE w tej samej transakcji
+    co paczka — przerwany bieg zostawia ślad tego, co zdążył zrobić, a
+    ponowny bieg (nowa próba, nowe ``expected``) bierze tylko resztę.
+    """
     from app.services.candidate_rate_from import recompute_safely
 
-    reverted: list[dict[str, Any]] = []
+    applied_at = datetime.now(timezone.utc).isoformat()
+    reverted_ids: list[int] = []
     changed = 0
-    for item in plan:
-        async with db.begin_nested():
-            entry = await _revert_one(db, item, user_id=user_id)
-        if entry is None:
-            changed += 1
-            continue
-        reverted.append(entry)
-    if reverted:
-        await recompute_safely(db, [e["candidate_id"] for e in reverted])
-    run = {
-        "applied_at": datetime.now(timezone.utc).isoformat(),
+    for start in range(0, len(plan), CHUNK):
+        if start:
+            # Commit poprzedniej paczki zwolnił blokadę doradczą.
+            await lock_for_apply(db)
+        chunk_entries: list[dict[str, Any]] = []
+        for item in plan[start : start + CHUNK]:
+            async with db.begin_nested():
+                entry = await _revert_one(db, item, user_id=user_id)
+            if entry is None:
+                changed += 1
+                continue
+            chunk_entries.append(entry)
+        if chunk_entries:
+            await recompute_safely(db, [e["candidate_id"] for e in chunk_entries])
+            details = await _stored(db, DETAILS_KEY)
+            details["rows"] = [
+                *details.get("rows", []),
+                *({**e, "applied_at": applied_at} for e in chunk_entries),
+            ]
+            await db.execute(
+                _WRITE_SQL, {"key": DETAILS_KEY, "value": json.dumps(details)}
+            )
+            reverted_ids.extend(e["candidate_id"] for e in chunk_entries)
+            run = {
+                "applied_at": applied_at,
+                "applied_by": user_id,
+                "counts": {
+                    **counts,
+                    "reverted": len(reverted_ids),
+                    "changed_meanwhile": changed,
+                },
+                "candidate_ids": list(reverted_ids),
+            }
+            receipt = await _stored(db, RECEIPT_KEY)
+            runs = [
+                r for r in receipt.get("runs", []) if r.get("applied_at") != applied_at
+            ]
+            receipt["runs"] = [*runs, run]
+            await db.execute(
+                _WRITE_SQL, {"key": RECEIPT_KEY, "value": json.dumps(receipt)}
+            )
+        await db.commit()
+    return {
+        "applied_at": applied_at,
         "applied_by": user_id,
-        "counts": {**counts, "reverted": len(reverted), "changed_meanwhile": changed},
-        "candidate_ids": [e["candidate_id"] for e in reverted],
+        "counts": {**counts, "reverted": len(reverted_ids), "changed_meanwhile": changed},
+        "candidate_ids": reverted_ids,
     }
-    if not reverted:
-        return run
-    receipt = await _stored(db, RECEIPT_KEY)
-    details = await _stored(db, DETAILS_KEY)
-    receipt["runs"] = [*receipt.get("runs", []), run]
-    details["rows"] = [
-        *details.get("rows", []),
-        *({**e, "applied_at": run["applied_at"]} for e in reverted),
-    ]
-    await db.execute(_WRITE_SQL, {"key": RECEIPT_KEY, "value": json.dumps(receipt)})
-    await db.execute(_WRITE_SQL, {"key": DETAILS_KEY, "value": json.dumps(details)})
-    return run
 
 
 __all__ = [

@@ -60,6 +60,24 @@ def test_later_human_change_keeps_the_rate():
     assert revert.plan_for_candidate(writes, None) == (None, "candidate_missing")
 
 
+def test_previous_rate_in_foreign_currency_is_left_for_a_human():
+    # `write_profile_rate` zapisuje zawsze PLN/h — „50 EUR” nie może wrócić
+    # jako 50 zł/h.
+    eur = _write(1, "50.00", "48.00", 3)
+    eur.old_currency = "EUR"
+    assert revert.plan_for_candidate([eur], current_version=4) == (
+        None,
+        "non_pln_previous",
+    )
+    pln = _write(2, "50.00", "48.00", 3)
+    pln.old_currency = "PLN"
+    chain, reason = revert.plan_for_candidate([pln], current_version=4)
+    assert reason == "to_revert" and chain == [pln]
+    empty = _write(3, None, "48.00", 3)
+    empty.old_currency = None
+    assert revert.plan_for_candidate([empty], current_version=4)[1] == "to_revert"
+
+
 def test_only_the_latest_scraper_run_counts_after_a_human_gap():
     # Scraper (v1→2), człowiek (v2→3), scraper (v3→4): cofa się tylko ostatni.
     writes = [_write(1, None, "40.00", 1), _write(2, "150.00", "48.00", 3, 9)]
