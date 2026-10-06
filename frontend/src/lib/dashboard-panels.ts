@@ -1,8 +1,8 @@
 // Listy panelu „Czeka na Ciebie”, które da się usunąć z pulpitu.
 //
 // „Twoje CV w drodze” usuwa każdy (02.10.2026). Pozostałe listy usuwa
-// wyłącznie Head of Recruitment (decyzja Artura 06.10.2026): prowadzi zespół
-// i nie każda lista jest dla niego pracą, a panel stał nad kafelkami bez
+// wyłącznie Head of Recruitment i admin (decyzje Artura 06.10.2026): prowadzą
+// zespół i nie każda lista jest dla nich pracą, a panel stał nad kafelkami bez
 // możliwości zmiany. Osobom pracującym przy kandydatach listy zostają
 // sztywne — zadanie ma do nich dotrzeć, nawet gdy pulpitu nie układały.
 //
@@ -43,7 +43,7 @@ export const PANEL_LABELS: Record<DashboardPanelKey, string> = {
 }
 
 /** Role, które mogą usuwać z pulpitu każdą listę panelu. */
-export const PANEL_EDIT_ROLES: readonly UserRole[] = ["head_of_recruitment"]
+export const PANEL_EDIT_ROLES: readonly UserRole[] = ["admin", "head_of_recruitment"]
 
 type RoleBearing = Parameters<typeof hasRole>[0]
 

@@ -72,7 +72,7 @@ TILE_TYPES: tuple[str, ...] = get_args(TileType)
 # Listy panelu „Czeka na Ciebie” stojące NAD kafelkami. To nie kafelki
 # siatki: usunięcie zapisuje się w `layout["hidden_panels"]`, obok `tiles`.
 # „Twoje CV w drodze” usuwa każdy (02.10.2026); pozostałe listy wyłącznie
-# Head of Recruitment (decyzja Artura 06.10.2026) — osobom pracującym przy
+# Head of Recruitment i admin (decyzje Artura 06.10.2026) — osobom pracującym przy
 # kandydatach zadanie ma dotrzeć, nawet gdy pulpitu nie układały.
 # Lustro: `frontend/src/lib/dashboard-panels.ts`.
 PanelKey = Literal[
@@ -90,7 +90,7 @@ PanelKey = Literal[
 ]
 PANEL_KEYS: tuple[str, ...] = get_args(PanelKey)
 PANEL_CV_IN_TRANSIT = "cv_in_transit"
-PANEL_EDIT_ROLES: tuple[str, ...] = ("head_of_recruitment",)
+PANEL_EDIT_ROLES: tuple[str, ...] = ("admin", "head_of_recruitment")
 
 
 def may_hide_panel(user: Any, panel: str) -> bool:

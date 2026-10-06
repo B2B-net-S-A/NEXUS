@@ -1,6 +1,6 @@
 "use client"
 
-// „Listy nad pulpitem” — Head of Recruitment wybiera, które listy panelu
+// „Listy nad pulpitem” — Head of Recruitment i admin wybierają, które listy panelu
 // „Czeka na Ciebie” stoją nad jego kafelkami (06.10.2026). Każda zmiana
 // zapisuje się od razu na koncie (`PUT /api/users/me/dashboard/panels/…`).
 
