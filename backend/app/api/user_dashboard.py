@@ -29,6 +29,7 @@ from app.services.dashboard_tiles import (
     PanelKey,
     hidden_panels,
     load_layout,
+    may_hide_panel,
     uses_role_layout,
 )
 
@@ -154,6 +155,11 @@ async def set_panel_visibility(
     Wersja układu zostaje bez zmian: chroni kafelki, a ta decyzja ich nie
     dotyczy — otwarta druga karta nie dostaje 409 przy zapisie układu.
     """
+    if payload.hidden and not may_hide_panel(current_user, panel):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tę listę może usunąć z pulpitu tylko Head of Recruitment.",
+        )
     await db.execute(
         pg_insert(UserDashboard)
         .values(user_id=current_user.id, layout={}, version=0)

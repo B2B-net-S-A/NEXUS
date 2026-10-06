@@ -25,6 +25,7 @@ import {
 } from "@/lib/dashboard-tiles/catalog"
 import type { DashboardPanelKey } from "@/lib/api/userDashboard"
 import { CV_TRANSIT_TITLE } from "@/lib/cv-in-transit"
+import { PANEL_LABELS } from "@/lib/dashboard-panels"
 import { cn } from "@/lib/utils"
 import type { User } from "@/store/auth"
 
@@ -140,27 +141,35 @@ export function TileCatalogSheet({
             ))}
           </nav>
           <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-1 gap-3 overflow-y-auto p-4 md:grid-cols-2">
-            {onRestorePanel && hiddenPanels.includes("cv_in_transit") ? (
-              <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-3 md:col-span-2">
-                <div>
-                  <div className="text-sm font-semibold text-foreground">{CV_TRANSIT_TITLE}</div>
-                  <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
-                    Lista nad kafelkami: co dzieje się z CV po przekazaniu do QC — co wróciło, co
-                    czeka w przeglądzie i co poszło do klienta. Usunięta z Twojego pulpitu.
-                  </p>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="self-start"
-                  aria-label={`Przywróć listę ${CV_TRANSIT_TITLE}`}
-                  onClick={() => onRestorePanel("cv_in_transit")}
-                >
-                  <Undo2 className="h-4 w-4" />
-                  Przywróć
-                </Button>
-              </div>
-            ) : null}
+            {onRestorePanel
+              ? hiddenPanels.map((panel) => (
+                  <div
+                    key={panel}
+                    className="flex flex-col gap-2 rounded-xl border border-border bg-card p-3 md:col-span-2"
+                  >
+                    <div>
+                      <div className="text-sm font-semibold text-foreground">
+                        {panel === "cv_in_transit" ? CV_TRANSIT_TITLE : PANEL_LABELS[panel]}
+                      </div>
+                      <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
+                        {panel === "cv_in_transit"
+                          ? "Lista nad kafelkami: co dzieje się z CV po przekazaniu do QC — co wróciło, co czeka w przeglądzie i co poszło do klienta. Usunięta z Twojego pulpitu."
+                          : "Lista z „Czeka na Ciebie”. Usunięta z Twojego pulpitu."}
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="self-start"
+                      aria-label={`Przywróć listę ${panel === "cv_in_transit" ? CV_TRANSIT_TITLE : PANEL_LABELS[panel]}`}
+                      onClick={() => onRestorePanel(panel)}
+                    >
+                      <Undo2 className="h-4 w-4" />
+                      Przywróć
+                    </Button>
+                  </div>
+                ))
+              : null}
             <div className="flex flex-col gap-2 rounded-xl border border-primary bg-primary/5 p-3 md:col-span-2">
               <div className="flex items-center gap-2 text-sm font-semibold text-primary">
                 <Wand2 className="h-4 w-4" aria-hidden />

@@ -10,6 +10,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 import { BOARD_TASKS_QUERY_KEY } from "@/lib/api/boardTasks";
+import type { DashboardPanelKey } from "@/lib/dashboard-panels";
 
 export const TILE_TYPES = [
   "my_tasks",
@@ -127,9 +128,9 @@ export interface UserDashboardResponse {
   uses_role_layout?: boolean;
 }
 
-/** Listy stojące nad kafelkami: każdy ma je domyślnie i może usunąć.
- *  Lustro `PANEL_KEYS` w `backend/app/services/dashboard_tiles.py`. */
-export type DashboardPanelKey = "cv_in_transit";
+/** Listy panelu „Czeka na Ciebie”, które da się usunąć z pulpitu
+ *  (`lib/dashboard-panels.ts`, lustro `PANEL_KEYS` w backendzie). */
+export type { DashboardPanelKey } from "@/lib/dashboard-panels";
 
 export const USER_DASHBOARD_QUERY_KEY = ["user-dashboard"] as const;
 
