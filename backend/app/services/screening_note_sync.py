@@ -125,7 +125,81 @@ def similarity(left: str, right: str) -> float:
 _FILLER = frozenset(
     {"z", "o", "w", "i", "a", "u", "na", "do", "ze", "we", "po", "od", "za", "sie"}
 )
-_STEM = 5
+# Końcówki odmiany: „kafka”/„kafkę”, „kubernetes”/„kubernetesem”,
+# „języka”/„językiem”. Wspólny początek z inną końcówką („terraform” /
+# „terragrunt”, „postgresql” / „postgis”, „selenium” / „selenide”) to INNE słowo.
+_ENDINGS = frozenset(
+    {
+        "",
+        "a",
+        "e",
+        "i",
+        "y",
+        "u",
+        "o",
+        "em",
+        "iem",
+        "ie",
+        "ow",
+        "owi",
+        "om",
+        "ach",
+        "ami",
+        "mi",
+        "ego",
+        "emu",
+        "ym",
+        "im",
+        "ej",
+        "ych",
+        "ich",
+        "ymi",
+        "imi",
+        "owie",
+        "owe",
+        "owa",
+        "owy",
+        "es",
+        "as",
+        "am",
+    }
+)
+_MIN_STEM = 4
+# Język w pytaniu odróżnia pytania („Jaki poziom języka niemieckiego?”).
+_LANGUAGE_STEMS = (
+    "angiel",
+    "niemie",
+    "francu",
+    "hiszpa",
+    "wlosk",
+    "rosyj",
+    "ukrain",
+    "polsk",
+    "czesk",
+    "slowac",
+    "holend",
+    "nider",
+    "szwedz",
+    "norwes",
+    "dunsk",
+    "finsk",
+    "japon",
+    "chins",
+    "portug",
+    "arabs",
+    "wegier",
+    "rumun",
+    "litew",
+    "lotew",
+    "english",
+    "german",
+    "french",
+    "spanish",
+    "italian",
+    "russian",
+    "dutch",
+)
+_TOKEN_RE = re.compile(r"[^\W_][\w.+#]*", re.UNICODE)
 
 
 def _words(text: str) -> list[str]:
@@ -133,16 +207,62 @@ def _words(text: str) -> list[str]:
 
 
 def _same_word(left: str, right: str) -> bool:
-    """To samo słowo z dokładnością do odmiany („kafka”/„kafke”, „kubernetesem”)."""
+    """To samo słowo z dokładnością do odmiany („kafka”/„kafkę”, „kubernetesem”)."""
     if left == right:
         return True
-    if min(len(left), len(right)) < _STEM:
+    common = 0
+    for a, b in zip(left, right):
+        if a != b:
+            break
+        common += 1
+    if common < _MIN_STEM:
         return False
-    return left[:_STEM] == right[:_STEM]
+    return left[common:] in _ENDINGS and right[common:] in _ENDINGS
 
 
-def _covers(inner: list[str], outer: list[str]) -> bool:
-    return all(any(_same_word(word, other) for other in outer) for word in inner)
+def _known_skill(word: str) -> bool:
+    try:
+        from app.services.scoring_service import ALIAS_MAP
+    except Exception:  # pragma: no cover — import awaryjny
+        return False
+    return word in ALIAS_MAP
+
+
+def _distinguishing_words(text: str) -> set[str]:
+    """Słowa, które nazywają coś konkretnego: technologia, skrót, język.
+
+    Rozpoznawane po słowniku umiejętności, po kształcie w oryginale („AWS”,
+    „RabbitMQ”, „C#”, „S3”) i po rdzeniu nazwy języka.
+    """
+    found: set[str] = set()
+    for raw in _TOKEN_RE.findall(_PREFIX_RE.sub("", (text or "").strip(), count=1)):
+        word = _normalize(raw)
+        if not word or word in _FILLER:
+            continue
+        letters = [ch for ch in raw if ch.isalpha()]
+        shaped = (
+            (len(letters) >= 2 and all(ch.isupper() for ch in letters))
+            or any(ch.isupper() for ch in raw[1:])
+            or any(ch in raw for ch in "+#")
+            or (any(ch.isdigit() for ch in raw) and bool(letters))
+        )
+        if (
+            shaped
+            or word.startswith(_LANGUAGE_STEMS)
+            or _known_skill(word)
+            or _known_skill(raw.lower())
+        ):
+            found.update(word.split())
+    return found
+
+
+def _uncovered(inner: list[str], outer: list[str]) -> Optional[list[str]]:
+    """Słowa ``outer`` bez pary w ``inner`` — albo ``None``, gdy ``inner`` się nie mieści."""
+    if not all(any(_same_word(word, other) for other in outer) for word in inner):
+        return None
+    return [
+        other for other in outer if not any(_same_word(other, word) for word in inner)
+    ]
 
 
 def match_score(note_question: str, champion_question: str) -> float:
@@ -150,15 +270,24 @@ def match_score(note_question: str, champion_question: str) -> float:
 
     Wspólna reszta zdania daje wysokie podobieństwo pytaniom o różne rzeczy
     („doświadczenie z AWS” / „… z Azure” = 0,90). Dlatego słowa jednego
-    pytania muszą się mieścić w drugim (notatka bywa skrótem albo ma dopisek);
-    dwa pytania z własnymi, różnymi słowami nie są tym samym pytaniem.
+    pytania muszą się mieścić w drugim (notatka bywa skrótem albo ma dopisek),
+    a słowa, które ma tylko dłuższe pytanie, nie mogą niczego konkretnego
+    nazywać: „Doświadczenie?” to nie „Doświadczenie z AWS?”, a „Jaki poziom
+    języka?” to nie „… języka niemieckiego?”.
     """
     score = similarity(note_question, champion_question)
     if score <= 0.0:
         return 0.0
     left, right = _words(note_question), _words(champion_question)
-    if _covers(left, right) or _covers(right, left):
-        return score
+    for inner, outer, outer_text in (
+        (left, right, champion_question),
+        (right, left, note_question),
+    ):
+        extra = _uncovered(inner, outer)
+        if extra is None:
+            continue
+        if not set(extra) & _distinguishing_words(outer_text):
+            return score
     return 0.0
 
 

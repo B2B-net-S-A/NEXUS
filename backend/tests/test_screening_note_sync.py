@@ -131,12 +131,54 @@ def test_note_question_shortened_or_with_a_remark_still_matches():
     assert sync.match_score("Czy pracowałeś z Kafką", QUESTIONS["q2"]) >= (
         sync.CONTENT_MIN
     )
-    assert sync.match_score(
-        "Czy pracowałeś z Apache Kafka? (min. 2 lata)", QUESTIONS["q2"]
-    ) >= sync.CONTENT_MIN
+    assert (
+        sync.match_score(
+            "Czy pracowałeś z Apache Kafka? (min. 2 lata)", QUESTIONS["q2"]
+        )
+        >= sync.CONTENT_MIN
+    )
     assert sync.match_score("Doświadczenie z Kubernetes", QUESTIONS["q1"]) >= (
         sync.CONTENT_MIN
     )
+
+
+@pytest.mark.parametrize(
+    ("champion", "note"),
+    [
+        ("Jaki poziom języka niemieckiego?", "Jaki poziom języka?"),
+        ("Doświadczenie z AWS?", "Doświadczenie?"),
+        ("Czy znasz Kafkę i RabbitMQ?", "Czy znasz Kafkę?"),
+        ("Czy znasz Kafkę?", "Czy znasz Kafkę i RabbitMQ?"),
+        ("Czy znasz Power BI?", "Czy znasz PowerShell?"),
+        ("Czy znasz Terraform?", "Czy znasz Terragrunt?"),
+        ("Czy znasz PostgreSQL?", "Czy znasz PostGIS?"),
+        ("Doświadczenie z Microsoft?", "Doświadczenie z microservices?"),
+        ("Czy znasz Selenium?", "Czy znasz Selenide?"),
+    ],
+)
+def test_question_missing_a_specific_word_is_not_the_same_question(champion, note):
+    # Przegląd #2059: wspólny początek słowa albo brak nazwy technologii /
+    # języka w krótszym pytaniu przypinał odpowiedź do innego pytania.
+    assert sync.match_score(note, champion) == 0.0
+    result = sync.map_note_answers({"q1": champion}, [_item(1, note, "tak")])
+    assert result.matches == ()
+
+
+@pytest.mark.parametrize(
+    ("left", "right", "same"),
+    [
+        ("kafka", "kafke", True),
+        ("kubernetes", "kubernetesem", True),
+        ("jezyka", "jezykiem", True),
+        ("doswiadczenie", "doswiadczenia", True),
+        ("terraform", "terragrunt", False),
+        ("postgresql", "postgis", False),
+        ("selenium", "selenide", False),
+        ("powershell", "power", False),
+    ],
+)
+def test_same_word_means_same_stem_with_an_inflection_ending(left, right, same):
+    assert sync._same_word(left, right) is same
 
 
 def test_questions_unlike_the_profile_are_not_mapped_by_number():
@@ -224,7 +266,11 @@ def test_sheet_with_only_note_sync_answers_belongs_to_the_automat():
                 }
             ]
         },
-        {"answers": [{"question_id": "q1", "response": "Tak.", "origin": "note_import"}]},
+        {
+            "answers": [
+                {"question_id": "q1", "response": "Tak.", "origin": "note_import"}
+            ]
+        },
         {"answers": []},
         None,
         {"answers": "zepsute"},
@@ -481,9 +527,7 @@ async def _activities(world: dict, action: str) -> list:
                 await db.scalars(
                     select(Activity).where(
                         Activity.entity_type == "candidate_stage",
-                        Activity.entity_id.in_(
-                            [world["older_id"], world["latest_id"]]
-                        ),
+                        Activity.entity_id.in_([world["older_id"], world["latest_id"]]),
                         Activity.action == action,
                     )
                 )
@@ -517,7 +561,9 @@ async def test_sync_creates_noops_updates_copies_and_clears(app_client: AsyncCli
     await _set_note_answers(
         world,
         {
-            "items": [_item(2, "Czy pracowałeś z Apache Kafka?", "Nie, tylko RabbitMQ.")],
+            "items": [
+                _item(2, "Czy pracowałeś z Apache Kafka?", "Nie, tylko RabbitMQ.")
+            ],
             "note_id": world["note_id"],
             "at": NOTE_AT.isoformat(),
         },
