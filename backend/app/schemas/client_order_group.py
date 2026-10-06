@@ -43,7 +43,10 @@ def _money_out(value: Decimal) -> float:
 
 
 def _contract_rate_out(value: Decimal) -> float:
-    return float(Decimal(value).quantize(Decimal("0.001")))
+    # Pełna skala kontraktu (Numeric(16,6) od 0309): 1001,55 zł/MD to
+    # 125,19375 zł/h. Ucięte do 3 miejsc (125,194) wracało ×8 jako 1001,552,
+    # odkąd linia MD trzyma trzecie miejsce (0419).
+    return float(Decimal(value).quantize(MD_SCALE))
 
 
 # Pełna precyzja wewnątrz, JSON number na drucie. Zaokrąglenie do 3 miejsc
@@ -55,7 +58,7 @@ MdValue = Annotated[
 MoneyPLN = Annotated[
     Decimal, PlainSerializer(_money_out, return_type=float, when_used="json")
 ]
-# Stawki kontraktu są Numeric(12,3), więc podpowiedź nie może przechodzić
+# Stawki kontraktu są Numeric(16,6), więc podpowiedź nie może przechodzić
 # przez MoneyPLN (3 miejsca). JSON number zachowuje pełną skalę źródła.
 ContractRateValue = Annotated[
     Decimal, PlainSerializer(_contract_rate_out, return_type=float, when_used="json")

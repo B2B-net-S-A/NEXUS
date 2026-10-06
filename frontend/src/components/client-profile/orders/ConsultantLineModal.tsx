@@ -21,6 +21,7 @@ import type {
 import { usesSharedMdPool } from "@/lib/client-order-list";
 import { isEzdrowieClient } from "@/lib/ezdrowie";
 import {
+  contractRateField,
   contractRateUnitToInputUnit,
   convertRate,
   formatRateField,
@@ -401,11 +402,12 @@ export function ConsultantLineModal({
     // `suggested_rate_cost` MUSI pozostać PLN/MD, bo starszy frontend zapisuje
     // je bez metadanych. Nowe pole wybieramy tylko, gdy rzeczywiście istnieje.
     const hasRawSuggestion = next?.suggested_contract_rate_cost != null;
-    setCostUnit(
-      hasRawSuggestion
-        ? contractRateUnitToInputUnit(next?.suggested_rate_cost_unit)
-        : "md",
+    // Stawka spoza 3 miejsc w swojej jednostce wchodzi od razu w MD.
+    const rawField = contractRateField(
+      next?.suggested_contract_rate_cost,
+      contractRateUnitToInputUnit(next?.suggested_rate_cost_unit),
     );
+    setCostUnit(hasRawSuggestion ? rawField.unit : "md");
     setCostCurrency(
       hasRawSuggestion
         ? next?.suggested_rate_cost_currency?.trim().toUpperCase() || "PLN"
@@ -420,9 +422,7 @@ export function ConsultantLineModal({
         : 1,
     );
     setRateCost(
-      hasRawSuggestion
-        ? formatRateField(next.suggested_contract_rate_cost)
-        : formatRateField(next?.suggested_rate_cost),
+      hasRawSuggestion ? rawField.value : formatRateField(next?.suggested_rate_cost),
     );
   };
 

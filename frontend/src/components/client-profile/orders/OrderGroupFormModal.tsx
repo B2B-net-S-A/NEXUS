@@ -122,7 +122,8 @@ function documentDiffers(
     rate !== null &&
     draft.revenueUnit === "md" &&
     line.rate_revenue != null &&
-    Math.abs(rate - line.rate_revenue) > 0.005
+    // Pół jednostki trzeciego miejsca — stawki linii mają 3 miejsca (0419).
+    Math.abs(rate - line.rate_revenue) > 0.0005
   ) {
     parts.push("stawkę");
   }

@@ -95,6 +95,25 @@ export function formatRateField(value: number | string | null | undefined): stri
   return new Decimal(parsed).toFixed(RATE_DECIMALS, Decimal.ROUND_HALF_UP);
 }
 
+/**
+ * Stawka KONTRAKTU do pola linii: w jej własnej jednostce, gdy mieści się
+ * w trzech miejscach; inaczej od razu w MD. Kontrakt trzyma 6 miejsc
+ * (1001,55 zł/MD = 125,19375 zł/h) — pole z „125.194” zapisałoby ×8 jako
+ * 1001,552, czyli nie stawkę z kontraktu.
+ */
+export function contractRateField(
+  value: number | null | undefined,
+  unit: RateUnit,
+): { value: string; unit: RateUnit } {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return { value: "", unit };
+  }
+  if (new Decimal(value).decimalPlaces() <= RATE_DECIMALS || unit === "md") {
+    return { value: formatRateField(value), unit };
+  }
+  return { value: formatRateField(toMdRate(value, unit)), unit: "md" };
+}
+
 /** Tekst pola po opuszczeniu go: liczba → trzy miejsca, reszta bez zmian. */
 export function normalizeRateField(raw: string): string {
   const normalized = raw.trim().replace(",", ".");

@@ -370,9 +370,9 @@ async def materialize_group_for_activated_order(
     # PLN/MD. Zachowanie surowych warunków wejściowych należy do eventu/grupy;
     # relabeling bez konwersji był dotychczas źródłem błędu ×8 i EUR→PLN.
     #
-    # Kolumny są WĘŻSZE po stronie zamówienia niż po stronie linii MD:
-    # ``md_rate_*`` to Numeric(12,2) (10 cyfr całkowitych), a ``rate_*``
-    # Numeric(12,3) (9 cyfr). Przepisanie bez sprawdzenia zakresu kończyło się
+    # Kolumny ``md_rate_*`` i ``rate_*`` są dziś obie Numeric(12,3) (9 cyfr
+    # całkowitych; do 0419 ``md_rate_*`` miały 10). Przeliczenie (kurs, ×8)
+    # potrafi wyjść poza zakres, a przepisanie bez sprawdzenia kończyło się
     # ``NumericValueOutOfRangeError`` przy commicie, czyli 500 bez nagłówków
     # CORS — u użytkownika „Network Error" w środku aktywacji zamówienia.
     _assert_fits_order_rate_column(order.md_rate_cost, "kosztowa")

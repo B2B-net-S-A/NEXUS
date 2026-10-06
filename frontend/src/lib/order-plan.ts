@@ -19,6 +19,7 @@ import type {
   OrderType,
 } from "@/lib/api/orderGroups";
 import {
+  contractRateField,
   contractRateUnitToInputUnit,
   formatRateField,
   toMdRate,
@@ -128,9 +129,13 @@ function costFromContract(
   if (contract.rate_cost === null || contract.rate_cost === undefined) {
     return { rateCost: "", costUnit: "md", costCurrency: "PLN", costSource: null };
   }
+  const field = contractRateField(
+    contract.rate_cost,
+    contractRateUnitToInputUnit(contract.rate_cost_unit),
+  );
   return {
-    rateCost: formatRateField(contract.rate_cost),
-    costUnit: contractRateUnitToInputUnit(contract.rate_cost_unit),
+    rateCost: field.value,
+    costUnit: field.unit,
     costCurrency: contract.rate_cost_currency?.trim().toUpperCase() || "PLN",
     costSource: "contract",
   };
@@ -288,10 +293,14 @@ export function chooseConsultant(
   const hasRaw =
     option.suggested_contract_rate_cost !== null &&
     option.suggested_contract_rate_cost !== undefined;
+  const rawField = contractRateField(
+    option.suggested_contract_rate_cost,
+    contractRateUnitToInputUnit(option.suggested_rate_cost_unit),
+  );
   const cost = hasRaw
         ? {
-            rateCost: formatRateField(option.suggested_contract_rate_cost),
-            costUnit: contractRateUnitToInputUnit(option.suggested_rate_cost_unit),
+            rateCost: rawField.value,
+            costUnit: rawField.unit,
             costCurrency:
               option.suggested_rate_cost_currency?.trim().toUpperCase() || "PLN",
             costSource: "contract" as LineSource,

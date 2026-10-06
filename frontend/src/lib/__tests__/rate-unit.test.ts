@@ -3,6 +3,7 @@ import {
   contractRateUnitToInputUnit,
   HOURS_PER_MD,
   MD_PER_MONTH,
+  contractRateField,
   convertRate,
   formatRateField,
   normalizeRateField,
@@ -55,6 +56,14 @@ describe("rate-unit — przelicznik godzinowa / miesięczna ↔ MD", () => {
     expect(normalizeRateField("36,375")).toBe("36.375");
     expect(normalizeRateField("1200")).toBe("1200.000");
     expect(normalizeRateField("  ")).toBe("");
+  });
+
+  it("stawka kontraktu spoza 3 miejsc wchodzi w MD bez utraty groszy", () => {
+    // 1001,55 zł/MD = 125,19375 zł/h — „125.194” ×8 dałoby 1001,552.
+    expect(contractRateField(125.19375, "hour")).toEqual({ value: "1001.550", unit: "md" });
+    expect(contractRateField(36.375, "hour")).toEqual({ value: "36.375", unit: "hour" });
+    expect(contractRateField(60, "hour")).toEqual({ value: "60.000", unit: "hour" });
+    expect(contractRateField(null, "hour")).toEqual({ value: "", unit: "hour" });
   });
 
   it("wejście niepoliczalne zwraca null, nie NaN", () => {
