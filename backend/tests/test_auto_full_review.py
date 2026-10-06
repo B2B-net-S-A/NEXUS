@@ -767,6 +767,7 @@ async def _run_with(
     created_at: datetime | None = None,
     failed: tuple[int, ...] = (),
     error_code: str | None = None,
+    unmeasured: dict[int, str] | None = None,
 ) -> str:
     """Zakończony przegląd automatyczny z podanymi wynikami (i ewentualną awarią)."""
     run_id = str(uuid.uuid4())
@@ -780,7 +781,7 @@ async def _run_with(
             request_fingerprint=uuid.uuid4().hex * 2,
             request_context={},
             version_trace={"origin": "auto"},
-            population_size=len(scores) + len(failed),
+            population_size=len(scores) + len(failed) + len(unmeasured or {}),
             metrics={},
             error_code=error_code,
             completed_at=datetime.now(timezone.utc),
@@ -791,6 +792,12 @@ async def _run_with(
         await db.flush()
         db.add_all([_result(run_id, cid, score) for cid, score in scores.items()])
         db.add_all([_failed_row(cid)(run_id) for cid in failed])
+        db.add_all(
+            [
+                _result(run_id, cid, None, measurement=measurement)
+                for cid, measurement in (unmeasured or {}).items()
+            ]
+        )
         await db.commit()
     return run_id
 
@@ -886,6 +893,39 @@ async def test_incomplete_review_does_not_expire(monkeypatch):
     assert await _statuses(world["job_id"]) == {
         kept: "proposed",
         unscored: "proposed",
+    }
+
+
+@pytest.mark.parametrize("measurement", ["stale", "missing_index", "unavailable"])
+async def test_person_without_a_measurement_does_not_expire(monkeypatch, measurement):
+    """Przegląd #2058: zmiana w trakcie przeglądu (nocny import), nowy model
+    wektorów albo pojedynczy wadliwy wektor nie są oceną „nie pasuje”."""
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_SCORE", 70.0)
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id, event=False, people=3)
+    kept, unmeasured, dropped = world["candidate_ids"]
+    now = datetime.now(timezone.utc)
+    first = await _run_with(
+        world,
+        owner_id,
+        {kept: 90, unmeasured: 85, dropped: 80},
+        created_at=now - timedelta(days=1),
+    )
+    await _publish(first)
+    # Drugi przegląd ocenił `dropped` poniżej progu, `unmeasured` nie ocenił.
+    second = await _run_with(
+        world,
+        owner_id,
+        {kept: 90, dropped: 40},
+        created_at=now,
+        unmeasured={unmeasured: measurement},
+    )
+    await _publish(second)
+    assert await _statuses(world["job_id"]) == {
+        kept: "proposed",
+        unmeasured: "proposed",
+        # Niepełne pokrycie nie blokuje porządkowania ocenionych.
+        dropped: "expired",
     }
 
 

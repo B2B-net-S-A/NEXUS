@@ -31,8 +31,9 @@ Reguły, które łatwo cofnąć „przy okazji":
   `AUTO_FULL_REVIEW_MIN_SCORE`, które przechodzą `is_good_match` — bez limitu
   liczby (dawne `AUTO_FULL_REVIEW_TOP_K` = 60 nie jest czytane). Propozycje
   `full_base`, których przegląd już nie zaproponował, dostają `expired`
-  (`job_proposals.expire_full_base`) — tylko po kompletnym przeglądzie, który
-  jest najnowszym przeglądem tej rekrutacji z wynikami (`_newest_result_run`).
+  (`job_proposals.expire_full_base`) — tylko po najnowszym przeglądzie tej
+  rekrutacji z wynikami (`_newest_result_run`) i tylko osoby, które ten
+  przegląd ocenił (albo spoza jego populacji); osoba bez oceny zostaje.
 """
 
 from __future__ import annotations
@@ -784,14 +785,13 @@ async def _publish(db, run: CandidateSearchRun, *, eligible: Optional[int]) -> i
     newest = await _newest_result_run(db, run)
     count = await publish_run_proposals(db, run, revive_expired=newest)
     incomplete = await _incomplete_coverage(db, run)
-    # Wygaszanie tylko po przeglądzie, który naprawdę zamyka temat: kompletny
-    # (bez niepełnego pokrycia — także zaakceptowanego po serii, bo pominięci
-    # w awarii nie zostali ocenieni), najnowszy z wynikami i w rekrutacji, która
-    # przyjmuje propozycje (inaczej publikacja niczego nie zapisała).
+    # Wygaszanie po najnowszym przeglądzie z wynikami w rekrutacji, która
+    # przyjmuje propozycje (inaczej publikacja niczego nie zapisała). Pokrycie
+    # rozstrzyga `expire_full_base` per osoba: osoby bez oceny zostają, więc
+    # niepełny przegląd też porządkuje tych, których ocenił (przegląd #2058).
     expired = 0
     if (
-        not incomplete
-        and newest
+        newest
         and run.job_id is not None
         and await _job_accepts_proposals(db, run.job_id)
     ):

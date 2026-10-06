@@ -34,7 +34,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
-from sqlalchemy import and_, case, exists, func, literal, select, text, update
+from sqlalchemy import and_, case, exists, func, literal, or_, select, text, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -524,14 +524,32 @@ async def mark_added_fail_soft(
 
 
 async def expire_full_base(db: AsyncSession, *, job_id: int, run_id: str) -> int:
-    """Otwarte propozycje nocnego przeglądu spoza przeglądu ``run_id`` → ``expired``.
+    """Otwarte propozycje nocnego przeglądu, których przegląd ``run_id`` już nie daje → ``expired``.
 
-    Woła wyłącznie publikacja KOMPLETNEGO i NAJNOWSZEGO przeglądu rekrutacji
-    (``auto_full_review._publish``) — ona wie, kiedy przegląd zamyka temat.
-    Publikacja stempluje ``run_id`` każdej osoby, którą przegląd zaproponował,
-    więc „spoza przeglądu” = inny ``run_id``. Pominięte i dodane zostają.
-    Zwraca liczbę wierszy.
+    Woła wyłącznie publikacja NAJNOWSZEGO przeglądu rekrutacji
+    (``auto_full_review._publish``). Wygasa wyłącznie osoba, którą ten przegląd
+    naprawdę OCENIŁ i nie zaproponował (wiersz ``evaluated`` ze zmierzonym
+    podobieństwem albo odrzucony przez filtry), oraz osoba spoza jego populacji
+    (usunięta, na czarnej liście, już w rekrutacji). Osoba bez oceny — awaria
+    partii, zmiana w trakcie przeglądu (``failed``), ``stale``,
+    ``missing_index``, ``unavailable`` — zostaje: brak oceny to nie „nie pasuje”
+    (przegląd #2058: nocny import Traffita i zmiana modelu wektorów gasiłyby
+    propozycje osób, których nikt nie ocenił). Publikacja stempluje ``run_id``
+    każdej zaproponowanej osoby, więc „nie zaproponował” = inny ``run_id``.
+    Pominięte i dodane zostają. Zwraca liczbę wierszy.
     """
+    from app.models.candidate_search_run import CandidateSearchResult
+
+    row = CandidateSearchResult
+    in_run = (row.run_id == run_id) & (row.candidate_id == JobProposal.candidate_id)
+    evaluated_not_proposed = exists(
+        select(literal(1)).where(
+            in_run,
+            row.state == "evaluated",
+            or_(row.measurement == "measured", row.eligible.is_(False)),
+        )
+    )
+    outside_population = ~exists(select(literal(1)).where(in_run))
     result = await db.execute(
         update(JobProposal)
         .where(
@@ -539,6 +557,7 @@ async def expire_full_base(db: AsyncSession, *, job_id: int, run_id: str) -> int
             JobProposal.source == "full_base",
             JobProposal.status == "proposed",
             JobProposal.run_id.is_distinct_from(run_id),
+            or_(evaluated_not_proposed, outside_population),
         )
         .values(status=EXPIRED)
         .execution_options(synchronize_session=False)
