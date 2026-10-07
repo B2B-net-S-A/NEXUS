@@ -2629,7 +2629,8 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
   `include_other_notes=true` (raport: `sources` osobno dla kart i notatek;
   zapis wymaga próby w tym samym trybie i włączonego wyłącznika — 409).
   Pomiar 07.10.2026: 16 036 takich notatek, 290 par z pytaniami, do zapisu
-  116 par / 356 odpowiedzi (69 par ma odpowiedzi na karcie). Przelicza się przy zmianie karty
+  115 par / 354 odpowiedzi (69 par ma odpowiedzi na karcie; próba kodem tej
+  gałęzi, 9 odpowiedzi odpadło za pytanie w treści). Przelicza się przy zmianie karty
   (`recommendation_card_import.refresh_candidate`, `repair_orphans`); historię
   uzupełnia admin: `POST /api/admin/screening-note-backfill?dry_run=true` →
   raport → `dry_run=false&expected=<to_change>` (próba z 7 dni; paragon

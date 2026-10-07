@@ -76,7 +76,7 @@ CONTENT_MIN = 0.5
 CONTENT_MARGIN = 0.1
 GRAY_MIN = 0.3
 # Etap 1b: notatka innego rodzaju niż karta to zwykle wolny tekst rozmowy —
-# wyższy próg i bez numeru (pomiar 07.10.2026: 116 par, 356 odpowiedzi).
+# wyższy próg i bez numeru (pomiar 07.10.2026: 115 par, 354 odpowiedzi).
 OTHER_CONTENT_MIN = 0.6
 
 SOURCE_CARD = "card"
