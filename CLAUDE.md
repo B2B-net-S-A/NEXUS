@@ -8907,6 +8907,13 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   zapis Championa. `enqueue_job` pisze też przy `AUTO_MATCH_ENABLED=false`
   (`job_events_enabled`) — wtedy od razu jako `skipped`, bo `pending` bez
   workera wisiałby bez końca i częściowy UNIQUE połykałby kolejne zmiany.
+- **A. Przegląd pod starą wersją reguł ma pierwszeństwo jak zdarzenie**
+  (07.10.2026, `auto_full_review._reviewed_under_older_versions`): ostatni
+  przegląd automatyczny z innym `must_gate_policy`, `must_gate_mode` albo
+  `ranker_version` niż dziś daje w oknie propozycji 409 „Request zmienił się”,
+  więc idzie na początek kolejki. Przegląd bez tych kluczy nie liczy się jako
+  nieaktualny. Bump `MUST_GATE_POLICY_VERSION` w ciągu dnia i tak zostawia
+  takie przeglądy do najbliższej nocy — wdrażaj go przed oknem 01–05.
 - **A. Limity:** najwyżej jeden przegląd na rekrutację na noc (także nieudany),
   `AUTO_FULL_REVIEW_MAX_PER_NIGHT` (25 od 30.09.2026) łącznie, jeden nowy przegląd na tick,
   odcisk requestu równy ostatniemu nie-nieudanemu przeglądowi automatycznemu =
@@ -10925,6 +10932,13 @@ Semantyka v2 (decyzje właściciela produktu, wiążące dla OBU endpointów):
   `skills` (+`skill_combine`), `skills_any`, `skills_none` są TWARDE. S:
   `skills_must` + `skills_any` to „Mile widziane" (SEARCH-P0-03), twarde jest
   tylko `skills_none`. Zgodne są dopiero pola jawne.
+- **Krótki tekst dosłowny (≤ 2 znaki) w v2 = całe słowo przez indeks**
+  (07.10.2026, `advanced_candidate_search.short_literal_match`, wpięte
+  w `literal_text_clause(short_whole_word=sem.unified)` w L i S): indeks
+  trigramowy nie działa poniżej 3 znaków, więc „c#” dosłownie czytało całe CV
+  i notatki (10–30 s na produkcji). Teraz korpus złożony (`keyword_fold_fts`,
+  notatki `content_fold_fts`) + dokładne imię/nazwisko. v1 i wyłączony korpus
+  złożony = podłańcuch jak dotąd.
 - **Lista nie ma retrievalu wektorowego** (do połączenia ekranów): przyjmuje
   `text_mode`, ale zawsze dopasowuje dosłownie i mówi to w `text_mode_applied`.
 - **Diagnostyka zna twarde kubełki**: grupa `skills_required` („Musi mieć") obok

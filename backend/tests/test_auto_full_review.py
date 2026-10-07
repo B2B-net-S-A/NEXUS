@@ -1275,3 +1275,61 @@ async def test_third_incomplete_review_with_same_fingerprint_closes_the_topic(
         assert (await afr._last_successful_fingerprint(db, world["job_id"]))[
             0
         ] == "n" * 64
+
+
+async def _auto_run_at(
+    world: dict, owner_id: int, created_at: datetime, versions: dict
+) -> None:
+    async with AsyncSessionLocal() as db:
+        db.add(
+            CandidateSearchRun(
+                id=str(uuid.uuid4()),
+                created_by=owner_id,
+                client_id=world["client_id"],
+                job_id=world["job_id"],
+                state="complete",
+                request_fingerprint=uuid.uuid4().hex * 2,
+                request_context={},
+                version_trace={"origin": "auto", **versions},
+                population_size=0,
+                metrics={},
+                created_at=created_at,
+                completed_at=created_at,
+            )
+        )
+        await db.commit()
+
+
+async def test_review_under_an_older_rule_version_goes_first():
+    """Audyt 07.10.2026: zmiana wersji reguł (`MUST_GATE_POLICY_VERSION`) daje
+    w oknie propozycji 409 „Request zmienił się” do czasu nowego przeglądu.
+    Wersja reguł nie jest zdarzeniem rekrutacji, więc rekrutacja przeglądnięta
+    tuż przed wdrożeniem stała w kolejce za wszystkimi przeglądniętymi dawniej
+    (07.10: 15 z 25 nocnych przeglądów pod starą wersją)."""
+    owner_id, _ = await _user()
+    current = afr.current_review_versions()
+    fresh = await _job(owner_id=owner_id, event=False)
+    stale = await _job(owner_id=owner_id, event=False)
+    yesterday = _at(2) - timedelta(days=1)
+    await _auto_run_at(fresh, owner_id, yesterday - timedelta(hours=20), current)
+    await _auto_run_at(
+        stale, owner_id, yesterday, {**current, "must_gate_policy": "critical-v0-old"}
+    )
+    async with AsyncSessionLocal() as db:
+        due = await afr.pending_job_ids(db, now=_tonight_at(2), limit=10_000)
+    assert due.index(stale["job_id"]) < due.index(fresh["job_id"])
+
+
+async def test_review_without_version_stamp_is_not_treated_as_stale():
+    """Przegląd sprzed stempla wersji nie dostaje pierwszeństwa — o kolejności
+    decyduje wtedy wiek przeglądu, jak dotąd."""
+    owner_id, _ = await _user()
+    current = afr.current_review_versions()
+    older = await _job(owner_id=owner_id, event=False)
+    unstamped = await _job(owner_id=owner_id, event=False)
+    yesterday = _at(2) - timedelta(days=1)
+    await _auto_run_at(older, owner_id, yesterday - timedelta(hours=20), current)
+    await _auto_run_at(unstamped, owner_id, yesterday, {})
+    async with AsyncSessionLocal() as db:
+        due = await afr.pending_job_ids(db, now=_tonight_at(2), limit=10_000)
+    assert due.index(older["job_id"]) < due.index(unstamped["job_id"])

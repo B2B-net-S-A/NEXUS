@@ -1197,7 +1197,7 @@ async def _build_candidate_filtered_query(
         person_match = await predicates.person_text_match(db, f.q, sem, f.text_mode)
         try:
             literal_clause = await predicates.prepare_literal_text(
-                db, f.q, person_match=person_match
+                db, f.q, person_match=person_match, short_whole_word=sem.unified
             )
         except predicates.LiteralTextTooShort as exc:
             # `q` z samych spacji wokół jednej litery przechodzi `min_length=2`.

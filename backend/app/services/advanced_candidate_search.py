@@ -526,6 +526,54 @@ def _folded_whole_word_match(
     return Candidate.id.in_(union(select(Candidate.id).where(match), notes_branch))
 
 
+SHORT_LITERAL_MAX_CHARS = 2
+
+
+def short_literal_match(phrase: str) -> Optional[ColumnElement]:
+    """Krótki tekst dosłowny (≤ 2 znaki, np. „c#”, „go”) jako całe słowo.
+
+    Indeks trigramowy nie działa dla tekstu krótszego niż 3 znaki, więc
+    podłańcuch (`_phrase_match`) czytał całe CV, profile i notatki: na
+    produkcji 07.10.2026 „c#” w trybie dosłownym trwało 10–30 s, a „jo”
+    zwracało 34 tys. osób. Krótki tekst szuka CAŁEGO słowa przez korpus
+    złożony (jak wiersze wymagań) i dokładnego imienia lub nazwiska.
+    ``None`` = korpus złożony wyłączony albo tekst nie jest słowem — wtedy
+    wołający zostaje przy podłańcuchu.
+    """
+    stripped = (phrase or "").strip()
+    # Jedna litera zostaje przy starej ścieżce, która daje 422
+    # (`LiteralTextTooShort`) — jako całe słowo „a” trafiałoby w prawie całą bazę.
+    if len(stripped) > SHORT_LITERAL_MAX_CHARS or not keyword_long_enough(stripped):
+        return None
+    if not keyword_corpus.folded_search_enabled():
+        return None
+    term = parse_keyword(stripped)
+    if term is None:
+        return None
+    query = folded_tsquery(term)
+    if query is None:
+        return None
+    lowered = stripped.lower()
+    branches = [
+        select(Candidate.id).where(_KEYWORD_FOLD_FTS.op("@@")(query)),
+        select(Candidate.id).where(
+            or_(
+                func.lower(Candidate.name) == lowered,
+                func.lower(Candidate.lastname) == lowered,
+            )
+        ),
+    ]
+    if keyword_corpus.notes_folded_search_enabled():
+        branches.append(
+            select(Note.candidate_id).where(
+                Note.candidate_id.is_not(None),
+                _NOTE_FOLD_FTS.op("@@")(query),
+                note_kinds.not_client_rate_clause(),
+            )
+        )
+    return Candidate.id.in_(union(*branches))
+
+
 def note_snippet_match(raw_terms: list[str]) -> Optional[ColumnElement]:
     """Notatka pasuje do któregoś słowa kluczowego — ta sama reguła co gałąź
     notatek filtra (``_whole_word_match``); ``None`` = brak słów.

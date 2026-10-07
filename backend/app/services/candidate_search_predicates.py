@@ -71,6 +71,7 @@ from app.models.candidate import Candidate
 from app.services.advanced_candidate_search import (
     build_advanced_filter,
     screening_skill_rows,
+    short_literal_match,
     single_phrase_filter,
 )
 from app.services.candidate_profile_rate import (
@@ -1071,7 +1072,10 @@ def literal_text_threshold(q: str) -> Optional[float]:
 
 
 def literal_text_clause(
-    q: str, *, person_match: Optional[PersonTextMatch] = None
+    q: str,
+    *,
+    person_match: Optional[PersonTextMatch] = None,
+    short_whole_word: bool = False,
 ) -> Optional[ColumnElement]:
     """Dopasowanie DOSŁOWNE — to samo w L i w S.
 
@@ -1083,8 +1087,16 @@ def literal_text_clause(
     w imieniu/nazwisku/e-mailu (gdy ≥3 znaki) + numer telefonu niezależny od
     zapisu. Wołający MUSI wcześniej ustawić próg trigramowy
     (``prepare_literal_text``). ``None`` = fraza za krótka, by filtrować.
+
+    ``short_whole_word`` (v2, 07.10.2026): tekst ≤ 2 znaki szuka całego słowa
+    przez indeks (``short_literal_match``) zamiast podłańcucha bez indeksu.
+    v1 (alerty zapisanych wyszukiwań) zostaje przy podłańcuchu.
     """
     stripped = (q or "").strip()
+    if short_whole_word and person_match != "exact":
+        short = short_literal_match(stripped)
+        if short is not None:
+            return short
     if person_match == "exact":
         # Jest ktoś o dokładnie takim imieniu/nazwisku: pokazujemy WYŁĄCZNIE
         # takie osoby (decyzja 29.09.2026) — bez literówek („Składanowski” nie
@@ -1108,7 +1120,11 @@ class LiteralTextTooShort(ValueError):
 
 
 async def prepare_literal_text(
-    db: Any, q: str, *, person_match: Optional[PersonTextMatch] = None
+    db: Any,
+    q: str,
+    *,
+    person_match: Optional[PersonTextMatch] = None,
+    short_whole_word: bool = False,
 ) -> Optional[ColumnElement]:
     """Ustawia ``pg_trgm.similarity_threshold`` (SET LOCAL) i zwraca klauzulę.
 
@@ -1117,7 +1133,9 @@ async def prepare_literal_text(
     (25.09.2026) ``None`` znaczyło „brak warunku”, więc `q="a"` w trybie
     dosłownym zwracało CAŁĄ bazę. Pusty tekst nadal daje ``None``.
     """
-    clause = literal_text_clause(q, person_match=person_match)
+    clause = literal_text_clause(
+        q, person_match=person_match, short_whole_word=short_whole_word
+    )
     if clause is None:
         if (q or "").strip():
             raise LiteralTextTooShort(LITERAL_TEXT_TOO_SHORT_MSG)
