@@ -347,7 +347,12 @@ async def test_dry_run_writes_nothing_and_apply_fills_only_empty_pairs(
     receipt = await _setting("client_rate_notes_backfill_2026_10")
     details = await _setting("repair_details_client_rate_notes_backfill_2026_10")
     assert sent_row in receipt["runs"][-1]["stage_ids"]
-    assert "161" not in str(receipt)
+    # Kwota w pełnym zapisie — sam ciąg „161” bywa częścią id wiersza na
+    # wspólnej bazie testów (paragon niesie id, więc tak test bywał czerwony).
+    assert "161.00" not in str(receipt)
+    assert all(
+        isinstance(stage_id, int) for stage_id in receipt["runs"][-1]["stage_ids"]
+    )
     assert {"stage_id": sent_row, "value": "161.00"}.items() <= next(
         row for row in details["rows"] if row["stage_id"] == sent_row
     ).items()
