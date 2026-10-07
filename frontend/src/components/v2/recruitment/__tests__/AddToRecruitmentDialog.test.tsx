@@ -11,8 +11,8 @@ vi.mock("@/lib/candidate-search-api", () => ({
 }));
 
 vi.mock("@/components/v2/recruitment/JobPicker", () => ({
-  JobPicker: ({ onChange, scope }: { onChange: (job: { id: number; title: string }) => void; scope: string }) => (
-    <button type="button" data-scope={scope} onClick={() => onChange({ id: 42, title: "Java Developer" })}>
+  JobPicker: ({ onChange }: { onChange: (job: { id: number; title: string }) => void }) => (
+    <button type="button" onClick={() => onChange({ id: 42, title: "Java Developer" })}>
       Wybierz Java Developer (mock)
     </button>
   ),
@@ -51,10 +51,9 @@ describe("AddToRecruitmentDialog", () => {
     mocks.add.mockResolvedValue(RESPONSE);
   });
 
-  it("wybiera rekrutację z moich (scope=mine); bez wyboru nie da się zapisać", () => {
+  it("bez wyboru rekrutacji nie da się zapisać", () => {
     renderDialog();
     expect(screen.getByText("Wybierz rekrutację dla 2 osób.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Wybierz Java Developer/ })).toHaveAttribute("data-scope", "mine");
     expect(screen.getByRole("button", { name: "Dodaj" })).toBeDisabled();
   });
 
@@ -78,12 +77,20 @@ describe("AddToRecruitmentDialog", () => {
     expect(mocks.add).toHaveBeenCalledWith(42, { candidate_ids: [5], source: "talent_radar", run_id: "run-1" });
   });
 
-  it("403 mówi o członkostwie w zespole i zostawia okno otwarte", async () => {
-    mocks.add.mockRejectedValue(Object.assign(new Error("HTTP 403"), { response: { status: 403, data: { detail: "Forbidden" } } }));
+  it("403 pokazuje powód z serwera (nie członkostwo w zespole) i zostawia okno otwarte", async () => {
+    // Od 07.10.2026 dodanie nie wymaga członkostwa — odmowa ma inny powód
+    // (sekcja, rola podglądu), więc mówi ją serwer.
+    mocks.add.mockRejectedValue(
+      Object.assign(new Error("HTTP 403"), {
+        response: { status: 403, data: { detail: "Brak uprawnień do sekcji Pipeline." } },
+      }),
+    );
     const { onOpenChange } = renderDialog();
     fireEvent.click(screen.getByRole("button", { name: /Wybierz Java Developer/ }));
     fireEvent.click(screen.getByRole("button", { name: "Dodaj do „Java Developer”" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Nie należysz do zespołu tej rekrutacji.");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Brak uprawnień do sekcji Pipeline.");
+    expect(alert).not.toHaveTextContent("zespołu");
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
   });
 

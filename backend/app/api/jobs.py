@@ -843,6 +843,35 @@ def jobs_open_only_clause():
     return Job.status != JobStatus.closed
 
 
+def my_open_process_job_ids(current_user: User):
+    """Rekrutacje, w których osoba prowadzi kandydata — jest właścicielem
+    OTWARTEGO procesu (``recruitment_processes.owner_user_id``).
+
+    Właścicielem zostaje osoba, która dodała kandydata (albo pierwszy
+    weryfikator), także w rekrutacji, przy której nie jest Rekruterem.
+    """
+    return select(RecruitmentProcess.job_id).where(
+        operational_owner_clause(RecruitmentProcess.owner_user_id, current_user),
+        RecruitmentProcess.status == ProcessStatus.open,
+    )
+
+
+def jobs_mine_list_clause(current_user: User):
+    """Zakres „Moje” LISTY rekrutacji: pracuję nad rekrutacją
+    (``jobs_mine_clause``) ALBO prowadzę w niej swojego kandydata.
+
+    Decyzja Artura 07.10.2026: rekruter przepina swoich kandydatów do
+    rekrutacji, do których nie jest przypisany, i ma do nich wracać z „Moje”.
+    Kolumna „Rekruter”, obłożenie i ``jobs_mine_clause`` (czytany przez
+    „Moje następne kroki” i kreator metryk) zostają bez zmian — prowadzenie
+    kandydata nie czyni z osoby Rekrutera rekrutacji.
+    """
+    return or_(
+        jobs_mine_clause(current_user),
+        Job.id.in_(my_open_process_job_ids(current_user)),
+    )
+
+
 def jobs_mine_scope_clause(current_user: User):
     """Zakres „Moje” listy ``/jobs`` — MOJE i NIEZAMKNIĘTE.
 
@@ -850,7 +879,7 @@ def jobs_mine_scope_clause(current_user: User):
     (archiwum z Traffita, 0377/0378) widać wyłącznie w „Wszystkie”. Lista
     dostaje ``mine`` + ``open_only``; liczniki zakresu „Moje” liczą tym.
     """
-    return and_(jobs_mine_clause(current_user), jobs_open_only_clause())
+    return and_(jobs_mine_list_clause(current_user), jobs_open_only_clause())
 
 
 def jobs_needs_sourcing_clause(value: bool = True):
@@ -1074,8 +1103,10 @@ async def list_jobs(
         description=(
             "Limit to jobs the current user works on or leads: lead recruiter, "
             "Delivery Lead, MANUALLY added collaborator or an active request "
-            "assignment. Collaborators added with the whole competence "
-            "category (`auto_cc`) do not count — see `my_category`."
+            "assignment — OR jobs where the user owns an open candidate "
+            "process (a candidate they added or verified there; 07.10.2026). "
+            "Collaborators added with the whole competence category "
+            "(`auto_cc`) do not count — see `my_category`."
         ),
     ),
     my_category: bool = Query(
@@ -1237,10 +1268,7 @@ async def list_jobs(
             RecruitmentPriorityPlanMember.status == PriorityMemberStatus.active,
         )
     )
-    priority_carry_job_ids = select(RecruitmentProcess.job_id).where(
-        operational_owner_clause(RecruitmentProcess.owner_user_id, current_user),
-        RecruitmentProcess.status == ProcessStatus.open,
-    )
+    priority_carry_job_ids = my_open_process_job_ids(current_user)
     # Defense-in-depth: nigdy nie zwracaj jobs z NULL client_id na liście.
     # Od migracji 0120 (2026-05-27) DB ma NOT NULL constraint — ten filtr
     # chroni przed regresją gdyby ktoś kiedyś constraint zdjął.
@@ -1280,7 +1308,7 @@ async def list_jobs(
     if delivery_lead_id:
         query = query.where(Job.delivery_lead_id.in_(delivery_lead_id))
     if mine:
-        query = query.where(jobs_mine_clause(current_user))
+        query = query.where(jobs_mine_list_clause(current_user))
     if my_category:
         query = query.where(jobs_my_category_clause(current_user))
     if priority_level:

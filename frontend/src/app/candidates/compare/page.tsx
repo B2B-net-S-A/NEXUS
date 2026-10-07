@@ -557,7 +557,7 @@ function CompareCandidatesInner() {
             </>
           )}
         </div>
-        {pickerOpen && <JobPicker value={jobLabel} onChange={setJobInUrl} scope="all" />}
+        {pickerOpen && <JobPicker value={jobLabel} onChange={setJobInUrl} />}
       </section>
 
 

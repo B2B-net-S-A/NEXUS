@@ -202,7 +202,7 @@ export function RequestSearchDialog({
           )}
           {source === "job" && (
             <div className="space-y-1.5">
-              <JobPicker value={job} onChange={setJob} scope="all" />
+              <JobPicker value={job} onChange={setJob} />
               <p className="text-xs text-muted-foreground">
                 Klient, hiring manager, budżet i wymagania pochodzą z zapisanej rekrutacji.
               </p>

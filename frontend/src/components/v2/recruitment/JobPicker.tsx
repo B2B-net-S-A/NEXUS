@@ -8,11 +8,10 @@
  * Sekcje w kolejności, w jakiej rekruter ich szuka: „Moje otwarte”, „Ostatnio
  * otwierane” (pasek kart rekrutacji), a po wpisaniu frazy — wyniki szukania.
  *
- * `scope="mine"` zawęża WSZYSTKIE sekcje do rekrutacji, w których użytkownik
- * jest w zespole: dodanie do pipeline'u wymaga członkostwa
- * (`proposals_bulk.py`), więc podsuwanie cudzych rekrutacji kończyłoby się 403.
- * `scope="all"` służy odczytom (porównanie, ocena dopasowania), które członkostwa
- * nie wymagają.
+ * Wyszukiwanie obejmuje WSZYSTKIE otwarte rekrutacje: rekruter dodaje
+ * i przepina kandydatów także tam, gdzie nie jest w zespole (decyzja Artura
+ * 07.10.2026; serwer nie wymaga członkostwa od 23.09.2026). „Moje otwarte”
+ * to tylko skrót na górze.
  */
 
 import { useMemo, useState } from "react";
@@ -32,12 +31,9 @@ export interface JobPickerJob {
   client_name?: string | null;
 }
 
-export type JobPickerScope = "mine" | "all";
-
 interface JobPickerProps {
   value: JobPickerJob | null;
   onChange: (job: JobPickerJob) => void;
-  scope: JobPickerScope;
   /** Etykieta pola szukania (dostępność). */
   label?: string;
   className?: string;
@@ -91,7 +87,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-export function JobPicker({ value, onChange, scope, label = "Szukaj rekrutacji", className }: JobPickerProps) {
+export function JobPicker({ value, onChange, label = "Szukaj rekrutacji", className }: JobPickerProps) {
   const [text, setText] = useState("");
   const q = useDebouncedValue(text.trim(), 250);
 
@@ -102,24 +98,24 @@ export function JobPicker({ value, onChange, scope, label = "Szukaj rekrutacji",
   });
 
   const search = useQuery({
-    queryKey: ["job-picker", "search", scope, q],
+    queryKey: ["job-picker", "search", q],
     queryFn: () =>
       jobsApi
-        .list({ q, page_size: 20, open_only: true, ...(scope === "mine" ? { mine: true } : {}) })
+        .list({ q, page_size: 20, open_only: true })
         .then((r) => r.data as JobListResponse),
     enabled: q.length > 0,
     staleTime: 30_000,
   });
 
   const tabs = useTabsStore((s) => s.tabs);
-  const recent = useMemo(() => {
-    const jobTabs = tabs.filter((t) => t.type === "job");
-    const recentJobs = jobTabs.map((t) => ({ id: t.entityId, title: t.title }));
-    if (scope === "all") return recentJobs.slice(0, 5);
-    // Przy "mine" pokazujemy tylko te ostatnio otwierane, które są w "Moich".
-    const mineIds = new Set((mine.data?.items ?? []).map((j) => j.id));
-    return recentJobs.filter((j) => mineIds.has(j.id)).slice(0, 5);
-  }, [tabs, scope, mine.data]);
+  const recent = useMemo(
+    () =>
+      tabs
+        .filter((t) => t.type === "job")
+        .map((t) => ({ id: t.entityId, title: t.title }))
+        .slice(0, 5),
+    [tabs],
+  );
 
   const mineItems = mine.data?.items ?? [];
 
@@ -147,7 +143,7 @@ export function JobPicker({ value, onChange, scope, label = "Szukaj rekrutacji",
             <p role="status" className="text-sm text-muted-foreground">Szukam…</p>
           ) : search.data.items.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              {scope === "mine" ? "Brak Twoich otwartych rekrutacji pasujących do frazy." : "Brak rekrutacji pasujących do frazy."}
+              Brak otwartych rekrutacji pasujących do frazy.
             </p>
           ) : (
             <ul className="space-y-1.5">

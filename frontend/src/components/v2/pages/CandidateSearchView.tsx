@@ -1006,7 +1006,7 @@ export function CandidateSearchView({
             )}
           </div>
           {jobPickerOpen && (
-            <JobPicker value={pickedJob} onChange={pickJob} scope="mine" />
+            <JobPicker value={pickedJob} onChange={pickJob} />
           )}
         </section>
       )}

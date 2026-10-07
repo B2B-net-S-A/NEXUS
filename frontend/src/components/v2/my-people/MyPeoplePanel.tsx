@@ -206,11 +206,7 @@ export function MyPeoplePanel() {
         void queryClient.invalidateQueries({ queryKey: ["my-next-steps"] });
         void queryClient.invalidateQueries({ queryKey: MY_PEOPLE_QUERY_PREFIX });
       } catch (err) {
-        showError(
-          isForbiddenError(err)
-            ? "Nie należysz do zespołu tej rekrutacji."
-            : apiErrorMessage(err, "Nie udało się dodać do rekrutacji."),
-        );
+        showError(apiErrorMessage(err, "Nie udało się dodać do rekrutacji."));
       }
     });
   };
