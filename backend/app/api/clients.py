@@ -1,5 +1,4 @@
 from datetime import date, datetime, timezone
-from decimal import Decimal
 from types import SimpleNamespace
 from typing import Annotated, Optional
 
@@ -12,14 +11,13 @@ from starlette.responses import RedirectResponse
 from app.api.financial_access import can_read_client_finance
 from app.core.database import get_db
 from app.core.scheduling import business_today
-from app.core.work_time import HOURS_PER_MONTH
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_directory import ClientPortfolioScope, PortfolioCategory
 from app.models.client_executive_contract import ClientExecutiveContract
 from app.models.client_order import ClientOrder
-from app.models.contract import Contract, ContractStatus, RateUnit
+from app.models.contract import Contract, ContractStatus
 from app.services import job_data_trust
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
@@ -46,16 +44,24 @@ from app.services.client_identity import (
     client_display_name_expression,
     visible_client_predicates,
 )
+
+# Stawki godzinowe i marża konsultanta (zamówienie → kontrakt) mieszkają od
+# 08.10.2026 w `services/client_consultant_rates.py` — czyta je też przegląd
+# Delivery Leada (mediana marży u klienta). Aliasy zostają dla tego modułu
+# i testów, które importują stare nazwy.
+from app.services.client_consultant_rates import (
+    contract_rate_currencies as _contract_rate_currencies,
+    finance_rates_in_pln as _finance_rates_in_pln,
+    order_currency as _order_currency,
+)
 from app.services.contractor_identity import (
     is_current_contract as is_current_contract_for,
     summarize_active_contracts,
 )
 from app.schemas.client_executive_contract import ExecutiveContractBrief
-from app.services.order_rate_snapshots import convert_order_rate
 from app.services.representative_order import representative_order
 from app.services.polish_ilike import polish_folded_ilike
 from app.services.fx_service import (
-    amount_to_pln_with_rate,
     rates_to_pln,
     rates_to_pln_by_date,
 )
@@ -150,81 +156,6 @@ def _contract_total_revenue(
     return to_whole_pln(monthly) * int(months)
 
 
-def _contract_rate_currencies(contract: Contract) -> tuple[str, str]:
-    """Return the independently resolved client and candidate currencies."""
-
-    return (
-        contract.resolved_rate_client_currency,
-        contract.resolved_rate_candidate_currency,
-    )
-
-
-def _hourly_rate(contract: Contract, rate: object) -> Optional[Decimal]:
-    """Stawka KONTRAKTU za godzinę — zapasowe źródło kolumn profilu klienta.
-
-    Używane, gdy kontrakt nie ma zamówienia albo zamówienie nie niesie danej
-    stawki (patrz ``_order_hourly_leg``). Od 14.09.2026 kontrakt jest godzinowy
-    albo ryczałtowy (``contract_order_sync``): godzinowa bez przeliczenia,
-    ryczałt ÷ godziny rozliczeniowe kontraktu, MD ÷ 8 tylko dla kontraktu
-    sprzed korekty 0309. Nic nie jest zapisywane.
-    """
-    if rate is None:
-        return None
-    return convert_order_rate(
-        rate,
-        RateUnit(contract.rate_unit),
-        RateUnit.hourly,
-        contract.billing_hours_per_month or HOURS_PER_MONTH,
-    )
-
-
-_HourlyLeg = tuple[Decimal, str]
-
-
-def _order_currency(order: ClientOrder, side: str) -> str:
-    raw = (
-        order.rate_client_currency
-        if side == "revenue"
-        else order.rate_candidate_currency
-    )
-    return str(raw or order.currency or "PLN").strip().upper() or "PLN"
-
-
-def _order_hourly_leg(order: Optional[ClientOrder], side: str) -> Optional[_HourlyLeg]:
-    """Stawka ZAMÓWIENIA za godzinę (kwota w walucie zamówienia) — albo ``None``.
-
-    Lustro tego, co pokazuje zakładka „Zamówienia": linia zamówienia MD/kosztowego
-    niesie kanoniczną stawkę PLN/MD w ``md_rate_*`` (waluta obca → ``rate_*``
-    w jednostce linii, jak ``source_rate_*`` w ``client_order_groups``), a
-    zamówienie okresowe — ``rate_client``/``rate_candidate`` w swojej
-    ``rate_unit``. Godzinowa bez przeliczenia, MD ÷ 8 (``convert_order_rate``).
-    Kontrakt bywa z zamówieniem rozjechany (linie MD, których stawki nie
-    zsynchronizowały się do kontraktu — zmierzone na prodzie 14.09.2026), a
-    ticket wymaga wartości Z ZAMÓWIENIA. ``None`` = brak zamówienia albo brak
-    tej stawki na nim; wołający cofa się wtedy na kontrakt.
-    """
-    if order is None:
-        return None
-    currency = _order_currency(order, side)
-    order_rate = order.rate_client if side == "revenue" else order.rate_candidate
-    md_rate = order.md_rate_revenue if side == "revenue" else order.md_rate_cost
-    if order.order_group_id is not None and currency == "PLN" and md_rate is not None:
-        amount, unit = md_rate, RateUnit.daily
-    elif order_rate is not None:
-        default_unit = (
-            RateUnit.daily if order.order_group_id is not None else RateUnit.hourly
-        )
-        amount, unit = order_rate, RateUnit(order.rate_unit or default_unit)
-    else:
-        return None
-    hourly = convert_order_rate(
-        amount, unit, RateUnit.hourly, order.billing_hours_per_month or HOURS_PER_MONTH
-    )
-    if hourly is None:
-        return None
-    return hourly, currency
-
-
 def _profile_currencies(contract: Contract, on: date) -> set[str]:
     """Waluty potrzebne do kwot profilu: obie strony kontraktu + zamówienia."""
     currencies = set(_contract_rate_currencies(contract))
@@ -232,64 +163,6 @@ def _profile_currencies(contract: Contract, on: date) -> set[str]:
     if order is not None:
         currencies.update(_order_currency(order, side) for side in ("revenue", "cost"))
     return currencies
-
-
-def _finance_rates_in_pln(
-    contract: Contract,
-    rate_fields: dict[str, object],
-    fx_rates: dict[str, Optional[Decimal]],
-    order: Optional[ClientOrder] = None,
-) -> dict[str, object]:
-    """Convert both monthly rate legs independently and derive a PLN margin.
-
-    ``effective_rate_fields`` deliberately leaves mixed-currency margin empty,
-    because subtracting the nominal amounts would be meaningless. Client
-    profile amounts are ``WholePLN`` fields, so this surface resolves both legs
-    to PLN first. A missing FX rate stays ``None`` and is reported through the
-    two internal flags so aggregates can fail closed instead of publishing a
-    partial total as complete.
-    """
-
-    client_currency, candidate_currency = _contract_rate_currencies(contract)
-    raw_client = rate_fields.get("monthly_rate_client")
-    raw_candidate = rate_fields.get("monthly_rate_candidate")
-    client_fx = fx_rates.get(client_currency)
-    candidate_fx = fx_rates.get(candidate_currency)
-
-    client_pln, client_complete = amount_to_pln_with_rate(raw_client, client_fx)
-    candidate_pln, candidate_complete = amount_to_pln_with_rate(
-        raw_candidate, candidate_fx
-    )
-    client_missing_fx = not client_complete
-    candidate_missing_fx = not candidate_complete
-    margin_pln = (
-        client_pln - candidate_pln
-        if client_pln is not None and candidate_pln is not None
-        else None
-    )
-    # Kolumny godzinowe: najpierw ZAMÓWIENIE (wartość z ticketu), a gdy go
-    # nie ma albo nie niesie tej stawki — kontrakt. Marża zostaje miesięczna
-    # z kontraktu (kafel „Aktywne MRR" jest jej sumą).
-    hourly: dict[str, Optional[Decimal]] = {}
-    for side, rate_key, contract_currency in (
-        ("revenue", "rate_client", client_currency),
-        ("cost", "rate_candidate", candidate_currency),
-    ):
-        leg = _order_hourly_leg(order, side) or (
-            (_hourly_rate(contract, rate_fields.get(rate_key)), contract_currency)
-        )
-        hourly[side], _ = amount_to_pln_with_rate(leg[0], fx_rates.get(leg[1]))
-    hourly_client_pln = hourly["revenue"]
-    hourly_candidate_pln = hourly["cost"]
-    return {
-        "monthly_rate_client": client_pln,
-        "monthly_rate_candidate": candidate_pln,
-        "monthly_margin": margin_pln,
-        "hourly_rate_client": hourly_client_pln,
-        "hourly_rate_candidate": hourly_candidate_pln,
-        "client_missing_fx": client_missing_fx,
-        "candidate_missing_fx": candidate_missing_fx,
-    }
 
 
 def _has_both_rate_legs(rates: dict[str, object]) -> bool:
