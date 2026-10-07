@@ -321,6 +321,7 @@ class _Mail:
     to: str
     subject: str
     text: str
+    html: Optional[str] = None
 
 
 async def _weekly_mails(db: AsyncSession, now_local: datetime) -> list[_Mail]:
@@ -399,7 +400,9 @@ def _deliver(kind: str, now_utc: datetime, mail: _Mail) -> str:
         last_send_policy_blocked,
     )
 
-    if guarded_send(kind, now_utc, send_email, mail.to, mail.subject, mail.text, None):
+    if guarded_send(
+        kind, now_utc, send_email, mail.to, mail.subject, mail.text, mail.html
+    ):
         return _SENT
     if settings.M365_APP_MAIL_ENABLED and not last_send_policy_blocked():
         from app.services.m365.app_mail import last_delivery_deferred

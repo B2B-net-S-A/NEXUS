@@ -362,7 +362,10 @@ async def test_catalog_off_preserves_real_provider_and_channel_information(
     )
     assert result["backlog"]["scope"] == "chat_unread"
     types = {item["id"]: item for item in result["types"]}
-    assert len(types) == 12
+    assert len(types) == len(delivery.CATALOG) + len(delivery.SECURITY_CATALOG)
+    # Poranny skrót wychodzi tylko mailem; maile natychmiast mają też dzwonek.
+    assert types["daily_digest"]["channels"] == ["email"]
+    assert types["dl_review"]["channels"] == ["in_app", "email"]
     # Potwierdzenie aplikacji idzie wyłącznie mailem (do kandydata).
     assert types["application_confirmation"]["channels"] == ["email"]
     assert types["kpi_weekly_report"]["channels"] == ["email"]

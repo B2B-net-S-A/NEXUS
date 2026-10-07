@@ -373,6 +373,48 @@ def send_password_changed_notification(
     return send_email(to_email, subject, text_body, html_body)
 
 
+def absolute_link(path: str) -> str:
+    """Pełny adres ekranu NEXUSA do maila (ścieżka bez hosta, gdy brak bazy)."""
+    base = (settings.PUBLIC_BASE_URL or "").rstrip("/")
+    return f"{base}{path}" if base else path
+
+
+def open_button_html(url: str, label: str = "Otwórz w Nexusie") -> str:
+    safe = html.escape(url, quote=True)
+    return (
+        f'<a href="{safe}" style="display:inline-block;background:#2563eb;'
+        "color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;"
+        f'font-weight:500">{html.escape(label)}</a>'
+    )
+
+
+def render_notification_email(
+    *, recipient_name: str, title: str, message: str, deep_link_path: str
+) -> tuple[str, str, str]:
+    """Mail z jednego powiadomienia: (temat, tekst, HTML) z przyciskiem do ekranu.
+
+    Wspólny dla czatu (`chat_email_fallback`) i maili natychmiast
+    (`notification_email_outbox`).
+    """
+    link = absolute_link(deep_link_path)
+    subject = f"[Nexus] {title}"
+    text_body = (
+        f"Cześć {recipient_name},\n\n"
+        f"{title}\n\n"
+        f"{message}\n\n"
+        f"Otwórz w Nexusie: {link}\n\n"
+        "— Nexus ATS"
+    )
+    html_body = (
+        f"<p>Cześć {html.escape(recipient_name)},</p>"
+        f"<p><strong>{html.escape(title)}</strong></p>"
+        f"<p>{html.escape(message)}</p>"
+        f"<p>{open_button_html(link)}</p>"
+        '<hr><p style="color:#888;font-size:12px">Nexus ATS</p>'
+    )
+    return subject, text_body, html_body
+
+
 def send_chat_fallback_email(
     *,
     to_email: str,
@@ -387,32 +429,11 @@ def send_chat_fallback_email(
     Używana z `tasks/chat_email_fallback.py`. Prostszy template niż
     send_mention_email — pokazuje tytuł + wiadomość bez quotation.
     """
-    base = (settings.PUBLIC_BASE_URL or "").rstrip("/")
-    link = f"{base}{deep_link_path}" if base else deep_link_path
-
-    subject = f"[Nexus] {notification_title}"
-
-    text_body = (
-        f"Cześć {recipient_name},\n\n"
-        f"{notification_title}\n\n"
-        f"{notification_message}\n\n"
-        f"Otwórz w Nexusie: {link}\n\n"
-        "— Nexus ATS"
-    )
-
-    safe_recipient = html.escape(recipient_name)
-    safe_title = html.escape(notification_title)
-    safe_message = html.escape(notification_message)
-    safe_link = html.escape(link, quote=True)
-
-    html_body = (
-        f"<p>Cześć {safe_recipient},</p>"
-        f"<p><strong>{safe_title}</strong></p>"
-        f"<p>{safe_message}</p>"
-        f'<p><a href="{safe_link}" style="display:inline-block;background:#2563eb;'
-        f"color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;"
-        f'font-weight:500">Otwórz w Nexusie</a></p>'
-        '<hr><p style="color:#888;font-size:12px">Nexus ATS</p>'
+    subject, text_body, html_body = render_notification_email(
+        recipient_name=recipient_name,
+        title=notification_title,
+        message=notification_message,
+        deep_link_path=deep_link_path,
     )
     from app.services.notification_delivery import guarded_send
 

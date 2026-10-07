@@ -42,6 +42,10 @@ from app.services.stage_handoff_recipients import (
     REASON_QC_RETURNED,
     REASON_STAGE_REACHED,
     TASK_REASONS,
+    TITLE_CPRO_QUEUE,
+    TITLE_CPRO_RETURNED,
+    TITLE_DL_REVIEW,
+    TITLE_QC_RETURNED,
 )
 from app.services.stage_notification_email_template import render_stage_email
 from app.services.stage_notification_resolver import (
@@ -116,7 +120,7 @@ def _inapp_base(
     board_link = f"/jobs/{job.id}?candidate={candidate.id}"
     if reason == REASON_DL_REVIEW:
         return (
-            f"CV do przeglądu: {candidate_full_name}",
+            f"{TITLE_DL_REVIEW} {candidate_full_name}",
             f"{who} przekazał(a) CV kandydata {candidate_full_name} do QC "
             f"w rekrutacji „{job_title}”. Sprawdź CV i wyślij je do klienta.",
             # Prosto do przeglądu (stawka do klienta, trzy decyzje), nie do
@@ -125,21 +129,21 @@ def _inapp_base(
         )
     if reason == REASON_CPRO_QUEUE:
         return (
-            f"Do wrzucenia do Cpro: {candidate_full_name}",
+            f"{TITLE_CPRO_QUEUE} {candidate_full_name}",
             f"{who} przekazał(a) kandydata {candidate_full_name} do kolejki "
             f"Cpro w rekrutacji „{job_title}”.",
             board_link,
         )
     if reason == REASON_CPRO_RETURNED:
         return (
-            f"Wrócił z kolejki Cpro: {candidate_full_name}",
+            f"{TITLE_CPRO_RETURNED} {candidate_full_name}",
             f"{who} zwrócił(a) kandydata {candidate_full_name} z kolejki Cpro "
             f"w rekrutacji „{job_title}”. Popraw CV i przekaż ponownie.",
             board_link,
         )
     if reason == REASON_QC_RETURNED:
         return (
-            f"Wróciło do poprawy: {candidate_full_name}",
+            f"{TITLE_QC_RETURNED} {candidate_full_name}",
             f"{who} cofnął(-ęła) CV kandydata {candidate_full_name} z QC "
             f"w rekrutacji „{job_title}”. Popraw i przekaż ponownie.",
             board_link,

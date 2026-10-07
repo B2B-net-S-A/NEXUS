@@ -71,7 +71,7 @@ from app.models.dl_alert import (
     DL_ALERT_STATUS_RESOLVED,
     DlAlert,
 )
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.services.client_identity import client_display_name_expression
 from app.services.delivery_alert_recipients import (
     DeliveryAlertRecipientScope,
@@ -1016,6 +1016,12 @@ async def send_pending_alert_emails(db: AsyncSession) -> int:
                 # zająć paczki i zagłodzić kolejki.
                 User.email.isnot(None),
                 User.email != "",
+                # Mail tylko do Delivery Leada — wiersz bez tej roli nie może
+                # zająć paczki (lustro sprawdzenia w pętli niżej).
+                or_(
+                    User.role == UserRole.delivery_lead,
+                    User.roles.contains([UserRole.delivery_lead.value]),
+                ),
             )
             .order_by(DlAlert.created_at.asc())
             .limit(_EMAIL_BATCH)
@@ -1030,6 +1036,10 @@ async def send_pending_alert_emails(db: AsyncSession) -> int:
     for alert, user in rows:
         alert_id = alert.id
         if not user.email or alert.user_id not in scope.for_client(alert.client_id):
+            continue
+        # Mail tylko do Delivery Leada (07.10.2026). Admin bez roli DL ma te
+        # sprawy w panelu, ale nie w skrzynce — `for_client` wpuszcza adminów.
+        if not user.has_any_role(UserRole.delivery_lead):
             continue
         claimed = await db.execute(
             update(DlAlert)

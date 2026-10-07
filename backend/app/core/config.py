@@ -945,6 +945,14 @@ class Settings(BaseSettings):
     JOB_DEADLINE_ALERTS_ENABLED: bool = True
     JOB_DEADLINE_ALERT_THRESHOLDS_DAYS: tuple[int, ...] = (7, 3, 1)
 
+    # ── Maile do zespołu (07.10.2026) ────────────────────────────────────────
+    # Wyłączniki awaryjne pętli; o tym, CO wychodzi, decyduje admin
+    # w Ustawieniach → Powiadomienia (`notification_delivery`, domyślnie OFF).
+    # Kolejka maili natychmiast (`tasks/notification_email_outbox.py`).
+    NOTIFICATION_EMAIL_OUTBOX_ENABLED: bool = True
+    # Poranny skrót „Twój dzień w NEXUSIE” (`tasks/daily_digest_email.py`).
+    DAILY_DIGEST_EMAIL_ENABLED: bool = True
+
     # ── Phase 14: post-interview feedback reminders ──────────────────────────
     # 3-stopniowy ping rekruterowi/DL po zakończonym interview.
     POST_INTERVIEW_T15_MINUTES: int = 15

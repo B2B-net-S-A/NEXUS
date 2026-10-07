@@ -504,6 +504,16 @@ async def list_board_tasks(
     current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ) -> BoardTasksResponse:
+    return await build_board_tasks(db, current_user)
+
+
+async def build_board_tasks(db: AsyncSession, current_user: User) -> BoardTasksResponse:
+    """Cała kolejka „Czeka na Ciebie” tej osoby.
+
+    Wspólna dla ekranu i porannego maila (`tasks/daily_digest_email.py`), żeby
+    mail nie mówił czego innego niż pulpit. Pętla w tle musi przed wywołaniem
+    dołączyć do konta politykę dostępu (`resolve_effective_access`).
+    """
     snapshot = await svc.load_snapshot(db)
     portfolio = await svc.dl_portfolio_client_ids(db, current_user.id)
     mine = svc.tasks_for_user(snapshot, current_user, portfolio=portfolio)

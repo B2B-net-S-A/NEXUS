@@ -173,9 +173,12 @@ async def _queue_daily_alerts(db: AsyncSession) -> None:
             label, decimals = ("tokenów", 0) if metric == "tokeny" else (metric, 2)
             level = _daily_level(used, baseline, floor)
             if level:
+                # Raz w tygodniu na funkcję i miarę (07.10.2026): klucz dzienny
+                # z poziomem dawał ~340 wpisów w 30 dni, czytanych w 10%.
+                year, week, _ = today.isocalendar()
                 await queue_alert(
                     db,
-                    f"daily:{today}:{feature}:{metric}:{level}",
+                    f"weekly:{year}-W{week:02d}:{feature}:{metric}",
                     f"AI {feature}: ostatnie 24 h — {_pl_number(used, decimals)} {label}; "
                     f"średnia wcześniejszych 7 dni — {_pl_number(baseline, decimals)}. "
                     "Sprawdź zużycie w Ustawienia → AI. Funkcja pozostaje dostępna.",
@@ -295,7 +298,9 @@ async def _scan_once(db: AsyncSession, webhook: str) -> int:
                 if level:
                     await queue_alert(
                         db,
-                        f"monthly:{period}:{feature.value}:{level}",
+                        # Raz w miesiącu na funkcję — kolejne podwojenia nie
+                        # dokładają wpisów (07.10.2026).
+                        f"monthly:{period}:{feature.value}",
                         f"{FEATURE_LABELS[feature]}: {used} operacji w tym miesiącu, "
                         f"{baseline} w poprzednim. Sprawdź zużycie w Ustawienia → AI. "
                         "Funkcja pozostaje dostępna.",

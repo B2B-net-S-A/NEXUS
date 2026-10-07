@@ -81,6 +81,7 @@ def routine_notification_email_enabled(monkeypatch):
         "app.tasks.app_mail_monitor",
         "app.services.stage_notification_emitter",
         "app.services.mention_dispatch",
+        "app.tasks.notification_email_outbox",
     )
     # Import konsumentów PRZED podmianą: moduł importowany pierwszy raz w trakcie
     # podmiany wiąże `from … import load_policy` z włączoną polityką, a
