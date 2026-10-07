@@ -84,17 +84,30 @@ def _can_modify_note(user: User, note: Note) -> bool:
     return note.author_id == user.id or user.has_any_role(UserRole.admin)
 
 
-def _mention_snippet(note: Note) -> str:
+async def _mention_snippet(db: AsyncSession, note: Note) -> str:
     """Fragment notatki do dzwonka o wzmiance — bez stawki do klienta.
 
     „Wyślijmy za 161 zł/h @osoba” trafiało w całości do powiadomienia osoby
-    oznaczonej, także rekrutera, który tej stawki nie widzi.
+    oznaczonej, także rekrutera, który tej stawki nie widzi. Rodzaj liczony
+    z bieżącej treści (przy edycji nasłuch modelu jeszcze nie zadziałał),
+    z autorem dla pary „X/Y” DL-a (07.10.2026).
     """
     kind = note_kinds.classify(
         note.content,
         note_type=getattr(note.note_type, "value", note.note_type),
         external_source=note.external_source,
     )
+    if note.author_id is not None and note_kinds.author_matters(kind, note.content):
+        author_is_dl = await db.scalar(
+            text(
+                f"SELECT {client_rate_notes.DL_PAIR_AUTHOR_SQL} "
+                "FROM users u WHERE u.id = :id"
+            ),
+            {"id": note.author_id},
+        )
+        kind = note_kinds.with_author(
+            kind, note.content, author_is_dl=bool(author_is_dl)
+        )
     if note_kinds.hides_client_rate(kind):
         return note_kinds.CLIENT_RATE_SNIPPET
     return trim_snippet(note.content or "")
@@ -353,7 +366,7 @@ async def create_note(
         db.add(NoteMention(note_id=note.id, user_id=uid))
 
     # Enqueue Notifications (in-transaction). Side-effects (email/WS) po commit.
-    snippet = _mention_snippet(note)
+    snippet = await _mention_snippet(db, note)
     deep_link = build_note_deep_link(note)
     context_label = await build_note_context_label(db, note)
     notification_title = (
@@ -582,7 +595,7 @@ async def update_note(
         db.add(NoteMention(note_id=note.id, user_id=uid))
 
     pairs: list = []
-    snippet = _mention_snippet(note)
+    snippet = await _mention_snippet(db, note)
     deep_link = build_note_deep_link(note)
     context_label = await build_note_context_label(db, note)
     notification_title = (

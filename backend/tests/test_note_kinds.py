@@ -518,6 +518,223 @@ async def test_reclassify_moves_long_price_notes_to_dl_rate_once():
     assert "178" not in str(receipt)
 
 
+# ── wpis „X/Y” Delivery Leada w zwykłej notatce (07.10.2026) ─────────────────
+
+_DL_PAIR = "@Jan Testowy 150/110 zł/h netto"
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        _DL_PAIR,
+        "165/120 1320 MD @Anna Przykładowa",
+        "$$user_12$$ 140/100 zł/h",
+    ],
+)
+def test_dl_pair_is_client_rate_only_with_a_delivery_lead_author(content: str):
+    # Bez autora reguła treści zostawia zwykłą notatkę — ten sam kształt
+    # u rekrutera bywa jego notatką z rozmowy.
+    assert classify(content, note_type="general") == note_kinds.HUMAN
+    assert (
+        classify(content, note_type="general", author_is_dl=True) == note_kinds.DL_RATE
+    )
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "Codility 85/60",
+        "oczekiwania 130/120",
+        "140/120 zakres",
+        "Rate: 100/110 PLN/h",
+        "150/110 EUR",
+        # Inny rodzaj niż zwykła notatka nie zmienia się od autora.
+        "nie odbiera",
+    ],
+)
+def test_dl_author_does_not_turn_other_numbers_into_client_rate(content: str):
+    assert (
+        classify(content, note_type="general", author_is_dl=True) != note_kinds.DL_RATE
+    )
+
+
+def test_author_is_asked_only_for_a_plain_note_with_a_pair():
+    assert note_kinds.author_matters(note_kinds.HUMAN, _DL_PAIR)
+    assert not note_kinds.author_matters(note_kinds.HUMAN, "Zna Pythona 3.11")
+    assert not note_kinds.author_matters(note_kinds.CARD, _DL_PAIR)
+    # Nasłuch bez autora nie pyta bazy (połączenie None).
+    note = Note(content=_DL_PAIR, note_type=NoteType.general)
+    _set_note_kind_on_insert(None, None, note)
+    assert note.kind == note_kinds.HUMAN
+
+
+@pytest.mark.asyncio
+async def test_dl_pair_from_a_delivery_lead_is_hidden_and_a_recruiters_is_not(
+    app_client: AsyncClient,
+):
+    cand_id = await _seed_candidate()
+    _, dl_email, dl_pass = await _seed_user(UserRole.delivery_lead)
+    lead = await _login(app_client, dl_email, dl_pass)
+    _, r_email, r_pass = await _seed_user(UserRole.recruiter)
+    recruiter = await _login(app_client, r_email, r_pass)
+    _, o_email, o_pass = await _seed_user(UserRole.recruiter)
+    other = await _login(app_client, o_email, o_pass)
+
+    by_lead = await app_client.post(
+        "/api/notes",
+        headers=lead,
+        json={"content": "Para 150/110 zł/h netto", "candidate_id": cand_id},
+    )
+    assert by_lead.status_code == 201, by_lead.text
+    assert by_lead.json()["kind"] == note_kinds.DL_RATE
+    # Autor widzi własną notatkę.
+    assert "150/110" in by_lead.json()["content"]
+
+    by_recruiter = await app_client.post(
+        "/api/notes",
+        headers=recruiter,
+        json={"content": "Kandydat 135/95 zł/h", "candidate_id": cand_id},
+    )
+    assert by_recruiter.status_code == 201, by_recruiter.text
+    assert by_recruiter.json()["kind"] == note_kinds.HUMAN
+
+    listed = await app_client.get(
+        "/api/notes", params={"candidate_id": cand_id}, headers=other
+    )
+    contents = {item["id"]: item["content"] for item in listed.json()["items"]}
+    assert contents[by_lead.json()["id"]] == note_kinds.CLIENT_RATE_PLACEHOLDER
+    assert "150/110" not in listed.text
+    # Notatka rekrutera o tym samym kształcie zostaje widoczna dla innych.
+    assert "135/95" in contents[by_recruiter.json()["id"]]
+
+    # Edycja treści przez autora liczy rodzaj od nowa — z tym samym autorem.
+    edited = await app_client.patch(
+        f"/api/notes/{by_lead.json()['id']}",
+        headers=lead,
+        json={"content": "Para 160/115 zł/h"},
+    )
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["kind"] == note_kinds.DL_RATE
+
+
+@pytest.mark.asyncio
+async def test_backfill_uses_the_author_for_raw_sql_rows():
+    from app.services.note_kind_backfill import classify_notes
+
+    cand_id = await _seed_candidate()
+    lead_id, _, _ = await _seed_user(UserRole.delivery_lead)
+    async with AsyncSessionLocal() as db:
+        note_id = (
+            await db.execute(
+                text(
+                    "INSERT INTO notes (candidate_id, author_id, content, note_type, "
+                    "created_at, updated_at) VALUES (:c, :a, :content, 'general', "
+                    "now(), now()) RETURNING id"
+                ),
+                {"c": cand_id, "a": lead_id, "content": _DL_PAIR},
+            )
+        ).scalar_one()
+        await db.commit()
+        assert await classify_notes(db, [note_id]) == 1
+        await db.commit()
+        kind = await db.scalar(select(Note.kind).where(Note.id == note_id))
+    assert kind == note_kinds.DL_RATE
+
+
+@pytest.mark.asyncio
+async def test_reclassify_hides_old_dl_pairs_once_and_drops_their_summaries():
+    from app.services.note_kind_backfill import (
+        DL_PAIR_HUMAN_DETAILS_KEY,
+        DL_PAIR_HUMAN_MARKER,
+        reclassify_dl_pair_human_notes,
+    )
+
+    lead_cand = await _seed_candidate()
+    recruiter_cand = await _seed_candidate()
+    lead_id, _, _ = await _seed_user(UserRole.delivery_lead)
+    recruiter_id, _, _ = await _seed_user(UserRole.recruiter)
+    insert = text(
+        "INSERT INTO notes (candidate_id, author_id, content, note_type, kind, "
+        "created_at, updated_at) VALUES (:c, :a, :content, 'general', 'human', "
+        "now() - interval '3 days', now() - interval '3 days') RETURNING id"
+    )
+    summary = text(
+        "INSERT INTO candidate_activity_summaries (candidate_id, summary, "
+        "input_hash, visibility_scope_hash, content_policy_version) "
+        "VALUES (:c, 'Fikcyjne podsumowanie.', 'h', 's', 'p')"
+    )
+    async with AsyncSessionLocal() as db:
+        # Baza testowa jest wspólna — znacznik mógł zostać po innym biegu.
+        await db.execute(
+            text("DELETE FROM app_settings WHERE key = ANY(:keys)"),
+            {"keys": [DL_PAIR_HUMAN_MARKER, DL_PAIR_HUMAN_DETAILS_KEY]},
+        )
+        lead_note = (
+            await db.execute(
+                insert, {"c": lead_cand, "a": lead_id, "content": _DL_PAIR}
+            )
+        ).scalar_one()
+        recruiter_note = (
+            await db.execute(
+                insert, {"c": recruiter_cand, "a": recruiter_id, "content": _DL_PAIR}
+            )
+        ).scalar_one()
+        test_note = (
+            await db.execute(
+                insert, {"c": lead_cand, "a": lead_id, "content": "Codility 85/60"}
+            )
+        ).scalar_one()
+        await db.execute(summary, {"c": lead_cand})
+        await db.execute(summary, {"c": recruiter_cand})
+        await db.commit()
+        before = await db.scalar(select(Note.updated_at).where(Note.id == lead_note))
+
+        changed = await reclassify_dl_pair_human_notes(db)
+        await db.commit()
+        assert changed is not None and changed >= 1
+
+        kinds = dict(
+            (
+                await db.execute(
+                    select(Note.id, Note.kind).where(
+                        Note.id.in_([lead_note, recruiter_note, test_note])
+                    )
+                )
+            ).all()
+        )
+        after = await db.scalar(select(Note.updated_at).where(Note.id == lead_note))
+        summaries = dict(
+            (
+                await db.execute(
+                    text(
+                        "SELECT candidate_id, count(*) FROM "
+                        "candidate_activity_summaries WHERE candidate_id = ANY(:ids) "
+                        "GROUP BY candidate_id"
+                    ),
+                    {"ids": [lead_cand, recruiter_cand]},
+                )
+            ).all()
+        )
+        receipt = await db.scalar(
+            text("SELECT value FROM app_settings WHERE key = :key"),
+            {"key": DL_PAIR_HUMAN_MARKER},
+        )
+        # Drugi przebieg nic nie robi — znacznik już jest.
+        assert await reclassify_dl_pair_human_notes(db) is None
+
+    assert kinds[lead_note] == note_kinds.DL_RATE
+    assert kinds[recruiter_note] == note_kinds.HUMAN
+    assert kinds[test_note] == note_kinds.HUMAN
+    assert after == before
+    assert lead_cand not in summaries
+    assert summaries.get(recruiter_cand) == 1
+    # Paragon: liczby i id, bez treści notatek.
+    assert lead_note in receipt["note_ids"]
+    assert recruiter_note not in receipt["note_ids"]
+    assert receipt["previous_kind"] == note_kinds.HUMAN
+    assert "150" not in str(receipt)
+
+
 @pytest.mark.asyncio
 async def test_must_evidence_ignores_the_automat_note():
     from app.services.must_text_evidence import _load_notes

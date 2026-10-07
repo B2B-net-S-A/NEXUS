@@ -159,22 +159,38 @@ def _note_type_value(note: Note) -> Optional[str]:
     return value.value if isinstance(value, NoteType) else value
 
 
+def _classify_note(connection, target: Note) -> str:
+    kind = note_kinds.classify(
+        target.content,
+        note_type=_note_type_value(target),
+        external_source=target.external_source,
+    )
+    # 07.10.2026: krótki wpis „X/Y” Delivery Leada albo admina to para stawek
+    # (X — stawka do klienta), więc rekruter widzi go zakrytego. O autora
+    # pytamy tylko wtedy, gdy treść ma ten kształt.
+    if target.author_id is None or not note_kinds.author_matters(kind, target.content):
+        return kind
+    from app.services.client_rate_notes import DL_PAIR_AUTHOR_SQL
+
+    author_is_dl = connection.execute(
+        text(f"SELECT {DL_PAIR_AUTHOR_SQL} FROM users u WHERE u.id = :id"),
+        {"id": target.author_id},
+    ).scalar()
+    return note_kinds.with_author(kind, target.content, author_is_dl=bool(author_is_dl))
+
+
 @event.listens_for(Note, "before_insert")
-def _set_note_kind_on_insert(_mapper, _connection, target: Note) -> None:
+def _set_note_kind_on_insert(_mapper, connection, target: Note) -> None:
     # 0413: rodzaj podany wprost przy tworzeniu („Nie odebrał”, uwaga
     # Delivery Leada) zostaje — reguła treści zrobiłaby z uwagi z kwotą wpis
     # o stawce do klienta i zakryła ją adresatowi.
     if target.kind is not None:
         return
-    target.kind = note_kinds.classify(
-        target.content,
-        note_type=_note_type_value(target),
-        external_source=target.external_source,
-    )
+    target.kind = _classify_note(connection, target)
 
 
 @event.listens_for(Note, "before_update")
-def _set_note_kind_on_update(_mapper, _connection, target: Note) -> None:
+def _set_note_kind_on_update(_mapper, connection, target: Note) -> None:
     # Edycja treści zawsze liczy rodzaj od nowa. Wyjątek „rodzaj podany
     # wprost zostaje” obowiązuje tylko przy tworzeniu: bez osobnego znacznika
     # nie da się odróżnić rodzaju jawnego od takiego, który rozjechał się
@@ -186,8 +202,4 @@ def _set_note_kind_on_update(_mapper, _connection, target: Note) -> None:
         for name in ("content", "note_type", "external_source")
     ):
         return
-    target.kind = note_kinds.classify(
-        target.content,
-        note_type=_note_type_value(target),
-        external_source=target.external_source,
-    )
+    target.kind = _classify_note(connection, target)
