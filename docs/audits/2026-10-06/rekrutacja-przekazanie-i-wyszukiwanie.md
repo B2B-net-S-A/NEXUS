@@ -12,6 +12,10 @@ Zakres: kod NEXUSA (origin/main `c495e4067`), scrapery w `~/pracuj scrapper` (Ma
 4. Wyszukiwanie z rekrutacji jest spójne co do zasad (miasto/kategoria nie tną, obowiązkowe tylko krytyczne), ale: ekran opisuje inne wymagania niż faktycznie stosuje (W1), DL prawie nie ustawia krytycznych (D1), bramka AI gubi „Spring (Boot …)” (K7), a z okna wyszukiwania nikt jeszcze nikogo nie dodał — rekruterzy szukają na liście `/candidates`, gdzie „Przypisz” wrzuca do „Ogłoszeń” (U1).
 5. Edytor Championa traci niezapisane zmiany przy każdym odświeżeniu danych (N1) i nadpisuje cudze zmiany (N2).
 
+## Naprawy (06–07.10.2026)
+
+Decyzje Artura z 06.10 wykonane: PR [#2055](https://github.com/B2B-net-S-A/NEXUS/pull/2055) + [#2060](https://github.com/B2B-net-S-A/NEXUS/pull/2060) (dane po scraperze, bramka integracji), [#2056](https://github.com/B2B-net-S-A/NEXUS/pull/2056) (wyszukiwanie), [#2061](https://github.com/B2B-net-S-A/NEXUS/pull/2061) (przekazanie, propozycje, Champion), [#2067](https://github.com/B2B-net-S-A/NEXUS/pull/2067) (Trivy); D3, D4, D5, D9 na produkcji; scraper S3–S9 lokalnie. D6 zastąpiony decyzją z 07.10 (#2058). Szczegóły i dowody: `docs/recruitment-audit-2026-10-06-completion-report.md`.
+
 ## Czeka na Artura (decyzje)
 
 | # | Decyzja | Opcje | Rekomendacja |
