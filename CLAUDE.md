@@ -2582,7 +2582,15 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
   mieszczą się w drugim („AWS” ≠ „Azure”, choć podobieństwo 0,90); po numerze
   tylko odpowiedź bez treści pytania, przy komplecie odpowiedzi i numeracji
   zgodnej z dopasowaniami po treści; szara strefa 0,3–0,5, treść niepasująca
-  do żadnego pytania i konflikty pomijane. Arkusz idzie na najnowszy wiersz pary
+  do żadnego pytania i konflikty pomijane. Odpowiedź idzie przez
+  `client_safe_response`: ucięta na pierwszej linii sekcji wewnętrznej karty
+  (notatka, red flags, stawka, kosztorys, motywacja, @wzmianka, „czekam na”)
+  albo kolejnego pytania, odrzucona przy kwocie/parze stawek i przy „[PL] …”
+  (próba na produkcji 07.10: ostatnia odpowiedź karty połykała notatkę
+  wewnętrzną i kosztorys w ok. 60 z 8 245 odpowiedzi). Rozpoznanie pytań
+  (`match_score`): to samo słowo = ten sam rdzeń z polską końcówką, a słowo
+  tylko z dłuższego pytania blokuje, gdy nazywa technologię, skrót albo język.
+  Arkusz idzie na najnowszy wiersz pary
   (blokada wierszy pary), kopie automatu na starszych wierszach bieżącej próby
   dostają tę samą treść albo `NULL`; notatka sprzed bieżącej próby nie zasila
   arkusza. `answered_at`/`answered_by` = data i autor notatki; zamiast

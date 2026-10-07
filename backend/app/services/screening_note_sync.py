@@ -313,6 +313,60 @@ class MappingResult:
         return sum(1 for match in self.matches if match.how == "number")
 
 
+# Odpowiedź z karty bywa „ostatnią” na karcie i połyka kolejne sekcje notatki:
+# notatkę wewnętrzną, red flags, kosztorys ze stawką do klienta, wzmianki
+# współpracowników albo kolejne pytania (pomiar na produkcji 07.10.2026:
+# ok. 60 z 8 245 przypiętych odpowiedzi). Arkusz z notatki widzi KLIENT, więc
+# odpowiedź jest ucinana na pierwszej takiej linii, a odpowiedź, w której
+# po ucięciu zostaje kwota albo para stawek, nie trafia do arkusza wcale.
+_INTERNAL_LINE_RE = re.compile(
+    r"^\s*(?:"
+    r"notatk\w*|red\s*flags?|motywacj\w*|dlaczego\s+(?:ten|ta)\b|"
+    r"dost[eę]pno[sś][cć]\s*:|okres\s+wypowiedzenia\s*:|stawk\w*|kosztorys\w*|"
+    r"oczekiwania\s+finansowe|narodowo[sś][cć]|nationality|uwagi\s*(?:dl|rekrutera)?\s*:|"
+    r"komentarz\w*\s*:|czekam\s+na\b|@\S"
+    r")",
+    re.IGNORECASE,
+)
+_NEXT_QUESTION_RE = re.compile(
+    r"^\s*(?:P\s*\d+|\d{1,2}\s*[.)])\s*:?\s*(?:"
+    r"\S.*\?\s*$|"
+    r"(?:jak|jaki\w*|czy|co|opisz|opowiedz|kiedy|gdzie|ile|w\s+jaki|dlaczego|"
+    r"z\s+jakimi|z\s+kt[oó]rymi|"
+    r"how|what|which|describe|do\s+you|have\s+you|tell)\b"
+    r")",
+    re.IGNORECASE,
+)
+_LANGUAGE_PREFIX_RE = re.compile(r"^\s*\[(?:PL|EN)\]", re.I)
+_RATE_RE = re.compile(
+    r"\b\d{2,3}\s*/\s*\d{2,3}\b|\d[\d\s]*(?:[.,]\d+)?\s*(?:zł|zl|pln)\b",
+    re.I,
+)
+
+
+def client_safe_response(text: str) -> str:
+    """Odpowiedź do arkusza widocznego dla klienta — pusta, gdy nie da się jej oddzielić.
+
+    Ucina na pierwszej linii, która zaczyna sekcję wewnętrzną karty albo
+    kolejne pytanie; odrzuca odpowiedź z kwotą/parą stawek i odpowiedź, która
+    zaczyna się od powtórzonego pytania w innym języku („[PL] …”).
+    """
+    lines = (text or "").strip().splitlines()
+    if not lines or _LANGUAGE_PREFIX_RE.match(lines[0]):
+        return ""
+    kept: list[str] = []
+    for index, line in enumerate(lines):
+        if _INTERNAL_LINE_RE.match(line) or (
+            index > 0 and _NEXT_QUESTION_RE.match(line)
+        ):
+            break
+        kept.append(line)
+    answer = "\n".join(kept).strip()
+    if _RATE_RE.search(answer):
+        return ""
+    return answer
+
+
 def map_note_answers(
     questions: Mapping[str, str],
     items: Sequence[Mapping[str, Any]],
@@ -338,9 +392,13 @@ def map_note_answers(
             else None
         )
         numbers.append(number)
-        answer = str(item.get("answer") or "").strip()
-        if not answer:
+        raw_answer = str(item.get("answer") or "").strip()
+        if not raw_answer:
             skipped["empty"] += 1
+            continue
+        answer = client_safe_response(raw_answer)
+        if not answer:
+            skipped["internal"] += 1
             continue
         entries.append((index, number, str(item.get("question") or "").strip(), answer))
     if not question_ids or not entries:
