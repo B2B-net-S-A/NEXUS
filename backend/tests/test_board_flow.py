@@ -7,6 +7,8 @@ Kontrakty:
 - Ogłoszenia: jedna linia na rekrutację, w której osoba jest Rekruterem; TCM
   widzi też rekrutacje swojej kategorii; obcy rekruter nie widzi nic;
 - Nowi z blokadą tej osoby, Screening z brakami, Zweryfikowany ze stanem QC;
+- rekruter spoza zespołu widzi Screening/Zweryfikowanych SWOICH kandydatów
+  w cudzej rekrutacji, ale nie jej Ogłoszeń (07.10.2026);
 - Delivery Lead: CV u klienta ponad 7 dni i niepodpisane umowy z portfela;
 - Finanse tylko dla roli Finanse; admin nie dostaje żadnej z tych sekcji;
 - awaria jednej sekcji nie zabiera pozostałych.
@@ -233,6 +235,73 @@ async def test_recruiter_sees_postings_claims_screening_and_verified() -> None:
             assert _for_job(other_flow.screening, world["job_id"]) == []
     finally:
         await _cleanup([world], candidates, [rec_id, other_id])
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_recruiter_outside_team_sees_own_candidates_not_postings() -> None:
+    """Decyzja Artura 07.10.2026: rekruter przepina swoich kandydatów do
+    rekrutacji, do których nie jest przypisany. Jego osoby (właściciel procesu)
+    w Screeningu i Zweryfikowanym są w „Czeka na Ciebie”; Ogłoszenia cudzej
+    rekrutacji i cudze pary — nie."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
+    from app.services import board_flow
+
+    candidates: list[int] = []
+    async with AsyncSessionLocal() as db:
+        lead = await _user(db, "recruiter")
+        outsider = await _user(db, "recruiter")
+        world = await _world(db, recruiter_id=lead.id)
+        posting = await _person_at(db, world, "posting", ago=timedelta(hours=2))
+        mine_screening = await _person_at(
+            db, world, "screening", ago=timedelta(hours=5)
+        )
+        mine_verified = await _person_at(db, world, "verified", ago=timedelta(days=1))
+        theirs = await _person_at(db, world, "screening", ago=timedelta(hours=1))
+        candidates += [posting, mine_screening, mine_verified, theirs]
+        for cid, owner in (
+            (mine_screening, outsider.id),
+            (mine_verified, outsider.id),
+            (theirs, lead.id),
+        ):
+            db.add(
+                RecruitmentProcess(
+                    candidate_id=cid,
+                    job_id=world["job_id"],
+                    status=ProcessStatus.open,
+                    owner_user_id=owner,
+                )
+            )
+        await db.commit()
+        lead_id, outsider_id = lead.id, outsider.id
+
+    try:
+        async with AsyncSessionLocal() as db:
+            from app.models.user import User
+
+            flow = await board_flow.load_flow(db, await db.get(User, outsider_id))
+            assert flow is not None
+            assert _for_job(flow.postings, world["job_id"]) == []
+            assert [
+                r.candidate_id for r in _for_job(flow.screening, world["job_id"])
+            ] == [mine_screening]
+            assert [
+                r.candidate_id for r in _for_job(flow.verified, world["job_id"])
+            ] == [mine_verified]
+
+            lead_flow = await board_flow.load_flow(db, await db.get(User, lead_id))
+            assert lead_flow is not None
+            # Rekruter rekrutacji nadal widzi Ogłoszenia i swoją parę,
+            # ale nie osoby prowadzone przez kogoś innego.
+            assert [p.count for p in _for_job(lead_flow.postings, world["job_id"])] == [
+                1
+            ]
+            assert [
+                r.candidate_id for r in _for_job(lead_flow.screening, world["job_id"])
+            ] == [theirs]
+    finally:
+        await _cleanup([world], candidates, [lead_id, outsider_id])
 
 
 @needs_db

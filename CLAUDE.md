@@ -5669,6 +5669,19 @@ stawki, za jaką osoby są wysyłane do klienta”.
   (`expected_rate`) widzą wszyscy** — do 23.09 profil chował ją każdemu bez
   `VIEW_FINANCE`. Kwoty KONTRAKTÓW w `/history` zostają przy dostępie
   finansowym. Nowa powierzchnia niosąca `client_rate_*` = `user_can_view_client_rate`.
+- **Rekruter prowadzi swoich kandydatów w cudzej rekrutacji** (decyzja Artura
+  07.10.2026: ludzie przepinają swoich kandydatów poza oficjalnym przydziałem).
+  Dodający zostaje właścicielem procesu (`recruitment_processes.owner_user_id`),
+  więc dzwonki przekazań, follow-up i KPI idą do niego. Okno „Dodaj do
+  rekrutacji” (`JobPicker`) szuka we WSZYSTKICH otwartych rekrutacjach — trybu
+  „tylko moje” już nie ma. „Moje” LISTY `/jobs` = `jobs_mine_list_clause`
+  (pracuję nad rekrutacją ALBO mam tam otwarty proces kandydata), wiersz niesie
+  `priority_carry_over_count` → plakietka „Twoi kandydaci: N” w kolumnie
+  „Rekruter”. `jobs_mine_clause` (zespół — „Moje następne kroki”, kreator
+  metryk) i reguła „Rekrutera” (`job_team`) się NIE zmieniają; takiej osoby nie
+  dopisujemy do zespołu. „Czeka na Ciebie” (`board_flow._owned_job_ids`) liczy
+  Screening i Zweryfikowanych także z rekrutacji, w których osoba jest
+  właścicielem procesu; Ogłoszenia i propozycje — tylko jako Rekruter.
 - Wzmianki w starszych sekcjach o „członkostwie w zespole rekrutacji” jako
   bramce odczytu/zapisu opisują stan sprzed 23.09.2026.
 

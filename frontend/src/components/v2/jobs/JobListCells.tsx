@@ -24,6 +24,7 @@ import { RecruiterChips } from "@/components/v2/jobs/RecruiterChips";
 import { shortenPersonName } from "@/lib/job-header-subtitle";
 import {
   recruitersOf,
+  workingRecruiters,
   type JobRecruiter,
   type JobTeamSource,
 } from "@/lib/job-team";
@@ -34,6 +35,7 @@ import {
   type RequestStatusTone,
 } from "@/lib/request-status";
 import { cn } from "@/lib/utils";
+import { useAuthStore } from "@/store/auth";
 import {
   REQUEST_STAGE_META,
   requestStageOf,
@@ -492,6 +494,29 @@ export interface JobListRowFields extends JobTeamSource {
   created_at?: string | null;
   delivery_lead_user?: { name?: string | null } | null;
   competence_category_id?: number | null;
+  /**
+   * Ilu kandydatów patrzący prowadzi w tej rekrutacji (otwarte procesy, których
+   * jest właścicielem — dodał albo zweryfikował). Liczy serwer.
+   */
+  priority_carry_over_count?: number | null;
+}
+
+/**
+ * „Twoi kandydaci: N” — rekrutacja, w której patrzący prowadzi swoich
+ * kandydatów, choć nie jest jej Rekruterem (decyzja Artura 07.10.2026: rekruter
+ * przepina swoich ludzi także do cudzych rekrutacji i wraca do nich z „Moje”).
+ * Rekruterowi rekrutacji plakietka nic nie mówi, więc jej nie dostaje.
+ */
+export function myCandidatesOutsideTeam(
+  job: JobListRowFields,
+  viewerId: number | null | undefined,
+): number | null {
+  const count = job.priority_carry_over_count ?? 0;
+  if (count <= 0 || viewerId == null) return null;
+  const isRecruiter = workingRecruiters(recruitersOf(job)).some(
+    (person) => person.user_id === viewerId,
+  );
+  return isRecruiter ? null : count;
 }
 
 /** Data w kolumnie „Otwarta” — pole serwera, a na starszym backendzie dotychczasowa reguła. */
@@ -532,6 +557,8 @@ const shortName = (name: string) => shortenPersonName(name) ?? name;
 export function JobRecruiterCell({ job }: { job: JobListRowFields }) {
   const people = recruitersOf(job);
   const dlName = job.delivery_lead_user?.name?.trim() || null;
+  const viewerId = useAuthStore((s) => s.user?.id);
+  const mine = myCandidatesOutsideTeam(job, viewerId);
   return (
     <div
       className="flex min-w-0 max-w-[176px] flex-col gap-0.5"
@@ -551,6 +578,15 @@ export function JobRecruiterCell({ job }: { job: JobListRowFields }) {
           data-testid="job-delivery-lead"
         >
           DL: {shortName(dlName)}
+        </span>
+      )}
+      {mine != null && (
+        <span
+          className="inline-flex h-5 w-fit items-center whitespace-nowrap rounded-full bg-info-muted px-2 text-[11px] font-medium text-info-muted-foreground"
+          title={`Prowadzisz tu ${countPl(mine, "osobę", "osoby", "osób")}, choć nie jesteś Rekruterem tej rekrutacji`}
+          data-testid="job-my-candidates"
+        >
+          Twoi kandydaci: {mine}
         </span>
       )}
     </div>

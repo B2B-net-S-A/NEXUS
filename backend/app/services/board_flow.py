@@ -291,6 +291,35 @@ async def _recruiting_job_ids(db: AsyncSession, user: User) -> list[int]:
     )
 
 
+async def _owned_job_ids(db: AsyncSession, user: User, exclude: list[int]) -> list[int]:
+    """Rekrutacje w pracy, w których osoba prowadzi kandydata (właściciel
+    otwartego procesu), a nie jest ich Rekruterem.
+
+    Decyzja Artura 07.10.2026: rekruter dodaje i przepina swoich kandydatów
+    także do rekrutacji, do których nie jest przypisany — Screening
+    i Zweryfikowani tych osób też mają być w „Czeka na Ciebie”.
+    """
+
+    # Równość, nie zastępstwa: `_mine` porównuje rekrutera pary z ``user.id``.
+    query = select(RecruitmentProcess.job_id).where(
+        RecruitmentProcess.owner_user_id == user.id,
+        RecruitmentProcess.status == ProcessStatus.open,
+    )
+    return list(
+        (
+            await db.scalars(
+                select(Job.id)
+                .where(
+                    _in_work(),
+                    Job.id.in_(query),
+                    *([Job.id.not_in(exclude)] if exclude else []),
+                )
+                .order_by(Job.id)
+            )
+        ).all()
+    )
+
+
 async def _dl_job_ids(
     db: AsyncSession, user: User, portfolio: frozenset[int]
 ) -> list[int]:
@@ -789,7 +818,13 @@ async def load_flow(
         async def recruiting() -> None:
             job_ids.extend(await _recruiting_job_ids(db, user))
             placed = await _latest_rows(db, catalog, job_ids)
+            # Ogłoszenia i propozycje to praca zespołu rekrutacji; moich
+            # kandydatów w cudzych rekrutacjach dokładamy tylko do Screeningu
+            # i Zweryfikowanych (`_mine` i tak odsiewa cudze pary).
             block.postings, block.postings_total = _postings(placed)
+            placed = placed + await _latest_rows(
+                db, catalog, await _owned_job_ids(db, user, job_ids)
+            )
             block.screening = await _screening(
                 db, await _mine(db, user, placed, SCREENING_COLUMN)
             )

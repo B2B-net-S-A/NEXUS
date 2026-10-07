@@ -6,8 +6,9 @@
  *
  * Zapis idzie przez to samo API co AI Matching (`POST /api/jobs/{id}/proposals/bulk`),
  * więc pomijanie osób już obecnych w rekrutacji, bramki klienta i telemetria
- * działają tak samo. Endpoint wymaga członkostwa w zespole rekrutacji — stąd
- * `JobPicker scope="mine"` i czytelny komunikat przy 403.
+ * działają tak samo. Rekruter dodaje osoby także do rekrutacji, w których nie
+ * jest w zespole (decyzja Artura 07.10.2026) — wybór obejmuje wszystkie otwarte
+ * rekrutacje, a odmowę opisuje zdanie z serwera.
  */
 
 import { useState } from "react";
@@ -19,7 +20,6 @@ import {
   type BulkProposalsResponse,
 } from "@/lib/candidate-search-api";
 import { apiErrorMessage } from "@/lib/api-error";
-import { isForbiddenError } from "@/lib/view-state";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -109,11 +109,7 @@ export function AddToRecruitmentDialog({
       setJob(null);
       onOpenChange(false);
     } catch (err) {
-      setError(
-        isForbiddenError(err)
-          ? "Nie należysz do zespołu tej rekrutacji."
-          : apiErrorMessage(err, "Nie udało się dodać do rekrutacji."),
-      );
+      setError(apiErrorMessage(err, "Nie udało się dodać do rekrutacji."));
     } finally {
       setPending(false);
     }
@@ -131,7 +127,7 @@ export function AddToRecruitmentDialog({
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <DialogBody className="max-h-[60dvh] overflow-y-auto">
-          <JobPicker value={job} onChange={setJob} scope="mine" />
+          <JobPicker value={job} onChange={setJob} />
           {error ? (
             <p role="alert" className="mt-3 text-sm text-destructive">
               {error}
