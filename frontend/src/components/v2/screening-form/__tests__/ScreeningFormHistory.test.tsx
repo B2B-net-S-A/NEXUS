@@ -70,6 +70,7 @@ function mount(props: Partial<Parameters<typeof ScreeningFormHistory>[0]> = {}) 
         candidateId={FORM_CANDIDATE_ID}
         jobId={FORM_JOB_ID}
         currentVersion={2}
+        stateToken="token-2"
         canRestore
         {...props}
       />
@@ -105,7 +106,12 @@ describe("ScreeningFormHistory", () => {
   });
 
   it("„Przywróć” wymaga potwierdzenia w wierszu i wysyła wersję z bieżącą wersją formularza", async () => {
-    const result = { ...formSaveResult(formState({ version: 2 })), rate_not_restored: true, skipped_answers: ["q2"] };
+    const result = {
+      ...formSaveResult(formState({ version: 2 })),
+      rate_not_restored: true,
+      rate_not_restored_reason: "managed_by_dl" as const,
+      skipped_answers: ["q2"],
+    };
     mocks.post.mockResolvedValue({ data: result });
     const onRestored = vi.fn();
     const user = userEvent.setup();
@@ -123,6 +129,7 @@ describe("ScreeningFormHistory", () => {
         job_id: FORM_JOB_ID,
         version_no: 1,
         expected_version: 2,
+        state_token: "token-2",
         mode: "restore",
       }),
     );
@@ -133,6 +140,29 @@ describe("ScreeningFormHistory", () => {
     );
     expect(mocks.showInfo).toHaveBeenCalledWith(
       "Pominięto 1 odpowiedź — treść pytania w Profilu Championa się zmieniła.",
+    );
+  });
+
+  it("wersja bez stawki: stawka kandydata zostaje i komunikat to mówi", async () => {
+    mocks.post.mockResolvedValue({
+      data: {
+        ...formSaveResult(formState({ version: 2 })),
+        rate_not_restored: true,
+        rate_not_restored_reason: "not_in_version",
+        skipped_answers: [],
+      },
+    });
+    const user = userEvent.setup();
+    mount();
+
+    await user.click(await screen.findByRole("button", { name: "Przywróć wersję 1" }));
+    const confirm = screen.getByRole("group", { name: "Przywrócić wersję 1?" });
+    await user.click(within(confirm).getByRole("button", { name: "Przywróć" }));
+
+    await waitFor(() =>
+      expect(mocks.showInfo).toHaveBeenCalledWith(
+        "Stawka kandydata została — ta wersja jej nie miała. Zmień ją w formularzu.",
+      ),
     );
   });
 

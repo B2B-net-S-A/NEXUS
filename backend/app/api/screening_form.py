@@ -1,3 +1,5 @@
+# UWAGA: bez `from __future__ import annotations` — `@limiter.limit` na
+# trasach z `Annotated` guardami zamieniłby je w parametry QUERY (slowapi #579).
 """Jeden formularz screeningu — ``/api/screening-form`` (0424, 07.10.2026).
 
 Arkusz pytań Championa, ręczne pola karty rekomendacji i stawka kandydata
@@ -9,7 +11,8 @@ Kontrakt: ``docs/screening-form-contract.md``; reguły zapisu:
 * ``GET /screening-form`` — stan formularza (pytania, arkusz, karta, stawka,
   wersja, czy można edytować).
 * ``PUT /screening-form`` — zapis w jednej transakcji, nowa wersja tylko przy
-  realnej zmianie.
+  realnej zmianie; ``expected_version`` i ``state_token`` chronią przed
+  nadpisaniem cudzej zmiany (409).
 * ``GET /screening-form/versions`` — historia wersji ze zmianami „przed → po”.
 * ``POST /screening-form/restore`` — przywrócenie albo cofnięcie jako NOWA
   wersja.
@@ -22,7 +25,7 @@ z poszanowaniem 12-godzinnej blokady osoby.
 import logging
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,6 +37,7 @@ from app.api.candidate_access import (
 from app.api.recruitment_access import ensure_job_membership, ensure_job_read_access
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
+from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.user import User, UserRole
@@ -60,6 +64,7 @@ class ScreeningFormRestore(BaseModel):
     job_id: int = Field(gt=0)
     version_no: int = Field(gt=0)
     expected_version: int = Field(ge=0)
+    state_token: str = Field(min_length=1, max_length=form.STATE_TOKEN_MAX)
     mode: Literal["restore", "undo"] = "restore"
 
 
@@ -166,7 +171,9 @@ async def get_screening_form(
 
 
 @router.put("/screening-form")
+@limiter.limit("30/minute", key_func=user_or_ip_key)
 async def save_screening_form(
+    request: Request,
     body: ScreeningFormSave,
     user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
@@ -193,7 +200,9 @@ async def list_screening_form_versions(
 
 
 @router.post("/screening-form/restore")
+@limiter.limit("30/minute", key_func=user_or_ip_key)
 async def restore_screening_form(
+    request: Request,
     body: ScreeningFormRestore,
     user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
@@ -207,6 +216,7 @@ async def restore_screening_form(
         job=job,
         version_no=body.version_no,
         expected_version=body.expected_version,
+        state_token=body.state_token,
         mode=body.mode,
     )
     result = await _finish(
@@ -215,5 +225,6 @@ async def restore_screening_form(
     return {
         **result,
         "rate_not_restored": outcome.rate_not_restored,
+        "rate_not_restored_reason": outcome.rate_not_restored_reason,
         "skipped_answers": outcome.skipped_answers,
     }

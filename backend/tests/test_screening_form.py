@@ -161,8 +161,15 @@ def _rate(amount: int) -> dict:
     return {"amount": amount, "unit": "hourly", "currency": "PLN"}
 
 
-def _payload(w: dict, *, expected: int, **parts: Any) -> dict:
-    return {**_params(w), "expected_version": expected, **parts}
+def _payload(w: dict, *, expected: int, token: str, **parts: Any) -> dict:
+    return {**_params(w), "expected_version": expected, "state_token": token, **parts}
+
+
+async def _token(client: AsyncClient, w: dict, headers: Optional[dict] = None) -> str:
+    """Odcisk stanu, który formularz odsyła przy zapisie (świeży odczyt)."""
+    res = await client.get(URL, params=_params(w), headers=headers or w["rec_h"])
+    assert res.status_code == 200, res.text
+    return res.json()["state_token"]
 
 
 async def _put(
@@ -171,10 +178,14 @@ async def _put(
     *,
     expected: int,
     headers: Optional[dict] = None,
+    token: Optional[str] = None,
     **parts: Any,
 ) -> dict:
+    token = token or await _token(client, w, headers)
     res = await client.put(
-        URL, headers=headers or w["rec_h"], json=_payload(w, expected=expected, **parts)
+        URL,
+        headers=headers or w["rec_h"],
+        json=_payload(w, expected=expected, token=token, **parts),
     )
     assert res.status_code == 200, res.text
     return res.json()
@@ -192,18 +203,35 @@ async def _versions(client: AsyncClient, w: dict) -> dict:
     return res.json()
 
 
-async def _restore(
-    client: AsyncClient, w: dict, *, version_no: int, expected: int, mode: str
-) -> dict:
-    res = await client.post(
+async def _restore_res(
+    client: AsyncClient,
+    w: dict,
+    *,
+    version_no: int,
+    expected: int,
+    mode: str,
+    headers: Optional[dict] = None,
+    token: Optional[str] = None,
+):  # noqa: ANN202 — odpowiedź httpx
+    token = token or await _token(client, w, headers)
+    return await client.post(
         f"{URL}/restore",
-        headers=w["rec_h"],
+        headers=headers or w["rec_h"],
         json={
             **_params(w),
             "version_no": version_no,
             "expected_version": expected,
+            "state_token": token,
             "mode": mode,
         },
+    )
+
+
+async def _restore(
+    client: AsyncClient, w: dict, *, version_no: int, expected: int, mode: str
+) -> dict:
+    res = await _restore_res(
+        client, w, version_no=version_no, expected=expected, mode=mode
     )
     assert res.status_code == 200, res.text
     return res.json()
@@ -334,7 +362,12 @@ async def test_a_stale_form_gets_a_version_conflict(app_client: AsyncClient):
     res = await app_client.put(
         URL,
         headers=w["rec_h"],
-        json=_payload(w, expected=0, sheet=_sheet(q1="Inna odpowiedź")),
+        json=_payload(
+            w,
+            expected=0,
+            token=await _token(app_client, w),
+            sheet=_sheet(q1="Inna odpowiedź"),
+        ),
     )
 
     assert res.status_code == 409, res.text
@@ -345,16 +378,18 @@ async def test_a_stale_form_gets_a_version_conflict(app_client: AsyncClient):
     assert _answers(await _state(app_client, w)) == {"q1": "Kafka od 3 lat"}
 
 
-async def test_a_change_made_beside_the_form_is_kept_and_recorded(
+async def test_a_change_made_beside_the_form_gets_a_conflict_and_is_recorded(
     app_client: AsyncClient,
 ):
-    """Formularz otwarty przed zmianą starą trasą odsyła stary arkusz.
+    """Formularz otwarty przed zmianą starą trasą odsyła odcisk sprzed zmiany.
 
-    Pole, którego rekruter nie ruszył, nie cofa cudzej zmiany; ta zmiana
+    Zapis dostaje 409 zamiast cofać cudzą zmianę polem, którego rekruter nie
+    ruszył; po ponownym wczytaniu zapis przechodzi, a zmiana obok formularza
     zostaje osobną wersją (``external``) bez autora.
     """
     w = await _world()
-    await _put(app_client, w, expected=0, sheet=_sheet(q1="Kafka od roku"))
+    first = await _put(app_client, w, expected=0, sheet=_sheet(q1="Kafka od roku"))
+    opened_token = first["state_token"]
     async with AsyncSessionLocal() as db:
         stage = await db.get(CandidateStage, w["stage_id"])
         stage.screening_answers = {
@@ -363,11 +398,34 @@ async def test_a_change_made_beside_the_form_is_kept_and_recorded(
         }
         await db.commit()
 
+    stale = await app_client.put(
+        URL,
+        headers=w["rec_h"],
+        json=_payload(
+            w,
+            expected=1,
+            token=opened_token,
+            sheet=_sheet(q1="Kafka od roku"),
+            card={"fields": {"availability": "od zaraz"}},
+        ),
+    )
+    assert stale.status_code == 409, stale.text
+    detail = stale.json()["detail"]
+    assert detail["code"] == "SCREENING_FORM_VERSION_CONFLICT"
+    assert detail["current_version"] == 1
+    # Autor ostatniej wersji nie jest autorem zmiany obok formularza.
+    assert detail["saved_by_name"] is None
+    assert "zmienił formularz" in detail["message"]
+    assert await _version_count(w) == 1
+
+    fresh = await _state(app_client, w)
+    assert fresh["state_token"] != opened_token
+    assert _answers(fresh) == {"q1": "Kafka od 5 lat"}
     body = await _put(
         app_client,
         w,
         expected=1,
-        sheet=_sheet(q1="Kafka od roku"),
+        token=fresh["state_token"],
         card={"fields": {"availability": "od zaraz"}},
     )
 
@@ -382,6 +440,27 @@ async def test_a_change_made_beside_the_form_is_kept_and_recorded(
         ("Pytanie 1", "Kafka od roku", "Kafka od 5 lat")
     ]
     assert [c["label"] for c in items[0]["changes"]] == ["Dostępność"]
+
+
+async def test_a_deliberate_revert_of_an_external_change_is_saved(
+    app_client: AsyncClient,
+):
+    """Rekruter, który widzi zmianę obok formularza, może świadomie wrócić do
+    poprzedniej wartości — świeży odcisk przepuszcza zapis."""
+    w = await _world()
+    await _put(app_client, w, expected=0, sheet=_sheet(q1="Kafka od roku"))
+    async with AsyncSessionLocal() as db:
+        stage = await db.get(CandidateStage, w["stage_id"])
+        stage.screening_answers = {
+            "answers": [{"question_id": "q1", "response": "Kafka od 5 lat"}],
+            "overall_fit": "fit",
+        }
+        await db.commit()
+
+    body = await _put(app_client, w, expected=1, sheet=_sheet(q1="Kafka od roku"))
+
+    assert body["saved_version"] == 3
+    assert _answers(body) == {"q1": "Kafka od roku"}
 
 
 async def test_empty_sheet_is_not_saved(app_client: AsyncClient):
@@ -431,7 +510,11 @@ async def test_a_read_only_pair_refuses_the_save(
     assert state["read_only_message"]
 
     res = await app_client.put(
-        URL, headers=w["rec_h"], json=_payload(w, expected=0, sheet=_sheet(q1="x"))
+        URL,
+        headers=w["rec_h"],
+        json=_payload(
+            w, expected=0, token=await _token(app_client, w), sheet=_sheet(q1="x")
+        ),
     )
 
     assert res.status_code == 409, res.text
@@ -471,7 +554,9 @@ async def test_claimed_person_blocks_another_recruiter_but_not_the_dl(
 
     parts = {"sheet": _sheet(q1="Kafka od 3 lat")}
     refused = await app_client.put(
-        URL, headers=w["rec_h"], json=_payload(w, expected=0, **parts)
+        URL,
+        headers=w["rec_h"],
+        json=_payload(w, expected=0, token=await _token(app_client, w), **parts),
     )
     assert refused.status_code == 423, refused.text
     assert refused.json()["detail"]["code"] == "CANDIDATE_CLAIMED"
@@ -738,6 +823,160 @@ async def test_restore_skips_an_answer_to_a_reworded_question(
     assert body["skipped_answers"] == ["Pytanie 1"]
     assert _answers(body) == {"q1": "Trzy lata", "q2": "Chce dłuższy projekt"}
     assert body["saved_version"] == 3
+
+
+async def test_undo_takes_only_the_last_own_save(app_client: AsyncClient):
+    """„Cofnij” = własny ostatni zapis; starsze i cudze wersje wracają przez
+    „Przywróć” (z regułą stawki od „Zweryfikowany”)."""
+    w = await _world()
+    await _put(app_client, w, expected=0, sheet=_sheet(q1="Kafka od roku"))
+    await _put(app_client, w, expected=1, sheet=_sheet(q1="Kafka od 2 lat"))
+    await _put(app_client, w, expected=2, sheet=_sheet(q1="Kafka od 3 lat"))
+
+    older = await _restore_res(app_client, w, version_no=1, expected=3, mode="undo")
+    assert older.status_code == 409, older.text
+    assert older.json()["detail"]["code"] == "SCREENING_FORM_UNDO_REFUSED"
+
+    foreign = await _restore_res(
+        app_client, w, version_no=2, expected=3, mode="undo", headers=w["dl_h"]
+    )
+    assert foreign.status_code == 409, foreign.text
+    assert foreign.json()["detail"]["code"] == "SCREENING_FORM_UNDO_REFUSED"
+    assert await _version_count(w) == 3
+
+    body = await _restore(app_client, w, version_no=2, expected=3, mode="undo")
+    assert body["saved_version"] == 4
+    assert _answers(body) == {"q1": "Kafka od 2 lat"}
+
+
+async def test_undo_of_a_rise_after_cv_sent_waits_for_the_dl(
+    app_client: AsyncClient, monkeypatch
+):
+    """„Cofnij” podnoszące stawkę po wysłaniu CV nie jest „poprawką pomyłki” —
+    otwiera zadanie dla DL jak każda podwyżka (0418)."""
+    w = await _world(PipelineStage.cv_sent, rate=Decimal("110"))
+    emails: list = []
+
+    async def record(pending):  # noqa: ANN001, ANN202
+        emails.extend(pending)
+
+    monkeypatch.setattr(rate_change, "send_pending_emails", record)
+    saved = await _put(app_client, w, expected=0, rate=_rate(100))
+    assert saved["saved_version"] == 2 and saved["undo_to_version"] == 1
+
+    body = await _restore(app_client, w, version_no=1, expected=2, mode="undo")
+
+    assert body["saved_version"] == 3 and body["rate"]["amount"] == 110.0
+    assert body["rate_not_restored"] is False
+    changes = await _pair_changes(w)
+    assert [c.reason for c in changes] == ["conversation", "other"]
+    assert changes[-1].requires_decision is True
+    assert changes[-1].status == "requested"
+
+
+async def test_undo_of_a_first_rate_keeps_the_rate_and_says_so(
+    app_client: AsyncClient,
+):
+    w = await _world()
+    await _put(app_client, w, expected=0, card={"fields": {"availability": "od zaraz"}})
+    saved = await _put(
+        app_client,
+        w,
+        expected=1,
+        rate=_rate(125),
+        card={"fields": {"availability": "miesiąc"}},
+    )
+    assert saved["undo_to_version"] == 1
+
+    body = await _restore(app_client, w, version_no=1, expected=2, mode="undo")
+
+    assert body["saved_version"] == 3
+    assert body["card"]["fields"]["availability"]["raw"] == "od zaraz"
+    assert body["rate_not_restored"] is True
+    assert body["rate_not_restored_reason"] == "not_in_version"
+    assert body["rate"]["amount"] == 125.0
+
+
+async def test_restore_without_a_sheet_clears_every_row_the_form_reads(
+    app_client: AsyncClient,
+):
+    """Arkusz stoi na dwóch wierszach pary (stary z trasy obok formularza,
+    nowy z formularza). Wersja bez arkusza zdejmuje oba — inaczej odczyt po
+    zapisie pokazałby starszą kopię."""
+    w = await _world()
+    await _put(app_client, w, expected=0, card={"fields": {"availability": "od zaraz"}})
+    async with AsyncSessionLocal() as db:
+        older = await db.get(CandidateStage, w["stage_id"])
+        older.screening_answers = {
+            "answers": [{"question_id": "q1", "response": "Kafka od roku"}],
+            "overall_fit": "fit",
+        }
+        newest = CandidateStage(
+            candidate_id=w["cand_id"],
+            job_id=w["job_id"],
+            stage=PipelineStage.verified,
+            moved_by=w["rec_id"],
+            moved_at=datetime.now(timezone.utc) - timedelta(minutes=10),
+        )
+        db.add(newest)
+        await db.commit()
+        newest_id = newest.id
+    await _put(app_client, w, expected=1, sheet=_sheet(q1="Kafka od 3 lat"))
+
+    body = await _restore(app_client, w, version_no=1, expected=3, mode="restore")
+
+    assert body["saved_version"] == 4 and body["sheet"] is None
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(CandidateStage, w["stage_id"])).screening_answers is None
+        assert (await db.get(CandidateStage, newest_id)).screening_answers is None
+
+
+async def test_a_write_without_a_state_change_is_rolled_back(
+    app_client: AsyncClient, monkeypatch
+):
+    """Zapis, po którym stan pary się nie zmienił, nie kończy się cichym
+    commitem — 409 i nic nie zostaje."""
+    w = await _world()
+    await _put(app_client, w, expected=0, card={"fields": {"availability": "od zaraz"}})
+    await _put(app_client, w, expected=1, sheet=_sheet(q1="Kafka od 3 lat"))
+
+    async def no_clear(*_args, **_kwargs):  # noqa: ANN002, ANN003, ANN202
+        return None
+
+    monkeypatch.setattr(form, "_clear_pair_sheets", no_clear)
+    res = await _restore_res(app_client, w, version_no=1, expected=2, mode="restore")
+
+    assert res.status_code == 409, res.text
+    assert res.json()["detail"]["code"] == "SCREENING_FORM_NOT_APPLIED"
+    assert await _version_count(w) == 2
+    assert _answers(await _state(app_client, w)) == {"q1": "Kafka od 3 lat"}
+
+
+async def test_an_absurd_rate_is_refused_not_a_server_error(app_client: AsyncClient):
+    w = await _world()
+    res = await app_client.put(
+        URL,
+        headers=w["rec_h"],
+        json=_payload(
+            w,
+            expected=0,
+            token=await _token(app_client, w),
+            rate={"amount": "1e500", "unit": "hourly", "currency": "PLN"},
+        ),
+    )
+    assert res.status_code == 422, res.text
+    assert res.json()["detail"]["code"] == "SCREENING_FORM_INVALID"
+
+
+async def test_save_requires_the_state_token(app_client: AsyncClient):
+    w = await _world()
+    res = await app_client.put(
+        URL,
+        headers=w["rec_h"],
+        json={**_params(w), "expected_version": 0, "sheet": _sheet(q1="Kafka")},
+    )
+    assert res.status_code == 422, res.text
+    assert await _version_count(w) == 0
 
 
 async def test_merge_moves_the_duplicate_history_above_the_survivor() -> None:

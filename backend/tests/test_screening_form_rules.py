@@ -287,13 +287,110 @@ def test_card_field_differs_from_the_effective_value():
     assert rules.card_field_differs(fields, "motivation", "Dłuższy projekt") is True
 
 
-def test_untouched_field_does_not_revert_an_external_change():
-    # Formularz otwarty przed zmianą DL-a: odesłał wartość z ostatniej wersji.
-    assert rules.stale_against_external("110", "125", "110") is True
-    # Rekruter zmienił pole świadomie — jego wartość wygrywa.
-    assert rules.stale_against_external("110", "125", "130") is False
-    # Nic się nie zmieniło obok formularza.
-    assert rules.stale_against_external("110", "110", "110") is False
+def test_state_token_follows_what_a_person_sees():
+    base = rules.build_snapshot(
+        sheet=_sheet(_answer("q1", "Kafka od roku")),
+        card_fields={"english": {"raw": "B2", "source": "note"}},
+        rate={"amount": Decimal("150.00"), "unit": "hourly", "currency": "PLN"},
+    )
+    same = rules.build_snapshot(
+        sheet=_sheet(_answer("q1", "Kafka od roku", origin="phrased", keywords="k")),
+        card_fields={"english": {"raw": "B2", "source": "manual", "origin": "note_ai"}},
+        rate={"amount": Decimal("150"), "unit": "hourly", "currency": "pln"},
+    )
+    token = rules.state_token(base)
+    assert token == rules.state_token(same)
+    assert len(token) == 32
+    # Pusty stan też ma odcisk (pierwszy zapis formularza).
+    assert rules.state_token(None) == rules.state_token(rules.EMPTY_SNAPSHOT)
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        {"sheet": _sheet(_answer("q1", "Kafka od 5 lat"))},
+        {"sheet": _sheet(_answer("q1", "Kafka od roku"), overall_fit="fit")},
+        {"card_fields": {"english": {"raw": "C1", "source": "manual"}}},
+        {"card_fields": {}},
+        {"rate": {"amount": Decimal("125"), "unit": "hourly", "currency": "PLN"}},
+        {"rate": None},
+    ],
+)
+def test_state_token_changes_with_a_visible_change(changed):
+    parts = {
+        "sheet": _sheet(_answer("q1", "Kafka od roku")),
+        "card_fields": {"english": {"raw": "B2", "source": "note"}},
+        "rate": {"amount": Decimal("150"), "unit": "hourly", "currency": "PLN"},
+    }
+    before = rules.state_token(rules.build_snapshot(**parts))
+    after = rules.state_token(rules.build_snapshot(**{**parts, **changed}))
+    assert before != after
+
+
+def test_state_token_counts_experience_checks():
+    with_check = _sheet(
+        _answer("q1", "Kafka"),
+        experience_checks=[{"kind": "domains", "name": "Bankowość", "status": "met"}],
+    )
+    plain = _sheet(_answer("q1", "Kafka"))
+    token = rules.state_token(
+        rules.build_snapshot(sheet=with_check, card_fields={}, rate=None)
+    )
+    assert token != rules.state_token(
+        rules.build_snapshot(sheet=plain, card_fields={}, rate=None)
+    )
+
+
+# ── Stawka przy przywróceniu ─────────────────────────────────────────────────
+
+_RATE_110 = {"amount": Decimal("110"), "unit": "hourly", "currency": "PLN"}
+_RATE_125 = {"amount": Decimal("125"), "unit": "hourly", "currency": "PLN"}
+
+
+@pytest.mark.parametrize(
+    ("mode", "target", "current", "column", "differs", "reason"),
+    [
+        # Przed „Zweryfikowany” stawka wraca w obu trybach.
+        ("restore", _RATE_110, _RATE_125, "screening", True, None),
+        ("undo", _RATE_110, _RATE_125, "screening", True, None),
+        # Od „Zweryfikowany” „Przywróć” stawki nie cofa (zarządza DL).
+        ("restore", _RATE_110, _RATE_125, "verified", True, rules.RATE_MANAGED_BY_DL),
+        ("restore", _RATE_110, _RATE_110, "verified", False, None),
+        # „Cofnij” własnego zapisu poprawia stawkę także od „Zweryfikowany”.
+        ("undo", _RATE_110, _RATE_125, "cv_sent", True, None),
+        # Wersja bez stawki nie zdejmuje stawki, która jest — mówimy to wprost.
+        ("undo", None, _RATE_125, "screening", False, rules.RATE_NOT_IN_VERSION),
+        ("restore", None, _RATE_125, "verified", False, rules.RATE_NOT_IN_VERSION),
+        ("undo", None, None, "screening", False, None),
+    ],
+)
+def test_rate_not_restored_reason(mode, target, current, column, differs, reason):
+    assert (
+        rules.rate_not_restored_reason(
+            mode=mode,
+            target_rate=target,
+            current_rate=current,
+            column=column,
+            rate_differs=differs,
+        )
+        == reason
+    )
+
+
+@pytest.mark.parametrize(
+    ("mode", "column", "reason"),
+    [
+        ("undo", "screening", "typo"),
+        ("undo", "verified", "typo"),
+        # Podwyżka po wysłaniu CV czeka na DL — „Cofnij” nie może jej ominąć.
+        ("undo", "cv_sent", "other"),
+        ("undo", "client_interview", "other"),
+        ("undo", "contract", "other"),
+        ("restore", "screening", "other"),
+    ],
+)
+def test_undo_is_a_typo_only_outside_decision_columns(mode, column, reason):
+    assert rules.restore_rate_reason(mode=mode, column=column) == reason
 
 
 # ── Przywracanie ─────────────────────────────────────────────────────────────
@@ -350,7 +447,9 @@ def test_restore_plan_without_sheet_leaves_the_sheet():
 
 
 def _input(**overrides) -> form.SaveInput:
-    return form.SaveInput.model_validate({"expected_version": 0, **overrides})
+    return form.SaveInput.model_validate(
+        {"expected_version": 0, "state_token": "t" * 32, **overrides}
+    )
 
 
 @pytest.mark.parametrize(
@@ -377,6 +476,11 @@ def _input(**overrides) -> form.SaveInput:
         {"rate": {"amount": "-10", "unit": "hourly"}},
         {"rate": {"amount": "150", "unit": "hourly", "currency": "zł"}},
         {"rate": {"amount": "2000000", "unit": "hourly"}},
+        # Zakres przed zaokrągleniem — inaczej `quantize` rzuca (500).
+        {"rate": {"amount": "1e500", "unit": "hourly"}},
+        {"rate": {"amount": "-1e500", "unit": "hourly"}},
+        {"rate": {"amount": 1e30, "unit": "hourly"}},
+        {"rate": {"amount": "0.001", "unit": "hourly"}},
         {"note_import": {"text": "   "}},
     ],
 )

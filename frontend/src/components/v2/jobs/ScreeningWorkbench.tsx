@@ -255,6 +255,7 @@ export function ScreeningWorkbench({
             candidateId={item.candidate_id}
             jobId={jobId}
             currentVersion={state.version}
+            stateToken={state.state_token}
             canRestore={false}
           />
         ) : null}

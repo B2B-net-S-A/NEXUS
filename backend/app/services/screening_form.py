@@ -13,7 +13,8 @@ Zapis (``save``) to jedna transakcja, w tej kolejności:
    (423 ``CANDIDATE_CLAIMED``);
 2. blokada wiersza kandydata, potem wierszy etapów pary — kolejność jak
    ``candidate_rate_change.change_rate``;
-3. wersja z formularza = najnowsza wersja pary (inaczej 409
+3. wersja z formularza = najnowsza wersja pary, a odcisk stanu z formularza
+   (``state_token``) = odcisk stanu pary pod blokadą (inaczej 409
    ``SCREENING_FORM_VERSION_CONFLICT``);
 4. gdy nic się nie zmienia — koniec, bez notatki i bez wersji;
 5. notatka z „Uzupełnij z notatki” jako zwykła notatka z rozmowy (HUMAN);
@@ -29,9 +30,10 @@ Zapis (``save``) to jedna transakcja, w tej kolejności:
 Maile (zmiana stawki) i oznaczenie wyników dopasowania idą po commicie,
 w trasie (``api/screening_form.py``).
 
-Pole, którego rekruter nie ruszył, nie cofa zmiany zrobionej obok formularza
-(stara trasa, automat, Delivery Lead) po ostatniej wersji:
-``screening_form_rules.stale_against_external``.
+Zmiana zrobiona obok formularza (stara trasa, automat, Delivery Lead) po tym,
+jak rekruter go otworzył, zmienia odcisk stanu (``screening_form_rules.
+state_token``) — zapis dostaje 409, przeglądarka wczytuje nowy stan i zostawia
+niezapisane zmiany w polach. Świadomy powrót do starej wartości przechodzi.
 """
 
 from __future__ import annotations
@@ -87,6 +89,19 @@ VERSION_CONFLICT_MESSAGE = (
     "Ktoś zapisał ten formularz po tym, jak go otworzyłeś. Odśwież dane — "
     "Twoje niezapisane zmiany zostaną w polach."
 )
+STATE_CONFLICT_MESSAGE = (
+    "Ktoś zmienił formularz w międzyczasie — wczytaliśmy nową wersję, Twoje "
+    "zmiany zostały w polach."
+)
+NOT_APPLIED_MESSAGE = (
+    "Zapis nie zmienił formularza — nic nie zapisaliśmy. Odśwież dane "
+    "i spróbuj ponownie."
+)
+STATE_TOKEN_MAX = 128
+UNDO_REFUSED_MESSAGE = (
+    "Cofnąć można tylko swój ostatni zapis tego formularza — przywróć wersję "
+    "z historii zmian."
+)
 _CURRENCY_RE = re.compile(r"[A-Za-z]{3}")
 _CENT = Decimal("0.01")
 
@@ -138,6 +153,8 @@ class NoteImportInput(BaseModel):
 
 class SaveInput(BaseModel):
     expected_version: int = Field(ge=0)
+    # Odcisk stanu, z którego formularz wziął wartości (``ScreeningFormState``).
+    state_token: str = Field(min_length=1, max_length=STATE_TOKEN_MAX)
     sheet: Optional[SheetInput] = None
     card: Optional[CardInput] = None
     rate: Optional[RateInput] = None
@@ -178,10 +195,14 @@ def validate_save(data: SaveInput, questions: Mapping[str, str]) -> None:
             raise _invalid("Pole z notatki wymaga tekstu notatki, z której pochodzi.")
     if data.rate is not None:
         amount = data.rate.amount
-        if not amount.is_finite() or amount.quantize(_CENT, ROUND_HALF_UP) <= 0:
+        # Zakres PRZED zaokrągleniem: `quantize` kwoty typu 1e500 przekracza
+        # precyzję kontekstu (InvalidOperation → 500 zamiast odmowy).
+        if not amount.is_finite() or amount <= 0:
             raise _invalid("Stawka kandydata musi być większa od zera.")
         if amount > RATE_MAX:
             raise _invalid("Stawka kandydata jest za wysoka.")
+        if amount.quantize(_CENT, ROUND_HALF_UP) <= 0:
+            raise _invalid("Stawka kandydata musi być większa od zera.")
         if not _CURRENCY_RE.fullmatch(data.rate.currency.strip()):
             raise _invalid("Waluta stawki to trzy litery, np. PLN.")
     if data.note_import is not None:
@@ -403,10 +424,18 @@ async def _head(db: AsyncSession, *, candidate_id: int, job_id: int) -> _Head:
     )
 
 
-async def _version_conflict(db: AsyncSession, head: _Head) -> HTTPException:
+async def _version_conflict(
+    db: AsyncSession, head: _Head, *, message: str = VERSION_CONFLICT_MESSAGE
+) -> HTTPException:
+    """409 ``SCREENING_FORM_VERSION_CONFLICT``.
+
+    Przy rozjeździe samego odcisku stanu (zmiana obok formularza, bez nowej
+    wersji) autor ostatniej wersji nie jest autorem zmiany — ``saved_by_name``
+    i ``saved_at`` są wtedy puste.
+    """
     saved_by_name: Optional[str] = None
     saved_at: Optional[str] = None
-    if head.last is not None:
+    if head.last is not None and message == VERSION_CONFLICT_MESSAGE:
         saved_at = head.last.created_at.isoformat() if head.last.created_at else None
         if head.last.created_by is not None:
             author = await db.get(User, head.last.created_by)
@@ -418,9 +447,42 @@ async def _version_conflict(db: AsyncSession, head: _Head) -> HTTPException:
             "current_version": head.version,
             "saved_by_name": saved_by_name,
             "saved_at": saved_at,
-            "message": VERSION_CONFLICT_MESSAGE,
+            "message": message,
         },
     )
+
+
+async def _visible_token(
+    db: AsyncSession, *, current: _Current, newest: Optional[CandidateStage]
+) -> str:
+    """Odcisk stanu pary tak, jak liczy go ``GET`` (arkusz bez okna zapisu).
+
+    ``current`` z zapisu czyta arkusz regułą okna zapisu (``for_write``) —
+    odcisk porównujemy z tym, co widział rekruter, więc arkusz czytamy tu
+    tak samo jak odczyt formularza.
+    """
+    sheet: Optional[dict[str, Any]] = None
+    if newest is not None:
+        sheet, _ = await screening_sheets.latest_filled_sheet(
+            db, newest, for_write=False
+        )
+    if not sheet_filled(sheet):
+        sheet = None
+    return rules.state_token(
+        rules.build_snapshot(sheet=sheet, card_fields=current.fields, rate=current.rate)
+    )
+
+
+async def _assert_state_token(
+    db: AsyncSession,
+    *,
+    current: _Current,
+    newest: Optional[CandidateStage],
+    head: _Head,
+    state_token: str,
+) -> None:
+    if await _visible_token(db, current=current, newest=newest) != state_token:
+        raise await _version_conflict(db, head, message=STATE_CONFLICT_MESSAGE)
 
 
 # ── Odczyt ───────────────────────────────────────────────────────────────────
@@ -579,6 +641,7 @@ async def load_state(
         "job_id": job.id,
         "version": head.version,
         "versions_count": head.count,
+        "state_token": rules.state_token(current.snapshot()),
         "editable": editable,
         "read_only_reason": state.reason,
         "read_only_message": read_only_message,
@@ -685,6 +748,9 @@ class SaveOutcome:
     emails: list[Any] = field(default_factory=list)
     sheet_changed: bool = False
     rate_not_restored: bool = False
+    # "managed_by_dl" (od „Zweryfikowany” stawką zarządza DL) albo
+    # "not_in_version" (wersja nie miała stawki, a stawka jest — zostaje).
+    rate_not_restored_reason: Optional[str] = None
     skipped_answers: list[str] = field(default_factory=list)
 
 
@@ -696,8 +762,9 @@ class _Target:
     card: dict[str, Optional[str]] = field(default_factory=dict)
     origins: dict[str, dict[str, Any]] = field(default_factory=dict)
     rate: Optional[dict[str, Any]] = None  # {amount: Decimal, unit, currency}
-    # Przywracana wersja nie miała arkusza — zdejmij arkusz z najnowszego
-    # wiersza (pusty arkusz się nie zapisuje, więc inaczej nie da się wrócić).
+    # Przywracana wersja nie miała arkusza — zdejmij arkusz ze wszystkich
+    # wierszy pary w oknie odczytu (pusty arkusz się nie zapisuje, więc inaczej
+    # nie da się wrócić, a odczyt sięgnąłby po starszą kopię).
     clear_sheet: bool = False
 
 
@@ -753,6 +820,32 @@ def _same_rate(current: Optional[Mapping[str, Any]], target: Mapping[str, Any]) 
         target["unit"],
         target["currency"],
     )
+
+
+async def _clear_pair_sheets(
+    db: AsyncSession, *, newest: CandidateStage, stages: list[CandidateStage]
+) -> None:
+    """Zdejmij arkusz z każdego wiersza pary, z którego czyta formularz.
+
+    Odczyt (``latest_filled_sheet``) sięga po najnowszy wypełniony arkusz
+    pary z bieżącej próby — zdjęcie arkusza tylko z najnowszego wiersza
+    pokazałoby po zapisie starszą kopię. Pętla zdejmuje kolejne źródła, aż
+    oba okna (odczytu i zapisu) nie widzą żadnego arkusza; wiersze są już
+    zablokowane (``_lock_pair``).
+    """
+    by_id = {row.id: row for row in stages}
+    for for_write in (False, True):
+        for _ in range(len(stages) + 1):
+            sheet, source_id = await screening_sheets.latest_filled_sheet(
+                db, newest, for_write=for_write
+            )
+            if not sheet_filled(sheet):
+                break
+            row = newest if source_id is None else by_id.get(source_id)
+            if row is None:  # wiersz spoza blokady — nie zgadujemy
+                break
+            row.screening_answers = None
+            await db.flush()
 
 
 def _note_content(note_import: NoteImportInput) -> str:
@@ -811,66 +904,34 @@ async def _apply(
     rate_reason: str,
     note_import: Optional[NoteImportInput] = None,
     restored_from: Optional[int] = None,
-    keep_external: bool = False,
 ) -> SaveOutcome:
     """Wspólny aplikator zapisu i przywracania — patrz docstring modułu."""
     from app.api.recommendation_cards import after_card_save  # noqa: PLC0415
     from app.api.recruitment_access import user_can_edit_rates  # noqa: PLC0415
 
     pre = current.snapshot()
-    base = head.last.snapshot if keep_external and head.last is not None else None
-    base_card = (base or {}).get("card") or {}
 
     sheet = target.sheet
     if sheet is not None and (
         not rules.sheet_has_content(sheet) or rules.sheets_equal(sheet, current.sheet)
     ):
         sheet = None
-    if (
-        sheet is not None
-        and base is not None
-        and rules.stale_against_external(
-            rules.sheet_view(base.get("sheet")),
-            rules.sheet_view(current.sheet),
-            rules.sheet_view(sheet),
-        )
-    ):
-        sheet = None
 
-    # Tylko arkusz stojący na najnowszym wierszu: arkusz starszego wiersza to
-    # historia etapu, a zapis formularza i tak trafia na najnowszy.
     clear_sheet = (
         target.clear_sheet
         and sheet is None
         and current.sheet is not None
-        and current.sheet_stage_id is None
         and state.newest is not None
     )
 
-    card_changes: dict[str, Optional[str]] = {}
-    for key, value in target.card.items():
-        if not rules.card_field_differs(current.fields, key, value):
-            continue
-        if base is not None and rules.stale_against_external(
-            (base_card.get(key) or {}).get("raw") or None,
-            str((current.fields.get(key) or {}).get("raw") or "").strip() or None,
-            (value or "").strip() or None,
-        ):
-            continue
-        card_changes[key] = value
+    card_changes: dict[str, Optional[str]] = {
+        key: value
+        for key, value in target.card.items()
+        if rules.card_field_differs(current.fields, key, value)
+    }
 
     rate_target = target.rate
     rate_changes = rate_target is not None and not _same_rate(current.rate, rate_target)
-    if (
-        rate_changes
-        and base is not None
-        and rules.stale_against_external(
-            rules.rate_view(base.get("rate")),
-            rules.rate_view(current.rate),
-            rules.rate_view(rate_target),
-        )
-    ):
-        rate_changes = False
     if rate_changes and not user_can_edit_rates(user):
         raise HTTPException(
             status_code=403,
@@ -938,8 +999,7 @@ async def _apply(
         await db.flush()
         outcome.sheet_changed = True
     elif clear_sheet and newest is not None:
-        newest.screening_answers = None
-        await db.flush()
+        await _clear_pair_sheets(db, newest=newest, stages=state.stages)
         outcome.sheet_changed = True
 
     if card_changes:
@@ -1001,7 +1061,26 @@ async def _apply(
     order = list(questions)
     changes = rules.diff_snapshots(pre, post, questions=order)
     if not changes:
-        return outcome
+        # Coś zapisaliśmy (notatkę, arkusz, kartę, stawkę), a stan pary się nie
+        # zmienił — cichy commit zostawiłby zapis bez wersji. Wyjątek cofa
+        # transakcję (``get_db``).
+        logger.error(
+            "screening_form: zapis bez zmiany stanu pary kandydat=%s rekrutacja=%s "
+            "(arkusz=%s karta=%s stawka=%s notatka=%s)",
+            candidate_id,
+            job.id,
+            outcome.sheet_changed,
+            bool(card_changes),
+            rate_changes,
+            note is not None,
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "SCREENING_FORM_NOT_APPLIED",
+                "message": NOT_APPLIED_MESSAGE,
+            },
+        )
 
     number = head.version
     if head.last is None:
@@ -1121,6 +1200,13 @@ async def save(
         process=state.process,
         for_write=True,
     )
+    await _assert_state_token(
+        db,
+        current=current,
+        newest=state.newest,
+        head=head,
+        state_token=data.state_token,
+    )
     origins = (data.card.origins or {}) if data.card is not None else {}
     target = _Target(
         sheet=(
@@ -1143,8 +1229,29 @@ async def save(
         action="save",
         rate_reason="conversation",
         note_import=data.note_import,
-        keep_external=True,
     )
+
+
+def _assert_undo_allowed(head: _Head, *, version_no: int, user: User) -> None:
+    """„Cofnij” = wyłącznie własny OSTATNI zapis, do wersji tuż przed nim.
+
+    Starsze wersje i cudze zapisy wracają przez „Przywróć” — z regułą stawki
+    od „Zweryfikowany” (zmianą stawki zarządza wtedy Delivery Lead).
+    """
+    last = head.last
+    if (
+        last is None
+        or version_no != head.version - 1
+        or last.created_by is None
+        or last.created_by != user.id
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "SCREENING_FORM_UNDO_REFUSED",
+                "message": UNDO_REFUSED_MESSAGE,
+            },
+        )
 
 
 async def restore(
@@ -1155,15 +1262,21 @@ async def restore(
     job: Job,
     version_no: int,
     expected_version: int,
+    state_token: str,
     mode: Literal["restore", "undo"],
 ) -> SaveOutcome:
     """Przywrócenie wersji jako NOWA wersja (``restore``/``undo``).
 
     Stawka wraca tylko przed „Zweryfikowany” — później zmianą stawki zarządza
-    Delivery Lead (0418), więc ``restore`` jej nie cofa (``rate_not_restored``).
-    ``undo`` cofa ostatni zapis łącznie ze stawką, jako „poprawkę pomyłki”
-    (``reason="typo"`` — bez zadania dla DL). Wersja bez arkusza zdejmuje
-    arkusz z najnowszego wiersza etapu (``_Target.clear_sheet``).
+    Delivery Lead (0418), więc ``restore`` jej nie cofa (``rate_not_restored``,
+    powód ``managed_by_dl``). ``undo`` cofa wyłącznie WŁASNY ostatni zapis
+    (``_assert_undo_allowed``) łącznie ze stawką, jako „poprawkę pomyłki”
+    (``reason="typo"``) — poza kolumnami, w których podwyżka czeka na decyzję
+    DL (``DECISION_COLUMNS``): tam idzie zwykłym powodem, więc zadanie dla DL
+    powstaje jak przy każdej podwyżce. Wersja bez stawki nie zdejmuje stawki,
+    która jest (``rate_not_restored``, powód ``not_in_version``). Wersja bez
+    arkusza zdejmuje arkusz ze wszystkich wierszy pary w oknie odczytu
+    (``_Target.clear_sheet``).
     """
     state, head = await _prepare(
         db,
@@ -1172,6 +1285,8 @@ async def restore(
         job=job,
         expected_version=expected_version,
     )
+    if mode == "undo":
+        _assert_undo_allowed(head, version_no=version_no, user=user)
     row = await db.scalar(
         select(ScreeningFormVersion).where(
             *_pair_clause(candidate.id, job.id),
@@ -1188,6 +1303,13 @@ async def restore(
         newest=state.newest,
         process=state.process,
         for_write=True,
+    )
+    await _assert_state_token(
+        db,
+        current=current,
+        newest=state.newest,
+        head=head,
+        state_token=state_token,
     )
     plan = rules.restore_plan(
         row.snapshot or {}, current_sheet=current.sheet, questions=questions
@@ -1206,15 +1328,17 @@ async def restore(
         rate=_rate_target(plan.rate),
         clear_sheet=plan.sheet is None,
     )
-    rate_not_restored = False
-    if (
-        mode == "restore"
-        and target.rate is not None
-        and state.column in rate_change.NOTIFY_COLUMNS
-        and not _same_rate(current.rate, target.rate)
-    ):
+    reason = rules.rate_not_restored_reason(
+        mode=mode,
+        target_rate=target.rate,
+        current_rate=current.rate,
+        column=state.column,
+        rate_differs=(
+            target.rate is not None and not _same_rate(current.rate, target.rate)
+        ),
+    )
+    if reason == rules.RATE_MANAGED_BY_DL:
         target.rate = None
-        rate_not_restored = True
     outcome = await _apply(
         db,
         user=user,
@@ -1226,10 +1350,11 @@ async def restore(
         questions=questions,
         target=target,
         action=mode,
-        rate_reason="typo" if mode == "undo" else "other",
+        rate_reason=rules.restore_rate_reason(mode=mode, column=state.column),
         restored_from=version_no,
     )
-    outcome.rate_not_restored = rate_not_restored
+    outcome.rate_not_restored = reason is not None
+    outcome.rate_not_restored_reason = reason
     outcome.skipped_answers = list(plan.skipped_answers)
     return outcome
 

@@ -80,6 +80,11 @@ export interface ScreeningFormState {
   /** Najwyższy numer wersji pary; 0 = brak wersji. */
   version: number;
   versions_count: number;
+  /**
+   * Odcisk stanu pary (arkusz, pola karty, stawka), z którego formularz wziął
+   * wartości — zapis i przywrócenie odsyłają go; zmiana obok formularza = 409.
+   */
+  state_token: string;
   editable: boolean;
   read_only_reason: ScreeningFormReadOnlyReason | null;
   read_only_message: string | null;
@@ -136,6 +141,8 @@ export interface ScreeningFormSave {
   candidate_id: number;
   job_id: number;
   expected_version: number;
+  /** Odcisk stanu, z którego formularz wziął wartości (`ScreeningFormState.state_token`). */
+  state_token: string;
   /** `null` = arkusz bez zmian. */
   sheet: ScreeningFormSaveSheet | null;
   /** `null` = pola karty bez zmian. */
@@ -188,13 +195,21 @@ export interface ScreeningFormRestore {
   job_id: number;
   version_no: number;
   expected_version: number;
-  /** `undo` = cofnięcie ostatniego zapisu. */
+  state_token: string;
+  /** `undo` = cofnięcie WŁASNEGO ostatniego zapisu (do wersji tuż przed nim). */
   mode: "restore" | "undo";
 }
 
+/**
+ * Czemu stawka nie wróciła: `managed_by_dl` — od „Zweryfikowany” zmianą stawki
+ * zarządza DL; `not_in_version` — wersja nie miała stawki, a stawka jest.
+ */
+export type RateNotRestoredReason = "managed_by_dl" | "not_in_version";
+
 export interface ScreeningFormRestoreResult extends ScreeningFormSaveResult {
-  /** Stawka nie wróciła — od „Zweryfikowany” zmianą stawki zarządza DL. */
+  /** Stawka kandydata została taka, jak przed przywróceniem. */
   rate_not_restored: boolean;
+  rate_not_restored_reason: RateNotRestoredReason | null;
   /** Odpowiedzi na pytania, których treść w Profilu Championa się zmieniła. */
   skipped_answers: string[];
 }

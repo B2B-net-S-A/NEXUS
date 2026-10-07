@@ -25,6 +25,7 @@ import {
   missingAnswersForForward,
   parseRateAmount,
   rateFromValues,
+  rateNotRestoredMessage,
   sameRate,
   versionActionLabel,
 } from "@/lib/screening-form";
@@ -92,6 +93,14 @@ describe("formDefaultsFromState", () => {
 });
 
 describe("buildSavePayload", () => {
+  it("odsyła odcisk stanu, z którego wzięte są wartości", () => {
+    const state = formState({ sheet: SAVED_SHEET, version: 4, state_token: "abc" });
+    expect(buildSavePayload(state, formDefaultsFromState(state)).payload.state_token).toBe("abc");
+    expect(
+      buildSavePayload(state, formDefaultsFromState(state), { stateToken: "inny" }).payload.state_token,
+    ).toBe("inny");
+  });
+
   it("bez zmian — brak zapisu", () => {
     const state = formState({ sheet: SAVED_SHEET, version: 4 });
     const plan = buildSavePayload(state, formDefaultsFromState(state));
@@ -385,5 +394,25 @@ describe("walidacja i drobiazgi", () => {
     expect(versionActionLabel("fix_requested")).toBe("Wróciło do poprawy");
     expect(AFTER_CV_SENT_COLUMNS.has("cv_sent")).toBe(true);
     expect(AFTER_CV_SENT_COLUMNS.has("cv_qc")).toBe(false);
+  });
+});
+
+describe("rateNotRestoredMessage", () => {
+  it("stawka wróciła — bez komunikatu", () => {
+    expect(rateNotRestoredMessage({ rate_not_restored: false, rate_not_restored_reason: null }, "undo")).toBeNull();
+  });
+
+  it("wersja bez stawki — stawka została, zdanie zależy od trybu", () => {
+    const result = { rate_not_restored: true, rate_not_restored_reason: "not_in_version" as const };
+    expect(rateNotRestoredMessage(result, "undo")).toBe(
+      "Cofnięto zapis — stawka kandydata została, zmień ją w formularzu.",
+    );
+    expect(rateNotRestoredMessage(result, "restore")).toMatch(/ta wersja jej nie miała/);
+  });
+
+  it("od „Zweryfikowany” stawką zarządza Delivery Lead", () => {
+    expect(
+      rateNotRestoredMessage({ rate_not_restored: true, rate_not_restored_reason: "managed_by_dl" }, "restore"),
+    ).toMatch(/zarządza Delivery Lead/);
   });
 });

@@ -227,6 +227,7 @@ const BASE_STATE: ScreeningFormState = {
   job_id: JOB_ID,
   version: 0,
   versions_count: 0,
+  state_token: "podglad-0",
   editable: true,
   read_only_reason: null,
   read_only_message: null,

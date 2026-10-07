@@ -111,7 +111,7 @@ beforeEach(() => {
 
 describe("ScreeningFullForm — zapis", () => {
   it("wysyła tylko zmieniony arkusz z wersją; karta i stawka bez zmian = null", async () => {
-    serverState = formState({ version: 2, versions_count: 2 });
+    serverState = formState({ version: 2, versions_count: 2, state_token: "token-2" });
     mocks.put.mockImplementation((_url: string, body: ScreeningFormSave) =>
       Promise.resolve({ data: formSaveResult(serverState, { changed: ["answers"] }) }),
     );
@@ -130,6 +130,7 @@ describe("ScreeningFullForm — zapis", () => {
       candidate_id: FORM_CANDIDATE_ID,
       job_id: FORM_JOB_ID,
       expected_version: 2,
+      state_token: "token-2",
       card: null,
       rate: null,
       note_import: null,
@@ -342,6 +343,132 @@ describe("ScreeningFullForm — tylko do odczytu i konflikt", () => {
     await waitFor(() => expect(screen.getAllByLabelText("Odpowiedź")[1]).toHaveValue("Tak"));
     expect(screen.getAllByLabelText("Odpowiedź")[0]).toHaveValue("Moja odpowiedź");
     expect(mocks.showError).not.toHaveBeenCalled();
+  });
+});
+
+describe("ScreeningFullForm — odświeżenie w tle i odcisk stanu", () => {
+  it("odświeżenie przy niezapisanych zmianach: nieruszone pola biorą świeże wartości, zapis liczy się od nich", async () => {
+    mocks.put.mockImplementation(() => Promise.resolve({ data: formSaveResult(serverState, { changed: ["answers"] }) }));
+    const user = userEvent.setup();
+    const queryClient = mount();
+    const [first] = await screen.findAllByLabelText("Odpowiedź");
+    await user.type(first, "Moja odpowiedź");
+
+    // Ktoś odpowiedział na pytanie 2 obok formularza (bez nowej wersji).
+    serverState = formState({
+      state_token: "token-ext",
+      sheet: { answers: [{ question_id: "q2", response: "Tak", deal_breaker_hit: false }], overall_fit: "uncertain", notes: "" },
+    });
+    await queryClient.invalidateQueries({ queryKey: ["screening-form", FORM_JOB_ID, FORM_CANDIDATE_ID] });
+
+    await waitFor(() => expect(screen.getAllByLabelText("Odpowiedź")[1]).toHaveValue("Tak"));
+    expect(screen.getAllByLabelText("Odpowiedź")[0]).toHaveValue("Moja odpowiedź");
+    expect(screen.getByText(/obok formularza/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^Zapisz$/ }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledTimes(1));
+    const body = lastPut();
+    // Odcisk stanu, który widać w polach — i odpowiedź kolegi nie jest cofana.
+    expect(body.state_token).toBe("token-ext");
+    expect(body.sheet?.answers.map((a) => a.response)).toEqual(["Moja odpowiedź", "Tak"]);
+  });
+
+  it("409 przez zmianę obok formularza (bez autora): zdanie serwera, praca zostaje", async () => {
+    mocks.put.mockRejectedValue(
+      httpError(409, {
+        code: "SCREENING_FORM_VERSION_CONFLICT",
+        current_version: 0,
+        saved_by_name: null,
+        saved_at: null,
+        message: "Ktoś zmienił formularz w międzyczasie — wczytaliśmy nową wersję, Twoje zmiany zostały w polach.",
+      }),
+    );
+    const user = userEvent.setup();
+    mount();
+    const [first] = await screen.findAllByLabelText("Odpowiedź");
+    await user.type(first, "Moja odpowiedź");
+    await user.click(screen.getByRole("button", { name: /^Zapisz$/ }));
+
+    expect(await screen.findByText(/Ktoś zmienił formularz w międzyczasie/)).toBeInTheDocument();
+    expect(screen.getAllByLabelText("Odpowiedź")[0]).toHaveValue("Moja odpowiedź");
+    expect(mocks.showError).not.toHaveBeenCalled();
+  });
+
+  it("„Cofnij” po zapisie z notatki odsyła odcisk z odpowiedzi i mówi, że stawka została", async () => {
+    serverState = formState({ assist_enabled: true, version: 1, versions_count: 1, state_token: "token-1" });
+    mocks.post.mockImplementation((url: string) => {
+      if (url === "/api/recommendation-cards/note/read") {
+        return Promise.resolve({
+          data: {
+            fields: [
+              {
+                key: "availability",
+                label: "Dostępność",
+                current: null,
+                current_source: null,
+                proposed: "od zaraz",
+                quote: "dostępny od zaraz",
+                origin: "note_ai",
+                changed: true,
+              },
+            ],
+            answers: [],
+            available: true,
+            message: null,
+            language: "pl",
+            rate_change_notifies: false,
+            text: "Rozmowa z kandydatem: dostępny od zaraz, szuka dłuższego projektu.",
+          },
+        });
+      }
+      if (url === "/api/screening-form/restore") {
+        return Promise.resolve({
+          data: {
+            ...formSaveResult(formState({ version: 2, versions_count: 2 })),
+            rate_not_restored: true,
+            rate_not_restored_reason: "not_in_version",
+            skipped_answers: [],
+          },
+        });
+      }
+      return Promise.reject(new Error(url));
+    });
+    mocks.put.mockImplementation(() =>
+      Promise.resolve({
+        data: formSaveResult(serverState, { changed: ["card"], note_id: 77, undo_to_version: 1, state_token: "token-2" }),
+      }),
+    );
+    const user = userEvent.setup();
+    mount();
+
+    await user.click(await screen.findByRole("button", { name: /Wklej tekst/ }));
+    await user.type(
+      screen.getByLabelText("Notatka z rozmowy"),
+      "Rozmowa z kandydatem: dostępny od zaraz, szuka dłuższego projektu.",
+    );
+    await user.click(screen.getByRole("button", { name: "Odczytaj notatkę" }));
+    await screen.findByTestId("note-fill-summary");
+    await user.click(screen.getByRole("button", { name: /^Zapisz$/ }));
+
+    await waitFor(() => expect(mocks.showActionToast).toHaveBeenCalledTimes(1));
+    const [, options] = mocks.showActionToast.mock.calls[0] as [string, { onAction: () => void }];
+    options.onAction();
+
+    await waitFor(() =>
+      expect(mocks.post).toHaveBeenCalledWith("/api/screening-form/restore", {
+        candidate_id: FORM_CANDIDATE_ID,
+        job_id: FORM_JOB_ID,
+        version_no: 1,
+        expected_version: 2,
+        state_token: "token-2",
+        mode: "undo",
+      }),
+    );
+    await waitFor(() =>
+      expect(mocks.showSuccess).toHaveBeenCalledWith(
+        "Cofnięto zapis — stawka kandydata została, zmień ją w formularzu.",
+      ),
+    );
   });
 });
 

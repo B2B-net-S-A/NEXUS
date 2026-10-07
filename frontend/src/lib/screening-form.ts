@@ -12,6 +12,7 @@ import type { RateUnit, ScreeningQuestion } from "@/lib/api";
 import type { NoteProposal } from "@/lib/api/recommendationCards";
 import type {
   FormRate,
+  RateNotRestoredReason,
   ScreeningFormAnswerOrigin,
   ScreeningFormFieldOrigin,
   ScreeningFormSave,
@@ -202,7 +203,7 @@ export interface SavePlan {
 export function buildSavePayload(
   state: ScreeningFormState,
   values: ScreeningFullFormValues,
-  options: { noteImport?: NoteImport | null; expectedVersion?: number } = {},
+  options: { noteImport?: NoteImport | null; expectedVersion?: number; stateToken?: string } = {},
 ): SavePlan {
   const questions = formQuestions(state);
   const defaults = formDefaultsFromState(state);
@@ -251,6 +252,9 @@ export function buildSavePayload(
     candidate_id: state.candidate_id,
     job_id: state.job_id,
     expected_version: options.expectedVersion ?? state.version,
+    // Odcisk stanu, z którego wzięte są wartości startowe (różnice liczymy
+    // względem tego samego stanu) — serwer odmawia, gdy para zmieniła się obok.
+    state_token: options.stateToken ?? state.state_token,
     sheet,
     card,
     rate,
@@ -500,6 +504,23 @@ export function versionActionLabel(action: ScreeningFormVersionAction, restoredF
     default:
       return "Zapis";
   }
+}
+
+/**
+ * Zdanie po przywróceniu, gdy stawka kandydata została bez zmian
+ * (`rate_not_restored`). `null` = stawka wróciła albo nie było czego zmieniać.
+ */
+export function rateNotRestoredMessage(
+  result: { rate_not_restored: boolean; rate_not_restored_reason?: RateNotRestoredReason | null },
+  mode: "restore" | "undo",
+): string | null {
+  if (!result.rate_not_restored) return null;
+  if (result.rate_not_restored_reason === "not_in_version") {
+    return mode === "undo"
+      ? "Cofnięto zapis — stawka kandydata została, zmień ją w formularzu."
+      : "Stawka kandydata została — ta wersja jej nie miała. Zmień ją w formularzu.";
+  }
+  return "Stawka nie wróciła — od „Zweryfikowany” zmianą stawki zarządza Delivery Lead.";
 }
 
 /** Kolumny, od których zmiana w formularzu trafia do Delivery Leada i do kolejnego CV firmowego (D8). */

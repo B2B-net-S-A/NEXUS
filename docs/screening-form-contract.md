@@ -44,6 +44,8 @@ interface ScreeningFormState {
   job_id: number;
   version: number;              // najwyższy version_no pary; 0 = brak wersji
   versions_count: number;
+  state_token: string;          // odcisk stanu pary (arkusz + pola karty + stawka — to, co widzi człowiek,
+                                // `screening_form_rules.state_token`); zapis i przywrócenie go odsyłają
   editable: boolean;            // false przy read_only_reason albo braku prawa zapisu
   read_only_reason: ReadOnlyReason | null;
   read_only_message: string | null;   // zdanie po polsku do pokazania
@@ -86,12 +88,14 @@ interface ScreeningFormState {
 ## PUT /api/screening-form
 
 Bramka zapisu: `CandidateWriteAccess` + `ensure_job_membership` + `assert_pair_editable` + `candidate_claim.assert_can_act`.
+Limit 30 zapisów na minutę na osobę (`user_or_ip_key`) — tak samo `POST /restore`.
 
 ```ts
 interface ScreeningFormSave {
   candidate_id: number;
   job_id: number;
   expected_version: number;        // ScreeningFormState.version z chwili otwarcia
+  state_token: string;             // ScreeningFormState.state_token stanu, z którego formularz wziął wartości
   sheet: {
     answers: Array<{
       question_id: string;
@@ -124,6 +128,10 @@ interface ScreeningFormSaveResult extends ScreeningFormState {
 ```
 
 Zasady serwera:
+- Ochrona przed nadpisaniem: `expected_version` = najnowsza wersja pary ORAZ `state_token` = odcisk stanu pary policzony
+  pod blokadą (ta sama migawka co historia wersji, arkusz czytany jak w `GET`). Zmiana obok formularza (stara trasa,
+  automat, Delivery Lead) bez nowej wersji zmienia odcisk → 409. Przeglądarka wczytuje nowy stan i zostawia
+  niezapisane zmiany; świadomy powrót do starej wartości (ze świeżym odciskiem) przechodzi.
 - Arkusz zapisuje się na NAJNOWSZY wiersz etapu pary (blokada `FOR UPDATE`); `notes` przepisane z poprzedniego arkusza,
   chyba że `clear_legacy_notes`; `humanize_origins` przed `stamp_sheet`. Pusty arkusz (bez żadnej treści) nie jest
   zapisywany — nie może spełnić bramki „Zweryfikowany”.
@@ -132,12 +140,16 @@ Zasady serwera:
   dostaje tekst tej stawki („150 zł/h”). Przed „Zweryfikowany” bez powiadomień, od „Zweryfikowany” jak każda zmiana
   stawki w procesie (0418). Maile po commicie.
 - `note_import` → `Note(kind=HUMAN)` z nagłówkiem „Notatka z rozmowy (plik: X)”, `note_id` w pochodzeniu pól.
-- Wersja zapisu powstaje tylko przy realnej zmianie stanu. Przed pierwszą wersją, gdy para ma już treść, serwer
+- Wersja zapisu powstaje tylko przy realnej zmianie stanu. Gdy coś zostało zapisane (notatka, arkusz, karta, stawka),
+  a stan pary się nie zmienił, serwer cofa całą transakcję (409 `SCREENING_FORM_NOT_APPLIED`) — bez cichego commitu. Przed pierwszą wersją, gdy para ma już treść, serwer
   zapisuje wersję `baseline`; gdy stan różni się od ostatniej wersji (zapis starą trasą albo automat), wersję `external`.
 
 Błędy:
 - 409 `{code: "SCREENING_FORM_READ_ONLY", reason: ReadOnlyReason, message}`
-- 409 `{code: "SCREENING_FORM_VERSION_CONFLICT", current_version, saved_by_name, saved_at, message}`
+- 409 `{code: "SCREENING_FORM_VERSION_CONFLICT", current_version, saved_by_name, saved_at, message}` — także przy innym
+  `state_token`; wtedy `saved_by_name`/`saved_at` = `null` (autor ostatniej wersji nie jest autorem zmiany obok)
+  i `message` = „Ktoś zmienił formularz w międzyczasie — wczytaliśmy nową wersję, Twoje zmiany zostały w polach.”
+- 409 `{code: "SCREENING_FORM_NOT_APPLIED", message}` — zapis bez zmiany stanu, cofnięty
 - 423 blokada 12 h (dotychczasowy kształt `CANDIDATE_CLAIMED`)
 - 422 `{code: "SCREENING_FORM_INVALID", message}` — nieznane pytanie/pole, `rate` w `card.fields`, `phrased` poza polami
   opisowymi, `note_ai`/`note_rule` bez `note_import`, kwota ≤ 0
@@ -168,12 +180,25 @@ interface ScreeningFormRestore {
   job_id: number;
   version_no: number;
   expected_version: number;
-  mode: "restore" | "undo";     // undo = cofnięcie ostatniego zapisu (stawka z reason="typo")
+  state_token: string;
+  mode: "restore" | "undo";     // undo = cofnięcie WŁASNEGO ostatniego zapisu
 }
-// odpowiedź: ScreeningFormSaveResult & { rate_not_restored: boolean; skipped_answers: string[] }
+// odpowiedź: ScreeningFormSaveResult & {
+//   rate_not_restored: boolean;
+//   rate_not_restored_reason: "managed_by_dl" | "not_in_version" | null;
+//   skipped_answers: string[];
+// }
 ```
 - Przywrócenie to NOWA wersja (`restore`/`undo`, `restored_from_version`); nic nie znika z historii.
-- Stawka wraca tylko poza `NOTIFY_COLUMNS` (inaczej `rate_not_restored: true` — zmianą od „Zweryfikowany” zarządza DL).
+- `undo` przyjmuje wyłącznie `version_no == version - 1`, gdy ostatnią wersję zapisała ta sama osoba (inaczej 409
+  `{code: "SCREENING_FORM_UNDO_REFUSED", message}` — starsze i cudze wersje wracają przez „Przywróć”).
+- Stawka przy `restore` wraca tylko poza `NOTIFY_COLUMNS` (inaczej `rate_not_restored: true`, powód `managed_by_dl` —
+  zmianą od „Zweryfikowany” zarządza DL). `undo` poprawia stawkę jako `reason="typo"`, ale w `DECISION_COLUMNS`
+  (od „CV wysłane”) zwykłym powodem `other` — podwyżka otwiera wtedy zadanie dla DL jak każda inna.
+- Wersja bez stawki nie zdejmuje stawki, która jest (`rate_not_restored: true`, powód `not_in_version`) — front mówi,
+  że stawka została.
+- Wersja bez arkusza zdejmuje arkusz ze wszystkich wierszy etapu pary, z których czyta formularz (okno bieżącej próby),
+  nie tylko z najnowszego.
 - Odpowiedź na pytanie, którego treść w Profilu Championa się zmieniła, jest pomijana (`skipped_answers`).
 
 ## Udostępnianie karty Championa (D2)

@@ -2898,8 +2898,10 @@ Kontrakt: `docs/screening-form-contract.md`, raport: `docs/screening-form-comple
   stawka przez `candidate_rate_change.change_rate(source="screening")`, tekst z „Uzupełnij z notatki” jako notatka
   HUMAN. Stare trasy (`POST /pipeline/stages/{id}/screening`, `PUT /recommendation-cards`) zostają dla starych kart
   przeglądarki; ich zmiany łapie wersja `external`. Nowy ekran zapisujący arkusz albo kartę = ta trasa.
-  Zmiana zrobiona obok formularza po ostatniej wersji wygrywa z polem, którego rekruter nie ruszył (nie jest
-  cofana). Front wysyła tylko zmienione pola karty i `null` dla nieruszonego arkusza i stawki. `note_import` przy
+  Zapis i przywrócenie odsyłają `state_token` (odcisk stanu pary z `GET`): zmiana zrobiona obok formularza zmienia
+  odcisk → 409, przeglądarka wczytuje nowy stan i zostawia niezapisane zmiany (odświeżenie w tle robi to samo,
+  `keepDirtyValues`). Front wysyła tylko zmienione pola karty i `null` dla nieruszonego arkusza i stawki.
+  „Cofnij” = tylko własny ostatni zapis; od „CV wysłane” podwyżka z „Cofnij” idzie do DL jak każda inna. `note_import` przy
   wyłączonym `RECOMMENDATION_CARD_ASSIST_ENABLED` = 422.
 - **Historia wersji** `screening_form_versions`: każda realna zmiana = wersja z migawką i zmianami przed/po;
   „Przywróć” i „Cofnij” zapisują NOWĄ wersję. Tabela trzyma wartości (także narodowość) — czytają ją wyłącznie ludzie

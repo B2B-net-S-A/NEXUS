@@ -21,12 +21,18 @@ i hasła to metadane — sama ich zmiana nie jest nową wersją.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from dataclasses import asdict, dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping, Optional, Sequence
 
-from app.services.candidate_rate_change import format_rate
+from app.services.candidate_rate_change import (
+    DECISION_COLUMNS,
+    NOTIFY_COLUMNS,
+    format_rate,
+)
 from app.services.recommendation_card_rules import (
     CARD_ORIGINS,
     DISPLAY_LABELS,
@@ -362,14 +368,37 @@ def card_field_differs(
     return text != _text(existing.get("raw"))
 
 
-def stale_against_external(base: Any, current: Any, target: Any) -> bool:
-    """Formularz odesłał stan sprzed zmiany z zewnątrz — zostaje zmiana z zewnątrz.
+def state_token(snapshot: Optional[Mapping[str, Any]]) -> str:
+    """Odcisk stanu pary, który widzi człowiek (``comparable``).
 
-    ``base`` = ostatnia wersja formularza, ``current`` = stan pary przed tym
-    zapisem (stara trasa, automat, Delivery Lead), ``target`` = wartość
-    z formularza. Pole, którego rekruter nie ruszył, nie cofa cudzej zmiany.
+    ``GET`` oddaje go razem ze stanem, a zapis i przywrócenie odsyłają odcisk
+    stanu, z którego formularz wziął wartości. Inny odcisk pod blokadą = ktoś
+    zmienił arkusz, kartę albo stawkę obok formularza (stara trasa, automat,
+    Delivery Lead) — zapis dostaje 409 zamiast cofać tę zmianę polem, którego
+    rekruter nie ruszył. Sama zmiana pochodzenia pola odcisku nie zmienia.
     """
-    return target == base and current != base
+    view = comparable(snapshot)
+    sheet = view["sheet"]
+    if sheet is not None:
+        sheet = {
+            **sheet,
+            "answers": sorted(
+                [key, list(value)] for key, value in sheet["answers"].items()
+            ),
+            "experience": sorted(
+                [list(key), list(value)] for key, value in sheet["experience"].items()
+            ),
+        }
+    rate = view["rate"]
+    payload = {
+        "sheet": sheet,
+        "card": view["card"],
+        "rate": list(rate) if rate is not None else None,
+    }
+    encoded = json.dumps(
+        payload, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+    )
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:32]
 
 
 # ── Lista zmian ──────────────────────────────────────────────────────────────
@@ -681,6 +710,45 @@ def restore_plan(
         rate=rate_snapshot(snapshot.get("rate")),
         skipped_answers=tuple(skipped),
     )
+
+
+RATE_MANAGED_BY_DL = "managed_by_dl"
+RATE_NOT_IN_VERSION = "not_in_version"
+
+
+def rate_not_restored_reason(
+    *,
+    mode: str,
+    target_rate: Optional[Mapping[str, Any]],
+    current_rate: Optional[Mapping[str, Any]],
+    column: Optional[str],
+    rate_differs: bool,
+) -> Optional[str]:
+    """Czemu przywrócenie zostawia bieżącą stawkę (``None`` = stawka wraca).
+
+    * ``managed_by_dl`` — „Przywróć” od „Zweryfikowany”: zmianą stawki zarządza
+      Delivery Lead (0418), formularz jej nie cofa;
+    * ``not_in_version`` — wersja nie miała stawki, a stawka już jest: zdjęcie
+      stawki z wiersza etapu nie jest zmianą stawki (``change_rate`` zna tylko
+      kwoty), więc zostaje i mówimy to wprost.
+    """
+    if target_rate is None:
+        return RATE_NOT_IN_VERSION if current_rate is not None else None
+    if mode == "restore" and rate_differs and column in NOTIFY_COLUMNS:
+        return RATE_MANAGED_BY_DL
+    return None
+
+
+def restore_rate_reason(*, mode: str, column: Optional[str]) -> str:
+    """Powód zmiany stawki przy przywróceniu (``change_rate``).
+
+    „Cofnij” to poprawka pomyłki (``typo`` — bez zadania dla DL), ale nie
+    w kolumnach, w których podwyżka czeka na decyzję DL (``DECISION_COLUMNS``):
+    tam „Cofnij” podnoszące stawkę musi otworzyć zadanie jak każda podwyżka.
+    """
+    if mode == "undo" and column not in DECISION_COLUMNS:
+        return "typo"
+    return "other"
 
 
 def _answer_payload(item: Mapping[str, Any]) -> dict[str, Any]:

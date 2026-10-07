@@ -19,6 +19,9 @@
  *
  * Konflikt wersji (ktoś zapisał w międzyczasie) nie kasuje pracy: formularz
  * wczytuje nowszy stan i zostawia niezapisane zmiany (`keepDirtyValues`).
+ * Odświeżenie w tle robi to samo: pola, których rekruter nie ruszył, pokazują
+ * świeże wartości z serwera, a zapis liczy różnice i odsyła `state_token`
+ * względem tego samego stanu, który widać w polach (`baseState`).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -90,6 +93,7 @@ import {
   mergeLegacyNote,
   missingAnswersForForward,
   rateFromValues,
+  rateNotRestoredMessage,
   type NoteFill,
   type NoteHint,
   type NoteImport,
@@ -164,6 +168,11 @@ export interface ScreeningFormModel {
   undoNote: () => void;
   /** Własny zapis albo przywrócenie — przed odświeżeniem cache. */
   markSaved: (result: ScreeningFormState) => void;
+  /**
+   * Stan, z którego formularz wziął wartości startowe — względem niego zapis
+   * liczy różnice i jego `state_token` odsyła (`null` przed pierwszym stanem).
+   */
+  baseState: () => ScreeningFormState | null;
 }
 
 export function useScreeningFormModel(state: ScreeningFormState | undefined): ScreeningFormModel {
@@ -197,14 +206,24 @@ export function useScreeningFormModel(state: ScreeningFormState | undefined): Sc
     if (prev && prev.state === state) return;
     hydrated.current = { key, version: state.version, state };
     if (prev && prev.key === key && dirtyRef.current) {
-      // Odświeżenie w tle bez nowej wersji — praca rekrutera zostaje.
-      if (prev.version === state.version) return;
+      // Odświeżenie w tle przy niezapisanych zmianach: pola nieruszone biorą
+      // świeże wartości, ruszone zostają — i różnice zapisu liczą się od tego
+      // samego stanu, który widać w polach (inaczej nieruszone pole ze starą
+      // wartością cofnęłoby zmianę zrobioną obok formularza).
       methods.reset(formDefaultsFromState(state), { keepDirtyValues: true });
-      setNotice(
-        (current) =>
-          current ??
-          "Ktoś zapisał ten formularz w międzyczasie — wczytałem nowszą wersję, Twoje niezapisane zmiany zostały. Sprawdź je i zapisz.",
-      );
+      if (prev.version !== state.version) {
+        setNotice(
+          (current) =>
+            current ??
+            "Ktoś zapisał ten formularz w międzyczasie — wczytałem nowszą wersję, Twoje niezapisane zmiany zostały. Sprawdź je i zapisz.",
+        );
+      } else if (prev.state.state_token !== state.state_token) {
+        setNotice(
+          (current) =>
+            current ??
+            "Ktoś zmienił dane tej osoby obok formularza — wczytałem je, Twoje niezapisane zmiany zostały. Sprawdź je i zapisz.",
+        );
+      }
       return;
     }
     methods.reset(formDefaultsFromState(state));
@@ -227,6 +246,8 @@ export function useScreeningFormModel(state: ScreeningFormState | undefined): Sc
     },
     [methods, clearNote],
   );
+
+  const baseState = useCallback(() => hydrated.current?.state ?? null, []);
 
   // Ręczna poprawka zdejmuje pochodzenie „z notatki” / „z podpowiedzi”.
   useEffect(() => {
@@ -326,6 +347,7 @@ export function useScreeningFormModel(state: ScreeningFormState | undefined): Sc
     dismissOffer,
     undoNote,
     markSaved,
+    baseState,
   };
 }
 
@@ -897,8 +919,12 @@ export function ScreeningFullForm({
     if (conflict) {
       const who = conflict.savedByName?.trim();
       const at = shortDateTime(conflict.savedAt);
+      // Bez autora = zmiana obok formularza (stara trasa, automat, DL) — zdanie serwera.
       model.setNotice(
-        `${who ? `${who} zapisał(a)` : "Ktoś zapisał"} ten formularz w międzyczasie${at ? ` (${at})` : ""} — wczytałem nowszą wersję, Twoje niezapisane zmiany zostały. Sprawdź je i zapisz ponownie.`,
+        who
+          ? `${who} zapisał(a) ten formularz w międzyczasie${at ? ` (${at})` : ""} — wczytałem nowszą wersję, Twoje niezapisane zmiany zostały. Sprawdź je i zapisz ponownie.`
+          : (conflict.message ??
+              "Ktoś zmienił formularz w międzyczasie — wczytaliśmy nową wersję, Twoje zmiany zostały w polach."),
       );
       void queryClient.invalidateQueries({ queryKey: screeningFormQueryKey(jobId, candidateId) });
       return;
@@ -915,9 +941,10 @@ export function ScreeningFullForm({
 
   /** Zapis; `null` = nic do zapisania albo porażka (komunikat już na ekranie). */
   const saveNow = async (): Promise<ScreeningFormSaveResult | "unchanged" | null> => {
-    if (!state) return null;
+    const base = model.baseState() ?? state;
+    if (!base) return null;
     setError(null);
-    const plan = buildSavePayload(state, methods.getValues(), { noteImport: model.note?.source ?? null });
+    const plan = buildSavePayload(base, methods.getValues(), { noteImport: model.note?.source ?? null });
     if (!plan.hasChanges) return "unchanged";
     const usedNote = plan.payload.note_import != null;
     try {
@@ -927,7 +954,7 @@ export function ScreeningFullForm({
         const undoTo = result.undo_to_version;
         showActionToast("Formularz zapisany — wypełniony z notatki.", {
           actionLabel: "Cofnij",
-          onAction: () => undoSave(undoTo, result.version),
+          onAction: () => undoSave(undoTo, result.version, result.state_token),
         });
       } else if (result.saved_version == null) {
         showInfo("Bez zmian — formularz jest taki sam jak zapisany.");
@@ -943,17 +970,27 @@ export function ScreeningFullForm({
 
   // „Cofnij” po zapisie z notatki — nowa wersja z treścią sprzed zapisu.
   const undo = useRestoreScreeningForm({ onSaved: (result) => model.markSaved(result) });
-  const undoSave = (versionNo: number, expectedVersion: number) =>
+  const undoSave = (versionNo: number, expectedVersion: number, stateToken: string) =>
     undo.mutate(
-      { candidate_id: candidateId, job_id: jobId, version_no: versionNo, expected_version: expectedVersion, mode: "undo" },
+      {
+        candidate_id: candidateId,
+        job_id: jobId,
+        version_no: versionNo,
+        expected_version: expectedVersion,
+        state_token: stateToken,
+        mode: "undo",
+      },
       {
         onSuccess: (result) => {
-          showSuccess("Cofnięto zapis z notatki.");
-          if (result.rate_not_restored) {
-            showInfo("Stawka nie wróciła — od „Zweryfikowany” zmianą stawki zarządza Delivery Lead.");
+          // Stawka, której wersja sprzed zapisu nie miała, zostaje — mówimy to wprost.
+          showSuccess(rateNotRestoredMessage(result, "undo") ?? "Cofnięto zapis z notatki.");
+        },
+        onError: (err) => {
+          showError(apiErrorMessage(err, "Nie udało się cofnąć zapisu."));
+          if (screeningFormConflictOf(err)) {
+            void queryClient.invalidateQueries({ queryKey: screeningFormQueryKey(jobId, candidateId) });
           }
         },
-        onError: (err) => showError(apiErrorMessage(err, "Nie udało się cofnąć zapisu.")),
       },
     );
 
@@ -1083,6 +1120,7 @@ export function ScreeningFullForm({
           candidateId={candidateId}
           jobId={jobId}
           currentVersion={state.version}
+          stateToken={state.state_token}
           canRestore={editable}
           dirty={dirty}
           onRestored={(result) => model.markSaved(result)}
@@ -1099,6 +1137,7 @@ export function ScreeningFullForm({
             candidateId={candidateId}
             jobId={jobId}
             currentVersion={state.version}
+            stateToken={state.state_token}
             canRestore={false}
           />
         ) : null}

@@ -8,25 +8,29 @@
  * wybranej — nic nie znika z historii. Stawka wraca tylko przed
  * „Zweryfikowany” (później zmianą stawki zarządza Delivery Lead), a odpowiedź
  * na pytanie, którego treść w Profilu Championa się zmieniła, jest pomijana —
- * oba fakty mówi odpowiedź serwera.
+ * oba fakty mówi odpowiedź serwera. Wersja bez stawki nie zdejmuje stawki,
+ * która jest (`rate_not_restored_reason: "not_in_version"`).
  *
  * Potwierdzenie przywrócenia stoi w wierszu — bez natywnego `confirm()`.
  */
 
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { History, Loader2, RotateCcw } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
+  screeningFormConflictOf,
+  screeningFormQueryKey,
   useRestoreScreeningForm,
   useScreeningFormVersions,
   type ScreeningFormRestoreResult,
   type ScreeningFormVersion,
   type VersionChange,
 } from "@/lib/api/screeningForm";
-import { versionActionLabel } from "@/lib/screening-form";
+import { rateNotRestoredMessage, versionActionLabel } from "@/lib/screening-form";
 import { countPl } from "@/lib/plural-pl";
 
 const SECTION_LABEL: Record<VersionChange["section"], string> = {
@@ -196,6 +200,8 @@ export interface ScreeningFormHistoryProps {
   candidateId: number;
   jobId: number;
   currentVersion: number;
+  /** Odcisk stanu formularza (`ScreeningFormState.state_token`) — przywrócenie go odsyła. */
+  stateToken: string;
   canRestore: boolean;
   dirty?: boolean;
   /** Przed odświeżeniem zapytań — formularz przyjmuje stan po przywróceniu. */
@@ -206,11 +212,13 @@ export function ScreeningFormHistory({
   candidateId,
   jobId,
   currentVersion,
+  stateToken,
   canRestore,
   dirty = false,
   onRestored,
 }: ScreeningFormHistoryProps) {
   const { showSuccess, showError, showInfo } = useToast();
+  const queryClient = useQueryClient();
   const query = useScreeningFormVersions(candidateId, jobId);
   const restore = useRestoreScreeningForm({
     onSaved: (result) => onRestored?.(result),
@@ -220,20 +228,32 @@ export function ScreeningFormHistory({
   const runRestore = (versionNo: number) => {
     setRestoring(versionNo);
     restore.mutate(
-      { candidate_id: candidateId, job_id: jobId, version_no: versionNo, expected_version: currentVersion, mode: "restore" },
+      {
+        candidate_id: candidateId,
+        job_id: jobId,
+        version_no: versionNo,
+        expected_version: currentVersion,
+        state_token: stateToken,
+        mode: "restore",
+      },
       {
         onSuccess: (result) => {
           showSuccess(`Przywrócono wersję ${versionNo}.`);
-          if (result.rate_not_restored) {
-            showInfo("Stawka nie wróciła — od „Zweryfikowany” zmianą stawki zarządza Delivery Lead.");
-          }
+          const rateMessage = rateNotRestoredMessage(result, "restore");
+          if (rateMessage) showInfo(rateMessage);
           if (result.skipped_answers.length > 0) {
             showInfo(
               `Pominięto ${countPl(result.skipped_answers.length, "odpowiedź", "odpowiedzi", "odpowiedzi")} — treść pytania w Profilu Championa się zmieniła.`,
             );
           }
         },
-        onError: (err) => showError(apiErrorMessage(err, "Nie udało się przywrócić wersji. Spróbuj ponownie.")),
+        onError: (err) => {
+          showError(apiErrorMessage(err, "Nie udało się przywrócić wersji. Spróbuj ponownie."));
+          // Ktoś zmienił formularz w międzyczasie — wczytaj nowy stan i historię.
+          if (screeningFormConflictOf(err)) {
+            void queryClient.invalidateQueries({ queryKey: screeningFormQueryKey(jobId, candidateId) });
+          }
+        },
         onSettled: () => setRestoring(null),
       },
     );
