@@ -244,6 +244,44 @@ def test_answer_with_only_internal_content_is_skipped():
     assert result.skipped == {"internal": 1}
 
 
+def test_number_match_rejects_another_question_given_as_the_answer():
+    # Próba 07.10: parser nie oddzielił pytania od odpowiedzi — pod pytaniem 1
+    # stało inne pytanie karty.
+    result = sync.map_note_answers(
+        QUESTIONS,
+        [
+            _item(1, "", "Czym różnią się testy integracyjne\ni regresyjne? Tak"),
+            _item(2, "", "Tak, 3 lata."),
+            _item(3, "", "Miesiąc."),
+        ],
+    )
+    assert "q1" not in [m.question_id for m in result.matches]
+    assert result.skipped.get("question_as_answer") == 1
+
+
+def test_number_match_strips_the_same_question_repeated_in_the_answer():
+    result = sync.map_note_answers(
+        QUESTIONS,
+        [
+            _item(
+                1,
+                "",
+                "Jak wygląda Twoje doświadczenie z Kubernetes w produkcji?\nDwa lata, EKS.",
+            ),
+            _item(2, "", "Tak, 3 lata."),
+            _item(3, "", "Miesiąc."),
+        ],
+    )
+    by_id = {m.question_id: m.response for m in result.matches}
+    assert by_id["q1"] == "Dwa lata, EKS."
+
+
+def test_statement_starting_with_a_question_word_stays():
+    assert sync._answer_by_number(
+        "Co do Kafki — 3 lata komercyjnie.", "Czy znasz Kafkę?"
+    ) == ("Co do Kafki — 3 lata komercyjnie.")
+
+
 def test_questions_unlike_the_profile_are_not_mapped_by_number():
     # Profil zmieniony po notatce: trzy odpowiedzi na trzy INNE pytania.
     result = sync.map_note_answers(
