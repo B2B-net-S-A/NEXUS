@@ -136,6 +136,27 @@ def test_risks_name_what_dl_must_weigh() -> None:
     )
 
 
+def test_over_budget_label_keeps_grosze() -> None:
+    # Zaokrąglenie do pełnych złotych dawało „ponad budżet o 0 zł/h”.
+    def label(over: float) -> str:
+        (risk,) = svc.risks_for(
+            eligibility_reason=None,
+            eligibility_code="eligible",
+            employed_elsewhere=[],
+            worked_at_client=None,
+            deal_breaker_hits=0,
+            over_budget_by=over,
+            sent_to_client_before=[],
+            red_flags=None,
+            qc_status=None,
+        )
+        return risk["label"]
+
+    assert label(0.4) == "Stawka ponad budżet o 0,40 zł/h"
+    assert label(12.0) == "Stawka ponad budżet o 12 zł/h"
+    assert label(7.5) == "Stawka ponad budżet o 7,50 zł/h"
+
+
 def test_consultant_summary_medians_without_names() -> None:
     people = [
         rates.ConsultantRates(1, 5, Decimal("120"), Decimal("160")),

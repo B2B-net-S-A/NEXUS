@@ -124,7 +124,7 @@ def test_bell_carries_the_remark_and_never_a_rate() -> None:
 
 def test_bell_lists_the_fields_dl_asked_to_fix() -> None:
     """D6 (08.10.2026): „Wróć do poprawy” z listą pól — dzwonek je wymienia."""
-    title, message, _link = emitter._inapp_content(
+    title, message, link = emitter._inapp_content(
         reason=handoff.REASON_QC_RETURNED,
         candidate=SimpleNamespace(id=9),
         candidate_full_name="Jan Testowy",
@@ -137,6 +137,8 @@ def test_bell_lists_the_fields_dl_asked_to_fix() -> None:
     assert title == "Wróciło do poprawy: Jan Testowy"
     assert "Uwaga: „Dopisz lata”" in message
     assert message.endswith("Do poprawy (2): Pytanie 1: Kafka?, Stawka kandydata.")
+    # Link otwiera od razu formularz screeningu w panelu osoby.
+    assert link == "/jobs/3?candidate=9&panel=screening"
     # Bez listy treść jest taka jak przed zmianą.
     assert "Do poprawy" not in _bell(handoff.REASON_QC_RETURNED, "x")[1]
 

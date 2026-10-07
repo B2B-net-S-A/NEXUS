@@ -110,6 +110,9 @@ def _inapp_content(
     fixes = screening_fix_requests.bell_suffix(fix_labels)
     if fixes:
         message = f"{message} {fixes}"
+        if reason == REASON_QC_RETURNED:
+            # Prosto do formularza screeningu z podświetlonymi polami.
+            link = f"{link}&panel=screening"
     return title, message, link
 
 

@@ -318,6 +318,17 @@ def pick_client_rate_hint(
     return None
 
 
+def _pln_amount(value: float) -> str:
+    """Kwota po polsku: pełne złote bez groszy, inaczej dwa miejsca z przecinkiem.
+
+    Zaokrąglenie do pełnych złotych zamieniało 0,40 zł/h nadwyżki w „0 zł/h”.
+    """
+    rounded = round(value, 2)
+    if rounded == int(rounded):
+        return str(int(rounded))
+    return f"{rounded:.2f}".replace(".", ",")
+
+
 def risks_for(
     *,
     eligibility_reason: Optional[str],
@@ -352,7 +363,7 @@ def risks_for(
         out.append(
             {
                 "code": "over_budget",
-                "label": f"Stawka ponad budżet o {over_budget_by:.0f} zł/h",
+                "label": f"Stawka ponad budżet o {_pln_amount(over_budget_by)} zł/h",
                 "severity": "medium",
             }
         )
