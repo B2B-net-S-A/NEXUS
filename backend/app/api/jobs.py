@@ -104,6 +104,7 @@ from app.services.action_permissions import ProductAction, has_permission
 from app.services.permission_denial import ensure_permission
 from app.services.client_access import assert_client_assignable
 from app.api.recruitment_access import (
+    PROPOSAL_DECISION_ROLES,
     JobEditLevel,
     JobEditUser,
     JobStaffingUser,
@@ -170,6 +171,7 @@ from app.services.workforce_availability import (
     operational_job_owner_clause,
 )
 from app.services import champion_view
+from app.services import new_job_leads
 from app.services import job_lifecycle
 from app.services.job_readiness import job_handoff_blockers as _compute_job_readiness
 from app.services.job_readiness import job_handoff_blocker_items
@@ -4886,6 +4888,16 @@ async def assign_owner(
             details={"new_owner_id": target.id},
         )
     )
+    # Head of Recruitment / admin wybrał osobę — rekrutacja schodzi z listy
+    # „Nowe rekrutacje — kto prowadzi” (wybór to też decyzja o prowadzącym).
+    if current_user.has_any_role(*PROPOSAL_DECISION_ROLES):
+        new_job_leads.record_confirmation(
+            db,
+            job_id=job_id,
+            lead_user_id=target.id,
+            actor_id=current_user.id,
+            via="owner_change",
+        )
     await db.commit()
     await db.refresh(job)
     return await get_job(job_id, current_user, db)

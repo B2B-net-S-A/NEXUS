@@ -10,6 +10,10 @@
  * zmienić osobę tam, gdzie Head of Recruitment się nie zgadza. Dlatego nie
  * liczy się do „Czeka na Ciebie” i nie ma licznika w tonie zadania.
  *
+ * Lista ma koniec (decyzja Artura 07.10.2026): „Potwierdź” albo „Zmień”
+ * zdejmuje rekrutację z listy — serwer pamięta potwierdzoną osobę i pokaże
+ * wiersz znowu tylko wtedy, gdy prowadzący zmieni się później.
+ *
  * Wiersze przychodzą z `GET /api/board-tasks` (`new_job_leads`) wyłącznie dla
  * admina i Head of Recruitment; pozostali dostają pustą listę i sekcji nie ma.
  * Propozycja automatu czekająca na akceptację (tryb „shadow”) ma swoje
@@ -50,7 +54,11 @@ import {
   type BoardTasksResponse,
   type NewJobLeadRow,
 } from "@/lib/api/boardTasks";
-import { useRequestBoard, type LoadPerson } from "@/lib/api/requestAllocation";
+import {
+  confirmJobLead,
+  useRequestBoard,
+  type LoadPerson,
+} from "@/lib/api/requestAllocation";
 import { shortDate } from "@/lib/candidate-followup";
 import { transitAgo } from "@/lib/cv-in-transit";
 import { formatTime } from "@/lib/interview-cycle";
@@ -255,8 +263,40 @@ export function NewJobLeadsSection({ rows, standalone = false }: NewJobLeadsSect
   if (rows.length === 0) return null;
   const shown = expanded ? rows : rows.slice(0, NEW_JOB_LEADS_ROWS);
 
+  const dropRow = (jobId: number) =>
+    queryClient.setQueryData<BoardTasksResponse>(BOARD_TASKS_QUERY_KEY, (current) =>
+      current?.new_job_leads
+        ? {
+            ...current,
+            new_job_leads: current.new_job_leads.filter((lead) => lead.job_id !== jobId),
+          }
+        : current,
+    );
+
+  const markPending = (jobId: number, on: boolean) =>
+    setPending((current) => {
+      const next = { ...current };
+      if (on) next[jobId] = true;
+      else delete next[jobId];
+      return next;
+    });
+
+  const confirm = async (row: NewJobLeadRow, leadUserId: number) => {
+    markPending(row.job_id, true);
+    try {
+      await confirmJobLead(row.job_id, leadUserId);
+      dropRow(row.job_id);
+      showSuccess(`Potwierdzono: ${leadState(row).name ?? "prowadzący"} prowadzi „${row.title}”.`);
+    } catch (error) {
+      showError(apiErrorMessage(error, "Nie udało się potwierdzić rekrutera prowadzącego."));
+    } finally {
+      markPending(row.job_id, false);
+      invalidateJobTeam(queryClient, row.job_id);
+    }
+  };
+
   const assign = async (row: NewJobLeadRow, person: LoadPerson) => {
-    setPending((current) => ({ ...current, [row.job_id]: true }));
+    markPending(row.job_id, true);
     try {
       // Zmiana prowadzącego i wskazanie pierwszego to to samo żądanie
       // (`POST /api/jobs/{id}/owner`): serwer w jednej transakcji zdejmuje
@@ -265,36 +305,13 @@ export function NewJobLeadsSection({ rows, standalone = false }: NewJobLeadsSect
         hasWorkingOwner: false,
         canStaff: true,
       });
-      // Wiersz pokazuje nową osobę od razu; odczyt z serwera potwierdza resztę.
-      queryClient.setQueryData<BoardTasksResponse>(BOARD_TASKS_QUERY_KEY, (current) =>
-        current?.new_job_leads
-          ? {
-              ...current,
-              new_job_leads: current.new_job_leads.map((lead) =>
-                lead.job_id === row.job_id
-                  ? {
-                      ...lead,
-                      lead_user_id: person.user_id,
-                      lead_name: person.name,
-                      lead_source: "manual" as const,
-                      assigned_by_name: null,
-                      proposed: false,
-                      pending_reason: null,
-                    }
-                  : lead,
-              ),
-            }
-          : current,
-      );
+      // Wybór osoby to też decyzja o prowadzącym — wiersz schodzi z listy.
+      dropRow(row.job_id);
       showSuccess(`${person.name} prowadzi „${row.title}”.`);
     } catch (error) {
       showError(apiErrorMessage(error, "Nie udało się zmienić rekrutera prowadzącego."));
     } finally {
-      setPending((current) => {
-        const next = { ...current };
-        delete next[row.job_id];
-        return next;
-      });
+      markPending(row.job_id, false);
       // Odświeża też „Czeka na Ciebie” i pulpit „Requesty i obłożenie” —
       // także po błędzie, bo odmowa znaczy, że lista pokazuje stary stan.
       invalidateJobTeam(queryClient, row.job_id);
@@ -312,8 +329,8 @@ export function NewJobLeadsSection({ rows, standalone = false }: NewJobLeadsSect
         <span className="text-xs tabular-nums text-muted-foreground">{rows.length}</span>
       </header>
       <p className="mb-2 text-xs text-muted-foreground">
-        Uczestnikami każdej rekrutacji są wszyscy z jej kategorii. Zmieniasz tylko to,
-        z czym się nie zgadzasz.
+        Uczestnikami każdej rekrutacji są wszyscy z jej kategorii. Potwierdź prowadzącego
+        albo go zmień — rekrutacja zniknie z listy.
         {canAct ? "" : " W tym widoku nie możesz zmieniać rekrutera prowadzącego."}
       </p>
       <ul className="divide-y divide-border rounded-lg border border-border">
@@ -343,6 +360,7 @@ export function NewJobLeadsSection({ rows, standalone = false }: NewJobLeadsSect
             });
           }
           const roleLabel = row.lead_role ? (ROLE_LABEL[row.lead_role] ?? row.lead_role) : null;
+          const leadUserId = row.lead_user_id;
 
           return (
             <li
@@ -428,7 +446,19 @@ export function NewJobLeadsSection({ rows, standalone = false }: NewJobLeadsSect
                   </Link>
                 </div>
               ) : canAct && !row.proposed ? (
-                <div className="flex items-center @min-[780px]/leads:justify-end">
+                <div className="flex items-center gap-2 @min-[780px]/leads:justify-end">
+                  {leadUserId != null ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => void confirm(row, leadUserId)}
+                      aria-label={`Potwierdź prowadzącego: ${row.title}`}
+                    >
+                      Potwierdź
+                    </Button>
+                  ) : null}
                   <LeadPicker
                     row={row}
                     disabled={busy}

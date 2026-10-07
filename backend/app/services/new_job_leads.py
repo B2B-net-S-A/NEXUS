@@ -9,6 +9,13 @@ Audyt 06.10.2026 (H7): opublikowane rekrutacje, których nikt nigdy nie
 przekazał do searchu (``is_open`` puste — automat ich nie widzi, bo nie są
 w puli), dochodzą na koniec listy z powodem ``not_handed_off``. Bez tego żyły
 poza każdym ekranem pracy (5 takich na produkcji).
+
+Lista ma koniec (decyzja Artura 07.10.2026): gdy Head of Recruitment albo admin
+potwierdzi prowadzącego („Potwierdź”) albo go zmieni, wiersz znika. Ślad to
+``Activity`` ``new_job_lead_confirmed`` na rekrutacji z osobą, którą
+potwierdzono. Liczy się wyłącznie potwierdzenie z bieżącego przekazania
+(po ``work_state_changed_at``) i tej samej osoby — gdy automat albo ktoś inny
+zmieni potem prowadzącego, rekrutacja wraca na listę.
 """
 
 from __future__ import annotations
@@ -22,6 +29,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from app.models.activity import Activity
 from app.models.client import Client
 from app.models.competence_category import CompetenceCategory
 from app.models.job import Job, JobStatus
@@ -38,6 +46,52 @@ MAX_ROWS = 30
 # Automat rusza po zdarzeniu z przekazania; do tego czasu „nikt nie prowadzi”
 # znaczy „właśnie przydziela”.
 ASSIGNING_GRACE = timedelta(minutes=2)
+CONFIRMED_ACTION = "new_job_lead_confirmed"
+
+
+def record_confirmation(
+    db: AsyncSession, *, job_id: int, lead_user_id: int, actor_id: int, via: str
+) -> None:
+    """Head of Recruitment / admin zgadza się z prowadzącym (``via``:
+    ``confirm`` — przycisk, ``owner_change`` — wybrał inną osobę,
+    ``proposal`` — rozstrzygnął propozycję automatu)."""
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job_id,
+            action=CONFIRMED_ACTION,
+            user_id=actor_id,
+            details={"lead_user_id": lead_user_id, "via": via},
+        )
+    )
+
+
+async def _confirmed_leads(
+    db: AsyncSession, since_by_job: dict[int, datetime]
+) -> dict[int, int]:
+    """Osoba z ostatniego potwierdzenia bieżącego przekazania, per rekrutacja."""
+    if not since_by_job:
+        return {}
+    rows = (
+        await db.execute(
+            select(Activity.entity_id, Activity.created_at, Activity.details)
+            .where(
+                Activity.entity_type == "job",
+                Activity.action == CONFIRMED_ACTION,
+                Activity.entity_id.in_(list(since_by_job)),
+            )
+            .order_by(Activity.created_at.asc(), Activity.id.asc())
+        )
+    ).all()
+    out: dict[int, int] = {}
+    for job_id, created_at, details in rows:
+        since = since_by_job.get(job_id)
+        lead = (details or {}).get("lead_user_id")
+        if since is None or created_at is None or created_at < since:
+            continue
+        if isinstance(lead, int):
+            out[job_id] = lead
+    return out
 
 
 @dataclass(frozen=True)
@@ -134,6 +188,9 @@ async def load_new_job_leads(db: AsyncSession, *, now: datetime) -> list[NewJobL
             leads[job_id] = lead
     # Prowadzący bez wiersza przypisania: automat wpisał go wcześniej, jeśli
     # tak mówi najnowszy zamknięty wiersz pary.
+    confirmed = await _confirmed_leads(
+        db, {row.id: row.work_state_changed_at for row in jobs}
+    )
     auto_owned = await _last_assignment_was_auto(
         db,
         [
@@ -169,6 +226,8 @@ async def load_new_job_leads(db: AsyncSession, *, now: datetime) -> list[NewJobL
             else:
                 reason = "none"
             out.append(NewJobLead(**base, pending_reason=reason))
+            continue
+        if not lead.proposed and confirmed.get(row.id) == lead.user_id:
             continue
         by_automat = (
             lead.assignment_source == "auto" or (row.id, lead.user_id) in auto_owned

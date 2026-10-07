@@ -23,6 +23,7 @@
  "routes": {
   "DELETE /api/request-board/jobs/{job_id}/people/{user_id}": "PDPPDDDDPPPPDDDDPDD",
   "GET /api/request-board": "PPPPPPDDPPPPPPPPPPP",
+  "POST /api/request-board/jobs/{job_id}/lead-confirmation": "PDPDDDDDDPDPDDDDDDD",
   "POST /api/request-board/jobs/{job_id}/people": "PDPPDDDDPPPPDDDDPDD",
   "POST /api/request-board/jobs/{job_id}/proposals/{user_id}": "PDPDDDDDDPDPDDDDDDD",
   "POST /api/request-board/proposals/accept": "PDPDDDDDDPDPDDDDDDD"

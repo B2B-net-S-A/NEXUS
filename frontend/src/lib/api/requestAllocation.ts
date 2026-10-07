@@ -114,6 +114,17 @@ export async function addBoardPerson(jobId: number, userId: number): Promise<voi
 }
 
 /**
+ * „Potwierdź” na liście „Nowe rekrutacje — kto prowadzi”: Head of Recruitment
+ * zgadza się z prowadzącym, rekrutacja znika z listy. Niczego nie przydziela;
+ * inny prowadzący niż `leadUserId` = 409 (lista była nieaktualna).
+ */
+export async function confirmJobLead(jobId: number, leadUserId: number): Promise<void> {
+  await api.post(`/api/request-board/jobs/${jobId}/lead-confirmation`, {
+    lead_user_id: leadUserId,
+  })
+}
+
+/**
  * Zdejmuje osobę z roli „Rekruter” — ze wszystkich miejsc naraz (prowadzący,
  * przypisanie, współpracownik). Przy samej propozycji automatu oznacza
  * „odrzuć” i wymaga osoby, która rozstrzyga propozycje.
