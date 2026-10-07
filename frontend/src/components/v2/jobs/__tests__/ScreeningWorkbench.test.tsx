@@ -14,7 +14,7 @@ import type { ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ScreeningFormState } from "@/lib/api/screeningForm";
-import { formState } from "@/test/fixtures/screening-form";
+import { formState } from "@/components/v2/screening-form/__tests__/screening-form-fixtures";
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),

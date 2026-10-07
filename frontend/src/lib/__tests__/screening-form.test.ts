@@ -29,7 +29,7 @@ import {
   sameRate,
   versionActionLabel,
 } from "@/lib/screening-form";
-import { FORM_QUESTIONS, formState } from "@/test/fixtures/screening-form";
+import { FORM_QUESTIONS, formState } from "@/components/v2/screening-form/__tests__/screening-form-fixtures";
 
 const SAVED_SHEET = {
   answers: [

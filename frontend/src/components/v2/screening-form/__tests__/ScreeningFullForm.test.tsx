@@ -15,7 +15,7 @@ import {
   FORM_JOB_ID,
   formSaveResult,
   formState,
-} from "@/test/fixtures/screening-form";
+} from "@/components/v2/screening-form/__tests__/screening-form-fixtures";
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),

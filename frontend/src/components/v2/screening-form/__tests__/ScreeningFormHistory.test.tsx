@@ -9,7 +9,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ScreeningFormVersion } from "@/lib/api/screeningForm";
-import { FORM_CANDIDATE_ID, FORM_JOB_ID, formSaveResult, formState } from "@/test/fixtures/screening-form";
+import { FORM_CANDIDATE_ID, FORM_JOB_ID, formSaveResult, formState } from "@/components/v2/screening-form/__tests__/screening-form-fixtures";
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
