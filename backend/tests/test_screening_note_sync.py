@@ -830,3 +830,279 @@ async def test_backfill_apply_requires_a_fresh_dry_run(
 
     assert response.status_code == 409
     assert "próbny" in response.json()["detail"]
+
+
+# ── etap 1b: notatki innych rodzajów niż karta ──────────────────────────────
+
+OTHER_NOTE = (
+    "Rozmowa telefoniczna, kandydat konkretny.\n"
+    "Jak wygląda Twoje doświadczenie z Kubernetes w produkcji?\n"
+    "Dwa lata na EKS, klaster produkcyjny.\n"
+    "Czy pracowałeś z Apache Kafka?\n"
+    "Tak, trzy lata.\n"
+)
+OTHER_NOTE_AT = NOTE_AT + timedelta(days=3)
+
+
+def test_other_notes_switch_is_off_by_default():
+    from app.core.config import Settings
+
+    field = Settings.model_fields["SCREENING_NOTE_SYNC_OTHER_NOTES_ENABLED"]
+    assert field.default is False
+    assert sync.other_notes_enabled() is False
+
+
+def test_other_note_answer_starting_with_a_question_is_dropped():
+    assert sync.other_note_answer("Jak radziłeś sobie z procedurami?: dobrze") == ""
+    assert sync.other_note_answer("tak\nJak optymalizowałeś zapytania SQL?") == "tak"
+    assert (
+        sync.other_note_answer("Dwa lata.\nGłównie EKS.") == "Dwa lata.\nGłównie EKS."
+    )
+    assert sync.other_note_answer("") == ""
+
+
+def test_other_note_items_counts_dropped_answers():
+    items, dropped = sync.other_note_items(
+        [
+            _item(1, QUESTIONS["q1"], "Czy to ważne? Dwa lata."),
+            _item(2, QUESTIONS["q2"], "Tak, trzy lata.\nCzy znasz RabbitMQ?"),
+            _item(3, QUESTIONS["q3"], ""),
+        ]
+    )
+
+    assert dropped == 1
+    assert [item["answer"] for item in items] == ["Tak, trzy lata.", ""]
+
+
+def test_other_notes_need_a_higher_content_score_than_cards():
+    items = [_item(1, "Kubernetes w produkcji?", "Dwa lata.")]
+
+    card = sync.map_note_answers(QUESTIONS, items, use_numbers=False)
+    other = sync.map_note_answers(
+        QUESTIONS, items, content_min=sync.OTHER_CONTENT_MIN, use_numbers=False
+    )
+
+    assert [m.question_id for m in card.matches] == ["q1"]
+    assert other.matches == () and other.skipped == {"gray": 1}
+
+
+@pytest.mark.parametrize("other_notes", [False, True])
+async def test_note_refresh_syncs_its_pair_even_when_the_card_is_unchanged(
+    monkeypatch: pytest.MonkeyPatch, other_notes: bool
+):
+    from app.core.config import settings
+    from app.services import recommendation_card_import as card_import
+    from app.services import recommendation_cards
+
+    class _Result:
+        def all(self):
+            return [(7,)]
+
+    class _Db:
+        async def execute(self, *_args, **_kwargs):
+            return _Result()
+
+    synced: list[int] = []
+
+    async def _unchanged(_db, *, candidate_id, job_id):
+        return False
+
+    async def _sync(_db, *, candidate_id, job_id):
+        synced.append(job_id)
+
+    monkeypatch.setattr(
+        settings, "SCREENING_NOTE_SYNC_OTHER_NOTES_ENABLED", other_notes
+    )
+    monkeypatch.setattr(recommendation_cards, "rebuild_pair", _unchanged)
+    monkeypatch.setattr(sync, "sync_pair_safely", _sync)
+
+    await card_import.refresh_candidate(_Db(), candidate_id=1, job_id=9)
+
+    # Karta kandydata w rekrutacji 7 bez zmian — arkusz liczy tylko para notatki.
+    assert synced == ([9] if other_notes else [])
+
+
+async def _add_other_note(world: dict, content: str, *, kind: str = "human") -> int:
+    from app.core.database import AsyncSessionLocal
+    from app.models.note import Note, NoteType
+
+    async with AsyncSessionLocal() as db:
+        note = Note(
+            content=content,
+            note_type=NoteType.general,
+            candidate_id=world["candidate_id"],
+            job_id=world["job_id"],
+            author_id=world["author_id"],
+            kind=kind,
+            source_created_at=OTHER_NOTE_AT,
+        )
+        db.add(note)
+        await db.commit()
+        return note.id
+
+
+async def _plan(world: dict, *, other_notes: bool) -> sync.PairPlan:
+    from app.core.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+        plan = await sync.plan_pair(
+            db,
+            candidate_id=world["candidate_id"],
+            job_id=world["job_id"],
+            lock=True,
+            other_notes=other_notes,
+        )
+        await sync.apply_plan(db, plan)
+        await db.commit()
+        return plan
+
+
+async def test_other_note_fills_the_sheet_when_the_card_has_no_answers(
+    app_client: AsyncClient,
+):
+    world = await _world()
+    await _set_note_answers(world, {})
+    note_id = await _add_other_note(world, OTHER_NOTE)
+
+    plan = await _plan(world, other_notes=True)
+
+    assert (plan.action, plan.source, plan.note_id) == ("create", "note", note_id)
+    _, latest = await _sheets(world)
+    sheet = ScreeningAnswers.model_validate(latest)
+    assert [(a.question_id, a.response, a.origin) for a in sheet.answers] == [
+        ("q1", "Dwa lata na EKS, klaster produkcyjny.", "note_sync"),
+        ("q2", "Tak, trzy lata.", "note_sync"),
+    ]
+    assert sheet.answered_at == OTHER_NOTE_AT
+    assert sheet.answered_by == world["author_id"]
+    activity = (await _activities(world, sync.ACTIVITY_ACTION))[0]
+    assert activity.details["source"] == "note"
+    assert (await _plan(world, other_notes=True)).action == "noop"
+
+    # Wyłącznik zdjęty: notatka nie jest już źródłem — arkusz automatu znika.
+    cleared = await _plan(world, other_notes=False)
+    assert (cleared.action, cleared.reason) == ("clear", "no_answers")
+    assert await _sheets(world) == (None, None)
+
+
+async def test_card_answers_win_over_other_notes(app_client: AsyncClient):
+    world = await _world()
+    await _add_other_note(
+        world,
+        "Jaki jest Twój okres wypowiedzenia?\nTrzy miesiące.\n"
+        "Czy pracowałeś z Apache Kafka?\nNie.\n",
+    )
+
+    plan = await _plan(world, other_notes=True)
+
+    assert (plan.action, plan.source, plan.note_id) == (
+        "create",
+        "card",
+        world["note_id"],
+    )
+    _, latest = await _sheets(world)
+    responses = {a["question_id"]: a["response"] for a in latest["answers"]}
+    assert responses["q3"] == "Miesiąc."
+    assert responses["q2"] == "Tak, 3 lata."
+
+
+async def test_other_note_never_touches_a_human_sheet(app_client: AsyncClient):
+    world = await _world()
+    await _set_note_answers(world, {})
+    await _add_other_note(world, OTHER_NOTE)
+    human = {
+        "answers": [{"question_id": "q1", "response": "Rozmowa z rekruterem."}],
+        "overall_fit": "fit",
+    }
+    await _set_sheet(world["latest_id"], human)
+
+    plan = await _plan(world, other_notes=True)
+
+    assert (plan.action, plan.reason) == ("skip", "human_sheet")
+    _, latest = await _sheets(world)
+    assert latest == human
+
+
+async def test_other_note_kinds_hidden_from_ai_are_ignored(app_client: AsyncClient):
+    world = await _world()
+    await _set_note_answers(world, {})
+    await _add_other_note(world, OTHER_NOTE, kind="email")
+
+    plan = await _plan(world, other_notes=True)
+
+    assert (plan.action, plan.reason, plan.source) == ("noop", "no_answers", None)
+
+
+async def test_other_note_from_a_previous_attempt_does_not_fill_the_sheet(
+    app_client: AsyncClient,
+):
+    world = await _world(attempt_started=OTHER_NOTE_AT + timedelta(days=1))
+    await _set_note_answers(world, {})
+    await _add_other_note(world, OTHER_NOTE)
+
+    plan = await _plan(world, other_notes=True)
+
+    assert (plan.action, plan.reason) == ("noop", "previous_attempt")
+    assert await _sheets(world) == (None, None)
+
+
+async def test_backfill_counts_other_note_pairs_separately(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    from app.core.database import AsyncSessionLocal
+
+    world = await _world()
+    await _set_note_answers(world, {})
+    await _add_other_note(world, OTHER_NOTE)
+    pair = {(world["candidate_id"], world["job_id"])}
+
+    async with AsyncSessionLocal() as db:
+        cards_only = await backfill.plan(db, only_pairs=pair)
+    assert cards_only["pairs"] == 0 and cards_only["include_other_notes"] is False
+
+    async with AsyncSessionLocal() as db:
+        report = await backfill.plan(db, only_pairs=pair, include_other_notes=True)
+    assert report["include_other_notes"] is True
+    assert report["to_change"] == 1 and report["actions"] == {"create": 1}
+    assert report["sources"] == {
+        "card": {"pairs": 0, "answers": 0},
+        "note": {"pairs": 1, "answers": 2},
+    }
+    assert report["samples"][0]["source"] == "note"
+    assert await _sheets(world) == (None, None)
+
+    # Zapis z innych notatek przy wyłączonym etapie 1b = 409 (przeliczenie
+    # karty wyczyściłoby te arkusze); próba w innym trybie niż zapis = 409.
+    async with AsyncSessionLocal() as db:
+        await backfill._write_setting(
+            db,
+            backfill.DRY_RUN_KEY,
+            {
+                "dry_run": True,
+                "include_other_notes": True,
+                "to_change": 1,
+                "finished_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        await db.commit()
+    blocked = await app_client.post(
+        "/api/admin/screening-note-backfill"
+        "?dry_run=false&expected=1&include_other_notes=true",
+        headers=app_auth_headers,
+    )
+    mode = await app_client.post(
+        "/api/admin/screening-note-backfill?dry_run=false&expected=1",
+        headers=app_auth_headers,
+    )
+    assert blocked.status_code == 409 and "OTHER_NOTES" in blocked.json()["detail"]
+    assert mode.status_code == 409 and "tym samym trybie" in mode.json()["detail"]
+    assert not backfill.is_running()
+
+    async with AsyncSessionLocal() as db:
+        applied = await backfill.apply(
+            db, actor_user_id=None, only_pairs=pair, include_other_notes=True
+        )
+    assert applied["counts"]["create"] == 1
+    assert applied["sources"] == {"card": 0, "note": 1}
+    _, latest = await _sheets(world)
+    assert sync.is_sync_owned(latest)

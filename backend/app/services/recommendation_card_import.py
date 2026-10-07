@@ -20,7 +20,11 @@ faktów stoi na tej kolumnie).
 Karta, która się zmieniła, przelicza też arkusz screeningu pary z odpowiedzi
 w notatce (``screening_note_sync``, decyzje 07.10.2026; wyłącznik
 ``SCREENING_NOTE_SYNC_ENABLED``). Zapis notatki w NEXUSIE i scalanie
-kandydatów idą tą samą drogą (``refresh_candidate``).
+kandydatów idą tą samą drogą (``refresh_candidate``). Przy etapie 1b
+(``SCREENING_NOTE_SYNC_OTHER_NOTES_ENABLED``) zapis notatki dowolnego rodzaju
+przelicza arkusz jej pary, nawet gdy karta się nie zmieniła; notatki innych
+rodzajów z importu Traffita nie mają tu haka — dochodzą ponownym uzupełnieniem
+historii (``include_other_notes=true``).
 """
 
 from __future__ import annotations
@@ -90,9 +94,16 @@ async def refresh_candidate(
     if job_id is not None:
         job_ids.add(job_id)
     changed = 0
+    # Etap 1b: notatka innego rodzaju niż karta nie zmienia karty, a może
+    # zmienić arkusz — para tej notatki przelicza arkusz zawsze.
+    other_notes = screening_note_sync.other_notes_enabled()
     for pair_job_id in sorted(job_ids):
-        if await cards.rebuild_pair(db, candidate_id=candidate_id, job_id=pair_job_id):
+        card_changed = await cards.rebuild_pair(
+            db, candidate_id=candidate_id, job_id=pair_job_id
+        )
+        if card_changed:
             changed += 1
+        if card_changed or (other_notes and pair_job_id == job_id):
             await screening_note_sync.sync_pair_safely(
                 db, candidate_id=candidate_id, job_id=pair_job_id
             )

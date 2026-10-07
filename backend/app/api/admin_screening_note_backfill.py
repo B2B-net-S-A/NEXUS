@@ -7,6 +7,10 @@ odpowiedzi w karcie rekomendacji, i oddaje raport od razu.
 ``to_change``) zapisuje w tle. ``GET …/status`` pokazuje ostatnią próbę
 i paragon zapisu. Reguły: ``app/services/screening_note_sync.py`` (zapis)
 i ``app/services/screening_note_backfill.py`` (przebieg).
+
+``include_other_notes=true`` (etap 1b) bierze także notatki innych rodzajów
+niż karta. Zapis w tym trybie wymaga próby w tym samym trybie i włączonego
+``SCREENING_NOTE_SYNC_OTHER_NOTES_ENABLED``.
 """
 
 from datetime import datetime, timezone
@@ -19,6 +23,7 @@ from app.api.deps import AdminUser
 from app.core.database import get_db
 from app.core.tasks import spawn
 from app.services import screening_note_backfill as backfill
+from app.services import screening_note_sync
 
 router = APIRouter()
 
@@ -28,6 +33,7 @@ async def screening_note_backfill(
     current_user: AdminUser,
     dry_run: bool = Query(True),
     expected: Optional[int] = Query(None, ge=0),
+    include_other_notes: bool = Query(False),
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     """Odpowiedzi z kart rekomendacji → arkusze screeningu (``note_sync``)."""
@@ -38,7 +44,7 @@ async def screening_note_backfill(
         )
     if dry_run:
         started = datetime.now(timezone.utc)
-        report = await backfill.plan(db)
+        report = await backfill.plan(db, include_other_notes=include_other_notes)
         await backfill.finish_run(db, report, started=started)
         return report
     report = await backfill.fresh_dry_run(db)
@@ -48,6 +54,24 @@ async def screening_note_backfill(
             detail=(
                 "Najpierw przebieg próbny (dry_run=true) — zapis wymaga raportu "
                 "próbnego z ostatnich 7 dni."
+            ),
+        )
+    other_notes = include_other_notes or screening_note_sync.other_notes_enabled()
+    if bool(report.get("include_other_notes")) != other_notes:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Ostatnia próba liczyła inny zakres notatek (karty / także inne "
+                "notatki). Uruchom próbę w tym samym trybie co zapis."
+            ),
+        )
+    if include_other_notes and not screening_note_sync.other_notes_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Zapis odpowiedzi z innych notatek wymaga włączonego "
+                "SCREENING_NOTE_SYNC_OTHER_NOTES_ENABLED — inaczej przeliczenie "
+                "karty wyczyściłoby te arkusze."
             ),
         )
     to_change = int(report.get("to_change") or 0)
@@ -71,7 +95,9 @@ async def screening_note_backfill(
         )
     try:
         spawn(
-            backfill.run_apply(actor_user_id=current_user.id),
+            backfill.run_apply(
+                actor_user_id=current_user.id, include_other_notes=other_notes
+            ),
             "screening_note_backfill(apply)",
         )
     except Exception:

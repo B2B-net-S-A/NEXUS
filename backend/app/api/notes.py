@@ -44,6 +44,7 @@ from app.services import (
     client_rate_notes,
     note_kinds,
     recommendation_card_import,
+    screening_note_sync,
 )
 from app.services.recommendation_cards import CARD_KINDS
 from app.services.ai_quota import AIQuotaExceeded
@@ -428,8 +429,12 @@ async def create_note(
     )
 
     # 0413: notatka-karta zapisana w NEXUSIE wypełnia kartę rekomendacji od
-    # razu (import w tle łapie resztę). Nigdy nie cofa notatki.
-    if note.kind in CARD_KINDS and note.parent_note_id is None:
+    # razu (import w tle łapie resztę). Nigdy nie cofa notatki. Etap 1b:
+    # notatka innego rodzaju z rekrutacją przelicza arkusz screeningu pary.
+    if note.parent_note_id is None and (
+        note.kind in CARD_KINDS
+        or (note.job_id is not None and screening_note_sync.other_notes_enabled())
+    ):
         await recommendation_card_import.refresh_candidate_safely(
             db, candidate_id=note.candidate_id, job_id=note.job_id
         )
@@ -656,6 +661,7 @@ async def delete_note(
     for retracted_id in (note.id, *reply_ids):
         await retract_note_mention_notifications(db, retracted_id)
     candidate_id = note.candidate_id
+    job_id = note.job_id
     had_dl_pair = note.parent_note_id is None and client_rate_notes.note_has_dl_pair(
         note.kind, note.content
     )
@@ -665,7 +671,7 @@ async def delete_note(
         await _forget_note_facts(db, candidate_id, actor_id=current_user.id)
         # 0413: pola karty rekomendacji z usuniętej notatki znikają razem z nią.
         await recommendation_card_import.refresh_candidate_safely(
-            db, candidate_id=candidate_id
+            db, candidate_id=candidate_id, job_id=job_id
         )
         await _refresh_rate_from_after_dl_pair(db, candidate_id, had_dl_pair)
 

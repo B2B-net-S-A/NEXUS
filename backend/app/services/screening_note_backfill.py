@@ -24,6 +24,13 @@ Zasady jak przy innych naprawach z panelu admina:
   ``repair_details_screening_note_backfill_2026_10``;
 * ponowny bieg nic nie zmienia (para ma już arkusz automatu o tej samej
   treści).
+
+Etap 1b (``include_other_notes=True``): pary bierze także z notatek innych
+rodzajów niż karta (czytelnych dla AI, przypiętych do pary, z pytaniem w
+treści). Raport liczy osobno pary i odpowiedzi z kart i z innych notatek
+(``sources``). Zapis z tym trybem wymaga próby w tym samym trybie i włączonego
+``SCREENING_NOTE_SYNC_OTHER_NOTES_ENABLED`` — przy wyłączonym przeliczenie
+karty wyczyściłoby te arkusze.
 """
 
 from __future__ import annotations
@@ -37,6 +44,7 @@ from typing import Any, Optional
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services import note_kinds
 from app.services import screening_note_sync as sync
 
 logger = logging.getLogger(__name__)
@@ -58,11 +66,37 @@ _PAIRS_SQL = text(
     "AND jsonb_array_length(c.note_answers -> 'items') > 0 "
     "ORDER BY c.id"
 )
+# Etap 1b: pary z notatką innego rodzaju niż karta, w której może stać pytanie
+# (pytajnik albo lista „1.”). Rozstrzyga parser w ``plan_pair``.
+_OTHER_PAIRS_SQL = text(
+    "SELECT DISTINCT n.candidate_id, n.job_id FROM notes n "
+    "WHERE n.candidate_id IS NOT NULL AND n.job_id IS NOT NULL "
+    "AND n.source_deleted_at IS NULL AND n.parent_note_id IS NULL "
+    f"AND {note_kinds.ai_readable_sql('n')} "
+    "AND (n.kind IS NULL OR n.kind NOT IN ('card', 'screening_facts')) "
+    "AND (strpos(n.content, '?') > 0 OR n.content ~ '(^|[\\n>])\\s*1[.)]') "
+    "ORDER BY n.candidate_id, n.job_id"
+)
 
 
-async def load_pairs(db: AsyncSession) -> list[tuple[int, int]]:
-    rows = (await db.execute(_PAIRS_SQL)).all()
-    return [(int(row[0]), int(row[1])) for row in rows]
+async def load_pairs(
+    db: AsyncSession, *, include_other_notes: bool = False
+) -> list[tuple[int, int]]:
+    pairs = [(int(row[0]), int(row[1])) for row in (await db.execute(_PAIRS_SQL)).all()]
+    if include_other_notes:
+        seen = set(pairs)
+        for row in (await db.execute(_OTHER_PAIRS_SQL)).all():
+            pair = (int(row[0]), int(row[1]))
+            if pair not in seen:
+                seen.add(pair)
+                pairs.append(pair)
+    return pairs
+
+
+def _uses_other_notes(include_other_notes: bool) -> bool:
+    # Przy włączonym etapie 1b zwykły bieg też liczy notatki innych rodzajów —
+    # inaczej wyczyściłby arkusze, które zapisało przeliczenie pary.
+    return include_other_notes or sync.other_notes_enabled()
 
 
 def _sample(plan: sync.PairPlan) -> dict[str, Any]:
@@ -74,6 +108,7 @@ def _sample(plan: sync.PairPlan) -> dict[str, Any]:
             "job_id",
             "stage_id",
             "note_id",
+            "source",
             "action",
             "question_ids",
             "by_content",
@@ -83,14 +118,22 @@ def _sample(plan: sync.PairPlan) -> dict[str, Any]:
 
 
 async def plan(
-    db: AsyncSession, *, only_pairs: Optional[set[tuple[int, int]]] = None
+    db: AsyncSession,
+    *,
+    only_pairs: Optional[set[tuple[int, int]]] = None,
+    include_other_notes: bool = False,
 ) -> dict[str, Any]:
     """Przebieg próbny: liczby, powody i przykłady. Niczego nie zapisuje."""
+    other_notes = _uses_other_notes(include_other_notes)
     pairs = [
         pair
-        for pair in await load_pairs(db)
+        for pair in await load_pairs(db, include_other_notes=other_notes)
         if only_pairs is None or pair in only_pairs
     ]
+    sources: dict[str, Counter[str]] = {
+        sync.SOURCE_CARD: Counter(),
+        sync.SOURCE_NOTE: Counter(),
+    }
     actions: Counter[str] = Counter()
     reasons: Counter[str] = Counter()
     skipped_answers: Counter[str] = Counter()
@@ -99,7 +142,11 @@ async def plan(
     samples: list[dict[str, Any]] = []
     for candidate_id, job_id in pairs:
         result = await sync.plan_pair(
-            db, candidate_id=candidate_id, job_id=job_id, lock=False
+            db,
+            candidate_id=candidate_id,
+            job_id=job_id,
+            lock=False,
+            other_notes=other_notes,
         )
         actions[result.action] += 1
         if result.reason:
@@ -109,11 +156,15 @@ async def plan(
             by_content += result.by_content
             by_number += result.by_number
             histogram[str(len(result.question_ids))] += 1
+            if result.source in sources:
+                sources[result.source]["pairs"] += 1
+                sources[result.source]["answers"] += len(result.question_ids)
         if result.action in CHANGING_ACTIONS and len(samples) < SAMPLE_SIZE:
             samples.append(_sample(result))
     await db.rollback()
     return {
         "dry_run": True,
+        "include_other_notes": other_notes,
         "pairs": len(pairs),
         "to_change": sum(actions[action] for action in CHANGING_ACTIONS),
         "actions": dict(actions),
@@ -121,6 +172,12 @@ async def plan(
         "answers": {"by_content": by_content, "by_number": by_number},
         "skipped_answers": dict(skipped_answers),
         "answers_per_sheet": dict(sorted(histogram.items(), key=lambda i: int(i[0]))),
+        # Pary do zapisu (create/update) i ich odpowiedzi — z kart i z innych
+        # notatek (etap 1b).
+        "sources": {
+            name: {"pairs": counts["pairs"], "answers": counts["answers"]}
+            for name, counts in sources.items()
+        },
         "samples": samples,
     }
 
@@ -172,6 +229,7 @@ async def apply(
     *,
     actor_user_id: Optional[int],
     only_pairs: Optional[set[tuple[int, int]]] = None,
+    include_other_notes: bool = False,
 ) -> dict[str, Any]:
     """Zapis: para po parze w savepointach, paczki po ``CHUNK`` z commitem.
 
@@ -182,14 +240,16 @@ async def apply(
         mark_stale_for_candidates,
     )
 
+    other_notes = _uses_other_notes(include_other_notes)
     pairs = [
         pair
-        for pair in await load_pairs(db)
+        for pair in await load_pairs(db, include_other_notes=other_notes)
         if only_pairs is None or pair in only_pairs
     ]
     await db.rollback()
     counts: Counter[str] = Counter({action: 0 for action in CHANGING_ACTIONS})
     counts.update({"unchanged": 0, "failed": 0})
+    by_source: Counter[str] = Counter({sync.SOURCE_CARD: 0, sync.SOURCE_NOTE: 0})
     samples: list[dict[str, Any]] = []
     failed: list[dict[str, int]] = []
     stopped = False
@@ -208,7 +268,11 @@ async def apply(
                 try:
                     async with db.begin_nested():
                         result = await sync.plan_pair(
-                            db, candidate_id=candidate_id, job_id=job_id, lock=True
+                            db,
+                            candidate_id=candidate_id,
+                            job_id=job_id,
+                            lock=True,
+                            other_notes=other_notes,
                         )
                         previous = [
                             {
@@ -241,6 +305,8 @@ async def apply(
                     chunk_counts["unchanged"] += 1
                     continue
                 chunk_counts[result.action] += 1
+                if result.source:
+                    chunk_counts[f"source:{result.source}"] += 1
                 touched.add(candidate_id)
                 details.extend(previous)
                 if len(chunk_samples) + len(samples) < SAMPLE_SIZE:
@@ -257,14 +323,20 @@ async def apply(
             )
             stopped = True
             break
-        counts.update(chunk_counts)
+        for key, value in chunk_counts.items():
+            if key.startswith("source:"):
+                by_source[key.removeprefix("source:")] += value
+            else:
+                counts[key] += value
         samples.extend(chunk_samples)
         failed.extend(chunk_failed[: max(0, FAILED_SAMPLE - len(failed))])
     return {
         "dry_run": False,
+        "include_other_notes": other_notes,
         "pairs": len(pairs),
         "stopped_on_error": stopped,
         "counts": dict(counts),
+        "sources": dict(by_source),
         "failed_pairs": failed,
         "samples": samples,
     }
@@ -337,14 +409,18 @@ def release() -> None:
     _running["apply"] = False
 
 
-async def run_apply(*, actor_user_id: int) -> None:
+async def run_apply(*, actor_user_id: int, include_other_notes: bool = False) -> None:
     """Zapis w tle (spawn z endpointu). Bieg musi być zajęty przez ``reserve``."""
     from app.core.database import AsyncSessionLocal  # noqa: PLC0415
 
     started = datetime.now(timezone.utc)
     try:
         async with AsyncSessionLocal() as db:
-            report = await apply(db, actor_user_id=actor_user_id)
+            report = await apply(
+                db,
+                actor_user_id=actor_user_id,
+                include_other_notes=include_other_notes,
+            )
             await finish_run(db, report, started=started)
             logger.info(
                 "screening note backfill done: %s", json.dumps(report["counts"])

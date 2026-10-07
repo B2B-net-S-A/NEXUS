@@ -34,6 +34,12 @@ To JEDYNE miejsce, w którym notatka pisze arkusz (strażnik
   akcja ``screening_synced_from_note``.
 * Po zmianie arkusza wyniki dopasowania kandydata są oznaczane jako stare
   (warstwa ``champion_fit`` czyta arkusz).
+* Etap 1b (wyłącznik ``SCREENING_NOTE_SYNC_OTHER_NOTES_ENABLED``): gdy karta
+  pary NIE ma odpowiedzi z bieżącej próby, źródłem bywa notatka innego
+  rodzaju (czytelna dla AI, przypięta do pary) — ten sam parser pytań co
+  karta, najnowsza notatka z co najmniej jednym przypięciem. Wyłącznie po
+  treści pytania z progiem 0,6 (karta: 0,5), bez numeru; odpowiedź z pytaniem
+  w pierwszym wierszu odpada, a kolejne pytanie bez numeru ją ucina.
 """
 
 from __future__ import annotations
@@ -69,6 +75,12 @@ ACTIVITY_ACTION = "screening_synced_from_note"
 CONTENT_MIN = 0.5
 CONTENT_MARGIN = 0.1
 GRAY_MIN = 0.3
+# Etap 1b: notatka innego rodzaju niż karta to zwykle wolny tekst rozmowy —
+# wyższy próg i bez numeru (pomiar 07.10.2026: 115 par, 354 odpowiedzi).
+OTHER_CONTENT_MIN = 0.6
+
+SOURCE_CARD = "card"
+SOURCE_NOTE = "note"
 
 ACTION_CREATE = "create"
 ACTION_UPDATE = "update"
@@ -89,6 +101,11 @@ REASON_UNREADABLE = "unreadable_sheet"
 
 def enabled() -> bool:
     return bool(settings.SCREENING_NOTE_SYNC_ENABLED)
+
+
+def other_notes_enabled() -> bool:
+    """Etap 1b: odpowiedzi także z notatek innych rodzajów niż karta."""
+    return bool(settings.SCREENING_NOTE_SYNC_OTHER_NOTES_ENABLED)
 
 
 # ── Czyste reguły ────────────────────────────────────────────────────────────
@@ -399,6 +416,46 @@ def _answer_by_number(answer: str, champion_question: str) -> str:
     return rest
 
 
+def other_note_answer(answer: str) -> str:
+    """Odpowiedź z notatki innego rodzaju niż karta — pusta, gdy zaczyna się od pytania.
+
+    Wolny tekst rozmowy rzadziej ma oddzielone pytania (pomiar 07.10.2026:
+    „tak\\nJak optymalizowałeś zapytania SQL?”, druga połowa pytania na
+    początku odpowiedzi). Pierwszy wiersz z pytajnikiem = odpowiedź odpada;
+    kolejny wiersz kończący się pytajnikiem ucina odpowiedź.
+    """
+    lines = (answer or "").strip().splitlines()
+    if not lines or "?" in lines[0]:
+        return ""
+    kept: list[str] = []
+    for line in lines:
+        if line.rstrip().endswith("?"):
+            break
+        kept.append(line)
+    return "\n".join(kept).strip()
+
+
+def other_note_items(
+    items: Sequence[Mapping[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
+    """Pozycje notatki innego rodzaju z odpowiedzią po ``other_note_answer``.
+
+    Zwraca (pozycje, liczba odpowiedzi odrzuconych za pytanie w treści).
+    """
+    out: list[dict[str, Any]] = []
+    dropped = 0
+    for item in items:
+        if not isinstance(item, Mapping):
+            continue
+        raw = str(item.get("answer") or "").strip()
+        answer = other_note_answer(raw)
+        if raw and not answer:
+            dropped += 1
+            continue
+        out.append({**item, "answer": answer})
+    return out, dropped
+
+
 # Arkusz z notatki widzi klient, więc zapisujemy wyłącznie przypięcia po
 # TREŚCI pytania. Przypięcie po numerze (pomiar na produkcji 07.10.2026:
 # 215 z 8 100 odpowiedzi) myliło odpowiedź z innym pytaniem albo zostawiało
@@ -655,6 +712,9 @@ class PairPlan:
     reason: Optional[str] = None
     stage_id: Optional[int] = None
     note_id: Optional[int] = None
+    # Skąd odpowiedzi: karta (``card``) albo notatka innego rodzaju (``note``,
+    # etap 1b); ``None``, gdy arkusza nie budujemy.
+    source: Optional[str] = None
     question_ids: tuple[str, ...] = ()
     by_content: int = 0
     by_number: int = 0
@@ -673,6 +733,7 @@ class PairPlan:
             "reason": self.reason,
             "stage_id": self.stage_id,
             "note_id": self.note_id,
+            "source": self.source,
             "question_ids": list(self.question_ids),
             "by_content": self.by_content,
             "by_number": self.by_number,
@@ -691,10 +752,76 @@ def _moment(value: Any) -> Optional[datetime]:
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
+@dataclass(frozen=True)
+class _NoteSource:
+    note_id: int
+    author_id: Optional[int]
+    at: Optional[datetime]
+    items: list[dict[str, Any]]
+    dropped: int
+
+
+async def _other_note_sources(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    job_id: int,
+    started: Optional[datetime],
+) -> tuple[list[_NoteSource], bool]:
+    """Notatki pary innych rodzajów niż karta z odpowiedziami — najnowsze pierwsze.
+
+    Zwraca też, czy pomijaliśmy notatki sprzed bieżącej próby procesu.
+    """
+    from sqlalchemy import func, or_  # noqa: PLC0415
+
+    from app.models.note import Note  # noqa: PLC0415
+    from app.services import note_kinds  # noqa: PLC0415
+    from app.services.recommendation_card_parser import parse_card  # noqa: PLC0415
+    from app.services.recommendation_card_rules import CARD_KINDS  # noqa: PLC0415
+
+    at = func.coalesce(Note.source_created_at, Note.created_at)
+    rows = (
+        await db.execute(
+            select(Note.id, Note.content, Note.author_id, at)
+            .where(
+                Note.candidate_id == candidate_id,
+                Note.job_id == job_id,
+                Note.source_deleted_at.is_(None),
+                Note.parent_note_id.is_(None),
+                note_kinds.ai_readable_clause(),
+                or_(Note.kind.is_(None), Note.kind.notin_(CARD_KINDS)),
+            )
+            .order_by(at.desc(), Note.id.desc())
+        )
+    ).all()
+    sources: list[_NoteSource] = []
+    older = False
+    for note_id, content, author_id, note_at in rows:
+        parsed = parse_card(content)
+        if not parsed.answers:
+            continue
+        moment = _moment(note_at)
+        if started is not None and (moment is None or moment < started):
+            older = True
+            continue
+        items, dropped = other_note_items(parsed.answers)
+        sources.append(_NoteSource(note_id, author_id, moment, items, dropped))
+    return sources, older
+
+
 async def plan_pair(
-    db: AsyncSession, *, candidate_id: int, job_id: int, lock: bool
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    job_id: int,
+    lock: bool,
+    other_notes: Optional[bool] = None,
 ) -> PairPlan:
-    """Plan dla pary. ``lock=True`` blokuje wiersze etapów (zapis)."""
+    """Plan dla pary. ``lock=True`` blokuje wiersze etapów (zapis).
+
+    ``other_notes`` — czy brać notatki innych rodzajów niż karta (etap 1b);
+    ``None`` = wyłącznik ``SCREENING_NOTE_SYNC_OTHER_NOTES_ENABLED``.
+    """
     from app.models.job import Job  # noqa: PLC0415
     from app.models.note import Note  # noqa: PLC0415
     from app.models.recommendation_card import RecommendationCard  # noqa: PLC0415
@@ -706,6 +833,8 @@ async def plan_pair(
     )
     from app.services.recommendation_cards import attempt_started  # noqa: PLC0415
 
+    if other_notes is None:
+        other_notes = other_notes_enabled()
     out = PairPlan(candidate_id=candidate_id, job_id=job_id, action=ACTION_SKIP)
     query = (
         select(CandidateStage)
@@ -750,38 +879,81 @@ async def plan_pair(
         note_answers.get("items") if isinstance(note_answers, Mapping) else None
     ) or []
     current = current_answers(note_answers, attempt_started=started)
-    if not items:
-        reason = REASON_NO_ANSWERS
-    elif current is None:
-        reason = REASON_PREVIOUS_ATTEMPT
-    elif not questions:
-        reason = REASON_NO_QUESTIONS
-    else:
-        note_id = current.get("note_id")
-        out.note_id = note_id if isinstance(note_id, int) else None
-        mapping = map_note_answers(
-            questions, current["items"], use_numbers=WRITE_BY_NUMBER
-        )
-        out.by_content, out.by_number = mapping.by_content, mapping.by_number
-        out.skipped = mapping.skipped
-        if not mapping.matches:
-            reason = REASON_NO_MATCH
+    chosen: Optional[tuple[MappingResult, Optional[int], Optional[datetime]]] = None
+    if current is not None:
+        # Karta ma pierwszeństwo: gdy ma odpowiedzi z bieżącej próby, tylko
+        # ona decyduje o arkuszu (także gdy żadna nie pasuje do pytań).
+        if not questions:
+            reason = REASON_NO_QUESTIONS
         else:
-            author_id = (
-                await db.scalar(select(Note.author_id).where(Note.id == out.note_id))
-                if out.note_id is not None
-                else None
+            note_id = current.get("note_id")
+            out.note_id = note_id if isinstance(note_id, int) else None
+            mapping = map_note_answers(
+                questions, current["items"], use_numbers=WRITE_BY_NUMBER
             )
-            desired = build_sheet(
-                questions,
-                mapping.matches,
-                note_at=_moment(current.get("at")),
-                author_id=author_id,
-                previous=rows[0].screening_answers,
+            out.by_content, out.by_number = mapping.by_content, mapping.by_number
+            out.skipped = mapping.skipped
+            if not mapping.matches:
+                reason = REASON_NO_MATCH
+            else:
+                out.source = SOURCE_CARD
+                author_id = (
+                    await db.scalar(
+                        select(Note.author_id).where(Note.id == out.note_id)
+                    )
+                    if out.note_id is not None
+                    else None
+                )
+                chosen = (mapping, author_id, _moment(current.get("at")))
+    else:
+        reason = REASON_NO_ANSWERS if not items else REASON_PREVIOUS_ATTEMPT
+        if other_notes:
+            sources, older = await _other_note_sources(
+                db, candidate_id=candidate_id, job_id=job_id, started=started
             )
-            out.question_ids = tuple(m.question_id for m in mapping.matches)
+            if sources and not questions:
+                reason = REASON_NO_QUESTIONS
+            elif sources:
+                reason = REASON_NO_MATCH
+                skipped: Counter[str] = Counter()
+                for source in sources:
+                    mapping = map_note_answers(
+                        questions,
+                        source.items,
+                        content_min=OTHER_CONTENT_MIN,
+                        use_numbers=False,
+                    )
+                    if not mapping.matches:
+                        skipped.update(mapping.skipped)
+                        if source.dropped:
+                            skipped["question_in_answer"] += source.dropped
+                        continue
+                    skipped = Counter(mapping.skipped)
+                    if source.dropped:
+                        skipped["question_in_answer"] += source.dropped
+                    out.note_id = source.note_id
+                    out.source = SOURCE_NOTE
+                    out.by_content = mapping.by_content
+                    chosen = (mapping, source.author_id, source.at)
+                    break
+                out.skipped = dict(skipped)
+            elif older and not items:
+                reason = REASON_PREVIOUS_ATTEMPT
+    if chosen is not None:
+        mapping, author_id, note_at = chosen
+        reason = None
+        desired = build_sheet(
+            questions,
+            mapping.matches,
+            note_at=note_at,
+            author_id=author_id,
+            previous=rows[0].screening_answers,
+        )
+        out.question_ids = tuple(m.question_id for m in mapping.matches)
     plan = plan_rows([row.screening_answers for row in rows], desired, reason=reason)
     out.action, out.reason = plan.action, plan.reason
+    if desired is None:
+        out.source = None
     out.changes = [
         (rows[index], rows[index].screening_answers, value)
         for index, value in sorted(plan.updates.items())
@@ -818,6 +990,7 @@ async def apply_plan(
                 "candidate_id": plan.candidate_id,
                 "job_id": plan.job_id,
                 "note_id": plan.note_id,
+                "source": plan.source,
                 "action": plan.action,
                 "question_ids": list(plan.question_ids),
                 "by_content": plan.by_content,
@@ -869,7 +1042,10 @@ __all__ = [
     "SYNC_ORIGIN",
     "AnswerMatch",
     "MappingResult",
+    "OTHER_CONTENT_MIN",
     "PairPlan",
+    "SOURCE_CARD",
+    "SOURCE_NOTE",
     "apply_plan",
     "build_sheet",
     "enabled",
@@ -878,6 +1054,9 @@ __all__ = [
     "is_sync_owned",
     "map_note_answers",
     "match_score",
+    "other_note_answer",
+    "other_note_items",
+    "other_notes_enabled",
     "plan_pair",
     "plan_rows",
     "similarity",
