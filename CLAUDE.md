@@ -2587,7 +2587,10 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
   (notatka, red flags, stawka, kosztorys, motywacja, @wzmianka, „czekam na”)
   albo kolejnego pytania, odrzucona przy kwocie/parze stawek i przy „[PL] …”
   (próba na produkcji 07.10: ostatnia odpowiedź karty połykała notatkę
-  wewnętrzną i kosztorys w ok. 60 z 8 245 odpowiedzi). Rozpoznanie pytań
+  wewnętrzną i kosztorys w ok. 60 z 8 245 odpowiedzi). Przypięcie po numerze
+  odrzuca „odpowiedź”, która zaczyna się od INNEGO pytania (parser nie
+  oddzielił pytania od odpowiedzi), a to samo pytanie na początku ucina
+  (`_answer_by_number`, powód `question_as_answer`). Rozpoznanie pytań
   (`match_score`): to samo słowo = ten sam rdzeń z polską końcówką, a słowo
   tylko z dłuższego pytania blokuje, gdy nazywa technologię, skrót albo język.
   Arkusz idzie na najnowszy wiersz pary

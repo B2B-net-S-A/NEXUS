@@ -367,6 +367,38 @@ def client_safe_response(text: str) -> str:
     return answer
 
 
+_QUESTION_START_RE = re.compile(
+    r"^\s*(?:jak|jaki\w*|czy|co|czym|opisz|opowiedz|kiedy|gdzie|ile|w\s+jaki|"
+    r"dlaczego|z\s+jakimi|z\s+kt[oó]rymi|how|what|which|describe|do\s+you|"
+    r"have\s+you|tell)\b",
+    re.IGNORECASE,
+)
+
+
+def _answer_by_number(answer: str, champion_question: str) -> str:
+    """Odpowiedź przypięta po numerze — pusta, gdy zamiast odpowiedzi stoi pytanie.
+
+    Parser karty bywa nie oddziela pytania od odpowiedzi; numer przypina wtedy
+    „odpowiedź”, która zaczyna się od pytania (próba na produkcji 07.10.2026:
+    pod „Czy analizowałeś logi…” stało inne pytanie z karty). Pytanie na
+    początku: gdy to to samo pytanie co w profilu, zostaje sama reszta;
+    gdy inne albo bez reszty — odpowiedź nie trafia do arkusza.
+    """
+    lines = answer.splitlines()
+    first = lines[0].strip() if lines else ""
+    if not (_QUESTION_START_RE.match(first) or first.endswith("?")):
+        return answer
+    end = next((i for i, line in enumerate(lines[:3]) if "?" in line), None)
+    if end is None:
+        return answer
+    head, _, tail = "\n".join(lines[: end + 1]).partition("?")
+    question = f"{head}?"
+    rest = "\n".join([tail, *lines[end + 1 :]]).strip()
+    if not rest or match_score(question, champion_question) < CONTENT_MIN:
+        return ""
+    return rest
+
+
 def map_note_answers(
     questions: Mapping[str, str],
     items: Sequence[Mapping[str, Any]],
@@ -463,9 +495,13 @@ def map_note_answers(
                 and row[number - 1] >= max(row) - CONTENT_MARGIN
             )
             if allowed and qid not in taken:
+                cleaned = _answer_by_number(answer, questions[qid])
+                if not cleaned:
+                    skipped["question_as_answer"] += 1
+                    continue
                 taken.add(qid)
                 score = round(row[number - 1], 3) if row is not None else None
-                matches.append(AnswerMatch(qid, answer, "number", score))
+                matches.append(AnswerMatch(qid, cleaned, "number", score))
                 continue
         skipped[reason] += 1
     order = {qid: position for position, qid in enumerate(question_ids)}
