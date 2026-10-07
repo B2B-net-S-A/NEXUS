@@ -201,7 +201,7 @@ describe("NewJobLeadsSection — „Nowe rekrutacje — kto prowadzi”", () => 
     renderSection([lead({ priority_level: "p1", participants: 3 })]);
     const section = screen.getByRole("region", { name: "Nowe rekrutacje — kto prowadzi" });
     expect(section).toHaveTextContent(
-      "Uczestnikami każdej rekrutacji są wszyscy z jej kategorii. Zmieniasz tylko to, z czym się nie zgadzasz.",
+      "Uczestnikami każdej rekrutacji są wszyscy z jej kategorii. Potwierdź prowadzącego albo go zmień — rekrutacja zniknie z listy.",
     );
     const row = within(rowOf("Full Stack Java Developer"));
     expect(row.getByRole("link", { name: "Full Stack Java Developer" })).toHaveAttribute(
@@ -336,15 +336,9 @@ describe("NewJobLeadsSection — „Nowe rekrutacje — kto prowadzi”", () => 
       expect(showSuccess).toHaveBeenCalledWith("Maja Cis prowadzi „Full Stack Java Developer”."),
     );
     expect(screen.queryByRole("option")).not.toBeInTheDocument();
-    // Wiersz w pamięci pokazuje nową osobę, zanim wróci odczyt z serwera.
+    // Wybór osoby to decyzja — wiersz schodzi z listy od razu.
     const cached = client.getQueryData<BoardTasksResponse>(BOARD_TASKS_QUERY_KEY);
-    expect(cached?.new_job_leads?.[0]).toMatchObject({
-      lead_user_id: 22,
-      lead_name: "Maja Cis",
-      lead_source: "manual",
-      proposed: false,
-      pending_reason: null,
-    });
+    expect(cached?.new_job_leads).toEqual([]);
     // „Czeka na Ciebie”, pulpit „Requesty i obłożenie” i rekrutacja.
     expect(invalidated()).toEqual(
       expect.arrayContaining([
@@ -353,6 +347,36 @@ describe("NewJobLeadsSection — „Nowe rekrutacje — kto prowadzi”", () => 
         JSON.stringify(["job", 11]),
       ]),
     );
+  });
+
+  it("„Potwierdź” zapisuje zgodę na prowadzącego i zdejmuje wiersz z listy", async () => {
+    const user = userEvent.setup();
+    const { client, invalidated } = renderSection([lead(), lead({ job_id: 12, title: "Tester" })]);
+    await user.click(
+      screen.getByRole("button", { name: "Potwierdź prowadzącego: Full Stack Java Developer" }),
+    );
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/request-board/jobs/11/lead-confirmation", {
+        lead_user_id: lead().lead_user_id,
+      }),
+    );
+    await waitFor(() =>
+      expect(showSuccess).toHaveBeenCalledWith(
+        "Potwierdzono: Marek Dąb prowadzi „Full Stack Java Developer”.",
+      ),
+    );
+    const cached = client.getQueryData<BoardTasksResponse>(BOARD_TASKS_QUERY_KEY);
+    expect(cached?.new_job_leads?.map((row) => row.job_id)).toEqual([12]);
+    expect(invalidated()).toContain(JSON.stringify(BOARD_TASKS_QUERY_KEY));
+  });
+
+  it("bez prowadzącego i przy propozycji automatu nie ma „Potwierdź”", () => {
+    const none = { lead_user_id: null, lead_name: null, lead_role: null, lead_source: null };
+    renderSection([
+      lead({ ...none, pending_reason: "none" }),
+      lead({ job_id: 12, title: "Propozycja", proposed: true }),
+    ]);
+    expect(screen.queryByRole("button", { name: /^Potwierdź/ })).toBeNull();
   });
 
   it("„Wybierz” przy rekrutacji bez prowadzącego woła ten sam endpoint", async () => {

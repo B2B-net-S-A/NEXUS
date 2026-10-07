@@ -63,6 +63,7 @@ from app.services.request_allocation_plan import (
     release_reason_label,
 )
 from app.services.request_allocation_proposals import pending_pairs
+from app.services import new_job_leads
 from app.services.workforce_availability import workforce_context
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
@@ -736,6 +737,13 @@ async def decide_proposal(
         else None,
     )
     if assigned_user_id is not None:
+        new_job_leads.record_confirmation(
+            db,
+            job_id=job_id,
+            lead_user_id=assigned_user_id,
+            actor_id=current_user.id,
+            via="proposal",
+        )
         clients = await _client_names(db, [job])
         await _notify_assigned(
             db,
@@ -745,6 +753,46 @@ async def decide_proposal(
         )
     await db.commit()
     return {"decision": payload.decision, "assigned_user_id": assigned_user_id}
+
+
+class LeadConfirmation(BaseModel):
+    # Osoba, którą Head of Recruitment widział na pulpicie. Inna niż dzisiejszy
+    # prowadzący = 409: potwierdzenie dotyczy konkretnej osoby.
+    lead_user_id: int = Field(ge=1, le=_PG_INT4_MAX)
+
+
+LEAD_CHANGED = "Prowadzący tej rekrutacji zmienił się w międzyczasie. Odśwież pulpit."
+
+
+@router.post("/jobs/{job_id}/lead-confirmation")
+async def confirm_lead(
+    job_id: DbIdPath,
+    payload: LeadConfirmation,
+    current_user: User = Depends(ProposalDecider),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """„Potwierdź” na liście „Nowe rekrutacje — kto prowadzi”.
+
+    Niczego nie przydziela — zapisuje, że Head of Recruitment (albo admin)
+    zgadza się z prowadzącym, więc rekrutacja znika z listy
+    (``new_job_leads.CONFIRMED_ACTION``).
+    """
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if job is None:
+        raise HTTPException(404, "Nie ma takiego requestu.")
+    people = (await recruiters_for_jobs(db, [job_id])).get(job_id, [])
+    lead = next(iter(working(people)), None)
+    if lead is None or lead.user_id != payload.lead_user_id:
+        raise HTTPException(409, LEAD_CHANGED)
+    new_job_leads.record_confirmation(
+        db,
+        job_id=job_id,
+        lead_user_id=lead.user_id,
+        actor_id=current_user.id,
+        via="confirm",
+    )
+    await db.commit()
+    return {"job_id": job_id, "lead_user_id": lead.user_id}
 
 
 @router.post("/proposals/accept", response_model=BulkAcceptResponse)
@@ -795,6 +843,13 @@ async def accept_proposals(
                 user_id=user_id,
                 actor_id=current_user.id,
                 decision="accept",
+            )
+            new_job_leads.record_confirmation(
+                db,
+                job_id=job_id,
+                lead_user_id=user_id,
+                actor_id=current_user.id,
+                via="proposal",
             )
             await _notify_assigned(
                 db, job=job, client_name=clients.get(job.client_id), user_id=user_id

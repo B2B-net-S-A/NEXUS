@@ -19,6 +19,7 @@ from sqlalchemy import delete, select, update
 
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
+from app.models.activity import Activity
 from app.models.app_setting import AppSetting
 from app.models.candidate import Candidate
 from app.models.client import Client
@@ -1374,6 +1375,100 @@ async def test_new_job_leads_show_who_leads_fresh_handoffs(
         again = {row["job_id"]: row for row in resp.json()["new_job_leads"]}
         assert again[jobs["fresh_empty"]]["pending_reason"] == "none"
     finally:
+        await _drop_job_leads(seeded)
+
+
+@pytest.mark.asyncio
+async def test_new_job_lead_disappears_after_confirm_or_change(
+    api_client: AsyncClient, monkeypatch
+) -> None:
+    """Decyzja Artura 07.10.2026: „Potwierdź” albo „Zmień” przez Head of
+    Recruitment zdejmuje rekrutację z listy; nieaktualna osoba = 409."""
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    dl_id, _ = await _seed_user(UserRole.delivery_lead)
+    seeded = await _seed_job_leads(hor_id, dl_id)
+    jobs, people = seeded["jobs"], seeded["people"]
+
+    async def listed_ids(headers) -> set[int]:
+        resp = await api_client.get("/api/board-tasks", headers=headers)
+        assert resp.status_code == 200, resp.text
+        return {row["job_id"] for row in resp.json()["new_job_leads"]}
+
+    try:
+        _patch_job_leads(monkeypatch, mode="auto")
+        hor = await _login(api_client, hor_creds)
+        assert {jobs["auto"], jobs["manual"]} <= await listed_ids(hor)
+
+        # Potwierdzenie innej osoby niż dzisiejszy prowadzący — odmowa.
+        stale = await api_client.post(
+            f"/api/request-board/jobs/{jobs['auto']}/lead-confirmation",
+            json={"lead_user_id": people["manual"]},
+            headers=hor,
+        )
+        assert stale.status_code == 409, stale.text
+
+        confirmed = await api_client.post(
+            f"/api/request-board/jobs/{jobs['auto']}/lead-confirmation",
+            json={"lead_user_id": people["auto"]},
+            headers=hor,
+        )
+        assert confirmed.status_code == 200, confirmed.text
+
+        # Zmiana prowadzącego przez Head of Recruitment też jest decyzją.
+        changed = await api_client.post(
+            f"/api/jobs/{jobs['manual']}/owner",
+            json={"user_id": people["participant"]},
+            headers=hor,
+        )
+        assert changed.status_code == 200, changed.text
+
+        after = await listed_ids(hor)
+        assert jobs["auto"] not in after
+        assert jobs["manual"] not in after
+        # Pozostałe wiersze zostają.
+        assert jobs["owner"] in after
+
+        # Prowadzący zmienił się po potwierdzeniu (tu: ktoś zdjął potwierdzoną
+        # osobę i wskazał inną) — rekrutacja wraca na listę.
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(Activity)
+                .where(
+                    Activity.entity_type == "job",
+                    Activity.entity_id == jobs["auto"],
+                    Activity.action == "new_job_lead_confirmed",
+                )
+                .values(details={"lead_user_id": people["proposed"], "via": "confirm"})
+            )
+            await db.commit()
+        assert jobs["auto"] in await listed_ids(hor)
+    finally:
+        from app.models.recruitment_priority import (
+            RecruitmentPriorityAssignment,
+            RecruitmentPriorityDemand,
+        )
+
+        job_ids = list(jobs.values())
+        async with AsyncSessionLocal() as db:
+            # `/owner` przy przekazanej rekrutacji zakłada wpisy planu
+            # priorytetów (`assign_operator`) — FK bez kaskady.
+            await db.execute(
+                delete(RecruitmentPriorityAssignment).where(
+                    RecruitmentPriorityAssignment.job_id.in_(job_ids)
+                )
+            )
+            await db.execute(
+                delete(RecruitmentPriorityDemand).where(
+                    RecruitmentPriorityDemand.job_id.in_(job_ids)
+                )
+            )
+            await db.execute(
+                delete(Activity).where(
+                    Activity.entity_type == "job",
+                    Activity.entity_id.in_(job_ids),
+                )
+            )
+            await db.commit()
         await _drop_job_leads(seeded)
 
 
