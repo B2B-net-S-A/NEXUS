@@ -399,6 +399,14 @@ def _answer_by_number(answer: str, champion_question: str) -> str:
     return rest
 
 
+# Arkusz z notatki widzi klient, więc zapisujemy wyłącznie przypięcia po
+# TREŚCI pytania. Przypięcie po numerze (pomiar na produkcji 07.10.2026:
+# 215 z 8 100 odpowiedzi) myliło odpowiedź z innym pytaniem albo zostawiało
+# na początku kawałek pytania, gdy parser karty ich nie rozdzielił —
+# niewielki zysk nie jest wart złej odpowiedzi u klienta.
+WRITE_BY_NUMBER = False
+
+
 def map_note_answers(
     questions: Mapping[str, str],
     items: Sequence[Mapping[str, Any]],
@@ -751,7 +759,9 @@ async def plan_pair(
     else:
         note_id = current.get("note_id")
         out.note_id = note_id if isinstance(note_id, int) else None
-        mapping = map_note_answers(questions, current["items"])
+        mapping = map_note_answers(
+            questions, current["items"], use_numbers=WRITE_BY_NUMBER
+        )
         out.by_content, out.by_number = mapping.by_content, mapping.by_number
         out.skipped = mapping.skipped
         if not mapping.matches:

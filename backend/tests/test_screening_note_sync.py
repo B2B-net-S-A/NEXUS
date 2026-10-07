@@ -282,6 +282,18 @@ def test_statement_starting_with_a_question_word_stays():
     ) == ("Co do Kafki — 3 lata komercyjnie.")
 
 
+def test_writer_maps_by_content_only():
+    # Plan pary woła map_note_answers z use_numbers=WRITE_BY_NUMBER (False).
+    assert sync.WRITE_BY_NUMBER is False
+    result = sync.map_note_answers(
+        QUESTIONS,
+        [_item(1, "", "Dwa lata."), _item(2, "", "Tak."), _item(3, "", "Miesiąc.")],
+        use_numbers=sync.WRITE_BY_NUMBER,
+    )
+    assert result.matches == ()
+    assert result.skipped == {"no_text": 3}
+
+
 def test_questions_unlike_the_profile_are_not_mapped_by_number():
     # Profil zmieniony po notatce: trzy odpowiedzi na trzy INNE pytania.
     result = sync.map_note_answers(
@@ -550,9 +562,11 @@ async def _world(*, attempt_started: datetime | None = None) -> dict:
                 fields_manual={},
                 note_answers={
                     "items": [
-                        _item(1, "", "Dwa lata na EKS."),
+                        # Zapis bierze tylko przypięcia po treści pytania
+                        # (WRITE_BY_NUMBER = False).
+                        _item(1, QUESTIONS["q1"], "Dwa lata na EKS."),
                         _item(2, "Czy pracowałeś z Apache Kafka?", "Tak, 3 lata."),
-                        _item(3, "", "Miesiąc."),
+                        _item(3, QUESTIONS["q3"], "Miesiąc."),
                     ],
                     "note_id": note.id,
                     "at": NOTE_AT.isoformat(),
@@ -744,7 +758,7 @@ async def test_backfill_dry_run_writes_nothing_and_apply_is_idempotent(
     async with AsyncSessionLocal() as db:
         report = await backfill.plan(db, only_pairs=pair)
     assert report["to_change"] == 1 and report["actions"] == {"create": 1}
-    assert report["answers"] == {"by_content": 1, "by_number": 2}
+    assert report["answers"] == {"by_content": 3, "by_number": 0}
     assert report["samples"][0]["candidate_id"] == world["candidate_id"]
     assert await _sheets(world) == (None, None)
 
