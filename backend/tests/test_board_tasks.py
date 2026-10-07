@@ -1443,11 +1443,29 @@ async def test_new_job_lead_disappears_after_confirm_or_change(
             await db.commit()
         assert jobs["auto"] in await listed_ids(hor)
     finally:
+        from app.models.recruitment_priority import (
+            RecruitmentPriorityAssignment,
+            RecruitmentPriorityDemand,
+        )
+
+        job_ids = list(jobs.values())
         async with AsyncSessionLocal() as db:
+            # `/owner` przy przekazanej rekrutacji zakłada wpisy planu
+            # priorytetów (`assign_operator`) — FK bez kaskady.
+            await db.execute(
+                delete(RecruitmentPriorityAssignment).where(
+                    RecruitmentPriorityAssignment.job_id.in_(job_ids)
+                )
+            )
+            await db.execute(
+                delete(RecruitmentPriorityDemand).where(
+                    RecruitmentPriorityDemand.job_id.in_(job_ids)
+                )
+            )
             await db.execute(
                 delete(Activity).where(
                     Activity.entity_type == "job",
-                    Activity.entity_id.in_(list(jobs.values())),
+                    Activity.entity_id.in_(job_ids),
                 )
             )
             await db.commit()
