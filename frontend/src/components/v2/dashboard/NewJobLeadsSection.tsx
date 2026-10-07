@@ -281,7 +281,7 @@ export function NewJobLeadsSection({ rows, standalone = false }: NewJobLeadsSect
       return next;
     });
 
-  const confirm = async (row: NewJobLeadRow, leadUserId: number) => {
+  const confirmLead = async (row: NewJobLeadRow, leadUserId: number) => {
     markPending(row.job_id, true);
     try {
       await confirmJobLead(row.job_id, leadUserId);
@@ -453,7 +453,7 @@ export function NewJobLeadsSection({ rows, standalone = false }: NewJobLeadsSect
                       size="sm"
                       variant="outline"
                       disabled={busy}
-                      onClick={() => void confirm(row, leadUserId)}
+                      onClick={() => void confirmLead(row, leadUserId)}
                       aria-label={`Potwierdź prowadzącego: ${row.title}`}
                     >
                       Potwierdź
