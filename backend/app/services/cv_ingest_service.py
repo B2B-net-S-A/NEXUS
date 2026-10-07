@@ -165,6 +165,7 @@ async def finish_cv_ingest(
 
     # Każdy dodatek w SAVEPOINCIE: błąd bazy w jednym z nich nie może zatruć
     # sesji, w której leży zapis profilu — commit wołającego by go zgubił.
+    cc_before = getattr(candidate, "competence_category_id", None)
     try:
         async with db.begin_nested():
             await assign_primary_cc_if_empty(candidate, db)
@@ -172,6 +173,20 @@ async def finish_cv_ingest(
         logger.warning(
             "[cv_ingest] CC savepoint failed candidate=%s: %s", candidate.id, exc
         )
+
+    # Kategoria jest w tekście wektora: przypisana po nim robi go nieaktualnym
+    # (inline przy wyłączonym outboxie; przy włączonym — intencja z hashem
+    # sprzed kategorii). Ponowne zgłoszenie liczy hash z kategorią.
+    if getattr(candidate, "competence_category_id", None) != cc_before:
+        try:
+            async with db.begin_nested():
+                await schedule_or_embed_candidate(candidate.id, db)
+        except Exception as exc:  # noqa: BLE001 — wektor dogoni reconciler
+            logger.warning(
+                "[cv_ingest] re-embed after CC failed candidate=%s: %s",
+                candidate.id,
+                exc,
+            )
 
     try:
         async with db.begin_nested():

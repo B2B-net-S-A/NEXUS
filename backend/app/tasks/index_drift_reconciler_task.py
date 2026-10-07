@@ -3,7 +3,11 @@
 Flag-gated and OFF by default. It walks candidates and jobs in batches, one
 batch per tick, carrying a cursor across ticks — so a full pass is spread over
 hours instead of arriving as one spike, and a restart resumes from the start of
-the current pass rather than re-doing everything.
+the current pass rather than re-doing everything. The cursor lives in
+``app_settings['index_drift_reconciler_state']`` (badanie 06.10.2026: trzymany
+w pamięci wracał do zera przy każdym deployu, a przy kilku deployach dziennie
+~11-godzinny przebieg nie dochodził do najnowszych kandydatów nigdy). Each tick
+also checks the newest candidates first (``newest_first``).
 
 Ordering matters and is not optional: this must not run before the provider
 health probes exist. With ``AI_INDEX_MAX_ATTEMPTS=5``, a Voyage outage plus a
@@ -14,7 +18,10 @@ and the healthcheck would have shown green throughout.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+
+from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
@@ -23,6 +30,53 @@ from app.services import index_outbox_service as outbox
 from app.services import loop_heartbeat
 
 logger = logging.getLogger(__name__)
+
+
+STATE_KEY = "index_drift_reconciler_state"
+
+_STATE_UPSERT = text(
+    """
+    INSERT INTO app_settings (key, value, updated_at)
+    VALUES (:key, CAST(:patch AS jsonb), NOW())
+    ON CONFLICT (key) DO UPDATE SET
+        value = app_settings.value || EXCLUDED.value,
+        updated_at = NOW()
+    """
+)
+
+
+async def load_cursors() -> dict[str, int]:
+    """Kursory z poprzedniego procesu. Brak wiersza albo błąd = start od zera."""
+    cursors = {outbox.CANDIDATE: 0, outbox.JOB: 0}
+    try:
+        async with AsyncSessionLocal() as db:
+            value = (
+                await db.execute(
+                    text("SELECT value FROM app_settings WHERE key = :key"),
+                    {"key": STATE_KEY},
+                )
+            ).scalar()
+    except Exception as exc:  # noqa: BLE001 — brak stanu nie zatrzymuje pętli
+        logger.warning("[index-drift] cursor state read failed: %s", exc)
+        return cursors
+    if isinstance(value, dict):
+        for key in cursors:
+            raw = value.get(key)
+            if isinstance(raw, int) and raw >= 0:
+                cursors[key] = raw
+    return cursors
+
+
+async def save_cursors(cursors: dict[str, int]) -> None:
+    """Zapis kursorów po tiku. Nigdy nie rzuca — zgubiony zapis to tylko powtórka paczki."""
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                _STATE_UPSERT, {"key": STATE_KEY, "patch": json.dumps(cursors)}
+            )
+            await db.commit()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[index-drift] cursor state write failed: %s", exc)
 
 
 def reconciler_enabled() -> bool:
@@ -68,7 +122,8 @@ async def index_drift_reconciler_loop() -> None:
     )
 
     # One cursor per entity type; a completed pass resets to 0 and starts over.
-    cursors: dict[str, int] = {outbox.CANDIDATE: 0, outbox.JOB: 0}
+    # Persisted, so a deploy resumes the pass instead of restarting it.
+    cursors: dict[str, int] = await load_cursors()
 
     # MON-04: pętla, która żyje, ale nic nie robi, jest awarią. Ta była
     # zwolniona z heartbeatu z uzasadnieniem „outbox indeksu jest objęty" —
@@ -88,6 +143,24 @@ async def index_drift_reconciler_loop() -> None:
             )
             await asyncio.sleep(interval)
             continue
+        # Najnowsi kandydaci najpierw: nowe CV zmieniają tekst najczęściej
+        # (kategoria, uzupełnienie profilu), a zwykły przebieg dochodzi do nich
+        # dopiero po ~11 h.
+        try:
+            async with AsyncSessionLocal() as db:
+                head = await reconciler.reconcile_once(
+                    db,
+                    entity_type=outbox.CANDIDATE,
+                    batch=batch,
+                    newest_first=True,
+                )
+                await db.commit()
+            if head.drifted:
+                logger.info("[index-drift] newest candidates: %s", head.as_log())
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — a tick must never kill the loop
+            logger.warning("[index-drift] newest candidates tick failed: %s", exc)
         for entity_type in (outbox.CANDIDATE, outbox.JOB):
             try:
                 async with AsyncSessionLocal() as db:
@@ -126,4 +199,5 @@ async def index_drift_reconciler_loop() -> None:
                 raise
             except Exception as exc:  # noqa: BLE001 — a tick must never kill the loop
                 logger.warning("[index-drift] %s tick failed: %s", entity_type, exc)
+        await save_cursors(cursors)
         await asyncio.sleep(interval)
