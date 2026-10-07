@@ -980,7 +980,16 @@ function hasDuplicateIdentity(form: DuplicateIdentityFields): boolean {
 
 const DUPLICATE_CHECK_DEBOUNCE_MS = 400;
 
-export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (msg: string) => void }) {
+export function AddCandidateModal({
+  onClose,
+  onSuccess,
+  onCreated,
+}: {
+  onClose: () => void;
+  onSuccess: (msg: string) => void;
+  /** Id zapisanego kandydata — np. okno rekrutacji dodaje go od razu do „Nowych”. */
+  onCreated?: (candidateId: number) => void;
+}) {
   const [form, setForm] = useState<CandidateFormData>(EMPTY_CANDIDATE);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -1176,6 +1185,7 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
       const noteSaved = Number.isFinite(createdId)
         ? await saveCandidateFormNote(createdId, form.notes)
         : !form.notes.trim();
+      if (Number.isFinite(createdId)) onCreated?.(createdId);
       onSuccess(
         noteSaved
           ? "Kandydat dodany pomyślnie"

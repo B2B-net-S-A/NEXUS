@@ -97,6 +97,73 @@ def test_variants_skip_short_polish_and_redundant_aliases(catalog):
     )
 
 
+def test_critical_label_searches_the_name_and_its_variants():
+    """W4 (audyt 06.10.2026): obowiązkowy wiersz „PostgreSQL” szuka też
+    „Postgres” — słowa kluczowe nie rozwijają aliasów same, a krytyczna
+    ukrywa kandydata, więc ~2% osób z samym „postgres” w CV wypadało."""
+    saved = keyword_suggest._catalog
+    keyword_suggest.load_catalog(
+        [(1, "PostgreSQL", "database"), (2, "Apache Kafka", "tool")],
+        [(1, "postgres"), (1, "pg"), (2, "kafka")],
+    )
+    try:
+        assert keyword_suggest.requirement_search_words("PostgreSQL") == (
+            "PostgreSQL",
+            "postgres",
+        )
+        # Wpisany alias prowadzi; nazwa ze słownika dochodzi jako wariant.
+        assert keyword_suggest.requirement_search_words("Postgres") == (
+            "Postgres",
+            "PostgreSQL",
+        )
+        # „A lub B” — każda opcja ze swoimi wariantami.
+        assert keyword_suggest.requirement_search_words("Kafka lub PostgreSQL") == (
+            "Kafka",
+            "Apache Kafka",
+            "PostgreSQL",
+            "postgres",
+        )
+        # Spoza słownika — samo słowo.
+        assert keyword_suggest.requirement_search_words("Pega") == ("Pega",)
+    finally:
+        keyword_suggest._catalog = saved
+
+
+def test_requirement_search_words_read_the_label_like_the_ai_gate():
+    """Blokada przeglądu PR #2056: wiersz obowiązkowy czyta etykietę tak jak
+    bramka AI (``must_gate_terms.gate_requirement``) — bez wersji, z „/”,
+    „lub” i przykładami w nawiasie. Dosłowna etykieta „Java 11+” szukała
+    słowa „Java 11+”, a „Docker/Kubernetes” — jednego słowa z ukośnikiem."""
+    saved = keyword_suggest._catalog
+    keyword_suggest.load_catalog(
+        [(1, "PostgreSQL", "database"), (2, "Apache Kafka", "tool")],
+        [(1, "postgres"), (2, "kafka")],
+    )
+    try:
+        assert keyword_suggest.requirement_search_words("Java 11+") == ("Java",)
+        assert keyword_suggest.requirement_search_words("Docker/Kubernetes") == (
+            "Docker",
+            "Kubernetes",
+        )
+        assert keyword_suggest.requirement_search_words(
+            "Bazy danych (Oracle, PostgreSQL)"
+        ) == ("Oracle", "PostgreSQL", "postgres")
+        assert keyword_suggest.requirement_search_words("Kafka lub RabbitMQ") == (
+            "Kafka",
+            "Apache Kafka",
+            "RabbitMQ",
+        )
+    finally:
+        keyword_suggest._catalog = saved
+
+
+def test_single_letter_requirement_gives_no_keyword_row():
+    """„C” i „R” jako słowo kluczowe znajdują prawie całą bazę („2019 r.”,
+    „C++”) — wiersz z taką opcją nie powstaje (bramka AI czyta je z profilu)."""
+    assert keyword_suggest.requirement_search_words("R") == ()
+    assert keyword_suggest.requirement_search_words("C lub C++") == ()
+
+
 def test_every_equivalent_parses_as_a_keyword():
     """Kontrakt słownika odpowiedników: każde słowo da się wyszukać, gwiazdka
     ma co najmniej 3 litery rdzenia, a grupa ma co najmniej dwa słowa."""

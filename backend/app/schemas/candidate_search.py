@@ -317,6 +317,14 @@ class MatchScoresRequest(BaseModel):
     candidate_ids: list[int] = Field(
         default_factory=list, max_length=MATCH_SCORES_MAX_CANDIDATES
     )
+    # U5 (audyt 06.10.2026): pierwsza strona okna „Szukaj ręcznie” zapisuje
+    # te wiersze jako wyświetlenia (kolejność = kolejność `candidate_ids`).
+    impression_surface: Optional[Literal["manual_search"]] = None
+    # Pozycje wierszy na stronie (równoległe do `candidate_ids`); bez nich
+    # pozycją jest kolejność w żądaniu.
+    impression_ranks: Optional[list[int]] = Field(
+        default=None, max_length=MATCH_SCORES_MAX_CANDIDATES
+    )
 
 
 class MatchScoresResponse(BaseModel):

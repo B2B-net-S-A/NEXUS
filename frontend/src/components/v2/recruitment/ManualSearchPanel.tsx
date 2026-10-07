@@ -17,12 +17,12 @@ import { useQuery } from "@tanstack/react-query";
 
 import { CandidatesListV2 } from "@/components/v2/pages/CandidatesListV2";
 import {
-  championCriticalRowFlags,
   championSearchRequirements,
   jobListFilters,
+  jobSearchPlan,
+  mandatorySourceNote,
   type ManualSearchJob,
 } from "@/lib/job-search-filters";
-import { classifyRequirementRows } from "@/lib/requirement-row-kinds";
 import {
   matchingRequirementsApi,
   requirementLabels,
@@ -50,9 +50,9 @@ export function ManualSearchPanel({
     queryKey: ["matching-requirements", jobId],
     queryFn: () => matchingRequirementsApi.get(jobId),
   });
-  // Wymagania do wyszukiwania czytamy z profilu Championa tym samym kluczem
-  // co edytor — po zapisie DL-a okno ma świeże wiersze, nie te z odczytu
-  // rekrutacji sprzed edycji.
+  // Wymagania do wyszukiwania i umiejętności krytyczne czytamy z profilu
+  // Championa tym samym kluczem co edytor — po zapisie DL-a okno ma świeże
+  // wiersze, nie te z odczytu rekrutacji sprzed edycji.
   const champion = useQuery({
     queryKey: ["champion-profile", jobId],
     queryFn: () => championApi.get(jobId).then((r) => r.data),
@@ -61,29 +61,13 @@ export function ManualSearchPanel({
   const source = champion.isSuccess
     ? { ...job, champion_profile: champion.data?.champion_profile }
     : job;
+  // Krytyczne liczy serwer (wybór DL albo podpowiedź z historii) — te same,
+  // którymi propozycje AI ukrywają kandydatów (audyt 06.10.2026, D1/W1–W5).
+  const critical = champion.isSuccess ? (champion.data?.critical_resolution ?? null) : null;
   const search = championSearchRequirements(source);
   const championSettled = champion.isSuccess || champion.isError;
-  // Który wiersz wymagań to technologia (audyt 26.09.2026): obowiązkowe
-  // zostają tylko wiersze technologii, reszta tylko podnosi w kolejności.
-  // `null` przy błędzie = wiersz obowiązkowy, jak dotąd (bezpieczny kierunek).
-  const rowKinds = useQuery({
-    queryKey: ["manual-search-row-kinds", search.rows],
-    queryFn: () => classifyRequirementRows(search.rows),
-    enabled: championSettled && search.rows.length > 0,
-    // Runda 8 (R8-N14-7): wynik klasyfikacji jest w `key` listy. Odświeżenie
-    // przy powrocie do karty (np. `null` po limicie czasu → `false`)
-    // przemontowałoby listę i skasowało wpisany szkic filtrów. Nowe wiersze
-    // DL-a to nowy klucz zapytania, więc staleness nic tu nie wnosi.
-    staleTime: Infinity,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-  });
 
-  if (
-    (!savedReqs.isSuccess && !savedReqs.isError) ||
-    !championSettled ||
-    (search.rows.length > 0 && !rowKinds.isSuccess && !rowKinds.isError)
-  ) {
+  if ((!savedReqs.isSuccess && !savedReqs.isError) || !championSettled) {
     return <p className="p-6 text-sm text-muted-foreground">Ładowanie…</p>;
   }
 
@@ -92,25 +76,25 @@ export function ManualSearchPanel({
   const mustLabels = savedReqs.isSuccess
     ? requirementLabels(savedReqs.data, "must")
     : null;
-  const hasRows = search.rows.length > 0;
-  const techRows = rowKinds.isSuccess ? rowKinds.data : null;
+  // Ta sama reguła „są wiersze do szukania” co zakładka „Szukaj w bazie”
+  // i kafel (`jobSearchPlan`, przegląd PR #2056).
+  const { split, hasRows } = jobSearchPlan(source, critical);
 
   return (
     <CandidatesListV2
       // Klucz z TREŚCI wymagań, nie z `dataUpdatedAt`: odświeżenie przy powrocie
       // do karty z identycznymi danymi nie może kasować wpisanych filtrów.
-      // …i z wymagań do wyszukiwania: DL zmienił wiersze = nowe filtry startowe.
-      key={`${mustLabels ? `must:${mustLabels.join("|")}` : "must:fallback"}#${JSON.stringify(search)}#${JSON.stringify(techRows)}`}
+      // …i z wymagań do wyszukiwania oraz krytycznych: DL zmienił wiersze =
+      // nowe filtry startowe.
+      key={`${mustLabels ? `must:${mustLabels.join("|")}` : "must:fallback"}#${JSON.stringify(search)}#${JSON.stringify(split)}`}
       embed={{
         jobId,
         jobTitle: job.title,
-        initialFilters: jobListFilters(source, mustLabels, techRows),
+        initialFilters: jobListFilters(source, mustLabels, critical),
         readOnly,
         onAdded: onBulkAdded,
         keywordsNote: hasRows
-          ? championCriticalRowFlags(source, search.rows) != null
-            ? "Wymagania ustawione przy tworzeniu rekrutacji: krytyczne są obowiązkowe, pozostałe wiersze tylko podnoszą w kolejności. Zmiany tutaj nie zmieniają rekrutacji."
-            : "Wymagania ustawione przy tworzeniu rekrutacji: technologie są obowiązkowe, pozostałe wiersze tylko podnoszą w kolejności. Zmiany tutaj nie zmieniają rekrutacji."
+          ? `Wymagania z rekrutacji. ${mandatorySourceNote(split)} Zmiany tutaj nie zmieniają rekrutacji.`
           : undefined,
       }}
     />
@@ -119,9 +103,4 @@ export function ManualSearchPanel({
 
 // Filtry startowe żyją w `lib/job-search-filters.ts` (wspólne z oknem
 // „Kandydaci do dodania”); eksport zostaje dla dotychczasowych importów.
-export {
-  championCriticalRowFlags,
-  championSearchRequirements,
-  jobListFilters,
-  type ManualSearchJob,
-};
+export { championSearchRequirements, jobListFilters, type ManualSearchJob };

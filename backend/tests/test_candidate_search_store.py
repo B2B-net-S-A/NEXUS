@@ -13,6 +13,19 @@ from app.services import candidate_search_store as store
 from app.services.full_candidate_scan import CandidateEvaluation
 
 
+def test_run_is_complete_when_unmeasured_are_below_one_percent():
+    """K12 (audyt 06.10.2026): 7 niezmierzonych na 3 087 to pełny przegląd."""
+    base = {"failed": 0, "eligible": 3087}
+    assert store.run_state_for({**base, "needs_verification": 0}) == "complete"
+    assert store.run_state_for({**base, "needs_verification": 7}) == "complete"
+    assert store.run_state_for({**base, "needs_verification": 31}) == "partial"
+    failed = {**base, "failed": 1, "needs_verification": 0}
+    assert store.run_state_for(failed) == "partial"
+    # Mała pula: jedna niezmierzona osoba to już ≥ 1%.
+    small = {"failed": 0, "eligible": 50, "needs_verification": 1}
+    assert store.run_state_for(small) == "partial"
+
+
 @pytest.mark.asyncio
 async def test_durable_run_accounts_for_entire_snapshot_and_preserves_unknown():
     async with AsyncSessionLocal() as db:
@@ -73,7 +86,9 @@ async def test_durable_run_accounts_for_entire_snapshot_and_preserves_unknown():
             counts = await store.finish_run(db, run.id, token)
             assert counts["evaluated"] == run.population_size
             assert counts["needs_verification"] == 1
-            assert run.state == "partial"
+            # Jedna niezmierzona osoba: przegląd częściowy tylko przy ≥ 1%
+            # widocznych (K12) — baza testowa jest wspólna, więc liczymy regułą.
+            assert run.state == store.run_state_for(counts)
             assert run.metrics["elapsed_ms"] >= 0
             assert run.metrics["cost_complete"] is False
             rows, total = await store.result_page(db, run.id, min_score=90)

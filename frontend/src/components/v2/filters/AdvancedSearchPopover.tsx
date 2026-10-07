@@ -20,6 +20,7 @@ import {
   type KeywordContextItem,
   type SuggestionOption,
 } from "@/lib/keyword-suggest";
+import { keywordLongEnough, tooShortKeywordMessage } from "@/lib/keyword-requirements";
 import { recentKeywords } from "@/lib/search-memory";
 import { useAuthStore } from "@/store/auth";
 
@@ -56,7 +57,6 @@ interface AdvancedSearchPopoverProps {
 
 const MAX_PER_BUCKET = 20;
 const MAX_ANY_GROUPS = 5;
-const MIN_PHRASE_LEN = 2;
 
 type Tone = "emerald" | "sky" | "rose";
 
@@ -104,7 +104,7 @@ function dedupeCaseInsensitive(xs: string[]): string[] {
   for (const raw of xs) {
     const trimmed = raw.trim();
     const key = trimmed.toLowerCase();
-    if (trimmed.length >= MIN_PHRASE_LEN && !seen.has(key)) {
+    if (keywordLongEnough(trimmed) && !seen.has(key)) {
       seen.add(key);
       out.push(trimmed);
     }
@@ -168,6 +168,7 @@ export function ChipField({
 }) {
   const [draft, setDraft] = useState("");
   const [open, setOpen] = useState(false);
+  const [tooShort, setTooShort] = useState<string | null>(null);
   // -1 = nic nie zaznaczone: Enter dodaje wpisany tekst, dopóki ktoś nie
   // wybierze podpowiedzi strzałką (inaczej „junior” + Enter dodawał
   // pierwszą pozycję z listy, np. stanowisko „junior java developer”).
@@ -197,10 +198,15 @@ export function ChipField({
     if (!draft.trim()) return;
     // `|` rozdziela słowa grupy w adresie — w słowie zamieniamy go na spację,
     // inaczej po odświeżeniu „a|b” wracało jako dwa osobne słowa.
-    const fresh = draft
+    const words = draft
       .split(",")
       .map((x) => x.replace(/\|/g, " ").replace(/\s+/g, " ").trim())
-      .filter((x) => x.length >= MIN_PHRASE_LEN);
+      .filter(Boolean);
+    const fresh = words.filter(keywordLongEnough);
+    // Słowo, którego nie da się szukać, nie znika po cichu — pole mówi
+    // dlaczego i gdzie szukać pojedynczej litery (przegląd PR #2056).
+    const rejected = words.filter((x) => !keywordLongEnough(x));
+    setTooShort(rejected.length > 0 ? tooShortKeywordMessage(rejected) : null);
     if (fresh.length > 0) onChange(dedupeCaseInsensitive([...chips, ...fresh]));
     setDraft("");
   };
@@ -226,6 +232,13 @@ export function ChipField({
       e.preventDefault();
       e.stopPropagation();
       setOpen(false);
+    } else if (e.key === "Escape" && draft) {
+      // U8 (audyt 06.10.2026): Esc z wpisanym tekstem czyści pole — okno
+      // rekrutacji nie zamyka się wtedy (`keepSheetOpenOnKeywordEscape`).
+      e.preventDefault();
+      e.stopPropagation();
+      setDraft("");
+      setTooShort(null);
     } else if (e.key === "Enter") {
       e.preventDefault();
       if (!draft.trim()) {
@@ -277,6 +290,7 @@ export function ChipField({
       setDraft(e.target.value);
       setHighlight(-1);
       setOpen(true);
+      setTooShort(null);
     },
     onKeyDown: handleKeyDown,
     onFocus: () => setOpen(true),
@@ -300,6 +314,11 @@ export function ChipField({
         }
       : {}),
   };
+  const tooShortNote = tooShort ? (
+    <p role="status" className="w-full text-xs text-warning-muted-foreground">
+      {tooShort}
+    </p>
+  ) : null;
   const suggestionList = showList && (
     <KeywordSuggestionList
       id={listId}
@@ -322,9 +341,11 @@ export function ChipField({
         {chipBadges}
         <input
           {...inputProps}
+          data-keyword-field=""
           className="h-7 w-0 min-w-[8rem] flex-1 bg-transparent text-sm outline-hidden placeholder:text-muted-foreground disabled:cursor-not-allowed"
         />
         {suggestionList}
+        {tooShortNote}
       </div>
     );
   }
@@ -333,9 +354,10 @@ export function ChipField({
     <div className="flex flex-col gap-1.5">
       {chips.length > 0 && <div className="flex flex-wrap gap-1">{chipBadges}</div>}
       <div className="relative">
-        <Input {...inputProps} className="h-8 text-sm" />
+        <Input {...inputProps} data-keyword-field="" className="h-8 text-sm" />
         {suggestionList}
       </div>
+      {tooShortNote}
     </div>
   );
 }

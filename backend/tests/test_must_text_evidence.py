@@ -83,3 +83,59 @@ def test_evidence_for_another_must_list_is_ignored():
     )
     res = apply_dealbreakers([cand], inputs=DealbreakerInputs(must_skills=("Kafka",)))
     assert res.exclusion_reasons == {9: "missing_must"}
+
+
+# ── Audyt 06.10.2026 (K7, K9, K12) ──────────────────────────────────────────
+
+
+def test_phrase_with_brackets_and_commas_counts():
+    """K7: „Spring (Boot, Data)” w CV spełnia must „Spring Boot”."""
+    assert mentions(gate_requirement("Spring Boot"), "Java 17, Spring (Boot, Data)")
+
+
+def test_inflected_names_of_four_or_more_letters_count():
+    """K12: „z Kafką”, „w Javie” — odmiana nazwy ≥ 4 litery to wzmianka."""
+    assert mentions(gate_requirement("Kafka"), "Integracje z Kafką i Oracle")
+    assert mentions(gate_requirement("Java"), "Pisał mikroserwisy w Javie")
+    assert mentions(gate_requirement("Docker"), "Wdrożenia z Dockerem")
+    # Odmiana nie otwiera dowolnej końcówki: „Java” ≠ „JavaScript”.
+    assert not mentions(gate_requirement("Java"), "Frontend w JavaScripcie")
+    # Krótsze nazwy (≤ 3 litery) bez odmiany — „Go” to też polskie słowo.
+    assert not mentions(gate_requirement("Go"), "chcę go zatrudnić")
+
+
+def test_profile_text_alone_is_data():
+    """K9: historia stanowisk bez CV i listy umiejętności to dane, nie `no_data`."""
+    from app.services.must_text_evidence import has_any_data
+
+    cand = _cand(
+        id=10,
+        experience=[{"role": "Java Developer", "company": "Acme", "description": "x"}],
+    )
+    assert has_any_data(cand, None)
+
+
+def test_cv_file_waiting_for_text_is_not_no_data():
+    """K9: plik CV bez odczytanego tekstu czeka na ponowny odczyt (nocna faza
+    `candidates_cv_text`) — to nie „nic o nim nie wiemy”."""
+    from app.services.must_text_evidence import cv_waiting_for_text, has_any_data
+
+    cand = _cand(id=11, cv_storage_key="cv/11.pdf")
+    assert cv_waiting_for_text(cand)
+    assert has_any_data(cand, None)
+    res = apply_dealbreakers([cand], inputs=DealbreakerInputs(must_skills=("Kafka",)))
+    assert res.exclusion_reasons.get(11) != "no_data"
+    # Plik, którego nie da się odczytać (znacznik końcowy), nie jest danymi.
+    hopeless = _cand(
+        id=12,
+        cv_storage_key="cv/12.pdf",
+        cv_extracted_data={
+            "_cv_text_extraction": {
+                "outcome": "junk",
+                "storage_key": "cv/12.pdf",
+                "sniffed": True,
+            }
+        },
+    )
+    assert not cv_waiting_for_text(hopeless)
+    assert not has_any_data(hopeless, None)

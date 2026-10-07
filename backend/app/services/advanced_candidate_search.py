@@ -92,8 +92,11 @@ from app.services import note_kinds
 from app.services import keyword_corpus
 from app.services.keyword_terms import (
     KeywordTerm,
+    KeywordTooShort,
+    keyword_long_enough,
     parse_keyword,
     pg_regex,
+    too_short_keyword_message,
     tsquery_path_variants,
     tsquery_text,
 )
@@ -622,7 +625,7 @@ def _clean(phrases: Optional[list[str]]) -> list[str]:
             continue
         trimmed = raw.strip()
         key = trimmed.lower()
-        if len(trimmed) >= _MIN_PHRASE_LEN and key not in seen:
+        if keyword_long_enough(trimmed) and key not in seen:
             seen.add(key)
             cleaned.append(trimmed)
         if len(cleaned) >= _MAX_PHRASES_PER_BUCKET:
@@ -655,9 +658,13 @@ def build_advanced_filter(
     *,
     whole_words: bool = False,
     scope: str = "all",
+    reject_short: bool = False,
 ) -> Optional[ColumnElement]:
     """
     Combine the buckets into a single SQLAlchemy expression.
+
+    ``reject_short`` (v2): słowo krótsze niż 2 znaki to ``KeywordTooShort``
+    zamiast cichego pominięcia — wołający odpowiada 422 (przegląd PR #2056).
 
     The ANY bucket supports MULTIPLE OR-groups that AND together::
 
@@ -672,6 +679,20 @@ def build_advanced_filter(
     Returns `None` when all buckets are effectively empty — caller should
     skip the `.where(...)` call in that case.
     """
+    if reject_short:
+        short: list[str] = []
+        for word in [
+            *(q_all or []),
+            *(q_any or []),
+            *(q_none or []),
+            *(w for group in (q_any_groups or []) for w in (group or [])),
+        ]:
+            trimmed = (word or "").strip()
+            if trimmed and trimmed.strip("*") and not keyword_long_enough(trimmed):
+                if trimmed not in short:
+                    short.append(trimmed)
+        if short:
+            raise KeywordTooShort(too_short_keyword_message(short))
     all_phrases = _clean(q_all)
     none_phrases = _clean(q_none)
 

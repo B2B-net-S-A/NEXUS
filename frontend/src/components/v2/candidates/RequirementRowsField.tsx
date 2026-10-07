@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Lightbulb, Plus, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -101,9 +101,10 @@ export interface RequirementRowsFieldProps {
   /** Wymagane i puste (bramka przekazania rekrutacji). */
   invalid?: boolean;
   /**
-   * 1024–1799 px: „Musi mieć” i „Wyklucz” obok siebie (dwie kolumny) — na
+   * Panel 56–94rem: „Musi mieć” i „Wyklucz” obok siebie (dwie kolumny) — na
    * laptopie z Windows (okno ≈ 1280 × 650 px) panel słów kluczowych zabierał
-   * liście kandydatów jedną trzecią wysokości (28.09.2026). Od 1800 px bez zmian.
+   * liście kandydatów jedną trzecią wysokości (28.09.2026). Szerokość liczy
+   * najbliższy `@container` (KeywordFields), nie okno — U8, 06.10.2026.
    */
   split?: boolean;
   className?: string;
@@ -139,6 +140,17 @@ export function RequirementRowsField({
 
   // Wiersz dodany przyciskiem dostaje kursor — od razu można pisać.
   const [focusId, setFocusId] = useState<number | null>(null);
+  // U8 (audyt 06.10.2026): po „Usuń wymaganie” kursor szedł na `body` —
+  // przenosimy go do pola wiersza, który zajął miejsce usuniętego.
+  const baseId = useId();
+  const inputIdFor = (rowId: number) => `${baseId}-row-${rowId}`;
+  const [refocusId, setRefocusId] = useState<number | null>(null);
+  useEffect(() => {
+    if (refocusId == null) return;
+    document.getElementById(inputIdFor(refocusId))?.focus();
+    setRefocusId(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refocusId]);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const allWords = useMemo(() => shown.flat(), [shown]);
   const cityWords = useCityWords(allWords, Boolean(onUseLocation));
@@ -164,7 +176,12 @@ export function RequirementRowsField({
   };
   const removeRow = (index: number) => {
     idsRef.current.splice(index, 1);
-    onRowsChange(shown.filter((_, i) => i !== index).map((row) => [...row]));
+    const next = shown.filter((_, i) => i !== index).map((row) => [...row]);
+    // Pusta lista wraca jako jeden pusty wiersz o nowym kluczu.
+    const target =
+      next.length > 0 ? idsRef.current[Math.min(index, next.length - 1)] : nextIdRef.current;
+    setRefocusId(target ?? null);
+    onRowsChange(next);
   };
   const addRow = () => {
     setFocusId(nextIdRef.current);
@@ -186,14 +203,14 @@ export function RequirementRowsField({
       className={cn(
         "flex flex-col gap-2",
         split &&
-          "lg:grid lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:gap-x-4 min-[1800px]:flex",
+          "@4xl:grid @4xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] @4xl:gap-x-4 @min-[94rem]:flex",
         className,
       )}
     >
       <div
         role="group"
         aria-label="Wymagania — każdy wiersz musi być spełniony"
-        className={cn("flex flex-col gap-2", split && "lg:col-start-1")}
+        className={cn("flex flex-col gap-2", split && "@4xl:col-start-1")}
       >
         {shown.map((row, index) => {
           const rowHints = hints.filter((hint) => hint.row === index);
@@ -227,6 +244,7 @@ export function RequirementRowsField({
                     onSubmitEmpty={onSubmitEmpty}
                     invalid={invalid && index === 0 && row.length === 0}
                     autoFocus={idsRef.current[index] === focusId}
+                    inputId={inputIdFor(idsRef.current[index])}
                   />
                 </div>
                 <button
@@ -270,7 +288,7 @@ export function RequirementRowsField({
       <div
         className={cn(
           "flex flex-wrap items-center gap-3 pl-[4.5rem] sm:pl-[5.75rem]",
-          split && "lg:col-start-1",
+          split && "@4xl:col-start-1",
         )}
       >
         <Button
@@ -289,7 +307,7 @@ export function RequirementRowsField({
             "text-xs text-muted-foreground",
             // W układzie dwukolumnowym zdanie łamało się do osobnej linii —
             // to samo mówi podpowiedź ⓘ panelu (limit wierszy zostaje zawsze).
-            split && !atLimit && "lg:hidden min-[1800px]:inline",
+            split && !atLimit && "@4xl:hidden @min-[94rem]:inline",
           )}
         >
           {atLimit
@@ -302,7 +320,7 @@ export function RequirementRowsField({
         className={cn(
           "flex items-start gap-2 border-t border-border pt-2 sm:gap-3",
           split &&
-            "lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:self-start lg:border-t-0 lg:pt-0 min-[1800px]:self-auto min-[1800px]:border-t min-[1800px]:pt-2",
+            "@4xl:col-start-2 @4xl:row-span-2 @4xl:row-start-1 @4xl:self-start @4xl:border-t-0 @4xl:pt-0 @min-[94rem]:self-auto @min-[94rem]:border-t @min-[94rem]:pt-2",
         )}
       >
         <span className="flex h-10 w-16 shrink-0 items-center justify-end text-xs font-semibold text-destructive-muted-foreground sm:w-20">

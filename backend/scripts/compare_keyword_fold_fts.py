@@ -12,6 +12,13 @@ wierszy::
     cd /app && python -m scripts.compare_keyword_fold_fts java c# scrum
 
 Wyjście: tabela Markdown do akceptacji przez właściciela.
+
+Czasy: każda ścieżka biegnie dwa razy, na przemian (stara, nowa, nowa,
+stara). Kolumny „ms” to druga, ciepła runda; „zimna” to pierwsza. Pierwszy
+pomiar 06.10.2026 mierzył każdą ścieżkę raz, stara szła pierwsza — fraza
+„ci/cd” wyszła 1 047 → 7 811 ms, bo nowa ścieżka jako jedyna czytała z dysku
+swój tsvector (EXPLAIN: ``read=`` w buforach). Na ciepłym cache: 1 097 → 379 ms.
+„niestabilne” = zbiór osób różnił się między rundami (np. zapis w trakcie).
 """
 
 from __future__ import annotations
@@ -19,6 +26,8 @@ from __future__ import annotations
 import asyncio
 import sys
 import time
+from dataclasses import dataclass
+from typing import Awaitable, Callable
 
 from sqlalchemy import select, text
 
@@ -76,6 +85,49 @@ DEFAULT_WORDS: tuple[str, ...] = (
 )
 SAMPLE = 5
 
+Runner = Callable[[], Awaitable[tuple[set[int], float]]]
+
+
+@dataclass(frozen=True)
+class Measurement:
+    old_ids: set[int]
+    new_ids: set[int]
+    old_cold_ms: float
+    new_cold_ms: float
+    old_ms: float
+    new_ms: float
+    stable: bool
+
+
+async def measure_alternating(
+    run_old: Runner, run_new: Runner, *, rounds: int = 2
+) -> Measurement:
+    """Obie ścieżki na przemian; czasy porównania z ostatniej (ciepłej) rundy.
+
+    Kolejność odwraca się co rundę, więc żadna ścieżka nie korzysta stale
+    z bloków rozgrzanych przez drugą.
+    """
+    old_runs: list[tuple[set[int], float]] = []
+    new_runs: list[tuple[set[int], float]] = []
+    for round_no in range(rounds):
+        order = [(run_old, old_runs), (run_new, new_runs)]
+        if round_no % 2:
+            order.reverse()
+        for runner, sink in order:
+            sink.append(await runner())
+    stable = all(ids == old_runs[0][0] for ids, _ in old_runs) and all(
+        ids == new_runs[0][0] for ids, _ in new_runs
+    )
+    return Measurement(
+        old_ids=old_runs[-1][0],
+        new_ids=new_runs[-1][0],
+        old_cold_ms=old_runs[0][1],
+        new_cold_ms=new_runs[0][1],
+        old_ms=old_runs[-1][1],
+        new_ms=new_runs[-1][1],
+        stable=stable,
+    )
+
 
 async def _ids(db, clause) -> tuple[set[int], float]:
     from app.models.candidate import Candidate
@@ -93,9 +145,10 @@ async def main(words: list[str]) -> None:
 
     keyword_corpus.mark_ready(True)
     print(
-        "| słowo | stara | nowa | ubywa | przybywa | stara ms | nowa ms | przykłady ubywa | przykłady przybywa |"
+        "| słowo | stara | nowa | ubywa | przybywa | stara ms | nowa ms "
+        "| zimna stara | zimna nowa | przykłady ubywa | przykłady przybywa |"
     )
-    print("|---|---:|---:|---:|---:|---:|---:|---|---|")
+    print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|")
     totals = {"lost": 0, "gained": 0}
     async with AsyncSessionLocal() as db:
         await db.execute(text("SET TRANSACTION READ ONLY"))
@@ -115,17 +168,26 @@ async def main(words: list[str]) -> None:
             term = parse_keyword(word)
             if term is None:
                 continue
-            with keyword_corpus.force_folded_search(False):
-                old, old_ms = await _ids(db, _whole_word_match(term, "all"))
-            with keyword_corpus.force_folded_search(True):
-                new, new_ms = await _ids(db, _whole_word_match(term, "all"))
+
+            async def run_old(term=term):
+                with keyword_corpus.force_folded_search(False):
+                    return await _ids(db, _whole_word_match(term, "all"))
+
+            async def run_new(term=term):
+                with keyword_corpus.force_folded_search(True):
+                    return await _ids(db, _whole_word_match(term, "all"))
+
+            m = await measure_alternating(run_old, run_new)
+            old, new = m.old_ids, m.new_ids
             lost = sorted(old - new)
             gained = sorted(new - old)
             totals["lost"] += len(lost)
             totals["gained"] += len(gained)
+            label = word if m.stable else f"{word} (niestabilne)"
             print(
-                f"| {word} | {len(old)} | {len(new)} | {len(lost)} | {len(gained)} "
-                f"| {old_ms:.0f} | {new_ms:.0f} | {lost[:SAMPLE]} | {gained[:SAMPLE]} |"
+                f"| {label} | {len(old)} | {len(new)} | {len(lost)} | {len(gained)} "
+                f"| {m.old_ms:.0f} | {m.new_ms:.0f} | {m.old_cold_ms:.0f} "
+                f"| {m.new_cold_ms:.0f} | {lost[:SAMPLE]} | {gained[:SAMPLE]} |"
             )
     print(f"\nRazem ubywa: {totals['lost']}, przybywa: {totals['gained']}.")
 

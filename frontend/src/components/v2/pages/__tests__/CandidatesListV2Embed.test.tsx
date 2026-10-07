@@ -69,7 +69,13 @@ vi.mock("@/components/Toast", () => ({
 }));
 vi.mock("@/lib/candidate-search-api", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/lib/candidate-search-api")>();
-  return { ...original, proposalsBulkApi: { add: (...a: unknown[]) => bulkAdd(...a) } };
+  return {
+    ...original,
+    proposalsBulkApi: {
+      add: (...a: unknown[]) => bulkAdd(...a),
+      addInChunks: (...a: unknown[]) => bulkAdd(...a),
+    },
+  };
 });
 vi.mock("@/hooks/useVisibleMatchScores", () => ({
   useVisibleMatchScores: (jobId: number | null, items: unknown) => {
@@ -86,7 +92,13 @@ vi.mock("@/hooks/useVisibleMatchScores", () => ({
 vi.mock("@/hooks/useCandidateContactFeature", () => ({
   useCandidateContactFeature: () => ({ enabled: false }),
 }));
-vi.mock("@/components/AppShell", () => ({ AddCandidateModal: () => null }));
+vi.mock("@/components/AppShell", () => ({
+  AddCandidateModal: ({ onCreated }: { onCreated?: (id: number) => void }) => (
+    <button type="button" onClick={() => onCreated?.(99)}>
+      Zapisz nowego kandydata
+    </button>
+  ),
+}));
 vi.mock("@/components/v2/modals/ImportCandidatesV2", () => ({
   ImportCandidatesV2: () => null,
 }));
@@ -261,6 +273,33 @@ describe("CandidatesListV2 — „Szukaj ręcznie” z rekrutacji (embed)", () =
     );
     await waitFor(() => expect(onAdded).toHaveBeenCalled());
     expect(showSuccess).toHaveBeenCalledWith("Dodano do Nowych: 1.");
+    // U4 (audyt 06.10.2026): do odświeżenia listy wiersz mówi „Dodano”
+    // i drugie kliknięcie nie jest możliwe.
+    const done = screen.getByRole("button", { name: "Ewa Marczak — dodano do Nowych" });
+    expect(done).toBeDisabled();
+    expect(done).toHaveTextContent("Dodano");
+  });
+
+  it("„dodaj nowego kandydata” z okna rekrutacji wpisuje go też do Nowych (U8)", async () => {
+    listItems = [];
+    listTotal = 0;
+    bulkAdd.mockResolvedValue({
+      added: [99],
+      skipped: [],
+      warnings: [],
+      total_added: 1,
+      total_skipped: 0,
+    });
+    renderEmbedded();
+    fireEvent.click(await screen.findByRole("button", { name: "dodaj nowego kandydata" }));
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz nowego kandydata" }));
+    await waitFor(() =>
+      expect(bulkAdd).toHaveBeenCalledWith(7, {
+        candidate_ids: [99],
+        initial_stage_legacy: "new",
+        source: "manual_search",
+      }),
+    );
   });
 
   it("zbiorczo: „Dodaj N do Nowych” z zaznaczonych", async () => {
@@ -280,6 +319,8 @@ describe("CandidatesListV2 — „Szukaj ręcznie” z rekrutacji (embed)", () =
     );
     await waitFor(() => expect(showSuccess).toHaveBeenCalled());
     expect(showSuccess.mock.calls[0][0]).toContain("Pominięto:");
+    // „Już w rekrutacji” też schodzi z zaznaczenia (U4).
+    expect(screen.queryByRole("button", { name: /Dodaj \d+ do Nowych/ })).toBeNull();
   });
 
   it("filtr „Brał udział w rekrutacji” jest tu zablokowany zdaniem, nie udaje działania", async () => {

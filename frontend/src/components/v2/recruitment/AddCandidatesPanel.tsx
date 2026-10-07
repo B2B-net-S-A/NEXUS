@@ -27,7 +27,15 @@
  * zaznaczenie.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Sparkles, UserPlus } from "lucide-react";
 
@@ -245,7 +253,11 @@ function AddCandidatesPanelOpen({
     setVisited((prev) => (prev.has(tab) ? prev : new Set([...prev, tab])));
   }, [tab]);
 
-  const [selected, setSelected] = useState<ReadonlySet<number>>(() => new Set());
+  // U7 (audyt 06.10.2026): każda lista propozycji ma swoje zaznaczenie —
+  // wspólne „Dodaj N” dodawało osoby z niewidocznej zakładki.
+  const [selectedByTab, setSelectedByTab] = useState<
+    Partial<Record<"postings" | "base", ReadonlySet<number>>>
+  >({});
   const [previewId, setPreviewId] = useState<number | null>(null);
   const previewTrigger = useRef<HTMLElement | null>(null);
 
@@ -441,31 +453,36 @@ function AddCandidatesPanelOpen({
     return <ScoreBadge score={null} />;
   };
 
-  const toggle = useCallback((candidateId: number) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(candidateId)) next.delete(candidateId);
-      else next.add(candidateId);
-      return next;
-    });
-  }, []);
-  // Zaznaczenie obejmuje obie zakładki propozycji; liczymy tylko osoby, które
-  // nadal są na liście (dodane i pominięte z niej znikają).
-  const entryIds = useMemo(
-    () => new Set(proposals.entries.map((e) => e.row.candidateId)),
-    [proposals.entries],
+  const toggle = useCallback(
+    (candidateId: number) => {
+      if (listTab == null) return;
+      setSelectedByTab((prev) => {
+        const next = new Set(prev[listTab] ?? []);
+        if (next.has(candidateId)) next.delete(candidateId);
+        else next.add(candidateId);
+        return { ...prev, [listTab]: next };
+      });
+    },
+    [listTab],
   );
+  // Liczymy tylko osoby, które nadal są na liście tej zakładki (dodane
+  // i pominięte z niej znikają).
+  const entryIds = useMemo(
+    () => new Set(listEntries.map((e) => e.row.candidateId)),
+    [listEntries],
+  );
+  const selected = listTab != null ? selectedByTab[listTab] : undefined;
   const selectedIds = useMemo(
-    () => new Set([...selected].filter((id) => entryIds.has(id))),
+    () => new Set([...(selected ?? [])].filter((id) => entryIds.has(id))),
     [selected, entryIds],
   );
   const count = selectedIds.size;
   const addSelected = () => {
-    if (readOnly || count === 0) return;
+    if (readOnly || count === 0 || listTab == null) return;
     // Wspólna ścieżka z ekranem „Do przejrzenia” (źródło i przegląd
     // z pochodzenia wiersza, własny komunikat wyniku).
     proposals.addToJob([...selectedIds]);
-    setSelected(new Set());
+    setSelectedByTab((prev) => ({ ...prev, [listTab]: new Set<number>() }));
   };
 
   // „Przeszukaj całą bazę (AI)” z menu „⋯” — jedno żądanie = jeden start.
@@ -527,6 +544,27 @@ function AddCandidatesPanelOpen({
     search: searchTab.total != null ? String(searchTab.total) : null,
   };
 
+  // U7: strzałki, Home i End chodzą po zakładkach (wzorzec ARIA „tabs”).
+  const onTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    const index = CANDIDATE_SOURCE_TABS.indexOf(tab);
+    const last = CANDIDATE_SOURCE_TABS.length - 1;
+    const target =
+      event.key === "ArrowRight"
+        ? index >= last ? 0 : index + 1
+        : event.key === "ArrowLeft"
+          ? index <= 0 ? last : index - 1
+          : event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? last
+              : null;
+    if (target == null) return;
+    event.preventDefault();
+    const next = CANDIDATE_SOURCE_TABS[target];
+    onTabChange(next);
+    document.getElementById(`add-candidates-tab-${next}`)?.focus();
+  };
+
   const tablist = (
     <div role="tablist" aria-label="Źródło kandydatów" className="flex flex-wrap gap-1 pb-2">
       {CANDIDATE_SOURCE_TABS.map((key) => (
@@ -537,6 +575,8 @@ function AddCandidatesPanelOpen({
           id={`add-candidates-tab-${key}`}
           aria-selected={tab === key}
           aria-controls={`add-candidates-panel-${key}`}
+          tabIndex={tab === key ? 0 : -1}
+          onKeyDown={onTabKeyDown}
           onClick={() => onTabChange(key)}
           className={cn(
             "inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",

@@ -47,4 +47,20 @@ describe("RecruitmentSheet — karta obok panelu", () => {
     expect(onEscape).toHaveBeenCalledTimes(1);
     expect(onOpenChange).not.toHaveBeenCalled();
   });
+
+  it("Esc w polu słów kluczowych nie zamyka okna — szkic filtrów zostaje (U8)", () => {
+    const onOpenChange = vi.fn();
+    render(
+      <RecruitmentSheet open onOpenChange={onOpenChange} title="Panel" description="Opis panelu">
+        <input aria-label="Słowo" data-keyword-field="" />
+      </RecruitmentSheet>,
+    );
+    const input = screen.getByLabelText("Słowo");
+    input.focus();
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(onOpenChange).not.toHaveBeenCalled();
+    // Poza polem słów Esc zamyka okno jak dotąd.
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
 });

@@ -110,7 +110,11 @@ def requirements_for_job(job) -> MatchingRequirements:
 # stacjonarnej/4+ dniach (hybryda = plakietka `remote_fit`); podpowiedź
 # krytycznych z tytułu albo z pierwszych 3 pozycji listy ≤ 8; „C#” bez
 # rozróżniania wielkości liter, rodzina SQL ⇒ SQL, PlantUML ⇒ UML.
-MUST_GATE_POLICY_VERSION = "critical-v10"
+# v10.1 (07.10.2026, audyt rekrutacji, PR #2056): fraza przez nawias,
+# dwukropek, przecinek i kropkę (K7), odmiana must-have w CV i notatkach
+# (K12) i CV czekające na odczyt tekstu to nie „brak danych” (K9) — zmienia,
+# kogo bramka ukrywa.
+MUST_GATE_POLICY_VERSION = "critical-v10.1"
 
 
 def search_dealbreaker_inputs(job, *, exclude_missing_must: bool | None = None):

@@ -322,6 +322,19 @@ describe("Panel „Podobne rekrutacje” — przepięcie jednym kliknięciem", (
     expect(search).toHaveBeenCalledWith(5, "analityk pko");
   });
 
+  it("wyszukiwanie rekrutacji czeka, aż skończysz pisać (U8)", async () => {
+    search.mockResolvedValue([]);
+    renderPanel();
+    const input = screen.getByLabelText("Szukaj rekrutacji do przepięcia");
+    for (const value of ["an", "ana", "anal", "analityk"]) {
+      fireEvent.change(input, { target: { value } });
+    }
+    await screen.findByText("Brak rekrutacji o takiej nazwie.");
+    // Jedno zapytanie o ostatni tekst, nie po jednym na każdą literę.
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(search).toHaveBeenCalledWith(5, "analityk");
+  });
+
   it("błąd wczytania ludzi: „Ponów” zamiast wiecznego ładowania i brak przepięcia", async () => {
     people.mockRejectedValueOnce(new Error("500"));
     renderPanel();
