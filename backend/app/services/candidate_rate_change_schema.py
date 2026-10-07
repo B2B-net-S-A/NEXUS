@@ -16,7 +16,17 @@ from __future__ import annotations
 
 STATUSES = ("noted", "requested", "negotiating", "agreed", "closed", "superseded")
 OPEN_STATUSES = ("requested", "negotiating", "agreed")
-SOURCES = ("debrief", "manual", "recruitments_tab", "profile", "card", "move")
+# 0424: `screening` — stawka z jednego formularza screeningu. Istniejący CHECK
+# poszerza `source_constraint_ddl` (``CREATE TABLE IF NOT EXISTS`` go nie zmieni).
+SOURCES = (
+    "debrief",
+    "manual",
+    "recruitments_tab",
+    "profile",
+    "card",
+    "move",
+    "screening",
+)
 REASONS = ("conversation", "email", "typo", "other")
 NEGOTIABLE = ("no", "maybe", "unknown")
 OUTCOMES = ("lower", "kept", "withdrew")
@@ -110,3 +120,20 @@ NOTIFICATION_ENUM_DDL = (
 )
 
 ALL_DDL = TABLE_DDL + TRIGGER_DDL
+
+
+def source_constraint_ddl(sources: tuple[str, ...] = SOURCES) -> str:
+    """CHECK źródła zmiany stawki: DROP + ADD w jednym bloku (0424).
+
+    Timeout zamka wycofuje obie instrukcje naraz, a następny start ponawia.
+    Downgrade 0424 woła to samo z listą sprzed ``screening``.
+    """
+
+    return (
+        "DO $$ BEGIN "
+        "ALTER TABLE candidate_rate_changes "
+        "DROP CONSTRAINT IF EXISTS ck_candidate_rate_changes_source; "
+        "ALTER TABLE candidate_rate_changes ADD CONSTRAINT "
+        f"ck_candidate_rate_changes_source CHECK (source IN ({_in(sources)})); "
+        "END $$"
+    )

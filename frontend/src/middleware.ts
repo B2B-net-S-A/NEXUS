@@ -475,6 +475,8 @@ const PUBLIC_PATHS = [
   "/preview/job-board-screening",
   // 0413: karta rekomendacji (zwarta karta, cała karta, plakietki na tablicy).
   "/preview/recommendation-card",
+  // 0424: jeden formularz screeningu z podglądem CV obok.
+  "/preview/screening-form",
   // Przegląd Delivery Leada: karta, uwagi dla rekrutera, „Wróć do poprawy”.
   "/preview/dl-review",
   // Praktykanci (0374): `/preview/trainee` pokrywa też `/preview/trainees`.

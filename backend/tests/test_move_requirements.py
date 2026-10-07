@@ -373,7 +373,7 @@ def test_recommendation_card_gaps_are_listed_but_never_block() -> None:
     assert empty["detail"] == "karta jest jeszcze pusta"
     assert empty["action"] == {
         "kind": "open_card",
-        "label": "Uzupełnij kartę",
+        "label": "Uzupełnij w screeningu",
         "stage_id": 11,
     }
     assert build_requirements(ready, "verified")["primary"]["kind"] == "move"

@@ -4,13 +4,11 @@ import Link from "next/link";
 import { Briefcase, Clock, Loader2, Star } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { phase3Api, CandidatePipelineRow } from "@/lib/api";
-import { ChampionCard } from "./ChampionCard";
-import type { EmploymentInfo } from "@/components/v2/CandidateHighlights";
 
+// 0424 (D2, 07.10.2026): karta Championa dla klienta (`ChampionCard`, link
+// 30-dniowy) usunięta — z NEXUSA nic nie idzie do klienta.
 interface Props {
   candidateId: number;
-  employment?: EmploymentInfo;
-  readOnly?: boolean;
 }
 
 // Współdzielony klucz cache — invalidowany m.in. po „Usuń z rekrutacji"
@@ -24,11 +22,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   terminal: "bg-slate-100 text-slate-700 border-slate-300",
 };
 
-export function CandidatePipelinesWidget({
-  candidateId,
-  employment,
-  readOnly = false,
-}: Props) {
+export function CandidatePipelinesWidget({ candidateId }: Props) {
   const { data: rows = [], isLoading: loading } = useQuery<CandidatePipelineRow[]>({
     queryKey: candidatePipelinesQueryKey(candidateId),
     queryFn: () =>
@@ -63,12 +57,7 @@ export function CandidatePipelinesWidget({
           </div>
           <ul className="space-y-1.5 mb-3">
             {active.map((p) => (
-              <PipelineRow
-                key={p.candidate_stage_id}
-                row={p}
-                employment={employment}
-                readOnly={readOnly}
-              />
+              <PipelineRow key={p.candidate_stage_id} row={p} />
             ))}
           </ul>
         </>
@@ -80,13 +69,7 @@ export function CandidatePipelinesWidget({
           </div>
           <ul className="space-y-1.5">
             {closed.map((p) => (
-              <PipelineRow
-                key={p.candidate_stage_id}
-                row={p}
-                muted
-                employment={employment}
-                readOnly={readOnly}
-              />
+              <PipelineRow key={p.candidate_stage_id} row={p} muted />
             ))}
           </ul>
         </>
@@ -95,21 +78,7 @@ export function CandidatePipelinesWidget({
   );
 }
 
-function PipelineRow({
-  row,
-  muted,
-  employment,
-  readOnly,
-}: {
-  row: CandidatePipelineRow;
-  muted?: boolean;
-  employment?: EmploymentInfo;
-  readOnly: boolean;
-}) {
-  // Show Champion card once the candidate advances to an external stage —
-  // recruiter should have filled screening before moving into cv_sent+.
-  const showChampion =
-    row.stage_category === "external" || row.stage_category === "terminal";
+function PipelineRow({ row, muted }: { row: CandidatePipelineRow; muted?: boolean }) {
   return (
     <li
       className={`flex flex-col gap-2 rounded-md border border-border dark:border-border px-3 py-2 ${
@@ -145,13 +114,6 @@ function PipelineRow({
         </span>
       </div>
 
-      {showChampion && (
-        <ChampionCard
-          stageId={row.candidate_stage_id}
-          employment={employment}
-          readOnly={readOnly}
-        />
-      )}
     </li>
   );
 }

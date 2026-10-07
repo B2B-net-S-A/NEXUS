@@ -146,7 +146,8 @@ export function ScreeningAnswersList({
       ) : null}
       {notes?.trim() ? (
         <div className="space-y-0.5">
-          <h4 className="text-xs font-semibold text-muted-foreground">Notatka ze screeningu</h4>
+          {/* 0424: stare pole arkusza (dziś opis idzie do „Dlaczego ten kandydat”). */}
+          <h4 className="text-xs font-semibold text-muted-foreground">Notatka z arkusza</h4>
           <p className="whitespace-pre-line text-foreground [overflow-wrap:anywhere]">
             <Highlighted text={notes} phrase={highlight} />
           </p>

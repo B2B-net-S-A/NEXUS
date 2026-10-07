@@ -465,7 +465,9 @@ export function DlReviewBody({ task, canSendToClient, onClose, layout }: DlRevie
               jobId={task.job_id}
               candidateName={task.candidate_name}
             />
-            {card.data ? <RecommendationCardQuestions card={card.data} editable /> : null}
+            {/* 0424: trafienie „Odpada, gdy…” zaznacza rekruter w formularzu
+                screeningu — przegląd pokazuje je tylko do odczytu. */}
+            {card.data ? <RecommendationCardQuestions card={card.data} editable={false} /> : null}
           </section>
 
           <details className="group rounded-lg border border-border">

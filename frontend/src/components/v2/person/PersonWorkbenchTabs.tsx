@@ -23,7 +23,7 @@ import type { JobDetailTab } from "@/components/v2/jobs/JobDetailCompactHeader";
 import { JobInterviewsTab } from "@/components/v2/jobs/JobInterviewsTab";
 import { JobNotesBlock, useJobNotes } from "@/components/v2/jobs/workbench-chrome";
 import { DopasowanieTab } from "@/components/v2/pages/DopasowanieTab";
-import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
+import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { CvHandoffWorkbench, ScreeningWorkbench } from "@/components/v2/recruitment/panel-workbenches";
 import { SavedCvView, SavedScreeningView } from "@/components/v2/recruitment/PanelSavedViews";
 import {
@@ -34,7 +34,6 @@ import {
 } from "@/components/v2/recruitment/person-rows";
 import type { PersonPanelSection, ProcessPersonRow } from "@/components/v2/recruitment/types";
 import { countHired, findStageColumn, isNewColumn, VERIFIED_STAGE } from "@/lib/pipeline-flow";
-import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 import { formatDate } from "@/lib/utils";
 
 /** Stan zapytania tablicy — warsztaty renderują z niego własne ładowanie/błąd. */
@@ -71,10 +70,15 @@ export interface WorkbenchContext {
   jobClosed?: boolean;
   /** Otwiera okno „Zlecenie" na akcji zamknięcia rekrutacji. */
   onRequestCloseJob?: () => void;
+  /** „Biorę — 12 h” z profilu przed telefonem (sekcja „Screening”, 0424). */
+  onTake?: (item: KanbanItem) => void;
 }
 
 /** Kontekst, który podaje strona rekrutacji (bez stanu tablicy i budżetu). */
-export type BoardWorkbenchContext = Omit<WorkbenchContext, "kanbanQueryState" | "budgetHourly" | "jobTitle">;
+export type BoardWorkbenchContext = Omit<
+  WorkbenchContext,
+  "kanbanQueryState" | "budgetHourly" | "jobTitle" | "onTake"
+>;
 
 export const PERSON_PANEL_SECTIONS: ReadonlyArray<{
   value: PersonPanelSection;
@@ -114,7 +118,8 @@ export function workbenchDefaultSection(row: ProcessPersonRow): PersonPanelSecti
 }
 
 /**
- * Czy otwarta zakładka ma WŁASNY przycisk ruchu (screening w „Nowych”, CV na
+ * Czy otwarta zakładka ma WŁASNY przycisk ruchu (formularz screeningu
+ * w „Nowych” i „Screeningu” — „Zapisz i przekaż dalej”, CV na
  * „Zweryfikowanym”). Wtedy panel chowa ogólną ramkę „Następny etap” — jedno
  * wejście do ruchu, jak dawniej w warsztacie.
  */
@@ -123,24 +128,19 @@ export function workbenchSectionOwnsMove({
   section,
   columns,
   readOnly,
-  budgetHourly,
 }: {
   row: ProcessPersonRow;
   section: PersonPanelSection;
   columns: KanbanColumn[];
   readOnly: boolean;
-  budgetHourly: number | null;
+  /** Zostaje w sygnaturze dla wołających; od 0424 nie zmienia odpowiedzi. */
+  budgetHourly?: number | null;
 }): boolean {
   if (readOnly) return false;
-  const { item, column } = row;
-  const offTemplate = isOffTemplateRow(row);
-  const inScreeningWorkbench =
-    (!offTemplate && isNewColumn(column)) ||
-    (column.category !== "terminal" &&
-      !offTemplate &&
-      (Boolean(item.hm_veto) || isOverHourlyBudget(item, budgetHourly)));
+  const { column } = row;
+  const inScreeningForm = !isOffTemplateRow(row) && isNewColumn(column);
   const inCvWorkbench = column === findStageColumn(columns, VERIFIED_STAGE);
-  return (section === "screening" && inScreeningWorkbench) || (section === "cv" && inCvWorkbench);
+  return (section === "screening" && inScreeningForm) || (section === "cv" && inCvWorkbench);
 }
 
 /**
@@ -287,8 +287,9 @@ export function PersonWorkbenchTabs({
     switch (value) {
       case "screening":
         return (
+          // 0424: jeden formularz screeningu z podglądem obok — w „Nowych”
+          // najpierw profil przed telefonem; po końcu procesu tylko odczyt.
           <ScreeningWorkbench
-            layout="panel"
             focusCandidateId={candidateId}
             jobId={jobId}
             jobBudgetHourly={ctx.budgetHourly}
@@ -301,8 +302,7 @@ export function PersonWorkbenchTabs({
             onMoved={ctx.onMoved}
             readOnly={readOnly}
             onTabChange={ctx.onTabChange ?? (() => undefined)}
-            clientId={ctx.clientId}
-            clientName={ctx.clientName ?? null}
+            onTake={ctx.onTake}
             panelFallback={<SavedScreeningView item={item} stageLabel={row.stageLabel} />}
           />
         );

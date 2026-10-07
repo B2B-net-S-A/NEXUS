@@ -2,16 +2,17 @@
 
 /**
  * Karta rekomendacji w doku osoby: zwarta karta + okno całej karty (0413).
- * Odczyt i zapis przez `/api/recommendation-cards`.
+ *
+ * Od 0424 (07.10.2026) karta jest tu TYLKO DO ODCZYTU — pola karty wpisuje
+ * się w jednym formularzu screeningu (`onEditInScreening` otwiera panel osoby
+ * na zakładce „Screening”).
  */
 
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { useToast } from "@/components/Toast";
-import { apiErrorMessage } from "@/lib/api-error";
-import { useRecommendationCard, useSaveRecommendationCard } from "@/lib/api/recommendationCards";
+import { useRecommendationCard } from "@/lib/api/recommendationCards";
 
 import { RecommendationCardDialog } from "./RecommendationCardDialog";
 import { RecommendationCardView } from "./RecommendationCardView";
@@ -21,11 +22,11 @@ export interface RecommendationCardSectionProps {
   jobId: number;
   candidateName: string;
   readOnly?: boolean;
-  /** Okno całej karty otwarte z zewnątrz (akcja „Uzupełnij kartę”). */
+  /** Okno całej karty otwarte z zewnątrz. */
   fullOpen?: boolean;
-  /** Arkusz screeningu ma niezapisane odpowiedzi (warsztat screeningu). */
-  screeningDirty?: boolean;
   onFullOpenChange?: (open: boolean) => void;
+  /** „Edytuj w screeningu” — formularz screeningu tej osoby. */
+  onEditInScreening?: () => void;
 }
 
 export function RecommendationCardSection({
@@ -35,11 +36,9 @@ export function RecommendationCardSection({
   readOnly = false,
   fullOpen,
   onFullOpenChange,
-  screeningDirty = false,
+  onEditInScreening,
 }: RecommendationCardSectionProps) {
-  const { showError } = useToast();
   const query = useRecommendationCard(candidateId, jobId);
-  const save = useSaveRecommendationCard(candidateId, jobId);
   const [localOpen, setLocalOpen] = useState(false);
   const open = fullOpen ?? localOpen;
   const setOpen = onFullOpenChange ?? setLocalOpen;
@@ -60,18 +59,8 @@ export function RecommendationCardSection({
       ) : query.data ? (
         <RecommendationCardView
           card={query.data}
-          readOnly={readOnly}
-          saving={save.isPending}
-          onSave={(fields) =>
-            save.mutate(
-              { fields },
-              {
-                onError: (err) =>
-                  showError(apiErrorMessage(err, "Nie udało się zapisać pola. Spróbuj ponownie.")),
-              },
-            )
-          }
           onOpenFull={() => setOpen(true)}
+          onEditInScreening={readOnly ? undefined : onEditInScreening}
         />
       ) : null}
       <RecommendationCardDialog
@@ -81,7 +70,14 @@ export function RecommendationCardSection({
         jobId={jobId}
         candidateName={candidateName}
         readOnly={readOnly}
-        screeningDirty={screeningDirty}
+        onEditInScreening={
+          readOnly || !onEditInScreening
+            ? undefined
+            : () => {
+                setOpen(false);
+                onEditInScreening();
+              }
+        }
       />
     </>
   );

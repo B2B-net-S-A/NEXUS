@@ -656,6 +656,51 @@ describe("/preview/plain-brief zasiewa wyjaśnienie tymi samymi kluczami co komp
   });
 });
 
+describe("/preview/screening-form (0424) zasiewa formularz tymi samymi kluczami co komponenty", () => {
+  const harness = withoutComments(read("app/preview/screening-form/page.tsx")).replace(/\s+/g, " ");
+  const formApi = withoutComments(read("lib/api/screeningForm.ts"));
+
+  it("formularz i historia biorą klucze z funkcji, a harness zasiewa je tymi funkcjami", () => {
+    expect(formApi).toContain("queryKey: screeningFormQueryKey(jobId, candidateId)");
+    expect(formApi).toContain("queryKey: screeningFormVersionsQueryKey(jobId, candidateId)");
+    expect(harness).toMatch(/setQueryData\( ?screeningFormQueryKey\(JOB_ID, CANDIDATE_ID\)/);
+    expect(harness).toMatch(/setQueryData\( ?screeningFormVersionsQueryKey\(JOB_ID, CANDIDATE_ID\)/);
+  });
+
+  it("zasiewa klucze z parametrem, o które pytają gospodarz, profil przed telefonem i podgląd", () => {
+    const host = withoutComments(read("components/v2/jobs/ScreeningWorkbench.tsx"));
+    expect(host).toContain('queryKey: ["job-questions", jobId]');
+    expect(harness).toContain('setQueryData(["job-questions", JOB_ID]');
+    const beforeCall = withoutComments(read("components/v2/screening-form/BeforeCallProfile.tsx"));
+    expect(beforeCall).toContain("queryKey: candidateQueryKeys.quickView(candidateId)");
+    expect(harness).toContain("setQueryData(candidateQueryKeys.quickView(CANDIDATE_ID)");
+    const preview = withoutComments(read("components/v2/screening-form/CandidatePreviewPane.tsx"));
+    expect(preview).toContain('queryKey: ["cv-original", stageId]');
+    expect(preview).toContain("queryKey: candidateQueryKeys.cvDocuments(candidateId)");
+    expect(harness).toContain('setQueryData(["cv-original", STAGE_ID]');
+    expect(harness).toContain("setQueryData(candidateQueryKeys.cvDocuments(CANDIDATE_ID)");
+    expect(harness).toContain("setQueryData(stageBrandedQueryKey(STAGE_ID)");
+    expect(harness).toContain("setQueryData(plainBriefQueryKey(JOB_ID)");
+  });
+
+  it("komponenty formularza nie mają własnych stałych kluczy", () => {
+    for (const file of [
+      "components/v2/screening-form/ScreeningFullForm.tsx",
+      "components/v2/screening-form/ScreeningFormHistory.tsx",
+      "components/v2/screening-form/NoteFillBar.tsx",
+      "components/v2/screening-form/CandidatePreviewPane.tsx",
+      "components/v2/screening-form/BeforeCallProfile.tsx",
+    ]) {
+      expect(literalQueryKeys(read(file)), file).toEqual([]);
+    }
+  });
+
+  it("odcina sieć na czas życia harnessu", () => {
+    expect(harness).toContain("api.interceptors.request.use(");
+    expect(harness).toContain("api.interceptors.request.eject(");
+  });
+});
+
 describe("/preview/client-orders zasiewa klucze zakładki „Zamówienia” i odcina sieć", () => {
   const harness = withoutComments(read("app/preview/client-orders/page.tsx")).replace(/\s+/g, " ");
   const shared = withoutComments(read("app/preview/order-groups-harness.tsx")).replace(/\s+/g, " ");

@@ -5,14 +5,15 @@
  *
  * Serwer składa kartę z notatek rekrutera i z pól wpisanych w NEXUSIE (te
  * zawsze wygrywają), liczy kompletność i tekst w dotychczasowym formacie
- * działu. Front niczego tu nie wylicza — pokazuje i zapisuje pojedyncze pola.
+ * działu. Od 0424 (07.10.2026) karta jest tu TYLKO DO ODCZYTU — pola karty
+ * wpisuje się w jednym formularzu screeningu (`lib/api/screeningForm.ts`),
+ * a odczyt notatki i „Ułóż w zdanie” zostają wspólne.
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import api from "@/lib/api";
+import api, { type RateUnit } from "@/lib/api";
 import { MOVE_REQUIREMENTS_PREFIX } from "@/lib/api/moveRequirements";
-import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 
 export interface RecommendationCardField {
   raw: string;
@@ -91,6 +92,11 @@ export interface NoteProposalField {
   quote: string | null;
   origin: "note_ai" | "note_rule";
   changed: boolean;
+  /**
+   * Tylko pole `rate` (0424): stawka odczytana z tekstu bez zgadywania
+   * (PLN/h), wypełnia pole stawki formularza; `null` = zostaje tekstem.
+   */
+  rate?: { amount: number; unit: RateUnit; currency: string } | null;
 }
 
 /** Odpowiedź na pytanie Championa w przeglądzie propozycji. */
@@ -120,21 +126,6 @@ export interface NoteProposal {
   text: string;
 }
 
-export interface NoteApplyAnswer {
-  question_id: string;
-  response: string;
-  keywords?: string | null;
-  origin: CardAnswerOrigin;
-}
-
-export interface NoteApplyInput {
-  text: string;
-  source_name?: string | null;
-  fields: Record<string, string>;
-  field_origins: Record<string, "note_ai" | "note_rule">;
-  answers: NoteApplyAnswer[];
-}
-
 export interface PhraseRequestItem {
   key: string;
   keywords: string;
@@ -154,12 +145,6 @@ export interface PhraseResult {
   items: PhraseResultItem[];
 }
 
-export interface CardSaveInput {
-  fields: Record<string, string | null>;
-  /** Pola opisowe ułożone z haseł („Ułóż w zdanie”). */
-  origins?: Record<string, { origin: "phrased"; keywords: string }>;
-}
-
 /** Odczyt notatki trwa do ~1 min (model). */
 const NOTE_READ_TIMEOUT_MS = 120_000;
 
@@ -172,15 +157,6 @@ export const recommendationCardsApi = {
       await api.get<RecommendationCard>("/api/recommendation-cards", {
         params: { candidate_id: candidateId, job_id: jobId },
         signal,
-      })
-    ).data,
-  save: async (candidateId: number, jobId: number, input: CardSaveInput) =>
-    (
-      await api.put<RecommendationCard>("/api/recommendation-cards", {
-        candidate_id: candidateId,
-        job_id: jobId,
-        fields: input.fields,
-        ...(input.origins && Object.keys(input.origins).length ? { origins: input.origins } : {}),
       })
     ).data,
   /** Propozycja karty i odpowiedzi z wklejonej notatki — bez zapisu. */
@@ -205,15 +181,6 @@ export const recommendationCardsApi = {
       })
     ).data;
   },
-  /** Zapis zaznaczonych pozycji: notatka w historii, pola karty, odpowiedzi w arkuszu. */
-  applyNote: async (candidateId: number, jobId: number, input: NoteApplyInput) =>
-    (
-      await api.post<RecommendationCard>("/api/recommendation-cards/note/apply", {
-        candidate_id: candidateId,
-        job_id: jobId,
-        ...input,
-      })
-    ).data,
   /** „Ułóż w zdanie” — bez zapisu. */
   phrase: async (
     candidateId: number,
@@ -267,14 +234,6 @@ export function useRecommendationCard(candidateId: number, jobId: number, enable
   });
 }
 
-export function useSaveRecommendationCard(candidateId: number, jobId: number) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (input: CardSaveInput) => recommendationCardsApi.save(candidateId, jobId, input),
-    onSuccess: (card) => refreshCardDependents(queryClient, candidateId, jobId, card),
-  });
-}
-
 /** Zaznaczenie „Odpowiedź narusza deal-breaker” przy pytaniu karty. Ostrzeżenie
  *  w „Przesuń dalej” liczy serwer z tego samego zapisu. */
 export function useSetDealBreakerHit(candidateId: number, jobId: number) {
@@ -286,16 +245,3 @@ export function useSetDealBreakerHit(candidateId: number, jobId: number) {
   });
 }
 
-/** Zapis pozycji z notatki — odświeża kartę i arkusz screeningu pary. */
-export function useApplyNote(candidateId: number, jobId: number) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (input: NoteApplyInput) => recommendationCardsApi.applyNote(candidateId, jobId, input),
-    onSuccess: (card) => {
-      refreshCardDependents(queryClient, candidateId, jobId, card);
-      void queryClient.invalidateQueries({ queryKey: ["screening-v2"] });
-      void queryClient.invalidateQueries({ queryKey: ["pipeline-stage-screening"] });
-      void queryClient.invalidateQueries({ queryKey: candidateQueryKeys.screeningAnswersRoot(candidateId) });
-    },
-  });
-}

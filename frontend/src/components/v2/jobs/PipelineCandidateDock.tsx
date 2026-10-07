@@ -120,6 +120,7 @@ import { PersonFacts, RateWithBudget } from "@/components/v2/person/PersonFacts"
 import { RateChangeBanner } from "@/components/v2/rate-change/RateChangeBanner";
 import { RateChangeDialog } from "@/components/v2/rate-change/RateChangeDialog";
 import { rateChangeStatusLabel } from "@/lib/rate-change";
+import { useNoAnswerNote } from "@/hooks/useNoAnswerNote";
 
 // Edytor brandowanego CV jest ciężki (rich text) — leniwy import jak w
 // CandidateDetailV2, żeby nie puchła zakładka Pipeline dla osób, które go
@@ -390,6 +391,13 @@ export interface PipelineCandidateDockProps {
   workbench?: ReactNode;
   /** Otwarta zakładka ma własny przycisk ruchu — ramka „Następny etap” znika. */
   hidePrimaryMove?: boolean;
+  /**
+   * Panel dzielony (0424): formularz screeningu albo profil przed telefonem
+   * z podglądem obok. „Biorę” i „Nie odebrał” stoją wtedy w profilu przed
+   * telefonem (bez dubla w głowie panelu), a przypięte notatki są zwinięte —
+   * przy 1280×720 każda linia wysokości się liczy.
+   */
+  split?: boolean;
   badgeToggles?: ReadonlyArray<{
     key: string;
     label: string;
@@ -508,6 +516,7 @@ export function PipelineCandidateDock({
   onToggleExpanded,
   workbench = null,
   hidePrimaryMove = false,
+  split = false,
 }: PipelineCandidateDockProps) {
   const { showSuccess, showError } = useToast();
   const queryClient = useQueryClient();
@@ -770,6 +779,12 @@ export function PipelineCandidateDock({
         onAddClientSlots?.();
         return;
       case "open_card":
+        // 0424: kartę uzupełnia się w formularzu screeningu (panel osoby na
+        // „Screeningu”); bez panelu — okno karty tylko do odczytu.
+        if (onOpenWorkbench) {
+          onOpenWorkbench("screening");
+          return;
+        }
         setOpenSections((prev) => new Set(prev).add("card"));
         setCardOpen(true);
         return;
@@ -783,28 +798,8 @@ export function PipelineCandidateDock({
 
   const clientRateText = formatClientRate(item);
   // „Nie odebrał” jednym kliknięciem — ta sama notatka-próba co w profilu
-  // (rodzaj `contact_attempt`, typ ogólny; follow-up nie liczy jej jako
-  // rozmowy). Licznik prób na karcie odświeża tablica.
-  const noAnswerMut = useMutation({
-    mutationFn: () =>
-      api.post("/api/notes", {
-        candidate_id: item.candidate_id,
-        content: "Nie odebrał.",
-        note_type: "general",
-        kind: "contact_attempt",
-        job_id: jobId,
-      }),
-    onSuccess: () => {
-      showSuccess("Zapisano próbę kontaktu.");
-      void queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
-      void queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
-      void queryClient.invalidateQueries({ queryKey: candidateQueryKeys.notes(item.candidate_id) });
-      void queryClient.invalidateQueries({
-        queryKey: candidateQueryKeys.timelineRoot(item.candidate_id),
-      });
-    },
-    onError: (e) => showError(extractErrorMsg(e) || "Nie udało się zapisać próby kontaktu."),
-  });
+  // (rodzaj `contact_attempt`); ten sam hook stoi w profilu przed telefonem.
+  const noAnswerMut = useNoAnswerNote({ candidateId: item.candidate_id, jobId });
   const availabilityLabel = availabilityText(
     candidate
       ? {
@@ -975,29 +970,33 @@ export function PipelineCandidateDock({
         {/* Fakty o osobie RAZ, pod nazwiskiem (PR 5, 04.10.2026) — do tej
             pory stały zwinięte w „W procesie”. Wyłącznie z danych, które dok
             już ma (karta kanbanu + profil kandydata). Brak danych to „—”, nie
-            znikający wiersz: pusty rząd czyta się jak „bez zastrzeżeń”. */}
-        <PersonFacts
-          testId="dock-facts"
-          pairs
-          rows={[
-            {
-              label: "W tej rekrutacji",
-              wide: true,
-              value: (
-                <>
-                  <RateWithBudget
-                    value={item.expected_rate_value}
-                    unit={item.expected_rate_unit}
-                    currency={item.expected_rate_currency}
-                    budgetMonthly={item.budget_max_at_move}
-                  />
-                  {item.rate_change ? (
-                    <span className="ml-1.5 rounded bg-warning/15 px-1.5 py-0.5 text-[11px] font-semibold text-warning">
-                      {rateChangeStatusLabel(item.rate_change.status)}
-                      {item.rate_change.previous_hourly != null
-                        ? ` · było ${hourlyText(item.rate_change.previous_hourly)}`
-                        : ""}
-                    </span>
+            znikający wiersz: pusty rząd czyta się jak „bez zastrzeżeń”.
+            W trybie `split` (Nowi/Screening, 0424) te same fakty stoją w
+            profilu przed telefonem i w „Warunkach” formularza — tu ich nie
+            powtarzamy, żeby formularz zaczynał się wyżej na laptopie. */}
+        {!split ? (
+          <PersonFacts
+            testId="dock-facts"
+            pairs
+            rows={[
+              {
+                label: "W tej rekrutacji",
+                wide: true,
+                value: (
+                  <>
+                    <RateWithBudget
+                      value={item.expected_rate_value}
+                      unit={item.expected_rate_unit}
+                      currency={item.expected_rate_currency}
+                      budgetMonthly={item.budget_max_at_move}
+                    />
+                    {item.rate_change ? (
+                      <span className="ml-1.5 rounded bg-warning/15 px-1.5 py-0.5 text-[11px] font-semibold text-warning">
+                        {rateChangeStatusLabel(item.rate_change.status)}
+                        {item.rate_change.previous_hourly != null
+                          ? ` · było ${hourlyText(item.rate_change.previous_hourly)}`
+                          : ""}
+                      </span>
                   ) : null}
                   {!readOnly ? (
                     // 0418: zmiana stawki w procesie — z powodem, śladem
@@ -1030,6 +1029,7 @@ export function PipelineCandidateDock({
               : []),
           ]}
         />
+        ) : null}
         {item.rate_change && !readOnly ? (
           // 0418: otwarta sprawa zmiany stawki — negocjacja (DL, HoR),
           // wynik rozmowy, decyzja DL o stawce do klienta.
@@ -1051,7 +1051,7 @@ export function PipelineCandidateDock({
           <div className="space-y-1.5" data-help="jobs.person.actions">
             {/* PR 5 (04.10.2026): w „Nowych” i „Screeningu” pierwsza praca to
                 telefon — „Biorę” i „Nie odebrał” bez wychodzenia z panelu. */}
-            {ENTRY_STAGES.has(item.stage ?? "") && (
+            {ENTRY_STAGES.has(item.stage ?? "") && !split && (
               <div className="flex flex-wrap gap-1.5" data-testid="dock-contact-row">
                 {onTake && item.can_take && item.claim_user_id == null && (
                   <Button size="sm" variant="outline" onClick={onTake}>
@@ -1173,7 +1173,6 @@ export function PipelineCandidateDock({
           <div
             role="group"
             aria-label="Odznaki etapu"
-            data-help="jobs.person.badges"
             className="mt-2 flex flex-wrap items-center gap-1.5"
           >
             {badgeToggles.map((badge) => (
@@ -1207,9 +1206,11 @@ export function PipelineCandidateDock({
       </div>
 
       {/* ── Treść zakładki (przewijana) ──────────────────────────────── */}
-      <div className="flex-1 space-y-3 overflow-y-auto p-4">
+      {/* `data-person-scroll`: podgląd obok formularza screeningu mierzy
+          widoczną wysokość tego obszaru (0424). */}
+      <div className="flex-1 space-y-3 overflow-y-auto p-4" data-person-scroll="">
         {/* 0399: przypięte notatki kandydata — z każdej rekrutacji. */}
-        <PinnedCandidateNotes candidateId={item.candidate_id} />
+        <PinnedCandidateNotes candidateId={item.candidate_id} collapsed={split} />
         {workbench ? <div hidden={!expanded}>{workbench}</div> : null}
         <div className="space-y-3" hidden={expanded} data-testid="dock-sections">
         <DockSection
@@ -1447,6 +1448,7 @@ export function PipelineCandidateDock({
             readOnly={readOnly}
             fullOpen={cardOpen}
             onFullOpenChange={setCardOpen}
+            onEditInScreening={onOpenWorkbench ? () => onOpenWorkbench("screening") : undefined}
           />
         </DockSection>
 

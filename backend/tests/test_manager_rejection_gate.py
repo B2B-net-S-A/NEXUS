@@ -349,17 +349,17 @@ async def test_add_from_history_is_blocked(
 # ── Going out to the client ─────────────────────────────────────────────────
 
 
-async def test_champion_share_token_is_blocked(
+async def test_champion_share_token_is_gone_even_with_a_veto(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    """The outbound gate catches pipelines that predate the assignment gate.
-
-    The candidate is placed on the target job directly in the DB — exactly like
-    every row that already existed when this feature shipped.
+    """Karta Championa dla klienta zniknęła (0424, D2): trasa odpowiada 410
+    i nie wystawia tokenu — z wetem i bez niego. Weto nie ma tu już czego
+    pilnować, bo nic nie wychodzi do klienta.
     """
     from app.core.database import AsyncSessionLocal
+    from app.models.champion_share import ChampionCardShareToken
     from app.models.recruitment_pipeline import CandidateStage, PipelineStage
-    from sqlalchemy import select
+    from sqlalchemy import func, select
 
     world = await _seed_vetoed_candidate()
     await _place_in_target(world, stage="cv_sent")
@@ -377,34 +377,15 @@ async def test_champion_share_token_is_blocked(
         f"/api/pipeline/stages/{stage_id}/share-token", headers=app_auth_headers
     )
 
-    assert resp.status_code == 409, resp.text
-    assert world["manager_name"] in resp.json()["detail"]
-
-
-async def test_champion_share_token_works_without_a_veto(
-    app_client: AsyncClient, app_auth_headers: dict
-):
-    from app.core.database import AsyncSessionLocal
-    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
-    from sqlalchemy import select
-
-    world = await _seed_vetoed_candidate(disqualifying=False)
-    await _place_in_target(world, stage="cv_sent")
-
+    assert resp.status_code == 410, resp.text
+    assert resp.json()["detail"]["code"] == "CHAMPION_SHARE_REMOVED"
     async with AsyncSessionLocal() as db:
-        stage_id = await db.scalar(
-            select(CandidateStage.id).where(
-                CandidateStage.candidate_id == world["candidate_id"],
-                CandidateStage.job_id == world["target_job_id"],
-                CandidateStage.stage == PipelineStage.cv_sent,
-            )
+        tokens = await db.scalar(
+            select(func.count())
+            .select_from(ChampionCardShareToken)
+            .where(ChampionCardShareToken.candidate_stage_id == stage_id)
         )
-
-    resp = await app_client.post(
-        f"/api/pipeline/stages/{stage_id}/share-token", headers=app_auth_headers
-    )
-
-    assert resp.status_code == 200, resp.text
+    assert tokens == 0
 
 
 async def test_move_on_the_job_that_rejected_them_is_not_self_blocked(

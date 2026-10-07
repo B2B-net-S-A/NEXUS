@@ -1,7 +1,10 @@
 """Karta rekomendacji z notatki i „Ułóż w zdanie” (0421, 06.10.2026).
 
-Czyste reguły (bez bazy) + trasy `/api/recommendation-cards/note/*`
-i `/phrase` z bazą (CI). Model jest podmieniany (`_call_model`).
+Czyste reguły (bez bazy) + trasy `/api/recommendation-cards/note/read`,
+`/note/read-file` i `/phrase` z bazą (CI). Model jest podmieniany
+(`_call_model`). Zapis odczytu notatki przeszedł do jednego formularza
+screeningu (0424, `PUT /api/screening-form` z `note_import`) — testy zapisu
+są w `test_screening_form.py`.
 """
 
 from __future__ import annotations
@@ -20,7 +23,6 @@ from app.models.note import Note
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import UserRole
 from app.schemas.champion import client_safe_screening
-from app.services import note_kinds
 from app.services import recommendation_card_assist as assist
 from app.services.recommendation_card_rules import manual_value, merge_questions
 from tests.test_recommendation_cards import _login, _seed_pair, _seed_user
@@ -246,6 +248,19 @@ def test_keywords_never_reach_the_client() -> None:
     assert safe["answers"] == [{"question_id": "q1", "response": "Zdanie."}]
 
 
+def test_note_apply_route_is_gone() -> None:
+    """0424: odczyt notatki zapisuje jeden formularz screeningu, nie ta trasa."""
+    from app.main import app
+    from tests._route_introspection import iter_api_routes
+
+    paths = {path for path, _route in iter_api_routes(app)}
+    assert "/api/recommendation-cards/note/apply" not in paths
+    assert "/api/recommendation-cards/note/read" in paths
+    assert "/api/recommendation-cards/note/read-file" in paths
+    assert "/api/recommendation-cards/phrase" in paths
+    assert "/api/screening-form" in paths
+
+
 # ── z bazą ───────────────────────────────────────────────────────────────────
 
 
@@ -374,75 +389,6 @@ async def test_model_failure_still_returns_the_rule_reading(
 
 
 @pytest.mark.asyncio
-async def test_apply_writes_note_card_and_sheet(app_client: AsyncClient, assist_on):
-    candidate_id, job_id = await _world()
-    _, email, password = await _seed_user(UserRole.recruiter)
-    headers = await _login(app_client, email, password)
-
-    resp = await app_client.post(
-        "/api/recommendation-cards/note/apply",
-        json={
-            "candidate_id": candidate_id,
-            "job_id": job_id,
-            "text": NOTE,
-            "source_name": "notatka.docx",
-            "fields": {"english": "B2", "availability": "miesiąc, od listopada"},
-            "field_origins": {"english": "note_ai", "availability": "note_ai"},
-            "answers": [
-                {
-                    "question_id": "q1",
-                    "response": "Kandydat od 3 lat pracuje z Kafką na produkcji.",
-                    "keywords": "kafka 3 lata prod",
-                    "origin": "phrased",
-                }
-            ],
-        },
-        headers=headers,
-    )
-
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["fields"]["english"]["origin"] == "note_ai"
-    q1 = next(q for q in body["questions"] if q["question_id"] == "q1")
-    assert q1["origin"] == "phrased" and q1["keywords"] == "kafka 3 lata prod"
-    async with AsyncSessionLocal() as db:
-        note = await db.scalar(select(Note).where(Note.candidate_id == candidate_id))
-        # Zwykła notatka, nie karta — projekcja nie dopisze odznaczonych pól.
-        assert note.kind == note_kinds.HUMAN
-        assert note.content.startswith("Notatka z rozmowy (plik: notatka.docx)")
-        assert body["fields"]["english"]["note_id"] == note.id
-        stage = await db.scalar(
-            select(CandidateStage).where(CandidateStage.candidate_id == candidate_id)
-        )
-        (answer,) = stage.screening_answers["answers"]
-        assert answer["origin"] == "phrased"
-        assert answer["keywords"] == "kafka 3 lata prod"
-        assert answer["question_text"] == QUESTIONS[0]["question"]
-
-
-@pytest.mark.asyncio
-async def test_apply_refuses_unknown_question(app_client: AsyncClient, assist_on):
-    candidate_id, job_id = await _world()
-    _, email, password = await _seed_user(UserRole.recruiter)
-    headers = await _login(app_client, email, password)
-    resp = await app_client.post(
-        "/api/recommendation-cards/note/apply",
-        json={
-            "candidate_id": candidate_id,
-            "job_id": job_id,
-            "text": NOTE,
-            "answers": [{"question_id": "q9", "response": "x"}],
-        },
-        headers=headers,
-    )
-    assert resp.status_code == 422
-    async with AsyncSessionLocal() as db:
-        assert (
-            await db.scalar(select(Note).where(Note.candidate_id == candidate_id))
-        ) is None
-
-
-@pytest.mark.asyncio
 async def test_phrase_route_uses_the_guard(
     app_client: AsyncClient, assist_on, monkeypatch
 ):
@@ -503,31 +449,3 @@ async def test_card_put_accepts_a_phrased_description(
         headers=headers,
     )
     assert refused.status_code == 422
-
-
-@pytest.mark.asyncio
-async def test_apply_answers_even_when_score_marking_fails(
-    app_client: AsyncClient, assist_on, monkeypatch
-):
-    """Po rollbacku (nieudane oznaczenie wyników) odpowiedź nie kończy się 500."""
-    from app.services import match_score_cache
-
-    async def boom(*_args, **_kwargs):  # noqa: ANN002, ANN003
-        raise RuntimeError("cache down")
-
-    monkeypatch.setattr(match_score_cache, "mark_stale_for_candidate", boom)
-    candidate_id, job_id = await _world()
-    _, email, password = await _seed_user(UserRole.recruiter)
-    headers = await _login(app_client, email, password)
-    resp = await app_client.post(
-        "/api/recommendation-cards/note/apply",
-        json={
-            "candidate_id": candidate_id,
-            "job_id": job_id,
-            "text": NOTE,
-            "answers": [{"question_id": "q1", "response": "Kafka od 3 lat."}],
-        },
-        headers=headers,
-    )
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["questions"][0]["answer"] == "Kafka od 3 lat."

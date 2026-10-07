@@ -218,6 +218,7 @@ describe("linki publiczne działają bez tokenu", () => {
     "/preview/plain-brief",
     "/preview/job-board-screening",
     "/preview/recommendation-card",
+    "/preview/screening-form",
     "/preview/dl-review",
     "/preview/permissions",
     "/kariera",

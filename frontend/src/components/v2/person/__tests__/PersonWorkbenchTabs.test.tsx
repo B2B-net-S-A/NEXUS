@@ -126,7 +126,6 @@ beforeEach(() => {
 
 describe("PersonWorkbenchTabs — zakładka z etapu i kontekst warsztatów", () => {
   it.each([
-    [2, "screening"],
     [3, "cv"],
     [4, "interviews"],
     [5, "contract"],
@@ -144,18 +143,38 @@ describe("PersonWorkbenchTabs — zakładka z etapu i kontekst warsztatów", () 
     expect(screen.getAllByRole("tabpanel", { hidden: true })).toHaveLength(1);
   });
 
-  it("etap wejściowy i zamknięty otwierają „Notatki i historia”", async () => {
-    renderTabs({ candidateId: 1 });
+  it.each([1, 2])("osoba %i z „Nowych” i „Screeningu” otwiera formularz screeningu (0424)", (candidateId) => {
+    renderTabs({ candidateId });
+    expect(screen.getByTestId("wb-screening")).toBeInTheDocument();
+    // Formularz screeningu nie ma już układu „full” z kolejką — bez `layout`.
+    expect(mocks.workbenchProps.screening).toMatchObject({
+      focusCandidateId: candidateId,
+      jobId: 42,
+      columns,
+      readOnly: false,
+    });
+    expect(mocks.workbenchProps.screening).not.toHaveProperty("layout");
+    expect(screen.getAllByRole("tabpanel", { hidden: true })).toHaveLength(1);
+  });
+
+  it("formularz dostaje „Biorę — 12 h” z kontekstu Tablicy", () => {
+    const onTake = vi.fn();
+    renderTabs({ candidateId: 1, ctx: { ...workbenchContext, onTake } });
+    expect(mocks.workbenchProps.screening.onTake).toBe(onTake);
+  });
+
+  it("etap zamknięty otwiera „Notatki i historia”", async () => {
+    renderTabs({ candidateId: 6 });
     expect(screen.getByRole("tab", { name: "Notatki i historia" })).toHaveAttribute("aria-selected", "true");
     expect(await screen.findByText("Brak notatek w tej rekrutacji.")).toBeInTheDocument();
-    expect(mocks.apiGet).toHaveBeenCalledWith("/api/notes?candidate_id=1&job_id=42");
+    expect(mocks.apiGet).toHaveBeenCalledWith("/api/notes?candidate_id=6&job_id=42");
     // Pole nowej notatki stoi na dole panelu, nie w zakładce.
     expect(screen.queryByLabelText("Nowa notatka")).toBeNull();
   });
 
   it("awaria notatek nie wygląda jak „brak notatek”", async () => {
     mocks.apiGet.mockRejectedValue(new Error("500"));
-    renderTabs({ candidateId: 1 });
+    renderTabs({ candidateId: 6 });
     expect(await screen.findByText(/Nie udało się wczytać: notatki/)).toBeInTheDocument();
     expect(screen.queryByText("Brak notatek w tej rekrutacji.")).not.toBeInTheDocument();
   });
@@ -230,12 +249,15 @@ describe("workbenchSectionOwnsMove — jedno wejście do ruchu", () => {
   it("CV na „Zweryfikowanym” i screening w „Nowych” mają własny ruch", () => {
     expect(owns(3, "cv")).toBe(true);
     expect(owns(1, "screening")).toBe(true);
+    expect(owns(2, "screening")).toBe(true);
   });
 
   it("inna zakładka, osoba u klienta albo tryb odczytu — ogólny ruch zostaje", () => {
     expect(owns(3, "notes")).toBe(false);
     expect(owns(4, "cv")).toBe(false);
     expect(owns(3, "cv", true)).toBe(false);
+    // Od „Zweryfikowany” formularz zapisuje, ale ruch zostaje w ramce doku.
+    expect(owns(3, "screening")).toBe(false);
   });
 });
 

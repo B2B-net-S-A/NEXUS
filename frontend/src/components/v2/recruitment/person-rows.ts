@@ -699,6 +699,10 @@ export function defaultPanelSectionFor(
   // 21.09.2026). Tam właściwa jest sekcja CV (co i kiedy poszło do klienta).
   if (group === "client" && column && !isInterviewStage(column)) return "cv";
   switch (group) {
+    // 0424 (D3, 07.10.2026): osoba w „Nowych” otwiera się od razu przy
+    // formularzu screeningu — profil przed telefonem i CV obok.
+    case "posting":
+    case "intake":
     case "screening":
       return "screening";
     case "verification":

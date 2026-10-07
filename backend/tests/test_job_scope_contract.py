@@ -49,12 +49,17 @@ _SCOPED_MODULES = {
     "app.api.champion_suggestions",
     # QC CV (Rekrutacja v5): CV firmowe, oryginał i poprawki jednej pary.
     "app.api.cv_qc",
+    # Jeden formularz screeningu (0424): arkusz, karta, stawka i historia pary.
+    "app.api.screening_form",
 }
 
 # Individual routes on shared routers that address one recruitment. Matched as
 # exact paths so a sibling route cannot inherit the exemption by accident.
 _SCOPED_PATHS = {
-    "/api/pipeline/stages/{stage_id}/share-token",
+    # `POST /api/pipeline/stages/{stage_id}/share-token` wypadł (0424, D2):
+    # karta Championa dla klienta zniknęła, trasa odpowiada 410 i niczego nie
+    # czyta ani nie zapisuje, więc nie ma rekrutacji do rozstrzygnięcia.
+    # Odwołanie starego linku dalej sprawdza zespół rekrutacji.
     "/api/pipeline/stages/share-token/{token}",
     "/api/candidates/{candidate_id}/recruitments/{job_id}",
     "/api/candidates/{candidate_id}/recruitments/{job_id}/client-rate",

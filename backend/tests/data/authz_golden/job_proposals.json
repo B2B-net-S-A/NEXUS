@@ -25,6 +25,8 @@
   "GET /api/jobs/{job_id}/proposal-counts": "PPPPPPPDPPPPPPPPPPP",
   "GET /api/jobs/{job_id}/proposal-facts": "PPPPPPPDPPPPPPPPPPP",
   "GET /api/jobs/{job_id}/proposal-inbox": "PPPPPPPDPPPPPPPPPPP",
+  "POST /api/jobs/{job_id}/proposal-inbox/dismiss-bulk": "PPPPPPDDPPPPPPPPPPP",
+  "POST /api/jobs/{job_id}/proposal-inbox/opened": "PPPPPPDDPPPPPPPPPPP",
   "POST /api/jobs/{job_id}/proposal-inbox/{candidate_id}/dismiss": "PPPPPPDDPPPPPPPPPPP",
   "POST /api/jobs/{job_id}/proposal-inbox/{candidate_id}/restore": "PPPPPPDDPPPPPPPPPPP"
  }

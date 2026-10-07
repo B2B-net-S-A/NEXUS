@@ -2845,23 +2845,22 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
 Propozycja Olafa, decyzje Artura D1–D5 z 06.10.2026 (makieta:
 https://claude.ai/artifact/3xRoTbWQpYWX33ME3Z4BPr). Kod:
 `services/recommendation_card_assist.py` (reguły i model),
-`api/recommendation_card_assist.py` (trasy), front
-`components/v2/screening/RecommendationCardNoteImport.tsx`,
-`PhraseSuggestion.tsx`, `lib/recommendation-card-note.ts`. Harness
-`/preview/recommendation-card?state=import|phrase`. Raport:
+`api/recommendation_card_assist.py` (trasy), front (od 0424)
+`components/v2/screening-form/NoteFillBar.tsx`, `PhraseSuggestion.tsx`.
+Harness `/preview/screening-form?state=note`. Raport:
 `docs/recommendation-card-from-note-completion-report.md`.
 
 - **Wyłącznik `RECOMMENDATION_CARD_ASSIST_ENABLED` (domyślnie OFF)** — trasy
   404, karta niesie `assist_enabled: false`, okno karty i arkusz działają
   ręcznie jak dotąd. Włączenie po pomiarze `python -m
   scripts.eval_recommendation_card_note --limit 40` w kontenerze backendu.
-- **Tylko z okna karty (D5).** Kafle „Wgraj notatkę” / „Wklej tekst” /
-  „Wpisz ręcznie”; odczyt (`/note/read`, `/note/read-file`) NIC nie zapisuje,
-  zapis robi `/note/apply` po „Zastosuj zaznaczone”. Pliku nie zapisujemy (D1)
-  — jego tekst trafia do historii jako zwykła notatka (rodzaj `human`, NIE
-  `card`: projekcja kart 0413 wpisałaby do karty pola, które rekruter
-  odznaczył). Kolejność w `apply`: notatka → odpowiedzi (walidacja może
-  odmówić) → pola karty (zmiana stawki bywa z commitem i mailem do DL).
+- **Od 0424 „Uzupełnij z notatki” stoi na górze formularza screeningu**
+  (sekcja „Jeden formularz screeningu”). Odczyt (`/note/read`,
+  `/note/read-file`) NIC nie zapisuje — wypełnia pola formularza w miejscu,
+  a notatka zapisuje się razem z „Zapisz”. `/note/apply` i okno przeglądu
+  usunięte. Pliku nie zapisujemy (D1) — jego tekst trafia do historii jako
+  zwykła notatka (rodzaj `human`, NIE `card`: projekcja kart 0413 wpisałaby do
+  karty pola, których rekruter nie przyjął).
 - **Najpierw reguła wzoru, potem Luna** (`AIFeatureKey.recommendation_card_note_read`,
   F28). Pole z reguły wygrywa. Narodowość czyta WYŁĄCZNIE reguła; model dostaje
   tekst po `redact_card_text` i `strip_contacts`. Wartość bez dosłownego cytatu
@@ -2884,8 +2883,42 @@ https://claude.ai/artifact/3xRoTbWQpYWX33ME3Z4BPr). Kod:
 - **Język zdań = język CV klienta (D3)** — `phrase_language`
   (`resolve_client_rule`, przy 503 polski), przełącznik PL/EN w oknie i nad
   arkuszem. `AIFeatureKey.screening_answer_phrasing` (F29).
-- Odczyt notatki jest zablokowany przy niezapisanym arkuszu screeningu
-  (`screeningDirty`) albo karcie — zapis odświeża arkusz i nadpisałby formularz.
+- Odczyt notatki nie jest już blokowany przy niezapisanych zmianach — od 0424
+  wypełnia tylko puste pola formularza, a przy pełnych proponuje „Użyj”.
+
+## Jeden formularz screeningu (0424, 07.10.2026)
+
+Decyzje Artura D1–D10 z 07.10.2026 (makieta https://claude.ai/artifact/TNGomEmwM6ehsbdPDSaaBi). Rekruter rozmawia
+na podstawie Profilu Championa i zapisuje wynik **dla Delivery Leada** — z NEXUSA nic nie idzie do klienta.
+Kontrakt: `docs/screening-form-contract.md`, raport: `docs/screening-form-completion-report.md`.
+
+- **Arkusz screeningu, ręczne pola karty rekomendacji i stawka kandydata to JEDEN formularz**
+  (`api/screening_form.py`, `services/screening_form.py`, front `components/v2/screening-form/`). Zapis jest jedną
+  transakcją: arkusz na NAJNOWSZY wiersz etapu pary, pola karty (`save_manual`, tylko różne od wartości efektywnej),
+  stawka przez `candidate_rate_change.change_rate(source="screening")`, tekst z „Uzupełnij z notatki” jako notatka
+  HUMAN. Stare trasy (`POST /pipeline/stages/{id}/screening`, `PUT /recommendation-cards`) zostają dla starych kart
+  przeglądarki; ich zmiany łapie wersja `external`. Nowy ekran zapisujący arkusz albo kartę = ta trasa.
+  Zapis i przywrócenie odsyłają `state_token` (odcisk stanu pary z `GET`): zmiana zrobiona obok formularza zmienia
+  odcisk → 409, przeglądarka wczytuje nowy stan i zostawia niezapisane zmiany (odświeżenie w tle robi to samo,
+  `keepDirtyValues`). Front wysyła tylko zmienione pola karty i `null` dla nieruszonego arkusza i stawki.
+  „Cofnij” = tylko własny ostatni zapis; od „CV wysłane” podwyżka z „Cofnij” idzie do DL jak każda inna. `note_import` przy
+  wyłączonym `RECOMMENDATION_CARD_ASSIST_ENABLED` = 422.
+- **Historia wersji** `screening_form_versions`: każda realna zmiana = wersja z migawką i zmianami przed/po;
+  „Przywróć” i „Cofnij” zapisują NOWĄ wersję. Tabela trzyma wartości (także narodowość) — czytają ją wyłącznie ludzie
+  (strażnik w `test_recommendation_card_ai_privacy.py`). Przywrócenie stawki tylko przed „Zweryfikowany” — później
+  zmianę stawki prowadzi Delivery Lead (0418).
+- **Edycja na każdym etapie, dopóki proces trwa** (`assert_pair_editable`): tylko do odczytu przy zamkniętej
+  rekrutacji albo zamkniętym/unieważnionym procesie pary. Blokada 12 h bez zmian (Nowi/Screening).
+- **Panel osoby ma szerokość `split`** (`PersonPanelShell size`): kliknięcie osoby w Nowi/Screening otwiera od razu
+  dwie kolumny — profil przed rozmową albo formularz po lewej, podgląd po prawej (CV oryginalne / CV firmowe / inne
+  pliki, Wymagania, Po ludzku). „Zwiń” wraca do doku 380 px.
+- **Karta rekomendacji jest widokiem** (dok, przegląd DL, profil) z „Edytuj w screeningu”. Pole „Notatki
+  rekrutera” (`screening_answers.notes`) zniknęło z formularza — stare wartości pokazujemy jako „Notatka z arkusza”
+  z „Przenieś do Dlaczego ten kandydat”.
+- **Nic do klienta (D2):** udostępnianie karty Championa usunięte — `POST …/share-token` i publiczny GET = 410,
+  tokeny odwołane w 0424; `notes` zdjęte z `client_safe_screening`. Odpowiedzi nadal są źródłem treści CV firmowego.
+- Wzmianki w sekcjach 0413 i 0421 o edycji karty w jej oknie, kafelkach importu notatki i `/note/apply` opisują
+  stan sprzed 0424.
 
 ## „Stawka od” i historia stawek kandydata (0414, 04.10.2026)
 

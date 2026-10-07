@@ -48,11 +48,17 @@ export function StageCvPreview({
   candidateId,
   jobId,
   cvStageId,
+  fill = false,
 }: {
   candidateId: number;
   jobId: number;
   /** Etap z CV firmowym pary — gdy jest, podgląd i DOCX idą z CV etapu (po QC). */
   cvStageId?: number | null;
+  /**
+   * Podgląd obok formularza screeningu (0424): bez limitu 28 rem — wysokość
+   * daje kolumna podglądu, a przewija się sam dokument.
+   */
+  fill?: boolean;
 }) {
   const { showError } = useToast();
   const query = useQuery({
@@ -136,7 +142,13 @@ export function StageCvPreview({
   };
 
   const previewBox = (
-    <div className="relative max-h-[28rem] min-h-40 overflow-auto rounded-lg border border-border bg-muted/30 p-2">
+    <div
+      className={
+        fill
+          ? "relative min-h-40 overflow-auto rounded-lg border border-border bg-muted/30 p-2"
+          : "relative max-h-[28rem] min-h-40 overflow-auto rounded-lg border border-border bg-muted/30 p-2"
+      }
+    >
       {render !== "ready" ? (
         <p className="absolute inset-0 flex items-center justify-center px-3 text-center text-xs">
           {render === "error" ? (

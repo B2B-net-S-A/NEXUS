@@ -35,21 +35,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
-from app.schemas.champion import client_safe_screening
-from app.services import champion_view
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.cv_document_version import CvDocumentVersion
-from app.models.champion_share import ChampionCardShareToken
 from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.cv_generated_share import CvGeneratedShareToken
 from app.models.cv_share_token import CVShareToken
 from app.services.cv_public_document import public_cv_document
 from app.models.invite_link import CandidateInviteLink
 from app.models.job import Job
-from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -65,114 +61,19 @@ router = APIRouter()
 async def get_public_champion_card(
     token: str,
     request: Request,  # required by slowapi limiter
-    db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Client-facing read of a filled Champion card. Rate-limited: 30 req/min per IP.
-
-    Returns 404 when the token is unknown, revoked, or expired. The response
-    shape is slimmed down — no internal fields (scores, stage ids) — so that
-    the client only sees what the recruiter meant to share.
-    """
-    # Limiter dodany, bo to była JEDYNA trasa w tym pliku bez niego, a
-    # `rate_limit.py` ma `default_limits=[]` — nic jej nie przykrywało. Każde
-    # trafienie to cztery sekwencyjne round-tripy do produkcyjnego Postgresa
-    # bez uwierzytelnienia, a przy poprawnym tokenie odpowiedź niesie PII
-    # kandydata. Reguła WAF Cloudflare jest zawężona do `/api/auth/*`, więc ta
-    # ścieżka szła na wprost.
-    # Dual-read (same pattern as CVShareToken): v2 rows match the SHA-256 digest
-    # of the incoming secret; legacy rows kept the raw secret in the PK and are
-    # matched directly, scoped to token_sha256 IS NULL so they age out on expiry.
-    import hashlib
-
-    digest = hashlib.sha256(token.encode()).hexdigest()
-    row: Optional[ChampionCardShareToken] = await db.scalar(
-        select(ChampionCardShareToken).where(
-            (ChampionCardShareToken.token_sha256 == digest)
-            | (
-                (ChampionCardShareToken.token == token)
-                & (ChampionCardShareToken.token_sha256.is_(None))
-            )
-        )
+    """Karta Championa dla klienta — wyłączona (410)."""
+    # D2 (07.10.2026): z NEXUSA nic nie idzie do klienta, a migracja 0424
+    # odwołała wszystkie tokeny. Odpowiedź nie czyta bazy — nie zdradza ani
+    # istnienia tokenu, ani danych kandydata. Limit zostaje (strażnik
+    # `test_public_surface_hardening.py`), bo trasa dalej jest publiczna.
+    raise HTTPException(
+        status_code=410,
+        detail={
+            "code": "CHAMPION_SHARE_REMOVED",
+            "message": "Ten link do karty kandydata jest już nieważny.",
+        },
     )
-    if row is None or row.revoked:
-        raise HTTPException(
-            status_code=404, detail="Link nie istnieje lub został odwołany."
-        )
-    if row.expires_at is not None and row.expires_at < datetime.now(timezone.utc):
-        raise HTTPException(status_code=404, detail="Link wygasł.")
-
-    stage = await db.scalar(
-        select(CandidateStage).where(CandidateStage.id == row.candidate_stage_id)
-    )
-    if stage is None:
-        raise HTTPException(status_code=404, detail="Karta nie jest już dostępna.")
-    candidate = await db.scalar(
-        select(Candidate).where(Candidate.id == stage.candidate_id)
-    )
-    job = await db.scalar(select(Job).where(Job.id == stage.job_id))
-
-    return {
-        "candidate": {
-            "name": candidate.name if candidate else None,
-            "lastname": candidate.lastname if candidate else None,
-            "competence_category": candidate.competence_category if candidate else None,
-            "location": candidate.location if candidate else None,
-            "years_it_experience": candidate.years_it_experience if candidate else None,
-        },
-        "job": {
-            "title": job.title if job else None,
-            "location": job.location if job else None,
-            "seniority": job.seniority.value if job and job.seniority else None,
-        },
-        "champion_profile": _public_champion_projection(job),
-        # Wersja dla klienta: bez pytań pominiętych przy przepięciu i bez
-        # notatki wewnętrznej (Pipeline v4, 23.09.2026).
-        "screening_answers": client_safe_screening(stage.screening_answers),
-        "expires_at": row.expires_at.isoformat() if row.expires_at else None,
-    }
-
-
-def _public_champion_projection(job) -> dict:
-    """Wycinek Championa dla karty udostępnianej hiring managerowi.
-
-    Whitelist, nie surowy dokument. Do 09.2026 endpoint zwracał
-    `job.champion_profile` w całości, więc każdy z linkiem dostawał w JSON-ie
-    także rzeczy, których karta nigdy nie renderowała: NASZĄ stawkę dla
-    kandydata (`rate_value`), listę firm docelowych, dyskwalifikatory i reguły
-    priorytetu klienta. Niewidoczne na ekranie, ale obecne w odpowiedzi —
-    a odbiorcą tego linku jest strona trzecia.
-
-    Przy okazji stabilizuje kontrakt dla frontu: karta czyta jeden kształt
-    niezależnie od tego, czy oferta ma profil sprzed czy po przebudowie.
-    """
-    raw = (getattr(job, "champion_profile", None) if job else None) or {}
-    if not isinstance(raw, dict) or not raw:
-        return {}
-    basics = champion_view.basics(raw)
-    project = champion_view.project(raw)
-    stack = champion_view.stack(raw)
-    return {
-        # Świadomie BEZ `rate_value`, `role_name` i długości kontraktu — karta
-        # ma powiedzieć hiring managerowi, w jakim trybie pracuje kandydat,
-        # a nie ile nam płaci jego klient.
-        "basics": {
-            "onsite_days_per_week": basics.get("onsite_days_per_week"),
-            "onsite_days_per_month": basics.get("onsite_days_per_month"),
-            "language": basics.get("language"),
-        },
-        "project": {
-            "about": project.get("about") or "",
-            "responsibilities": project.get("responsibilities") or "",
-        },
-        "stack": {
-            "must": [
-                {"name": item.get("name")}
-                for item in (stack.get("must") or [])
-                if isinstance(item, dict) and item.get("name")
-            ],
-        },
-        "screening_questions": champion_view.screening_questions(raw),
-    }
 
 
 # ── CV per rekrutacja — public share (Faza 4) ──────────────────────────────

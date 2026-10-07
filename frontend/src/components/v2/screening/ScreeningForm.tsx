@@ -415,12 +415,19 @@ export function useScreeningForm({
   };
 }
 
-/** Pola arkusza — pytania, ocena ogólna i notatki. Bez opakowania `<form>`. */
+/**
+ * Pola arkusza — pytania i ocena ogólna. Bez opakowania `<form>`.
+ *
+ * Od 0424 (07.10.2026) arkusz nie ma pola „Notatki rekrutera”: opis kandydata
+ * żyje w polach karty („Dlaczego ten kandydat”) jednego formularza screeningu,
+ * a stara notatka z arkusza jest tylko do odczytu.
+ */
 export function ScreeningFormFields({
   questions,
   methods,
   renderQuestionExtra,
   phrase,
+  withOverallFit = true,
 }: {
   questions: ScreeningQuestion[];
   methods: UseFormReturn<ScreeningFormValues>;
@@ -431,6 +438,8 @@ export function ScreeningFormFields({
   renderQuestionExtra?: (question: ScreeningQuestion, index: number) => ReactNode;
   /** „Ułóż w zdanie” przy odpowiedziach (0421) — bez niego przycisku nie ma. */
   phrase?: PhraseController;
+  /** Formularz screeningu stawia ocenę ogólną w sekcji „Ocena” (`OverallFitField`). */
+  withOverallFit?: boolean;
 }) {
   return (
     <div className="space-y-5">
@@ -559,6 +568,7 @@ export function ScreeningFormFields({
                 onCheckedChange={(v) =>
                   methods.setValue(dealBreakerName, !!v, {
                     shouldValidate: true,
+                    shouldDirty: true,
                   })
                 }
               />
@@ -568,49 +578,51 @@ export function ScreeningFormFields({
         );
       })}
 
-      <div className="pt-2">
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-          Ogólna ocena dopasowania
-        </h3>
-        <RadioGroup
-          value={methods.watch("overall_fit")}
-          onValueChange={(v) =>
-            methods.setValue(
-              "overall_fit",
-              v as ScreeningFormValues["overall_fit"],
-            )
-          }
-        >
-          {FIT_OPTIONS.map((opt) => (
-            <label
-              key={opt.value}
-              className="flex cursor-pointer items-start gap-2 rounded-md p-2 hover:bg-primary/10"
-            >
-              <RadioGroupItem value={opt.value} className="mt-0.5" />
-              <div>
-                <div className="text-sm font-medium text-foreground">
-                  {opt.label}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {opt.description}
-                </div>
-              </div>
-            </label>
-          ))}
-        </RadioGroup>
-      </div>
+      {withOverallFit ? (
+        <div className="pt-2">
+          <OverallFitField methods={methods} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
-      <FormField
-        name="notes"
-        label="Notatki rekrutera"
-        description="Kontekst, follow-upy, deal-breakers — widoczne w share portalu klienta."
+/** „Ogólna ocena dopasowania” — trzy pigułki z opisem (arkusz i sekcja „Ocena”). */
+export function OverallFitField({
+  methods,
+}: {
+  methods: UseFormReturn<ScreeningFormValues>;
+}) {
+  return (
+    <div>
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+        Ogólna ocena dopasowania
+      </h3>
+      <RadioGroup
+        value={methods.watch("overall_fit")}
+        onValueChange={(v) =>
+          methods.setValue("overall_fit", v as ScreeningFormValues["overall_fit"], {
+            shouldDirty: true,
+          })
+        }
       >
-        <TextareaField
-          name="notes"
-          rows={4}
-          placeholder="Np. kandydat był gotowy zacząć w 2 tyg, rozmowa po angielsku…"
-        />
-      </FormField>
+        {FIT_OPTIONS.map((opt) => (
+          <label
+            key={opt.value}
+            className="flex cursor-pointer items-start gap-2 rounded-md p-2 hover:bg-primary/10"
+          >
+            <RadioGroupItem value={opt.value} className="mt-0.5" />
+            <div>
+              <div className="text-sm font-medium text-foreground">
+                {opt.label}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {opt.description}
+              </div>
+            </div>
+          </label>
+        ))}
+      </RadioGroup>
     </div>
   );
 }
@@ -629,6 +641,7 @@ function ExperienceChecklistField({
         methods.setValue(
           "experience_checks",
           checks.map((row, i) => (i === index ? { ...row, status } : row)),
+          { shouldDirty: true },
         )
       }
     />
