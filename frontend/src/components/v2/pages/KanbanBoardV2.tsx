@@ -77,6 +77,7 @@ import { ScreeningSheet } from"@/components/v2/modals/ScreeningSheet";
 import { useToast } from"@/components/Toast";
 import { SlotRequestDialog } from "@/components/calendar/cycle/SlotDialogs";
 import { DlReviewBody } from "@/components/v2/recruitment/DlReviewPanel";
+import { DlReviewQueueDialog } from "@/components/v2/recruitment/dl-review/DlReviewQueueDialog";
 import { PersonPanelShell, type PersonPanelSize } from "@/components/v2/person/PersonPanelShell";
 import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
 import { MoveNextDialog } from "@/components/v2/recruitment/MoveNextDialog";
@@ -1309,6 +1310,8 @@ interface ColProps {
  /** „Co tu robisz" pod nazwą kolumny (`lib/board-column-purpose.ts`);
   *  `null` = własny etap szablonu — zostaje dawna linia SLA. */
  purpose?: string | null;
+ /** Akcja w nagłówku kolumny (D10: „Porównaj (N)” w „QC CV” dla DL). */
+ headerAction?: React.ReactNode;
 }
 
 const KanbanColumnV2 = memo(function KanbanColumnV2({
@@ -1335,6 +1338,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  badgeByItemId,
  step = null,
  purpose = null,
+ headerAction = null,
 }: ColProps) {
  const headerCount = col.count;
  // Pusta kolumna jest WĄSKA (24.09.2026): przy 1440 px osiem kolumn mieści się
@@ -1419,6 +1423,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  <Badge size="sm" variant={headerCount > 0 ?"soft" :"outline"} className={cn(desktopOverview &&"xl:pointer-fine:h-4 xl:pointer-fine:min-w-4 xl:pointer-fine:self-center xl:pointer-fine:px-1 xl:pointer-fine:text-[10px]")}>
  {headerCount}
  </Badge>
+ {headerAction}
  </div>
 
  {/* Druga linia nagłówka (24.09.2026): „co tu robisz" po lewej, SLA
@@ -2467,7 +2472,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
 
  // Pipeline v4 (decyzja 23.09.2026): DL wysyłający osobę ze „Zweryfikowanego"
  // do klienta dostaje ten sam pełny przegląd co na pulpicie (stawka kandydata,
- // CV, screening, stawka do klienta — bez marży), a nie samo okno stawki.
+ // CV, screening, stawka do klienta), a nie samo okno stawki. Od 08.10.2026
+ // (D9) przegląd pokazuje budżet i marżę na żywo — decyzja „bez marży” z 23.09
+ // jest odwrócona.
  const [dlReviewTask, setDlReviewTask] = useState<BoardTaskRow | null>(null);
  // Jeden panel osoby (04.10.2026): przegląd DL otwiera się W panelu osoby
  // jako szeroki tryb; dok tej samej (albo innej) osoby zostaje pod nim
@@ -2561,6 +2568,17 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  useEffect(() => {
  openDlReviewRef.current = openDlReviewIfSending;
  }, [openDlReviewIfSending]);
+ // D10 (08.10.2026): porównanie osób w „QC CV” tej rekrutacji — klik w osobę
+ // otwiera jej przegląd z wiersza kolejki (ten sam co na pulpicie).
+ const [compareOpen, setCompareOpen] = useState(false);
+ const openDlReviewForTask = useCallback((task: BoardTaskRow) => {
+ if (document.activeElement instanceof HTMLElement && document.activeElement !== document.body) {
+ reviewReturnFocusRef.current = document.activeElement;
+ }
+ setWorkbench((w) => (w ? { ...w, open: false } : w));
+ setDlReviewTask(task);
+ setDlReviewCanSend(undefined);
+ }, []);
  // `?candidate=&review=1` — dzwonek „CV do przeglądu” prowadzi prosto do
  // przeglądu, nie do samego doku (04.10.2026).
  useEffect(() => {
@@ -2645,8 +2663,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const panelWide = workbenchOpen || reviewOpen;
  // Szerokość panelu osoby: przegląd DL i rozwinięte narzędzia — 760 px,
  // formularz screeningu z podglądem obok — panel dzielony (0424).
+ // D9 (08.10.2026): przegląd DL ma trzy kolumny (wymagania · CV · decyzja)
+ // — panel dzielony, jak formularz screeningu z podglądem.
  const panelSize: PersonPanelSize = reviewOpen
- ? "wide"
+ ? "split"
  : workbenchOpen
  ? activeWorkbench?.section === "screening"
  ? "split"
@@ -3206,6 +3226,21 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  slaDays={slaDays}
  badgeByItemId={boardFold.badgeByItemId}
  step={boardColumnStep(boardKeyByColId.get(entry.key))}
+headerAction={
+ boardKeyByColId.get(entry.key) === "cv_qc" && canReviewAsDl && !cproEnabled && entry.col.count >= 2 && !readOnly ? (
+ <Button
+ type="button"
+ size="sm"
+ variant="outline"
+ className="h-6 shrink-0 px-2 text-[11px]"
+ onClick={() => setCompareOpen(true)}
+ data-testid="dl-review-compare"
+ data-help="jobs.board.dl-compare"
+ >
+ Porównaj ({entry.col.count})
+ </Button>
+ ) : null
+ }
  purpose={boardColumnPurpose(boardKeyByColId.get(entry.key), {
  cproEnabled,
  hired: entry.col.count,
@@ -3345,6 +3380,14 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  ) : null}
  </PersonPanelShell>
  )}
+
+ <DlReviewQueueDialog
+ jobId={compareOpen ? jobId : null}
+ jobTitle={jobTitle ?? null}
+ open={compareOpen}
+ onOpenChange={setCompareOpen}
+ onReview={openDlReviewForTask}
+ />
 
  <SlotRequestDialog
  open={slotPair !== null}

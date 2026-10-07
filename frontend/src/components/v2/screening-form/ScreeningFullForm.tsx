@@ -103,7 +103,9 @@ import {
 import type { ScreeningSuggestions } from "@/lib/screening-suggestions";
 import { cn } from "@/lib/utils";
 import { evaluateRateGate } from "@/lib/verified-rate-gate";
+import { fixFieldState } from "@/lib/screening-fix-request";
 
+import { FixMark, FixRequestBanner } from "./FixRequestBanner";
 import { NoteFillBar } from "./NoteFillBar";
 import { ScreeningFormHistory } from "./ScreeningFormHistory";
 
@@ -454,6 +456,10 @@ export function ScreeningFullFormView({
 }: ScreeningFullFormViewProps) {
   const { methods, questions, offers, hints } = model;
   const values = methods.watch();
+  // D6 (08.10.2026): pola, które Delivery Lead wskazał do poprawy.
+  const fixRequest = state.fix_request ?? null;
+  const dirtyFields = methods.formState.dirtyFields as Record<string, unknown>;
+  const fixState = (key: string) => (fixRequest ? fixFieldState(fixRequest, key, dirtyFields) : null);
   const termsKeys = cardTermsKeys(state);
   const assessmentKeys = cardAssessmentKeys(state);
   const offerById = new Map(offers.map((o) => [o.id, o]));
@@ -484,6 +490,7 @@ export function ScreeningFullFormView({
       const offer = offerById.get(`answer:${q.id}`);
       return (
         <>
+          <FixMark state={fixState(`question:${q.id}`)} />
           {reassignExtra(q, i)}
           {empty && fromCard?.answer?.trim() ? (
             <div className="flex flex-wrap items-center gap-2 text-xs" data-testid="note-card-answer">
@@ -535,8 +542,18 @@ export function ScreeningFullFormView({
       methods.setValue(`card_origins.${key}`, { origin: "phrased", keywords }, SET);
       phrase?.dismiss(key);
     };
+    const fixMark = fixState(`field:${key}`);
     return (
-      <div key={key} className="space-y-1" data-card-field={key}>
+      <div
+        key={key}
+        className={cn(
+          "space-y-1",
+          fixMark === "todo" && "rounded-md ring-2 ring-warning/50 ring-offset-2 ring-offset-background",
+        )}
+        data-card-field={key}
+        data-fix-state={fixMark ?? undefined}
+      >
+        <FixMark state={fixMark} />
         <FormField name={name} label={label}>
           {multiline ? (
             <TextareaField
@@ -589,6 +606,7 @@ export function ScreeningFullFormView({
     <FormProvider {...methods}>
       <div className="space-y-5" data-help="jobs.person.screening-form" data-testid="screening-full-form">
         {banner}
+        {fixRequest ? <FixRequestBanner request={fixRequest} dirty={dirtyFields} /> : null}
         {model.notice ? (
           <p
             role="status"
@@ -649,6 +667,7 @@ export function ScreeningFullFormView({
           <div className="space-y-2 rounded-lg border border-border bg-background/40 p-3" data-testid="screening-form-rate">
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-xs font-medium text-foreground">Stawka kandydata w tej rekrutacji</p>
+              <FixMark state={fixState("candidate_rate")} />
               {model.rateFromNote ? (
                 <Badge variant="soft" size="sm">
                   z notatki
@@ -735,7 +754,8 @@ export function ScreeningFullFormView({
         {/* ── Ocena ───────────────────────────────────────────────────── */}
         <section aria-label="Ocena" className="space-y-3">
           <SectionTitle>Ocena</SectionTitle>
-          <div className="rounded-lg border border-border bg-background/40 p-3">
+          <div className="space-y-1.5 rounded-lg border border-border bg-background/40 p-3">
+            <FixMark state={fixState("field:overall_fit")} />
             <OverallFitField methods={sheetMethods(methods)} />
           </div>
           {assessmentKeys.map((key) => cardField(key, true))}
@@ -881,6 +901,7 @@ export function ScreeningFullForm({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [forwarding, setForwarding] = useState(false);
+  const [handingBack, setHandingBack] = useState(false);
   const dirty = methods.formState.isDirty || model.note != null;
 
   const phraseController = usePhraseSuggestions({
@@ -1054,6 +1075,38 @@ export function ScreeningFullForm({
     }
   };
 
+  // D6 (08.10.2026): po prośbie Delivery Leada o poprawki — zapis i ruch
+  // z powrotem na „QC CV” jednym przyciskiem. Odmowa ruchu nie cofa zapisu.
+  const handbackStageDefId =
+    state?.fix_request && state.handback_stage_def_id ? state.handback_stage_def_id : null;
+  const onHandBack = async () => {
+    if (!state || handbackStageDefId == null) return;
+    setHandingBack(true);
+    try {
+      const saved = await saveNow();
+      if (saved === null) return;
+      const current = saved === "unchanged" ? state : saved;
+      const outcome = await moveCore.send(
+        {
+          candidate_id: candidateId,
+          job_id: jobId,
+          stage_def_id: handbackStageDefId,
+          expected_state_version: current.process_state_version,
+        },
+        { candidateName },
+      );
+      void queryClient.invalidateQueries({ queryKey: screeningFormQueryKey(jobId, candidateId) });
+      if (outcome.ok) {
+        showSuccess(`${candidateName} — oddane do przeglądu Delivery Leada.`);
+        onMoved?.();
+      } else if (outcome.refusal.kind === "version_conflict") {
+        onMoved?.();
+      }
+    } finally {
+      setHandingBack(false);
+    }
+  };
+
   const rejectMut = useMutation({
     mutationFn: async (vars: {
       reasonId: string;
@@ -1146,7 +1199,7 @@ export function ScreeningFullForm({
   }
 
   const claimedByOther = state.claim && !state.claim.mine ? state.claim : null;
-  const busy = save.isPending || forwarding || rejectMut.isPending;
+  const busy = save.isPending || forwarding || handingBack || rejectMut.isPending;
 
   const footer = (
     <div
@@ -1195,13 +1248,25 @@ export function ScreeningFullForm({
       <Button
         type="button"
         size="sm"
-        variant={forward ? "outline" : "primary"}
-        loading={save.isPending && !forwarding}
+        variant={forward || handbackStageDefId != null ? "outline" : "primary"}
+        loading={save.isPending && !forwarding && !handingBack}
         disabled={busy}
         onClick={() => void onSave()}
       >
         <Save className="h-3.5 w-3.5" aria-hidden /> Zapisz
       </Button>
+      {handbackStageDefId != null ? (
+        <Button
+          type="button"
+          size="sm"
+          loading={handingBack}
+          disabled={busy}
+          onClick={() => void onHandBack()}
+          data-testid="screening-form-handback"
+        >
+          Zapisz i oddaj do przeglądu DL <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+        </Button>
+      ) : null}
       {forward ? (
         <Button type="button" size="sm" loading={forwarding} disabled={busy} onClick={() => void onForward()}>
           Zapisz i przekaż dalej <ArrowRight className="h-3.5 w-3.5" aria-hidden /> {forward.label}

@@ -85,7 +85,7 @@
       }
     ],
     "pitfalls": [
-      "Wysłanie na „CV wysłane” poza Nordeą robi tylko osoba z uprawnieniem do wysyłki CV do klienta (domyślnie Delivery Lead i admin), podając w tym samym kroku stawkę do klienta. Cofnięcie karty z „Rozmowy u klienta” tego nie wymaga. Gdy Delivery Lead cofnie kartę z „QC CV” do poprawy, rekruter dostaje powiadomienie z jego uwagą — uwaga jest też w notatkach kandydata.",
+      "Wysłanie na „CV wysłane” poza Nordeą robi osoba z uprawnieniem do wysyłki CV do klienta (domyślnie Delivery Lead i admin) w przeglądzie: wymagania z dowodem, CV, budżet i marża na żywo, stawka do klienta. „Wróć do poprawy…” zaznacza pola — rekruter widzi je w formularzu screeningu, a uwagę w powiadomieniu.",
       "Wejście na „Zweryfikowany” wymaga odpowiedzi z formularza screeningu i stawki kandydata, wyjście z „Rozmowy u klienta” — debriefu (pytań klienta albo potwierdzenia, że ich nie było), a ręczny ruch na „Zatrudniony” — informacji, jak podpisano umowę.",
       "Bez zielonego QC CV kandydat nie przejdzie na „CV wysłane” ani do kolejki Cpro (u Nordei wrzuca osoba od Cpro wyznaczona dla firmy, a gdy jej nie ma — osoba wskazana w rekrutacji). QC zatrzymuje tylko cztery rzeczy: brak CV firmowego, umiejętności krytyczne nieopisane w rolach, treść spoza oryginalnego CV i reguły klienta — reszta to uwagi. Przepuścić mimo QC może osoba z uprawnieniem do wysyłki CV do klienta, wybierając powód. Powrót z „Zamkniętych” tego nie omija.",
       "Osobę dodaną ręcznie przez 12 godzin (w Nowych i Screeningu) prowadzi tylko osoba, która ją wzięła — przejąć mogą Delivery Lead, Head of Recruitment i admin."
@@ -93,7 +93,8 @@
     "anchors": [
       {"id": "jobs.board.columns", "label": "Kolumny tablicy", "describe": "Osiem kolumn etapów — strzałka „→” na karcie albo przeciąganie."},
       {"id": "jobs.board.sources", "label": "Kandydaci do dodania", "describe": "Cztery kafle źródeł nad tablicą: podobne rekrutacje, nowi z ogłoszeń, propozycje z bazy, szukaj w bazie."},
-      {"id": "jobs.board.closed", "label": "Zamknięci", "describe": "Wąska kolumna po prawej: zrezygnowali i odrzuceni — przez nas, przez DL, przez klienta."}
+      {"id": "jobs.board.closed", "label": "Zamknięci", "describe": "Wąska kolumna po prawej: zrezygnowali i odrzuceni — przez nas, przez DL, przez klienta."},
+      {"id": "jobs.board.dl-compare", "label": "Porównaj kandydatów", "describe": "W nagłówku „QC CV” (Delivery Lead, poza Nordeą): osoby czekające na przegląd obok siebie — ocena, wymagania, koszt, start, ryzyka."}
     ],
     "help_slug": null,
     "sources": [
@@ -156,7 +157,7 @@
     "tasks": [
       {
         "q": "Jak zapisać screening rozmowy?",
-        "a": "W formularzu wpisz odpowiedzi na pytania z Profilu Championa, warunki ze stawką kandydata i ocenę dla Delivery Leada. „Uzupełnij z notatki” wypełni pola z wklejonej notatki. „Zapisz” dodaje wersję do „Historii zmian” (z „Przywróć”), a „Zapisz i przekaż dalej” przesuwa osobę na „Zweryfikowany”.",
+        "a": "Wpisz odpowiedzi na pytania z Profilu Championa, warunki ze stawką i ocenę dla Delivery Leada („Uzupełnij z notatki” wypełni pola z notatki). „Zapisz” dodaje wersję do historii, „Zapisz i przekaż dalej” przesuwa na „Zweryfikowany”. Gdy DL odeśle kartę do poprawy, pola są podświetlone — po poprawkach „Zapisz i oddaj do przeglądu DL”.",
         "anchor": "jobs.person.screening-form"
       },
       {

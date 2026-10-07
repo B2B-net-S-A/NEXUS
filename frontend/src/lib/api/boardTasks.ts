@@ -208,6 +208,8 @@ export interface CvTransitRow {
   card_edited_by?: string | null;
   /** Nazwy poprawionych pól karty (jak na ekranie karty). */
   card_edited_fields?: string[];
+  /** D6 (08.10.2026): pola, które Delivery Lead wskazał do poprawy. */
+  fix_labels?: string[];
 }
 
 export interface CvInTransit {

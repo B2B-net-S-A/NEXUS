@@ -52,6 +52,8 @@ export interface PipelineMovePayload {
   client_rate_unit?: RateUnit;
   client_rate_currency?: string;
   recruiter_remark?: string;
+  /** D6: „Wróć do poprawy” z „QC CV” — pola do poprawy (`fix_options` z kontekstu DL). */
+  fix_fields?: string[];
   hired_signed_via?: HiredSignedVia;
   hired_signed_note?: string;
 }

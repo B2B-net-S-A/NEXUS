@@ -1395,6 +1395,54 @@
    "v3_home": "Pulpit → Czeka na Ciebie → przegląd DL"
   },
   {
+   "id": "dl-review.requirements",
+   "area": "przegląd DL",
+   "opis": "Wymagania klienta a kandydat (status i źródło dowodu), ocena rekrutera i ryzyka z historii u klienta (D9, 08.10.2026)",
+   "file": "components/v2/recruitment/dl-review/RequirementsColumn.tsx",
+   "marker": "Wymagania klienta a kandydat",
+   "v3_home": "Pulpit → przegląd DL → Przejrzyj / Tablica → panel osoby w „QC CV”"
+  },
+  {
+   "id": "dl-review.cv",
+   "area": "przegląd DL",
+   "opis": "CV firmowe i oryginał kandydata w przeglądzie DL, z wynikiem QC i „Otwórz QC” (D9)",
+   "file": "components/v2/recruitment/dl-review/CvColumn.tsx",
+   "marker": "CV oryginalne",
+   "v3_home": "Pulpit → przegląd DL → Przejrzyj"
+  },
+  {
+   "id": "dl-review.margin",
+   "area": "przegląd DL",
+   "opis": "Budżet, stawka do klienta z podpowiedzią i marża na godzinę i miesiąc obok stawki kandydata (D9)",
+   "file": "components/v2/recruitment/dl-review/DecisionPanel.tsx",
+   "marker": "dl-review-margin",
+   "v3_home": "Pulpit → przegląd DL → Przejrzyj"
+  },
+  {
+   "id": "dl-review.return-fields",
+   "area": "przegląd DL",
+   "opis": "„Wróć do poprawy…” z listą pól formularza screeningu do poprawy (D6)",
+   "file": "components/v2/recruitment/dl-review/ReturnForFixDialog.tsx",
+   "marker": "Zaznacz, co rekruter ma poprawić",
+   "v3_home": "Pulpit → przegląd DL → Przejrzyj → Wróć do poprawy…"
+  },
+  {
+   "id": "dl-review.compare",
+   "area": "przegląd DL",
+   "opis": "Porównanie osób czekających na przegląd DL w jednej rekrutacji: ocena, wymagania X/Y, koszt, start, ryzyka (D10)",
+   "file": "components/v2/recruitment/dl-review/DlReviewQueueDialog.tsx",
+   "marker": "Porównanie kandydatów w przeglądzie",
+   "v3_home": "Pulpit → Czeka na Ciebie → Porównaj (N) / Tablica → nagłówek „QC CV” → Porównaj (N)"
+  },
+  {
+   "id": "screening-form.fix-request",
+   "area": "screening",
+   "opis": "Prośba Delivery Leada o poprawki: baner z polami, podświetlenie w formularzu i „Zapisz i oddaj do przeglądu DL” (D6)",
+   "file": "components/v2/screening-form/ScreeningFullForm.tsx",
+   "marker": "Zapisz i oddaj do przeglądu DL",
+   "v3_home": "Tablica → panel osoby → Screening"
+  },
+  {
    "id": "contract.generate-in-panel",
    "area": "umowa",
    "opis": "Rekruter generuje umowę B2B w panelu osoby — formularz Generatora z ustaloną parą i podpowiedziami z rekrutacji (04.10.2026)",

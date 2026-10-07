@@ -2,24 +2,33 @@
 
 /**
  * Przegląd Delivery Leada przed wysłaniem CV do klienta (Pipeline v4,
- * Rekrutacja v5 — decyzje Artura 23.09.2026).
+ * Rekrutacja v5 — decyzje Artura 23.09.2026; przegląd v2 — D6, D9, D10,
+ * 08.10.2026: trzy kolumny „wymagania · CV · decyzja”, marża na żywo,
+ * „Wróć do poprawy…” z listą pól).
  *
  * U klientów innych niż Nordea osoba w kolumnie „QC CV” czeka, aż DL obejrzy:
  * wynik QC CV (okno `CvQcDialog`), stawkę kandydata, dostępność, CV
  * kartę rekomendacji (z odpowiedziami na pytania Championa) i arkusz
  * screeningu. Trzy decyzje, każda to ZWYKŁY ruch w pipeline
  * (`POST /api/pipeline/move` z wersją procesu):
- *  - „Wyślij do klienta” → „CV wysłane” ze stawką do klienta w tym samym
+ *  - „Akceptuj — wysyłam za X” → „CV wysłane” ze stawką do klienta w tym samym
  *    żądaniu (serwer odmawia bez stawki i bez uprawnienia „Rekrutacje:
  *    zakładanie, zamykanie, wysyłka CV do klienta”, a CV, które nie przeszło
  *    QC, odbija 409 `CV_QC_FAILED` — wtedy otwiera się QC),
- *  - „Wróć do poprawy” → z powrotem na „Zweryfikowany”; rekruter dostaje
- *    dzwonek i wpis „wróciło” na pulpicie,
- *  - „Odrzuć (DL)” → etap „Odrzucony” z powodem i `ended_by: "delivery_lead"`.
+ *  - „Wróć do poprawy…” → okno z polami do poprawy (`fix_fields`) i uwagą,
+ *    z powrotem na „Zweryfikowany”; rekruter dostaje dzwonek z listą pól,
+ *    wpis „wróciło” na pulpicie i podświetlone pola w formularzu,
+ *  - „Odrzuć…” → etap „Odrzucony” z powodem i `ended_by: "delivery_lead"`.
  *
  * „Uwagi dla rekrutera” (03.10.2026) jadą z każdą z trzech decyzji jako
  * `recruiter_remark`: serwer zapisuje je jako notatkę pary i dokleja do
  * dzwonka. Stawka do klienta ma własne pole — rekruter jej nie widzi.
+ *
+ * Kontekst decyzji (wymagania z dowodem, ocena rekrutera, ryzyka, budżet,
+ * podpowiedź stawki do klienta, mediana marży u klienta) daje
+ * `GET /api/dl-review/context` (`lib/api/dlReview.ts`). Układ trzech kolumn
+ * zależy od szerokości KONTENERA (`@container`): na Tablicy przegląd stoi
+ * w panelu osoby `split`, na pulpicie w oknie `min(96vw,1440px)`.
  *
  * Panel dostaje wiersz kolejki (`BoardTaskRow` z `GET /api/board-tasks`), więc
  * da się go otworzyć także z panelu osoby na Tablicy — wystarczy złożyć wiersz.
@@ -28,7 +37,7 @@
 import Link from "next/link";
 import { forwardRef, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Loader2, Send, ShieldCheck, Undo2, X, XCircle } from "lucide-react";
+import { AlertTriangle, Loader2, X, XCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -36,14 +45,16 @@ import {
   SheetBody,
   SheetContent,
   SheetDescription,
-  SheetFooter,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
 import { useToast } from "@/components/Toast";
 import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
-import { QcStatusBadge } from "@/components/v2/recruitment/QcStatusBadge";
 import { SavedScreeningView } from "@/components/v2/recruitment/PanelSavedViews";
+import { CvColumn } from "@/components/v2/recruitment/dl-review/CvColumn";
+import { DecisionPanel, type DecisionAction } from "@/components/v2/recruitment/dl-review/DecisionPanel";
+import { RequirementsColumn } from "@/components/v2/recruitment/dl-review/RequirementsColumn";
+import { ReturnForFixDialog } from "@/components/v2/recruitment/dl-review/ReturnForFixDialog";
 import { RecommendationCardSection } from "@/components/v2/screening/RecommendationCardSection";
 import {
   RecommendationCardQuestions,
@@ -54,7 +65,13 @@ import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import api from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { BOARD_TASKS_QUERY_KEY, waitingFor, type BoardTaskRow } from "@/lib/api/boardTasks";
+import {
+  dlReviewQueueQueryKey,
+  useDlReviewContext,
+  type DlReviewClientRateHint,
+} from "@/lib/api/dlReview";
 import { useRecommendationCard } from "@/lib/api/recommendationCards";
+import { parseRateInput } from "@/lib/dl-review-margin";
 import { invalidateAfterPipelineVersionConflict } from "@/lib/pipeline-version-conflict";
 import type { PipelineMovePayload } from "@/lib/pipeline-move-core";
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
@@ -71,7 +88,6 @@ import {
   type ClientRateUnit,
 } from "@/lib/person-facts";
 import { PersonFacts } from "@/components/v2/person/PersonFacts";
-import { StageCvPreview } from "@/components/v2/person/StageCvPreview";
 
 export { RATE_UNIT_LABEL, type ClientRateUnit };
 
@@ -81,9 +97,11 @@ export { RATE_UNIT_LABEL, type ClientRateUnit };
 // zostaje przy rolach — lustro `DL_REJECT_ROLES` z tego samego modułu.
 const DL_REJECT_ROLES = new Set(["admin", "delivery_lead", "head_of_recruitment"]);
 
-function parseAmount(raw: string): number | null {
-  const value = Number.parseFloat(raw.replace(/\s/g, "").replace(",", "."));
-  return Number.isFinite(value) && value > 0 ? value : null;
+/** Skąd podpowiedź stawki do klienta — zdanie pod polem. */
+export function hintSourceLabel(hint: DlReviewClientRateHint): string {
+  const when = hint.at ? ` (${formatDate(hint.at)})` : "";
+  if (hint.source === "this_pair") return `stawka tej osoby w tej rekrutacji${when}`;
+  return `ostatnia wysyłka tej osoby do tego klienta${hint.job_title ? ` — „${hint.job_title}”` : ""}${when}`;
 }
 
 // ── Fakty z podglądu kandydata ───────────────────────────────────────────────
@@ -120,7 +138,7 @@ export interface DlReviewPanelProps {
   canSendToClient?: boolean;
 }
 
-type PendingAction = "send" | "reject" | "return";
+type PendingAction = DecisionAction;
 
 const REMARK_MAX = 2000;
 
@@ -149,7 +167,7 @@ const ACTION_TEXT: Record<PendingAction, { done: string; failed: string; anyway:
 export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlReviewPanelProps) {
   return (
     <Sheet open={open && task !== null} onOpenChange={onOpenChange}>
-      <SheetContent side="right" size="xl" className="flex flex-col gap-0 p-0">
+      <SheetContent side="right" size="2xl" className="flex flex-col gap-0 p-0 sm:max-w-[min(96vw,1440px)]">
         {task ? (
           <DlReviewBody
             task={task}
@@ -201,6 +219,8 @@ export function DlReviewBody({ task, canSendToClient, onClose, layout }: DlRevie
 
   const [rateRaw, setRateRaw] = useState("");
   const [rateUnit, setRateUnit] = useState<ClientRateUnit>("hourly");
+  const [currency, setCurrency] = useState("PLN");
+  const [rateSource, setRateSource] = useState<string | null>(null);
   const [rejecting, setRejecting] = useState(false);
   const [reasonId, setReasonId] = useState("");
   const [freeReason, setFreeReason] = useState("");
@@ -208,21 +228,45 @@ export function DlReviewBody({ task, canSendToClient, onClose, layout }: DlRevie
   const [busy, setBusy] = useState<PendingAction | null>(null);
   const [warning, setWarning] = useState<{ action: PendingAction; reason: string } | null>(null);
   const [qcStageId, setQcStageId] = useState<number | null>(null);
+  const [returnOpen, setReturnOpen] = useState(false);
+  const [returnInput, setReturnInput] = useState<{ fields: string[]; remark: string } | null>(null);
+  const prefilled = useRef(false);
 
   const stageId = task.stage_id;
   useEffect(() => {
     setQcStageId(null);
     setRateRaw("");
     setRateUnit("hourly");
+    setCurrency("PLN");
+    setRateSource(null);
     setRejecting(false);
     setReasonId("");
     setFreeReason("");
     setNote("");
     setWarning(null);
+    setReturnOpen(false);
+    setReturnInput(null);
+    prefilled.current = false;
   }, [stageId]);
 
   const candidateId = task.candidate_id;
   const jobId = task.job_id;
+  const context = useDlReviewContext(candidateId, jobId);
+  // Podpowiedź stawki do klienta z historii (ta para, potem ta osoba u tego
+  // klienta) — wpisana raz, gdy pole jest puste; źródło zostaje pod polem.
+  const hint = context.data?.client_rate_hint ?? null;
+  useEffect(() => {
+    if (prefilled.current || !hint || !canSend) return;
+    prefilled.current = true;
+    setRateRaw((current) => {
+      if (current.trim()) return current;
+      setRateUnit((hint.unit as ClientRateUnit) in RATE_UNIT_LABEL ? (hint.unit as ClientRateUnit) : "hourly");
+      setCurrency(hint.currency || "PLN");
+      setRateSource(hintSourceLabel(hint));
+      return String(hint.amount);
+    });
+  }, [hint, canSend]);
+
   const quickView = useQuery<QuickViewSubset>({
     queryKey: candidateQueryKeys.quickView(candidateId),
     queryFn: ({ signal }) =>
@@ -243,7 +287,6 @@ export function DlReviewBody({ task, canSendToClient, onClose, layout }: DlRevie
     [reasons.data],
   );
 
-
   // „W tej rekrutacji” (0414): stawka z wiersza weryfikacji, a bez niej —
   // z karty rekomendacji tej pary. Obok „Stawka od” (najniższa z 18 miesięcy),
   // żeby DL widział, ile jest miejsca na negocjacje.
@@ -262,9 +305,8 @@ export function DlReviewBody({ task, canSendToClient, onClose, layout }: DlRevie
         ? rateText(profile.expected_rate_hourly, "hourly", profile.expected_rate_currency)
         : null
     : null;
-  // Bez marży (decyzja 23.09.2026): DL widzi stawkę kandydata i sam wpisuje
-  // stawkę do klienta.
-  const clientRate = parseAmount(rateRaw);
+  // D9 (08.10.2026): marża na żywo w panelu decyzji — `DecisionPanel`.
+  const clientRate = parseRateInput(rateRaw);
   const location = profile?.city || profile?.location || null;
   // Dostępność z profilu, a gdy profil jej nie zna — z karty rekomendacji
   // (ta sama wartość stoi niżej na karcie; „—” obok niej wyglądało na brak).
@@ -287,25 +329,35 @@ export function DlReviewBody({ task, canSendToClient, onClose, layout }: DlRevie
     void queryClient.invalidateQueries({ queryKey: BOARD_TASKS_QUERY_KEY });
     void queryClient.invalidateQueries({ queryKey: ["kanban", String(task.job_id)] });
     void queryClient.invalidateQueries({ queryKey: ["kanban", task.job_id] });
+    void queryClient.invalidateQueries({ queryKey: dlReviewQueueQueryKey(task.job_id) });
   };
 
-  const move = async (action: PendingAction, acknowledge = false) => {
+  const move = async (
+    action: PendingAction,
+    acknowledge = false,
+    fix: { fields: string[]; remark: string } | null = returnInput,
+  ) => {
     const payload: PipelineMovePayload = {
       candidate_id: task.candidate_id,
       job_id: task.job_id,
       expected_state_version: task.process_state_version,
     };
+    let sentRemark = remark;
     if (action === "send") {
       if (task.target_stage_def_id == null || clientRate == null) return;
       Object.assign(payload, {
         stage_def_id: task.target_stage_def_id,
         client_rate_value: clientRate,
         client_rate_unit: rateUnit,
-        client_rate_currency: "PLN",
+        client_rate_currency: currency,
       });
     } else if (action === "return") {
       if (task.return_stage_def_id == null) return;
       Object.assign(payload, { stage_def_id: task.return_stage_def_id });
+      if (fix) {
+        sentRemark = fix.remark;
+        if (fix.fields.length > 0) payload.fix_fields = fix.fields;
+      }
     } else {
       if (task.rejected_stage_def_id == null) return;
       Object.assign(payload, {
@@ -315,7 +367,7 @@ export function DlReviewBody({ task, canSendToClient, onClose, layout }: DlRevie
         rejection_reason: !reasonId && freeReason.trim() ? freeReason.trim() : undefined,
       });
     }
-    if (remark) payload.recruiter_remark = remark;
+    if (sentRemark) payload.recruiter_remark = sentRemark;
     if (acknowledge) payload.acknowledge_eligibility = true;
     setBusy(action);
     setWarning(null);
@@ -329,6 +381,7 @@ export function DlReviewBody({ task, canSendToClient, onClose, layout }: DlRevie
       });
       if (outcome.ok) {
         showSuccess(`${task.candidate_name} — ${ACTION_TEXT[action].done}`);
+        setReturnOpen(false);
         refresh();
         onClose();
         return;
@@ -339,6 +392,7 @@ export function DlReviewBody({ task, canSendToClient, onClose, layout }: DlRevie
         showError(refusal.message);
         setQcStageId(refusal.failure.stageId ?? task.stage_id);
       } else if (refusal.kind === "eligibility") {
+        setReturnOpen(false);
         setWarning({ action, reason: refusal.message });
       } else if (refusal.kind === "version_conflict") {
         showError(refusal.message);
@@ -359,239 +413,244 @@ export function DlReviewBody({ task, canSendToClient, onClose, layout }: DlRevie
     task.rejected_stage_def_id != null &&
     (reasonId !== "" || (rejectedReasons.length === 0 && freeReason.trim() !== ""));
   const sendReady = canSend && clientRate != null && task.target_stage_def_id != null;
-  // Cofnięcie bez słowa wyjaśnienia nie mówi rekruterowi, co poprawić.
   const canReturn = (canSend || canReject) && task.return_stage_def_id != null;
-  const returnReady = canReturn && remark !== "";
   // Wiersz sztuczny „kandydata na etapie” dla widoku screeningu: czyta tylko
   // `id` (wiersz etapu z zapisanym arkuszem).
   const screeningItem = { id: task.screening_stage_id ?? task.stage_id } as KanbanItem;
 
   return (
     <div
-      className={cn("flex min-h-0 flex-col", layout === "panel" ? "relative h-full" : "flex-1")}
-      data-testid={layout === "panel" ? "dl-review-in-panel" : undefined}
+      className={cn("@container flex min-h-0 flex-col", layout === "panel" ? "relative h-full" : "flex-1")}
+      data-testid={layout === "panel" ? "dl-review-in-panel" : "dl-review-body"}
     >
-        <SheetHeader className="pr-12">
-          {layout === "sheet" ? (
-            <SheetTitle>{task.candidate_name}</SheetTitle>
-          ) : (
-            <>
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-primary">
-                Przegląd przed wysłaniem do klienta
-              </p>
-              <PanelTitle ref={titleRef}>{task.candidate_name}</PanelTitle>
-              <button
-                type="button"
-                onClick={onClose}
-                aria-label="Zamknij przegląd"
-                className="absolute right-4 top-4 rounded-md p-1 text-muted-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <X className="h-4 w-4" aria-hidden />
-              </button>
-            </>
-          )}
-          {layout === "sheet" ? (
-            <SheetDescription>
-              {task.job_title}
-              {task.client_name ? ` · ${task.client_name}` : ""}
-            </SheetDescription>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              {task.job_title}
-              {task.client_name ? ` · ${task.client_name}` : ""}
+      <SheetHeader className="pr-12">
+        {layout === "sheet" ? (
+          <SheetTitle>{task.candidate_name}</SheetTitle>
+        ) : (
+          <>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-primary">
+              Przegląd przed wysłaniem do klienta
             </p>
-          )}
-          <p className="text-xs text-muted-foreground">
-            {task.verified_by_name ? `Zweryfikował(a) ${task.verified_by_name}` : "Zweryfikowany"}
-            {task.verified_at ? ` · ${formatDate(task.verified_at)}` : ""} · czeka {waitingFor(task.since)}
-            {" · "}
-            <Link
-              href={`/jobs/${task.job_id}?candidate=${task.candidate_id}`}
-              className="font-medium text-primary hover:underline"
+            <PanelTitle ref={titleRef}>{task.candidate_name}</PanelTitle>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Zamknij przegląd"
+              className="absolute right-4 top-4 rounded-md p-1 text-muted-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              Otwórz na Tablicy
-            </Link>
+              <X className="h-4 w-4" aria-hidden />
+            </button>
+          </>
+        )}
+        {layout === "sheet" ? (
+          <SheetDescription>
+            {task.job_title}
+            {task.client_name ? ` · ${task.client_name}` : ""}
+          </SheetDescription>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            {task.job_title}
+            {task.client_name ? ` · ${task.client_name}` : ""}
           </p>
-          <div className="flex flex-wrap items-center gap-2 pt-1">
-            <QcStatusBadge row={task} />
-            <Button size="sm" variant="outline" onClick={() => setQcStageId(task.stage_id)}>
-              <ShieldCheck className="size-3.5" aria-hidden />
-              Otwórz QC
-            </Button>
-          </div>
-        </SheetHeader>
+        )}
+        <p className="text-xs text-muted-foreground">
+          {task.verified_by_name ? `Zweryfikował(a) ${task.verified_by_name}` : "Zweryfikowany"}
+          {task.verified_at ? ` · ${formatDate(task.verified_at)}` : ""} · czeka {waitingFor(task.since)}
+          {" · "}
+          <Link
+            href={`/jobs/${task.job_id}?candidate=${task.candidate_id}`}
+            className="font-medium text-primary hover:underline"
+          >
+            Otwórz na Tablicy
+          </Link>
+        </p>
+      </SheetHeader>
 
-        <SheetBody className="space-y-5">
-          <PersonFacts
-            testId="dl-review-facts"
-            rows={[
-              {
-                label: "W tej rekrutacji",
-                value: thisJobRate,
-                hint: snapshotRate ? "przy weryfikacji" : cardRate ? "z karty" : "nie pytano o tę rolę",
-              },
-              {
-                label: "Stawka od",
-                value: rateFrom,
-                hint: rateFrom ? "najniższa z 18 mies." : null,
-              },
-              {
-                label: "Dostępność",
-                value: profileAvailability ?? cardAvailability,
-                hint: !profileAvailability && cardAvailability ? "z karty" : null,
-              },
-              { label: "Lokalizacja", value: location },
-              { label: "Stanowisko", value: quickView.data?.current_position?.title ?? null },
-            ]}
-          />
-          {quickView.isError ? (
-            <p role="alert" className="text-xs text-destructive">
-              Nie udało się wczytać danych kandydata.{" "}
-              <button type="button" className="font-medium underline" onClick={() => void quickView.refetch()}>
-                Ponów
-              </button>
-            </p>
-          ) : null}
-
-          <StageCvPreview candidateId={task.candidate_id} jobId={task.job_id} cvStageId={task.cv_stage_id} />
-
-          <section aria-label="Karta rekomendacji" className="space-y-3">
-            <header className="flex flex-wrap items-center gap-2">
-              <h3 className="text-sm font-semibold">Karta rekomendacji</h3>
-              {card.data ? <RecommendationCardStatus card={card.data} /> : null}
-            </header>
-            <RecommendationCardSection
-              candidateId={task.candidate_id}
-              jobId={task.job_id}
-              candidateName={task.candidate_name}
-            />
-            {/* 0424: trafienie „Odpada, gdy…” zaznacza rekruter w formularzu
-                screeningu — przegląd pokazuje je tylko do odczytu. */}
-            {card.data ? <RecommendationCardQuestions card={card.data} editable={false} /> : null}
-          </section>
-
-          <details className="group rounded-lg border border-border">
-            <summary className="cursor-pointer px-3 py-2 text-sm font-semibold">
-              Arkusz screeningu Championa
-            </summary>
-            <div className="border-t border-border p-3">
-              <SavedScreeningView item={screeningItem} stageLabel="QC CV" />
-            </div>
-          </details>
-        </SheetBody>
-
-        {/* Stopka niesie ostrzeżenie, formularz odrzucenia i stawkę — na
-            telefonie w poziomie wychodziła poza ekran razem z „Wyślij". */}
-        <SheetFooter className="block max-h-[50dvh] space-y-3 overflow-y-auto sm:block">
-          {dealBreaker ? (
-            <p
-              role="note"
-              data-testid="dl-review-deal-breaker"
-              className="flex items-start gap-2 rounded-lg bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
-            >
-              <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
-              <span className="min-w-0 flex-1">
-                {dealBreaker} Wysyłka nie jest zablokowana — rozważ odrzucenie.
-              </span>
-            </p>
-          ) : null}
-          {warning ? (
-            <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs">
-              <AlertTriangle className="size-4 shrink-0 text-warning" aria-hidden />
-              <span className="min-w-0 flex-1">{warning.reason}</span>
-              <Button size="sm" variant="outline" onClick={() => void move(warning.action, true)} disabled={busy !== null}>
-                {ACTION_TEXT[warning.action].anyway}
-              </Button>
-            </div>
-          ) : null}
-
-          {rejecting ? (
-            <div className="space-y-2 rounded-lg border border-border p-3" aria-label="Odrzucenie przez DL" role="group">
-              {task.rejected_stage_def_id == null ? (
-                <p role="alert" className="text-xs text-destructive">
-                  Szablon tej rekrutacji nie ma etapu „Odrzucony” — odrzuć osobę na Tablicy.
-                </p>
-              ) : reasons.isLoading ? (
-                <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <Loader2 className="size-3 animate-spin" aria-hidden /> Wczytywanie powodów…
-                </p>
-              ) : reasons.isError ? (
-                <p role="alert" className="text-xs text-destructive">
-                  Nie udało się wczytać powodów odrzucenia.{" "}
-                  <button type="button" className="font-medium underline" onClick={() => void reasons.refetch()}>
-                    Ponów
-                  </button>
-                </p>
-              ) : rejectedReasons.length > 0 ? (
-                <label className="block text-xs font-medium">
-                  Powód odrzucenia *
-                  <select
-                    className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                    value={reasonId}
-                    onChange={(e) => setReasonId(e.target.value)}
-                  >
-                    <option value="">Wybierz powód</option>
-                    {rejectedReasons.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : (
-                <label className="block text-xs font-medium">
-                  Powód odrzucenia *
-                  <input
-                    className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                    value={freeReason}
-                    onChange={(e) => setFreeReason(e.target.value)}
-                  />
-                </label>
-              )}
-              <div className="flex justify-end gap-2">
-                <Button size="sm" variant="ghost" onClick={() => setRejecting(false)} disabled={busy !== null}>
-                  Anuluj
-                </Button>
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  disabled={!rejectReady || busy !== null}
-                  onClick={() => void move("reject")}
-                >
-                  {busy === "reject" ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <XCircle className="size-3.5" />}
-                  Potwierdź odrzucenie
-                </Button>
+      <SheetBody>
+        <div className="grid gap-6 @min-[1100px]:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)_minmax(18rem,0.85fr)]">
+          <RequirementsColumn
+            context={context.data}
+            loading={context.isLoading}
+            error={context.isError}
+            onRetry={() => void context.refetch()}
+          >
+            <section aria-label="Karta rekomendacji" className="space-y-3">
+              <header className="flex flex-wrap items-center gap-2">
+                <h3 className="text-sm font-semibold">Karta rekomendacji</h3>
+                {card.data ? <RecommendationCardStatus card={card.data} /> : null}
+              </header>
+              <RecommendationCardSection
+                candidateId={task.candidate_id}
+                jobId={task.job_id}
+                candidateName={task.candidate_name}
+              />
+              {/* 0424: trafienie „Odpada, gdy…” zaznacza rekruter w formularzu
+                  screeningu — przegląd pokazuje je tylko do odczytu. */}
+              {card.data ? <RecommendationCardQuestions card={card.data} editable={false} /> : null}
+            </section>
+            <details className="group rounded-lg border border-border">
+              <summary className="cursor-pointer px-3 py-2 text-sm font-semibold">
+                Arkusz screeningu Championa
+              </summary>
+              <div className="border-t border-border p-3">
+                <SavedScreeningView item={screeningItem} stageLabel="QC CV" />
               </div>
-            </div>
-          ) : null}
+            </details>
+          </RequirementsColumn>
 
-          <div className="grid gap-3 sm:grid-cols-[auto_minmax(0,1fr)]">
-            <label className="text-xs font-medium">
-              Stawka do klienta *
-              <div className="mt-1 flex gap-1">
-                <input
-                  inputMode="decimal"
-                  aria-label="Stawka do klienta"
-                  className="h-9 w-28 rounded-md border border-input bg-background px-2 text-sm tabular-nums"
-                  value={rateRaw}
-                  onChange={(e) => setRateRaw(e.target.value)}
-                  disabled={!canSend}
+          <CvColumn task={task} onOpenQc={() => setQcStageId(task.stage_id)} />
+
+          <DecisionPanel
+            task={task}
+            context={context.data}
+            contextLoading={context.isLoading}
+            facts={
+              <>
+                <PersonFacts
+                  testId="dl-review-person-facts"
+                  rows={[
+                    {
+                      label: "W tej rekrutacji",
+                      value: thisJobRate,
+                      hint: snapshotRate ? "przy weryfikacji" : cardRate ? "z karty" : "nie pytano o tę rolę",
+                    },
+                    {
+                      label: "Stawka od",
+                      value: rateFrom,
+                      hint: rateFrom ? "najniższa z 18 mies." : null,
+                    },
+                    {
+                      label: "Dostępność",
+                      value: profileAvailability ?? cardAvailability,
+                      hint: !profileAvailability && cardAvailability ? "z karty" : null,
+                    },
+                    { label: "Lokalizacja", value: location },
+                    { label: "Stanowisko", value: quickView.data?.current_position?.title ?? null },
+                  ]}
                 />
-                <select
-                  aria-label="Jednostka stawki do klienta"
-                  className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-                  value={rateUnit}
-                  onChange={(e) => setRateUnit(e.target.value as ClientRateUnit)}
-                  disabled={!canSend}
-                >
-                  {(Object.keys(RATE_UNIT_LABEL) as ClientRateUnit[]).map((u) => (
-                    <option key={u} value={u}>
-                      {RATE_UNIT_LABEL[u]}
-                    </option>
-                  ))}
-                </select>
+                {quickView.isError ? (
+                  <p role="alert" className="text-xs text-destructive">
+                    Nie udało się wczytać danych kandydata.{" "}
+                    <button type="button" className="font-medium underline" onClick={() => void quickView.refetch()}>
+                      Ponów
+                    </button>
+                  </p>
+                ) : null}
+              </>
+            }
+            rateRaw={rateRaw}
+            onRateRawChange={(value) => {
+              setRateRaw(value);
+              setRateSource(null);
+            }}
+            rateUnit={rateUnit}
+            onRateUnitChange={setRateUnit}
+            currency={currency}
+            onCurrencyChange={setCurrency}
+            rateSourceLabel={rateSource}
+            canSend={canSend}
+            sendReady={sendReady}
+            canReturn={canReturn}
+            canReject={canReject && !rejecting}
+            busy={busy}
+            onAccept={() => void move("send")}
+            onReturn={() => setReturnOpen(true)}
+            onReject={() => setRejecting(true)}
+            footerNote={
+              !canSend ? (
+                <p className="text-xs text-muted-foreground">
+                  Do klienta wysyła osoba z uprawnieniem „{permissionLabel("recruitment_manage")}” — możesz
+                  przejrzeć kandydata.
+                </p>
+              ) : task.target_stage_def_id == null ? (
+                <p className="text-xs text-destructive">
+                  Szablon tej rekrutacji nie ma etapu „CV wysłane” — przenieś osobę na Tablicy.
+                </p>
+              ) : null
+            }
+          >
+            {dealBreaker ? (
+              <p
+                role="note"
+                data-testid="dl-review-deal-breaker"
+                className="flex items-start gap-2 rounded-lg bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
+              >
+                <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
+                <span className="min-w-0 flex-1">
+                  {dealBreaker} Wysyłka nie jest zablokowana — rozważ odrzucenie.
+                </span>
+              </p>
+            ) : null}
+            {warning ? (
+              <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs">
+                <AlertTriangle className="size-4 shrink-0 text-warning" aria-hidden />
+                <span className="min-w-0 flex-1">{warning.reason}</span>
+                <Button size="sm" variant="outline" onClick={() => void move(warning.action, true)} disabled={busy !== null}>
+                  {ACTION_TEXT[warning.action].anyway}
+                </Button>
               </div>
-            </label>
+            ) : null}
+
+            {rejecting ? (
+              <div className="space-y-2 rounded-lg border border-border p-3" aria-label="Odrzucenie przez DL" role="group">
+                {task.rejected_stage_def_id == null ? (
+                  <p role="alert" className="text-xs text-destructive">
+                    Szablon tej rekrutacji nie ma etapu „Odrzucony” — odrzuć osobę na Tablicy.
+                  </p>
+                ) : reasons.isLoading ? (
+                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Loader2 className="size-3 animate-spin" aria-hidden /> Wczytywanie powodów…
+                  </p>
+                ) : reasons.isError ? (
+                  <p role="alert" className="text-xs text-destructive">
+                    Nie udało się wczytać powodów odrzucenia.{" "}
+                    <button type="button" className="font-medium underline" onClick={() => void reasons.refetch()}>
+                      Ponów
+                    </button>
+                  </p>
+                ) : rejectedReasons.length > 0 ? (
+                  <label className="block text-xs font-medium">
+                    Powód odrzucenia *
+                    <select
+                      className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                      value={reasonId}
+                      onChange={(e) => setReasonId(e.target.value)}
+                    >
+                      <option value="">Wybierz powód</option>
+                      {rejectedReasons.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : (
+                  <label className="block text-xs font-medium">
+                    Powód odrzucenia *
+                    <input
+                      className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                      value={freeReason}
+                      onChange={(e) => setFreeReason(e.target.value)}
+                    />
+                  </label>
+                )}
+                <div className="flex justify-end gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => setRejecting(false)} disabled={busy !== null}>
+                    Anuluj
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    disabled={!rejectReady || busy !== null}
+                    onClick={() => void move("reject")}
+                  >
+                    {busy === "reject" ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <XCircle className="size-3.5" />}
+                    Potwierdź odrzucenie
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
             {canSend || canReject ? (
               <label className="block text-xs font-medium">
                 Uwagi dla rekrutera
@@ -603,58 +662,35 @@ export function DlReviewBody({ task, canSendToClient, onClose, layout }: DlRevie
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
                 />
+                <span id="dl-review-remark-hint" className="mt-1 block text-[11px] font-normal text-muted-foreground">
+                  Uwagę rekruter dostanie w powiadomieniu i w notatkach kandydata. Stawkę do klienta wpisz tylko
+                  w jej polu: rekruter jej nie widzi.
+                </span>
               </label>
             ) : null}
-          </div>
-          {canSend || canReject ? (
-            <p id="dl-review-remark-hint" className="text-xs text-muted-foreground">
-              Uwagę rekruter dostanie w powiadomieniu i w notatkach kandydata — przy „Wróć do
-              poprawy” napisz, co poprawić. Stawkę do klienta wpisz tylko w jej polu: rekruter jej
-              nie widzi.
-            </p>
-          ) : null}
+          </DecisionPanel>
+        </div>
+      </SheetBody>
 
-          <div className="flex flex-wrap justify-end gap-2">
-            {canReturn ? (
-              <Button
-                variant="outline"
-                disabled={!returnReady || busy !== null}
-                title={returnReady ? undefined : "Napisz w uwagach, co rekruter ma poprawić."}
-                aria-describedby={returnReady ? undefined : "dl-review-remark-hint"}
-                onClick={() => void move("return")}
-              >
-                {busy === "return" ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Undo2 className="size-4" />}
-                Wróć do poprawy
-              </Button>
-            ) : null}
-            {canReject && !rejecting ? (
-              <Button variant="outline" onClick={() => setRejecting(true)} disabled={busy !== null}>
-                <XCircle className="size-4" />
-                Odrzuć (DL)…
-              </Button>
-            ) : null}
-            <Button disabled={!sendReady || busy !== null} onClick={() => void move("send")}>
-              {busy === "send" ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Send className="size-4" />}
-              Wyślij do klienta → CV wysłane
-            </Button>
-          </div>
-          {!canSend ? (
-            <p className="text-xs text-muted-foreground">
-              Do klienta wysyła osoba z uprawnieniem „{permissionLabel("recruitment_manage")}” — możesz
-              przejrzeć kandydata.
-            </p>
-          ) : task.target_stage_def_id == null ? (
-            <p className="text-xs text-destructive">
-              Szablon tej rekrutacji nie ma etapu „CV wysłane” — przenieś osobę na Tablicy.
-            </p>
-          ) : null}
-        </SheetFooter>
-        <CvQcDialog
-          stageId={qcStageId}
-          open={qcStageId !== null}
-          onClose={() => setQcStageId(null)}
-          onChanged={refresh}
-        />
+      <ReturnForFixDialog
+        open={returnOpen}
+        onOpenChange={setReturnOpen}
+        candidateName={task.candidate_name}
+        options={context.data?.fix_options ?? []}
+        optionsLoading={context.isLoading}
+        busy={busy === "return"}
+        initialRemark={note}
+        onConfirm={(input) => {
+          setReturnInput(input);
+          void move("return", false, input);
+        }}
+      />
+      <CvQcDialog
+        stageId={qcStageId}
+        open={qcStageId !== null}
+        onClose={() => setQcStageId(null)}
+        onChanged={refresh}
+      />
     </div>
   );
 }
