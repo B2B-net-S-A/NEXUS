@@ -3242,6 +3242,13 @@ Pełny opis: `docs/competence-categories-completion-report.md`.
   klasyfikator prawie nigdy nie przekracza progu (prod: 122 z 661 nowych CV w 7 dni). Worker
   po udanym zapisie wektora woła `index_outbox_service.assign_cc_after_embed` — tylko kandydat
   bez FK i bez wierszy M2M, własna krótka transakcja po commicie wektora, błąd połykany.
+  **Kategoria jest w tekście wektora**, więc przypisana po nim zleca przeliczenie
+  (`record_bulk_reindex` w tej samej transakcji; `finish_cv_ingest` zgłasza ponownie, gdy
+  kategoria się zmieniła). Bez tego 125 ze 164 CV z października miało wektor bez kategorii
+  (badanie 06.10.2026, `docs/audits/2026-10-06/voyage-embeddings-research.md`). Reconciler
+  dryfu trzyma kursor w `app_settings['index_drift_reconciler_state']` i co tik sprawdza
+  najpierw najwyższe id (`reconcile_once(newest_first=True)`) — kursor w pamięci wracał do
+  zera przy każdym deployu, a ~11-godzinny przebieg nie dochodził do nowych kandydatów.
 - **Filtr listy:** `GET /api/candidates?competence_category_id=<id>` (repeat = OR), match primary
   LUB secondary (M2M) OR legacy FK. FE: `lib/url-filters.ts` (`competenceCategoryIds`, URL `cc`) +
   sekcja „Kategoria kompetencji" w panelu `CandidatesListV2` (reuse `CompetenceCategoryMultiSelect`)

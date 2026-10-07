@@ -113,6 +113,7 @@ async def reconcile_once(
     unseen_predicate: Optional[Callable[[Any], bool]] = None,
     revive_dead_unseen: bool = False,
     sync_job_status: bool = False,
+    newest_first: bool = False,
 ) -> ReconcileResult:
     """Scan one batch of entities and enqueue those whose hash has drifted.
 
@@ -135,6 +136,13 @@ async def reconcile_once(
     (bez Voyage'a). Łapie zmiany statusu robione zwykłym SQL-em (archiwum
     Traffita, 0378, usunięcie klienta), których żaden hak nie widzi.
 
+    ``newest_first`` (badanie 06.10.2026) — jedna paczka NAJWYŻSZYCH id, bez
+    kursora (``next_cursor`` zawsze None). Zwykły przebieg idzie od najniższych
+    id i trwa ~11 h, a deploy zaczyna go od nowa, więc nowi kandydaci — ci,
+    których tekst zmienia się najczęściej — byli sprawdzani ostatni, czyli
+    w praktyce nigdy. Ten przebieg co tik pomija encje z intencją w toku, żeby
+    nie dopisywać duplikatu, zanim worker zdąży przeliczyć wektor.
+
     ``cursor`` is the last id examined, so a caller can walk the whole table
     across ticks without holding a transaction open, and without loading the
     *whole table* at once. Returns ``next_cursor=None`` once the end is reached.
@@ -147,18 +155,15 @@ async def reconcile_once(
     this is worth checking before flipping the reconciler on in production.
     """
     model = _model_for(entity_type)
-    rows = (
-        (
-            await db.execute(
-                select(model)
-                .where(model.id > cursor)
-                .order_by(model.id.asc())
-                .limit(batch)
-            )
-        )
-        .scalars()
-        .all()
+    query = (
+        select(model).order_by(model.id.desc()).limit(batch)
+        if newest_first
+        else select(model)
+        .where(model.id > cursor)
+        .order_by(model.id.asc())
+        .limit(batch)
     )
+    rows = (await db.execute(query)).scalars().all()
     if not rows:
         return ReconcileResult(scanned=0, drifted=0, unseen=0, next_cursor=None)
 
@@ -214,6 +219,24 @@ async def reconcile_once(
             drifted += 1
             to_enqueue.append(entity_id)
 
+    if to_enqueue and newest_first:
+        busy = set(
+            (
+                await db.execute(
+                    select(IndexOutboxEvent.entity_id)
+                    .where(
+                        IndexOutboxEvent.entity_type == entity_type,
+                        IndexOutboxEvent.entity_id.in_(to_enqueue),
+                        IndexOutboxEvent.status.in_(
+                            ("pending", "processing", "failed")
+                        ),
+                    )
+                    .distinct()
+                )
+            ).scalars()
+        )
+        to_enqueue = [eid for eid in to_enqueue if eid not in busy]
+
     if to_enqueue:
         # Writes in the caller's transaction and deliberately ignores
         # AI_INDEX_OUTBOX_ENABLED — recording that something needs reindexing is
@@ -232,7 +255,7 @@ async def reconcile_once(
         scanned=len(rows),
         drifted=drifted,
         unseen=unseen,
-        next_cursor=ids[-1],
+        next_cursor=None if newest_first else ids[-1],
         status_synced=status_synced,
         revived=revived,
     )

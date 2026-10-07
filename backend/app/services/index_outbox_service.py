@@ -497,6 +497,15 @@ async def assign_cc_after_embed(candidate_id: int) -> None:
             if candidate is None:
                 return
             await assign_primary_cc_if_empty(candidate, s)
+            # Kategoria jest częścią tekstu wektora (v1, v2 i v3), więc wektor
+            # policzony przed nią jest od tej chwili nieaktualny. Intencja idzie
+            # w tej samej transakcji co kategoria. Drugi przebieg nie zapętla
+            # się: kandydat ma już kategorię, więc wyżej kończy się na `missing`.
+            # Badanie 06.10.2026: bez tego 125 ze 164 kandydatów z października
+            # miało wektor bez kategorii.
+            if candidate.competence_category_id is not None:
+                await s.flush()
+                await record_bulk_reindex(s, CANDIDATE, [candidate_id])
             await s.commit()
     except Exception as exc:  # noqa: BLE001 — wzbogacenie, nie warunek
         logger.warning(
