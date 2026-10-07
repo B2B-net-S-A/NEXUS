@@ -3,19 +3,17 @@
 /**
  * Zwarta karta rekomendacji obok notatki (0413, makieta „Osoba w Screeningu”).
  *
- * Komponent prezentacyjny: dostaje kartę z serwera i zapisuje pojedyncze pole
- * przez `onSave`. Kompletność („brakuje N”) liczy serwer. Braki niczego nie
- * blokują — „Dopisz” otwiera pole w miejscu.
+ * Komponent prezentacyjny, TYLKO DO ODCZYTU od 0424 (07.10.2026): pola karty
+ * wpisuje się w jednym formularzu screeningu — „Edytuj w screeningu”
+ * otwiera go (`onEditInScreening`). Kompletność („brakuje N”) liczy serwer.
  */
 
-import { useId, useState } from "react";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { useId } from "react";
+import { AlertTriangle, Loader2, PencilLine } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   useSetDealBreakerHit,
@@ -25,9 +23,7 @@ import {
 import {
   answeredQuestions,
   dealBreakerWarning,
-  CARD_FIELD_HINT,
   CARD_FIELD_ORDER,
-  CARD_MULTILINE_FIELDS,
   cardFieldLabel,
   cardFieldSource,
   cardFieldValue,
@@ -38,10 +34,9 @@ import { AnswerOriginBadge } from "./ScreeningAnswersList";
 
 export interface RecommendationCardViewProps {
   card: RecommendationCard;
-  readOnly?: boolean;
-  saving?: boolean;
-  onSave: (fields: Record<string, string | null>) => void;
   onOpenFull?: () => void;
+  /** „Edytuj w screeningu” — formularz screeningu tej osoby; brak = bez przycisku. */
+  onEditInScreening?: () => void;
 }
 
 export function RecommendationCardStatus({ card }: { card: RecommendationCard }) {
@@ -193,33 +188,11 @@ export function RecommendationCardQuestions({
 
 export function RecommendationCardView({
   card,
-  readOnly = false,
-  saving = false,
-  onSave,
   onOpenFull,
+  onEditInScreening,
 }: RecommendationCardViewProps) {
-  const [editing, setEditing] = useState<string | null>(null);
-  const [draft, setDraft] = useState("");
   const questions = answeredQuestions(card);
   const dealBreaker = dealBreakerWarning(card);
-
-  const startEdit = (key: string) => {
-    setEditing(key);
-    setDraft(
-      String(card.fields[key]?.raw ?? card.previous[key]?.raw ?? card.suggestions[key] ?? ""),
-    );
-  };
-  const submit = (key: string) => {
-    const value = draft.trim();
-    const current = card.fields[key];
-    // Puste pole zdejmuje tylko wartość wpisaną w NEXUSIE — wartości z notatki
-    // nie da się stąd usunąć (zmienia ją poprawka notatki albo wpisanie innej).
-    const changed = value
-      ? value !== String(current?.raw ?? "").trim() || !current
-      : current?.source === "manual";
-    if (changed) onSave({ [key]: value || null });
-    setEditing(null);
-  };
 
   return (
     <div className="space-y-2" data-testid="recommendation-card">
@@ -236,74 +209,18 @@ export function RecommendationCardView({
         {CARD_FIELD_ORDER.map((key) => {
           const field = card.fields[key];
           const value = cardFieldValue(key, field);
-          const label = cardFieldLabel(card, key);
           const hint = card.previous[key]?.raw ?? card.suggestions[key];
-          const multiline = CARD_MULTILINE_FIELDS.has(key);
-          const inputId = `card-field-${key}`;
           return (
             <div key={key} className="grid grid-cols-[7.5rem_minmax(0,1fr)] items-start gap-x-2 text-xs">
-              <dt className="pt-0.5 text-muted-foreground">
-                {editing === key ? <label htmlFor={inputId}>{label}</label> : label}
-              </dt>
-              <dd className="min-w-0">
-                {editing === key ? (
-                  <form
-                    className="space-y-1.5"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      submit(key);
-                    }}
-                  >
-                    {multiline ? (
-                      <Textarea
-                        id={inputId}
-                        value={draft}
-                        rows={3}
-                        autoFocus
-                        placeholder={CARD_FIELD_HINT[key]}
-                        onChange={(event) => setDraft(event.target.value)}
-                      />
-                    ) : (
-                      <Input
-                        id={inputId}
-                        value={draft}
-                        autoFocus
-                        placeholder={CARD_FIELD_HINT[key]}
-                        onChange={(event) => setDraft(event.target.value)}
-                      />
-                    )}
-                    <div className="flex gap-1.5">
-                      <Button type="submit" size="sm" disabled={saving}>
-                        Zapisz
-                      </Button>
-                      <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(null)}>
-                        Anuluj
-                      </Button>
-                    </div>
-                  </form>
-                ) : (
-                  <div className="flex items-start gap-2">
-                    <span
-                      className={cn(
-                        "min-w-0 flex-1 whitespace-pre-line break-words",
-                        value ? "font-medium text-foreground" : "text-muted-foreground",
-                      )}
-                      title={cardFieldSource(field) ?? undefined}
-                    >
-                      {value || (hint ? `brak — ostatnio: ${hint}` : "brak")}
-                    </span>
-                    {readOnly ? null : (
-                      <button
-                        type="button"
-                        className="hit-area shrink-0 text-[11px] font-medium text-primary hover:underline"
-                        aria-label={`${value ? "Zmień" : "Dopisz"}: ${label}`}
-                        onClick={() => startEdit(key)}
-                      >
-                        {value ? "Zmień" : "Dopisz"}
-                      </button>
-                    )}
-                  </div>
+              <dt className="pt-0.5 text-muted-foreground">{cardFieldLabel(card, key)}</dt>
+              <dd
+                className={cn(
+                  "min-w-0 whitespace-pre-line break-words",
+                  value ? "font-medium text-foreground" : "text-muted-foreground",
                 )}
+                title={cardFieldSource(field) ?? undefined}
+              >
+                {value || (hint ? `brak — ostatnio: ${hint}` : "brak")}
               </dd>
             </div>
           );
@@ -315,18 +232,20 @@ export function RecommendationCardView({
           </div>
         ) : null}
       </dl>
-      <div className="flex items-center gap-2">
-        {onOpenFull ? (
-          <Button type="button" size="sm" variant="outline" onClick={onOpenFull}>
-            Otwórz całą kartę
-          </Button>
-        ) : null}
-        {saving ? (
-          <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-            <Loader2 className="size-3 animate-spin" aria-hidden /> Zapisywanie…
-          </span>
-        ) : null}
-      </div>
+      {onOpenFull || onEditInScreening ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {onEditInScreening ? (
+            <Button type="button" size="sm" variant="outline" onClick={onEditInScreening}>
+              <PencilLine className="size-3.5" aria-hidden /> Edytuj w screeningu
+            </Button>
+          ) : null}
+          {onOpenFull ? (
+            <Button type="button" size="sm" variant="ghost" onClick={onOpenFull}>
+              Otwórz całą kartę
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

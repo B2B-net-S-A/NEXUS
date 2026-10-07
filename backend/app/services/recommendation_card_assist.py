@@ -2,10 +2,11 @@
 
 Propozycja Olafa, decyzje Artura D1–D5 z 06.10.2026:
 
-* rekruter wgrywa albo wkleja notatkę z rozmowy w oknie karty (D5 — tylko
-  tam, bez automatu na każdej notatce); NEXUS PROPONUJE pola karty
-  i odpowiedzi na pytania Championa, a zapis robi rekruter („Zastosuj
-  zaznaczone”, ``apply`` w ``api/recommendation_card_assist.py``);
+* rekruter wgrywa albo wkleja notatkę z rozmowy (D5 — bez automatu na każdej
+  notatce); NEXUS PROPONUJE pola karty i odpowiedzi na pytania Championa,
+  a zapis robi rekruter. Od 0424 notatka wypełnia jeden formularz
+  screeningu, a zapis idzie przez ``PUT /api/screening-form``
+  (``services/screening_form.py``);
 * hasła rekrutera Luna układa w pełne zdania (``phrase``) w języku CV klienta
   (D3), także w polach opisowych karty (D4).
 
@@ -50,6 +51,7 @@ from app.services.llm_prompts import (
 from app.services.prompt_fencing import fence, json_for_prompt
 from app.services.recommendation_card_parser import (
     AI_HIDDEN_FIELDS,
+    normalize_field,
     parse_card,
     redact_card_text,
     strip_contacts,
@@ -353,6 +355,18 @@ def _current_answers(conversations: Sequence[Mapping[str, Any]]) -> dict[str, st
     }
 
 
+def structured_rate(text: str) -> Optional[dict[str, Any]]:
+    """Stawka z tekstu jako PLN/h (``{amount, unit, currency}``) albo ``None``.
+
+    Ta sama reguła co karta (``recommendation_card_parser.parse_rate``): kwota
+    miesięczna, dzienna, w innej walucie albo widełki zostają tekstem.
+    """
+    hourly = cards.card_rate_hourly(normalize_field("rate", text))
+    if hourly is None:
+        return None
+    return {"amount": hourly, "unit": "hourly", "currency": "PLN"}
+
+
 def build_proposal(
     *,
     note: str,
@@ -378,18 +392,21 @@ def build_proposal(
             continue
         current = current_fields.get(key) or {}
         current_raw = str(current.get("raw") or "").strip()
-        fields.append(
-            {
-                "key": key,
-                "label": cards.DISPLAY_LABELS[key],
-                "current": current_raw or None,
-                "current_source": current.get("source") if current_raw else None,
-                "proposed": proposed,
-                "quote": quote,
-                "origin": origin,
-                "changed": proposed != current_raw,
-            }
-        )
+        entry: dict[str, Any] = {
+            "key": key,
+            "label": cards.DISPLAY_LABELS[key],
+            "current": current_raw or None,
+            "current_source": current.get("source") if current_raw else None,
+            "proposed": proposed,
+            "quote": quote,
+            "origin": origin,
+            "changed": proposed != current_raw,
+        }
+        if key == "rate":
+            # Formularz screeningu (0424) ma pole stawki z kwotą i jednostką —
+            # propozycja wypełnia je, gdy tekst da się odczytać bez zgadywania.
+            entry["rate"] = structured_rate(proposed)
+        fields.append(entry)
     by_number = {
         (item.get("number") if isinstance(item.get("number"), int) else index): item
         for index, item in enumerate(rule_answers, start=1)

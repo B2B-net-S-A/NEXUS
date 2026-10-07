@@ -118,13 +118,15 @@ def test_client_screening_drops_experience_checks_and_author():
             {"name": "ISTQB", "status": "not_confirmed", "note": "raczej nie ma"}
         ],
         "overall_fit": "fit",
-        "notes": "Widoczne dla klienta",
+        "notes": "Notatka rekrutera (wewnętrzna)",
         "answered_by": 17,
         "answered_at": "2026-09-26T10:00:00+00:00",
         "future_internal_field": "x",
     }
     safe = client_safe_screening(raw)
-    assert set(safe) == {"answers", "overall_fit", "notes"}
+    # 0424 (D2): „Notatki rekrutera” są wewnętrzne — nie wychodzą nawet do
+    # generatora CV.
+    assert set(safe) == {"answers", "overall_fit"}
     assert safe["answers"] == [
         {"question_id": "q1", "response": "5 lat", "deal_breaker_hit": False}
     ]

@@ -2,7 +2,8 @@
 
 Pilnuje: anonimizacji przed modelem, braku wywołania przy zbyt małej historii
 i przy niezmienionych danych, tego że awaria modelu nie jest błędem trasy,
-oraz tego że blok nie wychodzi publiczną kartą Championa.
+oraz tego że blok nie wychodzi poza zespół — publiczna karta Championa
+zniknęła w 0424 (410 bez odczytu bazy).
 """
 
 from __future__ import annotations
@@ -155,8 +156,6 @@ async def test_model_failure_is_a_status_not_an_error(monkeypatch) -> None:
 async def test_route_stores_the_block_and_the_public_card_never_carries_it(
     app_client, app_auth_headers, monkeypatch
 ) -> None:
-    from app.api.public_share import _public_champion_projection
-
     world = await _seed(events=3)
 
     async def fake_call(**_):
@@ -176,12 +175,12 @@ async def test_route_stores_the_block_and_the_public_card_never_carries_it(
     assert block["status"] == "ready"
     assert block["items"][0]["text"] == "Liczy się acquiring."
 
-    async with AsyncSessionLocal() as db:
-        job = await db.get(Job, world["job_id"])
-        public = _public_champion_projection(job)
-    # Karta dla hiring managera to biała lista — nowe bloki maszynowe
-    # i notatki zespołu nie mają w niej pola.
-    assert set(public) == {"basics", "project", "stack", "screening_questions"}
+    # Karta dla hiring managera zniknęła (0424, D2): publiczny adres odpowiada
+    # 410 bez odczytu bazy, więc blok nie ma którędy wyjść do klienta.
+    public = await app_client.get("/api/public/champion-card/dowolny-token")
+    assert public.status_code == 410
+    assert public.json()["detail"]["code"] == "CHAMPION_SHARE_REMOVED"
+    assert "acquiring" not in public.text
 
 
 @pytest.mark.asyncio

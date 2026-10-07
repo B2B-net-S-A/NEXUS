@@ -35,7 +35,6 @@ import {
 import {
   candidateStageCvApi,
   extractErrorMsg,
-  screeningApi,
   type CVShareTokenListItem,
   type RateUnit,
 } from "@/lib/api";
@@ -88,7 +87,6 @@ import { resolveViewState } from "@/lib/view-state";
 import { cn, formatDate } from "@/lib/utils";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { copyTextToClipboard } from "@/lib/clipboard";
-import { OneTimeLinkField } from "@/components/v2/jobs/OneTimeLinkField";
 import {
   ChromeBanner,
   DockActions,
@@ -310,36 +308,8 @@ export function CvHandoffWorkbench({
       showError(extractErrorMsg(e) || "Nie udało się odwołać linków."),
   });
 
-  // Link do karty Championa niesie sekret zwracany JEDEN raz — adres zostaje
-  // na ekranie (`OneTimeLinkField`), a toast „skopiowany" pada wyłącznie po
-  // UDANYM zapisie do schowka. Do 09.2026 toast szedł zawsze, a adres nigdzie
-  // się nie pokazywał: nieudany zapis zostawiał żywy, 30-dniowy link, którego
-  // nikt nie znał.
-  const [championLink, setChampionLink] = useState<{
-    stageId: number;
-    url: string;
-  } | null>(null);
-  const championLinkMut = useMutation({
-    mutationFn: (forStageId: number) => screeningApi.createShareToken(forStageId, 30),
-    onSuccess: async (res, forStageId) => {
-      const suffix = res?.data?.share_url_suffix;
-      if (!suffix) {
-        showError("Serwer nie zwrócił adresu linku do karty Championa.");
-        return;
-      }
-      const url = `${window.location.origin}${suffix}`;
-      setChampionLink({ stageId: forStageId, url });
-      if (await copyTextToClipboard(url)) {
-        showSuccess("Link do karty Championa skopiowany (ważny 30 dni).");
-      } else {
-        showError(
-          "Link do karty Championa utworzony (ważny 30 dni), ale nie udało się go skopiować — skopiuj go z pola w doku.",
-        );
-      }
-    },
-    onError: (e) =>
-      showError(extractErrorMsg(e) || "Nie udało się utworzyć linku."),
-  });
+  // 0424 (D2, 07.10.2026): z NEXUSA nic nie idzie do klienta — link do
+  // karty Championa zniknął (serwer odpowiada na tworzenie linku 410).
 
   const moveBlocked = selected
     ? (moveBlockedReason({
@@ -873,31 +843,8 @@ export function CvHandoffWorkbench({
                       k: "Limit wyświetleń",
                       v: "— (ustawia się przy linku interaktywnego CV)",
                     },
-                    {
-                      k: "Karta Championa",
-                      v:
-                        readOnly || stageId == null ? (
-                          "—"
-                        ) : (
-                          <button
-                            type="button"
-                            className="text-primary hover:underline disabled:opacity-60"
-                            disabled={championLinkMut.isPending}
-                            onClick={() => championLinkMut.mutate(stageId)}
-                          >
-                            Utwórz link (30 dni)
-                          </button>
-                        ),
-                    },
                   ]}
                 />
-                {championLink && championLink.stageId === stageId && (
-                  <OneTimeLinkField
-                    url={championLink.url}
-                    label="Link do karty Championa"
-                    note="Ważny 30 dni. Adres pokazujemy tylko teraz — serwer nie przechowuje sekretu, więc skopiuj go przed opuszczeniem strony."
-                  />
-                )}
                 <label className="flex cursor-pointer items-start gap-2 text-xs">
                   <input
                     type="checkbox"

@@ -89,7 +89,7 @@ RAW = {
         {"question_id": "q3", "response": "stare", "skipped": True},
     ],
     "overall_fit": "fit",
-    "notes": "Widoczne dla klienta",
+    "notes": "Notatka rekrutera (wewnętrzna)",
     "internal_note": "Pominięte — przepięcie, klient pyta o to samo",
 }
 
@@ -99,7 +99,8 @@ def test_client_safe_screening_drops_skipped_and_internal_note() -> None:
     assert safe is not None
     assert "internal_note" not in safe
     assert [a["question_id"] for a in safe["answers"]] == ["q1"]
-    assert safe["notes"] == "Widoczne dla klienta"
+    # 0424 (D2): „Notatki rekrutera” są wewnętrzne — do klienta nie idą.
+    assert "notes" not in safe
     # Wejście nietknięte (to JSONB wiersza).
     assert len(RAW["answers"]) == 3 and "internal_note" in RAW
 

@@ -17,7 +17,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const listFeedback = vi.fn();
 const recordFeedback = vi.fn();
 const getForStage = vi.fn();
-const createShareToken = vi.fn();
 const apiGet = vi.fn();
 const apiPost = vi.fn();
 const templatesGet = vi.fn();
@@ -39,7 +38,6 @@ vi.mock("@/lib/api", () => ({
   },
   screeningApi: {
     getForStage: (...a: unknown[]) => getForStage(...a),
-    createShareToken: (...a: unknown[]) => createShareToken(...a),
   },
   pipelineTemplatesApi: {
     get: (...a: unknown[]) => templatesGet(...a),
@@ -188,9 +186,6 @@ beforeEach(() => {
     veto_blockers: ["Kandydat nie został jeszcze odrzucony na tej rekrutacji."],
   });
   getForStage.mockResolvedValue({ data: { screening_answers: null } });
-  createShareToken.mockResolvedValue({
-    data: { token: "t", expires_at: "", share_url_suffix: "/share/x" },
-  });
   apiGet.mockResolvedValue({ data: { pipeline_template_id: 1 } });
   apiPost.mockResolvedValue({ data: {} });
   templatesGet.mockResolvedValue({
@@ -553,24 +548,12 @@ describe("JobInterviewsTab", () => {
     expect(recordFeedback).not.toHaveBeenCalled();
   });
 
-  it("link do karty Championa: adres zostaje na karcie, a „skopiowany” pada tylko po udanym kopiowaniu", async () => {
-    copyText.mockResolvedValueOnce(false);
-    createShareToken.mockResolvedValueOnce({
-      data: { token: "t", expires_at: "", share_url_suffix: "/share/champion-card/k07" },
-    });
+  it("nie ma karty Championa dla klienta — wycofana (D2, 0424)", async () => {
     renderTab();
-    await userEvent.click(
-      await screen.findByRole("button", { name: /Karta Championa dla klienta/ }),
-    );
-    await waitFor(() => expect(showError).toHaveBeenCalled());
-    expect(showError.mock.calls[0][0]).toContain("nie udało się go skopiować");
-    expect(showSuccess).not.toHaveBeenCalledWith(
-      expect.stringContaining("skopiowany"),
-    );
-    const field = await screen.findByLabelText("Link do karty Championa dla klienta");
-    expect((field as HTMLInputElement).value).toBe(
-      `${window.location.origin}/share/champion-card/k07`,
-    );
+    await screen.findByRole("heading", { name: /Rozmowa u klienta/ });
+    expect(screen.queryByRole("button", { name: /Karta Championa dla klienta/ })).toBeNull();
+    expect(screen.queryByLabelText("Link do karty Championa dla klienta")).toBeNull();
+    expect(screen.queryByText(/Screening Championa dla klienta/)).toBeNull();
   });
 
   it("pusty pipeline mówi „nikt nie jest u klienta”, a nie renderuje pustki", async () => {
@@ -622,18 +605,18 @@ describe("JobInterviewsTab", () => {
       screen.getByRole("link", { name: /Prep-kit \(AI\)/ }),
     ).toHaveAttribute("href", "/jobs/10/prep/42");
     expect(
-      screen.getByRole("button", { name: /Screening Championa dla klienta/ }),
+      screen.getByRole("button", { name: /Formularz screeningu/ }),
     ).toBeTruthy();
     expect(
       screen.getByRole("button", { name: /Zaproszenie prep/ }),
     ).toBeTruthy();
   });
 
-  it("„Screening Championa dla klienta” z szyny otwiera TEN SAM arkusz co tablica", async () => {
+  it("„Formularz screeningu” z szyny otwiera TEN SAM formularz co Tablica", async () => {
     renderTab();
     await screen.findByRole("heading", { name: /Rozmowa u klienta/ });
     await userEvent.click(
-      screen.getByRole("button", { name: /Screening Championa dla klienta/ }),
+      screen.getByRole("button", { name: /Formularz screeningu/ }),
     );
     expect(await screen.findByTestId("screening-sheet-stub")).toBeTruthy();
   });
@@ -757,11 +740,11 @@ describe("JobInterviewsTab — layout=\"panel\" (rekrutacja v3)", () => {
     expect(screen.getByRole("button", { name: /Spróbuj ponownie/ })).toBeTruthy();
   });
 
-  it("kluczowe akcje zostają: werdykt HM, karta Championa, arkusz, prep, ruchy i odrzucenie", async () => {
+  it("kluczowe akcje zostają: werdykt HM, formularz screeningu, prep, ruchy i odrzucenie", async () => {
     renderTab({ layout: "panel", focusCandidateId: 42 });
     expect(await screen.findByRole("button", { name: /Zapisz feedback/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Karta Championa dla klienta/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Otwórz arkusz" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Karta Championa dla klienta/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Otwórz formularz" })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Pokaż CV obok/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Zaproszenie prep/ })).toBeTruthy();
     expect(

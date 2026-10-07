@@ -1268,6 +1268,14 @@ async def execute_merge(
     await recommendation_cards.merge_manual_fields(
         db, survivor_id=survivor_id, duplicate_id=duplicate_id
     )
+    from app.services import screening_form
+
+    # 0424: historia formularza screeningu duplikatu przechodzi w całości —
+    # numery wersji powyżej ostatniej wersji ocalałego. Ogólny resolver
+    # unikalności („nowszy wiersz wygrywa”) skasowałby kolidujące wersje.
+    await screening_form.merge_versions(
+        db, survivor_id=survivor_id, duplicate_id=duplicate_id
+    )
 
     indexes = await unique_indexes(db)
     moved: dict[str, dict[str, int]] = {}

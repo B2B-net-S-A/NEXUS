@@ -40,9 +40,9 @@
    "id": "cv.one-time-link",
    "area": "cv",
    "opis": "Link jednorazowy dla klienta",
-   "file": "components/v2/jobs/CvHandoffWorkbench.tsx",
+   "file": "components/v2/recruitment/BulkCvHandoffDialog.tsx",
    "marker": "OneTimeLinkField",
-   "v3_home": "panel → CV"
+   "v3_home": "Tablica → zaznaczenie → wysyłka CV (w panelu osoby od 0424 bez pola linku karty Championa — D2)"
   },
   {
    "id": "cv.share-revoke",
@@ -732,9 +732,9 @@
    "id": "screening.note-suggestions",
    "area": "screening",
    "opis": "Podpowiedzi „Z notatek: … — Użyj” dla stawki i dostępności na stanowisku screeningu; stawka wypełnia pole (zapis przy ruchu), dostępność to jawny zapis w profilu kandydata (nigdy w notatkach widocznych dla klienta) albo link „uzupełnij w profilu”; bez chipa stawki przy `rate_redacted`",
-   "file": "components/v2/jobs/ScreeningWorkbench.tsx",
+   "file": "components/v2/screening-form/ScreeningFullForm.tsx",
    "marker": "ScreeningSuggestionChips",
-   "v3_home": "panel → Screening → Stawka oczekiwana"
+   "v3_home": "panel osoby → formularz screeningu → Warunki → Stawka kandydata"
   },
   {
    "id": "cv.auto-generate-skip-reason",
@@ -1334,7 +1334,8 @@
    "opis": "Karta rekomendacji z notatki: wgraj plik albo wklej tekst, przegląd „obecnie → propozycja”, zapis zaznaczonych pól i odpowiedzi (0421)",
    "file": "components/v2/screening/RecommendationCardDialog.tsx",
    "marker": "Zastosuj zaznaczone",
-   "v3_home": "Tablica → dok osoby → Otwórz całą kartę → Wgraj notatkę / Wklej tekst"
+   "v3_home": "Tablica → dok osoby → Otwórz całą kartę → Wgraj notatkę / Wklej tekst",
+   "removed_reason": "0424 (D1, 07.10.2026): karta jest tylko do odczytu, a notatkę czyta formularz screeningu — „Uzupełnij z notatki” wypełnia puste pola na miejscu (wpis screening-form.note-fill), bez osobnego przeglądu i zapisu karty"
   },
   {
    "id": "screening.phrase",
@@ -1358,7 +1359,8 @@
    "opis": "Zakładka „Karta” w warsztacie screeningu (karta rekomendacji obok stawki i notatek)",
    "file": "components/v2/jobs/ScreeningWorkbench.tsx",
    "marker": "RecommendationCardSection",
-   "v3_home": "Tablica → warsztat screeningu"
+   "v3_home": "Tablica → warsztat screeningu",
+   "removed_reason": "0424 (D1, 07.10.2026): pola karty rekomendacji są sekcjami „Warunki” i „Ocena” jednego formularza screeningu — osobnej zakładki „Karta” nie ma; karta tylko do odczytu zostaje w doku i po zakończeniu procesu"
   },
   {
    "id": "dl-review.card",
@@ -1436,7 +1438,7 @@
    "id": "champion.glossary-tooltip",
    "area": "zlecenie",
    "opis": "Dymek ze słowniczka „po ludzku” na chipie technologii w „Czego szukamy”",
-   "file": "components/champion/ChampionBriefView.tsx",
+   "file": "components/champion/BriefParts.tsx",
    "marker": "GlossaryTip",
    "v3_home": "Profil Championa → Brief → Czego szukamy"
   },
@@ -1463,6 +1465,78 @@
    "file": "components/champion/ChampionClientTab.tsx",
    "marker": "ChampionClientQuestionsPanel",
    "v3_home": "Profil Championa → Klient i historia"
+  },
+  {
+   "id": "screening-form.single-form",
+   "area": "formularz screeningu",
+   "opis": "Jeden formularz screeningu pary: pytania z Profilu Championa, warunki (stawka kandydata + pola karty), ocena; jeden zapis z wersją, konflikt wersji nie kasuje pracy (0424)",
+   "file": "components/v2/screening-form/ScreeningFullForm.tsx",
+   "marker": "useSaveScreeningForm",
+   "v3_home": "Tablica → klik w osobę z „Nowych”/„Screeningu” → panel szeroki"
+  },
+  {
+   "id": "screening-form.forward",
+   "area": "formularz screeningu",
+   "opis": "„Zapisz i przekaż dalej → Zweryfikowany” i „Odrzuć” z formularza (te same okna ruchu co Tablica)",
+   "file": "components/v2/screening-form/ScreeningFullForm.tsx",
+   "marker": "Zapisz i przekaż dalej",
+   "v3_home": "panel osoby → formularz screeningu → stopka"
+  },
+  {
+   "id": "screening-form.note-fill",
+   "area": "formularz screeningu",
+   "opis": "„Uzupełnij z notatki”: wklej tekst albo wgraj plik, puste pola wypełniają się z plakietką, przy wpisanych propozycja „Użyj”, „Cofnij wypełnienie”; notatka idzie do historii przy zapisie",
+   "file": "components/v2/screening-form/NoteFillBar.tsx",
+   "marker": "Cofnij wypełnienie",
+   "v3_home": "panel osoby → formularz screeningu → nad pytaniami"
+  },
+  {
+   "id": "screening-form.history",
+   "area": "formularz screeningu",
+   "opis": "Historia zmian formularza: wersje z autorem i „przed → po”, „Przywróć” z potwierdzeniem w wierszu (nowa wersja)",
+   "file": "components/v2/screening-form/ScreeningFormHistory.tsx",
+   "marker": "Przywrócić wersję",
+   "v3_home": "panel osoby → formularz screeningu → Historia zmian"
+  },
+  {
+   "id": "screening-form.preview",
+   "area": "formularz screeningu",
+   "opis": "Podgląd obok formularza: CV oryginalne / CV firmowe / inne pliki, wymagania z wyszukiwaniem w CV, „Po ludzku” ze ściągą",
+   "file": "components/v2/screening-form/CandidatePreviewPane.tsx",
+   "marker": "Które CV pokazać",
+   "v3_home": "panel osoby → formularz screeningu → prawa kolumna"
+  },
+  {
+   "id": "screening-form.before-call",
+   "area": "formularz screeningu",
+   "opis": "Profil przed telefonem w „Nowych”: stanowisko, staż, źródło, inne rekrutacje, ostatnia notatka; „Zacznij screening”, „Biorę — 12 h”, „Nie odebrał”",
+   "file": "components/v2/screening-form/BeforeCallProfile.tsx",
+   "marker": "Zacznij screening",
+   "v3_home": "Tablica → klik w osobę z „Nowych”"
+  },
+  {
+   "id": "screening-form.split-panel",
+   "area": "tablica",
+   "opis": "Panel osoby szeroki (split) od razu na formularzu dla „Nowych” i „Screeningu”; „Zwiń” wraca do doku",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "\"split\"",
+   "v3_home": "Tablica → klik w kartę"
+  },
+  {
+   "id": "screening-form.after-cv-sent",
+   "area": "formularz screeningu",
+   "opis": "Po „CV wysłane” formularz da się poprawić z banerem, że zmiana idzie do DL i do następnego CV firmowego (D8)",
+   "file": "components/v2/jobs/ScreeningWorkbench.tsx",
+   "marker": "screening-after-cv-sent",
+   "v3_home": "panel osoby → Rozwiń → Screening"
+  },
+  {
+   "id": "screening-form.sheet-window",
+   "area": "rozmowy",
+   "opis": "Ten sam formularz screeningu w oknie z zakładki „Rozmowy” (bez podglądu CV obok)",
+   "file": "components/v2/modals/ScreeningSheet.tsx",
+   "marker": "ScreeningFullForm",
+   "v3_home": "panel osoby → Rozmowy → Formularz screeningu"
   }
  ]
 }

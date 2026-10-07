@@ -250,8 +250,11 @@ async def _response(
     )
 
 
-# Wspólne wejście dla tras karty z notatki (``recommendation_card_assist``).
+# Wspólne wejścia dla tras karty z notatki (``recommendation_card_assist``)
+# i formularza screeningu (``screening_form``, 0424).
 card_response = _response
+nationality_suggestion = _nationality_suggestion
+attach_author_names = _author_names
 
 
 @router.get("/recommendation-cards", response_model=CardResponse)
@@ -333,12 +336,18 @@ async def after_card_save(
     changed: list[str],
     user: User,
     source: Optional[str] = None,
+    rate_change: bool = True,
 ) -> None:
-    """Skutki zapisu pól karty — wspólne dla zapisu ręcznego i karty z notatki.
+    """Skutki zapisu pól karty — wspólne dla zapisu ręcznego i formularza screeningu.
 
     Dziennik z samymi nazwami pól (treść karty — narodowość, red flags — nie
     trafia do dziennika zdarzeń), zmiana stawki w procesie (0418) i „Stawka
     od” (0414).
+
+    ``rate_change=False`` (formularz screeningu, 0424): stawkę zapisał już
+    wołający przez ``candidate_rate_change.change_rate``, a pole karty ``rate``
+    jest tylko jej tekstem. ``_card_rate_change`` robi commit w środku, więc
+    w jednej transakcji formularza nie może się wykonać.
     """
     if not changed:
         return
@@ -356,7 +365,8 @@ async def after_card_save(
     )
     await db.flush()
     if "rate" in changed:
-        await _card_rate_change(db, card=card, user=user)
+        if rate_change:
+            await _card_rate_change(db, card=card, user=user)
         # „Stawka od” (0414) — od razu, nie czekając na pętlę kolejki.
         from app.services.candidate_rate_from import recompute_safely
 

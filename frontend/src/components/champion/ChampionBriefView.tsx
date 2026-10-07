@@ -17,25 +17,26 @@
  */
 
 import type { ReactNode } from "react";
-import { PencilLine, Star } from "lucide-react";
+import { PencilLine } from "lucide-react";
 
+import { Chips, Fact, stackNames } from "@/components/champion/BriefParts";
 import { ExperienceChips, useChampionProfile } from "@/components/champion/ChampionBriefForRecruiters";
 import { SearchRequirementsEditor } from "@/components/champion/SearchRequirementsEditor";
 import { PlainBriefBlock } from "@/components/champion/plain/PlainBriefBlock";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useClientCvRule } from "@/components/v2/cv-generator/ClientCvRuleBanner";
 import { EMPTY_CHAMPION_PROFILE, type ChampionProfile } from "@/lib/api";
-import { usePlainBrief, type GlossaryTerm } from "@/lib/api/plainKnowledge";
+import { usePlainBrief } from "@/lib/api/plainKnowledge";
 import type { ChampionBlock } from "@/lib/champion-blocks";
 import { JOB_WORK_MODE_LABEL, seedChampionFromJob } from "@/lib/champion-job-seed";
-import { criticalBriefLine, includesLabel } from "@/lib/critical-skills";
+import { criticalBriefLine } from "@/lib/critical-skills";
 import { formatBudgetHourly, formatJobBudgetLabel, type JobBudgetSource } from "@/lib/job-budget";
 import { formatJobDeadline } from "@/lib/job-deadline";
 import { recruitersOf, workingRecruiters, type JobTeamSource } from "@/lib/job-team";
 import { officeDaysLabel } from "@/lib/office-days";
-import { buildGlossaryLookup, glossaryKey } from "@/lib/plain-glossary-lookup";
+import { buildGlossaryLookup } from "@/lib/plain-glossary-lookup";
 import { resolveViewState } from "@/lib/view-state";
 
 /** Pola rekrutacji, które Brief czyta obok profilu. */
@@ -120,94 +121,12 @@ export function BriefSection({
   );
 }
 
-function Fact({ label, value, muted = false }: { label: string; value: ReactNode; muted?: boolean }) {
-  return (
-    <div className="grid grid-cols-[7.5rem_minmax(0,1fr)] gap-2 py-1">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className={muted ? "text-[13px] text-muted-foreground" : "text-[13px] font-medium text-foreground"}>
-        {value}
-      </dd>
-    </div>
-  );
-}
-
 export function Eyebrow({ children }: { children: ReactNode }) {
   return (
     <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
       {children}
     </p>
   );
-}
-
-/** Dymek ze słowniczka „po ludzku” — tylko hasła z opisem. */
-function GlossaryTip({ term }: { term: GlossaryTerm }) {
-  return (
-    <div className="max-w-[18rem] space-y-1 text-left text-xs leading-snug">
-      <p className="font-semibold">{term.display_name}</p>
-      <p>{term.summary}</p>
-      {term.cv_hints.length > 0 ? <p>W CV szukaj też: {term.cv_hints.join(", ")}</p> : null}
-      {term.confused_with ? <p>Nie myl z: {term.confused_with}</p> : null}
-    </div>
-  );
-}
-
-function Chips({
-  items,
-  tone,
-  critical = [],
-  glossary,
-}: {
-  items: string[];
-  tone: "must" | "nice";
-  /** Pozycje, na których działa bramka (gwiazdka „krytyczna”). */
-  critical?: readonly string[];
-  glossary: Map<string, GlossaryTerm>;
-}) {
-  return (
-    <ul className="flex flex-wrap gap-1.5">
-      {items.map((name) => {
-        const isCritical = includesLabel(critical, name);
-        const term = glossary.get(glossaryKey(name));
-        const className =
-          tone === "must"
-            ? `inline-flex h-[26px] items-center gap-1 rounded-full bg-primary/10 px-2.5 text-xs font-medium text-primary${isCritical ? " ring-1 ring-primary" : ""}`
-            : "inline-flex h-[26px] items-center rounded-full bg-muted px-2.5 text-xs font-medium text-muted-foreground";
-        const content = (
-          <>
-            {isCritical ? <Star className="h-3 w-3 fill-current" aria-hidden /> : null}
-            {name}
-            {isCritical ? <span className="sr-only"> — krytyczna</span> : null}
-          </>
-        );
-        return (
-          <li key={`${tone}:${name}`} data-critical={isCritical || undefined} className="flex">
-            {term ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    className={`${className} cursor-help decoration-dotted underline-offset-2 hover:underline`}
-                    data-glossary={term.term_key}
-                  >
-                    {content}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <GlossaryTip term={term} />
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <span className={className}>{content}</span>
-            )}
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
-function stackNames(items: ChampionProfile["stack"]["must"] | undefined): string[] {
-  return (items ?? []).map((item) => item?.name?.trim() ?? "").filter(Boolean);
 }
 
 function provenanceLabel(profile: Partial<ChampionProfile>): string | null {

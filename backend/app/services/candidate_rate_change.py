@@ -62,6 +62,7 @@ SOURCE_LABELS = {
     "profile": "profil kandydata",
     "card": "karta rekomendacji",
     "move": "ponowna weryfikacja",
+    "screening": "formularz screeningu",
 }
 REASON_LABELS = {
     "conversation": "rozmowa z kandydatem",
@@ -196,6 +197,11 @@ def _same_rate(
     a_h = _hourly(a_amount, a_unit, a_cur)
     b_h = _hourly(b_amount, b_unit, b_cur)
     return a_h is not None and a_h == b_h
+
+
+# Formularz screeningu (0424) pyta o „tę samą stawkę” tą samą regułą, zanim
+# cokolwiek zapisze — inaczej zapis bez zmian zakładałby notatkę i wersję.
+same_rate = _same_rate
 
 
 async def _open_change(

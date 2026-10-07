@@ -85,6 +85,16 @@ const CASES: Array<{
       "kliknięciu na karcie rekrutacji — statyczny import wciąga go do " +
       "każdego otwarcia profilu.",
   },
+  {
+    // 0424: podgląd CV obok formularza screeningu (pdf.js, `docx-preview`).
+    label: "Formularz screeningu → podgląd CV obok",
+    file: "components/v2/jobs/ScreeningWorkbench.tsx",
+    heavy: /^pdfjs-dist|^docx-preview|CandidatePreviewPane$|FilePreviewModal$/,
+    lazyModule: "@/components/v2/screening-form/CandidatePreviewPane",
+    why:
+      "Przeglądarka PDF i DOCX wraca do chunku panelu osoby — a ten panel " +
+      "otwiera się przy każdym kliknięciu karty na Tablicy.",
+  },
 ];
 
 it("profil kandydata nie importuje statycznie edytorów TipTapa", () => {

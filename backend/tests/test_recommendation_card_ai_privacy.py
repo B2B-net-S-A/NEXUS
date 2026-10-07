@@ -210,3 +210,46 @@ def test_cv_review_source_drops_nationality_from_notes_frozen_before_redaction()
     assert "mocny w Springu" in out
     assert _without_hidden_card_fields(None) is None
     assert _without_hidden_card_fields("") == ""
+
+
+def test_screening_form_history_is_read_only_by_people():
+    """0424: historia formularza screeningu trzyma wartości (także narodowość,
+    stawkę i red flags) — czytają ją wyłącznie ludzie.
+
+    Tabelę wersji zna tylko lista modułów niżej, żaden z nich nie woła modelu,
+    a Jarvis nie ma narzędzia do formularza ani jego historii. Nowy czytelnik
+    = świadomy wpis tutaj.
+    """
+    import re
+
+    allowed = {
+        "app/main.py",
+        "app/models/__init__.py",
+        "app/models/screening_form_version.py",
+        "app/services/screening_form_schema.py",
+        "app/services/screening_form.py",
+        "app/api/screening_form.py",
+        # Scalanie kandydatów przenosi wersje duplikatu na ocalałego.
+        "app/services/candidate_merge.py",
+    }
+    reader = re.compile(
+        r"screening_form_versions|ScreeningFormVersion"
+        r"|services import screening_form\b(?!_)|services\.screening_form\b(?!_)"
+    )
+    readers = {
+        path.relative_to(_BACKEND).as_posix()
+        for path in (_BACKEND / "app").rglob("*.py")
+        if reader.search(path.read_text(encoding="utf-8"))
+    }
+    assert readers <= allowed, sorted(readers - allowed)
+
+    model_call = re.compile(
+        r"\bcall_claude|\bai_feature\(|\bllm_providers\b|\b_call_model\(|"
+        r"\b_call_claude_json\("
+    )
+    for path in sorted(readers - {"app/main.py", "app/models/__init__.py"}):
+        source = (_BACKEND / path).read_text(encoding="utf-8")
+        assert not model_call.search(source), path
+
+    jarvis = (_BACKEND / "app/services/jarvis/tools.py").read_text(encoding="utf-8")
+    assert "screening-form" not in jarvis

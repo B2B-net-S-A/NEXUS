@@ -115,7 +115,7 @@ describe("RecommendationCardQuestions — „Odpada, gdy…”", () => {
       ...CARD,
       questions: [{ ...CARD.questions[0], deal_breaker_hit: true }, CARD.questions[1]],
     };
-    render(<RecommendationCardView card={hit} onSave={vi.fn()} />);
+    render(<RecommendationCardView card={hit} />);
     expect(screen.getByText("Odpowiedź na pytanie 1 narusza „Odpada, gdy…”.")).toBeInTheDocument();
   });
 });

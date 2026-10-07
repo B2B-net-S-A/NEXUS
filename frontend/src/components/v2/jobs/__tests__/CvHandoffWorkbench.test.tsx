@@ -36,7 +36,6 @@ const move = vi.fn(async (...a: unknown[]) => {
 const brandedGet = vi.fn();
 const shareList = vi.fn();
 const shareRevokeAll = vi.fn();
-const createScreeningShareToken = vi.fn();
 // Schowek sterowany wprost — `user-event` podmienia `navigator.clipboard`
 // własną zaślepką, która zawsze się udaje, a tu testujemy także porażkę.
 const copyText = vi.fn(async (..._a: unknown[]) => true);
@@ -76,10 +75,6 @@ vi.mock("@/lib/api", () => ({
       list: (...a: unknown[]) => shareList(...a),
       revokeAll: (...a: unknown[]) => shareRevokeAll(...a),
     },
-  },
-  // Link do karty Championa w doku — ten sam endpoint, którego używa krok 07.
-  screeningApi: {
-    createShareToken: (...a: unknown[]) => createScreeningShareToken(...a),
   },
   extractErrorMsg: (e: unknown) => (e instanceof Error ? e.message : "Błąd"),
 }));
@@ -496,52 +491,13 @@ describe("CvHandoffWorkbench", () => {
     expect(screen.queryByText(/Stawka czeka na/)).toBeNull();
   });
 
-  // ── Link do karty Championa: sekret zwracany RAZ ────────────────────────
-  it("link do karty Championa: nieudane kopiowanie NIE udaje sukcesu, a adres zostaje na ekranie", async () => {
-    createScreeningShareToken.mockResolvedValueOnce({
-      data: { share_url_suffix: "/share/champion-card/sekret-1" },
-    });
-    copyText.mockResolvedValueOnce(false);
+  // ── D2 (0424): karta Championa dla klienta wycofana ─────────────────────
+  it("nie ma już linku do karty Championa dla klienta (D2)", async () => {
     renderWorkbench();
-
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Utwórz link (30 dni)" }),
-    );
-
-    await waitFor(() => expect(showError).toHaveBeenCalled());
-    expect(showError.mock.calls[0][0]).toContain("nie udało się go skopiować");
-    expect(showSuccess).not.toHaveBeenCalledWith(
-      expect.stringContaining("skopiowany"),
-    );
-    const field = await screen.findByLabelText("Link do karty Championa");
-    expect((field as HTMLInputElement).value).toBe(
-      `${window.location.origin}/share/champion-card/sekret-1`,
-    );
-    expect(createScreeningShareToken).toHaveBeenCalledWith(21, 30);
-  });
-
-  it("link do karty Championa: udane kopiowanie potwierdza toastem i też zostawia adres", async () => {
-    createScreeningShareToken.mockResolvedValueOnce({
-      data: { share_url_suffix: "/share/champion-card/sekret-2" },
-    });
-    renderWorkbench();
-
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Utwórz link (30 dni)" }),
-    );
-
-    await waitFor(() =>
-      expect(showSuccess).toHaveBeenCalledWith(
-        "Link do karty Championa skopiowany (ważny 30 dni).",
-      ),
-    );
-    expect(copyText).toHaveBeenCalledWith(
-      `${window.location.origin}/share/champion-card/sekret-2`,
-    );
-    expect(
-      ((await screen.findByLabelText("Link do karty Championa")) as HTMLInputElement)
-        .value,
-    ).toContain("sekret-2");
+    await readySendButton();
+    expect(screen.queryByRole("button", { name: /Utwórz link \(30 dni\)/ })).toBeNull();
+    expect(screen.queryByLabelText("Link do karty Championa")).toBeNull();
+    expect(screen.queryByText(/Karta Championa/)).toBeNull();
   });
 
   it("link do reguł CV klienta tylko dla ról z `cv_rule.manage` (inne dostałyby 403 z middleware)", () => {
@@ -710,13 +666,12 @@ describe("CvHandoffWorkbench — layout=\"panel\" (rekrutacja v3)", () => {
     expect(brandedGet).not.toHaveBeenCalled();
   });
 
-  it("kluczowe akcje zostają: karta CV, stawka, link, karta Championa, linki, reguły", async () => {
+  it("kluczowe akcje zostają: karta CV, stawka, link, linki, reguły", async () => {
     renderWorkbench({ layout: "panel", focusCandidateId: 121 });
     await readySendButton();
     expect(screen.getByTestId("cv-to-client-card-stub")).toBeTruthy();
     expect(screen.getByLabelText("Kwota")).toBeTruthy();
     expect(screen.getByRole("checkbox", { name: /Utwórz link do brandowanego CV/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Utwórz link \(30 dni\)/ })).toBeTruthy();
     expect(screen.getByRole("link", { name: /Mail do klienta/ })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Linki i historia" })).toBeTruthy();
     expect(screen.getByRole("link", { name: /Reguły CV \(DL\)/ })).toBeTruthy();

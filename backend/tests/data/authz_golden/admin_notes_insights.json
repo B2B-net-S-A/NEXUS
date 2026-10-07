@@ -22,6 +22,7 @@
  ],
  "routes": {
   "POST /api/admin/notes-insights/client-rates": "PDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/notes-insights/profile-fill": "PDDDDDDDDDDDDDDDDDD",
   "POST /api/admin/notes-insights/sync": "PDDDDDDDDDDDDDDDDDD"
  }
 }

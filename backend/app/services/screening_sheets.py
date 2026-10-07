@@ -150,6 +150,71 @@ def with_question_texts(sheet: Any, questions: Mapping[str, str]) -> Any:
     }
 
 
+async def latest_filled_sheet(
+    db: AsyncSession, stage: CandidateStage, *, for_write: bool = False
+) -> tuple[Optional[dict], Optional[int]]:
+    """Arkusz screeningu etapu, a gdy pusty — najnowszy wypełniony tej pary
+    z próby procesu, do której należy etap (audyt 05.10.2026: karta osoby,
+    która wróciła po przerwie, nie pokazuje arkusza sprzed roku).
+
+    Zwraca ``(arkusz, id wiersza-źródła)``; id jest ``None``, gdy arkusz stoi
+    na samym ``stage`` albo żaden wiersz pary nie ma wypełnionego arkusza.
+
+    Wiersz poprzedniej próby (historia w „Zamkniętych”) czyta arkusze pary jak
+    dotąd; nowa próba (``attempt_no > 1``) — tylko od swojego początku.
+
+    ``for_write`` (audyt 06.10.2026, Q4): podstawa NOWEGO zapisu arkusza
+    (zapis screeningu, formularz screeningu) — ta sama reguła okna co ruch
+    karty (``screening_window``): proces zamknięty dawno temu nie przenosi
+    starego arkusza do nowej próby.
+
+    Przeniesione z ``api/pipeline.py`` (0424) — czytają je trasa arkusza
+    i formularz screeningu.
+    """
+    if sheet_filled(stage.screening_answers):
+        return stage.screening_answers, None
+    from app.services import candidate_claim  # noqa: PLC0415
+    from app.services.recommendation_cards import attempt_started  # noqa: PLC0415
+
+    process = await candidate_claim.load_process(
+        db, candidate_id=stage.candidate_id, job_id=stage.job_id
+    )
+    window = None
+    if for_write:
+        from app.services.recruitment_process_commands import (  # noqa: PLC0415
+            screening_window,
+        )
+
+        window = screening_window(process)
+        if not window.counts:
+            return stage.screening_answers or None, None
+    started = attempt_started(process)
+    if started is not None and stage.moved_at is not None:
+        if stage.moved_at < started:
+            started = None
+    rows = await db.execute(
+        select(
+            CandidateStage.id, CandidateStage.screening_answers, CandidateStage.moved_at
+        )
+        .where(
+            CandidateStage.candidate_id == stage.candidate_id,
+            CandidateStage.job_id == stage.job_id,
+            CandidateStage.id != stage.id,
+            CandidateStage.screening_answers.isnot(None),
+        )
+        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+    )
+    for row_id, answers, moved_at in rows.all():
+        if not sheet_filled(answers):
+            continue
+        if started is not None and (moved_at is None or moved_at < started):
+            continue
+        if window is not None and not window.covers(moved_at):
+            continue
+        return answers, row_id
+    return stage.screening_answers or None, None
+
+
 def _moment(value: Any) -> Optional[datetime]:
     """Znacznik czasu z JSONB albo z kolumny — zawsze ze strefą (sortowanie)."""
 

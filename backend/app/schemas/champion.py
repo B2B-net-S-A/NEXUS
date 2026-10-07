@@ -957,6 +957,10 @@ def client_safe_screening(screening_answers: Any) -> Optional[dict]:
     ``experience_checks`` (status „nie potwierdził” + notatka rekrutera,
     23.09.2026) i ``answered_by`` do JSON-u publicznej karty Championa — każde
     nowe pole arkusza wychodziłoby do klienta, dopóki ktoś go nie dopisze tutaj.
+
+    0424 (D2, 07.10.2026): bez ``notes`` — „Notatki rekrutera” to wewnętrzny
+    zapis dla Delivery Leada, a karta Championa dla klienta zniknęła. Generator
+    CV czyta stąd wyłącznie odpowiedzi kandydata.
     """
     if not isinstance(screening_answers, dict) or not screening_answers:
         return None
@@ -971,6 +975,6 @@ def client_safe_screening(screening_answers: Any) -> Optional[dict]:
     return safe
 
 
-# Pola arkusza screeningu, które widzi klient (karta Championa) i generator CV.
-_CLIENT_SCREENING_KEYS = frozenset({"answers", "overall_fit", "notes"})
+# Pola arkusza screeningu, które czyta generator CV (treść dla klienta).
+_CLIENT_SCREENING_KEYS = frozenset({"answers", "overall_fit"})
 _CLIENT_ANSWER_KEYS = frozenset({"question_id", "response", "deal_breaker_hit"})

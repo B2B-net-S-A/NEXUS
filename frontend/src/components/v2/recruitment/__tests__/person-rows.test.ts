@@ -338,7 +338,9 @@ describe("defaultPanelSectionFor", () => {
     expect(defaultPanelSectionFor("verification")).toBe("cv");
     expect(defaultPanelSectionFor("client")).toBe("interviews");
     expect(defaultPanelSectionFor("contract")).toBe("contract");
-    expect(defaultPanelSectionFor("intake")).toBe("notes");
+    // 0424 (D3): „Nowi” (także z ogłoszeń) otwierają formularz screeningu.
+    expect(defaultPanelSectionFor("intake")).toBe("screening");
+    expect(defaultPanelSectionFor("posting")).toBe("screening");
     expect(defaultPanelSectionFor("closed")).toBe("notes");
   });
 

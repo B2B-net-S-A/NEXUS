@@ -18,10 +18,11 @@ _APP = _BACKEND / "app"
 
 # Moduły, które zapisują `candidate_stages.screening_answers`.
 _SHEET_WRITERS = {
-    # Zapis arkusza przez człowieka (Tablica, warsztat screeningu).
+    # Zapis arkusza przez człowieka (stara trasa arkusza, stare karty przeglądarki).
     "app/api/pipeline.py",
-    # Odpowiedzi przyjęte z notatki w oknie karty (0421) — człowiek klika.
-    "app/api/recommendation_card_assist.py",
+    # Jeden formularz screeningu (0424): arkusz, karta i stawka — człowiek
+    # klika „Zapisz”, także odpowiedzi przyjęte z notatki.
+    "app/services/screening_form.py",
     # Trafienie „Odpada, gdy…” zaznaczone na karcie — człowiek klika.
     "app/api/recommendation_cards.py",
     # Kopia arkusza pary na nowy wiersz etapu przy ruchu karty.

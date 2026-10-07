@@ -516,11 +516,11 @@ def test_every_champion_exit_to_the_frontend_goes_through_the_normaliser() -> No
     import pathlib
     import re
 
-    # `public_share.py` też jest skanowany, mimo że ma WŁASNY normalizator:
-    # `_public_champion_projection` celowo zwraca węższy wycinek (bez naszej
-    # stawki i firm docelowych), bo odbiorcą tamtego linku jest strona trzecia.
+    # `public_share.py` też jest skanowany: publiczna karta Championa zniknęła
+    # (0424, odpowiada 410), więc profil nie ma tam prawa wyjść w ogóle.
     # Pominięcie tego pliku w strażniku znaczyłoby, że przyszłe wyjście dopisane
-    # tam wymyka się kontroli — a to jest akurat najgorsze miejsce na przeciek.
+    # tam wymyka się kontroli — a to jest akurat najgorsze miejsce na przeciek,
+    # bo odbiorcą publicznego linku jest strona trzecia.
     for name in ("jobs.py", "pipeline.py", "public_share.py"):
         src = (
             pathlib.Path(__file__).resolve().parents[1] / "app" / "api" / name
@@ -528,12 +528,11 @@ def test_every_champion_exit_to_the_frontend_goes_through_the_normaliser() -> No
         # Wartość wyciągana i sprawdzana JAWNIE, nie lookaheadem: `\s*` cofa się
         # do zera znaków, więc `(?!...)` sprawdzałby pozycję spacji i przepuszczał
         # dokładnie te wywołania, których szuka.
-        # Trzy dozwolone wywołania: alias routera, pełna ścieżka do
-        # `champion_view.api_response` oraz węższa projekcja publiczna.
+        # Dwa dozwolone wywołania: alias routera i pełna ścieżka do
+        # `champion_view.api_response`.
         allowed = (
             "_champion_response",
             "champion_view.api_response",
-            "_public_champion_projection",
         )
         raw = [
             value.strip()

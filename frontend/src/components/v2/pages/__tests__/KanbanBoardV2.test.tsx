@@ -2397,6 +2397,46 @@ describe("KanbanBoardV2 — „Rozwiń”: pełne narzędzia w tym samym panelu 
     expect(await screen.findByTestId("move-next-dialog")).toBeTruthy();
   });
 
+  it("klik w osobę z „Nowych” otwiera panel szeroki (split) od razu na formularzu screeningu (0424)", async () => {
+    renderWithWorkbench(null, [
+      {
+        stage: "new",
+        name: "Nowi",
+        category: "internal",
+        stage_def_id: 11,
+        count: 1,
+        items: [{ id: 701, candidate_id: 7, name: "Tomasz", lastname: "Wzorcowy", stage: "new", days_in_stage: 1 }],
+      },
+      {
+        stage: "verified",
+        name: "Zweryfikowany",
+        category: "internal",
+        stage_def_id: 13,
+        count: 1,
+        items: [{ id: 777, candidate_id: 5, name: "Anna", lastname: "Kowalska", stage: "verified", days_in_stage: 1 }],
+      },
+    ]);
+    const card = (await screen.findByRole("link", { name: "Tomasz Wzorcowy" })).closest(
+      "[data-kanban-card]",
+    ) as HTMLElement;
+    fireEvent.click(card);
+    const panel = await screen.findByRole("complementary", { name: "Panel osoby" });
+    await waitFor(() => expect(panel).toHaveAttribute("data-size", "split"));
+    expect(panel).toHaveAttribute("data-wide");
+    expect(screen.getByTestId("person-workbench-stub")).toHaveAttribute("data-section", "screening");
+
+    // „Zwiń” wraca do zwykłego doku osoby.
+    await userEvent.click(within(panel).getByRole("button", { name: "Zwiń" }));
+    await waitFor(() => expect(panel).toHaveAttribute("data-size", "dock"));
+    expect(panel).not.toHaveAttribute("data-wide");
+
+    // Osoba spoza „Nowych”/„Screeningu” otwiera zwykły dok.
+    fireEvent.click(
+      (await screen.findByRole("link", { name: "Anna Kowalska" })).closest("[data-kanban-card]") as HTMLElement,
+    );
+    await waitFor(() => expect(panel).toHaveAttribute("data-size", "dock"));
+  });
+
   it("bez kontekstu warsztatów (harness) panel nie ma „Rozwiń”", async () => {
     renderBoard();
     const link = await screen.findByRole("link", { name: "Anna Kowalska" });

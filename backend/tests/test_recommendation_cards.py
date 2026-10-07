@@ -137,9 +137,20 @@ def test_only_listed_modules_read_recommendation_cards():
         # nie treść karty.
         "app/services/board_flow.py",
         # Karta z notatki i „Ułóż w zdanie” (0421): model dostaje notatkę po
-        # `redact_card_text` (bez narodowości), zapis idzie przez `save_manual`.
-        "app/api/recommendation_card_assist.py",
+        # `redact_card_text` (bez narodowości), zapis idzie przez formularz
+        # screeningu (0424).
         "app/services/recommendation_card_assist.py",
+        # Jeden formularz screeningu (0424): pola karty czyta i zapisuje
+        # człowiek; reguły migawki i różnic biorą z karty tylko nazwy pól.
+        # Żaden z tych modułów nie woła modelu (strażnik w
+        # `test_recommendation_card_ai_privacy.py`).
+        "app/api/screening_form.py",
+        "app/services/screening_form.py",
+        "app/services/screening_form_rules.py",
+        # Arkusz pary (`latest_filled_sheet`, przeniesiony z `api/pipeline` w
+        # 0424) bierze z modułu kart tylko początek bieżącej próby procesu
+        # (`attempt_started`), nie treść karty.
+        "app/services/screening_sheets.py",
         # Odpowiedzi z notatek do arkusza screeningu (07.10.2026): czyta
         # WYŁĄCZNIE `note_answers` karty (pytania i odpowiedzi), nie pola.
         "app/services/screening_note_sync.py",

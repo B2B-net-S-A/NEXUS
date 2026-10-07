@@ -324,7 +324,8 @@ def _items_for(column: str, f: PairFacts) -> list[_Item]:
                 else "nie wiemy, od kiedy może zacząć",
             ),
             # Braki karty nie blokują ruchu — Delivery Lead zobaczy je przed
-            # wysłaniem CV.
+            # wysłaniem CV. Od 0424 pola karty uzupełnia się w formularzu
+            # screeningu (akcja `open_card` otwiera panel na screeningu).
             _Item(
                 column,
                 "recommendation_card",
@@ -340,7 +341,7 @@ def _items_for(column: str, f: PairFacts) -> list[_Item]:
                 ),
                 None
                 if f.card_exists and not f.card_missing
-                else _action("open_card", "Uzupełnij kartę", sid),
+                else _action("open_card", "Uzupełnij w screeningu", sid),
             ),
         ]
     if column == "cv_qc":

@@ -78,13 +78,13 @@ describe("ScreeningAnswersList", () => {
     const { rerender } = render(
       <ScreeningAnswersList answers={ANSWERS} notes="Dobra komunikacja." internalNote="pominięte — przepięcie" />,
     );
-    expect(screen.getByText("Notatka ze screeningu")).toBeTruthy();
+    expect(screen.getByText("Notatka z arkusza")).toBeTruthy();
     expect(screen.getByText("Dobra komunikacja.")).toBeTruthy();
     expect(screen.getByText("Notatka wewnętrzna")).toBeTruthy();
     expect(screen.getByText("pominięte — przepięcie")).toBeTruthy();
 
     rerender(<ScreeningAnswersList answers={ANSWERS} notes="  " internalNote={null} />);
-    expect(screen.queryByText("Notatka ze screeningu")).toBeNull();
+    expect(screen.queryByText("Notatka z arkusza")).toBeNull();
     expect(screen.queryByText("Notatka wewnętrzna")).toBeNull();
   });
 
