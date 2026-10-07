@@ -83,7 +83,11 @@ async def _fill_qc(world: dict, dl_id: int, people: int) -> list[int]:
                     expected_rate_value=Decimal("140"),
                     expected_rate_unit="hourly",
                     expected_rate_currency="PLN",
-                    screening_answers={"answers": [], "overall_fit": "fit"},
+                    # Arkusz bez odpowiedzi nie jest wypełniony (`sheet_filled`).
+                    screening_answers={
+                        "answers": [{"question_id": "q1", "response": "Java 5 lat"}],
+                        "overall_fit": "fit",
+                    },
                 )
             )
             db.add(
