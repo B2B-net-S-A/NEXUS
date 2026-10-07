@@ -62,7 +62,7 @@
     "tasks": [
       {
         "q": "Od czego zacząć w tej rekrutacji?",
-        "a": "Na górze jest tytuł stanowiska, pod nim nazwa od klienta i trzy fakty: klient, budżet, tryb pracy. Kafle „Kandydaci do dodania” nad tablicą pokazują, skąd wziąć ludzi i ilu ich czeka. Klik w nazwisko na karcie otwiera kartę kandydata z boku (Ctrl/⌘ — pełny profil)."
+        "a": "Na górze jest tytuł stanowiska, pod nim nazwa od klienta i trzy fakty: klient, budżet, tryb pracy. Kafle „Kandydaci do dodania” nad tablicą pokazują, skąd wziąć ludzi i ilu ich czeka. Klik w nazwisko otwiera kartę kandydata z boku; w „Nowych” i „Screeningu” szeroką, z CV i wymaganiami obok (Ctrl/⌘ — pełny profil)."
       },
       {
         "q": "Jak przesunąć kandydata dalej?",
@@ -86,7 +86,7 @@
     ],
     "pitfalls": [
       "Wysłanie na „CV wysłane” poza Nordeą robi tylko osoba z uprawnieniem do wysyłki CV do klienta (domyślnie Delivery Lead i admin), podając w tym samym kroku stawkę do klienta. Cofnięcie karty z „Rozmowy u klienta” tego nie wymaga. Gdy Delivery Lead cofnie kartę z „QC CV” do poprawy, rekruter dostaje powiadomienie z jego uwagą — uwaga jest też w notatkach kandydata.",
-      "Wejście na „Zweryfikowany” wymaga arkusza screeningu i stawki kandydata, wyjście z „Rozmowy u klienta” — debriefu (pytań klienta albo potwierdzenia, że ich nie było), a ręczny ruch na „Zatrudniony” — informacji, jak podpisano umowę.",
+      "Wejście na „Zweryfikowany” wymaga odpowiedzi z formularza screeningu i stawki kandydata, wyjście z „Rozmowy u klienta” — debriefu (pytań klienta albo potwierdzenia, że ich nie było), a ręczny ruch na „Zatrudniony” — informacji, jak podpisano umowę.",
       "Bez zielonego QC CV kandydat nie przejdzie na „CV wysłane” ani do kolejki Cpro (u Nordei wrzuca osoba od Cpro wyznaczona dla firmy, a gdy jej nie ma — osoba wskazana w rekrutacji). QC zatrzymuje tylko cztery rzeczy: brak CV firmowego, umiejętności krytyczne nieopisane w rolach, treść spoza oryginalnego CV i reguły klienta — reszta to uwagi. Przepuścić mimo QC może osoba z uprawnieniem do wysyłki CV do klienta, wybierając powód. Powrót z „Zamkniętych” tego nie omija.",
       "Osobę dodaną ręcznie przez 12 godzin (w Nowych i Screeningu) prowadzi tylko osoba, która ją wzięła — przejąć mogą Delivery Lead, Head of Recruitment i admin."
     ],
@@ -152,16 +152,16 @@
     "title": "Karta kandydata w rekrutacji",
     "section": "pipeline",
     "roles": ["recruiter", "delivery_lead"],
-    "what": "Tu prowadzisz jedną osobę w tej rekrutacji: pod nazwiskiem są stawka, dostępność i tryb pracy, sekcja „Teraz” pokazuje, co zrobić na jej etapie, a główna akcja przesuwa ją dalej. W „Nowych” od razu „Biorę” i „Nie odebrał”.",
+    "what": "Tu prowadzisz jedną osobę w tej rekrutacji. W „Nowych” i „Screeningu” panel jest szeroki: po lewej profil przed rozmową albo formularz screeningu, po prawej CV, wymagania i opis „po ludzku”.",
     "tasks": [
       {
-        "q": "Jak przesunąć osobę na kolejny etap?",
-        "a": "Ramka „Następny etap” pod nazwiskiem pokazuje braki do kolejnej kolumny, z przyciskiem przy każdym. Gdy CV wysyła Delivery Lead albo osoba od Cpro, przycisk mówi „Przekaż…”; gdy system zatrzyma ruch, jest wyłączony z powodem. Inny etap wybierzesz w „Inny etap…”, pełny profil — link „Profil ↗” przy nazwisku.",
-        "anchor": "jobs.person.actions"
+        "q": "Jak zapisać screening rozmowy?",
+        "a": "W formularzu wpisz odpowiedzi na pytania z Profilu Championa, warunki ze stawką kandydata i ocenę dla Delivery Leada. „Uzupełnij z notatki” wypełni pola z wklejonej notatki. „Zapisz” dodaje wersję do „Historii zmian” (z „Przywróć”), a „Zapisz i przekaż dalej” przesuwa osobę na „Zweryfikowany”.",
+        "anchor": "jobs.person.screening-form"
       },
       {
-        "q": "Jak odrzucić kandydata?",
-        "a": "Kliknij „Odrzuć z powodem” i wybierz powód. Jeśli to kandydat się wycofał, użyj „Zrezygnował” — raporty liczą te przypadki osobno.",
+        "q": "Jak przesunąć albo odrzucić osobę?",
+        "a": "Ramka „Następny etap” pokazuje braki do kolejnej kolumny, z przyciskiem przy każdym; gdy system zatrzyma ruch, przycisk jest wyłączony z powodem. Inny etap — „Inny etap…”. Odrzucenie — „Odrzuć z powodem”; gdy kandydat się wycofał, wybierz „Zrezygnował” (raporty liczą to osobno).",
         "anchor": "jobs.person.actions"
       },
       {
@@ -182,19 +182,19 @@
     "pitfalls": [
       "Osoba zarezerwowana przez kogoś innego (12 h) nie da się przesunąć, dopóki rezerwacja nie wygaśnie albo ktoś uprawniony jej nie przejmie.",
       "Odznaka „Follow-up: Anna K. · zaległy 2 dni” znaczy, że klient milczy od 14 dni i ta osoba zadzwoni do kandydata — jedna osoba, nawet gdy kandydat jest w kilku procesach. Nie dzwoń drugi raz: zapisz wynik albo kliknij „Zrobię to ja” w bloku „Kontakt z kandydatem”.",
-      "Inną stawkę zapisz przyciskiem „Zmień” przy „W tej rekrutacji”, nie w notatce. Po wysłaniu CV wyższa stawka czeka na Delivery Leada: w ramce pod faktami zleca on negocjację albo decyduje o stawce do klienta.",
+      "Stawkę kandydata wpisz w „Warunkach” formularza albo przyciskiem „Zmień” przy „W tej rekrutacji”, nie w notatce. Po wysłaniu CV wyższa stawka czeka na Delivery Leada: w ramce pod faktami zleca on negocjację albo decyduje o stawce do klienta.",
       "Przypięte notatki kandydata (pinezka) są na górze karty — z każdej rekrutacji, nie tylko z tej. Pinezka i „Odpowiedz” są też przy notatkach tej rekrutacji; notatki automatów są schowane za „Pokaż systemowe”."
     ],
     "anchors": [
       {"id": "jobs.person.dock", "label": "Karta kandydata", "describe": "Panel osoby wysuwany z prawej po kliknięciu karty."},
       {"id": "jobs.person.actions", "label": "Akcje etapu", "describe": "Przenieś na etap, Inny etap, Odrzuć z powodem, Zrezygnował."},
-      {"id": "jobs.person.badges", "label": "Odznaki etapu", "describe": "Etapy pomocnicze, np. Prep, Umowa podpisana."},
+      {"id": "jobs.person.screening-form", "label": "Formularz screeningu", "describe": "Pytania z Profilu Championa, warunki ze stawką kandydata i ocena dla Delivery Leada — z historią zmian."},
       {"id": "jobs.person.note", "label": "Szybka notatka", "describe": "Pole notatki na dole karty."},
       {"id": "jobs.person.followup", "label": "Kontakt z kandydatem", "describe": "Kto dzwoni do kandydata, gdy klient milczy, i kiedy — z przyciskami „Zapisz wynik telefonu” i „Zrobię to ja”."},
       {"id": "jobs.person.expand", "label": "Rozwiń panel", "describe": "Poszerza panel osoby i pokazuje pełne narzędzia: CV do klienta, screening, rozmowy, umowę, dopasowanie i notatki."}
     ],
     "help_slug": null,
-    "sources": ["frontend/src/components/v2/jobs/PipelineCandidateDock.tsx", "frontend/src/components/v2/followups/DockFollowupBlock.tsx", "frontend/src/components/v2/jobs/DockContractSteps.tsx"]
+    "sources": ["frontend/src/components/v2/jobs/PipelineCandidateDock.tsx", "frontend/src/components/v2/screening-form/ScreeningFullForm.tsx", "frontend/src/components/v2/jobs/DockContractSteps.tsx"]
   },
   {
     "key": "job.champion",
