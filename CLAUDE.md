@@ -2599,7 +2599,9 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
   (notatka, red flags, stawka, kosztorys, motywacja, @wzmianka, „czekam na”)
   albo kolejnego pytania, odrzucona przy kwocie/parze stawek i przy „[PL] …”
   (próba na produkcji 07.10: ostatnia odpowiedź karty połykała notatkę
-  wewnętrzną i kosztorys w ok. 60 z 8 245 odpowiedzi). Przypięcie po numerze
+  wewnętrzną i kosztorys w ok. 60 z 8 245 odpowiedzi). Do arkusza trafiają
+  WYŁĄCZNIE przypięcia po treści pytania (`WRITE_BY_NUMBER = False`, pomiar
+  07.10: przypięcia po numerze — 215 z 8 100 — myliły pytania). Przypięcie po numerze
   odrzuca „odpowiedź”, która zaczyna się od INNEGO pytania (parser nie
   oddzielił pytania od odpowiedzi), a to samo pytanie na początku ucina
   (`_answer_by_number`, powód `question_as_answer`). Rozpoznanie pytań
