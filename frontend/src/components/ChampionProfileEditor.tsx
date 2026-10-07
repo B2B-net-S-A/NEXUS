@@ -26,7 +26,7 @@
  */
 
 import { ChampionImportButton, ChampionImportReview, ChampionTemplateDownload, ChampionValidationPanel } from "./ChampionIntake";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronDown,
@@ -48,6 +48,7 @@ import {
   EMPTY_CHAMPION_PROFILE,
   type ChampionBasics,
   type ChampionProfile,
+  type ChampionProfileResponse,
   type ChampionProfileSuggestion,
   type ChampionStack,
   type StackItem,
@@ -76,6 +77,15 @@ import { invalidateChampionDependents } from "@/lib/champion-cache";
 import { CriticalSkillsField } from "@/components/champion/CriticalSkillsField";
 import { useCriticalSuggestion } from "@/lib/critical-skills-api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { jobGateRefusal, type JobBlockerItem } from "@/lib/job-gate-errors";
+import {
+  blockerSection,
+  championChangedPayload,
+  championConflictFrom,
+  changedSectionKeys,
+  type ChampionConflict,
+} from "@/lib/champion-save";
+import { useOptionalToast } from "@/components/Toast";
 import {
   CHAMPION_AI_PROVENANCE_LABEL,
   CHAMPION_PROSE_SECTION_IDS,
@@ -147,8 +157,8 @@ interface ChampionProfileEditorProps {
   /**
    * Szuflada edycji bloku (04.10.2026): tylko te sekcje, bez grupy „proza”,
    * paska sekcji i kolumny „Wypełnij szybciej”. Brak = cały formularz.
-   * Zapis zostaje ten sam (cały szkic, serwer scala), a sekcje spoza listy
-   * są nietknięte, więc jadą w PUT dokładnie takie, jakie były.
+   * Zapis zostaje ten sam: od 06.10.2026 każdy układ wysyła tylko sekcje
+   * zmienione przez użytkownika (`lib/champion-save.ts`), serwer scala resztę.
    */
   onlySections?: readonly ChampionSectionId[];
   /**
@@ -222,6 +232,22 @@ export function ChampionProfileEditor({
   const [reviewOpen, setReviewOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "error">("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Audyt 06.10.2026 (N4): 422 `handoff_regression` — braki z sekcjami.
+  const [regressionBlockers, setRegressionBlockers] = useState<JobBlockerItem[] | null>(null);
+  // Audyt 06.10.2026 (N1/N2): profil z serwera, który przyszedł, gdy szkic
+  // miał niezapisane zmiany (odświeżenie albo 409 przy zapisie). Czeka na
+  // decyzję „Przeładuj / Zostaw moje” — szkic zostaje nietknięty.
+  const [pendingServer, setPendingServer] = useState<ChampionConflict | null>(null);
+  // Odcisk przyjętego profilu (`profile_hash`) — jedzie w zapisie jako
+  // `expected_profile_hash`. Ref, bo czyta go efekt i `mutationFn`.
+  const serverHashRef = useRef<string | null>(null);
+  // Zapas, gdy serwer nie podaje odcisku (starszy backend): sam profil.
+  const acceptedProfileRef = useRef<string | null>(null);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const baselineRef = useRef(baseline);
+  baselineRef.current = baseline;
+  const toast = useOptionalToast();
   const [remoteChange, setRemoteChange] = useState<{
     by: string;
     at: number;
@@ -261,21 +287,80 @@ export function ChampionProfileEditor({
     },
   });
 
+  /** Przyjmuje profil z serwera: szkic, punkt odniesienia i odcisk do zapisu. */
+  const applyServer = useCallback((response: ChampionProfileResponse) => {
+    const loaded = response.champion_profile as Partial<ChampionProfile>;
+    const seed = seedChampionFromJob(
+      { ...EMPTY_CHAMPION_PROFILE, ...loaded },
+      response.job_values,
+      response.job_title,
+    );
+    const profile = withEditableRows(seed.profile);
+    setDraft(profile);
+    setBaseline(profile);
+    setSeededStack(seed.seededStack);
+    setSeededBasics(seed.seededBasics);
+    serverHashRef.current = response.profile_hash ?? null;
+    acceptedProfileRef.current = JSON.stringify(response.champion_profile ?? {});
+    setPendingServer(null);
+  }, []);
+
+  // Audyt 06.10.2026 (N1): do tej daty każde odświeżenie profilu (zapis
+  // terminu w „Zespół”, WebSocket `champion_profile_changed`, powrót do
+  // karty) nadpisywało szkic i kasowało niezapisane zmiany. Teraz profil bez
+  // zmian w szkicu przyjmujemy jak dotąd, a przy zmianach — tylko gdy
+  // zmienił się SAM profil — pytamy banerem.
   useEffect(() => {
-    if (data) {
-      const loaded = data.champion_profile as Partial<ChampionProfile>;
-      const seed = seedChampionFromJob(
-        { ...EMPTY_CHAMPION_PROFILE, ...loaded },
-        data.job_values,
-        data.job_title,
-      );
-      const profile = withEditableRows(seed.profile);
-      setDraft(profile);
-      setBaseline(profile);
-      setSeededStack(seed.seededStack);
-      setSeededBasics(seed.seededBasics);
+    if (!data) return;
+    const dirty = changedSectionKeys(draftRef.current, baselineRef.current).length > 0;
+    if (!dirty) {
+      applyServer(data);
+      return;
     }
-  }, [data]);
+    const sameProfile =
+      data.profile_hash && serverHashRef.current
+        ? data.profile_hash === serverHashRef.current
+        : JSON.stringify(data.champion_profile ?? {}) === acceptedProfileRef.current;
+    if (sameProfile) return;
+    setPendingServer({ ...data, message: null });
+  }, [data, applyServer]);
+
+  /** „Przeładuj”: zapisany profil zastępuje szkic. */
+  const reloadFromServer = () => {
+    if (!pendingServer) return;
+    const { message: _message, ...response } = pendingServer;
+    applyServer(response);
+    // Po 409 pamięć zapytania ma jeszcze stary profil — podmieniamy ją na
+    // ten, który właśnie przyjęliśmy (bez dodatkowego żądania).
+    qc.setQueryData<ChampionProfileResponse>(["champion-profile", jobId], (old) =>
+      old ? { ...old, ...response } : response,
+    );
+    setSaveError(null);
+    setRegressionBlockers(null);
+    setSaveStatus("idle");
+  };
+  /**
+   * „Zostaw moje”: szkic zostaje, a zapis idzie z odciskiem NOWEGO profilu —
+   * świadome nadpisanie wyłącznie sekcji zmienionych przez użytkownika
+   * (punkt odniesienia zostaje ten, od którego zaczynał).
+   */
+  const keepMine = () => {
+    if (!pendingServer) return;
+    serverHashRef.current = pendingServer.profile_hash ?? null;
+    acceptedProfileRef.current = JSON.stringify(pendingServer.champion_profile ?? {});
+    setPendingServer(null);
+    setSaveError(null);
+    setSaveStatus("idle");
+  };
+  /**
+   * „Anuluj”: szkic wraca do profilu z serwera. Po „Zostaw moje” punkt
+   * odniesienia jest starszy niż zapis kolegi — wtedy bierzemy profil
+   * z pamięci zapytania, nie stary punkt odniesienia.
+   */
+  const discardDraft = () => {
+    if (data) applyServer(data);
+    else setDraft(baseline);
+  };
 
   // Ile sekcji ma niezapisane zmiany — po kluczach najwyższego poziomu,
   // czyli po sekcjach, które DL widzi w pasku. Liczone PRZED wczesnymi
@@ -339,12 +424,29 @@ export function ChampionProfileEditor({
   }, [remoteChange]);
 
   const mutation = useMutation({
+    // Audyt 06.10.2026 (N2/N5): tylko sekcje zmienione względem profilu, od
+    // którego DL zaczynał, i odcisk profilu wczytanego z serwera.
     mutationFn: (p: ChampionProfile) =>
       championApi.put(
         jobId,
-        championSavePayload(p, { seededStack, seededBasics }) as ChampionProfile,
+        championChangedPayload(
+          p,
+          baselineRef.current,
+          { seededStack, seededBasics },
+          serverHashRef.current,
+        ),
       ),
-    onSuccess: () => {
+    onSuccess: (response, saved) => {
+      // To, co wysłaliśmy, jest odtąd zapisane — odświeżony profil z serwera
+      // przyjmie się bez pytania (chyba że DL pisał dalej w trakcie zapisu).
+      setBaseline(saved);
+      const body = response?.data;
+      if (body?.profile_hash) serverHashRef.current = body.profile_hash;
+      if (body?.champion_profile)
+        acceptedProfileRef.current = JSON.stringify(body.champion_profile);
+      setPendingServer(null);
+      setRegressionBlockers(null);
+      for (const notice of body?.notices ?? []) toast?.showInfo(notice);
       // Profil, zlecenie (sync stacku do `must_skills`) i werdykt gotowości
       // „Przekaż do searchu" — patrz `invalidateChampionDependents`.
       invalidateChampionDependents(qc, jobId);
@@ -356,6 +458,22 @@ export function ChampionProfileEditor({
     // Do 28.09.2026 stan „error” nie miał żadnego widoku: DL widział zwolniony
     // „Zapisz” i myślał, że zapisał. Zmiany zostają w `draft` — nic nie ginie.
     onError: (error) => {
+      const conflict = championConflictFrom(error);
+      if (conflict) {
+        setPendingServer({ ...conflict, job_title: conflict.job_title ?? data?.job_title });
+        setSaveError(null);
+        setRegressionBlockers(null);
+        setSaveStatus("idle");
+        return;
+      }
+      const refusal = jobGateRefusal(error);
+      if (refusal?.code === "handoff_regression") {
+        setSaveError(refusal.message ?? HANDOFF_REGRESSION_TEXT);
+        setRegressionBlockers(refusal.blockers);
+        setSaveStatus("error");
+        return;
+      }
+      setRegressionBlockers(null);
       setSaveError(championSaveErrorMessage(error));
       setSaveStatus("error");
     },
@@ -587,20 +705,80 @@ export function ChampionProfileEditor({
       {reviewOpen && <ChampionImportReview initial={{ champion_profile: draft, validation: data?.validation }} jobId={jobId} fingerprint={data?.fingerprint} jobValues={data?.job_values} onClose={() => setReviewOpen(false)} onApply={() => invalidateChampionDependents(qc, jobId)} />}
     </>
   );
+  const saveErrorAlert =
+    saveStatus === "error" && saveError ? (
+      <div
+        role="alert"
+        data-testid="champion-profile-save-error"
+        className="w-full text-xs px-3 py-2 rounded-lg bg-destructive-muted border border-destructive/30 text-destructive-muted-foreground inline-flex items-start gap-1.5"
+      >
+        <AlertTriangle className="w-4 h-4 shrink-0" />
+        <div className="min-w-0">
+          <p>
+            <strong>Nie zapisano profilu.</strong> {saveError}
+          </p>
+          {regressionBlockers && regressionBlockers.length > 0 ? (
+            <ul className="mt-1 flex list-disc flex-col gap-0.5 pl-4">
+              {regressionBlockers.map((blocker, index) => {
+                const section = blockerSection(blocker.code);
+                return (
+                  <li key={`${blocker.code}-${index}`}>
+                    {blocker.message}
+                    {section ? (
+                      <>
+                        {" — "}
+                        <a href={`#${section.anchor}`} className="font-medium underline">
+                          {section.label}
+                        </a>
+                      </>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+        </div>
+      </div>
+    ) : null;
+  // Audyt 06.10.2026 (N1/N2): profil zmieniony przez kogoś innego, gdy szkic
+  // ma niezapisane zmiany — szkic zostaje, decyzja należy do DL-a.
+  const conflictBanner = pendingServer ? (
+    <div
+      role="alert"
+      data-testid="champion-profile-conflict"
+      className="w-full rounded-lg border border-warning/40 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
+        <strong className="min-w-0 flex-1">
+          {pendingServer.message ??
+            "Profil zmienił się w międzyczasie — ktoś zapisał zmiany, gdy edytowałeś."}
+        </strong>
+        <button
+          type="button"
+          onClick={reloadFromServer}
+          className="rounded-md border border-warning/40 bg-card px-2 py-1 font-medium text-foreground hover:bg-accent"
+        >
+          Przeładuj
+        </button>
+        <button
+          type="button"
+          onClick={keepMine}
+          className="rounded-md px-2 py-1 font-medium text-foreground hover:bg-accent"
+        >
+          Zostaw moje
+        </button>
+      </div>
+      <p className="mt-1">
+        „Przeładuj” pokaże zapisany profil — Twoje niezapisane zmiany przepadną. „Zostaw moje”
+        zapisze tylko sekcje, które zmieniłeś.
+      </p>
+    </div>
+  ) : null;
   const statusBanners = (
     <>
-      {saveStatus === "error" && saveError && (
-        <div
-          role="alert"
-          data-testid="champion-profile-save-error"
-          className="text-xs px-3 py-2 rounded-lg bg-destructive-muted border border-destructive/30 text-destructive-muted-foreground inline-flex items-start gap-1.5"
-        >
-          <AlertTriangle className="w-4 h-4 shrink-0" />
-          <span>
-            <strong>Nie zapisano profilu.</strong> {saveError}
-          </span>
-        </div>
-      )}
+      {conflictBanner}
+      {saveErrorAlert}
 
       {saveStatus === "saved" && (
         <div className="text-xs px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 inline-flex items-center gap-1.5">
@@ -608,7 +786,7 @@ export function ChampionProfileEditor({
         </div>
       )}
 
-      {remoteChange && (
+      {remoteChange && !pendingServer && (
         <div
           className="text-xs px-3 py-2 rounded-lg bg-primary/10 border border-primary/20 text-primary inline-flex items-center gap-1.5"
           role="status"
@@ -1235,8 +1413,9 @@ export function ChampionProfileEditor({
         }
       >
         <p className="mb-3 text-xs text-muted-foreground">
-          Rekruter zaczyna od nich „Szukaj ręcznie”. Każdy wiersz musi się zgadzać,
-          słowa w jednym wierszu to warianty — wystarczy jedno z nich. Wymagane do
+          Rekruter zaczyna od nich „Szukaj ręcznie”. Słowa w jednym wierszu to
+          warianty — wystarczy jedno z nich. Obowiązkowe są tylko umiejętności
+          krytyczne, pozostałe wiersze podnoszą w kolejności. Wymagane do
           „Przekaż do searchu”.
         </p>
         <div data-champion-field="search.requirements">
@@ -1247,6 +1426,7 @@ export function ChampionProfileEditor({
               patchSearch({ requirements: rows, exclude })
             }
             readOnly={disabled}
+            critical={data?.critical_resolution ?? null}
           />
         </div>
       </Section>
@@ -1483,7 +1663,7 @@ export function ChampionProfileEditor({
             ) : null}
             <button
               type="button"
-              onClick={() => setDraft(baseline)}
+              onClick={discardDraft}
               disabled={dirtySections === 0 || mutation.isPending}
               className="rounded-lg px-2.5 py-1.5 text-sm font-medium text-muted-foreground hover:bg-accent disabled:opacity-50"
               data-testid="cancel-champion-profile"
@@ -1562,16 +1742,10 @@ export function ChampionProfileEditor({
     );
     const footer = canEdit ? (
       <div className="flex flex-wrap items-center justify-end gap-2">
-        {/* Błąd zapisu stoi przy „Zapisz” — w treści szuflady mógłby być poza widokiem. */}
-        {saveStatus === "error" && saveError ? (
-          <p
-            role="alert"
-            data-testid="champion-profile-save-error"
-            className="w-full text-xs text-destructive-muted-foreground"
-          >
-            <strong>Nie zapisano profilu.</strong> {saveError}
-          </p>
-        ) : null}
+        {/* Błąd zapisu i konflikt stoją przy „Zapisz” — w treści szuflady
+            mogłyby być poza widokiem. */}
+        {conflictBanner}
+        {saveErrorAlert}
         {dirtySections > 0 ? (
           <span
             className="mr-auto text-xs font-medium text-warning-muted-foreground"
@@ -1583,7 +1757,7 @@ export function ChampionProfileEditor({
         <button
           type="button"
           onClick={() => {
-            setDraft(baseline);
+            discardDraft();
             onCancel?.();
           }}
           disabled={mutation.isPending}
@@ -1887,6 +2061,9 @@ function Labeled({
  * pod spodem; 5xx i brak odpowiedzi = awaria, a nie treść do pokazania
  * („Internal Server Error” niczego nie mówi). Resztę mówi serwer.
  */
+const HANDOFF_REGRESSION_TEXT =
+  "Tej zmiany nie da się zapisać — rekrutacja w pracy straciłaby wymaganą informację.";
+
 function championSaveErrorMessage(error: unknown): string {
   const status = (error as { response?: { status?: unknown } } | null)?.response
     ?.status;

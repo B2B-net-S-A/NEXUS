@@ -42,6 +42,7 @@ import { summarizeFullSearch } from "@/lib/full-search-summary";
 import {
   jobProposalsApi,
   jobProposalsKeys,
+  PROPOSAL_DISMISS_BULK_MAX,
   type ProposalInboxPage,
 } from "@/lib/job-proposals-api";
 import {
@@ -51,7 +52,7 @@ import {
   type ProposalEntry,
   type ProposalViewFilters,
 } from "@/lib/proposals-merge";
-import type { DismissFeedback } from "@/lib/proposal-dismiss";
+import { bulkDismissMessage, type DismissFeedback } from "@/lib/proposal-dismiss";
 import { httpStatusFromError } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
 import { jobShortlistQueryKey } from "@/components/v2/jobs/JobShortlist";
@@ -131,6 +132,12 @@ export function groupAddsByOrigin(
 interface DismissVariables {
   candidateIds: number[];
   feedback: DismissFeedback;
+}
+
+/** Kogo naprawdę pominięto, a kogo serwer zostawił bez zmian. */
+interface DismissOutcome {
+  dismissed: number[];
+  skipped: number[];
 }
 
 /** Źródło dla „Pomiń" osoby, której skrzynka jeszcze nie zna. */
@@ -410,13 +417,28 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
   const { mutate: restoreMutate } = restoreMutation;
 
   const dismissMutation = useMutation({
-    mutationFn: async ({ candidateIds, feedback }: DismissVariables) => {
+    mutationFn: async ({ candidateIds, feedback }: DismissVariables): Promise<DismissOutcome> => {
       if (readOnly) throw new Error("Sekcja Pipeline jest dostępna tylko do odczytu.");
       // „Pomiń" jest TRWAŁE dla każdej osoby — także spoza skrzynki (żywy
       // przegląd, podobne projekty, rekomendacje): serwer zakłada wtedy wiersz
       // od razu jako pominięty. Zwraca tych, których naprawdę pominięto.
       const dismissed: number[] = [];
-      for (const id of candidateIds) {
+      const skipped: number[] = [];
+      // „Pomiń zaznaczone” (R8): osoby, które skrzynka zna, idą jednym
+      // żądaniem zbiorczym (paczki po 100). Zbiorcze nie zakłada wierszy spoza
+      // skrzynki — te zostają przy pojedynczym „Pomiń” ze źródłem wiersza.
+      const inboxIds =
+        candidateIds.length > 1
+          ? candidateIds.filter((id) => entryById.get(id)?.detail.origins.includes("inbox"))
+          : [];
+      const inboxSet = new Set(inboxIds);
+      for (let i = 0; i < inboxIds.length; i += PROPOSAL_DISMISS_BULK_MAX) {
+        const chunk = inboxIds.slice(i, i + PROPOSAL_DISMISS_BULK_MAX);
+        const response = await jobProposalsApi.dismissBulk(jobId, chunk, feedback);
+        dismissed.push(...response.dismissed);
+        skipped.push(...response.skipped);
+      }
+      for (const id of candidateIds.filter((candidateId) => !inboxSet.has(candidateId))) {
         try {
           await jobProposalsApi.dismiss(jobId, id, dismissSourceFor(entryById.get(id)), feedback);
           dismissed.push(id);
@@ -425,9 +447,10 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
           // do rekrutacji. W obu przypadkach wiersz i tak ma zniknąć z listy.
           const status = httpStatusFromError(error);
           if (status !== 404 && status !== 409) throw error;
+          skipped.push(id);
         }
       }
-      return dismissed;
+      return { dismissed, skipped };
     },
     onMutate: async ({ candidateIds }) => {
       await queryClient.cancelQueries({ queryKey: inboxKey });
@@ -448,9 +471,11 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
       if (context) setHiddenIds(context.previousHidden);
       showError(apiErrorMessage(error, "Nie udało się pominąć propozycji."));
     },
-    onSuccess: (dismissed, { candidateIds: ids }) => {
+    onSuccess: ({ dismissed, skipped }, { candidateIds: ids }) => {
       const message =
-        ids.length === 1 ? "Pominięto — wróci tylko z nową wersją CV." : `Pominięto: ${ids.length}. Wrócą tylko z nową wersją CV.`;
+        ids.length === 1
+          ? "Pominięto — wróci tylko z nową wersją CV."
+          : bulkDismissMessage(dismissed.length, skipped.length);
       if (dismissed.length === 0) {
         showSuccess(message);
         return;

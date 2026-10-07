@@ -107,6 +107,8 @@ const FULL_FORM: IntakeForm = {
   onsiteDays: "2",
   city: "Warszawa, Gdańsk",
   intakeNotes: ["„Min. 5 lat” zapisane w polu „Lata doświadczenia”."],
+  // Audyt 06.10.2026 (N3): wiersze, które nie zmieściły się nawet w „mile widziane”.
+  droppedRequirements: ["Terraform"],
   startDate: "2026-11-01",
   deadline: "2026-10-20",
   headcount: "2",

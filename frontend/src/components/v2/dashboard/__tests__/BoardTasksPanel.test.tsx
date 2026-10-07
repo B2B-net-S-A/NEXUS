@@ -63,6 +63,7 @@ vi.mock("@/components/v2/dashboard/CproQueueDialog", () => ({
 }));
 
 import { BoardTasksPanel } from "@/components/v2/dashboard/BoardTasksPanel";
+import { flowWorkCount } from "@/components/v2/dashboard/BoardFlowSections";
 import { useAuthStore } from "@/store/auth";
 
 const since = new Date(Date.now() - 3 * 86_400_000).toISOString();
@@ -1113,6 +1114,80 @@ describe("BoardTasksPanel — przepływ rekrutacji i Finanse (04.10.2026)", () =
     expect(
       within(panel).getByRole("region", { name: "Zweryfikowani — czekają na CV do QC" }),
     ).toHaveTextContent("Ewa Dąb");
+  });
+
+  it("„Nowe requesty dla Ciebie”: tytuł roboczy, klient, data i kto przypisał (albo automat)", async () => {
+    mockQueue({
+      flow: emptyFlow({
+        new_requests: [
+          {
+            job_id: 41,
+            job_title: "Senior Java Developer",
+            job_working_title: "Java · Spring · 5+ lat",
+            client_name: "Bank Kappa",
+            assigned_at: "2026-10-06T08:00:00Z",
+            assigned_by_name: "Anna Lis",
+          },
+          {
+            job_id: 42,
+            job_title: "Tester automatyzujący",
+            job_working_title: null,
+            client_name: null,
+            assigned_at: "2026-10-05T08:00:00Z",
+            assigned_by_name: null,
+          },
+        ],
+        new_request_days: 3,
+      }),
+    });
+    renderPanel();
+    const panel = await screen.findByRole("region", { name: "Czeka na Ciebie" });
+    const section = within(panel).getByRole("region", { name: "Nowe requesty dla Ciebie" });
+    expect(within(section).getByText("2")).toHaveClass("text-primary");
+    expect(within(section).getByRole("link", { name: "Java · Spring · 5+ lat" })).toHaveAttribute(
+      "href",
+      "/jobs/41",
+    );
+    const items = within(section).getAllByRole("listitem");
+    expect(items[0]).toHaveTextContent("Bank Kappa · przypisano 06.10 przez Anna Lis");
+    expect(within(section).getByRole("link", { name: "Tester automatyzujący" })).toHaveAttribute(
+      "href",
+      "/jobs/42",
+    );
+    expect(items[1]).toHaveTextContent("przypisano 05.10 · automat");
+  });
+
+  it("nowe requesty stoją przed blokadami i Ogłoszeniami i liczą się do „Twój ruch”", async () => {
+    const newRequest = {
+      job_id: 41,
+      job_title: "Senior Java Developer",
+      job_working_title: null,
+      client_name: null,
+      assigned_at: since,
+      assigned_by_name: null,
+    };
+    const flow = emptyFlow({
+      new_requests: [newRequest],
+      new_request_days: 3,
+      claimed: [flowPair({ candidate_name: "Ola Mak", claimed_until: since })],
+    });
+    expect(flowWorkCount(flow as never, null)).toBe(2);
+    expect(flowWorkCount(emptyFlow() as never, null)).toBe(0);
+    mockQueue({ flow });
+    renderPanel();
+    const panel = await screen.findByRole("region", { name: "Czeka na Ciebie" });
+    const fresh = within(panel).getByRole("region", { name: "Nowe requesty dla Ciebie" });
+    const claimed = within(panel).getByRole("region", { name: "Twoje blokady (12 h)" });
+    expect(fresh.compareDocumentPosition(claimed) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("pusta lista nowych requestów = brak sekcji", async () => {
+    mockQueue({
+      flow: emptyFlow({ new_requests: [], verified: [flowPair({ candidate_name: "Ewa Dąb" })] }),
+    });
+    renderPanel();
+    const panel = await screen.findByRole("region", { name: "Czeka na Ciebie" });
+    expect(within(panel).queryByRole("region", { name: "Nowe requesty dla Ciebie" })).toBeNull();
   });
 
   it("najlepsze propozycje z bazy: „Dodaj” idzie przez skrzynkę, dodana osoba znika", async () => {

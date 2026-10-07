@@ -29,6 +29,7 @@ import {
   approveQuestions,
   budgetRangeError,
   clientReferenceFor,
+  droppedRequirementsText,
   editQuestion,
   effectiveWorkingTitle,
   filledQuestions,
@@ -403,9 +404,18 @@ function ClientReferenceLine({ form, onChange }: { form: IntakeForm; onChange: F
  * ta sama reguła co na serwerze. Do 02.10 był osobnym polem, które powtarzało
  * wymagania; teraz to podgląd z „Zmień”. Nigdy nie idzie do klienta.
  */
-function WorkingTitleLine({ form, onChange }: { form: IntakeForm; onChange: FormUpdater }) {
+function WorkingTitleLine({
+  form,
+  onChange,
+  criticalInfo,
+}: {
+  form: IntakeForm;
+  onChange: FormUpdater;
+  /** Które wiersze serwer uznał za technologie (P10) — `null` = jeszcze nie wiadomo. */
+  criticalInfo: RowCriticalState["info"];
+}) {
   const id = useId();
-  const value = effectiveWorkingTitle(form);
+  const value = effectiveWorkingTitle(form, criticalInfo);
   if (!form.workingTitleTouched) {
     return (
       <div className="flex flex-col gap-1" data-testid="working-title-field">
@@ -465,6 +475,11 @@ interface NewJobReviewFormProps {
   criticalInfo: RowCriticalState;
   /** Sekcja 6 „Kategoria i zespół” (`NewJobTeamStep`) — stoi przed „Dodatkowe”. */
   team?: ReactNode;
+  /**
+   * Audyt 06.10.2026 (P9): „Utwórz” bez nazwy od klienta — komunikat przy
+   * polu. `null` = brak komunikatu.
+   */
+  clientTitleError?: string | null;
 }
 
 /** Krok 2 strony `/jobs/new`: sekcje 1–5 i „Dodatkowe”. */
@@ -477,6 +492,7 @@ export function NewJobReviewForm({
   countEnabled = true,
   criticalInfo,
   team,
+  clientTitleError = null,
 }: NewJobReviewFormProps) {
   const ids = {
     hiringManager: useId(),
@@ -531,7 +547,20 @@ export function NewJobReviewForm({
             value={form.clientTitle}
             onChange={(e) => set("clientTitle", e.target.value, "client_title")}
             placeholder="np. Programista Java (ZOB 48213)"
+            aria-invalid={clientTitleError ? true : undefined}
+            aria-describedby={clientTitleError ? `${ids.clientTitle}-error` : undefined}
+            className={cn(clientTitleError && MISSING_RING)}
           />
+          {clientTitleError ? (
+            <p
+              id={`${ids.clientTitle}-error`}
+              role="alert"
+              className="text-xs text-destructive"
+              data-testid="new-job-client-title-error"
+            >
+              {clientTitleError}
+            </p>
+          ) : null}
           <ClientReferenceLine form={form} onChange={onChange} />
         </div>
 
@@ -596,7 +625,7 @@ export function NewJobReviewForm({
           </div>
         </div>
 
-        <WorkingTitleLine form={form} onChange={onChange} />
+        <WorkingTitleLine form={form} onChange={onChange} criticalInfo={criticalInfo.info} />
       </SectionCard>
 
       <SectionCard
@@ -622,6 +651,23 @@ export function NewJobReviewForm({
             criticalMissing={isMissing("critical")}
             countEnabled={countEnabled}
           />
+          {/* Audyt 06.10.2026 (N3): co kod zmienił w odczycie i czego nie
+              zmieścił — na wierzchu, nie w zwiniętych zdaniach klienta. */}
+          {form.intakeNotes.length > 0 || form.droppedRequirements.length > 0 ? (
+            <ul
+              role="note"
+              aria-label="Uwagi z odczytu maila"
+              className="flex flex-col gap-1 rounded-lg border border-warning/40 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
+              data-testid="new-job-intake-advisories"
+            >
+              {form.intakeNotes.map((note) => (
+                <li key={note}>{note}</li>
+              ))}
+              {droppedRequirementsText(form.droppedRequirements) ? (
+                <li>{droppedRequirementsText(form.droppedRequirements)}</li>
+              ) : null}
+            </ul>
+          ) : null}
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
@@ -653,7 +699,7 @@ export function NewJobReviewForm({
           </div>
         </div>
 
-        {form.descriptive.length > 0 || form.intakeNotes.length > 0 ? (
+        {form.descriptive.length > 0 ? (
           <details className="rounded-lg bg-muted px-3 py-2 text-sm" data-testid="new-job-descriptive">
             <summary className="cursor-pointer font-medium text-foreground">
               Zdania klienta, które nie są słowami kluczowymi ({form.descriptive.length})
@@ -681,17 +727,6 @@ export function NewJobReviewForm({
                 </li>
               ))}
             </ul>
-            {form.intakeNotes.length > 0 && (
-              <ul
-                className="mt-2 flex flex-col gap-1 border-t border-border pt-2 text-xs text-muted-foreground"
-                aria-label="Uwagi z odczytu maila"
-                data-testid="new-job-intake-notes"
-              >
-                {form.intakeNotes.map((note) => (
-                  <li key={note}>{note}</li>
-                ))}
-              </ul>
-            )}
           </details>
         ) : null}
       </SectionCard>

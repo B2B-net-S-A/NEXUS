@@ -30,6 +30,11 @@ PREP_SOURCE = "teams_prep"
 # 150, wróć z 140”) inaczej stałaby się wpisem o stawce do klienta i byłaby
 # zakryta adresatowi — także po edycji.
 REMARK_SOURCE = "stage_remark"
+# Notatka z „Zastosuj zaznaczone” w oknie karty rekomendacji (0421). Zostaje
+# zwykłą notatką z rozmowy także po edycji (audyt 06.10.2026, Q3): reguła
+# treści potrafiła zrobić z niej `card`, a projekcja kart wpisałaby wtedy do
+# karty pola, które rekruter świadomie odznaczył.
+CARD_ASSIST_SOURCE = "card_note_import"
 
 AUTOMATCH = "automatch"
 APPLICATION_FORM = "application_form"
@@ -269,6 +274,8 @@ def classify(
     """Rodzaj notatki z jej treści, typu i pochodzenia."""
     if external_source == REMARK_SOURCE:
         return DL_REVIEW
+    if external_source == CARD_ASSIST_SOURCE:
+        return HUMAN
     text = plain_text(content)
     length = len(text)
     head = text[:_SCAN_CHARS]

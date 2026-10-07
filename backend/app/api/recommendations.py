@@ -1143,6 +1143,14 @@ async def refresh_job_criteria(
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    # Audyt 06.10.2026 (P7): przy wierszach wymagań kolumny idą za Championem.
+    from app.services.champion_requirement_rows import (
+        ROWS_OWN_COLUMNS_DETAIL,
+        profile_has_rows,
+    )
+
+    if profile_has_rows(job.champion_profile):
+        raise HTTPException(status_code=409, detail=ROWS_OWN_COLUMNS_DETAIL)
 
     criteria = await _generate_criteria_with_ollama(job)
     if not criteria:
@@ -1200,6 +1208,14 @@ async def generate_job_criteria_preview(
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    # Audyt 06.10.2026 (P7): przy wierszach wymagań kolumny idą za Championem.
+    from app.services.champion_requirement_rows import (
+        ROWS_OWN_COLUMNS_DETAIL,
+        profile_has_rows,
+    )
+
+    if profile_has_rows(job.champion_profile):
+        raise HTTPException(status_code=409, detail=ROWS_OWN_COLUMNS_DETAIL)
 
     criteria = await _generate_criteria_with_ollama(job)
     source = "ollama" if criteria and "_source" in criteria else "heuristic"
@@ -1330,6 +1346,16 @@ async def assign_candidate_to_job(
     from app.services import candidate_claim
 
     from_integration = candidate_claim.is_integration_request(request)
+    if not from_integration:
+        # Audyt 06.10.2026 (U1): człowiek dodaje tą samą drogą co z okna
+        # rekrutacji (`add_candidates_to_job`) — etap „Nowi” (nie „Ogłoszenia”
+        # z plakietką „nikt nie rozmawiał”), blokada 12 h dla dodającego,
+        # zamknięcie propozycji i telemetria źródła `candidate_list` zamiast
+        # zgadywania przeglądu (zawyżało pozytywy C2).
+        return await _assign_by_human(
+            db, job=job, candidate_id=candidate_id, user=current_user
+        )
+
     if from_integration:
         # 06.10.2026: integracja wstawia kartę tylko przy dowodzie zgłoszenia
         # do TEJ rekrutacji; bez niego osoba czeka w „Do przejrzenia”
@@ -1418,6 +1444,65 @@ async def assign_candidate_to_job(
         "job_id": job_id,
         "stage_id": stage.id,
         "stage_def_id": stage.stage_def_id,
+    }
+
+
+async def _assign_by_human(
+    db: AsyncSession, *, job: Job, candidate_id: int, user: User
+) -> dict:
+    """„Przypisz do rekrutacji” z listy kandydatów i profilu (U1).
+
+    Bramki (już w procesie, czarna lista, weto HM) sprawdził wołający tymi
+    samymi zapytaniami co dotąd, więc odpowiedzi 200/409 mają dawny kształt.
+    ``skipped`` z ``add_candidates_to_job`` to wyścig po tym sprawdzeniu —
+    mapowany na te same odpowiedzi.
+    """
+    from app.api.proposals_bulk import add_candidates_to_job
+    from app.services import candidate_claim
+    from app.services.match_telemetry_service import (
+        emit_pipeline_additions,
+        latest_process_ids,
+    )
+    from app.services.pipeline_realtime import broadcast_pipeline_changed
+
+    result = await add_candidates_to_job(
+        db,
+        job=job,
+        candidate_ids=[candidate_id],
+        actor_user_id=user.id,
+        entry_source=candidate_claim.ENTRY_ADDED_MANUAL,
+        claim=True,
+        mark_proposals=True,
+    )
+    if not result.added:
+        skipped = result.skipped[0] if result.skipped else None
+        await db.rollback()
+        if skipped is not None and skipped.reason == "already_in_job":
+            return {"status": "already_in_pipeline", "count": 1}
+        raise HTTPException(
+            status_code=409,
+            detail=(skipped.reason_label if skipped else None)
+            or "Nie można dodać tej osoby do rekrutacji.",
+        )
+    stage_id = result.stage_ids[candidate_id]
+    stage = await db.get(CandidateStage, stage_id)
+    stage_def_id = stage.stage_def_id if stage is not None else None
+    process_ids = await latest_process_ids(db, job.id, [candidate_id])
+    await db.commit()
+    await broadcast_pipeline_changed(db, job.id, user.id)
+    await emit_pipeline_additions(
+        job_id=job.id,
+        candidate_ids=[candidate_id],
+        user_id=user.id,
+        source="candidate_list",
+        process_ids=process_ids,
+    )
+    return {
+        "status": "assigned",
+        "candidate_id": candidate_id,
+        "job_id": job.id,
+        "stage_id": stage_id,
+        "stage_def_id": stage_def_id,
     }
 
 

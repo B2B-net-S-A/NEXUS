@@ -267,7 +267,23 @@ function AddCandidatesPanelOpen({
     pipelineCandidateIds,
     readOnly,
   });
-  const dismissPrompt = useDismissReasonPrompt(proposals.dismiss);
+  // „Pomiń” jednej osoby i „Pomiń zaznaczone” (R8) — jeden powód dla całej
+  // grupy; zaznaczenie znika dopiero po potwierdzeniu powodu.
+  const dismissPrompt = useDismissReasonPrompt((ids, feedback) => {
+    proposals.dismiss(ids, feedback);
+    const gone = new Set(ids);
+    // Każda lista ma własne zaznaczenie (U7) — zdejmujemy pominiętych z obu.
+    setSelectedByTab((prev) => {
+      const next: typeof prev = {};
+      for (const [key, set] of Object.entries(prev) as [
+        "postings" | "base",
+        ReadonlySet<number> | undefined,
+      ][]) {
+        next[key] = new Set([...(set ?? [])].filter((id) => !gone.has(id)));
+      }
+      return next;
+    });
+  });
   const counts = useQuery({
     queryKey: jobProposalsKeys.counts(jobId),
     queryFn: ({ signal }) => jobProposalsApi.counts(jobId, signal),
@@ -600,15 +616,26 @@ function AddCandidatesPanelOpen({
             : "Zaznacz osoby — trafią do »Nowych«, zarezerwowane dla Ciebie na 12 h."}
       </p>
       {readOnly ? null : (
-        <Button
-          onClick={addSelected}
-          disabled={count === 0 || proposals.adding}
-          loading={proposals.adding}
-          data-testid="add-candidates-submit"
-        >
-          <UserPlus className="h-4 w-4" aria-hidden="true" />
-          Dodaj {count} do Nowych
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => dismissPrompt.ask([...selectedIds])}
+            disabled={count === 0 || proposals.dismissing}
+            loading={proposals.dismissing}
+            data-testid="add-candidates-dismiss"
+          >
+            Pomiń zaznaczone ({count})
+          </Button>
+          <Button
+            onClick={addSelected}
+            disabled={count === 0 || proposals.adding}
+            loading={proposals.adding}
+            data-testid="add-candidates-submit"
+          >
+            <UserPlus className="h-4 w-4" aria-hidden="true" />
+            Dodaj {count} do Nowych
+          </Button>
+        </div>
       )}
     </div>
   );

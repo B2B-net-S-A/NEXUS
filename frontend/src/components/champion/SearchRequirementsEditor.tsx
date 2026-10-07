@@ -5,7 +5,8 @@ import { useQuery } from "@tanstack/react-query";
 import { RequirementRowsField } from "@/components/v2/candidates/RequirementRowsField";
 import { fetchCandidateListPage } from "@/components/v2/pages/candidate-list-query";
 import { cleanRows, describeKeywordSearch } from "@/lib/keyword-requirements";
-import { classifyRequirementRows, splitRequirementRows } from "@/lib/requirement-row-kinds";
+import type { CriticalResolution } from "@/lib/critical-skills";
+import { mandatorySourceNote, splitByCritical } from "@/lib/job-search-filters";
 import { DEFAULT_FILTERS, filtersToApiParams } from "@/lib/url-filters";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { cn } from "@/lib/utils";
@@ -32,12 +33,12 @@ export function requirementsCountLabel(data: {
   const few = n % 10 >= 2 && n % 10 <= 4 && !(n % 100 >= 12 && n % 100 <= 14);
   const rest =
     n === 1
-      ? "1 wiersz nie jest technologią — tylko podnosi w kolejności"
+      ? "1 wiersz tylko podnosi w kolejności"
       : few
-        ? `${n} wiersze nie są technologiami — tylko podnoszą w kolejności`
-        : `${n} wierszy nie jest technologiami — tylko podnoszą w kolejności`;
+        ? `${n} wiersze tylko podnoszą w kolejności`
+        : `${n} wierszy tylko podnosi w kolejności`;
   if (data.requiredRows === 0) return `Cała baza (~${peopleCountLabel(data.total)}); ${rest}`;
-  return `~${peopleCountLabel(data.total)} spełnia wymagania techniczne; ${rest}`;
+  return `~${peopleCountLabel(data.total)} ma umiejętności krytyczne; ${rest}`;
 }
 
 /**
@@ -47,24 +48,34 @@ export function requirementsCountLabel(data: {
  * idzie funkcją listy: tablice lecą jako powtórzony parametr, a forma
  * `status[]=` byłaby dla serwera innym polem i liczba objęłaby całą bazę.
  *
- * Liczy tylko wiersze obowiązkowe (technologie) — tak jak „Szukaj ręcznie”
- * (audyt 26.09.2026); pozostałe wiersze tylko podnoszą w kolejności.
+ * Obowiązkowe są wyłącznie umiejętności krytyczne z serwera — ta sama reguła
+ * co „Szukaj w bazie” i „Szukaj ręcznie” (`splitByCritical` / `jobSearchPlan`,
+ * `critical_resolution.search_rows`; audyt 06.10.2026). Pozostałe wiersze
+ * tylko podnoszą w kolejności; klasyfikacja „technologia / nie” już o tym
+ * nie decyduje.
  */
-function useRequirementsCount(rows: string[][], exclude: string[], enabled: boolean) {
-  const key = useDebouncedValue(JSON.stringify({ rows, exclude }), 500);
-  const settled = JSON.parse(key) as { rows: string[][]; exclude: string[] };
+function useRequirementsCount(
+  required: string[][],
+  preferredRows: number,
+  exclude: string[],
+  enabled: boolean,
+) {
+  const key = useDebouncedValue(JSON.stringify({ required, preferredRows, exclude }), 500);
+  const settled = JSON.parse(key) as {
+    required: string[][];
+    preferredRows: number;
+    exclude: string[];
+  };
   return useQuery({
     queryKey: ["search-requirements-count", key],
-    enabled: enabled && settled.rows.length > 0,
+    enabled: enabled && settled.required.length + settled.preferredRows > 0,
     staleTime: 60_000,
     queryFn: async ({ signal }) => {
-      const kinds = await classifyRequirementRows(settled.rows);
-      const { required, preferred } = splitRequirementRows(settled.rows, kinds);
       const params = filtersToApiParams(
         {
           ...DEFAULT_FILTERS,
           status: ["active", "passive"],
-          qAny: required,
+          qAny: settled.required,
           qNone: settled.exclude,
         },
         1,
@@ -73,8 +84,8 @@ function useRequirementsCount(rows: string[][], exclude: string[], enabled: bool
       const data = await fetchCandidateListPage<{ total?: unknown }>(params, signal);
       return {
         total: typeof data?.total === "number" ? data.total : null,
-        preferredRows: preferred.length,
-        requiredRows: required.length,
+        preferredRows: settled.preferredRows,
+        requiredRows: settled.required.length,
       };
     },
   });
@@ -90,6 +101,12 @@ export interface SearchRequirementsEditorProps {
   countEnabled?: boolean;
   /** Bez prawa edycji: samo zdanie z wymaganiami, bez pól. */
   readOnly?: boolean;
+  /**
+   * `critical_resolution` zapisanego profilu (`GET …/champion-profile`) —
+   * z niej liczba wie, które wiersze są obowiązkowe. Brak = nie wiadomo,
+   * nic nie jest obowiązkowe (jak „Szukaj w bazie” bez odpowiedzi serwera).
+   */
+  critical?: CriticalResolution | null;
   className?: string;
 }
 
@@ -105,10 +122,17 @@ export function SearchRequirementsEditor({
   invalid = false,
   countEnabled = true,
   readOnly = false,
+  critical = null,
   className,
 }: SearchRequirementsEditorProps) {
   const clean = cleanRows(rows);
-  const count = useRequirementsCount(clean, exclude, countEnabled && !readOnly);
+  const split = splitByCritical(clean, [], critical);
+  const count = useRequirementsCount(
+    split.required,
+    split.preferred.length,
+    exclude,
+    countEnabled && !readOnly,
+  );
   const sentence = describeKeywordSearch({ rows, exclude, scopeLabel: null });
   // Odpowiedź bez liczby to „nie wiemy”, nie wieczne „Liczę…”.
   const countLabel = count.isSuccess
@@ -149,6 +173,11 @@ export function SearchRequirementsEditor({
               : "Rekruter zacznie „Szukaj ręcznie” od tych wymagań."
             : sentence}
         </span>
+        {clean.length > 0 && critical ? (
+          <span className="basis-full text-xs text-muted-foreground">
+            {mandatorySourceNote(split)}
+          </span>
+        ) : null}
       </div>
     </div>
   );

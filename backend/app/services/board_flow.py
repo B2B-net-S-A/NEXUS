@@ -7,6 +7,10 @@ rekrutacjach 1 079 osób w Ogłoszeniach i 23 w Nowych. Ten moduł liczy brakuj�
 sekcje przy odczycie, z NAJNOWSZEGO wiersza pary (kandydat, rekrutacja) — ta
 sama reguła kolumn co Tablica (`cv_in_transit._place`):
 
+* **Nowe requesty dla Ciebie** (audyt 06.10.2026, H2) — rekrutacje przypisane
+  tej osobie w ostatnich ``NEW_REQUEST_DAYS`` dniach, w których nikt jeszcze
+  nie ruszył karty. Do tej daty świeżo przypisany rekruter widział „Nic na
+  Ciebie nie czeka”, a dzwonek o przypisaniu miał 0% odczytów.
 * **Ogłoszenia** — jedna linia na rekrutację: ile osób czeka i od kiedy
   najstarsza. Rekrutacje, w których osoba jest Rekruterem (`job_team`); TCM
   dodatkowo widzi rekrutacje ze swojej kategorii (decyzja D5).
@@ -64,6 +68,7 @@ logger = logging.getLogger(__name__)
 
 # Lista stoi nad pulpitem — dłuższa niż to przestaje być czytana.
 MAX_ROWS = 20
+NEW_REQUEST_DAYS = 3
 WAITING_CLIENT_DAYS = 7
 UNSIGNED_CONTRACT_DAYS = 2
 HIRED_WINDOW_DAYS = 60
@@ -109,6 +114,18 @@ class PairRow:
 
 
 @dataclass(frozen=True)
+class NewRequestRow:
+    """Rekrutacja świeżo przypisana tej osobie, bez ruchu na Tablicy."""
+
+    job_id: int
+    job_title: str
+    job_working_title: Optional[str]
+    client_name: Optional[str]
+    assigned_at: datetime
+    assigned_by_name: Optional[str] = None
+
+
+@dataclass(frozen=True)
 class ContractRow:
     id: int
     contract_number: str
@@ -139,6 +156,7 @@ class JobProposalsRow:
 
 @dataclass
 class FlowBlock:
+    new_requests: list[NewRequestRow] = field(default_factory=list)
     postings: list[PostingRow] = field(default_factory=list)
     postings_total: int = 0
     claimed: list[PairRow] = field(default_factory=list)
@@ -320,6 +338,69 @@ def _postings(placed: list[_Placed]) -> tuple[list[PostingRow], int]:
     # Najstarsze zgłoszenia na górze — to one czekają najdłużej.
     rows.sort(key=lambda r: (r.oldest_at, -r.count))
     return rows[:MAX_ROWS], sum(r.count for r in rows)
+
+
+async def _new_requests(
+    db: AsyncSession, user: User, now: datetime
+) -> list[NewRequestRow]:
+    """Rekrutacje w pracy przypisane tej osobie w ostatnich dniach, w których
+    od przypisania nikt nie przesunął żadnej karty.
+
+    Przypisanie = aktywny wiersz ``job_work_assignments`` (ręczny wybór,
+    akceptacja propozycji, przekazanie do searchu, automat). Ruch na Tablicy =
+    wiersz etapu z ``moved_by`` (człowiek albo konto, w którego imieniu działa
+    integracja) zapisany po przypisaniu.
+    """
+    from sqlalchemy.orm import aliased  # noqa: PLC0415
+
+    from app.models.job_work_assignment import JobWorkAssignment  # noqa: PLC0415
+
+    assigner = aliased(User)
+    moved_since = (
+        select(CandidateStage.id)
+        .where(
+            CandidateStage.job_id == JobWorkAssignment.job_id,
+            CandidateStage.moved_by.is_not(None),
+            CandidateStage.moved_at >= JobWorkAssignment.assigned_at,
+        )
+        .exists()
+    )
+    rows = (
+        await db.execute(
+            select(
+                Job.id,
+                Job.title,
+                Job.working_title,
+                Client.name,
+                JobWorkAssignment.assigned_at,
+                assigner.name,
+            )
+            .join(Job, Job.id == JobWorkAssignment.job_id)
+            .outerjoin(Client, Client.id == Job.client_id)
+            .outerjoin(assigner, assigner.id == JobWorkAssignment.assigned_by)
+            .where(
+                JobWorkAssignment.user_id == user.id,
+                JobWorkAssignment.state == "active",
+                JobWorkAssignment.assigned_at >= now - timedelta(days=NEW_REQUEST_DAYS),
+                _in_work(),
+                ~moved_since,
+            )
+            .order_by(JobWorkAssignment.assigned_at.desc(), Job.id.desc())
+            .limit(MAX_ROWS)
+        )
+    ).all()
+    return [
+        NewRequestRow(
+            job_id=job_id,
+            job_title=title,
+            job_working_title=working,
+            client_name=client,
+            assigned_at=assigned_at,
+            # Przydział automatu nie ma autora.
+            assigned_by_name=by_name if by_name else None,
+        )
+        for job_id, title, working, client, assigned_at, by_name in rows
+    ]
 
 
 async def _claimed(db: AsyncSession, user: User, now: datetime) -> list[PairRow]:
@@ -717,6 +798,9 @@ async def load_flow(
             )
 
         await _safe(db, "rekrutacje rekrutera", recruiting, None)
+        block.new_requests = await _safe(
+            db, "nowe requesty", lambda: _new_requests(db, user, now), []
+        )
         block.claimed = await _safe(db, "blokady", lambda: _claimed(db, user, now), [])
         block.top_proposals = await _safe(
             db, "propozycje z bazy", lambda: _top_proposals(db, job_ids), []
@@ -794,6 +878,7 @@ __all__ = [
     "JobProposalsRow",
     "MISSING_RATE",
     "MISSING_SHEET",
+    "NewRequestRow",
     "PairRow",
     "PostingRow",
     "ProposalPick",

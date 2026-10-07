@@ -603,6 +603,8 @@ async def add_candidates_to_job(
                 reassign_from_job_id=reassign_sources.get(candidate_id),
                 claim_for_user_id=actor_user_id if claim else None,
                 entry_meta=entry_meta,
+                # Propozycje oznacza ta funkcja sama (`mark_proposals`, niżej).
+                mark_proposals=False,
             )
             # M3-ACT-01: every stage-creating entry point must snapshot the CV that
             # was current at assignment (the evidence of what was submitted) + emit
@@ -895,14 +897,19 @@ async def bulk_add_proposals(
     # telemetry service's own session: it cannot undo or fail the add (it never
     # raises), and it writes at most one row per id.
     if added:
-        from app.services.match_telemetry_service import emit_pipeline_additions
+        from app.services.match_telemetry_service import (
+            emit_pipeline_additions,
+            latest_process_ids,
+        )
 
         await emit_pipeline_additions(
             job_id=job_id,
             candidate_ids=added,
             user_id=actor_id,
             run_id=body.run_id,
-            source=body.source,
+            # Audyt 06.10.2026 (U2): dodanie tokenem integracji ma własny kod.
+            source="integration" if from_integration else body.source,
+            process_ids=await latest_process_ids(db, job_id, added),
         )
 
     return BulkProposalsResponse(

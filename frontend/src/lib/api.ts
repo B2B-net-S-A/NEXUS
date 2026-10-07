@@ -5016,6 +5016,13 @@ export interface ChampionProfileResponse {
   champion_profile: ChampionProfile | Record<string, never>;
   /** Krytyczne: decyzja DL, podpowiedź i to, na czym działa bramka (30.09.2026). */
   critical_resolution?: import("@/lib/critical-skills").CriticalResolution;
+  /**
+   * Audyt 06.10.2026 (N2): odcisk SAMEGO profilu. Edytor odsyła go w zapisie
+   * jako `expected_profile_hash`; profil zmieniony od wczytania = 409.
+   */
+  profile_hash?: string;
+  /** Tylko odpowiedź `PUT`: uwagi zapisu (np. krytyczna, która przestała być technologią). */
+  notices?: string[];
 }
 
 export interface ChampionVerificationRequest {
@@ -5045,7 +5052,8 @@ export interface ChampionConsultantSuggestion {
 export const championApi = {
   get: (jobId: number) =>
     api.get<ChampionProfileResponse>(`/api/jobs/${jobId}/champion-profile`),
-  put: (jobId: number, profile: ChampionProfile) =>
+  // Ładunek bywa częściowy (serwer scala sekcje) i niesie `expected_profile_hash`.
+  put: (jobId: number, profile: ChampionProfile | Record<string, unknown>) =>
     api.put<ChampionProfileResponse>(`/api/jobs/${jobId}/champion-profile`, profile),
   verify: (jobId: number, payload: ChampionVerificationRequest) =>
     api.post<ChampionProfileResponse>(

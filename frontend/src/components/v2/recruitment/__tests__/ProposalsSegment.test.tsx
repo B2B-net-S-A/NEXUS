@@ -4,7 +4,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CandidateSearchPage } from "@/lib/full-candidate-search-api";
 import { mergeProposals, type ProposalEntry } from "@/lib/proposals-merge";
 
-const mocks = vi.hoisted(() => ({ state: { current: {} as Record<string, unknown> }, push: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  state: { current: {} as Record<string, unknown> },
+  push: vi.fn(),
+  recordOpened: vi.fn(),
+}));
+
+vi.mock("@/lib/proposal-inbox-opened", () => ({
+  recordProposalInboxOpened: (...a: unknown[]) => mocks.recordOpened(...a),
+}));
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock("@/components/v2/recruitment/useJobProposals", () => ({ useJobProposals: () => mocks.state.current }));
@@ -121,6 +129,14 @@ describe("ProposalsSegment — stany", () => {
     mocks.state.current = state({ inbox: { isSuccess: false, isLoading: true } });
     render(<ProposalsSegment {...props} />);
     expect(screen.getByTestId("empty")).toBeEmptyDOMElement();
+  });
+
+  it("otwarcie ekranu propozycji zapisuje telemetrię otwarcia raz", () => {
+    mocks.state.current = state();
+    const view = render(<ProposalsSegment {...props} />);
+    view.rerender(<ProposalsSegment {...props} />);
+    expect(mocks.recordOpened).toHaveBeenCalledTimes(1);
+    expect(mocks.recordOpened).toHaveBeenCalledWith(42);
   });
 
   it("filtry ukryły wszystko ≠ brak propozycji", () => {

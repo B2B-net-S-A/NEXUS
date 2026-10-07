@@ -12,7 +12,7 @@
  *    ponowieniami react-query wygląda jak pusta lista).
  */
 
-import { useCallback, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ import { FullCandidateSearchStatus } from "@/components/talent-radar/FullCandida
 import { useCanVerifyRequirements } from "@/components/talent-radar/RequirementVerificationDialog";
 import { apiErrorMessage } from "@/lib/api-error";
 import { searchFailed, searchIsRunning } from "@/lib/full-candidate-search-api";
+import { recordProposalInboxOpened } from "@/lib/proposal-inbox-opened";
 import {
   DEFAULT_PROPOSAL_FILTERS,
   type ProposalRateFilter,
@@ -97,6 +98,11 @@ export function ProposalsSegment(props: ProposalsSegmentProps) {
   const { jobId, budgetHourly, pipelineCandidateIds, readOnly = false } = props;
   const [filters, setFilters] = useState<ProposalViewFilters>(DEFAULT_PROPOSAL_FILTERS);
   const proposals = useJobProposals(jobId, { filters, budgetHourly, pipelineCandidateIds, readOnly });
+  // Telemetria otwarcia „Do przejrzenia” (audyt 06.10.2026) — raz na wejście
+  // na ekran; raz na dzień pilnuje `recordProposalInboxOpened` i serwer.
+  useEffect(() => {
+    recordProposalInboxOpened(jobId);
+  }, [jobId]);
   return (
     <ProposalsSegmentView {...props} proposals={proposals} filters={filters} onFiltersChange={setFilters} />
   );

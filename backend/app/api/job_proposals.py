@@ -30,7 +30,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -619,6 +619,72 @@ async def dismiss_job_proposal(
             db, job_id=job_id, candidate_id=candidate_id, reason=reason
         )
     return {"job_id": job_id, "candidate_id": candidate_id, "dismissed": changed}
+
+
+class BulkDismissBody(BaseModel):
+    """„Pomiń zaznaczone” (audyt 06.10.2026, R8) — jeden powód dla wielu osób.
+
+    Przy 60–80 propozycjach powód przy każdej osobie z osobna był powodem, dla
+    którego nikt nie zaczynał (0 pominięć w całej historii). Powód zostaje
+    obowiązkowy — ta sama reguła co pojedyncze „Pomiń”.
+    """
+
+    candidate_ids: list[int] = Field(..., min_length=1, max_length=100)
+    reason: Optional[DismissReason] = None
+    note: Optional[str] = None
+
+
+@router.post("/jobs/{job_id}/proposal-inbox/dismiss-bulk")
+async def dismiss_job_proposals_bulk(
+    job_id: int,
+    body: BulkDismissBody,
+    user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Pomija wiele otwartych propozycji jednym powodem.
+
+    Tylko osoby, które skrzynka zna i które nie są już w rekrutacji — reszta
+    wraca w ``skipped`` (bez błędu: lista na ekranie mogła się zmienić).
+    """
+    from app.services.auto_match_outbox import candidate_revision  # noqa: PLC0415
+
+    reason, note = validated_dismiss_feedback(
+        DismissProposalBody(reason=body.reason, note=body.note)
+    )
+    await _job(db, user, job_id)
+    await ensure_job_membership(db, user, job_id)
+    ids = list(dict.fromkeys(body.candidate_ids))
+    candidates = {
+        c.id: c
+        for c in (
+            await db.scalars(select(Candidate).where(Candidate.id.in_(ids)))
+        ).all()
+    }
+    dismissed: list[int] = []
+    skipped: list[int] = []
+    for candidate_id in ids:
+        candidate = candidates.get(candidate_id)
+        if candidate is None or await proposals.is_in_pipeline(
+            db, job_id=job_id, candidate_id=candidate_id
+        ):
+            skipped.append(candidate_id)
+            continue
+        changed = await proposals.dismiss(
+            db,
+            job_id=job_id,
+            candidate_id=candidate_id,
+            user_id=user.id,
+            cv_revision=candidate_revision(candidate),
+            reason=reason,
+            note=note,
+        )
+        (dismissed if changed else skipped).append(candidate_id)
+    await db.commit()
+    for candidate_id in dismissed:
+        await _emit_reject_outcome(
+            db, job_id=job_id, candidate_id=candidate_id, reason=reason
+        )
+    return {"job_id": job_id, "dismissed": dismissed, "skipped": skipped}
 
 
 @router.post("/jobs/{job_id}/proposal-inbox/{candidate_id}/restore")

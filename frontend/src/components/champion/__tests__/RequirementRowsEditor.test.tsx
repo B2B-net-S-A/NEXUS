@@ -2,7 +2,26 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  get: vi.fn(),
+  post: vi.fn(),
+  /** Liczby osób w bazie podane wprost (`null` = prawdziwy hook). */
+  counts: null as null | {
+    perRow: Record<string, number | null>;
+    required: number | null | undefined;
+    critical: number | null | undefined;
+    failed: boolean;
+  },
+}));
+
+vi.mock("@/lib/requirement-rows-api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/requirement-rows-api")>();
+  return {
+    ...actual,
+    useRowCounts: (...args: Parameters<typeof actual.useRowCounts>) =>
+      mocks.counts ?? actual.useRowCounts(...args),
+  };
+});
 
 // Edytor w trybie bez liczników (`countEnabled={false}`) nie pyta serwera —
 // podpowiedzi słów w `ChipField` ruszają dopiero po wpisaniu tekstu.
@@ -96,6 +115,7 @@ const lastLevels = (onRowsChange: ReturnType<typeof vi.fn>) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.counts = null;
   mocks.get.mockResolvedValue({ data: {} });
   mocks.post.mockResolvedValue({ data: {} });
 });
@@ -361,5 +381,67 @@ describe("RequirementRowsEditor — zdanie pod listą", () => {
     expect(summary({ rows: [], critical: known({}), invalid: true })).toEqual([
       "Dodaj co najmniej jedno słowo kluczowe — bez niego rekrutacja nie trafi do searchu.",
     ]);
+  });
+});
+
+// Audyt 06.10.2026: nadmiar „musi mieć” (N3), podpowiedzi przy liczbie osób
+// (N8) i jednoliterowe technologie („C”, „R”) w wierszach (P4).
+describe("RequirementRowsEditor — audyt 06.10.2026", () => {
+  const manyRequired = (count: number): RequirementRowForm[] =>
+    Array.from({ length: count }, (_, i) => ({
+      key: `m${i}`,
+      words: [`Słowo${i}`],
+      level: "must" as const,
+    }));
+
+  it("ponad 10 „musi mieć”: zdanie o zapisie jako „mile widziane”, bez blokady", () => {
+    renderEditor({ rows: manyRequired(11), critical: known({}) });
+    expect(
+      screen.getByText("Ponad 10 wymagań „musi mieć” — kolejne zapiszą się jako „mile widziane”."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Dodaj słowo kluczowe" })).toBeEnabled();
+  });
+
+  it("dokładnie 10 „musi mieć” — bez zdania, a „mile widziane” może awansować", () => {
+    const rows = [
+      ...manyRequired(10),
+      { key: "n", words: ["Docker"], level: "nice" as const },
+    ];
+    const { onRowsChange } = renderEditor({ rows, critical: known({}) });
+    expect(screen.queryByText(/Ponad 10 wymagań/)).toBeNull();
+    const must = levelOption("Docker", "Musi mieć");
+    expect(must).toBeEnabled();
+    fireEvent.click(must);
+    expect(lastLevels(onRowsChange).n).toBe("must");
+  });
+
+  it("liczba osób: słowo bardzo ogólne i słowo, którego nikt nie ma — tylko podpowiedź", () => {
+    mocks.counts = {
+      perRow: { java: 22_000, kafka: 0, pay: 120 },
+      required: 10,
+      critical: undefined,
+      failed: false,
+    };
+    renderEditor({ countEnabled: true });
+    expect(
+      screen.getByText("Słowo bardzo ogólne — zawęź (np. dodaj technologię)."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Nikt w bazie nie ma tego słowa — sprawdź pisownię."),
+    ).toBeInTheDocument();
+    // Jedna podpowiedź na wiersz z problemem — „płatności” (120) jej nie ma.
+    expect(screen.getAllByText(/Słowo bardzo ogólne|Nikt w bazie nie ma/)).toHaveLength(2);
+  });
+
+  it("jednoliterowe słowo z litery („C”) wchodzi do wiersza; cyfra nie", () => {
+    const { onRowsChange } = renderEditor({ rows: [], critical: known({}) });
+    const input = screen.getByLabelText("Wymaganie 1 — słowo albo wariant");
+    fireEvent.change(input, { target: { value: "C" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect((onRowsChange.mock.calls.at(-1)![0] as RequirementRowForm[])[0].words).toEqual(["C"]);
+    onRowsChange.mockClear();
+    fireEvent.change(input, { target: { value: "7" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onRowsChange).not.toHaveBeenCalled();
   });
 });

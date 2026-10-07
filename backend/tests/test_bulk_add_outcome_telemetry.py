@@ -267,12 +267,18 @@ def test_recruitment_v3_add_surfaces_are_in_both_vocabularies(source: str):
     from app.services.match_telemetry_service import (
         AUTO_RUN_SOURCES,
         PIPELINE_ADD_SOURCES,
+        SERVER_ONLY_ADD_SOURCES,
     )
 
     assert BulkProposalsRequest(candidate_ids=[1], source=source).source == source
     assert source in PIPELINE_ADD_SOURCES and source in AUTO_RUN_SOURCES
-    # Dwa słowniki (granica API i tabela analityczna) muszą być tym samym zbiorem.
-    assert set(get_args(BulkAddSource)) == set(PIPELINE_ADD_SOURCES)
+    # Dwa słowniki (granica API i tabela analityczna) muszą być tym samym
+    # zbiorem — poza źródłami nadawanymi przez serwer (audyt 06.10.2026, U2:
+    # `integration`), których żądanie nie może podać.
+    assert set(get_args(BulkAddSource)) | SERVER_ONLY_ADD_SOURCES == set(
+        PIPELINE_ADD_SOURCES
+    )
+    assert not SERVER_ONLY_ADD_SOURCES & set(get_args(BulkAddSource))
 
 
 @pytest.mark.asyncio

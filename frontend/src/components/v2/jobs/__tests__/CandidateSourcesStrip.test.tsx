@@ -5,7 +5,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const countsApi = vi.fn();
 const championGet = vi.fn();
-const classifyRows = vi.fn();
 const listPage = vi.fn();
 const similarState: { data: unknown; isError: boolean; isSuccess: boolean } = {
   data: undefined,
@@ -40,10 +39,6 @@ vi.mock("@/lib/api", () => ({
   api: { get: vi.fn() },
   championApi: { get: (...a: unknown[]) => championGet(...a) },
 }));
-vi.mock("@/lib/requirement-row-kinds", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/requirement-row-kinds")>();
-  return { ...actual, classifyRequirementRows: (...a: unknown[]) => classifyRows(...a) };
-});
 vi.mock("@/components/v2/pages/candidate-list-query", () => ({
   fetchCandidateListPage: (...a: unknown[]) => listPage(...a),
 }));
@@ -159,7 +154,6 @@ describe("CandidateSourcesStrip — liczby kafli", () => {
       not_searchable_must: [],
     });
     championGet.mockResolvedValue({ data: { champion_profile: null } });
-    classifyRows.mockResolvedValue([]);
     listPage.mockResolvedValue({ items: [], total: 86 });
   });
 
@@ -214,7 +208,6 @@ describe("CandidateSourcesStrip — liczby kafli", () => {
     championGet.mockResolvedValue({
       data: { champion_profile: { search: { requirements: [["KYC", "AML"], ["bankow*"]], exclude: [] } } },
     });
-    classifyRows.mockResolvedValue([true, false]);
     renderStrip();
     await waitFor(() => expect(count("search")).toHaveTextContent("86"));
     expect(screen.getByTestId("source-tile-search")).toHaveTextContent("Po słowach z Championa: KYC");

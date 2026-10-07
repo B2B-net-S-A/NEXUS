@@ -284,7 +284,7 @@ async def _write_answers(
             409,
             "Tej osoby nie ma w rekrutacji — nie ma gdzie zapisać odpowiedzi.",
         )
-    previous, _ = await _latest_filled_screening(db, latest)
+    previous, _ = await _latest_filled_screening(db, latest, for_write=True)
     try:
         sheet = (
             ScreeningAnswers.model_validate(previous)
@@ -381,6 +381,8 @@ async def apply_note(
         job_id=job.id,
         author_id=user.id,
         kind=note_kinds.HUMAN,
+        # Pochodzenie trzyma rodzaj także po edycji treści (Q3).
+        external_source=note_kinds.CARD_ASSIST_SOURCE,
     )
     db.add(note)
     await db.flush()

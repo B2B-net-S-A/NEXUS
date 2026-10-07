@@ -38,6 +38,7 @@ import { SimilarRequestsBanner } from "@/components/v2/jobs/SimilarRequestsBanne
 import {
   EMPTY_INTAKE_FORM,
   MISSING_LABEL,
+  CLIENT_TITLE_REQUIRED_TEXT,
   MISSING_SECTION,
   applyTemplate,
   loadTemplateSource,
@@ -49,6 +50,7 @@ import {
   missingHeadline,
   mustOf,
   restoreIntakeForm,
+  jobTitleFor,
   sectionAnchor,
   serverBlockerSection,
   serverBlockersFromError,
@@ -277,6 +279,8 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
   // 0341: podobne rekrutacje zaznaczone przy tworzeniu — łączone po zapisie.
   const [similarJobIds, setSimilarJobIds] = useState<number[]>([]);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Audyt 06.10.2026 (P9): „Utwórz” bez nazwy od klienta — komunikat przy polu.
+  const [clientTitleAttempted, setClientTitleAttempted] = useState(false);
   // 04.10.2026: braki zgłoszone przez serwer przy utworzeniu (422 `job_not_ready`).
   const [serverBlockers, setServerBlockers] = useState<ServerBlocker[] | null>(
     preview?.serverBlockers ?? null,
@@ -598,13 +602,17 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
   const inflightRef = useRef<Promise<boolean> | null>(null);
   // Po udanym utworzeniu serwer kasuje formularz — kolejny zapis by go wskrzesił.
   const stoppedRef = useRef(false);
+  // Audyt 06.10.2026 (N7): od „Utwórz” do końca `POST /api/jobs` autozapis
+  // stoi — serwer kasuje formularz w tej samej transakcji, a zapis w trakcie
+  // (np. przy ukryciu karty) zakładałby nowy.
+  const creatingRef = useRef(false);
   const markCleanRef = useRef(false);
   const canAutosave =
     !preview && client != null && (step === "review" || requestText.trim() !== "");
 
   const persistForm = useCallback(async (): Promise<boolean> => {
     while (inflightRef.current) await inflightRef.current;
-    if (stoppedRef.current) return false;
+    if (stoppedRef.current || creatingRef.current) return false;
     const { body, snapshot: snap } = latestRef.current;
     if (!body) return false;
     const run = (async () => {
@@ -704,7 +712,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
   const canAutosaveRef = useRef(canAutosave);
   canAutosaveRef.current = canAutosave;
   const flushPending = useCallback(async (): Promise<void> => {
-    if (!canAutosaveRef.current || stoppedRef.current) return;
+    if (!canAutosaveRef.current || stoppedRef.current || creatingRef.current) return;
     if (latestRef.current.snapshot === lastSavedRef.current) return;
     await persistForm();
   }, [persistForm]);
@@ -774,11 +782,19 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
       setSaveError("Wpisz rolę — bez niej nie da się utworzyć rekrutacji.");
       return;
     }
+    if (!jobTitleFor(form)) {
+      setClientTitleAttempted(true);
+      document
+        .getElementById(sectionAnchor("name"))
+        ?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+      return;
+    }
     setSaving("create");
     setSaveError(null);
     setServerBlockers(null);
     // Trwający autozapis kończy się przed utworzeniem — id formularza musi być aktualne.
     while (inflightRef.current) await inflightRef.current;
+    creatingRef.current = true;
     const handoff: CreateHandoff = automatic
       ? { assignment_mode: "automatic", channel: "linkedin" }
       : { recruiter_id: recruiterId as number, channel: "linkedin" };
@@ -803,11 +819,14 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
       if (blockers && blockers.length > 0) setServerBlockers(blockers);
       else setSaveError(readErrorMessage(e, "Nie udało się utworzyć rekrutacji."));
       setSaving(null);
-      // Nic nie powstało — formularz zostaje na koncie, z ostatnimi zmianami.
+      // Nic nie powstało — autozapis wraca, a formularz zostaje na koncie
+      // z ostatnimi zmianami.
+      creatingRef.current = false;
       void persistForm();
       return;
     }
     stoppedRef.current = true;
+    creatingRef.current = false;
     void queryClient.invalidateQueries({ queryKey: jobIntakeFormKeys.list });
     invalidateJobs(jobId);
     // „Z historii klienta” (sekcja 8) — Luna podsumowuje w tle, co klient
@@ -980,6 +999,9 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
               clientId={client?.id ?? null}
               countEnabled={!preview}
               criticalInfo={criticalInfo}
+              clientTitleError={
+                clientTitleAttempted && !jobTitleFor(form) ? CLIENT_TITLE_REQUIRED_TEXT : null
+              }
               team={
                 <NewJobTeamStep
                   categories={categories}

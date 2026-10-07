@@ -28,13 +28,16 @@ import {
 } from "@/lib/keyword-requirements";
 import {
   LEVEL_LABEL,
+  acceptRequirementWord,
   addRow,
   applySuggestion,
   canAddRow,
   criticalRows,
   criticalSummary,
   levelBlockedReason,
+  requiredOverflowNotice,
   requiredRows,
+  rowCountHint,
   rowHead,
   setRowLevel,
   suggestedRowKeys,
@@ -139,6 +142,7 @@ export function RequirementRowsEditor({
   const required = requiredRows(shown);
   const showSuggestion = suggested.length > 0 && !hasCritical && !noCritical;
   const canRemove = shown.length > 1 || shown[0].words.length > 0;
+  const overflowNotice = requiredOverflowNotice(shown);
 
   if (disabled) {
     const filled = shown.filter((row) => row.words.length > 0);
@@ -207,6 +211,11 @@ export function RequirementRowsEditor({
                     ? NOT_A_TECHNOLOGY_HINT
                     : (blocked ?? undefined);
           const stat = info?.suggested ? statSentence(info.stat) : null;
+          // N8 (06.10.2026): liczba osób jest tylko przy wierszach obowiązkowych.
+          const countHint =
+            countEnabled && row.level !== "nice" && row.words.length > 0
+              ? rowCountHint(counts.perRow[row.key])
+              : null;
           const rowHints = hints.filter((hint) => hint.row === index);
           return (
             <div key={row.key} className="flex flex-col gap-1.5">
@@ -225,6 +234,7 @@ export function RequirementRowsEditor({
                     suggest={{}}
                     invalid={invalid && index === 0 && row.words.length === 0}
                     autoFocus={focusKey.current === row.key}
+                    acceptWord={acceptRequirementWord}
                   />
                 </div>
                 <button
@@ -275,6 +285,14 @@ export function RequirementRowsEditor({
               {stat ? (
                 <p className="px-1 text-xs text-muted-foreground">
                   Podpowiedź z historii: {stat}.
+                </p>
+              ) : null}
+              {countHint ? (
+                <p
+                  className="px-1 text-xs text-warning-muted-foreground"
+                  data-testid="requirement-row-count-hint"
+                >
+                  {countHint}
                 </p>
               ) : null}
               {rowHints.map((hint) => (
@@ -360,6 +378,15 @@ export function RequirementRowsEditor({
           />
           Brak krytycznych
         </label>
+        {overflowNotice ? (
+          <p
+            role="note"
+            className="basis-full text-xs text-warning-muted-foreground"
+            data-testid="requirement-rows-overflow"
+          >
+            {overflowNotice}
+          </p>
+        ) : null}
         {critical.isLoading ? (
           <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
             <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> sprawdzam słownik

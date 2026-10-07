@@ -490,3 +490,30 @@ async def test_recompute_is_a_one_shot_behind_its_marker() -> None:
         untouched = await db.scalar(select(Job.working_title).where(Job.id == job_id))
         assert untouched == stale
         await db.rollback()
+
+
+def test_title_takes_only_technologies_when_the_dictionary_is_loaded() -> None:
+    """Audyt 06.10.2026 (P10): „Analityk · banking, communication” — słowa
+    kluczowe nie-technologie zajmowały oba miejsca w tytule."""
+    from tests.taxonomy_fixture import hydrated_taxonomy
+
+    with hydrated_taxonomy():
+        title = compose_working_title(
+            "Analityk", ["banking", "communication", "Java", "Kafka lub Docker"]
+        )
+    assert title == "Analityk · Java, Kafka"
+    # Bez słownika (front, testy bez bazy) reguła się nie zmienia.
+    assert compose_working_title("Analityk", ["banking", "Java"]) == (
+        "Analityk · banking, Java"
+    )
+
+
+def test_title_technology_rule_is_the_critical_eligibility_of_the_whole_row() -> None:
+    """Front liczy podgląd tytułu z `eligible` odpowiedzi `critical-suggestion`
+    (etykieta całego wiersza) — serwer pyta tą samą regułą, nie o pierwsze
+    słowo. „Kafka lub banking” nie jest w całości technologią ze słownika."""
+    from tests.taxonomy_fixture import hydrated_taxonomy
+
+    with hydrated_taxonomy():
+        title = compose_working_title("Analityk", ["Kafka lub banking", "Java"])
+    assert title == "Analityk · Java"

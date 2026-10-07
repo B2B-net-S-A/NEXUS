@@ -17,7 +17,9 @@ import {
   mustHeads,
   newRowKey,
   niceHeads,
+  requiredOverflowNotice,
   requiredRows,
+  rowCountHint,
   rowCriticalInfo,
   rowHead,
   rowsFromStored,
@@ -133,22 +135,43 @@ describe("limity poziomów (lustro serwera)", () => {
     ]);
   });
 
-  it("jedenasty obowiązkowy: „mile widziane” nie awansuje ani na „musi mieć”, ani na krytyczne", () => {
+  // Audyt 06.10.2026 (N3): serwer zapisuje nadmiar „musi mieć” jako „mile
+  // widziane” (do 20), więc jedenasty obowiązkowy nie jest już blokowany —
+  // edytor mówi tylko, co się z nim stanie (`requiredOverflowNotice`).
+  it("jedenasty obowiązkowy: „mile widziane” może przejść na „musi mieć”, ale nie na krytyczne", () => {
     const rows = [...many(REQUIRED_ROWS_MAX, "must", "m"), row("n", ["Docker"], "nice")];
-    const reason = "Najwyżej 10 wierszy obowiązkowych.";
-    expect(levelBlockedReason(rows, "n", "must")).toBe(reason);
-    expect(levelBlockedReason(rows, "n", "critical")).toBe(reason);
+    expect(levelBlockedReason(rows, "n", "must")).toBeNull();
+    expect(levelBlockedReason(rows, "n", "critical")).toBe(
+      "Najwyżej 10 wierszy obowiązkowych — krytyczne musi się w nich zmieścić.",
+    );
     // Zmiana w obrębie obowiązkowych nie zwiększa ich liczby.
     expect(levelBlockedReason(rows, "m0", "critical")).toBeNull();
-    expect(setRowLevel(rows, "n", "must")).toEqual(rows);
+    expect(setRowLevel(rows, "n", "must").at(-1)!.level).toBe("must");
   });
 
-  it("dwudziesty pierwszy „mile widziane” jest zablokowany", () => {
+  it("dwudziesty pierwszy „mile widziane” jest zablokowany — nadmiar „musi mieć” też zajmuje te miejsca", () => {
     const rows = [...many(NICE_ROWS_MAX, "nice", "n"), row("m", ["Java"])];
     expect(levelBlockedReason(rows, "m", "nice")).toBe(
       "Najwyżej 20 wierszy „mile widziane”.",
     );
     expect(levelBlockedReason(rows.slice(1), "m", "nice")).toBeNull();
+    // 12 obowiązkowych (2 ponad limit) + 18 mile widzianych = 20 miejsc zajętych.
+    const crowded = [
+      ...many(12, "must", "m"),
+      ...many(17, "nice", "n"),
+      row("x", ["Docker"]),
+    ];
+    expect(levelBlockedReason(crowded, "x", "nice")).toBeNull();
+    const full = [...many(12, "must", "m"), ...many(18, "nice", "n"), row("x", ["Docker"])];
+    // „x” jest obowiązkowy (13.) i już zajmuje miejsce nadmiaru — zmiana nic nie dokłada.
+    expect(levelBlockedReason(full, "x", "nice")).toBeNull();
+  });
+
+  it("zdanie o nadmiarze „musi mieć” tylko powyżej 10 wierszy obowiązkowych", () => {
+    expect(requiredOverflowNotice(many(REQUIRED_ROWS_MAX, "must", "m"))).toBeNull();
+    expect(requiredOverflowNotice(many(11, "must", "m"))).toBe(
+      "Ponad 10 wymagań „musi mieć” — kolejne zapiszą się jako „mile widziane”.",
+    );
   });
 
   it("puste wiersze nie zajmują limitu, a nieznany klucz niczego nie blokuje", () => {
@@ -172,7 +195,20 @@ describe("limity poziomów (lustro serwera)", () => {
     expect(addRow(full).at(-1)).toMatchObject({ words: [], level: "nice" });
     expect(canAddRow(full)).toBe(true);
     expect(canAddRow([...full, ...many(NICE_ROWS_MAX, "nice", "n")])).toBe(false);
+    // Nadmiar „musi mieć” zajmuje miejsca „mile widzianych” — razem najwyżej 30.
+    expect(canAddRow([...many(15, "must", "m"), ...many(15, "nice", "n")])).toBe(false);
+    expect(canAddRow([...many(15, "must", "m"), ...many(14, "nice", "n")])).toBe(true);
     expect(canAddRow([])).toBe(true);
+  });
+
+  it("podpowiedź przy liczbie osób: słowo bardzo ogólne albo nieznane w bazie", () => {
+    expect(rowCountHint(15_001)).toBe("Słowo bardzo ogólne — zawęź (np. dodaj technologię).");
+    expect(rowCountHint(15_000)).toBeNull();
+    expect(rowCountHint(0)).toBe("Nikt w bazie nie ma tego słowa — sprawdź pisownię.");
+    expect(rowCountHint(42)).toBeNull();
+    // „liczę…” i „nie policzono” to nie zero.
+    expect(rowCountHint(undefined)).toBeNull();
+    expect(rowCountHint(null)).toBeNull();
   });
 
   it("klucze nowych wierszy się nie powtarzają", () => {

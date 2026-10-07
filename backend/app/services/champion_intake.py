@@ -1124,6 +1124,24 @@ def fingerprint(job):
     ).hexdigest()
 
 
+def profile_hash(job) -> str:
+    """Odcisk SAMEGO Profilu Championa (zapis z edytora, N2 audytu 06.10.2026).
+
+    ``fingerprint`` obejmuje też tytuł, termin i kolumny rekrutacji, więc
+    zmiana terminu w „Zespół” dawałaby edytorowi fałszywy konflikt. Edytor
+    potrzebuje odpowiedzi na jedno pytanie: czy ktoś zmienił PROFIL od chwili,
+    gdy go wczytałem.
+    """
+    return hashlib.sha256(
+        json.dumps(
+            getattr(job, "champion_profile", None) or {},
+            sort_keys=True,
+            ensure_ascii=False,
+            default=str,
+        ).encode()
+    ).hexdigest()
+
+
 def _rubric_job_value(job, key, column):
     """A rubric value as offered to the intake form — same source as `validation()`."""
 
@@ -1141,6 +1159,7 @@ def response_context(job):
     return {
         "validation": validation(job.champion_profile, job),
         "fingerprint": fingerprint(job),
+        "profile_hash": profile_hash(job),
         "job_values": {
             **{
                 key: _rubric_job_value(job, key, column)

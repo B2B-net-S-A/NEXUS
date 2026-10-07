@@ -468,7 +468,9 @@ def test_long_requirement_is_not_cut_in_the_middle_of_a_word() -> None:
         "i tworzenie dokumentacji analitycznej"
     )
     assert len(sentence) > 80
-    result = normalize_model_output({"must": [sentence], "nice": [sentence + " 2"]}, sentence)
+    result = normalize_model_output(
+        {"must": [sentence], "nice": [sentence + " 2"]}, sentence
+    )
     assert result.must == [sentence]
     assert result.nice == [sentence + " 2"]
 
@@ -653,3 +655,56 @@ def test_prompt_asks_for_keywords_and_a_deal_breaker() -> None:
     assert '"requirements"' in rendered and '"deal_breaker"' in rendered
     assert '"keywords"' not in rendered
     assert '"must": [str]' not in rendered
+
+
+# ── 06.10.2026: odmiana, nadmiar wierszy, jednoliterowe nazwy ─────────────────
+
+INFLECTED_REQUEST = (
+    "Szukamy programisty. Wymagana znajomość Javy, Springa i doświadczenie "
+    "z Dockerem. Mile widziane programowanie w C. Praca zdalna."
+)
+
+
+def test_inflected_dictionary_technology_is_kept_in_its_base_form(monkeypatch):
+    """Audyt 06.10.2026 (P1): „Javy” zapisywała się odmieniona, a „Java” od
+    modelu wypadała po cichu, bo nie stoi w mailu jako całe słowo."""
+    from tests.taxonomy_fixture import hydrated_taxonomy
+    from tests.test_skill_inflection import WITH_C
+
+    _technologies(monkeypatch, "Java", "Docker", "C")
+    raw = {
+        "requirements": [
+            {"words": ["Javy"], "level": "must"},
+            {"words": ["Docker"], "level": "must"},
+            {"words": ["Springa"], "level": "must"},
+            {"words": ["C"], "level": "nice"},
+        ]
+    }
+    with hydrated_taxonomy(WITH_C):
+        result = normalize_model_output(raw, INFLECTED_REQUEST)
+    assert result.requirements == [
+        {"words": ["Java"], "level": "must"},
+        {"words": ["Docker"], "level": "must"},
+        # „Springa” nie ma w słowniku testowym — zostaje słowem z maila.
+        {"words": ["Springa"], "level": "must"},
+        {"words": ["C"], "level": "nice"},
+    ]
+
+
+def test_row_dropped_by_the_reading_is_reported(monkeypatch):
+    _technologies(monkeypatch, "Java")
+    raw = {"requirements": [{"words": ["Kotlin"], "level": "must"}]}
+    result = normalize_model_output(raw, INFLECTED_REQUEST)
+    assert result.requirements == []
+    assert any("Kotlin" in note for note in result.advisories)
+
+
+def test_must_rows_over_the_limit_move_to_nice_and_are_reported(monkeypatch):
+    """Audyt 06.10.2026 (N3): 11. wiersz „musi mieć” znikał bez śladu."""
+    words = [f"slowo{i}" for i in range(12)]
+    text = "Wymagania: " + ", ".join(words) + "."
+    raw = {"requirements": [{"words": [w], "level": "must"} for w in words]}
+    result = normalize_model_output(raw, text)
+    levels = [row["level"] for row in result.requirements]
+    assert levels == ["must"] * 10 + ["nice"] * 2
+    assert result.dropped == []

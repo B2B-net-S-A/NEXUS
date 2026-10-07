@@ -565,9 +565,13 @@ async def _close_open_recruitments(
         .scalars()
         .all()
     )
+    from app.services.job_proposals import expire_open_for_job  # noqa: PLC0415
+
     for job in jobs:
         job.status = JobStatus.closed
         job.is_open = False
+        # Audyt 06.10.2026 (R6): zamknięta rekrutacja nie trzyma propozycji.
+        await expire_open_for_job(db, job_id=job.id)
         if job.work_state != FINISHED:
             job.work_state = FINISHED
             job.work_state_changed_at = now

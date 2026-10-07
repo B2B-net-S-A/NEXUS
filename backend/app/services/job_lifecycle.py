@@ -272,6 +272,22 @@ async def create_job_core(
         same_client = payload.get("client_id") == src_job.client_id
         if same_client and src_job.champion_profile:
             payload["champion_profile"] = dict(src_job.champion_profile)
+        elif src_job.champion_profile:
+            # Audyt 06.10.2026 (P8): szablon od innego klienta przenosi opis
+            # wymagań (`stack.notes` — zdania, wersje), bo to opis roli, a nie
+            # charakterystyka klienta. Reszta profilu zostaje przy kliencie.
+            notes = str(
+                ((src_job.champion_profile or {}).get("stack") or {}).get("notes") or ""
+            ).strip()
+            if notes:
+                payload["champion_profile"] = {"stack": {"notes": notes}}
+
+    # Audyt 06.10.2026 (N6): liczba osób nie ma domyślnej „1” w formularzu.
+    # Jawne `null` = DL nie podał — bramka przekazania odmawia (0 < 1), także
+    # gdy szablon go nie miał. Pole pominięte w żądaniu (inni wołający:
+    # testy, integracje) zostaje przy dawnym domyślnym 1.
+    if payload.get("headcount") is None:
+        payload["headcount"] = 0 if "headcount" in data.model_fields_set else 1
 
     if data.from_job_id is not None and not api._may_write_salary_range(current_user):
         # A template must not become a side channel for copying recruitment
@@ -687,6 +703,7 @@ async def save_champion_core(
     expected_fingerprint: Optional[str] = None,
     sync_fields: Optional[list[str]] = None,
     notify: bool = True,
+    expected_profile_hash: Optional[str] = None,
 ) -> dict:
     """Upsert Profilu Championa na zablokowanym wierszu — bez commitu.
 
@@ -703,6 +720,7 @@ async def save_champion_core(
     from app.schemas.champion import ChampionProfile
     from app.services.champion_intake import (
         fingerprint,
+        profile_hash,
         response_context,
         sync_selected_rubrics,
         sync_skill_column,
@@ -737,13 +755,32 @@ async def save_champion_core(
                 **response_context(job),
             },
         )
+    if expected_profile_hash is not None and profile_hash(job) != expected_profile_hash:
+        # Audyt 06.10.2026 (N2): ktoś zapisał profil po tym, jak edytor go
+        # wczytał. Zapis nadpisałby jego zmiany — 409 z aktualnym profilem,
+        # edytor pokazuje „Przeładuj / Zostaw moje”.
+        logger.info("champion_profile_conflict job_id=%s", job.id)
+        raise HTTPException(
+            409,
+            {
+                "code": "champion_profile_conflict",
+                "message": (
+                    "Ktoś zmienił Profil Championa, gdy go edytowałeś. "
+                    "Przeładuj profil albo zapisz swoje zmiany ponownie."
+                ),
+                "champion_profile": api._champion_response(job.champion_profile),
+                **response_context(job),
+            },
+        )
     baseline = regression_baseline(job)
     old_profile = dict(job.champion_profile or {})
     normalized_old = ChampionProfile.model_validate(old_profile).model_dump(mode="json")
 
     # Wiersze wymagań (02.10.2026): `stack.rows` jest źródłem, a `must`,
     # `nice`, `critical` i `search.requirements` wyprowadza serwer.
-    payload = expand_patch(payload)
+    payload = expand_patch(
+        payload, previous_notes=(old_profile.get("stack") or {}).get("notes")
+    )
     try:
         new_profile = user_edit(
             old_profile,
@@ -777,9 +814,39 @@ async def save_champion_core(
         must_names = [item.name for item in profile.stack.must] or list(
             job_explicit_must_skills(job)
         )
-        errors = critical_errors(profile.stack.critical or [], must_names)
+        critical_now = list(profile.stack.critical or [])
+        errors = critical_errors(critical_now, must_names)
+        if (
+            errors
+            and isinstance(patch_stack.get("rows"), list)
+            and all(code == "critical_not_technology" for code, _ in errors)
+        ):
+            # Audyt 06.10.2026 (P6): wiersz krytyczny, któremu zmieniono słowa
+            # tak, że przestał być technologią ze słownika, nie blokuje zapisu
+            # (do tej daty 422 jako goły napis). Zostaje „musi mieć”, a zapis
+            # mówi to wprost.
+            dropped = {
+                name for name in critical_now if critical_errors([name], must_names)
+            }
+            kept = [name for name in critical_now if name not in dropped]
+            if kept:
+                new_profile["stack"]["critical"] = kept
+            else:
+                # Bez krytycznych z wyboru DL-a = „nie zdecydowano” (pole znika
+                # z zapisu jak w `ChampionStack`) — działa podpowiedź z historii.
+                new_profile["stack"].pop("critical", None)
+            profile = ChampionProfile.model_validate(new_profile)
+            effects.results.setdefault("notices", []).extend(
+                f"„{name}” nie jest już technologią ze słownika — zostaje "
+                "„musi mieć” i nie ukrywa kandydatów."
+                for name in sorted(dropped)
+            )
+            errors = []
         if errors:
             raise HTTPException(422, errors[0][1])
+    rows_sent = isinstance(patch_stack, dict) and isinstance(
+        patch_stack.get("rows"), list
+    )
     if "stack" in (payload or {}):
         # Sam wybór krytycznych nie zmienia kolumn MUST/NICE rekrutacji.
         stack_changed = champion_view.without_critical(
@@ -796,6 +863,12 @@ async def save_champion_core(
                 (not imported and stack_changed)
                 or empty_unreviewed
                 or key in (sync_fields or [])
+                # Audyt 06.10.2026 (P2): zapis z wierszami zawsze wyrównuje
+                # kolumny z etykietami wierszy. Kopia rekrutacji z szablonu
+                # tego klienta miała w kolumnie pierwsze słowa wierszy
+                # („Kafka” zamiast „Kafka lub RabbitMQ”), a profil się nie
+                # zmieniał, więc synchronizacja nie ruszała.
+                or rows_sent
             ):
                 sync_skill_column(job, key, items)
 
@@ -1084,29 +1157,9 @@ async def handoff_core(
             user_id=actor_id,
         )
     )
-    # Osoba wskazana ręcznie dowiaduje się od razu (#2010, 04.10.2026) — także
-    # przy tworzeniu rekrutacji, które przekazuje ją w tej samej transakcji.
-    # Bez dzwonka dla siebie i przy ponowieniu przekazania tej samej osobie.
-    # `notify_assigned` pracuje w savepoincie i nie robi commita.
-    if recruiter.id not in (actor_id, previous_owner_id):
-        from app.models.client import Client  # noqa: PLC0415
-        from app.services.job_working_title import display_title  # noqa: PLC0415
-        from app.services.request_allocation_notices import (  # noqa: PLC0415
-            notify_assigned,
-        )
-
-        client_name = (
-            await db.scalar(select(Client.name).where(Client.id == job.client_id))
-            if job.client_id is not None
-            else None
-        )
-        await notify_assigned(
-            db,
-            job_id=job_id,
-            title=display_title(job),
-            client_name=client_name,
-            user_id=recruiter.id,
-        )
+    # Dzwonek dla osoby wskazanej ręcznie (#2010) daje
+    # `_sync_work_assignments_with_owner` — jedno miejsce dla `/owner`,
+    # `/claim`, okna edycji i przekazania (audyt 06.10.2026, H1).
     return {"status": "handed_off", "job_id": job_id, "recruiter_id": recruiter.id}
 
 
@@ -1215,6 +1268,7 @@ async def close_job_core(
         maybe_close_job_contact_opportunities,
     )
     from app.services.job_portals.service import close_live_postings
+    from app.services.job_proposals import expire_open_for_job
     from app.services.request_work_state import set_work_state
 
     api = _api()
@@ -1225,6 +1279,8 @@ async def close_job_core(
     job.close_notes = notes
     await set_work_state(db, job, "finished", actor_id=actor_id, reason="job_closed")
     await close_live_postings(db, job.id)
+    # Audyt 06.10.2026 (R6): otwarte propozycje zamkniętej rekrutacji wygasają.
+    await expire_open_for_job(db, job_id=job.id)
     await maybe_close_job_contact_opportunities(
         db,
         job_id=job.id,

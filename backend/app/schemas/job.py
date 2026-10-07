@@ -77,7 +77,10 @@ class JobCreate(BaseModel):
     nice_skills: Optional[List[Any]] = None
     seniority: Optional[Seniority] = None
     work_mode: WorkMode = WorkMode.fulltime
-    headcount: int = Field(default=1, ge=1, le=1000)
+    # Audyt 06.10.2026 (N6): bez domyślnej „1” — 55 z 55 rekrutacji miało 1,
+    # bo formularz ją podstawiał. `None` przysłane wprost = „DL nie podał”
+    # (bramka przekazania), pominięte = 1 dla innych wołających.
+    headcount: Optional[int] = Field(default=None, ge=1, le=1000)
     reference_number: Optional[str] = Field(default=None, max_length=50)
     # 0380: numer zapytania klienta i tytuł dla rekrutera (`job_working_title`).
     # Brak ``working_title`` = składa go serwer i przelicza przy zmianach.

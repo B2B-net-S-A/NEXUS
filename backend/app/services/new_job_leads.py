@@ -4,6 +4,11 @@ Lista informacyjna: rekrutacje przekazane do searchu w ostatnich dniach
 i osoba, która je prowadzi — z automatu albo wskazana przez człowieka. Liczona
 przy odczycie, bez własnej tabeli: stan requestu daje ``jobs.work_state``,
 a prowadzącego ta sama reguła co wszędzie (``job_team.recruiters_for_jobs``).
+
+Audyt 06.10.2026 (H7): opublikowane rekrutacje, których nikt nigdy nie
+przekazał do searchu (``is_open`` puste — automat ich nie widzi, bo nie są
+w puli), dochodzą na koniec listy z powodem ``not_handed_off``. Bez tego żyły
+poza każdym ekranem pracy (5 takich na produkcji).
 """
 
 from __future__ import annotations
@@ -113,8 +118,9 @@ async def load_new_job_leads(db: AsyncSession, *, now: datetime) -> list[NewJobL
             .limit(MAX_ROWS)
         )
     ).all()
+    not_handed_off = await _not_handed_off(db, exclude=[row.id for row in jobs])
     if not jobs:
-        return []
+        return not_handed_off
     job_ids = [row.id for row in jobs]
     participants = await _participants(db, job_ids)
     teams = await recruiters_for_jobs(db, job_ids)
@@ -178,7 +184,62 @@ async def load_new_job_leads(db: AsyncSession, *, now: datetime) -> list[NewJobL
                 proposed=lead.proposed,
             )
         )
-    return out
+    return out + not_handed_off
+
+
+async def _not_handed_off(db: AsyncSession, *, exclude: list[int]) -> list[NewJobLead]:
+    """Opublikowane rekrutacje bez przekazania do searchu (H7) — od najstarszej.
+
+    ``handed_off_at`` niesie wtedy datę założenia rekrutacji (przekazania nie
+    było). Rekrutacje z Traffita są archiwum (zamknięte), więc tu trafiają
+    wyłącznie rekrutacje NEXUSA.
+    """
+    delivery_lead = aliased(User)
+    rows = (
+        await db.execute(
+            select(
+                Job.id,
+                job_display_title_expr().label("title"),
+                Client.name.label("client_name"),
+                Job.competence_category_id,
+                CompetenceCategory.name_pl.label("category_name"),
+                CompetenceCategory.slug.label("category_slug"),
+                Job.priority,
+                delivery_lead.name.label("delivery_lead_name"),
+                Job.created_at,
+            )
+            .outerjoin(Client, Client.id == Job.client_id)
+            .outerjoin(
+                CompetenceCategory,
+                CompetenceCategory.id == Job.competence_category_id,
+            )
+            .outerjoin(delivery_lead, delivery_lead.id == Job.delivery_lead_id)
+            .where(
+                Job.status == JobStatus.published,
+                Job.is_open.is_not(True),
+                *((Job.id.not_in(exclude),) if exclude else ()),
+            )
+            .order_by(Job.created_at.asc(), Job.id.asc())
+            .limit(MAX_ROWS)
+        )
+    ).all()
+    participants = await _participants(db, [row.id for row in rows]) if rows else {}
+    return [
+        NewJobLead(
+            job_id=row.id,
+            title=row.title,
+            client_name=row.client_name,
+            category_id=row.competence_category_id,
+            category_name=row.category_name,
+            category_slug=row.category_slug,
+            participants=participants.get(row.id, 0),
+            priority_level=level_of(row.priority),
+            delivery_lead_name=row.delivery_lead_name,
+            handed_off_at=row.created_at,
+            pending_reason="not_handed_off",
+        )
+        for row in rows
+    ]
 
 
 async def load_safely(db: AsyncSession, *, now: datetime) -> list[NewJobLead]:

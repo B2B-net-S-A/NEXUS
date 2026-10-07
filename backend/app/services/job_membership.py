@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import user_can_access_candidate_domain
 from app.models.job import Job, JobStatus
-from app.models.job_collaborator import JobCollaborator
+from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
 from app.models.job_work_assignment import JobWorkAssignment
 from app.models.user import User, UserRole
 from app.core.config import settings
@@ -144,8 +144,18 @@ async def is_member_of_job(
     return assigned is not None
 
 
-async def list_job_member_ids(db: AsyncSession, job_id: int) -> list[int]:
-    """Zwraca unikalną listę user_id członków projektu (z adminami)."""
+async def list_job_member_ids(
+    db: AsyncSession, job_id: int, *, include_category_participants: bool = True
+) -> list[int]:
+    """Zwraca unikalną listę user_id członków projektu (z adminami).
+
+    ``include_category_participants=False`` pomija uczestników z kategorii
+    (``job_collaborators.source='auto_cc'``) — używają tego WYŁĄCZNIE
+    producenci dzwonków o rekrutacji (decyzja Artura D7, 06.10.2026: uczestnik
+    kategorii widzi rekrutację w „Moja kategoria”, ale nie dostaje jej
+    powiadomień). Dostęp (wzmianki, czat, prepy) liczy się z uczestnikami —
+    domyślne ``True``.
+    """
     job = await db.get(Job, job_id)
     if job is None:
         return []
@@ -159,11 +169,16 @@ async def list_job_member_ids(db: AsyncSession, job_id: int) -> list[int]:
         member_ids.add(job.tac_id)
 
     # Aktywni collaboratorzy
-    rows = await db.execute(
+    collaborators = (
         select(JobCollaborator.user_id)
         .where(JobCollaborator.job_id == job_id)
         .where(JobCollaborator.removed_from_auto_cc.is_(False))
     )
+    if not include_category_participants:
+        collaborators = collaborators.where(
+            JobCollaborator.source != JobCollaboratorSource.auto_cc
+        )
+    rows = await db.execute(collaborators)
     for (uid,) in rows.all():
         member_ids.add(uid)
 

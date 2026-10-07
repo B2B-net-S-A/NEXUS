@@ -595,8 +595,15 @@ async def add_person(
     # (kolejność z ``allocation_lock``) — inaczej równoległy przebieg dodający
     # tę samą parę kończył się naruszeniem unikalności.
     await allocation_lock(db)
-    await _searching_job(db, job_id)
+    job = await _searching_job(db, job_id)
     person = await _assignable_person(db, payload.user_id)
+    already_working = await db.scalar(
+        select(JobWorkAssignment.id).where(
+            JobWorkAssignment.job_id == job_id,
+            JobWorkAssignment.user_id == person.id,
+            JobWorkAssignment.state == "active",
+        )
+    )
     await manual_add(
         db,
         job_id=job_id,
@@ -604,6 +611,13 @@ async def add_person(
         role=WORK_ROLE,
         actor_id=current_user.id,
     )
+    # Audyt 06.10.2026 (H1): dodanie z pulpitu też mówi osobie, że dostała
+    # request — bez dzwonka dla siebie i dla osoby, która już przy nim pracuje.
+    if already_working is None and person.id != current_user.id:
+        clients = await _client_names(db, [job])
+        await _notify_assigned(
+            db, job=job, client_name=clients.get(job.client_id), user_id=person.id
+        )
     await db.commit()
     return {"ok": True}
 

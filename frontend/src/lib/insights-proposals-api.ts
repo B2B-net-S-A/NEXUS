@@ -60,6 +60,9 @@ export interface ProposalOutcomesResponse {
   jobs: ProposalOutcomeJob[];
 }
 
+/** Podpowiedź przy liczbie „Wygasłe”. */
+export const PROPOSAL_EXPIRED_HINT = "Rekrutacja zamknięta — propozycje bez decyzji wygasły";
+
 export const PROPOSAL_OUTCOME_WINDOWS = [7, 30, 90] as const;
 
 export const insightsProposalsApi = {

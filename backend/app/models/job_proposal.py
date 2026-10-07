@@ -57,7 +57,8 @@ JOB_PROPOSAL_SOURCES = (
     "job_board",
 )
 # 0422: ``expired`` = nowszy, kompletny nocny przegląd już tej osoby nie
-# zaproponował. Status pary go pomija; powrót w kolejnym przeglądzie = ``proposed``.
+# zaproponował albo rekrutację zamknięto (audyt 06.10.2026, R6). Status pary go
+# pomija; powrót w kolejnym przeglądzie = ``proposed``.
 JOB_PROPOSAL_STATUSES = ("proposed", "dismissed", "added", "expired")
 
 

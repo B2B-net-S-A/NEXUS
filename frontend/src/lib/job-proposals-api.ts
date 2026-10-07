@@ -9,9 +9,14 @@
 import { api, type MatchEligibility } from "@/lib/api";
 import type { SearchState } from "@/lib/full-candidate-search-api";
 import type { ProposalSource } from "@/components/v2/recruitment/types";
-import { dismissRequestBody, type DismissFeedback } from "@/lib/proposal-dismiss";
+import {
+  dismissBulkRequestBody,
+  dismissRequestBody,
+  type DismissFeedback,
+} from "@/lib/proposal-dismiss";
 
-export type ProposalInboxStatus = "proposed" | "dismissed" | "added";
+/** `expired` = rekrutacja zamknięta, propozycja bez decyzji (audyt 06.10.2026). */
+export type ProposalInboxStatus = "proposed" | "dismissed" | "added" | "expired";
 
 /** Tożsamość węższa niż profil — bez kontaktu, jak wiersz pełnego przeglądu. */
 export interface ProposalInboxCandidate {
@@ -149,6 +154,17 @@ export interface DismissProposalResponse {
   dismissed: boolean;
 }
 
+/** `POST …/proposal-inbox/dismiss-bulk`. */
+export interface DismissBulkResponse {
+  job_id: number;
+  dismissed: number[];
+  /** Osoby bez zmiany: już w rekrutacji, już pominięte albo spoza skrzynki. */
+  skipped: number[];
+}
+
+/** Sufit jednego „Pomiń zaznaczone” po stronie serwera (`max_length=100`). */
+export const PROPOSAL_DISMISS_BULK_MAX = 100;
+
 export interface RestoreProposalResponse {
   job_id: number;
   candidate_id: number;
@@ -232,6 +248,22 @@ export const jobProposalsApi = {
       .post<DismissProposalResponse>(
         `/api/jobs/${jobId}/proposal-inbox/${candidateId}/dismiss`,
         dismissRequestBody(source, feedback),
+      )
+      .then((r) => r.data),
+  /**
+   * „Pomiń zaznaczone” (audyt 06.10.2026, R8) — jeden powód dla wielu osób
+   * naraz, najwyżej `PROPOSAL_DISMISS_BULK_MAX` w jednym żądaniu. Serwer pomija
+   * wyłącznie osoby, które skrzynka zna; resztę oddaje w `skipped` (bez błędu).
+   */
+  dismissBulk: (
+    jobId: number,
+    candidateIds: readonly number[],
+    feedback: DismissFeedback,
+  ): Promise<DismissBulkResponse> =>
+    api
+      .post<DismissBulkResponse>(
+        `/api/jobs/${jobId}/proposal-inbox/dismiss-bulk`,
+        dismissBulkRequestBody(candidateIds, feedback),
       )
       .then((r) => r.data),
   /**

@@ -141,9 +141,11 @@ export type NewJobLeadSource = "auto" | "manual";
 /**
  * Dlaczego rekrutacja nie ma jeszcze prowadzącego: automat właśnie przydziela,
  * priorytet „Przyjmujemy kandydatów” (automat takich nie obsadza) albo po
- * prostu nikt nie jest przypisany.
+ * prostu nikt nie jest przypisany. `not_handed_off` = rekrutacja opublikowana,
+ * której nikt nigdy nie przekazał do searchu (`handed_off_at` niesie wtedy
+ * datę założenia).
  */
-export type NewJobLeadPendingReason = "assigning" | "passive" | "none";
+export type NewJobLeadPendingReason = "assigning" | "passive" | "none" | "not_handed_off";
 
 /**
  * „Nowe rekrutacje — kto prowadzi”: rekrutacje świeżo przekazane do searchu
@@ -346,10 +348,28 @@ export interface FlowContractRow {
   created_at: string;
 }
 
+/**
+ * „Nowe requesty dla Ciebie” — rekrutacja przypisana tej osobie w ostatnich
+ * `new_request_days` dniach, w której nikt jeszcze nie ruszył karty.
+ */
+export interface FlowNewRequestRow {
+  job_id: number;
+  job_title: string;
+  job_working_title?: string | null;
+  client_name?: string | null;
+  /** Kiedy przypisano (ISO). */
+  assigned_at: string;
+  /** Kto przypisał; `null` = przydział automatu. */
+  assigned_by_name: string | null;
+}
+
 export interface FlowBlock {
   /** Rola ma sekcje przepływu (rekruter, TCM, DL) — panel mówi wtedy wprost,
    *  że nic nie czeka, zamiast znikać. */
   applies: boolean;
+  /** Opcjonalne w typie — starszy backend pola nie oddaje (brak = pusta lista). */
+  new_requests?: FlowNewRequestRow[];
+  new_request_days?: number;
   postings: FlowPostingRow[];
   postings_total: number;
   claimed: FlowPairRow[];

@@ -9720,6 +9720,32 @@ async def repair():
 asyncio.run(repair())
 PY
 
+# Propozycje (06.10.2026, audyt R6) — jednorazowo: otwarte propozycje
+# rekrutacji zamkniętych przed 0422 wygasają (`proposed` → `expired`; nic nie
+# jest kasowane). Od 0422 robi to zamknięcie rekrutacji. Logika
+# w `app/services/job_proposal_closed_expiry.py`; marker w `app_settings`
+# + advisory lock. Log: same liczby.
+startup_phase "repair-closed-job-proposals"
+echo "Job proposals: one-shot expiry on closed recruitments..."
+python - <<'PY' || echo "closed job proposal expiry skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.job_proposal_closed_expiry import run_closed_job_proposal_expiry
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_closed_job_proposal_expiry(db)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+    print(f"closed job proposal expiry: {summary or 'already done'}")
+
+asyncio.run(repair())
+PY
+
 # Weryfikacje „Pending" (17.09.2026) — jednorazowo: bramka akceptacji stawki
 # ponad budżet została USUNIĘTA, więc karty zapisane wcześniej jako `pending`
 # zostają zaliczone tak, jak zrobiłaby to ręczna akceptacja (status `active`

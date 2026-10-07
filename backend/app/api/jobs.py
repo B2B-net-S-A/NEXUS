@@ -2410,6 +2410,7 @@ async def update_job(
     )
 
     updates = data.model_dump(exclude_unset=True)
+    _assert_skill_columns_follow_rows(job, updates)
     _normalize_deadline_time(updates, job.deadline)
     # Wejścia rankingu sprzed zapisu (runda 6 audytu): wektor i ranking
     # unieważnia REALNA zmiana wartości, nie sam klucz w żądaniu — okno edycji
@@ -2605,6 +2606,11 @@ async def update_job(
             )
             # 0381: zamknięta rekrutacja zamyka ogłoszenia na portalach.
             await close_live_postings(db, job_id)
+            # Audyt 06.10.2026 (R6): lustro `close_job_core` — otwarte
+            # propozycje zamkniętej rekrutacji wygasają.
+            from app.services.job_proposals import expire_open_for_job
+
+            await expire_open_for_job(db, job_id=job_id)
         elif prev_status == JobStatus.closed:
             job.closed_at = None
             _take_over_reopened_traffit_job(db, job, current_user)
@@ -3214,15 +3220,22 @@ async def _champion_profile_recipients(
     """
     from app.services.notification_access import filter_notification_recipients
 
+    # 06.10.2026 (D7): uczestnicy z kategorii (`auto_cc`) nie dostają dzwonków
+    # rekrutacji — widzą ją w „Moja kategoria”. Delivery Lead rekrutacji
+    # dostaje dzwonek (N2): do tej daty zmiany rekrutera w Championie
+    # docierały do DL-a w 6 z 49 par, więc DL nadpisywał je nieświadomie.
     rows = await db.execute(
         select(JobCollaborator.user_id).where(
             JobCollaborator.job_id == job.id,
             JobCollaborator.removed_from_auto_cc.is_(False),
+            JobCollaborator.source != JobCollaboratorSource.auto_cc,
         )
     )
     collaborator_ids = {uid for (uid,) in rows.all() if uid is not None}
     if job.recruiter_id is not None:
         collaborator_ids.add(job.recruiter_id)
+    if job.delivery_lead_id is not None:
+        collaborator_ids.add(job.delivery_lead_id)
     collaborator_ids.discard(exclude_user_id)
     allowed = await filter_notification_recipients(
         db,
@@ -3241,7 +3254,16 @@ async def update_champion_profile(
     db: AsyncSession = Depends(get_db),
     payload: dict | None = None,
 ) -> dict:
-    return await _save_champion_profile(job_id, current_user, db, payload)
+    # Audyt 06.10.2026 (N2): edytor wysyła odcisk profilu, który wczytał —
+    # zapis na profilu zmienionym w międzyczasie kończy się 409, nie
+    # nadpisaniem. Klucz nie jest sekcją profilu, więc zdejmujemy go z ładunku.
+    body = dict(payload or {})
+    expected = body.pop("expected_profile_hash", None)
+    if expected is not None and not isinstance(expected, str):
+        raise HTTPException(422, "expected_profile_hash musi być tekstem.")
+    return await _save_champion_profile(
+        job_id, current_user, db, body, expected_profile_hash=expected
+    )
 
 
 @router.post("/{job_id}/champion-profile/apply-import")
@@ -3285,6 +3307,7 @@ async def _save_champion_profile(
     imported: bool = False,
     expected_fingerprint: str | None = None,
     sync_fields: list[str] | None = None,
+    expected_profile_hash: str | None = None,
 ) -> dict:
     """Upsert Champion Profile (Delivery Lead / admin / zespół rekrutacji).
 
@@ -3307,6 +3330,7 @@ async def _save_champion_profile(
         imported=imported,
         expected_fingerprint=expected_fingerprint,
         sync_fields=sync_fields,
+        expected_profile_hash=expected_profile_hash,
     )
     await db.commit()
     # Odpowiedź (z odciskiem `fingerprint`) ze stanu PO zapisie — ten sam odczyt
@@ -3318,6 +3342,8 @@ async def _save_champion_profile(
         "job_id": job.id,
         "champion_profile": _champion_response(job.champion_profile),
         **response_context(job),
+        # Uwagi zapisu (np. krytyczne, które przestały być technologią).
+        "notices": list(effects.results.get("notices") or []),
     }
     await job_lifecycle.run_post_commit(effects)
     return response
@@ -4686,6 +4712,51 @@ def _in_allocation_pool(job: Job) -> bool:
     return job_in_pool(job)
 
 
+def _assert_skill_columns_follow_rows(job: Job, updates: dict) -> None:
+    """Kolumny must/nice rekrutacji z wierszami wymagań idą za Championem.
+
+    Audyt 06.10.2026 (P7): „Kryteria” (PATCH ``must_skills``/``nice_skills``)
+    nadpisywały kolumny z pominięciem wierszy — bramka krytycznych i ocena
+    czytały wtedy co innego niż Profil Championa, a następny zapis profilu
+    cofał zmianę po cichu. Porównanie po nazwach: okno edycji odsyła komplet
+    pól, także niezmienione.
+    """
+    from app.services.champion_requirement_rows import (
+        ROWS_OWN_COLUMNS_DETAIL,
+        profile_has_rows,
+        skill_column_names,
+    )
+
+    if not profile_has_rows(job.champion_profile):
+        return
+    for column in ("must_skills", "nice_skills"):
+        if column in updates and skill_column_names(
+            updates[column]
+        ) != skill_column_names(getattr(job, column)):
+            raise HTTPException(status_code=409, detail=ROWS_OWN_COLUMNS_DETAIL)
+
+
+async def _notify_new_owner(db: AsyncSession, *, job: Job, user_id: int) -> None:
+    """Dzwonek „Nowy request do pracy” — ta sama treść co przy przydziale
+    automatu (``notify_assigned``: savepoint, nie cofa zmiany rekrutera)."""
+    from app.models.client import Client
+    from app.services.job_working_title import display_title
+    from app.services.request_allocation_notices import notify_assigned
+
+    client_name = (
+        await db.scalar(select(Client.name).where(Client.id == job.client_id))
+        if job.client_id is not None
+        else None
+    )
+    await notify_assigned(
+        db,
+        job_id=job.id,
+        title=display_title(job),
+        client_name=client_name,
+        user_id=user_id,
+    )
+
+
 async def _sync_work_assignments_with_owner(
     db: AsyncSession,
     *,
@@ -4711,8 +4782,15 @@ async def _sync_work_assignments_with_owner(
       Regułę ma jedno miejsce: ``request_allocation.void_manual_release``.
     * Nowa osoba dostaje ręczne przypisanie, gdy request jest w puli — żeby
       automat nie dobierał do requestu kolejnej osoby.
+    * Nowa osoba dostaje dzwonek „Nowy request do pracy” (audyt 06.10.2026,
+      H1): do tej daty dzwonił wyłącznie handoff i automat, a ``/owner``,
+      ``/claim`` i zmiana rekrutera w oknie edycji nie mówiły nikomu nic.
+      Bez dzwonka dla siebie (``/claim``) i dla osoby, która już prowadziła.
+      Jedno miejsce dla wszystkich ścieżek — handoff nie dzwoni osobno.
     """
     new_owner_id = owner.id if owner is not None else None
+    if owner is not None and owner.id not in (actor_id, previous_owner_id):
+        await _notify_new_owner(db, job=job, user_id=owner.id)
     if previous_owner_id is not None and previous_owner_id != new_owner_id:
         await db.execute(
             sql_update(JobWorkAssignment)

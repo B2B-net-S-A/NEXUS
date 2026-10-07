@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   shortlistAdd: vi.fn(),
   inbox: vi.fn(),
   dismiss: vi.fn(),
+  dismissBulk: vi.fn(),
   restore: vi.fn(),
   latestRun: vi.fn(),
   similar: vi.fn(),
@@ -31,6 +32,7 @@ vi.mock("@/lib/job-proposals-api", async (orig) => ({
   jobProposalsApi: {
     inbox: (...a: unknown[]) => mocks.inbox(...a),
     dismiss: (...a: unknown[]) => mocks.dismiss(...a),
+    dismissBulk: (...a: unknown[]) => mocks.dismissBulk(...a),
     restore: (...a: unknown[]) => mocks.restore(...a),
     latestRun: (...a: unknown[]) => mocks.latestRun(...a),
   },
@@ -173,6 +175,38 @@ describe("useJobProposals", () => {
     await waitFor(() => expect(mocks.restore).toHaveBeenCalledTimes(2));
     expect(mocks.restore).toHaveBeenCalledWith(JOB, 1);
     await waitFor(() => expect(result.current.rows.map((r) => r.candidateId)).toContain(1));
+  });
+
+  it("Pomiń kilku osób ze skrzynki idzie JEDNYM żądaniem zbiorczym z jednym powodem", async () => {
+    mocks.dismissBulk.mockResolvedValue({ job_id: JOB, dismissed: [2, 3], skipped: [] });
+    const { result, invalidate } = setup();
+    await waitFor(() => expect(result.current.rows).toHaveLength(4));
+    act(() => result.current.dismiss([2, 3], FEEDBACK));
+    await waitFor(() => expect(mocks.toast.showActionToast).toHaveBeenCalled());
+    expect(mocks.dismissBulk).toHaveBeenCalledTimes(1);
+    expect(mocks.dismissBulk).toHaveBeenCalledWith(JOB, [2, 3], FEEDBACK);
+    expect(mocks.dismiss).not.toHaveBeenCalled();
+    expect(mocks.toast.showActionToast.mock.calls[0][0]).toBe(
+      "Pominięto 2 osoby. Wrócą tylko z nową wersją CV.",
+    );
+    expect(result.current.rows.map((r) => r.candidateId).sort()).toEqual([1, 4]);
+    const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify((arg as { queryKey: unknown }).queryKey));
+    expect(keys).toContain(JSON.stringify(["job-proposals", 42]));
+  });
+
+  it("Pomiń mieszanej grupy: skrzynka zbiorczo, osoby spoza skrzynki pojedynczo ze źródłem; „bez zmian” w komunikacie", async () => {
+    mocks.dismissBulk.mockResolvedValue({ job_id: JOB, dismissed: [2], skipped: [3] });
+    mocks.dismiss.mockResolvedValue({ dismissed: true });
+    const { result } = setup();
+    await waitFor(() => expect(result.current.rows).toHaveLength(4));
+    act(() => result.current.dismiss([2, 3, 1], FEEDBACK));
+    await waitFor(() => expect(mocks.toast.showActionToast).toHaveBeenCalled());
+    expect(mocks.dismissBulk).toHaveBeenCalledWith(JOB, [2, 3], FEEDBACK);
+    expect(mocks.dismiss).toHaveBeenCalledTimes(1);
+    expect(mocks.dismiss).toHaveBeenCalledWith(JOB, 1, "full_base", FEEDBACK);
+    expect(mocks.toast.showActionToast.mock.calls[0][0]).toBe(
+      "Pominięto 2 osoby · 1 bez zmian. Wrócą tylko z nową wersją CV.",
+    );
   });
 
   it("409 przy Pomiń (osoba właśnie trafiła do rekrutacji) nie jest błędem", async () => {

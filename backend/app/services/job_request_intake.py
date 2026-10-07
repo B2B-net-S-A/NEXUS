@@ -48,6 +48,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.client import Client
 from app.schemas.champion import STACK_ITEM_MAX_CHARS
+from app.services.skill_inflection import dictionary_base_name, inflected_in_text
 from app.services import champion_intake, keyword_suggest, office_days
 from app.services.champion_document import folded
 from app.services.llm_prompts import JOB_REQUEST_INTAKE
@@ -181,6 +182,9 @@ class RequestIntake:
     deadline: Optional[str] = None
     deadline_time: Optional[str] = None
     headcount: Optional[int] = None
+    # ── 06.10.2026 (N3): wiersze, które nie zmieściły się w limitach ──
+    # (10 „musi mieć”, 20 „mile widziane”) — etykiety; formularz je pokazuje.
+    dropped: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -528,7 +532,17 @@ def _grounded_search_word(
     JavaScript.
     """
     if not word.endswith("*"):
-        return word if _word_in_text(word, folded_text) else None
+        # 06.10.2026 (P1): technologia ze słownika w mailu bywa odmieniona.
+        # „Javy” zapisuje się jako „Java”, a „Java” od modelu przechodzi, gdy
+        # w mailu stoi jej odmiana — wspólna reguła odmiany (`skill_inflection`).
+        def known(name: str) -> bool:
+            return keyword_suggest.fold(name) in technologies
+
+        if _word_in_text(word, folded_text):
+            return dictionary_base_name(word, known=known) or word
+        if known(word) and inflected_in_text(word, folded_text):
+            return word
+        return None
     stem = _search_stem(word)
     if stem is None:
         return None
@@ -573,7 +587,8 @@ def _ground_row(
         if not word:
             continue
         word = " ".join(word.replace("|", " ").split())
-        if len(word) < 2:
+        # Jednoliterowa technologia ze słownika („C”, „R”) to słowo (P4).
+        if len(word) < 2 and keyword_suggest.fold(word) not in technologies:
             continue
         kept = _grounded_search_word(word, folded_text, technologies)
         is_extra = kept is None
@@ -619,18 +634,29 @@ def _search_rows(value: Any, folded_text: str) -> tuple[list[list[str]], bool]:
     return rows, translated
 
 
-def _requirement_rows(
-    value: Any, folded_text: str
-) -> tuple[list[dict[str, Any]], bool, bool]:
-    """Wiersze wymagań v10 → (wiersze, must z odpowiednikiem, nice z odpowiednikiem).
+@dataclass(frozen=True)
+class _RowsReading:
+    rows: list[dict[str, Any]]
+    must_translated: bool
+    nice_translated: bool
+    # Wiersze modelu bez żadnego słowa z maila (pominięte) i wiersze, które
+    # nie zmieściły się w limitach (N3) — formularz pokazuje je jako uwagi.
+    unfounded: list[str]
+    dropped: list[str]
+
+
+def _requirement_rows(value: Any, folded_text: str) -> _RowsReading:
+    """Wiersze wymagań v10 (słowa z maila, must albo nice) z listą tego, co
+    odpadło.
 
     Te same reguły słów co `_search_rows`; poziom to must albo nice —
     krytyczne wybiera Delivery Lead, nie model."""
-    from app.services.champion_requirement_rows import clean_rows
+    from app.services.champion_requirement_rows import split_rows
 
     technologies = _technology_keys()
     rows: list[dict[str, Any]] = []
     translated = {"must": False, "nice": False}
+    unfounded: list[str] = []
     nice_count = 0
     for item in value if isinstance(value, list) else []:
         if not isinstance(item, dict):
@@ -640,11 +666,25 @@ def _requirement_rows(
             continue
         row, has_extra = _ground_row(item.get("words"), folded_text, technologies)
         if row is None:
+            raw_words = item.get("words")
+            first = (
+                raw_words[0] if isinstance(raw_words, list) and raw_words else raw_words
+            )
+            label = _text(first, 100)
+            if label and label not in unfounded:
+                unfounded.append(label)
             continue
         nice_count += level == "nice"
         translated[level] = translated[level] or has_extra
         rows.append({"words": row, "level": level})
-    return clean_rows(rows), translated["must"], translated["nice"]
+    cleaned, dropped = split_rows(rows)
+    return _RowsReading(
+        rows=cleaned,
+        must_translated=translated["must"],
+        nice_translated=translated["nice"],
+        unfounded=unfounded,
+        dropped=dropped,
+    )
 
 
 def _questions(value: Any) -> list[IntakeQuestion]:
@@ -1016,13 +1056,23 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
         if _in_text(text, folded_text)
     ]
     advisories: list[str] = []
+    dropped: list[str] = []
     if isinstance(data.get("requirements"), list):
-        from app.services.champion_requirement_rows import derive
+        from app.services.champion_requirement_rows import derive, overflow_note
         from app.services.must_gate_terms import ignored_reason
 
-        requirements, must_translated, nice_translated = _requirement_rows(
-            data["requirements"], folded_text
-        )
+        reading = _requirement_rows(data["requirements"], folded_text)
+        requirements = reading.rows
+        must_translated = reading.must_translated
+        nice_translated = reading.nice_translated
+        dropped = reading.dropped
+        for label in reading.unfounded:
+            advisories.append(
+                f"„{label}” nie stoi w treści requestu — wiersz pominięty. "
+                "Dopisz go, jeśli klient tego wymaga."
+            )
+        if dropped:
+            advisories.append(overflow_note(dropped))
         derived = derive(requirements)
         must = [item["name"] for item in derived["must"]]
         nice = [item["name"] for item in derived["nice"]]
@@ -1191,6 +1241,7 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
         deadline=deadline,
         deadline_time=deadline_time,
         headcount=headcount,
+        dropped=dropped,
     )
 
 

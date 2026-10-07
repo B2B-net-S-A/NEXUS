@@ -98,13 +98,17 @@ function ToneLabel({ tone, children }: { tone: Tone; children: ReactNode }) {
   );
 }
 
-function dedupeCaseInsensitive(xs: string[]): string[] {
+
+function dedupeCaseInsensitive(
+  xs: string[],
+  accept: (phrase: string) => boolean = keywordLongEnough,
+): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const raw of xs) {
     const trimmed = raw.trim();
     const key = trimmed.toLowerCase();
-    if (keywordLongEnough(trimmed) && !seen.has(key)) {
+    if (accept(trimmed) && !seen.has(key)) {
       seen.add(key);
       out.push(trimmed);
     }
@@ -143,6 +147,7 @@ export function ChipField({
   maxChips = MAX_PER_BUCKET,
   invalid = false,
   autoFocus = false,
+  acceptWord = keywordLongEnough,
 }: {
   chips: string[];
   onChange: (next: string[]) => void;
@@ -165,6 +170,12 @@ export function ChipField({
   invalid?: boolean;
   /** Kursor w polu po zamontowaniu (świeżo dodany wiersz wymagań). */
   autoFocus?: boolean;
+  /**
+   * Które słowo wolno dodać (domyślnie `keywordLongEnough` — lista
+   * kandydatów). Wiersze wymagań Championa przyjmują też jedną literę
+   * („C”, „R”) — o technologii decyduje serwer (audyt 06.10.2026, P4).
+   */
+  acceptWord?: (phrase: string) => boolean;
 }) {
   const [draft, setDraft] = useState("");
   const [open, setOpen] = useState(false);
@@ -202,17 +213,19 @@ export function ChipField({
       .split(",")
       .map((x) => x.replace(/\|/g, " ").replace(/\s+/g, " ").trim())
       .filter(Boolean);
-    const fresh = words.filter(keywordLongEnough);
+    const fresh = words.filter(acceptWord);
     // Słowo, którego nie da się szukać, nie znika po cichu — pole mówi
     // dlaczego i gdzie szukać pojedynczej litery (przegląd PR #2056).
-    const rejected = words.filter((x) => !keywordLongEnough(x));
+    const rejected = words.filter((x) => !acceptWord(x));
     setTooShort(rejected.length > 0 ? tooShortKeywordMessage(rejected) : null);
-    if (fresh.length > 0) onChange(dedupeCaseInsensitive([...chips, ...fresh]));
+    if (fresh.length > 0) onChange(dedupeCaseInsensitive([...chips, ...fresh], acceptWord));
     setDraft("");
   };
 
   const pick = (option: SuggestionOption) => {
-    onChange(dedupeCaseInsensitive([...chips, option.insert, ...(option.variants ?? [])]));
+    onChange(
+      dedupeCaseInsensitive([...chips, option.insert, ...(option.variants ?? [])], acceptWord),
+    );
     setDraft("");
     setHighlight(-1);
   };

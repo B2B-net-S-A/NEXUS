@@ -32,7 +32,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Iterable, Optional
 from uuid import uuid4
 
-from sqlalchemy import func, select, text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -466,112 +466,10 @@ async def _publish_proposals(
     return counts
 
 
-def _digest_text(count: int) -> str:
-    if count == 1:
-        return "1 nowa propozycja z nowych CV"
-    if count % 10 in (2, 3, 4) and count % 100 not in (12, 13, 14):
-        return f"{count} nowe propozycje z nowych CV"
-    return f"{count} nowych propozycji z nowych CV"
-
-
-async def _notify_proposals(
-    db: AsyncSession, *, proposed: dict[int, int], jobs_by_id: dict[int, Job]
-) -> int:
-    """JEDEN dzienny digest na (rekrutacja, odbiorca).
-
-    Pierwsza propozycja dnia tworzy wpis (`emit` — bramka odbiorcy + dobowy
-    dedup `ix_notif_dedup_daily`); kolejne tego samego dnia PODBIJAJĄ licznik
-    w istniejącym wpisie zamiast dokładać następne. Licznik = osoby, które
-    DZIŚ po raz pierwszy trafiły do skrzynki tej rekrutacji z nowego CV
-    (``job_proposals``, najwcześniejsze ``first_seen_at`` osoby). Dziennik
-    decyzji się do tego nie nadaje: każda zmiana rekrutacji przepisuje w nim
-    `proposed` z dzisiejszą datą (runda 6 audytu).
-    """
-    from app.core.scheduling import business_today
-    from app.models.notification import Notification, NotificationType
-    from app.services.notification_triggers import emit
-
-    sent = 0
-    ntype = NotificationType.auto_match_proposals
-    for job_id, fresh in proposed.items():
-        job = jobs_by_id.get(job_id)
-        if job is None or not fresh:
-            continue
-        # Runda 9 (R9-X1-7): savepoint na rekrutację. `db.rollback()` całej
-        # sesji cofał digesty poprzednich rekrutacji i wygaszał obiekty `Job`,
-        # więc każda następna iteracja padała na leniwym odczycie `job.title`.
-        job_sent = 0
-        try:
-            async with db.begin_nested():
-                today_count = int(
-                    await db.scalar(
-                        text(
-                            "SELECT count(*) FROM ("
-                            " SELECT candidate_id FROM job_proposals"
-                            " WHERE job_id = :job_id AND status = 'proposed'"
-                            " GROUP BY candidate_id"
-                            " HAVING bool_or(source = 'new_cv')"
-                            " AND (min(first_seen_at) AT TIME ZONE :tz)::date = :today"
-                            ") AS fresh"
-                        ),
-                        {
-                            "job_id": job_id,
-                            "tz": settings.BUSINESS_TZ,
-                            "today": business_today(settings.BUSINESS_TZ),
-                        },
-                    )
-                    or fresh
-                )
-                title = f"{_digest_text(today_count)} — {job.title}"[:255]
-                message = (
-                    f"Rekrutacja „{job.title}”: sprawdź skrzynkę „Propozycje”. "
-                    "Nikt nie został dodany do procesu."
-                )
-                link = f"/jobs/{job_id}?tab=similar"
-                for user_id in {uid for uid in (job.recruiter_id, job.tac_id) if uid}:
-                    created = await emit(
-                        db,
-                        user_id=user_id,
-                        title=title,
-                        message=message,
-                        ntype=ntype,
-                        related_entity_type="job",
-                        related_entity_id=job_id,
-                        link=link,
-                    )
-                    if created is not None:
-                        job_sent += 1
-                        continue
-                    # Dzisiejszy digest już jest (albo odbiorca nie ma dostępu —
-                    # wtedy UPDATE nie znajdzie wiersza): podbij licznik.
-                    existing = await db.scalar(
-                        select(Notification)
-                        .where(
-                            Notification.user_id == user_id,
-                            Notification.notification_type == ntype,
-                            Notification.related_entity_type == "job",
-                            Notification.related_entity_id == job_id,
-                            func.date(
-                                func.timezone(
-                                    settings.BUSINESS_TZ, Notification.created_at
-                                )
-                            )
-                            == business_today(settings.BUSINESS_TZ),
-                        )
-                        .order_by(Notification.created_at.desc())
-                        .limit(1)
-                    )
-                    if existing is not None and existing.title != title:
-                        existing.title = title
-                        existing.is_read = False
-        except Exception as exc:  # noqa: BLE001 — digest nigdy nie psuje biegu
-            logger.warning(
-                "[auto_match] digest failed job=%s: %s", job_id, type(exc).__name__
-            )
-            continue
-        sent += job_sent
-    await db.commit()
-    return sent
+# Dzienny skrót z nowych CV (`_notify_proposals`) usunięty 06.10.2026 (audyt
+# R3): szedł tylko do `recruiter_id`/`tac_id` i odsyłał do skrzynki, której
+# już nie ma. Propozycje z nowych CV i z nocnego przeglądu zapowiada jeden
+# poranny dzwonek do Rekruterów rekrutacji (`proposals_morning_bell`).
 
 
 def _summary(decisions: list[Decision], notified: int) -> dict:
@@ -739,7 +637,7 @@ async def run_candidate_event(db: AsyncSession, event: CandidateMatchOutbox) -> 
         run_id=run_id,
         stage_ids=stage_ids,
     )
-    proposed = await _publish_proposals(
+    await _publish_proposals(
         db,
         decisions=final,
         scored_by_pair={(s.candidate_id, s.job_id): s for s in scored},
@@ -755,7 +653,6 @@ async def run_candidate_event(db: AsyncSession, event: CandidateMatchOutbox) -> 
         jobs_by_id=jobs_by_id,
         candidates_by_id={candidate.id: candidate},
     )
-    notified += await _notify_proposals(db, proposed=proposed, jobs_by_id=jobs_by_id)
     return {**_summary(final, notified), "pool": len(similarity), "run_id": run_id}
 
 
@@ -845,7 +742,7 @@ async def run_job_event(db: AsyncSession, event: CandidateMatchOutbox) -> dict:
         run_id=run_id,
         stage_ids=stage_ids,
     )
-    proposed = await _publish_proposals(
+    await _publish_proposals(
         db,
         decisions=final,
         scored_by_pair={(s.candidate_id, s.job_id): s for s in scored},
@@ -861,5 +758,4 @@ async def run_job_event(db: AsyncSession, event: CandidateMatchOutbox) -> dict:
         jobs_by_id={job.id: job},
         candidates_by_id={c.id: c for c in candidates},
     )
-    notified += await _notify_proposals(db, proposed=proposed, jobs_by_id={job.id: job})
     return {**_summary(final, notified), "pool": len(similarity), "run_id": run_id}

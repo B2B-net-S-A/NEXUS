@@ -50,7 +50,7 @@ from app.core.config import settings
 from app.core.scheduling import business_today
 from app.core.database import AsyncSessionLocal
 from app.models.job import Job
-from app.models.job_collaborator import JobCollaborator
+from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
 from app.models.notification import Notification, NotificationType
 from app.models.user import User
 from app.services.email import email_channel_enabled, send_email
@@ -103,10 +103,12 @@ async def _assigned_user_ids(db: AsyncSession, job: Job) -> list[int]:
         if uid:
             candidate_ids.add(uid)
 
+    # Uczestnicy z kategorii (`auto_cc`) nie dostają dzwonków rekrutacji (D7).
     rows = await db.execute(
         select(JobCollaborator.user_id)
         .where(JobCollaborator.job_id == job.id)
         .where(JobCollaborator.removed_from_auto_cc.is_(False))
+        .where(JobCollaborator.source != JobCollaboratorSource.auto_cc)
     )
     for (uid,) in rows.all():
         if uid:

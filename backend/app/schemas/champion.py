@@ -138,7 +138,14 @@ SEARCH_WORD_MAX_CHARS = 100
 
 def _search_words(values: Any) -> list[str]:
     """Słowa jednego wiersza: bez `|` (rozdziela słowa w adresie), pustych,
-    za krótkich i powtórek (bez wielkości liter), najwyżej 20."""
+    za krótkich i powtórek (bez wielkości liter), najwyżej 20.
+
+    Jednoliterowa technologia ze słownika („C”, „R”) nie jest „za krótka”,
+    a słowo ponad limit jest przycinane na granicy wyrazu (audyt 06.10.2026,
+    P4) — wspólna reguła z ``skill_normalize``.
+    """
+    from app.services.skill_normalize import cut_at_word, is_single_letter_skill
+
     if isinstance(values, str):
         values = [values]
     if not isinstance(values, list):
@@ -148,8 +155,13 @@ def _search_words(values: Any) -> list[str]:
     for raw in values:
         if not isinstance(raw, str):
             continue
-        word = " ".join(raw.replace("|", " ").split())[:SEARCH_WORD_MAX_CHARS].strip()
-        if len(word) < SEARCH_WORD_MIN_CHARS or word.casefold() in seen:
+        word = cut_at_word(
+            " ".join(raw.replace("|", " ").split()), SEARCH_WORD_MAX_CHARS
+        ).strip()
+        too_short = len(word) < SEARCH_WORD_MIN_CHARS and not is_single_letter_skill(
+            word
+        )
+        if too_short or word.casefold() in seen:
             continue
         seen.add(word.casefold())
         out.append(word)
