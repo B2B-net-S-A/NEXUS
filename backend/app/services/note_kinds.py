@@ -270,8 +270,55 @@ def classify(
     *,
     note_type: Optional[str] = None,
     external_source: Optional[str] = None,
+    author_is_dl: bool = False,
 ) -> str:
-    """Rodzaj notatki z jej treści, typu i pochodzenia."""
+    """Rodzaj notatki z jej treści, typu i pochodzenia.
+
+    ``author_is_dl`` — autor ma rolę Delivery Leada albo admina
+    (``client_rate_notes.DL_PAIR_AUTHOR_ROLES``); reguła sama autora nie zna,
+    podaje go wołający (``with_author``).
+    """
+    return with_author(
+        _classify(content, note_type=note_type, external_source=external_source),
+        content,
+        author_is_dl=author_is_dl,
+    )
+
+
+def author_matters(kind: str, content: Optional[str]) -> bool:
+    """Czy o rodzaju rozstrzyga jeszcze rola autora (07.10.2026).
+
+    Zwykła notatka z krótkim wpisem „X/Y” (``client_rate_notes.parse_dl_pair``)
+    jest parą stawek DL-a — X to stawka do klienta — ale tylko wtedy, gdy pisał
+    ją Delivery Lead albo admin; ten sam kształt u rekrutera bywa jego
+    notatką z rozmowy. Wołający pyta o autora tylko wtedy, gdy ta funkcja
+    zwraca ``True`` (jedno zapytanie przy zapisie, nie przy każdej notatce).
+    """
+    if kind != HUMAN:
+        return False
+    # Import leniwy: `client_rate_notes` importuje ten moduł.
+    from app.services.client_rate_notes import parse_dl_pair
+
+    return parse_dl_pair(content) is not None
+
+
+def with_author(kind: str, content: Optional[str], *, author_is_dl: bool) -> str:
+    """Rodzaj po uwzględnieniu autora: para „X/Y” DL-a/admina → ``dl_rate``.
+
+    Ta sama reguła co ``client_rate_notes.dl_pair_from_note``: notatkę, którą
+    system czyta jako stawkę do klienta, rekruter widzi zakrytą.
+    """
+    if author_is_dl and author_matters(kind, content):
+        return DL_RATE
+    return kind
+
+
+def _classify(
+    content: Optional[str],
+    *,
+    note_type: Optional[str] = None,
+    external_source: Optional[str] = None,
+) -> str:
     if external_source == REMARK_SOURCE:
         return DL_REVIEW
     if external_source == CARD_ASSIST_SOURCE:

@@ -2537,6 +2537,22 @@ Leada o stawce do klienta, 13% karty rekomendacji według wzoru rekruterów.
   (jednorazowe przeliczenie: `note_kind_backfill.reclassify_dl_rate_lists`,
   paragon `note_kind_dl_rate_lists_2026_10`). Nowa trasa oddająca
   treść notatki = `visible_note_content`.
+- **Wpis „X/Y” Delivery Leada albo admina jest `dl_rate` od zapisu**
+  (07.10.2026). Ta sama reguła co plan stawki do klienta
+  (`client_rate_notes.parse_dl_pair` + rola autora `DL_PAIR_AUTHOR_SQL`):
+  `note_kinds.classify(..., author_is_dl=)` → `with_author`, a autora
+  dociąga nasłuch w `models/note.py` (jedno zapytanie, tylko gdy
+  `author_matters`), `note_kind_backfill` (JOIN do `users`) i fragment
+  dzwonka wzmianki (`_mention_snippet`). Świadomie po AUTORZE, nie po samym
+  kształcie: ten sam „135/95” u rekrutera bywa notatką z rozmowy, a
+  `dl_rate` zawsze liczy się jako stawka do klienta w planie i „Stawce od”
+  — reguła bez autora obeszłaby bramkę z #2062. Pomiar 07.10.2026: 309
+  zwykłych notatek DL-a/admina (216 kandydatów) przeliczył jednorazowo
+  `note_kind_backfill.reclassify_dl_pair_human_notes` (paragon
+  `note_kind_dl_pair_human_2026_10` z id notatek, kandydaci pod
+  `repair_details_…`; usuwa zapisane podsumowania aktywności tych
+  kandydatów i zakrywa fragment w dzwonkach wzmianek). Poza zakresem: 83
+  takie wpisy rekruterów (często dawnych TAC) i HoR zostają widoczne.
 - **„Reply” z Traffita to odpowiedź na notatkę, nie mail** (3 955 wierszy):
   import nadaje jej typ `general`, istniejące zmienia jednorazowo
   `note_kind_schema.REPLY_RETYPE`. Jako mail liczyły się w follow-upie za
