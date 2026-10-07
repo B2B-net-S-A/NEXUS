@@ -21,7 +21,6 @@
   "recruiter+amounts_edit"
  ],
  "routes": {
-  "POST /api/recommendation-cards/note/apply": "PPPPPPDDPPPPPPPPPPP",
   "POST /api/recommendation-cards/note/read": "PPPPPPDDPPPPPPPPPPP",
   "POST /api/recommendation-cards/note/read-file": "PPPPPPDDPPPPPPPPPPP",
   "POST /api/recommendation-cards/phrase": "PPPPPPDDPPPPPPPPPPP"

@@ -94,10 +94,7 @@ from app.api.recruitment_access import (
     user_can_terminal_transition,
 )
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
-from app.services.hiring_manager_verdicts import (
-    puts_column_before_client,
-    veto_for_candidate_stage,
-)
+from app.services.hiring_manager_verdicts import puts_column_before_client
 from app.services.pipeline_eligibility import (
     assert_candidate_move_eligible,
     assert_candidates_move_eligible,
@@ -3036,7 +3033,7 @@ async def get_stage_screening(
     from app.services.screening_suggestions import suggestions_from_notes
 
     candidate = await db.get(Candidate, stage.candidate_id)
-    answers, source_stage_id = await _latest_filled_screening(db, stage)
+    answers, source_stage_id = await screening_sheets.latest_filled_sheet(db, stage)
     # Arkusze sprzed 02.10.2026 nie niosą tekstu pytań — dok i profil czytają
     # go z odpowiedzi, więc uzupełniamy z bieżącego profilu po identyfikatorze.
     answers = screening_sheets.with_question_texts(
@@ -3064,64 +3061,6 @@ async def get_stage_screening(
         # czyta się dalej na „Zweryfikowanym" (przegląd DL) i w rozmowie.
         "screening_source_stage_id": source_stage_id,
     }
-
-
-async def _latest_filled_screening(
-    db: AsyncSession, stage: CandidateStage, *, for_write: bool = False
-) -> tuple[Optional[dict], Optional[int]]:
-    """Arkusz screeningu etapu, a gdy pusty — najnowszy wypełniony tej pary
-    z próby procesu, do której należy etap (audyt 05.10.2026: karta osoby,
-    która wróciła po przerwie, nie pokazuje arkusza sprzed roku).
-
-    Wiersz poprzedniej próby (historia w „Zamkniętych”) czyta arkusze pary jak
-    dotąd; nowa próba (``attempt_no > 1``) — tylko od swojego początku.
-
-    ``for_write`` (audyt 06.10.2026, Q4): podstawa NOWEGO zapisu arkusza
-    (zapis screeningu, odpowiedzi z notatki) — ta sama reguła okna co ruch
-    karty (``screening_window``): proces zamknięty dawno temu nie przenosi
-    starego arkusza do nowej próby.
-    """
-    if _sheet_filled(stage.screening_answers):
-        return stage.screening_answers, None
-    from app.services.recommendation_cards import attempt_started  # noqa: PLC0415
-
-    process = await candidate_claim.load_process(
-        db, candidate_id=stage.candidate_id, job_id=stage.job_id
-    )
-    window = None
-    if for_write:
-        from app.services.recruitment_process_commands import (  # noqa: PLC0415
-            screening_window,
-        )
-
-        window = screening_window(process)
-        if not window.counts:
-            return stage.screening_answers or None, None
-    started = attempt_started(process)
-    if started is not None and stage.moved_at is not None:
-        if stage.moved_at < started:
-            started = None
-    rows = await db.execute(
-        select(
-            CandidateStage.id, CandidateStage.screening_answers, CandidateStage.moved_at
-        )
-        .where(
-            CandidateStage.candidate_id == stage.candidate_id,
-            CandidateStage.job_id == stage.job_id,
-            CandidateStage.id != stage.id,
-            CandidateStage.screening_answers.isnot(None),
-        )
-        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
-    )
-    for row_id, answers, moved_at in rows.all():
-        if not _sheet_filled(answers):
-            continue
-        if started is not None and (moved_at is None or moved_at < started):
-            continue
-        if window is not None and not window.covers(moved_at):
-            continue
-        return answers, row_id
-    return stage.screening_answers or None, None
 
 
 @router.post("/stages/{stage_id}/screening")
@@ -3179,7 +3118,9 @@ async def submit_stage_screening(
     if answers.answers and not _sheet_filled(previous):
         # Arkusz należy do pary — wiersz bez własnej kopii porównujemy
         # z najnowszym wypełnionym arkuszem tej pary.
-        previous, _ = await _latest_filled_screening(db, stage, for_write=True)
+        previous, _ = await screening_sheets.latest_filled_sheet(
+            db, stage, for_write=True
+        )
     job = await db.scalar(select(Job).where(Job.id == stage.job_id))
     # Zapis człowieka przejmuje arkusz z notatki (07.10.2026): odpowiedzi
     # `note_sync` stają się `note_import`, więc automat już ich nie poprawi.
@@ -3244,68 +3185,29 @@ async def submit_stage_screening(
 
 # ── Champion Card share tokens (Phase 12) ───────────────────────────────────
 
+# D2 (07.10.2026): z NEXUSA nic nie idzie do klienta — wszystko w formularzu
+# screeningu jest dla Delivery Leada. Wystawienie linku do karty Championa
+# odpowiada 410 bez sprawdzania rekrutacji (nic nie czyta ani nie zapisuje),
+# a migracja 0424 odwołała wszystkie tokeny. Odwołanie (DELETE) zostaje.
+CHAMPION_SHARE_REMOVED_MESSAGE = (
+    "Udostępnianie karty Championa klientowi zostało wyłączone — formularz "
+    "screeningu jest dla Delivery Leada, a CV do klienta wysyła DL."
+)
+
 
 @router.post("/stages/{stage_id}/share-token")
 async def create_share_token(
     stage_id: int,
     current_user: RecruiterPlus,
-    db: AsyncSession = Depends(get_db),
-    expires_in_days: int = Query(30, ge=1, le=365),
 ):
-    """Generate a shareable token for this CandidateStage's Champion card."""
-    import hashlib
-    import secrets
-    from datetime import timedelta
-
-    from app.models.champion_share import ChampionCardShareToken
-
-    stage = await db.scalar(select(CandidateStage).where(CandidateStage.id == stage_id))
-    if not stage:
-        raise HTTPException(status_code=404, detail="Stage not found")
-
-    # Resource scope: wystawienie linku dla klienta to działanie NA rekrutacji,
-    # nie ogólna operacja rekrutera. Bez tego członek zespołu oferty A mógł
-    # wygenerować działający, publiczny link do karty kandydata z oferty B.
-    await ensure_job_membership(db, current_user, stage.job_id)
-
-    # Same outbound gate as the CV share link — this card goes to the client too.
-    verdict = await veto_for_candidate_stage(db, candidate_stage_id=stage_id)
-    if verdict is not None:
-        raise HTTPException(
-            status_code=409,
-            detail=f"{verdict.as_polish_detail()} Nie wysyłaj mu go ponownie.",
-        )
-
-    # v2: the secret lives only in the URL and as a SHA-256 digest in the DB.
-    # The PK holds a non-secret revoke key, so a DB leak yields no working link.
-    raw_token = secrets.token_urlsafe(36)
-    revoke_key = f"v2${secrets.token_hex(16)}"
-    token_digest = hashlib.sha256(raw_token.encode()).hexdigest()
-    token = raw_token  # goes into the share URL
-    expires_at = datetime.now(timezone.utc) + timedelta(days=expires_in_days)
-    row = ChampionCardShareToken(
-        token=revoke_key,
-        token_sha256=token_digest,
-        candidate_stage_id=stage_id,
-        created_by=current_user.id,
-        expires_at=expires_at,
+    """Karta Championa dla klienta — wyłączona (410)."""
+    raise HTTPException(
+        status_code=410,
+        detail={
+            "code": "CHAMPION_SHARE_REMOVED",
+            "message": CHAMPION_SHARE_REMOVED_MESSAGE,
+        },
     )
-    db.add(row)
-    db.add(
-        Activity(
-            entity_type="candidate_stage",
-            entity_id=stage_id,
-            action="champion_share_created",
-            user_id=current_user.id,
-            details={"expires_at": expires_at.isoformat()},
-        )
-    )
-    await db.commit()
-    return {
-        "token": token,
-        "expires_at": expires_at.isoformat(),
-        "share_url_suffix": f"/share/champion-card/{token}",
-    }
 
 
 @router.delete("/stages/share-token/{token}")

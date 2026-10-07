@@ -21,8 +21,9 @@
   "recruiter+amounts_edit"
  ],
  "routes": {
-  "POST /api/admin/notes-insights/client-rates": "PDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/notes-insights/profile-fill": "PDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/notes-insights/sync": "PDDDDDDDDDDDDDDDDDD"
+  "GET /api/screening-form": "PPPPPPDDPPPPPPPPPPP",
+  "GET /api/screening-form/versions": "PPPPPPDDPPPPPPPPPPP",
+  "POST /api/screening-form/restore": "PPPPPPDDPPPPPPPPPPP",
+  "PUT /api/screening-form": "PPPPPPDDPPPPPPPPPPP"
  }
 }

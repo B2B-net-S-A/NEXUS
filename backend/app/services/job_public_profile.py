@@ -1,7 +1,8 @@
 """Publiczny opis rekrutacji: projekcja, status, kontrola i szkic AI.
 
 Projekcja publiczna (``public_job_payload``) to BIAŁA LISTA pól — wzór
-``public_share._public_champion_projection``. Nie czyta ani klienta, ani
+dawnej ``public_share._public_champion_projection`` (karta Championa dla
+klienta zniknęła w 0424). Nie czyta ani klienta, ani
 stawek, ani budżetu: nawet gdyby opis przeszedł kontrolę z nazwą klienta,
 kształt odpowiedzi nie ma dla niej pola. Kontrola treści
 (``public_profile_lint``) pilnuje tego, co rekruter napisał sam.

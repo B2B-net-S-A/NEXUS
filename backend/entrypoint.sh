@@ -880,6 +880,22 @@ except Exception as _rate_change_err:  # noqa: BLE001
     print(f"candidate rate change DDL unavailable: {_rate_change_err!r}")
     _RATE_CHANGE_DDL = []
 
+# Jeden formularz screeningu (migracja 0424): tabela historii wersji, CHECK
+# źródła zmiany stawki z `screening` (jawne DROP + ADD — `CREATE TABLE IF NOT
+# EXISTS` nie poszerzy istniejącego więzu) i odwołanie tokenów karty Championa
+# — JEDNO źródło z migracją (`app/services/screening_form_schema.py`).
+try:
+    from app.services import screening_form_schema as _screening_form
+
+    _SCREENING_FORM_DDL = list(_screening_form.TABLE_DDL)
+    _SCREENING_FORM_CONSTRAINTS = list(_screening_form.CONSTRAINT_DDL)
+    _SCREENING_FORM_DATA = list(_screening_form.DATA_DDL)
+except Exception as _screening_form_err:  # noqa: BLE001
+    print(f"screening form DDL unavailable: {_screening_form_err!r}")
+    _SCREENING_FORM_DDL = []
+    _SCREENING_FORM_CONSTRAINTS = []
+    _SCREENING_FORM_DATA = []
+
 # Dane z notatek do pól (migracja 0423): wyzwalacz kolejki „Stawki od” na
 # notatkach z wpisem „X/Y” i jednorazowe zakolejkowanie kandydatów — JEDNO
 # źródło z migracją (`app/services/notes_facts_schema.py`). CHECK źródła
@@ -949,6 +965,7 @@ _COLUMN_STATEMENTS = [
     *_APPLICATION_SCREENING_DDL,
     *_RATE_FROM_DDL,
     *_RATE_CHANGE_DDL,
+    *_SCREENING_FORM_DDL,
     *_NOTES_FACTS_DDL,
     *_MD_PRECISION_DDL,
     *_B2B_DOCUMENTS_DDL,
@@ -6200,6 +6217,8 @@ _DATA_STATEMENTS = [
     *_B2B_DOCUMENTS_BACKFILL,
     *_RATE_FROM_BACKFILL,
     *_NOTES_FACTS_BACKFILL,
+    # 0424: linki karty Championa dla klienta odwołane (D2) — idempotentne.
+    *_SCREENING_FORM_DATA,
     # 0412: „Reply” z Traffita to odpowiedź na notatkę, nie mail — jednorazowa
     # zmiana typu (znacznik w app_settings), bez ruszania `updated_at`.
     # Lustro `note_kind_schema.REPLY_RETYPE`.
@@ -8002,6 +8021,9 @@ _CONSTRAINT_STATEMENTS = [
     *_JOB_PROPOSAL_FEEDBACK_CONSTRAINTS,
     # 0422: status `expired` — JEDNO źródło z migracją (ten sam moduł).
     *_JOB_PROPOSAL_STATUS_CONSTRAINTS,
+    # 0424: źródło zmiany stawki `screening` — JEDNO źródło z migracją
+    # (`app/services/screening_form_schema.py`).
+    *_SCREENING_FORM_CONSTRAINTS,
     """DO $$ BEGIN
         ALTER TABLE candidates ADD CONSTRAINT ck_candidates_b2b_willingness
             CHECK (b2b_willingness IS NULL OR b2b_willingness IN ('b2b', 'would_switch', 'employment_only')) NOT VALID;

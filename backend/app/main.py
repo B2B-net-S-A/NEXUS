@@ -191,6 +191,7 @@ from app.api import application_screenings as application_screenings_api
 from app.api import recommendation_cards as recommendation_cards_api
 from app.api import recommendation_card_assist as recommendation_card_assist_api
 from app.api import candidate_rate_changes as candidate_rate_changes_api
+from app.api import screening_form as screening_form_api
 from app.api import job_similar as job_similar_api
 from app.api import plain_brief as plain_brief_api
 from app.api import plain_brief_refresh as plain_brief_refresh_api
@@ -1667,6 +1668,8 @@ app.include_router(
 app.include_router(
     candidate_rate_changes_api.router, prefix="/api", tags=["rate-changes"]
 )
+# 0424: jeden formularz screeningu (arkusz + karta + stawka) z historią wersji.
+app.include_router(screening_form_api.router, prefix="/api", tags=["screening-form"])
 app.include_router(job_similar_api.router, prefix="/api", tags=["similar-jobs"])
 app.include_router(plain_brief_api.router, prefix="/api", tags=["plain-brief"])
 app.include_router(plain_brief_refresh_api.router, prefix="/api", tags=["plain-brief"])
@@ -2902,6 +2905,7 @@ async def api_health_deep_check():
     from app.models.application_screening import ApplicationScreening
     from app.models.recommendation_card import RecommendationCard
     from app.models.candidate_rate_change import CandidateRateChange
+    from app.models.screening_form_version import ScreeningFormVersion
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -3136,6 +3140,9 @@ async def api_health_deep_check():
         # 0418: każda zmiana stawki kandydata w procesie (debrief, panel osoby,
         # profil) zapisuje sprawę — brak tabeli = 500 przy zapisie stawki.
         ("candidate_rate_changes", CandidateRateChange),
+        # 0424: każdy zapis formularza screeningu dopisuje wersję — brak
+        # tabeli = 500 przy otwarciu i zapisie formularza.
+        ("screening_form_versions", ScreeningFormVersion),
     ]
 
     checks: dict[str, str] = {}
