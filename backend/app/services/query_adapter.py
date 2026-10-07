@@ -67,14 +67,20 @@ def active() -> Optional[_Adapter]:
     if adapter is None:
         return None
     if adapter.model != settings.VOYAGE_MODEL:
-        # Macierz uczona na wektorach innego modelu nic nie znaczy.
-        logger.warning(
-            "[query_adapter] model macierzy %s ≠ %s — adapter wyłączony",
-            adapter.model,
-            settings.VOYAGE_MODEL,
-        )
+        # Macierz uczona na wektorach innego modelu nic nie znaczy. Ostrzeżenie
+        # raz na proces — `active()` woła się na gorących ścieżkach oceny.
+        _warn_model_mismatch(adapter.model, settings.VOYAGE_MODEL)
         return None
     return adapter
+
+
+@lru_cache(maxsize=4)
+def _warn_model_mismatch(matrix_model: str, active_model: str) -> None:
+    logger.warning(
+        "[query_adapter] model macierzy %s ≠ %s — adapter wyłączony",
+        matrix_model,
+        active_model,
+    )
 
 
 def version_tag() -> str:
