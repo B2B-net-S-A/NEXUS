@@ -134,6 +134,11 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     # przyczyny („czeka na podpis" vs „po trzech próbach karta do DL").
     "backend/app/services/order_mail_recheck.py",
     "backend/app/services/order_mail_recheck_reasons.py",
+    # Stawki z rekrutacji (D7, 08.10.2026): reguła porównania i źródło —
+    # instrukcja opisuje powód „stawka różni się od stawki z rekrutacji”
+    # i co zrobić po renegocjacji.
+    "backend/app/services/recruitment_rate_check.py",
+    "backend/app/services/recruitment_rates.py",
     # Limit 10 stron OCR i komunikat o nieczytelnym skanie — instrukcja
     # podaje oba wprost, a plik zmienia się rzadko.
     "backend/app/services/cv_text_extractor.py",

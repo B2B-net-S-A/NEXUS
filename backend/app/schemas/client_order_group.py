@@ -26,6 +26,7 @@ from pydantic import (
 from app.models.contract import RateUnit
 from app.models.order_type import OrderType
 from app.schemas.client_executive_contract import ExecutiveContractBrief
+from app.schemas.client_order import RecruitmentRateRead
 from app.services.multi_consultant_orders import (
     CONSUMPTION_STATUSES,
     INPUT_MODES,
@@ -1140,6 +1141,12 @@ class OrderPlanContractRead(BaseModel):
     ten sam tekst, który dostaje karta z odznaką „Zakończył współpracę".
     Wybór takiego kontraktu z listy („kilka osób") nie może po cichu wznowić
     współpracy: karta przechodzi w pytanie zostaw / wznów / zastąp / usuń."""
+
+    recruitment_rate: Optional[RecruitmentRateRead] = None
+    """Stawki z rekrutacji tej osoby (D7): stawka do klienta, za którą DL ją
+    wysłał (punkt odniesienia dla stawki przychodowej linii), i stawka
+    kandydata. `null` bez podglądu kwot klienta. Różnica = ostrzeżenie na
+    karcie, nigdy blokada zapisu."""
 
 
 class OrderPlanLineRead(BaseModel):

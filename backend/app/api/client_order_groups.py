@@ -21,6 +21,7 @@ Delivery Leada tylko u klientów z przypisania.
 from __future__ import annotations
 
 import io
+import logging
 import re
 from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
@@ -115,6 +116,7 @@ from app.services.access_scope import (
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.permission_denial import permission_denied
 from app.schemas.client_executive_contract import ExecutiveContractBrief
+from app.schemas.client_order import RecruitmentRateRead
 from app.schemas.client_order_group import (
     ConsultantOptionRead,
     ConsultantOptionsResponse,
@@ -331,6 +333,8 @@ from app.services.order_settlements import (
     assert_order_has_no_settlements,
     settlement_blockers,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     dependencies=[*DELIVERY_SECTION_DEPENDENCIES, *DELIVERY_CLIENT_SCOPE_DEPENDENCIES]
@@ -2703,7 +2707,10 @@ async def list_consultant_options_for_client(
 
 
 def _plan_contract_read(
-    option: Optional[PlanContractOption], *, with_finance: bool
+    option: Optional[PlanContractOption],
+    *,
+    with_finance: bool,
+    recruitment: Optional[dict[int, RecruitmentRateRead]] = None,
 ) -> Optional[OrderPlanContractRead]:
     if option is None:
         return None
@@ -2726,7 +2733,62 @@ def _plan_contract_read(
         rate_cost_currency=rate.currency if rate else None,
         rate_cost_rate_to_pln=rate.rate_to_pln if rate else None,
         rate_cost_per_md_pln=rate.per_md_pln if rate else None,
+        recruitment_rate=(
+            (recruitment or {}).get(option.contract_id) if with_finance else None
+        ),
     )
+
+
+async def _plan_recruitment_rates(
+    db: AsyncSession, user: User, lines: list
+) -> dict[int, RecruitmentRateRead]:
+    """Stawki z rekrutacji (D7) dla kontraktów z kart okna — jedno zbiorcze odczytanie.
+
+    Podpowiedź, nie warunek: awaria odczytu zostawia karty bez linii
+    „Z rekrutacji…”.
+    """
+    from app.api.candidate_access import user_can_view_client_rate
+    from app.services import recruitment_rates
+
+    contract_ids = sorted(
+        {
+            option.contract_id
+            for line in lines
+            for option in [line.contract, *line.options]
+            if option is not None
+        }
+    )
+    if not contract_ids:
+        return {}
+    try:
+        async with db.begin_nested():
+            rows = (
+                await db.execute(
+                    select(
+                        Contract.id,
+                        Contract.candidate_id,
+                        Contract.job_id,
+                        Contract.client_id,
+                    ).where(Contract.id.in_(contract_ids))
+                )
+            ).all()
+            found = await recruitment_rates.for_contracts(
+                db,
+                [
+                    recruitment_rates.ContractKey(
+                        contract_id=cid, candidate_id=cand, job_id=job, client_id=cl
+                    )
+                    for cid, cand, job, cl in rows
+                ],
+            )
+    except Exception:  # noqa: BLE001 — podpowiedź, nie warunek odczytu
+        logger.exception("order_groups: stawki z rekrutacji niedostępne")
+        return {}
+    show_client_rate = user_can_view_client_rate(user)
+    return {
+        cid: RecruitmentRateRead(**rate.as_dict(show_client_rate=show_client_rate))
+        for cid, rate in found.items()
+    }
 
 
 @router.post(
@@ -2785,6 +2847,7 @@ async def extract_order_group_pdf(
     extraction = reading.extraction
     applied_policies = reading.applied_policies
     with_finance = await _can_see_finance(db, user, client_id)
+    recruitment = await _plan_recruitment_rates(db, user, lines) if with_finance else {}
     reasons = list(extraction.uncertain_reasons)
     if not with_finance:
         # Swobodne powody modelu potrafią cytować kwoty — jak w `/orders/extract`.
@@ -2825,9 +2888,13 @@ async def extract_order_group_pdf(
                 end_date=line.end_date,
                 match_status=line.match_status,
                 match_reason=line.match_reason,
-                contract=_plan_contract_read(line.contract, with_finance=with_finance),
+                contract=_plan_contract_read(
+                    line.contract, with_finance=with_finance, recruitment=recruitment
+                ),
                 options=[
-                    _plan_contract_read(option, with_finance=with_finance)
+                    _plan_contract_read(
+                        option, with_finance=with_finance, recruitment=recruitment
+                    )
                     for option in line.options
                 ],
                 nearest_names=line.nearest_names,

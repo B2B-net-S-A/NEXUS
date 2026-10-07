@@ -1,8 +1,10 @@
 """Najnowsza stawka do klienta pary (kandydat, rekrutacja).
 
 Stawkę wpisuje Delivery Lead przy wysyłce CV („CV wysłane”), na wierszu etapu.
-Czytają ją kolejka przeglądu DL, podpowiedzi formularza umowy i szkic
-zamówienia zakładany przy podpisie — jedna reguła: najnowszy wiersz etapu
+Stawka do klienta jest punktem odniesienia dla zamówienia klienta (przychód);
+do umowy idzie stawka kandydata. Czytają ją kolejka przeglądu DL, podpowiedzi
+formularza umowy (tylko do wglądu) i porównanie ze stawką w zamówieniu
+(``recruitment_rates``, D7 08.10.2026) — jedna reguła: najnowszy wiersz etapu
 z wpisaną stawką.
 """
 

@@ -1,4 +1,4 @@
 {
-  "sha256": "81bb60f76c47697415daf2b0646cd14db9706414fe8c24b656fbbf3096a9de9d",
+  "sha256": "27f78ee6963b02408de44e69a3f12de85c9dae7a50fcdce0143e2dc40510a276",
   "source": "frontend/src/components/client-profile/orders/OrderPlanLineCard.tsx"
 }

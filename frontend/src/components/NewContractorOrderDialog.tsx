@@ -6,6 +6,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { AlertTriangle, FileSearch, Search } from "lucide-react";
 import { FileDropZone } from "@/components/ds/FileDropZone";
 import { OrderTypeSwitch } from "@/components/orders/OrderTypeSwitch";
+import { RecruitmentRateHint } from "@/components/orders/RecruitmentRateHint";
 import {
   OrderCurrencySelect,
   OrderRateUnitToggle,
@@ -14,6 +15,7 @@ import {
 } from "@/components/orders/OrderRateUnitToggle";
 import { useToast } from "@/components/Toast";
 import { dlPortalApi } from "@/lib/api/dlPortal";
+import { fetchRecruitmentRates } from "@/lib/api/recruitmentRates";
 import type { OrderRateUnit, OrderType } from "@/lib/api/dlPortal";
 import api, { extractErrorMsg } from "@/lib/api";
 import {
@@ -373,6 +375,21 @@ export function NewContractorOrderDialog({
       const payload = r.data;
       return Array.isArray(payload) ? payload : payload?.items ?? [];
     },
+  });
+
+  // Stawki z rekrutacji (D7): podpowiedź „Z rekrutacji…” pod stawkami.
+  // Tylko odczyt — różnica nie blokuje zapisu, a awaria zapytania chowa linię.
+  const selectedCandidateId = selectedCandidate?.id ?? null;
+  const { data: recruitmentLookup } = useQuery({
+    queryKey: ["recruitment-rates", clientId, selectedCandidateId, jobId || null],
+    queryFn: () =>
+      fetchRecruitmentRates(
+        clientId,
+        selectedCandidateId as number,
+        jobId ? Number(jobId) : null,
+      ),
+    enabled: canManageFinance && selectedCandidateId != null,
+    staleTime: 60_000,
   });
 
   // Autofill USUNIĘTY: ta wartość jest pokazywana na karcie klienta jako
@@ -881,6 +898,20 @@ export function NewContractorOrderDialog({
                   )}
                 </div>
               )}
+
+              <RecruitmentRateHint
+                rate={recruitmentLookup?.rate}
+                revenue={{
+                  value: rateClient,
+                  unit: rateUnit,
+                  currency: rateClientCurrency,
+                }}
+                cost={{
+                  value: rateCandidate,
+                  unit: rateUnit,
+                  currency: rateCandidateCurrency,
+                }}
+              />
 
               <div className="space-y-3">
                 <OrderRateUnitToggle

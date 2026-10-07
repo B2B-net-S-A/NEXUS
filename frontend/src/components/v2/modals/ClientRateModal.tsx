@@ -143,7 +143,7 @@ export function ClientRateModal({
           </FormField>
           <p className="text-xs text-muted-foreground">
             {required
-              ? "Bez stawki nie przeniesiesz na „CV wysłane” — trafi do umowy i zamówienia."
+              ? "Bez stawki nie przeniesiesz na „CV wysłane”. Stawka do klienta jest punktem odniesienia dla zamówienia klienta; do umowy idzie stawka kandydata."
               : "Możesz pominąć i uzupełnić stawkę później z profilu kandydata (zakładka „Rekrutacje”)."}
           </p>
         </DialogBody>

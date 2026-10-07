@@ -1552,6 +1552,55 @@ def _applied_policy_names(row: OrderMailDocument) -> tuple[str, ...]:
     )
 
 
+async def _recruitment_client_rates(db, proposal) -> dict:
+    """contract_id → stawka do klienta z rekrutacji (D7) dla wierszy planu.
+
+    Dociągane przy KAŻDEJ ocenie bramką, więc godzinowa ponowna weryfikacja
+    widzi stawkę poprawioną w rekrutacji bez osobnego kroku. Awaria odczytu
+    nie może zatrzymać dokumentu — porównanie jest kontrolą, nie warunkiem.
+    """
+    from app.models.contract import Contract
+    from app.services import recruitment_rates
+
+    contract_ids = sorted(
+        {r.contract_id for r in proposal.rows if r.contract_id is not None}
+    )
+    if not contract_ids:
+        return {}
+    try:
+        async with db.begin_nested():
+            contracts = (
+                await db.execute(
+                    select(
+                        Contract.id,
+                        Contract.candidate_id,
+                        Contract.job_id,
+                        Contract.client_id,
+                    ).where(Contract.id.in_(contract_ids))
+                )
+            ).all()
+            found = await recruitment_rates.for_contracts(
+                db,
+                [
+                    recruitment_rates.ContractKey(
+                        contract_id=cid,
+                        candidate_id=cand,
+                        job_id=job,
+                        client_id=client,
+                    )
+                    for cid, cand, job, client in contracts
+                ],
+            )
+    except Exception:  # noqa: BLE001 — porównanie stawek jest tylko kontrolą
+        logger.exception("order_mail: stawki z rekrutacji niedostępne")
+        return {}
+    return {
+        cid: ref
+        for cid, rate in found.items()
+        if (ref := rate.client_ref()) is not None
+    }
+
+
 async def _plan_and_gate(db, row, extraction, doc, policies, client_id, method) -> None:
     """Dopasuj osoby do rostera, zaplanuj zapis, oceń bramką; zapisz na wierszu."""
     proposal, resolved, current_rates = await current_proposal(
@@ -1562,6 +1611,7 @@ async def _plan_and_gate(db, row, extraction, doc, policies, client_id, method) 
         if policy.extract_rows is not None:
             det_rows = policy.extract_rows(doc.text)
             break
+    recruitment_rates = await _recruitment_client_rates(db, proposal)
     verdict = evaluate(
         GateInput(
             identification_method=method,
@@ -1580,6 +1630,7 @@ async def _plan_and_gate(db, row, extraction, doc, policies, client_id, method) 
             proposal=proposal,
             deterministic_rows=tuple(det_rows),
             current_rates=current_rates,
+            recruitment_rates=recruitment_rates,
             autoapply_enabled=settings.ORDER_MAIL_AUTOAPPLY_ENABLED,
             excluded_client_ids=client_ids_from_env(
                 "ORDER_MAIL_AUTOAPPLY_EXCLUDE_CLIENT_IDS"

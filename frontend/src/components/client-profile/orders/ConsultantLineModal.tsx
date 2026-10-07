@@ -1,11 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, FileSearch } from "lucide-react";
 
 import { OrderCurrencySelect } from "@/components/orders/OrderRateUnitToggle";
 import { AppModal, FileDropZone } from "@/components/ds";
 import { dlPortalApi } from "@/lib/api/dlPortal";
+import { fetchRecruitmentRates } from "@/lib/api/recruitmentRates";
+import { lineRevenueWarning } from "@/lib/recruitment-rate-hint";
 import {
   extractionErrorMessage,
   findConflicts,
@@ -277,6 +280,19 @@ export function ConsultantLineModal({
   };
 
   const targetCandidateId = line?.candidate_id ?? person?.candidate_id ?? null;
+  // D7: stawka do klienta z rekrutacji tej osoby u klienta — ostrzeżenie pod
+  // stawką przychodową, nigdy blokada zapisu. Awaria zapytania chowa notkę.
+  const { data: recruitmentLookup } = useQuery({
+    queryKey: ["recruitment-rates", clientId, targetCandidateId, null],
+    queryFn: () => fetchRecruitmentRates(clientId, targetCandidateId as number),
+    enabled: open && targetCandidateId != null,
+    staleTime: 60_000,
+  });
+  const recruitmentWarning = lineRevenueWarning(recruitmentLookup?.rate, {
+    value: rateRevenue,
+    unit: revenueUnit,
+    currency: revenueCurrency,
+  });
   const missingProfileName = person
     ? !person.first_name?.trim() && !person.last_name?.trim()
       ? "imię i nazwisko"
@@ -992,6 +1008,15 @@ export function ConsultantLineModal({
               <p role="status" className="mt-1 text-xs text-primary">
                 Z dokumentu: {grossConversion.gross} PLN/h brutto →{" "}
                 {grossConversion.net} PLN/h netto (brutto ÷ 1,23)
+              </p>
+            ) : null}
+            {recruitmentWarning ? (
+              <p
+                role="status"
+                className="mt-1 flex items-start gap-1.5 text-xs text-warning-muted-foreground"
+              >
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                {recruitmentWarning}
               </p>
             ) : null}
           </div>

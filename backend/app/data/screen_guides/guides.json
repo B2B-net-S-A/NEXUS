@@ -85,7 +85,7 @@
       }
     ],
     "pitfalls": [
-      "Wysłanie na „CV wysłane” poza Nordeą robi tylko osoba z uprawnieniem do wysyłki CV do klienta (domyślnie Delivery Lead i admin), podając w tym samym kroku stawkę do klienta. Cofnięcie karty z „Rozmowy u klienta” tego nie wymaga. Gdy Delivery Lead cofnie kartę z „QC CV” do poprawy, rekruter dostaje powiadomienie z jego uwagą — uwaga jest też w notatkach kandydata.",
+      "Wysłanie na „CV wysłane” poza Nordeą robi tylko osoba z uprawnieniem do wysyłki CV do klienta (domyślnie Delivery Lead i admin), podając w tym samym kroku stawkę do klienta. Cofnięcie karty z „Rozmowy u klienta” tego nie wymaga. Gdy Delivery Lead cofnie kartę z „QC CV” do poprawy, rekruter dostaje powiadomienie z jego uwagą — uwaga jest też w notatkach kandydata. Stawka do klienta jest punktem odniesienia dla zamówienia klienta; do umowy idzie stawka kandydata.",
       "Wejście na „Zweryfikowany” wymaga odpowiedzi z formularza screeningu i stawki kandydata, wyjście z „Rozmowy u klienta” — debriefu (pytań klienta albo potwierdzenia, że ich nie było), a ręczny ruch na „Zatrudniony” — informacji, jak podpisano umowę.",
       "Bez zielonego QC CV kandydat nie przejdzie na „CV wysłane” ani do kolejki Cpro (u Nordei wrzuca osoba od Cpro wyznaczona dla firmy, a gdy jej nie ma — osoba wskazana w rekrutacji). QC zatrzymuje tylko cztery rzeczy: brak CV firmowego, umiejętności krytyczne nieopisane w rolach, treść spoza oryginalnego CV i reguły klienta — reszta to uwagi. Przepuścić mimo QC może osoba z uprawnieniem do wysyłki CV do klienta, wybierając powód. Powrót z „Zamkniętych” tego nie omija.",
       "Osobę dodaną ręcznie przez 12 godzin (w Nowych i Screeningu) prowadzi tylko osoba, która ją wzięła — przejąć mogą Delivery Lead, Head of Recruitment i admin."
@@ -561,7 +561,8 @@
     "pitfalls": [
       "„Zastosuj” ignoruje wyłącznik automatu — zapisujesz świadomie jako człowiek.",
       "Stawka w walucie innej niż PLN zawsze wymaga ręcznej weryfikacji.",
-      "Wiersz z datą od późniejszą niż data do czeka jako „Do weryfikacji – błędny okres” — „Zastosuj” go nie zapisze; okres wpisz w oknie zamówienia klienta."
+      "Wiersz z datą od późniejszą niż data do czeka jako „Do weryfikacji – błędny okres” — „Zastosuj” go nie zapisze; okres wpisz w oknie zamówienia klienta.",
+      "Stawka z zamówienia inna niż stawka do klienta, za którą Delivery Lead wysłał osobę w rekrutacji, czeka w „Do weryfikacji”. To sprawdzenie, nie blokada: gdy klient przyjął inną stawkę, kliknij „Zastosuj” i popraw stawkę do klienta w rekrutacji."
     ],
     "anchors": [
       {
@@ -614,8 +615,8 @@
     "pitfalls": [
       "Umowy podpisanej obustronnie nie da się anulować — kończy się ją statusem „Zakończona”.",
       "PESEL, numer dowodu i adres zamieszkania nie są zapisywane — przy ponownym pobraniu takiego dokumentu formularz poprosi o nie jeszcze raz.",
-      "Zawiesić („Umowy bez projektu”) można tylko umowę aktywną.",
-      "Zakończenie kontraktu w module Kontrakty przestawia umowę samo: z rozwiązaniem umowy trafia do „Zakończonych umów”, bez rozwiązania — do „Umów bez projektu”."
+      "Zawiesić („Umowy bez projektu”) można tylko umowę aktywną. Zakończenie kontraktu w module Kontrakty przestawia umowę samo: z rozwiązaniem umowy trafia do „Zakończonych umów”, bez rozwiązania — do „Umów bez projektu”.",
+      "Notka pod „Stawka godz. (netto)” mówi, że wpisana stawka różni się od stawki kandydata z rekrutacji. To tylko sprawdzenie — umowę wygenerujesz z każdą stawką; do umowy idzie stawka kandydata, a stawka do klienta jest punktem odniesienia dla zamówienia."
     ],
     "anchors": [
       {"id": "contracts.b2b_generator.tabs", "label": "Zakładki generatora", "describe": "Generator, Umowy bieżące, Umowy bez projektu, Zakończone umowy, Generator aneksów, Dokumenty."},
