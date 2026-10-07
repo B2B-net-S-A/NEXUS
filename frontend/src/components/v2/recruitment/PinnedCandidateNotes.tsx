@@ -30,7 +30,17 @@ interface PinnedNote {
 export const pinnedNotesQueryKey = (candidateId: number) =>
   [...candidateQueryKeys.notes(candidateId), "pinned"] as const;
 
-export function PinnedCandidateNotes({ candidateId }: { candidateId: number }) {
+export function PinnedCandidateNotes({
+  candidateId,
+  collapsed = false,
+}: {
+  candidateId: number;
+  /**
+   * Zwinięte do jednej linii (0424): w panelu z formularzem screeningu
+   * przy 1280×720 każda linia wysokości się liczy — przypięte rozwija klik.
+   */
+  collapsed?: boolean;
+}) {
   const query = useQuery<{ items?: PinnedNote[] }>({
     queryKey: pinnedNotesQueryKey(candidateId),
     queryFn: ({ signal }) =>
@@ -58,25 +68,43 @@ export function PinnedCandidateNotes({ candidateId }: { candidateId: number }) {
   const items = query.data?.items ?? [];
   if (items.length === 0) return null;
 
+  const list = items.map((note) => (
+    <div
+      key={note.id}
+      className="flex gap-2 rounded-lg border border-primary/40 bg-primary/5 px-2.5 py-2 text-xs"
+    >
+      <Pin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" aria-label="Przypięta" />
+      <div className="min-w-0">
+        <p className="line-clamp-3 whitespace-pre-line text-foreground">
+          {note.content_rendered ?? note.content}
+        </p>
+        <p className="mt-0.5 text-muted-foreground">
+          {note.author_name ?? "Nieznany autor"} · {formatDate(note.created_at)}
+          {note.job_title ? ` · ${note.job_title}` : ""}
+        </p>
+      </div>
+    </div>
+  ));
+
+  if (collapsed) {
+    return (
+      <details
+        aria-label="Przypięte notatki"
+        className="rounded-lg border border-primary/40 bg-primary/5 text-xs"
+        data-testid="pinned-notes-collapsed"
+      >
+        <summary className="flex cursor-pointer items-center gap-1.5 px-2.5 py-1.5 font-medium text-foreground">
+          <Pin className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
+          Przypięte notatki ({items.length})
+        </summary>
+        <div className="space-y-1.5 px-1.5 pb-1.5">{list}</div>
+      </details>
+    );
+  }
+
   return (
     <section aria-label="Przypięte notatki" className="space-y-1.5">
-      {items.map((note) => (
-        <div
-          key={note.id}
-          className="flex gap-2 rounded-lg border border-primary/40 bg-primary/5 px-2.5 py-2 text-xs"
-        >
-          <Pin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" aria-label="Przypięta" />
-          <div className="min-w-0">
-            <p className="line-clamp-3 whitespace-pre-line text-foreground">
-              {note.content_rendered ?? note.content}
-            </p>
-            <p className="mt-0.5 text-muted-foreground">
-              {note.author_name ?? "Nieznany autor"} · {formatDate(note.created_at)}
-              {note.job_title ? ` · ${note.job_title}` : ""}
-            </p>
-          </div>
-        </div>
-      ))}
+      {list}
     </section>
   );
 }

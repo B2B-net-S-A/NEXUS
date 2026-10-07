@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 
 import type { RecommendationCard } from "@/lib/api/recommendationCards";
 
-import { RecommendationCardForm } from "../RecommendationCardDialog";
+import { RecommendationCardFullView } from "../RecommendationCardDialog";
 import { RecommendationCardQuestions, RecommendationCardView } from "../RecommendationCardView";
 
 const LABELS = {
@@ -44,90 +44,48 @@ const CARD: RecommendationCard = {
   legacy_text: "Imię i nazwisko: Tomasz Wzorcowy\nStawka: 135 zł/h",
 };
 
-describe("RecommendationCardView", () => {
-  it("pokazuje wartości, braki i liczbę odpowiedzi", () => {
-    render(<RecommendationCardView card={CARD} onSave={vi.fn()} />);
+describe("RecommendationCardView (0424: tylko do odczytu)", () => {
+  it("pokazuje wartości, braki i liczbę odpowiedzi — bez pól edycji", () => {
+    render(<RecommendationCardView card={CARD} />);
 
     expect(screen.getByText("135 zł/h")).toBeInTheDocument();
     expect(screen.getByText("1 z 2 odpowiedzi")).toBeInTheDocument();
     expect(screen.getByText("brak — ostatnio: polska")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Dopisz: Motywacja" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Zmień: Stawka" })).toBeInTheDocument();
     // „Notatka” ze wzoru działu ma na ekranie zrozumiałą nazwę.
-    expect(screen.getByRole("button", { name: "Dopisz: Dlaczego ten kandydat" })).toBeInTheDocument();
-  });
-
-  it("zapisuje jedno pole i podpowiada wartość z poprzedniej karty", () => {
-    const onSave = vi.fn();
-    render(<RecommendationCardView card={CARD} onSave={onSave} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Dopisz: Narodowość" }));
-    const input = screen.getByLabelText("Narodowość");
-    expect(input).toHaveValue("polska");
-    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
-
-    expect(onSave).toHaveBeenCalledWith({ nationality: "polska" });
-  });
-
-  it("nie zapisuje niezmienionej wartości", () => {
-    const onSave = vi.fn();
-    render(<RecommendationCardView card={CARD} onSave={onSave} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Zmień: Stawka" }));
-    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
-
-    expect(onSave).not.toHaveBeenCalled();
-  });
-
-  it("wyczyszczenie pola z notatki niczego nie wysyła", () => {
-    const onSave = vi.fn();
-    render(<RecommendationCardView card={CARD} onSave={onSave} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Zmień: Stawka" }));
-    fireEvent.change(screen.getByLabelText("Stawka"), { target: { value: "" } });
-    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
-
-    expect(onSave).not.toHaveBeenCalled();
-  });
-
-  it("wyczyszczenie pola wpisanego ręcznie zdejmuje je", () => {
-    const onSave = vi.fn();
-    const manual: RecommendationCard = {
-      ...CARD,
-      fields: { ...CARD.fields, rate: { raw: "150 zł/h", source: "manual" } },
-    };
-    render(<RecommendationCardView card={manual} onSave={onSave} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Zmień: Stawka" }));
-    fireEvent.change(screen.getByLabelText("Stawka"), { target: { value: "" } });
-    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
-
-    expect(onSave).toHaveBeenCalledWith({ rate: null });
-  });
-
-  it("w trybie tylko do odczytu nie ma przycisków edycji", () => {
-    render(<RecommendationCardView card={CARD} readOnly onSave={vi.fn()} />);
+    expect(screen.getByText("Dlaczego ten kandydat")).toBeInTheDocument();
+    // Pola karty wpisuje się w formularzu screeningu — tu nie ma edycji.
     expect(screen.queryByRole("button", { name: /Dopisz|Zmień/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("„Edytuj w screeningu” i „Otwórz całą kartę” wołają przekazane akcje", () => {
+    const onEditInScreening = vi.fn();
+    const onOpenFull = vi.fn();
+    render(<RecommendationCardView card={CARD} onEditInScreening={onEditInScreening} onOpenFull={onOpenFull} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Edytuj w screeningu/ }));
+    expect(onEditInScreening).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Otwórz całą kartę" }));
+    expect(onOpenFull).toHaveBeenCalledTimes(1);
+  });
+
+  it("bez akcji (tylko do odczytu) nie ma przycisków", () => {
+    render(<RecommendationCardView card={CARD} />);
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 });
 
-describe("RecommendationCardForm", () => {
+describe("RecommendationCardFullView", () => {
   it("pokazuje pytania, braki i tekst w starym formacie", () => {
     const onCopy = vi.fn();
-    render(
-      <RecommendationCardForm
-        card={CARD}
-        draft={{ rate: "135 zł/h" }}
-        onDraftChange={vi.fn()}
-        onCopy={onCopy}
-      />,
-    );
+    render(<RecommendationCardFullView card={CARD} onCopy={onCopy} />);
 
     expect(screen.getByText("1. Java 17+?")).toBeInTheDocument();
     expect(screen.getByText("odpowiedź z notatki")).toBeInTheDocument();
     expect(screen.getByText("brak odpowiedzi")).toBeInTheDocument();
     expect(screen.getByText(/Brakuje: Dostępność, Motywacja\./)).toBeInTheDocument();
     expect(screen.getByText(/Imię i nazwisko: Tomasz Wzorcowy/)).toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Kopiuj/ }));
     expect(onCopy).toHaveBeenCalled();
   });

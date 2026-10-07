@@ -196,7 +196,10 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
       "Odpowiedź na pytanie 1 narusza „Odpada, gdy…”.",
     );
     expect(screen.getByText("Odpada, gdy: mniej niż rok z Kafką")).toBeTruthy();
-    expect(screen.getByRole("checkbox", { name: "Odpowiedź narusza deal-breaker" })).toBeChecked();
+    // 0424: trafienie zaznacza rekruter w formularzu screeningu — przegląd
+    // pokazuje je tylko do odczytu.
+    expect(screen.queryByRole("checkbox", { name: "Odpowiedź narusza deal-breaker" })).toBeNull();
+    expect(screen.getAllByText("Odpowiedź narusza deal-breaker").length).toBeGreaterThan(0);
   });
 
   // Test na produkcji 03.10.2026: karta niżej mówiła „2 tygodnie”, a kafel

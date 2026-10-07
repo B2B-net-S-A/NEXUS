@@ -3,32 +3,23 @@
 // Publiczny harness karty rekomendacji (0413): zwarta karta z doku osoby,
 // cała karta z podglądem w starym formacie i plakietki na tablicy.
 // Dane fikcyjne, ZERO zapytań — komponenty prezentacyjne dostają kartę
-// propsem, „Zapisz” zmienia tylko stan strony.
-// `?state=complete` — karta gotowa, `?state=empty` — karta pusta,
-// `?state=readonly` — podgląd bez edycji, `?state=import` — karta z notatki
-// (wybór źródła i przegląd propozycji, 0421), `?state=phrase` — „Ułóż
-// w zdanie” w polach karty (zdania z gotowej listy, bez modelu).
+// propsem. Od 0424 (07.10.2026) karta jest TYLKO DO ODCZYTU: pola wpisuje
+// się w formularzu screeningu (`/preview/screening-form`, tam też karta
+// z notatki i „Ułóż w zdanie”). `?state=complete` — karta gotowa,
+// `?state=empty` — karta pusta, `?state=readonly` — bez „Edytuj w screeningu”.
 
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
-import type { PhraseController, PhraseSuggestionState } from "@/components/v2/screening/PhraseSuggestion";
-import { RecommendationCardForm } from "@/components/v2/screening/RecommendationCardDialog";
-import {
-  type NoteSource,
-  NoteSourceInput,
-  NoteSourceTiles,
-  RecommendationCardNoteReview,
-} from "@/components/v2/screening/RecommendationCardNoteImport";
+import { RecommendationCardFullView } from "@/components/v2/screening/RecommendationCardDialog";
 import {
   RecommendationCardQuestions,
   RecommendationCardStatus,
   RecommendationCardView,
 } from "@/components/v2/screening/RecommendationCardView";
-import type { NoteProposal, PhraseLanguage, RecommendationCard } from "@/lib/api/recommendationCards";
+import type { RecommendationCard } from "@/lib/api/recommendationCards";
 import { CARD_BADGE_TONE_CLASS } from "@/lib/board-card-badges";
 import { boardCardBadge } from "@/lib/recommendation-card";
-import { initialReviewState, selectedCount } from "@/lib/recommendation-card-note";
 
 const LABELS = {
   rate: "Stawka",
@@ -152,226 +143,13 @@ const BOARD = [
   { name: "Piotr Testowy", card: { status: "complete", missing: 0, answers: 3 }, attempts: 0 },
 ] as const;
 
-const PROPOSAL: NoteProposal = {
-  fields: [
-    {
-      key: "rate",
-      label: "Stawka",
-      current: "150 zł/h",
-      current_source: "note",
-      proposed: "165 zł/h netto B2B",
-      quote: "stawka 165 netto b2b, niżej nie zejdzie",
-      origin: "note_ai",
-      changed: true,
-    },
-    {
-      key: "availability",
-      label: "Dostępność",
-      current: null,
-      current_source: null,
-      proposed: "1 miesiąc wypowiedzenia, start od listopada",
-      quote: "wypow. miesiąc, start od listopada",
-      origin: "note_ai",
-      changed: true,
-    },
-    {
-      key: "work_mode",
-      label: "Tryb pracy",
-      current: null,
-      current_source: null,
-      proposed: "Hybrydowo, do 2 dni w biurze w Warszawie",
-      quote: "hybryda ok, max 2 dni w wawie",
-      origin: "note_ai",
-      changed: true,
-    },
-    {
-      key: "location",
-      label: "Lokalizacja",
-      current: "Warszawa",
-      current_source: "note",
-      proposed: "Warszawa",
-      quote: null,
-      origin: "note_rule",
-      changed: false,
-    },
-    {
-      key: "nationality",
-      label: "Narodowość",
-      current: null,
-      current_source: null,
-      proposed: "polska",
-      quote: null,
-      origin: "note_rule",
-      changed: true,
-    },
-    {
-      key: "recommendation",
-      label: "Dlaczego ten kandydat",
-      current: null,
-      current_source: null,
-      proposed:
-        "Kandydat ma 6 lat doświadczenia w Javie i Springu, z czego 4 lata w projektach bankowych (płatności).",
-      quote: "6y java spring, 4 lata banki - płatności",
-      origin: "note_ai",
-      changed: true,
-    },
-  ],
-  answers: [
-    {
-      question_id: "q1",
-      number: 1,
-      question: "Czy pracujesz z Kafką?",
-      current: null,
-      keywords: "kafka 3 lata prod, eventy płatności, consumer groups",
-      sentence:
-        "Kandydat od 3 lat pracuje z Kafką na produkcji przy zdarzeniach płatności, korzysta z consumer groups.",
-      problem: null,
-    },
-    {
-      question_id: "q2",
-      number: 2,
-      question: "Ile dni w biurze akceptujesz?",
-      current: null,
-      keywords: "max 2 dni w wawie",
-      sentence: null,
-      problem: "listopada",
-    },
-  ],
-  available: true,
-  message: null,
-  language: "pl",
-  rate_change_notifies: true,
-  text: "notatka z rozmowy",
-};
-
-// „Ułóż w zdanie” bez modelu: zdania z gotowej listy po kluczu pola.
-const CANNED: Record<string, string> = {
-  recommendation:
-    "Kandydat ma 6 lat doświadczenia w Javie i Springu, w tym 4 lata w projektach bankowych.",
-  motivation: "Obecny projekt kandydata się kończy; szuka dłuższego kontraktu.",
-  red_flags: "Brak zastrzeżeń.",
-};
-
-function useFakePhrase(): PhraseController {
-  const [language, setLanguage] = useState<PhraseLanguage>("pl");
-  const [results, setResults] = useState<Record<string, PhraseSuggestionState>>({});
-  return {
-    language,
-    setLanguage,
-    results,
-    isPending: () => false,
-    request: async (items) =>
-      setResults((prev) => ({
-        ...prev,
-        ...Object.fromEntries(
-          items.map((item) => [
-            item.key,
-            {
-              key: item.key,
-              sentence: CANNED[item.key] ?? null,
-              problem: CANNED[item.key] ? null : "maju",
-              keywords: item.keywords,
-            },
-          ]),
-        ),
-      })),
-    dismiss: (key) =>
-      setResults((prev) => {
-        const next = { ...prev };
-        delete next[key];
-        return next;
-      }),
-  };
-}
-
-function ImportPreview() {
-  const [source, setSource] = useState<NoteSource>("text");
-  const [text, setText] = useState(
-    "stawka 165 netto b2b, niżej nie zejdzie\nwypow. miesiąc, start od listopada\nhybryda ok, max 2 dni w wawie\nkafka 3 lata prod, eventy płatności, consumer groups",
-  );
-  const [review, setReview] = useState(() => initialReviewState(PROPOSAL));
-  return (
-    <>
-      <section aria-labelledby="preview-import-source" className="space-y-2">
-        <h2 id="preview-import-source" className="text-sm font-semibold">
-          Karta z notatki — wybór źródła
-        </h2>
-        <div className="@container max-w-3xl space-y-3 rounded-lg border border-border bg-card p-4">
-          <NoteSourceTiles value={source} onChange={setSource} />
-          {source === "manual" ? (
-            <p className="text-xs text-muted-foreground">Tu stoi dotychczasowy formularz karty.</p>
-          ) : (
-            <NoteSourceInput
-              source={source}
-              file={null}
-              onFileChange={() => undefined}
-              text={text}
-              onTextChange={setText}
-              fileError={null}
-              onFileError={() => undefined}
-              reading={false}
-              onRead={() => undefined}
-            />
-          )}
-        </div>
-      </section>
-      <section aria-labelledby="preview-import-review" className="space-y-2">
-        <h2 id="preview-import-review" className="text-sm font-semibold">
-          Przegląd propozycji — „Zastosuj zaznaczone ({selectedCount(review)})”
-        </h2>
-        <div className="@container max-w-3xl rounded-lg border border-border bg-card p-4">
-          <RecommendationCardNoteReview
-            proposal={PROPOSAL}
-            state={review}
-            onChange={setReview}
-            sourceLabel="pliku notatka_wzorcowy.docx"
-          />
-        </div>
-      </section>
-    </>
-  );
-}
-
 function Harness() {
   const state = useSearchParams().get("state");
-  const initial = state === "complete" ? COMPLETE : state === "empty" ? EMPTY : PARTIAL;
+  const card = state === "complete" ? COMPLETE : state === "empty" ? EMPTY : PARTIAL;
   const readOnly = state === "readonly";
-  const [card, setCard] = useState(initial);
-  const [draft, setDraft] = useState<Record<string, string>>(
-    Object.fromEntries(card.editable_fields.map((key) => [key, String(card.fields[key]?.raw ?? "")])),
-  );
   const [copied, setCopied] = useState(false);
-  const fakePhrase = useFakePhrase();
-  const [phrased, setPhrased] = useState<Record<string, string>>({});
-
-  const save = (fields: Record<string, string | null>) =>
-    setCard((prev) => {
-      const next = { ...prev.fields };
-      for (const [key, value] of Object.entries(fields)) {
-        if (value) next[key] = { raw: value, source: "manual", by_name: "Marta Testowa" };
-        else delete next[key];
-      }
-      const missing = prev.completeness.missing.filter((key) => !next[key]);
-      return {
-        ...prev,
-        fields: next,
-        completeness: {
-          ...prev.completeness,
-          missing,
-          filled: prev.completeness.total - missing.length,
-          status: missing.length ? "partial" : "complete",
-        },
-      };
-    });
-
-  // „Odpowiedź narusza deal-breaker” — w podglądzie zmienia tylko stan strony.
-  const setDealBreakerHit = (questionId: string | number, hit: boolean) =>
-    setCard((prev) => ({
-      ...prev,
-      questions: prev.questions.map((q) =>
-        q.question_id === questionId ? { ...q, deal_breaker_hit: hit } : q,
-      ),
-    }));
+  const [editRequested, setEditRequested] = useState(false);
+  const editInScreening = readOnly ? undefined : () => setEditRequested(true);
 
   return (
     <main className="mx-auto max-w-6xl space-y-8 bg-background p-4 text-foreground md:p-8">
@@ -380,9 +158,12 @@ function Harness() {
         <p className="text-sm text-muted-foreground">
           Tomasz Wzorcowy · Senior Java Developer · Screening. Dane fikcyjne, nic nie jest zapisywane.
         </p>
+        {editRequested ? (
+          <p role="status" className="text-xs text-muted-foreground">
+            „Edytuj w screeningu” otwiera formularz screeningu w panelu osoby (podgląd: /preview/screening-form).
+          </p>
+        ) : null}
       </header>
-
-      {state === "import" ? <ImportPreview /> : null}
 
       <section aria-labelledby="preview-board" className="space-y-2">
         <h2 id="preview-board" className="text-sm font-semibold">
@@ -413,20 +194,16 @@ function Harness() {
           Zwarta karta w panelu osoby <RecommendationCardStatus card={card} />
         </h2>
         <div className="max-w-[380px] rounded-lg border border-border bg-card p-3">
-          <RecommendationCardView card={card} readOnly={readOnly} onSave={save} onOpenFull={() => undefined} />
+          <RecommendationCardView card={card} onOpenFull={() => undefined} onEditInScreening={editInScreening} />
         </div>
       </section>
 
       <section aria-labelledby="preview-deal-breaker" className="space-y-2">
         <h2 id="preview-deal-breaker" className="text-sm font-semibold">
-          Pytania z „Odpada, gdy…” (przegląd Delivery Leada)
+          Pytania z „Odpada, gdy…” (przegląd Delivery Leada — tylko do odczytu)
         </h2>
         <div className="max-w-xl rounded-lg border border-border bg-card p-3">
-          <RecommendationCardQuestions
-            card={card}
-            editable={!readOnly}
-            onDealBreakerHitChange={setDealBreakerHit}
-          />
+          <RecommendationCardQuestions card={card} editable={false} />
         </div>
       </section>
 
@@ -435,19 +212,7 @@ function Harness() {
           Cała karta
         </h2>
         <div className="@container rounded-lg border border-border bg-card p-4">
-          <RecommendationCardForm
-            card={card}
-            readOnly={readOnly}
-            draft={draft}
-            onDraftChange={(key, value) => setDraft((prev) => ({ ...prev, [key]: value }))}
-            onCopy={() => setCopied(true)}
-            phrase={state === "phrase" ? fakePhrase : undefined}
-            phrasedKeys={new Set(Object.keys(phrased))}
-            onUsePhrase={(key, sentence, keywords) => {
-              setDraft((prev) => ({ ...prev, [key]: sentence }));
-              setPhrased((prev) => ({ ...prev, [key]: keywords }));
-            }}
-          />
+          <RecommendationCardFullView card={card} onCopy={() => setCopied(true)} />
           {copied ? (
             <p role="status" className="mt-2 text-xs text-muted-foreground">
               Skopiowano kartę w starym formacie.

@@ -210,6 +210,7 @@ export function FilePreviewContent({
   hidePdfSidebar: _hidePdfSidebar = false,
   findShortcutScope = "container",
   loadDocumentBlob = fetchDocumentBlob,
+  searchRequest = null,
 }: {
   doc: CandidateDocument | null;
   candidateId: number;
@@ -223,6 +224,10 @@ export function FilePreviewContent({
   // Źródło bajtów — domyślnie proxy backendu. Harness `/preview/cv-search`
   // podaje pliki statyczne, bo nie może wołać API.
   loadDocumentBlob?: typeof fetchDocumentBlob;
+  // Szukanie zlecone z zewnątrz (0424: chip wymagania obok formularza
+  // screeningu wpisuje technologię w „Szukaj w CV”). `nonce` pozwala
+  // powtórzyć to samo słowo po ręcznej zmianie pola.
+  searchRequest?: { text: string; nonce: number } | null;
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const docxHostRef = useRef<HTMLDivElement | null>(null);
@@ -240,6 +245,10 @@ export function FilePreviewContent({
   const [findResult, setFindResult] =
     useState<DocumentFindResult>(EMPTY_FIND_RESULT);
   const [docxActiveIndex, setDocxActiveIndex] = useState(0);
+
+  useEffect(() => {
+    if (searchRequest) setQuery(searchRequest.text);
+  }, [searchRequest]);
 
   const kind = doc ? previewKind(doc) : "unsupported";
   // PDF ma własny pasek w `SearchablePdfPreview`; tu pasek dla DOCX i obrazu

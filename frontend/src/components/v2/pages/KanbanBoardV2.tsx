@@ -77,7 +77,7 @@ import { ScreeningSheet } from"@/components/v2/modals/ScreeningSheet";
 import { useToast } from"@/components/Toast";
 import { SlotRequestDialog } from "@/components/calendar/cycle/SlotDialogs";
 import { DlReviewBody } from "@/components/v2/recruitment/DlReviewPanel";
-import { PersonPanelShell } from "@/components/v2/person/PersonPanelShell";
+import { PersonPanelShell, type PersonPanelSize } from "@/components/v2/person/PersonPanelShell";
 import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
 import { MoveNextDialog } from "@/components/v2/recruitment/MoveNextDialog";
 import { dockNavigationOrder } from "@/lib/board-dock-order";
@@ -86,7 +86,6 @@ import {
  MOVE_REQUIREMENTS_PREFIX,
  type MoveRequirementAction,
 } from "@/lib/api/moveRequirements";
-import { RecommendationCardDialog } from "@/components/v2/screening/RecommendationCardDialog";
 import { fetchDlReviewRow, type BoardTaskRow } from "@/lib/api/boardTasks";
 import type { PairInfo } from "@/lib/interview-cycle";
 import {
@@ -1676,7 +1675,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const [moveNextOpen, setMoveNextOpen] = useState(false);
  const moveNextSuspended = useRef(false);
  const [qcStageId, setQcStageId] = useState<number | null>(null);
- const [cardFor, setCardFor] = useState<{ candidateId: number; name: string } | null>(null);
  const [debriefFor, setDebriefFor] = useState<{ eventId: number; name: string } | null>(null);
  const openMoveNext = useCallback(
  (item: KanbanItem, srcColId: string, target: KanbanColumn) => {
@@ -1775,9 +1773,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // wiersz). Po candidate_id dok „podąża" za kandydatem przez ruchy bez żadnej
  // dodatkowej synchronizacji.
  const [dockCandidateId, setDockCandidateId] = useState<number | null>(null);
- const openDock = useCallback((item: KanbanItem) => {
- setDockCandidateId(item.candidate_id);
- }, []);
  const closeDock = useCallback(() => setDockCandidateId(null), []);
  // Pełne narzędzia osoby (dawny warsztat „Tabeli") — od 04.10.2026 to
  // rozwinięty panel osoby („Rozwiń”), nie osobne okno. `open: false` =
@@ -1795,6 +1790,22 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  setDockCandidateId(candidateId);
  setWorkbench({ candidateId, section, open: true });
  }, []);
+ // 0424 (D3 „od razu z boku”): osoba z „Nowych” i „Screeningu” otwiera się
+ // od razu w panelu dzielonym — formularz screeningu (albo profil przed
+ // telefonem) i CV obok. „Zwiń” wraca do doku 380 px. Bez kontekstu
+ // warsztatów (harness, testy tablicy) zostaje sam dok.
+ const canSplit = Boolean(workbenchContext && kanbanQueryState);
+ const openDock = useCallback(
+ (item: KanbanItem) => {
+ const key = columnByItemId.get(item.id);
+ if (canSplit && (key === "new" || key === "screening")) {
+ openWorkbench(item.candidate_id, "screening");
+ return;
+ }
+ setDockCandidateId(item.candidate_id);
+ },
+ [canSplit, columnByItemId, openWorkbench]
+ );
  useEffect(() => {
  onDockCandidateChange?.(dockCandidateId);
  }, [dockCandidateId, onDockCandidateChange]);
@@ -1887,10 +1898,27 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  stageDefId: number;
  stageName: string;
  } | null>(null);
+ // Formularz screeningu w oknie — tylko bez panelu osoby (harness, testy).
  const [screeningPrompt, setScreeningPrompt] = useState<{
- stageId: number;
+ candidateId: number;
  candidateName: string;
  } | null>(null);
+ // 0424: „Screening” na karcie, „Otwórz arkusz” / „Uzupełnij w screeningu”
+ // z listy braków i odmowa „Zweryfikowany” bez arkusza otwierają JEDEN
+ // formularz screeningu — w panelu osoby, na sekcji „Screening”.
+ const openScreeningFor = useCallback(
+ (item: KanbanItem) => {
+ if (canSplit) {
+ openWorkbench(item.candidate_id, "screening");
+ return;
+ }
+ setScreeningPrompt({
+ candidateId: item.candidate_id,
+ candidateName: itemFullName(item),
+ });
+ },
+ [canSplit, openWorkbench]
+ );
  // „Usuń z rekrutacji" — korekta (dodano nie tego kandydata / nie na tę
  // ofertę). Modal potwierdzenia trzyma board, karta tylko sygnalizuje intencję.
  const [pendingRemoval, setPendingRemoval] = useState<KanbanItem | null>(null);
@@ -2046,13 +2074,11 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  },
  // 409 CV_QC_FAILED (także z przeciągnięcia) → okno QC CV tej pary.
  onCvQcFailed: (failure, item) => setQcStageId(failure.stageId ?? item.id),
- // D1 (04.10.2026): „Zweryfikowany” bez arkusza → arkusz screeningu tej pary.
+ // D1 (04.10.2026): „Zweryfikowany” bez arkusza albo stawki → formularz
+ // screeningu tej pary (0424: arkusz i stawka są w jednym miejscu).
  onVerifiedRequirementsMissing: (info, item) => {
- if (!info.missing.includes("screening_sheet")) return;
- setScreeningPrompt({
- stageId: info.screeningStageId ?? item.id,
- candidateName: itemFullName(item),
- });
+ if (info.missing.length === 0) return;
+ openScreeningFor(item);
  },
  });
  const { requestMove, requestReject } = move;
@@ -2177,9 +2203,17 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  });
  }, []);
 
- const handleOpenScreening = useCallback((stageId: number, name: string) => {
- setScreeningPrompt({ stageId, candidateName: name });
- }, []);
+ // Karta i dok podają wiersz etapu — osobę szukamy na Tablicy (ref, żeby
+ // kolumny nie dostawały nowej funkcji przy każdym odświeżeniu tablicy).
+ const colsRef = useRef(cols);
+ colsRef.current = cols;
+ const handleOpenScreening = useCallback(
+ (stageId: number) => {
+ const item = colsRef.current.flatMap((c) => c.items).find((i) => i.id === stageId);
+ if (item) openScreeningFor(item);
+ },
+ [openScreeningFor]
+ );
 
  const handleOpenScorecard = useCallback(
  (item: KanbanItem, col: KanbanColumn) => {
@@ -2609,6 +2643,15 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // 04.10.2026). `resumeMoveNext` bez zawieszenia tylko odświeża wymagania.
  const wideBefore = useRef(false);
  const panelWide = workbenchOpen || reviewOpen;
+ // Szerokość panelu osoby: przegląd DL i rozwinięte narzędzia — 760 px,
+ // formularz screeningu z podglądem obok — panel dzielony (0424).
+ const panelSize: PersonPanelSize = reviewOpen
+ ? "wide"
+ : workbenchOpen
+ ? activeWorkbench?.section === "screening"
+ ? "split"
+ : "wide"
+ : "dock";
  useEffect(() => {
  if (wideBefore.current && !panelWide) resumeMoveNext();
  wideBefore.current = panelWide;
@@ -2666,16 +2709,16 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  switch (action.kind) {
  case "open_screening":
  suspendMoveNext();
- setScreeningPrompt({ stageId, candidateName: name });
+ openScreeningFor(item);
  return;
  case "open_qc":
  suspendMoveNext();
  setQcStageId(stageId);
  return;
  case "open_card":
- // 0413: braki karty rekomendacji — cała karta w oknie.
+ // 0424: pola karty rekomendacji są w formularzu screeningu.
  suspendMoveNext();
- setCardFor({ candidateId: item.candidate_id, name });
+ openScreeningFor(item);
  return;
  case "reject":
  // Odpowiedź narusza „Odpada, gdy…" — okno odrzucenia z notatką od
@@ -2749,7 +2792,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  return;
  }
  },
- [suspendMoveNext, boardFold, cols, requestMove, requestReject, rejectedTemplateCol, workbenchContext, jobId, jobTitle, clientId, canAddClientSlots, openDlReviewIfSending, showInfo, openWorkbench]
+ [suspendMoveNext, boardFold, cols, requestMove, requestReject, rejectedTemplateCol, workbenchContext, jobId, jobTitle, clientId, canAddClientSlots, openDlReviewIfSending, showInfo, openWorkbench, openScreeningFor]
  );
  const handleMoveNextMove = useCallback(
  (target: KanbanColumn) => {
@@ -2808,9 +2851,20 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  if (current < 0) return;
  const next = current + delta;
  if (next < 0 || next >= dockOrder.length) return;
- setDockCandidateId(dockOrder[next]);
+ const nextId = dockOrder[next];
+ // 0424: w panelu dzielonym „‹ ›” po „Nowych” i „Screeningu” zostaje przy
+ // formularzu — rekruter przechodzi kolejkę bez zwijania panelu.
+ if (panelSize === "split") {
+ const nextItem = cols.flatMap((c) => c.items).find((i) => i.candidate_id === nextId);
+ const key = nextItem ? columnByItemId.get(nextItem.id) : null;
+ if (key === "new" || key === "screening") {
+ openWorkbench(nextId, "screening");
+ return;
+ }
+ }
+ setDockCandidateId(nextId);
  },
- [dockOrder, dockIndex]
+ [dockOrder, dockIndex, panelSize, cols, columnByItemId, openWorkbench]
  );
 
  const boardEntries = useMemo(
@@ -3174,7 +3228,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
 
  {((dockItem && dockItemColLabel !== null) || dlReviewTask) && (
  <PersonPanelShell
- wide={reviewOpen || workbenchOpen}
+ size={panelSize}
  chromeTop={chromeTop}
  // Klik w tło zamyka najwyższą warstwę: przegląd, rozwinięcie, kartę.
  onBackdropClick={reviewOpen ? closeDlReview : workbenchOpen ? collapseWorkbench : closeDock}
@@ -3242,6 +3296,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  : undefined
  }
  expanded={workbenchOpen}
+ split={panelSize === "split"}
  onToggleExpanded={workbenchContext && kanbanQueryState ? toggleWorkbench : undefined}
  hidePrimaryMove={
  workbenchOpen &&
@@ -3272,6 +3327,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  cproEnabled,
  budgetHourly: jobBudgetHourlyValue ?? null,
  kanbanQueryState,
+ onTake: readOnly ? undefined : (item) => void takeCandidate(item),
  }}
  />
  ) : null
@@ -3320,21 +3376,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  onHandToCpro={handleHandToCpro}
  onAction={handleMoveNextAction}
  />
- {cardFor ? (
- <RecommendationCardDialog
- open
- onOpenChange={(next) => {
- if (!next) {
- setCardFor(null);
- resumeMoveNext();
- }
- }}
- candidateId={cardFor.candidateId}
- jobId={jobId}
- candidateName={cardFor.name}
- readOnly={readOnly}
- />
- ) : null}
  <CvQcDialog
  stageId={qcStageId}
  open={qcStageId !== null}
@@ -3393,12 +3434,13 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  setScreeningPrompt(null);
  resumeMoveNext();
  }}
- stageId={screeningPrompt.stageId}
+ candidateId={screeningPrompt.candidateId}
+ jobId={jobId}
  candidateName={screeningPrompt.candidateName}
- onSubmitted={() => {
- setScreeningPrompt(null);
- resumeMoveNext();
- }}
+ jobBudgetHourly={jobBudgetHourlyValue ?? null}
+ readOnly={readOnly}
+ // Zapis zamyka okno (`onOpenChange`), a ono wraca do „Przesuń dalej”.
+ onMoved={() => void refreshBoardFromServer()}
  />
  )}
 

@@ -1,136 +1,146 @@
 /**
- * Arkusz screeningu: odrzucony zapis MUSI być widoczny.
+ * Panel „Formularz screeningu” (zakładka „Rozmowy”, Tablica bez warsztatów):
+ * odrzucony zapis MUSI być widoczny.
  *
- * Mutacja miała tylko `onSuccess`, a modal zamyka się wyłącznie przy sukcesie —
- * więc widocznym efektem 403/422 było: spinner leci, spinner staje, sheet dalej
- * otwarty, przycisk znowu mówi „Zapisz screening". Nie do odróżnienia od
- * kliknięcia, które nie zadziałało.
- *
- * 403 jest tu DETERMINISTYCZNE, nie kapryśne: bramka odczytu jest szersza niż
- * bramka zapisu (`GET .../screening` = CandidatePIIAccess, `POST` = RecruiterPlus),
- * więc Head of Recruitment otwiera arkusz i nie może go zapisać — za każdym razem.
- * Screening niesie flagi `deal_breaker_hit`, które wykluczają kandydata
- * z shortlisty klienta, więc cicho utracony zapis kosztuje kandydata.
+ * Panel zamyka się wyłącznie przy sukcesie, więc bez komunikatu 403/422
+ * wyglądałoby jak kliknięcie, które nie zadziałało — a wpisane odpowiedzi
+ * (z flagami deal-breaker) przepadłyby po zamknięciu. Od 0424 panel renderuje
+ * ten sam formularz co panel osoby (`ScreeningFullForm`, `PUT /api/screening-form`).
  */
-import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { ScreeningFormState } from "@/lib/api/screeningForm";
+import { FORM_CANDIDATE_ID, FORM_JOB_ID, formSaveResult, formState } from "@/test/fixtures/screening-form";
+
 const mocks = vi.hoisted(() => ({
-  getForStage: vi.fn(),
-  submit: vi.fn(),
+  get: vi.fn(),
+  put: vi.fn(),
   showError: vi.fn(),
+  showSuccess: vi.fn(),
+  canWrite: true,
 }));
 
-vi.mock("@/lib/api", () => ({
-  screeningApi: {
-    getForStage: (...a: unknown[]) => mocks.getForStage(...a),
-    submit: (...a: unknown[]) => mocks.submit(...a),
-  },
-  // Prawdziwa funkcja jest osobno przetestowana; tu liczy się, że jej wynik
-  // trafia na ekran, a nie że go poprawnie sformatowała.
-  extractErrorMsg: (e: unknown) =>
-    (e as { response?: { data?: { detail?: string } } }).response?.data?.detail ??
-    "Błąd",
-}));
+vi.mock("@/lib/api", () => {
+  const client = {
+    get: (...a: unknown[]) => mocks.get(...a),
+    put: (...a: unknown[]) => mocks.put(...a),
+    post: vi.fn(),
+  };
+  return {
+    __esModule: true,
+    default: client,
+    api: client,
+    candidatesApi: { update: vi.fn() },
+    screeningApi: {
+      reassignContext: () =>
+        Promise.resolve({ data: { stage_id: 0, available: false, source: null, previous_answers_count: 0 } }),
+      reassignSuggestions: vi.fn(),
+    },
+  };
+});
 
+vi.mock("@/hooks/usePipelineMoveCore", () => ({
+  usePipelineMoveCore: () => ({ send: vi.fn(), dialogs: null }),
+}));
+vi.mock("@/hooks/useCapability", () => ({ useCapability: () => true }));
+vi.mock("@/lib/section-access", () => ({ hasSectionAccess: () => mocks.canWrite }));
 vi.mock("@/components/Toast", () => ({
-  useToast: () => ({ showError: mocks.showError }),
+  useToast: () => ({
+    showError: mocks.showError,
+    showSuccess: mocks.showSuccess,
+    showInfo: vi.fn(),
+    showActionToast: vi.fn(),
+  }),
 }));
 
 import { ScreeningSheet } from "@/components/v2/modals/ScreeningSheet";
 
-const QUESTION = "Czy pracowałeś z Kafką?";
-
-function stageResponse() {
-  return {
-    data: {
-      stage_id: 1,
-      candidate_id: 2,
-      job_id: 3,
-      champion_profile: {
-        screening_questions: [
-          {
-            id: "q1",
-            question: QUESTION,
-            ideal_answer: "Tak, produkcyjnie",
-            deal_breaker: "Brak doświadczenia",
-          },
-        ],
-      },
-      screening_answers: {
-        answers: [
-          { question_id: "q1", response: "Tak, 3 lata", deal_breaker_hit: false },
-        ],
-        overall_fit: "fit",
-        notes: "",
-      },
-    },
-  };
-}
+let serverState: ScreeningFormState;
 
 function httpError(status: number, detail: string) {
-  return Object.assign(new Error(`HTTP ${status}`), {
-    response: { status, data: { detail } },
-  });
+  return Object.assign(new Error(`HTTP ${status}`), { response: { status, data: { detail } } });
 }
 
-function renderSheet() {
+function renderSheet(onOpenChange = vi.fn()) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
   });
-  return render(
+  render(
     <QueryClientProvider client={client}>
       <ScreeningSheet
         open
-        onOpenChange={vi.fn()}
-        stageId={1}
+        onOpenChange={onOpenChange}
+        candidateId={FORM_CANDIDATE_ID}
+        jobId={FORM_JOB_ID}
         candidateName="Jan Kowalski"
       />
     </QueryClientProvider>,
   );
+  return onOpenChange;
 }
 
 beforeEach(() => {
-  mocks.getForStage.mockReset();
-  mocks.submit.mockReset();
+  mocks.get.mockReset();
+  mocks.put.mockReset();
   mocks.showError.mockReset();
-  mocks.getForStage.mockResolvedValue(stageResponse());
+  mocks.showSuccess.mockReset();
+  mocks.canWrite = true;
+  serverState = formState({
+    sheet: { answers: [{ question_id: "q1", response: "Tak, 3 lata", deal_breaker_hit: false }], overall_fit: "fit", notes: "" },
+    version: 1,
+    versions_count: 1,
+  });
+  mocks.get.mockImplementation((url: string) =>
+    url === "/api/screening-form"
+      ? Promise.resolve({ data: serverState })
+      : Promise.resolve({ data: { items: [], total: 0 } }),
+  );
 });
 
-describe("ScreeningSheet — nieudany zapis", () => {
+describe("ScreeningSheet — formularz screeningu w panelu", () => {
   it("403 z bramki zapisu pokazuje powód i zostawia odpowiedzi w formularzu", async () => {
     const detail = "Requires one of roles: ['recruiter']";
-    mocks.submit.mockRejectedValue(httpError(403, detail));
+    mocks.put.mockRejectedValue(httpError(403, detail));
+    const onOpenChange = renderSheet();
+    expect(await screen.findByText("Formularz screeningu")).toBeInTheDocument();
 
-    renderSheet();
-
-    const submit = await screen.findByRole("button", { name: /Zapisz screening/ });
-    await userEvent.click(submit);
+    const [first] = await screen.findAllByLabelText("Odpowiedź");
+    await userEvent.type(first, " produkcyjnie");
+    await userEvent.click(screen.getByRole("button", { name: /^Zapisz$/ }));
 
     await waitFor(() =>
-      expect(screen.getByRole("alert")).toHaveTextContent(
-        /Nie udało się zapisać screeningu/,
-      ),
+      expect(
+        screen.getAllByRole("alert").some((el) => /Nie udało się zapisać screeningu/.test(el.textContent ?? "")),
+      ).toBe(true),
     );
-    expect(screen.getByRole("alert")).toHaveTextContent(detail);
-    expect(mocks.showError).toHaveBeenCalledWith(detail);
+    // Surowa lista ról z `require_roles` dochodzi do ludzi po polsku.
+    expect(mocks.showError).toHaveBeenCalledWith(
+      "Nie masz uprawnień do tej operacji — poproś administratora o dostęp.",
+    );
     // Dane rekrutera nie mogą zniknąć razem z odrzuconym zapisem.
-    expect(screen.getByDisplayValue("Tak, 3 lata")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Tak, 3 lata produkcyjnie")).toBeInTheDocument();
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
   });
 
-  it("udany zapis nie zostawia komunikatu o błędzie", async () => {
-    mocks.submit.mockResolvedValue({ data: { match_percent: 80 } });
+  it("udany zapis zamyka panel bez komunikatu o błędzie", async () => {
+    mocks.put.mockImplementation(() => Promise.resolve({ data: formSaveResult(serverState) }));
+    const onOpenChange = renderSheet();
+    const [first] = await screen.findAllByLabelText("Odpowiedź");
+    await userEvent.type(first, " produkcyjnie");
+    await userEvent.click(screen.getByRole("button", { name: /^Zapisz$/ }));
 
-    renderSheet();
-
-    const submit = await screen.findByRole("button", { name: /Zapisz screening/ });
-    await userEvent.click(submit);
-
-    await waitFor(() => expect(mocks.submit).toHaveBeenCalled());
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(mocks.put).toHaveBeenCalledWith("/api/screening-form", expect.objectContaining({ expected_version: 1 }));
     expect(mocks.showError).not.toHaveBeenCalled();
+  });
+
+  it("bez prawa zapisu w sekcji Pipeline formularz jest tylko do odczytu", async () => {
+    mocks.canWrite = false;
+    renderSheet();
+    expect(await screen.findByTestId("screening-form-readonly")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Zapisz$/ })).toBeNull();
   });
 });

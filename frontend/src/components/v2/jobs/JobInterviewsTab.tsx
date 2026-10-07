@@ -4,10 +4,14 @@
  * Krok 07 „Rozmowy i decyzja" — program „flow w języku C2" (PR 7/7).
  *
  * Zbiera w jednym miejscu to, co dziś jest rozrzucone: kto jest u klienta
- * (kanban), prep-kit (własna strona), Screening Championa dla klienta (modal
- * + link 30-dniowy), weto hiring managera (chip na karcie + 409 przy ruchu)
- * i decyzję (modale odrzucenia). Żadna z tych rzeczy nie znika ze swojego
- * miejsca — ta zakładka je CYTUJE i linkuje.
+ * (kanban), prep-kit (własna strona), formularz screeningu (okno), weto
+ * hiring managera (chip na karcie + 409 przy ruchu) i decyzję (modale
+ * odrzucenia). Żadna z tych rzeczy nie znika ze swojego miejsca — ta
+ * zakładka je CYTUJE i linkuje.
+ *
+ * 0424 (D2, 07.10.2026): z NEXUSA nic nie idzie do klienta — przycisk
+ * „Karta Championa dla klienta” i link 30-dniowy zniknęły (serwer odpowiada
+ * na tworzenie linku 410).
  *
  * Dane pipeline'u przychodzą PROPSEM z tego samego zapytania `["kanban", id]`,
  * którym strona karmi tablicę. Zero zapytań per wiersz.
@@ -21,7 +25,6 @@ import {
   CalendarClock,
   ExternalLink,
   FileText,
-  Link2,
   Loader2,
   Save,
   Sparkles,
@@ -47,7 +50,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState, QueryStateNotice } from "@/components/ds";
 import { cn, formatDate } from "@/lib/utils";
-import { copyTextToClipboard } from "@/lib/clipboard";
 import { countPl } from "@/lib/plural-pl";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { terminalOf } from "@/lib/kanban-terminal";
@@ -83,7 +85,6 @@ import {
   WorkbenchHeader,
   WorkbenchRail,
 } from "@/components/v2/jobs/workbench-chrome";
-import { OneTimeLinkField } from "@/components/v2/jobs/OneTimeLinkField";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 
 const DECISION_OPTIONS: { value: HiringManagerDecision; label: string }[] = [
@@ -140,7 +141,7 @@ export function JobInterviewsTab({
     null,
   );
   const [screeningFor, setScreeningFor] = useState<{
-    stageId: number;
+    candidateId: number;
     name: string;
   } | null>(null);
   const [showOriginalCv, setShowOriginalCv] = useState(false);
@@ -150,9 +151,6 @@ export function JobInterviewsTab({
     terminal: "rejected" | "withdrawn";
     entry: SelectedEntry;
   } | null>(null);
-  // Linki do karty Championa utworzone w tej sesji, po `candidate_id` —
-  // sekret wraca raz, a karta rozmowy montuje się od nowa po zapisie werdyktu.
-  const [championLinks, setChampionLinks] = useState<Record<number, string>>({});
 
   // ── Kto jest u klienta ──────────────────────────────────────────────
   const interviewColumns = useMemo(
@@ -371,14 +369,9 @@ export function JobInterviewsTab({
               isSuccess: feedbackQuery.isSuccess,
             })}
             onFeedbackRetry={() => void feedbackQuery.refetch()}
-            onOpenScreening={(stageId, name) =>
-              setScreeningFor({ stageId, name })
+            onOpenScreening={(candidateId, name) =>
+              setScreeningFor({ candidateId, name })
             }
-            championLinkUrl={championLinks[selected.item.candidate_id] ?? null}
-            onChampionLinkCreated={(url) => {
-              const candidateId = selected.item.candidate_id;
-              setChampionLinks((prev) => ({ ...prev, [candidateId]: url }));
-            }}
           />
   );
   const decisionDock = !selected ? null : (
@@ -410,8 +403,11 @@ export function JobInterviewsTab({
         <ScreeningSheet
           open
           onOpenChange={(o) => !o && setScreeningFor(null)}
-          stageId={screeningFor.stageId}
+          candidateId={screeningFor.candidateId}
+          jobId={jobId}
           candidateName={screeningFor.name}
+          jobBudgetHourly={budgetHourly}
+          readOnly={readOnly}
         />
       )}
 
@@ -660,11 +656,11 @@ export function JobInterviewsTab({
                 </span>
               </Link>
               <RailRow
-                label="Screening Championa dla klienta"
-                meta="arkusz"
+                label="Formularz screeningu"
+                meta="otwórz"
                 onSelect={() =>
                   setScreeningFor({
-                    stageId: selected.item.id,
+                    candidateId: selected.item.candidate_id,
                     name:
                       `${selected.item.name ?? ""} ${selected.item.lastname ?? ""}`.trim() ||
                       "Kandydat",
@@ -725,10 +721,8 @@ interface InterviewCardProps {
   canRecord: boolean | null;
   feedbackQueryState: ReturnType<typeof resolveViewState>;
   onFeedbackRetry: () => void;
-  onOpenScreening: (stageId: number, name: string) => void;
-  /** Adres linku do karty Championa utworzonego dla tego kandydata (albo brak). */
-  championLinkUrl: string | null;
-  onChampionLinkCreated: (url: string) => void;
+  /** Formularz screeningu pary (okno). */
+  onOpenScreening: (candidateId: number, name: string) => void;
   /** Aktualny budżet PLN/h rekrutacji — pigułka „Stawka ponad budżet". */
   budgetHourly: number | null;
   /** `"panel"` — bez nagłówka kroku; pigułki i akcja w zwartym pasku. */
@@ -747,8 +741,6 @@ function InterviewCard({
   feedbackQueryState,
   onFeedbackRetry,
   onOpenScreening,
-  championLinkUrl,
-  onChampionLinkCreated,
   budgetHourly,
   layout = "full",
 }: InterviewCardProps) {
@@ -802,7 +794,7 @@ function InterviewCard({
     onError: (e) => showError(extractErrorMsg(e) || "Nie udało się zapisać"),
   });
 
-  // Screening Championa — skrót wyniku i link dla klienta.
+  // Formularz screeningu — skrót wyniku (wszystko w nim jest dla zespołu).
   const screeningQuery = useQuery({
     queryKey: ["pipeline-stage-screening", item.id],
     queryFn: () => screeningApi.getForStage(item.id).then((r) => r.data),
@@ -810,45 +802,6 @@ function InterviewCard({
   });
   const answers = screeningQuery.data?.screening_answers ?? null;
 
-  // Sekret linku wraca JEDEN raz — adres zostaje na karcie, a „skopiowany"
-  // pada tylko po udanym zapisie do schowka (lustro kroku 06). Adres trzyma
-  // RODZIC: karta montuje się od nowa po zapisie werdyktu (klucz niesie id
-  // feedbacku), a lokalny stan zabrałby ze sobą jedyną kopię sekretu.
-  const shareMutation = useMutation({
-    mutationFn: () => screeningApi.createShareToken(item.id, 30),
-    onSuccess: async (res) => {
-      const suffix = res.data?.share_url_suffix;
-      if (!suffix) {
-        showError("Serwer nie zwrócił adresu linku do karty Championa.");
-        return;
-      }
-      const url = `${window.location.origin}${suffix}`;
-      onChampionLinkCreated(url);
-      if (await copyTextToClipboard(url)) {
-        showSuccess("Link do karty Championa skopiowany (ważny 30 dni).");
-      } else {
-        showError(
-          "Link do karty Championa utworzony (ważny 30 dni), ale nie udało się go skopiować — skopiuj go z pola na karcie.",
-        );
-      }
-    },
-    onError: (e) =>
-      showError(extractErrorMsg(e) || "Nie udało się utworzyć linku"),
-  });
-
-  // Prep-kit ma JEDNO wejście w tym kroku (szyna / dok) — drugi link o tym
-  // samym adresie obok nagłówka kazałby zgadywać, czym się różnią.
-  const headerAction = !readOnly ? (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => shareMutation.mutate()}
-              loading={shareMutation.isPending}
-              title="Link do karty Championa dla klienta — ważny 30 dni"
-            >
-              <Link2 className="h-3.5 w-3.5" /> Karta Championa dla klienta
-            </Button>
-          ) : undefined;
   const headerTools = (
           <>
             {item.hm_veto ? (
@@ -875,7 +828,6 @@ function InterviewCard({
       {layout === "panel" ? (
         <div className="flex flex-wrap items-center gap-1.5">
           {headerTools}
-          {headerAction}
         </div>
       ) : (
       <WorkbenchHeader
@@ -889,9 +841,6 @@ function InterviewCard({
         ]
           .filter(Boolean)
           .join(" · ")}
-        actions={
-          headerAction
-        }
         tools={
           headerTools
         }
@@ -899,26 +848,17 @@ function InterviewCard({
       )}
 
       <WorkbenchCard
-        title="Screening Championa dla klienta"
+        title="Formularz screeningu"
         status={
           <button
             type="button"
             className="text-primary hover:underline"
-            onClick={() => onOpenScreening(item.id, fullName)}
+            onClick={() => onOpenScreening(item.candidate_id, fullName)}
           >
-            Otwórz arkusz
+            Otwórz formularz
           </button>
         }
       >
-        {championLinkUrl && (
-          <div className="mb-3">
-            <OneTimeLinkField
-              url={championLinkUrl}
-              label="Link do karty Championa dla klienta"
-              note="Ważny 30 dni. Adres pokazujemy tylko teraz — serwer nie przechowuje sekretu, więc skopiuj go przed opuszczeniem strony."
-            />
-          </div>
-        )}
         <div className="text-xs">
           {screeningQuery.isLoading ? (
             <span className="inline-flex items-center gap-1.5 text-muted-foreground">

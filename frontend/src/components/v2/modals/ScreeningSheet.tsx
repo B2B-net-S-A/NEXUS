@@ -1,63 +1,57 @@
 "use client";
 
 /**
- * Arkusz „Screening kandydata" jako wysuwany panel.
+ * Formularz screeningu jako wysuwany panel.
  *
- * Stan, walidacja, hydratacja i zapis mieszkają od PR 6/7 programu „flow
- * w języku C2" w `@/components/v2/screening/ScreeningForm` — ten sam hook
- * i te same pola renderuje stanowisko screeningu (krok 05), które pokazuje
- * arkusz INLINE, w środku ekranu. Modal zostaje bez zmian dla ścieżek, które
- * otwierają go z tablicy: auto-prompt po ruchu na „Zweryfikowany" i na etapy
- * klienta oraz przycisk „Screening" na karcie.
+ * Od 0424 (07.10.2026) to TEN SAM formularz co w panelu osoby na Tablicy
+ * (`ScreeningFullForm`: pytania z Profilu Championa, warunki kandydata ze
+ * stawką i pola karty rekomendacji, ocena rekrutera, historia zmian) — tylko
+ * bez podglądu CV obok. Zostaje dla miejsc, które nie mają panelu osoby:
+ * zakładka „Rozmowy” (`JobInterviewsTab`) i Tablica bez kontekstu warsztatów.
  */
 
-import { Send, Sparkles, User } from "lucide-react";
+import { ClipboardCheck, User } from "lucide-react";
 
 import {
   Sheet,
   SheetBody,
   SheetContent,
   SheetDescription,
-  SheetFooter,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { Button } from "@/components/ui/button";
-import { Form } from "@/components/v2/forms";
-import {
-  ScreeningFormFields,
-  ScreeningNoQuestions,
-  ScreeningSubmitError,
-  useScreeningForm,
-} from "@/components/v2/screening/ScreeningForm";
-import { ScreeningReassignSuggestions } from "@/components/v2/jobs/ScreeningReassignSuggestions";
+import { ScreeningFullForm } from "@/components/v2/screening-form/ScreeningFullForm";
 import { hasSectionAccess } from "@/lib/section-access";
 import { useAuthStore } from "@/store/auth";
 
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  stageId: number;
+  candidateId: number;
+  jobId: number;
   candidateName: string;
-  onSubmitted?: (matchPercent: number) => void;
+  /** Budżet PLN/h rekrutacji — ocena stawki kandydata w formularzu. */
+  jobBudgetHourly?: number | null;
+  readOnly?: boolean;
+  /** Po udanym zapisie (okno zamyka się samo). */
+  onSaved?: () => void;
+  /** Po ruchu karty z formularza („Zapisz i przekaż dalej”, „Odrzuć”). */
+  onMoved?: () => void;
 }
 
 export function ScreeningSheet({
   open,
   onOpenChange,
-  stageId,
+  candidateId,
+  jobId,
   candidateName,
-  onSubmitted,
+  jobBudgetHourly = null,
+  readOnly = false,
+  onSaved,
+  onMoved,
 }: Props) {
-  const { query, questions, existing, methods, submitMut, onSubmit, submitError } =
-    useScreeningForm({
-      stageId,
-      enabled: open,
-      onSubmitted,
-      onAfterSubmit: () => onOpenChange(false),
-    });
   // Lustro `canWritePipeline` ze strony rekrutacji: bez prawa zapisu (albo
-  // w podglądzie jako) Luna nie jest wołana, a podpowiedzi nie da się użyć.
+  // w podglądzie jako) formularz jest tylko do odczytu.
   const canWrite = useAuthStore(
     (s) => s.realUser === null && hasSectionAccess(s.user, "pipeline", "write"),
   );
@@ -67,8 +61,8 @@ export function ScreeningSheet({
       <SheetContent side="right" size="xl">
         <SheetHeader>
           <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-primary" />
-            <SheetTitle>Screening kandydata</SheetTitle>
+            <ClipboardCheck className="h-4 w-4 text-primary" />
+            <SheetTitle>Formularz screeningu</SheetTitle>
           </div>
           <SheetDescription>
             <span className="inline-flex items-center gap-1.5">
@@ -77,65 +71,24 @@ export function ScreeningSheet({
             </span>
           </SheetDescription>
         </SheetHeader>
-
-        {query.isLoading ? (
-          <SheetBody>
-            <div className="py-8 text-center text-sm text-muted-foreground">
-              Ładowanie pytań screeningowych…
-            </div>
-          </SheetBody>
-        ) : questions.length === 0 ? (
-          <SheetBody>
-            <ScreeningNoQuestions />
-          </SheetBody>
-        ) : (
-          <Form
-            methods={methods}
-            onSubmit={onSubmit}
-            className="flex h-full flex-col overflow-hidden"
-          >
-            <SheetBody>
-              {/* Wcześniejsze odpowiedzi tej osoby (przepięcie albo inne
-                  rekrutacje) stoją pod pytaniami — także w arkuszu z panelu
-                  osoby, nie tylko w szerokim warsztacie. */}
-              <ScreeningReassignSuggestions
-                key={stageId}
-                stageId={stageId}
-                questions={questions}
-                methods={methods}
-                saved={existing}
-                readOnly={!canWrite}
-              >
-                {(renderQuestionExtra) => (
-                  <ScreeningFormFields
-                    questions={questions}
-                    methods={methods}
-                    renderQuestionExtra={renderQuestionExtra}
-                  />
-                )}
-              </ScreeningReassignSuggestions>
-              {submitError && <ScreeningSubmitError message={submitError} />}
-            </SheetBody>
-
-            <SheetFooter>
-              <p className="mr-auto text-xs text-muted-foreground">
-                Odpowiedzi zobaczysz potem w profilu kandydata.
-              </p>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => onOpenChange(false)}
-                disabled={submitMut.isPending}
-              >
-                Anuluj
-              </Button>
-              <Button type="submit" variant="primary" loading={submitMut.isPending}>
-                <Send className="h-4 w-4" />
-                Zapisz screening
-              </Button>
-            </SheetFooter>
-          </Form>
-        )}
+        <SheetBody>
+          {open ? (
+            <ScreeningFullForm
+              candidateId={candidateId}
+              jobId={jobId}
+              candidateName={candidateName}
+              jobBudgetHourly={jobBudgetHourly}
+              readOnly={readOnly || !canWrite}
+              onSaved={() => onSaved?.()}
+              onMoved={() => {
+                onMoved?.();
+                onOpenChange(false);
+              }}
+              onCancel={() => onOpenChange(false)}
+              closeOnSave
+            />
+          ) : null}
+        </SheetBody>
       </SheetContent>
     </Sheet>
   );
