@@ -12,6 +12,7 @@ import {
   rateSecondLine,
   type RateFromFields,
 } from "@/lib/candidate-rate";
+import { availabilityFromNotesLine, type AvailabilityFromNotes } from "@/lib/notes-facts";
 
 export interface CandidateRowRecruitment {
   job_id: number;
@@ -25,6 +26,8 @@ export interface CandidateRowRecruitment {
 export interface CandidateRowAvailabilitySource {
   availability_status?: string | null;
   availability_date?: string | null;
+  /** Datę wpisały notatki — „stan na” (07.10.2026, `GET /api/candidates`). */
+  availability_from_notes?: AvailabilityFromNotes | null;
   notice_period?: number | null;
   notice_period_unit?: "days" | "weeks" | "months" | null;
   employment?: { state?: string | null; client_name?: string | null } | null;
@@ -82,6 +85,19 @@ export function availabilityCellText(c: CandidateRowAvailabilitySource): string 
     default:
       return null;
   }
+}
+
+/**
+ * Druga linia kolumny „Dostępność”: data „od …” pochodzi z notatki — „z notatki
+ * · DD.MM.RRRR” (dzień, od którego ją liczono). Kolumna jest wąska, więc linia
+ * się ucina, a pełny opis idzie w dymek (`title`). Tylko przy dacie w pierwszej
+ * linii — inaczej druga linia opisywałaby coś, czego nie widać.
+ */
+export function availabilityCellSecondLine(
+  c: CandidateRowAvailabilitySource,
+): { text: string; title: string } | null {
+  if (!c.availability_date || !ddmm(c.availability_date)) return null;
+  return availabilityFromNotesLine(c.availability_from_notes);
 }
 
 /**

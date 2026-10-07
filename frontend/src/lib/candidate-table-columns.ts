@@ -55,6 +55,8 @@ export const CANDIDATE_COLUMNS: readonly CandidateColumn[] = [
   { id: "email", label: "E-mail", width: "minmax(150px, 1.2fr)", minWidth: 150, hiddenByDefault: true },
   { id: "location", label: "Lokalizacja", width: "minmax(100px, 0.8fr)", minWidth: 100, hiddenByDefault: true },
   { id: "rate", label: "Stawka B2B", width: "minmax(72px, 0.6fr)", minWidth: 72 },
+  // Druga linia „z notatki · DD.MM.RRRR” (07.10.2026) mieści się w tej samej
+  // szerokości — ucina się, pełny opis w dymku; nie poszerzaj kolumny (laptop).
   { id: "availability", label: "Dostępność", width: "minmax(88px, 0.8fr)", minWidth: 88 },
   { id: "experience", label: "Staż", width: "minmax(64px, 0.5fr)", minWidth: 64, hiddenByDefault: true },
   { id: "process", label: "W procesie", width: "minmax(112px, 1fr)", minWidth: 112 },

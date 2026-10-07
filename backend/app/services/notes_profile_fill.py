@@ -214,6 +214,46 @@ def _owned_availability(candidate: Any, prior: dict) -> Optional[dict]:
     return None
 
 
+def availability_origin(candidate: Any) -> Optional[dict[str, Any]]:
+    """„Stan na” daty dostępności, którą wpisały notatki — albo ``None``.
+
+    ``{"as_of": date | None, "basis": str | None}``, dopóki profil ma datę
+    ze znacznika ``_availability_from_notes``; poprawka człowieka (inna data)
+    go wyłącza. Czysta funkcja nad załadowanym ``cv_extracted_data`` — lista
+    kandydatów liczy ją w pamięci, bez zapytania per wiersz.
+    """
+    extracted = getattr(candidate, "cv_extracted_data", None)
+    insights = extracted.get("_notes_insights") if isinstance(extracted, dict) else None
+    if not isinstance(insights, dict):
+        return None
+    marker = _owned_availability(candidate, insights)
+    if marker is None:
+        return None
+    as_of_raw = marker.get("as_of")
+    try:
+        as_of = date.fromisoformat(as_of_raw) if isinstance(as_of_raw, str) else None
+    except ValueError:
+        as_of = None
+    basis = marker.get("basis")
+    return {"as_of": as_of, "basis": basis if isinstance(basis, str) else None}
+
+
+def release_availability_from_notes(candidate: Any, insights: Any) -> bool:
+    """Notatki już nie dają daty — zdejmij datę, którą same wpisały.
+
+    Tylko gdy profil nadal ma datę ze znacznika (poprawki człowieka nie
+    ruszamy). Mutuje obiekt (bez commitu, bez ``flag_modified`` — znacznik
+    usuwa wołający razem z resztą faktów). Zwraca, czy data zniknęła.
+    """
+    if (
+        not isinstance(insights, dict)
+        or _owned_availability(candidate, insights) is None
+    ):
+        return False
+    candidate.availability_date = None
+    return True
+
+
 def plan_profile_fill(
     candidate: Any,
     facts: dict,
@@ -222,11 +262,17 @@ def plan_profile_fill(
     as_of: Optional[date],
     latest_note_day: Optional[date] = None,
     include_status: bool = True,
+    release_stale_availability: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """(zmiany pól, znaczniki do ``_notes_insights``). Czysta — nic nie zapisuje.
 
     ``as_of`` i ``latest_note_day`` — ``notes_days(rows)`` (dzień najnowszej
     notatki o dostępności i dzień najnowszej notatki wejścia).
+
+    ``release_stale_availability`` (nocna ekstrakcja po zmianie notatek):
+    datę, którą wpisały notatki, a której nowe fakty już nie dają, zdejmujemy
+    (``availability_date: None``, bez znacznika). Domknięcie historii tylko
+    wypełnia puste pola, więc jej nie zdejmuje.
 
     ``candidate`` to obiekt z atrybutami profilu (ORM albo wiersz odczytu).
     Znaczniki zwracane są zawsze, gdy dalej obowiązują (także bez zmiany).
@@ -268,6 +314,8 @@ def plan_profile_fill(
             }
             if day != current_date:
                 changes["availability_date"] = day
+        elif owned is not None and release_stale_availability:
+            changes["availability_date"] = None
         elif owned is not None:
             markers[AVAILABILITY_MARKER] = owned
     elif owned is not None:

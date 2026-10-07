@@ -5,6 +5,7 @@ import {
   contractTypesText,
   describeNotesRate,
   noticeText,
+  availabilityFromNotesLine,
   notesAvailabilityOrigin,
   notesAvailabilityText,
   notesWorkModeText,
@@ -120,6 +121,16 @@ describe("availability from notes (stan na)", () => {
     );
     expect(origin?.text).toBe("z notatek · stan na 05.10.2026");
     expect(origin?.title).toContain("Okres wypowiedzenia");
+  });
+
+  it("list and quick view line: short day, full sentence in the tooltip", () => {
+    expect(availabilityFromNotesLine(null)).toBeNull();
+    const line = availabilityFromNotesLine({ as_of: "2026-10-05", basis: "notice" });
+    expect(line?.text).toBe("z notatki · 05.10.2026");
+    expect(line?.title).toBe(
+      "Data z notatki rekrutera, stan na 05.10.2026. Okres wypowiedzenia z notatki liczony od dnia tej notatki.",
+    );
+    expect(availabilityFromNotesLine({ as_of: null, basis: null })?.text).toBe("z notatki");
   });
 
   it("stays silent once a person changed the date", () => {

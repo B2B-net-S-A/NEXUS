@@ -167,6 +167,7 @@ import {
 import { looksLikePastedRequest, type SkillBucketsValue } from "@/lib/candidate-search-semantics";
 import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatusBadge";
 import type { CandidateContactSummary } from "@/lib/candidate-contact";
+import type { AvailabilityFromNotes } from "@/lib/notes-facts";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import {
   candidateRowTestId,
@@ -191,6 +192,7 @@ import { CandidateBulkBar } from "@/components/v2/candidates/CandidateBulkBar";
 import { PageNumberButtons } from "@/components/v2/candidates/PageNumberButtons";
 import { RequestSearchDialog } from "@/components/v2/candidates/RequestSearchDialog";
 import {
+  availabilityCellSecondLine,
   availabilityCellText,
   candidatesCountLabel,
   rateCellSecondLine,
@@ -266,6 +268,8 @@ interface Candidate {
   status?: "active" | "passive" | "blacklisted";
   availability_status?: AvailabilityStatus;
   availability_date?: string | null;
+  /** Datę wpisały notatki — „z notatki · stan na” w kolumnie „Dostępność”. */
+  availability_from_notes?: AvailabilityFromNotes | null;
   notice_period?: number | null;
   notice_period_unit?: "days" | "weeks" | "months" | null;
   employment?: EmploymentInfo;
@@ -2359,6 +2363,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                     const company = getCurrentCompany(candidate);
                     const location = formatCandidateLocation(candidate.city ?? candidate.location ?? null);
                     const availability = availabilityCellText(candidate);
+                    const availabilitySecond = availabilityCellSecondLine(candidate);
                     const rate = rateCellText(candidate);
                     const rateSecond = rateCellSecondLine(candidate);
                     return (
@@ -2502,8 +2507,16 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                                   );
                                 case "availability":
                                   return (
-<div className="min-w-0 truncate text-sm text-foreground">
-                            {availability ?? <Missing />}
+<div className="min-w-0 text-sm text-foreground">
+                            <div className="truncate">{availability ?? <Missing />}</div>
+                            {availabilitySecond ? (
+                              <div
+                                className="truncate text-xs text-muted-foreground"
+                                title={availabilitySecond.title}
+                              >
+                                {availabilitySecond.text}
+                              </div>
+                            ) : null}
                           </div>
                                   );
                                 case "process":

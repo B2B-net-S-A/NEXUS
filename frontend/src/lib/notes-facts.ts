@@ -187,9 +187,40 @@ export function notesAvailabilityOrigin(candidate: {
   const asOfText = typeof asOf === "string" ? formatIsoDate(asOf) : null;
   return {
     text: asOfText ? `z notatek · stan na ${asOfText}` : "z notatek",
-    title:
-      (typeof basis === "string" && AVAILABILITY_BASIS_TITLE[basis]) ||
-      "Data dostępności z notatek rekruterów.",
+    title: availabilityBasisTitle(basis),
+  };
+}
+
+function availabilityBasisTitle(basis: unknown): string {
+  return (
+    (typeof basis === "string" && AVAILABILITY_BASIS_TITLE[basis]) ||
+    "Data dostępności z notatek rekruterów."
+  );
+}
+
+/** `availability_from_notes` z listy i `available_from_notes` z podglądu. */
+export interface AvailabilityFromNotes {
+  as_of?: string | null;
+  basis?: string | null;
+}
+
+/**
+ * Druga linia dostępności na liście kandydatów i w szybkim podglądzie
+ * (07.10.2026): datę wpisały notatki, a „od zaraz” sprzed lat daje datę
+ * z tamtego dnia — bez dnia notatki wyglądałaby na świeży fakt. Serwer
+ * oddaje pole tylko, dopóki profil ma datę ze znacznika (poprawka człowieka
+ * je wyłącza), więc tu nic nie porównujemy.
+ */
+export function availabilityFromNotesLine(
+  origin: AvailabilityFromNotes | null | undefined,
+): { text: string; title: string } | null {
+  if (!origin) return null;
+  const asOfText = formatIsoDate(origin.as_of);
+  return {
+    text: asOfText ? `z notatki · ${asOfText}` : "z notatki",
+    title: asOfText
+      ? `Data z notatki rekrutera, stan na ${asOfText}. ${availabilityBasisTitle(origin.basis)}`
+      : `Data z notatki rekrutera. ${availabilityBasisTitle(origin.basis)}`,
   };
 }
 

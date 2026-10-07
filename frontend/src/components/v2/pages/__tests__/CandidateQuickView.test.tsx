@@ -236,6 +236,33 @@ describe("CandidateQuickView", () => {
     );
   });
 
+  it("a date written from notes says which note day it was counted from", async () => {
+    apiGet.mockImplementation((url: string) => {
+      if (url === "/api/candidates/7/quick-view") {
+        const data = quickViewData();
+        return Promise.resolve({
+          data: {
+            ...data,
+            availability: {
+              ...data.availability,
+              available_from: "2023-05-04",
+              available_from_notes: { as_of: "2023-05-04", basis: "asap" },
+            },
+          },
+        } as never);
+      }
+      if (url === "/api/candidates/7/risk") {
+        return Promise.resolve({ data: { level: "low" } } as never);
+      }
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+    render(<CandidateQuickView candidateId={7} onClose={vi.fn()} />, { wrapper });
+    const facts = await screen.findByLabelText("Najważniejsze fakty");
+    const hint = within(facts).getByText("z notatki · 04.05.2023");
+    expect(hint).toHaveAttribute("title", expect.stringContaining("stan na 04.05.2023"));
+    expect(hint.getAttribute("title")).toContain("„Od zaraz”");
+  });
+
   it("missing rate reads as „brak”, an unknown one as a dash", async () => {
     const { unmount } = render(
       <CandidateQuickView candidateId={7} onClose={vi.fn()} rateLookup={() => null} />,

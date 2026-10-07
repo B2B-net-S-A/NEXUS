@@ -95,6 +95,7 @@ from app.schemas.candidate import (
     CandidateDocumentUpdate,
     CandidateEngagementUpdate,
     ActiveRecruitmentBrief,
+    AvailabilityFromNotes,
     CandidateFromCVDuplicate,
     CandidateFromCVResponse,
     CandidateFromLinkedInCreate,
@@ -127,6 +128,7 @@ from app.models.linkedin_snapshot import LinkedinSyncStatus
 from app.models.recruitment_pipeline import STAGE_CATEGORY, PipelineStage, StageCategory
 from app.schemas.pipeline import ClientRateUpdate, STAGE_LABELS
 from app.services.match_score_cache import bulk_get_or_compute
+from app.services.notes_profile_fill import availability_origin
 from app.services.critical_events import record_executed
 from app.services.process_entry_meta import auto_match_badge
 from app.services.rejection_reason_labels import rejection_reason_label
@@ -855,8 +857,12 @@ def _candidate_to_response(candidate: Candidate) -> CandidateResponse:
     """
     payload = CandidateResponse.model_validate(candidate)
     raw_identity_sync = identity_sync_state(candidate)
+    notes_origin = availability_origin(candidate)
     return payload.model_copy(
         update={
+            "availability_from_notes": (
+                AvailabilityFromNotes(**notes_origin) if notes_origin else None
+            ),
             "employment": _derive_employment(candidate),
             "talent_pools": _talent_pools_for(candidate),
             "identity_sync": (
@@ -4478,6 +4484,8 @@ async def get_candidate_quick_view(
     quick_view_contact_case = (
         await load_contact_case_summaries(db, [candidate_id])
     ).get(candidate_id)
+    notes_origin = availability_origin(candidate)
+    quick_notes_origin = AvailabilityFromNotes(**notes_origin) if notes_origin else None
     return CandidateQuickViewResponse(
         candidate=CandidateQuickViewCandidate(
             id=candidate.id,
@@ -4506,6 +4514,7 @@ async def get_candidate_quick_view(
         availability=CandidateQuickViewAvailability(
             status=candidate.availability_status,
             available_from=candidate.availability_date,
+            available_from_notes=quick_notes_origin,
             notice_period=candidate.notice_period,
             notice_period_unit=candidate.notice_period_unit,
         ),

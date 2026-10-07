@@ -644,7 +644,10 @@ def clear_notes_facts(candidate: Any) -> Optional[dict]:
     """Kandydat nie ma już notatek z treścią — fakty z notatek znikają.
 
     Stawkę czyści WYŁĄCZNIE, gdy wpisały ją notatki (`_rate_written` zgodne
-    z profilem) i nikt jej nie przejął ręcznie. Zwraca audyt stawki albo None.
+    z profilem) i nikt jej nie przejął ręcznie. Tak samo datę dostępności:
+    tylko gdy profil nadal ma datę ze znacznika `_availability_from_notes`
+    (07.10.2026 — wcześniej zostawała jako fakt bez źródła). Zwraca audyt
+    stawki albo None; zdjęcie daty wołający widzi po `availability_date`.
     Mutuje obiekt ORM, bez commitu.
     """
     insights = notes_insights(candidate)
@@ -662,6 +665,9 @@ def clear_notes_facts(candidate: Any) -> Optional[dict]:
         rate_audit = write_profile_rate(
             candidate, None, source=NOTES_REMOVED_RATE_SOURCE
         )
+    from app.services.notes_profile_fill import release_availability_from_notes
+
+    release_availability_from_notes(candidate, insights)
     extracted.pop("_notes_insights", None)
     candidate.cv_extracted_data = extracted
     flag_modified(candidate, "cv_extracted_data")

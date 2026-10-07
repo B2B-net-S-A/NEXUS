@@ -660,3 +660,89 @@ def test_without_an_availability_note_only_explicit_dates_are_written():
     assert cand.availability_date == date(2026, 11, 1)
     marker = cand.cv_extracted_data["_notes_insights"]["_availability_from_notes"]
     assert marker == {"date": "2026-11-01", "as_of": "2026-09-30", "basis": "month"}
+
+
+# ── Data z notatek znika razem ze źródłem (07.10.2026) ────────────────────────
+
+
+def test_availability_written_by_notes_is_cleared_when_facts_no_longer_give_it():
+    cand = _cand()
+    _apply(cand, {"availability": {"raw": "od zaraz"}}, as_of=date(2025, 1, 2))
+    assert cand.availability_date == date(2025, 1, 2)
+    # Notatkę o dostępności usunięto — nowe fakty jej nie mają.
+    stats = _apply(cand, {"years_confirmed": 5}, fp="fp-2", as_of=None)
+    assert cand.availability_date is None
+    assert stats["avail_date_cleared"] == 1
+    assert "_availability_from_notes" not in cand.cv_extracted_data["_notes_insights"]
+
+
+def test_relative_date_is_cleared_when_the_availability_note_is_gone():
+    cand = _cand()
+    _apply(cand, {"availability": {"raw": "od zaraz"}}, as_of=date(2025, 1, 2))
+    # Fakty dalej mówią „od zaraz”, ale nie ma już notatki o dostępności.
+    stats = _apply(
+        cand,
+        {"availability": {"raw": "od zaraz"}},
+        fp="fp-2",
+        as_of=None,
+        latest_note_day=date(2026, 9, 30),
+    )
+    assert cand.availability_date is None
+    assert stats["avail_date_cleared"] == 1
+
+
+def test_date_corrected_by_a_person_survives_when_notes_stop_giving_it():
+    cand = _cand()
+    _apply(cand, {"availability": {"raw": "od zaraz"}}, as_of=date(2025, 1, 2))
+    cand.availability_date = date(2027, 1, 1)  # poprawka człowieka
+    stats = _apply(cand, {"years_confirmed": 5}, fp="fp-2", as_of=None)
+    assert cand.availability_date == date(2027, 1, 1)
+    assert stats["avail_date_cleared"] == 0
+
+
+def test_backfill_plan_never_clears_the_date():
+    """Domknięcie historii tylko wypełnia puste pola — bez zdejmowania daty."""
+    from app.services.notes_profile_fill import plan_profile_fill
+
+    cand = _cand(availability_date=date(2025, 1, 2))
+    prior = {
+        "_availability_from_notes": {
+            "date": "2025-01-02",
+            "as_of": "2025-01-02",
+            "basis": "asap",
+        }
+    }
+    changes, markers = plan_profile_fill(cand, {}, prior=prior, as_of=None)
+    assert "availability_date" not in changes
+    assert markers["_availability_from_notes"]["date"] == "2025-01-02"
+
+
+def test_availability_origin_reads_the_marker_only_while_the_date_matches():
+    from app.services.notes_profile_fill import availability_origin
+
+    marker = {"date": "2023-05-04", "as_of": "2023-05-04", "basis": "asap"}
+    cand = _cand(
+        availability_date=date(2023, 5, 4),
+        cv_extracted_data={"_notes_insights": {"_availability_from_notes": marker}},
+    )
+    assert availability_origin(cand) == {"as_of": date(2023, 5, 4), "basis": "asap"}
+    cand.availability_date = date(2026, 12, 1)  # człowiek poprawił
+    assert availability_origin(cand) is None
+    assert availability_origin(_cand(cv_extracted_data=["lista z importu"])) is None
+    broken = _cand(
+        availability_date=date(2023, 5, 4),
+        cv_extracted_data={
+            "_notes_insights": {
+                "_availability_from_notes": {"date": "2023-05-04", "as_of": "zły"}
+            }
+        },
+    )
+    assert availability_origin(broken) == {"as_of": None, "basis": None}
+
+
+def test_candidate_response_carries_the_notes_origin_without_a_query():
+    """Lista liczy „stan na” z załadowanego `cv_extracted_data` (bez zapytań)."""
+    from app.schemas.candidate import AvailabilityFromNotes
+
+    origin = AvailabilityFromNotes(as_of=date(2023, 5, 4), basis="asap")
+    assert origin.model_dump(mode="json") == {"as_of": "2023-05-04", "basis": "asap"}

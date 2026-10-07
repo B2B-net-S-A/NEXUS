@@ -397,6 +397,28 @@ describe("CandidatesListV2", () => {
       ).toBeTruthy();
     });
 
+    it("dostępność z notatki mówi, z którego dnia jest, a data człowieka nie", async () => {
+      listItems = [
+        {
+          id: 1,
+          name: "Marta",
+          lastname: "Kowalczyk",
+          availability_date: "2023-05-04",
+          availability_from_notes: { as_of: "2023-05-04", basis: "asap" },
+        },
+        { id: 2, name: "Tomasz", lastname: "Nowicki", availability_date: "2026-11-01" },
+      ];
+      listTotal = 2;
+      renderList();
+      const row = await screen.findByTestId("candidate-row-1");
+      expect(within(row).getByText("od 04.05")).toBeTruthy();
+      const hint = within(row).getByText("z notatki · 04.05.2023");
+      expect(hint.getAttribute("title")).toContain("stan na 04.05.2023");
+      const manual = screen.getByTestId("candidate-row-2");
+      expect(within(manual).getByText("od 01.11")).toBeTruthy();
+      expect(within(manual).queryByText(/z notatki/)).toBeNull();
+    });
+
     it("wymagania (wiersze) i wykluczenia z panelu idą do API w kolejności wierszy", async () => {
       renderList();
       const first = within(bar()).getByLabelText("Wymaganie 1 — słowo albo wariant");

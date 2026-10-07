@@ -81,6 +81,8 @@ const CANDIDATES = [
     skills: ["Java", "Spring", "Kafka", "Docker"],
     city: "Warszawa",
     availability_date: inDays(9),
+    // 07.10.2026: data dostępności wpisana z notatki — lista pokazuje „stan na”.
+    availability_from_notes: { as_of: daysAgo(400).slice(0, 10), basis: "notice" },
     expected_rate_hourly: 160,
     // „Stawka od” (0414): rok temu zgodziła się na 125 na inną rolę.
     rate_from_hourly: 125,
