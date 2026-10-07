@@ -8,6 +8,7 @@ import {
   EMPLOYMENT_ONLY_WARNING_PL,
   countBySource,
   filterProposals,
+  historyReason,
   mergeProposals,
   splitByPostings,
   normalizeFitScore,
@@ -356,5 +357,57 @@ describe("splitByPostings — zakładki okna „Kandydaci do dodania”", () => 
   it("starszy serwer bez pola: wszyscy zostają w „Propozycjach z bazy”", () => {
     const entries = mergeProposals({ inbox: [inboxItem(1, { sources: ["job_board"] })] });
     expect(splitByPostings(entries)).toEqual({ postings: [], base: entries });
+  });
+});
+
+describe("znani zespołowi (07.10.2026)", () => {
+  const history = {
+    points: 6,
+    similar: [
+      { job_id: 7, title: "Analityk systemowy", reference_number: "ZOB-2614", client_name: "PKO BP", stage: "cv_sent", at: "2026-07-14T10:00:00Z" },
+      { job_id: 8, title: "Business Analyst", reference_number: null, client_name: "Alior", stage: "verified", at: "2026-05-02T10:00:00Z" },
+    ],
+    recent: null,
+  };
+
+  it("znana osoba stoi wyżej przy niższym dopasowaniu, a pokazywany procent się nie zmienia", () => {
+    const rows = mergeProposals({
+      inbox: [
+        inboxItem(1, { sources: ["full_base"], score: 75 }),
+        inboxItem(2, { sources: ["full_base"], score: 71, history }),
+      ],
+    });
+    expect(rows.map((e) => e.row.candidateId)).toEqual([2, 1]);
+    expect(rows[0].row.fitScore).toBe(71);
+    expect(rows[0].row.historyPoints).toBe(6);
+    expect(rows[0].row.reason).toBe(
+      "Zweryfikowany(a) przy podobnej rekrutacji: PKO BP · Analityk systemowy · 07.2026 (+1)",
+    );
+  });
+
+  it("punkty nie przeskakują przepięcia ani dużej różnicy dopasowania", () => {
+    const rows = mergeProposals({
+      inbox: [
+        inboxItem(1, { sources: ["full_base"], score: 90 }),
+        inboxItem(2, { sources: ["full_base"], score: 72, history }),
+        inboxItem(3, { sources: ["reassign"], score: 60 }),
+      ],
+    });
+    expect(rows.map((e) => e.row.candidateId)).toEqual([3, 1, 2]);
+  });
+
+  it("niedawna weryfikacja bez podobnej rekrutacji ma własny powód", () => {
+    expect(
+      historyReason({
+        points: 3,
+        similar: [],
+        recent: { job_id: 9, title: "Business Analyst", reference_number: null, client_name: "Nordea", stage: "verified", at: "2026-09-24T08:00:00Z" },
+      }),
+    ).toBe("Zweryfikowany(a) 24.09 w innej rekrutacji: Nordea · Business Analyst");
+  });
+
+  it("bez historii — kolejność i powód jak dotąd", () => {
+    const [entry] = mergeProposals({ inbox: [inboxItem(1, { sources: ["full_base"] })] });
+    expect(entry.row.historyPoints).toBeUndefined();
   });
 });

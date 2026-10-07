@@ -178,9 +178,45 @@ def sanitize_evidence(raw: Any) -> Optional[dict]:
             clean_auto["must_total"] = must_total
         if clean_auto:
             out["auto_match"] = clean_auto
+    history = raw.get("history")
+    if isinstance(history, Mapping):
+        # 07.10.2026: znani zespołowi — punkty kolejności i skąd je osoba ma
+        # (id rekrutacji, etap, data). Bez tytułów i nazw: rozwija je odczyt.
+        if (clean_history := _clean_history(history)) is not None:
+            out["history"] = clean_history
     if raw.get(PREVIOUSLY_DISMISSED_KEY) is True:
         out[PREVIOUSLY_DISMISSED_KEY] = True
     return out or None
+
+
+def _history_ref(value: Any) -> Optional[dict]:
+    if not isinstance(value, Mapping):
+        return None
+    job_id = value.get("job_id")
+    if not isinstance(job_id, int) or isinstance(job_id, bool):
+        return None
+    ref: dict[str, Any] = {"job_id": job_id}
+    for key in ("stage", "at"):
+        if (short := _short(value.get(key))) is not None:
+            ref[key] = short[:40]
+    return ref
+
+
+def _clean_history(history: Mapping) -> Optional[dict]:
+    points = history.get("points")
+    if not isinstance(points, (int, float)) or isinstance(points, bool) or points <= 0:
+        return None
+    clean: dict[str, Any] = {"points": round(float(points), 1)}
+    similar = [
+        ref
+        for ref in (_history_ref(v) for v in (history.get("similar") or [])[:3])
+        if ref is not None
+    ]
+    if similar:
+        clean["similar"] = similar
+    if (recent := _history_ref(history.get("recent"))) is not None:
+        clean["recent"] = recent
+    return clean
 
 
 def _revision(value: Any) -> Optional[str]:
@@ -842,8 +878,9 @@ async def list_for_job(
 ) -> tuple[list[ProposalRow], int]:
     """Strona propozycji — jedna pozycja na OSOBĘ, ze złożonymi źródłami.
 
-    Kolejność: wynik malejąco (brak wyniku na końcu), potem najnowsze, potem id
-    — stabilna między stronami. ``is_new`` = zaproponowana (albo przywrócona po
+    Kolejność: przepięcia, potem wynik + punkty historii („znani zespołowi”,
+    07.10.2026) malejąco (brak wyniku na końcu), potem najnowsze, potem id —
+    stabilna między stronami. Pokazywany wynik zostaje bez punktów. ``is_new`` = zaproponowana (albo przywrócona po
     nowym CV) w ciągu ostatnich 24 h; czysto kosmetyczne.
     """
     if status not in JOB_PROPOSAL_STATUSES:
@@ -861,6 +898,11 @@ async def list_for_job(
         # requeście) stoją w kolejce przed resztą propozycji.
         func.bool_or(JobProposal.source == "reassign").label("is_reassign"),
         _posting_seen_at().label("posting_seen_at"),
+        # 07.10.2026: znani zespołowi wyżej — punkty historii z dowodów
+        # (`known_people_signal`) dodane do wyniku TYLKO w kolejności.
+        func.max(JobProposal.evidence["history"]["points"].as_float()).label(
+            "history_points"
+        ),
     )
     sub = grouped.subquery()
     total = int(await db.scalar(select(func.count()).select_from(sub)) or 0)
@@ -869,7 +911,9 @@ async def list_for_job(
             select(sub)
             .order_by(
                 sub.c.is_reassign.desc(),
-                sub.c.score.desc().nullslast(),
+                (sub.c.score + func.coalesce(sub.c.history_points, 0))
+                .desc()
+                .nullslast(),
                 sub.c.newest_seen_at.desc(),
                 sub.c.candidate_id,
             )

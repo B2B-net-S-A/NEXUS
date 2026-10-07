@@ -539,6 +539,16 @@ class Settings(BaseSettings):
     # Osobny próg, bo pełny przegląd punktuje kanonicznym fitem, a auto-match
     # nowych CV starszym scoringiem — wspólny próg stroiłby dwa różne pomiary.
     AUTO_FULL_REVIEW_MIN_SCORE: float = 70.0
+    # Znani zespołowi wyżej w „Propozycjach z bazy” (badanie 06.10.2026,
+    # decyzja Artura 07.10.2026; `services/known_people_signal.py`). Procent
+    # dopasowania bez zmian — punkty historii wpływają WYŁĄCZNIE na kolejność.
+    # Punkty w skali dopasowania: 0,05 kosinusa na podobną rekrutację i 0,06 za
+    # niedawną weryfikację z badania × ~50 pkt dopasowania na 1,0 kosinusa.
+    KNOWN_PEOPLE_BOOST_ENABLED: bool = False
+    KNOWN_PEOPLE_SIMILAR_JOBS: int = 25
+    KNOWN_PEOPLE_RECENT_DAYS: int = 90
+    KNOWN_PEOPLE_POINTS_PER_SIMILAR_JOB: float = 2.5
+    KNOWN_PEOPLE_POINTS_RECENT: float = 3.0
     AUTO_FULL_REVIEW_WINDOW_START_HOUR: int = 1
     AUTO_FULL_REVIEW_WINDOW_END_HOUR: int = 5
     AUTO_FULL_REVIEW_INTERVAL_SECONDS: int = 60

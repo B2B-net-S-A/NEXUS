@@ -124,6 +124,11 @@ export interface ProposalPersonRow extends PersonRowBase {
   runId: string | null;
   /** Notatka praktykanta przy przekazaniu (0374) — tylko przy źródle `trainee`. */
   handoverNote?: string | null;
+  /**
+   * Punkty „znany zespołowi” (07.10.2026) — dodawane do dopasowania WYŁĄCZNIE
+   * przy sortowaniu; `fitScore` zostaje bez nich.
+   */
+  historyPoints?: number;
 }
 
 export type PersonRow = ProcessPersonRow | ProposalPersonRow;

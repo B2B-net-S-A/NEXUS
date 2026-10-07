@@ -80,6 +80,28 @@ export interface ProposalInboxItem {
    */
   posting_seen_at?: string | null;
   posting_recent?: boolean;
+  /**
+   * Znani zespołowi (07.10.2026): punkty kolejności i skąd osoba je ma —
+   * podobne rekrutacje, w których była zweryfikowana, albo niedawna
+   * weryfikacja gdzie indziej. Procentu dopasowania nie zmienia.
+   */
+  history?: ProposalHistory | null;
+}
+
+export interface ProposalHistoryRef {
+  job_id: number;
+  title: string;
+  reference_number: string | null;
+  client_name: string | null;
+  stage: string | null;
+  /** ISO z czasem albo `null`. */
+  at: string | null;
+}
+
+export interface ProposalHistory {
+  points: number | null;
+  similar: ProposalHistoryRef[];
+  recent: ProposalHistoryRef | null;
 }
 
 /** Liczby na kaflach „Kandydaci do dodania” (`GET …/proposal-counts`). */

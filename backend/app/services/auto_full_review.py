@@ -576,6 +576,11 @@ async def publish_run_proposals(
         return 0
     min_score = float(settings.AUTO_FULL_REVIEW_MIN_SCORE)
     require_must = bool(settings.AUTO_MATCH_REQUIRE_MUST)
+    # Znani zespołowi (07.10.2026): punkty historii idą do dowodów i ustawiają
+    # kolejność listy; o tym, KTO trafia do propozycji, dalej decyduje próg.
+    from app.services.known_people_signal import known_people_for_job
+
+    known = await known_people_for_job(db, await db.get(Job, run.job_id))
     published = 0
     offset = 0
     while True:
@@ -638,6 +643,11 @@ async def publish_run_proposals(
                         "requirements": requirements,
                         "matched_must": rec["matching_must"],
                         "missing_must": rec["gap_must"],
+                        **(
+                            {"history": known[row.candidate_id].evidence()}
+                            if row.candidate_id in known
+                            else {}
+                        ),
                     },
                 }
                 for row, rec, requirements in picked
