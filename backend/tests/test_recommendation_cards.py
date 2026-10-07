@@ -154,6 +154,12 @@ def test_only_listed_modules_read_recommendation_cards():
         # Odpowiedzi z notatek do arkusza screeningu (07.10.2026): czyta
         # WYŁĄCZNIE `note_answers` karty (pytania i odpowiedzi), nie pola.
         "app/services/screening_note_sync.py",
+        # Przegląd Delivery Leada (D9, 08.10.2026): pola formularza screeningu
+        # (ocena rekrutera, red flags, dostępność) do pokazania DL — czysty
+        # odczyt dla człowieka, bez modelu.
+        "app/services/dl_review.py",
+        # Prośba DL o poprawki (D6): z modułu kart tylko polskie nazwy pól.
+        "app/services/screening_fix_requests.py",
     }
     pattern = re.compile(
         r"^\s*(?:from|import)\s.*\brecommendation_card(?:s|_rules|_import)?\b"

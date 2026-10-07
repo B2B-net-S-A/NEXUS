@@ -297,6 +297,8 @@ _LATEST_SQL = text(
                CAST(:pair_candidate_id AS INTEGER) IS NULL
                OR (cs.candidate_id = :pair_candidate_id AND cs.job_id = :pair_job_id)
            )
+           -- Jedna rekrutacja (porównanie przeglądu DL, D10): też bez okna.
+           AND (CAST(:only_job_id AS INTEGER) IS NULL OR cs.job_id = :only_job_id)
          ORDER BY cs.candidate_id, cs.job_id, cs.moved_at DESC, cs.id DESC
     )
     SELECT l.id, l.candidate_id, l.job_id, l.stage_def_id, l.moved_at,
@@ -330,12 +332,14 @@ async def load_snapshot(
     *,
     now: Optional[datetime] = None,
     pair: Optional[tuple[int, int]] = None,
+    job_id: Optional[int] = None,
 ) -> BoardTaskSnapshot:
     """Jedno przejście po najnowszych wierszach opublikowanych rekrutacji.
 
     ``pair`` = (kandydat, rekrutacja) zawęża migawkę do jednej pary i zdejmuje
     okno czasu — ta sama reguła zadania co na pulpicie, dla przeglądu DL
-    otwieranego z Tablicy albo z dzwonka.
+    otwieranego z Tablicy albo z dzwonka. ``job_id`` zawęża do jednej
+    rekrutacji, też bez okna (porównanie kolejki przeglądu DL, D10).
     """
 
     now = now or datetime.now(timezone.utc)
@@ -367,12 +371,13 @@ async def load_snapshot(
                 # Jedna para (wiersz przeglądu DL) — bez dolnej granicy czasu.
                 "since": (
                     datetime.min.replace(tzinfo=timezone.utc)
-                    if pair is not None
+                    if pair is not None or job_id is not None
                     else now - timedelta(days=max(WINDOW_DAYS, DL_REVIEW_WINDOW_DAYS))
                 ),
                 "stage_def_ids": sorted(relevant),
                 "pair_candidate_id": pair[0] if pair is not None else None,
                 "pair_job_id": pair[1] if pair is not None else None,
+                "only_job_id": job_id,
             },
         )
     ).all()
