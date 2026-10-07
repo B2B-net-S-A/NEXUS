@@ -5,9 +5,9 @@ from decimal import Decimal
 from types import SimpleNamespace
 from pydantic import BaseModel, Field
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
-from typing import List, Literal, Optional
+from typing import Annotated, List, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import exists, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -122,6 +122,11 @@ from app.services.candidate_rate_from import (
     effective_currency_sql,
     effective_rate_sql,
 )
+
+# PostgreSQL int4 upper bound — path parameters bound to int4 columns must not
+# exceed this value or asyncpg's int4_encode will raise OverflowError.
+_PG_INT4_MAX = 2_147_483_647
+DbIdPath = Annotated[int, Path(ge=1, le=_PG_INT4_MAX)]
 
 # Terminal wynikający wprost z legacy enuma — używane w gałęzi bez szablonu
 # pipeline'u, żeby `KanbanColumn.terminal_type` był wypełniany tak samo jak
@@ -2194,7 +2199,7 @@ async def _build_off_template(
 
 @router.get("/kanban/{job_id}", response_model=KanbanView)
 async def get_kanban(
-    job_id: int,
+    job_id: DbIdPath,
     current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
