@@ -222,14 +222,18 @@ async def _text_plan(
 
 
 async def _literal_text_or_422(
-    db: AsyncSession, q_text: str, person_match: Optional[str] = None
+    db: AsyncSession,
+    q_text: str,
+    person_match: Optional[str] = None,
+    *,
+    short_whole_word: bool = False,
 ) -> Any:
     """Dopasowanie dosłowne albo 422 po polsku — ta sama reguła co lista
     (`q` min. 2 znaki). Jedna litera nie daje warunku i do rundy 2 audytu
     (25.09.2026) zwracała całą bazę."""
     try:
         return await predicates.prepare_literal_text(
-            db, q_text, person_match=person_match
+            db, q_text, person_match=person_match, short_whole_word=short_whole_word
         )
     except predicates.LiteralTextTooShort as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -639,7 +643,12 @@ async def candidate_search_diagnostics(
     # ekran, na którym rekruter szuka przyczyny — i był kierowany pod zły adres.
     query_label = "Zapytanie tekstowe"
     if text_applied == "literal":
-        literal_clause = await _literal_text_or_422(db, q_text, person_match)
+        literal_clause = await _literal_text_or_422(
+            db,
+            q_text,
+            person_match,
+            short_whole_word=request_semantics(body).unified,
+        )
         if literal_clause is not None:
             query_clauses.append(literal_clause)
         query_label = "Zapytanie (dopasowanie dosłowne)"
@@ -773,7 +782,12 @@ async def advanced_candidate_search(
         # Osoba (nazwisko / e-mail / telefon) albo jawne `text_mode=literal`:
         # TO SAMO dopasowanie co `?q=` na liście — fraza w dowolnym polu,
         # literówki w tożsamości, telefon niezależny od zapisu.
-        literal_clause = await _literal_text_or_422(db, q_text, person_match)
+        literal_clause = await _literal_text_or_422(
+            db,
+            q_text,
+            person_match,
+            short_whole_word=request_semantics(body).unified,
+        )
         if literal_clause is not None:
             clauses.append(literal_clause)
     elif q_text:

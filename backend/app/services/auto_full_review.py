@@ -177,14 +177,64 @@ def _last_auto_run_at():
     return func.greatest(live_run, _finished_review_started_at())
 
 
+# Klucze `version_trace`, których zmiana zmienia odcisk requestu przeglądu
+# (`request_matching_context`), a które da się porównać w SQL. Po zmianie
+# któregoś z nich okno propozycji odpowiada 409 „Request zmienił się” do czasu
+# nowego przeglądu (audyt 07.10.2026: 15 z 25 nocnych przeglądów pod starą
+# wersją reguł).
+_REVIEW_VERSION_KEYS = ("must_gate_policy", "must_gate_mode", "ranker_version")
+
+
+def current_review_versions() -> dict[str, str]:
+    """Wersje, pod którymi przegląd policzony DZIŚ dostałby ten sam stempel."""
+    from app.services.critical_skills import gate_mode
+    from app.services.matching_contracts import current_version_trace
+    from app.services.requirement_contract import MUST_GATE_POLICY_VERSION
+
+    return {
+        "must_gate_policy": MUST_GATE_POLICY_VERSION,
+        "must_gate_mode": gate_mode(),
+        "ranker_version": current_version_trace().ranker_version,
+    }
+
+
+def _reviewed_under_older_versions():
+    """Ostatni przegląd automatyczny (nie `failed`) ma inną wersję reguł.
+
+    Przegląd bez stempla tych kluczy (sprzed ich wprowadzenia) nie liczy się
+    jako nieaktualny — o jego kolejności decyduje wiek, jak dotąd."""
+    current = current_review_versions()
+    latest = (
+        select(CandidateSearchRun.version_trace)
+        .where(
+            CandidateSearchRun.job_id == Job.id,
+            store.auto_origin_clause(),
+            CandidateSearchRun.state != "failed",
+        )
+        .order_by(CandidateSearchRun.created_at.desc())
+        .limit(1)
+        .correlate(Job)
+        .scalar_subquery()
+    )
+    return or_(
+        *(
+            and_(
+                latest[key].astext.is_not(None),
+                latest[key].astext != current[key],
+            )
+            for key in _REVIEW_VERSION_KEYS
+        )
+    )
+
+
 async def pending_job_ids(db, *, now: datetime, limit: int = _PICK_LIMIT) -> list[int]:
     """Opublikowane rekrutacje w pracy, które tej nocy jeszcze nie miały przeglądu.
 
     Od 30.09.2026 (decyzja Artura) co noc WSZYSTKIE rekrutacje w pracy, nie
     tylko te ze zdarzeniem: nowe CV w bazie nie jest zdarzeniem rekrutacji,
     a do 30.09 propozycje dostawało 5 rekrutacji na noc. Kolejność: najpierw
-    zdarzenie nowsze niż ostatni przegląd, potem „Szukamy”, potem najdawniej
-    przeglądane.
+    zdarzenie nowsze niż ostatni przegląd albo przegląd pod starą wersją reguł
+    (07.10.2026), potem „Szukamy”, potem najdawniej przeglądane.
     """
     lookback = now - timedelta(
         days=max(1, int(settings.AUTO_FULL_REVIEW_EVENT_LOOKBACK_DAYS))
@@ -207,6 +257,7 @@ async def pending_job_ids(db, *, now: datetime, limit: int = _PICK_LIMIT) -> lis
         )
     )
     last_auto = _last_auto_run_at()
+    stale_versions = _reviewed_under_older_versions()
     rows = await db.execute(
         select(Job.id)
         .where(
@@ -217,7 +268,8 @@ async def pending_job_ids(db, *, now: datetime, limit: int = _PICK_LIMIT) -> lis
             or_(Job.recruiter_id.is_not(None), Job.tac_id.is_not(None)),
             ~ran_tonight,
         )
-        # Zdarzenie od ostatniego przeglądu pierwsze, potem „Szukamy kandydatów”,
+        # Zdarzenie od ostatniego przeglądu (albo stara wersja reguł) pierwsze,
+        # potem „Szukamy kandydatów”,
         # potem najdawniej przeglądane.
         .order_by(
             case(
@@ -228,6 +280,9 @@ async def pending_job_ids(db, *, now: datetime, limit: int = _PICK_LIMIT) -> lis
                     ),
                     0,
                 ),
+                # Przegląd pod starą wersją reguł jest nieczytelny (409) — jak
+                # zdarzenie rekrutacji.
+                (stale_versions, 0),
                 else_=1,
             ),
             case((Job.work_state == "searching", 0), else_=1),
