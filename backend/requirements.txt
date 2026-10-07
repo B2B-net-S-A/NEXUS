@@ -32,6 +32,10 @@ httpx==0.28.1
 # Migracja na query_points — osobny PR, razem z sondą `checks.qdrant`
 # w /api/health.
 qdrant-client==1.12.1
+# Adapter wektora zapytania (`services/query_adapter.py`). Wersja = ta, którą
+# qdrant-client i tak instaluje w obrazie (2.5.3 na produkcji 07.10.2026);
+# jawny pin, bo kod aplikacji importuje numpy wprost.
+numpy==2.5.3
 # Dependabot #1169 (zmergowany 21.08) podniósł tu DOLNĄ granicę zakresu do
 # >=0.122.0. Pin 0.125.0 mieści się w niej i jest ściśle mocniejszy, więc
 # zastępuje zakres zamiast się z nim ścierać.

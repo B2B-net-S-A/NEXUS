@@ -15,6 +15,7 @@ from app.models.notification import Notification, NotificationType
 from app.services import candidate_search_store as store
 from app.services.full_candidate_scan import CandidateEvaluation, load_snapshot_batch
 from app.services.full_search_measurement import measure_candidates, request_vector
+from app.services.query_adapter import adapt_job_query
 from app.services.notification_access import notification_recipient_has_access
 from app.services.request_matching_context import RequestMatchingContext
 from app.services.search_telemetry import SearchTelemetry, stage
@@ -297,7 +298,7 @@ async def _execute_claimed(run_id: str, token: str):
     with telemetry.activate(), stage("query_embedding") as outcome:
         try:
             async with asyncio.timeout(QUERY_TIMEOUT_SECONDS):
-                vector = await request_vector(request.query_text)
+                vector = adapt_job_query(await request_vector(request.query_text))
             outcome["failed"] = vector is None
         except Exception:
             # Account for the population as unknown instead of retrying a

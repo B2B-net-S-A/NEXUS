@@ -65,6 +65,10 @@ class Settings(BaseSettings):
     # n.s. — koszt i opóźnienie bez zysku. Włączenie = `RERANKER_ENABLED=true`
     # w Coolify; kod ścieżki zostaje (graceful passthrough przy błędzie API).
     VOYAGE_RERANK_MODEL: str = "rerank-2.5"
+    # Adapter wektora zapytania oferta→kandydat (`services/query_adapter.py`,
+    # macierz `app/data/query_adapter.npz`). Włączenie tylko po A/B oceny
+    # kanonicznej (`scripts/eval_ab_run.py` ramię `query-adapter`).
+    QUERY_ADAPTER_ENABLED: bool = False
     RERANKER_ENABLED: bool = False
 
     # ── AI matching telemetry (plan PR2) ──────────────────────────────────────
