@@ -644,6 +644,12 @@ class Settings(BaseSettings):
     # niezależnie. Włączenie przez workflow „Coolify set env” po przeglądzie
     # próby uzupełnienia.
     SCREENING_NOTE_SYNC_ENABLED: bool = False
+    # Etap 1b: odpowiedzi także z notatek INNYCH rodzajów niż karta (czytelnych
+    # dla AI, przypiętych do pary) — tylko gdy karta pary nie ma odpowiedzi,
+    # tylko przypięcia po treści pytania z progiem 0,6. Działa razem
+    # z SCREENING_NOTE_SYNC_ENABLED; wyłączony = arkusze z tych notatek są
+    # czyszczone przy najbliższym przeliczeniu pary.
+    SCREENING_NOTE_SYNC_OTHER_NOTES_ENABLED: bool = False
 
     # „Stawka od” (0414): filtry, AI i plakietki budżetu czytają najniższą
     # stawkę kandydata z ostatnich 18 miesięcy (karty rekomendacji, etapy,

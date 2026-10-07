@@ -2612,7 +2612,24 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
   dostają tę samą treść albo `NULL`; notatka sprzed bieżącej próby nie zasila
   arkusza. `answered_at`/`answered_by` = data i autor notatki; zamiast
   `Activity screening_answered` (liczą ją statystyki zespołu) zapis zostawia
-  `screening_synced_from_note`. Przelicza się przy zmianie karty
+  `screening_synced_from_note`. **Etap 1b — notatki innych rodzajów
+  (wyłącznik `SCREENING_NOTE_SYNC_OTHER_NOTES_ENABLED`, domyślnie OFF):**
+  gdy karta pary NIE ma odpowiedzi z bieżącej próby, źródłem bywa notatka
+  czytelna dla AI (`note_kinds.ai_readable_*`, poza `card`/`screening_facts`)
+  przypięta do pary — ten sam parser pytań, najnowsza notatka z co najmniej
+  jednym przypięciem, wyłącznie po treści z progiem 0,6 (`OTHER_CONTENT_MIN`),
+  bez numeru; odpowiedź z pytajnikiem w pierwszym wierszu odpada, kolejny
+  wiersz z pytajnikiem ją ucina (`other_note_answer` — wolny tekst nie
+  oddziela pytań). Karta ma pierwszeństwo w całości: gdy ma odpowiedzi,
+  notatki innych rodzajów nie zmieniają arkusza (bez mieszania dwóch notatek
+  w jednym arkuszu — data i autor odpowiedzi są jedne). Wyłączenie zdejmuje
+  źródło: arkusz z takiej notatki znika przy najbliższym przeliczeniu pary.
+  Zapis notatki w NEXUSIE przelicza arkusz jej pary; notatki z importu
+  Traffita dochodzą ponownym uzupełnieniem historii z
+  `include_other_notes=true` (raport: `sources` osobno dla kart i notatek;
+  zapis wymaga próby w tym samym trybie i włączonego wyłącznika — 409).
+  Pomiar 07.10.2026: 16 036 takich notatek, 290 par z pytaniami, do zapisu
+  116 par / 356 odpowiedzi (69 par ma odpowiedzi na karcie). Przelicza się przy zmianie karty
   (`recommendation_card_import.refresh_candidate`, `repair_orphans`); historię
   uzupełnia admin: `POST /api/admin/screening-note-backfill?dry_run=true` →
   raport → `dry_run=false&expected=<to_change>` (próba z 7 dni; paragon
