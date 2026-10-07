@@ -8,6 +8,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy import select
 
 import app.models  # noqa: F401  (zarejestruj wszystkie mappery)
 from app.core.config import settings
@@ -174,3 +175,67 @@ async def test_inbox_orders_by_score_plus_history_points_and_keeps_the_score():
     assert total == 2
     assert [r.candidate_id for r in rows] == [b, a]
     assert rows[0].score == 71
+
+
+@pytest.mark.asyncio
+async def test_a_failing_signal_query_does_not_poison_the_caller_transaction(
+    monkeypatch,
+):
+    """Błąd SQL w sygnale = kolejność jak dotąd, a nie brak propozycji tej nocy."""
+    from sqlalchemy import text
+
+    world = await _world()
+    monkeypatch.setattr(settings, "KNOWN_PEOPLE_BOOST_ENABLED", True)
+
+    async def _boom(db, *_a, **_k):
+        await db.execute(text("SELECT 1/0"))
+
+    monkeypatch.setattr(kps, "_similar_jobs", _boom)
+    async with AsyncSessionLocal() as db:
+        async with db.begin_nested():
+            job = await db.get(Job, world["target"])
+            assert await kps.known_people_for_job(db, job) == {}
+            # Transakcja wołającego dalej działa.
+            assert (await db.execute(text("SELECT 1"))).scalar() == 1
+
+
+@pytest.mark.asyncio
+async def test_expired_rows_give_neither_points_nor_reason(monkeypatch):
+    from app.api.job_proposals import _history_sources
+    from app.models.job_proposal import JobProposal
+
+    world = await _world()
+    a, b, _, _ = world["people"]
+    async with AsyncSessionLocal() as db:
+        await proposals.upsert_proposals(
+            db,
+            world["target"],
+            [
+                {
+                    "candidate_id": b,
+                    "score": 71,
+                    "evidence": {"history": {"points": 6.0}},
+                }
+            ],
+            "full_base",
+        )
+        await proposals.upsert_proposals(
+            db, world["target"], [{"candidate_id": b, "score": 71}], "new_cv"
+        )
+        await proposals.upsert_proposals(
+            db, world["target"], [{"candidate_id": a, "score": 75}], "full_base"
+        )
+        row = await db.scalar(
+            select(JobProposal).where(
+                JobProposal.job_id == world["target"],
+                JobProposal.candidate_id == b,
+                JobProposal.source == "full_base",
+            )
+        )
+        row.status = "expired"
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        rows, _ = await proposals.list_for_job(db, job_id=world["target"], limit=10)
+        sources = await _history_sources(db, world["target"], [a, b])
+    assert [r.candidate_id for r in rows] == [a, b]
+    assert b not in sources

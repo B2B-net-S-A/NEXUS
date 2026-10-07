@@ -151,7 +151,10 @@ async def known_people_for_job(
     if not enabled() or job is None:
         return {}
     try:
-        return await _compute(db, job, now=now or datetime.now(timezone.utc))
+        # Własny savepoint: błąd SQL tutaj nie może zatruć transakcji publikacji
+        # (wtedy rekrutacja nie dostałaby tej nocy ŻADNYCH propozycji).
+        async with db.begin_nested():
+            return await _compute(db, job, now=now or datetime.now(timezone.utc))
     except Exception:  # noqa: BLE001 — kolejność, nie warunek publikacji
         logger.exception(
             "[known_people] signal failed job=%s", getattr(job, "id", None)

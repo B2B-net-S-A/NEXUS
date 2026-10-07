@@ -137,6 +137,9 @@ async def _history_sources(db, job_id: int, candidate_ids: list[int]) -> dict:
             select(JobProposal.candidate_id, JobProposal.evidence).where(
                 JobProposal.job_id == job_id,
                 JobProposal.source == "full_base",
+                # Te same wiersze co punkty w kolejności `list_for_job` (`_live`):
+                # wygasły wiersz nie może dawać powodu ani punktów w przeglądarce.
+                JobProposal.status != "expired",
                 JobProposal.candidate_id.in_(candidate_ids),
             )
         )
@@ -183,8 +186,8 @@ async def _history_sources(db, job_id: int, candidate_ids: list[int]) -> dict:
     for cid, h in info.items():
         similar = [x for x in (expand(r) for r in h.get("similar") or []) if x]
         recent = expand(h.get("recent"))
-        if not similar and recent is None:
-            continue
+        # Punkty zostają, nawet gdy rekrutacji z powodu już nie ma — serwer
+        # i tak sortuje po nich; przeglądarka pominie wtedy tylko tekst powodu.
         out[cid] = {"points": h.get("points"), "similar": similar, "recent": recent}
     return out
 
