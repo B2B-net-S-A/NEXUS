@@ -68,7 +68,7 @@ CATALOG = (
         label="Alerty klientów i umów",
         module="Klienci i umowy",
         trigger="Nowy alert lub próg przypomnienia z włączonym kanałem email w regule alertu.",
-        recipient_rule="Aktywni administratorzy i Delivery Leadzi przypisani do danego klienta, z dostępem do sekcji.",
+        recipient_rule="Delivery Leadzi przypisani do danego klienta, aktywni i z dostępem do sekcji (bez administratorów).",
     ),
     dict(
         id="application_confirmation",
@@ -76,6 +76,51 @@ CATALOG = (
         module="Strona kariery",
         trigger="Kandydat wysłał zgłoszenie z CV przez link aplikacyjny lub stronę kariery (najwyżej jeden mail na adres i link w ciągu 24 h).",
         recipient_rule="Kandydat — adres z formularza. Treść jest taka sama, niezależnie od tego, czy osoba była już w bazie.",
+    ),
+    # Maile natychmiast (07.10.2026) — kolejka `tasks/notification_email_outbox.py`
+    # bierze powiadomienia z dzwonka typów z `notification_kind`.
+    dict(
+        id="dl_review",
+        label="CV czeka na Twój przegląd",
+        module="Rekrutacje",
+        trigger="Rekruter przekazał kandydata do „QC CV” (albo do kolejki Cpro u Nordei).",
+        recipient_rule="Delivery Lead rekrutacji (bez niego: Delivery Leadzi z portfela klienta); osoba od Cpro.",
+    ),
+    dict(
+        id="cv_returned",
+        label="CV wróciło do poprawy",
+        module="Rekrutacje",
+        trigger="Delivery Lead cofnął kandydata z „QC CV” albo z kolejki Cpro.",
+        recipient_rule="Osoba, która przekazała kartę, i rekruter kandydata.",
+    ),
+    dict(
+        id="request_assigned",
+        label="Nowa rekrutacja dla Ciebie",
+        module="Rekrutacje",
+        trigger="Ktoś (albo automat przydziału) przypisał Cię do prowadzenia rekrutacji.",
+        recipient_rule="Nowo przypisana osoba; bez maila do osoby, która przypisała samą siebie.",
+    ),
+    dict(
+        id="signature_request",
+        label="Prośba o potwierdzenie podpisu umowy",
+        module="Klienci i umowy",
+        trigger="Rekruter prosi o oznaczenie umowy B2B z Generatora jako podpisanej (najwyżej raz na dobę).",
+        recipient_rule="Delivery Lead rekrutacji, potem Delivery Leadzi z portfela klienta, potem TCM — z uprawnieniem „Podpis B2B”.",
+    ),
+    dict(
+        id="system_failure",
+        label="Awaria automatu",
+        module="System",
+        trigger="Ten sam automat (przegląd bazy, propozycje, auto-CV) padł 3 razy z rzędu.",
+        recipient_rule="Aktywni administratorzy.",
+    ),
+    # Poranny skrót (07.10.2026) — `tasks/daily_digest_email.py`.
+    dict(
+        id="daily_digest",
+        label="Poranny skrót „Twój dzień w NEXUSIE”",
+        module="Pulpit",
+        trigger="Dzień roboczy od 8:00 — to, co czeka na osobę w panelu „Czeka na Ciebie”. Pusty skrót nie wychodzi.",
+        recipient_rule="Aktywni rekruterzy, TCM, Delivery Leadzi, Head of Recruitment i Finanse (rola główna albo dodatkowa). Admin bez tych ról — nie.",
     ),
     # Raporty KPI mailem (plan PR3, 23.09.2026) — `tasks/kpi_email_reports.py`.
     dict(
@@ -94,7 +139,7 @@ CATALOG = (
     ),
 )
 # Raporty nie mają odpowiednika w dzwonku — wychodzą wyłącznie mailem.
-REPORT_KINDS = frozenset({"kpi_weekly_report", "board_monthly_report"})
+REPORT_KINDS = frozenset({"kpi_weekly_report", "board_monthly_report", "daily_digest"})
 ROUTINE_KINDS = frozenset(item["id"] for item in CATALOG)
 SECURITY_CATALOG = (
     dict(
@@ -183,7 +228,45 @@ def notification_kind(notification_type: Any) -> str | None:
         "job_deadline_7d": "job_deadline",
         "job_deadline_3d": "job_deadline",
         "job_deadline_1d": "job_deadline",
+        # Maile natychmiast (07.10.2026). `board_task_waiting` to także
+        # „CV wróciło do poprawy” — rozróżnia `immediate_email_kind`.
+        "board_task_waiting": "dl_review",
+        "request_assignment_changed": "request_assigned",
+        "b2b_signature_requested": "signature_request",
+        "automation_failing": "system_failure",
     }.get(getattr(notification_type, "value", notification_type))
+
+
+# Rodzaje wysyłane natychmiast przez `tasks/notification_email_outbox.py`.
+IMMEDIATE_KINDS = (
+    "dl_review",
+    "cv_returned",
+    "request_assigned",
+    "signature_request",
+    "system_failure",
+)
+
+
+def immediate_email_kind(
+    notification_type: Any, *, title: str | None, related_entity_type: str | None
+) -> str | None:
+    """Rodzaj maila natychmiast dla wiersza dzwonka albo `None` (bez maila).
+
+    Ta sama reguła co zapytanie kolejki (`notification_email_outbox`):
+    zwrot do poprawy rozpoznaje początek tytułu, a poranny skrót przydziałów
+    (`request_assignment_changed` z encją `user`) nie idzie mailem — niesie
+    to samo, co poranny skrót dnia.
+    """
+    from app.services.stage_handoff_recipients import RETURNED_TITLE_PREFIXES
+
+    kind = notification_kind(notification_type)
+    if kind not in IMMEDIATE_KINDS:
+        return None
+    if kind == "dl_review" and (title or "").startswith(RETURNED_TITLE_PREFIXES):
+        return "cv_returned"
+    if kind == "request_assigned" and related_entity_type != "job":
+        return None
+    return kind
 
 
 async def load_policy(db: AsyncSession) -> DeliveryPolicy:

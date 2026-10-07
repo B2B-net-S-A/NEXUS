@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 06.10.2026
+> **Zgodność z systemem sprawdzona:** 07.10.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -1498,6 +1498,13 @@ z dniem T-30: zamówienie wpisane albo przedłużone na mniej niż miesiąc
 przychodzi znowu.
 
 Każdy próg wysyła mail raz. Odhaczona sprawa nie dostaje już maili.
+
+Maile z tego panelu dostaje **wyłącznie konto z rolą Delivery Leada** —
+administrator ma te sprawy w panelu, ale nie w skrzynce. Wysyłkę włącza
+administrator w **Ustawienia → Powiadomienia** (rodzaj „Alerty klientów
+i umów”). Liczbę otwartych spraw zobaczysz też w **porannym skrócie** —
+mailu „Twój dzień w NEXUSIE”, który w dni robocze o 8:00 zbiera to, co na
+Ciebie czeka w panelu „Czeka na Ciebie”.
 
 ### Dzwonek w prawym górnym rogu
 

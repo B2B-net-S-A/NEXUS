@@ -67,6 +67,16 @@ TASK_REASONS = frozenset(
 # Przekazania, które SĄ ruchem wstecz — resolver ich nie odsiewa.
 BACKWARD_REASONS = frozenset({REASON_CPRO_RETURNED, REASON_QC_RETURNED})
 
+# Początki tytułów dzwonka zadania. Wiersz powiadomienia nie niesie powodu,
+# a kolejka maili (`tasks/notification_email_outbox.py`) odróżnia po nich
+# „CV czeka na przegląd” od „CV wróciło do poprawy” — oba miejsca czytają
+# te same stałe.
+TITLE_DL_REVIEW = "CV do przeglądu:"
+TITLE_CPRO_QUEUE = "Do wrzucenia do Cpro:"
+TITLE_CPRO_RETURNED = "Wrócił z kolejki Cpro:"
+TITLE_QC_RETURNED = "Wróciło do poprawy:"
+RETURNED_TITLE_PREFIXES = (TITLE_CPRO_RETURNED, TITLE_QC_RETURNED)
+
 CV_SENT_COLUMN = "cv_sent"
 # Kolumny, z których ruch na „CV wysłane” jest wysłaniem karty przekazanej
 # przez poprzednią osobę.
