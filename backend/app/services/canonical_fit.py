@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from app.services.full_search_measurement import measure_candidates, request_vector
+from app.services.query_adapter import adapt_job_query
 from app.services.request_matching_context import RequestMatchingContext
 from app.services.search_telemetry import stage
 
@@ -112,7 +113,7 @@ async def score_candidates(db, context: RequestMatchingContext, candidates):
         await attach_prior_screening(db, job, candidates)
     with stage("query_embedding") as outcome:
         try:
-            vector = await request_vector(context.query_text)
+            vector = adapt_job_query(await request_vector(context.query_text))
             outcome["failed"] = vector is None
         except Exception:
             vector = None

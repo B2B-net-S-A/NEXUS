@@ -173,9 +173,16 @@ async def resolve_vector(
     if not vector:
         return None
     digest = hashlib.sha256(text.encode()).hexdigest()[:16]
+    adapter = ""
+    if kind == "job":
+        # Adapter dotyczy wyłącznie zapytania rekrutacji, nie słów z filtrów.
+        from app.services.query_adapter import adapt_job_query, version_tag
+
+        vector = adapt_job_query(vector)
+        adapter = f":{version_tag()}"
     return MatchVector(
         vector=vector,
-        key=f"{kind}:{job_id or ''}:{digest}",
+        key=f"{kind}:{job_id or ''}:{digest}{adapter}",
         kind=kind,
         context=context,
     )

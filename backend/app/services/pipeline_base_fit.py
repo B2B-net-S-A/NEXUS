@@ -7,6 +7,7 @@ from app.models.recruitment_pipeline import CandidateStage
 from app.services.candidate_search_worker import evaluate_batch
 from app.services.full_candidate_scan import CandidateSnapshot, scan_population
 from app.services.full_search_measurement import request_vector
+from app.services.query_adapter import adapt_job_query
 from app.services.request_matching_context import build_request_context
 from app.services.search_telemetry import SearchTelemetry, stage
 
@@ -33,7 +34,7 @@ async def pipeline_base_fit(db, job, profile):
         if population:
             with stage("query_embedding") as outcome:
                 try:
-                    vector = await request_vector(context.query_text)
+                    vector = adapt_job_query(await request_vector(context.query_text))
                     outcome["failed"] = vector is None
                 except Exception:
                     outcome["failed"] = True

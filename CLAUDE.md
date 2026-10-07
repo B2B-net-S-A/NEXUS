@@ -2190,6 +2190,18 @@ w jednej zakładce i puste w sąsiedniej.
 
 ## Indeks wektorowy: dryf, degradacja i pula ofert (18.09.2026)
 
+- **Adapter wektora zapytania (`services/query_adapter.py`, flaga
+  `QUERY_ADAPTER_ENABLED`, domyślnie OFF; badanie 06.10.2026).** Macierz
+  `app/data/query_adapter.npz` uczona `scripts/train_query_adapter.py` (prawda
+  verified+, zamrożone zbiory eval A i B wykluczone) daje `q + a·q·W` WYŁĄCZNIE
+  dla zapytania rekrutacji szukającego kandydatów: `canonical_fit`,
+  `pipeline_base_fit`, `candidate_search_worker`, `candidate_match_order`
+  (`kind="job"`). Nie dla podobnych rekrutacji, kandydat→oferta, wyszukiwania
+  tekstem ani starszych pul (`search_candidates_semantic`). Pamięci zapytań
+  trzymają surowe wektory; wersja macierzy wchodzi do `scoring_algorithm_version`
+  tylko przy włączonym adapterze. Macierz innego `VOYAGE_MODEL` jest ignorowana
+  — zmiana modelu = ponowne uczenie. Włączenie wyłącznie po A/B
+  (`coolify-ops` `eval-ab-query-adapter`).
 - **Hasz indeksu zależy od TREŚCI i MODELU** (`index_outbox_service._desired_hash`).
   Był samym `sha256(text)`, więc zmiana `VOYAGE_MODEL` nie tworzyła dryfu i nic
   się nie przeindeksowywało — indeks cicho mieszałby wektory z dwóch przestrzeni,

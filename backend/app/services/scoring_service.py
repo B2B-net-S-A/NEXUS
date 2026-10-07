@@ -283,6 +283,12 @@ def scoring_algorithm_version() -> str:
     payload["location_contract"] = "2026-09-27-place-dictionary"
     payload["alias_mention_contract"] = "2026-10-07-rest-plain-word"
     payload["skill_text_evidence"] = "2026-10-07-no-gaps-no-negated-answers"
+    # Adapter zapytania zmienia podobieństwo semantyczne, więc i wynik. Klucz
+    # tylko przy włączonym adapterze — wyłączony nie unieważnia pamięci wyników.
+    from app.services.query_adapter import version_tag as _query_adapter_tag
+
+    if (_adapter_tag := _query_adapter_tag()) != "off":
+        payload["query_adapter"] = _adapter_tag
     # „Stawka od” (0414): stawka kandydata = najniższa z 18 miesięcy.
     from app.services.candidate_rate_from import enabled as _rate_from_enabled
 

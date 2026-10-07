@@ -109,6 +109,12 @@ ARMS: dict[str, tuple[Arm, ...]] = {
         Arm("OFF", _TEXT_V3, _CANONICAL),
         Arm("ON", _TEXT_V3_NO_NOTES, _CANONICAL),
     ),
+    # Adapter zapytania (badanie 06.10.2026): ta sama pula i scorer, różni się
+    # wyłącznie wektor zapytania rekrutacji w ocenie kanonicznej.
+    "query-adapter": (
+        Arm("OFF", {**_POOL_OFF, "QUERY_ADAPTER_ENABLED": "false"}, _CANONICAL),
+        Arm("ON", {**_POOL_OFF, "QUERY_ADAPTER_ENABLED": "true"}, _CANONICAL),
+    ),
 }
 
 HARNESSES = ("matching", "manual")
