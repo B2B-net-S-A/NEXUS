@@ -377,3 +377,16 @@ async def test_catalog_off_preserves_real_provider_and_channel_information(
     assert types["password_reset"]["effective_enabled"] is True
     assert types["password_reset"]["editable"] is False
     assert "external_monitoring" in {item["id"] for item in result["excluded_channels"]}
+
+
+def test_settings_payload_accepts_every_routine_kind_at_once():
+    # Ekran wysyła komplet przełączników. Limit 5 z #1691 przestał pasować,
+    # gdy katalog urósł do 9 rodzajów — zapis kończył się 422.
+    from app.api.settings import NotificationDeliveryUpdate
+    from app.services.notification_delivery import CATALOG
+
+    payload = NotificationDeliveryUpdate(
+        enabled=True,
+        types=[{"id": item["id"], "email_enabled": True} for item in CATALOG],
+    )
+    assert len(payload.types) == len(CATALOG)

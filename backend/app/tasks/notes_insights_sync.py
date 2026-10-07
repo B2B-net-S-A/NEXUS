@@ -236,6 +236,7 @@ async def _clear_facts(db, cand: Candidate) -> None:
     """Wyczyść fakty z notatek (i stawkę wpisaną przez notatki) z audytem."""
     from app.services.match_score_cache import mark_stale_for_candidate
 
+    had_date = cand.availability_date is not None
     rate_audit = clear_notes_facts(cand)
     if rate_audit is not None:
         from app.services import candidate_audit
@@ -247,6 +248,8 @@ async def _clear_facts(db, cand: Candidate) -> None:
             entity_id=cand.id,
             details=rate_audit,
         )
+    # Data dostępności wpisana przez notatki znika razem z nimi (07.10.2026).
+    if rate_audit is not None or (had_date and cand.availability_date is None):
         await mark_stale_for_candidate(db, cand.id)
 
 
@@ -282,6 +285,7 @@ async def run_notes_insights_sync() -> dict[str, Any]:
         "onsite_days_filled": 0,
         "remote_modes_filled": 0,
         "avail_date_filled": 0,
+        "avail_date_cleared": 0,
         "languages_added": 0,
         "quota_blocked": 0,
         "upgrade_selected": 0,
@@ -404,6 +408,7 @@ async def run_notes_insights_sync() -> dict[str, Any]:
                     "onsite_days_filled",
                     "remote_modes_filled",
                     "avail_date_filled",
+                    "avail_date_cleared",
                     "languages_added",
                 ):
                     stats[key] += row_stats.get(key, 0)
