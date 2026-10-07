@@ -234,16 +234,24 @@ def _median(values: Iterable[Optional[Decimal]]) -> Optional[Decimal]:
     return Decimal(str(statistics.median(clean))).quantize(Decimal("0.01"))
 
 
+# Poniżej tej liczby osób mediana i zakres zdradzają stawkę konkretnej osoby
+# (przy jednej — wprost), więc pokazujemy samą liczbę konsultantów.
+MIN_AGGREGATE_SIZE = 3
+
+
 def summarize(
     rates: list[ConsultantRates], category_id: Optional[int]
 ) -> ClientConsultantSummary:
     """Czysta część agregatów — testowana bez bazy."""
     out = ClientConsultantSummary(consultants=len(rates), rates=list(rates))
-    out.client_margin_median_hourly = _median(r.margin_hourly for r in rates)
+    if len(rates) >= MIN_AGGREGATE_SIZE:
+        out.client_margin_median_hourly = _median(r.margin_hourly for r in rates)
     if category_id is None:
         return out
     same = [r for r in rates if r.category_id == category_id]
     out.category_count = len(same)
+    if len(same) < MIN_AGGREGATE_SIZE:
+        return out
     costs = [r.cost_hourly for r in same if r.cost_hourly is not None]
     revenues = [r.revenue_hourly for r in same if r.revenue_hourly is not None]
     out.category_cost_min = min(costs) if costs else None

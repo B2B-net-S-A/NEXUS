@@ -19,7 +19,8 @@ i ``meta.fields`` = lista pól z etykietami. Prośba jest OTWARTA, dopóki
 najnowszy wiersz etapu pary to ``meta.stage_id`` — ruch rekrutera z powrotem
 na „QC CV” (albo jakikolwiek inny) ją zamyka. Pole jest „poprawione”, gdy
 bieżąca migawka różni się od migawki prośby w tym polu (CV — gdy CV firmowe
-zmieniło się po prośbie).
+zmienił po prośbie człowiek; szkic podpięty przez automat auto-CV po ruchu na
+„Zweryfikowany” się nie liczy).
 
 Wyłącznie poza Nordeą (tam nie ma przeglądu DL) i wyłącznie przy ruchu
 z „QC CV” na „Zweryfikowany”.
@@ -35,6 +36,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.activity import Activity
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage
@@ -264,6 +266,72 @@ async def latest_request(
     )
 
 
+AUTOMATION_ATTACH_ACTION = "branded_cv_attached_by_automation"
+# Podpięcie szkicu przez automat stempluje ``branded_updated_at`` w tej samej
+# transakcji co wpis w historii (``created_at`` = początek transakcji), więc
+# oba czasy dzieli najwyżej czas tej transakcji.
+_AUTOMATION_SLACK_SECONDS = 60
+
+
+def cv_changed_by_person(
+    updates: Sequence[tuple[int, datetime]],
+    automation: Sequence[tuple[int, datetime]],
+    *,
+    requested_at: datetime,
+) -> bool:
+    """Czy CV firmowe pary zmienił po prośbie człowiek (czysta funkcja).
+
+    ``updates`` — (id kopii CV, ``branded_updated_at``), ``automation`` —
+    (id kopii CV, czas wpisu „podpięte przez automat”). Zmiana po prośbie, którą
+    tłumaczy podpięcie przez automat tej samej kopii, nie jest poprawką.
+    """
+    for csv_id, updated_at in updates:
+        if updated_at is None or updated_at <= requested_at:
+            continue
+        explained = any(
+            auto_id == csv_id
+            and auto_at >= requested_at
+            and 0 <= (updated_at - auto_at).total_seconds() <= _AUTOMATION_SLACK_SECONDS
+            for auto_id, auto_at in automation
+        )
+        if not explained:
+            return True
+    return False
+
+
+async def _cv_changed_since(
+    db: AsyncSession, *, candidate_id: int, job_id: int, requested_at: datetime
+) -> bool:
+    updates = [
+        (csv_id, at)
+        for csv_id, at in (
+            await db.execute(
+                select(CandidateStageCV.id, CandidateStageCV.branded_updated_at).where(
+                    CandidateStageCV.candidate_id == candidate_id,
+                    CandidateStageCV.job_id == job_id,
+                    CandidateStageCV.branded_updated_at > requested_at,
+                )
+            )
+        ).all()
+    ]
+    if not updates:
+        return False
+    automation = [
+        (entity_id, at)
+        for entity_id, at in (
+            await db.execute(
+                select(Activity.entity_id, Activity.created_at).where(
+                    Activity.entity_type == "candidate_stage_cv",
+                    Activity.entity_id.in_([csv_id for csv_id, _ in updates]),
+                    Activity.action == AUTOMATION_ATTACH_ACTION,
+                    Activity.created_at >= requested_at,
+                )
+            )
+        ).all()
+    ]
+    return cv_changed_by_person(updates, automation, requested_at=requested_at)
+
+
 async def open_for_pair(
     db: AsyncSession,
     *,
@@ -281,19 +349,15 @@ async def open_for_pair(
     row = await latest_request(db, candidate_id=candidate_id, job_id=job_id)
     if row is None or (row.meta or {}).get("stage_id") != newest_stage_id:
         return None
-    cv_at = await db.scalar(
-        select(func.max(CandidateStageCV.branded_updated_at)).where(
-            CandidateStageCV.candidate_id == candidate_id,
-            CandidateStageCV.job_id == job_id,
-        )
-    )
     requested_at = row.created_at or datetime.now(timezone.utc)
     author = await db.get(User, row.created_by) if row.created_by else None
     return describe(
         row,
         current_snapshot=current_snapshot,
         questions=questions,
-        cv_changed=bool(cv_at and cv_at > requested_at),
+        cv_changed=await _cv_changed_since(
+            db, candidate_id=candidate_id, job_id=job_id, requested_at=requested_at
+        ),
         requested_by_name=author.name if author is not None else None,
         remark=await stage_remarks.for_stage(db, newest_stage_id),
     )

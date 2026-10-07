@@ -358,3 +358,28 @@ async def test_nordea_has_no_dl_review_so_no_fix_list(
         assert resp.json()["detail"]["code"] == "FIX_FIELDS_NOT_ALLOWED"
     finally:
         await _cleanup(world, [rec_id, dl_id])
+
+
+def test_cv_change_by_automation_is_not_a_fix() -> None:
+    """Szkic podpięty przez auto-CV po „Wróć do poprawy” nie jest poprawką."""
+    from datetime import datetime, timedelta, timezone
+
+    asked = datetime(2026, 10, 8, 10, 0, tzinfo=timezone.utc)
+    changed = svc.cv_changed_by_person
+    # Brak zmian po prośbie.
+    assert not changed([(1, asked - timedelta(minutes=5))], [], requested_at=asked)
+    # Automat podpiął szkic chwilę po prośbie — to nie rekruter.
+    auto_at = asked + timedelta(seconds=2)
+    assert not changed(
+        [(1, auto_at + timedelta(seconds=1))], [(1, auto_at)], requested_at=asked
+    )
+    # Rekruter edytował CV kwadrans po automacie — poprawka.
+    assert changed(
+        [(1, auto_at + timedelta(minutes=15))], [(1, auto_at)], requested_at=asked
+    )
+    # Inna kopia CV niż ta, którą podpiął automat — poprawka.
+    assert changed(
+        [(2, auto_at + timedelta(seconds=1))], [(1, auto_at)], requested_at=asked
+    )
+    # Zmiana po prośbie bez automatu — poprawka.
+    assert changed([(1, asked + timedelta(minutes=3))], [], requested_at=asked)

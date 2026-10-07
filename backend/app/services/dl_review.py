@@ -515,7 +515,7 @@ async def _pair_facts(
         .all()
     )
     started = {p.candidate_id: cards.attempt_started(p) for p in processes}
-    cards = (
+    card_rows = (
         await db.scalars(
             select(RecommendationCard).where(
                 RecommendationCard.job_id == job.id,
@@ -523,7 +523,7 @@ async def _pair_facts(
             )
         )
     ).all()
-    for card in cards:
+    for card in card_rows:
         current, _previous = card_rules.split_fields(
             card.fields_notes or {},
             card.fields_manual or {},
@@ -647,6 +647,16 @@ class Access:
     client_rates: bool  # stawki do klienta
     finance_boundary: Optional[frozenset[int]]
     user: User
+
+    def client_rate_for(self, client_id: Optional[int], family: set[int]) -> bool:
+        """Stawka do klienta wysyłki: klient rekrutacji (i jego scalone rekordy)
+        jak na Tablicy, inny klient tylko przy wglądzie w jego kwoty — DL nie
+        widzi stawek klientów spoza portfela (lustro ``_history_fee_visible``)."""
+        if not self.client_rates:
+            return False
+        if client_id is not None and client_id in family:
+            return True
+        return self.amounts_for(client_id)
 
     def amounts_for(self, client_id: Optional[int]) -> bool:
         from app.api.financial_access import can_read_client_finance  # noqa: PLC0415
@@ -787,7 +797,11 @@ def _person(
     reason_code = _value(getattr(decision, "reason_code", None))
     hourly = (facts.rate or {}).get("hourly_pln")
     before = [
-        _send_row(row, show_client_rate=access.client_rates, same_client=True)
+        _send_row(
+            row,
+            show_client_rate=access.client_rate_for(row.client_id, batch.family),
+            same_client=True,
+        )
         for row in batch.sends
         if row.candidate_id == candidate_id
         and row.job_id != job.id
@@ -894,7 +908,7 @@ async def build_context(
     today = now.date()
     access = await access_for(db, user, job)
     batch = await _load_batch(db, job, [candidate_id], now=now)
-    if candidate_id not in batch.facts:
+    if candidate_id not in batch.facts or batch.facts[candidate_id].stage_id is None:
         raise LookupError("candidate")
     budget = _budget(job)
     qc = (await qc_statuses(db, [(candidate_id, job.id)])).get(
@@ -914,7 +928,7 @@ async def build_context(
     previous_sends = [
         _send_row(
             row,
-            show_client_rate=access.client_rates,
+            show_client_rate=access.client_rate_for(row.client_id, batch.family),
             same_client=row.client_id in batch.family,
         )
         for row in batch.sends
@@ -943,7 +957,11 @@ async def build_context(
     )
     others_ids = await _job_sent_candidate_ids(db, job.id, candidate_id)
     job_sends = [
-        _send_row(row, show_client_rate=access.client_rates, same_client=True)
+        _send_row(
+            row,
+            show_client_rate=access.client_rate_for(row.client_id, batch.family),
+            same_client=True,
+        )
         for row in await _sends(db, others_ids, only_job=job.id)
     ]
     category = None
@@ -957,7 +975,7 @@ async def build_context(
     if access.amounts:
         summary = await client_consultant_summary(
             db,
-            client_ids=batch.family,
+            client_ids={cid for cid in batch.family if access.amounts_for(cid)},
             category_id=job.competence_category_id,
             today=today,
         )

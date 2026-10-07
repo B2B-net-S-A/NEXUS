@@ -261,7 +261,13 @@ export function DecisionPanel({
                 <p className="font-semibold text-foreground">
                   Konsultanci u klienta{clientRates.category_name ? ` — ${clientRates.category_name}` : ""}
                 </p>
-                {clientRates.category_count > 0 ? (
+                {clientRates.category_count > 0 && clientRates.category_cost_min == null &&
+                clientRates.category_revenue_min == null ? (
+                  <p>
+                    {clientRates.category_count} os. z tej kategorii — przy mniej niż 3 osobach nie pokazujemy stawek
+                    (zdradzałyby stawkę konkretnej osoby).
+                  </p>
+                ) : clientRates.category_count > 0 ? (
                   <>
                     <p>
                       {clientRates.category_count} os. · koszt {formatHourly(clientRates.category_cost_min)}–
@@ -273,10 +279,16 @@ export function DecisionPanel({
                 ) : (
                   <p>Nikt z tej kategorii nie pracuje dziś u klienta.</p>
                 )}
-                <p>
-                  Mediana marży u klienta ({clientRates.consultants} os.):{" "}
-                  {formatHourly(clientRates.client_margin_median_hourly)}
-                </p>
+                {clientRates.consultants >= 3 ? (
+                  <p>
+                    Mediana marży u klienta ({clientRates.consultants} os.):{" "}
+                    {formatHourly(clientRates.client_margin_median_hourly)}
+                  </p>
+                ) : (
+                  <p>
+                    U klienta pracuje {clientRates.consultants} os. — za mało, żeby pokazać medianę marży.
+                  </p>
+                )}
               </div>
             ) : context.can_see_amounts ? null : (
               <p className="text-[11px] text-muted-foreground">

@@ -22,6 +22,7 @@ from sqlalchemy import delete
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.candidate import Candidate
+from app.models.client import Client
 from app.models.job import Job, JobStatus, RemotePolicy
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.team_structure import DeliveryLeadClientAssignment
@@ -176,6 +177,21 @@ def test_consultant_summary_medians_without_names() -> None:
     assert rates.summarize([], 5).client_margin_median_hourly is None
 
 
+def test_consultant_summary_hides_amounts_of_small_groups() -> None:
+    """Mediana z jednej-dwóch osób to ich stawka — pokazujemy samą liczbę."""
+    two = [
+        rates.ConsultantRates(1, 5, Decimal("120"), Decimal("160")),
+        rates.ConsultantRates(2, 9, Decimal("140"), Decimal("170")),
+    ]
+    out = rates.summarize(two, 5)
+    assert out.consultants == 2
+    assert out.client_margin_median_hourly is None
+    assert out.category_count == 1
+    assert out.category_cost_min is None and out.category_cost_max is None
+    assert out.category_revenue_min is None and out.category_revenue_max is None
+    assert out.category_margin_median_hourly is None
+
+
 # ── Integracyjne: macierz redakcji ───────────────────────────────────────────
 
 
@@ -230,6 +246,9 @@ async def test_context_redaction_matrix_and_prefill(
     await grant_permissions(rm_id, "recruitment_manage")
     unique = uuid.uuid4().hex[:6]
     other_job_id = None
+    foreign_job_id = None
+    foreign_client_id = None
+    stranger_id = None
     try:
         async with AsyncSessionLocal() as db:
             job = await db.get(Job, jid)
@@ -268,6 +287,43 @@ async def test_context_redaction_matrix_and_prefill(
                     client_rate_currency="PLN",
                 )
             )
+            # I do INNEGO klienta za 210 zł/h — tę stawkę widzi tylko ktoś
+            # z wglądem w kwoty tamtego klienta.
+            foreign_client = Client(name=f"DLR obcy {unique}")
+            db.add(foreign_client)
+            await db.flush()
+            foreign_client_id = foreign_client.id
+            foreign = Job(
+                title=f"DLR obca {unique}",
+                location="Warszawa",
+                status=JobStatus.closed,
+                remote_policy=RemotePolicy.hybrid,
+                client_id=foreign_client.id,
+                pipeline_template_id=world["template_id"],
+            )
+            db.add(foreign)
+            await db.flush()
+            foreign_job_id = foreign.id
+            db.add(
+                CandidateStage(
+                    candidate_id=cid,
+                    job_id=foreign.id,
+                    stage="cv_sent",
+                    stage_def_id=defs["cv_sent"],
+                    moved_at=datetime.now(timezone.utc) - timedelta(days=90),
+                    client_rate_value=Decimal("210"),
+                    client_rate_unit="hourly",
+                    client_rate_currency="PLN",
+                )
+            )
+            stranger = Candidate(
+                name="Obcy",
+                lastname=f"DLR{unique}",
+                email=f"dlr-o-{unique}@example.com",
+            )
+            db.add(stranger)
+            await db.flush()
+            stranger_id = stranger.id
             db.add(
                 CandidateStage(
                     candidate_id=cid,
@@ -299,14 +355,14 @@ async def test_context_redaction_matrix_and_prefill(
         assert (await api_client.get(url, headers=rec)).status_code == 403
 
         expected = {
-            # (konto, kwoty klienta, stawki do klienta)
-            "admin": (admin_creds, True, True),
-            "dl_portfolio": (dl_in_creds, True, True),
-            "dl_outside": (dl_out_creds, False, True),
-            "hor_dl_outside": (hor_dl_creds, False, True),
-            "recruiter_rm": (rm_creds, False, True),
+            # (konto, kwoty klienta, stawki do klienta, stawka u obcego klienta)
+            "admin": (admin_creds, True, True, True),
+            "dl_portfolio": (dl_in_creds, True, True, False),
+            "dl_outside": (dl_out_creds, False, True, False),
+            "hor_dl_outside": (hor_dl_creds, False, True, False),
+            "recruiter_rm": (rm_creds, False, True, False),
         }
-        for name, (creds, amounts, client_rates) in expected.items():
+        for name, (creds, amounts, client_rates, foreign_rate) in expected.items():
             headers = await _login(api_client, creds)
             resp = await api_client.get(url, headers=headers)
             assert resp.status_code == 200, (name, resp.text)
@@ -323,8 +379,19 @@ async def test_context_redaction_matrix_and_prefill(
             assert labels["Kafka"]["status"] == "met"
             assert "CV" in labels["Kafka"]["sources"]
             assert any(r["code"] == "sent_to_client_before" for r in body["risks"])
-            assert body["previous_sends"][0]["client_rate"]["amount"] == 185.0
+            sends = {row["job_id"]: row for row in body["previous_sends"]}
+            assert sends[other_job_id]["client_rate"]["amount"] == 185.0
+            assert (sends[foreign_job_id]["client_rate"] is not None) is foreign_rate, (
+                name
+            )
             assert any(o["key"] == "cv" for o in body["fix_options"])
+
+        admin = await _login(api_client, admin_creds)
+        missing = await api_client.get(
+            f"/api/dl-review/context?candidate_id={stranger_id}&job_id={jid}",
+            headers=admin,
+        )
+        assert missing.status_code == 404, missing.text
     finally:
         async with AsyncSessionLocal() as db:
             await db.execute(
@@ -337,5 +404,16 @@ async def test_context_redaction_matrix_and_prefill(
                     delete(CandidateStage).where(CandidateStage.job_id == other_job_id)
                 )
                 await db.execute(delete(Job).where(Job.id == other_job_id))
+            if foreign_job_id is not None:
+                await db.execute(
+                    delete(CandidateStage).where(
+                        CandidateStage.job_id == foreign_job_id
+                    )
+                )
+                await db.execute(delete(Job).where(Job.id == foreign_job_id))
+            if foreign_client_id is not None:
+                await db.execute(delete(Client).where(Client.id == foreign_client_id))
+            if stranger_id is not None:
+                await db.execute(delete(Candidate).where(Candidate.id == stranger_id))
             await db.commit()
         await _cleanup(world, [rec_id, rm_id, admin_id, dl_in_id, dl_out_id, hor_dl_id])

@@ -2934,7 +2934,8 @@ porównania z innymi osobami; „Wróć do poprawy” niosło jedno zdanie, wię
   (`StageMove.fix_fields`, najwyżej 30) i wolno ją wysłać WYŁĄCZNIE przy ruchu z kolumny „QC CV” na
   „Zweryfikowany” poza Nordeą (422 `FIX_FIELDS_NOT_ALLOWED`; nieznany klucz = 422 `FIX_FIELDS_INVALID`). Prośba
   jest otwarta, dopóki najnowszy wiersz etapu pary to `meta.stage_id`; „poprawione” liczy porównanie migawki
-  z wersją prośby (CV — `branded_updated_at` późniejsze niż prośba). Zapis prośby podbija wersję formularza, więc
+  z wersją prośby (CV — `branded_updated_at` późniejsze niż prośba, z pominięciem szkicu podpiętego przez
+  automat auto-CV po ruchu na „Zweryfikowany”: `cv_changed_by_person`). Zapis prośby podbija wersję formularza, więc
   otwarty u rekrutera formularz dostaje 409 i wczytuje się z zachowaniem jego zmian.
 - **Rekruter widzi prośbę w formularzu screeningu** (`GET /api/screening-form` → `fix_request`,
   `handback_stage_def_id`): baner „Delivery Lead prosi o poprawki (N)”, pola podświetlone („do poprawy” /
@@ -2948,7 +2949,11 @@ porównania z innymi osobami; „Wróć do poprawy” niosło jedno zdanie, wię
   punkty odniesienia (stawki konsultantów u klienta z `services/client_consultant_rates.py` — mediany bez nazwisk,
   ostatni kontrakt osoby) i lista pól do poprawy. **Kwoty klienta tylko przy `can_read_client_finance`** dla
   klienta rekrutacji, **stawki do klienta tylko przy `user_can_view_client_rate`** — inaczej pola są `null`, nie
-  zera. Podpowiedź stawki do klienta: ta para, potem ostatnia wysyłka tej osoby do tego klienta.
+  zera. Stawka do klienta we wcześniejszej wysyłce do INNEGO klienta — tylko z wglądem w kwoty tamtego klienta
+  (`Access.client_rate_for`, DL spoza portfela jej nie widzi). Agregaty konsultantów liczą wyłącznie klientów
+  z wglądem w kwoty, a mediana i zakres dopiero od 3 osób (`MIN_AGGREGATE_SIZE` — przy 1–2 zdradzałyby stawkę
+  konkretnej osoby). Osoba bez wiersza etapu w rekrutacji = 404. Podpowiedź stawki do klienta: ta para, potem
+  ostatnia wysyłka tej osoby do tego klienta.
 - **Marżę liczy przeglądarka** (`lib/dl-review-margin.ts`): stawka do klienta − stawka kandydata po przeliczeniu
   na zł/h (dzień ÷ 8, miesiąc ÷ 168), miesięcznie × 168; waluta inna niż PLN albo brak stawki kandydata = „nie do
   porównania”, nigdy zero. Ostrzeżenie przy marży poniżej mediany klienta.
