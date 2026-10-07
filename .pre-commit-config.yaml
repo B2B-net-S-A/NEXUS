@@ -10,6 +10,8 @@ repos:
       - id: check-yaml
       - id: check-added-large-files
         args: ["--maxkb=1024"]
+        # Macierz adaptera zapytania (1,9 MB, `services/query_adapter.py`).
+        exclude: ^backend/app/data/query_adapter\.npz$
       - id: check-merge-conflict
       - id: detect-private-key
       - id: check-json
