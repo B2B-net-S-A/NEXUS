@@ -302,6 +302,7 @@ async def test_generator_prefill_without_a_stage_rate_has_no_recruitment_rate(
     from app.models.candidate import Candidate
     from app.models.client import Client
     from app.models.job import Job, JobStatus
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 
     unique = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
@@ -316,6 +317,16 @@ async def test_generator_prefill_without_a_stage_rate_has_no_recruitment_rate(
         await db.flush()
         job = Job(title="Bez stawek", status=JobStatus.published, client_id=client.id)
         db.add(job)
+        await db.flush()
+        # Generator wymaga, żeby osoba była w rekrutacji — etap bez żadnej stawki.
+        db.add(
+            CandidateStage(
+                candidate_id=candidate.id,
+                job_id=job.id,
+                stage=PipelineStage.screening,
+                moved_at=datetime.now(timezone.utc),
+            )
+        )
         await db.commit()
         ids = {"candidate_id": candidate.id, "job_id": job.id}
     response = await app_client.get(
