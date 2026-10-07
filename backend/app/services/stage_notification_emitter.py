@@ -16,7 +16,7 @@ Email: SMTP via ``services/email.py:send_email`` — sync, no-op gdy
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Optional, Sequence
 
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
@@ -33,7 +33,7 @@ from app.services.email import send_email
 from app.services.notification_access import notification_recipient_has_access
 from app.services.notification_delivery import guarded_send, load_policy
 from app.services.notification_triggers import emit
-from app.services import stage_remarks
+from app.services import screening_fix_requests, stage_remarks
 from app.services.stage_handoff_recipients import (
     REASON_CPRO_QUEUE,
     REASON_CPRO_RETURNED,
@@ -84,6 +84,7 @@ def _inapp_content(
     job: Job,
     mover: Optional[User],
     remark: Optional[str] = None,
+    fix_labels: Sequence[str] = (),
 ) -> tuple[str, str, str]:
     """``(tytuł, treść, link)`` dzwonka.
 
@@ -103,7 +104,13 @@ def _inapp_content(
         mover=mover,
     )
     note = stage_remarks.short(remark)
-    return title, f"{message} Uwaga: „{note}”" if note else message, link
+    if note:
+        message = f"{message} Uwaga: „{note}”"
+    # D6 (08.10.2026): prośba DL o poprawki — które pola poprawić.
+    fixes = screening_fix_requests.bell_suffix(fix_labels)
+    if fixes:
+        message = f"{message} {fixes}"
+    return title, message, link
 
 
 def _inapp_base(
@@ -184,6 +191,7 @@ async def _send_inapp(
     mover: Optional[User],
     reason: Optional[str] = None,
     remark: Optional[str] = None,
+    fix_labels: Sequence[str] = (),
 ) -> bool:
     title, message, link = _inapp_content(
         reason=reason,
@@ -193,6 +201,7 @@ async def _send_inapp(
         job=job,
         mover=mover,
         remark=remark,
+        fix_labels=fix_labels,
     )
     notif = await emit(
         db,
@@ -308,6 +317,15 @@ async def notify_stage_change(
     except Exception as exc:  # noqa: BLE001
         logger.warning("stage_notif: remark lookup failed: %s", type(exc).__name__)
         remark = None
+    try:
+        fix_labels = (
+            await screening_fix_requests.labels_for_stages(
+                db, [new_stage.id], candidate_ids=[new_stage.candidate_id]
+            )
+        ).get(new_stage.id, [])
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("stage_notif: fix labels lookup failed: %s", type(exc).__name__)
+        fix_labels = []
 
     emitted_inapp = 0
     for rec in recipients:
@@ -324,6 +342,7 @@ async def notify_stage_change(
                     mover=mover,
                     reason=getattr(rec, "reason", None),
                     remark=remark,
+                    fix_labels=fix_labels,
                 ):
                     emitted_inapp += 1
             except Exception as exc:  # noqa: BLE001

@@ -238,6 +238,8 @@ class CvTransitRow(BaseModel):
     # D4 (04.10.2026): kto poprawił kartę rekomendacji od przekazania i co.
     card_edited_by: Optional[str] = None
     card_edited_fields: list[str] = []
+    # D6 (08.10.2026): pola, które Delivery Lead wskazał do poprawy.
+    fix_labels: list[str] = []
 
 
 class CvInTransitBlock(BaseModel):

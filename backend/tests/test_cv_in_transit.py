@@ -82,6 +82,27 @@ def test_classify(args: dict, expected: str | None) -> None:
     assert _kind(**args) == expected
 
 
+def test_transit_row_carries_the_fix_list() -> None:
+    """D6 (08.10.2026): wiersz „wróciło” niesie pola wskazane przez DL."""
+    row = svc.TransitRow(
+        kind=svc.KIND_SENT_BACK,
+        stage_id=1,
+        candidate_id=2,
+        candidate_name="Jan",
+        job_id=3,
+        job_title="Java",
+        job_working_title=None,
+        client_name=None,
+        since=datetime.now(timezone.utc),
+        fix_labels=("CV firmowe",),
+    )
+    assert row.fix_labels == ("CV firmowe",)
+    from app.api.board_tasks import CvTransitRow
+    from dataclasses import asdict
+
+    assert CvTransitRow(**asdict(row)).fix_labels == ["CV firmowe"]
+
+
 def test_rejection_reason_comes_from_the_dictionary_or_the_note() -> None:
     assert (
         svc.rejection_reason_text("salary_mismatch", "cokolwiek")
