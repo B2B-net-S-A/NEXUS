@@ -10,7 +10,7 @@ from __future__ import annotations
 import importlib.util
 import pathlib
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -119,6 +119,41 @@ def test_clear_notes_facts_respects_manual_override(monkeypatch) -> None:
     )
     assert clear_notes_facts(cand) is None
     assert cand.expected_rate_hourly == Decimal("180.00")
+
+
+def _with_availability(cand, *, profile_date, marker_date: str):
+    cand.availability_date = profile_date
+    cand.cv_extracted_data["_notes_insights"]["_availability_from_notes"] = {
+        "date": marker_date,
+        "as_of": "2023-05-04",
+        "basis": "asap",
+    }
+    return cand
+
+
+def test_clear_notes_facts_removes_availability_written_by_notes(monkeypatch) -> None:
+    _flag(monkeypatch)
+    cand = _with_availability(
+        _candidate(rate=None, written=None),
+        profile_date=date(2023, 5, 4),
+        marker_date="2023-05-04",
+    )
+    assert clear_notes_facts(cand) is None
+    assert cand.availability_date is None
+    assert "_notes_insights" not in cand.cv_extracted_data
+
+
+def test_clear_notes_facts_keeps_availability_corrected_by_a_person(
+    monkeypatch,
+) -> None:
+    _flag(monkeypatch)
+    cand = _with_availability(
+        _candidate(rate=None, written=None),
+        profile_date=date(2026, 12, 1),
+        marker_date="2023-05-04",
+    )
+    clear_notes_facts(cand)
+    assert cand.availability_date == date(2026, 12, 1)
 
 
 def test_mark_notes_changed_stamps_insights(monkeypatch) -> None:

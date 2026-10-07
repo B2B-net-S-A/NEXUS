@@ -463,6 +463,7 @@ def apply_insights(
         "notice_filled": 0,
         "avail_date_filled": 0,
         "avail_date_updated": 0,
+        "avail_date_cleared": 0,
         "status_set": 0,
         "locked_skills": 0,
         "onsite_days_filled": 0,
@@ -572,6 +573,9 @@ def apply_insights(
         prior=prior,
         as_of=as_of,
         latest_note_day=latest_note_day,
+        # Notatka o dostępności zniknęła albo zmieniła treść — data, którą
+        # sami wpisaliśmy, nie może zostać jako fakt bez źródła (07.10.2026).
+        release_stale_availability=True,
     )
     apply_profile_fill(candidate, changes)
     insights.update(markers)
@@ -585,7 +589,10 @@ def apply_insights(
         if field in changes:
             stats[key] = 1
     if "availability_date" in changes:
-        stats["avail_date_updated" if had_date else "avail_date_filled"] = 1
+        if changes["availability_date"] is None:
+            stats["avail_date_cleared"] = 1
+        else:
+            stats["avail_date_updated" if had_date else "avail_date_filled"] = 1
     if changes:
         changed = True
 

@@ -741,19 +741,23 @@ async def _forget_note_facts(
     if remaining:
         mark_notes_changed(candidate, now_iso=datetime.now(timezone.utc).isoformat())
         return
+    had_date = candidate.availability_date is not None
     rate_audit = clear_notes_facts(candidate)
-    if rate_audit is None:
+    # Data dostępności wpisana przez notatki znika razem z nimi (07.10.2026).
+    date_cleared = had_date and candidate.availability_date is None
+    if rate_audit is None and not date_cleared:
         return
     from app.services import candidate_audit
     from app.services.match_score_cache import mark_stale_for_candidate
 
-    candidate_audit.record_candidate_audit(
-        db,
-        action=candidate_audit.PROFILE_RATE_CHANGED,
-        user_id=actor_id,
-        entity_id=candidate_id,
-        details=rate_audit,
-    )
+    if rate_audit is not None:
+        candidate_audit.record_candidate_audit(
+            db,
+            action=candidate_audit.PROFILE_RATE_CHANGED,
+            user_id=actor_id,
+            entity_id=candidate_id,
+            details=rate_audit,
+        )
     await mark_stale_for_candidate(db, candidate_id)
 
 

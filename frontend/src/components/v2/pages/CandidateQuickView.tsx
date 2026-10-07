@@ -61,6 +61,7 @@ import { useCloudTalkEnabled } from "@/hooks/useCloudTalkEnabled";
 import { canMutateSection } from "@/lib/section-access";
 import { contactAttemptsLabel } from "@/lib/recommendation-card";
 import { rateCellText } from "@/components/v2/candidates/candidate-row-format";
+import { availabilityFromNotesLine, type AvailabilityFromNotes } from "@/lib/notes-facts";
 
 type QuickViewDestination =
   | "summary"
@@ -105,6 +106,8 @@ interface CandidateQuickViewData {
   availability: {
     status: string | null;
     available_from: string | null;
+    /** `available_from` wpisały notatki — „stan na” (07.10.2026). */
+    available_from_notes?: AvailabilityFromNotes | null;
     notice_period: number | null;
     notice_period_unit: "days" | "weeks" | "months" | null;
   };
@@ -217,10 +220,13 @@ function QuickSectionError({
 function FactTile({
   label,
   value,
+  hint,
   className,
 }: {
   label: string;
   value: React.ReactNode;
+  /** Druga linia drobnym drukiem (np. „z notatki · 04.05.2023”). */
+  hint?: { text: string; title: string } | null;
   className?: string;
 }) {
   const missing = value === null || value === undefined || value === "";
@@ -236,6 +242,11 @@ function FactTile({
       >
         {missing ? "brak" : value}
       </dd>
+      {!missing && hint ? (
+        <dd className="truncate text-xs text-muted-foreground" title={hint.title}>
+          {hint.text}
+        </dd>
+      ) : null}
     </div>
   );
 }
@@ -602,7 +613,15 @@ export function CandidateQuickView({
             </section>
 
             <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3" aria-label="Najważniejsze fakty">
-              <FactTile label="Dostępność" value={availabilityLabel(quickView.availability)} />
+              <FactTile
+                label="Dostępność"
+                value={availabilityLabel(quickView.availability)}
+                hint={
+                  quickView.availability.available_from
+                    ? availabilityFromNotesLine(quickView.availability.available_from_notes)
+                    : null
+                }
+              />
               <FactTile label="Stawka B2B" value={rate === undefined ? "—" : rate} />
               {/* Na telefonie lokalizacja dostaje pełny wiersz — w 1/3 ucinała się. */}
               <FactTile

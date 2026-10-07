@@ -544,6 +544,19 @@ class MatchSnippet(BaseModel):
     highlights: list[list[int]] = Field(default_factory=list)
 
 
+class AvailabilityFromNotes(BaseModel):
+    """Datę dostępności wpisały notatki (07.10.2026) — „stan na” i podstawa.
+
+    ``as_of`` — dzień notatki, od którego liczono datę („od zaraz” sprzed lat
+    daje datę z tamtego dnia); ``basis`` — ``date`` | ``month`` | ``notice``
+    | ``asap``. Liczone z ``_notes_insights._availability_from_notes``, dopóki
+    profil ma tę samą datę (``notes_profile_fill.availability_origin``).
+    """
+
+    as_of: Optional[date] = None
+    basis: Optional[str] = None
+
+
 class CandidateResponse(BaseModel):
     # Lista, `semantics_version=2`: które AKTYWNE filtry („location",
     # „experience", „rate") ta osoba przeszła wyłącznie dlatego, że nie mamy
@@ -569,6 +582,9 @@ class CandidateResponse(BaseModel):
     rate_observation_count: Optional[int] = None
     rate_from_computed_at: Optional[datetime] = Field(default=None, exclude=True)
     availability_date: Optional[date]
+    # Data wpisana z notatek — lista pokazuje „z notatki · stan na” (bez
+    # zapytania per wiersz: liczone z załadowanego `cv_extracted_data`).
+    availability_from_notes: Optional[AvailabilityFromNotes] = None
     notice_period: Optional[int] = None
     notice_period_unit: Optional[Literal["days", "weeks", "months"]] = None
     source: Optional[str]
@@ -745,6 +761,8 @@ class CandidateQuickViewPosition(BaseModel):
 class CandidateQuickViewAvailability(BaseModel):
     status: AvailabilityStatus = AvailabilityStatus.unknown
     available_from: Optional[date] = None
+    # `available_from` wpisały notatki — „stan na” (jak na liście).
+    available_from_notes: Optional[AvailabilityFromNotes] = None
     notice_period: Optional[int] = None
     notice_period_unit: Optional[Literal["days", "weeks", "months"]] = None
 

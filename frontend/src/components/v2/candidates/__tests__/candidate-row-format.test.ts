@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  availabilityCellSecondLine,
   availabilityCellText,
   candidatesCountLabel,
   lastContactText,
@@ -17,6 +18,33 @@ describe("candidate-row-format", () => {
     expect(availabilityCellText({ availability_status: "actively_looking" })).toBe("szuka aktywnie");
     expect(availabilityCellText({ availability_status: "unknown" })).toBeNull();
     expect(availabilityCellText({})).toBeNull();
+  });
+
+  it("dostępność z notatki: druga linia z dniem „stan na”, pełny opis w dymku", () => {
+    const fromNotes = {
+      availability_date: "2023-05-04",
+      availability_from_notes: { as_of: "2023-05-04", basis: "asap" },
+    };
+    expect(availabilityCellText(fromNotes)).toBe("od 04.05");
+    const second = availabilityCellSecondLine(fromNotes);
+    expect(second?.text).toBe("z notatki · 04.05.2023");
+    expect(second?.title).toContain("stan na 04.05.2023");
+    expect(second?.title).toContain("„Od zaraz”");
+    // Bez dnia notatki — samo pochodzenie.
+    expect(
+      availabilityCellSecondLine({
+        availability_date: "2026-11-01",
+        availability_from_notes: { as_of: null, basis: "month" },
+      })?.text,
+    ).toBe("z notatki");
+    // Data wpisana przez człowieka albo brak daty — bez drugiej linii.
+    expect(availabilityCellSecondLine({ availability_date: "2026-11-01" })).toBeNull();
+    expect(
+      availabilityCellSecondLine({
+        availability_date: null,
+        availability_from_notes: { as_of: "2023-05-04", basis: "asap" },
+      }),
+    ).toBeNull();
   });
 
   it("w procesie: zatrudnienie wygrywa, zamknięte rekrutacje się nie liczą", () => {

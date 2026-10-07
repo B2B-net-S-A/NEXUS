@@ -2346,7 +2346,16 @@ faktów (`PATCH /api/candidates/{id}/work-mode`). Jedna reguła:
   „od zaraz” z 2023 + „zna Pythona” z 30.09.2026 dawało „stan na 30.09.2026”.
   Znacznik `_availability_from_notes` (`date`, `as_of`, `basis`) — profil
   pokazuje „z notatek · stan na DD.MM.RRRR”; nowsza notatka poprawia datę,
-  którą wpisały notatki, poprawki człowieka nie rusza. Do 07.10 datę dawał
+  którą wpisały notatki, poprawki człowieka nie rusza. Lista `/candidates`
+  i szybki podgląd dostają to samo jako `availability_from_notes` /
+  `available_from_notes` (`{as_of, basis}`, `availability_origin` — liczone
+  z załadowanego `cv_extracted_data`, bez zapytania per wiersz) i pokazują
+  drugą linię „z notatki · DD.MM.RRRR” z opisem w dymku. **Data wpisana przez
+  notatki znika razem ze źródłem:** usunięcie ostatniej czytelnej notatki
+  (`clear_notes_facts`, obok stawki) i nocna ekstrakcja, której fakty już tej
+  daty nie dają (`release_stale_availability=True` w `apply_insights`),
+  zerują `availability_date` i znacznik — tylko gdy profil nadal ma datę ze
+  znacznika. Domknięcie historii dat nie zdejmuje. Do 07.10 datę dawał
   wyłącznie ISO w `available_from` (6 327 osób z dostępnością w notatkach
   miało pustą datę). **Języki** z `languages_observed` zapisuje writer ze
   źródłem `notes` (CHECK `ck_candidate_languages_provenance`, 0423): tylko
