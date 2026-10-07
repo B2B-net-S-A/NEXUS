@@ -14,7 +14,6 @@ const countsApi = vi.fn();
 const openedApi = vi.fn();
 const matchScores = vi.fn();
 const championGet = vi.fn();
-const classifyRows = vi.fn();
 const listPage = vi.fn();
 const showSuccess = vi.fn();
 const showError = vi.fn();
@@ -111,10 +110,6 @@ vi.mock("@/lib/api", () => ({
   api: { get: vi.fn() },
   championApi: { get: (...a: unknown[]) => championGet(...a) },
 }));
-vi.mock("@/lib/requirement-row-kinds", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/requirement-row-kinds")>();
-  return { ...actual, classifyRequirementRows: (...a: unknown[]) => classifyRows(...a) };
-});
 vi.mock("@/components/v2/pages/candidate-list-query", () => ({
   fetchCandidateListPage: (...a: unknown[]) => listPage(...a),
 }));
@@ -221,7 +216,6 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
       not_searchable_must: [],
     });
     championGet.mockResolvedValue({ data: { champion_profile: null } });
-    classifyRows.mockResolvedValue([]);
     listPage.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20 });
   });
 
@@ -660,7 +654,6 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
           },
         },
       });
-      classifyRows.mockResolvedValue([true, false]);
     };
 
     it("szuka samo, pokazuje słowa, wyniki z trafieniami i to, po czym nie szukamy", async () => {
