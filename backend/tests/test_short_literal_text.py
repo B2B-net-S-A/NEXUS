@@ -85,3 +85,11 @@ def test_without_the_folded_corpus_short_text_stays_substring():
     with keyword_corpus.force_folded_search(False):
         sql = str(literal_text_clause("c#", short_whole_word=True))
     assert "raw_cv_text" in sql
+
+
+def test_single_letter_still_has_no_clause_so_the_api_answers_422():
+    """Przegląd PR #2075: jedna litera jako całe słowo trafiała w prawie całą
+    bazę — ma zostać `None`, z którego `prepare_literal_text` robi 422."""
+    with keyword_corpus.force_folded_search(True):
+        assert literal_text_clause("a", short_whole_word=True) is None
+        assert literal_text_clause(" a ", short_whole_word=True) is None

@@ -541,7 +541,9 @@ def short_literal_match(phrase: str) -> Optional[ColumnElement]:
     wołający zostaje przy podłańcuchu.
     """
     stripped = (phrase or "").strip()
-    if not stripped or len(stripped) > SHORT_LITERAL_MAX_CHARS:
+    # Jedna litera zostaje przy starej ścieżce, która daje 422
+    # (`LiteralTextTooShort`) — jako całe słowo „a” trafiałoby w prawie całą bazę.
+    if len(stripped) > SHORT_LITERAL_MAX_CHARS or not keyword_long_enough(stripped):
         return None
     if not keyword_corpus.folded_search_enabled():
         return None
