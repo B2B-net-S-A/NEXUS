@@ -22,6 +22,7 @@ import type {
 } from "@/lib/api";
 import type { CandidateSearchRow } from "@/lib/full-candidate-search-api";
 import type {
+  ProposalHistory,
   ProposalInboxItem,
   ProposalReassignFrom,
   ProposalTraineeHandover,
@@ -192,6 +193,9 @@ interface Draft {
   isNew: boolean;
   previouslyDismissed: boolean;
   runId: string | null;
+  /** Znani zespołowi (07.10.2026): punkty tylko do kolejności i ich powód. */
+  historyPoints: number;
+  historyReason: string | null;
   detail: ProposalDetail;
 }
 
@@ -228,6 +232,30 @@ export function traineeHandoverReason(handover: ProposalTraineeHandover): string
   const day = warsawDateOf(handover.at)?.split("-") ?? null;
   const when = day && day.length === 3 ? ` · ${day[2]}.${day[1]}` : "";
   return `Od praktykanta: ${who}${when}`;
+}
+
+/**
+ * Znani zespołowi (07.10.2026): „Zweryfikowany(a) przy podobnej rekrutacji:
+ * PKO BP · Analityk systemowy · 07.2026” albo, bez podobnej rekrutacji,
+ * „Zweryfikowany(a) 24.09 w innej rekrutacji: Nordea · Business Analyst”.
+ */
+export function historyReason(history: ProposalHistory): string | null {
+  const where = (ref: { client_name: string | null; title: string }) =>
+    [ref.client_name, ref.title].filter(Boolean).join(" · ");
+  const similar = history.similar?.[0];
+  if (similar) {
+    const day = warsawDateOf(similar.at)?.split("-") ?? null;
+    const when = day && day.length === 3 ? ` · ${day[1]}.${day[0]}` : "";
+    const more = history.similar.length > 1 ? ` (+${history.similar.length - 1})` : "";
+    return `Zweryfikowany(a) przy podobnej rekrutacji: ${where(similar)}${when}${more}`;
+  }
+  const recent = history.recent;
+  if (recent) {
+    const day = warsawDateOf(recent.at)?.split("-") ?? null;
+    const when = day && day.length === 3 ? ` ${day[2]}.${day[1]}` : "";
+    return `Zweryfikowany(a)${when} w innej rekrutacji: ${where(recent)}`;
+  }
+  return null;
 }
 
 /** „Wysłany do PKO BP · Senior Java Developer · 26.08.2026". */
@@ -295,6 +323,8 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
         isNew: false,
         previouslyDismissed: false,
         runId: null,
+        historyPoints: 0,
+        historyReason: null,
         detail: emptyDetail(id),
       };
       drafts.set(id, d);
@@ -341,6 +371,11 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
     if (item.reassign_from) {
       d.detail.reassignFrom ??= item.reassign_from;
       d.reasons.inbox = reassignReason(item.reassign_from);
+    }
+    if (item.history) {
+      const points = Number(item.history.points);
+      if (Number.isFinite(points) && points > d.historyPoints) d.historyPoints = points;
+      d.historyReason ??= historyReason(item.history);
     }
   }
 
@@ -462,11 +497,17 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
         reason:
           detail.reassignFrom || detail.traineeHandover
             ? (d.reasons.inbox ?? null)
-            : (d.reasons.run ?? d.reasons.similar ?? d.reasons.recommendation ?? d.reasons.inbox ?? null),
+            : (d.historyReason ??
+              d.reasons.run ??
+              d.reasons.similar ??
+              d.reasons.recommendation ??
+              d.reasons.inbox ??
+              null),
         isNew: d.isNew,
         previouslyDismissed: d.previouslyDismissed,
         runId: d.runId,
         ...(handoverNote ? { handoverNote } : {}),
+        ...(d.historyPoints > 0 ? { historyPoints: d.historyPoints } : {}),
       },
       detail,
     });
@@ -498,8 +539,10 @@ export function compareProposals(a: ProposalEntry, b: ProposalEntry): number {
   const ta = a.row.sources.includes("trainee");
   const tb = b.row.sources.includes("trainee");
   if (ta !== tb) return ta ? -1 : 1;
-  const sa = a.row.fitScore;
-  const sb = b.row.fitScore;
+  // Znani zespołowi wyżej (07.10.2026): punkty historii tylko w kolejności —
+  // pokazywane dopasowanie zostaje bez nich (ta sama reguła co serwer).
+  const sa = a.row.fitScore === null ? null : a.row.fitScore + (a.row.historyPoints ?? 0);
+  const sb = b.row.fitScore === null ? null : b.row.fitScore + (b.row.historyPoints ?? 0);
   if (sa !== sb) {
     if (sa === null) return 1;
     if (sb === null) return -1;

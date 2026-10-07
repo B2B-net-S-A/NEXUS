@@ -48,6 +48,7 @@ import { jobHeaderFacts } from "@/lib/job-header-facts";
 import {
   jobProposalsKeys,
   type ProposalFacts,
+  type ProposalHistory,
   type ProposalInboxItem,
 } from "@/lib/job-proposals-api";
 import type { CriticalResolution } from "@/lib/critical-skills";
@@ -275,6 +276,8 @@ interface PersonSeed {
   score: number | null;
   breakdown: MatchBreakdown;
   note?: string;
+  /** Znani zespołowi (07.10.2026): punkty tylko do kolejności i ich powód. */
+  history?: ProposalHistory;
 }
 
 const measured = (total: number, matching: string[], gap: string[] = []): MatchBreakdown => ({
@@ -367,6 +370,14 @@ const BASE: PersonSeed[] = [
     facts: { title: "Fullstack Developer", years_experience: 8, city: "Wrocław", expected_rate_hourly: 95 },
     score: 72,
     breakdown: measured(72, ["TypeScript"], ["Angular"]),
+    // 72 + 6 punktów historii = wyżej niż Agata (76), procent zostaje 72.
+    history: {
+      points: 6,
+      similar: [
+        { job_id: 9001, title: "Frontend Developer (Angular)", reference_number: "ZOB-2614", client_name: "Bank Przykładowy", stage: "cv_sent", at: "2026-07-14T10:00:00Z" },
+      ],
+      recent: null,
+    },
   },
 ];
 
@@ -447,6 +458,7 @@ function inboxItem(seed: PersonSeed, source: string, postingRecent: boolean): Pr
     eligibility: null,
     posting_seen_at: postingRecent ? "2026-09-30T06:00:00Z" : null,
     posting_recent: postingRecent,
+    history: seed.history ?? null,
   };
 }
 

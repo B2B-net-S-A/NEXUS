@@ -8881,6 +8881,18 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   przechodzą `is_good_match` → `upsert_proposals(source="full_base")` z wersją
   CV i dowodami przez `sanitize_evidence` (same nazwy wymagań). Znacznik
   `metrics.auto_proposals`; `reconcile_unpublished` domyka przeglądy bez niego.
+- **A. Znani zespołowi wyżej (decyzje Artura 07.10.2026, flaga
+  `KNOWN_PEOPLE_BOOST_ENABLED`, domyślnie OFF).** `services/known_people_signal.py`:
+  punkty za weryfikację (verified+) przy 25 najbardziej podobnych rekrutacjach
+  (2,5 × podobieństwo) i za weryfikację gdziekolwiek w ostatnich 90 dniach (3);
+  osoba odrzucona przez tego samego klienta (`ended_by='client'`, bez kolumny —
+  po wysłaniu CV) punktów nie dostaje. Punkty idą do `evidence.history`
+  (same id, etapy, daty; tytuły rozwija `api/job_proposals._history_sources`)
+  i zmieniają WYŁĄCZNIE kolejność: `list_for_job` i `compareProposals` sortują
+  po wynik + punkty, pokazywany procent bez zmian, bez osobnej sekcji. O tym,
+  kto trafia do propozycji, dalej decyduje próg. Badanie 06.10.2026
+  (`docs/audits/2026-10-06/voyage-embeddings-research.md`): właściwe osoby w top
+  100 z 33% do 52%.
 - **A. Bez limitu, `expired`, `added` tylko z człowieka (0422, decyzja Artura
   07.10.2026).** Limitu 60 nie ma (`AUTO_FULL_REVIEW_TOP_K` nieczytane, zostaje
   dla skryptów audytów); publikacja idzie paczkami (`_PUBLISH_PAGE`). Po

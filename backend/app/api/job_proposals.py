@@ -120,6 +120,75 @@ async def _reassign_sources(db, job_id: int, candidate_ids: list[int]) -> dict:
     return out
 
 
+async def _history_sources(db, job_id: int, candidate_ids: list[int]) -> dict:
+    """07.10.2026: znani zespołowi — skąd osoba ma punkty historii.
+
+    Dowód (`known_people_signal`) niesie same id rekrutacji, etapy i daty;
+    tytuł, numer i klienta rozwijamy tu, jak przy przepięciach.
+    """
+    from app.models.client import Client  # noqa: PLC0415
+    from app.models.job import Job  # noqa: PLC0415
+    from app.models.job_proposal import JobProposal  # noqa: PLC0415
+
+    if not candidate_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(JobProposal.candidate_id, JobProposal.evidence).where(
+                JobProposal.job_id == job_id,
+                JobProposal.source == "full_base",
+                JobProposal.candidate_id.in_(candidate_ids),
+            )
+        )
+    ).all()
+    info = {
+        cid: ev["history"]
+        for cid, ev in rows
+        if isinstance(ev, dict) and isinstance(ev.get("history"), dict)
+    }
+    refs = [
+        ref
+        for h in info.values()
+        for ref in [*(h.get("similar") or []), h.get("recent")]
+        if isinstance(ref, dict) and ref.get("job_id")
+    ]
+    jobs = {}
+    if refs:
+        for jid, title, ref_no, client in (
+            await db.execute(
+                select(
+                    Job.id,
+                    Job.title,
+                    Job.reference_number,
+                    func.coalesce(Client.display_name, Client.name),
+                )
+                .outerjoin(Client, Client.id == Job.client_id)
+                .where(Job.id.in_({r["job_id"] for r in refs}))
+            )
+        ).all():
+            jobs[jid] = {
+                "job_id": jid,
+                "title": title,
+                "reference_number": ref_no,
+                "client_name": client,
+            }
+
+    def expand(ref):
+        base = jobs.get(ref.get("job_id")) if isinstance(ref, dict) else None
+        if base is None:
+            return None
+        return {**base, "stage": ref.get("stage"), "at": ref.get("at")}
+
+    out = {}
+    for cid, h in info.items():
+        similar = [x for x in (expand(r) for r in h.get("similar") or []) if x]
+        recent = expand(h.get("recent"))
+        if not similar and recent is None:
+            continue
+        out[cid] = {"points": h.get("points"), "similar": similar, "recent": recent}
+    return out
+
+
 async def _trainee_handovers(db, job_id: int, candidate_ids: list[int]) -> dict:
     """0374: kto z praktykantów przekazał osobę i co napisał rekruterowi."""
     from app.models.job_proposal import JobProposal  # noqa: PLC0415
@@ -248,6 +317,7 @@ async def list_job_proposals(
     )
     reassign_from = await _reassign_sources(db, job_id, ids)
     trainee_handover = await _trainee_handovers(db, job_id, ids)
+    history = await _history_sources(db, job_id, ids)
     # „Z ogłoszeń w ostatnich dniach” — to samo okno co domyślny podział
     # licznika (`…/proposal-counts`), liczone zegarem serwera.
     posting_since = datetime.now(timezone.utc) - timedelta(
@@ -284,6 +354,7 @@ async def list_job_proposals(
                 ),
                 "reassign_from": reassign_from.get(row.candidate_id),
                 "trainee_handover": trainee_handover.get(row.candidate_id),
+                "history": history.get(row.candidate_id),
             }
         )
     # Runda 10 (R10-N7-1): pominięci znikają ze wszystkich źródeł widoku, nie
