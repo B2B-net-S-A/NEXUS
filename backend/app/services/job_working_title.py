@@ -75,17 +75,20 @@ def _dictionary_loaded() -> bool:
     return bool(CANONICAL_CATEGORY)
 
 
-def _is_title_technology(name: str) -> bool:
+def _is_title_technology(label: str) -> bool:
     """Do tytułu wchodzą tylko technologie ze słownika (audyt 06.10.2026, P10).
 
     Słowa kluczowe wierszy („banking”, „communication”) to też must-have, ale
-    w tytule zajmowały oba miejsca technologii. Reguła działa wyłącznie przy
-    wczytanym słowniku — bez niego (front, testy bez bazy) tytuł składa się
-    jak dotąd, więc wspólny plik przypadków z frontem dalej obowiązuje.
+    w tytule zajmowały oba miejsca technologii. Reguła = ``critical_eligible``
+    na etykiecie CAŁEGO wiersza („Kafka lub RabbitMQ”) — tę samą odpowiedź
+    (`eligible` z ``POST /api/job-intake/critical-suggestion``) czyta podgląd
+    tytułu na froncie (`lib/job-names.ts`). Działa wyłącznie przy wczytanym
+    słowniku — bez niego (testy bez bazy) tytuł składa się jak dotąd, tak jak
+    front przed odpowiedzią serwera; wspólny plik przypadków obowiązuje dalej.
     """
-    from app.services.skill_normalize import is_gate_technology, strip_version
+    from app.services.must_gate_terms import critical_eligible  # noqa: PLC0415
 
-    return bool(name) and is_gate_technology(strip_version(name)[0])
+    return bool(label) and critical_eligible(label)
 
 
 def _years_label(years: int) -> str:
@@ -115,9 +118,9 @@ def compose_working_title(
     for item in must or ():
         # „Kafka lub RabbitMQ” w tytule to sama „Kafka” — zamienniki widać
         # w wymaganiach, a tytuł ma się mieścić w wierszu listy.
-        name = _clean(item.get("name") if isinstance(item, dict) else item)
-        name = name.split(" lub ")[0].strip()
-        if only_technologies and not _is_title_technology(name):
+        label = _clean(item.get("name") if isinstance(item, dict) else item)
+        name = label.split(" lub ")[0].strip()
+        if only_technologies and not _is_title_technology(label):
             continue
         if name and not _is_prose(name) and name.casefold() not in seen:
             seen.add(name.casefold())

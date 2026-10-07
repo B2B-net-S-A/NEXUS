@@ -87,6 +87,40 @@ async def test_close_expires_open_proposals_and_keeps_human_decisions(
     assert counts.get(job_id, 0) == 0
 
 
+async def test_closing_from_the_edit_window_expires_open_proposals_too(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    world = await _world(people=1)
+    job_id = world["job_id"]
+    [candidate_id] = world["candidate_ids"]
+    await _seed(job_id, [candidate_id])
+
+    closed = await app_client.patch(
+        f"/api/jobs/{job_id}", json={"status": "closed"}, headers=app_auth_headers
+    )
+    assert closed.status_code == 200, closed.text
+    assert await _pair_status(job_id, candidate_id) == {"expired"}
+
+
+async def test_client_deletion_expires_proposals_of_the_jobs_it_closes():
+    from app.services.client_deletion import _close_open_recruitments
+
+    actor_id, _ = await _user(UserRole.admin)
+    world = await _world(people=1)
+    job_id = world["job_id"]
+    [candidate_id] = world["candidate_ids"]
+    await _seed(job_id, [candidate_id])
+
+    async with AsyncSessionLocal() as db:
+        actor = await db.get(User, actor_id)
+        closed = await _close_open_recruitments(
+            db, world["client_id"], actor=actor, now=datetime.now(timezone.utc)
+        )
+        await db.commit()
+    assert closed == [job_id]
+    assert await _pair_status(job_id, candidate_id) == {"expired"}
+
+
 async def test_one_time_repair_expires_proposals_of_closed_jobs_once():
     from app.models.app_setting import AppSetting
     from app.services.job_proposal_closed_expiry import (

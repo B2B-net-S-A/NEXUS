@@ -8,7 +8,7 @@ każdy odbiorca w osobnym savepoincie, nigdy ``db.rollback()`` całej sesji
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -52,11 +52,27 @@ class _Db:
 _MORNING = datetime(2026, 10, 7, 7, 0, tzinfo=timezone.utc)
 
 
+def _memory_state(monkeypatch) -> dict:
+    """Stan dzwonka (``app_settings``) w pamięci testu."""
+    state: dict = {}
+
+    async def load(db):
+        return dict(state)
+
+    async def save(db, value):
+        state.clear()
+        state.update(value)
+
+    monkeypatch.setattr(bell, "_load_state", load)
+    monkeypatch.setattr(bell, "_save_state", save)
+    return state
+
+
 @pytest.mark.asyncio
 async def test_failed_bell_rolls_back_only_its_own_savepoint(monkeypatch) -> None:
     from app.services import notification_triggers
 
-    async def fake_plan(db, now):
+    async def fake_plan(db, since):
         return {1: [101], 2: [202]}
 
     async def fake_team(db, job_ids):
@@ -78,7 +94,7 @@ async def test_failed_bell_rolls_back_only_its_own_savepoint(monkeypatch) -> Non
         return object()
 
     monkeypatch.setattr(bell, "_plan", fake_plan)
-    monkeypatch.setattr(bell, "_DONE_FOR", None)
+    _memory_state(monkeypatch)
     monkeypatch.setattr(job_team, "recruiters_for_jobs", fake_team)
     monkeypatch.setattr(notification_triggers, "emit", fake_emit)
     db = _Db()
@@ -104,7 +120,7 @@ async def test_proposed_recruiter_gets_no_bell(monkeypatch) -> None:
     """Propozycja automatu czekająca na akceptację nie jest Rekruterem."""
     from app.services import notification_triggers
 
-    async def fake_plan(db, now):
+    async def fake_plan(db, since):
         return {1: [101]}
 
     async def fake_team(db, job_ids):
@@ -127,7 +143,7 @@ async def test_proposed_recruiter_gets_no_bell(monkeypatch) -> None:
         return object()
 
     monkeypatch.setattr(bell, "_plan", fake_plan)
-    monkeypatch.setattr(bell, "_DONE_FOR", None)
+    _memory_state(monkeypatch)
     monkeypatch.setattr(job_team, "recruiters_for_jobs", fake_team)
     monkeypatch.setattr(notification_triggers, "emit", fake_emit)
 
@@ -139,19 +155,59 @@ async def test_proposed_recruiter_gets_no_bell(monkeypatch) -> None:
 async def test_bell_rings_once_a_day_and_only_in_working_hours(monkeypatch) -> None:
     planned: list[datetime] = []
 
-    async def fake_plan(db, now):
-        planned.append(now)
+    async def fake_plan(db, since):
+        planned.append(since)
         return {}
 
     monkeypatch.setattr(bell, "_plan", fake_plan)
-    monkeypatch.setattr(bell, "_DONE_FOR", None)
+    _memory_state(monkeypatch)
 
     evening = datetime(2026, 10, 7, 17, 30, tzinfo=timezone.utc)  # 19:30 PL
     assert await bell.send_morning_bells(_Db(), evening) == 0
     assert planned == []
     assert await bell.send_morning_bells(_Db(), _MORNING) == 0
     assert await bell.send_morning_bells(_Db(), _MORNING) == 0
+    # Pierwszy dzwonek bez zapamiętanego stanu: od 8:00 poprzedniego dnia
+    # roboczego (wtorek 6.10 8:00 CEST = 6:00 UTC).
+    assert planned == [datetime(2026, 10, 6, 6, 0, tzinfo=timezone.utc)]
+
+    # Następny dzień: okno zaczyna się od poprzedniego dzwonka.
+    planned.clear()
+    next_morning = _MORNING + timedelta(days=1)
+    assert await bell.send_morning_bells(_Db(), next_morning) == 0
     assert planned == [_MORNING]
+
+
+@pytest.mark.parametrize(
+    "now_local,expected_local",
+    [
+        # Poniedziałek: od piątku 8:00 — propozycje z weekendu się nie gubią.
+        ((2026, 10, 12, 9, 0), (2026, 10, 9, 8, 0)),
+        # Wtorek po Poniedziałku Wielkanocnym: od Wielkiego Piątku.
+        ((2026, 4, 7, 9, 30), (2026, 4, 3, 8, 0)),
+        # Zwykły dzień: od 8:00 dnia poprzedniego.
+        ((2026, 10, 7, 10, 0), (2026, 10, 6, 8, 0)),
+    ],
+)
+def test_first_bell_window_starts_at_8_on_the_previous_business_day(
+    now_local, expected_local
+) -> None:
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo("Europe/Warsaw")
+    now = datetime(*now_local, tzinfo=tz)
+    assert bell.window_start(now, last_sent_at=None) == datetime(
+        *expected_local, tzinfo=tz
+    )
+
+
+def test_window_starts_at_the_previous_bell_but_never_older_than_a_week() -> None:
+    last = _MORNING - timedelta(days=3, hours=1)
+    assert bell.window_start(_MORNING, last_sent_at=last) == last
+    long_ago = _MORNING - timedelta(days=30)
+    assert bell.window_start(_MORNING, last_sent_at=long_ago) == (
+        _MORNING - timedelta(days=7)
+    )
 
 
 def test_bell_wording() -> None:

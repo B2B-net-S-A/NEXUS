@@ -404,9 +404,18 @@ function ClientReferenceLine({ form, onChange }: { form: IntakeForm; onChange: F
  * ta sama reguła co na serwerze. Do 02.10 był osobnym polem, które powtarzało
  * wymagania; teraz to podgląd z „Zmień”. Nigdy nie idzie do klienta.
  */
-function WorkingTitleLine({ form, onChange }: { form: IntakeForm; onChange: FormUpdater }) {
+function WorkingTitleLine({
+  form,
+  onChange,
+  criticalInfo,
+}: {
+  form: IntakeForm;
+  onChange: FormUpdater;
+  /** Które wiersze serwer uznał za technologie (P10) — `null` = jeszcze nie wiadomo. */
+  criticalInfo: RowCriticalState["info"];
+}) {
   const id = useId();
-  const value = effectiveWorkingTitle(form);
+  const value = effectiveWorkingTitle(form, criticalInfo);
   if (!form.workingTitleTouched) {
     return (
       <div className="flex flex-col gap-1" data-testid="working-title-field">
@@ -616,7 +625,7 @@ export function NewJobReviewForm({
           </div>
         </div>
 
-        <WorkingTitleLine form={form} onChange={onChange} />
+        <WorkingTitleLine form={form} onChange={onChange} criticalInfo={criticalInfo.info} />
       </SectionCard>
 
       <SectionCard

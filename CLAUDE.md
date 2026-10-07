@@ -4357,10 +4357,13 @@ nocnego wygaszania propozycji — wygasają przy zamknięciu rekrutacji.
   include_category_participants=False)`; domyślne `True` zostaje dla dostępu.
   Odbiorcami zmiany Championa jest też Delivery Lead rekrutacji.
 - **Poranny dzwonek „Do przejrzenia”** (`services/proposals_morning_bell.py`,
-  wołany z `run_all_triggers`): raz dziennie 8–17, jeden na (rekrutacja,
-  Rekruter z `job_team.working`), pary z `full_base` i `new_cv` z ostatnich
-  24 h (`job_proposals.fresh_open_pairs` — te same reguły widoczności co
-  skrzynka), trzy nazwiska w treści. Zastąpił dzienny skrót z nowych CV
+  wołany z `run_all_triggers`): dni robocze 8–17, raz dziennie, jeden na
+  (rekrutacja, Rekruter z `job_team.working`), pary z `full_base` i `new_cv`
+  od POPRZEDNIEGO dzwonka (`app_settings['proposals_morning_bell_state']`),
+  a bez niego od 8:00 poprzedniego dnia roboczego, najwyżej 7 dni wstecz
+  (`window_start` — stałe 24 h gubiło propozycje z weekendu i świąt);
+  `job_proposals.fresh_open_pairs` — te same reguły widoczności co skrzynka,
+  trzy nazwiska w treści. Zastąpił dzienny skrót z nowych CV
   (`auto_match_service._notify_proposals` usunięty — szedł tylko do
   `recruiter_id`/`tac_id`). Poniedziałkowy skrót DL liczy `open_counts_for_jobs`.
 - **Nocny przegląd nie zajmuje top-K osobami już rozstrzygniętymi**
@@ -4369,8 +4372,10 @@ nocnego wygaszania propozycji — wygasają przy zamknięciu rekrutacji.
 - **Każde dodanie do rekrutacji zamyka propozycję** — `open_process` woła
   `mark_added_fail_soft` (savepoint).
 - **Status propozycji `expired` (0422, lustro w `entrypoint.sh`, DDL
-  w `job_proposal_expiry_schema.py`)**: `close_job_core` wygasza otwarte
-  propozycje (`expire_open_for_job`); `added` i `dismissed` zostają, ponowne
+  w `job_proposal_expiry_schema.py`)**: każde zamknięcie rekrutacji
+  (`close_job_core`, PATCH statusu w oknie edycji, zamknięcie przy usunięciu
+  klienta) wygasza otwarte propozycje (`expire_open_for_job`) — nowa ścieżka
+  zamykająca rekrutację woła to samo; `added` i `dismissed` zostają, ponowne
   otwarcie ich nie wskrzesza. Jednorazowo `job_proposal_closed_expiry`
   (marker `job_proposals_closed_jobs_expired_2026_10`, paragon = liczby).
   Raport „Propozycje AI” ma licznik „Wygasłe”.
@@ -4405,6 +4410,11 @@ nocnego wygaszania propozycji — wygasają przy zamknięciu rekrutacji.
   (`services/skill_inflection.py` na regułach `dz_review`) i mówi w uwagach,
   które wiersze pominął jako nieobecne w treści.
 - **Szablon od innego klienta** przenosi z Championa wyłącznie `stack.notes`.
+- **Tytuł dla rekrutera bierze tylko technologie ze słownika** (P10):
+  `job_working_title._is_title_technology` = `critical_eligible` etykiety
+  całego wiersza, a podgląd na `/jobs/new` filtruje wiersze po `eligible`
+  z `critical-suggestion` (`suggestedWorkingTitle(form, criticalInfo)`). Bez
+  słownika (serwer) i przed odpowiedzią (front) — wszystkie wiersze, jak dotąd.
 - **`headcount: null` w `POST /api/jobs` = „nie podano”** (bramka odmawia);
   pole pominięte zostaje przy dawnym 1.
 - **Indeks:** kategoria nadana po wektorze (`assign_cc_after_embed`) kolejkuje

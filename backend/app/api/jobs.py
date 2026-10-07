@@ -2606,6 +2606,11 @@ async def update_job(
             )
             # 0381: zamknięta rekrutacja zamyka ogłoszenia na portalach.
             await close_live_postings(db, job_id)
+            # Audyt 06.10.2026 (R6): lustro `close_job_core` — otwarte
+            # propozycje zamkniętej rekrutacji wygasają.
+            from app.services.job_proposals import expire_open_for_job
+
+            await expire_open_for_job(db, job_id=job_id)
         elif prev_status == JobStatus.closed:
             job.closed_at = None
             _take_over_reopened_traffit_job(db, job, current_user)

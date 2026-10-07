@@ -529,15 +529,32 @@ export function clientReferenceFor(form: IntakeForm): string {
 /**
  * Podpowiedź tytułu dla rekrutera z bieżących pól formularza — ta sama reguła
  * co `job_working_title.compose_working_title` na serwerze.
+ *
+ * Audyt 06.10.2026 (P10): do tytułu wchodzą wyłącznie wiersze, które serwer
+ * uznał za technologię ze słownika (`eligible` z `critical-suggestion`, ta
+ * sama `critical_eligible` co przy składaniu tytułu po zapisie). Dopóki
+ * odpowiedzi nie ma (`criticalInfo` puste), podgląd składa się jak serwer bez
+ * słownika — ze wszystkich wierszy.
  */
-export function suggestedWorkingTitle(form: IntakeForm): string {
+export function suggestedWorkingTitle(
+  form: IntakeForm,
+  criticalInfo?: Record<string, RowCriticalInfo> | null,
+): string {
   const domain = form.experience.domains.find((d) => d.level !== "nice")?.name ?? null;
-  return composeWorkingTitle(form.title, mustOf(form), form.seniorityYears, domain) ?? "";
+  const must = criticalInfo
+    ? mustHeads(form.rows.filter((row) => criticalInfo[row.key]?.eligible))
+    : mustOf(form);
+  return composeWorkingTitle(form.title, must, form.seniorityYears, domain) ?? "";
 }
 
 /** Tytuł dla rekrutera widoczny w formularzu: ręczny albo podpowiedź. */
-export function effectiveWorkingTitle(form: IntakeForm): string {
-  return form.workingTitleTouched ? form.workingTitle : suggestedWorkingTitle(form);
+export function effectiveWorkingTitle(
+  form: IntakeForm,
+  criticalInfo?: Record<string, RowCriticalInfo> | null,
+): string {
+  return form.workingTitleTouched
+    ? form.workingTitle
+    : suggestedWorkingTitle(form, criticalInfo);
 }
 
 /**

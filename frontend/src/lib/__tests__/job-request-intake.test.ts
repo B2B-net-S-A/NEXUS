@@ -610,6 +610,35 @@ describe("payloady zapisu", () => {
     ).not.toHaveProperty("client_reference");
   });
 
+  it("podgląd tytułu dla zespołu bierze tylko technologie, gdy serwer je zna (audyt 06.10.2026, P10)", () => {
+    const form = {
+      ...formFromIntake({ ...INTAKE, client_title: "Analityk" }),
+      title: "Analityk",
+      seniorityYears: null,
+      experience: { ...formFromIntake(INTAKE).experience, domains: [] },
+      rows: [
+        { key: "a", words: ["banking"], level: "must" as const },
+        { key: "b", words: ["Kafka", "banking"], level: "must" as const },
+        { key: "c", words: ["Java"], level: "must" as const },
+        { key: "d", words: ["Docker"], level: "must" as const },
+      ],
+    };
+    // Bez odpowiedzi serwera — jak serwer bez słownika: pierwsze dwa wiersze.
+    expect(effectiveWorkingTitle(form)).toBe("Analityk · banking, Kafka");
+    // `eligible` z `critical-suggestion` dotyczy etykiety CAŁEGO wiersza.
+    const info = {
+      a: { label: "banking", eligible: false, suggested: false },
+      b: { label: "Kafka lub banking", eligible: false, suggested: false },
+      c: { label: "Java", eligible: true, suggested: false },
+      d: { label: "Docker", eligible: true, suggested: false },
+    };
+    expect(effectiveWorkingTitle(form, info)).toBe("Analityk · Java, Docker");
+    // Ręczny tytuł zostaje bez zmian.
+    expect(
+      effectiveWorkingTitle({ ...form, workingTitle: "Mój", workingTitleTouched: true }, info),
+    ).toBe("Mój");
+  });
+
   it("trzy nazwy (0380): nazwa od klienta idzie do rekrutacji, tytuł dla rekrutera tylko po ręcznej zmianie", () => {
     const form = formFromIntake({
       ...INTAKE,

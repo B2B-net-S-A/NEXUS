@@ -181,7 +181,7 @@ async def test_morning_bell_counts_fresh_proposals_once_a_day(monkeypatch):
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
-    from sqlalchemy import select
+    from sqlalchemy import select, text
 
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
@@ -211,9 +211,16 @@ async def test_morning_bell_counts_fresh_proposals_once_a_day(monkeypatch):
             event.status = "done"
             await db.commit()
 
+        # Środa 9:01 w przeszłości: okno od wtorku 8:00 obejmuje propozycje
+        # zapisane przed chwilą. Stan dzwonka (wspólna baza) zaczyna od zera.
         warsaw = ZoneInfo(settings.BUSINESS_TZ)
-        now = datetime.now(warsaw).replace(hour=9, minute=1)
-        monkeypatch.setattr(bell, "_DONE_FOR", None)
+        now = datetime(2026, 10, 7, 9, 1, tzinfo=warsaw)
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                text("DELETE FROM app_settings WHERE key = :k"),
+                {"k": bell.STATE_KEY},
+            )
+            await db.commit()
         async with AsyncSessionLocal() as db:
             await bell.send_morning_bells(db, now)
             await db.commit()
