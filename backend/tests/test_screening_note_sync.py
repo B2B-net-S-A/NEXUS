@@ -562,9 +562,11 @@ async def _world(*, attempt_started: datetime | None = None) -> dict:
                 fields_manual={},
                 note_answers={
                     "items": [
-                        _item(1, "", "Dwa lata na EKS."),
+                        # Zapis bierze tylko przypięcia po treści pytania
+                        # (WRITE_BY_NUMBER = False).
+                        _item(1, QUESTIONS["q1"], "Dwa lata na EKS."),
                         _item(2, "Czy pracowałeś z Apache Kafka?", "Tak, 3 lata."),
-                        _item(3, "", "Miesiąc."),
+                        _item(3, QUESTIONS["q3"], "Miesiąc."),
                     ],
                     "note_id": note.id,
                     "at": NOTE_AT.isoformat(),
@@ -756,7 +758,7 @@ async def test_backfill_dry_run_writes_nothing_and_apply_is_idempotent(
     async with AsyncSessionLocal() as db:
         report = await backfill.plan(db, only_pairs=pair)
     assert report["to_change"] == 1 and report["actions"] == {"create": 1}
-    assert report["answers"] == {"by_content": 1, "by_number": 2}
+    assert report["answers"] == {"by_content": 3, "by_number": 0}
     assert report["samples"][0]["candidate_id"] == world["candidate_id"]
     assert await _sheets(world) == (None, None)
 
