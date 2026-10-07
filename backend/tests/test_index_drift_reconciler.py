@@ -463,3 +463,78 @@ async def test_job_status_sync_is_silent_when_qdrant_is_unknown(monkeypatch):
     monkeypatch.setattr(embedding_service, "sync_job_status_payloads", _never)
     rows = [SimpleNamespace(id=1, status=JobStatus.closed)]
     assert await rec._sync_job_statuses(rows) == 0
+
+
+# ── Badanie 06.10.2026: nowi kandydaci i trwały kursor ─────────────────────
+
+
+@pytest.mark.asyncio
+async def test_newest_first_checks_highest_ids_and_skips_in_flight_intents():
+    """Zwykły przebieg idzie od najniższych id i trwa ~11 h, a deploy zaczynał go
+    od zera — nowi kandydaci (najwyższe id) nie byli sprawdzani nigdy. Przebieg
+    `newest_first` bierze najwyższe id i nie dopisuje drugiej intencji temu,
+    kto już czeka w kolejce."""
+    async with AsyncSessionLocal() as db:
+        older = await _fresh_candidate(db)
+        newer = await _fresh_candidate(db)
+        await _record_indexed(db, older, hash_value="stale-older")
+        await _record_indexed(db, newer, hash_value="stale-newer")
+        db.add(
+            IndexOutboxEvent(
+                entity_type=outbox.CANDIDATE,
+                entity_id=newer.id,
+                entity_revision=2,
+                desired_hash="already-queued",
+                operation="upsert",
+                status="pending",
+            )
+        )
+        await db.flush()
+
+        result = await rec.reconcile_once(
+            db, entity_type=outbox.CANDIDATE, batch=2, newest_first=True
+        )
+
+        assert result.scanned == 2
+        assert result.next_cursor is None, "przebieg najnowszych nie ma kursora"
+        assert result.drifted == 2
+        assert len(await _pending_ids(db, older.id)) == 1
+        assert len(await _pending_ids(db, newer.id)) == 1, "duplikat intencji"
+        await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_cursor_state_survives_a_restart():
+    from app.tasks import index_drift_reconciler_task as task
+
+    try:
+        await task.save_cursors({outbox.CANDIDATE: 4321, outbox.JOB: 17})
+        assert await task.load_cursors() == {outbox.CANDIDATE: 4321, outbox.JOB: 17}
+
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                text(
+                    "UPDATE app_settings SET value = CAST(:v AS jsonb) WHERE key = :k"
+                ),
+                {"k": task.STATE_KEY, "v": '{"candidate": "x", "job": -5}'},
+            )
+            await db.commit()
+        # Zepsuty stan to start od zera, nie wywrotka pętli.
+        assert await task.load_cursors() == {outbox.CANDIDATE: 0, outbox.JOB: 0}
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                text("DELETE FROM app_settings WHERE key = :k"), {"k": task.STATE_KEY}
+            )
+            await db.commit()
+
+
+def test_the_loop_reads_and_saves_the_cursor_and_checks_newest_first():
+    import inspect
+
+    from app.tasks import index_drift_reconciler_task as task
+
+    src = inspect.getsource(task.index_drift_reconciler_loop)
+    assert "await load_cursors()" in src
+    assert "await save_cursors(cursors)" in src
+    assert "newest_first=True" in src

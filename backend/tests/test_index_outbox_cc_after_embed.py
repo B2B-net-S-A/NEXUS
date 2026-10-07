@@ -262,13 +262,26 @@ async def test_assign_after_embed_never_raises(monkeypatch):
     await outbox.assign_cc_after_embed(2_000_000_000)
 
 
+async def _pending_hashes(cand_id: int) -> list[str]:
+    async with AsyncSessionLocal() as db:
+        rows = await db.execute(
+            select(IndexOutboxEvent.desired_hash).where(
+                IndexOutboxEvent.entity_type == "candidate",
+                IndexOutboxEvent.entity_id == cand_id,
+                IndexOutboxEvent.status == "pending",
+            )
+        )
+        return [h for (h,) in rows.all()]
+
+
 @pytest.mark.asyncio
-async def test_new_category_leaves_a_reindex_intent(monkeypatch):
-    """Audyt 06.10.2026 (Q2): kategoria wchodzi do tekstu wektora — po jej
-    przypisaniu worker dostaje nową intencję, zamiast czekać na reconciler."""
+async def test_category_after_embed_queues_a_fresh_vector(monkeypatch):
+    """Kategoria jest w tekście wektora — wektor policzony przed nią jest
+    nieaktualny. Badanie 06.10.2026: 125 ze 164 kandydatów z października
+    miało wektor bez kategorii, bo nic nie zlecało przeliczenia."""
     dev = await _category("software_development")
     cand_id = await _candidate()
-    monkeypatch.setattr(outbox, "outbox_enabled", lambda: True)
+    _stub_embed(monkeypatch)
 
     async def _classify(candidate, _db):
         return [_score(dev)]
@@ -277,21 +290,27 @@ async def test_new_category_leaves_a_reindex_intent(monkeypatch):
         "app.services.cc_classifier.classify_candidate_to_cc", _classify
     )
 
-    await outbox.assign_cc_after_embed(cand_id)
+    ok = await outbox._default_reindex(outbox.CANDIDATE, cand_id, "upsert")
 
+    assert ok is True
     async with AsyncSessionLocal() as db:
-        intents = (
-            (
-                await db.execute(
-                    select(IndexOutboxEvent).where(
-                        IndexOutboxEvent.entity_type == "candidate",
-                        IndexOutboxEvent.entity_id == cand_id,
-                        IndexOutboxEvent.status == "pending",
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-    assert len(intents) == 1
-    assert intents[0].operation == "upsert"
+        cand = await db.scalar(select(Candidate).where(Candidate.id == cand_id))
+        expected = outbox.desired_state(outbox.CANDIDATE, cand).desired_hash
+    assert await _pending_hashes(cand_id) == [expected]
+
+
+@pytest.mark.asyncio
+async def test_no_category_assigned_queues_nothing(monkeypatch):
+    cand_id = await _candidate()
+    _stub_embed(monkeypatch)
+
+    async def _classify(_candidate, _db):
+        return []
+
+    monkeypatch.setattr(
+        "app.services.cc_classifier.classify_candidate_to_cc", _classify
+    )
+
+    await outbox._default_reindex(outbox.CANDIDATE, cand_id, "upsert")
+
+    assert await _pending_hashes(cand_id) == []
