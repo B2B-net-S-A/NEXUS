@@ -396,6 +396,21 @@ class B2BPrefillClientRate(BaseModel):
     currency: Optional[str] = None
 
 
+class B2BPrefillRecruitmentRate(BaseModel):
+    """Stawka kandydata z etapu rekrutacji (D7) — punkt odniesienia dla stawki umowy.
+
+    Wyłącznie z rekrutacji (okno „Zweryfikowany”, zmiana stawki w procesie),
+    nigdy „Stawka od”. Różnica ze stawką w formularzu to notka pod polem,
+    nie walidacja.
+    """
+
+    value: float
+    unit: Optional[str] = None
+    currency: Optional[str] = None
+    at: Optional[str] = None
+    job_title: Optional[str] = None
+
+
 class B2BPrefillExisting(BaseModel):
     id: int
     contract_number: str
@@ -413,6 +428,7 @@ class B2BAgreementPrefillResponse(BaseModel):
     availability_text: Optional[str] = None
     client_rate: Optional[B2BPrefillClientRate] = None
     client_rate_redacted: bool = False
+    recruitment_rate: Optional[B2BPrefillRecruitmentRate] = None
     existing: Optional[B2BPrefillExisting] = None
 
 

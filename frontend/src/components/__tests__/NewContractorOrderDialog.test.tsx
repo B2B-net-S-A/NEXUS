@@ -552,3 +552,69 @@ describe("NewContractorOrderDialog — PDF od klienta", () => {
     ).toBeInTheDocument();
   });
 });
+
+describe("NewContractorOrderDialog — stawki z rekrutacji (D7)", () => {
+  it("pokazuje stawki z rekrutacji i notkę przy różnicy, a zapis przechodzi", async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.mocked(api.get).mockImplementation(((url: string) => {
+      if (url.includes("/api/candidates")) {
+        return Promise.resolve({
+          data: {
+            items: [{ id: 42, name: "Jan", lastname: "Kowalski", email: "jan@example.com" }],
+          },
+        });
+      }
+      if (url.includes("/recruitment-rates")) {
+        return Promise.resolve({
+          data: {
+            amounts_redacted: false,
+            rate: {
+              candidate_id: 42,
+              job_id: 7,
+              job_title: "Java Developer",
+              client_rate_value: "165.00",
+              client_rate_unit: "hourly",
+              client_rate_currency: "PLN",
+              client_rate_at: null,
+              client_rate_by_name: "Anna Lead",
+              client_rate_redacted: false,
+              candidate_rate_value: "140.00",
+              candidate_rate_unit: "hourly",
+              candidate_rate_currency: "PLN",
+              candidate_rate_at: null,
+            },
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    }) as never);
+    renderDialog();
+
+    await user.type(screen.getByPlaceholderText(/Szukaj po imieniu/i), "Jan");
+    await user.click(
+      await screen.findByRole("button", { name: /Jan Kowalski/ }, { timeout: 2000 }),
+    );
+    expect(
+      await screen.findByText(
+        "Z rekrutacji „Java Developer” (Anna Lead): 165 zł/h · kandydat 140 zł/h",
+      ),
+    ).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText(/Numer zamówienia/i), "45767");
+    await user.type(screen.getByLabelText(/Początek umowy/i), "2026-09-01");
+    await user.click(screen.getByRole("radio", { name: "Godzinowa" }));
+    await user.type(screen.getByPlaceholderText("np. 215,60"), "170");
+    await user.type(screen.getByPlaceholderText("np. 150,40"), "140");
+
+    expect(
+      screen.getByText(/Stawka przychodowa różni się od stawki do klienta z rekrutacji/),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Utwórz umowę i zamówienie" }));
+    await waitFor(() => expect(createContractWithOrder).toHaveBeenCalledTimes(1));
+    expect(createContractWithOrder).toHaveBeenCalledWith(
+      11,
+      expect.objectContaining({ rate_client: 170, rate_candidate: 140 }),
+    );
+  });
+});

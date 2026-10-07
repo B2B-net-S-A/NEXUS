@@ -15,6 +15,7 @@ import {
 import { AppModal } from "@/components/ds/AppModal";
 import { FileDropZone } from "@/components/ds/FileDropZone";
 import { OrderTypeSwitch } from "@/components/orders/OrderTypeSwitch";
+import { RecruitmentRateHint } from "@/components/orders/RecruitmentRateHint";
 import {
   OrderCurrencySelect,
   OrderRateUnitToggle,
@@ -25,6 +26,7 @@ import {
 } from "@/components/orders/OrderRateUnitToggle";
 import { useToast } from "@/components/Toast";
 import { dlPortalApi } from "@/lib/api/dlPortal";
+import type { RecruitmentRate } from "@/lib/api/recruitmentRates";
 import type {
   ClientOrderRead,
   ClientOrderUpdate,
@@ -88,6 +90,9 @@ interface EditOrderDialogProps {
   contractRateCandidateCurrency?: string | null;
   /** Serwer wylicza to per klient — patrz `can_manage_finance` w odpowiedzi. */
   canManageFinance: boolean;
+  /** Stawki z rekrutacji tej osoby (D7, `ContractWithOrdersRead.recruitment_rates`)
+   *  — podpowiedź pod stawkami; różnica nie blokuje zapisu. */
+  recruitmentRates?: RecruitmentRate | null;
   suggestedOrderType?: OrderType;
   allowedOrderTypes?: readonly OrderType[];
   /** Znaczenie trwałego `order_type=NULL` dla tego klienta. */
@@ -123,6 +128,7 @@ export function EditOrderDialog({
   contractRateClientCurrency,
   contractRateCandidateCurrency,
   canManageFinance,
+  recruitmentRates = null,
   suggestedOrderType = "periodic",
   allowedOrderTypes,
   legacyNullOrderType = "periodic",
@@ -772,6 +778,19 @@ export function EditOrderDialog({
                 {unitChangeNotice}
               </p>
             ) : null}
+            <RecruitmentRateHint
+              rate={recruitmentRates}
+              revenue={{
+                value: rateRevenue,
+                unit: rateUnit,
+                currency: rateClientCurrency,
+              }}
+              cost={{
+                value: rateCost,
+                unit: rateUnit,
+                currency: rateCandidateCurrency,
+              }}
+            />
           </div>
         )}
 

@@ -9,6 +9,7 @@ import { api } from "@/lib/api";
 import { SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
 import type { OrderType } from "@/lib/api/dlPortal";
 import type { ExecutiveContractBrief } from "@/lib/api/executiveContracts";
+import type { RecruitmentRate } from "@/lib/api/recruitmentRates";
 
 export type { OrderType } from "@/lib/api/dlPortal";
 
@@ -372,6 +373,9 @@ export interface OrderPlanContract {
    *  co przy odznace „Zakończył współpracę"). Wybór takiego kontraktu z listy
    *  prowadzi do pytania zostaw / wznów / zastąp / usuń, nie do cichego wznowienia. */
   inactive_reason?: string | null;
+  /** Stawki z rekrutacji tej osoby (D7) — stawka do klienta jest punktem
+   *  odniesienia dla stawki przychodowej linii. `null` bez podglądu kwot. */
+  recruitment_rate?: RecruitmentRate | null;
 }
 
 /** Wynik dopasowania osoby z dokumentu do kontraktu (odznaka karty). */

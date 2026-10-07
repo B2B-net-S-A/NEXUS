@@ -6,8 +6,10 @@ Dwa wyjątki od „kanbanu bez bramek" (17.09.2026), oba świadome:
   klienta.** O tym, kto wysyła, decyduje uprawnienie „Rekrutacje:
   zakładanie, zamykanie, wysyłka CV do klienta” (``recruitment_manage``;
   domyślnie Delivery Lead i admin). Stawka, za którą osobę wysłano, jest
-  potrzebna później do umowy i zamówienia — a do 23.09 była opcjonalna
-  i zwykle pusta. Nordea
+  punktem odniesienia dla zamówienia klienta (przychód); do umowy B2B idzie
+  stawka kandydata (D7, 08.10.2026: różnica = „do sprawdzenia”, nie blokada,
+  `services/recruitment_rate_check.py`). Do 23.09 była opcjonalna i zwykle
+  pusta. Nordea
   zostaje przy swojej ścieżce QC CV → kolejka Cpro (wysyła jedna osoba od
   Cpro na firmę, `services/cpro_sender.py`). Zatwierdzenia DZ od 24.09.2026
   nie ma — przed wysłaniem liczy się QC CV (`services/cv_qc.py`).

@@ -23,7 +23,7 @@ from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.recruitment_process import RecruitmentProcess
-from app.services import candidate_rate_from
+from app.services import candidate_rate_from, recruitment_rates
 from app.services.recommendation_card_rules import split_fields
 from app.services.recommendation_cards import (
     attempt_started,
@@ -167,6 +167,22 @@ async def build_prefill(
             value, unit, currency = found
             client_rate = {"value": value, "unit": unit, "currency": currency}
 
+    # Stawka kandydata z etapu TEJ rekrutacji (D7) — osobno od podpowiedzi
+    # `rate`, która spada do karty i „Stawki od”. Generator pokazuje notkę,
+    # gdy wpisana stawka umowy różni się od tej liczby.
+    recruitment_rate: Optional[dict[str, Any]] = None
+    pair = (await recruitment_rates.for_pairs(db, [(candidate.id, job.id)])).get(
+        (candidate.id, job.id)
+    )
+    if pair is not None and pair.candidate_rate_value is not None:
+        recruitment_rate = {
+            "value": float(pair.candidate_rate_value),
+            "unit": pair.candidate_rate_unit,
+            "currency": pair.candidate_rate_currency,
+            "at": _iso(pair.candidate_rate_at),
+            "job_title": pair.job_title,
+        }
+
     existing = await existing_agreement(db, candidate_id=candidate.id, job_id=job.id)
     return {
         "candidate_id": candidate.id,
@@ -176,6 +192,7 @@ async def build_prefill(
         "availability_text": availability_text,
         "client_rate": client_rate,
         "client_rate_redacted": not show_client_rate,
+        "recruitment_rate": recruitment_rate,
         "existing": (
             {
                 "id": existing.id,

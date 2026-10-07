@@ -1005,6 +1005,7 @@ export function ContractorOrderPanel({
           onCreate={editingOrder.createOrder}
           siblingOrders={editingOrder.contractor.orders}
           canManageFinance={canManageFinance}
+          recruitmentRates={editingOrder.contractor.recruitment_rates ?? null}
           suggestedOrderType={suggestedOrderType}
           allowedOrderTypes={allowedOrderTypes}
           legacyNullOrderType={legacyNullOrderType}

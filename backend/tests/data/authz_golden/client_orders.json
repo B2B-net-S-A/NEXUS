@@ -31,6 +31,7 @@
   "GET /api/clients/{client_id}/orders/{order_id}": "PPDBPDDDBBBDPPPPDPP",
   "GET /api/clients/{client_id}/orders/{order_id}/delete-preview": "PPDBDDDDBBBDDPDDDDD",
   "GET /api/clients/{client_id}/orders/{order_id}/file": "PPDBDDDDBBBDDDDDDPP",
+  "GET /api/clients/{client_id}/recruitment-rates": "PPDBPDDDBBBDPPPPDPP",
   "PATCH /api/clients/{client_id}/orders/{order_id}": "PPDBDDDDBBBDDPDDDDP",
   "POST /api/clients/{client_id}/contract-with-order": "PPDBDDDDBBBDDPDDDDD",
   "POST /api/clients/{client_id}/contractors/{contract_id}/dismiss-draft": "PPDBDDDDBBBDDPDDDDD",

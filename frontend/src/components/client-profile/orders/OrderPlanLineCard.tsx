@@ -27,6 +27,7 @@ import {
   type RateUnit,
 } from "@/lib/rate-unit";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
+import { lineRevenueWarning } from "@/lib/recruitment-rate-hint";
 
 import { ConsultantPicker } from "./ConsultantPicker";
 
@@ -235,6 +236,13 @@ export function OrderPlanLineCard({
   };
 
   const heading = draft.documentName ?? draft.person?.name ?? "Nowy konsultant";
+  // D7: stawka do klienta z rekrutacji vs stawka przychodowa karty — tylko
+  // ostrzeżenie, zapis zamówienia nie czeka na zgodność.
+  const recruitmentWarning = lineRevenueWarning(draft.person?.recruitmentRate, {
+    value: draft.rateRevenue,
+    unit: draft.revenueUnit,
+    currency: draft.revenueCurrency,
+  });
 
   return (
     <article
@@ -566,6 +574,15 @@ export function OrderPlanLineCard({
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
           Ta sama osoba jest na zamówieniu więcej niż raz — sprawdź, czy to dwie
           osobne pozycje.
+        </p>
+      ) : null}
+      {recruitmentWarning ? (
+        <p
+          role="status"
+          className="mt-2 flex items-start gap-1.5 text-xs text-warning-muted-foreground"
+        >
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+          {recruitmentWarning}
         </p>
       ) : null}
       {draft.warnings.map((warning) => (

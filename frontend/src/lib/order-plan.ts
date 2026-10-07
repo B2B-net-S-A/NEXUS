@@ -18,6 +18,7 @@ import type {
   OrderPlanMatchStatus,
   OrderType,
 } from "@/lib/api/orderGroups";
+import type { RecruitmentRate } from "@/lib/api/recruitmentRates";
 import {
   contractRateField,
   contractRateUnitToInputUnit,
@@ -41,6 +42,9 @@ export interface LinePerson {
   name: string;
   status: string | null;
   startDate: string | null;
+  /** Stawki z rekrutacji tej osoby (D7) — tylko z kontraktu dopasowanego
+   *  w odczycie PDF-a; osoba z pickera ich nie niesie. */
+  recruitmentRate?: RecruitmentRate | null;
 }
 
 export interface OrderLineDraft {
@@ -148,6 +152,7 @@ function personFromContract(contract: OrderPlanContract): LinePerson {
     name: contract.contractor_name,
     status: contract.status,
     startDate: contract.start_date,
+    recruitmentRate: contract.recruitment_rate ?? null,
   };
 }
 

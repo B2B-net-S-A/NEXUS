@@ -157,6 +157,7 @@ import {
   pairColumnLabel,
   prefillRateSource,
 } from "@/lib/b2b-agreement";
+import { contractRateNote } from "@/lib/recruitment-rate-hint";
 
 // Router generatora ma szeroką bramkę Sourcing, ale operacje na dokumentach
 // ze stawką mają osobne, konfigurowalne uprawnienie. Poziom `view` dostaje
@@ -4295,6 +4296,13 @@ export function GeneratorForm({
     rateStages[0]?.rate === String(prefillQuery.data.rate.value)
       ? prefillRateSource(prefillQuery.data.rate)
       : null;
+  // D7: stawka kandydata z rekrutacji vs pierwszy etap stawki umowy — notka
+  // pod polem, nie walidacja i nie toast.
+  const recruitmentRateNote = contractRateNote(
+    prefillQuery.data?.recruitment_rate,
+    rateStages[0]?.rate,
+    currency,
+  );
 
   const existingContract = existingContractFor(
     jobContractsQuery.data ?? [],
@@ -5557,6 +5565,15 @@ export function GeneratorForm({
                       Stawka {prefillRateHint}
                     </p>
                   ) : null}
+                  {recruitmentRateNote ? (
+                    <p
+                      role="status"
+                      data-testid="b2b-recruitment-rate-note"
+                      className="mt-1 text-xs text-warning"
+                    >
+                      {recruitmentRateNote}
+                    </p>
+                  ) : null}
                 </Field>
                 <Field label="Waluta" htmlFor={currencyId}>
                   <CurrencySelect
@@ -5583,6 +5600,15 @@ export function GeneratorForm({
                           }
                           placeholder="np. 150"
                         />
+                        {i === 0 && recruitmentRateNote ? (
+                          <p
+                            role="status"
+                            data-testid="b2b-recruitment-rate-note"
+                            className="mt-1 text-xs text-warning"
+                          >
+                            {recruitmentRateNote}
+                          </p>
+                        ) : null}
                       </Field>
                       {/* Pierwszy etap bez „od" obowiązuje od rozpoczęcia usług. */}
                       <Field label="Obowiązuje od" required={i > 0}>

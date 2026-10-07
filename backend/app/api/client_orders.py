@@ -12,6 +12,7 @@ Flow B — "Nowy kontraktor / zamówienie" (POST /contract-with-order) —
 
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 from dataclasses import dataclass, replace
@@ -94,6 +95,8 @@ from app.schemas.client_order import (
     ClientOrderUpdate,
     ContractWithOrdersRead,
     OrderDocumentItem,
+    RecruitmentRateLookupResponse,
+    RecruitmentRateRead,
     OrderDocumentsResponse,
     OrderDeletePreview,
     OrderDeleteRateChange,
@@ -104,7 +107,7 @@ from app.schemas.new_contractor_order import (
     NewContractorOrderRequest,
     NewContractorOrderResponse,
 )
-from app.services import nordea_invoice_lines, storage_service
+from app.services import nordea_invoice_lines, recruitment_rates, storage_service
 from app.services.order_gaps import close_gaps_of_deleted_orders
 from app.services.shared_md_orders import client_uses_shared_md_pool
 from app.services.order_continuation import ending_without_successor
@@ -176,6 +179,8 @@ from app.services.order_excel_export import (
     orders_export_filename,
     rate_unit_export_label,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     dependencies=[*DELIVERY_SECTION_DEPENDENCIES, *DELIVERY_CLIENT_SCOPE_DEPENDENCIES]
@@ -1203,6 +1208,8 @@ _CONTRACTOR_FINANCE_FIELDS = (
     "rate_candidate_currency",
     "latest_order_rate_client",
     "latest_order_monthly_margin",
+    # Stawki z rekrutacji (D7) to też kwoty — znikają razem z resztą.
+    "recruitment_rates",
 )
 # Pola kwot zamówienia. Wszystkie opisują wyłącznie snapshot jednego zamówienia:
 # zmiana jednostki albo godzin przelicza jego dwie stawki, ale nie dotyka
@@ -1706,6 +1713,8 @@ async def list_contractors_with_orders(
         )
 
     amounts = await _order_amounts(db, user, client_id)
+    if amounts.can_read:
+        await _attach_recruitment_rates(db, user, contracts, items)
     if not amounts.can_read:
         for item in items:
             _redact_contractor_finance(item)
@@ -1722,6 +1731,83 @@ async def list_contractors_with_orders(
         can_manage_finance=amounts.can_write,
         nordea_order_import_enabled=is_client_in_policy("nordea", client_id),
         shared_md_pool_client=client_uses_shared_md_pool(client_id),
+    )
+
+
+async def _attach_recruitment_rates(
+    db: AsyncSession,
+    user: User,
+    contracts: list[Contract],
+    items: list[ContractWithOrdersRead],
+) -> None:
+    """Stawki z rekrutacji (D7) na kartach kontraktorów — jedno zbiorcze odczytanie.
+
+    Wołane wyłącznie dla konta, które widzi kwoty tego klienta. Stawkę do
+    klienta dostaje tylko rola z ``user_can_view_client_rate``. Awaria odczytu
+    nie kładzie listy — podpowiedź po prostu się nie pokaże.
+    """
+    from app.api.candidate_access import user_can_view_client_rate
+
+    try:
+        async with db.begin_nested():
+            found = await recruitment_rates.for_contracts(db, contracts)
+    except Exception:  # noqa: BLE001 — podpowiedź, nie warunek odczytu listy
+        logger.exception("client_orders: stawki z rekrutacji niedostępne")
+        return
+    show_client_rate = user_can_view_client_rate(user)
+    for item in items:
+        rate = found.get(item.contract_id)
+        if rate is not None:
+            item.recruitment_rates = RecruitmentRateRead(
+                **rate.as_dict(show_client_rate=show_client_rate)
+            )
+
+
+@router.get(
+    "/{client_id}/recruitment-rates",
+    response_model=RecruitmentRateLookupResponse,
+)
+async def get_recruitment_rates_for_order(
+    client_id: int,
+    user: DeliveryViewUser,
+    candidate_id: int = Query(..., ge=1),
+    job_id: Optional[int] = Query(None, ge=1),
+    db: AsyncSession = Depends(get_db),
+):
+    """Stawki z rekrutacji dla formularza „Nowy kontraktor / zamówienie” (D7).
+
+    Z ``job_id`` — ta para (rekrutacja wybrana w formularzu); bez niego —
+    najnowsza para osoby w rekrutacjach tego klienta i klientów z nim
+    scalonych. Tylko odczyt i tylko podpowiedź: różnica niczego nie blokuje.
+    Kwoty dostaje konto z podglądem kwot tego klienta, stawkę do klienta —
+    dodatkowo rola, która ją widzi w rekrutacji.
+    """
+    from app.api.candidate_access import user_can_view_client_rate
+
+    await _require_safe_client_order_read(db, user, client_id)
+    amounts = await _order_amounts(db, user, client_id)
+    if not amounts.can_read:
+        return RecruitmentRateLookupResponse(rate=None, amounts_redacted=True)
+    if job_id is not None:
+        job_client = await db.scalar(select(Job.client_id).where(Job.id == job_id))
+        family = await recruitment_rates.client_family_ids(db, client_id)
+        if job_client not in family:
+            # Rekrutacja innego klienta nie jest punktem odniesienia dla tego
+            # zamówienia — i nie może zdradzać jego stawek.
+            return RecruitmentRateLookupResponse(rate=None)
+        rate = (await recruitment_rates.for_pairs(db, [(candidate_id, job_id)])).get(
+            (candidate_id, job_id)
+        )
+    else:
+        rate = (await recruitment_rates.for_client(db, client_id, [candidate_id])).get(
+            candidate_id
+        )
+    if rate is None:
+        return RecruitmentRateLookupResponse(rate=None)
+    return RecruitmentRateLookupResponse(
+        rate=RecruitmentRateRead(
+            **rate.as_dict(show_client_rate=user_can_view_client_rate(user))
+        )
     )
 
 
