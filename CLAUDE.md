@@ -2318,6 +2318,30 @@ faktów (`PATCH /api/candidates/{id}/work-mode`). Jedna reguła:
 - **„Zapisz w profilu” wskazuje POLE, wartość wylicza serwer** z zapisanych
   faktów (rate, work_mode, contract_form, availability, office_cities).
   Zastrzeżenia do klientów są tylko pokazywane — nie tworzą konfliktu.
+- **Puste pola profilu wypełnia JEDNA reguła** (07.10.2026,
+  `services/notes_profile_fill.py`: nocna ekstrakcja i jednorazowe
+  `POST /api/admin/notes-insights/profile-fill` — próba → `expected=` →
+  paragon `notes_profile_fill_backfill_2026_10` + `repair_details_…`). Tylko
+  puste pola; bez progu czasowego, ale **dostępność liczona od DNIA NOTATKI
+  O DOSTĘPNOŚCI** (`notes_days(rows).availability`: najnowsza notatka wejścia,
+  której treść mówi „od zaraz / wypowiedz… / dostępn… / start…”; dzień =
+  `coalesce(source_created_at, created_at)`): „od zaraz” = ten dzień, okres
+  wypowiedzenia = ten dzień + okres. Bez takiej notatki „od zaraz” i okres
+  wypowiedzenia NIE dają daty; pełna data i miesiąc („11.2026”, „od
+  listopada”) tak — z „stan na” = dzień najnowszej notatki. Noc i domknięcie
+  historii liczą to JEDNĄ funkcją na tym samym zbiorze (`load_note_rows` /
+  `load_note_rows_bulk` — notatki czytane przez odczyt AI). Przegląd #2062:
+  „od zaraz” z 2023 + „zna Pythona” z 30.09.2026 dawało „stan na 30.09.2026”.
+  Znacznik `_availability_from_notes` (`date`, `as_of`, `basis`) — profil
+  pokazuje „z notatek · stan na DD.MM.RRRR”; nowsza notatka poprawia datę,
+  którą wpisały notatki, poprawki człowieka nie rusza. Do 07.10 datę dawał
+  wyłącznie ISO w `available_from` (6 327 osób z dostępnością w notatkach
+  miało pustą datę). **Języki** z `languages_observed` zapisuje writer ze
+  źródłem `notes` (CHECK `ck_candidate_languages_provenance`, 0423): tylko
+  DOPISUJE język, którego profil nie zna — wiersza z CV, Traffita ani
+  ręcznego nie zmienia (także poziomu), nigdy nie usuwa (nagrobek blokowałby
+  później język z CV). Status „szuka aktywnie” z „od zaraz” stawia tylko
+  nocna ścieżka, nie domknięcie historii.
 - **Doganianie starszej wersji promptu:** po kandydatach ze zmienionymi
   notatkami bieg dobiera najwyżej `NOTES_INSIGHTS_SYNC_UPGRADE_LIMIT` (700)
   kandydatów z `_extractor` innym niż bieżąca wersja (bez wierszy
@@ -2534,10 +2558,49 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
   Zmieniasz regułę — porównaj starą i nową wersję na produkcji (tylko
   odczyt): dwie poprawki z przeglądu kodu pogorszyły odczyt prawdziwych kart,
   zanim zostały zawężone. Zmiana znaczenia = podbij `PARSER_VERSION`
-  (wchodzi do odcisku, więc karty przeliczą się same).
-- **Odpowiedzi z notatek NIE trafiają do arkusza screeningu** — arkusz
-  zmienia punktację, wymagania ruchu i wychodzi do klienta. Karta tylko je
-  pokazuje.
+  (wchodzi do odcisku, więc karty przeliczą się same). v2 (07.10.2026):
+  krótka odpowiedź po „? ” w wierszu pytania („tak/nie…”, liczba, mała
+  litera; tylko bez wiersza odpowiedzi pod spodem), pytania zawinięte na 2–3
+  wiersze (dalszy ciąg małą literą, początek wygląda na pytanie), „Stawka:
+  160/115” (pierwsza wyższa, ukośnik) = kandydat 115. Lista numerowana staje
+  się pytaniami jak w v1 — tylko z odpowiedzią w osobnym wierszu.
+- **Odpowiedzi z notatek trafiają do arkusza screeningu (decyzje Artura
+  07.10.2026 — do tej daty reguła brzmiała „nie trafiają”).** Jedyne miejsce
+  zapisu: `services/screening_note_sync.py` (strażnik
+  `test_screening_note_sync_guard.py`), wyłącznik `SCREENING_NOTE_SYNC_ENABLED`
+  (domyślnie OFF). Odpowiedź z notatki ma pochodzenie `note_sync`; taki arkusz
+  **od razu widzi klient** (`client_safe_screening` go nie odfiltrowuje)
+  i **liczy się w ocenie pary** jak arkusz człowieka — zapis oznacza wyniki
+  kandydata jako stare. Arkusz „należy do automatu” wyłącznie, gdy wszystkie
+  odpowiedzi to `note_sync` bez trafienia „Odpada, gdy…”, a
+  `experience_checks`/`notes`/`internal_note` są puste i `overall_fit ==
+  "uncertain"`; każdy inny niepusty arkusz jest ludzki i automat go nie
+  dotyka (także kopii na innych wierszach pary). Zapis człowieka (arkusz,
+  okno karty, trafienie „Odpada, gdy…”) zamienia `note_sync` na
+  `note_import`. Przypięcie do pytań (`map_note_answers`, rapidfuzz): po
+  treści ≥ 0,5 z przewagą ≥ 0,1, jeden do jednego, a słowa jednego pytania
+  mieszczą się w drugim („AWS” ≠ „Azure”, choć podobieństwo 0,90); po numerze
+  tylko odpowiedź bez treści pytania, przy komplecie odpowiedzi i numeracji
+  zgodnej z dopasowaniami po treści; szara strefa 0,3–0,5, treść niepasująca
+  do żadnego pytania i konflikty pomijane. Odpowiedź idzie przez
+  `client_safe_response`: ucięta na pierwszej linii sekcji wewnętrznej karty
+  (notatka, red flags, stawka, kosztorys, motywacja, @wzmianka, „czekam na”)
+  albo kolejnego pytania, odrzucona przy kwocie/parze stawek i przy „[PL] …”
+  (próba na produkcji 07.10: ostatnia odpowiedź karty połykała notatkę
+  wewnętrzną i kosztorys w ok. 60 z 8 245 odpowiedzi). Rozpoznanie pytań
+  (`match_score`): to samo słowo = ten sam rdzeń z polską końcówką, a słowo
+  tylko z dłuższego pytania blokuje, gdy nazywa technologię, skrót albo język.
+  Arkusz idzie na najnowszy wiersz pary
+  (blokada wierszy pary), kopie automatu na starszych wierszach bieżącej próby
+  dostają tę samą treść albo `NULL`; notatka sprzed bieżącej próby nie zasila
+  arkusza. `answered_at`/`answered_by` = data i autor notatki; zamiast
+  `Activity screening_answered` (liczą ją statystyki zespołu) zapis zostawia
+  `screening_synced_from_note`. Przelicza się przy zmianie karty
+  (`recommendation_card_import.refresh_candidate`, `repair_orphans`); historię
+  uzupełnia admin: `POST /api/admin/screening-note-backfill?dry_run=true` →
+  raport → `dry_run=false&expected=<to_change>` (próba z 7 dni; paragon
+  `screening_note_backfill_2026_10`, dane do odwrócenia
+  `repair_details_screening_note_backfill_2026_10`).
 - **Import karty nie pisze do profilu kandydata.** Fakty profilu (stawka,
   dostępność, tryb pracy) dalej wypełnia nocny odczyt notatek i „Zapisz
   w profilu”.
@@ -2673,6 +2736,17 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
   z rekrutacją, 1 378 par do uzupełnienia, wszystkie w zamkniętych
   rekrutacjach z archiwum; przed zapisem stawkę do klienta miało 17 wierszy.
   Zmieniasz regułę — przelicz plan na produkcji w transakcji tylko do odczytu.
+  **Od 07.10.2026 także krótki wpis „X/Y”** (`parse_dl_pair`: ≤ 160 znaków
+  po zdjęciu HTML i wzmianek, rodzaj `dl_rate` albo `human` — ten drugi
+  TYLKO od autora z rolą Delivery Leada albo admina (`dl_pair_from_note`,
+  `DL_PAIR_AUTHOR_SQL`; rekruter pisze „Codility 85/60”, „oczekiwania
+  130/120”), X > Y, obie 40–400, jedyna inna liczba to „NNNN MD” = X × 8;
+  procent, „score”, waluta, stawka dzienna, pytanie oraz słowa testu
+  i widełek (pkt, test, wynik, zadanie, Codility, HackerRank, ocena, widełki,
+  zakres, oczekiwania) odpadają): X idzie tym samym planem do stawki do
+  klienta, Y — do „Stawki od” (`note:{id}`). Pomiar 06.10.2026: niższa liczba
+  zgadza się ze znanym oczekiwaniem kandydata w 94% (834 z 886); „100/110”
+  (pierwsza niższa) to widełki kandydata, nie para DL-a.
 - **Jarvis czyta kartę narzędziem `get_recommendation_card`** — kształt
   wyniku (`_shape_recommendation_card`) nie przepuszcza narodowości,
   podpowiedzi ani `legacy_text` (pilnuje `test_recommendation_card_ai_privacy.py`).
@@ -2779,6 +2853,14 @@ Artura 04.10.2026 (makiety: https://claude.ai/artifact/SxV3wMXBL8FhA2Q743HwEd).
   bieżąca stawka profilu bez śladu w dzienniku (`profile-current`) i zgłoszenia
   osób z bazy (`apply:{id}`). Karta NIE pisze do profilu (decyzja z 03.10
   zostaje) — wpływa na wartość LICZONĄ.
+  Od 07.10.2026 także wpis DL-a „X/Y” w notatce (`note:{id}`,
+  `client_rate_notes.dl_pair_from_note` — ta sama reguła i bramka autora co
+  plan stawki do klienta; wyzwalacz kolejkuje szerzej, decyduje Python): obserwacją jest WYŁĄCZNIE Y, `raw` =
+  „{Y} PLN/h” — X to stawka do klienta, a historię stawek widzi każda rola.
+  Wpis powtarzający kwotę etapu albo karty tej rekrutacji nie dubluje
+  historii. Kolejkę przelicza wyzwalacz `trg_rate_from_notes` (0423,
+  `notes_facts_schema.py`; łapie też surowy SQL Traffita), a zapis, edycja
+  i usunięcie notatki w API przeliczają od razu.
 - **Wynik w kolumnach `candidates.rate_from_*`, `rate_latest_*`,
   `rate_observation_count`**, zapisywany surowym SQL-em — `updated_at`
   nietknięte, więc alerty zapisanych wyszukiwań nie widzą przeliczenia.
@@ -4332,11 +4414,12 @@ z „wymagań do wyszukiwania” powtarzało must, deal breaker miały 3 z 99 py
 - Harness `/preview/new-job?state=request|noclient|manual|review|gaps|shadow|passive|off`;
   profil z wierszami: przypadek 4 w `/preview/champion-profile`.
 
-## Przekazanie, propozycje i Champion po audycie 06.10.2026 (0422)
+## Przekazanie, propozycje i Champion po audycie 06.10.2026
 
 Raport: `docs/audits/2026-10-06/rekrutacja-przekazanie-i-wyszukiwanie.md`.
-Decyzje Artura: bez maila przy przypisaniu, bez zmiany top-K przeglądu i bez
-nocnego wygaszania propozycji — wygasają przy zamknięciu rekrutacji.
+Decyzje Artura: bez maila przy przypisaniu; propozycje wygasają także przy
+zamknięciu rekrutacji (status `expired` i telemetria otwarcia skrzynki są
+z #2058 — „Propozycje z bazy” bez limitu 60).
 
 - **Dzwonek „dostałeś request” ma JEDNO miejsce:**
   `_sync_work_assignments_with_owner` (`api/jobs.py`) przy każdej zmianie
@@ -4366,27 +4449,24 @@ nocnego wygaszania propozycji — wygasają przy zamknięciu rekrutacji.
   trzy nazwiska w treści. Zastąpił dzienny skrót z nowych CV
   (`auto_match_service._notify_proposals` usunięty — szedł tylko do
   `recruiter_id`/`tac_id`). Poniedziałkowy skrót DL liczy `open_counts_for_jobs`.
-- **Nocny przegląd nie zajmuje top-K osobami już rozstrzygniętymi**
-  (`auto_full_review._already_decided`: w rekrutacji, czarna lista, `added`,
-  `dismissed` z tą samą wersją CV).
-- **Każde dodanie do rekrutacji zamyka propozycję** — `open_process` woła
-  `mark_added_fail_soft` (savepoint).
-- **Status propozycji `expired` (0422, lustro w `entrypoint.sh`, DDL
-  w `job_proposal_expiry_schema.py`)**: każde zamknięcie rekrutacji
-  (`close_job_core`, PATCH statusu w oknie edycji, zamknięcie przy usunięciu
-  klienta) wygasza otwarte propozycje (`expire_open_for_job`) — nowa ścieżka
-  zamykająca rekrutację woła to samo; `added` i `dismissed` zostają, ponowne
-  otwarcie ich nie wskrzesza. Jednorazowo `job_proposal_closed_expiry`
-  (marker `job_proposals_closed_jobs_expired_2026_10`, paragon = liczby).
-  Raport „Propozycje AI” ma licznik „Wygasłe”.
+- **Dodanie do rekrutacji przez człowieka zamyka propozycję także poza
+  „Dodaj”** — `open_process` stawia `added`, gdy `entry_source` jest
+  w `candidate_claim.HUMAN_ENTRY_SOURCES` (albo jawne `mark_proposals=True`);
+  integracja i automat — nie (decyzja z 07.10.2026). `add_candidates_to_job`
+  przekazuje własne `mark_proposals`.
+- **Każde zamknięcie rekrutacji wygasza jej otwarte propozycje**
+  (`expire_open_for_job`: `close_job_core`, PATCH statusu w oknie edycji,
+  zamknięcie przy usunięciu klienta) — nowa ścieżka zamykająca rekrutację woła
+  to samo. `added` i `dismissed` zostają; osoba wraca jako `proposed` dopiero
+  z kolejnym przeglądem. Jednorazowo `job_proposal_closed_expiry` (marker
+  `job_proposals_closed_jobs_expired_2026_10`, paragon = liczby).
 - **„Pomiń zaznaczone”**: `POST /api/jobs/{id}/proposal-inbox/dismiss-bulk`
   (≤ 100 osób, powód obowiązkowy jak przy pojedynczym, osoby spoza skrzynki
-  i już w rekrutacji wracają w `skipped`). Otwarcie skrzynki:
-  `POST …/proposal-inbox/opened` → `job_proposal_inbox_opens` (jedno na
-  rekrutację, osobę i dzień; pomiar, nigdy błąd). Nie mieszaj z `match_impressions`.
+  i już w rekrutacji wracają w `skipped`).
 - **„Przypisz do rekrutacji” z listy i profilu kandydata** (człowiek) idzie
   przez `proposals_bulk.add_candidates_to_job`: etap „Nowi”, blokada 12 h,
-  `entry_source = added_manual`, telemetria `candidate_list`. Kształty odpowiedzi
+  `entry_source = added_manual`, `mark_proposals=True`, telemetria
+  `candidate_list`. Kształty odpowiedzi
   (200 `assigned` / `already_in_pipeline`, 409) bez zmian. Integracja zostaje
   przy starej ścieżce. Telemetria dodań niesie id procesu w `event_id`
   (`latest_process_ids`), integracja ma źródło `integration`.
@@ -4551,6 +4631,11 @@ wysłał do klienta, budżet — 32%, dni w biurze — 8%. Decyzje Artura 30.09.
   „Java (minimalna 11)”, „Oracle (min. 19c)”, „Java od 11” odcinają się jak
   „Java 11+”. Do 30.09.2026 taka pozycja nie bramkowała i nie dało się jej
   oznaczyć jako krytycznej.
+- **v10.1 (07.10.2026, PR #2056)**: fraza przechodzi przez nawias, dwukropek,
+  przecinek i kropkę („Spring (Boot, Data)” = Spring Boot), must-have liczy
+  się w odmianie (rdzeń ≥ 4 litery) w CV i notatkach, a kandydat z CV
+  czekającym na odczyt tekstu nie jest „bez danych” (`must_text_evidence`).
+  To zmienia, kogo bramka ukrywa — stąd bump `MUST_GATE_POLICY_VERSION`.
 - **Budżet i dni w biurze to plakietki** (`rate_fit`, `office_fit`); ocena
   stawki jest neutralna z opisem „ponad budżet o X%”. Wiersz pełnego przeglądu (Radar, cała
   baza) niesie `fit` (`rate`/`office` z chwili przeglądu) → plakietki `fullSearchFitBadges`. **Kandydat bez CV,
@@ -4585,6 +4670,46 @@ wysłał do klienta, budżet — 32%, dni w biurze — 8%. Decyzje Artura 30.09.
   rekrutacji): wybór DL, a bez niego podpowiedź z historii — niezależnie od
   `MUST_GATE_MODE`. Podpowiedź przelicza się co tydzień, więc werdykt QC
   rekrutacji bez wyboru DL może się zmienić bez zmiany CV; okno QC nazywa źródło.
+- **Warstwa `prior_screening` — odpowiedzi z wcześniejszych rozmów
+  (07.10.2026, `services/prior_screening.py`), wyłącznik
+  `PRIOR_SCREENING_LAYER_ENABLED` domyślnie OFF.** Materiał: najnowszy
+  wypełniony arkusz kandydata w każdej INNEJ rekrutacji (bez `skipped`
+  i `reassign_suggested`). Pytanie tej rekrutacji pasuje bez AI: Jaccard
+  rdzeni słów ≥ 0,6 i każda technologia ze słownika z tego pytania stoi też
+  we wcześniejszym; pytania o stawkę, dostępność, lokalizację i tryb pracy są
+  pomijane. Punkty `MAX_POINTS × tak/(tak+nie)` (wydźwięk: `is_negative_answer`
+  + jawne potwierdzenie), same „nie wiadomo” = warstwa bez oceny (wynik bez
+  zmian). Deal-breaker (warunek przy pytaniu TEJ rekrutacji + wcześniejsza
+  odpowiedź oceniona jako trafienie; samo „nie” nim nie jest) = 0 pkt
+  i plakietka `fit.prior_screening`, nigdy ukrycie. Uwaga przed włączeniem:
+  przeskalowanie ×100/105 przy jednym „nie” spycha wynik 72 poniżej progu
+  nocnych propozycji (70) — zmierzyć w etapie 2. Decyzję niesie żądanie (`versions["prior_screening"]`), nie flaga
+  z chwili oceny — przy OFF odcisk, `scoring_algorithm_version` i
+  `ScoreBreakdown.as_dict` są bajt w bajt jak bez warstwy. Zmiana progu,
+  budżetu albo reguły = podbij `prior_screening.VERSION`. Włączenie dopiero po
+  pomiarze (`scripts/eval_prior_screening.py`, etap 0: pokrycie wysłanych
+  ≥ 5%, tylko rekrutacje z `opened_at`) i po zapisie arkuszy z notatek.
+- **v10 (07.10.2026, audyt AI Search, `critical-v10`):**
+  - Dowód z notatek: z `_notes_insights` liczą się tylko `skills_evidenced`
+    i `certifications` (`must_text_evidence._NOTES_INSIGHTS_EVIDENCE_FIELDS`)
+    — braki („nie zna Kafki”) i weta dawały 1 791 fałszywych trafień. W karcie
+    rekomendacji (`card`, `screening_facts`) pytanie z przeczącą odpowiedzią
+    znika razem z odpowiedzią (`evidence_note_text`, słownik
+    `_NEGATIVE_ANSWER_RE`; „podstawy”, „słabo” to wciąż znajomość). Ten sam
+    tekst czytają statystyki podpowiedzi (`critical_skills.compute_stats`).
+  - „Tylko zdalnie” z notatek ukrywa wyłącznie przy pracy stacjonarnej, od
+    4 dni w biurze albo przy jawnym `exclude_remote_only`
+    (`DealbreakerInputs.remote_only_hides`); przy hybrydzie wiersz niesie
+    plakietkę `remote_fit = "prefers_remote"` („Preferuje pracę zdalną”) —
+    76% osób z tą flagą zweryfikowanych do biura zespół wysłał do klienta.
+  - Podpowiedź krytycznych tylko z tytułu albo z pierwszych 3 pozycji listy
+    must, która ma najwyżej 8 pozycji (`SUGGEST_MAX_POSITION`,
+    `SUGGEST_MAX_LIST`); ukryci zweryfikowani 7,1% → 2,7%. Dotyczy też QC CV.
+  - Dopasowanie nazw: krótkie formy ze znakiem (`C#`, `F#`, `C++`) bez
+    rozróżniania wielkości liter; implikacje `skill_normalize.IMPLIED_BY`
+    (rodzina SQL ⇒ SQL, PlantUML ⇒ UML — jednokierunkowe, NIE alias); „rest
+    of”, „the rest”, „at rest” to nie REST API (`_patterns`,
+    `is_technology_mention`).
 
 ## Hiring manager rekrutacji: lista albo nowa osoba (25.09.2026)
 
@@ -8742,13 +8867,30 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   odczyt też porównuje odcisk tym profilem — osobisty profil oglądającego nie
   daje 409.
 - **A. Publikacja:** w transakcji kończącej przegląd, w savepoincie
-  (`publish_on_finish`, nigdy nie rzuca): top `AUTO_FULL_REVIEW_TOP_K` (60)
-  wierszy `eligible ∧ measured ∧ fit_score ≥ AUTO_FULL_REVIEW_MIN_SCORE`
+  (`publish_on_finish`, nigdy nie rzuca): WSZYSTKIE wiersze
+  `eligible ∧ measured ∧ fit_score ≥ AUTO_FULL_REVIEW_MIN_SCORE`
   (osobny próg — przegląd punktuje kanonicznym fitem, auto-match starszym
   scoringiem), które
   przechodzą `is_good_match` → `upsert_proposals(source="full_base")` z wersją
   CV i dowodami przez `sanitize_evidence` (same nazwy wymagań). Znacznik
   `metrics.auto_proposals`; `reconcile_unpublished` domyka przeglądy bez niego.
+- **A. Bez limitu, `expired`, `added` tylko z człowieka (0422, decyzja Artura
+  07.10.2026).** Limitu 60 nie ma (`AUTO_FULL_REVIEW_TOP_K` nieczytane, zostaje
+  dla skryptów audytów); publikacja idzie paczkami (`_PUBLISH_PAGE`). Po
+  kompletnym przeglądzie (bez niepełnego pokrycia — także zaakceptowanego),
+  który jest najnowszym przeglądem rekrutacji z wynikami (`_newest_result_run`,
+  także w `reconcile_unpublished`), otwarte `full_base` z innym `run_id`
+  dostają `expired` (`job_proposals.expire_full_base`); powrót osoby w kolejnym
+  przeglądzie = `proposed`. Wierszy NIE kasujemy (`request_allocation` czyta
+  istnienie `full_base`); po 30 dniach `queue_retention` czyści im `evidence`.
+  `expired` nie głosuje w statusie pary (`_live()` w każdym liczniku i liście).
+  `added` stawia wyłącznie dodanie przez człowieka
+  (`add_candidates_to_job(mark_proposals=True)` — trasa bez tokenu integracji
+  i przepięcie); karta z integracji i automat propozycji nie zamykają.
+  Otwarcie zakładki „Propozycje z bazy” zapisuje `POST …/proposal-inbox/opened`
+  (`Activity proposal_inbox_opened`, raz na osobę/rekrutację/dzień), a
+  „Czeka na Ciebie” rekrutera ma blok `flow.top_proposals` (3 najlepsze na
+  rekrutację, `job_proposals.top_open_by_job`).
 - **B. `AUTO_MATCH_MODE = dry_run | propose | add`** (`auto_match_outbox.auto_match_mode`
   — JEDNO miejsce; puste = `propose`, literówka = `dry_run`). W `propose`
   dobry wynik daje decyzję `proposed` w dzienniku i wiersz `job_proposals`
@@ -10512,6 +10654,15 @@ kluczowe 0,9–2 s, „c#” 5,9 s; 68% czasu „java” zjadał regex po `keywo
   (stara vs nowa ścieżka, tylko odczyt) i zgoda Artura. Gwiazdka z przodu
   zostaje przy regexie. Świadome różnice: „lodz” znajduje „Łódź” w CV,
   „scrum” znajduje „Agile/Scrum”, nazwy znaczników HTML w notatkach nie są słowami.
+- **Czasy ścieżek porównuj na ciepłym cache** (pomiar 06.10.2026). Fraza
+  (`<->`) na indeksie GIN zawsze sprawdza pozycje w samym tsvectorze wiersza,
+  więc pierwsze zapytanie o frazę czyta z dysku tsvector każdego trafienia —
+  obie ścieżki, każda swoją kolumnę. Pierwszy bieg skryptu porównującego mierzył
+  każdą ścieżkę raz, starą pierwszą: „ci/cd” wyszło 1 047 → 7 811 ms, choć
+  EXPLAIN (ANALYZE, BUFFERS) na ciepłym cache daje 1 097 → 379 ms, a na zimnym
+  nowa czyta mniej bloków („power bi” 14,1 → 8,2 s). Skrypt mierzy teraz obie
+  ścieżki na przemian (`measure_alternating`) i porównuje ciepłą rundę; zimną
+  pokazuje osobno. Nie wyciągaj wniosków z jednego pomiaru po kolei.
 - **`TRIGGER_FUNCTION_DDL_0350` jest zamrożony** — migracja 0350 nie może
   dotykać kolumny z 0385 (łańcuch migracji na świeżej bazie).
 - **Notatki z Traffita zapisane jako JSON** (`{"content":"…\u0144…"}` — Traffit
@@ -10543,10 +10694,28 @@ w bazie (ts_rank, słowa w profilu, świeżość CV) NIE pomagały — nie wraca
   przed brakami → osoby z wektorem wg podobieństwa → najnowsi (decyzje Artura).
   Zbiór > 30 tys. = 3 000 najbliższych z indeksu, reszta od najnowszych.
   Gotowa kolejność 5 min we WŁASNEJ, ograniczonej pamięci modułu (32 wpisy,
-  LRU; klucz: filtry, wektor, osoba, ostatni ruch w rekrutacji) — NIE
+  LRU; klucz: filtry, wektor, osoba, odcisk kontekstu) — NIE
   w `app/core/cache.py`, który nie ma limitu ani sprzątania, a lista bywa
   długa na ~60 tys. id. Brak wektora/awaria = „najnowsi” i
   `sort_applied="newest"` w odpowiedzi — front mówi to zdaniem.
+- **Osoby z rekrutacji odpadają przy ODCZYCIE strony, nie w kolejności**
+  (K11/K5, audyt 06.10.2026): kolejność „Szukaj ręcznie” liczy się z filtrów
+  bez `not_assigned` (`candidate_match_order.order_base_filters`), a
+  `ordered_result` zdejmuje osoby z wierszem etapu w tej rekrutacji
+  (`ids_in_job`). Do tej daty klucz pamięci miał sól z `max(stage.id)` —
+  każde „Dodaj” liczyło kolejność od nowa, a strona 2 pomijała tylu ludzi,
+  ilu dodano. Eksport (`ordered_ids`) i lista używają tej samej pamięci —
+  obie budują zapytanie z `order_base_filters`.
+- **Za ułożonym początkiem (top `CANDIDATE_MATCH_RERANK_TOP`) strona też
+  dostaje pełną ocenę** (`rerank_page`, K10): osoby strony spoza początku są
+  ułożone „Dop.” w obrębie strony i grup, niezmierzeni (także z nieaktualnym
+  wektorem) na końcu grupy. Do 06.10.2026 od pozycji 201 była sama kolejność
+  wektorowa i „Dop.” przestawało maleć.
+- **„Trafność” bez tekstu = „Dopasowanie”** (K6,
+  `_relevance_without_text_means_match`, lista i eksport): przy samych słowach
+  kluczowych trafność liczyła podobieństwo trigramowe imienia do słów, czyli
+  kolejność losową. „Mile widziane” (`q_preferred_group`) liczą się w tym samym
+  zakresie pola co słowa kluczowe (`q_scope`).
 - **Front** (`lib/url-filters.ts` `effectiveSort`/`matchSortAvailable`): bez
   tekstu i bez jawnego wyboru, przy wierszach wymagań albo w „Szukaj ręcznie”
   → `match`; jawne „Najnowsi” wygrywa. `ManualSearchPanel` bez wymagań
@@ -10556,6 +10725,9 @@ w bazie (ts_rank, słowa w profilu, świeżość CV) NIE pomagały — nie wraca
   (`keyword_suggest.classify_skills` — dokładna nazwa/alias ze słownika, każde
   słowo) zamienia same nazwy technologii na wiersze wymagań; słowo będące
   imieniem/nazwiskiem w bazie albo miastem ≥ 20 tys. zostawia tekst.
+  Imiona/nazwiska sprawdzamy WYŁĄCZNIE przy `context=top` (górne pole;
+  `classifyKeywords(text, "top")`) — K8, 06.10.2026: wiersz „SAP”, „Ada”,
+  „Julia” nie był technologią, bo ktoś w bazie tak się nazywa.
   „Szukaj „…” po znaczeniu” cofa zamianę (tryb `semantic`). Wywołanie bez
   ponowień i z limitem 1,5 s — podpowiedź, nie bramka.
 
@@ -10573,14 +10745,48 @@ must-have łączone przez I znajdowały 39%. Reguły, które łatwo cofnąć:
   `skills_preferred`. Nigdy nie tną i nie wchodzą do braków danych
   (`unknown_count_rank`). To samo `preferred_rank` prowadzi każde sortowanie
   i `sort=match`.
-- **„Szukaj ręcznie”** (`ManualSearchPanel.jobListFilters`): WSZYSTKIE miasta
-  rekrutacji i jej kategoria idą do „Mile widziane”, twarde `location`/
-  `competenceCategoryIds` puste. Z wierszy Championa obowiązkowe są tylko
-  technologie (`lib/requirement-row-kinds.ts` → `/keywords/classify`, jedno
-  wywołanie na wiersz); reszta idzie do `qPreferred`. Błąd klasyfikacji = wiersz
-  obowiązkowy (dawne zachowanie). Licznik w edytorze Championa liczy tę samą
-  regułą. Chip „Mile widziane” ma „Wymagaj” (zamiana w filtr).
-  Pamięć okna rekrutacji ma klucz `job2`, bo stary niósł twarde filtry.
+- **„Szukaj ręcznie”** (`lib/job-search-filters.ts` `jobListFilters`): WSZYSTKIE
+  miasta rekrutacji i jej kategoria idą do „Mile widziane”, twarde `location`/
+  `competenceCategoryIds` puste. Chip „Mile widziane” ma „Wymagaj” (zamiana
+  w filtr). Pamięć okna rekrutacji ma klucz `job2`, bo stary niósł twarde filtry.
+- **Obowiązkowe są WYŁĄCZNIE umiejętności krytyczne z serwera** (audyt
+  06.10.2026, D1/W1–W6; `splitByCritical`): wiersze z
+  `critical_resolution.search_rows` (`GET …/champion-profile`, po jednym na
+  krytyczną, z wariantami z `keyword_suggest.requirement_search_words` —
+  „PostgreSQL lub postgres”), czyli te same, którymi propozycje AI ukrywają
+  kandydatów: wybór Delivery Leada, a bez niego podpowiedź z historii.
+  Wiersz Championa z tą technologią dostaje warianty; krytyczna bez wiersza
+  (profil bez `stack.rows`) dochodzi jako nowy wiersz — także dla rekrutacji
+  bez wymagań do wyszukiwania. Reszta wierszy i wiersze „mile widziane” ze
+  `stack.rows` (W6) idą do `qPreferred`. Klasyfikacja „technologia / nie”
+  NIE decyduje już o obowiązkowości (do 06.10.2026 ekran opisywał jako „Musi
+  mieć” wszystkie wiersze-technologie, a filtr wymagał tylko krytycznych).
+  Jedna funkcja zasila okno „Szukaj ręcznie”, zakładkę „Szukaj w bazie”
+  i kafel; zdanie o źródle (`mandatorySourceNote`: „wybrane przez Delivery
+  Leada” / „podpowiedź z historii” / „brak — nic nie jest obowiązkowe”) stoi
+  na każdym z nich. Błąd odczytu Championa = nic nie jest obowiązkowe.
+  Opcje krytycznej serwer czyta TAK JAK BRAMKA AI
+  (`keyword_suggest.requirement_options` → `must_gate_terms.gate_requirement`):
+  „Java 11+” → „Java”, „Docker/Kubernetes” → dwie opcje, „Bazy danych
+  (Oracle, PostgreSQL)” → Oracle i PostgreSQL. Front łączy krytyczną
+  z wierszem Championa po nazwie bez wersji (`withoutVersion`), więc „Java 17”
+  w Championie dostaje wariant „Java” zamiast osobnego wiersza. Krytyczna
+  z opcją jednoliterową („C”, „R”) nie daje wiersza słów kluczowych
+  (`search_rows_skipped`, zdanie na ekranie) — bramka AI czyta ją z profilu.
+  „Są wiersze do szukania” liczy JEDNA funkcja `jobSearchPlan` (wiersze
+  Championa, krytyczne albo „mile widziane”) dla okna, zakładki i kafla.
+  Licznik w edytorze Championa (`SearchRequirementsEditor`) nadal liczy
+  klasyfikacją — do wyrównania razem z edytorem (osobny PR).
+- **Słowo kluczowe ma co najmniej 2 znaki — także „C” i „R”** (przegląd
+  PR #2056): jako słowo kluczowe znajdowały prawie całą bazę (token `r`
+  z „2019 r.”, `c` z „C++”/„C#”). Front mówi to przy polu („Pojedynczą literę
+  wyszukaj w polu „Umiejętności””), v2 listy i wyszukiwarki odpowiada 422
+  tym samym zdaniem (`KeywordTooShort`); v1 (alerty starych zapisów) pomija
+  je po cichu jak dotąd.
+- **Przy wierszach wymagań must-have NIE idą do „Umiejętności → Mile
+  widziane”** (D2): ta sama technologia liczyła się dwa razy, a „Mile
+  widziane” (stopnie leksykograficzne) wygrywało z „Dop.”. Bez wierszy
+  must-have zostają w rankingu jak dotąd.
 - **Kraj i adres to nie miasto** (`parseJobLocationCities`): „Polska
   (lokalizacja obowiązkowa)” jako filtr miasta wycinała 91% wybranych.
 - **Początek „Szukaj ręcznie” układa pełny „Dop.”** (`candidate_match_order`,

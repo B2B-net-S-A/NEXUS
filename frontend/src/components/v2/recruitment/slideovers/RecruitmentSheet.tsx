@@ -65,6 +65,22 @@ export interface RecruitmentSheetProps {
   "data-testid"?: string;
 }
 
+/**
+ * U8 (audyt 06.10.2026): Esc w polu słów kluczowych (`data-keyword-field`,
+ * `ChipField`) zamykał całe okno i kasował szkic filtrów. Radix łapie Esc
+ * w fazie przechwytywania, więc `stopPropagation` w polu nie wystarcza —
+ * okno samo pomija zamknięcie; pole zamyka podpowiedzi albo czyści tekst.
+ */
+export function keepSheetOpenOnKeywordEscape(event: {
+  target: EventTarget | null;
+  preventDefault: () => void;
+}): void {
+  const target = event.target;
+  if (target instanceof Element && target.closest("[data-keyword-field]")) {
+    event.preventDefault();
+  }
+}
+
 export function RecruitmentSheet({
   open,
   onOpenChange,
@@ -86,7 +102,10 @@ export function RecruitmentSheet({
         side="right"
         className={WIDTH_CLASS[width]}
         data-testid={testId}
-        onEscapeKeyDown={onEscapeKeyDown}
+        onEscapeKeyDown={(event) => {
+          keepSheetOpenOnKeywordEscape(event);
+          if (!event.defaultPrevented) onEscapeKeyDown?.(event);
+        }}
       >
         <SheetHeader className={cn("pr-12", toolbar ? "pb-0" : undefined)}>
           <SheetTitle>{title}</SheetTitle>

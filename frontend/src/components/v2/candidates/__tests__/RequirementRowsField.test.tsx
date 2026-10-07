@@ -70,6 +70,30 @@ describe("RequirementRowsField", () => {
     ).toBe("Rabbit");
   });
 
+  it("po „Usuń wymaganie” kursor zostaje w polu, nie ucieka na stronę (U8)", async () => {
+    render(<Harness initial={[["Java"], ["Kafka"], ["Spring"]]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Usuń wymaganie 2" }));
+    expect(rows()).toEqual([["Java"], ["Spring"]]);
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByLabelText("Wymaganie 2 — słowo albo wariant"),
+      ),
+    );
+  });
+
+  it("pojedyncza litera nie jest słowem kluczowym — pole mówi, gdzie ją wyszukać", () => {
+    // Przegląd PR #2056: „R” i „C” jako słowo kluczowe znajdowały prawie całą
+    // bazę („2019 r.”, „C++”). Nie znikają po cichu — pole tłumaczy.
+    render(<Harness initial={[]} />);
+    const input = screen.getByLabelText("Wymaganie 1 — słowo albo wariant");
+    fireEvent.change(input, { target: { value: "R" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(rows()).toEqual([]);
+    expect(screen.getByText(/„R” jest za krótkie/)).toHaveTextContent(
+      "Pojedynczą literę (np. C albo R) wyszukaj w polu „Umiejętności”.",
+    );
+  });
+
   it("limit 10 wymagań", () => {
     render(<Harness initial={Array.from({ length: 10 }, (_, i) => [`s${i}`])} />);
     expect(screen.getByRole("button", { name: "Dodaj wymaganie" })).toBeDisabled();

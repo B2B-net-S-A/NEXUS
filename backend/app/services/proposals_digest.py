@@ -21,7 +21,7 @@ from datetime import datetime
 from typing import Iterable, Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -104,34 +104,33 @@ def plan_digests(rows: Iterable[PendingJob]) -> dict[int, DigestPlan]:
 
 
 async def _pending_jobs(db: AsyncSession) -> list[PendingJob]:
-    """Rekrutacje DL-ów z liczbą osób czekających w „Do przejrzenia”.
+    """Ile osób czeka w skrzynce — ta sama reguła co lista i licznik skrzynki.
 
-    Audyt 06.10.2026 (R4): liczba szła z surowych wierszy ``proposed`` — także
-    osób już w rekrutacji i na czarnej liście — więc skrót obiecywał więcej,
-    niż pokazuje skrzynka. Teraz ta sama reguła co plakietka na liście
-    rekrutacji (``job_proposals.open_counts_for_jobs``).
+    ``open_counts_for_jobs``: status PARY ``proposed`` (pominięta albo dodana
+    para się nie liczy, wygasłe wiersze też nie), bez osób już w pipeline'ie
+    i z globalnej czarnej listy. Do 07.10.2026 skrót liczył surowe wiersze
+    ``proposed`` — od publikacji bez limitu urósłby o osoby, których lista
+    nie pokazuje.
     """
     from app.services.job_proposals import open_counts_for_jobs  # noqa: PLC0415
     from app.services.job_working_title import job_display_title_expr  # noqa: PLC0415
 
-    rows = (
+    jobs = (
         await db.execute(
             select(Job.id, job_display_title_expr(), Job.delivery_lead_id).where(
                 Job.status == JobStatus.published,
                 Job.work_state.in_(IN_WORK_STATES),
                 Job.delivery_lead_id.is_not(None),
-                Job.id.in_(
-                    select(JobProposal.job_id)
-                    .where(JobProposal.status == "proposed")
-                    .distinct()
+                exists().where(
+                    JobProposal.job_id == Job.id, JobProposal.status == "proposed"
                 ),
             )
         )
     ).all()
-    counts = await open_counts_for_jobs(db, [int(jid) for jid, _t, _dl in rows])
+    counts = await open_counts_for_jobs(db, [int(jid) for jid, _t, _dl in jobs])
     return [
         PendingJob(int(jid), str(title or f"#{jid}"), int(dl), counts.get(int(jid), 0))
-        for jid, title, dl in rows
+        for jid, title, dl in jobs
     ]
 
 

@@ -226,6 +226,37 @@ def tech_alias_forms(name: str) -> list[str]:
     return sorted(f for f in forms if f)
 
 
+# ── Technologie, które spełniają wymaganie ogólniejsze ─────────────────────
+
+# „SQL” w wymaganiach spełnia każdy, kto pracuje z bazą SQL-ową — w CV pisze
+# się wtedy nazwę bazy („PostgreSQL & MySQL”), nie samo „SQL”. Ukrywało to
+# trafne osoby za bramką krytycznych (pomiar 07.10.2026: 10 z 271 ukryć).
+# To IMPLIKACJA, nie alias: PostgreSQL spełnia SQL, ale SQL nie spełnia
+# PostgreSQL — dlatego nie w `skill_aliases` (alias jest dwukierunkowy).
+IMPLIED_BY: dict[str, tuple[str, ...]] = {
+    "sql": (
+        "postgresql",
+        "postgres",
+        "mysql",
+        "microsoft sql server",
+        "ms sql",
+        "mssql",
+        "sql server",
+        "mariadb",
+        "sqlite",
+        "t-sql",
+        "pl/sql",
+    ),
+    "uml": ("plantuml",),
+}
+
+
+def implied_forms(name: str) -> tuple[str, ...]:
+    """Formy, które spełniają wymaganie `name` (puste, gdy nie ma implikacji)."""
+    low = (name or "").strip().lower()
+    return IMPLIED_BY.get(low) or IMPLIED_BY.get(canonical_of(low)) or ()
+
+
 # ── Wersja przy nazwie technologii (bramka must, formularz rekrutacji) ──────
 
 # „Java 8+”, „Python 3.x”, „Angular 15”, „.NET 6”, „Java 7/8”,

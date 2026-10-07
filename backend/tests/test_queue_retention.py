@@ -198,3 +198,58 @@ async def test_automatic_reviews_expire_after_two_days_manual_after_seven():
             assert older_manual.id not in expired
         finally:
             await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_old_expired_proposals_lose_evidence_but_keep_the_row():
+    """0422: wygasła propozycja po 30 dniach traci dowody — wiersz zostaje
+    (``request_allocation`` czyta istnienie ``full_base``)."""
+    now = datetime.now(timezone.utc)
+    old = now - timedelta(days=45)
+    async with AsyncSessionLocal() as db:
+        _client, job, cand = await _world(db)
+        other = Candidate(
+            name="QR", lastname="drugi", email=f"qr-{uuid.uuid4().hex[:8]}@example.com"
+        )
+        fresh = Candidate(
+            name="QR", lastname="trzeci", email=f"qr-{uuid.uuid4().hex[:8]}@example.com"
+        )
+        db.add_all([other, fresh])
+        await db.flush()
+        ins = text(
+            "INSERT INTO job_proposals (job_id, candidate_id, source, status, "
+            "evidence, last_seen_at) VALUES (:j, :c, 'full_base', :s, "
+            "CAST(:e AS jsonb), :t) RETURNING id"
+        )
+        ids = {}
+        for name, cid, evidence, when in (
+            ("old_expired", cand.id, '{"missing_must": ["Kafka"]}', old),
+            (
+                "old_expired_flagged",
+                other.id,
+                '{"missing_must": ["Kafka"], "previously_dismissed": true}',
+                old,
+            ),
+            ("fresh_expired", fresh.id, '{"missing_must": ["Kafka"]}', now),
+        ):
+            ids[name] = (
+                await db.execute(
+                    ins,
+                    {"j": job.id, "c": cid, "s": "expired", "e": evidence, "t": when},
+                )
+            ).scalar_one()
+        await db.commit()
+
+    await queue_retention.prune_once()
+    async with AsyncSessionLocal() as db:
+        rows = dict(
+            (
+                await db.execute(
+                    text("SELECT id, evidence FROM job_proposals WHERE id = ANY(:i)"),
+                    {"i": list(ids.values())},
+                )
+            ).all()
+        )
+    assert rows[ids["old_expired"]] == {}
+    assert rows[ids["old_expired_flagged"]] == {"previously_dismissed": True}
+    assert rows[ids["fresh_expired"]] == {"missing_must": ["Kafka"]}

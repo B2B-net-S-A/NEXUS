@@ -321,10 +321,18 @@ export function mayBeSkillList(text: string): boolean {
  * Podpowiedź, nie bramka: krótki limit czasu i bez ponowień, a każdy błąd
  * znaczy „zostaw tekst jak jest”.
  */
-export async function classifyKeywords(text: string): Promise<KeywordClassification | null> {
+export async function classifyKeywords(
+  text: string,
+  /**
+   * `top` — górne pole listy: słowo będące imieniem/nazwiskiem w bazie zostaje
+   * tekstem (ktoś mógł wpisać osobę). Wiersz wymagań (`rows`, domyślnie) to
+   * zawsze technologia — K8, audyt 06.10.2026 („SAP”, „Ada”, „Julia”).
+   */
+  context: "top" | "rows" = "rows",
+): Promise<KeywordClassification | null> {
   try {
     const { data } = await api.get<KeywordClassification>("/api/candidates/keywords/classify", {
-      params: { q: text },
+      params: context === "top" ? { q: text, context } : { q: text },
       timeout: 1500,
       // Interceptor `lib/api.ts` ponawia odczyty przy braku sieci do ~22 s —
       // „Szukaj” nie może na to czekać.

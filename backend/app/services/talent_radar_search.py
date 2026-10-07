@@ -322,6 +322,7 @@ def dealbreaker_inputs_for_radar(query: RadarQuery) -> DealbreakerInputs:
     osobnego checkboxa, żeby dostać spójny wynik.
     """
     from app.services.dealbreaker_filters import (
+        OFFICE_CITY_HARD_MIN_DAYS,
         DealbreakerInputs,
         gate_eligible_must_skills,
     )
@@ -331,6 +332,11 @@ def dealbreaker_inputs_for_radar(query: RadarQuery) -> DealbreakerInputs:
     days = query.onsite_days_per_week
     office_tokens = frozenset(location_tokens(query.office_location))
     wants_office = bool(query.exclude_remote_only) or bool(days and days > 0)
+    # Radar nie zna trybu pracy: ukrywa przy zaznaczonym „wyklucz tylko
+    # zdalnych” albo od 4 dni w biurze, przy 1–3 dniach — plakietka.
+    remote_only_hides = bool(query.exclude_remote_only) or bool(
+        days and days >= OFFICE_CITY_HARD_MIN_DAYS
+    )
 
     from app.services.critical_skills import effective_critical, gate_mode
 
@@ -354,6 +360,7 @@ def dealbreaker_inputs_for_radar(query: RadarQuery) -> DealbreakerInputs:
         onsite_days_per_week=days,
         office_tokens=office_tokens,
         wants_office=wants_office,
+        remote_only_hides=remote_only_hides,
     )
 
 

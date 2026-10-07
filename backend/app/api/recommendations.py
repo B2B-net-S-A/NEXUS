@@ -1472,6 +1472,7 @@ async def _assign_by_human(
         actor_user_id=user.id,
         entry_source=candidate_claim.ENTRY_ADDED_MANUAL,
         claim=True,
+        mark_proposals=True,
     )
     if not result.added:
         skipped = result.skipped[0] if result.skipped else None

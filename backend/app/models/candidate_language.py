@@ -60,7 +60,7 @@ class CandidateLanguage(Base, TimestampMixin):
             """
             provenance IN (
                 'manual', 'cv', 'traffit', 'talent_radar', 'tr_legacy',
-                'csv', 'legacy', 'unknown'
+                'csv', 'legacy', 'unknown', 'notes'
             )
             """,
             name="ck_candidate_languages_provenance",

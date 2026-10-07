@@ -89,110 +89,112 @@ export function KeywordFields({
     scopeLabel: SCOPE_SENTENCE[filters.qScope],
   });
   return (
-    <section
-      id={id}
-      aria-labelledby={titleId}
-      className={cn(
-        // 1024–1799 px (laptop z Windows, okno ≈ 1280 × 650, 28.09.2026):
-        // podsumowanie i „Szukaj” w rzędzie nagłówka, „Musi mieć” i
-        // „Wyklucz” obok siebie — panel zabierał liście 1/3 wysokości.
-        // Od 1800 px (szeroki monitor) układ w kolumnie jak dotąd — próg
-        // wyżej niż `2xl`, bo laptop 1920 px przy 125% ma okno 1536 × 864.
-        "flex flex-col gap-2 rounded-lg border border-border bg-card p-3",
-        "lg:grid lg:grid-cols-[auto_minmax(0,1fr)] lg:items-center lg:gap-x-4",
-        "min-[1800px]:flex min-[1800px]:items-stretch min-[1800px]:gap-3 min-[1800px]:p-4",
-        className,
-      )}
-    >
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 lg:col-start-1 lg:row-start-1">
-        <SectionTitle id={titleId}>Słowa kluczowe</SectionTitle>
-        <span className="text-xs text-muted-foreground lg:hidden min-[1800px]:inline">
-          {sourceNote ?? "Każdy wiersz to jedno wymaganie. Słowa w wierszu to warianty — wystarczy jedno z nich."}
-        </span>
-        <div className="ml-auto flex items-center gap-2">
-          <label htmlFor={scopeId} className="text-xs font-medium text-foreground">
-            Szukaj w
-          </label>
-          <select
-            id={scopeId}
-            value={filters.qScope}
-            onChange={(e) => onPatch({ qScope: e.target.value as KeywordScope })}
-            className={cn(SELECT_CLASS, "w-36")}
-          >
-            {KEYWORD_SCOPE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-          <Popover>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                aria-label="Jak działają słowa kluczowe"
-                className="hit-area rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <Info className="h-3.5 w-3.5" aria-hidden />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-80 text-xs leading-snug text-muted-foreground">
-              Każdy wiersz musi się zgadzać; w wierszu wystarczy jedno słowo, więc wpisz tam
-              warianty tego samego wymagania (np. Kafka lub RabbitMQ). Całe słowa: „java” nie
-              znajdzie „JavaScript”. Gwiazdka szuka początku słowa: „bankow*” znajdzie
-              „bankowość” i „bankowym”. Pod polem są podpowiedzi — „+ z wariantami” dodaje też
-              inne zapisy tej technologii. Wyniki zmieniają się po kliknięciu „Szukaj”.
-            </PopoverContent>
-          </Popover>
-        </div>
-      </div>
-
-      <RequirementRowsField
-        rows={workingRows}
-        onRowsChange={(next) => onPatch({ qAll: [], qAny: next })}
-        exclude={filters.qNone}
-        onExcludeChange={(next) => onPatch({ qNone: next })}
-        suggest={KEYWORD_SUGGEST}
-        split
-        className="lg:col-span-2 lg:row-start-2"
-        onSubmitEmpty={onSearch}
-        onUseLocation={(city) => onPatch({ location: city })}
-        onUseExperience={(range) =>
-          onPatch({ experienceMin: range.min, experienceMax: range.max })
-        }
-      />
-
-      <div className="flex flex-col gap-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 sm:flex-row sm:items-center lg:col-start-2 lg:row-start-1 min-[1800px]:py-2.5">
-        <p className="min-w-0 flex-1 text-sm text-foreground lg:line-clamp-2 min-[1800px]:line-clamp-none" aria-live="polite" title={summary}>
-          {summary}
-        </p>
-        {onSearch && (
-          <Button
-            type="button"
-            variant="primary"
-            onClick={onSearch}
-            className={cn(
-              "h-10 w-full shrink-0 gap-2 sm:w-auto sm:min-w-[124px] lg:h-8 min-[1800px]:h-10",
-              pendingCount > 0 && "ring-4 ring-primary/20",
-            )}
-            data-help="candidates.list.search"
-          >
-            <Search className="h-4 w-4" aria-hidden />
-            Szukaj
-            {pendingCount > 0 && (
-              <>
-                <span
-                  aria-hidden
-                  className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary-foreground px-1.5 text-xs font-bold text-primary"
-                >
-                  {pendingCount}
-                </span>
-                <span className="sr-only">(niezastosowane zmiany: {pendingCount})</span>
-              </>
-            )}
-          </Button>
+    // Układ pól liczy się od szerokości PANELU, nie okna (U8, audyt
+    // 06.10.2026): w oknie rekrutacji panel jest węższy niż okno przeglądarki.
+    <div className={cn("@container", className)}>
+      <section
+        id={id}
+        aria-labelledby={titleId}
+        className={cn(
+          // Panel ≥ 56rem (laptop z Windows, okno ≈ 1280 × 650, 28.09.2026):
+          // podsumowanie i „Szukaj” w rzędzie nagłówka, „Musi mieć” i
+          // „Wyklucz” obok siebie — panel zabierał liście 1/3 wysokości.
+          // Panel ≥ 94rem (okno ~1800 px z menu) — układ w kolumnie jak dotąd.
+          "flex flex-col gap-2 rounded-lg border border-border bg-card p-3",
+          "@4xl:grid @4xl:grid-cols-[auto_minmax(0,1fr)] @4xl:items-center @4xl:gap-x-4",
+          "@min-[94rem]:flex @min-[94rem]:items-stretch @min-[94rem]:gap-3 @min-[94rem]:p-4",
         )}
-      </div>
-    </section>
+      >
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 @4xl:col-start-1 @4xl:row-start-1">
+          <SectionTitle id={titleId}>Słowa kluczowe</SectionTitle>
+          <span className="text-xs text-muted-foreground @4xl:hidden @min-[94rem]:inline">
+            {sourceNote ?? "Każdy wiersz to jedno wymaganie. Słowa w wierszu to warianty — wystarczy jedno z nich."}
+          </span>
+          <div className="ml-auto flex items-center gap-2">
+            <label htmlFor={scopeId} className="text-xs font-medium text-foreground">
+              Szukaj w
+            </label>
+            <select
+              id={scopeId}
+              value={filters.qScope}
+              onChange={(e) => onPatch({ qScope: e.target.value as KeywordScope })}
+              className={cn(SELECT_CLASS, "w-36")}
+            >
+              {KEYWORD_SCOPE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Jak działają słowa kluczowe"
+                  className="hit-area rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <Info className="h-3.5 w-3.5" aria-hidden />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-80 text-xs leading-snug text-muted-foreground">
+                Każdy wiersz musi się zgadzać; w wierszu wystarczy jedno słowo, więc wpisz tam
+                warianty tego samego wymagania (np. Kafka lub RabbitMQ). Całe słowa: „java” nie
+                znajdzie „JavaScript”. Gwiazdka szuka początku słowa: „bankow*” znajdzie
+                „bankowość” i „bankowym”. Pod polem są podpowiedzi — „+ z wariantami” dodaje też
+                inne zapisy tej technologii. Wyniki zmieniają się po kliknięciu „Szukaj”.
+              </PopoverContent>
+            </Popover>
+          </div>
+        </div>
+
+        <RequirementRowsField
+          rows={workingRows}
+          onRowsChange={(next) => onPatch({ qAll: [], qAny: next })}
+          exclude={filters.qNone}
+          onExcludeChange={(next) => onPatch({ qNone: next })}
+          suggest={KEYWORD_SUGGEST}
+          split
+          className="@4xl:col-span-2 @4xl:row-start-2"
+          onSubmitEmpty={onSearch}
+          onUseLocation={(city) => onPatch({ location: city })}
+          onUseExperience={(range) =>
+            onPatch({ experienceMin: range.min, experienceMax: range.max })
+          }
+        />
+
+        <div className="flex flex-col gap-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 sm:flex-row sm:items-center @4xl:col-start-2 @4xl:row-start-1 @min-[94rem]:py-2.5">
+          <p className="min-w-0 flex-1 text-sm text-foreground @4xl:line-clamp-2 @min-[94rem]:line-clamp-none" aria-live="polite" title={summary}>
+            {summary}
+          </p>
+          {onSearch && (
+            <Button
+              type="button"
+              variant="primary"
+              onClick={onSearch}
+              className={cn(
+                "h-10 w-full shrink-0 gap-2 sm:w-auto sm:min-w-[124px] @4xl:h-8 @min-[94rem]:h-10",
+                pendingCount > 0 && "ring-4 ring-primary/20",
+              )}
+              data-help="candidates.list.search"
+            >
+              <Search className="h-4 w-4" aria-hidden />
+              Szukaj
+              {pendingCount > 0 && (
+                <>
+                  <span
+                    aria-hidden
+                    className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary-foreground px-1.5 text-xs font-bold text-primary"
+                  >
+                    {pendingCount}
+                  </span>
+                  <span className="sr-only">(niezastosowane zmiany: {pendingCount})</span>
+                </>
+              )}
+            </Button>
+          )}
+        </div>
+      </section>
+    </div>
   );
 }
 

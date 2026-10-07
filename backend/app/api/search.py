@@ -36,6 +36,7 @@ from app.schemas.candidate_search import (
     WaterfallStage,
 )
 from app.services import candidate_search_predicates as predicates
+from app.services.keyword_terms import KeywordTooShort
 from app.services.ai_health import ai_status
 from app.services.eligibility_annotation import eligibility_annotation
 from app.services.candidate_text_retrieval import (
@@ -174,12 +175,16 @@ async def _resort_hybrid_pool(
 
 def _boolean_clause(body: CandidateSearchRequest) -> Any:
     """Kubełki `q_all`/`q_any`/`q_none` — ten sam parser co na liście."""
-    return predicates.parse_q_groups(
-        q_all=body.q_all,
-        q_any=body.q_any,
-        q_none=body.q_none,
-        q_any_groups=body.q_any_groups,
-    ).clause(request_semantics(body))
+    try:
+        return predicates.parse_q_groups(
+            q_all=body.q_all,
+            q_any=body.q_any,
+            q_none=body.q_none,
+            q_any_groups=body.q_any_groups,
+        ).clause(request_semantics(body))
+    except KeywordTooShort as exc:
+        # v2: „R”/„C” jako słowo kluczowe znajdowały prawie całą bazę.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 async def _text_plan(
@@ -477,12 +482,77 @@ async def candidate_match_scores(
             "measurement": fit.measurement,
             **extra,
         }
+    if body.impression_surface and not _previewing(request):
+        await _record_manual_search_impressions(
+            db, job, current_user, body, candidate_ids, fits
+        )
     return MatchScoresResponse(
         scores=scores,
         breakdowns=breakdowns,
         profile_key=_profile_key(context.weights),
         non_technology_must=_non_technology_must(breakdowns),
     )
+
+
+def _previewing(request: Optional[Request]) -> bool:
+    """„Podgląd jako” nie zapisuje telemetrii w imieniu podglądanej osoby."""
+    state = getattr(request, "state", None)
+    return getattr(state, "impersonator_id", None) is not None
+
+
+async def _record_manual_search_impressions(
+    db: AsyncSession, job: Job, user: Any, body, candidate_ids: list[int], fits
+) -> None:
+    """U5 (audyt 06.10.2026): wyświetlenia pierwszej strony „Szukaj ręcznie”.
+
+    `match_impressions.run_id` jest wymagany, a to okno nie ma trwałego
+    przeglądu — identyfikator to (rekrutacja, dzień firmy, pseudonim osoby),
+    więc powtórne otwarcie tego samego dnia nic nie dopisuje (`ON CONFLICT`).
+    Dodania z tego okna (`source=manual_search`) zostają bez przypięcia do
+    przeglądu — mianownik do pomiaru jest tu, nie w wyniku dodania.
+    Telemetria nigdy nie psuje odpowiedzi.
+    """
+    from app.core.scheduling import business_today  # noqa: PLC0415
+    from app.services.match_telemetry_service import (  # noqa: PLC0415
+        ImpressionEntry,
+        pseudonymize,
+        record_impressions,
+    )
+
+    try:
+        user_ref = (pseudonymize(getattr(user, "id", None)) or "anon")[:16]
+        run_id = f"manual_search:{job.id}:{business_today().isoformat()}:{user_ref}"
+        score_of = {int(f.breakdown.candidate_id): f.fit_score for f in fits}
+        ranks = body.impression_ranks
+        if not ranks or len(ranks) != len(body.candidate_ids):
+            rank_of = {cid: i for i, cid in enumerate(candidate_ids, start=1)}
+        else:
+            rank_of = {}
+            for cid, rank in zip(body.candidate_ids, ranks):
+                rank_of.setdefault(int(cid), max(1, int(rank)))
+        entries = [
+            ImpressionEntry(
+                candidate_id=cid,
+                rank=rank_of.get(cid, index),
+                fit_score=score_of.get(int(cid)),
+            )
+            for index, cid in enumerate(candidate_ids, start=1)
+        ]
+        await record_impressions(
+            db,
+            run_id=run_id[:64],
+            surface="manual_search",
+            entries=entries,
+            job_id=job.id,
+            user_id=getattr(user, "id", None),
+            client_id=getattr(job, "client_id", None),
+        )
+    except Exception as exc:  # noqa: BLE001 — telemetria nie psuje odpowiedzi
+        import logging  # noqa: PLC0415
+
+        logging.getLogger(__name__).warning(
+            "[telemetry] manual-search impressions skipped: %s", type(exc).__name__
+        )
 
 
 def _non_technology_must(breakdowns: dict[str, Any]) -> list[str]:

@@ -21,6 +21,15 @@ describe("candidate-list-staging", () => {
     expect(filterChangeCount(f({ ...applied, rateMax: 160 }), applied)).toBe(1);
   });
 
+  it("przeniesienie słowa między wierszami to zmiana — czeka na „Szukaj” (U6)", () => {
+    const applied = f({ qAny: [["Java", "Kotlin"], ["Kafka"]] });
+    const moved = f({ qAny: [["Java"], ["Kafka", "Kotlin"]] });
+    expect(filterChangeCount(moved, applied)).toBeGreaterThan(0);
+    expect(carryImmediate(applied, { ...moved, page: 1 })).toBe(applied);
+    // Kolejność słów w wierszu i wierszy nic nie zmienia w wyniku.
+    expect(filterChangeCount(f({ qAny: [["Kafka"], ["Kotlin", "Java"]] }), applied)).toBe(0);
+  });
+
   it("sortowanie przechodzi od razu, reszta czeka na „Szukaj”", () => {
     const applied = f({ qAll: ["Kafka"], page: 2 });
     const draft = f({ qAll: ["Kafka", "Java"], page: 1, sort: "name" });

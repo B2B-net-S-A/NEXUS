@@ -1413,8 +1413,9 @@ export function ChampionProfileEditor({
         }
       >
         <p className="mb-3 text-xs text-muted-foreground">
-          Rekruter zaczyna od nich „Szukaj ręcznie”. Każdy wiersz musi się zgadzać,
-          słowa w jednym wierszu to warianty — wystarczy jedno z nich. Wymagane do
+          Rekruter zaczyna od nich „Szukaj ręcznie”. Słowa w jednym wierszu to
+          warianty — wystarczy jedno z nich. Obowiązkowe są tylko umiejętności
+          krytyczne, pozostałe wiersze podnoszą w kolejności. Wymagane do
           „Przekaż do searchu”.
         </p>
         <div data-champion-field="search.requirements">
@@ -1425,6 +1426,7 @@ export function ChampionProfileEditor({
               patchSearch({ requirements: rows, exclude })
             }
             readOnly={disabled}
+            critical={data?.critical_resolution ?? null}
           />
         </div>
       </Section>

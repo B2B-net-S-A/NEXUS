@@ -3,15 +3,26 @@
 Reguły, które łatwo cofnąć „przy okazji":
 
 * ``added`` nigdy się nie cofa.
-* ``expired`` (0422) — propozycja zamkniętej rekrutacji; czytelnicy traktują
-  ją jak obsłużoną (nie jest otwarta), ponowne otwarcie jej nie wskrzesza.
+* ``expired`` (0422) — nowszy przegląd już osoby nie proponuje albo rekrutację
+  zamknięto (audyt 06.10.2026, R6, :func:`expire_open_for_job`). Wiersz nie
+  głosuje w statusie pary; osoba wraca jako ``proposed`` dopiero z kolejnym
+  przeglądem.
 * „Pomiń" (``dismissed``) obowiązuje CAŁY zespół i WSZYSTKIE źródła. Kolejny
   przegląd tej samej wersji CV nie wskrzesza osoby; wraca ona wyłącznie wtedy,
   gdy przychodzi z NOWĄ wersją CV (``cv_revision`` inne niż
   ``dismissed_cv_revision``) — jako ``proposed``, z ``first_seen_at = now()``
   i flagą ``previously_dismissed`` w ``evidence``.
 * Status liczy się PER PARA (kandydat, rekrutacja), nie per wiersz źródła:
-  ``added`` > ``dismissed`` > ``proposed``.
+  ``added`` > ``dismissed`` > ``proposed``. Wiersze ``expired`` (0422) się
+  nie liczą — para z samych takich wierszy nie jest na żadnej liście.
+* ``expired`` stawia WYŁĄCZNIE nocny przegląd bazy (:func:`expire_full_base`):
+  propozycja ``full_base``, której nowszy, kompletny przegląd rekrutacji już nie
+  zaproponował. Powrót osoby w kolejnym przeglądzie = ``proposed``. Wierszy nie
+  kasujemy — ``request_allocation`` czyta istnienie ``full_base`` jako dowód,
+  że przegląd był.
+* ``added`` stawia wyłącznie dodanie przez człowieka (``mark_added`` wołane
+  z ``add_candidates_to_job(mark_proposals=True)``); karta z integracji albo
+  automatu propozycji nie zamyka.
 * Licznik listy rekrutacji jest ZESPOŁOWY (``open_counts_for_jobs``): propozycja
   liczy się, dopóki ktoś jej nie obsłuży („Dodaj" albo „Pomiń"). Ta sama reguła
   widoczności co lista skrzynki — bez osób już w pipeline'ie tej rekrutacji
@@ -27,7 +38,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
-from sqlalchemy import and_, case, exists, func, literal, select, text, update
+from sqlalchemy import and_, case, exists, func, literal, or_, select, text, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -56,6 +67,10 @@ NEW_PROPOSAL_WINDOW = timedelta(hours=24)
 # i resztę („z bazy") — ta sama osoba liczy się RAZ, po stronie ogłoszeń.
 POSTING_SOURCES = ("new_cv", "job_board")
 POSTING_RECENT_DAYS = 7
+EXPIRED = "expired"
+# Wygasłe propozycje tracą dowody po tylu dniach od ostatniego przeglądu, który
+# je zaproponował (``tasks/queue_retention.py``); wiersz zostaje.
+EXPIRED_EVIDENCE_RETENTION_DAYS = 30
 
 
 def _short(value: Any) -> Optional[str]:
@@ -199,6 +214,7 @@ async def upsert_proposals(
     source: str,
     run_id: Optional[str] = None,
     cv_revision: Optional[str] = None,
+    revive_expired: bool = True,
     first_seen_at: Optional[datetime] = None,
 ) -> int:
     """Zapisz propozycje jednego źródła. Zwraca liczbę przetworzonych par.
@@ -215,9 +231,11 @@ async def upsert_proposals(
 
     Konflikt ``(job_id, candidate_id, source)`` odświeża ``last_seen_at``,
     ``score``, ``evidence``, ``cv_revision`` i ``run_id`` (gdy podane).
-    ``status`` i ``first_seen_at`` zostają — z JEDNYM wyjątkiem: osoba pominięta
-    wraca jako ``proposed``, gdy przychodzi z niepustą wersją CV inną niż ta,
-    przy której ją pominięto. Ta sama wersja (albo brak wersji) nie wskrzesza.
+    ``status`` i ``first_seen_at`` zostają — z dwoma wyjątkami: wiersz
+    ``expired`` tego źródła wraca jako ``proposed`` (osoba znowu przeszła
+    przegląd; ``revive_expired=False`` to wyłącza), a osoba pominięta wraca jako
+    ``proposed``, gdy przychodzi z niepustą wersją CV inną niż ta, przy której
+    ją pominięto. Ta sama wersja (albo brak wersji) nie wskrzesza.
     """
     _validate_source(source)
     default_revision = _revision(cv_revision)
@@ -254,6 +272,14 @@ async def upsert_proposals(
             constraint="uq_job_proposals_pair_source",
             set_={
                 "last_seen_at": func.now(),
+                "status": (
+                    case(
+                        (JobProposal.status == EXPIRED, literal("proposed")),
+                        else_=JobProposal.status,
+                    )
+                    if revive_expired
+                    else JobProposal.status
+                ),
                 "score": stmt.excluded.score,
                 # Flaga „wcześniej pominięty" przeżywa kolejne przeglądy.
                 "evidence": case(
@@ -360,14 +386,16 @@ async def dismiss(
     Stempluje ``dismissed_at`` i ``dismissed_cv_revision``: bieżącą wersję CV
     (podaje ją wołający — ``candidate_revision``), a gdy jej nie zna, wersję,
     dla której policzono propozycję. ``added`` zostaje nietknięte; powtórne
-    pominięcie nic nie zmienia (0).
+    pominięcie nic nie zmienia (0). Wygasły wiersz (``expired``) też dostaje
+    pominięcie — osoba bywa widoczna z innego źródła (podobne projekty), a bez
+    tego „Pomiń” nic by nie zapisało i wróciłaby po odświeżeniu.
     """
     result = await db.execute(
         update(JobProposal)
         .where(
             JobProposal.job_id == job_id,
             JobProposal.candidate_id == candidate_id,
-            JobProposal.status == "proposed",
+            JobProposal.status.in_(("proposed", EXPIRED)),
         )
         .values(
             status="dismissed",
@@ -466,32 +494,17 @@ async def expire_open_for_job(db: AsyncSession, *, job_id: int) -> int:
 
     Do 06.10.2026 172 propozycje wisiały w zamkniętych rekrutacjach i liczyły
     się w skrótach. ``added`` i ``dismissed`` zostają — to decyzje ludzi.
-    Ponowne otwarcie rekrutacji ich nie wskrzesza. Zwraca liczbę wierszy.
+    Samo ponowne otwarcie ich nie wskrzesza; osoba wraca jako ``proposed``
+    dopiero, gdy zaproponuje ją kolejny przegląd (``upsert_proposals``).
+    Zwraca liczbę wierszy.
     """
     result = await db.execute(
         update(JobProposal)
         .where(JobProposal.job_id == job_id, JobProposal.status == "proposed")
-        .values(status="expired")
+        .values(status=EXPIRED)
         .execution_options(synchronize_session=False)
     )
     return int(result.rowcount or 0)
-
-
-async def record_inbox_open(
-    db: AsyncSession, *, job_id: int, user_id: int, opened_on: Any
-) -> bool:
-    """Jedno zdarzenie „otwarcie Do przejrzenia” na (rekrutację, osobę, dzień).
-
-    Idempotentne (``ON CONFLICT DO NOTHING``). Zwraca, czy zapisano nowe.
-    """
-    from app.models.job_proposal import JobProposalInboxOpen  # noqa: PLC0415
-
-    result = await db.execute(
-        pg_insert(JobProposalInboxOpen)
-        .values(job_id=job_id, user_id=user_id, opened_on=opened_on)
-        .on_conflict_do_nothing(constraint="uq_job_proposal_inbox_opens_day")
-    )
-    return bool(result.rowcount)
 
 
 async def mark_added(
@@ -532,6 +545,74 @@ async def mark_added_fail_soft(
         )
 
 
+async def expire_full_base(db: AsyncSession, *, job_id: int, run_id: str) -> int:
+    """Otwarte propozycje nocnego przeglądu, których przegląd ``run_id`` już nie daje → ``expired``.
+
+    Woła wyłącznie publikacja NAJNOWSZEGO przeglądu rekrutacji
+    (``auto_full_review._publish``). Wygasa wyłącznie osoba, którą ten przegląd
+    naprawdę OCENIŁ i nie zaproponował (wiersz ``evaluated`` ze zmierzonym
+    podobieństwem albo odrzucony przez filtry), oraz osoba spoza jego populacji
+    (usunięta, na czarnej liście, już w rekrutacji). Osoba bez oceny — awaria
+    partii, zmiana w trakcie przeglądu (``failed``), ``stale``,
+    ``missing_index``, ``unavailable`` — zostaje: brak oceny to nie „nie pasuje”
+    (przegląd #2058: nocny import Traffita i zmiana modelu wektorów gasiłyby
+    propozycje osób, których nikt nie ocenił). Publikacja stempluje ``run_id``
+    każdej zaproponowanej osoby, więc „nie zaproponował” = inny ``run_id``.
+    Pominięte i dodane zostają. Zwraca liczbę wierszy.
+    """
+    from app.models.candidate_search_run import CandidateSearchResult
+
+    row = CandidateSearchResult
+    in_run = (row.run_id == run_id) & (row.candidate_id == JobProposal.candidate_id)
+    evaluated_not_proposed = exists(
+        select(literal(1)).where(
+            in_run,
+            row.state == "evaluated",
+            or_(row.measurement == "measured", row.eligible.is_(False)),
+        )
+    )
+    outside_population = ~exists(select(literal(1)).where(in_run))
+    result = await db.execute(
+        update(JobProposal)
+        .where(
+            JobProposal.job_id == job_id,
+            JobProposal.source == "full_base",
+            JobProposal.status == "proposed",
+            JobProposal.run_id.is_distinct_from(run_id),
+            or_(evaluated_not_proposed, outside_population),
+        )
+        .values(status=EXPIRED)
+        .execution_options(synchronize_session=False)
+    )
+    return int(result.rowcount or 0)
+
+
+# Wygasłe propozycje po ``EXPIRED_EVIDENCE_RETENTION_DAYS`` tracą dowody (nazwy
+# wymagań); zostaje sam wiersz i flaga „wcześniej pominięty”. Paczkami — tak
+# woła ją `tasks/queue_retention._prune` (`:cutoff`, `:batch`).
+PRUNE_EXPIRED_EVIDENCE = text(
+    """
+    UPDATE job_proposals
+       SET evidence = CASE
+               WHEN jsonb_typeof(evidence) = 'object'
+                    AND evidence ? 'previously_dismissed'
+               THEN '{"previously_dismissed": true}'::jsonb
+               ELSE '{}'::jsonb
+           END
+     WHERE id IN (
+        SELECT id FROM job_proposals
+         WHERE status = 'expired'
+           AND last_seen_at < :cutoff
+           AND evidence IS NOT NULL
+           AND evidence <> '{}'::jsonb
+           AND evidence <> '{"previously_dismissed": true}'::jsonb
+         ORDER BY last_seen_at
+         LIMIT :batch
+     )
+    """
+)
+
+
 def _in_pipeline(job_col, candidate_col):
     return exists(
         select(literal(1)).where(
@@ -551,19 +632,23 @@ def _globally_blacklisted(candidate_col):
 
 
 def _pair_status():
-    """Status pary z wierszy źródeł: added > dismissed > proposed > expired.
+    """Status pary z wierszy źródeł: added > dismissed > proposed.
 
-    ``expired`` (0422) dostaje para, której WSZYSTKIE wiersze wygasły przy
-    zamknięciu rekrutacji. Nowe źródło po ponownym otwarciu proponuje osobę
-    od nowa; wygasły wiersz tego samego źródła zostaje wygasły (upsert nie
-    rusza statusu).
+    Wiersze ``expired`` nie głosują: para z samych takich wierszy ma status
+    ``expired`` i nie stoi na żadnej liście. Zapytania i tak odsiewają je
+    w ``WHERE`` (:func:`_live`), żeby nie liczyły się do wyniku ani źródeł.
     """
     return case(
         (func.bool_or(JobProposal.status == "added"), "added"),
         (func.bool_or(JobProposal.status == "dismissed"), "dismissed"),
         (func.bool_or(JobProposal.status == "proposed"), "proposed"),
-        else_="expired",
+        else_=EXPIRED,
     )
+
+
+def _live():
+    """Wiersz bierze udział w statusie pary (``expired`` — nie)."""
+    return JobProposal.status != EXPIRED
 
 
 async def open_counts_for_jobs(
@@ -587,6 +672,7 @@ async def open_counts_for_jobs(
         )
         .where(
             JobProposal.job_id.in_(ids),
+            _live(),
             ~_in_pipeline(JobProposal.job_id, JobProposal.candidate_id),
             ~_globally_blacklisted(JobProposal.candidate_id),
         )
@@ -627,6 +713,7 @@ async def fresh_open_pairs(
         select(JobProposal.job_id, JobProposal.candidate_id)
         .where(
             JobProposal.job_id.in_(job_ids_subquery),
+            _live(),
             ~_in_pipeline(JobProposal.job_id, JobProposal.candidate_id),
             ~_globally_blacklisted(JobProposal.candidate_id),
         )
@@ -658,7 +745,7 @@ async def dismissed_candidate_ids(
     """
     rows = await db.execute(
         select(JobProposal.candidate_id)
-        .where(JobProposal.job_id == job_id)
+        .where(JobProposal.job_id == job_id, _live())
         .group_by(JobProposal.candidate_id)
         .having(_pair_status() == "dismissed")
         .order_by(func.max(JobProposal.dismissed_at).desc().nullslast())
@@ -700,7 +787,7 @@ def _pairs_for_job(job_id: int, status: str, *columns):
     """
     grouped = (
         select(JobProposal.candidate_id.label("candidate_id"), *columns)
-        .where(JobProposal.job_id == job_id)
+        .where(JobProposal.job_id == job_id, _live())
         .group_by(JobProposal.candidate_id)
         .having(_pair_status() == status)
     )
@@ -801,6 +888,7 @@ async def list_for_job(
             .where(
                 JobProposal.job_id == job_id,
                 JobProposal.candidate_id.in_(candidate_ids),
+                _live(),
             )
             .order_by(
                 JobProposal.candidate_id,
@@ -836,3 +924,75 @@ async def list_for_job(
         for row in page
     ]
     return out, total
+
+
+@dataclass(frozen=True)
+class TopProposal:
+    job_id: int
+    candidate_id: int
+    score: Optional[float]
+
+
+async def top_open_by_job(
+    db: AsyncSession,
+    job_ids: Sequence[int],
+    *,
+    source: str = "full_base",
+    per_job: int = 3,
+) -> list[TopProposal]:
+    """Najlepsze otwarte propozycje danego źródła — po ``per_job`` na rekrutację.
+
+    Ta sama widoczność co lista skrzynki (:func:`_pairs_for_job`): bez
+    wierszy ``expired``, bez osób już w pipeline'ie i z globalnej czarnej
+    listy, status pary ``proposed``. Kolejność: wynik źródła malejąco, potem
+    kandydat (stabilna). Jedno zapytanie dla wszystkich rekrutacji.
+    """
+    _validate_source(source)
+    ids = sorted({int(j) for j in job_ids})
+    if not ids or per_job <= 0:
+        return []
+    pairs = (
+        select(
+            JobProposal.job_id.label("job_id"),
+            JobProposal.candidate_id.label("candidate_id"),
+            func.max(JobProposal.score)
+            .filter(JobProposal.source == source)
+            .label("score"),
+        )
+        .where(
+            JobProposal.job_id.in_(ids),
+            _live(),
+            ~_in_pipeline(JobProposal.job_id, JobProposal.candidate_id),
+            ~_globally_blacklisted(JobProposal.candidate_id),
+        )
+        .group_by(JobProposal.job_id, JobProposal.candidate_id)
+        .having(
+            _pair_status() == "proposed",
+            func.bool_or(JobProposal.source == source),
+        )
+        .subquery()
+    )
+    ranked = select(
+        pairs.c.job_id,
+        pairs.c.candidate_id,
+        pairs.c.score,
+        func.row_number()
+        .over(
+            partition_by=pairs.c.job_id,
+            order_by=(pairs.c.score.desc().nullslast(), pairs.c.candidate_id),
+        )
+        .label("rank"),
+    ).subquery()
+    rows = await db.execute(
+        select(ranked.c.job_id, ranked.c.candidate_id, ranked.c.score)
+        .where(ranked.c.rank <= per_job)
+        .order_by(ranked.c.job_id, ranked.c.rank)
+    )
+    return [
+        TopProposal(
+            job_id=int(job_id),
+            candidate_id=int(candidate_id),
+            score=float(score) if score is not None else None,
+        )
+        for job_id, candidate_id, score in rows.all()
+    ]

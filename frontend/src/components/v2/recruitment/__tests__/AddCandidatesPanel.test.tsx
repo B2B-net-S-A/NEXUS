@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,13 +11,13 @@ const startRun = vi.fn();
 const bulkAdd = vi.fn();
 const factsApi = vi.fn();
 const countsApi = vi.fn();
+const openedApi = vi.fn();
 const matchScores = vi.fn();
 const championGet = vi.fn();
 const classifyRows = vi.fn();
 const listPage = vi.fn();
 const showSuccess = vi.fn();
 const showError = vi.fn();
-const recordOpened = vi.fn();
 let similarPayload: unknown = undefined;
 
 function entry(id: number, name: string, origins: string[], extra: Record<string, unknown> = {}) {
@@ -84,7 +84,10 @@ vi.mock("@/components/v2/recruitment/useJobProposals", () => ({
   useJobProposals: () => proposalsState,
 }));
 vi.mock("@/lib/candidate-search-api", () => ({
-  proposalsBulkApi: { add: (...a: unknown[]) => bulkAdd(...a) },
+  proposalsBulkApi: {
+    add: (...a: unknown[]) => bulkAdd(...a),
+    addInChunks: (...a: unknown[]) => bulkAdd(...a),
+  },
   candidateSearchApi: { matchScores: (...a: unknown[]) => matchScores(...a) },
 }));
 vi.mock("@/lib/job-proposals-api", async (importOriginal) => {
@@ -95,12 +98,10 @@ vi.mock("@/lib/job-proposals-api", async (importOriginal) => {
       ...actual.jobProposalsApi,
       facts: (...a: unknown[]) => factsApi(...a),
       counts: (...a: unknown[]) => countsApi(...a),
+      opened: (...a: unknown[]) => openedApi(...a),
     },
   };
 });
-vi.mock("@/lib/proposal-inbox-opened", () => ({
-  recordProposalInboxOpened: (...a: unknown[]) => recordOpened(...a),
-}));
 vi.mock("@/lib/matching-requirements", () => ({
   matchingRequirementsApi: { get: () => Promise.resolve({ all_of: [] }) },
   requirementLabels: () => [],
@@ -209,6 +210,8 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
     proposalsState.status.settled = true;
     similarPayload = undefined;
     factsApi.mockResolvedValue({ job_id: 5, items: [] });
+    openedApi.mockResolvedValue({ job_id: 5, recorded: true });
+    proposalsState.status.inbox.hasMore = false;
     countsApi.mockResolvedValue({
       job_id: 5,
       days: 7,
@@ -247,6 +250,41 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
 
     await userEvent.click(screen.getByRole("tab", { name: /Nowi z ogłoszeń/ }));
     expect(props.onTabChange).toHaveBeenCalledWith("postings");
+  });
+
+  it("wejście w „Propozycje z bazy” zapisuje otwarcie raz, inne zakładki nie", async () => {
+    const { rerender } = renderPanel({ tab: "postings" });
+    await screen.findByRole("tablist", { name: "Źródło kandydatów" });
+    expect(openedApi).not.toHaveBeenCalled();
+    rerender({ tab: "base" });
+    await waitFor(() => expect(openedApi).toHaveBeenCalledWith(5));
+    rerender({ tab: "postings" });
+    rerender({ tab: "base" });
+    expect(openedApi).toHaveBeenCalledTimes(1);
+  });
+
+  it("tylko do odczytu nie zapisuje otwarcia", async () => {
+    renderPanel({ readOnly: true });
+    await screen.findByRole("tablist", { name: "Źródło kandydatów" });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(openedApi).not.toHaveBeenCalled();
+  });
+
+  it("skrzynka z kolejnymi stronami: zakładka mówi liczbę z serwera, nie wczytaną część", async () => {
+    proposalsState.status.inbox.hasMore = true;
+    countsApi.mockResolvedValue({
+      job_id: 5,
+      days: 7,
+      postings_recent: 0,
+      base: 240,
+      screened_out: 0,
+      not_searchable_must: [],
+    });
+    proposalsState.entries = [entry(1, "Anna Baza", ["inbox"], { sources: ["full_base"] })];
+    renderPanel();
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: /Propozycje z bazy/ })).toHaveTextContent("240"),
+    );
   });
 
   it("„Propozycje z bazy” i „Nowi z ogłoszeń” dzielą listę — nikt nie wypada i nikt się nie dubluje", async () => {
@@ -288,6 +326,40 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
     await userEvent.click(submit);
     expect(addToJob).toHaveBeenCalledWith([1]);
     expect(bulkAdd).not.toHaveBeenCalled();
+  });
+
+  it("każda zakładka ma swoje zaznaczenie — „Dodaj N” nie bierze osób z niewidocznej (U7)", async () => {
+    proposalsState.entries = [
+      entry(1, "Anna Baza", ["inbox"], { sources: ["full_base"] }),
+      entry(2, "Piotr Ogłoszenie", ["inbox"], { sources: ["job_board"], postingRecent: true }),
+    ];
+    const { rerender } = renderPanel();
+    const base = await screen.findByRole("list", { name: "Propozycje z bazy" });
+    await userEvent.click(within(base).getByRole("checkbox", { name: "Zaznacz Anna Baza" }));
+    expect(screen.getByTestId("add-candidates-submit")).toHaveTextContent("Dodaj 1 do Nowych");
+
+    rerender({ tab: "postings" });
+    const postings = await screen.findByRole("list", { name: "Nowi z ogłoszeń" });
+    expect(screen.getByTestId("add-candidates-submit")).toHaveTextContent("Dodaj 0 do Nowych");
+    await userEvent.click(within(postings).getByRole("checkbox", { name: "Zaznacz Piotr Ogłoszenie" }));
+    await userEvent.click(screen.getByTestId("add-candidates-submit"));
+    expect(addToJob).toHaveBeenCalledWith([2]);
+
+    // Zaznaczenie z drugiej zakładki czeka tam, gdzie je zostawiono.
+    rerender({ tab: "base" });
+    expect(screen.getByTestId("add-candidates-submit")).toHaveTextContent("Dodaj 1 do Nowych");
+  });
+
+  it("strzałki przechodzą między zakładkami źródeł (U7)", async () => {
+    const { props } = renderPanel();
+    const current = await screen.findByRole("tab", { name: /Propozycje z bazy/ });
+    current.focus();
+    fireEvent.keyDown(current, { key: "ArrowRight" });
+    expect(props.onTabChange).toHaveBeenCalledWith("search");
+    fireEvent.keyDown(current, { key: "ArrowLeft" });
+    expect(props.onTabChange).toHaveBeenCalledWith("postings");
+    expect(current).toHaveAttribute("tabindex", "0");
+    expect(screen.getByRole("tab", { name: /Nowi z ogłoszeń/ })).toHaveAttribute("tabindex", "-1");
   });
 
   it("weto HM blokuje zaznaczenie, ostrzeżenie zostaje widoczne", async () => {
@@ -390,18 +462,6 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Anuluj" }));
     expect(dismiss).not.toHaveBeenCalled();
     expect(within(list).getByRole("checkbox", { name: "Zaznacz Bartek Drugi" })).toBeChecked();
-  });
-
-  it("pierwsze wejście w „Propozycje z bazy” / „Nowi z ogłoszeń” zapisuje otwarcie skrzynki", async () => {
-    proposalsState.entries = [entry(1, "Anna Pierwsza", ["inbox"])];
-    const { rerender } = renderPanel({ tab: "similar" });
-    await screen.findByTestId("similar-body");
-    expect(recordOpened).not.toHaveBeenCalled();
-    rerender({ tab: "base" });
-    await waitFor(() => expect(recordOpened).toHaveBeenCalledWith(5));
-    rerender({ tab: "postings" });
-    rerender({ tab: "base" });
-    expect(recordOpened).toHaveBeenCalledTimes(1);
   });
 
   it("bez prawa zapisu okno jest do odczytu: bez dodawania i bez „Pomiń”", async () => {
@@ -588,6 +648,16 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
           champion_profile: {
             search: { requirements: [["KYC", "AML"], ["bankow*"]], exclude: ["junior"] },
           },
+          // Krytyczne liczy serwer (06.10.2026) — klasyfikacja wierszy nie
+          // decyduje już o obowiązkowości.
+          critical_resolution: {
+            stored: ["KYC"],
+            decided: true,
+            effective: ["KYC"],
+            source: "dl",
+            suggested: [],
+            search_rows: [["KYC"]],
+          },
         },
       });
       classifyRows.mockResolvedValue([true, false]);
@@ -614,6 +684,9 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
 
       const words = await screen.findByRole("list", { name: "Wymagania do wyszukiwania" }, SLOW);
       expect(within(words).getByText("Musi mieć")).toBeTruthy();
+      expect(screen.getByTestId("search-base-source")).toHaveTextContent(
+        "wybrane przez Delivery Leada: KYC",
+      );
       expect(within(words).getByText("KYC")).toBeTruthy();
       expect(within(words).getByText("AML")).toBeTruthy();
       expect(within(words).getByText("Mile widziane")).toBeTruthy();
@@ -669,6 +742,58 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
         }),
       );
       await waitFor(() => expect(showSuccess).toHaveBeenCalledWith("Dodano do Nowych: 1."));
+      // U4 (audyt 06.10.2026): do odświeżenia listy wiersz mówi „Dodano”
+      // i nie da się go zaznaczyć drugi raz.
+      expect(within(results).getByText("Dodano do „Nowych”")).toBeTruthy();
+      expect(within(results).getByRole("checkbox", { name: "Zaznacz Hanna Pietrzyk" })).toBeDisabled();
+      expect(screen.getByTestId("search-base-submit")).toHaveTextContent("Dodaj 0 do Nowych");
+    });
+
+    it("osoba, która już jest w rekrutacji, schodzi z zaznaczenia (U4)", async () => {
+      withRows();
+      listPage.mockResolvedValue({
+        items: [{ id: 33, name: "Jan", lastname: "Kos", match_snippets: [] }],
+        total: 1, page: 1, page_size: 20,
+      });
+      matchScores.mockResolvedValue({ scores: {}, breakdowns: {} });
+      bulkAdd.mockResolvedValue({
+        added: [],
+        skipped: [{ candidate_id: 33, reason: "already_in_job" }],
+        warnings: [],
+        total_added: 0,
+        total_skipped: 1,
+      });
+      renderPanel({ tab: "search" });
+      const results = await screen.findByRole("list", { name: "Wyniki wyszukiwania" }, SLOW);
+      await userEvent.click(within(results).getByRole("checkbox", { name: "Zaznacz Jan Kos" }));
+      await userEvent.click(screen.getByTestId("search-base-submit"));
+      await waitFor(() =>
+        expect(screen.getByTestId("search-base-submit")).toHaveTextContent("Dodaj 0 do Nowych"),
+      );
+    });
+
+    it("profil bez wymagań do wyszukiwania, ale z krytyczną z serwera — szuka tak samo jak okno ręczne", async () => {
+      // Przegląd PR #2056: zakładka i kafel liczyły „są wiersze” tylko
+      // z `search.requirements`, okno ręczne — też z krytycznych.
+      championGet.mockResolvedValue({
+        data: {
+          champion_profile: { stack: { must: [{ name: "Kafka" }] } },
+          critical_resolution: {
+            stored: ["Kafka"],
+            decided: true,
+            effective: ["Kafka"],
+            source: "dl",
+            suggested: [],
+            search_rows: [["Kafka", "Apache Kafka"]],
+          },
+        },
+      });
+      listPage.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20 });
+      renderPanel({ tab: "search" });
+      await waitFor(() => expect(listPage).toHaveBeenCalled(), SLOW);
+      const params = listPage.mock.calls[0][0] as Record<string, unknown>;
+      expect(params.q_any_group).toEqual(["Kafka|Apache Kafka"]);
+      expect(screen.queryByTestId("search-base-empty")).toBeNull();
     });
 
     it("bez słów w Championie nie udaje wyników całej bazy — odsyła do Championa i ręcznego szukania", async () => {

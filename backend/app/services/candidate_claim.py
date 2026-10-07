@@ -54,6 +54,9 @@ ENTRY_PROPOSAL = "proposal"
 ENTRY_REASSIGN = "reassign"
 ENTRY_AUTO_MATCH = "auto_match"
 ENTRY_IMPORT = "import"
+# Wejścia, w których osobę do rekrutacji dodał człowiek — tylko one zamykają
+# jej propozycję jako ``added`` (audyt 06.10.2026 R5, decyzja 07.10.2026).
+HUMAN_ENTRY_SOURCES = frozenset({ENTRY_ADDED_MANUAL, ENTRY_PROPOSAL, ENTRY_REASSIGN})
 ENTRY_SOURCES = frozenset(
     {
         ENTRY_ADDED_MANUAL,

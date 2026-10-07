@@ -314,6 +314,23 @@ class FlowPairRow(BaseModel):
     qc_status: Optional[str] = None
 
 
+class FlowProposalPerson(BaseModel):
+    candidate_id: int
+    candidate_name: str
+    score: Optional[float] = None
+
+
+class FlowJobProposals(BaseModel):
+    """Najlepsze otwarte propozycje z bazy jednej rekrutacji (07.10.2026)."""
+
+    job_id: int
+    job_title: str
+    job_working_title: Optional[str] = None
+    client_name: Optional[str] = None
+    total: int
+    people: list[FlowProposalPerson]
+
+
 class FlowContractRow(BaseModel):
     id: int
     contract_number: str
@@ -337,6 +354,9 @@ class FlowBlockOut(BaseModel):
     waiting_client_days: int
     unsigned_contracts: list[FlowContractRow]
     order_mail_review: int
+    # 07.10.2026: najlepsze propozycje nocnego przeglądu w rekrutacjach osoby.
+    top_proposals: list[FlowJobProposals] = []
+    top_proposals_per_job: int = board_flow.TOP_PROPOSALS_PER_JOB
 
 
 class FinanceBlockOut(BaseModel):
@@ -660,6 +680,17 @@ def _flow_block(
             if r.id not in skip_contract_ids
         ],
         order_mail_review=flow.order_mail_review,
+        top_proposals=[
+            FlowJobProposals(
+                job_id=r.job_id,
+                job_title=r.job_title,
+                job_working_title=r.job_working_title,
+                client_name=r.client_name,
+                total=r.total,
+                people=[FlowProposalPerson(**asdict(p)) for p in r.people],
+            )
+            for r in flow.top_proposals
+        ],
     )
 
 

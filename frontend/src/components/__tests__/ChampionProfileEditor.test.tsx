@@ -299,7 +299,21 @@ describe("ChampionProfileEditor — układ makiety kroku 02", () => {
 describe("ChampionProfileEditor — wymagania do wyszukiwania (sekcja 2)", () => {
   it("wiersze wpisane przez DL idą w zapisie profilu; obok liczba osób w bazie", async () => {
     useAuthStore.setState({ user: { ...recruiter, role: "admin", roles: ["admin"] } as User });
-    getMock.mockResolvedValue({ data: { job_id: 15, champion_profile: {} } });
+    // Obowiązkowe są tylko krytyczne z serwera (jak „Szukaj w bazie”, PR #2056).
+    getMock.mockResolvedValue({
+      data: {
+        job_id: 15,
+        champion_profile: {},
+        critical_resolution: {
+          stored: ["Kafka lub RabbitMQ"],
+          decided: true,
+          effective: ["Kafka lub RabbitMQ"],
+          source: "dl",
+          suggested: [],
+          search_rows: [["Kafka", "RabbitMQ"]],
+        },
+      },
+    });
     putMock.mockResolvedValue({ data: { job_id: 15, champion_profile: {} } });
     listMock.mockResolvedValue({ total: 46, items: [] });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

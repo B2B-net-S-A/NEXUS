@@ -103,6 +103,10 @@ export function useSearchBaseTab(
   const [selected, setSelected] = useState<ReadonlySet<number>>(() => new Set());
   const [previewId, setPreviewId] = useState<number | null>(null);
   const [adding, setAdding] = useState(false);
+  // U4 (audyt 06.10.2026): dodana osoba zostaje na liście 2–4 s, zanim
+  // odświeżenie ją zdejmie — do tego czasu wiersz mówi „Dodano” i nie da się
+  // go kliknąć drugi raz (drugie kliknięcie dawało czerwony komunikat).
+  const [addedIds, setAddedIds] = useState<ReadonlySet<number>>(() => new Set());
   const previewTrigger = useRef<HTMLElement | null>(null);
 
   const filtersKey = seed.filters ? JSON.stringify(seed.filters) : "";
@@ -162,7 +166,9 @@ export function useSearchBaseTab(
         .filter(Boolean)
         .join(" · ") || null,
     sourceLabel: null,
-    warnings: [],
+    warnings: addedIds.has(c.id)
+      ? [{ key: "added", label: "Dodano do „Nowych”", blocking: true }]
+      : [],
     extra: c.match_snippets?.length ? (
       <FieldSnippets snippets={c.match_snippets} className="mt-0.5" />
     ) : undefined,
@@ -193,7 +199,7 @@ export function useSearchBaseTab(
     if (readOnly || count === 0) return;
     setAdding(true);
     try {
-      const result = await proposalsBulkApi.add(jobId, {
+      const result = await proposalsBulkApi.addInChunks(jobId, {
         candidate_ids: [...selected],
         initial_stage_legacy: "new",
         source: "manual_search",
@@ -206,11 +212,13 @@ export function useSearchBaseTab(
       if (summary.warnings.length > 0) parts.push(`Uwaga: ${formatReasonCounts(summary.warnings)}.`);
       if (result.total_added > 0) showSuccess(parts.join(" "));
       else showError(parts.join(" "));
-      setSelected((prev) => {
-        const next = new Set(prev);
-        for (const id of result.added) next.delete(id);
-        return next;
-      });
+      // Z zaznaczenia schodzą dodani ORAZ osoby, które już są w rekrutacji.
+      const gone = new Set<number>(result.added);
+      result.skipped
+        .filter((row) => row.reason === "already_in_job")
+        .forEach((row) => gone.add(row.candidate_id));
+      setAddedIds((prev) => new Set([...prev, ...gone]));
+      setSelected((prev) => new Set([...prev].filter((id) => !gone.has(id))));
       void queryClient.invalidateQueries({ queryKey: ["job-search-base", jobId] });
       void queryClient.invalidateQueries({ queryKey: ["candidates-v2"] });
       void queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
@@ -287,6 +295,9 @@ export function useSearchBaseTab(
                 Zmień słowa i filtry
               </button>
             </div>
+            <p className="text-xs text-muted-foreground" data-testid="search-base-source">
+              {seed.sourceNote}
+            </p>
             <ul className="space-y-1.5" aria-label="Wymagania do wyszukiwania">
               {seed.required.map((row, i) => wordRow("Musi mieć", row, "must", `must-${i}`))}
               {seed.preferred.map((row, i) => wordRow("Mile widziane", row, "nice", `nice-${i}`))}
@@ -299,7 +310,7 @@ export function useSearchBaseTab(
                   ? "Szukam w CV, profilu i notatkach…"
                   : seed.required.length > 0
                     ? `Szukamy w CV, profilu i notatkach: ${seed.required.map(requirementLabel).join(" i ")}. Znaleziono osób: ${total}, od najlepiej dopasowanych.`
-                    : `Żaden wiersz nie jest technologią, więc nic nie jest obowiązkowe — osób: ${total}, od najlepiej dopasowanych.`}
+                    : `Nic nie jest obowiązkowe — osób: ${total}, od najlepiej dopasowanych.`}
             </p>
           </section>
 

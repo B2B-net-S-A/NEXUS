@@ -42,6 +42,15 @@ export interface CriticalResolution {
   effective: string[];
   source: "dl" | "suggested" | "none";
   suggested: string[];
+  /**
+   * Wiersze obowiązkowe wyszukiwania (06.10.2026): po jednym na pozycję
+   * `effective`, opcje czytane jak bramka AI („Java 11+” → „Java”), z wariantami
+   * nazwy („PostgreSQL”, „postgres”). Brak pola = odpowiedź sprzed tej zmiany
+   * — wtedy wiersz liczy `criticalSearchRows` z etykiety.
+   */
+  search_rows?: string[][];
+  /** Krytyczne bez wiersza słów kluczowych („C”, „R” — jedna litera). */
+  search_rows_skipped?: string[];
 }
 
 const fold = (value: string) => value.trim().toLocaleLowerCase("pl");

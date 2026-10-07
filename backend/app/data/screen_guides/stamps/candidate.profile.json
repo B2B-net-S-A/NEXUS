@@ -4,6 +4,6 @@
   "sources": {
     "frontend/src/components/v2/candidate-profile/ProfileHeader.tsx": "64b1ee473c6cf20edd9a848998a8db440e9c74b5aa900a8c028af4b81679f560",
     "frontend/src/components/v2/pages/CandidateDetailV2.tsx": "aa9497a5795d98dcba3060348015abb0181735d3ae2d0d3155675b73c050395e",
-    "frontend/src/components/v2/pages/CandidateProfileFactsBar.tsx": "95ca389b9b6a9c49d48129b5e28430f860853a11d98f602a019b80d4b5d9e0ae"
+    "frontend/src/components/v2/pages/CandidateProfileFactsBar.tsx": "289d50d66884e78e74e4f9c257f0bd88806d3d1586a3eb2069c7c78f86bff27f"
   }
 }

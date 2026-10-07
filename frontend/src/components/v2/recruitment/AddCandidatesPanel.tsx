@@ -27,7 +27,15 @@
  * zaznaczenie.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Sparkles, UserPlus } from "lucide-react";
 
@@ -38,7 +46,12 @@ import { SIMILAR_TAB_DESCRIPTION, useSimilarJobsTab } from "@/components/v2/jobs
 import { useCapability } from "@/hooks/useCapability";
 import { apiErrorMessage } from "@/lib/api-error";
 import type { MatchEligibility } from "@/lib/api";
-import { OFFICE_DAYS_WARNING, overBudgetLabel } from "@/lib/fit-badges";
+import {
+  OFFICE_DAYS_WARNING,
+  REMOTE_ONLY_BADGE_PL,
+  REMOTE_ONLY_WARNING,
+  overBudgetLabel,
+} from "@/lib/fit-badges";
 import { searchIsRunning } from "@/lib/full-candidate-search-api";
 import type { ManualSearchJob } from "@/lib/job-search-filters";
 import {
@@ -56,7 +69,6 @@ import {
   type ProposalFacts,
 } from "@/lib/job-proposals-api";
 import { unmeasuredReason } from "@/lib/match-breakdown";
-import { recordProposalInboxOpened } from "@/lib/proposal-inbox-opened";
 import {
   clientHistoryLine,
   proposalFactsLine,
@@ -118,6 +130,7 @@ const WARNING_LABEL: Record<string, string> = {
   hm_veto: "Weto HM",
   over_budget: "Ponad budżet",
   [OFFICE_DAYS_WARNING]: "Mniej dni w biurze",
+  [REMOTE_ONLY_WARNING]: REMOTE_ONLY_BADGE_PL,
   rejected_by_same_client: "Odrzucony przez tego klienta",
   employment_only: EMPLOYMENT_ONLY_WARNING_PL,
   city_mismatch: CITY_MISMATCH_WARNING_PL,
@@ -159,6 +172,7 @@ function proposalRow(
     }
     if (
       code === OFFICE_DAYS_WARNING ||
+      code === REMOTE_ONLY_WARNING ||
       code === "rejected_by_same_client" ||
       code === "part_time_only" ||
       code === "full_time_only" ||
@@ -239,7 +253,11 @@ function AddCandidatesPanelOpen({
     setVisited((prev) => (prev.has(tab) ? prev : new Set([...prev, tab])));
   }, [tab]);
 
-  const [selected, setSelected] = useState<ReadonlySet<number>>(() => new Set());
+  // U7 (audyt 06.10.2026): każda lista propozycji ma swoje zaznaczenie —
+  // wspólne „Dodaj N” dodawało osoby z niewidocznej zakładki.
+  const [selectedByTab, setSelectedByTab] = useState<
+    Partial<Record<"postings" | "base", ReadonlySet<number>>>
+  >({});
   const [previewId, setPreviewId] = useState<number | null>(null);
   const previewTrigger = useRef<HTMLElement | null>(null);
 
@@ -254,7 +272,17 @@ function AddCandidatesPanelOpen({
   const dismissPrompt = useDismissReasonPrompt((ids, feedback) => {
     proposals.dismiss(ids, feedback);
     const gone = new Set(ids);
-    setSelected((prev) => new Set([...prev].filter((id) => !gone.has(id))));
+    // Każda lista ma własne zaznaczenie (U7) — zdejmujemy pominiętych z obu.
+    setSelectedByTab((prev) => {
+      const next: typeof prev = {};
+      for (const [key, set] of Object.entries(prev) as [
+        "postings" | "base",
+        ReadonlySet<number> | undefined,
+      ][]) {
+        next[key] = new Set([...(set ?? [])].filter((id) => !gone.has(id)));
+      }
+      return next;
+    });
   });
   const counts = useQuery({
     queryKey: jobProposalsKeys.counts(jobId),
@@ -294,24 +322,30 @@ function AddCandidatesPanelOpen({
   const postingsCount = split.postings.length;
   const baseCount = split.base.length;
   const sourcesSettled = proposals.status.settled;
+  // Skrzynka ma kolejne strony (od 07.10.2026 nocny przegląd publikuje każdego
+  // powyżej progu, więc bywa ich kilkaset): wczytana część zaniżyłaby liczbę
+  // na kaflu. Wtedy kafle wracają do liczb serwera (`…/proposal-counts`).
+  const inboxHasMore = proposals.status.inbox.hasMore;
   useEffect(() => {
     if (!sourcesSettled) return;
-    queryClient.setQueryData(jobProposalsKeys.visibleSplit(jobId), {
-      postings: postingsCount,
-      base: baseCount,
-    });
-  }, [queryClient, jobId, sourcesSettled, postingsCount, baseCount]);
+    queryClient.setQueryData(
+      jobProposalsKeys.visibleSplit(jobId),
+      inboxHasMore ? null : { postings: postingsCount, base: baseCount },
+    );
+  }, [queryClient, jobId, sourcesSettled, inboxHasMore, postingsCount, baseCount]);
+
+  // Telemetria otwarcia „Propozycji z bazy” — raz na wejście w zakładkę
+  // (serwer i tak zapisuje najwyżej raz dziennie). Błąd nie ma znaczenia.
+  const openedSent = useRef(false);
+  useEffect(() => {
+    if (tab !== "base" || readOnly || openedSent.current) return;
+    openedSent.current = true;
+    void Promise.resolve()
+      .then(() => jobProposalsApi.opened(jobId))
+      .catch(() => undefined);
+  }, [tab, readOnly, jobId]);
   const listTab: "postings" | "base" | null = tab === "postings" || tab === "base" ? tab : null;
   const listEntries = listTab === "postings" ? split.postings : split.base;
-  // Telemetria otwarcia „Do przejrzenia” (audyt 06.10.2026): raz na otwarcie
-  // okna, przy pierwszym wejściu w zakładkę propozycji. Raz na dzień pilnuje
-  // `recordProposalInboxOpened` (pamięć przeglądarki) i serwer.
-  const inboxOpenRecorded = useRef(false);
-  useEffect(() => {
-    if (listTab === null || inboxOpenRecorded.current) return;
-    inboxOpenRecorded.current = true;
-    recordProposalInboxOpened(jobId);
-  }, [listTab, jobId]);
 
   // Klucz ze zbioru id — odświeżenie listy z tymi samymi osobami nie gubi
   // faktów ani policzonych dopasowań.
@@ -435,31 +469,36 @@ function AddCandidatesPanelOpen({
     return <ScoreBadge score={null} />;
   };
 
-  const toggle = useCallback((candidateId: number) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(candidateId)) next.delete(candidateId);
-      else next.add(candidateId);
-      return next;
-    });
-  }, []);
-  // Zaznaczenie obejmuje obie zakładki propozycji; liczymy tylko osoby, które
-  // nadal są na liście (dodane i pominięte z niej znikają).
-  const entryIds = useMemo(
-    () => new Set(proposals.entries.map((e) => e.row.candidateId)),
-    [proposals.entries],
+  const toggle = useCallback(
+    (candidateId: number) => {
+      if (listTab == null) return;
+      setSelectedByTab((prev) => {
+        const next = new Set(prev[listTab] ?? []);
+        if (next.has(candidateId)) next.delete(candidateId);
+        else next.add(candidateId);
+        return { ...prev, [listTab]: next };
+      });
+    },
+    [listTab],
   );
+  // Liczymy tylko osoby, które nadal są na liście tej zakładki (dodane
+  // i pominięte z niej znikają).
+  const entryIds = useMemo(
+    () => new Set(listEntries.map((e) => e.row.candidateId)),
+    [listEntries],
+  );
+  const selected = listTab != null ? selectedByTab[listTab] : undefined;
   const selectedIds = useMemo(
-    () => new Set([...selected].filter((id) => entryIds.has(id))),
+    () => new Set([...(selected ?? [])].filter((id) => entryIds.has(id))),
     [selected, entryIds],
   );
   const count = selectedIds.size;
   const addSelected = () => {
-    if (readOnly || count === 0) return;
+    if (readOnly || count === 0 || listTab == null) return;
     // Wspólna ścieżka z ekranem „Do przejrzenia” (źródło i przegląd
     // z pochodzenia wiersza, własny komunikat wyniku).
     proposals.addToJob([...selectedIds]);
-    setSelected(new Set());
+    setSelectedByTab((prev) => ({ ...prev, [listTab]: new Set<number>() }));
   };
 
   // „Przeszukaj całą bazę (AI)” z menu „⋯” — jedno żądanie = jeden start.
@@ -508,12 +547,38 @@ function AddCandidatesPanelOpen({
   }, [tab]);
 
   const similarTotal = similarPeopleTotal(similarJobs.data);
-  const more = proposals.status.inbox.hasMore ? "+" : "";
+  // Gdy skrzynka ma kolejne strony, liczba z serwera mówi, ile osób naprawdę
+  // czeka; bez niej wczytana część z „+”.
+  const listCount = (loaded: number, server: number | undefined): string =>
+    !inboxHasMore ? String(loaded) : server != null ? String(Math.max(loaded, server)) : `${loaded}+`;
   const tabCount: Record<CandidateSourceTab, string | null> = {
     similar: similarTotal ? String(similarTotal.total) : null,
-    postings: proposals.status.settled ? `${split.postings.length}${more}` : null,
-    base: proposals.status.settled ? `${split.base.length}${more}` : null,
+    postings: proposals.status.settled
+      ? listCount(split.postings.length, counts.data?.postings_recent)
+      : null,
+    base: proposals.status.settled ? listCount(split.base.length, counts.data?.base) : null,
     search: searchTab.total != null ? String(searchTab.total) : null,
+  };
+
+  // U7: strzałki, Home i End chodzą po zakładkach (wzorzec ARIA „tabs”).
+  const onTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    const index = CANDIDATE_SOURCE_TABS.indexOf(tab);
+    const last = CANDIDATE_SOURCE_TABS.length - 1;
+    const target =
+      event.key === "ArrowRight"
+        ? index >= last ? 0 : index + 1
+        : event.key === "ArrowLeft"
+          ? index <= 0 ? last : index - 1
+          : event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? last
+              : null;
+    if (target == null) return;
+    event.preventDefault();
+    const next = CANDIDATE_SOURCE_TABS[target];
+    onTabChange(next);
+    document.getElementById(`add-candidates-tab-${next}`)?.focus();
   };
 
   const tablist = (
@@ -526,6 +591,8 @@ function AddCandidatesPanelOpen({
           id={`add-candidates-tab-${key}`}
           aria-selected={tab === key}
           aria-controls={`add-candidates-panel-${key}`}
+          tabIndex={tab === key ? 0 : -1}
+          onKeyDown={onTabKeyDown}
           onClick={() => onTabChange(key)}
           className={cn(
             "inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",

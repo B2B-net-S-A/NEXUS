@@ -279,10 +279,10 @@ def scoring_algorithm_version() -> str:
     payload["skill_evidence_contract"] = "2026-09-08-source-union-modality"
     payload["requirement_contract"] = "2026-09-09-and-of-or"
     payload["budget_contract"] = "2026-09-09-explicit-budget-currency"
-    payload["skill_canon_contract"] = "2026-09-22-significant-signs"
+    payload["skill_canon_contract"] = "2026-10-07-implied-by"
     payload["location_contract"] = "2026-09-27-place-dictionary"
-    payload["alias_mention_contract"] = "2026-09-25-polish-short-aliases"
-    payload["skill_text_evidence"] = "2026-09-30-anywhere-tech-denominator"
+    payload["alias_mention_contract"] = "2026-10-07-rest-plain-word"
+    payload["skill_text_evidence"] = "2026-10-07-no-gaps-no-negated-answers"
     # „Stawka od” (0414): stawka kandydata = najniższa z 18 miesięcy.
     from app.services.candidate_rate_from import enabled as _rate_from_enabled
 
@@ -430,8 +430,24 @@ class ScoreBreakdown:
     # evidence backed this score (a full score built on a near-empty profile is
     # low-confidence). None when not computed (e.g. hydrated legacy cache row).
     fit_confidence: Optional[float] = None
+    # Warstwa `prior_screening` (07.10.2026, `services/prior_screening.py`):
+    # odpowiedzi z wcześniejszych rozmów. ``None`` = warstwy nie liczono
+    # (wyłącznik OFF albo brak materiału) i wtedy NIE ma jej w `as_dict` —
+    # rozbicie zostaje bajt w bajt jak bez warstwy.
+    prior_screening: Optional[LayerResult] = None
 
     def as_dict(self) -> dict:
+        out = self._as_dict()
+        if self.prior_screening is not None:
+            out["prior_screening"] = {
+                "points": round(self.prior_screening.points, 1),
+                "max": self.prior_screening.max_points,
+                "reason": self.prior_screening.reason,
+                "status": self.prior_screening.status or "scored",
+            }
+        return out
+
+    def _as_dict(self) -> dict:
         return {
             "candidate_id": self.candidate_id,
             "job_id": self.job_id,
@@ -651,6 +667,20 @@ def skill_name_variants(raw) -> List[str]:
 POLISH_WORD_ALIASES = frozenset({"jest", "go"})
 
 
+# „rest” jako zwykłe angielskie słowo: „the rest of the team”, „data at rest”,
+# „Rest of World”. Bez tego alias REST API dawał ok. 390 fałszywych trafień
+# w CV (pomiar 07.10.2026).
+_REST_BEFORE_RE = re.compile(r"(?:\bthe|\bat)\s+$", re.I)
+_REST_AFTER_RE = re.compile(r"^\s+of\b", re.I)
+
+
+def _rest_is_plain_word(text: str, start: int, end: int) -> bool:
+    return bool(
+        _REST_BEFORE_RE.search(text[max(0, start - 6) : start])
+        or _REST_AFTER_RE.match(text[end : end + 6])
+    )
+
+
 def is_technology_mention(text: str, match: re.Match) -> bool:
     """Czy trafienie wzorca taksonomii to naprawdę technologia w polskim tekście.
 
@@ -666,6 +696,8 @@ def is_technology_mention(text: str, match: re.Match) -> bool:
     """
     found = match.group(1)
     lowered = found.lower()
+    if lowered == "rest" and _rest_is_plain_word(text, *match.span(1)):
+        return False
     if len(found) > 2 and lowered not in POLISH_WORD_ALIASES:
         return True
     start, end = match.span(1)
@@ -1136,8 +1168,11 @@ def skill_present(required: str, candidate_skills) -> bool:
         )
     if required in candidate_skills:
         return True
-    req_canon = _canon_skill(required)
-    return any(_canon_skill(c) == req_canon for c in candidate_skills)
+    from app.services.skill_normalize import implied_forms
+
+    wanted = {_canon_skill(required)}
+    wanted.update(_canon_skill(form) for form in implied_forms(required))
+    return any(_canon_skill(c) in wanted for c in candidate_skills)
 
 
 def _skill_recency_weights(
@@ -2101,8 +2136,14 @@ async def score_candidate_job(
     context: Optional[JobScoringContext] = None,
     semantic_unavailable: bool = False,
     base_fit: bool = False,
+    prior_screening: bool = False,
 ) -> ScoreBreakdown:
-    """Compute the full ScoreBreakdown for one (candidate, job) pair."""
+    """Compute the full ScoreBreakdown for one (candidate, job) pair.
+
+    ``prior_screening`` (tylko z ``base_fit``) dokłada warstwę odpowiedzi
+    z wcześniejszych rozmów — materiał musi być dołączony wcześniej przez
+    ``prior_screening.attach_prior_screening``.
+    """
     import time as _time
 
     t0 = _time.perf_counter()
@@ -2128,6 +2169,19 @@ async def score_candidate_job(
         else await _check_penalties_and_warnings(candidate, job, db, context=context)
     )
 
+    prior_layer = None
+    if prior_screening and base_fit:
+        from app.services import prior_screening as prior_screening_service
+
+        prior_layer = prior_screening_service.layer_for(candidate, job)
+    # Oceniona warstwa wcześniejszych rozmów wchodzi do licznika i mianownika;
+    # bez oceny (albo bez warstwy) wynik liczy się dokładnie jak dotąd.
+    extra = (
+        (prior_layer,)
+        if prior_layer is not None and prior_layer.scored and prior_layer.max_points > 0
+        else ()
+    )
+
     layers = (semantic, skills, salary, location, availability, champion_fit)
     if penalties:
         total = 0.0
@@ -2136,11 +2190,15 @@ async def score_candidate_job(
         # "of what we could assess, this candidate is X%". A layer with no
         # signal contributes to neither numerator nor denominator, so it can no
         # longer inflate or deflate everyone equally.
-        earned = sum(layer.points for layer in layers if layer.scored)
-        available = sum(layer.max_points for layer in layers if layer.scored)
+        earned = sum(layer.points for layer in layers + extra if layer.scored)
+        available = sum(layer.max_points for layer in layers + extra if layer.scored)
         total = (earned / available * 100.0) if available > 0 else 0.0
     else:
         total = sum(layer.points for layer in layers)
+        if extra:
+            # Budżet bazowy to 100 pkt (`base_fit_profile`); dodatkowa
+            # warstwa skaluje wynik z powrotem do 0–100, zamiast go przekraczać.
+            total = (total + extra[0].points) * 100.0 / (100.0 + extra[0].max_points)
 
     # v1.1: niedobór seniority względem Championa tnie total MNOŻNIKOWO —
     # stała punktowa znaczyłaby co innego w trybie sumy i renormalizacji.
@@ -2211,6 +2269,7 @@ async def score_candidate_job(
         penalties=penalties,
         warnings=score_warnings,
         fit_confidence=compute_fit_confidence(candidate, job),
+        prior_screening=prior_layer,
     )
 
 

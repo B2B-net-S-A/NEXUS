@@ -45,8 +45,40 @@ _RIGHT_PG = f"($|[^{WORD_CLASS_PG}])"
 _LEFT_PY = f"(?<![{WORD_CHARS_PY}])"
 _RIGHT_PY = f"(?![{WORD_CHARS_PY}])"
 
-_PHRASE_GAP_PG = "[[:space:]/-]+"
-_PHRASE_GAP_PY = r"[\s/-]+"
+# Odstęp frazy: spacja, ukośnik, myślnik — i od 06.10.2026 także nawias,
+# dwukropek, przecinek i kropka (K7): „Spring (Boot, Data)” to Spring Boot.
+# Indeks pełnotekstowy (wyszukiwanie ręczne) już tak czytał, a bramka AI
+# (wzorzec Pythona) ukrywała przez to doświadczonych Javowców (`missing_must`).
+_PHRASE_GAP_PG = "[[:space:]/(),:.-]+"
+_PHRASE_GAP_PY = r"[\s/(),:.-]+"
+
+# Słowo kluczowe ma co najmniej 2 znaki. „C” i „R” jako słowo kluczowe
+# znajdowały prawie całą bazę (token ``r`` z „2019 r.”, ``c`` z „C++”/„C#”),
+# więc K4 (przepuszczenie ich, audyt 06.10.2026) zostało cofnięte po
+# przeglądzie PR #2056: v2 odmawia zdaniem (``KeywordTooShort``), front mówi
+# to przy polu. Lustro frontu: `keywordLongEnough` w `keyword-requirements.ts`.
+KEYWORD_MIN_CHARS = 2
+SINGLE_LETTER_HINT = "Pojedynczą literę (np. C albo R) wyszukaj w polu „Umiejętności”."
+
+
+class KeywordTooShort(ValueError):
+    """Słowo kluczowe krótsze niż ``KEYWORD_MIN_CHARS`` w zapytaniu v2."""
+
+
+def keyword_long_enough(word: str) -> bool:
+    """Słowo kluczowe ma co najmniej 2 znaki."""
+    return len((word or "").strip()) >= KEYWORD_MIN_CHARS
+
+
+def too_short_keyword_message(words: list[str]) -> str:
+    """Zdanie dla 422 — to samo co komunikat pola we froncie."""
+    listed = ", ".join(f"„{w}”" for w in words)
+    verb = "są za krótkie" if len(words) > 1 else "jest za krótkie"
+    return (
+        f"{listed} {verb} — słowo kluczowe musi mieć co najmniej "
+        f"{KEYWORD_MIN_CHARS} znaki. {SINGLE_LETTER_HINT}"
+    )
+
 
 # Znaki specjalne wyrażeń regularnych Postgresa (ARE) i Pythona.
 _REGEX_SPECIAL = set("\\^$.|?*+()[]{}")
@@ -110,8 +142,9 @@ def _core_pg(text: str) -> str:
     parts = []
     for word in text.split():
         parts.append("".join(_escape_char(ch) for ch in word))
-    # Fraza: słowa rozdzielone odstępem, myślnikiem albo ukośnikiem — tak jak
-    # `spring <-> boot` z indeksu pełnotekstowego łapie „Spring-Boot”.
+    # Fraza: słowa rozdzielone odstępem, myślnikiem, ukośnikiem, nawiasem,
+    # dwukropkiem, przecinkiem albo kropką — tak jak `spring <-> boot` z indeksu
+    # pełnotekstowego łapie „Spring-Boot” i „Spring (Boot, Data)”.
     return _PHRASE_GAP_PG.join(parts)
 
 

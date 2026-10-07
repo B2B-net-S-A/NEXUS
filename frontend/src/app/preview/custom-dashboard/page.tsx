@@ -331,6 +331,33 @@ const FLOW: FlowBlock = {
   waiting_client_days: 7,
   unsigned_contracts: [],
   order_mail_review: 0,
+  // 07.10.2026: najlepsze propozycje nocnego przeglądu (dane fikcyjne).
+  top_proposals: [
+    {
+      job_id: 501,
+      job_title: "Senior Java Developer",
+      job_working_title: null,
+      client_name: "Bank Północny",
+      total: 143,
+      people: [
+        { candidate_id: 701, candidate_name: "Joanna Przykładowa", score: 91 },
+        { candidate_id: 702, candidate_name: "Tomasz Makietowy", score: 88 },
+        { candidate_id: 703, candidate_name: "Ewa Wzorcowa", score: 86 },
+      ],
+    },
+    {
+      job_id: 502,
+      job_title: "Tester automatyzujący · Python",
+      job_working_title: null,
+      client_name: "Bank Kappa",
+      total: 2,
+      people: [
+        { candidate_id: 704, candidate_name: "Michał Fikcyjny", score: 79 },
+        { candidate_id: 705, candidate_name: "Olga Testowa", score: 74 },
+      ],
+    },
+  ],
+  top_proposals_per_job: 3,
 };
 const DL_FLOW: FlowBlock = {
   ...FLOW,

@@ -201,7 +201,10 @@ def _phrase_in_sources(phrase: str, sources: str) -> bool:
     if not dz._patterns(phrase) or dz._found(sources, probe):
         return True
     words = [w.casefold() for w in _WORD.findall(phrase) if len(w) >= 2]
-    haystack = _norm(sources)
+    # CAŁE słowa źródeł, nie podłańcuch (Q1, audyt 06.10.2026): „Scala”
+    # zawiera się w „scalanie”, „Ruby” w „rubryka” — fragment tekstu
+    # przepuszczał zmyśloną technologię przez blokujące sprawdzenie.
+    haystack = set(_WORD.findall(_norm(sources)))
     # Pogrubienie odmienione („Dockera”) pokrywa forma podstawowa w oryginale
     # („Docker”) — audyt 05.10.2026.
     return bool(words) and all(
@@ -478,9 +481,55 @@ _COMPANY_YEARS = re.compile(
 )
 
 
-def _company_key(text: str) -> str:
-    words = re.findall(r"[^\W_]+", text.casefold())
-    return words[0] if words else ""
+# Słowa nazw firm, które nie odróżniają jednej firmy od drugiej (Q5, audyt
+# 06.10.2026): klucz po pierwszym słowie łączył „IT Kontrakt” z „IT
+# Solutions” i „Bank Millennium” z „Bank Pekao” — fałszywe uwagi o stażu.
+_COMPANY_GENERIC = frozenset(
+    {
+        "it",
+        "bank",
+        "grupa",
+        "group",
+        "polska",
+        "poland",
+        "polsce",
+        "sp",
+        "spółka",
+        "z",
+        "o",
+        "oo",
+        "zoo",
+        "sa",
+        "s",
+        "a",
+        "ltd",
+        "gmbh",
+        "inc",
+        "llc",
+        "the",
+        "firma",
+        "company",
+    }
+)
+
+
+def _company_words(text: str) -> list[str]:
+    return [
+        w
+        for w in re.findall(r"[^\W_]+", text.casefold())
+        if len(w) >= 2 and w not in _COMPANY_GENERIC
+    ]
+
+
+def _company_key(text: str) -> tuple[str, ...]:
+    """Do dwóch pierwszych słów nazwy firmy bez słów ogólnych i form prawnych."""
+    return tuple(_company_words(text)[:2])
+
+
+def _claims_company(claim: str, key: tuple[str, ...]) -> bool:
+    """Czy tekst twierdzenia zaczyna się nazwą firmy z historii (klucz)."""
+    words = _company_words(claim)
+    return bool(key) and tuple(words[: len(key)]) == key
 
 
 def company_year_claims(
@@ -502,11 +551,13 @@ def company_year_claims(
         if seen > HEADER_BLOCKS:
             break
         for m in _COMPANY_YEARS.finditer(block.text):
-            key = _company_key(m.group("company"))
-            if len(key) < 2:
+            claim = m.group("company")
+            if not _company_words(claim):
                 continue
             match = [
-                e for e in entries if _company_key(str(e.get("company") or "")) == key
+                e
+                for e in entries
+                if _claims_company(claim, _company_key(str(e.get("company") or "")))
             ]
             if not match:
                 continue

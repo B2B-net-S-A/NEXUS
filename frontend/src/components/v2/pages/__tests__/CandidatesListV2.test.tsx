@@ -723,6 +723,8 @@ describe("CandidatesListV2", () => {
       fireEvent.keyDown(screen.getByLabelText("Szukaj kandydatów"), { key: "Enter" });
 
       expect(await screen.findByText(/Czytam jako wymagania: Java/)).toBeTruthy();
+      // K8 (audyt 06.10.2026): imiona i nazwiska sprawdzamy tylko dla górnego pola.
+      expect(classifyMock).toHaveBeenCalledWith("java", "top");
       await waitFor(async () => {
         const last = (await candidateCalls()).at(-1);
         expect(last?.q_any_group).toEqual(["Java"]);

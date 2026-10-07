@@ -48,7 +48,25 @@ _PROFILE_DATA_KEYS = (
     "certifications",
     "projects",
     "profile_about",
-    "_notes_insights",
+)
+
+# Z faktów odczytanych z notatek (`_notes_insights`) dowodem są wyłącznie
+# pola POZYTYWNE. Do 07.10.2026 profil zrzucał cały słownik, więc
+# `skills_gaps_observed` („nie zna Kafki”) i weta klientów liczyły się jako
+# znajomość technologii — zmierzone: 1 791 takich fałszywych trafień.
+_NOTES_INSIGHTS_EVIDENCE_FIELDS = ("skills_evidenced", "certifications")
+
+# Odpowiedź z karty rekomendacji, która PRZECZY pytaniu. Pytanie „Jak wygląda
+# Twoje doświadczenie z Kubernetes?” z odpowiedzią „zna tylko teoretycznie”
+# nie jest dowodem Kubernetesa (zmierzone 07.10.2026: 1 335 takich par).
+# Świadomie wąsko: „podstawy”, „słabo” to wciąż jakaś znajomość.
+_NEGATIVE_ANSWER_RE = re.compile(
+    r"^\W*(?:nie\b|brak\b|no\b|none\b|not\b|n/a\b|zero\b|0\s*lat)"
+    r"|\bnie\s+(?:zna|miał\w*|pracował\w*|używał\w*|korzystał\w*|posiada|ma\s+doświadcz\w*)"
+    r"|\bbrak\s+(?:doświadcz\w*|styczności|znajomości)"
+    r"|\b(?:tylko\s+)?teoretyczn\w*"
+    r"|\bnie\s+miał\w*\s+styczności",
+    re.I,
 )
 
 
@@ -85,12 +103,17 @@ def _patterns(
     („R”, „C”) w tekście nie szukamy wcale — tylko w profilu.
     """
     from app.services.scoring_service import POLISH_WORD_ALIASES, skill_name_variants
+    from app.services.skill_normalize import implied_forms
 
     # (wzorzec, słowo filtra, z wielkością liter)
     out: list[tuple[re.Pattern[str], str, bool]] = []
     seen: set[str] = set()
     for option in requirement.options:
-        forms = [option.lower(), *skill_name_variants([option])]
+        forms = [
+            option.lower(),
+            *skill_name_variants([option]),
+            *implied_forms(option),
+        ]
         for form in forms:
             form = form.strip()
             if not form or form in seen:
@@ -100,10 +123,15 @@ def _patterns(
             if short:
                 if form != option.lower() or len(option.strip()) < 2:
                     continue
+                # Wielkość liter rozróżniamy tylko tam, gdzie forma jest też
+                # zwykłym słowem („Go”, „Jest”). „C#”, „F#”, „C++” piszą się
+                # różnie — etykieta „c#” nie znajdowała „C#” w CV (07.10.2026).
+                flags = 0 if form.isalpha() else re.IGNORECASE
                 cased = re.compile(
                     r"(?<![0-9A-Za-ząćęłńóśźżĄĆĘŁŃÓŚŹŻ])"
                     + re.escape(option.strip())
-                    + r"(?![0-9A-Za-ząćęłńóśźżĄĆĘŁŃÓŚŹŻ])"
+                    + r"(?![0-9A-Za-ząćęłńóśźżĄĆĘŁŃÓŚŹŻ])",
+                    flags,
                 )
                 out.append((cased, _prefilter_token(form), True))
                 continue
@@ -111,10 +139,39 @@ def _patterns(
             if term is not None:
                 # Bez IGNORECASE, na tekście już zamienionym na małe litery —
                 # regex Pythona z IGNORECASE był tu ~3× wolniejszy.
-                out.append(
-                    (re.compile(py_regex(term).pattern), _prefilter_token(form), False)
-                )
+                pattern = py_regex(term).pattern
+                if form == "rest":
+                    # „the rest of the team”, „data at rest” to nie REST API.
+                    pattern = r"(?<!\bthe )(?<!\bat )" + pattern + r"(?!\s+of\b)"
+                out.append((re.compile(pattern), _prefilter_token(form), False))
+            # „rest” w odmianie to zwykłe słowo („resztą”) — bez K12.
+            inflected = _inflected(form) if form != "rest" else None
+            if inflected is not None:
+                out.append(inflected)
     return tuple(out)
+
+
+# K12 (audyt 06.10.2026): „z Kafką”, „w Javie”, „Dockerem” — polska odmiana
+# nazwy w CV i notatkach. Ta sama zamknięta lista końcówek co QC CV
+# (`dz_review._inflected_pattern`), więc „Java” nie trafia w „JavaScript”.
+# Tylko nazwy z co najmniej 4 liter: krótsze („Go”, „Jest”) to zwykłe słowa.
+INFLECTION_MIN_LETTERS = 4
+
+
+def _inflected(form: str) -> Optional[tuple[re.Pattern[str], str, bool]]:
+    from app.services.dz_review import _inflected_pattern
+
+    word = form.strip()
+    if len(word) < INFLECTION_MIN_LETTERS or not word.isalpha():
+        return None
+    pattern = _inflected_pattern(word)
+    if pattern is None:
+        return None
+    lower = word.lower()
+    stem = lower[:-1] if lower.endswith(("a", "o")) else lower
+    # Wzorzec ma IGNORECASE (polskie końcówki wielkimi literami też), więc
+    # działa i na tekście już zamienionym na małe litery.
+    return pattern, _prefilter_token(stem), False
 
 
 def _mentions_lowered(requirement: GateRequirement, text: str, lowered: str) -> bool:
@@ -158,11 +215,67 @@ def profile_text(candidate) -> str:
                     if isinstance(value, str)
                     else json.dumps(value, ensure_ascii=False, default=str)
                 )
+        parts.extend(_notes_insights_evidence(data.get("_notes_insights")))
     for attr in ("current_position", "headline", "title"):
         value = getattr(candidate, attr, None)
         if isinstance(value, str) and value:
             parts.append(value)
     return "\n".join(parts)
+
+
+def _notes_insights_evidence(insights) -> list[str]:
+    """Nazwy umiejętności i certyfikatów potwierdzonych w rozmowach."""
+    if not isinstance(insights, dict):
+        return []
+    names: list[str] = []
+    for field in _NOTES_INSIGHTS_EVIDENCE_FIELDS:
+        items = insights.get(field)
+        for item in items if isinstance(items, list) else ():
+            name = item.get("name") if isinstance(item, dict) else item
+            if isinstance(name, str) and name.strip():
+                names.append(name.strip())
+    return names
+
+
+def is_negative_answer(answer: Optional[str]) -> bool:
+    """Czy odpowiedź z karty przeczy pytaniu (pusta odpowiedź — nie)."""
+    return bool(answer and _NEGATIVE_ANSWER_RE.search(answer))
+
+
+def _drop_fragment(text: str, fragment: str) -> str:
+    if not fragment:
+        return text
+    if fragment in text:
+        return text.replace(fragment, " ")
+    # Parser skleja wiersze pytania spacją — w tekście bywają osobnymi wierszami.
+    lines = text.split("\n")
+    return "\n".join(
+        line
+        for line in lines
+        if not (len(line.strip()) >= 10 and line.strip() in fragment)
+    )
+
+
+def evidence_note_text(kind: Optional[str], content: Optional[str]) -> str:
+    """Treść notatki jako dowód: karta bez pytań, na które kandydat odpowiedział „nie”.
+
+    Notatki inne niż karta rekomendacji idą bez zmian. W karcie pytanie
+    z przeczącą odpowiedzią znika razem z odpowiedzią — inaczej technologia
+    z treści pytania liczyłaby się jako znajomość.
+    """
+    from app.services.recommendation_card_parser import parse_card, to_text
+
+    if kind not in (note_kinds.CARD, note_kinds.SCREENING_FACTS):
+        return content or ""
+    parsed = parse_card(content)
+    negative = [a for a in parsed.answers if is_negative_answer(a.get("answer"))]
+    if not negative:
+        return content or ""
+    text = to_text(content)
+    for item in negative:
+        text = _drop_fragment(text, str(item.get("question") or "").strip())
+        text = _drop_fragment(text, str(item.get("answer") or "").strip())
+    return text
 
 
 def cv_text(candidate) -> str:
@@ -201,13 +314,61 @@ def evidence_for(candidate, must: Sequence[str]) -> Optional[MustTextEvidence]:
     return None
 
 
+def cv_waiting_for_text(candidate) -> bool:
+    """Plik CV jest, tekstu jeszcze nie ma, a ponowny odczyt ma sens (K9).
+
+    Takie CV czyta nocna faza ``candidates_cv_text``
+    (``cv_text_backfill._pending_candidates_stmt``) — kandydat nie jest „bez
+    danych”, tylko czeka na odczyt. Plik ze znacznikiem końcowym (skan bez
+    tekstu, śmieci, zły format) już się nie odczyta, więc się nie liczy.
+    """
+    from app.services import cv_text_backfill as backfill
+
+    storage_key = getattr(candidate, "cv_storage_key", None)
+    if not storage_key or cv_text(candidate).strip():
+        return False
+    data = getattr(candidate, "cv_extracted_data", None)
+    marker = (
+        data.get(backfill._EXTRACTION_MARKER_KEY) if isinstance(data, dict) else None
+    )
+    if not isinstance(marker, dict) or marker.get("storage_key") != storage_key:
+        return True
+    outcome = marker.get("outcome")
+    if outcome not in backfill._TERMINAL_OUTCOMES:
+        return True
+    return outcome in backfill._SNIFF_RETRY_OUTCOMES and not marker.get(
+        backfill._SNIFFED_FLAG
+    )
+
+
+def _profile_has_content(candidate) -> bool:
+    """Historia stanowisk, pola z Traffita, stanowisko — bez samych tagów
+    (tagi importu niosą metadane, nie wiedzę o kandydacie)."""
+    for attr in ("verified_tech", "experience"):
+        if getattr(candidate, attr, None):
+            return True
+    data = getattr(candidate, "cv_extracted_data", None)
+    if isinstance(data, dict) and any(data.get(key) for key in _PROFILE_DATA_KEYS):
+        return True
+    return any(
+        isinstance(getattr(candidate, attr, None), str)
+        and getattr(candidate, attr).strip()
+        for attr in ("current_position", "headline", "title")
+    )
+
+
 def has_any_data(candidate, evidence: Optional[MustTextEvidence]) -> bool:
-    """CV, lista umiejętności albo notatki — cokolwiek, z czego da się ocenić."""
+    """CV, profil, lista umiejętności albo notatki — cokolwiek, z czego da się
+    ocenić. Od 06.10.2026 (K9) także sam profil (historia stanowisk, pola
+    z Traffita) i plik CV czekający na odczyt tekstu — do tej daty tacy
+    kandydaci byli ukryci jako „nic o nim nie wiemy”."""
     from app.services.scoring_service import candidate_known_skill_names
 
     if cv_text(candidate).strip():
         return True
     if candidate_known_skill_names(candidate):
+        return True
+    if _profile_has_content(candidate) or cv_waiting_for_text(candidate):
         return True
     return bool(evidence and evidence.has_notes)
 
@@ -218,6 +379,7 @@ def _loose_pg_pattern(must: Sequence[str]) -> Optional[str]:
     Tylko zawęża, co wraca z bazy — o dopasowaniu decyduje ``mentions``.
     """
     from app.services.scoring_service import skill_name_variants
+    from app.services.skill_normalize import implied_forms
 
     forms: set[str] = set()
     for label in must:
@@ -225,9 +387,14 @@ def _loose_pg_pattern(must: Sequence[str]) -> Optional[str]:
         if requirement is None:
             continue
         for option in requirement.options:
-            for form in [option.lower(), *skill_name_variants([option])]:
+            variants = [option.lower(), *skill_name_variants([option])]
+            for form in [*variants, *implied_forms(option)]:
                 if len(form.strip()) >= 2:
                     forms.add(form.strip())
+                inflected = _inflected(form)
+                if inflected is not None and inflected[1]:
+                    # „Kafką” nie zawiera „kafka” — filtr notatek bierze rdzeń.
+                    forms.add(inflected[1])
     if not forms:
         return None
     return "|".join(re.escape(f) for f in sorted(forms, key=len, reverse=True))
@@ -291,7 +458,7 @@ async def _load_notes(db, ids: list[int], pattern: Optional[str]):
     if pattern and has_notes:
         rows = await db.execute(
             text(
-                "SELECT candidate_id, content FROM notes "
+                "SELECT candidate_id, content, kind FROM notes "
                 "WHERE candidate_id = ANY(:ids) AND source_deleted_at IS NULL "
                 "AND note_type::text = ANY(:types) AND content ~* :pattern "
                 f"AND {note_kinds.ai_readable_sql()}"
@@ -302,6 +469,8 @@ async def _load_notes(db, ids: list[int], pattern: Optional[str]):
                 "pattern": pattern,
             },
         )
-        for candidate_id, content in rows:
-            note_texts.setdefault(candidate_id, []).append(content or "")
+        for candidate_id, content, kind in rows:
+            note_texts.setdefault(candidate_id, []).append(
+                evidence_note_text(kind, content)
+            )
     return has_notes, note_texts

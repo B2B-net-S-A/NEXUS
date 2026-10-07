@@ -14,6 +14,11 @@ Czyta (hurtowo, bez zawężania widoczności — to wejście liczenia „Stawki 
   po negocjacji ``rchange:{id}:agreed``. Wiersz etapu, który zmiana
   nadpisała, nie dubluje jej w historii, a stawka sprzed pierwszej zmiany
   zostaje jako ``rchange:{id}:prev`` (inaczej znikałaby z „Stawki od”).
+* oczekiwanie kandydata z krótkiego wpisu DL-a „X/Y” w notatce (07.10.2026),
+  klucz ``note:{note_id}``. Do obserwacji idzie WYŁĄCZNIE Y (niższa liczba);
+  X to stawka do klienta, której rekruter nie widzi — nie może jej odsłonić
+  historia stawek. Wpis powtarzający kwotę etapu albo karty tej samej
+  rekrutacji nie dubluje historii.
 
 Stawki z umów (co płaciliśmy) są tylko do wyświetlenia — czyta je
 ``candidate_rate_overview``, nie ta funkcja.
@@ -213,6 +218,23 @@ _RATE_CHANGES_SQL = text(
     "ORDER BY candidate_id, job_id, created_at, id"
 )
 
+
+def _note_pairs_sql() -> Any:
+    # Import w funkcji: reguła wpisu (i jej wyrażenie autora) żyje przy stawce
+    # do klienta.
+    from app.services import client_rate_notes
+
+    return text(
+        "SELECT n.id, n.candidate_id, n.job_id, n.author_id, n.kind, n.content, "
+        "COALESCE(n.source_created_at, n.created_at) AS at, "
+        f"{client_rate_notes.DL_PAIR_AUTHOR_SQL} AS author_is_dl "
+        "FROM notes n LEFT JOIN users u ON u.id = n.author_id "
+        "WHERE n.candidate_id = ANY(:ids) "
+        "AND n.kind = ANY(:kinds) AND n.parent_note_id IS NULL "
+        "AND n.source_deleted_at IS NULL AND n.content ~ :pattern"
+    )
+
+
 _SUBMISSIONS_SQL = text(
     "SELECT id, matched_candidate_id AS candidate_id, job_id, created_at, "
     "raw_payload->>'expected_rate_hourly' AS rate "
@@ -312,7 +334,57 @@ async def collect(
                 not_comparable=amount is None,
             )
         )
+
+    await _add_note_pair_observations(db, out, ids)
     return out
+
+
+async def _add_note_pair_observations(
+    db: AsyncSession, out: dict[int, list[RateObservation]], ids: list[int]
+) -> None:
+    """Oczekiwanie kandydata z wpisu „X/Y” (``client_rate_notes.dl_pair_from_note``).
+
+    Zwykła notatka (``human``) liczy się tylko, gdy jej autor ma rolę DL-a albo
+    admina — ta sama reguła co plan stawki do klienta.
+    """
+    # Import w funkcji: reguła wpisu żyje przy stawce do klienta.
+    from app.services import client_rate_notes
+
+    rows = await db.execute(
+        _note_pairs_sql(),
+        {
+            "ids": ids,
+            "kinds": list(client_rate_notes.DL_PAIR_KINDS),
+            "pattern": client_rate_notes.DL_PAIR_SQL_PATTERN,
+        },
+    )
+    for row in rows.mappings():
+        pair = client_rate_notes.dl_pair_from_note(
+            row["kind"], row["content"], author_is_dl=bool(row["author_is_dl"])
+        )
+        if pair is None:
+            continue
+        amount = pair[1].quantize(_CENT)
+        observations = out[row["candidate_id"]]
+        if row["job_id"] is not None and any(
+            o.job_id == row["job_id"] and o.amount_hourly == amount
+            for o in observations
+            if not o.key.startswith("note:")
+        ):
+            continue
+        observations.append(
+            RateObservation(
+                key=f"note:{row['id']}",
+                candidate_id=row["candidate_id"],
+                amount_hourly=amount,
+                # Tylko kwota kandydata — stawka do klienta nie wychodzi.
+                raw=f"{pair[1].normalize():f} PLN/h",
+                at=row["at"],
+                source="note",
+                job_id=row["job_id"],
+                author_id=row["author_id"],
+            )
+        )
 
 
 def _raw(amount: Any, unit: Optional[str], currency: Optional[str]) -> Optional[str]:

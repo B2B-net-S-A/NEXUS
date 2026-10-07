@@ -10,6 +10,10 @@ CAŁY zespół i wszystkie źródła, dopóki osoba nie dostanie NOWEJ wersji CV
 (``cv_revision`` inne niż ``dismissed_cv_revision``) — wtedy wraca jako
 ``proposed`` z flagą ``previously_dismissed`` w ``evidence``.
 
+``expired`` (0422): propozycja nocnego przeglądu bazy (``full_base``), której
+nowszy, kompletny przegląd tej rekrutacji już nie zaproponował. Wiersz zostaje,
+status pary go pomija, a powrót osoby w kolejnym przeglądzie = ``proposed``.
+
 Licznik na liście rekrutacji jest zespołowy (propozycja liczy się, dopóki ktoś
 jej nie obsłuży: „Dodaj" albo „Pomiń") — nie ma znacznika „widziane" per osoba.
 
@@ -18,14 +22,13 @@ wolny tekst z CV. ``run_id`` celowo BEZ klucza obcego: przeglądy kasuje
 retencja, a propozycja ma ją przeżyć.
 """
 
-from datetime import date, datetime
+from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
-    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -53,7 +56,9 @@ JOB_PROPOSAL_SOURCES = (
     # 0405: dopasowanie z integracji (JJIT/RocketJobs) — nigdy karta na tablicy.
     "job_board",
 )
-# 0422 (audyt 06.10.2026): ``expired`` — propozycja zamkniętej rekrutacji.
+# 0422: ``expired`` = nowszy, kompletny nocny przegląd już tej osoby nie
+# zaproponował albo rekrutację zamknięto (audyt 06.10.2026, R6). Status pary go
+# pomija; powrót w kolejnym przeglądzie = ``proposed``.
 JOB_PROPOSAL_STATUSES = ("proposed", "dismissed", "added", "expired")
 
 
@@ -121,31 +126,3 @@ class JobProposal(Base):
     # 0405: powód „Pomiń” (wymagany od 30.09.2026) i opis przy „inny”.
     dismiss_reason: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     dismiss_note: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-
-
-class JobProposalInboxOpen(Base):
-    """Otwarcie skrzynki „Do przejrzenia” — jedno na (rekrutacja, osoba, dzień).
-
-    0422 (audyt 06.10.2026): mianownik do pomiaru, czy propozycje są w ogóle
-    oglądane. Bez treści i bez kandydatów — sam fakt otwarcia.
-    """
-
-    __tablename__ = "job_proposal_inbox_opens"
-    __table_args__ = (
-        UniqueConstraint(
-            "job_id", "user_id", "opened_on", name="uq_job_proposal_inbox_opens_day"
-        ),
-        Index("ix_job_proposal_inbox_opens_opened_on", "opened_on"),
-    )
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    job_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False
-    )
-    user_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-    )
-    opened_on: Mapped[date] = mapped_column(Date, nullable=False)
-    opened_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )

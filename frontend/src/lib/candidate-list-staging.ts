@@ -30,6 +30,30 @@ function criteriaTokens(filters: CandidateFilters): string[] {
   return out;
 }
 
+/** Parametry, w których jeden wpis to wiersz słów („a|b”) — granice wierszy się liczą. */
+const ROW_KEYS = new Set(["q_any", "q_pref"]);
+
+/**
+ * Układ wierszy (U6, audyt 06.10.2026): `criteriaTokens` dzieli wiersze po
+ * `|`, więc przeniesienie słowa z wiersza do wiersza wyglądało jak brak
+ * zmiany — wchodziło bez „Szukaj” i liczyło się jako 0. Kolejność słów
+ * w wierszu i kolejność wierszy nie zmieniają wyniku, więc nie są zmianą.
+ */
+function rowsSignature(filters: CandidateFilters): string {
+  const params = encodeFilterCriteria({ ...filters, sort: "newest", sortExplicit: false });
+  const rows: string[] = [];
+  params.forEach((value, key) => {
+    if (!ROW_KEYS.has(key)) return;
+    const words = value
+      .split("|")
+      .map((w) => w.trim().toLowerCase())
+      .filter(Boolean)
+      .sort();
+    rows.push(`${key}=${words.join("|")}`);
+  });
+  return rows.sort().join("\n");
+}
+
 /** Ile zmian czeka na „Szukaj” (każde słowo, filtr i wartość osobno). */
 export function filterChangeCount(draft: CandidateFilters, applied: CandidateFilters): number {
   const a = criteriaTokens(applied);
@@ -43,6 +67,8 @@ export function filterChangeCount(draft: CandidateFilters, applied: CandidateFil
     else changes += 1;
   }
   for (const n of remaining.values()) changes += n;
+  // Te same słowa w innych wierszach — jedna zmiana (przeniesienie).
+  if (changes === 0 && rowsSignature(draft) !== rowsSignature(applied)) return 1;
   return changes;
 }
 

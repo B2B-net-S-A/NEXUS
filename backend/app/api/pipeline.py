@@ -3181,6 +3181,11 @@ async def submit_stage_screening(
         # z najnowszym wypełnionym arkuszem tej pary.
         previous, _ = await _latest_filled_screening(db, stage, for_write=True)
     job = await db.scalar(select(Job).where(Job.id == stage.job_id))
+    # Zapis człowieka przejmuje arkusz z notatki (07.10.2026): odpowiedzi
+    # `note_sync` stają się `note_import`, więc automat już ich nie poprawi.
+    from app.services.screening_note_sync import humanize_origins
+
+    humanize_origins(answers)
     screening_sheets.stamp_sheet(
         answers,
         questions=screening_sheets.question_texts(

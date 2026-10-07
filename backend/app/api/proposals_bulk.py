@@ -451,6 +451,7 @@ async def add_candidates_to_job(
     entry_source: str = candidate_claim.ENTRY_ADDED_MANUAL,
     claim: bool = True,
     entry_meta: Optional[dict] = None,
+    mark_proposals: bool = False,
 ) -> IntakeResult:
     """Dodaj kandydatów do pipeline'u rekrutacji — jedna logika dla trasy i automatu.
 
@@ -465,6 +466,11 @@ async def add_candidates_to_job(
     zakłada blokadę 12 h na ``actor_user_id`` (osoba dodana ręcznie). Osoba
     z otwartą propozycją przepięcia dostaje źródło ``reassign`` i rekrutację,
     z której przyszła — niezależnie od ekranu, z którego ją dodano.
+
+    ``mark_proposals`` (07.10.2026): propozycje osoby stają się ``added``
+    wyłącznie przy dodaniu przez człowieka. Karta z integracji albo automatu
+    (``auto_match``) zostawia skrzynkę bez zmian — inaczej „dodana” znaczyłoby
+    „ktoś z zespołu ją wybrał”, choć nikt jej nie wybrał.
     """
     # Kanoniczna kolejność blokad — patrz `canonical_candidate_lock_order`.
     # Pętla niżej blokuje wiersz kandydata przez `open_process`, a jedyny commit
@@ -597,6 +603,8 @@ async def add_candidates_to_job(
                 reassign_from_job_id=reassign_sources.get(candidate_id),
                 claim_for_user_id=actor_user_id if claim else None,
                 entry_meta=entry_meta,
+                # Propozycje oznacza ta funkcja sama (`mark_proposals`, niżej).
+                mark_proposals=False,
             )
             # M3-ACT-01: every stage-creating entry point must snapshot the CV that
             # was current at assignment (the evidence of what was submitted) + emit
@@ -647,10 +655,10 @@ async def add_candidates_to_job(
             added.append(candidate_id)
             stage_ids[candidate_id] = stage.id
 
-    if added:
-        # Skrzynka „Propozycje" (0333): osoba faktycznie dodana przestaje być
-        # propozycją — z każdego źródła. W savepoincie i fail-soft: awaria tego
-        # stempla nie może cofnąć dodania do rekrutacji (trasa i automat).
+    if added and mark_proposals:
+        # Skrzynka „Propozycje" (0333): osoba dodana przez człowieka przestaje
+        # być propozycją — z każdego źródła. W savepoincie i fail-soft: awaria
+        # tego stempla nie może cofnąć dodania do rekrutacji.
         from app.services.job_proposals import mark_added_fail_soft  # noqa: PLC0415
 
         await mark_added_fail_soft(db, job_id=job.id, candidate_ids=added)
@@ -865,6 +873,8 @@ async def bulk_add_proposals(
             else _entry_source_for(body.source)
         ),
         claim=not from_integration,
+        # Każde `BulkAddSource` to kliknięcie człowieka; token integracji nie.
+        mark_proposals=not from_integration,
     )
     added, skipped, warnings = result.added, result.skipped, result.warnings
     proposed: list[int] = []

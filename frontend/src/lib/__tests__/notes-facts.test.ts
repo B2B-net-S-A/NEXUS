@@ -5,6 +5,7 @@ import {
   contractTypesText,
   describeNotesRate,
   noticeText,
+  notesAvailabilityOrigin,
   notesAvailabilityText,
   notesWorkModeText,
 } from "@/lib/notes-facts";
@@ -104,5 +105,37 @@ describe("notes facts wording", () => {
   it("labels contract types", () => {
     expect(contractTypesText(["b2b", "uop"])).toBe("B2B, UoP");
     expect(contractTypesText([])).toBe("nie uzupełniono");
+  });
+});
+
+describe("availability from notes (stan na)", () => {
+  const withMarker = (marker: unknown) => ({
+    availability_date: "2026-11-05",
+    cv_extracted_data: { _notes_insights: { _availability_from_notes: marker } },
+  });
+
+  it("shows the note day the availability was counted from", () => {
+    const origin = notesAvailabilityOrigin(
+      withMarker({ date: "2026-11-05", as_of: "2026-10-05", basis: "notice" }),
+    );
+    expect(origin?.text).toBe("z notatek · stan na 05.10.2026");
+    expect(origin?.title).toContain("Okres wypowiedzenia");
+  });
+
+  it("stays silent once a person changed the date", () => {
+    expect(
+      notesAvailabilityOrigin(
+        withMarker({ date: "2026-10-01", as_of: "2026-09-01", basis: "asap" }),
+      ),
+    ).toBeUndefined();
+    expect(
+      notesAvailabilityOrigin({ availability_date: "2026-11-05", cv_extracted_data: [] }),
+    ).toBeUndefined();
+    expect(
+      notesAvailabilityOrigin({
+        availability_date: null,
+        cv_extracted_data: withMarker({ date: "2026-11-05" }).cv_extracted_data,
+      }),
+    ).toBeUndefined();
   });
 });

@@ -130,6 +130,9 @@ const SOURCE_LABEL: Record<string, string> = {
   // 0418: zmiana stawki w trakcie procesu.
   rate_requested: "Zgłoszona zmiana stawki",
   rate_agreed: "Ustalona po negocjacji",
+  // 07.10.2026: oczekiwanie kandydata z wpisu Delivery Leada „X/Y” w notatce
+  // (niższa liczba; stawka do klienta nie trafia do historii).
+  note: "Notatka Delivery Leada",
 };
 
 export function rateSourceLabel(source: string | null | undefined): string {

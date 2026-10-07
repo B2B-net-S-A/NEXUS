@@ -89,7 +89,7 @@ def test_pg_pattern_escapes_special_characters_and_keeps_boundaries():
     assert pattern.startswith("(^|[^") and pattern.endswith("c\\+\\+")
     assert pg_regex(parse_keyword("java*")).endswith("java")
     assert pg_regex(parse_keyword("*script")).startswith("script")
-    assert "[[:space:]/-]+" in pg_regex(parse_keyword("spring boot"))
+    assert "[[:space:]/(),:.-]+" in pg_regex(parse_keyword("spring boot"))
 
 
 # ── Miejscowości ────────────────────────────────────────────────────────────
@@ -271,3 +271,36 @@ async def test_path_variants_match_in_postgres(document, word, expected):
 def test_phrase_matches_hyphen_and_slash():
     assert _matches("spring boot", "Spring-Boot 3")
     assert _matches("spring boot", "Spring/Boot")
+
+
+def test_phrase_gap_skips_brackets_colons_commas_and_dots():
+    """K7 (audyt 06.10.2026): „Spring (Boot, Data)” to Spring Boot.
+
+    Indeks pełnotekstowy (wyszukiwanie ręczne) tak to czyta, a bramka AI
+    (ten sam wzorzec Pythona) ukrywała przez to doświadczonych Javowców.
+    """
+    assert _matches("spring boot", "Java 17, Spring (Boot, Data)")
+    assert _matches("spring boot", "Spring: Boot")
+    assert _matches("spring boot", "Spring. Boot")
+    assert not _matches("spring boot", "Spring i Hibernate, Boot camp")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "document, expected",
+    [
+        ("Java 17, Spring (Boot, Data)", True),
+        ("Spring: Boot", True),
+        ("Spring i Hibernate, Boot camp", False),
+    ],
+)
+async def test_phrase_gap_is_the_same_in_postgres(document, expected):
+    """Lustro wzorca w Postgresie (filtr listy) — ten sam odstęp frazy."""
+    from sqlalchemy import text
+
+    from app.core.database import AsyncSessionLocal
+
+    pattern = pg_regex(parse_keyword("spring boot"))
+    async with AsyncSessionLocal() as db:
+        matched = await db.scalar(text("SELECT :doc ~* :p"), {"doc": document, "p": pattern})
+    assert matched is expected

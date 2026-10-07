@@ -6,11 +6,9 @@ Raport: ``docs/audits/2026-10-06/rekrutacja-przekazanie-i-wyszukiwanie.md``.
 - H4: uczestnicy kategorii nie są odbiorcami dzwonków rekrutacji,
 - H7: rekrutacja bez przekazania do searchu w kolejce Head of Recruitment,
 - add_person (H1): dodanie z pulpitu dzwoni do dodanej osoby,
-- R1: nocny przegląd nie zajmuje miejsc osobami już rozstrzygniętymi,
-- R5: każde dodanie do rekrutacji zamyka propozycję,
+- R5: dodanie do rekrutacji przez człowieka zamyka propozycję (automat nie),
 - R6: zamknięcie rekrutacji wygasza propozycje (i jednorazowa korekta),
 - R8: „Pomiń zaznaczone” jednym powodem,
-- telemetria otwarcia skrzynki,
 - U1: „Przypisz do rekrutacji” z listy kandydatów = etap „Nowi” + blokada 12 h.
 
 Baza testowa jest wspólna i nieczyszczona — asercje dotyczą własnych wierszy.
@@ -27,7 +25,7 @@ from sqlalchemy import delete, select, update
 
 from app.core.database import AsyncSessionLocal
 from app.models.job import Job, JobStatus
-from app.models.job_proposal import JobProposal, JobProposalInboxOpen
+from app.models.job_proposal import JobProposal
 from app.models.notification import Notification, NotificationType
 from app.models.user import User, UserRole
 from app.services import job_proposals as proposals
@@ -194,60 +192,38 @@ async def test_bulk_dismiss_needs_a_reason_and_skips_unknown_people(
     }
 
 
-# ── telemetria otwarcia ──────────────────────────────────────────────────────
-
-
-async def test_inbox_open_is_recorded_once_per_person_and_day(
-    app_client: AsyncClient,
-):
-    recruiter_id, recruiter = await _user(UserRole.recruiter)
-    world = await _world(people=1, recruiter_id=recruiter_id)
-    job_id = world["job_id"]
-
-    first = await app_client.post(f"{_inbox(job_id)}/opened", headers=recruiter)
-    again = await app_client.post(f"{_inbox(job_id)}/opened", headers=recruiter)
-    assert first.status_code == 200, first.text
-    assert first.json() == {"recorded": True}
-    assert again.json() == {"recorded": False}
-    async with AsyncSessionLocal() as db:
-        rows = (
-            await db.scalars(
-                select(JobProposalInboxOpen).where(
-                    JobProposalInboxOpen.job_id == job_id
-                )
-            )
-        ).all()
-    assert [(r.user_id) for r in rows] == [recruiter_id]
-
-    missing = await app_client.post(f"{_inbox(999_999_999)}/opened", headers=recruiter)
-    assert missing.status_code == 404
-
-
 # ── R5 i U1: dodanie do rekrutacji ───────────────────────────────────────────
 
 
-async def test_every_way_of_adding_closes_the_proposal():
+async def test_human_ways_of_adding_close_the_proposal_automat_does_not():
     from app.models.recruitment_pipeline import PipelineStage
     from app.services.recruitment_process_commands import open_process
 
-    world = await _world(people=1)
+    world = await _world(people=2)
     job_id = world["job_id"]
-    [candidate_id] = world["candidate_ids"]
-    await _seed(job_id, [candidate_id])
+    human, automat = world["candidate_ids"]
+    await _seed(job_id, [human, automat])
 
     async with AsyncSessionLocal() as db:
-        await open_process(
-            db,
-            candidate_id=candidate_id,
-            job_id=job_id,
-            stage=PipelineStage.new,
-            stage_def_id=None,
-            moved_at=datetime.now(timezone.utc),
-            actor_user_id=None,
-        )
+        for candidate_id, entry_source in (
+            (human, "added_manual"),
+            (automat, "auto_match"),
+        ):
+            await open_process(
+                db,
+                candidate_id=candidate_id,
+                job_id=job_id,
+                stage=PipelineStage.new,
+                stage_def_id=None,
+                moved_at=datetime.now(timezone.utc),
+                actor_user_id=None,
+                entry_source=entry_source,
+            )
         await db.commit()
 
-    assert await _pair_status(job_id, candidate_id) == {"added"}
+    assert await _pair_status(job_id, human) == {"added"}
+    # `added` stawia wyłącznie człowiek (decyzja 07.10.2026).
+    assert await _pair_status(job_id, automat) == {"proposed"}
 
 
 async def test_assign_from_candidate_list_lands_in_new_with_a_claim(
@@ -283,55 +259,6 @@ async def test_assign_from_candidate_list_lands_in_new_with_a_claim(
     again = await app_client.post(url, headers=recruiter)
     assert again.status_code == 200, again.text
     assert again.json() == {"status": "already_in_pipeline", "count": 1}
-
-
-# ── R1: nocny przegląd ───────────────────────────────────────────────────────
-
-
-async def test_nightly_review_skips_people_already_decided():
-    from app.models.candidate import Candidate, CandidateStatus
-    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
-    from app.services.auto_full_review import _already_decided
-    from app.services.auto_match_outbox import candidate_revision
-
-    world = await _world(people=5)
-    job_id = world["job_id"]
-    fresh, in_job, added, dismissed, blacklisted = world["candidate_ids"]
-    await _seed(job_id, [fresh, added, dismissed])
-    async with AsyncSessionLocal() as db:
-        db.add(
-            CandidateStage(
-                candidate_id=in_job,
-                job_id=job_id,
-                stage=PipelineStage.new,
-                moved_at=datetime.now(timezone.utc),
-            )
-        )
-        await proposals.mark_added(db, job_id=job_id, candidate_ids=[added])
-        # Pominięcie tej samej wersji CV blokuje miejsce; pominięcie bez wersji
-        # ustępuje nowemu CV (ta sama reguła co ``_resurrect_on_new_cv``).
-        same_revision = candidate_revision(await db.get(Candidate, dismissed))
-        await db.execute(
-            update(JobProposal)
-            .where(JobProposal.job_id == job_id, JobProposal.candidate_id == dismissed)
-            .values(status="dismissed", dismissed_cv_revision=same_revision)
-        )
-        await db.execute(
-            update(Candidate)
-            .where(Candidate.id == blacklisted)
-            .values(status=CandidateStatus.blacklisted)
-        )
-        await db.commit()
-        candidates = {
-            c.id: c
-            for c in (
-                await db.scalars(
-                    select(Candidate).where(Candidate.id.in_(world["candidate_ids"]))
-                )
-            ).all()
-        }
-        skip = await _already_decided(db, job_id, candidates)
-    assert skip == {in_job, added, dismissed, blacklisted}
 
 
 # ── H4: uczestnicy kategorii ─────────────────────────────────────────────────

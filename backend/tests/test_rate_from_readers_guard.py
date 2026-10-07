@@ -28,6 +28,9 @@ ALLOWED = {
     "services/trainee_program.py",
     "services/candidate_merge.py",
     "services/public_apply.py",
+    # cofnięcie stawki scrapera porównuje DOKŁADNIE zapisaną kwotę profilu
+    # z kwotą scrapera (audyt 06.10.2026, ochrona przed scaleniem kandydatów)
+    "services/scraper_rate_revert.py",
     # eksport (kolumna profilu obok „Stawki od”), podgląd profilu, walidacja zapisu
     "api/import_export.py",
     "api/candidates.py",

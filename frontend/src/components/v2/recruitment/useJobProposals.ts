@@ -327,9 +327,13 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
     !latestRun.isPending &&
     (latestRunId === null || runData !== undefined || Boolean(fullSearch.error)) &&
     (!secondarySourcesEnabled || (!similar.isPending && !recommendations.isPending));
+  // Skrzynka z kolejnymi stronami (setki osób z nocnego przeglądu): wczytana
+  // część zaniżyłaby liczbę — wtedy czytelnik bierze `total` skrzynki z serwera.
+  const inboxHasMore = inbox.hasNextPage;
   useEffect(() => {
-    if (countsSettled) queryClient.setQueryData(jobProposalsKeys.visibleCount(jobId), totalProposals);
-  }, [queryClient, jobId, totalProposals, countsSettled]);
+    if (!countsSettled) return;
+    queryClient.setQueryData(jobProposalsKeys.visibleCount(jobId), inboxHasMore ? null : totalProposals);
+  }, [queryClient, jobId, totalProposals, countsSettled, inboxHasMore]);
   const entries = useMemo(
     () => filterProposals(allEntries, filters, { budgetHourly }),
     [allEntries, filters, budgetHourly],

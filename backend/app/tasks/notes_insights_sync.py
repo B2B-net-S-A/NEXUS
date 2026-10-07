@@ -45,6 +45,7 @@ from app.services.notes_insights_extractor import (
     notes_fingerprint,
     stamp_no_content,
 )
+from app.services.notes_profile_fill import fill_languages_from_notes, notes_days
 
 logger = logging.getLogger(__name__)
 
@@ -280,6 +281,8 @@ async def run_notes_insights_sync() -> dict[str, Any]:
         "rate_updated": 0,
         "onsite_days_filled": 0,
         "remote_modes_filled": 0,
+        "avail_date_filled": 0,
+        "languages_added": 0,
         "quota_blocked": 0,
         "upgrade_selected": 0,
     }
@@ -362,7 +365,27 @@ async def run_notes_insights_sync() -> dict[str, Any]:
                 )
                 if cand is None:
                     continue
-                row_stats = apply_insights(cand, parsed, fingerprint=fingerprint)
+                days = notes_days(rows)
+                row_stats = apply_insights(
+                    cand,
+                    parsed,
+                    fingerprint=fingerprint,
+                    as_of=days.availability,
+                    latest_note_day=days.latest,
+                )
+                # Języki z notatek tylko dopisują brakujące (07.10.2026) —
+                # w savepoincie: błąd zapisu języków nie cofa faktów kandydata
+                # (flush PRZED savepointem — inaczej rollback zabrałby i je).
+                await db.flush()
+                try:
+                    async with db.begin_nested():
+                        added = await fill_languages_from_notes(db, cid, parsed)
+                except Exception:  # noqa: BLE001
+                    logger.exception("notes-insights: języki padły dla id=%s", cid)
+                    added = 0
+                if added:
+                    row_stats["languages_added"] = added
+                    row_stats["changed"] = 1
                 if row_stats.get("rate_audit"):
                     from app.services import candidate_audit
 
@@ -380,6 +403,8 @@ async def run_notes_insights_sync() -> dict[str, Any]:
                     "rate_updated",
                     "onsite_days_filled",
                     "remote_modes_filled",
+                    "avail_date_filled",
+                    "languages_added",
                 ):
                     stats[key] += row_stats.get(key, 0)
                 if row_stats.get("changed"):

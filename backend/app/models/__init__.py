@@ -719,7 +719,7 @@ from app.models.jarvis import (  # noqa: F401
     JarvisUiEvent,
 )
 from app.models.mail_delivery import MailDeliveryState  # noqa: F401
-from app.models.job_proposal import JobProposal, JobProposalInboxOpen  # noqa: F401
+from app.models.job_proposal import JobProposal  # noqa: F401
 from app.models.job_similar_link import JobSimilarLink  # noqa: F401
 from app.models.my_people import MyPeopleJobMatch, MyPeopleOverride  # noqa: F401
 

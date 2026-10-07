@@ -39,6 +39,7 @@ import { candidatesApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { formatReasonCounts, summarizeBulkResult } from "@/lib/bulk-result-summary";
 import { proposalsBulkApi, type BulkProposalsResponse } from "@/lib/candidate-search-api";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import {
   similarityHint,
   similarityLabel,
@@ -154,12 +155,15 @@ export function useSimilarJobsTab(
   }, [open]);
 
   const q = query.trim();
+  // U8 (audyt 06.10.2026): zapytanie po chwili ciszy, nie po każdej literze.
+  const settledQuery = useDebouncedValue(q, 300);
   const search = useQuery({
-    queryKey: similarSearchKey(jobId, q),
-    queryFn: () => similarJobsApi.search(jobId, q),
-    enabled: open && q.length >= 2,
+    queryKey: similarSearchKey(jobId, settledQuery),
+    queryFn: () => similarJobsApi.search(jobId, settledQuery),
+    enabled: open && settledQuery.length >= 2 && settledQuery === q,
     staleTime: 30_000,
   });
+  const searching = search.isLoading || settledQuery !== q;
 
   const peopleQueries = useQueries({
     queries: chosen.map((otherId) => ({
@@ -433,7 +437,7 @@ export function useSimilarJobsTab(
               className="mt-1 max-h-64 overflow-y-auto rounded-lg border border-border bg-card shadow-sm"
               aria-label="Wyniki wyszukiwania rekrutacji"
             >
-              {search.isLoading ? (
+              {searching ? (
                 <li className="px-3 py-2 text-sm text-muted-foreground">Szukam…</li>
               ) : search.isError ? (
                 <li className="px-3 py-2 text-sm text-destructive">

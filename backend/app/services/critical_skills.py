@@ -42,6 +42,12 @@ STATS_VERSION = 1
 MAX_CRITICAL = 2
 SUGGEST_MIN_RATE = 0.90
 SUGGEST_MIN_JOBS = 5
+# Podpowiedź bierze technologię z tytułu albo z początku KRÓTKIEJ listy must
+# (07.10.2026). Daleka pozycja długiej listy przepisanej z ogłoszenia („C#”
+# na 7. miejscu w roli Java/Angular) ukrywała 7,1% osób zweryfikowanych przez
+# zespół; z tą regułą 2,7% (pomiar na 352 rekrutacjach, 3 115 parach).
+SUGGEST_MAX_POSITION = 3
+SUGGEST_MAX_LIST = 8
 MIN_SENT_PER_JOB = 3
 RECOMPUTE_EVERY = timedelta(days=7)
 _SEED_PATH = (
@@ -175,6 +181,7 @@ def suggest_from_must(must: Sequence[str], title: str = "") -> tuple[str, ...]:
 
     scored: list[tuple[int, float, int, str]] = []
     seen: set[str] = set()
+    short_list = len(must) <= SUGGEST_MAX_LIST
     for position, label in enumerate(must):
         if not isinstance(label, str) or label.lower() in seen:
             continue
@@ -186,6 +193,8 @@ def suggest_from_must(must: Sequence[str], title: str = "") -> tuple[str, ...]:
             continue
         requirement = gate_requirement(label)
         in_title = bool(title and requirement and mentions(requirement, title))
+        if not in_title and not (short_list and position < SUGGEST_MAX_POSITION):
+            continue
         # Najpierw technologia z tytułu (rola „Frontend (Angular)” to Angular,
         # nie Docker z historii), potem odsetek, potem kolejność z listy.
         scored.append((0 if in_title else 1, -stat.rate, position, label))
@@ -357,6 +366,7 @@ async def compute_stats(db) -> dict:
     from app.services.must_text_evidence import (
         EVIDENCE_NOTE_TYPES,
         MustTextEvidence,
+        evidence_note_text,
         text_met_labels,
     )
     from app.services.scoring_service import job_explicit_must_skills
@@ -398,10 +408,10 @@ async def compute_stats(db) -> dict:
             ).scalars()
         }
         notes: dict[int, list[tuple[datetime, str]]] = defaultdict(list)
-        for cid, at, content in (
+        for cid, at, content, kind in (
             await db.execute(
                 text(
-                    "SELECT candidate_id, created_at, content FROM notes "
+                    "SELECT candidate_id, created_at, content, kind FROM notes "
                     "WHERE candidate_id = ANY(:ids) AND source_deleted_at IS NULL "
                     "AND note_type::text = ANY(:types) "
                     f"AND {note_kinds.ai_readable_sql()}"
@@ -409,7 +419,7 @@ async def compute_stats(db) -> dict:
                 {"ids": need, "types": list(EVIDENCE_NOTE_TYPES)},
             )
         ).all():
-            notes[cid].append((at, content or ""))
+            notes[cid].append((at, evidence_note_text(kind, content)))
         for job, must, sent in work:
             cutoff = getattr(job, "opened_at", None) or getattr(job, "created_at", None)
             have: dict[str, int] = defaultdict(int)

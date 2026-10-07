@@ -322,6 +322,24 @@ export interface FlowPairRow {
   qc_status?: string | null;
 }
 
+/** Jedna osoba z „Najlepszych propozycji z bazy” (07.10.2026). */
+export interface FlowProposalPerson {
+  candidate_id: number;
+  candidate_name: string;
+  score?: number | null;
+}
+
+/** Najlepsze otwarte propozycje nocnego przeglądu jednej rekrutacji. */
+export interface FlowJobProposals {
+  job_id: number;
+  job_title: string;
+  job_working_title?: string | null;
+  client_name?: string | null;
+  /** Wszystkie otwarte propozycje z bazy tej rekrutacji. */
+  total: number;
+  people: FlowProposalPerson[];
+}
+
 export interface FlowContractRow {
   id: number;
   contract_number: string;
@@ -361,6 +379,9 @@ export interface FlowBlock {
   waiting_client_days: number;
   unsigned_contracts: FlowContractRow[];
   order_mail_review: number;
+  /** 07.10.2026 — starszy serwer pola nie zna (brak = pusta lista). */
+  top_proposals?: FlowJobProposals[];
+  top_proposals_per_job?: number;
 }
 
 export interface FinanceBlock {

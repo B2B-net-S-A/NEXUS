@@ -14,6 +14,29 @@
 /** Najwięcej wierszy w edytorze (serwer przyjmuje 20 — zapas na stare adresy). */
 export const MAX_REQUIREMENT_ROWS = 10;
 
+/**
+ * Słowo kluczowe ma co najmniej 2 znaki. „C” i „R” jako słowo kluczowe
+ * znajdowały prawie całą bazę („2019 r.”, „C++”), więc nie przechodzą — pole
+ * mówi, gdzie je wyszukać (przegląd PR #2056). Lustro serwera:
+ * `keyword_long_enough` / `too_short_keyword_message` w `keyword_terms.py`.
+ */
+export const KEYWORD_MIN_CHARS = 2;
+
+export const SINGLE_LETTER_HINT =
+  "Pojedynczą literę (np. C albo R) wyszukaj w polu „Umiejętności”.";
+
+/** Słowo kluczowe ma co najmniej 2 znaki. */
+export function keywordLongEnough(word: string): boolean {
+  return word.trim().length >= KEYWORD_MIN_CHARS;
+}
+
+/** Komunikat dla słowa, którego nie da się szukać (zamiast cichego pominięcia). */
+export function tooShortKeywordMessage(words: readonly string[]): string {
+  const list = words.map((w) => `„${w}”`).join(", ");
+  const verb = words.length > 1 ? "są za krótkie" : "jest za krótkie";
+  return `${list} ${verb} — słowo kluczowe musi mieć co najmniej ${KEYWORD_MIN_CHARS} znaki. ${SINGLE_LETTER_HINT}`;
+}
+
 /** `|` rozdziela słowa grupy w adresie — w samym słowie zamieniamy go na spację. */
 export function sanitizeKeyword(word: string): string {
   return word.replace(/\|/g, " ").replace(/\s+/g, " ").trim();
@@ -121,7 +144,7 @@ export function splitAlternatives(word: string): string[] | null {
   const parts = word
     .split(/\s+(?:\/|lub|or)\s+/i)
     .map(sanitizeKeyword)
-    .filter((part) => part.length >= 2);
+    .filter(keywordLongEnough);
   return parts.length >= 2 ? parts : null;
 }
 
@@ -230,7 +253,7 @@ export function addToRow(
     const out = [...row];
     for (const raw of words) {
       const word = sanitizeKeyword(raw);
-      if (word.length < 2 || seen.has(foldWord(word))) continue;
+      if (!keywordLongEnough(word) || seen.has(foldWord(word))) continue;
       seen.add(foldWord(word));
       out.push(word);
     }

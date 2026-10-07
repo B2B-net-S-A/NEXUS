@@ -45,13 +45,21 @@ afterEach(() => {
 });
 
 describe("SearchRequirementsEditor — liczba osób w bazie", () => {
-  it("pyta listę kandydatów powtarzanymi parametrami, z wierszami i wykluczeniami", async () => {
+  it("pyta listę kandydatów powtarzanymi parametrami: obowiązkowe wiersze krytycznych i wykluczenia", async () => {
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <SearchRequirementsEditor
           rows={[["Java"], ["Kafka", "RabbitMQ"]]}
           exclude={["junior"]}
           onChange={() => undefined}
+          critical={{
+            stored: ["Java", "Kafka lub RabbitMQ"],
+            decided: true,
+            effective: ["Java", "Kafka lub RabbitMQ"],
+            source: "dl",
+            suggested: [],
+            search_rows: [["Java"], ["Kafka", "RabbitMQ"]],
+          }}
         />
       </QueryClientProvider>,
     );
@@ -66,24 +74,60 @@ describe("SearchRequirementsEditor — liczba osób w bazie", () => {
     expect(url).toContain("page_size=1");
   });
 
-  it("wiersz, który nie jest technologią, nie wchodzi do liczby — tylko podnosi", async () => {
+  it("obowiązkowe są tylko umiejętności krytyczne — ta sama reguła co „Szukaj w bazie” (jobSearchPlan)", async () => {
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <SearchRequirementsEditor
-          rows={[["Java"], ["bankowość"]]}
+          rows={[["Java"], ["Kafka"], ["bankowość"]]}
           exclude={[]}
           onChange={() => undefined}
+          critical={{
+            stored: ["Java"],
+            decided: true,
+            effective: ["Java"],
+            source: "dl",
+            suggested: [],
+            search_rows: [["Java", "J2EE"]],
+          }}
         />
       </QueryClientProvider>,
     );
 
     expect(
       await screen.findByText(
-        "~42 osoby spełnia wymagania techniczne; 1 wiersz nie jest technologią — tylko podnosi w kolejności",
+        "~42 osoby ma umiejętności krytyczne; 2 wiersze tylko podnoszą w kolejności",
       ),
     ).toBeInTheDocument();
     const url = decodeURIComponent(urls.at(-1) ?? "");
-    expect(url).toContain("q_any_group=Java");
+    // Wiersz krytycznej dostaje warianty nazwy z serwera; „Kafka” — choć to
+    // technologia — nie jest krytyczna, więc nie wycina.
+    expect(url).toContain("q_any_group=Java|J2EE");
+    expect(url).not.toContain("Kafka");
     expect(url).not.toContain("bankowość");
+  });
+
+  it("bez krytycznych nic nie jest obowiązkowe — cała baza", async () => {
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <SearchRequirementsEditor
+          rows={[["Java"]]}
+          exclude={[]}
+          onChange={() => undefined}
+          critical={{
+            stored: [],
+            decided: true,
+            effective: [],
+            source: "none",
+            suggested: [],
+            search_rows: [],
+          }}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(
+      await screen.findByText("Cała baza (~42 osoby); 1 wiersz tylko podnosi w kolejności"),
+    ).toBeInTheDocument();
+    expect(decodeURIComponent(urls.at(-1) ?? "")).not.toContain("q_any_group");
   });
 });

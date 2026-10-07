@@ -880,6 +880,20 @@ except Exception as _rate_change_err:  # noqa: BLE001
     print(f"candidate rate change DDL unavailable: {_rate_change_err!r}")
     _RATE_CHANGE_DDL = []
 
+# Dane z notatek do pól (migracja 0423): wyzwalacz kolejki „Stawki od” na
+# notatkach z wpisem „X/Y” i jednorazowe zakolejkowanie kandydatów — JEDNO
+# źródło z migracją (`app/services/notes_facts_schema.py`). CHECK źródła
+# języków (`notes`) stoi niżej literalnie, w `_CONSTRAINT_STATEMENTS`.
+try:
+    from app.services import notes_facts_schema as _notes_facts
+
+    _NOTES_FACTS_DDL = list(_notes_facts.TRIGGER_DDL)
+    _NOTES_FACTS_BACKFILL = list(_notes_facts.BACKFILL_DDL)
+except Exception as _notes_facts_err:  # noqa: BLE001
+    print(f"notes facts DDL unavailable: {_notes_facts_err!r}")
+    _NOTES_FACTS_DDL = []
+    _NOTES_FACTS_BACKFILL = []
+
 # Stawki linii MD z trzema miejscami i podział zejść wspólnej puli MD
 # (migracja 0419) — JEDNO źródło z migracją
 # (`app/services/md_order_precision_schema.py`).
@@ -920,31 +934,22 @@ try:
     _JOB_PROPOSAL_FEEDBACK_COLUMNS = list(_proposal_feedback.COLUMN_DDL)
     # Źródło (`ck_job_proposals_source`) stoi niżej literalnie; stąd tylko powód.
     _JOB_PROPOSAL_FEEDBACK_CONSTRAINTS = list(_proposal_feedback.CONSTRAINT_DDL[1:])
+    # 0422: status `expired` (propozycja, której nowszy przegląd nie zaproponował).
+    _JOB_PROPOSAL_STATUS_CONSTRAINTS = list(_proposal_feedback.STATUS_CONSTRAINT_DDL)
 except Exception as _proposal_feedback_err:  # noqa: BLE001
     print(f"job proposal feedback DDL unavailable: {_proposal_feedback_err!r}")
     _JOB_PROPOSAL_FEEDBACK_COLUMNS = []
     _JOB_PROPOSAL_FEEDBACK_CONSTRAINTS = []
-
-# Propozycje: status „wygasła” i otwarcia skrzynki (migracja 0422, audyt
-# 06.10.2026) — JEDNO źródło z migracją (`app/services/job_proposal_expiry_schema.py`).
-try:
-    from app.services import job_proposal_expiry_schema as _proposal_expiry
-
-    _JOB_PROPOSAL_EXPIRY_TABLES = list(_proposal_expiry.TABLE_DDL)
-    _JOB_PROPOSAL_EXPIRY_CONSTRAINTS = list(_proposal_expiry.CONSTRAINT_DDL)
-except Exception as _proposal_expiry_err:  # noqa: BLE001
-    print(f"job proposal expiry DDL unavailable: {_proposal_expiry_err!r}")
-    _JOB_PROPOSAL_EXPIRY_TABLES = []
-    _JOB_PROPOSAL_EXPIRY_CONSTRAINTS = []
+    _JOB_PROPOSAL_STATUS_CONSTRAINTS = []
 
 _COLUMN_STATEMENTS = [
     *_KEYWORD_CORPUS_DDL,
     *_JOB_PROPOSAL_FEEDBACK_COLUMNS,
-    *_JOB_PROPOSAL_EXPIRY_TABLES,
     *_PLAIN_KNOWLEDGE_DDL,
     *_APPLICATION_SCREENING_DDL,
     *_RATE_FROM_DDL,
     *_RATE_CHANGE_DDL,
+    *_NOTES_FACTS_DDL,
     *_MD_PRECISION_DDL,
     *_B2B_DOCUMENTS_DDL,
     *_B2B_REGISTER_DDL,
@@ -6194,6 +6199,7 @@ _DATA_STATEMENTS = [
     "ON CONFLICT (key) DO NOTHING",
     *_B2B_DOCUMENTS_BACKFILL,
     *_RATE_FROM_BACKFILL,
+    *_NOTES_FACTS_BACKFILL,
     # 0412: „Reply” z Traffita to odpowiedź na notatkę, nie mail — jednorazowa
     # zmiana typu (znacznik w app_settings), bez ruszania `updated_at`.
     # Lustro `note_kind_schema.REPLY_RETYPE`.
@@ -7994,9 +8000,8 @@ _CONSTRAINT_STATEMENTS = [
     # 0405: powód „Pomiń” — JEDNO źródło z migracją
     # (`app/services/job_proposal_feedback_schema.py`).
     *_JOB_PROPOSAL_FEEDBACK_CONSTRAINTS,
-    # 0422: status „wygasła” (zamknięta rekrutacja) — JEDNO źródło z migracją
-    # (`app/services/job_proposal_expiry_schema.py`).
-    *_JOB_PROPOSAL_EXPIRY_CONSTRAINTS,
+    # 0422: status `expired` — JEDNO źródło z migracją (ten sam moduł).
+    *_JOB_PROPOSAL_STATUS_CONSTRAINTS,
     """DO $$ BEGIN
         ALTER TABLE candidates ADD CONSTRAINT ck_candidates_b2b_willingness
             CHECK (b2b_willingness IS NULL OR b2b_willingness IN ('b2b', 'would_switch', 'employment_only')) NOT VALID;
@@ -8484,12 +8489,15 @@ _CONSTRAINT_STATEMENTS = [
     # importu dostaje `tr_legacy`. Oba CHECK-i przyjmują starą I nową wartość,
     # żeby rollback (redeploy poprzedniego obrazu, który wciąż pisze
     # `talent_radar`) nie wywalał się na naruszeniu constraintu.
+    # 0423: + `notes` — języki zaobserwowane w notatkach rekruterów
+    # (lustro `notes_facts_schema.LANGUAGE_PROVENANCE_DDL`).
     "ALTER TABLE candidate_languages DROP CONSTRAINT IF EXISTS ck_candidate_languages_provenance",
     """DO $$ BEGIN
         ALTER TABLE candidate_languages
             ADD CONSTRAINT ck_candidate_languages_provenance
             CHECK (provenance IN ('manual', 'cv', 'traffit', 'talent_radar',
-                                  'tr_legacy', 'csv', 'legacy', 'unknown'));
+                                  'tr_legacy', 'csv', 'legacy', 'unknown',
+                                  'notes'));
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     "ALTER TABLE candidate_source_identity_reviews DROP CONSTRAINT IF EXISTS ck_candidate_source_identity_review_kind",
     """DO $$ BEGIN
@@ -9678,6 +9686,36 @@ async def repair():
             await db.rollback()
             raise
     print(f"notification backlog repair: {summary or 'already done'}")
+
+asyncio.run(repair())
+PY
+
+# Propozycje z bazy (07.10.2026) — jednorazowo: `added` stawia już wyłącznie
+# dodanie przez człowieka, więc propozycje oznaczone jako dodane przez kartę
+# z integracji (każdy proces pary z `entry_source='auto_match'`) wracają do
+# `proposed`. Warunek SQL, nie lista ID; logika w
+# `app/services/proposal_added_repair.py`, marker w `app_settings` + advisory
+# lock. Log: same liczby.
+startup_phase "repair-proposals-added-by-integration"
+echo "Proposals: one-shot revert of 'added' set by integration cards..."
+python - <<'PY' || echo "proposal added repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.proposal_added_repair import run_proposal_added_repair
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_proposal_added_repair(db)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+    if summary is None:
+        print("proposal added repair: already done")
+    else:
+        print(f"proposal added repair: pairs={summary['pairs']} rows={summary['rows']}")
 
 asyncio.run(repair())
 PY

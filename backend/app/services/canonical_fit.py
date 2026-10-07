@@ -53,6 +53,14 @@ def display_score(fit_score: float | None) -> int | None:
     return int(math.floor(min(max(float(fit_score), 0.0), 100.0) + 0.5))
 
 
+def uses_prior_screening(context: RequestMatchingContext) -> bool:
+    """Warstwa wcześniejszych rozmów — decyzja zamrożona w żądaniu, nie flaga
+    z chwili oceny: przegląd zaczęty przy OFF dokończy się bez niej."""
+    from app.services.prior_screening import VERSION
+
+    return context.versions.get("prior_screening") == VERSION
+
+
 async def score_pair(db, context: RequestMatchingContext, candidate, measurement):
     from app.services.scoring_service import score_candidate_job
 
@@ -65,6 +73,7 @@ async def score_pair(db, context: RequestMatchingContext, candidate, measurement
             semantic_unavailable=measurement.status != "measured",
             profile=context.profile(),
             base_fit=True,
+            prior_screening=uses_prior_screening(context),
         )
     return CanonicalFit(breakdown, measurement.status)
 
@@ -97,6 +106,10 @@ async def score_candidates(db, context: RequestMatchingContext, candidates):
     job = context.as_job()
     await load_verified_requirements(db, job, candidates)
     await _attach_missing_evidence(db, job, candidates)
+    if uses_prior_screening(context):
+        from app.services.prior_screening import attach_prior_screening
+
+        await attach_prior_screening(db, job, candidates)
     with stage("query_embedding") as outcome:
         try:
             vector = await request_vector(context.query_text)

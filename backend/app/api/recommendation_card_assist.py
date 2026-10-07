@@ -56,6 +56,7 @@ from app.schemas.champion import (
 from app.services import candidate_claim, note_kinds, screening_sheets
 from app.services import recommendation_card_assist as assist
 from app.services import recommendation_cards as cards
+from app.services.screening_note_sync import humanize_origins
 
 logger = logging.getLogger(__name__)
 
@@ -295,6 +296,9 @@ async def _write_answers(
             409,
             "Arkusz screeningu tej osoby ma nieprawidłowe dane — popraw go w arkuszu.",
         ) from None
+    # Zapis człowieka przejmuje arkusz z notatki (07.10.2026) — automat
+    # (`screening_note_sync`) poprawia tylko arkusz z samych `note_sync`.
+    humanize_origins(sheet)
     by_id = {item.question_id: item for item in sheet.answers}
     for answer in answers:
         keywords = (answer.keywords or "").strip() or None

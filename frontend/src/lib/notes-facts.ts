@@ -155,6 +155,44 @@ export function notesAvailabilityText(
   };
 }
 
+const AVAILABILITY_BASIS_TITLE: Record<string, string> = {
+  date: "Data podana w notatce rekrutera.",
+  month: "Miesiąc podany w notatce rekrutera — liczymy od jego pierwszego dnia.",
+  notice: "Okres wypowiedzenia z notatki liczony od dnia tej notatki.",
+  asap: "„Od zaraz” z notatki — liczone od dnia tej notatki.",
+};
+
+/**
+ * Linia pod dostępnością, gdy datę wpisały notatki (07.10.2026): „stan na” to
+ * dzień najnowszej notatki, od którego liczono dostępność. Znacznik zapisuje
+ * serwer (`_notes_insights._availability_from_notes`); pokazujemy go tylko,
+ * dopóki profil ma tę samą datę — poprawka człowieka go wyłącza.
+ */
+export function notesAvailabilityOrigin(candidate: {
+  availability_date?: string | null;
+  cv_extracted_data?: unknown;
+}): { text: string; title: string } | undefined {
+  const data = candidate.cv_extracted_data;
+  if (!candidate.availability_date || !data || typeof data !== "object") {
+    return undefined;
+  }
+  const insights = (data as Record<string, unknown>)._notes_insights;
+  if (!insights || typeof insights !== "object") return undefined;
+  const marker = (insights as Record<string, unknown>)._availability_from_notes;
+  if (!marker || typeof marker !== "object") return undefined;
+  const { date, as_of: asOf, basis } = marker as Record<string, unknown>;
+  if (typeof date !== "string" || date !== candidate.availability_date.slice(0, 10)) {
+    return undefined;
+  }
+  const asOfText = typeof asOf === "string" ? formatIsoDate(asOf) : null;
+  return {
+    text: asOfText ? `z notatek · stan na ${asOfText}` : "z notatek",
+    title:
+      (typeof basis === "string" && AVAILABILITY_BASIS_TITLE[basis]) ||
+      "Data dostępności z notatek rekruterów.",
+  };
+}
+
 export function formatExtractedAt(value: string | null): string | null {
   if (!value) return null;
   const date = new Date(value);

@@ -22,6 +22,11 @@ sama reguła kolumn co Tablica (`cv_in_transit._place`):
   potwierdzonego podpisu, zamówienia z maila do weryfikacji.
 * **Finanse** — braki zamówień, nowe PDF-y, zatrudnieni bez zamówienia,
   nieudane maile zamówień.
+* **Najlepsze propozycje z bazy** (07.10.2026) — w tych samych rekrutacjach co
+  Ogłoszenia: po ``TOP_PROPOSALS_PER_JOB`` najlepszych otwartych propozycji
+  nocnego przeglądu (``full_base``), ta sama widoczność co skrzynka
+  (``job_proposals.top_open_by_job``). „Dodaj” i „Pomiń” idą istniejącymi
+  trasami skrzynki.
 
 Każda grupa liczy się we własnym savepoincie: awaria jednej nie może zabrać
 reszty ani dać 500 całego pulpitu. Poranny dzwonek (`board_tasks.digest_counts`)
@@ -68,6 +73,7 @@ WAITING_CLIENT_DAYS = 7
 UNSIGNED_CONTRACT_DAYS = 2
 HIRED_WINDOW_DAYS = 60
 ORDER_MAIL_FAILED_DAYS = 14
+TOP_PROPOSALS_PER_JOB = 3
 
 SCREENING_COLUMN = "screening"
 VERIFIED_COLUMN = "verified"
@@ -128,6 +134,26 @@ class ContractRow:
     created_at: datetime
 
 
+@dataclass(frozen=True)
+class ProposalPick:
+    candidate_id: int
+    candidate_name: str
+    score: Optional[float]
+
+
+@dataclass(frozen=True)
+class JobProposalsRow:
+    """Najlepsze otwarte propozycje z bazy jednej rekrutacji."""
+
+    job_id: int
+    job_title: str
+    job_working_title: Optional[str]
+    client_name: Optional[str]
+    # Wszystkie otwarte propozycje z bazy tej rekrutacji (licznik skrzynki).
+    total: int
+    people: tuple[ProposalPick, ...]
+
+
 @dataclass
 class FlowBlock:
     new_requests: list[NewRequestRow] = field(default_factory=list)
@@ -139,6 +165,7 @@ class FlowBlock:
     waiting_client: list[PairRow] = field(default_factory=list)
     unsigned_contracts: list[ContractRow] = field(default_factory=list)
     order_mail_review: int = 0
+    top_proposals: list[JobProposalsRow] = field(default_factory=list)
     # Czy osoba ma w ogóle sekcje przepływu (rekruter, TCM, DL) — front pokazuje
     # wtedy zdanie „Nic na Ciebie teraz nie czeka” zamiast ukrywać panel.
     applies: bool = False
@@ -661,6 +688,68 @@ async def _hired_without_order(
     return missing[:MAX_ROWS], len(missing)
 
 
+async def _top_proposals(db: AsyncSession, job_ids: list[int]) -> list[JobProposalsRow]:
+    """Po kilka najlepszych otwartych propozycji z bazy na rekrutację."""
+
+    from app.services.job_proposals import open_counts_for_jobs, top_open_by_job
+
+    if not job_ids:
+        return []
+    picks = await top_open_by_job(
+        db, job_ids, source="full_base", per_job=TOP_PROPOSALS_PER_JOB
+    )
+    if not picks:
+        return []
+    totals = await open_counts_for_jobs(
+        db, sorted({p.job_id for p in picks}), source="full_base"
+    )
+    names = {
+        cid: _name(first, last)
+        for cid, first, last in (
+            await db.execute(
+                select(Candidate.id, Candidate.name, Candidate.lastname).where(
+                    Candidate.id.in_(sorted({p.candidate_id for p in picks}))
+                )
+            )
+        ).all()
+    }
+    jobs = {
+        jid: (title, working, client)
+        for jid, title, working, client in (
+            await db.execute(
+                select(Job.id, Job.title, Job.working_title, Client.name)
+                .outerjoin(Client, Client.id == Job.client_id)
+                .where(Job.id.in_(sorted({p.job_id for p in picks})))
+            )
+        ).all()
+    }
+    by_job: dict[int, list[ProposalPick]] = {}
+    for pick in picks:
+        by_job.setdefault(pick.job_id, []).append(
+            ProposalPick(
+                candidate_id=pick.candidate_id,
+                candidate_name=names.get(pick.candidate_id, "Kandydat"),
+                score=pick.score,
+            )
+        )
+    rows = []
+    for job_id, people in by_job.items():
+        title, working, client = jobs.get(job_id, (f"#{job_id}", None, None))
+        rows.append(
+            JobProposalsRow(
+                job_id=job_id,
+                job_title=title,
+                job_working_title=working,
+                client_name=client,
+                total=max(int(totals.get(job_id, 0)), len(people)),
+                people=tuple(people),
+            )
+        )
+    # Najlepsza propozycja na górze — to ona ma największą szansę na „Dodaj”.
+    rows.sort(key=lambda r: (-(r.people[0].score or 0), r.job_id))
+    return rows[:MAX_ROWS]
+
+
 # ── Składanie ─────────────────────────────────────────────────────────────────
 
 
@@ -695,9 +784,10 @@ async def load_flow(
         return block
 
     if recruits:
+        job_ids: list[int] = []
 
         async def recruiting() -> None:
-            job_ids = await _recruiting_job_ids(db, user)
+            job_ids.extend(await _recruiting_job_ids(db, user))
             placed = await _latest_rows(db, catalog, job_ids)
             block.postings, block.postings_total = _postings(placed)
             block.screening = await _screening(
@@ -712,6 +802,9 @@ async def load_flow(
             db, "nowe requesty", lambda: _new_requests(db, user, now), []
         )
         block.claimed = await _safe(db, "blokady", lambda: _claimed(db, user, now), [])
+        block.top_proposals = await _safe(
+            db, "propozycje z bazy", lambda: _top_proposals(db, job_ids), []
+        )
 
     if leads:
         portfolio = await _safe(
@@ -782,11 +875,14 @@ __all__ = [
     "ContractRow",
     "FinanceBlock",
     "FlowBlock",
+    "JobProposalsRow",
     "MISSING_RATE",
     "MISSING_SHEET",
     "NewRequestRow",
     "PairRow",
     "PostingRow",
+    "ProposalPick",
+    "TOP_PROPOSALS_PER_JOB",
     "load_finance",
     "load_flow",
 ]

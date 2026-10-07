@@ -420,6 +420,11 @@ class Settings(BaseSettings):
     # krytyczne (decyzja DL albo podpowiedź z historii, `critical_skills`);
     # `all` = awaryjny powrót do bramki v8 (każde must-technologia ukrywa).
     MUST_GATE_MODE: str = "critical"
+    # Warstwa `prior_screening` w ocenie AI (07.10.2026): odpowiedzi kandydata
+    # z wcześniejszych rozmów na te same pytania. OFF = odcisk żądania
+    # i rozbicie wyniku bajt w bajt jak bez warstwy; włączenie dopiero po
+    # pomiarze (`scripts/eval_prior_screening.py`).
+    PRIOR_SCREENING_LAYER_ENABLED: bool = False
     # Rozmiar puli trybu semantycznego w RĘCZNEJ wyszukiwarce kandydatów.
     # To jednocześnie SUFIT liczby wyników, którą widzi rekruter, i liczba
     # dokumentów wysyłanych do rerankera Voyage przy KAŻDYM żądaniu strony
@@ -518,15 +523,18 @@ class Settings(BaseSettings):
     # ── Automatyczny pełny przegląd bazy (21.09.2026) ────────────────────────
     # Nocna pętla (okno w `BUSINESS_TZ`) uruchamia pełny przegląd bazy dla
     # rekrutacji opublikowanych albo istotnie zmienionych od ostatniego
-    # przeglądu automatycznego. Wynik (top-K po regule `is_good_match`) trafia
-    # do skrzynki „Propozycje" (źródło `full_base`). False = pętla kończy się
-    # przed startem, nic się nie dzieje (stan sprzed 21.09).
+    # przeglądu automatycznego. Wynik (każda osoba powyżej progu po regule
+    # `is_good_match`) trafia do skrzynki „Propozycje" (źródło `full_base`).
+    # False = pętla kończy się przed startem, nic się nie dzieje (stan sprzed
+    # 21.09).
     AUTO_FULL_REVIEW_ENABLED: bool = True
     # audyt 22.09 r2 (PROD-03): 5/noc — przegląd to ~190 MB, 20/noc zapełniało
     # wolumen. 30.09.2026 (decyzja Artura): co noc wszystkie rekrutacje w pracy
     # (~18) — dysk trzyma retencja zastąpionych przeglądów automatycznych
     # (jeden na rekrutację, ~75 MB; `candidate_search_retention`).
     AUTO_FULL_REVIEW_MAX_PER_NIGHT: int = 25
+    # NIEUŻYWANE od 07.10.2026 (decyzja Artura: propozycje bez limitu, tylko
+    # próg). Zostaje, bo czytają je skrypty audytów w `docs/audits/`.
     AUTO_FULL_REVIEW_TOP_K: int = 60
     # Osobny próg, bo pełny przegląd punktuje kanonicznym fitem, a auto-match
     # nowych CV starszym scoringiem — wspólny próg stroiłby dwa różne pomiary.
@@ -613,6 +621,15 @@ class Settings(BaseSettings):
     # pomiarze (`scripts/eval_recommendation_card_note.py`) przez workflow
     # „Coolify set env”.
     RECOMMENDATION_CARD_ASSIST_ENABLED: bool = False
+    # Odpowiedzi z notatek (karty rekomendacji) do arkusza screeningu pary
+    # (decyzje Artura 07.10.2026 — zmienia regułę 0413). Arkusz z notatki ma
+    # pochodzenie `note_sync`, od razu widzi go klient i liczy się w ocenie
+    # pary. Automat nigdy nie dotyka arkusza wypełnionego przez człowieka.
+    # Wyłączony = przeliczenie karty nie pisze arkusza; jednorazowe
+    # uzupełnienie historii (`/api/admin/screening-note-backfill`) działa
+    # niezależnie. Włączenie przez workflow „Coolify set env” po przeglądzie
+    # próby uzupełnienia.
+    SCREENING_NOTE_SYNC_ENABLED: bool = False
 
     # „Stawka od” (0414): filtry, AI i plakietki budżetu czytają najniższą
     # stawkę kandydata z ostatnich 18 miesięcy (karty rekomendacji, etapy,

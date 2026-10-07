@@ -299,7 +299,7 @@ def merge_questions(
             # „z notatki” — plakietka w karcie i w przeglądzie DL.
             sheet_item = by_question.get(question_id) or {}
             origin = sheet_item.get("origin")
-            if origin in ("note_import", "phrased"):
+            if origin in ("note_import", "phrased", "note_sync"):
                 item["origin"] = origin
                 keywords = str(sheet_item.get("keywords") or "").strip()
                 if keywords:

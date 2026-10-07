@@ -290,6 +290,8 @@ async def _apply_decisions(
                     entry_source="auto_match",
                     claim=False,
                     entry_meta=_entry_meta(scored, d.score, trigger),
+                    # Automat nie zamyka propozycji — `added` stawia człowiek.
+                    mark_proposals=False,
                 )
         except Exception as exc:  # noqa: BLE001 — jedna para nie wywraca biegu
             logger.warning(
