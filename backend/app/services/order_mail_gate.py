@@ -27,6 +27,12 @@ from app.services.order_mail_planner import (
     reversed_period_reason,
 )
 from app.services.order_mail_resolver import MATCH_EXACT, ResolvedConsultant
+from app.services.recruitment_rate_check import (
+    DIFFERS,
+    RateRef,
+    compare_ref,
+    format_rate,
+)
 from app.services.order_pdf_parser import (
     ConsultantOrderRow,
     OrderExtraction,
@@ -91,6 +97,11 @@ CODE_OCR_CAPPED = "ocr_capped"
 CODE_RATE_MISSING = "rate_missing"
 CODE_RATE_OUT_OF_BAND = "rate_out_of_band"
 CODE_RATE_DEVIATION = "rate_deviation"
+#: Stawka z zamówienia różni się od stawki do klienta, za którą Delivery Lead
+#: wysłał osobę w rekrutacji (D7, 08.10.2026). „Do sprawdzenia”, nigdy blokada:
+#: klient mógł przyjąć inną stawkę po negocjacji. Świadomie POZA
+#: ``AWAITING_CONTRACT_CODES`` — po trzech próbach DL dostaje kartę.
+CODE_RATE_RECRUITMENT_MISMATCH = "rate_recruitment_mismatch"
 CODE_MD_MISSING = "md_missing"
 CODE_MD_SHARED_POOL = "md_shared_pool"
 #: Zamówienie kosztowe z kilkoma osobami: kwota zlecenia jest wspólna dla całej
@@ -149,6 +160,9 @@ class GateInput:
     #: Okres zamówienia ustala reguła klienta z etykiety dokumentu — musi być
     #: przez nią potwierdzony (confidence 1.0), inaczej kolejka (FIN-MAIL-03).
     document_period_authoritative: bool = False
+    #: contract_id → stawka do klienta z rekrutacji (D7). Puste = brak
+    #: porównania (wołający bez danych z rekrutacji, stare testy).
+    recruitment_rates: Mapping[int, RateRef] = field(default_factory=dict)
 
 
 @dataclass
@@ -479,6 +493,40 @@ def evaluate(inp: GateInput) -> GateVerdict:
                         f"„{row_prop.row_name}”: stawka {rate} odbiega o {deviation:.0%} od obowiązującej {current[0]}",
                     )
                 )
+
+    # 7-bis) stawka do klienta z rekrutacji (D7): różnica = „do sprawdzenia”.
+    #     Pomija osoby bez dopasowania (``MATCH_NONE`` — nie wiadomo, czyja to
+    #     rekrutacja), zamówienia kosztowe (kwota zlecenia, nie stawka osoby),
+    #     brak stawki i stawki nieporównywalne (inna waluta, miesiąc z godziną).
+    unmatched_rows = {res.row_index for res in inp.resolved if res.match_kind == "none"}
+    for row_prop in prop.rows:
+        if (
+            row_prop.row_index in unmatched_rows
+            or row_prop.contract_id is None
+            or row_prop.order_type == "cost"
+            or row_prop.rate_client is None
+            or row_prop.rate_unit is None
+        ):
+            continue
+        ref = inp.recruitment_rates.get(row_prop.contract_id)
+        if ref is None:
+            continue
+        verdict = compare_ref(
+            ref, row_prop.rate_client, row_prop.rate_unit, row_prop.currency
+        )
+        if verdict == DIFFERS:
+            where = f" „{ref.label}”" if ref.label else ""
+            reasons.append(
+                (
+                    CODE_RATE_RECRUITMENT_MISMATCH,
+                    f"„{row_prop.row_name}”: stawka z zamówienia "
+                    f"{format_rate(row_prop.rate_client, row_prop.rate_unit)} różni się "
+                    f"od stawki do klienta z rekrutacji{where} "
+                    f"({format_rate(ref.value, ref.unit)}) — sprawdź, czy klient "
+                    "przyjął inną stawkę; po renegocjacji popraw stawkę do klienta "
+                    "w rekrutacji",
+                )
+            )
 
     # 7a) waluta: automat zapisuje wyłącznie PLN (brak kursu) — FIN-MAIL-02
     for row_prop in prop.rows:
