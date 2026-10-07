@@ -30,6 +30,7 @@ from app.api.deps import AdminUser, CurrentUser
 from app.core.database import get_db
 from app.models.app_setting import AppSetting
 from app.models.user import UserRole
+from app.services.notification_delivery import ROUTINE_KINDS
 
 
 router = APIRouter()
@@ -53,7 +54,11 @@ class NotificationEmailToggle(BaseModel):
 class NotificationDeliveryUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: StrictBool
-    types: list[NotificationEmailToggle] = Field(default_factory=list, max_length=5)
+    # Ekran wysyła komplet przełączników — limit idzie za katalogiem
+    # (stałe 5 z #1691 dawało 422, gdy katalog urósł do 9 rodzajów).
+    types: list[NotificationEmailToggle] = Field(
+        default_factory=list, max_length=len(ROUTINE_KINDS)
+    )
 
     @field_validator("types")
     @classmethod
