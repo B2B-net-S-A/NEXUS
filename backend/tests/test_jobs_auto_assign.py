@@ -362,9 +362,9 @@ async def test_patch_job_updates_tac_id(
 
 
 # ── Delivery Lead creator becomes the job's Delivery Lead ──────────────────
-# Precedence: explicit `delivery_lead_id` > the client's head DL (resolved
-# above) > the Delivery Lead who created the recruitment. `recruiter_id`
-# stays untouched — this is about ownership, not authorship.
+# Precedence (08.10.2026): explicit `delivery_lead_id` > the Delivery Lead who
+# created the recruitment > the client's head DL. `recruiter_id` stays
+# untouched — this is about ownership, not authorship.
 
 
 @pytest.mark.integration
@@ -398,8 +398,15 @@ async def test_create_job_by_delivery_lead_defaults_delivery_lead_to_creator(
 
 
 @pytest.mark.integration
-async def test_create_job_by_delivery_lead_head_dl_wins(app_client: AsyncClient):
-    """Head DL klienta wygrywa nad DL-em, który zakłada rekrutację."""
+async def test_create_job_by_delivery_lead_creator_wins_over_head_dl(
+    app_client: AsyncClient,
+):
+    """DL, który zakłada rekrutację, jest jej DL-em — także u klienta z innym
+    głównym DL-em (zgłoszenie 08.10.2026: rekrutacja założona przez jednego DL-a
+    dostawała głównego DL-a klienta). Uzupełnianie głównym DL-em go nie rusza."""
+    from app.models.job import Job
+    from app.services.job_delivery_lead_fill import fill_missing_job_delivery_leads
+
     head_dl_id, _ = await _new_user_with_email(UserRole.delivery_lead)
     creator_id, creator_email = await _new_user_with_email(UserRole.delivery_lead)
     client_id = await _new_client()
@@ -412,17 +419,56 @@ async def test_create_job_by_delivery_lead_head_dl_wins(app_client: AsyncClient)
             headers=creator_headers,
             json=await complete_job_payload(
                 client_id,
-                title="Head DL wins smoke",
+                title="Creator DL wins smoke",
+            ),
+        )
+        assert resp.status_code == 201, resp.text
+        body = resp.json()
+        assert body["delivery_lead_id"] == creator_id
+
+        async with AsyncSessionLocal() as db:
+            await fill_missing_job_delivery_leads(db, [client_id])
+            await db.commit()
+            job = await db.get(Job, body["id"])
+            assert job.delivery_lead_id == creator_id
+            assert job.delivery_lead_auto_filled is False
+
+        await purge_job(body["id"])
+    finally:
+        await _cleanup(client_id, [head_dl_id, creator_id])
+
+
+@pytest.mark.integration
+async def test_create_job_by_admin_gets_the_clients_head_dl(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Twórca bez roli Delivery Leada (admin) → główny DL klienta, jak dotąd."""
+    from app.models.job import Job
+
+    head_dl_id, _ = await _new_user_with_email(UserRole.delivery_lead)
+    client_id = await _new_client()
+    await _assign_head_dl(client_id, head_dl_id)
+
+    try:
+        resp = await app_client.post(
+            "/api/jobs",
+            headers=app_auth_headers,
+            json=await complete_job_payload(
+                client_id,
+                title="Admin creator head DL smoke",
             ),
         )
         assert resp.status_code == 201, resp.text
         body = resp.json()
         assert body["delivery_lead_id"] == head_dl_id
-        assert body["delivery_lead_id"] != creator_id
+
+        async with AsyncSessionLocal() as db:
+            job = await db.get(Job, body["id"])
+            assert job.delivery_lead_auto_filled is True
 
         await purge_job(body["id"])
     finally:
-        await _cleanup(client_id, [head_dl_id, creator_id])
+        await _cleanup(client_id, [head_dl_id])
 
 
 @pytest.mark.integration

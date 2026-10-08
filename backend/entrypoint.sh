@@ -9712,6 +9712,34 @@ async def repair():
 asyncio.run(repair())
 PY
 
+# Delivery Lead rekrutacji (08.10.2026) — jednorazowo: otwarte rekrutacje
+# założone przez Delivery Leada, którym automat wpisał głównego DL-a klienta,
+# wracają do twórcy (od tej daty `create_job_core` robi to sam). Warunek SQL,
+# nie lista ID; logika w `app/services/job_creator_delivery_lead_repair.py`,
+# marker w `app_settings` + advisory lock. Log: same liczby i ID.
+startup_phase "repair-job-creator-delivery-lead"
+echo "Jobs: one-shot reassignment of the Delivery Lead to the creating DL..."
+python - <<'PY' || echo "job creator delivery lead repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.job_creator_delivery_lead_repair import (
+    run_job_creator_delivery_lead_repair,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_job_creator_delivery_lead_repair(db)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+    print(f"job creator delivery lead repair: {summary or 'already done'}")
+
+asyncio.run(repair())
+PY
+
 # Propozycje z bazy (07.10.2026) — jednorazowo: `added` stawia już wyłącznie
 # dodanie przez człowieka, więc propozycje oznaczone jako dodane przez kartę
 # z integracji (każdy proces pary z `entry_source='auto_match'`) wracają do
