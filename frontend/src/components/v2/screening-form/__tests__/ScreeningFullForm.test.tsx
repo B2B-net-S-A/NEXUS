@@ -281,6 +281,9 @@ describe("ScreeningFullForm — wypełnienie z notatki", () => {
     await user.click(screen.getByRole("button", { name: /Cofnij wypełnienie/ }));
     expect(screen.getByLabelText("Dostępność")).toHaveValue("");
     expect(screen.queryByTestId("note-fill-summary")).toBeNull();
+    // Formularz wrócił do stanu sprzed notatki — nie ma czego zapisywać
+    // (przeklik na produkcji 08.10.2026: stopka zostawała „Niezapisane zmiany”).
+    await waitFor(() => expect(screen.queryByText("Niezapisane zmiany")).toBeNull());
   });
 
   it("bez włączonej funkcji karty z notatki nie ma paska notatki", async () => {

@@ -284,10 +284,12 @@ export function DecisionPanel({
                     Mediana marży u klienta ({clientRates.consultants} os.):{" "}
                     {formatHourly(clientRates.client_margin_median_hourly)}
                   </p>
-                ) : (
+                ) : clientRates.consultants > 0 ? (
                   <p>
                     U klienta pracuje {clientRates.consultants} os. — za mało, żeby pokazać medianę marży.
                   </p>
+                ) : (
+                  <p>Nikt nie pracuje dziś u tego klienta.</p>
                 )}
               </div>
             ) : context.can_see_amounts ? null : (

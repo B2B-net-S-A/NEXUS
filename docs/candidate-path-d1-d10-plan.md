@@ -1,13 +1,20 @@
 # Ścieżka kandydata D1–D10 — plan trzech PR-ów i stan prac
 
-Stan na 08.10.2026 (aktualizuj przy każdym kroku):
+Stan na 08.10.2026 — wszystkie trzy PR-y na produkcji (`/api/health` = `68c4c47fe`):
 
-- **PR1 — formularz screeningu:** scalony (#2083). Pomiar `python -m scripts.eval_recommendation_card_note
-  --limit 40` i włączenie `RECOMMENDATION_CARD_ASSIST_ENABLED` — stan niepotwierdzony z tej gałęzi.
-- **PR2 — ekran Delivery Leada (D6, D9, D10):** kod na gałęzi `claude/dl-review-pr2` (wypchnięta, PR jeszcze
-  nie otwarty). Raport: `docs/dl-review-v2-completion-report.md`. Zostało: przegląd kodu, `gh pr create`, CI
-  z testami bazy (lokalnie bez Postgresa), `/api/health` = SHA, przeklikanie przeglądu DL na produkcji.
-- **PR3 — stawki z rekrutacji w zamówieniu i umowie:** PR #2084.
+- **PR1 — formularz screeningu:** #2083. Pomiar `python -m scripts.eval_recommendation_card_note --limit 40`
+  na produkcji (08.10): 40/40 notatek bez awarii modelu, stawka zgodna z regułą 31/31, 109/117 odpowiedzi
+  zachowanych, 3/109 zdań odrzuconych przez kontrolę nowych faktów → `RECOMMENDATION_CARD_ASSIST_ENABLED=true`
+  (workflow „Coolify set env”). Przeklik w przeglądarce (para QA 113818 i 732435): panel `split`, „Wklej tekst”
+  wypełnia 5 pól i proponuje 3, „Cofnij wypełnienie” — bez zapisu (0 wersji, 0 notatek, 0 ruchów).
+- **PR2 — ekran Delivery Leada (D6, D9, D10):** #2087. Przeklik: przegląd w trzech kolumnach, marża na żywo,
+  podpowiedź stawki ze źródłem, wcześniejsze wysyłki, okno „Wróć do poprawy” z listą pól — bez wysyłki.
+  Raport: `docs/dl-review-v2-completion-report.md`.
+- **PR3 — stawki z rekrutacji w zamówieniu i umowie:** #2084. Kod `rate_recruitment_mismatch` w kolejce
+  zamówień z maila potwierdzi pierwsza ponowna weryfikacja (8:00–18:00) — do sprawdzenia.
+- Po przekliku: „Cofnij wypełnienie” zostawiało „Niezapisane zmiany” (brakujący klucz `card_origins` ≠ klucz
+  z wartością pustą w porównaniu formularza) i komunikat „pracuje 0 os.” w przeglądzie DL — poprawione
+  w PR z tym stanem.
 
 Kontrakt PR1: `docs/screening-form-contract.md`, raport PR1: `docs/screening-form-completion-report.md`.
 
