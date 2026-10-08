@@ -39,6 +39,7 @@ import {
   requiredRows,
   rowCountHint,
   rowHead,
+  rowSelectable,
   setRowLevel,
   suggestedRowKeys,
   type RequirementLevel,
@@ -49,7 +50,10 @@ import { useRowCounts } from "@/lib/requirement-rows-api";
 import { cn } from "@/lib/utils";
 
 export const NOT_A_TECHNOLOGY_HINT =
-  "Krytyczna może być tylko technologia ze słownika — to słowo nie ukrywa kandydatów.";
+  "To nie jest nazwa technologii ani narzędzia — nie może ukrywać kandydatów.";
+/** Krytyczny wiersz, którego słownik nie zna: bramka szuka dosłownie tej nazwy. */
+export const OUTSIDE_DICTIONARY_NOTE =
+  "Spoza słownika technologii — propozycje AI szukają dokładnie tej nazwy w profilu, CV i notatkach (bez innych pisowni).";
 const CHECKING_HINT = "Sprawdzam, czy to technologia ze słownika…";
 
 export interface RequirementRowsEditorProps {
@@ -198,6 +202,10 @@ export function RequirementRowsEditor({
           const head = rowHead(row.words);
           const name = head || `wiersz ${index + 1}`;
           const blocked = levelBlockedReason(shown, row.key, "critical");
+          // Serwer zna tylko wiersze obowiązkowe; `undefined` = nic o nim nie mówił.
+          const selectable = rowSelectable(info);
+          const notSelectableReason =
+            selectable === false ? (info?.blockedReason ?? NOT_A_TECHNOLOGY_HINT) : null;
           const criticalTitle =
             row.level === "critical"
               ? undefined
@@ -207,8 +215,8 @@ export function RequirementRowsEditor({
                   ? critical.isError
                     ? "Nie udało się sprawdzić słownika — spróbuj ponownie niżej"
                     : CHECKING_HINT
-                  : info && !info.eligible
-                    ? NOT_A_TECHNOLOGY_HINT
+                  : notSelectableReason
+                    ? notSelectableReason
                     : (blocked ?? undefined);
           const stat = info?.suggested ? statSentence(info.stat) : null;
           // N8 (06.10.2026): liczba osób jest tylko przy wierszach obowiązkowych.
@@ -285,6 +293,25 @@ export function RequirementRowsEditor({
               {stat ? (
                 <p className="px-1 text-xs text-muted-foreground">
                   Podpowiedź z historii: {stat}.
+                </p>
+              ) : null}
+              {/* Powód blokady stoi pod wierszem — sam dymek na wyłączonym
+                  przycisku czytał się jak błąd (zgłoszenie DL 08.10.2026). */}
+              {row.level !== "critical" && row.words.length > 0 && notSelectableReason ? (
+                <p
+                  className="px-1 text-xs text-muted-foreground"
+                  data-testid="requirement-row-critical-blocked"
+                >
+                  Nie może być krytyczne: {notSelectableReason.charAt(0).toLowerCase()}
+                  {notSelectableReason.slice(1)}
+                </p>
+              ) : null}
+              {row.level === "critical" && info && selectable && !info.eligible ? (
+                <p
+                  className="px-1 text-xs text-muted-foreground"
+                  data-testid="requirement-row-outside-dictionary"
+                >
+                  {OUTSIDE_DICTIONARY_NOTE}
                 </p>
               ) : null}
               {countHint ? (

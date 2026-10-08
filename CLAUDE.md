@@ -4806,7 +4806,11 @@ Audyt `docs/audits/2026-09-30/wyszukiwanie-kandydatow.md` (symulacje na
 historii): „każde must ukrywa” (v8) chowało 41,5% osób, które zespół potem
 wysłał do klienta, budżet — 32%, dni w biurze — 8%. Decyzje Artura 30.09.2026:
 
-- **Ukrywają tylko 0–2 umiejętności krytyczne** (`services/critical_skills.py`,
+- **Ukrywają tylko umiejętności krytyczne: 0–3 z wyboru Delivery Leada**
+  (do 08.10.2026 dwie; `CRITICAL_MAX` w `schemas/champion.py`, lustro
+  `lib/critical-skills.ts`), z podpowiedzi z historii najwyżej dwie
+  (`critical_skills.SUGGEST_MAX` — działa bez decyzji człowieka, więc trzecia
+  automatyczna bramka wymaga pomiaru) (`services/critical_skills.py`,
   `MUST_GATE_POLICY_VERSION = "critical-v9"`). Pole Championa `stack.critical`:
   `None` = DL nie zdecydował (działa podpowiedź), `[]` = „Brak krytycznych”
   (bramka must nie ukrywa nikogo), lista = bramka. Serializer zdejmuje `None`
@@ -4815,6 +4819,23 @@ wysłał do klienta, budżet — 32%, dni w biurze — 8%. Decyzje Artura 30.09.
   nie kasuje kontraktu wymagań i nie odpala przeliczeń. Idzie za listą MUST
   (`_prune_critical`; stracone wszystkie = z powrotem `None`), kopia
   rekrutacji ma `None`, zły wybór = 422 po polsku (`critical_errors`).
+- **Wybrać wolno każdą nazwę technologii albo narzędzia, także spoza słownika
+  (decyzja Artura 08.10.2026):** `must_gate_terms.critical_selectable` =
+  pozycja bramkuje (`gate_requirement`). Czytają ją `effective_critical`
+  i `critical_errors`; bramka szuka wtedy dosłownie tej nazwy w profilu, CV
+  i notatkach (bez aliasów). Do tej daty wybór ograniczał słownik
+  (`critical_eligible`) — w 16 najnowszych rekrutacjach 9 skończyło z „Brak
+  krytycznych”, bo „Camunda BPM”, „TestNG”, „Qualys” nie dało się oznaczyć.
+  `critical_eligible` (słownik) zostaje dla podpowiedzi z historii, wymogu
+  decyzji przy przekazaniu (`job_readiness`) i tytułu dla rekrutera — tam nikt
+  nie potwierdza wyboru. `POST /api/job-intake/critical-suggestion` oddaje
+  `selectable` (wolno oznaczyć), `blocked` (etykieta → zdanie po polsku:
+  branża, język, umiejętność miękka, kategoria albo metodyka, rola, opis) i jak dotąd
+  `eligible`. Edytor wierszy pokazuje powód POD wierszem („Nie może być
+  krytyczne: …”), a przy krytycznym spoza słownika zdanie, że szukamy
+  dokładnie tej nazwy. Reguła „wygląda na nazwę” jest składniowa
+  (`is_syntactic_technology_name`: ≤ 3 słowa, bez słów z list branż / miękkich
+  / kategorii / ról), więc krótkie słowo spoza tych list też da się oznaczyć.
 - **Podpowiedź z historii:** technologia z MUST (każda opcja w słowniku,
   także narzędzia/standardy/AI — `must_gate_terms.critical_eligible`), którą
   ≥90% osób wysłanych w innych rekrutacjach ma w profilu, CV albo notatce

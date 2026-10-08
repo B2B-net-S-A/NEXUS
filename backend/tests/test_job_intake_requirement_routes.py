@@ -107,5 +107,28 @@ async def test_critical_suggestion_labels_rows_like_the_saved_profile(
     body = resp.json()
     # Etykieta per wiersz, w kolejności żądania; pusty wiersz = pusta etykieta.
     assert body["labels"] == ["Kafka lub Docker", "płatności", ""]
-    # Krytyczna może być tylko technologia ze słownika — dziedzina nie.
+    # Technologie ze słownika (wymóg decyzji, tytuł dla rekrutera).
     assert body["eligible"] == ["Kafka lub Docker"]
+    # Oznaczyć wolno każdą nazwę technologii; dziedzina dostaje powód.
+    assert body["selectable"] == ["Kafka lub Docker"]
+    assert set(body["blocked"]) == {"płatności"}
+    assert body["blocked"]["płatności"].startswith("To branża")
+
+
+@pytest.mark.asyncio
+async def test_tool_outside_the_dictionary_may_be_marked_critical(app_client) -> None:
+    _, headers = await make_user(UserRole.recruiter)
+
+    with hydrated_taxonomy():
+        resp = await app_client.post(
+            CRITICAL_URL,
+            json={"rows": [["Java"], ["Temenos T24"], ["English B2"]]},
+            headers=headers,
+        )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["eligible"] == ["Java"]
+    assert body["selectable"] == ["Java", "Temenos T24"]
+    assert list(body["blocked"]) == ["English B2"]
+    assert body["blocked"]["English B2"].startswith("To język")

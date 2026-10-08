@@ -92,6 +92,20 @@ def test_dl_choice_wins_and_matches_by_canonical_name():
     assert res.source == "dl"
 
 
+def test_dl_may_choose_three_but_the_suggestion_stays_at_two():
+    # 08.10.2026: Delivery Lead wybiera do trzech krytycznych; podpowiedź
+    # z historii działa bez decyzji człowieka, więc nadal daje najwyżej dwie.
+    must = ["Java", "Docker", "TypeScript", "Angular"]
+    chosen = critical_skills.effective_critical(
+        _job(must, critical=["Java", "Docker", "Angular"])
+    )
+    assert [label.lower() for label in chosen.labels] == ["java", "docker", "angular"]
+    assert chosen.source == "dl"
+    undecided = critical_skills.effective_critical(_job(must))
+    assert len(undecided.labels) == 2 and undecided.source == "suggested"
+    assert len(critical_skills.suggest_from_must(must)) == 2
+
+
 def test_resolution_payload_carries_search_rows_with_variants():
     """W1/W4 (audyt 06.10.2026): ekran wyszukiwania bierze obowiązkowe wiersze
     z serwera — po jednym na krytyczną, z wariantami nazwy."""
@@ -134,6 +148,22 @@ def test_dl_choice_outside_must_or_not_technology_is_dropped():
         _job(["Java", "QA"], critical=["QA", "Python"])
     )
     assert res.labels == () and res.decided is True
+
+
+def test_dl_choice_of_a_tool_outside_the_dictionary_gates():
+    # 08.10.2026: „Temenos T24” nie ma w słowniku, ale to nazwa narzędzia —
+    # wybór Delivery Leada działa (bramka szuka nazwy w profilu, CV, notatkach).
+    must = ["Java", "Temenos T24", "bankowość"]
+    res = critical_skills.effective_critical(
+        _job(must, critical=["Temenos T24", "bankowość"])
+    )
+    assert [label.lower() for label in res.labels] == ["temenos t24"]
+    assert res.source == "dl"
+    assert critical_skills.critical_errors(["Temenos T24"], must) == []
+    codes = [code for code, _ in critical_skills.critical_errors(["bankowość"], must)]
+    assert codes == ["critical_not_technology"]
+    # Podpowiedź z historii dalej bierze wyłącznie technologie ze słownika.
+    assert "Temenos T24" not in critical_skills.suggest_from_must(must)
 
 
 def test_gate_mode_defaults_to_critical(monkeypatch):

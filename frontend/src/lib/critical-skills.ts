@@ -1,5 +1,6 @@
 /**
- * Umiejętności krytyczne (0–2) — decyzja Artura 30.09.2026.
+ * Umiejętności krytyczne (0–3) — decyzja Artura 30.09.2026; limit trzech od
+ * 08.10.2026 (do tej daty dwie).
  *
  * Bramka MUST ukrywa kandydata wyłącznie za brak umiejętności krytycznej;
  * pozostałe MUST i NICE dają punkty. Stan w profilu Championa
@@ -7,7 +8,7 @@
  *  - `null`/brak klucza — Delivery Lead jeszcze nie zdecydował, działa
  *    podpowiedź z historii (≥90% wysłanych klientowi miało tę technologię),
  *  - `[]` — świadomie „Brak krytycznych”: MUST nie ukrywa nikogo,
- *  - `["Java"]` — najwyżej dwie pozycje wybrane z listy MUST, tylko
+ *  - `["Java"]` — najwyżej trzy pozycje wybrane z listy MUST, tylko
  *    technologie ze słownika (serwer odrzuca resztę 422).
  *
  * Reguły dopuszczalności i podpowiedź liczy SERWER
@@ -16,7 +17,13 @@
  * (ten moduł jest czysty — importują go payloady i testy bez axios).
  */
 
-export const CRITICAL_MAX = 2;
+/** Lustro `CRITICAL_MAX` z `backend/app/schemas/champion.py`. */
+export const CRITICAL_MAX = 3;
+/**
+ * Podpowiedź z historii oznacza najwyżej dwie (lustro `SUGGEST_MAX`
+ * z `critical_skills.py`) — trzecią krytyczną wybiera człowiek.
+ */
+export const CRITICAL_SUGGESTION_MAX = 2;
 
 /** `null` = nie zdecydowano, `[]` = „Brak krytycznych”. */
 export type CriticalValue = string[] | null;
@@ -30,8 +37,15 @@ export interface CriticalStat {
 
 export interface CriticalSuggestion {
   suggested: string[];
-  /** Pozycje MUST, które wolno oznaczyć jako krytyczne (technologie ze słownika). */
+  /** Pozycje MUST będące technologią ze słownika (wymóg decyzji, podpowiedź). */
   eligible: string[];
+  /**
+   * Pozycje MUST, które wolno oznaczyć jako krytyczne: nazwy technologii
+   * i narzędzi, także spoza słownika (08.10.2026). Brak = jak `eligible`.
+   */
+  selectable?: string[];
+  /** Pozycja → zdanie, dlaczego nie wolno jej oznaczyć. */
+  blocked?: Record<string, string>;
   stats: Record<string, CriticalStat>;
 }
 
@@ -149,7 +163,7 @@ export function criticalBriefLine(resolution: CriticalResolution | null | undefi
 export interface CriticalSuggestionState {
   /** Odpowiedź dla BIEŻĄCEJ listy MUST; `undefined`, dopóki jej nie ma. */
   data: CriticalSuggestion | undefined;
-  /** `eligible` dla bieżącej listy; `null` = jeszcze nie wiadomo. */
+  /** Pozycje, które wolno oznaczyć, dla bieżącej listy; `null` = jeszcze nie wiadomo. */
   eligible: string[] | null;
   isLoading: boolean;
   isError: boolean;

@@ -226,8 +226,9 @@ class ChampionSearch(_NullTolerantSection):
 # stored as "one requirement" (entries are split on newlines, commas and
 # semicolons first, so a real requirement never gets near it).
 STACK_ITEM_MAX_CHARS = 500
-# Umiejętności krytyczne — najwyżej dwie (decyzja Artura 30.09.2026).
-CRITICAL_MAX = 2
+# Umiejętności krytyczne — najwyżej trzy z wyboru Delivery Leada (do 08.10.2026
+# dwie; zgłoszenie DL: role z trzema technologiami, np. Java + Spring + Angular).
+CRITICAL_MAX = 3
 
 
 class StackItem(BaseModel):
@@ -277,7 +278,7 @@ class ChampionStack(_NullTolerantSection):
     nice: List[StackItem] = Field(default_factory=list)
     # For the nuance a list cannot carry: "Java 17+, Java 8 nie interesuje".
     notes: str = ""
-    # Umiejętności krytyczne (30.09.2026): 0–2 pozycje z `must`, które ukrywają
+    # Umiejętności krytyczne (30.09.2026): 0–3 pozycje z `must`, które ukrywają
     # kandydatów. `None` = DL jeszcze nie zdecydował (działa podpowiedź
     # z historii), `[]` = świadomie brak. Pole znika z zapisu przy `None`,
     # żeby profile sprzed tej daty nie zmieniały kształtu JSONB.

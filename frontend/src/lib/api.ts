@@ -4721,7 +4721,7 @@ export interface ChampionStack {
   nice: StackItem[];
   notes: string;
   /**
-   * Umiejętności krytyczne (30.09.2026, `lib/critical-skills.ts`): 0–2 pozycje
+   * Umiejętności krytyczne (30.09.2026, `lib/critical-skills.ts`): 0–3 pozycje
    * z `must`, które ukrywają kandydatów. Brak klucza / `null` = DL nie
    * zdecydował (działa podpowiedź z historii), `[]` = „Brak krytycznych”.
    */

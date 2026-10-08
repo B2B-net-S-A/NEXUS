@@ -75,9 +75,17 @@ const CRITICAL_INFO: RowCriticalState = {
   info: {
     "r-java": { label: "Java", eligible: true, suggested: true, stat: { rate: 0.96, jobs: 41 } },
     "r-spring": { label: "Spring Boot", eligible: true, suggested: false, stat: { rate: 0.71, jobs: 41 } },
-    "r-kafka": { label: "Kafka lub RabbitMQ", eligible: true, suggested: false },
+    // RabbitMQ spoza słownika: wiersz wolno oznaczyć (08.10.2026), choć nie
+    // jest „technologią ze słownika” dla podpowiedzi i tytułu.
+    "r-kafka": { label: "Kafka lub RabbitMQ", eligible: false, selectable: true, suggested: false },
     "r-postgres": { label: "PostgreSQL", eligible: true, suggested: false },
-    "r-payments": { label: "płatności", eligible: false, suggested: false },
+    "r-payments": {
+      label: "płatności",
+      eligible: false,
+      selectable: false,
+      blockedReason: "To branża, nie technologia — daje punkty, nie ukrywa kandydatów.",
+      suggested: false,
+    },
   },
   isLoading: false,
   isError: false,

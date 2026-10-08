@@ -12,12 +12,13 @@ import {
 import { overBudgetLabel } from "@/lib/fit-badges";
 import { cvYearBadge } from "@/lib/proposal-facts";
 
-describe("krytyczne — wybór 0–2", () => {
-  it("dodaje najwyżej dwie pozycje", () => {
+describe("krytyczne — wybór 0–3", () => {
+  it("dodaje najwyżej trzy pozycje", () => {
     let value = toggleCritical(null, "Java");
     value = toggleCritical(value, "Angular");
-    expect(value).toEqual(["Java", "Angular"]);
-    expect(toggleCritical(value, "Kafka")).toBe(value);
+    value = toggleCritical(value, "Kafka");
+    expect(value).toEqual(["Java", "Angular", "Kafka"]);
+    expect(toggleCritical(value, "Docker")).toBe(value);
   });
 
   it("odznaczenie ostatniej wraca do „nie zdecydowano”, nie do „Brak krytycznych”", () => {

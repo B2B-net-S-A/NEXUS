@@ -1,4 +1,4 @@
-"""Pole „Krytyczne (0–2)” w profilu Championa (30.09.2026)."""
+"""Pole „Krytyczne (0–3)” w profilu Championa (30.09.2026; trzy od 08.10.2026)."""
 
 from __future__ import annotations
 
@@ -34,9 +34,14 @@ def test_names_are_trimmed_and_deduplicated():
     assert stack.critical == ["Java", "Kafka"]
 
 
-def test_more_than_two_is_rejected():
-    with pytest.raises(ValidationError):
-        ChampionStack.model_validate({"critical": ["Java", "Kafka", "Docker"]})
+def test_three_are_accepted_and_a_fourth_is_rejected():
+    stack = ChampionStack.model_validate({"critical": ["Java", "Kafka", "Docker"]})
+    assert stack.critical == ["Java", "Kafka", "Docker"]
+    with pytest.raises(ValidationError) as excinfo:
+        ChampionStack.model_validate(
+            {"critical": ["Java", "Kafka", "Docker", "Kubernetes"]}
+        )
+    assert "Wybierz najwyżej 3 umiejętności krytyczne." in str(excinfo.value)
 
 
 def test_critical_does_not_change_the_requirement_source():
@@ -71,6 +76,11 @@ def test_critical_errors_explain_in_polish():
 
     with hydrated_taxonomy():
         assert critical_errors(["Java"], ["Java", "QA"]) == []
+        must = ["Java", "Kafka", "Docker", "Kubernetes"]
+        assert critical_errors(must[:3], must) == []
+        assert critical_errors(must, must) == [
+            ("critical_too_many", "Wybierz najwyżej 3 umiejętności krytyczne.")
+        ]
         codes = [c for c, _ in critical_errors(["Python", "QA"], ["Java", "QA"])]
         assert codes == ["critical_not_in_must", "critical_not_technology"]
 

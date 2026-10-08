@@ -1,5 +1,5 @@
 /**
- * „Krytyczne (0–2)” (30.09.2026): wybór z listy MUST, najwyżej dwie pozycje,
+ * „Krytyczne (0–3)” (30.09.2026; trzy od 08.10.2026): wybór z listy MUST, najwyżej trzy pozycje,
  * „Brak krytycznych” = [], podpowiedź z historii, awaria nigdy jako pustka.
  */
 import { render, screen } from "@testing-library/react";
@@ -56,12 +56,32 @@ describe("CriticalSkillsField", () => {
     expect(onChange).toHaveBeenCalledWith(["Kafka"]);
   });
 
-  it("najwyżej dwie: trzecia pozycja jest zablokowana", async () => {
+  it("trzecia pozycja da się zaznaczyć (limit 3 od 08.10.2026)", async () => {
     const { onChange } = renderField(["Java", "Angular"]);
-    expect(chip("Kafka")).toHaveAttribute("aria-disabled", "true");
+    expect(chip("Kafka")).not.toHaveAttribute("aria-disabled");
     await userEvent.click(chip("Kafka"));
+    expect(onChange).toHaveBeenCalledWith(["Java", "Angular", "Kafka"]);
+  });
+
+  it("najwyżej trzy: czwarta pozycja jest zablokowana, zaznaczoną da się odznaczyć", async () => {
+    const onChange = vi.fn();
+    render(
+      <CriticalSkillsField
+        must={[...MUST, "Docker"]}
+        value={["Java", "Angular", "Kafka"]}
+        onChange={onChange}
+        suggestion={suggestion({ eligible: ["Java", "Angular", "Kafka", "Docker"] })}
+      />,
+    );
+    expect(chip("Docker")).toHaveAttribute("aria-disabled", "true");
+    expect(chip("Docker")).toHaveAttribute(
+      "title",
+      "Najwyżej 3 umiejętności krytyczne — najpierw odznacz jedną",
+    );
+    await userEvent.click(chip("Docker"));
     expect(onChange).not.toHaveBeenCalled();
-    expect(chip("Java")).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(chip("Java"));
+    expect(onChange).toHaveBeenCalledWith(["Angular", "Kafka"]);
   });
 
   it("pozycja spoza słownika technologii jest wyszarzona z wyjaśnieniem", async () => {
@@ -70,10 +90,24 @@ describe("CriticalSkillsField", () => {
     expect(soft).toHaveAttribute("aria-disabled", "true");
     expect(soft).toHaveAttribute(
       "title",
-      "To nie jest technologia ze słownika — nie może ukrywać kandydatów",
+      "To nie jest nazwa technologii ani narzędzia — nie może ukrywać kandydatów",
     );
     await userEvent.click(soft);
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("zablokowana pozycja pokazuje powód z serwera", () => {
+    const reason = "To umiejętność miękka — daje punkty, nie ukrywa kandydatów.";
+    renderField(null, {
+      data: {
+        suggested: [],
+        eligible: ["Java", "Angular", "Kafka"],
+        selectable: ["Java", "Angular", "Kafka"],
+        blocked: { komunikatywność: reason },
+        stats: {},
+      },
+    });
+    expect(chip("komunikatywność")).toHaveAttribute("title", reason);
   });
 
   it("„Brak krytycznych” ustawia pustą listę", async () => {

@@ -216,11 +216,18 @@ async def critical_suggestion(
 
     Dla listy, której jeszcze nie zapisano (/jobs/new, edytor Championa przed
     zapisem). Czyta wyłącznie statystyki z historii — bez bazy i bez modelu.
-    ``eligible`` = pozycje, które wolno oznaczyć jako krytyczne (technologie
-    ze słownika); ``suggested`` = podpowiedź (≤2, ≥90% wysłanych ją ma).
+    ``selectable`` = pozycje, które wolno oznaczyć jako krytyczne (nazwy
+    technologii i narzędzi, od 08.10.2026 także spoza słownika); ``blocked`` =
+    zdanie dla pozostałych, dlaczego nie; ``eligible`` = technologie ze
+    słownika (wymóg decyzji i tytuł dla rekrutera); ``suggested`` = podpowiedź
+    (≤2, ≥90% wysłanych ją ma).
     """
     from app.services.critical_skills import stat_for, suggest_from_must
-    from app.services.must_gate_terms import critical_eligible
+    from app.services.must_gate_terms import (
+        critical_eligible,
+        critical_selectable,
+        not_selectable_sentence,
+    )
 
     labels: list[str] = []
     if body.rows is not None:
@@ -237,6 +244,12 @@ async def critical_suggestion(
     else:
         must = [s.strip()[:500] for s in body.must_skills if s and s.strip()]
     eligible = [label for label in must if critical_eligible(label)]
+    selectable = [label for label in must if critical_selectable(label)]
+    blocked = {
+        label: not_selectable_sentence(label) or ""
+        for label in must
+        if label not in selectable
+    }
     stats = {}
     for label in eligible:
         stat = stat_for(label)
@@ -245,6 +258,8 @@ async def critical_suggestion(
     return {
         "suggested": list(suggest_from_must(must, body.title or "")),
         "eligible": eligible,
+        "selectable": selectable,
+        "blocked": blocked,
         "stats": stats,
         "labels": labels,
     }

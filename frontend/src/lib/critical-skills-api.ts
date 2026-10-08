@@ -60,7 +60,9 @@ export function useCriticalSuggestion(
   const data = current && !emptyMust ? query.data : undefined;
   return {
     data,
-    eligible: emptyMust ? [] : data ? data.eligible : null,
+    // Oznaczyć wolno każdą nazwę technologii (`selectable`); odpowiedź sprzed
+    // 08.10.2026 nie ma tego pola — wtedy same technologie ze słownika.
+    eligible: emptyMust ? [] : data ? (data.selectable ?? data.eligible) : null,
     isLoading: !emptyMust && (!current || query.isPending),
     isError: current && !emptyMust && query.isError,
     error: query.error,

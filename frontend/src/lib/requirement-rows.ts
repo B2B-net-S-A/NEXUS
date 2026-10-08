@@ -13,7 +13,11 @@
  * oznaczyć jako krytyczne, liczy serwer (`lib/requirement-rows-api.ts`).
  */
 
-import type { CriticalStat } from "@/lib/critical-skills";
+import {
+  CRITICAL_MAX,
+  CRITICAL_SUGGESTION_MAX,
+  type CriticalStat,
+} from "@/lib/critical-skills";
 import { sanitizeKeyword } from "@/lib/keyword-requirements";
 
 export type RequirementLevel = "critical" | "must" | "nice";
@@ -34,7 +38,7 @@ export interface StoredRequirementRow {
 /** Limity jak na serwerze (`clean_rows`). */
 export const REQUIRED_ROWS_MAX = 10;
 export const NICE_ROWS_MAX = 20;
-export const CRITICAL_ROWS_MAX = 2;
+export const CRITICAL_ROWS_MAX = CRITICAL_MAX;
 
 export const LEVEL_LABEL: Record<RequirementLevel, string> = {
   critical: "Krytyczne",
@@ -284,7 +288,7 @@ export function criticalSummary(
     return `Krytyczne: ${critical.join(", ")} — propozycje AI ukrywają osoby, które ich nie mają.`;
   if (noCritical)
     return "Brak krytycznych — propozycje AI nie ukrywają nikogo, wszystkie wymagania dają punkty.";
-  return "Nie zdecydowano — oznacz najwyżej dwa wiersze jako krytyczne albo wybierz „Brak krytycznych”.";
+  return `Nie zdecydowano — oznacz najwyżej ${CRITICAL_ROWS_MAX} wiersze jako krytyczne albo wybierz „Brak krytycznych”.`;
 }
 
 // ── Co serwer wie o wierszach (etykieta, czy wolno oznaczyć jako krytyczny) ──
@@ -292,8 +296,20 @@ export function criticalSummary(
 export interface RowCriticalInfo {
   /** Etykieta wiersza w `stack.must` („Kafka lub RabbitMQ”). */
   label: string;
-  /** Technologia ze słownika — wolno oznaczyć jako krytyczną. */
+  /**
+   * Technologia ze słownika: od niej zależy wymóg decyzji o krytycznych,
+   * podpowiedź z historii i tytuł dla rekrutera. O tym, czy wiersz WOLNO
+   * oznaczyć, mówi `selectable`.
+   */
   eligible: boolean;
+  /**
+   * Wolno oznaczyć jako krytyczny: nazwa technologii albo narzędzia, także
+   * spoza słownika (08.10.2026). Brak pola (dane sprzed tej zmiany) = jak
+   * `eligible` — czytaj przez `rowSelectable`.
+   */
+  selectable?: boolean;
+  /** Zdanie z serwera, dlaczego wiersza nie da się oznaczyć jako krytycznego. */
+  blockedReason?: string;
   /** Podpowiedź z historii (≥ 90% wysłanych klientowi ją miało). */
   suggested: boolean;
   stat?: CriticalStat;
@@ -319,6 +335,10 @@ export const EMPTY_ROW_CRITICAL_STATE: RowCriticalState = {
 export interface RowCriticalResponse {
   labels?: string[];
   eligible: string[];
+  /** Etykiety, które wolno oznaczyć jako krytyczne (brak = jak `eligible`). */
+  selectable?: string[];
+  /** Etykieta → zdanie, dlaczego nie wolno jej oznaczyć. */
+  blocked?: Record<string, string>;
   suggested: string[];
   stats: Record<string, CriticalStat>;
 }
@@ -333,14 +353,23 @@ export function rowCriticalInfo(
     list.some((item) => fold(item) === fold(label));
   requiredRows(rows).forEach((row, index) => {
     const label = response.labels?.[index] || rowHead(row.words);
+    const eligible = has(response.eligible ?? [], label);
+    const selectable = response.selectable ? has(response.selectable, label) : eligible;
     out[row.key] = {
       label,
-      eligible: has(response.eligible ?? [], label),
+      eligible,
+      selectable,
+      blockedReason: selectable ? undefined : response.blocked?.[label] || undefined,
       suggested: has(response.suggested ?? [], label),
       stat: response.stats?.[label],
     };
   });
   return out;
+}
+
+/** Czy wiersz wolno oznaczyć jako krytyczny; `undefined` = serwer o nim nie mówił. */
+export function rowSelectable(info: RowCriticalInfo | undefined): boolean | undefined {
+  return info ? (info.selectable ?? info.eligible) : undefined;
 }
 
 /**
@@ -365,7 +394,7 @@ export function suggestedRowKeys(
   if (!info) return [];
   return requiredRows(rows)
     .filter((row) => info[row.key]?.suggested && info[row.key]?.eligible)
-    .slice(0, CRITICAL_ROWS_MAX)
+    .slice(0, CRITICAL_SUGGESTION_MAX)
     .map((row) => row.key);
 }
 
