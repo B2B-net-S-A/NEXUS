@@ -24,8 +24,20 @@ REPO = Path(__file__).resolve().parents[2]
 FRONT = REPO / "frontend" / "src" / "lib" / "request-priority.ts"
 
 
+def _create(**fields) -> JobCreate:
+    # Komplet wymagany od „Rekrutacji bez szkiców” (04.10.2026).
+    return JobCreate(
+        title="Java Developer",
+        client_id=1,
+        champion_profile={},
+        hiring_manager={"not_provided": True},
+        handoff={"recruiter_id": 5},
+        **fields,
+    )
+
+
 def test_new_job_without_priority_gets_p1():
-    created = JobCreate(title="Java Developer", client_id=1)
+    created = _create()
 
     assert created.priority is JobPriority.urgent
     assert level_of(created.priority) == "p1"
@@ -40,7 +52,7 @@ def test_default_function_and_level_agree():
 
 def test_explicit_priority_is_kept():
     for value, level in (("medium", "p2"), ("low", "accepting"), ("urgent", "p1")):
-        created = JobCreate(title="Java Developer", client_id=1, priority=value)
+        created = _create(priority=value)
         assert level_of(created.priority) == level
 
 
