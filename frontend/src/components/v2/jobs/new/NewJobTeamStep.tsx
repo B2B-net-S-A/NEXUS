@@ -13,7 +13,7 @@
  * prowadzący w `POST …/handoff`.
  */
 
-import { useId } from "react";
+import { useId, type ReactNode } from "react";
 import { Check, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -84,6 +84,8 @@ interface Props {
   onRecruiterChange: (id: number | null) => void;
   priorityLevel: PriorityLevel;
   onPriorityChange: (level: PriorityLevel) => void;
+  /** Pole „Delivery Lead” (`NewJobDeliveryLeadField`) — samo pyta serwer. */
+  deliveryLead?: ReactNode;
   disabled?: boolean;
 }
 
@@ -109,6 +111,7 @@ export function NewJobTeamStep({
   onRecruiterChange,
   priorityLevel,
   onPriorityChange,
+  deliveryLead,
   disabled = false,
 }: Props) {
   const id = useId();
@@ -243,6 +246,8 @@ export function NewJobTeamStep({
           </>
         )}
       </div>
+
+      {deliveryLead}
 
       <div className="flex flex-col gap-2">
         <span id={`${id}-recruiter`} className="text-sm font-medium text-foreground">

@@ -1032,6 +1032,8 @@ export function buildCreateJobPayload(
     handoff: CreateHandoff;
     similarJobIds: number[];
     intakeFormId: number | null;
+    /** Delivery Lead wskazany ręcznie; brak = serwer wpisuje domyślnego. */
+    deliveryLeadId?: number | null;
   },
 ): Record<string, unknown> {
   const categoryChanged =
@@ -1050,6 +1052,7 @@ export function buildCreateJobPayload(
       ? { suggested_cc_id: form.suggestedCategoryId, suggested_score: null }
       : null,
     intake_form_id: opts.intakeFormId,
+    ...(opts.deliveryLeadId != null ? { delivery_lead_id: opts.deliveryLeadId } : {}),
   };
 }
 

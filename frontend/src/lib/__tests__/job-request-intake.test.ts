@@ -1256,6 +1256,16 @@ describe("utworzenie jednym żądaniem (04.10.2026)", () => {
     intakeFormId: 12,
   };
 
+  it("Delivery Lead jedzie w żądaniu tylko, gdy ktoś go wskazał", () => {
+    expect(buildCreateJobPayload(complete(), opts)).not.toHaveProperty("delivery_lead_id");
+    expect(
+      buildCreateJobPayload(complete(), { ...opts, deliveryLeadId: null }),
+    ).not.toHaveProperty("delivery_lead_id");
+    expect(
+      buildCreateJobPayload(complete(), { ...opts, deliveryLeadId: 41 }),
+    ).toMatchObject({ delivery_lead_id: 41 });
+  });
+
   it("niesie profil, hiring managera, przekazanie, podobne i formularz — bez statusu", () => {
     const payload = buildCreateJobPayload(complete(), opts);
     expect(payload).toMatchObject({

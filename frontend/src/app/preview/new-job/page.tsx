@@ -406,6 +406,19 @@ function Harness() {
         ? { automatic_enabled: true, mode: allocationMode(stateKey) }
         : { automatic_enabled: false, mode: "off" },
     );
+    // Pole „Delivery Lead”: osoba domyślna dla klienta i katalog do zmiany.
+    qc.setQueryData(["job-intake-delivery-lead", CLIENT.id], {
+      user_id: 41,
+      name: "[Delivery Lead A]",
+      source: "creator",
+    });
+    qc.setQueryData(
+      ["users-directory", "delivery-lead-roles"],
+      [
+        { id: 41, name: "[Delivery Lead A]" },
+        { id: 42, name: "[Delivery Lead B]" },
+      ],
+    );
     // Lista kontaktów klienta w polu „Hiring manager” (`hiringManagerOptionsKey`).
     qc.setQueryData(["hiring-manager-options", 1], [
       { id: 501, name: "Tomasz Przykładowy", position: "Dyrektor IT" },
