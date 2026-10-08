@@ -145,6 +145,14 @@ export function MentionTextarea({
     );
   }, [popupVisible, ref]);
 
+  // Rodzic wyczyścił albo podmienił tekst (Enter wysłał wiadomość) — lista
+  // nie może zostać nad pustym polem ze starym zapytaniem.
+  useEffect(() => {
+    if (mention.open && value[mention.startIndex] !== "@") {
+      setMention(initialMentionState);
+    }
+  }, [value, mention.open, mention.startIndex]);
+
   useEffect(() => {
     if (mention.open && mention.highlightIdx >= filtered.length) {
       setMention((s) => ({ ...s, highlightIdx: 0 }));

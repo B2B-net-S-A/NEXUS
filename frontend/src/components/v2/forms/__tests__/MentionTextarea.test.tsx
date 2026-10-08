@@ -15,7 +15,13 @@ const users = [
   { id: 3, name: "Jan Kowalski", email: "jan@example.com", role: "head_of_recruitment" },
 ];
 
-function Field({ onKeyDown }: { onKeyDown?: () => void }) {
+function Field({
+  onKeyDown,
+  clearOnEnter = false,
+}: {
+  onKeyDown?: () => void;
+  clearOnEnter?: boolean;
+}) {
   const [value, setValue] = useState("");
   return (
     <div data-testid="card" style={{ overflowY: "hidden" }}>
@@ -24,7 +30,10 @@ function Field({ onKeyDown }: { onKeyDown?: () => void }) {
         onChange={setValue}
         scope={{ kind: "global" }}
         ariaLabel="Treść"
-        onKeyDown={onKeyDown}
+        onKeyDown={(e) => {
+          onKeyDown?.();
+          if (clearOnEnter && e.key === "Enter") setValue("");
+        }}
       />
     </div>
   );
@@ -114,6 +123,15 @@ describe("MentionTextarea", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Nie udało się wczytać listy osób.");
     fireEvent.mouseDown(screen.getByRole("button", { name: "Spróbuj ponownie" }));
     expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("po wysłaniu Enterem (rodzic czyści pole) lista znika", () => {
+    render(<Field clearOnEnter />);
+    const field = type("test @xyz");
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(field.value).toBe("");
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
   });
 
   it("nikt nie pasuje: mówi to; godzina po „@” nie otwiera niczego", () => {
