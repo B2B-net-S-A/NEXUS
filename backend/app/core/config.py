@@ -1686,6 +1686,12 @@ class Settings(BaseSettings):
     # może przepinać ludzi wysłanych do klienta rok temu.
     TRAFFIT_IMPORT_REASSIGN_ENABLED: bool = True
     TRAFFIT_IMPORT_REASSIGN_WINDOW_DAYS: int = 7
+    # 08.10.2026 (decyzja Artura): po fazie `pipelines` osoba od Cpro dostaje
+    # jeden dzwonek z mailem o kartach Nordei, które w Traffit nadal stoją
+    # w kolejce „Wysłać do Cpro” (`services/cpro_queue_reminder.py`). Okno =
+    # jak dawno karta mogła wejść do kolejki, żeby jeszcze o niej przypominać.
+    TRAFFIT_CPRO_REMINDER_ENABLED: bool = True
+    TRAFFIT_CPRO_REMINDER_WINDOW_DAYS: int = 7
     # DATA-03/04: retencja kolejek i dzienników automatów (pętla co 6 h).
     QUEUE_RETENTION_ENABLED: bool = True
     QUEUE_RETENTION_INTERVAL_SECONDS: int = 6 * 3600

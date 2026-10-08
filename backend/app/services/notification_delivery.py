@@ -83,7 +83,8 @@ CATALOG = (
         id="dl_review",
         label="CV czeka na Twój przegląd",
         module="Rekrutacje",
-        trigger="Rekruter przekazał kandydata do „QC CV” (albo do kolejki Cpro u Nordei).",
+        trigger="Rekruter przekazał kandydata do „QC CV” (albo do kolejki Cpro u Nordei); "
+        "po imporcie z Traffita — kandydaci, którzy nadal stoją w kolejce Cpro.",
         recipient_rule="Delivery Lead rekrutacji (bez niego: Delivery Leadzi z portfela klienta); osoba od Cpro.",
     ),
     dict(
