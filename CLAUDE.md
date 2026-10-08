@@ -4315,9 +4315,18 @@ innego niż serwer albo nadpisywał cudzą pracę.
   `_worked_at_client_predicate` nadal liczy szkice i unieważnione kontrakty —
   znany dług.
 - **Delivery Lead zakładający rekrutację staje się jej `delivery_lead_id`**
-  (17.09.2026, `create_job`): pierwszeństwo jawne `delivery_lead_id` > head DL
-  klienta (`resolve_default_owners`) > twórca — zawsze WYŁĄCZNIE gdy pole
-  zostaje puste po obu wcześniejszych krokach. `recruiter_id`/`/claim`
+  (`job_lifecycle.create_job_core`): pierwszeństwo jawne `delivery_lead_id` >
+  twórca z rolą Delivery Leada > główny DL klienta (`resolve_default_owners`,
+  czyli twórca bez roli DL, np. admin). Do 08.10.2026 główny DL klienta
+  wygrywał z twórcą: drugi DL tego samego klienta zakładał rekrutację, a
+  przegląd DL, alerty i statystyki DL szły do głównego (4 z 62 rekrutacji
+  założonych przez DL-i od 17.09). Twórca jest wpisany jak ręcznie
+  (`delivery_lead_auto_filled = false`), więc nie idzie za zmianą głównego
+  DL-a klienta. Otwarte rekrutacje sprzed zmiany przepina jednorazowo
+  `services/job_creator_delivery_lead_repair.py` (blok
+  `repair-job-creator-delivery-lead`, paragon
+  `job_creator_delivery_lead_2026_10` z ID rekrutacji i poprzedniego DL-a).
+  `recruiter_id`/`/claim`
   nietknięte, to zmiana ownera, nie autorstwa. `delivery_lead_job_pairs`
   zwraca `None` dla roli DL, więc bramka zakresu klienta nie gryzie własnej
   rekrutacji świeżo utworzonej bez zespołu. 403 przy próbie ustawienia widełek
