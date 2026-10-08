@@ -1,12 +1,13 @@
 # Ścieżka kandydata D1–D10 — plan trzech PR-ów i stan prac
 
-Stan na 07.10.2026, 23:50 (aktualizuj przy każdym kroku):
+Stan na 08.10.2026 (aktualizuj przy każdym kroku):
 
-- **PR1 — formularz screeningu:** kod na gałęzi `claude/screening-form-0424` (3 commity, wypchnięte).
-  Zostało: poprawki po przeglądzie kodu i bezpieczeństwa, `gh pr create`, monitor CI, auto-merge, `/api/health` = SHA,
-  potem pomiar `python -m scripts.eval_recommendation_card_note --limit 40` i włączenie `RECOMMENDATION_CARD_ASSIST_ENABLED`.
-- **PR2 — ekran Delivery Leada:** nie zaczęty (gałąź od main po scaleniu PR1).
-- **PR3 — stawki z rekrutacji w zamówieniu i umowie:** nie zaczęty (niezależny od PR1 i PR2).
+- **PR1 — formularz screeningu:** scalony (#2083). Pomiar `python -m scripts.eval_recommendation_card_note
+  --limit 40` i włączenie `RECOMMENDATION_CARD_ASSIST_ENABLED` — stan niepotwierdzony z tej gałęzi.
+- **PR2 — ekran Delivery Leada (D6, D9, D10):** kod na gałęzi `claude/dl-review-pr2` (wypchnięta, PR jeszcze
+  nie otwarty). Raport: `docs/dl-review-v2-completion-report.md`. Zostało: przegląd kodu, `gh pr create`, CI
+  z testami bazy (lokalnie bez Postgresa), `/api/health` = SHA, przeklikanie przeglądu DL na produkcji.
+- **PR3 — stawki z rekrutacji w zamówieniu i umowie:** PR #2084.
 
 Kontrakt PR1: `docs/screening-form-contract.md`, raport PR1: `docs/screening-form-completion-report.md`.
 

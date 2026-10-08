@@ -31,14 +31,15 @@ from app.core.scheduling import business_today
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.client import Client
-from app.models.contract import Contract, ContractStatus, RateUnit
+from app.models.contract import Contract, ContractStatus
 from app.models.job import Job
 from app.models.rate_history import RateHistory
 from app.models.user import User
 from app.services import candidate_rate_from as rate_from
 from app.services.access_scope import resolve_delivery_lead_finance_client_ids
 from app.services.candidate_rate_observations import RateObservation, collect
-from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fields
+from app.services.client_consultant_rates import contract_hourly
+from app.services.contract_rates import RATE_SCHEDULE_LOADS
 from app.services.job_working_title import job_display_title_expr
 
 router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
@@ -103,21 +104,9 @@ class RateDecisionIn(BaseModel):
     decision: Optional[Literal["exclude"]]
 
 
-def _contract_hourly(contract: Contract, on: date) -> Optional[Decimal]:
-    fields = effective_rate_fields(contract, on)
-    if str(fields.get("rate_candidate_currency") or "PLN").upper() != "PLN":
-        return None
-    rate = fields.get("rate_candidate")
-    if rate is None:
-        return None
-    rate = Decimal(str(rate))
-    unit = contract.rate_unit
-    if unit == RateUnit.hourly:
-        return rate.quantize(Decimal("0.01"))
-    if unit == RateUnit.daily:
-        return (rate / Decimal(8)).quantize(Decimal("0.01"))
-    hours = Decimal(contract.billing_hours_per_month or 168)
-    return (rate / hours).quantize(Decimal("0.01"))
+# Reguła mieszka w `services/client_consultant_rates.py` (czyta ją też przegląd
+# Delivery Leada — „ostatni kontrakt”); alias dla tego modułu.
+_contract_hourly = contract_hourly
 
 
 async def _job_labels(

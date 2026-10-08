@@ -515,3 +515,69 @@ describe("ScreeningFullForm — „Zapisz i przekaż dalej”", () => {
     expect(mocks.showSuccess).toHaveBeenCalledWith("Tomasz Wzorcowy — przekazano dalej: Zweryfikowany.");
   });
 });
+
+describe("ScreeningFullForm — prośba Delivery Leada o poprawki (D6)", () => {
+  const fixRequest = {
+    version_no: 3,
+    stage_id: 901,
+    requested_at: "2026-10-08T08:30:00Z",
+    requested_by_name: "Dorota DL",
+    remark: "Dopisz, jak używał Kafki",
+    fields: [
+      { key: "question:q2", label: "Pytanie 2: Czy pracowałeś z Kafką?", changed: false },
+      { key: "field:availability", label: "Dostępność", changed: true },
+      { key: "candidate_rate", label: "Stawka kandydata", changed: false },
+    ],
+    count: 3,
+    changed_count: 1,
+  };
+
+  it("baner z polami i uwagą; pole oznaczone „Do poprawy”, a po edycji „Zmienione — zapisz”", async () => {
+    serverState = formState({ board_column: "verified", fix_request: fixRequest, handback_stage_def_id: 13 });
+    const user = userEvent.setup();
+    mount();
+    const banner = await screen.findByTestId("fix-request-banner");
+    expect(banner).toHaveTextContent("Delivery Lead prosi o poprawki (3) · poprawione 1 z 3");
+    expect(banner).toHaveTextContent("Uwaga: „Dopisz, jak używał Kafki”");
+    const chips = Array.from(banner.querySelectorAll("[data-fix-key]"));
+    expect(chips.map((c) => [c.getAttribute("data-fix-key"), c.getAttribute("data-fix-state")])).toEqual([
+      ["question:q2", "todo"],
+      ["field:availability", "done"],
+      ["candidate_rate", "todo"],
+    ]);
+    const answers = await screen.findAllByLabelText("Odpowiedź");
+    await user.type(answers[1], "Tak, produkcyjnie 3 lata");
+    expect(banner.querySelector('[data-fix-key="question:q2"]')).toHaveAttribute("data-fix-state", "edited");
+  });
+
+  it("„Zapisz i oddaj do przeglądu DL” zapisuje, potem przesuwa na etap „QC CV” z wersją z zapisu", async () => {
+    serverState = formState({ board_column: "verified", fix_request: fixRequest, handback_stage_def_id: 13 });
+    mocks.put.mockImplementation(() =>
+      Promise.resolve({ data: formSaveResult(serverState, { process_state_version: 7 }) }),
+    );
+    mocks.send.mockResolvedValue({ ok: true, data: {} });
+    const onMoved = vi.fn();
+    const user = userEvent.setup();
+    mount({ onMoved });
+    const answers = await screen.findAllByLabelText("Odpowiedź");
+    await user.type(answers[1], "Tak");
+    await user.click(screen.getByRole("button", { name: /Zapisz i oddaj do przeglądu DL/ }));
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1));
+    expect(mocks.put).toHaveBeenCalledTimes(1);
+    expect(mocks.send.mock.calls[0][0]).toEqual({
+      candidate_id: FORM_CANDIDATE_ID,
+      job_id: FORM_JOB_ID,
+      stage_def_id: 13,
+      expected_state_version: 7,
+    });
+    await waitFor(() => expect(onMoved).toHaveBeenCalled());
+    expect(mocks.showSuccess).toHaveBeenCalledWith("Tomasz Wzorcowy — oddane do przeglądu Delivery Leada.");
+  });
+
+  it("bez otwartej prośby nie ma banera ani przycisku oddania", async () => {
+    mount();
+    await screen.findAllByLabelText("Odpowiedź");
+    expect(screen.queryByTestId("fix-request-banner")).toBeNull();
+    expect(screen.queryByRole("button", { name: /oddaj do przeglądu DL/ })).toBeNull();
+  });
+});

@@ -60,6 +60,15 @@ export function transitReturnedDetail(row: CvTransitRow): string | null {
 }
 
 /** Uwaga dla rekrutera zostawiona przy decyzji — osobna linia wiersza. */
+/** D6 (08.10.2026): „Do poprawy (N): a, b, c” — pola wskazane przez DL. */
+export function transitFixList(row: CvTransitRow): string | null {
+  const labels = (row.fix_labels ?? []).filter((label) => label.trim());
+  if (labels.length === 0) return null;
+  const shown = labels.slice(0, 4);
+  const rest = labels.length - shown.length;
+  return `Do poprawy (${labels.length}): ${shown.join(", ")}${rest > 0 ? ` i ${rest} więcej` : ""}`;
+}
+
 export function transitRemark(row: CvTransitRow): string | null {
   const remark = row.remark?.trim();
   return remark ? `Uwaga: ${remark}` : null;

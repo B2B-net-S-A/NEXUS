@@ -111,6 +111,31 @@ export interface ScreeningFormState {
   /** Karta z notatki i „Ułóż w zdanie” (RECOMMENDATION_CARD_ASSIST_ENABLED). */
   assist_enabled: boolean;
   phrase_language: PhraseLanguage;
+  /** D6: otwarta prośba Delivery Leada o poprawki (`null` = brak). */
+  fix_request?: ScreeningFixRequest | null;
+  /** Etap „QC CV” — „Zapisz i oddaj do przeglądu DL” (tylko przy otwartej prośbie). */
+  handback_stage_def_id?: number | null;
+}
+
+/** D6 (08.10.2026): pole wskazane przez Delivery Leada do poprawy. */
+export interface ScreeningFixField {
+  /** `question:<id>`, `field:<pole karty>`, `field:overall_fit`, `candidate_rate`, `cv`. */
+  key: string;
+  label: string;
+  /** Formularz (albo CV firmowe) różni się w tym polu od stanu z chwili prośby. */
+  changed: boolean;
+}
+
+/** Otwarta prośba DL o poprawki — do następnego ruchu karty. */
+export interface ScreeningFixRequest {
+  version_no: number;
+  stage_id: number | null;
+  requested_at: string | null;
+  requested_by_name: string | null;
+  remark: string | null;
+  fields: ScreeningFixField[];
+  count: number;
+  changed_count: number;
 }
 
 export type ScreeningFormAnswerOrigin = "manual" | "reassign_suggested" | "note_import" | "phrased";

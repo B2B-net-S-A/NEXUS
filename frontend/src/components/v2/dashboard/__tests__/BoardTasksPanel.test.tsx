@@ -296,6 +296,62 @@ describe("BoardTasksPanel — „Czeka na Ciebie” na pulpicie", () => {
     expect(screen.getByRole("dialog", { name: "Przegląd DL" })).toHaveTextContent("Ola Przegląd · wysyłka tak");
   });
 
+  it("D10: 2+ osoby z jednej rekrutacji — „Porównaj (N)” otwiera tabelę porównania", async () => {
+    mockQueue({
+      can_send_to_client: true,
+      dl_review_window_days: 30,
+      dl_review: [
+        row("dl_review", { candidate_name: "Ola Przegląd" }),
+        row("dl_review", { stage_id: 18, candidate_id: 28, candidate_name: "Piotr Drugi" }),
+        row("dl_review", { stage_id: 19, candidate_id: 29, job_id: 32, job_title: "QA", candidate_name: "Solo" }),
+      ],
+    });
+    const base = get.getMockImplementation() as (url: string) => Promise<unknown>;
+    get.mockImplementation((url: string) =>
+      url === "/api/dl-review/jobs/31/queue"
+        ? Promise.resolve({
+            data: {
+              job_id: 31,
+              cpro_client: false,
+              total: 1,
+              limit: 50,
+              items: [
+                {
+                  candidate_id: 21,
+                  candidate_name: "Ola Przegląd",
+                  stage_id: 11,
+                  since,
+                  qc_status: "passed",
+                  overall_fit: "fit",
+                  overall_fit_label: "Pasuje",
+                  requirements_met: 3,
+                  requirements_total: 4,
+                  candidate_rate: { amount: 140, unit: "hourly", currency: "PLN", hourly_pln: 140 },
+                  start: "od zaraz",
+                  risks: [{ code: "qc_failed", label: "CV nie przeszło QC", severity: "high" }],
+                  fix_rounds: 1,
+                  task: row("dl_review", { candidate_name: "Ola Przegląd" }),
+                },
+              ],
+            },
+          })
+        : base(url),
+    );
+    renderPanel();
+    const section = await screen.findByRole("region", { name: "Czeka na Twój przegląd (DL)" });
+    // Tylko rekrutacja z dwiema osobami ma przycisk porównania.
+    expect(within(section).getAllByRole("button", { name: /Porównaj/ })).toHaveLength(1);
+    await userEvent.click(within(section).getByRole("button", { name: "Porównaj (2)" }));
+    const dialog = await screen.findByRole("dialog", { name: /Porównaj kandydatów — Java Developer/ });
+    const table = await within(dialog).findByRole("table", { name: "Porównanie kandydatów w przeglądzie" });
+    expect(within(table).getByText("3/4")).toBeTruthy();
+    expect(within(table).getByText("140 zł/h")).toBeTruthy();
+    expect(within(table).getByText("CV nie przeszło QC")).toBeTruthy();
+    expect(within(table).getByText("poprawki: 1")).toBeTruthy();
+    await userEvent.click(within(table).getByRole("button", { name: "Przejrzyj: Ola Przegląd" }));
+    expect(await screen.findByRole("dialog", { name: "Przegląd DL" })).toHaveTextContent("Ola Przegląd");
+  });
+
   it("Cpro: linia per rekrutacja, kto wrzuca i „Wrzucaj po kolei” otwiera kolejkę", async () => {
     mockQueue({
       cpro_to_send: [

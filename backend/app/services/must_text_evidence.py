@@ -304,6 +304,101 @@ def text_met_labels(
     return frozenset(met)
 
 
+# Źródła dowodu dla przeglądu Delivery Leada (D9, 08.10.2026): ten sam test
+# słowa co bramka must, ale z odpowiedzią „gdzie” — DL widzi, czy wymaganie
+# stoi w profilu, w CV, w notatce z rozmowy czy w odpowiedzi ze screeningu.
+SOURCE_PROFILE = "profile"
+SOURCE_CV = "cv"
+SOURCE_NOTE = "note"
+SOURCE_CONVERSATION = "conversation"
+SOURCE_ORDER = (SOURCE_PROFILE, SOURCE_CV, SOURCE_NOTE, SOURCE_CONVERSATION)
+SNIPPET_CHARS = 90
+
+
+def _match_span(requirement: GateRequirement, text: str) -> Optional[tuple[int, int]]:
+    lowered = text.lower()
+    for pattern, _token, cased in _patterns(requirement):
+        found = pattern.search(text if cased else lowered)
+        if found:
+            return found.start(), found.end()
+    return None
+
+
+def mention_sources(
+    candidate,
+    labels: Sequence[str],
+    *,
+    note_texts: Iterable[str] = (),
+    conversation_texts: Iterable[str] = (),
+) -> dict[str, tuple[str, ...]]:
+    """``{etykieta: (źródła…)}`` — gdzie wymaganie stoi (``SOURCE_ORDER``).
+
+    Etykieta, z której nie da się zrobić wymagania technologicznego
+    (``gate_requirement`` = ``None`` — zdanie, branża, język), NIE trafia do
+    wyniku: przegląd pokazuje ją jako „sprawdź sam”, nigdy jako brak.
+    Pusta krotka = sprawdzone, nigdzie nie ma.
+    """
+    texts: dict[str, list[str]] = {
+        SOURCE_PROFILE: [profile_text(candidate)],
+        SOURCE_CV: [cv_text(candidate)],
+        SOURCE_NOTE: [t for t in note_texts if t],
+        SOURCE_CONVERSATION: [t for t in conversation_texts if t],
+    }
+    lowered = {
+        source: [(t, t.lower()) for t in items if t] for source, items in texts.items()
+    }
+    out: dict[str, tuple[str, ...]] = {}
+    for label in labels:
+        requirement = gate_requirement(label)
+        if requirement is None:
+            continue
+        out[label] = tuple(
+            source
+            for source in SOURCE_ORDER
+            if any(_mentions_lowered(requirement, t, low) for t, low in lowered[source])
+        )
+    return out
+
+
+def mention_snippet(label: str, text: str) -> Optional[str]:
+    """Fragment tekstu wokół pierwszego trafienia (do kolumny „kandydat”)."""
+    requirement = gate_requirement(label)
+    if requirement is None or not text:
+        return None
+    span = _match_span(requirement, text)
+    if span is None:
+        return None
+    half = SNIPPET_CHARS // 2
+    start, end = max(0, span[0] - half), min(len(text), span[1] + half)
+    piece = " ".join(text[start:end].split())
+    return ("…" if start > 0 else "") + piece + ("…" if end < len(text) else "")
+
+
+async def load_evidence_note_texts(
+    db, candidate_ids: Sequence[int], labels: Sequence[str]
+) -> dict[int, list[str]]:
+    """Notatki-dowody kandydatów, które wymieniają którąś z technologii.
+
+    To samo zapytanie co bramka (``attach_gate_evidence``), w savepoincie —
+    błąd bazy daje pusty wynik, nie przerywa przeglądu.
+    """
+    ids = sorted({int(i) for i in candidate_ids})
+    pattern = _loose_pg_pattern(labels) if labels else None
+    if not ids or not pattern:
+        return {}
+    try:
+        async with db.begin_nested():
+            _has, texts = await _load_notes(db, ids, pattern)
+    except Exception:  # noqa: BLE001 — dowód z notatek jest dodatkiem
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "must evidence: notes lookup failed", exc_info=True
+        )
+        return {}
+    return texts
+
+
 def evidence_for(candidate, must: Sequence[str]) -> Optional[MustTextEvidence]:
     """Dowód dołączony przez ``attach_gate_evidence`` dla listy obejmującej ``must``."""
     evidence = getattr(candidate, "_must_text_evidence", None)

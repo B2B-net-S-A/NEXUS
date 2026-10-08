@@ -67,7 +67,13 @@ from app.schemas.champion import (
     ScreeningAnswerItem,
     ScreeningAnswers,
 )
-from app.services import candidate_claim, champion_view, note_kinds, screening_sheets
+from app.services import (
+    candidate_claim,
+    champion_view,
+    note_kinds,
+    screening_fix_requests,
+    screening_sheets,
+)
 from app.services import candidate_rate_change as rate_change
 from app.services import recommendation_cards as cards
 from app.services import screening_form_rules as rules
@@ -624,6 +630,14 @@ async def load_state(
         if item.get("source") == "note" and item.get("question_id")
     ]
 
+    fix_request = await screening_fix_requests.open_for_pair(
+        db,
+        candidate_id=candidate.id,
+        job_id=job.id,
+        newest_stage_id=newest.id if newest is not None else None,
+        current_snapshot=current.snapshot(),
+        questions=list(questions),
+    )
     can_edit_rate = user_can_edit_rates(user)
     card_hourly = cards.card_rate_hourly(current.fields.get("rate"))
     rate_from = rate_summary(candidate).get("rate_from_hourly")
@@ -684,6 +698,14 @@ async def load_state(
         ),
         "assist_enabled": assist_enabled,
         "phrase_language": (await phrase_language(db, job) if assist_enabled else "pl"),
+        # D6 (08.10.2026): otwarta prośba Delivery Leada o poprawki i etap
+        # „QC CV”, na który rekruter oddaje kartę po poprawkach.
+        "fix_request": fix_request,
+        "handback_stage_def_id": (
+            await screening_fix_requests.handback_stage_def_id(db, job)
+            if fix_request is not None
+            else None
+        ),
     }
 
 

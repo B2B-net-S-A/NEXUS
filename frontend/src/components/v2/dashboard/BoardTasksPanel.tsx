@@ -51,7 +51,7 @@
  */
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Clock, Eye, ListOrdered } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -60,6 +60,7 @@ import { AllocationProposalsSection } from "@/components/v2/dashboard/Allocation
 import { WidgetErrorBlock } from "@/components/v2/dashboard/WidgetState";
 import { FollowupSection } from "@/components/v2/followups/FollowupSection";
 import { DlReviewPanel } from "@/components/v2/recruitment/DlReviewPanel";
+import { DlReviewQueueDialog } from "@/components/v2/recruitment/dl-review/DlReviewQueueDialog";
 import { QcStatusBadge } from "@/components/v2/recruitment/QcStatusBadge";
 import {
   PREP_ATTENTION_REASON_LABEL,
@@ -144,10 +145,29 @@ interface BoardTasksPanelProps {
 
 const NO_HIDDEN_PANELS: ReadonlySet<DashboardPanelKey> = new Set();
 
+/** Wiersze przeglądu DL pogrupowane po rekrutacji — kolejność pierwszego wystąpienia. */
+export function groupByJob(
+  rows: BoardTaskRow[],
+): Array<{ jobId: number; title: string; rows: BoardTaskRow[] }> {
+  const out: Array<{ jobId: number; title: string; rows: BoardTaskRow[] }> = [];
+  const byId = new Map<number, (typeof out)[number]>();
+  for (const row of rows) {
+    let group = byId.get(row.job_id);
+    if (!group) {
+      group = { jobId: row.job_id, title: row.job_working_title || row.job_title, rows: [] };
+      byId.set(row.job_id, group);
+      out.push(group);
+    }
+    group.rows.push(row);
+  }
+  return out;
+}
+
 export function BoardTasksPanel({ hiddenPanels = NO_HIDDEN_PANELS }: BoardTasksPanelProps = {}) {
   const query = useBoardTasks();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [reviewing, setReviewing] = useState<BoardTaskRow | null>(null);
+  const [queueJob, setQueueJob] = useState<{ id: number; title: string } | null>(null);
   const [cproJob, setCproJob] = useState<number | null>(null);
   const [cproOpen, setCproOpen] = useState(false);
   const toggle = (kind: string) => setExpanded((prev) => ({ ...prev, [kind]: !prev[kind] }));
@@ -193,6 +213,10 @@ export function BoardTasksPanel({ hiddenPanels = NO_HIDDEN_PANELS }: BoardTasksP
     );
   }
   const dlReview = data.dl_review ?? [];
+  const dlReviewCountByJob = new Map<number, number>();
+  for (const row of dlReview) {
+    dlReviewCountByJob.set(row.job_id, (dlReviewCountByJob.get(row.job_id) ?? 0) + 1);
+  }
   const preps = data.prep_attention ?? [];
   const followups = data.followups ?? [];
   // Serwer wysyła propozycje tylko osobie decydującej; flaga jest drugim
@@ -331,43 +355,64 @@ export function BoardTasksPanel({ hiddenPanels = NO_HIDDEN_PANELS }: BoardTasksP
             expanded={expanded["dl_review"] === true}
             onToggle={() => toggle("dl_review")}
           >
-            {shown("dl_review", dlReview).map((row) => (
-              // Kolumna panelu ma na laptopie ~300 px: plakietka QC, czas
-              // i przycisk w jednej linii zostawiały nazwisku 60–90 px.
-              // Gdy nazwisko nie ma 12rem, akcje schodzą pod nie.
-              <li
-                key={row.stage_id}
-                className="flex flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2"
-              >
-                <div className="min-w-[12rem] flex-1">
-                  <button
-                    type="button"
-                    onClick={() => setReviewing(row)}
-                    title={row.candidate_name}
-                    className="block max-w-full truncate text-left text-sm font-medium hover:underline"
+            {/* D10 (08.10.2026): osoby z jednej rekrutacji obok siebie — przy
+                2+ osobach nagłówek rekrutacji z „Porównaj (N)”. */}
+            {groupByJob(shown("dl_review", dlReview)).map((group) => (
+              <Fragment key={group.jobId}>
+                {(dlReviewCountByJob.get(group.jobId) ?? 0) > 1 ? (
+                  <li className="flex flex-wrap items-center gap-2 bg-muted/30 px-3 py-1.5 text-xs">
+                    <span className="min-w-0 flex-1 truncate font-medium text-foreground" title={group.title}>
+                      {group.title}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="shrink-0"
+                      onClick={() => setQueueJob({ id: group.jobId, title: group.title })}
+                    >
+                      Porównaj ({dlReviewCountByJob.get(group.jobId)})
+                    </Button>
+                  </li>
+                ) : null}
+                {group.rows.map((row) => (
+                  // Kolumna panelu ma na laptopie ~300 px: plakietka QC, czas
+                  // i przycisk w jednej linii zostawiały nazwisku 60–90 px.
+                  // Gdy nazwisko nie ma 12rem, akcje schodzą pod nie.
+                  <li
+                    key={row.stage_id}
+                    className="flex flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2"
                   >
-                    {row.candidate_name}
-                  </button>
-                  <RowMeta row={row} />
-                </div>
-                <div className="ml-auto flex shrink-0 items-center gap-2">
-                  <QcStatusBadge row={row} />
-                  <ReviewCardBadge row={row} />
-                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                    {waitingFor(row.since)}
-                  </span>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="shrink-0"
-                    onClick={() => setReviewing(row)}
-                    aria-label={`Przejrzyj: ${row.candidate_name}`}
-                  >
-                    <Eye className="h-3.5 w-3.5" />
-                    Przejrzyj
-                  </Button>
-                </div>
-              </li>
+                    <div className="min-w-[12rem] flex-1">
+                      <button
+                        type="button"
+                        onClick={() => setReviewing(row)}
+                        title={row.candidate_name}
+                        className="block max-w-full truncate text-left text-sm font-medium hover:underline"
+                      >
+                        {row.candidate_name}
+                      </button>
+                      <RowMeta row={row} />
+                    </div>
+                    <div className="ml-auto flex shrink-0 items-center gap-2">
+                      <QcStatusBadge row={row} />
+                      <ReviewCardBadge row={row} />
+                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                        {waitingFor(row.since)}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="shrink-0"
+                        onClick={() => setReviewing(row)}
+                        aria-label={`Przejrzyj: ${row.candidate_name}`}
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                        Przejrzyj
+                      </Button>
+                    </div>
+                  </li>
+                ))}
+              </Fragment>
             ))}
           </Section>
         )}
@@ -491,6 +536,15 @@ export function BoardTasksPanel({ hiddenPanels = NO_HIDDEN_PANELS }: BoardTasksP
           if (!open) setReviewing(null);
         }}
         canSendToClient={data.can_send_to_client}
+      />
+      <DlReviewQueueDialog
+        jobId={queueJob?.id ?? null}
+        jobTitle={queueJob?.title ?? null}
+        open={queueJob !== null}
+        onOpenChange={(open) => {
+          if (!open) setQueueJob(null);
+        }}
+        onReview={setReviewing}
       />
       <CproQueueDialog open={cproOpen} onClose={() => setCproOpen(false)} initialJobId={cproJob} />
     </div>

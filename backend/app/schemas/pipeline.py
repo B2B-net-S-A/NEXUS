@@ -31,6 +31,11 @@ class StageMove(BaseModel):
     # odrzucenie) — zapisywana jako notatka pary (`services/stage_remarks.py`).
     # Stawka do klienta ma własne pola niżej i tu nie trafia.
     recruiter_remark: Optional[str] = Field(None, max_length=2000)
+    # D6 (08.10.2026): „Wróć do poprawy” z „QC CV” na „Zweryfikowany” — pola
+    # do poprawy (`services/screening_fix_requests.py`): `question:<id>`,
+    # `field:<pole karty>`, `field:overall_fit`, `candidate_rate`, `cv`.
+    # Przy innym ruchu albo u Nordei → 422 `FIX_FIELDS_NOT_ALLOWED`.
+    fix_fields: Optional[list[str]] = Field(None, max_length=30)
     rating: Optional[int] = Field(None, ge=1, le=5)
     rejection_reason_id: Optional[int] = None
     rejection_reason: Optional[str] = None  # legacy free-text — kept for BC

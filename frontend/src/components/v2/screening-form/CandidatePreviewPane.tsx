@@ -95,6 +95,8 @@ interface CvTabProps {
   searchRequest: { text: string; nonce: number } | null;
   loadDocumentBlob: typeof fetchDocumentBlob;
   loadOriginalBlob: OriginalBlobLoader;
+  /** Które źródła pokazać w przełączniku (przegląd DL ma CV firmowe osobno). */
+  sources?: ReadonlyArray<PreviewCvSource>;
 }
 
 function CvTab({
@@ -106,6 +108,7 @@ function CvTab({
   searchRequest,
   loadDocumentBlob,
   loadOriginalBlob,
+  sources,
 }: CvTabProps) {
   const { showError } = useToast();
   // Te same klucze co dok osoby i karta CV na profilu — odpowiedź jest wspólna.
@@ -307,7 +310,7 @@ function CvTab({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
       <div role="group" aria-label="Które CV pokazać" className="inline-flex w-fit flex-wrap rounded-md border border-border bg-muted/30 p-0.5">
-        {SOURCES.map((option) => (
+        {SOURCES.filter((option) => !sources || sources.includes(option.value)).map((option) => (
           <button
             key={option.value}
             type="button"
@@ -327,6 +330,44 @@ function CvTab({
       </div>
       {body}
     </div>
+  );
+}
+
+// ── Samo CV (przegląd Delivery Leada, D9) ────────────────────────────────
+
+export interface CandidateCvPreviewProps {
+  candidateId: number;
+  jobId: number;
+  stageId: number | null;
+  defaultSource?: PreviewCvSource;
+  sources?: ReadonlyArray<PreviewCvSource>;
+  loadDocumentBlob?: typeof fetchDocumentBlob;
+  loadOriginalBlob?: OriginalBlobLoader;
+}
+
+/** Zakładka CV bez reszty podglądu — kolumna CV w przeglądzie DL (08.10.2026). */
+export function CandidateCvPreview({
+  candidateId,
+  jobId,
+  stageId,
+  defaultSource = "original",
+  sources,
+  loadDocumentBlob = fetchDocumentBlob,
+  loadOriginalBlob = defaultOriginalLoader,
+}: CandidateCvPreviewProps) {
+  const [source, setSource] = useState<PreviewCvSource>(defaultSource);
+  return (
+    <CvTab
+      candidateId={candidateId}
+      jobId={jobId}
+      stageId={stageId}
+      source={source}
+      onSourceChange={setSource}
+      searchRequest={null}
+      loadDocumentBlob={loadDocumentBlob}
+      loadOriginalBlob={loadOriginalBlob}
+      sources={sources}
+    />
   );
 }
 

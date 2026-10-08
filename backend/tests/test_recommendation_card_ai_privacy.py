@@ -231,6 +231,9 @@ def test_screening_form_history_is_read_only_by_people():
         "app/api/screening_form.py",
         # Scalanie kandydatów przenosi wersje duplikatu na ocalałego.
         "app/services/candidate_merge.py",
+        # Prośba DL o poprawki (D6, 08.10.2026): wersja `fix_requested`
+        # z migawką; czytają ją formularz, dzwonek i „CV w drodze” (ludzie).
+        "app/services/screening_fix_requests.py",
     }
     reader = re.compile(
         r"screening_form_versions|ScreeningFormVersion"

@@ -95,6 +95,16 @@ const CASES: Array<{
       "Przeglądarka PDF i DOCX wraca do chunku panelu osoby — a ten panel " +
       "otwiera się przy każdym kliknięciu karty na Tablicy.",
   },
+  {
+    // D9 (08.10.2026): przegląd DL — oryginał CV obok wymagań i decyzji.
+    label: "Przegląd DL → podgląd oryginalnego CV",
+    file: "components/v2/recruitment/dl-review/CvColumn.tsx",
+    heavy: /^pdfjs-dist|^docx-preview|CandidatePreviewPane$|FilePreviewModal$/,
+    lazyModule: "@/components/v2/screening-form/CandidatePreviewPane",
+    why:
+      "Przeglądarka PDF i DOCX wraca do chunku Tablicy i pulpitu — przegląd " +
+      "DL importuje się statycznie w obu miejscach.",
+  },
 ];
 
 it("profil kandydata nie importuje statycznie edytorów TipTapa", () => {

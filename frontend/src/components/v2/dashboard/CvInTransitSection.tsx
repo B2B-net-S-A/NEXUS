@@ -35,6 +35,7 @@ import {
   transitJobLabel,
   transitCardEdit,
   transitRemark,
+  transitFixList,
   transitReturnedDetail,
   transitRowWho,
   transitSummary,
@@ -85,6 +86,7 @@ function RemoveMenu() {
 function ReturnedRow({ row }: { row: CvTransitRow }) {
   const detail = transitReturnedDetail(row);
   const remark = transitRemark(row);
+  const fixes = transitFixList(row);
   const cardEdit = transitCardEdit(row);
   const rejected = row.kind === "rejected_by_dl";
   return (
@@ -107,6 +109,11 @@ function ReturnedRow({ row }: { row: CvTransitRow }) {
         {detail ? <span className="min-w-0 break-words text-xs">{detail}</span> : null}
       </div>
       {remark ? <p className="break-words text-xs">{remark}</p> : null}
+      {fixes ? (
+        <p className="break-words text-xs font-medium text-warning-muted-foreground" data-testid="cv-transit-fixes">
+          {fixes}
+        </p>
+      ) : null}
       {cardEdit ? <p className="break-words text-xs text-muted-foreground">{cardEdit}</p> : null}
     </li>
   );

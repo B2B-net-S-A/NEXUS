@@ -44,7 +44,7 @@ from app.services.board_stage_badges import (
     is_entry_column,
     stage_badge_kind,
 )
-from app.services import champion_view, stage_remarks
+from app.services import champion_view, screening_fix_requests, stage_remarks
 from app.services.candidate_stage_cv_service import (
     create_original_cv_snapshot,
 )
@@ -1260,6 +1260,21 @@ async def move_candidate(
         pending_rate=data.expected_rate_value is not None
         and data.expected_rate_value > 0,
     )
+    # D6 (08.10.2026): „Wróć do poprawy” z „QC CV” niesie listę pól do poprawy.
+    # Walidacja PRZED zapisem ruchu — zła lista nie może cofnąć karty bez niej.
+    fix_keys: list[str] = []
+    if data.fix_fields:
+        _gate_row, from_column = await pipeline_move_rules.gate_stage_row(
+            db, candidate_id=data.candidate_id, job_id=data.job_id
+        )
+        screening_fix_requests.assert_allowed(
+            from_column=from_column,
+            target_column=target_column,
+            client_id=job.client_id,
+        )
+        fix_keys = screening_fix_requests.validate(
+            data.fix_fields, screening_fix_requests.fix_options(job)
+        )
 
     # Pipeline v4 (23.09.2026): „CV wysłane" poza Nordeą wysyła Delivery Lead
     # (uprawnienie `recruitment_manage`) i wpisuje stawkę do klienta. Stawka
@@ -1539,6 +1554,9 @@ async def move_candidate(
         )
     stage_remarks.record(
         db, stage=stage, author_id=current_user.id, text=data.recruiter_remark
+    )
+    await screening_fix_requests.record(
+        db, job=job, stage=stage, user=current_user, keys=fix_keys
     )
     if cpro_assignee is not None:
         stage.task_assignee_id = cpro_assignee.id

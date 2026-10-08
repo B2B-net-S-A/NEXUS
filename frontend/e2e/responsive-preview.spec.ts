@@ -86,6 +86,8 @@ const PAGES = [
   "/preview/screening-form?state=readonly",
   "/preview/screening-form?state=history",
   "/preview/dl-review",
+  "/preview/dl-review?state=queue",
+  "/preview/dl-review?state=returned",
   "/preview/champion-workspace",
   "/preview/champion-workspace?ptab=tech",
   "/preview/champion-workspace?ptab=client",

@@ -122,6 +122,27 @@ def test_bell_carries_the_remark_and_never_a_rate() -> None:
     assert "Uwaga" not in plain
 
 
+def test_bell_lists_the_fields_dl_asked_to_fix() -> None:
+    """D6 (08.10.2026): „Wróć do poprawy” z listą pól — dzwonek je wymienia."""
+    title, message, link = emitter._inapp_content(
+        reason=handoff.REASON_QC_RETURNED,
+        candidate=SimpleNamespace(id=9),
+        candidate_full_name="Jan Testowy",
+        stage_display_name="Zweryfikowany",
+        job=SimpleNamespace(id=3, title="ZOB-1 Java", working_title=None),
+        mover=SimpleNamespace(name="Daria D."),
+        remark="Dopisz lata",
+        fix_labels=["Pytanie 1: Kafka?", "Stawka kandydata"],
+    )
+    assert title == "Wróciło do poprawy: Jan Testowy"
+    assert "Uwaga: „Dopisz lata”" in message
+    assert message.endswith("Do poprawy (2): Pytanie 1: Kafka?, Stawka kandydata.")
+    # Link otwiera od razu formularz screeningu w panelu osoby.
+    assert link == "/jobs/3?candidate=9&panel=screening"
+    # Bez listy treść jest taka jak przed zmianą.
+    assert "Do poprawy" not in _bell(handoff.REASON_QC_RETURNED, "x")[1]
+
+
 def test_template_knows_where_a_card_returns_for_fixes() -> None:
     stages = board_tasks.classify_template(
         [

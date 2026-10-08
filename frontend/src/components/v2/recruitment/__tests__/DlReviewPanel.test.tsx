@@ -106,11 +106,73 @@ const CARD = {
   legacy_text: "",
 };
 
+const CONTEXT = {
+  candidate_id: 21,
+  candidate_name: "Anna Nowak",
+  job_id: 31,
+  stage_id: 11,
+  client_id: 5,
+  client_name: "PKO BP",
+  category_name: "Rozwój oprogramowania",
+  qc_status: "passed",
+  qc_blocking_failed: 0,
+  can_see_amounts: true,
+  can_see_client_rates: true,
+  candidate_rate: { amount: 140, unit: "hourly", currency: "PLN", hourly_pln: 140 },
+  rate_from_hourly: 120,
+  budget: { min_hourly: 120, max_hourly: 160 },
+  client_rate_hint: null as Record<string, unknown> | null,
+  client_rates: {
+    consultants: 9,
+    client_margin_median_hourly: 40,
+    category_name: "Rozwój oprogramowania",
+    category_count: 3,
+    category_cost_min: 120,
+    category_cost_max: 150,
+    category_revenue_min: 160,
+    category_revenue_max: 195,
+    category_margin_median_hourly: 42,
+  },
+  requirements: [
+    { key: "must:0", label: "Java", level: "critical", status: "met", sources: ["CV"], candidate_value: "…Java 17 w banku…" },
+    { key: "must:1", label: "Oracle", level: "must", status: "missing", sources: [], candidate_value: null },
+    { key: "nice:0", label: "komunikatywność", level: "nice", status: "unknown", sources: [], candidate_value: null },
+  ],
+  requirements_met: 1,
+  requirements_total: 2,
+  assessment: {
+    overall_fit: "fit",
+    overall_fit_label: "Pasuje",
+    fields: { recommendation: "Mocny backend, bankowość." },
+    answers: [{ question: "Kafka?", question_id: "q1", answer: "3 lata", deal_breaker_hit: false }],
+  },
+  risks: [{ code: "sent_to_client_before", label: "Już u tego klienta: „Java” (2026-05-01, Odrzucony)", severity: "medium" }],
+  start: "od zaraz",
+  fix_rounds: 0,
+  previous_sends: [],
+  job_sends: [],
+  last_contract: null,
+  fix_options: [
+    { key: "question:q1", label: "Pytanie 1: Kafka?", group: "answers" },
+    { key: "field:availability", label: "Dostępność", group: "terms" },
+    { key: "candidate_rate", label: "Stawka kandydata", group: "rate" },
+    { key: "cv", label: "CV firmowe", group: "cv" },
+  ],
+};
+
 function mockApi({
   cvs = [{ id: 77, status: "ready", filename: "cv.docx", origin: "auto", needs_review: true }],
   availability = { status: "open_to_offers", available_from: null, notice_period: 1, notice_period_unit: "months" },
-}: { cvs?: Array<Record<string, unknown>>; availability?: Record<string, unknown> | null } = {}) {
+  context = CONTEXT,
+}: {
+  cvs?: Array<Record<string, unknown>>;
+  availability?: Record<string, unknown> | null;
+  context?: Record<string, unknown> | null;
+} = {}) {
   get.mockImplementation((url: string) => {
+    if (url === "/api/dl-review/context") {
+      return context ? Promise.resolve({ data: context }) : Promise.reject(new Error("boom"));
+    }
     if (url === "/api/candidates/21/quick-view") {
       return Promise.resolve({
         data: {
@@ -215,11 +277,13 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
   it("„Wyślij do klienta” wymaga stawki i wysyła ruch na „CV wysłane” ze stawką i wersją", async () => {
     mockApi();
     const { onOpenChange } = renderPanel();
-    const send = screen.getByRole("button", { name: /Wyślij do klienta/ });
+    const send = screen.getByRole("button", { name: /Akceptuj/ });
     expect(send).toBeDisabled();
     await userEvent.type(screen.getByLabelText("Stawka do klienta"), "180");
-    // Decyzja 23.09.2026: przegląd DL nie pokazuje marży.
-    expect(screen.queryByText(/Marża/)).toBeNull();
+    // D9 (08.10.2026, odwraca decyzję z 23.09): marża na żywo — 180 − 140.
+    const margin = await screen.findByTestId("dl-review-margin");
+    expect(margin).toHaveTextContent("Marża: 40 zł/h · 6720 zł/mies. (22,2%)");
+    expect(send).toHaveAccessibleName(/Akceptuj — wysyłam za 180 zł\/h/);
     expect(send).toBeEnabled();
     await userEvent.click(send);
     await waitFor(() =>
@@ -240,7 +304,7 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
   it("„Odrzuć (DL)” wymaga powodu i zapisuje ended_by delivery_lead", async () => {
     mockApi();
     renderPanel();
-    await userEvent.click(screen.getByRole("button", { name: /Odrzuć \(DL\)/ }));
+    await userEvent.click(screen.getByRole("button", { name: /^Odrzuć…/ }));
     const group = screen.getByRole("group", { name: "Odrzucenie przez DL" });
     const confirm = within(group).getByRole("button", { name: /Potwierdź odrzucenie/ });
     const select = await within(group).findByRole("combobox");
@@ -264,24 +328,105 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
     expect(showSuccess).toHaveBeenCalledWith("Anna Nowak — odrzucony przez DL.");
   });
 
-  it("„Wróć do poprawy” wymaga uwagi i cofa kartę na „Zweryfikowany” bez stawki", async () => {
+  it("„Wróć do poprawy…” otwiera okno z polami; wysyła listę pól i uwagę", async () => {
     mockApi();
     renderPanel(task({ return_stage_def_id: 302 }));
-    const back = screen.getByRole("button", { name: /Wróć do poprawy/ });
-    expect(back).toBeDisabled();
-    await userEvent.type(screen.getByLabelText(/Uwagi dla rekrutera/), "  Dopisz Spring Boot  ");
-    expect(back).toBeEnabled();
-    await userEvent.click(back);
+    await userEvent.click(screen.getByRole("button", { name: /Wróć do poprawy…/ }));
+    const dialog = await screen.findByRole("dialog", { name: /Wróć do poprawy — Anna Nowak/ });
+    const confirm = within(dialog).getByRole("button", { name: /^Wróć do poprawy/ });
+    // Bez pola i bez uwagi nie ma czego wysłać.
+    expect(confirm).toBeDisabled();
+    await userEvent.click(within(dialog).getByRole("checkbox", { name: "CV firmowe" }));
+    await userEvent.click(within(dialog).getByRole("checkbox", { name: "Pytanie 1: Kafka?" }));
+    await userEvent.type(within(dialog).getByLabelText("Uwaga dla rekrutera"), "  Dopisz Spring Boot  ");
+    expect(confirm).toHaveAccessibleName(/Wróć do poprawy \(2\)/);
+    await userEvent.click(confirm);
     await waitFor(() =>
       expect(post).toHaveBeenCalledWith("/api/pipeline/move", {
         candidate_id: 21,
         job_id: 31,
         expected_state_version: 4,
         stage_def_id: 302,
+        // Kolejność formularza, nie kolejność klikania.
+        fix_fields: ["question:q1", "cv"],
         recruiter_remark: "Dopisz Spring Boot",
       }),
     );
     expect(showSuccess).toHaveBeenCalledWith("Anna Nowak — wraca do rekrutera do poprawy.");
+  });
+
+  it("„Wróć do poprawy…” z samą uwagą (bez pól) też działa", async () => {
+    mockApi();
+    renderPanel(task({ return_stage_def_id: 302 }));
+    await userEvent.click(screen.getByRole("button", { name: /Wróć do poprawy…/ }));
+    const dialog = await screen.findByRole("dialog", { name: /Wróć do poprawy — Anna Nowak/ });
+    await userEvent.type(within(dialog).getByLabelText("Uwaga dla rekrutera"), "Popraw CV");
+    await userEvent.click(within(dialog).getByRole("button", { name: /^Wróć do poprawy/ }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/pipeline/move", {
+        candidate_id: 21,
+        job_id: 31,
+        expected_state_version: 4,
+        stage_def_id: 302,
+        recruiter_remark: "Popraw CV",
+      }),
+    );
+  });
+
+  it("podpowiedź stawki do klienta z historii wpisuje się ze źródłem; waluta to wybór", async () => {
+    mockApi({
+      context: {
+        ...CONTEXT,
+        client_rate_hint: {
+          amount: 185,
+          unit: "hourly",
+          currency: "PLN",
+          hourly_pln: 185,
+          at: "2026-06-01T10:00:00Z",
+          source: "same_client",
+          job_id: 9,
+          job_title: "Java — kredyty",
+        },
+      },
+    });
+    renderPanel();
+    await waitFor(() => expect(screen.getByLabelText("Stawka do klienta")).toHaveValue("185"));
+    expect(screen.getByTestId("dl-review-rate-source")).toHaveTextContent(
+      "ostatnia wysyłka tej osoby do tego klienta — „Java — kredyty”",
+    );
+    // 185 − 140 = 45 ≥ mediana 40 — bez ostrzeżenia.
+    expect(screen.getByTestId("dl-review-margin")).toHaveTextContent("Marża: 45 zł/h");
+    expect(screen.queryByText(/Poniżej mediany marży/)).toBeNull();
+    await userEvent.selectOptions(screen.getByLabelText("Waluta stawki do klienta"), "EUR");
+    expect(screen.getByTestId("dl-review-margin")).toHaveTextContent("stawki są w różnych walutach");
+    await userEvent.click(screen.getByRole("button", { name: /Akceptuj/ }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/api/pipeline/move",
+        expect.objectContaining({ client_rate_value: 185, client_rate_currency: "EUR" }),
+      ),
+    );
+  });
+
+  it("marża poniżej mediany klienta — ostrzeżenie; wymagania z dowodem i ryzyka po lewej", async () => {
+    mockApi();
+    renderPanel();
+    await userEvent.type(screen.getByLabelText("Stawka do klienta"), "165");
+    expect(await screen.findByText(/Poniżej mediany marży u tego klienta \(40 zł\/h\)/)).toBeTruthy();
+    const requirements = screen.getByTestId("dl-review-requirements");
+    expect(within(requirements).getByText("…Java 17 w banku…")).toBeTruthy();
+    expect(within(requirements).getByText("1/2 krytycznych i musi mieć")).toBeTruthy();
+    expect(within(requirements).getByText("do oceny")).toBeTruthy();
+    expect(within(requirements).getByText(/Już u tego klienta/)).toBeTruthy();
+    expect(within(requirements).getByText("Pasuje")).toBeTruthy();
+  });
+
+  it("awaria kontekstu nie blokuje decyzji — komunikat z „Ponów”", async () => {
+    mockApi({ context: null });
+    renderPanel();
+    expect(await screen.findByText(/Nie udało się wczytać porównania z wymaganiami/)).toBeTruthy();
+    await userEvent.type(screen.getByLabelText("Stawka do klienta"), "180");
+    expect(screen.getByRole("button", { name: /Akceptuj/ })).toBeEnabled();
   });
 
   it("bez etapu powrotu w wierszu nie ma „Wróć do poprawy”", async () => {
@@ -295,7 +440,7 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
     renderPanel();
     await userEvent.type(screen.getByLabelText("Stawka do klienta"), "175");
     await userEvent.type(screen.getByLabelText(/Uwagi dla rekrutera/), "Klient odpowie do piątku");
-    await userEvent.click(screen.getByRole("button", { name: /Wyślij do klienta/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Akceptuj/ }));
     await waitFor(() =>
       expect(post).toHaveBeenCalledWith(
         "/api/pipeline/move",
@@ -315,7 +460,7 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
     });
     const { onOpenChange } = renderPanel();
     await userEvent.type(screen.getByLabelText("Stawka do klienta"), "180");
-    await userEvent.click(screen.getByRole("button", { name: /Wyślij do klienta/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Akceptuj/ }));
     await waitFor(() => expect(showError).toHaveBeenCalledWith(expect.stringMatching(/przesunięty przez kogoś innego/)));
     expect(post).toHaveBeenCalledTimes(1);
     expect(onOpenChange).toHaveBeenCalledWith(false);
@@ -340,7 +485,7 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
     });
     renderPanel();
     await userEvent.type(screen.getByLabelText("Stawka do klienta"), "180");
-    await userEvent.click(screen.getByRole("button", { name: /Wyślij do klienta/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Akceptuj/ }));
     await waitFor(() => expect(showError).toHaveBeenCalledWith(message));
   });
 
@@ -359,15 +504,15 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
     expect(screen.queryByRole("button", { name: /Pobierz DOCX/ })).toBeNull();
     // Wysyłka do klienta nie jest blokowana brakiem zgody.
     await userEvent.type(screen.getByLabelText("Stawka do klienta"), "180");
-    expect(screen.getByRole("button", { name: /Wyślij do klienta/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Akceptuj/ })).toBeEnabled();
   });
 
   it("rekruter tylko przegląda — bez wysyłki i bez odrzucenia DL", async () => {
     useAuthStore.setState({ user: { id: 2, role: "recruiter" } } as never);
     mockApi({ cvs: [] });
     renderPanel();
-    expect(screen.getByRole("button", { name: /Wyślij do klienta/ })).toBeDisabled();
-    expect(screen.queryByRole("button", { name: /Odrzuć \(DL\)/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /Akceptuj/ })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /^Odrzuć…/ })).toBeNull();
     // Zdanie nazywa uprawnienie, o które można poprosić — nie rolę.
     expect(
       screen.getByText(
@@ -379,7 +524,7 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
   });
 
   describe("wysyłka do klienta za uprawnieniem, nie rolą", () => {
-    const send = () => screen.getByRole("button", { name: /Wyślij do klienta/ });
+    const send = () => screen.getByRole("button", { name: /Akceptuj/ });
     const denial = () => screen.queryByText(/Do klienta wysyła osoba z uprawnieniem/);
 
     async function typeRate() {
@@ -412,7 +557,7 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
       await typeRate();
       expect(send()).toBeEnabled();
       expect(denial()).toBeNull();
-      expect(screen.queryByRole("button", { name: /Odrzuć \(DL\)/ })).toBeNull();
+      expect(screen.queryByRole("button", { name: /^Odrzuć…/ })).toBeNull();
     });
 
     it("Delivery Lead z wyłączonym uprawnieniem nie wysyła, ale nadal odrzuca „przez DL”", async () => {
@@ -429,7 +574,7 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
       expect(screen.getByLabelText("Stawka do klienta")).toBeDisabled();
       expect(send()).toBeDisabled();
       expect(denial()).not.toBeNull();
-      expect(screen.getByRole("button", { name: /Odrzuć \(DL\)/ })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^Odrzuć…/ })).toBeInTheDocument();
     });
 
     it("flaga z serwera wygrywa z regułą lokalną w obie strony", async () => {
@@ -484,7 +629,7 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
     });
     const { onOpenChange } = renderPanel();
     await userEvent.type(screen.getByLabelText("Stawka do klienta"), "180");
-    await userEvent.click(screen.getByRole("button", { name: /Wyślij do klienta/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Akceptuj/ }));
     await waitFor(() => expect(showError).toHaveBeenCalledWith("CV nie przeszło QC — do poprawy: 3."));
     expect(await screen.findByRole("dialog", { name: "QC CV" })).toHaveTextContent("QC etapu 12");
     expect(onOpenChange).not.toHaveBeenCalledWith(false);

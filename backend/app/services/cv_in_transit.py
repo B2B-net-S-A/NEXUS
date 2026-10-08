@@ -32,7 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.pipeline_template import PipelineTemplate
 from app.models.user import User, UserRole
 from app.models.user_dashboard import UserDashboard
-from app.services import cpro_sender, stage_remarks
+from app.services import cpro_sender, screening_fix_requests, stage_remarks
 from app.services.board_stage_badges import (
     BOARD_COLUMN_ORDER,
     CV_QC_COLUMN,
@@ -92,6 +92,8 @@ class TransitRow:
     # od przekazania (zwykle Delivery Lead w przeglądzie) i które pola.
     card_edited_by: Optional[str] = None
     card_edited_fields: tuple[str, ...] = ()
+    # D6 (08.10.2026): „Wróć do poprawy” z listą pól — co poprawić.
+    fix_labels: tuple[str, ...] = ()
 
 
 @dataclass
@@ -359,6 +361,12 @@ async def load_for_user(
         db, [r.id for r, kind in kept if kind not in (KIND_IN_REVIEW, KIND_CPRO_QUEUE)]
     )
     card_edits = await _card_edits_by_others(db, kept, viewer_id=user.id)
+    sent_back = [r for r, kind in kept if kind == KIND_SENT_BACK]
+    fix_labels = await screening_fix_requests.labels_for_stages(
+        db,
+        [r.id for r in sent_back],
+        candidate_ids=[r.candidate_id for r in sent_back],
+    )
 
     out = CvInTransit()
     for r, kind in kept:
@@ -390,6 +398,7 @@ async def load_for_user(
             remark=stage_remarks.short(remarks.get(r.id)),
             card_edited_by=card_edits.get(r.id, (None, ()))[0],
             card_edited_fields=card_edits.get(r.id, (None, ()))[1],
+            fix_labels=tuple(fix_labels.get(r.id, ())),
         )
         if kind in (KIND_IN_REVIEW, KIND_CPRO_QUEUE):
             out.in_review.append(row)
