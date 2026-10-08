@@ -33,8 +33,10 @@ import { ToastProvider } from "@/components/Toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { CandidateSourcesStrip } from "@/components/v2/jobs/CandidateSourcesStrip";
 import { JobDetailCompactHeader } from "@/components/v2/jobs/JobDetailCompactHeader";
+import { reassignContextQueryKey } from "@/components/v2/jobs/ScreeningReassignSuggestions";
 import { RequestStatusBadge } from "@/components/v2/jobs/JobListCells";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
+import { pinnedNotesQueryKey } from "@/components/v2/recruitment/PinnedCandidateNotes";
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { rateChangesQueryKey } from "@/lib/rate-change";
@@ -44,6 +46,15 @@ import { Badge } from "@/components/ui/badge";
 import { CANDIDATE_SOURCE_TABS, type CandidateSourceTab } from "@/components/v2/recruitment/types";
 import { searchBaseKey } from "@/components/v2/recruitment/useSearchBaseTab";
 import { screenedOutQueryKey } from "@/lib/api/applicationScreenings";
+import type { MoveRequirementsResponse } from "@/lib/api/moveRequirements";
+import { plainBriefQueryKey, type PlainBrief } from "@/lib/api/plainKnowledge";
+import {
+  screeningFormQueryKey,
+  screeningFormVersionsQueryKey,
+  type ScreeningFormState,
+} from "@/lib/api/screeningForm";
+import { candidateContactQueryKeys } from "@/lib/candidate-contact";
+import { stageBrandedQueryKey } from "@/lib/cv-to-client";
 import { jobHeaderFacts } from "@/lib/job-header-facts";
 import {
   jobProposalsKeys,
@@ -505,6 +516,186 @@ function sentPerson(seed: PersonSeed, overrides: Partial<SentPerson> = {}): Sent
   };
 }
 
+// ── Panel osoby: dane każdej karty Tablicy (fikcyjne) ───────────────────
+// Bez nich panel otwarty z karty pokazywał „Nie udało się wczytać…” w pięciu
+// miejscach — sieć harnessu jest wyłączona, więc każdy odczyt musi być zasiany.
+
+const SCREENING_QUESTIONS = [
+  {
+    id: "q1",
+    question: "Opisz ostatnią aplikację w Angularze, którą rozwijałeś — co napisałeś sam?",
+    ideal_answer: "Konkretny projekt, własne moduły, testy.",
+    deal_breaker: "Wyłącznie utrzymanie gotowej aplikacji.",
+  },
+  {
+    id: "q2",
+    question: "Od kiedy możesz zacząć?",
+    ideal_answer: "Najpóźniej za miesiąc.",
+    deal_breaker: "Okres wypowiedzenia dłuższy niż 2 miesiące.",
+  },
+];
+
+const PANEL_PROFILE = {
+  ...CHAMPION_PROFILE,
+  basics: { role_name: "Programista Frontend", rate_value: 95, work_mode: "hybrydowo", onsite_days_per_week: 2 },
+  stack: { must: [{ name: "Angular" }, { name: "TypeScript" }], nice: [{ name: "RxJS" }], notes: "" },
+  screening_questions: SCREENING_QUESTIONS,
+};
+
+const CARD_LABELS: Record<string, string> = {
+  rate: "Stawka",
+  availability: "Dostępność",
+  work_mode: "Tryb pracy",
+  location: "Lokalizacja",
+  nationality: "Narodowość",
+  worked_at_client: "Czy pracował u Klienta",
+  english: "Angielski",
+  red_flags: "Red flags",
+  recommendation: "Dlaczego ten kandydat",
+  motivation: "Motywacja",
+};
+
+const PANEL_BRIEF: PlainBrief = {
+  job_id: JOB_ID,
+  status: "ready",
+  stale: false,
+  is_open: true,
+  can_refresh: false,
+  can_change_role: false,
+  generated_at: new Date(Date.now() - 24 * HOUR).toISOString(),
+  message: null,
+  one_liner:
+    "Szukamy programisty, który rozwija bankowość internetową Banku Przykładowego — ekrany, które klient widzi po zalogowaniu.",
+  example: "Gdy klient robi przelew w przeglądarce, ta osoba pisze formularz i to, co dzieje się po kliknięciu „Wyślij”.",
+  day_to_day: ["Dopisuje nowe ekrany.", "Poprawia błędy zgłoszone przez testerów."],
+  pitch: "Stabilny projekt, dwa dni w biurze w tygodniu, do 95 zł/h netto B2B.",
+  candidate_qa: [],
+  screening_plain: [],
+  glossary: [],
+  role: null,
+  client: null,
+};
+
+/**
+ * Ramka „Następny etap” odświeża wymagania sama (zmiana odznaki rozmowy,
+ * zamknięcie okna akcji), więc zasiany cache nie wystarcza — harness odpowiada
+ * na to jedno zapytanie lokalnie, bez sieci.
+ */
+const MOVE_REQUIREMENTS_URL = "/api/pipeline/move-requirements";
+const MOVE_REQUIREMENTS: MoveRequirementsResponse = {
+  from_column: null,
+  to_column: null,
+  skipped_columns: [],
+  items: [],
+  primary: { kind: "move", label: "Przesuń dalej" },
+};
+
+function seedCardPanel(qc: QueryClient, item: KanbanItem): void {
+  const candidateId = item.candidate_id;
+  seedFresh(qc, ["cv-share-tokens-recruitment", candidateId, JOB_ID], {
+    items: [],
+    branded_cv: { status: "none", stage_id: null, stage_name: null, finalized_at: null },
+  });
+  const fullName = { name: item.name, lastname: item.lastname };
+  const formState: ScreeningFormState = {
+    candidate_id: candidateId,
+    job_id: JOB_ID,
+    version: 0,
+    versions_count: 0,
+    state_token: `podglad-${item.id}`,
+    editable: true,
+    read_only_reason: null,
+    read_only_message: null,
+    stage_id: item.id,
+    board_column: item.stage,
+    process_state_version: 1,
+    claim: null,
+    champion_profile: PANEL_PROFILE,
+    sheet: null,
+    sheet_source_stage_id: null,
+    legacy_notes: null,
+    note_answers: [],
+    card: {
+      fields: {},
+      previous: {},
+      suggestions: {},
+      completeness: { status: "empty", filled: 0, total: 10, missing: Object.keys(CARD_LABELS) },
+      labels: CARD_LABELS,
+      editable_fields: Object.keys(CARD_LABELS),
+    },
+    rate: null,
+    rate_hints: { card: null, rate_from: null },
+    rate_change_notifies: false,
+    can_edit_rate: true,
+    suggestions_from_notes: {},
+    assist_enabled: false,
+    phrase_language: "pl",
+  } as unknown as ScreeningFormState;
+  seedFresh(qc, screeningFormQueryKey(JOB_ID, candidateId), formState);
+  seedFresh(qc, screeningFormVersionsQueryKey(JOB_ID, candidateId), { items: [], total: 0 });
+  seedFresh(qc, reassignContextQueryKey(item.id), {
+    stage_id: item.id,
+    available: false,
+    source: null,
+    previous_answers_count: 0,
+  });
+  seedFresh(qc, ["pipeline-stage-screening", item.id], {
+    stage_id: item.id,
+    candidate_id: candidateId,
+    job_id: JOB_ID,
+    champion_profile: PANEL_PROFILE,
+    screening_answers: null,
+  });
+  seedFresh(qc, candidateQueryKeys.detail(candidateId), {
+    id: candidateId,
+    ...fullName,
+    status: "active",
+    city: "Warszawa",
+    linkedin_current_title: "Frontend Developer",
+    linkedin_current_company: "Firma Przykładowa",
+  });
+  seedFresh(qc, candidateQueryKeys.quickView(candidateId), {
+    candidate: { id: candidateId, ...fullName, city: "Warszawa", location: "Warszawa" },
+    current_position: { title: "Frontend Developer", started_at: "2023-03-01", precision: "month" },
+    availability: { status: "open_to_offers", available_from: null, notice_period: 1, notice_period_unit: "months" },
+    current_recruitments: [],
+    recent_notes: [],
+    contact_attempts: 0,
+    cv_highlights: { years_experience: 6 },
+    capabilities: { can_assign: true, can_mark_employed: false, can_view_documents: true, can_open_full_profile: true },
+  });
+  seedFresh(qc, pinnedNotesQueryKey(candidateId), { items: [] });
+  seedFresh(qc, candidateQueryKeys.cvDocuments(candidateId), []);
+  seedFresh(qc, ["cv-original", item.id], {
+    candidate_stage_id: item.id,
+    candidate_id: candidateId,
+    job_id: JOB_ID,
+    has_snapshot: false,
+    original_cv_filename: null,
+    original_cv_language: null,
+    original_snapshot_at: null,
+    original_snapshot_source: null,
+    download_url: null,
+  });
+  seedFresh(qc, stageBrandedQueryKey(item.id), {
+    edit_revision: 0,
+    version: 0,
+    candidate_stage_id: item.id,
+    status: "none",
+    content_html: null,
+    template: null,
+    language: null,
+    updated_at: null,
+    updated_by: null,
+    updated_by_name: null,
+    finalized_at: null,
+    finalized_by: null,
+    finalized_by_name: null,
+    snapshot_filename: null,
+    rendered_from_default: false,
+  });
+}
+
 function seededClient(): QueryClient {
   const qc = new QueryClient({
     defaultOptions: {
@@ -599,6 +790,17 @@ function seededClient(): QueryClient {
 
   // „Szukaj w bazie”: te same trzy odczyty i TE SAME funkcje filtrów co okno.
   seedFresh(qc, ["matching-requirements", JOB_ID], REQUIREMENTS);
+  for (const column of columns()) column.items.forEach((item) => seedCardPanel(qc, item));
+  // Generator CV w panelu osoby: reguły klienta (tu bez reguł centralnych).
+  seedFresh(qc, ["central-cv-policy", null, null, false], { managed: false, content_mode: "polished" });
+  seedFresh(qc, ["job-questions", JOB_ID], []);
+  seedFresh(qc, ["job-rejection-reasons", JOB_ID], []);
+  seedFresh(qc, plainBriefQueryKey(JOB_ID), PANEL_BRIEF);
+  seedFresh(qc, candidateContactQueryKeys.status(), {
+    enabled: false,
+    assignment_enabled: false,
+    traffit_intake_enabled: false,
+  });
   // Osoby do oznaczenia przez „@” w notatce doku osoby (fikcyjne).
   seedFresh(qc, ["mentionable-users", `job:${JOB_ID}`, false], [
     { id: 7, name: "Marta Nowak", email: "marta@example.com", role: "recruiter" },
@@ -708,9 +910,19 @@ function JobDetailHarness() {
   const [ready, setReady] = useState(false);
   const hideEmptyColumns = useUiStore((s) => s.hideEmptyKanbanColumns);
   useEffect(() => {
-    const blocker = api.interceptors.request.use((config) =>
-      Promise.reject(new AxiosError("preview: sieć wyłączona", "ECONNABORTED", config)),
-    );
+    const blocker = api.interceptors.request.use((config) => {
+      if (config.url === MOVE_REQUIREMENTS_URL) {
+        config.adapter = async () => ({
+          data: MOVE_REQUIREMENTS,
+          status: 200,
+          statusText: "OK",
+          headers: {},
+          config,
+        });
+        return config;
+      }
+      return Promise.reject(new AxiosError("preview: sieć wyłączona", "ECONNABORTED", config));
+    });
     useAuthStore.setState({
       user: {
         id: 7,

@@ -357,7 +357,9 @@ export default function JobChatTab({
 
   // Zakładka odpala kilka zapytań naraz (members / pinned / messages) i część
   // 403 była połykana — czat renderował się jako pusty, jakby po prostu nie
-  // było wiadomości (audyt F-20). Brak członkostwa → jasny komunikat; awaria
+  // było wiadomości (audyt F-20). Od 23.09.2026 czat czyta każda rola
+  // wewnętrzna, więc 403 znaczy brak dostępu konta do rekrutacji, nie brak
+  // członkostwa w zespole. Odmowa → jasny komunikat; awaria
   // (5xx) → komunikat o błędzie z ponowieniem, NIGDY pusty czat.
   const accessDenied =
     isForbiddenError(messagesQuery.error) || isForbiddenError(membersError);
@@ -369,8 +371,8 @@ export default function JobChatTab({
         <MessageCircle className="w-10 h-10 text-muted-foreground" />
         <h2 className="text-base font-semibold">Brak dostępu do czatu</h2>
         <p className="text-sm text-muted-foreground max-w-sm">
-          Czat tej rekrutacji jest dostępny tylko dla osób z jej zespołu (rekruter,
-          DL, TAC lub współpracownik rekrutacji). To nie znaczy, że czat jest pusty.
+          Twoje konto nie ma dostępu do rekrutacji, więc nie widzi też ich
+          czatów. Dostęp nadaje administrator. To nie znaczy, że czat jest pusty.
         </p>
       </div>
     );

@@ -166,3 +166,20 @@ describe("JobChatTab — zespół i wzmianki", () => {
     expect(await screen.findByText("zespół: 1")).toBeInTheDocument();
   });
 });
+
+describe("JobChatTab — brak dostępu", () => {
+  it("403 mówi o dostępie konta do rekrutacji, nie o zespole rekrutacji", async () => {
+    // Od 23.09.2026 czat czyta każda rola wewnętrzna — „tylko dla zespołu”
+    // wprowadzało w błąd osobę, której konto nie ma dostępu do rekrutacji.
+    const forbidden = { response: { status: 403 } };
+    chatApi.getMembers.mockRejectedValue(forbidden);
+    chatApi.getPinned.mockRejectedValue(forbidden);
+    chatApi.listMessages.mockRejectedValue(forbidden);
+
+    renderChat();
+
+    expect(await screen.findByText("Brak dostępu do czatu")).toBeInTheDocument();
+    expect(screen.getByText(/Twoje konto nie ma dostępu do rekrutacji/)).toBeInTheDocument();
+    expect(screen.queryByText(/zespołu/)).not.toBeInTheDocument();
+  });
+});
