@@ -5672,6 +5672,17 @@ znało tylko `jobs.recruiter_id` (osobę z automatu przydziału albo nikogo).
 - Nowy etap-przekazanie = gałąź w `handoff_kind` (po KOLUMNIE Tablicy, nie po
   id definicji), nie nowy wiersz reguły — reguły nie dochodzą do etapów
   dodanych po zasiewie ani do szablonów z Traffita.
+- **Kolejka Cpro prowadzona w Traffit też dzwoni (08.10.2026, decyzja Artura).**
+  Pomiar: 122 wejścia na „NORDEA: Wysłać do Cpro” w 14 dni, wszystkie
+  w Traffit — import pisze surowym SQL-em, więc osoba od Cpro nie dostała ani
+  jednego dzwonka. Po fazie `pipelines` (`traffit_sync._pipelines_phase`)
+  `services/cpro_queue_reminder.py` liczy STAN: pary, których najnowszy wiersz
+  to zaimportowany etap kolejki Cpro u klienta z kolejką Cpro, z ostatnich
+  `TRAFFIT_CPRO_REMINDER_WINDOW_DAYS` (7) dni. Jedno `board_task_waiting` na
+  osobę na dzień (encja = odbiorca), mail od razu jak przy `dl_review`, tylko
+  w dni robocze. Nie rób z tego dzwonka na każdy zaimportowany wiersz — przy
+  imporcie nocnym 93 ze 122 kart były już wysłane. Wyłącznik
+  `TRAFFIT_CPRO_REMINDER_ENABLED`.
 
 ## „Twoje CV w drodze” na pulpicie — domyślnie u każdego, z „Usuń z pulpitu” (02.10.2026)
 

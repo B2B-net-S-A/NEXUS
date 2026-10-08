@@ -797,6 +797,37 @@ async def _reconcile_phase(importer: TraffitImporter) -> _ReconcilePhaseResult:
     return _ReconcilePhaseResult(report, started, datetime.now(timezone.utc))
 
 
+async def _pipelines_phase(importer: TraffitImporter, since: Optional[datetime]):
+    """Ruchy pipeline'u, a po nich przypomnienie o kolejce Cpro.
+
+    Przypomnienie liczy stan PO imporcie (kto nadal stoi w kolejce Cpro
+    w Traffit), więc ma sens dopiero, gdy faza doszła do końca — wywrotka
+    fazy go nie wysyła.
+    """
+    progress = await importer.import_pipelines(since=since)
+    await _remind_cpro_queue()
+    return progress
+
+
+async def _remind_cpro_queue() -> None:
+    """Best-effort i we własnej sesji: awaria powiadomienia nie może zmienić
+    wyniku fazy ani zostawić sesji importera w zepsutej transakcji."""
+    if not settings.TRAFFIT_CPRO_REMINDER_ENABLED:
+        return
+    try:
+        from app.services import cpro_queue_reminder
+
+        async with AsyncSessionLocal() as db:
+            listed = await cpro_queue_reminder.remind(db)
+            await db.commit()
+        if listed:
+            logger.info("Traffit Cpro queue reminder sent: %d card(s)", listed)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Traffit Cpro queue reminder failed (%s)", type(exc).__name__)
+
+
 # ── Phase plan ───────────────────────────────────────────────────────────────
 
 
@@ -832,7 +863,7 @@ def _phase_plan(
         # `pipelines` wymaga
         # `jobs` (FK), a obie są szybkie przy delcie ogonowej (INTG-03).
         ("jobs", lambda: importer.import_jobs(since=since)),
-        ("pipelines", lambda: importer.import_pipelines(since=since)),
+        ("pipelines", lambda: _pipelines_phase(importer, since)),
         # Pliki CV zaraz za ruchami: CV nowych kandydatów nie czeka na fazy
         # wzbogacania, które i tak czytają zapisane CV.
         # `source_since` (runda 10): kandydaci z feedu delty, także niezmienieni
