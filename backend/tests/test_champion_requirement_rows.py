@@ -81,7 +81,7 @@ def test_saved_profile_sent_back_keeps_its_critical_decision():
         assert "critical" not in cleared["stack"]
 
 
-def test_a_third_critical_row_is_stored_as_must():
+def test_a_fourth_critical_row_is_stored_as_must():
     saved = _save(
         {},
         {
@@ -90,12 +90,13 @@ def test_a_third_critical_row_is_stored_as_must():
                     _row("Java", level="critical"),
                     _row("Kafka", level="critical"),
                     _row("Docker", level="critical"),
+                    _row("Kubernetes", level="critical"),
                 ]
             }
         },
     )
-    assert saved["stack"]["critical"] == ["Java", "Kafka"]
-    assert len(saved["stack"]["must"]) == 3
+    assert saved["stack"]["critical"] == ["Java", "Kafka", "Docker"]
+    assert len(saved["stack"]["must"]) == 4
 
 
 def test_limits_and_duplicates():

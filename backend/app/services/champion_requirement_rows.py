@@ -87,7 +87,7 @@ def split_rows(value: Any) -> tuple[list[dict[str, Any]], list[str]]:
 
     Dwa wiersze o tym samym pierwszym słowie to to samo wymaganie — zostaje
     pierwszy. Limity jak w edytorze: 10 wierszy obowiązkowych, 20 mile
-    widzianych, najwyżej 2 krytyczne (kolejne schodzą do „musi mieć”).
+    widzianych, najwyżej 3 krytyczne (kolejne schodzą do „musi mieć”).
 
     Nadmiar wierszy obowiązkowych schodzi do „mile widziane”, dopóki jest
     tam miejsce; dopiero reszta wraca jako lista etykiet (audyt 06.10.2026,

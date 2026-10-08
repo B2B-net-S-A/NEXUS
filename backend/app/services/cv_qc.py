@@ -6,7 +6,7 @@ odsyłał jako błędy, jest listą sprawdzeń — deterministyczną, więc ten 
 daje ten sam wynik przy każdym otwarciu:
 
 * blokujące (decyzja Artura 02.10.2026): CV firmowe istnieje; umiejętności
-  KRYTYCZNE rekrutacji (0–2, wybór Delivery Leada albo podpowiedź z historii —
+  KRYTYCZNE rekrutacji (0–3, wybór Delivery Leada albo podpowiedź z historii —
   ta sama reguła co bramka wyszukiwania) są w CV i opisane zdaniem w każdej
   roli, w której są w oryginale; CV nie twierdzi niczego spoza oryginału
   i notatek; reguły klienta (bez stawek i kontaktu kandydata, zrzut zgody RODO),

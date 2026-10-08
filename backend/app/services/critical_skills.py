@@ -2,14 +2,18 @@
 
 Bramka must nie działa już na KAŻDEJ pozycji must — ukrywała 41,5% osób, które
 zespół potem wysyłał do klienta (audyt ``docs/audits/2026-09-30/wyszukiwanie-kandydatow.md``).
-Ukrywają wyłącznie 0–2 pozycje „krytyczne”; reszta must i nice daje punkty.
+Ukrywają wyłącznie pozycje „krytyczne” — najwyżej trzy z wyboru Delivery Leada
+(do 08.10.2026 dwie), a z podpowiedzi z historii najwyżej dwie; reszta must
+i nice daje punkty.
 
 Stany pola ``stack.critical`` w profilu Championa:
 
 - ``None`` — Delivery Lead nie zdecydował: działa podpowiedź z historii,
   a przekazanie do searchu czeka na decyzję;
 - ``[]`` — świadomie brak krytycznych: bramka must nie ukrywa nikogo;
-- ``["Java", …]`` (najwyżej 2) — bramka na tych pozycjach.
+- ``["Java", …]`` (najwyżej 3) — bramka na tych pozycjach. Wybrać można każdą
+  pozycję must, która jest nazwą technologii albo narzędzia
+  (``must_gate_terms.critical_selectable``, od 08.10.2026 także spoza słownika).
 
 Podpowiedź: technologie z listy must (``must_gate_terms.critical_eligible``),
 które ≥90% osób wysłanych do klienta w innych rekrutacjach ma w profilu, CV
@@ -33,13 +37,18 @@ from pathlib import Path
 from typing import Any, Iterable, Literal, Optional, Sequence
 
 from app.core.config import settings
+from app.schemas.champion import CRITICAL_MAX
 from app.services import note_kinds
 
 logger = logging.getLogger(__name__)
 
 STATS_KEY = "critical_skill_stats"
 STATS_VERSION = 1
-MAX_CRITICAL = 2
+# Ile krytycznych wolno WYBRAĆ Delivery Leadowi — jedna stała ze schematem profilu.
+MAX_CRITICAL = CRITICAL_MAX
+# Podpowiedź z historii działa bez decyzji człowieka, więc zostaje przy dwóch:
+# trzecia automatyczna bramka ukrywałaby więcej osób, niż zmierzono (07.10.2026).
+SUGGEST_MAX = 2
 SUGGEST_MIN_RATE = 0.90
 SUGGEST_MIN_JOBS = 5
 # Podpowiedź bierze technologię z tytułu albo z początku KRÓTKIEJ listy must
@@ -199,7 +208,7 @@ def suggest_from_must(must: Sequence[str], title: str = "") -> tuple[str, ...]:
         # nie Docker z historii), potem odsetek, potem kolejność z listy.
         scored.append((0 if in_title else 1, -stat.rate, position, label))
     scored.sort()
-    return tuple(label for *_rest, label in scored[:MAX_CRITICAL])
+    return tuple(label for *_rest, label in scored[:SUGGEST_MAX])
 
 
 def suggest_critical(job) -> tuple[str, ...]:
@@ -249,7 +258,7 @@ def match_must_labels(names: Iterable[str], must: Sequence[str]) -> tuple[str, .
 
 def effective_critical(job) -> CriticalResolution:
     """Krytyczne, na których działa bramka tej rekrutacji."""
-    from app.services.must_gate_terms import critical_eligible
+    from app.services.must_gate_terms import critical_selectable
     from app.services.scoring_service import job_explicit_must_skills
 
     frozen = getattr(job, "critical_effective", None)
@@ -270,7 +279,7 @@ def effective_critical(job) -> CriticalResolution:
         labels = tuple(
             label
             for label in match_must_labels(stored, must)
-            if critical_eligible(label)
+            if critical_selectable(label)
         )[:MAX_CRITICAL]
         return CriticalResolution(
             labels=labels,
@@ -290,7 +299,7 @@ def critical_errors(
     critical: Sequence[str], must: Sequence[str]
 ) -> list[tuple[str, str]]:
     """Błędy wyboru krytycznych (kod, zdanie po polsku) — zapis je odrzuca."""
-    from app.services.must_gate_terms import critical_eligible
+    from app.services.must_gate_terms import critical_selectable
 
     errors: list[tuple[str, str]] = []
     if len(critical) > MAX_CRITICAL:
@@ -309,11 +318,11 @@ def critical_errors(
                     f"„{name}” nie ma na liście MUST — krytyczne wybierasz z MUST.",
                 )
             )
-        elif not all(critical_eligible(label) for label in matched):
+        elif not all(critical_selectable(label) for label in matched):
             errors.append(
                 (
                     "critical_not_technology",
-                    f"„{name}” nie jest technologią ze słownika — nie może ukrywać "
+                    f"„{name}” nie jest nazwą technologii — nie może ukrywać "
                     "kandydatów.",
                 )
             )

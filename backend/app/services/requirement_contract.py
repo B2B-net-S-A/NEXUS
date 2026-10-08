@@ -100,7 +100,7 @@ def requirements_for_job(job) -> MatchingRequirements:
 # kandydat bez żadnych danych ukryty (`no_data`); inne miasto ukrywa dopiero
 # od 4 dni w biurze; nazwy miast porównywane przez słownik miejscowości.
 # v9 (30.09.2026, decyzje Artura): ukrywają tylko umiejętności krytyczne
-# (0–2, decyzja DL albo podpowiedź z historii — `critical_skills`); budżet
+# (0–3, decyzja DL albo podpowiedź z historii — `critical_skills`); budżet
 # i dni w biurze tylko plakietka; kandydat bez żadnych danych ukryty zawsze;
 # role i metodyki ze słownika nie są technologią (`must_gate_terms`).
 # v9.1 (30.09.2026): słowna wersja („Java (minimalna 11)”, „Oracle (min.

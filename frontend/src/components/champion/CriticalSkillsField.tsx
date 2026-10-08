@@ -1,11 +1,12 @@
 "use client";
 
 /**
- * „Krytyczne (0–2)” — wybór umiejętności, które UKRYWAJĄ kandydatów
+ * „Krytyczne (0–3)” — wybór umiejętności, które UKRYWAJĄ kandydatów
  * (decyzja Artura 30.09.2026). Reguły i zdania: `lib/critical-skills.ts`.
  *
  * Wybiera się wyłącznie spośród pozycji „Musi mieć”; pozycja, która nie jest
- * technologią ze słownika, jest wyszarzona (serwer i tak by ją odrzucił).
+ * nazwą technologii ani narzędzia (branża, język, zdanie), jest wyszarzona —
+ * serwer i tak by ją odrzucił. Nazwa spoza słownika jest dozwolona (08.10.2026).
  * Podpowiedź z historii i „Brak krytycznych” to dwa świadome wyjścia — pole
  * nigdy nie zgaduje za Delivery Leada.
  */
@@ -16,6 +17,7 @@ import { Loader2, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   CRITICAL_MAX,
+  CRITICAL_SUGGESTION_MAX,
   criticalStatusLine,
   includesLabel,
   normalizeMust,
@@ -29,7 +31,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { cn } from "@/lib/utils";
 
 export const CRITICAL_NOT_TECH_HINT =
-  "To nie jest technologia ze słownika — nie może ukrywać kandydatów";
+  "To nie jest nazwa technologii ani narzędzia — nie może ukrywać kandydatów";
 const CRITICAL_FULL_HINT = `Najwyżej ${CRITICAL_MAX} umiejętności krytyczne — najpierw odznacz jedną`;
 
 export interface CriticalSkillsFieldProps {
@@ -59,6 +61,7 @@ export function CriticalSkillsField({
   const eligible = suggestion.eligible;
   const suggested = suggestion.data?.suggested ?? [];
   const stats = suggestion.data?.stats ?? {};
+  const blockedReasons = suggestion.data?.blocked ?? {};
   const isNone = value != null && value.length === 0;
   const suggestionApplied =
     suggested.length > 0 &&
@@ -99,7 +102,11 @@ export function CriticalSkillsField({
             const on = includesLabel(selected, item);
             const notTech = eligible != null && !includesLabel(eligible, item);
             const blocked = !on && (notTech || full);
-            const hint = notTech ? CRITICAL_NOT_TECH_HINT : !on && full ? CRITICAL_FULL_HINT : undefined;
+            const hint = notTech
+              ? blockedReasons[item] || CRITICAL_NOT_TECH_HINT
+              : !on && full
+                ? CRITICAL_FULL_HINT
+                : undefined;
             const stat = statSentence(stats[item]);
             return (
               <li key={item}>
@@ -152,7 +159,7 @@ export function CriticalSkillsField({
             size="sm"
             variant="outline"
             disabled={disabled}
-            onClick={() => onChange(suggested.slice(0, CRITICAL_MAX))}
+            onClick={() => onChange(suggested.slice(0, CRITICAL_SUGGESTION_MAX))}
             data-testid="critical-use-suggestion"
           >
             {suggestionButtonLabel(suggested)}

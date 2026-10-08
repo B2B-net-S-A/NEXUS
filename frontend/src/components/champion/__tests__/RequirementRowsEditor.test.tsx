@@ -35,6 +35,7 @@ vi.mock("@/lib/api", () => {
 
 import {
   NOT_A_TECHNOLOGY_HINT,
+  OUTSIDE_DICTIONARY_NOTE,
   RequirementRowsEditor,
   type RequirementRowsEditorProps,
 } from "@/components/champion/RequirementRowsEditor";
@@ -200,16 +201,59 @@ describe("RequirementRowsEditor — wiersze i poziomy", () => {
 });
 
 describe("RequirementRowsEditor — kto może być krytyczny", () => {
-  it("słowo spoza słownika technologii: „Krytyczne” nieaktywne, z powodem", () => {
+  it("słowo, które nie jest nazwą technologii: „Krytyczne” nieaktywne, powód pod wierszem", () => {
     const { onRowsChange } = renderEditor();
     const option = levelOption("płatności", "Krytyczne");
     expect(option).toBeDisabled();
     expect(option).toHaveAttribute("title", NOT_A_TECHNOLOGY_HINT);
     fireEvent.click(option);
     expect(onRowsChange).not.toHaveBeenCalled();
+    // Powód stoi też na widoku — sam dymek na wyłączonym przycisku to za mało.
+    expect(screen.getAllByTestId("requirement-row-critical-blocked")).toHaveLength(1);
+    expect(screen.getByTestId("requirement-row-critical-blocked")).toHaveTextContent(
+      "Nie może być krytyczne: to nie jest nazwa technologii ani narzędzia — nie może ukrywać kandydatów.",
+    );
     // Technologia ze słownika jest do wyboru, bez dopisku.
     expect(levelOption("Java", "Krytyczne")).toBeEnabled();
     expect(levelOption("Java", "Krytyczne")).not.toHaveAttribute("title");
+  });
+
+  it("powód blokady z serwera stoi pod wierszem i w dymku", () => {
+    const reason = "To branża, nie technologia — daje punkty, nie ukrywa kandydatów.";
+    renderEditor({
+      critical: known({
+        ...INFO,
+        pay: { label: "płatności", eligible: false, selectable: false, suggested: false, blockedReason: reason },
+      }),
+    });
+    expect(levelOption("płatności", "Krytyczne")).toHaveAttribute("title", reason);
+    expect(screen.getByTestId("requirement-row-critical-blocked")).toHaveTextContent(
+      "Nie może być krytyczne: to branża, nie technologia — daje punkty, nie ukrywa kandydatów.",
+    );
+  });
+
+  it("nazwa narzędzia spoza słownika: da się oznaczyć i odznaczyć (08.10.2026)", () => {
+    const outside = { label: "płatności", eligible: false, selectable: true, suggested: false };
+    const first = renderEditor({ critical: known({ ...INFO, pay: outside }) });
+    const option = levelOption("płatności", "Krytyczne");
+    expect(option).toBeEnabled();
+    expect(option).not.toHaveAttribute("title");
+    expect(screen.queryByTestId("requirement-row-critical-blocked")).toBeNull();
+    fireEvent.click(option);
+    expect(first.onRowsChange).toHaveBeenCalledWith(withLevels({ pay: "critical" }));
+    first.unmount();
+
+    // Oznaczony wiersz mówi, jak działa bramka dla nazwy spoza słownika…
+    const second = renderEditor({
+      rows: withLevels({ pay: "critical" }),
+      critical: known({ ...INFO, pay: outside }),
+    });
+    expect(screen.getByTestId("requirement-row-outside-dictionary")).toHaveTextContent(
+      OUTSIDE_DICTIONARY_NOTE,
+    );
+    // …i daje się odznaczyć.
+    fireEvent.click(levelOption("płatności", "Musi mieć"));
+    expect(second.onRowsChange).toHaveBeenCalledWith(withLevels({ pay: "must" }));
   });
 
   it("dopóki serwer nie odpowie, „Krytyczne” czeka — oznaczony wiersz zostaje", () => {
@@ -229,20 +273,41 @@ describe("RequirementRowsEditor — kto może być krytyczny", () => {
     expect(levelOption("Java", "Mile widziane")).toBeEnabled();
   });
 
-  it("trzeci krytyczny jest nieaktywny — najwyżej dwa", () => {
+  it("trzeci krytyczny da się oznaczyć (limit 3 od 08.10.2026)", () => {
     const info = { ...INFO, pay: { label: "płatności", eligible: true, suggested: false } };
-    renderEditor({
+    const { onRowsChange } = renderEditor({
       rows: withLevels({ java: "critical", kafka: "critical" }),
       critical: known(info),
     });
     const third = levelOption("płatności", "Krytyczne");
-    expect(third).toBeDisabled();
-    expect(third).toHaveAttribute(
+    expect(third).toBeEnabled();
+    fireEvent.click(third);
+    expect(onRowsChange).toHaveBeenCalledWith(
+      withLevels({ java: "critical", kafka: "critical", pay: "critical" }),
+    );
+  });
+
+  it("czwarty krytyczny jest nieaktywny — najwyżej trzy, a odznaczenie działa", () => {
+    const info = {
+      ...INFO,
+      pay: { label: "płatności", eligible: true, suggested: false },
+      k8s: { label: "Kubernetes", eligible: true, suggested: false },
+    };
+    const { onRowsChange } = renderEditor({
+      rows: withLevels({ java: "critical", kafka: "critical", pay: "critical" }),
+      critical: known(info),
+    });
+    const fourth = levelOption("Kubernetes", "Krytyczne");
+    expect(fourth).toBeDisabled();
+    expect(fourth).toHaveAttribute(
       "title",
-      "Najwyżej 2 krytyczne — zdejmij jedno, żeby dodać kolejne.",
+      "Najwyżej 3 krytyczne — zdejmij jedno, żeby dodać kolejne.",
     );
     expect(levelOption("Java", "Krytyczne")).toBeChecked();
-    expect(levelOption("Java", "Musi mieć")).toBeEnabled();
+    fireEvent.click(levelOption("Java", "Musi mieć"));
+    expect(onRowsChange).toHaveBeenCalledWith(
+      withLevels({ java: "must", kafka: "critical", pay: "critical" }),
+    );
   });
 
   it("awaria sprawdzenia słownika: komunikat, „Ponów” woła ponowienie", () => {
@@ -356,7 +421,7 @@ describe("RequirementRowsEditor — zdanie pod listą", () => {
       [
         "Krytyczne: Java, Kafka — propozycje AI ukrywają osoby, które ich nie mają.",
         "Brak krytycznych — propozycje AI nie ukrywają nikogo, wszystkie wymagania dają punkty.",
-        "Nie zdecydowano — oznacz najwyżej dwa wiersze jako krytyczne albo wybierz „Brak krytycznych”.",
+        "Nie zdecydowano — oznacz najwyżej 3 wiersze jako krytyczne albo wybierz „Brak krytycznych”.",
         "Po tych słowach szukamy w bazie. Krytyczne ukrywają w propozycjach AI osoby, które ich nie mają.",
         "Dodaj co najmniej jedno słowo kluczowe — bez niego rekrutacja nie trafi do searchu.",
       ].filter((sentence) => screen.queryByText(sentence) != null),
@@ -370,7 +435,7 @@ describe("RequirementRowsEditor — zdanie pod listą", () => {
       "Brak krytycznych — propozycje AI nie ukrywają nikogo, wszystkie wymagania dają punkty.",
     ]);
     expect(summary({})).toEqual([
-      "Nie zdecydowano — oznacz najwyżej dwa wiersze jako krytyczne albo wybierz „Brak krytycznych”.",
+      "Nie zdecydowano — oznacz najwyżej 3 wiersze jako krytyczne albo wybierz „Brak krytycznych”.",
     ]);
   });
 

@@ -108,7 +108,7 @@ export const READINESS_CHAMPION_ANCHOR: Record<ReadinessKey, string | null> = {
   office_days: "champion-section-basics",
   office_city: "champion-section-basics",
   search: SEARCH_REQUIREMENTS_ANCHOR,
-  // Pole „Krytyczne (0–2)” stoi na początku sekcji 3 (Stack technologiczny).
+  // Pole „Krytyczne (0–3)” stoi na początku sekcji 3 (Stack technologiczny).
   critical: "champion-section-stack",
   // To samo miejsce co pytania: pole stoi przy każdym pytaniu screeningowym.
   deal_breaker: "champion-section-screening",

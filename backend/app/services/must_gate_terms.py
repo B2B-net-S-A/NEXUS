@@ -580,6 +580,40 @@ def critical_eligible(label: str) -> bool:
     )
 
 
+def critical_selectable(label: str) -> bool:
+    """Czy Delivery Lead może WYBRAĆ pozycję must jako krytyczną (08.10.2026).
+
+    Szersze niż ``critical_eligible``: wystarczy, że pozycja bramkuje
+    (``gate_requirement``), czyli jest nazwą technologii albo narzędzia — także
+    takiego, którego słownik nie zna („Camunda BPM”, „TestNG”, „Qualys”).
+    Bramka szuka wtedy tej nazwy w profilu, CV i notatkach. Do tej daty wybór
+    ograniczał słownik: w 16 najnowszych rekrutacjach 9 skończyło z „Brak
+    krytycznych”, bo narzędzi z requestu nie dało się oznaczyć. Podpowiedź
+    z historii, wymóg decyzji przy przekazaniu i tytuł dla rekrutera zostają
+    przy ``critical_eligible`` — tam nikt nie potwierdza wyboru.
+    """
+    return gate_requirement(label) is not None
+
+
+_NOT_SELECTABLE_SENTENCES = {
+    "language": "To język, nie technologia — sprawdzisz go w rozmowie.",
+    "domain": "To branża, nie technologia — daje punkty, nie ukrywa kandydatów.",
+    "soft": "To umiejętność miękka — daje punkty, nie ukrywa kandydatów.",
+    "category": "To kategoria albo metodyka, nie konkretna technologia.",
+    "role": "To rola, nie technologia.",
+    "prose": "To opis, nie nazwa technologii ani narzędzia.",
+}
+
+
+def not_selectable_sentence(label: str) -> Optional[str]:
+    """Zdanie dla Delivery Leada, dlaczego pozycji nie da się oznaczyć jako
+    krytycznej; ``None``, gdy się da."""
+    reason = ignored_reason(label)
+    if reason is None:
+        return None
+    return _NOT_SELECTABLE_SENTENCES.get(reason, _NOT_SELECTABLE_SENTENCES["prose"])
+
+
 def clear_cache() -> None:
     """Po przeładowaniu słownika umiejętności (``ALIAS_MAP``)."""
     gate_requirement.cache_clear()

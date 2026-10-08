@@ -826,7 +826,7 @@ async def save_champion_core(
             and all(code == "critical_not_technology" for code, _ in errors)
         ):
             # Audyt 06.10.2026 (P6): wiersz krytyczny, któremu zmieniono słowa
-            # tak, że przestał być technologią ze słownika, nie blokuje zapisu
+            # tak, że przestał być nazwą technologii, nie blokuje zapisu
             # (do tej daty 422 jako goły napis). Zostaje „musi mieć”, a zapis
             # mówi to wprost.
             dropped = {
@@ -841,7 +841,7 @@ async def save_champion_core(
                 new_profile["stack"].pop("critical", None)
             profile = ChampionProfile.model_validate(new_profile)
             effects.results.setdefault("notices", []).extend(
-                f"„{name}” nie jest już technologią ze słownika — zostaje "
+                f"„{name}” nie jest już nazwą technologii — zostaje "
                 "„musi mieć” i nie ukrywa kandydatów."
                 for name in sorted(dropped)
             )

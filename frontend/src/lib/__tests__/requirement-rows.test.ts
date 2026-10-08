@@ -22,6 +22,7 @@ import {
   rowCountHint,
   rowCriticalInfo,
   rowHead,
+  rowSelectable,
   rowsFromStored,
   searchRows,
   setRowLevel,
@@ -112,24 +113,29 @@ describe("filledRows i widoki listy", () => {
 });
 
 describe("limity poziomów (lustro serwera)", () => {
-  it("stałe: 10 obowiązkowych, 20 mile widzianych, 2 krytyczne", () => {
-    expect([REQUIRED_ROWS_MAX, NICE_ROWS_MAX, CRITICAL_ROWS_MAX]).toEqual([10, 20, 2]);
+  it("stałe: 10 obowiązkowych, 20 mile widzianych, 3 krytyczne", () => {
+    expect([REQUIRED_ROWS_MAX, NICE_ROWS_MAX, CRITICAL_ROWS_MAX]).toEqual([10, 20, 3]);
   });
 
-  it("trzeci krytyczny jest zablokowany, zmiana już krytycznego — nie", () => {
-    const rows = [
+  it("trzeci krytyczny wchodzi (od 08.10.2026), czwarty jest zablokowany", () => {
+    const two = [
       row("a", ["Java"], "critical"),
       row("b", ["Kafka"], "critical"),
       row("c", ["Spring"]),
+      row("d", ["Docker"]),
     ];
-    expect(levelBlockedReason(rows, "c", "critical")).toBe(
-      "Najwyżej 2 krytyczne — zdejmij jedno, żeby dodać kolejne.",
+    expect(levelBlockedReason(two, "c", "critical")).toBeNull();
+    const rows = setRowLevel(two, "c", "critical");
+    expect(rows.map((r) => r.level)).toEqual(["critical", "critical", "critical", "must"]);
+    expect(levelBlockedReason(rows, "d", "critical")).toBe(
+      "Najwyżej 3 krytyczne — zdejmij jedno, żeby dodać kolejne.",
     );
     expect(levelBlockedReason(rows, "a", "critical")).toBeNull();
     expect(levelBlockedReason(rows, "a", "must")).toBeNull();
-    expect(setRowLevel(rows, "c", "critical")).toEqual(rows);
+    expect(setRowLevel(rows, "d", "critical")).toEqual(rows);
     expect(setRowLevel(rows, "a", "must").map((r) => r.level)).toEqual([
       "must",
+      "critical",
       "critical",
       "must",
     ]);
@@ -287,21 +293,22 @@ describe("rowsFromStored — wiersze z zapisu i z odczytu requestu", () => {
     ]);
   });
 
-  it("z etykiet powstają najwyżej dwa krytyczne, licząc już oznaczone wiersze", () => {
+  it("z etykiet powstają najwyżej trzy krytyczne, licząc już oznaczone wiersze", () => {
     const stored = [
       { words: ["Java"], level: "must" },
       { words: ["Kafka"], level: "must" },
       { words: ["Spring"], level: "must" },
+      { words: ["Docker"], level: "must" },
     ];
     expect(
-      rowsFromStored(stored, ["Java", "Kafka", "Spring"]).map((r) => r.level),
-    ).toEqual(["critical", "critical", "must"]);
+      rowsFromStored(stored, ["Java", "Kafka", "Spring", "Docker"]).map((r) => r.level),
+    ).toEqual(["critical", "critical", "critical", "must"]);
     expect(
       rowsFromStored(
         [{ words: ["Oracle"], level: "critical" }, ...stored],
-        ["Java", "Kafka"],
+        ["Java", "Kafka", "Spring"],
       ).map((r) => r.level),
-    ).toEqual(["critical", "critical", "must", "must"]);
+    ).toEqual(["critical", "critical", "critical", "must", "must"]);
   });
 
   it("wiersze o tym samym pierwszym słowie zlewają się w jeden", () => {
@@ -324,7 +331,7 @@ describe("criticalSummary — zdanie pod listą", () => {
       "Brak krytycznych — propozycje AI nie ukrywają nikogo, wszystkie wymagania dają punkty.",
     );
     expect(criticalSummary(none, false)).toBe(
-      "Nie zdecydowano — oznacz najwyżej dwa wiersze jako krytyczne albo wybierz „Brak krytycznych”.",
+      "Nie zdecydowano — oznacz najwyżej 3 wiersze jako krytyczne albo wybierz „Brak krytycznych”.",
     );
   });
 
@@ -342,12 +349,48 @@ describe("rowCriticalInfo — odpowiedź serwera po kolei wierszy obowiązkowych
       suggested: ["Java"],
       stats: { Java: { rate: 0.96, jobs: 41 } },
     });
+    // Odpowiedź bez `selectable` (serwer sprzed 08.10.2026): oznaczyć wolno
+    // to samo, co jest technologią ze słownika.
     expect(info).toEqual({
-      java: { label: "Java", eligible: true, suggested: true, stat: { rate: 0.96, jobs: 41 } },
-      kafka: { label: "Kafka lub RabbitMQ", eligible: true, suggested: false, stat: undefined },
-      pay: { label: "płatności", eligible: false, suggested: false, stat: undefined },
+      java: {
+        label: "Java",
+        eligible: true,
+        selectable: true,
+        suggested: true,
+        stat: { rate: 0.96, jobs: 41 },
+      },
+      kafka: { label: "Kafka lub RabbitMQ", eligible: true, selectable: true, suggested: false },
+      pay: { label: "płatności", eligible: false, selectable: false, suggested: false },
     });
     expect(info).not.toHaveProperty("k8s");
+  });
+
+  it("nazwa spoza słownika: wolno oznaczyć, choć nie jest „eligible”; reszta dostaje powód", () => {
+    const rows = [row("java", ["Java"]), row("camunda", ["Camunda BPM"]), row("bank", ["bankowości"])];
+    const info = rowCriticalInfo(rows, {
+      labels: ["Java", "Camunda BPM", "bankowości"],
+      eligible: ["Java"],
+      selectable: ["Java", "Camunda BPM"],
+      blocked: { bankowości: "To branża, nie technologia — daje punkty, nie ukrywa kandydatów." },
+      suggested: [],
+      stats: {},
+    });
+    expect(info.camunda).toMatchObject({ eligible: false, selectable: true });
+    expect(info.camunda.blockedReason).toBeUndefined();
+    expect(info.bank).toMatchObject({
+      eligible: false,
+      selectable: false,
+      blockedReason: "To branża, nie technologia — daje punkty, nie ukrywa kandydatów.",
+    });
+    expect([info.java, info.camunda, info.bank, undefined].map(rowSelectable)).toEqual([
+      true,
+      true,
+      false,
+      undefined,
+    ]);
+    // Wymóg decyzji przy przekazaniu dalej liczy tylko technologie ze słownika.
+    expect(criticalDecisionMissing(rows.slice(1), false, info)).toBe(false);
+    expect(criticalDecisionMissing(rows, false, info)).toBe(true);
   });
 
   it("bez etykiet z serwera etykietą jest pierwsze słowo wiersza", () => {
@@ -394,7 +437,7 @@ describe("criticalDecisionMissing — bramka „Przekaż do searchu”", () => {
 describe("podpowiedź z historii", () => {
   const none = ROWS.map((r) => (r.level === "critical" ? { ...r, level: "must" as const } : r));
 
-  it("suggestedRowKeys: podpowiedziane i dopuszczalne, najwyżej dwa", () => {
+  it("suggestedRowKeys: podpowiedziane i dopuszczalne, najwyżej dwa (trzecią wybiera człowiek)", () => {
     expect(suggestedRowKeys(none, null)).toEqual([]);
     expect(
       suggestedRowKeys(none, {
