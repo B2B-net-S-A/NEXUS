@@ -97,6 +97,7 @@ import {
   type PriorityLevel,
 } from "@/lib/request-priority";
 import { invalidateJobTeam } from "@/lib/job-team-cache";
+import { NewJobDeliveryLeadField } from "./NewJobDeliveryLeadField";
 import {
   NewJobTeamStep,
   type CategoryOption,
@@ -271,6 +272,8 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
   // Wybór trójstanowy (02.10.2026): `null` = Delivery Lead niczego nie
   // zaznaczył — wtedy osobę proponuje automat, o ile jest dostępny. Wskazany
   // rekruter (podgląd, kliknięcie w listę) to jawne „Wybieram sam”.
+  // Delivery Lead wskazany ręcznie; `null` = osoba domyślna z serwera.
+  const [deliveryLeadId, setDeliveryLeadId] = useState<number | null>(null);
   const [assignmentChoice, setAssignmentChoice] =
     useState<RecruiterAssignment | null>(
       preview?.assignment ?? (preview?.recruiterId != null ? "person" : null),
@@ -567,6 +570,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
       readByAi,
       templateJobId,
       recruiterId,
+      deliveryLeadId,
       assignment: assignmentChoice,
       priorityLevel,
       similarJobIds,
@@ -578,6 +582,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
       readByAi,
       templateJobId,
       recruiterId,
+      deliveryLeadId,
       assignmentChoice,
       priorityLevel,
       similarJobIds,
@@ -696,6 +701,9 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     setReadByAi(state.readByAi === true);
     setTemplateJobId(typeof state.templateJobId === "number" ? state.templateJobId : null);
     setRecruiterId(typeof state.recruiterId === "number" ? state.recruiterId : null);
+    setDeliveryLeadId(
+      typeof state.deliveryLeadId === "number" ? state.deliveryLeadId : null,
+    );
     setAssignmentChoice(state.assignment ?? null);
     if (state.priorityLevel) setPriorityLevel(state.priorityLevel);
     setSimilarJobIds(Array.isArray(state.similarJobIds) ? state.similarJobIds : []);
@@ -815,6 +823,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
           handoff,
           similarJobIds,
           intakeFormId: formIdRef.current,
+          deliveryLeadId,
         }),
       );
       jobId = data.id;
@@ -1039,6 +1048,14 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
                   }}
                   priorityLevel={priorityLevel}
                   onPriorityChange={setPriorityLevel}
+                  deliveryLead={
+                    <NewJobDeliveryLeadField
+                      clientId={client?.id ?? null}
+                      value={deliveryLeadId}
+                      onChange={setDeliveryLeadId}
+                      disabled={saving != null}
+                    />
+                  }
                   disabled={saving != null}
                 />
               }

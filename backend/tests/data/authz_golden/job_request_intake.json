@@ -21,6 +21,7 @@
   "recruiter+amounts_edit"
  ],
  "routes": {
+  "GET /api/job-intake/delivery-lead": "PDDPDDDDPPPDDDDDPDD",
   "GET /api/job-intake/handoff-options": "PDDPDDDDPPPDDDDDPDD",
   "POST /api/job-intake/category-suggestion": "PDDPDDDDPPPDDDDDPDD",
   "POST /api/job-intake/critical-suggestion": "PPPPPPDDPPPPPPPPPPP",

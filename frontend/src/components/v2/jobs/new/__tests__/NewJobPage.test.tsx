@@ -1149,6 +1149,109 @@ describe("NewJobPage", () => {
     });
   });
 
+  describe("Delivery Lead widoczny przed zapisem (08.10.2026)", () => {
+    const DELIVERY_LEADS = [
+      { id: 41, name: "Daria Delivery" },
+      { id: 42, name: "Marek Delivery" },
+    ];
+
+    /** Serwer mówi, kto będzie DL-em; katalog osób odróżniamy po rolach. */
+    function serveDeliveryLead(defaultLead: unknown) {
+      mocks.get.mockImplementation((url: string, config?: { params?: { roles?: string[] } }) => {
+        if (url === "/api/job-intake/delivery-lead") {
+          return Promise.resolve({ data: { default: defaultLead } });
+        }
+        if (url === "/api/users") {
+          const forDeliveryLead = config?.params?.roles?.includes("delivery_lead");
+          return Promise.resolve({ data: forDeliveryLead ? DELIVERY_LEADS : RECRUITERS });
+        }
+        return Promise.resolve({ data: {} });
+      });
+    }
+
+    const field = () => screen.findByTestId("new-job-delivery-lead");
+
+    it("Delivery Lead, który zakłada rekrutację, widzi siebie — i żądanie nie niesie DL-a", async () => {
+      serveDeliveryLead({ user_id: 41, name: "Daria Delivery", source: "creator" });
+      await readRequest();
+
+      const box = await field();
+      expect(await within(box).findByText("Daria Delivery (Ty)")).toBeInTheDocument();
+      expect(
+        within(box).getByText(/Zakładasz tę rekrutację, więc jesteś jej Delivery Leadem/),
+      ).toBeInTheDocument();
+      expect(mocks.get).toHaveBeenCalledWith("/api/job-intake/delivery-lead", {
+        params: { client_id: 7 },
+      });
+
+      await createJob();
+      expect(jobPostBody()).not.toHaveProperty("delivery_lead_id");
+    });
+
+    it("admin widzi głównego DL-a klienta, a „Zmień” wysyła wskazaną osobę", async () => {
+      serveDeliveryLead({ user_id: 42, name: "Marek Delivery", source: "client_head" });
+      await readRequest();
+
+      const box = await field();
+      expect(await within(box).findByText("Marek Delivery")).toBeInTheDocument();
+      expect(within(box).getByText(/Główny Delivery Lead klienta/)).toBeInTheDocument();
+
+      fireEvent.click(within(box).getByRole("button", { name: "Zmień" }));
+      await within(box).findByRole("option", { name: "Daria Delivery" });
+      fireEvent.change(within(box).getByRole("combobox", { name: "Delivery Lead" }), {
+        target: { value: "41" },
+      });
+      expect(
+        within(box).getByText("Wybrano ręcznie. Bez zmiany byłby to: Marek Delivery."),
+      ).toBeInTheDocument();
+
+      await createJob();
+      expect(jobPostBody()).toMatchObject({ delivery_lead_id: 41 });
+    });
+
+    it("powrót do osoby domyślnej zdejmuje wybór — serwer wpisuje ją sam", async () => {
+      serveDeliveryLead({ user_id: 42, name: "Marek Delivery", source: "client_head" });
+      await readRequest();
+
+      const box = await field();
+      fireEvent.click(await within(box).findByRole("button", { name: "Zmień" }));
+      await within(box).findByRole("option", { name: "Daria Delivery" });
+      const select = within(box).getByRole("combobox", { name: "Delivery Lead" });
+      fireEvent.change(select, { target: { value: "41" } });
+      fireEvent.change(select, { target: { value: "42" } });
+
+      await createJob();
+      expect(jobPostBody()).not.toHaveProperty("delivery_lead_id");
+    });
+
+    it("klient bez głównego DL-a: formularz mówi to wprost zamiast milczeć", async () => {
+      serveDeliveryLead(null);
+      await readRequest();
+
+      const box = await field();
+      expect(await within(box).findByText("nie przypisano")).toBeInTheDocument();
+      expect(
+        within(box).getByText(/Klient nie ma głównego Delivery Leada/),
+      ).toBeInTheDocument();
+    });
+
+    it("awaria odczytu nie udaje „nie przypisano” — komunikat z „Ponów”", async () => {
+      mocks.get.mockImplementation((url: string) =>
+        url === "/api/job-intake/delivery-lead"
+          ? Promise.reject(new Error("boom"))
+          : Promise.resolve({ data: url === "/api/users" ? RECRUITERS : {} }),
+      );
+      await readRequest();
+
+      const box = await field();
+      expect(
+        await within(box).findByText(/Nie udało się sprawdzić, kto będzie Delivery Leadem/),
+      ).toBeInTheDocument();
+      expect(within(box).queryByText("nie przypisano")).toBeNull();
+      expect(within(box).getByRole("button", { name: "Ponów" })).toBeInTheDocument();
+    });
+  });
+
   describe("priorytet (02.10.2026)", () => {
     const priorityOption = (name: string) =>
       within(screen.getByRole("radiogroup", { name: "Priorytet" })).getByRole("radio", {

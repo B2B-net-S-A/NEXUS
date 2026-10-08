@@ -18,7 +18,16 @@ from typing import Annotated, Any, Literal, Optional
 
 import anthropic
 from fastapi.concurrency import run_in_threadpool
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,8 +39,13 @@ from app.core.config import settings
 from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.ai_feature import AIFeatureKey
 from app.models.client import Client
+from app.models.user import User
 from app.services import job_request_intake as intake
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
+from app.services.auto_assign_owners import (
+    pick_delivery_lead,
+    resolve_default_owners,
+)
 from app.services.client_access import assert_client_assignable
 from app.services.recruitment_allocation import effective_allocation_mode
 
@@ -381,3 +395,30 @@ async def handoff_options(
         # Ta sama reguła co `readiness.allocation_mode` i odmowa 409 w handoffie.
         "mode": await effective_allocation_mode(db),
     }
+
+
+@router.get("/delivery-lead")
+@limiter.limit("60/minute", key_func=user_or_ip_key)
+async def default_delivery_lead(
+    request: Request,
+    current_user: RecruitmentManageUser,
+    client_id: Annotated[int, Query(ge=1)],
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Kto zostanie Delivery Leadem rekrutacji, jeśli formularz nikogo nie wskaże.
+
+    Ta sama reguła co zapis (`pick_delivery_lead`): osoba z rolą Delivery Leada
+    jest DL-em rekrutacji, którą zakłada; inaczej główny DL klienta. Do
+    08.10.2026 formularz tego nie pokazywał i pomyłkę było widać dopiero po
+    utworzeniu rekrutacji.
+    """
+    resolved = await resolve_default_owners(db, client_id)
+    user_id, source = pick_delivery_lead(current_user, resolved.delivery_lead_id)
+    if user_id is None:
+        return {"default": None}
+    name = (
+        current_user.name
+        if user_id == current_user.id
+        else await db.scalar(select(User.name).where(User.id == user_id))
+    )
+    return {"default": {"user_id": user_id, "name": name, "source": source}}

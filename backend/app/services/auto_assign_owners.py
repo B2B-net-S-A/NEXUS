@@ -17,6 +17,7 @@ Jobs.
 
 import logging
 from dataclasses import dataclass
+from typing import Literal
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,6 +38,25 @@ class ResolvedOwners:
     tac_id: int | None
     delivery_lead_id: int | None
     tac_selection_required: bool = False
+
+
+DeliveryLeadSource = Literal["creator", "client_head"]
+
+
+def pick_delivery_lead(
+    creator: User, head_delivery_lead_id: int | None
+) -> tuple[int | None, DeliveryLeadSource | None]:
+    """Kto zostaje Delivery Leadem nowej rekrutacji, gdy nikt go nie wskazał.
+
+    Twórca z rolą Delivery Leada (08.10.2026), inaczej główny DL klienta,
+    inaczej nikt. Jedna reguła dla zapisu (`create_job_core`) i dla formularza
+    `/jobs/new`, który pokazuje tę osobę przed zapisem.
+    """
+    if creator.has_role(UserRole.delivery_lead):
+        return creator.id, "creator"
+    if head_delivery_lead_id is not None:
+        return head_delivery_lead_id, "client_head"
+    return None, None
 
 
 async def resolve_default_owners(

@@ -471,6 +471,82 @@ async def test_create_job_by_admin_gets_the_clients_head_dl(
         await _cleanup(client_id, [head_dl_id])
 
 
+# Formularz /jobs/new pokazuje DL-a przed zapisem — tą samą regułą co zapis.
+_DL_PREVIEW_URL = "/api/job-intake/delivery-lead"
+
+
+@pytest.mark.integration
+async def test_form_preview_names_the_delivery_lead_the_job_will_get(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Podgląd w formularzu i zapis nie mogą się rozjechać: DL-twórca widzi
+    siebie i zostaje DL-em, admin widzi głównego DL-a klienta."""
+    head_dl_id, _ = await _new_user_with_email(UserRole.delivery_lead)
+    creator_id, creator_email = await _new_user_with_email(UserRole.delivery_lead)
+    client_id = await _new_client()
+    await _assign_head_dl(client_id, head_dl_id)
+    creator_headers = await _login(app_client, creator_email)
+
+    try:
+        as_creator = await app_client.get(
+            _DL_PREVIEW_URL, headers=creator_headers, params={"client_id": client_id}
+        )
+        assert as_creator.status_code == 200, as_creator.text
+        assert as_creator.json()["default"]["user_id"] == creator_id
+        assert as_creator.json()["default"]["source"] == "creator"
+
+        as_admin = await app_client.get(
+            _DL_PREVIEW_URL, headers=app_auth_headers, params={"client_id": client_id}
+        )
+        assert as_admin.status_code == 200, as_admin.text
+        default = as_admin.json()["default"]
+        assert default["user_id"] == head_dl_id
+        assert default["source"] == "client_head"
+        assert default["name"].startswith("JobsAuto delivery_lead")
+
+        created = await app_client.post(
+            "/api/jobs",
+            headers=creator_headers,
+            json=await complete_job_payload(client_id, title="DL preview parity"),
+        )
+        assert created.status_code == 201, created.text
+        assert created.json()["delivery_lead_id"] == creator_id
+        await purge_job(created.json()["id"])
+    finally:
+        await _cleanup(client_id, [head_dl_id, creator_id])
+
+
+@pytest.mark.integration
+async def test_form_preview_says_nobody_when_the_client_has_no_head_dl(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    client_id = await _new_client()
+    try:
+        resp = await app_client.get(
+            _DL_PREVIEW_URL, headers=app_auth_headers, params={"client_id": client_id}
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {"default": None}
+    finally:
+        await _cleanup(client_id, [])
+
+
+@pytest.mark.integration
+async def test_form_preview_is_closed_to_a_recruiter(app_client: AsyncClient):
+    """Ta sama bramka co reszta `/jobs/new` — uprawnienie „Rekrutacje”."""
+    rec_id, rec_email = await _new_user_with_email(UserRole.recruiter)
+    client_id = await _new_client()
+    try:
+        resp = await app_client.get(
+            _DL_PREVIEW_URL,
+            headers=await _login(app_client, rec_email),
+            params={"client_id": client_id},
+        )
+        assert resp.status_code == 403, resp.text
+    finally:
+        await _cleanup(client_id, [rec_id])
+
+
 @pytest.mark.integration
 async def test_create_job_by_delivery_lead_explicit_override_wins(
     app_client: AsyncClient,

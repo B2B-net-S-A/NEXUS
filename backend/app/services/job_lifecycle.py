@@ -210,7 +210,10 @@ async def create_job_core(
     """
     from app.api.recruitment_access import delivery_lead_job_pairs
     from app.api.clients_team import TAC_ASSIGNABLE_ROLES
-    from app.services.auto_assign_owners import resolve_default_owners
+    from app.services.auto_assign_owners import (
+        pick_delivery_lead,
+        resolve_default_owners,
+    )
     from app.services.client_access import assert_client_assignable
 
     api = _api()
@@ -344,18 +347,6 @@ async def create_job_core(
             field="recruiter_id",
         )
 
-    # Delivery Lead, który zakłada rekrutację, jest jej DL-em (08.10.2026).
-    # Kolejność: jawny `delivery_lead_id` > twórca z rolą Delivery Leada >
-    # główny DL klienta. Do tej daty główny DL klienta wygrywał z twórcą, więc
-    # rekrutacja założona przez drugiego DL-a tego klienta trafiała do przeglądu
-    # i alertów głównego. Flaga automatu zostaje `False`: to wybór człowieka
-    # i `job_delivery_lead_fill` nie przepina go za zmianą głównego DL-a.
-    # `recruiter_id` is untouched — this is about ownership, not authorship.
-    if payload.get("delivery_lead_id") is None and current_user.has_role(
-        UserRole.delivery_lead
-    ):
-        payload["delivery_lead_id"] = current_user.id
-
     # Auto-assign from Client ↔ TAC/DL assignments when the caller left the
     # field empty. Override semantics: if caller supplied the value, we
     # never touch it here.
@@ -375,10 +366,19 @@ async def create_job_core(
                 )
             payload["tac_id"] = resolved.tac_id
         if payload.get("delivery_lead_id") is None:
-            payload["delivery_lead_id"] = resolved.delivery_lead_id
-            # Główny DL klienta wpisany automatycznie — idzie za jego zmianą
-            # (`job_delivery_lead_fill`, 0376).
-            payload["delivery_lead_auto_filled"] = resolved.delivery_lead_id is not None
+            # Delivery Lead, który zakłada rekrutację, jest jej DL-em
+            # (08.10.2026); inaczej główny DL klienta. Do tej daty główny DL
+            # wygrywał z twórcą, więc rekrutacja założona przez drugiego DL-a
+            # klienta trafiała do przeglądu i alertów głównego.
+            # `recruiter_id` is untouched — this is about ownership, not
+            # authorship.
+            dl_id, dl_source = pick_delivery_lead(
+                current_user, resolved.delivery_lead_id
+            )
+            payload["delivery_lead_id"] = dl_id
+            # Tylko główny DL klienta jest wpisem automatu i idzie za jego
+            # zmianą (`job_delivery_lead_fill`, 0376) — twórca zostaje.
+            payload["delivery_lead_auto_filled"] = dl_source == "client_head"
 
     if (
         delivery_lead_pairs is not None

@@ -4365,7 +4365,12 @@ innego niż serwer albo nadpisywał cudzą pracę.
   `services/job_creator_delivery_lead_repair.py` (blok
   `repair-job-creator-delivery-lead`, paragon
   `job_creator_delivery_lead_2026_10` z ID rekrutacji i poprzedniego DL-a).
-  `recruiter_id`/`/claim`
+  Regułę liczy JEDNA funkcja `auto_assign_owners.pick_delivery_lead` — dla
+  zapisu i dla formularza: sekcja 6 `/jobs/new` pokazuje tę osobę przed
+  zapisem (`NewJobDeliveryLeadField`, `GET /api/job-intake/delivery-lead?client_id=`)
+  z przyciskiem „Zmień”; `POST /api/jobs` niesie `delivery_lead_id` tylko po
+  ręcznym wyborze innej osoby (inaczej główny DL klienta przestałby być wpisem
+  automatu). `recruiter_id`/`/claim`
   nietknięte, to zmiana ownera, nie autorstwa. `delivery_lead_job_pairs`
   zwraca `None` dla roli DL, więc bramka zakresu klienta nie gryzie własnej
   rekrutacji świeżo utworzonej bez zespołu. 403 przy próbie ustawienia widełek

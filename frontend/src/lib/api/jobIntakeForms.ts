@@ -38,6 +38,8 @@ export interface IntakeFormState {
   templateJobId: number | null;
   recruiterId: number | null;
   assignment: RecruiterAssignment | null;
+  /** Delivery Lead wskazany ręcznie (formularze sprzed 08.10.2026 go nie mają). */
+  deliveryLeadId?: number | null;
   priorityLevel: PriorityLevel;
   similarJobIds: number[];
   /** Braki w chwili zapisu — serwer może z nich policzyć `missing_count`. */
