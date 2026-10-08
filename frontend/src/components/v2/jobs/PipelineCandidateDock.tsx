@@ -1665,7 +1665,7 @@ export function PipelineCandidateDock({
               }
             }}
             ariaLabel="Dodaj notatkę"
-            placeholder="Dodaj notatkę… (@ oznacza osobę, Enter wysyła)"
+            placeholder="Dodaj notatkę… (@ oznacza osobę)"
             rows={1}
             wrapperClassName="w-0 flex-1"
             className="block min-h-8 rounded-md px-3 py-1.5 text-xs focus:ring-primary"

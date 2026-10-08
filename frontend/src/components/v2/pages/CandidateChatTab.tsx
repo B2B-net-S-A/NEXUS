@@ -351,7 +351,8 @@ export default function CandidateChatTab({
     setText("");
   };
 
-  // Brak członkostwa → backend zwraca 403 na wszystkich endpointach czatu.
+  // Konto bez dostępu do kandydatów → backend zwraca 403 na wszystkich
+  // endpointach czatu (od 23.09.2026 czat czyta każda rola wewnętrzna).
   // Pokazujemy czysty komunikat zamiast pustego/zepsutego czatu (i — co
   // najważniejsze — nie wylogowujemy użytkownika; patrz interceptor w lib/api).
   const accessDenied =
@@ -364,9 +365,8 @@ export default function CandidateChatTab({
         <MessageCircle className="w-10 h-10 text-muted-foreground" />
         <h2 className="text-base font-semibold">Brak dostępu do czatu</h2>
         <p className="text-sm text-muted-foreground max-w-sm">
-          Czat tego kandydata jest dostępny tylko dla osób zaangażowanych w jego
-          rekrutacje (twórca profilu, rekruter/DL/TAC rekrutacji lub jej
-          współpracownik).
+          Twoje konto nie ma dostępu do kandydatów, więc nie widzi też ich
+          czatów. Dostęp nadaje administrator. To nie znaczy, że czat jest pusty.
         </p>
       </div>
     );
