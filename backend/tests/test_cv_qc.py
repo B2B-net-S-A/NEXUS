@@ -365,8 +365,12 @@ def test_critical_requirements_follow_the_search_gate() -> None:
             assert none == [] and source == "none"
         finally:
             critical_skills.set_payload(None)
-    # Bez wczytanego słownika nic nie jest technologią — brak krytycznych.
-    assert qc.critical_requirements(job(["Kubernetes"]), must) == ([], "none")
+    # Bez wczytanego słownika milczy podpowiedź z historii, ale wybór Delivery
+    # Leada zostaje: od 08.10.2026 krytyczną może być nazwa technologii, której
+    # słownik nie zna (`must_gate_terms.critical_selectable`).
+    assert qc.critical_requirements(job(), must) == ([], "none")
+    chosen, source = qc.critical_requirements(job(["Kubernetes"]), must)
+    assert [r.label for r in chosen] == ["Kubernetes"] and source == "dl"
 
 
 def test_critical_requirement_is_read_like_the_search_gate() -> None:
