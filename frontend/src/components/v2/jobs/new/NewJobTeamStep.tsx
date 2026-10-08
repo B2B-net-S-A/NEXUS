@@ -312,7 +312,7 @@ export function NewJobTeamStep({
           disabled={disabled}
         />
         <p className="text-xs leading-snug text-muted-foreground">
-          Nowa rekrutacja zaczyna od P2. P1 idzie pierwsze w kolejce automatu;
+          Nowa rekrutacja zaczyna od P1 — idzie pierwsza w kolejce automatu.
           „Przyjmujemy kandydatów” znaczy, że nie szukamy aktywnie.
         </p>
       </div>

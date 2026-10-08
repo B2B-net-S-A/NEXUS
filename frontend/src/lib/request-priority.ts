@@ -23,6 +23,13 @@ export const PRIORITY_LEVEL_LABEL: Record<PriorityLevel, string> = {
   accepting: "Przyjmujemy kandydatów",
 };
 
+/**
+ * Poziom, od którego zaczyna nowa rekrutacja (decyzja Artura 08.10.2026,
+ * do tej daty P2). Lustro `NEW_JOB_PRIORITY_LEVEL` w backendzie — tę samą
+ * wartość serwer nadaje, gdy `POST /api/jobs` przychodzi bez priorytetu.
+ */
+export const NEW_JOB_PRIORITY_LEVEL: PriorityLevel = "p1";
+
 /** Krótka etykieta — wiersz tabeli, plakietka. */
 export const PRIORITY_LEVEL_SHORT_LABEL: Record<PriorityLevel, string> = {
   p1: "P1",

@@ -6169,6 +6169,11 @@ tylko `recruiter_id`), a Head of Recruitment nie mógł zmienić rekrutera.
   czterech wartościach; filtr listy `priority_level` (URL `prio`; klucz
   `priority` to stary, zdejmowany klucz adresu), sort „Wymaga uwagi” stawia P1
   na górze, pole „Priorytet” jest w panelu „Zespół” i na `/jobs/new`.
+  **Nowa rekrutacja zaczyna od P1** (decyzja Artura 08.10.2026, do tej daty
+  P2): `job_priority.default_priority_for_new_job` jest domyślną wartością
+  `POST /api/jobs`, a `/jobs/new` zaznacza `NEW_JOB_PRIORITY_LEVEL` (lustro
+  pilnuje `test_new_job_default_priority.py`). Priorytet nie spada sam.
+  Domyślna kolumny w modelu zostaje `medium` (import Traffita = archiwum).
 - **Lista i pulpit mają te same dane i filtry:** Delivery Lead · Klient ·
   Rekruter · Kategoria · Priorytet · Termin · Data otwarcia
   (`opened_effective_at` = `COALESCE(opened_at, created_at)`, filtr
