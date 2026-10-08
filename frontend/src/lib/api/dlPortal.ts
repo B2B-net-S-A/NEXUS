@@ -5,6 +5,7 @@
 
 import { api } from "@/lib/api";
 import { SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
+import type { RecruitmentRate } from "@/lib/api/recruitmentRates";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -171,6 +172,9 @@ export interface ContractWithOrdersRead {
   /** Dni do końca NAJBLIŻSZEGO zamówienia bez kontynuacji (bez horyzontu) —
    *  filtr „kończy się w ciągu N dni" czyta regułę serwera (audyt 24.09, M6). */
   next_ending_without_successor_days?: number | null;
+  /** Stawki z rekrutacji tej osoby (D7) — podpowiedź w oknie zamówienia.
+   *  `null` bez podglądu kwot klienta albo bez stawek w rekrutacji. */
+  recruitment_rates?: RecruitmentRate | null;
   orders: ClientOrderRead[];
 }
 

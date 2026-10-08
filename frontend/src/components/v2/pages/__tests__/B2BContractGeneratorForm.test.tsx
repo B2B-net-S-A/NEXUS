@@ -997,6 +997,40 @@ describe("GeneratorForm — umowa z rekrutacji (04.10.2026)", () => {
     expect(mocks.prefill).toHaveBeenCalledWith(42, 10);
   });
 
+  it("różnica ze stawką kandydata z rekrutacji to notka pod polem, nie błąd (D7)", async () => {
+    const user = setupUser();
+    mocks.prefill.mockResolvedValue({
+      candidate_id: 42,
+      job_id: 10,
+      rate: { value: 140, source: "card", at: "2026-10-01T08:00:00Z" },
+      start_date: null,
+      availability_text: null,
+      client_rate: null,
+      client_rate_redacted: true,
+      recruitment_rate: {
+        value: 150,
+        unit: "hourly",
+        currency: "PLN",
+        at: "2026-10-02T08:00:00Z",
+        job_title: "Java Developer",
+      },
+      existing: null,
+    });
+    renderForm();
+    const note = await screen.findByTestId(
+      "b2b-recruitment-rate-note",
+      {},
+      { timeout: PREFILL_WAIT },
+    );
+    expect(note).toHaveTextContent(
+      "Stawka kandydata z rekrutacji „Java Developer”: 150 zł/h",
+    );
+    const field = screen.getByLabelText("Stawka godz. (netto) *");
+    await user.clear(field);
+    await user.type(field, "150");
+    expect(screen.queryByTestId("b2b-recruitment-rate-note")).toBeNull();
+  });
+
   it("w panelu osoby kandydata nie da się zmienić, a zapis woła onSaved", async () => {
     const user = setupUser();
     const onSaved = vi.fn();

@@ -787,7 +787,7 @@ export function CvHandoffWorkbench({
                   <p className="text-[10.5px] text-muted-foreground">
                     {cproEnabled
                       ? "Puste pole wysyła bez stawki — DL uzupełni ją później na karcie rekrutacji."
-                      : "Bez stawki do klienta nie wyślesz — trafi do umowy i zamówienia."}
+                      : "Bez stawki do klienta nie wyślesz. Stawka do klienta jest punktem odniesienia dla zamówienia klienta; do umowy idzie stawka kandydata."}
                   </p>
                 </DockSection>
               ) : (

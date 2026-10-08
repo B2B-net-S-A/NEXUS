@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 07.10.2026
+> **Zgodność z systemem sprawdzona:** 08.10.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -222,6 +222,32 @@ zakłada **jednocześnie umowę i pierwsze zamówienie**. Pola:
 
 Zapisujesz przyciskiem **Utwórz umowę i zamówienie**.
 
+### Stawki z rekrutacji — punkt odniesienia, nie blokada
+
+W oknie **„Nowy kontraktor / zamówienie”** (po wybraniu kandydata, a jeśli
+podasz rekrutację — z tej rekrutacji) i w **„Uzupełnij zamówienie”** pod
+stawkami stoi linia **„Z rekrutacji „[tytuł]” ([kto], [data]): 165 zł/h ·
+kandydat 140 zł/h”**. Pierwsza liczba to **stawka do klienta**, za którą
+Delivery Lead wysłał osobę przy „CV wysłane” — punkt odniesienia dla stawki
+**„Klient płaci”**. Druga to **stawka kandydata** z rekrutacji (okno
+„Zweryfikowany” albo zmiana stawki w procesie) — punkt odniesienia dla stawki
+**„My płacimy kontraktorowi”** i dla stawki w umowie B2B. Stawki porównujemy
+po sprowadzeniu do złotych za godzinę (MD = 8 godzin; stawki miesięcznej nie
+porównujemy z godzinową, a stawki w innej walucie niż PLN — wcale).
+
+Gdy wpisana stawka różni się od stawki z rekrutacji o więcej niż grosz na
+godzinę, pod polem pojawia się notka **„Różni się od stawki z rekrutacji —
+sprawdź”**. **Zapisu nic nie blokuje** — klient mógł przyjąć inną stawkę po
+negocjacji. Stawkę do klienta widzą tylko role, które widzą ją w rekrutacji
+(administrator, Head of Recruitment, Delivery Lead, Talent Community Manager,
+Finanse); pozostali widzą samą stawkę kandydata. Bez podglądu kwot klienta
+linii nie ma wcale.
+
+**Po renegocjacji stawki z klientem popraw stawkę do klienta w rekrutacji**
+(profil kandydata → zakładka „Rekrutacje” albo panel osoby na Tablicy). Tylko
+wtedy notka znika, a zamówienia z maila z nową stawką przestają czekać
+w weryfikacji z powodu różnicy.
+
 > **Jednostka stawki jest domyślnie „Miesięczna".** Ustaw ją **zanim** wpiszesz
 > kwoty — przełączenie jednostki przelicza obie stawki, a stawka godzinowa
 > zapisana jako miesięczna daje kwotę 168 razy za dużą (miesiąc roboczy to
@@ -422,6 +448,13 @@ Na każdej karcie stoją trzy wartości, a pod każdą — **skąd pochodzi**:
   jej nie zawiera),
 * **Stawka przychodowa** i **Liczba MD** — **„z PDF, poz. 10"** (numer pozycji
   z tabeli dokumentu; gdy go nie ma — „2. osoba w dokumencie").
+
+Gdy dopasowana osoba ma w rekrutacji tego klienta stawkę do klienta, karta
+pokazuje ją pod stawką przychodową („Z rekrutacji „[tytuł]”: 165 zł/h”), a przy
+różnicy — ostrzeżenie „Stawka przychodowa różni się od stawki do klienta
+z rekrutacji (165 zł/h × 8 = 1320 zł/MD) — sprawdź”. Ostrzeżenie **nie blokuje
+zapisu** (zasady jak w sekcji „Stawki z rekrutacji — punkt odniesienia, nie
+blokada”).
 
 Gdy u klienta działa reguła odczytu tabeli PDF-a (np. Credit Agricole, Erste,
 Nordea), **stawka i MD na karcie pochodzą z tej tabeli**, a jeśli odczyt AI
@@ -992,7 +1025,17 @@ kilku osób** (wspólną pulę MD zakładasz w oknie zamówienia; „Zastosuj”
 dokumentu odmawia, bo każda osoba dostałaby całą pulę). Wiersz, w którym
 **data od jest późniejsza niż data do**, czeka z powodem „Do weryfikacji –
 błędny okres” — system nie zakłada z niego zamówienia ani szkicu, a „Zastosuj”
-go pomija; właściwy okres wpisujesz w oknie zamówienia klienta. „Zastosuj” odmawia też
+go pomija; właściwy okres wpisujesz w oknie zamówienia klienta. Do kolejki
+trafia też dokument, w którym **stawka osoby różni się od stawki do klienta
+z rekrutacji** — powód „„[osoba]”: stawka z zamówienia 1350 zł/MD różni się od
+stawki do klienta z rekrutacji „[tytuł]” (165 zł/h) — sprawdź, czy klient
+przyjął inną stawkę…”. To **sprawdzenie, nie blokada**: jeśli stawka
+z zamówienia jest właściwa (klient przyjął inną po negocjacji), kliknij
+**„Zastosuj”**, a potem popraw stawkę do klienta w rekrutacji, żeby kolejne
+zamówienia tej osoby zapisywały się same. Porównanie pomija osoby spoza listy
+konsultantów klienta, zamówienia kosztowe, wiersze bez stawki oraz stawki
+nieporównywalne (inna waluta, stawka miesięczna wobec godzinowej). Role bez
+podglądu kwot widzą ten powód z kwotami zastąpionymi „…”. „Zastosuj” odmawia też
 wiersza, który ma stawkę, ale **bez jednostki** (np. inna kwota niż w nagłówku
 dokumentu bez „zł/MD” czy „zł/h”) — jednostkę uzupełniasz w oknie zamówienia,
 bo przyjęta po cichu jednostka umowy mogła zapisać stawkę za MD jako
@@ -1219,8 +1262,9 @@ dokumentu na innego klienta.
   umowy trwa zwykle dłużej niż kilka godzin, więc wcześniejsza karta byłaby
   przedwczesna. Zamówienie zapisze się samo w ciągu godziny od chwili, gdy
   umowa pojawi się w systemie.
-* **Każda inna przyczyna** (niedopasowana osoba, stawka poza pasmem, niepewny
-  odczyt, błąd danych) — po **trzech nieudanych próbach z rzędu** do Delivery
+* **Każda inna przyczyna** (niedopasowana osoba, stawka poza pasmem, stawka
+  inna niż stawka do klienta z rekrutacji, niepewny odczyt, błąd danych) — po
+  **trzech nieudanych próbach z rzędu** do Delivery
   Leada klienta idzie karta „Sprawdź zamówienie z maila" ze wskazaniem
   zamówienia i przyczyny. Wpis jest sprawdzany dalej. Próby liczą się tylko
   w godzinach pracy, więc zamówienie wstrzymane o 17:30 dobija do trzeciej
@@ -1308,7 +1352,9 @@ widać tam było wyłącznie odczyty uruchamiane ręcznie w formularzach.
   01.12 — wchodzą do zamówienia każda w swoim dniu, w jednostce zamówienia.
   Zamówień zakończonych nie przepisuje. **Nie dotyczy konsultantów na
   zamówieniach zbiorczych MD i kosztowych** — tam stawkę kosztową nadal
-  ustawiasz przy konsultancie.
+  ustawiasz przy konsultancie. Stawka kandydata z rekrutacji jest wyłącznie
+  podpowiedzią obok („Z rekrutacji…”) — system nie wpisuje jej do umowy ani
+  do zamówienia sam.
 * **Awansuje szkic pojedynczej osoby na Aktywne** w chwili zapisu, gdy komplet
   danych jest na miejscu. Nowe zbiorcze MD z wyborem trybu budżetu aktywujesz
   sam w edycji zamówienia.

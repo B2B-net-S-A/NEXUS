@@ -3752,6 +3752,15 @@ export interface B2BAgreementPrefill {
   availability_text: string | null;
   client_rate: { value: number; unit: string | null; currency: string | null } | null;
   client_rate_redacted: boolean;
+  /** Stawka kandydata z etapu TEJ rekrutacji (D7) — wyłącznie z rekrutacji,
+   *  nigdy „Stawka od”. Różnica ze stawką umowy = notka pod polem. */
+  recruitment_rate?: {
+    value: number;
+    unit: string | null;
+    currency: string | null;
+    at: string | null;
+    job_title: string | null;
+  } | null;
   existing: {
     id: number;
     contract_number: string;
