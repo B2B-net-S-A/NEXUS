@@ -21,7 +21,7 @@ from app.models.job import (
 from app.schemas.candidate import _normalize_skill_list
 from app.schemas.job_team import JobRecruiterOut
 from app.schemas.matching_requirements import MatchingRequirements
-from app.services.job_priority import level_of
+from app.services.job_priority import default_priority_for_new_job, level_of
 
 
 class JobCreate(BaseModel):
@@ -48,7 +48,8 @@ class JobCreate(BaseModel):
     # Rekrutacja bez szkiców (04.10.2026): pola ``status`` NIE MA — serwer
     # zawsze zakłada rekrutację opublikowaną i przekazaną do searchu. Stary
     # klient wysyłający ``status`` jest ignorowany (``extra`` = ignore).
-    priority: JobPriority = JobPriority.medium
+    # Bez pola nowa rekrutacja dostaje P1 (08.10.2026, `services/job_priority`).
+    priority: JobPriority = Field(default_factory=default_priority_for_new_job)
     needs_sourcing: bool = False
     deadline: Optional[date] = None
     # 0406: godzina terminu (Europe/Warsaw); bez daty zapis ją czyści.

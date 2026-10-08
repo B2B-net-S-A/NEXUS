@@ -607,7 +607,7 @@ describe("NewJobPage", () => {
       competence_category_id: 2,
       must_skills: ["Java", "Spring Boot"],
       nice_skills: ["Kubernetes"],
-      priority: "medium",
+      priority: "urgent",
       hiring_manager: { contact_id: 501 },
       deadline: "2026-10-20",
       deadline_time: null,
@@ -1161,27 +1161,28 @@ describe("NewJobPage", () => {
       await handoffTo();
     }
 
-    it("nowa rekrutacja zaczyna od P2 i tak idzie do POST /api/jobs", async () => {
+    // Decyzja Artura 08.10.2026: nowa rekrutacja dostaje P1 z automatu.
+    it("nowa rekrutacja zaczyna od P1 i tak idzie do POST /api/jobs", async () => {
       await readRequest();
       expect(
         within(screen.getByRole("radiogroup", { name: "Priorytet" }))
           .getAllByRole("radio")
           .map((radio) => radio.textContent),
       ).toEqual(["P1 Pilne", "P2 Standard", "Przyjmujemy kandydatów"]);
-      expect(priorityOption("P2 Standard")).toBeChecked();
+      expect(priorityOption("P1 Pilne")).toBeChecked();
 
       await pickRecruiterAndHandoff();
 
-      expect(jobPostBody()).toMatchObject({ priority: "medium" });
+      expect(jobPostBody()).toMatchObject({ priority: "urgent" });
     });
 
-    it("P1 idzie jako „urgent”", async () => {
+    it("P2 wybrane ręcznie idzie jako „medium”", async () => {
       await readRequest();
-      fireEvent.click(priorityOption("P1 Pilne"));
-      expect(priorityOption("P1 Pilne")).toBeChecked();
+      fireEvent.click(priorityOption("P2 Standard"));
+      expect(priorityOption("P2 Standard")).toBeChecked();
 
       await createJob();
-      expect(jobPostBody()).toMatchObject({ priority: "urgent" });
+      expect(jobPostBody()).toMatchObject({ priority: "medium" });
     });
 
     it("po utworzeniu odświeża listę, liczniki i pulpit „Requesty i obłożenie”", async () => {

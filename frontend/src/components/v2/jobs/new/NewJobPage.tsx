@@ -91,7 +91,11 @@ import {
   type AllocationMode,
   type RecruiterAssignment,
 } from "@/lib/recruiter-assignment";
-import { rawPriorityForLevel, type PriorityLevel } from "@/lib/request-priority";
+import {
+  NEW_JOB_PRIORITY_LEVEL,
+  rawPriorityForLevel,
+  type PriorityLevel,
+} from "@/lib/request-priority";
 import { invalidateJobTeam } from "@/lib/job-team-cache";
 import {
   NewJobTeamStep,
@@ -271,9 +275,9 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     useState<RecruiterAssignment | null>(
       preview?.assignment ?? (preview?.recruiterId != null ? "person" : null),
     );
-  // Nowa rekrutacja zaczyna od P2 („Standard”).
+  // Nowa rekrutacja zaczyna od P1 („Pilne”) — zmienia to człowiek.
   const [priorityLevel, setPriorityLevel] = useState<PriorityLevel>(
-    preview?.priorityLevel ?? "p2",
+    preview?.priorityLevel ?? NEW_JOB_PRIORITY_LEVEL,
   );
   const [saving, setSaving] = useState<"create" | "later" | null>(null);
   // 0341: podobne rekrutacje zaznaczone przy tworzeniu — łączone po zapisie.

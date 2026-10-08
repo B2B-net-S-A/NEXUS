@@ -7,11 +7,19 @@ w Traffit („P1 – URGENT”, „WILL ACCEPT CANDIDATES”):
 
 * ``p1`` — „P1 Pilne”: ``urgent`` (i historyczne ``high``); pierwsze w kolejce
   automatu przydziału i na górze sortowania „Wymaga uwagi”;
-* ``p2`` — „P2 Standard”: ``medium``, stan domyślny;
+* ``p2`` — „P2 Standard”: ``medium``; tak czyta się też wartość pustą
+  i nieznaną;
 * ``accepting`` — „Przyjmujemy kandydatów”: ``low``; nie szukamy aktywnie,
   więc automat nikogo do takiego requestu nie proponuje.
 
 Ekrany i filtry mówią poziomami, baza zostaje przy enumie (bez migracji).
+
+Nowa rekrutacja zaczyna od P1 (decyzja Artura 08.10.2026, do tej daty P2):
+``default_priority_for_new_job`` jest domyślną wartością ``POST /api/jobs``,
+a ``/jobs/new`` zaznacza ten sam poziom (``NEW_JOB_PRIORITY_LEVEL`` w
+``frontend/src/lib/request-priority.ts``). Priorytet nie spada sam — zmienia go
+człowiek. Domyślna kolumny w modelu zostaje ``medium``: rekrutacje z importu
+Traffita są archiwum, nie nowymi requestami.
 """
 
 from __future__ import annotations
@@ -26,6 +34,9 @@ PriorityLevel = Literal["p1", "p2", "accepting"]
 
 PRIORITY_LEVELS: tuple[str, ...] = ("p1", "p2", "accepting")
 
+# Poziom, od którego zaczyna rekrutacja zakładana w NEXUSIE.
+NEW_JOB_PRIORITY_LEVEL: PriorityLevel = "p1"
+
 _VALUES_BY_LEVEL: dict[str, tuple[JobPriority, ...]] = {
     "p1": (JobPriority.urgent, JobPriority.high),
     "p2": (JobPriority.medium,),
@@ -35,6 +46,11 @@ _VALUES_BY_LEVEL: dict[str, tuple[JobPriority, ...]] = {
 _LEVEL_BY_VALUE: dict[str, str] = {
     value.value: level for level, values in _VALUES_BY_LEVEL.items() for value in values
 }
+
+
+def default_priority_for_new_job() -> JobPriority:
+    """Wartość kolumny dla rekrutacji zakładanej bez podanego priorytetu."""
+    return _VALUES_BY_LEVEL[NEW_JOB_PRIORITY_LEVEL][0]
 
 
 def _value(priority: object) -> str:
