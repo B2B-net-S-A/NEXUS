@@ -236,6 +236,17 @@ describe("HiringManagerPicker — „Klient nie podał” w doku", () => {
     expect(screen.queryByText("nie przypisano")).toBeNull();
   });
 
+  it("dymek nie stoi na przycisku — w Chrome `title` przejmuje jego nazwę", () => {
+    // jsdom liczy nazwę z treści, więc `name: /Przypisz/` przechodziło mimo
+    // że czytnik ekranu słyszał tekst dymka. Pytamy wprost o atrybut.
+    renderPicker(false);
+    const button = screen.getByRole("button", { name: /Przypisz/ });
+    expect(button).not.toHaveAttribute("title");
+    expect(screen.getByTitle("Kto po stronie klienta zamawia tę rekrutację")).toContainElement(
+      button,
+    );
+  });
+
   it("zaznaczenie zapisuje PUT {not_provided: true}", async () => {
     mocks.put.mockResolvedValue({ data: {} });
     const onSaved = renderPicker(false);

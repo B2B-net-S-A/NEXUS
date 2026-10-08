@@ -717,7 +717,7 @@ async def save_champion_core(
     (``assert_no_new_handoff_blockers``) na obu ścieżkach zapisu.
     """
     from app.api.champion_intake import invalid_champion_profile
-    from app.api.recruitment_access import ensure_champion_job_editor
+    from app.api.recruitment_access import JobEditLevel, ensure_champion_job_editor
     from app.schemas.champion import ChampionProfile
     from app.services.champion_intake import (
         fingerprint,
@@ -744,7 +744,10 @@ async def save_champion_core(
     await api._ensure_delivery_lead_job_visible(job, current_user, db)
     # Champion redaguje DL/admin oraz osoba prowadząca rekrutację i jej
     # współpracownicy (decyzja 22.09.2026); TAC tylko we własnych ofertach.
-    await ensure_champion_job_editor(job, current_user, db)
+    edit_level = await ensure_champion_job_editor(job, current_user, db)
+    # Termin rekrutacji jest polem cyklu życia: „Deadline na kandydatów”
+    # trafia do niego tylko z zapisu osoby z pełną redakcją (08.10.2026).
+    may_set_deadline = edit_level is JobEditLevel.full
 
     if expected_fingerprint is not None and fingerprint(job) != expected_fingerprint:
         logger.info("champion_import_conflict job_id=%s", job.id)
@@ -879,10 +882,15 @@ async def save_champion_core(
         []
         if imported
         else overwrite_edited_job_columns(
-            job, normalized_old.get("basics") or {}, new_profile.get("basics") or {}
+            job,
+            normalized_old.get("basics") or {},
+            new_profile.get("basics") or {},
+            set_deadline=may_set_deadline,
         )
     )
-    columns_filled += fill_job_columns_from_champion(job, profile.basics.model_dump())
+    columns_filled += fill_job_columns_from_champion(
+        job, profile.basics.model_dump(), set_deadline=may_set_deadline
+    )
 
     fields_changed = diff_champion_profile(normalized_old, new_profile)
     intake_changed = normalized_old.get("intake") != new_profile.get("intake")

@@ -921,10 +921,14 @@ async def ensure_job_editor(
 
 async def ensure_champion_job_editor(
     job: Job, current_user: User, db: AsyncSession
-) -> None:
-    """Zapis Championa: pełna redakcja jak dotąd plus zespół rekrutacji."""
+) -> JobEditLevel:
+    """Zapis Championa: pełna redakcja jak dotąd plus zespół rekrutacji.
 
-    await ensure_job_editor(db, current_user, job)
+    Zwraca poziom redakcji — zapis Championa przenosi termin do rekrutacji
+    tylko przy pełnym (termin jest w ``JOB_MEMBER_LOCKED_FIELDS``).
+    """
+
+    return await ensure_job_editor(db, current_user, job)
 
 
 async def ensure_champion_job_reader(
