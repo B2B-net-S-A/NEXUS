@@ -106,15 +106,18 @@ export function HiringManagerPicker({
           <span className="text-muted-foreground italic">nie przypisano</span>
         )}
         {canEdit && (
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-            title="Kto po stronie klienta zamawia tę rekrutację"
-          >
-            <UserPlus className="w-3 h-3" />
-            {value ? "Zmień" : "Przypisz"}
-          </button>
+          // Dymek na elemencie otaczającym: `title` na samym przycisku
+          // przejmuje w Chrome jego nazwę dostępną („Przypisz”).
+          <span title="Kto po stronie klienta zamawia tę rekrutację">
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+            >
+              <UserPlus className="w-3 h-3" aria-hidden="true" />
+              {value ? "Zmień" : "Przypisz"}
+            </button>
+          </span>
         )}
       </div>
     );

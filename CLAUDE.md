@@ -3711,7 +3711,16 @@ Raport naprawczy: `docs/manual-audit-2026-09-13-remediation-report.md`.
 - **Pole sekcji 1 zmienione ręcznie w edytorze Championa nadpisuje kolumnę
   rekrutacji** (30.09.2026, `champion_job_sync.overwrite_edited_job_columns`):
   budżet, tryb pracy, dni w biurze, miasto — tylko ZMIENIONE w tym zapisie
-  i niepuste; import z pliku zostaje przy FILL_EMPTY i „Uzgodnij”. Do tej daty
+  i niepuste; import z pliku zostaje przy FILL_EMPTY i „Uzgodnij”. Od
+  08.10.2026 tak samo „Deadline na kandydatów” → `jobs.deadline` (data zdejmuje
+  „Klient nie podał”; wyczyszczone pole terminu nie kasuje) — ale WYŁĄCZNIE
+  z zapisu osoby z pełną redakcją rekrutacji (`set_deadline` w
+  `champion_job_sync`, poziom z `ensure_champion_job_editor`): termin jest
+  w `JOB_MEMBER_LOCKED_FIELDS`, więc zapis treści, import pliku i akceptacja
+  szkicu AI go nie ruszają. FILL_EMPTY terminu działa tylko bez decyzji
+  „Klient nie podał” i tylko dla daty, która jeszcze nie minęła — stary profil
+  nie robi z rekrutacji „po terminie”. Do tej daty bramka pytała o termin,
+  a data wpisana w Championie zostawała w profilu. Do tej daty
   poprawka „0 → 1 dzień” zapisywała się w profilu, a walidacja czytała 0
   z kolumny. Pola liczbowe na `/jobs/new` i w edytorze mają
   `blurNumberInputOnWheel` (kółko myszy nad aktywnym polem zmieniało liczbę).
@@ -4757,8 +4766,7 @@ udostępniania dla klienta nie robimy. Raport: `docs/job-no-drafts-completion-re
   (akcja `team` w `lib/order-readiness.ts`, także w liście braków
   `MissingBlock`), reszta do Profilu Championa. Do tej daty cztery decyzje
   z 04.10 nie miały klucza na froncie i każdy brak odsyłał do edytora
-  Championa, w którym tych pól nie ma („Deadline na kandydatów” z Championa
-  nie jest terminem rekrutacji). Nowy kod braku = wpis w `ReadinessKey`
+  Championa, w którym tych pól nie ma. Nowy kod braku = wpis w `ReadinessKey`
   z działaniem. Uwaga Championa „Sprawdź i zatwierdź alternatywy”
   (`review_alternatives`) nie pojawia się przy profilu z wierszami wymagań —
   warianty w wierszu są tą decyzją.

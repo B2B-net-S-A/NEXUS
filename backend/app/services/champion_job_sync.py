@@ -23,13 +23,20 @@ w formularzu oferty.
 
 Wyjątek od 30.09.2026: pole, które człowiek ZMIENIŁ w edytorze Championa,
 nadpisuje kolumnę (`overwrite_edited_job_columns`) — patrz jej docstring.
+
+Od 08.10.2026 tą samą drogą idzie „Deadline na kandydatów” → `jobs.deadline`.
+Bramka przekazania pyta o termin rekrutacji, a edytor Championa ma własne pole
+terminu: wpisana tam data zostawała w profilu i brak „Ustaw termin” wisiał
+mimo wypełnionego pola.
 """
 
 from __future__ import annotations
 
 import re
+from datetime import date, datetime
 from typing import Any, Optional
 
+from app.core.scheduling import business_today
 from app.models.job import Job, RemotePolicy
 
 # Tryb pracy z profilu Championa jest wolnym tekstem wpisywanym przez
@@ -76,6 +83,23 @@ def _as_number(value: Any) -> Optional[float]:
     return None
 
 
+def _as_date(value: Any) -> Optional[date]:
+    """Termin z sekcji 1 — ISO `RRRR-MM-DD`, jak zapisuje go normalizator profilu.
+
+    Tekst, którego normalizator nie odczytał („ASAP”), nie jest terminem.
+    """
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
 def champion_work_mode_to_remote(value: Any) -> Optional[str]:
     """Wolny tekst trybu pracy Championa → wartość `RemotePolicy` (strip+prefiks).
 
@@ -94,7 +118,9 @@ def champion_work_mode_to_remote(value: Any) -> Optional[str]:
     return None
 
 
-def fill_job_columns_from_champion(job: Job, basics: dict[str, Any]) -> list[str]:
+def fill_job_columns_from_champion(
+    job: Job, basics: dict[str, Any], *, set_deadline: bool = False
+) -> list[str]:
     """FILL_EMPTY: przenosi to, co Champion już wie, do kolumn oferty.
 
     `basics` to sekcja „1. Podstawowe informacje” profilu (kształt
@@ -106,6 +132,11 @@ def fill_job_columns_from_champion(job: Job, basics: dict[str, Any]) -> list[str
     ani wypełnioną wcześniej z tego samego profilu. Zwraca nazwy KOLUMN
     faktycznie zapisanych w tym wywołaniu; pusta lista mówi wołającemu
     „nic się nie zmieniło”, więc nie warto płacić za `refresh_job_matching`.
+
+    ``set_deadline`` włącza wyłącznie zapis Championa przez osobę z pełną
+    redakcją rekrutacji: termin jest polem cyklu życia
+    (`JOB_MEMBER_LOCKED_FIELDS`), więc przy zapisie treści, imporcie pliku
+    i akceptacji szkicu AI zostaje w profilu.
     """
     if not isinstance(basics, dict):
         return []
@@ -153,11 +184,30 @@ def fill_job_columns_from_champion(job: Job, basics: dict[str, Any]) -> list[str
         job.location = location_pref.strip()[:_MAX_LOCATION_LENGTH]
         filled.append("location")
 
+    # Termin: tylko pusty i bez decyzji „Klient nie podał” (tę zmienia dopiero
+    # edycja pola), i tylko data, która jeszcze nie minęła — stary profil nie
+    # może zrobić z rekrutacji „po terminie” przy zapisie innego pola.
+    deadline = _as_date(basics.get("deadline"))
+    if (
+        set_deadline
+        and deadline is not None
+        and deadline >= business_today()
+        and job.deadline is None
+        and not job.deadline_not_provided
+    ):
+        job.deadline = deadline
+        job.deadline_not_provided = False
+        filled.append("deadline")
+
     return filled
 
 
 def overwrite_edited_job_columns(
-    job: Job, old_basics: dict[str, Any], new_basics: dict[str, Any]
+    job: Job,
+    old_basics: dict[str, Any],
+    new_basics: dict[str, Any],
+    *,
+    set_deadline: bool = False,
 ) -> list[str]:
     """Ręczna zmiana rubryki w edytorze Championa idzie też do kolumny oferty.
 
@@ -223,6 +273,14 @@ def overwrite_edited_job_columns(
     if isinstance(location_pref, str) and location_pref.strip():
         targets["location"] = location_pref.strip()[:_MAX_LOCATION_LENGTH]
 
+    # Wpisany w tym zapisie termin jest terminem rekrutacji — także gdy
+    # zastępuje wcześniejszy albo decyzję „Klient nie podał”. Wyczyszczone
+    # pole terminu nie kasuje (`edited` pomija puste). Tylko przy pełnej
+    # redakcji rekrutacji (`set_deadline`).
+    deadline = _as_date(edited("deadline")) if set_deadline else None
+    if deadline is not None:
+        targets["deadline"] = deadline
+
     changed: list[str] = []
     for column, value in targets.items():
         current = getattr(job, column, None)
@@ -233,6 +291,8 @@ def overwrite_edited_job_columns(
             continue
         apply_requirement_source_update(job, column, value)
         changed.append(column)
+    if "deadline" in changed:
+        job.deadline_not_provided = False
     # 0420: budżet obniżony w edytorze poniżej zapisanego „od” czyści „od”
     # (lustro PATCH rekrutacji) — budżetem jest górna granica.
     if "rate_budget_hourly" in changed:
