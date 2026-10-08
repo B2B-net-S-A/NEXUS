@@ -124,8 +124,8 @@ export function NoteComposer({
 
   const { recList, jobTitleById } = useRecruitmentOptions(recruitments);
 
-  // Wybrana rekrutacja (null = notatka ogólna). Gdy ustawiona, @mention scope
-  // zawęża się do członków joba — spójnie z backendem.
+  // Wybrana rekrutacja (null = notatka ogólna). Gdy ustawiona, zespół tej
+  // rekrutacji stoi na początku listy osób do oznaczenia.
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
 
   // Profil otwarty z pipeline'u (`?from=job&jobId=N`): nowa notatka domyślnie
@@ -169,7 +169,7 @@ export function NoteComposer({
           setEditing?.("notes", true);
         }}
         onBlur={() => setEditing?.("notes", false)}
-        placeholder="Nowa notatka… (@email aby oznaczyć osobę)"
+        placeholder="Nowa notatka… (@ oznacza osobę)"
         rows={open ? 3 : 1}
         ariaLabel="Treść nowej notatki"
         textareaRef={composerTextareaRef}
@@ -440,7 +440,7 @@ export function NotesList({
               ? { kind: "job", jobId: Number(n.job_id) }
               : { kind: "global" }
           }
-          placeholder="Treść notatki… (@email aby oznaczyć osobę)"
+          placeholder="Treść notatki… (@ oznacza osobę)"
           rows={3}
           ariaLabel="Edytuj treść notatki"
         />
@@ -706,7 +706,7 @@ export function NotesList({
                             ? { kind: "job", jobId: Number(n.job_id) }
                             : { kind: "global" }
                         }
-                        placeholder="Odpowiedź… (@email aby oznaczyć osobę)"
+                        placeholder="Odpowiedź… (@ oznacza osobę)"
                         rows={2}
                         ariaLabel="Treść odpowiedzi"
                       />

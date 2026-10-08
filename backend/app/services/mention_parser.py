@@ -6,13 +6,15 @@ Runda 10 (R10-N6-4): składnia ``@<liczba>`` usunięta — nikt jej nie wstawia�
 a „spotkanie @10:00” oznaczało użytkownika nr 10 (powiadomienie + mail
 z fragmentem notatki).
 
-Trzy warianty scope filtrowania:
-- `parse_mentions(db, content, job_id)` — tylko members projektu (job chat,
-  notatki przy projekcie)
-- `parse_mentions_candidate(db, content, candidate_id)` — tylko members chatu
-  kandydata (candidate chat)
-- `parse_mentions_global(db, content)` — każdy aktywny user z bieżącym
-  candidate-domain read access (notatki kandydata bez projektu)
+Oznaczyć można każdą osobę, która może przeczytać to, w czym ją oznaczono
+(08.10.2026). Od 23.09.2026 rekrutacje, notatki i czaty czyta każda rola
+wewnętrzna, a wzmianki zostały przy starej regule „tylko zespół rekrutacji”:
+oznaczenie osoby spoza zespołu zapisywało się jako zwykły tekst, bez
+powiadomienia. Jedna reguła: `mentionable_users`.
+
+- `parse_mentions(db, content, job_id)` — czat i notatki rekrutacji
+- `parse_mentions_candidate(db, content, candidate_id)` — czat kandydata
+- `parse_mentions_global(db, content)` — notatki kandydata bez rekrutacji
 
 Wszystkie wracają posortowaną deduplikowaną listę user_id.
 """
@@ -24,9 +26,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import user_can_access_candidate_domain
 from app.models.user import User
-from app.services.candidate_membership import filter_to_candidate_members
-from app.services.job_membership import filter_to_members
-from app.services.section_permissions import resolve_effective_section_access_for_users
+from app.services.section_permissions import (
+    ProductSection,
+    SectionAccess,
+    resolve_effective_section_access_for_users,
+    section_access_for_user,
+)
 
 # @email. Regex dopuszcza znaki specjalne typowe w korporacyjnych adresach
 # (kropka, plus, myślnik).
@@ -55,30 +60,52 @@ async def _extract_candidate_user_ids(db: AsyncSession, content: str) -> set[int
     return candidate_ids
 
 
-async def parse_mentions(db: AsyncSession, content: str, job_id: int) -> list[int]:
-    """Mentions w job-scoped contentcie. Filtruje do members projektu.
+async def mentionable_users(
+    db: AsyncSession,
+    *,
+    section: ProductSection | None = None,
+    user_ids: set[int] | None = None,
+) -> list[User]:
+    """Aktywne konta, które wolno oznaczyć: odczyt danych kandydatów i —
+    gdy podano — odczyt sekcji, w której leży notatka albo czat."""
+    query = select(User).where(User.is_active.is_(True))
+    if user_ids is not None:
+        if not user_ids:
+            return []
+        query = query.where(User.id.in_(user_ids))
+    users = list((await db.execute(query)).scalars().all())
+    await resolve_effective_section_access_for_users(db, users)
+    return [
+        user
+        for user in users
+        if user_can_access_candidate_domain(user)
+        and (
+            section is None
+            or section_access_for_user(user, section) >= SectionAccess.read
+        )
+    ]
 
-    Backward-compatible signature — używana w job_chat.py i (po refactor)
-    w notes.py gdy notatka ma `job_id`.
-    """
+
+async def _mentioned_ids(
+    db: AsyncSession, content: str, section: ProductSection | None
+) -> list[int]:
     candidate_ids = await _extract_candidate_user_ids(db, content)
-    if not candidate_ids:
-        return []
-    members = await filter_to_members(db, job_id, candidate_ids)
-    return sorted(set(members))
+    users = await mentionable_users(db, section=section, user_ids=candidate_ids)
+    return sorted({user.id for user in users})
+
+
+async def parse_mentions(db: AsyncSession, content: str, job_id: int) -> list[int]:
+    """Wzmianki w czacie i notatce rekrutacji — każda osoba z odczytem
+    rekrutacji, nie tylko jej zespół (`job_id` zostaje w sygnaturze dla
+    wołających; zakres nie zależy już od konkretnej rekrutacji)."""
+    return await _mentioned_ids(db, content, ProductSection.pipeline)
 
 
 async def parse_mentions_candidate(
     db: AsyncSession, content: str, candidate_id: int
 ) -> list[int]:
-    """Mentions w candidate-chat-scoped contentcie. Filtruje do members
-    chatu kandydata (kompleksowa logika rola+collab w
-    `candidate_membership`)."""
-    candidate_ids = await _extract_candidate_user_ids(db, content)
-    if not candidate_ids:
-        return []
-    members = await filter_to_candidate_members(db, candidate_id, candidate_ids)
-    return sorted(set(members))
+    """Wzmianki w czacie kandydata — każda osoba z odczytem kandydatów."""
+    return await _mentioned_ids(db, content, ProductSection.sourcing)
 
 
 async def parse_mentions_global(db: AsyncSession, content: str) -> list[int]:
@@ -88,21 +115,11 @@ async def parse_mentions_global(db: AsyncSession, content: str) -> list[int]:
     primary-role SQL alone misses malformed/historical Finance hybrids and can
     fan candidate snippets out through notification/email/Teams.
     """
-    candidate_ids = await _extract_candidate_user_ids(db, content)
-    if not candidate_ids:
-        return []
-    rows = await db.execute(
-        select(User).where(
-            User.id.in_(candidate_ids),
-            User.is_active.is_(True),
-        )
-    )
-    users = list(rows.scalars().all())
-    await resolve_effective_section_access_for_users(db, users)
-    return sorted({user.id for user in users if user_can_access_candidate_domain(user)})
+    return await _mentioned_ids(db, content, None)
 
 
 __all__ = [
+    "mentionable_users",
     "parse_mentions",
     "parse_mentions_candidate",
     "parse_mentions_global",

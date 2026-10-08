@@ -45,6 +45,12 @@ import {
   useChatMessageFocus,
 } from "@/hooks/useChatMessageFocus";
 import { MentionTextarea } from "@/components/v2/forms/MentionTextarea";
+import { useMentionableUsers } from "@/hooks/useMentionableUsers";
+import {
+  buildUsersByEmail,
+  renderWithMentions,
+  type UsersByEmail,
+} from "@/lib/renderMentions";
 
 const QUICK_REACTIONS = ["👍", "❤️", "🎉", "🚀", "👀", "🤔", "🙏", "🔥"];
 
@@ -78,12 +84,24 @@ export default function CandidateChatTab({
   const queryClient = useQueryClient();
 
   // ── Members (dla autocomplete) ────────────────────────────────────────────
-  const { data: members = [], error: membersError } = useQuery({
+  const {
+    data: members = [],
+    error: membersError,
+    isSuccess: membersLoaded,
+  } = useQuery({
     queryKey: ["candidate-chat-members", candidateId],
     queryFn: async () => (await candidateChatApi.getMembers(candidateId)).data,
     staleTime: 60_000,
     retry: chatQueryRetry,
   });
+
+  // Wzmianki w treści: `@adres` pokazujemy jako imię i nazwisko (ta sama
+  // lista co podpowiedź przy „@” — jedno zapytanie, wspólny cache).
+  const { data: mentionUsers } = useMentionableUsers({ kind: "candidate", candidateId });
+  const usersByEmail = useMemo(
+    () => buildUsersByEmail(mentionUsers ?? []),
+    [mentionUsers],
+  );
 
   // ── Pinned ────────────────────────────────────────────────────────────────
   const { data: pinned = [] } = useQuery({
@@ -385,9 +403,17 @@ export default function CandidateChatTab({
         <div className="flex items-center gap-2">
           <MessageCircle className="w-5 h-5 text-primary" />
           <h2 className="text-base font-semibold">Chat zespołu</h2>
-          <span className="text-xs text-muted-foreground">
-            {members.length} członków
-          </span>
+          {/* Liczba dopiero po wczytaniu — „0 członków” w trakcie ładowania
+              wyglądało jak czat bez nikogo. Pisać i być oznaczoną może każda
+              osoba z dostępem; zespół dostaje powiadomienie o każdej wiadomości. */}
+          {membersLoaded ? (
+            <span
+              className="text-xs text-muted-foreground"
+              title="Osoby z zespołu dostają powiadomienie o każdej wiadomości. Oznaczyć przez @ możesz każdą osobę z dostępem."
+            >
+              zespół: {members.length}
+            </span>
+          ) : null}
         </div>
         <form onSubmit={handleSearchSubmit} className="flex items-center gap-1">
           <div className="relative">
@@ -471,6 +497,7 @@ export default function CandidateChatTab({
           >
             <MessageRow
               message={m}
+              usersByEmail={usersByEmail}
               currentUserId={user?.id ?? -1}
               canPin={canPin}
               isAdmin={!readOnly && user?.role === "admin"}
@@ -539,7 +566,7 @@ export default function CandidateChatTab({
               placeholder={
                 editingId !== null
                   ? "Edytuj wiadomość…"
-                  : "Napisz wiadomość… (@email aby oznaczyć osobę, Enter wysyła, Shift+Enter = nowa linia)"
+                  : "Napisz wiadomość… (@ oznacza osobę, Enter wysyła, Shift+Enter = nowa linia)"
               }
               rows={2}
               disabled={sendMutation.isPending || editMutation.isPending}
@@ -576,6 +603,7 @@ export default function CandidateChatTab({
 
 interface MessageRowProps {
   message: CandidateChatMessage;
+  usersByEmail: UsersByEmail;
   currentUserId: number;
   canPin: boolean;
   isAdmin: boolean;
@@ -592,6 +620,7 @@ interface MessageRowProps {
 
 function MessageRow({
   message,
+  usersByEmail,
   currentUserId,
   canPin,
   isAdmin,
@@ -670,7 +699,9 @@ function MessageRow({
             message.is_deleted && "italic text-muted-foreground",
           )}
         >
-          {message.content}
+          {message.is_deleted
+            ? message.content
+            : renderWithMentions(message.content, usersByEmail)}
         </div>
 
         {/* Reactions chips */}

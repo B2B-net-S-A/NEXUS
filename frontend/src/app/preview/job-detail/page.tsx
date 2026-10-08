@@ -599,6 +599,13 @@ function seededClient(): QueryClient {
 
   // „Szukaj w bazie”: te same trzy odczyty i TE SAME funkcje filtrów co okno.
   seedFresh(qc, ["matching-requirements", JOB_ID], REQUIREMENTS);
+  // Osoby do oznaczenia przez „@” w notatce doku osoby (fikcyjne).
+  seedFresh(qc, ["mentionable-users", `job:${JOB_ID}`, false], [
+    { id: 7, name: "Marta Nowak", email: "marta@example.com", role: "recruiter" },
+    { id: 8, name: "Piotr Zieliński", email: "piotr@example.com", role: "delivery_lead" },
+    { id: 9, name: "Łucja Żak", email: "lucja@example.com", role: "head_of_recruitment" },
+    { id: 10, name: "Adam Wrona", email: "adam@example.com", role: "recruiter" },
+  ]);
   seedFresh(qc, ["champion-profile", JOB_ID], {
     champion_profile: CHAMPION_PROFILE,
     critical_resolution: CRITICAL_RESOLUTION,

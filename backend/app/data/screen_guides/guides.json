@@ -167,7 +167,7 @@
       },
       {
         "q": "Jak dodać notatkę lub wysłać wiadomość?",
-        "a": "Notatkę wpisz na dole karty i naciśnij Enter. Mail: w „Więcej akcji osoby” wybierz „Wyślij wiadomość”, sprawdź adres i treść, kliknij „Wyślij”. NEXUS wyśle go z Twojej skrzynki Microsoft 365; wątek znajdziesz w profilu w „Historia → Maile”.",
+        "a": "Notatkę wpisz na dole karty i naciśnij Enter; „@” otwiera listę osób — oznaczona osoba dostaje powiadomienie. Mail: w „Więcej akcji osoby” wybierz „Wyślij wiadomość”, sprawdź adres i treść, kliknij „Wyślij”. NEXUS wyśle go z Twojej skrzynki Microsoft 365; wątek znajdziesz w profilu w „Historia → Maile”.",
         "anchor": "jobs.person.note"
       },
       {

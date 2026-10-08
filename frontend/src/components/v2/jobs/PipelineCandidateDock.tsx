@@ -62,6 +62,7 @@ import api, {
   type CVShareTokensForRecruitment,
 } from "@/lib/api";
 import { useToast } from "@/components/Toast";
+import { MentionTextarea } from "@/components/v2/forms/MentionTextarea";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -1653,19 +1654,21 @@ export function PipelineCandidateDock({
           className="flex items-end gap-1.5 border-t border-border bg-muted/10 p-3 pr-[5.75rem]"
           data-help="jobs.person.note"
         >
-          <textarea
+          <MentionTextarea
             value={noteText}
-            onChange={(e) => setNoteText(e.target.value)}
+            onChange={setNoteText}
+            scope={{ kind: "job", jobId }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 submitNote();
               }
             }}
-            aria-label="Dodaj notatkę"
-            placeholder="Dodaj notatkę… (Enter wysyła)"
+            ariaLabel="Dodaj notatkę"
+            placeholder="Dodaj notatkę… (@ oznacza osobę, Enter wysyła)"
             rows={1}
-            className="min-h-8 w-0 flex-1 resize-none rounded-md border border-border bg-card px-3 py-1.5 text-xs focus:outline-hidden focus:ring-2 focus:ring-primary"
+            wrapperClassName="w-0 flex-1"
+            className="block min-h-8 rounded-md px-3 py-1.5 text-xs focus:ring-primary"
           />
           <Button
             size="sm"

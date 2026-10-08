@@ -13,8 +13,6 @@ Członkowie projektu = osoby które mogą widzieć Job Chat danego projektu:
 Klient i kandydat NIE są członkami — Job Chat jest wewnętrzny.
 """
 
-from typing import Iterable
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -256,11 +254,3 @@ async def list_job_members(db: AsyncSession, job_id: int) -> list[User]:
     users = list(rows.scalars().all())
     users.sort(key=lambda u: (u.role.value, u.name.lower()))
     return users
-
-
-async def filter_to_members(
-    db: AsyncSession, job_id: int, user_ids: Iterable[int]
-) -> list[int]:
-    """Z listy user_ids zwróć tylko tych którzy są członkami projektu."""
-    members = set(await list_job_member_ids(db, job_id))
-    return [uid for uid in user_ids if uid in members]
