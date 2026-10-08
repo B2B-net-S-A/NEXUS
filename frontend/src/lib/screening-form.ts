@@ -111,7 +111,10 @@ export function formDefaultsFromState(state: ScreeningFormState): ScreeningFullF
     internal_note: sheet?.internal_note ?? "",
     experience_checks: experienceCheckRows(state.champion_profile, sheet?.experience_checks),
     card,
-    card_origins: {},
+    // Klucz dla każdego pola (null = bez pochodzenia): „Cofnij wypełnienie”
+    // przywraca null, więc formularz wraca do wartości domyślnych i nie jest
+    // „niezapisany” (brakujący klucz ≠ klucz z undefined w porównaniu RHF).
+    card_origins: Object.fromEntries(editableCardKeys(state).map((key) => [key, null])),
     rate_amount: state.rate ? String(state.rate.amount) : "",
     rate_unit: state.rate?.unit ?? "hourly",
     rate_currency: state.rate?.currency ?? "PLN",
