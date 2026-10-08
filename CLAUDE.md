@@ -4710,6 +4710,19 @@ udostępniania dla klienta nie robimy. Raport: `docs/job-no-drafts-completion-re
   (`draft_not_allowed`) i publikacji z innego stanu (409 `reopen_required`);
   ten sam status wysłany ponownie przechodzi (okno edycji odsyła wszystkie
   pola). Przekazanie starego szkicu go publikuje.
+- **Brak z bramki ma działanie tam, gdzie da się go zamknąć (08.10.2026).**
+  Hiring managera i termin (albo „Klient nie podał”) ustawia się wprost w oknie
+  „Otwórz ponownie” (`JobReopenDialog`: `HiringManagerPicker`, `DeadlineEditor`)
+  — archiwum z Traffita nie ma ich nigdy, więc pyta o nie każde ponowne
+  otwarcie. Kategoria i liczba osób prowadzą do zakładki „Zespół i ogłoszenie”
+  (akcja `team` w `lib/order-readiness.ts`, także w liście braków
+  `MissingBlock`), reszta do Profilu Championa. Do tej daty cztery decyzje
+  z 04.10 nie miały klucza na froncie i każdy brak odsyłał do edytora
+  Championa, w którym tych pól nie ma („Deadline na kandydatów” z Championa
+  nie jest terminem rekrutacji). Nowy kod braku = wpis w `ReadinessKey`
+  z działaniem. Uwaga Championa „Sprawdź i zatwierdź alternatywy”
+  (`review_alternatives`) nie pojawia się przy profilu z wierszami wymagań —
+  warianty w wierszu są tą decyzją.
 - **Ochrona w trakcie pracy:** zapis Championa, `PATCH /api/jobs` i
   `PUT …/hiring-manager` na rekrutacji opublikowanej odmawiają (422
   `handoff_regression`) tylko przy NOWYM kodzie braku. Porównujemy KODY, nie

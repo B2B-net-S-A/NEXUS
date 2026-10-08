@@ -11,9 +11,15 @@
  * `POST /api/jobs/{id}/publish`. Odmowa 422 `job_not_ready` pokazuje braki
  * z odpowiedzi w tym samym oknie. Zmiana statusu w oknie edycji już tego nie
  * robi (409 `reopen_required`).
+ *
+ * Braki z działaniem (08.10.2026): hiring managera i termin (albo „Klient nie
+ * podał”) ustawia się w tym oknie — archiwum z Traffita nie ma ich nigdy, więc
+ * pyta o nie każde ponowne otwarcie. Kategoria i liczba osób prowadzą do
+ * zakładki „Zespół i ogłoszenie”, reszta do Profilu Championa. Do tej daty
+ * każdy brak odsyłał do Championa, w którym tych czterech pól nie ma.
  */
 
-import { useId, useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle } from "lucide-react";
@@ -21,6 +27,8 @@ import { AlertTriangle } from "lucide-react";
 import { AppModal } from "@/components/ds";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/Toast";
+import { HiringManagerPicker } from "@/components/jobs/HiringManagerPicker";
+import { DeadlineEditor } from "@/components/v2/jobs/JobSettingsPanel";
 import { RecruiterAssignmentChoice } from "@/components/v2/jobs/RecruiterAssignmentChoice";
 import {
   api,
@@ -35,7 +43,9 @@ import {
   jobGateRefusal,
   type JobBlockerItem,
 } from "@/lib/job-gate-errors";
+import { invalidateChampionDependents } from "@/lib/champion-cache";
 import { invalidateJobTeam } from "@/lib/job-team-cache";
+import { READINESS_ACTION, readinessKeyFor, type ReadinessKey } from "@/lib/order-readiness";
 import {
   AUTOMATIC_DISABLED_TEXT,
   automaticAssignmentAvailable,
@@ -58,6 +68,20 @@ export interface JobReopenDialogProps {
   recruiter?: { id: number; name?: string | null } | null;
   /** „Uzupełnij” przy brakach — strona otwiera edytor Profilu Championa. */
   onOpenChampion?: () => void;
+  /** Braki z zakładki „Zespół i ogłoszenie” (kategoria, liczba osób). */
+  onOpenTeam?: () => void;
+}
+
+/** Pola rekrutacji z cache'u (`["job", id]`), których okno potrzebuje. */
+interface ReopenCachedJob {
+  primary_owner?: { id: number; name?: string | null } | null;
+  client_id?: number | null;
+  hiring_manager_contact_id?: number | null;
+  hiring_manager_name?: string | null;
+  hiring_manager_not_provided?: boolean | null;
+  deadline?: string | null;
+  deadline_time?: string | null;
+  deadline_not_provided?: boolean | null;
 }
 
 interface ReadinessResponse {
@@ -100,6 +124,15 @@ function readinessBlockers(data: ReadinessResponse | undefined): JobBlockerItem[
   return items.length > 0 ? items : blockerItemsFrom(data.blockers);
 }
 
+const READINESS_KEYS = new Set<string>(Object.keys(READINESS_ACTION));
+
+/** Klucz braku: kod z serwera, a dla starszej odpowiedzi — rozpoznane zdanie. */
+function blockerKey(blocker: JobBlockerItem): ReadinessKey | null {
+  return READINESS_KEYS.has(blocker.code)
+    ? (blocker.code as ReadinessKey)
+    : readinessKeyFor(blocker.message);
+}
+
 export function JobReopenDialog({
   jobId,
   open,
@@ -107,6 +140,7 @@ export function JobReopenDialog({
   mode,
   recruiter,
   onOpenChampion,
+  onOpenTeam,
 }: JobReopenDialogProps) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
@@ -114,9 +148,8 @@ export function JobReopenDialog({
   const recruiterLabelId = useId();
   const reasonId = useId();
   const channelId = useId();
-  const cachedJob = useCachedJob<{
-    primary_owner?: { id: number; name?: string | null } | null;
-  }>(jobId);
+  const cachedJob = useCachedJob<ReopenCachedJob>(jobId);
+  const clientId = cachedJob?.client_id ?? null;
   const currentRecruiter =
     recruiter !== undefined ? recruiter : (cachedJob?.primary_owner ?? null);
 
@@ -130,6 +163,8 @@ export function JobReopenDialog({
   // Braki z odmowy 422 `job_not_ready` — świeższe niż odczyt gotowości.
   const [refusedBlockers, setRefusedBlockers] = useState<JobBlockerItem[] | null>(null);
   const [refusalMessage, setRefusalMessage] = useState<string | null>(null);
+  const [deadlineSaving, setDeadlineSaving] = useState(false);
+  const [deadlineError, setDeadlineError] = useState<string | null>(null);
 
   // Ten sam klucz co dok, przycisk handoffu i okno „Zlecenie”.
   const readinessQuery = useQuery({
@@ -188,6 +223,35 @@ export function JobReopenDialog({
     setReason("");
     setRefusedBlockers(null);
     setRefusalMessage(null);
+    setDeadlineError(null);
+  };
+  // Decyzja zapisana w oknie: braki z odmowy są już nieaktualne. Ten sam
+  // komplet unieważnień co zapis w zakładce „Zespół” (`JobSettingsPanel`).
+  const afterDecisionSaved = () => {
+    setRefusedBlockers(null);
+    setRefusalMessage(null);
+    invalidateChampionDependents(queryClient, jobId);
+    invalidateJobTeam(queryClient, jobId);
+  };
+  const saveDeadline = async (body: {
+    deadline: string | null;
+    deadline_time: string | null;
+    deadline_not_provided: boolean;
+  }) => {
+    if (!body.deadline && !body.deadline_not_provided) {
+      setDeadlineError("Wybierz datę albo zaznacz „Klient nie podał”.");
+      return;
+    }
+    setDeadlineSaving(true);
+    setDeadlineError(null);
+    try {
+      await api.patch(`/api/jobs/${jobId}`, body);
+      afterDecisionSaved();
+    } catch (error) {
+      setDeadlineError(jobGateErrorText(error, "Nie udało się zapisać terminu."));
+    } finally {
+      setDeadlineSaving(false);
+    }
   };
   const changeOpen = (next: boolean) => {
     if (!next) reset();
@@ -233,6 +297,64 @@ export function JobReopenDialog({
       setSubmitting(false);
     }
   };
+
+  // Brak, który da się zamknąć w tym oknie — kontrolka zamiast odsyłania.
+  // Hiring manager jest kontaktem klienta, więc bez klienta zostaje link.
+  const fixableHere = (key: ReadinessKey | null): boolean =>
+    key === "deadline" || (key === "hiring_manager" && clientId != null);
+  const inlineFix = (key: ReadinessKey | null): ReactNode => {
+    if (!fixableHere(key)) return null;
+    if (key === "hiring_manager" && clientId != null) {
+      return (
+        <HiringManagerPicker
+          jobId={jobId}
+          clientId={clientId}
+          value={cachedJob?.hiring_manager_contact_id ?? null}
+          valueName={cachedJob?.hiring_manager_name ?? null}
+          notProvided={cachedJob?.hiring_manager_not_provided === true}
+          canEdit
+          onSaved={afterDecisionSaved}
+        />
+      );
+    }
+    return (
+      <div className="space-y-1">
+        <div className="flex">
+          <DeadlineEditor
+            autoFocus={false}
+            deadline={cachedJob?.deadline ?? null}
+            deadlineTime={cachedJob?.deadline_time ?? null}
+            notProvided={cachedJob?.deadline_not_provided === true}
+            saving={deadlineSaving}
+            onSave={(date, time) =>
+              void saveDeadline({
+                deadline: date,
+                deadline_time: date ? time : null,
+                deadline_not_provided: false,
+              })
+            }
+            onSaveNotProvided={() =>
+              void saveDeadline({
+                deadline: null,
+                deadline_time: null,
+                deadline_not_provided: true,
+              })
+            }
+          />
+        </div>
+        {deadlineError ? (
+          <p role="alert" className="text-xs text-destructive">
+            {deadlineError}
+          </p>
+        ) : null}
+      </div>
+    );
+  };
+  // Pozostałe braki: decyzje o rekrutacji żyją w zakładce „Zespół
+  // i ogłoszenie”, reszta w Profilu Championa.
+  const linkedKeys = blockers.map(blockerKey).filter((key) => !fixableHere(key));
+  const needsTeam = linkedKeys.some((key) => key != null && READINESS_ACTION[key] === "team");
+  const needsChampion = linkedKeys.some((key) => key == null || READINESS_ACTION[key] !== "team");
 
   const readinessForbidden =
     readinessQuery.isError && httpStatusFromError(readinessQuery.error) === 403;
@@ -298,32 +420,67 @@ export function JobReopenDialog({
               <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
               {refusalMessage ?? "Zanim opublikujesz, uzupełnij:"}
             </p>
-            <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-warning-muted-foreground">
-              {blockers.map((b, index) => (
-                <li key={`${b.code}-${index}`}>{b.message}</li>
-              ))}
+            <ul className="mt-1 list-disc space-y-1.5 pl-5 text-xs text-warning-muted-foreground">
+              {blockers.map((b, index) => {
+                const fix = inlineFix(blockerKey(b));
+                return (
+                  <li key={`${b.code}-${index}`}>
+                    {b.message}
+                    {fix ? (
+                      <div className="mt-1 rounded-md border border-border bg-card px-2 py-1.5 text-foreground">
+                        {fix}
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              })}
             </ul>
-            <div className="mt-2">
-              {onOpenChampion ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    changeOpen(false);
-                    onOpenChampion();
-                  }}
-                  className="text-xs font-medium text-primary hover:underline"
-                >
-                  Uzupełnij w Profilu Championa
-                </button>
-              ) : (
-                <Link
-                  href={`/jobs/${jobId}?tab=champion&mode=edit`}
-                  className="text-xs font-medium text-primary hover:underline"
-                >
-                  Uzupełnij w Profilu Championa
-                </Link>
-              )}
-            </div>
+            {needsTeam || needsChampion ? (
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+                {needsTeam ? (
+                  onOpenTeam ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        changeOpen(false);
+                        onOpenTeam();
+                      }}
+                      className="text-xs font-medium text-primary hover:underline"
+                    >
+                      Ustaw w zakładce „Zespół i ogłoszenie”
+                    </button>
+                  ) : (
+                    <Link
+                      href={`/jobs/${jobId}?tab=champion&ptab=team`}
+                      className="text-xs font-medium text-primary hover:underline"
+                    >
+                      Ustaw w zakładce „Zespół i ogłoszenie”
+                    </Link>
+                  )
+                ) : null}
+                {needsChampion ? (
+                  onOpenChampion ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        changeOpen(false);
+                        onOpenChampion();
+                      }}
+                      className="text-xs font-medium text-primary hover:underline"
+                    >
+                      Uzupełnij w Profilu Championa
+                    </button>
+                  ) : (
+                    <Link
+                      href={`/jobs/${jobId}?tab=champion&mode=edit`}
+                      className="text-xs font-medium text-primary hover:underline"
+                    >
+                      Uzupełnij w Profilu Championa
+                    </Link>
+                  )
+                ) : null}
+              </div>
+            ) : null}
           </section>
         ) : readinessQuery.isSuccess ? (
           <p className="text-sm text-success">Niczego nie brakuje — rekrutację można opublikować.</p>

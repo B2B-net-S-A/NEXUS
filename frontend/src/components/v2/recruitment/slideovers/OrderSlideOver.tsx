@@ -212,6 +212,7 @@ function OrderBody({
           onNavigate("champion", { edit: true });
           if (anchor) scrollToWhenReady(anchor);
         }}
+        onGoTeam={goPanel("team")}
         onEditJob={leaveFor(onEdit)}
       />
 

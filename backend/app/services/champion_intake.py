@@ -937,7 +937,14 @@ def validation(profile, job=None, *, enforce=False):
     alternatives = bool(
         re.search(r"wystarczy jedna z|\s(?:lub|albo|or)\s", notes, re.I)
     )
-    if alternatives and not getattr(job, "requirements_reviewed", False):
+    # Wiersze wymagań (02.10.2026) zapisują alternatywy wprost: słowa wiersza
+    # to warianty. Przy nich „lub” w uwagach nie jest już niczym do
+    # zatwierdzenia — a uwagi tej nie było czym zdjąć w rekrutacji.
+    if (
+        alternatives
+        and not stack.get("rows")
+        and not getattr(job, "requirements_reviewed", False)
+    ):
         add(
             "review_alternatives",
             "stack.notes",

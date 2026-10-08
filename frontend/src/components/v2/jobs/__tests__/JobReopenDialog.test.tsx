@@ -12,12 +12,18 @@ import { JobReopenDialog, type JobReopenMode } from "@/components/v2/jobs/JobReo
 
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
+  apiPatch: vi.fn(),
+  apiPut: vi.fn(),
   publish: vi.fn(),
   toast: { showSuccess: vi.fn(), showError: vi.fn(), showInfo: vi.fn() },
 }));
 
 vi.mock("@/lib/api", () => {
-  const api = { get: (...args: unknown[]) => mocks.apiGet(...args) };
+  const api = {
+    get: (...args: unknown[]) => mocks.apiGet(...args),
+    patch: (...args: unknown[]) => mocks.apiPatch(...args),
+    put: (...args: unknown[]) => mocks.apiPut(...args),
+  };
   return {
     api,
     default: api,
@@ -50,17 +56,33 @@ function mockReadiness(readiness: Record<string, unknown>) {
   );
 }
 
-function renderDialog(mode: JobReopenMode = "reopen") {
+function renderDialog(
+  mode: JobReopenMode = "reopen",
+  { cachedJob }: { cachedJob?: Record<string, unknown> } = {},
+) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  if (cachedJob) queryClient.setQueryData(["job", "9"], cachedJob);
   const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
   const onOpenChange = vi.fn();
+  const onOpenChampion = vi.fn();
+  const onOpenTeam = vi.fn();
   render(
     <QueryClientProvider client={queryClient}>
-      <JobReopenDialog jobId={9} open onOpenChange={onOpenChange} mode={mode} recruiter={null} />
+      <JobReopenDialog
+        jobId={9}
+        open
+        onOpenChange={onOpenChange}
+        mode={mode}
+        recruiter={null}
+        onOpenChampion={onOpenChampion}
+        onOpenTeam={onOpenTeam}
+      />
     </QueryClientProvider>,
   );
   return {
     onOpenChange,
+    onOpenChampion,
+    onOpenTeam,
     invalidatedKeys: () =>
       invalidateSpy.mock.calls.map((call) => (call[0] as { queryKey: unknown[] })?.queryKey),
   };
@@ -171,5 +193,89 @@ describe("JobReopenDialog", () => {
     await waitFor(() =>
       expect(mocks.toast.showError).toHaveBeenCalledWith("Automat przydziału jest wyłączony."),
     );
+  });
+});
+
+describe("JobReopenDialog — braki do ustawienia w oknie (08.10.2026)", () => {
+  const HM = { code: "hiring_manager", message: "Wskaż hiring managera albo zaznacz „Klient nie podał”." };
+  const DEADLINE = { code: "deadline", message: "Ustaw termin albo zaznacz „Klient nie podał”." };
+
+  it("termin i hiring managera ustawia się w oknie, bez odsyłania do Profilu Championa", async () => {
+    mockReadiness({ blocker_items: [HM, DEADLINE] });
+    renderDialog("reopen", {
+      cachedJob: { client_id: 3, hiring_manager_contact_id: null, deadline: null },
+    });
+
+    expect(await screen.findByText(DEADLINE.message)).toBeInTheDocument();
+    // Hiring manager: ten sam picker co w zakładce „Zespół i ogłoszenie”.
+    expect(screen.getByRole("button", { name: /Przypisz/ })).toBeInTheDocument();
+    // Termin: data albo „Klient nie podał”.
+    expect(screen.getByLabelText("Termin")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Klient nie podał" })).toBeInTheDocument();
+    // Tych pól nie ma w Profilu Championa — link tam byłby ślepym zaułkiem.
+    expect(screen.queryByText("Uzupełnij w Profilu Championa")).toBeNull();
+    expect(screen.queryByText(/Zespół i ogłoszenie/)).toBeNull();
+  });
+
+  it("„Klient nie podał” zapisuje decyzję o terminie i odświeża braki", async () => {
+    mockReadiness({ blocker_items: [DEADLINE] });
+    mocks.apiPatch.mockResolvedValue({ data: {} });
+    const { invalidatedKeys } = renderDialog();
+
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Klient nie podał" }));
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+
+    await waitFor(() =>
+      expect(mocks.apiPatch).toHaveBeenCalledWith("/api/jobs/9", {
+        deadline: null,
+        deadline_time: null,
+        deadline_not_provided: true,
+      }),
+    );
+    await waitFor(() =>
+      expect(invalidatedKeys()).toEqual(
+        expect.arrayContaining([["job", "9"], ["job-readiness", 9]]),
+      ),
+    );
+  });
+
+  it("pusta data bez „Klient nie podał” nie wysyła zapisu — mówi, czego brakuje", async () => {
+    mockReadiness({ blocker_items: [DEADLINE] });
+    renderDialog();
+
+    await screen.findByLabelText("Termin");
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+
+    expect(
+      await screen.findByText("Wybierz datę albo zaznacz „Klient nie podał”."),
+    ).toBeInTheDocument();
+    expect(mocks.apiPatch).not.toHaveBeenCalled();
+  });
+
+  it("kategoria i liczba osób prowadzą do zakładki „Zespół i ogłoszenie”, reszta do Championa", async () => {
+    mockReadiness({
+      blocker_items: [
+        { code: "headcount", message: "Podaj liczbę osób do zatrudnienia (co najmniej 1)." },
+        { code: "champion:skill_column_conflict", message: "Profil i pola rekrutacji mają różne wymagania." },
+      ],
+    });
+    const { onOpenTeam, onOpenChampion, onOpenChange } = renderDialog();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Zespół i ogłoszenie/ }));
+    expect(onOpenTeam).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Uzupełnij w Profilu Championa" }));
+    expect(onOpenChampion).toHaveBeenCalledTimes(1);
+  });
+
+  it("hiring manager bez klienta w rekrutacji prowadzi do zakładki „Zespół i ogłoszenie”", async () => {
+    mockReadiness({ blocker_items: [HM] });
+    renderDialog();
+
+    expect(
+      await screen.findByRole("button", { name: /Zespół i ogłoszenie/ }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Uzupełnij w Profilu Championa")).toBeNull();
   });
 });

@@ -5,6 +5,7 @@ import {
   parseBudgetInput,
   READINESS_ACTION,
   READINESS_CHAMPION_ANCHOR,
+  READINESS_LABEL,
   READINESS_MESSAGES,
   readinessKeyFor,
 } from "@/lib/order-readiness";
@@ -78,6 +79,27 @@ describe("order-readiness", () => {
     // To samo miejsce i to samo działanie co przy braku pytań.
     expect(READINESS_CHAMPION_ANCHOR.deal_breaker).toBe(READINESS_CHAMPION_ANCHOR.questions);
     expect(READINESS_ACTION.deal_breaker).toBe(READINESS_ACTION.questions);
+  });
+
+  it("decyzje (hiring manager, termin, kategoria, liczba osób) mają nazwę i prowadzą do zakładki Zespół", () => {
+    // 08.10.2026: bramka pyta o nie od 04.10, a front nie miał dla nich
+    // działania — wiersz bez nazwy odsyłał do Profilu Championa, gdzie tych
+    // pól nie ma.
+    for (const key of ["hiring_manager", "deadline", "category", "headcount"] as const) {
+      expect(readinessKeyFor(READINESS_MESSAGES[key])).toBe(key);
+      expect(READINESS_LABEL[key]).toBeTruthy();
+      expect(READINESS_ACTION[key]).toBe("team");
+      expect(READINESS_CHAMPION_ANCHOR[key]).toBeNull();
+    }
+    const checklist = buildReadinessChecklist(
+      [READINESS_MESSAGES.hiring_manager, READINESS_MESSAGES.deadline],
+      "remote",
+    );
+    expect(checklist.missing.map((m) => m.label)).toEqual(["Hiring manager", "Termin"]);
+    // Pozycje liczą się tylko wtedy, gdy serwer o nie pyta.
+    expect(checklist.total).toBe(10);
+    expect(checklist.doneCount).toBe(8);
+    expect(buildReadinessChecklist([], "remote").total).toBe(8);
   });
 
   it("brak wymagań do wyszukiwania prowadzi do ich karty w Championie", () => {

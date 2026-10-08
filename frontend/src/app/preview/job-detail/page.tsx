@@ -648,7 +648,17 @@ function seededClient(): QueryClient {
 
   // „Otwórz ponownie” (`?closed=1`, `?reopen=1`): braki bramki, lista
   // rekruterów i rekrutacja w cache'u — te same klucze co `JobReopenDialog`.
-  seedFresh(qc, ["job", String(JOB_ID)], { ...JOB, status: "closed", primary_owner: null });
+  seedFresh(qc, ["job", String(JOB_ID)], {
+    ...JOB,
+    status: "closed",
+    primary_owner: null,
+    client_id: REOPEN_CLIENT_ID,
+  });
+  // Hiring managera i termin ustawia się w oknie — lista kontaktów klienta.
+  seedFresh(qc, ["hiring-manager-options", REOPEN_CLIENT_ID], [
+    { id: 31, name: "Anna Przykładowa", position: "Kierowniczka zespołu" },
+    { id: 32, name: "Jan Przykładowy", position: "Architekt" },
+  ]);
   seedFresh(qc, ["job-readiness", JOB_ID], {
     job_id: JOB_ID,
     ready: false,
@@ -666,9 +676,10 @@ function seededClient(): QueryClient {
   return qc;
 }
 
+const REOPEN_CLIENT_ID = 11;
 const REOPEN_BLOCKERS = [
   { code: "hiring_manager", message: "Wskaż hiring managera albo zaznacz „Klient nie podał”." },
-  { code: "deadline", message: "Podaj termin albo zaznacz „Klient nie podał”." },
+  { code: "deadline", message: "Ustaw termin albo zaznacz „Klient nie podał”." },
 ];
 
 const noop = () => undefined;
