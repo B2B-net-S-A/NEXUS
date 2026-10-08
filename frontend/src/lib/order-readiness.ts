@@ -26,7 +26,11 @@ export type ReadinessKey =
   | "office_city"
   | "search"
   | "critical"
-  | "deal_breaker";
+  | "deal_breaker"
+  | "hiring_manager"
+  | "deadline"
+  | "category"
+  | "headcount";
 
 export const READINESS_MESSAGES: Record<ReadinessKey, string> = fixture.blockers;
 
@@ -59,6 +63,19 @@ const CRITICAL_KEYS: readonly ReadinessKey[] = ["critical"];
  * stoi na końcu, po wymaganiach do wyszukiwania.
  */
 const DEAL_BREAKER_KEYS: readonly ReadinessKey[] = ["deal_breaker"];
+/**
+ * Decyzje o rekrutacji (04.10.2026): hiring manager i termin (albo „Klient nie
+ * podał”), kategoria, liczba osób. Tych pól NIE MA w Profilu Championa —
+ * ustawia się je w zakładce „Zespół i ogłoszenie” (`JobTeamTab`). Do 08.10.2026
+ * nie miały tu klucza: wiersz bez nazwy odsyłał do Championa, gdzie nie było
+ * czego uzupełnić. Liczą się, gdy serwer o nie pyta.
+ */
+const DECISION_KEYS: readonly ReadinessKey[] = [
+  "hiring_manager",
+  "deadline",
+  "category",
+  "headcount",
+];
 
 export const READINESS_LABEL: Record<ReadinessKey, string> = {
   title: "Rola",
@@ -73,6 +90,10 @@ export const READINESS_LABEL: Record<ReadinessKey, string> = {
   search: "Wymagania do wyszukiwania",
   critical: "Umiejętności krytyczne",
   deal_breaker: "Odpowiedź dyskwalifikująca przy pytaniach",
+  hiring_manager: "Hiring manager",
+  deadline: "Termin",
+  category: "Kategoria kompetencji",
+  headcount: "Liczba osób",
 };
 
 /** Kotwica sekcji Profilu Championa (`champion-section-state.ts`). */
@@ -91,10 +112,21 @@ export const READINESS_CHAMPION_ANCHOR: Record<ReadinessKey, string | null> = {
   critical: "champion-section-stack",
   // To samo miejsce co pytania: pole stoi przy każdym pytaniu screeningowym.
   deal_breaker: "champion-section-screening",
+  // Decyzje żyją w zakładce „Zespół i ogłoszenie”, nie w edytorze Championa.
+  hiring_manager: null,
+  deadline: null,
+  category: null,
+  headcount: null,
 };
 
 /** Co da się zrobić z brakiem na miejscu. */
-export type ReadinessAction = "budget_input" | "work_mode_buttons" | "edit_job" | "champion";
+export type ReadinessAction =
+  | "budget_input"
+  | "work_mode_buttons"
+  | "edit_job"
+  | "champion"
+  /** Zakładka „Zespół i ogłoszenie” (hiring manager, termin, kategoria, liczba osób). */
+  | "team";
 
 export const READINESS_ACTION: Record<ReadinessKey, ReadinessAction> = {
   title: "edit_job",
@@ -109,6 +141,10 @@ export const READINESS_ACTION: Record<ReadinessKey, ReadinessAction> = {
   search: "champion",
   critical: "champion",
   deal_breaker: "champion",
+  hiring_manager: "team",
+  deadline: "team",
+  category: "team",
+  headcount: "team",
 };
 
 export interface ReadinessMissing {
@@ -148,12 +184,14 @@ export function buildReadinessChecklist(
     OFFICE_KEYS.some((k) => missingKeys.has(k));
   const criticalApplies = CRITICAL_KEYS.some((k) => missingKeys.has(k));
   const dealBreakerApplies = DEAL_BREAKER_KEYS.some((k) => missingKeys.has(k));
+  const decisionKeys = DECISION_KEYS.filter((k) => missingKeys.has(k));
   const applicable = [
     ...BASE_KEYS,
     ...(officeApplies ? OFFICE_KEYS : []),
     ...(criticalApplies ? CRITICAL_KEYS : []),
     ...SEARCH_KEYS,
     ...(dealBreakerApplies ? DEAL_BREAKER_KEYS : []),
+    ...decisionKeys,
   ];
   const done = applicable.filter((k) => !missingKeys.has(k));
   const unknown = missing.filter((m) => m.key == null).length;

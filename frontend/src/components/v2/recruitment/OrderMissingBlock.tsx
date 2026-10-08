@@ -53,6 +53,7 @@ export function MissingBlock({
   canEditChampion,
   canEditJob,
   onGoChampion,
+  onGoTeam,
   onEditJob,
 }: {
   jobId: number;
@@ -61,6 +62,11 @@ export function MissingBlock({
   canEditChampion: boolean;
   canEditJob: boolean;
   onGoChampion: (anchor: string | null) => void;
+  /**
+   * Zakładka „Zespół i ogłoszenie” — hiring manager, termin, kategoria
+   * i liczba osób ustawia się tam, nie w Profilu Championa.
+   */
+  onGoTeam?: () => void;
   onEditJob: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -201,6 +207,13 @@ export function MissingBlock({
             </Button>
           ))}
         </div>
+      );
+    }
+    if (action === "team" && onGoTeam) {
+      return (
+        <Button type="button" size="sm" variant="outline" onClick={onGoTeam}>
+          Ustaw w zakładce „Zespół i ogłoszenie” ↗
+        </Button>
       );
     }
     if (action === "edit_job") {

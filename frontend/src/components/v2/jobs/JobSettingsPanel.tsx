@@ -402,14 +402,16 @@ function PriorityRow({
 /**
  * Data i godzina terminu w jednym zapisie. Godzina jest opcjonalna (sam dzień
  * nadal działa), a bez daty jest zablokowana — backend i tak by ją wyczyścił.
+ * Eksportowany: ten sam edytor stoi w oknie „Otwórz ponownie” przy braku terminu.
  */
-function DeadlineEditor({
+export function DeadlineEditor({
   deadline,
   deadlineTime,
   notProvided,
   saving,
   onSave,
   onSaveNotProvided,
+  autoFocus = true,
 }: {
   deadline: string | null;
   deadlineTime: string | null;
@@ -418,6 +420,8 @@ function DeadlineEditor({
   onSave: (date: string | null, time: string | null) => void;
   /** „Klient nie podał” — decyzja zamiast daty (04.10.2026). */
   onSaveNotProvided: () => void;
+  /** W oknie, które samo zarządza fokusem, data nie może go przejmować. */
+  autoFocus?: boolean;
 }) {
   const notProvidedId = useId();
   const [date, setDate] = useState(deadline ?? "");
@@ -434,7 +438,7 @@ function DeadlineEditor({
       }}
     >
       <input
-        autoFocus
+        autoFocus={autoFocus}
         type="date"
         aria-label="Termin"
         disabled={saving || clientDidNotSay}

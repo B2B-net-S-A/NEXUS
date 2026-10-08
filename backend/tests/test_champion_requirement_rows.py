@@ -6,7 +6,7 @@ from copy import deepcopy
 
 from app.schemas.champion import ChampionProfile
 from app.services import champion_requirement_rows as rows_service
-from app.services.champion_intake import copy_profile, user_edit
+from app.services.champion_intake import copy_profile, user_edit, validation
 from app.services.champion_requirement_rows import expand_patch
 from app.services.champion_view import requirement_source
 from tests.taxonomy_fixture import hydrated_taxonomy
@@ -256,3 +256,30 @@ def test_long_word_is_cut_at_a_word_boundary():
     word = rows[0]["words"][0]
     assert len(word) <= 100
     assert word.endswith("automatyzacja")
+
+
+def _issue_codes(profile: dict) -> list[str]:
+    return [issue["code"] for issue in validation(profile)["issues"]]
+
+
+def test_rows_are_the_reviewed_alternatives_so_notes_do_not_ask_again():
+    """„lub” w uwagach przy wierszach wymagań nie jest brakiem (08.10.2026).
+
+    Wiersz = wymaganie, słowa = warianty, więc alternatywy są zapisane wprost.
+    Uwaga „Sprawdź i zatwierdź alternatywy” stała przy takim profilu na
+    czerwono, a w rekrutacji nie było czym jej zdjąć.
+    """
+    notes = "Must-have Python LUB Java (Spring Boot), idealnie oba."
+    with hydrated_taxonomy():
+        with_rows = _save({}, {"stack": {"rows": ROWS}, "search": {"notes": notes}})
+    assert with_rows["stack"]["rows"]
+    assert "review_alternatives" not in _issue_codes(with_rows)
+
+    # Profil na starych polach (bez wierszy) pyta jak dotąd.
+    legacy = user_edit(
+        {},
+        {"stack": {"must": [{"name": "Python"}]}, "search": {"notes": notes}},
+        actor_id=1,
+    )
+    assert "rows" not in legacy["stack"]
+    assert "review_alternatives" in _issue_codes(legacy)

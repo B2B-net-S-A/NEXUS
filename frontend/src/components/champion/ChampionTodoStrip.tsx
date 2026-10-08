@@ -63,6 +63,8 @@ export interface ChampionTodoStripProps {
   canEditJob: boolean;
   /** Brak bramki z akcją w Championie — szuflada bloku albo pełny formularz. */
   onGoChampion: (anchor: string | null) => void;
+  /** Brak z decyzją o rekrutacji (hiring manager, termin…) — zakładka „Zespół i ogłoszenie”. */
+  onGoTeam?: () => void;
   onEditJob: () => void;
 }
 
@@ -75,6 +77,7 @@ export function ChampionTodoStrip({
   canVerifyChampion,
   canEditJob,
   onGoChampion,
+  onGoTeam,
   onEditJob,
 }: ChampionTodoStripProps) {
   const [open, setOpen] = useState(false);
@@ -152,6 +155,7 @@ export function ChampionTodoStrip({
               canEditChampion={canEditChampion}
               canEditJob={canEditJob}
               onGoChampion={onGoChampion}
+              onGoTeam={onGoTeam}
               onEditJob={onEditJob}
             />
           ) : null}

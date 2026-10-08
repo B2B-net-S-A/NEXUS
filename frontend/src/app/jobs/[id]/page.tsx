@@ -980,6 +980,7 @@ export default function JobDetailPage() {
           mode={publishAction}
           recruiter={job.primary_owner ?? null}
           onOpenChampion={() => openChampion({ edit: canEditChampion })}
+          onOpenTeam={() => openChampion({ panelTab: "team" })}
         />
       ) : null}
       <QuestionBankSlideOver

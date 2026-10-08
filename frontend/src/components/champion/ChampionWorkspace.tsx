@@ -157,6 +157,7 @@ export function ChampionWorkspace({
             canVerifyChampion={canVerifyChampion}
             canEditJob={canEditJob}
             onGoChampion={goChampion}
+            onGoTeam={() => onTabChange("team")}
             onEditJob={onEditJob}
           />
           <ChampionBriefView

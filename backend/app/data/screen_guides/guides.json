@@ -211,7 +211,7 @@
       },
       {
         "q": "Co jeszcze trzeba dopiąć w zleceniu?",
-        "a": "Na górze Briefu stoi pasek „Do dopięcia” (widzi go Delivery Lead): braki w zleceniu, rozmowa z klientem i konsultantem, briefing. Kliknięcie braku otwiera właściwy blok do edycji. Gdy wszystko jest dopięte, paska nie ma.",
+        "a": "Na górze Briefu stoi pasek „Do dopięcia” (widzi go Delivery Lead): braki w zleceniu, rozmowa z klientem i konsultantem, briefing. Kliknięcie braku otwiera właściwy blok do edycji, a hiring managera, termin, kategorię i liczbę osób ustawisz w zakładce „Zespół i ogłoszenie”. Gdy wszystko jest dopięte, paska nie ma.",
         "anchor": "job.champion.todo"
       },
       {
