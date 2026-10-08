@@ -25,6 +25,11 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/lib/api", () => ({ jobChatApi: chatApi }));
+vi.mock("@/hooks/useMentionableUsers", () => ({
+  useMentionableUsers: () => ({
+    data: [{ id: 9, name: "Jan Kowalski", email: "jan@example.com", role: "recruiter" }],
+  }),
+}));
 vi.mock("@/components/v2/forms/MentionTextarea", () => ({
   MentionTextarea: ({ ariaLabel }: { ariaLabel: string }) => (
     <textarea aria-label={ariaLabel} />
@@ -131,5 +136,33 @@ describe("JobChatTab — link z powiadomienia `&msg=`", () => {
     );
     expect(scrollIntoView).toHaveBeenCalled();
     expect(window.location.search).toBe("?tab=chat");
+  });
+});
+
+describe("JobChatTab — zespół i wzmianki", () => {
+  it("nie pokazuje „0” w trakcie ładowania zespołu, a wzmiankę pokazuje nazwiskiem", async () => {
+    let resolveMembers: (value: { data: unknown[] }) => void = () => undefined;
+    chatApi.getMembers.mockReturnValue(
+      new Promise((resolve) => {
+        resolveMembers = resolve;
+      }),
+    );
+    chatApi.getPinned.mockResolvedValue({ data: [] });
+    chatApi.listMessages.mockResolvedValue({
+      data: {
+        items: [{ ...message, pinned: false, content: "@jan@example.com zerknij proszę" }],
+        has_more: false,
+        next_before_id: null,
+      },
+    });
+
+    renderChat();
+
+    expect(await screen.findByText("@Jan Kowalski")).toBeInTheDocument();
+    expect(screen.queryByText(/zespół:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/członków/)).not.toBeInTheDocument();
+
+    resolveMembers({ data: [message.author] });
+    expect(await screen.findByText("zespół: 1")).toBeInTheDocument();
   });
 });

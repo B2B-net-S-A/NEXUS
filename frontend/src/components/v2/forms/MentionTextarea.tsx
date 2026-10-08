@@ -6,6 +6,7 @@ import {
   KeyboardEvent,
   RefObject,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -15,7 +16,14 @@ import {
   MentionScope,
   useMentionableUsers,
 } from "@/hooks/useMentionableUsers";
+import {
+  choosePopupPlacement,
+  findMentionToken,
+  matchMentionUsers,
+  type PopupPlacement,
+} from "@/lib/mention-autocomplete";
 import { cn } from "@/lib/utils";
+import { ROLE_LABELS, type UserRole } from "@/store/auth";
 import type { ChatUserMini } from "@/types/job-chat";
 
 interface MentionState {
@@ -40,6 +48,8 @@ interface MentionTextareaProps {
   rows?: number;
   disabled?: boolean;
   className?: string;
+  /** Klasy opakowania (pole i lista) — np. gdy pole stoi w wierszu flex. */
+  wrapperClassName?: string;
   onFocus?: (e: FormEvent<HTMLTextAreaElement>) => void;
   onBlur?: (e: FormEvent<HTMLTextAreaElement>) => void;
   onKeyDown?: (e: KeyboardEvent<HTMLTextAreaElement>) => void;
@@ -49,19 +59,33 @@ interface MentionTextareaProps {
 }
 
 const MAX_SUGGESTIONS_DEFAULT = 6;
+const POPUP_DESIRED_HEIGHT = 264;
+
+/** Miejsce nad i pod polem, którego nie ucina okno ani przewijany przodek. */
+function measurePopupSpace(field: HTMLElement): { above: number; below: number } {
+  const rect = field.getBoundingClientRect();
+  let top = 0;
+  let bottom = window.innerHeight;
+  for (let node = field.parentElement; node; node = node.parentElement) {
+    if (getComputedStyle(node).overflowY === "visible") continue;
+    const clip = node.getBoundingClientRect();
+    top = Math.max(top, clip.top);
+    bottom = Math.min(bottom, clip.bottom);
+  }
+  return { above: rect.top - top, below: bottom - rect.bottom };
+}
 
 /**
- * Reusable textarea z @mention autocomplete. Eliminuje duplikację z
- * JobChatTab/CandidateChatTab (handwritten autocomplete) — używana też w
- * NotatkiTab kandydata i ScreeningNote editorze.
+ * Pole tekstowe z podpowiedzią osób po „@” — notatki i czaty.
  *
- * Składnia mention: `@email@domena.pl ` (spacja po wstawieniu). To bezpośredni
- * format który backend (`mention_parser.py`) parsuje regex'em — zero migracji
- * danych, zero zmian formatu.
+ * Do tekstu trafia `@adres@domena.pl ` (spacja po wstawieniu): ten format
+ * rozpoznaje backend (`mention_parser.py`), a przy wyświetlaniu zamienia się
+ * na imię i nazwisko (`renderWithMentions`).
  *
- * onKeyDown jest pass-through gdy popup zamknięty — żeby chat mógł obsłużyć
- * Enter-to-submit. Gdy popup otwarty: Enter wybiera highlightIdx, Escape
- * zamyka, Strzałki nawigują (todo v2 — w v1 tylko Enter na pierwszym wyniku).
+ * Lista otwiera się po samym „@”, szuka po imieniu, nazwisku i adresie (bez
+ * polskich znaków) i staje po tej stronie pola, gdzie jest miejsce. Gdy jest
+ * otwarta: Enter i Tab wybierają, strzałki zmieniają osobę, Escape zamyka;
+ * w pozostałych przypadkach `onKeyDown` idzie do rodzica (Enter wysyła czat).
  */
 export function MentionTextarea({
   value,
@@ -77,24 +101,57 @@ export function MentionTextarea({
   textareaRef,
   ariaLabel,
   maxSuggestions = MAX_SUGGESTIONS_DEFAULT,
+  wrapperClassName,
 }: MentionTextareaProps) {
   const innerRef = useRef<HTMLTextAreaElement | null>(null);
   const ref = textareaRef ?? innerRef;
   const [mention, setMention] = useState<MentionState>(initialMentionState);
 
-  const { data: users = [] } = useMentionableUsers(scope);
+  const usersQuery = useMentionableUsers(scope);
+  const users = usersQuery.data;
 
-  const filtered = useMemo(() => {
-    if (!mention.open) return [];
-    const q = mention.query;
-    return users
-      .filter(
-        (m) =>
-          m.email.toLowerCase().includes(q) ||
-          (m.name?.toLowerCase().includes(q) ?? false),
-      )
-      .slice(0, maxSuggestions);
-  }, [users, mention, maxSuggestions]);
+  const filtered = useMemo(
+    () =>
+      mention.open && users
+        ? matchMentionUsers(users, mention.query, maxSuggestions)
+        : [],
+    [users, mention.open, mention.query, maxSuggestions],
+  );
+
+  // Co pokazać zamiast osób: lista nie może milczeć, gdy się wczytuje, nie
+  // wczytała albo nikt nie pasuje. Tekst ze spacją, do którego nikt nie
+  // pasuje, to zwykłe zdanie po „@” — wtedy nie pokazujemy nic.
+  const plainWord = !/\s/.test(mention.query) && !/^\d/.test(mention.query);
+  const status: "loading" | "error" | "empty" | null = !mention.open
+    ? null
+    : usersQuery.isPending
+      ? "loading"
+      : usersQuery.isError
+        ? "error"
+        : filtered.length === 0 && plainWord
+          ? "empty"
+          : null;
+  const popupVisible = mention.open && (filtered.length > 0 || status !== null);
+
+  const [placement, setPlacement] = useState<PopupPlacement>({
+    side: "below",
+    maxHeight: POPUP_DESIRED_HEIGHT,
+  });
+  useLayoutEffect(() => {
+    if (!popupVisible || !ref.current) return;
+    const space = measurePopupSpace(ref.current);
+    setPlacement(
+      choosePopupPlacement(space.above, space.below, POPUP_DESIRED_HEIGHT),
+    );
+  }, [popupVisible, ref]);
+
+  // Rodzic wyczyścił albo podmienił tekst (Enter wysłał wiadomość) — lista
+  // nie może zostać nad pustym polem ze starym zapytaniem.
+  useEffect(() => {
+    if (mention.open && value[mention.startIndex] !== "@") {
+      setMention(initialMentionState);
+    }
+  }, [value, mention.open, mention.startIndex]);
 
   useEffect(() => {
     if (mention.open && mention.highlightIdx >= filtered.length) {
@@ -107,22 +164,15 @@ export function MentionTextarea({
     const caret = e.target.selectionStart ?? val.length;
     onChange(val);
 
-    // Detekcja "@..." na lewo od caret bez spacji (mirror logiki z JobChatTab).
-    const before = val.slice(0, caret);
-    const atPos = before.lastIndexOf("@");
-    if (atPos === -1) {
-      setMention(initialMentionState);
-      return;
-    }
-    const token = before.slice(atPos + 1);
-    if (!token || /\s/.test(token)) {
+    const token = findMentionToken(val, caret);
+    if (!token) {
       setMention(initialMentionState);
       return;
     }
     setMention({
       open: true,
-      query: token.toLowerCase(),
-      startIndex: atPos,
+      query: token.query,
+      startIndex: token.start,
       highlightIdx: 0,
     });
   };
@@ -147,7 +197,7 @@ export function MentionTextarea({
 
   const handleKeyDownInner = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (mention.open) {
-      if (e.key === "ArrowDown") {
+      if (e.key === "ArrowDown" && filtered.length > 0) {
         e.preventDefault();
         setMention((s) => ({
           ...s,
@@ -155,7 +205,7 @@ export function MentionTextarea({
         }));
         return;
       }
-      if (e.key === "ArrowUp") {
+      if (e.key === "ArrowUp" && filtered.length > 0) {
         e.preventDefault();
         setMention((s) => ({
           ...s,
@@ -163,12 +213,12 @@ export function MentionTextarea({
         }));
         return;
       }
-      if (e.key === "Enter" && filtered.length > 0) {
+      if ((e.key === "Enter" || e.key === "Tab") && filtered.length > 0) {
         e.preventDefault();
         insertMention(filtered[mention.highlightIdx] ?? filtered[0]);
         return;
       }
-      if (e.key === "Escape") {
+      if (e.key === "Escape" && popupVisible) {
         e.preventDefault();
         setMention(initialMentionState);
         return;
@@ -178,33 +228,70 @@ export function MentionTextarea({
   };
 
   return (
-    <div className="relative">
-      {mention.open && filtered.length > 0 && (
-        <div className="absolute bottom-full left-0 right-0 mb-1 bg-card dark:bg-card border border-border dark:border-border rounded-lg shadow-lg z-20 overflow-hidden">
+    <div className={cn("relative", wrapperClassName)}>
+      {popupVisible && (
+        <div
+          role="listbox"
+          aria-label="Osoby do oznaczenia"
+          // Kliknięcie w listę nie może zabrać fokusu z pola (zamknęłoby ją).
+          onMouseDown={(e) => e.preventDefault()}
+          style={{ maxHeight: placement.maxHeight }}
+          className={cn(
+            "absolute left-0 right-0 z-30 min-w-56 overflow-y-auto rounded-lg border border-border bg-card shadow-lg",
+            placement.side === "above" ? "bottom-full mb-1" : "top-full mt-1",
+          )}
+        >
           {filtered.map((m, idx) => (
             <button
               key={m.id}
               type="button"
+              role="option"
+              aria-selected={idx === mention.highlightIdx}
               onMouseDown={(e) => {
                 e.preventDefault();
                 insertMention(m);
               }}
               className={cn(
-                "w-full flex items-center gap-2 px-3 py-2 text-left text-sm",
-                idx === mention.highlightIdx
-                  ? "bg-primary/10 dark:bg-primary/30"
-                  : "hover:bg-muted dark:hover:bg-muted",
+                "flex w-full items-center gap-2 px-3 py-2 text-left text-sm",
+                idx === mention.highlightIdx ? "bg-primary/10" : "hover:bg-muted",
               )}
             >
-              <span className="font-medium">{m.name}</span>
-              <span className="text-xs text-muted-foreground">{m.email}</span>
+              <span className="shrink-0 font-medium">{m.name}</span>
+              <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                {m.email}
+              </span>
               {m.role && (
-                <span className="ml-auto text-[10px] uppercase text-muted-foreground">
-                  {m.role}
+                <span className="shrink-0 text-[10px] text-muted-foreground">
+                  {ROLE_LABELS[m.role as UserRole] ?? m.role}
                 </span>
               )}
             </button>
           ))}
+          {status === "loading" && (
+            <p className="px-3 py-2 text-xs text-muted-foreground">
+              Wczytuję listę osób…
+            </p>
+          )}
+          {status === "error" && (
+            <p role="alert" className="px-3 py-2 text-xs text-muted-foreground">
+              Nie udało się wczytać listy osób.{" "}
+              <button
+                type="button"
+                className="font-medium text-primary hover:underline"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  void usersQuery.refetch();
+                }}
+              >
+                Spróbuj ponownie
+              </button>
+            </p>
+          )}
+          {status === "empty" && (
+            <p className="px-3 py-2 text-xs text-muted-foreground">
+              Nie ma osoby pasującej do „{mention.query}”.
+            </p>
+          )}
         </div>
       )}
       <textarea
@@ -213,7 +300,10 @@ export function MentionTextarea({
         onChange={handleChange}
         onKeyDown={handleKeyDownInner}
         onFocus={onFocus}
-        onBlur={onBlur}
+        onBlur={(e) => {
+          setMention(initialMentionState);
+          onBlur?.(e);
+        }}
         placeholder={placeholder}
         rows={rows}
         disabled={disabled}

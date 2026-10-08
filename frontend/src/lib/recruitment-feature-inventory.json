@@ -844,9 +844,9 @@
   {
    "id": "dock.note-footer",
    "area": "panel",
-   "opis": "Pole notatki zawsze na dole doku (Enter wysyła)",
+   "opis": "Pole notatki zawsze na dole doku (Enter wysyła, @ oznacza osobę)",
    "file": "components/v2/jobs/PipelineCandidateDock.tsx",
-   "marker": "aria-label=\"Dodaj notatkę\"",
+   "marker": "ariaLabel=\"Dodaj notatkę\"",
    "v3_home": "Tablica → panel osoby"
   },
   {

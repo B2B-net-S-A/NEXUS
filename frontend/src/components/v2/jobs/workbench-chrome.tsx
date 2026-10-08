@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { TabbedNav } from "@/components/ds";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { JobNotesList } from "@/components/v2/candidate-profile/JobNotesList";
+import { MentionTextarea } from "@/components/v2/forms/MentionTextarea";
 import { cn } from "@/lib/utils";
 
 /** Tony makiety: `ok` (zielony), `warn`, `bad`, `info`, `neutral`. */
@@ -780,18 +781,20 @@ export function DockNotesPanel({
     <div className="space-y-3">
       {!readOnly && (
         <div className="space-y-1.5">
-          <textarea
+          <MentionTextarea
             value={noteText}
-            onChange={(e) => setNoteText(e.target.value)}
+            onChange={setNoteText}
+            scope={{ kind: "job", jobId }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 submitNote();
               }
             }}
-            placeholder="Notatka z rozmowy… (Enter wysyła, Shift+Enter nowa linia)"
+            ariaLabel="Notatka z rozmowy"
+            placeholder="Notatka z rozmowy… (@ oznacza osobę, Enter wysyła, Shift+Enter nowa linia)"
             rows={2}
-            className="w-full rounded-md border border-border bg-card px-3 py-2 text-xs focus:ring-2 focus:ring-primary focus:outline-hidden"
+            className="rounded-md text-xs focus:ring-primary"
           />
           <div className="flex justify-end">
             <Button
