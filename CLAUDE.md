@@ -3084,7 +3084,10 @@ Word „B2B”; PDF-y poza zakresem. Raport: `docs/screening-cv-pick-completion-
   (`generated_document_id = NULL`, `branded_render_metadata.source` =
   `document` | `generated_other_job`): nazwa pliku i wymóg zgody RODO liczą się
   z klienta tej rekrutacji (`candidate_stage_cv_service.detached_copy_settings`),
-  zrzut zgody i reguły klienta źródłowego nie jadą z kopią. Klient z wymogiem
+  zrzut zgody i reguły klienta źródłowego nie jadą z kopią. Kopia CV z innej
+  rekrutacji dostaje w nagłówku tytuł TEJ rekrutacji i traci linię „Rozważany
+  na stanowisko” (tytuł źródłowy bywa numerem zapytania innego klienta); CV
+  blind ma w nazwie pliku „Kandydat”, nie nazwisko. Klient z wymogiem
   zrzutu zgody = 422 `consent_client_needs_generator` (kopii nie da się dziś
   dołączyć zgody, więc pobranie byłoby zablokowane na stałe); front wyszarza
   takie opcje. Nie przywracaj powiązania z dokumentem generatora dla kopii
@@ -3095,7 +3098,11 @@ Word „B2B”; PDF-y poza zakresem. Raport: `docs/screening-cv-pick-completion-
   znacznikami `data-cv-section`; czego nie rozpozna, zostaje akapitem albo
   punktem. Czyta wszystkie runy akapitu (hiperłącza, pola formularza Worda,
   wstawki śledzenia zmian), klauzulę zgody bierze z pola tekstowego szablonu,
-  a gdy jej nie ma — dokłada standardową w języku pliku. Pomiar na 200
+  a gdy jej nie ma — dokłada standardową w języku pliku. Plik jest
+  niezaufany (formularz kariery, import), a konwersja biegnie w procesie
+  aplikacji: komórki tabeli czytaj z `tr.tc_lst`, nigdy `row.cells` (powtarza
+  komórkę `gridSpan` razy — liczba z pliku), i trzymaj limity `MAX_LINES`
+  / `MAX_TABLE_DEPTH`. Pomiar na 200
   plikach z produkcji: 200 wczytanych, 0 zgubionych akapitów (także po
   ponownym renderze do Worda), sekcje rozpoznane w 198, role w 182.
   Zmieniasz import albo renderer — sprawdź obieg w `test_cv_docx_import.py`
