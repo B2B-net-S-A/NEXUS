@@ -15,7 +15,7 @@
  *   (`BeforeCallProfile`) i CV obok; „Zacznij screening” otwiera formularz,
  * - „Screening” i dalsze etapy: formularz i wymagania obok; od „CV wysłane”
  *   formularz dalej da się poprawić (D8) z banerem, co ta zmiana znaczy,
- * - proces zakończony: zapisany arkusz, karta tylko do odczytu i historia.
+ * - proces zakończony: widok „Screening” tylko do odczytu i historia.
  *
  * Gospodarz zostaje tu (plakietki, Prep-kit, „Baza pytań”, formularz,
  * podgląd). Zakładki doku „Stawka i decyzja” / „Karta” / „Notatki” i układ
@@ -43,7 +43,7 @@ import type { WorkbenchPanelProps } from "@/components/v2/recruitment/types";
 import { BeforeCallProfile } from "@/components/v2/screening-form/BeforeCallProfile";
 import { ScreeningFormHistory } from "@/components/v2/screening-form/ScreeningFormHistory";
 import { ScreeningFullForm } from "@/components/v2/screening-form/ScreeningFullForm";
-import { RecommendationCardSection } from "@/components/v2/screening/RecommendationCardSection";
+import { ScreeningLegacyText, ScreeningSummaryView } from "@/components/v2/screening-form/ScreeningSummaryView";
 import { interviewQuestionsApi } from "@/lib/api";
 import { useScreeningFormState } from "@/lib/api/screeningForm";
 import { placeStage } from "@/lib/board-stages";
@@ -226,11 +226,13 @@ export function ScreeningWorkbench({
   } else if (ended && state) {
     left = (
       <div className="space-y-4" data-testid="screening-ended">
-        {panelFallback}
-        <section aria-label="Karta rekomendacji" className="space-y-2">
-          <h3 className="text-xs font-semibold text-muted-foreground">Karta rekomendacji</h3>
-          <RecommendationCardSection candidateId={item.candidate_id} jobId={jobId} candidateName={name} readOnly />
-        </section>
+        {/* 09.10.2026: jeden widok „Screening” (warunki, odpowiedzi, ocena) —
+            wcześniej zapisany arkusz i osobno „Karta rekomendacji”. */}
+        <ScreeningSummaryView
+          state={state}
+          showLockNote
+          legacy={<ScreeningLegacyText candidateId={item.candidate_id} jobId={jobId} />}
+        />
         {state.versions_count > 0 ? (
           <ScreeningFormHistory
             candidateId={item.candidate_id}

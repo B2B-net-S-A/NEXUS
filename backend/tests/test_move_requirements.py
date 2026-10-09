@@ -370,7 +370,9 @@ def test_recommendation_card_gaps_are_listed_but_never_block() -> None:
     ready = replace(VERIFIED_READY, from_column="screening")
     empty = _item(build_requirements(ready, "verified"), "recommendation_card")
     assert empty["status"] == "missing" and empty["blocking"] is False
-    assert empty["detail"] == "karta jest jeszcze pusta"
+    # 09.10.2026: ekran nie używa nazwy „karta rekomendacji”.
+    assert empty["label"] == "Warunki i ocena"
+    assert empty["detail"] == "jeszcze nic nie wpisano"
     assert empty["action"] == {
         "kind": "open_card",
         "label": "Uzupełnij w screeningu",
@@ -410,12 +412,12 @@ def test_card_facts_are_not_reported_as_unknown() -> None:
 
     availability = _item(result, "availability")
     assert availability["status"] == "ok"
-    assert availability["detail"] == "jest na karcie rekomendacji"
+    assert availability["detail"] == "jest w screeningu"
 
     # Stawka z karty nie zastępuje stawki etapu — okno stawki ją podpowiada.
     rate = _item(result, "candidate_rate")
     assert rate["status"] == "missing"
-    assert rate["detail"] == "na karcie: 130 zł/h — potwierdź w oknie stawki"
+    assert rate["detail"] == "z notatki: 130 zł/h — potwierdź w oknie stawki"
     assert rate["action"]["kind"] == "set_candidate_rate"
 
     without_card = build_requirements(replace(facts, card_rate_hourly=None), "verified")

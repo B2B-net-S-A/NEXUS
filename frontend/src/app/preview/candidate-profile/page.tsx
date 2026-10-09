@@ -734,6 +734,72 @@ const CARD_OVERVIEW: CandidateCardOverview = {
   ],
 };
 
+// Screening rekrutacji z notatki 72 — okno tylko do odczytu w „Notatkach i historii”.
+const NOTE_SCREENING = {
+  candidate_id: CANDIDATE_ID,
+  job_id: 502,
+  version: 0,
+  versions_count: 0,
+  state_token: "podglad-502",
+  editable: false,
+  read_only_reason: "process_closed",
+  read_only_message: "Proces tej osoby jest zakończony — formularz jest tylko do odczytu.",
+  stage_id: null,
+  board_column: "closed",
+  process_state_version: 0,
+  claim: null,
+  champion_profile: {},
+  sheet: null,
+  sheet_source_stage_id: null,
+  legacy_notes: null,
+  note_answers: [],
+  questions: [
+    {
+      number: 1,
+      question: "Doświadczenie z mikroserwisami?",
+      answer: "Pięć lat, ostatnio system rozliczeń.",
+      source: "note",
+      question_id: null,
+      deal_breaker: null,
+      deal_breaker_hit: false,
+    },
+  ],
+  card: {
+    fields: {
+      availability: { raw: "1 miesiąc", source: "note", note_id: 72 },
+      work_mode: { raw: "hybrydowo, 2 dni w tygodniu", source: "note", note_id: 72 },
+    },
+    previous: {},
+    suggestions: {},
+    completeness: {
+      status: "partial",
+      filled: 3,
+      total: 10,
+      missing: ["location", "english", "recommendation", "motivation", "red_flags"],
+    },
+    labels: {
+      availability: "Dostępność",
+      work_mode: "Tryb pracy",
+      location: "Lokalizacja",
+      english: "Angielski",
+      recommendation: "Dlaczego ten kandydat",
+      motivation: "Motywacja",
+      red_flags: "Red flags",
+    },
+    editable_fields: ["availability", "work_mode", "location", "english", "recommendation", "motivation", "red_flags"],
+  },
+  rate: null,
+  rate_text: "130–150 zł/h",
+  rate_hints: { card: null, rate_from: null },
+  rate_change_notifies: false,
+  can_edit_rate: false,
+  suggestions_from_notes: {},
+  assist_enabled: false,
+  phrase_language: "pl",
+};
+const NOTE_SCREENING_LEGACY =
+  "Stawka: 130–150 zł/h\nDostępność: 1 miesiąc\nTryb pracy: hybrydowo, 2 dni w tygodniu\n\nP1: Doświadczenie z mikroserwisami?\nO: Pięć lat, ostatnio system rozliczeń.";
+
 // Telefon po ciszy klienta (0372) — zaległy, „Teraz” w Przeglądzie.
 const FOLLOWUP = {
   followup: {
@@ -813,6 +879,9 @@ const ROUTES: Array<[RegExp, (config: InternalAxiosRequestConfig) => unknown]> =
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/pin$`), () => ({ pinned: false })],
   [/order-documents/, () => ({ documents: [] })],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/recommendation-cards$`), () => CARD_OVERVIEW],
+  // Okno „Screening tej rekrutacji” przy notatce (09.10.2026).
+  [/^\/api\/screening-form$/, () => NOTE_SCREENING],
+  [/^\/api\/recommendation-cards$/, () => ({ legacy_text: NOTE_SCREENING_LEGACY })],
   [/^\/api\/notes/, () => NOTES],
   [/^\/api\/contracts$/, () => CONTRACTS],
   [/^\/api\/presence\//, () => ({ viewers: [] })],

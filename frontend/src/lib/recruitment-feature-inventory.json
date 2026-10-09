@@ -570,9 +570,9 @@
   {
    "id": "panel.saved-screening",
    "area": "screening",
-   "opis": "Zapisany arkusz screeningu tylko do odczytu dla osoby na późniejszym etapie",
-   "file": "components/v2/recruitment/PanelSavedViews.tsx",
-   "marker": "SavedScreeningView",
+   "opis": "Zapisany screening tylko do odczytu dla osoby na późniejszym etapie albo po zakończeniu procesu — od 09.10.2026 wspólny widok „Screening” (warunki, odpowiedzi, ocena)",
+   "file": "components/v2/screening-form/ScreeningSummaryView.tsx",
+   "marker": "ScreeningSummarySection",
    "v3_home": "panel → Screening"
   },
   {
@@ -1056,8 +1056,8 @@
   {
    "id": "dock.screening-answers",
    "area": "panel",
-   "opis": "Pytania i odpowiedzi z zapisanego screeningu pod wynikiem w doku osoby (z pominiętymi, „sprawdzone w rozmowie” i notatkami) — ten sam widok co w profilu kandydata i w panelu osoby",
-   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "opis": "Pytania i odpowiedzi z zapisanego screeningu pod wynikiem w doku osoby (z pominiętymi, „sprawdzone w rozmowie” i notatkami) — ten sam renderer odpowiedzi co w profilu kandydata; od 09.10.2026 w widoku „Screening”",
+   "file": "components/v2/screening-form/ScreeningSummaryView.tsx",
    "marker": "<ScreeningAnswersList",
    "v3_home": "Tablica → dok osoby → Screening"
   },
@@ -1307,7 +1307,7 @@
   {
    "id": "card.board-badge",
    "area": "tablica",
-   "opis": "Plakietka stanu karty rekomendacji na karcie tablicy („Karta gotowa” / „brakuje N” / próby kontaktu)",
+   "opis": "Plakietka stanu pól screeningu na karcie tablicy („Screening: komplet” / „brakuje N” / próby kontaktu); do 09.10.2026 pod nazwą „karta rekomendacji”",
    "file": "lib/board-card-badges.ts",
    "marker": "recommendation_card",
    "v3_home": "Tablica"
@@ -1315,18 +1315,18 @@
   {
    "id": "card.dock-section",
    "area": "panel osoby",
-   "opis": "Sekcja „Karta rekomendacji” w doku osoby: pola z notatki, „Dopisz” w miejscu",
+   "opis": "Warunki i ocena (pola z notatki i z formularza) w doku osoby — od 09.10.2026 część jednej sekcji „Screening”, bez osobnej sekcji „Karta rekomendacji”",
    "file": "components/v2/jobs/PipelineCandidateDock.tsx",
-   "marker": "RecommendationCardSection",
+   "marker": "<ScreeningSummaryView",
    "v3_home": "Tablica → dok osoby"
   },
   {
    "id": "card.full-dialog",
    "area": "panel osoby",
-   "opis": "Cała karta rekomendacji: pola, pytania Championa, podgląd w starym formacie z „Kopiuj”",
-   "file": "components/v2/screening/RecommendationCardDialog.tsx",
+   "opis": "Wszystkie pola, pytania Championa i tekst w starym formacie z „Kopiuj” — od 09.10.2026 w widoku „Screening” (zwinięte „W starym formacie”), bez osobnego okna",
+   "file": "components/v2/screening-form/ScreeningSummaryView.tsx",
    "marker": "W starym formacie",
-   "v3_home": "Tablica → dok osoby → Otwórz całą kartę"
+   "v3_home": "Tablica → dok osoby → Screening → W starym formacie"
   },
   {
    "id": "card.note-import",
@@ -1348,7 +1348,7 @@
   {
    "id": "card.move-next",
    "area": "tablica",
-   "opis": "Braki karty rekomendacji w oknie „Przesuń dalej” (nie blokują) z przyciskiem „Uzupełnij kartę”",
+   "opis": "Braki pól warunków i oceny w oknie „Przesuń dalej” (nie blokują) z przyciskiem „Uzupełnij w screeningu”",
    "file": "components/v2/pages/KanbanBoardV2.tsx",
    "marker": "open_card",
    "v3_home": "Tablica → Przesuń dalej"
@@ -1365,9 +1365,9 @@
   {
    "id": "dl-review.card",
    "area": "przegląd DL",
-   "opis": "Karta rekomendacji z odpowiedziami na pytania Championa w przeglądzie Delivery Leada (arkusz screeningu zwinięty pod spodem)",
+   "opis": "Warunki, odpowiedzi na pytania Championa i ocena rekrutera w przeglądzie Delivery Leada — od 09.10.2026 jeden blok „Screening” (wcześniej „Ocena rekrutera”, karta rekomendacji i zwinięty arkusz)",
    "file": "components/v2/recruitment/DlReviewPanel.tsx",
-   "marker": "RecommendationCardQuestions",
+   "marker": "<ScreeningSummarySection",
    "v3_home": "Pulpit → przegląd DL → Przejrzyj / Tablica → dok osoby w „QC CV”"
   },
   {
@@ -1389,7 +1389,7 @@
   {
    "id": "dl-review.card-state",
    "area": "pulpit",
-   "opis": "Stan karty rekomendacji („Karta gotowa” / „brakuje N” / „Bez karty”) w wierszu kolejki przeglądu DL",
+   "opis": "Stan pól screeningu („Screening: komplet” / „brakuje N” / „puste pola”) w wierszu kolejki przeglądu DL",
    "file": "components/v2/dashboard/BoardTasksPanel.tsx",
    "marker": "ReviewCardBadge",
    "v3_home": "Pulpit → Czeka na Ciebie → przegląd DL"

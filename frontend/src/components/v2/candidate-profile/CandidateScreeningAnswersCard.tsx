@@ -288,7 +288,7 @@ export function CandidateScreeningAnswersCard({
   if (asTab && conversations.length + noteConversations.length === 0 && cards.isError) {
     return (
       <p role="alert" className="text-sm text-destructive-muted-foreground">
-        Nie udało się wczytać odpowiedzi z kart rekomendacji. {cardsRetry}
+        Nie udało się wczytać odpowiedzi z notatek. {cardsRetry}
       </p>
     );
   }
@@ -299,7 +299,7 @@ export function CandidateScreeningAnswersCard({
         data-help="candidate.profile.screening_answers"
       >
         Nikt jeszcze nie zapisał odpowiedzi z rozmowy screeningowej z tą osobą — ani
-        w arkuszu, ani w karcie rekomendacji.
+        w formularzu screeningu, ani w notatkach.
       </p>
     );
   }
@@ -354,7 +354,7 @@ export function CandidateScreeningAnswersCard({
         {visibleNotes.length > 0 ? (
           <section aria-labelledby="candidate-card-answers-title" className="space-y-2">
             <h3 id="candidate-card-answers-title" className="text-xs font-semibold text-muted-foreground">
-              Z kart rekomendacji w notatkach
+              Z notatek rekruterów
             </h3>
             <ul className="space-y-2">
               {visibleNotes.map((conversation) => (
@@ -390,7 +390,7 @@ export function CandidateScreeningAnswersCard({
         {body}
         {cards.isError ? (
           <p role="alert" className="text-xs text-destructive-muted-foreground">
-            Nie udało się wczytać odpowiedzi z kart rekomendacji. {cardsRetry}
+            Nie udało się wczytać odpowiedzi z notatek. {cardsRetry}
           </p>
         ) : null}
       </div>

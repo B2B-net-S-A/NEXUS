@@ -50,7 +50,6 @@ import {
   ScreeningSubmitError,
   type ScreeningFormValues,
 } from "@/components/v2/screening/ScreeningForm";
-import { ScreeningAnswersList } from "@/components/v2/screening/ScreeningAnswersList";
 import { ScreeningSuggestionChips } from "@/components/v2/screening/ScreeningSuggestionChips";
 import { VerifiedRateFields } from "@/components/v2/screening/VerifiedRateFields";
 import { useCapability } from "@/hooks/useCapability";
@@ -74,7 +73,6 @@ import {
   CARD_FIELD_HINT,
   CARD_PHRASABLE_FIELDS,
   cardFieldSource,
-  cardFieldValue,
 } from "@/lib/recommendation-card";
 import { loadJobRejectionReasons, type RejectionReasonOption } from "@/lib/rejection-reasons";
 import {
@@ -108,6 +106,7 @@ import { fixFieldState } from "@/lib/screening-fix-request";
 import { FixMark, FixRequestBanner } from "./FixRequestBanner";
 import { NoteFillBar } from "./NoteFillBar";
 import { ScreeningFormHistory } from "./ScreeningFormHistory";
+import { ScreeningLegacyText, ScreeningSummaryView } from "./ScreeningSummaryView";
 
 const EMPTY_VALUES: ScreeningFullFormValues = {
   answers: {},
@@ -495,7 +494,7 @@ export function ScreeningFullFormView({
           {empty && fromCard?.answer?.trim() ? (
             <div className="flex flex-wrap items-center gap-2 text-xs" data-testid="note-card-answer">
               <HintChip
-                label="Z karty w notatce"
+                label="Z notatki"
                 text={fromCard.answer}
                 onUse={() => {
                   methods.setValue(`answers.${q.id}.response`, fromCard.answer, { ...SET, shouldValidate: true });
@@ -630,7 +629,7 @@ export function ScreeningFullFormView({
             pytaniami i przy długim arkuszu trzeba było do nich przewijać. */}
         {/* ── Warunki ─────────────────────────────────────────────────── */}
         <section aria-label="Warunki" className="space-y-3">
-          <SectionTitle hint="Pola karty rekomendacji — widzi je Delivery Lead przed wysłaniem CV.">
+          <SectionTitle hint="Te pola widzi Delivery Lead przed wysłaniem CV.">
             Warunki
           </SectionTitle>
           <div className="space-y-2 rounded-lg border border-border bg-background/40 p-3" data-testid="screening-form-rate">
@@ -668,7 +667,7 @@ export function ScreeningFullFormView({
               <div className="flex flex-wrap gap-1.5">
                 {state.rate_hints?.card ? (
                   <HintChip
-                    label="Z karty"
+                    label="Z notatki"
                     text={formatFormRate(state.rate_hints.card)}
                     onUse={() => setRate(state.rate_hints.card as FormRate)}
                   />
@@ -796,62 +795,6 @@ export function ScreeningFullFormView({
         {history}
       </div>
     </FormProvider>
-  );
-}
-
-/** Formularz tylko do odczytu: proces zakończony, rekrutacja zamknięta albo brak prawa zapisu. */
-export function ScreeningFormReadOnlyView({ state }: { state: ScreeningFormState }) {
-  const sheet = state.sheet;
-  const questions = formQuestions(state);
-  const answers = (sheet?.answers ?? []).map((answer) => ({
-    ...answer,
-    question_text: answer.question_text ?? questions.find((q) => q.id === answer.question_id)?.question ?? null,
-  }));
-  const fields = state.card?.fields ?? {};
-  const assessmentKeys = cardAssessmentKeys(state);
-  const fieldRow = (key: string) => {
-    const value = cardFieldValue(key, fields[key]);
-    return (
-      <div key={key} className="grid grid-cols-[9rem_minmax(0,1fr)] gap-x-2 text-xs">
-        <dt className="text-muted-foreground">{formFieldLabel(state, key)}</dt>
-        <dd className={cn("whitespace-pre-line [overflow-wrap:anywhere]", value ? "font-medium text-foreground" : "text-muted-foreground")}>
-          {value || "—"}
-        </dd>
-      </div>
-    );
-  };
-  return (
-    <section aria-label="Formularz screeningu — tylko do odczytu" className="space-y-4 text-[13px]" data-testid="screening-form-readonly">
-      {state.read_only_message ? (
-        <p role="note" className="flex items-start gap-2 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-          <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-          {state.read_only_message}
-        </p>
-      ) : null}
-      {/* Ta sama kolejność co w edycji: warunki, odpowiedzi, ocena. */}
-      <dl className="space-y-1.5" data-testid="screening-form-readonly-terms">
-        <div className="grid grid-cols-[9rem_minmax(0,1fr)] gap-x-2 text-xs">
-          <dt className="text-muted-foreground">Stawka kandydata</dt>
-          <dd className="font-medium text-foreground">{state.rate ? formatFormRate(state.rate) : "—"}</dd>
-        </div>
-        {cardTermsKeys(state).map(fieldRow)}
-      </dl>
-      {answers.length > 0 ? (
-        <ScreeningAnswersList
-          answers={answers}
-          experienceChecks={sheet?.experience_checks}
-          notes={state.legacy_notes}
-          internalNote={sheet?.internal_note}
-        />
-      ) : (
-        <p className="text-xs text-muted-foreground">Pytania z Profilu Championa nie mają zapisanych odpowiedzi.</p>
-      )}
-      {assessmentKeys.length > 0 ? (
-        <dl className="space-y-1.5" data-testid="screening-form-readonly-assessment">
-          {assessmentKeys.map(fieldRow)}
-        </dl>
-      ) : null}
-    </section>
   );
 }
 
@@ -1194,7 +1137,13 @@ export function ScreeningFullForm({
   if (!editable) {
     return (
       <div className="space-y-4">
-        <ScreeningFormReadOnlyView state={state} />
+        <section aria-label="Formularz screeningu — tylko do odczytu">
+          <ScreeningSummaryView
+            state={state}
+            showLockNote
+            legacy={<ScreeningLegacyText candidateId={candidateId} jobId={jobId} />}
+          />
+        </section>
         {showHistory && (state.versions_count ?? 0) > 0 ? (
           <ScreeningFormHistory
             candidateId={candidateId}

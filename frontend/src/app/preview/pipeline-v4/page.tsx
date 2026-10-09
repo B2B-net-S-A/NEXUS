@@ -41,6 +41,7 @@ import {
 } from "@/components/v2/jobs/ScreeningReassignSuggestions";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { screenedOutQueryKey } from "@/lib/api/applicationScreenings";
+import { screeningFormQueryKey, type ScreeningFormState } from "@/lib/api/screeningForm";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { useAuthStore } from "@/store/auth";
 
@@ -323,6 +324,83 @@ const REASSIGN_HINTS: ScreeningReassignSuggestion[] = [
   },
 ];
 
+const FORM_LABELS = {
+  rate: "Stawka",
+  availability: "Dostępność",
+  work_mode: "Tryb pracy",
+  location: "Lokalizacja",
+  english: "Angielski",
+  recommendation: "Dlaczego ten kandydat",
+  motivation: "Motywacja",
+  red_flags: "Red flags",
+};
+
+/** Stan formularza screeningu pary — to, co oddaje serwer dla widoku tylko do odczytu. */
+function screeningFormOf(item: KanbanItem, sheet: ScreeningAnswers | null): ScreeningFormState {
+  const filled = sheet != null;
+  return {
+    candidate_id: item.candidate_id,
+    job_id: JOB_ID,
+    version: filled ? 1 : 0,
+    versions_count: filled ? 1 : 0,
+    state_token: `podglad-${item.id}`,
+    editable: true,
+    read_only_reason: null,
+    read_only_message: null,
+    stage_id: item.id,
+    board_column: item.stage,
+    process_state_version: 1,
+    claim: null,
+    champion_profile: { screening_questions: SCREENING_QUESTIONS },
+    sheet,
+    sheet_source_stage_id: filled ? item.id : null,
+    legacy_notes: sheet?.notes?.trim() || null,
+    note_answers: [],
+    questions: SCREENING_QUESTIONS.map((question, index) => {
+      const answer = sheet?.answers.find((a) => a.question_id === question.id);
+      const text = answer?.skipped ? "" : (answer?.response ?? "");
+      return {
+        number: index + 1,
+        question: question.question,
+        answer: text,
+        source: text ? ("sheet" as const) : null,
+        question_id: question.id,
+        deal_breaker: question.deal_breaker || null,
+        deal_breaker_hit: answer?.deal_breaker_hit === true,
+      };
+    }),
+    card: {
+      fields: filled
+        ? {
+            availability: { raw: "od 1 listopada", source: "manual", by_name: "Marta Testowa" },
+            work_mode: { raw: "hybrydowo, 2 dni w Warszawie", source: "manual", by_name: "Marta Testowa" },
+            english: { raw: "B2", level: "B2", source: "note", note_id: 1 },
+            recommendation: {
+              raw: "Cztery lata na mikroserwisach w systemie rozliczeń — zna stack klienta.",
+              source: "manual",
+              by_name: "Marta Testowa",
+            },
+          }
+        : {},
+      previous: {},
+      suggestions: {},
+      completeness: filled
+        ? { status: "partial", filled: 5, total: 8, missing: ["location", "motivation", "red_flags"] }
+        : { status: "empty", filled: 0, total: 8, missing: Object.keys(FORM_LABELS) },
+      labels: FORM_LABELS,
+      editable_fields: Object.keys(FORM_LABELS),
+    },
+    rate: filled ? { amount: 150, unit: "hourly", currency: "PLN", source: "stage", at: null } : null,
+    rate_text: null,
+    rate_hints: { card: null, rate_from: null },
+    rate_change_notifies: false,
+    can_edit_rate: true,
+    suggestions_from_notes: {},
+    assist_enabled: false,
+    phrase_language: "pl",
+  };
+}
+
 /** Zasiewa arkusz, kontekst wcześniejszych rozmów i podpowiedzi dla każdej karty. */
 function seedScreening(client: QueryClient, cols: KanbanColumn[]) {
   // Hooki mają własne `staleTime` — bez daty w przyszłości odświeżałyby dane.
@@ -340,6 +418,12 @@ function seedScreening(client: QueryClient, cols: KanbanColumn[]) {
       };
       client.setQueryData(["screening-v2", item.id], sheet, fresh);
       client.setQueryData(["pipeline-stage-screening", item.id], sheet, fresh);
+      // Sekcja „Screening” doku czyta stan formularza pary (09.10.2026).
+      client.setQueryData(
+        screeningFormQueryKey(JOB_ID, item.candidate_id),
+        screeningFormOf(item, sheet.screening_answers),
+        fresh,
+      );
       const context: ScreeningReassignContext = {
         stage_id: item.id,
         candidate_id: item.candidate_id,

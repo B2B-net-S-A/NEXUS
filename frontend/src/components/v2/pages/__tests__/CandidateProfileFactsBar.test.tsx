@@ -155,7 +155,7 @@ describe("CandidateProfileFactsBar", () => {
     prepareApi();
   });
 
-  it("pod wartością z profilu pokazuje, co i kiedy ustalono w rozmowie, oraz narodowość z karty", async () => {
+  it("pod wartością z profilu pokazuje, co i kiedy ustalono w rozmowie, oraz narodowość ze screeningu", async () => {
     const fact = (key: string, label: string, raw: string, extra: object = {}) => ({
       key,
       label,
@@ -187,7 +187,7 @@ describe("CandidateProfileFactsBar", () => {
     expect(screen.getByText("rozmowa 28.09.2026: 1 miesiąc")).toBeInTheDocument();
     expect(screen.getByText("Narodowość")).toBeInTheDocument();
     expect(screen.getByText("polska")).toBeInTheDocument();
-    expect(screen.getByText("wpisane na karcie 28.09.2026")).toBeInTheDocument();
+    expect(screen.getByText("wpisane w screeningu 28.09.2026")).toBeInTheDocument();
   });
 
   it("bez kart rekomendacji pasek nie ma linii źródła ani narodowości", async () => {

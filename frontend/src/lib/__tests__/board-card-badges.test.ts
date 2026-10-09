@@ -307,9 +307,9 @@ describe("compactCardBadge — ikony zamiast napisów (PR 4, 04.10.2026)", () =>
   });
 
   it("karta rekomendacji: liczba braków albo ✓; próby kontaktu zostają napisem", () => {
-    expect(compactCardBadge({ key: "recommendation_card", label: "Karta: brakuje 3", tone: "wait" })?.short).toBe("−3");
-    expect(compactCardBadge({ key: "recommendation_card", label: "Karta gotowa", tone: "ok" })?.short).toBe("✓");
-    expect(compactCardBadge({ key: "recommendation_card", label: "Bez karty", tone: "neutral" })?.short).toBeNull();
+    expect(compactCardBadge({ key: "recommendation_card", label: "Screening: brakuje 3", tone: "wait" })?.short).toBe("−3");
+    expect(compactCardBadge({ key: "recommendation_card", label: "Screening: komplet", tone: "ok" })?.short).toBe("✓");
+    expect(compactCardBadge({ key: "recommendation_card", label: "Screening: puste pola", tone: "neutral" })?.short).toBeNull();
     expect(compactCardBadge({ key: "recommendation_card", label: "2 próby kontaktu", tone: "neutral" })).toBeNull();
   });
 

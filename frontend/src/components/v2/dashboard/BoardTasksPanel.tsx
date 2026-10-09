@@ -113,8 +113,8 @@ function prepReasonClass(row: PrepAttentionRow): string {
 
 const CARD_BADGE_VARIANT = { ok: "success", wait: "warning", neutral: "outline" } as const;
 
-/** Stan karty rekomendacji w wierszu przeglądu DL. Pole nieobecne w odpowiedzi
- *  (starszy serwer) = bez plakietki; `null` = para nie ma karty. */
+/** Stan pól screeningu w wierszu przeglądu DL. Pole nieobecne w odpowiedzi
+ *  (starszy serwer) = bez plakietki; `null` = nikt nie wpisał żadnego pola. */
 function ReviewCardBadge({ row }: { row: BoardTaskRow }) {
   if (row.card_status === undefined) return null;
   const badge = boardCardBadge(

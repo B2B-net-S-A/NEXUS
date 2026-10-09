@@ -194,7 +194,7 @@ describe("CandidateScreeningAnswersCard", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("pod arkuszami pokazuje odpowiedzi z kart rekomendacji w notatkach — zwinięte, z podpisem źródła", async () => {
+  it("pod arkuszami pokazuje odpowiedzi z notatek rekruterów — zwinięte, z podpisem źródła", async () => {
     const user = userEvent.setup();
     respond([NEWEST], [CARD_CONVERSATION]);
     renderCard();
@@ -203,9 +203,9 @@ describe("CandidateScreeningAnswersCard", () => {
     const fromNote = await within(card).findByRole("button", {
       name: /Java Developer · Bank Pocztowy Testowy/,
     });
-    expect(within(card).getByText("Z kart rekomendacji w notatkach")).toBeTruthy();
+    expect(within(card).getByText("Z notatek rekruterów")).toBeTruthy();
     expect(fromNote).toHaveAttribute("aria-expanded", "false");
-    expect(fromNote).toHaveTextContent("03.02.2025 · 2 z 3 pytań · z karty wpisanej w Traffit");
+    expect(fromNote).toHaveTextContent("03.02.2025 · 2 z 3 pytań · z notatki wpisanej w Traffit");
 
     await user.click(fromNote);
     expect(within(card).getByText("1. Doświadczenie z Javą 17+?")).toBeTruthy();
@@ -219,7 +219,7 @@ describe("CandidateScreeningAnswersCard", () => {
     const card = await screen.findByRole("region", { name: "Odpowiedzi z rozmów screeningowych" });
 
     await waitFor(() => expect(apiGet).toHaveBeenCalledWith("/api/candidates/42/recommendation-cards"));
-    expect(within(card).queryByText("Z kart rekomendacji w notatkach")).toBeNull();
+    expect(within(card).queryByText("Z notatek rekruterów")).toBeNull();
   });
 
   it("bez arkuszy karta żyje z samych notatek: najnowsza rozmowa rozwinięta, szukanie działa", async () => {
@@ -245,7 +245,7 @@ describe("CandidateScreeningAnswersCard", () => {
       ).toBeInTheDocument();
     });
 
-    it("czeka na karty rekomendacji, zanim powie, że nikt nic nie zapisał", async () => {
+    it("czeka na odpowiedzi z notatek, zanim powie, że nikt nic nie zapisał", async () => {
       let releaseCards: (value: unknown) => void = () => {};
       apiGet.mockImplementation((url: string) =>
         url.endsWith("/recommendation-cards")
@@ -263,7 +263,7 @@ describe("CandidateScreeningAnswersCard", () => {
       expect(await screen.findByText("Kafka w projekcie płatności.")).toBeInTheDocument();
     });
 
-    it("awaria kart rekomendacji to komunikat z „Ponów”, nie „nikt nie zapisał”", async () => {
+    it("awaria odczytu notatek to komunikat z „Ponów”, nie „nikt nie zapisał”", async () => {
       apiGet.mockImplementation((url: string) =>
         url.endsWith("/recommendation-cards")
           ? Promise.reject(new Error("500"))
@@ -271,7 +271,7 @@ describe("CandidateScreeningAnswersCard", () => {
       );
       renderCard("tab");
       const alert = await screen.findByRole("alert");
-      expect(alert).toHaveTextContent("Nie udało się wczytać odpowiedzi z kart rekomendacji.");
+      expect(alert).toHaveTextContent("Nie udało się wczytać odpowiedzi z notatek.");
       expect(within(alert).getByRole("button", { name: "Ponów" })).toBeInTheDocument();
       expect(screen.queryByText(/Nikt jeszcze nie zapisał/)).toBeNull();
     });

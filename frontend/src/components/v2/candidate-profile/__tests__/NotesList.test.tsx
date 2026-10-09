@@ -171,7 +171,7 @@ describe("NotesList (0399)", () => {
     expect(screen.queryByLabelText(/Pokaż systemowe/)).toBeNull();
   });
 
-  it("mówi, co z notatki trafiło do karty rekomendacji, i otwiera tę kartę", () => {
+  it("mówi, co z notatki trafiło do screeningu, i otwiera screening tej rekrutacji", () => {
     const link = {
       note_id: 2,
       job_id: 10,
@@ -184,10 +184,10 @@ describe("NotesList (0399)", () => {
     renderList({ cardLinks: new Map([[2, link]]), onOpenCard });
 
     expect(
-      screen.getByText("Do karty trafiło: stawka, dostępność i 2 odpowiedzi."),
+      screen.getByText("Do screeningu trafiło: stawka, dostępność i 2 odpowiedzi."),
     ).toBeTruthy();
-    const buttons = screen.getAllByRole("button", { name: "Karta rekomendacji z tej rozmowy" });
-    // Tylko notatka, która zasiliła kartę, ma link.
+    const buttons = screen.getAllByRole("button", { name: "Screening tej rekrutacji" });
+    // Tylko notatka, która zasiliła screening, ma link.
     expect(buttons).toHaveLength(1);
     fireEvent.click(buttons[0]);
     expect(onOpenCard).toHaveBeenCalledWith(link);

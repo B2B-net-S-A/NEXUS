@@ -57,6 +57,24 @@ export interface ScreeningFormNoteAnswer {
   answer: string;
 }
 
+/**
+ * Pytanie z Profilu Championa z odpowiedzią kandydata (09.10.2026) — scala
+ * serwer: odpowiedź z arkusza, a bez niej z notatki. Rekrutacja bez pytań
+ * w profilu oddaje pytania zapisane w notatce (`question_id: null`).
+ */
+export interface ScreeningFormQuestion {
+  number: number;
+  question: string;
+  answer: string;
+  source: "sheet" | "note" | null;
+  question_id: string | null;
+  /** Warunek „Odpada, gdy…” z profilu. */
+  deal_breaker: string | null;
+  deal_breaker_hit: boolean;
+  origin?: string;
+  keywords?: string;
+}
+
 export interface ScreeningFormCard {
   fields: Record<string, RecommendationCardField>;
   previous: Record<string, RecommendationCardField>;
@@ -101,8 +119,12 @@ export interface ScreeningFormState {
   legacy_notes: string | null;
   /** Odpowiedzi odczytane z notatek-kart dla pytań bez odpowiedzi w arkuszu. */
   note_answers: ScreeningFormNoteAnswer[];
+  /** Pytania z odpowiedziami do widoku tylko do odczytu (brak = starszy serwer). */
+  questions?: ScreeningFormQuestion[];
   card: ScreeningFormCard;
   rate: (FormRate & { source: "stage" | "card"; at: string | null }) | null;
+  /** Stawka zapisana tekstem („130–150 zł/h”), gdy `rate` jest puste. */
+  rate_text?: string | null;
   rate_hints: { card: FormRate | null; rate_from: FormRate | null };
   /** Zmiana stawki otworzy sprawę u Delivery Leada (kolumna od „Zweryfikowany”). */
   rate_change_notifies: boolean;

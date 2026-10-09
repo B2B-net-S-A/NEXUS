@@ -101,12 +101,12 @@ describe("transitCardEdit — ślad poprawek karty (D4, 04.10.2026)", () => {
   it("mówi, kto i które pola poprawił", () => {
     expect(
       transitCardEdit(row({ card_edited_by: "Piotr Zieliński", card_edited_fields: ["Motywacja", "Stawka"] })),
-    ).toBe("Piotr Zieliński poprawił(a) w karcie: Motywacja, Stawka");
+    ).toBe("Piotr Zieliński poprawił(a) w screeningu: Motywacja, Stawka");
   });
 
   it("bez nazw pól mówi ogólnie, bez poprawek — nic", () => {
     expect(transitCardEdit(row({ card_edited_by: "Piotr Zieliński", card_edited_fields: [] }))).toBe(
-      "Piotr Zieliński poprawił(a) kartę rekomendacji",
+      "Piotr Zieliński poprawił(a) screening",
     );
     expect(transitCardEdit(row())).toBeNull();
   });

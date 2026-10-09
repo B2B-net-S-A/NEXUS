@@ -356,7 +356,7 @@
       },
       {
         "q": "Co kandydat już odpowiedział na screeningu?",
-        "a": "Zakładka „Odpowiedzi ze screeningu”: jedna rozmowa na rekrutację, najnowsza rozwinięta, z wyszukiwarką. Pod arkuszami są odpowiedzi z kart rekomendacji zapisanych w notatkach. Sprawdź je, zanim zapytasz o to samo.",
+        "a": "Zakładka „Odpowiedzi ze screeningu”: jedna rozmowa na rekrutację, najnowsza rozwinięta, z wyszukiwarką. Pod arkuszami są odpowiedzi odczytane z notatek rekruterów. Sprawdź je, zanim zapytasz o to samo.",
         "anchor": "candidate.profile.screening_answers"
       },
       {

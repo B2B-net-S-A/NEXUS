@@ -10,8 +10,8 @@
  * - `filled` — „Screening”: wypełniony formularz i wymagania obok,
  * - `note` — formularz wypełniony z notatki (plakietki „z notatki”,
  *   propozycje „Użyj”, „Ułóż w zdanie” z gotowej listy, bez modelu),
- * - `readonly` — proces zakończony: zapisany arkusz, karta tylko do odczytu
- *   i historia,
+ * - `readonly` — proces zakończony: widok „Screening” tylko do odczytu
+ *   (warunki, odpowiedzi, ocena) i historia,
  * - `history` — historia zmian z „Przywróć”.
  *
  * ZERO zapytań: klucze, o które pytają komponenty, są zasiane w cache,
@@ -36,7 +36,7 @@ import {
 import { reassignContextQueryKey } from "@/components/v2/jobs/ScreeningReassignSuggestions";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
-import { SavedScreeningView } from "@/components/v2/recruitment/PanelSavedViews";
+import { ScreeningSummarySection } from "@/components/v2/screening-form/ScreeningSummaryView";
 import {
   CandidatePreviewPane,
   type PreviewTab,
@@ -418,6 +418,16 @@ const ENDED_STATE: ScreeningFormState = {
   read_only_reason: "process_closed",
   read_only_message: "Proces tej osoby jest zakończony — formularz jest tylko do odczytu.",
   board_column: "closed",
+  // Pytania scalone tak, jak oddaje je serwer: odpowiedź z arkusza i „Odpada, gdy…”.
+  questions: QUESTIONS.map((question, index) => ({
+    number: index + 1,
+    question: question.question,
+    answer: FILLED_STATE.sheet?.answers[index]?.response ?? "",
+    source: "sheet" as const,
+    question_id: question.id,
+    deal_breaker: question.deal_breaker || null,
+    deal_breaker_hit: false,
+  })),
 };
 
 const VERSIONS: ScreeningFormVersion[] = [
@@ -594,13 +604,6 @@ function seededClient(state: HarnessState): QueryClient {
   qc.setQueryData(plainBriefQueryKey(JOB_ID), BRIEF, SEED_FRESH);
   qc.setQueryData(["job", String(JOB_ID)], { id: JOB_ID, rate_budget_hourly_min: 130, effective_budget_hourly: 150 }, SEED_FRESH);
   qc.setQueryData(recommendationCardQueryKey(CANDIDATE_ID, JOB_ID), CARD, SEED_FRESH);
-  qc.setQueryData(["pipeline-stage-screening", STAGE_ID], {
-    stage_id: STAGE_ID,
-    candidate_id: CANDIDATE_ID,
-    job_id: JOB_ID,
-    champion_profile: CHAMPION_PROFILE,
-    screening_answers: FILLED_STATE.sheet,
-  }, SEED_FRESH);
   return qc;
 }
 
@@ -832,7 +835,7 @@ function Harness() {
                 onTabChange={() => undefined}
                 onTake={() => undefined}
                 previewLoaders={PREVIEW_LOADERS}
-                panelFallback={<SavedScreeningView item={{ ...ITEM, stage: "rejected" }} stageLabel="Odrzucony" />}
+                panelFallback={<ScreeningSummarySection candidateId={CANDIDATE_ID} jobId={JOB_ID} showLockNote />}
               />
             )}
           </PanelFrame>

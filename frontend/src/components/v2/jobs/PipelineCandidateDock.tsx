@@ -23,12 +23,11 @@ import {
   ChampionInsightsDigest,
   ExperienceChips,
 } from "@/components/champion/ChampionBriefForRecruiters";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  AlertTriangle,
   CalendarPlus,
   Ban,
   ChevronDown,
@@ -55,7 +54,6 @@ import api, {
   candidatesApi,
   candidateStageCvApi,
   extractErrorMsg,
-  screeningApi,
   type ChampionProfile,
   type CVBrandedState,
   type CVOriginalSnapshot,
@@ -72,7 +70,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn, formatDate } from "@/lib/utils";
-import { countPl } from "@/lib/plural-pl";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatusBadge";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
@@ -91,14 +88,15 @@ import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
 import { DebriefRequiredDialog } from "@/components/v2/recruitment/DebriefRequiredDialog";
 import { DockNextStage } from "@/components/v2/jobs/DockNextStage";
 import { DockStageFold, NextStageSummary } from "@/components/v2/jobs/DockStageFold";
-import { ScreeningAnswersList } from "@/components/v2/screening/ScreeningAnswersList";
+import { ScreeningLegacyText, ScreeningSummaryView } from "@/components/v2/screening-form/ScreeningSummaryView";
 import {
   MOVE_REQUIREMENTS_PREFIX,
   useMoveRequirements,
   type MoveRequirementAction,
 } from "@/lib/api/moveRequirements";
 import { recommendationCardQueryKey } from "@/lib/api/recommendationCards";
-import { RecommendationCardSection } from "@/components/v2/screening/RecommendationCardSection";
+import { screeningFormQueryKey, useScreeningFormState } from "@/lib/api/screeningForm";
+import { screeningSectionSummary } from "@/lib/screening-summary";
 import {
   companyCvSentence,
   dockOriginalCv,
@@ -156,7 +154,7 @@ export interface PipelineMoveTarget {
   blockedReason: string | null;
 }
 
-type DockTab = "process" | "screening" | "card" | "cv" | "match" | "notes";
+type DockTab = "process" | "screening" | "cv" | "match" | "notes";
 
 /**
  * Panel osoby (makieta 22.09.2026): zamiast pięciu zakładek — sekcje zwijane
@@ -166,7 +164,6 @@ type DockTab = "process" | "screening" | "card" | "cv" | "match" | "notes";
 const DOCK_SECTION_LABEL: Record<DockTab, string> = {
   process: "W procesie",
   screening: "Screening",
-  card: "Karta rekomendacji",
   cv: "CV",
   match: "Dopasowanie",
   notes: "Notatki",
@@ -550,8 +547,6 @@ export function PipelineCandidateDock({
   const [noteText, setNoteText] = useState("");
   // Okna akcji z ramki „Następny etap” (te same, które otwiera „Przesuń dalej”).
   const [qcStageId, setQcStageId] = useState<number | null>(null);
-  // 0413: okno całej karty rekomendacji (także z akcji „Uzupełnij kartę”).
-  const [cardOpen, setCardOpen] = useState(false);
   const [debriefEventId, setDebriefEventId] = useState<number | null>(null);
   const [rateChangeOpen, setRateChangeOpen] = useState(false);
   // Linia „Warunki i następny etap” pod paskiem zakładek — domyślnie zwinięta.
@@ -593,14 +588,21 @@ export function PipelineCandidateDock({
         item.added_to_job_at ? ` · dodano ${formatDate(item.added_to_job_at)}` : ""
       }`;
 
-  // ── Screening — skrót wyniku, jeśli backend go ma ──────────────────────
-  const screeningQuery = useQuery({
-    queryKey: ["pipeline-stage-screening", item.id],
-    queryFn: () => screeningApi.getForStage(item.id).then((r) => r.data),
-    enabled: isOpen("screening"),
-    staleTime: 30_000,
-  });
-  const screeningAnswers = screeningQuery.data?.screening_answers ?? null;
+  // ── Screening — jeden widok pary: warunki, odpowiedzi i ocena ───────────
+  // 09.10.2026: dok czyta stan formularza (ten sam klucz co zakładka
+  // „Screening” po „Rozwiń”), nie osobno arkusz etapu i kartę rekomendacji.
+  const screeningQuery = useScreeningFormState(item.candidate_id, jobId, isOpen("screening"));
+  const screeningState = screeningQuery.data ?? null;
+  // Po ruchu karty stan pary jest o wiersz etapu do tyłu (stawka z okna
+  // „Zweryfikowany”, kolumna) — odświeżamy go raz na nowy wiersz.
+  const refreshedForStage = useRef<number | null>(null);
+  const screeningStageId = screeningState?.stage_id ?? null;
+  useEffect(() => {
+    if (screeningStageId == null || screeningStageId === item.id) return;
+    if (refreshedForStage.current === item.id) return;
+    refreshedForStage.current = item.id;
+    void queryClient.invalidateQueries({ queryKey: screeningFormQueryKey(jobId, item.candidate_id) });
+  }, [item.id, item.candidate_id, jobId, queryClient, screeningStageId]);
 
   // ── CV — status oryginalnego/brandowanego (tylko na zakładce CV) ───────
   const cvOriginalQuery = useQuery<CVOriginalSnapshot>({
@@ -647,9 +649,12 @@ export function PipelineCandidateDock({
       queryClient.invalidateQueries({
         queryKey: candidateQueryKeys.timelineRoot(item.candidate_id),
       });
-      // 0413: notatka-karta wypełnia kartę rekomendacji od razu.
+      // 0413: notatka z ustaleniami z rozmowy wypełnia pola screeningu od razu.
       queryClient.invalidateQueries({
         queryKey: recommendationCardQueryKey(item.candidate_id, jobId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: screeningFormQueryKey(jobId, item.candidate_id),
       });
       // Plakietka karty na tablicy i ramka „Następny etap” czytają ten sam stan.
       queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
@@ -792,14 +797,13 @@ export function PipelineCandidateDock({
         onAddClientSlots?.();
         return;
       case "open_card":
-        // 0424: kartę uzupełnia się w formularzu screeningu (panel osoby na
-        // „Screeningu”); bez panelu — okno karty tylko do odczytu.
+        // 0424: pola uzupełnia się w formularzu screeningu (panel osoby na
+        // „Screeningu”); bez panelu — sekcja „Screening” tylko do odczytu.
         if (onOpenWorkbench) {
           onOpenWorkbench("screening");
           return;
         }
-        setOpenSections((prev) => new Set(prev).add("card"));
-        setCardOpen(true);
+        setOpenSections((prev) => new Set(prev).add("screening"));
         return;
       case "reject":
         onReject({ notes: action.note ?? null });
@@ -1391,7 +1395,7 @@ export function PipelineCandidateDock({
         <DockSection
           id="screening"
           label={DOCK_SECTION_LABEL.screening}
-          summary={screeningAnswers ? (screeningAnswers.overall_fit === "fit" ? "Pasuje" : screeningAnswers.overall_fit === "miss" ? "Nie pasuje" : "Niepewne") : "Arkusz Championa"}
+          summary={screeningSectionSummary(item.card, screeningState?.sheet?.overall_fit ?? null)}
           isNow={nowSection === "screening"}
           open={isOpen("screening")}
           onToggle={() => toggleSection("screening")}
@@ -1422,12 +1426,12 @@ export function PipelineCandidateDock({
                 <div className="mt-2 space-y-2">
                   <ExperienceChips
                     experience={
-                      (screeningQuery.data?.champion_profile as Partial<ChampionProfile>)
+                      (screeningState?.champion_profile as Partial<ChampionProfile>)
                         ?.experience
                     }
                   />
                   <ChampionInsightsDigest
-                    profile={screeningQuery.data?.champion_profile as Partial<ChampionProfile>}
+                    profile={screeningState?.champion_profile as Partial<ChampionProfile>}
                     limit={3}
                   />
                 </div>
@@ -1439,84 +1443,16 @@ export function PipelineCandidateDock({
               </div>
             ) : screeningQuery.isError ? (
               <DockLoadError what="screening" onRetry={() => void screeningQuery.refetch()} />
-            ) : screeningAnswers ? (
-              <div className="space-y-1.5 rounded-lg border border-border bg-muted/20 p-3 text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="font-medium text-foreground">Wynik</span>
-                  <Badge
-                    size="sm"
-                    variant={
-                      screeningAnswers.overall_fit === "fit"
-                        ? "success"
-                        : screeningAnswers.overall_fit === "miss"
-                          ? "danger"
-                          : "warning"
-                    }
-                  >
-                    {screeningAnswers.overall_fit === "fit"
-                      ? "Pasuje"
-                      : screeningAnswers.overall_fit === "miss"
-                        ? "Nie pasuje"
-                        : "Niepewne"}
-                  </Badge>
-                </div>
-                <div className="text-muted-foreground">
-                  Odpowiedziano na{" "}
-                  {countPl(screeningAnswers.answers.length, "pytanie", "pytania", "pytań")}
-                  {screeningAnswers.answers.some((a) => a.deal_breaker_hit) && (
-                    <span className="ml-1 inline-flex items-center gap-0.5 text-destructive">
-                      <AlertTriangle className="h-3 w-3" /> deal-breaker trafiony
-                    </span>
-                  )}
-                </div>
-                {screeningAnswers.answered_at && (
-                  <div className="text-muted-foreground">
-                    Wypełniono {formatDate(screeningAnswers.answered_at)}
-                  </div>
-                )}
-                {/* Co kandydat odpowiedział — do 02.10.2026 dok mówił tylko,
-                    na ile pytań (tekst pytań stempluje serwer). */}
-                <ScreeningAnswersList
-                  className="border-t border-border pt-2 text-xs"
-                  answers={screeningAnswers.answers}
-                  experienceChecks={screeningAnswers.experience_checks}
-                  notes={screeningAnswers.notes}
-                  internalNote={screeningAnswers.internal_note}
-                />
-              </div>
-            ) : screeningQuery.isSuccess ? (
-              <p className="text-xs text-muted-foreground">
-                Brak jeszcze wypełnionego screeningu dla tego etapu.
-              </p>
+            ) : screeningState ? (
+              // Warunki, odpowiedzi i ocena w kolejności formularza. Edycja:
+              // „Otwórz rozmowę z kandydatem” wyżej (formularz screeningu).
+              <ScreeningSummaryView
+                state={screeningState}
+                className="rounded-lg border border-border bg-muted/20 p-3"
+                legacy={<ScreeningLegacyText candidateId={item.candidate_id} jobId={jobId} />}
+              />
             ) : null}
           </div>
-        </DockSection>
-
-        <DockSection
-          id="card"
-          label={DOCK_SECTION_LABEL.card}
-          summary={
-            item.card
-              ? item.card.status === "complete"
-                ? "Karta gotowa"
-                : item.card.status === "partial"
-                  ? `brakuje ${item.card.missing}`
-                  : "pusta"
-              : "Stawka, dostępność, tryb pracy…"
-          }
-          isNow={false}
-          open={isOpen("card")}
-          onToggle={() => toggleSection("card")}
-        >
-          <RecommendationCardSection
-            candidateId={item.candidate_id}
-            jobId={jobId}
-            candidateName={fullName}
-            readOnly={readOnly}
-            fullOpen={cardOpen}
-            onFullOpenChange={setCardOpen}
-            onEditInScreening={onOpenWorkbench ? () => onOpenWorkbench("screening") : undefined}
-          />
         </DockSection>
 
         <DockSection

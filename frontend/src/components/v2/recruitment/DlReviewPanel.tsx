@@ -55,7 +55,6 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { useToast } from "@/components/Toast";
 import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
-import { SavedScreeningView } from "@/components/v2/recruitment/PanelSavedViews";
 import {
   CvColumn,
   CvToolbar,
@@ -65,12 +64,7 @@ import {
 import { DecisionPanel, type DecisionAction } from "@/components/v2/recruitment/dl-review/DecisionPanel";
 import { RequirementsColumn } from "@/components/v2/recruitment/dl-review/RequirementsColumn";
 import { ReturnForFixDialog } from "@/components/v2/recruitment/dl-review/ReturnForFixDialog";
-import { RecommendationCardSection } from "@/components/v2/screening/RecommendationCardSection";
-import {
-  RecommendationCardQuestions,
-  RecommendationCardStatus,
-} from "@/components/v2/screening/RecommendationCardView";
-import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
+import { ScreeningSummarySection } from "@/components/v2/screening-form/ScreeningSummaryView";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import api from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -80,14 +74,18 @@ import {
   useDlReviewContext,
   type DlReviewClientRateHint,
 } from "@/lib/api/dlReview";
-import { useRecommendationCard } from "@/lib/api/recommendationCards";
+import { useScreeningFormState } from "@/lib/api/screeningForm";
+import {
+  screeningDealBreakerWarning,
+  screeningFormHref,
+  screeningSummaryRows,
+} from "@/lib/screening-summary";
 import { parseRateInput } from "@/lib/dl-review-margin";
 import { invalidateAfterPipelineVersionConflict } from "@/lib/pipeline-version-conflict";
 import type { PipelineMovePayload } from "@/lib/pipeline-move-core";
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
 import { hasPermission, permissionLabel } from "@/lib/permissions";
 import { loadJobRejectionReasons } from "@/lib/rejection-reasons";
-import { dealBreakerWarning } from "@/lib/recommendation-card";
 import { useElementWidth } from "@/lib/use-element-width";
 import { cn, formatDate } from "@/lib/utils";
 import { getUserRoles, useAuthStore } from "@/store/auth";
@@ -371,9 +369,13 @@ export function DlReviewBody({ task, canSendToClient, onClose, layout, previewLo
       api.get(`/api/candidates/${candidateId}/quick-view`, { signal }).then((r) => r.data),
     enabled: candidateId > 0,
   });
-  const card = useRecommendationCard(candidateId, jobId, candidateId > 0);
-  // „Odpada, gdy…” naruszone — liczone z karty, którą panel i tak czyta.
-  const dealBreaker = card.data ? dealBreakerWarning(card.data) : null;
+  // Stan formularza screeningu pary — ten sam, który rysuje blok „Screening”.
+  const screeningState = useScreeningFormState(candidateId, jobId, candidateId > 0).data ?? null;
+  // „Odpada, gdy…” naruszone — liczone z odpowiedzi, które panel i tak czyta.
+  const dealBreaker = useMemo(
+    () => (screeningState ? screeningDealBreakerWarning(screeningSummaryRows(screeningState)) : null),
+    [screeningState],
+  );
   const reasons = useQuery({
     queryKey: ["job-rejection-reasons", jobId],
     queryFn: () => loadJobRejectionReasons(jobId),
@@ -386,15 +388,12 @@ export function DlReviewBody({ task, canSendToClient, onClose, layout, previewLo
   );
 
   // „W tej rekrutacji” (0414): stawka z wiersza weryfikacji, a bez niej —
-  // z karty rekomendacji tej pary. Obok „Stawka od” (najniższa z 18 miesięcy),
+  // ze screeningu tej pary (PLN/h). Obok „Stawka od” (najniższa z 18 miesięcy),
   // żeby DL widział, ile jest miejsca na negocjacje.
   const profile = quickView.data?.candidate;
   const snapshotRate = rateText(task.expected_rate_value, task.expected_rate_unit, task.expected_rate_currency);
-  const cardRateValue = card.data?.fields.rate?.value;
-  const cardRate =
-    card.data?.fields.rate?.period === "h" && cardRateValue != null
-      ? hourlyText(cardRateValue)
-      : null;
+  const cardRateValue = screeningState?.rate_hints?.card?.amount;
+  const cardRate = cardRateValue != null ? hourlyText(cardRateValue) : null;
   const thisJobRate = snapshotRate ?? cardRate;
   const rateFrom = profile
     ? profile.rate_from_hourly !== undefined
@@ -419,7 +418,7 @@ export function DlReviewBody({ task, canSendToClient, onClose, layout, previewLo
         }
       : null,
   );
-  const cardAvailability = card.data?.fields.availability?.raw?.trim() || null;
+  const cardAvailability = screeningState?.card?.fields?.availability?.raw?.trim() || null;
 
   const remark = note.trim();
 
@@ -512,9 +511,6 @@ export function DlReviewBody({ task, canSendToClient, onClose, layout, previewLo
     (reasonId !== "" || (rejectedReasons.length === 0 && freeReason.trim() !== ""));
   const sendReady = canSend && clientRate != null && task.target_stage_def_id != null;
   const canReturn = (canSend || canReject) && task.return_stage_def_id != null;
-  // Wiersz sztuczny „kandydata na etapie” dla widoku screeningu: czyta tylko
-  // `id` (wiersz etapu z zapisanym arkuszem).
-  const screeningItem = { id: task.screening_stage_id ?? task.stage_id } as KanbanItem;
 
   return (
     <div
@@ -618,30 +614,21 @@ export function DlReviewBody({ task, canSendToClient, onClose, layout, previewLo
             loading={context.isLoading}
             error={context.isError}
             onRetry={() => void context.refetch()}
-          >
-            <section aria-label="Karta rekomendacji" className="space-y-3">
-              <header className="flex flex-wrap items-center gap-2">
-                <h3 className="text-sm font-semibold">Karta rekomendacji</h3>
-                {card.data ? <RecommendationCardStatus card={card.data} /> : null}
-              </header>
-              <RecommendationCardSection
-                candidateId={task.candidate_id}
-                jobId={task.job_id}
-                candidateName={task.candidate_name}
-              />
-              {/* 0424: trafienie „Odpada, gdy…” zaznacza rekruter w formularzu
-                  screeningu — przegląd pokazuje je tylko do odczytu. */}
-              {card.data ? <RecommendationCardQuestions card={card.data} editable={false} /> : null}
-            </section>
-            <details className="group rounded-lg border border-border">
-              <summary className="cursor-pointer px-3 py-2 text-sm font-semibold">
-                Arkusz screeningu Championa
-              </summary>
-              <div className="border-t border-border p-3">
-                <SavedScreeningView item={screeningItem} stageLabel="QC CV" />
-              </div>
-            </details>
-          </RequirementsColumn>
+            screening={
+              // 09.10.2026: jeden blok zamiast „Oceny rekrutera”, karty
+              // rekomendacji i zwiniętego arkusza. Trafienie „Odpada, gdy…”
+              // zaznacza rekruter w formularzu — tu tylko do odczytu.
+              <section aria-label="Screening" className="space-y-2">
+                <h3 className="text-sm font-semibold">Screening</h3>
+                <ScreeningSummarySection
+                  candidateId={task.candidate_id}
+                  jobId={task.job_id}
+                  enabled={task.candidate_id > 0}
+                  editHref={screeningFormHref(task.job_id, task.candidate_id)}
+                />
+              </section>
+            }
+          />
         </div>
 
         <DecisionPanel
@@ -663,7 +650,7 @@ export function DlReviewBody({ task, canSendToClient, onClose, layout, previewLo
                   {
                     label: "W tej rekrutacji",
                     value: thisJobRate,
-                    hint: snapshotRate ? "przy weryfikacji" : cardRate ? "z karty" : "nie pytano o tę rolę",
+                    hint: snapshotRate ? "przy weryfikacji" : cardRate ? "ze screeningu" : "nie pytano o tę rolę",
                   },
                   {
                     label: "Stawka od",
@@ -673,7 +660,7 @@ export function DlReviewBody({ task, canSendToClient, onClose, layout, previewLo
                   {
                     label: "Dostępność",
                     value: profileAvailability ?? cardAvailability,
-                    hint: !profileAvailability && cardAvailability ? "z karty" : null,
+                    hint: !profileAvailability && cardAvailability ? "ze screeningu" : null,
                   },
                   { label: "Lokalizacja", value: location },
                   { label: "Stanowisko", value: quickView.data?.current_position?.title ?? null },

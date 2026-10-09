@@ -968,7 +968,7 @@ describe("GeneratorForm — wariant umowy dla spółki (ticket 8)", () => {
 });
 
 describe("GeneratorForm — umowa z rekrutacji (04.10.2026)", () => {
-  it("stawka z karty rekomendacji wypełnia puste pole i mówi skąd jest", async () => {
+  it("stawka ze screeningu wypełnia puste pole i mówi skąd jest", async () => {
     mocks.prefill.mockResolvedValue({
       candidate_id: 42,
       job_id: 10,
@@ -989,10 +989,10 @@ describe("GeneratorForm — umowa z rekrutacji (04.10.2026)", () => {
       { timeout: PREFILL_WAIT },
     );
     expect(
-      screen.getByText("Stawka z karty rekomendacji · 01.10.2026"),
+      screen.getByText("Stawka ze screeningu · 01.10.2026"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Dostępność z karty rekomendacji: od 1 listopada"),
+      screen.getByText("Dostępność ze screeningu: od 1 listopada"),
     ).toBeInTheDocument();
     expect(mocks.prefill).toHaveBeenCalledWith(42, 10);
   });

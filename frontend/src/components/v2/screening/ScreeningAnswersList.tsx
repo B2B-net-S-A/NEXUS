@@ -3,9 +3,10 @@
 /**
  * Odpowiedzi z rozmowy screeningowej — jedyny renderer (02.10.2026).
  *
- * Pokazują go: karta „Odpowiedzi z rozmów screeningowych” w profilu kandydata,
- * dok osoby na Tablicy i zapisany arkusz w panelu osoby. Do tej zmiany dok
- * mówił tylko „Odpowiedziano na N pytań”, a profil nie pokazywał arkusza wcale.
+ * Pokazują go: karta „Odpowiedzi z rozmów screeningowych” w profilu kandydata
+ * i widok „Screening” (dok osoby, przegląd Delivery Leada, panel osoby). Do
+ * 02.10.2026 dok mówił tylko „Odpowiedziano na N pytań”, a profil nie pokazywał
+ * arkusza wcale.
  *
  * Treść pytania idzie z odpowiedzi (`question_text`, stempel serwera) —
  * identyfikatory pytań są pozycyjne, więc po edycji profilu Championa samo
@@ -33,6 +34,10 @@ export interface ScreeningAnswerRow {
    * bez niego pytanie nr 4 stałoby się po filtrze „pytaniem 1”.
    */
   position?: number;
+  /** Odpowiedź odczytana z notatki rekrutera, nie z arkusza — dopisek pod odpowiedzią. */
+  source?: "sheet" | "note" | null;
+  /** Warunek „Odpada, gdy…” z Profilu Championa — pokazywany pod odpowiedzią. */
+  deal_breaker?: string | null;
 }
 
 export interface ScreeningCheckRow {
@@ -117,6 +122,14 @@ export function ScreeningAnswersList({
                     "— bez odpowiedzi —"
                   )}
                 </p>
+                {answer.source === "note" && response ? (
+                  <p className="text-[11px] text-muted-foreground">odpowiedź z notatki</p>
+                ) : null}
+                {answer.deal_breaker?.trim() ? (
+                  <p className="text-[11px] text-destructive [overflow-wrap:anywhere]">
+                    Odpada, gdy: {answer.deal_breaker.trim()}
+                  </p>
+                ) : null}
               </li>
             );
           })}

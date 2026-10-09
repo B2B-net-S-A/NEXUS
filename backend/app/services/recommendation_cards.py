@@ -37,6 +37,7 @@ from app.models.client import Client
 from app.models.job import Job
 from app.models.note import Note
 from app.models.recommendation_card import RecommendationCard
+from app.models.recruitment_pipeline import CandidateStage
 from app.models.recruitment_process import RecruitmentProcess
 from app.models.user import User
 from app.services.client_identity import client_display_name_expression
@@ -73,21 +74,58 @@ def attempt_started(process: object) -> Optional[datetime]:
     return getattr(process, "opened_at", None) or getattr(process, "created_at", None)
 
 
+STAGE_RATE_MARK = {"raw": "stawka z etapu"}
+
+
+def with_stage_rate(current: Mapping[str, Any], stage_rate: bool) -> Mapping[str, Any]:
+    """Pola do liczenia kompletności: stawka z etapu zastępuje puste pole karty."""
+    if not stage_rate or "rate" in current:
+        return current
+    return {**current, "rate": STAGE_RATE_MARK}
+
+
+async def stage_rate_pairs(
+    db: AsyncSession, pairs: Iterable[tuple[int, int]]
+) -> set[tuple[int, int]]:
+    """Pary (kandydat, rekrutacja) ze stawką kandydata na wierszu etapu.
+
+    Jedno zapytanie niezależnie od liczby par. Reguła jak w formularzu
+    screeningu: liczy się niepusta stawka na dowolnym wierszu etapu pary.
+    """
+    wanted = sorted(set(pairs))
+    if not wanted:
+        return set()
+    rows = await db.execute(
+        select(CandidateStage.candidate_id, CandidateStage.job_id)
+        .where(
+            tuple_(CandidateStage.candidate_id, CandidateStage.job_id).in_(wanted),
+            CandidateStage.expected_rate_value.isnot(None),
+        )
+        .distinct()
+    )
+    return {(candidate_id, job_id) for candidate_id, job_id in rows.all()}
+
+
 def card_summary(
     fields_notes: Mapping[str, object],
     fields_manual: Mapping[str, object],
     note_answers: object,
     *,
     started: Optional[datetime] = None,
+    stage_rate: bool = False,
 ) -> dict[str, object]:
     """Stan karty dla plakietek i wymagań ruchu.
 
     Z treści pól przechodzą tylko dwie rzeczy, których potrzebuje „Przesuń
     dalej”: stawka kandydata w PLN/h (podpowiedź w oknie stawki — widzi ją
     każda rola) i to, czy karta zna dostępność.
+
+    ``stage_rate`` — para ma stawkę kandydata na wierszu etapu. Od 0424
+    formularz screeningu zapisuje stawkę tam, nie w polu karty, więc pole
+    „Stawka” nie jest wtedy brakiem (ta sama reguła co ``GET /screening-form``).
     """
     current, _ = split_fields(fields_notes, fields_manual, attempt_started=started)
-    state = completeness(current)
+    state = completeness(with_stage_rate(current, stage_rate))
     answers = current_answers(note_answers, attempt_started=started)
     return {
         "status": state["status"],
@@ -125,9 +163,10 @@ async def summaries_for_job(
     job_id: int,
     started_by_candidate: Mapping[int, Optional[datetime]],
 ) -> dict[int, dict[str, object]]:
-    """Stan kart osób z jednej rekrutacji — jedno zapytanie na tablicę.
+    """Stan kart osób z jednej rekrutacji — dwa zapytania na tablicę.
 
-    Osoba bez wiersza karty nie ma wpisu (ekran mówi wtedy „bez karty”).
+    Osoba bez wiersza karty i bez stawki na etapie nie ma wpisu (ekran mówi
+    wtedy, że pola są puste).
     """
     if not started_by_candidate:
         return {}
@@ -142,15 +181,25 @@ async def summaries_for_job(
             RecommendationCard.candidate_id.in_(sorted(started_by_candidate)),
         )
     )
-    return {
+    rated = {
+        candidate_id
+        for candidate_id, _ in await stage_rate_pairs(
+            db, ((candidate_id, job_id) for candidate_id in started_by_candidate)
+        )
+    }
+    out = {
         candidate_id: card_summary(
             notes or {},
             manual or {},
             answers,
             started=started_by_candidate.get(candidate_id),
+            stage_rate=candidate_id in rated,
         )
         for candidate_id, notes, manual, answers in rows.all()
     }
+    for candidate_id in rated - out.keys():
+        out[candidate_id] = card_summary({}, {}, None, stage_rate=True)
+    return out
 
 
 async def summaries_for_pairs(
@@ -158,12 +207,15 @@ async def summaries_for_pairs(
 ) -> dict[tuple[int, int], dict[str, object]]:
     """Stan kart dla par (kandydat, rekrutacja) z wielu rekrutacji.
 
-    Dwa zapytania niezależnie od liczby par: karty i najnowsza próba procesu
-    (wartości sprzed bieżącej próby nie liczą się do kompletności).
+    Trzy zapytania niezależnie od liczby par: karty, stawki na etapach
+    i najnowsza próba procesu (wartości sprzed bieżącej próby nie liczą się
+    do kompletności).
     """
     wanted = sorted(set(pairs))
     if not wanted:
         return {}
+    rated = await stage_rate_pairs(db, wanted)
+    without_card = {key: card_summary({}, {}, None, stage_rate=True) for key in rated}
     pair = tuple_(RecommendationCard.candidate_id, RecommendationCard.job_id)
     cards = (
         await db.execute(
@@ -177,7 +229,7 @@ async def summaries_for_pairs(
         )
     ).all()
     if not cards:
-        return {}
+        return without_card
     process_pair = tuple_(RecruitmentProcess.candidate_id, RecruitmentProcess.job_id)
     processes = await db.execute(
         select(RecruitmentProcess)
@@ -194,13 +246,17 @@ async def summaries_for_pairs(
         (p.candidate_id, p.job_id): attempt_started(p) for p in processes.scalars()
     }
     return {
-        (candidate_id, job_id): card_summary(
-            notes or {},
-            manual or {},
-            answers,
-            started=started.get((candidate_id, job_id)),
-        )
-        for candidate_id, job_id, notes, manual, answers in cards
+        **without_card,
+        **{
+            (candidate_id, job_id): card_summary(
+                notes or {},
+                manual or {},
+                answers,
+                started=started.get((candidate_id, job_id)),
+                stage_rate=(candidate_id, job_id) in rated,
+            )
+            for candidate_id, job_id, notes, manual, answers in cards
+        },
     }
 
 

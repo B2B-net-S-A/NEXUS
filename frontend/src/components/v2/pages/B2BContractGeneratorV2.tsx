@@ -5549,7 +5549,7 @@ export function GeneratorForm({
             </div>
             {prefillQuery.data?.availability_text ? (
               <p className="mt-1 text-xs text-muted-foreground">
-                Dostępność z karty rekomendacji: {prefillQuery.data.availability_text}
+                Dostępność ze screeningu: {prefillQuery.data.availability_text}
               </p>
             ) : null}
           </Field>

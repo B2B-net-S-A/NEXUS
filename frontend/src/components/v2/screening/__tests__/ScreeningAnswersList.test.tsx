@@ -47,6 +47,27 @@ describe("ScreeningAnswersList", () => {
     );
   });
 
+  // 09.10.2026: widok „Screening” pokazuje też odpowiedzi z notatek i warunek
+  // z Profilu Championa. Profil kandydata tych pól nie podaje — jego widok się nie zmienia.
+  it("odpowiedź z notatki i „Odpada, gdy…” stoją pod odpowiedzią tylko wtedy, gdy wiersz je niesie", () => {
+    render(
+      <ScreeningAnswersList
+        answers={[
+          { ...ANSWERS[0], source: "note", deal_breaker: "Mniej niż rok z Kafką" },
+          { ...ANSWERS[3], source: "note" },
+          ANSWERS[2],
+        ]}
+      />,
+    );
+    const rows = screen.getAllByRole("listitem");
+    expect(rows[0]).toHaveTextContent("odpowiedź z notatki");
+    expect(rows[0]).toHaveTextContent("Odpada, gdy: Mniej niż rok z Kafką");
+    // Pusta odpowiedź nie udaje, że przyszła z notatki.
+    expect(rows[1]).not.toHaveTextContent("odpowiedź z notatki");
+    expect(rows[2]).not.toHaveTextContent("Odpada, gdy");
+    expect(rows[2]).not.toHaveTextContent("odpowiedź z notatki");
+  });
+
   it("po filtrze szukania pytanie zachowuje swój numer z arkusza", () => {
     render(<ScreeningAnswersList answers={[{ ...ANSWERS[2], position: 3 }]} />);
     expect(screen.getByRole("listitem")).toHaveTextContent("3. Pytanie 3 (usunięte z profilu)");

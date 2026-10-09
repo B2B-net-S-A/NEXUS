@@ -74,14 +74,14 @@ export function transitRemark(row: CvTransitRow): string | null {
   return remark ? `Uwaga: ${remark}` : null;
 }
 
-/** D4 (04.10.2026): „Piotr Z. poprawił w karcie: Motywacja, Stawka”. */
+/** D4 (04.10.2026): „Piotr Z. poprawił w screeningu: Motywacja, Stawka”. */
 export function transitCardEdit(row: CvTransitRow): string | null {
   const who = row.card_edited_by?.trim();
   if (!who) return null;
   const fields = (row.card_edited_fields ?? []).filter((f) => f.trim());
   return fields.length > 0
-    ? `${who} poprawił(a) w karcie: ${fields.join(", ")}`
-    : `${who} poprawił(a) kartę rekomendacji`;
+    ? `${who} poprawił(a) w screeningu: ${fields.join(", ")}`
+    : `${who} poprawił(a) screening`;
 }
 
 function dayNumber(date: Date): number {

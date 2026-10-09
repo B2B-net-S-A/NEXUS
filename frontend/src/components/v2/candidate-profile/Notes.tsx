@@ -493,7 +493,7 @@ export function NotesList({
             onClick={() => onOpenCard(link)}
             className="font-medium text-primary hover:underline"
           >
-            Karta rekomendacji z tej rozmowy
+            Screening tej rekrutacji
           </button>
         ) : null}
       </p>

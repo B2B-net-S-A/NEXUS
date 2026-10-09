@@ -52,14 +52,11 @@ vi.mock("@/components/v2/recruitment/CvQcDialog", () => ({
   CvQcDialog: ({ stageId, open }: { stageId: number | null; open: boolean }) =>
     open ? <div role="dialog" aria-label="QC CV">QC etapu {stageId}</div> : null,
 }));
-vi.mock("@/components/v2/recruitment/PanelSavedViews", () => ({
-  SavedScreeningView: ({ item }: { item: { id: number } }) => (
-    <div data-testid="saved-screening">arkusz z wiersza {item.id}</div>
-  ),
-}));
 
 import { DlReviewPanel, dlReviewMode } from "@/components/v2/recruitment/DlReviewPanel";
+import { formState } from "@/components/v2/screening-form/__tests__/screening-form-fixtures";
 import type { BoardTaskRow } from "@/lib/api/boardTasks";
+import type { ScreeningFormState } from "@/lib/api/screeningForm";
 import { useAuthStore } from "@/store/auth";
 import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
 
@@ -94,24 +91,43 @@ function task(over: Partial<BoardTaskRow> = {}): BoardTaskRow {
   };
 }
 
-const CARD = {
+// 09.10.2026: przegląd czyta stan formularza screeningu pary (jeden blok
+// „Screening”), nie kartę rekomendacji i osobno arkusz etapu.
+const FORM: ScreeningFormState = formState({
   candidate_id: 21,
   job_id: 31,
-  exists: true,
-  fields: {
-    rate: { raw: "140 zł/h B2B", source: "note", note_id: 3, at: since },
-    availability: { raw: "od zaraz", source: "manual", by_name: "Marta Rekruterka", at: since },
+  stage_id: 11,
+  board_column: "cv_qc",
+  sheet: {
+    answers: [],
+    overall_fit: "fit",
+    notes: "",
+    answered_at: since,
   },
-  previous: {},
-  suggestions: {},
   questions: [
-    { number: 1, question: "Doświadczenie z Kafką?", answer: "3 lata, produkcyjnie", source: "note" },
+    {
+      number: 1,
+      question: "Doświadczenie z Kafką?",
+      answer: "3 lata, produkcyjnie",
+      source: "note",
+      question_id: "q1",
+      deal_breaker: null,
+      deal_breaker_hit: false,
+    },
   ],
-  completeness: { status: "partial", filled: 2, total: 10, missing: ["work_mode"] },
-  labels: {},
-  editable_fields: ["rate", "availability"],
-  legacy_text: "",
-};
+  card: {
+    fields: {
+      availability: { raw: "od zaraz", source: "manual", by_name: "Marta Rekruterka", at: since },
+    },
+    previous: {},
+    suggestions: {},
+    completeness: { status: "partial", filled: 2, total: 10, missing: ["work_mode"] },
+    labels: { availability: "Dostępność", work_mode: "Tryb pracy", recommendation: "Notatka" },
+    editable_fields: ["availability", "work_mode", "rate", "recommendation"],
+  },
+  rate: { amount: 140, unit: "hourly", currency: "PLN", source: "card", at: since },
+  rate_hints: { card: { amount: 140, unit: "hourly", currency: "PLN" }, rate_from: null },
+});
 
 const CONTEXT = {
   candidate_id: 21,
@@ -171,10 +187,12 @@ function mockApi({
   cvs = [{ id: 77, status: "ready", filename: "cv.docx", origin: "auto", needs_review: true }],
   availability = { status: "open_to_offers", available_from: null, notice_period: 1, notice_period_unit: "months" },
   context = CONTEXT,
+  form = FORM,
 }: {
   cvs?: Array<Record<string, unknown>>;
   availability?: Record<string, unknown> | null;
   context?: Record<string, unknown> | null;
+  form?: ScreeningFormState;
 } = {}) {
   get.mockImplementation((url: string) => {
     if (url === "/api/dl-review/context") {
@@ -190,7 +208,7 @@ function mockApi({
       });
     }
     if (url === "/api/cv-generator/generated") return Promise.resolve({ data: cvs });
-    if (url === "/api/recommendation-cards") return Promise.resolve({ data: CARD });
+    if (url === "/api/screening-form") return Promise.resolve({ data: form });
     if (url === "/api/cv-generator/generated/77/docx") return Promise.resolve({ data: new Blob(["docx"]) });
     return Promise.reject(new Error(`unexpected ${url}`));
   });
@@ -218,48 +236,64 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
     ]);
   });
 
-  it("pokazuje kto zweryfikował, stawkę, dostępność, podgląd CV i arkusz screeningu", async () => {
+  it("pokazuje kto zweryfikował, stawkę, dostępność, podgląd CV i jeden blok „Screening”", async () => {
     mockApi();
     renderPanel();
     expect(screen.getByText(/Zweryfikował\(a\) Marta Rekruterka/)).toBeTruthy();
-    expect(screen.getByText("140 zł/h")).toBeTruthy();
     expect(await screen.findByText("Otwarty na oferty · wypowiedzenie 1 mies.")).toBeTruthy();
     expect(screen.getByText("Kraków")).toBeTruthy();
-    expect(screen.getByTestId("saved-screening")).toHaveTextContent("arkusz z wiersza 9");
-    // Karta rekomendacji z odpowiedziami na pytania Championa — także z notatki.
-    const cardSection = screen.getByRole("region", { name: "Karta rekomendacji" });
-    expect(await within(cardSection).findByText("140 zł/h B2B")).toBeTruthy();
-    expect(within(cardSection).getByText("3 lata, produkcyjnie")).toBeTruthy();
-    expect(within(cardSection).getByText("odpowiedź z notatki")).toBeTruthy();
+    // Warunki, odpowiedzi na pytania Championa (także z notatki) i ocena — razem.
+    const screening = screen.getByRole("region", { name: "Screening" });
+    const view = await within(screening).findByTestId("screening-form-readonly");
+    expect(within(view).getByTestId("screening-form-readonly-terms")).toHaveTextContent("140 zł/h");
+    expect(within(view).getByTestId("screening-form-readonly-terms")).toHaveTextContent("od zaraz");
+    expect(within(view).getByText("3 lata, produkcyjnie")).toBeTruthy();
+    expect(within(view).getByText("odpowiedź z notatki")).toBeTruthy();
+    expect(within(view).getByTestId("screening-summary-status")).toHaveTextContent("Pasuje");
+    // 09.10.2026: te same dane nie stoją już w trzech blokach pod trzema nazwami.
+    expect(screen.queryByRole("region", { name: "Karta rekomendacji" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Ocena rekrutera" })).toBeNull();
+    expect(screen.queryByText("Arkusz screeningu Championa")).toBeNull();
+    expect(screen.queryByText(/[Kk]art[aęy] rekomendacji/)).toBeNull();
+    // Przegląd nie mówi DL-owi o cudzym formularzu „nie masz uprawnień”; edycja to link.
+    expect(within(view).getByRole("link", { name: /Edytuj w screeningu/ })).toHaveAttribute(
+      "href",
+      "/jobs/31?candidate=21&panel=screening",
+    );
     await waitFor(() => expect(renderDocxSafely).toHaveBeenCalledTimes(1));
     expect(get).toHaveBeenCalledWith("/api/cv-generator/generated", {
       params: { candidate_id: 21, job_id: 31, limit: 10 },
     });
     expect(screen.getByText("Do przeglądu")).toBeTruthy();
+    // Tekst w starym formacie pobiera się dopiero po rozwinięciu.
+    expect(get.mock.calls.some(([url]) => url === "/api/recommendation-cards")).toBe(false);
   });
 
-  it("naruszone „Odpada, gdy…” z karty: ostrzeżenie w stopce i warunek pod pytaniem", async () => {
-    mockApi();
-    const base = get.getMockImplementation() as (url: string) => Promise<unknown>;
-    get.mockImplementation((url: string) =>
-      url === "/api/recommendation-cards"
-        ? Promise.resolve({
-            data: {
-              ...CARD,
-              questions: [
-                {
-                  ...CARD.questions[0],
-                  // Trafienie żyje w arkuszu screeningu — odpowiedź też z arkusza.
-                  source: "sheet",
-                  question_id: "q1",
-                  deal_breaker: "mniej niż rok z Kafką",
-                  deal_breaker_hit: true,
-                },
-              ],
-            },
-          })
-        : base(url),
-    );
+  it("naruszone „Odpada, gdy…”: ostrzeżenie w stopce i warunek pod pytaniem", async () => {
+    mockApi({
+      form: {
+        ...FORM,
+        sheet: {
+          answers: [
+            { question_id: "q1", response: "Pół roku", deal_breaker_hit: true, question_text: "Doświadczenie z Kafką?" },
+          ],
+          overall_fit: "uncertain",
+          notes: "",
+        },
+        questions: [
+          {
+            number: 1,
+            question: "Doświadczenie z Kafką?",
+            answer: "Pół roku",
+            // Trafienie żyje w arkuszu screeningu — odpowiedź też z arkusza.
+            source: "sheet",
+            question_id: "q1",
+            deal_breaker: "mniej niż rok z Kafką",
+            deal_breaker_hit: true,
+          },
+        ],
+      },
+    });
     renderPanel();
     expect(await screen.findByTestId("dl-review-deal-breaker")).toHaveTextContent(
       "Odpowiedź na pytanie 1 narusza „Odpada, gdy…”.",
@@ -267,16 +301,16 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
     expect(screen.getByText("Odpada, gdy: mniej niż rok z Kafką")).toBeTruthy();
     // 0424: trafienie zaznacza rekruter w formularzu screeningu — przegląd
     // pokazuje je tylko do odczytu.
-    expect(screen.queryByRole("checkbox", { name: "Odpowiedź narusza deal-breaker" })).toBeNull();
-    expect(screen.getAllByText("Odpowiedź narusza deal-breaker").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.getByTestId("screening-summary-deal-breaker")).toHaveTextContent("narusza „Odpada, gdy…”");
   });
 
-  // Test na produkcji 03.10.2026: karta niżej mówiła „2 tygodnie”, a kafel
-  // „Dostępność” nad nią „—”, bo czytał wyłącznie profil.
-  it("dostępność bierze z karty rekomendacji, gdy profil jej nie zna", async () => {
+  // Test na produkcji 03.10.2026: screening niżej mówił „2 tygodnie”, a kafel
+  // „Dostępność” nad nim „—”, bo czytał wyłącznie profil.
+  it("dostępność bierze ze screeningu, gdy profil jej nie zna", async () => {
     mockApi({ availability: null });
     renderPanel();
-    const hint = await screen.findByText("z karty");
+    const hint = await screen.findByText("ze screeningu");
     expect(hint.parentElement).toHaveTextContent("Dostępność");
     expect(hint.parentElement).toHaveTextContent("od zaraz");
   });
