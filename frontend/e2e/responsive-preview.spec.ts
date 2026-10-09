@@ -335,6 +335,32 @@ test.describe("panel osoby — duży podgląd po lewej na laptopie", () => {
       "false",
     );
   });
+
+  // 09.10.2026 (zgłoszenie z laptopa 1280 × 650): w wąskim doku cała głowa
+  // (warunki, „Następny etap”, przyciski etapów) stała w miejscu, a na sekcje
+  // zostawały 92 px; przy otwartej sprawie zmiany stawki przyciski i pole
+  // notatki wypadały poza okno. Teraz w miejscu stoi tylko pasek osoby i pole
+  // notatki, reszta przewija się razem — pomiar po zmianie: 393 px.
+  test("/preview/job-detail: wąski dok osoby przewija się w całości", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 650 });
+    await page.goto("/preview/job-detail");
+    const panel = page.locator("aside[data-person-panel]");
+    // Druga osoba ma otwartą sprawę zmiany stawki — najwyższy blok akcji.
+    for (const name of ["Karol Wzorcowy", "Bartek Testowy"]) {
+      await page.getByRole("link", { name }).first().click();
+      await expect(panel).toHaveAttribute("data-size", "dock");
+      await expect(panel.getByText(name).first()).toBeVisible();
+      const scroll = panel.locator("[data-person-scroll]");
+      await expect(scroll).toHaveCount(1);
+      await expect(scroll.getByTestId("dock-facts")).toBeVisible();
+      await expect(scroll.getByTestId("dock-sections")).toBeAttached();
+      const area = await scroll.boundingBox();
+      expect(area?.height ?? 0, `przewijany obszar doku: ${name}`).toBeGreaterThanOrEqual(350);
+      const note = await panel.locator('[data-help="jobs.person.note"]').boundingBox();
+      expect((note?.y ?? 0) + (note?.height ?? 0), `pole notatki w oknie: ${name}`).toBeLessThanOrEqual(650);
+      expect(await pageOverflowPx(page), `poziomy scroll strony: ${name}`).toBeLessThanOrEqual(1);
+    }
+  });
 });
 
 /**
