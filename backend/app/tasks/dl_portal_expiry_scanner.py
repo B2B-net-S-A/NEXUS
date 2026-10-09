@@ -606,7 +606,7 @@ async def _scan_framework_contracts(
             continue
         ntype = _FC_NTYPE_BY_DAY[days]
         end_phrase = _end_phrase("wygasa", fc.expiry_date)
-        for user_id in recipient_scope.bell_recipients(fc.client_id):
+        for user_id in recipient_scope.bell_recipients(fc.client_id, ntype):
             if await _already_notified(
                 db,
                 user_id=user_id,
@@ -686,7 +686,7 @@ async def _scan_orders(
         cli_name: str = row.client_name or "klient"
         end_phrase = _end_phrase("kończy się", o.end_date)
 
-        for user_id in recipient_scope.bell_recipients(o.client_id):
+        for user_id in recipient_scope.bell_recipients(o.client_id, ntype):
             if await _already_notified(
                 db,
                 user_id=user_id,

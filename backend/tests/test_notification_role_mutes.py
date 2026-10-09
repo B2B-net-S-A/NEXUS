@@ -17,6 +17,7 @@ from app.models.critical_event import CriticalEvent
 from app.models.notification import Notification, NotificationType
 from app.models.user import User, UserRole
 from app.services import notification_delivery as delivery
+from app.services.delivery_alert_recipients import DeliveryAlertRecipientScope
 from app.services.notification_access import (
     notification_visibility_predicate,
     user_can_receive_notification,
@@ -178,6 +179,70 @@ def test_email_policy_changes_name_only_what_changed():
     assert changes == {"types": {"daily_digest": {"from": True, "to": False}}}
     assert "Poranny skrót" in delivery._changes_summary(changes)
     assert delivery.policy_changes(before, before) == {}
+
+
+# ── Zapas przy dzwonku umów: kto dostaje, gdy DL ma wyciszone ──────────────
+
+
+def _account(user_id: int, *roles: str, muted: dict | None = None) -> User:
+    user = User(
+        id=user_id,
+        email=f"u{user_id}@example.com",
+        name=f"U{user_id}",
+        role=UserRole(roles[0]),
+        roles=list(roles),
+        is_active=True,
+        muted_notification_categories=muted or {},
+    )
+    user.effective_section_access = {"delivery": "write", "pipeline": "write"}
+    return user
+
+
+def test_bell_falls_back_to_admins_when_no_delivery_lead_can_receive_the_type():
+    """Alert nie może trafić do wiersza, którego nikt nie zobaczy.
+
+    Przegląd kodu 09.10.2026: przy samym „klient ma DL-a” wyciszona kategoria
+    u jedynego DL-a (albo grupa wyłączona dla roli) zostawiała alert bez
+    odbiorcy, a skaner uznawał próg za wysłany.
+    """
+    ending = NotificationType.client_order_ending_14d
+    muted_dl = _account(
+        2, "delivery_lead", muted={"contracts": "2026-10-09T08:00:00+00:00"}
+    )
+    open_dl = _account(3, "delivery_lead")
+    role_muted_dl = _account(4, "delivery_lead")
+    role_muted_dl.role_muted_notification_types = frozenset({ending})
+    scope = DeliveryAlertRecipientScope(
+        admin_ids=frozenset({1}),
+        delivery_lead_ids_by_client={10: frozenset({2}), 11: frozenset({2, 3})},
+        bell_lead_ids_by_client={
+            10: frozenset({2}),
+            11: frozenset({2, 3}),
+            12: frozenset({4}),
+        },
+        users_by_id={2: muted_dl, 3: open_dl, 4: role_muted_dl},
+    )
+    assert scope.bell_recipients(10, ending) == [1]
+    assert scope.bell_recipients(11, ending) == [3]
+    assert scope.bell_recipients(12, ending) == [1]
+    # Inny typ tej samej osoby: wyłączenie dla roli dotyczy tylko końca zamówień.
+    assert scope.bell_recipients(12, NotificationType.contract_ending) == [4]
+    assert scope.bell_recipients(99, ending) == [1]
+    assert scope.bell_recipients(None, ending) == [1]
+
+
+def test_admin_who_is_also_the_clients_delivery_lead_counts_as_its_delivery_lead():
+    """Konto Admin + DL przypisane do klienta nie robi z niego klienta „bez DL-a”."""
+    ending = NotificationType.contract_ending
+    hybrid = _account(5, "admin", "delivery_lead")
+    scope = DeliveryAlertRecipientScope(
+        admin_ids=frozenset({1, 5}),
+        delivery_lead_ids_by_client={},
+        bell_lead_ids_by_client={20: frozenset({5})},
+        users_by_id={5: hybrid},
+    )
+    assert scope.bell_recipients(20, ending) == [5]
+    assert scope.for_client(20) == [1, 5]
 
 
 # ── API i baza ──────────────────────────────────────────────────────────────

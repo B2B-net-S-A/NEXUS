@@ -3266,6 +3266,64 @@ dzwonka z kreską prosto w dzwonku), które KATEGORIE powiadomień do niego traf
 - Testy wyciszeń na wspólnej bazie MUSZĄ sprzątać po sobie (fixture `admin_id`):
   admin z `app_client` jest odbiorcą w cudzych testach („komplet obsady").
 
+## Powiadomienia dla ról i jeden ekran „Powiadomienia” (0425, 09.10.2026)
+
+Zgłoszenie admina 09.10.2026: „możliwość wybrania, do jakiej roli mają iść
+powiadomienia”. Takiego ustawienia nie było — a szukając go, ta osoba wyłączyła
+poranny skrót całej firmie (przełącznik maili nie mówił, że działa na
+wszystkich). Makiety: https://claude.ai/artifact/TRKAAZX3RcB8AA7LVohkT8, raport
+`docs/notification-role-matrix-completion-report.md`.
+
+- **Jeden ekran, cztery zakładki** (`components/settings/NotificationsSettings.tsx`,
+  `?sub=moje|role|maile|etapy`): „Moje” (każdy), „Kto co dostaje” i „Maile”
+  (admin + `system_admin`), „Reguły etapów” (link do Procesów rekrutacyjnych).
+  Oba id rejestru zostają (`my-notifications`, `notifications`) i otwierają ten
+  sam ekran na innej zakładce — linki z dzwonka i zakładki przeglądarki działają.
+- **„Kto co dostaje” = wyłączenie GRUPY dla ROLI**
+  (`services/notification_role_mutes.py`, wiersz
+  `app_settings['notification_role_mutes']` = `{revision, roles: {rola:
+  {grupa: czas}}}`, trasy `GET/PUT /api/settings/notification-roles`, `AdminUser`).
+  Grupa to kategoria albo jej nazwany kawałek (`notification_categories.GROUP_INFO`
+  — podzielone są tylko „Kontrakty…” i „Zaległości…”); nowy typ powiadomienia
+  bez grupy wywraca `test_notification_role_mutes.py`. Kategorii obowiązkowych
+  (Wzmianki, Rozmowy, Konto i system) nie da się wyłączyć.
+- **Konto z kilkoma rolami traci grupę dopiero, gdy jest wyłączona w KAŻDEJ
+  jego roli** (`role_muted_groups`) — jak sekcje, które liczą się z maksimum ról.
+- **Stosuje to to samo miejsce co wyciszenia osoby:** `resolve_effective_access`
+  dołącza `user.role_muted_notification_types`, a `notification_access`
+  (`user_can_receive_notification`, `notification_visibility_predicate`) sumuje
+  je z wyciszeniami osoby. Konto bez policzonej polityki = nic nie wyłączone.
+  Wiersz czytamy przy każdym liczeniu dostępu, bez pamięci procesu. Nie dokładaj
+  filtra ról w pojedynczym producencie.
+- **Zapis ma wersję i ślad:** `PUT` z `revision` (409 `stale_notification_roles`),
+  wpis `notifications.role_mutes` w Historii zdarzeń, bez wylogowywania. Ponowne
+  włączenie oznacza jako przeczytane powiadomienia grupy z czasu wyłączenia —
+  tylko kontom, którym grupa była naprawdę wyłączona.
+- **Rola może grupę WYŁĄCZYĆ, nie przejąć.** Dopisania dowolnej roli jako
+  odbiorcy nie ma: większość powiadomień jest imienna (rekruter kandydata,
+  Delivery Lead rekrutacji). Wybór roli-odbiorcy istnieje tylko w regułach etapów.
+- **Dzwonek końca zamówień, umów i umów ramowych nie idzie już do każdego
+  admina** (`DeliveryAlertRecipientScope.bell_recipients(client_id, typ)`):
+  Delivery Leadzi klienta, a admini tylko jako zapas, gdy ŻADEN z nich nie może
+  dostać tego typu — klient bez DL-a, umowa bez klienta, ale też DL z wyciszoną
+  kategorią albo grupą wyłączoną dla roli (inaczej alert trafiałby do wiersza,
+  którego nikt nie widzi, a skaner uznawałby próg za wysłany). Konto Admin + DL
+  przypisane do klienta liczy się jako jego DL. Pomiar przed zmianą: 1 237
+  powiadomień w 30 dni na 7 adminów, przeczytane w 8% (DL-e: 43%). `for_client`
+  (admini + DL) zostaje wyłącznie bramką maili w
+  `dl_alerts.send_pending_alert_emails`.
+- **Maile: przełącznik mówi „cała firma” i pyta przed wyłączeniem**
+  (`NotificationDeliverySettings.tsx`), a zmiana zostawia wpis
+  `notifications.email_policy` w Historii zdarzeń (`save_policy(actor=…)`).
+  Ekran pokazuje, kto i kiedy zmienił ostatnio.
+- **Poranny skrót ma własny wyłącznik konta:** `users.daily_digest_email_enabled`
+  (0425 + lustro w `entrypoint.sh`), `PATCH /api/users/me/preferences`, filtr
+  w `daily_digest_email._recipients`. Nie dokładaj kolejnego wyłącznika „dla
+  wszystkich”, gdy ktoś chce wyłączyć coś sobie.
+- Testy tabeli ról na wspólnej bazie sprzątają wiersz `app_settings` (fixture
+  `clean_role_mutes`) — zostawione wyłączenie ucinałoby powiadomienia adminom
+  w cudzych testach. Harness `/preview/notification-settings`.
+
 ## CloudTalk (telefonia)
 
 5-fazowa integracja zdeployowana w PR #157 (Fazy 1-5 razem). Dormant na prod do momentu provisioning secret + flipnięcia killswitcha.

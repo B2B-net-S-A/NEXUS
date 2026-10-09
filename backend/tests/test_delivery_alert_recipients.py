@@ -8,6 +8,7 @@ import pytest
 
 from app.core.database import AsyncSessionLocal
 from app.models.client import Client
+from app.models.notification import NotificationType
 from app.models.section_permission import UserSectionOverride
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
@@ -184,15 +185,16 @@ async def test_delivery_alert_recipients_honour_roles_access_and_client_scope():
 
         # Dzwonek (09.10.2026): przypisani DL-e bez adminów; admin jest zapasem
         # dla klienta bez uprawnionego DL-a i dla umowy bez klienta.
-        assert set(scope.bell_recipients(client_ids[0])) == {
+        ending = NotificationType.client_order_ending_14d
+        assert set(scope.bell_recipients(client_ids[0], ending)) == {
             assigned_dl.id,
             secondary_dl.id,
         }
         assert {primary_admin.id, secondary_admin.id} <= set(
-            scope.bell_recipients(client_ids[1])
+            scope.bell_recipients(client_ids[1], ending)
         )
         assert {primary_admin.id, secondary_admin.id} <= set(
-            scope.bell_recipients(None)
+            scope.bell_recipients(None, ending)
         )
     finally:
         if user_ids or client_ids:

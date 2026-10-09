@@ -1731,7 +1731,9 @@ async def move_candidate(
             bell_recipients = (
                 []
                 if employment.created_order
-                else delivery_recipients.bell_recipients(job.client_id)
+                else delivery_recipients.bell_recipients(
+                    job.client_id, NotificationType.contract_activated
+                )
             )
             for uid in bell_recipients:
                 db.add(
@@ -1793,7 +1795,9 @@ async def move_candidate(
             )
             # Ci sami odbiorcy co przy udanym szkicu. `emit` = savepoint + dedup
             # dzienny, więc duplikat nie wywróci commitu zatrudnienia.
-            for uid in delivery_recipients.bell_recipients(job.client_id):
+            for uid in delivery_recipients.bell_recipients(
+                job.client_id, NotificationType.suggest_next_step
+            ):
                 await emit(
                     db,
                     user_id=uid,

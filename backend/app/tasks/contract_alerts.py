@@ -580,7 +580,7 @@ async def run_contract_alerts_cycle() -> dict:
             )
             labels = await _contract_labels(db, fresh)
             for c in fresh:
-                recipient_ids = recipient_scope.bell_recipients(c.client_id)
+                recipient_ids = recipient_scope.bell_recipients(c.client_id, notif_type)
                 if not recipient_ids:
                     continue
                 # Claim key carries the end_date too, so the atomic ledger re-arms on
@@ -638,7 +638,7 @@ async def run_contract_alerts_cycle() -> dict:
             ]
             for doc in fresh:
                 recipient_ids = recipient_scope.bell_recipients(
-                    client_ids.get(doc.contract_id)
+                    client_ids.get(doc.contract_id), NotificationType.contract_ending
                 )
                 if not recipient_ids:
                     continue
@@ -686,7 +686,8 @@ async def run_contract_alerts_cycle() -> dict:
             ]
             for item in fresh:
                 recipient_ids = recipient_scope.bell_recipients(
-                    client_ids.get(item.contract_id)
+                    client_ids.get(item.contract_id),
+                    NotificationType.equipment_return_due_14d,
                 )
                 if not recipient_ids:
                     continue
@@ -732,7 +733,9 @@ async def run_contract_alerts_cycle() -> dict:
                 and (c.id, c.client_order_end_date.isoformat()) not in already
             ]
             for c in fresh:
-                recipient_ids = recipient_scope.bell_recipients(c.client_id)
+                recipient_ids = recipient_scope.bell_recipients(
+                    c.client_id, NotificationType.client_order_ending_30d
+                )
                 if not recipient_ids:
                     continue
                 episode = c.client_order_end_date.isoformat()
