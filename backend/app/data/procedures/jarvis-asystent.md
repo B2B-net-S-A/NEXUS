@@ -29,6 +29,7 @@ Jarvis widzi **dokładnie to, co Ty**. Każde jego sprawdzenie idzie przez te sa
 - wyszukiwać kandydatów w bazie i czytać ich profile, historię i podsumowanie aktywności,
 - czytać rekrutacje, tablice (kto na jakim etapie i jak długo), braki przed przekazaniem do searchu, Twoje następne kroki,
 - czytać klientów, karty klientów, kontrakty, zamówienia (okresowe, MD, kosztowe),
+- szukać zapisów w umowach ramowych klientów, jeśli umowa ma wgrany plik w profilu klienta (zakładka Umowy) — np. „ile klient ma czasu na akceptację karty czasu pracy”. Podaje fragment umowy z paragrafem; aneksów nie czyta. Dostęp jak do pliku umowy: admin, Finanse i Delivery Lead u swoich klientów,
 - sprawdzać kalendarz, powiadomienia, sprawy klientów z panelu „Moi klienci”, stan skrzynki zamówień,
 - liczyć lejek rekrutacyjny, wyniki zespołu, kokpit Rady i Twoje KPI,
 - przeszukiwać bazę pod request klienta (Talent Radar),

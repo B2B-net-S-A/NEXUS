@@ -132,6 +132,8 @@ def test_build_matches_the_declared_route():
         "year": 2026,
         "month": 9,
         "contract_id": 77,
+        "framework_contract_id": 78,
+        "from_chunk": 4,
         "event_id": 88,
         "key": "jobs.board",
         "outcome": "good",
@@ -262,6 +264,64 @@ def test_long_procedure_returns_matching_sections_not_a_teaser():
 
     short = shape_procedure({"id": 1, "content": "krótka treść"}, None)
     assert short["content"] == "krótka treść"
+
+
+def test_contract_passages_reach_the_model_whole():
+    """Fragment umowy ucięty w połowie zdania gubi termin albo kwotę — limit
+    znaków pilnuje serwer, a wynik mieści się w limicie narzędzia."""
+    from app.services.framework_contract_text import PASSAGE_BUDGET
+    from app.services.jarvis.tools import (
+        MAX_RESULT_CHARS,
+        TOOLS_BY_NAME,
+        render_result,
+    )
+    from app.services.jarvis.web import WEB_SAFE_TOOLS
+
+    text = ("Zamawiający akceptuje Kartę w terminie 5 Dni Roboczych.\n" * 80)[
+        :PASSAGE_BUDGET
+    ]
+    contract = {
+        "id": 40,
+        "name": "Umowa ramowa 2026",
+        "status": "active",
+        "effective_date": "2025-10-16",
+        "expiry_date": "2027-09-30",
+        "has_file": True,
+        "readable": True,
+        "pages": 43,
+        "amendments_count": 0,
+        "note": None,
+    }
+    passage = {
+        "framework_contract_id": 40,
+        "contract_name": "Umowa ramowa 2026",
+        "contract_status": "active",
+        "first_chunk": 12,
+        "last_chunk": 16,
+        "text": text,
+    }
+    search = TOOLS_BY_NAME["search_framework_contracts"]
+    shaped = search.shape(
+        {
+            "query": "akceptacja",
+            "retrieval": "hybrid",
+            "passages": [passage],
+            "contracts": [contract, {**contract, "id": 3, "has_file": False}],
+        },
+        {},
+    )
+    assert shaped["passages"][0]["text"] == text
+    assert len(render_result(shaped)) <= MAX_RESULT_CHARS
+
+    read = TOOLS_BY_NAME["read_framework_contract"]
+    shaped = read.shape(
+        {"contract": contract, "passage": passage, "next_chunk": 17}, {}
+    )
+    assert shaped["passage"]["text"] == text and shaped["next_chunk"] == 17
+    assert len(render_result(shaped)) <= MAX_RESULT_CHARS
+
+    # Treść umów nie może trafić do tury z internetem.
+    assert not {search.name, read.name} & WEB_SAFE_TOOLS
 
 
 def test_long_text_fields_are_not_cut_to_a_teaser():

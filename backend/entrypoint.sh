@@ -896,6 +896,17 @@ except Exception as _screening_form_err:  # noqa: BLE001
     _SCREENING_FORM_CONSTRAINTS = []
     _SCREENING_FORM_DATA = []
 
+# Treść umów ramowych dla Jarvisa (migracja 0426): kolumny stanu odczytu na
+# `client_framework_contracts` i tabela fragmentów — JEDNO źródło z migracją
+# (`app/services/framework_contract_text_schema.py`).
+try:
+    from app.services import framework_contract_text_schema as _fc_text
+
+    _FC_TEXT_DDL = list(_fc_text.ALL_DDL)
+except Exception as _fc_text_err:  # noqa: BLE001
+    print(f"framework contract text DDL unavailable: {_fc_text_err!r}")
+    _FC_TEXT_DDL = []
+
 # Dane z notatek do pól (migracja 0423): wyzwalacz kolejki „Stawki od” na
 # notatkach z wpisem „X/Y” i jednorazowe zakolejkowanie kandydatów — JEDNO
 # źródło z migracją (`app/services/notes_facts_schema.py`). CHECK źródła
@@ -966,6 +977,7 @@ _COLUMN_STATEMENTS = [
     *_RATE_FROM_DDL,
     *_RATE_CHANGE_DDL,
     *_SCREENING_FORM_DDL,
+    *_FC_TEXT_DDL,
     *_NOTES_FACTS_DDL,
     *_MD_PRECISION_DDL,
     *_B2B_DOCUMENTS_DDL,
