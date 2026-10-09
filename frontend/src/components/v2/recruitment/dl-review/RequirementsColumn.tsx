@@ -1,11 +1,14 @@
 "use client";
 
 /**
- * Lewa kolumna przeglądu Delivery Leada (D9, 08.10.2026): wymagania klienta
- * a kandydat, ocena rekrutera z formularza screeningu, ryzyka i historia
- * u klienta. Dane liczy serwer (`GET /api/dl-review/context`) — tu tylko
- * widok. Wymaganie, którego nie da się sprawdzić słowem (zdanie, branża),
- * jest „do oceny”, nigdy „brak”.
+ * „Wymagania i ocena” w przeglądzie Delivery Leada (D9, 08.10.2026):
+ * wymagania klienta a kandydat, ocena rekrutera z formularza screeningu,
+ * ryzyka i historia u klienta. Dane liczy serwer
+ * (`GET /api/dl-review/context`) — tu tylko widok. Wymaganie, którego nie da
+ * się sprawdzić słowem (zdanie, branża), jest „do oceny”, nigdy „brak”.
+ *
+ * Układ D4 (09.10.2026): zakładka obok CV, a w bardzo szerokim panelu
+ * środkowa kolumna 440 px; na wąskim ekranie sekcja pod CV.
  */
 
 import type { ReactNode } from "react";
@@ -68,11 +71,12 @@ export function RequirementsTable({ rows }: { rows: DlReviewRequirement[] }) {
       </p>
     );
   }
-  // Status zaraz po wymaganiu: przy 1280 px kolumna ma ok. 260 px i dalsze
-  // komórki chowają się pod przewijaniem — to, czy wymaganie jest, ma być widać.
+  // Status zaraz po wymaganiu: na telefonie dalsze komórki chowają się pod
+  // przewijaniem — to, czy wymaganie jest, ma być widać. Minimum 24 rem, żeby
+  // tabela mieściła się w środkowej kolumnie 440 px bez przewijania w bok.
   return (
     <div className="relative overflow-x-auto rounded-lg border border-border">
-      <table className="w-full min-w-[26rem] text-left text-xs">
+      <table className="w-full min-w-[24rem] text-left text-xs">
         <thead className="bg-muted/40 text-[11px] text-muted-foreground">
           <tr>
             <th scope="col" className="px-2 py-1.5 font-medium">Wymaganie</th>

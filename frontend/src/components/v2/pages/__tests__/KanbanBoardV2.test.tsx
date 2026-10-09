@@ -133,9 +133,20 @@ vi.mock("@/components/v2/person/PersonWorkbenchTabs", async (importOriginal) => 
   const actual = await importOriginal<typeof import("@/components/v2/person/PersonWorkbenchTabs")>();
   return {
     ...actual,
-    PersonWorkbenchTabs: ({ section, row }: { section: string; row: { candidateId: number } }) => (
+    PersonWorkbenchTabs: ({
+      section,
+      row,
+      onSectionChange,
+    }: {
+      section: string;
+      row: { candidateId: number };
+      onSectionChange: (section: string) => void;
+    }) => (
       <div data-testid="person-workbench-stub" data-section={section} data-candidate={row.candidateId}>
         <input aria-label="pole warsztatu" defaultValue="" />
+        <button type="button" onClick={() => onSectionChange("contract")}>
+          zakładka umowa
+        </button>
       </div>
     ),
   };
@@ -902,6 +913,9 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     expect(panel).toContainElement(review);
     expect(review).toHaveAttribute("data-layout", "panel");
     expect(panel).toHaveAttribute("data-wide");
+    // Przegląd ma cały panel dla siebie (D4) — bez strefy podglądu screeningu.
+    expect(panel).toHaveAttribute("data-size", "review");
+    expect(screen.getByTestId("person-panel-side")).not.toBeVisible();
     expect(screen.getByTestId("person-panel-dock")).not.toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: "zamknij przegląd" }));
     await waitFor(() => expect(screen.queryByTestId("dl-review-panel")).toBeNull());
@@ -2324,8 +2338,9 @@ describe("KanbanBoardV2 — „Rozwiń”: pełne narzędzia w tym samym panelu 
     await userEvent.click(within(panel).getByRole("button", { name: "Rozwiń" }));
     expect(panel).toHaveAttribute("data-wide");
     const tools = screen.getByTestId("person-workbench-stub");
-    // „Zweryfikowany” otwiera zakładkę CV.
+    // „Zweryfikowany” otwiera zakładkę CV — z dużym podglądem po lewej (D6).
     expect(tools).toHaveAttribute("data-section", "cv");
+    expect(panel).toHaveAttribute("data-size", "split");
     expect(screen.getByTestId("dock-sections")).not.toBeVisible();
     await userEvent.type(screen.getByLabelText("pole warsztatu"), "215 zł/h");
 
@@ -2343,6 +2358,12 @@ describe("KanbanBoardV2 — „Rozwiń”: pełne narzędzia w tym samym panelu 
     const panel = await screen.findByRole("complementary", { name: "Panel osoby" });
     await waitFor(() => expect(panel).toHaveAttribute("data-wide"));
     expect(screen.getByTestId("person-workbench-stub")).toHaveAttribute("data-section", "interviews");
+    // Rozmowy też mają podgląd po lewej (D6); zakładka bez podglądu (umowa)
+    // wraca do panelu 760 px, żeby nie zasłaniać Tablicy pustą strefą.
+    expect(panel).toHaveAttribute("data-size", "split");
+    await userEvent.click(screen.getByRole("button", { name: "zakładka umowa" }));
+    await waitFor(() => expect(panel).toHaveAttribute("data-size", "wide"));
+    expect(screen.getByTestId("person-panel-side")).not.toBeVisible();
   });
 
   it.each([

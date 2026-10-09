@@ -105,6 +105,16 @@ const CASES: Array<{
       "Przeglądarka PDF i DOCX wraca do chunku Tablicy i pulpitu — przegląd " +
       "DL importuje się statycznie w obu miejscach.",
   },
+  {
+    // D6 (09.10.2026): podgląd w lewej strefie panelu dla „CV do klienta” i „Rozmów”.
+    label: "Narzędzia osoby → podgląd w lewej strefie panelu",
+    file: "components/v2/person/PersonSidePreview.tsx",
+    heavy: /^pdfjs-dist|^docx-preview|CandidatePreviewPane$|FilePreviewModal$/,
+    lazyModule: "@/components/v2/screening-form/CandidatePreviewPane",
+    why:
+      "`PersonWorkbenchTabs` importuje ten plik statycznie — statyczny import " +
+      "podglądu wciągnąłby pdf.js i `docx-preview` do chunku Tablicy.",
+  },
 ];
 
 it("profil kandydata nie importuje statycznie edytorów TipTapa", () => {

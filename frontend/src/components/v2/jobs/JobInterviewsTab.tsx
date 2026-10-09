@@ -32,6 +32,7 @@ import {
   Users,
 } from "lucide-react";
 
+import { usePersonPanelSideActive } from "@/components/v2/person/PersonPanelSide";
 import type { WorkbenchPanelProps } from "@/components/v2/recruitment/types";
 import {
   extractErrorMsg,
@@ -145,6 +146,7 @@ export function JobInterviewsTab({
     name: string;
   } | null>(null);
   const [showOriginalCv, setShowOriginalCv] = useState(false);
+  const previewInSide = usePersonPanelSideActive();
   const [prepInviteOpen, setPrepInviteOpen] = useState(false);
   const [pendingTerminal, setPendingTerminal] = useState<{
     col: KanbanColumn;
@@ -511,14 +513,17 @@ export function JobInterviewsTab({
       <div className="flex min-w-0 flex-col gap-3">
         {moveCore.dialogs}
         <div className="flex flex-wrap gap-1.5">
-          <Button
-            size="sm"
-            variant="outline"
-            title="Podgląd CV oryginalnego z momentu zgłoszenia (snapshot etapu)"
-            onClick={() => setShowOriginalCv(true)}
-          >
-            <FileText className="h-3.5 w-3.5" /> Pokaż CV obok
-          </Button>
+          {/* W szerokim oknie CV stoi już w lewej strefie panelu osoby. */}
+          {!previewInSide ? (
+            <Button
+              size="sm"
+              variant="outline"
+              title="Podgląd CV oryginalnego z momentu zgłoszenia (snapshot etapu)"
+              onClick={() => setShowOriginalCv(true)}
+            >
+              <FileText className="h-3.5 w-3.5" /> Pokaż CV obok
+            </Button>
+          ) : null}
           <Button
             size="sm"
             variant="outline"

@@ -8,7 +8,8 @@ import { cn } from "@/lib/utils";
 
 export interface TabbedNavItem {
   value: string;
-  label: string;
+  /** Zwykle tekst; węzeł pozwala skrócić etykietę w wąskim kontenerze. */
+  label: React.ReactNode;
   count?: number;
   icon?: LucideIcon;
 }

@@ -1,7 +1,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Układ przeglądu zależy od zmierzonej szerokości, której jsdom nie liczy:
+// 0 = jedna kolumna (wszystkie testy poza blokiem „układ D4”).
+const layout = vi.hoisted(() => ({ width: 0 }));
+vi.mock("@/lib/use-element-width", () => ({
+  useElementWidth: () => layout.width,
+}));
 
 const get = vi.fn();
 const post = vi.fn();
@@ -51,7 +58,7 @@ vi.mock("@/components/v2/recruitment/PanelSavedViews", () => ({
   ),
 }));
 
-import { DlReviewPanel } from "@/components/v2/recruitment/DlReviewPanel";
+import { DlReviewPanel, dlReviewMode } from "@/components/v2/recruitment/DlReviewPanel";
 import type { BoardTaskRow } from "@/lib/api/boardTasks";
 import { useAuthStore } from "@/store/auth";
 import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
@@ -659,5 +666,153 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
     renderPanel(task({ cv_stage_id: 55 }));
     expect(await screen.findByText("Dołącz zgodę do tego CV.")).toBeTruthy();
     expect(renderDocxSafely).not.toHaveBeenCalled();
+  });
+
+  // D4 (09.10.2026): CV pierwsze i największe po lewej, decyzja w stałej
+  // kolumnie po prawej; „Wymagania i ocena” jako zakładka albo środkowa kolumna.
+  describe("układ D4 — z szerokości przeglądu", () => {
+    const CELLS = [
+      "dl-review-cv-toolbar",
+      "dl-review-cv",
+      "dl-review-requirements-cell",
+      "dl-review-decision",
+    ];
+    const cells = () =>
+      Array.from(screen.getByTestId("dl-review-cv").parentElement!.children).map((cell) =>
+        cell.getAttribute("data-testid"),
+      );
+
+    afterEach(() => {
+      layout.width = 0;
+    });
+
+    it("progi: poniżej 1100 px jedna kolumna, do 1639 px zakładki, szerzej trzy kolumny", () => {
+      expect(dlReviewMode(0)).toBe("stack");
+      expect(dlReviewMode(1099)).toBe("stack");
+      expect(dlReviewMode(1100)).toBe("tabs");
+      expect(dlReviewMode(1639)).toBe("tabs");
+      expect(dlReviewMode(1640)).toBe("columns");
+    });
+
+    it("wąsko: CV, wymagania i decyzja jedno pod drugim — bez skrótu i trzeciej pigułki", async () => {
+      mockApi();
+      renderPanel();
+      expect(cells()).toEqual(CELLS);
+      expect(screen.getByTestId("dl-review-cv")).not.toHaveAttribute("hidden");
+      expect(screen.getByTestId("dl-review-requirements-cell")).not.toHaveAttribute("hidden");
+      expect(screen.queryByTestId("dl-review-requirements-summary")).toBeNull();
+      expect(screen.queryByRole("button", { name: /Wymagania i ocena/ })).toBeNull();
+      expect(screen.getByTestId("dl-review-actions").className).not.toContain("sticky");
+      await waitFor(() => expect(renderDocxSafely).toHaveBeenCalledTimes(1));
+    });
+
+    it("zakładki: skrót wymagań z liczbami z serwera; „Pokaż” zamienia CV na wymagania", async () => {
+      layout.width = 1280;
+      mockApi();
+      renderPanel(task({ return_stage_def_id: 302 }));
+      expect(cells()).toEqual(CELLS);
+      const summary = screen.getByTestId("dl-review-requirements-summary");
+      // 1/2 liczy serwer; „do oceny” (mile widziane) nie jest brakiem.
+      await waitFor(() => expect(summary).toHaveTextContent("Wymagania 1/2 · brak: Oracle"));
+      expect(summary).toHaveTextContent("Ocena rekrutera: Pasuje");
+      const pill = screen.getByRole("button", { name: /Wymagania i ocena/ });
+      expect(pill).toHaveTextContent("1 brak");
+      expect(pill).toHaveAttribute("aria-pressed", "false");
+      const cv = screen.getByTestId("dl-review-cv");
+      const requirements = screen.getByTestId("dl-review-requirements-cell");
+      expect(cv).not.toHaveAttribute("hidden");
+      expect(requirements).toHaveAttribute("hidden");
+      // Trzy decyzje, każda raz, w przyklejonej stopce kolumny.
+      const actions = screen.getByTestId("dl-review-actions");
+      expect(actions.className).toContain("sticky");
+      expect(within(actions).getByRole("button", { name: /Akceptuj/ })).toBe(
+        screen.getByRole("button", { name: /Akceptuj/ }),
+      );
+      expect(within(actions).getByRole("button", { name: /Wróć do poprawy…/ })).toBeInTheDocument();
+      expect(within(actions).getByRole("button", { name: /^Odrzuć…/ })).toBeInTheDocument();
+
+      await userEvent.click(within(summary).getByRole("button", { name: "Pokaż wymagania i ocenę" }));
+      expect(requirements).not.toHaveAttribute("hidden");
+      expect(cv).toHaveAttribute("hidden");
+      expect(pill).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByRole("button", { name: "CV firmowe" })).toHaveAttribute("aria-pressed", "false");
+      expect(within(requirements).getByText("1/2 krytycznych i musi mieć")).toBeTruthy();
+
+      // Powrót do CV: ta sama komórka, plik nie pobiera się drugi raz.
+      await userEvent.click(screen.getByRole("button", { name: "CV firmowe" }));
+      expect(screen.getByTestId("dl-review-cv")).toBe(cv);
+      expect(cv).not.toHaveAttribute("hidden");
+      expect(requirements).toHaveAttribute("hidden");
+      await waitFor(() => expect(renderDocxSafely).toHaveBeenCalledTimes(1));
+    });
+
+    it("zakładki: awaria kontekstu — skrót bez liczb, decyzja nadal możliwa", async () => {
+      layout.width = 1280;
+      mockApi({ context: null });
+      renderPanel();
+      const summary = screen.getByTestId("dl-review-requirements-summary");
+      await waitFor(() => expect(summary).toHaveTextContent("nie udało się wczytać porównania"));
+      expect(summary).not.toHaveTextContent(/\d\/\d/);
+      expect(screen.getByRole("button", { name: /Wymagania i ocena/ })).not.toHaveTextContent(/brak/);
+      await userEvent.type(screen.getByLabelText("Stawka do klienta"), "180");
+      expect(screen.getByRole("button", { name: /Akceptuj/ })).toBeEnabled();
+    });
+
+    it("zakładki: formularz odrzucenia przewija się w pole widzenia", async () => {
+      layout.width = 1280;
+      mockApi();
+      const scrollIntoView = vi.spyOn(Element.prototype, "scrollIntoView");
+      try {
+        renderPanel();
+        await userEvent.click(screen.getByRole("button", { name: /^Odrzuć…/ }));
+        const group = screen.getByRole("group", { name: "Odrzucenie przez DL" });
+        await waitFor(() => expect(scrollIntoView.mock.instances).toContain(group));
+        expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
+      } finally {
+        scrollIntoView.mockRestore();
+      }
+    });
+
+    it("trzy kolumny: wymagania obok CV — bez skrótu i bez trzeciej pigułki", async () => {
+      layout.width = 1700;
+      mockApi();
+      renderPanel();
+      expect(cells()).toEqual(CELLS);
+      const requirements = screen.getByTestId("dl-review-requirements-cell");
+      expect(requirements).not.toHaveAttribute("hidden");
+      expect(screen.getByTestId("dl-review-cv")).not.toHaveAttribute("hidden");
+      expect(within(requirements).getByRole("heading", { name: "Wymagania i ocena" })).toBeInTheDocument();
+      expect(await within(requirements).findByText("1/2 krytycznych i musi mieć")).toBeTruthy();
+      expect(screen.queryByTestId("dl-review-requirements-summary")).toBeNull();
+      expect(screen.queryByRole("button", { name: /Wymagania i ocena/ })).toBeNull();
+      expect(screen.getByRole("button", { name: /Akceptuj/ })).toBeInTheDocument();
+      expect(screen.getByTestId("dl-review-actions").className).toContain("sticky");
+      await waitFor(() => expect(renderDocxSafely).toHaveBeenCalledTimes(1));
+    });
+
+    it("zmiana szerokości nie montuje CV od nowa — plik pobiera się raz", async () => {
+      layout.width = 1280;
+      mockApi();
+      const row = task();
+      const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const tree = () => (
+        <QueryClientProvider client={qc}>
+          <DlReviewPanel task={row} open onOpenChange={() => undefined} />
+        </QueryClientProvider>
+      );
+      const view = render(tree());
+      await waitFor(() => expect(renderDocxSafely).toHaveBeenCalledTimes(1));
+      const cv = screen.getByTestId("dl-review-cv");
+      const host = screen.getByTestId("dl-review-cv-host");
+      for (const width of [1700, 800, 1280]) {
+        layout.width = width;
+        view.rerender(tree());
+        expect(screen.getByTestId("dl-review-cv")).toBe(cv);
+        expect(screen.getByTestId("dl-review-cv-host")).toBe(host);
+        expect(cells()).toEqual(CELLS);
+      }
+      expect(renderDocxSafely).toHaveBeenCalledTimes(1);
+      expect(get.mock.calls.filter(([url]) => url === "/api/cv-generator/generated/77/docx")).toHaveLength(1);
+    });
   });
 });

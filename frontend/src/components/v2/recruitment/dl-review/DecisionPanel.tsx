@@ -14,10 +14,15 @@
  *
  * Waluta stawki do klienta to wybór (domyślnie PLN), nie stała w kodzie.
  * Przy walucie innej niż PLN marży nie liczymy — mówimy to zdaniem.
+ *
+ * Układ D4 (09.10.2026): obok CV kolumna ma stałą szerokość i własne
+ * przewijanie, a przyciski decyzji stoją w przyklejonej stopce
+ * (`stickyActions`) — widać je bez przewijania. Gdy wymagania są zakładką
+ * obok CV, na górze kolumny stoi ich skrót z „Pokaż” (`requirementsSummary`).
  */
 
 import type { ReactNode } from "react";
-import { AlertTriangle, Loader2, Send, Undo2, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowRight, Loader2, Send, Undo2, XCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import type { RateUnit } from "@/lib/api";
@@ -56,6 +61,71 @@ export interface DecisionPanelProps {
   /** Ostrzeżenia, formularz odrzucenia, uwaga dla rekrutera — nad przyciskami. */
   children?: ReactNode;
   footerNote?: ReactNode;
+  /**
+   * Kolumna obok CV: własne przewijanie i przyciski w przyklejonej stopce.
+   * Stopka dziedziczy tło — element wyżej musi je mieć (`bg-*`), inaczej
+   * przewijana treść prześwituje pod przyciskami.
+   */
+  stickyActions?: boolean;
+  /**
+   * Wymagania są zakładką obok CV: skrót na górze kolumny („Wymagania 3/4,
+   * brak: Oracle”) z „Pokaż”. `missing` — nazwy brakujących wymagań.
+   */
+  requirementsSummary?: { missing: string[]; onShow: () => void } | null;
+  className?: string;
+}
+
+// Ile nazw braków mieści się w skrócie, zanim zaczyna zasłaniać decyzję.
+const SUMMARY_MISSING_MAX = 3;
+
+function RequirementsSummary({
+  context,
+  loading,
+  missing,
+  onShow,
+}: {
+  context: DlReviewContext | undefined;
+  loading: boolean;
+  missing: string[];
+  onShow: () => void;
+}) {
+  const fit = context?.assessment.overall_fit_label ?? null;
+  return (
+    <div
+      className="flex items-start gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs"
+      data-testid="dl-review-requirements-summary"
+    >
+      <div className="min-w-0 flex-1 space-y-0.5">
+        <p>
+          {/* Liczby z serwera (krytyczne i „musi mieć”) — tu ich nie przeliczamy. */}
+          <span className="font-semibold text-foreground">
+            Wymagania{context && context.requirements_total > 0 ? ` ${context.requirements_met}/${context.requirements_total}` : ""}
+          </span>
+          {missing.length > 0 ? (
+            <span className="text-destructive [overflow-wrap:anywhere]">
+              {" · brak: "}
+              {missing.slice(0, SUMMARY_MISSING_MAX).join(", ")}
+              {missing.length > SUMMARY_MISSING_MAX ? ` i ${missing.length - SUMMARY_MISSING_MAX} więcej` : ""}
+            </span>
+          ) : null}
+          {!context ? (
+            <span className="text-muted-foreground">
+              {loading ? " · porównuję z kandydatem…" : " · nie udało się wczytać porównania"}
+            </span>
+          ) : null}
+        </p>
+        {fit ? <p className="text-muted-foreground">Ocena rekrutera: {fit}</p> : null}
+      </div>
+      <button
+        type="button"
+        aria-label="Pokaż wymagania i ocenę"
+        onClick={onShow}
+        className="inline-flex shrink-0 items-center gap-1 rounded font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        Pokaż <ArrowRight className="size-3" aria-hidden />
+      </button>
+    </div>
+  );
 }
 
 function rateLabel(rate: DlReviewRate | null | undefined): string | null {
@@ -130,6 +200,9 @@ export function DecisionPanel({
   facts,
   children,
   footerNote,
+  stickyActions = false,
+  requirementsSummary = null,
+  className,
 }: DecisionPanelProps) {
   const candidateRate: DlReviewRate | null =
     context?.candidate_rate ??
@@ -154,7 +227,23 @@ export function DecisionPanel({
   const budget = budgetText(context?.budget);
 
   return (
-    <section aria-label="Decyzja" className="flex min-w-0 flex-col gap-4" data-testid="dl-review-decision">
+    <section
+      aria-label="Decyzja"
+      className={cn(
+        "flex min-w-0 flex-col gap-4",
+        stickyActions && "relative min-h-0 overflow-y-auto bg-inherit px-4 pt-4",
+        className,
+      )}
+      data-testid="dl-review-decision"
+    >
+      {requirementsSummary ? (
+        <RequirementsSummary
+          context={context}
+          loading={contextLoading}
+          missing={requirementsSummary.missing}
+          onShow={requirementsSummary.onShow}
+        />
+      ) : null}
       {facts}
       <dl className="space-y-1.5" data-testid="dl-review-facts">
         {facts ? null : (
@@ -324,25 +413,42 @@ export function DecisionPanel({
 
       {children}
 
-      <div className="flex flex-wrap justify-end gap-2">
-        {canReturn ? (
-          <Button variant="outline" disabled={busy !== null} onClick={onReturn}>
-            {busy === "return" ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Undo2 className="size-4" />}
-            Wróć do poprawy…
+      {/* Ta sama stopka w każdym układzie (przyciski nie tracą fokusu przy
+          zmianie szerokości). Przyklejona: przy 460 px trzy przyciski nie
+          mieszczą się w jednej linii — dwa pomocnicze dzielą wiersz, główny
+          ma własny, na całą szerokość. */}
+      <div
+        className={
+          stickyActions
+            ? "sticky bottom-0 z-10 -mx-4 mt-auto flex flex-col gap-2 border-t border-border bg-inherit px-4 py-3"
+            : "flex flex-col gap-4"
+        }
+        data-testid="dl-review-actions"
+      >
+        <div className={stickyActions ? "flex flex-col gap-2" : "flex flex-wrap justify-end gap-2"}>
+          {canReturn || canReject ? (
+            <div className={stickyActions ? "flex gap-2 *:flex-1" : "contents"}>
+              {canReturn ? (
+                <Button variant="outline" disabled={busy !== null} onClick={onReturn}>
+                  {busy === "return" ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Undo2 className="size-4" />}
+                  Wróć do poprawy…
+                </Button>
+              ) : null}
+              {canReject ? (
+                <Button variant="outline" onClick={onReject} disabled={busy !== null}>
+                  <XCircle className="size-4" />
+                  Odrzuć…
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+          <Button disabled={!sendReady || busy !== null} onClick={onAccept}>
+            {busy === "send" ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Send className="size-4" />}
+            {acceptLabel(rateRaw, rateUnit, currency)}
           </Button>
-        ) : null}
-        {canReject ? (
-          <Button variant="outline" onClick={onReject} disabled={busy !== null}>
-            <XCircle className="size-4" />
-            Odrzuć…
-          </Button>
-        ) : null}
-        <Button disabled={!sendReady || busy !== null} onClick={onAccept}>
-          {busy === "send" ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Send className="size-4" />}
-          {acceptLabel(rateRaw, rateUnit, currency)}
-        </Button>
+        </div>
+        {footerNote}
       </div>
-      {footerNote}
     </section>
   );
 }

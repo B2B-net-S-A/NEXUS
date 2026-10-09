@@ -7,7 +7,7 @@
  * które mówią, jakie propsy dostały.
  */
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ComponentProps } from "react";
@@ -84,6 +84,7 @@ vi.mock("@/components/v2/screening-form/ScreeningFormHistory", () => ({
 }));
 
 import { ScreeningWorkbench } from "@/components/v2/jobs/ScreeningWorkbench";
+import { PersonPanelSideProvider, PersonPanelSideZone } from "@/components/v2/person/PersonPanelSide";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 
 function item(overrides: Partial<KanbanItem> = {}): KanbanItem {
@@ -325,5 +326,48 @@ describe("ScreeningWorkbench — stany i nagłówek", () => {
     await user.click(toggle);
     expect(screen.getByRole("button", { name: "Schowaj podgląd" })).toHaveAttribute("aria-expanded", "true");
     await waitFor(() => expect(screen.getByTestId("screening-preview-column").className).not.toMatch(/(^| )hidden( |$)/));
+  });
+  it("w szerokim oknie podgląd stoi w lewej strefie panelu osoby, bez przycisku", async () => {
+    const original = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: true,
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })) as unknown as typeof window.matchMedia;
+    try {
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      render(
+        <QueryClientProvider client={client}>
+          <PersonPanelSideProvider>
+            <PersonPanelSideZone />
+            <div data-testid="dock-column">
+              <ScreeningWorkbench
+                jobId={7}
+                jobBudgetHourly={100}
+                columns={board()}
+                isLoading={false}
+                isError={false}
+                error={null}
+                isSuccess
+                onRetry={vi.fn()}
+                onMoved={vi.fn()}
+                readOnly={false}
+                onTabChange={vi.fn()}
+                focusCandidateId={112}
+              />
+            </div>
+          </PersonPanelSideProvider>
+        </QueryClientProvider>,
+      );
+      await screen.findByTestId("full-form");
+      const zone = screen.getByTestId("person-panel-side");
+      expect(await within(zone).findByTestId("preview-pane")).toHaveTextContent("podgląd: requirements");
+      expect(within(screen.getByTestId("dock-column")).queryByTestId("preview-pane")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Pokaż CV i wymagania" })).toBeNull();
+      expect(screen.queryByTestId("screening-preview-column")).toBeNull();
+    } finally {
+      window.matchMedia = original;
+    }
   });
 });

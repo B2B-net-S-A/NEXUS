@@ -949,19 +949,30 @@ function JobDetailHarness() {
       <ToastProvider>
         <TooltipProvider>
           <div className="app-shell-root flex h-dvh overflow-hidden bg-background text-foreground">
-            {/* Menu: 240 px od 1280 px (domyślne przypięcie), niżej szyna 60 px. */}
+            {/* Menu: 240 px od 1280 px (domyślne przypięcie), niżej szyna 60 px.
+                Jak w `SidebarV2`: szyna jest `absolute z-40` z atrybutem
+                `data-app-sidebar` — panel osoby na całą szerokość okna ma ją
+                zakryć (reguła w `globals.css`), a harness to sprawdza. */}
             <div
               aria-hidden="true"
               className={
                 railOnly
-                  ? "hidden h-full w-[60px] shrink-0 border-r border-border bg-sidebar md:block"
-                  : "hidden h-full w-[60px] shrink-0 border-r border-border bg-sidebar md:block xl:w-60"
+                  ? "relative hidden h-full w-[60px] shrink-0 md:block"
+                  : "relative hidden h-full w-[60px] shrink-0 md:block xl:w-60"
               }
-            />
+            >
+              <div
+                data-app-sidebar=""
+                data-testid="harness-sidebar"
+                className="absolute inset-y-0 left-0 z-40 w-full border-r border-border bg-sidebar"
+              />
+            </div>
             <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
               <div aria-hidden="true" className="h-12 shrink-0 border-b border-border" />
               <main className="relative flex-1 overflow-y-auto" data-testid="harness-main">
-                <div className="p-4 pb-24 md:p-6">
+                {/* `animate-fadeIn` jak w powłoce: tworzy kontekst warstw,
+                    w którym siedzi panel osoby (`z-30`). */}
+                <div className="p-4 pb-24 md:p-6 animate-fadeIn">
                   <div className="flex items-start gap-4 lg:gap-6">
                     {/* Zwinięta szyna „Otwarte karty” (JobTabsRail, w-10). */}
                     <div

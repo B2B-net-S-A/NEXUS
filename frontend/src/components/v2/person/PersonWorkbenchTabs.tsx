@@ -16,12 +16,15 @@
 
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 
+import { ClientQuestions } from "@/components/calendar/cycle/ClientQuestions";
 import { TabbedNav } from "@/components/ds";
 import { AgreementPanelTab } from "@/components/v2/b2b-generator/AgreementPanelTab";
 import { JobContractTab } from "@/components/v2/jobs/JobContractTab";
 import type { JobDetailTab } from "@/components/v2/jobs/JobDetailCompactHeader";
 import { JobInterviewsTab } from "@/components/v2/jobs/JobInterviewsTab";
 import { JobNotesBlock, useJobNotes } from "@/components/v2/jobs/workbench-chrome";
+import { PersonPanelSideSection } from "@/components/v2/person/PersonPanelSide";
+import { PersonSidePreview } from "@/components/v2/person/PersonSidePreview";
 import { DopasowanieTab } from "@/components/v2/pages/DopasowanieTab";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { CvHandoffWorkbench, ScreeningWorkbench } from "@/components/v2/recruitment/panel-workbenches";
@@ -308,51 +311,75 @@ export function PersonWorkbenchTabs({
         );
       case "cv":
         return (
-          // Karta „CV do klienta” (gotowe / generuje się / brak / powód
-          // pominięcia auto-CV) jest w warsztacie; po wysyłce — podgląd.
-          <CvHandoffWorkbench
-            layout="panel"
-            focusCandidateId={candidateId}
-            jobId={jobId}
-            jobTitle={ctx.jobTitle}
-            clientId={ctx.clientId}
-            columns={columns}
-            isLoading={kanban.isLoading}
-            isError={kanban.isError}
-            error={kanban.error}
-            isSuccess={kanban.isSuccess}
-            onRetry={kanban.refetch}
-            onMoved={ctx.onMoved}
-            readOnly={readOnly}
-            canWriteClientRate={canWriteClientRate}
-            cproEnabled={ctx.cproEnabled ?? false}
-            budgetHourly={ctx.budgetHourly}
-            panelFallback={
-              <SavedCvView
-                item={item}
-                stageLabel={row.stageLabel}
-                candidateName={row.fullName}
-                jobTitle={jobLabel}
-                jobId={jobId}
-              />
-            }
-          />
+          <>
+            {/* D6 (09.10.2026): po lewej duży podgląd — CV firmowe, gdy już
+                jest, oryginał, wymagania i opis „po ludzku”. */}
+            <PersonSidePreview
+              candidateId={candidateId}
+              jobId={jobId}
+              stageId={item.id}
+              budgetHourly={ctx.budgetHourly}
+            />
+            {/* Karta „CV do klienta” (gotowe / generuje się / brak / powód
+                pominięcia auto-CV) jest w warsztacie; po wysyłce — podgląd. */}
+            <CvHandoffWorkbench
+              layout="panel"
+              focusCandidateId={candidateId}
+              jobId={jobId}
+              jobTitle={ctx.jobTitle}
+              clientId={ctx.clientId}
+              columns={columns}
+              isLoading={kanban.isLoading}
+              isError={kanban.isError}
+              error={kanban.error}
+              isSuccess={kanban.isSuccess}
+              onRetry={kanban.refetch}
+              onMoved={ctx.onMoved}
+              readOnly={readOnly}
+              canWriteClientRate={canWriteClientRate}
+              cproEnabled={ctx.cproEnabled ?? false}
+              budgetHourly={ctx.budgetHourly}
+              panelFallback={
+                <SavedCvView
+                  item={item}
+                  stageLabel={row.stageLabel}
+                  candidateName={row.fullName}
+                  jobTitle={jobLabel}
+                  jobId={jobId}
+                />
+              }
+            />
+          </>
         );
       case "interviews":
         return (
-          <JobInterviewsTab
-            layout="panel"
-            focusCandidateId={candidateId}
-            jobId={jobId}
-            jobTitle={ctx.jobTitle}
-            columns={columns}
-            columnsLoading={kanban.isLoading}
-            columnsError={kanban.isError ? (kanban.error ?? true) : undefined}
-            columnsSuccess={kanban.isSuccess}
-            onColumnsRetry={kanban.refetch}
-            readOnly={readOnly}
-            budgetHourly={ctx.budgetHourly}
-          />
+          <>
+            {/* D6: przy rozmowach po lewej CV i pytania, które ten klient
+                zadawał poprzednim kandydatom. */}
+            <PersonSidePreview
+              candidateId={candidateId}
+              jobId={jobId}
+              stageId={item.id}
+              budgetHourly={ctx.budgetHourly}
+              extraTab={{
+                label: "Pytania klienta",
+                content: <ClientQuestions jobId={jobId} clientName={ctx.clientName ?? null} roomy />,
+              }}
+            />
+            <JobInterviewsTab
+              layout="panel"
+              focusCandidateId={candidateId}
+              jobId={jobId}
+              jobTitle={ctx.jobTitle}
+              columns={columns}
+              columnsLoading={kanban.isLoading}
+              columnsError={kanban.isError ? (kanban.error ?? true) : undefined}
+              columnsSuccess={kanban.isSuccess}
+              onColumnsRetry={kanban.refetch}
+              readOnly={readOnly}
+              budgetHourly={ctx.budgetHourly}
+            />
+          </>
         );
       case "contract":
         return (
@@ -407,10 +434,22 @@ export function PersonWorkbenchTabs({
   };
 
   return (
-    <div className="space-y-3" data-testid="person-workbench">
+    <div className="@container space-y-3" data-testid="person-workbench">
       <TabbedNav
         ariaLabel="Narzędzia osoby"
-        tabs={PERSON_PANEL_SECTIONS.map(({ value, label }) => ({ value, label }))}
+        // W kolumnie 460 px sześć pełnych etykiet łamało się w drugi rząd —
+        // najdłuższa skraca się tam do „Notatki”.
+        tabs={PERSON_PANEL_SECTIONS.map(({ value, label }) => ({
+          value,
+          label:
+            value === "notes" ? (
+              <>
+                Notatki <span className="@max-md:hidden">i historia</span>
+              </>
+            ) : (
+              label
+            ),
+        }))}
         value={section}
         onValueChange={change}
         overflow="wrap"
@@ -426,7 +465,9 @@ export function PersonWorkbenchTabs({
           hidden={value !== section}
           data-section={value}
         >
-          {renderSection(value)}
+          {/* Podgląd sekcji stoi w lewej strefie panelu, poza tym `div` —
+              niewidoczna sekcja musi schować go sama. */}
+          <PersonPanelSideSection active={value === section}>{renderSection(value)}</PersonPanelSideSection>
         </div>
       ))}
     </div>

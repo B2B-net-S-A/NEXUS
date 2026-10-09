@@ -2,16 +2,23 @@
 
 /**
  * Obudowa panelu osoby na Tablicy (jeden panel osoby, 04.10.2026): jedno
- * `aside` po prawej w trzech szerokościach:
+ * `aside` po prawej w czterech rozmiarach:
  * - `dock` (380 px) — dok osoby,
- * - `wide` (760 px) — przegląd Delivery Leada przed wysłaniem CV i rozwinięte
- *   narzędzia osoby,
- * - `split` (do 1200 px, 0424, 07.10.2026) — formularz screeningu albo profil
- *   przed telefonem po lewej i podgląd CV / wymagań po prawej (D3: „od razu
- *   z boku”).
- * Zmiana trybu zmienia SZEROKOŚĆ tego samego panelu, więc to, co jest
- * w środku (niewysłana notatka, otwarte sekcje, wpisany formularz), nie jest
- * odmontowywane.
+ * - `wide` (760 px) — rozwinięte narzędzia osoby bez podglądu (umowa,
+ *   dopasowanie, notatki),
+ * - `split` (cała szerokość okna, 09.10.2026) — po LEWEJ duża strefa podglądu
+ *   (CV, wymagania, „po ludzku”) na całą wysokość, po prawej stała kolumna
+ *   z dokiem: 460 px, od 1536 px szerokości okna 520 px. Poniżej 1024 px
+ *   strefy nie ma — warsztat pokazuje podgląd w miejscu,
+ * - `review` (cała szerokość okna) — przegląd Delivery Leada, który sam
+ *   układa swoje kolumny.
+ * Zmiana trybu zmienia SZEROKOŚĆ tego samego panelu, a dzieci stoją zawsze
+ * w tym samym miejscu drzewa, więc to, co jest w środku (niewysłana notatka,
+ * otwarte sekcje, wpisany formularz), nie jest odmontowywane.
+ *
+ * `split` i `review` zakrywają też menu boczne (`data-cover` + reguła
+ * w `globals.css`): menu ma `z-40`, a panel żyje w kontekście warstw treści
+ * strony, więc samym `z-index` panelu nie da się go przykryć.
  *
  * Podkład: w wąskim trybie tylko na tablecie (768–1023 px), gdzie dok nakrywa
  * planszę; w szerokich — na każdej szerokości, jak dawne okno przeglądu.
@@ -20,15 +27,20 @@
 
 import type { CSSProperties, ReactNode } from "react";
 
+import { PersonPanelSideProvider, PersonPanelSideZone } from "@/components/v2/person/PersonPanelSide";
 import { cn } from "@/lib/utils";
 
-export type PersonPanelSize = "dock" | "wide" | "split";
+export type PersonPanelSize = "dock" | "wide" | "split" | "review";
 
 const SIZE_CLASS: Record<PersonPanelSize, string> = {
   dock: "max-w-[380px]",
   wide: "max-w-[760px]",
-  split: "max-w-[min(1200px,100vw)]",
+  split: "max-w-none",
+  review: "max-w-none",
 };
+
+/** Rozmiary na całą szerokość okna — zakrywają planszę i menu boczne. */
+const COVER_SIZES: ReadonlySet<PersonPanelSize> = new Set(["split", "review"]);
 
 export interface PersonPanelShellProps {
   size: PersonPanelSize;
@@ -49,8 +61,9 @@ export function PersonPanelShell({
 }: PersonPanelShellProps) {
   const top: CSSProperties | undefined = chromeTop != null ? { top: chromeTop } : undefined;
   const wide = size !== "dock";
+  const split = size === "split";
   return (
-    <>
+    <PersonPanelSideProvider>
       {!hidden ? (
         <div
           aria-hidden="true"
@@ -68,17 +81,27 @@ export function PersonPanelShell({
         data-help="jobs.person.dock"
         data-person-panel=""
         data-wide={wide ? "" : undefined}
+        data-cover={COVER_SIZES.has(size) ? "" : undefined}
         data-size={size}
         hidden={hidden}
         inert={hidden || undefined}
         className={cn(
-          "fixed right-0 top-12 bottom-0 z-30 flex w-full flex-col border-l border-border bg-background shadow-xl",
+          "fixed right-0 top-12 bottom-0 z-30 flex w-full border-l border-border bg-background shadow-xl",
           SIZE_CLASS[size],
         )}
         style={top}
       >
-        {children}
+        <PersonPanelSideZone hidden={!split} />
+        <div
+          data-testid="person-panel-column"
+          className={cn(
+            "flex min-h-0 min-w-0 flex-1 flex-col",
+            split && "lg:w-[460px] lg:flex-none 2xl:w-[520px]",
+          )}
+        >
+          {children}
+        </div>
       </aside>
-    </>
+    </PersonPanelSideProvider>
   );
 }

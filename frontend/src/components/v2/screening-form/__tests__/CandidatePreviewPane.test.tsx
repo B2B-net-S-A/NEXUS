@@ -4,15 +4,16 @@
  * w technologię szuka jej w CV (CV firmowe → oryginał, bo tam jest szukanie).
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useEffect, useState } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
   original: vi.fn(),
   branded: vi.fn(),
+  previewMounted: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -33,12 +34,18 @@ vi.mock("@/components/v2/files/FilePreviewModal", () => ({
   }: {
     doc: { filename: string };
     searchRequest?: { text: string } | null;
-  }) => (
-    <div data-testid="file-preview">
-      {doc.filename}
-      {searchRequest ? ` · szukam: ${searchRequest.text}` : ""}
-    </div>
-  ),
+  }) => {
+    // Każde zamontowanie podglądu to ponowne pobranie pliku w prawdziwym komponencie.
+    useEffect(() => {
+      mocks.previewMounted();
+    }, []);
+    return (
+      <div data-testid="file-preview">
+        {doc.filename}
+        {searchRequest ? ` · szukam: ${searchRequest.text}` : ""}
+      </div>
+    );
+  },
   downloadDocumentBlob: vi.fn(),
   fetchDocumentBlob: vi.fn(),
 }));
@@ -91,18 +98,18 @@ const PROFILE_DOCS = [
   },
 ];
 
-function Host({ stageId = 901 }: { stageId?: number | null }) {
-  const [tab, setTab] = useState<PreviewTab>("cv");
+function Host({ stageId = 901, initialTab = "cv" }: { stageId?: number | null; initialTab?: PreviewTab }) {
+  const [tab, setTab] = useState<PreviewTab>(initialTab);
   return (
     <CandidatePreviewPane candidateId={101} jobId={201} stageId={stageId} tab={tab} onTabChange={setTab} />
   );
 }
 
-function mount(stageId: number | null = 901) {
+function mount(stageId: number | null = 901, initialTab: PreviewTab = "cv") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <Host stageId={stageId} />
+      <Host stageId={stageId} initialTab={initialTab} />
     </QueryClientProvider>,
   );
 }
@@ -111,6 +118,7 @@ beforeEach(() => {
   mocks.get.mockReset();
   mocks.original.mockReset();
   mocks.branded.mockReset();
+  mocks.previewMounted.mockReset();
   mocks.get.mockResolvedValue({ data: PROFILE_DOCS });
   mocks.original.mockResolvedValue({
     data: { has_snapshot: true, original_cv_filename: "CV_ze_zgloszenia.pdf", original_snapshot_at: "2026-10-01T08:00:00Z" },
@@ -192,5 +200,79 @@ describe("CandidatePreviewPane", () => {
       "href",
       "/candidates/101?tab=documents",
     );
+  });
+});
+
+/**
+ * Tryb dwóch podglądów (strefa od 1150 px) liczy się z szerokości elementu.
+ * jsdom nie liczy układu, więc szerokość i `ResizeObserver` są tu atrapami.
+ */
+describe("CandidatePreviewPane — dwa podglądy naraz", () => {
+  let width = 0;
+  let observers: Array<() => void> = [];
+
+  function resizeTo(next: number) {
+    width = next;
+    act(() => observers.forEach((notify) => notify()));
+  }
+
+  beforeEach(() => {
+    width = 1200;
+    observers = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          observers.push(callback);
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    vi.spyOn(Element.prototype, "clientWidth", "get").mockImplementation(() => width);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("w szerokiej strefie CV i wymagania stoją obok siebie, bez paska zakładek", async () => {
+    mount(901, "requirements");
+    expect(await screen.findByTestId("file-preview")).toBeVisible();
+    expect(screen.getByTestId("candidate-preview-pane")).toHaveAttribute("data-dual", "true");
+    expect(screen.getByRole("region", { name: "Wymagania" })).toBeVisible();
+    expect(screen.getByRole("region", { name: "Po ludzku" })).toBeVisible();
+    expect(screen.queryByRole("tab", { name: "CV" })).not.toBeInTheDocument();
+  });
+
+  it("ukrycie strefy (szerokość 0) nie odmontowuje CV — plik nie pobiera się drugi raz", async () => {
+    // Zwinięcie panelu, zakładka „Notatki” albo inna sekcja chowają strefę
+    // przez `display: none`; element ma wtedy szerokość 0.
+    mount(901, "requirements");
+    await screen.findByTestId("file-preview");
+    expect(mocks.previewMounted).toHaveBeenCalledTimes(1);
+
+    resizeTo(0);
+    expect(screen.getByTestId("file-preview")).toBeInTheDocument();
+    expect(screen.getByTestId("candidate-preview-pane")).toHaveAttribute("data-dual", "true");
+
+    resizeTo(1200);
+    expect(screen.getByTestId("file-preview")).toBeVisible();
+    expect(mocks.previewMounted).toHaveBeenCalledTimes(1);
+  });
+
+  it("zwężenie okna wraca do zakładek, a CV zostaje zamontowane w tle", async () => {
+    mount(901, "requirements");
+    await screen.findByTestId("file-preview");
+
+    resizeTo(900);
+    expect(screen.getByTestId("candidate-preview-pane")).not.toHaveAttribute("data-dual");
+    expect(screen.getByRole("tab", { name: "Wymagania" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("file-preview")).not.toBeVisible();
+
+    resizeTo(1200);
+    expect(mocks.previewMounted).toHaveBeenCalledTimes(1);
   });
 });
