@@ -37,7 +37,8 @@ from app.services.m365.system_mail import DELIVERY_UNCERTAIN, app_mail_send_outc
 from app.services.notification_access import user_can_receive_notification
 from app.services.notification_delivery import (
     IMMEDIATE_KINDS,
-    email_opted_out,
+    email_queue_clause,
+    email_wanted,
     guarded_send,
     immediate_email_kind,
     load_policy,
@@ -119,7 +120,7 @@ def _can_receive(user: User, notif: Notification, kind: str) -> bool:
         user.is_active
         and user.email
         # Własny wyłącznik maila („Maile do Ciebie”); dzwonek zostaje.
-        and not email_opted_out(user, kind)
+        and email_wanted(user, kind, notif.created_at)
         and user_can_receive_notification(
             user,
             notif.notification_type,
@@ -136,6 +137,8 @@ async def _due(db: AsyncSession, kinds: list[str], cutoffs: dict) -> list:
         and_(
             kind_clause(kind),
             Notification.created_at >= max(cutoffs[kind], now - MAX_AGE),
+            # Własny wyłącznik maila — w zapytaniu, żeby nie zajmował paczki.
+            email_queue_clause(kind, Notification.created_at),
         )
         for kind in kinds
     ]

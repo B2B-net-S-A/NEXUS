@@ -50,6 +50,7 @@ from app.services.notification_categories import (
 from app.services.notification_delivery import (
     CATALOG,
     DIGEST_KIND,
+    RESUMED_KEY,
     SECURITY_CATALOG,
     email_opted_out,
     load_policy,
@@ -210,22 +211,27 @@ APPLIES: dict[str, Callable[[User, _Context], bool]] = {
 }
 
 
-async def _context(db: AsyncSession) -> _Context:
+async def _context(db: AsyncSession, user: User) -> _Context:
+    from app.models.job import Job
     from app.services import cpro_sender
 
     async with db.begin_nested():
         state = await cpro_sender.effective_sender(db)
-    return _Context(
-        cpro_sender_ids=frozenset(
-            uid for uid in (state.user_id,) if isinstance(uid, int)
+        # Bez osoby od Cpro na firmę kolejkę dostaje osoba zapasowa
+        # rekrutacji (`jobs.cpro_sender_id`) — ona też musi widzieć ten mail.
+        per_job = await db.scalar(
+            select(Job.id).where(Job.cpro_sender_id == user.id).limit(1)
         )
-    )
+    senders = {uid for uid in (state.user_id,) if isinstance(uid, int)}
+    if per_job is not None:
+        senders.add(user.id)
+    return _Context(cpro_sender_ids=frozenset(senders))
 
 
-async def _context_safely(db: AsyncSession) -> _Context:
+async def _context_safely(db: AsyncSession, user: User) -> _Context:
     """Osoba od Cpro jest dodatkiem do reguły — jej odczyt nie zabiera ekranu."""
     try:
-        return await _context(db)
+        return await _context(db, user)
     except Exception:  # noqa: BLE001 — bez tej osoby reguła liczy same role
         return _Context()
 
@@ -287,7 +293,7 @@ async def my_view(db: AsyncSession, user: User) -> dict[str, Any]:
     from app.services.email import email_channel_enabled
 
     policy = await load_policy(db)
-    ctx = await _context_safely(db)
+    ctx = await _context_safely(db, user)
     items: list[dict] = []
     not_applicable: list[dict] = []
     for spec in CATALOG:
@@ -315,16 +321,26 @@ async def set_enabled(db: AsyncSession, user: User, kind: str, enabled: bool) ->
         raise UnknownEmailKind(kind)
     # Włączenie z powrotem jest zawsze bezpieczne; wyłączyć można tylko mail,
     # który do konta w ogóle trafia — inaczej zapis nic by nie znaczył.
-    if not enabled and not APPLIES[kind](user, await _context_safely(db)):
+    if not enabled and not APPLIES[kind](user, await _context_safely(db, user)):
         raise EmailKindNotApplicable(kind)
     if kind == DIGEST_KIND:
         user.daily_digest_email_enabled = enabled
         return
     current = dict(user.email_opt_outs or {})
+    resumed = dict(current.get(RESUMED_KEY) or {})
+    now = datetime.now(timezone.utc).isoformat()
     if enabled:
-        current.pop(kind, None)
+        # Czas włączenia zostaje: zdarzenia z okresu wyłączenia nie wychodzą
+        # jako zaległości (`notification_delivery.email_wanted`).
+        if current.pop(kind, None):
+            resumed[kind] = now
     else:
-        current.setdefault(kind, datetime.now(timezone.utc).isoformat())
+        current.setdefault(kind, now)
+        resumed.pop(kind, None)
+    if resumed:
+        current[RESUMED_KEY] = resumed
+    else:
+        current.pop(RESUMED_KEY, None)
     # Nowy słownik, nie mutacja — SQLAlchemy nie śledzi zmian wewnątrz JSONB.
     user.email_opt_outs = current
 

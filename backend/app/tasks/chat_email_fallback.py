@@ -33,7 +33,8 @@ from app.services.notification_access import user_can_receive_notification
 from app.services.email import send_chat_fallback_email
 from app.services.notification_delivery import (
     DeliveryPolicy,
-    email_opted_out,
+    email_queue_clause,
+    email_wanted,
     load_policy,
 )
 
@@ -287,6 +288,8 @@ def pending_candidate_query(
                 ~User.muted_notification_categories.has_key("chat"),
             )
         )
+        # Własny wyłącznik maila („Maile do Ciebie”) — z tego samego powodu.
+        .where(email_queue_clause("chat_unread", Notification.created_at))
         .order_by(Notification.created_at.asc(), Notification.id.asc())
     )
     excluded = sorted({int(uid) for uid in exclude_user_ids})
@@ -408,7 +411,7 @@ async def _process_batch(
         if (
             not _eligible_chat_email_recipient(user)
             # Własny wyłącznik maila („Maile do Ciebie”); dzwonek zostaje.
-            or email_opted_out(user, "chat_unread")
+            or not email_wanted(user, "chat_unread", notif.created_at)
             or not user_can_receive_notification(
                 user,
                 notif.notification_type,
@@ -438,7 +441,7 @@ async def _process_batch(
         await resolve_effective_section_access(db, user)
         if (
             not _eligible_chat_email_recipient(user)
-            or email_opted_out(user, "chat_unread")
+            or not email_wanted(user, "chat_unread", notif.created_at)
             or not user_can_receive_notification(
                 user,
                 notif.notification_type,

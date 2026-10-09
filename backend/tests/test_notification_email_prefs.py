@@ -6,7 +6,10 @@ from pathlib import Path
 
 import pytest
 from httpx import AsyncClient
+from datetime import datetime, timedelta, timezone
+
 from sqlalchemy import select
+from sqlalchemy.dialects import postgresql
 
 from app.core.database import AsyncSessionLocal
 from app.models.notification import Notification, NotificationType
@@ -71,7 +74,7 @@ def test_every_sender_asks_about_the_account_opt_out():
             for node in ast.walk(tree)
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
-            and node.func.id == "email_opted_out"
+            and node.func.id in {"email_opted_out", "email_wanted"}
         ]
         assert calls, f"{path} wysyła maile bez pytania o wyłącznik konta"
         covered |= set(kinds)
@@ -106,6 +109,46 @@ def test_opt_out_rule_reads_the_column_for_the_digest_and_json_for_the_rest():
     # Obiekt bez pól (atrapy w starszych testach) = nic nie wyłączone.
     assert not delivery.email_opted_out(object(), "mentions")
     assert not delivery.email_opted_out(object(), "daily_digest")
+    assert delivery.email_wanted(object(), "mentions", None)
+
+
+def test_reenabled_email_does_not_replay_events_from_the_switched_off_period():
+    user = _user(UserRole.recruiter)
+    resumed = datetime(2026, 10, 9, 8, 0, tzinfo=timezone.utc)
+    user.email_opt_outs = {delivery.RESUMED_KEY: {"job_deadline": resumed.isoformat()}}
+    assert not delivery.email_opted_out(user, "job_deadline")
+    assert delivery.email_resumed_at(user, "job_deadline") == resumed
+    # Zdarzenie sprzed włączenia nie wychodzi; od chwili włączenia — tak.
+    assert not delivery.email_wanted(user, "job_deadline", resumed - timedelta(days=21))
+    assert delivery.email_wanted(user, "job_deadline", resumed)
+    assert delivery.email_wanted(user, "job_deadline", resumed + timedelta(minutes=1))
+    assert not delivery.email_wanted(user, "job_deadline", None)
+    # Inny rodzaj nie ma progu.
+    assert delivery.email_wanted(user, "mentions", resumed - timedelta(days=21))
+    # `_resumed` nie jest rodzajem maila — nikt nie widzi go jako wyłączenia.
+    assert not delivery.email_opted_out(user, delivery.RESUMED_KEY)
+
+
+def test_queue_clause_keeps_switched_off_accounts_out_of_the_batch_in_sql():
+    # Lustro `email_wanted` w zapytaniu: wiersz konta z wyłączonym mailem nie
+    # może zająć paczki ani wrócić jako zaległość po ponownym włączeniu.
+    clause = delivery.email_queue_clause("job_deadline", Notification.created_at)
+    sql = str(
+        clause.compile(
+            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+        )
+    )
+    assert "users.email_opt_outs ? 'job_deadline'" in sql
+    assert "'{_resumed, job_deadline}'" in sql
+    assert "notifications.created_at >=" in sql
+    for path in (
+        "app/tasks/job_deadline_alerts.py",
+        "app/services/dl_alerts.py",
+        "app/tasks/notification_email_outbox.py",
+        "app/tasks/chat_email_fallback.py",
+    ):
+        source = (_BACKEND / path).read_text(encoding="utf-8")
+        assert "email_queue_clause(" in source, path
 
 
 # ── Kogo dotyczy który mail ─────────────────────────────────────────────────
@@ -236,8 +279,17 @@ async def test_switching_an_email_off_and_on_again():
 
     await prefs.set_enabled(object(), user, "mentions", True)
     await prefs.set_enabled(object(), user, "daily_digest", True)
-    assert user.email_opt_outs == {}
+    # Zostaje sam czas ponownego włączenia — próg dla zaległych zdarzeń.
+    assert set(user.email_opt_outs) == {delivery.RESUMED_KEY}
+    assert delivery.email_resumed_at(user, "mentions") is not None
+    assert not delivery.email_opted_out(user, "mentions")
     assert user.daily_digest_email_enabled is True
+    # Włączenie maila, który nie był wyłączony, niczego nie zapisuje.
+    await prefs.set_enabled(object(), user, "cv_returned", True)
+    assert delivery.email_resumed_at(user, "cv_returned") is None
+    # Ponowne wyłączenie zdejmuje próg.
+    await prefs.set_enabled(object(), user, "mentions", False)
+    assert set(user.email_opt_outs) == {"mentions"}
 
 
 @pytest.mark.asyncio
@@ -252,23 +304,32 @@ async def test_unknown_and_foreign_emails_are_refused():
     # Włączenie z powrotem jest dozwolone zawsze (np. po zmianie roli).
     user.email_opt_outs = {"system_failure": _AT}
     await prefs.set_enabled(object(), user, "system_failure", True)
-    assert user.email_opt_outs == {}
+    assert not delivery.email_opted_out(user, "system_failure")
 
 
 def test_immediate_email_queue_skips_an_account_that_switched_it_off():
     from app.tasks.notification_email_outbox import _can_receive
 
     admin = _user(UserRole.admin)
+    created = datetime(2026, 10, 9, 9, 0, tzinfo=timezone.utc)
     notif = Notification(
         notification_type=NotificationType.automation_failing,
         title="Automat padł 3 razy",
         message="…",
+        created_at=created,
     )
     assert _can_receive(admin, notif, "system_failure")
     admin.email_opt_outs = {"system_failure": _AT}
     assert not _can_receive(admin, notif, "system_failure")
     # Inny rodzaj tego samego konta zostaje.
     assert _can_receive(admin, notif, "request_assigned")
+    # Włączony z powrotem po zdarzeniu — zaległość nie wychodzi.
+    admin.email_opt_outs = {
+        delivery.RESUMED_KEY: {
+            "system_failure": (created + timedelta(hours=1)).isoformat()
+        }
+    }
+    assert not _can_receive(admin, notif, "system_failure")
 
 
 # ── Trasy (z bazą) ──────────────────────────────────────────────────────────
@@ -317,10 +378,22 @@ async def test_account_reads_and_switches_its_own_emails(
         assert row["self_enabled"] is False and row["receiving"] is False
         assert row["state"] in {"self_off", "company_off"}
 
+        from app.models.notification import Notification as Notif
+
+        def in_queue(event_at):
+            return select(User.id).where(
+                User.id == admin.id,
+                delivery.email_queue_clause("system_failure", event_at),
+            )
+
+        now = datetime.now(timezone.utc)
         async with AsyncSessionLocal() as db:
             stored = await db.get(User, admin.id)
             assert set(stored.email_opt_outs) == {"system_failure"}
             summary = await prefs.opt_out_summary(db)
+            # Kolejka maili odsiewa konto już w zapytaniu.
+            assert (await db.scalar(in_queue(now))) is None
+            assert Notif.created_at is not None
         assert (admin.name or admin.email) in summary["system_failure"]
 
         # Administrator widzi w „Maile”, kto wyłączył mail sobie.
@@ -339,7 +412,18 @@ async def test_account_reads_and_switches_its_own_emails(
         )
         assert back.status_code == 200
         async with AsyncSessionLocal() as db:
-            assert (await db.get(User, admin.id)).email_opt_outs == {}
+            stored = await db.get(User, admin.id)
+            assert not delivery.email_opted_out(stored, "system_failure")
+            # Po włączeniu: nowe zdarzenia wracają do kolejki, zaległe nie.
+            later = datetime.now(timezone.utc) + timedelta(minutes=1)
+            assert (await db.scalar(in_queue(later))) == admin.id
+            assert (await db.scalar(in_queue(now - timedelta(days=1)))) is None
+            # Rodzaj, którego konto nie ruszało, nie ma żadnego progu.
+            untouched = select(User.id).where(
+                User.id == admin.id,
+                delivery.email_queue_clause("cv_returned", now - timedelta(days=30)),
+            )
+            assert (await db.scalar(untouched)) == admin.id
     finally:
         await _reset(admin.id)
 

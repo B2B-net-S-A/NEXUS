@@ -52,6 +52,12 @@ stawki, terminy rekrutacji, alerty klientów, raporty KPI. Poranny skrót
 odsiewa konta własną kolumną w zapytaniu. Wyłączony mail nie rezerwuje wiersza
 i nie zmienia dzwonka.
 
+Cztery kolejki, które robią mail z wiersza dzwonka albo alertu (terminy
+rekrutacji, alerty klientów, maile natychmiast, czat), odsiewają konto już
+w zapytaniu (`email_queue_clause`). Ponowne włączenie maila zapisuje czas
+w `email_opt_outs["_resumed"]`; zdarzenia z okresu wyłączenia nie wychodzą
+potem jako zaległości.
+
 **Zakładka „Maile” (admin).** Przy rodzaju maila: „N osób wyłączyło sobie ten
 mail” z nazwiskami po rozwinięciu.
 
@@ -89,5 +95,12 @@ Poranny skrót zostaje przy `users.daily_digest_email_enabled` (0425).
   (3)”, nieudany zapis zostawia przełącznik i pokazuje błąd; 375 px bez
   poziomego przewijania. `?tab=maile`: „2 osoby wyłączyły sobie ten mail”
   z nazwiskami.
+- Przegląd kodu (niezależny agent): jedna uwaga blokująca — konto
+  z wyłączonym mailem było odsiewane dopiero w pętli, więc jego wiersze
+  zostawały w kolejkach terminów i alertów klientów bez końca (po 200 takich
+  wierszach mail przestałby wychodzić wszystkim), a po ponownym włączeniu
+  wyszłyby zaległości. Naprawione warunkiem w zapytaniu i czasem ponownego
+  włączenia, z testami. Druga uwaga (osoba zapasowa od Cpro z rekrutacji nie
+  widziała maila „CV czeka na Twój przegląd”) — też naprawiona.
 - Niepotwierdzone do wdrożenia: odczyt trasy na produkcji i pierwszy mail
   pominięty z powodu własnego wyłącznika.

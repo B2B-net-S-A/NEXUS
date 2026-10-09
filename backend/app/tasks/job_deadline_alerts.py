@@ -55,7 +55,8 @@ from app.models.notification import Notification, NotificationType
 from app.models.user import User
 from app.services.email import email_channel_enabled, send_email
 from app.services.notification_delivery import (
-    email_opted_out,
+    email_queue_clause,
+    email_wanted,
     guarded_send,
     load_policy,
 )
@@ -301,6 +302,9 @@ async def _dispatch_emails(db: AsyncSession) -> int:
         .where(Notification.email_sent_at.is_(None))
         .where(Notification.email_delivery_uncertain.is_(False))
         .where(Notification.created_at >= policy.cutoff_for("job_deadline"))
+        # Własny wyłącznik maila („Maile do Ciebie”) — w zapytaniu, żeby
+        # wiersze takich kont nie zajęły paczki.
+        .where(email_queue_clause("job_deadline", Notification.created_at))
         .where(
             or_(
                 Notification.email_send_started_at.is_(None),
@@ -323,7 +327,7 @@ async def _dispatch_emails(db: AsyncSession) -> int:
         if (
             not user.email
             # Własny wyłącznik maila („Maile do Ciebie”); dzwonek zostaje.
-            or email_opted_out(user, "job_deadline")
+            or not email_wanted(user, "job_deadline", notif.created_at)
             or not user_can_access_candidate_domain(user)
             or not user_can_receive_notification(
                 user,
@@ -342,7 +346,7 @@ async def _dispatch_emails(db: AsyncSession) -> int:
         await resolve_effective_section_access(db, user)
         if (
             not user.is_active
-            or email_opted_out(user, "job_deadline")
+            or not email_wanted(user, "job_deadline", notif.created_at)
             or not user_can_access_candidate_domain(user)
             or not user_can_receive_notification(
                 user,

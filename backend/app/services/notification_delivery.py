@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any
 
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import DateTime, and_, cast, create_engine, or_, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -239,6 +239,8 @@ def notification_kind(notification_type: Any) -> str | None:
 
 
 DIGEST_KIND = "daily_digest"
+# `users.email_opt_outs[RESUMED_KEY] = {rodzaj: czas ponownego włączenia}`.
+RESUMED_KEY = "_resumed"
 
 
 def email_opted_out(user: Any, kind: str) -> bool:
@@ -252,7 +254,50 @@ def email_opted_out(user: Any, kind: str) -> bool:
     if kind == DIGEST_KIND:
         return getattr(user, "daily_digest_email_enabled", True) is False
     raw = getattr(user, "email_opt_outs", None)
-    return isinstance(raw, dict) and bool(raw.get(kind))
+    # Wyłączenie to znacznik czasu; `_resumed` (słownik) nim nie jest.
+    since = raw.get(kind) if isinstance(raw, dict) else None
+    return isinstance(since, str) and bool(since)
+
+
+def email_resumed_at(user: Any, kind: str) -> datetime | None:
+    """Kiedy konto włączyło ten mail z powrotem (`None` = nigdy nie wyłączało)."""
+    raw = getattr(user, "email_opt_outs", None)
+    resumed = raw.get(RESUMED_KEY) if isinstance(raw, dict) else None
+    return _datetime(resumed.get(kind)) if isinstance(resumed, dict) else None
+
+
+def email_wanted(user: Any, kind: str, event_at: datetime | None) -> bool:
+    """Czy konto chce mail o TYM zdarzeniu.
+
+    Nadawcy z kolejką (dzwonek → mail) pytają tędy: zdarzenie z czasu, gdy
+    mail był wyłączony, nie wychodzi po ponownym włączeniu — tak samo jak
+    firmowy przełącznik nie wysyła zaległości (`send_not_before`).
+    """
+    if email_opted_out(user, kind):
+        return False
+    resumed = email_resumed_at(user, kind)
+    event_at = _datetime(event_at)
+    return resumed is None or (event_at is not None and event_at >= resumed)
+
+
+def email_queue_clause(kind: str, event_column: Any) -> Any:
+    """Warunek SQL kolejki: lustro `email_wanted` na złączonym `User`.
+
+    Musi stać w zapytaniu, nie tylko w pętli: wiersze konta z wyłączonym
+    mailem nigdy nie dostają stempla wysyłki, więc odsiane dopiero w Pythonie
+    zajmowałyby paczkę (najstarsze pierwsze) i z czasem zatrzymały ten mail
+    wszystkim innym (przegląd kodu 09.10.2026; ta sama lekcja co wyciszony
+    czat w rundzie 9).
+    """
+    from app.models.user import User
+
+    resumed = cast(
+        User.email_opt_outs[(RESUMED_KEY, kind)].astext, DateTime(timezone=True)
+    )
+    return and_(
+        ~User.email_opt_outs.has_key(kind),
+        or_(resumed.is_(None), event_column >= resumed),
+    )
 
 
 # Rodzaje wysyłane natychmiast przez `tasks/notification_email_outbox.py`.

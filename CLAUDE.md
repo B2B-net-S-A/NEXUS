@@ -3356,6 +3356,14 @@ wszystkich). Makiety: https://claude.ai/artifact/TRKAAZX3RcB8AA7LVohkT8, raport
   w `APPLIES` i to pytanie u nadawcy (pilnuje
   `test_notification_email_prefs.py`, strażnik AST). Admin widzi w „Maile”,
   kto wyłączył który mail sobie (`self_disabled`).
+  **Nadawca z kolejką (dzwonek → mail: terminy, alerty klientów, maile
+  natychmiast, czat) odsiewa takie konta W ZAPYTANIU** —
+  `email_queue_clause(rodzaj, kolumna_czasu)`, a w pętli pyta
+  `email_wanted(konto, rodzaj, czas_zdarzenia)`. Sam `continue` w Pythonie
+  zostawia wiersze bez stempla wysyłki: zajmują paczkę (najstarsze pierwsze)
+  i z czasem zatrzymują ten mail wszystkim. Ponowne włączenie zapisuje czas
+  w `email_opt_outs["_resumed"]` — zdarzenia z okresu wyłączenia nie wychodzą
+  jako zaległości (jak `send_not_before` przy przełączniku firmowym).
 - Testy tabeli ról na wspólnej bazie sprzątają wiersz `app_settings` (fixture
   `clean_role_mutes`) — zostawione wyłączenie ucinałoby powiadomienia adminom
   w cudzych testach. Harness `/preview/notification-settings`.
