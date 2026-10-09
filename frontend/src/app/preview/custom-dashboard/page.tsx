@@ -266,12 +266,26 @@ const REQUEST_BOARD: RequestBoard = {
   groups: [],
   requests: [],
   load: [
-    loadPerson({ user_id: 44, name: "Kinga Przykładowa", count: 4 }),
+    loadPerson({
+      user_id: 44,
+      name: "Kinga Przykładowa",
+      count: 4,
+      requests: [
+        { job_id: 311, title: "Java Developer · Spring Boot", client_name: "Bank Północny", deadline: "2026-10-14", proposed: false },
+        { job_id: 312, title: "Tester automatyzujący · Python", client_name: "Fundusz Przykładowy", deadline: "2026-10-16", proposed: false },
+        { job_id: 313, title: "Analityk danych · SQL, Power BI", client_name: "Bank Północny", deadline: null, proposed: false },
+        { job_id: 314, title: "DevOps Engineer · Azure", client_name: "Ubezpieczyciel Testowy", deadline: "2026-10-21", proposed: false },
+      ],
+    }),
     loadPerson({ user_id: 43, name: "Tomasz Makietowy", count: 4, proposed: 1, leave_until: "2026-10-09" }),
     loadPerson({ user_id: 41, name: "Marek Wzorcowy", count: 2, proposed: 1 }),
     loadPerson({ user_id: 45, name: "Julia Testowa", count: 1 }),
     loadPerson({ user_id: 42, name: "Ewa Fikcyjna", count: 0, proposed: 1 }),
     loadPerson({ user_id: 46, name: "Maja Próbna", count: 0 }),
+    loadPerson({ user_id: 47, name: "Olga Wymyślona", count: 3 }),
+    loadPerson({ user_id: 48, name: "Paweł Zmyślony", count: 3, leave_until: "2026-10-15" }),
+    loadPerson({ user_id: 49, name: "Renata Makietowa-Przykładowska", count: 2 }),
+    loadPerson({ user_id: 50, name: "Szymon Fikcyjny", count: 1 }),
   ],
   changes: [],
 };
