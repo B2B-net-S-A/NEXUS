@@ -79,6 +79,7 @@ PanelKey = Literal[
     "cv_in_transit",
     "allocation_proposals",
     "new_job_leads",
+    "team_load",
     "pending_jobs",
     "board_flow",
     "followups",
