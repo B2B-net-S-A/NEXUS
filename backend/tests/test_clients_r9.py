@@ -234,9 +234,11 @@ async def test_reopening_a_recruitment_of_a_deleted_or_merged_client_is_422(
         merged_into_client_id=target_id,
         archived_at=datetime.now(timezone.utc),
     )
+    # 09.10.2026: ponowne otwarcie bez ciała zostawia rekrutera — odmawia
+    # dopiero strażnik klienta, tak jak z ciałem.
     resp = await app_client.post(f"/api/jobs/{job_b}/publish", headers=headers)
     assert resp.status_code == 422, resp.text
-    assert resp.json()["detail"]["code"] == "handoff_required"
+    assert resp.json()["detail"]["code"] == "client_merged"
     resp = await app_client.post(
         f"/api/jobs/{job_b}/publish", json=reopen, headers=headers
     )

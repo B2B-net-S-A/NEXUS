@@ -1146,6 +1146,83 @@ async def handoff_core(
     return {"status": "handed_off", "job_id": job_id, "recruiter_id": recruiter.id}
 
 
+async def reopen_keep_team_core(
+    db: AsyncSession,
+    job: Job,
+    current_user: User,
+    effects: PostCommit,
+    *,
+    top_k: Optional[int] = None,
+) -> dict[str, Any]:
+    """Ponowne otwarcie bez wyboru rekrutera (decyzja Artura 09.10.2026).
+
+    Zamknięcie nie czyści ``recruiter_id`` ani ręcznych współpracowników, więc
+    rekrutacja otwierana ponownie zwykle ma już rekrutera — okno nie pyta o
+    niego drugi raz. Rekrutacja wraca do pracy („Szukamy”, ``is_open``):
+
+    * aktywny prowadzący zostaje, dostaje od razu wiersz przypisania i dzwonek
+      (chyba że sam otwiera);
+    * bez aktywnego prowadzącego nikogo nie wskazujemy: request jest w puli,
+      więc automat przydziela albo proponuje sam, a przy wyłączonym automacie
+      rekrutacja stoi jako „Bez rekrutera” i w kolejce Head of Recruitment
+      „Nowe rekrutacje — kto prowadzi”.
+
+    Wołający trzyma ``allocation_lock`` i blokadę wiersza, a ``publish_core``
+    i bramka braków są już za nim. Bez commitu.
+    """
+    from app.services.request_work_state import set_work_state
+
+    api = _api()
+    job_id = job.id
+    actor_id = current_user.id
+    ranking_top_k = top_k or settings.MATCH_MAX_RESULTS
+    effects.add(
+        "snapshot_id",
+        lambda: _queue_handoff_ranking(
+            job_id, top_k=ranking_top_k, created_by=actor_id, effects=effects
+        ),
+    )
+    owner: Optional[User] = None
+    if job.recruiter_id is not None:
+        owner = await db.scalar(select(User).where(User.id == job.recruiter_id))
+        if owner is not None and not owner.is_active:
+            # Nieaktywne konto = brak osoby (runda 4 audytu 25.09.2026).
+            owner = None
+    job.is_open = True
+    job.needs_sourcing = True
+    job.favorite_sourcing_paused = False
+    await set_work_state(db, job, "searching", actor_id=actor_id, reason="reopen")
+    if owner is not None:
+        await api._sync_work_assignments_with_owner(
+            db,
+            job=job,
+            previous_owner_id=owner.id,
+            owner=owner,
+            actor_id=actor_id,
+        )
+        if owner.id != actor_id:
+            # Ta sama osoba prowadziła wcześniej, więc wspólna funkcja nie
+            # dzwoni — a rekruter musi się dowiedzieć, że request wrócił.
+            await api._notify_new_owner(db, job=job, user_id=owner.id)
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job_id,
+            action="handed_off_to_search",
+            user_id=actor_id,
+            details={
+                "assignment_mode": "keep",
+                "recruiter_id": owner.id if owner is not None else None,
+            },
+        )
+    )
+    return {
+        "status": "reopened",
+        "job_id": job_id,
+        "recruiter_id": owner.id if owner is not None else None,
+    }
+
+
 async def _queue_handoff_ranking(
     job_id: int, *, top_k: int, created_by: int, effects: PostCommit
 ) -> int:
