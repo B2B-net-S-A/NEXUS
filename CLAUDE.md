@@ -4649,7 +4649,11 @@ z „wymagań do wyszukiwania” powtarzało must, deal breaker miały 3 z 99 py
   `GET /api/board-tasks`, tylko `PROPOSAL_DECISION_ROLES`): rekrutacje przekazane
   do searchu w 7 dniach, prowadzący, źródło (automat / wskazany ręcznie),
   kategoria, liczba uczestników. Lista informacyjna — nie wchodzi do licznika;
-  „Zmień” zapisuje przez `POST /api/jobs/{id}/owner`.
+  „Zmień” zapisuje przez `POST /api/jobs/{id}/owner`. Filtry (09.10.2026:
+  klient, kategoria, Delivery Lead, prowadzący, priorytet) działają
+  w przeglądarce na wierszach z odpowiedzi (`lib/new-job-leads-filters.ts`),
+  więc `MAX_ROWS` (100) jest bezpiecznikiem, nie stroną — wiersz ucięty limitem
+  byłby dla filtrów niewidoczny.
 - **Podpowiedź kategorii pyta tylko o rolę, która stoi w polu**
   (`categoryInputCurrent` w `NewJobPage`): zapytanie idzie po chwili ciszy,
   a zaraz po odczycie requestu opóźniona wartość to jeszcze puste pole —
