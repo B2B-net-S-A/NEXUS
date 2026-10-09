@@ -857,11 +857,13 @@ describe("/preview/notification-settings zasiewa cztery zakładki Powiadomień i
   const sources = [
     "components/settings/NotificationsSettings.tsx",
     "components/settings/NotificationPreferencesPanel.tsx",
+    "components/settings/MyEmailNotificationsCard.tsx",
     "components/settings/NotificationRoleMatrix.tsx",
     "components/settings/NotificationDeliverySettings.tsx",
     "lib/api/notificationPreferences.ts",
     "lib/api/notificationRoles.ts",
     "lib/api/userPreferences.ts",
+    "lib/api/emailNotifications.ts",
   ];
 
   it("ekrany pytają wyłącznie nazwanymi kluczami — żaden literał nie umknie zasiewowi", () => {
@@ -874,6 +876,7 @@ describe("/preview/notification-settings zasiewa cztery zakładki Powiadomień i
       ),
     );
     expect([...new Set(named)].sort()).toEqual([
+      "MY_EMAIL_NOTIFICATIONS_QUERY_KEY",
       "NOTIFICATION_DELIVERY_QUERY_KEY",
       "USER_PREFERENCES_QUERY_KEY",
       "notificationPreferencesQueryKey",

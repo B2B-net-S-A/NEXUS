@@ -978,7 +978,12 @@ async def send_pending_alert_emails(db: AsyncSession) -> int:
     from sqlalchemy import or_
 
     from app.services.email import email_channel_enabled, send_email
-    from app.services.notification_delivery import guarded_send, load_policy
+    from app.services.notification_delivery import (
+        email_queue_clause,
+        email_wanted,
+        guarded_send,
+        load_policy,
+    )
     from app.services.m365.system_mail import (
         DELIVERY_UNCERTAIN,
         app_mail_send_outcome,
@@ -1022,6 +1027,8 @@ async def send_pending_alert_emails(db: AsyncSession) -> int:
                     User.role == UserRole.delivery_lead,
                     User.roles.contains([UserRole.delivery_lead.value]),
                 ),
+                # Własny wyłącznik maila („Maile do Ciebie”) — też w zapytaniu.
+                email_queue_clause("delivery_alert", DlAlert.created_at),
             )
             .order_by(DlAlert.created_at.asc())
             .limit(_EMAIL_BATCH)
@@ -1041,6 +1048,9 @@ async def send_pending_alert_emails(db: AsyncSession) -> int:
         # sprawy w panelu, ale nie w skrzynce — `for_client` (bramka maili, nie
         # dzwonka) wpuszcza adminów.
         if not user.has_any_role(UserRole.delivery_lead):
+            continue
+        # Własny wyłącznik maila („Maile do Ciebie”); karta w panelu zostaje.
+        if not email_wanted(user, "delivery_alert", alert.created_at):
             continue
         claimed = await db.execute(
             update(DlAlert)

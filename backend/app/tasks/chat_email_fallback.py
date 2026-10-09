@@ -31,7 +31,12 @@ from app.services.section_permissions import (
 )
 from app.services.notification_access import user_can_receive_notification
 from app.services.email import send_chat_fallback_email
-from app.services.notification_delivery import DeliveryPolicy, load_policy
+from app.services.notification_delivery import (
+    DeliveryPolicy,
+    email_queue_clause,
+    email_wanted,
+    load_policy,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -283,6 +288,8 @@ def pending_candidate_query(
                 ~User.muted_notification_categories.has_key("chat"),
             )
         )
+        # Własny wyłącznik maila („Maile do Ciebie”) — z tego samego powodu.
+        .where(email_queue_clause("chat_unread", Notification.created_at))
         .order_by(Notification.created_at.asc(), Notification.id.asc())
     )
     excluded = sorted({int(uid) for uid in exclude_user_ids})
@@ -401,13 +408,16 @@ async def _process_batch(
         # Role changes can race with the SELECT. Re-evaluate the complete,
         # current role union before even claiming the notification; a stale
         # unread chat row must never email candidate/recruitment PII to Finance.
-        if not _eligible_chat_email_recipient(
-            user
-        ) or not user_can_receive_notification(
-            user,
-            notif.notification_type,
-            related_entity_type=notif.related_entity_type,
-            link=notif.link,
+        if (
+            not _eligible_chat_email_recipient(user)
+            # Własny wyłącznik maila („Maile do Ciebie”); dzwonek zostaje.
+            or not email_wanted(user, "chat_unread", notif.created_at)
+            or not user_can_receive_notification(
+                user,
+                notif.notification_type,
+                related_entity_type=notif.related_entity_type,
+                link=notif.link,
+            )
         ):
             continue
         # Reserve the row atomically BEFORE sending so an overlapping pass can't
@@ -419,16 +429,25 @@ async def _process_batch(
         # transition to Finance/viewer (or deactivation) cannot leak the stale
         # notification body.
         await db.refresh(
-            user, attribute_names=["role", "roles", "is_active", "last_seen_at"]
+            user,
+            attribute_names=[
+                "role",
+                "roles",
+                "is_active",
+                "last_seen_at",
+                "email_opt_outs",
+            ],
         )
         await resolve_effective_section_access(db, user)
-        if not _eligible_chat_email_recipient(
-            user
-        ) or not user_can_receive_notification(
-            user,
-            notif.notification_type,
-            related_entity_type=notif.related_entity_type,
-            link=notif.link,
+        if (
+            not _eligible_chat_email_recipient(user)
+            or not email_wanted(user, "chat_unread", notif.created_at)
+            or not user_can_receive_notification(
+                user,
+                notif.notification_type,
+                related_entity_type=notif.related_entity_type,
+                link=notif.link,
+            )
         ):
             await _release_claim(db, notif.id)
             continue

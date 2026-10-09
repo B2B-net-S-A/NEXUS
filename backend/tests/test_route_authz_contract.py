@@ -247,6 +247,9 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/user-email-templates"),
     ("GET", "/api/user-email-templates/{template_id}"),
     ("GET", "/api/users/me/preferences"),
+    # „Maile do Ciebie” (0427): które maile dostaje konto i własne wyłączniki.
+    ("GET", "/api/users/me/email-notifications"),
+    ("PUT", "/api/users/me/email-notifications/{kind}"),
     # Własny pulpit (0337): sam układ kafelków właściciela; dane kafelków
     # pobierają ich własne endpointy za bramkami sekcji.
     ("GET", "/api/users/me/dashboard"),
