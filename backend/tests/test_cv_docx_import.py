@@ -23,6 +23,7 @@ from app.services.cv_approved_docx import render_approved_docx
 from app.services.cv_document_assets import default_template
 from app.services.cv_docx_import import (
     MAX_BYTES,
+    MAX_LINES,
     CvImportError,
     docx_to_editor_html,
 )
@@ -245,6 +246,8 @@ def test_text_box_content_does_not_leak_into_the_paragraph_it_is_anchored_in():
         (b"PK\x03\x04 not really a zip", "Nie udało się odczytać"),
         (b"PK" + b"0" * (MAX_BYTES + 1), "za duży"),
     ],
+    # Bez nazw pytest wpisuje w identyfikator testu całe 10 MB bajtów.
+    ids=["pdf", "uszkodzony-zip", "za-duzy"],
 )
 def test_files_that_cannot_be_read_are_refused_in_polish(data, fragment):
     with pytest.raises(CvImportError) as error:
@@ -274,3 +277,47 @@ def test_role_block_without_position_stays_as_typed():
     assert "12.2025 - obecnie" in text
     assert "Nazwa firmy: Acme · Technologie" in text
     assert imported.stats["roles"] == 1
+
+
+# ── plik jest niezaufany (formularz kariery, import) ─────────────────────────
+
+
+def test_huge_grid_span_does_not_multiply_cells():
+    """``row.cells`` powtarza komórkę ``gridSpan`` razy; liczba idzie z pliku.
+
+    Kilkukilobajtowy DOCX z ``gridSpan=2000000000`` budowałby w procesie
+    aplikacji listę na gigabajty. Import czyta komórki wprost z XML-a.
+    """
+    doc = Document(BytesIO(_hand_made_docx()))
+    cell = doc.tables[0].rows[0].cells[1]
+    properties = cell._tc.get_or_add_tcPr()
+    span = OxmlElement("w:gridSpan")
+    span.set(qn("w:val"), "2000000000")
+    properties.append(span)
+    imported = docx_to_editor_html(_save(doc))
+    assert _plain(imported.html).count("Example University") == 1
+
+
+def test_vertically_merged_continuation_cell_is_not_read_twice():
+    doc = Document()
+    doc.add_paragraph("Opis kandydata i jego doświadczenia zawodowego. " * 6)
+    table = doc.add_table(rows=2, cols=2)
+    table.rows[0].cells[0].text = "Scalona komórka"
+    table.rows[0].cells[1].text = "Pierwszy wiersz"
+    table.rows[1].cells[1].text = "Drugi wiersz"
+    for row, value in ((0, "restart"), (1, "continue")):
+        merge = OxmlElement("w:vMerge")
+        merge.set(qn("w:val"), value)
+        table.rows[row].cells[0]._tc.get_or_add_tcPr().append(merge)
+    text = _plain(docx_to_editor_html(_save(doc)).html)
+    assert text.count("Scalona komórka") == 1
+    assert "Pierwszy wiersz" in text and "Drugi wiersz" in text
+
+
+def test_document_with_too_many_lines_is_refused():
+    doc = Document()
+    for index in range(MAX_LINES + 1):
+        doc.add_paragraph(f"Linia {index}")
+    with pytest.raises(CvImportError) as error:
+        docx_to_editor_html(_save(doc))
+    assert "zbyt długi" in str(error.value)

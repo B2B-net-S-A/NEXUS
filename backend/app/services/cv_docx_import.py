@@ -33,6 +33,11 @@ from app.services.html_sanitizer import sanitize_cv_html
 
 MAX_BYTES = 10 * 1024 * 1024
 MIN_TEXT_CHARS = 200
+# Plik pochodzi z formularza kariery albo importu, więc jego budowa jest
+# niezaufana, a konwersja biegnie w procesie aplikacji. CV ma kilkaset linii;
+# limity zatrzymują dokument zbudowany po to, żeby zająć pamięć albo procesor.
+MAX_LINES = 5000
+MAX_TABLE_DEPTH = 4
 
 Runs = list[tuple[str, bool]]
 
@@ -159,15 +164,19 @@ def _block_elements(container: Any) -> Iterator[Any]:
             yield from _block_elements(child)
 
 
-def _cell_runs(cell: Any) -> Runs:
+def _cell_runs(cell: Any, depth: int = 0) -> Runs:
     from docx.table import Table
     from docx.text.paragraph import Paragraph
 
     runs: Runs = []
     for element in _block_elements(cell._tc):
         if _local(element) == "tbl":
+            if depth >= MAX_TABLE_DEPTH:
+                raise CvImportError(
+                    "Ten plik ma zbyt głęboko zagnieżdżone tabele, żeby wczytać go do edytora."
+                )
             parts = [
-                _cell_runs(inner)
+                _cell_runs(inner, depth + 1)
                 for row in Table(element, cell).rows
                 for inner in _cells(row)
             ]
@@ -183,13 +192,15 @@ def _cell_runs(cell: Any) -> Runs:
 
 
 def _cells(row: Any) -> list[Any]:
-    seen: set[int] = set()
-    cells = []
-    for cell in row.cells:  # scalone komórki python-docx oddaje wielokrotnie
-        if id(cell._tc) not in seen:
-            seen.add(id(cell._tc))
-            cells.append(cell)
-    return cells
+    """Komórki wiersza wprost z XML-a.
+
+    ``row.cells`` powtarza komórkę tyle razy, ile wynosi jej ``gridSpan`` —
+    liczba z pliku, bez górnej granicy. Komórka będąca dalszym ciągiem
+    scalenia w pionie nie ma własnej treści (leży w komórce nad nią).
+    """
+    from docx.table import _Cell
+
+    return [_Cell(tc, row.table) for tc in row._tr.tc_lst if tc.vMerge != "continue"]
 
 
 def _row_line(row: Any) -> Optional[_Line]:
@@ -219,16 +230,20 @@ def _lines(doc: Any) -> list[_Line]:
     from docx.text.paragraph import Paragraph
 
     lines: list[_Line] = []
+
+    def add(line: Optional[_Line]) -> None:
+        if line is None:
+            return
+        if len(lines) >= MAX_LINES:
+            raise CvImportError("Ten plik jest zbyt długi, żeby wczytać go do edytora.")
+        lines.append(line)
+
     for element in _block_elements(doc.element.body):
         if _local(element) == "p":
-            line = _paragraph_line(Paragraph(element, doc))
-            if line is not None:
-                lines.append(line)
+            add(_paragraph_line(Paragraph(element, doc)))
         else:
             for row in Table(element, doc).rows:
-                line = _row_line(row)
-                if line is not None:
-                    lines.append(line)
+                add(_row_line(row))
     return lines
 
 
@@ -419,6 +434,8 @@ def docx_to_editor_html(data: bytes) -> ImportedCv:
         doc = Document(io.BytesIO(data))
         lines = _lines(doc)
         textboxes = _textbox_texts(doc)
+    except CvImportError:
+        raise
     except Exception as error:  # noqa: BLE001 — uszkodzony albo nietypowy plik
         raise CvImportError(
             "Nie udało się odczytać tego pliku Word. Otwórz go w Wordzie i zapisz ponownie jako .docx."

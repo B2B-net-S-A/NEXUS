@@ -60,27 +60,40 @@ z dokumentem generatora:
 
 ## Pomiar importu na prawdziwych plikach
 
-Skrypt uruchomiony w kontenerze backendu na produkcji, tylko odczyt, 200 plików DOCX „B2B” (60 najnowszych + 140
-losowych). Wypisywał wyłącznie liczby.
+Skrypt uruchomiony w kontenerze backendu na produkcji, tylko odczyt, pliki DOCX „B2B” (60 najnowszych + 140
+losowych na bieg). Wypisywał wyłącznie liczby. Dwa biegi: przed i po utwardzeniu importu (niżej).
 
-| Miara | Wynik |
+| Miara | Bieg 1 | Bieg 2 |
+|---|---|---|
+| wczytane | 200 z 200 | 198 z 200 |
+| odmowa „to nie jest plik Word” (plik `.docx`, który nie jest archiwum Worda) | 0 | 2 |
+| akapity źródła nieobecne w HTML edytora | 0 w każdym pliku | 0 w każdym pliku |
+| akapity źródła nieobecne po ponownym renderze do Worda | 0 w każdym pliku | 0 w każdym pliku |
+| render do Worda bez błędu | 200 | 198 |
+| pliki z rozpoznanymi sekcjami | 198 | 197 |
+| pliki z rozpoznanymi stanowiskami | 182 | 177 |
+| czas importu | średnio 0,07 s, najdłużej 0,31 s | średnio 0,07 s, najdłużej 0,39 s |
+
+W plikach bez rozpoznanych stanowisk (ok. 10%) doświadczenie zostaje zwykłymi akapitami i punktami: tekst
+i pogrubienia są zachowane, nie ma linii między stanowiskami.
+
+## Poprawki po przeglądach
+
+Dwa niezależne przeglądy (poprawność, bezpieczeństwo) przed otwarciem PR-a. Każde ustalenie sprawdziłem w kodzie.
+
+| Ustalenie | Poprawka |
 |---|---|
-| wczytane | 200 z 200 |
-| akapity źródła nieobecne w HTML edytora | 0 w każdym pliku |
-| akapity źródła nieobecne po ponownym renderze do Worda | 0 w każdym pliku |
-| render do Worda bez błędu | 200 z 200 |
-| pliki z rozpoznanymi sekcjami | 198 (3–6 sekcji w 194) |
-| pliki z rozpoznanymi stanowiskami | 182 |
-| czas importu | średnio 0,07 s, najdłużej 0,31 s |
-
-W 18 plikach bez rozpoznanych stanowisk doświadczenie zostaje zwykłymi akapitami i punktami (tekst i pogrubienia
-zachowane, bez linii między stanowiskami).
+| Plik Word z `gridSpan` rzędu miliardów budował w pamięci procesu listę komórek na gigabajty (`row.cells` powtarza komórkę tyle razy, ile wynosi liczba z pliku) | komórki czytane wprost z XML-a; limit 5 000 linii i 4 poziomów zagnieżdżenia tabel; test z `gridSpan=2000000000` |
+| CV skopiowane z innej rekrutacji niosło jej tytuł w nagłówku i w „Rozważany na stanowisko” (bywa w nim numer zapytania innego klienta) | nagłówek = tytuł tej rekrutacji, linia „Rozważany na stanowisko” usunięta z kopii |
+| CV „blind” skopiowane z innej rekrutacji dostawało nazwisko w nazwie pliku | nazwa pliku z „Kandydat” / „Candidate”, jak w generatorze |
+| Blokada wiersza CV etapu trzymana przez czas pobierania pliku z magazynu | blokada dopiero po pobraniu i konwersji; rozmiar pliku sprawdzany przed pobraniem |
+| Trzy istniejące testy jednostkowe zakładały starą regułę „ta sama rekrutacja” | zaktualizowane (`test_cv_document_versions_unit.py`) |
 
 ## Weryfikacja
 
 | Część | Stan | Dowód |
 |---|---|---|
-| Import Word | zielone | `pytest tests/test_cv_docx_import.py` — 13 testów; pomiar na 200 plikach wyżej |
+| Import Word | zielone | `pytest tests/test_cv_docx_import.py` — 16 testów; pomiar na 2 × 200 plikach wyżej |
 | Kontrakty tras | zielone | `test_authz_guard_matrix`, `test_job_scope_contract`, `test_section_ceiling_contract`, `test_route_authz_contract`, `test_candidate_pipeline_section_contract` — 91 testów; wzorzec uprawnień +1 trasa |
 | Trasy i auto-CV z bazą | tylko CI | `tests/test_stage_cv_pick_from_profile.py` (lokalnie brak bazy) |
 | Front | zielone | vitest: `stage-cv-options`, `CandidatePreviewPane` (18), `cv-to-client`, `harness-seeds` (62), `recruitment-feature-parity`; `tsc --noEmit`; eslint |

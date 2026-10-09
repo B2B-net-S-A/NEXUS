@@ -362,10 +362,11 @@ CONSENT_CLIENT_NEEDS_GENERATOR = "consent_client_needs_generator"
 class DetachedCopySettings:
     filename: str
     client_id: Optional[int]
+    job_title: Optional[str]
 
 
 async def detached_copy_settings(
-    db: AsyncSession, csv: CandidateStageCV
+    db: AsyncSession, csv: CandidateStageCV, *, masked_name: Optional[str] = None
 ) -> DetachedCopySettings:
     """Ustawienia CV wybranego z profilu (plik Word, CV z innej rekrutacji).
 
@@ -373,6 +374,9 @@ async def detached_copy_settings(
     pliku liczymy z reguły klienta rekrutacji. Klient z wymogiem zrzutu zgody
     RODO odmawia (422): zgodę dołącza się dziś wyłącznie do dokumentu
     generatora, więc kopii nie dałoby się nigdy pobrać.
+
+    ``masked_name`` (CV blind): nazwa pliku nie może nieść nazwiska, które
+    dokument ukrywa — generator nazywa taki plik „…_Kandydat.docx”.
     """
     from fastapi import HTTPException
 
@@ -415,7 +419,7 @@ async def detached_copy_settings(
             },
         )
     title = job.title if job is not None else None
-    name = (
+    name = masked_name or (
         " ".join(part for part in (candidate.name, candidate.lastname) if part)
         if candidate is not None
         else ""
@@ -426,6 +430,7 @@ async def detached_copy_settings(
     return DetachedCopySettings(
         filename=named.filename if named else _build_download_filename(title, name),
         client_id=client_id,
+        job_title=(title or "").strip() or None,
     )
 
 

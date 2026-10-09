@@ -670,8 +670,16 @@ async def _apply_generated_from_other_job(
     from app.services.cv_generator_b2b.html_export import render_interactive_html
     from app.services.cv_generator_b2b.public_view import build_public_payload
 
-    settings = await detached_copy_settings(db, csv)
     public = build_public_payload(generated.render_payload)
+    masked_name = None
+    if public["blind"]:
+        masked_name = "Candidate" if public["language"] == "en" else "Kandydat"
+    settings = await detached_copy_settings(db, csv, masked_name=masked_name)
+    # Nagłówek i „Rozważany na stanowisko” niosą tytuł rekrutacji źródłowej
+    # (bywa w nim numer zapytania innego klienta) — w kopii stoi tytuł tej.
+    public["considered_for"] = None
+    if settings.job_title:
+        public["position"] = settings.job_title
     html = sanitize_cv_html(render_interactive_html(public, [], document_only=True))
     template = generated.template_content or await run_in_threadpool(default_template)
     origin = capture_editor_origin(html, generated.render_payload)
@@ -782,11 +790,15 @@ async def select_document_cv(
     )
     from app.services.candidate_stage_cv_service import detached_copy_settings
     from app.services.cv_document_assets import default_template
-    from app.services.cv_docx_import import CvImportError, docx_to_editor_html
-
-    csv = await _load_csv_for_stage(
-        db, stage_id, current_user, lock=True, create_missing=True
+    from app.services.cv_docx_import import (
+        MAX_BYTES,
+        CvImportError,
+        docx_to_editor_html,
     )
+
+    # Blokadę wiersza bierzemy dopiero PO pobraniu i konwersji pliku — magazyn
+    # bywa wolny, a zablokowany wiersz zatrzymałby edytor i automat.
+    csv = await _load_csv_for_stage(db, stage_id, current_user, create_missing=True)
     check_revision(csv, payload.expected_revision)
     document = await db.get(CandidateDocument, payload.document_id)
     if (
@@ -798,6 +810,11 @@ async def select_document_cv(
     ):
         raise HTTPException(404, "Nie znaleziono pliku CV tego kandydata.")
     settings = await detached_copy_settings(db, csv)
+    if (document.size_bytes or 0) > MAX_BYTES:
+        raise HTTPException(
+            422, "Plik jest za duży, żeby wczytać go do edytora (limit 10 MB)."
+        )
+    document_id = document.id
     try:
         if document.storage_key:
             from app.services.object_storage import download_cv
@@ -809,7 +826,7 @@ async def select_document_cv(
     except Exception as error:  # noqa: BLE001 — magazyn chwilowo niedostępny
         logger.warning(
             "[stage_cv] document=%s unavailable (%s)",
-            document.id,
+            document_id,
             type(error).__name__,
         )
         raise HTTPException(
@@ -819,6 +836,13 @@ async def select_document_cv(
         imported = await run_in_threadpool(docx_to_editor_html, content)
     except CvImportError as error:
         raise HTTPException(422, str(error)) from error
+    csv = await db.scalar(
+        select(CandidateStageCV)
+        .where(CandidateStageCV.id == csv.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    check_revision(csv, payload.expected_revision)
     template = await run_in_threadpool(default_template)
     await _write_stage_draft(
         db,
@@ -829,7 +853,7 @@ async def select_document_cv(
         filename=settings.filename,
         metadata={
             "source": "document",
-            "source_document_id": document.id,
+            "source_document_id": document_id,
             "source_document_sha256": hashlib.sha256(content).hexdigest(),
             "client_id": settings.client_id,
             "template_sha256": hashlib.sha256(template).hexdigest(),
@@ -842,7 +866,7 @@ async def select_document_cv(
         from_generator=False,
         user_id=current_user.id,
         activity_action="branded_cv_imported_from_document",
-        activity_details={"source_document_id": document.id},
+        activity_details={"source_document_id": document_id},
     )
     await db.commit()
     await db.refresh(csv)

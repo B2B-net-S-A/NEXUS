@@ -33,6 +33,8 @@ from app.services import cv_auto_generate as auto
 from app.services.candidate_stage_cv_service import create_original_cv_snapshot
 
 MARKER = "Zbudowała platformę wdrożeniową dla zespołów produktowych"
+# Tytuł rekrutacji źródłowej — bywa w nim numer zapytania innego klienta.
+SOURCE_TITLE = "ZOB-1725 Inżynier DevOps"
 
 
 def _docx(marker: str = MARKER) -> bytes:
@@ -101,6 +103,8 @@ async def _generated(candidate_id: int, job_id: int | None, **extra) -> int:
             status="ready",
             render_payload={
                 "name": "Ewa Fikcyjna",
+                "position": SOURCE_TITLE,
+                "considered_for": f"{SOURCE_TITLE} w banku",
                 "why_points": ["Prowadziła migrację do chmury"],
             },
             **extra,
@@ -246,6 +250,9 @@ async def test_cv_generated_for_another_recruitment_is_a_detached_copy(
     assert (body["status"], body["source"]) == ("draft", "generator")
     assert body["generated_document_id"] is None
     assert "Prowadziła migrację do chmury" in body["content_html"]
+    # Nagłówek i „Rozważany na stanowisko” mówią o TEJ rekrutacji.
+    assert "ZOB-1725" not in body["content_html"]
+    assert f"Platform Engineer {world['tag']}" in body["content_html"]
 
     csv = await _csv(world["stage_id"])
     metadata = csv.branded_render_metadata
@@ -256,6 +263,47 @@ async def test_cv_generated_for_another_recruitment_is_a_detached_copy(
     assert "consent_required" not in metadata
     assert csv.branded_docx_filename != "ZOB-1_CV_dla_innego_klienta.docx"
     assert world["tag"] in csv.branded_docx_filename
+
+
+@pytest.mark.asyncio
+async def test_blind_cv_copied_from_another_recruitment_keeps_the_name_out_of_the_file_name(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """CV blind ukrywa nazwisko — nazwa pliku kopii nie może go zdradzić."""
+    world = await _seed()
+    async with AsyncSessionLocal() as db:
+        row = CvGeneratedDocument(
+            candidate_id=world["candidate_id"],
+            job_id=world["other_job_id"],
+            candidate_name="Kandydat",
+            filename="DevOps_Kandydat.docx",
+            status="ready",
+            blind=True,
+            render_payload={
+                "name": f"Ewa Fikcyjna{world['tag']}",
+                "blind_cv": True,
+                "why_points": ["Prowadziła migrację do chmury"],
+            },
+        )
+        db.add(row)
+        await db.commit()
+        generated_id = row.id
+    chosen = await app_client.post(
+        _base(world["stage_id"]) + "/select-generated",
+        headers=app_auth_headers,
+        json={
+            "expected_revision": await _revision(
+                app_client, app_auth_headers, world["stage_id"]
+            ),
+            "generated_document_id": generated_id,
+        },
+    )
+    assert chosen.status_code == 200, chosen.text
+    csv = await _csv(world["stage_id"])
+    assert csv.branded_template == "blind"
+    assert "Fikcyjna" not in csv.branded_docx_filename
+    assert "Kandydat" in csv.branded_docx_filename
+    assert "Fikcyjna" not in chosen.json()["content_html"]
 
 
 @pytest.mark.asyncio
