@@ -85,6 +85,40 @@ describe("ChipField z podpowiedziami", () => {
     expect(onChange).toHaveBeenLastCalledWith(["jav"]);
   });
 
+  it("kursor myszy nad listą nie zmienia tego, co doda Enter (09.10.2026)", async () => {
+    const { onChange, input } = renderField();
+    await typeAndWait(input, "jav");
+    fireEvent.mouseEnter(option("JavaScript"));
+    fireEvent.mouseOver(option("JavaScript"));
+    expect(input).not.toHaveAttribute("aria-activedescendant");
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onChange).toHaveBeenLastCalledWith(["jav"]);
+  });
+
+  it("`quietWhenEmpty`: lista dopiero po wpisaniu tekstu i znika po dodaniu słowa", async () => {
+    const { input } = renderField({
+      suggest: { quietWhenEmpty: true, context: [{ label: "Kafka", note: "must-have" }] },
+    });
+    fireEvent.focus(input);
+    expect(screen.queryByRole("listbox")).toBeNull();
+    await typeAndWait(input, "jav");
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("`onEnterCommit` dostaje słowo dodane Enterem, przecinek idzie przez `onChange`", () => {
+    const onEnterCommit = vi.fn();
+    const { onChange, input } = renderField({ onEnterCommit, suggest: undefined });
+    fireEvent.change(input, { target: { value: "Kafka" } });
+    fireEvent.keyDown(input, { key: "," });
+    expect(onChange).toHaveBeenLastCalledWith(["Kafka"]);
+    expect(onEnterCommit).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: "Java" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onEnterCommit).toHaveBeenLastCalledWith(["Java"]);
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
   it("nie pokazuje podpowiedzi do poprzedniego słowa, zanim przyjdą nowe", async () => {
     const { onChange, input } = renderField();
     await typeAndWait(input, "jav");

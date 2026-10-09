@@ -143,27 +143,76 @@ def test_single_letter_critical_is_skipped_from_search_rows_with_a_note(monkeypa
     assert payload["search_rows_skipped"] == ["R"]
 
 
-def test_dl_choice_outside_must_or_not_technology_is_dropped():
+def test_dl_choice_outside_must_is_dropped_but_any_must_phrase_stays():
+    # 09.10.2026: o tym, co jest krytyczne, decyduje Delivery Lead — rola „QA”
+    # z listy must zostaje; „Python”, którego na liście must nie ma, odpada.
     res = critical_skills.effective_critical(
         _job(["Java", "QA"], critical=["QA", "Python"])
     )
-    assert res.labels == () and res.decided is True
+    assert [label.lower() for label in res.labels] == ["qa"]
+    assert res.decided is True and res.source == "dl"
 
 
-def test_dl_choice_of_a_tool_outside_the_dictionary_gates():
-    # 08.10.2026: „Temenos T24” nie ma w słowniku, ale to nazwa narzędzia —
-    # wybór Delivery Leada działa (bramka szuka nazwy w profilu, CV, notatkach).
+def test_dl_may_choose_any_phrase_from_must():
+    # Narzędzie spoza słownika (08.10.2026) i fraza, która nie jest technologią
+    # (09.10.2026): wybór Delivery Leada działa dla obu.
     must = ["Java", "Temenos T24", "bankowość"]
     res = critical_skills.effective_critical(
         _job(must, critical=["Temenos T24", "bankowość"])
     )
-    assert [label.lower() for label in res.labels] == ["temenos t24"]
+    assert [label.lower() for label in res.labels] == ["temenos t24", "bankowość"]
     assert res.source == "dl"
-    assert critical_skills.critical_errors(["Temenos T24"], must) == []
-    codes = [code for code, _ in critical_skills.critical_errors(["bankowość"], must)]
-    assert codes == ["critical_not_technology"]
+    assert critical_skills.critical_errors(["Temenos T24", "bankowość"], must) == []
     # Podpowiedź z historii dalej bierze wyłącznie technologie ze słownika.
     assert "Temenos T24" not in critical_skills.suggest_from_must(must)
+
+
+def test_gate_options_carry_the_row_words_of_dl_chosen_criticals():
+    must = ["Java", "Kafka", "bankowość"]
+    job = _job(must, critical=["Kafka", "bankowość"])
+    job.champion_profile["stack"]["rows"] = [
+        {"words": ["Java"], "level": "must"},
+        {"words": ["Kafka", "kolejki"], "level": "critical"},
+        {"words": ["bankowość", "bankow*", "banking"], "level": "critical"},
+        {"words": ["Docker"], "level": "nice"},
+    ]
+    options = critical_skills.critical_gate_options(job)
+    by_label = {label.lower(): words for label, words in options.items()}
+    # Fraza: wszystkie słowa wiersza; technologia: tylko słowa spoza reguły.
+    assert by_label["bankowość"] == ("bankowość", "bankow*", "banking")
+    assert by_label["kafka"] == ("kolejki",)
+    # Krytyczna-technologia bez wariantów nie potrzebuje wpisu.
+    plain = _job(must, critical=["Java"])
+    plain.champion_profile["stack"]["rows"] = [{"words": ["Java"], "level": "critical"}]
+    assert critical_skills.critical_gate_options(plain) == {}
+
+
+def test_gate_options_fall_back_to_the_phrase_itself_and_skip_suggestions():
+    # Profil bez wierszy: fraza szuka samej siebie.
+    job = _job(["Java", "bankowość"], critical=["bankowość"])
+    options = critical_skills.critical_gate_options(job)
+    assert {k.lower(): v for k, v in options.items()} == {"bankowość": ("bankowość",)}
+    # Podpowiedź z historii (nikt jej nie potwierdził) nie dostaje słów wiersza.
+    undecided = _job(["Java", "bankowość"])
+    assert critical_skills.effective_critical(undecided).source == "suggested"
+    assert critical_skills.critical_gate_options(undecided) == {}
+
+
+def test_frozen_request_carries_the_gate_options():
+    frozen = SimpleNamespace(
+        critical_effective={
+            "labels": ["bankowość"],
+            "source": "dl",
+            "suggested": [],
+            "decided": True,
+            "options": {"bankowość": ["bankow*", "banking"]},
+        }
+    )
+    assert critical_skills.critical_gate_options(frozen) == {
+        "bankowość": ("bankow*", "banking")
+    }
+    frozen.critical_effective.pop("options")
+    assert critical_skills.critical_gate_options(frozen) == {}
 
 
 def test_gate_mode_defaults_to_critical(monkeypatch):

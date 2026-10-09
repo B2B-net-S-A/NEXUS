@@ -434,6 +434,39 @@ describe("NewJobPage — krok 1: klient i źródło", () => {
     expect(screen.getByText("Brakuje 10 rzeczy do publikacji")).toBeInTheDocument();
   });
 
+  it("ręcznie: dwa must-have z klawiatury to dwa wiersze, a frazę da się oznaczyć jako krytyczną", async () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "wybierz klienta" }));
+    fireEvent.click(sourceTile(/Wpisz ręcznie/));
+    fireEvent.click(screen.getByRole("button", { name: "Przejdź do formularza" }));
+    await screen.findByLabelText("Rola");
+
+    const row = (n: number) => screen.getByLabelText(`Wymaganie ${n} — słowo albo wariant`);
+    const type = (n: number, text: string) => {
+      fireEvent.focus(row(n));
+      fireEvent.change(row(n), { target: { value: text } });
+      fireEvent.keyDown(row(n), { key: "Enter" });
+    };
+    type(1, "Java");
+    // Zgłoszenie 09.10.2026: po Enterze kursor zostawał w tym samym wierszu
+    // i drugie must-have stawało się wariantem „lub”.
+    expect(row(2)).toHaveFocus();
+    type(2, "bankowość");
+    const level = (head: string, name: string) =>
+      within(screen.getByRole("radiogroup", { name: `Poziom wymagania: ${head}` })).getByRole(
+        "radio",
+        { name },
+      );
+    expect(level("Java", "Musi mieć")).toBeChecked();
+    // Fraza spoza technologii: decyduje Delivery Lead, przycisk nie czeka na serwer.
+    expect(level("bankowość", "Krytyczne")).toBeEnabled();
+    fireEvent.click(level("bankowość", "Krytyczne"));
+    expect(level("bankowość", "Krytyczne")).toBeChecked();
+    expect(
+      screen.getByText(/Krytyczne: bankowość — propozycje AI ukrywają osoby/),
+    ).toBeInTheDocument();
+  });
+
   it("„Wgraj plik” wysyła plik do odczytu razem z klientem", async () => {
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "wybierz klienta" }));

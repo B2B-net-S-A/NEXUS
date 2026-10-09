@@ -11,8 +11,8 @@
  * stoi na `/jobs/new` i w Profilu Championa.
  */
 
-import { useId, useMemo, useRef, useState } from "react";
-import { Lightbulb, Loader2, Plus, X } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Lightbulb, Plus, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -39,7 +39,6 @@ import {
   requiredRows,
   rowCountHint,
   rowHead,
-  rowSelectable,
   setRowLevel,
   suggestedRowKeys,
   type RequirementLevel,
@@ -49,12 +48,13 @@ import {
 import { useRowCounts } from "@/lib/requirement-rows-api";
 import { cn } from "@/lib/utils";
 
-export const NOT_A_TECHNOLOGY_HINT =
-  "To nie jest nazwa technologii ani narzędzia — nie może ukrywać kandydatów.";
-/** Krytyczny wiersz, którego słownik nie zna: bramka szuka dosłownie tej nazwy. */
+/**
+ * Krytyczny wiersz, którego słownik technologii nie zna (narzędzie spoza
+ * słownika, branża, język, zdanie): o tym, co jest krytyczne, decyduje
+ * Delivery Lead (09.10.2026), a bramka szuka wtedy dosłownie słów wiersza.
+ */
 export const OUTSIDE_DICTIONARY_NOTE =
-  "Spoza słownika technologii — propozycje AI szukają dokładnie tej nazwy w profilu, CV i notatkach (bez innych pisowni).";
-const CHECKING_HINT = "Sprawdzam, czy to technologia ze słownika…";
+  "Spoza słownika technologii — w propozycjach AI zostają osoby, które mają którekolwiek ze słów tego wiersza w profilu, CV albo notatkach.";
 
 export interface RequirementRowsEditorProps {
   rows: RequirementRowForm[];
@@ -76,6 +76,9 @@ export interface RequirementRowsEditorProps {
   disabled?: boolean;
   className?: string;
 }
+
+/** Podpowiedzi w wierszu: lista dopiero po wpisaniu tekstu (nie zasłania wiersza niżej). */
+const ROW_SUGGEST = { quietWhenEmpty: true } as const;
 
 function countText(value: number | null | undefined): string {
   if (value === undefined) return "liczę…";
@@ -102,8 +105,24 @@ export function RequirementRowsEditor({
     () => (rows.length > 0 ? rows : addRow([])),
     [rows],
   );
-  // Wiersz dodany przyciskiem dostaje kursor — od razu można pisać.
+  // Wiersz dodany przyciskiem albo Enterem dostaje kursor — od razu można
+  // pisać. Ustawiamy go po renderze: wiersz bywa już zamontowany (pusty wiersz
+  // pod spodem), więc samo `autoFocus` by nie zadziałało.
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const focusKey = useRef<string | null>(null);
+  // Po pozycji, nie po kluczu: klucz pustego wiersza startowego powstaje
+  // osobno na serwerze i w przeglądarce, więc nie może trafić do atrybutu.
+  const focusRow = (index: number) =>
+    rootRef.current
+      ?.querySelector<HTMLInputElement>(`[data-row-index="${index}"] input[data-keyword-field]`)
+      ?.focus();
+  useEffect(() => {
+    const key = focusKey.current;
+    if (!key) return;
+    focusKey.current = null;
+    const index = shown.findIndex((row) => row.key === key);
+    if (index >= 0) focusRow(index);
+  });
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const counts = useRowCounts(shown, exclude, countEnabled && !disabled);
   const hints = useMemo(
@@ -125,6 +144,38 @@ export function RequirementRowsEditor({
   const remove = (key: string) => onRowsChange(shown.filter((row) => row.key !== key));
   const add = () => {
     const next = addRow(shown);
+    focusKey.current = next[next.length - 1].key;
+    onRowsChange(next);
+  };
+  /**
+   * Enter w wierszu = to wymaganie gotowe, kursor idzie do następnego
+   * (09.10.2026: po Enterze kursor zostawał w tym samym wierszu, więc kolejne
+   * must-have stawało się wariantem „lub”). Słowo i nowy wiersz idą JEDNĄ
+   * zmianą listy — dwie zmiany liczone z tego samego `shown` gubiłyby pierwszą.
+   * W środku listy (wiersz niżej już wypełniony) kursor zostaje: tam dopisuje
+   * się warianty.
+   */
+  const commitAndAdvance = (key: string, words?: string[]) => {
+    const base = words
+      ? shown.map((row) => (row.key === key ? { ...row, words } : row))
+      : shown;
+    const index = base.findIndex((row) => row.key === key);
+    if (index < 0 || base[index].words.length === 0) return;
+    const below = base[index + 1];
+    if (below && below.words.length === 0) {
+      if (words) {
+        focusKey.current = below.key;
+        onRowsChange(base);
+      } else {
+        focusRow(index + 1);
+      }
+      return;
+    }
+    if (below || !canAddRow(base)) {
+      if (words) onRowsChange(base);
+      return;
+    }
+    const next = addRow(base);
     focusKey.current = next[next.length - 1].key;
     onRowsChange(next);
   };
@@ -182,7 +233,7 @@ export function RequirementRowsEditor({
   }
 
   return (
-    <div className={cn("@container flex flex-col gap-3", className)}>
+    <div ref={rootRef} className={cn("@container flex flex-col gap-3", className)}>
       <div
         role="group"
         aria-label="Wymagania — słowa kluczowe"
@@ -192,7 +243,7 @@ export function RequirementRowsEditor({
           aria-hidden
           className="hidden gap-3 px-1 text-xs font-medium text-muted-foreground @xl:grid @xl:grid-cols-[minmax(0,1fr)_auto_5.5rem_1.5rem]"
         >
-          <span>Słowo kluczowe — warianty w jednym wierszu</span>
+          <span>Słowo kluczowe — Enter: następne wymaganie, przecinek: wariant</span>
           <span className="w-[17rem]">Poziom</span>
           <span className="text-right">W bazie</span>
           <span />
@@ -201,23 +252,13 @@ export function RequirementRowsEditor({
           const info = critical.info?.[row.key];
           const head = rowHead(row.words);
           const name = head || `wiersz ${index + 1}`;
-          const blocked = levelBlockedReason(shown, row.key, "critical");
-          // Serwer zna tylko wiersze obowiązkowe; `undefined` = nic o nim nie mówił.
-          const selectable = rowSelectable(info);
-          const notSelectableReason =
-            selectable === false ? (info?.blockedReason ?? NOT_A_TECHNOLOGY_HINT) : null;
+          // O tym, co jest krytyczne, decyduje Delivery Lead (09.10.2026):
+          // „Krytyczne” wyłącza wyłącznie limit, nigdy treść wiersza ani
+          // oczekiwanie na odpowiedź serwera.
           const criticalTitle =
             row.level === "critical"
               ? undefined
-              : row.words.length === 0
-                ? "Najpierw wpisz słowo kluczowe"
-                : critical.info == null
-                  ? critical.isError
-                    ? "Nie udało się sprawdzić słownika — spróbuj ponownie niżej"
-                    : CHECKING_HINT
-                  : notSelectableReason
-                    ? notSelectableReason
-                    : (blocked ?? undefined);
+              : (levelBlockedReason(shown, row.key, "critical") ?? undefined);
           const stat = info?.suggested ? statSentence(info.stat) : null;
           // N8 (06.10.2026): liczba osób jest tylko przy wierszach obowiązkowych.
           const countHint =
@@ -226,7 +267,7 @@ export function RequirementRowsEditor({
               : null;
           const rowHints = hints.filter((hint) => hint.row === index);
           return (
-            <div key={row.key} className="flex flex-col gap-1.5">
+            <div key={row.key} data-row-index={index} className="flex flex-col gap-1.5">
               <div className="grid grid-cols-[minmax(0,1fr)_1.5rem] items-start gap-x-3 gap-y-1.5 @xl:grid-cols-[minmax(0,1fr)_auto_5.5rem_1.5rem]">
                 <div className="min-w-0">
                   <ChipField
@@ -235,14 +276,15 @@ export function RequirementRowsEditor({
                     chips={row.words}
                     onChange={(next) => setWords(row.key, next)}
                     placeholder={
-                      row.words.length ? "lub…" : "np. Java — Enter dodaje, kolejne słowo to wariant"
+                      row.words.length ? "lub… (wariant)" : "np. Java — Enter i wpisujesz kolejne wymaganie"
                     }
                     tone={row.level === "nice" ? "sky" : "emerald"}
                     ariaLabel={`Wymaganie ${index + 1} — słowo albo wariant`}
-                    suggest={{}}
+                    suggest={ROW_SUGGEST}
                     invalid={invalid && index === 0 && row.words.length === 0}
-                    autoFocus={focusKey.current === row.key}
                     acceptWord={acceptRequirementWord}
+                    onEnterCommit={(next) => commitAndAdvance(row.key, next)}
+                    onSubmitEmpty={() => commitAndAdvance(row.key)}
                   />
                 </div>
                 <button
@@ -295,18 +337,7 @@ export function RequirementRowsEditor({
                   Podpowiedź z historii: {stat}.
                 </p>
               ) : null}
-              {/* Powód blokady stoi pod wierszem — sam dymek na wyłączonym
-                  przycisku czytał się jak błąd (zgłoszenie DL 08.10.2026). */}
-              {row.level !== "critical" && row.words.length > 0 && notSelectableReason ? (
-                <p
-                  className="px-1 text-xs text-muted-foreground"
-                  data-testid="requirement-row-critical-blocked"
-                >
-                  Nie może być krytyczne: {notSelectableReason.charAt(0).toLowerCase()}
-                  {notSelectableReason.slice(1)}
-                </p>
-              ) : null}
-              {row.level === "critical" && info && selectable && !info.eligible ? (
+              {row.level === "critical" && info && !info.eligible ? (
                 <p
                   className="px-1 text-xs text-muted-foreground"
                   data-testid="requirement-row-outside-dictionary"
@@ -414,19 +445,6 @@ export function RequirementRowsEditor({
             {overflowNotice}
           </p>
         ) : null}
-        {critical.isLoading ? (
-          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-            <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> sprawdzam słownik
-          </span>
-        ) : null}
-        {critical.isError ? (
-          <span role="alert" className="text-xs text-destructive">
-            Nie udało się sprawdzić, które słowa mogą być krytyczne.{" "}
-            <button type="button" className="font-medium underline" onClick={critical.retry}>
-              Ponów
-            </button>
-          </span>
-        ) : null}
       </div>
 
       <div
@@ -486,7 +504,7 @@ export function RequirementRowsEditor({
             placeholder="osoba nie może mieć żadnego z tych słów"
             tone="rose"
             ariaLabel="Wyklucz — żadne z tych słów"
-            suggest={{}}
+            suggest={ROW_SUGGEST}
           />
         </div>
       </div>

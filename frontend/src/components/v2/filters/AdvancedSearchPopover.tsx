@@ -121,6 +121,13 @@ function dedupeCaseInsensitive(
 export interface ChipFieldSuggest {
   context?: readonly KeywordContextItem[];
   skillsOnly?: boolean;
+  /**
+   * Lista otwiera się dopiero po wpisaniu tekstu i zamyka po dodaniu słowa
+   * (wiersze wymagań rekrutacji, 09.10.2026). Bez tego „Ostatnio używane”
+   * otwierały się na pustym polu i zasłaniały wiersz niżej oraz „Dodaj słowo
+   * kluczowe” — klik w przycisk trafiał w podpowiedź.
+   */
+  quietWhenEmpty?: boolean;
 }
 
 /**
@@ -141,6 +148,7 @@ export function ChipField({
   ariaLabel,
   suggest,
   onSubmitEmpty,
+  onEnterCommit,
   inputId,
   layout = "stacked",
   joiner,
@@ -157,6 +165,13 @@ export function ChipField({
   ariaLabel?: string;
   suggest?: ChipFieldSuggest;
   onSubmitEmpty?: () => void;
+  /**
+   * Słowo dodane ENTEREM (wpisane albo wybrane strzałkami) — zamiast
+   * `onChange`. Wiersz wymagań zapisuje wtedy słowo i przenosi kursor do
+   * następnego wymagania jedną zmianą listy; przecinek, wyjście z pola
+   * i klik w podpowiedź idą przez `onChange`.
+   */
+  onEnterCommit?: (next: string[]) => void;
   inputId?: string;
   /**
    * `inline` — chipy i pole w jednej ramce, jak wiersz wymagań (25.09.2026);
@@ -202,10 +217,15 @@ export function ChipField({
         skillsOnly: suggest.skillsOnly,
       })
     : [];
-  const showList = Boolean(suggest) && open && options.length > 0 && !limitReached;
+  const showList =
+    Boolean(suggest) &&
+    open &&
+    options.length > 0 &&
+    !limitReached &&
+    !(suggest?.quietWhenEmpty && draft.trim() === "");
   const active = showList ? Math.min(highlight, options.length - 1) : -1;
 
-  const commit = () => {
+  const commit = (viaEnter = false) => {
     if (!draft.trim()) return;
     // `|` rozdziela słowa grupy w adresie — w słowie zamieniamy go na spację,
     // inaczej po odświeżeniu „a|b” wracało jako dwa osobne słowa.
@@ -218,14 +238,21 @@ export function ChipField({
     // dlaczego i gdzie szukać pojedynczej litery (przegląd PR #2056).
     const rejected = words.filter((x) => !acceptWord(x));
     setTooShort(rejected.length > 0 ? tooShortKeywordMessage(rejected) : null);
-    if (fresh.length > 0) onChange(dedupeCaseInsensitive([...chips, ...fresh], acceptWord));
+    if (fresh.length > 0) {
+      const next = dedupeCaseInsensitive([...chips, ...fresh], acceptWord);
+      if (viaEnter && onEnterCommit) onEnterCommit(next);
+      else onChange(next);
+    }
     setDraft("");
   };
 
-  const pick = (option: SuggestionOption) => {
-    onChange(
-      dedupeCaseInsensitive([...chips, option.insert, ...(option.variants ?? [])], acceptWord),
+  const pick = (option: SuggestionOption, viaEnter = false) => {
+    const next = dedupeCaseInsensitive(
+      [...chips, option.insert, ...(option.variants ?? [])],
+      acceptWord,
     );
+    if (viaEnter && onEnterCommit) onEnterCommit(next);
+    else onChange(next);
     setDraft("");
     setHighlight(-1);
   };
@@ -260,9 +287,9 @@ export function ChipField({
           onSubmitEmpty();
         }
       } else if (showList && active >= 0 && draft.trim() !== "") {
-        pick(options[active]);
+        pick(options[active], true);
       } else {
-        commit();
+        commit(true);
       }
     } else if (e.key === ",") {
       e.preventDefault();
@@ -338,7 +365,6 @@ export function ChipField({
       options={options}
       activeIndex={active}
       onPick={pick}
-      onHover={setHighlight}
       canSubmit={Boolean(onSubmitEmpty)}
     />
   );

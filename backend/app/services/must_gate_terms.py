@@ -20,7 +20,7 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Optional
+from typing import Mapping, Optional, Sequence
 
 from app.services.skill_normalize import (
     is_gate_technology,
@@ -580,38 +580,33 @@ def critical_eligible(label: str) -> bool:
     )
 
 
-def critical_selectable(label: str) -> bool:
-    """Czy Delivery Lead może WYBRAĆ pozycję must jako krytyczną (08.10.2026).
+def requirement_with_options(
+    label: str, options: Optional[Mapping[str, Sequence[str]]] = None
+) -> Optional[GateRequirement]:
+    """Wymaganie bramki z dodatkowymi słowami wiersza (09.10.2026).
 
-    Szersze niż ``critical_eligible``: wystarczy, że pozycja bramkuje
-    (``gate_requirement``), czyli jest nazwą technologii albo narzędzia — także
-    takiego, którego słownik nie zna („Camunda BPM”, „TestNG”, „Qualys”).
-    Bramka szuka wtedy tej nazwy w profilu, CV i notatkach. Do tej daty wybór
-    ograniczał słownik: w 16 najnowszych rekrutacjach 9 skończyło z „Brak
-    krytycznych”, bo narzędzi z requestu nie dało się oznaczyć. Podpowiedź
-    z historii, wymóg decyzji przy przekazaniu i tytuł dla rekrutera zostają
-    przy ``critical_eligible`` — tam nikt nie potwierdza wyboru.
+    O tym, co jest krytyczne, decyduje Delivery Lead — także fraza, której
+    ``gate_requirement`` nie uznaje za nazwę technologii (branża, język, zdanie).
+    ``options`` (etykieta → słowa, z ``critical_skills.critical_gate_options``)
+    niesie słowa wiersza takiej pozycji: bramka szuka wtedy któregokolwiek z nich
+    w profilu, CV i notatkach. Dla technologii słowa wiersza DOCHODZĄ do nazw
+    z reguły („Kafka” + wariant „kolejki”) — w wierszu wystarczy jedno słowo.
+    Bez wpisu w ``options`` wynik jest taki jak ``gate_requirement``.
     """
-    return gate_requirement(label) is not None
-
-
-_NOT_SELECTABLE_SENTENCES = {
-    "language": "To język, nie technologia — sprawdzisz go w rozmowie.",
-    "domain": "To branża, nie technologia — daje punkty, nie ukrywa kandydatów.",
-    "soft": "To umiejętność miękka — daje punkty, nie ukrywa kandydatów.",
-    "category": "To kategoria albo metodyka, nie konkretna technologia.",
-    "role": "To rola, nie technologia.",
-    "prose": "To opis, nie nazwa technologii ani narzędzia.",
-}
-
-
-def not_selectable_sentence(label: str) -> Optional[str]:
-    """Zdanie dla Delivery Leada, dlaczego pozycji nie da się oznaczyć jako
-    krytycznej; ``None``, gdy się da."""
-    reason = ignored_reason(label)
-    if reason is None:
-        return None
-    return _NOT_SELECTABLE_SENTENCES.get(reason, _NOT_SELECTABLE_SENTENCES["prose"])
+    base = gate_requirement(label)
+    extra = options.get(label) if options else None
+    if not extra:
+        return base
+    merged: list[str] = list(base.options) if base else []
+    seen = {option.casefold() for option in merged}
+    for word in extra:
+        word = word.strip() if isinstance(word, str) else ""
+        if word and word.casefold() not in seen:
+            seen.add(word.casefold())
+            merged.append(word)
+    if not merged:
+        return base
+    return GateRequirement(label=label, options=tuple(merged))
 
 
 def clear_cache() -> None:

@@ -166,59 +166,28 @@ def test_critical_eligibility_is_false_without_taxonomy():
     assert critical_eligible("Java") is False
 
 
-# ── Wybór Delivery Leada (08.10.2026): także nazwy spoza słownika ───────────
-@pytest.mark.parametrize(
-    "label, selectable",
-    [
-        ("Java 11+", True),
-        ("Temenos T24", True),  # narzędzie, którego słownik nie zna
-        ("Kafka lub RabbitMQ", True),  # RabbitMQ spoza słownika
-        ("Temenos T24 / Temenos Transact", True),
-        ("QA", False),  # rola ze słownika
-        ("Scrum", False),
-        ("bankowość", False),
-        ("English B2", False),
-        ("Good communication skills", False),
-        ("bardzo dobra znajomość Kafki", False),
-    ],
-)
-def test_dl_may_pick_any_technology_name_as_critical(label, selectable):
-    from app.services.must_gate_terms import critical_selectable
+# ── Wybór Delivery Leada (09.10.2026): każda fraza, szukamy słów wiersza ────
+def test_requirement_with_options_adds_row_words_to_a_phrase():
+    from app.services.must_gate_terms import requirement_with_options
 
     with hydrated_taxonomy():
-        assert critical_selectable(label) is selectable
-
-
-def test_selectable_does_not_need_the_dictionary():
-    from app.services.must_gate_terms import critical_selectable
-
-    # Bez wczytanego słownika podpowiedź milczy, ale wybór człowieka działa.
-    assert critical_selectable("Temenos T24") is True
-    assert critical_eligible("Temenos T24") is False
-
-
-@pytest.mark.parametrize(
-    "label, fragment",
-    [
-        ("bankowość", "To branża"),
-        ("English B2", "To język"),
-        ("Good communication skills", "umiejętność miękka"),
-        ("Hybrid cloud architecture", "To kategoria"),
-        ("Developer", "To rola"),
-        ("bardzo dobra znajomość Kafki", "To opis"),
-    ],
-)
-def test_blocked_position_gets_a_polish_reason(label, fragment):
-    from app.services.must_gate_terms import not_selectable_sentence
-
-    sentence = not_selectable_sentence(label)
-    assert sentence is not None and fragment in sentence
-
-
-def test_selectable_position_has_no_blocking_reason():
-    from app.services.must_gate_terms import not_selectable_sentence
-
-    assert not_selectable_sentence("Temenos T24") is None
+        # Fraza spoza technologii sama nie bramkuje…
+        assert gate_requirement("bankowość") is None
+        assert requirement_with_options("bankowość") is None
+        # …ale ze słowami wiersza staje się wymaganiem „którekolwiek z nich”.
+        phrase = requirement_with_options(
+            "bankowość", {"bankowość": ("bankowość", "bankow*", "banking")}
+        )
+        assert phrase is not None
+        assert phrase.options == ("bankowość", "bankow*", "banking")
+        # Technologia: słowa wiersza dochodzą do nazw z reguły, bez powtórek.
+        tech = requirement_with_options("Kafka", {"Kafka": ("kafka", "kolejki")})
+        assert tech is not None
+        assert [o.lower() for o in tech.options] == ["kafka", "kolejki"]
+        # Bez wpisu wynik jest taki jak z samej reguły.
+        assert requirement_with_options("Kafka", {"Java": ("jvm",)}) == gate_requirement(
+            "Kafka"
+        )
 
 
 @pytest.mark.parametrize(

@@ -22,7 +22,6 @@ import {
   rowCountHint,
   rowCriticalInfo,
   rowHead,
-  rowSelectable,
   rowsFromStored,
   searchRows,
   setRowLevel,
@@ -349,46 +348,29 @@ describe("rowCriticalInfo — odpowiedź serwera po kolei wierszy obowiązkowych
       suggested: ["Java"],
       stats: { Java: { rate: 0.96, jobs: 41 } },
     });
-    // Odpowiedź bez `selectable` (serwer sprzed 08.10.2026): oznaczyć wolno
-    // to samo, co jest technologią ze słownika.
     expect(info).toEqual({
       java: {
         label: "Java",
         eligible: true,
-        selectable: true,
         suggested: true,
         stat: { rate: 0.96, jobs: 41 },
       },
-      kafka: { label: "Kafka lub RabbitMQ", eligible: true, selectable: true, suggested: false },
-      pay: { label: "płatności", eligible: false, selectable: false, suggested: false },
+      kafka: { label: "Kafka lub RabbitMQ", eligible: true, suggested: false, stat: undefined },
+      pay: { label: "płatności", eligible: false, suggested: false, stat: undefined },
     });
     expect(info).not.toHaveProperty("k8s");
   });
 
-  it("nazwa spoza słownika: wolno oznaczyć, choć nie jest „eligible”; reszta dostaje powód", () => {
+  it("wymóg decyzji przy przekazaniu liczy tylko technologie ze słownika", () => {
     const rows = [row("java", ["Java"]), row("camunda", ["Camunda BPM"]), row("bank", ["bankowości"])];
     const info = rowCriticalInfo(rows, {
       labels: ["Java", "Camunda BPM", "bankowości"],
       eligible: ["Java"],
-      selectable: ["Java", "Camunda BPM"],
-      blocked: { bankowości: "To branża, nie technologia — daje punkty, nie ukrywa kandydatów." },
       suggested: [],
       stats: {},
     });
-    expect(info.camunda).toMatchObject({ eligible: false, selectable: true });
-    expect(info.camunda.blockedReason).toBeUndefined();
-    expect(info.bank).toMatchObject({
-      eligible: false,
-      selectable: false,
-      blockedReason: "To branża, nie technologia — daje punkty, nie ukrywa kandydatów.",
-    });
-    expect([info.java, info.camunda, info.bank, undefined].map(rowSelectable)).toEqual([
-      true,
-      true,
-      false,
-      undefined,
-    ]);
-    // Wymóg decyzji przy przekazaniu dalej liczy tylko technologie ze słownika.
+    expect(info.camunda).toMatchObject({ eligible: false });
+    expect(info.bank).toMatchObject({ eligible: false });
     expect(criticalDecisionMissing(rows.slice(1), false, info)).toBe(false);
     expect(criticalDecisionMissing(rows, false, info)).toBe(true);
   });

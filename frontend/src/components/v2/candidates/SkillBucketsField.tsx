@@ -208,7 +208,6 @@ export function SkillBucketsField({
               options={options}
               activeIndex={active}
               onPick={pick}
-              onHover={setHighlight}
               canSubmit={Boolean(onSubmitEmpty)}
             />
           )}

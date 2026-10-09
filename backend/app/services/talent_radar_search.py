@@ -502,7 +502,12 @@ async def search(db: AsyncSession, query: RadarQuery) -> RadarResult:
     radar_inputs = dealbreaker_inputs_for_radar(query)
     from app.services.must_text_evidence import attach_gate_evidence
 
-    await attach_gate_evidence(db, candidates, radar_inputs.gate_evidence_labels)
+    await attach_gate_evidence(
+        db,
+        candidates,
+        radar_inputs.gate_evidence_labels,
+        options=radar_inputs.gate_options,
+    )
     dealbreakers = await _apply_dealbreakers_yielding(candidates, inputs=radar_inputs)
     candidates = dealbreakers.kept
 

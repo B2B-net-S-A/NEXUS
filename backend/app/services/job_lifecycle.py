@@ -810,42 +810,16 @@ async def save_champion_core(
     # Synchronizujemy, gdy edytor PRZYSŁAŁ sekcję `stack` — także pustą.
     patch_stack = (payload or {}).get("stack")
     if isinstance(patch_stack, dict) and patch_stack.get("critical"):
-        # Krytyczne wybiera się z MUST i tylko spośród technologii ze słownika
-        # (30.09.2026) — zły wybór = 422 po polsku, nic się nie zapisuje.
+        # Krytyczne wybiera się z MUST, najwyżej trzy — zły wybór = 422 po
+        # polsku, nic się nie zapisuje. Treści pozycji nie oceniamy: o tym,
+        # co jest krytyczne, decyduje Delivery Lead (09.10.2026).
         from app.services.critical_skills import critical_errors
         from app.services.scoring_service import job_explicit_must_skills
 
         must_names = [item.name for item in profile.stack.must] or list(
             job_explicit_must_skills(job)
         )
-        critical_now = list(profile.stack.critical or [])
-        errors = critical_errors(critical_now, must_names)
-        if (
-            errors
-            and isinstance(patch_stack.get("rows"), list)
-            and all(code == "critical_not_technology" for code, _ in errors)
-        ):
-            # Audyt 06.10.2026 (P6): wiersz krytyczny, któremu zmieniono słowa
-            # tak, że przestał być nazwą technologii, nie blokuje zapisu
-            # (do tej daty 422 jako goły napis). Zostaje „musi mieć”, a zapis
-            # mówi to wprost.
-            dropped = {
-                name for name in critical_now if critical_errors([name], must_names)
-            }
-            kept = [name for name in critical_now if name not in dropped]
-            if kept:
-                new_profile["stack"]["critical"] = kept
-            else:
-                # Bez krytycznych z wyboru DL-a = „nie zdecydowano” (pole znika
-                # z zapisu jak w `ChampionStack`) — działa podpowiedź z historii.
-                new_profile["stack"].pop("critical", None)
-            profile = ChampionProfile.model_validate(new_profile)
-            effects.results.setdefault("notices", []).extend(
-                f"„{name}” nie jest już nazwą technologii — zostaje "
-                "„musi mieć” i nie ukrywa kandydatów."
-                for name in sorted(dropped)
-            )
-            errors = []
+        errors = critical_errors(list(profile.stack.critical or []), must_names)
         if errors:
             raise HTTPException(422, errors[0][1])
     rows_sent = isinstance(patch_stack, dict) and isinstance(

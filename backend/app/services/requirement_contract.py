@@ -114,7 +114,11 @@ def requirements_for_job(job) -> MatchingRequirements:
 # dwukropek, przecinek i kropkę (K7), odmiana must-have w CV i notatkach
 # (K12) i CV czekające na odczyt tekstu to nie „brak danych” (K9) — zmienia,
 # kogo bramka ukrywa.
-MUST_GATE_POLICY_VERSION = "critical-v10.1"
+# v11 (09.10.2026, decyzja Artura): krytyczną z wyboru Delivery Leada może być
+# dowolna fraza, nie tylko nazwa technologii; bramka szuka wtedy słów jej
+# wiersza w profilu, CV i notatkach, a słowa wiersza liczą się też przy
+# technologii (`critical_skills.critical_gate_options`).
+MUST_GATE_POLICY_VERSION = "critical-v11"
 
 
 def search_dealbreaker_inputs(job, *, exclude_missing_must: bool | None = None):

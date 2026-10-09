@@ -27,11 +27,20 @@ import json
 import re
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Iterable, Optional, Sequence
+from typing import Iterable, Mapping, Optional, Sequence
 
 from app.services import note_kinds
 from app.services.keyword_terms import parse_keyword, py_regex
-from app.services.must_gate_terms import GateRequirement, gate_requirement
+from app.services.must_gate_terms import (
+    GateRequirement,
+    gate_requirement,
+    requirement_with_options,
+)
+
+# Słowa wiersza dla krytycznych z wyboru Delivery Leada (etykieta → słowa):
+# `critical_skills.critical_gate_options`. Bez nich etykieta, która nie jest
+# nazwą technologii, nie ma czego szukać w tekście.
+GateOptions = Optional[Mapping[str, Sequence[str]]]
 
 # Notatki, które są dowodem: rozmowy, spotkania, notatki ogólne, rozmowy
 # rekrutacyjne. Bez maili (patrz docstring modułu).
@@ -284,11 +293,17 @@ def cv_text(candidate) -> str:
 
 
 def text_met_labels(
-    candidate, must: Sequence[str], note_texts: Iterable[str] = ()
+    candidate,
+    must: Sequence[str],
+    note_texts: Iterable[str] = (),
+    *,
+    options: GateOptions = None,
 ) -> frozenset[str]:
     """Etykiety must, które profil, CV albo notatki wymieniają."""
     requirements = [
-        (label, gate_requirement(label)) for label in must if gate_requirement(label)
+        (label, requirement)
+        for label in must
+        if (requirement := requirement_with_options(label, options))
     ]
     if not requirements:
         return frozenset()
@@ -330,6 +345,7 @@ def mention_sources(
     *,
     note_texts: Iterable[str] = (),
     conversation_texts: Iterable[str] = (),
+    options: GateOptions = None,
 ) -> dict[str, tuple[str, ...]]:
     """``{etykieta: (źródła…)}`` — gdzie wymaganie stoi (``SOURCE_ORDER``).
 
@@ -349,7 +365,7 @@ def mention_sources(
     }
     out: dict[str, tuple[str, ...]] = {}
     for label in labels:
-        requirement = gate_requirement(label)
+        requirement = requirement_with_options(label, options)
         if requirement is None:
             continue
         out[label] = tuple(
@@ -375,7 +391,11 @@ def mention_snippet(label: str, text: str) -> Optional[str]:
 
 
 async def load_evidence_note_texts(
-    db, candidate_ids: Sequence[int], labels: Sequence[str]
+    db,
+    candidate_ids: Sequence[int],
+    labels: Sequence[str],
+    *,
+    options: GateOptions = None,
 ) -> dict[int, list[str]]:
     """Notatki-dowody kandydatów, które wymieniają którąś z technologii.
 
@@ -383,7 +403,7 @@ async def load_evidence_note_texts(
     błąd bazy daje pusty wynik, nie przerywa przeglądu.
     """
     ids = sorted({int(i) for i in candidate_ids})
-    pattern = _loose_pg_pattern(labels) if labels else None
+    pattern = _loose_pg_pattern(labels, options) if labels else None
     if not ids or not pattern:
         return {}
     try:
@@ -468,7 +488,9 @@ def has_any_data(candidate, evidence: Optional[MustTextEvidence]) -> bool:
     return bool(evidence and evidence.has_notes)
 
 
-def _loose_pg_pattern(must: Sequence[str]) -> Optional[str]:
+def _loose_pg_pattern(
+    must: Sequence[str], options: GateOptions = None
+) -> Optional[str]:
     """Wstępny filtr notatek w SQL: którakolwiek forma, bez granic słowa.
 
     Tylko zawęża, co wraca z bazy — o dopasowaniu decyduje ``mentions``.
@@ -478,14 +500,16 @@ def _loose_pg_pattern(must: Sequence[str]) -> Optional[str]:
 
     forms: set[str] = set()
     for label in must:
-        requirement = gate_requirement(label)
+        requirement = requirement_with_options(label, options)
         if requirement is None:
             continue
         for option in requirement.options:
             variants = [option.lower(), *skill_name_variants([option])]
             for form in [*variants, *implied_forms(option)]:
-                if len(form.strip()) >= 2:
-                    forms.add(form.strip())
+                # Rdzeń z gwiazdką („bankow*”) szukamy bez gwiazdki.
+                form = form.strip().strip("*").strip()
+                if len(form) >= 2:
+                    forms.add(form)
                 inflected = _inflected(form)
                 if inflected is not None and inflected[1]:
                     # „Kafką” nie zawiera „kafka” — filtr notatek bierze rdzeń.
@@ -495,7 +519,13 @@ def _loose_pg_pattern(must: Sequence[str]) -> Optional[str]:
     return "|".join(re.escape(f) for f in sorted(forms, key=len, reverse=True))
 
 
-async def attach_gate_evidence(db, candidates: Sequence, must: Sequence[str]) -> None:
+async def attach_gate_evidence(
+    db,
+    candidates: Sequence,
+    must: Sequence[str],
+    *,
+    options: GateOptions = None,
+) -> None:
     """Dołącz ``_must_text_evidence`` do kandydatów przed ``apply_dealbreakers``.
 
     Dwa zapytania na paczkę: kto ma notatki-dowody, i treść tych notatek,
@@ -509,7 +539,7 @@ async def attach_gate_evidence(db, candidates: Sequence, must: Sequence[str]) ->
         return
     # Pusta lista też dołącza `has_notes`: kandydat bez CV i umiejętności,
     # ale z notatką z rozmowy, nie jest „bez danych” (30.09.2026).
-    pattern = _loose_pg_pattern(must) if must else None
+    pattern = _loose_pg_pattern(must, options) if must else None
     try:
         # Savepoint: błąd zapytania (np. regex, timeout) nie może zostawić
         # transakcji wywołującego w stanie „aborted”.
@@ -532,7 +562,9 @@ async def attach_gate_evidence(db, candidates: Sequence, must: Sequence[str]) ->
             continue
         candidate._must_text_evidence = MustTextEvidence(
             key=must,
-            met=text_met_labels(candidate, must, note_texts.get(cid, ())),
+            met=text_met_labels(
+                candidate, must, note_texts.get(cid, ()), options=options
+            ),
             has_notes=cid in has_notes,
         )
 
