@@ -365,7 +365,9 @@ export function ChipField({
       options={options}
       activeIndex={active}
       onPick={pick}
-      canSubmit={Boolean(onSubmitEmpty)}
+      // W wierszach wymagań pusty Enter przechodzi do następnego wiersza —
+      // podpis „Enter w pustym polu = Szukaj” byłby tam nieprawdą.
+      canSubmit={Boolean(onSubmitEmpty) && !suggest?.quietWhenEmpty}
     />
   );
 

@@ -70,7 +70,7 @@ export interface JobReopenDialogProps {
   /** `reopen` — zamknięta rekrutacja; `finish` — stary szkic albo bez przekazania. */
   mode: JobReopenMode;
   /** Pierwszy rekruter rekrutacji. Brak = z rekrutacji w cache'u (`primary_owner`). */
-  recruiter?: { id: number; name?: string | null } | null;
+  recruiter?: { id: number; name?: string | null; is_active?: boolean } | null;
   /** „Uzupełnij” przy brakach — strona otwiera edytor Profilu Championa. */
   onOpenChampion?: () => void;
   /** Braki z zakładki „Zespół i ogłoszenie” (kategoria, liczba osób). */
@@ -79,7 +79,7 @@ export interface JobReopenDialogProps {
 
 /** Pola rekrutacji z cache'u (`["job", id]`), których okno potrzebuje. */
 interface ReopenCachedJob {
-  primary_owner?: { id: number; name?: string | null } | null;
+  primary_owner?: { id: number; name?: string | null; is_active?: boolean } | null;
   client_id?: number | null;
   hiring_manager_contact_id?: number | null;
   hiring_manager_name?: string | null;
@@ -157,8 +157,11 @@ export function JobReopenDialog({
   const channelId = useId();
   const cachedJob = useCachedJob<ReopenCachedJob>(jobId);
   const clientId = cachedJob?.client_id ?? null;
-  const currentRecruiter =
+  const knownRecruiter =
     recruiter !== undefined ? recruiter : (cachedJob?.primary_owner ?? null);
+  // Nieaktywne konto = brak rekrutera: serwer otwiera wtedy rekrutację bez
+  // nikogo, więc okno nie może obiecywać „zostaje bez zmian”.
+  const currentRecruiter = knownRecruiter?.is_active === false ? null : knownRecruiter;
 
   const [assignmentChoice, setAssignmentChoice] = useState<RecruiterAssignment | null>(null);
   const [pickedRecruiterId, setPickedRecruiterId] = useState<number | null | undefined>(

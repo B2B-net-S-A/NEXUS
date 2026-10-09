@@ -187,6 +187,30 @@ def test_gate_options_carry_the_row_words_of_dl_chosen_criticals():
     assert critical_skills.critical_gate_options(plain) == {}
 
 
+def test_starred_stem_is_always_a_gate_word():
+    """Przegląd kodu 09.10.2026: wiersz z samego rdzenia („bankow*”) ma etykietę
+    „bankow”, która wygląda na nazwę technologii. Po zdjęciu gwiazdki rdzeń
+    uchodził za powtórkę etykiety i wypadał — bramka szukała całego słowa
+    „bankow”, a „Szukaj ręcznie” początku słowa."""
+    job = _job(["Java", "bankow"], critical=["bankow"])
+    job.champion_profile["stack"]["rows"] = [
+        {"words": ["Java"], "level": "must"},
+        {"words": ["bankow*"], "level": "critical"},
+    ]
+    options = critical_skills.critical_gate_options(job)
+    assert {k.lower(): v for k, v in options.items()} == {"bankow": ("bankow*",)}
+    with hydrated_taxonomy():
+        # Technologia ze słownika z rdzeniem obok: rdzeń zostaje, nazwa nie dubluje.
+        tech = _job(["JavaScript"], critical=["JavaScript"])
+        tech.champion_profile["stack"]["rows"] = [
+            {"words": ["JavaScript", "javascript*"], "level": "critical"}
+        ]
+        tech_options = critical_skills.critical_gate_options(tech)
+        assert {k.lower(): v for k, v in tech_options.items()} == {
+            "javascript": ("javascript*",)
+        }
+
+
 def test_gate_options_fall_back_to_the_phrase_itself_and_skip_suggestions():
     # Profil bez wierszy: fraza szuka samej siebie.
     job = _job(["Java", "bankowość"], critical=["bankowość"])

@@ -54,7 +54,7 @@ import { cn } from "@/lib/utils";
  * Delivery Lead (09.10.2026), a bramka szuka wtedy dosłownie słów wiersza.
  */
 export const OUTSIDE_DICTIONARY_NOTE =
-  "Spoza słownika technologii — w propozycjach AI zostają osoby, które mają którekolwiek ze słów tego wiersza w profilu, CV albo notatkach.";
+  "Spoza słownika technologii — w propozycjach AI zostają osoby, które mają którekolwiek ze słów tego wiersza w profilu, CV albo notatkach. Szukamy dokładnie tych słów; odmianę łapie początek słowa z gwiazdką, np. „bankow*”.";
 
 export interface RequirementRowsEditorProps {
   rows: RequirementRowForm[];

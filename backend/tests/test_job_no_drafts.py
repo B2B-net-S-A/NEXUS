@@ -599,7 +599,7 @@ async def test_champion_save_refuses_a_new_gap_on_a_job_in_work(
 
 @pytest.mark.asyncio
 async def test_reopen_goes_through_the_gate_and_keeps_the_recruiter(
-    app_client, app_auth_headers, offline_matching
+    app_client, app_auth_headers, offline_matching, monkeypatch
 ):
     """09.10.2026: ponowne otwarcie nie pyta o rekrutera — zostaje dotychczasowy.
     Bramka braków jest ta sama co przy zakładaniu."""
@@ -642,6 +642,19 @@ async def test_reopen_goes_through_the_gate_and_keeps_the_recruiter(
         job = await db.get(Job, job_id)
         job.competence_category_id = category_id
         await db.commit()
+    # Dzwonek liczymy po WYWOŁANIU, nie po wierszu powiadomień: rekruter ma
+    # już dzwonek z założenia rekrutacji, a dzienny dedup połyka drugi tego
+    # samego dnia — wiersz w bazie niczego by tu nie dowodził.
+    from app.api import jobs as jobs_api
+
+    rung: list[int] = []
+    real_notify = jobs_api._notify_new_owner
+
+    async def _spy(db, *, job, user_id):
+        rung.append(user_id)
+        await real_notify(db, job=job, user_id=user_id)
+
+    monkeypatch.setattr(jobs_api, "_notify_new_owner", _spy)
     reopened = await app_client.post(
         f"/api/jobs/{job_id}/publish",
         json={"assignment_mode": "keep", "reason": "Klient wznowił projekt"},
@@ -660,7 +673,6 @@ async def test_reopen_goes_through_the_gate_and_keeps_the_recruiter(
     from sqlalchemy import select
 
     from app.models.activity import Activity
-    from app.models.notification import Notification
 
     async with AsyncSessionLocal() as db:
         handoffs = (
@@ -678,15 +690,7 @@ async def test_reopen_goes_through_the_gate_and_keeps_the_recruiter(
             "assignment_mode": "keep",
             "recruiter_id": recruiter_id,
         }
-        bells = (
-            await db.scalars(
-                select(Notification).where(
-                    Notification.user_id == recruiter_id,
-                    Notification.link.like(f"/jobs/{job_id}%"),
-                )
-            )
-        ).all()
-        assert len(bells) >= 1
+    assert rung == [recruiter_id]
 
     # W pracy: kolejne „Otwórz ponownie” nic nie zmienia.
     again = await app_client.post(
@@ -718,6 +722,50 @@ async def test_reopen_without_a_body_keeps_the_team_too(
     assert reopened.status_code == 200, reopened.text
     assert reopened.json()["recruiter_id"] == recruiter_id
     assert (await _job_row(job_id)).is_open is True
+
+
+@pytest.mark.asyncio
+async def test_reopening_your_own_job_does_not_ring_yourself(
+    app_client, app_auth_headers, offline_matching, monkeypatch
+):
+    """Dzwonek o powrocie rekrutacji idzie do prowadzącego — nie do osoby,
+    która sama ją otwiera."""
+    from app.api import jobs as jobs_api
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
+    from tests._job_factory import complete_job_payload, new_recruiter
+
+    created = await app_client.post(
+        "/api/jobs",
+        json=await complete_job_payload(
+            await _client(), recruiter_id=await new_recruiter()
+        ),
+        headers=app_auth_headers,
+    )
+    job_id = created.json()["id"]
+    await app_client.post(
+        f"/api/jobs/{job_id}/close", json={"reason": "other"}, headers=app_auth_headers
+    )
+    me = (await app_client.get("/api/auth/me", headers=app_auth_headers)).json()["id"]
+    # Prowadzącym jest osoba, która otwiera (wpisana wprost — test dotyczy
+    # dzwonka, nie reguły, kto może prowadzić).
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        job.recruiter_id = me
+        await db.commit()
+
+    rung: list[int] = []
+
+    async def _spy(db, *, job, user_id):
+        rung.append(user_id)
+
+    monkeypatch.setattr(jobs_api, "_notify_new_owner", _spy)
+    reopened = await app_client.post(
+        f"/api/jobs/{job_id}/publish", headers=app_auth_headers
+    )
+    assert reopened.status_code == 200, reopened.text
+    assert reopened.json()["recruiter_id"] == me
+    assert rung == []
 
 
 @pytest.mark.asyncio

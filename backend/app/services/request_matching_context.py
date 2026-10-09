@@ -120,7 +120,9 @@ def build_request_context(job, profile: WeightProfile) -> RequestMatchingContext
         "decided": resolution.decided,
     }
     # Słowa wierszy krytycznych z wyboru DL (09.10.2026) — klucz tylko wtedy,
-    # gdy coś niesie, więc odcisk pozostałych rekrutacji się nie zmienia.
+    # gdy coś niesie. Odcisk KAŻDEJ rekrutacji zmienia i tak podbicie
+    # `MUST_GATE_POLICY_VERSION` (v11), ale kolejne zmiany słów wiersza
+    # dotykają już tylko rekrutacji z wyborem Delivery Leada.
     gate_options = critical_gate_options(job)
     if gate_options:
         values["critical_effective"]["options"] = {

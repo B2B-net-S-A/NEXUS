@@ -379,7 +379,10 @@ def critical_gate_options(job) -> dict[str, tuple[str, ...]]:
             out[label] = tuple(words) or (label,)
             continue
         known = {canonical_of(option) for option in requirement.options}
-        extra = tuple(w for w in words if canonical_of(w.rstrip("*")) not in known)
+        # Rdzeń z gwiazdką („bankow*”) jest zawsze dodatkowym słowem: po zdjęciu
+        # gwiazdki wyglądałby jak powtórka etykiety, a bramka szukałaby wtedy
+        # całego słowa zamiast początku — inaczej niż „Szukaj ręcznie”.
+        extra = tuple(w for w in words if "*" in w or canonical_of(w) not in known)
         if extra:
             out[label] = extra
     return out

@@ -56,10 +56,13 @@ Cztery nowe testy edytora padały na starym kodzie i przechodzą na nowym.
 | Backend — testy z bazą | pliki (8), ponowne otwarcie, bramka krytycznych z danymi | tylko w CI (na tym komputerze nie stawiamy Postgresa) |
 | Ekran przy 1280 × 720 | `/preview/new-job?state=manual` i `review`, `/preview/job-detail` (menu „⋯”, `?files=1`, `?closed=1&reopen=1`) | przeklikane lokalnie |
 | Przegląd bezpieczeństwa plików | osobny agent, tylko odczyt | brak blokerów; wzięte dwie uwagi: limit żądań na trasach plików, znaki sterujące w nazwie |
+| Przegląd kodu bramki i ponownego otwarcia | osobny agent, tylko odczyt | dwa blokery naprawione: początek słowa z gwiazdką („bankow*”) wypadał ze słów bramki, gdy etykieta wiersza wyglądała na nazwę technologii; test dzwonka po ponownym otwarciu liczył też dzwonek z założenia rekrutacji. Wzięte uwagi: nieaktywny prowadzący w oknie „Otwórz ponownie”, podpis „Enter w pustym polu = Szukaj” w wierszach wymagań |
 
 ## Poza zakresem
 
 - Słowo jednoliterowe spoza słownika nadal znika przy zapisie po stronie serwera, bez komunikatu na `/jobs/new`.
-- Przegląd Delivery Leada pokazuje krytyczną frazę jako „do oceny”, nie „ma / nie ma”.
+- Przegląd Delivery Leada i prep-kit nie znają słów wiersza: krytyczna fraza wychodzi tam jako „do oceny”, a wariant technologii („Kafka” + „kolejki”) może być pokazany jako brak u osoby, którą bramka przepuściła.
+- Bramka szuka słów dosłownie. Polską odmianę słowa z polskimi znakami („bankowość” → „bankowości”) łapie dopiero początek słowa z gwiazdką („bankow*”) — edytor mówi to pod wierszem krytycznym spoza słownika.
+- Ponowne otwarcie tego samego dnia, w którym rekruter dostał dzwonek o tej rekrutacji, nie daje drugiego dzwonka (dzienny dedup powiadomień).
 - Plik na dysku bez wiersza w bazie (commit padł po zapisie pliku albo rekrutacja usunięta kaskadą przy usunięciu klienta) nie jest sprzątany — sprzątanie widzi tylko wiersze.
 - Typ pliku sprawdzamy po rozszerzeniu, nie po treści; chroni przed tym pobieranie jako załącznik i `nosniff`.

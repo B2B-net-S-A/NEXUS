@@ -63,7 +63,7 @@ function renderDialog(
     recruiter = null,
   }: {
     cachedJob?: Record<string, unknown>;
-    recruiter?: { id: number; name?: string | null } | null;
+    recruiter?: { id: number; name?: string | null; is_active?: boolean } | null;
   } = {},
 ) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -157,6 +157,19 @@ describe("JobReopenDialog", () => {
     expect(await screen.findByTestId("job-reopen-recruiter-note")).toHaveTextContent(
       "Rekruter: Rekruter Drugi — zostaje bez zmian.",
     );
+  });
+
+  it("nieaktywne konto prowadzącego to brak rekrutera — okno nie obiecuje „bez zmian”", async () => {
+    mockReadiness({ ready: true, allocation_enabled: false });
+    renderDialog("reopen", {
+      recruiter: { id: 6, name: "Rekruter Dawny", is_active: false },
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("job-reopen-recruiter-note")).toHaveTextContent(
+        "Rekrutacja nie ma rekrutera — po otwarciu wskaże go Head of Recruitment.",
+      ),
+    );
+    expect(screen.getByTestId("job-reopen-recruiter-note")).not.toHaveTextContent("Rekruter Dawny");
   });
 
   it("bez rekrutera i bez automatu: wskaże go Head of Recruitment, przycisk działa", async () => {
