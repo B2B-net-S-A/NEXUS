@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Karta „Pliki” na `/jobs/new` (0427, 09.10.2026). Plik requestu z kroku 1
+ * Karta „Pliki” na `/jobs/new` (0428, 09.10.2026). Plik requestu z kroku 1
  * zapisuje się tu sam, Delivery Lead dokłada kolejne. Do „Utwórz i przekaż”
  * pliki wiszą na niedokończonym formularzu; serwer przepina je na rekrutację
  * w transakcji tworzenia, a potem stoją w menu „⋯” → „Pliki”.

@@ -2092,7 +2092,7 @@ async def create_job(
         db, job, current_user, effects, sync_status_payload=False
     )
     job_lifecycle.record_cc_override(db, job, data.cc_override, current_user)
-    # 0427: pliki dodane na `/jobs/new` przechodzą na rekrutację — PRZED
+    # 0428: pliki dodane na `/jobs/new` przechodzą na rekrutację — PRZED
     # usunięciem formularza (klucz obcy zrobiłby z nich sieroty).
     await job_files_service.attach_intake_files(
         db, job_id=job.id, form_id=data.intake_form_id, user_id=current_user.id
@@ -2912,7 +2912,7 @@ async def delete_job(
             reason="job_deleted",
             occurred_at=datetime.now(timezone.utc),
         )
-        # 0427: wiersze plików znikną kaskadą — ścieżki zbieramy przed
+        # 0428: wiersze plików znikną kaskadą — ścieżki zbieramy przed
         # usunięciem, a pliki kasujemy z dysku dopiero po commicie.
         stored_files = await job_files_service.file_paths_of_job(db, job_id)
         await db.delete(job)

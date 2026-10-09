@@ -1,4 +1,4 @@
-"""Pliki rekrutacji: reguły przyjęcia, zapis, przepięcie z formularza, sieroty (0427).
+"""Pliki rekrutacji: reguły przyjęcia, zapis, przepięcie z formularza, sieroty (0428).
 
 Delivery Lead dokłada pliki na ``/jobs/new`` (request klienta z kroku 1 zapisuje
 się sam, kolejne dodaje ręcznie), a zespół widzi je w menu „⋯” rekrutacji.

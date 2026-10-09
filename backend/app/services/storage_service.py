@@ -533,7 +533,7 @@ def delete_finance_import(relative_path: str) -> None:
     _delete_relative(relative_path, "finance import")
 
 
-# ── Pliki rekrutacji (request klienta i załączniki Delivery Leada, 0427) ─────
+# ── Pliki rekrutacji (request klienta i załączniki Delivery Leada, 0428) ─────
 
 
 def save_job_file(upload_filename: str, source: BinaryIO) -> tuple[str, int]:

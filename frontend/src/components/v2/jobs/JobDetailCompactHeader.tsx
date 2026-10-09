@@ -94,7 +94,7 @@ interface JobDetailCompactHeaderProps {
 
   // ── Menu „⋯" — wszystko, co zeszło z widoku, żyje tutaj ─────────────────
   onOpenQuestions: () => void;
-  /** Okno „Pliki” — request klienta i załączniki rekrutacji (0427). */
+  /** Okno „Pliki” — request klienta i załączniki rekrutacji (0428). */
   onOpenFiles?: () => void;
   /** Liczba plików; `undefined` = jeszcze nie wiadomo (bez liczby w menu). */
   filesCount?: number;

@@ -25,7 +25,7 @@ Zgłoszenie: „wpisuję jedno must-have i nie mogę kolejnego”, „słowo zni
 
 Cztery nowe testy edytora padały na starym kodzie i przechodzą na nowym.
 
-### 3. Pliki rekrutacji (migracja 0427)
+### 3. Pliki rekrutacji (migracja 0428)
 
 - `/jobs/new`: karta „Pliki” pod requestem klienta. Plik requestu z kroku 1 zapisuje się sam, Delivery Lead dokłada kolejne.
 - Strona rekrutacji: menu „⋯” → „Pliki (N)”. Widzi każda rola wewnętrzna, dodaje i usuwa osoba, która redaguje rekrutację.

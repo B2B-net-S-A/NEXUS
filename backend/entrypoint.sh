@@ -5612,7 +5612,7 @@ END $$""",
     # test_job_intake_forms).
     "CREATE TABLE IF NOT EXISTS job_intake_forms (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, client_id INTEGER NULL REFERENCES clients(id) ON DELETE SET NULL, label VARCHAR(255) NOT NULL DEFAULT '', source VARCHAR(20) NOT NULL DEFAULT 'manual', request_text TEXT NULL, form JSONB NOT NULL DEFAULT '{}'::jsonb, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())",
     "CREATE INDEX IF NOT EXISTS ix_job_intake_forms_user_updated ON job_intake_forms (user_id, updated_at)",
-    # 0427: pliki rekrutacji (request klienta i załączniki Delivery Leada).
+    # 0428: pliki rekrutacji (request klienta i załączniki Delivery Leada).
     # Lustro 1:1 z `app/services/job_file_schema.py` (pilnuje
     # test_job_files_migration_mirror) — PO tabeli `job_intake_forms`, na którą
     # wskazuje klucz obcy.

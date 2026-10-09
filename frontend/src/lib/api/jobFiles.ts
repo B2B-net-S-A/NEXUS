@@ -1,5 +1,5 @@
 /**
- * Pliki rekrutacji (0427, 09.10.2026) — lustro `/api/jobs/{id}/files`
+ * Pliki rekrutacji (0428, 09.10.2026) — lustro `/api/jobs/{id}/files`
  * i `/api/job-intake/forms/{id}/files`.
  *
  * Delivery Lead dokłada pliki przy zakładaniu rekrutacji; do „Utwórz

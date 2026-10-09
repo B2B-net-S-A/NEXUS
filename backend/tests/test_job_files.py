@@ -1,4 +1,4 @@
-"""0427: pliki rekrutacji — reguły przyjęcia (bez bazy) i przepływ
+"""0428: pliki rekrutacji — reguły przyjęcia (bez bazy) i przepływ
 formularz → rekrutacja → menu „⋯” (z bazą, CI)."""
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Okno „Pliki” z menu „⋯” rekrutacji (0427, 09.10.2026): request klienta
+ * Okno „Pliki” z menu „⋯” rekrutacji (0428, 09.10.2026): request klienta
  * i załączniki, które Delivery Lead dodał przy zakładaniu rekrutacji albo
  * ktoś dołożył później. Otwiera je `?win=files`.
  */

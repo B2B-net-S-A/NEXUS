@@ -488,7 +488,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     [requestText, evidence],
   );
 
-  // Plik requestu czekający na zapis w karcie „Pliki” (0427).
+  // Plik requestu czekający na zapis w karcie „Pliki” (0428).
   const pendingRequestFileRef = useRef<File | null>(null);
 
   const onRead = async () => {

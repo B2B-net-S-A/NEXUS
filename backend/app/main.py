@@ -3157,7 +3157,7 @@ async def api_health_deep_check():
         # i tabela fragmentów; brak = 500 przy pytaniu o umowę klienta.
         ("client_framework_contracts", ClientFrameworkContract),
         ("client_framework_contract_chunks", ClientFrameworkContractChunk),
-        # 0427: pliki rekrutacji — brak tabeli = 500 przy „Utwórz i przekaż”
+        # 0428: pliki rekrutacji — brak tabeli = 500 przy „Utwórz i przekaż”
         # (przepięcie plików formularza) i w menu „⋯” → „Pliki”.
         ("job_files", JobFile),
     ]

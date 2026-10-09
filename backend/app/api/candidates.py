@@ -5788,7 +5788,7 @@ async def reparse_primary_cv(
 
 
 # Reguła „inline tylko dla bezpiecznych typów” żyje w `core/http_headers.py`
-# (czytają ją też pliki rekrutacji, 0427); nazwy zostają dla wołających tutaj.
+# (czytają ją też pliki rekrutacji, 0428); nazwy zostają dla wołających tutaj.
 _INLINE_SAFE_MEDIA_TYPES = INLINE_SAFE_MEDIA_TYPES
 _safe_document_disposition = safe_document_disposition
 

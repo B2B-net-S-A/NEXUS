@@ -1,4 +1,4 @@
-"""0427: tabela plików rekrutacji ma lustro w entrypoincie (prod alembic bywa
+"""0428: tabela plików rekrutacji ma lustro w entrypoincie (prod alembic bywa
 osierocony) — PO tabeli formularzy, na którą wskazuje klucz obcy — sondę
 w ``/api/health/deep``, a model zgadza się z DDL."""
 
@@ -11,7 +11,7 @@ from pathlib import Path
 from app.services import job_file_schema
 
 BACKEND = Path(__file__).resolve().parents[1]
-MIGRATION = BACKEND / "alembic" / "versions" / "0427_job_files.py"
+MIGRATION = BACKEND / "alembic" / "versions" / "0428_job_files.py"
 
 
 def _migration_module():
@@ -24,8 +24,8 @@ def _migration_module():
 
 def test_migration_chains_after_framework_contract_text() -> None:
     module = _migration_module()
-    assert module.revision == "0427_job_files"
-    assert module.down_revision == "0426_framework_contract_text"
+    assert module.revision == "0428_job_files"
+    assert module.down_revision == "0427_user_email_opt_outs"
     assert "schema.ALL_DDL" in MIGRATION.read_text(encoding="utf-8")
 
 

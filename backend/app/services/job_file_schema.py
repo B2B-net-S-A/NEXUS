@@ -1,6 +1,6 @@
-"""Pliki rekrutacji — SQL migracji 0427 i lustra w ``entrypoint.sh``.
+"""Pliki rekrutacji — SQL migracji 0428 i lustra w ``entrypoint.sh``.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0427_job_files.py``
+JEDNO źródło instrukcji dla ``alembic/versions/0428_job_files.py``
 i ``entrypoint.sh`` (alembic na prodzie bywa osierocony); test
 ``test_job_files_migration_mirror.py`` sprawdza, że każda stoi w entrypoincie
 dosłownie — po tabeli ``job_intake_forms``, na którą wskazuje klucz obcy.

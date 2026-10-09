@@ -1,6 +1,6 @@
 # UWAGA: bez `from __future__ import annotations` — `@limiter.limit` na
 # module z PEP 563 zamienia `Annotated` guardy w parametry query (slowapi #579).
-"""Pliki rekrutacji — menu „⋯” → „Pliki” na stronie rekrutacji (0427).
+"""Pliki rekrutacji — menu „⋯” → „Pliki” na stronie rekrutacji (0428).
 
 ``/api/jobs/{job_id}/files``: lista, pobranie, dodanie i usunięcie. Pliki
 widzi każdy, kto czyta Profil Championa tej rekrutacji (każda rola

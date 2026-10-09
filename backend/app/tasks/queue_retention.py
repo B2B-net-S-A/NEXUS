@@ -140,7 +140,7 @@ async def prune_once(*, now: datetime | None = None) -> dict[str, int]:
             job_proposals.PRUNE_EXPIRED_EVIDENCE,
             cutoff=now - timedelta(days=job_proposals.EXPIRED_EVIDENCE_RETENTION_DAYS),
         ),
-        # 0427: pliki formularza, który autor usunął albo który zniknął wyżej
+        # 0428: pliki formularza, który autor usunął albo który zniknął wyżej
         # po 30 dniach — wiersz i plik na dysku (dlatego nie surowy DELETE).
         "orphan_job_files": await _sweep_orphan_job_files(),
     }

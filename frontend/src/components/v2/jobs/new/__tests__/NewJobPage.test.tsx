@@ -490,7 +490,7 @@ describe("NewJobPage — krok 1: klient i źródło", () => {
     expect(postsTo("/api/job-intake/read")).toHaveLength(0);
   });
 
-  describe("pliki rekrutacji (0427)", () => {
+  describe("pliki rekrutacji (0428)", () => {
     const FORM_FILES = "/api/job-intake/forms/55/files";
 
     async function readRequestFile() {

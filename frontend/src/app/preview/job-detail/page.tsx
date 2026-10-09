@@ -21,7 +21,7 @@
  * `?closed=1` — rekrutacja zamknięta („Otwórz ponownie…” w menu „⋯”),
  * `?reopen=1` — zamknięta z otwartym oknem „Otwórz ponownie” i fikcyjnymi
  * brakami (04.10.2026),
- * `?files=1` — otwarte okno „Pliki” z menu „⋯” (0427, 09.10.2026).
+ * `?files=1` — otwarte okno „Pliki” z menu „⋯” (0428, 09.10.2026).
  */
 
 import { Suspense, useEffect, useState } from "react";

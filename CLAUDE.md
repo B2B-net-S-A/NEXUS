@@ -5102,7 +5102,7 @@ udostępniania dla klienta nie robimy. Raport: `docs/job-no-drafts-completion-re
   `POST /api/jobs → PUT champion → handoff → publish` albo otwieraniu
   rekrutacji polem Status opisują stan sprzed 04.10.2026.
 
-## Pliki rekrutacji (0427, 09.10.2026)
+## Pliki rekrutacji (0428, 09.10.2026)
 
 Decyzja Artura 09.10.2026: Delivery Lead dodaje pliki przy zakładaniu
 rekrutacji (plik requestu z kroku 1 zapisuje się sam), a zespół widzi je potem
@@ -5136,7 +5136,7 @@ plików formularza w `api/job_intake_forms.py`, front `lib/api/jobFiles.ts`,
   (`core/http_headers.safe_document_disposition` — wspólne z dokumentami
   kandydata), reszta zawsze jako załącznik. Nazwy plików i ścieżki nie idą do
   logów.
-- **DDL ma jedno źródło** (`services/job_file_schema.py`) dla migracji 0427
+- **DDL ma jedno źródło** (`services/job_file_schema.py`) dla migracji 0428
   i `entrypoint.sh`; pilnuje `test_job_files_migration_mirror.py`. Sonda
   `job_files` w `/api/health/deep`.
 - **Front:** `/jobs/new` — karta „Pliki” w lewej kolumnie pod requestem

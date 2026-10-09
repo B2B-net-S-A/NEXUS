@@ -19,7 +19,7 @@
  * (automat wtedy nikogo nie przydziela), `off` = automat wyłączony. `gaps`
  * pokazuje też rekrutera wskazanego ręcznie. `resume` = krok 1 z listą
  * niedokończonych formularzy, `servererror` = krok 2 po odmowie serwera
- * (422 `job_not_ready`) z listą braków w stopce. Karta „Pliki” (0427) ma
+ * (422 `job_not_ready`) z listą braków w stopce. Karta „Pliki” (0428) ma
  * w `review` plik requestu i załącznik, w `manual` jest pusta.
  */
 

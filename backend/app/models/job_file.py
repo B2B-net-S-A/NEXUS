@@ -1,4 +1,4 @@
-"""Plik rekrutacji albo niedokończonego formularza „Nowa rekrutacja” — 0427.
+"""Plik rekrutacji albo niedokończonego formularza „Nowa rekrutacja” — 0428.
 
 Kolumny i powód istnienia: ``app/services/job_file_schema.py``.
 Trasy: ``app/api/job_files.py`` (rekrutacja) i ``app/api/job_intake_forms.py``
