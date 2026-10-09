@@ -3,8 +3,9 @@
 /**
  * Przegląd Delivery Leada przed wysłaniem CV do klienta (Pipeline v4,
  * Rekrutacja v5 — decyzje Artura 23.09.2026; przegląd v2 — D6, D9, D10,
- * 08.10.2026: trzy kolumny „wymagania · CV · decyzja”, marża na żywo,
- * „Wróć do poprawy…” z listą pól).
+ * 08.10.2026: wymagania, CV i decyzja obok siebie, marża na żywo, „Wróć do
+ * poprawy…” z listą pól; układ D4, 09.10.2026: CV pierwsze i największe po
+ * lewej, decyzja w stałej kolumnie po prawej z zawsze widocznymi przyciskami).
  *
  * U klientów innych niż Nordea osoba w kolumnie „QC CV” czeka, aż DL obejrzy:
  * wynik QC CV (okno `CvQcDialog`), stawkę kandydata, dostępność, CV
@@ -26,9 +27,20 @@
  *
  * Kontekst decyzji (wymagania z dowodem, ocena rekrutera, ryzyka, budżet,
  * podpowiedź stawki do klienta, mediana marży u klienta) daje
- * `GET /api/dl-review/context` (`lib/api/dlReview.ts`). Układ trzech kolumn
- * zależy od szerokości KONTENERA (`@container`): na Tablicy przegląd stoi
- * w panelu osoby `split`, na pulpicie w oknie `min(96vw,1440px)`.
+ * `GET /api/dl-review/context` (`lib/api/dlReview.ts`).
+ *
+ * Układ zależy od zmierzonej szerokości PRZEGLĄDU, nie okna (`dlReviewMode`):
+ * na Tablicy przegląd stoi w panelu osoby `review` na całą szerokość, na
+ * pulpicie w oknie `min(100vw,2000px)`.
+ *  - poniżej 1100 px (`stack`) — jedna kolumna: CV, wymagania, decyzja; całość
+ *    przewija się razem,
+ *  - 1100–1639 px (`tabs`) — CV po lewej na całą wysokość, decyzja 460 px po
+ *    prawej; „Wymagania i ocena” to trzecia pigułka obok CV, a w kolumnie
+ *    decyzji stoi ich skrót z „Pokaż”,
+ *  - od 1640 px (`columns`) — CV · wymagania 440 px · decyzja 520 px.
+ * Siatka ma zawsze te same cztery dzieci w tej samej kolejności (pasek CV, CV,
+ * wymagania, decyzja); tryb zmienia tylko klasy, więc zmiana szerokości nie
+ * montuje niczego od nowa (podgląd CV pobiera plik przy montowaniu).
  *
  * Panel dostaje wiersz kolejki (`BoardTaskRow` z `GET /api/board-tasks`), więc
  * da się go otworzyć także z panelu osoby na Tablicy — wystarczy złożyć wiersz.
@@ -40,18 +52,16 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Loader2, X, XCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import {
-  Sheet,
-  SheetBody,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { useToast } from "@/components/Toast";
 import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
 import { SavedScreeningView } from "@/components/v2/recruitment/PanelSavedViews";
-import { CvColumn } from "@/components/v2/recruitment/dl-review/CvColumn";
+import {
+  CvColumn,
+  CvToolbar,
+  type CvPreviewLoaders,
+  type CvView,
+} from "@/components/v2/recruitment/dl-review/CvColumn";
 import { DecisionPanel, type DecisionAction } from "@/components/v2/recruitment/dl-review/DecisionPanel";
 import { RequirementsColumn } from "@/components/v2/recruitment/dl-review/RequirementsColumn";
 import { ReturnForFixDialog } from "@/components/v2/recruitment/dl-review/ReturnForFixDialog";
@@ -78,6 +88,7 @@ import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
 import { hasPermission, permissionLabel } from "@/lib/permissions";
 import { loadJobRejectionReasons } from "@/lib/rejection-reasons";
 import { dealBreakerWarning } from "@/lib/recommendation-card";
+import { useElementWidth } from "@/lib/use-element-width";
 import { cn, formatDate } from "@/lib/utils";
 import { getUserRoles, useAuthStore } from "@/store/auth";
 import { hourlyText, rateFromText } from "@/lib/candidate-rate";
@@ -136,6 +147,8 @@ export interface DlReviewPanelProps {
    *  lokalną. Bez niej: uprawnienie „Rekrutacje: zakładanie, zamykanie,
    *  wysyłka CV do klienta”. */
   canSendToClient?: boolean;
+  /** Harness: bajty plików CV bez sieci. */
+  previewLoaders?: CvPreviewLoaders;
 }
 
 type PendingAction = DecisionAction;
@@ -160,20 +173,73 @@ const ACTION_TEXT: Record<PendingAction, { done: string; failed: string; anyway:
   },
 };
 
+// ── Układ (D4, 09.10.2026) ───────────────────────────────────────────────────
+
+/** Od tej szerokości przeglądu CV i decyzja stoją obok siebie. */
+export const DL_REVIEW_TABS_MIN_WIDTH = 1100;
+/** Od tej szerokości „Wymagania i ocena” mają własną kolumnę obok CV. */
+export const DL_REVIEW_COLUMNS_MIN_WIDTH = 1640;
+
+export type DlReviewMode = "stack" | "tabs" | "columns";
+
+/** Układ z szerokości przeglądu; 0 (przed pomiarem, jsdom) = najwęższy. */
+export function dlReviewMode(width: number): DlReviewMode {
+  if (width >= DL_REVIEW_COLUMNS_MIN_WIDTH) return "columns";
+  if (width >= DL_REVIEW_TABS_MIN_WIDTH) return "tabs";
+  return "stack";
+}
+
+// Klasy siatki i jej czterech komórek dla każdego układu. Szerokości kolumn
+// stoją w klasach dosłownie — Tailwind czyta je z tekstu pliku.
+const GRID_CLASS: Record<DlReviewMode, string> = {
+  stack: "grid-cols-1 content-start gap-y-2 overflow-y-auto px-6 py-4",
+  tabs: "grid-cols-[minmax(0,1fr)_460px] grid-rows-[auto_minmax(0,1fr)] overflow-hidden",
+  columns: "grid-cols-[minmax(0,1fr)_440px_520px] grid-rows-[auto_minmax(0,1fr)] overflow-hidden",
+};
+const TOOLBAR_CLASS: Record<DlReviewMode, string> = {
+  stack: "",
+  tabs: "col-start-1 row-start-1 px-4 pb-2 pt-3",
+  columns: "col-start-1 row-start-1 px-4 pb-2 pt-3",
+};
+const CV_CLASS: Record<DlReviewMode, string> = {
+  stack: "",
+  tabs: "col-start-1 row-start-2 px-4 pb-4",
+  columns: "col-start-1 row-start-2 px-4 pb-4",
+};
+const REQUIREMENTS_CLASS: Record<DlReviewMode, string> = {
+  stack: "mt-4",
+  tabs: "relative col-start-1 row-start-2 min-h-0 overflow-y-auto px-4 pb-4",
+  columns:
+    "relative col-start-2 row-start-1 row-span-2 min-h-0 space-y-3 overflow-y-auto border-l border-border px-4 py-3",
+};
+const DECISION_CLASS: Record<DlReviewMode, string> = {
+  stack: "mt-4",
+  tabs: "col-start-2 row-start-1 row-span-2 border-l border-border",
+  columns: "col-start-3 row-start-1 row-span-2 border-l border-border",
+};
+
+/** Przewija do elementu, który właśnie się otworzył (jsdom nie zna tej metody). */
+function reveal(element: HTMLElement | null) {
+  if (element && typeof element.scrollIntoView === "function") {
+    element.scrollIntoView({ block: "nearest" });
+  }
+}
+
 /**
  * Okno przeglądu — pulpit „Czeka na Ciebie” i harness. Na Tablicy przegląd
  * otwiera się w panelu osoby (`DlReviewBody layout="panel"`), nie w oknie.
  */
-export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlReviewPanelProps) {
+export function DlReviewPanel({ task, open, onOpenChange, canSendToClient, previewLoaders }: DlReviewPanelProps) {
   return (
     <Sheet open={open && task !== null} onOpenChange={onOpenChange}>
-      <SheetContent side="right" size="2xl" className="flex flex-col gap-0 p-0 sm:max-w-[min(96vw,1440px)]">
+      <SheetContent side="right" size="2xl" className="flex flex-col gap-0 p-0 sm:max-w-[min(100vw,2000px)]">
         {task ? (
           <DlReviewBody
             task={task}
             canSendToClient={canSendToClient}
             onClose={() => onOpenChange(false)}
             layout="sheet"
+            previewLoaders={previewLoaders}
           />
         ) : null}
       </SheetContent>
@@ -189,6 +255,8 @@ export interface DlReviewBodyProps {
   onClose: () => void;
   /** `sheet` — w oknie (pulpit); `panel` — w panelu osoby na Tablicy. */
   layout: "sheet" | "panel";
+  /** Harness: bajty plików CV bez sieci. */
+  previewLoaders?: CvPreviewLoaders;
 }
 
 /** Tytuł przeglądu w panelu osoby — dostaje fokus przy otwarciu. */
@@ -203,8 +271,13 @@ const PanelTitle = forwardRef<HTMLHeadingElement, { children: ReactNode }>(funct
   );
 });
 
-export function DlReviewBody({ task, canSendToClient, onClose, layout }: DlReviewBodyProps) {
+export function DlReviewBody({ task, canSendToClient, onClose, layout, previewLoaders }: DlReviewBodyProps) {
   const queryClient = useQueryClient();
+  // Układ z szerokości samego przeglądu (panel na Tablicy i okno na pulpicie
+  // mają różne szerokości przy tym samym oknie przeglądarki).
+  const [root, setRoot] = useState<HTMLDivElement | null>(null);
+  const mode = dlReviewMode(useElementWidth(root));
+  const sideBySide = mode !== "stack";
   const moveCore = usePipelineMoveCore({ jobId: task.job_id });
   const titleRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -230,10 +303,17 @@ export function DlReviewBody({ task, canSendToClient, onClose, layout }: DlRevie
   const [qcStageId, setQcStageId] = useState<number | null>(null);
   const [returnOpen, setReturnOpen] = useState(false);
   const [returnInput, setReturnInput] = useState<{ fields: string[]; remark: string } | null>(null);
+  const [cvView, setCvView] = useState<CvView>("company");
+  // Tylko układ `tabs`: wymagania w miejscu CV (trzecia pigułka paska).
+  const [showRequirements, setShowRequirements] = useState(false);
   const prefilled = useRef(false);
+  const rejectRef = useRef<HTMLDivElement>(null);
+  const warningRef = useRef<HTMLDivElement>(null);
 
   const stageId = task.stage_id;
   useEffect(() => {
+    setCvView("company");
+    setShowRequirements(false);
     setQcStageId(null);
     setRateRaw("");
     setRateUnit("hourly");
@@ -249,9 +329,27 @@ export function DlReviewBody({ task, canSendToClient, onClose, layout }: DlRevie
     prefilled.current = false;
   }, [stageId]);
 
+  // Formularz odrzucenia i ostrzeżenie otwierają się nad przyciskami, w kolumnie
+  // z własnym przewijaniem — bez tego bywały poza widokiem.
+  useEffect(() => {
+    if (rejecting) reveal(rejectRef.current);
+  }, [rejecting]);
+  useEffect(() => {
+    if (warning) reveal(warningRef.current);
+  }, [warning]);
+
   const candidateId = task.candidate_id;
   const jobId = task.job_id;
   const context = useDlReviewContext(candidateId, jobId);
+  // Braki wśród wymagań, które serwer liczy do „X/Y” (krytyczne i „musi mieć”)
+  // — same nazwy; liczb X/Y tu nie przeliczamy.
+  const missingRequirements = useMemo(
+    () =>
+      (context.data?.requirements ?? [])
+        .filter((r) => r.status === "missing" && (r.level === "critical" || r.level === "must"))
+        .map((r) => r.label),
+    [context.data],
+  );
   // Podpowiedź stawki do klienta z historii (ta para, potem ta osoba u tego
   // klienta) — wpisana raz, gdy pole jest puste; źródło zostaje pod polem.
   const hint = context.data?.client_rate_hint ?? null;
@@ -420,27 +518,25 @@ export function DlReviewBody({ task, canSendToClient, onClose, layout }: DlRevie
 
   return (
     <div
-      className={cn("@container flex min-h-0 flex-col", layout === "panel" ? "relative h-full" : "flex-1")}
+      ref={setRoot}
+      className={cn(
+        "flex min-h-0 flex-col",
+        // Tło jawnie albo po oknie: przyklejona stopka decyzji je dziedziczy.
+        layout === "panel" ? "relative h-full bg-background" : "flex-1 bg-inherit",
+      )}
       data-testid={layout === "panel" ? "dl-review-in-panel" : "dl-review-body"}
     >
-      <SheetHeader className="pr-12">
+      {/* Jedna linia: na laptopie 1280×720 każdy wiersz nagłówka zabierał CV. */}
+      <header
+        className={cn(
+          "relative flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-b border-border py-2.5 pr-12",
+          sideBySide ? "pl-4" : "pl-6",
+        )}
+      >
         {layout === "sheet" ? (
           <SheetTitle>{task.candidate_name}</SheetTitle>
         ) : (
-          <>
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-primary">
-              Przegląd przed wysłaniem do klienta
-            </p>
-            <PanelTitle ref={titleRef}>{task.candidate_name}</PanelTitle>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Zamknij przegląd"
-              className="absolute right-4 top-4 rounded-md p-1 text-muted-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <X className="h-4 w-4" aria-hidden />
-            </button>
-          </>
+          <PanelTitle ref={titleRef}>{task.candidate_name}</PanelTitle>
         )}
         {layout === "sheet" ? (
           <SheetDescription>
@@ -464,10 +560,59 @@ export function DlReviewBody({ task, canSendToClient, onClose, layout }: DlRevie
             Otwórz na Tablicy
           </Link>
         </p>
-      </SheetHeader>
+        {layout === "panel" ? (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Zamknij przegląd"
+            className="absolute right-3 top-2 rounded-md p-1 text-muted-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <X className="h-4 w-4" aria-hidden />
+          </button>
+        ) : null}
+      </header>
 
-      <SheetBody>
-        <div className="grid gap-6 @min-[1100px]:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)_minmax(18rem,0.85fr)]">
+      {/* Zawsze te same cztery dzieci w tej kolejności — tryb zmienia klasy. */}
+      <div className={cn("relative grid min-h-0 flex-1 bg-inherit", GRID_CLASS[mode])} data-layout={mode}>
+        <CvToolbar
+          className={TOOLBAR_CLASS[mode]}
+          task={task}
+          view={cvView}
+          onViewChange={(view) => {
+            setCvView(view);
+            setShowRequirements(false);
+          }}
+          requirements={
+            mode === "tabs"
+              ? {
+                  active: showRequirements,
+                  missing: missingRequirements.length,
+                  onSelect: () => setShowRequirements(true),
+                }
+              : null
+          }
+          onOpenQc={() => setQcStageId(task.stage_id)}
+        />
+
+        <CvColumn
+          className={CV_CLASS[mode]}
+          task={task}
+          view={cvView}
+          fill={sideBySide}
+          hidden={mode === "tabs" && showRequirements}
+          previewLoaders={previewLoaders}
+        />
+
+        <div
+          className={cn("min-w-0", REQUIREMENTS_CLASS[mode])}
+          hidden={mode === "tabs" && !showRequirements}
+          data-testid="dl-review-requirements-cell"
+        >
+          {mode === "columns" ? (
+            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Wymagania i ocena
+            </h3>
+          ) : null}
           <RequirementsColumn
             context={context.data}
             loading={context.isLoading}
@@ -497,180 +642,196 @@ export function DlReviewBody({ task, canSendToClient, onClose, layout }: DlRevie
               </div>
             </details>
           </RequirementsColumn>
+        </div>
 
-          <CvColumn task={task} onOpenQc={() => setQcStageId(task.stage_id)} />
-
-          <DecisionPanel
-            task={task}
-            context={context.data}
-            contextLoading={context.isLoading}
-            facts={
-              <>
-                <PersonFacts
-                  testId="dl-review-person-facts"
-                  rows={[
-                    {
-                      label: "W tej rekrutacji",
-                      value: thisJobRate,
-                      hint: snapshotRate ? "przy weryfikacji" : cardRate ? "z karty" : "nie pytano o tę rolę",
-                    },
-                    {
-                      label: "Stawka od",
-                      value: rateFrom,
-                      hint: rateFrom ? "najniższa z 18 mies." : null,
-                    },
-                    {
-                      label: "Dostępność",
-                      value: profileAvailability ?? cardAvailability,
-                      hint: !profileAvailability && cardAvailability ? "z karty" : null,
-                    },
-                    { label: "Lokalizacja", value: location },
-                    { label: "Stanowisko", value: quickView.data?.current_position?.title ?? null },
-                  ]}
-                />
-                {quickView.isError ? (
-                  <p role="alert" className="text-xs text-destructive">
-                    Nie udało się wczytać danych kandydata.{" "}
-                    <button type="button" className="font-medium underline" onClick={() => void quickView.refetch()}>
-                      Ponów
-                    </button>
-                  </p>
-                ) : null}
-              </>
-            }
-            rateRaw={rateRaw}
-            onRateRawChange={(value) => {
-              setRateRaw(value);
-              setRateSource(null);
-            }}
-            rateUnit={rateUnit}
-            onRateUnitChange={setRateUnit}
-            currency={currency}
-            onCurrencyChange={setCurrency}
-            rateSourceLabel={rateSource}
-            canSend={canSend}
-            sendReady={sendReady}
-            canReturn={canReturn}
-            canReject={canReject && !rejecting}
-            busy={busy}
-            onAccept={() => void move("send")}
-            onReturn={() => setReturnOpen(true)}
-            onReject={() => setRejecting(true)}
-            footerNote={
-              !canSend ? (
-                <p className="text-xs text-muted-foreground">
-                  Do klienta wysyła osoba z uprawnieniem „{permissionLabel("recruitment_manage")}” — możesz
-                  przejrzeć kandydata.
+        <DecisionPanel
+          className={DECISION_CLASS[mode]}
+          stickyActions={sideBySide}
+          requirementsSummary={
+            mode === "tabs"
+              ? { missing: missingRequirements, onShow: () => setShowRequirements(true) }
+              : null
+          }
+          task={task}
+          context={context.data}
+          contextLoading={context.isLoading}
+          facts={
+            <>
+              <PersonFacts
+                testId="dl-review-person-facts"
+                rows={[
+                  {
+                    label: "W tej rekrutacji",
+                    value: thisJobRate,
+                    hint: snapshotRate ? "przy weryfikacji" : cardRate ? "z karty" : "nie pytano o tę rolę",
+                  },
+                  {
+                    label: "Stawka od",
+                    value: rateFrom,
+                    hint: rateFrom ? "najniższa z 18 mies." : null,
+                  },
+                  {
+                    label: "Dostępność",
+                    value: profileAvailability ?? cardAvailability,
+                    hint: !profileAvailability && cardAvailability ? "z karty" : null,
+                  },
+                  { label: "Lokalizacja", value: location },
+                  { label: "Stanowisko", value: quickView.data?.current_position?.title ?? null },
+                ]}
+              />
+              {quickView.isError ? (
+                <p role="alert" className="text-xs text-destructive">
+                  Nie udało się wczytać danych kandydata.{" "}
+                  <button type="button" className="font-medium underline" onClick={() => void quickView.refetch()}>
+                    Ponów
+                  </button>
                 </p>
-              ) : task.target_stage_def_id == null ? (
-                <p className="text-xs text-destructive">
-                  Szablon tej rekrutacji nie ma etapu „CV wysłane” — przenieś osobę na Tablicy.
-                </p>
-              ) : null
-            }
-          >
-            {dealBreaker ? (
-              <p
-                role="note"
-                data-testid="dl-review-deal-breaker"
-                className="flex items-start gap-2 rounded-lg bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
-              >
-                <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
-                <span className="min-w-0 flex-1">
-                  {dealBreaker} Wysyłka nie jest zablokowana — rozważ odrzucenie.
-                </span>
+              ) : null}
+            </>
+          }
+          rateRaw={rateRaw}
+          onRateRawChange={(value) => {
+            setRateRaw(value);
+            setRateSource(null);
+          }}
+          rateUnit={rateUnit}
+          onRateUnitChange={setRateUnit}
+          currency={currency}
+          onCurrencyChange={setCurrency}
+          rateSourceLabel={rateSource}
+          canSend={canSend}
+          sendReady={sendReady}
+          canReturn={canReturn}
+          canReject={canReject && !rejecting}
+          busy={busy}
+          onAccept={() => void move("send")}
+          onReturn={() => setReturnOpen(true)}
+          onReject={() => setRejecting(true)}
+          footerNote={
+            !canSend ? (
+              <p className="text-xs text-muted-foreground">
+                Do klienta wysyła osoba z uprawnieniem „{permissionLabel("recruitment_manage")}” — możesz
+                przejrzeć kandydata.
               </p>
-            ) : null}
-            {warning ? (
-              <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs">
-                <AlertTriangle className="size-4 shrink-0 text-warning" aria-hidden />
-                <span className="min-w-0 flex-1">{warning.reason}</span>
-                <Button size="sm" variant="outline" onClick={() => void move(warning.action, true)} disabled={busy !== null}>
-                  {ACTION_TEXT[warning.action].anyway}
+            ) : task.target_stage_def_id == null ? (
+              <p className="text-xs text-destructive">
+                Szablon tej rekrutacji nie ma etapu „CV wysłane” — przenieś osobę na Tablicy.
+              </p>
+            ) : null
+          }
+        >
+          {dealBreaker ? (
+            <p
+              role="note"
+              data-testid="dl-review-deal-breaker"
+              className="flex items-start gap-2 rounded-lg bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
+            >
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
+              <span className="min-w-0 flex-1">
+                {dealBreaker} Wysyłka nie jest zablokowana — rozważ odrzucenie.
+              </span>
+            </p>
+          ) : null}
+          {/* `scroll-mb-44`: po przewinięciu element staje nad przyklejoną
+              stopką z przyciskami, nie pod nią. */}
+          {warning ? (
+            <div
+              ref={warningRef}
+              role="alert"
+              className="flex scroll-mb-44 flex-wrap items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs"
+            >
+              <AlertTriangle className="size-4 shrink-0 text-warning" aria-hidden />
+              <span className="min-w-0 flex-1">{warning.reason}</span>
+              <Button size="sm" variant="outline" onClick={() => void move(warning.action, true)} disabled={busy !== null}>
+                {ACTION_TEXT[warning.action].anyway}
+              </Button>
+            </div>
+          ) : null}
+
+          {rejecting ? (
+            <div
+              ref={rejectRef}
+              className="scroll-mb-44 space-y-2 rounded-lg border border-border p-3"
+              aria-label="Odrzucenie przez DL"
+              role="group"
+            >
+              {task.rejected_stage_def_id == null ? (
+                <p role="alert" className="text-xs text-destructive">
+                  Szablon tej rekrutacji nie ma etapu „Odrzucony” — odrzuć osobę na Tablicy.
+                </p>
+              ) : reasons.isLoading ? (
+                <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Loader2 className="size-3 animate-spin" aria-hidden /> Wczytywanie powodów…
+                </p>
+              ) : reasons.isError ? (
+                <p role="alert" className="text-xs text-destructive">
+                  Nie udało się wczytać powodów odrzucenia.{" "}
+                  <button type="button" className="font-medium underline" onClick={() => void reasons.refetch()}>
+                    Ponów
+                  </button>
+                </p>
+              ) : rejectedReasons.length > 0 ? (
+                <label className="block text-xs font-medium">
+                  Powód odrzucenia *
+                  <select
+                    className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                    value={reasonId}
+                    onChange={(e) => setReasonId(e.target.value)}
+                  >
+                    <option value="">Wybierz powód</option>
+                    {rejectedReasons.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : (
+                <label className="block text-xs font-medium">
+                  Powód odrzucenia *
+                  <input
+                    className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                    value={freeReason}
+                    onChange={(e) => setFreeReason(e.target.value)}
+                  />
+                </label>
+              )}
+              <div className="flex justify-end gap-2">
+                <Button size="sm" variant="ghost" onClick={() => setRejecting(false)} disabled={busy !== null}>
+                  Anuluj
+                </Button>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  disabled={!rejectReady || busy !== null}
+                  onClick={() => void move("reject")}
+                >
+                  {busy === "reject" ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <XCircle className="size-3.5" />}
+                  Potwierdź odrzucenie
                 </Button>
               </div>
-            ) : null}
+            </div>
+          ) : null}
 
-            {rejecting ? (
-              <div className="space-y-2 rounded-lg border border-border p-3" aria-label="Odrzucenie przez DL" role="group">
-                {task.rejected_stage_def_id == null ? (
-                  <p role="alert" className="text-xs text-destructive">
-                    Szablon tej rekrutacji nie ma etapu „Odrzucony” — odrzuć osobę na Tablicy.
-                  </p>
-                ) : reasons.isLoading ? (
-                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <Loader2 className="size-3 animate-spin" aria-hidden /> Wczytywanie powodów…
-                  </p>
-                ) : reasons.isError ? (
-                  <p role="alert" className="text-xs text-destructive">
-                    Nie udało się wczytać powodów odrzucenia.{" "}
-                    <button type="button" className="font-medium underline" onClick={() => void reasons.refetch()}>
-                      Ponów
-                    </button>
-                  </p>
-                ) : rejectedReasons.length > 0 ? (
-                  <label className="block text-xs font-medium">
-                    Powód odrzucenia *
-                    <select
-                      className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                      value={reasonId}
-                      onChange={(e) => setReasonId(e.target.value)}
-                    >
-                      <option value="">Wybierz powód</option>
-                      {rejectedReasons.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ) : (
-                  <label className="block text-xs font-medium">
-                    Powód odrzucenia *
-                    <input
-                      className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                      value={freeReason}
-                      onChange={(e) => setFreeReason(e.target.value)}
-                    />
-                  </label>
-                )}
-                <div className="flex justify-end gap-2">
-                  <Button size="sm" variant="ghost" onClick={() => setRejecting(false)} disabled={busy !== null}>
-                    Anuluj
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    disabled={!rejectReady || busy !== null}
-                    onClick={() => void move("reject")}
-                  >
-                    {busy === "reject" ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <XCircle className="size-3.5" />}
-                    Potwierdź odrzucenie
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-
-            {canSend || canReject ? (
-              <label className="block text-xs font-medium">
-                Uwagi dla rekrutera
-                <textarea
-                  aria-describedby="dl-review-remark-hint"
-                  className="mt-1 block min-h-9 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm font-normal"
-                  rows={2}
-                  maxLength={REMARK_MAX}
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                />
-                <span id="dl-review-remark-hint" className="mt-1 block text-[11px] font-normal text-muted-foreground">
-                  Uwagę rekruter dostanie w powiadomieniu i w notatkach kandydata. Stawkę do klienta wpisz tylko
-                  w jej polu: rekruter jej nie widzi.
-                </span>
-              </label>
-            ) : null}
-          </DecisionPanel>
-        </div>
-      </SheetBody>
+          {canSend || canReject ? (
+            <label className="block text-xs font-medium">
+              Uwagi dla rekrutera
+              <textarea
+                aria-describedby="dl-review-remark-hint"
+                className="mt-1 block min-h-9 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm font-normal"
+                rows={2}
+                maxLength={REMARK_MAX}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+              />
+              <span id="dl-review-remark-hint" className="mt-1 block text-[11px] font-normal text-muted-foreground">
+                Uwagę rekruter dostanie w powiadomieniu i w notatkach kandydata. Stawkę do klienta wpisz tylko
+                w jej polu: rekruter jej nie widzi.
+              </span>
+            </label>
+          ) : null}
+        </DecisionPanel>
+      </div>
 
       <ReturnForFixDialog
         open={returnOpen}
