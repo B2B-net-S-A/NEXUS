@@ -93,7 +93,9 @@ describe("profil kandydata — kontrakt zmian UX rekrutera", () => {
     expect(ALL).not.toContain("CandidateNotesInsightsCard");
     // Dawna karta „Screeningi” czytała nieużywaną tabelę notatek
     // screeningowych (ostatni wpis 15.04.2026) — usunięta 02.10.2026.
-    expect(ALL).not.toContain("ScreeningSummary");
+    // Pełna nazwa: okno „Screening” z 09.10.2026 (`ScreeningSummaryDialog`)
+    // czyta stan formularza pary i jest inną rzeczą.
+    expect(ALL).not.toContain("ScreeningSummaryCard");
   });
 
   it("odpowiedzi z rozmów screeningowych mają własną zakładkę", () => {
