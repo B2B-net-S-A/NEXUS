@@ -96,6 +96,15 @@ export const PERSON_PANEL_SECTIONS: ReadonlyArray<{
   { value: "notes", label: "Notatki i historia" },
 ];
 
+/**
+ * Zakładki ze WSPÓLNYM podglądem po lewej (09.10.2026): CV firmowe albo
+ * oryginał, wymagania i opis „po ludzku”. Jeden egzemplarz podglądu dla
+ * czterech zakładek — przejście między nimi nie przewija CV od początku
+ * i nie renderuje pliku drugi raz. „Screening” ma własny podgląd (szukanie
+ * w CV z wymagań), „Rozmowy” własny z zakładką „Pytania klienta”.
+ */
+const SHARED_PREVIEW_SECTIONS: ReadonlySet<PersonPanelSection> = new Set(["cv", "contract", "match", "notes"]);
+
 const NO_SCORES = new Map<number, number>();
 
 /** Wiersz osoby z kolumn Tablicy — ten sam, który budowała dawna Tabela. */
@@ -314,16 +323,9 @@ export function PersonWorkbenchTabs({
       case "cv":
         return (
           <>
-            {/* D6 (09.10.2026): po lewej duży podgląd — CV firmowe, gdy już
-                jest, oryginał, wymagania i opis „po ludzku”. */}
-            <PersonSidePreview
-              candidateId={candidateId}
-              jobId={jobId}
-              stageId={item.id}
-              budgetHourly={ctx.budgetHourly}
-            />
             {/* Karta „CV do klienta” (gotowe / generuje się / brak / powód
-                pominięcia auto-CV) jest w warsztacie; po wysyłce — podgląd. */}
+                pominięcia auto-CV) jest w warsztacie; po wysyłce — podgląd.
+                Duży podgląd po lewej jest wspólny (`SHARED_PREVIEW_SECTIONS`). */}
             <CvHandoffWorkbench
               layout="panel"
               focusCandidateId={candidateId}
@@ -460,6 +462,19 @@ export function PersonWorkbenchTabs({
       {/* Pasek zakładek stoi w miejscu (09.10.2026): „Warunki i następny etap”
           przychodzą z doku i stoją pod paskiem, nie w głowie panelu. */}
       {belowTabs}
+      {/* Podgląd po lewej w każdej zakładce: panel ma wtedy stałą szerokość,
+          więc pasek zakładek nie przesuwa się też w bok. */}
+      {mounted.some((value) => SHARED_PREVIEW_SECTIONS.has(value)) ? (
+        <PersonPanelSideSection active={SHARED_PREVIEW_SECTIONS.has(section)}>
+          <PersonSidePreview
+            key={candidateId}
+            candidateId={candidateId}
+            jobId={jobId}
+            stageId={item.id}
+            budgetHourly={ctx.budgetHourly}
+          />
+        </PersonPanelSideSection>
+      ) : null}
       {PERSON_PANEL_SECTIONS.filter(({ value }) => mounted.includes(value)).map(({ value, label }) => (
         <div
           // Klucz = osoba + zakładka: odświeżenie tablicy NIE odmontowuje

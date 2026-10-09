@@ -702,13 +702,6 @@ interface BoardV4Ctx {
 }
 const BoardV4Context = React.createContext<BoardV4Ctx | null>(null);
 
-/**
- * Sekcje narzędzi osoby z dużym podglądem po lewej (09.10.2026): panel
- * zajmuje wtedy całą szerokość okna, a warsztat sekcji wkłada podgląd do
- * strefy powłoki (`PersonPanelSide`).
- */
-const SIDE_SECTIONS: ReadonlySet<PersonPanelSection> = new Set(["screening", "cv", "interviews"]);
-
 /** PR 6 (04.10.2026): zamiast nowej karty z kalendarzem — co zrobić w panelu. */
 export const SLOTS_BY_OTHERS_MESSAGE =
  "Terminy od klienta wpisuje osoba z uprawnieniem do terminów (zwykle Delivery Lead). Gdy je doda, wybierzesz termin z kandydatem w panelu osoby.";
@@ -2668,17 +2661,12 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // 04.10.2026). `resumeMoveNext` bez zawieszenia tylko odświeża wymagania.
  const wideBefore = useRef(false);
  const panelWide = workbenchOpen || reviewOpen;
- // Szerokość panelu osoby (09.10.2026): przegląd DL i sekcje z dużym
- // podglądem po lewej (screening, CV do klienta, rozmowy) zajmują całą
- // szerokość okna; pozostałe rozwinięte narzędzia — 760 px.
+ // Szerokość panelu osoby: przegląd DL i rozwinięte narzędzia zajmują całą
+ // szerokość okna. Od 09.10.2026 każda zakładka ma podgląd po lewej (także
+ // umowa, dopasowanie i notatki) — do tej daty te trzy miały panel 760 px
+ // i pasek zakładek przesuwał się w bok przy przejściu między zakładkami.
  const screeningSplit = workbenchOpen && activeWorkbench?.section === "screening";
- const panelSize: PersonPanelSize = reviewOpen
- ? "review"
- : workbenchOpen
- ? activeWorkbench && SIDE_SECTIONS.has(activeWorkbench.section)
- ? "split"
- : "wide"
- : "dock";
+ const panelSize: PersonPanelSize = reviewOpen ? "review" : workbenchOpen ? "split" : "dock";
  useEffect(() => {
  if (wideBefore.current && !panelWide) resumeMoveNext();
  wideBefore.current = panelWide;

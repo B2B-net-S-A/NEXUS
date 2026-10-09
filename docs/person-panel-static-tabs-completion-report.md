@@ -78,11 +78,42 @@ Przed zmianą (zrzut ze zgłoszenia, okno 1536 × 780, zakładka „Rozmowy”):
 Formularz w `/preview/screening-form?state=filled`: sekcje w kolejności „Uzupełnij z notatki”, „Warunki”,
 „Pytania z Profilu Championa”, „Ocena”.
 
+## Sprawdzenie na produkcji (#2107, 09.10.2026)
+
+`/api/health` i `version.json` frontendu zwróciły commit `a09df770c` (deploy 13:27 UTC). Rekrutacja `/jobs/5027`,
+okno 1920 × 779 (Chrome z zoomem 80% — wysokość jak w zgłoszeniu):
+
+- pasek zakładek 242 px od góry w „Screeningu”, „Rozmowach” i „Dopasowaniu”,
+- „Rozmowy” u osoby ze zgłoszenia: 450 px na treść, linia „Warunki i następny etap · Zweryfikowany · brakuje 4 z 4”,
+- telefon (link `tel:`) i e-mail pod nazwiskiem, dwie ikony kopiowania,
+- formularz: „Uzupełnij z notatki”, „Warunki”, „Pytania z Profilu Championa”, „Ocena”.
+
+## Uzupełnienie: podgląd po lewej w każdej zakładce (09.10.2026)
+
+Po #2107 pasek stał na tej samej wysokości, ale przy przejściu do „Umowy”, „Dopasowania” i „Notatek” przesuwał
+się o 240 px w bok: te trzy zakładki miały panel 760 px bez podglądu po lewej. Decyzja Artura: podgląd po lewej
+we wszystkich zakładkach.
+
+- `pages/KanbanBoardV2.tsx`: rozwinięty panel ma zawsze rozmiar `split` (`SIDE_SECTIONS` usunięte).
+- `person/PersonPanelShell.tsx`: rozmiar `wide` (760 px) usunięty — nie ma już użytkownika.
+- `person/PersonWorkbenchTabs.tsx`: jeden wspólny podgląd dla CV, Umowy, Dopasowania i Notatek
+  (`SHARED_PREVIEW_SECTIONS`). Zmiana zakładki nie montuje go od nowa. „Rozmowy” i „Screening” zostają przy
+  własnych podglądach, więc egzemplarzy jest najwyżej trzy, jak dotąd.
+- `pages/B2BContractGeneratorV2.tsx`: formularz umowy układa pola po szerokości kontenera (`@container`,
+  `@xl:grid-cols-*`). W kolumnie panelu (460–520 px) jedno pole w rzędzie; do tej zmiany byłyby tam dwa albo trzy
+  pola po ok. 120–190 px. Strona Generatora bez zmian (dwie i trzy kolumny).
+
+Pomiar w `/preview/job-detail`:
+
+| Okno | Zakładki | Lewa / górna krawędź paska | Kolumna pracy |
+|---|---|---|---|
+| 1280 × 720 | Screening, Rozmowy, Umowa, Dopasowanie, Notatki | 837 / 243 px w każdej | 460 px |
+| 1536 × 780 | Umowa | 1033 / 243 px | 520 px |
+
+Vitest: `person/`, Tablica, Generator B2B, `pages/` — 70 plików, 776 testów (pierwsze uruchomienie miało 9
+przekroczeń czasu przy równolegle kompilującym się serwerze dev; powtórka bez błędów). `tsc` 0 błędów. Playwright
+lokalnie: 3 z 3, test paska sprawdza teraz pięć zakładek, obie krawędzie i jeden widoczny podgląd.
+
 ## Poza zakresem
 
-- **Pasek przesuwa się w poziomie między zakładkami z podglądem a pozostałymi.** Screening, CV i Rozmowy mają
-  panel na całe okno z kolumną 520 px, a Umowa, Dopasowanie i Notatki — panel 760 px bez podglądu po lewej
-  (decyzja D6 z 09.10.2026). Pasek jest więc na tej samej wysokości, ale zaczyna się 240 px bardziej w lewo.
-  Do decyzji: zostawić albo dać podgląd po lewej we wszystkich zakładkach.
 - Pasek zakładek przewija się razem z treścią długiej zakładki, jak dotąd.
-- Szerokość „Dopasowania”.
