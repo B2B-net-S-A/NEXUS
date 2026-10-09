@@ -170,6 +170,13 @@ class User(Base, TimestampMixin):
         Boolean, default=True, server_default="true", nullable=False
     )
 
+    # 0427: maile, które konto wyłączyło sobie — ``{rodzaj: ISO czasu
+    # wyłączenia}``. Rodzaje i reguła: ``services/notification_email_prefs``
+    # (poranny skrót ma własną kolumnę wyżej).
+    email_opt_outs: Mapped[dict] = mapped_column(
+        JSONB, default=dict, server_default="{}", nullable=False
+    )
+
     # Jarvis (0330): wygląd i zachowanie maskotki-asystenta — postać, własne
     # imię, akcent, dźwięk, zwinięcie. Walidowane w `/api/users/me/preferences`
     # (`JarvisPrefs`); pusty słownik = ustawienia domyślne.

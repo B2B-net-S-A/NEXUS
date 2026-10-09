@@ -1504,9 +1504,10 @@ technologii w każdym trybie i końcowa kontrola AI. Zespół zgłosił, że CV
   — obejmuje Finanse, więc Finanse może też zatwierdzić/udostępnić cudze CV,
   jak przed 09.09); usunięcie nadal autor albo admin. Lista `/generated` to
   zakres odczytu **lub** własne CV. Ręczne podpięcie CV do etapu w pipeline
-  (`candidate_stage_cv.py`, „Użyj”) nadal wymaga członkostwa — to reguła sprzed
-  #1448; automatyczne podpięcie po generacji z procesem (v3) działa dla
-  każdego, ale tylko do etapu bez szkicu.
+  (`candidate_stage_cv.py`, „Użyj”, wybór z profilu) robi od 23.09.2026 każda
+  rola wewnętrzna z zapisem kandydata (`ensure_job_membership` przepuszcza
+  role wewnętrzne); automatyczne podpięcie po generacji z procesem (v3) działa
+  tylko do etapu bez szkicu.
 - **CV sprzed #1444 da się zatwierdzić.** Wiersze bez `docx_content` i
   `docx_sha256` (każde CV sprzed 10.09, 09:04) dostają DOCX renderowany raz
   z `render_payload` przy zatwierdzeniu, zapisany na wierszu
@@ -3112,6 +3113,63 @@ Tylko front, bez API i migracji.
   i `animate-fadeIn`), `/preview/dl-review?layout=panel`. Każdą zmianę panelu sprawdź przy 1280 × 720: strona CV
   ma tam ok. 700–750 px szerokości.
 
+## Screening: wybór gotowego CV z profilu i edycja (09.10.2026)
+
+Pomiar na produkcji 09.10.2026: z 50 osób w „Nowych”/„Screeningu” 34 miały
+w profilu plik Word „…B2B…”, 13 — CV z generatora (9 z innej rekrutacji), a
+podgląd „CV firmowe” mówił tylko „jeszcze nie powstało”. Decyzja Artura:
+do wyboru są CV z generatora (także z innych rekrutacji tej osoby) i pliki
+Word „B2B”; PDF-y poza zakresem. Raport: `docs/screening-cv-pick-completion-report.md`.
+
+- **Wybór jest w podglądzie screeningu** (`screening-form/StageCvPicker.tsx`,
+  włączany propem `cvActions` w `CandidatePreviewPane`; reguła opcji
+  `lib/stage-cv-options.ts`). Przegląd DL i zakładki CV/Rozmowy nie podają
+  `cvActions` i zostają tylko do odczytu. „Wybierz” podpina SZKIC CV firmowego,
+  potem „Edytuj” (ten sam `CVBrandedEditModal`) i „Zmień CV” (potwierdzenie
+  przed zastąpieniem szkicu). Plik w profilu i źródłowe CV zostają nietknięte.
+- **Dwie trasy, jeden zapis szkicu** (`candidate_stage_cv._write_stage_draft`):
+  `select-generated` przyjmuje CV tej samej OSOBY (do 09.10 tej samej
+  rekrutacji), nowa `select-document` wczytuje plik Word. Obie zakładają
+  brakujący wiersz `candidate_stage_cvs` (`create_missing`) — etapy z importu
+  Traffita go nie mają (5 837 z 5 958 wierszy „Nowi”/„Screening”).
+- **CV spoza generatora TEJ rekrutacji to kopia odłączona**
+  (`generated_document_id = NULL`, `branded_render_metadata.source` =
+  `document` | `generated_other_job`): nazwa pliku i wymóg zgody RODO liczą się
+  z klienta tej rekrutacji (`candidate_stage_cv_service.detached_copy_settings`),
+  zrzut zgody i reguły klienta źródłowego nie jadą z kopią. Kopia CV z innej
+  rekrutacji dostaje w nagłówku tytuł TEJ rekrutacji i traci linię „Rozważany
+  na stanowisko” (tytuł źródłowy bywa numerem zapytania innego klienta); CV
+  blind ma w nazwie pliku „Kandydat”, nie nazwisko. Klient z wymogiem
+  zrzutu zgody = 422 `consent_client_needs_generator` (kopii nie da się dziś
+  dołączyć zgody, więc pobranie byłoby zablokowane na stałe); front wyszarza
+  takie opcje. Nie przywracaj powiązania z dokumentem generatora dla kopii
+  z innej rekrutacji — blokada pobrania i pakiet czytają wtedy cudzego klienta.
+- **Import Word → edytor: `services/cv_docx_import.py`**, bez AI. Jest
+  odwrotnością układu `render_approved_docx`: sekcje po tytułach, tabela
+  edukacji jako akapit, blok „daty / Nazwa firmy: / Stanowisko:” jako rola ze
+  znacznikami `data-cv-section`; czego nie rozpozna, zostaje akapitem albo
+  punktem. Czyta wszystkie runy akapitu (hiperłącza, pola formularza Worda,
+  wstawki śledzenia zmian), klauzulę zgody bierze z pola tekstowego szablonu,
+  a gdy jej nie ma — dokłada standardową w języku pliku. Plik jest
+  niezaufany (formularz kariery, import), a konwersja biegnie w procesie
+  aplikacji: komórki tabeli czytaj z `tr.tc_lst`, nigdy `row.cells` (powtarza
+  komórkę `gridSpan` razy — liczba z pliku), i trzymaj limity `MAX_LINES`
+  / `MAX_TABLE_DEPTH`. Pomiar na 200
+  plikach z produkcji: 200 wczytanych, 0 zgubionych akapitów (także po
+  ponownym renderze do Worda), sekcje rozpoznane w 198, role w 182.
+  Zmieniasz import albo renderer — sprawdź obieg w `test_cv_docx_import.py`
+  i powtórz pomiar na prawdziwych plikach (same liczby, bez treści).
+- **`CVBrandedResponse.source`** (`generator` | `document` | `legacy`) —
+  `stageCvStatus` traktuje `document` jak zwykły szkic, nie stary szablon.
+- **Auto-CV po „Zweryfikowany” pomija parę, która ma już CV firmowe**
+  (`cv_auto_generate._enqueue`, powód `pair_cv_exists`): nowy dokument podpięty
+  do nowego wiersza etapu przykryłby CV wybrane albo wygenerowane wcześniej
+  (nowszy etap wygrywa w `_branded_cv_summary_for_pair`) i kosztował drugą
+  generację.
+- Kontrola AI przy zatwierdzaniu kopii odłączonej daje „niedostępna”
+  (`no_generated_source`) — istniejące zachowanie, nie błąd.
+- Harness `/preview/screening-form?state=cvpick|cvconsent|cvready`.
+
 ## „Stawka od” i historia stawek kandydata (0414, 04.10.2026)
 
 Kandydat podaje różne stawki na różne role (140 zł/h jako DevOps, 80 jako
@@ -3392,6 +3450,30 @@ wszystkich). Makiety: https://claude.ai/artifact/TRKAAZX3RcB8AA7LVohkT8, raport
   (0425 + lustro w `entrypoint.sh`), `PATCH /api/users/me/preferences`, filtr
   w `daily_digest_email._recipients`. Nie dokładaj kolejnego wyłącznika „dla
   wszystkich”, gdy ktoś chce wyłączyć coś sobie.
+- **„Maile do Ciebie” — każdy widzi i wyłącza swoje maile (0427, decyzja Artura
+  09.10.2026).** Do tej daty rekruter nie widział w „Moje”, które maile do
+  niego idą (lista była tylko w zakładce admina). Teraz
+  `GET/PUT /api/users/me/email-notifications[/{kind}]`
+  (`services/notification_email_prefs.py`): `APPLIES` mówi, czy mail w ogóle
+  może trafić do konta (lustro reguł odbiorców u nadawców), stan wiersza
+  i zdanie wyjaśnienia liczy serwer (`on`, `self_off`, `company_off`,
+  `bell_muted`, `role_muted`). Wyłączyć sobie da się KAŻDY mail, także
+  mail-zadanie — dzwonek i „Czeka na Ciebie” zostają; zawsze przychodzą tylko
+  maile bezpieczeństwa konta. Wyłączenia żyją w `users.email_opt_outs`
+  (`{rodzaj: czas}`), skrót zostaje przy swojej kolumnie.
+  **Każdy nadawca pyta `notification_delivery.email_opted_out(user, rodzaj)`
+  tuż przed wysyłką** — nowy rodzaj maila = wpis w `CATALOG`, reguła
+  w `APPLIES` i to pytanie u nadawcy (pilnuje
+  `test_notification_email_prefs.py`, strażnik AST). Admin widzi w „Maile”,
+  kto wyłączył który mail sobie (`self_disabled`).
+  **Nadawca z kolejką (dzwonek → mail: terminy, alerty klientów, maile
+  natychmiast, czat) odsiewa takie konta W ZAPYTANIU** —
+  `email_queue_clause(rodzaj, kolumna_czasu)`, a w pętli pyta
+  `email_wanted(konto, rodzaj, czas_zdarzenia)`. Sam `continue` w Pythonie
+  zostawia wiersze bez stempla wysyłki: zajmują paczkę (najstarsze pierwsze)
+  i z czasem zatrzymują ten mail wszystkim. Ponowne włączenie zapisuje czas
+  w `email_opt_outs["_resumed"]` — zdarzenia z okresu wyłączenia nie wychodzą
+  jako zaległości (jak `send_not_before` przy przełączniku firmowym).
 - Testy tabeli ról na wspólnej bazie sprzątają wiersz `app_settings` (fixture
   `clean_role_mutes`) — zostawione wyłączenie ucinałoby powiadomienia adminom
   w cudzych testach. Harness `/preview/notification-settings`.

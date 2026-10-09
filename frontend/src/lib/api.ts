@@ -6182,6 +6182,8 @@ export interface CVBrandedState {
   docx_filename?: string | null;
   generated_document_id?: number | null;
   from_generator?: boolean;
+  /** Skąd treść: generator, plik Word z profilu kandydata albo stary szablon. */
+  source?: "generator" | "document" | "legacy" | null;
   edit_revision: number;
   version: number;
   candidate_stage_id: number | null;
@@ -6280,6 +6282,11 @@ export const candidateStageCvApi = {
     selectGenerated: (stageId: number, generated_document_id: number, expected_revision: number, document_version_id?: number) =>
       api.post<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded/select-generated`, {
         generated_document_id, expected_revision, ...(document_version_id ? { document_version_id } : {}),
+      }),
+    /** Plik Word z profilu kandydata → szkic CV firmowego (bez AI). */
+    selectDocument: (stageId: number, document_id: number, expected_revision: number) =>
+      api.post<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded/select-document`, {
+        document_id, expected_revision,
       }),
     get: (stageId: number) =>
       api.get<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded`),

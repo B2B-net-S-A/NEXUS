@@ -113,6 +113,7 @@ async def _enqueue(db, *, stage_id: int, user_id: int) -> Optional[tuple[int, in
     from app.api.candidate_access import CANDIDATE_WRITE_ROLES
     from app.api.cv_generator_b2b import enqueue_candidate_generation
     from app.models.candidate import Candidate
+    from app.models.candidate_stage_cv import CandidateStageCV
     from app.models.cv_generated_document import CvGeneratedDocument
     from app.models.job import Job
     from app.models.recruitment_pipeline import CandidateStage, PipelineStage
@@ -148,6 +149,23 @@ async def _enqueue(db, *, stage_id: int, user_id: int) -> Optional[tuple[int, in
     sources = await list_candidate_cv_sources(db, candidate.id)
     if not sources:
         await _record(db, action=ACTION_SKIPPED, reason="no_cv_document", **base)
+        return None
+
+    # 09.10.2026: para ma już CV firmowe (wybrane z profilu w screeningu albo
+    # wygenerowane ręcznie na wcześniejszym etapie). Nowy dokument podpięty do
+    # tego wiersza etapu przykryłby je jako „CV pary” (nowszy etap wygrywa),
+    # a generacja byłaby płatna drugi raz.
+    pair_cv_stage_id = await db.scalar(
+        select(CandidateStageCV.candidate_stage_id)
+        .where(
+            CandidateStageCV.candidate_id == candidate.id,
+            CandidateStageCV.job_id == job.id,
+            CandidateStageCV.branded_status.in_(("draft", "finalized")),
+        )
+        .limit(1)
+    )
+    if pair_cv_stage_id is not None:
+        await _record(db, action=ACTION_SKIPPED, reason="pair_cv_exists", **base)
         return None
 
     revision = candidate_revision(candidate)

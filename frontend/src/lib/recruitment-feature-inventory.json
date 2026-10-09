@@ -1563,6 +1563,14 @@
    "v3_home": "panel osoby → lewa strefa (wąskie okno: przycisk „Pokaż CV i wymagania”)"
   },
   {
+   "id": "screening-form.cv-pick",
+   "area": "formularz screeningu",
+   "opis": "Wybór gotowego CV z profilu kandydata jako CV firmowego rekrutacji (CV z generatora, także z innej rekrutacji, i pliki Word „…B2B…”), potem „Edytuj” i „Zmień CV”",
+   "file": "components/v2/screening-form/StageCvPicker.tsx",
+   "marker": "Wybierz gotowe CV z profilu",
+   "v3_home": "panel osoby → Screening → podgląd „CV” → „CV firmowe”"
+  },
+  {
    "id": "person-panel.side-preview",
    "area": "tablica",
    "opis": "Duży podgląd po lewej stronie panelu osoby (cała wysokość okna, panel zakrywa menu) dla zakładek Screening, CV i Rozmowy; przy Rozmowach dodatkowo „Pytania klienta”",

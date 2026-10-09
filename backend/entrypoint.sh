@@ -5237,6 +5237,10 @@ END $$""",
     # kolumnę — bez niej każdy odczyt użytkownika (w tym logowanie) pada.
     # Lustro 1:1 z migracją — pilnuje `test_notification_role_mutes.py`.
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_digest_email_enabled BOOLEAN NOT NULL DEFAULT true",
+    # 0427: maile wyłączone przez konto („Maile do Ciebie”). Model `User`
+    # deklaruje kolumnę — bez niej każdy odczyt użytkownika pada. Lustro 1:1
+    # z migracją — pilnuje `test_notification_email_prefs.py`.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_opt_outs JSONB NOT NULL DEFAULT '{}'::jsonb",
     """CREATE TABLE IF NOT EXISTS jarvis_conversations (
         id UUID PRIMARY KEY,
         user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

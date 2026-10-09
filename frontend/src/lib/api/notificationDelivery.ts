@@ -8,6 +8,8 @@ export interface NotificationDeliveryType {
   recipient_rule: string;
   email_enabled: boolean;
   effective_enabled: boolean;
+  /** Kto wyłączył ten mail sobie („Moje” → „Maile do Ciebie”). */
+  self_disabled?: string[];
   send_not_before: string | null;
   channels: string[];
   sender: string | null;

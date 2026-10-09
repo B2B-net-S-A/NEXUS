@@ -2,7 +2,7 @@
 
 Administrator: **Ustawienia → System → Powiadomienia** (`/settings?item=notifications`).
 
-Od 09.10.2026 to zakładka **Maile** ekranu „Powiadomienia” (`/settings?item=notifications&sub=maile`). Przełączniki działają dla całej firmy: ekran mówi to przy każdym z nich, a wyłączenie wymaga potwierdzenia. Każda zmiana zostawia wpis „Zmiana maili automatycznych” w Historii zdarzeń. Poranny skrót każdy może wyłączyć tylko sobie w zakładce **Moje** (`users.daily_digest_email_enabled`). O tym, która rola dostaje które powiadomienie w dzwonku, decyduje zakładka **Kto co dostaje** — opis w `CLAUDE.md`, sekcja „Powiadomienia dla ról i jeden ekran”.
+Od 09.10.2026 to zakładka **Maile** ekranu „Powiadomienia” (`/settings?item=notifications&sub=maile`). Przełączniki działają dla całej firmy: ekran mówi to przy każdym z nich, a wyłączenie wymaga potwierdzenia. Każda zmiana zostawia wpis „Zmiana maili automatycznych” w Historii zdarzeń. Każdy mail z tej listy (poza bezpieczeństwem konta i potwierdzeniem aplikacji dla kandydata) dowolne konto może wyłączyć tylko sobie w zakładce **Moje** → „Maile do Ciebie” (`users.email_opt_outs`, poranny skrót: `users.daily_digest_email_enabled`); zakładka **Maile** pokazuje przy rodzaju, kto to zrobił. Wyłączony mail nie zmienia dzwonka ani zadań w „Czeka na Ciebie”. O tym, która rola dostaje które powiadomienie w dzwonku, decyduje zakładka **Kto co dostaje** — opis w `CLAUDE.md`, sekcja „Powiadomienia dla ról i jeden ekran”.
 
 Panel pokazuje wyzwalacz, regułę doboru odbiorców, kanały, rzeczywistego nadawcę i ostatnio zaobserwowany stan dostawcy. Steruje pięcioma rodzinami wiadomości: nieprzeczytany czat, wzmianki w notatkach, zmiany etapów, terminy rekrutacji oraz alerty klientów i umów.
 

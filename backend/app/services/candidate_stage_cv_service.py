@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -352,6 +353,85 @@ async def render_stage_editor_docx(csv, content_html: str) -> tuple[bytes, bytes
     except ApprovedDocxError as error:
         raise HTTPException(422, str(error)) from error
     return docx, template
+
+
+CONSENT_CLIENT_NEEDS_GENERATOR = "consent_client_needs_generator"
+
+
+@dataclass(frozen=True)
+class DetachedCopySettings:
+    filename: str
+    client_id: Optional[int]
+    job_title: Optional[str]
+
+
+async def detached_copy_settings(
+    db: AsyncSession, csv: CandidateStageCV, *, masked_name: Optional[str] = None
+) -> DetachedCopySettings:
+    """Ustawienia CV wybranego z profilu (plik Word, CV z innej rekrutacji).
+
+    Taka kopia nie ma dokumentu generatora dla TEJ rekrutacji, więc nazwę
+    pliku liczymy z reguły klienta rekrutacji. Klient z wymogiem zrzutu zgody
+    RODO odmawia (422): zgodę dołącza się dziś wyłącznie do dokumentu
+    generatora, więc kopii nie dałoby się nigdy pobrać.
+
+    ``masked_name`` (CV blind): nazwa pliku nie może nieść nazwiska, które
+    dokument ukrywa — generator nazywa taki plik „…_Kandydat.docx”.
+    """
+    from fastapi import HTTPException
+
+    from app.models.job import Job
+    from app.services import cv_consent_gate
+    from app.services.cv_generator_b2b import central_policies
+    from app.services.cv_generator_b2b.client_rules import (
+        build_filename,
+        resolve_client_rule,
+        snapshot_rule,
+    )
+    from app.services.cv_generator_b2b.standalone_service import (
+        _build_download_filename,
+    )
+    from app.services.cv_packages import pko_job_reference
+
+    job = await db.get(Job, csv.job_id)
+    candidate = await db.get(Candidate, csv.candidate_id)
+    client_id = job.client_id if job is not None else None
+    try:
+        rule = snapshot_rule(await resolve_client_rule(db, client_id))
+        requires_consent = bool(rule and rule.requires_rodo_consent_block)
+    except HTTPException:
+        # Polityka klienta czeka na synchronizację: nazwa ogólna, a o zgodzie
+        # mówi katalog polityk (czysta funkcja, bez bazy).
+        rule = None
+        requires_consent = bool(
+            central_policies.enabled()
+            and central_policies.policy_for(client_id)["requires_rodo_consent_block"]
+        )
+    if requires_consent and cv_consent_gate.gate_enabled():
+        raise HTTPException(
+            422,
+            {
+                "code": CONSENT_CLIENT_NEEDS_GENERATOR,
+                "message": (
+                    "Ten klient wymaga zrzutu zgody kandydata w CV. Wygeneruj CV "
+                    "w generatorze — tam dołączysz zgodę."
+                ),
+            },
+        )
+    title = job.title if job is not None else None
+    name = masked_name or (
+        " ".join(part for part in (candidate.name, candidate.lastname) if part)
+        if candidate is not None
+        else ""
+    )
+    named = build_filename(
+        rule, position=title, candidate_name=name, project=pko_job_reference(job)
+    )
+    return DetachedCopySettings(
+        filename=named.filename if named else _build_download_filename(title, name),
+        client_id=client_id,
+        job_title=(title or "").strip() or None,
+    )
 
 
 def branded_cv_filename(candidate_label: str, version: int) -> str:

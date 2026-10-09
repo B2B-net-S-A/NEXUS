@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { MY_EMAIL_NOTIFICATIONS_QUERY_KEY } from "@/lib/api/emailNotifications";
 
 export interface NotificationCategoryPreference {
   key: string;
@@ -67,6 +68,9 @@ export function useSetNotificationCategoryMuted() {
     onSuccess: (data) => {
       queryClient.setQueryData(notificationPreferencesQueryKey, data);
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      // Mail idący za wyciszoną kategorią też przestaje przychodzić —
+      // „Maile do Ciebie” mówi to przy wierszu.
+      queryClient.invalidateQueries({ queryKey: MY_EMAIL_NOTIFICATIONS_QUERY_KEY });
     },
   });
 }

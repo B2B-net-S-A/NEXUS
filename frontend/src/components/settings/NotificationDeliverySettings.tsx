@@ -45,6 +45,25 @@ function CompanyWideBadge({ recipients }: { recipients?: number | null }) {
   );
 }
 
+function selfDisabledLabel(count: number): string {
+  if (count === 1) return "1 osoba wyłączyła sobie ten mail";
+  const few = count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 12 || count % 100 > 14);
+  return `${count} ${few ? "osoby wyłączyły" : "osób wyłączyło"} sobie ten mail`;
+}
+
+/** Firmowe „włączone” nie znaczy „dostają wszyscy” — kto wyłączył mail sobie. */
+function SelfDisabledNote({ names }: { names: string[] }) {
+  if (names.length === 0) return null;
+  return (
+    <details className="mt-2 text-xs">
+      <summary className="cursor-pointer font-medium text-primary">
+        {selfDisabledLabel(names.length)}
+      </summary>
+      <p className="mt-1 text-muted-foreground">{names.join(", ")}</p>
+    </details>
+  );
+}
+
 function formatTime(value: string | null): string {
   if (!value) return "Brak danych";
   const date = new Date(value);
@@ -146,6 +165,7 @@ function NotificationTable({ items, enabled, busy, digestRecipients, onToggle }:
                           ? "Wysyłka globalna jest wyłączona."
                           : "Ten typ maila jest wyłączony."}
                     </p>
+                    <SelfDisabledNote names={item.self_disabled ?? []} />
                   </>
                 ) : (
                   <span className="text-muted-foreground">Bez przełącznika — bezpieczeństwo konta</span>
