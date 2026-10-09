@@ -153,16 +153,16 @@
     "title": "Karta kandydata w rekrutacji",
     "section": "pipeline",
     "roles": ["recruiter", "delivery_lead"],
-    "what": "Tu prowadzisz jedną osobę w tej rekrutacji. W „Nowych” i „Screeningu” panel zajmuje całe okno: po lewej duże CV, wymagania i opis „po ludzku”, po prawej profil przed rozmową albo formularz screeningu.",
+    "what": "Tu prowadzisz jedną osobę w tej rekrutacji; telefon i e-mail są pod nazwiskiem. W „Nowych” i „Screeningu” panel zajmuje całe okno: po lewej duże CV, wymagania i opis „po ludzku”, po prawej profil przed rozmową albo formularz screeningu.",
     "tasks": [
       {
         "q": "Jak zapisać screening rozmowy?",
-        "a": "Wpisz odpowiedzi na pytania z Profilu Championa, warunki ze stawką i ocenę dla Delivery Leada („Uzupełnij z notatki” wypełni pola z notatki). „Zapisz” dodaje wersję do historii, „Zapisz i przekaż dalej” przesuwa na „Zweryfikowany”. Gdy DL odeśle kartę do poprawy, pola są podświetlone — po poprawkach „Zapisz i oddaj do przeglądu DL”.",
+        "a": "Wpisz warunki ze stawką, odpowiedzi na pytania z Profilu Championa i ocenę dla Delivery Leada („Uzupełnij z notatki” wypełni pola z notatki). „Zapisz” dodaje wersję do historii, „Zapisz i przekaż dalej” przesuwa na „Zweryfikowany”. Gdy DL odeśle kartę do poprawy, pola są podświetlone — po poprawkach „Zapisz i oddaj do przeglądu DL”.",
         "anchor": "jobs.person.screening-form"
       },
       {
         "q": "Jak przesunąć albo odrzucić osobę?",
-        "a": "Ramka „Następny etap” pokazuje braki do kolejnej kolumny, z przyciskiem przy każdym; gdy system zatrzyma ruch, przycisk jest wyłączony z powodem. Inny etap — „Inny etap…”. Odrzucenie — „Odrzuć z powodem”; gdy kandydat się wycofał, wybierz „Zrezygnował” (raporty liczą to osobno).",
+        "a": "Ramka „Następny etap” pokazuje braki do kolejnej kolumny, z przyciskiem przy każdym; gdy system zatrzyma ruch, przycisk jest wyłączony z powodem. Po „Rozwiń” ramka jest pod zakładkami („Warunki i następny etap”). Inny etap — „Inny etap…”. Odrzucenie — „Odrzuć z powodem”; gdy kandydat się wycofał, wybierz „Zrezygnował” (raporty liczą to osobno).",
         "anchor": "jobs.person.actions"
       },
       {

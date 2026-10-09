@@ -52,6 +52,41 @@ export function nextStageHeading(
   return { step, label: boardColumnLabel(key, { cproEnabled }) };
 }
 
+/**
+ * Wymagania następnego etapu jednej osoby. Jedno zapytanie dla ramki
+ * i dla skrótu w zwiniętej linii panelu (`NextStageSummary`) — ten sam klucz
+ * react-query, więc liczba braków jest w obu miejscach ta sama.
+ */
+export function useNextStageRequirements({
+  candidateId,
+  jobId,
+  target,
+  refreshToken,
+}: {
+  candidateId: number;
+  jobId: number;
+  target: KanbanColumn;
+  /** Zmiana tej wartości (np. obiekt karty po odświeżeniu tablicy) odświeża wymagania. */
+  refreshToken?: unknown;
+}) {
+  const toStageDefId = target.stage_def_id ?? null;
+  const params = useMemo(
+    () => ({ candidateId, jobId, toStageDefId }),
+    [candidateId, jobId, toStageDefId],
+  );
+  const query = useMoveRequirements(params, toStageDefId != null);
+  const { refetch } = query;
+  const firstRender = useRef(true);
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    if (toStageDefId != null) void refetch();
+  }, [refreshToken, refetch, toStageDefId]);
+  return query;
+}
+
 export interface DockNextStageProps {
   candidateId: number;
   jobId: number;
@@ -86,20 +121,8 @@ export function DockNextStage({
 }: DockNextStageProps) {
   const { showSuccess, showError } = useToast();
   const toStageDefId = target.stage_def_id ?? null;
-  const params = useMemo(
-    () => ({ candidateId, jobId, toStageDefId }),
-    [candidateId, jobId, toStageDefId],
-  );
-  const query = useMoveRequirements(params, toStageDefId != null);
+  const query = useNextStageRequirements({ candidateId, jobId, target, refreshToken });
   const { refetch } = query;
-  const firstRender = useRef(true);
-  useEffect(() => {
-    if (firstRender.current) {
-      firstRender.current = false;
-      return;
-    }
-    if (toStageDefId != null) void refetch();
-  }, [refreshToken, refetch, toStageDefId]);
 
   const data = query.data ?? null;
   const heading = nextStageHeading(data, target.name ?? target.stage);

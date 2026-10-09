@@ -625,40 +625,9 @@ export function ScreeningFullFormView({
         ) : null}
         {noteBar}
 
-        {/* ── Pytania ─────────────────────────────────────────────────── */}
-        <section aria-label="Pytania z Profilu Championa" className="space-y-3">
-          <SectionTitle
-            hint={
-              questions.length > 0
-                ? `${answeredCount} z ${countPl(questions.length, "pytania", "pytań", "pytań")} z odpowiedzią${dealBreakerHit ? " · zaznaczony deal-breaker" : ""}`
-                : undefined
-            }
-          >
-            Pytania z Profilu Championa
-          </SectionTitle>
-          {questions.length === 0 ? (
-            <ScreeningNoQuestions onOpenChampion={onOpenChampion} />
-          ) : (
-            <>
-              {phrase ? <PhraseAllBar phrase={phrase} questions={questions} methods={sheetMethods(methods)} /> : null}
-              {state.stage_id != null ? (
-                <ScreeningReassignSuggestions
-                  key={state.stage_id}
-                  stageId={state.stage_id}
-                  questions={questions}
-                  methods={sheetMethods(methods)}
-                  saved={state.sheet}
-                  readOnly={!state.editable}
-                >
-                  {(extra) => sheetFields(extra)}
-                </ScreeningReassignSuggestions>
-              ) : (
-                sheetFields(() => null)
-              )}
-            </>
-          )}
-        </section>
-
+        {/* Kolejność (09.10.2026, prośba rekruterów): najpierw warunki — stawka,
+            dostępność, tryb — potem pytania. Do tej daty warunki stały pod
+            pytaniami i przy długim arkuszu trzeba było do nich przewijać. */}
         {/* ── Warunki ─────────────────────────────────────────────────── */}
         <section aria-label="Warunki" className="space-y-3">
           <SectionTitle hint="Pola karty rekomendacji — widzi je Delivery Lead przed wysłaniem CV.">
@@ -751,6 +720,40 @@ export function ScreeningFullFormView({
           ) : null}
         </section>
 
+        {/* ── Pytania ─────────────────────────────────────────────────── */}
+        <section aria-label="Pytania z Profilu Championa" className="space-y-3">
+          <SectionTitle
+            hint={
+              questions.length > 0
+                ? `${answeredCount} z ${countPl(questions.length, "pytania", "pytań", "pytań")} z odpowiedzią${dealBreakerHit ? " · zaznaczony deal-breaker" : ""}`
+                : undefined
+            }
+          >
+            Pytania z Profilu Championa
+          </SectionTitle>
+          {questions.length === 0 ? (
+            <ScreeningNoQuestions onOpenChampion={onOpenChampion} />
+          ) : (
+            <>
+              {phrase ? <PhraseAllBar phrase={phrase} questions={questions} methods={sheetMethods(methods)} /> : null}
+              {state.stage_id != null ? (
+                <ScreeningReassignSuggestions
+                  key={state.stage_id}
+                  stageId={state.stage_id}
+                  questions={questions}
+                  methods={sheetMethods(methods)}
+                  saved={state.sheet}
+                  readOnly={!state.editable}
+                >
+                  {(extra) => sheetFields(extra)}
+                </ScreeningReassignSuggestions>
+              ) : (
+                sheetFields(() => null)
+              )}
+            </>
+          )}
+        </section>
+
         {/* ── Ocena ───────────────────────────────────────────────────── */}
         <section aria-label="Ocena" className="space-y-3">
           <SectionTitle>Ocena</SectionTitle>
@@ -804,8 +807,19 @@ export function ScreeningFormReadOnlyView({ state }: { state: ScreeningFormState
     ...answer,
     question_text: answer.question_text ?? questions.find((q) => q.id === answer.question_id)?.question ?? null,
   }));
-  const keys = [...cardTermsKeys(state), ...cardAssessmentKeys(state)];
   const fields = state.card?.fields ?? {};
+  const assessmentKeys = cardAssessmentKeys(state);
+  const fieldRow = (key: string) => {
+    const value = cardFieldValue(key, fields[key]);
+    return (
+      <div key={key} className="grid grid-cols-[9rem_minmax(0,1fr)] gap-x-2 text-xs">
+        <dt className="text-muted-foreground">{formFieldLabel(state, key)}</dt>
+        <dd className={cn("whitespace-pre-line [overflow-wrap:anywhere]", value ? "font-medium text-foreground" : "text-muted-foreground")}>
+          {value || "—"}
+        </dd>
+      </div>
+    );
+  };
   return (
     <section aria-label="Formularz screeningu — tylko do odczytu" className="space-y-4 text-[13px]" data-testid="screening-form-readonly">
       {state.read_only_message ? (
@@ -814,6 +828,14 @@ export function ScreeningFormReadOnlyView({ state }: { state: ScreeningFormState
           {state.read_only_message}
         </p>
       ) : null}
+      {/* Ta sama kolejność co w edycji: warunki, odpowiedzi, ocena. */}
+      <dl className="space-y-1.5" data-testid="screening-form-readonly-terms">
+        <div className="grid grid-cols-[9rem_minmax(0,1fr)] gap-x-2 text-xs">
+          <dt className="text-muted-foreground">Stawka kandydata</dt>
+          <dd className="font-medium text-foreground">{state.rate ? formatFormRate(state.rate) : "—"}</dd>
+        </div>
+        {cardTermsKeys(state).map(fieldRow)}
+      </dl>
       {answers.length > 0 ? (
         <ScreeningAnswersList
           answers={answers}
@@ -824,23 +846,11 @@ export function ScreeningFormReadOnlyView({ state }: { state: ScreeningFormState
       ) : (
         <p className="text-xs text-muted-foreground">Pytania z Profilu Championa nie mają zapisanych odpowiedzi.</p>
       )}
-      <dl className="space-y-1.5">
-        <div className="grid grid-cols-[9rem_minmax(0,1fr)] gap-x-2 text-xs">
-          <dt className="text-muted-foreground">Stawka kandydata</dt>
-          <dd className="font-medium text-foreground">{state.rate ? formatFormRate(state.rate) : "—"}</dd>
-        </div>
-        {keys.map((key) => {
-          const value = cardFieldValue(key, fields[key]);
-          return (
-            <div key={key} className="grid grid-cols-[9rem_minmax(0,1fr)] gap-x-2 text-xs">
-              <dt className="text-muted-foreground">{formFieldLabel(state, key)}</dt>
-              <dd className={cn("whitespace-pre-line [overflow-wrap:anywhere]", value ? "font-medium text-foreground" : "text-muted-foreground")}>
-                {value || "—"}
-              </dd>
-            </div>
-          );
-        })}
-      </dl>
+      {assessmentKeys.length > 0 ? (
+        <dl className="space-y-1.5" data-testid="screening-form-readonly-assessment">
+          {assessmentKeys.map(fieldRow)}
+        </dl>
+      ) : null}
     </section>
   );
 }

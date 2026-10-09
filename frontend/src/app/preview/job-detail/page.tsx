@@ -651,6 +651,9 @@ function seedCardPanel(qc: QueryClient, item: KanbanItem): void {
     ...fullName,
     status: "active",
     city: "Warszawa",
+    // Dane fikcyjne — linia kontaktu pod nazwiskiem w panelu osoby.
+    phone: "+48 600 100 200",
+    email: `kandydat${candidateId}@example.com`,
     linkedin_current_title: "Frontend Developer",
     linkedin_current_company: "Firma Przykładowa",
   });
