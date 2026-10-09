@@ -64,11 +64,14 @@ test.describe("Pipeline rekrutacji @stack", () => {
     await expect(page).not.toHaveURL(/tab=pipeline/);
 
     // Ruch z nieaktualną wersją procesu jest odrzucany bez zapisu (F05).
+    // Cel to „Nowi”: od 05.10.2026 skok ze Screeningu na „Zweryfikowany”
+    // i dalej zatrzymuje wcześniej bramka arkusza i stawki
+    // (VERIFIED_REQUIREMENTS_MISSING), więc do porównania wersji nie dochodzi.
     const stale = await admin.api.post("/api/pipeline/move", {
       data: {
         candidate_id: candidate.id,
         job_id: job.id,
-        stage: "prep_call",
+        stage: "new",
         expected_state_version: screening.process_state_version + 1,
       },
     });
