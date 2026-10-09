@@ -44,7 +44,11 @@ from app.models.note import Note
 from app.models.notification import Notification, NotificationType
 from app.models.user import User
 from app.services.email import send_mention_email
-from app.services.notification_delivery import DeliveryPolicy, load_policy
+from app.services.notification_delivery import (
+    DeliveryPolicy,
+    email_opted_out,
+    load_policy,
+)
 from app.services.notification_access import (
     filter_notification_recipients,
     user_can_receive_notification,
@@ -268,6 +272,8 @@ async def send_mention_side_effects(
             not send_email
             or not user.email
             or not policy.allows("mentions", notif.created_at)
+            # Własny wyłącznik maila („Maile do Ciebie”); dzwonek już poszedł.
+            or email_opted_out(user, "mentions")
         ):
             continue
         try:

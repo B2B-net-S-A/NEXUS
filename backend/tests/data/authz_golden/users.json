@@ -22,8 +22,10 @@
  ],
  "routes": {
   "GET /api/users": "PPPPPPDDPPPPPPPPPPP",
+  "GET /api/users/me/email-notifications": "PPPPPPPDPPPPPPPPPPP",
   "GET /api/users/me/preferences": "PPPPPPPDPPPPPPPPPPP",
   "GET /api/users/mentionable": "PPPPPPDDPPPPPPPPPPP",
-  "PATCH /api/users/me/preferences": "PPPPPPPDPPPPPPPPPPP"
+  "PATCH /api/users/me/preferences": "PPPPPPPDPPPPPPPPPPP",
+  "PUT /api/users/me/email-notifications/{kind}": "PPPPPPPDPPPPPPPPPPP"
  }
 }

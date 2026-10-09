@@ -99,6 +99,19 @@ describe("NotificationDeliverySettings", () => {
     expect(mocks.update).not.toHaveBeenCalled();
   });
 
+  it("pokazuje, kto wyłączył mail sobie — firmowe „włączone” nie znaczy „dostają wszyscy”", async () => {
+    const data = enabledOverview();
+    data.types[0] = { ...data.types[0], self_disabled: ["Daria Dostarczająca", "Roman Rekrutujący"] };
+    data.types[2] = { ...data.types[2], self_disabled: ["Roman Rekrutujący"] };
+    mocks.get.mockResolvedValue(data);
+    renderSettings();
+    expect(await screen.findByText("2 osoby wyłączyły sobie ten mail")).toBeInTheDocument();
+    expect(screen.getByText("Daria Dostarczająca, Roman Rekrutujący")).toBeInTheDocument();
+    expect(screen.getByText("1 osoba wyłączyła sobie ten mail")).toBeInTheDocument();
+    // Pozostałe wiersze nie dostają pustego dopisku.
+    expect(screen.getAllByText(/sobie ten mail$/)).toHaveLength(2);
+  });
+
   it("pokazuje pięć wyłączonych typów i trzy wiadomości bezpieczeństwa bez akcji wysyłki", async () => {
     renderSettings();
     expect(await screen.findByRole("switch", { name: "Automatyczna wysyłka e-mail" })).toHaveAttribute("aria-checked", "false");

@@ -11,7 +11,9 @@
  * - bez parametrów — administrator, zakładka „Kto co dostaje”;
  * - `?tab=moje|role|maile|etapy` — zakładka startowa;
  * - `?as=recruiter` — konto bez uprawnień administratora: samo „Moje”,
- *   bez paska zakładek, z jedną kategorią wyłączoną dla roli.
+ *   bez paska zakładek, z jedną kategorią wyłączoną dla roli i „Mailami do
+ *   Ciebie” w każdym stanie (przychodzi, wyłączony przez siebie, wyłączony
+ *   firmowo, zatrzymany wyciszoną kategorią dzwonka).
  *
  * Osoby, liczby i adresy są zmyślone.
  */
@@ -23,6 +25,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { NOTIFICATION_DELIVERY_QUERY_KEY } from "@/components/settings/NotificationDeliverySettings";
 import { NotificationsSettings } from "@/components/settings/NotificationsSettings";
 import { api } from "@/lib/api";
+import {
+  MY_EMAIL_NOTIFICATIONS_QUERY_KEY,
+  type MyEmailNotifications,
+} from "@/lib/api/emailNotifications";
 import type {
   NotificationDeliveryOverview,
   NotificationDeliveryType,
@@ -199,6 +205,87 @@ const USER_PREFERENCES: UserPreferences = {
   daily_digest_email_available: true,
 };
 
+function myEmails(persona: Persona): MyEmailNotifications {
+  const on = { company_enabled: true, self_enabled: true, receiving: true, state: "on", note: null } as const;
+  const recruiter: MyEmailNotifications["items"] = [
+    {
+      id: "daily_digest",
+      label: "Poranny skrót „Twój dzień w NEXUSIE”",
+      description: "Dzień roboczy od 8:00 — to, co czeka na osobę w panelu „Czeka na Ciebie”.",
+      ...on,
+    },
+    {
+      id: "cv_returned",
+      label: "CV wróciło do poprawy",
+      description: "Delivery Lead cofnął kandydata z „QC CV” albo z kolejki Cpro.",
+      ...on,
+    },
+    {
+      id: "request_assigned",
+      label: "Nowa rekrutacja dla Ciebie",
+      description: "Ktoś (albo automat przydziału) przypisał Cię do prowadzenia rekrutacji.",
+      company_enabled: true,
+      self_enabled: false,
+      receiving: false,
+      state: "self_off",
+      note: "Wyłączone przez Ciebie.",
+    },
+    {
+      id: "mentions",
+      label: "Wzmianki w notatkach",
+      description: "Oznaczenie osoby przez @wzmiankę w nowej lub edytowanej notatce.",
+      company_enabled: false,
+      self_enabled: true,
+      receiving: false,
+      state: "company_off",
+      note: "Wyłączone dla całej firmy przez administratora — teraz nikt go nie dostaje.",
+    },
+    {
+      id: "job_deadline",
+      label: "Terminy rekrutacji",
+      description: "Zbliżający się termin otwartej rekrutacji: 7, 3 i 1 dzień przed.",
+      company_enabled: true,
+      self_enabled: true,
+      receiving: false,
+      state: "bell_muted",
+      note: "Kategoria „Terminy rekrutacji” jest wyłączona przez Ciebie w dzwonku, więc ten mail też nie przychodzi.",
+    },
+  ];
+  const admin: MyEmailNotifications["items"] = [
+    {
+      id: "system_failure",
+      label: "Awaria automatu",
+      description: "Ten sam automat (przegląd bazy, propozycje, auto-CV) padł 3 razy z rzędu.",
+      ...on,
+    },
+    {
+      id: "request_assigned",
+      label: "Nowa rekrutacja dla Ciebie",
+      description: "Ktoś (albo automat przydziału) przypisał Cię do prowadzenia rekrutacji.",
+      ...on,
+    },
+  ];
+  return {
+    channel_ready: true,
+    items: persona === "recruiter" ? recruiter : admin,
+    not_applicable:
+      persona === "recruiter"
+        ? [
+            { id: "dl_review", label: "CV czeka na Twój przegląd" },
+            { id: "delivery_alert", label: "Alerty klientów i umów" },
+            { id: "system_failure", label: "Awaria automatu" },
+          ]
+        : [
+            { id: "daily_digest", label: "Poranny skrót „Twój dzień w NEXUSIE”" },
+            { id: "delivery_alert", label: "Alerty klientów i umów" },
+          ],
+    always_on: [
+      { id: "password_reset", label: "Reset hasła", description: "Żądanie resetu hasła." },
+      { id: "password_changed", label: "Zmiana hasła", description: "Zmiana hasła konta." },
+    ],
+  };
+}
+
 function deliveryType(
   over: Pick<NotificationDeliveryType, "id" | "label" | "module" | "trigger" | "recipient_rule"> &
     Partial<NotificationDeliveryType>,
@@ -248,6 +335,7 @@ const DELIVERY: NotificationDeliveryOverview = {
       trigger: "Dzień roboczy od 8:00 — to, co czeka na osobę w panelu „Czeka na Ciebie”.",
       recipient_rule: "Rekruterzy, TCM, Delivery Leadzi, Head of Recruitment i Finanse.",
       channels: ["email"],
+      self_disabled: ["Daria Dostarczająca", "Roman Rekrutujący"],
     }),
     deliveryType({
       id: "delivery_alert",
@@ -302,6 +390,7 @@ function seededClient(persona: Persona): QueryClient {
   });
   qc.setQueryData(notificationPreferencesQueryKey, preferences(persona), FRESH);
   qc.setQueryData(USER_PREFERENCES_QUERY_KEY, USER_PREFERENCES, FRESH);
+  qc.setQueryData(MY_EMAIL_NOTIFICATIONS_QUERY_KEY, myEmails(persona), FRESH);
   qc.setQueryData(notificationRolesQueryKey, ROLE_VIEW, FRESH);
   qc.setQueryData(NOTIFICATION_DELIVERY_QUERY_KEY, DELIVERY, FRESH);
   return qc;

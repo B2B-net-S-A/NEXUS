@@ -155,9 +155,12 @@ def test_legacy_request_without_current_content_or_revision_is_not_accepted():
     "candidate_id,job_id,status,code",
     [
         (99, 4, "ready", 404),
-        (3, 99, "ready", 404),
         (None, None, "ready", 404),
         (3, 4, "processing", 422),
+        # 09.10.2026: CV tej samej osoby z INNEJ rekrutacji da się wybrać
+        # (kopia odłączona, `test_stage_cv_pick_from_profile.py`) — ale
+        # nadal tylko zakończoną generację.
+        (3, 99, "processing", 422),
     ],
 )
 async def test_selection_rejects_foreign_or_incomplete_document(
@@ -272,7 +275,7 @@ async def test_selection_archives_old_approval_and_uses_exact_generated_content(
         if isinstance(c.args[0], CvDocumentVersion)
     )
     assert version.content_html == "<p>old</p>" and version.generated_document_id == 41
-    loader.assert_awaited_once_with(db, 2, user, lock=True)
+    loader.assert_awaited_once_with(db, 2, user, lock=True, create_missing=True)
     with pytest.raises(HTTPException) as exc:
         await api.select_generated_cv(
             2,

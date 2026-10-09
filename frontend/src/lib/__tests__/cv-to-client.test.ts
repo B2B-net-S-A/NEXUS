@@ -17,6 +17,8 @@ const row = (overrides: Partial<StageGeneratedCvRow> & { id: number }): StageGen
 describe("stageCvStatus / stageCvBadge", () => {
   it("szkic starego szablonu to „stary szablon”, nie gotowe CV", () => {
     expect(stageCvStatus({ status: "draft", from_generator: false })).toBe("legacy");
+    // Plik Word wybrany z profilu (09.10.2026) to zwykły szkic, nie stary szablon.
+    expect(stageCvStatus({ status: "draft", from_generator: false, source: "document" })).toBe("ready");
     expect(stageCvBadge({ status: "draft", from_generator: false })?.label).toBe(
       "CV do klienta: stary szablon",
     );

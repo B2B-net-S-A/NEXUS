@@ -90,7 +90,7 @@ export interface ScreeningWorkbenchProps extends Omit<WorkbenchPanelProps, "layo
   /** „Biorę — 12 h” z profilu przed telefonem — ta sama blokada co karta. */
   onTake?: (item: KanbanItem) => void;
   /** Harness `/preview/screening-form`: bajty CV z plików statycznych, bez API. */
-  previewLoaders?: Pick<PreviewProps, "loadDocumentBlob" | "loadOriginalBlob">;
+  previewLoaders?: Pick<PreviewProps, "loadDocumentBlob" | "loadOriginalBlob" | "loadStageCvFile">;
 }
 
 export function ScreeningWorkbench({
@@ -350,6 +350,7 @@ export function ScreeningWorkbench({
           tab={tab}
           onTabChange={setPreviewTab}
           budgetHourly={jobBudgetHourly}
+          cvActions={readOnly || ended ? undefined : { candidateName: name }}
           className="flex-1"
           {...previewLoaders}
         />

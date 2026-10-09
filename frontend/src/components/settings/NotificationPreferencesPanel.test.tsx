@@ -29,22 +29,53 @@ const categories = [
   },
 ];
 
-const USER_PREFERENCES = {
-  kpi_coach_enabled: true,
-  daily_digest_email_enabled: true,
-  daily_digest_email_available: true,
+const MY_EMAILS = {
+  channel_ready: true,
+  items: [
+    {
+      id: "daily_digest",
+      label: "Poranny skrót „Twój dzień w NEXUSIE”",
+      description: "Dzień roboczy od 8:00.",
+      company_enabled: true,
+      self_enabled: true,
+      receiving: true,
+      state: "on",
+      note: null,
+    },
+    {
+      id: "cv_returned",
+      label: "CV wróciło do poprawy",
+      description: "Delivery Lead cofnął kandydata z „QC CV”.",
+      company_enabled: true,
+      self_enabled: true,
+      receiving: true,
+      state: "on",
+      note: null,
+    },
+    {
+      id: "mentions",
+      label: "Wzmianki w notatkach",
+      description: "Oznaczenie przez @wzmiankę.",
+      company_enabled: false,
+      self_enabled: true,
+      receiving: false,
+      state: "company_off",
+      note: "Wyłączone dla całej firmy przez administratora — teraz nikt go nie dostaje.",
+    },
+  ],
+  not_applicable: [{ id: "system_failure", label: "Awaria automatu" }],
+  always_on: [{ id: "password_reset", label: "Reset hasła", description: "Żądanie resetu." }],
 };
 
-/** Dwa odczyty panelu: kategorie dzwonka i własne przełączniki konta. */
+const EMAILS_URL = "/api/users/me/email-notifications";
+
+/** Dwa odczyty panelu: kategorie dzwonka i „Maile do Ciebie”. */
 function mockReads(
   preferences: Record<string, unknown> | Error,
-  userPreferences: Record<string, unknown> | Error = {
-    ...USER_PREFERENCES,
-    daily_digest_email_available: false,
-  },
+  myEmails: Record<string, unknown> | Error = MY_EMAILS,
 ) {
   vi.mocked(api.get).mockImplementation(async (url: string) => {
-    const body = url === "/api/users/me/preferences" ? userPreferences : preferences;
+    const body = url === EMAILS_URL ? myEmails : preferences;
     if (body instanceof Error) throw body;
     return { data: body } as never;
   });
@@ -115,7 +146,9 @@ describe("Moje powiadomienia", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Nie udało się wczytać ustawień powiadomień",
     );
-    expect(screen.queryByRole("switch")).toBeNull();
+    expect(
+      screen.queryByRole("switch", { name: "Zaległości i przypomnienia" }),
+    ).toBeNull();
   });
 
   it("kategoria wyłączona dla roli: przełącznik stoi na „wyłączone” i nie da się go ruszyć", async () => {
@@ -139,69 +172,103 @@ describe("Moje powiadomienia", () => {
   });
 });
 
-describe("Moje powiadomienia — poranny skrót mailem", () => {
+describe("Moje powiadomienia — „Maile do Ciebie”", () => {
   beforeEach(() => {
     vi.mocked(api.get).mockReset();
     vi.mocked(api.put).mockReset();
     vi.mocked(api.patch).mockReset();
+    mockReads({ categories });
   });
 
-  it("wyłączenie skrótu zapisuje go tylko na własnym koncie", async () => {
-    mockReads({ categories }, USER_PREFERENCES);
-    vi.mocked(api.patch).mockResolvedValue({
-      data: { ...USER_PREFERENCES, daily_digest_email_enabled: false },
+  it("pokazuje maile konta z opisem, a pozostałe jako niedotyczące roli", async () => {
+    renderPanel();
+    expect(await screen.findByRole("heading", { name: "Maile do Ciebie" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("switch", { name: "CV wróciło do poprawy" }),
+    ).toBeChecked();
+    expect(screen.getByText("Delivery Lead cofnął kandydata z „QC CV”.")).toBeInTheDocument();
+    expect(screen.getByText("Maile, które nie dotyczą Twojej roli (1)")).toBeInTheDocument();
+    expect(screen.getByText("Awaria automatu")).toBeInTheDocument();
+    expect(
+      screen.getByText("Zawsze przychodzą maile o bezpieczeństwie konta: reset hasła."),
+    ).toBeInTheDocument();
+  });
+
+  it("mail wyłączony firmowo mówi to przy wierszu, a wybór konta zostaje do ustawienia", async () => {
+    renderPanel();
+    const toggle = await screen.findByRole("switch", { name: "Wzmianki w notatkach" });
+    expect(toggle).toBeChecked();
+    expect(toggle).toBeEnabled();
+    expect(toggle).toHaveAccessibleDescription(
+      "Wyłączone dla całej firmy przez administratora — teraz nikt go nie dostaje.",
+    );
+  });
+
+  it("wyłączenie maila zapisuje go tylko na własnym koncie", async () => {
+    vi.mocked(api.put).mockResolvedValue({
+      data: {
+        ...MY_EMAILS,
+        items: MY_EMAILS.items.map((item) =>
+          item.id === "cv_returned"
+            ? {
+                ...item,
+                self_enabled: false,
+                receiving: false,
+                state: "self_off",
+                note: "Wyłączone przez Ciebie.",
+              }
+            : item,
+        ),
+      },
     } as never);
     const user = renderPanel();
-    const toggle = await screen.findByRole("switch", {
-      name: "Poranny skrót „Twój dzień w NEXUSIE”",
-    });
-    expect(toggle).toBeChecked();
-    expect(screen.getByText(/Wyłączasz go tylko sobie\./)).toBeInTheDocument();
-
-    await user.click(toggle);
+    await user.click(await screen.findByRole("switch", { name: "CV wróciło do poprawy" }));
     await waitFor(() =>
-      expect(api.patch).toHaveBeenCalledWith("/api/users/me/preferences", {
-        daily_digest_email_enabled: false,
-      }),
+      expect(api.put).toHaveBeenCalledWith(
+        "/api/users/me/email-notifications/cv_returned",
+        { enabled: false },
+      ),
     );
     await waitFor(() =>
-      expect(
-        screen.getByRole("switch", { name: "Poranny skrót „Twój dzień w NEXUSIE”" }),
-      ).not.toBeChecked(),
+      expect(screen.getByRole("switch", { name: "CV wróciło do poprawy" })).not.toBeChecked(),
     );
-    expect(api.put).not.toHaveBeenCalled();
+    // Pozycja przełącznika mówi wszystko — bez drugiego zdania „wyłączone przez Ciebie”.
+    expect(screen.queryByText("Wyłączone przez Ciebie.")).toBeNull();
+    expect(api.patch).not.toHaveBeenCalled();
   });
 
-  it("rola, która nigdy nie dostaje skrótu, nie widzi przełącznika", async () => {
-    mockReads({ categories }, { ...USER_PREFERENCES, daily_digest_email_available: false });
-    renderPanel();
-    await screen.findByRole("switch", { name: "Zaległości i przypomnienia" });
-    expect(screen.queryByRole("heading", { name: "Maile" })).toBeNull();
-    expect(screen.queryByRole("switch", { name: /Poranny skrót/ })).toBeNull();
-  });
-
-  it("awaria wczytania przełącznika maili mówi o awarii zamiast go ukrywać", async () => {
+  it("awaria wczytania maili mówi o awarii zamiast pokazywać pustą listę", async () => {
     mockReads({ categories }, new Error("boom"));
     renderPanel();
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Nie udało się wczytać ustawień maili",
     );
+    expect(screen.queryByText(/nie trafia żaden/)).toBeNull();
     // Kategorie dzwonka wczytały się i zostają na ekranie.
     expect(
-      screen.getByRole("switch", { name: "Zaległości i przypomnienia" }),
+      await screen.findByRole("switch", { name: "Zaległości i przypomnienia" }),
     ).toBeInTheDocument();
   });
 
   it("odrzucony zapis zostawia przełącznik włączony i pokazuje błąd", async () => {
-    mockReads({ categories }, USER_PREFERENCES);
-    vi.mocked(api.patch).mockRejectedValue(new Error("network unavailable"));
+    vi.mocked(api.put).mockRejectedValue(new Error("network unavailable"));
     const user = renderPanel();
-    await user.click(
-      await screen.findByRole("switch", { name: "Poranny skrót „Twój dzień w NEXUSIE”" }),
-    );
+    await user.click(await screen.findByRole("switch", { name: "CV wróciło do poprawy" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Nie udało się zapisać zmiany.");
+    expect(screen.getByRole("switch", { name: "CV wróciło do poprawy" })).toBeChecked();
+  });
+
+  it("konto bez żadnego maila i bez kanału wysyłki dostaje zdania, nie pustkę", async () => {
+    mockReads(
+      { categories },
+      { channel_ready: false, items: [], not_applicable: [], always_on: [] },
+    );
+    renderPanel();
     expect(
-      screen.getByRole("switch", { name: "Poranny skrót „Twój dzień w NEXUSIE”" }),
-    ).toBeChecked();
+      await screen.findByText("Na Twoje konto nie trafia żaden z automatycznych maili NEXUSA."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Wysyłka maili z NEXUSA nie jest teraz skonfigurowana",
+    );
   });
 });
