@@ -98,6 +98,8 @@ import { EmailTemplateModal } from "@/components/v2/recruitment/EmailTemplateMod
 import { OrderSlideOver } from "@/components/v2/recruitment/slideovers/OrderSlideOver";
 import { jobClientTitle, jobDisplayTitle } from "@/lib/job-names";
 import { QuestionBankSlideOver } from "@/components/v2/recruitment/slideovers/QuestionBankSlideOver";
+import { JobFilesSlideOver } from "@/components/v2/recruitment/slideovers/JobFilesSlideOver";
+import { fetchJobFiles, jobFilesKey } from "@/lib/api/jobFiles";
 import { HistoryChatSlideOver } from "@/components/v2/recruitment/slideovers/HistoryChatSlideOver";
 import { ManualSearchSlideOver } from "@/components/v2/recruitment/slideovers/ManualSearchSlideOver";
 import type {
@@ -483,6 +485,16 @@ export default function JobDetailPage() {
     refetchOnWindowFocus: true,
   });
 
+  // Liczba przy „Pliki” w menu „⋯”. Ten sam klucz czyta okno plików, więc
+  // dodanie albo usunięcie pliku odświeża też liczbę.
+  const { data: jobFiles } = useQuery({
+    queryKey: jobFilesKey({ kind: "job", id: Number(id) }),
+    queryFn: () => fetchJobFiles({ kind: "job", id: Number(id) }),
+    enabled: !!id && Number.isFinite(Number(id)),
+    staleTime: 30_000,
+    retry: false,
+  });
+
   const {
     data: job,
     isLoading: jobLoading,
@@ -774,6 +786,8 @@ export default function JobDetailPage() {
         orderMissingCount={orderMissingCount}
         onOpenHistoryChat={() => openSlideOver("history-chat")}
         onOpenQuestions={() => openSlideOver("questions")}
+        onOpenFiles={() => openSlideOver("files")}
+        filesCount={jobFiles?.items.length}
         teamSummary={teamSummary}
         onOpenTeam={() => openChampion({ panelTab: "team" })}
         onEditFullChampion={canEditChampion ? () => openChampion({ edit: true }) : undefined}
@@ -989,6 +1003,12 @@ export default function JobDetailPage() {
         jobId={jobId}
         clientId={job.client_id ?? null}
         readOnly={!canWritePipeline}
+      />
+      <JobFilesSlideOver
+        open={slideOver === "files"}
+        onOpenChange={slideOverOpenChange("files")}
+        jobId={jobId}
+        readOnly={!canEditJobContentFields}
       />
       <HistoryChatSlideOver
         open={slideOver === "history-chat"}

@@ -32,6 +32,7 @@ CLIENT_ORDER_POS_DIR = STORAGE_ROOT / "client_orders"
 CLIENT_ORDER_GROUP_POS_DIR = STORAGE_ROOT / "client_order_groups"
 FINANCE_IMPORTS_DIR = STORAGE_ROOT / "finance_imports"
 ORDER_MAIL_DIR = STORAGE_ROOT / "order_mail"
+JOB_FILES_DIR = STORAGE_ROOT / "job_files"
 
 _SAFE_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -530,3 +531,25 @@ def get_finance_import_path(relative_path: str) -> Path:
 
 def delete_finance_import(relative_path: str) -> None:
     _delete_relative(relative_path, "finance import")
+
+
+# ── Pliki rekrutacji (request klienta i załączniki Delivery Leada, 0427) ─────
+
+
+def save_job_file(upload_filename: str, source: BinaryIO) -> tuple[str, int]:
+    """Zapis pod /job_files/{uuid}-{nazwa}.
+
+    Ścieżka NIE zależy od numeru rekrutacji: plik powstaje przy niedokończonym
+    formularzu, a rekrutacja dostaje go samą zmianą wiersza w bazie.
+    """
+    rel, size = _save_to(JOB_FILES_DIR, upload_filename, source)
+    logger.info("Saved job file: %s (%d bytes)", safe_storage_key(rel), size)
+    return rel, size
+
+
+def get_job_file_path(relative_path: str) -> Path:
+    return _resolve_under_root(relative_path)
+
+
+def delete_job_file(relative_path: str) -> None:
+    _delete_relative(relative_path, "job file")

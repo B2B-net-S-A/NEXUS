@@ -490,6 +490,73 @@ describe("NewJobPage — krok 1: klient i źródło", () => {
     expect(postsTo("/api/job-intake/read")).toHaveLength(0);
   });
 
+  describe("pliki rekrutacji (0427)", () => {
+    const FORM_FILES = "/api/job-intake/forms/55/files";
+
+    async function readRequestFile() {
+      renderPage();
+      fireEvent.click(screen.getByRole("button", { name: "wybierz klienta" }));
+      fireEvent.click(sourceTile(/Wgraj plik/));
+      const file = new File(["treść requestu"], "request.docx", {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      });
+      fireEvent.change(screen.getByLabelText(/Plik z requestem/), { target: { files: [file] } });
+      fireEvent.click(screen.getByRole("button", { name: "Odczytaj i przejdź dalej" }));
+      await screen.findByLabelText("Rola");
+      return file;
+    }
+
+    it("plik requestu z kroku 1 zapisuje się sam: najpierw formularz, potem plik jako „request”", async () => {
+      const file = await readRequestFile();
+      await waitFor(() => expect(postsTo(FORM_FILES)).toHaveLength(1));
+      const [[, body]] = postsTo(FORM_FILES);
+      expect(((body as FormData).get("file") as File).name).toBe(file.name);
+      expect((body as FormData).get("source")).toBe("request");
+      // Formularz powstał przed plikiem i ma już odczytane pola.
+      const order = mocks.post.mock.calls.map(([url]) => url);
+      expect(order.indexOf("/api/job-intake/forms")).toBeLessThan(order.indexOf(FORM_FILES));
+      const [[, saved]] = postsTo("/api/job-intake/forms");
+      expect((saved as { form: { step: string } }).form.step).toBe("review");
+      expect(mocks.showError).not.toHaveBeenCalled();
+    });
+
+    it("nieudany zapis pliku requestu nie cofa odczytu — toast i formularz zostaje", async () => {
+      serve();
+      const base = mocks.post.getMockImplementation()!;
+      mocks.post.mockImplementation((url: string, body?: unknown) =>
+        url === FORM_FILES ? Promise.reject(new Error("413")) : base(url, body),
+      );
+      await readRequestFile();
+      await waitFor(() =>
+        expect(mocks.showError).toHaveBeenCalledWith(
+          expect.stringContaining("Plik requestu nie zapisał się"),
+        ),
+      );
+      expect(screen.getByLabelText("Rola")).toHaveValue("Senior Java Developer");
+    });
+
+    it("wklejony tekst nie tworzy pliku; karta „Pliki” stoi w formularzu i przyjmuje załączniki", async () => {
+      renderPage();
+      fireEvent.click(screen.getByRole("button", { name: "wybierz klienta" }));
+      fireEvent.click(sourceTile(/Wpisz ręcznie/));
+      fireEvent.click(screen.getByRole("button", { name: "Przejdź do formularza" }));
+      const card = await screen.findByTestId("new-job-files-card");
+      expect(within(card).getByTestId("job-files-empty")).toBeInTheDocument();
+      expect(postsTo(FORM_FILES)).toHaveLength(0);
+
+      const attachment = new File(["x"], "opis.pdf", { type: "application/pdf" });
+      fireEvent.change(within(card).getByLabelText("Dodaj pliki do rekrutacji"), {
+        target: { files: [attachment] },
+      });
+      await waitFor(() => expect(postsTo(FORM_FILES)).toHaveLength(1));
+      const [[, body]] = postsTo(FORM_FILES);
+      expect((body as FormData).get("source")).toBe("upload");
+      // Rekrutacji jeszcze nie ma — plik wisi na formularzu, który zapisał się przed nim.
+      expect(postsTo("/api/job-intake/forms")).toHaveLength(1);
+      expect(postsTo("/api/jobs")).toHaveLength(0);
+    });
+  });
+
   it("awaria odczytu AI zostawia request i pozwala wypełnić ręcznie", async () => {
     mocks.post.mockRejectedValueOnce({
       response: {

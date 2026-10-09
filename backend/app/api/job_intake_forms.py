@@ -14,8 +14,20 @@ Treść formularza i maila nie trafia do logów.
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from fastapi.responses import JSONResponse
+from typing import Literal
+
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+)
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,7 +38,9 @@ from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.client import Client
 from app.models.job_intake_form import JobIntakeForm
+from app.services import job_files
 from app.services import job_intake_forms as forms
+from app.services.job_file_schema import SOURCE_UPLOAD
 
 router = APIRouter(
     prefix="/job-intake/forms", dependencies=PIPELINE_SECTION_DEPENDENCIES
@@ -198,4 +212,100 @@ async def delete_intake_form(
 ) -> Response:
     if not await forms.delete_own_form(db, user_id=current_user.id, form_id=form_id):
         raise HTTPException(404, "Nie znaleziono formularza.")
+    return Response(status_code=204)
+
+
+# ── Pliki formularza (0427) ──────────────────────────────────────────────────
+#
+# Rekrutacja powstaje dopiero przy „Utwórz i przekaż”, więc plik dodany na
+# `/jobs/new` wisi na niedokończonym formularzu autora. `POST /api/jobs`
+# przepina go na rekrutację (`job_files.attach_intake_files`). Reguły przyjęcia
+# pliku i odpowiedź pobrania są wspólne z plikami rekrutacji.
+
+
+def _file_refused(exc: job_files.JobFileRefused) -> HTTPException:
+    return HTTPException(status_code=exc.status, detail=exc.message)
+
+
+@router.get("/{form_id}/files")
+@limiter.limit("120/minute", key_func=user_or_ip_key)
+async def list_intake_form_files(
+    request: Request,
+    form_id: int,
+    current_user: RecruitmentManageUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    await _own_form(db, current_user.id, form_id)
+    return {
+        "items": await job_files.list_files(db, form_id=form_id),
+        "max_files": job_files.MAX_FILES,
+        "max_file_bytes": job_files.MAX_FILE_BYTES,
+    }
+
+
+@router.post("/{form_id}/files", status_code=201)
+@limiter.limit("60/minute", key_func=user_or_ip_key)
+async def upload_intake_form_file(
+    request: Request,
+    form_id: int,
+    current_user: RecruitmentManageUser,
+    db: AsyncSession = Depends(get_db),
+    file: UploadFile = File(...),
+    source: str = Form(SOURCE_UPLOAD),
+) -> dict:
+    await _own_form(db, current_user.id, form_id)
+    try:
+        row = await job_files.add_file(
+            db,
+            upload=file,
+            user_id=current_user.id,
+            source=source,
+            form_id=form_id,
+        )
+    except job_files.JobFileRefused as exc:
+        raise _file_refused(exc) from exc
+    await db.refresh(row)
+    return job_files.serialize(row, current_user.name)
+
+
+@router.get("/{form_id}/files/{file_id}/content")
+@limiter.limit("120/minute", key_func=user_or_ip_key)
+async def download_intake_form_file(
+    request: Request,
+    form_id: int,
+    file_id: int,
+    current_user: RecruitmentManageUser,
+    db: AsyncSession = Depends(get_db),
+    disposition: Literal["attachment", "inline"] = Query("attachment"),
+) -> FileResponse:
+    from app.api.job_files import MSG_FILE_MISSING, file_response
+
+    await _own_form(db, current_user.id, form_id)
+    row = await job_files.get_file(db, file_id, form_id=form_id)
+    if row is None:
+        raise HTTPException(404, MSG_FILE_MISSING)
+    return file_response(row, disposition)
+
+
+@router.delete("/{form_id}/files/{file_id}", status_code=204)
+@limiter.limit("60/minute", key_func=user_or_ip_key)
+async def delete_intake_form_file(
+    request: Request,
+    form_id: int,
+    file_id: int,
+    current_user: RecruitmentManageUser,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    from app.api.job_files import MSG_FILE_MISSING
+
+    await _own_form(db, current_user.id, form_id)
+    row = await job_files.get_file(db, file_id, form_id=form_id)
+    if row is None:
+        raise HTTPException(404, MSG_FILE_MISSING)
+    path = row.file_path
+    await db.delete(row)
+    # Plik znika PO udanym commicie — nieudana transakcja nie zostawia
+    # wiersza bez pliku.
+    await db.commit()
+    job_files.delete_stored([path])
     return Response(status_code=204)

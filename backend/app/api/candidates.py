@@ -58,7 +58,11 @@ from app.services.pipeline_next_action import (
     group_key_for_column,
     next_action_for,
 )
-from app.core.http_headers import content_disposition
+from app.core.http_headers import (
+    INLINE_SAFE_MEDIA_TYPES,
+    content_disposition,
+    safe_document_disposition,
+)
 from app.core.rate_limit import limiter, user_or_ip_key
 from app.core.tasks import spawn
 from app.models.candidate import AvailabilityStatus, Candidate, CandidateStatus
@@ -5783,31 +5787,10 @@ async def reparse_primary_cv(
     return {"status": "queued", "document_id": document.id}
 
 
-# Typy, które przeglądarka może wyrenderować w karcie (`disposition=inline`)
-# bez wykonania kodu na originie API. `content_type` dokumentu pochodzi
-# z uploadu albo importu (Traffit, poczta M365, formularz kariery) — wiersz
-# z `text/html` albo `image/svg+xml` otwarty inline byłby XSS-em na originie
-# API. Reszta zawsze jako `attachment`; podgląd w UI pobiera bajty `fetch`-em,
-# więc nagłówek dyspozycji go nie dotyczy.
-_INLINE_SAFE_MEDIA_TYPES = frozenset(
-    {
-        "application/pdf",
-        "image/png",
-        "image/jpeg",
-        "image/gif",
-        "image/webp",
-    }
-)
-
-
-def _safe_document_disposition(
-    media_type: Optional[str],
-    requested: Literal["attachment", "inline"],
-) -> Literal["attachment", "inline"]:
-    if requested != "inline":
-        return "attachment"
-    base = (media_type or "").split(";", 1)[0].strip().lower()
-    return "inline" if base in _INLINE_SAFE_MEDIA_TYPES else "attachment"
+# Reguła „inline tylko dla bezpiecznych typów” żyje w `core/http_headers.py`
+# (czytają ją też pliki rekrutacji, 0427); nazwy zostają dla wołających tutaj.
+_INLINE_SAFE_MEDIA_TYPES = INLINE_SAFE_MEDIA_TYPES
+_safe_document_disposition = safe_document_disposition
 
 
 @router.get("/{candidate_id}/documents/{doc_id}/content")

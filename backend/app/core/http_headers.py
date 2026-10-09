@@ -13,7 +13,39 @@ from __future__ import annotations
 from typing import Literal
 from urllib.parse import quote
 
-__all__ = ["content_disposition", "content_disposition_attachment"]
+__all__ = [
+    "INLINE_SAFE_MEDIA_TYPES",
+    "content_disposition",
+    "content_disposition_attachment",
+    "safe_document_disposition",
+]
+
+# Typy, które przeglądarka może wyrenderować w karcie (`disposition=inline`)
+# bez wykonania kodu na originie API. `content_type` dokumentu pochodzi
+# z uploadu albo importu (Traffit, poczta M365, formularz kariery) — wiersz
+# z `text/html` albo `image/svg+xml` otwarty inline byłby XSS-em na originie
+# API. Reszta zawsze jako `attachment`; podgląd w UI pobiera bajty `fetch`-em,
+# więc nagłówek dyspozycji go nie dotyczy.
+INLINE_SAFE_MEDIA_TYPES = frozenset(
+    {
+        "application/pdf",
+        "image/png",
+        "image/jpeg",
+        "image/gif",
+        "image/webp",
+    }
+)
+
+
+def safe_document_disposition(
+    media_type: str | None,
+    requested: Literal["attachment", "inline"],
+) -> Literal["attachment", "inline"]:
+    """`inline` tylko dla typów z ``INLINE_SAFE_MEDIA_TYPES``; reszta do pobrania."""
+    if requested != "inline":
+        return "attachment"
+    base = (media_type or "").split(";", 1)[0].strip().lower()
+    return "inline" if base in INLINE_SAFE_MEDIA_TYPES else "attachment"
 
 
 def content_disposition(

@@ -38,6 +38,7 @@ from app.services.job_portals.service import (
     has_live_postings,
 )
 from app.core.cache import cache_invalidate
+from app.services import job_files as job_files_service
 from app.services.critical_events import audited_deletion
 from app.core.database import get_db
 from app.core.scheduling import business_today
@@ -2091,6 +2092,11 @@ async def create_job(
         db, job, current_user, effects, sync_status_payload=False
     )
     job_lifecycle.record_cc_override(db, job, data.cc_override, current_user)
+    # 0427: pliki dodane na `/jobs/new` przechodzą na rekrutację — PRZED
+    # usunięciem formularza (klucz obcy zrobiłby z nich sieroty).
+    await job_files_service.attach_intake_files(
+        db, job_id=job.id, form_id=data.intake_form_id, user_id=current_user.id
+    )
     await job_lifecycle.delete_intake_form(db, data.intake_form_id, current_user.id)
     await db.commit()
     await job_lifecycle.run_post_commit(effects)
@@ -2750,6 +2756,7 @@ async def delete_job(
     current_user: RecruitmentManageUser,
     db: AsyncSession = Depends(get_db),
 ):
+    stored_files: list[str] = []
     # Runda 7 (R7-N8-3): usunięcie rekrutacji trafia do Historii zdarzeń —
     # także odmowa. Do 26.09 ślad zostawał tylko w ``activities``.
     async with audited_deletion(
@@ -2905,6 +2912,9 @@ async def delete_job(
             reason="job_deleted",
             occurred_at=datetime.now(timezone.utc),
         )
+        # 0427: wiersze plików znikną kaskadą — ścieżki zbieramy przed
+        # usunięciem, a pliki kasujemy z dysku dopiero po commicie.
+        stored_files = await job_files_service.file_paths_of_job(db, job_id)
         await db.delete(job)
         try:
             await db.flush()
@@ -2921,6 +2931,7 @@ async def delete_job(
                 },
             ) from None
     await db.commit()
+    job_files_service.delete_stored(stored_files)
 
 
 @router.post("/{job_id}/close", response_model=JobResponse)

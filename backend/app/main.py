@@ -207,6 +207,7 @@ from app.api import dashboard_metrics as dashboard_metrics_api
 from app.api import settings as app_settings_api
 from app.api import champion_intake as champion_intake_api
 from app.api import job_request_intake as job_request_intake_api
+from app.api import job_files as job_files_api
 from app.api import job_intake_forms as job_intake_forms_api
 from app.api import screening_reassign as screening_reassign_api
 from app.api import cv_qc as cv_qc_api
@@ -1062,6 +1063,7 @@ app.include_router(champion_intake_api.router, prefix="/api", tags=["champion"])
 app.include_router(job_request_intake_api.router, prefix="/api", tags=["jobs"])
 # 0416: niedokończone formularze „Nowa rekrutacja” na koncie autora.
 app.include_router(job_intake_forms_api.router, prefix="/api", tags=["jobs"])
+app.include_router(job_files_api.router, prefix="/api", tags=["jobs"])
 app.include_router(screening_reassign_api.router, prefix="/api", tags=["pipeline"])
 # Rekrutacja v5: QC CV (bramka przed „CV wysłane”/Cpro, poprawki AI).
 app.include_router(cv_qc_api.router, prefix="/api/pipeline", tags=["pipeline"])
@@ -2913,6 +2915,7 @@ async def api_health_deep_check():
     from app.models.client_framework_contract_chunk import (
         ClientFrameworkContractChunk,
     )
+    from app.models.job_file import JobFile
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -3154,6 +3157,9 @@ async def api_health_deep_check():
         # i tabela fragmentów; brak = 500 przy pytaniu o umowę klienta.
         ("client_framework_contracts", ClientFrameworkContract),
         ("client_framework_contract_chunks", ClientFrameworkContractChunk),
+        # 0427: pliki rekrutacji — brak tabeli = 500 przy „Utwórz i przekaż”
+        # (przepięcie plików formularza) i w menu „⋯” → „Pliki”.
+        ("job_files", JobFile),
     ]
 
     checks: dict[str, str] = {}

@@ -40,6 +40,8 @@ export type PersonPanelSection =
 export type RecruitmentSlideOver =
   | "order"
   | "questions"
+  // Pliki rekrutacji: request klienta i załączniki (0427, 09.10.2026).
+  | "files"
   | "history-chat"
   | "manual-search"
   // Panel „Podobne rekrutacje” — przepięcia jednym kliknięciem (25.09.2026).
