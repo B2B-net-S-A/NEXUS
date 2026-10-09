@@ -42,12 +42,20 @@ class CVBrandedSelectGenerated(BaseModel):
     document_version_id: int | None = Field(default=None, ge=1)
 
 
+class CVBrandedSelectDocument(BaseModel):
+    expected_revision: int = Field(ge=0)
+    document_id: int = Field(ge=1)
+
+
 class CVBrandedResponse(BaseModel):
     presentation_review: dict | None = None
     docx_available: bool = False
     docx_filename: str | None = None
     generated_document_id: int | None = None
     from_generator: bool = False
+    # Skąd treść: generator (także kopia z innej rekrutacji), plik Word
+    # z profilu kandydata albo stary szablon „CV firmowe”.
+    source: Optional[Literal["generator", "document", "legacy"]] = None
     edit_revision: int = 0
     version: int = 1
     candidate_stage_id: int

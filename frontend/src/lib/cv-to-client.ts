@@ -68,12 +68,15 @@ export interface StageBrandedSummary {
   status: "none" | "draft" | "finalized" | string;
   from_generator?: boolean;
   generated_document_id?: number | null;
+  /** `document` = plik Word wybrany z profilu kandydata (09.10.2026). */
+  source?: string | null;
 }
 
 /**
  * Stan CV do klienta na etapie:
- *  - `ready`   — szkic albo zatwierdzona wersja z generatora (albo stara
- *                zatwierdzona wersja — dokument, który mógł już pójść do klienta);
+ *  - `ready`   — szkic albo zatwierdzona wersja z generatora lub z pliku Word
+ *                wybranego z profilu (albo stara zatwierdzona wersja —
+ *                dokument, który mógł już pójść do klienta);
  *  - `legacy`  — szkic starego szablonu „CV firmowe” (HTML bez AI): tylko
  *                odczyt, podpowiedź „Wygeneruj CV”;
  *  - `none`    — nic nie ma.
@@ -84,6 +87,9 @@ export function stageCvStatus(branded: StageBrandedSummary | null | undefined): 
   if (!branded || branded.status === "none") return "none";
   // Stary szablon: szkic HTML złożony bez generatora. Backend przestaje go
   // renderować i edytować (PATCH szablonu = 410), więc to już tylko podgląd.
+  // Plik Word z profilu też nie pochodzi z generatora, ale jest zwykłym,
+  // edytowalnym szkicem — nie starym szablonem.
+  if (branded.source === "document") return "ready";
   if (branded.status === "draft" && branded.from_generator !== true) return "legacy";
   return "ready";
 }

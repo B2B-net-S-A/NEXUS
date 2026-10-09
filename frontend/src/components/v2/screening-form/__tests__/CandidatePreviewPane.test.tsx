@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   get: vi.fn(),
   original: vi.fn(),
   branded: vi.fn(),
+  selectGenerated: vi.fn(),
+  selectDocument: vi.fn(),
   previewMounted: vi.fn(),
 }));
 
@@ -21,11 +23,25 @@ vi.mock("@/lib/api", () => ({
   default: { get: (...a: unknown[]) => mocks.get(...a) },
   candidateStageCvApi: {
     original: { get: (...a: unknown[]) => mocks.original(...a) },
-    branded: { get: (...a: unknown[]) => mocks.branded(...a) },
+    branded: {
+      get: (...a: unknown[]) => mocks.branded(...a),
+      selectGenerated: (...a: unknown[]) => mocks.selectGenerated(...a),
+      selectDocument: (...a: unknown[]) => mocks.selectDocument(...a),
+    },
   },
 }));
 
-vi.mock("@/components/Toast", () => ({ useToast: () => ({ showError: vi.fn() }) }));
+vi.mock("@/components/Toast", () => ({
+  useToast: () => ({ showError: vi.fn(), showSuccess: vi.fn() }),
+}));
+
+vi.mock("@/components/v2/modals/CVBrandedEditModal", () => ({
+  CVBrandedEditModal: ({ stageId, candidateName }: { stageId: number; candidateName: string }) => (
+    <div data-testid="cv-editor">
+      Edytor CV etapu {stageId} — {candidateName}
+    </div>
+  ),
+}));
 
 vi.mock("@/components/v2/files/FilePreviewModal", () => ({
   FilePreviewContent: ({
@@ -51,8 +67,10 @@ vi.mock("@/components/v2/files/FilePreviewModal", () => ({
 }));
 
 vi.mock("@/components/v2/person/StageCvPreview", () => ({
-  StageCvPreview: ({ cvStageId }: { cvStageId: number }) => (
-    <div data-testid="stage-cv-preview">CV firmowe etapu {cvStageId}</div>
+  StageCvPreview: ({ cvStageId, revision }: { cvStageId: number; revision?: number }) => (
+    <div data-testid="stage-cv-preview" data-revision={revision}>
+      CV firmowe etapu {cvStageId}
+    </div>
   ),
 }));
 
@@ -118,6 +136,8 @@ beforeEach(() => {
   mocks.get.mockReset();
   mocks.original.mockReset();
   mocks.branded.mockReset();
+  mocks.selectGenerated.mockReset();
+  mocks.selectDocument.mockReset();
   mocks.previewMounted.mockReset();
   mocks.get.mockResolvedValue({ data: PROFILE_DOCS });
   mocks.original.mockResolvedValue({
@@ -200,6 +220,163 @@ describe("CandidatePreviewPane", () => {
       "href",
       "/candidates/101?tab=documents",
     );
+  });
+});
+
+/**
+ * Screening, 09.10.2026: rekruter wybiera gotowe CV z profilu kandydata jako
+ * CV firmowe rekrutacji, a potem je edytuje. 34 z 50 osób w screeningu miało
+ * takie CV jako plik Word „…B2B…”, a podgląd mówił tylko „jeszcze nie powstało”.
+ */
+describe("CandidatePreviewPane — wybór i edycja CV firmowego (screening)", () => {
+  const B2B_DOC = {
+    ...PROFILE_DOCS[1],
+    id: 3,
+    filename: "CV_B2B_Tomasz_Wzorcowy.docx",
+    uploaded_by_name: "Anna Wzorcowa",
+  };
+  const GENERATED = [
+    { id: 41, status: "ready", job_id: 300, client_name: "Bank Fikcyjny", position: "DevOps", language: "en", created_at: "2026-09-20T10:00:00Z" },
+  ];
+
+  function mountScreening() {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <CandidatePreviewPane
+          candidateId={101}
+          jobId={201}
+          stageId={901}
+          cvActions={{ candidateName: "Tomasz Wzorcowy" }}
+        />
+      </QueryClientProvider>,
+    );
+  }
+
+  beforeEach(() => {
+    mocks.get.mockImplementation((url: string) => {
+      if (url === "/api/cv-generator/generated") return Promise.resolve({ data: GENERATED });
+      if (url === "/api/cv-generator/policy") return Promise.resolve({ data: { managed: false } });
+      return Promise.resolve({ data: [...PROFILE_DOCS, B2B_DOC] });
+    });
+    mocks.branded.mockResolvedValue({ data: { status: "none", edit_revision: 0 } });
+  });
+
+  it("bez CV firmowego pokazuje gotowe CV z profilu, a „Wybierz” podpina plik Word", async () => {
+    mocks.selectDocument.mockResolvedValue({
+      data: { status: "draft", source: "document", from_generator: false, edit_revision: 1 },
+    });
+    const user = userEvent.setup();
+    mountScreening();
+    // Przełącznik mówi, że jest z czego wybrać, zanim ktoś otworzy „CV firmowe”.
+    await user.click(await screen.findByRole("button", { name: "CV firmowe · wybierz (2)" }));
+
+    const generated = screen.getByRole("region", { name: "Z generatora" });
+    expect(within(generated).getByText("DevOps")).toBeInTheDocument();
+    expect(within(generated).getByText("inna rekrutacja")).toBeInTheDocument();
+    const files = screen.getByRole("region", { name: "Pliki Word z profilu" });
+    // Oryginalne CV kandydata i PDF-y nie są „gotowym CV dla klienta”.
+    expect(within(files).getAllByRole("listitem")).toHaveLength(1);
+
+    await user.click(within(files).getByRole("button", { name: "Wybierz: CV_B2B_Tomasz_Wzorcowy.docx" }));
+    expect(mocks.selectDocument).toHaveBeenCalledWith(901, 3, 0);
+    // Po wyborze od razu podgląd z przyciskami — bez potwierdzania i bez pytań.
+    expect(await screen.findByTestId("stage-cv-preview")).toHaveAttribute("data-revision", "1");
+    expect(screen.getByRole("button", { name: "Edytuj" })).toBeInTheDocument();
+    expect(screen.getByText(/Wczytane z pliku Word/)).toBeInTheDocument();
+  });
+
+  it("CV z generatora idzie trasą generatora, także z innej rekrutacji", async () => {
+    mocks.selectGenerated.mockResolvedValue({
+      data: { status: "draft", source: "generator", from_generator: true, edit_revision: 1 },
+    });
+    const user = userEvent.setup();
+    mountScreening();
+    await user.click(await screen.findByRole("button", { name: /CV firmowe · wybierz/ }));
+    await user.click(screen.getByRole("button", { name: "Wybierz: DevOps" }));
+    expect(mocks.selectGenerated).toHaveBeenCalledWith(901, 41, 0);
+    expect(mocks.selectDocument).not.toHaveBeenCalled();
+  });
+
+  it("„Podgląd” pliku pokazuje go w „Innych plikach”", async () => {
+    const user = userEvent.setup();
+    mountScreening();
+    await user.click(await screen.findByRole("button", { name: /CV firmowe · wybierz/ }));
+    await user.click(screen.getByRole("button", { name: "Podgląd" }));
+    expect(screen.getByRole("button", { name: "Inne pliki (3)" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("file-preview")).toHaveTextContent("CV_B2B_Tomasz_Wzorcowy.docx");
+  });
+
+  it("istniejące CV: „Edytuj” otwiera edytor etapu, na którym leży CV pary", async () => {
+    mocks.branded.mockImplementation((stageId: number) =>
+      Promise.resolve({
+        data:
+          stageId === 901
+            ? { status: "none", edit_revision: 0, pair_source_stage_id: 880, pair_source_status: "draft" }
+            : { status: "draft", from_generator: true, source: "generator", edit_revision: 4 },
+      }),
+    );
+    const user = userEvent.setup();
+    mountScreening();
+    await user.click(await screen.findByRole("button", { name: "CV firmowe" }));
+    expect(await screen.findByTestId("stage-cv-preview")).toHaveTextContent("CV firmowe etapu 880");
+    await user.click(screen.getByRole("button", { name: "Edytuj" }));
+    expect(await screen.findByTestId("cv-editor")).toHaveTextContent("Edytor CV etapu 880 — Tomasz Wzorcowy");
+  });
+
+  it("„Zmień CV” pyta przed zastąpieniem szkicu i wysyła bieżącą rewizję", async () => {
+    mocks.branded.mockResolvedValue({
+      data: { status: "draft", from_generator: true, source: "generator", edit_revision: 7 },
+    });
+    mocks.selectDocument.mockResolvedValue({
+      data: { status: "draft", source: "document", from_generator: false, edit_revision: 8 },
+    });
+    const user = userEvent.setup();
+    mountScreening();
+    await user.click(await screen.findByRole("button", { name: "CV firmowe" }));
+    await user.click(await screen.findByRole("button", { name: "Zmień CV" }));
+    await user.click(screen.getByRole("button", { name: "Wybierz: CV_B2B_Tomasz_Wzorcowy.docx" }));
+    expect(mocks.selectDocument).not.toHaveBeenCalled();
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Zastąpić CV firmowe?")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Zastąp" }));
+    expect(mocks.selectDocument).toHaveBeenCalledWith(901, 3, 7);
+    expect(await screen.findByTestId("stage-cv-preview")).toHaveAttribute("data-revision", "8");
+  });
+
+  it("etap bez wiersza CV (404) też pozwala wybrać — z rewizją 0", async () => {
+    mocks.branded.mockRejectedValue({ response: { status: 404 } });
+    mocks.selectGenerated.mockResolvedValue({
+      data: { status: "draft", source: "generator", from_generator: true, edit_revision: 1 },
+    });
+    const user = userEvent.setup();
+    mountScreening();
+    await user.click(await screen.findByRole("button", { name: /CV firmowe · wybierz/ }));
+    await user.click(screen.getByRole("button", { name: "Wybierz: DevOps" }));
+    expect(mocks.selectGenerated).toHaveBeenCalledWith(901, 41, 0);
+  });
+
+  it("bez gotowych CV w profilu zostaje zdanie o generacji po „Zweryfikowany”", async () => {
+    mocks.get.mockImplementation((url: string) =>
+      Promise.resolve({ data: url === "/api/cv-generator/generated" ? [] : url === "/api/cv-generator/policy" ? {} : PROFILE_DOCS }),
+    );
+    const user = userEvent.setup();
+    mountScreening();
+    await user.click(await screen.findByRole("button", { name: "CV firmowe" }));
+    expect(await screen.findByText(/CV firmowe jeszcze nie powstało/)).toBeInTheDocument();
+    expect(screen.queryByTestId("stage-cv-picker")).not.toBeInTheDocument();
+  });
+
+  it("podgląd bez `cvActions` (przegląd DL, Rozmowy) nie ma listy ani przycisków", async () => {
+    mocks.branded.mockResolvedValue({ data: { status: "draft", from_generator: true, edit_revision: 2 } });
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByRole("button", { name: "CV firmowe" }));
+    await screen.findByTestId("stage-cv-preview");
+    expect(screen.queryByRole("button", { name: "Edytuj" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Zmień CV" })).not.toBeInTheDocument();
+    expect(mocks.get).not.toHaveBeenCalledWith("/api/cv-generator/generated", expect.anything());
   });
 });
 

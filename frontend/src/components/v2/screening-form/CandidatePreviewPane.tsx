@@ -8,7 +8,9 @@
  * w trakcie rozmowy zamykał arkusz, żeby sprawdzić, co kandydat napisał
  * o Kafce. Podgląd ma trzy zakładki:
  * - „CV” — oryginał (kopia ze zgłoszenia albo główne CV z profilu; DOCX też
- *   się renderuje), CV firmowe pary i pozostałe pliki CV z profilu,
+ *   się renderuje), CV firmowe pary i pozostałe pliki CV z profilu; z
+ *   `cvActions` (screening) CV firmowe da się wybrać z gotowych CV w profilu,
+ *   zmienić i edytować,
  * - „Wymagania” — must/nice z Profilu Championa ze zdaniem „po ludzku”
  *   i warunki rekrutacji („Szukaj w CV” zaznacza technologię w CV),
  * - „Po ludzku” — jednym zdaniem o roli i ściąga do rozmowy.
@@ -26,11 +28,13 @@
  */
 
 import { useCallback, useMemo, useState, type ReactNode } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, Loader2, Pencil, Replace } from "lucide-react";
 
 import { TabbedNav } from "@/components/ds";
+import { Button } from "@/components/ui/button";
 import { JobRequirementsSummary } from "@/components/champion/JobRequirementsSummary";
 import { PlainBriefBlock } from "@/components/champion/plain/PlainBriefBlock";
 import { useToast } from "@/components/Toast";
@@ -41,13 +45,21 @@ import {
   type CandidateDocument,
 } from "@/components/v2/files/FilePreviewModal";
 import { DockCallCheatsheet } from "@/components/v2/jobs/DockCallCheatsheet";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { StageCvPreview } from "@/components/v2/person/StageCvPreview";
+import {
+  StageCvPicker,
+  useChooseStageCv,
+  useStageCvOptions,
+} from "@/components/v2/screening-form/StageCvPicker";
 import { useStageBrandedCv } from "@/hooks/useStageBrandedCv";
 import api, { candidateStageCvApi, type CVOriginalSnapshot } from "@/lib/api";
 import { downloadAuthenticatedFile, fetchAuthenticatedBlob } from "@/lib/authenticated-files";
-import { stageCvStatus } from "@/lib/cv-to-client";
+import { stageBrandedQueryKey, stageCvStatus } from "@/lib/cv-to-client";
 import { dockOriginalCv, primaryProfileCv, type DockProfileCvDoc } from "@/lib/dock-cv-summary";
+import type { fetchStageCvFile } from "@/lib/stage-cv-file";
+import type { StageCvOption } from "@/lib/stage-cv-options";
 import { useElementWidth } from "@/lib/use-element-width";
 import { cn, formatDate } from "@/lib/utils";
 
@@ -74,6 +86,21 @@ const SOURCES: ReadonlyArray<{ value: PreviewCvSource; label: string }> = [
 
 /** Źródło bajtów kopii CV ze zgłoszenia (harness podaje plik statyczny). */
 export type OriginalBlobLoader = (stageId: number) => Promise<Blob>;
+
+/**
+ * Wybór i edycja CV firmowego w podglądzie (screening). Bez tego obiektu
+ * podgląd jest tylko do odczytu, jak w przeglądzie DL i zakładce Rozmowy.
+ */
+export interface PreviewCvActions {
+  candidateName: string;
+  jobTitle?: string;
+}
+
+// Edytor CV to TipTap — za granicą `dynamic()`, jak w doku kanbana.
+const CVBrandedEditModal = dynamic(
+  () => import("@/components/v2/modals/CVBrandedEditModal").then((m) => m.CVBrandedEditModal),
+  { ssr: false },
+);
 
 function originalDownloadPath(stageId: number): string {
   return `/api/candidates/stages/${stageId}/cv/original/download`;
@@ -111,6 +138,8 @@ interface CvTabProps {
   loadOriginalBlob: OriginalBlobLoader;
   /** Które źródła pokazać w przełączniku (przegląd DL ma CV firmowe osobno). */
   sources?: ReadonlyArray<PreviewCvSource>;
+  cvActions?: PreviewCvActions;
+  loadStageCvFile?: typeof fetchStageCvFile;
 }
 
 function CvTab({
@@ -123,8 +152,12 @@ function CvTab({
   loadDocumentBlob,
   loadOriginalBlob,
   sources,
+  cvActions,
+  loadStageCvFile,
 }: CvTabProps) {
   const { showError } = useToast();
+  const queryClient = useQueryClient();
+  const { askConfirm, confirmDialog } = useConfirmV2();
   // Te same klucze co dok osoby i karta CV na profilu — odpowiedź jest wspólna.
   const snapshotQuery = useQuery<CVOriginalSnapshot>({
     queryKey: ["cv-original", stageId],
@@ -187,6 +220,45 @@ function CvTab({
     branded.query.isError &&
     (branded.query.error as { response?: { status?: number } } | null)?.response?.status === 404;
   const profileHref = `/candidates/${candidateId}?tab=documents`;
+
+  // Wybór gotowego CV z profilu i edycja (screening). CV pary może leżeć na
+  // wcześniejszym wierszu etapu — tam idą zmiana i edycja.
+  const noCompanyCv = brandedMissing || (branded.query.isSuccess && brandedStatus === "none");
+  const canAct = cvActions != null && stageId != null;
+  const cvStageId = branded.cvStageId ?? stageId;
+  const picker = useStageCvOptions({
+    candidateId,
+    jobId,
+    stageId,
+    documents: docsQuery.data,
+    enabled: canAct,
+  });
+  const [changing, setChanging] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const chooser = useChooseStageCv({
+    candidateId,
+    jobId,
+    stageId: stageId ?? 0,
+    targetStageId: cvStageId ?? 0,
+    revision: brandedMissing ? 0 : (branded.query.data?.edit_revision ?? 0),
+    onChosen: () => setChanging(false),
+  });
+  const chooseCv = async (option: StageCvOption) => {
+    if (!noCompanyCv) {
+      const confirmed = await askConfirm({
+        title: "Zastąpić CV firmowe?",
+        description:
+          "Obecny szkic zostanie zastąpiony wybranym CV. Zatwierdzone wersje i wysłane linki zostają bez zmian.",
+        confirmLabel: "Zastąp",
+      });
+      if (!confirmed) return;
+    }
+    chooser.choose(option);
+  };
+  const previewDocument = (documentId: number) => {
+    setFileId(documentId);
+    onSourceChange("files");
+  };
 
   let body: ReactNode;
   if (source === "original") {
@@ -256,17 +328,75 @@ function CvTab({
         </Notice>
       );
     } else if (brandedMissing || brandedStatus === "none") {
+      body =
+        canAct && (picker.options.total > 0 || picker.isPending) ? (
+          <StageCvPicker
+            options={picker.options}
+            isPending={picker.isPending}
+            busyKey={chooser.busyKey}
+            onChoose={(option) => void chooseCv(option)}
+            onPreviewDocument={previewDocument}
+            intro="CV firmowe tej rekrutacji jeszcze nie powstało. Możesz wybrać gotowe CV z profilu i je poprawić — albo poczekać: po przekazaniu osoby na „Zweryfikowany” wygeneruje się samo."
+          />
+        ) : (
+          <Notice>
+            CV firmowe jeszcze nie powstało — generuje się po przekazaniu osoby na „Zweryfikowany”. Wtedy zobaczysz
+            je tutaj.
+          </Notice>
+        );
+    } else if (canAct && changing) {
       body = (
-        <Notice>
-          CV firmowe jeszcze nie powstało — generuje się po przekazaniu osoby na „Zweryfikowany”. Wtedy zobaczysz je
-          tutaj.
-        </Notice>
+        <>
+          {/* Nad listą: lista rozciąga się na całą wysokość podglądu. */}
+          <Button size="sm" variant="outline" className="self-start" onClick={() => setChanging(false)}>
+            <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
+            Zostaw obecne CV
+          </Button>
+          <StageCvPicker
+            options={picker.options}
+            isPending={picker.isPending}
+            busyKey={chooser.busyKey}
+            onChoose={(option) => void chooseCv(option)}
+            onPreviewDocument={previewDocument}
+            intro="Wybrane CV zastąpi obecny szkic CV firmowego tej rekrutacji."
+          />
+        </>
       );
     } else {
       body = (
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <StageCvPreview candidateId={candidateId} jobId={jobId} cvStageId={branded.cvStageId} fill />
-        </div>
+        <>
+          {canAct ? (
+            <div className="flex flex-wrap items-center gap-2" data-testid="stage-cv-actions">
+              {brandedStatus === "ready" ? (
+                <Button size="sm" onClick={() => setEditorOpen(true)}>
+                  <Pencil className="h-3.5 w-3.5" aria-hidden />
+                  Edytuj
+                </Button>
+              ) : null}
+              {picker.options.total > 0 ? (
+                <Button size="sm" variant="outline" onClick={() => setChanging(true)}>
+                  <Replace className="h-3.5 w-3.5" aria-hidden />
+                  Zmień CV
+                </Button>
+              ) : null}
+              {branded.query.data?.source === "document" ? (
+                <p className="text-xs text-muted-foreground">
+                  Wczytane z pliku Word — sprawdź układ przed wysłaniem.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <StageCvPreview
+              candidateId={candidateId}
+              jobId={jobId}
+              cvStageId={branded.cvStageId}
+              revision={branded.query.data?.edit_revision}
+              loadStageCvFile={loadStageCvFile}
+              fill
+            />
+          </div>
+        </>
       );
     }
   } else if (docsQuery.isLoading) {
@@ -342,10 +472,26 @@ function CvTab({
           >
             {option.label}
             {option.value === "files" && docsQuery.isSuccess ? ` (${docs.length})` : ""}
+            {option.value === "company" && canAct && noCompanyCv && picker.options.total > 0
+              ? ` · wybierz (${picker.options.total})`
+              : ""}
           </button>
         ))}
       </div>
       {body}
+      {confirmDialog}
+      {canAct && editorOpen && cvStageId != null ? (
+        <CVBrandedEditModal
+          open
+          onOpenChange={(open) => {
+            setEditorOpen(open);
+            if (!open) void queryClient.invalidateQueries({ queryKey: stageBrandedQueryKey(cvStageId) });
+          }}
+          stageId={cvStageId}
+          jobTitle={cvActions.jobTitle}
+          candidateName={cvActions.candidateName}
+        />
+      ) : null}
     </div>
   );
 }
@@ -409,9 +555,12 @@ export interface CandidatePreviewPaneProps {
   extraTab?: { label: string; content: ReactNode };
   /** Górny budżet PLN/h z Tablicy — gdy rekrutacji nie ma w cache strony. */
   budgetHourly?: number | null;
+  /** Screening: wybór gotowego CV z profilu, zmiana i edycja CV firmowego. */
+  cvActions?: PreviewCvActions;
   /** Harness: bajty plików bez sieci. */
   loadDocumentBlob?: typeof fetchDocumentBlob;
   loadOriginalBlob?: OriginalBlobLoader;
+  loadStageCvFile?: typeof fetchStageCvFile;
   className?: string;
 }
 
@@ -429,8 +578,10 @@ export function CandidatePreviewPane({
   preferCompanyCv = false,
   extraTab,
   budgetHourly = null,
+  cvActions,
   loadDocumentBlob = fetchDocumentBlob,
   loadOriginalBlob = defaultOriginalLoader,
+  loadStageCvFile,
   className,
 }: CandidatePreviewPaneProps) {
   const [ownTab, setOwnTab] = useState<PreviewTab>(defaultTab);
@@ -511,6 +662,8 @@ export function CandidatePreviewPane({
               searchRequest={searchRequest}
               loadDocumentBlob={loadDocumentBlob}
               loadOriginalBlob={loadOriginalBlob}
+              cvActions={cvActions}
+              loadStageCvFile={loadStageCvFile}
             />
           </div>
         ) : null}

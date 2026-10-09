@@ -683,6 +683,17 @@ describe("/preview/screening-form (0424) zasiewa formularz tymi samymi kluczami 
     expect(harness).toContain("setQueryData(plainBriefQueryKey(JOB_ID)");
   });
 
+  it("zasiewa klucze wyboru gotowego CV z profilu (09.10.2026)", () => {
+    const picker = withoutComments(read("components/v2/screening-form/StageCvPicker.tsx"));
+    expect(picker).toContain('queryKey: ["candidate-generated-cvs", candidateId]');
+    expect(picker).toContain('queryKey: ["central-cv-policy", null, stageId, false]');
+    expect(harness).toContain('setQueryData(["candidate-generated-cvs", CANDIDATE_ID]');
+    expect(harness).toContain('setQueryData(["central-cv-policy", null, STAGE_ID, false]');
+    const stagePreview = withoutComments(read("components/v2/person/StageCvPreview.tsx"));
+    expect(stagePreview).toContain('queryKey: ["cv-generated", "dl-review", candidateId, jobId]');
+    expect(harness).toContain('setQueryData(["cv-generated", "dl-review", CANDIDATE_ID, JOB_ID]');
+  });
+
   it("komponenty formularza nie mają własnych stałych kluczy", () => {
     for (const file of [
       "components/v2/screening-form/ScreeningFullForm.tsx",
