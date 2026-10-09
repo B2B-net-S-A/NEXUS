@@ -164,6 +164,9 @@ export function SidebarV2({
       // Rozwinięcie pod kursorem tylko dla MYSZY: stuknięcie na tablecie
       // emituje `mouseenter`, więc nakładka 240 px otwierała się na każde
       // dotknięcie ikony i zasłaniała treść.
+      // Panel osoby na całą szerokość okna zdejmuje z menu `z-40`
+      // (reguła `[data-app-sidebar]` w `globals.css`) i je zakrywa.
+      data-app-sidebar=""
       onPointerEnter={(e) => {
         if (e.pointerType === "mouse" && !mobileOpen) setHovered(true);
       }}

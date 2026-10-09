@@ -884,3 +884,12 @@
 body:has(aside[data-person-panel]:not([hidden])) [data-jarvis-mascot] {
   display: none;
 }
+
+/* Panel osoby na całą szerokość okna (podgląd CV po lewej, przegląd Delivery
+   Leada) zakrywa też menu boczne (09.10.2026). Menu ma `z-40`, a panel żyje
+   w kontekście warstw treści strony (`animate-fadeIn`), więc samym `z-index`
+   panelu nie da się go przykryć — na czas otwarcia menu traci swój. Panel
+   Jarvisa i okna dialogowe zostają nad panelem. */
+body:has(aside[data-person-panel][data-cover]:not([hidden])) [data-app-sidebar] {
+  z-index: auto;
+}

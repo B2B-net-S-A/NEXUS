@@ -37,3 +37,35 @@ describe("AppShellV2 — przewija się tylko <main>, nigdy dokument", () => {
     expect(main).toContain("overflow-y-auto");
   });
 });
+
+// Panel osoby na całą szerokość okna (D2, 09.10.2026) siedzi w kontekście
+// warstw treści strony (`animate-fadeIn` z wypełnieniem `both`), więc jego
+// `z-30` nie wygra z menu `z-40` — podbijanie `z-index` panelu nic nie daje.
+// Menu oddaje warstwę regułą CSS; bez atrybutu albo reguły lewe 240 px panelu
+// (podgląd CV) chowa się pod menu. Sprawdzone w `/preview/job-detail`.
+describe("panel osoby na całą szerokość zakrywa menu boczne", () => {
+  const sidebar = readFileSync(path.resolve(__dirname, "../SidebarV2.tsx"), "utf8");
+  const shell = readFileSync(
+    path.resolve(__dirname, "../../person/PersonPanelShell.tsx"),
+    "utf8",
+  );
+  const css = readFileSync(path.resolve(__dirname, "../../../../app/globals.css"), "utf8");
+
+  it("szyna menu ma atrybut, po którym reguła ją znajduje", () => {
+    expect(sidebar).toContain('data-app-sidebar=""');
+  });
+
+  it("panel oznacza tryby na całą szerokość atrybutem `data-cover`", () => {
+    expect(shell).toContain("data-cover");
+    expect(shell).toContain("data-person-panel");
+  });
+
+  it("reguła zdejmuje `z-index` z menu tylko przy widocznym panelu na całą szerokość", () => {
+    const rule = css
+      .split("\n")
+      .find((line) => line.includes("[data-app-sidebar]") && line.includes(":has("));
+    expect(rule, "brak reguły [data-app-sidebar] w globals.css").toBeDefined();
+    expect(rule).toContain("aside[data-person-panel][data-cover]:not([hidden])");
+    expect(css.slice(css.indexOf(rule!))).toMatch(/z-index:\s*auto/);
+  });
+});

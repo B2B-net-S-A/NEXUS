@@ -702,6 +702,13 @@ interface BoardV4Ctx {
 }
 const BoardV4Context = React.createContext<BoardV4Ctx | null>(null);
 
+/**
+ * Sekcje narzędzi osoby z dużym podglądem po lewej (09.10.2026): panel
+ * zajmuje wtedy całą szerokość okna, a warsztat sekcji wkłada podgląd do
+ * strefy powłoki (`PersonPanelSide`).
+ */
+const SIDE_SECTIONS: ReadonlySet<PersonPanelSection> = new Set(["screening", "cv", "interviews"]);
+
 /** PR 6 (04.10.2026): zamiast nowej karty z kalendarzem — co zrobić w panelu. */
 export const SLOTS_BY_OTHERS_MESSAGE =
  "Terminy od klienta wpisuje osoba z uprawnieniem do terminów (zwykle Delivery Lead). Gdy je doda, wybierzesz termin z kandydatem w panelu osoby.";
@@ -2661,14 +2668,14 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // 04.10.2026). `resumeMoveNext` bez zawieszenia tylko odświeża wymagania.
  const wideBefore = useRef(false);
  const panelWide = workbenchOpen || reviewOpen;
- // Szerokość panelu osoby: przegląd DL i rozwinięte narzędzia — 760 px,
- // formularz screeningu z podglądem obok — panel dzielony (0424).
- // D9 (08.10.2026): przegląd DL ma trzy kolumny (wymagania · CV · decyzja)
- // — panel dzielony, jak formularz screeningu z podglądem.
+ // Szerokość panelu osoby (09.10.2026): przegląd DL i sekcje z dużym
+ // podglądem po lewej (screening, CV do klienta, rozmowy) zajmują całą
+ // szerokość okna; pozostałe rozwinięte narzędzia — 760 px.
+ const screeningSplit = workbenchOpen && activeWorkbench?.section === "screening";
  const panelSize: PersonPanelSize = reviewOpen
- ? "split"
+ ? "review"
  : workbenchOpen
- ? activeWorkbench?.section === "screening"
+ ? activeWorkbench && SIDE_SECTIONS.has(activeWorkbench.section)
  ? "split"
  : "wide"
  : "dock";
@@ -2874,7 +2881,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const nextId = dockOrder[next];
  // 0424: w panelu dzielonym „‹ ›” po „Nowych” i „Screeningu” zostaje przy
  // formularzu — rekruter przechodzi kolejkę bez zwijania panelu.
- if (panelSize === "split") {
+ if (screeningSplit) {
  const nextItem = cols.flatMap((c) => c.items).find((i) => i.candidate_id === nextId);
  const key = nextItem ? columnByItemId.get(nextItem.id) : null;
  if (key === "new" || key === "screening") {
@@ -2884,7 +2891,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  }
  setDockCandidateId(nextId);
  },
- [dockOrder, dockIndex, panelSize, cols, columnByItemId, openWorkbench]
+ [dockOrder, dockIndex, screeningSplit, cols, columnByItemId, openWorkbench]
  );
 
  const boardEntries = useMemo(
@@ -3331,7 +3338,7 @@ headerAction={
  : undefined
  }
  expanded={workbenchOpen}
- split={panelSize === "split"}
+ split={screeningSplit}
  onToggleExpanded={workbenchContext && kanbanQueryState ? toggleWorkbench : undefined}
  hidePrimaryMove={
  workbenchOpen &&
