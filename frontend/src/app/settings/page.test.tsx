@@ -28,8 +28,11 @@ vi.mock("@/components/settings/TraffitSyncCard", () => ({
 vi.mock("@/components/settings/EmailTemplatesCard", () => ({
   default: () => null,
 }));
-vi.mock("@/components/settings/NotificationDeliverySettings", () => ({
-  default: () => <div>Konfiguracja wysyłki powiadomień</div>,
+// Obie pozycje powiadomień otwierają ten sam ekran — różni je zakładka startowa.
+vi.mock("@/components/settings/NotificationsSettings", () => ({
+  NotificationsSettings: ({ defaultTab }: { defaultTab: string }) => (
+    <div>Ekran powiadomień, zakładka startowa: {defaultTab}</div>
+  ),
 }));
 vi.mock("@/lib/jarvis/bubble-budget", () => ({
   resetScreenSeen: vi.fn(),
@@ -127,12 +130,20 @@ describe("SettingsPage — strona startowa", () => {
 });
 
 describe("SettingsPage — obszar i pozycja", () => {
-  it("prowadzi z Systemu do wbudowanego panelu powiadomień", () => {
+  it("prowadzi z Systemu do ekranu powiadomień na zakładce „Kto co dostaje”", () => {
     mocks.user = ADMIN;
     renderSettings("item=notifications");
     expect(screen.getByRole("heading", { level: 1, name: "Powiadomienia" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "System" })).toHaveAttribute("href", "/settings?area=sys");
-    expect(screen.getByText("Konfiguracja wysyłki powiadomień")).toBeInTheDocument();
+    expect(screen.getByText("Ekran powiadomień, zakładka startowa: role")).toBeInTheDocument();
+  });
+
+  it("stary link z dzwonka (`item=my-notifications`) otwiera ten sam ekran na „Moje” — także rekruterowi", () => {
+    mocks.user = { role: "recruiter", roles: ["recruiter"], effective_section_access: { pipeline: "write" } };
+    renderSettings("item=my-notifications");
+    expect(screen.getByRole("heading", { level: 1, name: "Moje powiadomienia" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Moje konto" })).toHaveAttribute("href", "/settings?area=me");
+    expect(screen.getByText("Ekran powiadomień, zakładka startowa: moje")).toBeInTheDocument();
   });
   it("obszar pokazuje listę pozycji i ścieżkę", () => {
     mocks.user = ADMIN;

@@ -168,6 +168,16 @@ describe("settings-registry — nawigacja", () => {
     const view = resolveSettingsView(admin as never, { item: "notifications" });
     expect(view.kind === "item" && view.area.id).toBe("sys");
   });
+
+  it("„rola” prowadzi też do Powiadomień, a obie pozycje powiadomień nadal się otwierają", () => {
+    // Prośba administratora brzmiała „która rola dostaje które powiadomienie”.
+    expect(searchSettingsItems(admin as never, "rola").map((i) => i.id)).toContain("notifications");
+    expect(item("notifications").description).toMatch(/Która rola dostaje/);
+    // Link z dzwonka i stare zakładki przeglądarki wskazują `my-notifications`.
+    const mine = resolveSettingsView(user("recruiter", {}) as never, { item: "my-notifications" });
+    expect(mine.kind === "item" && mine.area.id).toBe("me");
+    expect(resolveSettingsView(user("recruiter", {}) as never, { item: "notifications" }).kind).toBe("home");
+  });
 });
 
 describe("settings-registry — lista telefonów praktykantów (0374)", () => {

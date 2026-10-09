@@ -235,8 +235,8 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
   },
   {
     id: "notifications", area: "sys", title: "Powiadomienia",
-    description: "Co uruchamia automatyczne maile, kto je otrzymuje i które są włączone.",
-    keywords: "powiadomienia email maile wysylka nadawca odbiorcy kolejka",
+    description: "Która rola dostaje które powiadomienia i które maile wychodzą do całej firmy.",
+    keywords: "powiadomienia email maile wysylka nadawca odbiorcy kolejka rola role kto dostaje",
     wide: true,
     gate: { roles: ["admin"], section: "system_admin" },
   },

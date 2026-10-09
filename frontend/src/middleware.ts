@@ -448,6 +448,8 @@ const PUBLIC_PATHS = [
   "/preview/job-detail",
   "/preview/my-people",
   "/preview/custom-dashboard",
+  // Ustawienia → „Powiadomienia”: Moje · Kto co dostaje · Maile · Reguły etapów.
+  "/preview/notification-settings",
   "/preview/calendar-cycle",
   "/preview/cv-qc",
   "/preview/cpro-queue",
