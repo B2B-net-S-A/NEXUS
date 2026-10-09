@@ -111,7 +111,7 @@ export const JOB_REOPEN_LABELS: Record<
     submit: "Otwórz i opublikuj",
     success: "Rekrutacja otwarta ponownie i opublikowana.",
     description:
-      "Rekrutacja wróci do pracy i od razu trafi do searchu — dlatego musi być kompletna. Rekruter zostaje ten sam.",
+      "Rekrutacja wróci do pracy i od razu trafi do searchu — dlatego musi być kompletna. O rekrutera nie pytamy.",
   },
   finish: {
     title: "Dokończ i opublikuj",

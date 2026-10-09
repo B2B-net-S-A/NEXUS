@@ -79,7 +79,10 @@ class JobFileRefused(Exception):
 
 def checked_name(filename: Optional[str]) -> tuple[str, str]:
     """(nazwa do pokazania, typ dokumentu) albo ``JobFileRefused`` 415."""
-    name = os.path.basename((filename or "").replace("\\", "/")).strip()
+    name = os.path.basename((filename or "").replace("\\", "/"))
+    # Znaki sterujące (NUL, CR, LF…) nie są nazwą: Postgres odrzuca NUL,
+    # a reszta trafiłaby do nagłówka pobrania.
+    name = "".join(ch for ch in name if ch.isprintable()).strip()
     extension = os.path.splitext(name)[1].lower()
     content_type = CONTENT_TYPES.get(extension)
     if not name or content_type is None:

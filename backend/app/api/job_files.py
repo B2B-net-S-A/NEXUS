@@ -1,3 +1,5 @@
+# UWAGA: bez `from __future__ import annotations` — `@limiter.limit` na
+# module z PEP 563 zamienia `Annotated` guardy w parametry query (slowapi #579).
 """Pliki rekrutacji — menu „⋯” → „Pliki” na stronie rekrutacji (0427).
 
 ``/api/jobs/{job_id}/files``: lista, pobranie, dodanie i usunięcie. Pliki
@@ -11,7 +13,15 @@ Reguły przyjęcia pliku i magazyn: ``app/services/job_files.py``.
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
 from fastapi.responses import FileResponse, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +34,7 @@ from app.api.recruitment_access import (
 )
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.http_headers import content_disposition, safe_document_disposition
+from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.activity import Activity
 from app.models.job import Job
 from app.models.job_file import JobFile
@@ -78,7 +89,9 @@ async def _readable_job(db: AsyncSession, user: User, job_id: int) -> Job:
 
 
 @router.get("/{job_id}/files")
+@limiter.limit("120/minute", key_func=user_or_ip_key)
 async def list_job_files(
+    request: Request,
     job_id: int,
     current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
@@ -93,7 +106,9 @@ async def list_job_files(
 
 
 @router.get("/{job_id}/files/{file_id}/content")
+@limiter.limit("120/minute", key_func=user_or_ip_key)
 async def download_job_file(
+    request: Request,
     job_id: int,
     file_id: int,
     current_user: OperationalUser,
@@ -108,7 +123,9 @@ async def download_job_file(
 
 
 @router.post("/{job_id}/files", status_code=201)
+@limiter.limit("60/minute", key_func=user_or_ip_key)
 async def upload_job_file(
+    request: Request,
     job_id: int,
     current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
@@ -137,7 +154,9 @@ async def upload_job_file(
 
 
 @router.delete("/{job_id}/files/{file_id}", status_code=204)
+@limiter.limit("60/minute", key_func=user_or_ip_key)
 async def delete_job_file(
+    request: Request,
     job_id: int,
     file_id: int,
     current_user: OperationalUser,

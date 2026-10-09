@@ -57,6 +57,9 @@ def test_other_types_are_refused_in_polish(filename):
 
 def test_path_parts_are_dropped_and_a_long_name_keeps_its_extension():
     assert job_files.checked_name("../../etc/request.pdf")[0] == "request.pdf"
+    # Znaki sterujące z nagłówka multipart nie trafiają do bazy ani do pobrania.
+    assert job_files.checked_name("req\x00uest\r\n.pdf")[0] == "request.pdf"
+    assert job_files.checked_name("Zapytanie – żółć.pdf")[0] == "Zapytanie – żółć.pdf"
     assert job_files.checked_name("C:\\\\Users\\\\dl\\\\request.pdf")[0] == "request.pdf"
     long_name, _ = job_files.checked_name("a" * 300 + ".pdf")
     assert len(long_name) == 255 and long_name.endswith(".pdf")

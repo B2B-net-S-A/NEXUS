@@ -58,6 +58,8 @@ _RATE_LIMITED_MODULES = (
     "api/plain_brief_refresh.py",
     # Karta z notatki i „Ułóż w zdanie” (0421): każde wywołanie to płatny model.
     "api/recommendation_card_assist.py",
+    # Pliki rekrutacji (0427): upload do 20 MB na żądanie.
+    "api/job_files.py",
 )
 
 # Moduły, których docstringi tras trafiają do publicznego /openapi.json.
