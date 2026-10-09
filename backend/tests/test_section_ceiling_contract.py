@@ -60,6 +60,8 @@ _SECTIONLESS_ALLOWLIST: dict[str, str] = {
     # ── Skrzynka i powiadomienia (filtr sekcji per wiersz) ──────────────────
     "GET /api/notifications": "skrzynka osobista; notification_access filtruje wiersze po sekcjach",
     "GET /api/notifications/count": "licznik skrzynki osobistej, ten sam filtr sekcji per wiersz",
+    "GET /api/notifications/chats": "własne powiadomienia czatów pogrupowane w rozmowy, ten sam filtr sekcji per wiersz",
+    "PUT /api/notifications/chats/read": "oznaczenie własnych powiadomień czatów jako przeczytane",
     "GET /api/notifications/preferences": "własne ustawienia powiadomień, lista kategorii z filtrem sekcji",
     "PUT /api/notifications/preferences/{category}": "wyciszenie własnej kategorii powiadomień",
     "PATCH /api/notifications/read-all": "oznaczenie własnych powiadomień jako przeczytane",

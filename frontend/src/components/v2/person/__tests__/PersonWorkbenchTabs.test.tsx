@@ -43,6 +43,15 @@ vi.mock("@/components/v2/recruitment/panel-workbenches", () => ({
   CvHandoffWorkbench: workbenchMock("cv"),
 }));
 vi.mock("@/components/v2/jobs/JobInterviewsTab", () => ({ JobInterviewsTab: workbenchMock("interviews") }));
+// Podgląd po lewej (pdf.js) ma własne testy — tu liczy się, ile egzemplarzy
+// powstaje i czy przeżywają zmianę zakładki.
+vi.mock("@/components/v2/person/PersonSidePreview", () => ({
+  PersonSidePreview: ({ extraTab }: { extraTab?: unknown }) => (
+    <div data-testid={extraTab ? "side-preview-interviews" : "side-preview-shared"}>
+      <input aria-label={extraTab ? "podgląd rozmów" : "podgląd wspólny"} defaultValue="" />
+    </div>
+  ),
+}));
 vi.mock("@/components/v2/jobs/JobContractTab", () => ({ JobContractTab: workbenchMock("contract") }));
 vi.mock("@/components/v2/pages/DopasowanieTab", () => ({ DopasowanieTab: workbenchMock("match") }));
 
@@ -230,6 +239,35 @@ describe("PersonWorkbenchTabs — miejsce pod paskiem zakładek (09.10.2026)", (
   it("bez treści z doku pod paskiem nie ma nic dodatkowego", () => {
     renderTabs({ candidateId: 3 });
     expect(screen.queryByTestId("below-tabs")).toBeNull();
+  });
+});
+
+describe("PersonWorkbenchTabs — podgląd po lewej w każdej zakładce (09.10.2026)", () => {
+  it("CV, Umowa, Dopasowanie i Notatki mają JEDEN wspólny podgląd, który przeżywa zmianę zakładki", async () => {
+    renderTabs({ candidateId: 3 });
+    expect(screen.getAllByTestId("side-preview-shared")).toHaveLength(1);
+    await userEvent.type(screen.getByLabelText("podgląd wspólny"), "strona 2");
+
+    for (const name of ["Umowa", "Dopasowanie", "Notatki i historia", "CV"]) {
+      await userEvent.click(screen.getByRole("tab", { name }));
+      expect(screen.getAllByTestId("side-preview-shared")).toHaveLength(1);
+      expect(screen.getByLabelText("podgląd wspólny")).toHaveValue("strona 2");
+    }
+  });
+
+  it("„Screening” ma własny podgląd w warsztacie — wspólny powstaje dopiero po wejściu w inną zakładkę", async () => {
+    renderTabs({ candidateId: 1 });
+    expect(screen.getByRole("tab", { name: "Screening" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByTestId("side-preview-shared")).toBeNull();
+    await userEvent.click(screen.getByRole("tab", { name: "Notatki i historia" }));
+    expect(screen.getAllByTestId("side-preview-shared")).toHaveLength(1);
+  });
+
+  it("„Rozmowy” zostają przy własnym podglądzie z zakładką „Pytania klienta”", async () => {
+    renderTabs({ candidateId: 3 });
+    await userEvent.click(screen.getByRole("tab", { name: "Rozmowy" }));
+    expect(screen.getAllByTestId("side-preview-interviews")).toHaveLength(1);
+    expect(screen.getAllByTestId("side-preview-shared")).toHaveLength(1);
   });
 });
 

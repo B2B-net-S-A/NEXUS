@@ -2,14 +2,15 @@
 
 /**
  * Obudowa panelu osoby na Tablicy (jeden panel osoby, 04.10.2026): jedno
- * `aside` po prawej w czterech rozmiarach:
+ * `aside` po prawej w trzech rozmiarach:
  * - `dock` (380 px) — dok osoby,
- * - `wide` (760 px) — rozwinięte narzędzia osoby bez podglądu (umowa,
- *   dopasowanie, notatki),
- * - `split` (cała szerokość okna, 09.10.2026) — po LEWEJ duża strefa podglądu
- *   (CV, wymagania, „po ludzku”) na całą wysokość, po prawej stała kolumna
- *   z dokiem: 460 px, od 1536 px szerokości okna 520 px. Poniżej 1024 px
- *   strefy nie ma — warsztat pokazuje podgląd w miejscu,
+ * - `split` (cała szerokość okna, 09.10.2026) — rozwinięte narzędzia osoby:
+ *   po LEWEJ duża strefa podglądu (CV, wymagania, „po ludzku”) na całą
+ *   wysokość, po prawej stała kolumna z dokiem: 460 px, od 1536 px szerokości
+ *   okna 520 px. Poniżej 1024 px strefy nie ma — warsztat pokazuje podgląd
+ *   w miejscu. Do 09.10.2026 zakładki bez podglądu (umowa, dopasowanie,
+ *   notatki) miały osobny rozmiar 760 px; pasek zakładek przesuwał się przez
+ *   to w bok, więc podgląd jest teraz w każdej zakładce,
  * - `review` (cała szerokość okna) — przegląd Delivery Leada, który sam
  *   układa swoje kolumny.
  * Zmiana trybu zmienia SZEROKOŚĆ tego samego panelu, a dzieci stoją zawsze
@@ -30,11 +31,10 @@ import type { CSSProperties, ReactNode } from "react";
 import { PersonPanelSideProvider, PersonPanelSideZone } from "@/components/v2/person/PersonPanelSide";
 import { cn } from "@/lib/utils";
 
-export type PersonPanelSize = "dock" | "wide" | "split" | "review";
+export type PersonPanelSize = "dock" | "split" | "review";
 
 const SIZE_CLASS: Record<PersonPanelSize, string> = {
   dock: "max-w-[380px]",
-  wide: "max-w-[760px]",
   split: "max-w-none",
   review: "max-w-none",
 };

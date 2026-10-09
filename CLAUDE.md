@@ -2486,6 +2486,58 @@ listy poprawnie; zawodził ekran i stara reguła „tylko zespół”.
   osoby, które dostają powiadomienie o każdej wiadomości; pisać i być
   oznaczoną może każda rola wewnętrzna.
 
+## Okienko „Czaty” w górnym pasku (09.10.2026)
+
+Powiadomienia czatów (rekrutacji i kandydata) stały w dzwonku razem ze
+wszystkim innym, po jednym wierszu na wiadomość i bez nazwy rozmowy; otwarcie
+czatu ich nie gasiło. Decyzje Artura 09.10.2026: czaty mają własne okienko,
+jedna pozycja na rozmowę, wejście do czatu gasi jego powiadomienia, nowa
+wiadomość daje dymek. Raport: `docs/chat-notifications-window-completion-report.md`.
+
+- **Dzwonek nie pokazuje ani nie liczy czatów:** `GET /api/notifications`
+  i `read-all` z `exclude_chat=true` (`notificationsApi.listForBell`,
+  `markAllReadForBell`). Bez parametru trasy działają jak dotąd — „Moje
+  zadania” na pulpicie i narzędzia Jarvisa nadal widzą czaty. Wzmianki
+  z notatek i odpowiedzi na notatki zostają w dzwonku (to nie czat).
+- **Rozmowę rozpoznaje link, nie typ.** Oba czaty używają typów
+  `job_chat_message` / `job_chat_mention`; `services/chat_notifications.py`
+  grupuje po `split_part(link, '&msg=', 1)` (ten sam klucz co
+  `chat_email_fallback`). Stałe w tym wyrażeniu są literałami SQL — jako
+  parametry `SELECT` i `GROUP BY` dostałyby różne numery i Postgres odrzuciłby
+  zapytanie. Nie zmieniaj formatu linku czatu (`_message_link`) bez tego modułu.
+- **`GET /api/notifications/chats`**: rozmowy z ostatnich 30 dni
+  (`CHAT_WINDOW_DAYS`), nieprzeczytane najpierw; liczy WIADOMOŚCI
+  (`count(distinct link)` — oznaczona osoba z zespołu ma dwa wiersze o jednej
+  wiadomości); `link` = pierwsza nieprzeczytana, a bez nieprzeczytanych —
+  ostatnia. Widoczność jak w dzwonku (`notification_visibility_predicate`:
+  sekcja, wyciszona kategoria „Czat”, wyłączenie dla roli). Licznik na ikonie
+  = liczba rozmów z nowymi wiadomościami.
+- **Powiadomienia rozmowy gasną w trzech miejscach**, zawsze przez
+  `chat_notifications.mark_read`: `PUT …/chat/read` obu czatów (wejście do
+  czatu; odpowiedź niesie `notifications_cleared`, front odświeża okienko
+  tylko, gdy coś zgasło), klik w pozycję okienka (`PUT
+  /api/notifications/chats/read` z rozmową — czat tylko do odczytu nie woła
+  `chat/read`) i „Oznacz wszystkie” (ta sama trasa bez ciała).
+- **Dymek = zdarzenie `chat:notify` / `candidate-chat:notify`** wysyłane po
+  zapisie wiadomości do każdego odbiorcy powiadomienia — także do oznaczonej
+  osoby spoza zespołu, do której rozgłoszenie `…:message:new` nie dociera.
+  `user_can_receive_realtime_event` przepuszcza je bramką WIERSZA
+  (`user_can_receive_notification`), nie samym prefiksem `chat:` — wyciszona
+  kategoria nie daje dymka. Front: `useNotifications` przekazuje je jako
+  zdarzenie okna `CHAT_NOTIFY_EVENT`, `ChatNotificationsDropdown` pokazuje
+  `showActionToast` z „Otwórz”. Bez dymka, gdy ten czat jest na ekranie
+  (`lib/active-chat.ts`), a zwykła wiadomość z tej samej rozmowy najwyżej raz
+  na 20 s (`lib/chat-notify.ts`; wzmianka zawsze).
+- **Link do wiadomości doczytuje starsze strony** (`useChatMessageFocus`:
+  `hasMore`, `isLoadingMore`, `loadMore`; najwyżej 10 stron po 50) — pierwsza
+  nieprzeczytana w ruchliwym czacie bywa dalej niż ostatnia strona.
+- Klucz zapytania okienka stoi pod prefiksem `["notifications"]`
+  (`chatThreadsQueryKey`), więc odświeżają go istniejące unieważnienia po
+  zdarzeniach czatu. `useNotifications` nadal montuje wyłącznie dzwonek (jedno
+  gniazdo) — okienko słucha zdarzeń okna, nie gniazda.
+- Harness `/preview/chat-notifications` (części prezentacyjne
+  `ChatTopbarButton`, `ChatThreadsPanel`; zero zapytań).
+
 ## Dane po scraperze — narzędzia naprawy (06.10.2026)
 
 Audyt `docs/audits/2026-10-06/rekrutacja-przekazanie-i-wyszukiwanie.md` (D4, D5).
@@ -3008,11 +3060,11 @@ strona CV miała 533 px (67%), a na laptopie 1280 × 720 widać było z niej ok.
 (makiety https://claude.ai/artifact/WPwic4nk1U1RghZo1qkjMr), raport `docs/person-panel-preview-left-completion-report.md`.
 Tylko front, bez API i migracji.
 
-- **Rozmiary panelu: `dock | wide | split | review`** (`person/PersonPanelShell.tsx`). `split` i `review` zajmują
+- **Rozmiary panelu: `dock | split | review`** (`person/PersonPanelShell.tsx`). `split` i `review` zajmują
   całe okno i mają `data-cover`. W `split` panel dzieli się na lewą strefę podglądu (`PersonPanelSideZone`, cała
-  wysokość, od 1024 px okna) i stałą prawą kolumnę z dokiem (460 px, od 1536 px okna 520 px). `split` dają zakładki
-  z podglądem (`SIDE_SECTIONS` w `KanbanBoardV2`: Screening, CV, Rozmowy), pozostałe zostają przy `wide` (760 px),
-  przegląd DL ma `review`.
+  wysokość, od 1024 px okna) i stałą prawą kolumnę z dokiem (460 px, od 1536 px okna 520 px). `split` ma KAŻDA
+  zakładka rozwiniętego panelu, przegląd DL ma `review`. Rozmiaru `wide` (760 px, Umowa / Dopasowanie / Notatki bez
+  podglądu) nie ma od 09.10.2026 — pasek zakładek przesuwał się przez niego w bok.
 - **Panel zakrywa menu boczne regułą CSS, nie `z-index`.** Menu ma `z-40`, a panel siedzi w kontekście warstw
   treści strony (`animate-fadeIn` z wypełnieniem `both`), więc jego `z-30` nigdy nie wygra. Menu ma atrybut
   `data-app-sidebar`, a `globals.css` zdejmuje mu `z-index` na czas otwarcia panelu z `data-cover`. Pilnuje
@@ -3033,9 +3085,16 @@ Tylko front, bez API i migracji.
 - **„Wymagania” to lista, nie chipy (D5,** `champion/JobRequirementsSummary.tsx`): nazwa, pod nią jedno zdanie ze
   słowniczka „po ludzku” (`summary` hasła w stanie `ready`), obok „Szukaj w CV”. Wymaganie bez gotowego hasła
   pokazuje samą nazwę — nie wstawiaj tekstu zastępczego.
-- **CV i Rozmowy (D6):** po „Rozwiń” ten sam podgląd po lewej (`person/PersonSidePreview.tsx`, za `next/dynamic`),
-  zaczyna od CV firmowego, gdy para je ma; przy Rozmowach dodatkowa zakładka „Pytania klienta”. Klik w osobę od
-  „Zweryfikowany” wzwyż nadal otwiera wąski dok — „Otwórz QC” i ramka „Następny etap” są tylko w jego sekcjach.
+- **Podgląd po lewej w każdej zakładce (D6, od 09.10.2026 także Umowa, Dopasowanie, Notatki):** po „Rozwiń” ten
+  sam podgląd (`person/PersonSidePreview.tsx`, za `next/dynamic`), zaczyna od CV firmowego, gdy para je ma. CV,
+  Umowa, Dopasowanie i Notatki mają JEDEN wspólny egzemplarz (`SHARED_PREVIEW_SECTIONS` w `PersonWorkbenchTabs`) —
+  zmiana zakładki nie przewija CV od początku; Rozmowy mają własny z zakładką „Pytania klienta”, Screening własny
+  w warsztacie. Nowa zakładka panelu = wpis w `SHARED_PREVIEW_SECTIONS` albo własny podgląd, nigdy pusta strefa.
+  Klik w osobę od „Zweryfikowany” wzwyż nadal otwiera wąski dok — „Otwórz QC” i ramka „Następny etap” są tylko
+  w jego sekcjach.
+- **Formularz Generatora B2B układa pola po szerokości kontenera** (`@container` + `@xl:grid-cols-*`
+  w `GeneratorForm`, `Field`, `RoleScopeEditor`): w kolumnie panelu jedno pole w rzędzie, na stronie Generatora
+  dwa albo trzy jak dotąd. Nie wracaj tam do `sm:grid-cols-*` — w kolumnie 460 px dawało trzy pola po 120 px.
 - **Pasek zakładek stoi w miejscu (09.10.2026, zgłoszenie rekruterów).** Po „Rozwiń” głowa panelu ma tę samą
   wysokość w każdej zakładce: `PipelineCandidateDock` przy `tabsOpen` nie renderuje w niej faktów („Warunki wobec
   rekrutacji”), rzędu „Biorę / Nie odebrał” ani ramki „Następny etap”. Te same bloki stoją POD paskiem jako jedna
@@ -4732,6 +4791,16 @@ z „wymagań do wyszukiwania” powtarzało must, deal breaker miały 3 z 99 py
   pamięcią (`nexus:allocation-proposals-filters:<id>`); osobą jest tam
   proponowana osoba, a przy ustawionych filtrach przycisk zbiorczy nazywa się
   „Akceptuj pokazane (N)” i wysyła tylko pokazane propozycje.
+- **„Obłożenie” stoi w „Czeka na Ciebie” pod listami przydziału** (09.10.2026,
+  prośba Head of Recruitment; `dashboard/TeamLoadSection.tsx`): te same dane
+  i reguła co na pulpicie „Requesty i obłożenie” (`GET /api/request-board`,
+  `LoadPeople` z `request-board/LoadPanel.tsx` w wariancie `columns` — osoby
+  w kolumnach, requesty klikniętej osoby pod listą). Widać je tylko osobie
+  decydującej o przydziale (`can_decide_proposals`) i tylko, gdy „Propozycje
+  automatu” albo „Nowe rekrutacje — kto prowadzi” mają wiersze; bez tego panel
+  nie pyta o tablicę requestów. Do liczników zadań się nie liczy. Odznacza się
+  je w „Listy nad pulpitem” (klucz `team_load` — jedyny, którego nie ma
+  w odpowiedzi `/api/board-tasks`, więc sprawdza go sam panel).
 - **Podpowiedź kategorii pyta tylko o rolę, która stoi w polu**
   (`categoryInputCurrent` w `NewJobPage`): zapytanie idzie po chwili ciszy,
   a zaraz po odczycie requestu opóźniona wartość to jeszcze puste pole —
@@ -5656,8 +5725,7 @@ decyzje Artura D1–D4 z 04.10.2026). Raport: `docs/candidate-funnel-completion-
   zamówienie nie ma braków, także numeru.
 - **Jeden panel osoby (#2017–PR 3/3, decyzja Artura „Sekcje + Rozwiń”):**
   na Tablicy jest JEDNO `aside` „Panel osoby” (`person/PersonPanelShell`),
-  380 px dla doku, 760 px w trybie szerokim (od 09.10.2026 zakładki
-  Screening, CV i Rozmowy oraz przegląd DL zajmują całe okno — sekcja „Duży
+  380 px dla doku, całe okno w trybie szerokim (od 09.10.2026 — sekcja „Duży
   podgląd po lewej stronie panelu osoby”). Tryby szerokie: „Rozwiń”
   (pełne narzędzia osoby, `person/PersonWorkbenchTabs` — zakładki CV,
   Screening, Rozmowy, Umowa, Dopasowanie, Notatki i historia pod głową doku)

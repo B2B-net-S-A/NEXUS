@@ -14,6 +14,9 @@
  *    albo osoba wskazana przez Delivery Leada) i „Zmień" tam, gdzie się nie
  *    zgadzają (`NewJobLeadsSection`). To informacja, nie zadanie: nie liczy
  *    się do tego, czy coś „czeka", a bez innych list stoi sama nad pulpitem,
+ *  - „Obłożenie" (09.10.2026) — ile requestów ma każda osoba; stoi pod dwiema
+ *    listami wyżej, gdy któraś ma wiersze, bo to przy nich przydziela się
+ *    ludzi (`TeamLoadSection`). Informacja jak lista prowadzących,
   *  - „Czeka na Twój przegląd (DL)" (klienci spoza Nordei) — osoby w kolumnie
  *    „QC CV", które Delivery Lead wysyła do klienta ze stawką albo odrzuca;
  *    wiersz otwiera `DlReviewPanel` (CV, QC, screening, stawka),
@@ -89,6 +92,7 @@ import { CproQueueDialog, CproSenderControl } from "./CproQueueDialog";
 import { CvInTransitSection } from "./CvInTransitSection";
 import { NewJobLeadsSection } from "./NewJobLeadsSection";
 import { PendingJobsSection, hasPendingJobsContent } from "./PendingJobsSection";
+import { TeamLoadSection } from "./TeamLoadSection";
 
 export const BOARD_TASKS_ANCHOR = "czeka-na-ciebie";
 
@@ -241,6 +245,12 @@ export function BoardTasksPanel({ hiddenPanels = NO_HIDDEN_PANELS }: BoardTasksP
   // i admina (serwer nie wysyła jej nikomu innemu): do `total` się nie liczy,
   // a gdy nic nie czeka — stoi sama, we własnej ramce.
   const leads = data.new_job_leads ?? [];
+  // „Obłożenie” towarzyszy listom, przy których przydziela się ludzi — bez
+  // nich nie ma czego rozstrzygać, a pełna tablica jest w „Requesty i obłożenie”.
+  const showLoad =
+    data.can_decide_proposals === true &&
+    proposals.length + leads.length > 0 &&
+    !hiddenPanels.has("team_load");
   // „Rekrutacje do dokończenia albo zamknięcia” (Rekrutacja bez szkiców) —
   // zaległość, nie zadanie z Tablicy: do `total` się nie liczy, jak lista
   // prowadzących. Starszy serwer pól nie oddaje (`undefined`/`null`).
@@ -279,6 +289,7 @@ export function BoardTasksPanel({ hiddenPanels = NO_HIDDEN_PANELS }: BoardTasksP
           </div>
         ) : null}
         <NewJobLeadsSection rows={leads} standalone />
+        {showLoad ? <TeamLoadSection standalone /> : null}
         <PendingJobsSection pending={data.pending_jobs} forms={data.unfinished_forms} standalone />
         {transit ? <CvInTransitSection transit={transit} standalone /> : null}
       </div>
@@ -331,6 +342,7 @@ export function BoardTasksPanel({ hiddenPanels = NO_HIDDEN_PANELS }: BoardTasksP
           leaveKnown={data.allocation_leave_known !== false}
         />
         <NewJobLeadsSection rows={leads} />
+        {showLoad ? <TeamLoadSection /> : null}
         <PendingJobsSection
           pending={data.pending_jobs}
           forms={data.unfinished_forms}

@@ -473,6 +473,15 @@ async def test_ws_dispatched_on_send(app_client: AsyncClient, chat_setup):
         # Co najmniej recruiter (autor) jako member projektu → 1+ wywołań.
         # W praktyce: recruiter + admini systemu (z app_client jest seedowany 1 admin).
         assert mock_notify.await_count >= 1
-        # Każde wywołanie ma event chat:message:new
+        # Rozgłoszenie wiadomości idzie do członków (także autora), a zapowiedź
+        # powiadomienia `chat:notify` (dymek, okienko „Czaty”) — do odbiorców
+        # powiadomienia, czyli nigdy do autora.
         events = [c.args[1].get("type") for c in mock_notify.await_args_list]
-        assert all(t == "chat:message:new" for t in events)
+        assert "chat:message:new" in events
+        assert set(events) <= {"chat:message:new", "chat:notify"}
+        announced = [
+            c.args[0]
+            for c in mock_notify.await_args_list
+            if c.args[1].get("type") == "chat:notify"
+        ]
+        assert chat_setup["recruiter_id"] not in announced

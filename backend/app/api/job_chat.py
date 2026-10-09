@@ -43,6 +43,7 @@ from app.schemas.job_chat import (
     ReactionToggleResponse,
     ReadByUser,
 )
+from app.services import chat_notifications
 from app.services.chat_reactions import aggregate_job_reactions
 from app.services.job_membership import (
     is_member_of_job,
@@ -369,6 +370,17 @@ async def create_message(
             "data": {"job_id": job_id, "message": payload.model_dump(mode="json")},
         },
     )
+    await chat_notifications.notify_recipients(
+        db,
+        notify_user,
+        kind="job",
+        entity_id=job_id,
+        link=link,
+        author_name=current_user.name,
+        preview=snippet,
+        message_recipient_ids=target_ids,
+        mention_recipient_ids=mentioned_ids,
+    )
     return payload
 
 
@@ -673,8 +685,18 @@ async def mark_read(
         state.last_read_message_id = last_id
         state.last_read_at = now
 
+    # Wejście do czatu gasi jego powiadomienia — do 09.10.2026 trzeba je było
+    # odklikiwać osobno w dzwonku.
+    cleared = await chat_notifications.mark_read(
+        db, current_user.id, kind="job", entity_id=job_id
+    )
     await db.commit()
-    return ChatUnreadCount(job_id=job_id, unread_count=0, last_read_message_id=last_id)
+    return ChatUnreadCount(
+        job_id=job_id,
+        unread_count=0,
+        last_read_message_id=last_id,
+        notifications_cleared=cleared,
+    )
 
 
 @router.get("/{job_id}/chat/unread-count", response_model=ChatUnreadCount)
