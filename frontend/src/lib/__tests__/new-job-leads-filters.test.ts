@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { NewJobLeadRow } from "@/lib/api/boardTasks";
 import {
@@ -7,6 +7,8 @@ import {
   hasLeadFilters,
   leadFilterOptions,
   liveLeadFilters,
+  readStoredLeadFilters,
+  writeStoredLeadFilters,
   type LeadFilters,
 } from "@/lib/new-job-leads-filters";
 
@@ -126,5 +128,51 @@ describe("liveLeadFilters — wybór, którego nie ma już na liście, przestaje
     const chosen = only({ client: "Żabka Fikcyjna", who: "7" });
     const left = ROWS.filter((row) => row.job_id !== 2);
     expect(liveLeadFilters(chosen, leadFilterOptions(left))).toEqual(only({ who: "7" }));
+  });
+});
+
+describe("pamięć wyboru — osobno dla konta", () => {
+  beforeEach(() => window.localStorage.clear());
+
+  it("zapisany wybór wraca dla tego samego konta, inne konto zaczyna bez filtrów", () => {
+    const chosen = only({ client: "Bank Północny", cat: "none", prio: "p1" });
+    writeStoredLeadFilters(7, chosen);
+    expect(readStoredLeadFilters(7)).toEqual(chosen);
+    expect(readStoredLeadFilters(8)).toEqual(EMPTY_LEAD_FILTERS);
+  });
+
+  it("wyczyszczone filtry usuwają wpis", () => {
+    writeStoredLeadFilters(7, only({ who: "9" }));
+    writeStoredLeadFilters(7, EMPTY_LEAD_FILTERS);
+    expect(window.localStorage.length).toBe(0);
+  });
+
+  it("bez konta niczego nie zapisuje ani nie czyta", () => {
+    writeStoredLeadFilters(null, only({ client: "Bank Północny" }));
+    expect(window.localStorage.length).toBe(0);
+    expect(readStoredLeadFilters(undefined)).toEqual(EMPTY_LEAD_FILTERS);
+  });
+
+  it("zepsuty wpis i obce wartości nie wywracają listy", () => {
+    window.localStorage.setItem("nexus:new-job-leads-filters:7", "{nie json");
+    expect(readStoredLeadFilters(7)).toEqual(EMPTY_LEAD_FILTERS);
+    window.localStorage.setItem(
+      "nexus:new-job-leads-filters:7",
+      JSON.stringify({ client: 5, cat: "4", prio: "pilne", extra: "x" }),
+    );
+    expect(readStoredLeadFilters(7)).toEqual(only({ cat: "4" }));
+  });
+
+  it("zablokowana pamięć przeglądarki = praca bez pamięci", () => {
+    const blocked = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("SecurityError");
+    });
+    const full = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("QuotaExceededError");
+    });
+    expect(readStoredLeadFilters(7)).toEqual(EMPTY_LEAD_FILTERS);
+    expect(() => writeStoredLeadFilters(7, only({ who: "9" }))).not.toThrow();
+    blocked.mockRestore();
+    full.mockRestore();
   });
 });

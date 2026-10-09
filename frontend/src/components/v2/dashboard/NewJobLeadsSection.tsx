@@ -25,11 +25,12 @@
  * Filtry (09.10.2026): klient, kategoria, Delivery Lead, prowadzący, priorytet
  * — po stronie przeglądarki, z opcjami z samych wierszy
  * (`lib/new-job-leads-filters.ts`). Pasek stoi dopiero, gdy lista nie mieści
- * się bez „Pokaż wszystkie”; krótką listę widać w całości.
+ * się bez „Pokaż wszystkie”; krótką listę widać w całości. Wybór jest
+ * zapamiętany w przeglądarce dla konta, więc przeżywa odświeżenie strony.
  */
 
 import Link from "next/link";
-import { Fragment, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
 
@@ -76,6 +77,8 @@ import {
   hasLeadFilters,
   leadFilterOptions,
   liveLeadFilters,
+  readStoredLeadFilters,
+  writeStoredLeadFilters,
   type LeadFilterOption,
   type LeadFilters,
 } from "@/lib/new-job-leads-filters";
@@ -83,6 +86,7 @@ import { countPl } from "@/lib/plural-pl";
 import { requestWord } from "@/lib/request-board";
 import { isPriorityLevel } from "@/lib/request-priority";
 import { cn } from "@/lib/utils";
+import { useAuthStore } from "@/store/auth";
 
 export const NEW_JOB_LEADS_TITLE = "Nowe rekrutacje — kto prowadzi";
 
@@ -318,7 +322,17 @@ export function NewJobLeadsSection({ rows, standalone = false }: NewJobLeadsSect
   const canAct = useCapability("job.recruiter.assign");
   const [pending, setPending] = useState<Record<number, true>>({});
   const [expanded, setExpanded] = useState(false);
+  const userId = useAuthStore((state) => state.user?.id);
   const [chosen, setChosen] = useState<LeadFilters>(EMPTY_LEAD_FILTERS);
+  // Zapamiętany wybór wczytujemy po zamontowaniu: konto bywa znane dopiero
+  // po odtworzeniu sesji, a pamięci przeglądarki nie ma przy renderze serwera.
+  useEffect(() => {
+    setChosen(readStoredLeadFilters(userId));
+  }, [userId]);
+  const choose = (next: LeadFilters) => {
+    setChosen(next);
+    writeStoredLeadFilters(userId, next);
+  };
   // W polu kategorii ta sama krótka nazwa co na plakietce w wierszu.
   const options = useMemo(
     () =>
@@ -425,13 +439,13 @@ export function NewJobLeadsSection({ rows, standalone = false }: NewJobLeadsSect
               all={field.all}
               value={filters[field.key]}
               options={options[field.key]}
-              onChange={(next) => setChosen({ ...filters, [field.key]: next })}
+              onChange={(next) => choose({ ...filters, [field.key]: next })}
             />
           ))}
           {filtering ? (
             <button
               type="button"
-              onClick={() => setChosen(EMPTY_LEAD_FILTERS)}
+              onClick={() => choose(EMPTY_LEAD_FILTERS)}
               className="text-xs font-medium text-primary hover:underline"
             >
               Wyczyść filtry

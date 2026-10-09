@@ -6,6 +6,11 @@
  * filtra. Opcje powstają z samych wierszy: w polu wyboru jest tylko to, co
  * naprawdę stoi na liście. Czyste funkcje — testy w
  * `__tests__/new-job-leads-filters.test.ts`.
+ *
+ * Wybór jest zapamiętany w przeglądarce, osobno dla każdego konta
+ * (`readStoredLeadFilters` / `writeStoredLeadFilters`). To wygoda, nie źródło
+ * prawdy: odczyt i zapis są w try/catch, a lista działa tak samo bez pamięci.
+ * Wylogowanie jej nie czyści — to ustawienie widoku, jak wybór kolumn.
  */
 
 import type { NewJobLeadRow } from "@/lib/api/boardTasks";
@@ -119,7 +124,9 @@ export function leadFilterOptions(
  * Filtry, które nadal mają o co się zaczepić. Wiersz znika z listy po
  * „Potwierdź” — gdy była to ostatnia rekrutacja wybranego klienta, wybór
  * przestaje istnieć w polu, więc przestaje też filtrować (pole wróciłoby do
- * „Wszyscy”, a lista zostałaby pusta bez widocznego powodu).
+ * „Wszyscy”, a lista zostałaby pusta bez widocznego powodu). Zapamiętany
+ * wybór zostaje: gdy rekrutacja tego klienta znowu trafi na listę, filtr
+ * wraca razem z nią.
  */
 export function liveLeadFilters(filters: LeadFilters, options: LeadFilterOptions): LeadFilters {
   const keep = (key: keyof LeadFilters) =>
@@ -151,4 +158,50 @@ export function filterLeads<T extends NewJobLeadRow>(
       (!filters.who || whoValue(row) === filters.who) &&
       (!filters.prio || row.priority_level === filters.prio),
   );
+}
+
+// ── Pamięć wyboru ──────────────────────────────────────────────────────────
+
+const STORAGE_PREFIX = "nexus:new-job-leads-filters:";
+
+type UserId = number | string | null | undefined;
+
+function storageKey(userId: UserId): string | null {
+  return userId == null ? null : `${STORAGE_PREFIX}${userId}`;
+}
+
+/** Zapamiętany wybór konta; brak, zepsuty wpis albo zablokowana pamięć = bez filtrów. */
+export function readStoredLeadFilters(userId: UserId): LeadFilters {
+  const key = storageKey(userId);
+  if (!key) return EMPTY_LEAD_FILTERS;
+  try {
+    const raw = window.localStorage.getItem(key);
+    const stored: unknown = raw ? JSON.parse(raw) : null;
+    if (typeof stored !== "object" || stored === null) return EMPTY_LEAD_FILTERS;
+    const text = (field: keyof LeadFilters) => {
+      const value = (stored as Record<string, unknown>)[field];
+      return typeof value === "string" ? value : "";
+    };
+    const prio = text("prio");
+    return {
+      client: text("client"),
+      cat: text("cat"),
+      dl: text("dl"),
+      who: text("who"),
+      prio: isPriorityLevel(prio) ? prio : "",
+    };
+  } catch {
+    return EMPTY_LEAD_FILTERS;
+  }
+}
+
+export function writeStoredLeadFilters(userId: UserId, filters: LeadFilters): void {
+  const key = storageKey(userId);
+  if (!key) return;
+  try {
+    if (hasLeadFilters(filters)) window.localStorage.setItem(key, JSON.stringify(filters));
+    else window.localStorage.removeItem(key);
+  } catch {
+    /* pełna albo zablokowana pamięć — filtry działają bez niej */
+  }
 }
