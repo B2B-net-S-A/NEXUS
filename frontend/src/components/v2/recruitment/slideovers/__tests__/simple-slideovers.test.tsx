@@ -1,7 +1,7 @@
 import { screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-const spies = vi.hoisted(() => ({ questionBank: vi.fn(), panel: vi.fn() }));
+const spies = vi.hoisted(() => ({ questionBank: vi.fn(), panel: vi.fn(), files: vi.fn() }));
 
 vi.mock("@/components/prep/QuestionBankTab", () => ({
   QuestionBankTab: (props: unknown) => {
@@ -16,6 +16,14 @@ vi.mock("@/components/v2/recruitment/ManualSearchPanel", () => ({
   },
 }));
 
+vi.mock("@/components/v2/jobs/files/JobFilesPanel", () => ({
+  JobFilesPanel: (props: unknown) => {
+    spies.files(props);
+    return <div data-testid="job-files-panel" />;
+  },
+}));
+
+import { JobFilesSlideOver } from "../JobFilesSlideOver";
 import { ManualSearchSlideOver } from "../ManualSearchSlideOver";
 import { QuestionBankSlideOver } from "../QuestionBankSlideOver";
 import { renderWithQuery } from "./test-utils";
@@ -33,6 +41,25 @@ describe("QuestionBankSlideOver", () => {
     );
     expect(screen.getByRole("dialog", { name: "Baza pytań" })).toBeInTheDocument();
     expect(spies.questionBank).toHaveBeenLastCalledWith({ jobId: 7, clientId: 3, readOnly: true });
+  });
+});
+
+describe("JobFilesSlideOver", () => {
+  it("zamknięte nie montuje listy; otwarte pokazuje pliki TEJ rekrutacji", () => {
+    const view = renderWithQuery(<JobFilesSlideOver open={false} onOpenChange={vi.fn()} jobId={7} />);
+    expect(screen.queryByTestId("job-files-panel")).not.toBeInTheDocument();
+    view.unmount();
+
+    renderWithQuery(<JobFilesSlideOver open onOpenChange={vi.fn()} jobId={7} />);
+    expect(screen.getByRole("dialog", { name: "Pliki" })).toBeInTheDocument();
+    expect(spies.files).toHaveBeenLastCalledWith(
+      expect.objectContaining({ owner: { kind: "job", id: 7 }, editable: true }),
+    );
+  });
+
+  it("tryb tylko do odczytu strony wyłącza dodawanie i usuwanie", () => {
+    renderWithQuery(<JobFilesSlideOver open onOpenChange={vi.fn()} jobId={7} readOnly />);
+    expect(spies.files).toHaveBeenLastCalledWith(expect.objectContaining({ editable: false }));
   });
 });
 

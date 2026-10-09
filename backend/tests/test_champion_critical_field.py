@@ -81,8 +81,10 @@ def test_critical_errors_explain_in_polish():
         assert critical_errors(must, must) == [
             ("critical_too_many", "Wybierz najwyżej 3 umiejętności krytyczne.")
         ]
+        # Treści pozycji nie oceniamy (09.10.2026): „QA” z listy must wolno
+        # oznaczyć, odpada tylko pozycja spoza MUST.
         codes = [c for c, _ in critical_errors(["Python", "QA"], ["Java", "QA"])]
-        assert codes == ["critical_not_in_must", "critical_not_technology"]
+        assert codes == ["critical_not_in_must"]
 
 
 def test_removing_a_must_item_drops_it_from_critical():

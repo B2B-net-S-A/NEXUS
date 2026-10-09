@@ -20,7 +20,8 @@
  * otwarte od razu na tej zakładce,
  * `?closed=1` — rekrutacja zamknięta („Otwórz ponownie…” w menu „⋯”),
  * `?reopen=1` — zamknięta z otwartym oknem „Otwórz ponownie” i fikcyjnymi
- * brakami (04.10.2026).
+ * brakami (04.10.2026),
+ * `?files=1` — otwarte okno „Pliki” z menu „⋯” (0428, 09.10.2026).
  */
 
 import { Suspense, useEffect, useState } from "react";
@@ -42,6 +43,8 @@ import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shar
 import { rateChangesQueryKey } from "@/lib/rate-change";
 import { AddCandidatesPanel } from "@/components/v2/recruitment/AddCandidatesPanel";
 import { JobReopenDialog } from "@/components/v2/jobs/JobReopenDialog";
+import { JobFilesSlideOver } from "@/components/v2/recruitment/slideovers/JobFilesSlideOver";
+import type { JobFilesResponse } from "@/lib/api/jobFiles";
 import { Badge } from "@/components/ui/badge";
 import { CANDIDATE_SOURCE_TABS, type CandidateSourceTab } from "@/components/v2/recruitment/types";
 import { searchBaseKey } from "@/components/v2/recruitment/useSearchBaseTab";
@@ -906,6 +909,46 @@ const REOPEN_BLOCKERS = [
 
 const noop = () => undefined;
 
+/** Pliki rekrutacji w oknie z menu „⋯” — nazwy fikcyjne, bez klienta i osób. */
+const PREVIEW_FILES: JobFilesResponse = {
+  can_edit: true,
+  max_files: 20,
+  max_file_bytes: 20 * 1024 * 1024,
+  items: [
+    {
+      id: 9101,
+      filename: "Zapytanie - Angular Developer.pdf",
+      content_type: "application/pdf",
+      size_bytes: 284_300,
+      source: "request",
+      uploaded_by: 1,
+      uploaded_by_name: "Marta Testowa",
+      created_at: new Date(Date.now() - 3 * 24 * HOUR).toISOString(),
+    },
+    {
+      id: 9102,
+      filename: "Opis projektu i zespołu.docx",
+      content_type:
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      size_bytes: 61_200,
+      source: "upload",
+      uploaded_by: 1,
+      uploaded_by_name: "Marta Testowa",
+      created_at: new Date(Date.now() - 3 * 24 * HOUR).toISOString(),
+    },
+    {
+      id: 9103,
+      filename: "Widełki i warunki współpracy.xlsx",
+      content_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      size_bytes: 18_900,
+      source: "upload",
+      uploaded_by: 2,
+      uploaded_by_name: "Olaf Przykładowy",
+      created_at: new Date(Date.now() - 1 * 24 * HOUR).toISOString(),
+    },
+  ],
+};
+
 function JobDetailHarness() {
   const params = useSearchParams();
   const showEmpty = params.get("empty") === "1";
@@ -914,6 +957,7 @@ function JobDetailHarness() {
   const reopenOnStart = params.get("reopen") === "1";
   const closed = reopenOnStart || params.get("closed") === "1";
   const [reopenOpen, setReopenOpen] = useState(reopenOnStart);
+  const [filesOpen, setFilesOpen] = useState(params.get("files") === "1");
   const [client] = useState(seededClient);
   const [sourceTab, setSourceTab] = useState<CandidateSourceTab | null>(
     CANDIDATE_SOURCE_TABS.includes(initialSources as CandidateSourceTab)
@@ -1016,6 +1060,8 @@ function JobDetailHarness() {
                         onOpenOrder={noop}
                         onOpenHistoryChat={noop}
                         onOpenQuestions={noop}
+                        onOpenFiles={() => setFilesOpen(true)}
+                        filesCount={PREVIEW_FILES.items.length}
                         championFound={false}
                         onToggleChampion={noop}
                         onAddByName={noop}
@@ -1073,6 +1119,12 @@ function JobDetailHarness() {
                             trailing={viewControls}
                           />
                         )}
+                      />
+                      <JobFilesSlideOver
+                        open={filesOpen}
+                        onOpenChange={setFilesOpen}
+                        jobId={JOB_ID}
+                        seed={PREVIEW_FILES}
                       />
                       <AddCandidatesPanel
                         open={sourceTab !== null}

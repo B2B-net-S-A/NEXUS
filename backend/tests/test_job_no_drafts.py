@@ -246,6 +246,18 @@ def test_publish_body_is_a_handoff_with_a_reason():
     assert body.reason == "Klient wznowił projekt"
 
 
+def test_keep_mode_exists_only_on_reopen():
+    # „Zostaw rekrutera” ma sens wyłącznie przy ponownym otwarciu: zwykłe
+    # przekazanie i zakładanie rekrutacji nadal wskazują osobę albo automat.
+    from pydantic import ValidationError
+
+    from app.schemas.job import JobHandoffRequest, JobPublishRequest
+
+    assert JobPublishRequest(assignment_mode="keep").recruiter_id is None
+    with pytest.raises(ValidationError):
+        JobHandoffRequest(assignment_mode="keep")
+
+
 # ── Efekty po commicie (bez bazy) ────────────────────────────────────────────
 
 
@@ -586,14 +598,17 @@ async def test_champion_save_refuses_a_new_gap_on_a_job_in_work(
 
 
 @pytest.mark.asyncio
-async def test_reopen_goes_through_the_handoff_gate(
-    app_client, app_auth_headers, offline_matching
+async def test_reopen_goes_through_the_gate_and_keeps_the_recruiter(
+    app_client, app_auth_headers, offline_matching, monkeypatch
 ):
+    """09.10.2026: ponowne otwarcie nie pyta o rekrutera — zostaje dotychczasowy.
+    Bramka braków jest ta sama co przy zakładaniu."""
     from tests._job_factory import complete_job_payload, new_recruiter
 
+    recruiter_id = await new_recruiter()
     created = await app_client.post(
         "/api/jobs",
-        json=await complete_job_payload(await _client()),
+        json=await complete_job_payload(await _client(), recruiter_id=recruiter_id),
         headers=app_auth_headers,
     )
     assert created.status_code == 201, created.text
@@ -604,12 +619,7 @@ async def test_reopen_goes_through_the_handoff_gate(
         headers=app_auth_headers,
     )
     assert closed.status_code == 200, closed.text
-
-    no_body = await app_client.post(
-        f"/api/jobs/{job_id}/publish", headers=app_auth_headers
-    )
-    assert no_body.status_code == 422, no_body.text
-    assert no_body.json()["detail"]["code"] == "handoff_required"
+    assert (await _job_row(job_id)).recruiter_id == recruiter_id
 
     # Brak (kategoria zdjęta wprost w bazie) = 422 i rekrutacja zostaje zamknięta.
     from app.core.database import AsyncSessionLocal
@@ -620,9 +630,8 @@ async def test_reopen_goes_through_the_handoff_gate(
         category_id = job.competence_category_id
         job.competence_category_id = None
         await db.commit()
-    body = {"assignment_mode": "manual", "recruiter_id": await new_recruiter()}
     refused = await app_client.post(
-        f"/api/jobs/{job_id}/publish", json=body, headers=app_auth_headers
+        f"/api/jobs/{job_id}/publish", headers=app_auth_headers
     )
     assert refused.status_code == 422, refused.text
     assert refused.json()["detail"]["code"] == "job_not_ready"
@@ -633,17 +642,55 @@ async def test_reopen_goes_through_the_handoff_gate(
         job = await db.get(Job, job_id)
         job.competence_category_id = category_id
         await db.commit()
+    # Dzwonek liczymy po WYWOŁANIU, nie po wierszu powiadomień: rekruter ma
+    # już dzwonek z założenia rekrutacji, a dzienny dedup połyka drugi tego
+    # samego dnia — wiersz w bazie niczego by tu nie dowodził.
+    from app.api import jobs as jobs_api
+
+    rung: list[int] = []
+    real_notify = jobs_api._notify_new_owner
+
+    async def _spy(db, *, job, user_id):
+        rung.append(user_id)
+        await real_notify(db, job=job, user_id=user_id)
+
+    monkeypatch.setattr(jobs_api, "_notify_new_owner", _spy)
     reopened = await app_client.post(
         f"/api/jobs/{job_id}/publish",
-        json={**body, "reason": "Klient wznowił projekt"},
+        json={"assignment_mode": "keep", "reason": "Klient wznowił projekt"},
         headers=app_auth_headers,
     )
     assert reopened.status_code == 200, reopened.text
-    assert reopened.json()["recruiter_id"] == body["recruiter_id"]
+    assert reopened.json()["recruiter_id"] == recruiter_id
     job = await _job_row(job_id)
     assert job.status == JobStatus.published
     assert job.is_open is True
     assert job.closed_at is None
+    assert job.recruiter_id == recruiter_id
+    assert job.work_state == "searching"
+
+    # Rekruter dowiaduje się, że request wrócił; wpis w historii mówi „keep”.
+    from sqlalchemy import select
+
+    from app.models.activity import Activity
+
+    async with AsyncSessionLocal() as db:
+        handoffs = (
+            await db.scalars(
+                select(Activity)
+                .where(
+                    Activity.entity_type == "job",
+                    Activity.entity_id == job_id,
+                    Activity.action == "handed_off_to_search",
+                )
+                .order_by(Activity.id)
+            )
+        ).all()
+        assert (handoffs[-1].details or {}) == {
+            "assignment_mode": "keep",
+            "recruiter_id": recruiter_id,
+        }
+    assert rung == [recruiter_id]
 
     # W pracy: kolejne „Otwórz ponownie” nic nie zmienia.
     again = await app_client.post(
@@ -651,6 +698,167 @@ async def test_reopen_goes_through_the_handoff_gate(
     )
     assert again.status_code == 200, again.text
     assert again.json()["unchanged"] is True
+
+
+@pytest.mark.asyncio
+async def test_reopen_without_a_body_keeps_the_team_too(
+    app_client, app_auth_headers, offline_matching
+):
+    from tests._job_factory import complete_job_payload, new_recruiter
+
+    recruiter_id = await new_recruiter()
+    created = await app_client.post(
+        "/api/jobs",
+        json=await complete_job_payload(await _client(), recruiter_id=recruiter_id),
+        headers=app_auth_headers,
+    )
+    job_id = created.json()["id"]
+    await app_client.post(
+        f"/api/jobs/{job_id}/close", json={"reason": "other"}, headers=app_auth_headers
+    )
+    reopened = await app_client.post(
+        f"/api/jobs/{job_id}/publish", headers=app_auth_headers
+    )
+    assert reopened.status_code == 200, reopened.text
+    assert reopened.json()["recruiter_id"] == recruiter_id
+    assert (await _job_row(job_id)).is_open is True
+
+
+@pytest.mark.asyncio
+async def test_reopening_your_own_job_does_not_ring_yourself(
+    app_client, app_auth_headers, offline_matching, monkeypatch
+):
+    """Dzwonek o powrocie rekrutacji idzie do prowadzącego — nie do osoby,
+    która sama ją otwiera."""
+    from app.api import jobs as jobs_api
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
+    from tests._job_factory import complete_job_payload, new_recruiter
+
+    created = await app_client.post(
+        "/api/jobs",
+        json=await complete_job_payload(
+            await _client(), recruiter_id=await new_recruiter()
+        ),
+        headers=app_auth_headers,
+    )
+    job_id = created.json()["id"]
+    await app_client.post(
+        f"/api/jobs/{job_id}/close", json={"reason": "other"}, headers=app_auth_headers
+    )
+    me = (await app_client.get("/api/auth/me", headers=app_auth_headers)).json()["id"]
+    # Prowadzącym jest osoba, która otwiera (wpisana wprost — test dotyczy
+    # dzwonka, nie reguły, kto może prowadzić).
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        job.recruiter_id = me
+        await db.commit()
+
+    rung: list[int] = []
+
+    async def _spy(db, *, job, user_id):
+        rung.append(user_id)
+
+    monkeypatch.setattr(jobs_api, "_notify_new_owner", _spy)
+    reopened = await app_client.post(
+        f"/api/jobs/{job_id}/publish", headers=app_auth_headers
+    )
+    assert reopened.status_code == 200, reopened.text
+    assert reopened.json()["recruiter_id"] == me
+    assert rung == []
+
+
+@pytest.mark.asyncio
+async def test_reopen_without_an_active_recruiter_opens_with_nobody(
+    app_client, app_auth_headers, offline_matching
+):
+    """Nieaktywne konto = brak osoby: rekrutacja wraca do pracy bez rekrutera
+    (automat albo Head of Recruitment wskaże go później), a nie odmawia."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.user import User
+    from tests._job_factory import complete_job_payload, new_recruiter
+
+    recruiter_id = await new_recruiter()
+    created = await app_client.post(
+        "/api/jobs",
+        json=await complete_job_payload(await _client(), recruiter_id=recruiter_id),
+        headers=app_auth_headers,
+    )
+    job_id = created.json()["id"]
+    await app_client.post(
+        f"/api/jobs/{job_id}/close", json={"reason": "other"}, headers=app_auth_headers
+    )
+    async with AsyncSessionLocal() as db:
+        user = await db.get(User, recruiter_id)
+        user.is_active = False
+        await db.commit()
+
+    reopened = await app_client.post(
+        f"/api/jobs/{job_id}/publish",
+        json={"assignment_mode": "keep"},
+        headers=app_auth_headers,
+    )
+    assert reopened.status_code == 200, reopened.text
+    assert reopened.json()["recruiter_id"] is None
+    job = await _job_row(job_id)
+    assert job.status == JobStatus.published and job.is_open is True
+    assert job.work_state == "searching"
+
+
+@pytest.mark.asyncio
+async def test_reopen_may_still_name_a_new_recruiter(
+    app_client, app_auth_headers, offline_matching
+):
+    from tests._job_factory import complete_job_payload, new_recruiter
+
+    created = await app_client.post(
+        "/api/jobs",
+        json=await complete_job_payload(await _client()),
+        headers=app_auth_headers,
+    )
+    job_id = created.json()["id"]
+    await app_client.post(
+        f"/api/jobs/{job_id}/close", json={"reason": "other"}, headers=app_auth_headers
+    )
+    other = await new_recruiter()
+    reopened = await app_client.post(
+        f"/api/jobs/{job_id}/publish",
+        json={"assignment_mode": "manual", "recruiter_id": other},
+        headers=app_auth_headers,
+    )
+    assert reopened.status_code == 200, reopened.text
+    assert reopened.json()["recruiter_id"] == other
+    assert (await _job_row(job_id)).recruiter_id == other
+
+
+@pytest.mark.asyncio
+async def test_finishing_a_legacy_draft_still_needs_a_handoff(
+    app_client, app_auth_headers
+):
+    """„Dokończ i opublikuj” — stary szkic nigdy nie miał rekrutera, więc
+    `keep` ani brak ciała go nie otwierają."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
+    from tests._job_factory import make_job_ready
+
+    async with AsyncSessionLocal() as db:
+        job = Job(
+            title=f"Stary szkic {uuid.uuid4().hex[:6]}",
+            status=JobStatus.draft,
+            client_id=await _client(),
+        )
+        db.add(job)
+        await db.commit()
+        job_id = job.id
+    await make_job_ready(job_id)
+
+    for body in (None, {"assignment_mode": "keep"}):
+        resp = await app_client.post(
+            f"/api/jobs/{job_id}/publish", json=body, headers=app_auth_headers
+        )
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"]["code"] == "handoff_required"
+    assert (await _job_row(job_id)).status == JobStatus.draft
 
 
 @pytest.mark.asyncio

@@ -166,6 +166,20 @@ describe("JobDetailCompactHeader", () => {
     await waitFor(() => expect(onOpenQuestions).toHaveBeenCalled());
   });
 
+  it("menu „⋯”: „Pliki” z liczbą otwiera okno plików rekrutacji", async () => {
+    const onOpenFiles = vi.fn();
+    const first = renderHeader({ onOpenFiles, filesCount: 3 });
+    const item = within(await openMenu()).getByTestId("menu-files");
+    expect(item).toHaveTextContent("Pliki (3)");
+    await userEvent.click(item);
+    await waitFor(() => expect(onOpenFiles).toHaveBeenCalled());
+    first.unmount();
+
+    // Liczba nieznana albo zero: sama nazwa, bez „(0)”.
+    renderHeader({ onOpenFiles, filesCount: 0 });
+    expect(within(await openMenu()).getByTestId("menu-files")).toHaveTextContent(/^Pliki$/);
+  });
+
   it("menu „⋯”: „Zespół” mówi, kto jest rekruterem, i otwiera panel zespołu", async () => {
     const onOpenTeam = vi.fn();
     const first = renderHeader({ onOpenTeam, teamSummary: "Rekruter: Marta N. +1" });

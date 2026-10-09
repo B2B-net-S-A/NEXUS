@@ -6,11 +6,16 @@
  *
  * Rekrutacja w pracy jest zawsze kompletna i przekazana do searchu, więc
  * ponowne otwarcie przechodzi tę samą bramkę co przekazanie: okno pokazuje
- * braki z `GET /readiness` (`blocker_items`), pyta o rekrutera (automat albo
- * osoba — `RecruiterAssignmentChoice`, jak w „Przekaż do searchu”) i woła
+ * braki z `GET /readiness` (`blocker_items`) i woła
  * `POST /api/jobs/{id}/publish`. Odmowa 422 `job_not_ready` pokazuje braki
  * z odpowiedzi w tym samym oknie. Zmiana statusu w oknie edycji już tego nie
  * robi (409 `reopen_required`).
+ *
+ * Rekruter (09.10.2026): „Otwórz ponownie” o niego NIE pyta — zamknięcie nie
+ * czyści rekrutera, więc zostaje dotychczasowy (`assignment_mode: "keep"`),
+ * a gdy go nie ma, przydziela automat albo wskazuje Head of Recruitment.
+ * „Dokończ i opublikuj” (stary szkic nigdy nie miał rekrutera) pyta jak
+ * „Przekaż do searchu”: automat albo osoba (`RecruiterAssignmentChoice`).
  *
  * Braki z działaniem (08.10.2026): hiring managera i termin (albo „Klient nie
  * podał”) ustawia się w tym oknie — archiwum z Traffita nie ma ich nigdy, więc
@@ -65,7 +70,7 @@ export interface JobReopenDialogProps {
   /** `reopen` — zamknięta rekrutacja; `finish` — stary szkic albo bez przekazania. */
   mode: JobReopenMode;
   /** Pierwszy rekruter rekrutacji. Brak = z rekrutacji w cache'u (`primary_owner`). */
-  recruiter?: { id: number; name?: string | null } | null;
+  recruiter?: { id: number; name?: string | null; is_active?: boolean } | null;
   /** „Uzupełnij” przy brakach — strona otwiera edytor Profilu Championa. */
   onOpenChampion?: () => void;
   /** Braki z zakładki „Zespół i ogłoszenie” (kategoria, liczba osób). */
@@ -74,7 +79,7 @@ export interface JobReopenDialogProps {
 
 /** Pola rekrutacji z cache'u (`["job", id]`), których okno potrzebuje. */
 interface ReopenCachedJob {
-  primary_owner?: { id: number; name?: string | null } | null;
+  primary_owner?: { id: number; name?: string | null; is_active?: boolean } | null;
   client_id?: number | null;
   hiring_manager_contact_id?: number | null;
   hiring_manager_name?: string | null;
@@ -106,7 +111,7 @@ export const JOB_REOPEN_LABELS: Record<
     submit: "Otwórz i opublikuj",
     success: "Rekrutacja otwarta ponownie i opublikowana.",
     description:
-      "Rekrutacja wróci do pracy i od razu trafi do searchu — dlatego musi być kompletna i mieć rekrutera.",
+      "Rekrutacja wróci do pracy i od razu trafi do searchu — dlatego musi być kompletna. O rekrutera nie pytamy.",
   },
   finish: {
     title: "Dokończ i opublikuj",
@@ -145,13 +150,18 @@ export function JobReopenDialog({
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
   const labels = JOB_REOPEN_LABELS[mode];
+  // Ponowne otwarcie zostawia rekrutera; o osobę pyta tylko „Dokończ i opublikuj”.
+  const keepTeam = mode === "reopen";
   const recruiterLabelId = useId();
   const reasonId = useId();
   const channelId = useId();
   const cachedJob = useCachedJob<ReopenCachedJob>(jobId);
   const clientId = cachedJob?.client_id ?? null;
-  const currentRecruiter =
+  const knownRecruiter =
     recruiter !== undefined ? recruiter : (cachedJob?.primary_owner ?? null);
+  // Nieaktywne konto = brak rekrutera: serwer otwiera wtedy rekrutację bez
+  // nikogo, więc okno nie może obiecywać „zostaje bez zmian”.
+  const currentRecruiter = knownRecruiter?.is_active === false ? null : knownRecruiter;
 
   const [assignmentChoice, setAssignmentChoice] = useState<RecruiterAssignment | null>(null);
   const [pickedRecruiterId, setPickedRecruiterId] = useState<number | null | undefined>(
@@ -181,7 +191,7 @@ export function JobReopenDialog({
 
   const recruitersQuery = useQuery({
     queryKey: ["handoff-recruiters"],
-    enabled: open,
+    enabled: open && !keepTeam,
     queryFn: () =>
       api
         .get("/api/users", {
@@ -259,15 +269,13 @@ export function JobReopenDialog({
   };
 
   const submit = async () => {
-    if (!automatic && !recruiterId) return;
+    if (!keepTeam && !automatic && !recruiterId) return;
     const trimmedReason = reason.trim();
-    const base: Pick<JobPublishPayload, "channel" | "reason"> = {
-      channel,
-      ...(mode === "reopen" && trimmedReason ? { reason: trimmedReason } : {}),
-    };
-    const payload: JobPublishPayload = automatic
-      ? { assignment_mode: "automatic", ...base }
-      : { recruiter_id: recruiterId as number, ...base };
+    const payload: JobPublishPayload = keepTeam
+      ? { assignment_mode: "keep", ...(trimmedReason ? { reason: trimmedReason } : {}) }
+      : automatic
+        ? { assignment_mode: "automatic", channel }
+        : { recruiter_id: recruiterId as number, channel };
     setSubmitting(true);
     setRefusedBlockers(null);
     setRefusalMessage(null);
@@ -359,7 +367,21 @@ export function JobReopenDialog({
   const readinessForbidden =
     readinessQuery.isError && httpStatusFromError(readinessQuery.error) === 403;
   const submitDisabled =
-    submitting || readinessForbidden || blockers.length > 0 || (!automatic && !recruiterId);
+    submitting ||
+    readinessForbidden ||
+    blockers.length > 0 ||
+    (!keepTeam && !automatic && !recruiterId);
+  const recruiterName = currentRecruiter?.name?.trim() || null;
+  // Jedno zdanie o rekruterze przy ponownym otwarciu — bez pola wyboru.
+  const keepTeamNote = currentRecruiter
+    ? `Rekruter: ${recruiterName ?? "przypisana osoba"} — zostaje bez zmian.`
+    : !readinessQuery.isSuccess
+      ? "Rekruter zostaje bez zmian."
+      : automatOn
+        ? readiness?.allocation_mode === "auto"
+          ? "Rekrutacja nie ma rekrutera — po otwarciu przydzieli go automat."
+          : "Rekrutacja nie ma rekrutera — po otwarciu zaproponuje go automat (zatwierdza Head of Recruitment)."
+        : "Rekrutacja nie ma rekrutera — po otwarciu wskaże go Head of Recruitment.";
 
   return (
     <AppModal
@@ -486,68 +508,76 @@ export function JobReopenDialog({
           <p className="text-sm text-success">Niczego nie brakuje — rekrutację można opublikować.</p>
         ) : null}
 
-        <div className="space-y-1.5">
-          <span id={recruiterLabelId} className="block text-xs font-medium text-foreground">
-            Rekruter
-          </span>
-          <RecruiterAssignmentChoice
-            size="sm"
-            labelledBy={recruiterLabelId}
-            value={assignment}
-            onChange={setAssignmentChoice}
-            automaticAvailable={automaticAvailable}
-            unavailableReason={unavailableReason}
-            mode={readiness?.allocation_mode}
-            disabled={submitting}
-          />
-          {!automatic ? (
-            <select
-              aria-label="Wybierz rekrutera"
-              value={recruiterId ?? ""}
-              onChange={(e) => {
-                setPickedRecruiterId(e.target.value ? Number(e.target.value) : null);
-                setAssignmentChoice("person");
-              }}
-              data-testid="job-reopen-recruiter"
-              className="w-full min-w-0 rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground"
-            >
-              <option value="">— wybierz rekrutera —</option>
-              {recruitersQuery.data?.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name?.trim() || r.email || `#${r.id}`}
-                </option>
-              ))}
-            </select>
-          ) : null}
-          {!automatic && recruitersQuery.isError && !recruitersQuery.data ? (
-            <p role="alert" className="text-xs text-destructive">
-              Nie udało się wczytać listy rekruterów.{" "}
-              <button
-                type="button"
-                className="font-medium underline"
-                onClick={() => void recruitersQuery.refetch()}
-              >
-                Ponów
-              </button>
-            </p>
-          ) : null}
-        </div>
+        {keepTeam ? (
+          <p className="text-sm text-muted-foreground" data-testid="job-reopen-recruiter-note">
+            {keepTeamNote} Zmienisz go w zakładce „Zespół i ogłoszenie”.
+          </p>
+        ) : (
+          <>
+            <div className="space-y-1.5">
+              <span id={recruiterLabelId} className="block text-xs font-medium text-foreground">
+                Rekruter
+              </span>
+              <RecruiterAssignmentChoice
+                size="sm"
+                labelledBy={recruiterLabelId}
+                value={assignment}
+                onChange={setAssignmentChoice}
+                automaticAvailable={automaticAvailable}
+                unavailableReason={unavailableReason}
+                mode={readiness?.allocation_mode}
+                disabled={submitting}
+              />
+              {!automatic ? (
+                <select
+                  aria-label="Wybierz rekrutera"
+                  value={recruiterId ?? ""}
+                  onChange={(e) => {
+                    setPickedRecruiterId(e.target.value ? Number(e.target.value) : null);
+                    setAssignmentChoice("person");
+                  }}
+                  data-testid="job-reopen-recruiter"
+                  className="w-full min-w-0 rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground"
+                >
+                  <option value="">— wybierz rekrutera —</option>
+                  {recruitersQuery.data?.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name?.trim() || r.email || `#${r.id}`}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+              {!automatic && recruitersQuery.isError && !recruitersQuery.data ? (
+                <p role="alert" className="text-xs text-destructive">
+                  Nie udało się wczytać listy rekruterów.{" "}
+                  <button
+                    type="button"
+                    className="font-medium underline"
+                    onClick={() => void recruitersQuery.refetch()}
+                  >
+                    Ponów
+                  </button>
+                </p>
+              ) : null}
+            </div>
 
-        <div className="space-y-1">
-          <label htmlFor={channelId} className="block text-xs font-medium text-foreground">
-            Kanał pracy
-          </label>
-          <select
-            id={channelId}
-            value={channel}
-            onChange={(e) => setChannel(e.target.value as JobHandoffChannel)}
-            className="w-full min-w-0 rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground"
-          >
-            <option value="linkedin">LinkedIn</option>
-            <option value="database">Baza</option>
-            <option value="mixed">Baza i LinkedIn</option>
-          </select>
-        </div>
+            <div className="space-y-1">
+              <label htmlFor={channelId} className="block text-xs font-medium text-foreground">
+                Kanał pracy
+              </label>
+              <select
+                id={channelId}
+                value={channel}
+                onChange={(e) => setChannel(e.target.value as JobHandoffChannel)}
+                className="w-full min-w-0 rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground"
+              >
+                <option value="linkedin">LinkedIn</option>
+                <option value="database">Baza</option>
+                <option value="mixed">Baza i LinkedIn</option>
+              </select>
+            </div>
+          </>
+        )}
 
         {mode === "reopen" ? (
           <div className="space-y-1">
@@ -557,7 +587,8 @@ export function JobReopenDialog({
             <textarea
               id={reasonId}
               rows={3}
-              maxLength={1000}
+              // Serwer przyjmuje 500 znaków (`JobPublishRequest.reason`).
+              maxLength={500}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="np. klient wrócił z tym samym zapytaniem"

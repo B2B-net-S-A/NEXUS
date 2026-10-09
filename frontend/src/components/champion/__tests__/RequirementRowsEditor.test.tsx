@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -34,11 +35,12 @@ vi.mock("@/lib/api", () => {
 });
 
 import {
-  NOT_A_TECHNOLOGY_HINT,
   OUTSIDE_DICTIONARY_NOTE,
   RequirementRowsEditor,
   type RequirementRowsEditorProps,
 } from "@/components/champion/RequirementRowsEditor";
+import { clearSearchMemory, pushRecentSearch } from "@/lib/search-memory";
+import { useAuthStore } from "@/store/auth";
 import type {
   RequirementLevel,
   RequirementRowForm,
@@ -119,6 +121,8 @@ beforeEach(() => {
   mocks.counts = null;
   mocks.get.mockResolvedValue({ data: {} });
   mocks.post.mockResolvedValue({ data: {} });
+  clearSearchMemory();
+  useAuthStore.setState({ user: null });
 });
 
 describe("RequirementRowsEditor — wiersze i poziomy", () => {
@@ -176,11 +180,9 @@ describe("RequirementRowsEditor — wiersze i poziomy", () => {
     renderEditor({ rows: [], critical: known({}) });
     expect(screen.getAllByRole("radiogroup")).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Usuń wymaganie: wiersz 1" })).toBeDisabled();
-    expect(levelOption("wiersz 1", "Krytyczne")).toBeDisabled();
-    expect(levelOption("wiersz 1", "Krytyczne")).toHaveAttribute(
-      "title",
-      "Najpierw wpisz słowo kluczowe",
-    );
+    // Poziom da się wybrać także przed wpisaniem słowa — klik zaraz po
+    // wpisaniu trafiał w wyłączony przycisk (zgłoszenie 09.10.2026).
+    expect(levelOption("wiersz 1", "Krytyczne")).toBeEnabled();
   });
 
   it("„Wyklucz” oddaje listę słów osobnym kanałem", () => {
@@ -201,83 +203,40 @@ describe("RequirementRowsEditor — wiersze i poziomy", () => {
 });
 
 describe("RequirementRowsEditor — kto może być krytyczny", () => {
-  it("słowo, które nie jest nazwą technologii: „Krytyczne” nieaktywne, powód pod wierszem", () => {
+  it("każdy wiersz da się oznaczyć — decyduje Delivery Lead, nie słownik (09.10.2026)", () => {
     const { onRowsChange } = renderEditor();
-    const option = levelOption("płatności", "Krytyczne");
-    expect(option).toBeDisabled();
-    expect(option).toHaveAttribute("title", NOT_A_TECHNOLOGY_HINT);
-    fireEvent.click(option);
-    expect(onRowsChange).not.toHaveBeenCalled();
-    // Powód stoi też na widoku — sam dymek na wyłączonym przycisku to za mało.
-    expect(screen.getAllByTestId("requirement-row-critical-blocked")).toHaveLength(1);
-    expect(screen.getByTestId("requirement-row-critical-blocked")).toHaveTextContent(
-      "Nie może być krytyczne: to nie jest nazwa technologii ani narzędzia — nie może ukrywać kandydatów.",
-    );
-    // Technologia ze słownika jest do wyboru, bez dopisku.
-    expect(levelOption("Java", "Krytyczne")).toBeEnabled();
-    expect(levelOption("Java", "Krytyczne")).not.toHaveAttribute("title");
-  });
-
-  it("powód blokady z serwera stoi pod wierszem i w dymku", () => {
-    const reason = "To branża, nie technologia — daje punkty, nie ukrywa kandydatów.";
-    renderEditor({
-      critical: known({
-        ...INFO,
-        pay: { label: "płatności", eligible: false, selectable: false, suggested: false, blockedReason: reason },
-      }),
-    });
-    expect(levelOption("płatności", "Krytyczne")).toHaveAttribute("title", reason);
-    expect(screen.getByTestId("requirement-row-critical-blocked")).toHaveTextContent(
-      "Nie może być krytyczne: to branża, nie technologia — daje punkty, nie ukrywa kandydatów.",
-    );
-  });
-
-  it("nazwa narzędzia spoza słownika: da się oznaczyć i odznaczyć (08.10.2026)", () => {
-    const outside = { label: "płatności", eligible: false, selectable: true, suggested: false };
-    const first = renderEditor({ critical: known({ ...INFO, pay: outside }) });
     const option = levelOption("płatności", "Krytyczne");
     expect(option).toBeEnabled();
     expect(option).not.toHaveAttribute("title");
     expect(screen.queryByTestId("requirement-row-critical-blocked")).toBeNull();
     fireEvent.click(option);
-    expect(first.onRowsChange).toHaveBeenCalledWith(withLevels({ pay: "critical" }));
-    first.unmount();
+    expect(onRowsChange).toHaveBeenCalledWith(withLevels({ pay: "critical" }));
+  });
 
-    // Oznaczony wiersz mówi, jak działa bramka dla nazwy spoza słownika…
-    const second = renderEditor({
-      rows: withLevels({ pay: "critical" }),
-      critical: known({ ...INFO, pay: outside }),
-    });
+  it("krytyczny wiersz spoza słownika mówi, jak działa bramka, i daje się odznaczyć", () => {
+    const { onRowsChange } = renderEditor({ rows: withLevels({ pay: "critical" }) });
     expect(screen.getByTestId("requirement-row-outside-dictionary")).toHaveTextContent(
       OUTSIDE_DICTIONARY_NOTE,
     );
-    // …i daje się odznaczyć.
     fireEvent.click(levelOption("płatności", "Musi mieć"));
-    expect(second.onRowsChange).toHaveBeenCalledWith(withLevels({ pay: "must" }));
+    expect(onRowsChange).toHaveBeenCalledWith(withLevels({ pay: "must" }));
   });
 
-  it("dopóki serwer nie odpowie, „Krytyczne” czeka — oznaczony wiersz zostaje", () => {
-    renderEditor({
-      rows: withLevels({ kafka: "critical" }),
-      critical: { ...known(null), isLoading: true },
-    });
-    expect(levelOption("Java", "Krytyczne")).toBeDisabled();
-    expect(levelOption("Java", "Krytyczne")).toHaveAttribute(
-      "title",
-      "Sprawdzam, czy to technologia ze słownika…",
-    );
-    expect(levelOption("Kafka", "Krytyczne")).toBeChecked();
-    expect(levelOption("Kafka", "Krytyczne")).toBeEnabled();
-    expect(screen.getByText("sprawdzam słownik")).toBeInTheDocument();
-    // Pozostałe poziomy działają bez odpowiedzi serwera.
-    expect(levelOption("Java", "Mile widziane")).toBeEnabled();
+  it("„Krytyczne” nie czeka na serwer ani na jego awarię", () => {
+    const pending = renderEditor({ critical: { ...known(null), isLoading: true } });
+    expect(levelOption("Java", "Krytyczne")).toBeEnabled();
+    fireEvent.click(levelOption("Java", "Krytyczne"));
+    expect(pending.onRowsChange).toHaveBeenCalledWith(withLevels({ java: "critical" }));
+    pending.unmount();
+
+    renderEditor({ critical: { info: null, isLoading: false, isError: true, retry: vi.fn() } });
+    expect(levelOption("Java", "Krytyczne")).toBeEnabled();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("trzeci krytyczny da się oznaczyć (limit 3 od 08.10.2026)", () => {
-    const info = { ...INFO, pay: { label: "płatności", eligible: true, suggested: false } };
     const { onRowsChange } = renderEditor({
       rows: withLevels({ java: "critical", kafka: "critical" }),
-      critical: known(info),
     });
     const third = levelOption("płatności", "Krytyczne");
     expect(third).toBeEnabled();
@@ -288,14 +247,8 @@ describe("RequirementRowsEditor — kto może być krytyczny", () => {
   });
 
   it("czwarty krytyczny jest nieaktywny — najwyżej trzy, a odznaczenie działa", () => {
-    const info = {
-      ...INFO,
-      pay: { label: "płatności", eligible: true, suggested: false },
-      k8s: { label: "Kubernetes", eligible: true, suggested: false },
-    };
     const { onRowsChange } = renderEditor({
       rows: withLevels({ java: "critical", kafka: "critical", pay: "critical" }),
-      critical: known(info),
     });
     const fourth = levelOption("Kubernetes", "Krytyczne");
     expect(fourth).toBeDisabled();
@@ -309,21 +262,102 @@ describe("RequirementRowsEditor — kto może być krytyczny", () => {
       withLevels({ java: "must", kafka: "critical", pay: "critical" }),
     );
   });
+});
 
-  it("awaria sprawdzenia słownika: komunikat, „Ponów” woła ponowienie", () => {
-    const retry = vi.fn();
-    renderEditor({ critical: { info: null, isLoading: false, isError: true, retry } });
-    const alert = screen.getByRole("alert");
-    expect(alert).toHaveTextContent(
-      "Nie udało się sprawdzić, które słowa mogą być krytyczne.",
+/** Edytor z rodzicem, który trzyma stan — tak jak `/jobs/new`. */
+function StatefulEditor({ initial = [] }: { initial?: RequirementRowForm[] }) {
+  const [rows, setRows] = useState<RequirementRowForm[]>(initial);
+  const [noCritical, setNoCritical] = useState(false);
+  const [exclude, setExclude] = useState<string[]>([]);
+  return (
+    <QueryClientProvider
+      client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+    >
+      <RequirementRowsEditor
+        rows={rows}
+        onRowsChange={setRows}
+        noCritical={noCritical}
+        onNoCriticalChange={setNoCritical}
+        exclude={exclude}
+        onExcludeChange={setExclude}
+        critical={{ info: null, isLoading: true, isError: false, retry: () => undefined }}
+        countEnabled={false}
+      />
+    </QueryClientProvider>
+  );
+}
+
+const rowInput = (n: number) => screen.getByLabelText(`Wymaganie ${n} — słowo albo wariant`);
+
+function typeWord(input: HTMLElement, text: string, key = "Enter") {
+  fireEvent.focus(input);
+  fireEvent.change(input, { target: { value: text } });
+  fireEvent.keyDown(input, { key });
+}
+
+describe("RequirementRowsEditor — wpisywanie z klawiatury (zgłoszenie 09.10.2026)", () => {
+  it("Enter po słowie przenosi kursor do następnego wymagania — dwa must-have to dwa wiersze", () => {
+    render(<StatefulEditor />);
+    typeWord(rowInput(1), "Java");
+    // Kursor stoi w nowym, pustym wierszu — kolejne słowo nie jest wariantem „lub”.
+    expect(rowInput(2)).toHaveFocus();
+    typeWord(rowInput(2), "Spring Boot");
+    expect(rowInput(3)).toHaveFocus();
+    expect(levelOption("Java", "Musi mieć")).toBeChecked();
+    expect(levelOption("Spring Boot", "Musi mieć")).toBeChecked();
+    expect(screen.queryByText("lub")).toBeNull();
+  });
+
+  it("przecinek dodaje wariant w tym samym wierszu", () => {
+    render(<StatefulEditor />);
+    typeWord(rowInput(1), "Kafka", ",");
+    typeWord(rowInput(1), "RabbitMQ");
+    expect(screen.getByText("lub")).toBeInTheDocument();
+    expect(screen.getAllByRole("radiogroup")).toHaveLength(2);
+    expect(rowInput(2)).toHaveFocus();
+  });
+
+  it("wariant dopisany w środku listy nie wstawia pustego wiersza", () => {
+    render(
+      <StatefulEditor
+        initial={[
+          { key: "a", words: ["Kafka"], level: "must" },
+          { key: "b", words: ["Java"], level: "must" },
+        ]}
+      />,
     );
-    expect(levelOption("Java", "Krytyczne")).toBeDisabled();
-    expect(levelOption("Java", "Krytyczne")).toHaveAttribute(
-      "title",
-      "Nie udało się sprawdzić słownika — spróbuj ponownie niżej",
-    );
-    fireEvent.click(within(alert).getByRole("button", { name: "Ponów" }));
-    expect(retry).toHaveBeenCalledTimes(1);
+    typeWord(rowInput(1), "RabbitMQ");
+    expect(screen.getAllByRole("radiogroup")).toHaveLength(2);
+    expect(screen.getByText("RabbitMQ")).toBeInTheDocument();
+  });
+
+  it("„Krytyczne” działa zaraz po wpisaniu słowa, bez odpowiedzi serwera", () => {
+    render(<StatefulEditor />);
+    typeWord(rowInput(1), "bankowość");
+    const option = levelOption("bankowość", "Krytyczne");
+    expect(option).toBeEnabled();
+    fireEvent.click(option);
+    expect(levelOption("bankowość", "Krytyczne")).toBeChecked();
+  });
+
+  it("pole w wierszu nie otwiera listy „Ostatnio używane” na pustym polu", () => {
+    useAuthStore.setState({ user: { id: 7 } as never });
+    pushRecentSearch(7, {
+      kind: "list",
+      jobId: null,
+      label: "java",
+      query: "q_any=java",
+      keywords: ["java", "kotlin"],
+      total: null,
+    });
+    render(<StatefulEditor />);
+    fireEvent.focus(rowInput(1));
+    expect(screen.queryByRole("listbox")).toBeNull();
+    typeWord(rowInput(1), "Java");
+    // Po Enterze lista też się nie otwiera — nie zasłania „Dodaj słowo kluczowe”.
+    expect(screen.queryByRole("listbox")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Dodaj słowo kluczowe" }));
+    expect(screen.queryByText("kotlin")).toBeNull();
   });
 });
 

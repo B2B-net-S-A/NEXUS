@@ -62,3 +62,26 @@ def test_evidence_is_attached_for_every_technology_not_only_the_gate():
             if "attach_gate_evidence(" in line and ".must_skills" in line:
                 offenders.append(f"{path.relative_to(APP).as_posix()}: {line.strip()}")
     assert not offenders, "Użyj .gate_evidence_labels: " + "; ".join(offenders)
+
+
+def test_every_evidence_call_carries_the_row_words_of_dl_chosen_criticals():
+    """09.10.2026: krytyczną z wyboru Delivery Leada może być dowolna fraza,
+    a bramka szuka wtedy słów jej wiersza (``DealbreakerInputs.gate_options``).
+    Wywołanie bez ``options=`` szukałoby samych nazw technologii — fraza nie
+    miałaby dowodu u nikogo i ukryłaby wszystkich na tym jednym ekranie."""
+    offenders = []
+    for path in APP.rglob("*.py"):
+        rel = path.relative_to(APP).as_posix()
+        if rel == "services/must_text_evidence.py":
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for call in ast.walk(tree):
+            if not isinstance(call, ast.Call):
+                continue
+            func = call.func
+            name = getattr(func, "id", None) or getattr(func, "attr", None)
+            if name != "attach_gate_evidence":
+                continue
+            if not any(kw.arg == "options" for kw in call.keywords):
+                offenders.append(f"{rel}:{call.lineno}")
+    assert not offenders, "attach_gate_evidence bez options=: " + ", ".join(offenders)

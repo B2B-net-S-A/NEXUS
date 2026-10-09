@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import {
   ArrowLeft,
   BookOpen,
+  Paperclip,
   Building2,
   ClipboardList,
   Columns3,
@@ -93,6 +94,10 @@ interface JobDetailCompactHeaderProps {
 
   // ── Menu „⋯" — wszystko, co zeszło z widoku, żyje tutaj ─────────────────
   onOpenQuestions: () => void;
+  /** Okno „Pliki” — request klienta i załączniki rekrutacji (0428). */
+  onOpenFiles?: () => void;
+  /** Liczba plików; `undefined` = jeszcze nie wiadomo (bez liczby w menu). */
+  filesCount?: number;
   /** Okno „Zlecenie” — skrót: braki, fakty, wymagania. */
   onOpenOrder: () => void;
   /**
@@ -182,6 +187,8 @@ export function JobDetailCompactHeader({
   onOpenHistoryChat,
   chatUnreadCount = 0,
   onOpenQuestions,
+  onOpenFiles,
+  filesCount,
   onOpenOrder,
   teamSummary,
   onOpenTeam,
@@ -470,6 +477,15 @@ export function JobDetailCompactHeader({
                 <BookOpen className="h-4 w-4" />
                 Baza pytań
               </DropdownMenuItem>
+              {onOpenFiles ? (
+                <DropdownMenuItem
+                  onSelect={() => deferMenuAction(onOpenFiles)}
+                  data-testid="menu-files"
+                >
+                  <Paperclip className="h-4 w-4" />
+                  {filesCount != null && filesCount > 0 ? `Pliki (${filesCount})` : "Pliki"}
+                </DropdownMenuItem>
+              ) : null}
               {onEdit ? (
                 <DropdownMenuItem onSelect={() => deferMenuAction(onEdit)}>
                   <PencilLine className="h-4 w-4" />

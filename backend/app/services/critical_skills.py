@@ -11,9 +11,11 @@ Stany pola ``stack.critical`` w profilu Championa:
 - ``None`` — Delivery Lead nie zdecydował: działa podpowiedź z historii,
   a przekazanie do searchu czeka na decyzję;
 - ``[]`` — świadomie brak krytycznych: bramka must nie ukrywa nikogo;
-- ``["Java", …]`` (najwyżej 3) — bramka na tych pozycjach. Wybrać można każdą
-  pozycję must, która jest nazwą technologii albo narzędzia
-  (``must_gate_terms.critical_selectable``, od 08.10.2026 także spoza słownika).
+- ``["Java", …]`` (najwyżej 3) — bramka na tych pozycjach. Wybrać można KAŻDĄ
+  pozycję must (decyzja Artura 09.10.2026: o tym, co jest krytyczne, decyduje
+  Delivery Lead, system nie odrzuca żadnej frazy). Pozycja, która nie jest
+  nazwą technologii (branża, język, zdanie), ukrywa tak samo: bramka szuka
+  słów jej wiersza w profilu, CV i notatkach (``critical_gate_options``).
 
 Podpowiedź: technologie z listy must (``must_gate_terms.critical_eligible``),
 które ≥90% osób wysłanych do klienta w innych rekrutacjach ma w profilu, CV
@@ -258,7 +260,6 @@ def match_must_labels(names: Iterable[str], must: Sequence[str]) -> tuple[str, .
 
 def effective_critical(job) -> CriticalResolution:
     """Krytyczne, na których działa bramka tej rekrutacji."""
-    from app.services.must_gate_terms import critical_selectable
     from app.services.scoring_service import job_explicit_must_skills
 
     frozen = getattr(job, "critical_effective", None)
@@ -276,11 +277,9 @@ def effective_critical(job) -> CriticalResolution:
     suggested = suggest_from_must(must, _title(job))
     stored = stored_critical(job)
     if stored is not None:
-        labels = tuple(
-            label
-            for label in match_must_labels(stored, must)
-            if critical_selectable(label)
-        )[:MAX_CRITICAL]
+        # Wybór Delivery Leada bez filtra treści (09.10.2026) — do tej daty
+        # fraza spoza technologii była tu po cichu zdejmowana.
+        labels = match_must_labels(stored, must)[:MAX_CRITICAL]
         return CriticalResolution(
             labels=labels,
             source="dl" if labels else "none",
@@ -299,8 +298,6 @@ def critical_errors(
     critical: Sequence[str], must: Sequence[str]
 ) -> list[tuple[str, str]]:
     """Błędy wyboru krytycznych (kod, zdanie po polsku) — zapis je odrzuca."""
-    from app.services.must_gate_terms import critical_selectable
-
     errors: list[tuple[str, str]] = []
     if len(critical) > MAX_CRITICAL:
         errors.append(
@@ -310,23 +307,85 @@ def critical_errors(
             )
         )
     for name in critical:
-        matched = match_must_labels([name], must)
-        if not matched:
+        if not match_must_labels([name], must):
             errors.append(
                 (
                     "critical_not_in_must",
                     f"„{name}” nie ma na liście MUST — krytyczne wybierasz z MUST.",
                 )
             )
-        elif not all(critical_selectable(label) for label in matched):
-            errors.append(
-                (
-                    "critical_not_technology",
-                    f"„{name}” nie jest nazwą technologii — nie może ukrywać "
-                    "kandydatów.",
-                )
-            )
     return errors
+
+
+def _row_words_by_label(job) -> list[tuple[str, list[str]]]:
+    """Wiersze obowiązkowe profilu Championa: (etykieta wiersza, słowa)."""
+    from app.services.champion_requirement_rows import row_label
+
+    profile = getattr(job, "champion_profile", None)
+    stack = profile.get("stack") if isinstance(profile, dict) else None
+    rows = stack.get("rows") if isinstance(stack, dict) else None
+    out: list[tuple[str, list[str]]] = []
+    for row in rows if isinstance(rows, list) else ():
+        if not isinstance(row, dict) or row.get("level") == "nice":
+            continue
+        words = [
+            w.strip()
+            for w in row.get("words") or ()
+            if isinstance(w, str) and len(w.strip()) >= 2
+        ]
+        label = row_label(words) if words else ""
+        if label:
+            out.append((label, words))
+    return out
+
+
+def critical_gate_options(job) -> dict[str, tuple[str, ...]]:
+    """Słowa, których bramka szuka dla krytycznych z wyboru Delivery Leada.
+
+    Etykieta → słowa jej wiersza (``stack.rows``): w wierszu wystarczy jedno,
+    więc każde z nich spełnia krytyczne — tak samo czyta je „Szukaj ręcznie”.
+    Fraza bez wiersza (profil na starych polach) szuka samej siebie. Wpis
+    powstaje tylko wtedy, gdy coś dodaje do ``gate_requirement``: technologia
+    bez wariantów w wierszu działa jak dotąd. Podpowiedź z historii (nikt jej
+    nie potwierdził) nie dostaje słów wiersza. Zamrożone żądanie pełnego
+    przeglądu niesie gotowy słownik pod ``critical_effective["options"]``.
+    """
+    from app.services.must_gate_terms import gate_requirement
+    from app.services.skill_normalize import canonical_of
+
+    frozen = getattr(job, "critical_effective", None)
+    if isinstance(frozen, dict) and isinstance(frozen.get("labels"), list):
+        raw = frozen.get("options")
+        if not isinstance(raw, dict):
+            return {}
+        return {
+            str(label): tuple(str(w) for w in words)
+            for label, words in raw.items()
+            if isinstance(words, (list, tuple)) and words
+        }
+    resolution = effective_critical(job)
+    if resolution.source != "dl":
+        return {}
+    rows = _row_words_by_label(job)
+    out: dict[str, tuple[str, ...]] = {}
+    for label in resolution.labels:
+        words: list[str] = []
+        for row_name, row_words in rows:
+            if match_must_labels([row_name], [label]):
+                words = row_words
+                break
+        requirement = gate_requirement(label)
+        if requirement is None:
+            out[label] = tuple(words) or (label,)
+            continue
+        known = {canonical_of(option) for option in requirement.options}
+        # Rdzeń z gwiazdką („bankow*”) jest zawsze dodatkowym słowem: po zdjęciu
+        # gwiazdki wyglądałby jak powtórka etykiety, a bramka szukałaby wtedy
+        # całego słowa zamiast początku — inaczej niż „Szukaj ręcznie”.
+        extra = tuple(w for w in words if "*" in w or canonical_of(w) not in known)
+        if extra:
+            out[label] = extra
+    return out
 
 
 def gate_mode() -> str:

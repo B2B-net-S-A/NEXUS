@@ -757,16 +757,27 @@ def critical_requirements(
     PostgreSQL)” spełnia którakolwiek z nazw, a nie słowa „Bazy danych”.
     """
 
-    from app.services.critical_skills import effective_critical, match_must_labels
-    from app.services.must_gate_terms import gate_requirement
+    from app.services.critical_skills import (
+        critical_gate_options,
+        effective_critical,
+        match_must_labels,
+    )
+    from app.services.must_gate_terms import requirement_with_options
 
     resolution = effective_critical(job)
     labels = set(match_must_labels(resolution.labels, [r.label for r in must]))
+    # Słowa wiersza krytycznej z wyboru DL (09.10.2026) — te same, których
+    # szuka bramka propozycji AI, przepisane na pisownię wymagań QC.
+    options: dict[str, tuple[str, ...]] = {}
+    for chosen, words in critical_gate_options(job).items():
+        for req in must:
+            if match_must_labels([chosen], [req.label]):
+                options[req.label] = words
     critical: list[Requirement] = []
     for req in must:
         if req.label not in labels:
             continue
-        gate = gate_requirement(req.label)
+        gate = requirement_with_options(req.label, options)
         critical.append(replace(req, terms=gate.options) if gate else req)
     return critical, (resolution.source if critical else "none")
 

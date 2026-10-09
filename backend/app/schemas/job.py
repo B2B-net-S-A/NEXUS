@@ -617,8 +617,14 @@ class JobPublishRequest(JobHandoffRequest):
 
     Otwarcie zamkniętej rekrutacji (i dokończenie starego szkicu) przechodzi
     tę samą bramkę co przekazanie do searchu, więc niesie przekazanie.
+
+    ``assignment_mode="keep"`` (09.10.2026, tylko tutaj — nie w ``/handoff``
+    ani przy zakładaniu): ponowne otwarcie ZAMKNIĘTEJ rekrutacji bez wyboru
+    rekrutera. Zostaje dotychczasowy; gdy go nie ma, przydziela automat albo
+    wskazuje Head of Recruitment.
     """
 
+    assignment_mode: Literal["manual", "automatic", "keep"] = "manual"
     reason: Optional[str] = Field(default=None, max_length=500)
 
 

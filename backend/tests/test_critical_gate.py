@@ -236,3 +236,122 @@ def test_evidence_labels_cover_must_scored_from_the_description(monkeypatch):
     )
     labels = dealbreaker_inputs_for_job(_job()).gate_evidence_labels
     assert {"Java", "Kafka", "Spring", "Docker"} <= set(labels)
+
+
+# ── 09.10.2026: krytyczną z wyboru DL może być dowolna fraza ────────────────
+def _phrase_job(rows=None, critical=("bankowość",)):
+    stack = {
+        "must": [{"name": "Java"}, {"name": "bankowość"}],
+        "critical": list(critical),
+    }
+    if rows is not None:
+        stack["rows"] = rows
+    return _job(
+        must_skills=["Java", "bankowość"],
+        champion_profile={"stack": stack},
+    )
+
+
+def test_phrase_chosen_by_dl_hides_people_without_its_row_words():
+    job = _phrase_job(
+        rows=[
+            {"words": ["Java"], "level": "must"},
+            {"words": ["bankowość", "bankow*", "banking"], "level": "critical"},
+        ]
+    )
+    inputs = dealbreaker_inputs_for_job(job)
+    assert _must(inputs) == ["bankowość"] and inputs.critical_source == "dl"
+    assert inputs.gate_options["bankowość"] == ("bankowość", "bankow*", "banking")
+    candidates = [
+        # Odmiana słowa z wiersza („bankowości”) w CV.
+        _cand(1, skills=["Java"], raw_cv_text="5 lat w bankowości detalicznej."),
+        # Angielski wariant z tego samego wiersza.
+        _cand(2, skills=["Java"], raw_cv_text="Core banking systems, Java 17."),
+        # Rdzeń z gwiazdką („bankow*”).
+        _cand(3, skills=["Java"], raw_cv_text="Projekty dla sektora bankowego."),
+        # Nic z wiersza — ukryty, choć zna Javę.
+        _cand(4, skills=["Java"], raw_cv_text="E-commerce i logistyka."),
+    ]
+    result = apply_dealbreakers(candidates, inputs=inputs)
+    assert [c.id for c in result.kept] == [1, 2, 3]
+    assert result.exclusion_reasons[4] == "missing_must"
+
+
+def test_phrase_without_rows_looks_for_itself():
+    inputs = dealbreaker_inputs_for_job(_phrase_job())
+    assert inputs.gate_options == {"bankowość": ("bankowość",)}
+    kept = apply_dealbreakers(
+        [
+            _cand(1, raw_cv_text="Doświadczenie: bankowość korporacyjna."),
+            _cand(2, raw_cv_text="Doświadczenie: telekomunikacja."),
+        ],
+        inputs=inputs,
+    ).kept
+    assert [c.id for c in kept] == [1]
+
+
+def test_sentence_chosen_as_critical_gates_on_the_literal_words():
+    sentence = "doświadczenie w migracji do chmury"
+    job = _job(
+        must_skills=["Java", sentence],
+        champion_profile={
+            "stack": {
+                "must": [{"name": "Java"}, {"name": sentence}],
+                "critical": [sentence],
+            }
+        },
+    )
+    inputs = dealbreaker_inputs_for_job(job)
+    assert _must(inputs) == [sentence]
+    kept = apply_dealbreakers(
+        [
+            _cand(1, raw_cv_text="Mam doświadczenie w migracji do chmury AWS."),
+            _cand(2, raw_cv_text="Migrowałem systemy do chmury."),
+        ],
+        inputs=inputs,
+    ).kept
+    assert [c.id for c in kept] == [1]
+
+
+def test_row_variants_count_for_a_technology_too():
+    job = _job(
+        critical=["Kafka"],
+    )
+    job.champion_profile["stack"]["rows"] = [
+        {"words": ["Java"], "level": "must"},
+        {"words": ["Kafka", "kolejki"], "level": "critical"},
+    ]
+    inputs = dealbreaker_inputs_for_job(job)
+    assert {k.lower(): v for k, v in inputs.gate_options.items()} == {
+        "kafka": ("kolejki",)
+    }
+    kept = apply_dealbreakers(
+        [
+            _cand(1, raw_cv_text="Systemy oparte o kolejki komunikatów."),
+            _cand(2, raw_cv_text="REST API i bazy danych."),
+        ],
+        inputs=inputs,
+    ).kept
+    assert [c.id for c in kept] == [1]
+
+
+def test_history_suggestion_never_gates_on_a_phrase():
+    # Bez decyzji DL działa podpowiedź z historii — tylko technologie ze
+    # słownika, bez słów wiersza.
+    job = _job(must_skills=["Java", "bankowość"])
+    job.champion_profile = {
+        "stack": {"must": [{"name": "Java"}, {"name": "bankowość"}]}
+    }
+    inputs = dealbreaker_inputs_for_job(job)
+    assert _must(inputs) == ["java"] and inputs.critical_source == "suggested"
+    assert inputs.gate_options == {}
+
+
+def test_sql_pool_is_not_narrowed_by_a_critical_searched_by_words():
+    from app.services.hybrid_search import build_job_must_groups
+
+    job = _phrase_job(critical=("Java", "bankowość"))
+    groups = build_job_must_groups(job)
+    flat = {name.lower() for group in groups for name in group}
+    # Technologia zawęża pulę, fraza nie — pula ⊇ bramka.
+    assert "java" in flat and not any("bankowo" in name for name in flat)

@@ -1,9 +1,9 @@
 {
-  "entry": "c0979076952698268b074ca9f130a71a8636511124daf847a19d2d20d090fefd",
+  "entry": "d05273634683ff1f3805d49abf431d159b8ce8ec9491427e263a7ea1f8253631",
   "guide": "job.champion",
   "sources": {
     "frontend/src/components/champion/ChampionBriefView.tsx": "062d537aa8949eac62aa6bd2d5988521a52754d66d4f0fb7e914a04bfb2b3b75",
     "frontend/src/components/champion/ChampionWorkspace.tsx": "20bbe6e0224b19e5810d060e61fb2ca20eab02e3002e881bcc55333b1b5bc4b8",
-    "frontend/src/components/v2/jobs/JobDetailCompactHeader.tsx": "7c9e1027d4005837bea8d1d24e3ff6a519640f58fd7d56b0d735fecc81eda16f"
+    "frontend/src/components/v2/jobs/JobDetailCompactHeader.tsx": "dba58a2c0677f2dd98631016e59c6b5f49f3c4a2664287d0144be119f24889e4"
   }
 }

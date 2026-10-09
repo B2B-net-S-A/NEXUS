@@ -58,7 +58,13 @@ function mockReadiness(readiness: Record<string, unknown>) {
 
 function renderDialog(
   mode: JobReopenMode = "reopen",
-  { cachedJob }: { cachedJob?: Record<string, unknown> } = {},
+  {
+    cachedJob,
+    recruiter = null,
+  }: {
+    cachedJob?: Record<string, unknown>;
+    recruiter?: { id: number; name?: string | null; is_active?: boolean } | null;
+  } = {},
 ) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   if (cachedJob) queryClient.setQueryData(["job", "9"], cachedJob);
@@ -73,7 +79,7 @@ function renderDialog(
         open
         onOpenChange={onOpenChange}
         mode={mode}
-        recruiter={null}
+        recruiter={recruiter}
         onOpenChampion={onOpenChampion}
         onOpenTeam={onOpenTeam}
       />
@@ -111,12 +117,19 @@ describe("JobReopenDialog", () => {
     expect(screen.getByTestId("job-reopen-submit")).toBeDisabled();
   });
 
-  it("bez braków wysyła POST /publish z automatem, kanałem i powodem", async () => {
+  it("„Otwórz ponownie” nie pyta o rekrutera: wysyła `keep` i powód (09.10.2026)", async () => {
     mockReadiness({ ready: true });
     mocks.publish.mockResolvedValue({ data: {} });
     const { onOpenChange, invalidatedKeys } = renderDialog();
 
     expect(await screen.findByText(/Niczego nie brakuje/)).toBeInTheDocument();
+    // Bez pola wyboru rekrutera i kanału — zostaje dotychczasowa osoba.
+    expect(screen.queryByTestId("job-reopen-recruiter")).toBeNull();
+    expect(screen.queryByLabelText("Kanał pracy")).toBeNull();
+    expect(screen.queryByRole("radiogroup")).toBeNull();
+    expect(screen.getByTestId("job-reopen-recruiter-note")).toHaveTextContent(
+      "Zmienisz go w zakładce „Zespół i ogłoszenie”.",
+    );
     fireEvent.change(screen.getByLabelText("Powód otwarcia (opcjonalnie)"), {
       target: { value: " klient wrócił " },
     });
@@ -125,8 +138,7 @@ describe("JobReopenDialog", () => {
 
     await waitFor(() =>
       expect(mocks.publish).toHaveBeenCalledWith(9, {
-        assignment_mode: "automatic",
-        channel: "linkedin",
+        assignment_mode: "keep",
         reason: "klient wrócił",
       }),
     );
@@ -136,6 +148,42 @@ describe("JobReopenDialog", () => {
     );
     expect(invalidatedKeys()).toEqual(
       expect.arrayContaining([["job", "9"], ["job-readiness", 9], ["kanban", "9"]]),
+    );
+  });
+
+  it("„Otwórz ponownie” mówi, kto zostaje rekruterem", async () => {
+    mockReadiness({ ready: true, allocation_enabled: false });
+    renderDialog("reopen", { recruiter: { id: 6, name: "Rekruter Drugi" } });
+    expect(await screen.findByTestId("job-reopen-recruiter-note")).toHaveTextContent(
+      "Rekruter: Rekruter Drugi — zostaje bez zmian.",
+    );
+  });
+
+  it("nieaktywne konto prowadzącego to brak rekrutera — okno nie obiecuje „bez zmian”", async () => {
+    mockReadiness({ ready: true, allocation_enabled: false });
+    renderDialog("reopen", {
+      recruiter: { id: 6, name: "Rekruter Dawny", is_active: false },
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("job-reopen-recruiter-note")).toHaveTextContent(
+        "Rekrutacja nie ma rekrutera — po otwarciu wskaże go Head of Recruitment.",
+      ),
+    );
+    expect(screen.getByTestId("job-reopen-recruiter-note")).not.toHaveTextContent("Rekruter Dawny");
+  });
+
+  it("bez rekrutera i bez automatu: wskaże go Head of Recruitment, przycisk działa", async () => {
+    mockReadiness({ ready: true, allocation_enabled: false });
+    mocks.publish.mockResolvedValue({ data: {} });
+    renderDialog();
+    await waitFor(() =>
+      expect(screen.getByTestId("job-reopen-recruiter-note")).toHaveTextContent(
+        "Rekrutacja nie ma rekrutera — po otwarciu wskaże go Head of Recruitment.",
+      ),
+    );
+    fireEvent.click(screen.getByTestId("job-reopen-submit"));
+    await waitFor(() =>
+      expect(mocks.publish).toHaveBeenCalledWith(9, { assignment_mode: "keep" }),
     );
   });
 
@@ -214,7 +262,7 @@ describe("JobReopenDialog — braki do ustawienia w oknie (08.10.2026)", () => {
     expect(screen.getByRole("checkbox", { name: "Klient nie podał" })).toBeInTheDocument();
     // Tych pól nie ma w Profilu Championa — link tam byłby ślepym zaułkiem.
     expect(screen.queryByText("Uzupełnij w Profilu Championa")).toBeNull();
-    expect(screen.queryByText(/Zespół i ogłoszenie/)).toBeNull();
+    expect(screen.queryByText(/Ustaw w zakładce „Zespół i ogłoszenie”/)).toBeNull();
   });
 
   it("„Klient nie podał” zapisuje decyzję o terminie i odświeża braki", async () => {
