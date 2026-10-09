@@ -31,7 +31,11 @@ from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User
 from app.services.email import send_email
 from app.services.notification_access import notification_recipient_has_access
-from app.services.notification_delivery import guarded_send, load_policy
+from app.services.notification_delivery import (
+    email_opted_out,
+    guarded_send,
+    load_policy,
+)
 from app.services.notification_triggers import emit
 from app.services import screening_fix_requests, stage_remarks
 from app.services.stage_handoff_recipients import (
@@ -239,6 +243,10 @@ def _send_email_for_recipient(
 ) -> None:
     if not user.email:
         logger.debug("stage_notif: email skipped — user=%s has no email", user.id)
+        return
+    if email_opted_out(user, "pipeline_stage"):
+        # Własny wyłącznik maila („Maile do Ciebie”); dzwonek zostaje.
+        logger.debug("stage_notif: email skipped — user=%s opted out", user.id)
         return
     base_url = (settings.PUBLIC_BASE_URL or "").rstrip("/")
     link = (

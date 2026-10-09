@@ -238,6 +238,23 @@ def notification_kind(notification_type: Any) -> str | None:
     }.get(getattr(notification_type, "value", notification_type))
 
 
+DIGEST_KIND = "daily_digest"
+
+
+def email_opted_out(user: Any, kind: str) -> bool:
+    """Czy konto wyłączyło sobie ten mail („Maile do Ciebie”, 0427).
+
+    Każdy nadawca pyta o to tuż przed wysyłką (strażnik:
+    `test_notification_email_prefs.py`). Poranny skrót ma własną kolumnę
+    (0425), reszta żyje w `users.email_opt_outs` jako `{rodzaj: czas}`.
+    Wyłączony mail nie zmienia dzwonka ani zadania w „Czeka na Ciebie”.
+    """
+    if kind == DIGEST_KIND:
+        return getattr(user, "daily_digest_email_enabled", True) is False
+    raw = getattr(user, "email_opt_outs", None)
+    return isinstance(raw, dict) and bool(raw.get(kind))
+
+
 # Rodzaje wysyłane natychmiast przez `tasks/notification_email_outbox.py`.
 IMMEDIATE_KINDS = (
     "dl_review",
@@ -448,6 +465,18 @@ async def _daily_digest_recipient_count(db: AsyncSession) -> int | None:
         return None
 
 
+async def _self_disabled_names(db: AsyncSession) -> dict[str, list[str]]:
+    """Kto wyłączył sobie który mail; awaria liczenia nie może zabrać ekranu."""
+    try:
+        from app.services.notification_email_prefs import opt_out_summary
+
+        async with db.begin_nested():
+            return await opt_out_summary(db)
+    except Exception:  # noqa: BLE001 — lista jest informacją, nie warunkiem
+        logger.warning("email opt-out summary failed", exc_info=True)
+        return {}
+
+
 async def admin_view(db: AsyncSession) -> dict[str, Any]:
     from app.services.m365 import app_mail, mail_circuit
     from app.services.m365.system_mail import get_system_sender_connection
@@ -502,6 +531,7 @@ async def admin_view(db: AsyncSession) -> dict[str, Any]:
             cooldown_until=None,
         )
     delegated = await get_system_sender_connection(db)
+    self_disabled = await _self_disabled_names(db)
     types = []
     for spec in CATALOG:
         kind = spec["id"]
@@ -514,6 +544,9 @@ async def admin_view(db: AsyncSession) -> dict[str, Any]:
                 **spec,
                 email_enabled=policy.types.get(kind, {}).get("email_enabled") is True,
                 effective_enabled=policy.kind_enabled(kind),
+                # Kto wyłączył ten mail sobie („Maile do Ciebie”) — żeby admin
+                # widział, że firmowe „włączone” nie znaczy „dostają wszyscy”.
+                self_disabled=self_disabled.get(kind, []),
                 send_not_before=cutoff.isoformat() if cutoff else None,
                 channels=["email"]
                 if kind in REPORT_KINDS or kind == "application_confirmation"
@@ -537,6 +570,7 @@ async def admin_view(db: AsyncSession) -> dict[str, Any]:
                 recipient_rule="Właściciel konta, którego dotyczy żądanie.",
                 email_enabled=True,
                 effective_enabled=True,
+                self_disabled=[],
                 send_not_before=None,
                 channels=["email"],
                 sender=provider["sender"],

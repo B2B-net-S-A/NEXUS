@@ -3340,6 +3340,22 @@ wszystkich). Makiety: https://claude.ai/artifact/TRKAAZX3RcB8AA7LVohkT8, raport
   (0425 + lustro w `entrypoint.sh`), `PATCH /api/users/me/preferences`, filtr
   w `daily_digest_email._recipients`. Nie dokładaj kolejnego wyłącznika „dla
   wszystkich”, gdy ktoś chce wyłączyć coś sobie.
+- **„Maile do Ciebie” — każdy widzi i wyłącza swoje maile (0427, decyzja Artura
+  09.10.2026).** Do tej daty rekruter nie widział w „Moje”, które maile do
+  niego idą (lista była tylko w zakładce admina). Teraz
+  `GET/PUT /api/users/me/email-notifications[/{kind}]`
+  (`services/notification_email_prefs.py`): `APPLIES` mówi, czy mail w ogóle
+  może trafić do konta (lustro reguł odbiorców u nadawców), stan wiersza
+  i zdanie wyjaśnienia liczy serwer (`on`, `self_off`, `company_off`,
+  `bell_muted`, `role_muted`). Wyłączyć sobie da się KAŻDY mail, także
+  mail-zadanie — dzwonek i „Czeka na Ciebie” zostają; zawsze przychodzą tylko
+  maile bezpieczeństwa konta. Wyłączenia żyją w `users.email_opt_outs`
+  (`{rodzaj: czas}`), skrót zostaje przy swojej kolumnie.
+  **Każdy nadawca pyta `notification_delivery.email_opted_out(user, rodzaj)`
+  tuż przed wysyłką** — nowy rodzaj maila = wpis w `CATALOG`, reguła
+  w `APPLIES` i to pytanie u nadawcy (pilnuje
+  `test_notification_email_prefs.py`, strażnik AST). Admin widzi w „Maile”,
+  kto wyłączył który mail sobie (`self_disabled`).
 - Testy tabeli ról na wspólnej bazie sprzątają wiersz `app_settings` (fixture
   `clean_role_mutes`) — zostawione wyłączenie ucinałoby powiadomienia adminom
   w cudzych testach. Harness `/preview/notification-settings`.

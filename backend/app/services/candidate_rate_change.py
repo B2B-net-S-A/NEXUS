@@ -44,7 +44,11 @@ from app.services.board_stage_badges import board_column_for
 from app.services.candidate_rate_change_schema import OPEN_STATUSES
 from app.services.candidate_rate_observations import hourly_from_unit
 from app.services.notification_access import notification_recipient_has_access
-from app.services.notification_delivery import guarded_send, load_policy
+from app.services.notification_delivery import (
+    email_opted_out,
+    guarded_send,
+    load_policy,
+)
 from app.services.recruitment_process_commands import update_latest_expected_rate
 
 logger = logging.getLogger(__name__)
@@ -476,6 +480,8 @@ async def _notify(
         if (
             task
             and user.email
+            # Własny wyłącznik maila („Maile do Ciebie”); zadanie zostaje.
+            and not email_opted_out(user, EMAIL_KIND)
             and policy is not None
             and policy.allows(EMAIL_KIND, change.created_at)
             and await notification_recipient_has_access(

@@ -54,7 +54,11 @@ from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
 from app.models.notification import Notification, NotificationType
 from app.models.user import User
 from app.services.email import email_channel_enabled, send_email
-from app.services.notification_delivery import guarded_send, load_policy
+from app.services.notification_delivery import (
+    email_opted_out,
+    guarded_send,
+    load_policy,
+)
 from app.services.m365.system_mail import (
     get_system_sender_connection,
     DELIVERY_UNCERTAIN,
@@ -318,6 +322,8 @@ async def _dispatch_emails(db: AsyncSession) -> int:
         # Re-check bieżących uprawnień do domeny kandydatów zanim poleci PII.
         if (
             not user.email
+            # Własny wyłącznik maila („Maile do Ciebie”); dzwonek zostaje.
+            or email_opted_out(user, "job_deadline")
             or not user_can_access_candidate_domain(user)
             or not user_can_receive_notification(
                 user,
@@ -330,10 +336,13 @@ async def _dispatch_emails(db: AsyncSession) -> int:
         if not await _claim_email(db, notif.id):
             continue
         # Stan roli/konta mógł się zmienić między SELECT-em a claimem.
-        await db.refresh(user, attribute_names=["role", "roles", "is_active"])
+        await db.refresh(
+            user, attribute_names=["role", "roles", "is_active", "email_opt_outs"]
+        )
         await resolve_effective_section_access(db, user)
         if (
             not user.is_active
+            or email_opted_out(user, "job_deadline")
             or not user_can_access_candidate_domain(user)
             or not user_can_receive_notification(
                 user,

@@ -50,6 +50,7 @@ from app.models.user import User, UserRole
 from app.services import loop_heartbeat
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.effective_access import resolve_effective_access
+from app.services.notification_delivery import email_opted_out
 from app.services.section_permissions import (
     ProductSection,
     SectionAccess,
@@ -336,6 +337,9 @@ async def _weekly_mails(db: AsyncSession, now_local: datetime) -> list[_Mail]:
     label = f"{first_day:%d.%m}–{last_day:%d.%m.%Y}"
     mails: list[_Mail] = []
     for user in await _recipients(db, (UserRole.head_of_recruitment,)):
+        # Własny wyłącznik maila („Maile do Ciebie”).
+        if email_opted_out(user, "kpi_weekly_report"):
+            continue
         scope = await resolve_dashboard_scope(user, db)
         # Runda 9 (R9-N6-5): zakres `organization` (HoR z rolą admin) ma pusty
         # `allowed_operator_user_ids` — pusty zbiór to TWARDY zakres „nikt”,
@@ -364,7 +368,12 @@ async def _monthly_mails(
     from app.services.insights_board import compute_board
     from app.services.insights_board_yoy import compute_board_yoy, resolve_years
 
-    recipients = await _board_recipients(db)
+    recipients = [
+        user
+        for user in await _board_recipients(db)
+        # Własny wyłącznik maila („Maile do Ciebie”).
+        if not email_opted_out(user, "board_monthly_report")
+    ]
     if not recipients:
         return []
     year, month = (int(part) for part in period_key.split("-"))

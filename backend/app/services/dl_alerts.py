@@ -978,7 +978,11 @@ async def send_pending_alert_emails(db: AsyncSession) -> int:
     from sqlalchemy import or_
 
     from app.services.email import email_channel_enabled, send_email
-    from app.services.notification_delivery import guarded_send, load_policy
+    from app.services.notification_delivery import (
+        email_opted_out,
+        guarded_send,
+        load_policy,
+    )
     from app.services.m365.system_mail import (
         DELIVERY_UNCERTAIN,
         app_mail_send_outcome,
@@ -1041,6 +1045,9 @@ async def send_pending_alert_emails(db: AsyncSession) -> int:
         # sprawy w panelu, ale nie w skrzynce — `for_client` (bramka maili, nie
         # dzwonka) wpuszcza adminów.
         if not user.has_any_role(UserRole.delivery_lead):
+            continue
+        # Własny wyłącznik maila („Maile do Ciebie”); karta w panelu zostaje.
+        if email_opted_out(user, "delivery_alert"):
             continue
         claimed = await db.execute(
             update(DlAlert)

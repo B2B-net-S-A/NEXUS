@@ -6,7 +6,7 @@ to populate a recruiter/owner picker. Always excludes inactive accounts and
 read-only (`user` role) viewers — neither is a legitimate job owner.
 """
 
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -17,6 +17,7 @@ from app.core.database import get_db
 from app.models.user import User, UserRole, known_roles
 from app.api.deps import OperationalUser, CurrentUser
 from app.schemas.job import UserBrief
+from app.services import notification_email_prefs
 from app.services.jarvis.prefs import (
     UNLOCKABLE_CHARACTERS,
     JarvisPrefs,
@@ -277,3 +278,76 @@ async def update_my_preferences(
         await db.refresh(current_user)
 
     return await _preferences_response(db, current_user)
+
+
+# ── „Maile do Ciebie” (0427) ───────────────────────────────────────────────
+#
+# Lista maili stała do 09.10.2026 tylko w zakładce administratora (polityka
+# całej firmy). Tu każde konto widzi swoje maile i każdy z nich wyłącza sobie.
+
+
+class MyEmailNotification(BaseModel):
+    id: str
+    label: str
+    description: str
+    company_enabled: bool
+    self_enabled: bool
+    # Wynik końcowy: firmowo włączony, niewyłączony przez konto i bez blokady.
+    receiving: bool
+    state: Literal["on", "self_off", "company_off", "bell_muted", "role_muted"]
+    note: Optional[str] = None
+
+
+class MyEmailRef(BaseModel):
+    id: str
+    label: str
+
+
+class MyAlwaysOnEmail(MyEmailRef):
+    description: str
+
+
+class MyEmailNotificationsResponse(BaseModel):
+    # `false` = wysyłka maili z NEXUSA nie jest teraz skonfigurowana.
+    channel_ready: bool
+    items: List[MyEmailNotification]
+    not_applicable: List[MyEmailRef]
+    always_on: List[MyAlwaysOnEmail]
+
+
+class MyEmailNotificationUpdate(BaseModel):
+    enabled: bool
+
+
+@router.get("/me/email-notifications", response_model=MyEmailNotificationsResponse)
+async def get_my_email_notifications(
+    current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+):
+    """Które maile dostaje bieżące konto i które są wyłączone (i przez kogo)."""
+    return await notification_email_prefs.my_view(db, current_user)
+
+
+@router.put(
+    "/me/email-notifications/{kind}", response_model=MyEmailNotificationsResponse
+)
+async def set_my_email_notification(
+    kind: str,
+    payload: MyEmailNotificationUpdate,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Włącz albo wyłącz jeden mail tylko temu kontu (dzwonek bez zmian)."""
+    try:
+        await notification_email_prefs.set_enabled(
+            db, current_user, kind, payload.enabled
+        )
+    except notification_email_prefs.UnknownEmailKind as exc:
+        raise HTTPException(status_code=422, detail="Nie ma takiego maila.") from exc
+    except notification_email_prefs.EmailKindNotApplicable as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="Ten mail nie trafia do Twojego konta, więc nie ma czego wyłączać.",
+        ) from exc
+    await db.commit()
+    await db.refresh(current_user)
+    return await notification_email_prefs.my_view(db, current_user)

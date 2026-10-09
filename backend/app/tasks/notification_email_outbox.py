@@ -12,7 +12,8 @@ i wysyła je wzorcem `job_deadline_alerts`: rezerwacja `email_send_started_at`
 przed wysyłką, stempel po potwierdzeniu, wynik niepewny = bez ponowienia.
 Wysyłka szanuje politykę z Ustawień (rodzaj włączony i próg
 `send_not_before` — po włączeniu nie wychodzą zaległości) oraz wyciszenia
-kategorii osoby (`user_can_receive_notification`). Powiadomienie starsze niż
+kategorii osoby (`user_can_receive_notification`) i jej własne wyłączniki
+maili (`email_opted_out`). Powiadomienie starsze niż
 `MAX_AGE` nie idzie mailem — po dniu przerwy w wysyłce mail byłby już tylko
 przypomnieniem o rzeczy załatwionej.
 """
@@ -36,6 +37,7 @@ from app.services.m365.system_mail import DELIVERY_UNCERTAIN, app_mail_send_outc
 from app.services.notification_access import user_can_receive_notification
 from app.services.notification_delivery import (
     IMMEDIATE_KINDS,
+    email_opted_out,
     guarded_send,
     immediate_email_kind,
     load_policy,
@@ -112,10 +114,12 @@ async def _set(db: AsyncSession, notif_id: int, **values) -> None:
     await db.commit()
 
 
-def _can_receive(user: User, notif: Notification) -> bool:
+def _can_receive(user: User, notif: Notification, kind: str) -> bool:
     return bool(
         user.is_active
         and user.email
+        # Własny wyłącznik maila („Maile do Ciebie”); dzwonek zostaje.
+        and not email_opted_out(user, kind)
         and user_can_receive_notification(
             user,
             notif.notification_type,
@@ -173,7 +177,7 @@ async def dispatch(db: AsyncSession) -> int:
             title=notif.title,
             related_entity_type=notif.related_entity_type,
         )
-        if kind not in kinds or not _can_receive(user, notif):
+        if kind not in kinds or not _can_receive(user, notif, kind):
             # Bez rezerwacji: wiersz wypadnie z kolejki po `MAX_AGE`.
             continue
         if not await _claim(db, notif.id):
@@ -186,10 +190,11 @@ async def dispatch(db: AsyncSession) -> int:
                 "roles",
                 "is_active",
                 "muted_notification_categories",
+                "email_opt_outs",
             ],
         )
         await resolve_effective_section_access(db, user)
-        if not _can_receive(user, notif):
+        if not _can_receive(user, notif, kind):
             await _set(db, notif.id, email_send_started_at=None)
             continue
 

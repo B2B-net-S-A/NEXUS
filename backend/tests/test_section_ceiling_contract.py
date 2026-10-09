@@ -49,6 +49,8 @@ _SECTIONLESS_ALLOWLIST: dict[str, str] = {
     "GET /api/users/me/onboarding/jobs": "lista rekrutacji w kroku onboardingu, poprzedza sekcje",
     "GET /api/users/me/preferences": "własne preferencje interfejsu, bez danych domenowych",
     "PATCH /api/users/me/preferences": "zapis własnych preferencji interfejsu",
+    "GET /api/users/me/email-notifications": "własne maile konta: nazwy maili i ich stan, bez danych domenowych",
+    "PUT /api/users/me/email-notifications/{kind}": "własny wyłącznik jednego maila konta, bez danych domenowych",
     "GET /api/users/me/dashboard": "własny układ kafelków pulpitu; dane kafelków mają własne bramki sekcji",
     "PUT /api/users/me/dashboard": "zapis własnego układu kafelków pulpitu, bez danych domenowych",
     "PUT /api/users/me/dashboard/panels/{panel}": "własny pulpit: usunięcie albo przywrócenie listy nad kafelkami, bez danych domenowych",
@@ -134,7 +136,10 @@ def _classify(route: Any) -> str:
     for call, name in zip(calls, names):
         if "require_section_access" in name or name in _SECTION_AWARE_HELPERS:
             return "section"
-        if "require_candidate_roles" in name or name == "require_candidate_finance_read":
+        if (
+            "require_candidate_roles" in name
+            or name == "require_candidate_finance_read"
+        ):
             return "section"
         if "require_capability" in name:
             return "section"
