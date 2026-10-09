@@ -101,7 +101,11 @@ def build_request_context(job, profile: WeightProfile) -> RequestMatchingContext
         stored_contract,
     )
 
-    from app.services.critical_skills import effective_critical, gate_mode
+    from app.services.critical_skills import (
+        critical_gate_options,
+        effective_critical,
+        gate_mode,
+    )
 
     values = {name: getattr(job, name, None) for name in _JOB_FIELDS}
     # Krytyczne zamrożone w żądaniu (30.09.2026): profil niżej traci pole
@@ -115,6 +119,15 @@ def build_request_context(job, profile: WeightProfile) -> RequestMatchingContext
         "suggested": list(resolution.suggested),
         "decided": resolution.decided,
     }
+    # Słowa wierszy krytycznych z wyboru DL (09.10.2026) — klucz tylko wtedy,
+    # gdy coś niesie. Odcisk KAŻDEJ rekrutacji zmienia i tak podbicie
+    # `MUST_GATE_POLICY_VERSION` (v11), ale kolejne zmiany słów wiersza
+    # dotykają już tylko rekrutacji z wyborem Delivery Leada.
+    gate_options = critical_gate_options(job)
+    if gate_options:
+        values["critical_effective"]["options"] = {
+            label: list(words) for label, words in gate_options.items()
+        }
     if isinstance(values["champion_profile"], dict):
         from app.services import champion_view
 

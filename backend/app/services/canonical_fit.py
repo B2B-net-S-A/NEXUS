@@ -88,10 +88,11 @@ async def _attach_missing_evidence(db, job, candidates) -> None:
     from app.services.dealbreaker_filters import dealbreaker_inputs_for_job
     from app.services.must_text_evidence import attach_gate_evidence, evidence_for
 
-    labels = dealbreaker_inputs_for_job(job).gate_evidence_labels
+    inputs = dealbreaker_inputs_for_job(job)
+    labels = inputs.gate_evidence_labels
     missing = [c for c in candidates if evidence_for(c, labels) is None]
     if missing:
-        await attach_gate_evidence(db, missing, labels)
+        await attach_gate_evidence(db, missing, labels, options=inputs.gate_options)
 
 
 async def score_candidates(db, context: RequestMatchingContext, candidates):

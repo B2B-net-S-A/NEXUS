@@ -95,8 +95,8 @@ MSG_MODEL_FAILED = (
     "Uzupełnij resztę ręcznie."
 )
 MSG_NOTHING_FOUND = (
-    "W notatce nie ma nic, co pasowałoby do pól karty ani pytań — uzupełnij "
-    "kartę ręcznie."
+    "W notatce nie ma nic, co pasowałoby do pól screeningu ani pytań — "
+    "uzupełnij formularz ręcznie."
 )
 MSG_PHRASE_FAILED = "Luna nie odpowiedziała — zostaw hasła albo spróbuj ponownie."
 
@@ -518,7 +518,7 @@ async def read_note(
     """
     note = note_text(content)
     if len(note) < NOTE_MIN_CHARS:
-        raise NoteTooShort("Notatka ma za mało tekstu, żeby wypełnić z niej kartę.")
+        raise NoteTooShort("Notatka ma za mało tekstu, żeby wypełnić z niej screening.")
 
     process = await candidate_claim.load_process(
         db, candidate_id=candidate.id, job_id=job.id

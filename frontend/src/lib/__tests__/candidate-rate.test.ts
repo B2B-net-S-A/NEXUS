@@ -62,7 +62,7 @@ describe("candidate-rate", () => {
   });
 
   it("names sources and reasons", () => {
-    expect(rateSourceLabel("card")).toBe("Karta rekomendacji");
+    expect(rateSourceLabel("card")).toBe("Screening (z notatki)");
     expect(rateSourceLabel("profile_something_new")).toBe("Profil");
     // Wpis DL-a „X/Y” — źródło ma polską nazwę, nie surowe „note”.
     expect(rateSourceLabel("note")).toBe("Notatka Delivery Leada");

@@ -1187,14 +1187,27 @@ def response_context(job):
 
 def critical_resolution_payload(job) -> dict:
     """Krytyczne dla ekranu: decyzja DL, podpowiedź i to, na czym działa bramka."""
-    from app.services.critical_skills import effective_critical, stored_critical
+    from app.services.critical_skills import (
+        critical_gate_options,
+        effective_critical,
+        stored_critical,
+    )
     from app.services.keyword_suggest import requirement_search_words
+    from app.services.keyword_terms import keyword_long_enough
 
     resolution = effective_critical(job)
+    by_words = critical_gate_options(job)
     rows: list[list[str]] = []
     skipped: list[str] = []
     for label in resolution.labels:
-        words = requirement_search_words(label)
+        words = list(requirement_search_words(label))
+        # Słowa wiersza krytycznej z wyboru DL (09.10.2026): „Szukaj ręcznie”
+        # wymaga tego samego, czego szuka bramka propozycji AI.
+        seen = {word.casefold() for word in words}
+        for word in by_words.get(label, ()):
+            if word.casefold() not in seen and keyword_long_enough(word):
+                seen.add(word.casefold())
+                words.append(word)
         if words:
             rows.append(list(words))
         else:

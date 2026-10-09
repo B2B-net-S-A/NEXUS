@@ -1533,13 +1533,14 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
     ),
     JarvisTool(
         name="get_recommendation_card",
-        label="Czytam kartę rekomendacji",
+        label="Czytam screening",
         description=(
-            "Karta rekomendacji kandydata w rekrutacji: stawka, dostępność, tryb "
-            "pracy, lokalizacja, angielski, praca u klienta, red flags, motywacja, "
-            "notatka rekrutera, odpowiedzi na pytania z Profilu Championa oraz czego "
-            "na karcie brakuje. Użyj, gdy pytanie dotyczy tego, co ustalono "
-            "z kandydatem w tej rekrutacji albo czy karta jest gotowa do wysyłki."
+            "Screening kandydata w rekrutacji: stawka, dostępność, tryb pracy, "
+            "lokalizacja, angielski, praca u klienta, red flags, motywacja, ocena "
+            "rekrutera, odpowiedzi na pytania z Profilu Championa oraz których pól "
+            "brakuje. Użyj, gdy pytanie dotyczy tego, co ustalono z kandydatem "
+            "w tej rekrutacji albo czy screening jest kompletny przed wysyłką. "
+            "W odpowiedzi mów „screening”, nie „karta rekomendacji”."
         ),
         input_schema=_schema(
             {"candidate_id": INT, "job_id": INT}, ("candidate_id", "job_id")

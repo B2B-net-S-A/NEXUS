@@ -1,12 +1,13 @@
 "use client";
 
 /**
- * Podglądy TYLKO DO ODCZYTU dla sekcji „Screening" i „CV" panelu osoby.
+ * Podgląd TYLKO DO ODCZYTU dla sekcji „CV" panelu osoby.
  *
- * Warsztaty (`ScreeningWorkbench`, `CvHandoffWorkbench`) prowadzą osobę stojącą
- * na SWOIM etapie. Osoba, która poszła dalej, ma jednak zapisany arkusz
- * i wysłane CV — dok kanbana pozwalał je otworzyć z dowolnego etapu, więc
- * panel nie może w tym miejscu mówić „dostępne na etapie X".
+ * Warsztat (`CvHandoffWorkbench`) prowadzi osobę stojącą na SWOIM etapie.
+ * Osoba, która poszła dalej, ma jednak wysłane CV — dok kanbana pozwalał je
+ * otworzyć z dowolnego etapu, więc panel nie może w tym miejscu mówić
+ * „dostępne na etapie X". Zapisany screening pokazuje od 09.10.2026 wspólny
+ * widok `ScreeningSummaryView` (ten plik miał wcześniej `SavedScreeningView`).
  *
  * Te same trasy i te same klucze zapytań co dok kanbana
  * (`PipelineCandidateDock`): odpowiedź jest wspólna dla obu widoków.
@@ -15,11 +16,10 @@
 import { CV_CLIENT_LINKS_UI_ENABLED } from "@/lib/cv-generator";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, FileText, Loader2 } from "lucide-react";
+import { FileText, Loader2 } from "lucide-react";
 
 import {
   candidateStageCvApi,
-  screeningApi,
   type CVOriginalSnapshot,
   type CVShareTokensForRecruitment,
   type CVShareTokenListItem,
@@ -28,8 +28,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
-import { ScreeningAnswersList } from "@/components/v2/screening/ScreeningAnswersList";
-import { countPl } from "@/lib/plural-pl";
 import { formatDate } from "@/lib/utils";
 
 function LoadError({ what, onRetry }: { what: string; onRetry: () => void }) {
@@ -41,66 +39,6 @@ function LoadError({ what, onRetry }: { what: string; onRetry: () => void }) {
         Ponów
       </button>
     </p>
-  );
-}
-
-const FIT_LABEL = { fit: "Pasuje", uncertain: "Niepewne", miss: "Nie pasuje" } as const;
-const FIT_VARIANT = { fit: "success", uncertain: "warning", miss: "danger" } as const;
-
-/** Zapisany arkusz Championa osoby, która nie stoi już na etapie „Screening". */
-export function SavedScreeningView({ item, stageLabel }: { item: KanbanItem; stageLabel: string }) {
-  const query = useQuery({
-    queryKey: ["pipeline-stage-screening", item.id],
-    queryFn: () => screeningApi.getForStage(item.id).then((r) => r.data),
-    staleTime: 30_000,
-  });
-  const answers = query.data?.screening_answers ?? null;
-
-  return (
-    <section aria-label="Zapisany screening" className="space-y-3 text-[13px]">
-      <p className="text-xs text-muted-foreground">
-        Ta osoba jest dziś na etapie „{stageLabel}” — arkusz screeningu jest tylko do odczytu.
-      </p>
-      {query.isLoading ? (
-        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Loader2 className="size-3 animate-spin" aria-hidden /> Wczytywanie…
-        </p>
-      ) : query.isError ? (
-        <LoadError what="zapisany screening" onRetry={() => void query.refetch()} />
-      ) : query.isSuccess && !answers ? (
-        <p className="rounded-lg border border-dashed border-border bg-muted/20 px-3 py-4 text-center text-xs text-muted-foreground">
-          Dla tej osoby nie zapisano arkusza screeningu w tej rekrutacji.
-        </p>
-      ) : answers ? (
-        <>
-          <div className="space-y-1.5 rounded-lg border border-border bg-muted/20 p-3 text-xs">
-            <div className="flex items-center justify-between">
-              <span className="font-medium text-foreground">Wynik</span>
-              <Badge size="sm" variant={FIT_VARIANT[answers.overall_fit]}>
-                {FIT_LABEL[answers.overall_fit]}
-              </Badge>
-            </div>
-            <div className="text-muted-foreground">
-              Odpowiedziano na {countPl(answers.answers.length, "pytanie", "pytania", "pytań")}
-              {answers.answers.some((a) => a.deal_breaker_hit) ? (
-                <span className="ml-1 inline-flex items-center gap-0.5 text-destructive">
-                  <AlertTriangle className="size-3" aria-hidden /> deal-breaker trafiony
-                </span>
-              ) : null}
-            </div>
-            {answers.answered_at ? (
-              <div className="text-muted-foreground">Wypełniono {formatDate(answers.answered_at)}</div>
-            ) : null}
-          </div>
-          <ScreeningAnswersList
-            answers={answers.answers}
-            experienceChecks={answers.experience_checks}
-            notes={answers.notes}
-            internalNote={answers.internal_note}
-          />
-        </>
-      ) : null}
-    </section>
   );
 }
 

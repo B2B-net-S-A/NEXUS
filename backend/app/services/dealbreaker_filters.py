@@ -38,7 +38,7 @@ dla których odmawia go warstwa salary (brak polityki konwersji).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional, Sequence
+from typing import Mapping, Optional, Sequence
 
 from app.core.config import settings
 
@@ -235,6 +235,17 @@ class DealbreakerInputs:
     # z tą flagą, które zespół zweryfikował do biura, wysłano do klienta).
     # Domyślnie True: wołający bez `inputs` zachowuje się jak dotąd.
     remote_only_hides: bool = True
+    # Słowa wierszy krytycznych z wyboru Delivery Leada (09.10.2026): etykieta
+    # → słowa, których bramka szuka w profilu, CV i notatkach. Dzięki nim
+    # krytyczna może być dowolna fraza, nie tylko nazwa technologii
+    # (`critical_skills.critical_gate_options`). Krotka par — dataclass
+    # pozostaje haszowalna.
+    critical_options: tuple[tuple[str, tuple[str, ...]], ...] = ()
+
+    @property
+    def gate_options(self) -> dict[str, tuple[str, ...]]:
+        """``critical_options`` jako słownik dla funkcji dowodu."""
+        return dict(self.critical_options)
 
     @property
     def gate_evidence_labels(self) -> tuple[str, ...]:
@@ -271,6 +282,7 @@ def missing_must_skills(
     include_unknown: bool = False,
     verification_job_id=None,
     verification_fingerprint=None,
+    options: Optional[Mapping[str, Sequence[str]]] = None,
 ) -> list[str]:
     """Must-have, których kandydat NIE MA nigdzie: profil, CV, notatki.
 
@@ -287,7 +299,7 @@ def missing_must_skills(
     """
     if not must:
         return []
-    from app.services.must_gate_terms import gate_requirement
+    from app.services.must_gate_terms import requirement_with_options
     from app.services.must_text_evidence import evidence_for, text_met_labels
     from app.services.requirement_verification import reviewed_gate_status
     from app.services.scoring_service import candidate_skill_names, skill_present
@@ -308,15 +320,15 @@ def missing_must_skills(
         if review == "not_met" or (review == "unknown" and include_unknown):
             missing.append(label)
             continue
-        requirement = gate_requirement(label)
-        options = requirement.options if requirement else (label,)
+        requirement = requirement_with_options(label, options)
+        names = requirement.options if requirement else (label,)
         if skill_present(label, cand_skills) or any(
-            skill_present(option, cand_skills) for option in options
+            skill_present(name, cand_skills) for name in names
         ):
             continue
         if text_met is None:
             # Bez dołączonego dowodu (testy, ścieżki bez bazy) — profil i CV.
-            text_met = text_met_labels(candidate, must)
+            text_met = text_met_labels(candidate, must, options=options)
         if label in text_met:
             continue
         missing.append(label)
@@ -570,13 +582,25 @@ def dealbreaker_inputs_for_job(job) -> DealbreakerInputs:
     declared_must = tuple(job_explicit_must_skills(job))
     eligible_must = tuple(gate_eligible_must_skills(declared_must))
     critical_source: Optional[str] = None
-    from app.services.critical_skills import effective_critical, gate_mode
+    critical_options: dict[str, tuple[str, ...]] = {}
+    from app.services.critical_skills import (
+        critical_gate_options,
+        effective_critical,
+        gate_mode,
+    )
 
     if gate_mode() == "critical":
         # 30.09.2026: ukrywają tylko umiejętności krytyczne (decyzja DL albo
         # podpowiedź z historii); reszta must daje punkty (audyt B1/B2).
         resolution = effective_critical(job)
-        must = tuple(m for m in eligible_must if m in set(resolution.labels))
+        chosen = set(resolution.labels)
+        if resolution.source == "dl":
+            # 09.10.2026: o tym, co jest krytyczne, decyduje Delivery Lead —
+            # także fraza spoza technologii. Szukamy wtedy słów jej wiersza.
+            must = tuple(m for m in declared_must if m in chosen)
+            critical_options = critical_gate_options(job)
+        else:
+            must = tuple(m for m in eligible_must if m in chosen)
         critical_source = resolution.source
     else:
         must = eligible_must
@@ -633,6 +657,7 @@ def dealbreaker_inputs_for_job(job) -> DealbreakerInputs:
         critical_source=critical_source,
         evidence_labels=evidence_labels,
         remote_only_hides=remote_only_hides,
+        critical_options=tuple(critical_options.items()),
     )
 
 
@@ -867,6 +892,7 @@ def apply_dealbreakers(
             include_unknown=effective_inputs.exclude_unknown_skill_evidence,
             verification_job_id=effective_inputs.verification_job_id,
             verification_fingerprint=effective_inputs.verification_fingerprint,
+            options=effective_inputs.gate_options,
         ):
             from app.services.must_text_evidence import evidence_for, has_any_data
 

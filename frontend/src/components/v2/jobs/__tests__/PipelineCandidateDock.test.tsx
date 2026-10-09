@@ -17,7 +17,9 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const getForStage = vi.fn();
+// 09.10.2026: sekcja „Screening” czyta stan formularza pary
+// (`GET /api/screening-form`), nie arkusz etapu.
+const formGet = vi.fn();
 const originalGet = vi.fn();
 const brandedGet = vi.fn();
 const pairCvGet = vi.fn();
@@ -33,7 +35,8 @@ vi.mock("next/dynamic", () => ({ default: () => () => null }));
 vi.mock("@/lib/api", () => ({
   __esModule: true,
   default: {
-    get: (...a: unknown[]) => apiGet(...a),
+    get: (url: string, ...rest: unknown[]) =>
+      url === "/api/screening-form" ? formGet(url, ...rest) : apiGet(url, ...rest),
     post: (...a: unknown[]) => apiPost(...a),
   },
   candidatesApi: {
@@ -43,9 +46,6 @@ vi.mock("@/lib/api", () => ({
     original: { get: (...a: unknown[]) => originalGet(...a) },
     branded: { get: (...a: unknown[]) => brandedGet(...a) },
     share: { listForRecruitment: (...a: unknown[]) => pairCvGet(...a) },
-  },
-  screeningApi: {
-    getForStage: (...a: unknown[]) => getForStage(...a),
   },
   extractErrorMsg: (e: unknown) => (e instanceof Error ? e.message : "Błąd"),
 }));
@@ -108,6 +108,13 @@ import { PipelineCandidateDock, nowSectionForStage } from "@/components/v2/jobs/
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WorkbenchBelowTabsContext } from "@/components/v2/person/WorkbenchBelowTabs";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
+import { formState } from "@/components/v2/screening-form/__tests__/screening-form-fixtures";
+import type { ScreeningFormState } from "@/lib/api/screeningForm";
+
+/** Stan formularza screeningu pary z doku (kandydat 42, rekrutacja 10, wiersz etapu 501). */
+function dockForm(overrides: Partial<ScreeningFormState> = {}): ScreeningFormState {
+  return formState({ candidate_id: 42, job_id: 10, stage_id: 501, ...overrides });
+}
 
 function baseItem(overrides: Partial<KanbanItem> = {}): KanbanItem {
   return {
@@ -176,15 +183,7 @@ describe("PipelineCandidateDock", () => {
     pairCvGet.mockResolvedValue({
       data: { items: [], branded_cv: { status: "none", stage_id: null, stage_name: null, finalized_at: null } },
     });
-    getForStage.mockResolvedValue({
-      data: {
-        stage_id: 501,
-        candidate_id: 42,
-        job_id: 10,
-        champion_profile: {},
-        screening_answers: null,
-      },
-    });
+    formGet.mockResolvedValue({ data: dockForm() });
     originalGet.mockResolvedValue({
       data: {
         candidate_stage_id: 501,
@@ -431,7 +430,7 @@ describe("PipelineCandidateDock — nawigator, oś czasu i główna akcja", () =
     pairCvGet.mockResolvedValue({
       data: { items: [], branded_cv: { status: "none", stage_id: null, stage_name: null, finalized_at: null } },
     });
-    getForStage.mockResolvedValue({ data: { screening_answers: null } });
+    formGet.mockResolvedValue({ data: dockForm() });
     originalGet.mockResolvedValue({ data: { has_snapshot: false } });
     brandedGet.mockResolvedValue({ data: { status: "none" } });
     candidatesGet.mockResolvedValue({
@@ -716,7 +715,7 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
     pairCvGet.mockResolvedValue({
       data: { items: [], branded_cv: { status: "none", stage_id: null, stage_name: null, finalized_at: null } },
     });
-    getForStage.mockResolvedValue({ data: { screening_answers: null } });
+    formGet.mockResolvedValue({ data: dockForm() });
     originalGet.mockResolvedValue({ data: { has_snapshot: false } });
     brandedGet.mockResolvedValue({ data: { status: "none" } });
     candidatesGet.mockResolvedValue({ data: { email: "anna@example.com" } });
@@ -1098,39 +1097,36 @@ describe("PipelineCandidateDock — awaria odczytu to nie pustka", () => {
 
   it("screening: 500 daje „Nie udało się wczytać” z Ponów", async () => {
     const user = userEvent.setup();
-    getForStage.mockRejectedValue(new Error("500"));
+    formGet.mockRejectedValue(new Error("500"));
     apiGet.mockResolvedValue({ data: { items: [] } });
     renderDock({ item: baseItem({ stage: "new" }) });
 
     expect(await screen.findByText(/Nie udało się wczytać: screening/)).toBeTruthy();
-    expect(screen.queryByText(/Brak jeszcze wypełnionego screeningu/)).toBeNull();
+    // Awaria nie wygląda jak pusty screening.
+    expect(screen.queryByTestId("screening-form-readonly")).toBeNull();
 
-    getForStage.mockResolvedValue({
-      data: { stage_id: 501, candidate_id: 42, job_id: 10, champion_profile: {}, screening_answers: null },
-    });
+    formGet.mockResolvedValue({ data: dockForm() });
     await user.click(screen.getByRole("button", { name: "Ponów" }));
-    expect(await screen.findByText(/Brak jeszcze wypełnionego screeningu/)).toBeTruthy();
+    expect(await screen.findByTestId("screening-form-readonly")).toBeTruthy();
   });
 
   // 02.10.2026: dok mówił tylko „Odpowiedziano na N pytań” — rekruter nie
   // widział, co kandydat odpowiedział, bez otwierania arkusza.
-  it("screening: pod wynikiem stoją pytania z odpowiedziami, nie sama liczba", async () => {
+  // 09.10.2026: jedna sekcja „Screening” — warunki, odpowiedzi i ocena razem,
+  // bez osobnej „Karty rekomendacji”.
+  it("screening: jedna sekcja z warunkami, odpowiedziami i oceną — bez „Karty rekomendacji”", async () => {
     apiGet.mockResolvedValue({ data: { items: [] } });
-    getForStage.mockResolvedValue({
-      data: {
-        stage_id: 501,
-        candidate_id: 42,
-        job_id: 10,
-        champion_profile: {},
-        screening_answers: {
+    formGet.mockResolvedValue({
+      data: dockForm({
+        sheet: {
           answers: [
             {
               question_id: "q1",
-              question_text: "Czy pracowałeś na mikroserwisach?",
+              question_text: "Ile lat pracujesz z Javą?",
               response: "Tak, 3 lata. Kafka i Spring Boot.",
               deal_breaker_hit: false,
             },
-            { question_id: "q2", question_text: "Od kiedy dostępny?", response: "", deal_breaker_hit: false, skipped: true },
+            { question_id: "q2", question_text: "Czy pracowałeś z Kafką?", response: "", deal_breaker_hit: false, skipped: true },
           ],
           experience_checks: [{ kind: "domains", name: "Bankowość", status: "confirmed", note: "" }],
           overall_fit: "fit",
@@ -1138,22 +1134,89 @@ describe("PipelineCandidateDock — awaria odczytu to nie pustka", () => {
           internal_note: null,
           answered_at: "2026-09-30T10:00:00Z",
         },
-      },
+        legacy_notes: "Dobra komunikacja.",
+        questions: [
+          {
+            number: 1,
+            question: "Ile lat pracujesz z Javą?",
+            answer: "Tak, 3 lata. Kafka i Spring Boot.",
+            source: "sheet",
+            question_id: "q1",
+            deal_breaker: "Poniżej 2 lat",
+            deal_breaker_hit: false,
+          },
+          {
+            number: 2,
+            question: "Czy pracowałeś z Kafką?",
+            answer: "",
+            source: null,
+            question_id: "q2",
+            deal_breaker: null,
+            deal_breaker_hit: false,
+          },
+        ],
+        card: {
+          fields: { availability: { raw: "od 1 listopada", source: "manual", by_name: "Marta Testowa" } },
+          previous: { work_mode: { raw: "zdalnie" } },
+          suggestions: {},
+          completeness: { status: "partial", filled: 2, total: 10, missing: ["work_mode", "recommendation"] },
+          labels: {
+            availability: "Dostępność",
+            work_mode: "Tryb pracy",
+            recommendation: "Notatka",
+            red_flags: "Red flags",
+          },
+          editable_fields: ["availability", "work_mode", "rate", "recommendation", "red_flags"],
+        },
+        rate: { amount: 140, unit: "hourly", currency: "PLN", source: "stage", at: null },
+      }),
     });
     renderDock({ item: baseItem({ stage: "new" }) });
 
-    expect(await screen.findByText("Odpowiedziano na 2 pytania")).toBeTruthy();
-    const answers = screen.getByRole("list", { name: "Pytania i odpowiedzi" });
-    expect(within(answers).getByText(/Czy pracowałeś na mikroserwisach\?/)).toBeTruthy();
+    const view = await screen.findByTestId("screening-form-readonly");
+    expect(within(view).getByTestId("screening-summary-status")).toHaveTextContent("Pasuje");
+    expect(within(view).getByTestId("screening-summary-status")).toHaveTextContent("Odpowiedzi: 1 z 2");
+    expect(within(view).getByTestId("screening-summary-status")).toHaveTextContent("Brakuje pól: 2");
+    // Warunki: stawka z etapu, pole z formularza i podpowiedź z poprzedniej próby.
+    const terms = within(view).getByTestId("screening-form-readonly-terms");
+    expect(terms).toHaveTextContent("140 zł/h");
+    expect(terms).toHaveTextContent("od 1 listopada");
+    expect(terms).toHaveTextContent("brak — ostatnio: zdalnie");
+    // Odpowiedzi z „Odpada, gdy…” pod pytaniem.
+    const answers = within(view).getByRole("list", { name: "Pytania i odpowiedzi" });
+    expect(within(answers).getByText(/Ile lat pracujesz z Javą\?/)).toBeTruthy();
     expect(within(answers).getByText("Tak, 3 lata. Kafka i Spring Boot.")).toBeTruthy();
+    expect(within(answers).getByText("Odpada, gdy: Poniżej 2 lat")).toBeTruthy();
     expect(within(answers).getByText("— pominięte —")).toBeTruthy();
     expect(screen.getByText("Sprawdzone w rozmowie")).toBeTruthy();
     expect(screen.getByText("Dobra komunikacja.")).toBeTruthy();
+    // Ocena w tym samym widoku; osobnej sekcji i nazwy „Karta rekomendacji” nie ma.
+    expect(within(view).getByTestId("screening-form-readonly-assessment")).toHaveTextContent("Dlaczego ten kandydat");
+    expect(screen.queryByText("Karta rekomendacji")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Karta/ })).toBeNull();
+    // Tekst w starym formacie jest pod ręką, ale zapytanie idzie dopiero po rozwinięciu.
+    expect(within(view).getByRole("button", { name: "W starym formacie" })).toHaveAttribute("aria-expanded", "false");
+    expect(apiGet.mock.calls.some(([url]) => String(url).startsWith("/api/recommendation-cards"))).toBe(false);
+  });
+
+  // Dok zostaje zamontowany po ruchu karty, a stan screeningu jest per para —
+  // bez odświeżenia pokazywałby stawkę i kolumnę sprzed ruchu.
+  it("screening: po ruchu karty (inny wiersz etapu) stan odświeża się raz, nie w pętli", async () => {
+    apiGet.mockResolvedValue({ data: { items: [] } });
+    formGet.mockResolvedValue({ data: dockForm({ stage_id: 400 }) });
+    renderDock({ item: baseItem({ stage: "new" }) });
+
+    await screen.findByTestId("screening-form-readonly");
+    await waitFor(() => expect(formGet).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(formGet).toHaveBeenCalledTimes(2);
   });
 
   it("notatki: 500 daje „Nie udało się wczytać”, nie „Brak notatek”", async () => {
     const user = userEvent.setup();
-    getForStage.mockResolvedValue({ data: { screening_answers: null, champion_profile: {} } });
+    formGet.mockResolvedValue({ data: dockForm() });
     apiGet.mockImplementation((url: string) =>
       url.startsWith("/api/notes")
         ? Promise.reject(new Error("500"))
@@ -1183,7 +1246,7 @@ describe("PipelineCandidateDock — rozwinięty panel i dane kontaktowe (09.10.2
     pairCvGet.mockResolvedValue({
       data: { items: [], branded_cv: { status: "none", stage_id: null, stage_name: null, finalized_at: null } },
     });
-    getForStage.mockResolvedValue({ data: { screening_answers: null } });
+    formGet.mockResolvedValue({ data: dockForm() });
     originalGet.mockResolvedValue({ data: { has_snapshot: false } });
     brandedGet.mockResolvedValue({ data: { status: "none" } });
     candidatesGet.mockResolvedValue({

@@ -9,7 +9,10 @@ import { cn } from "@/lib/utils";
 
 /**
  * Lista podpowiedzi pod polem słów kluczowych (`ChipField` z `suggest`).
- * Prezentacyjna: stan zaznaczenia i klawisze trzyma pole. Wybór idzie przez
+ * Prezentacyjna: stan zaznaczenia i klawisze trzyma pole. Najechanie myszą
+ * tylko podświetla (CSS) — NIE zmienia pozycji wybranej klawiaturą, bo Enter
+ * wstawiał wtedy podpowiedź spod kursora zamiast wpisanego tekstu
+ * (zgłoszenie 09.10.2026). Wybór idzie przez
  * `onMouseDown` + `preventDefault`, żeby pole nie straciło fokusu (blur
  * dodałby wpisany tekst jako osobne słowo, zanim klik doleci).
  */
@@ -18,14 +21,12 @@ export function KeywordSuggestionList({
   options,
   activeIndex,
   onPick,
-  onHover,
   canSubmit,
 }: {
   id: string;
   options: SuggestionOption[];
   activeIndex: number;
   onPick: (option: SuggestionOption) => void;
-  onHover: (index: number) => void;
   canSubmit: boolean;
 }) {
   return (
@@ -51,9 +52,8 @@ export function KeywordSuggestionList({
                   e.preventDefault();
                   onPick(option);
                 }}
-                onMouseEnter={() => onHover(index)}
                 className={cn(
-                  "flex min-h-9 cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm pointer-coarse:min-h-11",
+                  "flex min-h-9 cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm pointer-coarse:min-h-11 pointer-fine:hover:bg-accent pointer-fine:hover:text-accent-foreground",
                   index === activeIndex ? "bg-accent text-accent-foreground" : "",
                 )}
               >

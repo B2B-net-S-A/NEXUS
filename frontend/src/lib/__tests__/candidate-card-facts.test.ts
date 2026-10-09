@@ -59,13 +59,13 @@ describe("ustalenia z kart rekomendacji w profilu", () => {
   });
 
   it("pole wpisane ręcznie i pole bez daty mają uczciwe źródło", () => {
-    expect(cardFactOrigin(fact({ source: "manual" }))).toBe("wpisane na karcie 28.09.2026");
+    expect(cardFactOrigin(fact({ source: "manual" }))).toBe("wpisane w screeningu 28.09.2026");
     expect(cardFactOrigin(fact({ at: null }))).toBe("rozmowa");
     expect(cardFactTitle(fact())).toBe(
-      "Z notatki-karty rekomendacji · Marta Testowa · Senior Java Developer",
+      "Z notatki z rozmowy · Marta Testowa · Senior Java Developer",
     );
     expect(cardFactTitle(fact({ source: "manual", author_name: null, job_title: null }))).toBe(
-      "Wpisane na karcie rekomendacji",
+      "Wpisane w screeningu",
     );
   });
 
@@ -98,7 +98,7 @@ describe("ustalenia z kart rekomendacji w profilu", () => {
           ],
         }),
       ),
-    ).toBe("03.02.2025 · 3 pytania · z karty wpisanej w Traffit");
+    ).toBe("03.02.2025 · 3 pytania · z notatki wpisanej w Traffit");
     expect(cardConversationMeta(conversation({ answered_at: null, question_count: 0 }))).toBe(
       "2 pytania · z notatki",
     );
@@ -116,9 +116,9 @@ describe("ustalenia z kart rekomendacji w profilu", () => {
     });
     expect(
       noteLinkSummary(link({ field_labels: ["Stawka", "Dostępność", "Tryb pracy"], answers: 2 })),
-    ).toBe("Do karty trafiło: stawka, dostępność, tryb pracy i 2 odpowiedzi");
-    expect(noteLinkSummary(link({ field_labels: ["Stawka"] }))).toBe("Do karty trafiło: stawka");
-    expect(noteLinkSummary(link({ answers: 1 }))).toBe("Do karty trafiło: 1 odpowiedź");
+    ).toBe("Do screeningu trafiło: stawka, dostępność, tryb pracy i 2 odpowiedzi");
+    expect(noteLinkSummary(link({ field_labels: ["Stawka"] }))).toBe("Do screeningu trafiło: stawka");
+    expect(noteLinkSummary(link({ answers: 1 }))).toBe("Do screeningu trafiło: 1 odpowiedź");
     expect(noteLinkSummary(link({}))).toBeNull();
   });
 });

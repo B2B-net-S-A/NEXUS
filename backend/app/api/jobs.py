@@ -38,6 +38,7 @@ from app.services.job_portals.service import (
     has_live_postings,
 )
 from app.core.cache import cache_invalidate
+from app.services import job_files as job_files_service
 from app.services.critical_events import audited_deletion
 from app.core.database import get_db
 from app.core.scheduling import business_today
@@ -2091,6 +2092,11 @@ async def create_job(
         db, job, current_user, effects, sync_status_payload=False
     )
     job_lifecycle.record_cc_override(db, job, data.cc_override, current_user)
+    # 0428: pliki dodane na `/jobs/new` przechodzą na rekrutację — PRZED
+    # usunięciem formularza (klucz obcy zrobiłby z nich sieroty).
+    await job_files_service.attach_intake_files(
+        db, job_id=job.id, form_id=data.intake_form_id, user_id=current_user.id
+    )
     await job_lifecycle.delete_intake_form(db, data.intake_form_id, current_user.id)
     await db.commit()
     await job_lifecycle.run_post_commit(effects)
@@ -2750,6 +2756,7 @@ async def delete_job(
     current_user: RecruitmentManageUser,
     db: AsyncSession = Depends(get_db),
 ):
+    stored_files: list[str] = []
     # Runda 7 (R7-N8-3): usunięcie rekrutacji trafia do Historii zdarzeń —
     # także odmowa. Do 26.09 ślad zostawał tylko w ``activities``.
     async with audited_deletion(
@@ -2905,6 +2912,9 @@ async def delete_job(
             reason="job_deleted",
             occurred_at=datetime.now(timezone.utc),
         )
+        # 0428: wiersze plików znikną kaskadą — ścieżki zbieramy przed
+        # usunięciem, a pliki kasujemy z dysku dopiero po commicie.
+        stored_files = await job_files_service.file_paths_of_job(db, job_id)
         await db.delete(job)
         try:
             await db.flush()
@@ -2921,6 +2931,7 @@ async def delete_job(
                 },
             ) from None
     await db.commit()
+    job_files_service.delete_stored(stored_files)
 
 
 @router.post("/{job_id}/close", response_model=JobResponse)
@@ -3128,12 +3139,14 @@ async def publish_job(
 ):
     """„Otwórz ponownie” — publikacja przez bramkę przekazania (04.10.2026).
 
-    Rekrutacja nigdy nie jest szkicem: otwarcie zamkniętej, dokończenie starego
-    szkicu albo rekrutacji opublikowanej bez przekazania wymaga przekazania do
-    searchu (ciało jak ``/handoff``) i przechodzi tę samą bramkę braków co
-    zakładanie — z pytaniami liczonymi także przy ``is_open``. Brak = 422
-    ``job_not_ready`` i nic się nie zmienia. Rekrutacja już w pracy
-    (opublikowana i przekazana) = 200 bez zmian.
+    Rekrutacja nigdy nie jest szkicem: dokończenie starego szkicu albo
+    rekrutacji opublikowanej bez przekazania wymaga przekazania do searchu
+    (ciało jak ``/handoff``), a otwarcie zamkniętej zostawia dotychczasowego
+    rekrutera (09.10.2026: bez ciała albo ``assignment_mode="keep"``). Każda
+    z tych dróg przechodzi tę samą bramkę braków co zakładanie — z pytaniami
+    liczonymi także przy ``is_open``. Brak = 422 ``job_not_ready`` i nic się
+    nie zmienia. Rekrutacja już w pracy (opublikowana i przekazana) = 200 bez
+    zmian.
     """
     await allocation_lock(db)
     result = await db.execute(select(Job).where(Job.id == job_id).with_for_update())
@@ -3143,7 +3156,14 @@ async def publish_job(
     await _ensure_delivery_lead_job_visible(job, current_user, db)
     if job.status == JobStatus.published and job.is_open:
         return {"status": "published", "job_id": job_id, "unchanged": True}
-    if payload is None:
+    # 09.10.2026: ponowne otwarcie ZAMKNIĘTEJ rekrutacji nie pyta o rekrutera
+    # — zostaje dotychczasowy (brak ciała albo `assignment_mode="keep"`).
+    # „Dokończ i opublikuj” (stary szkic, opublikowana bez przekazania) nigdy
+    # nie miało rekrutera, więc dalej wymaga przekazania.
+    keep_team = job.status == JobStatus.closed and (
+        payload is None or payload.assignment_mode == "keep"
+    )
+    if not keep_team and (payload is None or payload.assignment_mode == "keep"):
         raise HTTPException(
             status_code=422,
             detail={
@@ -3156,12 +3176,19 @@ async def publish_job(
         )
     effects = job_lifecycle.PostCommit(background_tasks)
     await job_lifecycle.publish_core(
-        db, job, current_user, effects, reason=payload.reason
+        db, job, current_user, effects, reason=payload.reason if payload else None
     )
     job_lifecycle.ensure_handoff_ready(
         job, message=job_lifecycle.MSG_NOT_REOPENED, include_open=True
     )
-    handoff = await job_lifecycle.handoff_core(db, job, payload, current_user, effects)
+    if keep_team:
+        handoff = await job_lifecycle.reopen_keep_team_core(
+            db, job, current_user, effects, top_k=payload.top_k if payload else None
+        )
+    else:
+        handoff = await job_lifecycle.handoff_core(
+            db, job, payload, current_user, effects
+        )
     await db.commit()
     await job_lifecycle.run_post_commit(effects)
     return {

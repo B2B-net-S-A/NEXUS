@@ -86,7 +86,7 @@ describe("podpisy i etykiety", () => {
   it("źródło stawki z datą", () => {
     expect(
       prefillRateSource({ value: 140, source: "card", at: "2026-10-01T08:00:00Z" }),
-    ).toBe("z karty rekomendacji · 01.10.2026");
+    ).toBe("ze screeningu · 01.10.2026");
     expect(prefillRateSource({ value: 140, source: "rate_from", at: null })).toBe(
       "„Stawka od” kandydata",
     );

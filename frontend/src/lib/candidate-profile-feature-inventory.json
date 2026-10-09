@@ -262,7 +262,7 @@
   },
   {
    "id": "f.nationality",
-   "opis": "Narodowość z karty rekomendacji",
+   "opis": "Narodowość ze screeningu",
    "file": "components/v2/pages/CandidateProfileFactsBar.tsx",
    "marker": "Narodowość",
    "home": "Karta „Podsumowanie”"
@@ -402,9 +402,9 @@
   },
   {
    "id": "s.cards",
-   "opis": "Odpowiedzi z kart rekomendacji w notatkach",
+   "opis": "Odpowiedzi z notatek rekruterów (dawne karty rekomendacji w notatkach)",
    "file": "components/v2/candidate-profile/CandidateScreeningAnswersCard.tsx",
-   "marker": "Z kart rekomendacji w notatkach",
+   "marker": "Z notatek rekruterów",
    "home": "Zakładka „Odpowiedzi ze screeningu”"
   },
   {
@@ -472,9 +472,9 @@
   },
   {
    "id": "h.card",
-   "opis": "Karta rekomendacji z tej rozmowy",
+   "opis": "Screening rekrutacji, której dotyczy notatka (okno tylko do odczytu; do 09.10.2026 „Karta rekomendacji z tej rozmowy”)",
    "file": "components/v2/candidate-profile/HistoryTab.tsx",
-   "marker": "<RecommendationCardDialog",
+   "marker": "<ScreeningSummaryDialog",
    "home": "Notatki i historia → notatka"
   },
   {

@@ -100,9 +100,12 @@ async def test_stale_profile_hash_is_refused_with_the_current_profile(
     assert bad.status_code == 422, bad.text
 
 
-async def test_critical_that_stops_being_a_technology_stays_must_with_a_notice(
+async def test_critical_phrase_outside_technologies_stays_critical(
     app_client: AsyncClient, app_auth_headers: dict, offline_matching
 ):
+    """09.10.2026: o tym, co jest krytyczne, decyduje Delivery Lead — fraza
+    spoza technologii zostaje krytyczna i zapis nie zgłasza uwagi. Do tej daty
+    schodziła do „musi mieć” z komunikatem (P4 audytu 06.10.2026)."""
     from tests.taxonomy_fixture import hydrated_taxonomy
 
     job = await _create(app_client, app_auth_headers, await _client())
@@ -122,8 +125,9 @@ async def test_critical_that_stops_being_a_technology_stays_must_with_a_notice(
         )
         assert saved.status_code == 200, saved.text
         body = saved.json()
-        assert body["champion_profile"]["stack"].get("critical") == ["Python"], body
-        assert any("komunikatywność" in notice for notice in body["notices"])
+        critical = body["champion_profile"]["stack"].get("critical") or []
+        assert [c.lower() for c in critical] == ["python", "komunikatywność"], body
+        assert not any("komunikatywność" in notice for notice in body["notices"])
 
         only_soft = await app_client.put(
             _url(job["id"]),
@@ -136,8 +140,8 @@ async def test_critical_that_stops_being_a_technology_stays_must_with_a_notice(
             headers=app_auth_headers,
         )
     assert only_soft.status_code == 200, only_soft.text
-    # Bez krytycznych z wyboru DL-a = „nie zdecydowano”.
-    assert "critical" not in only_soft.json()["champion_profile"]["stack"]
+    kept = only_soft.json()["champion_profile"]["stack"].get("critical") or []
+    assert [c.lower() for c in kept] == ["komunikatywność"]
 
 
 async def test_saving_rows_realigns_the_must_column(

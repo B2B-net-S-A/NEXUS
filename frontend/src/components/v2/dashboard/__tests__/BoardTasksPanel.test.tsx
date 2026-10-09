@@ -289,9 +289,9 @@ describe("BoardTasksPanel — „Czeka na Ciebie” na pulpicie", () => {
     const section = await screen.findByRole("region", { name: "Czeka na Twój przegląd (DL)" });
     expect(within(section).getByText("Java Developer · PKO BP")).toBeTruthy();
     expect(within(section).getByText("QC: 2 do poprawy")).toBeTruthy();
-    // Stan karty rekomendacji — ile pól brakuje, zanim DL otworzy przegląd.
-    expect(within(section).getByText("Karta: brakuje 3")).toBeTruthy();
-    expect(within(section).getByText("Bez karty")).toBeTruthy();
+    // Stan pól screeningu — ile pól brakuje, zanim DL otworzy przegląd.
+    expect(within(section).getByText("Screening: brakuje 3")).toBeTruthy();
+    expect(within(section).getByText("Screening: puste pola")).toBeTruthy();
     await userEvent.click(within(section).getByRole("button", { name: "Przejrzyj: Ola Przegląd" }));
     expect(screen.getByRole("dialog", { name: "Przegląd DL" })).toHaveTextContent("Ola Przegląd · wysyłka tak");
   });

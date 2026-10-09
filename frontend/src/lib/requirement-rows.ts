@@ -156,7 +156,10 @@ export function levelBlockedReason(
   if (!current || current.level === level) return null;
   const others = filledRows(rows).filter((row) => row.key !== key);
   if (level === "critical") {
-    if (others.filter((row) => row.level === "critical").length >= CRITICAL_ROWS_MAX)
+    // Liczymy też wiersze jeszcze bez słów: „Krytyczne” da się zaznaczyć przed
+    // wpisaniem słowa, a taki wiersz po wypełnieniu byłby czwartym.
+    const marked = rows.filter((row) => row.key !== key && row.level === "critical");
+    if (marked.length >= CRITICAL_ROWS_MAX)
       return `Najwyżej ${CRITICAL_ROWS_MAX} krytyczne — zdejmij jedno, żeby dodać kolejne.`;
     // Wiersz ponad dziesiąty obowiązkowy serwer zapisuje jako „mile widziane”,
     // więc krytyczny musi się zmieścić w pierwszych dziesięciu.
@@ -291,25 +294,17 @@ export function criticalSummary(
   return `Nie zdecydowano — oznacz najwyżej ${CRITICAL_ROWS_MAX} wiersze jako krytyczne albo wybierz „Brak krytycznych”.`;
 }
 
-// ── Co serwer wie o wierszach (etykieta, czy wolno oznaczyć jako krytyczny) ──
+// ── Co serwer wie o wierszach (etykieta, słownik, podpowiedź z historii) ──
 
 export interface RowCriticalInfo {
   /** Etykieta wiersza w `stack.must` („Kafka lub RabbitMQ”). */
   label: string;
   /**
    * Technologia ze słownika: od niej zależy wymóg decyzji o krytycznych,
-   * podpowiedź z historii i tytuł dla rekrutera. O tym, czy wiersz WOLNO
-   * oznaczyć, mówi `selectable`.
+   * podpowiedź z historii i tytuł dla rekrutera. Oznaczyć jako krytyczny
+   * wolno KAŻDY wiersz — decyduje Delivery Lead (09.10.2026).
    */
   eligible: boolean;
-  /**
-   * Wolno oznaczyć jako krytyczny: nazwa technologii albo narzędzia, także
-   * spoza słownika (08.10.2026). Brak pola (dane sprzed tej zmiany) = jak
-   * `eligible` — czytaj przez `rowSelectable`.
-   */
-  selectable?: boolean;
-  /** Zdanie z serwera, dlaczego wiersza nie da się oznaczyć jako krytycznego. */
-  blockedReason?: string;
   /** Podpowiedź z historii (≥ 90% wysłanych klientowi ją miało). */
   suggested: boolean;
   stat?: CriticalStat;
@@ -335,10 +330,6 @@ export const EMPTY_ROW_CRITICAL_STATE: RowCriticalState = {
 export interface RowCriticalResponse {
   labels?: string[];
   eligible: string[];
-  /** Etykiety, które wolno oznaczyć jako krytyczne (brak = jak `eligible`). */
-  selectable?: string[];
-  /** Etykieta → zdanie, dlaczego nie wolno jej oznaczyć. */
-  blocked?: Record<string, string>;
   suggested: string[];
   stats: Record<string, CriticalStat>;
 }
@@ -353,13 +344,9 @@ export function rowCriticalInfo(
     list.some((item) => fold(item) === fold(label));
   requiredRows(rows).forEach((row, index) => {
     const label = response.labels?.[index] || rowHead(row.words);
-    const eligible = has(response.eligible ?? [], label);
-    const selectable = response.selectable ? has(response.selectable, label) : eligible;
     out[row.key] = {
       label,
-      eligible,
-      selectable,
-      blockedReason: selectable ? undefined : response.blocked?.[label] || undefined,
+      eligible: has(response.eligible ?? [], label),
       suggested: has(response.suggested ?? [], label),
       stat: response.stats?.[label],
     };
@@ -367,14 +354,9 @@ export function rowCriticalInfo(
   return out;
 }
 
-/** Czy wiersz wolno oznaczyć jako krytyczny; `undefined` = serwer o nim nie mówił. */
-export function rowSelectable(info: RowCriticalInfo | undefined): boolean | undefined {
-  return info ? (info.selectable ?? info.eligible) : undefined;
-}
-
 /**
  * Czy bramka „Przekaż do searchu” wymaga decyzji o krytycznych: jest wiersz
- * obowiązkowy, który wolno oznaczyć, a DL nie oznaczył żadnego ani nie wybrał
+ * obowiązkowy z technologią ze słownika, a DL nie oznaczył żadnego ani nie wybrał
  * „Brak krytycznych”. `info == null` = nie wiadomo — nie zgadujemy.
  */
 export function criticalDecisionMissing(

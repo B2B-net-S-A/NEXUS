@@ -4,9 +4,10 @@
  * „Krytyczne (0–3)” — wybór umiejętności, które UKRYWAJĄ kandydatów
  * (decyzja Artura 30.09.2026). Reguły i zdania: `lib/critical-skills.ts`.
  *
- * Wybiera się wyłącznie spośród pozycji „Musi mieć”; pozycja, która nie jest
- * nazwą technologii ani narzędzia (branża, język, zdanie), jest wyszarzona —
- * serwer i tak by ją odrzucił. Nazwa spoza słownika jest dozwolona (08.10.2026).
+ * Wybiera się wyłącznie spośród pozycji „Musi mieć”. Od 09.10.2026 serwer
+ * pozwala oznaczyć każdą z nich (`selectable` = cała lista) — o tym, co jest
+ * krytyczne, decyduje Delivery Lead; wyszarzenie zostaje tylko dla odpowiedzi
+ * starszego serwera.
  * Podpowiedź z historii i „Brak krytycznych” to dwa świadome wyjścia — pole
  * nigdy nie zgaduje za Delivery Leada.
  */

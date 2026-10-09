@@ -107,35 +107,6 @@ export function looksLikeKeywords(text: string | null | undefined): boolean {
   return !/[.!?]$/.test(value) || words < 12;
 }
 
-export function cardStatusLabel(card: Pick<RecommendationCard, "completeness">): string {
-  const { status, missing } = card.completeness;
-  if (status === "complete") return "Karta gotowa";
-  if (status === "empty") return "Karta pusta";
-  return `brakuje ${missing.length}`;
-}
-
-export function answeredQuestions(card: Pick<RecommendationCard, "questions">): string | null {
-  const total = card.questions.length;
-  if (!total) return null;
-  const answered = card.questions.filter((q) => q.answer.trim()).length;
-  return `${answered} z ${total} odpowiedzi`;
-}
-
-/** Pytania, przy których rekruter zaznaczył, że odpowiedź narusza „Odpada, gdy…”. */
-export function dealBreakerHits(card: Pick<RecommendationCard, "questions">) {
-  return card.questions.filter((q) => q.deal_breaker_hit === true);
-}
-
-/** Zdanie ostrzeżenia o naruszonym „Odpada, gdy…” (`null` = brak trafień). */
-export function dealBreakerWarning(card: Pick<RecommendationCard, "questions">): string | null {
-  const hits = dealBreakerHits(card);
-  if (!hits.length) return null;
-  const numbers = hits.map((q) => q.number).join(", ");
-  return hits.length === 1
-    ? `Odpowiedź na pytanie ${numbers} narusza „Odpada, gdy…”.`
-    : `Odpowiedzi na pytania ${numbers} naruszają „Odpada, gdy…”.`;
-}
-
 /** Pola, które zmieniły się w formularzu względem karty (`null` = wyczyszczone). */
 export function cardChanges(
   card: Pick<RecommendationCard, "fields" | "editable_fields">,
@@ -179,8 +150,9 @@ export interface BoardCardBadge {
 }
 
 /**
- * Plakietka karty na tablicy. W „Screeningu” brak karty też jest informacją
- * („Bez karty” albo liczba prób kontaktu); dalej pokazujemy tylko stan karty.
+ * Plakietka screeningu na tablicy: stan pól warunków i oceny (liczy serwer,
+ * stawka z etapu też się liczy). W „Screeningu” puste pola też są informacją
+ * (albo liczba prób kontaktu). Od 09.10.2026 bez nazwy „karta rekomendacji”.
  */
 export function boardCardBadge(
   card: BoardCardState | null | undefined,
@@ -190,23 +162,23 @@ export function boardCardBadge(
   if (column !== "screening" && column !== "verified" && column !== "cv_qc") return null;
   if (card && card.status === "complete") {
     return {
-      label: "Karta gotowa",
+      label: "Screening: komplet",
       tone: "ok",
-      title: "Karta rekomendacji ma wszystkie pola.",
+      title: "Wszystkie pola warunków i oceny są wypełnione.",
     };
   }
   if (card && card.status === "partial") {
     return {
-      label: `Karta: brakuje ${card.missing}`,
+      label: `Screening: brakuje ${card.missing}`,
       tone: "wait",
-      title: "W karcie rekomendacji brakuje pól — nie blokuje to ruchu karty.",
+      title: "W screeningu brakuje pól warunków albo oceny — nie blokuje to ruchu karty.",
     };
   }
   if (column !== "screening") {
     return {
-      label: "Bez karty",
+      label: "Screening: puste pola",
       tone: "neutral",
-      title: "Nikt nie zapisał jeszcze karty rekomendacji tej osoby.",
+      title: "Nikt nie wpisał jeszcze warunków ani oceny tej osoby.",
     };
   }
   if (contactAttempts > 0) {
@@ -217,8 +189,8 @@ export function boardCardBadge(
     };
   }
   return {
-    label: "Bez karty",
+    label: "Screening: puste pola",
     tone: "neutral",
-    title: "Nikt nie zapisał jeszcze karty rekomendacji tej osoby.",
+    title: "Nikt nie wpisał jeszcze warunków ani oceny tej osoby.",
   };
 }

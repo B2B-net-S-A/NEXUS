@@ -108,6 +108,7 @@ const PANEL_SECTIONS: readonly PersonPanelSection[] = [
 const SLIDE_OVERS: readonly RecruitmentSlideOver[] = [
   "order",
   "questions",
+  "files",
   "history-chat",
   "manual-search",
   "similar",

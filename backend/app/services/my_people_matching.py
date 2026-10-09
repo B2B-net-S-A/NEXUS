@@ -139,8 +139,12 @@ async def score_people_for_job(
         # Dowód z CV i notatek PRZED oceną (30.09.2026): ocena umiejętności
         # czyta go tak samo jak bramka.
         await load_verified_requirements(db, job, candidates)
+        gate_inputs = search_dealbreaker_inputs(job)
         await attach_gate_evidence(
-            db, candidates, search_dealbreaker_inputs(job).gate_evidence_labels
+            db,
+            candidates,
+            gate_inputs.gate_evidence_labels,
+            options=gate_inputs.gate_options,
         )
     fits = await score_candidates(db, context, candidates) if candidates else []
     decisions = await evaluate_candidates_for_job(

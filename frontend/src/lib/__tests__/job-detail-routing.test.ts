@@ -86,6 +86,8 @@ describe("readJobDetailUrlState", () => {
       orderSection: null,
     });
     expect(read("win=order&wintab=team").orderSection).toBe("team");
+    // Okno „Pliki” z menu „⋯” (0428, 09.10.2026).
+    expect(read("win=files").slideOver).toBe("files");
     // Dawny panel przepięć (`?win=similar`) to od 02.10.2026 zakładka okna
     // „Kandydaci do dodania”; `?tab=similar` z powiadomień o propozycjach AI
     // zostaje przy „Do przejrzenia”.

@@ -64,7 +64,7 @@ SOURCE_LABELS = {
     "manual": "panel osoby",
     "recruitments_tab": "profil kandydata",
     "profile": "profil kandydata",
-    "card": "karta rekomendacji",
+    "card": "formularz screeningu",
     "move": "ponowna weryfikacja",
     "screening": "formularz screeningu",
 }

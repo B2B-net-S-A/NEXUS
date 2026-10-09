@@ -73,7 +73,7 @@ export function agreementBadge(
 }
 
 const RATE_SOURCE_LABEL: Record<NonNullable<B2BAgreementPrefill["rate"]>["source"], string> = {
-  card: "z karty rekomendacji",
+  card: "ze screeningu",
   this_job: "podana w tej rekrutacji",
   rate_from: "„Stawka od” kandydata",
 };

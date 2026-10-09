@@ -19,7 +19,8 @@
  * (automat wtedy nikogo nie przydziela), `off` = automat wyłączony. `gaps`
  * pokazuje też rekrutera wskazanego ręcznie. `resume` = krok 1 z listą
  * niedokończonych formularzy, `servererror` = krok 2 po odmowie serwera
- * (422 `job_not_ready`) z listą braków w stopce.
+ * (422 `job_not_ready`) z listą braków w stopce. Karta „Pliki” (0428) ma
+ * w `review` plik requestu i załącznik, w `manual` jest pusta.
  */
 
 import { Suspense, useState } from "react";
@@ -75,17 +76,12 @@ const CRITICAL_INFO: RowCriticalState = {
   info: {
     "r-java": { label: "Java", eligible: true, suggested: true, stat: { rate: 0.96, jobs: 41 } },
     "r-spring": { label: "Spring Boot", eligible: true, suggested: false, stat: { rate: 0.71, jobs: 41 } },
-    // RabbitMQ spoza słownika: wiersz wolno oznaczyć (08.10.2026), choć nie
-    // jest „technologią ze słownika” dla podpowiedzi i tytułu.
-    "r-kafka": { label: "Kafka lub RabbitMQ", eligible: false, selectable: true, suggested: false },
+    // RabbitMQ i „płatności” są spoza słownika: wiersz wolno oznaczyć jak
+    // każdy inny (decyduje Delivery Lead, 09.10.2026), ale nie są „technologią
+    // ze słownika” dla podpowiedzi z historii i tytułu.
+    "r-kafka": { label: "Kafka lub RabbitMQ", eligible: false, suggested: false },
     "r-postgres": { label: "PostgreSQL", eligible: true, suggested: false },
-    "r-payments": {
-      label: "płatności",
-      eligible: false,
-      selectable: false,
-      blockedReason: "To branża, nie technologia — daje punkty, nie ukrywa kandydatów.",
-      suggested: false,
-    },
+    "r-payments": { label: "płatności", eligible: false, suggested: false },
   },
   isLoading: false,
   isError: false,
@@ -197,6 +193,35 @@ const EVIDENCE = [
   "transakcyjność w systemach rozproszonych",
 ];
 
+/** Karta „Pliki”: plik requestu z kroku 1 i jeden załącznik (nazwy fikcyjne). */
+const FILES_LIMITS = { max_files: 20, max_file_bytes: 20 * 1024 * 1024 };
+const REQUEST_FILES: NonNullable<NewJobPagePreview["files"]> = {
+  ...FILES_LIMITS,
+  items: [
+    {
+      id: 1,
+      filename: "Zapytanie - Java Developer.pdf",
+      content_type: "application/pdf",
+      size_bytes: 212_400,
+      source: "request",
+      uploaded_by: 41,
+      uploaded_by_name: "[Delivery Lead A]",
+      created_at: "2026-10-09T08:15:00Z",
+    },
+    {
+      id: 2,
+      filename: "Opis projektu.docx",
+      content_type:
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      size_bytes: 48_100,
+      source: "upload",
+      uploaded_by: 41,
+      uploaded_by_name: "[Delivery Lead A]",
+      created_at: "2026-10-09T08:17:00Z",
+    },
+  ],
+};
+
 const STATES: Record<string, NewJobPagePreview> = {
   request: {
     step: "request",
@@ -222,6 +247,7 @@ const STATES: Record<string, NewJobPagePreview> = {
     evidence: [],
     categories: CATEGORIES,
     criticalInfo: { ...CRITICAL_INFO, info: {} },
+    files: { ...FILES_LIMITS, items: [] },
   },
   review: {
     step: "review",
@@ -231,6 +257,7 @@ const STATES: Record<string, NewJobPagePreview> = {
     evidence: EVIDENCE,
     categories: CATEGORIES,
     criticalInfo: CRITICAL_INFO,
+    files: REQUEST_FILES,
   },
   gaps: {
     step: "review",

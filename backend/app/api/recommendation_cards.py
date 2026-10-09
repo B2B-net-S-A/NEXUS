@@ -110,7 +110,7 @@ class CardUpdate(BaseModel):
     def _known_fields(cls, value: dict[str, Optional[str]]) -> dict[str, Optional[str]]:
         for key, raw in value.items():
             if key not in cards.EDITABLE_FIELDS:
-                raise ValueError(f"Nieznane pole karty: {key}")
+                raise ValueError(f"Nieznane pole: {key}")
             if raw is not None and len(raw) > cards.max_length(key):
                 raise ValueError(
                     f"Pole „{cards.DISPLAY_LABELS[key]}” może mieć najwyżej "
@@ -231,7 +231,14 @@ async def _response(
         suggestions=suggestions,
         note_answers=answers,
         questions=questions,
-        completeness=CardCompleteness(**cards.completeness(current)),
+        completeness=CardCompleteness(
+            **cards.completeness(
+                cards.with_stage_rate(
+                    current,
+                    bool(await cards.stage_rate_pairs(db, [(candidate.id, job.id)])),
+                )
+            )
+        ),
         labels=cards.LABELS,
         editable_fields=list(cards.EDITABLE_FIELDS),
         legacy_text=cards.legacy_text(

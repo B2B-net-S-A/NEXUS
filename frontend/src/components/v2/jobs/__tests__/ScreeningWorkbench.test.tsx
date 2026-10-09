@@ -71,12 +71,6 @@ vi.mock("@/components/v2/screening-form/CandidatePreviewPane", () => ({
   ),
 }));
 
-vi.mock("@/components/v2/screening/RecommendationCardSection", () => ({
-  RecommendationCardSection: (props: { readOnly?: boolean }) => (
-    <div data-testid="card-section">{props.readOnly ? "karta tylko do odczytu" : "karta"}</div>
-  ),
-}));
-
 vi.mock("@/components/v2/screening-form/ScreeningFormHistory", () => ({
   ScreeningFormHistory: (props: { canRestore: boolean }) => (
     <div data-testid="form-history">{props.canRestore ? "z przywracaniem" : "bez przywracania"}</div>
@@ -237,7 +231,7 @@ describe("ScreeningWorkbench — co stoi po lewej", () => {
     );
   });
 
-  it("proces zakończony: zapisany arkusz, karta tylko do odczytu i historia bez przywracania", async () => {
+  it("proces zakończony: jeden widok „Screening” tylko do odczytu i historia bez przywracania", async () => {
     states.set(
       112,
       formState({
@@ -248,11 +242,40 @@ describe("ScreeningWorkbench — co stoi po lewej", () => {
         read_only_message: "Proces zakończony.",
         version: 3,
         versions_count: 3,
+        sheet: { answers: [{ question_id: "q1", response: "6 lat", deal_breaker_hit: false }], overall_fit: "fit", notes: "" },
+        questions: [
+          {
+            number: 1,
+            question: "Ile lat pracujesz z Javą?",
+            answer: "6 lat",
+            source: "sheet",
+            question_id: "q1",
+            deal_breaker: "Poniżej 2 lat",
+            deal_breaker_hit: false,
+          },
+          {
+            number: 2,
+            question: "Czy pracowałeś z Kafką?",
+            answer: "Tak, 3 projekty",
+            source: "note",
+            question_id: "q2",
+            deal_breaker: null,
+            deal_breaker_hit: false,
+          },
+        ],
       }),
     );
-    renderWorkbench({ focusCandidateId: 112, panelFallback: <p>Zapisany arkusz screeningu</p> });
-    expect(await screen.findByTestId("screening-ended")).toHaveTextContent("Zapisany arkusz screeningu");
-    expect(screen.getByTestId("card-section")).toHaveTextContent("karta tylko do odczytu");
+    renderWorkbench({ focusCandidateId: 112, panelFallback: <p>Widok zapasowy</p> });
+    const ended = await screen.findByTestId("screening-ended");
+    expect(within(ended).getByTestId("screening-form-readonly")).toHaveTextContent("Proces zakończony.");
+    // Warunki, odpowiedzi (z arkusza i z notatki) i „Odpada, gdy…” w jednym widoku.
+    expect(ended).toHaveTextContent("Pasuje");
+    expect(ended).toHaveTextContent("6 lat");
+    expect(ended).toHaveTextContent("odpowiedź z notatki");
+    expect(ended).toHaveTextContent("Odpada, gdy: Poniżej 2 lat");
+    // 09.10.2026: bez osobnej „Karty rekomendacji” i bez drugiego widoku arkusza.
+    expect(screen.queryByText("Karta rekomendacji")).toBeNull();
+    expect(screen.queryByText("Widok zapasowy")).toBeNull();
     expect(screen.getByTestId("form-history")).toHaveTextContent("bez przywracania");
     expect(screen.queryByTestId("full-form")).toBeNull();
   });

@@ -29,7 +29,8 @@ import { WorkbenchBelowTabsContext } from "@/components/v2/person/WorkbenchBelow
 import { DopasowanieTab } from "@/components/v2/pages/DopasowanieTab";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { CvHandoffWorkbench, ScreeningWorkbench } from "@/components/v2/recruitment/panel-workbenches";
-import { SavedCvView, SavedScreeningView } from "@/components/v2/recruitment/PanelSavedViews";
+import { SavedCvView } from "@/components/v2/recruitment/PanelSavedViews";
+import { ScreeningSummarySection } from "@/components/v2/screening-form/ScreeningSummaryView";
 import {
   buildProcessRows,
   defaultPanelSectionFor,
@@ -317,7 +318,7 @@ export function PersonWorkbenchTabs({
             readOnly={readOnly}
             onTabChange={ctx.onTabChange ?? (() => undefined)}
             onTake={ctx.onTake}
-            panelFallback={<SavedScreeningView item={item} stageLabel={row.stageLabel} />}
+            panelFallback={<ScreeningSummarySection candidateId={candidateId} jobId={jobId} showLockNote />}
           />
         );
       case "cv":

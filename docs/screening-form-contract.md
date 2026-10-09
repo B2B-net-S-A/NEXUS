@@ -61,6 +61,14 @@ interface ScreeningFormState {
   legacy_notes: string | null;                  // sheet.notes, gdy niepuste („Notatka z arkusza”, tylko do odczytu)
   note_answers: Array<{ question_id: string; number: number; question: string; answer: string }>;
                                                 // odpowiedzi odczytane z notatek-kart dla pytań bez odpowiedzi w arkuszu (podpowiedź „Użyj”)
+  questions: Array<{                            // 09.10.2026: pytania scalone dla widoku tylko do odczytu („Screening”)
+    number: number; question: string; answer: string;
+    source: "sheet" | "note" | null;            // odpowiedź z arkusza wygrywa; bez niej z notatki (po numerze pytania)
+    question_id: string | null;                 // null = pytanie z samej notatki (rekrutacja bez pytań w profilu)
+    deal_breaker: string | null;                // „Odpada, gdy…” z Profilu Championa
+    deal_breaker_hit: boolean;                  // trafienie z arkusza
+    origin?: "note_import" | "phrased" | "note_sync"; keywords?: string;
+  }>;
 
   // Pola karty rekomendacji (bez stawki — stawka jest w `rate`)
   card: {
@@ -73,6 +81,7 @@ interface ScreeningFormState {
   };
 
   rate: (FormRate & { source: "stage" | "card"; at: string | null }) | null;  // bieżąca stawka kandydata pary
+  rate_text: string | null;         // 09.10.2026: stawka zapisana tekstem („130–150 zł/h”), gdy `rate` jest null
   rate_hints: {
     card: FormRate | null;          // stawka z karty (PLN/h odczytane bez zgadywania)
     rate_from: FormRate | null;     // „Stawka od” kandydata (minimum z 18 mies.)

@@ -178,9 +178,9 @@ def validate_save(data: SaveInput, questions: Mapping[str, str]) -> None:
     fields = data.card.fields if data.card is not None else {}
     for key, value in fields.items():
         if key == "rate":
-            raise _invalid("Stawkę kandydata zapisuje pole stawki, nie pole karty.")
+            raise _invalid("Stawkę kandydata zapisuje pole stawki, nie pole warunków.")
         if key not in rules.FORM_CARD_FIELDS:
-            raise _invalid(f"Nieznane pole karty: {key[:100]}")
+            raise _invalid(f"Nieznane pole formularza: {key[:100]}")
         if value is not None and len(value) > cards.max_length(key):
             raise _invalid(
                 f"Pole „{cards.DISPLAY_LABELS[key]}” może mieć najwyżej "
@@ -189,7 +189,7 @@ def validate_save(data: SaveInput, questions: Mapping[str, str]) -> None:
     origins = (data.card.origins or {}) if data.card is not None else {}
     for key, origin in origins.items():
         if origin.origin not in cards.CARD_ORIGINS:
-            raise _invalid("Nieznane pochodzenie pola karty.")
+            raise _invalid("Nieznane pochodzenie pola formularza.")
         if not (fields.get(key) or "").strip():
             raise _invalid("Pochodzenie dotyczy pola, którego nie ma w zapisie.")
         if origin.origin == "phrased" and key not in cards.PHRASABLE_FIELDS:
@@ -598,10 +598,8 @@ async def load_state(
         nationality = await nationality_suggestion(db, candidate, job.id)
         if nationality:
             suggestions["nationality"] = nationality
-    present = dict(current.fields)
-    if current.rate is not None and "rate" not in present:
-        # Stawka stoi na wierszu etapu, nie na karcie — pole karty nie jest brakiem.
-        present["rate"] = {"raw": "stawka z etapu"}
+    # Stawka stoi na wierszu etapu, nie na karcie — pole karty nie jest brakiem.
+    present = cards.with_stage_rate(current.fields, current.rate is not None)
 
     sheet_answers = [
         item
@@ -639,6 +637,14 @@ async def load_state(
         questions=list(questions),
     )
     can_edit_rate = user_can_edit_rates(user)
+    rate = _rate_state(current)
+    # Stawka zapisana tekstem („130–150 zł/h”, „14 000 zł/mc”) nie mieści się
+    # w ``rate`` — widok do odczytu pokazuje ją dosłownie.
+    rate_text = (
+        str((current.fields.get("rate") or {}).get("raw") or "").strip() or None
+        if rate is None
+        else None
+    )
     card_hourly = cards.card_rate_hourly(current.fields.get("rate"))
     rate_from = rate_summary(candidate).get("rate_from_hourly")
     assist_enabled = bool(settings.RECOMMENDATION_CARD_ASSIST_ENABLED)
@@ -670,6 +676,9 @@ async def load_state(
         "sheet_source_stage_id": current.sheet_stage_id,
         "legacy_notes": legacy_notes,
         "note_answers": note_answers,
+        # Pytania z Profilu Championa z odpowiedzią (arkusz, a bez niego
+        # notatka), warunkiem „Odpada, gdy…” i trafieniem — widok do odczytu.
+        "questions": merged,
         "card": {
             "fields": fields,
             "previous": previous,
@@ -678,7 +687,8 @@ async def load_state(
             "labels": cards.DISPLAY_LABELS,
             "editable_fields": list(rules.FORM_CARD_FIELDS),
         },
-        "rate": _rate_state(current),
+        "rate": rate,
+        "rate_text": rate_text,
         "rate_hints": {
             "card": (
                 _form_rate(card_hourly, "hourly", "PLN")

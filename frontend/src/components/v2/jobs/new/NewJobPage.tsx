@@ -71,6 +71,8 @@ import { NewJobSourceStep, type NewJobSource } from "./NewJobSourceStep";
 import { NewJobReviewForm, NewJobSectionNav } from "./NewJobReviewForm";
 import { SimilarJobsPicker } from "./SimilarJobsPicker";
 import { ClientAskedBeforeHint } from "./ClientAskedBeforeHint";
+import { NewJobFilesCard } from "./NewJobFilesCard";
+import { jobFilesKey, uploadJobFile, type JobFilesResponse } from "@/lib/api/jobFiles";
 import { UnfinishedIntakeForms } from "./UnfinishedIntakeForms";
 import {
   deleteIntakeForm,
@@ -237,6 +239,8 @@ export interface NewJobPagePreview {
   autosave?: AutosaveState;
   /** 422 `job_not_ready` z ostatniej próby utworzenia. */
   serverBlockers?: ServerBlocker[];
+  /** Karta „Pliki” w prawej kolumnie (strona pyta o nie serwer). */
+  files?: JobFilesResponse;
 }
 
 const EMPTY_PORTAL_PLAN: NewJobPortalPlan = {
@@ -484,6 +488,9 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     [requestText, evidence],
   );
 
+  // Plik requestu czekający na zapis w karcie „Pliki” (0428).
+  const pendingRequestFileRef = useRef<File | null>(null);
+
   const onRead = async () => {
     if (!client) return;
     setReading(true);
@@ -513,6 +520,9 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
         ).data;
       }
       setRequestText(data.text);
+      // Plik requestu zostaje przy rekrutacji: zapisze go efekt niżej, gdy
+      // formularz ma już odczytane pola (zapis formularza idzie z nimi).
+      pendingRequestFileRef.current = file;
       setFile(null);
       setForm(formFromIntake(data.intake));
       setEvidence(data.intake.evidence ?? []);
@@ -654,6 +664,33 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
       inflightRef.current = null;
     }
   }, [queryClient]);
+
+  const ensureFormId = useCallback(async (): Promise<number | null> => {
+    if (formIdRef.current == null) await persistForm();
+    return formIdRef.current;
+  }, [persistForm]);
+
+  // Po odczycie pliku w kroku 1 ten sam plik trafia do plików rekrutacji jako
+  // „Request klienta”. Niepowodzenie nie cofa odczytu — plik da się dodać
+  // ręcznie w karcie „Pliki”.
+  useEffect(() => {
+    const pending = pendingRequestFileRef.current;
+    if (preview || step !== "review" || !pending) return;
+    pendingRequestFileRef.current = null;
+    void (async () => {
+      try {
+        const id = await ensureFormId();
+        if (id == null) throw new Error("form_not_saved");
+        const owner = { kind: "form", id } as const;
+        await uploadJobFile(owner, pending, "request");
+        await queryClient.invalidateQueries({ queryKey: jobFilesKey(owner) });
+      } catch {
+        showError(
+          "Plik requestu nie zapisał się w plikach rekrutacji — dodaj go w karcie „Pliki”.",
+        );
+      }
+    })();
+  }, [step, preview, ensureFormId, queryClient, showError]);
 
   // Wczytany formularz jest już zapisany — bez tego autozapis od razu by go powtórzył.
   useEffect(() => {
@@ -967,7 +1004,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
               </button>
             </div>
             {requestText.trim() ? (
-              <div className="max-h-[35dvh] overflow-auto whitespace-pre-line rounded-xl border border-border bg-card p-4 sm:p-5 xl:max-h-[70dvh] text-sm leading-relaxed text-foreground/80">
+              <div className="max-h-[35dvh] overflow-auto whitespace-pre-line rounded-xl border border-border bg-card p-4 sm:p-5 xl:max-h-[45dvh] text-sm leading-relaxed text-foreground/80">
                 {segments.map((seg, i) =>
                   seg.mark ? (
                     <mark
@@ -990,6 +1027,17 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
               <p className="text-xs text-muted-foreground">
                 Podświetlone fragmenty trafiły do pól formularza.
               </p>
+            )}
+            {/* Pod requestem, nie na końcu formularza: plik requestu i załączniki
+                należą do tej samej kolumny i mają być widoczne bez przewijania
+                sześciu sekcji. */}
+            {(!preview || preview.files) && (
+              <NewJobFilesCard
+                formId={intakeFormId}
+                ensureFormId={ensureFormId}
+                seed={preview?.files}
+                disabled={saving != null}
+              />
             )}
             {!preview && (
               <SimilarRequestsBanner

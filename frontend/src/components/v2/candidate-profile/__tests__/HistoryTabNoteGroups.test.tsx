@@ -59,10 +59,10 @@ vi.mock("@/components/v2/files/FilePreviewModal", () => ({
   FilePreviewContent: () => null,
   downloadDocumentBlob: vi.fn(),
 }));
-vi.mock("@/components/v2/screening/RecommendationCardDialog", () => ({
-  RecommendationCardDialog: ({ jobId }: { jobId: number }) => (
-    <div role="dialog" aria-label="Karta rekomendacji">
-      karta rekrutacji {jobId}
+vi.mock("@/components/v2/screening-form/ScreeningSummaryDialog", () => ({
+  ScreeningSummaryDialog: ({ jobId, jobTitle }: { jobId: number; jobTitle?: string | null }) => (
+    <div role="dialog" aria-label="Screening">
+      screening rekrutacji {jobId} {jobTitle}
     </div>
   ),
 }));
@@ -230,15 +230,16 @@ describe("Historia — zakładki notatek po rodzaju", () => {
     expect(field).toHaveValue("W trakcie pisania");
   });
 
-  it("notatka, która zasiliła kartę rekomendacji, otwiera tę kartę", async () => {
+  it("notatka, która zasiliła screening, otwiera okno „Screening” tej rekrutacji", async () => {
     const user = userEvent.setup();
     renderTab();
     await screen.findByText("Stawka 135 zł/h, dostępność 1 miesiąc.");
 
-    expect(await screen.findByText("Do karty trafiło: stawka i dostępność.")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Karta rekomendacji z tej rozmowy" }));
-    expect(screen.getByRole("dialog", { name: "Karta rekomendacji" })).toHaveTextContent(
-      "karta rekrutacji 10",
+    expect(await screen.findByText("Do screeningu trafiło: stawka i dostępność.")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Screening tej rekrutacji" }));
+    // Okno ładuje się leniwie (`next/dynamic`) — profil nie nosi formularza screeningu.
+    expect(await screen.findByRole("dialog", { name: "Screening" })).toHaveTextContent(
+      "screening rekrutacji 10",
     );
   });
 
@@ -251,7 +252,7 @@ describe("Historia — zakładki notatek po rodzaju", () => {
     expect(screen.getByText("Szuka projektu z Javą 21.")).toBeTruthy();
   });
 
-  it("awaria odczytu kart nie zasłania notatek — znika tylko link do karty", async () => {
+  it("awaria odczytu ustaleń nie zasłania notatek — znika tylko link do screeningu", async () => {
     apiGet.mockImplementation((url: string) =>
       url.includes("/recommendation-cards")
         ? Promise.reject(Object.assign(new Error("403"), { response: { status: 403 } }))
@@ -263,7 +264,7 @@ describe("Historia — zakładki notatek po rodzaju", () => {
     await waitFor(() =>
       expect(apiGet).toHaveBeenCalledWith("/api/candidates/42/recommendation-cards"),
     );
-    expect(screen.queryByRole("button", { name: "Karta rekomendacji z tej rozmowy" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Screening tej rekrutacji" })).toBeNull();
     // Odpowiedź bez `group_counts` (starszy serwer): liczniki z pobranej listy.
     expect(screen.getByRole("tab", { name: "Rozmowy · 2" })).toBeTruthy();
   });

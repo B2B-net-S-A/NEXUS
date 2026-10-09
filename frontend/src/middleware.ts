@@ -477,8 +477,6 @@ const PUBLIC_PATHS = [
   "/preview/plain-brief",
   // 0404: „Odrzuceni przez AI” i plakietki przeglądu zgłoszeń.
   "/preview/job-board-screening",
-  // 0413: karta rekomendacji (zwarta karta, cała karta, plakietki na tablicy).
-  "/preview/recommendation-card",
   // 0424: jeden formularz screeningu z podglądem CV obok.
   "/preview/screening-form",
   // Przegląd Delivery Leada: karta, uwagi dla rekrutera, „Wróć do poprawy”.

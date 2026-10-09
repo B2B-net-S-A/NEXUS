@@ -2,12 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import type { RecommendationCard } from "@/lib/api/recommendationCards";
 import {
-  answeredQuestions,
   boardCardBadge,
   cardChanges,
   cardFieldSource,
   cardFieldValue,
-  cardStatusLabel,
   contactAttemptsLabel,
 } from "@/lib/recommendation-card";
 
@@ -44,27 +42,6 @@ describe("karta rekomendacji — prezentacja", () => {
     expect(cardFieldSource(undefined)).toBeNull();
   });
 
-  it("podaje stan karty słowami", () => {
-    expect(cardStatusLabel(card())).toBe("brakuje 2");
-    expect(
-      cardStatusLabel(card({ completeness: { status: "complete", filled: 10, total: 10, missing: [] } })),
-    ).toBe("Karta gotowa");
-  });
-
-  it("liczy odpowiedzi na pytania", () => {
-    expect(answeredQuestions(card())).toBeNull();
-    expect(
-      answeredQuestions(
-        card({
-          questions: [
-            { number: 1, question: "Java?", answer: "Java 21", source: "sheet" },
-            { number: 2, question: "Chmura?", answer: "", source: null },
-          ],
-        }),
-      ),
-    ).toBe("1 z 2 odpowiedzi");
-  });
-
   it("wysyła tylko zmienione pola, a wyczyszczone jako null", () => {
     expect(
       cardChanges(card(), { rate: "135 zł/h", english: "", motivation: " szuka zmiany " }),
@@ -81,22 +58,22 @@ describe("karta rekomendacji — prezentacja", () => {
   });
 });
 
-describe("plakietka karty na tablicy", () => {
-  it("pokazuje stan karty w Screeningu, Zweryfikowanym i QC CV", () => {
+describe("plakietka screeningu na tablicy", () => {
+  it("pokazuje stan pól w Screeningu, Zweryfikowanym i QC CV — bez nazwy „karta”", () => {
     expect(boardCardBadge({ status: "complete", missing: 0, answers: 3 }, 0, "verified")?.label).toBe(
-      "Karta gotowa",
+      "Screening: komplet",
     );
     expect(boardCardBadge({ status: "partial", missing: 2, answers: 0 }, 0, "screening")).toMatchObject({
-      label: "Karta: brakuje 2",
+      label: "Screening: brakuje 2",
       tone: "wait",
     });
   });
 
-  it("bez karty mówi o próbach kontaktu tylko w Screeningu", () => {
+  it("bez wpisanych pól mówi o próbach kontaktu tylko w Screeningu", () => {
     expect(boardCardBadge(null, 3, "screening")?.label).toBe("3 próby kontaktu");
-    expect(boardCardBadge(null, 0, "screening")?.label).toBe("Bez karty");
+    expect(boardCardBadge(null, 0, "screening")?.label).toBe("Screening: puste pola");
     expect(boardCardBadge({ status: "empty", missing: 10, answers: 0 }, 2, "cv_qc")?.label).toBe(
-      "Bez karty",
+      "Screening: puste pola",
     );
   });
 

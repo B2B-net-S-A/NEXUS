@@ -2998,13 +2998,52 @@ Kontrakt: `docs/screening-form-contract.md`, raport: `docs/screening-form-comple
   panel na całą szerokość okna — podgląd po LEWEJ na całą wysokość (CV oryginalne / CV firmowe / inne pliki,
   Wymagania, Po ludzku), profil przed rozmową albo formularz w stałej prawej kolumnie (460 px, od 1536 px okna
   520 px). „Zwiń” wraca do doku 380 px. Układ od 09.10.2026 — sekcja „Duży podgląd po lewej stronie panelu osoby”.
-- **Karta rekomendacji jest widokiem** (dok, przegląd DL, profil) z „Edytuj w screeningu”. Pole „Notatki
+- **Pola „Warunków” i „Oceny” czyta się w widoku „Screening”** (dok, przegląd DL, profil) — od 09.10.2026 bez
+  osobnej sekcji i nazwy „Karta rekomendacji” (sekcja „Jeden widok „Screening”…” niżej). Pole „Notatki
   rekrutera” (`screening_answers.notes`) zniknęło z formularza — stare wartości pokazujemy jako „Notatka z arkusza”
   z „Przenieś do Dlaczego ten kandydat”.
 - **Nic do klienta (D2):** udostępnianie karty Championa usunięte — `POST …/share-token` i publiczny GET = 410,
   tokeny odwołane w 0424; `notes` zdjęte z `client_safe_screening`. Odpowiedzi nadal są źródłem treści CV firmowego.
 - Wzmianki w sekcjach 0413 i 0421 o edycji karty w jej oknie, kafelkach importu notatki i `/note/apply` opisują
   stan sprzed 0424.
+
+## Jeden widok „Screening” zamiast karty rekomendacji (09.10.2026)
+
+Decyzja Artura 09.10.2026 („usuń nazwę wszędzie”). Po 0424 rekruter wypełniał jeden formularz, ale do odczytu te
+same dane stały w dwóch albo trzech blokach pod różnymi nazwami (arkusz, „Karta rekomendacji”, w przeglądzie DL
+jeszcze „Ocena rekrutera”). Raport: `docs/screening-one-view-completion-report.md`.
+
+- **Nazwy „Karta rekomendacji” nie ma na ekranach**, w „Przesuń dalej”, w dzwonku zmiany stawki ani w etykiecie
+  narzędzia Jarvisa. Nazwy techniczne zostają (tabela `recommendation_cards`, trasy `/api/recommendation-cards`,
+  pole `card` na karcie Tablicy, akcja `open_card`, klucz plakietki `recommendation_card`,
+  `lib/recommendation-card.ts`) — jak `/jobs` przy „Rekrutacjach”. Nowy napis dla człowieka mówi „screening”,
+  „formularz screeningu” albo „z notatki”.
+- **Jeden widok tylko do odczytu: `screening-form/ScreeningSummaryView`** (warunki → pytania → ocena) ze stanu
+  `GET /api/screening-form`. Pokazują go: dok osoby (jedna sekcja „Screening”), przegląd DL (jeden blok między
+  wymaganiami a ryzykami — zastąpił „Ocenę rekrutera”, kartę i zwinięty arkusz), zakończony proces i okno
+  w profilu (`ScreeningSummaryDialog`, przycisk „Screening tej rekrutacji” przy notatce). Nie dokładaj drugiego
+  widoku tych danych ani osobnej sekcji na pola „Warunków” i „Oceny”. Odpowiedzi nadal renderuje wyłącznie
+  `ScreeningAnswersList` (pola wiersza `source` i `deal_breaker`).
+- **Stan formularza niesie `questions`** (pytania scalone przez serwer: arkusz, a bez niego notatka; „Odpada,
+  gdy…”, trafienie) **i `rate_text`** (stawka zapisana tekstem, gdy `rate` jest puste). Front pytań nie scala —
+  `lib/screening-summary.ts` tylko układa wiersze: tekst pytania ze stempla odpowiedzi, a warunek „Odpada, gdy…”
+  wyłącznie przy tym samym pytaniu co w profilu (identyfikatory pytań są pozycyjne).
+- **„Brakuje N” liczy jedna reguła:** stawka na wierszu etapu to wypełnione pole
+  (`recommendation_cards.with_stage_rate`, `stage_rate_pairs`) — w formularzu, na plakietce Tablicy, w kolejce DL,
+  w „Przesuń dalej” i w `GET /api/recommendation-cards`. Do tej daty plakietka i „Przesuń dalej” liczyły brak
+  stawki, gdy stała tylko na etapie (okno „Zweryfikowany”, „Zmień” w panelu). Para ze stawką na etapie i bez
+  wiersza karty ma stan „częściowy”, nie „pusty”.
+- **Plakietka na Tablicy i w kolejce DL:** „Screening: komplet” / „Screening: brakuje N” / „Screening: puste pola”
+  — liczy pola warunków i oceny, nie odpowiedzi na pytania. Napis musi pasować do `/brakuje (\d+)/`
+  w `compactCardBadge`.
+- **„W starym formacie”** jest zwinięte w widoku i pobiera `GET /api/recommendation-cards` dopiero po rozwinięciu
+  (`ScreeningLegacyText`). Okna „Otwórz całą kartę” i harnessu `/preview/recommendation-card` nie ma.
+- **Widok pokazuje bieżącą próbę procesu**, jak formularz: wartości sprzed ponownego dodania osoby są podpowiedzią
+  „brak — ostatnio: …”. Dok czyta stan pary (ten sam klucz co zakładka „Screening” po „Rozwiń”) i odświeża go raz,
+  gdy karta zmieni wiersz etapu.
+- Wzmianki w sekcjach 0413, 0421, 0424 i „Przegląd Delivery Leada v2” o sekcji albo oknie „Karta rekomendacji”,
+  o „Ocenie rekrutera” w środkowej kolumnie przeglądu, o `SavedScreeningView` i o plakietce „Karta gotowa / Bez
+  karty” opisują stan sprzed 09.10.2026.
 
 ## Przegląd Delivery Leada v2 (D6, D9, D10, 08.10.2026)
 
@@ -5047,6 +5086,19 @@ udostępniania dla klienta nie robimy. Raport: `docs/job-no-drafts-completion-re
   (`draft_not_allowed`) i publikacji z innego stanu (409 `reopen_required`);
   ten sam status wysłany ponownie przechodzi (okno edycji odsyła wszystkie
   pola). Przekazanie starego szkicu go publikuje.
+- **Ponowne otwarcie ZAMKNIĘTEJ rekrutacji nie pyta o rekrutera (decyzja Artura
+  09.10.2026).** `POST /{id}/publish` bez ciała albo z `assignment_mode: "keep"`
+  (wartość istnieje tylko na `JobPublishRequest` — `/handoff` i `POST /api/jobs`
+  jej nie przyjmują) → `job_lifecycle.reopen_keep_team_core`: ta sama bramka
+  kompletności, `searching`, migawka dopasowań, `Activity handed_off_to_search`
+  z `assignment_mode: "keep"`. Prowadzący i ręczni współpracownicy zostają;
+  aktywny prowadzący dostaje wiersz przypisania i dzwonek (nie osoba, która
+  otwiera), nieaktywny = brak rekrutera. Bez rekrutera request trafia do
+  automatu (tryb ≠ `off`) albo do kolejki Head of Recruitment „Nowe rekrutacje —
+  kto prowadzi”. 422 `handoff_required` zostaje wyłącznie dla „Dokończ
+  i opublikuj” (stary szkic, opublikowana bez przekazania) — tam okno nadal
+  pyta o rekrutera. `JobReopenDialog` w trybie `reopen` pokazuje jedną linię
+  („Rekruter: X — bez zmian”), zmiana w zakładce „Zespół i ogłoszenie”.
 - **Brak z bramki ma działanie tam, gdzie da się go zamknąć (08.10.2026).**
   Hiring managera i termin (albo „Klient nie podał”) ustawia się wprost w oknie
   „Otwórz ponownie” (`JobReopenDialog`: `HiringManagerPicker`, `DeadlineEditor`)
@@ -5097,6 +5149,51 @@ udostępniania dla klienta nie robimy. Raport: `docs/job-no-drafts-completion-re
   `POST /api/jobs → PUT champion → handoff → publish` albo otwieraniu
   rekrutacji polem Status opisują stan sprzed 04.10.2026.
 
+## Pliki rekrutacji (0428, 09.10.2026)
+
+Decyzja Artura 09.10.2026: Delivery Lead dodaje pliki przy zakładaniu
+rekrutacji (plik requestu z kroku 1 zapisuje się sam), a zespół widzi je potem
+w menu „⋯” rekrutacji. Kod: `services/job_files.py`, `api/job_files.py`, trasy
+plików formularza w `api/job_intake_forms.py`, front `lib/api/jobFiles.ts`,
+`components/v2/jobs/files/JobFilesPanel.tsx` (jeden panel dla obu miejsc).
+
+- **Tabela `job_files` ma DWÓCH możliwych właścicieli:** `job_id` (CASCADE)
+  albo `intake_form_id` (SET NULL). Rekrutacji przed „Utwórz i przekaż” nie
+  ma, więc plik z `/jobs/new` wisi na niedokończonym formularzu autora;
+  `POST /api/jobs` przepina go (`job_files.attach_intake_files`) tuż PRZED
+  `delete_intake_form`, w tej samej transakcji — odmowa 422 `job_not_ready`
+  zostawia pliki przy formularzu. Ścieżka na dysku nie zależy od właściciela,
+  więc przepięcie to sam UPDATE. Kopia rekrutacji (`from_job_id`) plików nie
+  przenosi.
+- **Pliki leżą na wolumenie uploadów** (`storage_service.save_job_file`, nazwa
+  na dysku losowa — nazwa z przeglądarki jest tylko w kolumnie `filename`).
+  20 MB na plik (pod limitem ciała 30 MB), 20 plików na właściciela (liczone
+  pod blokadą właściciela), lista rozszerzeń w `job_files.CONTENT_TYPES`
+  (lustro `JOB_FILE_EXTENSIONS` na froncie). Odczyt uploadu `read(LIMIT + 1)`.
+- **Plik znika z dysku PO commicie** (usunięcie pliku, usunięcie rekrutacji —
+  ścieżki zbierane przed `db.delete(job)`). Sieroty (formularz usunięty przez
+  autora albo po 30 dniach — FK zeruje `intake_form_id`) kasuje
+  `queue_retention` (`job_files.sweep_orphans`).
+- **Uprawnienia:** pliki formularza — wyłącznie autor (`_own_form`, cudzy =
+  404); pliki rekrutacji — odczyt i pobranie każda rola wewnętrzna z dostępem
+  do rekrutacji, dodanie i usunięcie `ensure_job_editor` (także na zamkniętej
+  rekrutacji), `Activity job_file_added` / `job_file_removed`. `can_edit`
+  liczy serwer; front nie zgaduje po roli.
+- **Pobranie:** `inline` tylko dla PDF i obrazów
+  (`core/http_headers.safe_document_disposition` — wspólne z dokumentami
+  kandydata), reszta zawsze jako załącznik. Nazwy plików i ścieżki nie idą do
+  logów.
+- **DDL ma jedno źródło** (`services/job_file_schema.py`) dla migracji 0428
+  i `entrypoint.sh`; pilnuje `test_job_files_migration_mirror.py`. Sonda
+  `job_files` w `/api/health/deep`.
+- **Front:** `/jobs/new` — karta „Pliki” w lewej kolumnie pod requestem
+  (pierwszy plik najpierw zapisuje formularz: `ensureFormId` → `persistForm`);
+  po udanym odczycie pliku w kroku 1 ten sam plik idzie jako `source=request`
+  (niepowodzenie = toast, odczyt zostaje). Strona rekrutacji — „⋯” → „Pliki
+  (N)”, `?win=files`, `JobFilesSlideOver`. Awaria listy = komunikat z „Ponów”,
+  nigdy pusta lista. Harnessy: `/preview/job-detail?files=1`,
+  `/preview/new-job?state=review|manual`.
+
 ## Umiejętności krytyczne i bramka v9 (0405, 30.09.2026)
 
 Audyt `docs/audits/2026-09-30/wyszukiwanie-kandydatow.md` (symulacje na
@@ -5108,7 +5205,7 @@ wysłał do klienta, budżet — 32%, dni w biurze — 8%. Decyzje Artura 30.09.
   `lib/critical-skills.ts`), z podpowiedzi z historii najwyżej dwie
   (`critical_skills.SUGGEST_MAX` — działa bez decyzji człowieka, więc trzecia
   automatyczna bramka wymaga pomiaru) (`services/critical_skills.py`,
-  `MUST_GATE_POLICY_VERSION = "critical-v9"`). Pole Championa `stack.critical`:
+  `MUST_GATE_POLICY_VERSION`, dziś `critical-v11`). Pole Championa `stack.critical`:
   `None` = DL nie zdecydował (działa podpowiedź), `[]` = „Brak krytycznych”
   (bramka must nie ukrywa nikogo), lista = bramka. Serializer zdejmuje `None`
   (stare profile nie zmieniają kształtu). Wybór nie zmienia wymagań roli
@@ -5116,23 +5213,43 @@ wysłał do klienta, budżet — 32%, dni w biurze — 8%. Decyzje Artura 30.09.
   nie kasuje kontraktu wymagań i nie odpala przeliczeń. Idzie za listą MUST
   (`_prune_critical`; stracone wszystkie = z powrotem `None`), kopia
   rekrutacji ma `None`, zły wybór = 422 po polsku (`critical_errors`).
-- **Wybrać wolno każdą nazwę technologii albo narzędzia, także spoza słownika
-  (decyzja Artura 08.10.2026):** `must_gate_terms.critical_selectable` =
-  pozycja bramkuje (`gate_requirement`). Czytają ją `effective_critical`
-  i `critical_errors`; bramka szuka wtedy dosłownie tej nazwy w profilu, CV
-  i notatkach (bez aliasów). Do tej daty wybór ograniczał słownik
-  (`critical_eligible`) — w 16 najnowszych rekrutacjach 9 skończyło z „Brak
-  krytycznych”, bo „Camunda BPM”, „TestNG”, „Qualys” nie dało się oznaczyć.
-  `critical_eligible` (słownik) zostaje dla podpowiedzi z historii, wymogu
-  decyzji przy przekazaniu (`job_readiness`) i tytułu dla rekrutera — tam nikt
-  nie potwierdza wyboru. `POST /api/job-intake/critical-suggestion` oddaje
-  `selectable` (wolno oznaczyć), `blocked` (etykieta → zdanie po polsku:
-  branża, język, umiejętność miękka, kategoria albo metodyka, rola, opis) i jak dotąd
-  `eligible`. Edytor wierszy pokazuje powód POD wierszem („Nie może być
-  krytyczne: …”), a przy krytycznym spoza słownika zdanie, że szukamy
-  dokładnie tej nazwy. Reguła „wygląda na nazwę” jest składniowa
-  (`is_syntactic_technology_name`: ≤ 3 słowa, bez słów z list branż / miękkich
-  / kategorii / ról), więc krótkie słowo spoza tych list też da się oznaczyć.
+- **Krytyczną może być KAŻDA fraza — decyduje Delivery Lead (decyzja Artura
+  09.10.2026, `critical-v11`).** System nie odrzuca już branży, języka,
+  umiejętności miękkiej, kategorii, roli ani zdania (`critical_selectable`
+  i komunikat „Nie może być krytyczne: …” usunięte; `critical_errors` zna tylko
+  „za dużo” i „spoza MUST”). Limit trzech zostaje. Bramka szuka **słów wiersza**
+  (`stack.rows[].words`) w profilu, CV i notatkach — którekolwiek wystarcza:
+  `critical_skills.critical_gate_options(job)` (etykieta → słowa; fraza bez
+  wiersza = sama etykieta; tylko przy `source == "dl"`), `DealbreakerInputs.
+  critical_options` / `gate_options`, `must_gate_terms.requirement_with_options`.
+  Każde `attach_gate_evidence` MUSI nieść `options=` (strażnik AST w
+  `test_must_gate_evidence_wiring.py`) — bez nich fraza nie ma dowodu u nikogo
+  i ukrywa wszystkich na tym jednym ekranie. Te same słowa czytają QC CV
+  (`cv_qc.critical_requirements`) i wiersze „Szukaj ręcznie”
+  (`critical_resolution_payload`); pula SQL (`build_job_must_groups`) po
+  krytycznej szukanej słowami NIE zawęża (tsquery nie zna odmiany — pula ma być
+  nadzbiorem bramki). Zamrożone żądanie niesie słowa w
+  `critical_effective["options"]` tylko, gdy są (odcisk rekrutacji bez wyboru DL
+  bez zmian). Historia: 30.09 wybór ograniczał słownik (`critical_eligible`),
+  08.10 — reguła „wygląda na nazwę technologii”; w 16 rekrutacjach 9 kończyło
+  z „Brak krytycznych”. `critical_eligible` (słownik) zostaje dla podpowiedzi
+  z historii, wymogu decyzji przy przekazaniu (`job_readiness`) i tytułu dla
+  rekrutera — tam nikt wyboru nie potwierdza. `POST …/critical-suggestion`
+  oddaje `selectable` = wszystkie etykiety i puste `blocked` (pola zostają dla
+  otwartych kart przeglądarki). Edytor wierszy wyłącza „Krytyczne” WYŁĄCZNIE
+  limitem; pod krytycznym spoza słownika stoi zdanie, czego szukamy.
+- **Edytor wierszy wymagań — klawiatura (zgłoszenie 09.10.2026: „wpisuję jedno
+  must-have i nie mogę kolejnego”, „słowo znika albo się podmienia”).** Enter
+  po słowie = następne wymaganie (kursor w pustym wierszu niżej, nowym, gdy go
+  nie ma — jednym `onRowsChange`; w środku listy kursor zostaje), przecinek =
+  wariant „lub” w tym samym wierszu. `ChipField` ma do tego `onEnterCommit`
+  i `suggest.quietWhenEmpty` (lista podpowiedzi nie otwiera się na pustym polu
+  — zasłaniała wiersz niżej i „Dodaj słowo kluczowe”). Najechanie myszą NIE
+  ustawia podświetlenia klawiatury (`KeywordSuggestionList` bez `onHover`,
+  podświetlenie pod kursorem to CSS) — Enter wstawia podpowiedź tylko wybraną
+  strzałkami, także na liście kandydatów. Wiersze znajdujemy po
+  `data-row-index`, nie po kluczu (klucz pustego wiersza różni się między
+  serwerem a przeglądarką — hydratacja).
 - **Podpowiedź z historii:** technologia z MUST (każda opcja w słowniku,
   także narzędzia/standardy/AI — `must_gate_terms.critical_eligible`), którą
   ≥90% osób wysłanych w innych rekrutacjach ma w profilu, CV albo notatce
