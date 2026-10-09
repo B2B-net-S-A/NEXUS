@@ -164,6 +164,12 @@ class User(Base, TimestampMixin):
         Boolean, default=True, server_default="true", nullable=False
     )
 
+    # 0425: poranny skrót „Twój dzień w NEXUSIE” mailem — własny wyłącznik
+    # konta (przełącznik w Ustawienia → System działa na całą firmę).
+    daily_digest_email_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", nullable=False
+    )
+
     # Jarvis (0330): wygląd i zachowanie maskotki-asystenta — postać, własne
     # imię, akcent, dźwięk, zwinięcie. Walidowane w `/api/users/me/preferences`
     # (`JarvisPrefs`); pusty słownik = ustawienia domyślne.

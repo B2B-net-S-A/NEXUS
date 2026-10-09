@@ -181,6 +181,19 @@ async def test_delivery_alert_recipients_honour_roles_access_and_client_scope():
         assert inactive_dl.id not in own_recipients
         assert granted_recruiter.id not in own_recipients
         assert dl_alert_recipients == {assigned_dl.id, secondary_dl.id}
+
+        # Dzwonek (09.10.2026): przypisani DL-e bez adminów; admin jest zapasem
+        # dla klienta bez uprawnionego DL-a i dla umowy bez klienta.
+        assert set(scope.bell_recipients(client_ids[0])) == {
+            assigned_dl.id,
+            secondary_dl.id,
+        }
+        assert {primary_admin.id, secondary_admin.id} <= set(
+            scope.bell_recipients(client_ids[1])
+        )
+        assert {primary_admin.id, secondary_admin.id} <= set(
+            scope.bell_recipients(None)
+        )
     finally:
         if user_ids or client_ids:
             async with AsyncSessionLocal() as db:

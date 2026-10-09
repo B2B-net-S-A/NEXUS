@@ -24,7 +24,9 @@
   "GET /api/settings/candidates-columns": "PPPPPPPDPPPPPPPPPPP",
   "GET /api/settings/candidates-columns/all": "PDDDDDDDDDDDDDDDDDD",
   "GET /api/settings/notification-delivery": "PDDDDDDDDDDDDDDDDDD",
+  "GET /api/settings/notification-roles": "PDDDDDDDDDDDDDDDDDD",
   "PUT /api/settings/candidates-columns": "PDDDDDDDDDDDDDDDDDD",
-  "PUT /api/settings/notification-delivery": "PDDDDDDDDDDDDDDDDDD"
+  "PUT /api/settings/notification-delivery": "PDDDDDDDDDDDDDDDDDD",
+  "PUT /api/settings/notification-roles": "PDDDDDDDDDDDDDDDDDD"
  }
 }

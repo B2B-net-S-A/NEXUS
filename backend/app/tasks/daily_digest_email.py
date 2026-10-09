@@ -76,6 +76,8 @@ async def _recipients(db: AsyncSession) -> list[User]:
                 .where(
                     User.is_active.is_(True),
                     User.email.is_not(None),
+                    # Własny wyłącznik konta (0425, „Moje powiadomienia”).
+                    User.daily_digest_email_enabled.is_(True),
                     reports._has_any_role(DIGEST_ROLES),
                 )
                 .order_by(User.id)
@@ -87,6 +89,11 @@ async def _recipients(db: AsyncSession) -> list[User]:
     for start in range(0, len(users), reports._ACCESS_BATCH):
         await resolve_effective_access(db, users[start : start + reports._ACCESS_BATCH])
     return with_pipeline_read(users)
+
+
+async def recipient_count(db: AsyncSession) -> int:
+    """Ile kont dostałoby dziś skrót — zasięg przełącznika w Ustawieniach."""
+    return len(await _recipients(db))
 
 
 def with_pipeline_read(users: list[User]) -> list[User]:

@@ -50,6 +50,7 @@ ENTITY_TYPE_LABELS: dict[str, str] = {
     "user": "Uprawnienia użytkownika",
     "role": "Uprawnienia roli",
     "job": "Rekrutacja",
+    "settings": "Ustawienia systemu",
 }
 
 EVENT_TYPE_LABELS: dict[str, str] = {
@@ -68,6 +69,8 @@ EVENT_TYPE_LABELS: dict[str, str] = {
     "rbac.role_permissions": "Zmiana uprawnień roli",
     "rbac.user_permissions": "Zmiana uprawnień osoby",
     "job.delete": "Usunięcie rekrutacji",
+    "notifications.role_mutes": "Zmiana powiadomień roli",
+    "notifications.email_policy": "Zmiana maili automatycznych",
 }
 
 OUTCOME_LABELS: dict[str, str] = {

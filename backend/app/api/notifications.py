@@ -19,6 +19,7 @@ from app.api.deps import CurrentUser
 from app.services.notification_access import (
     notification_types_for_sections,
     notification_visibility_predicate,
+    role_muted_types_of,
     user_may_receive_type,
 )
 from app.services.notification_categories import (
@@ -363,6 +364,9 @@ class NotificationCategoryPreference(BaseModel):
     # Ile powiadomień tej kategorii przyszło w ostatnich 30 dniach (także
     # w czasie wyciszenia) — pomaga zdecydować, co wyłączyć.
     received_30d: int
+    # Administrator wyłączył całą kategorię dla ról tego konta (tabela „Kto co
+    # dostaje”) — własny przełącznik niczego wtedy nie włączy.
+    role_muted: bool = False
 
 
 class NotificationPreferencesResponse(BaseModel):
@@ -417,6 +421,7 @@ async def _preferences_response(
             per_category[category] = per_category.get(category, 0) + int(count)
 
     muted = muted_categories(user.muted_notification_categories)
+    role_muted = role_muted_types_of(user)
     return NotificationPreferencesResponse(
         categories=[
             NotificationCategoryPreference(
@@ -426,6 +431,7 @@ async def _preferences_response(
                 mandatory=info.mandatory,
                 muted=category in muted,
                 received_30d=per_category.get(category, 0),
+                role_muted=types_in(category) <= role_muted,
             )
             for category, info in CATEGORY_INFO.items()
             if _category_reachable(user, category)

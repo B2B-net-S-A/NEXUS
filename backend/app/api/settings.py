@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -90,7 +90,97 @@ async def put_notification_delivery(
         enabled=payload.enabled,
         toggles={item.id: item.email_enabled for item in payload.types},
         admin_id=admin.id,
+        actor=admin,
     )
+    return await admin_view(db)
+
+
+# ── „Kto co dostaje”: powiadomienia wyłączone dla całej roli ────────────────
+
+
+class NotificationRoleChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    role: str
+    group: str
+    muted: StrictBool
+
+    @field_validator("role")
+    @classmethod
+    def known_role(cls, value: str) -> str:
+        from app.services.notification_role_mutes import ROLE_LABELS
+
+        if value not in ROLE_LABELS:
+            raise ValueError("Nieznana rola")
+        return value
+
+    @field_validator("group")
+    @classmethod
+    def mutable_group(cls, value: str) -> str:
+        from app.services.notification_categories import GROUP_INFO, group_is_mutable
+
+        if value not in GROUP_INFO:
+            raise ValueError("Nieznana grupa powiadomień")
+        if not group_is_mutable(value):
+            raise ValueError("Tej grupy powiadomień nie da się wyłączyć")
+        return value
+
+
+class NotificationRolesUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    revision: int = Field(ge=0)
+    changes: list[NotificationRoleChange] = Field(min_length=1, max_length=200)
+
+    @field_validator("changes")
+    @classmethod
+    def unique_cells(cls, value: list[NotificationRoleChange]):
+        if len({(item.role, item.group) for item in value}) != len(value):
+            raise ValueError("Powtórzona para rola i grupa")
+        return value
+
+
+@router.get("/notification-roles")
+async def get_notification_roles(
+    _admin: AdminUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    from app.services.notification_role_view import admin_view
+
+    return await admin_view(db)
+
+
+@router.put("/notification-roles")
+async def put_notification_roles(
+    payload: NotificationRolesUpdate,
+    admin: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    from app.services.notification_role_mutes import (
+        RoleMuteChange,
+        StaleRoleMutes,
+        save_changes,
+    )
+    from app.services.notification_role_view import admin_view
+
+    try:
+        await save_changes(
+            db,
+            actor=admin,
+            revision=payload.revision,
+            changes=[
+                RoleMuteChange(role=item.role, group=item.group, muted=item.muted)
+                for item in payload.changes
+            ],
+        )
+    except StaleRoleMutes:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "stale_notification_roles",
+                "message": (
+                    "Ktoś zmienił te ustawienia w międzyczasie. "
+                    "Wczytaj je ponownie i powtórz zmianę."
+                ),
+            },
+        ) from None
     return await admin_view(db)
 
 

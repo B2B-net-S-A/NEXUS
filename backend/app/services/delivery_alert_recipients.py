@@ -1,10 +1,16 @@
 """Recipient scope for Delivery notifications.
 
-Delivery alerts may contain client and contract data.  Global fan-out is
-therefore limited to active admins, while Delivery Leads receive alerts only
-for clients assigned through ``DeliveryLeadClientAssignment``.  Both primary
-and secondary (JSONB) roles are honoured, and every non-admin recipient is
-checked against the authoritative section policy before an alert is created.
+Delivery alerts may contain client and contract data.  Delivery Leads receive
+alerts only for clients assigned through ``DeliveryLeadClientAssignment``.
+Both primary and secondary (JSONB) roles are honoured, and every non-admin
+recipient is checked against the authoritative section policy before an alert
+is created.
+
+Dzwonek (koniec zamówienia, umowy, umowy ramowej, zwrot sprzętu, szkic po
+zatrudnieniu) idzie przez ``bell_recipients``: do Delivery Leadów klienta,
+a do adminów tylko wtedy, gdy klient nie ma żadnego uprawnionego DL-a.
+Do 09.10.2026 dostawał go każdy admin — 1 237 powiadomień w 30 dni na 7 kont,
+przeczytane w 8%.  ``for_client`` (admini + DL) zostaje bramką maili alertów.
 """
 
 from __future__ import annotations
@@ -42,6 +48,20 @@ class DeliveryAlertRecipientScope:
                 else frozenset()
             )
         )
+
+    def bell_recipients(self, client_id: int | None) -> list[int]:
+        """Odbiorcy dzwonka: Delivery Leadzi klienta, bez nich — admini.
+
+        Admin jest zapasem, żeby alert klienta bez DL-a (albo umowy bez
+        klienta) nie zginął, a nie stałym odbiorcą każdego alertu w firmie.
+        """
+
+        delivery_leads = (
+            self.delivery_lead_ids_by_client.get(client_id, frozenset())
+            if client_id is not None
+            else frozenset()
+        )
+        return sorted(delivery_leads or self.admin_ids)
 
     @property
     def is_empty(self) -> bool:

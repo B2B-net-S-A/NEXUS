@@ -4,8 +4,9 @@ Runs once a day. Responsibilities:
     1. Promote active → ending when end_date - today ≤ 30.
     2. Promote ending → ended when end_date < today.
     3. For each active/ending contract with end_date at T-60/30/14/7 days,
-       create in-app Notification rows for active admins and authorised,
-       client-assigned Delivery Leads, then post one summary message to Slack
+       create in-app Notification rows for authorised, client-assigned
+       Delivery Leads (admins only when the client has none — 09.10.2026),
+       then post one summary message to Slack
        (if SLACK_WEBHOOK_URL set).
     4. Dedup: Notification rows are keyed by (user, contract, threshold_days).
        We never re-notify for the same triple.
@@ -579,7 +580,7 @@ async def run_contract_alerts_cycle() -> dict:
             )
             labels = await _contract_labels(db, fresh)
             for c in fresh:
-                recipient_ids = recipient_scope.for_client(c.client_id)
+                recipient_ids = recipient_scope.bell_recipients(c.client_id)
                 if not recipient_ids:
                     continue
                 # Claim key carries the end_date too, so the atomic ledger re-arms on
@@ -636,7 +637,7 @@ async def run_contract_alerts_cycle() -> dict:
                 and (d.id, d.expiry_date.isoformat()) not in already
             ]
             for doc in fresh:
-                recipient_ids = recipient_scope.for_client(
+                recipient_ids = recipient_scope.bell_recipients(
                     client_ids.get(doc.contract_id)
                 )
                 if not recipient_ids:
@@ -684,7 +685,7 @@ async def run_contract_alerts_cycle() -> dict:
                 and (item.id, item.return_due_date.isoformat()) not in already
             ]
             for item in fresh:
-                recipient_ids = recipient_scope.for_client(
+                recipient_ids = recipient_scope.bell_recipients(
                     client_ids.get(item.contract_id)
                 )
                 if not recipient_ids:
@@ -731,7 +732,7 @@ async def run_contract_alerts_cycle() -> dict:
                 and (c.id, c.client_order_end_date.isoformat()) not in already
             ]
             for c in fresh:
-                recipient_ids = recipient_scope.for_client(c.client_id)
+                recipient_ids = recipient_scope.bell_recipients(c.client_id)
                 if not recipient_ids:
                     continue
                 episode = c.client_order_end_date.isoformat()
