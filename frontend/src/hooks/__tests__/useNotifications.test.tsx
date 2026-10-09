@@ -15,6 +15,7 @@ import {
   useNotifications,
 } from "@/hooks/useNotifications";
 import { NOTIFICATIONS_FALLBACK_POLL_MS } from "@/lib/polling";
+import { CHAT_NOTIFY_EVENT } from "@/types/job-chat";
 
 /**
  * Reaudyt 14.09.2026: R02 (powrót gniazda nie odświeżał dzwonka, który przy
@@ -165,6 +166,37 @@ describe("useNotifications — zdarzenia czatu odświeżają dzwonek", () => {
     deliver({ type: "candidate-chat:message:new", data: { id: 2, candidate_id: 9 } });
     flushChatRefresh();
     expect(keys()).toContain(JSON.stringify(["notifications"]));
+    expect(keys()).toContain(JSON.stringify(["candidate-chat-unread"]));
+    hook.unmount();
+  });
+
+  it("zapowiedź powiadomienia czatu odświeża okienko i trafia do okna jako zdarzenie", () => {
+    const { hook, keys } = setup();
+    const seen: unknown[] = [];
+    const listener = (e: Event) => seen.push((e as CustomEvent).detail);
+    window.addEventListener(CHAT_NOTIFY_EVENT, listener);
+    const detail = {
+      kind: "job",
+      entity_id: 7,
+      notification_type: "job_chat_mention",
+      link: "/jobs/7?tab=chat&msg=3",
+      thread_title: "Tester automatyzujący",
+      author_name: "Anna Przykładowa",
+      preview: "Zerkniesz?",
+    };
+    deliver({ type: "chat:notify", data: detail });
+    deliver({
+      type: "candidate-chat:notify",
+      data: { ...detail, kind: "candidate", link: "/candidates/9?tab=chat&msg=4" },
+    });
+    window.removeEventListener(CHAT_NOTIFY_EVENT, listener);
+
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).toEqual(detail);
+    flushChatRefresh();
+    // Okienko „Czaty” żyje pod prefiksem `["notifications"]`.
+    expect(keys()).toContain(JSON.stringify(["notifications"]));
+    expect(keys()).toContain(JSON.stringify(["job-chat-unread"]));
     expect(keys()).toContain(JSON.stringify(["candidate-chat-unread"]));
     hook.unmount();
   });

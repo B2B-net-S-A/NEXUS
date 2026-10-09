@@ -4,10 +4,10 @@ User notification system with unread badge support.
 """
 
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from sqlalchemy import and_, func, or_, select, true, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +16,8 @@ from app.core.database import get_db
 from app.models.notification import Notification, NotificationType
 from app.models.user import User
 from app.api.deps import CurrentUser
+from app.services import chat_notifications
+from app.services.mention_dispatch import CHAT_NOTIFICATION_TYPES
 from app.services.notification_access import (
     notification_types_for_sections,
     notification_visibility_predicate,
@@ -86,6 +88,39 @@ class UnreadCountResponse(BaseModel):
     count: int
 
 
+class ChatThreadResponse(BaseModel):
+    """Jedna rozmowa w okienku „Czaty”: czat rekrutacji albo kandydata."""
+
+    kind: Literal["job", "candidate"]
+    entity_id: int
+    title: str
+    subtitle: Optional[str] = None
+    unread_count: int
+    has_mention: bool
+    last_author_name: Optional[str] = None
+    last_message: str
+    last_at: Optional[str] = None
+    link: str
+
+
+class ChatThreadListResponse(BaseModel):
+    items: List[ChatThreadResponse]
+    # Rozmowy z nowymi wiadomościami w całym oknie 30 dni, nie tylko na
+    # zwróconej stronie — to jest licznik na ikonie.
+    unread_threads: int
+
+
+class ChatThreadsReadRequest(BaseModel):
+    kind: Optional[Literal["job", "candidate"]] = None
+    entity_id: Optional[int] = None
+
+    @model_validator(mode="after")
+    def _thread_is_complete(self) -> "ChatThreadsReadRequest":
+        if (self.kind is None) != (self.entity_id is None):
+            raise ValueError("Podaj rodzaj rozmowy razem z jej numerem.")
+        return self
+
+
 class MarkAllReadResponse(BaseModel):
     success: bool
     updated: int
@@ -97,6 +132,8 @@ class MarkAllReadResponse(BaseModel):
 # Bounded page size — keep the bell/list responsive and avoid unbounded scans.
 _MAX_LIMIT = 200
 _DEFAULT_LIMIT = 50
+_CHAT_THREADS_DEFAULT_LIMIT = 30
+_CHAT_THREADS_MAX_LIMIT = 100
 
 # Historyczna lista „finance-safe" — od 19.08 nieużywana w predykacie
 # widoczności (finance widzi feed jak role operacyjne), zostaje wyłącznie
@@ -158,8 +195,12 @@ async def list_notifications(
     limit: int = Query(_DEFAULT_LIMIT, ge=1, le=_MAX_LIMIT),
     offset: int = Query(0, ge=0),
     exclude_section: List[str] = Query(default=[]),
+    exclude_chat: bool = Query(False),
 ):
     """List notifications for current user — unread first.
+
+    ``exclude_chat``: dzwonek nie pokazuje ani nie liczy powiadomień czatów —
+    od 09.10.2026 mają własne okienko (``GET /notifications/chats``).
 
     ``exclude_section`` (powtarzalny, np. ``delivery``): widget „Moje zadania"
     pokazuje wyłącznie zdarzenia rekrutacyjne, a sprawy klientów mają osobny
@@ -180,7 +221,9 @@ async def list_notifications(
             status_code=422,
             detail="exclude_section: nieznana sekcja (sourcing, pipeline, delivery, insights)",
         )
-    excluded_types = notification_types_for_sections(excluded_sections)
+    excluded_types = set(notification_types_for_sections(excluded_sections))
+    if exclude_chat:
+        excluded_types.update(CHAT_NOTIFICATION_TYPES)
     type_filter = (
         Notification.notification_type.not_in(sorted(excluded_types, key=str))
         if excluded_types
@@ -282,6 +325,66 @@ async def get_unread_count(
     return UnreadCountResponse(count=count)
 
 
+# ── Okienko „Czaty”: powiadomienia czatów pogrupowane w rozmowy ──────────────
+
+
+@router.get("/notifications/chats", response_model=ChatThreadListResponse)
+async def list_chat_threads(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(_CHAT_THREADS_DEFAULT_LIMIT, ge=1, le=_CHAT_THREADS_MAX_LIMIT),
+):
+    """Rozmowy z ostatnich 30 dni — nieprzeczytane najpierw.
+
+    Jedna pozycja na czat rekrutacji albo kandydata; ``link`` prowadzi do
+    pierwszej nieprzeczytanej wiadomości. Widoczność jak w dzwonku (sekcja
+    i wyciszona kategoria „Czat”) stosuje ``chat_notifications.list_threads``.
+    """
+    threads, unread_threads = await chat_notifications.list_threads(
+        db, current_user, limit=limit
+    )
+    return ChatThreadListResponse(
+        items=[
+            ChatThreadResponse(
+                kind=thread.kind,
+                entity_id=thread.entity_id,
+                title=thread.title,
+                subtitle=thread.subtitle,
+                unread_count=thread.unread_count,
+                has_mention=thread.has_mention,
+                last_author_name=thread.last_author_name,
+                last_message=thread.last_message,
+                last_at=thread.last_at.isoformat() if thread.last_at else None,
+                link=thread.link,
+            )
+            for thread in threads
+        ],
+        unread_threads=unread_threads,
+    )
+
+
+@router.put("/notifications/chats/read", response_model=MarkAllReadResponse)
+async def mark_chat_threads_read(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    body: Optional[ChatThreadsReadRequest] = None,
+):
+    """Oznacz powiadomienia czatów jako przeczytane: jednej rozmowy albo wszystkich."""
+    updated = await chat_notifications.mark_read(
+        db,
+        current_user.id,
+        kind=body.kind if body else None,
+        entity_id=body.entity_id if body else None,
+        extra=_notification_visibility(current_user),
+    )
+    await db.commit()
+    return MarkAllReadResponse(
+        success=True,
+        updated=updated,
+        message="Powiadomienia czatów oznaczone jako przeczytane",
+    )
+
+
 @router.put(
     "/notifications/{notification_id}/read", response_model=NotificationResponse
 )
@@ -327,8 +430,12 @@ async def mark_as_read(
 async def mark_all_read(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
+    exclude_chat: bool = Query(False),
 ):
     """Mark all notifications as read for current user (supports both PUT and PATCH).
+
+    ``exclude_chat``: „Oznacz wszystko” w dzwonku nie gasi czatów, których
+    dzwonek nie pokazuje — te gasi okienko „Czaty” albo wejście do czatu.
 
     Tylko WŁASNE wiersze: przypomnienia nieobecnego kolegi widoczne
     w zastępstwie zostają nieprzeczytane — „Oznacz wszystko" zastępcy nie może
@@ -341,6 +448,11 @@ async def mark_all_read(
             Notification.user_id == current_user.id,
             Notification.is_read.is_(False),
             _notification_visibility(current_user),
+            (
+                Notification.notification_type.not_in(CHAT_NOTIFICATION_TYPES)
+                if exclude_chat
+                else true()
+            ),
         )
         .values(is_read=True)
     )

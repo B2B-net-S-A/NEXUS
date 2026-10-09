@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -44,6 +45,7 @@ import {
   chatMessageDomId,
   useChatMessageFocus,
 } from "@/hooks/useChatMessageFocus";
+import { useActiveChat } from "@/lib/active-chat";
 import { MentionTextarea } from "@/components/v2/forms/MentionTextarea";
 import { useMentionableUsers } from "@/hooks/useMentionableUsers";
 import {
@@ -179,7 +181,28 @@ export default function JobChatTab({
     onFocus: () => {
       stickToBottomRef.current = false;
     },
+    hasMore: messagesQuery.hasNextPage,
+    isLoadingMore: messagesQuery.isFetchingNextPage,
+    loadMore: () => {
+      void messagesQuery.fetchNextPage();
+    },
   });
+
+  // Dymek o nowej wiadomości nie pojawia się, gdy ten czat jest na ekranie.
+  useActiveChat("job", jobId);
+
+  // Wejście do czatu gasi jego powiadomienia po stronie serwera — okienko
+  // „Czaty” odświeżamy tylko, gdy coś faktycznie zgasło.
+  const markChatRead = useCallback(() => {
+    jobChatApi
+      .markRead(jobId)
+      .then((resp) => {
+        if ((resp.data?.notifications_cleared ?? 0) > 0) {
+          queryClient.invalidateQueries({ queryKey: ["notifications"] });
+        }
+      })
+      .catch(() => undefined);
+  }, [jobId, queryClient]);
 
   // ── Mutations ─────────────────────────────────────────────────────────────
   const sendMutation = useMutation({
@@ -292,19 +315,19 @@ export default function JobChatTab({
         document.visibilityState === "visible"
       ) {
         // best-effort, w tle
-        jobChatApi.markRead(jobId).catch(() => undefined);
+        markChatRead();
       }
     };
     window.addEventListener(CHAT_BUS_EVENT, handler as EventListener);
     return () =>
       window.removeEventListener(CHAT_BUS_EVENT, handler as EventListener);
-  }, [jobId, activeSearch, queryClient, readOnly]);
+  }, [jobId, activeSearch, queryClient, readOnly, markChatRead]);
 
   // Mark read on mount + przy każdej zmianie ostatniej wiadomości (jeśli tab widoczny)
   useEffect(() => {
     if (readOnly) return;
-    jobChatApi.markRead(jobId).catch(() => undefined);
-  }, [jobId, messages.length, readOnly]);
+    markChatRead();
+  }, [markChatRead, messages.length, readOnly]);
 
   // ── Submit ────────────────────────────────────────────────────────────────
   const handleSubmit = (e?: FormEvent) => {

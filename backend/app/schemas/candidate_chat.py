@@ -64,6 +64,7 @@ class CandidateChatUnreadCount(BaseModel):
     candidate_id: int
     unread_count: int
     last_read_message_id: Optional[int]
+    notifications_cleared: int = 0
 
 
 class CandidateChatPinResponse(BaseModel):
