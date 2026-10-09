@@ -1038,7 +1038,8 @@ async def send_pending_alert_emails(db: AsyncSession) -> int:
         if not user.email or alert.user_id not in scope.for_client(alert.client_id):
             continue
         # Mail tylko do Delivery Leada (07.10.2026). Admin bez roli DL ma te
-        # sprawy w panelu, ale nie w skrzynce — `for_client` wpuszcza adminów.
+        # sprawy w panelu, ale nie w skrzynce — `for_client` (bramka maili, nie
+        # dzwonka) wpuszcza adminów.
         if not user.has_any_role(UserRole.delivery_lead):
             continue
         claimed = await db.execute(

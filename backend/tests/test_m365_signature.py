@@ -28,6 +28,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.core.config import settings
+from app.models.app_setting import AppSetting
 from app.models.section_permission import (
     RoleActionPermission,
     RoleSectionPermission,
@@ -48,6 +49,8 @@ from app.services.section_permissions import DEFAULT_ROLE_SECTION_ACCESS
 # Resolver dostępu czyta sekcje i akcje jednym wejściem. Atrapa zwraca tylko
 # wiersze sekcji — rola bez wierszy akcji jest liczona regułą zasiewu.
 POLICY_ENTITIES = {
+    # Wiersz „Kto co dostaje” (powiadomienia wyłączone dla roli) — pusty.
+    AppSetting,
     RoleActionPermission,
     RoleSectionPermission,
     UserActionOverride,

@@ -12,6 +12,7 @@ from sqlalchemy.dialects import postgresql
 from app.models.m365 import M365Connection, M365SyncStatus
 from app.models.recruitment_pipeline import PipelineStage
 from app.models.rejection_email import RejectionEmailStatus
+from app.models.app_setting import AppSetting
 from app.models.section_permission import (
     RoleActionPermission,
     RoleSectionPermission,
@@ -32,6 +33,8 @@ from app.tasks import m365_cv_parse, microsoft365_sync
 # Resolver dostępu czyta sekcje i akcje jednym wejściem. Atrapa zwraca tylko
 # wiersze sekcji — rola bez wierszy akcji jest liczona regułą zasiewu.
 POLICY_ENTITIES = {
+    # Wiersz „Kto co dostaje” (powiadomienia wyłączone dla roli) — pusty.
+    AppSetting,
     RoleActionPermission,
     RoleSectionPermission,
     UserActionOverride,

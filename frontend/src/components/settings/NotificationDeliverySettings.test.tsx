@@ -36,6 +36,8 @@ function overview(): NotificationDeliveryOverview {
     enabled: false,
     updated_at: null,
     updated_by: null,
+    updated_by_name: null,
+    daily_digest_recipients: null,
     send_not_before: null,
     provider: {
       kind: "graph_app", sender: "powiadomienia@example.test", configured: true,
@@ -59,9 +61,27 @@ function overview(): NotificationDeliveryOverview {
   };
 }
 
-function renderSettings() {
+/** Wysyłka włączona globalnie, wzmianki włączone i poranny skrót dla 21 osób. */
+function enabledOverview(): NotificationDeliveryOverview {
+  const data = overview();
+  data.enabled = true;
+  data.updated_at = "2026-10-07T08:21:00Z";
+  data.updated_by_name = "Aniela Administrująca";
+  data.daily_digest_recipients = 21;
+  data.types[1] = { ...data.types[1], email_enabled: true, effective_enabled: true };
+  data.types.unshift({
+    ...data.types[0],
+    id: "daily_digest",
+    label: "Poranny skrót",
+    email_enabled: true,
+    effective_enabled: true,
+  });
+  return data;
+}
+
+function renderSettings(props: { onGoToMine?: () => void } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  return render(<QueryClientProvider client={client}><NotificationDeliverySettings /></QueryClientProvider>);
+  return render(<QueryClientProvider client={client}><NotificationDeliverySettings {...props} /></QueryClientProvider>);
 }
 
 beforeEach(() => {
@@ -176,5 +196,86 @@ describe("NotificationDeliverySettings", () => {
     renderSettings();
     expect(await screen.findByText("Masz dostęp tylko do odczytu.")).toBeInTheDocument();
     for (const toggle of screen.getAllByRole("switch")) expect(toggle).toBeDisabled();
+  });
+
+  it("mówi, że przełączniki działają dla całej firmy, i pokazuje zasięg skrótu oraz ostatnią zmianę", async () => {
+    mocks.get.mockResolvedValue(enabledOverview());
+    renderSettings();
+    await screen.findByRole("switch", { name: "Automatyczna wysyłka e-mail" });
+    expect(screen.getByText(/Żeby wyłączyć mail tylko sobie, przejdź do zakładki „Moje”/)).toBeInTheDocument();
+    expect(within(screen.getByRole("row", { name: /Poranny skrót/ })).getByText("cała firma · 21 odbiorców")).toBeInTheDocument();
+    expect(within(screen.getByRole("row", { name: /Wzmianka/ })).getByText("cała firma")).toBeInTheDocument();
+    // Wiadomości bezpieczeństwa nie mają przełącznika, więc i plakietki.
+    expect(within(screen.getByRole("row", { name: /Reset hasła/ })).queryByText(/cała firma/)).toBeNull();
+    expect(screen.getByText(/Ostatnia zmiana: .* · Aniela Administrująca/)).toBeInTheDocument();
+  });
+
+  it("wyłączenie typu pyta o potwierdzenie i zapisuje dopiero po „Wyłącz wszystkim”", async () => {
+    mocks.get.mockResolvedValue(enabledOverview());
+    mocks.update.mockImplementation(async () => enabledOverview());
+    renderSettings();
+    fireEvent.click(await screen.findByRole("switch", { name: "E-mail: Wzmianka" }));
+    const dialog = await screen.findByRole("dialog", { name: "Wyłączasz ten mail całej firmie" });
+    expect(dialog).toHaveTextContent("To nie jest ustawienie Twojego konta.");
+    expect(mocks.update).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Wyłącz wszystkim" }));
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(1));
+    const payload = mocks.update.mock.calls[0][0] as NotificationDeliveryUpdate;
+    expect(payload.enabled).toBe(true);
+    expect(payload.types.find((type) => type.id === "mentions")).toEqual({ id: "mentions", email_enabled: false });
+    expect(payload.types.find((type) => type.id === "daily_digest")).toEqual({ id: "daily_digest", email_enabled: true });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("wyłączenie porannego skrótu nazywa liczbę osób; „Anuluj” niczego nie zapisuje", async () => {
+    mocks.get.mockResolvedValue(enabledOverview());
+    renderSettings();
+    fireEvent.click(await screen.findByRole("switch", { name: "E-mail: Poranny skrót" }));
+    const dialog = await screen.findByRole("dialog", { name: "Wyłączasz ten mail 21 osobom" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Anuluj" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(mocks.update).not.toHaveBeenCalled();
+    expect(screen.getByRole("switch", { name: "E-mail: Poranny skrót" })).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("wyłączenie globalne też pyta, a włączenie typu zapisuje od razu", async () => {
+    const data = enabledOverview();
+    data.types[2] = { ...data.types[2], email_enabled: false, effective_enabled: false };
+    mocks.get.mockResolvedValue(data);
+    mocks.update.mockImplementation(async () => data);
+    renderSettings();
+    fireEvent.click(await screen.findByRole("switch", { name: "Automatyczna wysyłka e-mail" }));
+    const dialog = await screen.findByRole("dialog", { name: "Wyłączasz automatyczne maile całej firmie" });
+    expect(mocks.update).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Wyłącz wszystkim" }));
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(1));
+    expect((mocks.update.mock.calls[0][0] as NotificationDeliveryUpdate).enabled).toBe(false);
+
+    await waitFor(() => expect(screen.getByRole("switch", { name: "E-mail: Wzmianka" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("switch", { name: "E-mail: Wzmianka" }));
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("„Chcę wyłączyć tylko sobie” zamyka pytanie bez zapisu i prowadzi do zakładki „Moje”", async () => {
+    mocks.get.mockResolvedValue(enabledOverview());
+    const onGoToMine = vi.fn();
+    renderSettings({ onGoToMine });
+    fireEvent.click(await screen.findByRole("switch", { name: "E-mail: Poranny skrót" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Chcę wyłączyć tylko sobie" }));
+    expect(onGoToMine).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+
+  it("bez zakładek (ekran osadzony osobno) „tylko sobie” jest linkiem do Moich powiadomień", async () => {
+    mocks.get.mockResolvedValue(enabledOverview());
+    renderSettings();
+    fireEvent.click(await screen.findByRole("switch", { name: "E-mail: Wzmianka" }));
+    expect(await screen.findByRole("link", { name: "Chcę wyłączyć tylko sobie" })).toHaveAttribute(
+      "href",
+      "/settings?item=my-notifications",
+    );
   });
 });

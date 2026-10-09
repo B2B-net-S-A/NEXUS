@@ -9,6 +9,10 @@ import {
   useSetNotificationCategoryMuted,
   type NotificationCategoryPreference,
 } from "@/lib/api/notificationPreferences";
+import {
+  useUpdateUserPreferences,
+  useUserPreferences,
+} from "@/lib/api/userPreferences";
 
 function receivedLabel(count: number): string {
   return `${count} w ostatnich 30 dniach`;
@@ -23,7 +27,10 @@ function CategoryRow({
   pending: boolean;
   onToggle: (enabled: boolean) => void;
 }) {
-  const enabled = !category.muted;
+  // Wyłączenie dla roli wygrywa z własnym przełącznikiem — pokazujemy stan
+  // faktyczny (nic nie przychodzi), a nie zapisane życzenie konta.
+  const roleMuted = category.role_muted === true;
+  const enabled = !category.muted && !roleMuted;
   const switchId = `notif-cat-${category.key}`;
   return (
     <li className="flex items-start gap-4 px-4 py-3">
@@ -46,22 +53,94 @@ function CategoryRow({
             </span>
           )}
         </p>
+        {roleMuted && (
+          <p className="mt-1 text-xs font-medium text-warning-muted-foreground">
+            Wyłączone dla Twojej roli przez administratora
+          </p>
+        )}
       </div>
       <Switch
         id={switchId}
         checked={enabled}
-        disabled={category.mandatory || pending}
+        disabled={category.mandatory || roleMuted || pending}
         onCheckedChange={onToggle}
         aria-describedby={`${switchId}-state`}
       />
       <span id={`${switchId}-state`} className="sr-only">
         {category.mandatory
           ? "Kategoria obowiązkowa"
-          : enabled
-            ? "Włączone"
-            : "Wyłączone"}
+          : roleMuted
+            ? "Wyłączone dla Twojej roli przez administratora"
+            : enabled
+              ? "Włączone"
+              : "Wyłączone"}
       </span>
     </li>
+  );
+}
+
+/**
+ * Własny wyłącznik porannego skrótu. Karta jest tylko dla kont, których rola
+ * w ogóle dostaje skrót (`daily_digest_email_available`) — pozostałym
+ * przełącznik niczego by nie zmieniał.
+ */
+function DigestEmailCard() {
+  const query = useUserPreferences();
+  const mutation = useUpdateUserPreferences();
+  const switchId = "notif-daily-digest-email";
+
+  if (query.isError) {
+    return (
+      <div
+        role="alert"
+        className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+      >
+        Nie udało się wczytać ustawień maili.{" "}
+        <button
+          type="button"
+          onClick={() => query.refetch()}
+          className="font-medium underline"
+        >
+          Ponów
+        </button>
+      </div>
+    );
+  }
+  if (!query.isSuccess || !query.data.daily_digest_email_available) return null;
+
+  return (
+    <section aria-labelledby="notif-mail-heading" className="space-y-2">
+      <h2 id="notif-mail-heading" className="text-sm font-semibold text-foreground">
+        Maile
+      </h2>
+      {mutation.isError && (
+        <div
+          role="alert"
+          className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+        >
+          {apiErrorMessage(mutation.error, "Nie udało się zapisać zmiany.")}
+        </div>
+      )}
+      <div className="flex items-start gap-4 rounded-xl border border-border bg-card px-4 py-3">
+        <div className="min-w-0 flex-1">
+          <label htmlFor={switchId} className="text-sm font-medium text-foreground">
+            Poranny skrót „Twój dzień w NEXUSIE”
+          </label>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Mail w dni robocze o 8:00 z tym, co na Ciebie czeka. Wyłączasz go
+            tylko sobie.
+          </p>
+        </div>
+        <Switch
+          id={switchId}
+          checked={query.data.daily_digest_email_enabled}
+          disabled={mutation.isPending}
+          onCheckedChange={(enabled) =>
+            mutation.mutate({ daily_digest_email_enabled: enabled })
+          }
+        />
+      </div>
+    </section>
   );
 }
 
@@ -123,6 +202,8 @@ export function NotificationPreferencesPanel() {
           ))}
         </ul>
       )}
+
+      <DigestEmailCard />
     </div>
   );
 }

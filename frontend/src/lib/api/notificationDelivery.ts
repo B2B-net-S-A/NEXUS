@@ -20,6 +20,10 @@ export interface NotificationDeliveryOverview {
   enabled: boolean;
   updated_at: string | null;
   updated_by: number | null;
+  /** Kto ostatnio zmienił przełączniki — pokazywane obok daty zmiany. */
+  updated_by_name: string | null;
+  /** Ilu osobom wychodzi dziś poranny skrót; `null` = nie udało się policzyć. */
+  daily_digest_recipients: number | null;
   send_not_before: string | null;
   provider: {
     kind: string;

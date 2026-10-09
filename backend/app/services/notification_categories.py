@@ -210,6 +210,137 @@ def category_for(notification_type: NotificationType) -> NotificationCategory:
     return CATEGORY_BY_TYPE[notification_type]
 
 
+# ── Grupy: wiersze tabeli „Kto co dostaje” (rola × grupa, 09.10.2026) ────────
+#
+# Administrator wyłącza powiadomienia całej roli. Kategoria bywa na to za
+# gruba: „Kontrakty…” niosą naraz koniec zamówień (1 111 wpisów w 30 dni do
+# adminów) i podpisy umów, a „Zaległości…” — „kandydat stoi 6 h” i poranny
+# skrót. Grupa jest więc kategorią albo jej nazwanym kawałkiem. Wyciszenia
+# OSOBY zostają na poziomie kategorii.
+
+
+@dataclass(frozen=True)
+class GroupInfo:
+    label: str
+    category: NotificationCategory
+
+
+# Kategorie dzielone na kawałki: klucz grupy → (etykieta, kategoria, typy).
+# Typ kategorii nieobecny w żadnym kawałku wywraca test wyczerpujący.
+_SPLIT_GROUPS: dict[
+    str, tuple[str, NotificationCategory, tuple[NotificationType, ...]]
+] = {
+    "reminders_stage_6h": (
+        "Kandydat stoi na etapie 6 h",
+        _C.reminders,
+        (_T.dl_stage_stale_6h,),
+    ),
+    "reminders_stage_7d": (
+        "Kandydat stoi na etapie 7 dni",
+        _C.reminders,
+        (_T.stage_stuck_7d,),
+    ),
+    "reminders_board_digest": (
+        "Skrót „Czeka na Ciebie” w dzwonku",
+        _C.reminders,
+        (_T.board_tasks_digest,),
+    ),
+    "reminders_next_step": (
+        "Podpowiedź następnego kroku, brak feedbacku",
+        _C.reminders,
+        (_T.suggest_next_step, _T.client_feedback_eobd, _T.candidate_feedback_1h),
+    ),
+    "reminders_requests": (
+        "Przydział requestów",
+        _C.reminders,
+        (
+            _T.recruitment_allocation_alert,
+            _T.request_review_needed,
+            _T.request_allocation_proposals,
+        ),
+    ),
+    "contracts_order_ending": (
+        "Koniec zamówienia za 30 / 14 / 7 dni",
+        _C.contracts,
+        (
+            _T.client_order_ending_30d,
+            _T.client_order_ending_14d,
+            _T.client_order_ending_7d,
+        ),
+    ),
+    "contracts_contract_ending": (
+        "Koniec umowy",
+        _C.contracts,
+        (_T.contract_ending, _T.contract_ending_90d),
+    ),
+    "contracts_activated": (
+        "Umowa aktywowana, nowy szkic kontraktu",
+        _C.contracts,
+        (_T.contract_activated,),
+    ),
+    "contracts_framework": (
+        "Umowa ramowa",
+        _C.contracts,
+        (
+            _T.framework_contract_expiring_30d,
+            _T.framework_contract_expiring_14d,
+            _T.framework_contract_expiring_7d,
+            _T.framework_contract_signed,
+        ),
+    ),
+    "contracts_missing_order": (
+        "Brak zamówienia",
+        _C.contracts,
+        (_T.order_missing_successor, _T.hired_order_missing),
+    ),
+    "contracts_signatures": (
+        "Podpisy i zwrot sprzętu",
+        _C.contracts,
+        (
+            _T.signature_sent,
+            _T.signature_signed,
+            _T.signature_rejected,
+            _T.signature_failed,
+            _T.equipment_return_due_14d,
+        ),
+    ),
+}
+
+_SPLIT_CATEGORIES = frozenset(category for _, category, _ in _SPLIT_GROUPS.values())
+
+
+def _build_groups() -> tuple[dict[str, GroupInfo], dict[NotificationType, str]]:
+    info: dict[str, GroupInfo] = {}
+    by_type: dict[NotificationType, str] = {}
+    for category, category_info in CATEGORY_INFO.items():
+        if category not in _SPLIT_CATEGORIES:
+            info[category.value] = GroupInfo(category_info.label, category)
+            continue
+        for key, (label, split_category, types) in _SPLIT_GROUPS.items():
+            if split_category != category:
+                continue
+            info[key] = GroupInfo(label, category)
+            for notification_type in types:
+                by_type[notification_type] = key
+    for notification_type, category in CATEGORY_BY_TYPE.items():
+        if category not in _SPLIT_CATEGORIES:
+            by_type[notification_type] = category.value
+    return info, by_type
+
+
+# Kolejność = kolejność wierszy tabeli (kategorie jak na stronie ustawień).
+GROUP_INFO, GROUP_BY_TYPE = _build_groups()
+
+
+def types_in_group(group: str) -> frozenset[NotificationType]:
+    return frozenset(t for t, g in GROUP_BY_TYPE.items() if g == group)
+
+
+def group_is_mutable(group: str) -> bool:
+    info = GROUP_INFO.get(group)
+    return info is not None and is_mutable(info.category)
+
+
 def types_in(category: NotificationCategory) -> frozenset[NotificationType]:
     return frozenset(t for t, c in CATEGORY_BY_TYPE.items() if c == category)
 

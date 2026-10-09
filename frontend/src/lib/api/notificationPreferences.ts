@@ -15,6 +15,10 @@ export interface NotificationCategoryPreference {
   description: string;
   mandatory: boolean;
   muted: boolean;
+  /** Administrator wyłączył CAŁĄ kategorię wszystkim rolom tego konta —
+   *  własny przełącznik jej nie włączy (Ustawienia → Powiadomienia →
+   *  „Kto co dostaje”). */
+  role_muted?: boolean;
   /** Ile powiadomień tej kategorii przyszło w ostatnich 30 dniach. */
   received_30d: number;
 }

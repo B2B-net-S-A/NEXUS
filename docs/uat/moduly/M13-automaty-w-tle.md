@@ -59,7 +59,7 @@ Pętle tła w `backend/app/main.py` (lifespan) i ich sondy w `/api/health.checks
 | S20 | powtórz S02 | `__daily__` przesunięty o ~24 h; `errors` nie rosną w nieskończoność (porównaj); `degraded` → `healthy`, jeśli Fala 0 naprawiła powód | P1 |
 | S21 | powtórz S04 | `finished_at` przesunięty; `last_status: ok`; liczniki biegów rosną | P1 |
 | S22 | kontrakt PRAWDZIWY, który miał `end_date` = wczoraj (znajdź w `GET /api/contracts?status=ending` dzień wcześniej; tylko ID) | dziś `ended`; jego zamówienia `completed`; osoba w „Zakończonych” u klienta | P1 |
-| S23 | powiadomienia dzwonka admina | brak DUPLIKATÓW alertu wygasania (ten sam obiekt, próg, data końca) między dzień 1 i 2 | P2 |
+| S23 | powiadomienia dzwonka Delivery Leada klienta (od 09.10.2026 admin dostaje alert wygasania tylko dla klienta bez DL-a) | brak DUPLIKATÓW alertu wygasania (ten sam obiekt, próg, data końca) między dzień 1 i 2 | P2 |
 | S24 | Insights → Placementy dla D3 (po P2 „Zatrudniony”) | placement testowy WIDOCZNY następnego dnia (widok `analytics_first_milestones` odświeżony) — i sprzątnięty po Fali 2 | P2 |
 | S25 | jeśli okres przejściowy = „równolegle”: zmień w Trafficie notatkę u kandydata TESTOWEGO (CZŁOWIEK) → po nocy | notatka w NEXUS z `source_ref=traffit:activity:<id>`; bez duplikatu | P1 |
 

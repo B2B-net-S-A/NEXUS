@@ -44,6 +44,10 @@ class UserPreferencesUpdate(BaseModel):
         default=None,
         description="Wygląd i zachowanie maskotki Jarvisa (tylko zmieniane pola).",
     )
+    daily_digest_email_enabled: Optional[bool] = Field(
+        default=None,
+        description="Poranny skrót „Twój dzień w NEXUSIE” mailem — tylko to konto.",
+    )
 
 
 class JarvisPrefsResponse(JarvisPrefs):
@@ -55,6 +59,10 @@ class JarvisPrefsResponse(JarvisPrefs):
 class UserPreferencesResponse(BaseModel):
     kpi_coach_enabled: bool
     jarvis: JarvisPrefsResponse
+    daily_digest_email_enabled: bool
+    # Czy skrót w ogóle może trafić do tego konta (rola z listy skrótu) —
+    # bez tego przełącznik obiecywałby mail, którego konto nie dostaje.
+    daily_digest_email_available: bool
 
 
 async def _preferences_response(
@@ -66,8 +74,12 @@ async def _preferences_response(
         # Odblokowanie mogło zniknąć (ranking przeliczony) — pokazujemy
         # domyślną postać, zapis zostaje nietknięty.
         prefs = prefs.model_copy(update={"character": "robot"})
+    from app.tasks.daily_digest_email import DIGEST_ROLES
+
     return UserPreferencesResponse(
         kpi_coach_enabled=user.kpi_coach_enabled,
+        daily_digest_email_enabled=user.daily_digest_email_enabled,
+        daily_digest_email_available=user.has_any_role(*DIGEST_ROLES),
         jarvis=JarvisPrefsResponse(
             **prefs.model_dump(),
             unlocked_characters=unlocked,
@@ -236,6 +248,10 @@ async def update_my_preferences(
     changed = False
     if payload.kpi_coach_enabled is not None:
         current_user.kpi_coach_enabled = payload.kpi_coach_enabled
+        changed = True
+
+    if payload.daily_digest_email_enabled is not None:
+        current_user.daily_digest_email_enabled = payload.daily_digest_email_enabled
         changed = True
 
     if payload.jarvis is not None:

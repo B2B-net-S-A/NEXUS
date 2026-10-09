@@ -839,3 +839,41 @@ describe("/preview/finance-results zasiewa Wyniki, Archiwum i Import MD", () => 
     expect(harness).toContain("api.interceptors.request.eject(");
   });
 });
+
+describe("/preview/notification-settings zasiewa cztery zakładki Powiadomień i nie ma sieci", () => {
+  const harness = flat("app/preview/notification-settings/page.tsx");
+  // Wszystko, co montuje `NotificationsSettings`, i hooki, którymi te ekrany pytają.
+  const sources = [
+    "components/settings/NotificationsSettings.tsx",
+    "components/settings/NotificationPreferencesPanel.tsx",
+    "components/settings/NotificationRoleMatrix.tsx",
+    "components/settings/NotificationDeliverySettings.tsx",
+    "lib/api/notificationPreferences.ts",
+    "lib/api/notificationRoles.ts",
+    "lib/api/userPreferences.ts",
+  ];
+
+  it("ekrany pytają wyłącznie nazwanymi kluczami — żaden literał nie umknie zasiewowi", () => {
+    expect(missingLiteralKeys(harness, sources)).toEqual([]);
+    // Każde `useQuery` tych ekranów bierze klucz ze stałej; nowy klucz
+    // dopisany literałem wywróci asercję wyżej, nowa stała — tę niżej.
+    const named = sources.flatMap((file) =>
+      [...withoutComments(read(file)).matchAll(/useQuery(?:<[^>]*>)?\(\{\s*queryKey:\s*([A-Za-z_]+)/g)].map(
+        (match) => match[1],
+      ),
+    );
+    expect([...new Set(named)].sort()).toEqual([
+      "NOTIFICATION_DELIVERY_QUERY_KEY",
+      "USER_PREFERENCES_QUERY_KEY",
+      "notificationPreferencesQueryKey",
+      "notificationRolesQueryKey",
+    ]);
+    for (const key of named) expect(harness).toContain(`qc.setQueryData(${key},`);
+  });
+
+  it("odcina sieć i montuje prawdziwy ekran", () => {
+    expect(harness).toContain("api.interceptors.request.use(");
+    expect(harness).toContain("api.interceptors.request.eject(");
+    expect(harness).toContain("<NotificationsSettings defaultTab={defaultTab} />");
+  });
+});

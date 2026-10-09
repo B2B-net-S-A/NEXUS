@@ -21,8 +21,9 @@ albo zamówienie wpisane/przedłużone na mniej niż 30 dni i uprzedzenie
 30-dniowe nie przychodziło nigdy — pierwszy dzwonek wypadał dopiero na 14 dni.
 Ten sam powód, dla którego ``dl_alerts.date_cycle_stage`` liczy z zakresu.
 
-Odbiorcy: aktywni admini globalnie oraz aktywni Delivery Leadzi wyłącznie dla
-przypisanych klientów i tylko z effective ``delivery >= read``.
+Odbiorcy: aktywni Delivery Leadzi wyłącznie dla przypisanych klientów i tylko
+z effective ``delivery >= read``; admini tylko wtedy, gdy klient nie ma żadnego
+takiego DL-a (``DeliveryAlertRecipientScope.bell_recipients``, 09.10.2026).
 
 Dedup: ``Notification.related_entity_*`` + ``notification_type`` + DATA KOŃCA
 per próg — jeden alert 30d + jeden 14d + jeden 7d na encję na KAŻDĄ datę
@@ -605,7 +606,7 @@ async def _scan_framework_contracts(
             continue
         ntype = _FC_NTYPE_BY_DAY[days]
         end_phrase = _end_phrase("wygasa", fc.expiry_date)
-        for user_id in recipient_scope.for_client(fc.client_id):
+        for user_id in recipient_scope.bell_recipients(fc.client_id, ntype):
             if await _already_notified(
                 db,
                 user_id=user_id,
@@ -685,7 +686,7 @@ async def _scan_orders(
         cli_name: str = row.client_name or "klient"
         end_phrase = _end_phrase("kończy się", o.end_date)
 
-        for user_id in recipient_scope.for_client(o.client_id):
+        for user_id in recipient_scope.bell_recipients(o.client_id, ntype):
             if await _already_notified(
                 db,
                 user_id=user_id,

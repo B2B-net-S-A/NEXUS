@@ -205,12 +205,20 @@ def user_can_receive_notification(
     # także administratora. Kategorie obowiązkowe nigdy nie trafiają do zbioru.
     if notification_type in user_muted_types(user):
         return False
+    # Grupa wyłączona dla wszystkich ról konta w tabeli „Kto co dostaje”.
+    if notification_type in role_muted_types_of(user):
+        return False
     return user_may_receive_type(
         user,
         notification_type,
         related_entity_type=related_entity_type,
         link=link,
     )
+
+
+def role_muted_types_of(user: User) -> frozenset[NotificationType]:
+    """Typy wyłączone dla ról konta; konto bez policzonej polityki = nic."""
+    return getattr(user, "role_muted_notification_types", None) or frozenset()
 
 
 def user_may_receive_type(
@@ -267,7 +275,7 @@ def notification_visibility_predicate(user: User) -> Any:
     kategoria znika z listy i z licznika nieprzeczytanych.
     """
 
-    muted = user_muted_types(user)
+    muted = user_muted_types(user) | role_muted_types_of(user)
     section_policy = _section_visibility_predicate(user)
     if not muted:
         return section_policy

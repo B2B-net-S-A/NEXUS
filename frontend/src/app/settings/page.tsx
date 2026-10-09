@@ -34,12 +34,12 @@ import Link from "next/link";
 import { SettingsBreadcrumb } from "@/components/settings/SettingsBreadcrumb";
 import Microsoft365Card from "@/components/settings/Microsoft365Card";
 import { TeamsPrepStatusCard } from "@/components/settings/TeamsPrepStatusCard";
-import { NotificationPreferencesPanel } from "@/components/settings/NotificationPreferencesPanel";
+import { NotificationsSettings } from "@/components/settings/NotificationsSettings";
+import { USER_PREFERENCES_QUERY_KEY, type UserPreferences } from "@/lib/api/userPreferences";
 import TeamsNotificationsCard from "@/components/settings/TeamsNotificationsCard";
 import { TraffitSyncCard } from "@/components/settings/TraffitSyncCard";
 import JobBoardsCard from "@/components/settings/JobBoardsCard";
 import EmailTemplatesCard from "@/components/settings/EmailTemplatesCard";
-import NotificationDeliverySettings from "@/components/settings/NotificationDeliverySettings";
 import { useAuthStore, hasRole, type UserRole } from "@/store/auth";
 import { resetScreenSeen } from "@/lib/jarvis/bubble-budget";
 import { openJarvis } from "@/lib/jarvis/events";
@@ -361,12 +361,13 @@ function SettingsHome({ areas, user }: { areas: SettingsArea[]; user: Parameters
 
 function SettingsItemBody({ item, user }: { item: SettingsItem; user: Parameters<typeof hasSectionAccess>[0] }) {
   switch (item.id) {
+    // Obie pozycje to ten sam ekran „Powiadomienia” — różni je zakładka startowa.
     case "notifications":
-      return <NotificationDeliverySettings />;
+      return <NotificationsSettings defaultTab="role" />;
     case "outlook":
       return <Microsoft365Card />;
     case "my-notifications":
-      return <NotificationPreferencesPanel />;
+      return <NotificationsSettings defaultTab="moje" />;
     case "people":
       return <AdminUsersTab embedded />;
     case "stages":
@@ -501,9 +502,9 @@ function CoachingSettings() {
   const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({
-    queryKey: ["user-preferences", "me"],
+    queryKey: USER_PREFERENCES_QUERY_KEY,
     queryFn: () =>
-      api.get("/api/users/me/preferences").then((r) => r.data as { kpi_coach_enabled: boolean }),
+      api.get("/api/users/me/preferences").then((r) => r.data as UserPreferences),
     staleTime: 60 * 1000,
   });
 
@@ -511,9 +512,9 @@ function CoachingSettings() {
     mutationFn: (kpi_coach_enabled: boolean) =>
       api
         .patch("/api/users/me/preferences", { kpi_coach_enabled })
-        .then((r) => r.data as { kpi_coach_enabled: boolean }),
+        .then((r) => r.data as UserPreferences),
     onSuccess: (next) => {
-      queryClient.setQueryData(["user-preferences", "me"], next);
+      queryClient.setQueryData(USER_PREFERENCES_QUERY_KEY, next);
     },
   });
 

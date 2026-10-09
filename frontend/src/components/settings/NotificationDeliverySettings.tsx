@@ -1,19 +1,49 @@
 "use client";
 
+import { useState } from "react";
+import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { AppModal } from "@/components/ds/AppModal";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   notificationDeliveryApi,
   type NotificationDeliveryOverview,
   type NotificationDeliveryType,
   type NotificationDeliveryUpdate,
 } from "@/lib/api/notificationDelivery";
+import { pluralPl } from "@/lib/plural-pl";
 import { hasSectionAccess } from "@/lib/section-access";
 import { isForbiddenError } from "@/lib/view-state";
 import { hasRole, useAuthStore } from "@/store/auth";
 
 export const NOTIFICATION_DELIVERY_QUERY_KEY = ["settings-notification-delivery"] as const;
+
+/** Mail, którego zasięg znamy co do osoby (poranny skrót). */
+const DAILY_DIGEST_ID = "daily_digest";
+
+/** Przełącznik czekający na potwierdzenie — wyłączenie dotyczy całej firmy. */
+type PendingOff =
+  | { kind: "global" }
+  | { kind: "type"; item: NotificationDeliveryType };
+
+function recipientsLabel(count: number): string {
+  return `${count} ${pluralPl(count, "odbiorca", "odbiorców", "odbiorców")}`;
+}
+
+function peopleDative(count: number): string {
+  return `${count} ${pluralPl(count, "osobie", "osobom", "osobom")}`;
+}
+
+function CompanyWideBadge({ recipients }: { recipients?: number | null }) {
+  return (
+    <Badge variant="warning" size="sm" className="whitespace-nowrap">
+      cała firma{typeof recipients === "number" ? ` · ${recipientsLabel(recipients)}` : ""}
+    </Badge>
+  );
+}
 
 function formatTime(value: string | null): string {
   if (!value) return "Brak danych";
@@ -63,10 +93,11 @@ function Toggle({ checked, disabled, label, onChange }: {
   );
 }
 
-function NotificationTable({ items, enabled, busy, onToggle }: {
+function NotificationTable({ items, enabled, busy, digestRecipients, onToggle }: {
   items: NotificationDeliveryType[];
   enabled: boolean;
   busy: boolean;
+  digestRecipients: number | null;
   onToggle: (item: NotificationDeliveryType) => void;
 }) {
   return (
@@ -104,7 +135,10 @@ function NotificationTable({ items, enabled, busy, onToggle }: {
               <td className="min-w-44 px-4 py-4">
                 {item.editable ? (
                   <>
-                    <Toggle checked={item.email_enabled} disabled={busy} label={`E-mail: ${item.label}`} onChange={() => onToggle(item)} />
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Toggle checked={item.email_enabled} disabled={busy} label={`E-mail: ${item.label}`} onChange={() => onToggle(item)} />
+                      <CompanyWideBadge recipients={item.id === DAILY_DIGEST_ID ? digestRecipients : null} />
+                    </div>
                     <p className="mt-2 text-xs text-muted-foreground">
                       {item.effective_enabled
                         ? "Zezwolono na wysyłkę nowych zdarzeń."
@@ -125,7 +159,17 @@ function NotificationTable({ items, enabled, busy, onToggle }: {
   );
 }
 
-export default function NotificationDeliverySettings() {
+export interface NotificationDeliverySettingsProps {
+  /** Przejście do zakładki „Moje” (wyłączenie maila tylko sobie). Bez tego
+   *  ekran prowadzi linkiem do pozycji „Moje powiadomienia”. */
+  onGoToMine?: () => void;
+}
+
+export default function NotificationDeliverySettings({ onGoToMine }: NotificationDeliverySettingsProps = {}) {
+  // Cel pytania zostaje po zamknięciu okna (`offOpen`), żeby tytuł nie znikał
+  // w trakcie animacji zamykania.
+  const [pendingOff, setPendingOff] = useState<PendingOff | null>(null);
+  const [offOpen, setOffOpen] = useState(false);
   const user = useAuthStore((state) => state.user);
   const hydrated = useAuthStore((state) => state.hydrated);
   const canRead = hasRole(user, "admin") && hasSectionAccess(user, "system_admin", "read");
@@ -164,19 +208,64 @@ export default function NotificationDeliverySettings() {
     };
     save.mutate(input);
   };
+  // Włączenie zapisuje się od razu. Wyłączenie zabiera mail wszystkim, więc
+  // najpierw pyta — 09.10.2026 jedno kliknięcie wyłączyło skrót 28 osobom.
+  const askOff = (target: PendingOff) => {
+    setPendingOff(target);
+    setOffOpen(true);
+  };
+  const toggleGlobal = () => {
+    if (busy) return;
+    if (data.enabled) askOff({ kind: "global" });
+    else update(true);
+  };
+  const toggleType = (item: NotificationDeliveryType) => {
+    if (busy) return;
+    if (item.email_enabled) askOff({ kind: "type", item });
+    else update(data.enabled, item);
+  };
+  const confirmOff = () => {
+    if (!pendingOff || !offOpen) return;
+    if (pendingOff.kind === "global") update(false);
+    else update(data.enabled, pendingOff.item);
+    setOffOpen(false);
+  };
+  const digestRecipients = data.daily_digest_recipients ?? null;
+  const pendingDigest =
+    pendingOff?.kind === "type" && pendingOff.item.id === DAILY_DIGEST_ID && digestRecipients !== null;
+  const offTitle = !pendingOff
+    ? ""
+    : pendingOff.kind === "global"
+      ? "Wyłączasz automatyczne maile całej firmie"
+      : pendingDigest
+        ? `Wyłączasz ten mail ${peopleDative(digestRecipients ?? 0)}`
+        : "Wyłączasz ten mail całej firmie";
+  const lastChange = data.updated_at ? formatTime(data.updated_at) : null;
 
   return (
     <div className="space-y-6">
+      <p className="text-sm text-muted-foreground">
+        Te przełączniki działają <strong className="font-semibold text-foreground">dla całej firmy</strong>.
+        Żeby wyłączyć mail tylko sobie, przejdź do zakładki „Moje”.
+      </p>
       <section className="rounded-xl border border-border bg-card p-5" aria-labelledby="notification-delivery-heading">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h2 id="notification-delivery-heading" className="font-semibold">Automatyczne powiadomienia e-mail</h2>
             <p className="mt-1 text-sm text-muted-foreground">Wysyłka wymaga włączenia jej globalnie oraz dla danego typu.</p>
           </div>
-          <Toggle checked={data.enabled} disabled={busy} label="Automatyczna wysyłka e-mail" onChange={() => update(!data.enabled)} />
+          <div className="flex flex-wrap items-center gap-2">
+            <CompanyWideBadge />
+            <Toggle checked={data.enabled} disabled={busy} label="Automatyczna wysyłka e-mail" onChange={toggleGlobal} />
+          </div>
         </div>
         <p className="mt-4 text-sm">Po włączeniu wysyłane są tylko nowe zdarzenia. Starsze wiadomości są wykluczone z wysyłki; historia w dzwonku NEXUS pozostaje.</p>
         {data.send_not_before && <p className="mt-2 text-xs text-muted-foreground">Bieżąca wysyłka obejmuje zdarzenia od: {formatTime(data.send_not_before)}.</p>}
+        {lastChange && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Ostatnia zmiana: {lastChange}{data.updated_by_name ? ` · ${data.updated_by_name}` : ""}
+          </p>
+        )}
         {!canWrite && <p className="mt-2 text-sm text-muted-foreground">Masz dostęp tylko do odczytu.</p>}
         <div className="mt-3 text-sm" aria-live="polite">
           {save.isPending && <p>Zapisuję ustawienia…</p>}
@@ -199,13 +288,13 @@ export default function NotificationDeliverySettings() {
 
       <section aria-labelledby="notification-types-heading" className="space-y-3">
         <h2 id="notification-types-heading" className="font-semibold">Rodzaje powiadomień</h2>
-        <NotificationTable items={editable} enabled={data.enabled} busy={busy} onToggle={(item) => update(data.enabled, item)} />
+        <NotificationTable items={editable} enabled={data.enabled} busy={busy} digestRecipients={digestRecipients} onToggle={toggleType} />
       </section>
 
       <section className="space-y-3" aria-labelledby="notification-security-heading">
         <h2 id="notification-security-heading" className="font-semibold">Bezpieczeństwo konta</h2>
         <p className="text-sm text-muted-foreground">Te wiadomości działają niezależnie od powyższych przełączników, gdy użytkownik wykonuje odpowiednią czynność.</p>
-        <NotificationTable items={required} enabled={data.enabled} busy onToggle={() => {}} />
+        <NotificationTable items={required} enabled={data.enabled} busy digestRecipients={null} onToggle={() => {}} />
       </section>
 
       <section className="rounded-xl border border-border bg-card p-5" aria-labelledby="notification-backlog-heading">
@@ -229,6 +318,48 @@ export default function NotificationDeliverySettings() {
           </details>
         ))}
       </section>
+
+      <AppModal
+        open={offOpen && pendingOff !== null}
+        onOpenChange={(open) => {
+          if (!open) setOffOpen(false);
+        }}
+        title={offTitle}
+        description="To nie jest ustawienie Twojego konta."
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setOffOpen(false)}>Anuluj</Button>
+            <Button variant="destructive" onClick={confirmOff}>Wyłącz wszystkim</Button>
+          </>
+        }
+      >
+        <div className="space-y-3 text-sm text-foreground">
+          <p>
+            {pendingOff?.kind === "type"
+              ? `${pendingOff.item.label} — ten mail przestanie wychodzić do wszystkich odbiorców w firmie.`
+              : "Żaden automatyczny mail nie wyjdzie do nikogo w firmie, dopóki wysyłka nie zostanie włączona ponownie."}
+          </p>
+          {onGoToMine ? (
+            <Button
+              variant="tertiary"
+              className="h-auto px-0"
+              onClick={() => {
+                setOffOpen(false);
+                onGoToMine();
+              }}
+            >
+              Chcę wyłączyć tylko sobie
+            </Button>
+          ) : (
+            <Link
+              href="/settings?item=my-notifications"
+              className="font-medium text-primary underline-offset-4 hover:underline"
+            >
+              Chcę wyłączyć tylko sobie
+            </Link>
+          )}
+        </div>
+      </AppModal>
     </div>
   );
 }

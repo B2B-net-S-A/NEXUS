@@ -347,8 +347,47 @@ def updated_value(
     }
 
 
+def policy_changes(before: DeliveryPolicy, after: DeliveryPolicy) -> dict[str, Any]:
+    """Co zmienił zapis: wyłącznik globalny i rodzaje maili (``from`` → ``to``)."""
+    changes: dict[str, Any] = {}
+    if before.enabled != after.enabled:
+        changes["enabled"] = {"from": before.enabled, "to": after.enabled}
+    types = {}
+    for kind in sorted(ROUTINE_KINDS):
+        was = before.types.get(kind, {}).get("email_enabled") is True
+        now_on = after.types.get(kind, {}).get("email_enabled") is True
+        if was != now_on:
+            types[kind] = {"from": was, "to": now_on}
+    if types:
+        changes["types"] = types
+    return changes
+
+
+def _changes_summary(changes: dict[str, Any]) -> str:
+    labels = {spec["id"]: spec["label"] for spec in CATALOG}
+    parts = []
+    if "enabled" in changes:
+        parts.append(
+            "wysyłka globalna "
+            + ("włączona" if changes["enabled"]["to"] else "wyłączona")
+        )
+    types = changes.get("types", {})
+    off = [labels[k] for k, c in types.items() if not c["to"]]
+    on = [labels[k] for k, c in types.items() if c["to"]]
+    if off:
+        parts.append("wyłączono: " + ", ".join(off))
+    if on:
+        parts.append("włączono: " + ", ".join(on))
+    return "Maile automatyczne dla całej firmy — " + "; ".join(parts)
+
+
 async def save_policy(
-    db: AsyncSession, *, enabled: bool, toggles: dict[str, bool], admin_id: int
+    db: AsyncSession,
+    *,
+    enabled: bool,
+    toggles: dict[str, bool],
+    admin_id: int,
+    actor: Any = None,
 ) -> None:
     await db.execute(
         insert(AppSetting)
@@ -362,13 +401,30 @@ async def save_policy(
         .execution_options(populate_existing=True)
     )
     assert row is not None
+    before = DeliveryPolicy.from_value(row.value)
     row.value = updated_value(
-        DeliveryPolicy.from_value(row.value),
+        before,
         enabled=enabled,
         toggles=toggles,
         now=datetime.now(timezone.utc),
     )
     row.updated_by = admin_id
+    # Przełącznik działa na całą firmę, a do 09.10.2026 nie zostawiał śladu
+    # poza `updated_by` — nie było widać, kto wyłączył poranny skrót wszystkim.
+    changes = policy_changes(before, DeliveryPolicy.from_value(row.value))
+    if actor is not None and changes:
+        from app.services.critical_events import record_executed
+
+        await record_executed(
+            db,
+            actor=actor,
+            event_type="notifications.email_policy",
+            entity_type="settings",
+            entity_id=None,
+            entity_label="Maile automatyczne",
+            reason=_changes_summary(changes),
+            details=changes,
+        )
     await db.commit()
 
 
@@ -378,6 +434,18 @@ def _iso_epoch(value: Any) -> str | None:
         if isinstance(value, (float, int)) and value > 0
         else None
     )
+
+
+async def _daily_digest_recipient_count(db: AsyncSession) -> int | None:
+    """Zasięg porannego skrótu; awaria liczenia nie może zabrać ekranu."""
+    try:
+        from app.tasks.daily_digest_email import recipient_count
+
+        async with db.begin_nested():
+            return await recipient_count(db)
+    except Exception:  # noqa: BLE001 — liczba jest informacją, nie warunkiem
+        logger.warning("daily digest recipient count failed", exc_info=True)
+        return None
 
 
 async def admin_view(db: AsyncSession) -> dict[str, Any]:
@@ -478,10 +546,20 @@ async def admin_view(db: AsyncSession) -> dict[str, Any]:
             )
         )
     queue = await snapshot_queue(db, policy, now)
+    updated_by_name = None
+    if row is not None and row.updated_by is not None:
+        from app.models.user import User
+
+        updated_by_name = await db.scalar(
+            select(User.name).where(User.id == row.updated_by)
+        )
     return dict(
         enabled=policy.enabled,
         updated_at=row.updated_at.isoformat() if row else None,
         updated_by=row.updated_by if row else None,
+        updated_by_name=updated_by_name,
+        # Ile kont dostaje poranny skrót — ekran pokazuje zasięg przełącznika.
+        daily_digest_recipients=await _daily_digest_recipient_count(db),
         send_not_before=policy.send_not_before.isoformat()
         if policy.send_not_before
         else None,

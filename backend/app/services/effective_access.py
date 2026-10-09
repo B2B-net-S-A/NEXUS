@@ -181,3 +181,9 @@ async def resolve_effective_access(db: AsyncSession, users: Iterable[User]) -> N
         )
         user.effective_section_access = serialize_section_access(access.sections)
         user.effective_action_access = serialize_action_access(access.actions)
+
+    # Powiadomienia wyłączone dla roli (tabela „Kto co dostaje”) — także
+    # administratorowi; czyta je `notification_access`.
+    from app.services.notification_role_mutes import attach_role_mutes
+
+    await attach_role_mutes(db, user_list)
