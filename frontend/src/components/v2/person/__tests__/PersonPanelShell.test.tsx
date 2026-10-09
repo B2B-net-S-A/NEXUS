@@ -1,7 +1,7 @@
 /**
  * Obudowa panelu osoby (jeden panel osoby, 04.10.2026): ta sama `aside`
- * w czterech rozmiarach (dok, szeroki, dzielony ze strefą podglądu po lewej,
- * przegląd DL — 09.10.2026), podkład zamyka najwyższą warstwę, ukryty panel
+ * w trzech rozmiarach (dok, dzielony ze strefą podglądu po lewej, przegląd
+ * DL — 09.10.2026), podkład zamyka najwyższą warstwę, ukryty panel
  * nie traci treści.
  */
 import { fireEvent, render, screen } from "@testing-library/react";
@@ -24,27 +24,10 @@ describe("PersonPanelShell", () => {
     expect(screen.getByTestId("pipeline-dock-backdrop").className).toContain("lg:hidden");
   });
 
-  it("szeroki: 760 px, podkład na każdej szerokości i klik go zamyka", () => {
+  it("dzielony (09.10.2026): cała szerokość, strefa podglądu po lewej i stała kolumna po prawej", () => {
     const onBackdropClick = vi.fn();
     render(
-      <PersonPanelShell size="wide" chromeTop={64} onBackdropClick={onBackdropClick}>
-        <p>treść</p>
-      </PersonPanelShell>,
-    );
-    const panel = screen.getByRole("complementary", { name: "Panel osoby" });
-    expect(panel.className).toContain("max-w-[760px]");
-    expect(panel).toHaveAttribute("data-wide");
-    expect(panel).toHaveAttribute("data-size", "wide");
-    expect(panel.style.top).toBe("64px");
-    const backdrop = screen.getByTestId("pipeline-dock-backdrop");
-    expect(backdrop.className).not.toContain("lg:hidden");
-    fireEvent.click(backdrop);
-    expect(onBackdropClick).toHaveBeenCalledTimes(1);
-  });
-
-  it("dzielony (09.10.2026): cała szerokość, strefa podglądu po lewej i stała kolumna po prawej", () => {
-    render(
-      <PersonPanelShell size="split" chromeTop={null} onBackdropClick={vi.fn()}>
+      <PersonPanelShell size="split" chromeTop={64} onBackdropClick={onBackdropClick}>
         <p>treść</p>
       </PersonPanelShell>,
     );
@@ -53,7 +36,12 @@ describe("PersonPanelShell", () => {
     expect(panel).toHaveAttribute("data-wide");
     expect(panel).toHaveAttribute("data-cover");
     expect(panel).toHaveAttribute("data-size", "split");
-    expect(screen.getByTestId("pipeline-dock-backdrop").className).not.toContain("lg:hidden");
+    expect(panel.style.top).toBe("64px");
+    // Podkład na każdej szerokości, klik zamyka najwyższą warstwę.
+    const backdrop = screen.getByTestId("pipeline-dock-backdrop");
+    expect(backdrop.className).not.toContain("lg:hidden");
+    fireEvent.click(backdrop);
+    expect(onBackdropClick).toHaveBeenCalledTimes(1);
 
     const zone = screen.getByTestId("person-panel-side");
     expect(zone).not.toHaveAttribute("hidden");

@@ -2358,12 +2358,15 @@ describe("KanbanBoardV2 — „Rozwiń”: pełne narzędzia w tym samym panelu 
     const panel = await screen.findByRole("complementary", { name: "Panel osoby" });
     await waitFor(() => expect(panel).toHaveAttribute("data-wide"));
     expect(screen.getByTestId("person-workbench-stub")).toHaveAttribute("data-section", "interviews");
-    // Rozmowy też mają podgląd po lewej (D6); zakładka bez podglądu (umowa)
-    // wraca do panelu 760 px, żeby nie zasłaniać Tablicy pustą strefą.
+    // Każda zakładka ma podgląd po lewej (09.10.2026): panel nie zmienia
+    // szerokości, więc pasek zakładek nie przesuwa się w bok.
     expect(panel).toHaveAttribute("data-size", "split");
     await userEvent.click(screen.getByRole("button", { name: "zakładka umowa" }));
-    await waitFor(() => expect(panel).toHaveAttribute("data-size", "wide"));
-    expect(screen.getByTestId("person-panel-side")).not.toBeVisible();
+    await waitFor(() =>
+      expect(screen.getByTestId("person-workbench-stub")).toHaveAttribute("data-section", "contract"),
+    );
+    expect(panel).toHaveAttribute("data-size", "split");
+    expect(screen.getByTestId("person-panel-side")).toBeVisible();
   });
 
   it.each([

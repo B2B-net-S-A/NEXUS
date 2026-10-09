@@ -386,8 +386,9 @@ export interface PipelineCandidateDockProps {
    * etap kolumny — liczy to tablica, dok tylko pokazuje przełączniki.
    */
   /**
-   * Jeden panel osoby (04.10.2026): „Rozwiń” poszerza panel do 760 px i pod
-   * tą samą głową pokazuje pełne narzędzia osoby (`workbench`) zamiast sekcji.
+   * Jeden panel osoby (04.10.2026): „Rozwiń” poszerza panel na całe okno
+   * (podgląd po lewej) i pod tą samą głową pokazuje pełne narzędzia osoby
+   * (`workbench`) zamiast sekcji.
    * Sekcje i narzędzia zostają zamontowane — wpisany tekst przeżywa zmianę.
    */
   expanded?: boolean;

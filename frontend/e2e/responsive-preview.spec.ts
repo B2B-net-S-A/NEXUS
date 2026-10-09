@@ -297,7 +297,10 @@ test.describe("panel osoby — duży podgląd po lewej na laptopie", () => {
   // 09.10.2026 (zgłoszenie rekruterów): poza „Screeningiem” do głowy panelu
   // wracały „Warunki” i ramka „Następny etap”, pasek zakładek zjeżdżał na dół,
   // a na treść zakładki zostawało ok. 70 px. Pomiar po zmianie przy 1280 × 720:
-  // pasek na tej samej wysokości w każdej zakładce, 389 px na treść.
+  // pasek na tej samej wysokości w każdej zakładce, 389 px na treść. Od tego
+  // samego dnia każda zakładka ma podgląd po lewej (do tej pory Umowa,
+  // Dopasowanie i Notatki miały panel 760 px), więc pasek nie przesuwa się też
+  // w bok.
   test("/preview/job-detail: pasek zakładek stoi w miejscu przy zmianie zakładki", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto("/preview/job-detail");
@@ -306,18 +309,25 @@ test.describe("panel osoby — duży podgląd po lewej na laptopie", () => {
     const tabs = panel.getByRole("tablist", { name: "Narzędzia osoby" });
     await expect(tabs).toBeVisible();
     const tops: Record<string, number> = {};
-    for (const name of ["Screening", "Rozmowy", "Dopasowanie"]) {
+    const lefts: Record<string, number> = {};
+    for (const name of ["Screening", "Rozmowy", "Umowa", "Dopasowanie", "Notatki"]) {
       const tab = tabs.getByRole("tab", { name });
       await tab.click();
       await expect(tab).toHaveAttribute("aria-selected", "true");
+      await expect(panel).toHaveAttribute("data-size", "split");
+      // Jeden widoczny podgląd po lewej — także przy umowie, dopasowaniu i notatkach.
+      await expect(panel.locator("[data-person-side-content]:not([hidden])")).toHaveCount(1);
       const bar = await tabs.boundingBox();
       const scroll = await panel.locator("[data-person-scroll]").boundingBox();
       tops[name] = Math.round(bar?.y ?? -1);
+      lefts[name] = Math.round(bar?.x ?? -1);
       const room = (scroll?.y ?? 0) + (scroll?.height ?? 0) - ((bar?.y ?? 0) + (bar?.height ?? 0));
       expect(room, `miejsce na treść zakładki „${name}”`).toBeGreaterThanOrEqual(280);
     }
     const values = Object.values(tops);
     expect(Math.max(...values) - Math.min(...values), `górna krawędź paska: ${JSON.stringify(tops)}`).toBeLessThanOrEqual(1);
+    const xs = Object.values(lefts);
+    expect(Math.max(...xs) - Math.min(...xs), `lewa krawędź paska: ${JSON.stringify(lefts)}`).toBeLessThanOrEqual(1);
     // Fakty i „Następny etap” stoją pod paskiem, w jednej zwiniętej linii.
     await expect(panel.getByRole("button", { name: /Warunki i następny etap/ })).toHaveAttribute(
       "aria-expanded",

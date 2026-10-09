@@ -4767,7 +4767,10 @@ export function GeneratorForm({
   }
 
   return (
-    <div className="space-y-4">
+    // `@container`: pola układają się po szerokości formularza, nie okna —
+    // w panelu osoby (kolumna 460–520 px) jedno pole w rzędzie, na stronie
+    // Generatora dwa albo trzy jak dotąd.
+    <div className="@container space-y-4">
       {activeSaved ? (
         <Alert
           variant="success"
@@ -4854,7 +4857,7 @@ export function GeneratorForm({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 @xl:grid-cols-2">
             <div>
               <Label className="mb-1.5 block" htmlFor={candidatePickerId}>
                 Kandydat <span className="text-destructive">*</span>
@@ -5023,8 +5026,8 @@ export function GeneratorForm({
             edytowalne.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
-          <div className="sm:col-span-2">
+        <CardContent className="grid gap-4 @xl:grid-cols-2">
+          <div className="@xl:col-span-2">
             <Label className="mb-1.5 block">Wariant umowy</Label>
             <div className="flex flex-wrap gap-2">
               {(
@@ -5063,7 +5066,7 @@ export function GeneratorForm({
               </p>
             ) : null}
           </div>
-          <div className="sm:col-span-2">
+          <div className="@xl:col-span-2">
             <Label className="mb-1.5 block">
               {isCompany
                 ? "Płeć osoby reprezentującej spółkę"
@@ -5096,7 +5099,7 @@ export function GeneratorForm({
             </p>
           </div>
           {isCompany ? (
-            <div className="sm:col-span-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+            <div className="@xl:col-span-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
               <span className="text-muted-foreground">
                 Osoba skierowana do realizacji usług (Załącznik nr 3, z
                 rekrutacji):{" "}
@@ -5242,7 +5245,7 @@ export function GeneratorForm({
                 ) : null}
               </Field>
               {krsBoard ? (
-                <p className="sm:col-span-2 text-xs text-muted-foreground">
+                <p className="@xl:col-span-2 text-xs text-muted-foreground">
                   W KRS: {boardSummary(krsBoard.people) || "brak składu organu"}
                   {krsBoard.people.some((p) => !p.name)
                     ? " (imiona i nazwiska są ukryte w publicznym API KRS — wpisz osobę ręcznie)"
@@ -5315,7 +5318,7 @@ export function GeneratorForm({
         <CardHeader>
           <CardTitle className="text-base">Klient i projekt</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
+        <CardContent className="grid gap-4 @xl:grid-cols-2">
           <Field label="Pełna nazwa Klienta" required htmlFor={clientPickerId}>
             <Popover open={clientOpen} onOpenChange={setClientOpen}>
               <PopoverTrigger asChild>
@@ -5489,7 +5492,7 @@ export function GeneratorForm({
         <CardHeader>
           <CardTitle className="text-base">Warunki umowy</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
+        <CardContent className="grid gap-4 @xl:grid-cols-2">
           <Field label="Numer umowy (auto)" required>
             <Input
               value={activeSaved ? activeSaved.number : contractNumber}
@@ -5550,9 +5553,9 @@ export function GeneratorForm({
               </p>
             ) : null}
           </Field>
-          <div className="space-y-3 sm:col-span-2">
+          <div className="space-y-3 @xl:col-span-2">
             {rateStages.length === 1 ? (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3 @xl:grid-cols-2">
                 <Field label="Stawka godz. (netto)" required>
                   <Input
                     type="number"
@@ -5587,7 +5590,7 @@ export function GeneratorForm({
               <>
                 {rateStages.map((stage, i) => (
                   <div key={i} className="flex items-end gap-2">
-                    <div className="grid min-w-0 flex-1 grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div className="grid min-w-0 flex-1 grid-cols-1 gap-3 @xl:grid-cols-3">
                       <Field
                         label={`Stawka godz. (netto) — etap ${i + 1}`}
                         required
@@ -5643,7 +5646,7 @@ export function GeneratorForm({
                     </Button>
                   </div>
                 ))}
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className="grid grid-cols-1 gap-3 @xl:grid-cols-3">
                   <Field label="Waluta" htmlFor={currencyId}>
                     <CurrencySelect
                       id={currencyId}
@@ -5665,7 +5668,7 @@ export function GeneratorForm({
               Dodaj etap stawki
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground sm:col-span-2">
+          <p className="text-xs text-muted-foreground @xl:col-span-2">
             „Stawka słownie" liczy się automatycznie z kwoty.
             {rateStages.length > 1
               ? " Stawka progresywna: umowa wypisze każdy etap z okresem obowiązywania; etap 1 bez „od” obowiązuje od rozpoczęcia usług."
@@ -5889,7 +5892,7 @@ function Field({
           : React.cloneElement(child, { id: autoId });
       });
   return (
-    <div className={full ? "sm:col-span-2" : undefined}>
+    <div className={full ? "@xl:col-span-2" : undefined}>
       <Label className="mb-1.5 block" htmlFor={linkedId}>
         {label}
         {required ? <span className="text-destructive"> *</span> : null}
@@ -5995,7 +5998,7 @@ function RoleScopeEditor() {
   }, [roles]);
 
   return (
-    <Card>
+    <Card className="@container">
       <CardHeader>
         <CardTitle className="text-base">Zakresy ról (edytowalne)</CardTitle>
         <CardDescription>
@@ -6033,7 +6036,7 @@ function RoleScopeEditor() {
 
         {selected ? (
           <>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 @xl:grid-cols-2">
               <Field label="Nazwa (PL)">
                 <Input
                   value={namePl}

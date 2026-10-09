@@ -3008,11 +3008,11 @@ strona CV miała 533 px (67%), a na laptopie 1280 × 720 widać było z niej ok.
 (makiety https://claude.ai/artifact/WPwic4nk1U1RghZo1qkjMr), raport `docs/person-panel-preview-left-completion-report.md`.
 Tylko front, bez API i migracji.
 
-- **Rozmiary panelu: `dock | wide | split | review`** (`person/PersonPanelShell.tsx`). `split` i `review` zajmują
+- **Rozmiary panelu: `dock | split | review`** (`person/PersonPanelShell.tsx`). `split` i `review` zajmują
   całe okno i mają `data-cover`. W `split` panel dzieli się na lewą strefę podglądu (`PersonPanelSideZone`, cała
-  wysokość, od 1024 px okna) i stałą prawą kolumnę z dokiem (460 px, od 1536 px okna 520 px). `split` dają zakładki
-  z podglądem (`SIDE_SECTIONS` w `KanbanBoardV2`: Screening, CV, Rozmowy), pozostałe zostają przy `wide` (760 px),
-  przegląd DL ma `review`.
+  wysokość, od 1024 px okna) i stałą prawą kolumnę z dokiem (460 px, od 1536 px okna 520 px). `split` ma KAŻDA
+  zakładka rozwiniętego panelu, przegląd DL ma `review`. Rozmiaru `wide` (760 px, Umowa / Dopasowanie / Notatki bez
+  podglądu) nie ma od 09.10.2026 — pasek zakładek przesuwał się przez niego w bok.
 - **Panel zakrywa menu boczne regułą CSS, nie `z-index`.** Menu ma `z-40`, a panel siedzi w kontekście warstw
   treści strony (`animate-fadeIn` z wypełnieniem `both`), więc jego `z-30` nigdy nie wygra. Menu ma atrybut
   `data-app-sidebar`, a `globals.css` zdejmuje mu `z-index` na czas otwarcia panelu z `data-cover`. Pilnuje
@@ -3033,9 +3033,16 @@ Tylko front, bez API i migracji.
 - **„Wymagania” to lista, nie chipy (D5,** `champion/JobRequirementsSummary.tsx`): nazwa, pod nią jedno zdanie ze
   słowniczka „po ludzku” (`summary` hasła w stanie `ready`), obok „Szukaj w CV”. Wymaganie bez gotowego hasła
   pokazuje samą nazwę — nie wstawiaj tekstu zastępczego.
-- **CV i Rozmowy (D6):** po „Rozwiń” ten sam podgląd po lewej (`person/PersonSidePreview.tsx`, za `next/dynamic`),
-  zaczyna od CV firmowego, gdy para je ma; przy Rozmowach dodatkowa zakładka „Pytania klienta”. Klik w osobę od
-  „Zweryfikowany” wzwyż nadal otwiera wąski dok — „Otwórz QC” i ramka „Następny etap” są tylko w jego sekcjach.
+- **Podgląd po lewej w każdej zakładce (D6, od 09.10.2026 także Umowa, Dopasowanie, Notatki):** po „Rozwiń” ten
+  sam podgląd (`person/PersonSidePreview.tsx`, za `next/dynamic`), zaczyna od CV firmowego, gdy para je ma. CV,
+  Umowa, Dopasowanie i Notatki mają JEDEN wspólny egzemplarz (`SHARED_PREVIEW_SECTIONS` w `PersonWorkbenchTabs`) —
+  zmiana zakładki nie przewija CV od początku; Rozmowy mają własny z zakładką „Pytania klienta”, Screening własny
+  w warsztacie. Nowa zakładka panelu = wpis w `SHARED_PREVIEW_SECTIONS` albo własny podgląd, nigdy pusta strefa.
+  Klik w osobę od „Zweryfikowany” wzwyż nadal otwiera wąski dok — „Otwórz QC” i ramka „Następny etap” są tylko
+  w jego sekcjach.
+- **Formularz Generatora B2B układa pola po szerokości kontenera** (`@container` + `@xl:grid-cols-*`
+  w `GeneratorForm`, `Field`, `RoleScopeEditor`): w kolumnie panelu jedno pole w rzędzie, na stronie Generatora
+  dwa albo trzy jak dotąd. Nie wracaj tam do `sm:grid-cols-*` — w kolumnie 460 px dawało trzy pola po 120 px.
 - **Pasek zakładek stoi w miejscu (09.10.2026, zgłoszenie rekruterów).** Po „Rozwiń” głowa panelu ma tę samą
   wysokość w każdej zakładce: `PipelineCandidateDock` przy `tabsOpen` nie renderuje w niej faktów („Warunki wobec
   rekrutacji”), rzędu „Biorę / Nie odebrał” ani ramki „Następny etap”. Te same bloki stoją POD paskiem jako jedna
@@ -5578,8 +5585,7 @@ decyzje Artura D1–D4 z 04.10.2026). Raport: `docs/candidate-funnel-completion-
   zamówienie nie ma braków, także numeru.
 - **Jeden panel osoby (#2017–PR 3/3, decyzja Artura „Sekcje + Rozwiń”):**
   na Tablicy jest JEDNO `aside` „Panel osoby” (`person/PersonPanelShell`),
-  380 px dla doku, 760 px w trybie szerokim (od 09.10.2026 zakładki
-  Screening, CV i Rozmowy oraz przegląd DL zajmują całe okno — sekcja „Duży
+  380 px dla doku, całe okno w trybie szerokim (od 09.10.2026 — sekcja „Duży
   podgląd po lewej stronie panelu osoby”). Tryby szerokie: „Rozwiń”
   (pełne narzędzia osoby, `person/PersonWorkbenchTabs` — zakładki CV,
   Screening, Rozmowy, Umowa, Dopasowanie, Notatki i historia pod głową doku)
