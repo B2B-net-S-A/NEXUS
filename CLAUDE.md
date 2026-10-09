@@ -3144,6 +3144,14 @@ Tylko front, bez API i migracji.
   i własnymi warunkami (Screening w „Nowych”) linii nie ma. Przypięte notatki są po „Rozwiń” zawsze zwinięte, bo
   stoją nad paskiem. Nowy blok w głowie rozwiniętego panelu musi mieć tę samą wysokość w każdej zakładce — inaczej
   pasek znowu skacze (pilnuje e2e „pasek zakładek stoi w miejscu”). Wąski dok bez zmian.
+- **Wąski dok przewija się w całości (09.10.2026, zgłoszenie z laptopa 1280 × 650).** W miejscu stoi tylko
+  pasek osoby (`dock-person-bar`: nawigator, nazwisko z kontaktem, plakietki ostrzeżeń, „Rozwiń”, zamknij) i pole
+  notatki; „Warunki”, sprawa zmiany stawki, „Następny etap”, przyciski etapów i sekcje przewijają się razem
+  (`dock-body` z `data-person-scroll`). Do tej daty cała głowa stała w miejscu: na sekcje zostawały 92 px,
+  a z otwartą sprawą zmiany stawki przyciski i pole notatki wypadały poza okno (po zmianie 393 px). Po „Rozwiń”
+  blok akcji (`dock-actions`) stoi nad paskiem zakładek jak dotąd, a `data-person-scroll` przechodzi na treść
+  zakładki — zmieniają się wyłącznie klasy, elementy zostają w tym samym miejscu drzewa. Nowy blok wąskiego doku
+  idzie do `dock-actions` albo sekcji, nigdy do paska osoby (pilnuje e2e „wąski dok osoby przewija się w całości”).
 - **Telefon i e-mail pod nazwiskiem** (`person/PersonContactLine.tsx`, wąski dok i po „Rozwiń”): numer to link
   `tel:`, ikony kopiują; czego profil nie ma, tego nie pokazujemy. Dane z zapytania o profil, które dok i tak robi.
 - **Formularz screeningu zaczyna się od „Warunków”** (stawka, dostępność, tryb), potem pytania z Profilu

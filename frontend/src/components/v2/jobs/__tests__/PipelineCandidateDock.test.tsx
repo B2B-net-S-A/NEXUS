@@ -543,7 +543,7 @@ describe("PipelineCandidateDock — nawigator, oś czasu i główna akcja", () =
 
   // PR 5 (04.10.2026): fakty o osobie stoją raz, pod nazwiskiem — także gdy
   // sekcja „W procesie” jest zwinięta.
-  it("fakty o osobie są w nagłówku panelu, nie w zwiniętej sekcji", async () => {
+  it("fakty o osobie stoją pod nazwiskiem, nie w zwiniętej sekcji", async () => {
     renderDock({ item: baseItem({ stage: "new", expected_rate_value: 140, expected_rate_unit: "hourly" }) });
     const facts = await screen.findByTestId("dock-facts");
     expect(within(facts).getByText("Dostępność")).toBeTruthy();
@@ -1318,8 +1318,12 @@ describe("PipelineCandidateDock — rozwinięty panel i dane kontaktowe (09.10.2
     expect(screen.queryByTestId("dock-facts")).toBeNull();
     expect(screen.queryByTestId("dock-contact-row")).toBeNull();
     expect(screen.queryByTestId("dock-next-stage")).toBeNull();
-    // Rząd akcji zostaje w głowie.
-    expect(screen.getByRole("button", { name: /Odrzuć z powodem/ })).toBeTruthy();
+    // Rząd akcji zostaje w głowie: stoi nad paskiem zakładek i nie przewija
+    // się z treścią zakładki.
+    const reject = screen.getByRole("button", { name: /Odrzuć z powodem/ });
+    expect(reject.closest("[data-person-scroll]")).toBeNull();
+    expect(slot.closest("[data-person-scroll]")).not.toBeNull();
+    expect(document.querySelectorAll("[data-person-scroll]")).toHaveLength(1);
 
     await user.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
@@ -1355,7 +1359,7 @@ describe("PipelineCandidateDock — rozwinięty panel i dane kontaktowe (09.10.2
     expect(within(slot).getByRole("button", { name: "Warunki wobec rekrutacji" })).toBeTruthy();
   });
 
-  it("wąski dok (bez „Rozwiń”) trzyma fakty i „Następny etap” w głowie jak dotąd", async () => {
+  it("wąski dok (bez „Rozwiń”) pokazuje fakty i „Następny etap” wprost, bez zwiniętej linii", async () => {
     renderDock({
       item: baseItem({ stage: "new" }),
       primaryTarget: target,
@@ -1365,5 +1369,30 @@ describe("PipelineCandidateDock — rozwinięty panel i dane kontaktowe (09.10.2
     expect(await screen.findByTestId("dock-facts")).toBeTruthy();
     expect(await screen.findByTestId("dock-next-stage")).toBeTruthy();
     expect(screen.queryByTestId("dock-stage-fold")).toBeNull();
+  });
+
+  // 09.10.2026 (zgłoszenie z laptopa 1280 × 650): cała głowa wąskiego doku
+  // stała w miejscu i na sekcje zostawało 92 px. W miejscu stoi już tylko
+  // pasek osoby i pole notatki — reszta przewija się razem.
+  it("wąski dok przewija się w całości: fakty, „Następny etap”, przyciski i sekcje w jednym obszarze", async () => {
+    renderDock({
+      item: baseItem({ stage: "new" }),
+      primaryTarget: target,
+      expanded: false,
+      workbench: <WorkbenchSlot />,
+    });
+    const facts = await screen.findByTestId("dock-facts");
+    const scrollAreas = document.querySelectorAll("[data-person-scroll]");
+    expect(scrollAreas).toHaveLength(1);
+    const scroll = scrollAreas[0];
+    expect(scroll.contains(facts)).toBe(true);
+    expect(scroll.contains(await screen.findByTestId("dock-next-stage"))).toBe(true);
+    expect(scroll.contains(screen.getByRole("button", { name: /Odrzuć z powodem/ }))).toBe(true);
+    expect(scroll.contains(screen.getByTestId("dock-sections"))).toBe(true);
+    // W miejscu zostaje pasek osoby (nazwisko, „Rozwiń”, zamknij) i notatka.
+    const bar = screen.getByTestId("dock-person-bar");
+    expect(scroll.contains(bar)).toBe(false);
+    expect(within(bar).getByRole("button", { name: "Zamknij dok" })).toBeTruthy();
+    expect(scroll.contains(screen.getByLabelText("Dodaj notatkę"))).toBe(false);
   });
 });

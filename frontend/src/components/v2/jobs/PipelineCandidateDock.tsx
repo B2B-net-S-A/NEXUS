@@ -995,8 +995,22 @@ export function PipelineCandidateDock({
 
   return (
     <div className="flex h-full flex-col rounded-xl border border-border bg-card">
-      {/* ── Nagłówek ──────────────────────────────────────────────────── */}
-      <div className="space-y-2.5 border-b border-border p-4">
+      {/* ── Pasek osoby (zawsze w miejscu) ────────────────────────────── */}
+      {/* 09.10.2026: w wąskim doku w miejscu stoi tylko ten pasek i pole
+          notatki; „Warunki”, „Następny etap” i przyciski etapów przewijają
+          się razem z sekcjami. Do tej daty cała głowa stała w miejscu i przy
+          oknie 1280 × 650 na sekcje zostawało 92 px, a z otwartą sprawą
+          zmiany stawki przyciski wypadały poza ekran. Po „Rozwiń” układ jest
+          jak dotąd: akcje stoją nad paskiem zakładek, przewija się treść
+          zakładki. Zmieniają się wyłącznie klasy — elementy zostają w tym
+          samym miejscu drzewa, więc „Rozwiń” niczego nie odmontowuje. */}
+      <div
+        className={cn(
+          "space-y-2.5 px-4 pt-4",
+          tabsOpen ? "pb-2.5" : "border-b border-border pb-3",
+        )}
+        data-testid="dock-person-bar"
+      >
         {/* Nawigator „‹ N z M ›" — kolejność tablicy, kolumna po kolumnie.
             Renderuje się tylko z podaną pozycją: bez niej nie zgadujemy. */}
         <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -1139,7 +1153,20 @@ export function PipelineCandidateDock({
             </Badge>
           )}
         </div>
+      </div>
 
+      <div
+        className={cn("min-h-0 flex-1", tabsOpen ? "flex flex-col" : "overflow-y-auto")}
+        data-person-scroll={tabsOpen ? undefined : ""}
+        data-testid="dock-body"
+      >
+      <div
+        className={cn(
+          "space-y-2.5 px-4",
+          tabsOpen ? "shrink-0 border-b border-border pb-4" : "pt-3",
+        )}
+        data-testid="dock-actions"
+      >
         {tabsOpen ? null : factsBlock}
         {item.rate_change && !readOnly ? (
           // 0418: otwarta sprawa zmiany stawki — negocjacja (DL, HoR),
@@ -1270,10 +1297,14 @@ export function PipelineCandidateDock({
         )}
       </div>
 
-      {/* ── Treść zakładki (przewijana) ──────────────────────────────── */}
-      {/* `data-person-scroll`: podgląd obok formularza screeningu mierzy
-          widoczną wysokość tego obszaru (0424). */}
-      <div className="flex-1 space-y-3 overflow-y-auto p-4" data-person-scroll="">
+      {/* ── Sekcje doku / treść zakładki ─────────────────────────────── */}
+      {/* `data-person-scroll` stoi na elemencie, który się przewija: w wąskim
+          doku na całym środku (akcje + sekcje), po „Rozwiń” na treści zakładki
+          (mierzy go test „pasek zakładek stoi w miejscu”). */}
+      <div
+        className={cn("space-y-3 p-4", tabsOpen && "min-h-0 flex-1 overflow-y-auto")}
+        data-person-scroll={tabsOpen ? "" : undefined}
+      >
         {/* 0399: przypięte notatki kandydata — z każdej rekrutacji. */}
         {/* Zwinięte także po „Rozwiń”: stoją NAD paskiem zakładek, więc muszą
             mieć tę samą wysokość w każdej zakładce. */}
@@ -1646,6 +1677,7 @@ export function PipelineCandidateDock({
           </div>
         </DockSection>
         </div>
+      </div>
       </div>
 
       {/* Notatka zawsze pod ręką — bez przechodzenia do sekcji „Notatki".
