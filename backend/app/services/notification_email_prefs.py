@@ -149,11 +149,13 @@ def _system_failure(user: User, _: _Context) -> bool:
 
 
 def _chat_unread(user: User, _: _Context) -> bool:
-    # Lustro zapytania `chat_email_fallback`: rola GŁÓWNA z dostępem do
-    # kandydatów, bez Finansów i roli podglądu wśród ról.
+    # Lustro zapytania `chat_email_fallback`: rola z dostępem do kandydatów,
+    # bez Finansów i roli podglądu wśród ról. Nadawca patrzy na rolę główną;
+    # tu liczymy każdą rolę konta — wiersz pokazany na zapas nie szkodzi,
+    # a ukryty odebrałby komuś wyłącznik.
     roles = user.get_all_roles()
     return (
-        user.role in CANDIDATE_READ_ROLES
+        user.has_any_role(*CANDIDATE_READ_ROLES)
         and UserRole.finance not in roles
         and UserRole.user not in roles
         and (
