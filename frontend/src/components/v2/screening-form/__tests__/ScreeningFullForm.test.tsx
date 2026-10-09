@@ -293,6 +293,33 @@ describe("ScreeningFullForm — wypełnienie z notatki", () => {
   });
 });
 
+describe("ScreeningFullForm — kolejność sekcji (09.10.2026)", () => {
+  const before = (first: Element, second: Element) =>
+    Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+  it("„Warunki” stoją nad pytaniami, „Ocena” na końcu", async () => {
+    mount();
+    const terms = await screen.findByRole("region", { name: "Warunki" });
+    const questions = screen.getByRole("region", { name: "Pytania z Profilu Championa" });
+    const assessment = screen.getByRole("region", { name: "Ocena" });
+    expect(before(terms, questions)).toBe(true);
+    expect(before(questions, assessment)).toBe(true);
+  });
+
+  it("widok do odczytu trzyma tę samą kolejność: stawka nad odpowiedziami", async () => {
+    serverState = formState({
+      editable: false,
+      read_only_reason: "process_closed",
+      read_only_message: "Proces tej osoby jest zakończony — formularz jest tylko do odczytu.",
+      sheet: { answers: [{ question_id: "q1", response: "6 lat", deal_breaker_hit: false }], overall_fit: "fit", notes: "" },
+      rate: { amount: 150, unit: "hourly", currency: "PLN", source: "stage", at: null },
+    });
+    mount();
+    const rate = await screen.findByText("150 zł/h");
+    expect(before(rate, screen.getByText("6 lat"))).toBe(true);
+  });
+});
+
 describe("ScreeningFullForm — tylko do odczytu i konflikt", () => {
   it("proces zakończony: widok do odczytu z powodem, bez „Zapisz”", async () => {
     serverState = formState({

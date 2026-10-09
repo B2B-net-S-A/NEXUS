@@ -90,6 +90,7 @@ import { CvGeneratorDialog } from "@/components/v2/cv-generator/CvGeneratorDialo
 import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
 import { DebriefRequiredDialog } from "@/components/v2/recruitment/DebriefRequiredDialog";
 import { DockNextStage } from "@/components/v2/jobs/DockNextStage";
+import { DockStageFold, NextStageSummary } from "@/components/v2/jobs/DockStageFold";
 import { ScreeningAnswersList } from "@/components/v2/screening/ScreeningAnswersList";
 import {
   MOVE_REQUIREMENTS_PREFIX,
@@ -117,7 +118,9 @@ import { DockLoadError, JobNotesBlock, useJobNotes } from "@/components/v2/jobs/
 import { PinnedCandidateNotes } from "@/components/v2/recruitment/PinnedCandidateNotes";
 import { hourlyText } from "@/lib/candidate-rate";
 import { availabilityText, onsiteText } from "@/lib/person-facts";
+import { PersonContactLine } from "@/components/v2/person/PersonContactLine";
 import { PersonFacts, RateWithBudget } from "@/components/v2/person/PersonFacts";
+import { WorkbenchBelowTabsContext } from "@/components/v2/person/WorkbenchBelowTabs";
 import { RateChangeBanner } from "@/components/v2/rate-change/RateChangeBanner";
 import { RateChangeDialog } from "@/components/v2/rate-change/RateChangeDialog";
 import { rateChangeStatusLabel } from "@/lib/rate-change";
@@ -243,6 +246,7 @@ function DockSection({
  *  nie jest typowane, więc typujemy tu wprost — zamiast `any`. */
 interface CandidateDetail {
   email?: string | null;
+  phone?: string | null;
   city?: string | null;
   location?: string | null;
   status?: string | null;
@@ -390,7 +394,11 @@ export interface PipelineCandidateDockProps {
   onToggleExpanded?: () => void;
   /** Zakładki pełnych narzędzi (`PersonWorkbenchTabs`) — gdy były otwarte. */
   workbench?: ReactNode;
-  /** Otwarta zakładka ma własny przycisk ruchu — ramka „Następny etap” znika. */
+  /**
+   * Otwarta zakładka ma własny przycisk ruchu — ramka „Następny etap” znika.
+   * W pozostałych zakładkach rozwiniętego panelu ramka stoi pod paskiem
+   * zakładek, w zwiniętej linii „Warunki i następny etap” (09.10.2026).
+   */
   hidePrimaryMove?: boolean;
   /**
    * Panel dzielony (0424): formularz screeningu albo profil przed telefonem
@@ -545,6 +553,8 @@ export function PipelineCandidateDock({
   const [cardOpen, setCardOpen] = useState(false);
   const [debriefEventId, setDebriefEventId] = useState<number | null>(null);
   const [rateChangeOpen, setRateChangeOpen] = useState(false);
+  // Linia „Warunki i następny etap” pod paskiem zakładek — domyślnie zwinięta.
+  const [stageFoldOpen, setStageFoldOpen] = useState(false);
   const [profileCvPreviewId, setProfileCvPreviewId] = useState<number | null>(null);
 
   // Zmiana kandydata (nowy klik na tablicy) — wróć na pierwszą zakładkę i
@@ -553,6 +563,7 @@ export function PipelineCandidateDock({
   useEffect(() => {
     setOpenSections(new Set([nowSectionForStage(item.stage)]));
     setNoteText("");
+    setStageFoldOpen(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- tylko zmiana osoby
   }, [item.candidate_id]);
 
@@ -823,6 +834,160 @@ export function PipelineCandidateDock({
     setOpenEmail(false);
   }, [emailLookupFailed, showError]);
 
+  // ── Pasek zakładek stoi w miejscu (09.10.2026) ────────────────────────
+  // Po „Rozwiń” głowa panelu ma tę samą wysokość w każdej zakładce: fakty,
+  // „Nie odebrał” i ramka „Następny etap” przechodzą pod pasek zakładek jako
+  // jedna zwinięta linia (`DockStageFold`). Do tej daty wracały do głowy po
+  // wyjściu ze „Screeningu” i przy oknie 1536 × 780 na treść zakładki
+  // zostawało ok. 70 px. Wąski dok renderuje je w głowie jak dotąd.
+  const tabsOpen = expanded && workbench != null;
+
+  // Fakty o osobie RAZ, pod nazwiskiem (PR 5, 04.10.2026) — do tej
+  // pory stały zwinięte w „W procesie”. Wyłącznie z danych, które dok
+  // już ma (karta kanbanu + profil kandydata). Brak danych to „—”, nie
+  // znikający wiersz: pusty rząd czyta się jak „bez zastrzeżeń”.
+  // W trybie `split` (Nowi/Screening, 0424) te same fakty stoją w
+  // profilu przed telefonem i w „Warunkach” formularza — tu ich nie
+  // powtarzamy, żeby formularz zaczynał się wyżej na laptopie.
+  const factsBlock = !split ? (
+    <PersonFacts
+      testId="dock-facts"
+      pairs
+      rows={[
+        {
+          label: "W tej rekrutacji",
+          wide: true,
+          value: (
+            <>
+              <RateWithBudget
+                value={item.expected_rate_value}
+                unit={item.expected_rate_unit}
+                currency={item.expected_rate_currency}
+                budgetMonthly={item.budget_max_at_move}
+              />
+              {item.rate_change ? (
+                <span className="ml-1.5 rounded bg-warning/15 px-1.5 py-0.5 text-[11px] font-semibold text-warning">
+                  {rateChangeStatusLabel(item.rate_change.status)}
+                  {item.rate_change.previous_hourly != null
+                    ? ` · było ${hourlyText(item.rate_change.previous_hourly)}`
+                    : ""}
+                </span>
+            ) : null}
+            {!readOnly ? (
+              // 0418: zmiana stawki w procesie — z powodem, śladem
+              // i powiadomieniem DL / Head of Recruitment.
+              <button
+                type="button"
+                onClick={() => setRateChangeOpen(true)}
+                className="ml-1.5 text-xs font-medium text-primary hover:underline"
+              >
+                Zmień
+              </button>
+            ) : null}
+          </>
+        ),
+      },
+      // „Stawka od” (0414): najniższa stawka z 18 miesięcy — obok stawki
+      // z tej rekrutacji, żeby było widać pole negocjacji.
+      { label: "Stawka od", value: hourlyText(item.candidate_rate_from_hourly) },
+      { label: "Dostępność", value: availabilityLabel },
+      { label: "Tryb", value: onsiteText(candidate?.max_onsite_days_per_week) },
+      // Stawka do klienta tylko, gdy serwer ją przysłał (rekruter jej nie
+      // dostaje — `can_view_client_rate`).
+      ...(clientRateText
+        ? [
+            {
+              label: "Do klienta",
+              value: <span className="font-medium tabular-nums">{clientRateText}</span>,
+            },
+          ]
+        : []),
+    ]}
+  />
+  ) : null;
+
+  // PR 5 (04.10.2026): w „Nowych” i „Screeningu” pierwsza praca to
+  // telefon — „Biorę” i „Nie odebrał” bez wychodzenia z panelu.
+  const contactRow =
+    !readOnly && ENTRY_STAGES.has(item.stage ?? "") && !split ? (
+      <div className="flex flex-wrap gap-1.5" data-testid="dock-contact-row">
+        {onTake && item.can_take && item.claim_user_id == null && (
+          <Button size="sm" variant="outline" onClick={onTake}>
+            <UserPlus className="h-3.5 w-3.5" /> Biorę — 12 h
+          </Button>
+        )}
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={noAnswerMut.isPending}
+          onClick={() => noAnswerMut.mutate()}
+        >
+          <PhoneOff className="h-3.5 w-3.5" /> Nie odebrał
+        </Button>
+      </div>
+    ) : null;
+
+  const nextStageBlock = readOnly || hidePrimaryMove ? null : primaryTarget ? (
+    <DockNextStage
+      candidateId={item.candidate_id}
+      jobId={jobId}
+      target={primaryTarget}
+      readOnly={readOnly}
+      onMove={onMoveTo}
+      onMoveToStageDef={onMoveToStageDef}
+      onAction={handleRequirementAction}
+      canAct={canActOnRequirement}
+      refreshToken={item}
+    />
+  ) : primaryBlocked ? (
+    <div className="space-y-1">
+      <Button
+        size="sm"
+        disabled
+        title={primaryBlocked.reason}
+        className="w-full justify-center"
+      >
+        <ChevronRight className="h-3.5 w-3.5" />
+        Przenieś na etap:{" "}
+        {primaryBlocked.col.name ?? primaryBlocked.col.stage}
+      </Button>
+      <p role="note" className="text-[10.5px] leading-snug text-destructive">
+        {primaryBlocked.reason}
+      </p>
+    </div>
+  ) : null;
+
+  const stageFold =
+    tabsOpen && (factsBlock || nextStageBlock) ? (
+      <DockStageFold
+        title={
+          factsBlock && nextStageBlock
+            ? "Warunki i następny etap"
+            : factsBlock
+              ? "Warunki wobec rekrutacji"
+              : "Następny etap"
+        }
+        summary={
+          nextStageBlock && primaryTarget ? (
+            <NextStageSummary
+              candidateId={item.candidate_id}
+              jobId={jobId}
+              target={primaryTarget}
+              refreshToken={item}
+            />
+          ) : nextStageBlock && primaryBlocked ? (
+            (primaryBlocked.col.name ?? primaryBlocked.col.stage)
+          ) : null
+        }
+        open={stageFoldOpen}
+        onToggle={() => setStageFoldOpen((value) => !value)}
+      >
+        {factsBlock}
+        {contactRow}
+        {nextStageBlock}
+      </DockStageFold>
+    ) : null;
+
   return (
     <div className="flex h-full flex-col rounded-xl border border-border bg-card">
       {/* ── Nagłówek ──────────────────────────────────────────────────── */}
@@ -925,6 +1090,8 @@ export function PipelineCandidateDock({
                     ? "Nie udało się wczytać profilu"
                     : "Brak danych profilowych")}
             </div>
+            {/* 09.10.2026: telefon i e-mail bez wchodzenia w profil. */}
+            <PersonContactLine phone={candidate?.phone} email={candidate?.email} personName={fullName} />
           </div>
         </div>
 
@@ -968,69 +1135,7 @@ export function PipelineCandidateDock({
           )}
         </div>
 
-        {/* Fakty o osobie RAZ, pod nazwiskiem (PR 5, 04.10.2026) — do tej
-            pory stały zwinięte w „W procesie”. Wyłącznie z danych, które dok
-            już ma (karta kanbanu + profil kandydata). Brak danych to „—”, nie
-            znikający wiersz: pusty rząd czyta się jak „bez zastrzeżeń”.
-            W trybie `split` (Nowi/Screening, 0424) te same fakty stoją w
-            profilu przed telefonem i w „Warunkach” formularza — tu ich nie
-            powtarzamy, żeby formularz zaczynał się wyżej na laptopie. */}
-        {!split ? (
-          <PersonFacts
-            testId="dock-facts"
-            pairs
-            rows={[
-              {
-                label: "W tej rekrutacji",
-                wide: true,
-                value: (
-                  <>
-                    <RateWithBudget
-                      value={item.expected_rate_value}
-                      unit={item.expected_rate_unit}
-                      currency={item.expected_rate_currency}
-                      budgetMonthly={item.budget_max_at_move}
-                    />
-                    {item.rate_change ? (
-                      <span className="ml-1.5 rounded bg-warning/15 px-1.5 py-0.5 text-[11px] font-semibold text-warning">
-                        {rateChangeStatusLabel(item.rate_change.status)}
-                        {item.rate_change.previous_hourly != null
-                          ? ` · było ${hourlyText(item.rate_change.previous_hourly)}`
-                          : ""}
-                      </span>
-                  ) : null}
-                  {!readOnly ? (
-                    // 0418: zmiana stawki w procesie — z powodem, śladem
-                    // i powiadomieniem DL / Head of Recruitment.
-                    <button
-                      type="button"
-                      onClick={() => setRateChangeOpen(true)}
-                      className="ml-1.5 text-xs font-medium text-primary hover:underline"
-                    >
-                      Zmień
-                    </button>
-                  ) : null}
-                </>
-              ),
-            },
-            // „Stawka od” (0414): najniższa stawka z 18 miesięcy — obok stawki
-            // z tej rekrutacji, żeby było widać pole negocjacji.
-            { label: "Stawka od", value: hourlyText(item.candidate_rate_from_hourly) },
-            { label: "Dostępność", value: availabilityLabel },
-            { label: "Tryb", value: onsiteText(candidate?.max_onsite_days_per_week) },
-            // Stawka do klienta tylko, gdy serwer ją przysłał (rekruter jej nie
-            // dostaje — `can_view_client_rate`).
-            ...(clientRateText
-              ? [
-                  {
-                    label: "Do klienta",
-                    value: <span className="font-medium tabular-nums">{clientRateText}</span>,
-                  },
-                ]
-              : []),
-          ]}
-        />
-        ) : null}
+        {tabsOpen ? null : factsBlock}
         {item.rate_change && !readOnly ? (
           // 0418: otwarta sprawa zmiany stawki — negocjacja (DL, HoR),
           // wynik rozmowy, decyzja DL o stawce do klienta.
@@ -1050,54 +1155,8 @@ export function PipelineCandidateDock({
             i powodu odrzucenia działają bez zmian. */}
         {!readOnly && (
           <div className="space-y-1.5" data-help="jobs.person.actions">
-            {/* PR 5 (04.10.2026): w „Nowych” i „Screeningu” pierwsza praca to
-                telefon — „Biorę” i „Nie odebrał” bez wychodzenia z panelu. */}
-            {ENTRY_STAGES.has(item.stage ?? "") && !split && (
-              <div className="flex flex-wrap gap-1.5" data-testid="dock-contact-row">
-                {onTake && item.can_take && item.claim_user_id == null && (
-                  <Button size="sm" variant="outline" onClick={onTake}>
-                    <UserPlus className="h-3.5 w-3.5" /> Biorę — 12 h
-                  </Button>
-                )}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={noAnswerMut.isPending}
-                  onClick={() => noAnswerMut.mutate()}
-                >
-                  <PhoneOff className="h-3.5 w-3.5" /> Nie odebrał
-                </Button>
-              </div>
-            )}
-            {hidePrimaryMove ? null : primaryTarget ? (
-              <DockNextStage
-                candidateId={item.candidate_id}
-                jobId={jobId}
-                target={primaryTarget}
-                readOnly={readOnly}
-                onMove={onMoveTo}
-                onMoveToStageDef={onMoveToStageDef}
-                onAction={handleRequirementAction}
-                canAct={canActOnRequirement}
-                refreshToken={item}
-              />
-            ) : primaryBlocked ? (
-              <div className="space-y-1">
-                <Button
-                  size="sm"
-                  disabled
-                  title={primaryBlocked.reason}
-                  className="w-full justify-center"
-                >
-                  <ChevronRight className="h-3.5 w-3.5" />
-                  Przenieś na etap:{" "}
-                  {primaryBlocked.col.name ?? primaryBlocked.col.stage}
-                </Button>
-                <p role="note" className="text-[10.5px] leading-snug text-destructive">
-                  {primaryBlocked.reason}
-                </p>
-              </div>
-            ) : null}
+            {tabsOpen ? null : contactRow}
+            {tabsOpen ? null : nextStageBlock}
             <div className="flex flex-wrap items-center gap-1.5">
               {moveTargets.length > 0 && (
                 <DropdownMenu modal={false}>
@@ -1211,8 +1270,14 @@ export function PipelineCandidateDock({
           widoczną wysokość tego obszaru (0424). */}
       <div className="flex-1 space-y-3 overflow-y-auto p-4" data-person-scroll="">
         {/* 0399: przypięte notatki kandydata — z każdej rekrutacji. */}
-        <PinnedCandidateNotes candidateId={item.candidate_id} collapsed={split} />
-        {workbench ? <div hidden={!expanded}>{workbench}</div> : null}
+        {/* Zwinięte także po „Rozwiń”: stoją NAD paskiem zakładek, więc muszą
+            mieć tę samą wysokość w każdej zakładce. */}
+        <PinnedCandidateNotes candidateId={item.candidate_id} collapsed={split || tabsOpen} />
+        {workbench ? (
+          <div hidden={!expanded}>
+            <WorkbenchBelowTabsContext.Provider value={stageFold}>{workbench}</WorkbenchBelowTabsContext.Provider>
+          </div>
+        ) : null}
         <div className="space-y-3" hidden={expanded} data-testid="dock-sections">
         <DockSection
           id="process"

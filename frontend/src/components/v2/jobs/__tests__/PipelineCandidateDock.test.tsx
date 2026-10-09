@@ -11,7 +11,7 @@
  * zapytania do innych endpointów, niepowiązane z tym, co testujemy tutaj.
  */
 
-import type { ComponentProps } from "react";
+import { useContext, type ComponentProps } from "react";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -106,6 +106,7 @@ vi.mock("@/components/v2/recruitment/DebriefRequiredDialog", () => ({
 
 import { PipelineCandidateDock, nowSectionForStage } from "@/components/v2/jobs/PipelineCandidateDock";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { WorkbenchBelowTabsContext } from "@/components/v2/person/WorkbenchBelowTabs";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 
 function baseItem(overrides: Partial<KanbanItem> = {}): KanbanItem {
@@ -1163,5 +1164,143 @@ describe("PipelineCandidateDock — awaria odczytu to nie pustka", () => {
     await user.click(screen.getByRole("button", { name: /^Notatki/ }));
     expect(await screen.findByText(/Nie udało się wczytać: notatki/)).toBeTruthy();
     expect(screen.queryByText(/Brak notatek dla tej rekrutacji/)).toBeNull();
+  });
+});
+
+// ── Rozwinięty panel: pasek zakładek stoi w miejscu, kontakt pod nazwiskiem
+//    (09.10.2026, zgłoszenie rekruterów) ─────────────────────────────────
+
+/** Zastępuje `PersonWorkbenchTabs`: pokazuje to, co dok podaje pod pasek zakładek. */
+function WorkbenchSlot() {
+  return <div data-testid="workbench-slot">{useContext(WorkbenchBelowTabsContext)}</div>;
+}
+
+describe("PipelineCandidateDock — rozwinięty panel i dane kontaktowe (09.10.2026)", () => {
+  const target = stageCol("verified", "Zweryfikowany", { stage_def_id: 5 });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    pairCvGet.mockResolvedValue({
+      data: { items: [], branded_cv: { status: "none", stage_id: null, stage_name: null, finalized_at: null } },
+    });
+    getForStage.mockResolvedValue({ data: { screening_answers: null } });
+    originalGet.mockResolvedValue({ data: { has_snapshot: false } });
+    brandedGet.mockResolvedValue({ data: { status: "none" } });
+    candidatesGet.mockResolvedValue({
+      data: { city: "Lublin", email: "anna@example.com", phone: "+48 600 100 200" },
+    });
+    apiPost.mockResolvedValue({ data: {} });
+    apiGet.mockImplementation((url: string) => {
+      if (url.startsWith("/api/pipeline/move-requirements")) {
+        return Promise.resolve({
+          data: {
+            from_column: "new",
+            to_column: "verified",
+            skipped_columns: ["screening"],
+            items: [
+              { key: "screening_sheet", label: "Arkusz screeningu", status: "missing", blocking: false },
+              { key: "availability", label: "Dostępność", status: "ok", blocking: false },
+            ],
+            primary: { kind: "move", label: "Przesuń na „Zweryfikowany”" },
+            owner_note: null,
+          },
+        });
+      }
+      return Promise.resolve({ data: { items: [] } });
+    });
+  });
+
+  it("telefon i e-mail stoją pod nazwiskiem; numer dzwoni, ikony kopiują", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    // Po `userEvent.setup()` — ten podmienia schowek własną atrapą.
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    renderDock({ item: baseItem({ stage: "new" }) });
+
+    const line = await screen.findByTestId("person-contact-line");
+    expect(within(line).getByRole("link", { name: "+48 600 100 200" })).toHaveAttribute(
+      "href",
+      "tel:+48600100200",
+    );
+    expect(within(line).getByText("anna@example.com")).toBeTruthy();
+    await user.click(within(line).getByRole("button", { name: "Kopiuj numer: Anna Kowalska" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("+48 600 100 200"));
+    await user.click(within(line).getByRole("button", { name: "Kopiuj adres e-mail: Anna Kowalska" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("anna@example.com"));
+    expect(toastSuccess).toHaveBeenCalledWith("Skopiowano adres e-mail");
+  });
+
+  it("profil bez telefonu i adresu nie pokazuje pustej linii kontaktu", async () => {
+    candidatesGet.mockResolvedValue({ data: { city: "Lublin" } });
+    renderDock({ item: baseItem({ stage: "new" }) });
+    expect(await screen.findByText(/Lublin/)).toBeTruthy();
+    expect(screen.queryByTestId("person-contact-line")).toBeNull();
+  });
+
+  it("po „Rozwiń” głowa nie ma faktów ani „Następnego etapu” — stoją w zwiniętej linii pod zakładkami", async () => {
+    const user = userEvent.setup();
+    renderDock({
+      item: baseItem({ stage: "new" }),
+      primaryTarget: target,
+      expanded: true,
+      workbench: <WorkbenchSlot />,
+    });
+
+    const slot = await screen.findByTestId("workbench-slot");
+    const fold = within(slot).getByTestId("dock-stage-fold");
+    const toggle = within(fold).getByRole("button", { name: /Warunki i następny etap/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(await within(fold).findByText("Zweryfikowany · brakuje 1 z 2")).toBeTruthy();
+    // Zwinięta: żadnego z trzech bloków nie ma ani w głowie, ani pod zakładkami.
+    expect(screen.queryByTestId("dock-facts")).toBeNull();
+    expect(screen.queryByTestId("dock-contact-row")).toBeNull();
+    expect(screen.queryByTestId("dock-next-stage")).toBeNull();
+    // Rząd akcji zostaje w głowie.
+    expect(screen.getByRole("button", { name: /Odrzuć z powodem/ })).toBeTruthy();
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(within(fold).getByTestId("dock-facts")).toBeTruthy();
+    expect(within(fold).getByTestId("dock-contact-row")).toBeTruthy();
+    expect(await within(fold).findByTestId("dock-next-stage")).toBeTruthy();
+  });
+
+  it("zakładka z własnym ruchem i własnymi warunkami (Screening w „Nowych”) nie ma linii", async () => {
+    renderDock({
+      item: baseItem({ stage: "new" }),
+      primaryTarget: target,
+      expanded: true,
+      split: true,
+      hidePrimaryMove: true,
+      workbench: <WorkbenchSlot />,
+    });
+    const slot = await screen.findByTestId("workbench-slot");
+    expect(await screen.findByText(/Lublin/)).toBeTruthy();
+    expect(within(slot).queryByTestId("dock-stage-fold")).toBeNull();
+    expect(screen.queryByTestId("dock-next-stage")).toBeNull();
+  });
+
+  it("zakładka z własnym ruchem, ale bez własnych warunków, ma linię samych „Warunków”", async () => {
+    renderDock({
+      item: baseItem({ stage: "verified" }),
+      primaryTarget: target,
+      expanded: true,
+      hidePrimaryMove: true,
+      workbench: <WorkbenchSlot />,
+    });
+    const slot = await screen.findByTestId("workbench-slot");
+    expect(within(slot).getByRole("button", { name: "Warunki wobec rekrutacji" })).toBeTruthy();
+  });
+
+  it("wąski dok (bez „Rozwiń”) trzyma fakty i „Następny etap” w głowie jak dotąd", async () => {
+    renderDock({
+      item: baseItem({ stage: "new" }),
+      primaryTarget: target,
+      expanded: false,
+      workbench: <WorkbenchSlot />,
+    });
+    expect(await screen.findByTestId("dock-facts")).toBeTruthy();
+    expect(await screen.findByTestId("dock-next-stage")).toBeTruthy();
+    expect(screen.queryByTestId("dock-stage-fold")).toBeNull();
   });
 });

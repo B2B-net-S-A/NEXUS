@@ -55,6 +55,7 @@ import {
 } from "@/components/v2/person/PersonWorkbenchTabs";
 import { buildProcessRows } from "@/components/v2/recruitment/person-rows";
 import type { PersonPanelSection } from "@/components/v2/recruitment/types";
+import { WorkbenchBelowTabsContext } from "@/components/v2/person/WorkbenchBelowTabs";
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
 
 import { item, template } from "../../recruitment/__tests__/recruitment-fixtures";
@@ -203,6 +204,32 @@ describe("PersonWorkbenchTabs — zakładka z etapu i kontekst warsztatów", () 
     expect(mocks.workbenchProps.cv.panelFallback).toBeTruthy();
     renderTabs({ candidateId: 4, section: "screening" });
     expect(mocks.workbenchProps.screening.panelFallback).toBeTruthy();
+  });
+});
+
+describe("PersonWorkbenchTabs — miejsce pod paskiem zakładek (09.10.2026)", () => {
+  it("treść z doku stoi między paskiem zakładek a treścią zakładki — w każdej zakładce", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <WorkbenchBelowTabsContext.Provider value={<div data-testid="below-tabs">Warunki i następny etap</div>}>
+          <Harness candidateId={3} />
+        </WorkbenchBelowTabsContext.Provider>
+      </QueryClientProvider>,
+    );
+    const follows = (first: Element, second: Element) =>
+      Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const below = screen.getByTestId("below-tabs");
+    expect(follows(screen.getByRole("tablist", { name: "Narzędzia osoby" }), below)).toBe(true);
+    expect(follows(below, screen.getByLabelText("pole cv"))).toBe(true);
+
+    await userEvent.click(screen.getByRole("tab", { name: "Dopasowanie" }));
+    expect(follows(screen.getByTestId("below-tabs"), screen.getByLabelText("pole match"))).toBe(true);
+  });
+
+  it("bez treści z doku pod paskiem nie ma nic dodatkowego", () => {
+    renderTabs({ candidateId: 3 });
+    expect(screen.queryByTestId("below-tabs")).toBeNull();
   });
 });
 

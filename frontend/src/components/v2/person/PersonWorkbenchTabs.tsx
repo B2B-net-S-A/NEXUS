@@ -14,7 +14,7 @@
  * skasować wpisanego tekstu.
  */
 
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 
 import { ClientQuestions } from "@/components/calendar/cycle/ClientQuestions";
 import { TabbedNav } from "@/components/ds";
@@ -25,6 +25,7 @@ import { JobInterviewsTab } from "@/components/v2/jobs/JobInterviewsTab";
 import { JobNotesBlock, useJobNotes } from "@/components/v2/jobs/workbench-chrome";
 import { PersonPanelSideSection } from "@/components/v2/person/PersonPanelSide";
 import { PersonSidePreview } from "@/components/v2/person/PersonSidePreview";
+import { WorkbenchBelowTabsContext } from "@/components/v2/person/WorkbenchBelowTabs";
 import { DopasowanieTab } from "@/components/v2/pages/DopasowanieTab";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { CvHandoffWorkbench, ScreeningWorkbench } from "@/components/v2/recruitment/panel-workbenches";
@@ -268,6 +269,7 @@ export function PersonWorkbenchTabs({
 }: PersonWorkbenchTabsProps) {
   const candidateId = row.candidateId;
   const { item } = row;
+  const belowTabs = useContext(WorkbenchBelowTabsContext);
 
   // Odwiedzone zakładki tej osoby zostają zamontowane. Zmiana osoby czyści zbiór.
   const [visited, setVisited] = useState<{ candidateId: number; sections: PersonPanelSection[] }>({
@@ -455,6 +457,9 @@ export function PersonWorkbenchTabs({
         overflow="wrap"
         dense
       />
+      {/* Pasek zakładek stoi w miejscu (09.10.2026): „Warunki i następny etap”
+          przychodzą z doku i stoją pod paskiem, nie w głowie panelu. */}
+      {belowTabs}
       {PERSON_PANEL_SECTIONS.filter(({ value }) => mounted.includes(value)).map(({ value, label }) => (
         <div
           // Klucz = osoba + zakładka: odświeżenie tablicy NIE odmontowuje

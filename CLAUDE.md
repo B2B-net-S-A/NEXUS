@@ -3036,6 +3036,19 @@ Tylko front, bez API i migracji.
 - **CV i Rozmowy (D6):** po „Rozwiń” ten sam podgląd po lewej (`person/PersonSidePreview.tsx`, za `next/dynamic`),
   zaczyna od CV firmowego, gdy para je ma; przy Rozmowach dodatkowa zakładka „Pytania klienta”. Klik w osobę od
   „Zweryfikowany” wzwyż nadal otwiera wąski dok — „Otwórz QC” i ramka „Następny etap” są tylko w jego sekcjach.
+- **Pasek zakładek stoi w miejscu (09.10.2026, zgłoszenie rekruterów).** Po „Rozwiń” głowa panelu ma tę samą
+  wysokość w każdej zakładce: `PipelineCandidateDock` przy `tabsOpen` nie renderuje w niej faktów („Warunki wobec
+  rekrutacji”), rzędu „Biorę / Nie odebrał” ani ramki „Następny etap”. Te same bloki stoją POD paskiem jako jedna
+  zwinięta linia `DockStageFold` („Warunki i następny etap · Zweryfikowany · brakuje 4 z 4”), którą dok podaje
+  zakładkom przez `WorkbenchBelowTabsContext` (`person/WorkbenchBelowTabs.tsx`). Do tej daty poza „Screeningiem”
+  wracały do głowy i przy oknie 1536 × 780 na treść zakładki zostawało ok. 70 px. Zakładka z własnym ruchem
+  i własnymi warunkami (Screening w „Nowych”) linii nie ma. Przypięte notatki są po „Rozwiń” zawsze zwinięte, bo
+  stoją nad paskiem. Nowy blok w głowie rozwiniętego panelu musi mieć tę samą wysokość w każdej zakładce — inaczej
+  pasek znowu skacze (pilnuje e2e „pasek zakładek stoi w miejscu”). Wąski dok bez zmian.
+- **Telefon i e-mail pod nazwiskiem** (`person/PersonContactLine.tsx`, wąski dok i po „Rozwiń”): numer to link
+  `tel:`, ikony kopiują; czego profil nie ma, tego nie pokazujemy. Dane z zapytania o profil, które dok i tak robi.
+- **Formularz screeningu zaczyna się od „Warunków”** (stawka, dostępność, tryb), potem pytania z Profilu
+  Championa i „Ocena” — także w widoku tylko do odczytu. Prośba rekruterów 09.10.2026; nie odwracaj kolejności.
 - Harnessy: `/preview/screening-form` (ramka z prawdziwą strefą), `/preview/job-detail` (replika menu `z-40`
   i `animate-fadeIn`), `/preview/dl-review?layout=panel`. Każdą zmianę panelu sprawdź przy 1280 × 720: strona CV
   ma tam ok. 700–750 px szerokości.
