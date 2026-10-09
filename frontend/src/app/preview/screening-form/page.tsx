@@ -74,14 +74,22 @@ const DAY_MS = 86_400_000;
 const SEED_FRESH = { updatedAt: Date.now() + DAY_MS };
 const RECRUITER = { id: 31, name: "Marta Testowa" };
 
-type HarnessState = "nowi" | "filled" | "note" | "readonly" | "history";
+type HarnessState = "nowi" | "filled" | "note" | "readonly" | "history" | "cvpick" | "cvconsent" | "cvready";
 const STATES: ReadonlyArray<{ value: HarnessState; label: string }> = [
   { value: "nowi", label: "Nowi — przed telefonem" },
   { value: "filled", label: "Screening — wypełniony" },
   { value: "note", label: "Z notatki" },
   { value: "readonly", label: "Proces zakończony" },
   { value: "history", label: "Historia zmian" },
+  { value: "cvpick", label: "CV firmowe — wybór z profilu" },
+  { value: "cvconsent", label: "CV firmowe — klient ze zgodą" },
+  { value: "cvready", label: "CV firmowe — wybrane" },
 ];
+
+/** Stany wyboru CV z profilu (09.10.2026) — w podglądzie kliknij „CV” → „CV firmowe”. */
+function isCvState(state: HarnessState): boolean {
+  return state === "cvpick" || state === "cvconsent" || state === "cvready";
+}
 
 function harnessState(value: string | null | undefined): HarnessState {
   return STATES.some((s) => s.value === value) ? (value as HarnessState) : "nowi";
@@ -92,6 +100,8 @@ function harnessState(value: string | null | undefined): HarnessState {
 const FILES: Record<number, string> = {
   1: "/preview/cv-search/cv-tekst.pdf",
   3: "/preview/cv-search/cv.docx",
+  4: "/preview/cv-search/cv.docx",
+  5: "/preview/cv-search/cv-tekst.pdf",
 };
 
 function doc(id: number, filename: string, contentType: string, isPrimary = false): CandidateDocument {
@@ -123,7 +133,57 @@ async function loadStaticOriginal(): Promise<Blob> {
   return loadStaticBlob(CANDIDATE_ID, 1);
 }
 
-const PREVIEW_LOADERS = { loadDocumentBlob: loadStaticBlob, loadOriginalBlob: loadStaticOriginal };
+// CV dla klientów w profilu: plik Word da się wybrać, PDF jest tylko do podglądu.
+const CLIENT_DOCUMENTS: CandidateDocument[] = [
+  {
+    ...doc(4, "CV_B2B_Tomasz_Wzorcowy.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+    uploaded_by_name: RECRUITER.name,
+  },
+  doc(5, "CV_B2B_Tomasz_Wzorcowy_EN.pdf", "application/pdf"),
+];
+
+const GENERATED_CVS = [
+  {
+    id: 71,
+    candidate_id: CANDIDATE_ID,
+    job_id: JOB_ID,
+    client_name: "Bank Przykładowy",
+    candidate_name: "Tomasz Wzorcowy",
+    position: "Senior Java Developer",
+    language: "pl",
+    blind: false,
+    mode: "new",
+    filename: "B2B_Senior_Java_Developer_Tomasz_Wzorcowy.docx",
+    status: "ready",
+    created_at: "2026-10-02T09:00:00Z",
+    created_by_name: RECRUITER.name,
+    can_download: true,
+    can_delete: false,
+  },
+  {
+    id: 64,
+    candidate_id: CANDIDATE_ID,
+    job_id: 202,
+    client_name: "Ubezpieczyciel Fikcyjny",
+    candidate_name: "Tomasz Wzorcowy",
+    position: "Java Developer — bankowość mobilna",
+    language: "en",
+    blind: false,
+    mode: "new",
+    filename: "B2B_Java_Developer_Tomasz_Wzorcowy.docx",
+    status: "ready",
+    created_at: "2026-09-12T09:00:00Z",
+    created_by_name: "Anna Przykładowa",
+    can_download: true,
+    can_delete: false,
+  },
+];
+
+const PREVIEW_LOADERS = {
+  loadDocumentBlob: loadStaticBlob,
+  loadOriginalBlob: loadStaticOriginal,
+  loadStageCvFile: async () => ({ blob: await loadStaticBlob(CANDIDATE_ID, 4), filename: "CV.docx" }),
+};
 
 // ── Profil Championa i „Po ludzku” ───────────────────────────────────────
 
@@ -588,8 +648,20 @@ function seededClient(state: HarnessState): QueryClient {
   qc.setQueryData(reassignContextQueryKey(STAGE_ID), { stage_id: STAGE_ID, available: false, source: null, previous_answers_count: 0 }, SEED_FRESH);
   qc.setQueryData(candidateQueryKeys.quickView(CANDIDATE_ID), QUICK_VIEW, SEED_FRESH);
   qc.setQueryData(["cv-original", STAGE_ID], SNAPSHOT, SEED_FRESH);
-  qc.setQueryData(candidateQueryKeys.cvDocuments(CANDIDATE_ID), DOCUMENTS, SEED_FRESH);
-  qc.setQueryData(stageBrandedQueryKey(STAGE_ID), BRANDED_NONE, SEED_FRESH);
+  const cv = isCvState(state);
+  const documents = cv ? [...DOCUMENTS, ...CLIENT_DOCUMENTS] : DOCUMENTS;
+  const branded: CVBrandedState =
+    state === "cvready"
+      ? { ...BRANDED_NONE, status: "draft", source: "document", from_generator: false, edit_revision: 1, version: 1 }
+      : BRANDED_NONE;
+  qc.setQueryData(candidateQueryKeys.cvDocuments(CANDIDATE_ID), documents, SEED_FRESH);
+  qc.setQueryData(stageBrandedQueryKey(STAGE_ID), branded, SEED_FRESH);
+  // Wybór gotowego CV z profilu: lista z generatora, reguła klienta i lista
+  // podglądu CV etapu — te same klucze co `StageCvPicker` i `StageCvPreview`.
+  const policy = { managed: true, effective_policy: { requires_rodo_consent_block: state === "cvconsent" } };
+  qc.setQueryData(["candidate-generated-cvs", CANDIDATE_ID], cv ? GENERATED_CVS : [], SEED_FRESH);
+  qc.setQueryData(["central-cv-policy", null, STAGE_ID, false], policy, SEED_FRESH);
+  qc.setQueryData(["cv-generated", "dl-review", CANDIDATE_ID, JOB_ID], [], SEED_FRESH);
   qc.setQueryData(["champion-profile", JOB_ID], PROFILE, SEED_FRESH);
   qc.setQueryData(plainBriefQueryKey(JOB_ID), BRIEF, SEED_FRESH);
   qc.setQueryData(["job", String(JOB_ID)], { id: JOB_ID, rate_budget_hourly_min: 130, effective_budget_hourly: 150 }, SEED_FRESH);

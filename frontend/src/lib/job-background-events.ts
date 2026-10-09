@@ -82,6 +82,8 @@ const SKIP_REASON_PL: Record<string, string> = {
   // AI-06 (audyt 22.09 r2): powrót karty na „Zweryfikowany” z tym samym CV.
   already_generated:
     "CV z tego samego pliku już wygenerowano w tej rekrutacji — nowego nie tworzono",
+  // 09.10.2026: CV firmowe wybrane wcześniej (np. w screeningu z profilu).
+  pair_cv_exists: "CV firmowe tej osoby już jest w tej rekrutacji — nowego nie generowano",
 };
 
 /** Polski powód pominięcia auto-CV; nieznany kod nie udaje znanego. */

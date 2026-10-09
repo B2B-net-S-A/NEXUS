@@ -50,6 +50,8 @@ export function StageCvPreview({
   jobId,
   cvStageId,
   fill = false,
+  revision,
+  loadStageCvFile = fetchStageCvFile,
 }: {
   candidateId: number;
   jobId: number;
@@ -60,6 +62,10 @@ export function StageCvPreview({
    * daje kolumna podglądu, a przewija się sam dokument.
    */
   fill?: boolean;
+  /** Rewizja CV etapu — po edycji albo zmianie CV podgląd rysuje się od nowa. */
+  revision?: number;
+  /** Harness: plik CV etapu bez sieci. */
+  loadStageCvFile?: typeof fetchStageCvFile;
 }) {
   const { showError } = useToast();
   const query = useQuery({
@@ -95,7 +101,7 @@ export function StageCvPreview({
     (async () => {
       try {
         const blob = fromStage
-          ? (await fetchStageCvFile(cvStageId as number)).blob
+          ? (await loadStageCvFile(cvStageId as number)).blob
           : ((
               await api.get(`/api/cv-generator/generated/${readyId}/docx`, {
                 responseType: "blob",
@@ -125,7 +131,7 @@ export function StageCvPreview({
     };
     // `fromStage`/`cvStageId`/`readyId` są zawarte w `sourceKey`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceKey]);
+  }, [sourceKey, revision]);
 
   // Strona DOCX ma ~794 px (A4). W węższym polu skalujemy ją do szerokości,
   // zamiast przewijać w bok — osobny efekt, żeby zmiana szerokości nie
@@ -140,7 +146,7 @@ export function StageCvPreview({
   const download = async () => {
     try {
       if (fromStage) {
-        const file = await fetchStageCvFile(cvStageId as number);
+        const file = await loadStageCvFile(cvStageId as number);
         downloadBlob(file.blob, file.filename || "CV.docx");
         return;
       }

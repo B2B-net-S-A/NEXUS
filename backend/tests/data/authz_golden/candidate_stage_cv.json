@@ -37,6 +37,7 @@
   "POST /api/candidates/stages/{stage_id}/cv/branded/new-draft": "PPPPPPDDPPPPPPPPPPP",
   "POST /api/candidates/stages/{stage_id}/cv/branded/preview-docx": "PPPPPPDDPPPPPPPPPPP",
   "POST /api/candidates/stages/{stage_id}/cv/branded/review": "PPPPPPDDPPPPPPPPPPP",
+  "POST /api/candidates/stages/{stage_id}/cv/branded/select-document": "PPPPPPDDPPPPPPPPPPP",
   "POST /api/candidates/stages/{stage_id}/cv/branded/select-generated": "PPPPPPDDPPPPPPPPPPP",
   "POST /api/candidates/stages/{stage_id}/cv/original/refresh": "PPPPPPDDPPPPPPPPPPP",
   "POST /api/candidates/stages/{stage_id}/cv/share-token": "PPPPPPDDPPPPPPPPPPP"
