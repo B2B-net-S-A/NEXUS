@@ -16,6 +16,7 @@ export const DASHBOARD_PANEL_KEYS = [
   "cv_in_transit",
   "allocation_proposals",
   "new_job_leads",
+  "team_load",
   "pending_jobs",
   "board_flow",
   "followups",
@@ -32,6 +33,7 @@ export const PANEL_LABELS: Record<DashboardPanelKey, string> = {
   cv_in_transit: "Twoje CV w drodze",
   allocation_proposals: "Propozycje automatu do akceptacji",
   new_job_leads: "Nowe rekrutacje — kto prowadzi",
+  team_load: "Obłożenie",
   pending_jobs: "Rekrutacje do dokończenia albo zamknięcia",
   board_flow: "Praca na Tablicach i zamówienia",
   followups: "Follow-up z kandydatami",
@@ -74,6 +76,8 @@ export function effectiveHiddenPanels(
  * Kolejka „Czeka na Ciebie” bez list usuniętych z pulpitu. Ukryta lista
  * wygląda dla panelu jak pusta — znika też z liczników („Twój ruch”, „U innych”).
  * „Twoje CV w drodze” wycina serwer, ale tu też, na wypadek starej odpowiedzi.
+ * „Obłożenie” (`team_load`) nie jest częścią tej odpowiedzi — panel pyta
+ * o nie sam i sam sprawdza, czy lista jest ukryta.
  */
 export function withoutHiddenPanels(
   data: BoardTasksResponse,

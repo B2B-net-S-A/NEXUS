@@ -536,6 +536,7 @@ describe("BoardTasksPanel — „Czeka na Ciebie” na pulpicie", () => {
       .map((region) => region.getAttribute("aria-label"));
     expect(sections).toEqual([
       "Propozycje automatu do akceptacji",
+      "Obłożenie",
       "Follow-up z kandydatami",
       "Wysłane do Cpro",
     ]);
@@ -688,6 +689,7 @@ describe("BoardTasksPanel — „Nowe rekrutacje — kto prowadzi”", () => {
     expect(sections).toEqual([
       "Propozycje automatu do akceptacji",
       "Nowe rekrutacje — kto prowadzi",
+      "Obłożenie",
       "Wysłane do Cpro",
     ]);
     const proposals = within(panel).getByRole("region", { name: "Propozycje automatu do akceptacji" });
@@ -746,6 +748,114 @@ describe("BoardTasksPanel — „Nowe rekrutacje — kto prowadzi”", () => {
     const { container } = renderPanel();
     await waitFor(() => expect(get).toHaveBeenCalled());
     await waitFor(() => expect(container).toBeEmptyDOMElement());
+  });
+});
+
+function mockQueueWithBoard(queue: Record<string, unknown>, board: unknown = requestBoard()) {
+  get.mockImplementation((url: string) => {
+    if (url === "/api/board-tasks")
+      return Promise.resolve({ data: { window_days: 14, cpro_to_send: [], cpro_sent: [], ...queue } });
+    if (url === "/api/request-board")
+      return board instanceof Error ? Promise.reject(board) : Promise.resolve({ data: board });
+    return Promise.resolve({ data: [] });
+  });
+}
+
+function requestBoard() {
+  return {
+    mode: "auto",
+    availability_known: true,
+    groups: [],
+    requests: [],
+    changes: [],
+    load: [
+      { user_id: 9, name: "Ewa Kalina", count: 1, proposed: 0, leave_until: null, requests: [] },
+      {
+        user_id: 7,
+        name: "Marek Dąb",
+        count: 3,
+        proposed: 1,
+        leave_until: null,
+        requests: [
+          { job_id: 51, title: "Analityk biznesowy", client_name: "Bank Kappa", deadline: "2026-10-20", proposed: false },
+        ],
+      },
+    ],
+  };
+}
+
+describe("BoardTasksPanel — „Obłożenie” przy listach przydziału (09.10.2026)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useAuthStore.setState({ user: { id: 1, role: "head_of_recruitment" }, realUser: null } as never);
+  });
+
+  it("stoi pod „Nowe rekrutacje — kto prowadzi”: osoby od najbardziej obłożonej, klik pokazuje requesty", async () => {
+    mockQueueWithBoard({
+      can_decide_proposals: true,
+      new_job_leads: [leadRow()],
+      cpro_sent: [row("cpro_sent")],
+    });
+    renderPanel();
+    const panel = await screen.findByRole("region", { name: "Czeka na Ciebie" });
+    const load = await within(panel).findByRole("region", { name: "Obłożenie" });
+    const marek = await within(load).findByRole("button", { name: /Marek Dąb/ });
+    expect(within(load).getAllByRole("button").map((b) => b.textContent)).toEqual([
+      expect.stringContaining("Marek Dąb"),
+      expect.stringContaining("Ewa Kalina"),
+    ]);
+    expect(marek).toHaveAccessibleName("Marek Dąb, 3 requesty · 1 propozycja do akceptacji");
+    expect(within(load).queryByRole("group", { name: "Requesty: Marek Dąb" })).toBeNull();
+    await userEvent.click(marek);
+    const requests = within(load).getByRole("group", { name: "Requesty: Marek Dąb" });
+    expect(within(requests).getByRole("link", { name: /Analityk biznesowy · Bank Kappa/ })).toHaveAttribute(
+      "href",
+      "/jobs/51",
+    );
+    // Lista informacyjna — nie dokłada nic do liczników zadań.
+    const sent = within(panel).getByRole("region", { name: "Wysłane do Cpro" });
+    expect(within(sent).getByText("1")).toHaveClass("text-primary");
+  });
+
+  it("same rekrutacje z prowadzącymi: obłożenie stoi obok nich, poza „Czeka na Ciebie”", async () => {
+    mockQueueWithBoard({ can_decide_proposals: true, new_job_leads: [leadRow()] });
+    renderPanel();
+    await screen.findByRole("region", { name: "Nowe rekrutacje — kto prowadzi" });
+    const load = await screen.findByRole("region", { name: "Obłożenie" });
+    expect(await within(load).findByRole("button", { name: /Ewa Kalina/ })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Czeka na Ciebie" })).toBeNull();
+  });
+
+  it("awaria odczytu obłożenia → komunikat z „Spróbuj ponownie”, nie pusty zespół", async () => {
+    mockQueueWithBoard({ can_decide_proposals: true, new_job_leads: [leadRow()] }, new Error("boom"));
+    renderPanel();
+    const load = await screen.findByRole("region", { name: "Obłożenie" });
+    expect(await within(load).findByRole("alert")).toHaveTextContent("Nie udało się wczytać obłożenia.");
+    expect(within(load).getByRole("button", { name: "Spróbuj ponownie" })).toBeInTheDocument();
+  });
+
+  it("lista odznaczona w „Listy nad pulpitem” → sekcji nie ma i nie pytamy o tablicę requestów", async () => {
+    mockQueueWithBoard({ can_decide_proposals: true, new_job_leads: [leadRow()] });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <BoardTasksPanel hiddenPanels={new Set(["team_load"] as const)} />
+      </QueryClientProvider>,
+    );
+    await screen.findByRole("region", { name: "Nowe rekrutacje — kto prowadzi" });
+    expect(screen.queryByRole("region", { name: "Obłożenie" })).toBeNull();
+    expect(get).not.toHaveBeenCalledWith("/api/request-board");
+  });
+
+  it.each([
+    ["osoba, która nie decyduje o przydziale", { can_decide_proposals: false, new_job_leads: [leadRow()] }],
+    ["nie ma ani propozycji, ani nowych rekrutacji", { can_decide_proposals: true, new_job_leads: [] }],
+  ])("sekcji nie ma: %s", async (_name, queue) => {
+    mockQueueWithBoard({ ...queue, cpro_sent: [row("cpro_sent")] });
+    renderPanel();
+    await screen.findByRole("region", { name: "Wysłane do Cpro" });
+    expect(screen.queryByRole("region", { name: "Obłożenie" })).toBeNull();
+    expect(get).not.toHaveBeenCalledWith("/api/request-board");
   });
 });
 

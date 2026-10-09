@@ -301,7 +301,12 @@ async def test_only_head_of_recruitment_hides_task_lists(app_client):
 
     for role in ("head_of_recruitment", "admin"):
         leader, _ = await _login(role)
-        for panel in ("allocation_proposals", "new_job_leads", "pending_jobs"):
+        for panel in (
+            "allocation_proposals",
+            "new_job_leads",
+            "team_load",
+            "pending_jobs",
+        ):
             hide = await app_client.put(
                 f"{URL}/panels/{panel}", headers=leader, json={"hidden": True}
             )
@@ -310,6 +315,7 @@ async def test_only_head_of_recruitment_hides_task_lists(app_client):
         assert read.json()["hidden_panels"] == [
             "allocation_proposals",
             "new_job_leads",
+            "team_load",
             "pending_jobs",
         ]
 

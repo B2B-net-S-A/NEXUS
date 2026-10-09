@@ -4797,6 +4797,16 @@ z „wymagań do wyszukiwania” powtarzało must, deal breaker miały 3 z 99 py
   pamięcią (`nexus:allocation-proposals-filters:<id>`); osobą jest tam
   proponowana osoba, a przy ustawionych filtrach przycisk zbiorczy nazywa się
   „Akceptuj pokazane (N)” i wysyła tylko pokazane propozycje.
+- **„Obłożenie” stoi w „Czeka na Ciebie” pod listami przydziału** (09.10.2026,
+  prośba Head of Recruitment; `dashboard/TeamLoadSection.tsx`): te same dane
+  i reguła co na pulpicie „Requesty i obłożenie” (`GET /api/request-board`,
+  `LoadPeople` z `request-board/LoadPanel.tsx` w wariancie `columns` — osoby
+  w kolumnach, requesty klikniętej osoby pod listą). Widać je tylko osobie
+  decydującej o przydziale (`can_decide_proposals`) i tylko, gdy „Propozycje
+  automatu” albo „Nowe rekrutacje — kto prowadzi” mają wiersze; bez tego panel
+  nie pyta o tablicę requestów. Do liczników zadań się nie liczy. Odznacza się
+  je w „Listy nad pulpitem” (klucz `team_load` — jedyny, którego nie ma
+  w odpowiedzi `/api/board-tasks`, więc sprawdza go sam panel).
 - **Podpowiedź kategorii pyta tylko o rolę, która stoi w polu**
   (`categoryInputCurrent` w `NewJobPage`): zapytanie idzie po chwili ciszy,
   a zaraz po odczycie requestu opóźniona wartość to jeszcze puste pole —
