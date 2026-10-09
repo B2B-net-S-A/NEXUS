@@ -138,8 +138,13 @@ def role_muted_types(
 
 
 async def load_value(db: AsyncSession) -> dict[str, Any]:
-    raw = await db.scalar(select(AppSetting.value).where(AppSetting.key == SETTING_KEY))
-    return normalise(raw)
+    # `scalars(...).all()` jak pozostałe odczyty polityki w `effective_access`:
+    # atrapy sesji w testach kierują je po encji, a liczniki `db.scalar`
+    # należą do kodu, który ten resolver woła.
+    rows = (
+        await db.scalars(select(AppSetting).where(AppSetting.key == SETTING_KEY))
+    ).all()
+    return normalise(rows[0].value if rows else None)
 
 
 async def attach_role_mutes(db: AsyncSession, users: Iterable[User]) -> None:
