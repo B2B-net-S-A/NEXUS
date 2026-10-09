@@ -1281,7 +1281,7 @@
   {
    "id": "dashboard.new-job-leads",
    "area": "pulpit",
-   "opis": "„Nowe rekrutacje — kto prowadzi”: lista dla Head of Recruitment i admina z rekruterem prowadzącym (automat / wskazany ręcznie), kategorią, liczbą uczestników i „Zmień”",
+   "opis": "„Nowe rekrutacje — kto prowadzi”: lista dla Head of Recruitment i admina z rekruterem prowadzącym (automat / wskazany ręcznie), kategorią, liczbą uczestników i „Zmień”; filtry: klient, kategoria, Delivery Lead, prowadzący, priorytet",
    "file": "components/v2/dashboard/BoardTasksPanel.tsx",
    "marker": "NewJobLeadsSection",
    "v3_home": "Pulpit → Czeka na Ciebie"

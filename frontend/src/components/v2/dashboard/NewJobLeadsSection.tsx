@@ -21,6 +21,11 @@
  * opisana. Rekrutacja opublikowana, której nikt nigdy nie przekazał do searchu
  * (`pending_reason: "not_handed_off"`), ma zamiast prowadzącego komunikat
  * i link „Przekaż do searchu” — prowadzącego wybiera się przy przekazaniu.
+ *
+ * Filtry (09.10.2026): klient, kategoria, Delivery Lead, prowadzący, priorytet
+ * — po stronie przeglądarki, z opcjami z samych wierszy
+ * (`lib/new-job-leads-filters.ts`). Pasek stoi dopiero, gdy lista nie mieści
+ * się bez „Pokaż wszystkie”; krótką listę widać w całości.
  */
 
 import Link from "next/link";
@@ -65,6 +70,15 @@ import { formatTime } from "@/lib/interview-cycle";
 import { formatDeadlineShort, shortenPersonName } from "@/lib/job-header-subtitle";
 import { addRecruiter } from "@/lib/job-team";
 import { invalidateJobTeam } from "@/lib/job-team-cache";
+import {
+  EMPTY_LEAD_FILTERS,
+  filterLeads,
+  hasLeadFilters,
+  leadFilterOptions,
+  liveLeadFilters,
+  type LeadFilterOption,
+  type LeadFilters,
+} from "@/lib/new-job-leads-filters";
 import { countPl } from "@/lib/plural-pl";
 import { requestWord } from "@/lib/request-board";
 import { isPriorityLevel } from "@/lib/request-priority";
@@ -241,6 +255,51 @@ function LeadPicker({
   );
 }
 
+/** Pola paska filtrów: etykieta dla czytnika i pozycja „bez filtra”. */
+const FILTER_FIELDS: { key: keyof LeadFilters; label: string; all: string }[] = [
+  { key: "client", label: "Klient", all: "Klient: wszyscy" },
+  { key: "cat", label: "Kategoria", all: "Kategoria: wszystkie" },
+  { key: "dl", label: "Delivery Lead", all: "Delivery Lead: wszyscy" },
+  { key: "who", label: "Prowadzący", all: "Prowadzący: wszyscy" },
+  { key: "prio", label: "Priorytet", all: "Priorytet: każdy" },
+];
+
+function FilterSelect({
+  label,
+  all,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  all: string;
+  value: string;
+  options: LeadFilterOption[];
+  onChange: (next: string) => void;
+}) {
+  return (
+    <select
+      aria-label={label}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      className={cn(
+        // Wąska sekcja (telefon): pola w dwóch kolumnach; od 520 px — w rzędzie.
+        "h-8 w-full min-w-0 rounded-md border bg-background px-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring @min-[520px]/leads:w-auto @min-[520px]/leads:max-w-[200px]",
+        value
+          ? "border-primary font-medium text-foreground"
+          : "border-input text-muted-foreground",
+      )}
+    >
+      <option value="">{all}</option>
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 export interface NewJobLeadsSectionProps {
   rows: NewJobLeadRow[];
   /**
@@ -259,9 +318,27 @@ export function NewJobLeadsSection({ rows, standalone = false }: NewJobLeadsSect
   const canAct = useCapability("job.recruiter.assign");
   const [pending, setPending] = useState<Record<number, true>>({});
   const [expanded, setExpanded] = useState(false);
+  const [chosen, setChosen] = useState<LeadFilters>(EMPTY_LEAD_FILTERS);
+  // W polu kategorii ta sama krótka nazwa co na plakietce w wierszu.
+  const options = useMemo(
+    () =>
+      leadFilterOptions(rows, (row) =>
+        row.category_name ? (competenceShortLabel(row.category_slug) ?? row.category_name) : null,
+      ),
+    [rows],
+  );
+  const filters = useMemo(() => liveLeadFilters(chosen, options), [chosen, options]);
+  const filtered = useMemo(() => filterLeads(rows, filters), [rows, filters]);
 
   if (rows.length === 0) return null;
-  const shown = expanded ? rows : rows.slice(0, NEW_JOB_LEADS_ROWS);
+  const filtering = hasLeadFilters(filters);
+  // Pasek dopiero, gdy lista nie mieści się bez „Pokaż wszystkie”. Pole
+  // z jedną pozycją niczego nie zawęża — chyba że właśnie filtruje.
+  const fields =
+    rows.length > NEW_JOB_LEADS_ROWS || filtering
+      ? FILTER_FIELDS.filter((field) => options[field.key].length > 1 || filters[field.key])
+      : [];
+  const shown = expanded ? filtered : filtered.slice(0, NEW_JOB_LEADS_ROWS);
 
   const dropRow = (jobId: number) =>
     queryClient.setQueryData<BoardTasksResponse>(BOARD_TASKS_QUERY_KEY, (current) =>
@@ -326,13 +403,47 @@ export function NewJobLeadsSection({ rows, standalone = false }: NewJobLeadsSect
       <header className="mb-1 flex flex-wrap items-baseline gap-2">
         <h3 className="text-sm font-semibold">{NEW_JOB_LEADS_TITLE}</h3>
         {/* Sama liczba, bez plakietki zadania — ta lista o nic nie prosi. */}
-        <span className="text-xs tabular-nums text-muted-foreground">{rows.length}</span>
+        <span className="text-xs tabular-nums text-muted-foreground">
+          {filtering ? `${filtered.length} z ${rows.length}` : rows.length}
+        </span>
       </header>
       <p className="mb-2 text-xs text-muted-foreground">
         Uczestnikami każdej rekrutacji są wszyscy z jej kategorii. Potwierdź prowadzącego
         albo go zmień — rekrutacja zniknie z listy.
         {canAct ? "" : " W tym widoku nie możesz zmieniać rekrutera prowadzącego."}
       </p>
+      {fields.length > 0 ? (
+        <div
+          role="group"
+          aria-label="Filtry listy"
+          className="mb-2 grid grid-cols-2 items-center gap-2 @min-[520px]/leads:flex @min-[520px]/leads:flex-wrap"
+        >
+          {fields.map((field) => (
+            <FilterSelect
+              key={field.key}
+              label={field.label}
+              all={field.all}
+              value={filters[field.key]}
+              options={options[field.key]}
+              onChange={(next) => setChosen({ ...filters, [field.key]: next })}
+            />
+          ))}
+          {filtering ? (
+            <button
+              type="button"
+              onClick={() => setChosen(EMPTY_LEAD_FILTERS)}
+              className="text-xs font-medium text-primary hover:underline"
+            >
+              Wyczyść filtry
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {filtered.length === 0 ? (
+        <p role="status" className="rounded-lg border border-border px-3 py-2.5 text-sm text-muted-foreground">
+          Żadna rekrutacja nie pasuje do ustawionych filtrów.
+        </p>
+      ) : (
       <ul className="divide-y divide-border rounded-lg border border-border">
         {shown.map((row) => {
           const lead = leadState(row);
@@ -471,14 +582,15 @@ export function NewJobLeadsSection({ rows, standalone = false }: NewJobLeadsSect
           );
         })}
       </ul>
-      {rows.length > NEW_JOB_LEADS_ROWS && (
+      )}
+      {filtered.length > NEW_JOB_LEADS_ROWS && (
         <button
           type="button"
           onClick={() => setExpanded((value) => !value)}
           aria-expanded={expanded}
           className="mt-1.5 text-xs font-medium text-primary hover:underline"
         >
-          {expanded ? "Zwiń" : `Pokaż wszystkie (${rows.length})`}
+          {expanded ? "Zwiń" : `Pokaż wszystkie (${filtered.length})`}
         </button>
       )}
     </section>

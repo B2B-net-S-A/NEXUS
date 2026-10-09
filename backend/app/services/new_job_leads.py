@@ -42,7 +42,10 @@ from app.services.job_working_title import job_display_title_expr
 logger = logging.getLogger(__name__)
 
 WINDOW_DAYS = 7
-MAX_ROWS = 30
+# Bezpiecznik, nie strona: listę zawęża okno dni, a filtry na pulpicie działają
+# w przeglądarce na tym, co tu wróci — wiersz ucięty limitem byłby dla nich
+# niewidoczny (09.10.2026 na produkcji: 31 przekazań w 7 dni przy limicie 30).
+MAX_ROWS = 100
 # Automat rusza po zdarzeniu z przekazania; do tego czasu „nikt nie prowadzi”
 # znaczy „właśnie przydziela”.
 ASSIGNING_GRACE = timedelta(minutes=2)

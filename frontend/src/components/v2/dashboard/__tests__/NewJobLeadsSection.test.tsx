@@ -307,6 +307,98 @@ describe("NewJobLeadsSection — „Nowe rekrutacje — kto prowadzi”", () => 
     expect(within(section).getByRole("button", { name: "Zwiń" })).toHaveAttribute("aria-expanded", "true");
   });
 
+  describe("filtry", () => {
+    // Osiem rekrutacji: trzech klientów, dwie kategorie i jedna bez kategorii,
+    // dwóch Delivery Leadów, jedna bez prowadzącego.
+    const many: NewJobLeadRow[] = [
+      ...Array.from({ length: 5 }, (_, i) => lead({ job_id: 100 + i, title: `Java ${i}` })),
+      lead({ job_id: 201, title: "Tester", client_name: "Ubezpieczenia Wzorcowe", category_id: 4, category_name: "QA", category_slug: "security_quality", delivery_lead_name: "Piotr Zieliński", lead_user_id: 21, lead_name: "Kinga Olcha", priority_level: "p1" }),
+      lead({ job_id: 202, title: "Tester automatyzujący", client_name: "Ubezpieczenia Wzorcowe", category_id: 4, category_name: "QA", category_slug: "security_quality", delivery_lead_name: "Piotr Zieliński" }),
+      lead({ job_id: 203, title: "Administrator sieci", client_name: "Energetyka Wzorcowa", category_id: null, category_name: null, category_slug: null, lead_user_id: null, lead_name: null, lead_role: null, lead_source: null, pending_reason: "none" }),
+    ];
+
+    const titles = () =>
+      within(screen.getByRole("region", { name: /Nowe rekrutacje/ }))
+        .getAllByRole("listitem")
+        .map((item) => within(item).getAllByRole("link")[0].textContent);
+
+    it("krótka lista nie ma paska filtrów", () => {
+      renderSection(many.slice(0, NEW_JOB_LEADS_ROWS));
+      expect(screen.queryByRole("group", { name: "Filtry listy" })).not.toBeInTheDocument();
+    });
+
+    it("klient zawęża listę; licznik mówi „N z M”, a „Wyczyść filtry” wraca do całości", async () => {
+      renderSection(many);
+      const filters = screen.getByRole("group", { name: "Filtry listy" });
+      expect(within(filters).queryByRole("button", { name: "Wyczyść filtry" })).not.toBeInTheDocument();
+
+      await userEvent.selectOptions(within(filters).getByRole("combobox", { name: "Klient" }), "Ubezpieczenia Wzorcowe");
+      expect(titles()).toEqual(["Tester", "Tester automatyzujący"]);
+      expect(screen.getByText("2 z 8")).toBeInTheDocument();
+      // Dwa wiersze mieszczą się bez „Pokaż wszystkie”.
+      expect(screen.queryByRole("button", { name: /Pokaż wszystkie/ })).not.toBeInTheDocument();
+
+      await userEvent.click(within(filters).getByRole("button", { name: "Wyczyść filtry" }));
+      expect(screen.getByRole("button", { name: "Pokaż wszystkie (8)" })).toBeInTheDocument();
+    });
+
+    it("kategoria ma krótką nazwę z plakietki i pozycję „Bez kategorii”; prowadzący — „Bez prowadzącego”", async () => {
+      renderSection(many);
+      const category = screen.getByRole("combobox", { name: "Kategoria" });
+      expect(within(category).getAllByRole("option").map((o) => o.textContent)).toEqual([
+        "Kategoria: wszystkie",
+        "Dev",
+        "QA",
+        "Bez kategorii",
+      ]);
+      await userEvent.selectOptions(category, "QA");
+      expect(titles()).toEqual(["Tester", "Tester automatyzujący"]);
+
+      await userEvent.selectOptions(category, "");
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Prowadzący" }), "Bez prowadzącego");
+      expect(titles()).toEqual(["Administrator sieci"]);
+    });
+
+    it("filtry łączą się; gdy nic nie pasuje — zdanie zamiast pustej ramki", async () => {
+      renderSection(many);
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Delivery Lead" }), "Piotr Zieliński");
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Priorytet" }), "P1 Pilne");
+      expect(titles()).toEqual(["Tester"]);
+
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Prowadzący" }), "Marek Dąb");
+      expect(screen.getByRole("status")).toHaveTextContent("Żadna rekrutacja nie pasuje do ustawionych filtrów.");
+      expect(screen.queryByRole("listitem")).not.toBeInTheDocument();
+      expect(screen.getByText("0 z 8")).toBeInTheDocument();
+    });
+
+    it("pole z jedną pozycją nie jest pokazywane; bez żadnego pola nie ma paska", () => {
+      const same = Array.from({ length: 7 }, (_, i) => lead({ job_id: 300 + i, title: `Java ${i}` }));
+      const { unmount } = renderSection(same);
+      expect(screen.queryByRole("group", { name: "Filtry listy" })).not.toBeInTheDocument();
+      unmount();
+
+      renderSection([...same, lead({ job_id: 399, title: "Tester", client_name: "Ubezpieczenia Wzorcowe" })]);
+      const filters = screen.getByRole("group", { name: "Filtry listy" });
+      expect(within(filters).getAllByRole("combobox")).toHaveLength(1);
+      expect(within(filters).getByRole("combobox", { name: "Klient" })).toBeInTheDocument();
+    });
+
+    it("po potwierdzeniu ostatniej rekrutacji wybranego klienta filtr przestaje działać", async () => {
+      const { client, rerender } = renderSection(many);
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Klient" }), "Energetyka Wzorcowa");
+      expect(titles()).toEqual(["Administrator sieci"]);
+
+      const left = many.filter((row) => row.job_id !== 203);
+      rerender(
+        <QueryClientProvider client={client}>
+          <NewJobLeadsSection rows={left} />
+        </QueryClientProvider>,
+      );
+      expect(screen.getByRole("combobox", { name: "Klient" })).toHaveValue("");
+      expect(screen.getByRole("button", { name: "Pokaż wszystkie (7)" })).toBeInTheDocument();
+    });
+  });
+
   it("„Zmień”: osoby wczytane dopiero po otwarciu; wybór zapisuje prowadzącego przez /owner", async () => {
     const user = userEvent.setup();
     const { client, invalidated } = renderSection([lead()]);
