@@ -62,7 +62,7 @@
     "tasks": [
       {
         "q": "Od czego zacząć w tej rekrutacji?",
-        "a": "Na górze jest tytuł stanowiska, pod nim nazwa od klienta i trzy fakty: klient, budżet, tryb pracy. Kafle „Kandydaci do dodania” nad tablicą pokazują, skąd wziąć ludzi i ilu ich czeka. Klik w nazwisko otwiera kartę kandydata z boku; w „Nowych” i „Screeningu” szeroką, z CV i wymaganiami obok (Ctrl/⌘ — pełny profil)."
+        "a": "Na górze jest tytuł stanowiska, pod nim nazwa od klienta i trzy fakty: klient, budżet, tryb pracy. Kafle „Kandydaci do dodania” nad tablicą pokazują, skąd wziąć ludzi i ilu ich czeka. Klik w nazwisko otwiera kartę kandydata z boku; w „Nowych” i „Screeningu” na całe okno, z dużym CV i wymaganiami po lewej (Ctrl/⌘ — pełny profil)."
       },
       {
         "q": "Jak przesunąć kandydata dalej?",
@@ -153,7 +153,7 @@
     "title": "Karta kandydata w rekrutacji",
     "section": "pipeline",
     "roles": ["recruiter", "delivery_lead"],
-    "what": "Tu prowadzisz jedną osobę w tej rekrutacji. W „Nowych” i „Screeningu” panel jest szeroki: po lewej profil przed rozmową albo formularz screeningu, po prawej CV, wymagania i opis „po ludzku”.",
+    "what": "Tu prowadzisz jedną osobę w tej rekrutacji. W „Nowych” i „Screeningu” panel zajmuje całe okno: po lewej duże CV, wymagania i opis „po ludzku”, po prawej profil przed rozmową albo formularz screeningu.",
     "tasks": [
       {
         "q": "Jak zapisać screening rozmowy?",
@@ -172,11 +172,11 @@
       },
       {
         "q": "Jak przygotować CV do klienta?",
-        "a": "Sekcja „CV” mówi o CV firmowym (brak, szkic, zatwierdzone) i o oryginale. „Generuj CV” otwiera generator, a gdy CV już jest — „Edytuj CV”, także z wcześniejszego etapu. Na „Zweryfikowanym” widać wynik QC CV: „Otwórz QC” pokazuje, co poprawić przed przekazaniem. U PKO BP pobranie czeka na zrzut zgody RODO."
+        "a": "Sekcja „CV” mówi o CV firmowym (brak, szkic, zatwierdzone) i o oryginale. „Generuj CV” otwiera generator, a gdy CV już jest — „Edytuj CV”. Na „Zweryfikowanym” „Otwórz QC” pokazuje, co poprawić przed przekazaniem. „Rozwiń” pokazuje CV duże, po lewej stronie panelu. U PKO BP pobranie czeka na zrzut zgody RODO."
       },
       {
         "q": "Gdzie są rozmowa u klienta i umowa?",
-        "a": "Na „Rozmowie u klienta” sekcja „W procesie” ma kroki rozmowy: termin od klienta, prepy z oceną i debrief. Sekcja „Umowa” pokazuje umowę, podpis i zamówienie: „Wygeneruj umowę” rozwija panel z formularzem Generatora, a podpis potwierdzasz tam albo prosisz o to Delivery Leada. „Rozwiń” otwiera pełne narzędzia, „Zwiń” albo Esc wraca.",
+        "a": "Na „Rozmowie u klienta” sekcja „W procesie” ma kroki rozmowy: termin od klienta, prepy z oceną i debrief. Sekcja „Umowa” pokazuje umowę, podpis i zamówienie: „Wygeneruj umowę” rozwija panel z formularzem Generatora, a podpis potwierdzasz tam albo prosisz o to Delivery Leada. „Rozwiń” otwiera pełne narzędzia z CV po lewej, „Zwiń” albo Esc wraca.",
         "anchor": "jobs.person.expand"
       }
     ],

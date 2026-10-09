@@ -1,11 +1,17 @@
 "use client";
 
 // Publiczny harness przeglądu Delivery Leada (03.10.2026, v2 08.10.2026 —
-// D6, D9, D10): trzy kolumny „wymagania klienta a kandydat · CV · decyzja”
-// z marżą na żywo, podpowiedzią stawki do klienta i punktami odniesienia,
-// „Wróć do poprawy…” z listą pól. Dane fikcyjne, ZERO zapytań: cache
-// react-query jest zasiany ze znacznikiem czasu w przyszłości, a sieć odcina
-// interceptor.
+// D6, D9, D10; układ D4, 09.10.2026): CV po lewej na całą wysokość, decyzja
+// w stałej kolumnie po prawej (marża na żywo, podpowiedź stawki do klienta,
+// punkty odniesienia, przyciski zawsze na widoku), „Wymagania i ocena” jako
+// zakładka obok CV albo — od 1640 px szerokości przeglądu — środkowa kolumna;
+// poniżej 1100 px wszystko jedno pod drugim. „Wróć do poprawy…” z listą pól.
+// Dane fikcyjne, ZERO zapytań do API: cache react-query jest zasiany ze
+// znacznikiem czasu w przyszłości, sieć odcina interceptor, a pliki CV to
+// pliki statyczne (`public/preview/cv-search/`).
+// `?layout=panel` — przegląd jak w panelu osoby na Tablicy (ramka na całą
+// szerokość strony zamiast okna): zmieniaj szerokość okna, żeby zobaczyć
+// wszystkie trzy układy.
 // `?as=recruiter` — osoba, która tylko przegląda (bez decyzji).
 // `?state=queue` — porównanie osób w „QC CV” jednej rekrutacji (D10).
 // `?state=returned` — formularz rekrutera po „Wróć do poprawy” (baner
@@ -16,13 +22,15 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AxiosError } from "axios";
 
 import { ToastProvider } from "@/components/Toast";
+import type { CandidateDocument } from "@/components/v2/files/FilePreviewModal";
 import { reassignContextQueryKey } from "@/components/v2/jobs/ScreeningReassignSuggestions";
 import { DlReviewQueueDialog } from "@/components/v2/recruitment/dl-review/DlReviewQueueDialog";
 import { ScreeningFullForm } from "@/components/v2/screening-form/ScreeningFullForm";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
-import { DlReviewPanel } from "@/components/v2/recruitment/DlReviewPanel";
-import api from "@/lib/api";
+import { DlReviewBody, DlReviewPanel } from "@/components/v2/recruitment/DlReviewPanel";
+import api, { type CVBrandedState, type CVOriginalSnapshot } from "@/lib/api";
 import type { BoardTaskRow } from "@/lib/api/boardTasks";
+import { stageBrandedQueryKey } from "@/lib/cv-to-client";
 import {
   dlReviewContextQueryKey,
   dlReviewQueueQueryKey,
@@ -68,6 +76,79 @@ const TASK: BoardTaskRow = {
   qc_blocking_failed: 0,
   card_status: "partial",
   card_missing: 2,
+};
+
+// ── Pliki CV (statyczne, fikcyjne — te same co w `/preview/screening-form`) ──
+
+const GENERATED_CV_ID = 77;
+const COMPANY_CV_URL = `/api/cv-generator/generated/${GENERATED_CV_ID}/docx`;
+const COMPANY_CV_FILE = "/preview/cv-search/cv.docx";
+
+const FILES: Record<number, string> = {
+  1: "/preview/cv-search/cv-tekst.pdf",
+  3: COMPANY_CV_FILE,
+};
+
+function doc(id: number, filename: string, contentType: string, isPrimary = false): CandidateDocument {
+  return {
+    id,
+    filename,
+    content_type: contentType,
+    size_bytes: null,
+    document_kind: "cv",
+    is_primary: isPrimary,
+    uploaded_at: `2026-09-0${id}T08:00:00Z`,
+    external_source: null,
+    created_at: `2026-09-0${id}T08:00:00Z`,
+  };
+}
+
+const DOCUMENTS: CandidateDocument[] = [
+  doc(1, "Tomasz Wzorcowy — CV.pdf", "application/pdf", true),
+  doc(3, "Tomasz Wzorcowy — CV.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+];
+
+async function loadStaticBlob(_candidateId: number, docId: number): Promise<Blob> {
+  const response = await fetch(FILES[docId] ?? FILES[1]);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.blob();
+}
+
+async function loadStaticOriginal(): Promise<Blob> {
+  return loadStaticBlob(CANDIDATE_ID, 1);
+}
+
+const PREVIEW_LOADERS = { loadDocumentBlob: loadStaticBlob, loadOriginalBlob: loadStaticOriginal };
+
+const SNAPSHOT: CVOriginalSnapshot = {
+  candidate_stage_id: STAGE_ID,
+  candidate_id: CANDIDATE_ID,
+  job_id: JOB_ID,
+  has_snapshot: true,
+  original_cv_filename: "Tomasz Wzorcowy — CV.pdf",
+  original_cv_language: "pl",
+  original_snapshot_at: "2026-10-05T08:00:00Z",
+  original_snapshot_source: "application",
+  download_url: null,
+};
+
+// Podgląd oryginału pyta też o CV firmowe etapu (wspólna zakładka CV).
+const BRANDED_NONE: CVBrandedState = {
+  edit_revision: 0,
+  version: 0,
+  candidate_stage_id: STAGE_ID,
+  status: "none",
+  content_html: null,
+  template: null,
+  language: null,
+  updated_at: null,
+  updated_by: null,
+  updated_by_name: null,
+  finalized_at: null,
+  finalized_by: null,
+  finalized_by_name: null,
+  snapshot_filename: null,
+  rendered_from_default: false,
 };
 
 const LABELS = {
@@ -400,7 +481,24 @@ function seededClient(): QueryClient {
     },
     fresh,
   );
-  qc.setQueryData(["cv-generated", "dl-review", CANDIDATE_ID, JOB_ID], [], fresh);
+  // CV firmowe: jeden gotowy dokument — jego plik podaje interceptor niżej.
+  qc.setQueryData(
+    ["cv-generated", "dl-review", CANDIDATE_ID, JOB_ID],
+    [
+      {
+        id: GENERATED_CV_ID,
+        status: "ready",
+        filename: "Tomasz Wzorcowy — CV B2B.docx",
+        origin: "auto",
+        needs_review: true,
+      },
+    ],
+    fresh,
+  );
+  // CV oryginalne i inne pliki kandydata (przełącznik nad CV).
+  qc.setQueryData(["cv-original", STAGE_ID], SNAPSHOT, fresh);
+  qc.setQueryData(candidateQueryKeys.cvDocuments(CANDIDATE_ID), DOCUMENTS, fresh);
+  qc.setQueryData(stageBrandedQueryKey(STAGE_ID), BRANDED_NONE, fresh);
   qc.setQueryData(recommendationCardQueryKey(CANDIDATE_ID, JOB_ID), CARD, fresh);
   qc.setQueryData(["pipeline-stage-screening", STAGE_ID], { screening_answers: null }, fresh);
   qc.setQueryData(dlReviewContextQueryKey(JOB_ID, CANDIDATE_ID), CONTEXT, fresh);
@@ -426,15 +524,28 @@ export default function DlReviewPreviewPage() {
   const [client, setClient] = useState<QueryClient | null>(null);
   const [canSend, setCanSend] = useState(true);
   const [view, setView] = useState<"review" | "queue" | "returned">("review");
+  const [inPanel, setInPanel] = useState(false);
   const [task, setTask] = useState<BoardTaskRow>(TASK);
 
   useEffect(() => {
-    const blocker = api.interceptors.request.use((config) =>
-      Promise.reject(new AxiosError("preview: sieć wyłączona", "ECONNABORTED", config)),
-    );
+    const blocker = api.interceptors.request.use((config) => {
+      // Plik CV firmowego: statyczny DOCX zamiast API (podgląd i „Pobierz DOCX”).
+      if ((config.method ?? "get").toLowerCase() === "get" && config.url === COMPANY_CV_URL) {
+        config.adapter = async () => {
+          const response = await fetch(COMPANY_CV_FILE);
+          if (!response.ok) {
+            throw new AxiosError(`preview: HTTP ${response.status}`, "ERR_BAD_RESPONSE", config);
+          }
+          return { data: await response.blob(), status: 200, statusText: "OK", headers: {}, config };
+        };
+        return config;
+      }
+      return Promise.reject(new AxiosError("preview: sieć wyłączona", "ECONNABORTED", config));
+    });
     const params = new URLSearchParams(window.location.search);
     const state = params.get("state");
     setView(state === "queue" ? "queue" : state === "returned" ? "returned" : "review");
+    setInPanel(params.get("layout") === "panel");
     const recruiter = params.get("as") === "recruiter" || state === "returned";
     useAuthStore.setState({
       user: {
@@ -475,15 +586,36 @@ export default function DlReviewPreviewPage() {
           </main>
         ) : (
           <>
-            <main className="p-6 text-sm text-muted-foreground">
-              Harness przeglądu Delivery Leada — panel jest otwarty po prawej. Decyzje nie
-              są wysyłane (sieć odcięta).
-            </main>
+            {inPanel && view === "review" ? (
+              <main className="p-3 sm:p-4">
+                <p className="mb-3 text-sm text-muted-foreground">
+                  Harness przeglądu Delivery Leada w panelu na całą szerokość (jak na Tablicy). Zmień
+                  szerokość okna: poniżej 1100 px jedna kolumna, do 1639 px CV i decyzja z zakładką
+                  wymagań, szerzej trzy kolumny. Decyzje nie są wysyłane (sieć odcięta).
+                </p>
+                {/* Ramka zamiast przyklejonego panelu: ta sama wysokość „do dołu okna”. */}
+                <div className="h-[calc(100dvh-8rem)] min-h-[32rem] w-full overflow-hidden rounded-lg border border-border">
+                  <DlReviewBody
+                    task={task}
+                    canSendToClient={canSend}
+                    onClose={() => undefined}
+                    layout="panel"
+                    previewLoaders={PREVIEW_LOADERS}
+                  />
+                </div>
+              </main>
+            ) : (
+              <main className="p-6 text-sm text-muted-foreground">
+                Harness przeglądu Delivery Leada — panel jest otwarty po prawej. Decyzje nie
+                są wysyłane (sieć odcięta).
+              </main>
+            )}
             <DlReviewPanel
               task={task}
-              open={view === "review"}
+              open={view === "review" && !inPanel}
               onOpenChange={() => undefined}
               canSendToClient={canSend}
+              previewLoaders={PREVIEW_LOADERS}
             />
             <DlReviewQueueDialog
               jobId={JOB_ID}

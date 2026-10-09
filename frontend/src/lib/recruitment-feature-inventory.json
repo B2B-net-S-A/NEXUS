@@ -1549,10 +1549,18 @@
   {
    "id": "screening-form.preview",
    "area": "formularz screeningu",
-   "opis": "Podgląd obok formularza: CV oryginalne / CV firmowe / inne pliki, wymagania z wyszukiwaniem w CV, „Po ludzku” ze ściągą",
+   "opis": "Podgląd przy formularzu: CV oryginalne / CV firmowe / inne pliki, wymagania ze zdaniem ze słowniczka i wyszukiwaniem w CV, „Po ludzku” ze ściągą; od ok. 1700 px okna CV i wymagania naraz",
    "file": "components/v2/screening-form/CandidatePreviewPane.tsx",
    "marker": "Które CV pokazać",
-   "v3_home": "panel osoby → formularz screeningu → prawa kolumna"
+   "v3_home": "panel osoby → lewa strefa (wąskie okno: przycisk „Pokaż CV i wymagania”)"
+  },
+  {
+   "id": "person-panel.side-preview",
+   "area": "tablica",
+   "opis": "Duży podgląd po lewej stronie panelu osoby (cała wysokość okna, panel zakrywa menu) dla zakładek Screening, CV i Rozmowy; przy Rozmowach dodatkowo „Pytania klienta”",
+   "file": "components/v2/person/PersonPanelSide.tsx",
+   "marker": "data-person-side-content",
+   "v3_home": "Tablica → panel osoby → Rozwiń"
   },
   {
    "id": "screening-form.before-call",
@@ -1565,7 +1573,7 @@
   {
    "id": "screening-form.split-panel",
    "area": "tablica",
-   "opis": "Panel osoby szeroki (split) od razu na formularzu dla „Nowych” i „Screeningu”; „Zwiń” wraca do doku",
+   "opis": "Panel osoby na całą szerokość okna (split: podgląd po lewej, formularz po prawej) od razu dla „Nowych” i „Screeningu”; „Zwiń” wraca do doku",
    "file": "components/v2/pages/KanbanBoardV2.tsx",
    "marker": "\"split\"",
    "v3_home": "Tablica → klik w kartę"

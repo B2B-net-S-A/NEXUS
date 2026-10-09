@@ -88,6 +88,7 @@ const PAGES = [
   "/preview/dl-review",
   "/preview/dl-review?state=queue",
   "/preview/dl-review?state=returned",
+  "/preview/dl-review?layout=panel",
   "/preview/champion-workspace",
   "/preview/champion-workspace?ptab=tech",
   "/preview/champion-workspace?ptab=client",
@@ -239,6 +240,55 @@ test.describe("okna laptopów z Windows — główna treść w górnej części 
       );
     });
   }
+});
+
+/**
+ * Podgląd w panelu osoby (D1–D2, 09.10.2026). Do tej daty CV stało w prawej
+ * połowie panelu 1200 px: strona miała 533 px (67%), a na laptopie widać było
+ * z niej ok. 250 px wysokości. Teraz podgląd stoi po lewej na całą wysokość
+ * okna, a panel zakrywa też menu boczne.
+ *
+ * Progi z pomiaru 09.10.2026 przy 1280 × 720 (strona 703 px w harnessie
+ * formularza, strefa 819 px w replice powłoki) z zapasem na pasek przewijania
+ * runnera. Element, który znowu zwęzi podgląd, ma przegrać ten test.
+ */
+test.describe("panel osoby — duży podgląd po lewej na laptopie", () => {
+  test("/preview/screening-form: strona CV ma co najmniej 660 px szerokości", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto("/preview/screening-form?state=nowi");
+    const cvPage = page.locator("[data-testid='candidate-preview-pane'] .page").first();
+    await expect(cvPage).toBeVisible();
+    await page.waitForLoadState("networkidle");
+    const zone = await page.locator("[data-testid='person-panel-side']").boundingBox();
+    const form = await page.locator("[data-testid='harness-panel-column']").boundingBox();
+    // Podgląd po lewej, formularz po prawej.
+    expect((zone?.x ?? 9999) + (zone?.width ?? 0)).toBeLessThanOrEqual((form?.x ?? 0) + 1);
+    await expect
+      .poll(async () => (await cvPage.boundingBox())?.width ?? 0, { timeout: 10_000 })
+      .toBeGreaterThanOrEqual(660);
+    expect(await pageOverflowPx(page)).toBeLessThanOrEqual(1);
+  });
+
+  test("/preview/job-detail: panel na całą szerokość zakrywa menu boczne", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto("/preview/job-detail");
+    await page.getByRole("link", { name: "Anna Przykładowa" }).first().click();
+    const panel = page.locator("aside[data-person-panel][data-size='split']");
+    await expect(panel).toBeVisible();
+    const zone = await page.locator("[data-testid='person-panel-side']").boundingBox();
+    expect(zone?.width ?? 0, "strefa podglądu przy 1280 px").toBeGreaterThanOrEqual(780);
+    // Punkt nad menu (x = 100 px) należy do panelu, nie do menu.
+    const covered = await page.evaluate(() => {
+      const aside = document.querySelector("aside[data-person-panel]");
+      const at = document.elementFromPoint(100, 300);
+      return Boolean(aside && at && aside.contains(at));
+    });
+    expect(covered, "panel osoby jest nad menu bocznym").toBe(true);
+    // „Zwiń” oddaje menu i Tablicę.
+    await panel.getByRole("button", { name: "Zwiń" }).click();
+    await expect(page.locator("aside[data-person-panel][data-size='dock']")).toBeVisible();
+    await expect(page.getByTestId("harness-sidebar")).toHaveCSS("z-index", "40");
+  });
 });
 
 /**

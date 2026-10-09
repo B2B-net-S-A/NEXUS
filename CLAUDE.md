@@ -2942,8 +2942,9 @@ Kontrakt: `docs/screening-form-contract.md`, raport: `docs/screening-form-comple
 - **Edycja na każdym etapie, dopóki proces trwa** (`assert_pair_editable`): tylko do odczytu przy zamkniętej
   rekrutacji albo zamkniętym/unieważnionym procesie pary. Blokada 12 h bez zmian (Nowi/Screening).
 - **Panel osoby ma szerokość `split`** (`PersonPanelShell size`): kliknięcie osoby w Nowi/Screening otwiera od razu
-  dwie kolumny — profil przed rozmową albo formularz po lewej, podgląd po prawej (CV oryginalne / CV firmowe / inne
-  pliki, Wymagania, Po ludzku). „Zwiń” wraca do doku 380 px.
+  panel na całą szerokość okna — podgląd po LEWEJ na całą wysokość (CV oryginalne / CV firmowe / inne pliki,
+  Wymagania, Po ludzku), profil przed rozmową albo formularz w stałej prawej kolumnie (460 px, od 1536 px okna
+  520 px). „Zwiń” wraca do doku 380 px. Układ od 09.10.2026 — sekcja „Duży podgląd po lewej stronie panelu osoby”.
 - **Karta rekomendacji jest widokiem** (dok, przegląd DL, profil) z „Edytuj w screeningu”. Pole „Notatki
   rekrutera” (`screening_answers.notes`) zniknęło z formularza — stare wartości pokazujemy jako „Notatka z arkusza”
   z „Przenieś do Dlaczego ten kandydat”.
@@ -2987,15 +2988,57 @@ porównania z innymi osobami; „Wróć do poprawy” niosło jedno zdanie, wię
 - **Marżę liczy przeglądarka** (`lib/dl-review-margin.ts`): stawka do klienta − stawka kandydata po przeliczeniu
   na zł/h (dzień ÷ 8, miesiąc ÷ 168), miesięcznie × 168; waluta inna niż PLN albo brak stawki kandydata = „nie do
   porównania”, nigdy zero. Ostrzeżenie przy marży poniżej mediany klienta.
-- **Układ:** trzy kolumny (wymagania · CV firmowe/oryginał · decyzja) od ~1100 px szerokości PANELU (`@container`),
-  węziej jedna pod drugą. Na Tablicy przegląd otwiera się w panelu osoby `split`, na pulpicie okno
-  `min(96vw, 1440px)`. Podgląd oryginału (pdf.js, docx-preview) idzie za `next/dynamic`.
+- **Układ (od 09.10.2026, D4):** CV jest pierwsze i największe. Tryb liczy się z szerokości kontenera przeglądu
+  (`useElementWidth`): poniżej 1100 px jedna kolumna; 1100–1639 px CV + decyzja 460 px, a „Wymagania i ocena” są
+  zakładką w polu CV (w decyzji pasek „Wymagania N/M · brak: …” z „Pokaż”); od 1640 px CV + wymagania 440 px +
+  decyzja 520 px. Przyciski decyzji stoją w przyklejonej stopce. Na Tablicy przegląd ma własny rozmiar panelu
+  `review` (całe okno, zakrywa menu), na pulpicie okno do 2000 px. Podgląd oryginału (pdf.js, docx-preview) idzie
+  za `next/dynamic`.
 - **Porównanie (D10): `GET /api/dl-review/jobs/{job_id}/queue`** — osoby w kolumnie „QC CV” rekrutacji (stała
   liczba zapytań, najwyżej 50, najdłużej czekające), u Nordei pusta lista z `cpro_client: true`. Wejścia:
   „Porównaj (N)” przy grupie rekrutacji w „Czeka na Twój przegląd” i w nagłówku kolumny „QC CV” na Tablicy (DL,
   2+ osoby, poza Nordeą). Wiersz niesie wiersz kolejki pulpitu, więc „Przejrzyj” nie robi drugiego żądania.
 - Harness `/preview/dl-review` (`?state=queue`, `?state=returned`, `?as=recruiter`). Wzmianki w sekcjach 0352
   i 0413 o przeglądzie bez marży i o „Wróć do poprawy” z samą uwagą opisują stan sprzed 08.10.2026.
+
+## Duży podgląd po lewej stronie panelu osoby (D1–D6, 09.10.2026)
+
+Zgłoszenie Artura 08.10.2026: po #2083/#2087 podgląd (CV, wymagania, „po ludzku”) stał po prawej i był za mały —
+strona CV miała 533 px (67%), a na laptopie 1280 × 720 widać było z niej ok. 250 px wysokości. Decyzje D1–D6
+(makiety https://claude.ai/artifact/WPwic4nk1U1RghZo1qkjMr), raport `docs/person-panel-preview-left-completion-report.md`.
+Tylko front, bez API i migracji.
+
+- **Rozmiary panelu: `dock | wide | split | review`** (`person/PersonPanelShell.tsx`). `split` i `review` zajmują
+  całe okno i mają `data-cover`. W `split` panel dzieli się na lewą strefę podglądu (`PersonPanelSideZone`, cała
+  wysokość, od 1024 px okna) i stałą prawą kolumnę z dokiem (460 px, od 1536 px okna 520 px). `split` dają zakładki
+  z podglądem (`SIDE_SECTIONS` w `KanbanBoardV2`: Screening, CV, Rozmowy), pozostałe zostają przy `wide` (760 px),
+  przegląd DL ma `review`.
+- **Panel zakrywa menu boczne regułą CSS, nie `z-index`.** Menu ma `z-40`, a panel siedzi w kontekście warstw
+  treści strony (`animate-fadeIn` z wypełnieniem `both`), więc jego `z-30` nigdy nie wygra. Menu ma atrybut
+  `data-app-sidebar`, a `globals.css` zdejmuje mu `z-index` na czas otwarcia panelu z `data-cover`. Pilnuje
+  `AppShellLayout.test.ts` i e2e (`elementFromPoint` nad menu). Nie podbijaj `z-index` panelu.
+- **Podgląd trafia do strefy portalem** (`person/PersonPanelSide.tsx`): stan podglądu (zakładka, szukane słowo)
+  należy do warsztatu głęboko w doku. Strefa jest zamontowana zawsze (poza `split` ukryta), więc zwinięcie panelu
+  i zmiana zakładki nie pobierają pliku CV drugi raz; `PersonPanelSideSection` chowa portal niewidocznej zakładki.
+  Poniżej 1024 px i bez dostawcy (testy, zwykłe strony) treść zostaje w miejscu pod przyciskiem „Pokaż CV
+  i wymagania”. Szerokość okna czytana synchronicznie (`useSyncExternalStore`) — efekt po malowaniu montował
+  podgląd dwa razy.
+- **Podgląd (`screening-form/CandidatePreviewPane.tsx`):** PDF dopasowany `fit="auto"` (szerokość, najwyżej 125% —
+  bez sufitu strefa 1400 px dawała 170%), CV firmowe (DOCX) dopasowane `lib/docx-fit.ts`. Od 1150 px szerokości
+  podglądu (okno ok. 1700 px) dwa podglądy naraz: CV i kolumna 440 px z „Wymaganiami” i „Po ludzku” (D3). Tryby
+  liczy `lib/use-element-width.ts` — w jsdom szerokość to 0, więc testy widzą najwęższy wariant. **Pomiar ignoruje
+  szerokość 0 po wcześniejszym pomiarze** (ukryta strefa ma `display: none`), a podgląd po trybie dwóch podglądów
+  niczego nie odmontowuje (`everDual`): bez tego „Zwiń” i zmiana zakładki pobierały CV drugi raz (przegląd kodu
+  09.10.2026). Układ liczony w JS z szerokości elementu = ten hak, nie własny `ResizeObserver`.
+- **„Wymagania” to lista, nie chipy (D5,** `champion/JobRequirementsSummary.tsx`): nazwa, pod nią jedno zdanie ze
+  słowniczka „po ludzku” (`summary` hasła w stanie `ready`), obok „Szukaj w CV”. Wymaganie bez gotowego hasła
+  pokazuje samą nazwę — nie wstawiaj tekstu zastępczego.
+- **CV i Rozmowy (D6):** po „Rozwiń” ten sam podgląd po lewej (`person/PersonSidePreview.tsx`, za `next/dynamic`),
+  zaczyna od CV firmowego, gdy para je ma; przy Rozmowach dodatkowa zakładka „Pytania klienta”. Klik w osobę od
+  „Zweryfikowany” wzwyż nadal otwiera wąski dok — „Otwórz QC” i ramka „Następny etap” są tylko w jego sekcjach.
+- Harnessy: `/preview/screening-form` (ramka z prawdziwą strefą), `/preview/job-detail` (replika menu `z-40`
+  i `animate-fadeIn`), `/preview/dl-review?layout=panel`. Każdą zmianę panelu sprawdź przy 1280 × 720: strona CV
+  ma tam ok. 700–750 px szerokości.
 
 ## „Stawka od” i historia stawek kandydata (0414, 04.10.2026)
 
@@ -5453,7 +5496,9 @@ decyzje Artura D1–D4 z 04.10.2026). Raport: `docs/candidate-funnel-completion-
   zamówienie nie ma braków, także numeru.
 - **Jeden panel osoby (#2017–PR 3/3, decyzja Artura „Sekcje + Rozwiń”):**
   na Tablicy jest JEDNO `aside` „Panel osoby” (`person/PersonPanelShell`),
-  380 px dla doku, 760 px w trybie szerokim. Tryby szerokie: „Rozwiń”
+  380 px dla doku, 760 px w trybie szerokim (od 09.10.2026 zakładki
+  Screening, CV i Rozmowy oraz przegląd DL zajmują całe okno — sekcja „Duży
+  podgląd po lewej stronie panelu osoby”). Tryby szerokie: „Rozwiń”
   (pełne narzędzia osoby, `person/PersonWorkbenchTabs` — zakładki CV,
   Screening, Rozmowy, Umowa, Dopasowanie, Notatki i historia pod głową doku)
   i przegląd DL (`DlReviewBody layout="panel"`). Osobnego okna warsztatu

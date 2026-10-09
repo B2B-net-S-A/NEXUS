@@ -28,6 +28,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ToastProvider } from "@/components/Toast";
 import { ScreeningWorkbench } from "@/components/v2/jobs/ScreeningWorkbench";
+import {
+  PersonPanelSide,
+  PersonPanelSideProvider,
+  PersonPanelSideZone,
+} from "@/components/v2/person/PersonPanelSide";
 import { reassignContextQueryKey } from "@/components/v2/jobs/ScreeningReassignSuggestions";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
@@ -176,6 +181,28 @@ const PROFILE: ChampionProfileResponse = {
   } as never,
 };
 
+/** Hasło słowniczka „po ludzku” — zdanie pod wymaganiem w zakładce „Wymagania”. */
+function glossaryTerm(
+  name: string,
+  summary: string | null,
+  status: "ready" | "researching" = "ready",
+): PlainBrief["glossary"][number] {
+  return {
+    term_key: name.toLowerCase(),
+    display_name: name,
+    level: "must",
+    level_label: "wymagane",
+    status,
+    summary,
+    does: null,
+    cv_hints: [],
+    confused_with: null,
+    in_this_project: null,
+    sources: [],
+    origin: null,
+  };
+}
+
 const BRIEF: PlainBrief = {
   job_id: JOB_ID,
   status: "ready",
@@ -194,9 +221,17 @@ const BRIEF: PlainBrief = {
     "Poprawia błędy zgłoszone przez wsparcie.",
   ],
   pitch: "Stabilny projekt na lata, nowoczesny stack, dwa dni w biurze w tygodniu, do 150 zł/h netto B2B.",
-  candidate_qa: [],
+  candidate_qa: [
+    { key: "rate", question: "Ile płacą?", answer: "Do 150 zł za godzinę netto, B2B.", source: "budżet rekrutacji" },
+    { key: "office", question: "Ile dni w biurze?", answer: "Dwa w tygodniu, Warszawa.", source: "tryb pracy" },
+    { key: "process", question: "Jak wygląda rekrutacja u klienta?", answer: null, source: null },
+  ],
   screening_plain: [],
-  glossary: [],
+  glossary: [
+    glossaryTerm("Kafka", "Kolejka zdarzeń: systemy wysyłają sobie komunikaty i nie czekają na odpowiedź."),
+    glossaryTerm("Spring Boot", "Szkielet, na którym buduje się usługi w Javie. Zapytaj, co napisał sam."),
+    glossaryTerm("Kubernetes", null, "researching"),
+  ],
   role: null,
   client: {
     id: 1,
@@ -611,14 +646,30 @@ function useFakePhrase(): PhraseController {
 
 // ── Widoki ───────────────────────────────────────────────────────────────
 
-/** Panel osoby w trybie dzielonym — ten sam przewijany obszar co dok. */
+/**
+ * Panel osoby w trybie dzielonym (09.10.2026): po lewej prawdziwa strefa
+ * podglądu (`PersonPanelSideZone`), po prawej kolumna doku tej samej
+ * szerokości co w powłoce na Tablicy (460 px, od 1536 px okna 520 px).
+ * Poniżej 1024 px zostaje jedna kolumna, a podgląd stoi w miejscu.
+ */
 function PanelFrame({ children }: { children: ReactNode }) {
   return (
-    <div className="mx-auto flex h-[calc(100dvh-9rem)] min-h-[32rem] w-full max-w-[1200px] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-      <div className="flex-1 overflow-y-auto p-4" data-person-scroll="">
-        {children}
+    <PersonPanelSideProvider>
+      <div
+        className="flex h-[calc(100dvh-9rem)] min-h-[32rem] w-full overflow-hidden rounded-xl border border-border bg-background shadow-sm"
+        data-testid="harness-panel"
+      >
+        <PersonPanelSideZone />
+        <div
+          className="flex min-h-0 min-w-0 flex-1 flex-col lg:w-[460px] lg:flex-none 2xl:w-[520px]"
+          data-testid="harness-panel-column"
+        >
+          <div className="flex-1 overflow-y-auto p-4" data-person-scroll="">
+            {children}
+          </div>
+        </div>
       </div>
-    </div>
+    </PersonPanelSideProvider>
   );
 }
 
@@ -638,66 +689,66 @@ function PresentationalForm({ state, withHistory }: { state: HarnessState; withH
   }, [state, model]);
 
   return (
-    <div className="@container">
-      <div className="grid gap-4 @4xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <div className="min-w-0">
-          <ScreeningFullFormView
-            state={formState}
-            model={model}
-            jobBudgetHourly={150}
-            phrase={state === "note" ? fakePhrase : undefined}
-            noteBar={
-              <NoteFillBar
-                candidateId={CANDIDATE_ID}
-                jobId={JOB_ID}
-                applied={
-                  model.note
-                    ? { filled: model.note.filled, offers: model.offers.length, sourceName: model.note.source.source_name ?? null }
-                    : null
-                }
-                onProposal={() => undefined}
-                onUndo={model.undoNote}
+    <div className="@container space-y-3">
+      <PersonPanelSide
+        inline={(content) => <div className="flex h-[70dvh] min-w-0 flex-col">{content}</div>}
+      >
+        <CandidatePreviewPane
+          candidateId={CANDIDATE_ID}
+          jobId={JOB_ID}
+          stageId={STAGE_ID}
+          tab={tab}
+          onTabChange={setTab}
+          budgetHourly={150}
+          loadDocumentBlob={loadStaticBlob}
+          loadOriginalBlob={loadStaticOriginal}
+          className="flex-1"
+        />
+      </PersonPanelSide>
+      <div className="min-w-0">
+        <ScreeningFullFormView
+          state={formState}
+          model={model}
+          jobBudgetHourly={150}
+          phrase={state === "note" ? fakePhrase : undefined}
+          noteBar={
+            <NoteFillBar
+              candidateId={CANDIDATE_ID}
+              jobId={JOB_ID}
+              applied={
+                model.note
+                  ? { filled: model.note.filled, offers: model.offers.length, sourceName: model.note.source.source_name ?? null }
+                  : null
+              }
+              onProposal={() => undefined}
+              onUndo={model.undoNote}
+            />
+          }
+          footer={
+            <div className="sticky bottom-0 flex flex-wrap items-center gap-2 border-t border-border bg-background/95 py-2.5">
+              <p className="mr-auto text-[11px] text-muted-foreground" role="status">
+                {saved ? "Zapisano (podgląd — nic nie trafiło do API)" : `Wersja ${formState.version}`}
+              </p>
+              <Button size="sm" variant="outline" onClick={() => setSaved(true)}>
+                Zapisz
+              </Button>
+              <Button size="sm" onClick={() => setSaved(true)}>
+                Zapisz i przekaż dalej → Zweryfikowany
+              </Button>
+            </div>
+          }
+          history={
+            withHistory ? (
+              <ScreeningFormHistoryView
+                versions={VERSIONS}
+                total={VERSIONS.length}
+                currentVersion={formState.version}
+                canRestore
+                onRestore={() => setSaved(true)}
               />
-            }
-            footer={
-              <div className="sticky bottom-0 flex flex-wrap items-center gap-2 border-t border-border bg-background/95 py-2.5">
-                <p className="mr-auto text-[11px] text-muted-foreground" role="status">
-                  {saved ? "Zapisano (podgląd — nic nie trafiło do API)" : `Wersja ${formState.version}`}
-                </p>
-                <Button size="sm" variant="outline" onClick={() => setSaved(true)}>
-                  Zapisz
-                </Button>
-                <Button size="sm" onClick={() => setSaved(true)}>
-                  Zapisz i przekaż dalej → Zweryfikowany
-                </Button>
-              </div>
-            }
-            history={
-              withHistory ? (
-                <ScreeningFormHistoryView
-                  versions={VERSIONS}
-                  total={VERSIONS.length}
-                  currentVersion={formState.version}
-                  canRestore
-                  onRestore={() => setSaved(true)}
-                />
-              ) : null
-            }
-          />
-        </div>
-        <div className="order-first min-w-0 @4xl:order-none @4xl:sticky @4xl:top-0 @4xl:h-[calc(100dvh-12rem)] @4xl:self-start">
-          <CandidatePreviewPane
-            candidateId={CANDIDATE_ID}
-            jobId={JOB_ID}
-            stageId={STAGE_ID}
-            tab={tab}
-            onTabChange={setTab}
-            budgetHourly={150}
-            loadDocumentBlob={loadStaticBlob}
-            loadOriginalBlob={loadStaticOriginal}
-            className="h-full"
-          />
-        </div>
+            ) : null
+          }
+        />
       </div>
     </div>
   );
