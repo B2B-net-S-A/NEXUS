@@ -8,7 +8,7 @@ import { api, notificationsApi } from "@/lib/api";
 
 vi.mock("@/lib/api", () => ({
   api: { put: vi.fn(), get: vi.fn() },
-  notificationsApi: { list: vi.fn(), markRead: vi.fn(), markAllRead: vi.fn() },
+  notificationsApi: { listForBell: vi.fn(), markRead: vi.fn(), markAllReadForBell: vi.fn() },
 }));
 vi.mock("@/hooks/useNotifications", () => ({
   useNotifications: () => ({ unreadCount: 0, clearUnread: vi.fn(), wsConnected: true }),
@@ -66,7 +66,7 @@ function renderOpen() {
 
 describe("dzwonek — „Nie pokazuj takich”", () => {
   beforeEach(() => {
-    vi.mocked(notificationsApi.list).mockResolvedValue({
+    vi.mocked(notificationsApi.listForBell).mockResolvedValue({
       data: { items, unread_count: 2 },
     } as never);
     vi.mocked(api.put).mockReset();

@@ -450,6 +450,8 @@ const PUBLIC_PATHS = [
   "/preview/custom-dashboard",
   // Ustawienia → „Powiadomienia”: Moje · Kto co dostaje · Maile · Reguły etapów.
   "/preview/notification-settings",
+  // Okienko „Czaty” z górnego paska: ikona i lista rozmów na danych fikcyjnych.
+  "/preview/chat-notifications",
   "/preview/calendar-cycle",
   "/preview/cv-qc",
   "/preview/cpro-queue",
