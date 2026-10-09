@@ -23,6 +23,7 @@ import {
 } from "./DocumentSearchBar";
 import {
   PdfDocumentViewer,
+  type PdfFitMode,
   type PdfViewState,
   type PdfViewerHandle,
 } from "./PdfDocumentViewer";
@@ -45,8 +46,10 @@ export function SearchablePdfPreview({
   className,
   query: controlledQuery,
   onQueryChange,
+  fit,
 }: {
   file: Blob;
+  fit?: PdfFitMode;
   onLoaded?: () => void;
   onError?: () => void;
   findShortcutScope?: "dialog" | "container";
@@ -115,6 +118,7 @@ export function SearchablePdfPreview({
           onTextAvailability={setAvailability}
           onFindResult={setResult}
           onViewState={setView}
+          fit={fit}
         />
       </div>
     </div>

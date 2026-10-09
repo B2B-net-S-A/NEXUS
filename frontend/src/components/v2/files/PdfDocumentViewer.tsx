@@ -71,6 +71,13 @@ type ViewerInternals = {
   pendingState: number;
 };
 
+/**
+ * Jak dopasować stronę do okna: `page-width` wypełnia całą szerokość (domyślnie),
+ * `auto` robi to samo, ale najwyżej do 125% — w szerokiej strefie podglądu
+ * strona nie rośnie do 170% i mieści się na wysokość.
+ */
+export type PdfFitMode = "page-width" | "auto";
+
 export function PdfDocumentViewer({
   file,
   handleRef,
@@ -79,8 +86,10 @@ export function PdfDocumentViewer({
   onTextAvailability,
   onFindResult,
   onViewState,
+  fit = "page-width",
 }: {
   file: Blob;
+  fit?: PdfFitMode;
   handleRef?: Ref<PdfViewerHandle>;
   onLoaded?: () => void;
   onError?: () => void;
@@ -95,6 +104,8 @@ export function PdfDocumentViewer({
   // „Dopasuj do szerokości” obowiązuje, dopóki użytkownik sam nie zmieni
   // powiększenia — wtedy zmiana rozmiaru okna nie może mu go nadpisać.
   const fitWidthRef = useRef(true);
+  const fitModeRef = useRef<PdfFitMode>(fit);
+  fitModeRef.current = fit;
   // Najnowsze callbacki bez odtwarzania całej przeglądarki przy każdym renderze.
   const callbacksRef = useRef({
     onLoaded,
@@ -145,7 +156,7 @@ export function PdfDocumentViewer({
       fitWidth() {
         fitWidthRef.current = true;
         const internals = internalsRef.current;
-        if (internals) internals.pdfViewer.currentScaleValue = "page-width";
+        if (internals) internals.pdfViewer.currentScaleValue = fitModeRef.current;
       },
     }),
     [],
@@ -172,7 +183,7 @@ export function PdfDocumentViewer({
     const applyFitWidth = () => {
       if (!pdfViewer || !pagesReady || !fitWidthRef.current) return;
       if (container.clientWidth < 80) return;
-      pdfViewer.currentScaleValue = "page-width";
+      pdfViewer.currentScaleValue = fitModeRef.current;
     };
     const resizeObserver =
       typeof ResizeObserver === "undefined"

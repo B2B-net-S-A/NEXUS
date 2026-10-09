@@ -7,7 +7,10 @@
  * (kolejka, arkusz Championa, dok „Weryfikacja” ze stawką, kartą i notatkami).
  * Od 0424 (decyzje Artura D1–D10, 07.10.2026) to jeden formularz pary —
  * pytania z Profilu Championa, warunki kandydata (stawka i pola karty)
- * i ocena rekrutera — z podglądem obok (D3: „od razu z boku”):
+ * i ocena rekrutera — z podglądem obok (D3: „od razu z boku”). Od 09.10.2026
+ * podgląd stoi w dużej LEWEJ strefie panelu osoby (`PersonPanelSide`), a ta
+ * sekcja zajmuje prawą kolumnę; w wąskim oknie podgląd zostaje w miejscu,
+ * pod przyciskiem „Pokaż CV i wymagania”:
  * - osoba w „Nowych” bez zapisanego formularza: profil przed telefonem
  *   (`BeforeCallProfile`) i CV obok; „Zacznij screening” otwiera formularz,
  * - „Screening” i dalsze etapy: formularz i wymagania obok; od „CV wysłane”
@@ -23,7 +26,7 @@
  * `next/dynamic` — pilnuje tego `heavy-bundle-boundaries.test.ts`.
  */
 
-import { useEffect, useMemo, useState, type ComponentProps, type CSSProperties } from "react";
+import { useMemo, useState, type ComponentProps } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
@@ -35,6 +38,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { JobDetailTab } from "@/components/v2/jobs/JobDetailCompactHeader";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
+import { PersonPanelSide, usePersonPanelSideActive } from "@/components/v2/person/PersonPanelSide";
 import type { WorkbenchPanelProps } from "@/components/v2/recruitment/types";
 import { BeforeCallProfile } from "@/components/v2/screening-form/BeforeCallProfile";
 import { ScreeningFormHistory } from "@/components/v2/screening-form/ScreeningFormHistory";
@@ -64,31 +68,10 @@ const CandidatePreviewPane = dynamic(
 );
 
 type PreviewProps = ComponentProps<typeof CandidatePreviewPane>;
-type PreviewTab = PreviewProps["tab"];
+type PreviewTab = NonNullable<PreviewProps["tab"]>;
 
 /** Proces zakończony albo rekrutacja zamknięta — formularz jest już historią. */
 const ENDED_REASONS: ReadonlySet<string> = new Set(["process_closed", "process_voided", "job_closed"]);
-
-/**
- * Wysokość widocznej części przewijanego panelu osoby (`data-person-scroll`).
- * Prawa kolumna jest przyklejona do góry i ma dokładnie tyle wysokości, ile
- * widać — przy 1280×720 każdy piksel się liczy, a zgadnięta stała
- * zostawiałaby dół podglądu CV poza ekranem.
- */
-function useScrollportHeight(element: HTMLElement | null): number | null {
-  const [height, setHeight] = useState<number | null>(null);
-  useEffect(() => {
-    const scroller = element?.closest<HTMLElement>("[data-person-scroll]");
-    if (!scroller) return;
-    const update = () => setHeight(scroller.clientHeight > 0 ? scroller.clientHeight : null);
-    update();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(update);
-    observer.observe(scroller);
-    return () => observer.disconnect();
-  }, [element]);
-  return height;
-}
 
 export interface ScreeningWorkbenchProps extends Omit<WorkbenchPanelProps, "layout"> {
   jobId: number;
@@ -155,10 +138,8 @@ export function ScreeningWorkbench({
   const [formMounted, setFormMounted] = useState(false);
   const [previewTab, setPreviewTab] = useState<PreviewTab | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
-  // Element w stanie (nie `useRef`): korzeń pojawia się dopiero po wczytaniu
-  // tablicy, a pomiar musi ruszyć w tej chwili.
-  const [root, setRoot] = useState<HTMLDivElement | null>(null);
-  const scrollport = useScrollportHeight(root);
+  // Od 1024 px szerokości okna podgląd stoi w lewej strefie panelu osoby.
+  const previewInSide = usePersonPanelSideActive();
 
   const viewState = resolveViewState({ isLoading, isError, error, isSuccess });
   if (viewState === "loading") return <Skeleton className="h-64 w-full rounded-xl" />;
@@ -315,17 +296,16 @@ export function ScreeningWorkbench({
     );
   }
 
-  const paneStyle = scrollport != null ? ({ "--preview-h": `${Math.max(320, scrollport - 24)}px` } as CSSProperties) : undefined;
-
   return (
-    <div ref={setRoot} className="@container min-w-0 space-y-3" data-testid="screening-workbench">
+    <div className="@container min-w-0 space-y-3" data-testid="screening-workbench">
       <div className="flex flex-wrap items-center gap-1.5">
         {badges}
         <Link
           href={`/jobs/${jobId}/prep/${item.candidate_id}`}
+          title="Prep-kit: pytania AI z podobnych rekrutacji"
           className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-xs text-foreground hover:bg-muted"
         >
-          <Sparkles className="h-3.5 w-3.5 text-primary" /> Prep-kit (AI, z podobnych)
+          <Sparkles className="h-3.5 w-3.5 text-primary" /> Prep-kit
         </Link>
         <Button size="sm" variant="outline" onClick={() => onTabChange("questions")}>
           <BookOpen className="h-3.5 w-3.5" /> Baza pytań
@@ -337,41 +317,43 @@ export function ScreeningWorkbench({
         >
           <ExternalLink className="h-3.5 w-3.5" /> Pełny profil
         </Link>
-        <Button
-          size="sm"
-          variant="outline"
-          className="@4xl:hidden"
-          aria-expanded={previewOpen}
-          onClick={() => setPreviewOpen((open) => !open)}
-        >
-          <PanelRight className="h-3.5 w-3.5" aria-hidden /> {previewOpen ? "Schowaj podgląd" : "Pokaż CV i wymagania"}
-        </Button>
+        {!previewInSide ? (
+          <Button
+            size="sm"
+            variant="outline"
+            aria-expanded={previewOpen}
+            onClick={() => setPreviewOpen((open) => !open)}
+          >
+            <PanelRight className="h-3.5 w-3.5" aria-hidden /> {previewOpen ? "Schowaj podgląd" : "Pokaż CV i wymagania"}
+          </Button>
+        ) : null}
       </div>
 
-      <div className="grid gap-4 @4xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <div className="min-w-0">{left}</div>
-        <div
-          className={cn(
-            "order-first min-w-0 @4xl:order-none @4xl:sticky @4xl:top-0 @4xl:self-start",
-            "@4xl:h-[var(--preview-h,calc(100dvh-16rem))]",
-            previewOpen ? "flex h-[70dvh] flex-col" : "hidden",
-            "@4xl:flex @4xl:flex-col",
-          )}
-          style={paneStyle}
-          data-testid="screening-preview-column"
-        >
-          <CandidatePreviewPane
-            candidateId={item.candidate_id}
-            jobId={jobId}
-            stageId={state?.stage_id ?? item.id}
-            tab={tab}
-            onTabChange={setPreviewTab}
-            budgetHourly={jobBudgetHourly}
-            className="flex-1"
-            {...previewLoaders}
-          />
-        </div>
-      </div>
+      {/* Podgląd: w szerokim oknie w lewej strefie panelu (portal), w wąskim
+          w miejscu, nad formularzem, po kliknięciu „Pokaż CV i wymagania”. */}
+      <PersonPanelSide
+        inline={(content) => (
+          <div
+            className={cn("min-w-0", previewOpen ? "flex h-[70dvh] flex-col" : "hidden")}
+            data-testid="screening-preview-column"
+          >
+            {content}
+          </div>
+        )}
+      >
+        <CandidatePreviewPane
+          candidateId={item.candidate_id}
+          jobId={jobId}
+          stageId={state?.stage_id ?? item.id}
+          tab={tab}
+          onTabChange={setPreviewTab}
+          budgetHourly={jobBudgetHourly}
+          className="flex-1"
+          {...previewLoaders}
+        />
+      </PersonPanelSide>
+
+      <div className="min-w-0">{left}</div>
     </div>
   );
 }

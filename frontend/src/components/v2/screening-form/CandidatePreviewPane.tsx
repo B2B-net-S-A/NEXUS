@@ -1,16 +1,23 @@
 "use client";
 
 /**
- * Podgląd obok formularza screeningu (0424, D3 „od razu z boku”, 07.10.2026).
+ * Podgląd kandydata w panelu osoby (0424, D3 „od razu z boku”, 07.10.2026;
+ * duża lewa strefa od 09.10.2026).
  *
  * Do tej pory CV i wymagania otwierały się w oknach NAD formularzem — rekruter
  * w trakcie rozmowy zamykał arkusz, żeby sprawdzić, co kandydat napisał
- * o Kafce. Teraz prawa kolumna panelu osoby ma trzy zakładki:
+ * o Kafce. Podgląd ma trzy zakładki:
  * - „CV” — oryginał (kopia ze zgłoszenia albo główne CV z profilu; DOCX też
  *   się renderuje), CV firmowe pary i pozostałe pliki CV z profilu,
- * - „Wymagania” — must/nice z Profilu Championa i warunki rekrutacji (klik
- *   w technologię szuka jej w CV),
+ * - „Wymagania” — must/nice z Profilu Championa ze zdaniem „po ludzku”
+ *   i warunki rekrutacji („Szukaj w CV” zaznacza technologię w CV),
  * - „Po ludzku” — jednym zdaniem o roli i ściąga do rozmowy.
+ * Sekcje „CV do klienta” i „Rozmowy” dokładają własną zakładkę (`extraTab`).
+ *
+ * Gdy podgląd ma co najmniej `DUAL_MIN_WIDTH` px (okno ok. 1700 px), zakładek
+ * nie ma: CV stoi po lewej, a wymagania i opis „po ludzku” w kolumnie obok —
+ * rekruter widzi wszystko naraz. CV zostaje w tym samym miejscu drzewa
+ * w obu układach, więc zmiana szerokości nie pobiera pliku drugi raz.
  *
  * Ładowany za `next/dynamic` (pdf.js i `docx-preview` nie mogą wejść do
  * chunku Tablicy). Odwiedzone zakładki zostają zamontowane (`hidden`): powrót
@@ -41,9 +48,10 @@ import api, { candidateStageCvApi, type CVOriginalSnapshot } from "@/lib/api";
 import { downloadAuthenticatedFile, fetchAuthenticatedBlob } from "@/lib/authenticated-files";
 import { stageCvStatus } from "@/lib/cv-to-client";
 import { dockOriginalCv, primaryProfileCv, type DockProfileCvDoc } from "@/lib/dock-cv-summary";
+import { useElementWidth } from "@/lib/use-element-width";
 import { cn, formatDate } from "@/lib/utils";
 
-export type PreviewTab = "cv" | "requirements" | "plain";
+export type PreviewTab = "cv" | "requirements" | "plain" | "extra";
 export type PreviewCvSource = "original" | "company" | "files";
 
 const TABS: ReadonlyArray<{ value: PreviewTab; label: string }> = [
@@ -51,6 +59,12 @@ const TABS: ReadonlyArray<{ value: PreviewTab; label: string }> = [
   { value: "requirements", label: "Wymagania" },
   { value: "plain", label: "Po ludzku" },
 ];
+
+/**
+ * Od tej szerokości podglądu (px) CV i wymagania stoją obok siebie. Przy
+ * prawej kolumnie panelu 520 px odpowiada to oknu ok. 1700 px.
+ */
+const DUAL_MIN_WIDTH = 1150;
 
 const SOURCES: ReadonlyArray<{ value: PreviewCvSource; label: string }> = [
   { value: "original", label: "CV oryginalne" },
@@ -185,6 +199,7 @@ function CvTab({
           onDownload={(doc) => download(doc, true)}
           loadDocumentBlob={snapshotLoader}
           searchRequest={searchRequest}
+          pdfFit="auto"
           className="min-h-0 flex-1 rounded-lg border border-border"
         />
       );
@@ -196,6 +211,7 @@ function CvTab({
           onDownload={(doc) => download(doc, false)}
           loadDocumentBlob={loadDocumentBlob}
           searchRequest={searchRequest}
+          pdfFit="auto"
           className="min-h-0 flex-1 rounded-lg border border-border"
         />
       );
@@ -300,6 +316,7 @@ function CvTab({
             onDownload={(doc) => download(doc, false)}
             loadDocumentBlob={loadDocumentBlob}
             searchRequest={searchRequest}
+            pdfFit="auto"
             className="min-h-0 flex-1 rounded-lg border border-border"
           />
         ) : null}
@@ -378,8 +395,18 @@ export interface CandidatePreviewPaneProps {
   jobId: number;
   /** Najnowszy wiersz etapu pary — kopia CV ze zgłoszenia i CV firmowe. */
   stageId: number | null;
-  tab: PreviewTab;
-  onTabChange: (tab: PreviewTab) => void;
+  /** Zakładka sterowana z zewnątrz (formularz screeningu); bez niej podgląd pamięta ją sam. */
+  tab?: PreviewTab;
+  onTabChange?: (tab: PreviewTab) => void;
+  /** Zakładka na start, gdy `tab` nie jest podany. */
+  defaultTab?: PreviewTab;
+  /**
+   * Zacznij od CV firmowego, gdy para już je ma („CV do klienta”, „Rozmowy”)
+   * — do pierwszego wyboru źródła przez użytkownika.
+   */
+  preferCompanyCv?: boolean;
+  /** Dodatkowa zakładka sekcji (np. „Pytania klienta” przy rozmowach). */
+  extraTab?: { label: string; content: ReactNode };
   /** Górny budżet PLN/h z Tablicy — gdy rekrutacji nie ma w cache strony. */
   budgetHourly?: number | null;
   /** Harness: bajty plików bez sieci. */
@@ -388,83 +415,149 @@ export interface CandidatePreviewPaneProps {
   className?: string;
 }
 
+function PaneHeading({ children }: { children: string }) {
+  return <h3 className="text-sm font-semibold text-foreground">{children}</h3>;
+}
+
 export function CandidatePreviewPane({
   candidateId,
   jobId,
   stageId,
-  tab,
+  tab: controlledTab,
   onTabChange,
+  defaultTab = "cv",
+  preferCompanyCv = false,
+  extraTab,
   budgetHourly = null,
   loadDocumentBlob = fetchDocumentBlob,
   loadOriginalBlob = defaultOriginalLoader,
   className,
 }: CandidatePreviewPaneProps) {
-  const [source, setSource] = useState<PreviewCvSource>("original");
+  const [ownTab, setOwnTab] = useState<PreviewTab>(defaultTab);
+  const requestedTab = controlledTab ?? ownTab;
+  // Zakładka sekcji zniknęła (inna sekcja panelu) — wracamy do CV.
+  const tab: PreviewTab = requestedTab === "extra" && !extraTab ? "cv" : requestedTab;
+  const changeTab = onTabChange ?? setOwnTab;
+
+  // `null` = użytkownik jeszcze nie wybrał źródła. Ten sam klucz zapytania co
+  // w zakładce CV, więc drugiego żądania nie ma.
+  const [pickedSource, setPickedSource] = useState<PreviewCvSource | null>(null);
+  const branded = useStageBrandedCv(preferCompanyCv ? stageId : null);
+  const companyReady =
+    preferCompanyCv && branded.query.isSuccess && stageCvStatus(branded.query.data) !== "none";
+  const source: PreviewCvSource = pickedSource ?? (companyReady ? "company" : "original");
+
   const [searchRequest, setSearchRequest] = useState<{ text: string; nonce: number } | null>(null);
   const [visited, setVisited] = useState<ReadonlySet<PreviewTab>>(() => new Set([tab]));
   if (!visited.has(tab)) setVisited(new Set([...visited, tab]));
 
-  // Klik w technologię w „Wymaganiach” — szukaj jej w CV. CV firmowe nie ma
-  // paska wyszukiwania, więc przełączamy na oryginał.
+  const [root, setRoot] = useState<HTMLElement | null>(null);
+  const dual = useElementWidth(root) >= DUAL_MIN_WIDTH;
+  // Dwa podglądy naraz zamontowały już wszystko; po zwężeniu okna do zakładek
+  // nic nie odmontowujemy, żeby CV nie pobierało się drugi raz.
+  const [everDual, setEverDual] = useState(false);
+  if (dual && !everDual) setEverDual(true);
+  const shown = (value: PreviewTab) => dual || everDual || visited.has(value);
+  const panelHidden = (value: PreviewTab) => !dual && tab !== value;
+
+  // „Szukaj w CV” przy wymaganiu. CV firmowe nie ma paska wyszukiwania, więc
+  // przełączamy na oryginał.
   const pickRequirement = useCallback(
     (name: string) => {
-      setSource((current) => (current === "company" ? "original" : current));
+      setPickedSource((current) => {
+        const effective = current ?? (companyReady ? "company" : "original");
+        return effective === "company" ? "original" : current;
+      });
       setSearchRequest({ text: name, nonce: Date.now() });
-      onTabChange("cv");
+      changeTab("cv");
     },
-    [onTabChange],
+    [changeTab, companyReady],
   );
+
+  const tabs = extraTab ? [...TABS, { value: "extra" as const, label: extraTab.label }] : TABS;
+  const panelRole = dual ? "region" : "tabpanel";
 
   return (
     <section
+      ref={setRoot}
       aria-label="Podgląd kandydata"
       data-testid="candidate-preview-pane"
-      className={cn("flex min-h-0 flex-col gap-2", className)}
+      data-dual={dual || undefined}
+      className={cn("flex min-h-0 flex-col", className)}
     >
-      <TabbedNav
-        ariaLabel="Podgląd: CV, wymagania, po ludzku"
-        tabs={TABS.map(({ value, label }) => ({ value, label }))}
-        value={tab}
-        onValueChange={(next) => onTabChange(next as PreviewTab)}
-        overflow="scroll"
-        dense
-      />
-      {visited.has("cv") ? (
-        <div role="tabpanel" aria-label="CV" hidden={tab !== "cv"} className="flex min-h-0 flex-1 flex-col">
-          <CvTab
-            candidateId={candidateId}
-            jobId={jobId}
-            stageId={stageId}
-            source={source}
-            onSourceChange={setSource}
-            searchRequest={searchRequest}
-            loadDocumentBlob={loadDocumentBlob}
-            loadOriginalBlob={loadOriginalBlob}
-          />
-        </div>
-      ) : null}
-      {visited.has("requirements") ? (
+      <div hidden={dual} className="flex-none border-b border-border bg-background px-3 pt-2">
+        <TabbedNav
+          ariaLabel="Podgląd: CV, wymagania, po ludzku"
+          tabs={tabs.map(({ value, label }) => ({ value, label }))}
+          value={tab}
+          onValueChange={(next) => changeTab(next as PreviewTab)}
+          overflow="scroll"
+        />
+      </div>
+      <div className="flex min-h-0 flex-1">
+        {shown("cv") ? (
+          <div
+            role={panelRole}
+            aria-label="CV"
+            hidden={panelHidden("cv")}
+            className="flex min-h-0 min-w-0 flex-1 flex-col p-3"
+          >
+            <CvTab
+              candidateId={candidateId}
+              jobId={jobId}
+              stageId={stageId}
+              source={source}
+              onSourceChange={setPickedSource}
+              searchRequest={searchRequest}
+              loadDocumentBlob={loadDocumentBlob}
+              loadOriginalBlob={loadOriginalBlob}
+            />
+          </div>
+        ) : null}
         <div
-          role="tabpanel"
-          aria-label="Wymagania"
-          hidden={tab !== "requirements"}
-          className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1"
+          hidden={!dual && tab === "cv"}
+          data-testid="candidate-preview-info"
+          className={cn(
+            "min-h-0 overflow-y-auto bg-background p-4",
+            dual ? "w-[440px] flex-none space-y-6 border-l border-border" : "min-w-0 flex-1",
+          )}
         >
-          <p className="text-[11px] text-muted-foreground">Kliknij technologię, żeby znaleźć ją w CV kandydata.</p>
-          <JobRequirementsSummary jobId={jobId} budgetHourly={budgetHourly} onPickRequirement={pickRequirement} />
+          {shown("requirements") ? (
+            <div
+              role={panelRole}
+              aria-label="Wymagania"
+              hidden={panelHidden("requirements")}
+              className="mx-auto max-w-4xl space-y-3"
+            >
+              {dual ? <PaneHeading>Wymagania</PaneHeading> : null}
+              <JobRequirementsSummary jobId={jobId} budgetHourly={budgetHourly} onPickRequirement={pickRequirement} />
+            </div>
+          ) : null}
+          {shown("plain") ? (
+            <div
+              role={panelRole}
+              aria-label="Po ludzku"
+              hidden={panelHidden("plain")}
+              className="mx-auto max-w-3xl space-y-4"
+            >
+              {dual ? <PaneHeading>Po ludzku</PaneHeading> : null}
+              <PlainBriefBlock jobId={jobId} parts="summary" compact={dual} />
+              <DockCallCheatsheet jobId={jobId} roomy={!dual} />
+            </div>
+          ) : null}
+          {extraTab && shown("extra") ? (
+            <div
+              role={panelRole}
+              aria-label={extraTab.label}
+              hidden={panelHidden("extra")}
+              className="mx-auto max-w-3xl space-y-3"
+            >
+              {dual ? <PaneHeading>{extraTab.label}</PaneHeading> : null}
+              {extraTab.content}
+            </div>
+          ) : null}
         </div>
-      ) : null}
-      {visited.has("plain") ? (
-        <div
-          role="tabpanel"
-          aria-label="Po ludzku"
-          hidden={tab !== "plain"}
-          className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1"
-        >
-          <PlainBriefBlock jobId={jobId} parts="summary" compact />
-          <DockCallCheatsheet jobId={jobId} />
-        </div>
-      ) : null}
+      </div>
     </section>
   );
 }

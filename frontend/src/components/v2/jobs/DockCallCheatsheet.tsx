@@ -30,6 +30,7 @@ import {
 import { invalidateChampionDependents } from "@/lib/champion-cache";
 import { newInsight } from "@/lib/champion-insights";
 import { copyTextToClipboard } from "@/lib/clipboard";
+import { cn } from "@/lib/utils";
 
 const SCREENING_IN_DOCK = 3;
 
@@ -86,19 +87,39 @@ function useAddAskClientNote(jobId: number) {
   });
 }
 
-function QaItem({ jobId, qa }: { jobId: number; qa: CandidateQa }) {
+/**
+ * Kroje: `dock` dla panelu osoby 380 px, `roomy` dla dużej strefy podglądu
+ * (09.10.2026) — tam ściągę czyta się z odległości, w trakcie rozmowy.
+ */
+const TYPE = {
+  dock: { body: "text-xs", label: "text-[11px]", pitch: "text-xs", pad: "p-2.5" },
+  roomy: { body: "text-sm", label: "text-xs", pitch: "text-[15px]", pad: "p-4" },
+} as const;
+type CheatsheetSize = keyof typeof TYPE;
+
+function QaItem({ jobId, qa, size }: { jobId: number; qa: CandidateQa; size: CheatsheetSize }) {
   const toast = useToast();
   const add = useAddAskClientNote(jobId);
   const [added, setAdded] = useState(false);
   const answer = qa.answer?.trim() || null;
   return (
     <li>
-      <details className="group rounded-md border border-border" data-testid="cheatsheet-qa">
-        <summary className="cursor-pointer list-none px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted/40 [&::-webkit-details-marker]:hidden">
+      <details
+        className="group rounded-md border border-border"
+        data-testid="cheatsheet-qa"
+        // W dużej strefie odpowiedzi są od razu widoczne — nie ma po co klikać.
+        open={size === "roomy" || undefined}
+      >
+        <summary
+          className={cn(
+            "cursor-pointer list-none px-2.5 py-1.5 font-medium text-foreground hover:bg-muted/40 [&::-webkit-details-marker]:hidden",
+            TYPE[size].body,
+          )}
+        >
           {qa.question}
           {!answer ? <span className="ml-1.5 font-normal text-muted-foreground">· brak w profilu</span> : null}
         </summary>
-        <div className="space-y-1.5 border-t border-border px-2.5 py-2 text-xs">
+        <div className={cn("space-y-1.5 border-t border-border px-2.5 py-2", TYPE[size].body)}>
           {answer ? (
             <>
               <p className="whitespace-pre-line text-foreground">{answer}</p>
@@ -143,7 +164,8 @@ function QaItem({ jobId, qa }: { jobId: number; qa: CandidateQa }) {
   );
 }
 
-export function DockCallCheatsheet({ jobId }: { jobId: number }) {
+export function DockCallCheatsheet({ jobId, roomy = false }: { jobId: number; roomy?: boolean }) {
+  const size: CheatsheetSize = roomy ? "roomy" : "dock";
   const toast = useToast();
   const query = usePlainBrief(jobId);
   const refresh = useRefreshPlainBrief(jobId);
@@ -184,18 +206,18 @@ export function DockCallCheatsheet({ jobId }: { jobId: number }) {
 
   return (
     <section
-      className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-2.5"
+      className={cn("space-y-3 rounded-lg border border-primary/30 bg-primary/5", TYPE[size].pad)}
       aria-label="Ściąga do rozmowy"
       data-testid="dock-call-cheatsheet"
     >
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+      <p className={cn("font-semibold uppercase tracking-wide text-muted-foreground", TYPE[size].label)}>
         Ściąga do rozmowy
       </p>
 
       {pitch ? (
         <div className="space-y-1.5 rounded-md border border-border bg-card p-2.5">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-[11px] font-semibold text-muted-foreground">Na start · ok. 30 sekund</p>
+            <p className={cn("font-semibold text-muted-foreground", TYPE[size].label)}>Na start · ok. 30 sekund</p>
             <button
               type="button"
               onClick={() => void copyPitch()}
@@ -205,7 +227,10 @@ export function DockCallCheatsheet({ jobId }: { jobId: number }) {
               <Copy className="h-3 w-3" aria-hidden="true" /> Kopiuj
             </button>
           </div>
-          <p className="whitespace-pre-line text-xs leading-relaxed text-foreground" data-testid="cheatsheet-pitch">
+          <p
+            className={cn("whitespace-pre-line leading-relaxed text-foreground", TYPE[size].pitch)}
+            data-testid="cheatsheet-pitch"
+          >
             {pitch}
           </p>
         </div>
@@ -213,10 +238,10 @@ export function DockCallCheatsheet({ jobId }: { jobId: number }) {
 
       {brief.candidate_qa.length > 0 ? (
         <div className="space-y-1.5">
-          <p className="text-[11px] font-semibold text-muted-foreground">Kandydat pyta</p>
+          <p className={cn("font-semibold text-muted-foreground", TYPE[size].label)}>Kandydat pyta</p>
           <ul className="space-y-1">
             {brief.candidate_qa.map((qa) => (
-              <QaItem key={qa.key} jobId={jobId} qa={qa} />
+              <QaItem key={qa.key} jobId={jobId} qa={qa} size={size} />
             ))}
           </ul>
         </div>
@@ -224,14 +249,14 @@ export function DockCallCheatsheet({ jobId }: { jobId: number }) {
 
       {questions.length > 0 ? (
         <div className="space-y-1.5">
-          <p className="text-[11px] font-semibold text-muted-foreground">
+          <p className={cn("font-semibold text-muted-foreground", TYPE[size].label)}>
             Zadaj {questions.length} {questions.length === 1 ? "pytanie" : "pytania"} z profilu
           </p>
           <ol className="space-y-1.5">
             {questions.map((q, i) => (
               <li
                 key={q.question_id || i}
-                className="rounded-md border border-border bg-card p-2 text-xs"
+                className={cn("rounded-md border border-border bg-card p-2", TYPE[size].body)}
                 data-testid="cheatsheet-question"
               >
                 <p className="font-medium text-foreground">

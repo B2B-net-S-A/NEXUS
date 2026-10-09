@@ -21,6 +21,7 @@ import api from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { downloadBlob } from "@/lib/authenticated-files";
 import { alignB2bLetterheadPreview } from "@/lib/cv-docx-preview";
+import { observeDocxFit } from "@/lib/docx-fit";
 import { renderDocxSafely } from "@/lib/docx-preview-safe";
 import { fetchStageCvFile } from "@/lib/stage-cv-file";
 
@@ -125,6 +126,16 @@ export function StageCvPreview({
     // `fromStage`/`cvStageId`/`readyId` są zawarte w `sourceKey`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceKey]);
+
+  // Strona DOCX ma ~794 px (A4). W węższym polu skalujemy ją do szerokości,
+  // zamiast przewijać w bok — osobny efekt, żeby zmiana szerokości nie
+  // renderowała dokumentu drugi raz.
+  useEffect(() => {
+    if (render !== "ready") return;
+    const host = hostRef.current;
+    if (!host) return;
+    return observeDocxFit(host);
+  }, [render, sourceKey]);
 
   const download = async () => {
     try {

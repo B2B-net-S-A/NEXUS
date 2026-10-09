@@ -43,6 +43,7 @@ import {
   highlightDocumentMatches,
 } from "@/lib/document-text-search";
 import { useDocumentFindShortcut } from "@/lib/use-document-find-shortcut";
+import { observeDocxFit } from "@/lib/docx-fit";
 import { renderDocxSafely } from "@/lib/docx-preview-safe";
 import {
   DocumentSearchBar,
@@ -80,28 +81,6 @@ export function formatFileSize(bytes: number | null): string {
 export function fileIcon(_contentType: string | null): ReactNode {
   // Visual hint by mime type.
   return <FileText className="h-4 w-4 text-muted-foreground" />;
-}
-
-/** Skaluje strony `docx-preview` (`section.docx`) do szerokości hosta, gdy są
- *  od niego szersze — na telefonie CV w DOCX czytało się tylko przewijając w bok.
- *  Na wąskim ekranie zmniejsza też szary margines wokół stron. */
-function fitDocxSectionsToWidth(host: HTMLElement): void {
-  const wrapper = host.querySelector<HTMLElement>(".docx-wrapper");
-  const sections = host.querySelectorAll<HTMLElement>("section.docx");
-  if (!wrapper || sections.length === 0) return;
-  wrapper.style.padding = host.clientWidth < 640 ? "8px" : "";
-  const wrapperStyle = window.getComputedStyle(wrapper);
-  const available =
-    wrapper.clientWidth -
-    (parseFloat(wrapperStyle.paddingLeft) || 0) -
-    (parseFloat(wrapperStyle.paddingRight) || 0);
-  sections.forEach((section) => {
-    section.style.removeProperty("zoom");
-    const natural = section.offsetWidth;
-    if (available > 0 && natural > available) {
-      section.style.setProperty("zoom", String(available / natural));
-    }
-  });
 }
 
 export type PreviewKind = "pdf" | "docx" | "image" | "unsupported";
@@ -211,6 +190,7 @@ export function FilePreviewContent({
   findShortcutScope = "container",
   loadDocumentBlob = fetchDocumentBlob,
   searchRequest = null,
+  pdfFit,
 }: {
   doc: CandidateDocument | null;
   candidateId: number;
@@ -228,6 +208,9 @@ export function FilePreviewContent({
   // screeningu wpisuje technologię w „Szukaj w CV”). `nonce` pozwala
   // powtórzyć to samo słowo po ręcznej zmianie pola.
   searchRequest?: { text: string; nonce: number } | null;
+  // Duża strefa podglądu w panelu osoby podaje `"auto"`: strona PDF rośnie
+  // najwyżej do 125%, zamiast wypełniać 1400 px szerokości.
+  pdfFit?: "page-width" | "auto";
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const docxHostRef = useRef<HTMLDivElement | null>(null);
@@ -368,11 +351,7 @@ export function FilePreviewContent({
     if (kind !== "docx" || status !== "ready") return;
     const host = docxHostRef.current;
     if (!host) return;
-    fitDocxSectionsToWidth(host);
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => fitDocxSectionsToWidth(host));
-    observer.observe(host);
-    return () => observer.disconnect();
+    return observeDocxFit(host);
   }, [kind, status, docxBlob]);
 
   // DOCX: podświetlenie po wyrenderowaniu i przy każdej zmianie zapytania.
@@ -459,6 +438,7 @@ export function FilePreviewContent({
             placeholder={searchPlaceholder}
             query={query}
             onQueryChange={setQuery}
+            fit={pdfFit}
           />
         )}
 
