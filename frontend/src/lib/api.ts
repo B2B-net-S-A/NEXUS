@@ -1605,16 +1605,20 @@ export interface JobManagedInNexus {
 export type JobHandoffChannel = "linkedin" | "database" | "mixed";
 
 /**
- * Ciało `POST /api/jobs/{id}/publish`: automat (`assignment_mode`) albo osoba
- * (`recruiter_id`), kanał i — przy ponownym otwarciu — powód.
+ * Ciało `POST /api/jobs/{id}/publish`. Ponowne otwarcie zamkniętej rekrutacji
+ * zostawia dotychczasowego rekrutera (`assignment_mode: "keep"`, 09.10.2026)
+ * i niesie opcjonalny powód; „Dokończ i opublikuj” wskazuje automat
+ * (`assignment_mode`) albo osobę (`recruiter_id`) i kanał.
  */
-export type JobPublishPayload = (
-  | { assignment_mode: "automatic"; recruiter_id?: never }
-  | { recruiter_id: number; assignment_mode?: never }
-) & {
-  channel: JobHandoffChannel;
-  reason?: string | null;
-};
+export type JobPublishPayload =
+  | { assignment_mode: "keep"; reason?: string | null }
+  | ((
+      | { assignment_mode: "automatic"; recruiter_id?: never }
+      | { recruiter_id: number; assignment_mode?: never }
+    ) & {
+      channel: JobHandoffChannel;
+      reason?: string | null;
+    });
 
 /** Pozycja braku z `GET /api/jobs/{id}/readiness` (`blocker_items`). */
 export interface JobReadinessBlockerItem {

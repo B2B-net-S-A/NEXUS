@@ -5612,6 +5612,13 @@ END $$""",
     # test_job_intake_forms).
     "CREATE TABLE IF NOT EXISTS job_intake_forms (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, client_id INTEGER NULL REFERENCES clients(id) ON DELETE SET NULL, label VARCHAR(255) NOT NULL DEFAULT '', source VARCHAR(20) NOT NULL DEFAULT 'manual', request_text TEXT NULL, form JSONB NOT NULL DEFAULT '{}'::jsonb, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())",
     "CREATE INDEX IF NOT EXISTS ix_job_intake_forms_user_updated ON job_intake_forms (user_id, updated_at)",
+    # 0428: pliki rekrutacji (request klienta i załączniki Delivery Leada).
+    # Lustro 1:1 z `app/services/job_file_schema.py` (pilnuje
+    # test_job_files_migration_mirror) — PO tabeli `job_intake_forms`, na którą
+    # wskazuje klucz obcy.
+    "CREATE TABLE IF NOT EXISTS job_files (id SERIAL PRIMARY KEY, job_id INTEGER NULL REFERENCES jobs(id) ON DELETE CASCADE, intake_form_id INTEGER NULL REFERENCES job_intake_forms(id) ON DELETE SET NULL, source VARCHAR(16) NOT NULL DEFAULT 'upload', filename VARCHAR(255) NOT NULL, file_path VARCHAR(512) NOT NULL, content_type VARCHAR(128) NULL, size_bytes INTEGER NOT NULL DEFAULT 0, uploaded_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), CONSTRAINT ck_job_files_source CHECK (source IN ('request', 'upload')))",
+    "CREATE INDEX IF NOT EXISTS ix_job_files_job ON job_files (job_id) WHERE job_id IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS ix_job_files_intake_form ON job_files (intake_form_id) WHERE intake_form_id IS NOT NULL",
     # 0352: debrief z jawnym „klient nie zadawał pytań” (bramka przed „Umową”).
     "ALTER TABLE interview_feedback ADD COLUMN IF NOT EXISTS "
     "no_client_questions BOOLEAN NOT NULL DEFAULT false",

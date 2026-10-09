@@ -288,10 +288,16 @@ def must_facts(job: Any, candidate: Any, cv_text: str) -> tuple[int, int]:
     from app.services.must_text_evidence import text_met_labels
     from app.services.requirement_contract import search_dealbreaker_inputs
 
-    must = list(search_dealbreaker_inputs(job).must_skills)
+    inputs = search_dealbreaker_inputs(job)
+    must = list(inputs.must_skills)
     if not must:
         return 0, 0
-    met = text_met_labels(candidate, must, note_texts=[cv_text] if cv_text else ())
+    met = text_met_labels(
+        candidate,
+        must,
+        note_texts=[cv_text] if cv_text else (),
+        options=inputs.gate_options,
+    )
     return len(met), len(must)
 
 

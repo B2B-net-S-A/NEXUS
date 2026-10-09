@@ -5039,6 +5039,19 @@ udostępniania dla klienta nie robimy. Raport: `docs/job-no-drafts-completion-re
   (`draft_not_allowed`) i publikacji z innego stanu (409 `reopen_required`);
   ten sam status wysłany ponownie przechodzi (okno edycji odsyła wszystkie
   pola). Przekazanie starego szkicu go publikuje.
+- **Ponowne otwarcie ZAMKNIĘTEJ rekrutacji nie pyta o rekrutera (decyzja Artura
+  09.10.2026).** `POST /{id}/publish` bez ciała albo z `assignment_mode: "keep"`
+  (wartość istnieje tylko na `JobPublishRequest` — `/handoff` i `POST /api/jobs`
+  jej nie przyjmują) → `job_lifecycle.reopen_keep_team_core`: ta sama bramka
+  kompletności, `searching`, migawka dopasowań, `Activity handed_off_to_search`
+  z `assignment_mode: "keep"`. Prowadzący i ręczni współpracownicy zostają;
+  aktywny prowadzący dostaje wiersz przypisania i dzwonek (nie osoba, która
+  otwiera), nieaktywny = brak rekrutera. Bez rekrutera request trafia do
+  automatu (tryb ≠ `off`) albo do kolejki Head of Recruitment „Nowe rekrutacje —
+  kto prowadzi”. 422 `handoff_required` zostaje wyłącznie dla „Dokończ
+  i opublikuj” (stary szkic, opublikowana bez przekazania) — tam okno nadal
+  pyta o rekrutera. `JobReopenDialog` w trybie `reopen` pokazuje jedną linię
+  („Rekruter: X — bez zmian”), zmiana w zakładce „Zespół i ogłoszenie”.
 - **Brak z bramki ma działanie tam, gdzie da się go zamknąć (08.10.2026).**
   Hiring managera i termin (albo „Klient nie podał”) ustawia się wprost w oknie
   „Otwórz ponownie” (`JobReopenDialog`: `HiringManagerPicker`, `DeadlineEditor`)
@@ -5089,6 +5102,51 @@ udostępniania dla klienta nie robimy. Raport: `docs/job-no-drafts-completion-re
   `POST /api/jobs → PUT champion → handoff → publish` albo otwieraniu
   rekrutacji polem Status opisują stan sprzed 04.10.2026.
 
+## Pliki rekrutacji (0428, 09.10.2026)
+
+Decyzja Artura 09.10.2026: Delivery Lead dodaje pliki przy zakładaniu
+rekrutacji (plik requestu z kroku 1 zapisuje się sam), a zespół widzi je potem
+w menu „⋯” rekrutacji. Kod: `services/job_files.py`, `api/job_files.py`, trasy
+plików formularza w `api/job_intake_forms.py`, front `lib/api/jobFiles.ts`,
+`components/v2/jobs/files/JobFilesPanel.tsx` (jeden panel dla obu miejsc).
+
+- **Tabela `job_files` ma DWÓCH możliwych właścicieli:** `job_id` (CASCADE)
+  albo `intake_form_id` (SET NULL). Rekrutacji przed „Utwórz i przekaż” nie
+  ma, więc plik z `/jobs/new` wisi na niedokończonym formularzu autora;
+  `POST /api/jobs` przepina go (`job_files.attach_intake_files`) tuż PRZED
+  `delete_intake_form`, w tej samej transakcji — odmowa 422 `job_not_ready`
+  zostawia pliki przy formularzu. Ścieżka na dysku nie zależy od właściciela,
+  więc przepięcie to sam UPDATE. Kopia rekrutacji (`from_job_id`) plików nie
+  przenosi.
+- **Pliki leżą na wolumenie uploadów** (`storage_service.save_job_file`, nazwa
+  na dysku losowa — nazwa z przeglądarki jest tylko w kolumnie `filename`).
+  20 MB na plik (pod limitem ciała 30 MB), 20 plików na właściciela (liczone
+  pod blokadą właściciela), lista rozszerzeń w `job_files.CONTENT_TYPES`
+  (lustro `JOB_FILE_EXTENSIONS` na froncie). Odczyt uploadu `read(LIMIT + 1)`.
+- **Plik znika z dysku PO commicie** (usunięcie pliku, usunięcie rekrutacji —
+  ścieżki zbierane przed `db.delete(job)`). Sieroty (formularz usunięty przez
+  autora albo po 30 dniach — FK zeruje `intake_form_id`) kasuje
+  `queue_retention` (`job_files.sweep_orphans`).
+- **Uprawnienia:** pliki formularza — wyłącznie autor (`_own_form`, cudzy =
+  404); pliki rekrutacji — odczyt i pobranie każda rola wewnętrzna z dostępem
+  do rekrutacji, dodanie i usunięcie `ensure_job_editor` (także na zamkniętej
+  rekrutacji), `Activity job_file_added` / `job_file_removed`. `can_edit`
+  liczy serwer; front nie zgaduje po roli.
+- **Pobranie:** `inline` tylko dla PDF i obrazów
+  (`core/http_headers.safe_document_disposition` — wspólne z dokumentami
+  kandydata), reszta zawsze jako załącznik. Nazwy plików i ścieżki nie idą do
+  logów.
+- **DDL ma jedno źródło** (`services/job_file_schema.py`) dla migracji 0428
+  i `entrypoint.sh`; pilnuje `test_job_files_migration_mirror.py`. Sonda
+  `job_files` w `/api/health/deep`.
+- **Front:** `/jobs/new` — karta „Pliki” w lewej kolumnie pod requestem
+  (pierwszy plik najpierw zapisuje formularz: `ensureFormId` → `persistForm`);
+  po udanym odczycie pliku w kroku 1 ten sam plik idzie jako `source=request`
+  (niepowodzenie = toast, odczyt zostaje). Strona rekrutacji — „⋯” → „Pliki
+  (N)”, `?win=files`, `JobFilesSlideOver`. Awaria listy = komunikat z „Ponów”,
+  nigdy pusta lista. Harnessy: `/preview/job-detail?files=1`,
+  `/preview/new-job?state=review|manual`.
+
 ## Umiejętności krytyczne i bramka v9 (0405, 30.09.2026)
 
 Audyt `docs/audits/2026-09-30/wyszukiwanie-kandydatow.md` (symulacje na
@@ -5100,7 +5158,7 @@ wysłał do klienta, budżet — 32%, dni w biurze — 8%. Decyzje Artura 30.09.
   `lib/critical-skills.ts`), z podpowiedzi z historii najwyżej dwie
   (`critical_skills.SUGGEST_MAX` — działa bez decyzji człowieka, więc trzecia
   automatyczna bramka wymaga pomiaru) (`services/critical_skills.py`,
-  `MUST_GATE_POLICY_VERSION = "critical-v9"`). Pole Championa `stack.critical`:
+  `MUST_GATE_POLICY_VERSION`, dziś `critical-v11`). Pole Championa `stack.critical`:
   `None` = DL nie zdecydował (działa podpowiedź), `[]` = „Brak krytycznych”
   (bramka must nie ukrywa nikogo), lista = bramka. Serializer zdejmuje `None`
   (stare profile nie zmieniają kształtu). Wybór nie zmienia wymagań roli
@@ -5108,23 +5166,43 @@ wysłał do klienta, budżet — 32%, dni w biurze — 8%. Decyzje Artura 30.09.
   nie kasuje kontraktu wymagań i nie odpala przeliczeń. Idzie za listą MUST
   (`_prune_critical`; stracone wszystkie = z powrotem `None`), kopia
   rekrutacji ma `None`, zły wybór = 422 po polsku (`critical_errors`).
-- **Wybrać wolno każdą nazwę technologii albo narzędzia, także spoza słownika
-  (decyzja Artura 08.10.2026):** `must_gate_terms.critical_selectable` =
-  pozycja bramkuje (`gate_requirement`). Czytają ją `effective_critical`
-  i `critical_errors`; bramka szuka wtedy dosłownie tej nazwy w profilu, CV
-  i notatkach (bez aliasów). Do tej daty wybór ograniczał słownik
-  (`critical_eligible`) — w 16 najnowszych rekrutacjach 9 skończyło z „Brak
-  krytycznych”, bo „Camunda BPM”, „TestNG”, „Qualys” nie dało się oznaczyć.
-  `critical_eligible` (słownik) zostaje dla podpowiedzi z historii, wymogu
-  decyzji przy przekazaniu (`job_readiness`) i tytułu dla rekrutera — tam nikt
-  nie potwierdza wyboru. `POST /api/job-intake/critical-suggestion` oddaje
-  `selectable` (wolno oznaczyć), `blocked` (etykieta → zdanie po polsku:
-  branża, język, umiejętność miękka, kategoria albo metodyka, rola, opis) i jak dotąd
-  `eligible`. Edytor wierszy pokazuje powód POD wierszem („Nie może być
-  krytyczne: …”), a przy krytycznym spoza słownika zdanie, że szukamy
-  dokładnie tej nazwy. Reguła „wygląda na nazwę” jest składniowa
-  (`is_syntactic_technology_name`: ≤ 3 słowa, bez słów z list branż / miękkich
-  / kategorii / ról), więc krótkie słowo spoza tych list też da się oznaczyć.
+- **Krytyczną może być KAŻDA fraza — decyduje Delivery Lead (decyzja Artura
+  09.10.2026, `critical-v11`).** System nie odrzuca już branży, języka,
+  umiejętności miękkiej, kategorii, roli ani zdania (`critical_selectable`
+  i komunikat „Nie może być krytyczne: …” usunięte; `critical_errors` zna tylko
+  „za dużo” i „spoza MUST”). Limit trzech zostaje. Bramka szuka **słów wiersza**
+  (`stack.rows[].words`) w profilu, CV i notatkach — którekolwiek wystarcza:
+  `critical_skills.critical_gate_options(job)` (etykieta → słowa; fraza bez
+  wiersza = sama etykieta; tylko przy `source == "dl"`), `DealbreakerInputs.
+  critical_options` / `gate_options`, `must_gate_terms.requirement_with_options`.
+  Każde `attach_gate_evidence` MUSI nieść `options=` (strażnik AST w
+  `test_must_gate_evidence_wiring.py`) — bez nich fraza nie ma dowodu u nikogo
+  i ukrywa wszystkich na tym jednym ekranie. Te same słowa czytają QC CV
+  (`cv_qc.critical_requirements`) i wiersze „Szukaj ręcznie”
+  (`critical_resolution_payload`); pula SQL (`build_job_must_groups`) po
+  krytycznej szukanej słowami NIE zawęża (tsquery nie zna odmiany — pula ma być
+  nadzbiorem bramki). Zamrożone żądanie niesie słowa w
+  `critical_effective["options"]` tylko, gdy są (odcisk rekrutacji bez wyboru DL
+  bez zmian). Historia: 30.09 wybór ograniczał słownik (`critical_eligible`),
+  08.10 — reguła „wygląda na nazwę technologii”; w 16 rekrutacjach 9 kończyło
+  z „Brak krytycznych”. `critical_eligible` (słownik) zostaje dla podpowiedzi
+  z historii, wymogu decyzji przy przekazaniu (`job_readiness`) i tytułu dla
+  rekrutera — tam nikt wyboru nie potwierdza. `POST …/critical-suggestion`
+  oddaje `selectable` = wszystkie etykiety i puste `blocked` (pola zostają dla
+  otwartych kart przeglądarki). Edytor wierszy wyłącza „Krytyczne” WYŁĄCZNIE
+  limitem; pod krytycznym spoza słownika stoi zdanie, czego szukamy.
+- **Edytor wierszy wymagań — klawiatura (zgłoszenie 09.10.2026: „wpisuję jedno
+  must-have i nie mogę kolejnego”, „słowo znika albo się podmienia”).** Enter
+  po słowie = następne wymaganie (kursor w pustym wierszu niżej, nowym, gdy go
+  nie ma — jednym `onRowsChange`; w środku listy kursor zostaje), przecinek =
+  wariant „lub” w tym samym wierszu. `ChipField` ma do tego `onEnterCommit`
+  i `suggest.quietWhenEmpty` (lista podpowiedzi nie otwiera się na pustym polu
+  — zasłaniała wiersz niżej i „Dodaj słowo kluczowe”). Najechanie myszą NIE
+  ustawia podświetlenia klawiatury (`KeywordSuggestionList` bez `onHover`,
+  podświetlenie pod kursorem to CSS) — Enter wstawia podpowiedź tylko wybraną
+  strzałkami, także na liście kandydatów. Wiersze znajdujemy po
+  `data-row-index`, nie po kluczu (klucz pustego wiersza różni się między
+  serwerem a przeglądarką — hydratacja).
 - **Podpowiedź z historii:** technologia z MUST (każda opcja w słowniku,
   także narzędzia/standardy/AI — `must_gate_terms.critical_eligible`), którą
   ≥90% osób wysłanych w innych rekrutacjach ma w profilu, CV albo notatce

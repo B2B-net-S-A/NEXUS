@@ -229,13 +229,24 @@ def build_job_must_groups(job) -> list[list[str]]:
         skill_variant_groups,
     )
 
-    from app.services.critical_skills import effective_critical, gate_mode
+    from app.services.critical_skills import (
+        critical_gate_options,
+        effective_critical,
+        gate_mode,
+    )
 
     if gate_mode() == "critical":
         # Pula SQL wymaga tego samego, co bramka ukrywa: tylko krytycznych
         # (30.09.2026). Wymóg WSZYSTKICH must odcinał osoby, które bramka
         # przepuszcza — pula i bramka nie mogą się rozjechać.
-        return skill_variant_groups(list(effective_critical(job).labels))
+        # 09.10.2026: krytyczna, której bramka szuka słowami wiersza (fraza
+        # spoza technologii albo technologia z wariantami), NIE zawęża puli —
+        # zapytanie pełnotekstowe nie zna odmiany ani wariantów, więc odcięłoby
+        # osoby, które bramka przepuszcza. Bramka i tak działa na puli.
+        by_words = critical_gate_options(job)
+        return skill_variant_groups(
+            [label for label in effective_critical(job).labels if label not in by_words]
+        )
     return skill_variant_groups(job_explicit_must_skills(job))
 
 

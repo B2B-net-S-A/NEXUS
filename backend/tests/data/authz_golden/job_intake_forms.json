@@ -22,9 +22,13 @@
  ],
  "routes": {
   "DELETE /api/job-intake/forms/{form_id}": "PDDPDDDDPPPDDDDDPDD",
+  "DELETE /api/job-intake/forms/{form_id}/files/{file_id}": "PDDPDDDDPPPDDDDDPDD",
   "GET /api/job-intake/forms": "PDDPDDDDPPPDDDDDPDD",
   "GET /api/job-intake/forms/{form_id}": "PDDPDDDDPPPDDDDDPDD",
+  "GET /api/job-intake/forms/{form_id}/files": "PDDPDDDDPPPDDDDDPDD",
+  "GET /api/job-intake/forms/{form_id}/files/{file_id}/content": "PDDPDDDDPPPDDDDDPDD",
   "POST /api/job-intake/forms": "PDDPDDDDPPPDDDDDPDD",
+  "POST /api/job-intake/forms/{form_id}/files": "PDDPDDDDPPPDDDDDPDD",
   "PUT /api/job-intake/forms/{form_id}": "PDDPDDDDPPPDDDDDPDD"
  }
 }

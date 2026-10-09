@@ -43,7 +43,7 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
-from app.services import job_intake_forms, job_proposals
+from app.services import job_files, job_intake_forms, job_proposals
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +140,21 @@ async def prune_once(*, now: datetime | None = None) -> dict[str, int]:
             job_proposals.PRUNE_EXPIRED_EVIDENCE,
             cutoff=now - timedelta(days=job_proposals.EXPIRED_EVIDENCE_RETENTION_DAYS),
         ),
+        # 0428: pliki formularza, który autor usunął albo który zniknął wyżej
+        # po 30 dniach — wiersz i plik na dysku (dlatego nie surowy DELETE).
+        "orphan_job_files": await _sweep_orphan_job_files(),
     }
+
+
+async def _sweep_orphan_job_files() -> int:
+    deleted = 0
+    for _ in range(MAX_BATCHES):
+        async with AsyncSessionLocal() as db:
+            rows = await job_files.sweep_orphans(db)
+        deleted += rows
+        if rows < job_files.ORPHAN_BATCH:
+            break
+    return deleted
 
 
 async def queue_retention_loop() -> None:
