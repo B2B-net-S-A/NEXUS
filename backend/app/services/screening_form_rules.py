@@ -108,9 +108,11 @@ ASSESSMENT_CARD_FIELDS: tuple[str, ...] = PHRASABLE_FIELDS
 TERMS_CARD_FIELDS: tuple[str, ...] = tuple(
     key for key in FORM_CARD_FIELDS if key not in ASSESSMENT_CARD_FIELDS
 )
+# Te same napisy co w formularzu i w widoku „Screening” na froncie
+# (`SCREENING_FIT_LABEL` w `lib/screening-conversations.ts`) — pilnuje test.
 FIT_LABELS: dict[str, str] = {
     "fit": "Pasuje",
-    "uncertain": "Nie wiadomo",
+    "uncertain": "Niepewne",
     "miss": "Nie pasuje",
 }
 EXPERIENCE_STATUS_LABELS: dict[str, str] = {

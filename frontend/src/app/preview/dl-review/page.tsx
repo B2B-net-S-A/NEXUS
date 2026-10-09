@@ -357,7 +357,7 @@ const QUEUE: DlReviewQueue = {
       since: new Date(Date.now() - 50 * 3_600_000).toISOString(),
       qc_status: "overridden",
       overall_fit: "uncertain",
-      overall_fit_label: "Nie wiadomo",
+      overall_fit_label: "Niepewne",
       requirements_met: 4,
       requirements_total: 4,
       candidate_rate: { amount: 1100, unit: "daily", currency: "PLN", hourly_pln: 137.5 },
