@@ -50,6 +50,9 @@ na etapie za wypełnione pole, a plakietka Tablicy, kolejka DL i „Przesuń dal
 - Plakietka Tablicy i kolejki DL: „Screening: komplet / brakuje N / puste pola”.
 - Rekrutacja bez pytań w profilu: nagłówek „Pytania i odpowiedzi” zamiast
   „Pytania z Profilu Championa”.
+- „Zmień” stawkę w panelu osoby (`RateChangeDialog`) odświeża stan formularza
+  pary — wiersz „Stawka kandydata” w sekcji „Screening” pokazuje nową kwotę od
+  razu (uwaga z przeglądu kodu; test pada bez poprawki).
 
 **Strażniki i dokumenty:** oba inwentarze funkcji (wpisy przeniesione, bez
 `removed_reason`), harnessy z zasianym stanem formularza, przewodnik ekranu
@@ -67,6 +70,8 @@ i stemple, `docs/screening-form-contract.md`, sekcja w `CLAUDE.md`.
 | Przeglądarka 1280×720: `/preview/pipeline-v4` (dok), `/preview/dl-review` i `?layout=panel`, `/preview/screening-form?state=readonly`, `/preview/candidate-profile?tab=activity` (okno + „W starym formacie”), `/preview/job-detail` | jedna sekcja/blok „Screening”, zero wystąpień „karta rekomendacji” w tekście i atrybutach, brak poziomego przewijania; błędy konsoli tylko z odciętej sieci harnessów |
 | Stara nazwa w kodzie (`grep`) | tylko komentarze, opisy inwentarza i prompt modelu |
 | Testy backendu | niepotwierdzone lokalnie (Python 3.9 nie zbiera testów) — sprawdza CI |
+| Po scaleniu maina (#2110, #2112): `vitest run --changed origin/main` | 72 pliki, 1635 z 1635 zielone; strażniki (inwentarze, harnessy, kotwice pomocy) 401 z 401; type-check i ESLint 51 plików bez uwag |
+| Dwa przeglądy kodu (front, backend) | bez problemów blokujących merge |
 
 **Pomiar na produkcji (09.10.2026, tylko odczyt).** Widok czyta stan formularza,
 który dla arkusza bez odpowiedzi daje `sheet: null`. Policzone: 2843 arkusze

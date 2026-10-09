@@ -30,8 +30,7 @@ const VIEW = {
   changes: [],
 };
 
-function renderDialog() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function renderDialog(client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   return render(
     <QueryClientProvider client={client}>
       <RateChangeDialog open onOpenChange={() => {}} candidateId={5} jobId={9} />
@@ -96,5 +95,19 @@ describe("RateChangeDialog", () => {
     await waitFor(() =>
       expect(mocks.toast.showInfo).toHaveBeenCalledWith("Stawka bez zmian — taka sama jak dotąd."),
     );
+  });
+
+  // Dok osoby pokazuje stawkę pary w widoku „Screening” ze stanu formularza —
+  // bez odświeżenia zostawała tam stara kwota do ponownego otwarcia sekcji.
+  it("po zapisie odświeża stan formularza screeningu tej pary", async () => {
+    mocks.post.mockResolvedValue({ data: { unchanged: false, change: { id: 1 } } });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    renderDialog(client);
+    await screen.findByText("110 zł/h");
+    fireEvent.change(screen.getByLabelText("Nowa stawka B2B netto"), { target: { value: "125" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz stawkę" }));
+    await waitFor(() => expect(mocks.toast.showSuccess).toHaveBeenCalled());
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["screening-form", 9, 5] });
   });
 });

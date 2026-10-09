@@ -6,6 +6,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AppModal } from "@/components/ds/AppModal";
 import { useToast } from "@/components/Toast";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
+import { screeningFormQueryKey } from "@/lib/api/screeningForm";
 import { apiErrorMessage } from "@/lib/api-error";
 import { blurNumberInputOnWheel } from "@/lib/number-input";
 import {
@@ -91,6 +92,8 @@ export function RateChangeDialog({
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["kanban"] });
       qc.invalidateQueries({ queryKey: rateChangesQueryKey(candidateId, jobId) });
+      // Widok „Screening” w doku pokazuje stawkę pary ze stanu formularza.
+      qc.invalidateQueries({ queryKey: screeningFormQueryKey(jobId, candidateId) });
       qc.invalidateQueries({ queryKey: candidateQueryKeys.historyRoot(candidateId) });
       qc.invalidateQueries({ queryKey: candidateQueryKeys.rateOverview(candidateId) });
       qc.invalidateQueries({ queryKey: candidateQueryKeys.timelineRoot(candidateId) });
