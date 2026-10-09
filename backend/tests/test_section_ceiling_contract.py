@@ -136,10 +136,7 @@ def _classify(route: Any) -> str:
     for call, name in zip(calls, names):
         if "require_section_access" in name or name in _SECTION_AWARE_HELPERS:
             return "section"
-        if (
-            "require_candidate_roles" in name
-            or name == "require_candidate_finance_read"
-        ):
+        if "require_candidate_roles" in name or name == "require_candidate_finance_read":
             return "section"
         if "require_capability" in name:
             return "section"
