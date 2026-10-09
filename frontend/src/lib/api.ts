@@ -1871,6 +1871,12 @@ export const notificationsApi = {
           ? { ...(limit ? { limit } : {}), ...(offset ? { offset } : {}) }
           : undefined,
     }),
+  // Dzwonek: czaty mają własne okienko („Czaty” w górnym pasku), więc lista
+  // i licznik dzwonka ich nie niosą — filtr po stronie serwera, jak wyżej.
+  listForBell: (limit: number) =>
+    api.get<NotificationListResponse>("/api/notifications", {
+      params: { limit, exclude_chat: true },
+    }),
   // Widget „Moje zadania": wyłącznie zdarzenia rekrutacyjne. Sprawy klientów
   // (zamówienia, kontrakty, umowy) mają osobny panel „Moi klienci". Filtr idzie
   // do serwera, bo tylko wtedy `unread_count` zgadza się z listą.
@@ -1881,6 +1887,11 @@ export const notificationsApi = {
   count: () => api.get("/api/notifications/count"),
   markRead: (id: number) => api.patch(`/api/notifications/${id}/read`),
   markAllRead: () => api.patch("/api/notifications/read-all"),
+  // „Oznacz wszystko” w dzwonku nie gasi czatów, których dzwonek nie pokazuje.
+  markAllReadForBell: () =>
+    api.patch("/api/notifications/read-all", undefined, {
+      params: { exclude_chat: true },
+    }),
 };
 
 // ── Interview Feedback ────────────────────────────────────────────────────────

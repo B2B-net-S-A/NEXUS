@@ -7,7 +7,7 @@ import { NotificationsDropdown } from "@/components/NotificationsDropdown";
 import { notificationsApi } from "@/lib/api";
 
 vi.mock("@/lib/api", () => ({
-  notificationsApi: { list: vi.fn(), markRead: vi.fn(), markAllRead: vi.fn() },
+  notificationsApi: { listForBell: vi.fn(), markRead: vi.fn(), markAllReadForBell: vi.fn() },
 }));
 const hookState = vi.hoisted(() => ({ unreadCount: 0, clearUnread: vi.fn() }));
 vi.mock("@/hooks/useNotifications", () => ({
@@ -30,7 +30,7 @@ vi.mock("@/components/feedback/InterviewFeedbackModal", () => ({
   InterviewFeedbackModal: () => null,
 }));
 
-const listNotifications = vi.mocked(notificationsApi.list);
+const listNotifications = vi.mocked(notificationsApi.listForBell);
 
 function makeItems(count: number) {
   return Array.from({ length: count }, (_, i) => ({
@@ -48,7 +48,7 @@ function makeItems(count: number) {
 function mockAvailable(available: number) {
   listNotifications.mockImplementation(async (limit?: number) => ({
     data: { items: makeItems(Math.min(limit ?? 20, available)), unread_count: 0 },
-  }) as unknown as Awaited<ReturnType<typeof notificationsApi.list>>);
+  }) as unknown as Awaited<ReturnType<typeof notificationsApi.listForBell>>);
 }
 
 function renderDropdown() {
@@ -144,7 +144,7 @@ describe("NotificationsDropdown — dostępność, licznik i ładowanie", () => 
         items: [{ ...makeItems(1)[0], user_id: 2, on_behalf_of_name: "Anna Nowak" }],
         unread_count: 1,
       },
-    } as unknown as Awaited<ReturnType<typeof notificationsApi.list>>);
+    } as unknown as Awaited<ReturnType<typeof notificationsApi.listForBell>>);
     const user = userEvent.setup();
     renderDropdown();
     await user.click(screen.getByRole("button", { name: "Powiadomienia" }));
@@ -173,7 +173,7 @@ describe("NotificationsDropdown — dostępność, licznik i ładowanie", () => 
         ],
         unread_count: 3,
       },
-    } as unknown as Awaited<ReturnType<typeof notificationsApi.list>>);
+    } as unknown as Awaited<ReturnType<typeof notificationsApi.listForBell>>);
     const user = userEvent.setup();
     renderDropdown();
     await user.click(screen.getByRole("button", { name: "Powiadomienia" }));
@@ -202,7 +202,7 @@ describe("NotificationsDropdown — dostępność, licznik i ładowanie", () => 
       }
       return {
         data: { items: makeItems(Math.min(limit ?? 20, 60)), unread_count: 0 },
-      } as unknown as Awaited<ReturnType<typeof notificationsApi.list>>;
+      } as unknown as Awaited<ReturnType<typeof notificationsApi.listForBell>>;
     });
     const user = userEvent.setup();
     renderDropdown();

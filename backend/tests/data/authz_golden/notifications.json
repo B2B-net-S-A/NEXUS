@@ -22,10 +22,12 @@
  ],
  "routes": {
   "GET /api/notifications": "PPPPPPPDPPPPPPPPPPP",
+  "GET /api/notifications/chats": "PPPPPPPDPPPPPPPPPPP",
   "GET /api/notifications/count": "PPPPPPPDPPPPPPPPPPP",
   "GET /api/notifications/preferences": "PPPPPPPDPPPPPPPPPPP",
   "PATCH /api/notifications/read-all": "PPPPPPPDPPPPPPPPPPP",
   "PATCH /api/notifications/{notification_id}/read": "PPPPPPPDPPPPPPPPPPP",
+  "PUT /api/notifications/chats/read": "PPPPPPPDPPPPPPPPPPP",
   "PUT /api/notifications/preferences/{category}": "PPPPPPPDPPPPPPPPPPP",
   "PUT /api/notifications/read-all": "PPPPPPPDPPPPPPPPPPP",
   "PUT /api/notifications/{notification_id}/read": "PPPPPPPDPPPPPPPPPPP"

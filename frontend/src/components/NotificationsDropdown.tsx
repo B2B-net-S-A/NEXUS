@@ -587,7 +587,7 @@ export function NotificationsDropdown() {
 
   const { data, isFetching, isPlaceholderData, dataUpdatedAt } = useQuery({
     queryKey: ["notifications", scopeCacheKey, limit],
-    queryFn: () => notificationsApi.list(limit).then((r) => r.data),
+    queryFn: () => notificationsApi.listForBell(limit).then((r) => r.data),
     // Przy podniesieniu limitu lista nie znika na czas doładowania.
     placeholderData: keepPreviousData,
     // WS inwaliduje ten klucz na każdym zdarzeniu, więc przy zdrowym gnieździe
@@ -648,7 +648,7 @@ export function NotificationsDropdown() {
   };
 
   const markAllMutation = useMutation({
-    mutationFn: () => notificationsApi.markAllRead(),
+    mutationFn: () => notificationsApi.markAllReadForBell(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
       clearUnread();

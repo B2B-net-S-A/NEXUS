@@ -48,6 +48,7 @@ from app.services.candidate_membership import (
     list_candidate_chat_member_ids,
     list_candidate_chat_members,
 )
+from app.services import chat_notifications
 from app.services.chat_reactions import aggregate_candidate_reactions
 from app.services.mention_dispatch import (
     refresh_chat_message_snippets,
@@ -350,6 +351,17 @@ async def create_message(
             },
         },
     )
+    await chat_notifications.notify_recipients(
+        db,
+        notify_user,
+        kind="candidate",
+        entity_id=candidate_id,
+        link=link,
+        author_name=current_user.name,
+        preview=snippet,
+        message_recipient_ids=target_ids,
+        mention_recipient_ids=mentioned_ids,
+    )
     return payload
 
 
@@ -633,9 +645,16 @@ async def mark_read(
     else:
         state.last_read_message_id = last_id
         state.last_read_at = now
+    # Wejście do czatu gasi jego powiadomienia (lustro ``job_chat.mark_read``).
+    cleared = await chat_notifications.mark_read(
+        db, current_user.id, kind="candidate", entity_id=candidate_id
+    )
     await db.commit()
     return CandidateChatUnreadCount(
-        candidate_id=candidate_id, unread_count=0, last_read_message_id=last_id
+        candidate_id=candidate_id,
+        unread_count=0,
+        last_read_message_id=last_id,
+        notifications_cleared=cleared,
     )
 
 

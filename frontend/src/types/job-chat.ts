@@ -57,7 +57,25 @@ export interface ChatUnreadCount {
   job_id: number;
   unread_count: number;
   last_read_message_id: number | null;
+  /** Ile powiadomień tej rozmowy zgasło przy oznaczeniu czatu jako przeczytanego. */
+  notifications_cleared?: number;
 }
+
+/**
+ * Zapowiedź powiadomienia czatu (`chat:notify` / `candidate-chat:notify`):
+ * dostaje ją każdy odbiorca powiadomienia, także oznaczona osoba spoza zespołu.
+ */
+export interface ChatNotifyEvent {
+  kind: "job" | "candidate";
+  entity_id: number;
+  notification_type: "job_chat_message" | "job_chat_mention";
+  link: string;
+  thread_title: string;
+  author_name: string;
+  preview: string;
+}
+
+export const CHAT_NOTIFY_EVENT = "nexus:chat-notify";
 
 export interface ChatPinResponse {
   message_id: number;

@@ -448,7 +448,10 @@ def user_can_receive_realtime_event(user: User, event: dict[str, Any]) -> bool:
     """Apply section ceilings to known realtime payload families."""
 
     event_type = str(event.get("type") or "")
-    if event_type == "notification":
+    # ``chat:notify`` / ``candidate-chat:notify`` zapowiadają powiadomienie
+    # czatu (dymek, okienko „Czaty”), więc przechodzą tę samą bramkę co wiersz:
+    # sekcja ORAZ wyciszona kategoria. Sam prefiks ``chat:`` pyta tylko o sekcję.
+    if event_type in {"notification", "chat:notify", "candidate-chat:notify"}:
         data = event.get("data")
         if not isinstance(data, dict):
             return False

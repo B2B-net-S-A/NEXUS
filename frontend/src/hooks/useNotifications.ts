@@ -55,8 +55,10 @@ export const KPI_NUDGE_EVENT = "nexus:kpi-nudge";
 import {
   CANDIDATE_CHAT_BUS_EVENT,
   CHAT_BUS_EVENT,
+  CHAT_NOTIFY_EVENT,
   type CandidateChatBusEvent,
   type ChatBusEvent,
+  type ChatNotifyEvent,
 } from "@/types/job-chat";
 
 /** Ruch zespołu na tablicy rekrutacji przychodzi jako `pipeline_changed`.
@@ -377,6 +379,22 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
                 ),
               );
             }
+          }
+        } else if (
+          (msg.type === "chat:notify" || msg.type === "candidate-chat:notify") &&
+          msg.data
+        ) {
+          // Zapowiedź powiadomienia czatu — także dla oznaczonej osoby spoza
+          // zespołu, do której zdarzenia `…:message:new` nie docierają.
+          scheduleChatRefresh([
+            msg.type === "chat:notify" ? "job-chat-unread" : "candidate-chat-unread",
+          ]);
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent<ChatNotifyEvent>(CHAT_NOTIFY_EVENT, {
+                detail: msg.data as ChatNotifyEvent,
+              }),
+            );
           }
         } else if (msg.type === "ping") {
           ws.send("ping");

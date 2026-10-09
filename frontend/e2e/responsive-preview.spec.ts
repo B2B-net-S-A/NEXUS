@@ -32,6 +32,7 @@ const PAGES = [
   "/preview/candidate-profile?tab=documents",
   "/preview/career-share",
   "/preview/champion-profile",
+  "/preview/chat-notifications",
   "/preview/client-orders",
   "/preview/client-orders?order=5015",
   "/preview/client-playbook",

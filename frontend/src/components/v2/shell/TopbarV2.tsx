@@ -13,6 +13,7 @@ import { MyKpiWidget } from "@/components/v2/kpi/MyKpiWidget";
 import { PaletteSwitcher } from "./PaletteSwitcher";
 import { MyPeopleTopbarButton } from "@/components/v2/my-people/MyPeopleLauncher";
 import { KidsModeToggleButton, ThemeToggleButton } from "./ThemeControls";
+import { ChatNotificationsDropdown } from "./ChatNotificationsDropdown";
 
 interface Props {
   onOpenMobileSidebar: () => void;
@@ -83,6 +84,7 @@ export function TopbarV2({
           <ThemeToggleButton />
         </div>
         <MyPeopleTopbarButton />
+        <ChatNotificationsDropdown />
         <NotificationsDropdown />
         <QuickActionsV2
           externalModal={pendingModal}
