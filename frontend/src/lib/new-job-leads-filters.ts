@@ -1,5 +1,6 @@
 /**
- * Filtry listy „Nowe rekrutacje — kto prowadzi” — po stronie przeglądarki.
+ * Filtry list „Nowe rekrutacje — kto prowadzi” i „Propozycje automatu do
+ * akceptacji” — po stronie przeglądarki.
  *
  * Lista przychodzi z `GET /api/board-tasks` w całości (kilkadziesiąt wierszy
  * z ostatnich dni), więc nie ma po co pytać serwera przy każdej zmianie
@@ -20,6 +21,25 @@ import {
   isPriorityLevel,
   type PriorityLevel,
 } from "@/lib/request-priority";
+
+/**
+ * Pola wiersza, po których filtrujemy. Lista propozycji nie ma prowadzącego —
+ * podaje w `lead_user_id` / `lead_name` proponowaną osobę.
+ */
+export type LeadFilterRow = Pick<
+  NewJobLeadRow,
+  | "client_name"
+  | "category_id"
+  | "category_name"
+  | "category_slug"
+  | "delivery_lead_name"
+  | "priority_level"
+  | "lead_user_id"
+  | "lead_name"
+>;
+
+/** Lista, której wybór pamiętamy — każda ma własny. */
+export type LeadFilterList = "new-job-leads" | "allocation-proposals";
 
 /** Wartość „bez …” w polach kategorii, Delivery Leada i prowadzącego. */
 export const NONE = "none";
@@ -60,15 +80,15 @@ export interface LeadFilterOptions {
 const byLabel = (a: LeadFilterOption, b: LeadFilterOption) =>
   a.label.localeCompare(b.label, "pl");
 
-function catValue(row: NewJobLeadRow): string {
+function catValue(row: LeadFilterRow): string {
   return row.category_id == null ? NONE : String(row.category_id);
 }
 
-function dlValue(row: NewJobLeadRow): string {
+function dlValue(row: LeadFilterRow): string {
   return row.delivery_lead_name?.trim() || NONE;
 }
 
-function whoValue(row: NewJobLeadRow): string {
+function whoValue(row: LeadFilterRow): string {
   return row.lead_user_id == null ? NONE : String(row.lead_user_id);
 }
 
@@ -77,9 +97,9 @@ function whoValue(row: NewJobLeadRow): string {
  * wtedy, gdy taki wiersz istnieje — inaczej rekrutację bez kategorii albo
  * bez prowadzącego dałoby się znaleźć wyłącznie przez przewijanie.
  */
-export function leadFilterOptions(
-  rows: readonly NewJobLeadRow[],
-  categoryLabel: (row: NewJobLeadRow) => string | null = (row) => row.category_name,
+export function leadFilterOptions<T extends LeadFilterRow>(
+  rows: readonly T[],
+  categoryLabel: (row: T) => string | null = (row) => row.category_name,
 ): LeadFilterOptions {
   const clients = new Set<string>();
   const cats = new Map<string, string>();
@@ -146,7 +166,7 @@ export function hasLeadFilters(filters: LeadFilters): boolean {
 }
 
 /** Wiersze spełniające wszystkie ustawione filtry, w kolejności z serwera. */
-export function filterLeads<T extends NewJobLeadRow>(
+export function filterLeads<T extends LeadFilterRow>(
   rows: readonly T[],
   filters: LeadFilters,
 ): T[] {
@@ -162,17 +182,18 @@ export function filterLeads<T extends NewJobLeadRow>(
 
 // ── Pamięć wyboru ──────────────────────────────────────────────────────────
 
-const STORAGE_PREFIX = "nexus:new-job-leads-filters:";
-
 type UserId = number | string | null | undefined;
 
-function storageKey(userId: UserId): string | null {
-  return userId == null ? null : `${STORAGE_PREFIX}${userId}`;
+function storageKey(userId: UserId, list: LeadFilterList): string | null {
+  return userId == null ? null : `nexus:${list}-filters:${userId}`;
 }
 
 /** Zapamiętany wybór konta; brak, zepsuty wpis albo zablokowana pamięć = bez filtrów. */
-export function readStoredLeadFilters(userId: UserId): LeadFilters {
-  const key = storageKey(userId);
+export function readStoredLeadFilters(
+  userId: UserId,
+  list: LeadFilterList = "new-job-leads",
+): LeadFilters {
+  const key = storageKey(userId, list);
   if (!key) return EMPTY_LEAD_FILTERS;
   try {
     const raw = window.localStorage.getItem(key);
@@ -195,8 +216,12 @@ export function readStoredLeadFilters(userId: UserId): LeadFilters {
   }
 }
 
-export function writeStoredLeadFilters(userId: UserId, filters: LeadFilters): void {
-  const key = storageKey(userId);
+export function writeStoredLeadFilters(
+  userId: UserId,
+  filters: LeadFilters,
+  list: LeadFilterList = "new-job-leads",
+): void {
+  const key = storageKey(userId, list);
   if (!key) return;
   try {
     if (hasLeadFilters(filters)) window.localStorage.setItem(key, JSON.stringify(filters));

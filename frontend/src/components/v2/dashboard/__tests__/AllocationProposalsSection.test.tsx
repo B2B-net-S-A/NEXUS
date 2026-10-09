@@ -23,6 +23,7 @@ vi.mock("@/components/Toast", () => ({
 import {
   AllocationProposalsSection,
   MAX_BULK_ACCEPT,
+  PROPOSAL_FILTER_ROWS,
   bulkAcceptMessage,
   proposalReasons,
   replacementOptions,
@@ -185,6 +186,8 @@ describe("replacementOptions i bulkAcceptMessage", () => {
 describe("AllocationProposalsSection — propozycje automatu do akceptacji", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Wybór filtrów jest zapamiętany w przeglądarce — testy nie dziedziczą go.
+    window.localStorage.clear();
     setUser("head_of_recruitment");
     post.mockResolvedValue({ data: { decision: "accept", assigned_user_id: 7 } });
     get.mockResolvedValue({ data: BOARD });
@@ -444,6 +447,97 @@ describe("AllocationProposalsSection — propozycje automatu do akceptacji", () 
     // 105 wierszy z przyciskami: wyszukanie po roli trwa w jsdom kilka sekund
     // na obciążonej maszynie — domyślne 5 s dawało losowy timeout.
   }, 30_000);
+
+  describe("filtry", () => {
+    // Osiem propozycji: pięć u jednego klienta dla jednej osoby i trzy różne.
+    const many: AllocationProposalRow[] = [
+      ...Array.from({ length: 5 }, (_, i) => proposal({ job_id: 100 + i, title: `Java ${i}` })),
+      proposal({ job_id: 201, title: "Tester", client_name: "Ubezpieczenia Wzorcowe", category_id: 4, category_name: "QA", category_slug: "security_quality", delivery_lead_name: "Piotr Zieliński", priority_level: "p2", user_id: 8, user_name: "Ewa Kalina" }),
+      proposal({ job_id: 202, title: "Tester automatyzujący", client_name: "Ubezpieczenia Wzorcowe", category_id: 4, category_name: "QA", category_slug: "security_quality", delivery_lead_name: "Piotr Zieliński", priority_level: "p2", user_id: 9, user_name: "Tomasz Jawor" }),
+      proposal({ job_id: 203, title: "Administrator sieci", client_name: "Energetyka Wzorcowa", category_id: null, category_name: null, category_slug: null, delivery_lead_name: null, user_id: 9, user_name: "Tomasz Jawor" }),
+    ];
+
+    const titles = () =>
+      within(screen.getByRole("region", { name: "Propozycje automatu do akceptacji" }))
+        .getAllByRole("listitem")
+        .map((item) => within(item).getAllByRole("link")[0].textContent);
+
+    it("krótka lista nie ma paska filtrów", () => {
+      renderSection(many.slice(0, PROPOSAL_FILTER_ROWS));
+      expect(screen.queryByRole("group", { name: "Filtry propozycji" })).not.toBeInTheDocument();
+    });
+
+    it("te same pola co na liście rekrutacji; osobą jest proponowana osoba", async () => {
+      renderSection(many);
+      const filters = screen.getByRole("group", { name: "Filtry propozycji" });
+      expect(within(filters).getAllByRole("combobox").map((field) => field.getAttribute("aria-label"))).toEqual([
+        "Klient",
+        "Kategoria",
+        "Delivery Lead",
+        "Proponowana osoba",
+        "Priorytet",
+      ]);
+      const person = within(filters).getByRole("combobox", { name: "Proponowana osoba" });
+      expect(within(person).getAllByRole("option").map((o) => o.textContent)).toEqual([
+        "Osoba: wszystkie",
+        "Ewa Kalina",
+        "Marek Dąb",
+        "Tomasz Jawor",
+      ]);
+
+      await userEvent.selectOptions(person, "Tomasz Jawor");
+      expect(titles()).toEqual(["Tester automatyzujący", "Administrator sieci"]);
+      await userEvent.selectOptions(within(filters).getByRole("combobox", { name: "Kategoria" }), "Bez kategorii");
+      expect(titles()).toEqual(["Administrator sieci"]);
+    });
+
+    it("przy filtrach „Akceptuj pokazane (N)” wysyła tylko pokazane propozycje", async () => {
+      post.mockImplementation((_url: string, body: { items: { job_id: number; user_id: number }[] }) =>
+        Promise.resolve({ data: { results: body.items.map((item) => ({ ...item, status: "accepted" })) } }),
+      );
+      renderSection(many);
+      expect(screen.getByRole("button", { name: "Akceptuj wszystkie (8)" })).toBeInTheDocument();
+
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Klient" }), "Ubezpieczenia Wzorcowe");
+      expect(screen.getByText("2 z 8")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Akceptuj wszystkie/ })).not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "Akceptuj pokazane (2)" }));
+
+      await waitFor(() => expect(showSuccess).toHaveBeenCalledWith("Zaakceptowano 2 z 2."));
+      expect(post).toHaveBeenCalledTimes(1);
+      expect(post).toHaveBeenCalledWith("/api/request-board/proposals/accept", {
+        items: [
+          { job_id: 201, user_id: 8 },
+          { job_id: 202, user_id: 9 },
+        ],
+      });
+    });
+
+    it("jedna pokazana propozycja nie ma przycisku zbiorczego; pusta kombinacja — zdanie i „Wyczyść filtry”", async () => {
+      renderSection(many);
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Klient" }), "Energetyka Wzorcowa");
+      expect(titles()).toEqual(["Administrator sieci"]);
+      expect(screen.queryByRole("button", { name: /Akceptuj (wszystkie|pokazane)/ })).not.toBeInTheDocument();
+
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Priorytet" }), "P2 Standard");
+      expect(screen.getByRole("status")).toHaveTextContent("Żadna propozycja nie pasuje do ustawionych filtrów.");
+      expect(screen.queryByRole("listitem")).not.toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole("button", { name: "Wyczyść filtry" }));
+      expect(screen.getByRole("button", { name: "Akceptuj wszystkie (8)" })).toBeInTheDocument();
+    });
+
+    it("wybór przeżywa odświeżenie i jest osobny od listy „Nowe rekrutacje”", async () => {
+      const first = renderSection(many);
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Klient" }), "Ubezpieczenia Wzorcowe");
+      first.unmount();
+
+      renderSection(many);
+      expect(screen.getByRole("combobox", { name: "Klient" })).toHaveValue("Ubezpieczenia Wzorcowe");
+      expect(titles()).toEqual(["Tester", "Tester automatyzujący"]);
+      expect(Object.keys(window.localStorage)).toEqual(["nexus:allocation-proposals-filters:1"]);
+    });
+  });
 
   it("przy jednej propozycji nie ma „Akceptuj wszystkie” — to byłby ten sam przycisk co w wierszu", () => {
     renderSection([ROWS[0]]);

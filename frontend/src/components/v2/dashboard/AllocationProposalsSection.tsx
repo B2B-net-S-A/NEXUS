@@ -15,7 +15,10 @@
  * własnych wniosków.
  *
  * Lista nie zwija się do „Pokaż wszystkie”: „Akceptuj wszystkie” dotyczy
- * dokładnie tych wierszy, które widać.
+ * dokładnie tych wierszy, które widać. Dlatego przy ustawionych filtrach
+ * (09.10.2026 — te same co na liście „Nowe rekrutacje — kto prowadzi”,
+ * `LeadFiltersBar`) przycisk akceptuje tylko pokazane propozycje i tak się
+ * nazywa.
  */
 
 import Link from "next/link";
@@ -39,6 +42,7 @@ import {
   competenceShortLabel,
   competenceTone,
 } from "@/components/v2/CompetenceCategoryBadge";
+import { LeadFiltersBar, useLeadFilters } from "@/components/v2/dashboard/LeadFiltersBar";
 import { PickerQueryState } from "@/components/v2/filters/PickerQueryState";
 import { RequestPriorityChip } from "@/components/v2/jobs/RequestPriorityChip";
 import { useCapability } from "@/hooks/useCapability";
@@ -66,6 +70,9 @@ import { cn } from "@/lib/utils";
 
 /** Tyle propozycji przyjmuje jedno żądanie (`MAX_BULK_ACCEPT` w `request_board.py`). */
 export const MAX_BULK_ACCEPT = 100;
+
+/** Powyżej tylu propozycji nad listą stoi pasek filtrów. */
+export const PROPOSAL_FILTER_ROWS = 6;
 
 const FIT_REASON: Record<AllocationFit, string> = {
   first: "1. priorytet w kategorii",
@@ -260,6 +267,13 @@ export function AllocationProposalsSection({ rows, leaveKnown }: AllocationPropo
   const canAct = useCapability("request.proposal.decide");
   const [pending, setPending] = useState<Record<string, RowAction>>({});
   const [bulkPending, setBulkPending] = useState(false);
+  // W filtrach proponowana osoba stoi w miejscu prowadzącego.
+  const filterRows = useMemo(
+    () => rows.map((row) => ({ ...row, lead_user_id: row.user_id, lead_name: row.user_name })),
+    [rows],
+  );
+  const filter = useLeadFilters(filterRows, "allocation-proposals", PROPOSAL_FILTER_ROWS);
+  const { filtered, filtering } = filter;
 
   if (rows.length === 0) return null;
   const anyRowPending = Object.keys(pending).length > 0;
@@ -305,7 +319,8 @@ export function AllocationProposalsSection({ rows, leaveKnown }: AllocationPropo
   };
 
   const acceptAll = async () => {
-    const targets = rows;
+    // Tylko to, co widać: przy filtrach reszta propozycji zostaje do decyzji.
+    const targets = filtered;
     setBulkPending(true);
     try {
       const results: ProposalAcceptResult[] = [];
@@ -335,10 +350,10 @@ export function AllocationProposalsSection({ rows, leaveKnown }: AllocationPropo
       <header className="mb-1 flex flex-wrap items-center gap-2">
         <h3 className="text-sm font-semibold">Propozycje automatu do akceptacji</h3>
         <span className="rounded-full bg-primary/10 px-1.5 text-xs font-semibold tabular-nums text-primary">
-          {rows.length}
+          {filtering ? `${filtered.length} z ${rows.length}` : rows.length}
         </span>
         {/* Przy jednej propozycji przycisk powtarzałby „Akceptuj” z wiersza. */}
-        {canAct && rows.length > 1 && (
+        {canAct && filtered.length > 1 && (
           <Button
             type="button"
             size="sm"
@@ -347,7 +362,7 @@ export function AllocationProposalsSection({ rows, leaveKnown }: AllocationPropo
             disabled={anyRowPending}
             onClick={() => void acceptAll()}
           >
-            Akceptuj wszystkie ({rows.length})
+            {filtering ? "Akceptuj pokazane" : "Akceptuj wszystkie"} ({filtered.length})
           </Button>
         )}
       </header>
@@ -365,8 +380,18 @@ export function AllocationProposalsSection({ rows, leaveKnown }: AllocationPropo
           Brak danych o urlopach — propozycje ich nie uwzględniają.
         </p>
       )}
+      <LeadFiltersBar
+        state={filter}
+        label="Filtry propozycji"
+        who={{ label: "Proponowana osoba", all: "Osoba: wszystkie" }}
+      />
+      {filtered.length === 0 ? (
+        <p role="status" className="rounded-lg border border-border px-3 py-2.5 text-sm text-muted-foreground">
+          Żadna propozycja nie pasuje do ustawionych filtrów.
+        </p>
+      ) : (
       <ul className="divide-y divide-border rounded-lg border border-border">
-        {rows.map((row) => {
+        {filtered.map((row) => {
           const key = proposalKey(row);
           const action = pending[key];
           const locked = bulkPending || action !== undefined;
@@ -509,6 +534,7 @@ export function AllocationProposalsSection({ rows, leaveKnown }: AllocationPropo
           );
         })}
       </ul>
+      )}
     </section>
   );
 }

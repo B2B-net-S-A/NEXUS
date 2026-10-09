@@ -24,13 +24,14 @@
  *
  * Filtry (09.10.2026): klient, kategoria, Delivery Lead, prowadzący, priorytet
  * — po stronie przeglądarki, z opcjami z samych wierszy
- * (`lib/new-job-leads-filters.ts`). Pasek stoi dopiero, gdy lista nie mieści
+ * (`lib/new-job-leads-filters.ts`, pasek: `LeadFiltersBar`, wspólny z listą
+ * propozycji automatu). Pasek stoi dopiero, gdy lista nie mieści
  * się bez „Pokaż wszystkie”; krótką listę widać w całości. Wybór jest
  * zapamiętany w przeglądarce dla konta, więc przeżywa odświeżenie strony.
  */
 
 import Link from "next/link";
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
 
@@ -51,6 +52,7 @@ import {
   competenceTone,
 } from "@/components/v2/CompetenceCategoryBadge";
 import { replacementOptions } from "@/components/v2/dashboard/AllocationProposalsSection";
+import { LeadFiltersBar, useLeadFilters } from "@/components/v2/dashboard/LeadFiltersBar";
 import { PickerQueryState } from "@/components/v2/filters/PickerQueryState";
 import { RequestPriorityChip } from "@/components/v2/jobs/RequestPriorityChip";
 import { useCapability } from "@/hooks/useCapability";
@@ -71,22 +73,10 @@ import { formatTime } from "@/lib/interview-cycle";
 import { formatDeadlineShort, shortenPersonName } from "@/lib/job-header-subtitle";
 import { addRecruiter } from "@/lib/job-team";
 import { invalidateJobTeam } from "@/lib/job-team-cache";
-import {
-  EMPTY_LEAD_FILTERS,
-  filterLeads,
-  hasLeadFilters,
-  leadFilterOptions,
-  liveLeadFilters,
-  readStoredLeadFilters,
-  writeStoredLeadFilters,
-  type LeadFilterOption,
-  type LeadFilters,
-} from "@/lib/new-job-leads-filters";
 import { countPl } from "@/lib/plural-pl";
 import { requestWord } from "@/lib/request-board";
 import { isPriorityLevel } from "@/lib/request-priority";
 import { cn } from "@/lib/utils";
-import { useAuthStore } from "@/store/auth";
 
 export const NEW_JOB_LEADS_TITLE = "Nowe rekrutacje — kto prowadzi";
 
@@ -259,51 +249,6 @@ function LeadPicker({
   );
 }
 
-/** Pola paska filtrów: etykieta dla czytnika i pozycja „bez filtra”. */
-const FILTER_FIELDS: { key: keyof LeadFilters; label: string; all: string }[] = [
-  { key: "client", label: "Klient", all: "Klient: wszyscy" },
-  { key: "cat", label: "Kategoria", all: "Kategoria: wszystkie" },
-  { key: "dl", label: "Delivery Lead", all: "Delivery Lead: wszyscy" },
-  { key: "who", label: "Prowadzący", all: "Prowadzący: wszyscy" },
-  { key: "prio", label: "Priorytet", all: "Priorytet: każdy" },
-];
-
-function FilterSelect({
-  label,
-  all,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  all: string;
-  value: string;
-  options: LeadFilterOption[];
-  onChange: (next: string) => void;
-}) {
-  return (
-    <select
-      aria-label={label}
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-      className={cn(
-        // Wąska sekcja (telefon): pola w dwóch kolumnach; od 520 px — w rzędzie.
-        "h-8 w-full min-w-0 rounded-md border bg-background px-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring @min-[520px]/leads:w-auto @min-[520px]/leads:max-w-[200px]",
-        value
-          ? "border-primary font-medium text-foreground"
-          : "border-input text-muted-foreground",
-      )}
-    >
-      <option value="">{all}</option>
-      {options.map((option) => (
-        <option key={option.value} value={option.value}>
-          {option.label}
-        </option>
-      ))}
-    </select>
-  );
-}
-
 export interface NewJobLeadsSectionProps {
   rows: NewJobLeadRow[];
   /**
@@ -322,36 +267,10 @@ export function NewJobLeadsSection({ rows, standalone = false }: NewJobLeadsSect
   const canAct = useCapability("job.recruiter.assign");
   const [pending, setPending] = useState<Record<number, true>>({});
   const [expanded, setExpanded] = useState(false);
-  const userId = useAuthStore((state) => state.user?.id);
-  const [chosen, setChosen] = useState<LeadFilters>(EMPTY_LEAD_FILTERS);
-  // Zapamiętany wybór wczytujemy po zamontowaniu: konto bywa znane dopiero
-  // po odtworzeniu sesji, a pamięci przeglądarki nie ma przy renderze serwera.
-  useEffect(() => {
-    setChosen(readStoredLeadFilters(userId));
-  }, [userId]);
-  const choose = (next: LeadFilters) => {
-    setChosen(next);
-    writeStoredLeadFilters(userId, next);
-  };
-  // W polu kategorii ta sama krótka nazwa co na plakietce w wierszu.
-  const options = useMemo(
-    () =>
-      leadFilterOptions(rows, (row) =>
-        row.category_name ? (competenceShortLabel(row.category_slug) ?? row.category_name) : null,
-      ),
-    [rows],
-  );
-  const filters = useMemo(() => liveLeadFilters(chosen, options), [chosen, options]);
-  const filtered = useMemo(() => filterLeads(rows, filters), [rows, filters]);
+  const filter = useLeadFilters(rows, "new-job-leads", NEW_JOB_LEADS_ROWS);
+  const { filtered, filtering } = filter;
 
   if (rows.length === 0) return null;
-  const filtering = hasLeadFilters(filters);
-  // Pasek dopiero, gdy lista nie mieści się bez „Pokaż wszystkie”. Pole
-  // z jedną pozycją niczego nie zawęża — chyba że właśnie filtruje.
-  const fields =
-    rows.length > NEW_JOB_LEADS_ROWS || filtering
-      ? FILTER_FIELDS.filter((field) => options[field.key].length > 1 || filters[field.key])
-      : [];
   const shown = expanded ? filtered : filtered.slice(0, NEW_JOB_LEADS_ROWS);
 
   const dropRow = (jobId: number) =>
@@ -426,33 +345,7 @@ export function NewJobLeadsSection({ rows, standalone = false }: NewJobLeadsSect
         albo go zmień — rekrutacja zniknie z listy.
         {canAct ? "" : " W tym widoku nie możesz zmieniać rekrutera prowadzącego."}
       </p>
-      {fields.length > 0 ? (
-        <div
-          role="group"
-          aria-label="Filtry listy"
-          className="mb-2 grid grid-cols-2 items-center gap-2 @min-[520px]/leads:flex @min-[520px]/leads:flex-wrap"
-        >
-          {fields.map((field) => (
-            <FilterSelect
-              key={field.key}
-              label={field.label}
-              all={field.all}
-              value={filters[field.key]}
-              options={options[field.key]}
-              onChange={(next) => choose({ ...filters, [field.key]: next })}
-            />
-          ))}
-          {filtering ? (
-            <button
-              type="button"
-              onClick={() => choose(EMPTY_LEAD_FILTERS)}
-              className="text-xs font-medium text-primary hover:underline"
-            >
-              Wyczyść filtry
-            </button>
-          ) : null}
-        </div>
-      ) : null}
+      <LeadFiltersBar state={filter} />
       {filtered.length === 0 ? (
         <p role="status" className="rounded-lg border border-border px-3 py-2.5 text-sm text-muted-foreground">
           Żadna rekrutacja nie pasuje do ustawionych filtrów.

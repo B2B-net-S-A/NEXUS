@@ -141,6 +141,17 @@ describe("pamięć wyboru — osobno dla konta", () => {
     expect(readStoredLeadFilters(8)).toEqual(EMPTY_LEAD_FILTERS);
   });
 
+  it("każda lista ma własną pamięć", () => {
+    writeStoredLeadFilters(7, only({ client: "Bank Północny" }));
+    writeStoredLeadFilters(7, only({ who: "9" }), "allocation-proposals");
+    expect(readStoredLeadFilters(7)).toEqual(only({ client: "Bank Północny" }));
+    expect(readStoredLeadFilters(7, "allocation-proposals")).toEqual(only({ who: "9" }));
+    expect(Object.keys(window.localStorage).sort()).toEqual([
+      "nexus:allocation-proposals-filters:7",
+      "nexus:new-job-leads-filters:7",
+    ]);
+  });
+
   it("wyczyszczone filtry usuwają wpis", () => {
     writeStoredLeadFilters(7, only({ who: "9" }));
     writeStoredLeadFilters(7, EMPTY_LEAD_FILTERS);
