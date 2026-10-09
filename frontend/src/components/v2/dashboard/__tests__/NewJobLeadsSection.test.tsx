@@ -105,6 +105,8 @@ function rowOf(title: string): HTMLElement {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Wybór filtrów jest zapamiętany w przeglądarce — testy nie dziedziczą go.
+  window.localStorage.clear();
   setUser("head_of_recruitment");
   get.mockResolvedValue({ data: BOARD });
   post.mockResolvedValue({ data: {} });
@@ -381,6 +383,46 @@ describe("NewJobLeadsSection — „Nowe rekrutacje — kto prowadzi”", () => 
       const filters = screen.getByRole("group", { name: "Filtry listy" });
       expect(within(filters).getAllByRole("combobox")).toHaveLength(1);
       expect(within(filters).getByRole("combobox", { name: "Klient" })).toBeInTheDocument();
+    });
+
+    it("wybór przeżywa odświeżenie strony — dla tego samego konta", async () => {
+      const first = renderSection(many);
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Klient" }), "Ubezpieczenia Wzorcowe");
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Priorytet" }), "P1 Pilne");
+      first.unmount();
+
+      const second = renderSection(many);
+      expect(screen.getByRole("combobox", { name: "Klient" })).toHaveValue("Ubezpieczenia Wzorcowe");
+      expect(screen.getByRole("combobox", { name: "Priorytet" })).toHaveValue("p1");
+      expect(titles()).toEqual(["Tester"]);
+      second.unmount();
+
+      // Inne konto w tej samej przeglądarce zaczyna od pełnej listy.
+      setUser("admin", { id: 2 });
+      renderSection(many);
+      expect(screen.getByRole("combobox", { name: "Klient" })).toHaveValue("");
+      expect(screen.getByRole("button", { name: "Pokaż wszystkie (8)" })).toBeInTheDocument();
+    });
+
+    it("„Wyczyść filtry” czyści też pamięć", async () => {
+      const first = renderSection(many);
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Klient" }), "Ubezpieczenia Wzorcowe");
+      await userEvent.click(screen.getByRole("button", { name: "Wyczyść filtry" }));
+      first.unmount();
+
+      renderSection(many);
+      expect(screen.getByRole("combobox", { name: "Klient" })).toHaveValue("");
+    });
+
+    it("zapamiętany filtr pokazuje pasek także przy krótkiej liście", async () => {
+      const first = renderSection(many);
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Klient" }), "Ubezpieczenia Wzorcowe");
+      first.unmount();
+
+      renderSection(many.slice(3));
+      expect(screen.getByRole("combobox", { name: "Klient" })).toHaveValue("Ubezpieczenia Wzorcowe");
+      expect(screen.getByRole("button", { name: "Wyczyść filtry" })).toBeInTheDocument();
+      expect(titles()).toEqual(["Tester", "Tester automatyzujący"]);
     });
 
     it("po potwierdzeniu ostatniej rekrutacji wybranego klienta filtr przestaje działać", async () => {

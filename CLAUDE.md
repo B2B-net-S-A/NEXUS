@@ -4653,7 +4653,10 @@ z „wymagań do wyszukiwania” powtarzało must, deal breaker miały 3 z 99 py
   klient, kategoria, Delivery Lead, prowadzący, priorytet) działają
   w przeglądarce na wierszach z odpowiedzi (`lib/new-job-leads-filters.ts`),
   więc `MAX_ROWS` (100) jest bezpiecznikiem, nie stroną — wiersz ucięty limitem
-  byłby dla filtrów niewidoczny.
+  byłby dla filtrów niewidoczny. Wybór jest zapamiętany w przeglądarce per
+  konto (`nexus:new-job-leads-filters:<id>`) i wylogowanie go nie czyści;
+  filtr, którego wartości nie ma dziś na liście, nie działa, ale wraca, gdy
+  taka rekrutacja znowu się pojawi.
 - **Podpowiedź kategorii pyta tylko o rolę, która stoi w polu**
   (`categoryInputCurrent` w `NewJobPage`): zapytanie idzie po chwili ciszy,
   a zaraz po odczycie requestu opóźniona wartość to jeszcze puste pole —
