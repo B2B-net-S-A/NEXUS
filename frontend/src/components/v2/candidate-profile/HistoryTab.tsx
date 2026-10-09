@@ -19,6 +19,7 @@
 
 import * as React from "react";
 import { useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Download, FileText, Loader2 } from "lucide-react";
 
@@ -38,7 +39,6 @@ import {
   candidateQueryKeys,
   candidateViewerScopeKey,
 } from "@/components/v2/pages/candidate-query-keys";
-import { RecommendationCardDialog } from "@/components/v2/screening/RecommendationCardDialog";
 import {
   useCandidateCardOverview,
   type CandidateCardNoteLink,
@@ -61,6 +61,13 @@ import { NoteComposer, NotesList } from "./Notes";
 import { TimelineTab } from "./Timeline";
 import { SectionError, SectionLoading } from "./profile-shared";
 import { useNoAnswer, useNoteActions } from "./useNoteActions";
+
+// Okno „Screening” ciągnie formularz screeningu — ładuje się dopiero po
+// kliknięciu przy notatce, żeby profil kandydata go nie nosił.
+const ScreeningSummaryDialog = dynamic(
+  () => import("@/components/v2/screening-form/ScreeningSummaryDialog").then((m) => m.ScreeningSummaryDialog),
+  { ssr: false },
+);
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- oś czasu i notatki są luźno typowane */
 
@@ -471,7 +478,7 @@ export function HistoryTab({
       ) : null}
 
       {openCard ? (
-        <RecommendationCardDialog
+        <ScreeningSummaryDialog
           open
           onOpenChange={(open) => {
             if (open) return;
@@ -482,6 +489,7 @@ export function HistoryTab({
           }}
           candidateId={candidateId}
           jobId={openCard.job_id}
+          jobTitle={openCard.job_title}
           candidateName={`${candidate.name ?? ""} ${candidate.lastname ?? ""}`.trim()}
           readOnly={readOnly}
         />

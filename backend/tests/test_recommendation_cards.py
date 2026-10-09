@@ -102,6 +102,31 @@ def test_card_summary_carries_what_the_move_dialog_needs():
     assert monthly["availability"] is False
 
 
+def test_stage_rate_counts_as_the_filled_rate_field():
+    """09.10.2026: stawka zapisana na etapie to nie brak pola „Stawka”.
+
+    Formularz screeningu liczył tak od 0424, plakietka Tablicy, kolejka DL
+    i „Przesuń dalej” — nie; ta sama osoba miała dwie różne liczby braków.
+    """
+    at = "2026-10-03T10:00:00+00:00"
+    fields = {"availability": {"raw": "2 tygodnie", "at": at}}
+    plain = cards.card_summary(fields, {}, None)
+    rated = cards.card_summary(fields, {}, None, stage_rate=True)
+    assert "rate" in plain["missing"]
+    assert "rate" not in rated["missing"]
+    assert len(rated["missing"]) == len(plain["missing"]) - 1
+    # Podpowiedź do okna stawki dalej pochodzi wyłącznie z pola, nie z etapu.
+    assert rated["rate_hourly"] is None
+
+    # Sama stawka na etapie, żadnego pola: stan „częściowy”, nie „pusty”.
+    assert cards.card_summary({}, {}, None)["status"] == "empty"
+    assert cards.card_summary({}, {}, None, stage_rate=True)["status"] == "partial"
+
+    # Pole stawki wpisane tekstem wygrywa — znacznik etapu go nie nadpisuje.
+    typed = {"rate": {"raw": "130–150 zł/h", "at": at}}
+    assert cards.with_stage_rate(typed, True) is typed
+
+
 def test_only_listed_modules_read_recommendation_cards():
     """Narodowość z karty nie może trafić do promptów ani dopasowania.
 

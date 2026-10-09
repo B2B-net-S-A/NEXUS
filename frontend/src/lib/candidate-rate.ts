@@ -114,8 +114,8 @@ export function rateFromContextLine(rateFrom: {
 }
 
 const SOURCE_LABEL: Record<string, string> = {
-  card: "Karta rekomendacji",
-  card_manual: "Karta rekomendacji (wpisane ręcznie)",
+  card: "Screening (z notatki)",
+  card_manual: "Screening (wpisane ręcznie)",
   stage: "Okno „Zweryfikowany”",
   application: "Formularz zgłoszenia",
   profile: "Profil",

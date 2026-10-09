@@ -30,17 +30,17 @@ export function cardFactsByKey(
   return Object.fromEntries((facts ?? []).map((fact) => [fact.key, fact]));
 }
 
-/** „rozmowa 28.09.2026” albo „wpisane na karcie 28.09.2026”. */
+/** „rozmowa 28.09.2026” albo „wpisane w screeningu 28.09.2026”. */
 export function cardFactOrigin(fact: CandidateCardFact): string {
   const date = day(fact.at);
-  const what = fact.source === "manual" ? "wpisane na karcie" : "rozmowa";
+  const what = fact.source === "manual" ? "wpisane w screeningu" : "rozmowa";
   return date ? `${what} ${date}` : what;
 }
 
 /** Dymek: kto i w której rekrutacji. */
 export function cardFactTitle(fact: CandidateCardFact): string {
   const parts = [
-    fact.source === "manual" ? "Wpisane na karcie rekomendacji" : "Z notatki-karty rekomendacji",
+    fact.source === "manual" ? "Wpisane w screeningu" : "Z notatki z rozmowy",
     fact.author_name,
     fact.job_title,
   ].filter(Boolean);
@@ -90,7 +90,7 @@ export function cardConversationMeta(conversation: CandidateCardConversation): s
     answered === total
       ? countPl(total, "pytanie", "pytania", "pytań")
       : `${answered} z ${countPl(total, "pytania", "pytań", "pytań")}`,
-    conversation.from_traffit ? "z karty wpisanej w Traffit" : "z notatki",
+    conversation.from_traffit ? "z notatki wpisanej w Traffit" : "z notatki",
   ];
   return parts.filter(Boolean).join(" · ");
 }
@@ -101,7 +101,7 @@ export function noteLinksById(
   return new Map((links ?? []).map((link) => [link.note_id, link]));
 }
 
-/** „Do karty trafiło: stawka, dostępność, tryb pracy i 2 odpowiedzi”. */
+/** „Do screeningu trafiło: stawka, dostępność, tryb pracy i 2 odpowiedzi”. */
 export function noteLinkSummary(link: CandidateCardNoteLink): string | null {
   const parts = link.field_labels.map((label) => label.toLowerCase());
   if (link.answers > 0) {
@@ -109,5 +109,5 @@ export function noteLinkSummary(link: CandidateCardNoteLink): string | null {
   }
   if (parts.length === 0) return null;
   const last = parts.length > 1 ? ` i ${parts.pop()}` : "";
-  return `Do karty trafiło: ${parts.join(", ")}${last}`;
+  return `Do screeningu trafiło: ${parts.join(", ")}${last}`;
 }

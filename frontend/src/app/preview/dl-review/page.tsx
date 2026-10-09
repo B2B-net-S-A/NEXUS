@@ -203,7 +203,9 @@ const CARD: RecommendationCard = {
   completeness: { status: "partial", filled: 8, total: 10, missing: ["red_flags", "motivation"] },
   labels: LABELS,
   editable_fields: Object.keys(LABELS),
-  legacy_text: "",
+  // Tekst pod „W starym formacie” w bloku „Screening”.
+  legacy_text:
+    "Imię i nazwisko: Jan Przykładowy\nStawka: 135 zł/h\nDostępność: 1 miesiąc\nAngielski: C1\n\nP1: Rozwiązanie rozwijane w Javie 17+ i Spring Boot\nO: Panel administracyjny, Java 21.",
   updated_at: "2026-09-30T10:00:00Z",
 };
 
@@ -417,14 +419,41 @@ const RETURNED_FORM: ScreeningFormState = {
   sheet_source_stage_id: STAGE_ID,
   legacy_notes: null,
   note_answers: [],
+  // Pytania scalone jak na serwerze — blok „Screening” w przeglądzie.
+  questions: [
+    {
+      number: 1,
+      question: "Rozwiązanie rozwijane w Javie 17+ i Spring Boot",
+      answer: "Panel administracyjny, Java 21.",
+      source: "sheet",
+      question_id: "q1",
+      deal_breaker: "Wyłącznie utrzymanie aplikacji.",
+      deal_breaker_hit: false,
+    },
+    {
+      number: 2,
+      question: "Komunikacja między usługami — synchroniczna czy przez kolejki",
+      answer: "REST.",
+      source: "sheet",
+      question_id: "q2",
+      deal_breaker: null,
+      deal_breaker_hit: false,
+    },
+  ],
   card: {
     fields: {
       availability: { raw: "1 miesiąc", source: "manual", by_name: "Marta Testowa" },
+      work_mode: { raw: "hybrydowo, 2 dni w tygodniu, Łódź", source: "note", note_id: 1 },
+      location: { raw: "Łódź", source: "note", note_id: 1 },
+      nationality: { raw: "polska", source: "note", note_id: 1 },
+      worked_at_client: { raw: "nie", value: "no", source: "note", note_id: 1 },
+      english: { raw: "C1", level: "C1", source: "manual", by_name: "Marta Testowa" },
       recommendation: { raw: "Dziewięć lat w Javie, trzy w bankowości.", source: "manual", by_name: "Marta Testowa" },
     },
     previous: {},
     suggestions: {},
-    completeness: { status: "partial", filled: 6, total: 10, missing: ["red_flags", "motivation"] },
+    // Stawka stoi na etapie, więc liczy się jako wypełnione pole (8 z 10).
+    completeness: { status: "partial", filled: 8, total: 10, missing: ["red_flags", "motivation"] },
     labels: { ...LABELS, recommendation: "Dlaczego ten kandydat" },
     editable_fields: Object.keys(LABELS).filter((k) => k !== "rate" && k !== "client_manager"),
   },
@@ -500,7 +529,6 @@ function seededClient(): QueryClient {
   qc.setQueryData(candidateQueryKeys.cvDocuments(CANDIDATE_ID), DOCUMENTS, fresh);
   qc.setQueryData(stageBrandedQueryKey(STAGE_ID), BRANDED_NONE, fresh);
   qc.setQueryData(recommendationCardQueryKey(CANDIDATE_ID, JOB_ID), CARD, fresh);
-  qc.setQueryData(["pipeline-stage-screening", STAGE_ID], { screening_answers: null }, fresh);
   qc.setQueryData(dlReviewContextQueryKey(JOB_ID, CANDIDATE_ID), CONTEXT, fresh);
   qc.setQueryData(dlReviewQueueQueryKey(JOB_ID), QUEUE, fresh);
   qc.setQueryData(screeningFormQueryKey(JOB_ID, CANDIDATE_ID), RETURNED_FORM, fresh);

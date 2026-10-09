@@ -267,6 +267,10 @@ async def test_get_shows_an_empty_editable_form(app_client: AsyncClient):
     assert body["rate_change_notifies"] is False
     assert body["can_edit_rate"] is True
     assert "screening_questions" in body["champion_profile"]
+    # 09.10.2026: widok do odczytu dostaje pytania scalone przez serwer.
+    assert body["rate_text"] is None
+    assert [q["question_id"] for q in body["questions"]] == [q["id"] for q in QUESTIONS]
+    assert all(q["source"] is None and q["answer"] == "" for q in body["questions"])
 
 
 async def test_save_writes_on_the_newest_row_and_keeps_the_older_sheet(
@@ -299,6 +303,8 @@ async def test_save_writes_on_the_newest_row_and_keeps_the_older_sheet(
     assert before["board_column"] == "verified"
     assert before["sheet_source_stage_id"] == w["stage_id"]
     assert _answers(before) == {"q1": "Kafka od roku"}
+    first = before["questions"][0]
+    assert (first["answer"], first["source"]) == ("Kafka od roku", "sheet")
 
     body = await _put(
         app_client,

@@ -271,10 +271,10 @@ def _items_for_cpro_upload(column: str, f: PairFacts) -> list[_Item]:
 
 
 def _missing_rate_detail(f: PairFacts) -> str:
-    """Stawka z karty nie zastępuje stawki etapu — okno stawki ją podpowie."""
+    """Stawka z notatki nie zastępuje stawki etapu — okno stawki ją podpowie."""
     if f.card_rate_hourly is None:
         return "brak stawki w profilu i w procesie"
-    return f"na karcie: {f.card_rate_hourly:g} zł/h — potwierdź w oknie stawki"
+    return f"z notatki: {f.card_rate_hourly:g} zł/h — potwierdź w oknie stawki"
 
 
 def _items_for(column: str, f: PairFacts) -> list[_Item]:
@@ -319,17 +319,18 @@ def _items_for(column: str, f: PairFacts) -> list[_Item]:
                 False,
                 None
                 if f.availability_known
-                else "jest na karcie rekomendacji"
+                else "jest w screeningu"
                 if f.card_availability
                 else "nie wiemy, od kiedy może zacząć",
             ),
-            # Braki karty nie blokują ruchu — Delivery Lead zobaczy je przed
-            # wysłaniem CV. Od 0424 pola karty uzupełnia się w formularzu
-            # screeningu (akcja `open_card` otwiera panel na screeningu).
+            # Braki pól nie blokują ruchu — Delivery Lead zobaczy je przed
+            # wysłaniem CV. Od 0424 uzupełnia się je w formularzu screeningu
+            # (akcja `open_card` otwiera panel na screeningu); od 09.10.2026
+            # ekran nie używa nazwy „karta rekomendacji”.
             _Item(
                 column,
                 "recommendation_card",
-                "Karta rekomendacji",
+                "Warunki i ocena",
                 OK if f.card_exists and not f.card_missing else MISSING,
                 False,
                 (
@@ -337,7 +338,7 @@ def _items_for(column: str, f: PairFacts) -> list[_Item]:
                     if f.card_missing
                     else None
                     if f.card_exists
-                    else "karta jest jeszcze pusta"
+                    else "jeszcze nic nie wpisano"
                 ),
                 None
                 if f.card_exists and not f.card_missing
@@ -959,13 +960,15 @@ async def load_pair_facts(
     card_row = await recommendation_cards.load_card(
         db, candidate_id=candidate.id, job_id=job.id
     )
+    stage_rate = any(r.expected_rate_value is not None for r in rows)
     card = None
-    if card_row is not None:
+    if card_row is not None or stage_rate:
         card = recommendation_cards.card_summary(
-            card_row.fields_notes or {},
-            card_row.fields_manual or {},
-            card_row.note_answers,
+            (card_row.fields_notes if card_row else None) or {},
+            (card_row.fields_manual if card_row else None) or {},
+            card_row.note_answers if card_row else None,
             started=recommendation_cards.attempt_started(process),
+            stage_rate=stage_rate,
         )
 
     return PairFacts(

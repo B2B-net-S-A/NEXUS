@@ -618,6 +618,16 @@ function seedCardPanel(qc: QueryClient, item: KanbanItem): void {
     sheet_source_stage_id: null,
     legacy_notes: null,
     note_answers: [],
+    // Pytania scalone jak na serwerze — sekcja „Screening” doku (09.10.2026).
+    questions: SCREENING_QUESTIONS.map((question, index) => ({
+      number: index + 1,
+      question: question.question,
+      answer: "",
+      source: null,
+      question_id: question.id,
+      deal_breaker: question.deal_breaker || null,
+      deal_breaker_hit: false,
+    })),
     card: {
       fields: {},
       previous: {},

@@ -10,10 +10,9 @@
  * a odczyt notatki i „Ułóż w zdanie” zostają wspólne.
  */
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 
 import api, { type RateUnit } from "@/lib/api";
-import { MOVE_REQUIREMENTS_PREFIX } from "@/lib/api/moveRequirements";
 
 export interface RecommendationCardField {
   raw: string;
@@ -195,35 +194,7 @@ export const recommendationCardsApi = {
         { timeout: NOTE_READ_TIMEOUT_MS },
       )
     ).data,
-  /** Trafienie „Odpada, gdy…” jednego pytania — zwraca całą kartę. */
-  setDealBreakerHit: async (
-    candidateId: number,
-    jobId: number,
-    questionId: string | number,
-    hit: boolean,
-  ) =>
-    (
-      await api.post<RecommendationCard>("/api/recommendation-cards/deal-breaker", {
-        candidate_id: candidateId,
-        job_id: jobId,
-        question_id: questionId,
-        hit,
-      })
-    ).data,
 };
-
-/** Po zapisie karty: plakietka na tablicy i lista „Przesuń dalej” czytają ten sam stan. */
-function refreshCardDependents(
-  queryClient: ReturnType<typeof useQueryClient>,
-  candidateId: number,
-  jobId: number,
-  card: RecommendationCard,
-) {
-  queryClient.setQueryData(recommendationCardQueryKey(candidateId, jobId), card);
-  void queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
-  void queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
-  void queryClient.invalidateQueries({ queryKey: MOVE_REQUIREMENTS_PREFIX });
-}
 
 export function useRecommendationCard(candidateId: number, jobId: number, enabled = true) {
   return useQuery({
@@ -233,15 +204,3 @@ export function useRecommendationCard(candidateId: number, jobId: number, enable
     staleTime: 15_000,
   });
 }
-
-/** Zaznaczenie „Odpowiedź narusza deal-breaker” przy pytaniu karty. Ostrzeżenie
- *  w „Przesuń dalej” liczy serwer z tego samego zapisu. */
-export function useSetDealBreakerHit(candidateId: number, jobId: number) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ questionId, hit }: { questionId: string | number; hit: boolean }) =>
-      recommendationCardsApi.setDealBreakerHit(candidateId, jobId, questionId, hit),
-    onSuccess: (card) => refreshCardDependents(queryClient, candidateId, jobId, card),
-  });
-}
-

@@ -217,7 +217,6 @@ describe("linki publiczne działają bez tokenu", () => {
     "/preview/job-team-panel",
     "/preview/plain-brief",
     "/preview/job-board-screening",
-    "/preview/recommendation-card",
     "/preview/screening-form",
     "/preview/dl-review",
     "/preview/permissions",

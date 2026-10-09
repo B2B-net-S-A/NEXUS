@@ -186,8 +186,8 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.interview_question_import: "Import archiwum pytań z rozmów u klienta",
     AIFeatureKey.plain_knowledge_research: "Champion po ludzku — research technologii, ról i klientów w internecie",
     AIFeatureKey.application_screening: "Zgłoszenia z linku rekrutacji — przegląd CV przed wejściem do „Nowi”",
-    AIFeatureKey.recommendation_card_note_read: "Karta rekomendacji — wypełnienie z notatki rekrutera",
-    AIFeatureKey.screening_answer_phrasing: "„Ułóż w zdanie” — odpowiedzi ze screeningu i pola karty",
+    AIFeatureKey.recommendation_card_note_read: "Screening — wypełnienie z notatki rekrutera",
+    AIFeatureKey.screening_answer_phrasing: "„Ułóż w zdanie” — odpowiedzi i pola opisowe screeningu",
 }
 
 
@@ -322,11 +322,11 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     ],
     AIFeatureKey.recommendation_card_note_read: [
         "Tekst notatki z rozmowy wgranej albo wklejonej przez rekrutera",
-        "Pytania screeningowe z Profilu Championa i nazwy pól karty",
+        "Pytania screeningowe z Profilu Championa i nazwy pól screeningu",
         "(bez narodowości, e-maili, telefonów i linków — wycinane przed wysłaniem)",
     ],
     AIFeatureKey.screening_answer_phrasing: [
-        "Hasła rekrutera z jednej odpowiedzi albo pola karty i treść pytania",
+        "Hasła rekrutera z jednej odpowiedzi albo pola opisowego i treść pytania",
         "(bez danych z profilu kandydata, nazwy klienta i stawek do klienta)",
     ],
 }
