@@ -78,6 +78,34 @@ który dla arkusza bez odpowiedzi daje `sheet: null`. Policzone: 2843 arkusze
 screeningu, wszystkie mają co najmniej jedną odpowiedź; arkuszy z oceną albo
 notatką bez żadnej odpowiedzi jest 0. Zapasu z arkusza etapu nie dokładałem.
 
+## Po wdrożeniu (09.10.2026)
+
+PR #2114 scalony jako `8628cff53`; `/api/health` i `version.json` frontu podają
+ten SHA. Przeklikane na produkcji (Chrome, okno ok. 1600 × 850, dane testowe QA):
+
+| Ekran | Wynik |
+|---|---|
+| Dok osoby w „Screeningu” | jedna sekcja „Screening”: ściąga do rozmowy, niżej warunki → pytania (odpowiedź „z notatki”) → ocena, zwinięte „W starym formacie”; „Brakuje pól: 7” zgadza się z listą braków w ramce „Następny etap” |
+| Panel po „Rozwiń” | zakładka „Screening” z formularzem, napisy „Z notatek: …” i „Te pola widzi Delivery Lead przed wysłaniem CV.” |
+| Przegląd Delivery Leada (osoba w „QC CV”) | jeden blok „Screening” między wymaganiami a ryzykami, bez „Arkusza screeningu Championa” |
+| Profil kandydata → Notatki i historia | „Do screeningu trafiło: …” i „Screening tej rekrutacji” otwiera okno „Screening” |
+| Stara nazwa w tekście strony i atrybutach | zero wystąpień na każdym z tych ekranów |
+
+Znalezione przy przeklikaniu:
+
+- **Dwa napisy tej samej oceny w przeglądzie DL.** Blok „Screening” mówił
+  „Niepewne” (napis z formularza), pasek decyzji „Ocena rekrutera: Nie wiadomo”
+  (napis z serwera, `FIT_LABELS`). Poprawione osobnym PR-em: serwer mówi
+  „Niepewne”, a test porównuje obie mapy napisów.
+- **Wąski dok: głowa zajmuje cały panel (stan sprzed tej zmiany).** Przy oknie
+  o wysokości ok. 850 px głowa doku (fakty, przyciski i ramka „Następny etap”
+  z listą braków) ma 784 px, a na sekcje zostają 32 px — sekcję „Screening”
+  widać dopiero po „Rozwiń”. Przy długim ostrzeżeniu o „Odpada, gdy…” głowa ma
+  1098 px. Zmiana tego układu nie należała do zakresu; zgłoszone osobno.
+- Za pierwszym razem PR wypadł z kolejki na strażniku profilu
+  (`not.toContain("ScreeningSummary")` łapał nowe okno) — strażnik pilnuje teraz
+  pełnej nazwy starej karty. Testy backendu przeszły w pełnym biegu kolejki.
+
 ## Sprostowanie do planu
 
 Plan mówił, że osoba po nowym formularzu ma plakietkę „brakuje 1”. Formularz

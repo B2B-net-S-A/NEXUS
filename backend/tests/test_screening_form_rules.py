@@ -6,7 +6,9 @@ po”, plan przywrócenia wersji i walidacja zapisu. Dane wyłącznie fikcyjne.
 
 from __future__ import annotations
 
+import re
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
@@ -224,7 +226,7 @@ def test_diff_lists_changes_in_form_order_with_polish_labels():
     by_key = {c.key: c for c in changes}
     assert (by_key["q3"].before, by_key["q3"].after) == (None, "pominięte")
     assert (by_key["overall_fit"].before, by_key["overall_fit"].after) == (
-        "Nie wiadomo",
+        "Niepewne",
         "Pasuje",
     )
     assert (by_key["rate"].before, by_key["rate"].after) == ("110 zł/h", "125 zł/h")
@@ -596,3 +598,23 @@ def test_proposal_carries_the_structured_rate():
         "currency": "PLN",
     }
     assert "rate" not in by_key["english"]
+
+
+# ── Etykiety oceny rekrutera ─────────────────────────────────────────────────
+
+
+def test_fit_labels_match_the_frontend_labels():
+    """Ocena rekrutera ma jeden napis na każdym ekranie.
+
+    09.10.2026: przegląd Delivery Leada pokazywał tę samą ocenę jako
+    „Niepewne” (widok „Screening”, napis z frontu) i „Nie wiadomo” (pasek
+    decyzji, napis z serwera).
+    """
+    source = (
+        Path(__file__).resolve().parents[2]
+        / "frontend/src/lib/screening-conversations.ts"
+    ).read_text(encoding="utf-8")
+    declared = re.search(r"SCREENING_FIT_LABEL\s*=\s*\{([^}]*)\}", source)
+    assert declared, "nie znaleziono SCREENING_FIT_LABEL we froncie"
+    frontend = dict(re.findall(r"(\w+):\s*\"([^\"]+)\"", declared.group(1)))
+    assert frontend == rules.FIT_LABELS
