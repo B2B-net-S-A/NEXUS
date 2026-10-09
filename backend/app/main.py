@@ -2909,6 +2909,10 @@ async def api_health_deep_check():
     from app.models.recommendation_card import RecommendationCard
     from app.models.candidate_rate_change import CandidateRateChange
     from app.models.screening_form_version import ScreeningFormVersion
+    from app.models.client_framework_contract import ClientFrameworkContract
+    from app.models.client_framework_contract_chunk import (
+        ClientFrameworkContractChunk,
+    )
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -3146,6 +3150,10 @@ async def api_health_deep_check():
         # 0424: każdy zapis formularza screeningu dopisuje wersję — brak
         # tabeli = 500 przy otwarciu i zapisie formularza.
         ("screening_form_versions", ScreeningFormVersion),
+        # 0426: Jarvis czyta umowy ramowe — kolumny `text_*` stanu odczytu
+        # i tabela fragmentów; brak = 500 przy pytaniu o umowę klienta.
+        ("client_framework_contracts", ClientFrameworkContract),
+        ("client_framework_contract_chunks", ClientFrameworkContractChunk),
     ]
 
     checks: dict[str, str] = {}

@@ -483,6 +483,10 @@ class Settings(BaseSettings):
     # `HYBRID_POOL_ENABLED`, inaczej dwie dźwignie są nie do rozplątania.
     TALENT_RADAR_STRUCTURED_SKILLS_ENABLED: bool = False
     QDRANT_PASSAGES_COLLECTION: str = "nexus_cv_passages"
+    # Jarvis czyta umowy ramowe klientów (0426, decyzja Artura 09.10.2026):
+    # fragmenty umów idą do Voyage po wektory. Wyłączenie zostawia wyszukiwanie
+    # po słowach — nic z treści umów nie trafia wtedy do Voyage.
+    FRAMEWORK_CONTRACT_EMBEDDINGS_ENABLED: bool = True
     CV_ENRICHMENT_ENABLED: bool = True  # kill-switch without redeploy
     # Darmowe sito duplikatów przed płatnym odczytem CV (`/from-cv`, 18.09.2026).
     # Wyłącznik istnieje, bo sito czyta e-mail i telefon REGEXEM z nagłówka, a nie

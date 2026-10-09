@@ -23,8 +23,10 @@
  "routes": {
   "DELETE /api/clients/{client_id}/framework-contracts/{fc_id}": "PPDBDDDDBBBDDDDDDDD",
   "GET /api/clients/{client_id}/framework-contracts": "BBDBDDDDBBBDDDDDDBB",
+  "GET /api/clients/{client_id}/framework-contracts/search": "BBDBDDDDBBBDDDDDDBB",
   "GET /api/clients/{client_id}/framework-contracts/{fc_id}": "BBDBDDDDBBBDDDDDDBB",
   "GET /api/clients/{client_id}/framework-contracts/{fc_id}/file": "BBDBDDDDBBBDDDDDDBB",
+  "GET /api/clients/{client_id}/framework-contracts/{fc_id}/text": "BBDBDDDDBBBDDDDDDBB",
   "PATCH /api/clients/{client_id}/framework-contracts/{fc_id}": "PPDBDDDDBBBDDDDDDDD",
   "POST /api/clients/{client_id}/framework-contracts": "PPDBDDDDBBBDDDDDDDD",
   "POST /api/clients/{client_id}/framework-contracts/{fc_id}/send-autenti": "PPDBDDDDBBBDDDDDDDD",

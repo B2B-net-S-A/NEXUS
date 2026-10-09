@@ -181,6 +181,18 @@ class ClientFrameworkContract(Base, TimestampMixin):
 
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # Stan odczytu treści pliku dla Jarvisa (0426; zapisuje wyłącznie
+    # ``services/framework_contract_index``). ``text_file_path`` różne od
+    # ``file_path`` = fragmenty są z poprzedniego pliku i wymagają odbudowy.
+    text_status: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    text_file_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    text_chars: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    text_pages: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    text_model: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    text_attempted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     project_part: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
     """Część zamówienia Centrum e-Zdrowia (``cz1``…``cz6``), gdy umowa ramowa
     JEST częścią. Pod nią wiszą umowy wykonawcze (`executive_contracts`)."""

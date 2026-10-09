@@ -25,6 +25,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Query,
     UploadFile,
     status,
 )
@@ -61,8 +62,13 @@ from app.schemas.client_framework_contract import (
     ClientFrameworkContractListResponse,
     ClientFrameworkContractRead,
     ClientFrameworkContractUpdate,
+    FrameworkContractPassage,
+    FrameworkContractReading,
+    FrameworkContractSearchResponse,
+    FrameworkContractTextResponse,
 )
-from app.services import storage_service
+from app.services import framework_contract_index, storage_service
+from app.services.framework_contract_text import Passage, read_in_order
 from app.core.scheduling import business_today
 
 router = APIRouter(
@@ -294,6 +300,129 @@ async def list_framework_contracts(
     return ClientFrameworkContractListResponse(items=items, total=len(items))
 
 
+# ── Treść umów dla Jarvisa (0426) ───────────────────────────────────────────
+
+
+def _reading(
+    fc: ClientFrameworkContract,
+    amendments_count: int = 0,
+    total_chunks: Optional[int] = None,
+) -> FrameworkContractReading:
+    return FrameworkContractReading(
+        id=fc.id,
+        name=fc.name,
+        status=fc.status,
+        effective_date=fc.effective_date,
+        expiry_date=fc.expiry_date,
+        has_file=fc.file_path is not None,
+        readable=framework_contract_index.has_current_text(fc),
+        pages=fc.text_pages,
+        total_chunks=total_chunks,
+        amendments_count=amendments_count,
+        note=framework_contract_index.reading_note(fc),
+    )
+
+
+def _passage(fc: ClientFrameworkContract, passage: Passage) -> FrameworkContractPassage:
+    return FrameworkContractPassage(
+        framework_contract_id=fc.id,
+        contract_name=fc.name,
+        contract_status=fc.status,
+        first_chunk=passage.first_chunk,
+        last_chunk=passage.last_chunk,
+        text=passage.text,
+    )
+
+
+# Przed trasą `/{fc_id}`: inaczej „search” trafiłoby w nią jako identyfikator.
+@router.get(
+    "/{client_id}/framework-contracts/search",
+    response_model=FrameworkContractSearchResponse,
+)
+async def search_framework_contracts(
+    client_id: int,
+    q: str = Query(..., min_length=2, max_length=300),
+    db: AsyncSession = Depends(get_db),
+    _user=LegalDocsReader,
+):
+    """Fragmenty umów ramowych klienta pasujące do pytania (narzędzie Jarvisa).
+
+    Szuka we wszystkich umowach klienta z wgranym plikiem. Bramka jest ta sama
+    co pobranie pliku — fragment umowy niesie to samo co PDF.
+    """
+    rows = list(
+        (
+            await db.execute(
+                select(ClientFrameworkContract)
+                .where(ClientFrameworkContract.client_id == client_id)
+                .order_by(ClientFrameworkContract.effective_date.desc().nullslast())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    await framework_contract_index.ensure_indexed(db, rows)
+    outcome = await framework_contract_index.search(db, rows, q)
+    by_id = {fc.id: fc for fc in rows}
+    counts = await _amendment_counts(db, [fc.id for fc in rows])
+    note = None
+    if not rows:
+        note = "Ten klient nie ma w NEXUSIE żadnej umowy ramowej."
+    elif outcome.retrieval == framework_contract_index.RETRIEVAL_NONE:
+        note = (
+            "Żadna umowa ramowa tego klienta nie ma treści do przeczytania — "
+            "powody są przy umowach."
+        )
+    elif not outcome.passages:
+        note = "W umowach nie ma fragmentu pasującego do tych słów — zapytaj inaczej."
+    return FrameworkContractSearchResponse(
+        query=q,
+        retrieval=outcome.retrieval,
+        passages=[_passage(by_id[p.contract_id], p) for p in outcome.passages],
+        contracts=[_reading(fc, counts.get(fc.id, 0)) for fc in rows],
+        note=note,
+    )
+
+
+@router.get(
+    "/{client_id}/framework-contracts/{fc_id}/text",
+    response_model=FrameworkContractTextResponse,
+)
+async def read_framework_contract_text(
+    client_id: int,
+    fc_id: int,
+    from_chunk: int = Query(0, ge=0, le=framework_contract_index.MAX_CHUNKS),
+    db: AsyncSession = Depends(get_db),
+    _user=LegalDocsReader,
+):
+    """Treść jednej umowy po kolei, od fragmentu ``from_chunk``."""
+    fc = await db.scalar(
+        select(ClientFrameworkContract).where(
+            ClientFrameworkContract.id == fc_id,
+            ClientFrameworkContract.client_id == client_id,
+        )
+    )
+    if fc is None:
+        raise HTTPException(404, detail="Nie ma takiej umowy ramowej u tego klienta.")
+    await framework_contract_index.ensure_indexed(db, [fc])
+    chunks = (
+        await framework_contract_index.load_chunks(db, [fc.id])
+        if framework_contract_index.has_current_text(fc)
+        else []
+    )
+    passage, next_chunk = read_in_order(chunks, from_chunk=from_chunk)
+    counts = await _amendment_counts(db, [fc.id])
+    note = None
+    if chunks and passage is None:
+        note = "Umowa nie ma dalszych fragmentów — to był koniec treści."
+    return FrameworkContractTextResponse(
+        contract=_reading(fc, counts.get(fc.id, 0), len(chunks) or None),
+        passage=_passage(fc, passage) if passage is not None else None,
+        next_chunk=next_chunk,
+        note=note,
+    )
+
+
 @router.get(
     "/{client_id}/framework-contracts/{fc_id}",
     response_model=ClientFrameworkContractRead,
@@ -413,6 +542,8 @@ async def create_framework_contract(
     await db.flush()
     await db.refresh(fc)
     await db.commit()
+    if fc.file_path is not None:
+        framework_contract_index.index_after_upload(fc.id)
     return await _to_read(db, fc)
 
 
@@ -570,6 +701,7 @@ async def delete_framework_contract(
 
         files_to_delete: list[str] = []
         amendment_files: list[str] = []
+        hard_deleted = False
         if fc.status == FrameworkContractStatus.draft and _is_manifest_owned(fc):
             # Runda 10 (R10-N12-1): szkic z manifestu portfela (start po dacie
             # importu) liczy inwariant importu — trwałe usunięcie = 503 na
@@ -619,6 +751,7 @@ async def delete_framework_contract(
                 if path
             ]
             await db.delete(fc)
+            hard_deleted = True
             audit.result_note = "Szkic umowy ramowej usunięty trwale."
         else:
             fc.status = FrameworkContractStatus.superseded
@@ -642,6 +775,9 @@ async def delete_framework_contract(
         storage_service.delete_client_framework_contract(path)
     for path in amendment_files:
         storage_service.delete_client_contract_amendment(path)
+    if hard_deleted:
+        # Fragmenty treści znikają kaskadą z wierszem; wektory sprzątamy osobno.
+        framework_contract_index.forget_after_delete(fc_id)
 
 
 # ── File upload (replace) + download ────────────────────────────────────────
@@ -692,6 +828,7 @@ async def replace_framework_contract_file(
     if old_path:
         storage_service.delete_client_framework_contract(old_path)
     await db.refresh(fc)
+    framework_contract_index.index_after_upload(fc.id)
     return await _to_read(db, fc)
 
 

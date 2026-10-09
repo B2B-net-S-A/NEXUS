@@ -268,6 +268,21 @@ def _no_background_cv_generation_after_moves(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_background_contract_reading(monkeypatch):
+    """Wgranie i usunięcie umowy ramowej uruchamia zadanie w tle (0426: odczyt
+    pliku, Voyage, Qdrant) — przeżywałoby test, który je odpalił. Testy indeksu
+    wołają ``index_contract`` wprost."""
+    from app.services import framework_contract_index
+
+    monkeypatch.setattr(
+        framework_contract_index, "index_after_upload", lambda _id: None
+    )
+    monkeypatch.setattr(
+        framework_contract_index, "forget_after_delete", lambda _id: None
+    )
+
+
+@pytest.fixture(autouse=True)
 def _cv_qc_gate_off_by_default(monkeypatch):
     """Dziesiątki testów przesuwają kartę na „CV wysłane” bez CV firmowego.
 

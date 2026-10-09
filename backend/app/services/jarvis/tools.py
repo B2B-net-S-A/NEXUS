@@ -451,6 +451,57 @@ def _shape_client_profile(data: Any, _args: dict[str, Any]) -> Any:
 # ── narzędzia odczytu ──────────────────────────────────────────────────────
 
 
+_CONTRACT_READING_KEYS = (
+    "id",
+    "name",
+    "status",
+    "effective_date",
+    "expiry_date",
+    "has_file",
+    "readable",
+    "pages",
+    "total_chunks",
+    "amendments_count",
+    "note",
+)
+_CONTRACT_PASSAGE_KEYS = (
+    "framework_contract_id",
+    "contract_name",
+    "contract_status",
+    "first_chunk",
+    "last_chunk",
+    "text",
+)
+
+
+def _shape_contract_search(data: Any, _args: dict[str, Any]) -> Any:
+    """Fragmenty umowy idą w całości — limit znaków pilnuje serwer
+    (``framework_contract_text.PASSAGE_BUDGET``), a ``trim`` uciąłby zapis
+    w połowie zdania."""
+    if not isinstance(data, dict):
+        return trim(data)
+    return {
+        **pick(data, ("retrieval", "note")),
+        "passages": [
+            pick(p, _CONTRACT_PASSAGE_KEYS) for p in data.get("passages") or []
+        ],
+        "contracts": [
+            pick(c, _CONTRACT_READING_KEYS)
+            for c in (data.get("contracts") or [])[:MAX_LIST_ITEMS]
+        ],
+    }
+
+
+def _shape_contract_text(data: Any, _args: dict[str, Any]) -> Any:
+    if not isinstance(data, dict):
+        return trim(data)
+    return {
+        "contract": pick(data.get("contract"), _CONTRACT_READING_KEYS),
+        **pick(data, ("next_chunk", "note")),
+        "passage": pick(data.get("passage"), _CONTRACT_PASSAGE_KEYS),
+    }
+
+
 def _get(path: str, params: Optional[dict[str, Any]] = None) -> RequestSpec:
     return RequestSpec("GET", path, params=_clean(params or {}))
 
@@ -1011,6 +1062,60 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
         section=None,
         build=lambda a: _get(f"/api/clients/{_int(a, 'client_id')}/playbook"),
         shape=as_is,
+    ),
+    JarvisTool(
+        name="search_framework_contracts",
+        label="Szukam w umowach ramowych klienta",
+        description=(
+            "Treść umów ramowych klienta (wgrane PDF/DOCX): fragmenty najlepiej pasujące "
+            "do pytania, ze wszystkich umów tego klienta, plus lista umów (status, okres, "
+            "czy treść da się czytać i dlaczego nie). W query podaj, czego szukasz, słowami "
+            "pytania — np. „termin akceptacji karty czasu pracy”, „termin płatności faktury”, "
+            "„okres wypowiedzenia”. Umowa może nazywać rzecz inaczej niż użytkownik. Gdy "
+            "fragmenty nie odpowiadają na pytanie, zapytaj innymi słowami albo doczytaj "
+            "dalej przez read_framework_contract."
+        ),
+        input_schema=_schema(
+            {"client_id": INT, "query": {"type": "string", "maxLength": 300}},
+            ("client_id", "query"),
+        ),
+        tier="read",
+        method="GET",
+        path="/api/clients/{client_id}/framework-contracts/search",
+        section=ProductSection.delivery,
+        build=lambda a: _get(
+            f"/api/clients/{_int(a, 'client_id')}/framework-contracts/search",
+            {"q": str(a.get("query") or "")[:300]},
+        ),
+        shape=_shape_contract_search,
+    ),
+    JarvisTool(
+        name="read_framework_contract",
+        label="Czytam umowę ramową",
+        description=(
+            "Treść jednej umowy ramowej po kolei, od fragmentu from_chunk (domyślnie od "
+            "początku). Używaj, żeby doczytać dalszy ciąg zapisu znalezionego przez "
+            "search_framework_contracts (from_chunk = last_chunk + 1) albo wcześniejszy "
+            "kontekst. Wynik podaje next_chunk, gdy umowa ma dalszą treść."
+        ),
+        input_schema=_schema(
+            {
+                "client_id": INT,
+                "framework_contract_id": INT,
+                "from_chunk": {"type": "integer", "minimum": 0},
+            },
+            ("client_id", "framework_contract_id"),
+        ),
+        tier="read",
+        method="GET",
+        path="/api/clients/{client_id}/framework-contracts/{fc_id}/text",
+        section=ProductSection.delivery,
+        build=lambda a: _get(
+            f"/api/clients/{_int(a, 'client_id')}/framework-contracts/"
+            f"{_int(a, 'framework_contract_id')}/text",
+            _clean({"from_chunk": a.get("from_chunk")}),
+        ),
+        shape=_shape_contract_text,
     ),
     JarvisTool(
         name="list_contracts",

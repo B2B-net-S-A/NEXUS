@@ -792,3 +792,8 @@ from app.models.candidate_rate_change import CandidateRateChange  # noqa: F401
 
 # 0424: historia jednego formularza screeningu pary (kandydat, rekrutacja).
 from app.models.screening_form_version import ScreeningFormVersion  # noqa: F401
+
+# 0426: fragmenty tekstu umów ramowych klientów (Jarvis czyta umowy).
+from app.models.client_framework_contract_chunk import (  # noqa: F401
+    ClientFrameworkContractChunk,
+)
