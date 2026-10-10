@@ -586,7 +586,9 @@ export function NotificationsDropdown() {
   });
 
   const { data, isFetching, isPlaceholderData, dataUpdatedAt } = useQuery({
-    queryKey: ["notifications", scopeCacheKey, limit],
+    // Człon „bell”: „Moje zadania” na pulpicie pytają o tę samą stronę RAZEM
+    // z czatami — wspólny klucz podmieniał dzwonkowi listę i licznik.
+    queryKey: ["notifications", scopeCacheKey, limit, "bell"],
     queryFn: () => notificationsApi.listForBell(limit).then((r) => r.data),
     // Przy podniesieniu limitu lista nie znika na czas doładowania.
     placeholderData: keepPreviousData,
