@@ -64,6 +64,7 @@ _ALWAYS = (
     "tests/test_screen_guides_freshness.py",
     "tests/test_orders_procedure_freshness.py",
     "tests/test_contract_order_workflows_migration.py",
+    "tests/test_claude_md_index.py",
 )
 
 # Macierz bramek tras (werdykt trasa × persona, wzorzec w
