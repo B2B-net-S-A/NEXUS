@@ -3,24 +3,33 @@
 /**
  * Harness `/preview/new-job` — strona „Nowa rekrutacja” na danych fikcyjnych.
  *
- * `?state=request|noclient|resume|manual|review|gaps|servererror|portals|shadow|passive|off`.
+ * `?state=request|noclient|resume|manual|attempted|review|gaps|offers|champion|servererror|portals|shadow|passive|off`.
  * Zero zapytań: klucze klientów, rekruterów, konfiguracji portali i słownika
- * RocketJobs są zasiane w cache (patrz `app/preview/__tests__`), kategorie
- * i wiedza o wierszach wymagań przychodzą w stanie podglądu, a baner podobnych
- * rekrutacji nie renderuje się w trybie podglądu.
+ * RocketJobs są zasiane w cache (patrz `app/preview/__tests__`), kategorie,
+ * wiedza o wierszach wymagań i lista rekrutacji-szablonów przychodzą w stanie
+ * podglądu, a baner podobnych rekrutacji nie renderuje się w trybie podglądu.
  *
- * `request` = krok 1 z wklejonym requestem, `noclient` = krok 1 bez klienta
- * (kliknięcie przycisku pokazuje komunikat przy polu klienta), `manual` = krok
- * 2 pusty, `gaps` = krok 2 z brakami (budżet, krytyczne, deal breaker,
- * kategoria). `portals` = krok „Ogłoszenie na portalach” z gotowym szkicem (na
- * produkcji portale są dziś wyłączone flagami). Automat przydziału jest
- * w podglądzie włączony w trybie „auto” („Przydzieli automat”); `shadow` =
- * automat tylko proponuje, `passive` = priorytet „Przyjmujemy kandydatów”
- * (automat wtedy nikogo nie przydziela), `off` = automat wyłączony. `gaps`
- * pokazuje też rekrutera wskazanego ręcznie. `resume` = krok 1 z listą
- * niedokończonych formularzy, `servererror` = krok 2 po odmowie serwera
- * (422 `job_not_ready`) z listą braków w stopce. Karta „Pliki” (0428) ma
- * w `review` plik requestu i załącznik, w `manual` jest pusta.
+ * Od 10.10.2026 strona ma jeden ekran: formularz w sześciu sekcjach stoi na
+ * niej zawsze, a źródła to akcje „Wypełnij z:” nad nim. `request` = panel
+ * „Wklej treść” otwarty z treścią jeszcze nieodczytaną, `noclient` = bez
+ * klienta (kliknięcie akcji albo „Utwórz i opublikuj” pokazuje komunikat przy
+ * polu klienta), `manual` = pusty formularz na całą szerokość, `attempted` =
+ * to samo po kliknięciu „Utwórz i opublikuj” (braki podświetlone w polach),
+ * `review` = po odczycie maila (treść obok formularza), `gaps` = po odczycie
+ * z brakami (budżet, krytyczne, deal breaker, kategoria), `offers` = odczyt
+ * w formularzu, w którym część pól była już wpisana (propozycje „W mailu: …”
+ * przy polach i pasek „wypełniono N pól” z „Cofnij wypełnienie”), `champion` =
+ * po odczycie wgranego wzoru Profilu Championa (chipy „z dokumentu”, notka
+ * „przepisany bez AI”). `portals` = sekcja „Ogłoszenie na portalach”
+ * z gotowym szkicem (na produkcji portale są dziś wyłączone flagami). Automat
+ * przydziału jest w podglądzie włączony w trybie „auto” („Przydzieli automat”);
+ * `shadow` = automat tylko proponuje, `passive` = priorytet „Przyjmujemy
+ * kandydatów” (automat wtedy nikogo nie przydziela), `off` = automat
+ * wyłączony. `gaps` pokazuje też rekrutera wskazanego ręcznie. `resume` =
+ * pusta strona z listą niedokończonych formularzy, `servererror` = odmowa
+ * serwera (422 `job_not_ready`) z listą braków w stopce. Karta „Pliki” (0428)
+ * ma w `review` plik requestu i załącznik (pod treścią requestu), w `manual`
+ * jest pusta (po sekcji 6). Nieznany `state` pokazuje `review`.
  */
 
 import { Suspense, useState } from "react";
@@ -193,7 +202,7 @@ const EVIDENCE = [
   "transakcyjność w systemach rozproszonych",
 ];
 
-/** Karta „Pliki”: plik requestu z kroku 1 i jeden załącznik (nazwy fikcyjne). */
+/** Karta „Pliki”: plik requestu i jeden załącznik (nazwy fikcyjne). */
 const FILES_LIMITS = { max_files: 20, max_file_bytes: 20 * 1024 * 1024 };
 const REQUEST_FILES: NonNullable<NewJobPagePreview["files"]> = {
   ...FILES_LIMITS,
@@ -229,17 +238,19 @@ const STATES: Record<string, NewJobPagePreview> = {
     requestText: REQUEST,
     form: EMPTY_INTAKE_FORM,
     evidence: [],
+    categories: CATEGORIES,
+    criticalInfo: { ...CRITICAL_INFO, info: {} },
   },
   noclient: {
-    step: "request",
     client: null,
     source: "manual",
     requestText: "",
     form: EMPTY_INTAKE_FORM,
     evidence: [],
+    categories: CATEGORIES,
+    criticalInfo: { ...CRITICAL_INFO, info: {} },
   },
   manual: {
-    step: "review",
     client: CLIENT,
     source: "manual",
     requestText: "",
@@ -250,8 +261,8 @@ const STATES: Record<string, NewJobPagePreview> = {
     files: { ...FILES_LIMITS, items: [] },
   },
   review: {
-    step: "review",
     client: CLIENT,
+    source: "text",
     requestText: REQUEST,
     form: FULL_FORM,
     evidence: EVIDENCE,
@@ -260,8 +271,8 @@ const STATES: Record<string, NewJobPagePreview> = {
     files: REQUEST_FILES,
   },
   gaps: {
-    step: "review",
     client: CLIENT,
+    source: "text",
     requestText: REQUEST.replace("Budżet do 170 zł/h netto B2B. ", ""),
     form: {
       ...FULL_FORM,
@@ -352,8 +363,8 @@ STATES.portals = {
 };
 
 STATES.resume = {
-  ...STATES.request,
-  requestText: "",
+  // Lista stoi na pustej stronie: bez klienta, treści i wpisanych pól.
+  ...STATES.noclient,
   unfinishedForms: [
     {
       id: 91,
@@ -396,6 +407,121 @@ STATES.servererror = {
 STATES.review = {
   ...STATES.review,
   autosave: { status: "saved", at: "2026-10-04T10:42:00Z" },
+};
+
+// Ręczne wypełnianie po „Utwórz i opublikuj”: braki podświetlone w polach
+// ze zdaniem „Uzupełnij przed publikacją”.
+STATES.attempted = {
+  ...STATES.manual,
+  form: { ...EMPTY_INTAKE_FORM, title: "Senior Java Developer" },
+  createAttempted: true,
+};
+
+// Odczyt maila w formularzu, w którym Delivery Lead wpisał wcześniej rolę,
+// budżet i tryb pracy: wpisane zostają, a wartości z maila czekają przy polach.
+STATES.offers = {
+  ...STATES.review,
+  form: {
+    ...FULL_FORM,
+    title: "Java Developer",
+    rateBudget: "160",
+    remotePolicy: "remote",
+    onsiteDays: "",
+    city: "",
+    provenance: { ...FULL_FORM.provenance, role: "manual", rate: "manual" },
+  },
+  fill: { source: "request", sourceName: null, filled: 11 },
+  offers: [
+    {
+      id: "title",
+      unit: "title",
+      source: "request",
+      label: "Rola",
+      text: "Senior Java Developer",
+      basis: "request",
+      patch: { title: "Senior Java Developer" },
+    },
+    {
+      id: "budget",
+      unit: "budget",
+      source: "request",
+      label: "Budżet PLN/h",
+      text: "170 PLN/h",
+      basis: "request",
+      patch: { rateBudget: "170", rateBudgetMin: "", rateNote: null },
+    },
+    {
+      id: "workMode",
+      unit: "workMode",
+      source: "request",
+      label: "Tryb pracy",
+      text: "Hybrydowo, 2 dni w tygodniu",
+      basis: "request",
+      patch: { remotePolicy: "hybrid", onsiteDays: "2", onsiteDaysPeriod: "week" },
+    },
+    {
+      id: "rows",
+      unit: "rows",
+      source: "request",
+      label: "Wymagania",
+      text: "jeszcze 1 wymaganie: Redis",
+      basis: "request",
+      rows: [{ words: ["Redis"], level: "nice" }],
+    },
+  ],
+  // Panel „Inna rekrutacja” w tym stanie ma listę do obejrzenia.
+  templateJobs: [
+    {
+      id: 301,
+      title: "Programista Java — bankowość detaliczna (ZOB 47110)",
+      working_title: "Java Developer · Java, Spring Boot · 4+ lat",
+      client_name: "[Klient testowy]",
+      status: "closed",
+      opened_at: "2026-06-02T08:00:00Z",
+    },
+    {
+      id: 302,
+      title: "Tester automatyzujący (ZOB 47302)",
+      client_name: "[Klient testowy]",
+      status: "published",
+      opened_at: "2026-09-15T08:00:00Z",
+    },
+  ],
+};
+
+// Po odczycie wgranego wzoru Profilu Championa (10.10.2026): pola przepisał
+// kod, bez modelu — chipy mówią „z dokumentu”, a sekcje bez pola w formularzu
+// (frazy do searchu, wiedza z rozmów) jadą w formularzu do zapisu profilu.
+STATES.champion = {
+  ...STATES.review,
+  source: "file",
+  form: {
+    ...FULL_FORM,
+    provenance: Object.fromEntries(
+      Object.keys(FULL_FORM.provenance).map((key) => [key, "document"]),
+    ),
+    championExtras: {
+      search: { keywords: ["java developer bankowość"], notes: "Zacznij od osób z sektora finansowego." },
+      client: { consultant_insight: "Zespół ceni samodzielność.", sectors: ["bankowość"] },
+      insights: [
+        {
+          id: "doc-1",
+          source: "client",
+          topic: "other",
+          audience: "team",
+          text: "Klient pyta na rozmowie o doświadczenie z regulacjami.",
+          done: false,
+          origin: "document",
+        },
+      ],
+    },
+  },
+  fill: {
+    source: "file",
+    sourceName: "Profil Championa - Java.docx",
+    filled: 14,
+    championForm: true,
+  },
 };
 
 // Bez `assignment`: Delivery Lead niczego nie zaznaczył, więc działa automat.

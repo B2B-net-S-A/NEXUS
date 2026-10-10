@@ -1192,10 +1192,10 @@
   {
    "id": "new.source-tiles",
    "area": "zlecenie",
-   "opis": "Krok 1 nowej rekrutacji: klient (wymagany, z komunikatem przy próbie przejścia bez niego) i trzy kafle źródła — wklej treść requestu, wgraj plik, wpisz ręcznie",
+   "opis": "Źródła nowej rekrutacji: klient (wymagany, z komunikatem przy próbie użycia źródła albo utworzenia bez niego) i akcje „Wypełnij z: Wklej treść | Wgraj plik | Inna rekrutacja” nad formularzem — do użycia w dowolnej chwili; ręczne wpisywanie nie wymaga wyboru źródła",
    "file": "components/v2/jobs/new/NewJobPage.tsx",
-   "marker": "NewJobSourceStep",
-   "v3_home": "nowa rekrutacja → krok 1"
+   "marker": "NewJobSourceBar",
+   "v3_home": "nowa rekrutacja → pasek nad formularzem"
   },
   {
    "id": "new.requirement-rows",
@@ -1224,10 +1224,10 @@
   {
    "id": "new.section-nav",
    "area": "zlecenie",
-   "opis": "Pasek sześciu sekcji nad formularzem z liczbą braków w każdej; braki w stopce prowadzą do sekcji",
+   "opis": "Pasek sześciu sekcji nad formularzem z liczbą braków w każdej; braki w stopce prowadzą do sekcji, a „Utwórz i opublikuj” przy brakach podświetla pola i przewija do pierwszej sekcji z brakiem",
    "file": "components/v2/jobs/new/NewJobReviewForm.tsx",
    "marker": "NewJobSectionNav",
-   "v3_home": "nowa rekrutacja → krok 2"
+   "v3_home": "nowa rekrutacja → nad formularzem"
   },
   {
    "id": "new.save-draft",
@@ -1241,10 +1241,34 @@
   {
    "id": "new.unfinished-forms",
    "area": "zlecenie",
-   "opis": "Niedokończone formularze nowej rekrutacji na koncie autora: autozapis, „Dokończę później”, lista „Masz N niedokończonych formularzy” z „Dokończ” / „Usuń” w kroku 1",
+   "opis": "Niedokończone formularze nowej rekrutacji na koncie autora: autozapis, „Dokończę później”, lista „Masz N niedokończonych formularzy” z „Dokończ” / „Usuń” na pustej stronie (i przy limicie formularzy — do usunięcia)",
    "file": "components/v2/jobs/new/NewJobPage.tsx",
    "marker": "UnfinishedIntakeForms",
-   "v3_home": "nowa rekrutacja → krok 1"
+   "v3_home": "nowa rekrutacja → nad paskiem źródeł"
+  },
+  {
+   "id": "new.intake-offers",
+   "area": "zlecenie",
+   "opis": "Odczyt maila, pliku albo szablonu wypełnia tylko puste pola; inna wartość niż wpisana to propozycja przy polu („W mailu: …”, „W pliku: …”, „W szablonie: …”) z „Użyj” / „Zostaw”, a nowe wymagania i pytania — z „Dodaj”",
+   "file": "components/v2/jobs/new/NewJobReviewForm.tsx",
+   "marker": "IntakeOfferChip",
+   "v3_home": "nowa rekrutacja → przy polach formularza"
+  },
+  {
+   "id": "new.fill-summary",
+   "area": "zlecenie",
+   "opis": "Pasek po odczycie: „wypełniono N pól · M propozycji czeka na „Użyj””, „Cofnij wypełnienie” (zdejmuje tylko to, co wpisał odczyt i czego nikt potem nie zmienił)",
+   "file": "components/v2/jobs/new/NewJobPage.tsx",
+   "marker": "NewJobFillSummary",
+   "v3_home": "nowa rekrutacja → pod paskiem źródeł"
+  },
+  {
+   "id": "new.template-picker",
+   "area": "zlecenie",
+   "opis": "„Wypełnij z: Inna rekrutacja” — lista rekrutacji wybranego klienta (także zamkniętych) z wyszukiwaniem i „Także inni klienci”; „Użyj jako szablon” wypełnia puste pola",
+   "file": "components/v2/jobs/new/NewJobPage.tsx",
+   "marker": "TemplateJobPicker",
+   "v3_home": "nowa rekrutacja → pasek nad formularzem → Inna rekrutacja"
   },
   {
    "id": "new.decisions",

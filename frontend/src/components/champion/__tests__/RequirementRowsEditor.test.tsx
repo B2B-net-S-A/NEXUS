@@ -153,9 +153,14 @@ describe("RequirementRowsEditor — wiersze i poziomy", () => {
     expect(onNoCriticalChange).not.toHaveBeenCalled();
   });
 
-  it("słowo wpisane w wierszu dochodzi jako wariant", () => {
+  it("wariant dopisuje się świadomie: wypełniony wiersz nie ma pola, dopiero „+ lub” je otwiera", () => {
     const { onRowsChange } = renderEditor();
+    // Bez pola w wypełnionym wierszu kolejne słowo nie stanie się po cichu
+    // wariantem — a wiersz „A lub B” spełnia kandydat z jednym z nich.
+    expect(screen.queryByLabelText("Wymaganie 1 — słowo albo wariant")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Dodaj wariant do wymagania 1" }));
     const input = screen.getByLabelText("Wymaganie 1 — słowo albo wariant");
+    expect(input).toHaveFocus();
     fireEvent.change(input, { target: { value: "JVM" } });
     fireEvent.keyDown(input, { key: "Enter" });
     const rows = onRowsChange.mock.calls.at(-1)![0] as RequirementRowForm[];
@@ -308,16 +313,76 @@ describe("RequirementRowsEditor — wpisywanie z klawiatury (zgłoszenie 09.10.2
     expect(screen.queryByText("lub")).toBeNull();
   });
 
-  it("przecinek dodaje wariant w tym samym wierszu", () => {
+  // Zgłoszenie 10.10.2026: „Java”, przecinek, „Spring” dawało JEDNO wymaganie
+  // „Java lub Spring” — spełnia je kandydat z samą Javą, więc lista must-have
+  // po cichu się rozluźniała.
+  it("przecinek kończy wymaganie tak jak Enter — „Java, Spring,” to dwa wiersze", () => {
     render(<StatefulEditor />);
-    typeWord(rowInput(1), "Kafka", ",");
-    typeWord(rowInput(1), "RabbitMQ");
-    expect(screen.getByText("lub")).toBeInTheDocument();
-    expect(screen.getAllByRole("radiogroup")).toHaveLength(2);
+    typeWord(rowInput(1), "Java", ",");
+    expect(rowInput(2)).toHaveFocus();
+    typeWord(rowInput(2), "Spring", ",");
+    expect(rowInput(3)).toHaveFocus();
+    expect(levelOption("Java", "Musi mieć")).toBeChecked();
+    expect(levelOption("Spring", "Musi mieć")).toBeChecked();
+    expect(screen.queryByText("lub")).toBeNull();
+    expect(screen.getAllByRole("radiogroup")).toHaveLength(3);
+  });
+
+  it("lista po przecinkach wpisana naraz to osobne wymagania — „Kafka, Redis, AWS” to trzy wiersze", () => {
+    render(<StatefulEditor />);
+    typeWord(rowInput(1), "Kafka, Redis, AWS");
+    for (const head of ["Kafka", "Redis", "AWS"]) {
+      expect(levelOption(head, "Musi mieć")).toBeChecked();
+    }
+    expect(screen.queryByText("lub")).toBeNull();
+    // Trzy wymagania i pusty wiersz z kursorem na następne.
+    expect(screen.getAllByRole("radiogroup")).toHaveLength(4);
+    expect(rowInput(4)).toHaveFocus();
+  });
+
+  it("średnik też kończy wymaganie", () => {
+    render(<StatefulEditor />);
+    typeWord(rowInput(1), "Kafka", ";");
+    expect(levelOption("Kafka", "Musi mieć")).toBeChecked();
     expect(rowInput(2)).toHaveFocus();
   });
 
-  it("wariant dopisany w środku listy nie wstawia pustego wiersza", () => {
+  it("wklejona lista rozkłada się na wiersze, przecinek w nawiasie nie dzieli", () => {
+    render(<StatefulEditor />);
+    fireEvent.paste(rowInput(1), {
+      clipboardData: { getData: () => "Java\nSpring (Boot, Data)\nSQL" },
+    });
+    for (const head of ["Java", "Spring (Boot, Data)", "SQL"]) {
+      expect(levelOption(head, "Musi mieć")).toBeChecked();
+    }
+    expect(screen.queryByText("lub")).toBeNull();
+    expect(rowInput(4)).toHaveFocus();
+  });
+
+  it("przecinek wpisany w otwartym nawiasie nie kończy wymagania — „Spring (Boot, Data)” to jeden wiersz", () => {
+    render(<StatefulEditor />);
+    const input = rowInput(1);
+    // W trakcie pisania nawias nie jest jeszcze zamknięty: wpis czeka na „)”.
+    typeWord(input, "Spring (Boot", ",");
+    expect(screen.getAllByRole("radiogroup")).toHaveLength(1);
+    expect(input).toHaveValue("Spring (Boot");
+    typeWord(input, "Spring (Boot, Data)");
+    expect(levelOption("Spring (Boot, Data)", "Musi mieć")).toBeChecked();
+    expect(screen.getAllByRole("radiogroup")).toHaveLength(2);
+  });
+
+  it("„Kafka / RabbitMQ” to jedno wymaganie z dwoma wariantami, „CI/CD” to jedno słowo", () => {
+    render(<StatefulEditor />);
+    typeWord(rowInput(1), "Kafka / RabbitMQ");
+    expect(screen.getByText("RabbitMQ")).toBeInTheDocument();
+    expect(screen.getByText("lub")).toBeInTheDocument();
+    expect(levelOption("Kafka", "Musi mieć")).toBeChecked();
+    typeWord(rowInput(2), "CI/CD");
+    expect(levelOption("CI/CD", "Musi mieć")).toBeChecked();
+    expect(screen.getAllByText("lub")).toHaveLength(1);
+  });
+
+  it("„+ lub” dopisuje warianty w środku listy i nie wstawia pustego wiersza", () => {
     render(
       <StatefulEditor
         initial={[
@@ -326,9 +391,90 @@ describe("RequirementRowsEditor — wpisywanie z klawiatury (zgłoszenie 09.10.2
         ]}
       />,
     );
+    const addVariant = () => screen.getByRole("button", { name: "Dodaj wariant do wymagania 1" });
+    fireEvent.click(addVariant());
+    // W polu wariantu Enter i przecinek dopisują kolejne warianty tego wiersza.
     typeWord(rowInput(1), "RabbitMQ");
+    typeWord(rowInput(1), "Pulsar", ",");
     expect(screen.getAllByRole("radiogroup")).toHaveLength(2);
     expect(screen.getByText("RabbitMQ")).toBeInTheDocument();
+    expect(screen.getByText("Pulsar")).toBeInTheDocument();
+    expect(screen.getAllByText("lub")).toHaveLength(2);
+    // Pusty Enter zamyka pole wariantu.
+    fireEvent.keyDown(rowInput(1), { key: "Enter" });
+    expect(screen.queryByLabelText("Wymaganie 1 — słowo albo wariant")).toBeNull();
+    expect(addVariant()).toHaveFocus();
+    // Esc w pustym polu też je zamyka.
+    fireEvent.click(addVariant());
+    fireEvent.keyDown(rowInput(1), { key: "Escape" });
+    expect(screen.queryByLabelText("Wymaganie 1 — słowo albo wariant")).toBeNull();
+    expect(screen.getAllByRole("radiogroup")).toHaveLength(2);
+  });
+
+  it("wyjście z pola zapisuje słowo, ale nie dokłada pustego wiersza", () => {
+    render(<StatefulEditor />);
+    fireEvent.focus(rowInput(1));
+    fireEvent.change(rowInput(1), { target: { value: "Java" } });
+    fireEvent.blur(rowInput(1));
+    expect(levelOption("Java", "Musi mieć")).toBeChecked();
+    expect(screen.getAllByRole("radiogroup")).toHaveLength(1);
+  });
+
+  it("słowo, które już jest na liście, nie tworzy drugiego wiersza — edytor mówi dlaczego", () => {
+    render(<StatefulEditor initial={[{ key: "a", words: ["Java"], level: "must" }]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Dodaj słowo kluczowe" }));
+    typeWord(rowInput(2), "java, Spring");
+    expect(screen.getByTestId("requirement-entry-note")).toHaveTextContent("Już na liście: java.");
+    // Java, Spring i pusty wiersz z kursorem.
+    expect(screen.getAllByRole("radiogroup")).toHaveLength(3);
+    expect(levelOption("Spring", "Musi mieć")).toBeChecked();
+    // Kolejny wpis bez uwag zdejmuje notkę.
+    typeWord(rowInput(3), "SQL");
+    expect(screen.queryByTestId("requirement-entry-note")).toBeNull();
+  });
+
+  it("ponad limit 30 wymagań: reszta nie znika po cichu", () => {
+    const initial: RequirementRowForm[] = [
+      ...Array.from({ length: 10 }, (_, i) => ({
+        key: `m${i}`,
+        words: [`Must${i}`],
+        level: "must" as const,
+      })),
+      ...Array.from({ length: 19 }, (_, i) => ({
+        key: `n${i}`,
+        words: [`Nice${i}`],
+        level: "nice" as const,
+      })),
+      { key: "e", words: [], level: "nice" },
+    ];
+    render(<StatefulEditor initial={initial} />);
+    typeWord(rowInput(30), "Alfa, Beta / Gamma");
+    expect(levelOption("Alfa", "Mile widziane")).toBeChecked();
+    expect(screen.getByTestId("requirement-entry-note")).toHaveTextContent(
+      "Nie zmieściło się: Beta lub Gamma — lista ma najwyżej 30 wymagań.",
+    );
+    expect(screen.getAllByRole("radiogroup")).toHaveLength(30);
+    // Nie ma miejsca na pusty wiersz — fokus zostaje przy wpisanym wymaganiu.
+    expect(screen.getByRole("button", { name: "Dodaj wariant do wymagania 30" })).toHaveFocus();
+  });
+
+  it("podpowiedź wybrana strzałką w pustym wierszu to całe wymaganie — kursor idzie dalej", () => {
+    useAuthStore.setState({ user: { id: 7 } as never });
+    pushRecentSearch(7, {
+      kind: "list",
+      jobId: null,
+      label: "kotlin",
+      query: "q_any=kotlin",
+      keywords: ["kotlin"],
+      total: null,
+    });
+    render(<StatefulEditor />);
+    fireEvent.focus(rowInput(1));
+    fireEvent.change(rowInput(1), { target: { value: "kot" } });
+    fireEvent.keyDown(rowInput(1), { key: "ArrowDown" });
+    fireEvent.keyDown(rowInput(1), { key: "Enter" });
+    expect(levelOption("kotlin", "Musi mieć")).toBeChecked();
+    expect(rowInput(2)).toHaveFocus();
   });
 
   it("„Krytyczne” działa zaraz po wpisaniu słowa, bez odpowiedzi serwera", () => {

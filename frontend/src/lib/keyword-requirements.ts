@@ -137,12 +137,19 @@ export function seniorityRange(word: string): ExperienceRange | null {
 }
 
 /**
+ * Separator wariantów w jednym słowie: „ / ”, „ lub ”, „ or ”. Ukośnik tylko
+ * ze spacjami — „CI/CD” i „PL/SQL” to jedno słowo. Ten sam wzorzec czyta wpis
+ * w wierszu wymagań rekrutacji (`parseRequirementEntry`).
+ */
+export const ALTERNATIVE_SPLIT = /\s+(?:\/|lub|or)\s+/i;
+
+/**
  * Warianty wpisane w jednym słowie („React / Vue”, „React lub Vue”,
- * „React or Vue”). Ukośnik tylko ze spacjami — „CI/CD” i „PL/SQL” to jedno słowo.
+ * „React or Vue”).
  */
 export function splitAlternatives(word: string): string[] | null {
   const parts = word
-    .split(/\s+(?:\/|lub|or)\s+/i)
+    .split(ALTERNATIVE_SPLIT)
     .map(sanitizeKeyword)
     .filter(keywordLongEnough);
   return parts.length >= 2 ? parts : null;

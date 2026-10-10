@@ -39,11 +39,14 @@ export type RemotePolicyValue = "remote" | "hybrid" | "onsite";
  * Skąd pochodzi wartość pola (od v2 odczytu, 09.2026): „z maila” (fakt
  * z cytatem), „z podobnej rekrutacji” (kontekst klienta), „propozycja AI”,
  * „wpisane” (DL zmienił pole). Chip przy polu mówi to DL, zanim zapisze.
+ * „z dokumentu” (10.10.2026): pole przepisane z wypełnionego wzoru Profilu
+ * Championa — czyta je kod, bez modelu.
  */
-export type FieldBasis = "request" | "client_history" | "ai" | "manual";
+export type FieldBasis = "request" | "document" | "client_history" | "ai" | "manual";
 
 export const FIELD_BASIS_LABEL: Record<FieldBasis, string> = {
   request: "z maila",
+  document: "z dokumentu",
   client_history: "z podobnej rekrutacji",
   ai: "propozycja AI",
   manual: "wpisane",
@@ -75,6 +78,45 @@ export interface AskClientItem {
 }
 
 export type QuestionOrigin = "request" | "ai" | "template" | "manual";
+
+/**
+ * Sekcje wypełnionego wzoru Profilu Championa, które nie mają pola na
+ * `/jobs/new` (frazy i plan searchu, insight konsultanta, pytania klienta
+ * z poprzednich rozmów, branże, „Wiedza z rozmów”). Serwer oddaje je obok
+ * odczytu (`champion_extras`), formularz niesie je bez zmian do zapisu profilu
+ * — inaczej wgranie pliku gubiłoby to, czego formularz nie pokazuje.
+ */
+export interface ChampionExtras {
+  search: Record<string, unknown>;
+  client: Record<string, unknown>;
+  insights: Record<string, unknown>[];
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value != null && typeof value === "object" && !Array.isArray(value);
+
+/**
+ * `champion_extras` z odpowiedzi odczytu albo z zapisanego formularza. Kształt
+ * sprawdzamy, bo wartość wraca potem do `POST /api/jobs`; puste = `null`.
+ */
+export function championExtrasFrom(raw: unknown): ChampionExtras | null {
+  if (!isRecord(raw)) return null;
+  const search = isRecord(raw.search) ? raw.search : {};
+  const client = isRecord(raw.client) ? raw.client : {};
+  const insights = Array.isArray(raw.insights)
+    ? raw.insights.filter(
+        (note): note is Record<string, unknown> =>
+          isRecord(note) && typeof note.text === "string" && note.text.trim() !== "",
+      )
+    : [];
+  if (
+    Object.keys(search).length === 0 &&
+    Object.keys(client).length === 0 &&
+    insights.length === 0
+  )
+    return null;
+  return { search, client, insights };
+}
 
 export interface IntakeQuestionForm {
   key: string;
@@ -169,6 +211,8 @@ export interface IntakeForm {
   competenceCategoryId: number | null;
   suggestedCategoryId: number | null;
   categoryConfirmed: boolean;
+  /** Sekcje pliku Profilu Championa bez pola w formularzu; `null` = brak. */
+  championExtras: ChampionExtras | null;
   provenance: Partial<Record<ProvenanceKey, FieldBasis>>;
 }
 
@@ -313,6 +357,7 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   competenceCategoryId: null,
   suggestedCategoryId: null,
   categoryConfirmed: false,
+  championExtras: null,
   provenance: {},
 };
 
@@ -346,7 +391,7 @@ export function newQuestionKey(): string {
   return `q-${Date.now().toString(36)}-${questionSeq}`;
 }
 
-const BASES: readonly FieldBasis[] = ["request", "client_history", "ai"];
+const BASES: readonly FieldBasis[] = ["request", "document", "client_history", "ai"];
 
 function experienceItems(items: IntakeExperienceItem[] | undefined): ExperienceItem[] {
   return (items ?? []).map((item) => ({
@@ -444,6 +489,8 @@ export function formFromIntake(intake: RequestIntakeResponse): IntakeForm {
     competenceCategoryId: null,
     suggestedCategoryId: null,
     categoryConfirmed: false,
+    // Sekcje pliku Championa przychodzą obok odczytu — dokłada je strona.
+    championExtras: null,
     provenance,
     title: intake.role_name ?? "",
     clientTitle: clientTitleWithReference(
@@ -942,6 +989,9 @@ export function buildChampionPayload(
 ): Record<string, unknown> {
   const remote = form.remotePolicy || null;
   const budget = parseBudget(form.rateBudget);
+  // Sekcje pliku Profilu Championa bez pola w formularzu — pola formularza
+  // wygrywają, gdyby klucz się powtórzył.
+  const extras = form.championExtras;
   return {
     basics: {
       role_name: form.title.trim() || null,
@@ -973,6 +1023,7 @@ export function buildChampionPayload(
     },
     experience: form.experience,
     search: {
+      ...(extras?.search ?? {}),
       target_companies: form.targetCompanies.trim(),
       disqualifiers: form.disqualifiers,
       exclude: form.searchExclude.map(sanitizeKeyword).filter(Boolean),
@@ -981,7 +1032,7 @@ export function buildChampionPayload(
       about: form.about.trim(),
       responsibilities: form.responsibilities.trim(),
     },
-    client: { selling_points: form.sellingPoints.trim() },
+    client: { ...(extras?.client ?? {}), selling_points: form.sellingPoints.trim() },
     screening_questions: filledQuestions(form).map((q, i) => ({
       id: `q${i + 1}`,
       question: q.question.trim(),
@@ -989,18 +1040,22 @@ export function buildChampionPayload(
       deal_breaker: q.dealBreaker.trim(),
     })),
     // „Do dopytania u klienta” — notatki sekcji 8, odhaczane w profilu.
-    // Wpisy nowe (`new-…`): serwer nada id i autora.
-    insights: form.askClient
-      .filter((item) => item.text.trim())
-      .map((item) => ({
-        id: `new-${item.key}`,
-        source: "client",
-        topic: "ask_client",
-        audience: "team",
-        text: item.text.trim(),
-        done: false,
-        origin: "ai_intake",
-      })),
+    // Wpisy nowe (`new-…`): serwer nada id i autora. Za nimi notatki
+    // „Wiedza z rozmów” z pliku Championa (id spoza bazy = nowa notatka).
+    insights: [
+      ...form.askClient
+        .filter((item) => item.text.trim())
+        .map((item) => ({
+          id: `new-${item.key}`,
+          source: "client",
+          topic: "ask_client",
+          audience: "team",
+          text: item.text.trim(),
+          done: false,
+          origin: "ai_intake",
+        })),
+      ...(extras?.insights ?? []),
+    ],
   };
 }
 
@@ -1074,6 +1129,7 @@ export function restoreIntakeForm(saved: unknown): IntakeForm {
     ...EMPTY_INTAKE_FORM,
     ...raw,
     experience: { ...EMPTY_EXPERIENCE_FORM, ...(raw.experience ?? {}) },
+    championExtras: championExtrasFrom(raw.championExtras),
     provenance: raw.provenance ?? {},
     rows: Array.isArray(raw.rows) ? raw.rows : [],
     questions: Array.isArray(raw.questions) ? raw.questions : [],

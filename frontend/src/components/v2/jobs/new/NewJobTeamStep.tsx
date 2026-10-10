@@ -59,6 +59,12 @@ interface Props {
   categories: CategoryOption[];
   /** Lista kategorii jeszcze się wczytuje. */
   categoriesLoading: boolean;
+  /**
+   * Formularz jest jeszcze pusty, więc strona nie pytała o kategorie
+   * (10.10.2026: formularz stoi na stronie od wejścia, a pusta strona nie
+   * wysyła żadnego zapytania zapisującego). Lista przyjdzie z pierwszym polem.
+   */
+  categoriesIdle?: boolean;
   categoriesFailed: boolean;
   onCategoriesRetry: () => void;
   categoryId: number | null;
@@ -92,6 +98,7 @@ interface Props {
 export function NewJobTeamStep({
   categories,
   categoriesLoading,
+  categoriesIdle = false,
   categoriesFailed,
   onCategoriesRetry,
   categoryId,
@@ -151,6 +158,11 @@ export function NewJobTeamStep({
             <button type="button" className="font-medium underline" onClick={onCategoriesRetry}>
               Ponów
             </button>
+          </p>
+        ) : categoriesIdle && categories.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Kategorie pojawią się, gdy zaczniesz wypełniać formularz — system podpowie jedną
+            z nazwy roli.
           </p>
         ) : categoriesLoading && categories.length === 0 ? (
           <p className="text-sm text-muted-foreground">Wczytuję kategorie…</p>

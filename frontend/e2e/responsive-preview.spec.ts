@@ -102,6 +102,12 @@ const PAGES = [
   "/preview/new-job?state=request",
   "/preview/new-job?state=gaps",
   "/preview/new-job?state=automatic",
+  // Jeden ekran (10.10.2026): pusty formularz na całą szerokość, braki po próbie
+  // utworzenia, propozycje przy polach i odczyt pliku Profilu Championa.
+  "/preview/new-job?state=manual",
+  "/preview/new-job?state=attempted",
+  "/preview/new-job?state=offers",
+  "/preview/new-job?state=champion",
   "/preview/order-consultant-picker",
   "/preview/order-ended-lines",
   "/preview/order-lifecycle",
@@ -213,6 +219,13 @@ const PRIMARY_CONTENT = [
   // Finanse → Import MD: pierwszy wiersz importu pod paskiem wgrywania (0,77).
   { path: "/preview/finance-results?view=md", selector: "tbody tr", maxTop: 0.83, shell: false },
   { path: "/preview/finance-order-changes", selector: "[role='button']", maxTop: 0.58, shell: false },
+  // Nowa rekrutacja (10.10.2026): formularz stoi na stronie od wejścia, więc
+  // pasek klienta i źródeł nad nim ma zostać jednym rzędem. Zmierzone
+  // 11.10.2026 z ramką: pasek sekcji na 0,41 / 0,39 / 0,34 okna (pusty
+  // formularz) i 0,50 / 0,47 / 0,42 z paskiem „wypełniono N pól” (propozycje).
+  // Próg ma zapas na runner CI, który łamie tekst ok. 50 px niżej niż Mac.
+  { path: "/preview/new-job?state=manual", selector: "nav[aria-label='Sekcje formularza']", maxTop: 0.5, shell: false },
+  { path: "/preview/new-job?state=offers", selector: "nav[aria-label='Sekcje formularza']", maxTop: 0.6, shell: false },
 ] as const;
 
 test.describe("okna laptopów z Windows — główna treść w górnej części ekranu", () => {

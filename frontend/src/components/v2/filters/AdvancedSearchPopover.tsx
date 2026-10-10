@@ -5,6 +5,7 @@ import {
   useMemo,
   useState,
   type ChangeEvent,
+  type ClipboardEvent,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
@@ -130,6 +131,22 @@ export interface ChipFieldSuggest {
   quietWhenEmpty?: boolean;
 }
 
+/** Skąd przyszedł tekst oddany przez `onCommitText`. */
+export type ChipCommitSource = "enter" | "separator" | "blur" | "paste";
+
+/** Wklejony tekst z separatorem listy — idzie do `onCommitText` w całości. */
+const PASTED_LIST = /[,;\n]/;
+
+/** Wpis z nawiasem, którego jeszcze nie zamknięto („Spring (Boot”). */
+function hasOpenParenthesis(text: string): boolean {
+  let depth = 0;
+  for (const ch of text) {
+    if (ch === "(") depth += 1;
+    else if (ch === ")" && depth > 0) depth -= 1;
+  }
+  return depth > 0;
+}
+
 /**
  * A single chip input: owns its draft text, commits on Enter/comma/blur,
  * removes the last chip on Backspace-when-empty. Emits the full new chip list
@@ -149,6 +166,9 @@ export function ChipField({
   suggest,
   onSubmitEmpty,
   onEnterCommit,
+  onCommitText,
+  hideInput = false,
+  trailing,
   inputId,
   layout = "stacked",
   joiner,
@@ -167,11 +187,24 @@ export function ChipField({
   onSubmitEmpty?: () => void;
   /**
    * Słowo dodane ENTEREM (wpisane albo wybrane strzałkami) — zamiast
-   * `onChange`. Wiersz wymagań zapisuje wtedy słowo i przenosi kursor do
-   * następnego wymagania jedną zmianą listy; przecinek, wyjście z pola
-   * i klik w podpowiedź idą przez `onChange`.
+   * `onChange`; przecinek, wyjście z pola i klik w podpowiedź idą przez
+   * `onChange`. Od 10.10.2026 bez konsumenta: wiersz wymagań rekrutacji
+   * oddaje wpis przez `onCommitText`.
    */
   onEnterCommit?: (next: string[]) => void;
+  /**
+   * Wpisany tekst idzie w całości do rodzica zamiast stawać się chipami tego
+   * pola (pusty wiersz wymagań rekrutacji, 10.10.2026: przecinek, średnik,
+   * Enter i wklejona lista dają osobne wymagania, nie warianty „lub”).
+   * Średnik też wtedy kończy wpis, a wklejony tekst z `, ; albo nową linią`
+   * nie trafia do pola. Zwrócone słowa pole pokazuje jako odrzucone. Wybór
+   * z listy podpowiedzi dalej idzie przez `onEnterCommit` / `onChange`.
+   */
+  onCommitText?: (text: string, via: ChipCommitSource) => string[] | void;
+  /** Bez pola do pisania — same chipy (wypełniony wiersz wymagań). */
+  hideInput?: boolean;
+  /** Element za chipami w układzie `inline` (np. przycisk „+ lub”). */
+  trailing?: ReactNode;
   inputId?: string;
   /**
    * `inline` — chipy i pole w jednej ramce, jak wiersz wymagań (25.09.2026);
@@ -222,11 +255,18 @@ export function ChipField({
     open &&
     options.length > 0 &&
     !limitReached &&
+    !hideInput &&
     !(suggest?.quietWhenEmpty && draft.trim() === "");
   const active = showList ? Math.min(highlight, options.length - 1) : -1;
 
-  const commit = (viaEnter = false) => {
+  const commit = (via: Exclude<ChipCommitSource, "paste">) => {
     if (!draft.trim()) return;
+    if (onCommitText) {
+      const rejected = onCommitText(draft, via) ?? [];
+      setTooShort(rejected.length > 0 ? tooShortKeywordMessage(rejected) : null);
+      setDraft("");
+      return;
+    }
     // `|` rozdziela słowa grupy w adresie — w słowie zamieniamy go na spację,
     // inaczej po odświeżeniu „a|b” wracało jako dwa osobne słowa.
     const words = draft
@@ -240,9 +280,27 @@ export function ChipField({
     setTooShort(rejected.length > 0 ? tooShortKeywordMessage(rejected) : null);
     if (fresh.length > 0) {
       const next = dedupeCaseInsensitive([...chips, ...fresh], acceptWord);
-      if (viaEnter && onEnterCommit) onEnterCommit(next);
+      if (via === "enter" && onEnterCommit) onEnterCommit(next);
       else onChange(next);
     }
+    setDraft("");
+  };
+
+  /**
+   * Wklejona lista (tylko z `onCommitText`): tekst ze schowka staje w miejscu
+   * kursora i całość idzie do rodzica. Jedno słowo wkleja się zwyczajnie.
+   */
+  const handlePaste = (e: ClipboardEvent<HTMLInputElement>) => {
+    if (!onCommitText) return;
+    const pasted = e.clipboardData.getData("text");
+    if (!PASTED_LIST.test(pasted)) return;
+    e.preventDefault();
+    const field = e.currentTarget;
+    const start = field.selectionStart ?? draft.length;
+    const end = field.selectionEnd ?? draft.length;
+    const rejected =
+      onCommitText(draft.slice(0, start) + pasted + draft.slice(end), "paste") ?? [];
+    setTooShort(rejected.length > 0 ? tooShortKeywordMessage(rejected) : null);
     setDraft("");
   };
 
@@ -289,11 +347,15 @@ export function ChipField({
       } else if (showList && active >= 0 && draft.trim() !== "") {
         pick(options[active], true);
       } else {
-        commit(true);
+        commit("enter");
       }
-    } else if (e.key === ",") {
+    } else if (e.key === "," || (e.key === ";" && onCommitText)) {
+      // Z `onCommitText` wpis dzieli się poza nawiasami, więc w otwartym
+      // nawiasie przecinek jest jego częścią („Spring (Boot, Data)”) — do
+      // 10.10.2026 wpisany z klawiatury rozcinał wymaganie na dwa wiersze.
+      if (onCommitText && hasOpenParenthesis(draft)) return;
       e.preventDefault();
-      commit();
+      commit("separator");
     } else if (e.key === "Backspace" && draft.length === 0 && chips.length > 0) {
       e.preventDefault();
       removeAt(chips.length - 1);
@@ -333,10 +395,11 @@ export function ChipField({
       setTooShort(null);
     },
     onKeyDown: handleKeyDown,
+    onPaste: handlePaste,
     onFocus: () => setOpen(true),
     onBlur: () => {
       setOpen(false);
-      commit();
+      commit("blur");
     },
     placeholder: limitReached ? `Limit ${maxChips} fraz osiągnięty` : placeholder,
     disabled: limitReached,
@@ -354,7 +417,8 @@ export function ChipField({
         }
       : {}),
   };
-  const tooShortNote = tooShort ? (
+  // Z ukrytym polem notka nie miałaby jak zniknąć (zdejmuje ją pisanie).
+  const tooShortNote = tooShort && !hideInput ? (
     <p role="status" className="w-full text-xs text-warning-muted-foreground">
       {tooShort}
     </p>
@@ -380,11 +444,14 @@ export function ChipField({
         )}
       >
         {chipBadges}
-        <input
-          {...inputProps}
-          data-keyword-field=""
-          className="h-7 w-0 min-w-[8rem] flex-1 bg-transparent text-sm outline-hidden placeholder:text-muted-foreground disabled:cursor-not-allowed"
-        />
+        {hideInput ? null : (
+          <input
+            {...inputProps}
+            data-keyword-field=""
+            className="h-7 w-0 min-w-[8rem] flex-1 bg-transparent text-sm outline-hidden placeholder:text-muted-foreground disabled:cursor-not-allowed"
+          />
+        )}
+        {trailing}
         {suggestionList}
         {tooShortNote}
       </div>
@@ -394,10 +461,12 @@ export function ChipField({
   return (
     <div className="flex flex-col gap-1.5">
       {chips.length > 0 && <div className="flex flex-wrap gap-1">{chipBadges}</div>}
-      <div className="relative">
-        <Input {...inputProps} data-keyword-field="" className="h-8 text-sm" />
-        {suggestionList}
-      </div>
+      {hideInput ? null : (
+        <div className="relative">
+          <Input {...inputProps} data-keyword-field="" className="h-8 text-sm" />
+          {suggestionList}
+        </div>
+      )}
       {tooShortNote}
     </div>
   );

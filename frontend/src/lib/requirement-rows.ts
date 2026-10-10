@@ -18,7 +18,7 @@ import {
   CRITICAL_SUGGESTION_MAX,
   type CriticalStat,
 } from "@/lib/critical-skills";
-import { sanitizeKeyword } from "@/lib/keyword-requirements";
+import { ALTERNATIVE_SPLIT, sanitizeKeyword } from "@/lib/keyword-requirements";
 
 export type RequirementLevel = "critical" | "must" | "nice";
 
@@ -39,6 +39,8 @@ export interface StoredRequirementRow {
 export const REQUIRED_ROWS_MAX = 10;
 export const NICE_ROWS_MAX = 20;
 export const CRITICAL_ROWS_MAX = CRITICAL_MAX;
+/** Najwięcej słów (wariantów) w wierszu — `SEARCH_REQUIREMENT_MAX_WORDS` na serwerze. */
+export const ROW_WORDS_MAX = 20;
 
 export const LEVEL_LABEL: Record<RequirementLevel, string> = {
   critical: "Krytyczne",
@@ -210,16 +212,158 @@ export function setRowLevel(
   return rows.map((row) => (row.key === key ? { ...row, level } : row));
 }
 
+/** Poziom nowego wiersza: obowiązkowy, a przy pełnym limicie — „mile widziane”. */
+function nextRowLevel(rows: readonly RequirementRowForm[]): RequirementLevel {
+  return requiredRows(rows).length >= REQUIRED_ROWS_MAX ? "nice" : "must";
+}
+
 /** Nowy pusty wiersz: obowiązkowy, a przy pełnym limicie — „mile widziane”. */
 export function addRow(rows: readonly RequirementRowForm[]): RequirementRowForm[] {
-  const level: RequirementLevel =
-    requiredRows(rows).length >= REQUIRED_ROWS_MAX ? "nice" : "must";
-  return [...rows, { key: newRowKey(), words: [], level }];
+  return [...rows, { key: newRowKey(), words: [], level: nextRowLevel(rows) }];
 }
 
 /** Miejsce na kolejny wiersz: 10 obowiązkowych + 20 „mile widzianych” (z nadmiarem). */
 export function canAddRow(rows: readonly RequirementRowForm[]): boolean {
   return filledRows(rows).length < REQUIRED_ROWS_MAX + NICE_ROWS_MAX;
+}
+
+// ── Wpis z klawiatury albo ze schowka (decyzja D1, 10.10.2026) ─────────────
+//
+// Przecinek, średnik, Enter i wklejona lista dają OSOBNE wymagania. Do 10.10
+// przecinek dopisywał wariant: „Java, Spring” było jednym wierszem „Java lub
+// Spring”, który spełnia kandydat z samą Javą — lista must-have po cichu się
+// rozluźniała. Wariant powstaje tylko świadomie: „A / B”, „A lub B”, „A or B”
+// albo przycisk „+ lub” w wypełnionym wierszu.
+
+/** Tekst wpisany albo wklejony w pusty wiersz, rozłożony na wymagania. */
+export interface RequirementEntry {
+  /** Grupa = jedno wymaganie; słowa grupy to warianty („lub”). */
+  groups: string[][];
+  /** Słowa, których nie da się dodać (za krótkie). */
+  rejected: string[];
+}
+
+/** Przecinek, średnik i nowa linia kończą wymaganie. */
+const ENTRY_SEPARATOR = /[,;\r\n]+/;
+
+/** Znacznik listy na początku wklejonej linii: „- ”, „• ”, „* ”, „1. ”, „2) ”. */
+const LIST_MARKER = /^\s*(?:[-–—•·*]|\d{1,2}[.)])\s+/;
+
+/**
+ * Dzieli tekst separatorem, ale nie w domkniętym nawiasie: „Spring (Boot,
+ * Data)” to jedno wymaganie. Nawias bez pary niczego nie chroni — inaczej
+ * jedna literówka skleiłaby resztę wklejonej listy w jeden wiersz.
+ */
+function splitOutsideParens(text: string, separator: RegExp): string[] {
+  const inside = new Array<boolean>(text.length).fill(false);
+  const open: number[] = [];
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] === "(") open.push(i);
+    else if (text[i] === ")") {
+      const from = open.pop();
+      if (from !== undefined) inside.fill(true, from, i + 1);
+    }
+  }
+  const every = new RegExp(separator.source, `${separator.flags.replace("g", "")}g`);
+  const parts: string[] = [];
+  let start = 0;
+  for (const match of text.matchAll(every)) {
+    if (inside[match.index]) continue;
+    parts.push(text.slice(start, match.index));
+    start = match.index + match[0].length;
+  }
+  parts.push(text.slice(start));
+  return parts;
+}
+
+/**
+ * Wpisany albo wklejony tekst → wymagania. Każdy kawałek między przecinkami,
+ * średnikami i nowymi liniami to osobne wymaganie; „A / B”, „A lub B”,
+ * „A or B” w kawałku to jego warianty („CI/CD” zostaje jednym słowem).
+ */
+export function parseRequirementEntry(text: string): RequirementEntry {
+  const groups: string[][] = [];
+  const rejected: string[] = [];
+  for (const piece of splitOutsideParens(text, ENTRY_SEPARATOR)) {
+    const words: string[] = [];
+    for (const raw of splitOutsideParens(piece.replace(LIST_MARKER, ""), ALTERNATIVE_SPLIT)) {
+      const word = sanitizeKeyword(raw);
+      if (!word) continue;
+      if (!acceptRequirementWord(word)) rejected.push(word);
+      else if (!words.some((w) => fold(w) === fold(word))) words.push(word);
+    }
+    if (words.length > 0) groups.push(words.slice(0, ROW_WORDS_MAX));
+  }
+  return { groups, rejected };
+}
+
+export interface RequirementEntryResult {
+  rows: RequirementRowForm[];
+  /** Ile wymagań trafiło na listę; 0 = lista bez zmian. */
+  added: number;
+  /** Wiersz, w którym ma stanąć kursor; `null` = nie ma takiego wiersza. */
+  focusKey: string | null;
+  /** Pierwsze słowa grup, które już prowadzą inny wiersz. */
+  duplicates: string[];
+  /** Grupy („A lub B”), które nie zmieściły się w limicie wierszy. */
+  overLimit: string[];
+}
+
+/**
+ * Wymagania wpisane w wiersz `key`: pierwsza grupa wypełnia ten wiersz,
+ * kolejne dochodzą pod nim jako nowe wiersze — całość jedną zmianą listy.
+ * Nowy wiersz ma poziom jak z `addRow` (nigdy „krytyczne”); wiersz docelowy
+ * zachowuje swój. Kursor idzie do pustego wiersza na końcu listy (nowego,
+ * gdy jest miejsce); `trailing: false` (wyjście z pola) go nie dokłada.
+ */
+export function enterRequirements(
+  rows: readonly RequirementRowForm[],
+  key: string,
+  groups: readonly (readonly string[])[],
+  options: { trailing?: boolean } = {},
+): RequirementEntryResult {
+  const out = [...rows];
+  const duplicates: string[] = [];
+  const overLimit: string[] = [];
+  let at = out.findIndex((row) => row.key === key);
+  if (at < 0) return { rows: out, added: 0, focusKey: null, duplicates, overLimit };
+  const heads = new Set(filledRows(out).map((row) => fold(rowHead(row.words))));
+  let targetEmpty = cleanWords(out[at].words).length === 0;
+  let added = 0;
+  for (const group of groups) {
+    const words = cleanWords(group).slice(0, ROW_WORDS_MAX);
+    const head = rowHead(words);
+    if (!head) continue;
+    // Dwa wiersze o tym samym pierwszym słowie to jedno wymaganie — przy
+    // zapisie drugi by zniknął (`filledRows`), więc mówimy to od razu.
+    if (heads.has(fold(head))) {
+      duplicates.push(head);
+      continue;
+    }
+    if (!canAddRow(out)) {
+      overLimit.push(words.join(" lub "));
+      continue;
+    }
+    if (targetEmpty) {
+      out[at] = { ...out[at], words };
+      targetEmpty = false;
+    } else {
+      at += 1;
+      out.splice(at, 0, { key: newRowKey(), words, level: nextRowLevel(out) });
+    }
+    heads.add(fold(head));
+    added += 1;
+  }
+  if (added === 0) return { rows: out, added, focusKey: key, duplicates, overLimit };
+  let focusKey: string | null = null;
+  if (options.trailing !== false) {
+    if (cleanWords(out[out.length - 1].words).length > 0 && canAddRow(out)) {
+      out.push({ key: newRowKey(), words: [], level: nextRowLevel(out) });
+    }
+    const last = out[out.length - 1];
+    if (cleanWords(last.words).length === 0) focusKey = last.key;
+  }
+  return { rows: out, added, focusKey, duplicates, overLimit };
 }
 
 /** Wiersze do `stack.rows` w zapisie profilu (poziom „krytyczne” czyta serwer). */

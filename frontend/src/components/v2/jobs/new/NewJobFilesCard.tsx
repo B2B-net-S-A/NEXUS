@@ -1,10 +1,11 @@
 "use client";
 
 /**
- * Karta „Pliki” na `/jobs/new` (0428, 09.10.2026). Plik requestu z kroku 1
- * zapisuje się tu sam, Delivery Lead dokłada kolejne. Do „Utwórz i przekaż”
- * pliki wiszą na niedokończonym formularzu; serwer przepina je na rekrutację
- * w transakcji tworzenia, a potem stoją w menu „⋯” → „Pliki”.
+ * Karta „Pliki” na `/jobs/new` (0428, 09.10.2026). Plik odczytany przez
+ * „Wypełnij z: Wgraj plik” zapisuje się tu sam, Delivery Lead dokłada kolejne.
+ * Do „Utwórz i przekaż” pliki wiszą na niedokończonym formularzu; serwer
+ * przepina je na rekrutację w transakcji tworzenia, a potem stoją w menu
+ * „⋯” → „Pliki”. Karta stoi pod treścią requestu, a bez niej — po sekcji 6.
  */
 
 import { JobFilesPanel } from "@/components/v2/jobs/files/JobFilesPanel";

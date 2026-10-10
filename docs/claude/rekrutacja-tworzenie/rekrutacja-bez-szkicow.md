@@ -74,7 +74,10 @@ udostępniania dla klienta nie robimy. Raport: `docs/job-no-drafts-completion-re
   autora — tylko autor czyta i zmienia, limit 20 (409 `forms_limit`), 30 dni
   retencji w `queue_retention`, kasowany w transakcji tworzenia
   (`intake_form_id`). `/jobs/new` zapisuje go sam (3 s po zmianie) i wznawia
-  z kroku 1 albo `?form=<id>`.
+  z listy na pustej stronie albo `?form=<id>`. Pusta strona — także z samym
+  wybranym klientem — formularza nie zapisuje (10.10.2026). Zapis niesie
+  zawsze `step: "review"`; stary zapis z `step: "request"` (treść wpisana,
+  nieodczytana) wraca do panelu „Wklej treść” (`requestRead`).
 - **Stare szkice:** pulpit „Czeka na Ciebie” → `pending_jobs`
   (`services/pending_job_completion.py`: szkice i opublikowane bez
   przekazania z brakami; DL swoje, HoR i admin wszystkie) + `unfinished_forms`

@@ -6,6 +6,7 @@
  * razem z udanym `POST /api/jobs` (`intake_form_id`).
  */
 import api from "@/lib/api";
+import type { IntakeOffer } from "@/lib/job-intake-fill";
 import type { IntakeForm, MissingCode } from "@/lib/job-request-intake";
 import type { RecruiterAssignment } from "@/lib/recruiter-assignment";
 import type { PriorityLevel } from "@/lib/request-priority";
@@ -31,7 +32,21 @@ export interface IntakeFormListItem {
  */
 export interface IntakeFormState {
   version: 1;
+  /**
+   * Od 10.10.2026 strona ma jeden ekran i zapisuje zawsze `"review"`. Stary
+   * zapis z `"request"` to treść wpisana w kroku 1, jeszcze nieodczytana.
+   */
   step: "request" | "review";
+  /**
+   * `request_text` formularza to treść już odczytana (albo opis szablonu)
+   * — stoi obok formularza. `false` = treść wpisana w panelu „Wklej treść”,
+   * jeszcze nieodczytana. Brak pola (zapis sprzed 10.10.2026) czytamy z `step`.
+   */
+  requestRead?: boolean;
+  /** Treść w panelu „Wklej treść”, gdy obok jest już odczytany request. */
+  pasteDraft?: string;
+  /** Propozycje z odczytu czekające przy polach („Użyj” / „Zostaw”). */
+  offers?: IntakeOffer[];
   form: IntakeForm;
   evidence: string[];
   readByAi: boolean;

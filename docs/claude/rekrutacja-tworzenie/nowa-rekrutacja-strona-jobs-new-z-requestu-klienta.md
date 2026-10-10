@@ -51,7 +51,9 @@ template” → `/jobs/new?from=<id>`) prowadzi na stronę.
   `ContractsClientPicker`) zostają przy pełnej liście.
 - Strona jest dla admina i Delivery Leada (`job.create` + rola), bo odczyt,
   Champion i handoff to `DeliveryLeadPlus`. Harness `/preview/new-job`
-  (`?state=request|review|gaps`, zero zapytań).
+  (`?state=request|manual|attempted|review|gaps|offers|champion` i stany
+  automatu, zero zapytań; nieznany stan pokazuje `review`). Od 10.10.2026
+  strona ma jeden ekran — `jobs-new-jeden-ekran-i-odczyt-pustych-pol.md`.
 - **Dni w biurze: „w tygodniu” albo „w miesiącu” (0407, 30.09.2026).**
   `jobs.onsite_days_per_month` i `basics.onsite_days_per_month` (1–22) trzymają
   wpis „raz w miesiącu”; wtedy `onsite_days_per_week` wylicza serwer

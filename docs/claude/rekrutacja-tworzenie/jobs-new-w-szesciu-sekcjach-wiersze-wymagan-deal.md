@@ -5,10 +5,12 @@ raport `docs/new-job-panel-redesign-completion-report.md`. Pomiar na 20 najnowsz
 rekrutacjach: 53 ze 185 must-have to zdania, krytycznych nie wybrał nikt, 59% słów
 z „wymagań do wyszukiwania” powtarzało must, deal breaker miały 3 z 99 pytań.
 
-- **Krok 1 = klient + trzy kafle źródła** (`NewJobSourceStep`: wklej treść, wgraj
-  plik, wpisz ręcznie). Bez klienta przycisk zostaje aktywny i po kliknięciu
-  pokazuje komunikat przy polu klienta — nie wracaj do nieaktywnego przycisku
-  bez wyjaśnienia.
+- **Klient i źródła stoją w pasku nad formularzem** (`NewJobSourceBar`, od
+  10.10.2026: „Wypełnij z: Wklej treść | Wgraj plik | Inna rekrutacja”; do tej
+  daty krok 1 z trzema kaflami — `jobs-new-jeden-ekran-i-odczyt-pustych-pol.md`).
+  Bez klienta akcja źródła i „Utwórz i opublikuj” zostają aktywne i po
+  kliknięciu pokazują komunikat przy polu klienta — nie wracaj do nieaktywnego
+  przycisku bez wyjaśnienia.
 - **Wymagania to JEDNA lista wierszy: `stack.rows = [{words, level}]`** w Profilu
   Championa (JSONB, bez migracji). Wiersz = wymaganie, słowa = warianty, poziom =
   krytyczne / musi mieć / mile widziane. Serwer WYPROWADZA z nich przy zapisie
@@ -112,5 +114,7 @@ z „wymagań do wyszukiwania” powtarzało must, deal breaker miały 3 z 99 py
   (`categoryInputCurrent` w `NewJobPage`): zapytanie idzie po chwili ciszy,
   a zaraz po odczycie requestu opóźniona wartość to jeszcze puste pole —
   podpowiedź dla pustej roli migała i znikała, razem z przyciskiem „Potwierdzam”.
-- Harness `/preview/new-job?state=request|noclient|manual|review|gaps|shadow|passive|off`;
+  Od 10.10.2026 pusty formularz nie pyta o kategorie wcale (sekcja 6 mówi, że
+  pojawią się z pierwszym wpisanym polem).
+- Harness `/preview/new-job?state=request|noclient|manual|attempted|review|gaps|offers|champion|shadow|passive|off`;
   profil z wierszami: przypadek 4 w `/preview/champion-profile`.
