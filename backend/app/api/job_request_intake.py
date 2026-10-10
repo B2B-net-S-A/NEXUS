@@ -40,6 +40,8 @@ from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.ai_feature import AIFeatureKey
 from app.models.client import Client
 from app.models.user import User
+from app.services import champion_document
+from app.services import job_intake_champion_file as champion_file
 from app.services import job_request_intake as intake
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.services.auto_assign_owners import (
@@ -55,6 +57,9 @@ router = APIRouter(prefix="/job-intake", dependencies=PIPELINE_SECTION_DEPENDENC
 
 MAX_FILE_BYTES = 10 * 1024 * 1024
 _ALLOWED_EXTENSIONS = (".docx", ".pdf", ".txt")
+# Kto przeczytał wejście: model (`request`) albo tabele wzoru Profilu
+# Championa (`champion_file.READER`). Formularz mówi to Delivery Leadowi.
+READER_REQUEST = "request"
 
 
 class ReadRequestBody(BaseModel):
@@ -108,6 +113,37 @@ async def read_request(
     return {
         "text": body.text,
         "intake": await _read(db, current_user.id, body.client_id, body.text),
+        "reader": READER_REQUEST,
+    }
+
+
+async def _read_champion_form(data: bytes, name: str) -> Optional[dict]:
+    """Odpowiedź dla wypełnionego wzoru Profilu Championa albo ``None``.
+
+    Wzór czytamy z tabel (D4, 10.10.2026): bez modelu, bez `ai_feature`
+    i bez limitu 20 000 znaków — limit dotyczy tylko tekstu pokazywanego obok
+    formularza. Parsowanie Worda idzie w puli wątków, nie na pętli procesu.
+    """
+    try:
+        profile = await run_in_threadpool(champion_file.read_champion_form, data, name)
+    except champion_file.EmptyChampionForm as exc:
+        raise HTTPException(422, champion_file.EMPTY_FORM_MESSAGE) from exc
+    if profile is None:
+        return None
+    # Drugi odczyt tego samego pliku (tabele zagnieżdżone, których odczyt wzoru
+    # nie dotyka). Jego awaria nie może dać 500 — plik idzie wtedy starą ścieżką.
+    try:
+        text = await run_in_threadpool(champion_document.document_text, data)
+    except Exception as exc:  # noqa: BLE001 — w logu sama klasa, bez treści pliku
+        logger.warning(
+            "job_request_intake: champion form text failed: %s", type(exc).__name__
+        )
+        return None
+    return {
+        "text": text[: intake.MAX_REQUEST_CHARS],
+        "intake": champion_file.intake_from_champion(profile).as_dict(),
+        "reader": champion_file.READER,
+        "champion_extras": champion_file.champion_extras(profile),
     }
 
 
@@ -130,9 +166,14 @@ async def read_request_file(
     if len(data) > MAX_FILE_BYTES:
         raise HTTPException(413, "Plik jest za duży (maks. 10 MB).")
 
+    suffix = os.path.splitext(name)[1]
+    if suffix == ".docx":
+        champion = await _read_champion_form(data, name)
+        if champion is not None:
+            return champion
+
     from app.services.cv_text_extractor import extract_text
 
-    suffix = os.path.splitext(name)[1]
     with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
         tmp.write(data)
         tmp.flush()
@@ -145,8 +186,13 @@ async def read_request_file(
         raise HTTPException(
             422, "W pliku nie ma tekstu do odczytania (skan bez tekstu?)."
         )
+    # Sprawdzane na całym tekście: rubryka pytań stoi pod koniec wzoru.
+    champion_pdf = suffix == ".pdf" and champion_file.looks_like_champion_text(text)
     text = text[: intake.MAX_REQUEST_CHARS]
-    return {"text": text, "intake": await _read(db, current_user.id, client_id, text)}
+    result = await _read(db, current_user.id, client_id, text)
+    if champion_pdf:
+        result["advisories"] = [*result["advisories"], champion_file.PDF_NOTE]
+    return {"text": text, "intake": result, "reader": READER_REQUEST}
 
 
 class PublicDraftRequest(BaseModel):
