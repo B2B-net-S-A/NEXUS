@@ -119,6 +119,84 @@ describe("ChipField z podpowiedziami", () => {
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 
+  // Wiersze wymagań rekrutacji (D1, 10.10.2026): przecinek, średnik, Enter
+  // i wklejona lista mają dawać osobne wymagania, więc pole oddaje surowy
+  // tekst rodzicowi. Bez `onCommitText` nic się nie zmienia.
+  it("`onCommitText` dostaje surowy tekst z Entera, przecinka, średnika i wyjścia z pola", () => {
+    const onCommitText = vi.fn();
+    const { onChange, input } = renderField({ onCommitText, suggest: undefined });
+    fireEvent.change(input, { target: { value: "Kafka, Redis" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onCommitText).toHaveBeenLastCalledWith("Kafka, Redis", "enter");
+    expect(input).toHaveValue("");
+    fireEvent.change(input, { target: { value: "Java" } });
+    fireEvent.keyDown(input, { key: "," });
+    expect(onCommitText).toHaveBeenLastCalledWith("Java", "separator");
+    fireEvent.change(input, { target: { value: "SQL" } });
+    expect(fireEvent.keyDown(input, { key: ";" })).toBe(false);
+    expect(onCommitText).toHaveBeenLastCalledWith("SQL", "separator");
+    fireEvent.change(input, { target: { value: "AWS" } });
+    fireEvent.blur(input);
+    expect(onCommitText).toHaveBeenLastCalledWith("AWS", "blur");
+    expect(onCommitText).toHaveBeenCalledTimes(4);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("wklejona lista idzie do `onCommitText` w miejscu kursora, jedno słowo zostaje w polu", () => {
+    const onCommitText = vi.fn();
+    const { input } = renderField({ onCommitText, suggest: undefined });
+    const paste = (text: string) =>
+      fireEvent.paste(input, { clipboardData: { getData: () => text } });
+    // Jedno słowo: zwykłe wklejenie, przeglądarka sama wstawia tekst.
+    expect(paste("Kotlin")).toBe(true);
+    expect(onCommitText).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: "Ja" } });
+    expect(paste("va\nSpring; SQL")).toBe(false);
+    expect(onCommitText).toHaveBeenCalledTimes(1);
+    expect(onCommitText).toHaveBeenLastCalledWith("Java\nSpring; SQL", "paste");
+    expect(input).toHaveValue("");
+  });
+
+  it("bez `onCommitText` średnik i wklejona lista działają jak dotąd", () => {
+    const { onChange, input } = renderField({ suggest: undefined });
+    fireEvent.change(input, { target: { value: "SQL" } });
+    expect(fireEvent.keyDown(input, { key: ";" })).toBe(true);
+    expect(
+      fireEvent.paste(input, { clipboardData: { getData: () => "Java, Spring" } }),
+    ).toBe(true);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("słowa odrzucone przez `onCommitText` pokazuje ta sama notka co za krótkie słowo", () => {
+    // O tym, co odpada, decyduje rodzic — pole samo przyjęłoby „Kafka, x”.
+    const { onChange, input } = renderField({ onCommitText: () => ["x"], suggest: undefined });
+    fireEvent.change(input, { target: { value: "Kafka, x" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.getByRole("status")).toHaveTextContent("„x” jest za krótkie");
+    expect(onChange).not.toHaveBeenCalled();
+    // Notka znika, gdy ktoś pisze dalej.
+    fireEvent.change(input, { target: { value: "Java" } });
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("`hideInput` chowa pole, `trailing` stoi za chipami", () => {
+    render(
+      <ChipField
+        chips={["Kafka"]}
+        onChange={() => {}}
+        placeholder="lub…"
+        tone="emerald"
+        ariaLabel="Wiersz"
+        layout="inline"
+        hideInput
+        trailing={<button type="button">+ lub</button>}
+      />,
+    );
+    expect(screen.queryByLabelText("Wiersz")).toBeNull();
+    expect(screen.getByText("Kafka")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "+ lub" })).toBeTruthy();
+  });
+
   it("nie pokazuje podpowiedzi do poprzedniego słowa, zanim przyjdą nowe", async () => {
     const { onChange, input } = renderField();
     await typeAndWait(input, "jav");

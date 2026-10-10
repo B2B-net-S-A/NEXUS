@@ -9,6 +9,11 @@
  * Lead wpisywał to samo: must-have, umiejętności krytyczne i „wymagania do
  * wyszukiwania w bazie”. Reguły: `lib/requirement-rows.ts`; ten sam edytor
  * stoi na `/jobs/new` i w Profilu Championa.
+ *
+ * Wpisywanie (decyzja D1, 10.10.2026): Enter, przecinek, średnik i wklejona
+ * lista dają OSOBNE wymagania. Wariant powstaje tylko świadomie — „A / B”,
+ * „A lub B” albo przycisk „+ lub” w wypełnionym wierszu — bo wiersz „A lub B”
+ * spełnia kandydat z jednym z tych słów.
  */
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
@@ -17,7 +22,7 @@ import { Lightbulb, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { SegmentedRadio } from "@/components/ui/segmented-radio";
-import { ChipField } from "@/components/v2/filters/AdvancedSearchPopover";
+import { ChipField, type ChipCommitSource } from "@/components/v2/filters/AdvancedSearchPopover";
 import { peopleCountLabel } from "@/components/champion/SearchRequirementsEditor";
 import { statSentence } from "@/lib/critical-skills";
 import {
@@ -28,19 +33,25 @@ import {
 } from "@/lib/keyword-requirements";
 import {
   LEVEL_LABEL,
+  NICE_ROWS_MAX,
+  REQUIRED_ROWS_MAX,
+  ROW_WORDS_MAX,
   acceptRequirementWord,
   addRow,
   applySuggestion,
   canAddRow,
   criticalRows,
   criticalSummary,
+  enterRequirements,
   levelBlockedReason,
+  parseRequirementEntry,
   requiredOverflowNotice,
   requiredRows,
   rowCountHint,
   rowHead,
   setRowLevel,
   suggestedRowKeys,
+  type RequirementEntryResult,
   type RequirementLevel,
   type RequirementRowForm,
   type RowCriticalState,
@@ -80,6 +91,24 @@ export interface RequirementRowsEditorProps {
 /** Podpowiedzi w wierszu: lista dopiero po wpisaniu tekstu (nie zasłania wiersza niżej). */
 const ROW_SUGGEST = { quietWhenEmpty: true } as const;
 
+/**
+ * Co edytor mówi o wpisie, z którego nie wszystko trafiło na listę — żadne
+ * słowo nie znika po cichu. `null` = wszystko weszło.
+ */
+function entryNoteText(result: RequirementEntryResult, skipped: readonly string[]): string | null {
+  const parts: string[] = [];
+  if (result.duplicates.length > 0) parts.push(`Już na liście: ${result.duplicates.join(", ")}.`);
+  if (result.overLimit.length > 0) {
+    parts.push(
+      `Nie zmieściło się: ${result.overLimit.join(", ")} — lista ma najwyżej ${REQUIRED_ROWS_MAX + NICE_ROWS_MAX} wymagań.`,
+    );
+  }
+  if (skipped.length > 0) {
+    parts.push(`Pominięto za krótkie: ${skipped.map((word) => `„${word}”`).join(", ")}.`);
+  }
+  return parts.length > 0 ? parts.join(" ") : null;
+}
+
 function countText(value: number | null | undefined): string {
   if (value === undefined) return "liczę…";
   if (value === null) return "—";
@@ -105,24 +134,28 @@ export function RequirementRowsEditor({
     () => (rows.length > 0 ? rows : addRow([])),
     [rows],
   );
-  // Wiersz dodany przyciskiem albo Enterem dostaje kursor — od razu można
+  // Wiersz dodany przyciskiem albo wpisem dostaje kursor — od razu można
   // pisać. Ustawiamy go po renderze: wiersz bywa już zamontowany (pusty wiersz
-  // pod spodem), więc samo `autoFocus` by nie zadziałało.
+  // pod spodem), więc samo `autoFocus` by nie zadziałało. `addVariant` =
+  // przycisk „+ lub” wiersza (po zamknięciu pola wariantu).
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const focusKey = useRef<string | null>(null);
-  // Po pozycji, nie po kluczu: klucz pustego wiersza startowego powstaje
-  // osobno na serwerze i w przeglądarce, więc nie może trafić do atrybutu.
-  const focusRow = (index: number) =>
-    rootRef.current
-      ?.querySelector<HTMLInputElement>(`[data-row-index="${index}"] input[data-keyword-field]`)
-      ?.focus();
+  const pendingFocus = useRef<{ key: string; on: "field" | "addVariant" } | null>(null);
   useEffect(() => {
-    const key = focusKey.current;
-    if (!key) return;
-    focusKey.current = null;
-    const index = shown.findIndex((row) => row.key === key);
-    if (index >= 0) focusRow(index);
+    const pending = pendingFocus.current;
+    if (!pending) return;
+    pendingFocus.current = null;
+    // Po pozycji, nie po kluczu: klucz pustego wiersza startowego powstaje
+    // osobno na serwerze i w przeglądarce, więc nie może trafić do atrybutu.
+    const index = shown.findIndex((row) => row.key === pending.key);
+    if (index < 0) return;
+    const target = pending.on === "field" ? "input[data-keyword-field]" : "button[data-add-variant]";
+    rootRef.current
+      ?.querySelector<HTMLElement>(`[data-row-index="${index}"] ${target}`)
+      ?.focus();
   });
+  // Wiersz z otwartym polem wariantu („+ lub”) — jedno naraz.
+  const [variantKey, setVariantKey] = useState<string | null>(null);
+  const [entryNote, setEntryNote] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const counts = useRowCounts(shown, exclude, countEnabled && !disabled);
   const hints = useMemo(
@@ -141,43 +174,57 @@ export function RequirementRowsEditor({
     onRowsChange(setRowLevel(shown, key, level));
     if (level === "critical" && noCritical) onNoCriticalChange(false);
   };
-  const remove = (key: string) => onRowsChange(shown.filter((row) => row.key !== key));
+  const remove = (key: string) => {
+    setEntryNote(null);
+    onRowsChange(shown.filter((row) => row.key !== key));
+  };
   const add = () => {
     const next = addRow(shown);
-    focusKey.current = next[next.length - 1].key;
+    pendingFocus.current = { key: next[next.length - 1].key, on: "field" };
+    setEntryNote(null);
     onRowsChange(next);
   };
   /**
-   * Enter w wierszu = to wymaganie gotowe, kursor idzie do następnego
-   * (09.10.2026: po Enterze kursor zostawał w tym samym wierszu, więc kolejne
-   * must-have stawało się wariantem „lub”). Słowo i nowy wiersz idą JEDNĄ
-   * zmianą listy — dwie zmiany liczone z tego samego `shown` gubiłyby pierwszą.
-   * W środku listy (wiersz niżej już wypełniony) kursor zostaje: tam dopisuje
-   * się warianty.
+   * Wpis w PUSTYM wierszu: każda grupa to osobne wymaganie (pierwsza wypełnia
+   * ten wiersz, kolejne dochodzą pod nim), a kursor idzie do pustego wiersza
+   * na końcu. Wszystko JEDNĄ zmianą listy — dwie zmiany liczone z tego samego
+   * `shown` gubiłyby pierwszą. Przy wyjściu z pola nie dokładamy pustego
+   * wiersza: lista urosłaby pod kursorem myszy w trakcie kliknięcia i klik
+   * w „Dodaj słowo kluczowe” trafiałby obok.
+   * Zwraca słowa odrzucone, gdy wiersz został pusty — pokazuje je wtedy samo
+   * pole; po dodaniu wymagań pole znika, więc mówi o nich notka pod listą.
    */
-  const commitAndAdvance = (key: string, words?: string[]) => {
-    const base = words
-      ? shown.map((row) => (row.key === key ? { ...row, words } : row))
-      : shown;
-    const index = base.findIndex((row) => row.key === key);
-    if (index < 0 || base[index].words.length === 0) return;
-    const below = base[index + 1];
-    if (below && below.words.length === 0) {
-      if (words) {
-        focusKey.current = below.key;
-        onRowsChange(base);
-      } else {
-        focusRow(index + 1);
-      }
-      return;
+  const enter = (
+    key: string,
+    groups: readonly (readonly string[])[],
+    via: ChipCommitSource,
+    rejected: readonly string[] = [],
+  ): string[] => {
+    const result = enterRequirements(shown, key, groups, { trailing: via !== "blur" });
+    if (result.added === 0) {
+      setEntryNote(entryNoteText(result, []));
+      return [...rejected];
     }
-    if (below || !canAddRow(base)) {
-      if (words) onRowsChange(base);
-      return;
+    setEntryNote(entryNoteText(result, rejected));
+    if (via !== "blur") {
+      // Bez miejsca na kolejny wiersz kursor nie ma dokąd iść — fokus zostaje
+      // przy wpisanym wymaganiu (pole tego wiersza właśnie zniknęło).
+      pendingFocus.current = result.focusKey
+        ? { key: result.focusKey, on: "field" }
+        : { key, on: "addVariant" };
     }
-    const next = addRow(base);
-    focusKey.current = next[next.length - 1].key;
-    onRowsChange(next);
+    if (variantKey === key) setVariantKey(null);
+    onRowsChange(result.rows);
+    return [];
+  };
+  const openVariant = (key: string) => {
+    pendingFocus.current = { key, on: "field" };
+    setVariantKey(key);
+  };
+  /** Pusty Enter albo Esc w polu wariantu: pole znika, fokus wraca na „+ lub”. */
+  const closeVariant = (key: string) => {
+    pendingFocus.current = { key, on: "addVariant" };
+    setVariantKey(null);
   };
   const applyHint = (hint: KeywordHint) => {
     const parts =
@@ -243,7 +290,7 @@ export function RequirementRowsEditor({
           aria-hidden
           className="hidden gap-3 px-1 text-xs font-medium text-muted-foreground @xl:grid @xl:grid-cols-[minmax(0,1fr)_auto_5.5rem_1.5rem]"
         >
-          <span>Słowo kluczowe — Enter: następne wymaganie, przecinek: wariant</span>
+          <span>Słowo kluczowe — Enter albo przecinek: następne wymaganie</span>
           <span className="w-[17rem]">Poziom</span>
           <span className="text-right">W bazie</span>
           <span />
@@ -266,25 +313,69 @@ export function RequirementRowsEditor({
               ? rowCountHint(counts.perRow[row.key])
               : null;
           const rowHints = hints.filter((hint) => hint.row === index);
+          // Pusty wiersz przyjmuje wymagania. Wypełniony pokazuje same chipy:
+          // bez pola kolejne słowo nie stanie się po cichu wariantem — pole
+          // wariantu otwiera dopiero „+ lub”.
+          const filled = row.words.length > 0;
+          const variantOpen = filled && variantKey === row.key;
           return (
             <div key={row.key} data-row-index={index} className="flex flex-col gap-1.5">
               <div className="grid grid-cols-[minmax(0,1fr)_1.5rem] items-start gap-x-3 gap-y-1.5 @xl:grid-cols-[minmax(0,1fr)_auto_5.5rem_1.5rem]">
-                <div className="min-w-0">
+                <div
+                  className="min-w-0"
+                  // Esc dociera tu tylko z pustego pola bez listy podpowiedzi —
+                  // listę i wpisany tekst pole zamyka samo (`stopPropagation`).
+                  onKeyDown={
+                    variantOpen
+                      ? (event) => {
+                          if (event.key === "Escape") closeVariant(row.key);
+                        }
+                      : undefined
+                  }
+                >
                   <ChipField
                     layout="inline"
                     joiner="lub"
                     chips={row.words}
-                    onChange={(next) => setWords(row.key, next)}
+                    // Podpowiedź wybrana w pustym wierszu to całe wymaganie
+                    // (nazwa z wariantami) — kursor idzie dalej jak po Enterze.
+                    onChange={(next) =>
+                      filled ? setWords(row.key, next) : enter(row.key, [next], "enter")
+                    }
                     placeholder={
-                      row.words.length ? "lub… (wariant)" : "np. Java — Enter i wpisujesz kolejne wymaganie"
+                      filled
+                        ? "lub… (wariant)"
+                        : "np. Java — Enter albo przecinek dodaje kolejne wymaganie"
                     }
                     tone={row.level === "nice" ? "sky" : "emerald"}
                     ariaLabel={`Wymaganie ${index + 1} — słowo albo wariant`}
                     suggest={ROW_SUGGEST}
-                    invalid={invalid && index === 0 && row.words.length === 0}
+                    invalid={invalid && index === 0 && !filled}
                     acceptWord={acceptRequirementWord}
-                    onEnterCommit={(next) => commitAndAdvance(row.key, next)}
-                    onSubmitEmpty={() => commitAndAdvance(row.key)}
+                    onCommitText={
+                      filled
+                        ? undefined
+                        : (text, via) => {
+                            const entry = parseRequirementEntry(text);
+                            return enter(row.key, entry.groups, via, entry.rejected);
+                          }
+                    }
+                    onSubmitEmpty={variantOpen ? () => closeVariant(row.key) : undefined}
+                    hideInput={filled && !variantOpen}
+                    trailing={
+                      filled && !variantOpen && row.words.length < ROW_WORDS_MAX ? (
+                        <button
+                          type="button"
+                          data-add-variant=""
+                          onClick={() => openVariant(row.key)}
+                          aria-label={`Dodaj wariant do wymagania ${index + 1}`}
+                          title="Dodaj wariant — wystarczy, że kandydat ma jedno ze słów tego wiersza"
+                          className="hit-area inline-flex h-6 shrink-0 items-center rounded-md border border-dashed border-border px-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                        >
+                          + lub
+                        </button>
+                      ) : undefined
+                    }
                   />
                 </div>
                 <button
@@ -436,6 +527,17 @@ export function RequirementRowsEditor({
           />
           Brak krytycznych
         </label>
+        {/* Pod przyciskami, nie nad nimi: notka pojawia się też przy wyjściu
+            z pola, a przycisk przesunięty w trakcie kliknięcia by go zgubił. */}
+        {entryNote ? (
+          <p
+            role="status"
+            className="basis-full text-xs text-warning-muted-foreground"
+            data-testid="requirement-entry-note"
+          >
+            {entryNote}
+          </p>
+        ) : null}
         {overflowNotice ? (
           <p
             role="note"

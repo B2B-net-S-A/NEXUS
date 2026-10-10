@@ -42,14 +42,32 @@ wysłał do klienta, budżet — 32%, dni w biurze — 8%. Decyzje Artura 30.09.
   oddaje `selectable` = wszystkie etykiety i puste `blocked` (pola zostają dla
   otwartych kart przeglądarki). Edytor wierszy wyłącza „Krytyczne” WYŁĄCZNIE
   limitem; pod krytycznym spoza słownika stoi zdanie, czego szukamy.
-- **Edytor wierszy wymagań — klawiatura (zgłoszenie 09.10.2026: „wpisuję jedno
-  must-have i nie mogę kolejnego”, „słowo znika albo się podmienia”).** Enter
-  po słowie = następne wymaganie (kursor w pustym wierszu niżej, nowym, gdy go
-  nie ma — jednym `onRowsChange`; w środku listy kursor zostaje), przecinek =
-  wariant „lub” w tym samym wierszu. `ChipField` ma do tego `onEnterCommit`
-  i `suggest.quietWhenEmpty` (lista podpowiedzi nie otwiera się na pustym polu
-  — zasłaniała wiersz niżej i „Dodaj słowo kluczowe”). Najechanie myszą NIE
-  ustawia podświetlenia klawiatury (`KeywordSuggestionList` bez `onHover`,
+- **Edytor wierszy wymagań — klawiatura (decyzja D1, 10.10.2026; wcześniej
+  zgłoszenie 09.10: „wpisuję jedno must-have i nie mogę kolejnego”).** W pustym
+  wierszu Enter, przecinek, średnik, wyjście z pola i wklejona lista (tekst
+  z `,`, `;` albo nową linią) dają OSOBNE wymagania: „Java, Spring, SQL” + Enter
+  to trzy wiersze, a kursor staje w pustym wierszu na końcu (nowym, gdy jest
+  miejsce; wyjście z pola go nie dokłada — lista rosłaby pod kursorem myszy
+  w trakcie kliknięcia). Do 10.10 przecinek dopisywał wariant: „Java”,
+  przecinek, „Spring” było JEDNYM wymaganiem „Java lub Spring”, które spełnia
+  kandydat z samą Javą — lista must-have po cichu się rozluźniała. Nie wracaj
+  do tego. Wariant powstaje tylko świadomie: „A / B”, „A lub B”, „A or B”
+  (ukośnik ze spacjami; „CI/CD” to jedno słowo) albo przycisk „+ lub”
+  w wypełnionym wierszu. Wypełniony wiersz nie ma pola do pisania — otwiera je
+  dopiero „+ lub” (tam Enter i przecinek dopisują warianty, pusty Enter albo
+  Esc je zamyka). Separator w domkniętym nawiasie nie dzieli („Spring (Boot,
+  Data)”), znaczniki wklejonej listy („- ”, „• ”, „1. ”) znikają. Nic nie
+  przepada po cichu: słowo, które już prowadzi inny wiersz, daje notkę „Już na
+  liście: …”, wymagania ponad 30 wierszy — „Nie zmieściło się: …”. Nowy wiersz
+  ma poziom jak z „Dodaj słowo kluczowe” (musi mieć, po 10 obowiązkowych mile
+  widziane), nigdy krytyczne. Reguły bez Reacta: `parseRequirementEntry`
+  i `enterRequirements` w `lib/requirement-rows.ts` (jedna zmiana listy na
+  wpis). `ChipField` oddaje wpis rodzicowi przez opcjonalne `onCommitText`
+  (do tego `hideInput`, `trailing`); bez tych propsów — lista kandydatów,
+  `RequirementRowsField`, pole „Wyklucz” — przecinek dalej dodaje słowo w tym
+  samym polu. `suggest.quietWhenEmpty`: lista podpowiedzi nie otwiera się na
+  pustym polu (zasłaniała wiersz niżej i „Dodaj słowo kluczowe”). Najechanie
+  myszą NIE ustawia podświetlenia klawiatury (`KeywordSuggestionList` bez `onHover`,
   podświetlenie pod kursorem to CSS) — Enter wstawia podpowiedź tylko wybraną
   strzałkami, także na liście kandydatów. Wiersze znajdujemy po
   `data-row-index`, nie po kluczu (klucz pustego wiersza różni się między

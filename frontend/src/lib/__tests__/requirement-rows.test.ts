@@ -12,11 +12,13 @@ import {
   criticalDecisionMissing,
   criticalRows,
   criticalSummary,
+  enterRequirements,
   filledRows,
   levelBlockedReason,
   mustHeads,
   newRowKey,
   niceHeads,
+  parseRequirementEntry,
   requiredOverflowNotice,
   requiredRows,
   rowCountHint,
@@ -445,5 +447,161 @@ describe("podpowiedź z historii", () => {
     ]);
     // Wejście zostaje nietknięte.
     expect(ROWS[0].level).toBe("critical");
+  });
+});
+
+// Decyzja D1 (10.10.2026): przecinek, średnik, Enter i wklejona lista dają
+// OSOBNE wymagania; wariant („lub”) powstaje tylko świadomie.
+describe("parseRequirementEntry — wpisany albo wklejony tekst → wymagania", () => {
+  const groups = (text: string) => parseRequirementEntry(text).groups;
+
+  it("przecinek, średnik i nowa linia rozdzielają wymagania", () => {
+    expect(groups("Kafka, Redis; AWS\nSQL\r\nDocker")).toEqual([
+      ["Kafka"],
+      ["Redis"],
+      ["AWS"],
+      ["SQL"],
+      ["Docker"],
+    ]);
+    expect(groups("Spring Boot")).toEqual([["Spring Boot"]]);
+  });
+
+  it("„A / B”, „A lub B”, „A or B” to jedno wymaganie z wariantami; „CI/CD” to jedno słowo", () => {
+    expect(groups("Kafka / RabbitMQ")).toEqual([["Kafka", "RabbitMQ"]]);
+    expect(groups("React lub Vue OR Angular, CI/CD, PL/SQL")).toEqual([
+      ["React", "Vue", "Angular"],
+      ["CI/CD"],
+      ["PL/SQL"],
+    ]);
+  });
+
+  it("separator w nawiasie nie dzieli; niedomknięty nawias nie skleja reszty listy", () => {
+    expect(groups("Spring (Boot, Data), SQL")).toEqual([["Spring (Boot, Data)"], ["SQL"]]);
+    expect(groups("Bazy danych (Oracle lub PostgreSQL); AWS")).toEqual([
+      ["Bazy danych (Oracle lub PostgreSQL)"],
+      ["AWS"],
+    ]);
+    expect(groups("Java (11, Spring, SQL")).toEqual([["Java (11"], ["Spring"], ["SQL"]]);
+  });
+
+  it("jedna litera wchodzi („C”, „R”), cyfra i sam znak wracają jako odrzucone", () => {
+    expect(parseRequirementEntry("C, 7, R / Python, +")).toEqual({
+      groups: [["C"], ["R", "Python"]],
+      rejected: ["7", "+"],
+    });
+  });
+
+  it("puste kawałki znikają, powtórzony wariant liczy się raz, `|` to spacja", () => {
+    expect(parseRequirementEntry(" Java ,, ;\n  ")).toEqual({ groups: [["Java"]], rejected: [] });
+    expect(groups("Kafka / kafka / KAFKA")).toEqual([["Kafka"]]);
+    expect(groups("CI|CD")).toEqual([["CI CD"]]);
+    expect(parseRequirementEntry("   ")).toEqual({ groups: [], rejected: [] });
+  });
+
+  it("znaczniki listy z wklejonego maila nie trafiają do słów", () => {
+    expect(groups("- Java\n• Spring Boot\n1. SQL\n2) AWS\n* Docker")).toEqual([
+      ["Java"],
+      ["Spring Boot"],
+      ["SQL"],
+      ["AWS"],
+      ["Docker"],
+    ]);
+    // Kropka i myślnik w nazwie zostają.
+    expect(groups(".NET, e-commerce, bankow*")).toEqual([[".NET"], ["e-commerce"], ["bankow*"]]);
+  });
+
+  it("najwyżej 20 słów w wierszu", () => {
+    const text = Array.from({ length: 25 }, (_, i) => `Słowo${i}`).join(" / ");
+    expect(groups(text)[0]).toHaveLength(20);
+  });
+});
+
+describe("enterRequirements — każda grupa to osobny wiersz", () => {
+  const empty = (key = "e", level: RequirementLevel = "must") => row(key, [], level);
+  const words = (rows: readonly RequirementRowForm[]) => rows.map((r) => r.words);
+
+  it("pierwsza grupa wypełnia wiersz, kolejne dochodzą pod nim, kursor w pustym wierszu na końcu", () => {
+    const result = enterRequirements([row("a", ["Java"]), empty()], "e", [
+      ["Kafka"],
+      ["Redis", "KeyDB"],
+    ]);
+    expect(words(result.rows)).toEqual([["Java"], ["Kafka"], ["Redis", "KeyDB"], []]);
+    expect(result.rows[1].key).toBe("e");
+    expect(result.rows.map((r) => r.level)).toEqual(["must", "must", "must", "must"]);
+    expect(result.focusKey).toBe(result.rows[3].key);
+    expect(result).toMatchObject({ added: 2, duplicates: [], overLimit: [] });
+    // Klucze się nie powtarzają — React nie pomyli wierszy.
+    expect(new Set(result.rows.map((r) => r.key)).size).toBe(4);
+  });
+
+  it("pusty wiersz, który już stoi na końcu, dostaje kursor — bez dokładania kolejnego", () => {
+    const result = enterRequirements([empty("e"), empty("t")], "e", [["Kafka"], ["Redis"]]);
+    expect(words(result.rows)).toEqual([["Kafka"], ["Redis"], []]);
+    expect(result.focusKey).toBe("t");
+  });
+
+  it("wpis w środku listy: nowe wiersze pod nim, kursor na końcu listy", () => {
+    const result = enterRequirements([empty("e"), row("b", ["Java"])], "e", [["Kafka"], ["Redis"]]);
+    expect(words(result.rows)).toEqual([["Kafka"], ["Redis"], ["Java"], []]);
+    expect(result.focusKey).toBe(result.rows[3].key);
+  });
+
+  it("bez pustego wiersza na końcu (wyjście z pola): lista nie rośnie o pusty wiersz", () => {
+    const result = enterRequirements([empty()], "e", [["Kafka"], ["Redis"]], { trailing: false });
+    expect(words(result.rows)).toEqual([["Kafka"], ["Redis"]]);
+    expect(result.focusKey).toBeNull();
+  });
+
+  it("poziom: wiersz docelowy zostaje, nowe to „musi mieć”, po 10 obowiązkowych „mile widziane” — nigdy krytyczne", () => {
+    const result = enterRequirements(
+      [...many(8, "must", "m"), empty("e", "critical")],
+      "e",
+      [["Alfa"], ["Beta"], ["Gamma"]],
+    );
+    expect(result.rows.slice(8).map((r) => [r.words[0] ?? "", r.level])).toEqual([
+      ["Alfa", "critical"],
+      ["Beta", "must"],
+      ["Gamma", "nice"],
+      ["", "nice"],
+    ]);
+  });
+
+  it("słowo, które już prowadzi inny wiersz, jest pomijane — także powtórzone w tym samym wpisie", () => {
+    const result = enterRequirements([row("a", ["Java", "JVM"]), empty()], "e", [
+      ["java"],
+      ["Spring"],
+      ["spring", "Boot"],
+      // Wariant innego wiersza to nie jego pierwsze słowo — wolno.
+      ["JVM"],
+    ]);
+    expect(result.duplicates).toEqual(["java", "spring"]);
+    expect(words(result.rows)).toEqual([["Java", "JVM"], ["Spring"], ["JVM"], []]);
+    expect(result.added).toBe(2);
+  });
+
+  it("same powtórki albo puste grupy: lista bez zmian, kursor zostaje w wierszu", () => {
+    const rows = [row("a", ["Java"]), empty()];
+    const result = enterRequirements(rows, "e", [["JAVA"], [], ["  "]]);
+    expect(result.rows).toEqual(rows);
+    expect(result).toMatchObject({ added: 0, focusKey: "e", duplicates: ["JAVA"], overLimit: [] });
+  });
+
+  it("ponad limit 30 wierszy: reszta wraca jako lista, bez pustego wiersza na końcu", () => {
+    const rows = [...many(10, "must", "m"), ...many(19, "nice", "n"), empty("e", "nice")];
+    const result = enterRequirements(rows, "e", [["Alfa"], ["Beta", "Gamma"], ["Delta"]]);
+    expect(result.rows).toHaveLength(30);
+    expect(result.rows[29]).toEqual(row("e", ["Alfa"], "nice"));
+    expect(result.overLimit).toEqual(["Beta lub Gamma", "Delta"]);
+    expect(result.focusKey).toBeNull();
+    expect(canAddRow(result.rows)).toBe(false);
+  });
+
+  it("nieznany klucz niczego nie zmienia", () => {
+    const rows = [row("a", ["Java"])];
+    expect(enterRequirements(rows, "nie-ma", [["Kafka"]])).toMatchObject({
+      rows,
+      added: 0,
+      focusKey: null,
+    });
   });
 });
