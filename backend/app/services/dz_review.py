@@ -811,14 +811,24 @@ def docx_blocks(data: bytes) -> list[Block]:
         elif tag == "tbl":
             table = Table(child, doc)
             for row in table.rows:
-                seen: set[int] = set()
-                for cell in row.cells:
-                    if id(cell._tc) in seen:
-                        continue
-                    seen.add(id(cell._tc))
+                for cell in row_cells(row):
                     for p in cell.paragraphs:
                         paragraph(p)
     return blocks
+
+
+def row_cells(row: Any) -> list[Any]:
+    """Komórki wiersza tabeli Worda wprost z XML-a (bliźniak ``cv_docx_import._cells``).
+
+    ``row.cells`` powtarza komórkę tyle razy, ile wynosi jej ``gridSpan`` —
+    liczba z pliku, bez górnej granicy, a CV jest plikiem niezaufanym (formularz
+    kariery, import) czytanym w procesie aplikacji. Komórka będąca dalszym
+    ciągiem scalenia w pionie nie ma własnej treści: ``row.cells`` oddaje w jej
+    miejscu komórkę nad nią, więc jej tekst wracałby w każdym scalonym wierszu.
+    """
+    from docx.table import _Cell
+
+    return [_Cell(tc, row.table) for tc in row._tr.tc_lst if tc.vMerge != "continue"]
 
 
 def text_blocks(text: str) -> list[Block]:
