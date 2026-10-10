@@ -180,8 +180,8 @@ async def list_notes(
     # Runda 10 (R10-N6-7): `0` przechodziło sprawdzenie P0.6 (`is None`), ale
     # filtr `if candidate_id:` go pomijał — lista całej firmy. R10-N6-6: typ
     # spoza enuma dawał 500 z Postgresa zamiast 422.
-    candidate_id: Optional[int] = Query(None, ge=1),
-    job_id: Optional[int] = Query(None, ge=1),
+    candidate_id: Optional[int] = Query(None, ge=1, le=2147483647),
+    job_id: Optional[int] = Query(None, ge=1, le=2147483647),
     note_type: Optional[NoteType] = None,
     unattached: bool = False,
     pinned_only: bool = False,
