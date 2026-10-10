@@ -2500,6 +2500,9 @@ wiadomość daje dymek. Raport: `docs/chat-notifications-window-completion-repor
   `markAllReadForBell`). Bez parametru trasy działają jak dotąd — „Moje
   zadania” na pulpicie i narzędzia Jarvisa nadal widzą czaty. Wzmianki
   z notatek i odpowiedzi na notatki zostają w dzwonku (to nie czat).
+  Zapytanie dzwonka ma własny klucz (`[…, limit, "bell"]`): „Moje zadania”
+  pytają o tę samą stronę razem z czatami i pod wspólnym kluczem podmieniały
+  dzwonkowi listę i licznik (produkcja 10.10.2026).
 - **Rozmowę rozpoznaje link, nie typ.** Oba czaty używają typów
   `job_chat_message` / `job_chat_mention`; `services/chat_notifications.py`
   grupuje po `split_part(link, '&msg=', 1)` (ten sam klucz co

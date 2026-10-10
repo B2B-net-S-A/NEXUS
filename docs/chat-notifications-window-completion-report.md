@@ -53,9 +53,14 @@ Bez migracji i bez nowych typów powiadomień.
 | Testy frontendu (okienko, dymek, gniazdo, przewijanie, dzwonek, harnessy) | przechodzą | `npx vitest run` na zmienionych plikach, 09.10.2026 |
 | Typy i lint frontendu | przechodzą | `npm run type-check`, `npx eslint` |
 | Lint i format backendu | przechodzą | `ruff check`, `ruff format` na zmienionych plikach |
-| Testy backendu (`test_chat_notification_threads.py`, kontrakty tras) | niepotwierdzone lokalnie | lokalny Python to 3.9, bez Postgresa — sprawdza CI |
+| Testy backendu (`test_chat_notification_threads.py`, kontrakty tras) | przechodzą w CI | sito na PR-ze i bieg kolejki merge'ów B2B-net-S-A/NEXUS#2111 (scalony 09.10.2026); lokalnie nieuruchamiane (Python 3.9, bez Postgresa) |
 | Wygląd okienka przy 1280 px i 375 px | sprawdzone na harnessie | zrzut ekranu i pomiar szerokości w Chrome |
-| Pasek, licznik dzwonka, klik, gaszenie i dymek na produkcji | do sprawdzenia po wdrożeniu | — |
+| Wdrożenie | na produkcji | `/api/health` i `version.json` → `080c01e`, potomek commita `fd988abc8` (10.10.2026) |
+| Ikona w pasku przy 1280 px (produkcja) | mieści się | pomiar w Chrome: powłoka zwężona do 1280 × 720, pasek bez przelewu, ikona 1091–1127 px, okienko 743–1127 px; okna automatyzacji nie dało się zmniejszyć, więc to zwężenie powłoki, nie okna |
+| Klik w rozmowę (produkcja) | działa | otwiera czat rekrutacji, licznik rozmów 1 → 0, `unread_count` 337 → 336 |
+| Dzwonek bez czatów (produkcja) | błąd znaleziony 10.10.2026, poprawka w osobnym PR | API z `exclude_chat=true` zwraca 336, ale na pulpicie dzwonek pokazywał 337 i wiersz czatu — „Moje zadania” pytały pod tym samym kluczem zapytania razem z czatami; dzwonek ma teraz własny klucz (`"bell"`) i test |
+| Dymek (produkcja) | częściowo | pokazuje się po zdarzeniu wywołanym lokalnie w karcie (bez wysyłania wiadomości do zespołu); wyciszenia przy otwartym czacie nie dało się sprawdzić, bo karta automatyzacji ma `visibilityState = hidden` — pilnuje go test komponentu |
+| Dymek po prawdziwej wiadomości od innej osoby | niepotwierdzone | wymaga wysłania wiadomości do zespołu na produkcji |
 
 ## Poza zakresem
 
@@ -63,3 +68,6 @@ Bez migracji i bez nowych typów powiadomień.
 - Wzmianki z notatek i odpowiedzi na notatki zostają w dzwonku.
 - Mail zastępczy czatu bez zmian (gaszenie przy wejściu do czatu samo
   ograniczy te maile).
+- Fragment wiadomości w okienku (i w dzwonku) pokazuje wzmiankę jako
+  `@adres`, nie jako imię i nazwisko — tak jak zapisuje ją czat. Zamiana na
+  nazwisko wymaga zmiany po stronie serwera.

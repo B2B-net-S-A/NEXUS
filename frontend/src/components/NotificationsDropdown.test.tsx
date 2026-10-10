@@ -116,6 +116,48 @@ describe("NotificationsDropdown — „Pokaż więcej”", () => {
    }, 15_000);
 });
 
+// 10.10.2026, produkcja: „Moje zadania” na pulpicie pytają o powiadomienia
+// RAZEM z czatami, a dzwonek bez nich — pod tym samym kluczem zapytania. Dzwonek
+// pokazywał wtedy wiersze czatu i licznik z czatami.
+describe("NotificationsDropdown — własny klucz zapytania", () => {
+  beforeEach(() => {
+    listNotifications.mockReset();
+  });
+
+  it("nie czyta listy „Moich zadań” z pulpitu (ta zawiera czaty)", async () => {
+    mockAvailable(2);
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    });
+    client.setQueryData(["notifications", "1:1", 20], {
+      items: [
+        {
+          id: 900,
+          user_id: 1,
+          title: "Anna Testowa: nowa wiadomość",
+          message: "treść z czatu",
+          link: "/jobs/1?tab=chat&msg=5",
+          notification_type: "job_chat_message",
+          is_read: false,
+          created_at: "2026-09-01T08:00:00Z",
+        },
+      ],
+      unread_count: 337,
+    });
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={client}>
+        <NotificationsDropdown />
+      </QueryClientProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: "Powiadomienia" }));
+
+    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(2));
+    expect(listNotifications).toHaveBeenCalledWith(20);
+    expect(screen.queryByText("Anna Testowa: nowa wiadomość")).toBeNull();
+  });
+});
+
 describe("NotificationsDropdown — dostępność, licznik i ładowanie", () => {
   beforeEach(() => {
     listNotifications.mockReset();
