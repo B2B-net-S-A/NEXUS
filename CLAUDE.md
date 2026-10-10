@@ -150,6 +150,7 @@ Design system i tokeny, responsywność, nazewnictwo w interfejsie, Ustawienia, 
 - `budzet-rekrutacji-od-do.md` — Budżet rekrutacji „od–do” (0420, 06.10.2026)
 - `champion-po-ludzku-i-sciaga-do-rozmowy.md` — „Champion po ludzku” i ściąga do rozmowy (0403, 29.09.2026)
 - `hiring-manager-rekrutacji-lista-albo-nowa-osoba.md` — Hiring manager rekrutacji: lista albo nowa osoba (25.09.2026)
+- `jobs-new-jeden-ekran-i-odczyt-pustych-pol.md` — `/jobs/new`: jeden ekran, „Wypełnij z…” i odczyt tylko pustych pól (D1–D4, 10.10.2026)
 - `jobs-new-w-szesciu-sekcjach-wiersze-wymagan-deal.md` — `/jobs/new` w sześciu sekcjach: wiersze wymagań, deal breaker, kategoria i prowadzący (02.10.2026)
 - `nowa-rekrutacja-strona-jobs-new-z-requestu-klienta.md` — Nowa rekrutacja = strona `/jobs/new` z requestu klienta (22.09.2026)
 - `pliki-rekrutacji.md` — Pliki rekrutacji (0428, 09.10.2026)

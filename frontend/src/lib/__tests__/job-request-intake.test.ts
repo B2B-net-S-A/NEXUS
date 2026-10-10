@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   EMPTY_INTAKE_FORM,
+  FIELD_BASIS_LABEL,
   FORM_SECTIONS,
   MISSING_LABEL,
   MISSING_SECTION,
@@ -9,6 +10,7 @@ import {
   approveQuestions,
   buildChampionPayload,
   budgetRangeError,
+  championExtrasFrom,
   buildJobPayload,
   clientReferenceFor,
   clientTitleWithReference,
@@ -731,6 +733,92 @@ describe("payloady zapisu", () => {
       { id: "q1", question: "Kafka?", ideal_answer: "partycje", deal_breaker: "nie zna Kafki" },
       { id: "q2", question: "Biuro 2 dni?", ideal_answer: "", deal_breaker: "tylko zdalnie" },
     ]);
+  });
+});
+
+describe("plik Profilu Championa (D4, 10.10.2026)", () => {
+  const extras = {
+    search: { keywords: ["java bank"], notes: "Najpierw byli pracownicy banków." },
+    client: { consultant_insight: "Cenią samodzielność.", sectors: ["bankowość"] },
+    insights: [
+      {
+        id: "doc-1",
+        source: "client",
+        topic: "other",
+        audience: "team",
+        text: "Klient odrzuca osoby bez regulacji.",
+        done: false,
+        origin: "document",
+      },
+    ],
+  };
+
+  it("źródło „document” z odczytu daje chip „z dokumentu”", () => {
+    const form = formFromIntake({ ...INTAKE, provenance: { role: "document", must: "document" } });
+    expect(form.provenance.role).toBe("document");
+    expect(form.provenance.requirements).toBe("document");
+    expect(FIELD_BASIS_LABEL.document).toBe("z dokumentu");
+    // Odczyt sam nie niesie sekcji pliku — dokłada je strona z `champion_extras`.
+    expect(form.championExtras).toBeNull();
+  });
+
+  it("sekcje pliku idą do profilu obok pól formularza; pola formularza wygrywają", () => {
+    const form = {
+      ...complete(),
+      targetCompanies: "banki",
+      sellingPoints: "Nowy projekt.",
+      askClient: [{ key: "a1", text: "Ile etapów?" }],
+      championExtras: championExtrasFrom({
+        ...extras,
+        search: { ...extras.search, target_companies: "z pliku" },
+        client: { ...extras.client, selling_points: "z pliku" },
+      }),
+    };
+    const champion = buildChampionPayload(form) as {
+      search: Record<string, unknown>;
+      client: Record<string, unknown>;
+      insights: Record<string, unknown>[];
+    };
+    expect(champion.search).toMatchObject({ ...extras.search, target_companies: "banki" });
+    expect(champion.client).toMatchObject({ ...extras.client, selling_points: "Nowy projekt." });
+    expect(champion.insights.map((note) => note.text)).toEqual([
+      "Ile etapów?",
+      "Klient odrzuca osoby bez regulacji.",
+    ]);
+    expect(champion.insights[1]).toEqual(extras.insights[0]);
+  });
+
+  it("bez pliku profil nie ma żadnych dodatkowych kluczy", () => {
+    const champion = buildChampionPayload(complete()) as {
+      search: Record<string, unknown>;
+      client: Record<string, unknown>;
+    };
+    expect(Object.keys(champion.search).sort()).toEqual([
+      "disqualifiers",
+      "exclude",
+      "target_companies",
+    ]);
+    expect(Object.keys(champion.client)).toEqual(["selling_points"]);
+  });
+
+  it("puste albo zepsute `champion_extras` to `null`; notatki bez treści odpadają", () => {
+    expect(championExtrasFrom(undefined)).toBeNull();
+    expect(championExtrasFrom("tekst")).toBeNull();
+    expect(championExtrasFrom({ search: {}, client: {}, insights: [] })).toBeNull();
+    expect(championExtrasFrom({ search: [], client: null, insights: "x" })).toBeNull();
+    expect(
+      championExtrasFrom({ insights: [{ text: "  " }, "śmieć", { text: "Notatka" }] }),
+    ).toEqual({ search: {}, client: {}, insights: [{ text: "Notatka" }] });
+  });
+
+  it("zapisany formularz przywraca sekcje pliku; stary zapis bez nich ma `null`", () => {
+    const saved = JSON.parse(
+      JSON.stringify({ ...complete(), championExtras: championExtrasFrom(extras) }),
+    );
+    expect(restoreIntakeForm(saved).championExtras).toEqual(extras);
+    const { championExtras: _dropped, ...old } = saved;
+    expect(restoreIntakeForm(old).championExtras).toBeNull();
+    expect(restoreIntakeForm({ ...old, championExtras: "x" }).championExtras).toBeNull();
   });
 });
 

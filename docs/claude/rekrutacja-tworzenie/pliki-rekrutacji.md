@@ -1,7 +1,7 @@
 # Pliki rekrutacji (0428, 09.10.2026)
 
 Decyzja Artura 09.10.2026: Delivery Lead dodaje pliki przy zakładaniu
-rekrutacji (plik requestu z kroku 1 zapisuje się sam), a zespół widzi je potem
+rekrutacji (plik requestu odczytany przez „Wgraj plik” zapisuje się sam), a zespół widzi je potem
 w menu „⋯” rekrutacji. Kod: `services/job_files.py`, `api/job_files.py`, trasy
 plików formularza w `api/job_intake_forms.py`, front `lib/api/jobFiles.ts`,
 `components/v2/jobs/files/JobFilesPanel.tsx` (jeden panel dla obu miejsc).
@@ -35,10 +35,12 @@ plików formularza w `api/job_intake_forms.py`, front `lib/api/jobFiles.ts`,
 - **DDL ma jedno źródło** (`services/job_file_schema.py`) dla migracji 0428
   i `entrypoint.sh`; pilnuje `test_job_files_migration_mirror.py`. Sonda
   `job_files` w `/api/health/deep`.
-- **Front:** `/jobs/new` — karta „Pliki” w lewej kolumnie pod requestem
+- **Front:** `/jobs/new` — karta „Pliki” pod treścią requestu, a gdy treści
+  nie ma (ręcznie, sam szablon bez opisu) — po sekcji 6
   (pierwszy plik najpierw zapisuje formularz: `ensureFormId` → `persistForm`);
-  po udanym odczycie pliku w kroku 1 ten sam plik idzie jako `source=request`
-  (niepowodzenie = toast, odczyt zostaje). Strona rekrutacji — „⋯” → „Pliki
+  po udanym odczycie pliku („Wypełnij z: Wgraj plik”) ten sam plik idzie jako
+  `source=request` — jeden zapis na jeden odczyt (efekt na liczniku odczytów,
+  nie na zmianie kroku; niepowodzenie = toast, odczyt zostaje). Strona rekrutacji — „⋯” → „Pliki
   (N)”, `?win=files`, `JobFilesSlideOver`. Awaria listy = komunikat z „Ponów”,
   nigdy pusta lista. Harnessy: `/preview/job-detail?files=1`,
   `/preview/new-job?state=review|manual`.

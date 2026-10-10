@@ -1,8 +1,10 @@
 /**
- * Strona `/jobs/new`: klient i źródło → odczyt AI → przegląd w sześciu
- * sekcjach → „Utwórz i opublikuj”. Od 04.10.2026 jedno `POST /api/jobs`
- * niesie całość (profil, hiring manager, przekazanie, podobne, kategoria);
- * odmowa serwera to lista braków, a praca w toku żyje na koncie jako formularz.
+ * Strona `/jobs/new`: jeden ekran (10.10.2026) — klient, „Wypełnij z: Wklej
+ * treść | Wgraj plik | Inna rekrutacja” i formularz w sześciu sekcjach, który
+ * stoi na stronie od wejścia. Odczyt wypełnia tylko puste pola. Od 04.10.2026
+ * jedno `POST /api/jobs` niesie całość (profil, hiring manager, przekazanie,
+ * podobne, kategoria); odmowa serwera to lista braków, a praca w toku żyje na
+ * koncie jako formularz.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -29,6 +31,7 @@ const mocks = vi.hoisted(() => ({
   put: vi.fn(),
   del: vi.fn(),
   handoff: vi.fn(),
+  listJobs: vi.fn(),
   refreshClientHistory: vi.fn(),
   push: vi.fn(),
   showSuccess: vi.fn(),
@@ -52,7 +55,11 @@ vi.mock("@/lib/api", () => {
     default: client,
     // `similarJobsApi` (podobne rekrutacje) i edytor wymagań wołają nazwany eksport `api`.
     api: client,
-    jobsApi: { handoff: (...a: unknown[]) => mocks.handoff(...a) },
+    jobsApi: {
+      handoff: (...a: unknown[]) => mocks.handoff(...a),
+      // „Inna rekrutacja”: lista rekrutacji do wyboru szablonu.
+      list: (...a: unknown[]) => mocks.listJobs(...a),
+    },
     championApi: {
       refreshClientHistory: (...a: unknown[]) => mocks.refreshClientHistory(...a),
     },
@@ -67,9 +74,16 @@ vi.mock("@/components/Toast", () => ({
 }));
 
 vi.mock("@/components/clients/ClientSinglePicker", () => ({
-  ClientSinglePicker: ({ onChange }: { onChange: (c: unknown) => void }) => (
+  ClientSinglePicker: ({
+    onChange,
+    disabled,
+  }: {
+    onChange: (c: unknown) => void;
+    disabled?: boolean;
+  }) => (
     <button
       type="button"
+      disabled={disabled}
       onClick={() => onChange({ id: 7, name: "Alior Bank" })}
     >
       wybierz klienta
@@ -83,7 +97,7 @@ vi.mock("@/components/v2/jobs/SimilarRequestsBanner", () => ({
 
 import { NewJobPage } from "@/components/v2/jobs/new/NewJobPage";
 import { DEAL_BREAKER_REQUIRED_TEXT } from "@/components/v2/jobs/new/NewJobReviewForm";
-import { CLIENT_REQUIRED_TEXT } from "@/components/v2/jobs/new/NewJobSourceStep";
+import { CLIENT_REQUIRED_TEXT } from "@/components/v2/jobs/new/NewJobSourceBar";
 import { BOARD_TASKS_QUERY_KEY } from "@/lib/api/boardTasks";
 import { REQUEST_BOARD_QUERY_KEY } from "@/lib/api/requestAllocation";
 import type { RequestIntakeResponse } from "@/lib/job-request-intake";
@@ -268,20 +282,55 @@ const SIMILAR = [
   },
 ];
 
-const sourceTile = (name: RegExp) =>
-  within(screen.getByRole("radiogroup", { name: "Skąd bierzemy dane?" })).getByRole("radio", {
-    name,
-  });
+/** Akcja z paska „Wypełnij z:” nad formularzem. */
+const sourceAction = (name: string) =>
+  within(screen.getByRole("group", { name: "Wypełnij z:" })).getByRole("button", { name });
 
+const pickClient = () => fireEvent.click(screen.getByRole("button", { name: "wybierz klienta" }));
+
+const readButton = () => screen.getByRole("button", { name: "Odczytaj" });
+
+/**
+ * Wkleja treść w panelu „Wklej treść” i czyta ją. Formularz stoi na stronie od
+ * wejścia, więc sygnałem końca odczytu jest zamknięcie panelu, nie pole „Rola”.
+ */
+async function pasteAndRead(text = REQUEST) {
+  fireEvent.click(sourceAction("Wklej treść"));
+  fireEvent.change(screen.getByLabelText("Treść requestu"), { target: { value: text } });
+  fireEvent.click(readButton());
+  await waitFor(() => expect(screen.queryByLabelText("Treść requestu")).toBeNull());
+}
+
+/** Wybiera plik w panelu „Wgraj plik” i czyta go. */
+async function uploadAndRead(name = "request.docx") {
+  fireEvent.click(sourceAction("Wgraj plik"));
+  const file = new File(["treść requestu"], name, {
+    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  });
+  fireEvent.change(screen.getByLabelText(/Plik z requestem/), { target: { files: [file] } });
+  fireEvent.click(readButton());
+  await waitFor(() => expect(screen.queryByLabelText(/Plik z requestem/)).toBeNull());
+  return file;
+}
+
+/** Odczyt wklejonej treści w nietkniętym formularzu — formularz bierze go w całości. */
 async function readRequest(intake = INTAKE, setup: Omit<ServerSetup, "intake"> = {}) {
   serve({ intake, ...setup });
   renderPage();
-  fireEvent.click(screen.getByRole("button", { name: "wybierz klienta" }));
-  fireEvent.change(screen.getByLabelText("Treść requestu"), {
-    target: { value: REQUEST },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Odczytaj i przejdź dalej" }));
-  await screen.findByLabelText("Rola");
+  pickClient();
+  await pasteAndRead();
+}
+
+const offerChips = () => screen.queryAllByTestId("intake-offer");
+
+/**
+ * Braki nie wyłączają przycisku (10.10.2026): kliknięcie pokazuje, czego
+ * brakuje. O tym, że publikacja jeszcze nie przejdzie, mówi stopka i podpowiedź.
+ */
+function expectNotReady() {
+  expect(screen.queryByText("Gotowa do publikacji")).toBeNull();
+  expect(handoffButton()).toBeEnabled();
+  expect(handoffButton()).toHaveAttribute("title", "Uzupełnij braki, żeby opublikować rekrutację");
 }
 
 /**
@@ -354,7 +403,11 @@ async function createJob() {
   const confirm = screen.queryByRole("button", { name: /^Potwierdzam:/ });
   if (confirm) fireEvent.click(confirm);
   if (screen.queryByLabelText("Wybierz rekrutera prowadzącego")) await pickRecruiter();
-  await waitFor(() => expect(handoffButton()).toBeEnabled());
+  // Przycisk jest aktywny także przy brakach — czekamy, aż formularz jest gotowy.
+  await waitFor(() => {
+    expect(screen.getByText("Gotowa do publikacji")).toBeInTheDocument();
+    expect(handoffButton()).toBeEnabled();
+  });
   await handoffTo();
 }
 
@@ -375,71 +428,105 @@ beforeEach(() => {
   serve();
   mocks.put.mockReset().mockResolvedValue({ data: {} });
   mocks.handoff.mockResolvedValue({ data: {} });
+  mocks.listJobs.mockResolvedValue({ data: { items: [], total: 0 } });
 });
 
-describe("NewJobPage — krok 1: klient i źródło", () => {
-  it("trzy kafle źródła, domyślnie „Wklej treść requestu”", () => {
+describe("NewJobPage — jeden ekran: klient i „Wypełnij z…”", () => {
+  it("formularz stoi na stronie od wejścia; źródła to trzy akcje nad nim", () => {
     renderPage();
-    const tiles = within(
-      screen.getByRole("radiogroup", { name: "Skąd bierzemy dane?" }),
-    ).getAllByRole("radio");
-    expect(tiles).toHaveLength(3);
-    expect(sourceTile(/Wklej treść requestu/)).toBeChecked();
-    expect(sourceTile(/Wgraj plik/)).not.toBeChecked();
-    expect(sourceTile(/Wpisz ręcznie/)).not.toBeChecked();
-    expect(screen.getByLabelText("Treść requestu")).toBeInTheDocument();
+    expect(screen.getByLabelText("Rola")).toHaveValue("");
+    for (const heading of ["1 · Nazwa", "3 · Warunki", "6 · Kategoria i zespół"]) {
+      expect(screen.getByRole("heading", { name: heading })).toBeInTheDocument();
+    }
+    const actions = within(screen.getByRole("group", { name: "Wypełnij z:" })).getAllByRole(
+      "button",
+    );
+    expect(actions.map((button) => button.textContent?.trim())).toEqual([
+      "Wklej treść",
+      "Wgraj plik",
+      "Inna rekrutacja",
+    ]);
+    for (const button of actions) expect(button).toHaveAttribute("aria-pressed", "false");
+    // Kroków, kafli i pustego miejsca po requeście już nie ma.
+    expect(screen.queryByRole("list", { name: "Kroki" })).toBeNull();
+    expect(screen.queryByRole("radiogroup", { name: "Skąd bierzemy dane?" })).toBeNull();
+    expect(screen.queryByTestId("new-job-source-pane")).toBeNull();
+    expect(screen.queryByText("Wypełniasz ręcznie — bez requestu.")).toBeNull();
+    expect(screen.queryByLabelText("Treść requestu")).toBeNull();
+    // Stopka z przyciskami też jest od razu.
+    expect(handoffButton()).toBeInTheDocument();
   });
 
-  it("bez klienta przycisk mówi, czego brakuje — kliknięcie pokazuje komunikat, nic nie czyta", () => {
+  it("pusta strona nie wysyła żadnego POST-a — także po samym wyborze klienta", async () => {
     renderPage();
-    fireEvent.change(screen.getByLabelText("Treść requestu"), { target: { value: REQUEST } });
+    // Listy do sekcji 6 to odczyty; kategoria i krytyczne czekają na treść.
+    await waitFor(() => expect(mocks.get).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    expect(mocks.post).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(/Kategorie pojawią się, gdy zaczniesz wypełniać formularz/),
+    ).toBeInTheDocument();
+
+    // Sam klient to jeszcze nie praca: autozapis (3 s) nie zakłada formularza.
+    pickClient();
+    await new Promise((resolve) => setTimeout(resolve, 3_400));
+    expect(mocks.post).not.toHaveBeenCalled();
+    expect(mocks.put).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("new-job-autosave")).toBeNull();
+  });
+
+  it("bez klienta akcja źródła pokazuje komunikat przy polu klienta i nie otwiera panelu", () => {
+    renderPage();
     expect(screen.queryByRole("alert")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Najpierw wybierz klienta" }));
+    fireEvent.click(sourceAction("Wklej treść"));
 
     expect(screen.getByRole("alert")).toHaveTextContent(CLIENT_REQUIRED_TEXT);
+    expect(screen.queryByLabelText("Treść requestu")).toBeNull();
     expect(postsTo("/api/job-intake/read")).toHaveLength(0);
-    expect(screen.queryByLabelText("Rola")).toBeNull();
 
-    // Po wyborze klienta komunikat znika, a przycisk wraca do swojej nazwy.
-    fireEvent.click(screen.getByRole("button", { name: "wybierz klienta" }));
+    // Po wyborze klienta komunikat znika, a akcja otwiera panel.
+    pickClient();
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByRole("button", { name: "Odczytaj i przejdź dalej" })).toBeEnabled();
+    fireEvent.click(sourceAction("Wklej treść"));
+    expect(sourceAction("Wklej treść")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByLabelText("Treść requestu")).toBeInTheDocument();
+    // Druga akcja zamienia panel, to samo kliknięcie drugi raz go zamyka.
+    fireEvent.click(sourceAction("Wgraj plik"));
+    expect(screen.queryByLabelText("Treść requestu")).toBeNull();
+    expect(screen.getByLabelText(/Plik z requestem/)).toBeInTheDocument();
+    fireEvent.click(sourceAction("Wgraj plik"));
+    expect(screen.queryByLabelText(/Plik z requestem/)).toBeNull();
   });
 
-  it("za krótka treść: przycisk nieaktywny z podpowiedzią", () => {
+  it("za krótka treść: „Odczytaj” nieaktywne z podpowiedzią", () => {
     renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "wybierz klienta" }));
-    expect(screen.getByRole("button", { name: "Odczytaj i przejdź dalej" })).toBeDisabled();
+    pickClient();
+    fireEvent.click(sourceAction("Wklej treść"));
+    expect(readButton()).toBeDisabled();
     expect(
       screen.getByText("Wklej treść requestu (co najmniej 30 znaków)."),
     ).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Treść requestu"), { target: { value: REQUEST } });
+    expect(readButton()).toBeEnabled();
   });
 
-  it("„Wpisz ręcznie” prowadzi do pustego formularza bez wołania odczytu", async () => {
+  it("ręcznie: formularz jest pusty i gotowy do wpisywania, bez wołania odczytu", () => {
     renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "wybierz klienta" }));
-    fireEvent.click(sourceTile(/Wpisz ręcznie/));
-    expect(sourceTile(/Wpisz ręcznie/)).toBeChecked();
-    expect(screen.queryByLabelText("Treść requestu")).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "Przejdź do formularza" }));
-
-    expect(await screen.findByLabelText("Rola")).toHaveValue("");
-    expect(screen.getByText("Wypełniasz ręcznie — bez requestu.")).toBeInTheDocument();
+    pickClient();
+    expect(screen.getByLabelText("Rola")).toHaveValue("");
     expect(postsTo("/api/job-intake/read")).toHaveLength(0);
     expect(postsTo("/api/job-intake/read-file")).toHaveLength(0);
     // Wszystko poza biurem (tryb nieznany) jest do uzupełnienia — od 06.10.2026
     // także liczba osób (N6: bez domyślnej „1”).
     expect(screen.getByText("Brakuje 10 rzeczy do publikacji")).toBeInTheDocument();
+    // Zanim ktoś kliknie „Utwórz”, o brakach mówi pasek sekcji i stopka, nie pola.
+    expect(screen.queryByText("Uzupełnij przed publikacją")).toBeNull();
   });
 
-  it("ręcznie: dwa must-have z klawiatury to dwa wiersze, a frazę da się oznaczyć jako krytyczną", async () => {
+  it("ręcznie: dwa must-have z klawiatury to dwa wiersze, a frazę da się oznaczyć jako krytyczną", () => {
     renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "wybierz klienta" }));
-    fireEvent.click(sourceTile(/Wpisz ręcznie/));
-    fireEvent.click(screen.getByRole("button", { name: "Przejdź do formularza" }));
-    await screen.findByLabelText("Rola");
+    pickClient();
 
     const row = (n: number) => screen.getByLabelText(`Wymaganie ${n} — słowo albo wariant`);
     const type = (n: number, text: string) => {
@@ -467,27 +554,219 @@ describe("NewJobPage — krok 1: klient i źródło", () => {
     ).toBeInTheDocument();
   });
 
+  // D1 (10.10.2026): przecinek w pustym wierszu to kolejne wymaganie, nie wariant.
+  it("ręcznie: must-have wpisane po przecinku to osobne wiersze, „A lub B” to jeden", () => {
+    renderPage();
+    pickClient();
+    const row = (n: number) => screen.getByLabelText(`Wymaganie ${n} — słowo albo wariant`);
+    const type = (n: number, text: string) => {
+      fireEvent.focus(row(n));
+      fireEvent.change(row(n), { target: { value: text } });
+      fireEvent.keyDown(row(n), { key: "Enter" });
+    };
+    type(1, "Java, Spring Boot");
+    type(3, "Kafka lub RabbitMQ");
+    // Po wpisie kursor stoi w pustym wierszu na końcu — on wymaganiem nie jest.
+    const groups = within(screen.getByRole("group", { name: "Wymagania — słowa kluczowe" }))
+      .getAllByRole("radiogroup")
+      .map((group) => group.getAttribute("aria-label"))
+      .filter((label) => !/: wiersz \d+$/.test(label ?? ""));
+    expect(groups).toEqual([
+      "Poziom wymagania: Java",
+      "Poziom wymagania: Spring Boot",
+      "Poziom wymagania: Kafka",
+    ]);
+    expect(screen.getByText("RabbitMQ")).toBeInTheDocument();
+  });
+
   it("„Wgraj plik” wysyła plik do odczytu razem z klientem", async () => {
     renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "wybierz klienta" }));
-    fireEvent.click(sourceTile(/Wgraj plik/));
-    const read = screen.getByRole("button", { name: "Odczytaj i przejdź dalej" });
-    expect(read).toBeDisabled();
+    pickClient();
+    fireEvent.click(sourceAction("Wgraj plik"));
+    expect(readButton()).toBeDisabled();
     expect(screen.getByText("Wybierz plik z requestem.")).toBeInTheDocument();
+    fireEvent.click(sourceAction("Wgraj plik"));
 
-    const file = new File(["treść requestu"], "request.docx", {
-      type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    });
-    fireEvent.change(screen.getByLabelText(/Plik z requestem/), { target: { files: [file] } });
-    fireEvent.click(read);
+    await uploadAndRead();
 
-    expect(await screen.findByLabelText("Rola")).toHaveValue("Senior Java Developer");
+    expect(screen.getByLabelText("Rola")).toHaveValue("Senior Java Developer");
     const [[, body, config]] = postsTo("/api/job-intake/read-file");
     expect(body).toBeInstanceOf(FormData);
     expect((body as FormData).get("client_id")).toBe("7");
     expect(((body as FormData).get("file") as File).name).toBe("request.docx");
     expect(config).toMatchObject({ timeout: 120_000 });
     expect(postsTo("/api/job-intake/read")).toHaveLength(0);
+    // Treść odczytana z pliku stoi obok formularza, a pasek mówi, skąd są pola.
+    expect(screen.getByTestId("new-job-source-pane")).toHaveTextContent("Java 17+");
+    expect(screen.getByTestId("new-job-fill-summary")).toHaveTextContent(
+      /^Z pliku request\.docx: wypełniono \d+ pól\./,
+    );
+  });
+
+  it("po zamknięciu panelu źródła fokus wraca na jego przycisk", async () => {
+    renderPage();
+    pickClient();
+    fireEvent.click(sourceAction("Wklej treść"));
+    const close = screen.getByRole("button", { name: "Zamknij" });
+    close.focus();
+    fireEvent.click(close);
+    await waitFor(() => expect(document.activeElement).toBe(sourceAction("Wklej treść")));
+  });
+
+  it("po odczycie fokus wraca na przycisk źródła, z którego czytano", async () => {
+    renderPage();
+    pickClient();
+    fireEvent.click(sourceAction("Wklej treść"));
+    fireEvent.change(screen.getByLabelText("Treść requestu"), { target: { value: REQUEST } });
+    readButton().focus();
+    fireEvent.click(readButton());
+    await waitFor(() => expect(screen.queryByLabelText("Treść requestu")).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(sourceAction("Wklej treść")));
+  });
+
+  it("w trakcie odczytu nie da się zmienić klienta ani utworzyć rekrutacji", async () => {
+    serve();
+    const base = mocks.post.getMockImplementation()!;
+    let release: (value: unknown) => void = () => undefined;
+    mocks.post.mockImplementation((url: string, body?: unknown) =>
+      url === "/api/job-intake/read"
+        ? new Promise((resolve) => {
+            release = resolve;
+          })
+        : base(url, body),
+    );
+    renderPage();
+    pickClient();
+    fireEvent.click(sourceAction("Wklej treść"));
+    fireEvent.change(screen.getByLabelText("Treść requestu"), { target: { value: REQUEST } });
+    fireEvent.click(readButton());
+
+    await waitFor(() => expect(handoffButton()).toBeDisabled());
+    expect(screen.getByRole("button", { name: "Dokończę później" })).toBeDisabled();
+    // Odczyt klienta A nie może wylądować w formularzu klienta B.
+    expect(screen.getByRole("button", { name: "wybierz klienta" })).toBeDisabled();
+
+    release({ data: { text: REQUEST, intake: INTAKE } });
+    await waitFor(() => expect(screen.getByLabelText("Rola")).toHaveValue("Senior Java Developer"));
+    expect(handoffButton()).toBeEnabled();
+  });
+
+  describe("plik Profilu Championa (D4)", () => {
+    const EXTRAS = {
+      search: { keywords: ["java developer bank"], notes: "Zacznij od byłych pracowników banków." },
+      client: { consultant_insight: "Zespół ceni samodzielność.", sectors: ["bankowość"] },
+      insights: [
+        {
+          id: "doc-1",
+          source: "client",
+          topic: "other",
+          audience: "team",
+          text: "Klient odrzuca osoby bez doświadczenia w regulacjach.",
+          done: false,
+          origin: "document",
+        },
+      ],
+    };
+
+    function serveChampionFile(extras: unknown = EXTRAS) {
+      serve();
+      const base = mocks.post.getMockImplementation()!;
+      mocks.post.mockImplementation((url: string, body?: unknown) =>
+        url === "/api/job-intake/read-file"
+          ? Promise.resolve({
+              data: {
+                text: REQUEST,
+                intake: { ...INTAKE, provenance: { role: "document", rate: "document" } },
+                reader: "champion_form",
+                champion_extras: extras,
+              },
+            })
+          : base(url, body),
+      );
+    }
+
+    it("pola dostają źródło „z dokumentu”, a pasek mówi, że plik przepisano bez AI", async () => {
+      serveChampionFile();
+      renderPage();
+      pickClient();
+      await uploadAndRead("profil.docx");
+
+      expect(screen.getByLabelText("Rola")).toHaveValue("Senior Java Developer");
+      expect(screen.getByLabelText("Budżet PLN/h")).toHaveValue("170");
+      expect(screen.getByTestId("champion-form-note")).toHaveTextContent(
+        "To formularz Profilu Championa — przepisany bez AI.",
+      );
+      const chips = screen.getAllByTestId("provenance-chip").map((chip) => chip.textContent);
+      expect(chips).toContain("z dokumentu");
+      expect(chips).not.toContain("z maila");
+    });
+
+    it("sekcje pliku bez pola w formularzu idą do profilu w POST /api/jobs", async () => {
+      serveChampionFile();
+      renderPage();
+      pickClient();
+      await uploadAndRead("profil.docx");
+      await createJob();
+
+      const champion = championBody() as unknown as {
+        search: Record<string, unknown>;
+        client: Record<string, unknown>;
+        insights: Record<string, unknown>[];
+      };
+      expect(champion.search).toMatchObject(EXTRAS.search);
+      expect(champion.client).toMatchObject(EXTRAS.client);
+      expect(champion.insights).toContainEqual(EXTRAS.insights[0]);
+    });
+
+    it("„Cofnij wypełnienie” zdejmuje też sekcje pliku", async () => {
+      serveChampionFile();
+      renderPage();
+      pickClient();
+      await uploadAndRead("profil.docx");
+      fireEvent.click(screen.getByRole("button", { name: "Cofnij wypełnienie" }));
+
+      expect(screen.getByLabelText("Rola")).toHaveValue("");
+      expect(screen.queryByTestId("champion-form-note")).not.toBeInTheDocument();
+    });
+
+    it("drugi plik Championa nie obiecuje sekcji, których formularz nie wziął", async () => {
+      serveChampionFile();
+      renderPage();
+      pickClient();
+      await uploadAndRead("profil.docx");
+      expect(screen.getByTestId("champion-form-note")).toHaveTextContent(
+        "trafią do profilu rekrutacji",
+      );
+
+      await uploadAndRead("profil-2.docx");
+      const note = screen.getByTestId("champion-form-note");
+      expect(note).toHaveTextContent("przepisany bez AI");
+      expect(note).toHaveTextContent("zostają z pierwszego pliku");
+      expect(note).not.toHaveTextContent("trafią do profilu rekrutacji");
+    });
+
+    it("plik Championa bez dodatkowych sekcji mówi tylko, że przepisano go bez AI", async () => {
+      serveChampionFile({ search: {}, client: {}, insights: [] });
+      renderPage();
+      pickClient();
+      await uploadAndRead("profil.docx");
+      const note = screen.getByTestId("champion-form-note");
+      expect(note).toHaveTextContent("przepisany bez AI");
+      expect(note).not.toHaveTextContent("trafią do profilu rekrutacji");
+    });
+
+    it("zwykły plik requestu nie dostaje notki ani sekcji Championa", async () => {
+      renderPage();
+      pickClient();
+      await uploadAndRead();
+      expect(screen.queryByTestId("champion-form-note")).not.toBeInTheDocument();
+      await createJob();
+      expect(
+        (championBody() as unknown as { insights: { origin: string }[] }).insights.some(
+          (note) => note.origin === "document",
+        ),
+      ).toBe(false);
+    });
   });
 
   describe("pliki rekrutacji (0428)", () => {
@@ -495,18 +774,11 @@ describe("NewJobPage — krok 1: klient i źródło", () => {
 
     async function readRequestFile() {
       renderPage();
-      fireEvent.click(screen.getByRole("button", { name: "wybierz klienta" }));
-      fireEvent.click(sourceTile(/Wgraj plik/));
-      const file = new File(["treść requestu"], "request.docx", {
-        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      });
-      fireEvent.change(screen.getByLabelText(/Plik z requestem/), { target: { files: [file] } });
-      fireEvent.click(screen.getByRole("button", { name: "Odczytaj i przejdź dalej" }));
-      await screen.findByLabelText("Rola");
-      return file;
+      pickClient();
+      return uploadAndRead();
     }
 
-    it("plik requestu z kroku 1 zapisuje się sam: najpierw formularz, potem plik jako „request”", async () => {
+    it("plik requestu zapisuje się sam: najpierw formularz, potem plik jako „request”", async () => {
       const file = await readRequestFile();
       await waitFor(() => expect(postsTo(FORM_FILES)).toHaveLength(1));
       const [[, body]] = postsTo(FORM_FILES);
@@ -517,7 +789,28 @@ describe("NewJobPage — krok 1: klient i źródło", () => {
       expect(order.indexOf("/api/job-intake/forms")).toBeLessThan(order.indexOf(FORM_FILES));
       const [[, saved]] = postsTo("/api/job-intake/forms");
       expect((saved as { form: { step: string } }).form.step).toBe("review");
+      expect((saved as { source: string }).source).toBe("file");
       expect(mocks.showError).not.toHaveBeenCalled();
+    });
+
+    it("jeden odczyt pliku to jeden zapis pliku — także po kolejnych zmianach i odczycie treści", async () => {
+      await readRequestFile();
+      await waitFor(() => expect(postsTo(FORM_FILES)).toHaveLength(1));
+      // Zmiany w formularzu i odczyt wklejonej treści nie wysyłają pliku drugi raz.
+      fireEvent.change(screen.getByLabelText("Rola"), { target: { value: "Java Developer" } });
+      fireEvent.change(screen.getByLabelText("Budżet PLN/h"), { target: { value: "175" } });
+      await pasteAndRead("Dodatkowa wiadomość od klienta: start najlepiej od listopada.");
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(postsTo(FORM_FILES)).toHaveLength(1);
+
+      // Drugi plik to drugi odczyt — i drugi zapis, nie więcej.
+      await uploadAndRead("aneks.docx");
+      await waitFor(() => expect(postsTo(FORM_FILES)).toHaveLength(2));
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(postsTo(FORM_FILES)).toHaveLength(2);
+      expect(
+        postsTo(FORM_FILES).map(([, body]) => ((body as FormData).get("file") as File).name),
+      ).toEqual(["request.docx", "aneks.docx"]);
     });
 
     it("nieudany zapis pliku requestu nie cofa odczytu — toast i formularz zostaje", async () => {
@@ -535,13 +828,16 @@ describe("NewJobPage — krok 1: klient i źródło", () => {
       expect(screen.getByLabelText("Rola")).toHaveValue("Senior Java Developer");
     });
 
-    it("wklejony tekst nie tworzy pliku; karta „Pliki” stoi w formularzu i przyjmuje załączniki", async () => {
+    it("bez requestu karta „Pliki” stoi po sekcji 6 i przyjmuje załączniki", async () => {
       renderPage();
-      fireEvent.click(screen.getByRole("button", { name: "wybierz klienta" }));
-      fireEvent.click(sourceTile(/Wpisz ręcznie/));
-      fireEvent.click(screen.getByRole("button", { name: "Przejdź do formularza" }));
-      const card = await screen.findByTestId("new-job-files-card");
+      pickClient();
+      const card = screen.getByTestId("new-job-files-card");
       expect(within(card).getByTestId("job-files-empty")).toBeInTheDocument();
+      // Po sekcji „Kategoria i zespół”, przed „Dodatkowe”.
+      const team = screen.getByRole("heading", { name: "6 · Kategoria i zespół" });
+      const extra = screen.getByTestId("new-job-additional");
+      expect(team.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(card.compareDocumentPosition(extra) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       expect(postsTo(FORM_FILES)).toHaveLength(0);
 
       const attachment = new File(["x"], "opis.pdf", { type: "application/pdf" });
@@ -555,9 +851,16 @@ describe("NewJobPage — krok 1: klient i źródło", () => {
       expect(postsTo("/api/job-intake/forms")).toHaveLength(1);
       expect(postsTo("/api/jobs")).toHaveLength(0);
     });
+
+    it("po odczycie karta „Pliki” stoi pod treścią requestu", async () => {
+      await readRequestFile();
+      const pane = screen.getByTestId("new-job-source-pane");
+      expect(within(pane).getByTestId("new-job-files-card")).toBeInTheDocument();
+      expect(screen.getAllByTestId("new-job-files-card")).toHaveLength(1);
+    });
   });
 
-  it("awaria odczytu AI zostawia request i pozwala wypełnić ręcznie", async () => {
+  it("awaria odczytu AI zostawia treść w panelu, a formularz dalej da się wypełnić", async () => {
     mocks.post.mockRejectedValueOnce({
       response: {
         status: 503,
@@ -565,22 +868,374 @@ describe("NewJobPage — krok 1: klient i źródło", () => {
       },
     });
     renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "wybierz klienta" }));
+    pickClient();
+    fireEvent.click(sourceAction("Wklej treść"));
     fireEvent.change(screen.getByLabelText("Treść requestu"), {
       target: { value: REQUEST },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Odczytaj i przejdź dalej" }));
+    fireEvent.click(readButton());
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Model AI chwilowo niedostępny",
     );
     expect(screen.getByLabelText("Treść requestu")).toHaveValue(REQUEST);
+    // Formularz stoi obok — nic nie trzeba przełączać, żeby pisać ręcznie.
+    fireEvent.change(screen.getByLabelText("Rola"), { target: { value: "Java Developer" } });
+    expect(screen.getByLabelText("Rola")).toHaveValue("Java Developer");
 
-    // Zmiana kafla zdejmuje błąd odczytu.
-    fireEvent.click(sourceTile(/Wpisz ręcznie/));
+    // Zamknięcie panelu zdejmuje błąd odczytu, a treść czeka na ponowną próbę.
+    fireEvent.click(screen.getByRole("button", { name: "Zamknij" }));
     expect(screen.queryByRole("alert")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Przejdź do formularza" }));
-    expect(await screen.findByLabelText("Rola")).toHaveValue("");
+    fireEvent.click(sourceAction("Wklej treść"));
+    expect(screen.getByLabelText("Treść requestu")).toHaveValue(REQUEST);
+  });
+});
+
+describe("NewJobPage — odczyt wypełnia tylko puste pola", () => {
+  /** Delivery Lead zaczął pisać ręcznie, a potem wkleił maila. */
+  async function readIntoDirtyForm() {
+    renderPage();
+    pickClient();
+    fireEvent.change(screen.getByLabelText("Rola"), { target: { value: "Java Developer" } });
+    fireEvent.change(screen.getByLabelText("Budżet PLN/h"), { target: { value: "160" } });
+    await pasteAndRead();
+  }
+
+  it("wpisane pola zostają, puste się wypełniają, a różnica to propozycja przy polu", async () => {
+    await readIntoDirtyForm();
+
+    expect(screen.getByLabelText("Rola")).toHaveValue("Java Developer");
+    expect(screen.getByLabelText("Budżet PLN/h")).toHaveValue("160");
+    // Puste pola wzięły wartości z maila.
+    expect(screen.getByLabelText("Co to za projekt")).toHaveValue("Migracja płatności.");
+    expect(screen.getByLabelText("Liczba osób")).toHaveValue(2);
+    expect(screen.getByLabelText("Treść pytania 1")).toHaveValue("Kafka?");
+
+    expect(offerChips().map((chip) => chip.textContent)).toEqual([
+      expect.stringContaining("W mailu: Senior Java Developer"),
+      expect.stringContaining("W mailu: 170 PLN/h"),
+    ]);
+    expect(screen.getByTestId("new-job-fill-summary")).toHaveTextContent(
+      /^Z wklejonej treści: wypełniono \d+ pól · 2 propozycje czekają na „Użyj”\./,
+    );
+    // Brak z odczytu nazywa się jak dotąd.
+    expect(screen.queryByText("Uzupełnij przed publikacją")).toBeNull();
+  });
+
+  it("„Użyj” bierze wartość z maila, „Zostaw” zostawia wpisaną", async () => {
+    await readIntoDirtyForm();
+
+    fireEvent.click(screen.getByRole("button", { name: "Użyj — Rola" }));
+    expect(screen.getByLabelText("Rola")).toHaveValue("Senior Java Developer");
+    expect(offerChips()).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Zostaw — Budżet PLN/h" }));
+    expect(screen.getByLabelText("Budżet PLN/h")).toHaveValue("160");
+    expect(offerChips()).toHaveLength(0);
+    // Pasek zostaje dla „Cofnij wypełnienie”, ale o propozycjach już nie mówi.
+    expect(screen.getByTestId("new-job-fill-summary")).not.toHaveTextContent("propozycj");
+  });
+
+  // Przegląd kodu 11.10.2026: kliknięty przycisk znika z ekranu, więc bez
+  // przeniesienia fokusu klawiatura wracała na początek strony.
+  it("fokus po „Użyj” i „Zostaw” trafia do pola, którego dotyczyła propozycja", async () => {
+    await readIntoDirtyForm();
+
+    const use = screen.getByRole("button", { name: "Użyj — Rola" });
+    use.focus();
+    fireEvent.click(use);
+    expect(document.activeElement).toBe(screen.getByLabelText("Rola"));
+
+    // Budżet ma dwa pola („od” i „do”) — fokus trafia w pierwsze z nich.
+    const keep = screen.getByRole("button", { name: "Zostaw — Budżet PLN/h" });
+    keep.focus();
+    fireEvent.click(keep);
+    expect(document.activeElement).toBe(screen.getByLabelText("Budżet PLN/h od (opcjonalnie)"));
+  });
+
+  it("fokus po „Cofnij wypełnienie” zostaje na pasku źródeł, nie spada na początek strony", async () => {
+    await readIntoDirtyForm();
+    const undo = screen.getByRole("button", { name: "Cofnij wypełnienie" });
+    undo.focus();
+    fireEvent.click(undo);
+    expect(document.activeElement).toBe(
+      screen.getByRole("region", { name: "Klient i źródło danych" }),
+    );
+  });
+
+  it("propozycja znika sama, gdy ktoś wpisze tę samą wartość", async () => {
+    await readIntoDirtyForm();
+    fireEvent.change(screen.getByLabelText("Budżet PLN/h"), { target: { value: "170" } });
+    expect(offerChips().map((chip) => chip.getAttribute("data-unit"))).toEqual(["title"]);
+  });
+
+  it("propozycje jadą w zapisie formularza i wracają po „Dokończ”", async () => {
+    await readIntoDirtyForm();
+    fireEvent.click(screen.getByRole("button", { name: "Dokończę później" }));
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/jobs"));
+    const saved = bodiesOf("/api/job-intake/forms").at(-1) as unknown as {
+      request_text: string;
+      form: { step: string; requestRead: boolean; offers: { unit: string; source: string }[] };
+    };
+    expect(saved.request_text).toBe(REQUEST);
+    expect(saved.form).toMatchObject({ step: "review", requestRead: true });
+    expect(saved.form.offers.map((offer) => [offer.unit, offer.source])).toEqual([
+      ["title", "request"],
+      ["budget", "request"],
+    ]);
+
+    // Ten sam zapis wczytany na nowej stronie: propozycje stoją przy polach.
+    cleanup();
+    serveGets((url) =>
+      url === "/api/job-intake/forms/55"
+        ? {
+            id: 55,
+            label: "x",
+            client_id: 7,
+            client_name: "Alior Bank",
+            source: "text",
+            request_text: saved.request_text,
+            updated_at: "2026-10-10T10:00:00Z",
+            form: saved.form,
+          }
+        : undefined,
+    );
+    mocks.searchParams = new URLSearchParams("form=55");
+    renderPage();
+    await waitFor(() => expect(offerChips()).toHaveLength(2));
+    expect(screen.getByLabelText("Rola")).toHaveValue("Java Developer");
+    // Cofnięcie dotyczy wypełnienia z tej samej sesji — po wczytaniu go nie ma.
+    expect(screen.queryByRole("button", { name: "Cofnij wypełnienie" })).toBeNull();
+    expect(screen.getByTestId("new-job-fill-summary")).toHaveTextContent(
+      "2 propozycje czekają na „Użyj”",
+    );
+  });
+
+  it("„Cofnij wypełnienie” zdejmuje odczyt, a późniejsze poprawki zostają", async () => {
+    await readIntoDirtyForm();
+    expect(screen.getByTestId("new-job-source-pane")).toBeInTheDocument();
+    // Poprawka po odczycie.
+    fireEvent.change(screen.getByLabelText("Co to za projekt"), {
+      target: { value: "Poprawiony opis." },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Cofnij wypełnienie" }));
+
+    expect(screen.getByLabelText("Rola")).toHaveValue("Java Developer");
+    expect(screen.getByLabelText("Budżet PLN/h")).toHaveValue("160");
+    expect(screen.getByLabelText("Co to za projekt")).toHaveValue("Poprawiony opis.");
+    // To, co wpisał odczyt i czego nikt nie ruszył, znika.
+    expect(screen.getByLabelText("Liczba osób")).toHaveValue(null);
+    expect(screen.queryByLabelText("Treść pytania 1")).toBeNull();
+    expect(offerChips()).toHaveLength(0);
+    expect(screen.queryByTestId("new-job-fill-summary")).toBeNull();
+    // Treść requestu też wraca do stanu sprzed odczytu.
+    expect(screen.queryByTestId("new-job-source-pane")).toBeNull();
+  });
+
+  it("drugi odczyt dopisuje treść i wypełnia tylko to, co nadal puste", async () => {
+    await readRequest({ ...INTAKE, rate_budget_hourly: null, rate_quote: null, deadline: null });
+    expect(screen.getByLabelText("Budżet PLN/h")).toHaveValue("");
+
+    const second = "Uzupełnienie: budżet do 180 zł/h, kandydaci do 5 listopada.";
+    const secondIntake: RequestIntakeResponse = {
+      ...INTAKE,
+      role_name: "Lead Java Developer",
+      rate_budget_hourly: 180,
+      deadline: "2026-11-05",
+      evidence: ["180 zł/h"],
+    };
+    const base = mocks.post.getMockImplementation()!;
+    mocks.post.mockImplementation((url: string, body?: unknown) =>
+      url === "/api/job-intake/read"
+        ? Promise.resolve({ data: { text: second, intake: secondIntake } })
+        : base(url, body),
+    );
+    await pasteAndRead(second);
+
+    // Puste z pierwszego odczytu — wypełnione z drugiego.
+    expect(screen.getByLabelText("Budżet PLN/h")).toHaveValue("180");
+    expect(within(screen.getByTestId("new-job-deadline")).getByLabelText("Termin")).toHaveValue(
+      "2026-11-05",
+    );
+    // Rola z pierwszego odczytu zostaje; drugi daje propozycję.
+    expect(screen.getByLabelText("Rola")).toHaveValue("Senior Java Developer");
+    expect(offerChips().map((chip) => chip.getAttribute("data-unit"))).toEqual(["title"]);
+    // Obie treści stoją obok formularza, podświetlenia z obu odczytów.
+    const pane = screen.getByTestId("new-job-source-pane");
+    expect(pane).toHaveTextContent("Szukamy Senior Java Developera");
+    expect(pane).toHaveTextContent("Uzupełnienie: budżet do 180 zł/h");
+    expect(within(pane).getByText("Java 17+", { selector: "mark" })).toBeInTheDocument();
+    expect(within(pane).getByText("180 zł/h", { selector: "mark" })).toBeInTheDocument();
+  });
+});
+
+describe("NewJobPage — „Inna rekrutacja” jako źródło", () => {
+  const JOBS = [
+    {
+      id: 55,
+      title: "Java Developer (zamknięta)",
+      client_name: "Alior Bank",
+      status: "closed",
+      opened_at: "2026-05-04T09:00:00Z",
+    },
+    { id: 56, title: "Tester automatyzujący", client_name: "Alior Bank", status: "published" },
+  ];
+  const TEMPLATE = {
+    id: 55,
+    title: "Java Developer (zamknięta)",
+    client_id: 7,
+    description: "Stary request klienta.",
+    rate_budget_hourly: 160,
+    remote_policy: "remote",
+    headcount: 3,
+  };
+  const PROFILE = {
+    stack: { rows: [{ words: ["Go", "Golang"], level: "must" }] },
+    project: { about: "Migracja płatności." },
+  };
+
+  function serveTemplates() {
+    mocks.listJobs.mockResolvedValue({ data: { items: JOBS, total: 2 } });
+    serveGets((url) => {
+      if (url === "/api/jobs/55") return TEMPLATE;
+      if (url === "/api/jobs/55/champion-profile?mark_read=false")
+        return { job_id: 55, champion_profile: PROFILE };
+      return undefined;
+    });
+  }
+
+  it("lista szuka w rekrutacjach klienta (także zamkniętych); „Także inni klienci” zdejmuje zawężenie", async () => {
+    serveTemplates();
+    renderPage();
+    pickClient();
+    fireEvent.click(sourceAction("Inna rekrutacja"));
+
+    expect(
+      await screen.findByRole("button", { name: "Użyj jako szablon: Java Developer (zamknięta)" }),
+    ).toBeInTheDocument();
+    expect(mocks.listJobs).toHaveBeenLastCalledWith({ q: undefined, client_id: 7, page_size: 20 });
+    expect(screen.getByText(/zamknięta · 04\.05\.2026/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Także inni klienci" }));
+    await waitFor(() =>
+      expect(mocks.listJobs).toHaveBeenLastCalledWith({
+        q: undefined,
+        client_id: undefined,
+        page_size: 20,
+      }),
+    );
+    fireEvent.change(screen.getByLabelText("Szukaj rekrutacji-szablonu"), {
+      target: { value: "tester" },
+    });
+    await waitFor(() =>
+      expect(mocks.listJobs).toHaveBeenLastCalledWith({
+        q: "tester",
+        client_id: undefined,
+        page_size: 20,
+      }),
+    );
+  });
+
+  it("„Użyj jako szablon” wypełnia puste pola, wpisane zostawia i daje propozycję „W szablonie”", async () => {
+    serveTemplates();
+    renderPage();
+    pickClient();
+    fireEvent.change(screen.getByLabelText("Rola"), { target: { value: "Go Developer" } });
+    fireEvent.change(screen.getByLabelText("Budżet PLN/h"), { target: { value: "200" } });
+    fireEvent.click(sourceAction("Inna rekrutacja"));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Użyj jako szablon: Java Developer (zamknięta)" }),
+    );
+
+    await waitFor(() => expect(screen.getByLabelText("Liczba osób")).toHaveValue(3));
+    // Panel się zamyka; rola i budżet zostają takie, jak wpisał człowiek.
+    expect(screen.queryByTestId("new-job-template-picker")).toBeNull();
+    expect(screen.getByLabelText("Rola")).toHaveValue("Go Developer");
+    expect(screen.getByLabelText("Budżet PLN/h")).toHaveValue("200");
+    expect(screen.getByLabelText("Co to za projekt")).toHaveValue("Migracja płatności.");
+    expect(offerChips().map((chip) => chip.textContent)).toEqual([
+      expect.stringContaining("W szablonie: 160 PLN/h"),
+    ]);
+    expect(screen.getByTestId("new-job-fill-summary")).toHaveTextContent(
+      "Z rekrutacji „Java Developer (zamknięta)”",
+    );
+    // Opis szablonu staje obok formularza jako treść requestu.
+    expect(screen.getByTestId("new-job-source-pane")).toHaveTextContent("Stary request klienta.");
+    // Braki przy szablonie nazywają się po swojemu.
+    expect(screen.getAllByText("Brak w szablonie — uzupełnij").length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Dokończę później" }));
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/jobs"));
+    const saved = bodiesOf("/api/job-intake/forms").at(-1) as unknown as {
+      source: string;
+      form: { templateJobId: number };
+    };
+    // Szablon to nie odczyt — źródło zapisu zostaje „ręcznie”.
+    expect(saved).toMatchObject({ source: "manual" });
+    expect(saved.form.templateJobId).toBe(55);
+  });
+
+  it("awaria listy rekrutacji nie udaje pustej listy — komunikat z „Ponów”", async () => {
+    mocks.listJobs.mockRejectedValueOnce(new Error("boom"));
+    renderPage();
+    pickClient();
+    fireEvent.click(sourceAction("Inna rekrutacja"));
+    const alert = await screen.findByText(/Nie udało się wczytać rekrutacji\./);
+    expect(screen.queryByText(/nie ma rekrutacji pasujących/)).toBeNull();
+    mocks.listJobs.mockResolvedValue({ data: { items: JOBS, total: 2 } });
+    fireEvent.click(within(alert).getByRole("button", { name: "Ponów" }));
+    expect(
+      await screen.findByRole("button", { name: "Użyj jako szablon: Tester automatyzujący" }),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("NewJobPage — braki po próbie utworzenia", () => {
+  it("przy brakach przycisk jest aktywny: kliknięcie podświetla pola, przewija do pierwszej sekcji i nic nie wysyła", async () => {
+    const scrolled: string[] = [];
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function scrollIntoView(this: Element) {
+      scrolled.push(this.id);
+    };
+    try {
+      renderPage();
+      pickClient();
+      // Sekcja 1 jest kompletna — pierwszy brak stoi w „Wymaganiach”.
+      fireEvent.change(screen.getByLabelText("Rola"), { target: { value: "Java Developer" } });
+      fireEvent.click(
+        within(screen.getByTestId("new-job-hiring-manager")).getByRole("checkbox", {
+          name: "Klient nie podał",
+        }),
+      );
+      expect(screen.queryByText("Uzupełnij przed publikacją")).toBeNull();
+      expectNotReady();
+
+      fireEvent.click(handoffButton());
+
+      expect(screen.getAllByText("Uzupełnij przed publikacją").length).toBeGreaterThan(2);
+      expect(scrolled).toEqual(["new-job-section-requirements"]);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(postsTo("/api/jobs")).toHaveLength(0);
+      expect(mocks.push).not.toHaveBeenCalled();
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
+  it("bez klienta „Utwórz i opublikuj” pokazuje komunikat przy polu klienta", () => {
+    renderPage();
+    expect(screen.getByRole("link", { name: "klient" })).toHaveAttribute("href", "#new-job-client");
+    expect(screen.getByText("Brakuje 11 rzeczy do publikacji")).toBeInTheDocument();
+    expect(handoffButton()).toBeEnabled();
+
+    fireEvent.click(handoffButton());
+
+    expect(screen.getByRole("alert")).toHaveTextContent(CLIENT_REQUIRED_TEXT);
+    expect(postsTo("/api/jobs")).toHaveLength(0);
+    pickClient();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("link", { name: "klient" })).toBeNull();
   });
 });
 
@@ -851,7 +1506,7 @@ describe("NewJobPage", () => {
 
     it("brak decyzji blokuje przekazanie; „Brak krytycznych” jedzie jako pusta lista", async () => {
       await readWithTechnologies();
-      expect(handoffButton()).toBeDisabled();
+      expectNotReady();
       expect(screen.getByText("Brakuje 1 rzeczy do publikacji")).toBeInTheDocument();
 
       fireEvent.click(screen.getByRole("checkbox", { name: "Brak krytycznych" }));
@@ -895,14 +1550,15 @@ describe("NewJobPage", () => {
       await pickRecruiter();
       expect(screen.getByText("Zatwierdzone 0 z 2")).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "zatwierdzenie pytań" })).toBeInTheDocument();
-      expect(handoffButton()).toBeDisabled();
+      expectNotReady();
 
       fireEvent.click(screen.getByRole("button", { name: "Zatwierdź pytanie 1" }));
       expect(screen.getByText("Zatwierdzone 1 z 2")).toBeInTheDocument();
-      expect(handoffButton()).toBeDisabled();
+      expectNotReady();
 
       fireEvent.click(screen.getByRole("button", { name: "Zatwierdź wszystkie" }));
       expect(screen.getByText("2 pytania — wszystkie zatwierdzone")).toBeInTheDocument();
+      expect(screen.getByText("Gotowa do publikacji")).toBeInTheDocument();
       expect(handoffButton()).toBeEnabled();
     });
 
@@ -910,12 +1566,13 @@ describe("NewJobPage", () => {
       await readRequest();
       await closeGaps();
       await pickRecruiter();
+      expect(screen.getByText("Gotowa do publikacji")).toBeInTheDocument();
       expect(handoffButton()).toBeEnabled();
 
       fireEvent.change(screen.getByLabelText("Odpowiedź, która odpada, na pytanie 2"), {
         target: { value: " " },
       });
-      expect(handoffButton()).toBeDisabled();
+      expectNotReady();
       expect(screen.getByText(DEAL_BREAKER_REQUIRED_TEXT)).toBeInTheDocument();
       expect(
         screen.getByRole("link", { name: "odpowiedź, która odpada, przy każdym pytaniu" }),
@@ -930,10 +1587,11 @@ describe("NewJobPage", () => {
       fireEvent.change(screen.getByLabelText("Treść pytania 3"), {
         target: { value: "Umowa B2B?" },
       });
-      expect(handoffButton()).toBeDisabled();
+      expectNotReady();
       fireEvent.change(screen.getByLabelText("Odpowiedź, która odpada, na pytanie 3"), {
         target: { value: "Tylko umowa o pracę." },
       });
+      expect(screen.getByText("Gotowa do publikacji")).toBeInTheDocument();
       expect(handoffButton()).toBeEnabled();
       await handoffTo();
       expect(championBody()?.screening_questions.at(-1)).toEqual({
@@ -985,7 +1643,7 @@ describe("NewJobPage", () => {
       await pickRecruiter();
       await screen.findByRole("button", { name: "Potwierdzam: Development" });
       expect(screen.getByRole("link", { name: "potwierdzenie kategorii" })).toBeInTheDocument();
-      expect(handoffButton()).toBeDisabled();
+      expectNotReady();
 
       await confirmCategory();
       expect(
@@ -1024,7 +1682,7 @@ describe("NewJobPage", () => {
       ).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Zatwierdź wszystkie" }));
       await pickRecruiter();
-      expect(handoffButton()).toBeDisabled();
+      expectNotReady();
 
       fireEvent.click(categoryOption(/^Infra/));
       await handoffTo();
@@ -1054,9 +1712,9 @@ describe("NewJobPage", () => {
           : base(url, ...rest),
       );
       renderPage();
-      fireEvent.click(screen.getByRole("button", { name: "wybierz klienta" }));
-      fireEvent.click(sourceTile(/Wpisz ręcznie/));
-      fireEvent.click(screen.getByRole("button", { name: "Przejdź do formularza" }));
+      pickClient();
+      // Pusty formularz o kategorie nie pyta — pyta po pierwszym wpisanym polu.
+      fireEvent.change(screen.getByLabelText("Rola"), { target: { value: "Tester" } });
 
       const alert = (await screen.findByText(/Nie udało się wczytać kategorii/)).closest(
         "[role=alert]",
@@ -1481,7 +2139,7 @@ describe("NewJobPage", () => {
     expect(mocks.showSuccess).not.toHaveBeenCalled();
   });
 
-  it("braki w requeście blokują publikację, a formularz da się odłożyć na później", async () => {
+  it("braki w requeście: kliknięcie „Utwórz” niczego nie wysyła, a formularz da się odłożyć na później", async () => {
     await readRequest({
       ...INTAKE,
       rate_budget_hourly: null,
@@ -1498,11 +2156,14 @@ describe("NewJobPage", () => {
       "href",
       "#new-job-section-terms",
     );
-    expect(handoffButton()).toBeDisabled();
-    expect(handoffButton()).toHaveAttribute(
-      "title",
-      "Uzupełnij braki, żeby opublikować rekrutację",
-    );
+    // Brak z odczytu jest podświetlony w polu od razu, bez klikania „Utwórz”.
+    expect(screen.getByText("Brak w requeście — uzupełnij")).toBeInTheDocument();
+    // Przycisk zostaje aktywny i mówi, czego brakuje; kliknięcie nic nie wysyła.
+    expectNotReady();
+    fireEvent.click(handoffButton());
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(postsTo("/api/jobs")).toHaveLength(0);
+    expect(mocks.push).not.toHaveBeenCalled();
     // „Zapisz szkic” zniknął — rekrutacja nie powstaje niekompletna.
     expect(screen.queryByRole("button", { name: "Zapisz szkic" })).toBeNull();
 
@@ -1594,11 +2255,17 @@ describe("NewJobPage", () => {
     Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
   });
 
-  it("„Zmień źródło” wraca do kroku 1 z zachowanym requestem", async () => {
+  it("po odczycie źródła zostają pod ręką: panel jest pusty, a treść requestu stoi obok formularza", async () => {
     await readRequest();
-    fireEvent.click(screen.getByRole("button", { name: /Zmień źródło/ }));
-    expect(screen.getByLabelText("Treść requestu")).toHaveValue(REQUEST);
-    expect(sourceTile(/Wklej treść requestu/)).toBeChecked();
+    // „Zmień źródło” zniknęło razem z krokami — nie ma dokąd wracać.
+    expect(screen.queryByRole("button", { name: /Zmień źródło/ })).toBeNull();
+    expect(
+      screen.getByRole("heading", { name: "Request od klienta · Alior Bank" }),
+    ).toBeInTheDocument();
+    fireEvent.click(sourceAction("Wklej treść"));
+    expect(screen.getByLabelText("Treść requestu")).toHaveValue("");
+    // Otwarcie panelu niczego w formularzu nie zmienia.
+    expect(screen.getByLabelText("Rola")).toHaveValue("Senior Java Developer");
   });
 
   describe("podobne rekrutacje (test na produkcji 23.09.2026)", () => {
@@ -1779,6 +2446,12 @@ describe("NewJobPage — szablon z podobnej rekrutacji (`?from=`)", () => {
         : Promise.resolve({ data: converted });
     });
     renderPage();
+    // Formularz stoi na stronie od wejścia — czekamy na szablon albo na błąd.
+    return waitFor(() =>
+      expect(
+        screen.queryByTestId("new-job-fill-summary") ?? screen.queryByRole("alert"),
+      ).not.toBeNull(),
+    );
   }
 
   const rowGroups = () =>
@@ -1789,14 +2462,16 @@ describe("NewJobPage — szablon z podobnej rekrutacji (`?from=`)", () => {
         within(group).getByRole("radio", { checked: true }).textContent,
       ]);
 
-  it("otwiera od razu krok 2 z klientem szablonu; stare pola wymagań zamienia na wiersze serwer", async () => {
-    openTemplate(LEGACY_PROFILE);
+  it("wypełnia formularz z klientem szablonu; stare pola wymagań zamienia na wiersze serwer", async () => {
+    await openTemplate(LEGACY_PROFILE);
     // Rola zostaje pusta — nowa rekrutacja nie udaje starej.
     expect(await screen.findByLabelText("Rola")).toHaveValue("");
     expect(
       screen.getByRole("heading", { name: "Request od klienta · Alior Bank" }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Budżet PLN/h")).toHaveValue("160");
+    // Rola jest do wpisania — przy szablonie brak nazywa się po swojemu.
+    expect(screen.getAllByText("Brak w szablonie — uzupełnij").length).toBeGreaterThan(0);
     expect(postsTo("/api/job-intake/read")).toHaveLength(0);
     expect(bodiesOf("/api/job-intake/requirement-rows")).toEqual([
       {
@@ -1843,7 +2518,7 @@ describe("NewJobPage — szablon z podobnej rekrutacji (`?from=`)", () => {
   });
 
   it("szablon prowadzony wierszami nie pyta o zamianę", async () => {
-    openTemplate(ROWS_PROFILE);
+    await openTemplate(ROWS_PROFILE);
     await screen.findByLabelText("Rola");
     expect(rowGroups()).toEqual([
       ["Poziom wymagania: Go", "Musi mieć"],
@@ -1854,7 +2529,7 @@ describe("NewJobPage — szablon z podobnej rekrutacji (`?from=`)", () => {
   });
 
   it("awaria zamiany nie blokuje szablonu — każde wymaganie to wiersz", async () => {
-    openTemplate(LEGACY_PROFILE, new Error("503"));
+    await openTemplate(LEGACY_PROFILE, new Error("503"));
     await screen.findByLabelText("Rola");
     expect(rowGroups()).toEqual([
       ["Poziom wymagania: Java", "Musi mieć"],
@@ -1864,12 +2539,15 @@ describe("NewJobPage — szablon z podobnej rekrutacji (`?from=`)", () => {
     ]);
   });
 
-  it("nieudane wczytanie szablonu zostawia krok 1 z komunikatem", async () => {
-    openTemplate(new Error("404"));
+  it("nieudane wczytanie szablonu zostawia pusty formularz z komunikatem", async () => {
+    await openTemplate(new Error("404"));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Nie udało się wczytać rekrutacji-szablonu.",
     );
-    expect(screen.queryByLabelText("Rola")).toBeNull();
+    // Formularz jest na stronie i da się go wypełnić ręcznie albo z innego źródła.
+    expect(screen.getByLabelText("Rola")).toHaveValue("");
+    expect(screen.queryByTestId("new-job-source-pane")).toBeNull();
+    expect(screen.queryByTestId("new-job-fill-summary")).toBeNull();
   });
 });
 
@@ -2039,14 +2717,14 @@ describe("NewJobPage — hiring manager z maila", () => {
     ).toHaveAttribute("href", "#new-job-section-name");
     await closeGaps();
     await pickRecruiter();
-    expect(handoffButton()).toBeDisabled();
+    expectNotReady();
 
     fireEvent.click(
       within(screen.getByTestId("new-job-hiring-manager")).getByRole("checkbox", {
         name: "Klient nie podał",
       }),
     );
-    await waitFor(() => expect(handoffButton()).toBeEnabled());
+    await waitFor(() => expect(screen.getByText("Gotowa do publikacji")).toBeInTheDocument());
     await handoffTo();
     expect(jobPostBody()).toMatchObject({ hiring_manager: { not_provided: true } });
   });
@@ -2127,7 +2805,7 @@ describe("NewJobPage — niedokończone formularze", () => {
     });
   }
 
-  it("krok 1 pokazuje listę z „Dokończ” i „Usuń” (potwierdzenie w wierszu)", async () => {
+  it("pusta strona pokazuje listę z „Dokończ” i „Usuń” (potwierdzenie w wierszu)", async () => {
     withForms();
     renderPage();
     const list = await screen.findByTestId("unfinished-intake-forms");
@@ -2138,9 +2816,13 @@ describe("NewJobPage — niedokończone formularze", () => {
     expect(within(list).getByText("Usunąć formularz?")).toBeInTheDocument();
     fireEvent.click(within(list).getByRole("button", { name: "Anuluj" }));
     expect(within(list).queryByText("Usunąć formularz?")).toBeNull();
+    // Gdy na stronie jest już praca, lista ustępuje formularzowi.
+    pickClient();
+    fireEvent.change(screen.getByLabelText("Rola"), { target: { value: "Tester" } });
+    expect(screen.queryByTestId("unfinished-intake-forms")).toBeNull();
   });
 
-  it("„Dokończ” wczytuje formularz z konta i otwiera krok 2", async () => {
+  it("„Dokończ” wczytuje formularz z konta — pola, treść requestu i stan zapisu", async () => {
     const saved = {
       id: 91,
       label: "Programista Java (ZOB 48213)",
@@ -2168,7 +2850,7 @@ describe("NewJobPage — niedokończone formularze", () => {
     renderPage();
     const list = await screen.findByTestId("unfinished-intake-forms");
     fireEvent.click(within(list).getByRole("button", { name: "Dokończ" }));
-    expect(await screen.findByLabelText("Rola")).toHaveValue("Java Developer");
+    await waitFor(() => expect(screen.getByLabelText("Rola")).toHaveValue("Java Developer"));
     expect(screen.getByLabelText("Budżet PLN/h")).toHaveValue("150");
     // Zapis bez liczby osób wraca z pustym polem (N6, 06.10.2026: bez domyślnej „1”).
     expect(screen.getByLabelText("Liczba osób")).toHaveValue(null);
@@ -2176,5 +2858,54 @@ describe("NewJobPage — niedokończone formularze", () => {
       screen.getByRole("heading", { name: "Request od klienta · Alior Bank" }),
     ).toBeInTheDocument();
     expect(screen.getByTestId("new-job-autosave")).toHaveTextContent(/^Formularz zapisany/);
+    // Treść była już odczytana (`step: "review"`), więc panel źródła jest zamknięty.
+    expect(screen.queryByLabelText("Treść requestu")).toBeNull();
+    expect(screen.queryByTestId("unfinished-intake-forms")).toBeNull();
+  });
+
+  // Zapis sprzed 10.10.2026: w kroku 1 wpisano treść, ale jej nie odczytano.
+  it("stary zapis z kroku 1 (`step: \"request\"`) wraca do panelu „Wklej treść”, nie obok formularza", async () => {
+    withForms({
+      id: 91,
+      label: "Rekrutacja bez nazwy",
+      client_id: 7,
+      client_name: "Alior Bank",
+      source: "text",
+      request_text: REQUEST,
+      updated_at: "2026-10-03T14:12:00Z",
+      form: {
+        version: 1,
+        step: "request",
+        form: {},
+        evidence: [],
+        readByAi: false,
+        templateJobId: null,
+        recruiterId: null,
+        assignment: null,
+        priorityLevel: "p1",
+        similarJobIds: [],
+        missing: [],
+      },
+    });
+    renderPage();
+    const list = await screen.findByTestId("unfinished-intake-forms");
+    fireEvent.click(within(list).getByRole("button", { name: "Dokończ" }));
+
+    await waitFor(() => expect(screen.getByLabelText("Treść requestu")).toHaveValue(REQUEST));
+    expect(sourceAction("Wklej treść")).toHaveAttribute("aria-pressed", "true");
+    // Nieodczytana treść nie udaje requestu, z którego powstały pola.
+    expect(screen.queryByTestId("new-job-source-pane")).toBeNull();
+    expect(screen.getByLabelText("Rola")).toHaveValue("");
+    expect(readButton()).toBeEnabled();
+    // Kolejny zapis niesie tę treść dalej jako nieodczytaną.
+    fireEvent.click(screen.getByRole("button", { name: "Dokończę później" }));
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/jobs"));
+    expect(mocks.put).toHaveBeenCalledWith(
+      "/api/job-intake/forms/91",
+      expect.objectContaining({
+        request_text: REQUEST,
+        form: expect.objectContaining({ step: "review", requestRead: false }),
+      }),
+    );
   });
 });

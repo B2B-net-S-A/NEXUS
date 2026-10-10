@@ -1,10 +1,15 @@
 "use client";
 
 /**
- * „Masz N niedokończonych formularzy” — krok 1 strony `/jobs/new`
+ * „Masz N niedokończonych formularzy” — nad formularzem strony `/jobs/new`
  * (04.10.2026). Rekrutacja nie jest już szkicem: praca, której nie da się
  * jeszcze opublikować, czeka na koncie autora. Usunięcie potwierdza się
  * w wierszu (bez natywnego `confirm`, który zamraża automatyzację przeglądarki).
+ *
+ * Od 10.10.2026 strona ma jeden ekran: lista stoi na pustej stronie, a gdy
+ * formularz jest już w pracy — tylko wtedy, gdy zapis odbił się od limitu
+ * formularzy (wtedy bez „Dokończ”, żeby wczytanie innego nie zastąpiło pracy,
+ * która się nie zapisała).
  */
 
 import { useState } from "react";
@@ -37,9 +42,17 @@ interface Props {
   busyId: number | null;
   onResume: (id: number) => void;
   onDelete: (id: number) => void;
+  /** `false` = sama lista do usuwania (bieżący formularz ma niezapisaną pracę). */
+  allowResume?: boolean;
 }
 
-export function UnfinishedIntakeForms({ items, busyId, onResume, onDelete }: Props) {
+export function UnfinishedIntakeForms({
+  items,
+  busyId,
+  onResume,
+  onDelete,
+  allowResume = true,
+}: Props) {
   const [confirmingId, setConfirmingId] = useState<number | null>(null);
   if (items.length === 0) return null;
   return (
@@ -114,16 +127,18 @@ export function UnfinishedIntakeForms({ items, busyId, onResume, onDelete }: Pro
                 </div>
               ) : (
                 <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    loading={busy}
-                    disabled={busyId != null && !busy}
-                    onClick={() => onResume(item.id)}
-                  >
-                    Dokończ
-                  </Button>
+                  {allowResume ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      loading={busy}
+                      disabled={busyId != null && !busy}
+                      onClick={() => onResume(item.id)}
+                    >
+                      Dokończ
+                    </Button>
+                  ) : null}
                   <Button
                     type="button"
                     size="sm"

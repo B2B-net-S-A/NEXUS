@@ -1,14 +1,27 @@
 "use client";
 
 /**
- * Krok 2 strony `/jobs/new` w sześciu sekcjach (decyzje Artura 02.10.2026,
+ * Formularz strony `/jobs/new` w sześciu sekcjach (decyzje Artura 02.10.2026,
  * makiety https://claude.ai/artifact/UPDv1tSQBeo5t9kLW6WJoH): 1 Nazwa ·
  * 2 Wymagania (słowa kluczowe) · 3 Warunki · 4 O projekcie · 5 Pytania do
  * kandydata · 6 Kategoria i zespół (`NewJobTeamStep`). Pasek sekcji nad
  * formularzem mówi, w której sekcji czegoś brakuje.
+ *
+ * Od 10.10.2026 (D2, D3) formularz stoi na stronie zawsze, a odczyt maila,
+ * pliku albo szablonu wypełnia tylko puste pola. Tam, gdzie odczyt ma inną
+ * wartość niż wpisana, pod etykietą pola stoi propozycja (`IntakeOfferChip`).
  */
 
-import { useId, useState, type KeyboardEvent, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { Check, ChevronDown, ChevronRight, Plus, Trash2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -22,6 +35,8 @@ import { ChampionExperienceFields } from "@/components/champion/ChampionExperien
 import { RequirementRowsEditor } from "@/components/champion/RequirementRowsEditor";
 import { hasExperience } from "@/lib/champion-experience";
 import type { RowCriticalState } from "@/lib/requirement-rows";
+import type { IntakeOffer, IntakeUnit } from "@/lib/job-intake-fill";
+import { IntakeOfferChip } from "./IntakeOfferChip";
 import {
   FIELD_BASIS_LABEL,
   FORM_SECTIONS,
@@ -94,7 +109,7 @@ export function ProvenanceChip({ basis }: { basis?: FieldBasis }) {
     <span
       className={cn(
         "rounded-full px-2 py-0.5 text-[11px] font-medium",
-        basis === "request" && "bg-primary/10 text-primary",
+        (basis === "request" || basis === "document") && "bg-primary/10 text-primary",
         basis === "client_history" && "bg-info-muted text-info-muted-foreground",
         basis === "ai" && "border border-dashed border-primary/50 text-primary",
         basis === "manual" && "bg-muted text-muted-foreground",
@@ -106,6 +121,80 @@ export function ProvenanceChip({ basis }: { basis?: FieldBasis }) {
   );
 }
 
+/** Zdanie pod polem, którego brakuje — zależy od tego, skąd formularz był wypełniany. */
+export const MISSING_NOTE_TEXT = {
+  request: "Brak w requeście — uzupełnij",
+  template: "Brak w szablonie — uzupełnij",
+  manual: "Uzupełnij przed publikacją",
+} as const;
+
+export type MissingNoteSource = keyof typeof MISSING_NOTE_TEXT;
+
+/**
+ * To, czego pola formularza potrzebują od strony, a co nie jest wartością
+ * pola: propozycje z odczytu i zdanie o braku. Kontekst zamiast przekazywania
+ * przez każdą sekcję — pól jest kilkadziesiąt.
+ */
+interface FormHints {
+  offers: ReadonlyMap<IntakeUnit, IntakeOffer>;
+  onAcceptOffer: (offer: IntakeOffer) => void;
+  onDismissOffer: (offer: IntakeOffer) => void;
+  missingText: string;
+}
+
+const FormHintsContext = createContext<FormHints>({
+  offers: new Map(),
+  onAcceptOffer: () => undefined,
+  onDismissOffer: () => undefined,
+  missingText: MISSING_NOTE_TEXT.request,
+});
+
+const TEXT_ENTRY =
+  "input:not([type='hidden']):not([type='checkbox']):not([type='radio']):not(:disabled), textarea:not(:disabled), select:not(:disabled), [role='combobox']:not(:disabled)";
+const FOCUSABLE = `${TEXT_ENTRY}, input:not([type='hidden']):not(:disabled), button:not(:disabled), [tabindex]:not([tabindex='-1'])`;
+
+/**
+ * Po „Użyj” / „Zostaw” propozycja znika razem z klikniętym przyciskiem. Fokus
+ * przechodzi wcześniej do pola, którego dotyczyła: pierwszej kontrolki za
+ * propozycją w tym samym polu (etykieta → propozycja → pole). Najpierw pole do
+ * wpisywania — przy liście wymagań pierwszym przyciskiem jest „Usuń frazę”,
+ * a Enter wciśnięty drugi raz nie może niczego skasować. Bez tego klawiatura
+ * wracała na początek strony po każdej z kilkunastu propozycji.
+ */
+function focusFieldAfter(chip: HTMLElement | null) {
+  if (!chip) return;
+  const after = (root: ParentNode, selector: string) =>
+    [...root.querySelectorAll<HTMLElement>(selector)].find(
+      (node) =>
+        !chip.contains(node) &&
+        Boolean(chip.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING),
+    );
+  const field = chip.parentElement ?? document;
+  (after(field, TEXT_ENTRY) ?? after(field, FOCUSABLE) ?? after(document, TEXT_ENTRY))?.focus();
+}
+
+/** Propozycja z odczytu dla pola (albo nic, gdy odczyt jej nie zostawił). */
+function FieldOffer({ unit }: { unit?: IntakeUnit }) {
+  const { offers, onAcceptOffer, onDismissOffer } = useContext(FormHintsContext);
+  const chipRef = useRef<HTMLDivElement | null>(null);
+  const offer = unit ? offers.get(unit) : undefined;
+  if (!offer) return null;
+  return (
+    <IntakeOfferChip
+      ref={chipRef}
+      offer={offer}
+      onUse={() => {
+        focusFieldAfter(chipRef.current);
+        onAcceptOffer(offer);
+      }}
+      onDismiss={() => {
+        focusFieldAfter(chipRef.current);
+        onDismissOffer(offer);
+      }}
+    />
+  );
+}
+
 function FieldLabel({
   htmlFor,
   id,
@@ -113,6 +202,7 @@ function FieldLabel({
   hint,
   missing,
   basis,
+  offerUnit,
 }: {
   htmlFor?: string;
   /** Dla pól bez `<label for>` (combobox) — cel `aria-labelledby`. */
@@ -121,28 +211,33 @@ function FieldLabel({
   hint?: string | null;
   missing?: boolean;
   basis?: FieldBasis;
+  /** Jednostka odczytu, której propozycja stoi pod tą etykietą. */
+  offerUnit?: IntakeUnit;
 }) {
   return (
-    <div className="flex items-baseline justify-between gap-2">
-      <span className="inline-flex items-baseline gap-2">
-        {htmlFor ? (
-          <label
-            htmlFor={htmlFor}
-            className="text-sm font-medium text-foreground"
-          >
-            {children}
-          </label>
-        ) : (
-          <span id={id} className="text-sm font-medium text-foreground">
-            {children}
-          </span>
-        )}
-        <ProvenanceChip basis={basis} />
-      </span>
-      {!missing && hint ? (
-        <span className="text-xs text-muted-foreground">{hint}</span>
-      ) : null}
-    </div>
+    <>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="inline-flex items-baseline gap-2">
+          {htmlFor ? (
+            <label
+              htmlFor={htmlFor}
+              className="text-sm font-medium text-foreground"
+            >
+              {children}
+            </label>
+          ) : (
+            <span id={id} className="text-sm font-medium text-foreground">
+              {children}
+            </span>
+          )}
+          <ProvenanceChip basis={basis} />
+        </span>
+        {!missing && hint ? (
+          <span className="text-xs text-muted-foreground">{hint}</span>
+        ) : null}
+      </div>
+      <FieldOffer unit={offerUnit} />
+    </>
   );
 }
 
@@ -156,10 +251,11 @@ function parseYears(raw: string): number | null {
 
 /** Pod polem, nie obok etykiety — w wąskiej kolumnie łamała się i przesuwała pole. */
 function MissingNote({ show }: { show: boolean }) {
+  const { missingText } = useContext(FormHintsContext);
   if (!show) return null;
   return (
     <span className="text-xs font-medium text-warning-muted-foreground">
-      Brak w requeście — uzupełnij
+      {missingText}
     </span>
   );
 }
@@ -172,6 +268,7 @@ function TagListInput({
   missing,
   placeholder,
   basis,
+  offerUnit,
 }: {
   label: string;
   values: string[];
@@ -180,6 +277,7 @@ function TagListInput({
   missing?: boolean;
   placeholder: string;
   basis?: FieldBasis;
+  offerUnit?: IntakeUnit;
 }) {
   const inputId = useId();
   const [draft, setDraft] = useState("");
@@ -210,7 +308,7 @@ function TagListInput({
 
   return (
     <div className="flex flex-col gap-2">
-      <FieldLabel htmlFor={inputId} missing={missing} basis={basis}>
+      <FieldLabel htmlFor={inputId} missing={missing} basis={basis} offerUnit={offerUnit}>
         {label}
       </FieldLabel>
       <div
@@ -465,9 +563,18 @@ interface NewJobReviewFormProps {
   form: IntakeForm;
   onChange: FormUpdater;
   missing: MissingCode[];
-  /** Po odczycie przez AI braki są podświetlane; w trybie ręcznym nie. */
+  /**
+   * Braki podświetlone w polach: po odczycie, przy szablonie i po próbie
+   * utworzenia. Przed nimi mówi o nich tylko pasek sekcji i stopka.
+   */
   highlightMissing: boolean;
-  /** Klient z kroku 1 — lista kontaktów do wyboru hiring managera. */
+  /** Skąd formularz był wypełniany — od tego zależy zdanie pod brakującym polem. */
+  missingSource?: MissingNoteSource;
+  /** Propozycje z odczytu: pole ma już wartość, a odczyt podał inną. */
+  offers?: readonly IntakeOffer[];
+  onAcceptOffer?: (offer: IntakeOffer) => void;
+  onDismissOffer?: (offer: IntakeOffer) => void;
+  /** Wybrany klient — lista kontaktów do wyboru hiring managera. */
   clientId: number | null;
   /** Harness `/preview/new-job`: bez zapytania o liczbę osób w bazie. */
   countEnabled?: boolean;
@@ -482,8 +589,39 @@ interface NewJobReviewFormProps {
   clientTitleError?: string | null;
 }
 
-/** Krok 2 strony `/jobs/new`: sekcje 1–5 i „Dodatkowe”. */
+const NO_OFFERS: readonly IntakeOffer[] = [];
+const ignoreOffer = () => undefined;
+
+/** Formularz strony `/jobs/new`: sekcje 1–5 i „Dodatkowe”. */
 export function NewJobReviewForm({
+  missingSource = "request",
+  offers = NO_OFFERS,
+  onAcceptOffer = ignoreOffer,
+  onDismissOffer = ignoreOffer,
+  ...sections
+}: NewJobReviewFormProps) {
+  const hints = useMemo<FormHints>(
+    () => ({
+      offers: new Map(offers.map((offer) => [offer.unit, offer])),
+      onAcceptOffer,
+      onDismissOffer,
+      missingText: MISSING_NOTE_TEXT[missingSource],
+    }),
+    [offers, onAcceptOffer, onDismissOffer, missingSource],
+  );
+  return (
+    <FormHintsContext.Provider value={hints}>
+      <ReviewSections {...sections} />
+    </FormHintsContext.Provider>
+  );
+}
+
+type ReviewSectionsProps = Omit<
+  NewJobReviewFormProps,
+  "missingSource" | "offers" | "onAcceptOffer" | "onDismissOffer"
+>;
+
+function ReviewSections({
   form,
   onChange,
   missing,
@@ -493,7 +631,8 @@ export function NewJobReviewForm({
   criticalInfo,
   team,
   clientTitleError = null,
-}: NewJobReviewFormProps) {
+}: ReviewSectionsProps) {
+  const hints = useContext(FormHintsContext);
   const ids = {
     hiringManager: useId(),
     title: useId(),
@@ -539,6 +678,7 @@ export function NewJobReviewForm({
             htmlFor={ids.clientTitle}
             basis={basis("client_title")}
             hint="tak, jak napisał klient"
+            offerUnit="clientTitle"
           >
             Nazwa od klienta, razem z numerem
           </FieldLabel>
@@ -566,7 +706,12 @@ export function NewJobReviewForm({
 
         <div className="grid gap-4 md:grid-cols-2">
           <div className="flex flex-col gap-2">
-            <FieldLabel htmlFor={ids.title} missing={isMissing("role")} basis={basis("role")}>
+            <FieldLabel
+              htmlFor={ids.title}
+              missing={isMissing("role")}
+              basis={basis("role")}
+              offerUnit="title"
+            >
               Rola
             </FieldLabel>
             <Input
@@ -585,6 +730,7 @@ export function NewJobReviewForm({
               id={ids.hiringManager}
               basis={basis("hiring_manager")}
               missing={isMissing("hiring_manager")}
+              offerUnit="hiringManager"
             >
               Hiring manager
             </FieldLabel>
@@ -639,6 +785,7 @@ export function NewJobReviewForm({
           <div className="flex justify-end">
             <ProvenanceChip basis={basis("requirements")} />
           </div>
+          <FieldOffer unit="rows" />
           <RequirementRowsEditor
             rows={form.rows}
             onRowsChange={(rows) => onChange((f) => markEdited({ ...f, rows }, "requirements"))}
@@ -672,7 +819,7 @@ export function NewJobReviewForm({
 
         <div className="grid gap-4 md:grid-cols-2">
           <div className="flex flex-col gap-2">
-            <FieldLabel htmlFor={ids.years} hint="opcjonalnie">
+            <FieldLabel htmlFor={ids.years} hint="opcjonalnie" offerUnit="seniorityYears">
               Lata doświadczenia
             </FieldLabel>
             <Input
@@ -687,7 +834,7 @@ export function NewJobReviewForm({
             />
           </div>
           <div className="flex flex-col gap-2">
-            <FieldLabel htmlFor={ids.language} hint="opcjonalnie">
+            <FieldLabel htmlFor={ids.language} hint="opcjonalnie" offerUnit="language">
               Język pracy
             </FieldLabel>
             <Input
@@ -746,7 +893,12 @@ export function NewJobReviewForm({
       >
         <div className="grid gap-4 md:grid-flow-row-dense md:grid-cols-2 lg:grid-cols-4">
           <div className="flex flex-col gap-2">
-            <FieldLabel htmlFor={ids.rate} missing={isMissing("budget")} basis={basis("rate")}>
+            <FieldLabel
+              htmlFor={ids.rate}
+              missing={isMissing("budget")}
+              basis={basis("rate")}
+              offerUnit="budget"
+            >
               Budżet PLN/h
             </FieldLabel>
             {/* 0420: przedział „od–do”; budżetem jest „do”, „od” jest opcjonalne. */}
@@ -783,7 +935,9 @@ export function NewJobReviewForm({
             <span className="text-xs text-muted-foreground">{BUDGET_HELP_TEXT}</span>
           </div>
           <div className="flex flex-col gap-2 md:col-span-2">
-            <FieldLabel missing={isMissing("work_mode")}>Tryb pracy</FieldLabel>
+            <FieldLabel missing={isMissing("work_mode")} offerUnit="workMode">
+              Tryb pracy
+            </FieldLabel>
             <div
               role="radiogroup"
               aria-label="Tryb pracy"
@@ -851,6 +1005,7 @@ export function NewJobReviewForm({
               htmlFor={ids.deadline}
               missing={isMissing("deadline")}
               basis={basis("deadline")}
+              offerUnit="deadline"
             >
               Termin
             </FieldLabel>
@@ -912,6 +1067,7 @@ export function NewJobReviewForm({
               htmlFor={ids.headcount}
               missing={isMissing("headcount")}
               basis={basis("headcount")}
+              offerUnit="headcount"
             >
               Liczba osób
             </FieldLabel>
@@ -933,7 +1089,7 @@ export function NewJobReviewForm({
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {officeNeeded && (
+          {officeNeeded ? (
             <TagListInput
               label="Miasta biura"
               values={splitCities(form.city)}
@@ -941,10 +1097,16 @@ export function NewJobReviewForm({
               tone="muted"
               missing={isMissing("office_city")}
               placeholder="np. Warszawa, Gdańsk — Enter dodaje"
+              offerUnit="city"
             />
-          )}
+          ) : hints.offers.has("city") ? (
+            // Przy pracy zdalnej pola miast nie ma — propozycja nie może zniknąć.
+            <div className="flex flex-col gap-2">
+              <FieldLabel offerUnit="city">Miasta biura</FieldLabel>
+            </div>
+          ) : null}
           <div className="flex flex-col gap-2">
-            <FieldLabel htmlFor={ids.start} hint="opcjonalnie">
+            <FieldLabel htmlFor={ids.start} hint="opcjonalnie" offerUnit="startDate">
               Start
             </FieldLabel>
             <Input
@@ -955,7 +1117,7 @@ export function NewJobReviewForm({
             />
           </div>
           <div className="flex flex-col gap-2">
-            <FieldLabel htmlFor={ids.contract} hint="opcjonalnie">
+            <FieldLabel htmlFor={ids.contract} hint="opcjonalnie" offerUnit="contractLength">
               Długość projektu
             </FieldLabel>
             <Input
@@ -975,6 +1137,7 @@ export function NewJobReviewForm({
             missing={isMissing("context")}
             hint="2 zdania"
             basis={basis("about")}
+            offerUnit="about"
           >
             Co to za projekt
           </FieldLabel>
@@ -990,7 +1153,7 @@ export function NewJobReviewForm({
         </div>
         {form.responsibilities && (
           <div className="flex flex-col gap-2">
-            <FieldLabel htmlFor={ids.resp} hint="opcjonalnie">
+            <FieldLabel htmlFor={ids.resp} hint="opcjonalnie" offerUnit="responsibilities">
               Obowiązki
             </FieldLabel>
             <Textarea
@@ -1002,7 +1165,12 @@ export function NewJobReviewForm({
           </div>
         )}
         <div className="flex flex-col gap-2">
-          <FieldLabel htmlFor={ids.selling} basis={basis("selling_points")} hint="opcjonalnie">
+          <FieldLabel
+            htmlFor={ids.selling}
+            basis={basis("selling_points")}
+            hint="opcjonalnie"
+            offerUnit="sellingPoints"
+          >
             Co przekona kandydata
           </FieldLabel>
           <Textarea
@@ -1089,6 +1257,7 @@ function QuestionsSection({
           </Button>
         ) : null}
       </div>
+      <FieldOffer unit="questions" />
       {form.questions.map((q, i) => {
         const n = i + 1;
         const noBreaker = q.question.trim().length > 0 && !q.dealBreaker.trim();
@@ -1197,7 +1366,10 @@ function QuestionsSection({
  * Championa.
  */
 function AdditionalSection({ form, onChange }: { form: IntakeForm; onChange: FormUpdater }) {
-  const [open, setOpen] = useState(false);
+  const [opened, setOpen] = useState(false);
+  // Propozycja w zwiniętej sekcji byłaby niewidoczna — wtedy sekcja jest otwarta.
+  const hasOffer = useContext(FormHintsContext).offers.has("targetCompanies");
+  const open = opened || hasOffer;
   const ids = { companies: useId(), body: useId() };
   const set = <K extends keyof IntakeForm>(
     key: K,
@@ -1259,7 +1431,11 @@ function AdditionalSection({ form, onChange }: { form: IntakeForm; onChange: For
         </div>
 
         <div className="flex flex-col gap-2">
-          <FieldLabel htmlFor={ids.companies} basis={basis("target_companies")}>
+          <FieldLabel
+            htmlFor={ids.companies}
+            basis={basis("target_companies")}
+            offerUnit="targetCompanies"
+          >
             Firmy docelowe
           </FieldLabel>
           <Textarea
