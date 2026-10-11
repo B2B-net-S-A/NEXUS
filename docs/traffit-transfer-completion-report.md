@@ -83,8 +83,11 @@ z Traffita jest teraz traktowana jak niekompletna.
 ## Co wywoła otwarcie fali pilota
 
 Jeden prowadzący (zarazem Delivery Lead) dostanie 10 dzwonków „Nowy request do
-pracy” oraz przypomnienia o kartach z Traffita: 10 × „CV wysłane czeka” i do
-136 × „utknął na etapie” (112 z nich to „Nowi”). Narzędzie tego nie wycisza.
+pracy”. Przypomnienia o zaległych kartach z Traffita (10 × „CV wysłane czeka”
+i do 136 × „utknął na etapie”) zostały wyciszone osobną zmianą: etap z importu
+Traffita budzi dopiero po pierwszym ruchu karty w NEXUSIE (decyzja Artura
+11.10.2026, `notification_triggers._set_in_nexus`,
+`tests/test_notification_triggers.py`).
 
 ## Niepotwierdzone / poza zakresem
 

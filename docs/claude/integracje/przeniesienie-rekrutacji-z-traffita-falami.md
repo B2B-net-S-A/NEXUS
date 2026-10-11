@@ -95,9 +95,13 @@ bo bieg objąłby wszystko naraz.
 Otwarta rekrutacja wchodzi w zwykłe automaty NEXUSA i tego narzędzie nie
 wycisza: dzwonek „Nowy request do pracy” do prowadzącego (i mail z kolejki),
 migawka dopasowań, zdarzenie auto-matcha i nocny przegląd bazy, automat
-przydziału (aktywny prowadzący zostaje właścicielem), przypomnienia o kartach
-stojących 7–30 dni i o „CV wysłane” od 6 godzin do 14 dni. Przed dużą falą
-policz te karty — przy jednym kliencie z jednym prowadzącym było ich 146.
+przydziału (aktywny prowadzący zostaje właścicielem).
+
+Przypomnienia o zaległych kartach (`stage_stuck_7d`, `dl_stage_stale_6h`) **nie
+budzą etapu z importu Traffita** — także wierszy dopisanych przy przeniesieniu
+(`external_source='traffit'`). Zaczynają działać po pierwszym ruchu karty
+w NEXUSIE (`notification_triggers._set_in_nexus`, decyzja Artura 11.10.2026).
+Bez tego pierwsza fala dałaby jednej osobie 146 przypomnień.
 
 ## Po fali
 
