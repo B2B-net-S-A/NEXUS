@@ -41,9 +41,15 @@ _ALREADY_RUNNING = {
 
 
 def _job_ids(raw: Optional[str]) -> Optional[list[int]]:
-    """``job_ids=1,2,3`` → zawężenie biegu; brak = cały zbiór."""
-    parts = [part.strip() for part in (raw or "").split(",") if part.strip()]
-    if not all(part.isdigit() for part in parts):
+    """``job_ids=1,2,3`` → zawężenie biegu; brak parametru = cały zbiór.
+
+    Parametr podany, ale pusty (``job_ids=``) to błąd, nie „cały zbiór” —
+    ucięta lista nie może po cichu rozszerzyć biegu na wszystkie rekrutacje.
+    """
+    if raw is None:
+        return None
+    parts = [part.strip() for part in raw.split(",") if part.strip()]
+    if not parts or not all(part.isdigit() for part in parts):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="job_ids: lista id rekrutacji po przecinku.",

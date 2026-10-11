@@ -407,6 +407,20 @@ def test_dry_run_authorizes_only_its_own_scope(report, job_ids, expected):
     assert conversion.same_scope(report, job_ids) is expected
 
 
+def test_route_scope_parameter_rejects_an_empty_or_broken_list():
+    from fastapi import HTTPException
+
+    from app.api import admin_job_board_cards as route
+
+    assert route._job_ids(None) is None
+    assert route._job_ids("3, 1,3") == [1, 3]
+    # Ucięta lista nie może znaczyć „wszystkie rekrutacje”.
+    for broken in ("", " , ", "1,x", "-4"):
+        with pytest.raises(HTTPException) as exc:
+            route._job_ids(broken)
+        assert exc.value.status_code == 422
+
+
 @pytest.mark.asyncio
 async def test_scoped_dry_run_records_its_scope():
     db = _RecordingDb()
@@ -1030,3 +1044,40 @@ async def test_scoped_run_moves_only_cards_of_the_given_jobs(app_client):
     assert done["counts"]["moved"] == 1 and done["targets"] == 1, done
     assert not await _qualifies(process_a)
     assert await _qualifies(process_b)
+
+
+@pytest.mark.asyncio
+async def test_scoped_dry_run_does_not_authorize_another_scope(app_client):
+    from fastapi import HTTPException
+
+    from app.api import admin_job_board_cards as route
+    from app.core.database import AsyncSessionLocal
+
+    actor_id, _, job_a, _, _, _ = await _scraper_world()
+    _, _, job_b, _, _, _ = await _scraper_world()
+    admin = SimpleNamespace(id=actor_id)
+    async with AsyncSessionLocal() as db:
+        report = await route.convert_integration_cards(
+            current_user=admin,
+            dry_run=True,
+            mode="convert",
+            expected=None,
+            job_ids=str(job_a),
+            db=db,
+        )
+    assert report["job_ids"] == [job_a] and report["qualifying_pairs"] == 1
+
+    # Próba jednej rekrutacji nie puszcza zapisu całości, innej ani szerszej.
+    async with AsyncSessionLocal() as db:
+        for other in (None, str(job_b), f"{job_a},{job_b}"):
+            with pytest.raises(HTTPException) as exc:
+                await route.convert_integration_cards(
+                    current_user=admin,
+                    dry_run=False,
+                    mode="convert",
+                    expected=1,
+                    job_ids=other,
+                    db=db,
+                )
+            assert exc.value.status_code == 409
+    assert not conversion.is_running("convert")
