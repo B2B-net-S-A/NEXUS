@@ -1084,6 +1084,9 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
       await deleteIntakeForm(id);
       await queryClient.invalidateQueries({ queryKey: jobIntakeFormKeys.list });
       showSuccess("Formularz usunięty.");
+      // Zapis bieżącego formularza odbił się od limitu — miejsce właśnie się
+      // zwolniło, więc zapisujemy od razu, a nie przy następnej zmianie.
+      if (formsLimitHit) void persistForm();
     } catch (e) {
       showError(apiErrorMessage(e, "Nie udało się usunąć formularza."));
     } finally {

@@ -75,7 +75,10 @@ udostępniania dla klienta nie robimy. Raport: `docs/job-no-drafts-completion-re
   retencji w `queue_retention`, kasowany w transakcji tworzenia
   (`intake_form_id`). `/jobs/new` zapisuje go sam (3 s po zmianie) i wznawia
   z listy na pustej stronie albo `?form=<id>`. Pusta strona — także z samym
-  wybranym klientem — formularza nie zapisuje (10.10.2026). Zapis niesie
+  wybranym klientem — formularza nie zapisuje (10.10.2026). Gdy zapis odbije
+  się od limitu, strona pokazuje listę formularzy, a po usunięciu jednego
+  zapisuje bieżący od razu (`removeForm` → `persistForm`; do 11.10.2026 dopiero
+  przy następnej zmianie w formularzu). Zapis niesie
   zawsze `step: "review"`; stary zapis z `step: "request"` (treść wpisana,
   nieodczytana) wraca do panelu „Wklej treść” (`requestRead`).
 - **Stare szkice:** pulpit „Czeka na Ciebie” → `pending_jobs`

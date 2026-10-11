@@ -320,6 +320,13 @@ describe("/preview/new-job zasiewa każdy stały klucz", () => {
     );
   });
 
+  it("stan `champion` pokazuje tę samą notkę co prawdziwy odczyt pliku z dodatkowymi sekcjami", () => {
+    // Formularz podglądu niesie `championExtras`; prawdziwy odczyt takiego pliku
+    // ustawia `championSections: "taken"` i notka mówi, dokąd te sekcje trafią.
+    expect(harness).toContain("championExtras: {");
+    expect(harness).toContain('championForm: true, championSections: "taken"');
+  });
+
   it("panel „Inna rekrutacja” nie pyta serwera — lista przychodzi w stanie podglądu", () => {
     // Klucz listy ma parametry, więc `literalQueryKeys` go nie widzi: zapytanie
     // wyłącza gotowa lista (`seed`), którą strona podaje w trybie podglądu.
