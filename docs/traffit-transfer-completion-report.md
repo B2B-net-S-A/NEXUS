@@ -38,7 +38,11 @@ Porównanie liczone z listy osób per stan
 
 - `backend/app/services/traffit_transfer_plan.py` — plan jednej rekrutacji
   (czysta funkcja): zgodni, remis do wysunięcia, wiersz do dopisania, karta do
-  zdjęcia, ruch NEXUSA na wierzchu, karty tylko NEXUSA, osoby nieznane.
+  zdjęcia, ruch NEXUSA na wierzchu, karty tylko NEXUSA, karty już zamknięte,
+  osoby nieznane.
+- `backend/app/services/recruitment_process_commands.py` —
+  `promote_external_stage_row` i `note_external_stage_row`: jedyne dwa zapisy
+  istniejących wierszy etapów, przez warstwę komend.
 - `backend/app/services/traffit_transfer.py` — fala, lista osób per stan
   z Traffita, raport próby, wykonanie (poprawki + otwarcie funkcjami
   „Otwórz ponownie”), paragon, bieg w tle pod blokadą syncu.
@@ -48,6 +52,14 @@ Porównanie liczone z listy osób per stan
 - Wzorzec bramek `tests/data/authz_golden/admin_traffit.json` — dwie nowe trasy,
   ten sam werdykt co pozostałe trasy Traffita.
 - Bez migracji i bez zmian schematu.
+
+## Przegląd kodu przed scaleniem
+
+Niezależny przegląd znalazł dwie rzeczy blokujące, obie poprawione: surowy
+`UPDATE candidate_stages` poza adapterem Traffita (strażnik architektury byłby
+czerwony w kolejce) oraz zdejmowanie kart już zamkniętych — osoba zatrudniona,
+zdjęta potem z rekrutacji w Traffit, dostałaby „Wycofany”. Pusta lista osób
+z Traffita jest teraz traktowana jak niekompletna.
 
 ## Świadome odstępstwa
 
@@ -63,7 +75,8 @@ Porównanie liczone z listy osób per stan
 
 | Plik | Zakres | Gdzie |
 |---|---|---|
-| `tests/test_traffit_transfer_plan.py` | 16 przypadków planu, bliźniaków, klucza fali i kolumn | lokalnie i CI |
+| `tests/test_traffit_transfer_plan.py` | 18 przypadków planu, bliźniaków, klucza fali i kolumn | lokalnie i CI |
+| `tests/test_priority_work_writer_architecture.py` | zapis wierszy etapów tylko przez warstwę komend | lokalnie i CI |
 | `tests/test_traffit_transfer.py` | próba bez zmian; wykonanie (remis, brakujący wiersz, zdjęta osoba, ruch NEXUSA, otwarcie, historia); niekompletna lista; bliźniak; brak wykonawcy; świeżość próby | tylko CI (Postgres) |
 | `tests/test_authz_guard_matrix.py` | wzorzec bramek z nowymi trasami | lokalnie i CI |
 

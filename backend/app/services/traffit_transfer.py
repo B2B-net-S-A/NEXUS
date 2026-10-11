@@ -84,6 +84,7 @@ COUNT_KEYS = (
     "nexus_on_top",
     "nexus_only",
     "unverified",
+    "already_closed",
     "unknown_people",
 )
 
@@ -164,7 +165,8 @@ SELECT cs.id, cs.candidate_id,
        CASE WHEN c.external_source = 'traffit' THEN c.external_id END AS emp,
        cs.external_source AS source,
        sd.external_id AS state_ext,
-       cs.moved_at
+       cs.moved_at,
+       CAST(cs.stage AS text) AS stage
 FROM candidate_stages cs
 JOIN candidates c ON c.id = cs.candidate_id
 LEFT JOIN pipeline_stage_defs sd
@@ -232,7 +234,13 @@ async def load_rows(db: AsyncSession, job_id: int) -> list[StageRow]:
     rows = await db.execute(text(_ROWS_SQL), {"job_id": job_id})
     return [
         StageRow(
-            int(r.id), int(r.candidate_id), r.emp, r.source, r.state_ext, r.moved_at
+            int(r.id),
+            int(r.candidate_id),
+            r.emp,
+            r.source,
+            r.state_ext,
+            r.moved_at,
+            r.stage,
         )
         for r in rows.all()
     ]
@@ -363,6 +371,7 @@ def plan_counts(plan: JobPlan) -> dict[str, int]:
         "nexus_on_top": plan.nexus_on_top,
         "nexus_only": plan.nexus_only,
         "unverified": plan.unverified,
+        "already_closed": plan.already_closed,
         "unknown_people": len(plan.unknown_people),
     }
 
@@ -429,6 +438,8 @@ async def _apply_plan(
 ) -> dict[str, Any]:
     """Zapisz poprawki jednej rekrutacji. Bez commitu. Zwraca ID do paragonu."""
     from app.services.recruitment_process_commands import (
+        note_external_stage_row,
+        promote_external_stage_row,
         sync_external_observed_processes,
     )
 
@@ -436,18 +447,9 @@ async def _apply_plan(
     pairs: list[tuple[int, int]] = []
 
     for promote in plan.promotes:
-        result = await db.execute(
-            text(
-                """
-                UPDATE candidate_stages
-                SET moved_at = :moved_at, updated_at = now()
-                WHERE id = :id AND job_id = :job_id AND external_source = 'traffit'
-                RETURNING id
-                """
-            ),
-            {"moved_at": promote.moved_at, "id": promote.row_id, "job_id": job.job_id},
-        )
-        if result.first() is not None:
+        if await promote_external_stage_row(
+            db, stage_id=promote.row_id, job_id=job.job_id, moved_at=promote.moved_at
+        ):
             receipt["promoted"].append(promote.row_id)
             pairs.append((promote.candidate_id, job.job_id))
 
@@ -494,13 +496,8 @@ async def _apply_plan(
             "contact_source_created_at": None,
         }
         await importer._upsert_stage_row(payload, reason_id)  # noqa: SLF001
-        await db.execute(
-            text(
-                "UPDATE candidate_stages SET rejection_note = :note "
-                "WHERE external_source = 'traffit' AND external_id = :ext "
-                "AND rejection_note IS NULL"
-            ),
-            {"note": REMOVED_NOTE, "ext": ext_id},
+        await note_external_stage_row(
+            db, external_id=ext_id, rejection_note=REMOVED_NOTE
         )
         receipt["withdrawn"].append(remove.candidate_id)
         pairs.append((remove.candidate_id, job.job_id))

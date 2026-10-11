@@ -19,7 +19,8 @@ ma tu własną akcję:
   w historii pary (wpis pominięty przy imporcie) → nowy wiersz
   (:class:`Insert`);
 * **osoba zdjęta z rekrutacji w Traffit** — import czyta tylko historię
-  ruchów, więc o zdjęciu nie wie i karta zostaje → :class:`Remove`.
+  ruchów, więc o zdjęciu nie wie i karta zostaje → :class:`Remove` (tylko
+  karta z aktywnej kolumny; już zamknięta zostaje, jak jest).
 
 Ruch zrobiony w NEXUSIE wygrywa: para, której ostatni wiersz nie pochodzi
 z Traffita, nie jest poprawiana ani zdejmowana. Karty bez żadnego wiersza
@@ -33,6 +34,8 @@ from datetime import datetime, timedelta
 from typing import Mapping, Optional, Sequence
 
 TRAFFIT = "traffit"
+#: Etapy końcowe — karta już nie stoi w żadnej z ośmiu kolumn.
+TERMINAL_STAGES = frozenset({"hired", "rejected", "withdrawn"})
 #: O ile wysuwamy wiersz, który przegrał remis czasu.
 TIE_STEP = timedelta(milliseconds=1)
 
@@ -50,6 +53,8 @@ class StageRow:
     #: Numer stanu Traffita, na który wskazuje etap wiersza (``None`` = etap NEXUSA).
     state_ext: Optional[str]
     moved_at: datetime
+    #: Kod etapu (``candidate_stages.stage``).
+    stage: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -89,6 +94,9 @@ class JobPlan:
     #: Ostatni wiersz z Traffita, ale kandydat nie ma numeru osoby Traffita
     #: (np. po scaleniu) — nie da się sprawdzić, więc nie ruszamy.
     unverified: int = 0
+    #: Osoba zdjęta w Traffit, której karta jest już zamknięta (zatrudniony,
+    #: odrzucony, wycofany) — zostaje; „Wycofany” na zatrudnionym byłby fałszem.
+    already_closed: int = 0
     promotes: list[Promote] = field(default_factory=list)
     inserts: list[Insert] = field(default_factory=list)
     removes: list[Remove] = field(default_factory=list)
@@ -174,6 +182,8 @@ def plan_job(
             plan.nexus_on_top += 1
         elif not emp:
             plan.unverified += 1
+        elif latest.stage in TERMINAL_STAGES:
+            plan.already_closed += 1
         else:
             plan.removes.append(Remove(latest.candidate_id, latest.row_id))
     return plan
@@ -187,9 +197,10 @@ def roster_is_trustworthy(
     Suma osób ze stanów musi się zgadzać z licznikiem składu rekrutacji
     (``/recruitments/{id}/employees``). Urwana odpowiedź Traffita wyglądałaby
     inaczej jak masowe zdjęcie ludzi z rekrutacji — wtedy niczego nie
-    poprawiamy.
+    poprawiamy. Pusta lista też nie jest dowodem: brak nagłówka z licznikiem
+    czyta się jako zero, a rekrutacja bez nikogo nie ma czego przenosić.
     """
-    return roster_total is not None and roster_total == len(traffit)
+    return bool(traffit) and roster_total is not None and roster_total == len(traffit)
 
 
 __all__ = [

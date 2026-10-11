@@ -98,7 +98,8 @@ async def _seed() -> dict[str, Any]:
     * ``tie``     — „Nowy” i „Screening” z tą samą datą; nowszy wpis ma niższe id;
     * ``nocard``  — kandydat znany NEXUSOWI, bez wiersza w tej rekrutacji;
     * ``gone``    — karta w NEXUSIE, w Traffit zdjęty z rekrutacji;
-    * ``nexus``   — ostatni ruch zrobiony w NEXUSIE, w Traffit już go nie ma.
+    * ``nexus``   — ostatni ruch zrobiony w NEXUSIE, w Traffit już go nie ma;
+    * ``hired``   — zatrudniony, potem zdjęty z rekrutacji w Traffit.
     """
     unique = uuid.uuid4().hex[:8]
     when = datetime.now(UTC) - timedelta(days=2)
@@ -113,13 +114,22 @@ async def _seed() -> dict[str, Any]:
         await db.flush()
         defs: dict[str, PipelineStageDef] = {}
         for order, (key, legacy) in enumerate(
-            (("new", "new"), ("screening", "screening"), ("sent", "cv_sent"))
+            (
+                ("new", "new"),
+                ("screening", "screening"),
+                ("sent", "cv_sent"),
+                ("hired", "hired"),
+            )
         ):
             defs[key] = PipelineStageDef(
                 template_id=template.id,
                 name=f"{key} {unique}",
                 order=order,
-                category=StageCategoryEnum.internal,
+                category=(
+                    StageCategoryEnum.terminal
+                    if key == "hired"
+                    else StageCategoryEnum.internal
+                ),
                 legacy_enum_value=legacy,
                 external_source="traffit",
                 external_id=f"tt-{key}-{unique}",
@@ -142,7 +152,7 @@ async def _seed() -> dict[str, Any]:
                 external_source="traffit",
                 external_id=f"tt-emp-{key}-{unique}",
             )
-            for key in ("ok", "tie", "nocard", "gone", "nexus")
+            for key in ("ok", "tie", "nocard", "gone", "nexus", "hired")
         }
         db.add_all([*defs.values(), job, *people.values()])
         await db.flush()
@@ -168,6 +178,7 @@ async def _seed() -> dict[str, Any]:
             row("tie", "screening", PipelineStage.screening),
             row("tie", "new", PipelineStage.new),
             row("gone", "screening", PipelineStage.screening),
+            row("hired", "hired", PipelineStage.hired),
             row("nexus", "new", PipelineStage.new),
             row(
                 "nexus",
@@ -268,6 +279,7 @@ async def test_dry_run_reports_corrections_and_changes_nothing(
     assert (job["people"], job["matched"]) == (3, 1)
     assert (job["promote"], job["insert"], job["remove"]) == (1, 1, 1)
     assert job["nexus_on_top"] == 1
+    assert job["already_closed"] == 1
     assert job["columns"] == {"new": 1, "screening": 2}
     assert report["totals"]["by_status"] == {"ready": 1}
     # Zero zmian: rekrutacja dalej w archiwum, karty jak były.
@@ -298,6 +310,8 @@ async def test_transfer_fixes_states_and_opens_the_recruitment(
     assert await _latest(job_id, people["gone"]) == ("withdrawn", transfer.REMOVED_NOTE)
     # Ruch zrobiony w NEXUSIE zostaje.
     assert (await _latest(job_id, people["nexus"]))[0] == "screening"
+    # Zatrudniony zdjęty w Traffit nie staje się „Wycofanym”.
+    assert (await _latest(job_id, people["hired"]))[0] == "hired"
     assert (await _latest(job_id, people["ok"]))[0] == "screening"
     assert await _job_state(job_id) == ("published", True, True, "searching")
     assert len(post_commit_calls) == 1

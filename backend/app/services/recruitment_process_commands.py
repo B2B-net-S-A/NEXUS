@@ -373,6 +373,62 @@ async def fill_missing_client_rate(
     return True
 
 
+async def promote_external_stage_row(
+    db: AsyncSession, *, stage_id: int, job_id: int, moved_at: datetime
+) -> bool:
+    """Wysuń wiersz etapu z Traffita, który przegrał remis czasu.
+
+    Traffit zapisuje dwa wpisy historii z tą samą datą, a bieżący etap pary
+    liczy się po ``(moved_at, id)``; import czyta historię od najnowszych, więc
+    nowszy wpis dostaje niższe ``id`` i przegrywa. Przeniesienie rekrutacji do
+    NEXUSA (``traffit_transfer``) zna właściwy stan z listy osób Traffita
+    i przesuwa TEN wiersz tuż za remis — bez nowego zdarzenia w statystykach.
+    Tylko wiersz z Traffita wskazanej rekrutacji; synchronizację procesu woła
+    wołający (``sync_external_observed_processes``).
+    """
+
+    stage = (
+        await db.scalars(
+            select(CandidateStage)
+            .where(CandidateStage.id == stage_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).first()
+    if stage is None or stage.job_id != job_id or stage.external_source != "traffit":
+        return False
+    stage.moved_at = moved_at
+    await db.flush()
+    return True
+
+
+async def note_external_stage_row(
+    db: AsyncSession, *, external_id: str, rejection_note: str
+) -> bool:
+    """Dopisz notatkę do wiersza etapu z Traffita (po kluczu importu), gdy jest pusta.
+
+    Importer zapisuje wiersz bez notatki; przeniesienie rekrutacji oznacza nią
+    kartę osoby zdjętej z rekrutacji w Traffit. Istniejącej notatki nie rusza.
+    """
+
+    stage = (
+        await db.scalars(
+            select(CandidateStage)
+            .where(
+                CandidateStage.external_source == "traffit",
+                CandidateStage.external_id == external_id,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).first()
+    if stage is None or stage.rejection_note is not None:
+        return False
+    stage.rejection_note = rejection_note
+    await db.flush()
+    return True
+
+
 async def update_latest_expected_rate(
     db: AsyncSession,
     *,

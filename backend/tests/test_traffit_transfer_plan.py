@@ -205,3 +205,22 @@ def test_columns_follow_the_board_rule_for_traffit_state_names():
         "closed": 1,
         "unknown": 1,
     }
+
+
+def test_closed_card_of_a_person_removed_in_traffit_is_left_as_is():
+    # Zatrudniony zdjęty z rekrutacji w Traffit nie może stać się „Wycofanym”.
+    rows = [
+        StageRow(1, 10, "500", "traffit", "20", T0, "hired"),
+        StageRow(2, 11, "501", "traffit", "21", T0, "rejected"),
+        StageRow(3, 12, "502", "traffit", SCREENING, T0, "screening"),
+    ]
+
+    plan = plan_job({"777": NEW}, rows, {})
+
+    assert plan.already_closed == 2
+    assert plan.removes == [Remove(12, 3)]
+
+
+def test_empty_roster_is_never_trusted():
+    # Brak nagłówka z licznikiem czyta się jako 0 — pusta lista zdjęłaby wszystkich.
+    assert not roster_is_trustworthy({}, 0)

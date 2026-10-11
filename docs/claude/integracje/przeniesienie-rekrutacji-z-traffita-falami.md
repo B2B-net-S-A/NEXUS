@@ -40,9 +40,10 @@ bo bieg objąłby wszystko naraz.
   (`/recruitments/{id}/states/{stan}/employees`), nie historia ruchów. Filtr
   `/employees/recruitment_history` po rekrutacji jest przez Traffit ignorowany
   (sprawdzone na żywym API), a historia nie mówi, że kogoś zdjęto z rekrutacji.
-- **Niekompletna lista = rekrutacja pominięta.** Suma osób ze stanów musi być
-  równa licznikowi składu (`/recruitments/{id}/employees`). Urwana odpowiedź
-  jednego stanu wyglądałaby jak masowe zdjęcie ludzi z rekrutacji.
+- **Niekompletna albo pusta lista = rekrutacja pominięta.** Suma osób ze stanów
+  musi być równa licznikowi składu (`/recruitments/{id}/employees`). Urwana
+  odpowiedź jednego stanu wyglądałaby jak masowe zdjęcie ludzi z rekrutacji,
+  a brak nagłówka z licznikiem czyta się jako zero.
 - **Remis czasu to nie brak danych.** Traffit zapisuje dwa wpisy historii z tą
   samą datą („Nowy” i „Screening” w jednej sekundzie), bieżący etap pary liczy
   się po `(moved_at, id)`, a import czyta historię od najnowszych — nowszy wpis
@@ -58,7 +59,13 @@ bo bieg objąłby wszystko naraz.
   'transfer:removed:<rekrutacja>:c<kandydat>'`. Karta schodzi z ośmiu kolumn do
   „Zamkniętych”, historia pary zostaje. Usunięcie wierszy pary
   (`delete_voided_stage_history`) zabrałoby zdarzenia, z których liczą się KPI
-  i Liga DL, i nie ma cofnięcia — to wymagałoby osobnej decyzji.
+  i Liga DL, i nie ma cofnięcia — to wymagałoby osobnej decyzji. Karta już
+  zamknięta (zatrudniony, odrzucony, wycofany) zostaje, jak jest
+  (`already_closed`) — „Wycofany” na zatrudnionym byłby fałszem.
+- **Zapis wierszy etapów idzie przez `recruitment_process_commands`**
+  (`promote_external_stage_row`, `note_external_stage_row`) — surowy `UPDATE`
+  tej tabeli poza adapterem Traffita wywraca strażnika
+  `test_priority_work_writer_architecture.py`.
 - **Ruch zrobiony w NEXUSIE wygrywa.** Para, której ostatni wiersz nie pochodzi
   z Traffita, nie jest poprawiana ani zdejmowana. Karty bez żadnego wiersza
   z Traffita (dodane w NEXUSIE, ze scrapera) zostają nietknięte.
