@@ -40,6 +40,7 @@ from app.tasks.traffit_sync import (
 
 from app.services import traffit_file_dates_repair as file_dates_repair
 from app.services import traffit_notes_repair as notes_repair
+from app.services import traffit_transfer as transfer
 from app.services.traffit.client import TraffitConfig
 from app.services.traffit_status import read_traffit_status
 
@@ -265,3 +266,91 @@ async def traffit_file_dates_repair_status(
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     return await file_dates_repair.read_status(db)
+
+
+# ── Przeniesienie otwartych rekrutacji z Traffita (11.10.2026) ──────────────
+#
+# Falami, WYŁĄCZNIE ręcznie: najpierw próba (`dry_run=true`, zero zmian, raport
+# per rekrutacja w statusie), potem — po akceptacji raportu przez właściciela —
+# wykonanie (`dry_run=false`) dla TEJ SAMEJ fali. Fala to klient (`client_id`)
+# albo wskazane rekrutacje (`job_ids`, id NEXUSA po przecinku). Szczegóły:
+# `app/services/traffit_transfer.py`.
+
+
+def _transfer_scope(
+    client_id: Optional[int], job_ids: Optional[str], active_days: int
+) -> transfer.Scope:
+    ids: list[int] = []
+    for part in (job_ids or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if not part.isdigit():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="job_ids: lista id rekrutacji NEXUSA po przecinku.",
+            )
+        ids.append(int(part))
+    if client_id is None and not ids:
+        # Bez fali bieg objąłby wszystkie otwarte rekrutacje z Traffita naraz.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Podaj falę: client_id albo job_ids.",
+        )
+    return transfer.Scope(
+        client_id=client_id, job_ids=tuple(sorted(set(ids))), active_days=active_days
+    )
+
+
+@router.post("/transfer")
+@limiter.limit(_service_rate_limit)
+async def trigger_traffit_transfer(
+    request: Request,
+    caller: TraffitSyncCaller,
+    dry_run: bool = Query(True),
+    client_id: Optional[int] = Query(None, ge=1),
+    job_ids: Optional[str] = Query(None, max_length=4000),
+    active_days: int = Query(transfer.ACTIVE_DAYS_DEFAULT, ge=1, le=365),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Przeniesienie fali rekrutacji z Traffita do NEXUSA (w tle)."""
+    _traffit_configured_or_503()
+    scope = _transfer_scope(client_id, job_ids, active_days)
+    if not dry_run and caller.user is None:
+        # Otwarcie rekrutacji zapisuje, kto je wykonał (historia, przypisanie
+        # prowadzącego) — klucz konta serwisowego może tylko zrobić próbę.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Przeniesienie wykonuje zalogowany administrator, nie klucz API.",
+        )
+    reason = transfer.spawn_running_guard()
+    if reason:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=reason)
+    if not dry_run and not await transfer.fresh_dry_run_exists(db, scope):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Najpierw próba (dry_run=true) dla tej samej fali — wykonanie "
+                "wymaga raportu próbnego z ostatnich 24 godzin."
+            ),
+        )
+    spawn(
+        transfer.run_transfer(
+            scope=scope,
+            dry_run_mode=dry_run,
+            actor_user_id=caller.user.id if caller.user is not None else None,
+            actor_label=caller.audit_label,
+        ),
+        f"traffit_transfer(dry_run={dry_run}, scope={scope.key()})",
+    )
+    return {"status": "started", "dry_run": dry_run, "scope": scope.as_dict()}
+
+
+@router.get("/transfer/status")
+@limiter.limit(_service_rate_limit)
+async def traffit_transfer_status(
+    request: Request,
+    _caller: TraffitReadCaller,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    return await transfer.read_status(db)
