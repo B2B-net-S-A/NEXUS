@@ -63,9 +63,11 @@ wysłał do klienta, budżet — 32%, dni w biurze — 8%. Decyzje Artura 30.09.
   widziane), nigdy krytyczne. Reguły bez Reacta: `parseRequirementEntry`
   i `enterRequirements` w `lib/requirement-rows.ts` (jedna zmiana listy na
   wpis). `ChipField` oddaje wpis rodzicowi przez opcjonalne `onCommitText`
-  (do tego `hideInput`, `trailing`); bez tych propsów — lista kandydatów,
-  `RequirementRowsField`, pole „Wyklucz” — przecinek dalej dodaje słowo w tym
-  samym polu. `suggest.quietWhenEmpty`: lista podpowiedzi nie otwiera się na
+  (do tego `hideInput`, `trailing`); bez tych propsów — pole „Wyklucz”
+  i pozostałe filtry listy kandydatów — przecinek dalej dodaje słowo w tym
+  samym polu. Wiersze słów kluczowych listy kandydatów (`RequirementRowsField`)
+  wpisuje się od 11.10.2026 tak samo jak tutaj — patrz „Wyszukiwanie ręczne: …”.
+  `suggest.quietWhenEmpty`: lista podpowiedzi nie otwiera się na
   pustym polu (zasłaniała wiersz niżej i „Dodaj słowo kluczowe”). Najechanie
   myszą NIE ustawia podświetlenia klawiatury (`KeywordSuggestionList` bez `onHover`,
   podświetlenie pod kursorem to CSS) — Enter wstawia podpowiedź tylko wybraną
