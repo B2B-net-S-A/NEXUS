@@ -105,6 +105,13 @@ Bez tego pierwsza fala dałaby jednej osobie 146 przypomnień.
 
 ## Po fali
 
+Karty scrapera („Z ogłoszenia”), których w Traffit nie ma, przeniesienie
+zostawia nietknięte — po otwarciu stoją w „Nowych”. Do propozycji przenosi je
+osobny bieg, już PO otwarciu fali (propozycja nie istnieje na zamkniętej
+rekrutacji): `POST /api/admin/proposals/convert-integration-cards?job_ids=…`
+— próba, potem zapis z `expected`. U pierwszego klienta: 80 kart z 16–23.09,
+79 z notatką automatu z wynikiem.
+
 Import ruchów przełączonych rekrutacji jest pomijany (`skipped_managed`
 w statusie syncu) — ta liczba pokazuje, czy ktoś nadal rusza karty w Traffit.
 Cofnięcie: „Wróć do Traffita” na rekrutacji i jej zamknięcie; wiersze dopisane

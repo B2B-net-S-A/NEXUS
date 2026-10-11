@@ -62,6 +62,16 @@ def test_delete_mode_inverts_job_rule_and_skips_score():
         conversion.static_disqualifiers("drop")
 
 
+def test_delete_mode_never_takes_scraper_cards_from_before_tagging():
+    # Starsze karty scrapera (11.10.2026) mają stać się propozycjami po
+    # przeniesieniu rekrutacji z Traffita — tryb usuwania ich nie widzi.
+    reasons = [r for r, _ in conversion.static_disqualifiers("delete")]
+    assert "untagged_scraper_card" in reasons
+    assert "untagged_scraper_card" not in [
+        r for r, _ in conversion.static_disqualifiers("convert")
+    ]
+
+
 def test_dry_run_must_be_younger_than_the_process():
     after_start = conversion.PROCESS_STARTED_AT + timedelta(seconds=1)
     assert conversion.dry_run_is_fresh(

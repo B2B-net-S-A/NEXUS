@@ -96,5 +96,9 @@ Traffita budzi dopiero po pierwszym ruchu karty w NEXUSIE (decyzja Artura
 - Przyczyna 9 brakujących kart nie jest ustalona (kandydat istnieje, wpisu
   historii w NEXUSIE nie ma) — przeniesienie dopisuje wiersz.
 - 2 055 kart scrapera (`posting`) na 104 rekrutacjach zbioru — po otwarciu
-  trafią do „Nowych” jako „Z ogłoszenia”.
+  trafią do „Nowych” jako „Z ogłoszenia”. Decyzja Artura 11.10.2026: u klienta
+  pilota (80 kart) przenieść je do propozycji; narzędzie
+  `convert-integration-cards` dostało zawężenie `job_ids`, rekrutacje
+  „Prowadzone w NEXUSIE” i karty scrapera sprzed oznaczania wpisów. Bieg po
+  otwarciu fali.
 - Scalanie bliźniaków i ekran w Ustawieniach — kolejna fala prac.
