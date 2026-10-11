@@ -46,6 +46,14 @@ cofnąć „przy okazji”:
   Warsaw jak `ix_notif_dedup_daily` i zapisuje w savepoincie; `own_unread_count`
   steruje „Oznacz wszystko” (oznacza tylko własne); odświeżenia dzwonka po
   wiadomościach czatu są zlewane (`CHAT_REFRESH_COALESCE_MS`).
+- **Etap z importu Traffita nie budzi (decyzja Artura 11.10.2026).**
+  `stage_stuck_7d` i `dl_stage_stale_6h` liczą czas od ruchu zrobionego
+  w NEXUSIE: para, której bieżący wiersz ma `external_source='traffit'`, jest
+  pomijana (`_set_in_nexus`), aż ktoś ruszy kartę tutaj. Powód: rekrutacja
+  przeniesiona z Traffita otwiera się z kartami stojącymi od dni — przy
+  pierwszej fali (10 rekrutacji) jedna osoba dostałaby 146 przypomnień
+  o kartach, których w NEXUSIE nikt nie dotknął. Przypomnienia po rozmowie
+  u klienta wiszą na wydarzeniu z kalendarza i tej reguły nie czytają.
 - **Powiadomienie z triggera ma JEDNĄ bramkę odbiorcy i JEDEN helper
   rekrutacji (od 18.09.2026).** `emit()` w `notification_triggers.py` pyta
   `notification_recipient_has_access` (`is_active` + polityka sekcji) — to

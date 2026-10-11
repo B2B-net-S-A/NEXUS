@@ -184,7 +184,7 @@ async def emit(
 class LatestStage:
     """Lekki snapshot najnowszego `CandidateStage` dla pary (kandydat, oferta).
 
-    Triggery używają wyłącznie tych pięciu pól. Pełny obiekt ORM ciągnie też
+    Triggery używają wyłącznie tych sześciu pól. Pełny obiekt ORM ciągnie też
     `notes` (Text) + `scorecard_answers`/`screening_answers` (JSONB) — przy
     ~158k wierszy to setki MB w kontenerze z limitem ~1 GB.
     """
@@ -194,6 +194,7 @@ class LatestStage:
     job_id: int
     stage: PipelineStage
     moved_at: datetime
+    external_source: Optional[str] = None
 
 
 LatestStageMap = dict[tuple[int, int], LatestStage]
@@ -228,6 +229,7 @@ async def _latest_stage_per_pair(
             CandidateStage.job_id,
             CandidateStage.stage,
             CandidateStage.moved_at,
+            CandidateStage.external_source,
         )
         .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
         .order_by(
@@ -244,9 +246,23 @@ async def _latest_stage_per_pair(
             job_id=row.job_id,
             stage=row.stage,
             moved_at=row.moved_at,
+            external_source=row.external_source,
         )
         for row in rows
     }
+
+
+def _set_in_nexus(stage: LatestStage) -> bool:
+    """Czy bieżący etap pary ustawił ktoś w NEXUSIE (a nie import Traffita).
+
+    Przypomnienia o wieku etapu liczą czas od ruchu, który zespół zrobił TUTAJ.
+    Rekrutacja przeniesiona z Traffita (11.10.2026) otwiera się z kartami
+    stojącymi od dni na etapach z importu: przy pierwszej fali jedna osoba
+    dostałaby 146 przypomnień o kartach, których w NEXUSIE nikt jeszcze nie
+    dotknął. Etap z Traffita zaczyna budzić po pierwszym ruchu karty w NEXUSIE
+    (decyzja Artura 11.10.2026).
+    """
+    return stage.external_source != "traffit"
 
 
 async def _open_jobs_by_id(db: AsyncSession, job_ids: Iterable[int]) -> dict[int, Job]:
@@ -356,7 +372,9 @@ async def check_dl_stage_stale_6h(
     candidates = [
         s
         for s in latest.values()
-        if s.stage == PipelineStage.cv_sent and floor <= _moved_at_utc(s) <= cutoff
+        if s.stage == PipelineStage.cv_sent
+        and _set_in_nexus(s)
+        and floor <= _moved_at_utc(s) <= cutoff
     ]
     if not candidates:
         return 0
@@ -735,7 +753,9 @@ async def check_stage_stuck_7d(
     stale = [
         s
         for s in latest.values()
-        if s.stage in _NON_TERMINAL_STAGES and floor <= _moved_at_utc(s) <= cutoff
+        if s.stage in _NON_TERMINAL_STAGES
+        and _set_in_nexus(s)
+        and floor <= _moved_at_utc(s) <= cutoff
     ]
     if not stale:
         return 0

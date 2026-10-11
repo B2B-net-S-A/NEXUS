@@ -532,3 +532,71 @@ def test_all_post_interview_reminders_share_the_debrief_rule() -> None:
         src = inspect.getsource(fn)
         assert "_post_interview_feedback_done(" in src
         assert "_feedback_exists(" not in src
+
+
+# ── Etap przeniesiony z Traffita nie budzi (decyzja Artura 11.10.2026) ───────
+
+
+def _stage_reminder_fakes(monkeypatch, sent: list[str]):
+    from types import SimpleNamespace
+
+    async def emit(db, **kwargs):
+        sent.append(kwargs["ntype"].value)
+        return object()
+
+    async def jobs_by_id(db, ids):
+        return {
+            12: SimpleNamespace(id=12, title="Java", working_title=None, recruiter_id=3)
+        }
+
+    async def targets(db, job):
+        return [44]
+
+    async def names(db, ids):
+        return {}
+
+    monkeypatch.setattr(nt, "_open_jobs_by_id", jobs_by_id)
+    monkeypatch.setattr(nt, "_delivery_lead_targets", targets)
+    monkeypatch.setattr(nt, "_candidate_names", names)
+    monkeypatch.setattr(nt, "_user_is_active", _active_only(3))
+    monkeypatch.setattr(nt, "emit", emit)
+
+
+class _NoRemindersYet:
+    async def execute(self, statement):
+        return []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        # Otwarcie fali z Traffita (11.10.2026): jedna osoba dostałaby do 146
+        # przypomnień o kartach, których w NEXUSIE nikt jeszcze nie dotknął.
+        ("traffit", []),
+        ("manual", ["dl_stage_stale_6h", "stage_stuck_7d"]),
+        (None, ["dl_stage_stale_6h", "stage_stuck_7d"]),
+    ],
+)
+async def test_stage_reminders_wait_for_the_first_move_made_in_nexus(
+    monkeypatch, source, expected
+):
+    from app.models.recruitment_pipeline import PipelineStage
+
+    now = datetime(2026, 10, 14, 12, 0, tzinfo=timezone.utc)
+    # „CV wysłane” od 10 dni: w oknie obu przypomnień (6 h–14 dni i 7–30 dni).
+    stage = nt.LatestStage(
+        id=5,
+        candidate_id=77,
+        job_id=12,
+        stage=PipelineStage.cv_sent,
+        moved_at=now - timedelta(days=10),
+        external_source=source,
+    )
+    sent: list[str] = []
+    _stage_reminder_fakes(monkeypatch, sent)
+
+    await nt.check_dl_stage_stale_6h(None, now, {(77, 12): stage})
+    await nt.check_stage_stuck_7d(_NoRemindersYet(), now, {(77, 12): stage})
+
+    assert sent == expected
