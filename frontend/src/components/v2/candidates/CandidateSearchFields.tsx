@@ -137,8 +137,9 @@ export function KeywordFields({
                 </button>
               </PopoverTrigger>
               <PopoverContent align="end" className="w-80 text-xs leading-snug text-muted-foreground">
-                Każdy wiersz musi się zgadzać; w wierszu wystarczy jedno słowo, więc wpisz tam
-                warianty tego samego wymagania (np. Kafka lub RabbitMQ). Całe słowa: „java” nie
+                Każdy wiersz musi się zgadzać. Enter albo przecinek zaczyna kolejne wymaganie;
+                wariant tego samego wymagania dodasz przyciskiem „+ lub” albo wpisując
+                „Kafka / RabbitMQ” — w wierszu wystarczy jedno ze słów. Całe słowa: „java” nie
                 znajdzie „JavaScript”. Gwiazdka szuka początku słowa: „bankow*” znajdzie
                 „bankowość” i „bankowym”. Pod polem są podpowiedzi — „+ z wariantami” dodaje też
                 inne zapisy tej technologii. Wyniki zmieniają się po kliknięciu „Szukaj”.

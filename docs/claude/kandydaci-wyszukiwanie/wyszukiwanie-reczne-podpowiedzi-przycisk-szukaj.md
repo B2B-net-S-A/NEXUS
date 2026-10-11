@@ -57,6 +57,24 @@ w „Więcej filtrów”) jeden edytor wierszy (`RequirementRowsField`, logika
   zamienia na wiersze na początku; `qAll` zostaje w typie wyłącznie dla źródeł
   spoza adresu. `CandidatesListV2` czyta adres tym samym `decodeFilters` (druga
   kopia parsowania usunięta). `|` w słowie = spacja (rozdziela słowa grupy).
+- **Wpisywanie (decyzja Artura 11.10.2026, „to napraw to też” po D1 z `/jobs/new`):**
+  w pustym wierszu Enter, przecinek, średnik i wklejona lista to OSOBNE
+  wymagania — „Java, Spring” daje dwa wiersze, nie „Java lub Spring”. Wariant
+  dodaje przycisk „+ lub” przy wypełnionym wierszu (pole wariantu jest ukryte,
+  dopóki się go nie kliknie) albo zapis „Kafka / RabbitMQ”, „a lub b”, „a or b”.
+  Reguły bez Reacta: `parseRequirementEntry(text, keywordLongEnough)` z
+  `lib/requirement-rows.ts` i `enterKeywordRows` z `lib/keyword-requirements.ts`
+  (pierwsza grupa wypełnia bieżący wiersz, kolejne dochodzą niżej; takie samo
+  wymaganie i nadmiar ponad limit dają notkę pod listą, nic nie przepada po
+  cichu). Po wpisie zawsze jest pusty wiersz roboczy z fokusem — dlatego Enter
+  w PUSTYM wierszu to dalej „Szukaj”, a pusty Enter w otwartym polu wariantu
+  zamyka je i też szuka, Esc zamyka bez szukania. Pusty wiersz roboczy to stan
+  edytora, nie dane: nie idzie do adresu ani do zapisu Championa, nie robi
+  „niezapisanej zmiany” (`champion-save.ts` → `comparableSection`), a wiersze
+  z górnego pola dochodzą pod wypełnionymi (`runSearch` → `cleanRows`). Kto
+  czyta `qAny` albo `search.requirements` w nowym miejscu, czyści puste wiersze.
+  Ten sam komponent stoi w „Wymaganiach do wyszukiwania” Championa
+  (`SearchRequirementsEditor`).
 - **Limity:** edytor 10 wierszy (`MAX_REQUIREMENT_ROWS`), serwer
   `_MAX_ANY_GROUPS` = 20 (zapas na stare linki — GET ucina nadmiar po cichu).
 - **Podpowiedzi przy pomyłkach** (nic nie zmienia się samo, każda ma „Zostaw”):

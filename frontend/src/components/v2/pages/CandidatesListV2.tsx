@@ -158,6 +158,7 @@ import {
   type RecentlyChangedJobs,
   type TextModeFilter,
 } from "@/lib/url-filters";
+import { cleanRows } from "@/lib/keyword-requirements";
 import { classificationRows, classifyKeywords, mayBeSkillList } from "@/lib/keyword-suggest";
 import {
   countSkillConstraints,
@@ -1059,7 +1060,8 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  (row) => !row.some((word) => existing.has(word.toLowerCase())),
  );
  setConvertedText({ text, skills: result.skills, previousRows: qAny });
- rows = [...qAny, ...added];
+ // Bez pustego wiersza roboczego — zostawał w środku listy z polem do pisania.
+ rows = [...cleanRows(qAny), ...added];
  setQAny(rows);
  setSearchDraft("");
  text = "";

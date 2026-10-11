@@ -353,7 +353,8 @@ describe("„Szukaj ręcznie” — przycisk Szukaj i pamięć rekrutacji (25.09
     const must = screen.getByLabelText("Wymaganie 1 — słowo albo wariant");
     fireEvent.change(must, { target: { value: "Kafka" } });
     fireEvent.keyDown(must, { key: "Enter" });
-    fireEvent.keyDown(must, { key: "Enter" });
+    // Kursor stoi już w następnym, pustym wierszu — Enter w nim to „Szukaj”.
+    fireEvent.keyDown(screen.getByLabelText("Wymaganie 2 — słowo albo wariant"), { key: "Enter" });
     await waitFor(async () => expect((await listParams()).q_any_group).toEqual(["Kafka"]));
     await waitFor(() => expect(readJobSearch(11, 7)?.request.query).toContain("q_any=Kafka"));
     cleanup();
@@ -381,7 +382,8 @@ describe("„Szukaj ręcznie” — przycisk Szukaj i pamięć rekrutacji (25.09
     const must = screen.getByLabelText("Wymaganie 1 — słowo albo wariant");
     fireEvent.change(must, { target: { value: "Kafka" } });
     fireEvent.keyDown(must, { key: "Enter" });
-    fireEvent.keyDown(must, { key: "Enter" });
+    // Kursor stoi już w następnym, pustym wierszu — Enter w nim to „Szukaj”.
+    fireEvent.keyDown(screen.getByLabelText("Wymaganie 2 — słowo albo wariant"), { key: "Enter" });
     await waitFor(() => expect(readJobSearch(11, 7)?.request.query).toContain("q_any=Kafka"));
     cleanup();
 

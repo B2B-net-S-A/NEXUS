@@ -18,6 +18,7 @@ import tempfile
 import time
 from pathlib import Path
 
+from app.core.docx_cells import row_cells
 from app.core.log_safety import safe_filename
 from app.core.zip_guard import assert_safe_ooxml
 
@@ -173,14 +174,12 @@ def _extract_docx(data: bytes) -> str:
                 if block.text:
                     parts.append(block.text)
             else:
-                # Merged cells appear repeatedly in the grid but contain one
-                # source statement. Do not duplicate duties or date ranges.
-                seen_cells = set()
+                # Merged cells contain one source statement — read each once,
+                # straight from the row XML (`row.cells` expands the file's
+                # `gridSpan` without a limit).
                 for row in block.rows:
-                    for cell in row.cells:
-                        if cell._tc not in seen_cells:
-                            seen_cells.add(cell._tc)
-                            collect(cell)
+                    for cell in row_cells(row):
+                        collect(cell)
 
     collect(doc)
     return "\n".join(parts)

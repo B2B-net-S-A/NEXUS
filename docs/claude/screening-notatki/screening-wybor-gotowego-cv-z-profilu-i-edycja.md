@@ -37,9 +37,10 @@ Word „B2B”; PDF-y poza zakresem. Raport: `docs/screening-cv-pick-completion-
   wstawki śledzenia zmian), klauzulę zgody bierze z pola tekstowego szablonu,
   a gdy jej nie ma — dokłada standardową w języku pliku. Plik jest
   niezaufany (formularz kariery, import), a konwersja biegnie w procesie
-  aplikacji: komórki tabeli czytaj z `tr.tc_lst`, nigdy `row.cells` (powtarza
-  komórkę `gridSpan` razy — liczba z pliku), i trzymaj limity `MAX_LINES`
-  / `MAX_TABLE_DEPTH`. Pomiar na 200
+  aplikacji: komórki tabeli czytaj przez `app/core/docx_cells.py`, nigdy
+  `row.cells` (powtarza komórkę `gridSpan` razy — liczba z pliku; reguła dla
+  wszystkich czytników w `podstawy/tabele-worda-z-wgranych-plikow.md`),
+  i trzymaj limity `MAX_LINES` / `MAX_TABLE_DEPTH`. Pomiar na 200
   plikach z produkcji: 200 wczytanych, 0 zgubionych akapitów (także po
   ponownym renderze do Worda), sekcje rozpoznane w 198, role w 182.
   Zmieniasz import albo renderer — sprawdź obieg w `test_cv_docx_import.py`

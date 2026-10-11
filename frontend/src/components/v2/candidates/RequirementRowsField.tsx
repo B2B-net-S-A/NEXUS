@@ -5,18 +5,27 @@ import { Lightbulb, Plus, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { ChipField, type ChipFieldSuggest } from "@/components/v2/filters/AdvancedSearchPopover";
+import {
+  ChipField,
+  type ChipCommitSource,
+  type ChipFieldSuggest,
+} from "@/components/v2/filters/AdvancedSearchPopover";
 import {
   MAX_REQUIREMENT_ROWS,
+  enterKeywordRows,
   experienceRangeLabel,
   foldWord,
   hintKey,
   keywordHints,
+  keywordLongEnough,
   splitWordInRow,
+  tooShortKeywordMessage,
   withoutWord,
   type ExperienceRange,
+  type KeywordEntryResult,
   type KeywordHint,
 } from "@/lib/keyword-requirements";
+import { ROW_WORDS_MAX, parseRequirementEntry } from "@/lib/requirement-rows";
 
 /** Miasto podpowiadamy dopiero od tylu mieszkańców — „Kotlin” to wieś. */
 const CITY_MIN_POPULATION = 20_000;
@@ -110,11 +119,33 @@ export interface RequirementRowsFieldProps {
   className?: string;
 }
 
+/** Co wpis pominął: powtórzone wymagania, nadmiar ponad limit, za krótkie słowa. */
+function entryNoteText(result: KeywordEntryResult, skipped: readonly string[]): string | null {
+  const parts: string[] = [];
+  if (result.duplicates.length > 0) {
+    const list = result.duplicates.map((word) => `„${word}”`).join(", ");
+    parts.push(`${list} już ${result.duplicates.length > 1 ? "są" : "jest"} na liście.`);
+  }
+  if (result.overLimit.length > 0) {
+    parts.push(
+      `Najwyżej ${MAX_REQUIREMENT_ROWS} wymagań — nie dodano: ${result.overLimit.join(", ")}.`,
+    );
+  }
+  if (skipped.length > 0) parts.push(tooShortKeywordMessage(skipped));
+  return parts.length > 0 ? parts.join(" ") : null;
+}
+
 /**
  * Słowa kluczowe jako lista wymagań (makiety 25.09.2026): wiersz = jedno
  * wymaganie, słowa w wierszu to warianty („lub”), wiersze łączy „i”, na dole
  * „Wyklucz”. Pod wierszem podpowiedzi przy typowych pomyłkach — nic nie
  * zmienia się samo, każda ma przycisk i „Zostaw”.
+ *
+ * Wpisywanie jak w wierszach wymagań rekrutacji (11.10.2026): w pustym
+ * wierszu Enter, przecinek, średnik i wklejona lista to OSOBNE wymagania,
+ * a wypełniony wiersz pokazuje same słowa — wariant dodaje dopiero „+ lub”.
+ * Do tej daty przecinek dopisywał wariant, więc „Java, Spring” znajdowało
+ * osoby z samą Javą.
  */
 export function RequirementRowsField({
   rows,
@@ -141,16 +172,21 @@ export function RequirementRowsField({
   // Wiersz dodany przyciskiem dostaje kursor — od razu można pisać.
   const [focusId, setFocusId] = useState<number | null>(null);
   // U8 (audyt 06.10.2026): po „Usuń wymaganie” kursor szedł na `body` —
-  // przenosimy go do pola wiersza, który zajął miejsce usuniętego.
+  // przenosimy go do wiersza, który zajął miejsce usuniętego. Tak samo po
+  // wpisie (pusty wiersz niżej) i po otwarciu albo zamknięciu pola wariantu.
+  // Wypełniony wiersz nie ma pola do pisania, więc celem bywa jego „+ lub”.
   const baseId = useId();
   const inputIdFor = (rowId: number) => `${baseId}-row-${rowId}`;
-  const [refocusId, setRefocusId] = useState<number | null>(null);
+  const variantButtonIdFor = (rowId: number) => `${baseId}-or-${rowId}`;
+  const [refocus, setRefocus] = useState<string | null>(null);
   useEffect(() => {
-    if (refocusId == null) return;
-    document.getElementById(inputIdFor(refocusId))?.focus();
-    setRefocusId(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refocusId]);
+    if (refocus == null) return;
+    document.getElementById(refocus)?.focus();
+    setRefocus(null);
+  }, [refocus]);
+  // Wiersz z otwartym polem wariantu („+ lub”) — jedno naraz.
+  const [variantId, setVariantId] = useState<number | null>(null);
+  const [entryNote, setEntryNote] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const allWords = useMemo(() => shown.flat(), [shown]);
   const cityWords = useCityWords(allWords, Boolean(onUseLocation));
@@ -172,20 +208,76 @@ export function RequirementRowsField({
   }, [shown, cityWords, dismissed, onUseExperience]);
 
   const setRow = (index: number, next: string[]) => {
+    // Wiersz bez słów wraca do wpisywania wymagań — pole wariantu znika.
+    if (next.length === 0 && variantId === idsRef.current[index]) setVariantId(null);
     onRowsChange(shown.map((row, i) => (i === index ? next : [...row])));
   };
   const removeRow = (index: number) => {
+    if (variantId === idsRef.current[index]) setVariantId(null);
+    setEntryNote(null);
     idsRef.current.splice(index, 1);
     const next = shown.filter((_, i) => i !== index).map((row) => [...row]);
     // Pusta lista wraca jako jeden pusty wiersz o nowym kluczu.
-    const target =
-      next.length > 0 ? idsRef.current[Math.min(index, next.length - 1)] : nextIdRef.current;
-    setRefocusId(target ?? null);
+    if (next.length === 0) {
+      setRefocus(inputIdFor(nextIdRef.current));
+    } else {
+      const at = Math.min(index, next.length - 1);
+      const rowId = idsRef.current[at];
+      // Przycisk „+ lub” ma tylko wypełniony wiersz z zamkniętym polem wariantu.
+      const hasButton = next[at].length > 0 && variantId !== rowId;
+      setRefocus(hasButton ? variantButtonIdFor(rowId) : inputIdFor(rowId));
+    }
     onRowsChange(next);
   };
   const addRow = () => {
     setFocusId(nextIdRef.current);
+    setEntryNote(null);
     onRowsChange([...shown.map((row) => [...row]), []]);
+  };
+  /**
+   * Wpis w PUSTYM wierszu: każda grupa to osobne wymaganie (pierwsza wypełnia
+   * ten wiersz, kolejne dochodzą pod nim), a kursor idzie do pustego wiersza
+   * na końcu — całość jedną zmianą listy. Przy wyjściu z pola pustego wiersza
+   * nie dokładamy (lista urosłaby pod kursorem myszy w trakcie kliknięcia).
+   * Zwraca słowa odrzucone, gdy wiersz został pusty — pokazuje je wtedy pole.
+   */
+  const enter = (
+    index: number,
+    groups: readonly (readonly string[])[],
+    via: ChipCommitSource,
+    rejected: readonly string[] = [],
+  ): string[] => {
+    const result = enterKeywordRows(shown, index, groups, { trailing: via !== "blur" });
+    if (result.added === 0) {
+      setEntryNote(entryNoteText(result, []));
+      return [...rejected];
+    }
+    setEntryNote(entryNoteText(result, rejected));
+    // Nowe wiersze stają pod wierszem wpisu — ich klucze też, żeby tekst
+    // pisany w wierszach niżej nie przeskoczył do sąsiada.
+    const rowId = idsRef.current[index];
+    const fresh = Array.from({ length: result.inserted }, () => nextIdRef.current++);
+    idsRef.current.splice(index + 1, 0, ...fresh);
+    if (via !== "blur") {
+      // Pusty wiersz na końcu już jest albo powstanie z kolejnym kluczem.
+      // Bez miejsca na niego kursor zostaje przy wpisanym wymaganiu.
+      setRefocus(
+        result.focusRow != null
+          ? inputIdFor(idsRef.current[result.focusRow] ?? nextIdRef.current)
+          : variantButtonIdFor(rowId),
+      );
+    }
+    onRowsChange(result.rows);
+    return [];
+  };
+  const openVariant = (rowId: number) => {
+    setVariantId(rowId);
+    setRefocus(inputIdFor(rowId));
+  };
+  /** Pusty Enter w polu wariantu: pole znika, kursor wraca na „+ lub”. */
+  const closeVariant = (rowId: number) => {
+    setVariantId(null);
+    setRefocus(variantButtonIdFor(rowId));
   };
   const dismiss = (hint: KeywordHint) =>
     setDismissed((prev) => new Set(prev).add(hintKey(hint)));
@@ -214,8 +306,13 @@ export function RequirementRowsField({
       >
         {shown.map((row, index) => {
           const rowHints = hints.filter((hint) => hint.row === index);
+          const rowId = idsRef.current[index];
+          // Pusty wiersz przyjmuje wymagania. Wypełniony pokazuje same słowa:
+          // bez pola kolejne słowo nie stanie się po cichu wariantem.
+          const filled = row.length > 0;
+          const variantOpen = filled && variantId === rowId;
           return (
-            <div key={idsRef.current[index]} className="flex flex-col gap-1.5">
+            <div key={rowId} className="flex flex-col gap-1.5">
               <div className="flex items-start gap-2 sm:gap-3">
                 <span className="flex h-10 w-16 shrink-0 items-center justify-end sm:w-20">
                   {index === 0 ? (
@@ -231,20 +328,67 @@ export function RequirementRowsField({
                     </span>
                   )}
                 </span>
-                <div className="min-w-0 flex-1">
+                <div
+                  className="min-w-0 flex-1"
+                  // Esc dociera tu tylko z pustego pola bez listy podpowiedzi —
+                  // listę i wpisany tekst pole zamyka samo (`stopPropagation`).
+                  onKeyDown={
+                    variantOpen
+                      ? (event) => {
+                          if (event.key === "Escape") closeVariant(rowId);
+                        }
+                      : undefined
+                  }
+                >
                   <ChipField
                     layout="inline"
                     joiner="lub"
                     chips={row}
-                    onChange={(next) => setRow(index, next)}
-                    placeholder={row.length ? "lub…" : "wpisz słowo, Enter dodaje"}
+                    // Podpowiedź wybrana w pustym wierszu to całe wymaganie
+                    // (nazwa z wariantami) — kursor idzie dalej jak po Enterze.
+                    onChange={(next) =>
+                      filled ? setRow(index, next) : enter(index, [next], "enter")
+                    }
+                    placeholder={
+                      filled ? "lub… (wariant)" : "wpisz słowo — Enter albo przecinek: następne"
+                    }
                     tone="emerald"
                     ariaLabel={`Wymaganie ${index + 1} — słowo albo wariant`}
                     suggest={suggest}
-                    onSubmitEmpty={onSubmitEmpty}
-                    invalid={invalid && index === 0 && row.length === 0}
-                    autoFocus={idsRef.current[index] === focusId}
-                    inputId={inputIdFor(idsRef.current[index])}
+                    onCommitText={
+                      filled
+                        ? undefined
+                        : (text, via) => {
+                            const entry = parseRequirementEntry(text, keywordLongEnough);
+                            return enter(index, entry.groups, via, entry.rejected);
+                          }
+                    }
+                    onSubmitEmpty={
+                      variantOpen
+                        ? () => {
+                            closeVariant(rowId);
+                            onSubmitEmpty?.();
+                          }
+                        : onSubmitEmpty
+                    }
+                    hideInput={filled && !variantOpen}
+                    trailing={
+                      filled && !variantOpen && row.length < ROW_WORDS_MAX ? (
+                        <button
+                          type="button"
+                          id={variantButtonIdFor(rowId)}
+                          onClick={() => openVariant(rowId)}
+                          aria-label={`Dodaj wariant do wymagania ${index + 1}`}
+                          title="Dodaj wariant — wystarczy, że kandydat ma jedno ze słów tego wiersza"
+                          className="hit-area inline-flex h-6 shrink-0 items-center rounded-md border border-dashed border-border px-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                        >
+                          + lub
+                        </button>
+                      ) : undefined
+                    }
+                    invalid={invalid && index === 0 && !filled}
+                    autoFocus={rowId === focusId}
+                    inputId={inputIdFor(rowId)}
                   />
                 </div>
                 <button
@@ -314,6 +458,17 @@ export function RequirementRowsField({
             ? `Najwyżej ${MAX_REQUIREMENT_ROWS} wymagań.`
             : "Słowa w jednym wierszu to warianty — wystarczy jedno z nich."}
         </span>
+        {/* Pod przyciskiem, nie nad nim: notka pojawia się też przy wyjściu
+            z pola, a przycisk przesunięty w trakcie kliknięcia by je zgubił. */}
+        {entryNote ? (
+          <p
+            role="status"
+            className="basis-full text-xs text-warning-muted-foreground"
+            data-testid="requirement-entry-note"
+          >
+            {entryNote}
+          </p>
+        ) : null}
       </div>
 
       <div

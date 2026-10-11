@@ -41,6 +41,7 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import docx_cells
 from app.core.zip_guard import assert_safe_ooxml
 from app.models.candidate import Candidate
 from app.models.candidate_stage_cv import CandidateStageCV
@@ -826,9 +827,7 @@ def row_cells(row: Any) -> list[Any]:
     ciągiem scalenia w pionie nie ma własnej treści: ``row.cells`` oddaje w jej
     miejscu komórkę nad nią, więc jej tekst wracałby w każdym scalonym wierszu.
     """
-    from docx.table import _Cell
-
-    return [_Cell(tc, row.table) for tc in row._tr.tc_lst if tc.vMerge != "continue"]
+    return docx_cells.row_cells(row)
 
 
 def text_blocks(text: str) -> list[Block]:

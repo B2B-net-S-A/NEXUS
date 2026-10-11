@@ -349,8 +349,21 @@ async function categorySettled(role: string | null = INTAKE.role_name) {
 
 const handoffButton = () => screen.getByRole("button", { name: "Utwórz i opublikuj" });
 
-async function confirmCategory(name = "Development") {
-  fireEvent.click(await screen.findByRole("button", { name: `Potwierdzam: ${name}` }));
+/**
+ * Potwierdza kategorię i czeka na skutek. Klik idzie w TEJ SAMEJ próbie,
+ * w której przycisk jest widoczny: po zmianie roli podpowiedź wczytuje się
+ * ponownie (600 ms ciszy) i przycisk na chwilę znika, a `findBy` / `waitFor`
+ * oddają sterowanie dopiero po przerwie — na wolnym runnerze klik trafiał
+ * wtedy w pustkę i formularz zostawał z „potwierdzeniem kategorii” w brakach
+ * (kolejka merge'ów, 11.10.2026).
+ */
+async function confirmCategory(name: string | RegExp = "Development") {
+  const button = typeof name === "string" ? `Potwierdzam: ${name}` : name;
+  await waitFor(() => {
+    if (screen.queryByText(/Kategoria potwierdzona/)) return;
+    fireEvent.click(screen.getByRole("button", { name: button }));
+    expect(screen.getByText(/Kategoria potwierdzona/)).toBeInTheDocument();
+  });
 }
 
 async function pickRecruiter() {
@@ -394,14 +407,7 @@ async function createJob() {
   }
   const approve = screen.queryByRole("button", { name: "Zatwierdź wszystkie" });
   if (approve && !(approve as HTMLButtonElement).disabled) fireEvent.click(approve);
-  await waitFor(() =>
-    expect(
-      screen.queryByRole("button", { name: /^Potwierdzam:/ }) ??
-        screen.queryByText(/Kategoria potwierdzona/),
-    ).not.toBeNull(),
-  );
-  const confirm = screen.queryByRole("button", { name: /^Potwierdzam:/ });
-  if (confirm) fireEvent.click(confirm);
+  await confirmCategory(/^Potwierdzam:/);
   if (screen.queryByLabelText("Wybierz rekrutera prowadzącego")) await pickRecruiter();
   // Przycisk jest aktywny także przy brakach — czekamy, aż formularz jest gotowy.
   await waitFor(() => {

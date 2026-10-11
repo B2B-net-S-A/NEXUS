@@ -281,7 +281,11 @@ function splitOutsideParens(text: string, separator: RegExp): string[] {
  * średnikami i nowymi liniami to osobne wymaganie; „A / B”, „A lub B”,
  * „A or B” w kawałku to jego warianty („CI/CD” zostaje jednym słowem).
  */
-export function parseRequirementEntry(text: string): RequirementEntry {
+export function parseRequirementEntry(
+  text: string,
+  // Lista kandydatów nie przyjmuje pojedynczej litery (`keywordLongEnough`).
+  accept: (word: string) => boolean = acceptRequirementWord,
+): RequirementEntry {
   const groups: string[][] = [];
   const rejected: string[] = [];
   for (const piece of splitOutsideParens(text, ENTRY_SEPARATOR)) {
@@ -289,7 +293,7 @@ export function parseRequirementEntry(text: string): RequirementEntry {
     for (const raw of splitOutsideParens(piece.replace(LIST_MARKER, ""), ALTERNATIVE_SPLIT)) {
       const word = sanitizeKeyword(raw);
       if (!word) continue;
-      if (!acceptRequirementWord(word)) rejected.push(word);
+      if (!accept(word)) rejected.push(word);
       else if (!words.some((w) => fold(w) === fold(word))) words.push(word);
     }
     if (words.length > 0) groups.push(words.slice(0, ROW_WORDS_MAX));

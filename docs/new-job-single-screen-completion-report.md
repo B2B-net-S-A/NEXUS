@@ -96,10 +96,10 @@ Bez migracji. Reguły: `docs/claude/rekrutacja-tworzenie/jobs-new-jeden-ekran-i-
 - Otwarty panel „Wklej treść” przesuwa formularz niżej (pasek sekcji na 0,76
   okna przy 1280×720) — to panel otwarty przez użytkownika, po odczycie się zamyka.
 - W polu wariantu („+ lub”) średnik nie jest separatorem.
-- `champion_document.table_profile`, `document_text` i `_extract_docx` nadal
-  czytają `row.cells` (klasa błędu gridSpan z B2B-net-S-A/NEXUS#2119) — osobna poprawka.
-- Lista kandydatów (`RequirementRowsField`) zostaje przy dotychczasowym
-  przecinku — świadomie, to inny ekran i inne znaczenie wiersza.
+- `champion_document.table_profile`, `document_text` i `_extract_docx` czytały
+  `row.cells` (klasa błędu gridSpan z B2B-net-S-A/NEXUS#2119), a lista kandydatów
+  (`RequirementRowsField`) została przy dawnym przecinku — obie rzeczy zrobione
+  11.10.2026, raport: `docs/requirement-comma-and-docx-cells-completion-report.md`.
 - `intake.document_context` i `rate_raw` z pliku Championa nie przechodzą przez
   tworzenie rekrutacji.
 
