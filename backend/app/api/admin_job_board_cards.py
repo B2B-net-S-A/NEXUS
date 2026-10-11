@@ -22,7 +22,7 @@ wyboru i zapisu: ``app/services/job_board_cards_to_proposals.py``.
 """
 
 from datetime import datetime, timezone
-from typing import Any, Dict, Literal, Optional
+from typing import Annotated, Any, Dict, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -57,7 +57,9 @@ async def convert_integration_cards(
     dry_run: bool = Query(True),
     mode: Literal["convert", "delete"] = Query("convert"),
     expected: Optional[int] = Query(None, ge=0),
-    job_ids: Optional[str] = Query(None, max_length=4000),
+    # ``Annotated``: wywołanie handlera wprost (testy, skrypty) dostaje
+    # zwykłe ``None``, a nie obiekt ``Query``.
+    job_ids: Annotated[Optional[str], Query(max_length=4000)] = None,
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     """Karty auto-matcha z portali → propozycje ``job_board`` albo usunięcie."""
