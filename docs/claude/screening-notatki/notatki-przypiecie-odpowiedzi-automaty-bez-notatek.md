@@ -50,6 +50,19 @@ Decyzje Artura 29.09.2026 — historia kandydata ma być tym, co napisali ludzie
   kandydata zostają. Dane do odwrócenia pod
   `repair_details_job_board_cards_to_proposals_2026_09`
   (`services/job_board_cards_to_proposals.py`).
+  **Od 11.10.2026 (fale z Traffita):** (1) `job_ids=1,2,3` zawęża próbę
+  i zapis do wskazanych rekrutacji, a zapis wymaga próby TEGO SAMEGO zbioru
+  (`same_scope`) — próba jednej fali nie autoryzuje innej ani całości;
+  (2) `convert` bierze też rekrutację z Traffita przełączoną na „Prowadzona
+  w NEXUSIE” (opublikowaną) — zamknięte archiwum dalej nie, bo propozycja
+  w zamkniętej rekrutacji nie istnieje; (3) baza obejmuje karty scrapera
+  z 16–23.09.2026, sprzed `entry_source='auto_match'`: proces z pustym albo
+  `added_manual` `entry_source`, którego wiersz etapu zapisało konto klienta
+  OAuth i który ma notatkę automatu z wynikiem. Karta dodana przez człowieka,
+  do której scraper dopisał tylko notatkę, zostaje. Tryb `delete` tych
+  starszych kart NIE bierze (`untagged_scraper_card`) — zamknięta rekrutacja
+  z Traffita bywa falą czekającą na przeniesienie, a jej karty mają stać się
+  propozycjami, nie zniknąć.
 - **Stare notatki automatów = `external_source='system'`** (jednorazowo,
   znacznik `0399_auto_match_notes_system`; SQL w `note_threads_schema.py`,
   lustro w `entrypoint.sh`) — nic nie jest kasowane. Lista notatek niesie

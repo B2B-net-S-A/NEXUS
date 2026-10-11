@@ -132,9 +132,7 @@ def _evidence(monkeypatch, applied: set[int]) -> None:
 
 
 @pytest.mark.asyncio
-async def test_integration_without_score_and_application_proposes(
-    routed, monkeypatch
-):
+async def test_integration_without_score_and_application_proposes(routed, monkeypatch):
     # 06.10.2026: integracja bez `auto_match` nie zakłada kart, chyba że osoba
     # zgłosiła się do tej rekrutacji (scraper 01–05.10: 357 kart).
     _evidence(monkeypatch, applied=set())
@@ -168,9 +166,7 @@ async def test_integration_application_still_adds_a_card(routed, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_integration_mixed_batch_splits_cards_and_proposals(
-    routed, monkeypatch
-):
+async def test_integration_mixed_batch_splits_cards_and_proposals(routed, monkeypatch):
     _evidence(monkeypatch, applied={4})
     resp = await proposals_bulk.bulk_add_proposals(
         request=_INTEGRATION,
@@ -366,6 +362,58 @@ def test_qualifying_sql_carries_every_rule():
         "b.automatch_note_ids",
     ):
         assert needle in sql
+
+
+# ── Fala z Traffita (11.10.2026): zawężenie biegu, „Prowadzona w NEXUSIE”,
+#    karty scrapera sprzed oznaczania wpisów ─────────────────────────────────
+
+
+def test_scoped_sql_limits_the_run_to_given_jobs():
+    rules = list(conversion._STATIC_DISQUALIFIERS)
+    scoped = conversion.qualifying_sql(rules, one_pair=False, scoped=True)
+    assert "b.job_id = ANY(CAST(:job_ids AS integer[]))" in scoped
+    assert ":job_ids" not in conversion.qualifying_sql(rules, one_pair=False)
+    assert ":job_ids" in conversion.blocked_counts_sql(rules, scoped=True)
+    assert ":job_ids" not in conversion.blocked_counts_sql(rules)
+
+
+def test_job_rule_accepts_traffit_recruitment_managed_in_nexus():
+    rule = dict(conversion._STATIC_DISQUALIFIERS)["job_not_eligible"]
+    assert "j.managed_in_nexus" in rule
+    assert "j.status = 'published'" in rule
+
+
+def test_base_takes_scraper_cards_from_before_entry_source_tagging():
+    # 16–23.09.2026 scraper dodawał karty bez `entry_source='auto_match'`;
+    # rozpoznajemy je po koncie integracji na wierszu etapu i notatce automatu.
+    sql = conversion._BASE_SQL
+    assert "COALESCE(rp.entry_source, 'added_manual') = 'added_manual'" in sql
+    assert "oc0.acting_user_id = sc0.moved_by" in sql
+
+
+@pytest.mark.parametrize(
+    ("report", "job_ids", "expected"),
+    [
+        ({"job_ids": [1, 2]}, [2, 1], True),
+        ({"job_ids": None}, None, True),
+        ({}, None, True),  # próba sprzed tej zmiany = cały zbiór
+        ({"job_ids": [1]}, None, False),
+        ({}, [1], False),
+        ({"job_ids": [1, 2]}, [1], False),
+        ({"job_ids": None}, iter(()), True),  # puste zawężenie = cały zbiór
+    ],
+)
+def test_dry_run_authorizes_only_its_own_scope(report, job_ids, expected):
+    assert conversion.same_scope(report, job_ids) is expected
+
+
+@pytest.mark.asyncio
+async def test_scoped_dry_run_records_its_scope():
+    db = _RecordingDb()
+    report = await conversion.plan(db, job_ids=[31, 31, 7])
+    assert report["job_ids"] == [7, 31]
+    scoped = [s for s in db.statements if ":job_ids" in s]
+    assert len(scoped) == 2  # pary i liczniki powodów
 
 
 _PRACUJ_NOTE = (
@@ -899,3 +947,86 @@ async def test_propose_path_writes_a_job_board_proposal_and_no_card(app_client):
         assert proposal.source == "job_board"
         assert proposal.status == "proposed"
         assert proposal.cv_revision
+
+
+# ── Fala z Traffita (11.10.2026) — z bazą ────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_traffit_job_managed_in_nexus_qualifies(app_client):
+    _, _, _, process_id = await _world(
+        external_source="traffit",
+        external_id=f"t-{uuid.uuid4().hex[:8]}",
+        managed_in_nexus=True,
+    )
+    assert await _qualifies(process_id)
+
+
+@pytest.mark.asyncio
+async def test_scraper_card_from_before_tagging_moves(app_client):
+    from app.core.database import AsyncSessionLocal
+    from app.models.job_proposal import JobProposal
+    from app.models.user import User
+
+    actor_id, _, job_id, cand_id, process_id, _ = await _scraper_world()
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text("UPDATE recruitment_processes SET entry_source = NULL WHERE id = :p"),
+            {"p": process_id},
+        )
+        await db.commit()
+    assert await _qualifies(process_id)
+
+    async with AsyncSessionLocal() as db:
+        actor = await db.get(User, actor_id)
+        report = await conversion.apply(db, actor=actor, only_process_ids={process_id})
+    assert report["counts"]["moved"] == 1, report
+    async with AsyncSessionLocal() as db:
+        proposal = await db.scalar(
+            select(JobProposal).where(
+                JobProposal.job_id == job_id,
+                JobProposal.candidate_id == cand_id,
+                JobProposal.source == "job_board",
+            )
+        )
+        assert proposal is not None and float(proposal.score) == 71.0
+
+
+@pytest.mark.asyncio
+async def test_card_added_by_a_person_stays_even_with_a_scraper_note(app_client):
+    from app.core.database import AsyncSessionLocal
+
+    # Kartę dodał człowiek (wiersz etapu jego), scraper dopisał tylko notatkę.
+    _, job_id, cand_id, process_id = await _world()
+    scraper = await _seed_integration_user()
+    await _add_note(cand_id, job_id, scraper, _PRACUJ_NOTE, "automatch")
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text(
+                "UPDATE recruitment_processes SET entry_source = 'added_manual', "
+                "entry_meta = NULL WHERE id = :p"
+            ),
+            {"p": process_id},
+        )
+        await db.commit()
+    assert not await _qualifies(process_id)
+
+
+@pytest.mark.asyncio
+async def test_scoped_run_moves_only_cards_of_the_given_jobs(app_client):
+    from app.core.database import AsyncSessionLocal
+    from app.models.user import User
+
+    actor_id, _, job_a, _, process_a, _ = await _scraper_world()
+    _, _, job_b, _, process_b, _ = await _scraper_world()
+
+    async with AsyncSessionLocal() as db:
+        report = await conversion.plan(db, job_ids=[job_a])
+        assert report["per_job"] == [{"job_id": job_a, "pairs": 1}]
+        assert await conversion.count_targets(db, job_ids=[job_a]) == 1
+    async with AsyncSessionLocal() as db:
+        actor = await db.get(User, actor_id)
+        done = await conversion.apply(db, actor=actor, job_ids=[job_a])
+    assert done["counts"]["moved"] == 1 and done["targets"] == 1, done
+    assert not await _qualifies(process_a)
+    assert await _qualifies(process_b)

@@ -29,13 +29,18 @@ wysyła ``auto_match``.
 Karta kwalifikuje się wyłącznie, gdy spełnia WSZYSTKO:
 
 * rekrutacja opublikowana i założona w NEXUSIE (``external_source`` różne
-  od ``traffit`` — rekrutacje z Traffita są archiwum);
+  od ``traffit`` — rekrutacje z Traffita są archiwum) ALBO rekrutacja
+  z Traffita przełączona na „Prowadzona w NEXUSIE” (11.10.2026: fale
+  przenoszone z Traffita mają karty scrapera, których w Traffit nie ma);
 * para ma dokładnie jeden proces, ``entry_source='auto_match'``, otwarty, i
   ALBO plakietkę auto-matcha od integracji (``entry_meta.kind='auto_match'``,
   ``source`` różne od ``nexus`` — wewnętrzny auto-match w trybie ``add`` to
   decyzja administratora, nie scraper), ALBO puste ``entry_meta`` (NULL,
   ``{}``, bez ``kind``) i notatkę automatu tej pary z „Auto-match score:”;
   notatka bez czytelnego wyniku = powód ``automatch_note_unreadable``;
+  ALBO (11.10.2026) proces z pustym / ``added_manual`` ``entry_source``,
+  którego wiersz etapu zapisało konto integracji i który ma notatkę automatu
+  z wynikiem — karty scrapera z 16–23.09.2026, sprzed oznaczania wpisów;
 * dokładnie jeden wiersz etapu pary, na etapie ``posting``, bez odpowiedzi
   screeningu i scorecardu;
 * żadnej notatki z tą rekrutacją POZA notatkami automatu (``kind='automatch'``
@@ -192,6 +197,13 @@ _SCORE_REGEX_SQL = "Auto-match score:(\\s|&nbsp;|&#160;|\u00a0|<[^>]*>)*[0-9]"
 # ``entry_meta`` i notatką automatu (scraper 30.09–05.10). ``stage_id`` =
 # najnowszy wiersz etapu pary (warunki niżej wymagają, żeby był jedyny);
 # ``automatch_note`` = najnowsza notatka automatu z czytelnym wynikiem.
+#
+# Trzecia gałąź (11.10.2026): karty scrapera z 16–23.09.2026, sprzed
+# ``entry_source='auto_match'`` — proces ma puste albo ``added_manual``
+# ``entry_source``. Rozpoznajemy je po dwóch śladach integracji naraz: wiersz
+# etapu pary zapisało konto klienta OAuth I para ma notatkę automatu
+# z wynikiem. Karta dodana przez człowieka, do której scraper dopisał tylko
+# notatkę, zostaje (jej wiersz etapu jest człowieka).
 _BASE_SQL = f"""
 SELECT rp.id AS process_id, rp.candidate_id, rp.job_id, rp.entry_meta,
        rp.opened_at,
@@ -203,14 +215,24 @@ SELECT rp.id AS process_id, rp.candidate_id, rp.job_id, rp.entry_meta,
           AND an.content ~ '{_SCORE_REGEX_SQL}'
         ORDER BY an.created_at DESC, an.id DESC LIMIT 1) AS automatch_note
 FROM recruitment_processes rp
-WHERE rp.entry_source = 'auto_match'
-  AND rp.status = 'open'
+WHERE rp.status = 'open'
   AND (
-      (rp.entry_meta ->> 'kind' = 'auto_match'
-       AND (rp.entry_meta ->> 'source') IS DISTINCT FROM 'nexus')
-      OR ((rp.entry_meta ->> 'kind') IS NULL
+      (rp.entry_source = 'auto_match'
+       AND (
+           (rp.entry_meta ->> 'kind' = 'auto_match'
+            AND (rp.entry_meta ->> 'source') IS DISTINCT FROM 'nexus')
+           OR ((rp.entry_meta ->> 'kind') IS NULL
+               AND EXISTS (SELECT 1 {_pair_notes("an")}
+                           AND strpos(an.content, '{_SCORE_MARK}') > 0))
+       ))
+      OR (COALESCE(rp.entry_source, 'added_manual') = 'added_manual'
+          AND (rp.entry_meta ->> 'kind') IS NULL
           AND EXISTS (SELECT 1 {_pair_notes("an")}
-                      AND strpos(an.content, '{_SCORE_MARK}') > 0))
+                      AND strpos(an.content, '{_SCORE_MARK}') > 0)
+          AND EXISTS (SELECT 1 FROM candidate_stages sc0
+                      JOIN oauth_clients oc0 ON oc0.acting_user_id = sc0.moved_by
+                      WHERE sc0.candidate_id = rp.candidate_id
+                        AND sc0.job_id = rp.job_id))
   )
 """
 
@@ -220,7 +242,8 @@ _STATIC_DISQUALIFIERS: tuple[tuple[str, str], ...] = (
         "job_not_eligible",
         """NOT EXISTS (SELECT 1 FROM jobs j WHERE j.id = b.job_id
                   AND j.status = 'published'
-                  AND j.external_source IS DISTINCT FROM 'traffit')""",
+                  AND (j.external_source IS DISTINCT FROM 'traffit'
+                       OR j.managed_in_nexus))""",
     ),
     (
         "multiple_processes",
@@ -358,9 +381,39 @@ def fk_disqualifiers(fks: list[dict[str, str]]) -> list[tuple[str, str]]:
     return out
 
 
-def qualifying_sql(disqualifiers: list[tuple[str, str]], *, one_pair: bool) -> str:
-    """Zapytanie o kwalifikujące się pary (albo jedną — ponowne sprawdzenie)."""
+_SCOPE_SQL = "b.job_id = ANY(CAST(:job_ids AS integer[]))"
+
+
+def normalize_job_ids(job_ids: Optional[Any]) -> Optional[list[int]]:
+    """Zawężenie biegu: posortowane, bez powtórzeń; ``None`` = cały zbiór."""
+    ids = sorted({int(i) for i in (job_ids or ())})
+    return ids or None
+
+
+def _scope_params(job_ids: Optional[list[int]]) -> dict[str, Any]:
+    return {"job_ids": job_ids} if job_ids else {}
+
+
+def same_scope(report: Optional[dict[str, Any]], job_ids: Optional[Any]) -> bool:
+    """Czy próba dotyczyła tego samego zbioru rekrutacji co zapis.
+
+    Próba jednej fali nie może autoryzować zapisu innej ani całego zbioru.
+    Raport sprzed zawężania (bez klucza) to próba całego zbioru.
+    """
+    recorded = normalize_job_ids((report or {}).get("job_ids"))
+    return recorded == normalize_job_ids(job_ids)
+
+
+def qualifying_sql(
+    disqualifiers: list[tuple[str, str]], *, one_pair: bool, scoped: bool = False
+) -> str:
+    """Zapytanie o kwalifikujące się pary (albo jedną — ponowne sprawdzenie).
+
+    ``scoped`` dokłada zawężenie do rekrutacji z parametru ``:job_ids``.
+    """
     where = " AND ".join(f"NOT ({pred})" for _, pred in disqualifiers) or "TRUE"
+    if scoped:
+        where = f"{_SCOPE_SQL} AND {where}"
     pair = "WHERE base.process_id = :process_id" if one_pair else ""
     return (
         "SELECT b.process_id, b.candidate_id, b.job_id, b.entry_meta, b.stage_id, "
@@ -370,13 +423,19 @@ def qualifying_sql(disqualifiers: list[tuple[str, str]], *, one_pair: bool) -> s
     )
 
 
-def blocked_counts_sql(disqualifiers: list[tuple[str, str]]) -> str:
+def blocked_counts_sql(
+    disqualifiers: list[tuple[str, str]], *, scoped: bool = False
+) -> str:
     """Ile par z bazy odpada z KAŻDEGO powodu (powody się nakładają)."""
     columns = ", ".join(
         f"count(*) FILTER (WHERE {pred}) AS c{i}"
         for i, (_, pred) in enumerate(disqualifiers)
     )
-    return f"SELECT count(*) AS base{', ' + columns if columns else ''} FROM ({_BASE_SQL}) b"
+    scope = f" WHERE {_SCOPE_SQL}" if scoped else ""
+    return (
+        f"SELECT count(*) AS base{', ' + columns if columns else ''} "
+        f"FROM ({_BASE_SQL}) b{scope}"
+    )
 
 
 async def _read_setting(db: AsyncSession, key: str) -> Optional[dict[str, Any]]:
@@ -434,6 +493,18 @@ _JOB_NOT_CLOSED = (
 )
 
 
+# Tryb ``delete`` zostaje przy kartach oznaczonych ``auto_match``. Starsze
+# karty scrapera (trzecia gałąź bazy, 11.10.2026) wchodzą wyłącznie do
+# ``convert``: zamknięta rekrutacja z Traffita bywa falą czekającą na
+# przeniesienie do NEXUSA, a jej karty mają stać się propozycjami, nie zniknąć.
+_UNTAGGED_CARD = (
+    "untagged_scraper_card",
+    """NOT EXISTS (SELECT 1 FROM recruitment_processes rp1
+              WHERE rp1.id = b.process_id
+                AND rp1.entry_source = 'auto_match')""",
+)
+
+
 def static_disqualifiers(mode: str = MODE_CONVERT) -> list[tuple[str, str]]:
     """Warunki bez katalogu FK. ``delete`` odwraca warunek rekrutacji
     i nie wymaga czytelnego wyniku (propozycji nie zakłada)."""
@@ -444,6 +515,7 @@ def static_disqualifiers(mode: str = MODE_CONVERT) -> list[tuple[str, str]]:
         if reason in {"job_not_eligible", "automatch_note_unreadable"}:
             continue
         out.append((reason, predicate))
+    out.append(_UNTAGGED_CARD)
     return out
 
 
@@ -455,30 +527,56 @@ async def load_disqualifiers(
     return static_disqualifiers(mode) + fk_disqualifiers(fks)
 
 
-async def count_targets(db: AsyncSession, mode: str = MODE_CONVERT) -> int:
+async def count_targets(
+    db: AsyncSession, mode: str = MODE_CONVERT, *, job_ids: Optional[Any] = None
+) -> int:
     """Ile par zapis wziąłby TERAZ (porównanie z ``expected`` z próby)."""
+    scope = normalize_job_ids(job_ids)
     disqualifiers = await load_disqualifiers(db, mode)
-    sql = qualifying_sql(disqualifiers, one_pair=False)
-    return int(await db.scalar(text(f"SELECT count(*) FROM ({sql}) q")) or 0)
+    sql = qualifying_sql(disqualifiers, one_pair=False, scoped=bool(scope))
+    return int(
+        await db.scalar(text(f"SELECT count(*) FROM ({sql}) q"), _scope_params(scope))
+        or 0
+    )
 
 
-async def plan(db: AsyncSession, mode: str = MODE_CONVERT) -> dict[str, Any]:
-    """Przebieg próbny: liczby per rekrutacja, powody odrzucenia, przykłady."""
+async def plan(
+    db: AsyncSession, mode: str = MODE_CONVERT, *, job_ids: Optional[Any] = None
+) -> dict[str, Any]:
+    """Przebieg próbny: liczby per rekrutacja, powody odrzucenia, przykłady.
+
+    ``job_ids`` zawęża próbę (i zapis, który ona autoryzuje) do wskazanych
+    rekrutacji — np. fali przeniesionej z Traffita.
+    """
     mode = _mode(mode)
+    scope = normalize_job_ids(job_ids)
+    params = _scope_params(scope)
     disqualifiers = await load_disqualifiers(db, mode)
     rows = (
-        (await db.execute(text(qualifying_sql(disqualifiers, one_pair=False))))
+        (
+            await db.execute(
+                text(qualifying_sql(disqualifiers, one_pair=False, scoped=bool(scope))),
+                params,
+            )
+        )
         .mappings()
         .all()
     )
     blocked_row = (
-        (await db.execute(text(blocked_counts_sql(disqualifiers)))).mappings().one()
+        (
+            await db.execute(
+                text(blocked_counts_sql(disqualifiers, scoped=bool(scope))), params
+            )
+        )
+        .mappings()
+        .one()
     )
     per_job: Counter[int] = Counter(int(r["job_id"]) for r in rows)
     from_notes = sum(1 for r in rows if not _has_process_badge(r))
     return {
         "dry_run": True,
         "mode": mode,
+        "job_ids": scope,
         "base_pairs": int(blocked_row["base"] or 0),
         "qualifying_pairs": len(rows),
         "qualifying_from_automatch_notes": from_notes,
@@ -798,9 +896,11 @@ async def apply(
     actor: Any,
     mode: str = MODE_CONVERT,
     only_process_ids: Optional[set[int]] = None,
+    job_ids: Optional[Any] = None,
 ) -> dict[str, Any]:
     """Zapis: para po parze w savepointach, paczki po ``CHUNK`` z commitem.
 
+    ``job_ids`` zawęża bieg do wskazanych rekrutacji (jak w próbie).
     ``only_process_ids`` zawęża bieg (testy na wspólnej bazie); endpoint go
     nie przekazuje.
     """
@@ -810,10 +910,16 @@ async def apply(
     pair_fn = _convert_pair if mode == MODE_CONVERT else _delete_pair
     done = _DONE_COUNTER[mode]
     actor_id = int(actor.id)
+    scope = normalize_job_ids(job_ids)
     disqualifiers = await load_disqualifiers(db, mode)
     targets = [
         (int(r["process_id"]), int(r["candidate_id"]), int(r["job_id"]))
-        for r in (await db.execute(text(qualifying_sql(disqualifiers, one_pair=False))))
+        for r in (
+            await db.execute(
+                text(qualifying_sql(disqualifiers, one_pair=False, scoped=bool(scope))),
+                _scope_params(scope),
+            )
+        )
         .mappings()
         .all()
         if only_process_ids is None or int(r["process_id"]) in only_process_ids
@@ -888,6 +994,7 @@ async def apply(
     return {
         "dry_run": False,
         "mode": mode,
+        "job_ids": scope,
         "targets": len(targets),
         "stopped_on_error": stopped,
         "counts": dict(counts),
@@ -971,11 +1078,16 @@ def dry_run_is_fresh(
     return finished >= PROCESS_STARTED_AT and now - finished <= DRY_RUN_MAX_AGE
 
 
-async def fresh_dry_run_exists(db: AsyncSession, mode: str = MODE_CONVERT) -> bool:
-    return dry_run_is_fresh(await _read_setting(db, _KEYS[_mode(mode)]["dry_run"]))
+async def fresh_dry_run_exists(
+    db: AsyncSession, mode: str = MODE_CONVERT, *, job_ids: Optional[Any] = None
+) -> bool:
+    report = await _read_setting(db, _KEYS[_mode(mode)]["dry_run"])
+    return dry_run_is_fresh(report) and same_scope(report, job_ids)
 
 
-async def run_apply(*, actor_user_id: int, mode: str = MODE_CONVERT) -> None:
+async def run_apply(
+    *, actor_user_id: int, mode: str = MODE_CONVERT, job_ids: Optional[Any] = None
+) -> None:
     """Zapis w tle (spawn z endpointu) — ~2 tys. par to kilka minut.
 
     Endpoint rezerwuje tryb (``reserve``) przed ``spawn``; zwalnia go ten bieg.
@@ -992,7 +1104,7 @@ async def run_apply(*, actor_user_id: int, mode: str = MODE_CONVERT) -> None:
             if actor is None:
                 logger.error("job_board cards: actor %s missing", actor_user_id)
                 return
-            report = await apply(db, actor=actor, mode=mode)
+            report = await apply(db, actor=actor, mode=mode, job_ids=job_ids)
             await finish_run(db, report, started=started)
             logger.info(
                 "job_board cards (%s) done: %s", mode, json.dumps(report["counts"])
@@ -1023,6 +1135,8 @@ __all__ = [
     "MODE_CONVERT",
     "MODE_DELETE",
     "count_targets",
+    "normalize_job_ids",
+    "same_scope",
     "dry_run_is_fresh",
     "release",
     "reserve",
