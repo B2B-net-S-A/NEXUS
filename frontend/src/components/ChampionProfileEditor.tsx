@@ -83,6 +83,7 @@ import {
   championChangedPayload,
   championConflictFrom,
   changedSectionKeys,
+  comparableSection,
   type ChampionConflict,
 } from "@/lib/champion-save";
 import { useOptionalToast } from "@/components/Toast";
@@ -366,7 +367,9 @@ export function ChampionProfileEditor({
   // czyli po sekcjach, które DL widzi w pasku. Liczone PRZED wczesnymi
   // `return` (hook zgłaszający stan stronie musi stać zawsze w tym samym miejscu).
   const dirtySections = (Object.keys(draft) as Array<keyof ChampionProfile>).filter(
-    (key) => JSON.stringify(draft[key] ?? null) !== JSON.stringify(baseline[key] ?? null),
+    (key) =>
+      JSON.stringify(comparableSection(key, draft[key]) ?? null) !==
+      JSON.stringify(comparableSection(key, baseline[key]) ?? null),
   ).length;
   useEffect(() => {
     onDirtyChange?.(dirtySections > 0);

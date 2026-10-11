@@ -54,6 +54,32 @@ describe("championChangedPayload — tylko zmienione sekcje (audyt 06.10.2026, N
     expect(payload.basics.rate_value).toBe(150);
     expect("work_mode" in payload.basics).toBe(false);
   });
+
+  it("pusty wiersz wymagań do wyszukiwania (miejsce na kursor) nie jedzie w zapisie", () => {
+    const draft = {
+      ...base,
+      search: { ...base.search, requirements: [["Kafka", "RabbitMQ"], [], ["Java"], []] },
+    } as ChampionProfile;
+    const payload = championChangedPayload(draft, base, NO_SEED, null) as {
+      search: { requirements: string[][] };
+    };
+    expect(payload.search.requirements).toEqual([["Kafka", "RabbitMQ"], ["Java"]]);
+  });
+
+  it("sam pusty wiersz roboczy to nie zmiana — sekcja nie jest brudna i nie jedzie w zapisie", () => {
+    const saved = {
+      ...base,
+      search: { ...base.search, requirements: [["Java"]] },
+    } as ChampionProfile;
+    const draft = {
+      ...saved,
+      search: { ...saved.search, requirements: [["Java"], []] },
+    } as ChampionProfile;
+    expect(changedSectionKeys(draft, saved)).toEqual([]);
+    expect(championChangedPayload(draft, saved, NO_SEED, "odcisk")).toEqual({
+      expected_profile_hash: "odcisk",
+    });
+  });
 });
 
 describe("championConflictFrom", () => {

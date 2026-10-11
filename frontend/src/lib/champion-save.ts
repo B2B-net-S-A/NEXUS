@@ -27,10 +27,33 @@ export function changedSectionKeys(
   return [...keys].filter(
     (key) =>
       !same(
-        (draft as unknown as Record<string, unknown>)[key],
-        (baseline as unknown as Record<string, unknown>)[key],
+        comparableSection(key, (draft as unknown as Record<string, unknown>)[key]),
+        comparableSection(key, (baseline as unknown as Record<string, unknown>)[key]),
       ),
   );
+}
+
+/**
+ * Pusty wiersz „Wymagań do wyszukiwania” to stan roboczy edytora (miejsce na
+ * kursor po Enterze, 11.10.2026) — do zapisu nie idzie.
+ */
+function withoutEmptyRows(search: unknown): unknown {
+  if (!search || typeof search !== "object") return search;
+  const rows = (search as { requirements?: unknown }).requirements;
+  if (!Array.isArray(rows)) return search;
+  return {
+    ...search,
+    requirements: rows.filter((row) => !Array.isArray(row) || row.length > 0),
+  };
+}
+
+/**
+ * Sekcja w postaci do porównania szkicu z zapisanym profilem: sam pusty
+ * wiersz roboczy to nie zmiana (inaczej pasek „niezapisana zmiana” zostawał
+ * po dopisaniu i usunięciu wymagania).
+ */
+export function comparableSection(key: string, value: unknown): unknown {
+  return key === "search" ? withoutEmptyRows(value) : value;
 }
 
 /**
@@ -48,7 +71,7 @@ export function championChangedPayload(
   const full = championSavePayload(draft, seed) as unknown as Record<string, unknown>;
   const out: Record<string, unknown> = {};
   for (const key of changedSectionKeys(draft, baseline)) {
-    if (key in full) out[key] = full[key];
+    if (key in full) out[key] = key === "search" ? withoutEmptyRows(full[key]) : full[key];
   }
   if (expectedProfileHash) out.expected_profile_hash = expectedProfileHash;
   return out;

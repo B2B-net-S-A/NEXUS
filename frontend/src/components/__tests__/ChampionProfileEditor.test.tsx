@@ -322,10 +322,9 @@ describe("ChampionProfileEditor — wymagania do wyszukiwania (sekcja 2)", () =>
         <ChampionProfileEditor jobId={15} canEdit clientId={null} />
       </QueryClientProvider>,
     );
+    // Warianty jednego wymagania: „A / B” (Enter osobno dałby dwa wymagania).
     const first = await screen.findByLabelText("Wymaganie 1 — słowo albo wariant");
-    fireEvent.change(first, { target: { value: "Kafka" } });
-    fireEvent.keyDown(first, { key: "Enter" });
-    fireEvent.change(first, { target: { value: "RabbitMQ" } });
+    fireEvent.change(first, { target: { value: "Kafka / RabbitMQ" } });
     fireEvent.keyDown(first, { key: "Enter" });
 
     // Liczba idzie za wierszami (debounce 500 ms) — ostatnie liczenie to oba warianty.

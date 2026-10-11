@@ -267,3 +267,78 @@ export function addToRow(
     return out;
   });
 }
+
+export interface KeywordEntryResult {
+  rows: string[][];
+  /** Ile wymagań trafiło na listę; 0 = lista bez zmian. */
+  added: number;
+  /** Ile nowych wierszy stanęło bezpośrednio pod wierszem wpisu. */
+  inserted: number;
+  /** Pusty wiersz, w którym ma stanąć kursor; `null` = nie ma takiego wiersza. */
+  focusRow: number | null;
+  /** Pierwsze słowa grup, które już są na liście jako wymaganie. */
+  duplicates: string[];
+  /** Grupy („A lub B”), które nie zmieściły się w limicie wierszy. */
+  overLimit: string[];
+}
+
+const rowKey = (words: readonly string[]): string =>
+  words.map(foldWord).filter(Boolean).sort().join("|");
+
+/**
+ * Wymagania wpisane w wiersz `index` (11.10.2026 — ta sama reguła co
+ * w wierszach wymagań rekrutacji): pierwsza grupa wypełnia pusty wiersz,
+ * kolejne dochodzą pod nim jako nowe wiersze, całość jedną zmianą listy.
+ * Kursor idzie do pustego wiersza na końcu (nowego, gdy jest miejsce);
+ * `trailing: false` (wyjście z pola) go nie dokłada. To samo wymaganie drugi
+ * raz jest pomijane.
+ */
+export function enterKeywordRows(
+  rows: readonly (readonly string[])[],
+  index: number,
+  groups: readonly (readonly string[])[],
+  options: { trailing?: boolean } = {},
+): KeywordEntryResult {
+  const out = rows.map((row) => [...row]);
+  const duplicates: string[] = [];
+  const overLimit: string[] = [];
+  if (index < 0 || index >= out.length)
+    return { rows: out, added: 0, inserted: 0, focusRow: null, duplicates, overLimit };
+  const known = new Set(out.filter((row) => row.length > 0).map(rowKey));
+  let at = index;
+  let targetEmpty = out[at].length === 0;
+  let added = 0;
+  for (const group of groups) {
+    const words = group.map(sanitizeKeyword).filter(Boolean);
+    if (words.length === 0) continue;
+    const key = rowKey(words);
+    if (known.has(key)) {
+      duplicates.push(words[0]);
+      continue;
+    }
+    if (targetEmpty) {
+      out[at] = words;
+      targetEmpty = false;
+    } else if (out.length < MAX_REQUIREMENT_ROWS) {
+      at += 1;
+      out.splice(at, 0, words);
+    } else {
+      overLimit.push(words.join(" lub "));
+      continue;
+    }
+    known.add(key);
+    added += 1;
+  }
+  const inserted = at - index;
+  if (added === 0) return { rows: out, added, inserted, focusRow: null, duplicates, overLimit };
+  let focusRow: number | null = null;
+  if (options.trailing !== false) {
+    const last = out.length - 1;
+    if (out[last].length === 0) focusRow = last;
+    else if (out.length < MAX_REQUIREMENT_ROWS) {
+      out.push([]);
+      focusRow = out.length - 1;
+    }
+  }
+  return { rows: out, added, inserted, focusRow, duplicates, overLimit };
+}

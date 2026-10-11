@@ -268,7 +268,7 @@
     "tasks": [
       {
         "q": "Jak szukać po słowach kluczowych?",
-        "a": "Każdy wiersz nad listą to jedno wymaganie — wszystkie muszą się zgadzać, a słowa w jednym wierszu to warianty (wystarczy jedno, np. Kafka lub RabbitMQ). „Dodaj wymaganie” dokłada wiersz, „Wyklucz” odsiewa słowa. Podpowiedź „+ z wariantami” dopisuje inne zapisy technologii. Słowa pasują w całości; „java*” szuka początku słowa.",
+        "a": "Każdy wiersz nad listą to jedno wymaganie — wszystkie muszą się zgadzać. Enter albo przecinek zaczyna kolejne wymaganie; wariant (wystarczy jedno ze słów, np. Kafka lub RabbitMQ) dodasz przyciskiem „+ lub”. „Wyklucz” odsiewa słowa. Podpowiedź „+ z wariantami” dopisuje inne zapisy technologii. Słowa pasują w całości; „java*” szuka początku słowa.",
         "anchor": "candidates.list.filters"
       },
       {

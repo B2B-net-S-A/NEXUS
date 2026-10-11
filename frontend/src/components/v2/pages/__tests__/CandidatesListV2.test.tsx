@@ -421,12 +421,11 @@ describe("CandidatesListV2", () => {
 
     it("wymagania (wiersze) i wykluczenia z panelu idą do API w kolejności wierszy", async () => {
       renderList();
+      // 11.10.2026: Enter kończy wymaganie i przenosi kursor do następnego
+      // wiersza; warianty jednego wymagania wpisuje się z „/” albo przez „+ lub”.
       const first = within(bar()).getByLabelText("Wymaganie 1 — słowo albo wariant");
-      fireEvent.change(first, { target: { value: "Kafka" } });
+      fireEvent.change(first, { target: { value: "Kafka / RabbitMQ" } });
       fireEvent.keyDown(first, { key: "Enter" });
-      fireEvent.change(first, { target: { value: "RabbitMQ" } });
-      fireEvent.keyDown(first, { key: "Enter" });
-      fireEvent.click(within(bar()).getByRole("button", { name: "Dodaj wymaganie" }));
       const second = within(bar()).getByLabelText("Wymaganie 2 — słowo albo wariant");
       fireEvent.change(second, { target: { value: "Java" } });
       fireEvent.keyDown(second, { key: "Enter" });
@@ -653,10 +652,13 @@ describe("CandidatesListV2", () => {
       fireEvent.click(screen.getByRole("button", { name: "Cofnij zmiany" }));
       await waitFor(() => expect(screen.queryByText(/czeka na „Szukaj”/)).toBeNull());
 
-      fireEvent.change(must, { target: { value: "Kafka" } });
-      fireEvent.keyDown(must, { key: "Enter" });
-      // Enter w pustym polu = „Szukaj”.
-      fireEvent.keyDown(must, { key: "Enter" });
+      const again = within(bar()).getByLabelText("Wymaganie 1 — słowo albo wariant");
+      fireEvent.change(again, { target: { value: "Kafka" } });
+      fireEvent.keyDown(again, { key: "Enter" });
+      // Enter w pustym polu (kursor stoi już w następnym wierszu) = „Szukaj”.
+      fireEvent.keyDown(within(bar()).getByLabelText("Wymaganie 2 — słowo albo wariant"), {
+        key: "Enter",
+      });
       await waitFor(async () => {
         const calls = await candidateCalls();
         expect(calls.at(-1)).toMatchObject({ q_any_group: ["Kafka"] });
@@ -688,6 +690,10 @@ describe("CandidatesListV2", () => {
       renderList();
       expect(await screen.findByText("Wróciłeś do swojego wyszukiwania.")).toBeTruthy();
 
+      // Wypełniony wiersz dostaje wariant przez „+ lub”.
+      fireEvent.click(
+        within(bar()).getByRole("button", { name: "Dodaj wariant do wymagania 1" }),
+      );
       const must = within(bar()).getByLabelText("Wymaganie 1 — słowo albo wariant");
       fireEvent.change(must, { target: { value: "RabbitMQ" } });
       fireEvent.keyDown(must, { key: "Enter" });
@@ -734,6 +740,28 @@ describe("CandidatesListV2", () => {
       await waitFor(() => expect(pushState).toHaveBeenCalledTimes(1));
       expect(String(pushState.mock.calls[0][2])).toContain("status=active");
       expect(await screen.findByText("Status: Aktywni")).toBeTruthy();
+    });
+
+    it("wiersze z górnego pola dochodzą pod wypełnionymi — pusty wiersz roboczy nie zostaje w środku", async () => {
+      classifyMock.mockResolvedValueOnce({ skills: ["Java", "Spring"], as_requirements: true });
+      renderList();
+      const first = screen.getByLabelText("Wymaganie 1 — słowo albo wariant");
+      fireEvent.change(first, { target: { value: "Kafka" } });
+      fireEvent.keyDown(first, { key: "Enter" });
+      // Po Enterze pod „Kafka” stoi pusty wiersz z kursorem.
+      expect(screen.getByLabelText("Wymaganie 2 — słowo albo wariant")).toBeTruthy();
+      fireEvent.change(screen.getByLabelText("Szukaj kandydatów"), {
+        target: { value: "java spring" },
+      });
+      fireEvent.keyDown(screen.getByLabelText("Szukaj kandydatów"), { key: "Enter" });
+
+      expect(await screen.findByText(/Czytam jako wymagania: Java, Spring/)).toBeTruthy();
+      for (const n of [1, 2, 3]) {
+        expect(
+          screen.getByRole("button", { name: `Dodaj wariant do wymagania ${n}` }),
+        ).toBeTruthy();
+        expect(screen.queryByLabelText(`Wymaganie ${n} — słowo albo wariant`)).toBeNull();
+      }
     });
 
     it("same nazwy technologii w górnym polu idą jak wiersze wymagań", async () => {

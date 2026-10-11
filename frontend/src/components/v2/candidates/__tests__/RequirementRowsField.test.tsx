@@ -15,10 +15,12 @@ function Harness({
   initial,
   onUseLocation,
   onUseExperience,
+  onSubmitEmpty,
 }: {
   initial: string[][];
   onUseLocation?: (city: string) => void;
   onUseExperience?: (range: ExperienceRange) => void;
+  onSubmitEmpty?: () => void;
 }) {
   const [rows, setRows] = useState(initial);
   const [exclude, setExclude] = useState<string[]>([]);
@@ -31,6 +33,7 @@ function Harness({
         onExcludeChange={setExclude}
         onUseLocation={onUseLocation}
         onUseExperience={onUseExperience}
+        onSubmitEmpty={onSubmitEmpty}
       />
       <output data-testid="rows">{JSON.stringify(rows)}</output>
     </>
@@ -38,6 +41,16 @@ function Harness({
 }
 
 const rows = () => JSON.parse(screen.getByTestId("rows").textContent ?? "[]");
+
+const field = (n: number) => screen.getByLabelText(`Wymaganie ${n} — słowo albo wariant`);
+const fieldOrNull = (n: number) => screen.queryByLabelText(`Wymaganie ${n} — słowo albo wariant`);
+const addVariant = (n: number) =>
+  screen.getByRole("button", { name: `Dodaj wariant do wymagania ${n}` });
+
+function type(input: HTMLElement, text: string, key?: string) {
+  fireEvent.change(input, { target: { value: text } });
+  if (key) fireEvent.keyDown(input, { key });
+}
 
 beforeEach(() => {
   get.mockReset().mockResolvedValue({ data: { items: [] } });
@@ -61,6 +74,7 @@ describe("RequirementRowsField", () => {
 
   it("usunięcie wiersza wyżej nie przenosi pisanego tekstu do sąsiada", () => {
     render(<Harness initial={[["Java"], ["Kafka"]]} />);
+    fireEvent.click(addVariant(2));
     const second = screen.getByLabelText("Wymaganie 2 — słowo albo wariant") as HTMLInputElement;
     fireEvent.change(second, { target: { value: "Rabbit" } });
     fireEvent.click(screen.getByRole("button", { name: "Usuń wymaganie 1" }));
@@ -74,11 +88,112 @@ describe("RequirementRowsField", () => {
     render(<Harness initial={[["Java"], ["Kafka"], ["Spring"]]} />);
     fireEvent.click(screen.getByRole("button", { name: "Usuń wymaganie 2" }));
     expect(rows()).toEqual([["Java"], ["Spring"]]);
-    await waitFor(() =>
-      expect(document.activeElement).toBe(
-        screen.getByLabelText("Wymaganie 2 — słowo albo wariant"),
-      ),
-    );
+    // Wypełniony wiersz nie ma pola do pisania — kursor staje na jego „+ lub”.
+    await waitFor(() => expect(document.activeElement).toBe(addVariant(2)));
+  });
+
+  // 11.10.2026: ta sama reguła co w wierszach wymagań rekrutacji (D1). Do tej
+  // daty przecinek i Enter dopisywały słowo jako wariant „lub” tego samego
+  // wiersza, więc „Java, Spring” znajdowało osoby z samą Javą.
+  describe("wpisywanie: przecinek i Enter to kolejne wymaganie", () => {
+    it("„Java, Spring” + Enter → dwa wiersze, kursor w pustym trzecim", async () => {
+      render(<Harness initial={[]} />);
+      type(field(1), "Java, Spring", "Enter");
+      expect(rows()).toEqual([["Java"], ["Spring"], []]);
+      await waitFor(() => expect(document.activeElement).toBe(field(3)));
+    });
+
+    it("przecinek w trakcie pisania kończy wymaganie i przenosi kursor niżej", async () => {
+      render(<Harness initial={[]} />);
+      type(field(1), "Java", ",");
+      expect(rows()).toEqual([["Java"], []]);
+      await waitFor(() => expect(document.activeElement).toBe(field(2)));
+      type(field(2), "Spring", ";");
+      expect(rows()).toEqual([["Java"], ["Spring"], []]);
+    });
+
+    it("„Kafka / RabbitMQ” to jedno wymaganie z wariantami; „CI/CD” zostaje słowem", () => {
+      render(<Harness initial={[]} />);
+      type(field(1), "Kafka / RabbitMQ, CI/CD", "Enter");
+      expect(rows()).toEqual([["Kafka", "RabbitMQ"], ["CI/CD"], []]);
+    });
+
+    it("wklejona lista rozkłada się na wiersze", () => {
+      render(<Harness initial={[]} />);
+      fireEvent.paste(field(1), {
+        clipboardData: { getData: () => "- Docker\n- Kubernetes\n- AWS" },
+      });
+      expect(rows()).toEqual([["Docker"], ["Kubernetes"], ["AWS"], []]);
+    });
+
+    it("wypełniony wiersz nie ma pola — wariant dodaje dopiero „+ lub”", async () => {
+      render(<Harness initial={[["Java"]]} />);
+      expect(fieldOrNull(1)).toBeNull();
+      fireEvent.click(addVariant(1));
+      await waitFor(() => expect(document.activeElement).toBe(field(1)));
+      type(field(1), "JDK", "Enter");
+      expect(rows()).toEqual([["Java", "JDK"]]);
+      // Pole wariantu zostaje otwarte na kolejne słowo; pusty Enter je zamyka.
+      fireEvent.keyDown(field(1), { key: "Enter" });
+      expect(fieldOrNull(1)).toBeNull();
+    });
+
+    it("Enter w pustym wierszu uruchamia wyszukiwanie", () => {
+      const onSubmitEmpty = vi.fn();
+      render(<Harness initial={[]} onSubmitEmpty={onSubmitEmpty} />);
+      type(field(1), "Java", "Enter");
+      expect(onSubmitEmpty).not.toHaveBeenCalled();
+      fireEvent.keyDown(field(2), { key: "Enter" });
+      expect(onSubmitEmpty).toHaveBeenCalledTimes(1);
+    });
+
+    it("pusty Enter w polu wariantu też szuka", () => {
+      const onSubmitEmpty = vi.fn();
+      render(<Harness initial={[["Java"]]} onSubmitEmpty={onSubmitEmpty} />);
+      fireEvent.click(addVariant(1));
+      fireEvent.keyDown(field(1), { key: "Enter" });
+      expect(onSubmitEmpty).toHaveBeenCalledTimes(1);
+      expect(fieldOrNull(1)).toBeNull();
+    });
+
+    it("Esc w pustym polu wariantu zamyka je bez szukania, kursor wraca na „+ lub”", async () => {
+      const onSubmitEmpty = vi.fn();
+      render(<Harness initial={[["Java"]]} onSubmitEmpty={onSubmitEmpty} />);
+      fireEvent.click(addVariant(1));
+      fireEvent.keyDown(field(1), { key: "Escape" });
+      expect(fieldOrNull(1)).toBeNull();
+      expect(onSubmitEmpty).not.toHaveBeenCalled();
+      await waitFor(() => expect(document.activeElement).toBe(addVariant(1)));
+      expect(rows()).toEqual([["Java"]]);
+    });
+
+    it("usunięcie wiersza nad otwartym polem wariantu zostawia kursor w tym polu", async () => {
+      render(<Harness initial={[["Aa"], ["Bb"]]} />);
+      fireEvent.click(addVariant(2));
+      const remove = screen.getByRole("button", { name: "Usuń wymaganie 1" });
+      remove.focus();
+      fireEvent.click(remove);
+      // Wiersz „Bb” zajął miejsce usuniętego; przycisku „+ lub” w nim nie ma.
+      await waitFor(() => expect(document.activeElement).toBe(field(1)));
+      expect(rows()).toEqual([["Bb"]]);
+    });
+
+    it("to samo wymaganie drugi raz i nadmiar ponad limit — pole mówi, czego nie dodało", () => {
+      const nine = Array.from({ length: 9 }, (_, i) => [`s${i}`]);
+      render(<Harness initial={[...nine, []]} />);
+      type(field(10), "s0, Java, Spring", "Enter");
+      expect(rows()).toEqual([...nine, ["Java"]]);
+      const note = screen.getByTestId("requirement-entry-note");
+      expect(note).toHaveTextContent("„s0” już jest na liście");
+      expect(note).toHaveTextContent("Najwyżej 10 wymagań — nie dodano: Spring");
+    });
+
+    it("wyjście z pola zapisuje wpis, ale nie dokłada pustego wiersza", () => {
+      render(<Harness initial={[]} />);
+      type(field(1), "Java, Spring");
+      fireEvent.blur(field(1));
+      expect(rows()).toEqual([["Java"], ["Spring"]]);
+    });
   });
 
   it("pojedyncza litera nie jest słowem kluczowym — pole mówi, gdzie ją wyszukać", () => {

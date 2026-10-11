@@ -5,8 +5,10 @@ import {
   ambiguousWord,
   cleanRows,
   describeKeywordSearch,
+  enterKeywordRows,
   experienceRangeLabel,
   keywordHints,
+  MAX_REQUIREMENT_ROWS,
   requirementRows,
   sanitizeKeyword,
   seniorityRange,
@@ -115,5 +117,62 @@ describe("podpowiedzi przy pomyłkach", () => {
       { kind: "ambiguous", row: 0, word: "go", catches: "„go-live”", instead: "golang" },
       { kind: "ambiguous", row: 1, word: "net", catches: "nazwy firm, np. „EURO NET”" },
     ]);
+  });
+});
+
+describe("enterKeywordRows — wpis w pustym wierszu listy kandydatów (11.10.2026)", () => {
+  it("pierwsza grupa wypełnia wiersz, kolejne dochodzą pod nim, kursor idzie do pustego wiersza", () => {
+    const result = enterKeywordRows([[]], 0, [["Java"], ["Spring"], ["SQL"]]);
+    expect(result.rows).toEqual([["Java"], ["Spring"], ["SQL"], []]);
+    expect(result.added).toBe(3);
+    expect(result.focusRow).toBe(3);
+  });
+
+  it("grupa z wariantami to jeden wiersz; wiersze obok zostają na miejscach", () => {
+    const result = enterKeywordRows([["Java"], [], ["AWS"]], 1, [["Kafka", "RabbitMQ"], ["Redis"]]);
+    expect(result.rows).toEqual([["Java"], ["Kafka", "RabbitMQ"], ["Redis"], ["AWS"], []]);
+    expect(result.focusRow).toBe(4);
+  });
+
+  it("istniejący pusty wiersz na końcu dostaje kursor — drugi nie powstaje", () => {
+    const result = enterKeywordRows([[], []], 0, [["Java"]]);
+    expect(result.rows).toEqual([["Java"], []]);
+    expect(result.focusRow).toBe(1);
+  });
+
+  it("wyjście z pola nie dokłada pustego wiersza", () => {
+    const result = enterKeywordRows([[]], 0, [["Java"]], { trailing: false });
+    expect(result.rows).toEqual([["Java"]]);
+    expect(result.focusRow).toBeNull();
+  });
+
+  it("to samo wymaganie drugi raz jest pomijane (bez wielkości liter i kolejności wariantów)", () => {
+    const result = enterKeywordRows([["Java"], ["Kafka", "RabbitMQ"], []], 2, [
+      ["java"],
+      ["rabbitmq", "KAFKA"],
+      ["SQL"],
+    ]);
+    expect(result.rows).toEqual([["Java"], ["Kafka", "RabbitMQ"], ["SQL"], []]);
+    expect(result.added).toBe(1);
+    expect(result.duplicates).toEqual(["java", "rabbitmq"]);
+  });
+
+  it("limit wierszy: nadmiar wraca w `overLimit`, a pustego wiersza już nie ma gdzie dodać", () => {
+    const nine = Array.from({ length: 9 }, (_, i) => [`s${i}`]);
+    const result = enterKeywordRows([...nine, []], 9, [["Java"], ["Spring"], ["Kafka", "Redis"]]);
+    expect(result.rows).toEqual([...nine, ["Java"]]);
+    expect(result.rows).toHaveLength(MAX_REQUIREMENT_ROWS);
+    expect(result.overLimit).toEqual(["Spring", "Kafka lub Redis"]);
+    expect(result.focusRow).toBeNull();
+  });
+
+  it("bez grup albo z wierszem spoza listy nic się nie zmienia", () => {
+    expect(enterKeywordRows([["Java"]], 0, []).added).toBe(0);
+    expect(enterKeywordRows([["Java"]], 5, [["SQL"]]).rows).toEqual([["Java"]]);
+  });
+
+  it("wpis w WYPEŁNIONYM wierszu nie zmienia go — nowe wymagania dochodzą pod nim", () => {
+    const result = enterKeywordRows([["Java"]], 0, [["Spring"]]);
+    expect(result.rows).toEqual([["Java"], ["Spring"], []]);
   });
 });
