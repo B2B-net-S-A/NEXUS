@@ -25,7 +25,7 @@ import {
   type KeywordEntryResult,
   type KeywordHint,
 } from "@/lib/keyword-requirements";
-import { ROW_WORDS_MAX, parseRequirementEntry } from "@/lib/requirement-rows";
+import { ROW_WORDS_MAX, addRowVariants, parseRequirementEntry } from "@/lib/requirement-rows";
 
 /** Miasto podpowiadamy dopiero od tylu mieszkańców — „Kotlin” to wieś. */
 const CITY_MIN_POPULATION = 20_000;
@@ -355,14 +355,16 @@ export function RequirementRowsField({
                     tone="emerald"
                     ariaLabel={`Wymaganie ${index + 1} — słowo albo wariant`}
                     suggest={suggest}
-                    onCommitText={
-                      filled
-                        ? undefined
-                        : (text, via) => {
-                            const entry = parseRequirementEntry(text, keywordLongEnough);
-                            return enter(index, entry.groups, via, entry.rejected);
-                          }
-                    }
+                    onCommitText={(text, via) => {
+                      if (filled) {
+                        // Pole wariantu: przecinek i średnik dopisują do TEGO wiersza.
+                        const variants = addRowVariants(row, text, keywordLongEnough);
+                        if (variants.words.length > row.length) setRow(index, variants.words);
+                        return variants.rejected;
+                      }
+                      const entry = parseRequirementEntry(text, keywordLongEnough);
+                      return enter(index, entry.groups, via, entry.rejected);
+                    }}
                     onSubmitEmpty={
                       variantOpen
                         ? () => {

@@ -36,6 +36,7 @@ import {
   NICE_ROWS_MAX,
   REQUIRED_ROWS_MAX,
   ROW_WORDS_MAX,
+  addRowVariants,
   acceptRequirementWord,
   addRow,
   applySuggestion,
@@ -352,14 +353,18 @@ export function RequirementRowsEditor({
                     suggest={ROW_SUGGEST}
                     invalid={invalid && index === 0 && !filled}
                     acceptWord={acceptRequirementWord}
-                    onCommitText={
-                      filled
-                        ? undefined
-                        : (text, via) => {
-                            const entry = parseRequirementEntry(text);
-                            return enter(row.key, entry.groups, via, entry.rejected);
-                          }
-                    }
+                    onCommitText={(text, via) => {
+                      if (filled) {
+                        // Pole wariantu: przecinek i średnik dopisują do TEGO wiersza.
+                        const variants = addRowVariants(row.words, text);
+                        if (variants.words.length > row.words.length) {
+                          setWords(row.key, variants.words);
+                        }
+                        return variants.rejected;
+                      }
+                      const entry = parseRequirementEntry(text);
+                      return enter(row.key, entry.groups, via, entry.rejected);
+                    }}
                     onSubmitEmpty={variantOpen ? () => closeVariant(row.key) : undefined}
                     hideInput={filled && !variantOpen}
                     trailing={

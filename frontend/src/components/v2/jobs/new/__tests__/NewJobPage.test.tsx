@@ -2828,6 +2828,33 @@ describe("NewJobPage — niedokończone formularze", () => {
     expect(screen.queryByTestId("unfinished-intake-forms")).toBeNull();
   });
 
+  it("po usunięciu formularza przy limicie bieżący zapisuje się od razu — bez kolejnej edycji", async () => {
+    withForms();
+    const base = mocks.post.getMockImplementation()!;
+    let limitHit = true;
+    mocks.post.mockImplementation((url: string, ...rest: unknown[]) => {
+      if (url !== "/api/job-intake/forms" || !limitHit) return base(url, ...rest);
+      return Promise.reject({
+        response: { status: 409, data: { detail: { code: "forms_limit" } } },
+      });
+    });
+    mocks.del.mockResolvedValue({ data: {} });
+    renderPage();
+    pickClient();
+    fireEvent.change(screen.getByLabelText("Rola"), { target: { value: "Tester" } });
+    // Autozapis odbija się od limitu — lista wraca, żeby było co usunąć.
+    await waitFor(() => expect(postsTo("/api/job-intake/forms")).toHaveLength(1));
+    const list = await screen.findByTestId("unfinished-intake-forms");
+    limitHit = false;
+    fireEvent.click(within(list).getByRole("button", { name: /Usuń formularz/ }));
+    fireEvent.click(within(list).getByRole("button", { name: "Usuń" }));
+    await waitFor(() => expect(mocks.del).toHaveBeenCalledWith("/api/job-intake/forms/91"));
+    // Miejsce się zwolniło: zapis idzie od razu, a nie przy następnej zmianie w formularzu.
+    await waitFor(() => expect(postsTo("/api/job-intake/forms")).toHaveLength(2));
+    expect(await screen.findByTestId("new-job-autosave")).toHaveTextContent(/^Formularz zapisany/);
+    expect(screen.queryByTestId("unfinished-intake-forms")).toBeNull();
+  });
+
   it("„Dokończ” wczytuje formularz z konta — pola, treść requestu i stan zapisu", async () => {
     const saved = {
       id: 91,

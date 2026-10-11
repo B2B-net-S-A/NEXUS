@@ -54,8 +54,9 @@ wysłał do klienta, budżet — 32%, dni w biurze — 8%. Decyzje Artura 30.09.
   do tego. Wariant powstaje tylko świadomie: „A / B”, „A lub B”, „A or B”
   (ukośnik ze spacjami; „CI/CD” to jedno słowo) albo przycisk „+ lub”
   w wypełnionym wierszu. Wypełniony wiersz nie ma pola do pisania — otwiera je
-  dopiero „+ lub” (tam Enter i przecinek dopisują warianty, pusty Enter albo
-  Esc je zamyka). Separator w domkniętym nawiasie nie dzieli („Spring (Boot,
+  dopiero „+ lub” (tam Enter, przecinek, średnik i wklejona lista dopisują
+  warianty do TEGO wiersza — `addRowVariants`; pusty Enter albo Esc je
+  zamyka). Separator w domkniętym nawiasie nie dzieli („Spring (Boot,
   Data)”), znaczniki wklejonej listy („- ”, „• ”, „1. ”) znikają. Nic nie
   przepada po cichu: słowo, które już prowadzi inny wiersz, daje notkę „Już na
   liście: …”, wymagania ponad 30 wierszy — „Nie zmieściło się: …”. Nowy wiersz

@@ -521,6 +521,7 @@ STATES.champion = {
     sourceName: "Profil Championa - Java.docx",
     filled: 14,
     championForm: true,
+    championSections: "taken",
   },
 };
 

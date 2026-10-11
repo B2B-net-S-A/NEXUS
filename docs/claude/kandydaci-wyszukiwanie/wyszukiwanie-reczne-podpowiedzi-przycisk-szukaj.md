@@ -62,6 +62,8 @@ w „Więcej filtrów”) jeden edytor wierszy (`RequirementRowsField`, logika
   wymagania — „Java, Spring” daje dwa wiersze, nie „Java lub Spring”. Wariant
   dodaje przycisk „+ lub” przy wypełnionym wierszu (pole wariantu jest ukryte,
   dopóki się go nie kliknie) albo zapis „Kafka / RabbitMQ”, „a lub b”, „a or b”.
+  W polu wariantu przecinek, średnik i wklejona lista dopisują warianty do
+  tego samego wiersza (`addRowVariants`), nigdy nowe wymaganie.
   Reguły bez Reacta: `parseRequirementEntry(text, keywordLongEnough)` z
   `lib/requirement-rows.ts` i `enterKeywordRows` z `lib/keyword-requirements.ts`
   (pierwsza grupa wypełnia bieżący wiersz, kolejne dochodzą niżej; takie samo

@@ -382,6 +382,20 @@ describe("RequirementRowsEditor — wpisywanie z klawiatury (zgłoszenie 09.10.2
     expect(screen.getAllByText("lub")).toHaveLength(1);
   });
 
+  it("w polu wariantu średnik działa jak przecinek — także w tekście zatwierdzonym Enterem", () => {
+    render(<StatefulEditor initial={[{ key: "a", words: ["Kafka"], level: "must" }]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Dodaj wariant do wymagania 1" }));
+    typeWord(rowInput(1), "RabbitMQ", ";");
+    expect(screen.getByText("RabbitMQ")).toBeInTheDocument();
+    expect(rowInput(1)).toHaveValue("");
+    typeWord(rowInput(1), "Pulsar; NATS");
+    expect(screen.getByText("Pulsar")).toBeInTheDocument();
+    expect(screen.getByText("NATS")).toBeInTheDocument();
+    // Wszystko zostało wariantami jednego wymagania.
+    expect(screen.getAllByRole("radiogroup")).toHaveLength(1);
+    expect(screen.getAllByText("lub")).toHaveLength(3);
+  });
+
   it("„+ lub” dopisuje warianty w środku listy i nie wstawia pustego wiersza", () => {
     render(
       <StatefulEditor

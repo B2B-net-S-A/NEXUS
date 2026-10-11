@@ -301,6 +301,24 @@ export function parseRequirementEntry(
   return { groups, rejected };
 }
 
+/**
+ * Pole „+ lub”: wszystko, co w nim wpisano albo wklejono, to warianty TEGO
+ * wiersza — także po przecinku, średniku, w nowych liniach i jako „A / B”.
+ * Słowo, które wiersz już ma, nie wraca drugi raz.
+ */
+export function addRowVariants(
+  words: readonly string[],
+  text: string,
+  accept: (word: string) => boolean = acceptRequirementWord,
+): { words: string[]; rejected: string[] } {
+  const entry = parseRequirementEntry(text, accept);
+  const next = [...words];
+  for (const word of entry.groups.flat()) {
+    if (!next.some((existing) => fold(existing) === fold(word))) next.push(word);
+  }
+  return { words: next, rejected: entry.rejected };
+}
+
 export interface RequirementEntryResult {
   rows: RequirementRowForm[];
   /** Ile wymagań trafiło na listę; 0 = lista bez zmian. */

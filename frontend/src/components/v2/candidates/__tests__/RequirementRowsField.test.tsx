@@ -156,6 +156,15 @@ describe("RequirementRowsField", () => {
       expect(fieldOrNull(1)).toBeNull();
     });
 
+    it("w polu wariantu średnik działa jak przecinek — warianty zostają w tym samym wierszu", () => {
+      render(<Harness initial={[["Java"]]} />);
+      fireEvent.click(addVariant(1));
+      type(field(1), "JDK", ";");
+      expect(rows()).toEqual([["Java", "JDK"]]);
+      type(field(1), "OpenJDK; GraalVM", "Enter");
+      expect(rows()).toEqual([["Java", "JDK", "OpenJDK", "GraalVM"]]);
+    });
+
     it("Esc w pustym polu wariantu zamyka je bez szukania, kursor wraca na „+ lub”", async () => {
       const onSubmitEmpty = vi.fn();
       render(<Harness initial={[["Java"]]} onSubmitEmpty={onSubmitEmpty} />);

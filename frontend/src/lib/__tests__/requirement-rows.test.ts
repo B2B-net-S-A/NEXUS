@@ -18,6 +18,7 @@ import {
   mustHeads,
   newRowKey,
   niceHeads,
+  addRowVariants,
   parseRequirementEntry,
   requiredOverflowNotice,
   requiredRows,
@@ -452,6 +453,27 @@ describe("podpowiedź z historii", () => {
 
 // Decyzja D1 (10.10.2026): przecinek, średnik, Enter i wklejona lista dają
 // OSOBNE wymagania; wariant („lub”) powstaje tylko świadomie.
+describe("addRowVariants — pole „+ lub” dopisuje warianty do TEGO wiersza", () => {
+  it("przecinek, średnik, nowa linia i „A / B” to kolejne warianty, nie nowe wymagania", () => {
+    expect(addRowVariants(["Java"], "JDK; OpenJDK, GraalVM\nJ2EE / Jakarta EE")).toEqual({
+      words: ["Java", "JDK", "OpenJDK", "GraalVM", "J2EE", "Jakarta EE"],
+      rejected: [],
+    });
+  });
+
+  it("słowo, które już jest w wierszu, nie wraca drugi raz; nawias zostaje jednym słowem", () => {
+    expect(addRowVariants(["Java", "Spring"], "java; Spring (Boot, Data)").words).toEqual([
+      "Java",
+      "Spring",
+      "Spring (Boot, Data)",
+    ]);
+  });
+
+  it("słowa, którego nie da się szukać, nie dopisuje — oddaje je do komunikatu", () => {
+    expect(addRowVariants(["Java"], "+; JDK")).toEqual({ words: ["Java", "JDK"], rejected: ["+"] });
+  });
+});
+
 describe("parseRequirementEntry — wpisany albo wklejony tekst → wymagania", () => {
   const groups = (text: string) => parseRequirementEntry(text).groups;
 
