@@ -18,6 +18,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Iterator, Optional
 
+from app.core import docx_cells
 from app.core.zip_guard import assert_safe_ooxml
 from app.services.cv_approved_docx import (
     _DATES_ONLY,
@@ -198,9 +199,7 @@ def _cells(row: Any) -> list[Any]:
     liczba z pliku, bez górnej granicy. Komórka będąca dalszym ciągiem
     scalenia w pionie nie ma własnej treści (leży w komórce nad nią).
     """
-    from docx.table import _Cell
-
-    return [_Cell(tc, row.table) for tc in row._tr.tc_lst if tc.vMerge != "continue"]
+    return docx_cells.row_cells(row)
 
 
 def _row_line(row: Any) -> Optional[_Line]:

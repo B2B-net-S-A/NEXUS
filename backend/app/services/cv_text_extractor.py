@@ -419,17 +419,16 @@ def _extract_docx(path: str) -> Optional[str]:
     try:
         from docx import Document  # type: ignore[import-untyped]
 
+        from app.core.docx_cells import grid_cell_texts
         from app.core.zip_guard import assert_safe_ooxml
 
         assert_safe_ooxml(path)
         doc = Document(path)
         lines = [p.text for p in doc.paragraphs if p.text]
         # Include table cells — CVs often layout experience as tables.
-        for table in doc.tables:
-            for row in table.rows:
-                for cell in row.cells:
-                    if cell.text:
-                        lines.append(cell.text)
+        # `grid_cell_texts`, nie `row.cells`: ten sam tekst co dotąd, ale liczby
+        # z pliku (CV z formularza kariery) nie sterują już kosztem odczytu.
+        lines.extend(grid_cell_texts(doc.tables))
         return "\n".join(lines)
     except Exception as e:  # pragma: no cover — defensive
         logger.warning(

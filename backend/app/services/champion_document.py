@@ -7,6 +7,7 @@ import re
 import unicodedata
 from copy import deepcopy
 
+from app.core.docx_cells import row_cells, row_texts
 from app.core.zip_guard import assert_safe_ooxml
 
 
@@ -36,13 +37,10 @@ def document_text(data: bytes) -> str:
                 if block.text.strip():
                     yield block.text
             else:
-                seen = set()
                 for row in block.rows:
                     cells = []
-                    for cell in row.cells:
-                        if cell._tc in seen:
-                            continue
-                        seen.add(cell._tc)
+                    # Komórki wprost z XML-a: `row.cells` rozwija `gridSpan` z pliku.
+                    for cell in row_cells(row):
                         value = "\n".join(blocks(cell)).strip()
                         if value:
                             cells.append(value)
@@ -128,17 +126,10 @@ def table_profile(data: bytes) -> dict | None:
             elif heading.startswith("uwagi / standardy"):
                 section = "standards"
             continue
-        rows = []
-        seen_cells = set()
-        for row in block.rows:
-            cells, row_cells = [], set()
-            for cell in row.cells:
-                if cell._tc in row_cells:
-                    continue
-                row_cells.add(cell._tc)
-                cells.append("" if cell._tc in seen_cells else cell.text.strip())
-                seen_cells.add(cell._tc)
-            rows.append(cells)
+        # Scalona komórka raz, a dalszy ciąg scalenia w pionie jako pusty napis
+        # (kolumny zostają na miejscach) — bez `row.cells`, które rozwija
+        # `gridSpan` z pliku.
+        rows = [row_texts(row) for row in block.rows]
         if rows and any("pytania od delivery" in folded(c) for c in rows[0]):
             found.add("screening_questions")
             for cells in rows[1:]:

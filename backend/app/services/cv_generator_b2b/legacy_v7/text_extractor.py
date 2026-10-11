@@ -17,6 +17,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from app.core.docx_cells import grid_cell_texts
 from app.core.log_safety import safe_filename
 from app.core.zip_guard import assert_safe_ooxml
 
@@ -99,11 +100,9 @@ def _extract_docx(data: bytes) -> str:
     for para in doc.paragraphs:
         if para.text:
             parts.append(para.text)
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                if cell.text:
-                    parts.append(cell.text)
+    # `grid_cell_texts` oddaje to samo co `row.cells` (tekst zamrożonej ścieżki
+    # się nie zmienia), ale liczby z pliku nie sterują już kosztem odczytu.
+    parts.extend(grid_cell_texts(doc.tables))
     return "\n".join(parts)
 
 
