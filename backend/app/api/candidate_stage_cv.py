@@ -72,6 +72,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.services.html_sanitizer import sanitize_cv_html
+from app.services.cv_rodo_clause import keep_rodo_clause
 from app.services.cv_document_versions import check_revision, freeze_approved_version
 
 # M2 audit follow-up (PR1b): the stage-CV snapshot router serves the SAME
@@ -1160,7 +1161,9 @@ async def update_branded_cv(
             ),
         )
 
-    csv.branded_draft_html = sanitize_cv_html(payload.content_html)
+    csv.branded_draft_html = keep_rodo_clause(
+        csv.branded_draft_html, sanitize_cv_html(payload.content_html)
+    )
     action = "branded_cv_edited"
     details = {"length": len(csv.branded_draft_html)}
     csv.edit_revision += 1
