@@ -38,6 +38,12 @@ https://claude.ai/artifact/QekWy3zx3pXNEKDKQmikf6, raport:
 - **Znacznik niczego nie blokuje** (jak konflikty z klientem od 17.09.2026)
   i nie niesie kwot, więc widzi go każda rola operacyjna. „Kontrakt ›” w ramce
   tylko z dostępem do sekcji Delivery.
+- **Rekruter widzi przez znacznik klienta, koniec zamówienia i Delivery Leada**
+  także bez dostępu do zamówień w Delivery, a filtr „Kończy u nas w ciągu 60
+  dni” daje mu taką listę dla całej bazy. To cel znacznika (makiety 1–4 i 6
+  zatwierdzone przez Artura), nie przeciek. Znacznik nie niesie i nie może
+  zacząć nieść stawek, numerów ani treści zamówień — nowe pole z zamówienia
+  w znaczniku to zmiana dostępu, do decyzji Artura.
 - **`elsewhere`** jest liczone tylko, gdy znany jest klient rekrutacji: `true`
   = któryś klient znacznika jest spoza rodziny klienta tej rekrutacji, `false`
   = to klient tej rekrutacji. Przy `false` pigułka mówi „Pracuje u tego
