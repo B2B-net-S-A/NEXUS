@@ -1,0 +1,278 @@
+/**
+ * Panel „Do poprawy” w edytorze CV (Edytor CV 2, PR 2) — czysta logika.
+ *
+ * QC, uwagi generatora i kontrola AI opisują ZAPISANĄ treść blokami tekstu,
+ * a edytor trzyma dokument ProseMirror, który rekruter właśnie zmienia. Nie
+ * mają wspólnego indeksu bloków, więc miejsce uwagi szuka się po tym, co
+ * widać: po numerze stanowiska w sekcji doświadczenia (lustro `cv_qc.cv_roles`),
+ * po etykiecie roli, po terminie w tekście albo po treści całej linii. Uwaga,
+ * której miejsca już nie ma, po prostu nie ma znacznika — nic nie zgaduje.
+ *
+ * Poprawki liczy serwer na treści z edytora (`POST …/qc/transform`), a tutaj
+ * wynik zamienia się w JEDNĄ transakcję obejmującą tylko zmieniony zakres:
+ * jedno „Cofnij” wraca do stanu sprzed poprawki, kursor zostaje na miejscu.
+ *
+ * Moduł nie importuje `@tiptap/react`.
+ */
+
+import { createDocument } from "@tiptap/core";
+import type { Node as PMNode } from "@tiptap/pm/model";
+import type { EditorState, Transaction } from "@tiptap/pm/state";
+
+import type { CvReviewFinding } from "@/lib/api/cvEditorIssues";
+import type { QcCheck, QcFix, QcFixAction } from "@/lib/api/cvQc";
+import { cvOutline, type CvOutline, type CvRole } from "@/lib/cv-editor-blocks";
+import {
+  countForm,
+  itemTarget,
+  normalizeQcText,
+  roleGaps,
+  roleLabelParts,
+  termRegExp,
+  type IssueTarget,
+} from "@/lib/cv-qc";
+
+export interface IssueRange {
+  from: number;
+  to: number;
+  /** Całe bloki tekstu (akapit, punkt) zamiast fragmentu linii. */
+  block: boolean;
+}
+
+/** `blocking` zatrzymuje wysyłkę CV, `note` to podpowiedź. */
+export type IssueTone = "blocking" | "note";
+
+export interface IssueMark extends IssueRange {
+  tone: IssueTone;
+}
+
+// ── Tekst dokumentu ──────────────────────────────────────────────────────────
+
+/** Znak w miejscu węzła bez tekstu (twarda spacja wiersza) — pozycje zostają zgodne z dokumentem. */
+const LEAF = "￼";
+
+interface TextBlock {
+  node: PMNode;
+  /** Pozycja PRZED blokiem; tekst zaczyna się na `position + 1`. */
+  position: number;
+  text: string;
+}
+
+/** Bloki tekstu dokumentu bez klauzuli zgody (jest stała — uwagi jej nie dotyczą). */
+function textBlocks(doc: PMNode, outline: CvOutline, within?: { from: number; to: number }): TextBlock[] {
+  const blocks: TextBlock[] = [];
+  doc.descendants((node, position) => {
+    if (outline.rodo && position === outline.rodo.from) return false;
+    if (within && (position + node.nodeSize <= within.from || position >= within.to)) return false;
+    if (!node.isTextblock) return true;
+    blocks.push({ node, position, text: node.textBetween(0, node.content.size, undefined, LEAF) });
+    return false;
+  });
+  return blocks;
+}
+
+// ── Miejsce uwagi w dokumencie ───────────────────────────────────────────────
+
+/** Stanowiska w sekcji doświadczenia — w tej kolejności serwer nadaje `role_index`. */
+function experienceRoles(outline: CvOutline): CvRole[] {
+  return outline.roles.filter((role) => outline.blocks[role.fromIndex]?.section === "experience");
+}
+
+function findRole(doc: PMNode, outline: CvOutline, roleIndex: number | null, label: string | null): CvRole | null {
+  const numbered = roleIndex != null ? experienceRoles(outline)[roleIndex] : undefined;
+  if (numbered) return numbered;
+  const parts = label ? roleLabelParts(label) : [];
+  if (parts.length === 0) return null;
+  return (
+    outline.roles.find((role) => {
+      const text = normalizeQcText(doc.textBetween(role.from, role.to, " "));
+      return parts.every((part) => text.includes(part));
+    }) ?? null
+  );
+}
+
+interface TermSearch {
+  within?: { from: number; to: number };
+  /** Pomiń wystąpienia z pogrubieniem (sprawdzenia „pogrubione w CV”). */
+  unboldedOnly?: boolean;
+  limit?: number;
+}
+
+/** Wystąpienia terminu w tekście CV (granice słowa jak w QC), w kolejności dokumentu. */
+export function termRanges(doc: PMNode, term: string, search: TermSearch = {}, outline = cvOutline(doc)): IssueRange[] {
+  const pattern = termRegExp(term);
+  if (!pattern) return [];
+  const bold = doc.type.schema.marks.bold;
+  const ranges: IssueRange[] = [];
+  for (const block of textBlocks(doc, outline, search.within)) {
+    for (const match of block.text.matchAll(pattern)) {
+      if (!match[0]) continue;
+      const from = block.position + 1 + (match.index ?? 0);
+      const to = from + match[0].length;
+      if (search.unboldedOnly && bold && doc.rangeHasMark(from, to, bold)) continue;
+      ranges.push({ from, to, block: false });
+      if (search.limit && ranges.length >= search.limit) return ranges;
+    }
+  }
+  return ranges;
+}
+
+/** Blok, którego cały tekst to podana linia (odstępy i wielkość liter bez znaczenia). */
+function lineRange(doc: PMNode, outline: CvOutline, text: string): IssueRange | null {
+  const wanted = normalizeQcText(text);
+  if (!wanted) return null;
+  const block = textBlocks(doc, outline).find((candidate) => normalizeQcText(candidate.text) === wanted);
+  return block ? { from: block.position, to: block.position + block.node.nodeSize, block: true } : null;
+}
+
+/** Tytuł stanowiska — pierwszy blok roli. */
+function roleTitleRange(outline: CvOutline, role: CvRole): IssueRange {
+  return { from: role.from, to: outline.blocks[role.fromIndex].to, block: true };
+}
+
+/**
+ * Pozycja w dokumencie dla miejsca z uwagi; `null`, gdy tego miejsca już nie
+ * ma (tekst zmieniono po zapisie, na którym policzono listę).
+ */
+export function locateTarget(doc: PMNode, target: IssueTarget, outline = cvOutline(doc)): IssueRange | null {
+  if (target.kind === "line") return lineRange(doc, outline, target.text);
+  const role = findRole(doc, outline, target.roleIndex, target.label);
+  if (target.kind === "role") return role ? roleTitleRange(outline, role) : null;
+  const inRole = role ? termRanges(doc, target.term, { within: role, limit: 1 }, outline)[0] : undefined;
+  return inRole ?? termRanges(doc, target.term, { limit: 1 }, outline)[0] ?? (role ? roleTitleRange(outline, role) : null);
+}
+
+// ── Znaczniki przy tekście ───────────────────────────────────────────────────
+
+const BOLD_CHECKS = new Set(["must_bolded", "nice_bolded"]);
+/** Górny limit znaczników — długie CV z częstym terminem nie zamula widoku. */
+const MAX_MARKS = 300;
+
+/**
+ * Znaczniki uwag w bieżącym dokumencie: stanowiska z brakiem opisu, terminy
+ * z niezaliczonych sprawdzeń i linie wskazane przez kontrolę AI. Liczone od
+ * zera po każdej zmianie treści — uwaga, której miejsce zniknęło, znika.
+ */
+export function issueMarks(doc: PMNode, checks: readonly QcCheck[], findings: readonly CvReviewFinding[]): IssueMark[] {
+  const outline = cvOutline(doc);
+  const marks: IssueMark[] = [];
+  for (const gap of roleGaps([...checks])) {
+    const role = findRole(doc, outline, gap.roleIndex, gap.role);
+    if (role) marks.push({ ...roleTitleRange(outline, role), tone: gap.blocking.length > 0 ? "blocking" : "note" });
+  }
+  const seen = new Set<string>();
+  for (const check of checks) {
+    if (check.status !== "fail" && check.status !== "manual") continue;
+    const tone: IssueTone = check.status === "fail" && check.severity === "blocking" ? "blocking" : "note";
+    for (const item of check.items) {
+      const target = itemTarget(item);
+      if (target?.kind !== "term") continue;
+      const key = `${tone}:${normalizeQcText(target.term)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const search = { unboldedOnly: BOLD_CHECKS.has(check.key), limit: MAX_MARKS - marks.length };
+      if (search.limit <= 0) return marks;
+      for (const range of termRanges(doc, target.term, search, outline)) marks.push({ ...range, tone });
+    }
+  }
+  for (const finding of findings) {
+    const range = lineRange(doc, outline, finding.text);
+    if (range) marks.push({ ...range, tone: "note" });
+  }
+  return marks.slice(0, MAX_MARKS);
+}
+
+/** Uwagi kontroli AI, których linia nadal stoi w CV — poprawiona linia nie wraca na listę. */
+export function findingsInCv(doc: PMNode, findings: readonly CvReviewFinding[]): CvReviewFinding[] {
+  const outline = cvOutline(doc);
+  return findings.filter((finding) => lineRange(doc, outline, finding.text) != null);
+}
+
+export const REVIEW_FINDING_LABEL: Record<string, string> = {
+  unsupported: "bez pokrycia w źródłach",
+  contradicted: "sprzeczne ze źródłem",
+  private: "dane prywatne",
+  invalid_evidence: "kontrola nie wskazała źródła",
+};
+
+// ── „Popraw wszystko” ────────────────────────────────────────────────────────
+
+export interface BulkPlan {
+  actions: QcFixAction[];
+  /** Co zostanie zrobione — do zdania pod przyciskiem i do potwierdzenia. */
+  parts: string[];
+}
+
+/**
+ * Poprawki, które wolno nałożyć hurtem (decyzja Artura D2, 12.10.2026):
+ * formalne (pogrubienie wymagań, pisownia technologii) i zdania AI
+ * w brzmieniu z serwera, czyli z cytatem sprawdzonym w źródle. Usunięcie
+ * terminu i zdanie AI po edycji zatwierdza się pojedynczo — serwer i tak
+ * odrzuca je w trybie `bulk` (`cv_qc.BULK_ACTIONS`).
+ */
+export function bulkPlan(checks: readonly QcCheck[], fixes: readonly QcFix[]): BulkPlan {
+  const actions: QcFixAction[] = [];
+  const parts: string[] = [];
+  let spelling = 0;
+  for (const check of checks) {
+    if (check.status !== "fail") continue;
+    const terms = check.items.filter((item) => item.fix === "bold_all").length;
+    if (terms > 0) {
+      const scope = check.key === "nice_bolded" ? "nice" : "must";
+      if (!actions.some((action) => action.action === "bold_all" && action.scope === scope)) {
+        actions.push({ action: "bold_all", scope });
+        parts.push(
+          `pogrubienie ${countForm(terms, ["wymagania", "wymagań", "wymagań"])} ${scope === "nice" ? "mile widzianych" : "must-have"}`,
+        );
+      }
+    }
+    spelling += check.items.filter((item) => item.fix === "spelling").length;
+  }
+  if (spelling > 0) {
+    actions.push({ action: "spelling" });
+    parts.push(`pisownia ${countForm(spelling, ["technologii", "technologii", "technologii"])}`);
+  }
+  for (const fix of fixes) actions.push({ action: "ai_fix", fix_id: fix.id });
+  if (fixes.length > 0) {
+    parts.push(`${countForm(fixes.length, ["zdanie", "zdania", "zdań"])} AI z cytatem ze źródła`);
+  }
+  return { actions, parts };
+}
+
+// ── Nałożenie wyniku serwera ─────────────────────────────────────────────────
+
+/**
+ * Transakcja zamieniająca TYLKO zakres, którym nowa treść różni się od
+ * bieżącej; `null`, gdy po wczytaniu do schematu edytora nic się nie zmienia.
+ */
+export function changedRangeStep(state: EditorState, html: string): Transaction | null {
+  const next = createDocument(html, state.schema);
+  const start = state.doc.content.findDiffStart(next.content);
+  if (start == null) return null;
+  const end = state.doc.content.findDiffEnd(next.content);
+  if (!end) return null;
+  let { a: endCurrent, b: endNext } = end;
+  // Powtórzony fragment (np. dopisany taki sam punkt) daje koniec przed początkiem.
+  const overlap = start - Math.min(endCurrent, endNext);
+  if (overlap > 0) {
+    endCurrent += overlap;
+    endNext += overlap;
+  }
+  return state.tr.replace(start, endCurrent, next.slice(start, endNext));
+}
+
+/** Zakres, który transakcja z `changedRangeStep` zostawiła w nowym dokumencie. */
+export function changedRange(transaction: Transaction): IssueRange | null {
+  let from = Infinity;
+  let to = -Infinity;
+  transaction.mapping.maps.forEach((map, index) => {
+    map.forEach((_oldStart, _oldEnd, newStart, newEnd) => {
+      const rest = transaction.mapping.slice(index + 1);
+      from = Math.min(from, rest.map(newStart, -1));
+      to = Math.max(to, rest.map(newEnd, 1));
+    });
+  });
+  if (from === Infinity) return null;
+  const size = transaction.doc.content.size;
+  return { from: Math.max(0, Math.min(from, size)), to: Math.max(0, Math.min(to, size)), block: true };
+}

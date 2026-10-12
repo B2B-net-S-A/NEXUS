@@ -153,12 +153,46 @@ export interface QcFixesResponse {
   fixes: QcFix[];
 }
 
-export type QcApplyBody = (
+/** Jedna poprawka QC: zdanie AI, pogrubienie wymagań, usunięcie terminu albo pisownia. */
+export type QcFixAction =
   | { action: "ai_fix"; fix_id: string; text?: string }
   | { action: "bold_all"; scope: "must" | "nice" }
   | { action: "remove_term"; term: string }
-  | { action: "spelling" }
-) & { expected_revision?: number };
+  | { action: "spelling" };
+
+export type QcApplyBody = QcFixAction & { expected_revision?: number };
+
+/**
+ * Poprawki liczone na treści z edytora CV (`POST …/qc/transform`) — serwer
+ * niczego nie zapisuje w szkicu, edytor nakłada wynik jednym cofalnym krokiem.
+ * `bulk` = „Popraw wszystko”: serwer sam pomija poprawki, które zatwierdza się
+ * pojedynczo (usunięcie terminu, zdanie AI z własnym tekstem).
+ */
+export interface QcTransformBody {
+  content_html: string;
+  actions: QcFixAction[];
+  bulk?: boolean;
+}
+
+export interface QcTransformApplied {
+  action: string;
+  fix_id?: string | null;
+  count?: number | null;
+}
+
+export interface QcTransformSkipped {
+  action: string;
+  code: string;
+  /** Zdanie dla rekrutera — dlaczego tej poprawki nie nałożono. */
+  message: string;
+}
+
+export interface QcTransformResult {
+  content_html: string;
+  changed: boolean;
+  applied: QcTransformApplied[];
+  skipped: QcTransformSkipped[];
+}
 
 /** 409 z `qc/apply`: szkic zmienił się od wczytania listy QC. */
 export const CV_CHANGED_CODE = "CV_CHANGED";
