@@ -1174,32 +1174,6 @@ export const prepKitApi = {
     ),
 };
 
-// ── AI Writer ─────────────────────────────────────────────────────────────────
-export const aiWriterApi = {
-  // Saved-job descriptions use a factual template; generateJob uses the model.
-  // The shared timeout accommodates the slower model-backed route.
-  generateJobDescription: (data: {
-    title: string;
-    client_name?: string;
-    requirements?: string;
-    seniority?: string;
-  }) =>
-    api.post("/api/ai/generate-job-description", data, {
-      timeout: SLOW_ENDPOINT_TIMEOUT_MS,
-    }),
-
-  generateJob: (data: {
-    title: string;
-    client?: string;
-    seniority?: string;
-    skills?: string[];
-    description_hint?: string;
-  }) =>
-    api.post("/api/ai/generate-job", data, {
-      timeout: SLOW_ENDPOINT_TIMEOUT_MS,
-    }),
-};
-
 // ── AI Matching ───────────────────────────────────────────────────────────────
 export const matchingApi = {
   // Returns ALL candidates that match the job (score >= backend threshold),

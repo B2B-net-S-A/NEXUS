@@ -726,6 +726,23 @@ function seedCardPanel(qc: QueryClient, item: KanbanItem, columnName: string): v
     email: `kandydat${candidateId}@example.com`,
     linkedin_current_title: "Frontend Developer",
     linkedin_current_company: "Firma Przykładowa",
+    // Warunki, które pokazuje profil przed telefonem i fakty doku.
+    availability_date: null,
+    availability_status: "open_to_offers",
+    notice_period: 1,
+    notice_period_unit: "months",
+    max_onsite_days_per_week: 2,
+  });
+  seedFresh(qc, candidateQueryKeys.rateOverview(candidateId), {
+    candidate_id: candidateId,
+    enabled: true,
+    window_start: "2025-04-12",
+    rate_from: null,
+    latest_amount: candidateId === RICH_HISTORY_CANDIDATE_ID ? 130 : null,
+    latest_at: candidateId === RICH_HISTORY_CANDIDATE_ID ? "2025-03-14T15:20:00Z" : null,
+    count: candidateId === RICH_HISTORY_CANDIDATE_ID ? 2 : 0,
+    observations: [],
+    paid: [],
   });
   seedFresh(qc, candidateQueryKeys.quickView(candidateId), {
     candidate: { id: candidateId, ...fullName, city: "Warszawa", location: "Warszawa" },

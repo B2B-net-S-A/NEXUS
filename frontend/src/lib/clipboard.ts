@@ -19,3 +19,32 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * Kopiuje treść w dwóch postaciach naraz: HTML (edytor z formatowaniem wklei
+ * nagłówki i listy) i zwykły tekst (pole bez formatowania wklei wiersze).
+ *
+ * Przeglądarka bez `ClipboardItem` albo odmawiająca zapisu HTML dostaje sam
+ * tekst — wynik dalej mówi prawdę o tym, czy COKOLWIEK trafiło do schowka.
+ */
+export async function copyHtmlToClipboard(html: string, text: string): Promise<boolean> {
+  try {
+    if (
+      html &&
+      typeof navigator !== "undefined" &&
+      typeof navigator.clipboard?.write === "function" &&
+      typeof ClipboardItem !== "undefined"
+    ) {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/html": new Blob([html], { type: "text/html" }),
+          "text/plain": new Blob([text], { type: "text/plain" }),
+        }),
+      ]);
+      return true;
+    }
+  } catch {
+    // Zapas niżej: sam tekst.
+  }
+  return copyTextToClipboard(text);
+}

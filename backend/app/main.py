@@ -147,7 +147,6 @@ from app.api import required_documents
 from app.api import screenings
 from app.api import contacts
 from app.api import prep_kit
-from app.api import ai_writer
 from app.api import talent_pools
 from app.api import public_engagement
 from app.api import cv_generator_b2b
@@ -208,6 +207,7 @@ from app.api import settings as app_settings_api
 from app.api import champion_intake as champion_intake_api
 from app.api import job_request_intake as job_request_intake_api
 from app.api import job_files as job_files_api
+from app.api import job_ads as job_ads_api
 from app.api import job_intake_forms as job_intake_forms_api
 from app.api import screening_reassign as screening_reassign_api
 from app.api import cv_qc as cv_qc_api
@@ -1068,6 +1068,8 @@ app.include_router(job_request_intake_api.router, prefix="/api", tags=["jobs"])
 # 0416: niedokończone formularze „Nowa rekrutacja” na koncie autora.
 app.include_router(job_intake_forms_api.router, prefix="/api", tags=["jobs"])
 app.include_router(job_files_api.router, prefix="/api", tags=["jobs"])
+# 0430: ogłoszenie do wklejenia na portale (zastąpiło `ai_writer`).
+app.include_router(job_ads_api.router, prefix="/api", tags=["jobs"])
 app.include_router(screening_reassign_api.router, prefix="/api", tags=["pipeline"])
 # Rekrutacja v5: QC CV (bramka przed „CV wysłane”/Cpro, poprawki AI).
 app.include_router(cv_qc_api.router, prefix="/api/pipeline", tags=["pipeline"])
@@ -1558,7 +1560,6 @@ app.include_router(prep_kit.router, prefix="/api", tags=["prep-kit"])
 app.include_router(
     interview_questions_api.router, prefix="/api", tags=["interview-questions"]
 )
-app.include_router(ai_writer.router, prefix="/api", tags=["ai-writer"])
 app.include_router(talent_pools.router, prefix="/api", tags=["talent-pools"])
 app.include_router(marketplace_api.router, prefix="/api", tags=["marketplace"])
 app.include_router(cv_generator_b2b.router, prefix="/api", tags=["cv-generator-b2b"])
@@ -2920,6 +2921,7 @@ async def api_health_deep_check():
         ClientFrameworkContractChunk,
     )
     from app.models.job_file import JobFile
+    from app.models.job_ad import JobAd
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -3164,6 +3166,9 @@ async def api_health_deep_check():
         # 0428: pliki rekrutacji — brak tabeli = 500 przy „Utwórz i przekaż”
         # (przepięcie plików formularza) i w menu „⋯” → „Pliki”.
         ("job_files", JobFile),
+        # 0430: ogłoszenie do wklejenia na portale — brak tabeli = 500 przy
+        # „Przygotuj ogłoszenie” w rekrutacji.
+        ("job_ads", JobAd),
     ]
 
     checks: dict[str, str] = {}

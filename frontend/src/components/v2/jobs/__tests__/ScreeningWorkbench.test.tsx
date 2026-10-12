@@ -46,10 +46,13 @@ vi.mock("@/components/v2/screening-form/ScreeningFullForm", () => ({
 }));
 
 vi.mock("@/components/v2/screening-form/BeforeCallProfile", () => ({
-  BeforeCallProfile: (props: { onStartScreening: () => void; onTake?: () => void }) => (
+  BeforeCallProfile: (props: { onStartScreening: () => void; onTake?: () => void; onOpenHistory?: () => void }) => (
     <div data-testid="before-call">
       <button type="button" onClick={props.onStartScreening}>
         Zacznij screening
+      </button>
+      <button type="button" onClick={props.onOpenHistory}>
+        Pokaż wcześniejsze notatki
       </button>
       {props.onTake ? (
         <button type="button" onClick={props.onTake}>
@@ -61,11 +64,21 @@ vi.mock("@/components/v2/screening-form/BeforeCallProfile", () => ({
 }));
 
 vi.mock("@/components/v2/screening-form/CandidatePreviewPane", () => ({
-  CandidatePreviewPane: (props: { tab: string; stageId: number | null; onTabChange: (tab: string) => void }) => (
+  CandidatePreviewPane: (props: {
+    tab: string;
+    stageId: number | null;
+    onTabChange: (tab: string) => void;
+    historyOpen?: boolean;
+    onHistoryOpenChange?: (open: boolean) => void;
+  }) => (
     <div data-testid="preview-pane">
       podgląd: {props.tab} · etap {props.stageId}
+      {props.historyOpen ? " · historia osoby" : ""}
       <button type="button" onClick={() => props.onTabChange("plain")}>
         Po ludzku
+      </button>
+      <button type="button" onClick={() => props.onHistoryOpenChange?.(false)}>
+        Zamknij historię
       </button>
     </div>
   ),
@@ -197,6 +210,29 @@ describe("ScreeningWorkbench — co stoi po lewej", () => {
     await user.click(screen.getByRole("button", { name: /Profil przed telefonem/ }));
     expect(screen.getByTestId("before-call")).toBeVisible();
     expect(screen.getByTestId("full-form")).not.toBeVisible();
+  });
+
+  it("„Pokaż” przy wcześniejszych notatkach otwiera historię osoby w podglądzie, na zakładce CV", async () => {
+    const user = userEvent.setup();
+    renderWorkbench();
+    await screen.findByTestId("before-call");
+    // Rekruter jest na innej zakładce podglądu — historia stoi w „CV”.
+    await user.click(await screen.findByRole("button", { name: "Po ludzku" }));
+    expect(screen.getByTestId("preview-pane")).toHaveTextContent("podgląd: plain");
+    expect(screen.getByTestId("preview-pane")).not.toHaveTextContent("historia osoby");
+
+    // W wąskim oknie (test: bez strefy panelu) podgląd jest schowany pod przyciskiem.
+    expect(screen.getByTestId("screening-preview-column").className).toContain("hidden");
+
+    await user.click(screen.getByRole("button", { name: "Pokaż wcześniejsze notatki" }));
+    expect(screen.getByTestId("preview-pane")).toHaveTextContent("podgląd: cv");
+    expect(screen.getByTestId("preview-pane")).toHaveTextContent("historia osoby");
+    // „Pokaż” odsłania też sam podgląd — inaczej klik wyglądałby na pusty.
+    expect(screen.getByTestId("screening-preview-column").className).not.toMatch(/(^| )hidden( |$)/);
+
+    // Podgląd oddaje stan gospodarzowi (wybór źródła CV, „Szukaj w CV”).
+    await user.click(screen.getByRole("button", { name: "Zamknij historię" }));
+    expect(screen.getByTestId("preview-pane")).not.toHaveTextContent("historia osoby");
   });
 
   it("„Biorę — 12 h” z profilu przed telefonem woła blokadę dla tej osoby", async () => {

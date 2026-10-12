@@ -99,6 +99,7 @@ import {
   type NoteOffer,
   type ScreeningFullFormValues,
 } from "@/lib/screening-form";
+import { onsiteText } from "@/lib/person-facts";
 import type { ScreeningSuggestions } from "@/lib/screening-suggestions";
 import { cn } from "@/lib/utils";
 import { evaluateRateGate } from "@/lib/verified-rate-gate";
@@ -439,6 +440,8 @@ export interface ScreeningFullFormViewProps {
   /** Zapis dostępności z notatek w PROFILU kandydata (brak = bez prawa edycji). */
   onSaveAvailability?: (patch: { availability_date: string }) => void;
   savingAvailability?: boolean;
+  /** Tryb pracy z profilu kandydata („Do 2 dni w biurze”) — podpowiedź pod polem. */
+  profileWorkMode?: string | null;
 }
 
 export function ScreeningFullFormView({
@@ -454,6 +457,7 @@ export function ScreeningFullFormView({
   onOpenChampion,
   onSaveAvailability,
   savingAvailability = false,
+  profileWorkMode = null,
 }: ScreeningFullFormViewProps) {
   const { methods, questions, offers, hints } = model;
   const values = methods.watch();
@@ -555,7 +559,12 @@ export function ScreeningFullFormView({
         data-fix-state={fixMark ?? undefined}
       >
         <FixMark state={fixMark} />
-        <FormField name={name} label={label}>
+        <FormField
+          name={name}
+          label={label}
+          // 12.10.2026: to, co już wiemy, stoi pod polem, którego dotyczy.
+          description={key === "work_mode" && profileWorkMode ? `W profilu: ${profileWorkMode}` : undefined}
+        >
           {multiline ? (
             <TextareaField
               name={name}
@@ -566,6 +575,18 @@ export function ScreeningFullFormView({
             <TextField name={name} placeholder={hint ? `ostatnio: ${hint}` : CARD_FIELD_HINT[key]} />
           )}
         </FormField>
+        {key === "availability" ? (
+          // Dostępność z notatek: „Użyj” zapisuje ją w PROFILU kandydata (nie
+          // w tym polu). Do 12.10.2026 stała w bloku stawki, daleko od pola.
+          <ScreeningSuggestionChips
+            only="availability"
+            suggestions={state.suggestions_from_notes as ScreeningSuggestions | undefined}
+            disabled={!state.can_edit_rate}
+            onSaveAvailability={onSaveAvailability}
+            savingAvailability={savingAvailability}
+            profileHref={`/candidates/${state.candidate_id}`}
+          />
+        ) : null}
         {caption ? <p className="text-[11px] text-muted-foreground">{caption}</p> : null}
         {keepsNoteValue ? (
           <p className="text-[11px] text-muted-foreground">
@@ -684,6 +705,7 @@ export function ScreeningFullFormView({
               </div>
             ) : null}
             <ScreeningSuggestionChips
+              only="rate"
               suggestions={state.suggestions_from_notes as ScreeningSuggestions | undefined}
               disabled={!state.can_edit_rate}
               onUseRate={(fill) => {
@@ -691,9 +713,6 @@ export function ScreeningFullFormView({
                 methods.setValue("rate_unit", fill.unit, SET);
                 methods.setValue("rate_currency", "PLN", SET);
               }}
-              onSaveAvailability={onSaveAvailability}
-              savingAvailability={savingAvailability}
-              profileHref={`/candidates/${state.candidate_id}`}
             />
             {rateOffer ? (
               <OfferChip
@@ -896,6 +915,15 @@ export function ScreeningFullForm({
     },
     onError: (err) => showError(apiErrorMessage(err, "Nie udało się zapisać dostępności w profilu")),
   });
+
+  // Tryb pracy z profilu jako podpowiedź pod polem — ten sam klucz i trasa co
+  // dok osoby i profil przed telefonem, więc w panelu bez dodatkowego żądania.
+  const profileQuery = useQuery<{ max_onsite_days_per_week?: number | null }>({
+    queryKey: candidateQueryKeys.detail(candidateId),
+    queryFn: () => candidatesApi.get(candidateId).then((r) => r.data),
+    staleTime: 60_000,
+  });
+  const profileWorkMode = onsiteText(profileQuery.data?.max_onsite_days_per_week);
 
   const handleSaveError = (err: unknown) => {
     const conflict = screeningFormConflictOf(err);
@@ -1305,6 +1333,7 @@ export function ScreeningFullForm({
         onOpenChampion={onOpenChampion}
         onSaveAvailability={canEditCandidate ? (patch) => availabilityMut.mutate(patch) : undefined}
         savingAvailability={availabilityMut.isPending}
+        profileWorkMode={profileWorkMode}
       />
       {moveCore.dialogs}
       {reject && rejectOpen ? (

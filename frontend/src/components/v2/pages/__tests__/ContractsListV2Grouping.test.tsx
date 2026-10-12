@@ -17,7 +17,6 @@ vi.mock("@/lib/api", () => ({
     put: vi.fn(),
     delete: vi.fn(),
   },
-  aiWriterApi: {},
   phase5Api: {},
   pipelineTemplatesApi: {},
   requestHistoryApi: {},

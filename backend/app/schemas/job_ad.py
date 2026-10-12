@@ -1,0 +1,191 @@
+"""Schematy ogłoszenia do wklejenia na portale (``app/api/job_ads.py``)."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Annotated, Literal, Optional
+
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+
+from app.services.job_ad import fixed_blocks, generate
+
+Lang = Literal["pl", "en"]
+TechLevel = Literal["critical", "must", "nice"]
+# Limity jak w `generate.clean_content` — przekroczenie ma być błędem 422,
+# nie cichym obcięciem punktu, który rekruter właśnie dopisał.
+Item = Annotated[str, StringConstraints(max_length=generate.ITEM_MAX)]
+ListItems = list[str]
+_LIMITS = generate.LIST_LIMITS
+
+
+class AdContent(BaseModel):
+    """Pola, które rekruter może poprawić ręcznie."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(default="", max_length=generate.TITLE_MAX)
+    lead: str = Field(default="", max_length=generate.LEAD_MAX)
+    about: str = Field(default="", max_length=generate.ABOUT_MAX)
+    start: str = Field(default="", max_length=generate.TERM_MAX)
+    duration: str = Field(default="", max_length=generate.TERM_MAX)
+    # Język pracy (np. „polski, angielski B2”) — nie język ogłoszenia.
+    language: str = Field(default="", max_length=generate.TERM_MAX)
+    responsibilities: list[Item] = Field(
+        default_factory=list, max_length=_LIMITS["responsibilities"]
+    )
+    requirements: list[Item] = Field(
+        default_factory=list, max_length=_LIMITS["requirements"]
+    )
+    nice_to_have: list[Item] = Field(
+        default_factory=list, max_length=_LIMITS["nice_to_have"]
+    )
+    offer: list[Item] = Field(default_factory=list, max_length=_LIMITS["offer"])
+
+
+class AdTechItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=100)
+    level: TechLevel = "must"
+
+
+class AdGenerateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    lang: Lang = "pl"
+    # Jak w `AdUpdateRequest`: wersja, którą okno miało na ekranie, gdy
+    # rekruter potwierdzał zastąpienie treści.
+    expected_updated_at: Optional[datetime] = None
+
+
+class AdUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content: AdContent
+    tech: list[AdTechItem] = Field(default_factory=list, max_length=40)
+    # `updated_at` wersji, którą okno miało na ekranie. Podane i inne niż
+    # w bazie = 409: ktoś w międzyczasie zapisał albo przygotował ogłoszenie.
+    expected_updated_at: Optional[datetime] = None
+
+
+class AdContentRead(AdContent):
+    """Odczyt łagodny: nieznany klucz w zapisanym JSONB (wiersz z nowszej
+    wersji po wycofaniu wdrożenia) nie może dać 500 przy otwarciu okna."""
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class AdTechRead(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    name: str
+    level: TechLevel = "must"
+
+
+class AdRead(BaseModel):
+    lang: Lang
+    content: AdContentRead
+    tech: list[AdTechRead]
+    source: Literal["ai", "template"]
+    generated_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    # Rekrutacja zmieniła się od przygotowania ogłoszenia.
+    stale: bool = False
+
+
+class AdFact(BaseModel):
+    key: str
+    label: str
+    value: str
+
+
+class AdReadinessItem(BaseModel):
+    key: str
+    label: str
+    present: bool
+
+
+class AdFinding(BaseModel):
+    code: str
+    severity: Literal["block", "advise"]
+    message: str
+    excerpt: Optional[str] = None
+    field: Optional[str] = None
+
+
+class RenderedField(BaseModel):
+    key: str
+    label: str
+    kind: Literal["text", "list", "ordered"]
+    text: str
+    html: str
+    items: list[str]
+    auto_count: int = 0
+    fixed_count: int = 0
+
+
+class RenderedPracuj(BaseModel):
+    fields: list[RenderedField]
+    params: list[str]
+
+
+class RenderedTech(BaseModel):
+    name: str
+    level: int
+    label: str
+    source: TechLevel
+
+
+class RenderedSection(BaseModel):
+    key: str
+    heading: Optional[str] = None
+    kind: Literal["text", "list", "ordered"]
+    text: str
+    items: list[str]
+    fixed_count: int = 0
+
+
+class RenderedJjit(BaseModel):
+    form_fields: list[AdFact]
+    tech_stack: list[RenderedTech]
+    # Technologie poza limitem portalu (10) — okno mówi o nich wprost.
+    tech_overflow: int = 0
+    sections: list[RenderedSection]
+    body_html: str
+    body_text: str
+
+
+class RenderedAd(BaseModel):
+    title: str
+    pracuj: RenderedPracuj
+    jjit: RenderedJjit
+
+
+class JobAdResponse(BaseModel):
+    ad: Optional[AdRead] = None
+    facts: list[AdFact]
+    readiness: list[AdReadinessItem]
+    findings: list[AdFinding] = Field(default_factory=list)
+    rendered: Optional[RenderedAd] = None
+    # Kopiowanie wolno włączyć: ogłoszenie istnieje i nie ma znalezisk blokujących.
+    can_copy: bool = False
+
+
+class LangBlocksModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    offer: ListItems = Field(
+        default_factory=list, max_length=fixed_blocks.OFFER_MAX_ITEMS
+    )
+    process: ListItems = Field(
+        default_factory=list, max_length=fixed_blocks.PROCESS_MAX_ITEMS
+    )
+    about: str = Field(default="", max_length=fixed_blocks.ABOUT_MAX_CHARS)
+
+
+class FixedBlocksModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title_suffix: Literal["kmx", "km", "none"]
+    pl: LangBlocksModel
+    en: LangBlocksModel

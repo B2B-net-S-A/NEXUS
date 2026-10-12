@@ -1,0 +1,245 @@
+// Ogłoszenie rekrutacji do wklejenia na portale (Pracuj.pl, JustJoin.IT).
+//
+// Typy są lustrem kontraktu backendu (`/api/jobs/{id}/portal-ad`,
+// `/api/job-ads/fixed-blocks`, `backend/app/schemas/job_ad.py`). Klucze zapytań
+// są EKSPORTOWANYMI funkcjami: harness `/preview/job-ad` zasiewa cache tymi
+// samymi funkcjami, więc zmiana klucza nie może się rozjechać z zasiewem.
+
+import { useQuery } from "@tanstack/react-query";
+
+import api from "@/lib/api";
+import { SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
+
+// ── Typy ─────────────────────────────────────────────────────────────────
+
+export type AdLang = "pl" | "en";
+export type AdTechLevel = "critical" | "must" | "nice";
+export type AdSource = "ai" | "template";
+export type AdSeverity = "block" | "advise";
+
+/** Pola, które rekruter może poprawić ręcznie. */
+export interface AdContent {
+  title: string;
+  lead: string;
+  about: string;
+  start: string;
+  duration: string;
+  /** Język pracy (np. „polski, angielski B2”) — nie język ogłoszenia. */
+  language: string;
+  responsibilities: string[];
+  requirements: string[];
+  nice_to_have: string[];
+  offer: string[];
+}
+
+export type AdListKey = "responsibilities" | "requirements" | "nice_to_have" | "offer";
+export type AdTextKey = "title" | "lead" | "about" | "start" | "duration" | "language";
+
+export interface AdTechItem {
+  name: string;
+  level: AdTechLevel;
+}
+
+export interface AdRead {
+  lang: AdLang;
+  content: AdContent;
+  tech: AdTechItem[];
+  source: AdSource;
+  generated_at: string | null;
+  updated_at: string | null;
+  /** Rekrutacja zmieniła się od przygotowania ogłoszenia. */
+  stale: boolean;
+}
+
+export interface AdFact {
+  key: string;
+  label: string;
+  value: string;
+}
+
+export interface AdReadinessItem {
+  key: string;
+  label: string;
+  present: boolean;
+}
+
+export interface AdFinding {
+  code: string;
+  severity: AdSeverity;
+  message: string;
+  excerpt: string | null;
+  field: string | null;
+}
+
+export type RenderedKind = "text" | "list" | "ordered";
+
+export interface RenderedField {
+  key: string;
+  label: string;
+  kind: RenderedKind;
+  /** Zwykły tekst do schowka (lista = jedna pozycja w wierszu). */
+  text: string;
+  /** HTML do schowka — NIGDY do `dangerouslySetInnerHTML`. */
+  html: string;
+  items: string[];
+  /** Pierwsze N pozycji pochodzi z pól rekrutacji. */
+  auto_count: number;
+  /** Ostatnie N pozycji to stały blok z Ustawień. */
+  fixed_count: number;
+}
+
+export interface RenderedTech {
+  name: string;
+  level: number;
+  label: string;
+  source: AdTechLevel;
+}
+
+export interface RenderedSection {
+  key: string;
+  heading: string | null;
+  kind: RenderedKind;
+  text: string;
+  items: string[];
+  fixed_count: number;
+}
+
+export interface RenderedAd {
+  title: string;
+  pracuj: { fields: RenderedField[]; params: string[] };
+  jjit: {
+    form_fields: AdFact[];
+    tech_stack: RenderedTech[];
+    /** Technologie poza limitem portalu (10). */
+    tech_overflow: number;
+    sections: RenderedSection[];
+    body_html: string;
+    body_text: string;
+  };
+}
+
+export interface JobAdState {
+  ad: AdRead | null;
+  facts: AdFact[];
+  readiness: AdReadinessItem[];
+  findings: AdFinding[];
+  rendered: RenderedAd | null;
+  /** Ogłoszenie istnieje i nie ma znalezisk blokujących. */
+  can_copy: boolean;
+}
+
+export type TitleSuffix = "kmx" | "km" | "none";
+
+export interface FixedLangBlocks {
+  offer: string[];
+  process: string[];
+  about: string;
+}
+
+export interface FixedBlocks {
+  title_suffix: TitleSuffix;
+  pl: FixedLangBlocks;
+  en: FixedLangBlocks;
+}
+
+// ── Klucze zapytań ───────────────────────────────────────────────────────
+
+export const jobAdQueryKey = (jobId: number) => ["job-ad", jobId] as const;
+export const jobAdFixedBlocksQueryKey = () => ["job-ad", "fixed-blocks"] as const;
+
+// ── Klient ───────────────────────────────────────────────────────────────
+
+function normalize(data: unknown): JobAdState {
+  const d = (data ?? {}) as Partial<JobAdState>;
+  return {
+    ad: d.ad ?? null,
+    facts: Array.isArray(d.facts) ? d.facts : [],
+    readiness: Array.isArray(d.readiness) ? d.readiness : [],
+    findings: Array.isArray(d.findings) ? d.findings : [],
+    rendered: d.rendered ?? null,
+    can_copy: d.can_copy === true,
+  };
+}
+
+export const jobAdApi = {
+  get: async (jobId: number): Promise<JobAdState> => {
+    const res = await api.get(`/api/jobs/${jobId}/portal-ad`);
+    return normalize(res.data);
+  },
+  /**
+   * Układa treść od nowa (model albo złożenie z pól rekrutacji) i ją zapisuje.
+   * `expectedUpdatedAt` — wersja z ekranu; inna w bazie = 409 `job_ad_changed`.
+   */
+  generate: async (
+    jobId: number,
+    lang: AdLang,
+    expectedUpdatedAt: string | null = null,
+  ): Promise<JobAdState> => {
+    const res = await api.post(
+      `/api/jobs/${jobId}/portal-ad/generate`,
+      { lang, expected_updated_at: expectedUpdatedAt },
+      { timeout: SLOW_ENDPOINT_TIMEOUT_MS },
+    );
+    return normalize(res.data);
+  },
+  save: async (
+    jobId: number,
+    input: {
+      content: AdContent;
+      tech: AdTechItem[];
+      /** `updated_at` wersji z ekranu — inna w bazie = 409 `job_ad_changed`. */
+      expected_updated_at?: string | null;
+    },
+  ): Promise<JobAdState> => {
+    const res = await api.put(`/api/jobs/${jobId}/portal-ad`, input);
+    return normalize(res.data);
+  },
+  getFixedBlocks: async (): Promise<FixedBlocks> => {
+    const res = await api.get<FixedBlocks>("/api/job-ads/fixed-blocks");
+    return res.data;
+  },
+  saveFixedBlocks: async (input: FixedBlocks): Promise<FixedBlocks> => {
+    const res = await api.put<FixedBlocks>("/api/job-ads/fixed-blocks", input);
+    return res.data;
+  },
+};
+
+// ── Hooki ────────────────────────────────────────────────────────────────
+
+export function useJobAd(jobId: number | null, enabled = true) {
+  return useQuery({
+    queryKey: jobAdQueryKey(jobId ?? 0),
+    queryFn: () => jobAdApi.get(jobId as number),
+    enabled: enabled && jobId != null && jobId > 0,
+  });
+}
+
+// ── Czyste pomocniki ─────────────────────────────────────────────────────
+
+export function blockingFindings(findings: AdFinding[]): AdFinding[] {
+  return findings.filter((f) => f.severity === "block");
+}
+
+export function advisoryFindings(findings: AdFinding[]): AdFinding[] {
+  return findings.filter((f) => f.severity === "advise");
+}
+
+/** Lista z pola tekstowego: jedna pozycja w wierszu, bez pustych. */
+export function linesToItems(text: string): string[] {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+/** Zapis albo przygotowanie odrzucone, bo ktoś w międzyczasie zmienił ogłoszenie (409). */
+export function isAdChangedError(error: unknown): boolean {
+  const response = (error as { response?: { status?: unknown; data?: unknown } })?.response;
+  if (response?.status !== 409) return false;
+  const detail = (response.data as { detail?: unknown } | null)?.detail;
+  return (
+    !!detail &&
+    typeof detail === "object" &&
+    (detail as { code?: unknown }).code === "job_ad_changed"
+  );
+}

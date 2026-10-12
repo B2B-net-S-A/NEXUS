@@ -743,6 +743,11 @@ describe("/preview/screening-form (0424) zasiewa formularz tymi samymi kluczami 
     const beforeCall = withoutComments(read("components/v2/screening-form/BeforeCallProfile.tsx"));
     expect(beforeCall).toContain("queryKey: candidateQueryKeys.quickView(candidateId)");
     expect(harness).toContain("setQueryData(candidateQueryKeys.quickView(CANDIDATE_ID)");
+    // 12.10.2026: „co już wiemy” — warunki z profilu i ostatnio podana stawka.
+    expect(beforeCall).toContain("queryKey: candidateQueryKeys.detail(candidateId)");
+    expect(beforeCall).toContain("useRateOverview(candidateId");
+    expect(harness).toContain("setQueryData(candidateQueryKeys.detail(CANDIDATE_ID)");
+    expect(harness).toContain("setQueryData(candidateQueryKeys.rateOverview(CANDIDATE_ID)");
     const preview = withoutComments(read("components/v2/screening-form/CandidatePreviewPane.tsx"));
     expect(preview).toContain('queryKey: ["cv-original", stageId]');
     expect(preview).toContain("queryKey: candidateQueryKeys.cvDocuments(candidateId)");

@@ -158,7 +158,7 @@ vi.mock("@/components/v2/jobs/PipelineBoardGate", () => ({
   PipelineBoardGate: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 vi.mock("@/components/AppShell", () => ({ EditJobModal: () => null }));
-vi.mock("@/components/v2/jobs/AIJobWriterModal", () => ({ AIJobWriterModal: () => null }));
+vi.mock("@/components/v2/job-ad/JobAdWindow", () => ({ JobAdWindow: () => null }));
 vi.mock("@/components/v2/modals/AddCandidatesQuickModal", () => ({ AddCandidatesQuickModal: () => null }));
 vi.mock("@/components/v2/modals/GenerateInviteLinkV2", () => ({ GenerateInviteLinkV2: () => null }));
 vi.mock("@/components/v2/presence/ActiveViewers", () => ({ ActiveViewers: () => null }));

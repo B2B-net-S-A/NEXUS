@@ -200,9 +200,9 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Competence Category + skills",
     ],
     AIFeatureKey.job_description_generator: [
-        "Szczegóły rekrutacji (tytuł, wymagania, lokalizacja)",
-        "Kontekst klienta (Client Knowledge)",
-        "Wybrany tone of voice",
+        "Tytuł rekrutacji, opis projektu, obowiązki i wymagania z Profilu Championa",
+        "(bez pól klienta, stawek i danych kandydatów; nazwa klienta wpisana "
+        "w opisie projektu albo w wymaganiach trafia do modelu)",
     ],
     AIFeatureKey.cv_parser: [
         "Treść CV kandydatów (PDF/DOCX → tekst)",
