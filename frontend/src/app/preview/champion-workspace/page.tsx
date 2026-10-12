@@ -24,6 +24,7 @@ import { ToastProvider } from "@/components/Toast";
 import { ChampionWorkspace, type ChampionWorkspaceJob } from "@/components/champion/ChampionWorkspace";
 import { api, type ChampionProfileResponse } from "@/lib/api";
 import { plainBriefQueryKey, type PlainBrief } from "@/lib/api/plainKnowledge";
+import { jobAdQueryKey, type JobAdState } from "@/lib/api/jobAd";
 import { jobPortalKeys } from "@/lib/api/jobPortals";
 import { categoryRecruitersQueryKey } from "@/lib/api/requestAllocation";
 import { clientQuestionPoolQueryKey } from "@/lib/api/interviewCycle";
@@ -37,6 +38,48 @@ const CLIENT_ID = 1;
 const CATEGORY_ID = 2;
 const DAY_MS = 86_400_000;
 const SEED_FRESH = { updatedAt: Date.now() + DAY_MS };
+
+/**
+ * Sekcja „Ogłoszenie i link aplikacyjny” czyta, gdzie ogłoszenie wisi: tu
+ * treść jest przygotowana, na Pracuj.pl opublikowana, na JustJoin.IT jeszcze nie.
+ */
+const JOB_AD: JobAdState = {
+  ad: {
+    lang: "pl",
+    content: {
+      title: "Java Developer",
+      lead: "",
+      about: "",
+      start: "",
+      duration: "",
+      language: "",
+      responsibilities: [],
+      requirements: [],
+      nice_to_have: [],
+      offer: [],
+    },
+    tech: [],
+    source: "ai",
+    generated_at: "2026-10-12T09:15:00Z",
+    updated_at: "2026-10-12T09:15:00Z",
+    stale: false,
+  },
+  facts: [],
+  readiness: [],
+  findings: [],
+  rendered: null,
+  can_copy: true,
+  publications: [
+    {
+      portal: "pracuj",
+      url: "https://www.pracuj.pl/praca/przyklad,oferta,1000000001",
+      outdated: false,
+      published_at: "2026-10-12T10:00:00Z",
+      published_by_name: "Preview Rekruter",
+      removed_at: null,
+    },
+  ],
+};
 const isoDay = (offsetDays: number) =>
   new Date(Date.now() + offsetDays * DAY_MS).toISOString().slice(0, 10);
 
@@ -356,6 +399,7 @@ function seededClient(persona: Persona): QueryClient {
   );
   qc.setQueryData(["job-allocation", JOB_ID], null, SEED_FRESH);
   qc.setQueryData(jobPortalKeys.config, { portals: [], any_ready: false }, SEED_FRESH);
+  qc.setQueryData(jobAdQueryKey(JOB_ID), JOB_AD, SEED_FRESH);
   qc.setQueryData(["job", String(JOB_ID)], { ...JOB, id: JOB_ID, can_edit: persona === "dl" }, SEED_FRESH);
   return qc;
 }

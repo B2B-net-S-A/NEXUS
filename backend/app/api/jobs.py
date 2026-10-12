@@ -90,6 +90,7 @@ from app.schemas.job import (
     JobUpdate,
     UserBrief,
 )
+from app.schemas.job_ad_publication import JobAdPublicationOut
 from app.schemas.job_team import JobRecruiterOut
 from app.api.body_validation import validated_body
 from app.api.clients_team import TAC_ASSIGNABLE_ROLES
@@ -147,6 +148,8 @@ from app.services.candidate_search_predicates import (
     FILTER_DATE_MIN,
     business_date_range,
 )
+from app.services.job_ad.publications import Publication as AdPublication
+from app.services.job_ad.publications import for_jobs as ad_publications_for_jobs
 from app.services.job_priority import (
     PRIORITY_LEVELS,
     priorities_for_levels,
@@ -700,6 +703,14 @@ def _collaborator_payload(
         {**user_brief_map[uid].model_dump(), "source": source}
         for uid, source in entries
         if uid in user_brief_map
+    ]
+
+
+def _ad_publications_payload(items: list[AdPublication]) -> list[dict]:
+    """Kolumna „Ogłoszenia”: portal, link i „do aktualizacji” — bez dat i osób."""
+    return [
+        JobAdPublicationOut.model_validate(item, from_attributes=True).model_dump()
+        for item in items
     ]
 
 
@@ -1593,6 +1604,8 @@ async def list_jobs(
     # Rola „Rekruter” — jedno wywołanie na stronę, ta sama reguła co filtr
     # `worked_by` i pulpit „Requesty i obłożenie” (`services/job_team`).
     recruiters_by_job = await recruiters_for_jobs(db, job_ids)
+    # Kolumna „Ogłoszenia” (0431) — też jedno zapytanie na stronę.
+    ad_publications_by_job = await ad_publications_for_jobs(db, job_ids)
 
     # Hiring manager names batch lookup — denormalized na response żeby UI
     # nie musiało robić extra fetch per job.
@@ -1711,6 +1724,9 @@ async def list_jobs(
             collab_map.get(j.id, []), user_brief_map
         )
         d["recruiters"] = _recruiters_payload(recruiters_by_job.get(j.id, []))
+        d["ad_publications"] = _ad_publications_payload(
+            ad_publications_by_job.get(j.id, [])
+        )
         d["hiring_manager_name"] = (
             hm_names.get(j.hiring_manager_contact_id)
             if j.hiring_manager_contact_id
@@ -2211,6 +2227,9 @@ async def get_job(
     # Rola „Rekruter” — ta sama reguła i ten sam loader co wiersz listy.
     payload["recruiters"] = _recruiters_payload(
         (await recruiters_for_jobs(db, [job.id])).get(job.id, [])
+    )
+    payload["ad_publications"] = _ad_publications_payload(
+        (await ad_publications_for_jobs(db, [job.id])).get(job.id, [])
     )
 
     # Hiring manager name z Contact join'a (denormalized)

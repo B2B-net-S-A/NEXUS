@@ -7,6 +7,7 @@ from typing import Annotated, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+from app.schemas.job_ad_publication import AdPublicationRead
 from app.services.job_ad import fixed_blocks, generate
 
 Lang = Literal["pl", "en"]
@@ -169,6 +170,8 @@ class JobAdResponse(BaseModel):
     rendered: Optional[RenderedAd] = None
     # Kopiowanie wolno włączyć: ogłoszenie istnieje i nie ma znalezisk blokujących.
     can_copy: bool = False
+    # Gdzie ogłoszenie wisi (0431) — także wiersze „zdjęte z portalu”.
+    publications: list[AdPublicationRead] = Field(default_factory=list)
 
 
 class LangBlocksModel(BaseModel):

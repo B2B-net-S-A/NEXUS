@@ -1,6 +1,6 @@
-# Ogłoszenie na portale — treść do wklejenia w Pracuj.pl i JustJoin.IT (0430, 12.10.2026)
+# Ogłoszenie na portale — treść do wklejenia w Pracuj.pl i JustJoin.IT (0430–0431, 12–13.10.2026)
 
-<!-- indeks: okno „Ogłoszenie na portale”, jedna treść w dwóch formatach, kontrola przed skopiowaniem, stałe części firmy, awaria modelu nie nadpisuje treści, relacja do publikacji przez API -->
+<!-- indeks: okno „Ogłoszenie na portale”, jedna treść w dwóch formatach, kontrola przed skopiowaniem, stałe części firmy, awaria modelu nie nadpisuje treści, „Oznacz jako opublikowane” i kolumna „Ogłoszenia”, relacja do publikacji przez API -->
 
 Decyzje Artura 12.10.2026 (makiety https://claude.ai/artifact/NK7tLYnrh1mNgH7MQ8MhtX).
 Pomiar naszych publicznych ogłoszeń tego dnia (50 na JustJoin.IT, 15 na
@@ -113,6 +113,35 @@ rekrutację); front `components/v2/job-ad/`, `lib/api/jobAd.ts`, karta
   zapisuj w `job_postings`: to kolejka workera, więc taki wiersz dostałby
   zlecenie wysyłki przez API, a przy Pracuj.pl trwale blokował usunięcie
   rekrutacji. Połączenie obu treści to osobny etap.
+- **Oznaczenie publikacji to zapis tego, co zrobił człowiek (0431).** Tabela
+  `job_ad_publications` (jeden wiersz na rekrutację i portal: `pracuj`,
+  `jjit`), logika `services/job_ad/publications.py`, trasy
+  `PUT/DELETE /api/jobs/{id}/portal-ad/publications/{portal}`, front
+  `components/v2/job-ad/AdPublications.tsx` (okno i sekcja „Zespół
+  i ogłoszenie”) oraz kolumna „Ogłoszenia” listy (`JobAdPublicationsCell`).
+  NEXUS niczego na portalu nie publikuje ani nie zdejmuje — także przy
+  zamknięciu rekrutacji; wtedy sekcja i lista tylko przypominają o zdjęciu.
+  - **Link przyjmujemy wyłącznie z domeny portalu** (`pracuj.pl`,
+    `justjoin.it`, http/https, bez danych logowania). Odnośnik z listy
+    rekrutacji prowadzi prosto na zewnątrz, więc dowolny adres byłby dziurą.
+    Link jest opcjonalny — ogłoszenie na Pracuj.pl bywa widoczne dopiero po
+    moderacji.
+  - **„Do aktualizacji” = odcisk zapisanej treści** (`content_hash`: język,
+    pola, technologie) inny niż w chwili oznaczenia. Liczy się z samego
+    wiersza `job_ads`, żeby lista policzyła go jednym zapytaniem na stronę
+    (`publications.for_jobs`, wzór `recruiters_for_jobs`). Zmiana samej
+    rekrutacji albo stałych bloków firmy plakietki nie zapala — o zmianie
+    rekrutacji mówi baner „Rekrutacja zmieniła się…” w oknie.
+  - **Oznaczyć wolno tylko treść bez znalezisk blokujących** (409
+    `job_ad_blocked`): takiej treści nie wolno było wkleić.
+  - **„Zdjęte z portalu” zostawia wiersz** (`removed_at`); lista i szczegół
+    rekrutacji niosą w `ad_publications` tylko aktywne ogłoszenia.
+  - Sekcja czyta stan z tego samego zapytania co okno (`jobAdQueryKey`),
+    a po zmianie odświeża listę (`JOBS_LIST_QUERY_ROOT`). Harness
+    `/preview/champion-workspace` musi zasiewać ten klucz — sieć ma odciętą.
+  - Kolumna kosztuje szerokość: na laptopie 1280 px z rozwiniętym menu
+    „Rekrutacja” ma 204 px zamiast 293 (pomiar 13.10.2026, bez poziomego
+    przewijania, wysokość wierszy bez zmian). Nie poszerzaj jej plakietek.
 - **Strona kariery nie zmieniła kontroli.** Szersza lista nazw klienta działa
   tylko w ogłoszeniu na portale; na stronie kariery obróciłaby adresy
   `/r/<slug>` rozesłanych już linków i zaczęła odmawiać zatwierdzonym opisom —

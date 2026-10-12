@@ -16,6 +16,13 @@ export type AdLang = "pl" | "en";
 export type AdTechLevel = "critical" | "must" | "nice";
 export type AdSource = "ai" | "template";
 export type AdSeverity = "block" | "advise";
+export type AdPortal = "pracuj" | "jjit";
+
+/** Portale w kolejności, w jakiej pokazuje je okno, sekcja i lista rekrutacji. */
+export const AD_PORTALS: ReadonlyArray<{ key: AdPortal; label: string; short: string }> = [
+  { key: "pracuj", label: "Pracuj.pl", short: "Pracuj" },
+  { key: "jjit", label: "JustJoin.IT", short: "JJIT" },
+];
 
 /** Pola, które rekruter może poprawić ręcznie. */
 export interface AdContent {
@@ -118,6 +125,22 @@ export interface RenderedAd {
   };
 }
 
+/** Aktywne ogłoszenie w wierszu listy rekrutacji (`ad_publications`). */
+export interface JobAdPublicationBrief {
+  portal: AdPortal;
+  url: string | null;
+  /** Zapisana treść jest inna niż w chwili oznaczenia publikacji. */
+  outdated: boolean;
+}
+
+/** Stan portalu w oknie i w sekcji „Zespół i ogłoszenie”. */
+export interface AdPublication extends JobAdPublicationBrief {
+  published_at: string;
+  published_by_name: string | null;
+  /** Ustawione = zdjęte z portalu. */
+  removed_at: string | null;
+}
+
 export interface JobAdState {
   ad: AdRead | null;
   facts: AdFact[];
@@ -126,6 +149,8 @@ export interface JobAdState {
   rendered: RenderedAd | null;
   /** Ogłoszenie istnieje i nie ma znalezisk blokujących. */
   can_copy: boolean;
+  /** Gdzie ogłoszenie wisi — także wiersze „zdjęte z portalu”. */
+  publications: AdPublication[];
 }
 
 export type TitleSuffix = "kmx" | "km" | "none";
@@ -158,6 +183,7 @@ function normalize(data: unknown): JobAdState {
     findings: Array.isArray(d.findings) ? d.findings : [],
     rendered: d.rendered ?? null,
     can_copy: d.can_copy === true,
+    publications: Array.isArray(d.publications) ? d.publications : [],
   };
 }
 
@@ -194,6 +220,20 @@ export const jobAdApi = {
     const res = await api.put(`/api/jobs/${jobId}/portal-ad`, input);
     return normalize(res.data);
   },
+  /** „Wisi na portalu” w obecnej treści; ponowne wywołanie zmienia link albo potwierdza aktualizację. */
+  markPublished: async (
+    jobId: number,
+    portal: AdPortal,
+    url: string | null,
+  ): Promise<JobAdState> => {
+    const res = await api.put(`/api/jobs/${jobId}/portal-ad/publications/${portal}`, { url });
+    return normalize(res.data);
+  },
+  /** „Zdjęte z portalu” — wiersz zostaje jako ślad. */
+  markRemoved: async (jobId: number, portal: AdPortal): Promise<JobAdState> => {
+    const res = await api.delete(`/api/jobs/${jobId}/portal-ad/publications/${portal}`);
+    return normalize(res.data);
+  },
   getFixedBlocks: async (): Promise<FixedBlocks> => {
     const res = await api.get<FixedBlocks>("/api/job-ads/fixed-blocks");
     return res.data;
@@ -222,6 +262,14 @@ export function blockingFindings(findings: AdFinding[]): AdFinding[] {
 
 export function advisoryFindings(findings: AdFinding[]): AdFinding[] {
   return findings.filter((f) => f.severity === "advise");
+}
+
+/** Oznaczenie portalu, które nadal obowiązuje (nie „zdjęte”). */
+export function activePublication(
+  publications: readonly AdPublication[],
+  portal: AdPortal,
+): AdPublication | null {
+  return publications.find((item) => item.portal === portal && !item.removed_at) ?? null;
 }
 
 /** Lista z pola tekstowego: jedna pozycja w wierszu, bez pustych. */

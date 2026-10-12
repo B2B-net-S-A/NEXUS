@@ -140,6 +140,15 @@ const MINE = [
       recruiter(FILTERED_PERSON, "Anna Współpracowniczka", { via: "collaborator" }),
       recruiter(VIEWER_ID, "Preview Rekruter", { via: "assignment" }),
     ],
+    // Kolumna „Ogłoszenia”: Pracuj.pl z linkiem, JustJoin.IT do aktualizacji.
+    ad_publications: [
+      {
+        portal: "pracuj",
+        url: "https://www.pracuj.pl/praca/przyklad,oferta,1000000001",
+        outdated: false,
+      },
+      { portal: "jjit", url: null, outdated: true },
+    ],
     delivery_lead_user: { id: 9, name: "Ewa Przykładowa" },
     priority: "urgent",
     priority_level: "p1",
@@ -295,6 +304,14 @@ const ALL = [
     status: "closed",
     tac_id: 5,
     recruiters: [recruiter(10, "Jan Nowak")],
+    // Zamknięta, a ogłoszenie nadal wisi — plakietka przypomina o zdjęciu.
+    ad_publications: [
+      {
+        portal: "jjit",
+        url: "https://justjoin.it/job-offer/przyklad-frontend-developer",
+        outdated: false,
+      },
+    ],
     priority_level: "p2",
     opened_effective_at: inDays(-400),
     deadline: inDays(-200),

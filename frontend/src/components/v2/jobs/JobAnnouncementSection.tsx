@@ -4,10 +4,16 @@
  * Ogłoszenie rekrutacji: treść na portale, link aplikacyjny i portale (zakładka
  * „Zespół i ogłoszenie” Profilu Championa, 04.10.2026). Do 04.10.2026 była to
  * zakładka „Ogłoszenie” panelu bocznego obok Podglądu.
+ *
+ * Od 13.10.2026 pokazuje też, gdzie ogłoszenie wisi (`AdPublications`): stan
+ * czyta z tego samego zapytania co okno „Ogłoszenie na portale”, więc harness
+ * `/preview/champion-workspace` zasiewa `jobAdQueryKey`.
  */
 
 import { Button } from "@/components/ui/button";
+import { AdPublications } from "@/components/v2/job-ad/AdPublications";
 import { JobPortalsSection } from "@/components/v2/recruitment/JobPortalsSection";
+import { useJobAd } from "@/lib/api/jobAd";
 
 export interface JobAnnouncementSectionProps {
   jobId: number;
@@ -30,6 +36,8 @@ export function JobAnnouncementSection({
   readOnly,
   portalsFocus = false,
 }: JobAnnouncementSectionProps) {
+  // Stan ogłoszeń widzi ta sama rola, która je przygotowuje.
+  const ad = useJobAd(jobId, !!onWriteAnnouncement);
   return (
     <div className="space-y-4" data-testid="job-announcement-section">
       <section className="space-y-2">
@@ -60,6 +68,19 @@ export function JobAnnouncementSection({
               ? "Link aplikacyjny da się wygenerować po opublikowaniu rekrutacji."
               : "Ogłoszenie i link przygotowuje osoba z zespołu rekrutacji."}
         </p>
+        {onWriteAnnouncement && ad.isSuccess ? (
+          <AdPublications
+            jobId={jobId}
+            portals={["pracuj", "jjit"]}
+            state={ad.data}
+            jobClosed={jobStatus === "closed"}
+          />
+        ) : null}
+        {onWriteAnnouncement && ad.isError ? (
+          <p className="text-[12px] text-destructive">
+            Nie udało się wczytać, gdzie ogłoszenie jest opublikowane. Odśwież stronę.
+          </p>
+        ) : null}
       </section>
       <JobPortalsSection jobId={jobId} readOnly={readOnly} focusOnReady={portalsFocus} />
     </div>

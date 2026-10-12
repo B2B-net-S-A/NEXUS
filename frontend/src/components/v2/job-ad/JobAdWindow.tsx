@@ -41,6 +41,7 @@ import { cn } from "@/lib/utils";
 
 import { AdChecksPanel } from "./AdChecksPanel";
 import { AdFactsRail, TERM_KEYS, type AdTerms } from "./AdFactsRail";
+import { AdPublications } from "./AdPublications";
 import { JustJoinTab } from "./JustJoinTab";
 import { PracujTab } from "./PracujTab";
 import {
@@ -53,12 +54,17 @@ import {
 
 export type JobAdTab = "pracuj" | "jjit";
 
-/** Trzy wywołania okna — harness `/preview/job-ad` podaje je z pamięci. */
-export type JobAdWindowApi = Pick<typeof jobAdApi, "get" | "generate" | "save">;
+/** Wywołania okna — harness `/preview/job-ad` podaje je z pamięci. */
+export type JobAdWindowApi = Pick<
+  typeof jobAdApi,
+  "get" | "generate" | "save" | "markPublished" | "markRemoved"
+>;
 
 export interface JobAdWindowProps {
   jobId: number;
   jobTitle: string;
+  /** Zamknięta rekrutacja z wiszącym ogłoszeniem = przypomnienie o zdjęciu. */
+  jobClosed?: boolean;
   open: boolean;
   onClose: () => void;
   api?: JobAdWindowApi;
@@ -86,6 +92,7 @@ function checksSummary(findings: AdFinding[]): string {
 export function JobAdWindow({
   jobId,
   jobTitle,
+  jobClosed = false,
   open,
   onClose,
   api = jobAdApi,
@@ -406,6 +413,15 @@ export function JobAdWindow({
                             {blockingCount === 1 ? "go" : "je"} albo popraw tekst.
                           </p>
                         ) : null}
+                        {/* Po wklejeniu treści na portalu rekruter oznacza to tutaj. */}
+                        <AdPublications
+                          jobId={jobId}
+                          portals={[tab]}
+                          state={state}
+                          jobClosed={jobClosed}
+                          locked={busy}
+                          api={api}
+                        />
                         <TabsContent value="pracuj" className="mt-0">
                           <PracujTab
                             content={ad.content}

@@ -224,6 +224,7 @@ describe("JobsListV2 — prosty wiersz listy", () => {
       expect.stringContaining("Etapy"),
       "Termin",
       "Rekruter",
+      "Ogłoszenia",
       "",
     ]);
     // Żadna kolumna ani komórka nie zależy od szerokości tabeli.

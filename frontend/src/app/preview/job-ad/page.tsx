@@ -9,7 +9,7 @@
  * składa uproszczony odpowiednik serwerowego `render` (bez kontroli treści:
  * znaleziska w stanie `findings` są zasiane i znikają po pierwszym zapisie).
  *
- * `?state=ready|findings|template|empty` (domyślnie `ready`), `?tab=jjit`.
+ * `?state=ready|findings|template|empty|published` (domyślnie `ready`), `?tab=jjit`.
  * Dane fikcyjne.
  */
 
@@ -23,6 +23,7 @@ import type {
   AdContent,
   AdFinding,
   AdLang,
+  AdPublication,
   AdTechItem,
   JobAdState,
   RenderedAd,
@@ -96,8 +97,7 @@ const FIXED_OFFER = [
   "wsparcie formalne od dokumentów po onboarding",
 ];
 const FIXED_PROCESS = ["Rozmowa z rekruterem", "Rozmowa techniczna", "Rozmowa z klientem"];
-const FIXED_ABOUT =
-  "Firma Przykładowa łączy specjalistów IT z projektami, które do nich pasują.";
+const FIXED_ABOUT = "Firma Przykładowa łączy specjalistów IT z projektami, które do nich pasują.";
 
 const JJIT_LEVEL = {
   critical: { level: 4, label: "Advanced" },
@@ -297,13 +297,32 @@ const FINDINGS: AdFinding[] = [
   ...ADVICE,
 ];
 
-type HarnessState = "ready" | "findings" | "template" | "empty";
+type HarnessState = "ready" | "findings" | "template" | "empty" | "published";
+
+const PRACUJ_LINK = "https://www.pracuj.pl/praca/senior-java-developer-warszawa,oferta,1000000001";
+
+/** Ogłoszenie wisi na Pracuj.pl, a treść zmieniono po publikacji. */
+const PUBLISHED: AdPublication[] = [
+  {
+    portal: "pracuj",
+    url: PRACUJ_LINK,
+    outdated: true,
+    published_at: "2026-10-12T10:00:00Z",
+    published_by_name: "Preview Rekruter",
+    removed_at: null,
+  },
+];
 
 function stateOf(
   content: AdContent,
   tech: AdTechItem[],
   findings: AdFinding[],
-  patch: { lang?: AdLang; source?: "ai" | "template"; stale?: boolean } = {},
+  patch: {
+    lang?: AdLang;
+    source?: "ai" | "template";
+    stale?: boolean;
+    publications?: AdPublication[];
+  } = {},
 ): JobAdState {
   return {
     ad: {
@@ -320,13 +339,23 @@ function stateOf(
     findings,
     rendered: renderForHarness(content, tech),
     can_copy: !findings.some((f) => f.severity === "block"),
+    publications: patch.publications ?? [],
   };
 }
 
 function initial(state: HarnessState): JobAdState {
   if (state === "empty") {
-    return { ad: null, facts: FACTS, readiness: READINESS, findings: [], rendered: null, can_copy: false };
+    return {
+      ad: null,
+      facts: FACTS,
+      readiness: READINESS,
+      findings: [],
+      rendered: null,
+      can_copy: false,
+      publications: [],
+    };
   }
+  if (state === "published") return stateOf(CONTENT, TECH, ADVICE, { publications: PUBLISHED });
   if (state === "findings") return stateOf(FINDINGS_CONTENT, TECH, FINDINGS);
   if (state === "template") {
     return stateOf({ ...CONTENT, lead: "" }, TECH, ADVICE, { source: "template", stale: true });
@@ -348,7 +377,37 @@ function memoryApi(state: HarnessState): JobAdWindowApi {
       current = stateOf(input.content, input.tech, advice, {
         lang: current.ad?.lang,
         source: current.ad?.source,
+        // Poprawka po publikacji = ogłoszenie na portalu do aktualizacji.
+        publications: current.publications.map((item) =>
+          item.removed_at ? item : { ...item, outdated: true },
+        ),
       });
+      return current;
+    },
+    markPublished: async (_jobId, portal, url) => {
+      current = {
+        ...current,
+        publications: [
+          ...current.publications.filter((item) => item.portal !== portal),
+          {
+            portal,
+            url,
+            outdated: false,
+            published_at: "2026-10-13T09:00:00Z",
+            published_by_name: "Preview Rekruter",
+            removed_at: null,
+          },
+        ],
+      };
+      return current;
+    },
+    markRemoved: async (_jobId, portal) => {
+      current = {
+        ...current,
+        publications: current.publications.map((item) =>
+          item.portal === portal ? { ...item, removed_at: "2026-10-13T09:30:00Z" } : item,
+        ),
+      };
       return current;
     },
   };
@@ -366,7 +425,9 @@ function Harness() {
   const params = useSearchParams();
   const raw = params?.get("state");
   const state: HarnessState =
-    raw === "findings" || raw === "template" || raw === "empty" ? raw : "ready";
+    raw === "findings" || raw === "template" || raw === "empty" || raw === "published"
+      ? raw
+      : "ready";
   const tab = params?.get("tab") === "jjit" ? "jjit" : "pracuj";
   const client = useMemo(
     () => new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } }),
