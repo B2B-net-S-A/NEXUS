@@ -45,8 +45,20 @@ Raport: `docs/person-history-notes-completion-report.md`.
   gdy dziennik nie ma wiersza tej osoby.
 - **Awaria notatek to jeden komunikat z „Ponów”** dla obu sekcji; pusty stan („Jeszcze nic nie zapisano”,
   „Nie ma wcześniejszych notatek o tej osobie”) wisi na udanym odczycie.
+- **„Historia osoby (N)” w dużym podglądzie po lewej to NIE czwarte źródło CV** (PR 2). Przycisk stoi obok
+  grupy „Które CV pokazać” w `screening-form/CandidatePreviewPane.tsx`; treść CV siedzi w stałym opakowaniu
+  `hidden` + `contents`, więc powrót z historii nie montuje podglądu pliku drugi raz (ten pobiera bajty
+  w `useEffect`). Dopisanie „history” do `PreviewCvSource` wymieniłoby gałąź `body` i pobierało CV od nowa.
+  Wybór źródła CV i „Szukaj w CV” przy wymaganiu zamykają historię. Przycisk jest w każdej zakładce panelu
+  (wspólny podgląd, Rozmowy, Screening) i znika, gdy osoba nie ma żadnej notatki; edytor CV podaje
+  `showHistory={false}`, a przegląd DL (`CandidateCvPreview`) historii nie dostaje z konstrukcji.
+- **Czytnik to `PersonNotesHistory variant="reader"`**: wszystkie notatki osoby naraz — także z tej rekrutacji,
+  jako pierwsza grupa „Ta rekrutacja” — grupy zawsze rozwinięte, pigułki rodzajów jak w „Historii” profilu
+  (liczniki z `group_counts` serwera, rodzaj bez notatek nie ma pigułki). Tylko do odczytu: przypinanie,
+  odpowiedzi i edycja zostają w zakładce „Notatki i historia”.
 - Harness: `/preview/job-detail` — pierwsza karta „Nowych” ma fikcyjną historię
-  (`app/preview/person-history-fixtures.ts`), druga notatkę tylko w tej rekrutacji, reszta jest pusta.
+  (`app/preview/person-history-fixtures.ts`), druga notatkę tylko w tej rekrutacji, reszta jest pusta;
+  `/preview/screening-form` ma tę samą historię w podglądzie obok formularza.
 
 Poza zakresem, do decyzji: podpięcie luźnych notatek z Traffita do rekrutacji
 (`POST /api/admin/traffit/notes-repair/recruitments` — zapis na produkcji; po scaleniu bliźniaków podpiąłby

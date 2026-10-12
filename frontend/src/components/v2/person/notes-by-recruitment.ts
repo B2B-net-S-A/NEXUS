@@ -34,6 +34,17 @@ export interface PersonNoteLike {
 export type EarlierNotesFilter = NoteGroup | "all";
 
 export const NO_RECRUITMENT_KEY = "none";
+export const THIS_RECRUITMENT_KEY = "here";
+
+/** Etykiety filtra w czytniku „Historia osoby” — jak zakładki „Historii” profilu. */
+export const NOTES_FILTER_LABEL: Record<EarlierNotesFilter, string> = {
+  talks: "Rozmowy",
+  contact: "Próby kontaktu",
+  delivery: "Delivery Lead",
+  email: "Maile",
+  automat: "Automat",
+  all: "Wszystko",
+};
 
 export interface EarlierNotesGroup<T> {
   key: string;
@@ -60,6 +71,8 @@ export interface EarlierNotesGroup<T> {
 export interface PersonNotesSplit<T> {
   here: T[];
   earlier: T[];
+  /** Notatki tej rekrutacji jako grupa „Ta rekrutacja” (czytnik); `null`, gdy ich nie ma. */
+  hereGroup: EarlierNotesGroup<T> | null;
   /** Grupy „wcześniej”, od tej z najnowszą notatką. */
   groups: EarlierNotesGroup<T>[];
   hereHuman: number;
@@ -181,6 +194,10 @@ export function splitPersonNotes<T extends PersonNoteLike>(
   return {
     here,
     earlier,
+    hereGroup:
+      here.length > 0
+        ? { ...buildGroup(THIS_RECRUITMENT_KEY, jobId, here, rowByJob.get(jobId)), title: "Ta rekrutacja" }
+        : null,
     groups,
     hereHuman: humanNoteCount(here),
     earlierHuman: earlierHumanNotes.length,

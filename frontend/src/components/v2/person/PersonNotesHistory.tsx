@@ -9,6 +9,8 @@
  * tylko o `job_id` bieżącej rekrutacji, więc osoba z bogatą historią wyglądała
  * jak ktoś, o kim nic nie wiemy. Jedno zapytanie o wszystkie notatki osoby
  * (ten sam klucz co „Historia” profilu), podział liczy `notes-by-recruitment`.
+ * Trzeci wariant, `reader`, to „Historia osoby” w dużej strefie podglądu:
+ * wszystkie notatki osoby naraz (także z tej rekrutacji), z filtrem rodzajów.
  * Listę rysuje ta sama `NotesList` co w profilu — odpowiedzi, przypięte,
  * zwijanie długich treści i zakryte wpisy o stawce działają tu bez kopii.
  *
@@ -26,15 +28,17 @@ import { JobNotesList } from "@/components/v2/candidate-profile/JobNotesList";
 import { DockLoadError } from "@/components/v2/jobs/workbench-chrome";
 import { candidateNoteItems, useCandidateNotes } from "@/components/v2/pages/candidate-notes-query";
 import { useCandidateRecruitmentOutcomes } from "@/components/v2/pages/candidate-outcomes-query";
-import { NOTE_GROUP_EMPTY_TEXT } from "@/lib/candidate-note-groups";
+import { NOTE_GROUP_EMPTY_TEXT, NOTE_GROUPS, noteGroupCounts } from "@/lib/candidate-note-groups";
 import { cn } from "@/lib/utils";
 
 import {
   earlierSummaryLabel,
   groupFactsLine,
+  NOTES_FILTER_LABEL,
   notesCountLabel,
   notesForFilter,
   splitPersonNotes,
+  THIS_RECRUITMENT_KEY,
   type EarlierNotesFilter,
   type EarlierNotesGroup,
 } from "./notes-by-recruitment";
@@ -48,8 +52,11 @@ export interface PersonNotesHistoryProps {
   candidateId: number;
   jobId: number;
   readOnly: boolean;
-  /** `tab` — zakładka „Notatki i historia”; `dock` — sekcja „Notatki” wąskiego doku. */
-  variant?: "tab" | "dock";
+  /**
+   * `tab` — zakładka „Notatki i historia”; `dock` — sekcja „Notatki” wąskiego
+   * doku; `reader` — „Historia osoby” w dużej strefie podglądu.
+   */
+  variant?: "tab" | "dock" | "reader";
   /** Dok: „Cała historia (M)” otwiera zakładkę w rozwiniętym panelu. */
   onOpenHistory?: () => void;
 }
@@ -104,6 +111,11 @@ function FilterSwitch({
   );
 }
 
+function groupLabel(group: EarlierNotesGroup<unknown>): string {
+  if (group.key === THIS_RECRUITMENT_KEY) return "Ta rekrutacja";
+  return group.jobId == null ? "Notatki bez rekrutacji" : `Rekrutacja: ${group.title}`;
+}
+
 function GroupCard({
   group,
   filter,
@@ -116,44 +128,51 @@ function GroupCard({
   group: EarlierNotesGroup<any>;
   filter: EarlierNotesFilter;
   open: boolean;
-  onToggle: () => void;
+  /** Brak = grupa zawsze rozwinięta (czytnik), nagłówek nie jest przyciskiem. */
+  onToggle?: () => void;
   onShowAll: () => void;
   candidateId: number;
   readOnly: boolean;
 }) {
   const bodyId = useId();
   const notes = useMemo(() => notesForFilter(group.notes, filter), [group.notes, filter]);
-  return (
-    <article
-      aria-label={group.jobId == null ? "Notatki bez rekrutacji" : `Rekrutacja: ${group.title}`}
-      className="rounded-lg border border-border bg-card"
-    >
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={open}
-        aria-controls={bodyId}
-        className="flex w-full items-start gap-2 px-3 py-2 text-left"
-      >
-        {open ? (
-          <ChevronDown className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-        ) : (
-          <ChevronRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-        )}
-        <span className="min-w-0 flex-1">
-          <span className="font-medium text-foreground">{group.title}</span>
-          {group.clientName ? <span className="text-xs text-muted-foreground"> · {group.clientName}</span> : null}
-          {group.period ? (
-            <span className="whitespace-nowrap text-xs text-muted-foreground"> · {group.period}</span>
-          ) : null}
-          <span className="block text-xs text-muted-foreground">{groupFactsLine(group)}</span>
-        </span>
-        {group.outcome ? (
-          <Badge size="sm" variant={group.outcome.tone} className="mt-0.5 shrink-0">
-            {group.outcome.label}
-          </Badge>
+  const head = (
+    <>
+      <span className="min-w-0 flex-1">
+        <span className="font-medium text-foreground">{group.title}</span>
+        {group.clientName ? <span className="text-xs text-muted-foreground"> · {group.clientName}</span> : null}
+        {group.period ? (
+          <span className="whitespace-nowrap text-xs text-muted-foreground"> · {group.period}</span>
         ) : null}
-      </button>
+        <span className="block text-xs text-muted-foreground">{groupFactsLine(group)}</span>
+      </span>
+      {group.outcome ? (
+        <Badge size="sm" variant={group.outcome.tone} className="mt-0.5 shrink-0">
+          {group.outcome.label}
+        </Badge>
+      ) : null}
+    </>
+  );
+  return (
+    <article aria-label={groupLabel(group)} className="rounded-lg border border-border bg-card">
+      {onToggle ? (
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          aria-controls={bodyId}
+          className="flex w-full items-start gap-2 px-3 py-2 text-left"
+        >
+          {open ? (
+            <ChevronDown className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+          ) : (
+            <ChevronRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+          )}
+          {head}
+        </button>
+      ) : (
+        <div className="flex items-start gap-2 px-3 py-2">{head}</div>
+      )}
       {open ? (
         <div id={bodyId} className="px-3 pb-3">
           {notes.length === 0 && filter !== "all" ? (
@@ -185,8 +204,8 @@ export function PersonNotesHistory({
   onOpenHistory,
 }: PersonNotesHistoryProps) {
   const notesQuery = useCandidateNotes(candidateId);
-  // Wyniki rekrutacji czyta tylko zakładka — dok pokazuje sam skrót rozmów.
-  const outcomesQuery = useCandidateRecruitmentOutcomes(candidateId, variant === "tab");
+  // Wyniki rekrutacji czytają zakładka i czytnik — dok pokazuje sam skrót rozmów.
+  const outcomesQuery = useCandidateRecruitmentOutcomes(candidateId, variant !== "dock");
   const split = useMemo(
     () => splitPersonNotes<any>(candidateNoteItems(notesQuery.data), jobId, outcomesQuery.data),
     [notesQuery.data, jobId, outcomesQuery.data],
@@ -223,6 +242,62 @@ export function PersonNotesHistory({
     return <DockLoadError what="notatki" onRetry={() => void notesQuery.refetch()} />;
   }
   if (!notesQuery.isSuccess) return null;
+
+  if (variant === "reader") {
+    const items = candidateNoteItems(notesQuery.data);
+    const counts = noteGroupCounts(notesQuery.data?.group_counts, items);
+    const total = NOTE_GROUPS.reduce((sum, group) => sum + counts[group], 0);
+    const readerFilter: EarlierNotesFilter = pickedFilter ?? (counts.talks > 0 ? "talks" : "all");
+    // Rodzaj bez notatek nie dostaje pigułki — chyba że jest właśnie wybrany.
+    const options: EarlierNotesFilter[] = [
+      ...NOTE_GROUPS.filter((group) => counts[group] > 0 || readerFilter === group),
+      "all",
+    ];
+    const groups = [split.hereGroup, ...split.groups].filter(
+      (group): group is EarlierNotesGroup<any> =>
+        group != null && notesForFilter(group.notes, readerFilter).length > 0,
+    );
+    return (
+      <div className="mx-auto max-w-4xl space-y-3 text-[13px]">
+        <div role="group" aria-label="Rodzaj notatek" className="flex flex-wrap gap-1.5">
+          {options.map((option) => (
+            <button
+              key={option}
+              type="button"
+              aria-pressed={readerFilter === option}
+              onClick={() => setPickedFilter(option)}
+              className={cn(
+                "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors pointer-coarse:py-2",
+                readerFilter === option
+                  ? "border-primary/40 bg-primary/10 text-primary"
+                  : "border-border text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {NOTES_FILTER_LABEL[option]}{" "}
+              <span className="tabular-nums">{option === "all" ? total : counts[option]}</span>
+            </button>
+          ))}
+        </div>
+        {groups.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            {readerFilter === "all" ? "Brak notatek o tej osobie." : NOTE_GROUP_EMPTY_TEXT[readerFilter]}
+          </p>
+        ) : (
+          groups.map((group) => (
+            <GroupCard
+              key={group.key}
+              group={group}
+              filter={readerFilter}
+              open
+              onShowAll={() => setPickedFilter("all")}
+              candidateId={candidateId}
+              readOnly={readOnly}
+            />
+          ))
+        )}
+      </div>
+    );
+  }
 
   if (variant === "dock") {
     const teaser = (talks.length > 0 ? talks : split.earlier.filter((note) => !note.is_system))

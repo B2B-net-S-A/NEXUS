@@ -269,6 +269,8 @@ def _candidate_history_response_for_user(response: dict, current_user) -> dict: 
     if not can_view_client_rate:
         for entry in response.get("jobs", []):
             entry["client_rate"] = None
+            # Notatka z wysyłki niesie cenę dla klienta (12.10.2026).
+            entry["client_rate_note"] = None
     if not has_financial_access(current_user):
         response["contracts"] = [
             redact_financial_fields(contract)
@@ -277,6 +279,49 @@ def _candidate_history_response_for_user(response: dict, current_user) -> dict: 
     response["can_view_client_rate"] = can_view_client_rate
     response["can_write_client_rate"] = client_rate_write_allowed(current_user)
     return response
+
+
+async def _attach_rate_hints(
+    db: AsyncSession, candidate_id: int, jobs_map: dict, *, show_client_rate: bool
+) -> None:
+    """Stawki pary, których nie ma na etapie, a leżą w notatkach (12.10.2026).
+
+    Para z czasów Traffita ma etapy bez kwot: oczekiwanie kandydata jest
+    w karcie rekomendacji, cena wysłania — w notatce Delivery Leada z dnia
+    wysyłki. Zakładka „Rekrutacje” pokazuje je jako podpowiedź obok pustego
+    pola; stawką stają się dopiero po zapisie. Awaria odczytu nie zabiera
+    historii rekrutacji — zostaje samo „—”.
+    """
+    from app.services import recruitment_rate_hints
+
+    for entry in jobs_map.values():
+        entry["expected_rate_hint"] = None
+        entry["client_rate_note"] = None
+    without_candidate_rate = [
+        job_id for job_id, entry in jobs_map.items() if entry["expected_rate"] is None
+    ]
+    without_client_rate = [
+        job_id
+        for job_id, entry in jobs_map.items()
+        if show_client_rate and entry["client_rate"] is None
+    ]
+    try:
+        async with db.begin_nested():
+            rates = await recruitment_rate_hints.candidate_rates(
+                db, candidate_id, without_candidate_rate
+            )
+            notes = await recruitment_rate_hints.send_notes(
+                db, candidate_id, without_client_rate
+            )
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "rate hints failed for candidate=%s", candidate_id, exc_info=True
+        )
+        return
+    for job_id, hint in rates.items():
+        jobs_map[job_id]["expected_rate_hint"] = hint
+    for job_id, note in notes.items():
+        jobs_map[job_id]["client_rate_note"] = note
 
 
 class DuplicateCheckPayload(BaseModel):
@@ -5154,6 +5199,10 @@ async def get_candidate_history(
             today=today,
             interview_badge=interview_badges.get(job_id),
         )
+
+    await _attach_rate_hints(
+        db, candidate_id, jobs_map, show_client_rate=show_client_rate
+    )
 
     # Contracts
     from app.models.contract import Contract
