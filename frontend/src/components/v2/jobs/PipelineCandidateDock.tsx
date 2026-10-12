@@ -70,6 +70,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn, formatDate } from "@/lib/utils";
+import { EmploymentPopoverPill } from "@/components/v2/employment/EmploymentNotice";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatusBadge";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
@@ -1115,6 +1116,10 @@ export function PipelineCandidateDock({
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
+          {/* Krótka pigułka zamiast stałej ramki: głowa panelu nie przewija
+              się, a treść pod nią ma tylko ~390 px przy 1280 × 650. Klient,
+              koniec zamówienia i Delivery Lead są w dymku po kliknięciu. */}
+          {item.employment_marker && <EmploymentPopoverPill marker={item.employment_marker} />}
           {candidate?.status === "blacklisted" && (
             <Badge
               variant={candidate.status === "blacklisted" ? "danger" : "neutral"}

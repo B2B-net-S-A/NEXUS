@@ -14,6 +14,7 @@
  * cyklu nie ma.
  */
 
+import type { EmploymentMarker } from "@/lib/employment-marker";
 import type { CardAgreement } from "@/lib/b2b-agreement";
 import { memo } from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -102,6 +103,8 @@ export interface KanbanItem {
  // Kody ostrzeżeń karty w stałej kolejności (`hm_veto`, `budget_exceeded`,
  // kody polityki dopuszczalności — konflikt z klientem itd.).
  warnings?: string[];
+ // Znacznik „Pracuje u nas”; `elsewhere` względem klienta tej rekrutacji.
+ employment_marker?: EmploymentMarker | null;
  // Kto ma ruch według serwera — lustro `NextActionOwner` z
  // `lib/pipeline-next-action.ts` (unia wpisana wprost: tamten moduł importuje
  // typy stąd, więc import w drugą stronę zamknąłby cykl).

@@ -58,6 +58,9 @@ import {
  downloadBulkCvs,
 } from"@/lib/bulk-cv-download";
 import { cn, formatDate } from"@/lib/utils";
+import { EmploymentPill } from "@/components/ds/EmploymentMarker";
+import { markerLabel } from "@/lib/employment-marker";
+import { eligibilityWarningBadges } from "@/lib/eligibility-reason-labels";
 import { encodeJobBackRef } from"@/lib/url-filters";
 import { useUiStore } from"@/store/ui";
 import { Badge } from"@/components/ui/badge";
@@ -851,6 +854,9 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  : `Brak danych o osobie dodającej${
  item.added_to_job_at ? ` · dodano ${formatDate(item.added_to_job_at)}` : ""
  }`;
+ // Konflikty z klientem i czarna lista: serwer niesie je w `warnings`,
+ // a karta do 12.10.2026 rysowała tylko weto HM i „ponad budżet”.
+ const warningBadges = eligibilityWarningBadges(item.warnings, item.employment_marker);
  const accessibleDetails = [
  overBudget ? "Stawka ponad budżet rekrutacji." : null,
  screeningDue ? "Screening do uzupełnienia." : null,
@@ -870,6 +876,8 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  : null,
  `${addedAttribution}.`,
  item.hm_veto ? "Ostrzeżenie: weto hiring managera." : null,
+ ...warningBadges.map((w) => `Ostrzeżenie: ${w.label}.`),
+ item.employment_marker ? `${markerLabel(item.employment_marker)}.` : null,
  // Na końcu, nie w środku — „następny krok" jest podsumowaniem karty, a nie
  // kolejnym faktem o kandydacie.
  nextAction.kind !== "none" ? `Następny krok: ${nextAction.label}.` : null,
@@ -1105,6 +1113,21 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  ponad budżet
  </span>
  )}
+ {warningBadges.map((w) => (
+ <span
+ key={w.code}
+ data-testid={`card-warning-${w.code}`}
+ className={cn(
+ "inline-flex items-center gap-0.5 rounded px-1 text-[10px] font-semibold uppercase tracking-wide",
+ w.tone === "danger" ? "bg-destructive/10 text-destructive" : "bg-warning/15 text-warning",
+ desktopOverview && "xl:pointer-fine:hidden"
+ )}
+ title={w.title}
+ >
+ <AlertTriangle className="h-2.5 w-2.5" aria-hidden="true" />
+ <span aria-hidden="true">{w.label}</span>
+ </span>
+ ))}
  {impliedBadges(cardStageBadge(item, stageBadge)).map((badge) => (
  <span
  key={badge}
@@ -1139,6 +1162,18 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  </button>
  )}
  <CardV4Badges item={item} fullName={fullName} stageBadge={stageBadge} />
+ {/* Osobny wiersz na końcu: u kogo osoba u nas pracuje i do kiedy.
+ Treść dla czytnika jest w opisie karty (`accessibleDetails`). */}
+ {item.employment_marker && (
+ <EmploymentPill
+ marker={item.employment_marker}
+ appearance="text"
+ label={{ clients: "count", date: "short" }}
+ aria-hidden="true"
+ data-testid="card-employment"
+ className={cn("basis-full text-[10.5px]", desktopOverview && "xl:pointer-fine:hidden")}
+ />
+ )}
  {/* `=== true`: odznaka obiecuje gotowy dokument (dawna odznaka
  kolumny „Następny krok" w Tabeli). */}
  {item.auto_cv_ready === true && (

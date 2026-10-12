@@ -370,6 +370,43 @@ describe("PipelineCandidateDock", () => {
     expect(screen.getByText("Weto HM")).toBeTruthy();
   });
 
+  it("głowa panelu: krótka pigułka „Pracuje u nas”, szczegóły w dymku po kliknięciu", async () => {
+    const user = userEvent.setup();
+    renderDock({
+      item: baseItem({
+        employment_marker: {
+          phase: "working",
+          source: "contract",
+          elsewhere: true,
+          clients: [
+            {
+              client_id: 4,
+              client_name: "Bank Przykładowy",
+              contract_id: 40,
+              phase: "working",
+              order_end_date: "2026-12-31",
+              delivery_lead_name: "Karol Wzorcowy",
+            },
+          ],
+        },
+      }),
+    });
+
+    // Bez nazwy klienta — głowa panelu nie może rosnąć (zapas na treść pod nią).
+    const pill = screen.getByRole("button", { name: "Pracuje u nas · do 31.12" });
+    expect(screen.queryByRole("note")).toBeNull();
+
+    await user.click(pill);
+    const notice = screen.getByRole("note");
+    expect(notice).toHaveTextContent("Pracuje u nas · Bank Przykładowy");
+    expect(notice).toHaveTextContent("Zamówienie do 31.12.2026 · Delivery Lead: Karol Wzorcowy");
+  });
+
+  it("bez znacznika głowa panelu nie ma pigułki zatrudnienia", () => {
+    renderDock();
+    expect(screen.queryByRole("button", { name: /Pracuje u nas/ })).toBeNull();
+  });
+
   it("zakładka Screening otwiera Screening Championa przez onOpenScreening", async () => {
     const user = userEvent.setup();
     const onOpenScreening = vi.fn();
