@@ -334,6 +334,28 @@ describe("CandidatesListV2 — „Szukaj ręcznie” z rekrutacji (embed)", () =
   });
 });
 
+describe("„Szukaj ręcznie” — blok „Rekrutacje” (12.10.2026)", () => {
+  it("tryb dochodzi do wymuszonego „nie w tej rekrutacji”, listy rekrutacji tu nie ma", async () => {
+    renderEmbedded();
+    await screen.findByText("Ewa Marczak");
+    const bar = screen.getByRole("region", { name: "Filtry kandydatów" });
+    fireEvent.click(within(bar).getByRole("button", { name: /Historia z nami/ }));
+    const history = await screen.findByRole("dialog");
+    fireEvent.click(within(history).getByRole("radio", { name: "Nie brał udziału" }));
+    expect(within(history).queryByRole("button", { name: /Wszystkie rekrutacje/ })).toBeNull();
+    fireEvent.click(within(history).getByRole("radio", { name: "Bez procesu w toku" }));
+    fireEvent.keyDown(history, { key: "Escape" });
+    fireEvent.click(within(bar).getByRole("button", { name: /^Szukaj(?! w)/ }));
+    await waitFor(async () => {
+      const params = await listParams();
+      expect(params.recruitment_presence).toBe("not_in_process");
+      expect(params.recruitment_id).toEqual([7]);
+      expect(params.recruitment_match).toBe("not_assigned");
+      expect(params.recruitment_client_id).toBeUndefined();
+    });
+  });
+});
+
 describe("„Szukaj ręcznie” — przycisk Szukaj i pamięć rekrutacji (25.09.2026)", () => {
   beforeEach(() => {
     clearSearchMemory();

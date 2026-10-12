@@ -115,8 +115,15 @@ class MatchVector:
 
 
 def job_scope(filters: Any) -> Optional[int]:
-    """Rekrutacja „Szukaj ręcznie” — dokładnie jedna i kierunek „nie w niej”."""
+    """Rekrutacja „Szukaj ręcznie” — dokładnie jedna i kierunek „nie w niej”.
+
+    Zakres klienta (`recruitment_client_id`) to już filtr listy, nie okno
+    rekrutacji: `order_base_filters` zdjąłby z niego tylko rekrutację i odwrócił
+    kierunek na „przypisany”, więc kolejność liczyłaby się z innego zbioru.
+    """
     ids = list(getattr(filters, "recruitment_id", None) or [])
+    if getattr(filters, "recruitment_client_id", None):
+        return None
     if len(ids) == 1 and getattr(filters, "recruitment_match", None) == "not_assigned":
         return int(ids[0])
     return None

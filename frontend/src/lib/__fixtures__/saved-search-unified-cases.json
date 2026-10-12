@@ -1190,6 +1190,130 @@
           }
         }
       }
+    },
+    {
+      "name": "lista: blok „Rekrutacje” — nie brał udziału w żadnej (12.10.2026)",
+      "filters": {
+        "version": 2,
+        "qs": "recr_p=never",
+        "api": {
+          "recruitment_presence": "never",
+          "page": 2
+        }
+      },
+      "format": "candidates_list",
+      "origin": "candidates_list",
+      "request": {
+        "semantics_version": 2,
+        "list_only": {
+          "recruitment_presence": "never"
+        }
+      },
+      "list_params": {
+        "recruitment_presence": "never",
+        "semantics_version": 2
+      },
+      "search_body": {
+        "semantics_version": 2
+      },
+      "list_engine_gaps": [],
+      "payload": {
+        "version": 3,
+        "semantics_version": 2,
+        "origin": "candidates_list",
+        "request": {
+          "semantics_version": 2,
+          "list_only": {
+            "recruitment_presence": "never"
+          }
+        },
+        "qs": "recr_p=never&sv=2",
+        "legacy": {
+          "version": 2,
+          "qs": "recr_p=never",
+          "api": {
+            "recruitment_presence": "never",
+            "page": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "lista: blok „Rekrutacje” — poza rekrutacjami klienta i wybraną rekrutacją (12.10.2026)",
+      "filters": {
+        "version": 2,
+        "qs": "recr=12&recr_mode=not_assigned&recr_cl=5",
+        "api": {
+          "recruitment_id": [
+            12
+          ],
+          "recruitment_client_id": [
+            5
+          ],
+          "recruitment_match": "not_assigned",
+          "include_match_stats": true
+        }
+      },
+      "format": "candidates_list",
+      "origin": "candidates_list",
+      "request": {
+        "semantics_version": 2,
+        "list_only": {
+          "recruitment_id": [
+            12
+          ],
+          "recruitment_client_id": [
+            5
+          ],
+          "recruitment_match": "not_assigned"
+        }
+      },
+      "list_params": {
+        "recruitment_id": [
+          12
+        ],
+        "recruitment_client_id": [
+          5
+        ],
+        "recruitment_match": "not_assigned",
+        "semantics_version": 2
+      },
+      "search_body": {
+        "semantics_version": 2
+      },
+      "list_engine_gaps": [],
+      "payload": {
+        "version": 3,
+        "semantics_version": 2,
+        "origin": "candidates_list",
+        "request": {
+          "semantics_version": 2,
+          "list_only": {
+            "recruitment_id": [
+              12
+            ],
+            "recruitment_client_id": [
+              5
+            ],
+            "recruitment_match": "not_assigned"
+          }
+        },
+        "qs": "recr=12&recr_mode=not_assigned&recr_cl=5&sv=2",
+        "legacy": {
+          "version": 2,
+          "qs": "recr=12&recr_mode=not_assigned&recr_cl=5",
+          "api": {
+            "recruitment_id": [
+              12
+            ],
+            "recruitment_client_id": [
+              5
+            ],
+            "recruitment_match": "not_assigned",
+            "include_match_stats": true
+          }
+        }
+      }
     }
   ]
 }

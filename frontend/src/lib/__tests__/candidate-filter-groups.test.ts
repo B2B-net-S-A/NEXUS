@@ -113,6 +113,21 @@ describe("filterGroupCounts", () => {
       more: 2,
     });
   });
+
+  it("blok „Rekrutacje”: tryb i klienci liczą się w „Historia z nami”", () => {
+    const idle = filterGroupCounts(
+      withFilters({ recruitmentPresence: "not_in_process" }),
+      NO_STAGE,
+      NO_SKILLS,
+    );
+    expect(idle.history).toBe(1);
+    const scoped = filterGroupCounts(
+      withFilters({ recruitmentIds: [1], recruitmentClientIds: [3, 4] }),
+      NO_STAGE,
+      NO_SKILLS,
+    );
+    expect(scoped.history).toBe(3);
+  });
 });
 
 describe("isChipShownOnFilterBar", () => {

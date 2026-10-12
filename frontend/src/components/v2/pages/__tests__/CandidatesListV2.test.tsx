@@ -320,16 +320,18 @@ describe("CandidatesListV2", () => {
         expect(within(bar()).getByRole("button", { name })).toBeTruthy();
       }
       expect(screen.queryByLabelText("Promień")).toBeNull();
-      expect(screen.queryByText("Brał udział w rekrutacji")).toBeNull();
+      expect(screen.queryByRole("radiogroup", { name: "Rekrutacje" })).toBeNull();
       const location = await openFilter(/^Lokalizacja/);
       expect(within(location).getByLabelText("Miasto")).toBeTruthy();
       expect(within(location).getByLabelText("Promień")).toBeTruthy();
       fireEvent.keyDown(location, { key: "Escape" });
       await waitFor(() => expect(screen.queryByLabelText("Promień")).toBeNull());
       const history = await openFilter(/^Historia z nami/);
-      expect(within(history).getByText("Brał udział w rekrutacji")).toBeTruthy();
+      expect(within(history).getByRole("radiogroup", { name: "Rekrutacje" })).toBeTruthy();
       fireEvent.keyDown(history, { key: "Escape" });
-      await waitFor(() => expect(screen.queryByText("Brał udział w rekrutacji")).toBeNull());
+      await waitFor(() =>
+        expect(screen.queryByRole("radiogroup", { name: "Rekrutacje" })).toBeNull(),
+      );
       // Rzadsze grupy w szufladzie „Więcej filtrów”, zwinięte.
       expect(screen.queryByRole("radiogroup", { name: "Kogo pokazać" })).toBeNull();
       fireEvent.click(within(bar()).getByRole("button", { name: /Więcej filtrów/ }));
@@ -665,6 +667,43 @@ describe("CandidatesListV2", () => {
       });
       expect(screen.queryByText(/czeka na „Szukaj”/)).toBeNull();
       expect(readRecentSearches(7)[0]).toMatchObject({ kind: "list", label: "Kafka", keywords: ["Kafka"] });
+    });
+
+    it("blok „Rekrutacje”: „Nie brał udziału” bez rekrutacji czeka na „Szukaj” i wyłącza etap", async () => {
+      renderList();
+      await waitFor(async () => expect((await candidateCalls()).length).toBeGreaterThan(0));
+      const before = (await candidateCalls()).length;
+
+      const history = await openFilter(/^Historia z nami/);
+      fireEvent.click(within(history).getByRole("radio", { name: "Nie brał udziału" }));
+      // Bez wskazania rekrutacji pytanie dotyczy wszystkich.
+      expect(within(history).getByRole("button", { name: /Wszystkie rekrutacje/ })).toBeTruthy();
+      expect(within(history).getByLabelText("Data wysłania do klienta — od")).toBeDisabled();
+      expect(within(history).getByText(/Etap i data wysłania są wyłączone/)).toBeTruthy();
+      expect(await screen.findByText("1 zmiana czeka na „Szukaj”")).toBeTruthy();
+      expect((await candidateCalls()).length).toBe(before);
+
+      fireEvent.keyDown(history, { key: "Escape" });
+      fireEvent.click(within(bar()).getByRole("button", { name: /^Szukaj(?! w)/ }));
+      await waitFor(async () => {
+        const last = (await candidateCalls()).at(-1) ?? {};
+        expect(last).toMatchObject({ recruitment_presence: "never" });
+        expect(last.recruitment_match).toBeUndefined();
+      });
+      // Tryb bez zakresu ma chip nad tabelą i liczy się w „Wyczyść”.
+      expect(screen.getByText("Nie brał udziału w żadnej rekrutacji")).toBeTruthy();
+
+      const again = await openFilter(/^Historia z nami/);
+      fireEvent.click(within(again).getByRole("radio", { name: "Bez procesu w toku" }));
+      expect(within(again).queryByRole("button", { name: /Wszystkie rekrutacje/ })).toBeNull();
+      expect(within(again).getByLabelText("Data wysłania do klienta — od")).not.toBeDisabled();
+      fireEvent.keyDown(again, { key: "Escape" });
+      fireEvent.click(within(bar()).getByRole("button", { name: /^Szukaj(?! w)/ }));
+      await waitFor(async () => {
+        expect((await candidateCalls()).at(-1)).toMatchObject({
+          recruitment_presence: "not_in_process",
+        });
+      });
     });
 
     it("goły adres przywraca ostatnie wyszukiwanie z tej karty", async () => {

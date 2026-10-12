@@ -108,6 +108,40 @@ def test_job_scope_needs_exactly_one_recruitment_and_not_assigned():
     assert cmo.job_scope(F) is None
 
 
+def test_job_scope_is_off_when_a_client_scope_is_set():
+    class F:
+        recruitment_id = [7]
+        recruitment_match = "not_assigned"
+        recruitment_client_id = [3]
+
+    assert cmo.job_scope(F) is None
+    F.recruitment_client_id = []
+    assert cmo.job_scope(F) == 7
+
+
+def test_order_base_filters_drop_the_job_and_keep_recruitment_presence():
+    from app.api.candidates import CandidateFilterSpec
+
+    in_job_window = CandidateFilterSpec(
+        recruitment_id=[7],
+        recruitment_match="not_assigned",
+        recruitment_presence="not_in_process",
+    )
+    base = cmo.order_base_filters(in_job_window)
+    assert base.recruitment_id is None
+    assert base.recruitment_match == "assigned"
+    assert base.recruitment_presence == "not_in_process"
+
+    # Zakres klienta zostaje nietknięty — inaczej „poza klientem” zamieniłoby
+    # się w kolejności na „u klienta”.
+    with_client = CandidateFilterSpec(
+        recruitment_id=[7],
+        recruitment_match="not_assigned",
+        recruitment_client_id=[3],
+    )
+    assert cmo.order_base_filters(with_client) is with_client
+
+
 def test_requirement_words_join_rows_and_drop_stars():
     class F:
         q_all = ["spring boot"]
