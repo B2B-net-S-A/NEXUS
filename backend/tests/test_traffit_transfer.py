@@ -713,3 +713,30 @@ async def test_recruitment_switched_by_hand_but_still_closed_is_opened_when_list
     (job,) = report["jobs"]
     assert job["status"] == "transferred", job
     assert await _job_state(seed["job_id"]) == ("published", True, True, "searching")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("auto_filled", "replaced"), [(True, True), (False, False)])
+async def test_delivery_lead_from_traffit_replaces_only_an_auto_filled_lead(
+    post_commit_calls: list[Any], auto_filled: bool, replaced: bool
+) -> None:
+    # Automat wpisuje głównego DL-a klienta; u klienta z kilkoma DL-ami
+    # rekrutację prowadzi ten z Traffita. DL wpisany przez człowieka zostaje.
+    seed = await _seed()
+    actor = await _admin_id()
+    lead, other = await _delivery_lead_id(), await _delivery_lead_id()
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text(
+                "UPDATE jobs SET recruiter_id = :u, delivery_lead_id = :o, "
+                "delivery_lead_auto_filled = :a WHERE id = :i"
+            ),
+            {"u": lead, "o": other, "a": auto_filled, "i": seed["job_id"]},
+        )
+        await db.commit()
+
+    report = await _run(seed, _traffit_for(seed), dry_run=False, actor=actor)
+
+    (job,) = report["jobs"]
+    assert job["status"] == "transferred", job
+    assert await _owner_and_lead(seed["job_id"]) == (None, lead if replaced else other)

@@ -618,8 +618,9 @@ async def _settle_owner(db: AsyncSession, job_row: Any) -> dict[str, Any]:
     — 12.10.2026 pierwsza fala pokazała w „Obłożeniu” trzech Delivery Leadów
     z 10–18 requestami. Aktywna osoba bez roli pracy przy requestach
     (``job_team.WORK_ROLES``) trafia więc na miejsce Delivery Leada, jeśli
-    jest puste, a rekrutacja zostaje bez rekrutera — nikogo nowego nie
-    przypisujemy, o rekruterze decyduje człowiek. Bez commitu.
+    jest puste albo wypełnił je automat, a rekrutacja zostaje bez rekrutera
+    — nikogo nowego nie przypisujemy, o rekruterze decyduje człowiek.
+    Bez commitu.
     """
     from app.models.user import User, UserRole
     from app.services.job_team import WORK_ROLES
@@ -630,10 +631,18 @@ async def _settle_owner(db: AsyncSession, job_row: Any) -> dict[str, Any]:
     if owner is None or not owner.is_active or owner.has_any_role(*WORK_ROLES):
         return {}
     settled: dict[str, Any] = {"owner_without_recruiter_role": owner.id}
-    if job_row.delivery_lead_id is None and owner.has_any_role(UserRole.delivery_lead):
+    # DL-a wpisanego przez automat (główny DL klienta) zastępujemy: u klienta
+    # z kilkoma Delivery Leadami rekrutację prowadzi ten z Traffita, a automat
+    # wpisywał wszystkim jednego — 35 rekrutacji jednego DL-a dostało innego.
+    # DL-a wpisanego przez człowieka nie ruszamy.
+    lead_slot_free = job_row.delivery_lead_id is None or bool(
+        job_row.delivery_lead_auto_filled
+    )
+    if owner.has_any_role(UserRole.delivery_lead) and lead_slot_free:
+        if job_row.delivery_lead_id != owner.id:
+            settled["owner_moved_to_delivery_lead"] = True
         job_row.delivery_lead_id = owner.id
         job_row.delivery_lead_auto_filled = False
-        settled["owner_moved_to_delivery_lead"] = True
     job_row.recruiter_id = None
     return settled
 
