@@ -298,7 +298,9 @@ def test_characters_lxml_rejects_do_not_break_saving(hostile):
     assert "\x0c" not in cleaned and "&#" not in cleaned
     assert keep_rodo_clause(SAVED, cleaned).endswith(f"{CLAUSE}</p>")
     # Zapisana, nie może zablokować następnego zapisu (500 przed tą zmianą).
-    assert keep_rodo_clause(cleaned, "<p>Nowa treść</p>").startswith("<p>Nowa treść</p>")
+    assert keep_rodo_clause(cleaned, "<p>Nowa treść</p>").startswith(
+        "<p>Nowa treść</p>"
+    )
 
 
 def test_ordinary_numeric_references_survive_sanitizing():
