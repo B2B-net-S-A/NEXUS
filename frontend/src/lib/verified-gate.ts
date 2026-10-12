@@ -4,6 +4,8 @@
  *
  * D1: wejście na „Zweryfikowany” z Nowych/Screeningu wymaga arkusza
  * screeningu (albo odpowiedzi w karcie rekomendacji) i stawki kandydata.
+ * Rekrutacja bez pytań screeningowych nie ma arkusza do wypełnienia — tam
+ * serwer wymaga „Dlaczego ten kandydat” (`why_candidate`, 12.10.2026).
  * Serwer odmawia 409 `VERIFIED_REQUIREMENTS_MISSING`; ekran otwiera to,
  * czego brakuje.
  *
@@ -11,7 +13,7 @@
  * z Generatora przesuwa kartę sama („Oznacz jako podpisaną”).
  */
 
-export type VerifiedRequirement = "screening_sheet" | "candidate_rate";
+export type VerifiedRequirement = "screening_sheet" | "why_candidate" | "candidate_rate";
 
 export interface VerifiedRequirementsMissing {
   missing: VerifiedRequirement[];
@@ -31,7 +33,8 @@ export function verifiedRequirementsOf(error: unknown): VerifiedRequirementsMiss
   }
   const missing = Array.isArray(detail.missing)
     ? detail.missing.filter(
-        (key): key is VerifiedRequirement => key === "screening_sheet" || key === "candidate_rate",
+        (key): key is VerifiedRequirement =>
+          key === "screening_sheet" || key === "why_candidate" || key === "candidate_rate",
       )
     : [];
   return {

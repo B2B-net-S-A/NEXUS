@@ -14,7 +14,10 @@ decyzje Artura D1–D4 z 04.10.2026). Raport: `docs/candidate-funnel-completion-
 - **D1: „Zweryfikowany” wymaga arkusza screeningu i stawki kandydata NA
   SERWERZE** (`pipeline_move_rules.assert_verified_requirements`, 409
   `VERIFIED_REQUIREMENTS_MISSING`, wyłącznik `VERIFIED_GATE_ENABLED`) — tylko
-  przy wejściu z „Nowych”/„Screeningu”; zwrot DL z QC CV przechodzi.
+  przy wejściu z „Nowych”/„Screeningu”; zwrot DL z QC CV przechodzi. Od
+  12.10.2026 rekrutacja bez pytań screeningowych zamiast arkusza wymaga
+  „Dlaczego ten kandydat” —
+  `screening-notatki/rekrutacja-bez-pytan-i-pomin-brakujace.md`.
 - **D2: ręczny ruch na „Zatrudniony” wymaga `hired_signed_via`** (422 bez
   pola, `other` z notatką). „Oznacz jako podpisaną” w Generatorze bez zmian.
 - **D3: jedna sprawa „uzupełnij zamówienie” dla DL i Finansów** — otwiera ją
