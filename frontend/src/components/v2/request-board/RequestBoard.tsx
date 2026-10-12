@@ -25,7 +25,7 @@
  */
 
 import Link from "next/link"
-import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { usePathname, useSearchParams } from "next/navigation"
 import { useMemo, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { Plus } from "lucide-react"
@@ -658,7 +658,6 @@ export function RequestBoard({
   variant?: RequestBoardVariant
 } = {}) {
   const query = useRequestBoard()
-  const router = useRouter()
   const pathname = usePathname()
   const params = useSearchParams()
   const queryClient = useQueryClient()
@@ -680,7 +679,13 @@ export function RequestBoard({
     setScopeDismissed(true)
     const search = filtersToParams(next, new URLSearchParams(params?.toString() ?? ""))
     const qs = search.toString()
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
+    // Natywna historia, nie `router.replace(…, { scroll: false })`: przy zmianie
+    // samych parametrów adresu router Next 15 gubi na produkcji `scroll: false`
+    // (ścieżka „aliased prefetch” pod głównym `loading.tsx`) i przewija stronę
+    // do jej początku — pulpit skakał na górę przy każdym filtrze. Stan `null`
+    // jest celowy: z `history.state` Next nie przeniósłby adresu do
+    // `useSearchParams`.
+    window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname)
   }
 
   /**
