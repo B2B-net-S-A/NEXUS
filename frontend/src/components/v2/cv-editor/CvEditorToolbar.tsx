@@ -101,6 +101,12 @@ export function CvEditorToolbar({ editor, language, disabled = false }: CvEditor
   });
 
   const run = (command: CvCommand) => runCvCommand(editor, command);
+  // Menu po zamknięciu oddaje fokus przyciskowi, a polecenie właśnie zaznaczyło
+  // pole do wypełnienia — pisanie ma je zastąpić, więc fokus wraca do tekstu.
+  const backToText = (event: Event) => {
+    event.preventDefault();
+    editor.view.focus();
+  };
   const removeRole = async () => {
     const confirmed = await askConfirm({
       title: "Usunąć stanowisko?",
@@ -115,7 +121,9 @@ export function CvEditorToolbar({ editor, language, disabled = false }: CvEditor
     <div
       role="toolbar"
       aria-label="Narzędzia edytora CV"
-      className="relative flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto"
+      // `basis-64`: na telefonie przełączniki widoku schodzą do drugiego wiersza,
+      // zamiast zostawiać paskowi kilkadziesiąt pikseli do przewijania.
+      className="relative flex min-w-0 flex-1 basis-64 items-center gap-0.5 overflow-x-auto"
     >
       <Button
         type="button"
@@ -178,7 +186,7 @@ export function CvEditorToolbar({ editor, language, disabled = false }: CvEditor
             <ChevronDown aria-hidden className="h-3.5 w-3.5" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" onCloseAutoFocus={(event) => event.preventDefault()}>
+        <DropdownMenuContent align="start" onCloseAutoFocus={backToText}>
           <DropdownMenuRadioGroup
             value={view.kind ?? ""}
             onValueChange={(value) => run(setBlockKind(value as CvBlockKind, language))}
@@ -207,7 +215,7 @@ export function CvEditorToolbar({ editor, language, disabled = false }: CvEditor
             <ChevronDown aria-hidden className="h-3.5 w-3.5" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" onCloseAutoFocus={(event) => event.preventDefault()}>
+        <DropdownMenuContent align="start" onCloseAutoFocus={backToText}>
           <DropdownMenuItem onSelect={() => run(insertRole(language))}>Stanowisko</DropdownMenuItem>
           <DropdownMenuItem disabled={!view.canBullet} onSelect={() => run(insertBullet(language))}>
             Punkt

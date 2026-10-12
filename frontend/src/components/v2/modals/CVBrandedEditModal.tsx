@@ -27,7 +27,7 @@
  * i zatwierdzenia została bez zmian.
  */
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEditor, EditorContent } from "@tiptap/react";
 import {
@@ -158,6 +158,21 @@ const MANUAL_FIELD_LABELS: Record<string, string> = {
   max_bullet_chars: "długość opisów obowiązków",
 };
 
+/** Przełącznik widoku w pasku: aktywny w kolorze akcentu, jak zakładki. */
+function ViewToggle({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      aria-pressed={active}
+      className={cn(active && "bg-primary/10 text-primary hover:bg-primary/10")}
+      onClick={onClick}
+    >
+      {children}
+    </Button>
+  );
+}
+
 export function CVBrandedEditModal(props: Props) {
   return <CVBrandedEditContent key={props.generatedId !== undefined ? `generated-${props.generatedId}` : `stage-${props.stageId}`} {...props} />;
 }
@@ -259,7 +274,10 @@ function CVBrandedEditContent({
   }, [editor, data, stageId]);
 
   useEffect(() => {
-    editor?.setEditable(!noCv && !submitting);
+    // Bez zgłaszania „update”: Tiptap domyślnie zgłasza je przy każdej zmianie
+    // trybu edycji, a dla okna to znaczy „treść się zmieniła”. „Zapisz” na
+    // zatwierdzonym CV bez żadnej poprawki zakładało przez to nowy szkic.
+    editor?.setEditable(!noCv && !submitting, false);
   }, [editor, noCv, submitting]);
 
   const startNewDraft = () => {
@@ -581,10 +599,10 @@ function CVBrandedEditContent({
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-background px-3 py-1.5">
               <CvEditorToolbar editor={editor} language={language} disabled={mode === "word" || submitting} />
               <div className="flex flex-none items-center gap-1" role="group" aria-label="Widok CV">
-                <Button size="sm" variant={mode === "edit" ? "secondary" : "ghost"} aria-pressed={mode === "edit"}
-                  onClick={() => setMode("edit")}>Edycja</Button>
-                <Button size="sm" variant={mode === "word" ? "secondary" : "ghost"} aria-pressed={mode === "word"}
-                  onClick={() => { setMode("word"); setNarrowPane("cv"); }}>Podgląd Word</Button>
+                <ViewToggle active={mode === "edit"} onClick={() => setMode("edit")}>Edycja</ViewToggle>
+                <ViewToggle active={mode === "word"} onClick={() => { setMode("word"); setNarrowPane("cv"); }}>
+                  Podgląd Word
+                </ViewToggle>
               </div>
               {sideBySide ? (
                 <Button size="sm" variant="ghost" aria-pressed={sourcesOpen} className="flex-none"
@@ -594,10 +612,8 @@ function CVBrandedEditContent({
                 </Button>
               ) : (
                 <div className="flex flex-none items-center gap-1" role="group" aria-label="Kolumna">
-                  <Button size="sm" variant={narrowPane === "cv" ? "secondary" : "ghost"} aria-pressed={narrowPane === "cv"}
-                    onClick={() => setNarrowPane("cv")}>CV</Button>
-                  <Button size="sm" variant={narrowPane === "sources" ? "secondary" : "ghost"} aria-pressed={narrowPane === "sources"}
-                    onClick={() => setNarrowPane("sources")}>Źródła</Button>
+                  <ViewToggle active={narrowPane === "cv"} onClick={() => setNarrowPane("cv")}>CV</ViewToggle>
+                  <ViewToggle active={narrowPane === "sources"} onClick={() => setNarrowPane("sources")}>Źródła</ViewToggle>
                 </div>
               )}
             </div>

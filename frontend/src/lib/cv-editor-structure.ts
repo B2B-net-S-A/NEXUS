@@ -11,7 +11,7 @@
  *   który trafił do listy, traci znacznik — serwer czytał taki punkt raz jako
  *   stanowisko, raz jako obowiązek.
  * - Dekoracje widoku (nie trafiają do HTML-a): blokada klauzuli, sekcja bloku
- *   dla arkusza kartki, stanowisko pod kursorem.
+ *   dla arkusza kartki, stanowisko pod kursorem, etykieta technologii.
  */
 
 import { Extension, type Editor, type Extensions } from "@tiptap/core";
@@ -20,7 +20,7 @@ import { Plugin, PluginKey, type EditorState, type Transaction } from "@tiptap/p
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import StarterKit from "@tiptap/starter-kit";
 
-import { cvContext, cvOutline, isRodoNode } from "./cv-editor-blocks";
+import { CV_TEMPLATE_LABELS, cvContext, cvOutline, isRodoNode } from "./cv-editor-blocks";
 import { CvEditorSection } from "./cv-editor-section";
 
 /** Transakcja wczytania treści: omija blokadę i odświeża zapamiętaną klauzulę. */
@@ -61,10 +61,20 @@ function repair(state: EditorState, clause: PMNode | null): Transaction | null {
   return tr.docChanged ? tr : null;
 }
 
+const TECH_LABELS = Object.values(CV_TEMPLATE_LABELS).map((labels) => labels.technologies);
+
 function decorations(state: EditorState): DecorationSet {
   const { outline, role } = cvContext(state);
   const marks: Decoration[] = [];
   for (const block of outline.blocks) {
+    if (block.marker === "technologies") {
+      // Word pogrubia samą etykietę „Technologie:”, resztę linii zostawia zwykłą.
+      const label = TECH_LABELS.find((text) => block.node.textContent.startsWith(text));
+      if (label) {
+        const start = block.from + 1;
+        marks.push(Decoration.inline(start, start + label.length, { class: "cv-tech-label" }));
+      }
+    }
     const attrs: Record<string, string> = {};
     if (block.section) attrs["data-cv-in"] = block.section;
     if (block === outline.rodo) {

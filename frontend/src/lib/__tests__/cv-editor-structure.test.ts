@@ -147,7 +147,7 @@ describe("znaczniki struktury", () => {
     editor.commands.setTextSelection(positionOf(editor, "Acme") + 1);
     const html = editor.getHTML();
     expect(html).toBe(open(CV).getHTML());
-    for (const leak of ["cv-rodo-locked", "contenteditable", "data-cv-in", "cv-role-current"]) {
+    for (const leak of ["cv-rodo-locked", "contenteditable", "data-cv-in", "cv-role-current", "cv-tech-label"]) {
       expect(html).not.toContain(leak);
     }
     // …ale są w widoku: blokada klauzuli, sekcja bloku, stanowisko pod kursorem.
@@ -156,5 +156,11 @@ describe("znaczniki struktury", () => {
     expect(view).toContain('contenteditable="false"');
     expect(view).toContain('data-cv-in="experience"');
     expect(view).toContain("cv-role-current");
+  });
+
+  it("w widoku pogrubia samą etykietę technologii, jak Word", () => {
+    const editor = open(`${BODY}<p data-cv-section="technologies">Technologie: Java 17, Kafka</p>${RODO}`);
+    expect(editor.view.dom.innerHTML).toContain('<span class="cv-tech-label">Technologie:</span> Java 17, Kafka');
+    expect(editor.getHTML()).toContain('<p data-cv-section="technologies">Technologie: Java 17, Kafka</p>');
   });
 });

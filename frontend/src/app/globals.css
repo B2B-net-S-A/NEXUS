@@ -1014,15 +1014,24 @@ body:has(aside[data-person-panel][data-cover]:not([hidden])) [data-app-sidebar] 
   padding-top: 0;
   border-top: 0;
 }
+/* Word: „Nazwa firmy:” zwykłym pismem, nazwa pogrubiona. */
 .cv-paper .ProseMirror > p[data-cv-section="employer"] {
   margin: 1px 0 4px;
-  color: var(--cv-doc-muted);
   font-size: 13px;
+  font-weight: 600;
 }
-.cv-paper .ProseMirror > p[data-cv-section="duties_label"],
+/* Word: etykieta obowiązków podkreślona, w technologiach pogrubione samo słowo
+   „Technologie:” (dekoracja `cv-tech-label`). */
+.cv-paper .ProseMirror > p[data-cv-section="duties_label"] {
+  margin-top: 5px;
+  font-size: 12.5px;
+  text-decoration: underline;
+}
 .cv-paper .ProseMirror > p[data-cv-section="technologies"] {
   margin-top: 5px;
-  font-size: 12px;
+  font-size: 12.5px;
+}
+.cv-paper .ProseMirror .cv-tech-label {
   font-weight: 600;
 }
 /* Etykiety, które Word dopisuje sam — widać je, żeby nikt nie wpisywał ich ręcznie. */
