@@ -57,9 +57,31 @@ Pomiar na produkcji 12.10.2026 (odczyt, same liczby, bez danych osób):
 - e2e `responsive-preview.spec.ts`: nowy scenariusz „Notatki i historia…” oraz „pasek zakładek stoi w miejscu”
   i „wąski dok osoby przewija się w całości” — zielone na lokalnym serwerze.
 
-## PR 2 i PR 3
+## PR 2 — „Historia osoby (N)” w dużym podglądzie po lewej
 
-Dopisywane w kolejnych PR-ach: „Historia osoby (N)” w dużej strefie po lewej oraz Screening „zanim zadzwonisz”.
+- `screening-form/CandidatePreviewPane.tsx`: przycisk „Historia osoby (N)” obok źródeł CV (N = notatki ludzi),
+  treść CV w stałym opakowaniu `hidden` + `contents`, historia montowana przy pierwszym otwarciu; stan można
+  sterować z zewnątrz (`historyOpen` / `onHistoryOpenChange`). Wybór źródła CV i „Szukaj w CV” zamykają historię.
+- `person/PersonNotesHistory.tsx`, wariant `reader`: wszystkie notatki osoby pogrupowane po rekrutacji
+  („Ta rekrutacja” pierwsza), grupy rozwinięte, pigułki Rozmowy / Próby kontaktu / Delivery Lead / Maile /
+  Automat / Wszystko z licznikami serwera, tylko do odczytu.
+- Edytor CV: `showHistory={false}`; przegląd DL bez zmian (nie dostaje historii).
+- Harness `/preview/screening-form` zasiany notatkami i wynikami rekrutacji; strażnik `harness-seeds`,
+  wpis `preview.person-history` w spisie funkcji, scenariusz e2e.
+
+### Weryfikacja PR 2
+
+- vitest: `CandidatePreviewPane` (24, w tym: historia nie montuje CV drugi raz, „Szukaj w CV” ją zamyka,
+  `showHistory={false}` nie pyta o notatki), `PersonNotesHistory` (13), `app/preview/__tests__`, `cv-editor`,
+  `ScreeningWorkbench`, `heavy-bundle-boundaries` — zielone; `npm run type-check`, `eslint` czyste.
+- Chromium (Playwright): `/preview/screening-form?state=nowi` przy 1280 × 720 (strona CV 703 px przed
+  i po powrocie z historii, 2 strony zamontowane przez cały czas) i 1760 × 950 (dwa podglądy naraz);
+  `/preview/job-detail` — przycisk w zakładkach Screening, Rozmowy, Umowa i Notatki, jeden widoczny podgląd;
+  `/preview/dl-review?layout=panel` i `/preview/cv-editor` — bez przycisku.
+
+## PR 3
+
+Dopisywany w kolejnym PR-ze: Screening „zanim zadzwonisz”.
 
 ## Poza zakresem
 

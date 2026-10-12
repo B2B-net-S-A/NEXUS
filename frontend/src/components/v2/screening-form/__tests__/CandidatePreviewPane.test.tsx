@@ -4,7 +4,7 @@
  * w technologię szuka jej w CV (CV firmowe → oryginał, bo tam jest szukanie).
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useEffect, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -83,6 +83,15 @@ vi.mock("@/components/champion/JobRequirementsSummary", () => ({
     <button type="button" onClick={() => onPickRequirement?.("Kafka")}>
       Kafka
     </button>
+  ),
+}));
+
+// Czytnik historii ma własne testy — tu liczy się, kiedy podgląd go pokazuje.
+vi.mock("@/components/v2/person/PersonNotesHistory", () => ({
+  PersonNotesHistory: ({ variant, readOnly, jobId }: { variant?: string; readOnly: boolean; jobId: number }) => (
+    <div data-testid="person-history">
+      historia: {variant} · tylko odczyt: {String(readOnly)} · rekrutacja {jobId}
+    </div>
   ),
 }));
 
@@ -481,5 +490,134 @@ describe("CandidatePreviewPane — dwa podglądy naraz", () => {
 
     resizeTo(1200);
     expect(mocks.previewMounted).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("CandidatePreviewPane — „Historia osoby” obok źródeł CV (12.10.2026)", () => {
+  const NOTES = {
+    items: [
+      { id: 1, job_id: 201, content: "Umówiony telefon.", created_at: "2026-10-12T08:00:00Z", group: "talks" },
+      { id: 2, job_id: 7, content: "Feedback klienta.", created_at: "2025-04-02T09:40:00Z", group: "talks" },
+      { id: 3, job_id: 7, content: "Auto-match 70/100.", is_system: true, group: "automat", created_at: "2025-03-01T00:00:00Z" },
+    ],
+  };
+  const withNotes = () =>
+    mocks.get.mockImplementation((url: string) =>
+      Promise.resolve({ data: String(url).startsWith("/api/notes") ? NOTES : PROFILE_DOCS }),
+    );
+  const notesCalls = () => mocks.get.mock.calls.filter(([url]) => String(url).startsWith("/api/notes")).length;
+
+  it("osoba bez notatek nie dostaje przycisku historii", async () => {
+    mocks.get.mockImplementation((url: string) =>
+      Promise.resolve({ data: String(url).startsWith("/api/notes") ? { items: [] } : PROFILE_DOCS }),
+    );
+    mount();
+    await screen.findByTestId("file-preview");
+    // Odpowiedź o notatkach już przyszła — brak przycisku to decyzja, nie wyścig.
+    await waitFor(() => expect(notesCalls()).toBe(1));
+    await act(async () => {});
+    expect(screen.queryByRole("button", { name: /Historia osoby/ })).toBeNull();
+  });
+
+  it("awaria odczytu notatek zostawia przycisk — czytnik pokaże błąd, nie „brak historii”", async () => {
+    mocks.get.mockImplementation((url: string) =>
+      String(url).startsWith("/api/notes") ? Promise.reject(new Error("500")) : Promise.resolve({ data: PROFILE_DOCS }),
+    );
+    const user = userEvent.setup();
+    mount();
+    await screen.findByTestId("file-preview");
+    const toggle = await screen.findByRole("button", { name: "Historia osoby" });
+    await user.click(toggle);
+    expect(screen.getByTestId("person-history")).toBeVisible();
+  });
+
+  it("otwarcie historii chowa CV bez odmontowania — powrót nie pobiera pliku drugi raz", async () => {
+    withNotes();
+    const user = userEvent.setup();
+    mount();
+    await screen.findByTestId("file-preview");
+    // Licznik to notatki ludzi; wpis automatu się nie liczy.
+    const toggle = await screen.findByRole("button", { name: "Historia osoby (2)" });
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    // Treść historii powstaje dopiero przy pierwszym otwarciu.
+    expect(screen.queryByTestId("person-history")).toBeNull();
+
+    await user.click(toggle);
+    expect(screen.getByRole("region", { name: "Historia osoby" })).toBeVisible();
+    expect(screen.getByTestId("person-history")).toHaveTextContent("historia: reader · tylko odczyt: true · rekrutacja 201");
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "CV oryginalne" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByTestId("file-preview")).not.toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "CV oryginalne" }));
+    expect(screen.getByTestId("file-preview")).toBeVisible();
+    expect(screen.getByTestId("person-history")).not.toBeVisible();
+    expect(screen.getByRole("button", { name: "CV oryginalne" })).toHaveAttribute("aria-pressed", "true");
+    expect(mocks.previewMounted).toHaveBeenCalledTimes(1);
+    expect(mocks.original).toHaveBeenCalledTimes(1);
+  });
+
+  it("„Szukaj w CV” przy wymaganiu zamyka historię i wraca do CV", async () => {
+    withNotes();
+    const user = userEvent.setup();
+    mount();
+    await screen.findByTestId("file-preview");
+    await user.click(await screen.findByRole("button", { name: "Historia osoby (2)" }));
+    expect(screen.getByTestId("file-preview")).not.toBeVisible();
+
+    await user.click(screen.getByRole("tab", { name: "Wymagania" }));
+    await user.click(screen.getByRole("button", { name: "Kafka" }));
+
+    expect(screen.getByTestId("file-preview")).toBeVisible();
+    expect(screen.getByTestId("file-preview")).toHaveTextContent("szukam: Kafka");
+    expect(screen.getByRole("button", { name: "Historia osoby (2)" })).toHaveAttribute("aria-pressed", "false");
+    expect(mocks.previewMounted).toHaveBeenCalledTimes(1);
+  });
+
+  it("`showHistory={false}` (edytor CV): bez przycisku i bez pytania o notatki", async () => {
+    withNotes();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <CandidatePreviewPane candidateId={101} jobId={201} stageId={901} showHistory={false} />
+      </QueryClientProvider>,
+    );
+    await screen.findByTestId("file-preview");
+    expect(screen.queryByRole("button", { name: /Historia osoby/ })).toBeNull();
+    expect(notesCalls()).toBe(0);
+  });
+
+  it("historia sterowana z zewnątrz otwiera się bez kliknięcia w podglądzie", async () => {
+    withNotes();
+    function Controlled() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Pokaż historię
+          </button>
+          <CandidatePreviewPane
+            candidateId={101}
+            jobId={201}
+            stageId={901}
+            historyOpen={open}
+            onHistoryOpenChange={setOpen}
+          />
+        </>
+      );
+    }
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <Controlled />
+      </QueryClientProvider>,
+    );
+    await screen.findByRole("button", { name: "Historia osoby (2)" });
+    await user.click(screen.getByRole("button", { name: "Pokaż historię" }));
+    expect(screen.getByRole("region", { name: "Historia osoby" })).toBeVisible();
+    // Wybór źródła CV oddaje stan wołającemu.
+    await user.click(screen.getByRole("button", { name: "CV oryginalne" }));
+    expect(screen.getByTestId("person-history")).not.toBeVisible();
   });
 });

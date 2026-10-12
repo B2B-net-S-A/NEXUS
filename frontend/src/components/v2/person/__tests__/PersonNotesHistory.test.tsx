@@ -347,3 +347,79 @@ describe("PersonNotesHistory — sekcja „Notatki” wąskiego doku", () => {
     expect(screen.queryByRole("button", { name: /Cała historia/ })).toBeNull();
   });
 });
+
+describe("PersonNotesHistory — czytnik „Historia osoby” w dużej strefie podglądu", () => {
+  const articleLabels = () =>
+    screen
+      .getAllByRole("article")
+      .map((el) => el.getAttribute("aria-label"))
+      .filter((label) => label !== "Notatka" && label !== "Przypięta notatka");
+
+  it("pokazuje wszystkie rekrutacje naraz — także tę — i filtruje po rodzaju notatek", async () => {
+    respond({ notes: { items: [HERE_NOTE, ...EARLIER_NOTES] }, history: HISTORY });
+    wrap(<PersonNotesHistory variant="reader" candidateId={CANDIDATE} jobId={JOB} readOnly />);
+
+    const filter = await screen.findByRole("group", { name: "Rodzaj notatek" });
+    // Rodzaj bez notatek („Maile”) nie dostaje pigułki; „Wszystko” liczy też automaty.
+    expect(within(filter).getAllByRole("button").map((b) => b.textContent)).toEqual([
+      "Rozmowy 4",
+      "Próby kontaktu 1",
+      "Delivery Lead 1",
+      "Automat 1",
+      "Wszystko 7",
+    ]);
+    expect(within(filter).getByRole("button", { name: "Rozmowy 4" })).toHaveAttribute("aria-pressed", "true");
+
+    // Wszystkie grupy rozwinięte, bez zwijania; ta rekrutacja pierwsza.
+    expect(articleLabels()).toEqual([
+      "Ta rekrutacja",
+      "Rekrutacja: Analityk systemowy",
+      "Rekrutacja: Business Analyst",
+      "Notatki bez rekrutacji",
+    ]);
+    expect(screen.getByText("Umówiony telefon na jutro.")).toBeInTheDocument();
+    expect(screen.getByText("Prosi o kontakt od października 2025.")).toBeInTheDocument();
+    expect(screen.getByText("Nie dzwonić przed 10:00.")).toBeInTheDocument();
+    expect(document.querySelector("[aria-expanded]")).toBeNull();
+    // Czytnik: bez przypinania i odpowiadania — te akcje są w zakładce „Notatki”.
+    expect(screen.queryByRole("button", { name: /Odpowiedz|Przypnij/ })).toBeNull();
+
+    fireEvent.click(within(filter).getByRole("button", { name: "Próby kontaktu 1" }));
+    expect(articleLabels()).toEqual(["Rekrutacja: Analityk systemowy"]);
+    expect(screen.getByText("Nie odebrał, zostawiłam SMS.")).toBeInTheDocument();
+    expect(screen.queryByText("Umówiony telefon na jutro.")).toBeNull();
+
+    fireEvent.click(within(filter).getByRole("button", { name: "Automat 1" }));
+    expect(screen.getByText(/Auto-match 70\/100/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Pokaż systemowe/)).toBeNull();
+  });
+
+  it("liczniki pigułek bierze z serwera (cały zakres), nie z pobranej listy", async () => {
+    respond({
+      notes: {
+        items: [EARLIER_NOTES[0]],
+        group_counts: { talks: 40, contact: 12, delivery: 0, email: 3, automat: 9 },
+      },
+      history: { jobs: [] },
+    });
+    wrap(<PersonNotesHistory variant="reader" candidateId={CANDIDATE} jobId={JOB} readOnly />);
+
+    const filter = await screen.findByRole("group", { name: "Rodzaj notatek" });
+    expect(within(filter).getAllByRole("button").map((b) => b.textContent)).toEqual([
+      "Rozmowy 40",
+      "Próby kontaktu 12",
+      "Maile 3",
+      "Automat 9",
+      "Wszystko 64",
+    ]);
+  });
+
+  it("osoba bez rozmów otwiera się na „Wszystko”", async () => {
+    respond({ notes: { items: [EARLIER_NOTES[2]] }, history: { jobs: [] } });
+    wrap(<PersonNotesHistory variant="reader" candidateId={CANDIDATE} jobId={JOB} readOnly />);
+
+    const filter = await screen.findByRole("group", { name: "Rodzaj notatek" });
+    expect(within(filter).getByRole("button", { name: "Wszystko 1" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("Nie odebrał, zostawiłam SMS.")).toBeInTheDocument();
+  });
+});
