@@ -40,9 +40,10 @@ export interface CvEditorSourcesProps {
   /** Para podana wprost (wynik generatora, harness); `null` = CV bez rekrutacji. */
   context?: CvEditorSourceContext | null;
   loaders?: CvEditorSourcesPaneProps["loaders"];
+  search?: CvEditorSourcesPaneProps["search"];
 }
 
-export function CvEditorSources({ stageId, context, loaders }: CvEditorSourcesProps) {
+export function CvEditorSources({ stageId, context, loaders, search }: CvEditorSourcesProps) {
   const fromStage = !context && stageId != null;
   const original = useQuery<CVOriginalSnapshot>({
     queryKey: ["cv-original", stageId],
@@ -55,7 +56,7 @@ export function CvEditorSources({ stageId, context, loaders }: CvEditorSourcesPr
       ? { candidateId: original.data.candidate_id, jobId: original.data.job_id, stageId: stageId ?? null }
       : null);
 
-  if (pair) return <CvEditorSourcesPane {...pair} loaders={loaders} />;
+  if (pair) return <CvEditorSourcesPane {...pair} loaders={loaders} search={search} />;
   if (!fromStage) {
     return (
       <Note>

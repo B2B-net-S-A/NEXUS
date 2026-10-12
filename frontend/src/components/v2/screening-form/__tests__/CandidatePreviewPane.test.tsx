@@ -212,6 +212,27 @@ describe("CandidatePreviewPane", () => {
     expect(screen.getByTestId("file-preview")).toHaveTextContent("szukam: Kafka");
   });
 
+  it("wyszukanie zlecone z zewnątrz (edytor CV: „Pokaż w oryginale”) przełącza na CV i oryginał", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const pane = (search: { text: string; nonce: number } | null) => (
+      <QueryClientProvider client={queryClient}>
+        <CandidatePreviewPane candidateId={101} jobId={201} stageId={901} defaultTab="requirements" searchRequest={search} />
+      </QueryClientProvider>
+    );
+    const view = render(pane(null));
+    expect(screen.getByRole("tab", { name: "Wymagania" })).toHaveAttribute("aria-selected", "true");
+
+    view.rerender(pane({ text: "przelewy natychmiastowe", nonce: 1 }));
+    expect(await screen.findByTestId("file-preview")).toHaveTextContent("szukam: przelewy natychmiastowe");
+    expect(screen.getByRole("tab", { name: "CV" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: "CV oryginalne" })).toHaveAttribute("aria-pressed", "true");
+
+    // Ten sam cytat jeszcze raz (nowy `nonce`) wraca do CV z innej zakładki.
+    await userEvent.setup().click(screen.getByRole("tab", { name: "Wymagania" }));
+    view.rerender(pane({ text: "przelewy natychmiastowe", nonce: 2 }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "CV" })).toHaveAttribute("aria-selected", "true"));
+  });
+
   it("„Po ludzku” pokazuje skrót roli i ściągę; odwiedzone CV zostaje zamontowane", async () => {
     const user = userEvent.setup();
     mount();

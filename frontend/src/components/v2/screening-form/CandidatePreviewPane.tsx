@@ -27,7 +27,7 @@
  * sama, gdy zakładka znów się pokaże.
  */
 
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -627,6 +627,11 @@ export interface CandidatePreviewPaneProps {
   /** Historia sterowana z zewnątrz („Pokaż” w profilu przed telefonem). */
   historyOpen?: boolean;
   onHistoryOpenChange?: (open: boolean) => void;
+  /**
+   * „Szukaj w CV” zlecone z zewnątrz (edytor CV: „Pokaż w oryginale” przy
+   * cytacie źródła). Nowy `nonce` = nowe wyszukanie, także tego samego tekstu.
+   */
+  searchRequest?: { text: string; nonce: number } | null;
   /** Harness: bajty plików bez sieci. */
   loadDocumentBlob?: typeof fetchDocumentBlob;
   loadOriginalBlob?: OriginalBlobLoader;
@@ -653,6 +658,7 @@ export function CandidatePreviewPane({
   showHistory = true,
   historyOpen: controlledHistoryOpen,
   onHistoryOpenChange,
+  searchRequest: requestedSearch = null,
   loadDocumentBlob = fetchDocumentBlob,
   loadOriginalBlob = defaultOriginalLoader,
   loadStageCvFile,
@@ -719,6 +725,16 @@ export function CandidatePreviewPane({
     },
     [changeHistoryOpen, changeTab, companyReady],
   );
+
+  // Wyszukanie zlecone z zewnątrz idzie tą samą drogą co klik w wymaganie:
+  // zakładka CV, oryginał zamiast CV firmowego, historia osoby ustępuje.
+  const requestedNonce = requestedSearch?.nonce;
+  const requestedText = requestedSearch?.text;
+  useEffect(() => {
+    if (requestedNonce != null && requestedText) pickRequirement(requestedText);
+    // Reaguje na NOWE zlecenie (`nonce`), nie na zmianę stanu zakładek.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedNonce]);
 
   const tabs = extraTab ? [...TABS, { value: "extra" as const, label: extraTab.label }] : TABS;
   const panelRole = dual ? "region" : "tabpanel";

@@ -7,7 +7,8 @@
  * a „Zapisz” na zatwierdzonej wersji bez zmian nie zakłada nowego szkicu.
  */
 
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { Editor } from "@tiptap/core";
 import {
   Axios,
   type AxiosAdapter,
@@ -161,5 +162,63 @@ it("wynik generatora bez rekrutacji ma w panelu same uwagi generatora", async ()
   expect(within(dialog).getByText(/nie jest jeszcze na etapie rekrutacji/)).toBeInTheDocument();
   expect(within(dialog).getByRole("region", { name: "Uwagi generatora" })).toHaveTextContent("WERYFIKUJ");
   expect(within(dialog).queryByRole("region", { name: "Kontrola AI" })).not.toBeInTheDocument();
+  noNetwork();
+});
+
+/** Prawdziwy edytor strony — Tiptap wiesza go na elemencie `.ProseMirror`. */
+function liveEditor(dialog: HTMLElement): Editor {
+  return (dialog.querySelector(".cv-paper .ProseMirror") as HTMLElement & { editor: Editor }).editor;
+}
+
+function selectText(editor: Editor, text: string): void {
+  let from = -1;
+  editor.state.doc.descendants((node, position) => {
+    if (from >= 0 || !node.isTextblock) return from < 0;
+    const offset = node.textContent.indexOf(text);
+    if (offset >= 0) from = position + 1 + offset;
+    return false;
+  });
+  expect(from).toBeGreaterThan(0);
+  act(() => {
+    editor.commands.setTextSelection({ from, to: from + text.length });
+  });
+}
+
+it("AI na zaznaczeniu: propozycja z pamięci, „Przyjmij” zmienia tylko zaznaczony fragment — bez sieci", async () => {
+  const dialog = await openEditor();
+  const editor = liveEditor(dialog);
+  selectText(editor, "Optymalizacja zapytań w PostgreSQL.");
+  const bubble = await within(dialog).findByRole("toolbar", { name: "Zaznaczony tekst" });
+  fireEvent.click(within(bubble).getByRole("button", { name: "Przeredaguj" }));
+
+  const card = await within(dialog).findByRole("dialog", { name: "Propozycja AI" });
+  expect(await within(card).findByText("Optymalizowała zapytań w PostgreSQL.")).toBeInTheDocument();
+  fireEvent.click(within(card).getByRole("button", { name: "Przyjmij" }));
+  await waitFor(() => expect(editor.getHTML()).toContain("<li><p>Optymalizowała zapytań w PostgreSQL.</p></li>"));
+  // Reszta CV bez zmian, klauzula na miejscu.
+  expect(editor.getHTML()).toContain("Przeglądy kodu i wdrażanie młodszych programistów.");
+  expect(dialog.querySelector(".cv-rodo-locked")).not.toBeNull();
+  noNetwork();
+});
+
+it("AI niedostępne: karta mówi o tym wprost, edytor działa dalej", async () => {
+  const dialog = await openEditor("aidown");
+  const editor = liveEditor(dialog);
+  const before = editor.getHTML();
+  selectText(editor, "Optymalizacja zapytań");
+  fireEvent.click(within(await within(dialog).findByRole("toolbar", { name: "Zaznaczony tekst" })).getByRole("button", { name: "Skróć" }));
+  const card = await within(dialog).findByRole("dialog", { name: "Propozycja AI" });
+  expect(await within(card).findByText(/Podpowiedź AI jest chwilowo niedostępna/)).toBeInTheDocument();
+  expect(within(card).queryByRole("button", { name: "Przyjmij" })).toBeNull();
+  fireEvent.click(within(card).getByRole("button", { name: "Zamknij" }));
+  expect(editor.getHTML()).toBe(before);
+  noNetwork();
+});
+
+it("wynik generatora bez rekrutacji nie ma AI na zaznaczeniu", async () => {
+  const dialog = await openEditor("nosources");
+  selectText(liveEditor(dialog), "Optymalizacja zapytań");
+  expect(within(dialog).queryByRole("toolbar", { name: "Zaznaczony tekst" })).toBeNull();
+  expect(within(dialog).queryByRole("button", { name: "AI na zaznaczonym tekście" })).toBeNull();
   noNetwork();
 });

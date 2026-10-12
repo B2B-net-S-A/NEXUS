@@ -10,7 +10,11 @@
 // zmiana zakłada szkic), `conflict` (szkic łamie regułę klienta), `nosources`
 // (wynik generatora bez rekrutacji — panel źródeł mówi, czemu jest pusty,
 // a „Do poprawy” ma same uwagi generatora), `clean` (CV bez uwag), `qcdown`
-// (QC nie odpowiada — panel nie udaje, że uwag nie ma).
+// (QC nie odpowiada — panel nie udaje, że uwag nie ma), `aidown` (AI na
+// zaznaczeniu niedostępne — edytor działa dalej).
+//
+// „AI na zaznaczeniu” dostaje propozycje z `ai-fixture.ts` (proste
+// przekształcenia tekstu, bez modelu).
 //
 // Panel „Do poprawy” dostaje QC, uwagi i poprawki z `issues-fixture.ts`:
 // lista liczy się z ostatnio zapisanej treści, więc widać cały obieg
@@ -41,6 +45,7 @@ import { plainBriefQueryKey, type PlainBrief } from "@/lib/api/plainKnowledge";
 import { stageBrandedQueryKey } from "@/lib/cv-to-client";
 import { useAuthStore } from "@/store/auth";
 
+import { memoryAiApi } from "./ai-fixture";
 import { GENERATOR_ONLY_WARNINGS, memoryIssuesApi, withoutIssues } from "./issues-fixture";
 
 const JOB_ID = 201;
@@ -50,7 +55,7 @@ const GENERATED_ID = 77;
 const DAY_MS = 86_400_000;
 const SEED_FRESH = { updatedAt: Date.now() + DAY_MS };
 
-type HarnessState = "draft" | "finalized" | "conflict" | "nosources" | "clean" | "qcdown";
+type HarnessState = "draft" | "finalized" | "conflict" | "nosources" | "clean" | "qcdown" | "aidown";
 const STATES: Record<HarnessState, string> = {
   draft: "Szkic",
   finalized: "Zatwierdzona wersja",
@@ -58,6 +63,7 @@ const STATES: Record<HarnessState, string> = {
   nosources: "Wynik generatora bez rekrutacji",
   clean: "Bez uwag",
   qcdown: "QC niedostępne",
+  aidown: "AI niedostępne",
 };
 
 const RODO =
@@ -321,7 +327,11 @@ export default function CvEditorPreviewPage() {
   const backend = useMemo(() => {
     const editor = memoryApi(brandedState(state));
     const variant = state === "qcdown" ? "down" : state === "clean" ? "clean" : "issues";
-    return { editorApi: editor.api, issuesApi: memoryIssuesApi(editor.savedHtml, variant) };
+    return {
+      editorApi: editor.api,
+      issuesApi: memoryIssuesApi(editor.savedHtml, variant),
+      aiApi: memoryAiApi(state === "aidown"),
+    };
   }, [state]);
 
   useEffect(() => {
@@ -383,6 +393,7 @@ export default function CvEditorPreviewPage() {
           sourceContext={state === "nosources" ? null : undefined}
           editorApi={backend.editorApi}
           issuesApi={backend.issuesApi}
+          aiApi={backend.aiApi}
           generatorWarnings={state === "nosources" ? GENERATOR_ONLY_WARNINGS : undefined}
           editorFiles={MEMORY_FILES}
           sourceLoaders={SOURCE_LOADERS}
