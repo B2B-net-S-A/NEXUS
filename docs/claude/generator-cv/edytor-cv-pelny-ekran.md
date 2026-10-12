@@ -1,6 +1,6 @@
 # Edytor CV na cały ekran — kartka, bloki, źródła, stała klauzula RODO (12.10.2026)
 
-<!-- indeks: kontrakt HTML edytor ↔ Word, bloki i etykiety szablonu, blokada klauzuli (przeglądarka + serwer), pola w nawiasach, wpis `cv_file_downloaded`, panel „Do poprawy” (QC, uwagi generatora, kontrola AI, „Popraw wszystko”, `qc/transform`), harness `/preview/cv-editor` -->
+<!-- indeks: kontrakt HTML edytor ↔ Word, bloki i etykiety szablonu, blokada klauzuli (przeglądarka + serwer), pola w nawiasach, wpis `cv_file_downloaded`, panel „Do poprawy” (QC, uwagi generatora, kontrola AI, „Popraw wszystko”, `qc/transform`), AI na zaznaczeniu (`cv-ai/selection`, kontrola „bez nowych faktów”, klucz `cv_selection_edit`), harness `/preview/cv-editor` -->
 
 Pomiar na produkcji (30 dni do 12.10.2026, tylko odczyt, same liczby): 686 CV
 z generatora, w edytorze poprawiono 17 (2,5%), mediana 2 zapisy i 1,5 minuty.
@@ -8,8 +8,8 @@ Poprawki szły w Wordzie poza NEXUSEM, a wersja wysłana klientowi nie wracała.
 Decyzje Artura D1–D6 (makiety: https://claude.ai/artifact/N82z8poJ4waexM46zLvMkg,
 prywatne): pełny ekran, „Popraw wszystko” tylko z dowodem, klauzula RODO bez
 edycji, powrót pliku Word, zapis pobrań, pięć PR-ów po kolei. Ten plik opisuje
-PR 1 (edytor bez AI) i PR 2 (panel „Do poprawy”); kolejne PR-y dopisują swoje
-sekcje tutaj.
+PR 1 (edytor bez AI), PR 2 (panel „Do poprawy”) i PR 3 (AI na zaznaczeniu);
+kolejne PR-y dopisują swoje sekcje tutaj.
 
 ## Kontrakt HTML — edytor pisze to, z czego serwer składa Word
 
@@ -259,11 +259,77 @@ i kontrola AI ostatniej zatwierdzonej wersji. Komponent
   treści z edytora ma być liniowa — pilnują testy z limitem czasu procesora
   w `tests/test_cv_qc.py` (`TRANSFORM_CPU_LIMIT`, kształty z przeglądu).
 
+## AI na zaznaczeniu (PR 3, 13.10.2026)
+
+Rekruter zaznacza fragment CV i wybiera: **Skróć · Rozwiń z oryginału ·
+Przeredaguj · Popraw język · Na angielski** (dymek nad zaznaczeniem albo menu
+„AI” w pasku). Wynik to zawsze PROPOZYCJA na karcie „było / będzie” — do CV
+trafia dopiero po „Przyjmij”.
+
+- **Model proponuje, kod sprawdza** (`services/cv_selection_ai.check`).
+  Skrócenie, redakcja, korekta i tłumaczenie nie mogą dodać faktu spoza
+  zaznaczonego tekstu: liczby, daty, nazwy własnej, technologii
+  (`unsupported_facts` z „Ułóż w zdanie”) ani wymagania rekrutacji zapisanego
+  małą literą (`dz._found`). Rozwinięcie wolno oprzeć tylko na cytacie, który
+  serwer znalazł w oryginalnym CV albo w notatkach (reguły `cv_qc.parse_fixes`:
+  co najmniej 4 słowa, nie lista technologii, nie z innego stanowiska, bez
+  stawki), a tekst propozycji musi wynikać z fragmentu i cytatu. Sam istniejący
+  cytat nie wystarcza — model mógłby zacytować cztery słowa i dopisać cokolwiek.
+  Propozycja, która nie przeszła, nie wraca do edytora: wraca powód i zapis,
+  o który poszło (`status: "rejected"`).
+- **Tłumaczenie:** liczby, tokeny z cyfrą i miesiące (tabela PL→EN) muszą się
+  zgadzać; nowe wyrazy z wielkiej litery to `cautions` na karcie, nie odmowa —
+  angielski pisze wielką literą więcej („Project Manager”). „Na angielski”
+  w polskim CV zostawia polskie etykiety szablonu i klauzulę; karta to mówi.
+  Przeniesienie całego CV PL→EN to PR 4.
+- **Trasa jest bezstanowa:** `POST /api/pipeline/stages/{id}/cv-ai/selection`
+  (`api/cv_editor_ai.py`, bez `from __future__`). Klient wysyła TEKST — fragment
+  (`**pogrubienie**`), jego akapit i opis stanowiska z `cvOutline` — nigdy HTML
+  ani pozycji w dokumencie; serwer niczego nie zapisuje w szkicu. Nazwy roli od
+  klienta służą tylko do WYBORU roli z odczytu oryginału (`resolve_role`).
+  Wynik biznesowy to zawsze 200 ze statusem (`ok`, `rejected`, `no_source`,
+  `not_supported`, `unavailable`); awaria modelu nigdy nie jest 5xx. Tokeny
+  integracji dostają 403 (płatne wywołanie zamawia osoba). Limit 20/min.
+- **AI:** klucz `cv_selection_edit` (F30, migracja 0431 + lustro w
+  `entrypoint.sh`), Sonnet 5 z zapasem Haiku — recenzent przy „Zapisz” to Luna,
+  autor ma być innym modelem. Wywołanie w `ai_feature()` z commitem PRZED
+  modelem, limit czasu 30 s łącznie, prompt przez `prompt_fencing` (znaczniki
+  `cv_*`, `original_*`, `recruiter_hint`, `previous_proposals` w `_TAG_RE`).
+  „Doprecyzuj” to wskazówka stylu — idzie w osobnym znaczniku i nie jest
+  źródłem faktów. Wyłącznik: `CV_SELECTION_AI_ENABLED`.
+- **Gdzie AI działa:** w obrębie jednego akapitu albo punktu ze zwykłą treścią
+  (`selectionTarget`). Nagłówek, stanowisko, firma, etykieta obowiązków
+  i lista technologii mają gramatykę, z której serwer składa Word — przyciski
+  AI są tam wyłączone z powodem. Klauzula zgody i edytor wyniku generatora
+  (bez etapu) nie mają dymka wcale.
+- **Zakres czekający na propozycję** (`CvEditorAiPending`) to dekoracja widoku:
+  jedzie z tekstem, gdy rekruter pisze gdzie indziej, przeżywa ponowne
+  wczytanie tej samej treści (nowy szkic) i gaśnie, gdy zmieni się sam fragment
+  — wtedy karta mówi, że tekst się zmienił, i niczego nie nakłada.
+- **„Przyjmij” = jedna cofalna zmiana** dokładnie na tym zakresie (`acceptStep`,
+  `closeHistory`); pogrubienie z zapisu `**x**`, inne znaczniki obejmujące cały
+  fragment zostają. Szkic na zatwierdzonej wersji powstaje dopiero przy
+  „Przyjmij” — zamówienie i odrzucenie propozycji niczego w CV nie zmieniają.
+- **Dymek i karta stoją w kolumnie kartki** (`createPortal` do `.cv-paper`,
+  pozycja z `coordsAtPos`), nie w `body`: okno edytora jest modalne, więc
+  element poza nim byłby nieklikalny. Stąd własny dymek zamiast `BubbleMenu`
+  Tiptapa — bez nowych zależności. Przycisk dymka robi `preventDefault` na
+  `mousedown`, żeby nie zabrać edytorowi zaznaczenia.
+- **„Pokaż w oryginale”** przy cytacie z oryginalnego CV otwiera źródła i zleca
+  „Szukaj w CV” (`CandidatePreviewPane.searchRequest` z zewnątrz) — szuka
+  początku cytatu, bo wyszukiwarka PDF-a gubi się na łamaniu wierszy. Karta
+  zawsze pokazuje pełny cytat. Numer strony i podświetlenie w „Notatkach” —
+  odłożone.
+- **Ślad użycia:** `Activity(action="cv_selection_ai")` z akcją, statusem
+  i powodem odmowy — bez tekstu CV i propozycji.
+
 ## Harness
 
-`/preview/cv-editor?state=draft|finalized|conflict|nosources|clean|qcdown` —
-prawdziwy edytor na stanie z pamięci (`editorApi`, `issuesApi`, `editorFiles`,
-`sourceLoaders` jako propsy okna), źródła z zasiewu, sieć odcięta. Panel
+`/preview/cv-editor?state=draft|finalized|conflict|nosources|clean|qcdown|aidown` —
+prawdziwy edytor na stanie z pamięci (`editorApi`, `issuesApi`, `aiApi`,
+`editorFiles`, `sourceLoaders` jako propsy okna), źródła z zasiewu, sieć odcięta.
+„AI na zaznaczeniu” dostaje propozycje z `ai-fixture.ts` (proste przekształcenia
+tekstu, bez modelu). Panel
 „Do poprawy” dostaje dane z `issues-fixture.ts`: „QC” liczy się tam z ostatnio
 zapisanej treści, więc widać obieg poprawka → autozapis → świeża lista. Test
 `app/preview/__tests__/cv-editor-harness.test.tsx` montuje całą stronę bez atrapy
