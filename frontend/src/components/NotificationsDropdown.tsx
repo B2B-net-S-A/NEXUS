@@ -497,6 +497,12 @@ const TYPE_CONFIG: Record<
     color: "text-primary",
     bgColor: "bg-primary/10",
   },
+  // 0430: nasz konsultant w innej rekrutacji (CV wysłane / zatrudnienie).
+  consultant_in_other_recruitment: {
+    icon: <Users className="w-3.5 h-3.5" />,
+    color: "text-warning",
+    bgColor: "bg-warning/15",
+  },
 };
 
 /** Nieznany (nowy) typ dostaje neutralny dzwonek, nie ikonę „nowy kandydat". */
