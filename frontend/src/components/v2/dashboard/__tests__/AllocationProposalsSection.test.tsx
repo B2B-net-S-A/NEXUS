@@ -519,7 +519,7 @@ describe("AllocationProposalsSection — propozycje automatu do akceptacji", () 
       expect(titles()).toEqual(["Administrator sieci"]);
       expect(screen.queryByRole("button", { name: /Akceptuj (wszystkie|pokazane)/ })).not.toBeInTheDocument();
 
-      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Priorytet" }), "P2 Standard");
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Priorytet" }), "Bez priorytetu");
       expect(screen.getByRole("status")).toHaveTextContent("Żadna propozycja nie pasuje do ustawionych filtrów.");
       expect(screen.queryByRole("listitem")).not.toBeInTheDocument();
 

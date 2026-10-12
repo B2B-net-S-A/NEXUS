@@ -238,9 +238,12 @@ describe("JobsFilterBar — „Priorytet” i „Wyczyść”", () => {
     const group = within(await screen.findByRole("group", { name: "Priorytet rekrutacji" }));
     expect(group.getAllByRole("checkbox").map((box) => box.parentElement?.textContent)).toEqual([
       "P1 Pilne",
-      "P2 Standard",
+      "Bez priorytetu",
       "Przyjmujemy kandydatów",
     ]);
+    expect(
+      screen.getByText(/Rekrutacja bez plakietki nie ma priorytetu\./),
+    ).toBeInTheDocument();
     expect(group.getByRole("checkbox", { name: "P1 Pilne" })).toBeChecked();
 
     await user.click(group.getByRole("checkbox", { name: "Przyjmujemy kandydatów" }));
