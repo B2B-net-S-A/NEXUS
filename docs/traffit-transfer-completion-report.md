@@ -113,6 +113,66 @@ Błędy pierwszego biegu i poprawki (#2130 i następny PR):
 - Pewność bliźniaka liczona bez numeru requestu dawała cudzy zespół ośmiu
   kopiom. Naprawa: `assign_twins`.
 
+Kolejne biegi tego dnia (po #2130 i #2132):
+
+| Bieg (UTC) | Co | Wynik |
+|---|---|---|
+| 09:24–09:37 | 28 kopii z pewnym bliźniakiem (z zespołem rekrutacji NEXUSA), 13 z podobnym tytułem, 3 przełączone ręcznie | 44 otwarte |
+| 10:06–10:09 | 8 kopii, których tytuł pasował do cudzego numeru requestu — bez zmiany zespołu | 8 otwartych |
+| po biegach | naprawa prowadzących, karty scrapera → propozycje | 103 rekrutacje bez Delivery Leada w roli rekrutera; 2 047 kart przeniesionych łącznie |
+
+Stan po migracji: 185 rekrutacji przeniesionych, jedyna aktywna
+nieprzeniesiona to worek zgłoszeń „projekty wewnętrzne”.
+
+## Scalenie duplikatów — 12.10.2026
+
+28 requestów stało na liście dwa razy: kopia z Traffita (kandydaci) i
+rekrutacja założona w NEXUSIE (zespół, Profil Championa, propozycje). Pomiar
+przed budową (produkcja, tylko odczyt): w kopiach 870 osób z kartą, z czego 10
+ma kartę także w rekrutacji NEXUSA; 13 ma tam unieważniony proces po karcie ze
+scrapera; na kopiach 343 otwarte propozycje (214 zgłoszeń z ogłoszeń); jedna
+z 28 rekrutacji NEXUSA jest zamknięta.
+
+Co weszło:
+
+- `backend/app/services/job_twin_merge.py` — pary z paragonów przeniesienia,
+  próba (raport per para), wykonanie (para we własnej transakcji), paragon
+  z id przeniesionych kandydatów; raport w
+  `app_settings['traffit_twins_merge_dry_run']`, paragon w
+  `…['traffit_twins_merge_log']`.
+- `recruitment_process_commands.move_pairs_to_job` — przepięcie wierszy etapów
+  i procesów pary (jedyne miejsce, które wolno ruszać te wiersze).
+- `job_proposals.move_open_to_job` — otwarte propozycje kopii przechodzą.
+- `backend/app/api/admin_traffit.py` — `POST /api/admin/traffit/twins-merge`,
+  `GET …/twins-merge/status`; ten sam werdykt bramek co przeniesienie.
+- Bez migracji i bez zmian schematu.
+
+Niezależny przegląd kodu przed scaleniem wskazał dwie rzeczy blokujące, obie
+sprawdzone na produkcji (tylko odczyt) i poprawione:
+
+- Lista tabel idących za osobą nie miała terminów rozmów, prepów, feedbacku,
+  zaplanowanych maili odmowy ani wykluczeń placementów — bramka debriefu
+  i wysyłka maila zgubiłyby parę. Na 28 kopiach było w nich 0 wierszy; tabele
+  dopisane, bo ludzie pracują w kopiach na bieżąco.
+- Unieważniony proces rekrutacji NEXUSA mógłby zabrać kredyt KPI kamieniom
+  milowym kopii. U wszystkich 13 osób z takim procesem proces z Traffita
+  otworzył się wcześniej, więc 0 kamieni wpadało w lukę; narzędzie dostało
+  strażnika (`kpi_hold`).
+
+Z uwag nieblokujących weszły: scalona kopia nie wraca do fali przeniesienia,
+paragon przy kopii w transakcji pary, wykonanie tylko par z próby, przepięcie
+nie rusza `updated_at`.
+
+Świadome wybory: osoba z kartą w obu rekrutacjach nie jest przenoszona;
+kopia zamyka się bez daty i powodu zamknięcia (nie jest zamkniętym requestem);
+zespół rekrutacji NEXUSA się nie zmienia; zamknięta rekrutacja NEXUSA nie
+przyjmuje ludzi — tę parę rozstrzyga Delivery Lead.
+
+| Plik | Zakres | Gdzie |
+|---|---|---|
+| `tests/test_job_twin_merge_plan.py` | kiedy para jest parą, powody pominięcia, lista tabel idących za osobą, zakres trasy | lokalnie i CI |
+| `tests/test_job_twin_merge.py` | próba bez zmian; przepięcie z historią, numery prób, notatki, karta, termin rozmowy, „Stawka od”, propozycje i ich notatki, `updated_at` bez zmian, zamknięcie kopii, przypisania, zespół bez zmian, paragon przy kopii, scalona kopia poza falą; osoba wstrzymana przez kredyt KPI; tylko pary z próby; zamknięta rekrutacja NEXUSA; podobny tytuł; brak wykonawcy; kopia zamknięta przez człowieka; świeżość próby | tylko CI (Postgres) |
+
 ## Niepotwierdzone / poza zakresem
 
 - Remis czasu w imporcie dotyczy wszystkich rekrutacji z Traffita; ta zmiana
@@ -125,4 +185,5 @@ Błędy pierwszego biegu i poprawki (#2130 i następny PR):
   `convert-integration-cards` dostało zawężenie `job_ids`, rekrutacje
   „Prowadzone w NEXUSIE” i karty scrapera sprzed oznaczania wpisów. Bieg po
   otwarciu fali.
-- Scalanie bliźniaków i ekran w Ustawieniach — kolejna fala prac.
+- Ekran w Ustawieniach dla przeniesienia i scalania — narzędzia działają przez trasy administratora.
+- 13 kopii z podobnym tytułem i 8 z cudzym numerem requestu nie jest scalanych — to mogą być różne requesty; rozstrzyga Delivery Lead.

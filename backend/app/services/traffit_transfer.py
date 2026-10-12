@@ -156,6 +156,14 @@ def _jobs_sql(scope: Scope) -> str:
         "j.external_id IS NOT NULL",
         "j.closed_at IS NULL",
         not_switched,
+        # Kopia scalona z rekrutacją NEXUSA (`job_twin_merge.MERGE_ACTION`)
+        # wygląda jak „przełączona, ale zamknięta”. Otwarcie jej dopisałoby
+        # karty osobom, które przeszły do rekrutacji NEXUSA.
+        """NOT EXISTS (
+            SELECT 1 FROM activities merged
+            WHERE merged.entity_type = 'job' AND merged.entity_id = j.id
+              AND merged.action = 'traffit_twin_merged'
+        )""",
         """EXISTS (
             SELECT 1 FROM candidate_stages cs
             WHERE cs.job_id = j.id AND cs.external_source = 'traffit'
