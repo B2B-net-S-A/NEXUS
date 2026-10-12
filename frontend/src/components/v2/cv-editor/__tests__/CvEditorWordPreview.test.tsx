@@ -1,7 +1,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ renderDocx: vi.fn(), align: vi.fn(), fit: vi.fn(() => () => undefined) }));
+const mocks = vi.hoisted(() => ({
+  renderDocx: vi.fn(),
+  align: vi.fn(),
+  fit: vi.fn((..._args: unknown[]) => () => undefined),
+}));
 
 vi.mock("@/lib/docx-preview-safe", () => ({
   renderDocxSafely: (...args: unknown[]) => mocks.renderDocx(...args),

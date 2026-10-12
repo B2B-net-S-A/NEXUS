@@ -5,7 +5,7 @@
  * intencję i miejsce w aplikacji; podglądy nie doklejają niczego.
  */
 
-export type CvDownloadSurface = "editor" | "card" | "preview" | "cpro" | "result";
+export type CvDownloadSurface = "editor" | "card" | "preview" | "cpro" | "result" | "files";
 
 export function withDownloadIntent(path: string, surface: CvDownloadSurface): string {
   const separator = path.includes("?") ? "&" : "?";

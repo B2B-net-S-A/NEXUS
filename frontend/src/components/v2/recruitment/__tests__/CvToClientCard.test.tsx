@@ -236,7 +236,7 @@ describe("CvToClientCard — CV gotowe", () => {
     await userEvent.click(await screen.findByRole("button", { name: /Pobierz DOCX/ }));
     await waitFor(() =>
       expect(mocks.downloadAuthenticatedFile).toHaveBeenCalledWith(
-        "/api/candidates/stages/21/cv/branded/versions/2/docx",
+        "/api/candidates/stages/21/cv/branded/versions/2/docx?intent=download&surface=card",
         "CV_Kowalski.docx",
       ),
     );
@@ -258,7 +258,7 @@ describe("CvToClientCard — CV gotowe", () => {
       expect(mocks.showError).toHaveBeenCalledWith("Dołącz zrzut zgody RODO, aby pobrać CV."),
     );
     expect(mocks.postAuthenticatedDownload).toHaveBeenCalledWith(
-      "/api/candidates/stages/21/cv/branded/preview-docx",
+      "/api/candidates/stages/21/cv/branded/preview-docx?intent=download&surface=card",
       { content_html: "<p>x</p>", expected_revision: 4 },
     );
   });
@@ -330,7 +330,7 @@ describe("CvToClientCard — CV firmowe pary na innym etapie (runda 11, F23)", (
     await userEvent.click(screen.getByRole("button", { name: /Pobierz DOCX/ }));
     await waitFor(() =>
       expect(mocks.downloadAuthenticatedFile).toHaveBeenCalledWith(
-        "/api/candidates/stages/20/cv/branded/versions/2/docx",
+        "/api/candidates/stages/20/cv/branded/versions/2/docx?intent=download&surface=card",
         "CV_Kowalski.docx",
       ),
     );

@@ -41,4 +41,23 @@ describe("fetchStageCvFile — plik CV etapu (runda 7, R7-X4-2)", () => {
     );
     expect(fetchAuthenticatedDownload).not.toHaveBeenCalled();
   });
+
+  it("„Pobierz” dokleja intencję i miejsce w aplikacji, podgląd — nic", async () => {
+    get.mockResolvedValue({ data: { status: "finalized", version: 3, docx_filename: "CV_A.docx" } });
+    fetchAuthenticatedDownload.mockResolvedValue({ blob: new Blob(["v3"]), filename: null });
+    await fetchStageCvFile(12, { download: "cpro" });
+    expect(fetchAuthenticatedDownload).toHaveBeenLastCalledWith(
+      "/api/candidates/stages/12/cv/branded/versions/3/docx?intent=download&surface=cpro",
+    );
+
+    get.mockResolvedValue({
+      data: { status: "draft", version: 1, content_html: "<p>szkic</p>", edit_revision: 2 },
+    });
+    postAuthenticatedDownload.mockResolvedValue({ blob: new Blob(["d"]), filename: null });
+    await fetchStageCvFile(12, { download: "preview" });
+    expect(postAuthenticatedDownload).toHaveBeenLastCalledWith(
+      "/api/candidates/stages/12/cv/branded/preview-docx?intent=download&surface=preview",
+      { content_html: "<p>szkic</p>", expected_revision: 2 },
+    );
+  });
 });
