@@ -120,6 +120,14 @@ import { DockInterviewCycle } from "@/components/v2/jobs/DockInterviewCycle";
 import { DockLoadError } from "@/components/v2/jobs/workbench-chrome";
 import { PinnedCandidateNotes } from "@/components/v2/recruitment/PinnedCandidateNotes";
 import { hourlyText } from "@/lib/candidate-rate";
+import {
+  clientRateNoteCaption,
+  expectedRateHintCaption,
+  expectedRateHintText,
+  fetchRecruitmentRateHints,
+  recruitmentRateHintsQueryKey,
+} from "@/lib/api/recruitmentRateHints";
+import { canViewClientRate } from "@/lib/client-rate-access";
 import { availabilityText, onsiteText } from "@/lib/person-facts";
 import { dockNotesSummary, splitPersonNotes } from "@/components/v2/person/notes-by-recruitment";
 import { PersonContactLine } from "@/components/v2/person/PersonContactLine";
@@ -1015,6 +1023,28 @@ export function PipelineCandidateDock({
   };
 
   const clientRateText = formatClientRate(item);
+  // 12.10.2026: para z czasów Traffita nie ma stawek na etapie — oczekiwanie
+  // kandydata leży w karcie rekomendacji, cena wysłania w notatce Delivery
+  // Leada z dnia wysyłki. Jedno zapytanie na OTWARTĄ kartę i tylko wtedy,
+  // gdy czegoś brakuje; notatkę z wysyłki serwer oddaje wyłącznie rolom,
+  // które widzą stawkę do klienta.
+  const authUser = useAuthStore((st) => st.user);
+  const missingExpectedRate =
+    item.expected_rate_value == null || item.expected_rate_value === "";
+  const rateHintsQuery = useQuery({
+    queryKey: recruitmentRateHintsQueryKey(item.candidate_id, jobId),
+    queryFn: () => fetchRecruitmentRateHints(item.candidate_id, jobId),
+    enabled:
+      !split &&
+      (missingExpectedRate || (clientRateText == null && canViewClientRate(authUser))),
+    staleTime: 60_000,
+  });
+  const expectedRateHint = missingExpectedRate
+    ? (rateHintsQuery.data?.expected_rate_hint ?? null)
+    : null;
+  const expectedRateHintValue = expectedRateHintText(expectedRateHint);
+  const clientRateNote =
+    clientRateText == null ? (rateHintsQuery.data?.client_rate_note ?? null) : null;
   // „Nie odebrał” jednym kliknięciem — ta sama notatka-próba co w profilu
   // (rodzaj `contact_attempt`); ten sam hook stoi w profilu przed telefonem.
   const noAnswerMut = useNoAnswerNote({ candidateId: item.candidate_id, jobId });
@@ -1063,14 +1093,24 @@ export function PipelineCandidateDock({
         {
           label: "W tej rekrutacji",
           wide: true,
+          hint:
+            expectedRateHint && expectedRateHintValue
+              ? expectedRateHintCaption(expectedRateHint)
+              : null,
           value: (
             <>
-              <RateWithBudget
-                value={item.expected_rate_value}
-                unit={item.expected_rate_unit}
-                currency={item.expected_rate_currency}
-                budgetMonthly={item.budget_max_at_move}
-              />
+              {expectedRateHint && expectedRateHintValue ? (
+                <span className="font-medium tabular-nums" data-testid="dock-rate-hint">
+                  {expectedRateHintValue}
+                </span>
+              ) : (
+                <RateWithBudget
+                  value={item.expected_rate_value}
+                  unit={item.expected_rate_unit}
+                  currency={item.expected_rate_currency}
+                  budgetMonthly={item.budget_max_at_move}
+                />
+              )}
               {item.rate_change ? (
                 <span className="ml-1.5 rounded bg-warning/15 px-1.5 py-0.5 text-[11px] font-semibold text-warning">
                   {rateChangeStatusLabel(item.rate_change.status)}
@@ -1107,7 +1147,16 @@ export function PipelineCandidateDock({
               value: <span className="font-medium tabular-nums">{clientRateText}</span>,
             },
           ]
-        : []),
+        : clientRateNote
+          ? [
+              {
+                label: "Do klienta",
+                wide: true,
+                value: <span className="text-muted-foreground">brak stawki</span>,
+                hint: `${clientRateNoteCaption(clientRateNote)}: „${clientRateNote.text}”`,
+              },
+            ]
+          : []),
     ]}
   />
   ) : null;
