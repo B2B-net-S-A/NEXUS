@@ -25,7 +25,7 @@ from tests.test_scoring_service import make_candidate, make_job
 
 def _world(monkeypatch, *, hidden_id: int | None = None):
     """A complete saved-recruitment run with three stored rows (one hidden)."""
-    from app.services import pipeline_eligibility
+    from app.services import employment_marker, pipeline_eligibility
     from app.services.candidate_job_eligibility import (
         EligibilityInput,
         evaluate_eligibility,
@@ -99,6 +99,11 @@ def _world(monkeypatch, *, hidden_id: int | None = None):
         pipeline_eligibility,
         "evaluate_candidates_for_job",
         AsyncMock(return_value={c.id: decision(c.id) for c in candidates}),
+    )
+    # Znacznik „Pracuje u nas” ma własne testy; atrapa bazy niżej zna tylko
+    # zapytanie o kandydatów.
+    monkeypatch.setattr(
+        employment_marker, "load_employment_markers", AsyncMock(return_value={})
     )
     db = SimpleNamespace(
         execute=AsyncMock(
