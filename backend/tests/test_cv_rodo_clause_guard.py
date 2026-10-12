@@ -17,7 +17,8 @@ from app.services.cv_rodo_clause import keep_rodo_clause
 
 CLAUSE = TRANSLATIONS["pl"]["rodo"]
 BODY = "<h1>Dev</h1><p>Opis.</p>"
-SAVED = f'{BODY}<p data-cv-section="rodo" style="font-size: 8pt">{CLAUSE}</p>'
+# Zapisane CV jest po sanitizerze — stąd średnik w stylu.
+SAVED = f'{BODY}<p data-cv-section="rodo" style="font-size: 8pt;">{CLAUSE}</p>'
 
 
 def _draft(html: str = SAVED):
@@ -46,7 +47,7 @@ def test_deleted_clause_comes_back_at_the_end():
     result = keep_rodo_clause(SAVED, "<h1>Dev</h1><p>Nowy opis.</p>")
     assert result.startswith("<h1>Dev</h1><p>Nowy opis.</p>")
     assert result.endswith(
-        f'<p data-cv-section="rodo" style="font-size: 8pt">{CLAUSE}</p>'
+        f'<p data-cv-section="rodo" style="font-size: 8pt;">{CLAUSE}</p>'
     )
 
 
@@ -62,7 +63,7 @@ def test_edited_clause_is_replaced_by_the_saved_one(edited):
     result = keep_rodo_clause(SAVED, f'{BODY}<p data-cv-section="rodo">{edited}</p>')
     assert result.count("Wyrażam zgodę") == 1
     assert result.endswith(
-        f'<p data-cv-section="rodo" style="font-size: 8pt">{CLAUSE}</p>'
+        f'<p data-cv-section="rodo" style="font-size: 8pt;">{CLAUSE}</p>'
     )
 
 
@@ -112,7 +113,7 @@ def test_clause_text_inside_a_list_is_not_the_clause():
     result = keep_rodo_clause(SAVED, incoming)
     assert result.startswith(incoming)
     assert result.endswith(
-        f'<p data-cv-section="rodo" style="font-size: 8pt">{CLAUSE}</p>'
+        f'<p data-cv-section="rodo" style="font-size: 8pt;">{CLAUSE}</p>'
     )
 
 

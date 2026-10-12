@@ -106,6 +106,10 @@ def keep_rodo_clause(previous_html: Optional[str], incoming_html: str) -> str:
     if not found:
         kept.tail = None
         root.append(kept)
-    return (root.text or "") + "".join(
+    rebuilt = (root.text or "") + "".join(
         lxml_html.tostring(child, encoding="unicode") for child in root
     )
+    # Treść przeszła przez drugi parser — sanitizer ma ostatnie słowo.
+    from app.services.html_sanitizer import sanitize_cv_html
+
+    return sanitize_cv_html(rebuilt)
