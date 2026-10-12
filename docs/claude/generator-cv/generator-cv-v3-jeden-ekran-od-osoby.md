@@ -6,7 +6,8 @@ procesu)”, a 94% tych osób było już w bazie (88% w procesie). Decyzje Artur
 
 - **Start od wyboru osoby** (typeahead także po telefonie). Plik z dysku tylko
   dla osoby spoza bazy: `POST /api/cv-generator/identify-upload` (bez modelu,
-  e-mail/telefon z nagłówka CV) → „użyj osoby z bazy” / „Dodaj do bazy”
+  identyczny plik albo e-mail z nagłówka CV — od 12.10.2026 bez telefonu) →
+  „użyj osoby z bazy” / „Dodaj do bazy”
   (`/candidates/from-cv`) / „Generuj bez dodawania” (`/generate-upload`).
 - **Klient zawsze wymagany**; z procesu wynika sam. `/generate` przyjmuje
   `stage_id: null` + `client_id` („inny klient (bez procesu)”); wtedy do

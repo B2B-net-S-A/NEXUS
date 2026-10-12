@@ -21,6 +21,7 @@ export function ExistingCandidateNotice({
   attaching = false,
   onOpenProfile,
   onReadAnyway,
+  hint,
   className,
 }: {
   match: Pick<CvDuplicateMatch, "candidate_id" | "name" | "lastname" | "email">;
@@ -31,6 +32,8 @@ export function ExistingCandidateNotice({
   onOpenProfile?: () => void;
   /** „Wczytaj mimo to” — odczyt CV z pominięciem sita. */
   onReadAnyway?: () => void;
+  /** Podpowiedź pod nazwiskiem, np. co zrobić z nowym CV tej osoby. */
+  hint?: string;
   className?: string;
 }) {
   const fullName = `${match.name} ${match.lastname}`.trim();
@@ -49,6 +52,7 @@ export function ExistingCandidateNotice({
         {fullName}
         {match.email ? ` · ${match.email}` : ""}
       </p>
+      {hint ? <p className="mt-1 text-xs">{hint}</p> : null}
       <div className="mt-2 flex flex-wrap gap-2">
         {onAttachCv ? (
           <Button type="button" size="sm" loading={attaching} onClick={onAttachCv}>

@@ -1387,6 +1387,11 @@ export function AddCandidateModal({
                 onAttachCv={cvFile ? () => void attachCvTo(existingNow) : undefined}
                 attaching={attaching}
                 onOpenProfile={onClose}
+                hint={
+                  cvFile
+                    ? undefined
+                    : "Masz nowe CV tej osoby? Wgraj plik wyżej — dodamy go do tego profilu."
+                }
               />
             ) : null
           }

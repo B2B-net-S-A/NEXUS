@@ -20,12 +20,18 @@
  * z sekcji 2 Championa (start od wierszy DL-a).
  * Spis miast (`/api/candidates/places/suggest`) też odpowiada lokalnie —
  * słowo-miasto w wierszu pokazuje podpowiedź „Ustaw lokalizację”.
+ * Okno „Dodaj kandydata” też odpowiada lokalnie (12.10.2026), żeby dało się
+ * przeklikać regułę „ta sama osoba = ten sam e-mail”:
+ *  - e-mail `anna.przykladowa@example.com` → „Ten kandydat już jest w bazie”;
+ *  - plik z „anna” w nazwie → odczyt odmawia po e-mailu, z „kopia” → po
+ *    identycznym pliku, z „dlugi” → przekroczenie czasu odczytu;
+ *  - każdy inny plik → odczyt wypełnia pola, zapis „zakłada” kandydata.
  * Dane są fikcyjne — repo jest publiczne.
  */
 
 import { useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { AxiosError } from "axios";
+import { AxiosError, type AxiosAdapter, type InternalAxiosRequestConfig } from "axios";
 
 import api from "@/lib/api";
 import { ToastProvider } from "@/components/Toast";
@@ -438,6 +444,76 @@ function seededClient(): QueryClient {
   return qc;
 }
 
+const EXISTING_CANDIDATE = {
+  candidate_id: 9001,
+  name: "Anna",
+  lastname: "Przykładowa",
+  email: "anna.przykladowa@example.com",
+  match_score: 1,
+  match_reasons: ["email_exact"],
+};
+
+/** Lokalna odpowiedź dla żądań okna „Dodaj kandydata”; `null` = nie to żądanie. */
+function fakeAddCandidateAdapter(config: InternalAxiosRequestConfig): AxiosAdapter | null {
+  if (config.method !== "post") return null;
+  const url = String(config.url ?? "");
+  const ok = (data: unknown, status = 200): AxiosAdapter => async () => ({
+    data,
+    status,
+    statusText: "OK",
+    headers: {},
+    config,
+  });
+  const conflict = (match: typeof EXISTING_CANDIDATE): AxiosAdapter => async () => {
+    throw new AxiosError("Conflict", "ERR_BAD_REQUEST", config, null, {
+      data: {
+        detail: {
+          detail: "Kandydat wygląda na duplikat istniejącego rekordu.",
+          existing_candidate_id: match.candidate_id,
+          matches: [match],
+        },
+      },
+      status: 409,
+      statusText: "Conflict",
+      headers: {},
+      config,
+    });
+  };
+
+  if (url === "/api/candidates/check-duplicates") {
+    const email = String((config.data as { email?: string } | undefined)?.email ?? "");
+    return ok(email.trim().toLowerCase() === EXISTING_CANDIDATE.email ? [EXISTING_CANDIDATE] : []);
+  }
+  if (url.startsWith("/api/candidates/cv/preview")) {
+    const file = config.data instanceof FormData ? config.data.get("file") : null;
+    const fileName = file instanceof File ? file.name.toLowerCase() : "";
+    const forced = url.includes("force=true");
+    // Bez lokalnej odpowiedzi żądanie odbija się od blokady sieci jak
+    // przekroczenie czasu — dokładnie ten stan chcemy pokazać.
+    if (fileName.includes("dlugi")) return null;
+    if (!forced && fileName.includes("kopia")) {
+      return conflict({ ...EXISTING_CANDIDATE, match_reasons: ["identical_file"] });
+    }
+    if (!forced && fileName.includes("anna")) return conflict(EXISTING_CANDIDATE);
+    return ok({
+      cv_sha256: "0".repeat(64),
+      name: "Jan",
+      lastname: "Fikcyjny",
+      email: fileName.includes("anna") ? EXISTING_CANDIDATE.email : "jan.fikcyjny@example.com",
+      phone: "+48 500 600 700",
+      city: "Poznań",
+      linkedin: null,
+      current_position: "Tester",
+      confidence: {},
+      source: "preview",
+    });
+  }
+  if (url.startsWith("/api/candidates/from-cv")) return ok({ candidate: { id: 9002 } }, 201);
+  if (/^\/api\/candidates\/\d+\/documents$/.test(url)) return ok({}, 201);
+  if (url === "/api/candidates") return ok({ id: 9002 }, 201);
+  return null;
+}
+
 export default function CandidatesListPreview() {
   const [ready, setReady] = useState(false);
   const [qc] = useState(seededClient);
@@ -468,6 +544,11 @@ export default function CandidatesListPreview() {
           headers: {},
           config,
         });
+        return config;
+      }
+      const addCandidate = fakeAddCandidateAdapter(config);
+      if (addCandidate) {
+        config.adapter = addCandidate;
         return config;
       }
       return Promise.reject(new AxiosError("preview: sieć wyłączona", "ECONNABORTED", config));
