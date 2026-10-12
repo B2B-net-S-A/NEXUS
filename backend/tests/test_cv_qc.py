@@ -1320,6 +1320,120 @@ def test_apply_request_carries_the_expected_draft_version() -> None:
     )
 
 
+# ── poprawki liczone na treści z edytora (bez zapisu) ───────────────────────
+
+TRANSFORM_HTML = (
+    '<h2 data-cv-section="experience">Doświadczenie</h2>'
+    '<p data-cv-section="role"><b>Senior Developer</b> 2021–obecnie</p>'
+    '<p data-cv-section="employer">Acme Bank</p>'
+    "<ul><li><p>Rozwój usług w Java i Javascript.</p></li></ul>"
+    '<p data-cv-section="technologies">Technologie: Java, Docker, Postgres</p>'
+)
+TRANSFORM_FIX = {
+    "id": "f1-000000000000",
+    "requirement": "Kubernetes",
+    "role_index": 0,
+    "cv_role_label": "Senior Developer 2021–obecnie · Acme Bank",
+    "current_text": "Rozwój usług w Java i Javascript.",
+    "proposed_text": "Rozwój mikroserwisów **Java** na **Kubernetes**.",
+}
+
+
+def _transform(actions: list[dict], *, bulk: bool, html: str = TRANSFORM_HTML):
+    return qc.transform_html(
+        html,
+        actions,
+        must=_reqs("Java"),
+        nice=_reqs("Docker"),
+        fixes={TRANSFORM_FIX["id"]: TRANSFORM_FIX},
+        experience=EXPERIENCE,
+        bulk=bulk,
+    )
+
+
+def test_bulk_transform_applies_formal_and_evidenced_fixes_in_one_pass() -> None:
+    """„Popraw wszystko” (decyzja D2): pogrubienia, pisownia i nieedytowana
+    poprawka AI z cytatem sprawdzonym przy jej pobraniu."""
+    out, applied, skipped = _transform(
+        [
+            {"action": "ai_fix", "fix_id": TRANSFORM_FIX["id"]},
+            {"action": "bold_all", "scope": "must"},
+            {"action": "spelling"},
+        ],
+        bulk=True,
+    )
+    assert skipped == []
+    assert [a["action"] for a in applied] == ["ai_fix", "bold_all", "spelling"]
+    assert "<b>Kubernetes</b>" in out
+    assert "Technologie: <b>Java</b>, Docker, PostgreSQL" in out
+    assert "Javascript" not in out
+    # Kształt edytora zostaje: punkt to nadal `<li><p>…</p></li>`.
+    assert "<li><p>" in out and "<ul><li><ul>" not in out
+
+
+def test_bulk_transform_refuses_what_needs_a_human_decision() -> None:
+    out, applied, skipped = _transform(
+        [
+            {"action": "remove_term", "term": "Docker"},
+            {
+                "action": "ai_fix",
+                "fix_id": TRANSFORM_FIX["id"],
+                "text": "Własne zdanie.",
+            },
+            {"action": "spelling"},
+        ],
+        bulk=True,
+    )
+    assert [a["action"] for a in applied] == ["spelling"]
+    assert [(s["action"], s["code"]) for s in skipped] == [
+        ("remove_term", "not_in_bulk"),
+        ("ai_fix", "not_in_bulk"),
+    ]
+    assert "Docker" in out and "Własne zdanie." not in out
+
+
+def test_single_transform_takes_any_fix_and_reports_what_did_nothing() -> None:
+    out, applied, skipped = _transform(
+        [
+            {"action": "remove_term", "term": "Docker"},
+            {
+                "action": "ai_fix",
+                "fix_id": TRANSFORM_FIX["id"],
+                "text": "Własne **zdanie**.",
+            },
+            {"action": "bold_all", "scope": "nice"},
+            {"action": "ai_fix", "fix_id": "f9-ffffffffffff"},
+            {"action": "nieznana"},
+        ],
+        bulk=False,
+    )
+    assert [a["action"] for a in applied] == ["remove_term", "ai_fix"]
+    assert "Docker" not in out
+    assert "Własne <b>zdanie</b>." in out
+    assert [(s["action"], s["code"]) for s in skipped] == [
+        ("bold_all", "nothing_to_do"),
+        ("ai_fix", "unknown_fix"),
+        ("nieznana", "unknown_action"),
+    ]
+    assert all(s["message"] for s in skipped)
+
+
+def test_transform_keeps_the_consent_clause_and_untouched_content_as_sent() -> None:
+    from app.services.cv_generator_b2b.docx_renderer import TRANSLATIONS
+
+    clause = f'<p data-cv-section="rodo">{TRANSLATIONS["pl"]["rodo"]}</p>'
+    out, applied, _ = _transform(
+        [{"action": "spelling"}], bulk=True, html=TRANSFORM_HTML + clause
+    )
+    assert applied and out.endswith(clause)
+    same, applied, skipped = _transform(
+        [{"action": "bold_all", "scope": "nice"}],
+        bulk=True,
+        html="<p>Nic do zmiany.</p>",
+    )
+    assert same == "<p>Nic do zmiany.</p>" and applied == [] and len(skipped) == 1
+
+
 # ── stanowisko kończy się na nagłówku sekcji (h1/h2), nie na każdym ──────────
 
 SUBHEADING_HTML = (
@@ -2211,6 +2325,129 @@ async def test_fix_on_a_draft_changed_elsewhere_is_refused_and_changes_nothing(
         )
         assert current.status_code == 422, current.text
         assert current.json()["detail"]["code"] == "CV_QC_FIX_FAILED"
+    finally:
+        await _cleanup_qc(world, stage_id)
+        await _cleanup(world, [hor_id])
+
+
+def test_transform_request_bounds_content_and_action_count() -> None:
+    from pydantic import ValidationError
+
+    from app.api.cv_qc import QcTransformRequest
+
+    ok = QcTransformRequest(content_html="<p>x</p>", actions=[{"action": "spelling"}])
+    assert ok.bulk is False
+    for bad in (
+        {"content_html": "", "actions": [{"action": "spelling"}]},
+        {"content_html": "<p>x</p>", "actions": []},
+        {"content_html": "<p>x</p>", "actions": [{"action": "spelling"}] * 41},
+        {"content_html": "x" * 500001, "actions": [{"action": "spelling"}]},
+        {"content_html": "<p>x</p>", "actions": [{"action": "drop_table"}]},
+    ):
+        with pytest.raises(ValidationError):
+            QcTransformRequest(**bad)
+
+
+@pytest.mark.asyncio
+async def test_editor_transform_fixes_the_sent_content_and_leaves_the_draft_alone(
+    api_client: AsyncClient,
+) -> None:
+    """Panel „Do poprawy” w edytorze: serwer liczy poprawkę na treści
+    z edytora, a szkic w bazie, jego wersja i przebiegi QC zostają."""
+    world = await _seed_world()
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    hor = await _login(api_client, hor_creds)
+    stage_id = await _seed_review(world, hor, api_client)
+    url = f"/api/pipeline/stages/{stage_id}/qc"
+    try:
+        runs = await _runs(world)
+        seen = await api_client.get(url, headers=hor, params={"transient": "true"})
+        assert seen.status_code == 200, seen.text
+        assert seen.json()["run_id"] is None
+        assert await _runs(world) == runs
+
+        async with AsyncSessionLocal() as db:
+            csv = await db.scalar(
+                select(CandidateStageCV).where(
+                    CandidateStageCV.candidate_stage_id == stage_id
+                )
+            )
+            csv_id = csv.id
+            before = (csv.branded_draft_html, csv.edit_revision, csv.branded_status)
+
+        sent = TRANSFORM_HTML
+        out = await api_client.post(
+            f"{url}/transform",
+            headers=hor,
+            json={
+                "content_html": sent,
+                "bulk": True,
+                "actions": [
+                    {"action": "spelling"},
+                    {"action": "remove_term", "term": "Docker"},
+                    {"action": "ai_fix", "fix_id": "f9-000000000000"},
+                ],
+            },
+        )
+        assert out.status_code == 200, out.text
+        body = out.json()
+        assert body["changed"] is True
+        assert "JavaScript" in body["content_html"]
+        assert "Docker" in body["content_html"]
+        assert [a["action"] for a in body["applied"]] == ["spelling"]
+        assert [(s["action"], s["code"]) for s in body["skipped"]] == [
+            ("remove_term", "not_in_bulk"),
+            ("ai_fix", "unknown_fix"),
+        ]
+
+        nothing = await api_client.post(
+            f"{url}/transform",
+            headers=hor,
+            json={
+                "content_html": "<p>Bez zmian.</p>",
+                "actions": [{"action": "spelling"}],
+            },
+        )
+        assert nothing.status_code == 200, nothing.text
+        assert nothing.json()["changed"] is False
+        assert nothing.json()["content_html"] == "<p>Bez zmian.</p>"
+        assert nothing.json()["skipped"][0]["code"] == "nothing_to_do"
+
+        async with AsyncSessionLocal() as db:
+            csv = await db.get(CandidateStageCV, csv_id)
+            assert (
+                csv.branded_draft_html,
+                csv.edit_revision,
+                csv.branded_status,
+            ) == before
+            logged = (
+                await db.scalars(
+                    select(Activity).where(
+                        Activity.action == "cv_qc_fix_applied",
+                        Activity.entity_type == "candidate_stage_cv",
+                        Activity.entity_id == csv_id,
+                    )
+                )
+            ).all()
+            # Jeden wpis: za poprawkę nałożoną; próba bez zmian nie zostawia śladu.
+            assert [row.details["via"] for row in logged] == ["editor"]
+            assert logged[0].details["actions"] == ["spelling"]
+            assert logged[0].details["bulk"] is True
+            await db.execute(
+                delete(Activity).where(
+                    Activity.entity_type == "candidate_stage_cv",
+                    Activity.entity_id == csv_id,
+                )
+            )
+            await db.commit()
+        assert await _runs(world) == runs
+
+        missing = await api_client.post(
+            "/api/pipeline/stages/999999999/qc/transform",
+            headers=hor,
+            json={"content_html": "<p>x</p>", "actions": [{"action": "spelling"}]},
+        )
+        assert missing.status_code == 404
     finally:
         await _cleanup_qc(world, stage_id)
         await _cleanup(world, [hor_id])

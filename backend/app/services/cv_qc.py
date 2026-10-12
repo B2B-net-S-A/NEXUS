@@ -3053,6 +3053,161 @@ def draft_after_fix(previous_html: str, fixed_html: str) -> str:
     return keep_rodo_clause(previous_html, sanitize_cv_html(fixed_html))
 
 
+# „Popraw wszystko” (decyzja Artura D2, 12.10.2026): tylko poprawki formalne
+# i poprawka AI w brzmieniu, którego cytat serwer sprawdził przy jej pobraniu.
+# Usunięcie terminu i własny tekst rekrutera zatwierdza się pojedynczo.
+BULK_ACTIONS = frozenset({"bold_all", "spelling", "ai_fix"})
+_ACTIONS = BULK_ACTIONS | {"remove_term"}
+
+
+def transform_html(
+    html: str,
+    actions: list[dict],
+    *,
+    must: list[Requirement],
+    nice: list[Requirement],
+    fixes: dict[str, dict],
+    experience: Any,
+    bulk: bool,
+) -> tuple[str, list[dict], list[dict]]:
+    """Nałóż poprawki QC na podaną treść — bez bazy i bez zapisu.
+
+    Zwraca ``(treść, nałożone, pominięte)``. Poprawka, której nie da się
+    nałożyć, trafia do pominiętych z powodem i nie zatrzymuje pozostałych.
+    Gdy nic się nie nałożyło, wraca TA SAMA treść.
+    """
+    current = html
+    applied: list[dict] = []
+    skipped: list[dict] = []
+
+    def skip(action: str, code: str, message: str) -> None:
+        skipped.append({"action": action, "code": code, "message": message})
+
+    for payload in actions:
+        action = str(payload.get("action") or "")
+        if action not in _ACTIONS:
+            skip(action, "unknown_action", "Nieznana poprawka.")
+            continue
+        edited = action == "ai_fix" and bool(str(payload.get("text") or "").strip())
+        if bulk and (action not in BULK_ACTIONS or edited):
+            skip(action, "not_in_bulk", "Tę poprawkę zatwierdza się pojedynczo.")
+            continue
+        try:
+            if action == "ai_fix":
+                fix = fixes.get(str(payload.get("fix_id") or ""))
+                if fix is None:
+                    skip(
+                        action,
+                        "unknown_fix",
+                        "Nie ma takiej propozycji — odśwież propozycje poprawek.",
+                    )
+                    continue
+                text = str(payload.get("text") or fix["proposed_text"]).strip()
+                if len(text) > 1000:
+                    raise ApplyError("Poprawka jest za długa (najwyżej 1000 znaków).")
+                current = apply_ai_fix(current, fix, text, experience=experience)
+                applied.append(
+                    {
+                        "action": action,
+                        "fix_id": fix["id"],
+                        "edited": text != fix["proposed_text"],
+                    }
+                )
+                continue
+            if action == "bold_all":
+                scope = payload.get("scope") or "must"
+                changed, count = bold_all(current, nice if scope == "nice" else must)
+                nothing = "Nie ma nic do pogrubienia — wymagania są już pogrubione."
+                done: dict = {"action": action, "scope": scope}
+            elif action == "remove_term":
+                term = str(payload.get("term") or "").strip()
+                if not term:
+                    raise ApplyError("Podaj termin do usunięcia.")
+                changed, count = remove_term(current, term)
+                nothing = (
+                    f"„{term}” nie stoi na liście technologii — usuń je w edytorze CV."
+                )
+                done = {"action": action, "term": term[:120]}
+            else:
+                changed, count = fix_spelling_html(current)
+                nothing = "Nie ma pisowni do poprawienia."
+                done = {"action": action}
+            if not count:
+                skip(action, "nothing_to_do", nothing)
+                continue
+            current = changed
+            applied.append({**done, "count": count})
+        except ApplyError as exc:
+            skip(action, "failed", str(exc))
+    if not applied:
+        return html, [], skipped
+    return draft_after_fix(html, current), applied, skipped
+
+
+async def transform_for_editor(
+    db: AsyncSession,
+    stage: CandidateStage,
+    content_html: str,
+    actions: list[dict],
+    *,
+    bulk: bool,
+    user_id: int,
+) -> dict:
+    """Poprawki z panelu „Do poprawy” policzone na treści z edytora CV.
+
+    Szkic w bazie zostaje nietknięty: edytor nakłada wynik jednym cofalnym
+    krokiem i zapisuje go zwykłym autozapisem. Jedna droga zapisu = brak
+    wyścigu o wersję szkicu między panelem a pisaniem. Ślad użycia zostaje
+    w tym samym wpisie co poprawki z okna QC (`cv_qc_fix_applied`).
+    """
+    from app.models.activity import Activity
+    from app.services.html_sanitizer import sanitize_cv_html
+
+    src = await _load_sources(db, stage)
+    fixes: dict[str, dict] = {}
+    for payload in actions:
+        if payload.get("action") == "ai_fix":
+            fix = await load_fix(db, stage.id, str(payload.get("fix_id") or ""))
+            if fix is not None:
+                fixes[fix["id"]] = fix
+    html, applied, skipped = transform_html(
+        sanitize_cv_html(content_html),
+        actions,
+        must=src.must,
+        nice=src.nice,
+        fixes=fixes,
+        experience=dz.role_entries(src.candidate, src.original.get("text") or ""),
+        bulk=bulk,
+    )
+    if applied:
+        csv_id = await db.scalar(
+            select(CandidateStageCV.id).where(
+                CandidateStageCV.candidate_stage_id == stage.id
+            )
+        )
+        if csv_id is not None:
+            db.add(
+                Activity(
+                    entity_type="candidate_stage_cv",
+                    entity_id=csv_id,
+                    action="cv_qc_fix_applied",
+                    user_id=user_id,
+                    details={
+                        "via": "editor",
+                        "bulk": bulk,
+                        "candidate_stage_id": stage.id,
+                        "actions": [item["action"] for item in applied],
+                    },
+                )
+            )
+    return {
+        "content_html": html if applied else content_html,
+        "changed": bool(applied),
+        "applied": applied,
+        "skipped": skipped,
+    }
+
+
 async def _editable_csv(
     db: AsyncSession,
     stage: CandidateStage,
