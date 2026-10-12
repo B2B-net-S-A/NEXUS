@@ -90,11 +90,19 @@ firmy (bez zawężenia Delivery Leada — jak pozostałe listy wyboru rekrutacji
   tekście ≥ 2 znaki) to pozycje „Wszystkie rekrutacje klienta …”.
 - **Etykiety** (`ids`, `client_ids`): bez filtra widoczności i statusu — zapisany
   wcześniej identyfikator dalej filtruje listę, więc chip nie może spaść do „#123”.
+  Dotyczy to też NAZWY klienta ukrytego albo usuniętego (świadome odstępstwo od
+  planu, który zakładał pustą nazwę): po scaleniu klientów chip „Rekrutacje
+  klienta: #12” byłby nieczytelny, a tę samą nazwę pokazuje już kolumna
+  „W procesie” i ekran rekrutacji.
 - Front: `lib/recruitment-lookup.ts` (osobne klucze zapytań dla szukania
   i etykiet; `paramsSerializer: { indexes: null }`, bo `ids[]=` serwer pomija po
-  cichu) i `RecruitmentScopePicker.tsx`. Przełącznik statusu stoi w `<Command>`,
-  więc jest owinięty `onKeyDown` ze `stopPropagation` — bez tego Enter na
-  przełączniku zaznaczał podświetlony wiersz listy (test to pilnuje).
+  cichu) i `RecruitmentScopePicker.tsx`. **Enter wewnątrz `<Command>` należy do
+  cmdk** — zaznacza podświetlony wiersz, a `preventDefault` odbiera przyciskowi
+  kliknięcie. Dlatego przełącznik statusu jest owinięty `onKeyDown` ze
+  `stopPropagation`, a stopka („Wyczyść”, „Gotowe”) stoi POZA `<Command>`
+  (przegląd kodu 12.10.2026: Enter na „Gotowe” dokładał rekrutację do filtra).
+  Każdy nowy przycisk w tej liście: poza `<Command>` albo z tą samą osłoną; oba
+  przypadki pilnują testy.
 - Lista jest osobnym okienkiem, nie częścią okienka „Historia z nami”
   (odstępstwo od makiety — inaczej okienko nie mieści się na laptopie
   1280 × 720). Od 1024 px szerokości otwiera się OBOK okienka filtra: pod

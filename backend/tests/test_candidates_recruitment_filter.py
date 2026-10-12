@@ -366,53 +366,58 @@ async def test_not_in_process_follows_the_latest_row_of_each_pair(
     """„Bez procesu w toku” w ośmiu układach + zgodność z kolumną „W procesie”
     (te same osoby, ta sama odpowiedź listy z `include_active_recruitments`)."""
     cohort = f"RecrIdle{uuid.uuid4().hex[:10]}"
-    open_job, client_a = await _seed_job()
-    other_job, client_b = await _seed_job()
-    closed_job, client_c = await _seed_job(closed=True)
     t0 = datetime(2026, 9, 1, 9, 0, tzinfo=timezone.utc)
     later = t0 + timedelta(days=1)
-
-    no_rows = await _seed_candidate(cohort=cohort, name_suffix="-none")
-    in_progress = await _seed_candidate(cohort=cohort, name_suffix="-screening")
-    rejected_after = await _seed_candidate(cohort=cohort, name_suffix="-rejected")
-    back_in = await _seed_candidate(cohort=cohort, name_suffix="-returned")
-    tie_ended = await _seed_candidate(cohort=cohort, name_suffix="-tie-ended")
-    tie_running = await _seed_candidate(cohort=cohort, name_suffix="-tie-running")
-    on_closed = await _seed_candidate(cohort=cohort, name_suffix="-closed-job")
-    two_jobs = await _seed_candidate(cohort=cohort, name_suffix="-two-jobs")
-
-    await _seed_stage(in_progress, open_job, "screening", moved_at=t0)
-    await _seed_stage(rejected_after, open_job, "screening", moved_at=t0)
-    await _seed_stage(rejected_after, open_job, "rejected", moved_at=later)
-    await _seed_stage(back_in, open_job, "rejected", moved_at=t0)
-    await _seed_stage(back_in, open_job, "screening", moved_at=later)
-    # Remis czasu rozstrzyga `id` — wygrywa wiersz dopisany później.
-    await _seed_stage(tie_ended, open_job, "screening", moved_at=t0)
-    await _seed_stage(tie_ended, open_job, "withdrawn", moved_at=t0)
-    await _seed_stage(tie_running, open_job, "withdrawn", moved_at=t0)
-    await _seed_stage(tie_running, open_job, "screening", moved_at=t0)
-    await _seed_stage(on_closed, closed_job, "screening", moved_at=t0)
-    await _seed_stage(two_jobs, open_job, "rejected", moved_at=t0)
-    await _seed_stage(two_jobs, other_job, "interview", moved_at=t0)
-
-    everyone = [
-        no_rows,
-        in_progress,
-        rejected_after,
-        back_in,
-        tie_ended,
-        tie_running,
-        on_closed,
-        two_jobs,
-    ]
+    people: dict[str, int] = {}
+    job_ids: list[int] = []
+    client_ids: list[int] = []
     try:
+        for closed in (False, False, True):
+            job_id, client_id = await _seed_job(closed=closed)
+            job_ids.append(job_id)
+            client_ids.append(client_id)
+        open_job, other_job, closed_job = job_ids
+        for key in (
+            "no_rows",
+            "in_progress",
+            "rejected_after",
+            "back_in",
+            "tie_ended",
+            "tie_running",
+            "on_closed",
+            "two_jobs",
+        ):
+            people[key] = await _seed_candidate(cohort=cohort, name_suffix=f"-{key}")
+
+        await _seed_stage(people["in_progress"], open_job, "screening", moved_at=t0)
+        await _seed_stage(people["rejected_after"], open_job, "screening", moved_at=t0)
+        await _seed_stage(
+            people["rejected_after"], open_job, "rejected", moved_at=later
+        )
+        await _seed_stage(people["back_in"], open_job, "rejected", moved_at=t0)
+        await _seed_stage(people["back_in"], open_job, "screening", moved_at=later)
+        # Remis czasu rozstrzyga `id` — wygrywa wiersz dopisany później.
+        # („Wycofany” wymaga w bazie powodu, więc etap końcowy to „Odrzucony”.)
+        await _seed_stage(people["tie_ended"], open_job, "screening", moved_at=t0)
+        await _seed_stage(people["tie_ended"], open_job, "rejected", moved_at=t0)
+        await _seed_stage(people["tie_running"], open_job, "rejected", moved_at=t0)
+        await _seed_stage(people["tie_running"], open_job, "screening", moved_at=t0)
+        await _seed_stage(people["on_closed"], closed_job, "screening", moved_at=t0)
+        await _seed_stage(people["two_jobs"], open_job, "rejected", moved_at=t0)
+        await _seed_stage(people["two_jobs"], other_job, "interview", moved_at=t0)
+
         idle = await _cohort_ids(
             app_client,
             app_auth_headers,
             cohort,
             [("recruitment_presence", "not_in_process")],
         )
-        assert idle == {no_rows, rejected_after, tie_ended, on_closed}
+        assert idle == {
+            people["no_rows"],
+            people["rejected_after"],
+            people["tie_ended"],
+            people["on_closed"],
+        }
 
         r = await app_client.get(
             "/api/candidates",
@@ -425,7 +430,7 @@ async def test_not_in_process_follows_the_latest_row_of_each_pair(
         )
         assert r.status_code == 200, r.text
         items = r.json()["items"]
-        assert {it["id"] for it in items} == set(everyone)
+        assert {it["id"] for it in items} == set(people.values())
         terminal = {"rejected", "withdrawn", "hired"}
         column_says_idle = {
             it["id"]
@@ -438,9 +443,9 @@ async def test_not_in_process_follows_the_latest_row_of_each_pair(
         assert column_says_idle == idle
     finally:
         await _cleanup(
-            candidate_ids=everyone,
-            job_ids=[open_job, other_job, closed_job],
-            client_ids=[client_a, client_b, client_c],
+            candidate_ids=list(people.values()),
+            job_ids=job_ids,
+            client_ids=client_ids,
         )
 
 

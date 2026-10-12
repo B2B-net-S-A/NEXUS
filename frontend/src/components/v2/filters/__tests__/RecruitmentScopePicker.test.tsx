@@ -198,6 +198,33 @@ describe("RecruitmentScopePicker — szukanie i wybór", () => {
   });
 });
 
+describe("RecruitmentScopePicker — klawiatura w stopce", () => {
+  it("Enter na „Wyczyść” czyści, a na „Gotowe” zamyka — nie zaznacza podświetlonego wiersza", async () => {
+    const user = userEvent.setup();
+    serve(
+      () => ({ items: [OPEN_JOB], clients: [], total: 1 }),
+      { items: [CLOSED_JOB], clients: [BANK], total: 1 },
+    );
+    // Dwie wybrane pozycje: przełączenie podświetlonego wiersza nie da pustego wyboru.
+    const { onChange } = renderPicker({ ids: [1764], clients: [3] });
+    await user.click(await screen.findByRole("button", { name: /Wybrano: 2/ }));
+    await screen.findByRole("option", { name: /Bank Alfa · #2143/ });
+
+    screen.getByRole("button", { name: "Wyczyść" }).focus();
+    await user.keyboard("{Enter}");
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenLastCalledWith([], []);
+
+    onChange.mockClear();
+    screen.getByRole("button", { name: "Gotowe" }).focus();
+    await user.keyboard("{Enter}");
+    expect(onChange).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(screen.queryByRole("option", { name: /Bank Alfa · #2143/ })).toBeNull(),
+    );
+  });
+});
+
 describe("RecruitmentScopePicker — wybrane pozycje", () => {
   it("przycisk nazywa jedyną wybraną pozycję, a etykiety pyta po identyfikatorach", async () => {
     serve(

@@ -193,7 +193,6 @@ export function RecruitmentScopePicker({
         <Button
           size="md"
           variant="outline"
-          aria-haspopup="listbox"
           aria-expanded={open}
           className="w-full justify-between"
         >
@@ -265,35 +264,37 @@ export function RecruitmentScopePicker({
               </CommandGroup>
             )}
           </CommandList>
-          <div className="space-y-1.5 border-t border-border bg-muted px-3 py-2">
-            {search.isSuccess && total > foundJobs.length && (
-              <p className="text-[11px] text-muted-foreground">
-                Pokazano {foundJobs.length} z {total} — zawęź wyszukiwanie.
-              </p>
-            )}
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[11px] text-muted-foreground">
-                {selectedCount > 0
-                  ? `Wybrano: ${selectedCount}`
-                  : "Nic nie wybrano — liczą się wszystkie"}
-              </span>
-              <span className="flex items-center gap-1.5">
-                {selectedCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => onChange([], [])}
-                    className="rounded-md px-2 py-1 text-xs text-muted-foreground underline hover:text-foreground"
-                  >
-                    Wyczyść
-                  </button>
-                )}
-                <Button size="sm" variant="outline" onClick={() => setOpen(false)}>
-                  Gotowe
-                </Button>
-              </span>
-            </div>
-          </div>
         </Command>
+        {/* Stopka stoi POZA `<Command>`: w środku Enter na „Gotowe” albo „Wyczyść”
+            zaznaczałby podświetlony wiersz listy zamiast wykonać przycisk. */}
+        <div className="space-y-1.5 border-t border-border bg-muted px-3 py-2">
+          {search.isSuccess && total > foundJobs.length && (
+            <p className="text-[11px] text-muted-foreground">
+              Pokazano {foundJobs.length} z {total} — zawęź wyszukiwanie.
+            </p>
+          )}
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] text-muted-foreground">
+              {selectedCount > 0
+                ? `Wybrano: ${selectedCount}`
+                : "Nic nie wybrano — liczą się wszystkie"}
+            </span>
+            <span className="flex items-center gap-1.5">
+              {selectedCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => onChange([], [])}
+                  className="rounded-md px-2 py-1 text-xs text-muted-foreground underline hover:text-foreground"
+                >
+                  Wyczyść
+                </button>
+              )}
+              <Button size="sm" variant="outline" onClick={() => setOpen(false)}>
+                Gotowe
+              </Button>
+            </span>
+          </div>
+        </div>
       </PopoverContent>
     </Popover>
   );
