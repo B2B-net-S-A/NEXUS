@@ -98,6 +98,34 @@ PR 1 (edytor bez AI); kolejne PR-y dopisują swoje sekcje tutaj.
   a zapisana z nimi treść blokowała każdy następny zapis. Zapisanego CV,
   którego nie da się odczytać, strażnik nie chroni (ostrzeżenie w logu) —
   stara treść nie może zablokować zapisu.
+- `sanitize_cv_html` ma ograniczony koszt (12.10.2026). html5lib w bleach
+  płacił czasem kwadratowym w trzech miejscach, a handlery wołają sanitizer
+  w pętli zdarzeń — 500 KB (tyle mieści `content_html`) potrafiło trwać minuty:
+  - **głębokie drzewo:** limit `MAX_TREE_DEPTH = 80` liczy sam parser
+    (`_OpenElements` podmienia jego stos otwartych elementów). Licznik
+    w pre-parserze nie wystarcza: `<li><h1>` albo `<b><div></b>` powtarzane
+    w kółko budują drzewo na tysiące poziomów, choć w tekście nic nie wygląda na
+    zagnieżdżone. Po przekroczeniu treść jest składana drugi raz ze spłaszczonego
+    zapisu (`flatten`: najwyżej `MAX_NESTING = 32` otwartych znaczników, reszta
+    pominięta, tekst zostaje),
+  - **szerokie drzewo:** `_IndexedTreeWalker` pamięta pozycję rodzica zamiast
+    szukać jej wśród rodzeństwa (tysiące akapitów z pogrubieniem w środku),
+  - **treść wprost w `<table>`:** ponad `MAX_MISNESTED_IN_TABLE = 1000` takich
+    elementów tabele są rozbierane na tekst (`plain_tables`),
+  - **tysiące atrybutów w jednym znaczniku:** do parsera trafia pierwsze
+    `MAX_ATTRIBUTES = 64` (tokenizer porównuje każdy atrybut z poprzednimi),
+  - **tysiące ukrytych znaczników** (`<head>`, `<template>`…): pre-parser
+    trzyma licznik i pierwsze otwarcie każdego rodzaju zamiast listy, którą
+    przeszukiwał przy każdym znaczniku zamykającym.
+  Treść, która nie przekracza limitów, wychodzi bajt w bajt jak z `bleach.clean`
+  (wynik jest porównywany przy ponownym zatwierdzeniu i w skrótach kontroli AI).
+  Zaczepy siedzą we wnętrzu bleach 6.4.0 — przy podbiciu wersji pierwszy pada
+  `test_parser_hooks_are_alive` w `tests/test_html_sanitizer_limits.py`.
+- Nieprawidłowa deklaracja w `style` (urwane `font-size`, zbłąkany nawias)
+  znika, reszta stylu zostaje. Do 12.10.2026 token błędu z tinycss2 trafiał do
+  serializacji i każdy taki `style` kończył zapis CV błędem 500. Wartość
+  z setkami zagnieżdżonych nawiasów (`RecursionError` w tinycss2) usuwa cały
+  styl zamiast wywracać zapis.
 - CV zapisane bez klauzuli nie ma czego chronić: pierwszy akapit klauzuli,
   który ktoś do niego dopisze, staje się chroniony przy następnym zapisie.
 - Strażnika nie ma w `_write_stage_draft`: nowy szkic z generatora albo

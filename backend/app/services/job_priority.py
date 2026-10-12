@@ -8,8 +8,10 @@ w Traffit („P1 – URGENT”, „WILL ACCEPT CANDIDATES”):
 * ``p1`` — „P1 Pilne”: ``urgent`` (i historyczne ``high``); jedyny poziom,
   do którego automat przydziału dobiera ludzi (od 12.10.2026), i góra
   sortowania „Wymaga uwagi”;
-* ``p2`` — „P2 Standard”: ``medium``; tak czyta się też wartość pustą
-  i nieznaną; rekrutera przypisuje człowiek;
+* ``p2`` — „Bez priorytetu” (do 12.10.2026 „P2 Standard”): ``medium``; tak
+  czyta się też wartość pustą i nieznaną; rekrutera przypisuje człowiek.
+  Nazwa mówi to, czym poziom jest: nie ma plakietki ani przydziału automatu,
+  więc Delivery Lead „zdejmuje priorytet”, wybierając ten poziom;
 * ``accepting`` — „Przyjmujemy kandydatów”: ``low``; nie szukamy aktywnie,
   więc automat nikogo do takiego requestu nie proponuje.
 

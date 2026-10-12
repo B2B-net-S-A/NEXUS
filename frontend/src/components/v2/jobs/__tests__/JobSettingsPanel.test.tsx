@@ -387,9 +387,9 @@ describe("JobSettingsPanel — Priorytet", () => {
       within(priorityGroup())
         .getAllByRole("radio")
         .map((radio) => radio.textContent),
-    ).toEqual(["P1 Pilne", "P2 Standard", "Przyjmujemy kandydatów"]);
+    ).toEqual(["P1 Pilne", "Bez priorytetu", "Przyjmujemy kandydatów"]);
     expect(priorityOption("P1 Pilne")).toBeChecked();
-    expect(priorityOption("P2 Standard")).not.toBeChecked();
+    expect(priorityOption("Bez priorytetu")).not.toBeChecked();
   });
 
   it.each([
@@ -424,7 +424,7 @@ describe("JobSettingsPanel — Priorytet", () => {
     const user = userEvent.setup();
     renderPanel({ priorityLevel: "p1" });
 
-    await user.click(priorityOption("P2 Standard"));
+    await user.click(priorityOption("Bez priorytetu"));
 
     await waitFor(() =>
       expect(patchMock).toHaveBeenCalledWith("/api/jobs/501", { priority: "medium" }),
@@ -435,7 +435,7 @@ describe("JobSettingsPanel — Priorytet", () => {
     const user = userEvent.setup();
     renderPanel({ priorityLevel: "p2" });
 
-    await user.click(priorityOption("P2 Standard"));
+    await user.click(priorityOption("Bez priorytetu"));
 
     expect(patchMock).not.toHaveBeenCalled();
   });
@@ -457,7 +457,7 @@ describe("JobSettingsPanel — Priorytet", () => {
         "Priorytet tej rekrutacji ustawia jej Delivery Lead.",
       ),
     );
-    expect(priorityOption("P2 Standard")).toBeChecked();
+    expect(priorityOption("Bez priorytetu")).toBeChecked();
     expect(priorityOption("P1 Pilne")).not.toBeChecked();
     // Także po odmowie: ekran mógł pokazywać nieaktualny stan.
     expect(invalidatedKeys()).toContainEqual(["job", "501"]);
@@ -495,7 +495,7 @@ describe("JobSettingsPanel — Priorytet", () => {
 
   it("nowa wartość z serwera (zmiana innej osoby) przestawia przełącznik", () => {
     const { rerenderPanel } = renderPanel({ priorityLevel: "p2" });
-    expect(priorityOption("P2 Standard")).toBeChecked();
+    expect(priorityOption("Bez priorytetu")).toBeChecked();
 
     rerenderPanel({ priorityLevel: "p1" });
 
@@ -505,7 +505,7 @@ describe("JobSettingsPanel — Priorytet", () => {
 
   it.each([
     ["p1", "P1 Pilne"],
-    ["p2", "P2 Standard"],
+    ["p2", "Bez priorytetu"],
     ["accepting", "Przyjmujemy kandydatów"],
   ] as const)("bez prawa zmiany poziom %s jest tylko tekstem „%s”", (level, label) => {
     renderPanel({ priorityLevel: level, canSetPriority: false });
