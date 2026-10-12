@@ -1228,6 +1228,55 @@ describe("PipelineCandidateDock — awaria odczytu to nie pustka", () => {
     await user.click(screen.getByRole("button", { name: /^Notatki/ }));
     expect(await screen.findByText(/Nie udało się wczytać: notatki/)).toBeTruthy();
     expect(screen.queryByText(/Brak notatek dla tej rekrutacji/)).toBeNull();
+    expect(screen.queryByText(/jeszcze nic nie zapisano/)).toBeNull();
+  });
+
+  it("notatki: podpis sekcji mówi o historii poza rekrutacją, a „Cała historia” otwiera zakładkę", async () => {
+    const user = userEvent.setup();
+    const onOpenWorkbench = vi.fn();
+    apiGet.mockImplementation((url: string) =>
+      url === "/api/notes?candidate_id=42"
+        ? Promise.resolve({
+            data: {
+              items: [
+                { id: 1, job_id: 77, job_title: "Analityk systemowy", content: "Feedback klienta.", author_name: "Piotr Wrona", created_at: "2025-04-02T09:40:00Z", group: "talks", replies: [] },
+                { id: 2, job_id: null, content: "Nie dzwonić przed 10:00.", author_name: null, created_at: "2023-05-11T07:12:00Z", group: "talks", replies: [] },
+                { id: 3, job_id: 77, content: "Auto-match 70/100.", is_system: true, group: "automat", created_at: "2025-03-01T00:00:00Z", replies: [] },
+              ],
+            },
+          })
+        : Promise.resolve({ data: { items: [] } }),
+    );
+    renderDock({ onOpenWorkbench });
+
+    // Zwinięta sekcja od razu mówi, że osoba ma u nas historię (12.10.2026:
+    // 1 417 otwartych kart pokazywało „0 w tej rekrutacji” mimo notatek gdzie indziej).
+    expect(await screen.findByRole("button", { name: /^Notatki.*0 tu · 2 wcześniej/ })).toBeTruthy();
+    // Jedno zapytanie o wszystkie notatki osoby, bez `job_id`.
+    expect(apiGet.mock.calls.some(([url]) => String(url).includes("job_id="))).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: /^Notatki/ }));
+    expect(await screen.findByText("W tej rekrutacji jeszcze nic nie zapisano.")).toBeTruthy();
+    expect(screen.getByText("Feedback klienta.")).toBeTruthy();
+    expect(screen.queryByText(/Auto-match 70/)).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Cała historia (2)" }));
+    expect(onOpenWorkbench).toHaveBeenLastCalledWith("notes");
+  });
+
+  it("notatki: bez historii poza rekrutacją podpis zostaje „N w tej rekrutacji”", async () => {
+    apiGet.mockImplementation((url: string) =>
+      url === "/api/notes?candidate_id=42"
+        ? Promise.resolve({
+            data: {
+              items: [
+                { id: 1, job_id: 10, content: "Umówiony telefon.", author_name: "Anna Kowalczyk", created_at: "2026-10-12T08:00:00Z", group: "talks", replies: [] },
+              ],
+            },
+          })
+        : Promise.resolve({ data: { items: [] } }),
+    );
+    renderDock();
+    expect(await screen.findByRole("button", { name: /^Notatki.*1 w tej rekrutacji/ })).toBeTruthy();
   });
 });
 

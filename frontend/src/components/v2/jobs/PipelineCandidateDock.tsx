@@ -23,7 +23,7 @@ import {
   ChampionInsightsDigest,
   ExperienceChips,
 } from "@/components/champion/ChampionBriefForRecruiters";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -76,6 +76,7 @@ import { cn, formatDate } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatusBadge";
+import { candidateNoteItems, useCandidateNotes } from "@/components/v2/pages/candidate-notes-query";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { DopasowanieTab } from "@/components/v2/pages/DopasowanieTab";
 import { type KanbanColumn, type KanbanItem } from "@/components/v2/pages/kanban-shared";
@@ -116,12 +117,14 @@ import { countForm } from "@/lib/cv-qc";
 import type { CandidateDocument } from "@/components/v2/files/FilePreviewModal";
 import { DockFollowupBlock } from "@/components/v2/followups/DockFollowupBlock";
 import { DockInterviewCycle } from "@/components/v2/jobs/DockInterviewCycle";
-import { DockLoadError, JobNotesBlock, useJobNotes } from "@/components/v2/jobs/workbench-chrome";
+import { DockLoadError } from "@/components/v2/jobs/workbench-chrome";
 import { PinnedCandidateNotes } from "@/components/v2/recruitment/PinnedCandidateNotes";
 import { hourlyText } from "@/lib/candidate-rate";
 import { availabilityText, onsiteText } from "@/lib/person-facts";
+import { dockNotesSummary, splitPersonNotes } from "@/components/v2/person/notes-by-recruitment";
 import { PersonContactLine } from "@/components/v2/person/PersonContactLine";
 import { PersonFacts, RateWithBudget } from "@/components/v2/person/PersonFacts";
+import { PersonNotesHistory } from "@/components/v2/person/PersonNotesHistory";
 import { WorkbenchBelowTabsContext } from "@/components/v2/person/WorkbenchBelowTabs";
 import { RateChangeBanner } from "@/components/v2/rate-change/RateChangeBanner";
 import { RateChangeDialog } from "@/components/v2/rate-change/RateChangeDialog";
@@ -418,7 +421,7 @@ export interface PipelineCandidateDockProps {
   }>;
 }
 
-type WorkbenchSection = "cv" | "screening" | "interviews" | "contract";
+type WorkbenchSection = "cv" | "screening" | "interviews" | "contract" | "notes";
 
 /** Etapy, na których pierwszą pracą jest telefon (kolumny „Nowi” i „Screening”). */
 const ENTRY_STAGES: ReadonlySet<string> = new Set(["posting", "new", "screening", "prep_call"]);
@@ -812,9 +815,14 @@ export function PipelineCandidateDock({
     staleTime: 30_000,
   });
 
-  // ── Notatki — przypięte do TEJ rekrutacji (candidate_id + job_id) ──────
-  const notesQuery = useJobNotes(item.candidate_id, jobId, isOpen("notes"));
-  const dockNotes = (notesQuery.data?.items ?? []).filter((n) => !n.is_system);
+  // ── Notatki — wszystkie notatki osoby, podzielone na tę rekrutację
+  // i „wcześniej u nas” (12.10.2026). Zapytanie stoi od otwarcia karty, bo
+  // podpis zwiniętej sekcji ma od razu mówić, że osoba ma u nas historię.
+  const notesQuery = useCandidateNotes(item.candidate_id);
+  const notesSplit = useMemo(
+    () => splitPersonNotes(candidateNoteItems(notesQuery.data), jobId),
+    [notesQuery.data, jobId],
+  );
   const addNoteMutation = useMutation({
     mutationFn: (content: string) =>
       api.post("/api/notes", {
@@ -1860,18 +1868,18 @@ export function PipelineCandidateDock({
         <DockSection
           id="notes"
           label={DOCK_SECTION_LABEL.notes}
-          summary={notesQuery.data?.items ? `${dockNotes.length} w tej rekrutacji` : "Notatki w tej rekrutacji"}
+          summary={notesQuery.isSuccess ? dockNotesSummary(notesSplit) : "Notatki w tej rekrutacji"}
           isNow={nowSection === "notes"}
           open={isOpen("notes")}
           onToggle={() => toggleSection("notes")}
         >
-          <div className="space-y-3">
-            <JobNotesBlock
-              candidateId={item.candidate_id}
-              query={notesQuery}
-              readOnly={readOnly}
-            />
-          </div>
+          <PersonNotesHistory
+            variant="dock"
+            candidateId={item.candidate_id}
+            jobId={jobId}
+            readOnly={readOnly}
+            onOpenHistory={onOpenWorkbench ? () => onOpenWorkbench("notes") : undefined}
+          />
         </DockSection>
         </div>
       </div>

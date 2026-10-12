@@ -44,6 +44,8 @@ export function CvEditorSourcesPane({ candidateId, jobId, stageId, loaders }: Cv
       jobId={jobId}
       stageId={stageId}
       cvSources={EDITOR_SOURCES}
+      // Edytor ma własne „Notatki” tej rekrutacji — historia osoby zostaje w panelu.
+      showHistory={false}
       extraTab={{ label: "Notatki", content: <Notes candidateId={candidateId} jobId={jobId} /> }}
       loadDocumentBlob={loaders?.loadDocumentBlob}
       loadOriginalBlob={loaders?.loadOriginalBlob}

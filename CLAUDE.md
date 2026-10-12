@@ -202,6 +202,7 @@ Formularz i widok screeningu, karta rekomendacji, rodzaje notatek, wzmianki, „
 
 - `dane-po-scraperze-narzedzia-naprawy.md` — Dane po scraperze — narzędzia naprawy (06.10.2026)
 - `fakty-z-notatek-rekruterow-na-profilu-kandydata.md` — Fakty z notatek rekruterów na profilu kandydata (22.09.2026)
+- `historia-osoby-w-panelu-rekrutacji.md` — Historia notatek osoby w panelu rekrutacji (12.10.2026) · „Wcześniej u nas” w zakładce „Notatki i historia” i w wąskim doku, jedno zapytanie o notatki osoby, wynik rekrutacji z historii, prawdziwe ruchy pary, licznik notatek ludzi
 - `jeden-formularz-screeningu.md` — Jeden formularz screeningu (0424, 07.10.2026)
 - `jeden-widok-screening-zamiast-karty-rekomendacji.md` — Jeden widok „Screening” zamiast karty rekomendacji (09.10.2026)
 - `karta-rekomendacji-z-notatek.md` — Karta rekomendacji z notatek (0413, 03.10.2026)

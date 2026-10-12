@@ -231,3 +231,72 @@ async def test_moves_redact_names_without_candidate_read(
     assert {i["candidate_name"] for i in body["items"]} == {None}
     assert {i["candidate_id"] for i in body["items"]} == {world["anna"], world["bo"]}
     assert world["tag"] not in str(body)
+
+
+async def test_moves_of_one_person_keep_that_pairs_previous_stage(
+    app_client: AsyncClient,
+):
+    recruiter_id, recruiter_name, recruiter = await _user(UserRole.recruiter)
+    world = await _world(recruiter_id)
+    url = _url(world["job_id"])
+    anna_ids = [world["ids"][4], world["ids"][2], world["ids"][0]]
+
+    response = await app_client.get(
+        url, params={"candidate_id": world["anna"]}, headers=recruiter
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["total"] == 3 and body["next_offset"] is None
+    items = body["items"]
+    assert [i["id"] for i in items] == anna_ids
+    assert {i["candidate_id"] for i in items} == {world["anna"]}
+    # Ruchy Bo przeplatają się w czasie z ruchami Anny — poprzedni etap dalej
+    # pochodzi z JEJ historii, nie z sąsiedniego wiersza.
+    assert [(i["from_stage_name"], i["to_stage_name"]) for i in items] == [
+        ("Screening", "Zweryfikowany"),
+        ("Nowi / Analiza CV", "Screening"),
+        (None, "Nowi / Analiza CV"),
+    ]
+    assert items[0]["moved_by_name"] == recruiter_name
+    assert items[-1]["source"] == "traffit"
+
+    page = await app_client.get(
+        url,
+        params={"candidate_id": world["anna"], "limit": 1, "offset": 1},
+        headers=recruiter,
+    )
+    paged = page.json()
+    assert paged["total"] == 3 and paged["next_offset"] == 2
+    assert [i["id"] for i in paged["items"]] == [anna_ids[1]]
+    assert paged["items"][0]["from_stage_name"] == "Nowi / Analiza CV"
+
+    beyond = await app_client.get(
+        url, params={"candidate_id": world["anna"], "offset": 50}, headers=recruiter
+    )
+    assert beyond.json()["items"] == [] and beyond.json()["total"] == 3
+
+
+async def test_moves_person_filter_is_empty_for_a_stranger_and_keeps_the_gate(
+    app_client: AsyncClient,
+):
+    recruiter_id, _, recruiter = await _user(UserRole.recruiter)
+    _, _, no_pipeline = await _user(UserRole.recruiter, pipeline="none")
+    world = await _world(recruiter_id)
+    other = await _world(recruiter_id)
+    url = _url(world["job_id"])
+
+    # Osoba z innej rekrutacji: pusta lista, nie cudze ruchy i nie błąd.
+    stranger = await app_client.get(
+        url, params={"candidate_id": other["anna"]}, headers=recruiter
+    )
+    assert stranger.status_code == 200, stranger.text
+    assert stranger.json()["items"] == [] and stranger.json()["total"] == 0
+
+    assert (
+        await app_client.get(url, params={"candidate_id": 0}, headers=recruiter)
+    ).status_code == 422
+    params = {"candidate_id": world["anna"]}
+    assert (await app_client.get(url, params=params)).status_code == 401
+    assert (
+        await app_client.get(url, params=params, headers=no_pipeline)
+    ).status_code == 403
