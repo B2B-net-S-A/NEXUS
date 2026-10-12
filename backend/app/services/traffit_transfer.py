@@ -282,7 +282,7 @@ def _title_key(title: str) -> str:
 
 
 # Numer requestu klienta na końcu tytułu: „… (42961)”, „… (ZOB-3054)”.
-_REQUEST_ID_RE = re.compile(r"\s*\([^()]*\d[^()]*\)\s*$")
+_REQUEST_ID_RE = re.compile(r"\s*\(([^()]*\d[^()]*)\)\s*$")
 
 
 def title_core(title: str) -> str:
@@ -290,25 +290,42 @@ def title_core(title: str) -> str:
     return _REQUEST_ID_RE.sub("", _title_key(title))
 
 
+def request_id(title: str) -> Optional[str]:
+    """Numer requestu z końca tytułu („42961”, „zob-3054”) albo ``None``."""
+    found = _REQUEST_ID_RE.search(_title_key(title))
+    return " ".join(found.group(1).split()) if found else None
+
+
 class Twin(NamedTuple):
     job_id: int
-    #: Ten sam tytuł (z dokładnością do numeru requestu w nawiasie) — pewne,
-    #: że to ten sam request. ``False`` = tylko podobny tytuł.
+    #: Pewne, że to ten sam request: ten sam tytuł i ten sam numer requestu,
+    #: albo ten sam tytuł, gdy numeru nie ma jedna ze stron i dopasowanie jest
+    #: jedyne. ``False`` = tylko podobny tytuł.
     exact: bool
 
 
 def match_twin(title: str, candidates: list[tuple[int, str]]) -> Optional[Twin]:
     """Rekrutacja NEXUSA tego samego klienta dla tego samego requestu.
 
-    Najpierw tytuł identyczny po odjęciu numeru requestu („MS Power Platform
-    Expert” i „MS Power Platform Expert (42732)”), potem najbardziej podobny
-    powyżej progu. Podobieństwo wystarcza, żeby rekrutację OSTROŻNIE pominąć,
-    ale nie żeby przenieść na nią czyjś zespół: trzy różne rekrutacje
-    „IT Developer …” potrafią wskazać tę samą rekrutację NEXUSA.
+    Kolejność: ten sam tytuł i numer requestu → ten sam tytuł, gdy numeru nie
+    ma jedna ze stron („MS Power Platform Expert” i „MS Power Platform Expert
+    (42732)”) → najbardziej podobny tytuł powyżej progu. RÓŻNE numery to różne
+    requesty, choćby tytuł był identyczny: „Programista Python (ZOB-2904)”
+    nie jest bliźniakiem „Programista Python (ZOB-2947)” (12.10.2026 — taka
+    para dostałaby cudzy zespół). Podobieństwo wystarcza, żeby rekrutację
+    OSTROŻNIE pominąć, ale nie żeby przenieść na nią czyjś zespół.
     """
-    core = title_core(title)
-    for job_id, other in candidates:
-        if core and title_core(other) == core:
+    core, number = title_core(title), request_id(title)
+    same_core = [
+        (job_id, other)
+        for job_id, other in candidates
+        if core and title_core(other) == core
+    ]
+    for job_id, other in same_core:
+        if number and request_id(other) == number:
+            return Twin(job_id, True)
+    for job_id, other in same_core:
+        if not number or not request_id(other):
             return Twin(job_id, True)
     key = _title_key(title)
     best: tuple[float, int] = (0.0, 0)
@@ -317,6 +334,37 @@ def match_twin(title: str, candidates: list[tuple[int, str]]) -> Optional[Twin]:
         if ratio > best[0]:
             best = (ratio, job_id)
     return Twin(best[1], False) if best[0] >= TWIN_MIN_RATIO else None
+
+
+def assign_twins(
+    wave: list[tuple[int, str]], candidates: list[tuple[int, str]]
+) -> dict[int, Twin]:
+    """Bliźniaki dla rekrutacji jednego klienta: ``job_id`` → :class:`Twin`.
+
+    Jedna rekrutacja NEXUSA ma najwyżej jednego pewnego bliźniaka. Gdy pasuje
+    do niej kilka rekrutacji z Traffita („Analityk Systemowy Senior” bez
+    numeru i trzy kopie z różnymi numerami), pewna zostaje tylko ta z tym
+    samym numerem requestu; bez niej żadna — nie zgadujemy, czyj to zespół.
+    """
+    titles = dict(candidates)
+    out: dict[int, Twin] = {}
+    for job_id, title in wave:
+        twin = match_twin(title, candidates)
+        if twin is not None:
+            out[job_id] = twin
+    wave_titles = dict(wave)
+    by_twin: dict[int, list[int]] = {}
+    for job_id, twin in out.items():
+        if twin.exact:
+            by_twin.setdefault(twin.job_id, []).append(job_id)
+    for twin_id, job_ids in by_twin.items():
+        if len(job_ids) < 2:
+            continue
+        number = request_id(titles.get(twin_id, ""))
+        for job_id in job_ids:
+            if not number or request_id(wave_titles[job_id]) != number:
+                out[job_id] = Twin(twin_id, False)
+    return out
 
 
 def find_twin(title: str, candidates: list[tuple[int, str]]) -> Optional[int]:
@@ -345,13 +393,15 @@ async def load_twins(db: AsyncSession, jobs: list[WaveJob]) -> dict[int, Twin]:
     by_client: dict[int, list[tuple[int, str]]] = {}
     for r in rows.all():
         by_client.setdefault(int(r.client_id), []).append((int(r.id), r.title or ""))
-    out: dict[int, Twin] = {}
+    wave_by_client: dict[int, list[tuple[int, str]]] = {}
     for job in jobs:
-        if job.client_id is None:
-            continue
-        twin = match_twin(job.title, by_client.get(int(job.client_id), []))
-        if twin is not None:
-            out[job.job_id] = twin
+        if job.client_id is not None:
+            wave_by_client.setdefault(int(job.client_id), []).append(
+                (job.job_id, job.title)
+            )
+    out: dict[int, Twin] = {}
+    for client_id, wave in wave_by_client.items():
+        out.update(assign_twins(wave, by_client.get(client_id, [])))
     return out
 
 
@@ -1105,7 +1155,9 @@ __all__ = [
     "Scope",
     "WaveJob",
     "Twin",
+    "assign_twins",
     "find_twin",
+    "request_id",
     "match_twin",
     "title_core",
     "finish_run",

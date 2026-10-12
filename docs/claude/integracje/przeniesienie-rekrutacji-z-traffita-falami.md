@@ -69,12 +69,36 @@ bo bieg objąłby wszystko naraz.
 - **Ruch zrobiony w NEXUSIE wygrywa.** Para, której ostatni wiersz nie pochodzi
   z Traffita, nie jest poprawiana ani zdejmowana. Karty bez żadnego wiersza
   z Traffita (dodane w NEXUSIE, ze scrapera) zostają nietknięte.
-- **Rekrutacja z bliźniakiem jest pomijana.** Bliźniak = rekrutacja założona
-  w NEXUSIE od 25.09.2026 u tego samego klienta o niemal tym samym tytule
-  (`find_twin`, `TWIN_MIN_RATIO`). Z 73 takich rekrutacji 45 ma odpowiednik
-  w Traffit i to tam są kandydaci; która z dwóch zostaje, jest otwartą decyzją
-  — do tego czasu narzędzie ich nie rusza, żeby nie powstały dwie otwarte
-  rekrutacje na jeden request.
+- **Rekrutacja z bliźniakiem jest domyślnie pomijana.** Bliźniak = rekrutacja
+  założona w NEXUSIE od 25.09.2026 u tego samego klienta o niemal tym samym
+  tytule (`match_twin`, `TWIN_MIN_RATIO`). `include_twins=true` (migracja całego
+  zespołu, 12.10.2026) otwiera kopię z Traffita jak każdą inną; rekrutacji
+  NEXUSA nie rusza, więc request jest wtedy widoczny dwa razy, dopóki obu nie
+  scali osobny krok. `include_twins` wchodzi do klucza fali.
+- **Zespół bliźniaka przechodzi tylko przy PEWNYM dopasowaniu** (`Twin.exact`,
+  `assign_twins`): ten sam tytuł i ten sam numer requestu w nawiasie, albo ten
+  sam tytuł, gdy numeru nie ma jedna ze stron i dopasowanie jest jedyne.
+  RÓŻNE numery to różne requesty („Programista Python (ZOB-2904)” to nie
+  „…(ZOB-2947)”), a jedna rekrutacja NEXUSA ma najwyżej jednego pewnego
+  bliźniaka — 12.10.2026 osiem kopii pasowało tytułem do cudzych requestów.
+  Przy pewnym dopasowaniu kopia dostaje aktywnego prowadzącego, DL-a
+  i ręcznych współpracowników z rekrutacji NEXUSA (`_adopt_twin_team`).
+- **Osoba odpowiedzialna z Traffita to zwykle Delivery Lead, nie rekruter**
+  (`_settle_owner`). Import wpisuje ją do `jobs.recruiter_id`, a po otwarciu
+  prowadzący jest przy requeście z urzędu jako „Rekruter” — pierwsza fala
+  pokazała w „Obłożeniu” Delivery Leadów z 10–18 requestami (103 ze 133
+  rekrutacji). Aktywny prowadzący bez roli rekrutera schodzi z tego miejsca
+  i — jeśli jest Delivery Leadem — zostaje DL-em rekrutacji, także gdy miejsce
+  wypełnił automat (główny DL klienta; u klienta z kilkoma DL-ami to nie ta
+  osoba). DL wpisany przez człowieka zostaje. Rekrutacja zostaje bez
+  rekrutera: nikogo nowego nie przypisujemy (decyzja Artura 12.10.2026:
+  przypisane osoby mają się nie zmieniać). Każde wykonanie zaczyna od naprawy
+  rekrutacji przeniesionych wcześniej (`repair_transferred_owners`, zwolnienie
+  przypisania przez `_sync_work_assignments_with_owner`).
+- **Rekrutacja przełączona ręcznie, ale zamknięta**, wchodzi do fali tylko
+  wskazana wprost w `job_ids`. „Przełącz do NEXUSA” nie otwiera rekrutacji,
+  a „Otwórz ponownie” ma bramkę braków, której archiwum nie przejdzie —
+  12.10.2026 cztery takie zostały w pół drogi.
 - **Otwarcie idzie tymi samymi funkcjami co „Otwórz ponownie”**
   (`job_lifecycle.publish_core` + `reopen_keep_team_core`): „Prowadzona
   w NEXUSIE”, `published`, `is_open`, „Szukamy”, przypisanie prowadzącego.

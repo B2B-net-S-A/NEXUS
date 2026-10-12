@@ -240,3 +240,44 @@ def test_same_request_is_recognised_despite_the_request_number():
     similar = match_twin("IT Developer - Senior Java (42999)", nexus_jobs)
     assert similar == Twin(2, False)
     assert match_twin("Scrum Master", nexus_jobs) is None
+
+
+def test_different_request_numbers_are_different_requests():
+    # 12.10.2026: „Programista Python (ZOB-2904)” dostałby zespół rekrutacji
+    # „Programista Python (ZOB-2947)” — ten sam tytuł, inny request.
+    from app.services.traffit_transfer import Twin, match_twin
+
+    nexus_jobs = [(7, "Programista Python (ZOB-2947)")]
+
+    assert match_twin("Programista Python (ZOB-2947)", nexus_jobs) == Twin(7, True)
+    assert match_twin("Programista  python (zob-2947)", nexus_jobs) == Twin(7, True)
+    assert match_twin("Programista Python (ZOB-2904)", nexus_jobs) == Twin(7, False)
+
+
+def test_one_nexus_recruitment_has_at_most_one_certain_twin():
+    from app.services.traffit_transfer import Twin, assign_twins
+
+    # Rekrutacja NEXUSA bez numeru i trzy kopie z różnymi numerami: nie
+    # zgadujemy, która jest tą właściwą.
+    unnumbered = assign_twins(
+        [
+            (1, "Analityk Systemowy Senior (ZOB-2877)"),
+            (2, "Analityk Systemowy Senior (ZOB-2931)"),
+            (3, "Analityk Systemowy Senior (ZOB-2955)"),
+        ],
+        [(50, "Analityk Systemowy Senior")],
+    )
+    assert set(unnumbered.values()) == {Twin(50, False)}
+
+    # Z numerem po stronie NEXUSA pewna jest tylko kopia z tym numerem.
+    numbered = assign_twins(
+        [(4, "Tester Manualny (ZOB-2990)"), (5, "Tester Manualny (ZOB-3061)")],
+        [(60, "Tester Manualny (ZOB-3061)")],
+    )
+    assert numbered == {4: Twin(60, False), 5: Twin(60, True)}
+
+    # Jedyna kopia przy rekrutacji bez numeru jest pewna.
+    single = assign_twins(
+        [(6, "MS Power Platform Expert (42732)")], [(70, "MS Power Platform Expert")]
+    )
+    assert single == {6: Twin(70, True)}
