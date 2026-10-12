@@ -205,6 +205,9 @@ rekrutacji): `POST /api/admin/proposals/convert-integration-cards?job_ids=…`
 
 Import ruchów przełączonych rekrutacji jest pomijany (`skipped_managed`
 w statusie syncu) — ta liczba pokazuje, czy ktoś nadal rusza karty w Traffit.
+Od 12.10.2026 nocny import jest wyłączony w całości (decyzja Artura,
+`traffit-daily-sync-scheduled-import.md`); samo narzędzie przeniesienia działa
+dalej, bo czyta Traffita na żądanie.
 Cofnięcie: „Wróć do Traffita” na rekrutacji i jej zamknięcie; wiersze dopisane
 przy przeniesieniu mają `external_id` z prefiksem `transfer:`.
 

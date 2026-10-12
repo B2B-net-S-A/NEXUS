@@ -173,6 +173,37 @@ przyjmuje ludzi — tę parę rozstrzyga Delivery Lead.
 | `tests/test_job_twin_merge_plan.py` | kiedy para jest parą, powody pominięcia, lista tabel idących za osobą, zakres trasy | lokalnie i CI |
 | `tests/test_job_twin_merge.py` | próba bez zmian; przepięcie z historią, numery prób, notatki, karta, termin rozmowy, „Stawka od”, propozycje i ich notatki, `updated_at` bez zmian, zamknięcie kopii, przypisania, zespół bez zmian, paragon przy kopii, scalona kopia poza falą; osoba wstrzymana przez kredyt KPI; tylko pary z próby; zamknięta rekrutacja NEXUSA; podobny tytuł; brak wykonawcy; kopia zamknięta przez człowieka; świeżość próby | tylko CI (Postgres) |
 
+### Bieg scalenia na produkcji (12.10.2026, konto administratora)
+
+Próba 11:57 UTC, wykonanie po decyzji Artura („Scal teraz”): para próbna
+o 12:00:14 UTC, pozostałe 26 par 12:01:05–12:01:35 UTC.
+
+| Co | Liczba |
+|---|---|
+| Pary scalone / nieudane | 27 / 0 |
+| Para pominięta | 1 — rekrutację NEXUSA zamknął tego dnia Delivery Lead, zostaje kopia |
+| Osoby przeniesione z historią | 825 |
+| Osoby z kartą w obu rekrutacjach (nieprzenoszone) | 16 |
+| Osoby wstrzymane przez kredyt KPI | 0 |
+| Notatki / karty rekomendacji / wygenerowane CV | 744 / 132 / 36 |
+| Otwarte propozycje przeniesione | 302 |
+
+Sprawdzenie po biegu (produkcja, tylko odczyt): wiersze etapów, procesy
+i notatki w parach przed i po — 2312 / 1928 / 1588, bez zmian; zespoły 28
+rekrutacji NEXUSA (prowadzący, DL, współpracownicy, przypisania) bez zmian;
+kredyt KPI (`VERIFIER_ANCHORED_CTE`) 456 → 458 wierszy, żaden nie ubył, dwa
+nowe z pracy rekrutera tego dnia; Tablica scalonych rekrutacji przez API
+zgodna z kolumnami z próby. Paragon: `app_settings['traffit_twins_merge_log']`
+i wpis `traffit_twin_merged` przy każdej kopii.
+
+## Nocny import z Traffita wyłączony — 12.10.2026
+
+Decyzja Artura po scaleniu: z Traffita nikt już nie korzysta, import nie jest
+potrzebny. `TRAFFIT_SYNC_ENABLED=false` (12:17 UTC) i plik stop starego crona
+na hoście. Co stanęło razem z importem, co zostało tylko w Traffit i jak zrobić
+ostatni import przed rezygnacją z Traffita:
+`docs/claude/integracje/traffit-daily-sync-scheduled-import.md`.
+
 ## Niepotwierdzone / poza zakresem
 
 - Remis czasu w imporcie dotyczy wszystkich rekrutacji z Traffita; ta zmiana
