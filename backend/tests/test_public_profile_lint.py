@@ -88,6 +88,17 @@ def test_contact_and_person_names_are_found():
     assert "person_name" in _codes(findings)
 
 
+def test_money_patterns_stay_linear_on_long_whitespace():
+    """Liczba, po której idzie długi ciąg spacji bez waluty, liczyła się
+    sześciennie: 800 spacji = kilkanaście sekund na pętli zdarzeń, a opis
+    publiczny przyjmuje 4000 znaków."""
+    import time
+
+    started = time.perf_counter()
+    assert lint_public_texts(["1" + " " * 4000 + "x", "1 " * 2000 + "x"]) == []
+    assert time.perf_counter() - started < 1.0
+
+
 def test_money_message_matches_contract_shape():
     (finding,) = lint_public_texts(["Budżet do 180 zł/h"])
     assert finding.as_dict() == {

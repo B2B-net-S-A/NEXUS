@@ -13,6 +13,7 @@ import {
   FileText,
   FileUp,
   Link2,
+  Megaphone,
   MessageCircle,
   PencilLine,
   RotateCcw,
@@ -22,7 +23,6 @@ import {
   Trophy,
   UserPlus,
   Users,
-  Wand2,
   XCircle,
 } from "lucide-react";
 
@@ -494,8 +494,8 @@ export function JobDetailCompactHeader({
               ) : null}
               {onWriteAnnouncement ? (
                 <DropdownMenuItem onSelect={() => deferMenuAction(onWriteAnnouncement)}>
-                  <Wand2 className="h-4 w-4" />
-                  Szkic ogłoszenia
+                  <Megaphone className="h-4 w-4" />
+                  Ogłoszenie na portale
                 </DropdownMenuItem>
               ) : null}
               {onGenerateInviteLink ? (

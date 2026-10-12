@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Ogłoszenie rekrutacji: opis z AI, link aplikacyjny i portale (zakładka
+ * Ogłoszenie rekrutacji: treść na portale, link aplikacyjny i portale (zakładka
  * „Zespół i ogłoszenie” Profilu Championa, 04.10.2026). Do 04.10.2026 była to
  * zakładka „Ogłoszenie” panelu bocznego obok Podglądu.
  */
@@ -34,13 +34,13 @@ export function JobAnnouncementSection({
     <div className="space-y-4" data-testid="job-announcement-section">
       <section className="space-y-2">
         <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Opis publiczny i link aplikacyjny
+          Ogłoszenie i link aplikacyjny
         </h3>
         {onWriteAnnouncement || onGenerateInviteLink ? (
           <div className="flex flex-wrap gap-2">
             {onWriteAnnouncement ? (
               <Button type="button" variant="outline" size="sm" onClick={onWriteAnnouncement}>
-                Napisz ogłoszenie z AI
+                Przygotuj ogłoszenie na portale
               </Button>
             ) : null}
             {onGenerateInviteLink ? (
@@ -51,6 +51,9 @@ export function JobAnnouncementSection({
           </div>
         ) : null}
         <p className="text-[12px] leading-snug text-muted-foreground">
+          {onWriteAnnouncement
+            ? "Treść na Pracuj.pl i JustJoin.IT układa się z Profilu Championa — bez nazwy klienta i stawek. "
+            : ""}
           {onGenerateInviteLink
             ? "Kandydat z linku trafia od razu do „Nowych” tej rekrutacji."
             : jobStatus !== "published"

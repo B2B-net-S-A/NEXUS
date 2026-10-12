@@ -18,7 +18,6 @@ vi.mock("@/lib/api", () => ({
     patch: vi.fn(),
     delete: vi.fn(),
   },
-  aiWriterApi: {},
   phase5Api: { clientsLookup: vi.fn() },
   pipelineTemplatesApi: {},
   requestHistoryApi: {},

@@ -36,7 +36,6 @@
 "tests/test_ai_settings_schemas.py": 0.0,
 "tests/test_ai_spend_alerts.py": 0.1,
 "tests/test_ai_spend_gating.py": 1.4,
-"tests/test_ai_writer_facts.py": 0.1,
 "tests/test_alior_order_policy.py": 2.6,
 "tests/test_analytics_cache.py": 0.0,
 "tests/test_analytics_finance.py": 3.9,
