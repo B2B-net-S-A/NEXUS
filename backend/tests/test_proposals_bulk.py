@@ -6,6 +6,8 @@ that exercise the actual SQL path live in tests/test_api_integration.py.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 from pydantic import ValidationError
 
@@ -14,6 +16,9 @@ from app.api.proposals_bulk import (
     BulkProposalsResponse,
     BulkSkippedRow,
     BulkWarningRow,
+    ClosedCardInfo,
+    _closed_card_label,
+    _closed_stage_label,
 )
 
 
@@ -131,3 +136,58 @@ class TestResponseShape:
         # Round-trip
         rehydrated = BulkProposalsResponse.model_validate(data)
         assert rehydrated == resp
+
+
+class TestClosedCard:
+    """12.10.2026: zamknięta karta w tej rekrutacji to nie „już w rekrutacji”.
+
+    Rekruter dostawał „Pominięto: 1” bez powodu, a osoba stała w „Zamkniętych”
+    z odrzuceniem sprzed kilku dni. Etykieta mówi teraz etap, dzień i osobę,
+    a wiersz niesie cel ruchu, którym okno kartę przywraca.
+    """
+
+    def test_skip_row_carries_the_closed_card_and_the_restore_target(self):
+        row = BulkSkippedRow(
+            candidate_id=7,
+            reason="closed_in_job",
+            reason_label="…",
+            closed=ClosedCardInfo(
+                candidate_name="Ewa Testowa",
+                state_version=2,
+                restore_stage="new",
+            ),
+        )
+        data = row.model_dump(mode="json")
+        assert data["closed"]["restore_stage"] == "new"
+        assert data["closed"]["restore_stage_def_id"] is None
+        # Pozostałe powody nie niosą karty.
+        assert BulkSkippedRow(candidate_id=1, reason="already_in_job").closed is None
+
+    def test_label_gives_stage_day_in_company_calendar_and_person(self):
+        # 22:30 UTC to w Warszawie już następny dzień.
+        closed_at = datetime(2026, 10, 8, 22, 30, tzinfo=timezone.utc)
+        assert (
+            _closed_card_label("Odrzucony", closed_at, "Jan Testowy")
+            == "Zamknięta karta w tej rekrutacji: Odrzucony 09.10.2026 (Jan Testowy)"
+        )
+        assert (
+            _closed_card_label("Wycofany", closed_at, None)
+            == "Zamknięta karta w tej rekrutacji: Wycofany 09.10.2026"
+        )
+
+    def test_callers_asking_only_whether_a_card_exists_read_both_reasons(self):
+        from typing import get_args
+
+        from app.api.proposals_bulk import IN_JOB_SKIP_REASONS, SkipReason
+
+        assert IN_JOB_SKIP_REASONS == {"already_in_job", "closed_in_job"}
+        assert IN_JOB_SKIP_REASONS <= set(get_args(SkipReason))
+
+    def test_stage_label_prefers_the_template_name(self):
+        assert (
+            _closed_stage_label("Odrzucony przez klienta", "rejected")
+            == "Odrzucony przez klienta"
+        )
+        # Wiersz bez etapu szablonu (import, stare rekrutacje) — nazwa z kodu.
+        assert _closed_stage_label(None, "withdrawn") == "Wycofany"
+        assert _closed_stage_label("  ", "rejected") == "Odrzucony"

@@ -20,6 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Literal, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -30,6 +31,7 @@ from app.api.deps import RecruiterPlus
 from app.api.recruitment_access import ensure_job_membership
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
+from app.core.scheduling import DEFAULT_TZ
 from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.note import SYSTEM_NOTE_SOURCE, Note, NoteType
@@ -39,6 +41,9 @@ from app.models.recruitment_pipeline import (
     PipelineStage,
 )
 from app.models.recruitment_priority import PriorityChannel
+from app.models.recruitment_process import RecruitmentProcess
+from app.models.user import User
+from app.schemas.pipeline import STAGE_LABELS
 from app.services import candidate_claim
 from app.services.process_entry_meta import auto_match_entry_meta
 from app.services.candidate_stage_cv_service import create_original_cv_snapshot
@@ -60,10 +65,16 @@ router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
 SkipReason = Literal[
     "already_in_job",
+    # 12.10.2026: osoba ma w tej rekrutacji kartę w „Zamkniętych” (odrzucona,
+    # wycofana, rezerwa). Wiersz niesie ``closed`` — okno daje „Przywróć”.
+    "closed_in_job",
     "blacklisted",
     "candidate_not_found",
     "rejected_by_hiring_manager",
 ]
+# Oba znaczą „ta osoba ma już kartę w tej rekrutacji” — wołający, który
+# pyta tylko o to (przypisanie z profilu), czyta je razem.
+IN_JOB_SKIP_REASONS: frozenset[str] = frozenset({"already_in_job", "closed_in_job"})
 # Client conflicts (blacklist / NDA / competitor) are soft warnings since
 # 17.09.2026: the candidate IS added and the reason rides in ``warnings``.
 WarningReason = Literal[
@@ -165,10 +176,26 @@ class AutoMatchEntryIn(BaseModel):
 BulkProposalsRequest.model_rebuild()
 
 
+class ClosedCardInfo(BaseModel):
+    """Zamknięta karta osoby w tej rekrutacji i cel jej przywrócenia.
+
+    Przywrócenie to ruch karty (``POST /api/pipeline/move``), nie drugie
+    dodanie: ``restore_stage`` / ``restore_stage_def_id`` to etap, na który
+    trafiłoby to dodanie, a ``state_version`` to wersja procesu dla
+    ``expected_state_version``.
+    """
+
+    candidate_name: str
+    state_version: int = 0
+    restore_stage: str
+    restore_stage_def_id: Optional[int] = None
+
+
 class BulkSkippedRow(BaseModel):
     candidate_id: int
     reason: SkipReason
     reason_label: Optional[str] = None
+    closed: Optional[ClosedCardInfo] = None
 
 
 class BulkWarningRow(BaseModel):
@@ -433,6 +460,110 @@ def _entry_source_for(source: Optional[str]) -> str:
     return candidate_claim.ENTRY_ADDED_MANUAL
 
 
+def _closed_stage_label(name: Optional[str], stage: Optional[str]) -> str:
+    """Nazwa etapu z szablonu, a dla wiersza bez etapu szablonu — z kodu."""
+    if name and name.strip():
+        return name.strip()
+    try:
+        return STAGE_LABELS[PipelineStage(stage)]
+    except (KeyError, ValueError):
+        return "Zamknięty"
+
+
+def _closed_card_label(
+    stage_label: str, closed_at: datetime, closed_by_name: Optional[str]
+) -> str:
+    day = closed_at.astimezone(ZoneInfo(DEFAULT_TZ)).strftime("%d.%m.%Y")
+    who = f" ({closed_by_name})" if closed_by_name else ""
+    return f"Zamknięta karta w tej rekrutacji: {stage_label} {day}{who}"
+
+
+@dataclass
+class _ClosedCard:
+    label: str
+    state_version: int = 0
+
+
+async def _closed_cards(
+    db: AsyncSession, *, job_id: int, candidate_ids: list[int]
+) -> dict[int, _ClosedCard]:
+    """Osoby, których bieżąca karta w tej rekrutacji stoi w „Zamkniętych”.
+
+    „Już w rekrutacji” znaczyło dotąd „ma tu jakikolwiek wiersz etapu” — także
+    odrzucenie sprzed tygodnia. Zatrudniony i osoba w toku tu nie trafiają:
+    kolumnę liczy ta sama reguła co Tablica (``board_column_for``).
+    """
+    from app.services.board_stage_badges import board_column_for  # noqa: PLC0415
+
+    if not candidate_ids:
+        return {}
+    latest = (
+        select(CandidateStage.id)
+        .where(
+            CandidateStage.job_id == job_id,
+            CandidateStage.candidate_id.in_(candidate_ids),
+        )
+        .distinct(CandidateStage.candidate_id)
+        .order_by(
+            CandidateStage.candidate_id,
+            CandidateStage.moved_at.desc(),
+            CandidateStage.id.desc(),
+        )
+    )
+    rows = (
+        await db.execute(
+            select(
+                CandidateStage.candidate_id,
+                CandidateStage.stage,
+                CandidateStage.moved_at,
+                PipelineStageDef.name,
+                PipelineStageDef.category,
+                PipelineStageDef.terminal_type,
+                User.name,
+            )
+            .outerjoin(
+                PipelineStageDef, PipelineStageDef.id == CandidateStage.stage_def_id
+            )
+            .outerjoin(User, User.id == CandidateStage.moved_by)
+            .where(CandidateStage.id.in_(latest))
+        )
+    ).all()
+    cards: dict[int, _ClosedCard] = {}
+    for candidate_id, stage, moved_at, name, category, terminal_type, by in rows:
+        code = getattr(stage, "value", stage)
+        column = board_column_for(
+            name,
+            code,
+            category=getattr(category, "value", category),
+            terminal_type=getattr(terminal_type, "value", terminal_type),
+        )
+        if column == "closed":
+            cards[candidate_id] = _ClosedCard(
+                label=_closed_card_label(_closed_stage_label(name, code), moved_at, by)
+            )
+    if not cards:
+        return cards
+    # Wersja ostatniej próby — tak jak czyta ją ruch karty (`_latest_process`).
+    versions = (
+        await db.execute(
+            select(RecruitmentProcess.candidate_id, RecruitmentProcess.state_version)
+            .where(
+                RecruitmentProcess.job_id == job_id,
+                RecruitmentProcess.candidate_id.in_(list(cards)),
+            )
+            .distinct(RecruitmentProcess.candidate_id)
+            .order_by(
+                RecruitmentProcess.candidate_id,
+                RecruitmentProcess.attempt_no.desc(),
+                RecruitmentProcess.id.desc(),
+            )
+        )
+    ).all()
+    for candidate_id, version in versions:
+        cards[candidate_id].state_version = int(version or 0)
+    return cards
+
+
 @dataclass
 class IntakeResult:
     added: list[int]
@@ -525,6 +656,15 @@ async def add_candidates_to_job(
         .all()
     )
     already_in_job_set: set[int] = set(already_in_job)
+    # Zamkniętą kartę nazywamy tylko człowiekowi (``claim``): okno daje mu
+    # „Przywróć”. Integracja i automat nie mają z tym co zrobić — ich
+    # odpowiedzi i dziennik decyzji zostają przy „już w rekrutacji”, bez
+    # imienia osoby, która kartę zamknęła.
+    closed_cards = (
+        await _closed_cards(db, job_id=job.id, candidate_ids=sorted(already_in_job_set))
+        if claim
+        else {}
+    )
 
     # One shared eligibility read (``pipeline_eligibility``): active client
     # conflicts, current employment derived from live contracts, excluded
@@ -564,6 +704,30 @@ async def add_candidates_to_job(
             # blacklist, already in job, hiring-manager veto. Client conflicts
             # are warnings since 17.09.2026.
             decision = decisions[candidate_id]
+            closed_card = (
+                closed_cards.get(candidate_id)
+                if decision.reason_code is EligibilityReason.already_in_job
+                else None
+            )
+            if closed_card is not None:
+                # Karta w „Zamkniętych” to nie „już w rekrutacji”: mówimy,
+                # skąd i od kiedy, i podajemy cel ruchu, który ją przywraca.
+                skipped.append(
+                    BulkSkippedRow(
+                        candidate_id=candidate_id,
+                        reason="closed_in_job",
+                        reason_label=closed_card.label,
+                        closed=ClosedCardInfo(
+                            candidate_name=(
+                                f"{candidate.name} {candidate.lastname}".strip()
+                            ),
+                            state_version=closed_card.state_version,
+                            restore_stage=legacy_enum.value,
+                            restore_stage_def_id=(stage_def.id if stage_def else None),
+                        ),
+                    )
+                )
+                continue
             if not decision.assignment_allowed:
                 # Name the manager and the date when the veto is what blocked —
                 # "hiring manager already rejected" alone sends the recruiter
