@@ -812,6 +812,9 @@ describe("BoardTasksPanel — „Obłożenie” przy listach przydziału (09.10.
       "href",
       "/jobs/51",
     );
+    // Jeden request w wierszu: w kolumnach na szerokim ekranie stawały obok
+    // siebie w jednym rzędzie i trzeba je było czytać w poziomie.
+    expect(within(requests).getByRole("list").className).not.toMatch(/\bcolumns-/);
     // Lista informacyjna — nie dokłada nic do liczników zadań.
     const sent = within(panel).getByRole("region", { name: "Wysłane do Cpro" });
     expect(within(sent).getByText("1")).toHaveClass("text-primary");

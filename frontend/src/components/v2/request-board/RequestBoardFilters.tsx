@@ -190,11 +190,16 @@ export function RequestBoardFilters({
         <span className="text-sm text-muted-foreground">
           Pokazuję {shown} z {total}
         </span>
-        {hasActiveFilters(filters) && (
-          <Button variant="outline" size="sm" onClick={() => onChange(EMPTY_FILTERS)}>
-            Wyczyść filtry
-          </Button>
-        )}
+        {/* Zawsze na pasku, bez filtrów wyszarzony: przycisk, który pojawiał się
+            dopiero po ustawieniu filtra, czytało się jako brak tej opcji. */}
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!hasActiveFilters(filters)}
+          onClick={() => onChange(EMPTY_FILTERS)}
+        >
+          Wyczyść filtry
+        </Button>
       </div>
     </div>
   )
