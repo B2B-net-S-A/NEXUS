@@ -174,52 +174,30 @@ async def test_known_email_in_header_is_rejected_without_calling_the_model(
         await _cleanup(existing)
 
 
-async def test_known_phone_in_header_is_rejected_without_calling_the_model(
+async def test_known_phone_in_header_does_not_block_a_new_person(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
-    """Telefon to drugi identyfikator sita — CV bez e-maila nadal się broni."""
+    """Ten sam telefon, inny (albo żaden) e-mail = inna osoba (12.10.2026).
+
+    Do tej decyzji telefon z nagłówka odmawiał bez czytania CV, a scraper
+    wgrywał wtedy plik do wskazanego profilu — wspólny numer (np. agencji)
+    wrzucał CV obcej osobie.
+    """
     phone = "+48 512 700 " + f"{uuid.uuid4().int % 1000:03d}"
     existing = await _seed_candidate(phone=phone)
     _patch_extractor(monkeypatch, _cv_text(phone=phone))
     _patch_post_ingest(monkeypatch)
-    _forbid_model(monkeypatch)
-    try:
-        resp = await _post(app_client, app_auth_headers, _pdf_bytes(uuid.uuid4().hex))
-        assert resp.status_code == 409, resp.text
-        assert resp.json()["detail"]["existing_candidate_id"] == existing
-    finally:
-        await _cleanup(existing)
-
-
-async def test_digit_run_in_the_body_does_not_trigger_the_sieve(
-    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
-):
-    """Zbitka cyfr w TREŚCI nie może udawać telefonu.
-
-    To jest cała przyczyna, dla której sito czyta wyłącznie nagłówek:
-    scraper przy 409 wgrywa CV do wskazanego profilu, więc fałszywe trafienie
-    oznacza CV obcej osoby u kogoś innego.
-    """
-    phone = "+48 512 700 321"
-    existing = await _seed_candidate(phone=phone)
-    # Ten sam ciąg cyfr, ale w treści — nie w nagłówku.
-    text = "\n".join(
-        ["Anna Nowa", "Backend Developer"]
-        + [f"linia {i}" for i in range(25)]
-        + [f"projekt rozliczany {phone}"]
-    )
-    _patch_extractor(monkeypatch, text)
-    _patch_post_ingest(monkeypatch)
     calls = _expect_model(
         monkeypatch,
-        {"first_name": "Anna", "last_name": f"Nowa{uuid.uuid4().hex[:6]}"},
+        {"first_name": "Jan", "last_name": f"Telefon{uuid.uuid4().hex[:6]}"},
     )
     created: list[int] = []
     try:
         resp = await _post(app_client, app_auth_headers, _pdf_bytes(uuid.uuid4().hex))
-        assert calls, "sito zjadło zbitkę cyfr z treści jako telefon"
-        if resp.status_code == 201:
-            created.append(resp.json()["candidate"]["id"])
+        assert calls, "telefon z nagłówka nie może już odmawiać przed odczytem"
+        assert resp.status_code == 201, resp.text
+        created.append(resp.json()["candidate"]["id"])
+        assert created[0] != existing
     finally:
         await _cleanup(existing, *created)
 
@@ -227,10 +205,7 @@ async def test_digit_run_in_the_body_does_not_trigger_the_sieve(
 async def test_linkedin_only_cv_is_not_sieved(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
-    """Sito pyta wyłącznie o e-mail i telefon (decyzja właściciela, 18.09).
-
-    LinkedIn zostaje skanowi PO płatnym odczycie — sito jest węższe celowo.
-    """
+    """Sito pyta wyłącznie o e-mail (plik + adres); LinkedIn niczego nie blokuje."""
     slug = f"jan-sito-{uuid.uuid4().hex[:8]}"
     async with AsyncSessionLocal() as db:
         candidate = Candidate(
@@ -291,7 +266,7 @@ async def test_sieve_failure_leaves_the_old_path_intact(
         "app.services.cv_upload_dedup._duplicates_by_file_hash", _boom, raising=True
     )
     monkeypatch.setattr(
-        "app.services.dedup_service.find_candidate_duplicates", _boom, raising=True
+        "app.services.cv_upload_dedup.find_candidate_by_email", _boom, raising=True
     )
     _patch_extractor(monkeypatch, _cv_text(email="awaria@example.com"))
     _patch_post_ingest(monkeypatch)
@@ -443,21 +418,89 @@ async def test_sieve_name_is_the_real_import_not_a_local_shadow():
     ), "sito musi pochodzić z `cv_upload_dedup`, nie z lokalnej definicji"
 
 
-async def test_header_phone_ignores_body_digit_runs():
-    """Jednostkowo: ekstraktor nagłówka nie sięga do treści."""
-    from app.services.cv_upload_dedup import header_phone
+def _sieve_without_db(monkeypatch, rows=()):
+    """Sito z podmienionymi zapytaniami: zwraca listę adresów, o które zapytało."""
+    from app.services import cv_upload_dedup
 
-    header = "Jan Testowy\nDeveloper\ntel. +48 512 700 321"
-    assert header_phone(header) is not None
+    asked: list[str] = []
 
-    body_only = "\n".join(["Jan Testowy"] + [f"linia {i}" for i in range(30)] + [
-        "faktura 512 700 321"
-    ])
-    assert header_phone(body_only) is None
+    async def _no_file_match(*_a, **_kw):
+        return []
+
+    async def _by_email(_db, email, **_kw):
+        asked.append(email)
+        return list(rows)
+
+    monkeypatch.setattr(cv_upload_dedup, "_duplicates_by_file_hash", _no_file_match)
+    monkeypatch.setattr(cv_upload_dedup, "find_candidate_by_email", _by_email)
+    return asked
+
+
+async def test_sieve_asks_only_about_header_email(monkeypatch):
+    from app.services.cv_upload_dedup import find_duplicates_without_llm
+
+    hit = {"candidate_id": 7, "match_reasons": ["email_exact"]}
+    asked = _sieve_without_db(monkeypatch, rows=[hit])
+
+    rows = await find_duplicates_without_llm(
+        None,
+        content=b"cv",
+        raw_text=_cv_text(email="Jan.Testowy@Example.com", phone="+48 512 700 321"),
+    )
+
+    assert asked == ["jan.testowy@example.com"]
+    assert rows == [hit]
+
+
+async def test_sieve_ignores_header_phone(monkeypatch):
+    """Sam telefon w nagłówku to za mało, żeby odmówić — sito nie pyta bazy."""
+    from app.services.cv_upload_dedup import find_duplicates_without_llm
+
+    asked = _sieve_without_db(monkeypatch, rows=[{"candidate_id": 7}])
+
+    rows = await find_duplicates_without_llm(
+        None, content=b"cv", raw_text=_cv_text(phone="+48 512 700 321")
+    )
+
+    assert asked == []
+    assert rows == []
+
+
+async def test_form_email_replaces_header_email(monkeypatch):
+    """Adres wpisany w formularzu wygrywa z odczytem — także w sicie."""
+    from app.services.cv_upload_dedup import find_duplicates_without_llm
+
+    asked = _sieve_without_db(monkeypatch)
+
+    await find_duplicates_without_llm(
+        None,
+        content=b"cv",
+        raw_text=_cv_text(email="z.naglowka@example.com"),
+        form_email="z.formularza@example.com",
+    )
+
+    assert asked == ["z.formularza@example.com"]
+
+
+async def test_cleared_form_email_skips_the_email_step(monkeypatch):
+    """Rekruter wyczyścił adres z CV — nagłówek pliku nie może blokować zapisu."""
+    from app.services.cv_upload_dedup import find_duplicates_without_llm
+
+    asked = _sieve_without_db(monkeypatch, rows=[{"candidate_id": 7}])
+
+    rows = await find_duplicates_without_llm(
+        None,
+        content=b"cv",
+        raw_text=_cv_text(email="z.naglowka@example.com"),
+        form_email="",
+    )
+
+    assert asked == []
+    assert rows == []
 
 
 async def test_candidate_without_contact_is_not_sieved():
-    """Brak e-maila i telefonu → sito milczy, nie odpytuje nawet bazy."""
+    """Brak e-maila → sito milczy (poza skrótem pliku)."""
     from app.services.cv_upload_dedup import find_duplicates_without_llm
 
     async with AsyncSessionLocal() as db:

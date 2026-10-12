@@ -908,9 +908,9 @@ class CandidateFromCVResponse(BaseModel):
     The `candidate` field carries the newly-created profile exactly like the
     standard CandidateResponse. `confidence` mirrors the LLM's per-field
     certainty so the UI can flag low-confidence values for manual review.
-    `duplicates` is populated (non-empty) only when the endpoint is called
-    with `?force=true` despite existing matches — the default flow returns
-    HTTP 409 instead.
+    `duplicates` zostaje w kształcie dla dotychczasowych klientów; od
+    12.10.2026 jest zawsze puste — ta sama osoba = ten sam e-mail, a takie
+    trafienie kończy się HTTP 409 (także przy `?force=true`).
     """
 
     candidate: CandidateResponse
