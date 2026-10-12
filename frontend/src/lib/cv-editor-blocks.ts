@@ -361,7 +361,11 @@ export function insertRole(lang: CvLang): CvCommand {
       nodes.unshift(heading);
       roleAt = at + heading.nodeSize;
     }
-    const tr = state.tr.insert(at, Fragment.fromArray(nodes));
+    const tr = state.tr;
+    // Nowe stanowisko niesie znacznik `role` — w starym CV najpierw dostają go
+    // te, które już są (`setNodeMarkup` nie przesuwa pozycji wstawienia).
+    if (outline.roles.length === 0) markLegacyStructure(tr, outline);
+    tr.insert(at, Fragment.fromArray(nodes));
     return selectPlaceholder(tr, roleAt ?? at, fields.position);
   };
 }

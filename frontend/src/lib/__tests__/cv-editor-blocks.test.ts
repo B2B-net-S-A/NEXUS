@@ -369,6 +369,32 @@ describe("typ akapitu", () => {
     expect(html).toContain("<p><strong>Projekt:</strong> nowy system płatności</p>");
     expect(html).toContain("<p>Globex</p>");
   });
+
+  it("„Dodaj → Stanowisko” w starym CV najpierw oznacza stanowiska, które już w nim są", () => {
+    // Jeden znacznik `role` przełącza serwer na same znaczniki: bez tego stare
+    // stanowiska traciły w Wordzie „Stanowisko:” i „Nazwa firmy:”.
+    const editor = open(
+      "<h2>DOŚWIADCZENIE</h2>" +
+        "<p><strong>Senior Developer</strong> 03.2021 – 06.2024</p><p>Acme Bank</p>" +
+        "<p>Zakres zadań:</p><ul><li><p>Usługi płatnicze.</p></li></ul><p>Technologie: Java</p>" +
+        "<p><strong>Developer</strong> 01.2017 – 02.2021</p><p>Globex</p>" +
+        RODO,
+    );
+    caretIn(editor, "Usługi płatnicze.");
+    expect(runCvCommand(editor, insertRole("pl"))).toBe(true);
+    expect(roleTitles(editor)).toEqual([
+      "Senior Developer 03.2021 – 06.2024",
+      "Developer 01.2017 – 02.2021",
+      `${CV_PLACEHOLDERS.pl.position} ${CV_PLACEHOLDERS.pl.dates}`,
+    ]);
+    const html = editor.getHTML();
+    expect(html).toContain('<p data-cv-section="employer">Acme Bank</p>');
+    expect(html).toContain('<p data-cv-section="employer">Globex</p>');
+    expect(html).toContain('<p data-cv-section="duties_label">Zakres zadań:</p>');
+    expect(lastBlockIsRodo(editor)).toBe(true);
+    editor.commands.undo();
+    expect(editor.getHTML()).not.toContain("data-cv-section=\"role\"");
+  });
 });
 
 it("znajduje niewypełnione pola w obu językach", () => {

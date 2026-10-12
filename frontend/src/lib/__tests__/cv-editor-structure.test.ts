@@ -13,6 +13,8 @@ const BODY =
   '<p data-cv-section="employer">Acme</p><ul><li><p>Usługi REST.</p></li></ul>';
 const CV = BODY + RODO;
 
+const TAIL_CV = `${BODY}<p>Ostatni akapit.</p>${RODO}`;
+
 const editors: Editor[] = [];
 
 function open(content: string): Editor {
@@ -29,6 +31,13 @@ function positionOf(editor: Editor, text: string): number {
   });
   expect(at, `brak tekstu „${text}”`).toBeGreaterThanOrEqual(0);
   return at;
+}
+
+/** Klawisz Delete obsługuje model ProseMirrora, nie przeglądarka — `contenteditable` go nie zatrzyma. */
+function pressDelete(editor: Editor): void {
+  editor.view.dom.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Delete", keyCode: 46, bubbles: true, cancelable: true }),
+  );
 }
 
 function clauses(editor: Editor): number {
@@ -61,6 +70,43 @@ describe("klauzula zgody jest stała", () => {
     expect(editor.getHTML()).toBe(open(CV).getHTML());
   });
 
+  it("Delete na końcu ostatniego punktu nie wciąga jej do listy", () => {
+    const editor = open(CV);
+    const before = editor.getHTML();
+    editor.commands.setTextSelection(positionOf(editor, "Usługi REST.") + "Usługi REST.".length);
+    pressDelete(editor);
+    expect(editor.getHTML()).toBe(before);
+  });
+
+  it("Delete na końcu ostatniego akapitu nie dokleja jej do niego", () => {
+    const editor = open(TAIL_CV);
+    const before = editor.getHTML();
+    editor.commands.setTextSelection(positionOf(editor, "Ostatni akapit.") + "Ostatni akapit.".length);
+    pressDelete(editor);
+    expect(editor.getHTML()).toBe(before);
+    // Następny klawisz działa normalnie — blokada nie zostawia edytora w złym stanie.
+    editor.commands.insertContent(" Dopisek.");
+    expect(editor.getHTML()).toContain("<p>Ostatni akapit. Dopisek.</p>");
+    expect(clauses(editor)).toBe(1);
+  });
+
+  it("usunięcie zaznaczenia sięgającego w głąb klauzuli nie zostawia jej reszty w treści", () => {
+    const editor = open(TAIL_CV);
+    const before = editor.getHTML();
+    const from = positionOf(editor, "Ostatni akapit.") + 3;
+    const to = positionOf(editor, "Wyrażam") + 20;
+    editor.chain().setTextSelection({ from, to }).deleteSelection().run();
+    expect(editor.getHTML()).toBe(before);
+  });
+
+  it("zaznaczenie od środka akapitu do końca dokumentu kasuje treść, a klauzula zostaje", () => {
+    const editor = open(TAIL_CV);
+    const from = positionOf(editor, "Ostatni akapit.") + 3;
+    const to = positionOf(editor, "Wyrażam") + CLAUSE.length;
+    editor.chain().setTextSelection({ from, to }).deleteSelection().run();
+    expect(editor.getHTML()).toBe(`${open(BODY).getHTML()}<p>Ost</p>${savedClause(CV)}`);
+  });
+
   it("zostaje ostatnia, gdy ktoś dopisze akapit pod nią", () => {
     const editor = open(CV);
     const end = editor.state.doc.content.size;
@@ -77,6 +123,19 @@ describe("klauzula zgody jest stała", () => {
     expect(clauses(editor)).toBe(1);
     expect(editor.getHTML()).not.toContain("Inna zgoda");
     expect(editor.getHTML()).toContain("Wklejone");
+  });
+
+  it("usuwa jej kopię wklejoną w głąb listy, razem z pustym punktem", () => {
+    const editor = open(CV);
+    const inList = positionOf(editor, "Usługi REST.") + 3;
+    editor.commands.insertContentAt(inList, `<p>Wklejone</p>${RODO}`);
+    expect(clauses(editor)).toBe(1);
+    expect(editor.getHTML()).toContain("Wklejone");
+
+    const lone = open(`${BODY}<ul><li><p>${CLAUSE}</p></li></ul>${RODO}`);
+    lone.commands.insertContentAt(1, "<p>x</p>");
+    expect(clauses(lone)).toBe(1);
+    expect(lone.getHTML()).toBe(`<p>x</p>${open(BODY).getHTML()}${savedClause(CV)}`);
   });
 
   it("rozpoznaje klauzulę bez znacznika po pierwszych słowach szablonu", () => {
@@ -96,9 +155,13 @@ describe("klauzula zgody jest stała", () => {
     const editor = open(CV);
     const before = editor.getHTML();
     editor.chain().selectAll().deleteSelection().run();
+    const emptied = editor.getHTML();
     editor.commands.undo();
     expect(editor.getHTML()).toBe(before);
     expect(clauses(editor)).toBe(1);
+    // Cofnięcie i ponowienie przechodzą PRZEZ klauzulę — filtr ich nie odrzuca.
+    editor.commands.redo();
+    expect(editor.getHTML()).toBe(emptied);
   });
 });
 

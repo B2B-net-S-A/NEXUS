@@ -3,10 +3,13 @@
  *
  * - **Klauzula zgody RODO jest stała** (decyzja Artura 12.10.2026). Po każdej
  *   zmianie dokument ma dokładnie jedną klauzulę — tę z wczytania — i stoi ona
- *   na końcu. Naprawia to transakcja DOŁĄCZANA, a nie filtr odrzucający zmianę:
- *   filtr blokowałby „zaznacz wszystko i usuń”, a odrzucone wczytanie nowszej
- *   wersji zostawiłoby w oknie starą treść do zapisania na cudzej. Serwer
- *   pilnuje tego samego niezależnie (`cv_rodo_clause.keep_rodo_clause`).
+ *   na końcu. Usuniętą w całości, przeniesioną albo wklejoną drugi raz naprawia
+ *   transakcja DOŁĄCZANA: filtr odrzucający każdą zmianę blokowałby „zaznacz
+ *   wszystko i usuń”, a odrzucone wczytanie nowszej wersji zostawiłoby w oknie
+ *   starą treść do zapisania na cudzej. Filtr odrzuca tylko zmianę, po której
+ *   KAWAŁEK klauzuli zostałby poza nią (`clauseLeaks`) — tego naprawa nie
+ *   umie odkręcić. Serwer pilnuje klauzuli niezależnie
+ *   (`cv_rodo_clause.keep_rodo_clause`).
  * - **Znaczniki struktury żyją tylko na poziomie dokumentu.** Akapit `role`,
  *   który trafił do listy, traci znacznik — serwer czytał taki punkt raz jako
  *   stanowisko, raz jako obowiązek.
@@ -37,12 +40,53 @@ function clauseOf(doc: PMNode): PMNode | null {
   return cvOutline(doc).rodo?.node ?? null;
 }
 
+/**
+ * Czy po tej zmianie tekst klauzuli przetrwałby POZA nietkniętą klauzulą.
+ *
+ * Tak kończy się Delete na końcu ostatniego akapitu albo punktu (ProseMirror
+ * dokleja następny blok — klawisz obsługuje model, więc `contenteditable`
+ * go nie zatrzyma), usunięcie zaznaczenia sięgającego w głąb klauzuli i tekst
+ * wpisany w nią. Naprawa dołożyłaby wtedy klauzulę drugi raz, a jej doklejony
+ * tekst poszedłby do klienta jako treść CV. Klauzula usunięta w całości
+ * (zaznacz wszystko i usuń) nie przecieka — nic z niej nie zostaje.
+ */
+function clauseLeaks(tr: Transaction, doc: PMNode, clause: PMNode): boolean {
+  const current = cvOutline(doc).rodo;
+  if (!current || !current.node.eq(clause)) return false;
+  const from = tr.mapping.map(current.from + 1, 1);
+  const to = tr.mapping.map(current.to - 1, -1);
+  if (to <= from) return false;
+  const start = tr.doc.resolve(from);
+  return !(start.depth === 1 && start.parent.eq(clause));
+}
+
+/** Zakres do usunięcia razem z punktem i listą, które po zniknięciu akapitu zostałyby puste. */
+function removableRange(doc: PMNode, position: number, node: PMNode): [number, number] {
+  const at = doc.resolve(position);
+  let from = position;
+  let to = position + node.nodeSize;
+  for (let depth = at.depth; depth > 0 && at.node(depth).childCount === 1; depth -= 1) {
+    from = at.before(depth);
+    to = at.after(depth);
+  }
+  return [from, to];
+}
+
 function repair(state: EditorState, clause: PMNode | null): Transaction | null {
   const tr = state.tr;
+  const drop: Array<[number, number]> = [];
   state.doc.descendants((node, position, parent) => {
-    if (parent && parent !== state.doc && typeof node.attrs.cvSection === "string") {
+    if (!parent || parent === state.doc) return true;
+    // Kopia klauzuli wklejona w głąb listy (np. razem z treścią innego CV)
+    // poszłaby do klienta jako punkt obowiązków.
+    if (clause && node.isTextblock && node.textContent === clause.textContent) {
+      drop.push(removableRange(state.doc, position, node));
+      return false;
+    }
+    if (typeof node.attrs.cvSection === "string") {
       tr.setNodeMarkup(position, undefined, { ...node.attrs, cvSection: null });
     }
+    return true;
   });
   if (clause) {
     const { blocks } = cvOutline(state.doc);
@@ -51,13 +95,15 @@ function repair(state: EditorState, clause: PMNode | null): Transaction | null {
     const kept = last && last.node.eq(clause) ? last : null;
     if (!kept || clauses.length !== 1) {
       // Najpierw klauzula na koniec (dokument nie może zostać pusty), potem
-      // od końca znikają zmienione, przeniesione i wklejone drugi raz.
+      // znikają zmienione, przeniesione i wklejone drugi raz.
       if (!kept) tr.insert(state.doc.content.size, clause);
-      for (const block of [...clauses].reverse()) {
-        if (block !== kept) tr.delete(block.from, block.to);
+      for (const block of clauses) {
+        if (block !== kept) drop.push([block.from, block.to]);
       }
     }
   }
+  // Od końca: wcześniejsze pozycje zostają ważne.
+  for (const [from, to] of drop.sort((first, second) => second[0] - first[0])) tr.delete(from, to);
   return tr.docChanged ? tr : null;
 }
 
@@ -97,6 +143,11 @@ export const CvEditorStructure = Extension.create({
         state: {
           init: (_config, state) => ({ clause: clauseOf(state.doc) }),
           apply: (tr, value) => (tr.getMeta(LOAD_META) ? { clause: clauseOf(tr.doc) } : value),
+        },
+        filterTransaction(tr, state) {
+          if (!tr.docChanged || tr.getMeta(LOAD_META)) return true;
+          const clause = structureKey.getState(state)?.clause;
+          return !clause || !clauseLeaks(tr, state.doc, clause);
         },
         appendTransaction(transactions, _oldState, newState) {
           if (!transactions.some((tr) => tr.docChanged)) return null;
