@@ -89,6 +89,30 @@ Traffita budzi dopiero po pierwszym ruchu karty w NEXUSIE (decyzja Artura
 11.10.2026, `notification_triggers._set_in_nexus`,
 `tests/test_notification_triggers.py`).
 
+## Migracja całego zespołu — 12.10.2026
+
+Decyzja Artura 12.10.2026: nie pilot, tylko cały zespół od razu; od 13.10
+jedynym źródłem prawdy jest NEXUS, a przypisane osoby mają się nie zmieniać.
+Biegi wykonane przez wdrożoną trasę na koncie administratora:
+
+| Bieg (UTC) | Co | Wynik |
+|---|---|---|
+| 07:23–08:01 | rekrutacje bez bliźniaka | 133 otwarte; 20 wysuniętych wierszy, 7 dopisanych, 94 osoby zdjęte w Traffit → „Wycofany”; 49 bliźniaków i worek pominięte |
+| 08:32–08:35 | karty scrapera → propozycje na tych rekrutacjach | 1 416 przeniesionych (79 rekrutacji), 0 błędów, 7 pominiętych (ktoś już nad nimi pracował) |
+
+Błędy pierwszego biegu i poprawki (#2130 i następny PR):
+
+- Osoba odpowiedzialna z Traffita to zwykle Delivery Lead; po otwarciu została
+  policzona jako rekruter (103 ze 133 rekrutacji, „Obłożenie”). Naprawa:
+  `_settle_owner` + `repair_transferred_owners`.
+- Automat wpisał głównego DL-a klienta zamiast DL-a prowadzącego rekrutację
+  (35 rekrutacji jednej osoby). Naprawa: DL z Traffita zastępuje DL-a
+  z automatu.
+- Cztery rekrutacje przełączone ręcznie w trakcie biegu zostały zamknięte.
+  Naprawa: fala wskazana wprost je otwiera.
+- Pewność bliźniaka liczona bez numeru requestu dawała cudzy zespół ośmiu
+  kopiom. Naprawa: `assign_twins`.
+
 ## Niepotwierdzone / poza zakresem
 
 - Remis czasu w imporcie dotyczy wszystkich rekrutacji z Traffita; ta zmiana
