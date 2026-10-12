@@ -54,7 +54,9 @@ osobę od Cpro per rekrutacja (0353) i kolejkę „Czeka na DZ” (0348).
   obok zakresu tekstu zakres całego punktu (`item_span`). Dopisanie i usunięcie
   punktu działają na `<li>`, nie na wewnętrznym akapicie — inaczej „Zastosuj”
   wstawia listę w liście (w Wordzie wcięty punktor), a usunięta technologia
-  zostawia pusty punkt. Testy poprawek pisz także na HTML-u w tym kształcie
+  zostawia pusty punkt. Cały `<li>` wolno usunąć tylko wtedy, gdy niesie jeden
+  blok (`item_is_only_this_block`): punkt z podpunktami albo drugim akapitem
+  to więcej niż sam termin. Testy poprawek pisz także na HTML-u w tym kształcie
   (`EDITED_HTML` w `tests/test_cv_qc.py`).
 - **Bramka:** `/move` i `/bulk-move` na „CV wysłane” albo etap Cpro z kolumn
   przed wysłaniem → 409 `CV_QC_FAILED` (z `stage_id` do otwarcia QC), chyba że QC

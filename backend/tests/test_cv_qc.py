@@ -1077,6 +1077,47 @@ def test_remove_term_drops_the_whole_point_saved_by_the_editor() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "html",
+    [
+        # Punkt z podpunktami albo z drugim akapitem to więcej niż sam termin.
+        "<ul><li>Docker<ul><li>Compose</li></ul></li><li>Kafka</li></ul>",
+        "<ul><li><p>Docker</p><ul><li><p>Compose</p></li></ul></li>"
+        "<li><p>Kafka</p></li></ul>",
+        "<ul><li><p>Docker</p><p>Zastosowanie: CI/CD dla 40 usług</p></li></ul>",
+    ],
+)
+def test_remove_term_never_deletes_what_stands_next_to_the_term(html: str) -> None:
+    out, _ = qc.remove_term(html, "Docker")
+    for kept in ("Compose", "Kafka", "Zastosowanie: CI/CD dla 40 usług"):
+        assert (kept in out) == (kept in html)
+
+
+def test_point_with_subpoints_keeps_its_own_tokens() -> None:
+    doc = qc.EditableCv.parse(
+        "<ul><li>Docker<ul><li>Compose</li></ul></li><li>Kafka</li></ul>"
+    )
+    raw = [
+        "".join(
+            tok["raw"] if tok["k"] == "tag" else tok["text"]
+            for tok in doc.tokens[slice(*_inclusive(doc.item_span(i)))]
+        )
+        for i in range(len(doc.blocks))
+    ]
+    assert [b.text for b in doc.blocks] == ["Docker", "Compose", "Kafka"]
+    assert raw == [
+        "<li>Docker<ul><li>Compose</li></ul></li>",
+        "<li>Compose</li>",
+        "<li>Kafka</li>",
+    ]
+
+
+def _inclusive(span: tuple[int | None, int | None]) -> tuple[int, int]:
+    start, end = span
+    assert start is not None and end is not None
+    return start, end + 1
+
+
 # ── Obejście QC ─────────────────────────────────────────────────────────────
 
 

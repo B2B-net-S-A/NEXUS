@@ -39,11 +39,28 @@ w edytorze. Oba są w ścieżkach, na których stanie panel „Do poprawy” (PR
   dostaje kształt sąsiada. Wynik sprawdzeń QC (blokady i uwagi) się nie zmienia — od rodzaju
   bloku zależą tylko dopisanie i usunięcie punktu, prefiks w prompcie i punktor w oknie.
 
+## Poprawki po przeglądzie kodu
+
+| Ustalenie przeglądu | Poprawka |
+|---|---|
+| Linia była „kontekstem” przez sam znacznik `rodo` / `duties_label`, klasę `rodo`, dowolny nagłówek h2 albo początek zdania jak w klauzuli — dopisany fakt nie trafiał do recenzenta, a wynik brzmiał „verified” | O kontekście decyduje tekst szablonu: etykieta musi być całą linią, klauzula nie może być dłuższa od szablonu, „Rozważany na stanowisko” to etykieta i krótki tytuł, nagłówek tylko o znanym tytule sekcji |
+| Usunięty albo zdegradowany nagłówek po sekcji narracyjnej wyłączał spod kontroli wszystko pod nim | Narracja kończy się na następnym nagłówku, tytule sekcji albo akapicie ze znacznikiem struktury |
+| Zakres punktu z podpunktami wskazywał tokeny podpunktu | Zakres liczony po tożsamości bloku, po otwarciu punktu |
+| Usunięcie technologii kasowało podpunkty albo drugi akapit punktu | Cały punkt znika tylko wtedy, gdy niesie jeden blok; inaczej zostaje nietknięty, jak przed zmianą |
+
+Każde ustalenie ma test, który padał przed poprawką (10 przypadków ukrycia faktu, 4 przypadki
+listy). Wynik `editor_claims()` jest identyczny z wersją sprzed zmiany na 30 000 losowych
+fragmentów HTML (sonda przeglądu, 0 różnic).
+
+Świadomie zostaje: fakt wpisany celowo W MIEJSCE końcówki klauzuli zgody (bez wydłużenia jej)
+albo jako bardzo krótki dopisek po „Rozważany na stanowisko” nie zostanie rozpoznany. Kontrola
+jest doradcza, a po PR 1 klauzuli nie da się edytować w edytorze.
+
 ## Weryfikacja
 
 | Część | Stan | Dowód |
 |---|---|---|
-| Testy odtwarzające błędy | czerwone przed poprawką | commit `test(cv): …` — 6 testów padało lokalnie (zero twierdzeń u recenzenta; lista w liście) |
+| Testy odtwarzające błędy | czerwone przed poprawką | commit `test(cv): …` — 6 testów padało lokalnie (zero twierdzeń u recenzenta; lista w liście); po przeglądzie kolejne 14 |
 | Kontrola AI po edycji | zielone lokalnie | `tests/test_cv_editor_review.py`, `tests/test_cv_final_review_advisory.py`, `tests/test_cv_factual_verification.py`, `tests/test_cv_approval_review.py` |
 | Lista punktów w QC | zielone lokalnie (część bez bazy) | `tests/test_cv_qc.py`, `tests/test_dz_review.py` |
 | Testy z bazą | tylko CI | m.in. `test_ai_fix_is_proposed_from_sources_and_applied_to_the_draft` |

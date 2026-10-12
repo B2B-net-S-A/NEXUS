@@ -6,7 +6,6 @@ from functools import lru_cache
 from lxml import html
 
 from app.services.cv_generator_b2b.factual_verification import verify_final_cv
-from app.services.cv_rodo_clause import is_rodo_text
 
 _BLOCKS = {
     "p",
@@ -52,52 +51,93 @@ class EditorReviewInputError(ValueError):
 # modelu (produkcja 27.09–12.10.2026: 12 z 12 zatwierdzeń).
 EDITOR_REVIEW_VERSION = 2
 
-# Akapity szablonu, nie treść kandydata: klauzula zgody i etykieta obowiązków.
-_TEMPLATE_MARKERS = {"rodo", "duties_label"}
 # Znaczniki sekcji narracyjnej („dlaczego ten kandydat”) na nagłówku h2.
 _NARRATIVE_MARKERS = {"why_points", "summary"}
+# Akapit z takim znacznikiem należy do doświadczenia albo stopki — nie do narracji.
+_STRUCTURE_MARKERS = {"role", "employer", "duties_label", "technologies", "rodo"}
+_HEADINGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
+# „Rozważany na stanowisko: <tytuł>” — sam tytuł, nie zdanie dopisane za nim.
+_CONSIDERED_MAX_CHARS = 80
+_CONSIDERED_MAX_WORDS = 8
+# Początek klauzuli zgody, który musi się zgadzać z szablonem co do znaku.
+_CLAUSE_PROBE_CHARS = 200
 
 
 def _title(text: str) -> str:
     return " ".join(text.split()).casefold().rstrip(":?").strip()
 
 
+def _flat(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
+class _Template:
+    """Teksty, które dokłada szablon CV (PL i EN) — jedyne źródło „kontekstu”."""
+
+    def __init__(self) -> None:
+        # Leniwie, jak `cv_rodo_clause`: `docx_renderer` ciągnie python-docx.
+        from app.services.cv_generator_b2b.docx_renderer import TRANSLATIONS
+
+        sections = ("education", "skills", "certifications", "languages", "experience")
+        self.narrative_titles = frozenset(
+            {"summary", "podsumowanie", "dlaczego ten kandydat", "why this candidate"}
+            | {_title(t["why"]) for t in TRANSLATIONS.values()}
+        )
+        self.section_titles = frozenset(
+            self.narrative_titles
+            | {_title(label) for label in _LABELS}
+            | {_title(t[key]) for t in TRANSLATIONS.values() for key in sections}
+        )
+        self.duties = frozenset(
+            _title(t["responsibilities"]) for t in TRANSLATIONS.values()
+        )
+        self.considered = tuple(
+            _flat(t["considered_for"]) for t in TRANSLATIONS.values()
+        )
+        self.clauses = tuple(_flat(t["rodo"]) for t in TRANSLATIONS.values())
+
+    def is_line(self, text: str) -> bool:
+        """Czy linia jest w całości tekstem szablonu (nie ma jej czym potwierdzić).
+
+        Liczy się TEKST, nie znacznik ani klasa: fakt dopisany do etykiety,
+        za klauzulą zgody albo wpisany w nagłówek zostaje twierdzeniem.
+        """
+        if _title(text) in self.section_titles or _title(text) in self.duties:
+            return True
+        flat = _flat(text)
+        for clause in self.clauses:
+            # Starsza wersja klauzuli może różnić się końcówką, ale nie może
+            # być dłuższa od szablonu — dopisane zdanie robi z niej twierdzenie.
+            if len(flat) <= len(clause) and flat.startswith(
+                clause[:_CLAUSE_PROBE_CHARS]
+            ):
+                return True
+        for label in self.considered:
+            if flat.startswith(label):
+                rest = flat[len(label) :].strip()
+                return (
+                    len(rest) <= _CONSIDERED_MAX_CHARS
+                    and len(rest.split()) <= _CONSIDERED_MAX_WORDS
+                )
+        return False
+
+
 @lru_cache(maxsize=1)
-def _template_texts() -> tuple[frozenset[str], frozenset[str], tuple[str, ...]]:
-    # Leniwie, jak `cv_rodo_clause`: `docx_renderer` ciągnie python-docx.
-    from app.services.cv_generator_b2b.docx_renderer import TRANSLATIONS
-
-    narrative = {
-        "summary",
-        "podsumowanie",
-        "dlaczego ten kandydat",
-        "why this candidate",
-    }
-    narrative.update(_title(t["why"]) for t in TRANSLATIONS.values())
-    duties = {_title(t["responsibilities"]) for t in TRANSLATIONS.values()}
-    considered = tuple(
-        " ".join(t["considered_for"].split()).casefold() for t in TRANSLATIONS.values()
-    )
-    return frozenset(narrative), frozenset(duties), considered
-
-
-def _is_template_line(text: str) -> bool:
-    """Linia, którą dokłada szablon: nie ma jej czym potwierdzić w źródłach."""
-    _, duties, considered = _template_texts()
-    return (
-        is_rodo_text(text)
-        or _title(text) in duties
-        or " ".join(text.split()).casefold().startswith(considered)
-    )
+def _template() -> _Template:
+    return _Template()
 
 
 def _review_lines(content_html: str) -> list[tuple[str, bool]]:
     """Linie dokumentu w kolejności, każda z flagą „to twierdzenie do sprawdzenia”.
 
     Twierdzeniem nie jest: sekcja narracyjna (kontrola v4 jej nie recenzuje —
-    argumentacja składa fakty z innych pól), tytuł sekcji, klauzula zgody,
-    etykieta obowiązków i linia „Rozważany na stanowisko”. Zostają w dokumencie
-    jako kontekst dla recenzenta.
+    argumentacja składa fakty z innych pól) oraz tekst szablonu: tytuł sekcji,
+    klauzula zgody, etykieta obowiązków, „Rozważany na stanowisko”. Zostają
+    w dokumencie jako kontekst dla recenzenta.
+
+    Narracja trwa od swojego nagłówka h2 do następnego nagłówka, tytułu sekcji
+    albo akapitu ze znacznikiem struktury — usunięty nagłówek „Doświadczenie”
+    nie może wyłączyć spod kontroli wszystkiego, co stoi pod nim.
     """
     if len(content_html.encode()) > 2_000_000:
         raise EditorReviewInputError("CV jest zbyt duże do kontroli treści.")
@@ -106,7 +146,7 @@ def _review_lines(content_html: str) -> list[tuple[str, bool]]:
         raise EditorReviewInputError(
             "Kontrola treści wymaga osobnego sprawdzenia obrazów w edytowanym CV."
         )
-    narrative_titles = _template_texts()[0]
+    template = _template()
     rows: list[tuple[str, bool]] = []
     current: list[tuple[str, bool]] = []
     state = {"narrative": False}
@@ -114,54 +154,55 @@ def _review_lines(content_html: str) -> list[tuple[str, bool]]:
     def end_line() -> None:
         text = re.sub(r"\s+", " ", "".join(part for part, _ in current)).strip()
         if text:
-            # Kontekstem jest tylko linia w całości z kontekstu — mieszana
-            # zostaje twierdzeniem, żeby niczego nie ukryć przed kontrolą.
+            # Narracją jest tylko linia w całości z narracji — mieszana zostaje
+            # twierdzeniem, żeby niczego nie ukryć przed kontrolą.
             rows.append((text, all(ctx for part, ctx in current if part.strip())))
+            title = _title(text)
+            if (
+                title in template.section_titles
+                and title not in template.narrative_titles
+            ):
+                # Tytuł kolejnej sekcji, także zdegradowany do akapitu.
+                state["narrative"] = False
         current.clear()
 
-    def emit(text: str, context: bool) -> None:
-        context = context or state["narrative"]
+    def emit(text: str) -> None:
         for piece in text.splitlines(keepends=True):
             body = "".join(piece.splitlines())
-            current.append((body, context))
+            current.append((body, state["narrative"]))
             if body != piece:
                 end_line()
 
-    def walk(node, context: bool) -> None:
+    def walk(node) -> None:
         element = isinstance(node.tag, str)
         tag = node.tag.lower() if element else ""
         if tag in {"script", "style"}:
             return
-        if tag == "h2":
-            marker = node.get("data-cv-section")
-            state["narrative"] = (
-                marker in _NARRATIVE_MARKERS
-                or _title("".join(node.itertext())) in narrative_titles
-            )
-            context = True
-        elif element and (
-            node.get("data-cv-section") in _TEMPLATE_MARKERS
-            or "rodo" in (node.get("class") or "").split()
-        ):
-            context = True
         if tag in _BLOCKS or tag == "br":
             end_line()
+        if tag in _HEADINGS:
+            state["narrative"] = tag == "h2" and (
+                node.get("data-cv-section") in _NARRATIVE_MARKERS
+                or _title("".join(node.itertext())) in template.narrative_titles
+            )
+        elif element and node.get("data-cv-section") in _STRUCTURE_MARKERS:
+            state["narrative"] = False
         if node.text:
-            emit(node.text, context)
+            emit(node.text)
         for child in node:
-            walk(child, context)
+            walk(child)
             if child.tail:
-                emit(child.tail, context)
+                emit(child.tail)
             if child.tag in {"td", "th"}:
-                emit(" | ", context)
+                emit(" | ")
         if tag in _BLOCKS:
             end_line()
 
-    walk(root, False)
+    walk(root)
     end_line()
     lines = [
-        (text, not (context or _is_template_line(text)))
-        for text, context in rows
+        (text, not (narrative or template.is_line(text)))
+        for text, narrative in rows
         if text.casefold().rstrip(":") not in _LABELS
     ]
     if not lines or len(lines) > 1000:

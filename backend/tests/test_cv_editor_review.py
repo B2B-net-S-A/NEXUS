@@ -146,3 +146,55 @@ def test_cv_with_nothing_to_verify_is_a_protocol_failure_not_a_pass(monkeypatch)
         _verify('<h2 data-cv-section="why_points">Podsumowanie</h2><p>Świetny.</p>')
 
     assert error.value.paths == [] and asked == []
+
+
+# Zasada modułu: kontrola niczego nie ukrywa. Linia jest kontekstem tylko
+# wtedy, gdy jej TEKST jest tekstem szablonu — sam znacznik, klasa, nagłówek
+# albo początek zdania nie zwalniają dopisanego faktu z kontroli.
+_FACT = "Kierował zespołem 40 osób w Google przez 12 lat"
+
+
+@pytest.mark.parametrize(
+    "content_html",
+    [
+        f'<h1>Anna</h1><p data-cv-section="rodo">{_FACT}</p>',
+        f'<h1>Anna</h1><div class="rodo"><p>{_FACT}</p></div>',
+        f'<h1>Anna</h1><p data-cv-section="duties_label">Zakres zadań: {_FACT}</p>',
+        f"<h1>Anna</h1><p>Wyrażam zgodę na przetwarzanie moich danych. {_FACT}</p>",
+        f"<h1>Anna</h1><p>{TRANSLATIONS['pl']['rodo']} {_FACT}</p>",
+        f"<h1>Anna</h1><p>Rozważany na stanowisko: Dev. {_FACT}</p>",
+        f"<h1>Anna</h1><h2>{_FACT}</h2>",
+        # Nagłówek po sekcji narracyjnej zdegradowany do akapitu albo usunięty.
+        '<h1>Anna</h1><h2 data-cv-section="why_points">DLACZEGO NASZ KANDYDAT?</h2>'
+        "<ul><li><p>Pasuje.</p></li></ul><p><strong>Edukacja</strong></p>"
+        f"<p>{_FACT}</p>",
+        '<h1>Anna</h1><h2 data-cv-section="why_points">DLACZEGO NASZ KANDYDAT?</h2>'
+        '<ul><li><p>Pasuje.</p></li></ul><p data-cv-section="role"><strong>Dev</strong>'
+        f" 2020 – 2022</p><p>{_FACT}</p>",
+        '<h1>Anna</h1><h2 data-cv-section="why_points">DLACZEGO NASZ KANDYDAT?</h2>'
+        f"<ul><li><p>Pasuje.</p></li></ul><h3>Projekty</h3><p>{_FACT}</p>",
+    ],
+)
+def test_text_added_to_a_template_spot_is_still_reviewed(monkeypatch, content_html):
+    asked = _reviewer(monkeypatch)
+
+    _verify(content_html)
+
+    assert any(_FACT in claim for claim in asked[0]["claims"].values())
+
+
+def test_template_lines_are_context_only_with_their_own_text(monkeypatch):
+    asked = _reviewer(monkeypatch)
+
+    _verify(
+        "<h1>Anna</h1><p>Rozważany na stanowisko: Specjalista ds. bezpieczeństwa IT</p>"
+        "<h2>EDUKACJA</h2><p>2010 – 2015 Politechnika Przykładowa</p>"
+        "<h2>DOŚWIADCZENIE</h2><p>Zakres zadań:</p><ul><li><p>Testy API.</p></li></ul>"
+        f"<p>{TRANSLATIONS['pl']['rodo']}</p>"
+    )
+
+    assert list(asked[0]["claims"].values()) == [
+        "Anna",
+        "2010 – 2015 Politechnika Przykładowa",
+        "Testy API.",
+    ]
