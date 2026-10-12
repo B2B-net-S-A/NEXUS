@@ -60,7 +60,7 @@ from app.models.job_work_assignment import JobWorkAssignment
 from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
 from app.models.user import User, UserRole
 from app.services.job_priority import is_passive, priority_rank
-from app.services.job_team import recruiters_for_jobs, working
+from app.services.job_team import add_manual_member, recruiters_for_jobs, working
 from app.services.request_allocation_plan import (
     Change,
     LiveAssignment,
@@ -806,6 +806,10 @@ async def manual_add(
     jest idempotentne (``ON CONFLICT DO NOTHING`` na żywej parze), więc
     podwójne kliknięcie ani przebieg automatu dodający tę samą parę nie kończą
     się naruszeniem ``ux_job_work_assignments_live`` (goły 500).
+
+    Osoba, która nie została prowadzącym, dostaje też trwały wpis w zespole
+    (``job_team.add_manual_member``): przypisanie jest zwalniane, gdy request
+    wychodzi z „Szukamy”, a osoba ma zostać Rekruterem rekrutacji.
     """
     await void_manual_release(db, job_id=job_id, user_id=user_id)
     live_pair = and_(
@@ -842,6 +846,7 @@ async def manual_add(
     if role == "recruiter":
         await _set_owner_if_empty(db, job_id, user_id)
     await db.flush()
+    await add_manual_member(db, job_id=job_id, user_id=user_id, actor_id=actor_id)
     row = await db.scalar(
         select(JobWorkAssignment)
         .where(live_pair)
@@ -932,6 +937,9 @@ async def accept_proposal(
     if role == "recruiter":
         await _set_owner_if_empty(db, job_id, user_id)
     await db.flush()
+    # Zwykle zaakceptowana osoba zostaje prowadzącym i wpisu nie dostaje;
+    # gdy prowadzący już jest, zostaje przy rekrutacji jak dodana z pulpitu.
+    await add_manual_member(db, job_id=job_id, user_id=user_id, actor_id=actor_id)
     return True
 
 
@@ -1046,6 +1054,11 @@ async def restore_after_champion_removed(
             restored += 1
             if role == "recruiter":
                 await _set_owner_if_empty(db, job_id, user_id)
+            # Osoby zwolnione przez championa przed 12.10.2026 nie miały
+            # trwałego wpisu w zespole — dostają go przy powrocie.
+            await add_manual_member(
+                db, job_id=job_id, user_id=user_id, actor_id=assigned_by
+            )
     await db.flush()
     return restored
 

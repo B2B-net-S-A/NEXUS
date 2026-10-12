@@ -97,8 +97,14 @@ miejsce, nie zbiór funkcji.
   CV); skróty raz w nagłówku, w wierszach same liczby. „Termin” = data + „za
   N dni / po terminie N dni” (`lib/job-deadline.ts`), w dymku data otwarcia.
   Komórki: `v2/jobs/JobListCells.tsx`. Ostatnia kolumna to „Rekruter”
-  (`JobRecruiterCell`: pierwsza osoba i „+N”, „Bez rekrutera”, propozycja
-  automatu w przerywanej ramce, pod spodem „DL: …”).
+  (`JobRecruiterCell`: dwie osoby z nazwiska, jedna pod drugą, i „+N”, „Bez
+  rekrutera”, propozycja automatu w przerywanej ramce, pod spodem „DL: …”).
+  Pierwsze stoją osoby z filtra „Rekruter” i zalogowana osoba
+  (`pinRecruiters` w `lib/job-team.ts`), bo do 12.10.2026 komórka pokazywała
+  tylko pierwszą osobę: po filtrze po drugiej osobie w wierszu stało nazwisko
+  prowadzącego i Head of Recruitment czytał to jako błąd filtra. Nazwisk nie
+  stawiaj w jednej linii — kolumna ma 120 px, a tabela ledwo mieści się przy
+  1280 px.
 - **Wiersz = nazwa stanowiska + jedna linia (decyzja Artura 02.10.2026,
   makieta https://claude.ai/artifact/6o8S6SDErWyrBYqafTFCkY).** Linia 1:
   plakietka priorytetu (`RequestPriorityChip`; P2 bez plakietki) i sama rola —

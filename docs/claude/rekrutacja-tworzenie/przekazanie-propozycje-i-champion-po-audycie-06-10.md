@@ -10,8 +10,11 @@ z #2058 — „Propozycje z bazy” bez limitu 60).
   prowadzącego (`/owner`, `/claim`, okno edycji, przekazanie, `POST /api/jobs`),
   bez dzwonka dla siebie i dla poprzedniego prowadzącego. Dodanie z pulpitu
   (`POST /api/request-board/jobs/{id}/people`) dzwoni przez `_notify_assigned`,
-  ale nie do osoby, która już przy requeście pracuje. Nie dokładaj drugiego
-  `notify_assigned` w ścieżce przekazania.
+  ale nie do osoby, która już przy requeście pracuje. Od 12.10.2026 dzwoni
+  też dopisanie „kolejnej osoby” z panelu „Zespół” i okna edycji
+  (`POST /api/jobs/{id}/collaborators`, przez `_notify_new_owner`) — na tych
+  samych zasadach. Nie dokładaj drugiego `notify_assigned` w ścieżce
+  przekazania.
 - **„Nowe requesty dla Ciebie”** (`board_flow._new_requests`, pole
   `flow.new_requests`): aktywne przypisanie z ostatnich `NEW_REQUEST_DAYS` (3)
   dni, rekrutacja w pracy, a od przypisania nikt nie przesunął karty

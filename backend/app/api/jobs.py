@@ -19,6 +19,7 @@ from pydantic import Field
 from sqlalchemy import (
     and_,
     case,
+    delete as sql_delete,
     func,
     not_,
     nulls_last,
@@ -154,12 +155,14 @@ from app.services.job_priority import (
 from app.services.job_team import (
     WORK_ROLES,
     TeamPerson,
+    add_manual_member,
     jobs_nobody_working_clause,
     jobs_worked_by_clause,
     manual_collaborator_job_ids,
     owner_is_working_clause,
     recruiters_for_jobs,
     remove_recruiter,
+    working,
     working_assignment_job_ids,
 )
 from app.services.request_allocation import (
@@ -4831,7 +4834,9 @@ async def _sync_work_assignments_with_owner(
 
     * Poprzednia osoba traci aktywne przypisanie — inaczej zostawałaby
       „Rekruterem” obok nowej, choć ktoś właśnie ją zastąpił. Powód
-      ``owner_changed`` nie blokuje jej powrotu z automatu.
+      ``owner_changed`` nie blokuje jej powrotu z automatu. Traci też trwały
+      wpis w zespole (``job_team.add_manual_member``), jeśli miała go, zanim
+      została prowadzącym — z tego samego powodu.
     * Wcześniejsze ręczne zdjęcie nowej osoby przestaje obowiązywać: człowiek
       przypisał ją świadomie. Bez tego osoba zdjęta i przypisana ponownie
       w tym samym stanie requestu byłaby prowadzącą, a mimo to „nie pracowała”
@@ -4860,6 +4865,15 @@ async def _sync_work_assignments_with_owner(
                 state="released",
                 released_at=datetime.now(timezone.utc),
                 release_reason="owner_changed",
+            )
+            .execution_options(synchronize_session=False)
+        )
+        await db.execute(
+            sql_delete(JobCollaborator)
+            .where(
+                JobCollaborator.job_id == job.id,
+                JobCollaborator.user_id == previous_owner_id,
+                JobCollaborator.source == JobCollaboratorSource.manual,
             )
             .execution_options(synchronize_session=False)
         )
@@ -5113,6 +5127,11 @@ async def add_collaborator(
     return the existing row instead of raising. Wiersz ``auto_cc`` (cała
     kategoria) dodany ręcznie staje się ``manual`` — od tej chwili osoba jest
     „Rekruterem” rekrutacji (``services/job_team``).
+
+    Dopisana osoba dostaje dzwonek „Nowy request do pracy”, tak jak przy
+    dodaniu z pulpitu (zgłoszenie 12.10.2026: z panelu nie dostawała nic) —
+    bez dzwonka dla siebie, dla osoby, która już przy rekrutacji pracuje,
+    i przy rekrutacji zamkniętej.
     """
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
@@ -5135,47 +5154,21 @@ async def add_collaborator(
             detail="User is already the primary owner of this job",
         )
 
-    existing = await db.scalar(
-        select(JobCollaborator).where(
-            JobCollaborator.job_id == job_id,
-            JobCollaborator.user_id == target.id,
-        )
+    team = await recruiters_for_jobs(db, [job_id])
+    already_working = any(
+        person.user_id == target.id for person in working(team[job_id])
     )
-    if existing is None:
-        db.add(
-            JobCollaborator(
-                job_id=job_id,
-                user_id=target.id,
-                added_by=current_user.id,
-            )
-        )
-        db.add(
-            Activity(
-                entity_type="job",
-                entity_id=job_id,
-                action="collaborator_added",
-                user_id=current_user.id,
-                details={"collaborator_id": target.id},
-            )
-        )
-        await db.commit()
-    elif (
-        existing.source != JobCollaboratorSource.manual or existing.removed_from_auto_cc
+    added = await add_manual_member(
+        db, job_id=job_id, user_id=target.id, actor_id=current_user.id
+    )
+    if (
+        added
+        and not already_working
+        and target.id != current_user.id
+        and job.status != JobStatus.closed
     ):
-        existing.source = JobCollaboratorSource.manual
-        existing.removed_from_auto_cc = False
-        existing.removed_at = None
-        existing.added_by = current_user.id
-        db.add(
-            Activity(
-                entity_type="job",
-                entity_id=job_id,
-                action="collaborator_added",
-                user_id=current_user.id,
-                details={"collaborator_id": target.id, "promoted_from": "auto_cc"},
-            )
-        )
-        await db.commit()
+        await _notify_new_owner(db, job=job, user_id=target.id)
+    await db.commit()
     return UserBrief.model_validate(target)
 
 
@@ -5189,7 +5182,13 @@ async def remove_collaborator(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Usuń współpracownika — ta sama bramka co dodanie (``ensure_job_editor``)."""
+    """Usuń współpracownika — ta sama bramka co dodanie (``ensure_job_editor``).
+
+    Osoba dodana z pulpitu ma oprócz wpisu w zespole aktywne przypisanie —
+    samo skasowanie wpisu zostawiłoby ją Rekruterem. Zdjęcie z obu miejsc to
+    decyzja o obsadzie, więc robi je rola przydzielająca (jak na pulpicie:
+    ``job_team.remove_recruiter``); pozostali redaktorzy dostają 409.
+    """
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -5214,6 +5213,43 @@ async def remove_collaborator(
         link.removed_from_auto_cc = True
         link.removed_at = datetime.now(timezone.utc)
     else:
+        assigned = user_id != job.recruiter_id and (
+            await db.scalar(
+                select(JobWorkAssignment.id)
+                .where(
+                    JobWorkAssignment.job_id == job_id,
+                    JobWorkAssignment.user_id == user_id,
+                    JobWorkAssignment.state == "active",
+                )
+                .limit(1)
+            )
+            is not None
+        )
+        if assigned:
+            if not await user_can_staff_job(db, current_user, job):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Tę osobę może zdjąć admin, Delivery Lead albo "
+                        "Head of Recruitment."
+                    ),
+                )
+            # Kolejność blokad jak w `/owner` i na pulpicie.
+            await allocation_lock(db)
+            locked = (
+                await db.execute(
+                    select(Job)
+                    .where(Job.id == job_id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+            ).scalar_one()
+            if locked.recruiter_id != user_id:
+                await remove_recruiter(
+                    db, job=locked, user_id=user_id, actor_id=current_user.id
+                )
+                await db.commit()
+                return
         await db.delete(link)
     # Feedback loop: when an auto_cc collaborator is removed we log to Activity
     # so Head of Recruitment can spot patterns (e.g. one sourcer removed 10×

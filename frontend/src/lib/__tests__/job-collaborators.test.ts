@@ -53,6 +53,17 @@ describe("job-collaborators", () => {
     expect(collaboratorChanges([1], [1])).toEqual({ add: [], remove: [] });
   });
 
+  it("zastąpiony pierwszy rekruter, który zostaje na liście, jest dopisywany ponownie", () => {
+    // Serwer zdejmuje mu wpis przy zmianie pierwszego rekrutera (7 → 9).
+    expect(collaboratorChanges([7, 3], [7, 3], 9, 7)).toEqual({ add: [7], remove: [] });
+    // Zdjęty także z pola — serwer już go zdjął, nie ma czego wysyłać.
+    expect(collaboratorChanges([7, 3], [3], 9, 7)).toEqual({ add: [], remove: [] });
+    // Pierwszy rekruter bez zmian: jego zaległy wpis schodzi jak dotąd.
+    expect(collaboratorChanges([7, 3], [7, 3], 7, 7)).toEqual({ add: [], remove: [7] });
+    // Rekrutacja nie miała pierwszego rekrutera — zwykła różnica.
+    expect(collaboratorChanges([3], [3, 4], 9, null)).toEqual({ add: [4], remove: [] });
+  });
+
   it("`hasCollaboratorChanges` — czy jest co zapisywać", () => {
     expect(hasCollaboratorChanges({ add: [], remove: [] })).toBe(false);
     expect(hasCollaboratorChanges({ add: [4], remove: [] })).toBe(true);

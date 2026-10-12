@@ -304,12 +304,13 @@ describe("JobsListV2 — prosty wiersz listy", () => {
     expect(screen.getByTitle("Otwarta 5.05.2026")).toBeInTheDocument();
   });
 
-  it("Rekruter: pierwsza osoba i „+N”, reszta w podpowiedzi — jedna postać komórki", async () => {
+  it("Rekruter: dwie osoby i „+N”, reszta w podpowiedzi — jedna postać komórki", async () => {
     mockJobsResponse([
       jobRow({
         recruiters: [
           person(3, "Anna Nowak"),
           person(4, "Jan Kowalski", { via: "collaborator" }),
+          person(5, "Olga Lis", { via: "assignment" }),
           person(6, "Ewa Proponowana", { via: "assignment", proposed: true }),
         ],
       }),
@@ -317,6 +318,7 @@ describe("JobsListV2 — prosty wiersz listy", () => {
     renderJobs();
     const cell = within(await screen.findByTestId("job-recruiter-cell"));
     expect(cell.getByText("Anna N.")).toBeInTheDocument();
+    expect(cell.getByText("Jan K.")).toBeInTheDocument();
     expect(cell.getByText("+1")).toBeInTheDocument();
     expect(cell.getByTitle(/Ewa Proponowana/)).toBeInTheDocument();
     expect(screen.queryByTestId("job-recruiter-names")).not.toBeInTheDocument();

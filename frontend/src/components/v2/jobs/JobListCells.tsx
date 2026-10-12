@@ -23,6 +23,7 @@ import {
 import { RecruiterChips } from "@/components/v2/jobs/RecruiterChips";
 import { shortenPersonName } from "@/lib/job-header-subtitle";
 import {
+  pinRecruiters,
   recruitersOf,
   workingRecruiters,
   type JobRecruiter,
@@ -549,15 +550,25 @@ const shortName = (name: string) => shortenPersonName(name) ?? name;
  * Kolumna „Rekruter”: osoby, które pracują nad rekrutacją, a pod nimi
  * Delivery Lead drobnym drukiem (bez osobnej kolumny).
  *
- * Pierwsza osoba i „+N”, reszta w podpowiedzi — jeden układ dla każdej
- * szerokości (02.10.2026). Propozycja automatu ma przerywaną ramkę i dopisek
- * „propozycja” — to jeszcze nie praca, więc sama propozycja nie gasi filtra
- * „Bez rekrutera”.
+ * Dwie osoby z nazwiska (jedna pod drugą) i „+N”, reszta w podpowiedzi —
+ * jeden układ dla każdej szerokości. Osoby z filtra „Rekruter”
+ * (`highlightIds`) i zalogowana osoba stoją pierwsze: do 12.10.2026 komórka
+ * pokazywała tylko pierwszą osobę, więc po filtrze po drugiej osobie w wierszu
+ * było widać nazwisko tej głównej. Propozycja automatu ma przerywaną ramkę
+ * i dopisek „propozycja” — to jeszcze nie praca, więc sama propozycja nie gasi
+ * filtra „Bez rekrutera”.
  */
-export function JobRecruiterCell({ job }: { job: JobListRowFields }) {
-  const people = recruitersOf(job);
+export function JobRecruiterCell({
+  job,
+  highlightIds = [],
+}: {
+  job: JobListRowFields;
+  /** Osoby z filtra „Rekruter” listy (`worked_by`). */
+  highlightIds?: readonly number[];
+}) {
   const dlName = job.delivery_lead_user?.name?.trim() || null;
   const viewerId = useAuthStore((s) => s.user?.id);
+  const people = pinRecruiters(recruitersOf(job), [...highlightIds, viewerId]);
   const mine = myCandidatesOutsideTeam(job, viewerId);
   return (
     <div
@@ -568,7 +579,7 @@ export function JobRecruiterCell({ job }: { job: JobListRowFields }) {
         <NoRecruiterPill />
       ) : (
         <span className="flex min-w-0">
-          <RecruiterChips compact size="sm" people={people} />
+          <RecruiterChips compact maxNames={2} size="sm" people={people} />
         </span>
       )}
       {dlName && (

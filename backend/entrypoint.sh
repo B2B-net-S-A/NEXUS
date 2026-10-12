@@ -7976,6 +7976,33 @@ SELECT 'job', id, 'archived',
        'manual'
   FROM archived
 """,
+    # 0429 — jednorazowo: osoby z aktywnym ręcznym przypisaniem (dodane
+    # z pulpitu), które nie są prowadzącym, dostają trwały wpis w zespole
+    # rekrutacji. Lustro migracji (pilnuje `test_recruiter_member_backfill.py`).
+    """
+    WITH marker AS (
+        INSERT INTO app_settings (key, value)
+        VALUES ('0429_recruiter_member_backfill', 'true'::jsonb)
+        ON CONFLICT (key) DO NOTHING
+        RETURNING key
+    )
+    INSERT INTO job_collaborators (job_id, user_id, added_by, source)
+    SELECT a.job_id, a.user_id, a.assigned_by, 'manual'::jobcollaboratorsource
+      FROM job_work_assignments a
+      JOIN jobs j ON j.id = a.job_id
+      JOIN users u ON u.id = a.user_id AND u.is_active
+     WHERE a.state = 'active'
+       AND a.source = 'manual'
+       AND j.recruiter_id IS DISTINCT FROM a.user_id
+       AND EXISTS (SELECT 1 FROM marker)
+    ON CONFLICT (job_id, user_id) DO UPDATE
+       SET source = 'manual'::jobcollaboratorsource,
+           removed_from_auto_cc = false,
+           removed_at = NULL,
+           added_by = EXCLUDED.added_by
+     WHERE job_collaborators.source <> 'manual'::jobcollaboratorsource
+        OR job_collaborators.removed_from_auto_cc
+""",
 ]
 
 
