@@ -118,6 +118,17 @@ export function worksForUsNow(marker: EmploymentMarker | null | undefined): bool
   return marker != null && marker.phase !== "starting";
 }
 
+/**
+ * Plakietka dopuszczalności „Kandydat obecnie pracuje u tego klienta” mówi to
+ * samo co znacznik klienta rekrutacji — obok siebie byłyby dublem.
+ */
+export function markerCoversEligibility(
+  marker: EmploymentMarker | null | undefined,
+  reasonCode: string | null | undefined,
+): boolean {
+  return marker?.elsewhere === false && reasonCode === "client_current_employment";
+}
+
 export interface MarkerDetailLine {
   key: string;
   title: string;

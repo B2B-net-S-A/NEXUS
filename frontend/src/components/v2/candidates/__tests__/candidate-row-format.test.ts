@@ -47,23 +47,20 @@ describe("candidate-row-format", () => {
     ).toBeNull();
   });
 
-  it("w procesie: zatrudnienie wygrywa, zamknięte rekrutacje się nie liczą", () => {
-    expect(processCell({ state: "employed_at_client", client_name: "PKO BP" }, [])).toEqual({
-      text: "Pracuje u nas · PKO BP",
-      tone: "employed",
-    });
+  it("w procesie: liczba rekrutacji w toku, zamknięte się nie liczą", () => {
     expect(
-      processCell(null, [
+      processCell([
         { job_id: 1, job_title: "A", stage: "verified", moved_at: "2026-09-01T00:00:00Z" },
         { job_id: 2, job_title: "B", stage: "client_interview", moved_at: "2026-09-10T00:00:00Z" },
         { job_id: 3, job_title: "C", stage: "hired", moved_at: "2026-09-20T00:00:00Z" },
       ]),
-    ).toEqual({ text: "2 procesy · Rozmowa u klienta", tone: "process" });
-    expect(
-      processCell(null, [{ job_id: 1, job_title: "A", stage: "new" }])?.text,
-    ).toBe("1 proces · Nowy");
-    expect(processCell(null, [{ job_id: 1, job_title: "A", stage: "rejected" }])).toBeNull();
-    expect(processCell(undefined, null)).toBeNull();
+    ).toEqual({ text: "2 procesy · Rozmowa u klienta" });
+    expect(processCell([{ job_id: 1, job_title: "A", stage: "new" }])?.text).toBe("1 proces · Nowy");
+    // Sam etap końcowy (także „Zatrudniony”) to brak procesu w toku —
+    // zatrudnienie pokazuje znacznik pod nazwiskiem, nie ta kolumna.
+    expect(processCell([{ job_id: 1, job_title: "A", stage: "rejected" }])).toBeNull();
+    expect(processCell([{ job_id: 1, job_title: "A", stage: "hired" }])).toBeNull();
+    expect(processCell(null)).toBeNull();
   });
 
   it("stawka w zł/h, obca waluta wprost, zero = brak", () => {

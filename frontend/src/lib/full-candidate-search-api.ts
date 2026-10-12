@@ -2,6 +2,7 @@ import { api, type matchingApi, type MatchEligibility } from "@/lib/api";
 import type { TalentRadarCandidate, TalentRadarSearchRequest } from "@/lib/talent-radar-api";
 import { httpStatusFromError } from "@/lib/view-state";
 import type { FullSearchFit } from "@/lib/fit-badges";
+import type { EmploymentMarker } from "@/lib/employment-marker";
 
 /** `failed` is terminal: the run will never finish and holds no ranking. */
 export type SearchState = "queued" | "running" | "complete" | "partial" | "failed";
@@ -45,6 +46,8 @@ export interface CandidateSearchRow {
     requirement_evidence?: string | null;
   }>;
   eligibility: MatchEligibility | null;
+  /** Znacznik „Pracuje u nas” — liczony przy odczycie, nie zamrożony z przeglądem. */
+  employment_marker?: EmploymentMarker | null;
   /** Budżet i biuro z chwili przeglądu — plakietka, nie ukrycie (v9).
    *  `null`, gdy dane kandydata zmieniły się od przeglądu. */
   fit?: FullSearchFit | null;

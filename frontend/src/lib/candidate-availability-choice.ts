@@ -18,7 +18,13 @@ const sameSet = (a: readonly string[], b: readonly string[]) =>
 
 // ── 1. „Czy można go teraz zaproponować?" ─────────────────────────────────
 
-export type AvailabilityChoiceId = "all" | "open" | "at_client" | "not_looking" | "unknown";
+export type AvailabilityChoiceId =
+  | "all"
+  | "open"
+  | "at_client"
+  | "ending_soon"
+  | "not_looking"
+  | "unknown";
 
 export interface AvailabilityChoice {
   id: AvailabilityChoiceId;
@@ -32,14 +38,21 @@ export const AVAILABILITY_CHOICES: readonly AvailabilityChoice[] = [
   {
     id: "open",
     label: "Tak — szuka pracy albo jest otwarty",
-    hint: "nie pracuje teraz u naszego klienta",
+    hint: "nie pracuje teraz u nas",
     patch: { availability: ["actively_looking", "open_to_offers"], employment: ["available"] },
   },
   {
     id: "at_client",
-    label: "Pracuje u naszego klienta",
+    // Ta sama nazwa co znacznik przy nazwisku („Pracuje u nas”).
+    label: "Pracuje u nas",
     hint: "nasz konsultant na projekcie",
     patch: { availability: [], employment: ["at_client"] },
+  },
+  {
+    id: "ending_soon",
+    label: "Kończy u nas w ciągu 60 dni",
+    hint: "zamówienie bez kontynuacji",
+    patch: { availability: [], employment: ["ending_soon"] },
   },
   {
     id: "not_looking",

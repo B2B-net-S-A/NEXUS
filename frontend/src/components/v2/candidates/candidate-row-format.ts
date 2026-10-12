@@ -30,7 +30,6 @@ export interface CandidateRowAvailabilitySource {
   availability_from_notes?: AvailabilityFromNotes | null;
   notice_period?: number | null;
   notice_period_unit?: "days" | "weeks" | "months" | null;
-  employment?: { state?: string | null; client_name?: string | null } | null;
 }
 
 /** Polskie etykiety etapów pipeline'u (klucze API listy). */
@@ -115,9 +114,8 @@ export function activeRecruitments(
 }
 
 export interface ProcessCell {
-  /** Główna linia („2 procesy · CV wysłane", „Pracuje u nas · PKO BP"). */
+  /** Główna linia („2 procesy · CV wysłane"). */
   text: string;
-  tone: "employed" | "process";
 }
 
 function processesWord(n: number): string {
@@ -130,26 +128,19 @@ function processesWord(n: number): string {
 }
 
 /**
- * „W procesie": zatrudnienie u klienta ma pierwszeństwo (to najważniejsza
- * informacja przed wysłaniem profilu), potem liczba aktywnych rekrutacji
- * z etapem najświeższego ruchu. Zamknięte rekrutacje się nie liczą.
+ * „W procesie": liczba aktywnych rekrutacji z etapem najświeższego ruchu.
+ * Zamknięte rekrutacje się nie liczą. Zatrudnienie u nas pokazuje znacznik
+ * pod nazwiskiem (`EmploymentPill`), nie ta kolumna — do 12.10.2026 wypierało
+ * stąd liczbę procesów, a kolumnę da się ukryć.
  */
 export function processCell(
-  employment: CandidateRowAvailabilitySource["employment"],
   recruitments: readonly CandidateRowRecruitment[] | null | undefined,
 ): ProcessCell | null {
-  if (employment?.state === "employed_at_client") {
-    return {
-      text: employment.client_name ? `Pracuje u nas · ${employment.client_name}` : "Pracuje u nas",
-      tone: "employed",
-    };
-  }
   const active = activeRecruitments(recruitments);
   if (active.length === 0) return null;
   const latest = active[0];
   return {
     text: `${active.length} ${processesWord(active.length)} · ${stageLabel(latest.stage)}`,
-    tone: "process",
   };
 }
 

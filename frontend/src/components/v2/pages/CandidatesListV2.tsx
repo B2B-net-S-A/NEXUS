@@ -101,6 +101,8 @@ import { Badge } from "@/components/ui/badge";
 import { CandidateCvCell } from "@/components/v2/candidates/CandidateCvCell";
 import { CandidatePhoneCell } from "@/components/v2/candidates/CandidatePhoneCell";
 import { CandidateProcessCell } from "@/components/v2/candidates/CandidateProcessCell";
+import { EmploymentPill } from "@/components/ds/EmploymentMarker";
+import type { EmploymentMarker } from "@/lib/employment-marker";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -152,6 +154,7 @@ import {
   type AvailabilityFilter,
   type CandidateFilters,
   type CandidateStatusFilter,
+  EMPLOYMENT_FILTER_VALUES,
   type EmploymentFilter,
   type PipelineStageFilter,
   type RecruitmentMatch,
@@ -274,6 +277,8 @@ interface Candidate {
   notice_period?: number | null;
   notice_period_unit?: "days" | "weeks" | "months" | null;
   employment?: EmploymentInfo;
+  /** Znacznik „Pracuje u nas” — pod nazwiskiem i w oknach dodawania. */
+  employment_marker?: EmploymentMarker | null;
   location?: string;
   city?: string | null;
   competence_category?: string | null;
@@ -645,10 +650,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  [skillExpr],
  );
  const [employmentFilter, setEmploymentFilter] = useState<EmploymentFilter[]>(
- parseEnumCsv(
- searchParams.get("employment"),
- ["at_client","available"] as const,
- ),
+ parseEnumCsv(searchParams.get("employment"), EMPLOYMENT_FILTER_VALUES),
  );
  const [availabilityFilter, setAvailabilityFilter] = useState<AvailabilityFilter[]>(
  parseEnumCsv(
@@ -2461,8 +2463,16 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                                   <ContactStatusBadge contactCase={candidate.contact_case} className="shrink-0" />
                                 ) : null}
                               </div>
-                              <p className="truncate text-xs text-muted-foreground" title={location ?? undefined}>
-                                {location ?? "brak lokalizacji"}
+                              {/* Jedna linia (wiersz ma stałą wysokość): znacznik
+                                  zatrudnienia ma pierwszeństwo, lokalizacja
+                                  ustępuje mu miejsca; pełna treść w dymku. */}
+                              <p className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                                {candidate.employment_marker ? (
+                                  <EmploymentPill marker={candidate.employment_marker} appearance="text" />
+                                ) : null}
+                                <span className="min-w-0 shrink-[100] truncate" title={location ?? undefined}>
+                                  {location ?? "brak lokalizacji"}
+                                </span>
                               </p>
                             </div>
                           </div>
@@ -2528,7 +2538,6 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
 <div className="min-w-0" onClick={(e) => e.stopPropagation()}>
                             <CandidateProcessCell
                               candidateName={fullName}
-                              employment={candidate.employment}
                               recruitments={candidate.active_recruitments}
                             />
                           </div>
