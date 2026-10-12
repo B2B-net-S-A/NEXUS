@@ -204,6 +204,7 @@ async def list_reusable_stage_cvs(
         await db.execute(
             select(
                 CandidateStageCV.job_id,
+                CandidateStageCV.candidate_stage_id,
                 CandidateStageCV.branded_status,
                 CandidateStageCV.branded_version,
                 CandidateStageCV.branded_language,
@@ -245,6 +246,7 @@ async def list_reusable_stage_cvs(
             continue
         items[row.job_id] = {
             "job_id": row.job_id,
+            "stage_id": row.candidate_stage_id,
             "job_title": row.title,
             "reference_number": row.reference_number,
             "client_name": row.client_name,

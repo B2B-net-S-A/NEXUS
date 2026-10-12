@@ -981,6 +981,70 @@
    "v3_home": "panel → CV → karta „CV do klienta”"
   },
   {
+   "id": "cv.to-client-use-other",
+   "area": "cv",
+   "opis": "„Użyj innego CV” na karcie „CV do klienta” (12.10.2026): okno z gotowymi CV osoby zamiast generacji — CV etapu z innej rekrutacji, plik Word z profilu, plik z dysku",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "Użyj innego CV",
+   "v3_home": "panel → CV → karta „CV do klienta”"
+  },
+  {
+   "id": "cv.to-client-ready-hint",
+   "area": "cv",
+   "opis": "Pasek „Ta osoba ma już gotowe CV” — podpowiedź najlepszego gotowego CV, gdy CV jeszcze nie ma albo leży nieprzejrzane auto-CV; „Użyj tego CV” podmienia jednym kliknięciem",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "Ta osoba ma już gotowe CV",
+   "v3_home": "panel → CV → karta „CV do klienta”"
+  },
+  {
+   "id": "cv.to-client-copy-consent",
+   "area": "cv",
+   "opis": "Zgoda RODO dla CV bez dokumentu generatora (plik Word, kopia z innej rekrutacji, przepięcie): zrzut dołączany do CV etapu, a nie do dokumentu generatora",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "stageCopy={{ candidateId, stageId: cvStageId }}",
+   "v3_home": "panel → CV → karta „CV do klienta”"
+  },
+  {
+   "id": "cv.to-client-origin-badge",
+   "area": "cv",
+   "opis": "Plakietka pochodzenia CV wybranego zamiast generacji („z rekrutacji …”, „z pliku Word”, „przeniesione z … — sprawdź przed wysyłką”)",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "cv-origin-badge",
+   "v3_home": "panel → CV → karta „CV do klienta”"
+  },
+  {
+   "id": "cv.use-other-upload",
+   "area": "cv",
+   "opis": "Wgranie pliku Word z dysku jako szkicu CV do klienta (bez AI, plik nie trafia do plików kandydata); wysyłka dopiero po „Użyj tego pliku”",
+   "file": "components/v2/recruitment/UseOtherCvDialog.tsx",
+   "marker": "Wgraj plik CV z dysku",
+   "v3_home": "panel → CV → karta „CV do klienta” → „Użyj innego CV”"
+  },
+  {
+   "id": "cv.stage-copy-from-other-job",
+   "area": "cv",
+   "opis": "Grupa „Z innych rekrutacji” na liście gotowych CV: CV etapu tej osoby z innej rekrutacji w wersji po poprawkach rekrutera (screening i karta „CV do klienta”)",
+   "file": "components/v2/screening-form/StageCvPicker.tsx",
+   "marker": "Z innych rekrutacji",
+   "v3_home": "panel → Screening → podgląd „CV firmowe” oraz panel → CV → „Użyj innego CV”"
+  },
+  {
+   "id": "cv.to-client-before-verified",
+   "area": "cv",
+   "opis": "Karta „CV do klienta” także dla osób w „Nowych” i „Screeningu” (bez sekcji wysyłki) — gotowe CV da się wskazać, zanim automat po „Zweryfikowany” wygeneruje nowe",
+   "file": "components/v2/jobs/CvHandoffWorkbench.tsx",
+   "marker": "cv-send-later-note",
+   "v3_home": "panel → CV"
+  },
+  {
+   "id": "similar.reassign-carries-cv",
+   "area": "pipeline",
+   "opis": "Przepięcie przenosi CV z rekrutacji źródłowej jako szkic; komunikat po przepięciu mówi, u ilu osób",
+   "file": "components/v2/jobs/SimilarJobsPanel.tsx",
+   "marker": "CV z tamtej rekrutacji przeniesiono",
+   "v3_home": "okno „Kandydaci do dodania” → Podobne rekrutacje"
+  },
+  {
    "id": "header.recruitment-path",
    "area": "naglowek",
    "opis": "„Ścieżka rekrutacji” (Zlecenie → Kandydaci → CV do klienta → Rozmowy → Umowa, kropka stanu + linia faktu) i pole „Najbliższy krok” (jedno zdanie + przycisk)",

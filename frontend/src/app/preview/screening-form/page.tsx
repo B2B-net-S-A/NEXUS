@@ -64,7 +64,7 @@ import {
   type ScreeningFormState,
   type ScreeningFormVersion,
 } from "@/lib/api/screeningForm";
-import { stageBrandedQueryKey } from "@/lib/cv-to-client";
+import { stageBrandedQueryKey, stageCvSourcesQueryKey } from "@/lib/cv-to-client";
 import { useAuthStore } from "@/store/auth";
 
 const JOB_ID = 201;
@@ -645,6 +645,22 @@ const BRANDED_NONE: CVBrandedState = {
   rendered_from_default: false,
 };
 
+const STAGE_CV_SOURCES = [
+  {
+    job_id: 9000,
+    stage_id: 590,
+    job_title: "Inżynier platformy",
+    reference_number: "REQ-9000",
+    client_name: "Bank Fikcyjny",
+    status: "finalized",
+    version: 2,
+    language: "pl",
+    updated_at: "2026-10-02T09:00:00Z",
+    updated_by_name: "Anna Wzorcowa",
+    consent_carried: false,
+  },
+];
+
 function seededClient(state: HarnessState): QueryClient {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity, refetchOnWindowFocus: false } },
@@ -671,6 +687,8 @@ function seededClient(state: HarnessState): QueryClient {
   const policy = { managed: true, effective_policy: { requires_rodo_consent_block: state === "cvconsent" } };
   qc.setQueryData(["candidate-generated-cvs", CANDIDATE_ID], cv ? GENERATED_CVS : [], SEED_FRESH);
   qc.setQueryData(["central-cv-policy", null, STAGE_ID, false], policy, SEED_FRESH);
+  // 12.10.2026: CV etapu tej osoby z innej rekrutacji (z poprawkami rekrutera).
+  qc.setQueryData(stageCvSourcesQueryKey(STAGE_ID), cv ? STAGE_CV_SOURCES : [], SEED_FRESH);
   qc.setQueryData(["cv-generated", "dl-review", CANDIDATE_ID, JOB_ID], [], SEED_FRESH);
   qc.setQueryData(["champion-profile", JOB_ID], PROFILE, SEED_FRESH);
   qc.setQueryData(plainBriefQueryKey(JOB_ID), BRIEF, SEED_FRESH);

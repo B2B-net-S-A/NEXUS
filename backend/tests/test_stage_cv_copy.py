@@ -22,6 +22,7 @@ from app.core.database import AsyncSessionLocal
 from app.models.activity import Activity
 from app.models.candidate_document import CandidateDocument
 from app.models.candidate_stage_cv import CandidateStageCV
+from app.models.client import Client
 from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
@@ -94,13 +95,19 @@ async def _source_cv(world: dict, *, job_id: int | None = None, **columns) -> di
 
 
 async def _job(*, same_client_as: int | None = None, title: str = "Trzecia") -> int:
+    """Kolejna rekrutacja: u tego samego klienta albo u nowego (fikcyjnego)."""
+    tag = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
-        client_id = None
         if same_client_as is not None:
             client_id = await db.scalar(
                 select(Job.client_id).where(Job.id == same_client_as)
             )
-        job = Job(title=f"{title} {uuid.uuid4().hex[:8]}", client_id=client_id)
+        else:
+            client = Client(name=f"Trzeci klient kopii CV {tag}")
+            db.add(client)
+            await db.flush()
+            client_id = client.id
+        job = Job(title=f"{title} {tag}", client_id=client_id)
         db.add(job)
         await db.commit()
         return job.id
@@ -141,7 +148,7 @@ async def test_sources_list_one_cv_per_other_recruitment_and_write_nothing(
 ):
     world = await _seed(with_cv_row=False)
     await _source_cv(world, branded_status="draft", branded_version=3)
-    await _source_cv(world)
+    approved = await _source_cv(world)
     # Stary szablon „CV firmowe” (z danymi kontaktowymi) nie jest do kopiowania.
     await _source_cv(
         world,
@@ -161,6 +168,7 @@ async def test_sources_list_one_cv_per_other_recruitment_and_write_nothing(
     assert [item["job_id"] for item in items] == [world["other_job_id"]]
     # Zatwierdzone wygrywa ze szkicem tej samej pary.
     assert (items[0]["status"], items[0]["version"]) == ("finalized", 2)
+    assert items[0]["stage_id"] == approved["stage_id"]
     assert items[0]["client_name"].startswith("Inny klient")
     assert items[0]["consent_carried"] is False
     assert await _csv(world["stage_id"]) is None

@@ -76,6 +76,9 @@ class StageCvSourceItem(BaseModel):
     """Gotowe CV tej osoby z innej rekrutacji — jedno na rekrutację."""
 
     job_id: int
+    # Wiersz etapu, na którym leży CV — podgląd idzie zwykłym `GET …/cv/branded`
+    # (z jego bramką zakresu rekrutacji).
+    stage_id: int
     job_title: Optional[str] = None
     reference_number: Optional[str] = None
     client_name: Optional[str] = None

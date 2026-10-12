@@ -157,6 +157,16 @@ describe("/preview/recruitment-v3 zasiewa każdy stały klucz i nie ma sieci", (
     }
     expect(card).toContain('queryKey: ["cv-original", stageId]');
     expect(harness).toContain('setQueryData(["cv-original", item.id]');
+    // „Użyj innego CV” (12.10.2026): karta pyta o gotowe CV osoby przez
+    // `useReadyCvChoice` — klucze z parametrem, których strażnik literałów
+    // nie widzi. Bez zasiewu pasek „Ta osoba ma już gotowe CV” szedłby w sieć.
+    const choice = withoutComments(read("components/v2/recruitment/useReadyCvChoice.tsx"));
+    expect(card).toContain("useReadyCvChoice(");
+    expect(choice).toContain("queryKey: candidateQueryKeys.cvDocuments(candidateId)");
+    expect(harness).toMatch(/setQueryData\(\s*stageCvSourcesQueryKey\(item\.id\)/);
+    expect(harness).toContain("setQueryData(candidateQueryKeys.cvDocuments(item.candidate_id)");
+    expect(harness).toContain('setQueryData(["candidate-generated-cvs", item.candidate_id]');
+    expect(harness).toContain('setQueryData(["central-cv-policy", null, item.id, false]');
   });
 
   it("odcina sieć na czas życia harnessu (warsztaty panelu pytają o klucze nie do zasiania)", () => {
@@ -707,6 +717,9 @@ describe("/preview/screening-form (0424) zasiewa formularz tymi samymi kluczami 
     expect(picker).toContain('queryKey: ["central-cv-policy", null, stageId, false]');
     expect(harness).toContain('setQueryData(["candidate-generated-cvs", CANDIDATE_ID]');
     expect(harness).toContain('setQueryData(["central-cv-policy", null, STAGE_ID, false]');
+    // 12.10.2026: CV etapu z innych rekrutacji — klucz z funkcji, nie literał.
+    expect(picker).toContain("queryKey: stageCvSourcesQueryKey(stageId)");
+    expect(harness).toContain("setQueryData(stageCvSourcesQueryKey(STAGE_ID)");
     const stagePreview = withoutComments(read("components/v2/person/StageCvPreview.tsx"));
     expect(stagePreview).toContain('queryKey: ["cv-generated", "dl-review", candidateId, jobId]');
     expect(harness).toContain('setQueryData(["cv-generated", "dl-review", CANDIDATE_ID, JOB_ID]');
