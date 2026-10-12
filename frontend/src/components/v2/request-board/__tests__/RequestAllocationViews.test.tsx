@@ -264,6 +264,20 @@ describe("RequestBoardView", () => {
     expect(screen.getByText("Pokazuję 4 z 4")).toBeInTheDocument()
   })
 
+  it("„Wyczyść filtry” widać zawsze — bez filtrów jest wyszarzone", async () => {
+    const user = userEvent.setup()
+    render(<Board />)
+    const clear = screen.getByRole("button", { name: "Wyczyść filtry" })
+    expect(clear).toBeDisabled()
+    await user.type(screen.getByLabelText("Stanowisko"), "java")
+    expect(screen.getByText("Pokazuję 1 z 4")).toBeInTheDocument()
+    expect(clear).toBeEnabled()
+    await user.click(clear)
+    expect(screen.getByLabelText("Stanowisko")).toHaveValue("")
+    expect(screen.getByText("Pokazuję 4 z 4")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Wyczyść filtry" })).toBeDisabled()
+  })
+
   it("filtruje po Delivery Leadzie i priorytecie", async () => {
     const user = userEvent.setup()
     render(<Board />)
