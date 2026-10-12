@@ -49,6 +49,13 @@ osobę od Cpro per rekrutacja (0353) i kolejkę „Czeka na DZ” (0348).
   i ich źródłem, „Do poprawy przed wysłaniem” (karta na wymaganie z przyciskiem
   naprawy), „Warto poprawić — nie blokuje”, „W porządku”, w stopce „Przesuń
   dalej” (ten sam ruch co strzałka na karcie, `handleQcMoveNext`).
+  **Punkt listy po zapisie w edytorze to `<li><p>…</p></li>`** (12.10.2026):
+  `dz_review._BlockParser` czyta go jako jeden blok `li`, a `EditableCv` zna
+  obok zakresu tekstu zakres całego punktu (`item_span`). Dopisanie i usunięcie
+  punktu działają na `<li>`, nie na wewnętrznym akapicie — inaczej „Zastosuj”
+  wstawia listę w liście (w Wordzie wcięty punktor), a usunięta technologia
+  zostawia pusty punkt. Testy poprawek pisz także na HTML-u w tym kształcie
+  (`EDITED_HTML` w `tests/test_cv_qc.py`).
 - **Bramka:** `/move` i `/bulk-move` na „CV wysłane” albo etap Cpro z kolumn
   przed wysłaniem → 409 `CV_QC_FAILED` (z `stage_id` do otwarcia QC), chyba że QC
   przechodzi albo Delivery Lead/admin przepuścił parę z powodem
