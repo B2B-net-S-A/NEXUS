@@ -47,6 +47,52 @@ class CVBrandedSelectDocument(BaseModel):
     document_id: int = Field(ge=1)
 
 
+class CVBrandedSelectStageCv(BaseModel):
+    expected_revision: int = Field(ge=0)
+    source_job_id: int = Field(ge=1)
+
+
+class CVBrandedConsentAttach(BaseModel):
+    consent_screenshot_token: str = Field(min_length=1, max_length=4096)
+
+
+class CVBrandedOrigin(BaseModel):
+    """Skąd przyszła treść CV wybranego zamiast generacji (12.10.2026).
+
+    ``selected_at`` to chwila wyboru: karta proponuje „Użyj nowej wersji”
+    tylko dla generacji młodszych od niej — data edycji przesuwa się z każdym
+    zapisem i chowałaby generację, o którą rekruter sam poprosił.
+    """
+
+    kind: Literal[
+        "stage_copy", "reassign", "upload", "profile_file", "generated_other_job"
+    ]
+    label: Optional[str] = None
+    job_id: Optional[int] = None
+    selected_at: Optional[datetime] = None
+
+
+class StageCvSourceItem(BaseModel):
+    """Gotowe CV tej osoby z innej rekrutacji — jedno na rekrutację."""
+
+    job_id: int
+    job_title: Optional[str] = None
+    reference_number: Optional[str] = None
+    client_name: Optional[str] = None
+    status: Literal["draft", "finalized"]
+    version: int = 1
+    language: Optional[str] = None
+    blind: bool = False
+    updated_at: Optional[datetime] = None
+    updated_by_name: Optional[str] = None
+    # Ten sam klient i źródło ma zrzut zgody — pojedzie z kopią.
+    consent_carried: bool = False
+
+
+class StageCvSourcesResponse(BaseModel):
+    items: list[StageCvSourceItem]
+
+
 class CVBrandedResponse(BaseModel):
     presentation_review: dict | None = None
     docx_available: bool = False
@@ -56,6 +102,15 @@ class CVBrandedResponse(BaseModel):
     # Skąd treść: generator (także kopia z innej rekrutacji), plik Word
     # z profilu kandydata albo stary szablon „CV firmowe”.
     source: Optional[Literal["generator", "document", "legacy"]] = None
+    # Kopia wybrana zamiast generacji: CV etapu z innej rekrutacji, plik
+    # z profilu albo z dysku, przepięcie. ``None`` = CV z generatora tej pary.
+    origin: Optional[CVBrandedOrigin] = None
+    # Wymóg zrzutu zgody RODO zamrożony na CV etapu i to, czy CV ma własny
+    # obraz. Kopia bez dokumentu generatora nie ma innego miejsca, z którego
+    # karta mogłaby to odczytać. ``consent_missing`` liczy wyłącznik blokady.
+    consent_required: bool = False
+    consent_attached: bool = False
+    consent_missing: bool = False
     edit_revision: int = 0
     version: int = 1
     candidate_stage_id: int

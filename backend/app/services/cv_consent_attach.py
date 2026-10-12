@@ -72,6 +72,33 @@ def binding_context(primary: CvGeneratedDocument) -> dict:
     }
 
 
+async def stage_binding_context(
+    db, *, candidate_id: int, stage_id: int, job, project_ref: str = ""
+) -> dict:
+    """Kontekst pokwitowania zgody wiązanej z etapem rekrutacji.
+
+    Jedna implementacja dla wystawienia pokwitowania (`/consent-screenshot`
+    z kandydatem i etapem) i dla dołączenia zgody do kopii CV etapu
+    (`attach_to_stage_copy`). Weryfikacja porównuje słowniki co do znaku,
+    więc dwa miejsca liczące numer projektu i etap by się rozjechały.
+    """
+    from app.api import cv_generator_b2b as generator_api
+    from app.services.cv_generator_b2b import consent_binding
+
+    context = consent_binding.subject(
+        candidate_id=candidate_id, stage_id=stage_id, client_id=job.client_id
+    )
+    if not generator_api.central_policies.enabled():
+        return context
+    # Ten sam numer projektu, który wyprowadzi generacja (PKO BP: numer ZOB
+    # z rekrutacji, gdy pole jest puste) — inaczej pokwitowanie wystawione na
+    # pusty numer nie pasowałoby do generacji.
+    project_ref = generator_api.derived_project_ref(
+        await generator_api.resolve_client_rule(db, job.client_id), job, project_ref
+    )
+    return generator_api._central_consent_context(context, project_ref, stage_id)
+
+
 def _verify_image(image: bytes) -> None:
     from PIL import Image
 
@@ -309,9 +336,6 @@ async def _refresh_generated_drafts(
 
 async def _refresh_stage_drafts(db, row, *, image: bytes, user_id: int) -> list[int]:
     """Kopie w CV etapów + ponowne zatwierdzenie niezmienionej treści."""
-    from app.services.candidate_stage_cv_service import finalize_stage_cv
-    from app.services.cv_document_versions import freeze_approved_version
-
     stage_cvs = (
         await db.scalars(
             select(CandidateStageCV)
@@ -322,31 +346,140 @@ async def _refresh_stage_drafts(db, row, *, image: bytes, user_id: int) -> list[
     ).all()
     reapproved: list[int] = []
     for csv in stage_cvs:
-        csv.branded_consent_content = image
-        csv.branded_render_metadata = _with_consent_digest(
-            csv.branded_render_metadata, image
+        version_id = await _attach_image_to_stage_cv(
+            db, csv, image=image, user_id=user_id
         )
-        if csv.branded_status != "finalized":
-            continue
-        approved = await freeze_approved_version(db, csv)
-        if (
-            _sha((csv.branded_draft_html or "").encode()) != approved.content_sha256
-            or not (csv.branded_draft_html or "").strip()
-        ):
-            continue
-        previous_review = _reapproval_review(approved.render_metadata)
-        csv.branded_version += 1
-        csv.branded_status = "draft"
-        version, _filename, _size = await finalize_stage_cv(
-            db,
-            csv,
-            csv.branded_draft_html,
-            user_id,
-            review_override=previous_review,
-            activity_details={"reason": "consent_attached"},
-        )
-        reapproved.append(version.id)
+        if version_id is not None:
+            reapproved.append(version_id)
     return reapproved
 
 
-__all__ = ["attach", "binding_context", "render_with_consent"]
+async def _attach_image_to_stage_cv(
+    db, csv: CandidateStageCV, *, image: bytes, user_id: int
+) -> Optional[int]:
+    """Nowy obraz zgody w CV etapu + ponowne zatwierdzenie niezmienionej treści.
+
+    Jedno ciało dla kopii podpiętej do dokumentu generatora
+    (`_refresh_stage_drafts`) i dla kopii odłączonej (`attach_to_stage_copy`).
+    Zwraca id nowej wersji albo ``None``: szkic w edycji i treść różna od
+    zatwierdzonej czekają na człowieka (z kontrolą treści).
+    """
+    from app.services.candidate_stage_cv_service import finalize_stage_cv
+    from app.services.cv_document_versions import freeze_approved_version
+
+    csv.branded_consent_content = image
+    csv.branded_render_metadata = _with_consent_digest(
+        csv.branded_render_metadata, image
+    )
+    if csv.branded_status != "finalized":
+        return None
+    approved = await freeze_approved_version(db, csv)
+    if (
+        _sha((csv.branded_draft_html or "").encode()) != approved.content_sha256
+        or not (csv.branded_draft_html or "").strip()
+    ):
+        return None
+    previous_review = _reapproval_review(approved.render_metadata)
+    csv.branded_version += 1
+    csv.branded_status = "draft"
+    version, _filename, _size = await finalize_stage_cv(
+        db,
+        csv,
+        csv.branded_draft_html,
+        user_id,
+        review_override=previous_review,
+        activity_details={"reason": "consent_attached"},
+    )
+    return version.id
+
+
+async def attach_to_stage_copy(
+    db, csv: CandidateStageCV, *, token: str, user_id: int
+) -> Optional[int]:
+    """Dołącz / wymień zgodę w CV etapu BEZ dokumentu generatora. Bez commitu.
+
+    12.10.2026: CV wybrane zamiast generacji (plik Word, kopia z innej
+    rekrutacji, przepięcie) u klienta z wymogiem zgody dało się dotąd tylko
+    odrzucić (422 przy wyborze). Teraz kopia powstaje z zamrożonym wymogiem,
+    pobranie blokuje `cv_consent_gate`, a zgodę dołącza się tutaj —
+    pokwitowaniem tej samej trasy co przy generacji (kandydat + etap).
+    Wołający trzyma blokadę wiersza i sprawdził dostęp do rekrutacji.
+    Zwraca id ponownie zatwierdzonej wersji albo ``None``.
+    """
+    from app.models.job import Job
+    from app.services import object_storage
+    from app.services.cv_consent_gate import copy_consent_required
+    from app.services.cv_generator_b2b import consent_binding
+
+    if csv.generated_document_id is not None:
+        raise HTTPException(
+            409,
+            "To CV pochodzi z generatora — zgodę dołącz przy wygenerowanym CV.",
+        )
+    if csv.branded_status not in ("draft", "finalized"):
+        raise HTTPException(
+            409, "To CV nie jest gotowe — nie ma do czego dołączyć zgody."
+        )
+    if not copy_consent_required(None, csv):
+        raise HTTPException(
+            409, "To CV nie wymaga zrzutu zgody — polityka klienta go nie przewiduje."
+        )
+    context = await stage_binding_context(
+        db,
+        candidate_id=csv.candidate_id,
+        stage_id=csv.candidate_stage_id,
+        job=await db.get(Job, csv.job_id),
+    )
+    try:
+        receipt = consent_binding.verify(token, user_id, context)
+    except ValueError:
+        raise HTTPException(
+            422,
+            "Zrzut zgody nie jest przypisany do tego CV albo wygasł. Wgraj go "
+            "ponownie.",
+        ) from None
+    try:
+        image = await run_in_threadpool(
+            object_storage.download_cv, receipt["storage_key"]
+        )
+    except Exception as exc:  # noqa: BLE001 — magazyn chwilowo niedostępny
+        raise HTTPException(
+            503,
+            "Nie udało się pobrać zrzutu zgody z magazynu. Spróbuj ponownie za chwilę.",
+        ) from exc
+    if not image:
+        raise HTTPException(422, "Zrzut zgody jest pusty — wgraj go ponownie.")
+    _verify_image(image)
+
+    replaced = bool(csv.branded_consent_content)
+    # Kto, kiedy i dla jakiego kontekstu — wiersz generatora trzyma to
+    # w `render_payload`, kopia nie ma innego miejsca niż własne metadane.
+    csv.branded_render_metadata = {
+        **(csv.branded_render_metadata or {}),
+        "consent_binding": receipt["binding"],
+    }
+    version_id = await _attach_image_to_stage_cv(db, csv, image=image, user_id=user_id)
+    db.add(
+        Activity(
+            entity_type="candidate_stage_cv",
+            entity_id=csv.id,
+            action="cv_consent_replaced" if replaced else "cv_consent_attached",
+            user_id=user_id,
+            details={
+                "candidate_stage_id": csv.candidate_stage_id,
+                "consent_sha256": _sha(image),
+                "reapproved_version_id": version_id,
+            },
+        )
+    )
+    await db.flush()
+    return version_id
+
+
+__all__ = [
+    "attach",
+    "attach_to_stage_copy",
+    "binding_context",
+    "render_with_consent",
+    "stage_binding_context",
+]

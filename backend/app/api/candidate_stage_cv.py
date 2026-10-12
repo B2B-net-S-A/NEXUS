@@ -19,6 +19,16 @@ Wybór gotowego CV z profilu kandydata (09.10.2026):
   POST   /api/candidates/stages/{stage_id}/cv/branded/select-document
          (plik Word z profilu, wczytany do edytora bez AI)
 
+„Użyj innego CV” w karcie „CV do klienta” (12.10.2026):
+  GET    /api/candidates/stages/{stage_id}/cv/branded/sources
+         (gotowe CV etapu tej osoby z innych rekrutacji)
+  POST   /api/candidates/stages/{stage_id}/cv/branded/select-stage-cv
+         (kopia CV etapu z innej rekrutacji — z poprawkami rekrutera)
+  POST   /api/candidates/stages/{stage_id}/cv/branded/upload
+         (plik Word z dysku; nie trafia do plików kandydata)
+  POST   /api/candidates/stages/{stage_id}/cv/branded/consent
+         (zrzut zgody RODO dla CV bez dokumentu generatora)
+
 Faza 4 (PR2) — public share:
   POST   /api/candidates/stages/{stage_id}/cv/share-token
   DELETE /api/candidates/stages/cv/share-token/{token}
@@ -37,7 +47,16 @@ from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+)
 from fastapi.responses import HTMLResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from app.core.printable_html import printable_document
@@ -73,6 +92,7 @@ from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User
 from app.schemas.candidate_stage_cv import (
+    CVBrandedConsentAttach,
     CVBrandedFinalize,
     CVBrandedReview,
     CVBrandedNewDraft,
@@ -81,12 +101,14 @@ from app.schemas.candidate_stage_cv import (
     CVBrandedUpdate,
     CVBrandedSelectDocument,
     CVBrandedSelectGenerated,
+    CVBrandedSelectStageCv,
     CVOriginalSnapshotResponse,
     CVShareTokenJobListItem,
     CVShareTokensForRecruitment,
     CVShareTokenListItem,
     CVShareTokenResponse,
     RecruitmentBrandedCvSummary,
+    StageCvSourcesResponse,
 )
 
 # Testy podmieniają `api.storage_service.save_branded_cv` — moduł zostaje w
@@ -101,6 +123,14 @@ from app.services.candidate_stage_cv_service import (
 )
 from app.services import cv_consent_gate as consent_gate
 from app.services.hiring_manager_verdicts import veto_for_candidate_stage
+from app.services.stage_cv_copy import (
+    copy_origin,
+    copy_stage_cv,
+    detached_metadata,
+    job_label,
+    list_reusable_stage_cvs,
+    reusable_pair_cv,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -408,6 +438,10 @@ def _build_branded_response(
 ) -> CVBrandedResponse:
     from app.services.cv_editor_rules import editor_rule_feedback
 
+    metadata = csv.branded_render_metadata or {}
+    origin = metadata.get("origin")
+    consent_required = bool(metadata.get(consent_gate.FROZEN_REQUIREMENT_KEY))
+    consent_attached = bool(csv.branded_consent_content)
     return CVBrandedResponse(
         presentation_review=editor_rule_feedback(
             csv.branded_draft_html, csv.branded_render_metadata
@@ -416,6 +450,12 @@ def _build_branded_response(
         generated_document_id=csv.generated_document_id,
         from_generator=bool(csv.branded_from_generator),
         source=_draft_source(csv),
+        origin=origin if isinstance(origin, dict) and origin.get("kind") else None,
+        consent_required=consent_required,
+        consent_attached=consent_attached,
+        consent_missing=consent_gate.gate_enabled()
+        and consent_required
+        and not consent_attached,
         docx_available=csv.branded_status == "finalized"
         and bool((csv.branded_render_metadata or {}).get("renderer_version")),
         docx_filename=csv.branded_docx_filename
@@ -495,12 +535,33 @@ async def get_branded_cv(
     """Brandowane CV etapu. W stanie ``none`` zwraca pusty stan (bez renderu,
     bez zapisu — CV-01 i wycofanie starego szablonu, generator v3). Szkic
     powstaje z generatora: podpięcie po generacji albo ``select-generated``."""
-    csv = await _load_csv_for_stage(db, stage_id, current_user, read_access=True)
+    # Nie przez ``_load_csv_for_stage``: brak wiersza ``CandidateStageCV`` jest
+    # STANEM („nie ma jeszcze CV”), nie awarią — jak w ``get_original_cv``.
+    # Etapy z importu Traffita go nie mają (09.10.2026: 5 837 z 5 958 wierszy
+    # „Nowi”/„Screening”), a karta „CV do klienta” jest od 12.10.2026 widoczna
+    # także przed „Zweryfikowany” i 404 rysowało w niej błąd wczytania.
+    row = (
+        await db.execute(
+            select(CandidateStage.candidate_id, CandidateStage.job_id, CandidateStageCV)
+            .select_from(CandidateStage)
+            .outerjoin(
+                CandidateStageCV,
+                CandidateStageCV.candidate_stage_id == CandidateStage.id,
+            )
+            .where(CandidateStage.id == stage_id)
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Stage nie znaleziony")
+    candidate_id, job_id, csv = row
+    await ensure_job_read_access(db, current_user, job_id)
 
-    if csv.branded_status == "none":
+    if csv is None or csv.branded_status == "none":
         return with_pair_source(
-            _build_empty_branded_response(csv),
-            await _branded_cv_summary_for_pair(db, csv.candidate_id, csv.job_id),
+            _build_empty_branded_response(csv)
+            if csv is not None
+            else CVBrandedResponse(candidate_stage_id=stage_id, status="none"),
+            await _branded_cv_summary_for_pair(db, candidate_id, job_id),
         )
 
     updated_by_name: Optional[str] = None
@@ -683,6 +744,11 @@ async def _apply_generated_from_other_job(
     html = sanitize_cv_html(render_interactive_html(public, [], document_only=True))
     template = generated.template_content or await run_in_threadpool(default_template)
     origin = capture_editor_origin(html, generated.render_payload)
+    source_job = None
+    if generated.job_id is not None:
+        from app.models.job import Job
+
+        source_job = await db.get(Job, generated.job_id)
     await _write_stage_draft(
         db,
         csv,
@@ -690,16 +756,20 @@ async def _apply_generated_from_other_job(
         template=template,
         consent=None,
         filename=settings.filename,
-        metadata={
-            "source": "generated_other_job",
-            "source_generated_id": generated.id,
-            "source_job_id": generated.job_id,
-            "client_id": settings.client_id,
-            "template_sha256": hashlib.sha256(template).hexdigest(),
-            "consent_sha256": None,
-            "blind_identity_guard": origin["blind_identity_guard"],
-            "blind_identity_terms": origin["blind_identity_terms"],
-        },
+        metadata=detached_metadata(
+            settings,
+            source="generated_other_job",
+            template=template,
+            origin=copy_origin(
+                "generated_other_job",
+                label=job_label(source_job),
+                job_id=generated.job_id,
+            ),
+            source_generated_id=generated.id,
+            source_job_id=generated.job_id,
+            blind_identity_guard=origin["blind_identity_guard"],
+            blind_identity_terms=origin["blind_identity_terms"],
+        ),
         blind=bool(public["blind"]),
         language=public["language"],
         generated_document_id=None,
@@ -768,6 +838,68 @@ async def select_generated_cv(
     return _build_branded_response(csv)
 
 
+async def _import_docx_as_draft(
+    db: AsyncSession,
+    csv: CandidateStageCV,
+    content: bytes,
+    *,
+    expected_revision: int,
+    user_id: int,
+    origin: dict,
+    activity_action: str,
+    activity_details: dict,
+) -> CVBrandedResponse:
+    """Plik Word → SZKIC CV firmowego etapu, bez AI (`cv_docx_import`).
+
+    Jedna ścieżka dla pliku z profilu kandydata i pliku wgranego z dysku.
+    Blokadę wiersza bierzemy dopiero PO konwersji — konwersja bywa wolna,
+    a zablokowany wiersz zatrzymałby edytor i automat.
+    """
+    from app.services.candidate_stage_cv_service import detached_copy_settings
+    from app.services.cv_document_assets import default_template
+    from app.services.cv_docx_import import CvImportError, docx_to_editor_html
+
+    settings = await detached_copy_settings(db, csv)
+    try:
+        imported = await run_in_threadpool(docx_to_editor_html, content)
+    except CvImportError as error:
+        raise HTTPException(422, str(error)) from error
+    csv = await db.scalar(
+        select(CandidateStageCV)
+        .where(CandidateStageCV.id == csv.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    check_revision(csv, expected_revision)
+    template = await run_in_threadpool(default_template)
+    await _write_stage_draft(
+        db,
+        csv,
+        html=imported.html,
+        template=template,
+        consent=None,
+        filename=settings.filename,
+        metadata=detached_metadata(
+            settings,
+            source="document",
+            template=template,
+            origin=origin,
+            import_stats=imported.stats,
+            **activity_details,
+        ),
+        blind=False,
+        language=imported.language,
+        generated_document_id=None,
+        from_generator=False,
+        user_id=user_id,
+        activity_action=activity_action,
+        activity_details=activity_details,
+    )
+    await db.commit()
+    await db.refresh(csv)
+    return _build_branded_response(csv)
+
+
 @router.post(
     "/candidates/stages/{stage_id}/cv/branded/select-document",
     response_model=CVBrandedResponse,
@@ -788,16 +920,8 @@ async def select_document_cv(
         CandidateDocument,
         CandidateDocumentKind,
     )
-    from app.services.candidate_stage_cv_service import detached_copy_settings
-    from app.services.cv_document_assets import default_template
-    from app.services.cv_docx_import import (
-        MAX_BYTES,
-        CvImportError,
-        docx_to_editor_html,
-    )
+    from app.services.cv_docx_import import MAX_BYTES
 
-    # Blokadę wiersza bierzemy dopiero PO pobraniu i konwersji pliku — magazyn
-    # bywa wolny, a zablokowany wiersz zatrzymałby edytor i automat.
     csv = await _load_csv_for_stage(db, stage_id, current_user, create_missing=True)
     check_revision(csv, payload.expected_revision)
     document = await db.get(CandidateDocument, payload.document_id)
@@ -809,12 +933,12 @@ async def select_document_cv(
         in (CandidateDocumentKind.cover_letter, CandidateDocumentKind.certificate)
     ):
         raise HTTPException(404, "Nie znaleziono pliku CV tego kandydata.")
-    settings = await detached_copy_settings(db, csv)
     if (document.size_bytes or 0) > MAX_BYTES:
         raise HTTPException(
             422, "Plik jest za duży, żeby wczytać go do edytora (limit 10 MB)."
         )
     document_id = document.id
+    document_name = document.filename
     try:
         if document.storage_key:
             from app.services.object_storage import download_cv
@@ -832,41 +956,168 @@ async def select_document_cv(
         raise HTTPException(
             503, "Nie udało się pobrać pliku z magazynu. Spróbuj ponownie za chwilę."
         ) from error
-    try:
-        imported = await run_in_threadpool(docx_to_editor_html, content)
-    except CvImportError as error:
-        raise HTTPException(422, str(error)) from error
-    csv = await db.scalar(
-        select(CandidateStageCV)
-        .where(CandidateStageCV.id == csv.id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    check_revision(csv, payload.expected_revision)
-    template = await run_in_threadpool(default_template)
-    await _write_stage_draft(
+    return await _import_docx_as_draft(
         db,
         csv,
-        html=imported.html,
-        template=template,
-        consent=None,
-        filename=settings.filename,
-        metadata={
-            "source": "document",
+        content,
+        expected_revision=payload.expected_revision,
+        user_id=current_user.id,
+        origin=copy_origin("profile_file", label=document_name),
+        activity_action="branded_cv_imported_from_document",
+        activity_details={
             "source_document_id": document_id,
             "source_document_sha256": hashlib.sha256(content).hexdigest(),
-            "client_id": settings.client_id,
-            "template_sha256": hashlib.sha256(template).hexdigest(),
-            "consent_sha256": None,
-            "import_stats": imported.stats,
         },
-        blind=False,
-        language=imported.language,
-        generated_document_id=None,
-        from_generator=False,
+    )
+
+
+@router.post(
+    "/candidates/stages/{stage_id}/cv/branded/upload",
+    response_model=CVBrandedResponse,
+)
+async def upload_stage_cv(
+    stage_id: int,
+    current_user: CandidateWriteAccess,
+    file: UploadFile = File(..., description="Gotowe CV dla klienta (.docx)"),
+    expected_revision: int = Form(..., ge=0),
+    db: AsyncSession = Depends(get_db),
+) -> CVBrandedResponse:
+    """Wczytaj plik Word z DYSKU jako SZKIC CV firmowego etapu (12.10.2026).
+
+    Rekruter ma gotowe CV poza NEXUS-em i nie chce generować nowego. Plik
+    NIE trafia do plików kandydata: w teczce mógłby stać się „aktualnym CV”
+    osoby i źródłem dla generatora oraz auto-CV, a powtórne wgranie tych
+    samych bajtów przemianowałoby istniejący plik. Zostaje po nim nazwa
+    i skrót treści w śladzie; ponowne użycie w innej rekrutacji daje
+    `select-stage-cv`.
+    """
+    from app.services.cv_docx_import import MAX_BYTES
+
+    csv = await _load_csv_for_stage(db, stage_id, current_user, create_missing=True)
+    check_revision(csv, expected_revision)
+    # Odczyt z limitem: `MAX_BYTES + 1` wystarcza, żeby odmówić bez wczytania
+    # całego (dowolnie dużego) pliku. Format sprawdza konwerter (ZIP + OOXML).
+    content = await file.read(MAX_BYTES + 1)
+    if not content:
+        raise HTTPException(422, "Plik jest pusty.")
+    if len(content) > MAX_BYTES:
+        raise HTTPException(
+            422, "Plik jest za duży, żeby wczytać go do edytora (limit 10 MB)."
+        )
+    filename = (file.filename or "").replace("\\", "/").rsplit("/", 1)[-1].strip()
+    filename = filename[:200] or "CV.docx"
+    return await _import_docx_as_draft(
+        db,
+        csv,
+        content,
+        expected_revision=expected_revision,
         user_id=current_user.id,
-        activity_action="branded_cv_imported_from_document",
-        activity_details={"source_document_id": document_id},
+        origin=copy_origin("upload", label=filename),
+        activity_action="branded_cv_uploaded_from_disk",
+        activity_details={
+            "upload_filename": filename,
+            "upload_sha256": hashlib.sha256(content).hexdigest(),
+        },
+    )
+
+
+@router.get(
+    "/candidates/stages/{stage_id}/cv/branded/sources",
+    response_model=StageCvSourcesResponse,
+)
+async def list_stage_cv_sources(
+    stage_id: int,
+    current_user: CandidateDocumentAccess,
+    db: AsyncSession = Depends(get_db),
+) -> StageCvSourcesResponse:
+    """Gotowe CV etapu tej osoby z INNYCH rekrutacji (12.10.2026).
+
+    Odczyt bez zapisu: nie przez ``_load_csv_for_stage`` — etap bez wiersza CV
+    (import Traffita) dostałby 404, a ``create_missing`` pisałby w GET.
+    """
+    stage = (
+        await db.execute(
+            select(CandidateStage.candidate_id, CandidateStage.job_id).where(
+                CandidateStage.id == stage_id
+            )
+        )
+    ).first()
+    if stage is None:
+        raise HTTPException(status_code=404, detail="Stage nie znaleziony")
+    await ensure_job_read_access(db, current_user, stage.job_id)
+    return StageCvSourcesResponse(
+        items=await list_reusable_stage_cvs(
+            db,
+            candidate_id=stage.candidate_id,
+            target_job_id=stage.job_id,
+            user=current_user,
+        )
+    )
+
+
+@router.post(
+    "/candidates/stages/{stage_id}/cv/branded/select-stage-cv",
+    response_model=CVBrandedResponse,
+)
+async def select_stage_cv(
+    stage_id: int,
+    payload: CVBrandedSelectStageCv,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> CVBrandedResponse:
+    """CV etapu tej osoby z INNEJ rekrutacji → szkic tej (12.10.2026).
+
+    Kopia bierze treść po poprawkach rekrutera (zatwierdzoną, a bez niej
+    szkic) — `select-generated` dla innej rekrutacji renderuje wynik
+    generatora od nowa i je gubi. Źródło zostaje nietknięte.
+    """
+    csv = await _load_csv_for_stage(
+        db, stage_id, current_user, lock=True, create_missing=True
+    )
+    check_revision(csv, payload.expected_revision)
+    if payload.source_job_id == csv.job_id:
+        raise HTTPException(422, "Wybierz CV z innej rekrutacji tej osoby.")
+    # Treść CV powstała dla innej rekrutacji — czyta ją ten, kto czyta tamtą.
+    await ensure_job_read_access(db, current_user, payload.source_job_id)
+    source = await reusable_pair_cv(
+        db, candidate_id=csv.candidate_id, job_id=payload.source_job_id
+    )
+    if source is None:
+        raise HTTPException(
+            404, "Nie znaleziono gotowego CV tej osoby w tamtej rekrutacji."
+        )
+    await copy_stage_cv(db, csv, source, user_id=current_user.id)
+    await db.commit()
+    await db.refresh(csv)
+    return _build_branded_response(csv)
+
+
+@router.post(
+    "/candidates/stages/{stage_id}/cv/branded/consent",
+    response_model=CVBrandedResponse,
+)
+async def attach_stage_cv_consent(
+    stage_id: int,
+    payload: CVBrandedConsentAttach,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> CVBrandedResponse:
+    """Dołącz albo wymień zrzut zgody RODO w CV etapu BEZ dokumentu generatora.
+
+    Kopia (plik Word, CV z innej rekrutacji, przepięcie) nie ma wiersza
+    generatora, do którego dołącza się zgodę trasą generatora. Pokwitowanie
+    wystawia ta sama trasa `/api/cv-generator/consent-screenshot`
+    (kandydat + etap); 409, gdy CV pochodzi z generatora albo klient zgody
+    nie wymaga, 422 przy pokwitowaniu z innego etapu albo innej osoby.
+    """
+    from app.services.cv_consent_attach import attach_to_stage_copy
+
+    csv = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
+    await attach_to_stage_copy(
+        db,
+        csv,
+        token=payload.consent_screenshot_token,
+        user_id=current_user.id,
     )
     await db.commit()
     await db.refresh(csv)

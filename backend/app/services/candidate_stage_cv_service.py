@@ -355,25 +355,27 @@ async def render_stage_editor_docx(csv, content_html: str) -> tuple[bytes, bytes
     return docx, template
 
 
-CONSENT_CLIENT_NEEDS_GENERATOR = "consent_client_needs_generator"
-
-
 @dataclass(frozen=True)
 class DetachedCopySettings:
     filename: str
     client_id: Optional[int]
     job_title: Optional[str]
+    # Klient rekrutacji wymaga zrzutu zgody RODO pod treścią CV.
+    requires_consent: bool = False
 
 
 async def detached_copy_settings(
     db: AsyncSession, csv: CandidateStageCV, *, masked_name: Optional[str] = None
 ) -> DetachedCopySettings:
-    """Ustawienia CV wybranego z profilu (plik Word, CV z innej rekrutacji).
+    """Ustawienia CV wybranego zamiast generacji (plik Word, CV z innej rekrutacji).
 
     Taka kopia nie ma dokumentu generatora dla TEJ rekrutacji, więc nazwę
-    pliku liczymy z reguły klienta rekrutacji. Klient z wymogiem zrzutu zgody
-    RODO odmawia (422): zgodę dołącza się dziś wyłącznie do dokumentu
-    generatora, więc kopii nie dałoby się nigdy pobrać.
+    pliku i wymóg zrzutu zgody RODO liczymy z reguły klienta rekrutacji.
+    Do 12.10.2026 klient z wymogiem zgody dostawał tu odmowę (422), bo zgodę
+    dało się dołączyć tylko do dokumentu generatora. Teraz wołający zamraża
+    wymóg na kopii (`stage_cv_copy.detached_metadata`), blokada pobrania
+    czyta go jak dla każdej kopii, a zgodę dołącza
+    `cv_consent_attach.attach_to_stage_copy`.
 
     ``masked_name`` (CV blind): nazwa pliku nie może nieść nazwiska, które
     dokument ukrywa — generator nazywa taki plik „…_Kandydat.docx”.
@@ -381,7 +383,6 @@ async def detached_copy_settings(
     from fastapi import HTTPException
 
     from app.models.job import Job
-    from app.services import cv_consent_gate
     from app.services.cv_generator_b2b import central_policies
     from app.services.cv_generator_b2b.client_rules import (
         build_filename,
@@ -407,17 +408,6 @@ async def detached_copy_settings(
             central_policies.enabled()
             and central_policies.policy_for(client_id)["requires_rodo_consent_block"]
         )
-    if requires_consent and cv_consent_gate.gate_enabled():
-        raise HTTPException(
-            422,
-            {
-                "code": CONSENT_CLIENT_NEEDS_GENERATOR,
-                "message": (
-                    "Ten klient wymaga zrzutu zgody kandydata w CV. Wygeneruj CV "
-                    "w generatorze — tam dołączysz zgodę."
-                ),
-            },
-        )
     title = job.title if job is not None else None
     name = masked_name or (
         " ".join(part for part in (candidate.name, candidate.lastname) if part)
@@ -431,6 +421,8 @@ async def detached_copy_settings(
         filename=named.filename if named else _build_download_filename(title, name),
         client_id=client_id,
         job_title=(title or "").strip() or None,
+        # Sam wymóg, bez wyłącznika blokady: ten czyta się przy pobraniu.
+        requires_consent=requires_consent,
     )
 
 
