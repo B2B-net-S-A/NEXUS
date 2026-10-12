@@ -67,9 +67,9 @@ się nie zapisują?”.
 | Część | Stan | Dowód |
 |---|---|---|
 | Reguły bez bazy (okno 30 min, autor, rekrutacja, najnowsza wysyłka, zakres kwot, jedna reguła „W tej rekrutacji”) | zielone | `pytest tests/test_recruitment_rate_hints.py` — 23 testy |
-| Reguły z bazą (`/history`, trasa pary, rekruter bez notatki, para ze stawkami, 404/422) | sprawdza CI | `tests/test_recruitment_rate_hints_db.py` — 6 testów; lokalnie nie ma Postgresa |
+| Reguły z bazą (`/history`, trasa pary, rekruter bez notatki, para ze stawkami, 404/422) | zielone | pełny bieg CI na gałęzi przed PR-em (Actions, bieg 38312018516: 12 shardów backendu, front, pokrycie) — `tests/test_recruitment_rate_hints_db.py`, 6 testów w shardzie 7 |
 | Strażnicy repo (wzorzec uprawnień, kontrakty tras, indeks reguł, stemple, czytelnicy „Stawki od”) | zielone | 383 testy lokalnie; pozostałe pozycje tych plików wymagają bazy |
-| Front: wiersz stawek w profilu i panel osoby | zielone | `npx vitest run` — 11 plików, 498 testów (wiersz stawek 15, panel osoby, harnessy, inwentarze funkcji); `npm run type-check` i `eslint` bez błędów |
+| Front: wiersz stawek w profilu i panel osoby | zielone | `npx vitest run` — 11 plików, 512 testów po scaleniu maina (wiersz stawek 15, panel osoby 79, harnessy, inwentarze funkcji); `npm run type-check` i `eslint` bez błędów. Scalenie #2150 dało zduplikowany import w panelu osoby bez konfliktu w gicie — złapał go `type-check` |
 | Przeklikanie na harnessach (`/preview/candidate-profile`, `/preview/job-detail`) | zrobione | 1280 × 720: brak przewijania w poziomie, dopiski mieszczą się w karcie (pomiar w DOM); „Uzupełnij” otwiera pole z 90 i „/h”; harness nie wysyła zapytania o podpowiedzi |
 | Przegląd kodu (tylko blokery) | bez blokerów | niezależny przegląd diffu; jedna uwaga poniżej progu poprawiona — pole „Uzupełnij” startuje od wartości widocznej teraz, nie z chwili zamontowania (test pada bez poprawki) |
 | Przegląd bezpieczeństwa | bez blokerów | notatka z wysyłki ma bramkę `user_can_view_client_rate` w obu ścieżkach i w końcowej redakcji `/history`; z wpisu „X/Y” wychodzi tylko kwota kandydata |
