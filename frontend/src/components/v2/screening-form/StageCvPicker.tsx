@@ -9,18 +9,32 @@
  * „…B2B…”), 13 — CV z generatora. Lista pokazuje oba źródła; „Wybierz”
  * podpina CV jako SZKIC tej rekrutacji (plik w profilu zostaje nietknięty),
  * a dalej działa zwykły edytor CV etapu.
+ *
+ * 12.10.2026: trzecie źródło — CV etapu z INNEJ rekrutacji tej osoby, w wersji
+ * po poprawkach rekrutera — oraz wgranie pliku Word z dysku (karta „CV do
+ * klienta”). Klient z wymogiem zrzutu zgody nie wyszarza już opcji: kopia
+ * powstaje, a opcja mówi, co stanie się ze zgodą.
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileText, Loader2, Sparkles } from "lucide-react";
+import { FileText, Loader2, Repeat2, Sparkles } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/Toast";
-import api, { candidateStageCvApi, type CVBrandedState, type GeneratedCvItem } from "@/lib/api";
+import api, {
+  candidateStageCvApi,
+  type CVBrandedState,
+  type GeneratedCvItem,
+  type StageCvSourceItem,
+} from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { MOVE_REQUIREMENTS_PREFIX } from "@/lib/api/moveRequirements";
-import { cvToClientRowsQueryKey, stageBrandedQueryKey } from "@/lib/cv-to-client";
+import {
+  cvToClientRowsQueryKey,
+  stageBrandedQueryKey,
+  stageCvSourcesQueryKey,
+} from "@/lib/cv-to-client";
 import {
   buildStageCvOptions,
   type StageCvDocumentSource,
@@ -45,7 +59,18 @@ export function useStageCvOptions({
   stageId: number | null;
   documents: readonly StageCvDocumentSource[] | undefined;
   enabled: boolean;
-}): { options: StageCvOptions; isPending: boolean } {
+}): { options: StageCvOptions; isPending: boolean; isError: boolean; refetch: () => void } {
+  // CV etapu tej osoby z innych rekrutacji (z poprawkami rekrutera).
+  const sourcesQuery = useQuery<StageCvSourceItem[]>({
+    queryKey: stageCvSourcesQueryKey(stageId),
+    queryFn: () =>
+      candidateStageCvApi.branded
+        .sources(stageId as number)
+        .then((r) => (Array.isArray(r.data?.items) ? r.data.items : [])),
+    enabled: enabled && stageId != null,
+    staleTime: 60_000,
+    retry: false,
+  });
   const generatedQuery = useQuery<GeneratedCvItem[]>({
     queryKey: ["candidate-generated-cvs", candidateId],
     queryFn: () =>
@@ -70,12 +95,20 @@ export function useStageCvOptions({
   });
   return {
     options: buildStageCvOptions({
+      stages: sourcesQuery.data,
       generated: generatedQuery.data,
       documents,
       jobId,
       consentClient: policyQuery.data?.effective_policy?.requires_rodo_consent_block === true,
     }),
-    isPending: enabled && generatedQuery.isPending,
+    isPending:
+      enabled && (generatedQuery.isPending || (stageId != null && sourcesQuery.isPending)),
+    // Awaria listy nie może wyglądać jak „ta osoba nie ma gotowego CV”.
+    isError: generatedQuery.isError || sourcesQuery.isError,
+    refetch: () => {
+      void generatedQuery.refetch();
+      void sourcesQuery.refetch();
+    },
   };
 }
 
@@ -99,32 +132,48 @@ export function useChooseStageCv({
 }) {
   const queryClient = useQueryClient();
   const { showError, showSuccess } = useToast();
+  // Jedno miejsce na skutki wyboru — także dla pliku wgranego z dysku.
+  const onSuccess = (response: { data: CVBrandedState }) => {
+    queryClient.setQueryData(stageBrandedQueryKey(targetStageId), response.data);
+    if (stageId !== targetStageId) {
+      void queryClient.invalidateQueries({ queryKey: stageBrandedQueryKey(stageId) });
+    }
+    void queryClient.invalidateQueries({ queryKey: cvToClientRowsQueryKey(candidateId, jobId) });
+    void queryClient.invalidateQueries({ queryKey: ["cv-generated", "dl-review", candidateId, jobId] });
+    void queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
+    void queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
+    void queryClient.invalidateQueries({ queryKey: MOVE_REQUIREMENTS_PREFIX });
+    showSuccess("CV wybrane — możesz je teraz edytować.");
+    onChosen?.(response.data);
+  };
   const mutation = useMutation({
     mutationFn: (option: StageCvOption) =>
       option.kind === "generated"
         ? candidateStageCvApi.branded.selectGenerated(targetStageId, option.id, revision)
-        : candidateStageCvApi.branded.selectDocument(targetStageId, option.id, revision),
-    onSuccess: (response) => {
-      queryClient.setQueryData(stageBrandedQueryKey(targetStageId), response.data);
-      if (stageId !== targetStageId) {
-        void queryClient.invalidateQueries({ queryKey: stageBrandedQueryKey(stageId) });
-      }
-      void queryClient.invalidateQueries({ queryKey: cvToClientRowsQueryKey(candidateId, jobId) });
-      void queryClient.invalidateQueries({ queryKey: ["cv-generated", "dl-review", candidateId, jobId] });
-      void queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
-      void queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
-      void queryClient.invalidateQueries({ queryKey: MOVE_REQUIREMENTS_PREFIX });
-      showSuccess("CV wybrane — możesz je teraz edytować.");
-      onChosen?.(response.data);
-    },
+        : option.kind === "stage"
+          ? candidateStageCvApi.branded.selectStageCv(targetStageId, option.id, revision)
+          : candidateStageCvApi.branded.selectDocument(targetStageId, option.id, revision),
+    onSuccess,
     onError: (error) =>
       showError(
         apiErrorMessage(error, "Nie udało się wybrać CV. Odśwież podgląd i spróbuj ponownie."),
       ),
   });
+  const uploadMutation = useMutation({
+    mutationFn: (file: File) =>
+      candidateStageCvApi.branded.uploadDocx(targetStageId, file, revision),
+    onSuccess,
+    onError: (error) =>
+      showError(
+        apiErrorMessage(error, "Nie udało się wczytać pliku. Sprawdź, czy to plik Word (.docx), i spróbuj ponownie."),
+      ),
+  });
   return {
     choose: (option: StageCvOption) => mutation.mutate(option),
+    /** Plik Word z dysku → szkic (bez zapisu w plikach kandydata). */
+    upload: (file: File) => uploadMutation.mutate(file),
     busyKey: mutation.isPending ? (mutation.variables?.key ?? null) : null,
+    uploading: uploadMutation.isPending,
   };
 }
 
@@ -133,27 +182,37 @@ function OptionRow({
   busyKey,
   onChoose,
   onPreviewDocument,
+  onPreviewStage,
 }: {
   option: StageCvOption;
   busyKey: string | null;
   onChoose: (option: StageCvOption) => void;
   onPreviewDocument?: (documentId: number) => void;
+  onPreviewStage?: (option: StageCvOption) => void;
 }) {
   const busy = busyKey === option.key;
-  const disabled = option.disabledReason != null;
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2">
       <div className="min-w-0 flex-1 basis-48">
         <p className="flex flex-wrap items-center gap-1.5 text-sm font-medium text-foreground">
           <span className="min-w-0 break-words">{option.title}</span>
           {option.origin ? (
-            <Badge size="sm" variant={option.origin === "ta rekrutacja" ? "soft" : "outline"}>
+            <Badge
+              size="sm"
+              variant={
+                option.origin === "ta rekrutacja"
+                  ? "soft"
+                  : option.origin.startsWith("zatwierdzone")
+                    ? "success"
+                    : "outline"
+              }
+            >
               {option.origin}
             </Badge>
           ) : null}
         </p>
         {option.detail ? <p className="text-xs text-muted-foreground">{option.detail}</p> : null}
-        {disabled ? <p className="mt-0.5 text-xs text-muted-foreground">{option.disabledReason}</p> : null}
+        {option.note ? <p className="mt-0.5 text-xs text-muted-foreground">{option.note}</p> : null}
       </div>
       <div className="flex flex-none items-center gap-1.5">
         {option.kind === "document" && onPreviewDocument ? (
@@ -161,10 +220,20 @@ function OptionRow({
             Podgląd
           </Button>
         ) : null}
+        {option.kind === "stage" && onPreviewStage ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-label={`Podgląd: ${option.title}`}
+            onClick={() => onPreviewStage(option)}
+          >
+            Podgląd
+          </Button>
+        ) : null}
         <Button
           size="sm"
           variant="outline"
-          disabled={disabled || busyKey != null}
+          disabled={busyKey != null}
           loading={busy}
           aria-label={`Wybierz: ${option.title}`}
           onClick={() => onChoose(option)}
@@ -188,6 +257,7 @@ function OptionGroup({
   busyKey: string | null;
   onChoose: (option: StageCvOption) => void;
   onPreviewDocument?: (documentId: number) => void;
+  onPreviewStage?: (option: StageCvOption) => void;
 }) {
   if (options.length === 0) return null;
   return (
@@ -211,6 +281,8 @@ export interface StageCvPickerProps {
   busyKey: string | null;
   onChoose: (option: StageCvOption) => void;
   onPreviewDocument?: (documentId: number) => void;
+  /** Podgląd treści CV etapu z innej rekrutacji (karta „CV do klienta”). */
+  onPreviewStage?: (option: StageCvOption) => void;
   /** Zdanie nad listą — inne przy pierwszym wyborze, inne przy zmianie CV. */
   intro: string;
 }
@@ -228,6 +300,12 @@ export function StageCvPicker({ options, isPending = false, intro, ...row }: Sta
         </p>
       ) : null}
       <OptionGroup
+        icon={<Repeat2 className="h-3.5 w-3.5" aria-hidden />}
+        label="Z innych rekrutacji"
+        options={options.stages}
+        {...row}
+      />
+      <OptionGroup
         icon={<Sparkles className="h-3.5 w-3.5" aria-hidden />}
         label="Z generatora"
         options={options.generated}
@@ -240,7 +318,8 @@ export function StageCvPicker({ options, isPending = false, intro, ...row }: Sta
         {...row}
       />
       <p className="text-xs text-muted-foreground">
-        Wybrane CV staje się szkicem CV firmowego tej rekrutacji. Plik w profilu kandydata zostaje bez zmian.
+        Wybrane CV staje się szkicem CV firmowego tej rekrutacji. Źródło — plik w profilu albo CV z innej
+        rekrutacji — zostaje bez zmian.
       </p>
     </div>
   );

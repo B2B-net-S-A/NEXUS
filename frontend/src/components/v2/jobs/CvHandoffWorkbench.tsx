@@ -70,6 +70,7 @@ import {
   formatExpectedRate,
   itemFullName,
   moveBlockedReason,
+  selectScreeningQueue,
   selectVerifiedQueue,
 } from "@/lib/pipeline-flow";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
@@ -192,6 +193,18 @@ export function CvHandoffWorkbench({
   const selected = queue.find((e) => e.item.id === activeStageId) ?? null;
   const stageId = selected?.item.id ?? null;
   const fullName = selected ? itemFullName(selected.item) : "";
+  // 12.10.2026: osoba w „Nowych”/„Screeningu” też dostaje kartę CV — żeby
+  // wskazać gotowe CV (z innej rekrutacji, z pliku), zanim automat po ruchu na
+  // „Zweryfikowany” wygeneruje nowe. Sama wysyłka zostaje przy „Zweryfikowany”.
+  const early = useMemo(
+    () =>
+      selected
+        ? null
+        : (selectScreeningQueue(columns).find(
+            (e) => e.item.candidate_id === focusCandidateId,
+          ) ?? null),
+    [columns, focusCandidateId, selected],
+  );
   const jobLabel = jobTitle?.trim() || `Rekrutacja #${jobId}`;
 
   // `canWriteClientRate` przychodzi z odpowiedzi `GET /api/jobs/{id}` — ta
@@ -933,7 +946,25 @@ export function CvHandoffWorkbench({
       {/* Link jednorazowy przeżywa ruch: po „CV wysłane” osoba wypada
           z kolejki tego warsztatu, a adres musi zostać na ekranie. */}
       {resultsSection}
-      {!selected && panelFallback != null ? (
+      {early ? (
+        <>
+          <CvToClientCard
+            stageId={early.item.id}
+            candidateId={early.item.candidate_id}
+            candidateName={itemFullName(early.item)}
+            jobId={jobId}
+            jobTitle={jobTitle}
+            readOnly={readOnly}
+          />
+          <p
+            data-testid="cv-send-later-note"
+            className="rounded-lg border border-dashed border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground"
+          >
+            Wysyłka do klienta (stawka i „Oznacz CV Wysłane”) będzie dostępna na etapie
+            „Zweryfikowany”. CV możesz przygotować już teraz.
+          </p>
+        </>
+      ) : !selected && panelFallback != null ? (
         panelFallback
       ) : !selected ? (
         <p className="rounded-lg border border-dashed border-border bg-muted/20 px-3 py-4 text-center text-xs text-muted-foreground">

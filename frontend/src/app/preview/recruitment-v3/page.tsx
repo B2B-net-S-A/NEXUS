@@ -29,6 +29,7 @@ import { candidateContactQueryKeys } from "@/lib/candidate-contact";
 import {
   cvToClientRowsQueryKey,
   stageBrandedQueryKey,
+  stageCvSourcesQueryKey,
   type StageGeneratedCvRow,
 } from "@/lib/cv-to-client";
 import {
@@ -403,8 +404,38 @@ function seededClient(columns: KanbanColumn[]): QueryClient {
   // Karta „CV do klienta” (sekcja CV panelu osoby): CV etapu, lista
   // wygenerowanych CV pary i plik źródłowy — trzy stany z makiety: gotowe
   // (auto-CV), brak i gotowe bez zgody RODO.
-  verified.forEach((item, index) => {
-    const variant = index % 3;
+  // 12.10.2026: karta jest też w sekcji CV osób z „Nowych” i „Screeningu”
+  // (bez CV), a „Użyj innego CV” pyta o gotowe CV osoby — wszystko zasiane.
+  const early = columns
+    .filter((column) => column.stage === "new" || column.stage === "screening")
+    .flatMap((column) => column.items);
+  const cardPeople = [
+    ...verified.map((item, index) => ({ item, variant: index % 3 })),
+    ...early.map((item) => ({ item, variant: 1 })),
+  ];
+  cardPeople.forEach(({ item, variant }) => {
+    client.setQueryData(
+      stageCvSourcesQueryKey(item.id),
+      variant === 0
+        ? [
+            {
+              job_id: 9000,
+              stage_id: 590,
+              job_title: "Java Developer",
+              reference_number: "REQ-9000",
+              client_name: "Bank Kappa",
+              status: "finalized",
+              version: 2,
+              language: "pl",
+              updated_at: "2026-10-02T09:00:00Z",
+              updated_by_name: "Ewa Rekruterska",
+            },
+          ]
+        : [],
+    );
+    client.setQueryData(candidateQueryKeys.cvDocuments(item.candidate_id), []);
+    client.setQueryData(["candidate-generated-cvs", item.candidate_id], []);
+    client.setQueryData(["central-cv-policy", null, item.id, false], {});
     const generatedId = 9000 + item.id;
     const rows: StageGeneratedCvRow[] =
       variant === 1
