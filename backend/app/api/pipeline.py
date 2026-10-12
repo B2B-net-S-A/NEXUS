@@ -119,6 +119,9 @@ from app.services.recruitment_process_commands import (
 from app.services.delivery_alert_recipients import load_delivery_alert_recipient_scope
 from app.services.pipeline_realtime import broadcast_pipeline_changed
 from app.core.scheduling import business_today
+from app.services.consultant_elsewhere_notifications import (
+    employed_elsewhere_client_ids,
+)
 from app.services.employment_marker import load_employment_markers
 from app.services.candidate_rate_from import (
     effective_currency_sql,
@@ -487,6 +490,7 @@ def _notify_stage_change_effect(
     job: Job,
     mover: User,
     stage_display_name: str,
+    hired_engagement: Optional[str] = None,
 ) -> Callable[[], Awaitable[None]]:
     """Powiadomienia o przejściu (reguły 0066) — efekt po commicie ruchu."""
 
@@ -505,6 +509,7 @@ def _notify_stage_change_effect(
                 candidate=candidate_obj,
                 mover=mover,
                 stage_display_name=stage_display_name,
+                hired_engagement=hired_engagement,
             )
 
     return _effect
@@ -1654,6 +1659,25 @@ async def move_candidate(
         activity_extra["hired_signed_via"] = data.hired_signed_via
         if data.hired_signed_note:
             activity_extra["hired_signed_note"] = data.hired_signed_note.strip()
+    # „Co z obecną współpracą?” (12.10.2026): odpowiedź zapisujemy tylko, gdy
+    # osoba faktycznie ma u nas zatrudnienie u innego klienta — inaczej
+    # historia mówiłaby o współpracy, której nie ma.
+    hired_engagement: Optional[str] = None
+    if legacy_enum == PipelineStage.hired and data.hired_current_engagement is not None:
+        elsewhere_client_ids = await employed_elsewhere_client_ids(
+            db, candidate_id=data.candidate_id, job=job
+        )
+        if elsewhere_client_ids:
+            hired_engagement = data.hired_current_engagement
+            activity_extra["hired_current_engagement"] = hired_engagement
+            activity_extra["employed_at_client_ids"] = elsewhere_client_ids
+            candidate_audit.record_candidate_audit(
+                db,
+                action=candidate_audit.HIRED_ENGAGEMENT_ACTIONS[hired_engagement],
+                user_id=current_user.id,
+                entity_id=data.candidate_id,
+                details={"job_id": job.id, "client_ids": elsewhere_client_ids},
+            )
     if legacy_enum == PipelineStage.verified and budget_max_snapshot is not None:
         # M4 PR-02: audyt decyzji gate'u — z jakiej normalizacji wynikła.
         activity_extra["rate_gate"] = {
@@ -1982,6 +2006,7 @@ async def move_candidate(
             job=job,
             mover=current_user,
             stage_display_name=stage_display_name,
+            hired_engagement=hired_engagement,
         ),
     )
 
