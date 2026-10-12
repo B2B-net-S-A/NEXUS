@@ -1097,6 +1097,13 @@ body:has(aside[data-person-panel][data-cover]:not([hidden])) [data-app-sidebar] 
   background: hsl(var(--destructive) / 0.1);
   text-decoration-color: hsl(var(--destructive));
 }
+/* Fragment, dla którego AI przygotowuje albo pokazuje propozycję
+   (`lib/cv-editor-ai.ts`) — dekoracja widoku, nie treść. */
+.cv-paper .ProseMirror .cv-ai-pending {
+  border-radius: 2px;
+  background: hsl(var(--primary) / 0.14);
+  box-shadow: 0 0 0 1px hsl(var(--primary) / 0.35);
+}
 /* Miejsce wskazane przez „Pokaż w CV” — gaśnie po chwili. */
 .cv-paper .ProseMirror .cv-issue-focus {
   border-radius: 2px;
