@@ -3,6 +3,9 @@
  * kontroli AI i zgodą RODO), generuje się, brak (z powodem pominięcia
  * auto-CV), stary szablon tylko do odczytu, „Użyj nowej wersji”.
  *
+ * 12.10.2026 — „Użyj innego CV”: pasek „Ta osoba ma już gotowe CV”, plakietka
+ * pochodzenia kopii i zgoda RODO dołączana do CV etapu bez dokumentu generatora.
+ *
  * Karta niczego nie blokuje w procesie — brak zgody wyłącza tylko pobranie.
  */
 
@@ -16,6 +19,10 @@ const mocks = vi.hoisted(() => ({
   brandedGet: vi.fn(),
   originalGet: vi.fn(),
   selectGenerated: vi.fn(),
+  selectStageCv: vi.fn(),
+  selectDocument: vi.fn(),
+  sources: vi.fn(),
+  otherDialogProps: null as null | Record<string, unknown>,
   downloadAuthenticatedFile: vi.fn(),
   postAuthenticatedDownload: vi.fn(),
   downloadBlob: vi.fn(),
@@ -32,6 +39,9 @@ vi.mock("@/lib/api", () => ({
     branded: {
       get: (...a: unknown[]) => mocks.brandedGet(...a),
       selectGenerated: (...a: unknown[]) => mocks.selectGenerated(...a),
+      selectStageCv: (...a: unknown[]) => mocks.selectStageCv(...a),
+      selectDocument: (...a: unknown[]) => mocks.selectDocument(...a),
+      sources: (...a: unknown[]) => mocks.sources(...a),
     },
     original: { get: (...a: unknown[]) => mocks.originalGet(...a) },
   },
@@ -69,6 +79,13 @@ vi.mock("@/components/v2/cv-generator/ConsentAttachButton", () => ({
     return <button type="button">Wgraj</button>;
   },
 }));
+// Okno wyboru ma własny test — tu sprawdzamy, że karta je otwiera.
+vi.mock("@/components/v2/recruitment/UseOtherCvDialog", () => ({
+  UseOtherCvDialog: (props: Record<string, unknown>) => {
+    mocks.otherDialogProps = props;
+    return <div data-testid="use-other-cv-dialog" />;
+  },
+}));
 vi.mock("@/components/v2/modals/CVOriginalPreviewModal", () => ({
   CVOriginalPreviewModal: () => <div data-testid="original-preview" />,
 }));
@@ -78,6 +95,9 @@ import { CvToClientCard } from "@/components/v2/recruitment/CvToClientCard";
 type Row = Record<string, unknown> & { id: number };
 let rows: Row[] = [];
 let events: unknown[] = [];
+// Źródła „Użyj innego CV”: wszystkie generacje osoby i pliki CV z profilu.
+let personGenerated: Row[] = [];
+let documents: Row[] = [];
 
 function renderCard(overrides: Partial<React.ComponentProps<typeof CvToClientCard>> = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -100,15 +120,21 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.dialogProps = null;
   mocks.consentProps = null;
+  mocks.otherDialogProps = null;
   rows = [];
   events = [];
-  mocks.apiGet.mockImplementation((url: string) =>
-    Promise.resolve({
-      data: url === "/api/cv-generator/generated"
-        ? rows
-        : { job_id: 42, items: events, limit: 30 },
-    }),
-  );
+  personGenerated = [];
+  documents = [];
+  mocks.apiGet.mockImplementation((url: string, config?: { params?: Record<string, unknown> }) => {
+    if (url === "/api/cv-generator/generated") {
+      // Karta pyta o parę (z `job_id`), lista wyboru — o całą osobę.
+      return Promise.resolve({ data: config?.params?.job_id != null ? rows : personGenerated });
+    }
+    if (url.startsWith("/api/candidates/121/documents")) return Promise.resolve({ data: documents });
+    if (url === "/api/cv-generator/policy") return Promise.resolve({ data: {} });
+    return Promise.resolve({ data: { job_id: 42, items: events, limit: 30 } });
+  });
+  mocks.sources.mockResolvedValue({ data: { items: [] } });
   mocks.brandedGet.mockResolvedValue({ data: { status: "none", edit_revision: 0, version: 0 } });
   mocks.originalGet.mockResolvedValue({
     data: { has_snapshot: true, original_cv_filename: "Jan_Kowalski_CV.pdf", original_snapshot_at: "2026-09-12T10:00:00Z" },
@@ -310,5 +336,116 @@ describe("CvToClientCard — CV firmowe pary na innym etapie (runda 11, F23)", (
     );
     await userEvent.click(screen.getByRole("button", { name: /Edytuj/ }));
     expect(screen.getByTestId("editor-stub")).toHaveTextContent("editor:20");
+  });
+});
+
+describe("CvToClientCard — „Użyj innego CV” (12.10.2026)", () => {
+  const COPY = {
+    status: "draft",
+    from_generator: true,
+    generated_document_id: null,
+    source: "generator",
+    edit_revision: 1,
+    version: 1,
+    content_html: "<p>CV po poprawkach</p>",
+    origin: { kind: "stage_copy", label: "ZOB-9000", job_id: 300, selected_at: "2026-10-12T10:00:00Z" },
+  };
+
+  it("brak CV, a osoba ma CV w innej rekrutacji: pasek i „Użyj tego CV” bez pytania", async () => {
+    mocks.sources.mockResolvedValue({
+      data: {
+        items: [
+          { job_id: 300, stage_id: 31, job_title: "DevOps Engineer", reference_number: "ZOB-9000", status: "finalized", version: 2 },
+        ],
+      },
+    });
+    mocks.selectStageCv.mockResolvedValue({ data: COPY });
+    renderCard();
+
+    const hint = await screen.findByTestId("ready-cv-hint");
+    expect(hint).toHaveTextContent("Ta osoba ma już gotowe CV");
+    expect(hint).toHaveTextContent("DevOps Engineer · zatwierdzone · wersja 2");
+    await userEvent.click(screen.getByRole("button", { name: "Użyj tego CV" }));
+
+    // Rekrutacja źródłowa, wiersz etapu tej pary i jego rewizja; nie ma czego zastępować.
+    await waitFor(() => expect(mocks.selectStageCv).toHaveBeenCalledWith(21, 300, 0));
+    expect(screen.queryByText("Zastąpić CV do klienta?")).toBeNull();
+    expect(await screen.findByTestId("cv-origin-badge")).toHaveTextContent("z rekrutacji ZOB-9000");
+    expect(screen.queryByTestId("ready-cv-hint")).toBeNull();
+  });
+
+  it("auto-CV nieprzejrzane, a w profilu leży plik Word: podmiana po potwierdzeniu", async () => {
+    mocks.brandedGet.mockResolvedValue({
+      data: { status: "draft", from_generator: true, generated_document_id: 5, edit_revision: 3, version: 1, content_html: "<p>CV</p>" },
+    });
+    rows = [{ id: 5, status: "ready", origin: "auto", needs_review: true, job_id: 42 }];
+    personGenerated = rows;
+    documents = [
+      { id: 2, filename: "CV_B2B_Jan_Kowalski.docx", is_primary: false, uploaded_at: "2026-09-28T10:00:00Z", created_at: "2026-09-28T10:00:00Z", external_source: null },
+    ];
+    mocks.selectDocument.mockResolvedValue({
+      data: { ...COPY, source: "document", from_generator: false, origin: { kind: "profile_file", label: "CV_B2B_Jan_Kowalski.docx" } },
+    });
+    renderCard();
+
+    // Generacja TEJ rekrutacji nie jest „innym CV” — podpowiedzią jest plik.
+    expect(await screen.findByTestId("ready-cv-hint")).toHaveTextContent("CV_B2B_Jan_Kowalski.docx");
+    await userEvent.click(screen.getByRole("button", { name: "Użyj tego CV" }));
+    expect(await screen.findByText("Zastąpić CV do klienta?")).toBeInTheDocument();
+    expect(mocks.selectDocument).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Zastąp" }));
+
+    await waitFor(() => expect(mocks.selectDocument).toHaveBeenCalledWith(21, 2, 3));
+    expect(await screen.findByTestId("cv-origin-badge")).toHaveTextContent("z pliku Word");
+  });
+
+  it("CV wybrane świadomie: bez paska, z plakietką; „Użyj innego CV” otwiera okno wyboru", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: COPY });
+    // Starsze auto-CV tej pary nie jest „nowszą wersją” świeżo wybranej kopii.
+    rows = [{ id: 5, status: "ready", origin: "auto", job_id: 42, created_at: "2026-10-12T08:00:00Z" }];
+    renderCard();
+
+    expect(await screen.findByTestId("cv-origin-badge")).toHaveTextContent("z rekrutacji ZOB-9000");
+    expect(screen.getByText(/w wersji po poprawkach rekrutera/)).toBeInTheDocument();
+    expect(screen.queryByTestId("ready-cv-hint")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Użyj nowej wersji" })).toBeNull();
+    expect(mocks.sources).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: /Użyj innego CV/ }));
+    expect(screen.getByTestId("use-other-cv-dialog")).toBeInTheDocument();
+    expect(mocks.otherDialogProps).toMatchObject({ candidateId: 121, candidateName: "Jan Kowalski", replaces: true });
+  });
+
+  it("kopia bez zgody: pobranie zablokowane, a zgoda idzie na CV etapu, nie na dokument generatora", async () => {
+    mocks.brandedGet.mockResolvedValue({
+      data: { ...COPY, consent_required: true, consent_attached: false, consent_missing: true },
+    });
+    renderCard();
+
+    expect(await screen.findByText(/Zgoda RODO: brak zrzutu/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Pobierz DOCX/ })).toBeDisabled();
+    expect(mocks.consentProps).toMatchObject({ stageCopy: { candidateId: 121, stageId: 21 }, hasConsent: false });
+    expect(mocks.consentProps?.generatedId).toBeUndefined();
+  });
+
+  it("brak CV i brak gotowych: „Użyj gotowego CV” prowadzi do okna z wgraniem pliku", async () => {
+    renderCard();
+
+    await userEvent.click(await screen.findByRole("button", { name: /Użyj gotowego CV/ }));
+    expect(screen.getByTestId("use-other-cv-dialog")).toBeInTheDocument();
+    expect(mocks.otherDialogProps).toMatchObject({ replaces: false });
+    expect(screen.queryByTestId("ready-cv-hint")).toBeNull();
+  });
+
+  it("tylko do odczytu: bez paska, bez okna i bez pytania o gotowe CV", async () => {
+    mocks.sources.mockResolvedValue({
+      data: { items: [{ job_id: 300, stage_id: 31, job_title: "DevOps Engineer", status: "finalized" }] },
+    });
+    renderCard({ readOnly: true });
+
+    expect(await screen.findByText(/Jeszcze nie ma CV do klienta/)).toBeInTheDocument();
+    expect(screen.queryByTestId("ready-cv-hint")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Użyj gotowego CV/ })).toBeNull();
+    expect(mocks.sources).not.toHaveBeenCalled();
   });
 });

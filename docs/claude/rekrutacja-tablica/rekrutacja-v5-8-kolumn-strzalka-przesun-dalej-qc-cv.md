@@ -25,7 +25,9 @@ osobę od Cpro per rekrutacja (0353) i kolejkę „Czeka na DZ” (0348).
   blokowało siedem i QC przeszła 1 z 8 par, bo „każde must z maila klienta
   w CV” padało w 7 z 8): brak CV firmowego (`cv_present`), umiejętności
   krytyczne (`critical_skills` — w CV i OPISANE zdaniem ≥ 6 słów, nie listą
-  technologii, w każdej roli, w której oryginał je wymienia), nic must/nice
+  technologii, w każdej roli, w której oryginał je wymienia; od 12.10.2026
+  „oryginał wymienia” czyta się z odczytu tej roli, nie z tekstu pliku — patrz
+  „QC CV: tryb doradczy, role z odczytu CV…”), nic must/nice
   spoza oryginału i notatek (`no_unsupported`), reguły klienta (bez stawek
   i kontaktu, zrzut zgody RODO). Uwagi, które NIE blokują: pozostałe must w CV
   i w rolach, pogrubienia must i nice, lata w nagłówku, daty ról, pisownia,
@@ -51,7 +53,8 @@ osobę od Cpro per rekrutacja (0353) i kolejkę „Czeka na DZ” (0348).
   dalej” (ten sam ruch co strzałka na karcie, `handleQcMoveNext`).
 - **Bramka:** `/move` i `/bulk-move` na „CV wysłane” albo etap Cpro z kolumn
   przed wysłaniem → 409 `CV_QC_FAILED` (z `stage_id` do otwarcia QC), chyba że QC
-  przechodzi albo Delivery Lead/admin przepuścił parę z powodem
+  przechodzi albo ktoś przepuścił parę z powodem — Delivery Lead/admin, a od
+  12.10.2026 w trybie doradczym (`CV_QC_ADVISORY`) każdy, kto przesuwa karty
   (`QcOverrideDialog`: cztery gotowe powody, opis wymagany tylko przy „Inny
   powód”, bez minimum znaków — przy minimum 10 znaków powodem bywał ciąg
   losowych liter; lustro `cv_qc.OVERRIDE_REASONS` ↔ `QC_OVERRIDE_REASONS`;

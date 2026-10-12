@@ -56,3 +56,18 @@ wziąć obrazu. Teraz rekruter wgrywa go przy generacji, a renderer wkleja sam.
   ponownie i przepina kopię zgody w szkicach; wersja już zatwierdzona dostaje
   nową wersję bez wywołania AI (treść bez zmian). Blokada dotyczy pliku, nie
   ruchu karty — „Kanban bez bramek” obowiązuje.
+- **CV etapu BEZ dokumentu generatora też dostaje zgodę (12.10.2026).** Plik
+  Word z profilu albo z dysku, kopia CV z innej rekrutacji i CV przeniesione
+  przy przepięciu nie mają wiersza generatora. Do 12.10 klient z wymogiem zgody
+  odmawiał takiego wyboru (422 `consent_client_needs_generator`) — teraz kopia
+  powstaje z wymogiem zamrożonym w metadanych (`stage_cv_copy.detached_metadata`),
+  pobranie blokuje ta sama bramka, a zgodę dołącza
+  `POST /api/candidates/stages/{id}/cv/branded/consent`
+  (`cv_consent_attach.attach_to_stage_copy`): 409, gdy CV ma dokument generatora
+  albo zgody nie wymaga. Pokwitowanie wystawia ta sama trasa uploadu (kandydat +
+  etap, na którym LEŻY CV); kontekst liczą obie strony jednym kodem
+  (`stage_binding_context`), bo weryfikacja porównuje słowniki co do znaku.
+- **Zrzut zgody jedzie z kopią CV tylko w obrębie tego samego klienta**
+  (decyzja Artura 12.10.2026; ślad `consent_carried_from_stage_id`). To świadome
+  poluzowanie wiązania zgody z numerem projektu i etapem dla kopii — zgoda dla
+  jednego klienta nadal nigdy nie trafia do CV dla innego.

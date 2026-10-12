@@ -32,8 +32,10 @@ import { api, type GeneratedCvItem } from "@/lib/api";
 import {
   cvToClientRowsQueryKey,
   stageBrandedQueryKey,
+  stageCvSourcesQueryKey,
   type StageGeneratedCvRow,
 } from "@/lib/cv-to-client";
+import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { BACKGROUND_EVENTS_STEP, jobBackgroundEventsQueryKey } from "@/lib/job-background-events";
 import type { RecruitmentOption } from "@/lib/cv-generator";
 
@@ -309,21 +311,97 @@ function renderState(state: HarnessState): ReactNode {
   }
 }
 
-// Karta „CV do klienta” z panelu osoby w rekrutacji — trzy stany z makiety:
-// gotowe (auto-CV), brak CV i gotowe bez zgody RODO. Zasiew tymi samymi
-// funkcjami kluczy co karta.
+// Karta „CV do klienta” z panelu osoby w rekrutacji — stany z makiet:
+// gotowe (auto-CV), brak CV i gotowe bez zgody RODO, a od 12.10.2026 także
+// „Użyj innego CV”: podpowiedź gotowego CV (auto-CV obok CV z innej
+// rekrutacji, brak CV obok pliku Word), kopia z pliku bez zgody i CV
+// przeniesione przy przepięciu. Zasiew tymi samymi funkcjami kluczy co karta.
 const CARD_JOB_ID = 77;
 const CARD_PEOPLE = [
-  { stageId: 501, candidateId: 11, name: "Jan Kowalski", label: "Gotowe (auto-CV)", variant: "ready" },
-  { stageId: 502, candidateId: 12, name: "Piotr Wiśniewski", label: "Brak CV", variant: "none" },
+  { stageId: 501, candidateId: 11, name: "Jan Kowalski", label: "Auto-CV, a osoba ma gotowe CV", variant: "ready" },
+  { stageId: 502, candidateId: 12, name: "Piotr Wiśniewski", label: "Brak CV, plik Word w profilu", variant: "none" },
   { stageId: 503, candidateId: 13, name: "Marta Zielińska", label: "Gotowe, brak zgody RODO", variant: "consent" },
+  { stageId: 504, candidateId: 14, name: "Anna Przykładowa", label: "Z pliku Word, zgoda do dołączenia", variant: "copy" },
+  { stageId: 505, candidateId: 15, name: "Tomasz Wzorcowy", label: "Przeniesione przy przepięciu", variant: "carried" },
 ] as const;
+
+/** Gotowe CV osoby spoza tej rekrutacji — źródła okna „Użyj innego CV”. */
+function seedReadyCvSources(qc: QueryClient, person: (typeof CARD_PEOPLE)[number]) {
+  const hasOtherJobCv = person.variant === "ready" || person.variant === "carried";
+  qc.setQueryData(
+    stageCvSourcesQueryKey(person.stageId),
+    hasOtherJobCv
+      ? [
+          {
+            job_id: 9000,
+            stage_id: 590,
+            job_title: "Java Developer",
+            reference_number: "REQ-9000",
+            client_name: "Bank Kappa",
+            status: "finalized",
+            version: 2,
+            language: "pl",
+            updated_at: "2026-10-02T09:00:00Z",
+            updated_by_name: "Ewa Rekruterska",
+            consent_carried: false,
+          },
+        ]
+      : [],
+  );
+  qc.setQueryData(
+    candidateQueryKeys.cvDocuments(person.candidateId),
+    person.variant === "ready"
+      ? []
+      : [
+          {
+            id: 700 + person.candidateId,
+            filename: `${person.name.replace(" ", "_")}_B2B_Java.docx`,
+            content_type: null,
+            size_bytes: 48_000,
+            document_kind: "cv",
+            is_primary: false,
+            uploaded_at: "2026-09-28T10:00:00Z",
+            external_source: null,
+            created_at: "2026-09-28T10:00:00Z",
+            uploaded_by_name: "Ewa Rekruterska",
+          },
+        ],
+  );
+  qc.setQueryData(["candidate-generated-cvs", person.candidateId], []);
+  qc.setQueryData(["central-cv-policy", null, person.stageId, false], {
+    effective_policy: { requires_rodo_consent_block: person.variant === "copy" },
+  });
+  // Podgląd CV z innej rekrutacji w oknie wyboru.
+  qc.setQueryData(stageBrandedQueryKey(590), {
+    status: "finalized",
+    from_generator: true,
+    generated_document_id: null,
+    edit_revision: 4,
+    version: 2,
+    candidate_stage_id: 590,
+    content_html:
+      "<h1>Java Developer – kandydat</h1><h2>Podsumowanie</h2><p>Wersja po poprawkach rekrutera: 8 lat w bankowości, ostatnio migracja usług do chmury.</p>",
+    template: "standard",
+    language: "pl",
+    updated_at: "2026-10-02T09:00:00Z",
+    updated_by: null,
+    updated_by_name: null,
+    finalized_at: "2026-10-02T09:00:00Z",
+    finalized_by: null,
+    finalized_by_name: null,
+    snapshot_filename: null,
+    rendered_from_default: false,
+  });
+}
 
 function seedCardStates(qc: QueryClient) {
   for (const person of CARD_PEOPLE) {
     const generatedId = 9000 + person.stageId;
+    seedReadyCvSources(qc, person);
+    // CV wybrane zamiast generacji nie ma wiersza generatora.
+    const detached = person.variant === "copy" || person.variant === "carried";
     const rows: StageGeneratedCvRow[] =
-      person.variant === "none"
+      person.variant === "none" || detached
         ? []
         : [
             {
@@ -342,8 +420,18 @@ function seedCardStates(qc: QueryClient) {
     qc.setQueryData(cvToClientRowsQueryKey(person.candidateId, CARD_JOB_ID), rows);
     qc.setQueryData(stageBrandedQueryKey(person.stageId), {
       status: person.variant === "none" ? "none" : "draft",
-      from_generator: person.variant !== "none",
-      generated_document_id: person.variant === "none" ? null : generatedId,
+      from_generator: person.variant !== "none" && person.variant !== "copy",
+      generated_document_id: person.variant === "none" || detached ? null : generatedId,
+      source: person.variant === "copy" ? "document" : person.variant === "none" ? null : "generator",
+      origin:
+        person.variant === "copy"
+          ? { kind: "upload", label: "Anna_Przykladowa_B2B_Java.docx", selected_at: "2026-10-12T10:00:00Z" }
+          : person.variant === "carried"
+            ? { kind: "reassign", label: "REQ-9000", job_id: 9000, selected_at: "2026-10-12T10:00:00Z" }
+            : null,
+      consent_required: person.variant === "copy",
+      consent_attached: false,
+      consent_missing: person.variant === "copy",
       edit_revision: 1,
       version: 1,
       candidate_stage_id: person.stageId,

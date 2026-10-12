@@ -359,9 +359,10 @@ def test_sent_day_is_the_polish_calendar_day_not_utc() -> None:
     assert sim._local_day_iso(datetime(2026, 9, 25, 12, 0, tzinfo=timezone.utc)) == (
         "2026-09-25"
     )
-    assert sim._reassign_evidence(11, PipelineStage.cv_sent, None)["reassign"][
-        "sent_at"
-    ] is None
+    assert (
+        sim._reassign_evidence(11, PipelineStage.cv_sent, None)["reassign"]["sent_at"]
+        is None
+    )
 
 
 # ── „Reszta”: rozmowa albo weryfikacja, bez wysłania (02.10.2026) ──────────
@@ -581,3 +582,206 @@ async def test_reassign_refuses_a_person_who_was_never_sent(
         assert response.status_code == 422, response.text
         assert await _process(world[candidate], world["b"]) is None
     assert await _links(world["b"]) == set()
+
+
+# ── Przepięcie przenosi CV z rekrutacji źródłowej (12.10.2026) ──────────────
+
+CARRIED_FIX = "Poprawione przez rekrutera po rozmowie z klientem."
+
+
+async def _stage_cv_in_source(world: dict) -> int:
+    """CV etapu osoby w rekrutacji A — na jej wierszu „CV wysłane”."""
+    from app.models.candidate_stage_cv import CandidateStageCV
+
+    async with AsyncSessionLocal() as db:
+        stage_id = await db.scalar(
+            select(CandidateStage.id).where(
+                CandidateStage.candidate_id == world["sent"],
+                CandidateStage.job_id == world["a"],
+                CandidateStage.stage == PipelineStage.cv_sent,
+            )
+        )
+        row = CandidateStageCV(
+            candidate_stage_id=stage_id,
+            candidate_id=world["sent"],
+            job_id=world["a"],
+            branded_status="finalized",
+            branded_draft_html=(
+                "<h1>Senior Kotlin Developer – Przepięcie Testowe</h1>"
+                f"<p>{CARRIED_FIX}</p>"
+            ),
+            branded_from_generator=True,
+            branded_language="pl",
+            branded_template="standard",
+            branded_render_metadata={"generated_editor_html_sha256": "a" * 64},
+        )
+        db.add(row)
+        await db.commit()
+        return row.id
+
+
+async def _stage_cv_in_target(world: dict):
+    from app.models.candidate_stage_cv import CandidateStageCV
+
+    async with AsyncSessionLocal() as db:
+        return await db.scalar(
+            select(CandidateStageCV).where(
+                CandidateStageCV.candidate_id == world["sent"],
+                CandidateStageCV.job_id == world["b"],
+            )
+        )
+
+
+async def _reassign_sent(client: AsyncClient, headers: dict, world: dict):
+    return await client.post(
+        f"/api/jobs/{world['b']}/similar/reassign",
+        json={"job_ids": [world["a"]], "candidate_ids": [world["sent"]]},
+        headers=headers,
+    )
+
+
+async def test_reassign_carries_the_source_cv_as_a_draft_and_reports_it(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Bez kopii automat po „Zweryfikowany” generował nowe CV, a rekruter
+    poprawiał je drugi raz. Szkic na parze wyłącza automat (`pair_cv_exists`)."""
+    world = await _world()
+    source_id = await _stage_cv_in_source(world)
+
+    response = await _reassign_sent(app_client, app_auth_headers, world)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["cv_carried"] == [world["sent"]]
+    carried = await _stage_cv_in_target(world)
+    assert carried.branded_status == "draft"
+    assert carried.generated_document_id is None
+    assert CARRIED_FIX in carried.branded_draft_html
+    # Nagłówek mówi o rekrutacji docelowej, nazwisko zostaje z nagłówka źródła.
+    assert (
+        f"<h1>Kotlin Developer {world['tag']} – Przepięcie Testowe</h1>"
+        in carried.branded_draft_html
+    )
+    metadata = carried.branded_render_metadata
+    assert metadata["origin"]["kind"] == "reassign"
+    assert metadata["origin"]["job_id"] == world["a"]
+    assert metadata["source_stage_cv_id"] == source_id
+    assert "generated_editor_html_sha256" not in metadata
+
+
+async def test_reassign_without_a_source_cv_carries_nothing(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    world = await _world()
+
+    response = await _reassign_sent(app_client, app_auth_headers, world)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["added"] == [world["sent"]]
+    assert response.json()["cv_carried"] == []
+    assert (await _stage_cv_in_target(world)).branded_status == "none"
+
+
+async def test_reassign_survives_a_failing_cv_copy(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Kopia CV jest dodatkiem: jej awaria nie może cofnąć przepięcia."""
+    from app.services import stage_cv_copy
+
+    async def _broken(*args, **kwargs):
+        raise RuntimeError("magazyn szablonów nie odpowiada")
+
+    monkeypatch.setattr(stage_cv_copy, "copy_stage_cv", _broken)
+    world = await _world()
+    await _stage_cv_in_source(world)
+
+    response = await _reassign_sent(app_client, app_auth_headers, world)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["added"] == [world["sent"]]
+    assert response.json()["cv_carried"] == []
+    process = await _process(world["sent"], world["b"])
+    assert process is not None and process.reassign_from_job_id == world["a"]
+    assert (await _stage_cv_in_target(world)).branded_status == "none"
+
+
+async def test_undo_removes_the_carried_cv(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    world = await _world()
+    await _stage_cv_in_source(world)
+    assert (
+        await _reassign_sent(app_client, app_auth_headers, world)
+    ).status_code == 200
+    assert (await _stage_cv_in_target(world)).branded_status == "draft"
+
+    undo = await app_client.delete(
+        f"/api/candidates/{world['sent']}/recruitments/{world['b']}",
+        headers=app_auth_headers,
+    )
+
+    assert undo.status_code in (200, 204), undo.text
+    assert await _stage_cv_in_target(world) is None
+
+
+async def test_cv_is_carried_only_by_someone_who_may_read_the_source_recruitment():
+    """Kopia przy przepięciu trzyma regułę ręcznego wyboru (`select-stage-cv`).
+
+    Propozycja przepięcia powstaje w każdej połączonej rekrutacji, a dodanie
+    z „Do przejrzenia” sprawdza tylko rekrutację docelową — hak nie może być
+    drogą dookoła bramki odczytu rekrutacji źródłowej.
+    """
+    from app.models.candidate_stage_cv import CandidateStageCV
+    from app.models.user import User, UserRole
+    from app.services import stage_cv_copy
+
+    world = await _world()
+    await _stage_cv_in_source(world)
+    async with AsyncSessionLocal() as db:
+        # Konto podglądu spoza zespołu rekrutacji A i administrator.
+        outsider = User(
+            email=f"cv-carry-outsider-{world['tag']}@example.com",
+            name="Spoza zespołu",
+            role=UserRole.user,
+            roles=[UserRole.user.value],
+            is_active=True,
+        )
+        admin = User(
+            email=f"cv-carry-admin-{world['tag']}@example.com",
+            name="Administrator",
+            role=UserRole.admin,
+            roles=[UserRole.admin.value],
+            is_active=True,
+        )
+        stage = CandidateStage(
+            candidate_id=world["sent"], job_id=world["b"], stage=PipelineStage.new
+        )
+        db.add_all([outsider, admin, stage])
+        await db.flush()
+        target = CandidateStageCV(
+            candidate_stage_id=stage.id,
+            candidate_id=world["sent"],
+            job_id=world["b"],
+            branded_status="none",
+        )
+        db.add(target)
+        await db.flush()
+
+        async def _carry(user_id):
+            return await stage_cv_copy.carry_on_reassign(
+                db, target, source_job_id=world["a"], user_id=user_id
+            )
+
+        async def _status():
+            return await db.scalar(
+                select(CandidateStageCV.branded_status).where(
+                    CandidateStageCV.id == target.id
+                )
+            )
+
+        assert await _carry(outsider.id) is False
+        assert await _carry(None) is False
+        assert await _status() == "none"
+        # Ta sama osoba, ta sama rekrutacja źródłowa — różni je tylko dostęp.
+        assert await _carry(admin.id) is True
+        assert await _status() == "draft"
+        await db.rollback()

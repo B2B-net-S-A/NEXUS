@@ -9,7 +9,13 @@
 //
 // `?state=` — `fail` (domyślnie: umiejętność krytyczna bez opisu + treść spoza
 // oryginału), `pass`, `nocv`, `overridden`, `nocritical`, `external` (plik
-// Word/PDF spoza NEXUSA). `?as=recruiter` — bez „Przepuść mimo QC”.
+// Word/PDF spoza NEXUSA), `advisory` (QC doradza: „Przesuń mimo uwag…” ma także
+// rekruter, po zapisaniu powodu karta idzie dalej), `evidence` (krytyczna
+// z dowodem z oryginału: w jednej roli zdanie z opisu, w drugiej tylko lista
+// technologii; w uwagach „Rola po roli”), `unverified` (odczyt CV bez opisów
+// ról — krytyczne do sprawdzenia ręcznie), `confirmed` (lista „Potwierdzone
+// z kandydatem”). `?as=recruiter` — bez „Przepuść mimo QC”; w `advisory`
+// o przycisku decyduje `can_override` z wyniku.
 
 import { useEffect, useState } from "react";
 import { AxiosError } from "axios";
@@ -313,6 +319,107 @@ const EXTERNAL: QcResult = {
   ),
 };
 
+// Tryb doradczy: te same uwagi, ale QC nie blokuje — kartę przesuwa też rekruter.
+const ADVISORY: QcResult = { ...FAILING, advisory: true, can_override: true };
+
+const ROLE_ALFA = "Senior Java Developer · Firma Alfa";
+const ROLE_BETA = "Java Developer · Firma Beta";
+const ROLE_GAMMA = "Java Developer · Firma Gamma";
+
+// Dowód z oryginału: w jednej roli zdanie z opisu, w drugiej tylko lista technologii.
+const EVIDENCE: QcResult = {
+  ...FAILING,
+  checks: FAILING.checks.map((c) => {
+    if (c.key === "critical_skills") {
+      return {
+        ...c,
+        items: [
+          {
+            requirement: "Hibernate",
+            role: ROLE_ALFA,
+            detail: "Jest tylko na liście technologii — dopisz zdanie, co kandydat w tej roli z tym robił.",
+            fix: "ai",
+            role_index: 0,
+            evidence: "Designed the persistence layer of the order service in Hibernate (mappings, second-level cache).",
+            evidence_kind: "description",
+          },
+          {
+            requirement: "Hibernate",
+            role: ROLE_BETA,
+            detail: "Brak w tej roli, a w oryginale jest.",
+            fix: "ai",
+            role_index: 1,
+            evidence: "Java 11, Hibernate, Spring MVC, Oracle",
+            evidence_kind: "technologies",
+          },
+        ],
+        roles: [
+          { requirement: "Java 17", role: ROLE_ALFA, state: "described" },
+          { requirement: "Java 17", role: ROLE_BETA, state: "not_in_original" },
+          { requirement: "Java 17", role: ROLE_GAMMA, state: "not_in_original" },
+          { requirement: "Hibernate", role: ROLE_ALFA, state: "missing" },
+          { requirement: "Hibernate", role: ROLE_BETA, state: "missing" },
+          { requirement: "Hibernate", role: ROLE_GAMMA, state: "not_in_original" },
+        ],
+      };
+    }
+    if (c.key === "must_in_roles") {
+      return {
+        ...c,
+        roles: [
+          { requirement: "Kafka w mikroserwisach", role: ROLE_ALFA, state: "missing" },
+          { requirement: "Kafka w mikroserwisach", role: ROLE_BETA, state: "not_in_original" },
+          { requirement: "Kafka w mikroserwisach", role: ROLE_GAMMA, state: "not_in_original" },
+          { requirement: "Spring Boot 3.4+", role: ROLE_ALFA, state: "described" },
+          { requirement: "Spring Boot 3.4+", role: ROLE_BETA, state: "not_in_original" },
+          { requirement: "Spring Boot 3.4+", role: ROLE_GAMMA, state: "not_in_original" },
+        ],
+      };
+    }
+    return c;
+  }),
+};
+
+// Odczyt oryginału nie ma opisów ról — nie zgadujemy, sprawdzenie jest „ręcznie”.
+const UNVERIFIED: QcResult = {
+  ...FAILING,
+  blocking_failed: 1,
+  checks: FAILING.checks.map((c) =>
+    c.key === "critical_skills"
+      ? {
+          ...c,
+          status: "manual",
+          summary: "Odczyt CV nie ma opisów ról — sprawdź role ręcznie",
+          items: [],
+          roles: [
+            { requirement: "Java 17", role: ROLE_ALFA, state: "unverified" },
+            { requirement: "Java 17", role: ROLE_BETA, state: "unverified" },
+            { requirement: "Java 17", role: ROLE_GAMMA, state: "unverified" },
+            { requirement: "Hibernate", role: ROLE_ALFA, state: "unverified" },
+            { requirement: "Hibernate", role: ROLE_BETA, state: "unverified" },
+            { requirement: "Hibernate", role: ROLE_GAMMA, state: "unverified" },
+          ],
+        }
+      : c,
+  ),
+};
+
+// „Potwierdzone z kandydatem”: GraphQL zamknięty notatką, zostaje krytyczna.
+const CONFIRMED: QcResult = {
+  ...FAILING,
+  blocking_failed: 1,
+  confirmations: [
+    {
+      text: "Potwierdzone z kandydatem: GraphQL — używała w projekcie raportowym w Firmie Alfa, ok. roku",
+      by_name: "Marta Przykładowa",
+      at: "2026-10-12T09:15:00Z",
+    },
+  ],
+  checks: FAILING.checks.map((c) =>
+    c.key === "no_unsupported" ? ok(c.key, c.label, c.severity) : c,
+  ),
+};
+
 const FIXES: QcFixesResponse = {
   status: "ok",
   cached: false,
@@ -350,6 +457,10 @@ const STATES = {
   overridden: { label: "Przepuszczone", data: OVERRIDDEN },
   nocritical: { label: "Bez krytycznych", data: NO_CRITICAL },
   external: { label: "Plik spoza NEXUSA", data: EXTERNAL },
+  advisory: { label: "Tryb doradczy", data: ADVISORY },
+  evidence: { label: "Dowód z oryginału", data: EVIDENCE },
+  unverified: { label: "Role do sprawdzenia", data: UNVERIFIED },
+  confirmed: { label: "Potwierdzone z kandydatem", data: CONFIRMED },
 } as const;
 type HarnessState = keyof typeof STATES;
 

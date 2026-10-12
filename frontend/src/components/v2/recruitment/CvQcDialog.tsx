@@ -13,15 +13,24 @@
  * klienta. Poprawki AI (GPT-6 Luna) pokazują źródło — rekruter je akceptuje,
  * edytuje albo odrzuca. Każda zmiana zwraca świeży wynik QC.
  *
- * Treść CV i propozycji to TEKST — nic nie trafia na stronę jako HTML.
+ * Karta krytycznej w roli pokazuje dowód z oryginału (zdanie z opisu roli,
+ * lista technologii albo nazwa stanowiska) — bez zdania w oryginale karta każe
+ * zapytać kandydata (AI ułoży zdanie dopiero z notatek). Treść spoza oryginału da się
+ * zamknąć przez „Potwierdzone z kandydatem”: serwer zapisuje notatkę pary,
+ * a lista potwierdzeń stoi pod ramką „Co sprawdza QC”.
+ *
+ * Treść CV, dowodów i propozycji to TEKST — nic nie trafia na stronę jako HTML.
  * „Przepuść mimo QC” widzą tylko osoby z uprawnieniem „Rekrutacje: zakładanie,
- * zamykanie, wysyłka CV do klienta” (serwer i tak odmawia reszcie).
+ * zamykanie, wysyłka CV do klienta” (serwer i tak odmawia reszcie). W trybie
+ * doradczym (`advisory`, 12.10.2026) QC nie blokuje: kto może, mówi serwer
+ * (`can_override`), przycisk nazywa się „Przesuń mimo uwag…”, a po zapisaniu
+ * powodu karta od razu idzie dalej.
  */
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -48,9 +57,12 @@ import {
   useCvQc,
   useCvQcFixes,
   useQcApply,
+  useQcConfirm,
   cvQcFixesQueryKey,
   type QcApplyBody,
   type QcCheck,
+  type QcConfirmBody,
+  type QcConfirmation,
   type QcCvRun,
   type QcFix,
   type QcFixesResponse,
@@ -62,13 +74,17 @@ import {
   CV_NOT_EDITABLE_CODE,
   CV_NOT_EDITABLE_MESSAGE,
   QC_CV_SOURCE_LABEL,
+  QC_ROLE_STATE_LABEL,
   QC_TASK_TAG,
   RODO_SECTION,
   apiErrorCode,
   candidateQuestion,
   checkLevelFixes,
+  companyCvRoleState,
+  groupRoleStates,
   highlightTerms,
   notePreview,
+  originalDescribesSkill,
   parseBoldMarkup,
   roleGaps,
   segmentCv,
@@ -289,6 +305,9 @@ interface ActionContext {
   editable: boolean;
   busy: boolean;
   apply: (body: QcApplyBody, success: string, onApplied?: () => void) => void;
+  /** „Potwierdzone z kandydatem” — działa także, gdy CV nie da się edytować. */
+  confirm: (body: QcConfirmBody, onSaved?: () => void) => void;
+  confirming: boolean;
   requestAiFixes: () => void;
   copyQuestion: (item: QcItem) => void;
   /** Edytor sprawdzanego CV — `null`, gdy tego CV nie da się edytować w NEXUSIE. */
@@ -402,9 +421,78 @@ function ItemAction({ item, ctx }: { item: QcItem; ctx: ActionContext }) {
   }
 }
 
+/** Rola z brakiem: na czym w oryginale stoi wymóg opisu i co jest w CV firmowym. */
+function RoleEvidence({ item }: { item: QcItem }) {
+  const evidence = item.evidence?.trim();
+  return (
+    <li className="space-y-1 rounded-md border border-border bg-card px-2.5 py-2">
+      <Badge variant="outline" size="sm">
+        {item.role}
+      </Badge>
+      <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-xs">
+        {evidence ? (
+          <>
+            <dt className="text-muted-foreground">W oryginale</dt>
+            <dd className="min-w-0 [overflow-wrap:anywhere]">
+              {item.evidence_kind === "technologies" ? (
+                `lista technologii tej roli: ${evidence}`
+              ) : item.evidence_kind === "title" ? (
+                `nazwa stanowiska: ${evidence}`
+              ) : (
+                <span className="italic">„{evidence}”</span>
+              )}
+            </dd>
+          </>
+        ) : null}
+        <dt className="text-muted-foreground">W CV firmowym</dt>
+        <dd>{companyCvRoleState(item)}</dd>
+      </dl>
+    </li>
+  );
+}
+
+const CONFIRM_TEXT_MAX = 1000;
+
+/** Formularz „Potwierdzone z kandydatem” w karcie treści spoza oryginału. */
+function ConfirmForm({ term, ctx, onClose }: { term: string; ctx: ActionContext; onClose: () => void }) {
+  const [text, setText] = useState("");
+  const fieldId = useId();
+  return (
+    <form
+      className="space-y-1.5"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const said = text.trim();
+        ctx.confirm(said ? { term, text: said } : { term }, onClose);
+      }}
+    >
+      <label htmlFor={fieldId} className="block text-xs font-medium">
+        Co powiedział kandydat? (opcjonalnie)
+      </label>
+      <textarea
+        id={fieldId}
+        className="min-h-16 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+        maxLength={CONFIRM_TEXT_MAX}
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+      />
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" size="sm" disabled={ctx.confirming}>
+          {ctx.confirming ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
+          Zapisz potwierdzenie
+        </Button>
+        <Button type="button" size="sm" variant="ghost" onClick={onClose} disabled={ctx.confirming}>
+          Anuluj
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 /** Jedna rzecz do poprawy przed wysłaniem: co jest nie tak, gdzie i przycisk naprawy. */
 function TaskCard({ task, ctx }: { task: QcTask; ctx: ActionContext }) {
   const { check, name, items } = task;
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const title = taskTitle(task);
   const roleItems = items.filter((i) => i.role);
   const first = items[0];
@@ -416,30 +504,38 @@ function TaskCard({ task, ctx }: { task: QcTask; ctx: ActionContext }) {
 
   let body: React.ReactNode = null;
   let actions: React.ReactNode = null;
+  let form: React.ReactNode = null;
   if (check.key === "critical_skills" && roleItems.length > 0) {
+    const where = roleItems.length === 1 ? "tej roli" : "tych rolach";
+    // Bez zdania w oryginale AI nie ma z czego pisać — zostaje pytanie do kandydata.
+    const described = originalDescribesSkill(roleItems);
     body = (
       <>
         <p className="text-xs text-muted-foreground">
-          W oryginalnym CV kandydat ma tę umiejętność w {roleItems.length === 1 ? "tej roli" : "tych rolach"}. W CV
-          firmowym brakuje tam zdania o tym, co z nią robił — wystarczy jedno w każdej roli.
+          {described
+            ? `Oryginalne CV pokazuje tę umiejętność w ${where}. W CV firmowym brakuje tam zdania o tym, co kandydat z nią robił.`
+            : `Oryginalne CV wymienia tę umiejętność w ${where}, ale nie opisuje, co kandydat z nią robił. Zapytaj kandydata — AI ułoży zdanie dopiero wtedy, gdy powiedzą o tym notatki.`}
         </p>
-        <ul className="flex flex-wrap gap-1.5" aria-label={`Role bez opisu: ${name}`}>
+        <ul className="space-y-1.5" aria-label={`Role bez opisu: ${name}`}>
           {roleItems.map((item, i) => (
-            <li key={i}>
-              <Badge variant="outline" size="sm" title={item.detail ? item.detail : undefined}>
-                {item.role}
-              </Badge>
-            </li>
+            <RoleEvidence key={i} item={item} />
           ))}
         </ul>
       </>
     );
     actions = (
       <>
-        <Button size="sm" disabled={!ctx.editable} onClick={ctx.requestAiFixes}>
-          <Sparkles className="size-3.5" aria-hidden />
-          Dopisz zdania z oryginału (AI)
-        </Button>
+        {described ? (
+          <Button size="sm" disabled={!ctx.editable} onClick={ctx.requestAiFixes}>
+            <Sparkles className="size-3.5" aria-hidden />
+            Dopisz zdania z oryginału (AI)
+          </Button>
+        ) : (
+          <Button size="sm" variant="outline" onClick={() => ctx.copyQuestion(roleItems[0])}>
+            <Copy className="size-3.5" aria-hidden />
+            Skopiuj pytanie do kandydata
+          </Button>
+        )}
         {editorButton}
       </>
     );
@@ -448,15 +544,22 @@ function TaskCard({ task, ctx }: { task: QcTask; ctx: ActionContext }) {
     // Tytuł mówi już, co jest nie tak — niżej tylko, co z tym zrobić.
     body = (
       <p className="text-xs text-muted-foreground">
-        Oryginalne CV i notatki z rozmów o tym nie wspominają. Usuń to z CV albo potwierdź u kandydata.
+        Oryginalne CV i notatki z rozmów o tym nie wspominają. Usuń to z CV albo potwierdź u kandydata i zapisz
+        potwierdzenie.
       </p>
     );
     actions = (
       <>
         {term ? <RemoveTermButton term={term} ctx={ctx} /> : null}
         <AskCandidateButtons item={first} ctx={ctx} />
+        {term && !confirmOpen ? (
+          <Button size="sm" variant="outline" onClick={() => setConfirmOpen(true)}>
+            Potwierdzone z kandydatem
+          </Button>
+        ) : null}
       </>
     );
+    form = term && confirmOpen ? <ConfirmForm term={term} ctx={ctx} onClose={() => setConfirmOpen(false)} /> : null;
   } else if (first) {
     // Bez nazwy tytułem jest samo zdanie pozycji — nie powtarzamy go niżej.
     body = name && first.detail ? <p className="text-xs text-muted-foreground">{first.detail}</p> : null;
@@ -476,13 +579,15 @@ function TaskCard({ task, ctx }: { task: QcTask; ctx: ActionContext }) {
       </p>
       {body}
       {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+      {form}
     </li>
   );
 }
 
 function CheckRow({ check, ctx }: { check: QcCheck; ctx: ActionContext }) {
   const [open, setOpen] = useState(false);
-  const hasBody = check.items.length > 0 || checkLevelFixes(check).length > 0;
+  const roleGroups = groupRoleStates(check.roles ?? []);
+  const hasBody = check.items.length > 0 || checkLevelFixes(check).length > 0 || roleGroups.length > 0;
   const bodyId = `qc-check-${check.key}`;
   const preview = check.status === "fail" || check.status === "manual" ? notePreview(check) ?? check.summary : null;
   return (
@@ -530,6 +635,23 @@ function CheckRow({ check, ctx }: { check: QcCheck; ctx: ActionContext }) {
               <ItemAction item={item} ctx={ctx} />
             </div>
           ))}
+          {roleGroups.length > 0 ? (
+            <div role="group" aria-label="Rola po roli" className="space-y-1.5 text-xs">
+              <p className="font-semibold text-muted-foreground">Rola po roli</p>
+              {roleGroups.map((group) => (
+                <div key={group.requirement} className="space-y-0.5">
+                  <p className="font-medium">{group.requirement}</p>
+                  <ul className="space-y-0.5 pl-3 text-muted-foreground">
+                    {group.roles.map((role, i) => (
+                      <li key={i}>
+                        <span className="text-foreground">{role.role}</span> — {QC_ROLE_STATE_LABEL[role.state]}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          ) : null}
           <CheckActions check={check} ctx={ctx} />
         </div>
       ) : null}
@@ -596,6 +718,12 @@ function Explainer({ data }: { data: QcResult }) {
         <strong className="font-semibold">Co sprawdza QC:</strong> czy CV firmowe opisuje umiejętności krytyczne tej
         rekrutacji i czy nie mówi nic ponad oryginalne CV kandydata. Reszta to podpowiedzi — nie zatrzymują wysyłki.
       </p>
+      {data.advisory ? (
+        <p>
+          QC doradza: możesz przesunąć kartę mimo uwag — Delivery Lead zobaczy, co zostało niepoprawione, i może
+          cofnąć ją do poprawy.
+        </p>
+      ) : null}
       {critical.length > 0 ? (
         <p>
           Umiejętności krytyczne: <strong className="font-semibold">{critical.join(", ")}</strong>
@@ -603,7 +731,8 @@ function Explainer({ data }: { data: QcResult }) {
             " — wybór Delivery Leada."
           ) : (
             <> — podpowiedź z historii rekrutacji. Delivery Lead może je zmienić w {champion}.</>
-          )}
+          )}{" "}
+          Opis jest wymagany tylko w tych rolach, w których oryginalne CV pokazuje tę umiejętność.
         </p>
       ) : (
         <p>
@@ -611,6 +740,28 @@ function Explainer({ data }: { data: QcResult }) {
           Delivery Lead wybiera je w {champion}.
         </p>
       )}
+    </section>
+  );
+}
+
+/** Co rekruterzy potwierdzili u kandydata z tego okna — notatki pary, najnowsze pierwsze. */
+function Confirmations({ items }: { items: QcConfirmation[] }) {
+  if (items.length === 0) return null;
+  return (
+    <section
+      aria-label="Potwierdzone z kandydatem"
+      className="space-y-1 rounded-lg border border-info/30 bg-info-muted px-3 py-2 text-xs leading-relaxed text-info-muted-foreground"
+    >
+      <h3 className="text-xs font-semibold">Potwierdzone z kandydatem</h3>
+      <ul className="space-y-0.5">
+        {items.map((item, i) => (
+          <li key={i} className="[overflow-wrap:anywhere]">
+            {item.text}
+            {" — "}
+            {[item.by_name, formatDate(item.at)].filter(Boolean).join(", ")}
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
@@ -861,6 +1012,7 @@ export function CvQcBody({
 }) {
   const { showSuccess, showError } = useToast();
   const apply = useQcApply(stageId, onChanged);
+  const confirm = useQcConfirm(stageId, onChanged);
   const [notEditable, setNotEditable] = useState(false);
   const [aiRequested, setAiRequested] = useState(false);
   const editable = !notEditable && data.cv?.editable !== false && data.cv != null;
@@ -884,6 +1036,16 @@ export function CvQcBody({
           }
         },
       }),
+    confirm: (body, onSaved) =>
+      confirm.mutate(body, {
+        onSuccess: () => {
+          showSuccess("Potwierdzenie zapisane w notatkach kandydata — QC przeliczone.");
+          onSaved?.();
+        },
+        onError: (error) =>
+          showError(apiErrorMessage(error, "Nie udało się zapisać potwierdzenia. Spróbuj ponownie.")),
+      }),
+    confirming: confirm.isPending,
     requestAiFixes: () => {
       setAiRequested(true);
       if (typeof document !== "undefined") {
@@ -905,6 +1067,7 @@ export function CvQcBody({
   // Zdania AI dopisuje do ról — także wtedy, gdy QC już przechodzi, a brak
   // opisu jest tylko uwagą.
   const hasAiGaps = data.checks.some((c) => c.status === "fail" && c.items.some((i) => i.fix === "ai"));
+  const tasksTitle = data.advisory ? "Zalecane poprawki przed wysłaniem" : "Do poprawy przed wysłaniem";
 
   return (
     // `min-h-0` tylko od `lg`: w jednej kolumnie (telefon) wiersze siatki
@@ -926,6 +1089,7 @@ export function CvQcBody({
       </div>
       <div className="space-y-3 p-4 lg:min-h-0 lg:overflow-y-auto">
         <Explainer data={data} />
+        <Confirmations items={data.confirmations ?? []} />
         {data.override && !data.passed ? (
           <p role="status" className="rounded-md border border-warning/40 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground">
             Przepuszczone mimo QC{data.override.by_name ? ` przez ${data.override.by_name}` : ""}
@@ -933,8 +1097,10 @@ export function CvQcBody({
           </p>
         ) : null}
         {tasks.length > 0 ? (
-          <section aria-label="Do poprawy przed wysłaniem" className="space-y-2">
-            <h3 className={SECTION_TITLE}>Do poprawy przed wysłaniem ({tasks.length})</h3>
+          <section aria-label={tasksTitle} className="space-y-2">
+            <h3 className={SECTION_TITLE}>
+              {tasksTitle} ({tasks.length})
+            </h3>
             <ul className="space-y-2">
               {tasks.map((task) => (
                 <TaskCard key={task.id} task={task} ctx={ctx} />
@@ -979,6 +1145,7 @@ export interface CvQcDialogViewProps extends CvQcDialogProps {
 }
 
 const MOVE_BLOCKED_HINT = "Najpierw popraw rzeczy z listy „Do poprawy przed wysłaniem”.";
+const MOVE_ADVISORY_HINT = "Popraw rzeczy z listy albo użyj „Przesuń mimo uwag…”.";
 
 /** Okno bez zapytania o wynik — `CvQcDialog` i harness `/preview/cv-qc`. */
 export function CvQcDialogView({
@@ -997,8 +1164,11 @@ export function CvQcDialogView({
   const me = useAuthStore((s) => s.user);
   const impersonating = useAuthStore((s) => s.realUser !== null);
   // Obejście QC to decyzja osoby prowadzącej rekrutację (serwer: uprawnienie
-  // `recruitment_manage`); w podglądzie jako inny użytkownik — nikomu.
-  const canOverride = !impersonating && hasPermission(me, "recruitment_manage");
+  // `recruitment_manage`), a w trybie doradczym każdego, kto przesuwa karty —
+  // kto może, mówi serwer (`can_override`); starsza odpowiedź bez tego pola
+  // spada na uprawnienie. W podglądzie jako inny użytkownik — nikomu.
+  const advisory = data?.advisory === true;
+  const canOverride = !impersonating && (data?.can_override ?? hasPermission(me, "recruitment_manage"));
   const [editorOpen, setEditorOpen] = useState(false);
   const [overrideOpen, setOverrideOpen] = useState(false);
   const editorTarget = qcEditorTarget(data?.cv);
@@ -1084,7 +1254,7 @@ export function CvQcDialogView({
             </p>
             {canOverride && !cleared && stageId != null ? (
               <Button size="sm" variant="ghost" onClick={() => setOverrideOpen(true)}>
-                Przepuść mimo QC…
+                {advisory ? "Przesuń mimo uwag…" : "Przepuść mimo QC…"}
               </Button>
             ) : null}
             {editorTarget ? (
@@ -1103,7 +1273,7 @@ export function CvQcDialogView({
               <Button
                 size="sm"
                 disabled={!cleared}
-                title={cleared ? undefined : MOVE_BLOCKED_HINT}
+                title={cleared ? undefined : advisory ? MOVE_ADVISORY_HINT : MOVE_BLOCKED_HINT}
                 onClick={() => onMoveNext(data)}
               >
                 Przesuń dalej
@@ -1121,6 +1291,9 @@ export function CvQcDialogView({
         onOpenChange={setOverrideOpen}
         pending={pending}
         onChanged={onChanged}
+        advisory={advisory}
+        // Tryb doradczy: zapisany powód od razu przesuwa kartę — jedno przejście.
+        onDone={advisory ? onMoveNext : undefined}
       />
     ) : null}
     {editorOpen && editorTarget && data ? (

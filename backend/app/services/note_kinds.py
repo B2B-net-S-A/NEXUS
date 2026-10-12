@@ -35,6 +35,11 @@ REMARK_SOURCE = "stage_remark"
 # treści potrafiła zrobić z niej `card`, a projekcja kart wpisałaby wtedy do
 # karty pola, które rekruter świadomie odznaczył.
 CARD_ASSIST_SOURCE = "card_note_import"
+# „Potwierdzone z kandydatem” z okna QC CV (`cv_qc.confirm_with_candidate`,
+# 12.10.2026). Zwykła notatka z rozmowy także po edycji: QC i modele czytają
+# ją jako źródło obok oryginalnego CV, więc dopisana kwota nie może zrobić
+# z niej wpisu o stawce do klienta (zakrytego i pomijanego przez AI).
+QC_CONFIRM_SOURCE = "qc_confirmation"
 
 AUTOMATCH = "automatch"
 APPLICATION_FORM = "application_form"
@@ -321,7 +326,7 @@ def _classify(
 ) -> str:
     if external_source == REMARK_SOURCE:
         return DL_REVIEW
-    if external_source == CARD_ASSIST_SOURCE:
+    if external_source in (CARD_ASSIST_SOURCE, QC_CONFIRM_SOURCE):
         return HUMAN
     text = plain_text(content)
     length = len(text)
