@@ -47,6 +47,16 @@ export type CvBlockKind = "text" | CvBlockMarker | CvSectionKey;
 export const CV_RODO_MARKER = "rodo";
 
 /**
+ * Pierwsze słowa klauzuli zgody z szablonu. Starsze CV zgubiły jej znacznik —
+ * zostaje tekst (ta sama reguła co `services/cv_rodo_clause.py`, lustro pilnuje
+ * `backend/tests/test_cv_editor_template_labels.py`).
+ */
+export const CV_RODO_OPENINGS = {
+  pl: "Wyrażam zgodę na przetwarzanie moich",
+  en: "I hereby consent to the",
+} as const satisfies Record<CvLang, string>;
+
+/**
  * Tytuły sekcji i etykiety szablonu Worda. Lustro `TRANSLATIONS`
  * w `backend/app/services/cv_generator_b2b/docx_renderer.py` — pilnuje
  * `backend/tests/test_cv_editor_template_labels.py`.
@@ -194,6 +204,16 @@ function isList(node: PMNode): boolean {
   return node.type.name === "bulletList" || node.type.name === "orderedList";
 }
 
+const RODO_OPENINGS = Object.values(CV_RODO_OPENINGS).map((opening) => opening.toLowerCase());
+
+/** Klauzula zgody: znacznik `rodo` albo akapit zaczynający się jak klauzula z szablonu. */
+export function isRodoNode(node: PMNode): boolean {
+  if (markerOf(node) === CV_RODO_MARKER) return true;
+  if (node.type.name !== "paragraph") return false;
+  const text = node.textContent.replace(/\s+/g, " ").trim().toLowerCase();
+  return RODO_OPENINGS.some((opening) => text.startsWith(opening));
+}
+
 export function cvOutline(doc: PMNode): CvOutline {
   const blocks: CvBlock[] = [];
   let section: CvSectionKey | null = null;
@@ -205,15 +225,14 @@ export function cvOutline(doc: PMNode): CvOutline {
     blocks.push({ index, from: offset, to: offset + node.nodeSize, node, marker, section });
   });
 
-  const rodo = blocks.find((block) => block.marker === CV_RODO_MARKER) ?? null;
+  const rodo = blocks.find((block) => isRodoNode(block.node)) ?? null;
   const endOf = (start: number, closes: (block: CvBlock) => boolean): [number, number] => {
     for (let i = start; i < blocks.length; i += 1) {
       if (closes(blocks[i])) return [i, blocks[i].from];
     }
     return [blocks.length, doc.content.size];
   };
-  const closesSection = (block: CvBlock) =>
-    isSectionHeading(block.node) || block.marker === CV_RODO_MARKER;
+  const closesSection = (block: CvBlock) => isSectionHeading(block.node) || isRodoNode(block.node);
 
   const sections: CvSection[] = [];
   const roles: CvRole[] = [];
@@ -267,7 +286,7 @@ export function cvContext(state: EditorState): CvContext {
     role,
     section: block?.section ?? null,
     inList: block ? isList(block.node) : false,
-    locked: block?.marker === CV_RODO_MARKER,
+    locked: !!block && isRodoNode(block.node),
     // Sąsiad musi stać bezpośrednio obok — nie przeskakujemy nagłówka sekcji.
     canMoveUp: !!role && !!previous && previous.toIndex === role.fromIndex,
     canMoveDown: !!role && !!next && role.toIndex === next.fromIndex,
