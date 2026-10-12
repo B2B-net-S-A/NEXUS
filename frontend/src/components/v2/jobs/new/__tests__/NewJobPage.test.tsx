@@ -1858,7 +1858,10 @@ describe("NewJobPage", () => {
       });
     });
 
-    it("priorytet „Przyjmujemy kandydatów” przy automacie: mówi wprost, że nikt nie zostanie zaproponowany", async () => {
+    it.each([
+      ["P2 Standard", "medium"],
+      ["Przyjmujemy kandydatów", "low"],
+    ])("priorytet „%s” przy automacie: mówi wprost, że automat dobiera rekrutera tylko do P1", async (label, raw) => {
       allocationOptions(true, "shadow");
       await readRequest();
       await closeGaps();
@@ -1867,21 +1870,21 @@ describe("NewJobPage", () => {
 
       fireEvent.click(
         within(screen.getByRole("radiogroup", { name: "Priorytet" })).getByRole("radio", {
-          name: "Przyjmujemy kandydatów",
+          name: label,
         }),
       );
 
       expect(
         screen.getByText(
-          "Przy priorytecie „Przyjmujemy kandydatów” automat nikogo nie proponuje — rekrutacja zostanie bez rekrutera, dopóki ktoś jej nie weźmie albo nie wskażesz osoby.",
+          "Automat dobiera rekrutera tylko przy priorytecie P1 — ta rekrutacja zostanie bez rekrutera, dopóki ktoś jej nie weźmie albo nie wskażesz osoby.",
         ),
       ).toBeInTheDocument();
       expect(screen.queryByText(/Propozycję zatwierdza Head of Recruitment/)).toBeNull();
 
       await handoffTo();
-      expect(jobPostBody()).toMatchObject({ priority: "low" });
+      expect(jobPostBody()).toMatchObject({ priority: raw });
       expect(mocks.showSuccess).toHaveBeenCalledWith(
-        "Rekrutacja utworzona i opublikowana. Rekrutacja zostaje bez rekrutera — przy priorytecie „Przyjmujemy kandydatów” automat nikogo nie proponuje.",
+        "Rekrutacja utworzona i opublikowana. Rekrutacja zostaje bez rekrutera — automat dobiera go tylko przy priorytecie P1.",
       );
     });
 

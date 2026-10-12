@@ -59,6 +59,7 @@ import {
   type AllocationMode,
   type RecruiterAssignment,
 } from "@/lib/recruiter-assignment";
+import { automatAssigns, priorityLevelOf } from "@/lib/request-priority";
 import { httpStatusFromError } from "@/lib/view-state";
 
 export type JobReopenMode = "reopen" | "finish";
@@ -87,6 +88,8 @@ interface ReopenCachedJob {
   deadline?: string | null;
   deadline_time?: string | null;
   deadline_not_provided?: boolean | null;
+  priority_level?: string | null;
+  priority?: string | null;
 }
 
 interface ReadinessResponse {
@@ -207,6 +210,10 @@ export function JobReopenDialog({
     readiness?.allocation_mode,
   );
   const automaticAvailable = automatOn && currentRecruiter == null;
+  // Automat dobiera rekrutera tylko do P1. Bez rekrutacji w cache'u priorytet
+  // jest nieznany — wtedy niczego nie przesądzamy.
+  const automatSkips =
+    cachedJob != null && !automatAssigns(priorityLevelOf(cachedJob));
   const unavailableReason = !readinessQuery.isSuccess
     ? null
     : !automatOn
@@ -377,11 +384,13 @@ export function JobReopenDialog({
     ? `Rekruter: ${recruiterName ?? "przypisana osoba"} — zostaje bez zmian.`
     : !readinessQuery.isSuccess
       ? "Rekruter zostaje bez zmian."
-      : automatOn
-        ? readiness?.allocation_mode === "auto"
-          ? "Rekrutacja nie ma rekrutera — po otwarciu przydzieli go automat."
-          : "Rekrutacja nie ma rekrutera — po otwarciu zaproponuje go automat (zatwierdza Head of Recruitment)."
-        : "Rekrutacja nie ma rekrutera — po otwarciu wskaże go Head of Recruitment.";
+      : automatOn && automatSkips
+        ? "Rekrutacja nie ma rekrutera — automat dobiera go tylko przy priorytecie P1, więc po otwarciu wskaże go Head of Recruitment."
+        : automatOn
+          ? readiness?.allocation_mode === "auto"
+            ? "Rekrutacja nie ma rekrutera — po otwarciu przydzieli go automat."
+            : "Rekrutacja nie ma rekrutera — po otwarciu zaproponuje go automat (zatwierdza Head of Recruitment)."
+          : "Rekrutacja nie ma rekrutera — po otwarciu wskaże go Head of Recruitment.";
 
   return (
     <AppModal
@@ -526,6 +535,7 @@ export function JobReopenDialog({
                 automaticAvailable={automaticAvailable}
                 unavailableReason={unavailableReason}
                 mode={readiness?.allocation_mode}
+                automatSkips={automatSkips}
                 disabled={submitting}
               />
               {!automatic ? (

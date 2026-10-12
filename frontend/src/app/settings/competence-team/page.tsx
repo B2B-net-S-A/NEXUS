@@ -25,7 +25,7 @@ export default function CompetenceTeamPage() {
           Kategorie kompetencji zespołu
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Automat przydziela requesty najpierw osobom z 1. priorytetem kategorii, potem z
+          Automat przydziela requesty P1 najpierw osobom z 1. priorytetem kategorii, potem z
           2. Kliknij „+ Dodaj”, żeby przypisać osobę.
         </p>
       </div>

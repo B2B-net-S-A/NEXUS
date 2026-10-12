@@ -93,3 +93,13 @@ export function priorityLevelOf(
 export function rawPriorityForLevel(level: PriorityLevel): RawJobPriority {
   return RAW_BY_LEVEL[level];
 }
+
+/**
+ * Automat przydziału dobiera i proponuje rekrutera tylko do requestów P1
+ * (prośba Head of Recruitment, 12.10.2026) — lustro
+ * `RequestInfo.automat_assigns` w backendzie. Przy „P2 Standard”
+ * i „Przyjmujemy kandydatów” rekrutera przypisuje człowiek.
+ */
+export function automatAssigns(level: PriorityLevel): boolean {
+  return level === "p1";
+}

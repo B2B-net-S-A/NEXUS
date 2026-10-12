@@ -316,14 +316,16 @@ describe("JobHandoffButton — „Rekruter”: automat albo konkretna osoba (02.
     expect(screen.getByTestId("handoff-submit")).toBeDisabled();
   });
 
-  it("priorytet „Przyjmujemy kandydatów”: nie obiecuje propozycji — automat takim requestom nikogo nie proponuje", async () => {
+  it.each(["p2", "accepting"] as const)(
+    "priorytet %s: nie obiecuje propozycji — automat dobiera rekrutera tylko do P1",
+    async (priorityLevel) => {
     mockApi(AUTOMAT_SHADOW);
-    renderButton({ priorityLevel: "accepting" });
+    renderButton({ priorityLevel });
     await openForm();
 
     expect(
       screen.getByText(
-        "Przy priorytecie „Przyjmujemy kandydatów” automat nikogo nie proponuje — rekrutacja zostanie bez rekrutera, dopóki ktoś jej nie weźmie albo nie wskażesz osoby.",
+        "Automat dobiera rekrutera tylko przy priorytecie P1 — ta rekrutacja zostanie bez rekrutera, dopóki ktoś jej nie weźmie albo nie wskażesz osoby.",
       ),
     ).toBeInTheDocument();
     expect(
@@ -333,8 +335,20 @@ describe("JobHandoffButton — „Rekruter”: automat albo konkretna osoba (02.
     fireEvent.click(screen.getByTestId("handoff-submit"));
 
     expect(await screen.findByTestId("handoff-done")).toHaveTextContent(
-      "Przekazano do searchu. Rekrutacja zostaje bez rekrutera — przy priorytecie „Przyjmujemy kandydatów” automat nikogo nie proponuje.",
+      "Przekazano do searchu. Rekrutacja zostaje bez rekrutera — automat dobiera go tylko przy priorytecie P1.",
     );
+    },
+  );
+
+  it("priorytet P1: automat nadal obiecuje propozycję", async () => {
+    mockApi(AUTOMAT_SHADOW);
+    renderButton({ priorityLevel: "p1" });
+    await openForm();
+
+    expect(
+      screen.getByText(/Propozycję zatwierdza Head of Recruitment/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/tylko przy priorytecie P1/)).not.toBeInTheDocument();
   });
 
   it("rekrutacja ma już rekrutera: automat jest nieaktywny (serwer odmówiłby 409), a ta osoba jest zaznaczona z góry", async () => {

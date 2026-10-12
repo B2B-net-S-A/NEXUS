@@ -8,11 +8,18 @@ import {
   PRIORITY_LEVEL_LABEL,
   PRIORITY_LEVEL_OPTIONS,
   PRIORITY_LEVEL_SHORT_LABEL,
+  automatAssigns,
   isPriorityLevel,
   priorityLevelOf,
   rawPriorityForLevel,
   type RawJobPriority,
 } from "@/lib/request-priority";
+
+describe("automatAssigns", () => {
+  it("automat dobiera rekrutera tylko do P1", () => {
+    expect(PRIORITY_LEVELS.filter(automatAssigns)).toEqual(["p1"]);
+  });
+});
 
 describe("priorityLevelOf", () => {
   it("poziom z serwera wygrywa z surową wartością kolumny", () => {

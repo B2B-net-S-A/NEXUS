@@ -14,7 +14,7 @@ function renderChoice(
     mode?: AllocationMode;
     value?: RecruiterAssignment;
     manualLabel?: string;
-    passive?: boolean;
+    automatSkips?: boolean;
   } = {},
 ) {
   render(
@@ -27,7 +27,7 @@ function renderChoice(
         automaticAvailable
         unavailableReason={null}
         mode={props.mode}
-        passive={props.passive}
+        automatSkips={props.automatSkips}
         manualLabel={props.manualLabel}
       />
     </>,
@@ -67,9 +67,11 @@ describe("RecruiterAssignmentChoice", () => {
     ]);
   });
 
-  it("priorytet „Przyjmujemy kandydatów” nie obiecuje przydziału — także w trybie „auto”", () => {
-    renderChoice({ mode: "auto", passive: true });
-    expect(screen.getByText(/automat nikogo nie proponuje/)).toBeInTheDocument();
+  it("priorytet inny niż P1 nie obiecuje przydziału — także w trybie „auto”", () => {
+    renderChoice({ mode: "auto", automatSkips: true });
+    expect(
+      screen.getByText(/Automat dobiera rekrutera tylko przy priorytecie P1/),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/Automat przydzieli jedną osobę/)).not.toBeInTheDocument();
   });
 });

@@ -76,7 +76,7 @@ import {
   type BoardFilters,
   type ShownGroup,
 } from "@/lib/request-board"
-import { priorityLevelOf } from "@/lib/request-priority"
+import { automatAssigns, priorityLevelOf } from "@/lib/request-priority"
 import { cn } from "@/lib/utils"
 import { resolveViewState } from "@/lib/view-state"
 import { warsawDateOf } from "@/lib/warsaw-date"
@@ -126,17 +126,38 @@ const MODE_COPY: Record<RequestBoardData["mode"], { label: string; hint: string 
     label: "Automat wyłączony",
     hint: "Przydziały robi się ręcznie.",
   },
+  // Automat dobiera ludzi tylko do requestów P1 (12.10.2026) — nagłówek mówi
+  // to wprost, bo przy P2 ręczne zdjęcie osoby zostawia request bez rekrutera.
   shadow: {
     label: "Automat proponuje — akceptuje Head of Recruitment",
-    hint: "Do akceptacji nikt nie jest przypisany.",
+    hint: "Do akceptacji nikt nie jest przypisany. Propozycje dostają tylko requesty P1.",
   },
   // W trybie „auto” nikt niczego nie zatwierdza: rekruter prowadzący jest
   // przypisany od razu, a Head of Recruitment zmienia tylko to, z czym się
   // nie zgadza.
   auto: {
-    label: "Automat przydziela od razu",
-    hint: "Rekruter prowadzący jest przypisany zaraz po przekazaniu do searchu — Head of Recruitment może go zmienić.",
+    label: "Automat przydziela od razu — tylko requesty P1",
+    hint: "Przy P1 rekruter prowadzący jest przypisany zaraz po przekazaniu do searchu — Head of Recruitment może go zmienić. Pozostałe requesty obsadza się ręcznie.",
   },
+}
+
+/**
+ * Zdanie do potwierdzenia zdjęcia osoby: w trybie „auto” request P1 bez
+ * nikogo dostanie od automatu kolejną osobę — lepiej wiedzieć przed kliknięciem.
+ * Przy pozostałych priorytetach request zostaje „Bez rekrutera”.
+ */
+export function refillNote(
+  mode: RequestBoardData["mode"],
+  request: BoardRequest,
+  person: BoardPerson,
+): string {
+  const others = workingRecruiters(request.people).filter(
+    (other) => other.user_id !== person.user_id,
+  )
+  if (mode !== "auto" || request.champion || others.length > 0) return ""
+  return automatAssigns(priorityLevelOf(request))
+    ? " To request P1, więc automat dobierze kolejną osobę, jeśli ktoś jest dostępny."
+    : " Request zostanie bez rekrutera — automat dobiera ludzi tylko do P1."
 }
 
 /** „Na akceptację czekają 2 propozycje.” — pusty napis, gdy nie czeka żadna. */
@@ -782,7 +803,7 @@ export function RequestBoard({
           }
           const confirmed = await askConfirm({
             title: `Zdjąć z requestu: ${person.name}?`,
-            description: `${person.name} przestanie pracować nad „${request.title}”.`,
+            description: `${person.name} przestanie pracować nad „${request.title}”.${refillNote(board.mode, request, person)}`,
             confirmLabel: "Zdejmij",
             variant: "destructive",
           })

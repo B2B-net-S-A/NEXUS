@@ -14,7 +14,8 @@
  * ludzi; Delivery Lead tylko dodaje i zdejmuje; rekruter niczego nie zmienia.
  * Dane pokazują trzy przypadki naraz: request z propozycją automatu, request
  * z dwiema pracującymi osobami i request „Bez rekrutera”. Przyciski nic nie
- * zapisują.
+ * zapisują. `?mode=auto` pokazuje pulpit w trybie, w którym automat przydziela
+ * od razu (tak działa produkcja) — propozycje są wtedy przypisaniami.
  */
 
 import { useState } from "react";
@@ -144,9 +145,19 @@ function personaFrom(value: string | null | undefined): BoardPersona {
   return value === "dl" || value === "recruiter" ? value : "hor";
 }
 
-function BoardScreen({ persona }: { persona: BoardPersona }) {
+function BoardScreen({ persona, auto }: { persona: BoardPersona; auto: boolean }) {
   const [filters, setFilters] = useState<BoardFilters>(EMPTY_FILTERS);
   const access = PERSONAS[persona];
+  const board: RequestBoard = auto
+    ? {
+        ...BOARD,
+        mode: "auto",
+        requests: BOARD.requests.map((request) => ({
+          ...request,
+          people: request.people.map((person) => ({ ...person, proposed: false })),
+        })),
+      }
+    : BOARD;
   return (
     <div className="flex flex-col gap-3">
       <nav aria-label="Rola w podglądzie" className="flex flex-wrap items-center gap-3 text-sm">
@@ -154,7 +165,7 @@ function BoardScreen({ persona }: { persona: BoardPersona }) {
         {(Object.keys(PERSONAS) as BoardPersona[]).map((key) => (
           <a
             key={key}
-            href={`?screen=board&as=${key}`}
+            href={`?screen=board&as=${key}${auto ? "&mode=auto" : ""}`}
             aria-current={key === persona ? "page" : undefined}
             className={key === persona ? "font-semibold text-primary" : "text-foreground hover:underline"}
           >
@@ -163,7 +174,7 @@ function BoardScreen({ persona }: { persona: BoardPersona }) {
         ))}
       </nav>
       <RequestBoardView
-        board={BOARD}
+        board={board}
         today={TODAY}
         filters={filters}
         onFilters={setFilters}
@@ -204,7 +215,7 @@ export default function RequestAllocationPreview() {
     <main className="mx-auto flex max-w-[1440px] flex-col gap-10 bg-background p-6">
       {show("board") && (
         <section aria-label="Pulpit">
-          <BoardScreen persona={persona} />
+          <BoardScreen persona={persona} auto={params?.get("mode") === "auto"} />
         </section>
       )}
       {show("team") && (

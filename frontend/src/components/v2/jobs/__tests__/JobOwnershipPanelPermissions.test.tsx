@@ -358,7 +358,10 @@ describe("JobOwnershipPanel — kto widzi który przycisk", () => {
 
 describe("JobOwnershipPanel — co widać w wierszu", () => {
   it("nikt nie pracuje: „Bez rekrutera” i zdanie, co dalej — inne dla każdej roli", () => {
-    const staff = renderPanel(JOBS.empty, { as: headOfRecruitment });
+    const staff = renderPanel(
+      { ...JOBS.empty, priority_level: "p1" },
+      { as: headOfRecruitment },
+    );
     expect(screen.getByText("Bez rekrutera")).toBeInTheDocument();
     expect(
       screen.getByText(
@@ -379,14 +382,17 @@ describe("JobOwnershipPanel — co widać w wierszu", () => {
     ).toBeInTheDocument();
   });
 
-  it("przy priorytecie „Przyjmujemy kandydatów” nie obiecuje propozycji automatu", () => {
-    renderPanel({ ...JOBS.empty, priority_level: "accepting" });
-    expect(
-      screen.getByText(
-        "Przypisz osobę — przy priorytecie „Przyjmujemy kandydatów” automat nikogo nie proponuje.",
-      ),
-    ).toBeInTheDocument();
-  });
+  it.each(["p2", "accepting"])(
+    "przy priorytecie %s nie obiecuje propozycji automatu — automat dobiera tylko do P1",
+    (priority_level) => {
+      renderPanel({ ...JOBS.empty, priority_level });
+      expect(
+        screen.getByText(
+          "Przypisz osobę — automat dobiera rekrutera tylko przy priorytecie P1.",
+        ),
+      ).toBeInTheDocument();
+    },
+  );
 
   it("propozycja automatu to jeszcze nie rekruter: przerywana ramka i „Czeka na akceptację…”", () => {
     renderPanel(JOBS.proposalOnly, { as: recruiter });

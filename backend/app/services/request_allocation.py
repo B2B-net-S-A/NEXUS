@@ -10,6 +10,10 @@ co reszta przydziałów (``allocation_lock``):
 * raz dziennie o ``review_time`` z Ustawień — wtedy też idzie poranny dzwonek
   „Zwolnione: …” do ludzi i skrót dla Delivery Leadów.
 
+Automat dobiera i proponuje ludzi tylko do requestów P1 (12.10.2026,
+``RequestInfo.automat_assigns``); przy pozostałych rekrutera przypisuje
+człowiek, a ręczne zdjęcie osoby zostawia request „Bez rekrutera”.
+
 Tryby (``recruitment_allocation_state.mode``): ``off`` — nic; ``shadow`` —
 przypisania jako ``proposed`` (pulpit pokazuje je jako propozycję, nikt nic
 nie dostaje); ``auto`` — ``active``, a pierwszy rekruter zostaje też

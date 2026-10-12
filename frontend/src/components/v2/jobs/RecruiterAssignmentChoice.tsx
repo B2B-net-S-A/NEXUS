@@ -4,7 +4,7 @@ import { useId } from "react";
 
 import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import {
-  AUTOMATIC_PASSIVE_NOTE,
+  AUTOMATIC_ONLY_P1_NOTE,
   RECRUITER_ASSIGNMENT_LABEL,
   automaticAssignmentHint,
   automaticAssignmentLabel,
@@ -26,8 +26,8 @@ export interface RecruiterAssignmentChoiceProps {
    */
   unavailableReason: string | null;
   mode: AllocationMode | null | undefined;
-  /** Priorytet „Przyjmujemy kandydatów” — automat nikogo wtedy nie proponuje. */
-  passive?: boolean;
+  /** Priorytet inny niż P1 — automat nikogo wtedy nie dobiera ani nie proponuje. */
+  automatSkips?: boolean;
   /** Nazwa opcji ręcznej; domyślnie „Wybieram sam”. */
   manualLabel?: string;
   size?: "sm" | "md";
@@ -48,7 +48,7 @@ export function RecruiterAssignmentChoice({
   automaticAvailable,
   unavailableReason,
   mode,
-  passive = false,
+  automatSkips = false,
   manualLabel = RECRUITER_ASSIGNMENT_LABEL.person,
   size = "md",
   disabled = false,
@@ -76,9 +76,9 @@ export function RecruiterAssignmentChoice({
         ]}
       />
       {value === "automatic" ? (
-        passive ? (
+        automatSkips ? (
           <p className="text-xs font-medium leading-snug text-warning-muted-foreground">
-            {AUTOMATIC_PASSIVE_NOTE}
+            {AUTOMATIC_ONLY_P1_NOTE}
           </p>
         ) : (
           <p className="text-xs leading-snug text-muted-foreground">

@@ -222,7 +222,9 @@ async def load_new_job_leads(db: AsyncSession, *, now: datetime) -> list[NewJobL
         if lead is None:
             if level == "accepting":
                 reason = "passive"
-            elif now - row.work_state_changed_at < ASSIGNING_GRACE:
+            # Automat dobiera tylko do P1 — przy P2 „właśnie przydziela”
+            # byłoby nieprawdą.
+            elif level == "p1" and now - row.work_state_changed_at < ASSIGNING_GRACE:
                 if mode is None:
                     mode = await effective_allocation_mode(db)
                 reason = "assigning" if mode == "auto" else "none"
