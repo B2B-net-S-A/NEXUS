@@ -33,7 +33,9 @@ PR 1 (edytor bez AI); kolejne PR-y dopisują swoje sekcje tutaj.
 - Jeden znacznik `role` przełącza serwer z rozpoznawania po kształcie na same
   znaczniki. Dlatego w starym CV bez znaczników pierwsze „Typ akapitu →
   Stanowisko” oznacza od razu wszystko, co serwer rozpoznałby sam
-  (`markLegacyStructure`).
+  (`markLegacyStructure`). To samo robi „Dodaj → Stanowisko” — nowy blok
+  niesie znacznik `role`, więc bez tego stare stanowiska traciły w Wordzie
+  „Stanowisko:” i „Nazwa firmy:”.
 
 ## Wczytanie i stan edytora
 
@@ -52,15 +54,29 @@ PR 1 (edytor bez AI); kolejne PR-y dopisują swoje sekcje tutaj.
 ## Klauzula zgody RODO jest stała (D3)
 
 - Przeglądarka: wtyczka `CvEditorStructure` po każdej transakcji przywraca
-  jedną klauzulę na końcu (zrzut z wczytania). To `appendTransaction`, nie
-  `filterTransaction` — odrzucanie transakcji blokowałoby „zaznacz wszystko
-  i usuń” i mogłoby odrzucić wczytanie nowszej wersji.
-- Serwer: `cv_rodo_clause.keep_rodo_clause(zapisane, przysłane)` w zapisie
-  i zatwierdzeniu obu edytorów (`update_branded_cv`, `finalize_stage_cv`,
-  `cv_generated_editor.save` / `finalize`). Nietknięta klauzula = treść wraca
-  bajt w bajt; usunięta albo zmieniona wraca z zapisanego CV; inny tekst ze
-  znacznikiem klauzuli zostaje w treści bez znacznika. Pusta treść zostaje
-  pusta, żeby wołający dał swoje 422.
+  jedną klauzulę na końcu (zrzut z wczytania) — transakcją dołączaną
+  (`appendTransaction`). Filtr odrzucający każdą zmianę blokowałby „zaznacz
+  wszystko i usuń” i mógłby odrzucić wczytanie nowszej wersji.
+- Filtr (`filterTransaction` → `clauseLeaks`) odrzuca tylko zmianę, po której
+  kawałek klauzuli zostałby poza nią: Delete na końcu ostatniego akapitu albo
+  punktu (klawisz obsługuje model ProseMirrora, więc `contenteditable=false`
+  go nie zatrzyma), usunięcie zaznaczenia sięgającego w głąb klauzuli, tekst
+  wpisany w nią. Naprawa dołożyłaby wtedy klauzulę drugi raz, a doklejony
+  tekst poszedłby do klienta jako treść CV. Kopię klauzuli wklejoną w głąb
+  listy naprawa usuwa.
+- Serwer: `cv_rodo_clause.keep_rodo_clause(zapisane, przysłane)` wszędzie,
+  gdzie treść z edytora jest zapisywana, sprawdzana albo składana w Word:
+  `update_branded_cv`, `finalize_stage_cv`, `cv_generated_editor.save` /
+  `finalize`, `cv_approval_queue.enqueue_review` oraz oba rendery szkicu
+  (`render_stage_editor_docx`, `cv_generated_editor.render`). Kontrola AI
+  i zatwierdzenie muszą dostać tę samą treść: zatwierdzenie szuka wyniku
+  kontroli po skrócie treści, więc kontrola policzona bez klauzuli kończyła się
+  409 „Uruchom kontrolę” bez końca.
+- Nietknięta klauzula = treść wraca bajt w bajt; usunięta albo zmieniona wraca
+  z zapisanego CV; inny tekst ze znacznikiem klauzuli zostaje w treści bez
+  znacznika. Kandydat na klauzulę to `p` albo `div` bez bloków w środku, tak
+  jak w generatorze Worda. Przebudowana treść przechodzi jeszcze raz przez
+  sanitizer. Pusta treść zostaje pusta, żeby wołający dał swoje 422.
 - Strażnika nie ma w `_write_stage_draft`: nowy szkic z generatora albo
   z innego CV może przynieść inną klauzulę i to jest poprawne.
 - Rozpoznanie klauzuli jest jedno: `is_rodo_node` (znacznik edytora, klasa

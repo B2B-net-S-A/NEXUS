@@ -7,10 +7,13 @@ treść trafi do szkicu albo do zatwierdzonej wersji.
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
+from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
 
+from app.schemas.candidate_stage_cv import CVBrandedReview
+from app.services import cv_approval_queue as queue
 from app.services import cv_generated_editor as editor
 from app.services.cv_generator_b2b.docx_renderer import TRANSLATIONS
 from app.services.cv_rodo_clause import keep_rodo_clause
@@ -146,3 +149,75 @@ async def test_generated_editor_approves_and_reviews_content_with_the_clause(
     assert render.await_args.args[1] == version.content_html
     assert review.await_args.args[2] == version.content_html
     assert item.branded_draft_html == version.content_html
+
+
+def test_clause_rewritten_as_a_div_is_replaced_too():
+    # Generator Worda bierze `div` bez bloków w środku za akapit i przypiąłby
+    # go na dole jako klauzulę.
+    tampered = "<div>Wyrażam zgodę na przetwarzanie moich danych — ZMIENIONE</div>"
+    result = keep_rodo_clause(SAVED, BODY + tampered)
+    assert "ZMIENIONE" not in result
+    assert result.count("Wyrażam zgodę") == 1
+    assert result.endswith(f"{CLAUSE}</p>")
+
+
+def test_other_text_in_a_div_with_the_clause_class_loses_the_class():
+    result = keep_rodo_clause(
+        SAVED, f'{BODY}<div class="rodo">Dostępna od zaraz.</div>'
+    )
+    assert "<div>Dostępna od zaraz.</div>" in result
+    assert result.count("rodo") == 1
+    assert result.endswith(f"{CLAUSE}</p>")
+
+
+def test_text_before_the_first_block_stays_text_when_the_clause_is_restored():
+    incoming = '&lt;a href="https://example.com/x"&gt;klik&lt;/a&gt; opis<p>Treść</p>'
+    result = keep_rodo_clause(SAVED, incoming)
+    assert "<a " not in result
+    assert result.startswith("&lt;a href=")
+    assert result.endswith(f"{CLAUSE}</p>")
+
+
+async def test_ai_review_checks_the_content_that_approval_will_store(monkeypatch):
+    """Kontrola liczona z treści bez klauzuli, a zatwierdzenie z przywróconą,
+    nigdy by się nie spotkały: zatwierdzenie szuka wyniku kontroli po skrócie
+    treści i odpowiadało 409 „Uruchom kontrolę” bez końca."""
+    prepare = AsyncMock(return_value={"status": "verified"})
+    monkeypatch.setattr(queue, "prepare_approval_review", prepare)
+    db = AsyncMock()
+    db.scalar.return_value = None
+    db.add = Mock()
+    payload = CVBrandedReview(
+        expected_revision=2, content_html=BODY, request_key=uuid4()
+    )
+    await queue.enqueue_review(db, _draft(), payload, 7)
+    reviewed = prepare.await_args.args[2]
+
+    monkeypatch.setattr(editor, "render", AsyncMock(return_value=b"docx"))
+    monkeypatch.setattr(
+        editor, "review_for_approval", AsyncMock(return_value={"status": "verified"})
+    )
+    store = SimpleNamespace(
+        add=Mock(), flush=AsyncMock(), get=AsyncMock(return_value=None)
+    )
+    version = await editor.finalize(store, _draft(), 2, BODY, 9)
+    assert reviewed == version.content_html
+    assert CLAUSE in reviewed
+
+
+async def test_word_preview_renders_the_content_that_approval_will_store(monkeypatch):
+    from app.services import candidate_stage_cv_service as stage_service
+    from app.services import cv_approved_docx
+
+    rendered = []
+
+    def fake_render(content_html, *_args, **_kwargs):
+        rendered.append(content_html)
+        return b"docx"
+
+    monkeypatch.setattr(editor, "render_approved_docx", fake_render)
+    monkeypatch.setattr(cv_approved_docx, "render_approved_docx", fake_render)
+    await editor.render(_draft(), BODY)
+    await stage_service.render_stage_editor_docx(_draft(), BODY)
+    expected = keep_rodo_clause(SAVED, BODY)
+    assert rendered == [expected, expected]

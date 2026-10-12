@@ -149,7 +149,8 @@ async def render(draft, html):
     try:
         return await run_in_threadpool(
             render_approved_docx,
-            sanitize_cv_html(html),
+            # Podgląd i szkic do pobrania pokazują to, co zostanie zatwierdzone.
+            keep_rodo_clause(draft.branded_draft_html, sanitize_cv_html(html)),
             draft.branded_template_content,
             consent=draft.branded_consent_content,
             language=draft.branded_language,

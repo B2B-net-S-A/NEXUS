@@ -11,6 +11,7 @@ i zatwierdzeniu — także dla starej karty i wywołania API.
 
 from __future__ import annotations
 
+import html as html_lib
 from functools import lru_cache
 from typing import Optional
 
@@ -51,11 +52,16 @@ def is_rodo_node(node) -> bool:
 
 
 def _clause_like(root) -> list:
-    # Punkt listy cytujący klauzulę to treść CV, nie klauzula.
+    # Te same bloki, które generator Worda bierze za akapit: `p` albo `div` bez
+    # bloków w środku. Punkt listy cytujący klauzulę to treść CV, nie klauzula.
+    from app.services.cv_approved_docx import BLOCKS
+
     return [
         node
-        for node in root.iter("p")
-        if is_rodo_node(node)
+        for node in root.iter("p", "div")
+        if node is not root
+        and not any(child.tag in BLOCKS for child in node)
+        and is_rodo_node(node)
         and not any(parent.tag in ("ul", "ol") for parent in node.iterancestors())
     ]
 
@@ -106,7 +112,9 @@ def keep_rodo_clause(previous_html: Optional[str], incoming_html: str) -> str:
     if not found:
         kept.tail = None
         root.append(kept)
-    rebuilt = (root.text or "") + "".join(
+    # `root.text` to już zdekodowany tekst — bez ponownego zakodowania encje
+    # sprzed pierwszego bloku wróciłyby jako znaczniki.
+    rebuilt = html_lib.escape(root.text or "", quote=False) + "".join(
         lxml_html.tostring(child, encoding="unicode") for child in root
     )
     # Treść przeszła przez drugi parser — sanitizer ma ostatnie słowo.
