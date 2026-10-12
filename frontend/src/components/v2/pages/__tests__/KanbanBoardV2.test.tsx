@@ -359,6 +359,12 @@ function renderBoard(
   );
 }
 
+// Szkic notatki z doku żyje w `sessionStorage` (12.10.2026) — nie może
+// przechodzić między testami.
+beforeEach(() => {
+  sessionStorage.clear();
+});
+
 describe("KanbanBoardV2 — karta: odznaki zamiast bramek (17.09.2026)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1012,7 +1018,9 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     await screen.findByTestId("dl-review-panel");
     await userEvent.click(screen.getByRole("button", { name: "zamknij przegląd" }));
     const back = await screen.findByRole("complementary", { name: "Panel osoby" });
-    expect(within(back).getByPlaceholderText(/Dodaj notatkę/)).toHaveValue("Zadzwonić po 15");
+    // Ten sam węzeł pola: sama wartość wróciłaby też ze szkicu po odmontowaniu.
+    expect(within(back).getByPlaceholderText(/Dodaj notatkę/)).toBe(note);
+    expect(note).toHaveValue("Zadzwonić po 15");
   });
 
   it("przegląd z Tablicy dostaje wiersz z serwera (CV po QC, kto zweryfikował)", async () => {
@@ -2407,10 +2415,35 @@ describe("KanbanBoardV2 — „Rozwiń”: pełne narzędzia w tym samym panelu 
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => expect(panel).not.toHaveAttribute("data-wide"));
     expect(screen.getByTestId("dock-sections")).toBeVisible();
-    expect(within(panel).getByPlaceholderText(/Dodaj notatkę/)).toHaveValue("Oddzwonić");
+    // Ten sam węzeł pola: sama wartość wróciłaby też ze szkicu po odmontowaniu.
+    expect(within(panel).getByPlaceholderText(/Dodaj notatkę/)).toBe(note);
+    expect(note).toHaveValue("Oddzwonić");
 
     await userEvent.click(within(panel).getByRole("button", { name: "Rozwiń" }));
     expect(screen.getByLabelText("pole warsztatu")).toHaveValue("215 zł/h");
+  });
+
+  it("Esc zamyka najpierw duże okno notatki — rozwinięcie i panel zostają", async () => {
+    renderWithWorkbench();
+    const link = await screen.findByRole("link", { name: "Anna Kowalska" });
+    fireEvent.click(link.closest("[data-kanban-card]") as HTMLElement);
+    const panel = await screen.findByRole("complementary", { name: "Panel osoby" });
+    fireEvent.click(within(panel).getByRole("button", { name: "Rozwiń" }));
+    const note = within(panel).getByPlaceholderText(/Dodaj notatkę/);
+    // `fireEvent`, nie pisanie znak po znaku: test sprawdza warstwy Esc, a ciężka
+    // tablica na wolnym runnerze nie mieści dziewięciu klawiszy w limicie testu.
+    fireEvent.change(note, { target: { value: "Oddzwonić" } });
+    fireEvent.click(within(panel).getByRole("button", { name: "Powiększ pole notatki" }));
+    expect(screen.getByTestId("dock-body")).not.toBeVisible();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.getByTestId("dock-body")).toBeVisible());
+    expect(panel).toHaveAttribute("data-wide");
+    expect(note).toHaveValue("Oddzwonić");
+
+    // Drugi Esc działa jak dotąd: zwija rozwinięte narzędzia.
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(panel).not.toHaveAttribute("data-wide"));
   });
 
   it("stary link `?candidate=&panel=` otwiera panel od razu rozwinięty na zakładce", async () => {

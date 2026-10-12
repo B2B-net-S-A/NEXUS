@@ -206,6 +206,7 @@ Formularz i widok screeningu, karta rekomendacji, rodzaje notatek, wzmianki, „
 - `karta-rekomendacji-z-notatki-i-uloz-w-zdanie.md` — Karta rekomendacji z notatki i „Ułóż w zdanie” (0421, 06.10.2026)
 - `notatki-przypiecie-odpowiedzi-automaty-bez-notatek.md` — Notatki: przypięcie, odpowiedzi, automaty bez notatek (0399, 29.09.2026)
 - `podsumowanie-aktywnosci-kandydata-ai.md` — Podsumowanie aktywności kandydata (AI)
+- `pole-notatki-rosnie-duze-okno-szkic.md` — Pole notatki: rośnie z tekstem, duże okno pisania, szkic (12.10.2026) · trzy stany pola na dole panelu osoby, klawisze (Enter w dużym oknie = nowa linia), szkic w sessionStorage i jego czyszczenie, lista „@” przy linii kursora, czaty bez rośnięcia
 - `rodzaj-notatki-co-czyta-ai-wyszukiwanie-i-rekruter.md` — Rodzaj notatki — co czyta AI, wyszukiwanie i rekruter (0412, 03.10.2026)
 - `screening-wybor-gotowego-cv-z-profilu-i-edycja.md` — Screening: wybór gotowego CV z profilu i edycja (09.10.2026)
 - `stawka-od-i-historia-stawek-kandydata.md` — „Stawka od” i historia stawek kandydata (0414, 04.10.2026)

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  chooseCaretPlacement,
   choosePopupPlacement,
   findMentionToken,
   matchMentionUsers,
@@ -73,5 +74,36 @@ describe("choosePopupPlacement", () => {
   it("mało miejsca po obu stronach → większa strona, lista przewijana", () => {
     expect(choosePopupPlacement(200, 150, 264)).toEqual({ side: "above", maxHeight: 192 });
     expect(choosePopupPlacement(0, 0, 264)).toEqual({ side: "below", maxHeight: 120 });
+  });
+});
+
+describe("chooseCaretPlacement", () => {
+  // Duże okno notatki: pole 440 px, nad nim 180 px (pasek osoby), pod nim 50 px.
+  it("kursor u góry wysokiego pola → lista pod linią z „@”", () => {
+    expect(chooseCaretPlacement(180, 50, 440, 10, 22, 264)).toEqual({
+      side: "below",
+      maxHeight: 264,
+      offset: 32,
+    });
+  });
+
+  it("kursor u dołu wysokiego pola → lista nad linią, w obrębie pola", () => {
+    expect(chooseCaretPlacement(180, 50, 440, 400, 22, 264)).toEqual({
+      side: "above",
+      maxHeight: 264,
+      offset: 40,
+    });
+  });
+
+  it("pole na 10 linii przy dolnej krawędzi panelu → nad linią, nie nad całym polem", () => {
+    // Kursor w 9. linii pola 218 px; pod polem tylko rząd przycisków.
+    const placement = chooseCaretPlacement(300, 44, 218, 169, 20, 264);
+    expect(placement.side).toBe("above");
+    expect(placement.offset).toBe(49);
+  });
+
+  it("linia przewinięta poza pole trzyma listę przy jego krawędzi", () => {
+    expect(chooseCaretPlacement(180, 50, 440, -30, 22, 264).offset).toBe(22);
+    expect(chooseCaretPlacement(180, 50, 440, 900, 22, 264).offset).toBe(22);
   });
 });
