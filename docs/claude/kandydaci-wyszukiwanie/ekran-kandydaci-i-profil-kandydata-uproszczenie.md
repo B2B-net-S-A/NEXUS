@@ -18,7 +18,8 @@ trzy tryby z 21.09 (Baza / Wyszukiwanie / Z treści requestu).
   „Słowa kluczowe (N)”). Rząd 2: przyciski z okienkami
   (Radix Popover) — Stawka · Lokalizacja (miasto z podpowiedziami, promień w km,
   województwa; tekst wpisany tuż przed zamknięciem okienka zapisuje cleanup
-  `LocationFields`) · Tryb pracy | Historia z nami (brał udział w rekrutacji,
+  `LocationFields`) · Tryb pracy | Historia z nami (blok „Rekrutacje”: brał /
+  nie brał udziału, bez procesu w toku — osobna reguła „Blok „Rekrutacje”…”;
   etap, wysłany do klienta, pracował u klienta, KONTAKT z kandydatem w okresie
   i przez kogo) · Umiejętności · Dostępność (jedno pytanie „Czy można go teraz
   zaproponować?” — `lib/candidate-availability-choice.ts` ustawia
@@ -150,8 +151,9 @@ trzy tryby z 21.09 (Baza / Wyszukiwanie / Z treści requestu).
   NIGDY z adresu strony rekrutacji. Osoby już w rekrutacji ukrywa zapytanie
   (`recruitment_match=not_assigned`, `candidatesListFiltersForQuery`) — poza
   chipami i „Wyczyść”; te same filtry idą do podglądu i linku profilu, a
-  filtr „Brał udział w rekrutacji” jest tu zablokowany zdaniem
-  (`recruitmentFilterLocked`), bo zapytanie i tak by go nadpisało. Dochodzi kolumna „Dop.” (`jobOnly`, osobny klucz
+  wybór rekrutacji w bloku „Rekrutacje” jest tu zablokowany zdaniem
+  (`recruitmentFilterLocked`), bo zapytanie i tak by go nadpisało — same opcje
+  („Bez procesu w toku” itd.) zostają. Dochodzi kolumna „Dop.” (`jobOnly`, osobny klucz
   kolumn `candidates-table-job-search`, telefon domyślnie schowany, żeby
   „Dodaj” mieściło się w oknie), a „Dodaj” / „Dodaj N do Nowych” woła
   `proposals/bulk` ze źródłem `manual_search`. Świadomie odpadły: przypięte

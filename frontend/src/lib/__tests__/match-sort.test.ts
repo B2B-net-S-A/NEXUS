@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_FILTERS, decodeFilters, effectiveSort, encodeFilters } from "@/lib/url-filters";
+import {
+  DEFAULT_FILTERS,
+  decodeFilters,
+  effectiveSort,
+  encodeFilters,
+  type CandidateFilters,
+} from "@/lib/url-filters";
 
 const base = { ...DEFAULT_FILTERS };
 
@@ -19,6 +25,27 @@ describe("kolejność „Dopasowanie” (sort=match, decyzja 25.09.2026)", () =>
     expect(effectiveSort({ ...base, recruitmentIds: [7], recruitmentMatch: "assigned" })).toBe(
       "newest",
     );
+  });
+
+  it("zakres klienta to filtr listy, nie okno rekrutacji — bez dopasowania do niej", () => {
+    expect(
+      effectiveSort({
+        ...base,
+        recruitmentIds: [7],
+        recruitmentClientIds: [3],
+        recruitmentMatch: "not_assigned",
+      }),
+    ).toBe("newest");
+  });
+
+  it("tryb bez zakresu nie wyłącza dopasowania w oknie rekrutacji", () => {
+    const inJobWindow: CandidateFilters = {
+      ...base,
+      recruitmentIds: [7],
+      recruitmentMatch: "not_assigned",
+      recruitmentPresence: "not_in_process",
+    };
+    expect(effectiveSort(inJobWindow)).toBe("match");
   });
 
   it("wpisany tekst wygrywa (trafność), jawne „Najnowsi” wygrywa zawsze", () => {

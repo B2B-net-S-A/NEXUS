@@ -79,6 +79,7 @@ from app.models.activity import Activity
 from app.models.invite_link import CandidateInviteLink
 from app.models.user_activity import UserActivity, UserActionType
 from app.models.note import SYSTEM_NOTE_SOURCE, Note
+from app.services import candidate_recruitment_filter as recruitment_filter
 from app.services import note_kinds
 from app.services.keyword_terms import KeywordTooShort
 from app.models.notification import Notification, NotificationType
@@ -341,6 +342,11 @@ class CandidateFilterSpec(BaseModel):
     worked_at_client_id: Optional[list[int]] = None
     recruitment_id: Optional[list[int]] = None
     recruitment_match: Literal["assigned", "not_assigned"] = "assigned"
+    # Blok „Rekrutacje” (12.10.2026): zakres „wszystkie rekrutacje klienta”
+    # (LUB z `recruitment_id`, kierunek z `recruitment_match`) oraz pytania bez
+    # zakresu — był / nie był w jakiejkolwiek rekrutacji, nie ma procesu w toku.
+    recruitment_client_id: Optional[list[int]] = None
+    recruitment_presence: Optional[Literal["never", "ever", "not_in_process"]] = None
     recently_changed_jobs: Optional[int] = Field(None, ge=1, le=3)
     open_to: Optional[list[str]] = None
     q_all: Optional[list[str]] = None
@@ -1302,20 +1308,14 @@ async def _build_candidate_filtered_query(
         query = query.where(_current_title_predicate(f.current_title))
     if f.worked_at_client_id:
         query = query.where(_worked_at_client_predicate(f.worked_at_client_id))
-    if f.recruitment_id:
-        in_recruitment = (
-            select(1)
-            .where(
-                and_(
-                    CandidateStage.candidate_id == Candidate.id,
-                    CandidateStage.job_id.in_(f.recruitment_id),
-                )
-            )
-            .exists()
-        )
-        query = query.where(
-            ~in_recruitment if f.recruitment_match == "not_assigned" else in_recruitment
-        )
+    recruitment_scope = recruitment_filter.scope_clause(
+        f.recruitment_id, f.recruitment_client_id, f.recruitment_match
+    )
+    if recruitment_scope is not None:
+        query = query.where(recruitment_scope)
+    recruitment_presence = recruitment_filter.presence_clause(f.recruitment_presence)
+    if recruitment_presence is not None:
+        query = query.where(recruitment_presence)
     if f.recently_changed_jobs in (1, 2, 3):
         cutoff = datetime.now(timezone.utc) - timedelta(
             days=30 * f.recently_changed_jobs
@@ -1365,8 +1365,12 @@ async def _build_candidate_filtered_query(
         # liczyła osoby, które są „Nowe” gdziekolwiek indziej, i nie zgadzała
         # się z kolumną kanbanu tej rekrutacji. Nie przełącza trybu na
         # historyczny — to zawężenie pary, nie filtr ruchu.
-        if f.recruitment_id and f.recruitment_match != "not_assigned":
-            predicates.append(job_id_col.in_(f.recruitment_id))
+        if f.recruitment_match != "not_assigned":
+            in_scope = recruitment_filter.job_in_scope(
+                job_id_col, f.recruitment_id, f.recruitment_client_id
+            )
+            if in_scope is not None:
+                predicates.append(in_scope)
         return predicates
 
     has_move_filter = bool(
@@ -2167,7 +2171,26 @@ async def list_candidates(
         description=(
             "Direction for `recruitment_id`: `assigned` (in the pipeline of any "
             "selected recruitment) or `not_assigned` (in none of them). Ignored "
-            "when `recruitment_id` is empty."
+            "when both `recruitment_id` and `recruitment_client_id` are empty."
+        ),
+    ),
+    recruitment_client_id: Optional[list[int]] = Query(
+        None,
+        description=(
+            "Scope by client: every recruitment of these clients (any status, "
+            "including ones created later). OR-combined with `recruitment_id` "
+            "into one scope; `recruitment_match` decides the direction."
+        ),
+    ),
+    recruitment_presence: Optional[str] = Query(
+        None,
+        pattern="^(never|ever|not_in_process)$",
+        description=(
+            "Recruitment history without naming a recruitment: `never` (no "
+            "`candidate_stages` row at all), `ever` (at least one), "
+            "`not_in_process` (no pair whose latest stage is non-terminal on a "
+            "non-closed recruitment — the rule of the list's process column). "
+            "Combines with the scope filter by AND."
         ),
     ),
     recently_changed_jobs: Optional[int] = Query(
@@ -2487,6 +2510,8 @@ async def list_candidates(
         worked_at_client_id=worked_at_client_id,
         recruitment_id=recruitment_id,
         recruitment_match=recruitment_match,
+        recruitment_client_id=recruitment_client_id,
+        recruitment_presence=recruitment_presence,
         recently_changed_jobs=recently_changed_jobs,
         open_to=open_to,
         q_all=q_all,

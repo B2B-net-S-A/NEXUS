@@ -22,6 +22,11 @@ export type SkillCombine = "and" | "or";
 export type RemoteMode = "remote" | "hybrid" | "onsite";
 export type CandidatesView = "list" | "tiles";
 export type RecruitmentMatch = "assigned" | "not_assigned";
+/**
+ * Pytanie o rekrutacje BEZ wskazywania którejkolwiek: `ever` był w jakiejś,
+ * `never` w żadnej, `not_in_process` nie ma dziś procesu w toku. `""` = brak.
+ */
+export type RecruitmentPresence = "" | "never" | "ever" | "not_in_process";
 export type RecentlyChangedJobs = 1 | 2 | 3 | null;
 
 export type CandidateStatusFilter = "active" | "passive" | "blacklisted";
@@ -150,6 +155,13 @@ export interface CandidateFilters {
   // `recr` (CSV ids) + `recr_mode` (zapisywane tylko dla `not_assigned`).
   recruitmentIds: number[];
   recruitmentMatch: RecruitmentMatch;
+  // Blok „Rekrutacje” (12.10.2026). `recruitmentClientIds` = „wszystkie
+  // rekrutacje klienta” — razem z `recruitmentIds` tworzy JEDEN zakres (LUB),
+  // kierunek niesie `recruitmentMatch`. `recruitmentPresence` pyta bez zakresu.
+  // Tryb widoczny na ekranie wylicza `lib/recruitment-filter.ts`; te pola
+  // zapisuj jego łatkami, nie ręcznie. W URL `recr_cl` (CSV) i `recr_p`.
+  recruitmentClientIds: number[];
+  recruitmentPresence: RecruitmentPresence;
   // Lata doświadczenia — inclusive numeric band (years of IT experience).
   // `null` on either side means that bound is open. The backend matches against
   // a derived per-candidate interval (exact `years_it_experience` or the coarse
@@ -268,6 +280,8 @@ export const DEFAULT_FILTERS: CandidateFilters = {
   workedAtClientIds: [],
   recruitmentIds: [],
   recruitmentMatch: "assigned",
+  recruitmentClientIds: [],
+  recruitmentPresence: "",
   experienceMin: null,
   experienceMax: null,
   rateMin: null,
@@ -337,6 +351,14 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const parseIsoDate = (raw: string | null): string =>
   raw && ISO_DATE.test(raw) ? raw : "";
 
+const RECRUITMENT_PRESENCE_VALUES: ReadonlySet<string> = new Set([
+  "never",
+  "ever",
+  "not_in_process",
+]);
+const parseRecruitmentPresence = (raw: string | null): RecruitmentPresence =>
+  raw && RECRUITMENT_PRESENCE_VALUES.has(raw) ? (raw as RecruitmentPresence) : "";
+
 // Skill boolean expression. New URLs carry `skills_q` verbatim. Legacy URLs /
 // saved searches stored a flat `skills` CSV plus a `skill_combine` of `and`/`or`
 // — reconstruct an equivalent expression (`a AND b` / `a OR b`) so old shares
@@ -384,10 +406,16 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
   if (f.currentTitle.length) p.set("title", PIPE(f.currentTitle));
   if (f.tags.length) p.set("tags", PIPE(f.tags));
   if (f.workedAtClientIds.length) p.set("client_hist", CSV(f.workedAtClientIds));
-  if (f.recruitmentIds.length) {
-    p.set("recr", CSV(f.recruitmentIds));
-    if (f.recruitmentMatch !== "assigned") p.set("recr_mode", f.recruitmentMatch);
+  if (f.recruitmentIds.length) p.set("recr", CSV(f.recruitmentIds));
+  // Kierunek ma znaczenie przy każdym zakresie — także gdy to sam klient.
+  if (
+    (f.recruitmentIds.length || f.recruitmentClientIds.length) &&
+    f.recruitmentMatch !== "assigned"
+  ) {
+    p.set("recr_mode", f.recruitmentMatch);
   }
+  if (f.recruitmentClientIds.length) p.set("recr_cl", CSV(f.recruitmentClientIds));
+  if (f.recruitmentPresence) p.set("recr_p", f.recruitmentPresence);
   if (f.experienceMin !== null) p.set("exp_min", String(f.experienceMin));
   if (f.experienceMax !== null) p.set("exp_max", String(f.experienceMax));
   if (f.rateMin !== null) p.set("rate_min", String(f.rateMin));
@@ -506,6 +534,8 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
     recruitmentIds: parseCsvInt(sp.get("recr")),
     recruitmentMatch:
       sp.get("recr_mode") === "not_assigned" ? "not_assigned" : "assigned",
+    recruitmentClientIds: parseCsvInt(sp.get("recr_cl")),
+    recruitmentPresence: parseRecruitmentPresence(sp.get("recr_p")),
     experienceMin: parseYearBound(sp.get("exp_min")),
     experienceMax: parseYearBound(sp.get("exp_max")),
     rateMin: parseRateBound(sp.get("rate_min")),
@@ -722,9 +752,14 @@ export function filtersToApiParams(
     // Mode only matters with a selection, and only `not_assigned` flips the
     // default — omit otherwise so the API call stays minimal.
     recruitment_match:
-      filters.recruitmentIds.length && filters.recruitmentMatch !== "assigned"
+      (filters.recruitmentIds.length || filters.recruitmentClientIds.length) &&
+      filters.recruitmentMatch !== "assigned"
         ? filters.recruitmentMatch
         : undefined,
+    recruitment_client_id: filters.recruitmentClientIds.length
+      ? filters.recruitmentClientIds
+      : undefined,
+    recruitment_presence: filters.recruitmentPresence || undefined,
     min_experience: filters.experienceMin ?? undefined,
     max_experience: filters.experienceMax ?? undefined,
     min_rate: filters.rateMin ?? undefined,
@@ -785,15 +820,24 @@ export function keywordCount(
 }
 
 type SortContext = Pick<CandidateFilters, "q" | "sort" | "sortExplicit"> &
-  Partial<Pick<CandidateFilters, "qAll" | "qAny" | "recruitmentIds" | "recruitmentMatch">>;
+  Partial<
+    Pick<
+      CandidateFilters,
+      "qAll" | "qAny" | "recruitmentIds" | "recruitmentMatch" | "recruitmentClientIds"
+    >
+  >;
 
 /**
  * Czy jest z czym porównać kandydatów dla kolejności „Dopasowanie”: okno
  * „Szukaj ręcznie” (jedna rekrutacja, osoby spoza niej) albo wiersze wymagań.
  */
 export function matchSortAvailable(filters: SortContext): boolean {
+  // Zakres klienta to filtr listy, nie okno rekrutacji (lustro
+  // `candidate_match_order.job_scope`).
   const jobScope =
-    (filters.recruitmentIds?.length ?? 0) === 1 && filters.recruitmentMatch === "not_assigned";
+    (filters.recruitmentIds?.length ?? 0) === 1 &&
+    filters.recruitmentMatch === "not_assigned" &&
+    (filters.recruitmentClientIds?.length ?? 0) === 0;
   return jobScope || cleanRows(requirementRows(filters.qAll ?? [], filters.qAny ?? [])).length > 0;
 }
 
@@ -943,6 +987,8 @@ export type TraffitExtraFilters = Pick<
   | "contactedFrom"
   | "contactedTo"
   | "contactedByIds"
+  | "recruitmentClientIds"
+  | "recruitmentPresence"
 >;
 
 const TRAFFIT_EXTRA_KEYS = [
@@ -953,6 +999,8 @@ const TRAFFIT_EXTRA_KEYS = [
   "contactedFrom",
   "contactedTo",
   "contactedByIds",
+  "recruitmentClientIds",
+  "recruitmentPresence",
 ] as const satisfies ReadonlyArray<keyof TraffitExtraFilters>;
 
 export function pickTraffitExtras(filters: CandidateFilters): TraffitExtraFilters {
@@ -964,6 +1012,8 @@ export function pickTraffitExtras(filters: CandidateFilters): TraffitExtraFilter
     contactedFrom: filters.contactedFrom,
     contactedTo: filters.contactedTo,
     contactedByIds: filters.contactedByIds,
+    recruitmentClientIds: filters.recruitmentClientIds,
+    recruitmentPresence: filters.recruitmentPresence,
   };
 }
 

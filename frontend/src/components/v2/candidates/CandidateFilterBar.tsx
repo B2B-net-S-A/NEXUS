@@ -71,7 +71,15 @@ import { AddedByMultiSelect } from "@/components/v2/filters/AddedByMultiSelect";
 import { CompanyAutocomplete } from "@/components/v2/filters/CompanyAutocomplete";
 import { TAG_SUGGEST_ENDPOINT } from "@/lib/api/candidateTags";
 import { ClientMultiSelect } from "@/components/v2/filters/ClientMultiSelect";
-import { RecruitmentMultiSelect } from "@/components/v2/filters/RecruitmentMultiSelect";
+import { RecruitmentScopePicker } from "@/components/v2/filters/RecruitmentScopePicker";
+import {
+  hasRecruitmentScope,
+  patchForRecruitmentMode,
+  patchForRecruitmentScope,
+  recruitmentLocksStageFields,
+  recruitmentMode,
+  type RecruitmentMode,
+} from "@/lib/recruitment-filter";
 import { cleanRows, requirementRows } from "@/lib/keyword-requirements";
 import {
   StageFilterPanel,
@@ -115,7 +123,7 @@ export interface CandidateFilterBarProps {
   onSearch?: () => void;
   /**
    * „Szukaj ręcznie” z rekrutacji: zapytanie samo ukrywa osoby z tej
-   * rekrutacji, więc filtr „Brał udział w rekrutacji” byłby nadpisany —
+   * rekrutacji, więc wybór rekrutacji w bloku „Rekrutacje” byłby nadpisany —
    * zamiast udawać, że działa, pokazujemy zdanie wyjaśnienia.
    */
   recruitmentFilterLocked?: boolean;
@@ -437,6 +445,8 @@ export function CandidateFilterBar({
             onPatch({
               recruitmentIds: [],
               recruitmentMatch: "assigned",
+              recruitmentClientIds: [],
+              recruitmentPresence: "",
               sentToClientFrom: "",
               sentToClientTo: "",
               workedAtClientIds: [],
@@ -454,7 +464,7 @@ export function CandidateFilterBar({
               movedBefore: "",
             });
           }}
-          contentClassName="w-[420px] max-w-[calc(100vw-2rem)]"
+          contentClassName="w-[460px] max-w-[calc(100vw-2rem)]"
         >
           <HistoryFields
             filters={filters}
@@ -664,6 +674,96 @@ export function CandidateFilterBar({
   );
 }
 
+const RECRUITMENT_MODES: ReadonlyArray<{ value: RecruitmentMode; label: string }> = [
+  { value: "any", label: "Dowolnie" },
+  { value: "took_part", label: "Brał udział" },
+  { value: "did_not", label: "Nie brał udziału" },
+  { value: "idle", label: "Bez procesu w toku" },
+];
+
+/** Zdanie pod opcjami: co serwer zrozumie z bieżącego wyboru. */
+function recruitmentModeHint(mode: RecruitmentMode, scoped: boolean): string | null {
+  if (mode === "took_part") {
+    return scoped
+      ? "Osoby, które były w którejkolwiek z wybranych rekrutacji."
+      : "Osoby, które były w co najmniej jednej rekrutacji.";
+  }
+  if (mode === "did_not") {
+    return scoped
+      ? "Osoby, których nie ma w żadnej z wybranych rekrutacji."
+      : "Nigdy w żadnej rekrutacji — także zakończonej i z archiwum Traffita.";
+  }
+  if (mode === "idle") {
+    return "Nikt nie prowadzi z nimi teraz procesu — jak pusta kolumna „W procesie”.";
+  }
+  return null;
+}
+
+/**
+ * Blok „Rekrutacje”: najpierw „brał / nie brał”, potem — jeśli trzeba — które
+ * rekrutacje (kolejność jak w Traffit). Bez wskazania rekrutacji pytanie
+ * dotyczy wszystkich. `locked` = okno „Szukaj ręcznie”: zakres („nie w tej
+ * rekrutacji”) dokłada tam zapytanie, więc listy rekrutacji nie ma.
+ */
+function RecruitmentFields({
+  filters,
+  onPatch,
+  locked,
+}: {
+  filters: CandidateFilters;
+  onPatch: (patch: Partial<CandidateFilters>) => void;
+  locked: boolean;
+}) {
+  const titleId = useId();
+  const mode = recruitmentMode(filters, locked);
+  const hint = recruitmentModeHint(mode, !locked && hasRecruitmentScope(filters));
+  return (
+    <div className="space-y-1.5">
+      <p id={titleId} className="text-xs text-muted-foreground">
+        Rekrutacje
+      </p>
+      <div role="radiogroup" aria-labelledby={titleId} className="flex flex-wrap gap-1.5">
+        {RECRUITMENT_MODES.map((option) => {
+          const checked = mode === option.value;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              role="radio"
+              aria-checked={checked}
+              onClick={() => onPatch(patchForRecruitmentMode(option.value, filters, locked))}
+              className={cn(
+                "rounded-full border px-2.5 py-0.5 text-xs transition-colors",
+                checked
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border bg-card text-foreground hover:bg-accent",
+              )}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+      {!locked && (mode === "took_part" || mode === "did_not") && (
+        <RecruitmentScopePicker
+          recruitmentIds={filters.recruitmentIds}
+          clientIds={filters.recruitmentClientIds}
+          onChange={(recruitmentIds, clientIds) =>
+            onPatch(patchForRecruitmentScope(recruitmentIds, clientIds, filters))
+          }
+        />
+      )}
+      {hint && <p className="text-[11px] leading-4 text-muted-foreground">{hint}</p>}
+      {locked && (
+        <p className="text-xs text-muted-foreground" data-testid="recruitment-filter-locked">
+          Tu szukasz do tej rekrutacji — osoby, które już w niej są, są ukryte.
+          Wybór konkretnych rekrutacji jest na liście Kandydatów.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function HistoryFields({
   filters,
   onPatch,
@@ -677,75 +777,47 @@ function HistoryFields({
   onStageChange: (patch: Partial<StageFilterValue>) => void;
   recruitmentFilterLocked?: boolean;
 }) {
+  const stageLocked = recruitmentLocksStageFields(filters);
   return (
     <div className="space-y-3">
       <p className="text-[11px] text-muted-foreground">
         Poprzednie rekrutacje, etapy i klienci, u których kandydat był.
       </p>
-      <div className="space-y-1">
-        <FieldLabel>Brał udział w rekrutacji</FieldLabel>
-        {recruitmentFilterLocked ? (
-          <p className="text-xs text-muted-foreground" data-testid="recruitment-filter-locked">
-            Tu szukasz do tej rekrutacji — osoby, które już w niej są, są ukryte.
-            Filtr po innych rekrutacjach jest na liście Kandydatów.
-          </p>
-        ) : (
-        <RecruitmentMultiSelect
-          value={filters.recruitmentIds}
-          onChange={(v) => onPatch({ recruitmentIds: v })}
-        />
-        )}
-        {!recruitmentFilterLocked && filters.recruitmentIds.length > 0 && (
-          <div className="flex gap-1.5 pt-1">
-            {(
-              [
-                { value: "assigned", label: "Przypisani" },
-                { value: "not_assigned", label: "Nieprzypisani" },
-              ] as const
-            ).map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                aria-pressed={filters.recruitmentMatch === opt.value}
-                onClick={() => onPatch({ recruitmentMatch: opt.value })}
-                className={cn(
-                  "rounded-full border px-2.5 py-0.5 text-xs transition-colors",
-                  filters.recruitmentMatch === opt.value
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border bg-card text-foreground hover:bg-accent",
-                )}
-              >
-                {opt.label}
-              </button>
-            ))}
+      <RecruitmentFields filters={filters} onPatch={onPatch} locked={recruitmentFilterLocked} />
+      <div className={cn("space-y-3", stageLocked && "opacity-50")}>
+        <div className="space-y-1">
+          <FieldLabel>Etap w rekrutacji</FieldLabel>
+          <StageFilterPanel value={stage} onChange={onStageChange} disabled={stageLocked} />
+        </div>
+        <div className="space-y-1">
+          <FieldLabel>Wysłany do klienta</FieldLabel>
+          <div className="flex items-center gap-1.5">
+            <Input
+              type="date"
+              aria-label="Data wysłania do klienta — od"
+              value={filters.sentToClientFrom}
+              max={filters.sentToClientTo || undefined}
+              disabled={stageLocked}
+              onChange={(e) => onPatch({ sentToClientFrom: e.target.value })}
+              className="h-8 text-xs"
+            />
+            <Input
+              type="date"
+              aria-label="Data wysłania do klienta — do"
+              value={filters.sentToClientTo}
+              min={filters.sentToClientFrom || undefined}
+              disabled={stageLocked}
+              onChange={(e) => onPatch({ sentToClientTo: e.target.value })}
+              className="h-8 text-xs"
+            />
           </div>
-        )}
-      </div>
-      <div className="space-y-1">
-        <FieldLabel>Etap w rekrutacji</FieldLabel>
-        <StageFilterPanel value={stage} onChange={onStageChange} />
-      </div>
-      <div className="space-y-1">
-        <FieldLabel>Wysłany do klienta</FieldLabel>
-        <div className="flex items-center gap-1.5">
-          <Input
-            type="date"
-            aria-label="Data wysłania do klienta — od"
-            value={filters.sentToClientFrom}
-            max={filters.sentToClientTo || undefined}
-            onChange={(e) => onPatch({ sentToClientFrom: e.target.value })}
-            className="h-8 text-xs"
-          />
-          <Input
-            type="date"
-            aria-label="Data wysłania do klienta — do"
-            value={filters.sentToClientTo}
-            min={filters.sentToClientFrom || undefined}
-            onChange={(e) => onPatch({ sentToClientTo: e.target.value })}
-            className="h-8 text-xs"
-          />
         </div>
       </div>
+      {stageLocked && (
+        <p className="rounded-md bg-muted px-2.5 py-2 text-[11px] leading-4 text-muted-foreground">
+          Etap i data wysłania są wyłączone — dotyczą osób, które były w rekrutacji.
+        </p>
+      )}
       <div className="space-y-1">
         <FieldLabel>Pracował u klienta</FieldLabel>
         <ClientMultiSelect
