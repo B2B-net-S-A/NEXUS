@@ -24,12 +24,18 @@ export function JobNotesList({
   notes,
   readOnly,
   emptyText = "Brak notatek dla tej rekrutacji.",
+  showRecruitment = false,
+  includeSystem = false,
 }: {
   candidateId: number;
   /** `items` z `GET /api/notes` (notatki główne z `replies`). */
   notes: readonly any[];
   readOnly: boolean;
   emptyText?: string;
+  /** Notatki z INNYCH rekrutacji (panel osoby): plakietka rekrutacji przy każdej. */
+  showRecruitment?: boolean;
+  /** Wpisy automatów od razu, bez „Pokaż systemowe” — filtr trzyma wołający. */
+  includeSystem?: boolean;
 }) {
   const currentUser = useAuthStore((s) => s.user);
   const { editNote, pinNote, replyToNote, deleteNote } = useNoteActions(
@@ -51,7 +57,9 @@ export function JobNotesList({
       canModerate={hasRole(currentUser, "admin")}
       readOnly={readOnly}
       emptyText={emptyText}
-      hideRecruitment
+      hideRecruitment={!showRecruitment}
+      hideRecruitmentFilter
+      includeSystem={includeSystem}
     />
   );
 }

@@ -507,10 +507,14 @@ function PipelineV4Harness() {
   useMemo(() => {
     for (const column of cols) {
       for (const item of column.items) {
-        client.setQueryData([...candidateQueryKeys.notes(item.candidate_id), JOB_ID], {
+        // 12.10.2026: dok czyta WSZYSTKIE notatki osoby i sam wybiera te z tej
+        // rekrutacji (`job_id`). Znacznik dzień w przód — zapytanie ma własny
+        // `staleTime`, a harness nie ma sieci.
+        client.setQueryData(candidateQueryKeys.notes(item.candidate_id), {
           items: [
             {
               id: item.candidate_id,
+              job_id: JOB_ID,
               author_id: 3,
               author_name: "Ola Rekruterka",
               created_at: "2026-09-12T09:30:00Z",
@@ -531,6 +535,7 @@ function PipelineV4Harness() {
             },
             {
               id: 200_000 + item.candidate_id,
+              job_id: JOB_ID,
               author_id: null,
               author_name: null,
               created_at: "2026-09-10T07:00:00Z",
@@ -541,7 +546,7 @@ function PipelineV4Harness() {
             },
           ],
           total: 2,
-        });
+        }, { updatedAt: Date.now() + 86_400_000 });
       }
     }
   }, [client, cols]);

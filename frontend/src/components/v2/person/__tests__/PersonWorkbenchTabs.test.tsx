@@ -6,7 +6,7 @@
  * wejście do ruchu”. Nagłówek, wybór etapu, „Odrzuć” i pole notatki są
  * w doku (jego testy), a „Rozwiń” / Esc — w testach Tablicy.
  */
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
@@ -176,8 +176,11 @@ describe("PersonWorkbenchTabs — zakładka z etapu i kontekst warsztatów", () 
   it("etap zamknięty otwiera „Notatki i historia”", async () => {
     renderTabs({ candidateId: 6 });
     expect(screen.getByRole("tab", { name: "Notatki i historia" })).toHaveAttribute("aria-selected", "true");
-    expect(await screen.findByText("Brak notatek w tej rekrutacji.")).toBeInTheDocument();
-    expect(mocks.apiGet).toHaveBeenCalledWith("/api/notes?candidate_id=6&job_id=42");
+    expect(await screen.findByText(/Jeszcze nic nie zapisano\./)).toBeInTheDocument();
+    // 12.10.2026: jedno zapytanie o WSZYSTKIE notatki osoby — podział na tę
+    // rekrutację i „Wcześniej u nas” liczy przeglądarka.
+    expect(mocks.apiGet).toHaveBeenCalledWith("/api/notes?candidate_id=6", expect.anything());
+    expect(mocks.apiGet.mock.calls.some(([url]) => String(url).includes("job_id="))).toBe(false);
     // Pole nowej notatki stoi na dole panelu, nie w zakładce.
     expect(screen.queryByLabelText("Nowa notatka")).toBeNull();
   });
@@ -186,7 +189,59 @@ describe("PersonWorkbenchTabs — zakładka z etapu i kontekst warsztatów", () 
     mocks.apiGet.mockRejectedValue(new Error("500"));
     renderTabs({ candidateId: 6 });
     expect(await screen.findByText(/Nie udało się wczytać: notatki/)).toBeInTheDocument();
-    expect(screen.queryByText("Brak notatek w tej rekrutacji.")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Jeszcze nic nie zapisano/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Nie ma wcześniejszych notatek/)).not.toBeInTheDocument();
+  });
+
+  it("licznik zakładki liczy notatki ludzi, a historia pokazuje prawdziwe ruchy tej osoby", async () => {
+    mocks.apiGet.mockImplementation((url: string) => {
+      if (url.startsWith("/api/notes")) {
+        return Promise.resolve({
+          data: {
+            items: [
+              { id: 1, job_id: 42, content: "Umówiony telefon.", author_name: "Anna Kowalczyk", created_at: "2026-10-12T08:00:00Z", group: "talks", replies: [] },
+              { id: 2, job_id: 7, job_title: "Analityk systemowy", content: "Feedback klienta.", author_name: "Piotr Wrona", created_at: "2025-04-02T09:40:00Z", group: "talks", replies: [] },
+              { id: 3, job_id: 7, content: "Auto-match 70/100.", is_system: true, group: "automat", created_at: "2025-03-01T00:00:00Z", replies: [] },
+            ],
+          },
+        });
+      }
+      if (url === "/api/pipeline/job/42/moves") {
+        return Promise.resolve({
+          data: {
+            total: 3,
+            items: [
+              { id: 12, candidate_id: 6, candidate_name: null, from_stage_name: "Nowi", to_stage_name: "Screening", moved_by_name: "Anna Kowalczyk", moved_at: "2026-10-12T08:42:00Z", source: "nexus" },
+              // Serwer sprzed filtra oddałby też cudze ruchy — panel ich nie pokazuje.
+              { id: 13, candidate_id: 99, candidate_name: null, from_stage_name: "Screening", to_stage_name: "Zweryfikowany", moved_by_name: "Ktoś Inny", moved_at: "2026-10-12T08:41:00Z", source: "nexus" },
+              { id: 11, candidate_id: 6, candidate_name: null, from_stage_name: null, to_stage_name: "Nowi", moved_by_name: null, moved_at: "2026-10-12T08:40:00Z", source: "traffit" },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: { items: [] } });
+    });
+    renderTabs({ candidateId: 6 });
+
+    // Dwie notatki ludzi (ta rekrutacja + wcześniejsza); wpis automatu się nie liczy.
+    expect(await screen.findByRole("tab", { name: /Notatki i historia\s*2/ })).toBeInTheDocument();
+    const history = screen.getByRole("region", { name: "Historia w rekrutacji" });
+    expect(await within(history).findByText("Nowi → Screening")).toBeInTheDocument();
+    expect(within(history).getByText("Dodany do rekrutacji · Nowi")).toBeInTheDocument();
+    expect(within(history).getByText("import z Traffita")).toBeInTheDocument();
+    expect(within(history).queryByText(/Zweryfikowany/)).toBeNull();
+    expect(within(history).queryByText("Ktoś Inny")).toBeNull();
+    expect(mocks.apiGet).toHaveBeenCalledWith(
+      "/api/pipeline/job/42/moves",
+      expect.objectContaining({ params: { candidate_id: 6, limit: 200 } }),
+    );
+  });
+
+  it("bez notatek zakładka nie dostaje licznika, a bez ruchów zostają fakty z karty", async () => {
+    renderTabs({ candidateId: 6 });
+    expect(screen.getByRole("tab", { name: "Notatki i historia" })).toBeInTheDocument();
+    const history = screen.getByRole("region", { name: "Historia w rekrutacji" });
+    expect(await within(history).findByText("Dodany do rekrutacji")).toBeInTheDocument();
   });
 
   it("zakładka z propsa wygrywa z etapem", () => {
