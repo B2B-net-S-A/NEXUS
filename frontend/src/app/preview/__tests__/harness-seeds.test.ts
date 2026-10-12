@@ -545,6 +545,47 @@ describe("/preview/cv-qc — okno QC CV bez sieci", () => {
   });
 });
 
+describe("/preview/cv-editor (Edytor CV 2) — edytor z pamięci, źródła z zasiewu, bez sieci", () => {
+  const harness = withoutComments(read("app/preview/cv-editor/page.tsx")).replace(/\s+/g, " ");
+
+  it("stan, zapis i pliki CV idą propsami, nie przez API", () => {
+    expect(harness).toContain("editorApi={editorApi}");
+    expect(harness).toContain("editorFiles={MEMORY_FILES}");
+    expect(harness).toContain("sourceLoaders={SOURCE_LOADERS}");
+  });
+
+  it("zasiewa klucze panelu źródeł tymi samymi funkcjami co komponenty", () => {
+    const sources = withoutComments(read("components/v2/cv-editor/CvEditorSources.tsx"));
+    expect(sources).toContain('queryKey: ["cv-original", stageId]');
+    expect(harness).toContain('setQueryData(["cv-original", STAGE_ID]');
+    const preview = withoutComments(read("components/v2/screening-form/CandidatePreviewPane.tsx"));
+    expect(preview).toContain("queryKey: candidateQueryKeys.cvDocuments(candidateId)");
+    expect(harness).toContain("setQueryData(candidateQueryKeys.cvDocuments(CANDIDATE_ID)");
+    expect(harness).toContain('setQueryData(["champion-profile", JOB_ID]');
+    expect(harness).toContain("setQueryData(plainBriefQueryKey(JOB_ID)");
+    const notes = withoutComments(read("components/v2/jobs/workbench-chrome.tsx"));
+    expect(notes).toContain("queryKey: jobNotesQueryKey(candidateId, jobId)");
+    expect(harness).toContain("setQueryData(jobNotesQueryKey(CANDIDATE_ID, JOB_ID)");
+  });
+
+  it("części edytora nie mają własnych stałych kluczy", () => {
+    for (const file of [
+      "components/v2/modals/CVBrandedEditModal.tsx",
+      "components/v2/cv-editor/CvEditorSources.tsx",
+      "components/v2/cv-editor/CvEditorSourcesPane.tsx",
+      "components/v2/cv-editor/CvEditorToolbar.tsx",
+      "components/v2/cv-editor/CvEditorWordPreview.tsx",
+    ]) {
+      expect(literalQueryKeys(read(file)), file).toEqual([]);
+    }
+  });
+
+  it("odcina sieć na czas życia harnessu", () => {
+    expect(harness).toContain("api.interceptors.request.use(");
+    expect(harness).toContain("api.interceptors.request.eject(");
+  });
+});
+
 describe("/preview/cpro-queue zasiewa każdy stały klucz", () => {
   const harness = withoutComments(read("app/preview/cpro-queue/page.tsx")).replace(/\s+/g, " ");
 
