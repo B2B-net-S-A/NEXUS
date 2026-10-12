@@ -1,6 +1,6 @@
 """Wiedza operacyjna o kliencie (Moduł 1, PR 1/7 — containment RBAC).
 
-Wpisy konsumują m.in. ai_writer, prep_kit i question_suggestions — zapis
+Wpisy konsumują m.in. prep_kit i question_suggestions — zapis
 kontroluje więc kontekst podawany AI. Wcześniej create/delete działały na
 samym ``CurrentUser``; teraz:
 

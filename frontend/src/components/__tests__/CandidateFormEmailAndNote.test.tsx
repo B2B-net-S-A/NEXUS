@@ -31,7 +31,6 @@ vi.mock("@/lib/api", () => ({
     patch: vi.fn(),
     delete: vi.fn(),
   },
-  aiWriterApi: {},
   candidateProfileApi: { updateLocation: vi.fn() },
   phase5Api: { clientsLookup: vi.fn() },
   pipelineTemplatesApi: { list: vi.fn() },

@@ -410,7 +410,7 @@ function ErrorBanner({ error }: { error: string }) {
  * Komunikat błędu do stanu typu string. Handlery w tym pliku czytały wprost
  * `err.response.data.detail`, a `detail` bywa NIE-STRINGIEM:
  *   - obiektem `{feature, reason, used, limit}` — 503 o wyczerpanej kwocie AI
- *     (`ai_writer.py`, jedno kliknięcie admina w Ustawienia → AI od tego stanu),
+ *     (bramka funkcji AI, jedno kliknięcie admina w Ustawienia → AI od tego stanu),
  *   - obiektem `{message, ...}` — konflikty domenowe,
  *   - tablicą `{msg, loc}` — 422 z Pydantica.
  * Taka wartość trafiała do stanu i była renderowana jako dziecko Reacta, co

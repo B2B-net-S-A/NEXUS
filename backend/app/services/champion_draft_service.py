@@ -13,8 +13,7 @@ Two review actions finalise the suggestion:
 
 Design notes
 ------------
-* All LLM calls go through :func:`_call_claude_json`, which mirrors the pattern
-  in `app/api/ai_writer.py::_generate_with_claude` but is generic (caller
+* All LLM calls go through :func:`_call_claude_json`, which is generic (caller
   supplies prompt + system prompt + model).
 * LLM output is validated against `ChampionProfile` schema — hallucinated
   fields raise ValidationError and the suggestion is persisted with

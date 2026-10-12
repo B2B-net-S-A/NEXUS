@@ -46,6 +46,7 @@ export type SettingsItemId =
   | "kpi-targets"
   | "mail"
   | "skills"
+  | "job-ad-blocks"
   | "roles"
   | "trainee-rules"
   | "contracts"
@@ -186,6 +187,13 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     keywords: "umiejetnosci skille technologie aliasy taksonomia slownik cortex",
     // `/api/skills-admin`: HeadOfRecruitmentPlus + zapis sekcji Sourcing.
     gate: { roles: ["admin", "head_of_recruitment"], section: "sourcing", required: "write" },
+  },
+  {
+    id: "job-ad-blocks", area: "rec", title: "Stałe części ogłoszenia",
+    description: "„Co oferujemy”, etapy procesu i dopisek do tytułu w ogłoszeniach na Pracuj.pl i JustJoin.IT.",
+    keywords: "ogloszenie pracuj justjoin jjit oferujemy benefity proces tytul dopisek stale bloki",
+    // `/api/job-ads/fixed-blocks`: HeadOfRecruitmentPlus + zapis sekcji Pipeline.
+    gate: { roles: ["admin", "head_of_recruitment"], section: "pipeline", required: "write" },
   },
   {
     id: "roles", area: "rec", title: "Biblioteka ról",

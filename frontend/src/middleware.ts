@@ -373,7 +373,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
 //   `/preview/cpro-queue`, `/preview/candidate-followup`,
 //   `/preview/kpi-targets`, `/preview/plain-brief`, `/preview/permissions`,
 //   `/preview/b2b-documents`, `/preview/b2b-generator`, `/preview/similar-reassign`,
-//   `/preview/job-team-panel`, `/preview/champion-workspace`,
+//   `/preview/job-team-panel`, `/preview/champion-workspace`, `/preview/job-ad`,
 //   `/preview/candidates-list` (publiczny przez prefiks `/preview/candidates`)
 //                — konkretne harnessy designu, po których może chodzić nightly
 //                  Playwright (`e2e/candidate-ux-preview.spec.ts`) bez sesji.
@@ -466,6 +466,7 @@ const PUBLIC_PATHS = [
   "/preview/kariera",
   "/preview/career-share",
   "/preview/candidate-merge",
+  "/preview/job-ad",
   "/preview/job-portals",
   "/preview/academy",
   "/preview/request-allocation",

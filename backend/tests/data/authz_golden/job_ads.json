@@ -21,7 +21,10 @@
   "recruiter+amounts_edit"
  ],
  "routes": {
-  "POST /api/ai/generate-job": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/ai/generate-job-description": "PPPPPPDDPPPPPPPPPPP"
+  "GET /api/job-ads/fixed-blocks": "PDPDDDDDDPDPDDDDDDD",
+  "GET /api/jobs/{job_id}/portal-ad": "PPPPPPDDPPPPPPPPPPP",
+  "POST /api/jobs/{job_id}/portal-ad/generate": "PPPPPPDDPPPPPPPPPPP",
+  "PUT /api/job-ads/fixed-blocks": "PDPDDDDDDPDPDDDDDDD",
+  "PUT /api/jobs/{job_id}/portal-ad": "PPPPPPDDPPPPPPPPPPP"
  }
 }

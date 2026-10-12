@@ -18,7 +18,7 @@ import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import { PipelineBoardGate } from "@/components/v2/jobs/PipelineBoardGate";
 import { EditJobModal } from "@/components/AppShell";
-import { AIJobWriterModal } from "@/components/v2/jobs/AIJobWriterModal";
+import { JobAdWindow } from "@/components/v2/job-ad/JobAdWindow";
 import { RequestStatusBadge } from "@/components/v2/jobs/JobListCells";
 import { CHAMPION_ROLES, requestStatusOf } from "@/lib/request-status";
 import { similarJobsApi } from "@/lib/similar-jobs-api";
@@ -186,7 +186,7 @@ export default function JobDetailPage() {
   const canOpenCandidateProfile = useCapability("nav.candidates");
   const canOpenMyPeople = useCapability("nav.my_people");
   const openMyPeople = useMyPeoplePanel((s) => s.openPanel);
-  const [showAIWriter, setShowAIWriter] = useState(false);
+  const [showJobAd, setShowJobAd] = useState(false);
   const [showEditJob, setShowEditJob] = useState(false);
   const [showInviteLink, setShowInviteLink] = useState(false);
   const [showAddCandidates, setShowAddCandidates] = useState(false);
@@ -634,12 +634,6 @@ export default function JobDetailPage() {
     }
   }, [job, id, openTab]);
 
-  const handleUseDescription = useCallback(async (description: string) => {
-    if (!canWritePipeline) return;
-    await api.patch(`/api/jobs/${id}`, { description });
-    await queryClient.invalidateQueries({ queryKey: ["job", id] });
-  }, [canWritePipeline, id, queryClient]);
-
   // 403 (brak uprawnień) i 5xx (awaria) NIE mogą udawać „nie znaleziono" —
   // to dokładnie ten wzorzec, przez który 403 na GET czytało się jako utratę
   // danych (audyt F-20).
@@ -696,7 +690,7 @@ export default function JobDetailPage() {
     canEditChampion && (championMode === "edit" || championEditorMounted);
   const onEdit = canEditJobContentFields ? () => setShowEditJob(true) : undefined;
   const onWriteAnnouncement = canEditJobContentFields
-    ? () => setShowAIWriter(true)
+    ? () => setShowJobAd(true)
     : undefined;
   const onGenerateInviteLink =
     canWritePipeline && job.status === "published" && canCreateInviteLink
@@ -859,12 +853,13 @@ export default function JobDetailPage() {
         />
       )}
 
-      {/* AI Writer Modal */}
-      {canEditJobContentFields && showAIWriter && (
-        <AIJobWriterModal
-          job={job}
-          onClose={() => setShowAIWriter(false)}
-          onUse={handleUseDescription}
+      {/* Ogłoszenie na portale (Pracuj.pl, JustJoin.IT) */}
+      {canEditJobContentFields && showJobAd && (
+        <JobAdWindow
+          jobId={jobId}
+          jobTitle={jobDisplayTitle(job)}
+          open
+          onClose={() => setShowJobAd(false)}
         />
       )}
 

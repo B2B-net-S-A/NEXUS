@@ -788,6 +788,9 @@ from app.models.recommendation_card import RecommendationCard  # noqa: F401
 from app.models.job_intake_form import JobIntakeForm  # noqa: F401
 from app.models.job_file import JobFile  # noqa: F401
 
+# 0430: ogłoszenie rekrutacji do wklejenia na portale.
+from app.models.job_ad import JobAd  # noqa: F401
+
 # 0418: zmiana stawki kandydata w trakcie procesu.
 from app.models.candidate_rate_change import CandidateRateChange  # noqa: F401
 
