@@ -100,6 +100,7 @@ export function CvEditorToolbar({ editor, language, disabled = false }: CvEditor
     },
   });
 
+  const kindLabel = view.kind ? KIND_LABELS[view.kind] : "—";
   const run = (command: CvCommand) => runCvCommand(editor, command);
   // Menu po zamknięciu oddaje fokus przyciskowi, a polecenie właśnie zaznaczyło
   // pole do wypełnienia — pisanie ma je zastąpić, więc fokus wraca do tekstu.
@@ -179,10 +180,12 @@ export function CvEditorToolbar({ editor, language, disabled = false }: CvEditor
             variant="ghost"
             size="sm"
             className="flex-none gap-1 px-2"
+            // Odstęp robi `gap`, więc bez etykiety czytnik sklejałby oba słowa.
+            aria-label={`Typ akapitu: ${kindLabel}`}
             disabled={disabled || view.kindLocked}
           >
             <span className="text-muted-foreground">Typ akapitu:</span>
-            {view.kind ? KIND_LABELS[view.kind] : "—"}
+            {kindLabel}
             <ChevronDown aria-hidden className="h-3.5 w-3.5" />
           </Button>
         </DropdownMenuTrigger>
