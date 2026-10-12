@@ -11,6 +11,7 @@ from app.models.recruitment_pipeline import (
     StageCategory,
     VerificationStatus,
 )
+from app.schemas.candidate import EmploymentMarker
 from app.schemas.candidate_contact import ContactCaseSummaryResponse
 
 
@@ -295,6 +296,10 @@ class CandidateStageResponse(BaseModel):
     # {id, number, contract_status, signature_status, created_at, signed_at,
     # signature_requested_at, contract_id}; brak = para bez umowy.
     agreement: Optional[dict] = None
+    # Znacznik „Pracuje u nas” (`services/employment_marker.py`); `elsewhere`
+    # liczone względem klienta tej rekrutacji. Pulpit „Moje następne kroki”
+    # go nie niesie (do 25 tablic w jednej odpowiedzi).
+    employment_marker: Optional[EmploymentMarker] = None
 
     model_config = {"from_attributes": True}
 

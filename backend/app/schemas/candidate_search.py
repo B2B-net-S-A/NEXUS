@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field, model_validator
 from pydantic_core import PydanticCustomError
 
 from app.models.candidate import AvailabilityStatus, CandidateStatus
+from app.schemas.candidate import EmploymentMarker
 from app.services.candidate_monthly_rate_retirement import (
     reject_retired_candidate_rate,
 )
@@ -245,6 +246,9 @@ class CandidateSearchItem(BaseModel):
     # hiring managera blokuje (``False``). ``None`` bez kontekstu rekrutacji
     # albo bez przeciwwskazań.
     eligibility: Optional[dict[str, Any]] = None
+    # Znacznik „Pracuje u nas” — zawsze; `elsewhere` tylko przy
+    # ``exclude_in_job_id`` i dostępie do tej rekrutacji.
+    employment_marker: Optional[EmploymentMarker] = None
     # v2: które AKTYWNE filtry („location", „experience", „rate") ta osoba
     # przeszła wyłącznie dlatego, że nie mamy o niej danych — do plakietki w UI.
     unknown_fields: list[str] = Field(default_factory=list)

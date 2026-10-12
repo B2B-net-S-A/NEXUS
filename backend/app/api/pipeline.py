@@ -119,6 +119,7 @@ from app.services.recruitment_process_commands import (
 from app.services.delivery_alert_recipients import load_delivery_alert_recipient_scope
 from app.services.pipeline_realtime import broadcast_pipeline_changed
 from app.core.scheduling import business_today
+from app.services.employment_marker import load_employment_markers
 from app.services.candidate_rate_from import (
     effective_currency_sql,
     effective_rate_sql,
@@ -2350,6 +2351,7 @@ async def build_kanban_view(
     *,
     viewer: Optional[User] = None,
     with_followups: bool = True,
+    with_employment: bool = True,
 ) -> KanbanView:
     """The board of ``job`` — shared by ``/kanban/{job_id}`` and ``/my-next-steps``.
 
@@ -2544,6 +2546,14 @@ async def build_kanban_view(
     agreements = await agreement_status_for_pairs(
         db, job_id=job_id, candidate_ids=candidate_ids
     )
+    # Znacznik „Pracuje u nas” — jedno zapytanie o źródła na tablicę.
+    employment_markers = (
+        await load_employment_markers(
+            db, candidate_ids, today=business_today(), job_client_id=job.client_id
+        )
+        if with_employment
+        else {}
+    )
     # 0348: wytypowani do wysłania do Cpro — ta sama paczka nazwisk.
     owner_ids |= {
         s.task_assignee_id for s in seen.values() if s.task_assignee_id is not None
@@ -2702,6 +2712,7 @@ async def build_kanban_view(
         if e.stage in HIRED_STAGES:
             payload["order_status"] = order_statuses.get((e.candidate_id, job_id))
         payload["agreement"] = agreements.get(e.candidate_id)
+        payload["employment_marker"] = employment_markers.get(e.candidate_id)
         v4 = v4_processes.get(e.candidate_id)
         if v4 is not None:
             payload["entry_source"] = v4.entry_source
@@ -2943,7 +2954,11 @@ async def my_next_steps(
                 # Follow-up (0372) liczy ~14 zapytań na tablicę — „Moje
                 # następne kroki” składa do 25 tablic, a plakietki nie pokazuje.
                 view=await build_kanban_view(
-                    db, job, viewer=current_user, with_followups=False
+                    db,
+                    job,
+                    viewer=current_user,
+                    with_followups=False,
+                    with_employment=False,
                 ),
             )
         )

@@ -630,6 +630,9 @@ class CandidateResponse(BaseModel):
     status: CandidateStatus
     availability_status: AvailabilityStatus = AvailabilityStatus.unknown
     employment: EmploymentInfo = EmploymentInfo(state=EmploymentState.unknown)
+    # Znacznik „Pracuje u nas” — lista, szczegóły i szybki podgląd; mutacje
+    # go nie liczą (front nie wkłada ich odpowiedzi do cache szczegółów).
+    employment_marker: Optional[EmploymentMarker] = None
     tags: Optional[Any]
     skills: Optional[Any]
     experience: Optional[Any]
@@ -865,6 +868,7 @@ class CandidateQuickViewCandidate(BaseModel):
     location: Optional[str] = None
     status: CandidateStatus
     employment: EmploymentInfo = EmploymentInfo(state=EmploymentState.unknown)
+    employment_marker: Optional[EmploymentMarker] = None
     competence_category_id: Optional[int] = None
     competence_category: Optional[str] = None
     skills: Optional[Any] = None
