@@ -16,6 +16,7 @@
  */
 
 import { createDocument } from "@tiptap/core";
+import { closeHistory } from "@tiptap/pm/history";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import type { EditorState, Transaction } from "@tiptap/pm/state";
 
@@ -188,6 +189,14 @@ export function findingsInCv(doc: PMNode, findings: readonly CvReviewFinding[]):
   return findings.filter((finding) => lineRange(doc, outline, finding.text) != null);
 }
 
+/**
+ * Czy zdanie z propozycji AI już stoi w CV. Liczone z treści, nie z pamięci
+ * panelu: po „Cofnij” propozycja wraca na listę sama.
+ */
+export function fixAlreadyInCv(doc: PMNode, fix: QcFix): boolean {
+  return lineRange(doc, cvOutline(doc), fix.proposed_text.replace(/\*\*/g, "")) != null;
+}
+
 export const REVIEW_FINDING_LABEL: Record<string, string> = {
   unsupported: "bez pokrycia w źródłach",
   contradicted: "sprzeczne ze źródłem",
@@ -244,6 +253,8 @@ export function bulkPlan(checks: readonly QcCheck[], fixes: readonly QcFix[]): B
 /**
  * Transakcja zamieniająca TYLKO zakres, którym nowa treść różni się od
  * bieżącej; `null`, gdy po wczytaniu do schematu edytora nic się nie zmienia.
+ * Zaczyna nowy krok historii: „Cofnij” zdejmuje samą poprawkę, a nie poprawkę
+ * razem z tym, co rekruter wpisał chwilę wcześniej.
  */
 export function changedRangeStep(state: EditorState, html: string): Transaction | null {
   const next = createDocument(html, state.schema);
@@ -258,7 +269,7 @@ export function changedRangeStep(state: EditorState, html: string): Transaction 
     endCurrent += overlap;
     endNext += overlap;
   }
-  return state.tr.replace(start, endCurrent, next.slice(start, endNext));
+  return closeHistory(state.tr.replace(start, endCurrent, next.slice(start, endNext)));
 }
 
 /** Zakres, który transakcja z `changedRangeStep` zostawiła w nowym dokumencie. */

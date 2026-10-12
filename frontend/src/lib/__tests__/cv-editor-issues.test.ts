@@ -7,6 +7,7 @@ import {
   changedRange,
   changedRangeStep,
   findingsInCv,
+  fixAlreadyInCv,
   issueMarks,
   locateTarget,
   termRanges,
@@ -251,6 +252,37 @@ describe("nałożenie wyniku serwera", () => {
     expect(textAt(editor, range)).not.toContain("Senior Developer");
     editor.commands.undo();
     expect(editor.getHTML()).toBe(before);
+  });
+
+  it("poprawka jest osobnym krokiem historii — „Cofnij” nie zabiera tekstu wpisanego tuż przed nią", () => {
+    const editor = open();
+    const at = editor.state.doc.content.size - CLAUSE.length - 3;
+    editor.commands.insertContentAt(at, " Dopisek.");
+    const typed = editor.getHTML();
+    expect(typed).toContain("Dopisek.");
+    editor.view.dispatch(changedRangeStep(editor.state, typed.replace("Dopisek.", "Dopisek i poprawka."))!);
+    editor.commands.undo();
+    expect(editor.getHTML()).toBe(typed);
+  });
+
+  it("propozycja AI znika z listy, gdy jej zdanie stoi w CV, i wraca po cofnięciu", () => {
+    const editor = open();
+    const fix = {
+      id: "f1",
+      check_key: "critical_skills",
+      requirement: "Kubernetes",
+      role: null,
+      current_text: "Przeglądy kodu.",
+      proposed_text: "Przeglądy kodu i wdrożenia na **Kubernetes**.",
+      source: "original" as const,
+      source_quote: null,
+    };
+    expect(fixAlreadyInCv(editor.state.doc, fix)).toBe(false);
+    const fixed = editor.getHTML().replace("Przeglądy kodu.", "Przeglądy kodu i wdrożenia na <strong>Kubernetes</strong>.");
+    editor.view.dispatch(changedRangeStep(editor.state, fixed)!);
+    expect(fixAlreadyInCv(editor.state.doc, fix)).toBe(true);
+    editor.commands.undo();
+    expect(fixAlreadyInCv(editor.state.doc, fix)).toBe(false);
   });
 
   it("dopisany taki sam punkt nie myli początku z końcem zmiany", () => {

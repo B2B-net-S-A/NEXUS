@@ -1075,6 +1075,35 @@ body:has(aside[data-person-panel][data-cover]:not([hidden])) [data-app-sidebar] 
   border-radius: 2px;
   background: hsl(var(--primary) / 0.45);
 }
+/* Uwagi przy tekście (panel „Do poprawy”, `lib/cv-editor-issue-marks.ts`):
+   dekoracje widoku, nie treść. Pasek stoi w cieniu po lewej, więc znacznik
+   nie przesuwa tekstu ani punktora; czerwony = zatrzymuje wysyłkę. */
+.cv-paper .ProseMirror .cv-issue-block {
+  background: hsl(var(--warning) / 0.1);
+  box-shadow: -4px 0 0 0 hsl(var(--warning));
+}
+.cv-paper .ProseMirror .cv-issue-block.cv-issue--blocking {
+  background: hsl(var(--destructive) / 0.07);
+  box-shadow: -4px 0 0 0 hsl(var(--destructive));
+}
+.cv-paper .ProseMirror .cv-issue-term {
+  border-radius: 2px;
+  background: hsl(var(--warning) / 0.16);
+  text-decoration: underline wavy hsl(var(--warning));
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+}
+.cv-paper .ProseMirror .cv-issue-term.cv-issue--blocking {
+  background: hsl(var(--destructive) / 0.1);
+  text-decoration-color: hsl(var(--destructive));
+}
+/* Miejsce wskazane przez „Pokaż w CV” — gaśnie po chwili. */
+.cv-paper .ProseMirror .cv-issue-focus {
+  border-radius: 2px;
+  background: hsl(var(--primary) / 0.16);
+  outline: 2px solid hsl(var(--primary) / 0.7);
+  outline-offset: 1px;
+}
 @media (max-width: 640px) {
   .cv-paper .ProseMirror {
     min-height: 0;

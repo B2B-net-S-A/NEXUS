@@ -25,12 +25,19 @@
  * (`cv-editor/CvEditorSources`), „Podgląd Word” z bieżącej treści i stała
  * klauzula zgody (`lib/cv-editor-structure.ts`). Logika sesji, zapisu
  * i zatwierdzenia została bez zmian.
+ *
+ * PR 2: po prawej panel „Do poprawy” (`cv-editor/CvEditorIssues`) — QC, uwagi
+ * generatora i kontrola AI przy tekście. Panel jest zamontowany także wtedy,
+ * gdy go nie widać: liczy znaczniki na kartce i licznik w pasku. Przy
+ * szerokości 1180–1539 px (laptop 1280) obok kartki mieści się JEDEN panel —
+ * źródła albo „Do poprawy”; od 1540 px oba.
  */
 
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEditor, EditorContent } from "@tiptap/react";
 import {
+  ListChecks,
   Loader2,
   PanelLeft,
   Printer,
@@ -51,6 +58,7 @@ import {
   type CvEditorSourceContext,
   type CvEditorSourcesProps,
 } from "@/components/v2/cv-editor/CvEditorSources";
+import { CvEditorIssues, type CvIssueCount } from "@/components/v2/cv-editor/CvEditorIssues";
 import { CvEditorToolbar } from "@/components/v2/cv-editor/CvEditorToolbar";
 import { CvEditorWordPreview } from "@/components/v2/cv-editor/CvEditorWordPreview";
 import { keepDialogOpenOnDocumentSearchEscape } from "@/components/v2/files/DocumentSearchBar";
@@ -67,6 +75,7 @@ import {
   cvGeneratedEditorApi,
   type CVBrandedState,
 } from "@/lib/api";
+import type { CvEditorIssuesApi } from "@/lib/api/cvEditorIssues";
 import {
   generatedApprovalKey,
   stageApprovalKey,
@@ -78,8 +87,12 @@ import { cvEditorExtensions, loadCvHtml } from "@/lib/cv-editor-structure";
 import { useElementWidth } from "@/lib/use-element-width";
 import { cn } from "@/lib/utils";
 
-/** Od tej szerokości okna (px) źródła stoją obok kartki; węziej — przełącznik. */
+/** Od tej szerokości okna (px) panel stoi obok kartki; węziej — przełącznik. */
 const SIDE_BY_SIDE_MIN_WIDTH = 1180;
+/** Od tej szerokości mieszczą się oba panele: źródła (440) + kartka (794) + „Do poprawy” (360). */
+const BOTH_PANELS_MIN_WIDTH = 1540;
+
+const NO_ISSUES: CvIssueCount = { total: 0, blocking: 0 };
 
 type CvDraftPayload = { content_html: string; expected_revision: number };
 
@@ -138,6 +151,13 @@ type Props = {
   editorApi?: CvEditorApi;
   editorFiles?: CvEditorFiles;
   sourceLoaders?: CvEditorSourcesProps["loaders"];
+  /**
+   * Uwagi generatora dla CV bez etapu (wynik generatora) — panel „Do poprawy”
+   * pokazuje tam tylko je. Bez nich edytor wyniku generatora nie ma panelu.
+   */
+  generatorWarnings?: readonly string[];
+  /** Harness: QC, uwagi i poprawki z pamięci zamiast sieci. */
+  issuesApi?: CvEditorIssuesApi;
 } & ({ stageId: number; generatedId?: never } | { generatedId: number; stageId?: never });
 
 function getErrorMessage(e: unknown): string {
@@ -189,6 +209,8 @@ function CVBrandedEditContent({
   editorApi: editorApiOverride,
   editorFiles,
   sourceLoaders,
+  generatorWarnings,
+  issuesApi,
 }: Props) {
   const stageId = (generatedId ?? pipelineStageId)!;
   const isGenerated = generatedId !== undefined;
@@ -211,9 +233,24 @@ function CVBrandedEditContent({
   const [unfilled, setUnfilled] = useState<string[]>([]);
   const [mode, setMode] = useState<"edit" | "word">("edit");
   const [sourcesOpen, setSourcesOpen] = useState(true);
-  const [narrowPane, setNarrowPane] = useState<"cv" | "sources">("cv");
+  const [issuesOpen, setIssuesOpen] = useState(false);
+  // Który panel wygrywa, gdy obok kartki mieści się tylko jeden.
+  const [lastSide, setLastSide] = useState<"sources" | "issues">("sources");
+  const sideTouched = useRef(false);
+  const [issueCount, setIssueCount] = useState<CvIssueCount>(NO_ISSUES);
+  const [narrowPane, setNarrowPane] = useState<"cv" | "sources" | "issues">("cv");
   const [body, setBody] = useState<HTMLElement | null>(null);
-  const sideBySide = useElementWidth(body) >= SIDE_BY_SIDE_MIN_WIDTH;
+  const bodyWidth = useElementWidth(body);
+  const sideBySide = bodyWidth >= SIDE_BY_SIDE_MIN_WIDTH;
+  const bothPanels = bodyWidth >= BOTH_PANELS_MIN_WIDTH;
+
+  // Są uwagi — panel „Do poprawy” otwiera się sam, raz; potem decyduje człowiek.
+  useEffect(() => {
+    if (sideTouched.current || issueCount.total === 0) return;
+    sideTouched.current = true;
+    setIssuesOpen(true);
+    setLastSide("issues");
+  }, [issueCount.total]);
 
   const { data, isLoading, error: loadError, refetch, isFetching } = useQuery<CVBrandedState>({
     queryKey: [scopeKey, stageId],
@@ -308,6 +345,18 @@ function CVBrandedEditContent({
   };
   const startNewDraftRef = useRef(startNewDraft);
   startNewDraftRef.current = startNewDraft;
+
+  /**
+   * Poprawka z panelu „Do poprawy” na zatwierdzonej wersji: najpierw szkic,
+   * potem zmiana. Wczytanie szkicu jest poza historią cofania, więc poprawka
+   * nałożona przed nim nie dałaby się cofnąć.
+   */
+  const ensureDraft = async (): Promise<boolean> => {
+    if (sessionRef.current?.state === "finalized") startNewDraft();
+    if (newDraftRef.current) await newDraftRef.current;
+    const session = sessionRef.current;
+    return !!session && session.state !== "finalized";
+  };
 
   useEffect(() => {
     if (!editor) return;
@@ -482,8 +531,24 @@ function CVBrandedEditContent({
 
   const language: CvLang = data?.language === "en" ? "en" : "pl";
   const hasCv = !!data && !noCv;
-  const showSources = hasCv && (sideBySide ? sourcesOpen : narrowPane === "sources");
-  const showCv = sideBySide || narrowPane === "cv" || !hasCv;
+  const hasIssuesPanel = hasCv && (!isGenerated || generatorWarnings !== undefined);
+  const issuesSide = hasIssuesPanel && issuesOpen && (bothPanels || !sourcesOpen || lastSide === "issues");
+  const sourcesSide = sourcesOpen && (bothPanels || !issuesSide);
+  const pane = narrowPane === "issues" && !hasIssuesPanel ? "cv" : narrowPane;
+  const showSources = hasCv && (sideBySide ? sourcesSide : pane === "sources");
+  const showIssues = hasIssuesPanel && (sideBySide ? issuesSide : pane === "issues");
+  const showCv = sideBySide || pane === "cv" || !hasCv;
+  const toggleSources = () => {
+    sideTouched.current = true;
+    setSourcesOpen(!sourcesSide);
+    if (!sourcesSide) setLastSide("sources");
+  };
+  const toggleIssues = () => {
+    sideTouched.current = true;
+    setIssuesOpen(!issuesSide);
+    if (!issuesSide) setLastSide("issues");
+  };
+  const issuesLabel = `Do poprawy (${issueCount.total})`;
   const sources = isGenerated ? (
     <CvEditorSources context={sourceContext ?? null} loaders={sourceLoaders} />
   ) : (
@@ -605,15 +670,29 @@ function CVBrandedEditContent({
                 </ViewToggle>
               </div>
               {sideBySide ? (
-                <Button size="sm" variant="ghost" aria-pressed={sourcesOpen} className="flex-none"
-                  onClick={() => setSourcesOpen((value) => !value)}>
-                  <PanelLeft className="h-3.5 w-3.5 mr-1.5" />
-                  {sourcesOpen ? "Ukryj źródła" : "Pokaż źródła"}
-                </Button>
+                <div className="flex flex-none items-center gap-1">
+                  <Button size="sm" variant="ghost" aria-pressed={sourcesSide} onClick={toggleSources}>
+                    <PanelLeft className="h-3.5 w-3.5 mr-1.5" />
+                    {sourcesSide ? "Ukryj źródła" : "Pokaż źródła"}
+                  </Button>
+                  {hasIssuesPanel ? (
+                    <Button size="sm" variant="ghost" aria-pressed={issuesSide} onClick={toggleIssues}
+                      className={cn(
+                        issuesSide && "bg-primary/10 text-primary hover:bg-primary/10",
+                        !issuesSide && issueCount.blocking > 0 && "text-destructive",
+                      )}>
+                      <ListChecks className="h-3.5 w-3.5 mr-1.5" />
+                      {issuesLabel}
+                    </Button>
+                  ) : null}
+                </div>
               ) : (
                 <div className="flex flex-none items-center gap-1" role="group" aria-label="Kolumna">
-                  <ViewToggle active={narrowPane === "cv"} onClick={() => setNarrowPane("cv")}>CV</ViewToggle>
-                  <ViewToggle active={narrowPane === "sources"} onClick={() => setNarrowPane("sources")}>Źródła</ViewToggle>
+                  <ViewToggle active={pane === "cv"} onClick={() => setNarrowPane("cv")}>CV</ViewToggle>
+                  <ViewToggle active={pane === "sources"} onClick={() => setNarrowPane("sources")}>Źródła</ViewToggle>
+                  {hasIssuesPanel ? (
+                    <ViewToggle active={pane === "issues"} onClick={() => setNarrowPane("issues")}>{issuesLabel}</ViewToggle>
+                  ) : null}
                 </div>
               )}
             </div>
@@ -673,6 +752,33 @@ function CVBrandedEditContent({
                 </>
               ) : null}
             </div>
+            {hasIssuesPanel && editor && data ? (
+              // Zamontowany także ukryty: liczy znaczniki na kartce i licznik w pasku.
+              <aside
+                aria-label="Do poprawy"
+                hidden={!showIssues}
+                className={cn(
+                  "min-h-0 min-w-0 bg-card",
+                  sideBySide ? "w-[360px] flex-none border-l border-border" : "flex-1",
+                )}
+              >
+                <CvEditorIssues
+                  editor={editor}
+                  stageId={isGenerated ? undefined : stageId}
+                  generatorWarnings={generatorWarnings}
+                  savedRevision={data.edit_revision}
+                  unsaved={saveState !== "saved" && saveState !== "finalized"}
+                  readOnly={mode === "word" || submitting || creatingDraft}
+                  ensureDraft={ensureDraft}
+                  onShowCv={() => {
+                    setMode("edit");
+                    setNarrowPane("cv");
+                  }}
+                  onCount={setIssueCount}
+                  api={issuesApi}
+                />
+              </aside>
+            ) : null}
           </div>
         </DialogContent>
       </Dialog>

@@ -398,7 +398,8 @@ export function CheckRow({ check, ctx }: { check: QcCheck; ctx: ActionContext })
   const [open, setOpen] = useState(false);
   const roleGroups = groupRoleStates(check.roles ?? []);
   const hasBody = check.items.length > 0 || checkLevelFixes(check).length > 0 || roleGroups.length > 0;
-  const bodyId = `qc-check-${check.key}`;
+  // `useId`: okno QC i panel w edytorze CV bywają otwarte naraz.
+  const bodyId = useId();
   const preview = check.status === "fail" || check.status === "manual" ? notePreview(check) ?? check.summary : null;
   return (
     <li className="overflow-hidden rounded-lg border border-border">
@@ -480,7 +481,7 @@ export function CheckRow({ check, ctx }: { check: QcCheck; ctx: ActionContext })
 export function PassedChecks({ passed, skipped, ctx }: { passed: QcCheck[]; skipped: QcCheck[]; ctx: ActionContext }) {
   const [open, setOpen] = useState(false);
   if (passed.length + skipped.length === 0) return null;
-  const listId = "qc-passed-checks";
+  const listId = useId();
   // Bez CV nic nie jest „w porządku” — reszty po prostu nie sprawdzono.
   const title = passed.length > 0 ? "W porządku" : "Nie sprawdzono";
   return (
