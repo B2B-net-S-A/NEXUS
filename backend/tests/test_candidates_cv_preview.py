@@ -45,14 +45,21 @@ def _parsed(unique: str) -> dict:
     }
 
 
-def _patch_pipeline(monkeypatch, parsed: dict, sieve_rows=None) -> dict[str, int]:
+def _patch_pipeline(
+    monkeypatch,
+    parsed: dict,
+    sieve_rows=None,
+    *,
+    real_sieve: bool = False,
+    text: str = "Tester\nPython, pytest",
+) -> dict[str, int]:
     from app.api import candidates as candidates_api
     from app.services import cv_text_extractor
 
     calls = {"parse": 0, "sieve": 0}
 
     def _fake_extract(*_args, **_kwargs) -> str:
-        return "Tester\nPython, pytest"
+        return text
 
     async def _fake_parse(_text, **_kwargs):
         calls["parse"] += 1
@@ -70,11 +77,12 @@ def _patch_pipeline(monkeypatch, parsed: dict, sieve_rows=None) -> dict[str, int
 
     monkeypatch.setattr(cv_text_extractor, "extract_text", _fake_extract)
     monkeypatch.setattr("app.services.cv_parser.parse_cv", _fake_parse, raising=True)
-    monkeypatch.setattr(
-        "app.services.cv_upload_dedup.find_duplicates_without_llm",
-        _sieve,
-        raising=True,
-    )
+    if not real_sieve:
+        monkeypatch.setattr(
+            "app.services.cv_upload_dedup.find_duplicates_without_llm",
+            _sieve,
+            raising=True,
+        )
     monkeypatch.setattr(
         "app.services.embedding_service.embed_candidate", _fake_embed, raising=True
     )
@@ -208,6 +216,58 @@ async def test_cleared_field_is_not_refilled_from_the_cv_nor_used_for_dedup(
         await _cleanup(email=parsed["email"])
 
 
+async def test_form_email_wins_over_the_cv_header_in_the_free_sieve(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+) -> None:
+    """Nagłówek CV niesie adres istniejącej osoby, rekruter wpisał inny.
+
+    Sito czytało adres wyłącznie z pliku, więc odmawiało mimo poprawki
+    w formularzu — a od 12.10.2026 okno nie ma już „Zapisz mimo to”.
+    Tu biegnie PRAWDZIWE sito (bez podmiany).
+    """
+    unique = uuid.uuid4().hex[:8]
+    header_email = f"cv-header-{unique}@example.com"
+    typed_email = f"cv-typed-{unique}@example.com"
+    _patch_pipeline(
+        monkeypatch,
+        {**_parsed(unique), "email": header_email},
+        real_sieve=True,
+        text=f"Tester\ne-mail: {header_email}\nPython, pytest",
+    )
+    other = await app_client.post(
+        "/api/candidates",
+        headers=app_auth_headers,
+        json={"name": "Inna", "lastname": f"ZNaglowka{unique}", "email": header_email},
+    )
+    assert other.status_code == 201, other.text
+
+    try:
+        # Kontrola: bez adresu w formularzu ten sam nagłówek odmawia i wskazuje profil.
+        blocked = await app_client.post(
+            "/api/candidates/from-cv",
+            headers=app_auth_headers,
+            files=_file(f"%PDF-1.4 header-a {unique}".encode()),
+        )
+        assert blocked.status_code == 409, blocked.text
+        assert blocked.json()["detail"]["existing_candidate_id"] == other.json()["id"]
+
+        saved = await app_client.post(
+            "/api/candidates/from-cv",
+            headers=app_auth_headers,
+            files=_file(f"%PDF-1.4 header-b {unique}".encode()),
+            data={
+                "name": "Nowa",
+                "lastname": f"ZFormularza{unique}",
+                "email": typed_email,
+            },
+        )
+        assert saved.status_code == 201, saved.text
+        assert saved.json()["candidate"]["email"] == typed_email
+    finally:
+        await _cleanup(email=typed_email)
+        await _cleanup(email=header_email)
+
+
 async def test_email_of_another_candidate_is_a_hard_409_even_with_force(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ) -> None:
@@ -311,7 +371,7 @@ async def test_cache_hit_without_force_still_runs_the_free_sieve(
         "lastname": "Kandydat",
         "email": None,
         "match_score": 1.0,
-        "match_reasons": ["cv_hash"],
+        "match_reasons": ["identical_file"],
     }
     calls = _patch_pipeline(monkeypatch, _parsed(unique), sieve_rows=[row])
     content = f"%PDF-1.4 sieve {unique}".encode()

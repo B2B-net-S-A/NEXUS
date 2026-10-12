@@ -1,7 +1,7 @@
 """Generator v3: ``POST /identify-upload`` — czy osoba z pliku jest już w bazie?
 
-Te same darmowe sita co ``/api/candidates/from-cv`` (identyczny plik, e-mail
-i telefon z nagłówka CV) i ZERO wywołań modelu — rozpoznanie ma być
+Te same darmowe sita co ``/api/candidates/from-cv`` (identyczny plik i e-mail
+z nagłówka CV) i ZERO wywołań modelu — rozpoznanie ma być
 natychmiastowe i bezpłatne.
 """
 

@@ -251,3 +251,7 @@ zauważyć:
   `/from-cv` tylko CZYTA z pamięci — masowy import jej nie zapełni. Osobne
   „Dodaj z CV” zdjęte z listy kandydatów (`AddCandidateFromCVModal` zostaje
   w rekrutacji).
+- **Od 12.10.2026 okno sprawdza tylko e-mail** i zamiast listy „podobnych”
+  pokazuje jedną ramkę „Ten kandydat już jest w bazie” z „Dodaj to CV do
+  profilu”; „Zapisz mimo to” nie ma. Pełna reguła:
+  `ta-sama-osoba-ten-sam-e-mail.md`.

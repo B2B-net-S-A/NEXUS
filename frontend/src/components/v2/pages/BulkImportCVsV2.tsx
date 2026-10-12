@@ -15,6 +15,7 @@ import {
  XCircle,
 } from"lucide-react";
 import api from"@/lib/api";
+import { isClientTimeout, SLOW_ENDPOINT_TIMEOUT_MS } from"@/lib/http-timeouts";
 import { cn } from"@/lib/utils";
 import { Button } from"@/components/ui/button";
 import { useQueryClient } from"@tanstack/react-query";
@@ -130,6 +131,9 @@ async function uploadOne(row: Row): Promise<Partial<Row>> {
  confidence: Record<string, number>;
  }>("/api/candidates/from-cv", fd, {
  headers: {"Content-Type":"multipart/form-data" },
+ // Każdy plik czyta model — na domyślnych 30 s co czwarty zapis zrywał się
+ // w przeglądarce, choć serwer kandydata założył (pomiar z 12.10.2026).
+ timeout: SLOW_ENDPOINT_TIMEOUT_MS,
  });
  const low = Object.values(r.data.confidence || {}).filter(
  (v) => typeof v === "number" && v < LOW_CONFIDENCE
@@ -154,6 +158,13 @@ async function uploadOne(row: Row): Promise<Partial<Row>> {
  : undefined,
  };
  }
+ }
+ if (isClientTimeout(err)) {
+ return {
+ status: "error",
+ error:
+"Odczyt trwał dłużej niż 2 minuty. Zanim wgrasz plik ponownie, sprawdź listę kandydatów — ta osoba mogła już zostać dodana.",
+ };
  }
  const msg =
  typeof axiosErr.response?.data?.detail === "string"
@@ -277,7 +288,7 @@ export function BulkImportCVsV2() {
  </h1>
  <p className="text-sm text-muted-foreground mt-1">
  Wrzuć wiele PDF/DOCX naraz — każdy plik trafia do osobnego kandydata.
- Duplikaty są wyłapywane po emailu / telefonie / LinkedIn.
+ Duplikaty rozpoznajemy po adresie e-mail albo identycznym pliku.
  </p>
  </div>
  </div>

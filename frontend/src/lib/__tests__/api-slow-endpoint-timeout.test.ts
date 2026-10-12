@@ -106,6 +106,9 @@ const LLM_PATH_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
   { name: "refresh-criteria", re: /\/refresh-criteria/ },
   { name: "recompute-scores", re: /\/recompute-scores/ },
   { name: "cv-generator/classify", re: /\/api\/cv-generator\/classify-technologies/ },
+  // Odczyt CV modelem: 12.10.2026 serwer odpowiedział 200 po 36,8 s, a okno
+  // „Dodaj kandydata” po 30 s pokazało „Nie udało się przeczytać CV”.
+  { name: "candidates/cv-read", re: /\/api\/candidates\/(from-cv|cv\/preview)/ },
 ];
 
 /**
