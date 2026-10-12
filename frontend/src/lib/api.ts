@@ -5366,6 +5366,13 @@ export interface ScreeningReassignSource {
  */
 export type ScreeningSuggestionKind = "reassign" | "history";
 
+/**
+ * Dlaczego arkusz przyjmuje „Pomiń brakujące” (12.10.2026): przepięcie
+ * z panelu, wcześniejsza rozmowa screeningowa w innej rekrutacji albo osoba
+ * zatrudniona przez nas. `null` = nie przyjmuje.
+ */
+export type ScreeningSkipReason = "reassign" | "earlier_screening" | "employed";
+
 export interface ScreeningReassignContext {
   stage_id: number;
   candidate_id?: number;
@@ -5374,6 +5381,8 @@ export interface ScreeningReassignContext {
   source: ScreeningReassignSource | null;
   previous_answers_count: number;
   earlier_conversations?: number;
+  /** Serwer sprzed 12.10.2026 nie zna pola — wtedy pomija się tylko przy przepięciu. */
+  skip_reason?: ScreeningSkipReason | null;
 }
 
 /** Rozmowa, z której pochodzi podpowiadana odpowiedź. */

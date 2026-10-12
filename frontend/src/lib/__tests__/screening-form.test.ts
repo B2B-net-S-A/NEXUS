@@ -10,6 +10,7 @@ import {
   answerOriginAfterEdit,
   applyFillsToValues,
   applyNoteProposal,
+  assessmentMissingForForward,
   buildSavePayload,
   cardAssessmentKeys,
   cardOriginAfterEdit,
@@ -27,6 +28,7 @@ import {
   rateFromValues,
   rateNotRestoredMessage,
   sameRate,
+  sheetFromValues,
   versionActionLabel,
 } from "@/lib/screening-form";
 import { FORM_QUESTIONS, formState } from "@/components/v2/screening-form/__tests__/screening-form-fixtures";
@@ -380,6 +382,47 @@ describe("walidacja i drobiazgi", () => {
     const values = formDefaultsFromState(formState({ sheet: SAVED_SHEET }));
     expect(missingAnswersForForward(questions, values)).toEqual(["q2"]);
     expect(missingAnswersForForward(questions, { ...values, skip_missing: true })).toEqual([]);
+  });
+
+  it("rekrutacja bez pytań: „przekaż dalej” wymaga „Dlaczego ten kandydat” (12.10.2026)", () => {
+    const state = formState({ champion_profile: {} });
+    const values = formDefaultsFromState(state);
+    expect(assessmentMissingForForward(state, [], values)).toBe(true);
+    expect(
+      assessmentMissingForForward(state, [], { card: { ...values.card, recommendation: "Mocny w SQL" } }),
+    ).toBe(false);
+    // Rekrutacja z pytaniami pyta o odpowiedzi, nie o ocenę.
+    expect(assessmentMissingForForward(formState(), FORM_QUESTIONS, formDefaultsFromState(formState()))).toBe(false);
+  });
+
+  it("rekrutacja bez pytań: formularz nie zatrzymuje, gdy serwerowi wystarczy to, co już jest", () => {
+    const empty = { card: {} };
+    // Wartość z notatki zostaje mimo pustego pola.
+    const fromNote = formState({ champion_profile: {} });
+    fromNote.card.fields = { recommendation: { raw: "Polecam", source: "note" } };
+    expect(assessmentMissingForForward(fromNote, [], empty)).toBe(false);
+    // Odpowiedzi zapisane w notatce albo arkusz sprzed usunięcia pytań.
+    const noteQuestions = formState({
+      champion_profile: {},
+      questions: [{ number: 1, question: "Java?", answer: "5 lat", source: "note" }],
+    } as Partial<ReturnType<typeof formState>>);
+    expect(assessmentMissingForForward(noteQuestions, [], empty)).toBe(false);
+    expect(assessmentMissingForForward(formState({ champion_profile: {}, sheet: SAVED_SHEET }), [], empty)).toBe(false);
+    // Pola nie da się wpisać (serwer go nie przyjmuje) — rozstrzyga serwer.
+    const locked = formState({ champion_profile: {} });
+    locked.card.editable_fields = ["availability"];
+    expect(assessmentMissingForForward(locked, [], empty)).toBe(false);
+  });
+
+  it("pominięte pytania: domyślna notatka mówi prawdziwy powód (12.10.2026)", () => {
+    const values = { ...formDefaultsFromState(formState()), skip_missing: true };
+    expect(sheetFromValues(FORM_QUESTIONS, values).internal_note).toBe("Pominięte — przepięcie");
+    expect(sheetFromValues(FORM_QUESTIONS, { ...values, skip_reason: "employed" }).internal_note).toBe(
+      "Pominięte — osoba zatrudniona przez nas",
+    );
+    expect(sheetFromValues(FORM_QUESTIONS, { ...values, skip_reason: "earlier_screening" }).internal_note).toBe(
+      "Pominięte — osoba po wcześniejszym screeningu",
+    );
   });
 
   it("mergeLegacyNote dopisuje pod tekstem", () => {

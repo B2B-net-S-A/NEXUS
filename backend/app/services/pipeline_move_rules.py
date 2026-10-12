@@ -143,6 +143,12 @@ VERIFIED_GATE_TARGETS = frozenset(
 
 VERIFIED_REQUIREMENT_LABELS = {
     "screening_sheet": "arkusz screeningu",
+    # Rekrutacja bez pytań screeningowych — komunikat mówi, co da się wpisać,
+    # zamiast kazać uzupełnić arkusz, którego tam nie ma (12.10.2026).
+    "why_candidate": (
+        "„Dlaczego ten kandydat” w screeningu "
+        "(ta rekrutacja nie ma pytań screeningowych)"
+    ),
     "candidate_rate": "stawka kandydata",
 }
 
@@ -162,9 +168,11 @@ async def assert_verified_requirements(
     Braki liczy ``move_requirements.load_pair_facts`` — ta sama reguła co
     okno „Przesuń dalej” i ramka „Następny etap”, więc ekran i serwer nie
     mogą się rozjechać. Arkusz = zapisany arkusz pary albo odpowiedzi
-    w karcie rekomendacji; stawka = profil, wcześniejszy etap pary albo ta
-    w żądaniu (``pending_rate``). Para w „Zamkniętych” liczy się kolumną
-    sprzed zamknięcia (``gate_stage_row``).
+    w karcie rekomendacji; w rekrutacji bez pytań screeningowych zamiast
+    arkusza wystarcza „Dlaczego ten kandydat”
+    (``move_requirements.screening_requirement``). Stawka = profil,
+    wcześniejszy etap pary albo ta w żądaniu (``pending_rate``). Para
+    w „Zamkniętych” liczy się kolumną sprzed zamknięcia (``gate_stage_row``).
     """
     from app.core.config import settings  # noqa: PLC0415
     from app.models.candidate import Candidate  # noqa: PLC0415
@@ -182,8 +190,9 @@ async def assert_verified_requirements(
         db, candidate=candidate, job=job, user=user
     )
     missing: list[str] = []
-    if not (facts.screening_done or facts.card_answers):
-        missing.append("screening_sheet")
+    screening_key, screening_met = move_requirements.screening_requirement(facts)
+    if not screening_met:
+        missing.append(screening_key)
     if not (facts.candidate_rate or pending_rate):
         missing.append("candidate_rate")
     if not missing:

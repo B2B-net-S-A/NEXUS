@@ -10,6 +10,10 @@
  * - `filled` — „Screening”: wypełniony formularz i wymagania obok,
  * - `note` — formularz wypełniony z notatki (plakietki „z notatki”,
  *   propozycje „Użyj”, „Ułóż w zdanie” z gotowej listy, bez modelu),
+ * - `noquestions` — rekrutacja bez pytań screeningowych (12.10.2026): pusty
+ *   stan mówi, że do ruchu dalej wystarcza stawka i „Dlaczego ten kandydat”,
+ * - `employed` — osoba zatrudniona przez nas, dodana ręcznie: „Pomiń
+ *   brakujące” bez wcześniejszych rozmów,
  * - `readonly` — proces zakończony: widok „Screening” tylko do odczytu
  *   (warunki, odpowiedzi, ocena) i historia,
  * - `history` — historia zmian z „Przywróć”.
@@ -74,11 +78,23 @@ const DAY_MS = 86_400_000;
 const SEED_FRESH = { updatedAt: Date.now() + DAY_MS };
 const RECRUITER = { id: 31, name: "Marta Testowa" };
 
-type HarnessState = "nowi" | "filled" | "note" | "readonly" | "history" | "cvpick" | "cvconsent" | "cvready";
+type HarnessState =
+  | "nowi"
+  | "filled"
+  | "note"
+  | "noquestions"
+  | "employed"
+  | "readonly"
+  | "history"
+  | "cvpick"
+  | "cvconsent"
+  | "cvready";
 const STATES: ReadonlyArray<{ value: HarnessState; label: string }> = [
   { value: "nowi", label: "Nowi — przed telefonem" },
   { value: "filled", label: "Screening — wypełniony" },
   { value: "note", label: "Z notatki" },
+  { value: "noquestions", label: "Rekrutacja bez pytań" },
+  { value: "employed", label: "Osoba zatrudniona przez nas" },
   { value: "readonly", label: "Proces zakończony" },
   { value: "history", label: "Historia zmian" },
   { value: "cvpick", label: "CV firmowe — wybór z profilu" },
@@ -470,6 +486,12 @@ const NOTE_BASE_STATE: ScreeningFormState = {
   },
 };
 
+// 12.10.2026: rekrutacja przeniesiona z Traffita bez Profilu Championa.
+const NO_QUESTIONS_STATE: ScreeningFormState = {
+  ...NOTE_BASE_STATE,
+  champion_profile: {},
+};
+
 const ENDED_STATE: ScreeningFormState = {
   ...FILLED_STATE,
   version: 3,
@@ -666,12 +688,33 @@ function seededClient(state: HarnessState): QueryClient {
     defaultOptions: { queries: { retry: false, staleTime: Infinity, refetchOnWindowFocus: false } },
   });
   const formState =
-    state === "nowi" ? BASE_STATE : state === "readonly" ? ENDED_STATE : state === "note" ? NOTE_BASE_STATE : FILLED_STATE;
+    state === "nowi"
+      ? BASE_STATE
+      : state === "readonly"
+        ? ENDED_STATE
+        : state === "noquestions"
+          ? NO_QUESTIONS_STATE
+          : state === "note" || state === "employed"
+            ? NOTE_BASE_STATE
+            : FILLED_STATE;
   qc.setQueryData(screeningFormQueryKey(JOB_ID, CANDIDATE_ID), formState, SEED_FRESH);
   qc.setQueryData(screeningFormVersionsQueryKey(JOB_ID, CANDIDATE_ID), { items: VERSIONS, total: VERSIONS.length }, SEED_FRESH);
   qc.setQueryData(["job-questions", JOB_ID], [], SEED_FRESH);
   qc.setQueryData(["job-rejection-reasons", JOB_ID], [], SEED_FRESH);
-  qc.setQueryData(reassignContextQueryKey(STAGE_ID), { stage_id: STAGE_ID, available: false, source: null, previous_answers_count: 0 }, SEED_FRESH);
+  qc.setQueryData(
+    reassignContextQueryKey(STAGE_ID),
+    {
+      stage_id: STAGE_ID,
+      candidate_id: CANDIDATE_ID,
+      available: false,
+      kind: null,
+      source: null,
+      previous_answers_count: 0,
+      earlier_conversations: 0,
+      skip_reason: state === "employed" ? "employed" : null,
+    },
+    SEED_FRESH,
+  );
   qc.setQueryData(candidateQueryKeys.quickView(CANDIDATE_ID), QUICK_VIEW, SEED_FRESH);
   qc.setQueryData(["cv-original", STAGE_ID], SNAPSHOT, SEED_FRESH);
   const cv = isCvState(state);

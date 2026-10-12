@@ -39,7 +39,9 @@ przez nas / przez DL / przez klienta). Reguły, które łatwo cofnąć:
   `services/screening_sheets.py`), bo identyfikatory pytań są pozycyjne i po
   edycji Championa wskazują inne pytanie. Odpowiedź `skipped` i `internal_note`
   („pominięte — przepięcie”) NIGDY nie idą do klienta: share portal i generator
-  CV czytają `client_safe_screening` (bez `question_text`).
+  CV czytają `client_safe_screening` (bez `question_text`). Kto może pominąć
+  pytania bez odpowiedzi (od 12.10.2026 nie tylko przepięci) —
+  `screening-notatki/rekrutacja-bez-pytan-i-pomin-brakujace.md`.
 - **„CV wysłane” poza Nordeą wysyła DL** (`services/pipeline_move_rules.py`):
   rola admin/delivery_lead (403) i stawka do klienta w TYM SAMYM żądaniu ruchu
   (`client_rate_*` w `StageMove`/`BulkMoveRequest`, 422 bez niej; stawka

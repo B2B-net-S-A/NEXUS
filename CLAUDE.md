@@ -206,6 +206,7 @@ Formularz i widok screeningu, karta rekomendacji, rodzaje notatek, wzmianki, „
 - `karta-rekomendacji-z-notatki-i-uloz-w-zdanie.md` — Karta rekomendacji z notatki i „Ułóż w zdanie” (0421, 06.10.2026)
 - `notatki-przypiecie-odpowiedzi-automaty-bez-notatek.md` — Notatki: przypięcie, odpowiedzi, automaty bez notatek (0399, 29.09.2026)
 - `podsumowanie-aktywnosci-kandydata-ai.md` — Podsumowanie aktywności kandydata (AI)
+- `rekrutacja-bez-pytan-i-pomin-brakujace.md` — Rekrutacja bez pytań screeningowych i „Pomiń brakujące” poza przepięciem (12.10.2026) · bramka „Zweryfikowany” w rekrutacji bez Profilu Championa (wystarcza „Dlaczego ten kandydat”), kto może pominąć pytania bez odpowiedzi: przepięcie, wcześniejszy screening, osoba zatrudniona przez nas
 - `rodzaj-notatki-co-czyta-ai-wyszukiwanie-i-rekruter.md` — Rodzaj notatki — co czyta AI, wyszukiwanie i rekruter (0412, 03.10.2026)
 - `screening-wybor-gotowego-cv-z-profilu-i-edycja.md` — Screening: wybór gotowego CV z profilu i edycja (09.10.2026)
 - `stawka-od-i-historia-stawek-kandydata.md` — „Stawka od” i historia stawek kandydata (0414, 04.10.2026)

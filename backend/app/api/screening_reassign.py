@@ -9,8 +9,10 @@ bo wołają je otwarte karty sprzed wdrożenia. Dwie trasy obok
 
 * ``GET …/screening/reassign-context`` — czy jest z czego podpowiadać: rodzaj
   (`reassign` | `history`), rekrutacja źródłowa przepięcia, liczba
-  wcześniejszych rozmów i odpowiedzi. Bez modelu, więc UI pokazuje stan bez
-  kosztu. Bramka jak odczyt arkusza (`CandidatePIIAccess` + odczyt rekrutacji).
+  wcześniejszych rozmów i odpowiedzi oraz `skip_reason` — czy arkusz przyjmuje
+  „Pomiń brakujące” (`reassign` | `earlier_screening` | `employed`, 12.10.2026).
+  Bez modelu, więc UI pokazuje stan bez kosztu. Bramka jak odczyt arkusza
+  (`CandidatePIIAccess` + odczyt rekrutacji).
 * ``POST …/screening/reassign-suggestions`` — wywołanie modelu. Bramka jak
   zapis arkusza (`RecruiterPlus` + członkostwo w rekrutacji). Niczego nie
   zapisuje; odpowiedź z awarią modelu to 200 z ``available: false``.
@@ -56,6 +58,10 @@ async def get_reassign_context(
         # Link „zobacz w profilu” przy podpowiedziach.
         "candidate_id": stage.candidate_id,
         **screening_reassign.context_payload(ctx),
+        # „Pomiń brakujące”: przepięcie, wcześniejsza rozmowa albo zatrudnienie.
+        "skip_reason": await screening_reassign.skip_missing_reason(
+            db, candidate_id=stage.candidate_id, job_id=stage.job_id, ctx=ctx
+        ),
     }
 
 

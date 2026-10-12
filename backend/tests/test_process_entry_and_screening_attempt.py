@@ -289,10 +289,51 @@ async def _move_to_verified(client: AsyncClient, headers: dict, world: dict):
 
 
 @pytest.mark.asyncio
+async def test_assessment_from_a_year_old_attempt_does_not_pass_verified(
+    api_client: AsyncClient, verified_gate_on
+) -> None:
+    """Rekrutacja bez pytań (12.10.2026): „Dlaczego ten kandydat” zastępuje
+    arkusz, więc obowiązuje je to samo okno próby — ocena sprzed roku nie
+    przepuszcza osoby wracającej prosto z „Zamkniętych”."""
+    from app.models.recommendation_card import RecommendationCard
+
+    world = await _seed_world()
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    rec = await _login(api_client, rec_creds)
+    try:
+        await _closed_attempt_with_sheet(world, rec_id, closed_days=365)
+        async with AsyncSessionLocal() as db:
+            db.add(
+                RecommendationCard(
+                    candidate_id=world["candidate_id"],
+                    job_id=world["job_id"],
+                    fields_manual={
+                        "recommendation": {
+                            "raw": "Mocny w Kafce",
+                            "by": rec_id,
+                            "at": (
+                                datetime.now(timezone.utc) - timedelta(days=366)
+                            ).isoformat(),
+                        }
+                    },
+                )
+            )
+            await db.commit()
+
+        moved = await _move_to_verified(api_client, rec, world)
+        assert moved.status_code == 409, moved.text
+        assert moved.json()["detail"]["missing"] == ["why_candidate"]
+    finally:
+        await _cleanup(world, [rec_id])
+
+
+@pytest.mark.asyncio
 async def test_sheet_from_a_year_old_attempt_does_not_pass_verified(
     api_client: AsyncClient, verified_gate_on
 ) -> None:
-    world = await _seed_world()
+    world = await _seed_world(
+        champion_profile={"screening_questions": [{"id": "q1", "question": "Java?"}]}
+    )
     rec_id, rec_creds = await _seed_user(UserRole.recruiter)
     rec = await _login(api_client, rec_creds)
     try:
