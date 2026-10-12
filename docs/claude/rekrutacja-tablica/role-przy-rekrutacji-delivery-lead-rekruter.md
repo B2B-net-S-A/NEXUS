@@ -146,8 +146,16 @@ tylko `recruiter_id`), a Head of Recruitment nie mógł zmienić rekrutera.
   następną osobę tego samego dnia i otwarty pulpit ma ją pokazać od razu.
   Awaria ładowania nie kładzie pulpitu (savepoint + pusta lista).
 - **Priorytet wrócił w trzech poziomach** (`services/job_priority.py`, lustro
-  `lib/request-priority.ts`): P1 Pilne (`urgent`, historyczne `high`) · P2
-  Standard (`medium`) · Przyjmujemy kandydatów (`low`). Kolumna zostaje przy
+  `lib/request-priority.ts`): P1 Pilne (`urgent`, historyczne `high`) · Bez
+  priorytetu (`medium`) · Przyjmujemy kandydatów (`low`). **Poziom środkowy
+  nazywa się „Bez priorytetu”** (decyzja Artura 12.10.2026, do tej daty „P2
+  Standard”): Delivery Lead nie miał jak zdjąć priorytetu z rekrutacji po
+  terminie, choć ten poziom działał już jak jego brak (bez plakietki, bez
+  przydziału automatu, bez podbicia w sortowaniu) — w Traffit priorytet był
+  tagiem, który się zdejmowało. Zmieniła się tylko nazwa na ekranach: klucz
+  `p2`, wartość `medium` i adres `prio=p2` zostają, a w kodzie i regułach
+  poziom nadal bywa nazywany P2. Czwartego poziomu („Brak”) nie dodajemy —
+  działałby dokładnie jak `p2`. Kolumna zostaje przy
   czterech wartościach; filtr listy `priority_level` (URL `prio`; klucz
   `priority` to stary, zdejmowany klucz adresu), sort „Wymaga uwagi” stawia P1
   na górze, pole „Priorytet” jest w panelu „Zespół” i na `/jobs/new`.

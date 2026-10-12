@@ -216,7 +216,7 @@
   {
    "id": "team.priority",
    "area": "naglowek",
-   "opis": "Priorytet w trzech poziomach (P1 Pilne / P2 Standard / Przyjmujemy kandydatów), zapis kliknięciem — admin, Delivery Lead, TAC, Head of Recruitment",
+   "opis": "Priorytet w trzech poziomach (P1 Pilne / Bez priorytetu / Przyjmujemy kandydatów), zapis kliknięciem — admin, Delivery Lead, TAC, Head of Recruitment",
    "file": "components/v2/jobs/JobSettingsPanel.tsx",
    "marker": "PriorityRow",
    "v3_home": "Profil Championa → Zespół i ogłoszenie → Priorytet"

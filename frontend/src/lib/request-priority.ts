@@ -3,10 +3,14 @@
  * lustro `backend/app/services/job_priority.py`.
  *
  * Kolumna `jobs.priority` ma cztery wartości (`low` / `medium` / `high` /
- * `urgent`), ekrany i filtry mówią poziomami: „P1 Pilne”, „P2 Standard”
+ * `urgent`), ekrany i filtry mówią poziomami: „P1 Pilne”, „Bez priorytetu”
  * i „Przyjmujemy kandydatów”. Serwer oddaje poziom w polu `priority_level`;
  * dopóki go nie ma (starszy backend, stare fixture'y), poziom liczymy tutaj
  * z surowej wartości — tą samą regułą co serwer.
+ *
+ * Poziom `p2` nazywa się „Bez priorytetu” (12.10.2026, do tej daty „P2
+ * Standard”): nie ma plakietki ani przydziału automatu, więc wybranie go jest
+ * zdjęciem priorytetu. Klucz `p2` i wartość `medium` zostają.
  */
 
 export type PriorityLevel = "p1" | "p2" | "accepting";
@@ -19,7 +23,7 @@ export const PRIORITY_LEVELS: readonly PriorityLevel[] = ["p1", "p2", "accepting
 
 export const PRIORITY_LEVEL_LABEL: Record<PriorityLevel, string> = {
   p1: "P1 Pilne",
-  p2: "P2 Standard",
+  p2: "Bez priorytetu",
   accepting: "Przyjmujemy kandydatów",
 };
 
@@ -33,7 +37,7 @@ export const NEW_JOB_PRIORITY_LEVEL: PriorityLevel = "p1";
 /** Krótka etykieta — wiersz tabeli, plakietka. */
 export const PRIORITY_LEVEL_SHORT_LABEL: Record<PriorityLevel, string> = {
   p1: "P1",
-  p2: "P2",
+  p2: "Bez priorytetu",
   accepting: "Przyjmujemy",
 };
 
@@ -97,7 +101,7 @@ export function rawPriorityForLevel(level: PriorityLevel): RawJobPriority {
 /**
  * Automat przydziału dobiera i proponuje rekrutera tylko do requestów P1
  * (prośba Head of Recruitment, 12.10.2026) — lustro
- * `RequestInfo.automat_assigns` w backendzie. Przy „P2 Standard”
+ * `RequestInfo.automat_assigns` w backendzie. Przy „Bez priorytetu”
  * i „Przyjmujemy kandydatów” rekrutera przypisuje człowiek.
  */
 export function automatAssigns(level: PriorityLevel): boolean {
