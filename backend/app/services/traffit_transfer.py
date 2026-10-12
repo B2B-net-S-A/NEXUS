@@ -141,11 +141,21 @@ class RosterUnavailable(RuntimeError):
 
 
 def _jobs_sql(scope: Scope) -> str:
+    # Rekrutacja już przełączona ręcznie („Przełącz do NEXUSA”), ale nadal
+    # zamknięta, wchodzi do fali tylko wtedy, gdy jest wskazana wprost —
+    # 12.10.2026 trzy takie zostały w pół drogi (import ich nie rusza, a nikt
+    # ich nie otworzył). Fala po kliencie ich nie bierze: zamknięcie
+    # przełączonej rekrutacji bywa świadomą decyzją.
+    not_switched = (
+        "(NOT j.managed_in_nexus OR j.status = 'closed')"
+        if scope.job_ids
+        else "NOT j.managed_in_nexus"
+    )
     clauses = [
         "j.external_source = 'traffit'",
         "j.external_id IS NOT NULL",
         "j.closed_at IS NULL",
-        "NOT j.managed_in_nexus",
+        not_switched,
         """EXISTS (
             SELECT 1 FROM candidate_stages cs
             WHERE cs.job_id = j.id AND cs.external_source = 'traffit'
@@ -830,12 +840,8 @@ async def process_job(
                 .execution_options(populate_existing=True)
             )
         ).scalar_one()
-        if (
-            job_row.external_source != "traffit"
-            or job_row.managed_in_nexus
-            or job_row.status != JobStatus.closed
-        ):
-            # Ktoś przełączył albo otworzył ją w międzyczasie — poprawki cofamy.
+        if job_row.external_source != "traffit" or job_row.status != JobStatus.closed:
+            # Ktoś otworzył ją w międzyczasie — poprawki cofamy.
             await db.rollback()
             return _job_report(job, plan, status="skipped", skip_reason="changed")
         if twin_job_id is not None and twin_exact:

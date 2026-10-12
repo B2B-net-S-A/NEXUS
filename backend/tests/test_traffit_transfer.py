@@ -691,3 +691,25 @@ async def test_next_run_repairs_recruitments_opened_with_a_delivery_lead_as_owne
     assert seed["job_id"] in done["owners_settled_job_ids"]
     assert await _owner_and_lead(seed["job_id"]) == (None, lead)
     assert await _active_assignments(seed["job_id"]) == 0
+
+
+@pytest.mark.asyncio
+async def test_recruitment_switched_by_hand_but_still_closed_is_opened_when_listed(
+    post_commit_calls: list[Any],
+) -> None:
+    # Ktoś kliknął „Przełącz do NEXUSA” i nie otworzył rekrutacji: import jej
+    # już nie rusza, a w NEXUSIE dalej jest zamknięta.
+    seed = await _seed()
+    actor = await _admin_id()
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text("UPDATE jobs SET managed_in_nexus = true WHERE id = :i"),
+            {"i": seed["job_id"]},
+        )
+        await db.commit()
+
+    report = await _run(seed, _traffit_for(seed), dry_run=False, actor=actor)
+
+    (job,) = report["jobs"]
+    assert job["status"] == "transferred", job
+    assert await _job_state(seed["job_id"]) == ("published", True, True, "searching")
