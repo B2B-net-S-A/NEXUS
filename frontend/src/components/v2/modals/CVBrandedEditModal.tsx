@@ -133,6 +133,11 @@ function CVBrandedEditContent({
     },
   });
 
+  // Async callbacks (nowy szkic, ponowne wczytanie) mogą wrócić po zamknięciu
+  // okna — wtedy `useEditor` zdążył już zniszczyć edytor, a `editor.commands`
+  // na zniszczonym edytorze rzuca TypeError.
+  const liveEditor = () => (editor && !editor.isDestroyed ? editor : null);
+
   const sessionRef = useRef<CvDraftSession | null>(null);
   const loadedStage = useRef<number | null>(null);
   const [saveState, setSaveState] = useState<CvSaveState>("saved");
@@ -155,7 +160,7 @@ function CVBrandedEditContent({
     sessionRef.current = session;
     loadedStage.current = stageId;
     setSaveState(session.state);
-    editor?.commands.setContent(session.html, { emitUpdate: false });
+    liveEditor()?.commands.setContent(session.html, { emitUpdate: false });
     queryClient.setQueryData([scopeKey, stageId], state);
   };
 
@@ -181,17 +186,19 @@ function CVBrandedEditContent({
     newDraftRef.current = editorApi.newDraft(stageId, session.revision)
       .then((response) => {
         // Tekst wpisany w zatwierdzoną wersję przechodzi do nowego szkicu.
-        const typed = editor?.getHTML() ?? null;
+        const typed = liveEditor()?.getHTML() ?? null;
         loadState(response.data);
-        if (typed != null && typed !== sessionRef.current?.html) {
-          editor?.commands.setContent(typed, { emitUpdate: false });
+        const current = liveEditor();
+        if (current && typed != null && typed !== sessionRef.current?.html) {
+          current.commands.setContent(typed, { emitUpdate: false });
           sessionRef.current?.edit(typed);
         }
       })
       .catch((error: unknown) => {
         showError(`Nie udało się utworzyć nowej wersji: ${getErrorMessage(error)}`);
         // Zmiana nie trafiła do żadnego szkicu — wracamy do zatwierdzonej treści.
-        if (sessionRef.current) editor?.commands.setContent(sessionRef.current.html, { emitUpdate: false });
+        const current = liveEditor();
+        if (sessionRef.current && current) current.commands.setContent(sessionRef.current.html, { emitUpdate: false });
       })
       .finally(() => {
         newDraftRef.current = null;
