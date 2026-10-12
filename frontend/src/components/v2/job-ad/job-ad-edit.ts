@@ -32,6 +32,17 @@ export const TEXT_KEYS: readonly AdTextKey[] = [
 
 export type AdEditKey = AdListKey | AdTextKey;
 
+/** Niezapisane teksty pól okna; brak klucza = pole nie jest w edycji. */
+export type AdDrafts = Readonly<Partial<Record<AdEditKey, string>>>;
+
+export function withDraft(drafts: AdDrafts, key: AdEditKey, text: string | null): AdDrafts {
+  if (text !== null) return { ...drafts, [key]: text };
+  if (!(key in drafts)) return drafts;
+  const next = { ...drafts };
+  delete next[key];
+  return next;
+}
+
 export function isListKey(key: string): key is AdListKey {
   return (LIST_KEYS as readonly string[]).includes(key);
 }
@@ -70,11 +81,7 @@ export function withoutExcerpt(content: AdContent, finding: AdFinding): AdConten
   return next === content[key] ? null : { ...content, [key]: next };
 }
 
-export function withTechLevel(
-  tech: AdTechItem[],
-  name: string,
-  level: AdTechLevel,
-): AdTechItem[] {
+export function withTechLevel(tech: AdTechItem[], name: string, level: AdTechLevel): AdTechItem[] {
   return tech.map((item) => (item.name === name ? { ...item, level } : item));
 }
 

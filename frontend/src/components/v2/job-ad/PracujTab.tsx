@@ -9,16 +9,27 @@
 import type { AdContent, AdFinding, RenderedAd, RenderedField } from "@/lib/api/jobAd";
 
 import { AdBlock, type AdBlockTone } from "./AdBlock";
-import { editorText, findingsByField, isEditKey, type AdEditKey } from "./job-ad-edit";
+import {
+  editorText,
+  findingsByField,
+  isEditKey,
+  type AdDrafts,
+  type AdEditKey,
+} from "./job-ad-edit";
 
 export interface AdTabProps {
   content: AdContent;
   rendered: RenderedAd;
   findings: AdFinding[];
   saving: boolean;
+  /** Trwa przygotowanie nowej treści. */
+  locked: boolean;
+  /** Niezapisane teksty pól — wspólne dla obu zakładek. */
+  drafts: AdDrafts;
   copied: ReadonlySet<string>;
   copyBlockedReason: string | null;
   onCopy: (key: string, html: string, text: string) => void;
+  onDraftChange: (key: AdEditKey, text: string | null) => void;
   onSaveField: (key: AdEditKey, text: string) => Promise<boolean>;
 }
 
@@ -50,9 +61,12 @@ export function PracujTab({
   rendered,
   findings,
   saving,
+  locked,
+  drafts,
   copied,
   copyBlockedReason,
   onCopy,
+  onDraftChange,
   onSaveField,
 }: AdTabProps) {
   const byField = findingsByField(findings);
@@ -74,8 +88,11 @@ export function PracujTab({
         tone={toneOf(byField.get(field.key))}
         editValue={editKey ? editorText(content, editKey) : undefined}
         editHint={editKey ? editHint(editKey) : undefined}
+        draft={editKey ? (drafts[editKey] ?? null) : null}
+        onDraftChange={editKey ? (text) => onDraftChange(editKey, text) : undefined}
         onSave={editKey ? (text) => onSaveField(editKey, text) : undefined}
         saving={saving}
+        locked={locked}
         copied={copied.has(copyKey)}
         copyBlockedReason={copyBlockedReason}
         onCopy={() => onCopy(copyKey, field.kind === "text" ? "" : field.html, field.text)}

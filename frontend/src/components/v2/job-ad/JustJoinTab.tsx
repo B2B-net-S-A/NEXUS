@@ -14,13 +14,7 @@ import { cn } from "@/lib/utils";
 
 import { AdBlock } from "./AdBlock";
 import { editHint, toneOf, type AdTabProps } from "./PracujTab";
-import {
-  editorText,
-  findingsByField,
-  isEditKey,
-  withTechLevel,
-  withoutTech,
-} from "./job-ad-edit";
+import { editorText, findingsByField, isEditKey, withTechLevel, withoutTech } from "./job-ad-edit";
 
 interface JustJoinTabProps extends AdTabProps {
   tech: AdTechItem[];
@@ -84,15 +78,24 @@ export function JustJoinTab({
   rendered,
   findings,
   saving,
+  locked,
+  drafts,
   copied,
   copyBlockedReason,
   onCopy,
+  onDraftChange,
   onSaveField,
   tech,
   onSaveTech,
 }: JustJoinTabProps) {
   const byField = findingsByField(findings);
   const { form_fields, tech_stack, tech_overflow, sections, body_html, body_text } = rendered.jjit;
+  // Opis kopiuje się w całości — z otwartą poprawką poszedłby tekst sprzed niej.
+  const bodyBlockedReason =
+    copyBlockedReason ??
+    (sections.some((item) => isEditKey(item.key) && drafts[item.key] !== undefined)
+      ? "Najpierw zapisz albo anuluj otwartą poprawkę."
+      : null);
 
   const section = (item: RenderedSection) => {
     const editKey = isEditKey(item.key) ? item.key : null;
@@ -109,8 +112,11 @@ export function JustJoinTab({
         tone={toneOf(byField.get(item.key))}
         editValue={editKey ? editorText(content, editKey) : undefined}
         editHint={editKey ? editHint(editKey) : undefined}
+        draft={editKey ? (drafts[editKey] ?? null) : null}
+        onDraftChange={editKey ? (text) => onDraftChange(editKey, text) : undefined}
         onSave={editKey ? (text) => onSaveField(editKey, text) : undefined}
         saving={saving}
+        locked={locked}
       />
     );
   };
@@ -162,7 +168,8 @@ export function JustJoinTab({
           </h3>
           {tech_stack.length === 0 ? (
             <p className="text-[13px] text-muted-foreground">
-              Rekrutacja nie ma krótkich nazw technologii — dodaj je w wymaganiach Profilu Championa.
+              Rekrutacja nie ma krótkich nazw technologii — dodaj je w wymaganiach Profilu
+              Championa.
             </p>
           ) : (
             <ul className="flex flex-col gap-1.5 text-[13px]">
@@ -176,7 +183,7 @@ export function JustJoinTab({
                     aria-label={`Poziom: ${item.name}`}
                     className="h-7 rounded-md border border-border bg-card px-1.5 text-xs text-foreground"
                     value={item.source}
-                    disabled={saving}
+                    disabled={saving || locked}
                     onChange={(event) =>
                       void onSaveTech(
                         withTechLevel(tech, item.name, event.target.value as AdTechLevel),
@@ -195,7 +202,7 @@ export function JustJoinTab({
                     variant="ghost"
                     className="h-7 w-7"
                     aria-label={`Usuń technologię: ${item.name}`}
-                    disabled={saving}
+                    disabled={saving || locked}
                     onClick={() => void onSaveTech(withoutTech(tech, item.name))}
                   >
                     <X className="h-3.5 w-3.5" aria-hidden="true" />
@@ -226,14 +233,14 @@ export function JustJoinTab({
             <CopyButton
               label="zwykły tekst"
               copied={copied.has("jjit.text")}
-              blockedReason={copyBlockedReason}
+              blockedReason={bodyBlockedReason}
               onClick={() => onCopy("jjit.text", "", body_text)}
             />
             <CopyButton
               label="opis"
               primary
               copied={copied.has("jjit.body")}
-              blockedReason={copyBlockedReason}
+              blockedReason={bodyBlockedReason}
               onClick={() => onCopy("jjit.body", body_html, body_text)}
             />
           </div>

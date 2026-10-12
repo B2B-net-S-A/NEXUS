@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -45,6 +46,12 @@ router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _changed(message: str) -> HTTPException:
+    return HTTPException(
+        status_code=409, detail={"code": "job_ad_changed", "message": message}
+    )
 
 
 async def _load_job(db: AsyncSession, user: User, job_id: int) -> Job:
@@ -127,10 +134,25 @@ async def generate_portal_ad(
     Awaria modelu NIE zastępuje istniejącej treści złożeniem z pól
     rekrutacji — rekruter mógł ją już poprawić. Złożenie bez modelu powstaje
     tylko jako pierwsza wersja ogłoszenia (i tylko po polsku).
+
+    Model liczy od kilku sekund do minuty. Zapis jest więc warunkowy: jeśli
+    w tym czasie ktoś zapisał poprawkę albo przygotował ogłoszenie, nowa
+    treść przepada z 409 zamiast po cichu zastąpić cudzą pracę.
     """
     job = await _load_job(db, current_user, job_id)
     mat = await _material(db, job)
-    existed = await db.get(JobAd, job_id) is not None
+    before = await db.get(JobAd, job_id)
+    existed = before is not None
+    seen = before.updated_at if before is not None else None
+    if (
+        data.expected_updated_at is not None
+        and seen is not None
+        and data.expected_updated_at != seen
+    ):
+        raise _changed(
+            "Ktoś w międzyczasie zmienił to ogłoszenie. Wczytałem aktualną "
+            "wersję — sprawdź ją, zanim przygotujesz treść ponownie."
+        )
     try:
         content, source = await generate.generate_content(
             db,
@@ -164,13 +186,27 @@ async def generate_portal_ad(
         "updated_by": current_user.id,
         "updated_at": now,
     }
-    # Upsert: model liczy kilka sekund, więc dwa równoległe „Przygotuj” na
-    # rekrutacji bez ogłoszenia nie mogą skończyć się błędem klucza głównego.
-    await db.execute(
-        pg_insert(JobAd)
-        .values(job_id=job_id, **values)
-        .on_conflict_do_update(index_elements=[JobAd.job_id], set_=values)
-    )
+    if existed:
+        statement = (
+            update(JobAd)
+            .where(JobAd.job_id == job_id, JobAd.updated_at == seen)
+            .values(**values)
+        )
+    else:
+        # Dwa równoległe „Przygotuj” na rekrutacji bez ogłoszenia: drugie nie
+        # kończy się błędem klucza głównego ani nie zastępuje pierwszego.
+        statement = (
+            pg_insert(JobAd)
+            .values(job_id=job_id, **values)
+            .on_conflict_do_nothing(index_elements=[JobAd.job_id])
+        )
+    written = (await db.execute(statement)).rowcount
+    if not written:
+        await db.rollback()
+        raise _changed(
+            "Ktoś zmienił to ogłoszenie, kiedy układałem nową treść. Nic nie "
+            "zostało zastąpione — wczytałem aktualną wersję."
+        )
     await db.commit()
     ad = await db.get(JobAd, job_id, populate_existing=True)
     return await _response(db, job, ad, mat)
@@ -196,15 +232,9 @@ async def put_portal_ad(
         and ad.updated_at is not None
         and data.expected_updated_at != ad.updated_at
     ):
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "job_ad_changed",
-                "message": (
-                    "Ktoś w międzyczasie zmienił to ogłoszenie. Odśwież okno "
-                    "i wprowadź poprawkę jeszcze raz."
-                ),
-            },
+        raise _changed(
+            "Ktoś w międzyczasie zmienił to ogłoszenie. Wczytałem aktualną "
+            "wersję — Twój tekst został w polu, zapisz go jeszcze raz."
         )
     mat = await _material(db, job)
     ad.content = generate.clean_content(data.content.model_dump(), title=mat.title)

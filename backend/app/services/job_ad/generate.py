@@ -26,6 +26,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.job_ad.material import SENIORITY_LABELS, AdMaterial
+from app.services.job_ad.text import visible
 from app.services.job_ad_schema import LANG_EN, SOURCE_AI, SOURCE_TEMPLATE
 
 logger = logging.getLogger(__name__)
@@ -148,7 +149,7 @@ def prompt_for(material: AdMaterial, lang: str) -> str:
 
 
 def _line(value: Any, limit: int) -> str:
-    return " ".join(str(value or "").split())[:limit].strip()
+    return " ".join(visible(str(value or "")).split())[:limit].strip()
 
 
 def clean_list(value: Any, limit: int) -> list[str]:
@@ -170,7 +171,7 @@ def clean_content(value: Any, *, title: str) -> dict[str, Any]:
     data = value if isinstance(value, dict) else {}
     about = "\n\n".join(
         " ".join(p.split())
-        for p in re.split(r"\n\s*\n", str(data.get("about") or ""))
+        for p in re.split(r"\n\s*\n", visible(str(data.get("about") or "")))
         if p.strip()
     )
     content: dict[str, Any] = {

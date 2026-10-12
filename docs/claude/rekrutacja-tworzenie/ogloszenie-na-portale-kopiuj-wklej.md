@@ -28,7 +28,9 @@ rekrutację); front `components/v2/job-ad/`, `lib/api/jobAd.ts`, karta
 - **Materiał = to, co wolno powiedzieć** (`material.build_material`): opis
   projektu, obowiązki, wymagania, notatki „Można powiedzieć kandydatowi” —
   przez `job_public_profile.draft_material`, tę samą funkcję co szkic strony
-  kariery. Nigdy klient, stawka, sekcja `client` ani notatki „Tylko zespół”.
+  kariery. Nigdy pola klienta, stawka, sekcja `client` ani notatki „Tylko
+  zespół”. Nazwę klienta wpisaną przez kogoś w opisie projektu albo
+  w wymaganiach model zobaczy — dlatego wynik zawsze przechodzi kontrolę.
   Z `basics` Championa czytane jest tylko `language` (sekcja niesie stawkę).
   Opis rekrutacji traci linie `Klient: …` i znaczniki `##` zostawione przez
   stary szkic.
@@ -45,6 +47,12 @@ rekrutację); front `components/v2/job-ad/`, `lib/api/jobAd.ts`, karta
   = 503 bez zapisu — rekruter mógł już poprawić treść. Poprzedni generator
   oddawał w takiej sytuacji szablon ze zmyślonymi widełkami, nie do
   odróżnienia od wyniku AI.
+- **Zapis po odpowiedzi modelu jest warunkowy.** Model liczy do minuty, więc
+  `generate` zapisuje tylko wtedy, gdy ogłoszenie jest wciąż w wersji sprzed
+  wywołania (`UPDATE … WHERE updated_at = <widziana>` albo `INSERT … ON
+  CONFLICT DO NOTHING` dla pierwszej wersji). Zero zapisanych wierszy = 409
+  `job_ad_changed`. Bezwarunkowy upsert zastępował poprawkę zapisaną
+  w trakcie i pozwalał złożeniu bez modelu nadpisać cudze ogłoszenie.
 - **Kontrola (`lint.lint_ad`) czyta wszystko, co idzie do schowka:** pola
   ogłoszenia, miasto z rekrutacji (`terms`), stałe bloki (`fixed`) i na końcu
   komplet napisów z `render.rendered_texts`. Nowe wejście renderu = nowy
@@ -52,9 +60,21 @@ rekrutację); front `components/v2/job-ad/`, `lib/api/jobAd.ts`, karta
   **Blokują:** nazwa klienta (także nazwa wyświetlana i prawna —
   `job_public_profile.client_lint_names`), dane kontaktowe, nazwisko oraz
   kwota z walutą albo stawką za jednostkę czasu. **Doradzają:** liczba przy
-  słowie „stawka”/„rate” bez waluty („rate limiting … Java 17”), nagłówki
-  wewnętrznego formularza, liczby MD, numer zlecenia, wymaganie w jednym–dwóch
-  słowach, brak startu, długości albo sekcji.
+  słowie „stawka”/„rate” bez waluty („rate limiting … Java 17”), adres strony
+  bez „www”, nagłówki wewnętrznego formularza, liczby MD, numer zlecenia,
+  wymaganie w jednym–dwóch słowach, brak startu, długości albo sekcji.
+- **O tym, czy kwota blokuje, decydują wzorce strony kariery**
+  (`public_profile_lint.CERTAIN_MONEY_PATTERNS`), nie ich kopia. Własny,
+  węższy wzorzec przepuszczał „15 tysięcy zł” i „180/godzinę” jako uwagę
+  (przegląd 12.10.2026). Dopiski tylko dla ogłoszenia (`lint._EXTRA_BLOCKS`):
+  kwota słownie („200 złotych”, „30 tys. netto”, „2 mln PLN”), link
+  (`http`, `www`), telefon stacjonarny i z numerem kierunkowym, e-mail
+  zapisany jako „jan [at] firma”. Końcówek „.net”, „.io”, „.js” kontrola nie
+  traktuje jak adresu — to nazwy technologii.
+- **Znaki niewidoczne nie chowają znaleziska.** Tekst z Worda i PDF-a niesie
+  miękkie łączniki i spacje zerowej szerokości; kontrola porównuje tekst po
+  `text.for_lint` (NFKC, bez znaków formatujących), a zapis i render je
+  wycinają (`text.visible`; łącznik sklejający emoji zostaje).
 - **Nazwa klienta jest dopasowywana po całych słowach**, jak na stronie
   kariery: odmienioną formę („w Kwarcowym Banku”) łapie dopiero alias klienta.
 - **Widełki wpisuje człowiek w formularzu portalu** (decyzja z 25.09.2026
@@ -74,9 +94,19 @@ rekrutację); front `components/v2/job-ad/`, `lib/api/jobAd.ts`, karta
   (`material._HASH_FIELDS`). Nowe pole `AdMaterial` dopisane do odcisku bez
   zmiany wersji oznaczy wszystkie zapisane ogłoszenia jako „rekrutacja się
   zmieniła”.
-- **Zapis poprawki niesie `expected_updated_at`**; inna wersja w bazie = 409
-  `job_ad_changed`, okno wczytuje ogłoszenie ponownie, a niezapisany tekst
-  zostaje w polu.
+- **Zapis poprawki i ponowne przygotowanie niosą `expected_updated_at`**;
+  inna wersja w bazie = 409 `job_ad_changed`, okno wczytuje ogłoszenie
+  ponownie, a niezapisany tekst zostaje w polu. Wysyłana jest wersja, od
+  której ZACZĘŁA SIĘ edycja (`baseVersion` w `JobAdWindow`), nie ta z cache
+  w chwili zapisu: zapytanie odświeża się w tle przy powrocie do karty
+  i stary tekst przeszedłby jako poprawka do cudzej, nowszej treści. Własny
+  udany zapis przesuwa wersję bazową, więc dwa pola otwarte naraz zapisują
+  się po kolei bez fałszywego konfliktu.
+- **Niezapisany tekst trzyma okno, nie blok** (`drafts` w `JobAdWindow`, dla
+  pól obu zakładek i warunków z lewej kolumny). Nieaktywna zakładka jest
+  odmontowana, a „Pokaż” z kontroli samo przełącza zakładkę — stan lokalny
+  bloku gubił poprawkę. Opis JustJoin.IT kopiowany w całości jest wyłączony,
+  dopóki któraś jego sekcja ma otwartą poprawkę.
 - **To nie jest publikacja przez API.** Sekcja „Portale ogłoszeniowe”
   (`JobPortalsSection`, tabela `job_postings`, treść z zatwierdzonego opisu
   publicznego) zostaje osobno i za flagami. Ręcznie wklejonego ogłoszenia nie

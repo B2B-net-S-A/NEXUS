@@ -7,13 +7,16 @@ Kontrakt ``docs/claude/rekrutacja-tworzenie/ogloszenie-na-portale-kopiuj-wklej.m
   modelu przy istniejącym ogłoszeniu = 503 i treść bez zmian; wersja
   angielska bez modelu nie powstaje;
 - kontrola widzi pola ogłoszenia, miasto rekrutacji i stałe bloki;
-- zapis poprawki ze starą wersją = 409; stałe bloki zapisuje admin i HoR.
+- zapis poprawki ze starą wersją = 409; ponowne przygotowanie nie zastępuje
+  poprawki zapisanej, kiedy model układał treść; stałe bloki zapisuje admin
+  i HoR.
 """
 
 from __future__ import annotations
 
 import json
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 import pytest_asyncio
@@ -27,7 +30,8 @@ from app.models.client import Client
 from app.models.job import Job
 from app.models.job_ad import JobAd
 from app.models.user import User, UserRole
-from app.services.job_ad import fixed_blocks
+from app.services.job_ad import fixed_blocks, generate
+from app.services.job_ad_schema import SOURCE_AI, SOURCE_TEMPLATE
 from tests.test_career_links_api import _login, _owner_with_job
 
 pytestmark = pytest.mark.asyncio
@@ -182,7 +186,11 @@ async def test_first_ad_without_a_model_is_a_labelled_template(
     assert ad["source"] == "template"
     assert ad["content"]["requirements"] == ["Java 17"]
     assert ad["content"]["lead"] == ""
-    assert "uzupełnij" not in resp.text
+    # Złożenie nie zostawia „[uzupełnij]” w tym, co idzie do schowka
+    # (komunikaty kontroli mogą radzić „uzupełnij Profil Championa”).
+    body = resp.json()
+    copied = json.dumps([ad["content"], body["rendered"]], ensure_ascii=False)
+    assert "uzupełnij" not in copied.lower()
 
 
 async def test_model_failure_never_replaces_a_saved_ad(api: AsyncClient, monkeypatch):
@@ -357,6 +365,105 @@ async def test_stale_edit_is_409(api: AsyncClient, monkeypatch):
     )
     assert second.status_code == 409
     assert second.json()["detail"]["code"] == "job_ad_changed"
+
+
+def _slow_model(monkeypatch, meanwhile, *, source: str = SOURCE_AI):
+    """Model „liczy”, a w tym czasie ktoś inny zapisuje ogłoszenie
+    (``meanwhile`` — osobna sesja, zatwierdzona przed odpowiedzią modelu)."""
+
+    async def fake_generate_content(db, mat, **kwargs):
+        await meanwhile()
+        return (
+            generate.clean_content({"about": "Treść z modelu."}, title=mat.title),
+            source,
+        )
+
+    monkeypatch.setattr(generate, "generate_content", fake_generate_content)
+
+
+async def test_regenerate_keeps_an_edit_saved_while_the_model_was_working(
+    api: AsyncClient, monkeypatch
+):
+    _, headers, job_id = await _owner_with_job(api)
+    ad = await _generated(api, headers, job_id, monkeypatch)
+
+    async def someone_edits():
+        async with AsyncSessionLocal() as db:
+            row = await db.get(JobAd, job_id)
+            row.content = {**row.content, "about": "Poprawka innej osoby."}
+            row.updated_at = datetime.now(timezone.utc)
+            await db.commit()
+
+    _slow_model(monkeypatch, someone_edits)
+    resp = await api.post(
+        f"/api/jobs/{job_id}/portal-ad/generate",
+        json={"lang": "pl", "expected_updated_at": ad["updated_at"]},
+        headers=headers,
+    )
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "job_ad_changed"
+    after = await api.get(f"/api/jobs/{job_id}/portal-ad", headers=headers)
+    assert after.json()["ad"]["content"]["about"] == "Poprawka innej osoby."
+
+
+async def test_template_never_replaces_an_ad_created_while_the_model_was_failing(
+    api: AsyncClient, monkeypatch
+):
+    """Rekrutacja bez ogłoszenia: A klika „Przygotuj”, model pada, a B w tym
+    czasie przygotowuje ogłoszenie. Złożenie A nie może go zastąpić."""
+    owner_id, headers, job_id = await _owner_with_job(api)
+
+    async def someone_generates():
+        async with AsyncSessionLocal() as db:
+            now = datetime.now(timezone.utc)
+            db.add(
+                JobAd(
+                    job_id=job_id,
+                    lang="pl",
+                    content=generate.clean_content(
+                        {"about": "Ogłoszenie innej osoby."}, title="Java Developer"
+                    ),
+                    tech=[],
+                    source=SOURCE_AI,
+                    material_hash="x",
+                    generated_by=owner_id,
+                    generated_at=now,
+                    updated_by=owner_id,
+                    updated_at=now,
+                )
+            )
+            await db.commit()
+
+    _slow_model(monkeypatch, someone_generates, source=SOURCE_TEMPLATE)
+    resp = await api.post(
+        f"/api/jobs/{job_id}/portal-ad/generate", json={"lang": "pl"}, headers=headers
+    )
+    assert resp.status_code == 409, resp.text
+    after = (await api.get(f"/api/jobs/{job_id}/portal-ad", headers=headers)).json()
+    assert after["ad"]["source"] == "ai"
+    assert after["ad"]["content"]["about"] == "Ogłoszenie innej osoby."
+
+
+async def test_regenerate_from_a_stale_window_is_409_before_the_model_is_called(
+    api: AsyncClient, monkeypatch
+):
+    _, headers, job_id = await _owner_with_job(api)
+    ad = await _generated(api, headers, job_id, monkeypatch)
+    edited = await api.put(
+        f"/api/jobs/{job_id}/portal-ad",
+        json={"content": ad["content"], "tech": ad["tech"]},
+        headers=headers,
+    )
+    assert edited.status_code == 200, edited.text
+
+    calls = _model(monkeypatch)
+    resp = await api.post(
+        f"/api/jobs/{job_id}/portal-ad/generate",
+        json={"lang": "pl", "expected_updated_at": ad["updated_at"]},
+        headers=headers,
+    )
+    assert resp.status_code == 409, resp.text
+    assert calls == []
 
 
 async def test_edit_rejects_too_many_items_instead_of_trimming(

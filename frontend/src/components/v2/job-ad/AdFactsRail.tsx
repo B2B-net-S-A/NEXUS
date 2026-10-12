@@ -4,49 +4,66 @@
  * Lewa kolumna okna: fakty „Z tej rekrutacji”, czego brakuje, warunki
  * wpisane w ogłoszeniu (start, długość, język pracy) i przypomnienie
  * o widełkach.
+ *
+ * Wpisane, a niezapisane warunki trzyma okno (`drafts`): ponowne wczytanie
+ * ogłoszenia po odrzuconym zapisie nie może ich wyczyścić.
  */
 
-import { useEffect, useState } from "react";
 import { AlertCircle, Check } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { AdContent, AdFact, AdReadinessItem } from "@/lib/api/jobAd";
 
-type Terms = Pick<AdContent, "start" | "duration" | "language">;
+import type { AdDrafts } from "./job-ad-edit";
+
+export type AdTerms = Pick<AdContent, "start" | "duration" | "language">;
+export const TERM_KEYS = ["start", "duration", "language"] as const;
 
 interface AdFactsRailProps {
   facts: AdFact[];
   readiness: AdReadinessItem[];
   /** `null` = ogłoszenie jeszcze nie powstało. */
   content: AdContent | null;
+  drafts: AdDrafts;
   saving: boolean;
-  onSaveTerms: (terms: Terms) => Promise<boolean>;
+  /** Trwa przygotowanie nowej treści. */
+  locked: boolean;
+  onDraftChange: (key: keyof AdTerms, text: string | null) => void;
+  onSaveTerms: (terms: AdTerms) => Promise<boolean>;
 }
 
-const TERM_FIELDS: ReadonlyArray<{ key: keyof Terms; label: string; placeholder: string }> = [
+const TERM_FIELDS: ReadonlyArray<{
+  key: keyof AdTerms;
+  label: string;
+  placeholder: string;
+}> = [
   { key: "start", label: "Start projektu", placeholder: "np. listopad 2026" },
-  { key: "duration", label: "Długość współpracy", placeholder: "np. 12 miesięcy" },
-  { key: "language", label: "Język pracy", placeholder: "np. polski, angielski B2" },
+  {
+    key: "duration",
+    label: "Długość współpracy",
+    placeholder: "np. 12 miesięcy",
+  },
+  {
+    key: "language",
+    label: "Język pracy",
+    placeholder: "np. polski, angielski B2",
+  },
 ];
 
-function termsOf(content: AdContent | null): Terms {
-  return {
-    start: content?.start ?? "",
-    duration: content?.duration ?? "",
-    language: content?.language ?? "",
-  };
-}
-
-export function AdFactsRail({ facts, readiness, content, saving, onSaveTerms }: AdFactsRailProps) {
-  const saved = termsOf(content);
-  const [terms, setTerms] = useState<Terms>(saved);
-  // Zapis albo ponowne przygotowanie ogłoszenia przynosi nowe warunki z serwera.
-  useEffect(() => {
-    setTerms({ start: saved.start, duration: saved.duration, language: saved.language });
-  }, [saved.start, saved.duration, saved.language]);
-
-  const dirty = TERM_FIELDS.some(({ key }) => terms[key].trim() !== saved[key]);
+export function AdFactsRail({
+  facts,
+  readiness,
+  content,
+  drafts,
+  saving,
+  locked,
+  onDraftChange,
+  onSaveTerms,
+}: AdFactsRailProps) {
+  const saved = (key: keyof AdTerms) => content?.[key] ?? "";
+  const value = (key: keyof AdTerms) => drafts[key] ?? saved(key);
+  const dirty = TERM_KEYS.some((key) => value(key).trim() !== saved(key));
   const missing = readiness.filter((item) => !item.present);
 
   return (
@@ -101,9 +118,9 @@ export function AdFactsRail({ facts, readiness, content, saving, onSaveTerms }: 
           onSubmit={(event) => {
             event.preventDefault();
             void onSaveTerms({
-              start: terms.start.trim(),
-              duration: terms.duration.trim(),
-              language: terms.language.trim(),
+              start: value("start").trim(),
+              duration: value("duration").trim(),
+              language: value("language").trim(),
             });
           }}
         >
@@ -114,16 +131,25 @@ export function AdFactsRail({ facts, readiness, content, saving, onSaveTerms }: 
             <label key={key} className="flex flex-col gap-1" data-ad-field={key}>
               <span className="text-xs text-muted-foreground">{label}</span>
               <Input
-                value={terms[key]}
+                value={value(key)}
                 placeholder={placeholder}
                 maxLength={80}
                 className="h-8 text-[13px]"
-                onChange={(event) => setTerms((prev) => ({ ...prev, [key]: event.target.value }))}
+                onChange={(event) =>
+                  // Powrót do zapisanej wartości = pole nie jest już w edycji.
+                  onDraftChange(key, event.target.value === saved(key) ? null : event.target.value)
+                }
               />
             </label>
           ))}
           {dirty ? (
-            <Button type="submit" size="sm" loading={saving} className="self-start">
+            <Button
+              type="submit"
+              size="sm"
+              loading={saving}
+              disabled={locked}
+              className="self-start"
+            >
               Zapisz warunki
             </Button>
           ) : null}

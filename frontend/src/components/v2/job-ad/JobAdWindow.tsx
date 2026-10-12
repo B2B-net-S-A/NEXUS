@@ -12,7 +12,7 @@
  * Reguły: `docs/claude/rekrutacja-tworzenie/ogloszenie-na-portale-kopiuj-wklej.md`.
  */
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Loader2, RefreshCcw } from "lucide-react";
 
@@ -40,10 +40,16 @@ import { copyHtmlToClipboard, copyTextToClipboard } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 
 import { AdChecksPanel } from "./AdChecksPanel";
-import { AdFactsRail } from "./AdFactsRail";
+import { AdFactsRail, TERM_KEYS, type AdTerms } from "./AdFactsRail";
 import { JustJoinTab } from "./JustJoinTab";
 import { PracujTab } from "./PracujTab";
-import { withEdited, withoutExcerpt, type AdEditKey } from "./job-ad-edit";
+import {
+  withDraft,
+  withEdited,
+  withoutExcerpt,
+  type AdDrafts,
+  type AdEditKey,
+} from "./job-ad-edit";
 
 export type JobAdTab = "pracuj" | "jjit";
 
@@ -91,33 +97,64 @@ export function JobAdWindow({
   const [tab, setTab] = useState<JobAdTab>(initialTab);
   const [firstLang, setFirstLang] = useState<AdLang>("pl");
   const [copied, setCopied] = useState<ReadonlySet<string>>(new Set());
+  // Niezapisane teksty pól (obie zakładki i warunki z lewej kolumny).
+  const [drafts, setDrafts] = useState<AdDrafts>({});
   const bodyRef = useRef<HTMLDivElement | null>(null);
 
   const queryKey = jobAdQueryKey(jobId);
-  const query = useQuery({ queryKey, queryFn: () => api.get(jobId), enabled: open });
+  const query = useQuery({
+    queryKey,
+    queryFn: () => api.get(jobId),
+    enabled: open,
+  });
+
+  // Wersja, na której opierają się otwarte poprawki. Zapytanie odświeża się
+  // w tle (powrót do karty), więc wersja czytana z cache w chwili zapisu
+  // byłaby już cudzą: serwer przyjąłby stary tekst jako poprawkę do nowej
+  // treści. Dopóki coś jest w edycji, wersja bazowa stoi w miejscu.
+  const baseVersion = useRef<string | null>(null);
+  const editing = Object.keys(drafts).length > 0;
+  const loadedVersion = query.data?.ad?.updated_at ?? null;
+  useEffect(() => {
+    if (!editing) baseVersion.current = loadedVersion;
+  }, [editing, loadedVersion]);
+
+  const setDraft = (key: AdEditKey, text: string | null) =>
+    setDrafts((prev) => withDraft(prev, key, text));
 
   const applyState = (state: JobAdState) => {
     queryClient.setQueryData(queryKey, state);
+    baseVersion.current = state.ad?.updated_at ?? null;
     // Nowa treść = nowe teksty do skopiowania; stare „Skopiowane” już nie obowiązuje.
     setCopied(new Set());
   };
 
+  /** 409: wczytaj to, co zapisał ktoś inny; niezapisany tekst zostaje w polach. */
+  const reloadAfterConflict = async () => {
+    const fresh = await query.refetch();
+    baseVersion.current = fresh.data?.ad?.updated_at ?? null;
+  };
+
   const generate = useMutation({
-    mutationFn: (lang: AdLang) => api.generate(jobId, lang),
+    mutationFn: (lang: AdLang) => api.generate(jobId, lang, baseVersion.current),
     onSuccess: (state) => {
       applyState(state);
+      // Poprawki dotyczyły poprzedniej treści.
+      setDrafts({});
       if (state.ad?.source === "ai") showSuccess("Ogłoszenie przygotowane.");
     },
-    onError: (err) =>
-      showError(apiErrorMessage(err, "Nie udało się przygotować ogłoszenia. Spróbuj ponownie.")),
+    onError: (err) => {
+      if (isAdChangedError(err)) void reloadAfterConflict();
+      showError(apiErrorMessage(err, "Nie udało się przygotować ogłoszenia. Spróbuj ponownie."));
+    },
   });
 
   const save = useMutation({
     mutationFn: (input: { content: AdContent; tech: AdTechItem[] }) =>
-      api.save(jobId, { ...input, expected_updated_at: query.data?.ad?.updated_at ?? null }),
+      api.save(jobId, { ...input, expected_updated_at: baseVersion.current }),
     onSuccess: applyState,
     onError: (err) => {
-      if (isAdChangedError(err)) void query.refetch();
+      if (isAdChangedError(err)) void reloadAfterConflict();
       showError(apiErrorMessage(err, "Nie udało się zapisać poprawki. Spróbuj ponownie."));
     },
   });
@@ -137,14 +174,27 @@ export function JobAdWindow({
     }
   };
 
-  const saveField = (key: AdEditKey, text: string) =>
-    ad ? saveAd(withEdited(ad.content, key, text), ad.tech) : Promise.resolve(false);
+  const saveField = async (key: AdEditKey, text: string): Promise<boolean> => {
+    if (!ad) return false;
+    const saved = await saveAd(withEdited(ad.content, key, text), ad.tech);
+    if (saved) setDraft(key, null);
+    return saved;
+  };
+
+  const saveTerms = async (terms: AdTerms): Promise<boolean> => {
+    if (!ad) return false;
+    const saved = await saveAd({ ...ad.content, ...terms }, ad.tech);
+    if (saved)
+      setDrafts((prev) => TERM_KEYS.reduce((next, key) => withDraft(next, key, null), prev));
+    return saved;
+  };
 
   const regenerate = async (lang: AdLang) => {
     const confirmed = await askConfirm({
       title: "Przygotować ogłoszenie ponownie?",
-      description:
-        "Obecna treść, razem z ręcznymi poprawkami, zostanie zastąpiona nową. Jeśli model będzie niedostępny, obecna treść zostanie bez zmian.",
+      description: `Obecna treść, razem z ręcznymi poprawkami${
+        editing ? " i tekstem w otwartych polach," : ""
+      } zostanie zastąpiona nową. Jeśli model będzie niedostępny, obecna treść zostanie bez zmian.`,
       confirmLabel: "Przygotuj ponownie",
     });
     if (confirmed) generate.mutate(lang);
@@ -276,10 +326,11 @@ export function JobAdWindow({
                     facts={state.facts}
                     readiness={state.readiness}
                     content={ad?.content ?? null}
+                    drafts={drafts}
                     saving={save.isPending}
-                    onSaveTerms={(terms) =>
-                      ad ? saveAd({ ...ad.content, ...terms }, ad.tech) : Promise.resolve(false)
-                    }
+                    locked={generate.isPending}
+                    onDraftChange={setDraft}
+                    onSaveTerms={saveTerms}
                   />
                   <div className="flex min-w-0 flex-1 flex-col gap-3 overflow-y-auto px-5 py-4">
                     {generate.isPending ? (
@@ -298,8 +349,9 @@ export function JobAdWindow({
                           Ta rekrutacja nie ma jeszcze ogłoszenia
                         </h2>
                         <p className="text-sm text-muted-foreground">
-                          Ułożę treść z Profilu Championa — bez nazwy klienta i bez stawek. Dostaniesz
-                          ją w dwóch formatach: pola formularza Pracuj.pl i opis JustJoin.IT.
+                          Ułożę treść z Profilu Championa — bez nazwy klienta i bez stawek.
+                          Dostaniesz ją w dwóch formatach: pola formularza Pracuj.pl i opis
+                          JustJoin.IT.
                         </p>
                         <div className="flex flex-wrap items-center gap-3">
                           <SegmentedRadio
@@ -348,7 +400,8 @@ export function JobAdWindow({
                             className="rounded-md border border-destructive/20 bg-destructive-muted px-3 py-2 text-[13px] text-destructive-muted-foreground"
                           >
                             <strong className="font-semibold">Kopiowanie jest wyłączone.</strong> W
-                            treści {blockingCount === 1 ? "jest fragment, który" : "są fragmenty, które"}{" "}
+                            treści{" "}
+                            {blockingCount === 1 ? "jest fragment, który" : "są fragmenty, które"}{" "}
                             nie {blockingCount === 1 ? "może" : "mogą"} trafić na portal — usuń{" "}
                             {blockingCount === 1 ? "go" : "je"} albo popraw tekst.
                           </p>
@@ -359,9 +412,12 @@ export function JobAdWindow({
                             rendered={rendered}
                             findings={findings}
                             saving={save.isPending}
+                            locked={generate.isPending}
+                            drafts={drafts}
                             copied={copied}
                             copyBlockedReason={copyBlockedReason}
                             onCopy={(key, html, text) => void copy(key, html, text)}
+                            onDraftChange={setDraft}
                             onSaveField={saveField}
                           />
                         </TabsContent>
@@ -372,9 +428,12 @@ export function JobAdWindow({
                             rendered={rendered}
                             findings={findings}
                             saving={save.isPending}
+                            locked={generate.isPending}
+                            drafts={drafts}
                             copied={copied}
                             copyBlockedReason={copyBlockedReason}
                             onCopy={(key, html, text) => void copy(key, html, text)}
+                            onDraftChange={setDraft}
                             onSaveField={saveField}
                             onSaveTech={(tech) => saveAd(ad.content, tech)}
                           />

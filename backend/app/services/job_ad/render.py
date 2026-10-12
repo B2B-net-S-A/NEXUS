@@ -28,6 +28,7 @@ from app.services.job_ad.fixed_blocks import (
     LangBlocks,
 )
 from app.services.job_ad.material import AdMaterial
+from app.services.job_ad.text import visible
 from app.services.job_ad_schema import LANG_EN
 from app.services.champion_requirement_rows import (
     ALTERNATIVE_JOINER,
@@ -116,7 +117,7 @@ def terms_from(material: AdMaterial, content: dict[str, Any]) -> Terms:
 
 
 def _clean(value: Any) -> str:
-    return " ".join(str(value or "").split())
+    return " ".join(visible(str(value or "")).split())
 
 
 def _items(value: Any) -> list[str]:

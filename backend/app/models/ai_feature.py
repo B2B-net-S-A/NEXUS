@@ -201,7 +201,8 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     ],
     AIFeatureKey.job_description_generator: [
         "Tytuł rekrutacji, opis projektu, obowiązki i wymagania z Profilu Championa",
-        "(bez nazwy klienta, stawek i danych kandydatów)",
+        "(bez pól klienta, stawek i danych kandydatów; nazwa klienta wpisana "
+        "w opisie projektu albo w wymaganiach trafia do modelu)",
     ],
     AIFeatureKey.cv_parser: [
         "Treść CV kandydatów (PDF/DOCX → tekst)",

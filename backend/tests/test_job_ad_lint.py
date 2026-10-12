@@ -73,6 +73,22 @@ def test_client_name_blocks_and_names_the_field():
         "180/h B2B",
         "1200 / MD",
         "PLN 140 za godzinę",
+        # Przegląd 12.10.2026: węższa kopia wzorców przepuszczała te zapisy
+        # jako uwagę, choć strona kariery je blokuje.
+        "oferujemy 15 tysięcy zł miesięcznie",
+        "do 180/godzinę",
+        "do 25k/miesiąc",
+        "do 25 000 / miesiąc",
+        "1200/dni",
+        # Kwoty, których wzorce strony kariery nie znają.
+        "200 złotych za godzinę",
+        "20 tysięcy złotych",
+        "150 dolarów dziennie",
+        "3000 CZK",
+        "budżet projektu 2 mln PLN",
+        "do 30 tys. netto",
+        "180 netto/h + VAT",
+        "180 ＰＬＮ",
     ],
 )
 def test_amount_with_a_currency_or_a_rate_unit_blocks(text):
@@ -81,6 +97,20 @@ def test_amount_with_a_currency_or_a_rate_unit_blocks(text):
         ("money", lint.SEVERITY_BLOCK, "offer")
     ]
     assert "polu wynagrodzenia portalu" in findings[0].message
+
+
+def test_a_certain_amount_far_from_the_pay_word_still_blocks():
+    """Wycinek znaleziska jest przycinany do 120 znaków — kwota z walutą
+    na końcu długiego zdania nie może zniknąć za słowem „budżet”."""
+    text = (
+        "Budżet to 15 tysięcy zł w pierwszym etapie projektu, który potrwa "
+        "dłużej niż planowano i w kolejnych miesiącach rośnie do 200 PLN "
+        "za godzinę pracy"
+    )
+    assert len(text) > 120
+    findings = _lint(_content(about=text))
+    assert lint.has_blocking(findings)
+    assert lint.CODE_POSSIBLE_MONEY not in _codes(findings)
 
 
 @pytest.mark.parametrize(
@@ -106,6 +136,66 @@ def test_contact_and_surname_block():
         )
     )
     assert _codes(findings, lint.SEVERITY_BLOCK) == ["contact", "person_name"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "zadzwoń: 22 555 12 34",
+        "tel. (22) 555-12-34",
+        "+48 22 555 12 34",
+        "+49 170 1234567",
+        "jan [at] produkt-demo",
+        "jan(at)firma(dot)example",
+        "aplikuj: https://przyklad.example/apply",
+        "www.kariera.przyklad.example/oferta/17",
+        "jan＠example.com",
+    ],
+)
+def test_links_and_contact_written_around_the_rules_block(text):
+    """Treść requestu bywa z maila klienta: link „aplikuj tutaj” albo numer
+    z podpisu wysłałby kandydatów poza portal."""
+    findings = _lint(_content(about=f"Rola w zespole platformy. {text}"))
+    assert ("contact", lint.SEVERITY_BLOCK, "about") in [
+        (f.code, f.severity, f.field) for f in findings
+    ]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Praca z ASP.NET, Node.js i socket.io",
+        "Next.js/React, Vue.js, C++ 17 i CI/CD",
+        "2 dni w biurze na miesiąc, zespół 8 osób",
+        "System obsługuje 10 mln użytkowników",
+        "Start: listopad 2026, kontrakt na 12 miesięcy",
+    ],
+)
+def test_ordinary_technical_sentences_raise_no_alarm(text):
+    assert _lint(_content(about=text)) == []
+
+
+def test_a_bare_site_address_is_advice():
+    findings = _lint(_content(about="Produkt opisuje strona produkt-demo.pl."))
+    assert [(f.code, f.severity) for f in findings] == [
+        (lint.CODE_LINK, lint.SEVERITY_ADVISE)
+    ]
+
+
+@pytest.mark.parametrize(
+    "text,code",
+    [
+        ("Infrastruktura klienta Kwar\u00adcowy Bank.", "client_name"),
+        ("Infrastruktura klienta Kwar\u200bcowy Bank.", "client_name"),
+        ("stawka 180\u200b zł/h", "money"),
+        ("tel. 600\u200b100\u200b200", "contact"),
+        ("pisz: jan\u200b@example.com", "contact"),
+    ],
+)
+def test_invisible_characters_do_not_hide_a_finding(text, code):
+    """Miękki łącznik i spacja zerowej szerokości przychodzą z Worda i PDF-a."""
+    findings = _lint(_content(about=text))
+    assert code in _codes(findings, lint.SEVERITY_BLOCK)
 
 
 def test_blocking_findings_come_first():
@@ -256,6 +346,8 @@ def test_fixed_blocks_refuse_amounts_and_contact_details():
     assert lint.lint_fixed_blocks(DEFAULTS.pl.offer) == []
     assert _codes(lint.lint_fixed_blocks(["premia 500 zł"])) == ["money"]
     assert _codes(lint.lint_fixed_blocks(["pisz: hr@example.com"])) == ["contact"]
+    assert _codes(lint.lint_fixed_blocks(["więcej: www.example.com"])) == ["contact"]
+    assert _codes(lint.lint_fixed_blocks(["premia 500 złotych"])) == ["money"]
     # Liczba bez waluty to nie powód, żeby odmówić zapisu.
     assert lint.lint_fixed_blocks(["stawka ustalana po 2 rozmowach z 10 osób"]) == []
 

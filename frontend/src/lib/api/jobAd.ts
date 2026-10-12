@@ -166,11 +166,18 @@ export const jobAdApi = {
     const res = await api.get(`/api/jobs/${jobId}/portal-ad`);
     return normalize(res.data);
   },
-  /** Układa treść od nowa (model albo złożenie z pól rekrutacji) i ją zapisuje. */
-  generate: async (jobId: number, lang: AdLang): Promise<JobAdState> => {
+  /**
+   * Układa treść od nowa (model albo złożenie z pól rekrutacji) i ją zapisuje.
+   * `expectedUpdatedAt` — wersja z ekranu; inna w bazie = 409 `job_ad_changed`.
+   */
+  generate: async (
+    jobId: number,
+    lang: AdLang,
+    expectedUpdatedAt: string | null = null,
+  ): Promise<JobAdState> => {
     const res = await api.post(
       `/api/jobs/${jobId}/portal-ad/generate`,
-      { lang },
+      { lang, expected_updated_at: expectedUpdatedAt },
       { timeout: SLOW_ENDPOINT_TIMEOUT_MS },
     );
     return normalize(res.data);
@@ -225,7 +232,7 @@ export function linesToItems(text: string): string[] {
     .filter(Boolean);
 }
 
-/** Zapis odrzucony, bo ktoś w międzyczasie zmienił ogłoszenie (409). */
+/** Zapis albo przygotowanie odrzucone, bo ktoś w międzyczasie zmienił ogłoszenie (409). */
 export function isAdChangedError(error: unknown): boolean {
   const response = (error as { response?: { status?: unknown; data?: unknown } })?.response;
   if (response?.status !== 409) return false;

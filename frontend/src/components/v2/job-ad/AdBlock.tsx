@@ -7,9 +7,12 @@
  *
  * Podgląd rysuje się z napisów policzonych przez serwer jako zwykły tekst —
  * HTML z odpowiedzi idzie wyłącznie do schowka.
+ *
+ * Niezapisany tekst (`draft`) trzyma okno, nie blok: zakładki pokazują to samo
+ * pole, a nieaktywna zakładka jest odmontowana — stan lokalny gubił poprawkę
+ * przy przejściu Pracuj.pl → JustJoin.IT.
  */
 
-import { useState } from "react";
 import { Check, Copy, Pencil } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -35,8 +38,13 @@ export interface AdBlockProps {
   /** Tekst do edytora; `undefined` = bloku nie poprawia się w oknie. */
   editValue?: string;
   editHint?: string;
+  /** Niezapisany tekst; `null` = blok nie jest w edycji. */
+  draft?: string | null;
+  onDraftChange?: (text: string | null) => void;
   onSave?: (text: string) => Promise<boolean>;
   saving?: boolean;
+  /** Trwa przygotowanie nowej treści — poprawek nie zaczyna się ani nie zapisuje. */
+  locked?: boolean;
   /** Brak = blok bez własnego „Kopiuj” (sekcja opisu JustJoin.IT). */
   onCopy?: () => void;
   copied?: boolean;
@@ -60,22 +68,19 @@ export function AdBlock({
   tone = null,
   editValue,
   editHint,
+  draft = null,
+  onDraftChange,
   onSave,
   saving = false,
+  locked = false,
   onCopy,
   copied = false,
   copyBlockedReason = null,
 }: AdBlockProps) {
-  const [draft, setDraft] = useState<string | null>(null);
-  const editing = draft !== null;
-  const editable = editValue !== undefined && !!onSave;
+  const editable = editValue !== undefined && !!onSave && !!onDraftChange;
+  const editing = editable && draft !== null;
   const empty = kind === "text" ? !text.trim() : items.length === 0;
   const name = label ?? "Wstęp";
-
-  const save = async () => {
-    if (draft === null || !onSave) return;
-    if (await onSave(draft)) setDraft(null);
-  };
 
   const ListTag = kind === "ordered" ? "ol" : "ul";
   const body = empty ? (
@@ -147,7 +152,8 @@ export function AdBlock({
                 variant="ghost"
                 className="h-7 px-2"
                 aria-label={`Edytuj: ${name}`}
-                onClick={() => setDraft(editValue ?? "")}
+                disabled={locked}
+                onClick={() => onDraftChange?.(editValue ?? "")}
               >
                 <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
                 Edytuj
@@ -185,13 +191,19 @@ export function AdBlock({
             aria-label={`Treść: ${name}`}
             value={draft ?? ""}
             rows={kind === "text" ? 4 : Math.min(10, Math.max(4, items.length + 1))}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => onDraftChange?.(event.target.value)}
             className="text-[13px]"
             autoFocus
           />
           {editHint ? <p className="text-xs text-muted-foreground">{editHint}</p> : null}
           <div className="flex gap-2">
-            <Button type="button" size="sm" loading={saving} onClick={() => void save()}>
+            <Button
+              type="button"
+              size="sm"
+              loading={saving}
+              disabled={locked}
+              onClick={() => void onSave?.(draft ?? "")}
+            >
               Zapisz
             </Button>
             <Button
@@ -199,7 +211,7 @@ export function AdBlock({
               size="sm"
               variant="ghost"
               disabled={saving}
-              onClick={() => setDraft(null)}
+              onClick={() => onDraftChange?.(null)}
             >
               Anuluj
             </Button>

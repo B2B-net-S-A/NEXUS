@@ -12,7 +12,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 const toast = vi.hoisted(() => ({ showSuccess: vi.fn(), showError: vi.fn() }));
 vi.mock("@/components/Toast", () => ({ useToast: () => toast }));
 
-const apiMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn() }));
+const apiMock = vi.hoisted(() => ({
+  get: vi.fn(),
+  post: vi.fn(),
+  put: vi.fn(),
+}));
 vi.mock("@/lib/api", () => ({ api: apiMock, default: apiMock }));
 
 const clipboard = vi.hoisted(() => ({
@@ -21,7 +25,7 @@ const clipboard = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/clipboard", () => clipboard);
 
-import type { AdLang, JobAdState } from "@/lib/api/jobAd";
+import { jobAdQueryKey, type JobAdState } from "@/lib/api/jobAd";
 
 import { JobAdWindow, type JobAdWindowApi } from "../JobAdWindow";
 import { adState, CLIENT_FINDING, CONTENT, EMPTY_STATE, TECH } from "./job-ad-fixtures";
@@ -29,18 +33,32 @@ import { adState, CLIENT_FINDING, CONTENT, EMPTY_STATE, TECH } from "./job-ad-fi
 type SaveInput = Parameters<JobAdWindowApi["save"]>[1];
 type SaveImpl = (jobId: number, input: SaveInput) => Promise<JobAdState>;
 
-function setup(initial: JobAdState | Error, saveImpl?: SaveImpl) {
+type Loaded = JobAdState | Error | (() => JobAdState);
+type GenerateImpl = JobAdWindowApi["generate"];
+
+const CONFLICT = {
+  response: {
+    status: 409,
+    data: {
+      detail: { code: "job_ad_changed", message: "Ktoś zmienił ogłoszenie." },
+    },
+  },
+};
+
+function setup(initial: Loaded, saveImpl?: SaveImpl, generateImpl?: GenerateImpl) {
   const api = {
     get: vi.fn(async (_jobId: number) => {
       if (initial instanceof Error) throw initial;
-      return initial;
+      return typeof initial === "function" ? initial() : initial;
     }),
-    generate: vi.fn(async (_jobId: number, _lang: AdLang) => adState()),
+    generate: vi.fn<GenerateImpl>(generateImpl ?? (async () => adState())),
     save: vi.fn<SaveImpl>(
       saveImpl ?? (async (_jobId, input) => adState({ content: input.content })),
     ),
   };
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   render(
     <QueryClientProvider client={client}>
       <JobAdWindow
@@ -52,7 +70,12 @@ function setup(initial: JobAdState | Error, saveImpl?: SaveImpl) {
       />
     </QueryClientProvider>,
   );
-  return api;
+  return Object.assign(api, { client });
+}
+
+/** Radix przełącza zakładkę na `mousedown`. */
+function openTab(name: string) {
+  fireEvent.mouseDown(screen.getByRole("tab", { name }), { button: 0 });
 }
 
 beforeEach(() => {
@@ -65,7 +88,9 @@ describe("JobAdWindow — rekrutacja bez ogłoszenia", () => {
   it("proponuje przygotowanie i po kliknięciu pokazuje pola portalu", async () => {
     const api = setup(EMPTY_STATE);
     expect(
-      await screen.findByRole("heading", { name: "Ta rekrutacja nie ma jeszcze ogłoszenia" }),
+      await screen.findByRole("heading", {
+        name: "Ta rekrutacja nie ma jeszcze ogłoszenia",
+      }),
     ).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Pracuj.pl" })).not.toBeInTheDocument();
 
@@ -74,7 +99,7 @@ describe("JobAdWindow — rekrutacja bez ogłoszenia", () => {
     expect(await screen.findByRole("region", { name: "O projekcie" })).toHaveTextContent(
       "Zespół buduje mikroserwisy rozliczeniowe.",
     );
-    expect(api.generate).toHaveBeenCalledWith(7, "pl");
+    expect(api.generate).toHaveBeenCalledWith(7, "pl", null);
     expect(screen.getByRole("tab", { name: "Pracuj.pl" })).toBeInTheDocument();
   });
 
@@ -82,7 +107,9 @@ describe("JobAdWindow — rekrutacja bez ogłoszenia", () => {
     setup(new Error("500"));
     expect(await screen.findByText("Nie udało się wczytać ogłoszenia")).toBeInTheDocument();
     expect(
-      screen.queryByRole("heading", { name: "Ta rekrutacja nie ma jeszcze ogłoszenia" }),
+      screen.queryByRole("heading", {
+        name: "Ta rekrutacja nie ma jeszcze ogłoszenia",
+      }),
     ).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Przygotuj ogłoszenie" })).not.toBeInTheDocument();
   });
@@ -100,7 +127,9 @@ describe("JobAdWindow — kopiowanie", () => {
       ),
     );
     expect(
-      await screen.findByRole("button", { name: "Skopiowane: Nasze wymagania" }),
+      await screen.findByRole("button", {
+        name: "Skopiowane: Nasze wymagania",
+      }),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Kopiuj: O projekcie" })).toBeInTheDocument();
   });
@@ -141,7 +170,10 @@ describe("JobAdWindow — kopiowanie", () => {
 describe("JobAdWindow — kontrola przed skopiowaniem", () => {
   const blocked = () =>
     adState({
-      content: { ...CONTENT, about: "Platforma płatności dla klienta Bank Przykładowy." },
+      content: {
+        ...CONTENT,
+        about: "Platforma płatności dla klienta Bank Przykładowy.",
+      },
       findings: [CLIENT_FINDING],
     });
 
@@ -153,7 +185,9 @@ describe("JobAdWindow — kontrola przed skopiowaniem", () => {
       "Kontrola: 1 do usunięcia",
     );
 
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "JustJoin.IT" }), { button: 0 });
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "JustJoin.IT" }), {
+      button: 0,
+    });
     expect(await screen.findByRole("button", { name: "Kopiuj opis" })).toBeDisabled();
     expect(clipboard.copyHtmlToClipboard).not.toHaveBeenCalled();
   });
@@ -194,9 +228,7 @@ describe("JobAdWindow — kontrola przed skopiowaniem", () => {
     expect(await screen.findByText("Brak długości współpracy.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Kopiuj: Nasze wymagania" })).toBeEnabled();
     expect(screen.queryByText("Kopiowanie jest wyłączone.")).not.toBeInTheDocument();
-    expect(screen.getByTestId("job-ad-checks-summary")).toHaveTextContent(
-      "Kontrola: 1 do poprawy",
-    );
+    expect(screen.getByTestId("job-ad-checks-summary")).toHaveTextContent("Kontrola: 1 do poprawy");
   });
 });
 
@@ -246,7 +278,22 @@ describe("JobAdWindow — poprawki i ponowne przygotowanie", () => {
     expect(api.generate).not.toHaveBeenCalled();
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Przygotuj ponownie" }));
-    await waitFor(() => expect(api.generate).toHaveBeenCalledWith(7, "pl"));
+    // Wersja z ekranu idzie z żądaniem: inna w bazie = odmowa zamiast podmiany.
+    await waitFor(() => expect(api.generate).toHaveBeenCalledWith(7, "pl", "2026-10-12T09:20:00Z"));
+  });
+
+  it("przygotowanie odrzucone, bo ktoś zmienił ogłoszenie, wczytuje je ponownie", async () => {
+    const api = setup(adState(), undefined, async () => {
+      throw CONFLICT;
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Przygotuj ponownie" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Przygotować ogłoszenie ponownie?",
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Przygotuj ponownie" }));
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    expect(toast.showError).toHaveBeenCalledWith("Ktoś zmienił ogłoszenie.");
   });
 
   it("treść złożona bez modelu i zmieniona rekrutacja są nazwane wprost", async () => {
@@ -258,14 +305,8 @@ describe("JobAdWindow — poprawki i ponowne przygotowanie", () => {
   });
 
   it("zapis odrzucony, bo ktoś zmienił ogłoszenie, wczytuje je ponownie", async () => {
-    const conflict = {
-      response: {
-        status: 409,
-        data: { detail: { code: "job_ad_changed", message: "Ktoś zmienił ogłoszenie." } },
-      },
-    };
     const api = setup(adState(), async () => {
-      throw conflict;
+      throw CONFLICT;
     });
     fireEvent.click(await screen.findByRole("button", { name: "Edytuj: O projekcie" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Treść: O projekcie" }), {
@@ -277,5 +318,106 @@ describe("JobAdWindow — poprawki i ponowne przygotowanie", () => {
     expect(toast.showError).toHaveBeenCalledWith("Ktoś zmienił ogłoszenie.");
     // Niezapisana poprawka zostaje w polu — rekruter nie traci tekstu.
     expect(screen.getByRole("textbox", { name: "Treść: O projekcie" })).toHaveValue("Nowy opis.");
+  });
+});
+
+describe("JobAdWindow — niezapisany tekst", () => {
+  it("przejście do drugiej zakładki i z powrotem nie gubi otwartej poprawki", async () => {
+    setup(adState());
+    fireEvent.click(await screen.findByRole("button", { name: "Edytuj: Nasze wymagania" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Treść: Nasze wymagania" }), {
+      target: { value: "Java 21" },
+    });
+
+    openTab("JustJoin.IT");
+    // To samo pole w drugiej zakładce pokazuje tę samą otwartą poprawkę…
+    expect(await screen.findByRole("textbox", { name: "Treść: Wymagania" })).toHaveValue("Java 21");
+    // …a opis kopiowany w całości czeka, aż zostanie zapisana albo anulowana.
+    expect(screen.getByRole("button", { name: "Kopiuj opis" })).toBeDisabled();
+
+    openTab("Pracuj.pl");
+    expect(await screen.findByRole("textbox", { name: "Treść: Nasze wymagania" })).toHaveValue(
+      "Java 21",
+    );
+  });
+
+  it("odrzucony zapis warunków nie czyści tego, co rekruter wpisał", async () => {
+    let loads = 0;
+    const api = setup(
+      () =>
+        ++loads === 1 ? adState() : adState({ content: { ...CONTENT, duration: "24 miesiące" } }),
+      async () => {
+        throw CONFLICT;
+      },
+    );
+    fireEvent.change(await screen.findByLabelText("Start projektu"), {
+      target: { value: "styczeń 2027" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz warunki" }));
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Długość współpracy")).toHaveValue("24 miesiące"),
+    );
+    expect(screen.getByLabelText("Start projektu")).toHaveValue("styczeń 2027");
+  });
+
+  it("odświeżenie w tle pod otwartą poprawką nie przepuszcza jej przez kontrolę wersji", async () => {
+    const other = adState({
+      content: {
+        ...CONTENT,
+        requirements: ["punkt dopisany przez inną osobę"],
+      },
+    });
+    other.ad!.updated_at = "2026-10-12T12:00:00Z";
+    let loads = 0;
+    const api = setup(() => (++loads === 1 ? adState() : other));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Edytuj: O projekcie" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Treść: O projekcie" }), {
+      target: { value: "Moja poprawka." },
+    });
+    // To samo robi powrót do karty przeglądarki.
+    await api.client.refetchQueries({ queryKey: jobAdQueryKey(7) });
+    await screen.findByText("punkt dopisany przez inną osobę");
+
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+    await waitFor(() => expect(api.save).toHaveBeenCalledTimes(1));
+    // Wersja, od której zaczęła się edycja — serwer odpowie na nią 409.
+    expect(api.save.mock.calls[0][1].expected_updated_at).toBe("2026-10-12T09:20:00Z");
+  });
+
+  it("zapis jednego pola nie odrzuca drugiego, otwartego wcześniej", async () => {
+    let version = 0;
+    const api = setup(adState(), async (_jobId, input) => {
+      const next = adState({ content: input.content });
+      next.ad!.updated_at = `2026-10-12T10:0${++version}:00Z`;
+      return next;
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Edytuj: O projekcie" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edytuj: Nasze wymagania" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Treść: O projekcie" }), {
+      target: { value: "Nowy opis." },
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: "Treść: Nasze wymagania" }), {
+      target: { value: "Java 21" },
+    });
+
+    const about = screen.getByRole("region", { name: "O projekcie" });
+    fireEvent.click(within(about).getByRole("button", { name: "Zapisz" }));
+    await waitFor(() => expect(api.save).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox", { name: "Treść: O projekcie" })).not.toBeInTheDocument(),
+    );
+
+    const requirements = screen.getByRole("region", {
+      name: "Nasze wymagania",
+    });
+    fireEvent.click(within(requirements).getByRole("button", { name: "Zapisz" }));
+    await waitFor(() => expect(api.save).toHaveBeenCalledTimes(2));
+    expect(api.save.mock.calls[1][1]).toMatchObject({
+      content: { about: "Nowy opis.", requirements: ["Java 21"] },
+      expected_updated_at: "2026-10-12T10:01:00Z",
+    });
   });
 });

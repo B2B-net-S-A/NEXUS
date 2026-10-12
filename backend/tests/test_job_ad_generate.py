@@ -177,6 +177,21 @@ def test_english_prompt_asks_only_for_a_translation_of_the_terms():
 # ── Parser odpowiedzi modelu ────────────────────────────────────────────────
 
 
+def test_saved_content_drops_invisible_characters_but_keeps_emoji():
+    """Miękki łącznik i spacja zerowej szerokości z Worda nie trafiają na
+    portal; łącznik sklejający emoji zostaje."""
+    content = generate.clean_content(
+        {
+            "about": "Plat\u00adforma płat\u200bności.\ufeff",
+            "requirements": ["Ja\u200bva 17", "zespół \U0001f469\u200d\U0001f4bb"],
+        },
+        title="Dev\u200bOps",
+    )
+    assert content["title"] == "DevOps"
+    assert content["about"] == "Platforma płatności."
+    assert content["requirements"] == ["Java 17", "zespół \U0001f469\u200d\U0001f4bb"]
+
+
 def test_parser_reads_fenced_json_and_cleans_bullets():
     parsed = generate.parse_generated(
         '```json\n{"lead": " Szukamy  osoby ", "about": "Projekt.", '

@@ -53,6 +53,9 @@ class AdGenerateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     lang: Lang = "pl"
+    # Jak w `AdUpdateRequest`: wersja, którą okno miało na ekranie, gdy
+    # rekruter potwierdzał zastąpienie treści.
+    expected_updated_at: Optional[datetime] = None
 
 
 class AdUpdateRequest(BaseModel):

@@ -34,9 +34,16 @@ _EXCERPT_MAX = 120
 
 _CURRENCY = r"(?:zł|zl|pln|eur|euro|€|usd|\$|gbp|£|chf)"
 _RATE_UNIT = r"(?:h|godz\.?|godzin[ęy]?|md|mc|mies\.?|miesi[ąa]c|dzie[ńn]|dni[ea]?|day|hour|month)"
-_NUMBER = r"\d[\d\s.,]*"
+# Kwantyfikator zaborczy: liczba, `\s*` i `\s*` wokół mnożnika dzieliły te same
+# spacje, więc „1” + 800 spacji + litera liczyło się kilkanaście sekund
+# (sześciennie). Klasa liczby nie zawiera żadnego znaku, od którego zaczyna
+# się dalszy ciąg wzorca, więc dopasowania są te same.
+_NUMBER = r"\d[\d\s.,]*+"
 
-_MONEY_PATTERNS = (
+# Kwota „na pewno”: liczba z walutą albo ze stawką za jednostkę czasu.
+# Ogłoszenie na portale (`job_ad.lint`) blokuje kopiowanie tylko przy nich,
+# a liczbę przy samym słowie „stawka”/„rate” traktuje jako uwagę.
+CERTAIN_MONEY_PATTERNS = (
     # „180 zł", „25 000 PLN", „20k PLN", „15 tys. zł"
     re.compile(
         rf"{_NUMBER}\s*(?:k|tys\.?|tysi[ęe]cy)?\s*{_CURRENCY}(?![a-ząćęłńóśźż])",
@@ -46,6 +53,9 @@ _MONEY_PATTERNS = (
     re.compile(rf"(?<![a-ząćęłńóśźż]){_CURRENCY}\s*{_NUMBER}", re.IGNORECASE),
     # „180/h", „25k/mc", „1200 / MD", „k/h"
     re.compile(rf"(?:{_NUMBER}\s*k?|\bk)\s*/\s*{_RATE_UNIT}\b", re.IGNORECASE),
+)
+_MONEY_PATTERNS = (
+    *CERTAIN_MONEY_PATTERNS,
     # „stawka 180", „budżet do 25 000", „widełki 20-25"
     re.compile(
         r"\b(?:stawk\w*|bud[żz]et\w*|wynagrodzeni\w*|wide[łl]k\w*|rate|salary)"

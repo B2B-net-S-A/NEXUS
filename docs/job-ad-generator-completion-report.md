@@ -30,11 +30,16 @@ sklejał tytuł z wymaganiami i dopisywał „Klient: …”.
   i etapy procesu dokleja kod. Wersja angielska: model tłumaczy start, długość
   i język pracy.
 - **Kontrola przed skopiowaniem** na wszystkim, co idzie do schowka. Blokują:
-  nazwa klienta (także wyświetlana i prawna), kontakt, nazwisko, kwota
-  z walutą albo stawką. Doradzają: nagłówki wewnętrznego formularza, liczby
-  MD, numer zlecenia, wymaganie w jednym–dwóch słowach, braki.
+  nazwa klienta (także wyświetlana i prawna), kontakt (e-mail, telefon,
+  link), nazwisko, kwota z walutą albo stawką — także słownie („200
+  złotych”, „30 tys. netto”). Doradzają: nagłówki wewnętrznego formularza,
+  liczby MD, numer zlecenia, adres strony bez „www”, wymaganie
+  w jednym–dwóch słowach, braki. Znaki niewidoczne z Worda i PDF-a nie
+  chowają znaleziska.
 - **Ręczne poprawki** każdego pola, warunków i poziomu technologii; zapis
-  odświeża kontrolę i teksty do skopiowania.
+  odświeża kontrolę i teksty do skopiowania. Niezapisany tekst przechodzi
+  między zakładkami i zostaje po odrzuconym zapisie; cudza zmiana w tym
+  samym czasie kończy się odmową (409), nie cichym nadpisaniem.
 - **Stałe części ogłoszenia** w Ustawienia → Rekrutacja (admin, Head of
   Recruitment): dopisek do tytułu, „co oferujemy”, etapy procesu, zdanie
   o firmie — po polsku i po angielsku.
@@ -54,14 +59,26 @@ sklejał tytuł z wymaganiami i dopisywał „Klient: …”.
 | Sekcja „Zespół i ogłoszenie” ma sam przycisk; wiersze stanu per portal przychodzą z etapem 2 | Dopiero „oznacz jako opublikowane” daje im treść; sekcja nie odpytuje serwera w harnessie |
 | Ustawienia w obszarze Rekrutacja (admin i HoR), nie pod „Portale ogłoszeniowe” | Tamta pozycja to połączenie konta, tylko dla admina |
 
+## Poprawki po przeglądzie kodu i bezpieczeństwa (przed otwarciem PR-a)
+
+| Znalezisko | Poprawka | Dowód |
+|---|---|---|
+| Kwoty „15 tysięcy zł”, „180/godzinę”, „25 000 / miesiąc” były tylko uwagą — własny wzorzec był węższy niż wzorce strony kariery | O blokadzie decydują wzorce strony kariery (`CERTAIN_MONEY_PATTERNS`); dopisane kwoty słownie | `test_amount_with_a_currency_or_a_rate_unit_blocks` (19 zapisów), `test_a_certain_amount_far_from_the_pay_word_still_blocks` |
+| Link, telefon „22 555 12 34”, „+48 …”, „jan [at] firma” przechodziły bez znaleziska | Dopiski kontroli tylko dla ogłoszenia | `test_links_and_contact_written_around_the_rules_block` (9 zapisów), `test_ordinary_technical_sentences_raise_no_alarm` |
+| Miękki łącznik albo spacja zerowej szerokości w nazwie klienta, kwocie, telefonie omijały każdą regułę | Kontrola po NFKC i bez znaków formatujących; zapis i render je wycinają | `test_invisible_characters_do_not_hide_a_finding`, `test_saved_content_drops_invisible_characters_but_keeps_emoji` |
+| Ponowne przygotowanie zapisywało bezwarunkowo po odpowiedzi modelu | Zapis warunkowy, 409 przy zmianie w trakcie | `test_regenerate_keeps_an_edit_saved_while_the_model_was_working`, `test_template_never_replaces_an_ad_created_while_the_model_was_failing` (CI) |
+| Odświeżenie w tle pod otwartą poprawką przepuszczało stary tekst przez kontrolę wersji | Wersja bazowa z początku edycji | „odświeżenie w tle pod otwartą poprawką…” w `JobAdWindow.test.tsx` |
+| Zmiana zakładki i odrzucony zapis warunków gubiły niezapisany tekst | Niezapisany tekst w stanie okna | trzy testy „niezapisany tekst” + przeklikane w harnessie |
+| Wzorzec kwoty strony kariery liczył się sześciennie („1” + 800 spacji = kilkanaście sekund na pętli zdarzeń; opis publiczny przyjmuje 4000 znaków) | Kwantyfikator zaborczy w `public_profile_lint._NUMBER`, te same dopasowania | `test_money_patterns_stay_linear_on_long_whitespace` |
+
 ## Weryfikacja
 
 | Co | Wynik |
 |---|---|
-| Testy logiki backendu bez bazy (`test_job_ad_render`, `_lint`, `_generate`, lustro migracji) | 104 zielone lokalnie (Python 3.12) |
+| Testy logiki backendu bez bazy (`test_job_ad_render`, `_lint`, `_generate`, lustro migracji, `test_public_profile_lint`) | zielone lokalnie (Python 3.12) |
 | Strażnicy repo bez bazy (sekcje tras, macierz uprawnień, inwentarz schematu, DDL entrypointu, rejestr modeli, stemple, indeks CLAUDE.md) | zielone lokalnie |
 | Wzorzec uprawnień `tests/data/authz_golden/job_ads.json` | ogłoszenie: każda rola wewnętrzna; stałe bloki: admin i Head of Recruitment |
-| Trasy z bazą (`test_job_ads_api.py`, 16 testów) | lokalnie padają wyłącznie na braku Postgresa — sprawdza CI |
+| Trasy z bazą (`test_job_ads_api.py`, 19 testów) | lokalnie padają wyłącznie na braku Postgresa — sprawdza CI |
 | Vitest: okno, edycja, schowek, karta ustawień, harnessy, inwentarz, rejestr ustawień, middleware | zielone lokalnie |
 | `tsc --noEmit`, ESLint zmienionych plików, strażnik nieosiągalnych modułów | czyste |
 | Harness `/preview/job-ad` w 1280 × 720: obie zakładki, blokada, „Usuń fragment”, edycja pola, pusty stan i przygotowanie, stan bez modelu | przeklikane, bez poziomego przewijania |
@@ -75,6 +92,12 @@ sklejał tytuł z wymaganiami i dopisywał „Klient: …”.
   przez alias — tak samo jak strona kariery.
 - **Strona kariery** nie zna nazwy wyświetlanej i prawnej klienta w kontroli
   treści; włączenie tego obróci część adresów linków.
+- **Strona kariery nie dostała dopisków kontroli** (kwoty słownie, linki,
+  telefon stacjonarny, znaki niewidoczne) — jej reguły zmieniłem tylko
+  o wydajność wzorca. Te same luki są tam otwarte; to osobna decyzja, bo
+  zaostrzenie odmówi zatwierdzenia części dziś przyjmowanych opisów.
+- **Litery z innego alfabetu** podstawione w nazwie klienta (cyrylica
+  zamiast łacińskiego „A”) kontrola przepuszcza.
 - **Link aplikacyjny** `/r/<slug>` z UTM nie jest podawany w oknie — zgłoszenia
   z portali wpadają jak dotąd przez import.
 - **Dwie treści:** publikacja przez API (za flagami) bierze zatwierdzony opis
