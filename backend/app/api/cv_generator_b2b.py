@@ -95,6 +95,7 @@ from app.services.ai_quota import (
     declared_call,
 )
 from app.services import cv_consent_gate as consent_gate
+from app.services.cv_download_log import log_cv_download
 from app.services.cv_generator_b2b import consent_binding
 from app.services.cv_generator_b2b.upload_preflight import (
     MAX_UPLOAD_BYTES,
@@ -3252,11 +3253,37 @@ async def list_generated_cvs(
     ]
 
 
+async def _log_generated_download(
+    db: AsyncSession,
+    generated_id: int,
+    user: User,
+    intent: Optional[str],
+    surface: Optional[str],
+    file_format: str,
+    state: str,
+    version: Optional[int] = None,
+) -> None:
+    """Pobranie pliku CV z generatora — wpis tylko przy ``intent=download``."""
+    await log_cv_download(
+        db,
+        intent=intent,
+        surface=surface,
+        entity_type="cv_generated_document",
+        entity_id=generated_id,
+        user=user,
+        file_format=file_format,
+        state=state,
+        version=version,
+    )
+
+
 @router.get("/generated/{generated_id}/docx")
 async def download_generated_cv(
     generated_id: int,
     current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
+    intent: Optional[str] = None,
+    surface: Optional[str] = None,
 ) -> Response:
     """Re-render a previously generated CV from its saved payload and return it.
 
@@ -3277,6 +3304,9 @@ async def download_generated_cv(
             raise HTTPException(
                 409, "Nie można potwierdzić integralności zapisanego DOCX."
             )
+        await _log_generated_download(
+            db, generated_id, current_user, intent, surface, "docx", "generated"
+        )
         return _build_docx_response(
             docx_bytes=stored,
             filename=row.filename,
@@ -3302,6 +3332,9 @@ async def download_generated_cv(
         raise HTTPException(
             status_code=500, detail=f"Nie udało się odtworzyć DOCX: {err}"
         ) from err
+    await _log_generated_download(
+        db, generated_id, current_user, intent, surface, "docx", "generated"
+    )
     return _build_docx_response(
         docx_bytes=docx_bytes,
         filename=row.filename,
@@ -3317,6 +3350,8 @@ async def download_generated_cv_html(
     generated_id: int,
     current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
+    intent: Optional[str] = None,
+    surface: Optional[str] = None,
 ) -> Response:
     """Interaktywne CV jako JEDEN samodzielny plik HTML — do wysyłki mailem.
 
@@ -3349,6 +3384,9 @@ async def download_generated_cv_html(
     disposition = f'attachment; filename="{ascii_name}"'
     if filename != ascii_name:
         disposition += f"; filename*=UTF-8''{quote(filename, safe='')}"
+    await _log_generated_download(
+        db, generated_id, current_user, intent, surface, "html", "generated"
+    )
     return Response(
         content=html_str.encode("utf-8"),
         media_type="text/html; charset=utf-8",
@@ -3876,6 +3914,8 @@ async def preview_generated_editor(
     payload: CVBrandedFinalize,
     current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
+    intent: Optional[str] = None,
+    surface: Optional[str] = None,
 ):
     draft = await _load_generated_editor(db, generated_id, current_user, persist=False)
     # DOCX szkicu renderuje się z obrazu zgody SZKICU (R7-X4-4).
@@ -3886,6 +3926,16 @@ async def preview_generated_editor(
 
     check_revision(draft, payload.expected_revision)
     content = await generated_editor.render(draft, payload.content_html)
+    await _log_generated_download(
+        db,
+        generated_id,
+        current_user,
+        intent,
+        surface,
+        "docx",
+        "draft",
+        version=draft.branded_version,
+    )
     await db.commit()
     return Response(
         content=content,
@@ -3912,6 +3962,8 @@ async def print_generated_editor(
     generated_id: int,
     current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
+    intent: Optional[str] = None,
+    surface: Optional[str] = None,
 ):
     draft = await _load_generated_editor(db, generated_id, current_user, persist=False)
     # Wydruk nie niesie obrazu zgody — przy wymogu zgody zablokowany (R7-X4-3).
@@ -3919,6 +3971,16 @@ async def print_generated_editor(
         await db.get(CvGeneratedDocument, generated_id), draft
     )
     content = _wrap_printable_generated_cv(draft.branded_draft_html)
+    await _log_generated_download(
+        db,
+        generated_id,
+        current_user,
+        intent,
+        surface,
+        "print",
+        "draft" if draft.branded_status == "draft" else "approved",
+        version=draft.branded_version,
+    )
     await db.commit()
     return Response(
         content=content, media_type="text/html", headers={"Cache-Control": "no-store"}
@@ -3931,6 +3993,8 @@ async def download_generated_approved_version(
     version_number: int,
     current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
+    intent: Optional[str] = None,
+    surface: Optional[str] = None,
 ):
     generated = await _load_generated_document(db, generated_id, current_user)
     from app.models.cv_document_version import CvDocumentVersion
@@ -3946,6 +4010,16 @@ async def download_generated_approved_version(
         raise HTTPException(404, "Nie znaleziono zatwierdzonej wersji.")
     version = await approved_version_for_generation(db, generated, version_id)
     consent_gate.ensure_downloadable(generated, version)
+    await _log_generated_download(
+        db,
+        generated_id,
+        current_user,
+        intent,
+        surface,
+        "docx",
+        "approved",
+        version=version_number,
+    )
     return Response(
         content=version.docx_content,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -4240,12 +4314,24 @@ async def download_package_document(
     file_format: Literal["docx", "html"],
     current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
+    intent: Optional[str] = None,
+    surface: Optional[str] = None,
 ):
     from app.services.cv_generated_approval import approved_version_for_generation
 
     row = await _load_generated_document(db, generated_id, current_user)
     version = await approved_version_for_generation(db, row, version_id)
     consent_gate.ensure_downloadable(row, version)
+    await _log_generated_download(
+        db,
+        generated_id,
+        current_user,
+        intent,
+        surface,
+        file_format,
+        "approved",
+        version=version.version,
+    )
     filename = version.docx_filename or "CV.docx"
     if file_format == "docx":
         return _build_docx_response(

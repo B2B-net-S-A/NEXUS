@@ -285,6 +285,47 @@ async def test_patch_branded_saves_content(
 
 
 @pytest.mark.asyncio
+async def test_saving_and_approving_keep_the_saved_consent_clause(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Klauzula zgody RODO jest stała (D3, 12.10.2026): zapis bez niej albo
+    ze zmienioną treścią zostawia w szkicu i w zatwierdzonej wersji tę, która
+    była w CV."""
+    from app.services.cv_generator_b2b.docx_renderer import TRANSLATIONS
+
+    clause = TRANSLATIONS["pl"]["rodo"]
+    sid, _, _ = await _seed_full_stage()
+    await _seed_draft(sid, f'<h1>Brand</h1><p>Treść CV</p><p class="rodo">{clause}</p>')
+    url = f"/api/candidates/stages/{sid}/cv/branded"
+
+    res = await _patch(
+        app_client,
+        url,
+        headers=app_auth_headers,
+        json={"content_html": "<h1>Brand</h1><p>Po edycji</p>"},
+    )
+    assert res.status_code == 200, res.text
+    saved = res.json()["content_html"]
+    assert saved.startswith("<h1>Brand</h1><p>Po edycji</p>")
+    assert saved.endswith(f'<p class="rodo">{clause}</p>')
+
+    edited = clause.replace("B2B.net S.A.", "Inną Firmę")
+    res = await _post(
+        app_client,
+        f"{url}/finalize",
+        headers=app_auth_headers,
+        json={
+            "content_html": f'<h1>Brand</h1><p>Po edycji</p><p data-cv-section="rodo">{edited}</p>'
+        },
+    )
+    assert res.status_code == 200, res.text
+    async with AsyncSessionLocal() as db:
+        version = await db.get(CvDocumentVersion, res.json()["document_version_id"])
+        assert "Inną Firmę" not in version.content_html
+        assert version.content_html.endswith(f'<p class="rodo">{clause}</p>')
+
+
+@pytest.mark.asyncio
 async def test_patch_on_an_empty_stage_is_refused(
     app_client: AsyncClient, app_auth_headers: dict
 ):

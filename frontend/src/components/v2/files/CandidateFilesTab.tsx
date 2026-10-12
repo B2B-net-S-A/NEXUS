@@ -598,7 +598,7 @@ function ClientCvGroup({
  size="sm"
  variant="outline"
  onClick={async () => {
- const problem = await downloadGeneratedCv(item);
+ const problem = await downloadGeneratedCv(item, "docx", "files");
  if (problem) showError(problem);
  }}
  >

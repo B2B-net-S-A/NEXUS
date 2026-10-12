@@ -893,3 +893,191 @@ body:has(aside[data-person-panel]:not([hidden])) [data-jarvis-mascot] {
 body:has(aside[data-person-panel][data-cover]:not([hidden])) [data-app-sidebar] {
   z-index: auto;
 }
+
+/* ============================================================================
+   KARTKA EDYTORA CV (12.10.2026)
+   Treść CV w edytorze w układzie szablonu Worda. Lustro arkusza publicznego
+   linku (`backend/app/services/cv_generator_b2b/html_export.py` + reguły
+   `_EDITED_MARKUP_CSS` w `cv_public_document.py`). Tiptap gubi klasy szablonu,
+   więc selektory idą po `data-cv-section` i po dekoracjach widoku z
+   `lib/cv-editor-structure.ts` (`data-cv-in` = sekcja bloku, `cv-rodo-locked`,
+   `cv-role-current`). Kolory `--cv-doc-*` to kolory DOKUMENTU z szablonu
+   (`docx_renderer.COLOR_HEADER` / `COLOR_TEXT`) — celowo te same w każdym
+   motywie, bo Word klienta jest biały. Czcionki szablonu (Montserrat) frontend
+   nie ładuje; dokładny plik pokazuje „Podgląd Word”.
+   ========================================================================== */
+.cv-paper {
+  --cv-doc-accent: #e14f4f;
+  --cv-doc-text: #373535;
+  --cv-doc-muted: #808080;
+  --cv-doc-faint: #9a9a9a;
+  --cv-doc-rule: #eeeeee;
+  --cv-doc-paper: #ffffff;
+}
+.cv-paper .ProseMirror {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 794px; /* A4 przy 96 dpi — tyle samo co strona w podglądzie Word */
+  min-height: 1123px;
+  margin: 0 auto;
+  padding: 34px 40px;
+  background: var(--cv-doc-paper);
+  color: var(--cv-doc-text);
+  caret-color: var(--cv-doc-text);
+  font-family: "Montserrat", "Segoe UI", Arial, sans-serif;
+  font-size: 13.5px;
+  line-height: 1.5;
+  outline: none;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.14);
+}
+.cv-paper .ProseMirror > * {
+  position: relative;
+}
+.cv-paper .ProseMirror p {
+  margin: 3px 0;
+}
+.cv-paper .ProseMirror strong {
+  font-weight: 600;
+}
+.cv-paper .ProseMirror > h1 {
+  color: var(--cv-doc-accent);
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+/* „Rozważany na stanowisko” — akapit tuż pod nagłówkiem dokumentu. */
+.cv-paper .ProseMirror > h1 + p {
+  margin-top: 4px;
+  font-size: 12px;
+}
+.cv-paper .ProseMirror > h1 + p strong {
+  color: var(--cv-doc-accent);
+}
+.cv-paper .ProseMirror > hr {
+  margin: 12px 0 4px;
+  border: 0;
+  border-top: 2px solid var(--cv-doc-accent);
+}
+.cv-paper .ProseMirror > h2 {
+  margin: 18px 0 7px;
+  color: var(--cv-doc-accent);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+.cv-paper .ProseMirror h3,
+.cv-paper .ProseMirror h4 {
+  margin: 8px 0 3px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.cv-paper .ProseMirror ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cv-paper .ProseMirror ul > li {
+  position: relative;
+  margin: 3px 0;
+  padding-left: 16px;
+}
+.cv-paper .ProseMirror ul > li::before,
+.cv-paper .ProseMirror > p[data-cv-in="skills"]::before,
+.cv-paper .ProseMirror > p[data-cv-in="languages"]::before {
+  content: "•";
+  position: absolute;
+  left: 2px;
+  color: var(--cv-doc-accent);
+}
+.cv-paper .ProseMirror ol {
+  margin: 0;
+  padding-left: 20px;
+  list-style: decimal;
+}
+.cv-paper .ProseMirror li > p {
+  margin: 0;
+}
+/* Umiejętności i języki to w Wordzie punkty, choć w edytorze akapity. */
+.cv-paper .ProseMirror > p[data-cv-in="skills"],
+.cv-paper .ProseMirror > p[data-cv-in="languages"] {
+  padding-left: 16px;
+}
+.cv-paper .ProseMirror > p[data-cv-section="role"] {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--cv-doc-rule);
+  font-size: 14.5px;
+}
+/* Pierwsze stanowisko pod nagłówkiem sekcji nie ma linii nad sobą. */
+.cv-paper .ProseMirror > h2 + p[data-cv-section="role"] {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+/* Word: „Nazwa firmy:” zwykłym pismem, nazwa pogrubiona. */
+.cv-paper .ProseMirror > p[data-cv-section="employer"] {
+  margin: 1px 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+/* Word: etykieta obowiązków podkreślona, w technologiach pogrubione samo słowo
+   „Technologie:” (dekoracja `cv-tech-label`). */
+.cv-paper .ProseMirror > p[data-cv-section="duties_label"] {
+  margin-top: 5px;
+  font-size: 12.5px;
+  text-decoration: underline;
+}
+.cv-paper .ProseMirror > p[data-cv-section="technologies"] {
+  margin-top: 5px;
+  font-size: 12.5px;
+}
+.cv-paper .ProseMirror .cv-tech-label {
+  font-weight: 600;
+}
+/* Etykiety, które Word dopisuje sam — widać je, żeby nikt nie wpisywał ich ręcznie. */
+.cv-paper .ProseMirror > p[data-cv-section="role"]::before,
+.cv-paper .ProseMirror > p[data-cv-section="employer"]::before {
+  color: var(--cv-doc-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+.cv-paper[data-cv-lang="pl"] .ProseMirror > p[data-cv-section="role"]::before {
+  content: "Stanowisko: ";
+}
+.cv-paper[data-cv-lang="pl"] .ProseMirror > p[data-cv-section="employer"]::before {
+  content: "Nazwa firmy: ";
+}
+.cv-paper[data-cv-lang="en"] .ProseMirror > p[data-cv-section="role"]::before {
+  content: "Position: ";
+}
+.cv-paper[data-cv-lang="en"] .ProseMirror > p[data-cv-section="employer"]::before {
+  content: "Company: ";
+}
+/* Klauzula zgody: stała treść (decyzja 12.10.2026), stopka dokumentu. */
+.cv-paper .ProseMirror > .cv-rodo-locked {
+  margin-top: 26px;
+  padding-top: 10px;
+  border-top: 1px solid var(--cv-doc-rule);
+  color: var(--cv-doc-faint);
+  font-size: 8.5px;
+  line-height: 1.35;
+  text-align: justify;
+  cursor: not-allowed;
+}
+/* Stanowisko pod kursorem — do niego odnoszą się przyciski „wyżej / niżej / powiel / usuń”. */
+.cv-paper .ProseMirror > .cv-role-current::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -14px;
+  width: 3px;
+  border-radius: 2px;
+  background: hsl(var(--primary) / 0.45);
+}
+@media (max-width: 640px) {
+  .cv-paper .ProseMirror {
+    min-height: 0;
+    padding: 20px 16px;
+  }
+}

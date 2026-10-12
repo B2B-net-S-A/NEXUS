@@ -5,6 +5,7 @@
  */
 
 import api, { type GeneratedCvItem } from "@/lib/api";
+import { withDownloadIntent, type CvDownloadSurface } from "@/lib/cv-download-intent";
 import { downloadBlob, extractErrorDetail } from "@/lib/cv-generator";
 
 import { htmlFilename } from "./cv-generator-form";
@@ -17,13 +18,19 @@ function fileUrl(item: DownloadTarget, format: "docx" | "html"): string {
     : `/api/cv-generator/generated/${item.id}/${format}`;
 }
 
-/** Pobiera DOCX; zwraca komunikat błędu albo `null` po sukcesie. */
+/**
+ * Pobiera DOCX; zwraca komunikat błędu albo `null` po sukcesie. `surface` —
+ * skąd w aplikacji poszło pobranie (wpis `cv_file_downloaded`).
+ */
 export async function downloadGeneratedCv(
   item: DownloadTarget,
   format: "docx" | "html" = "docx",
+  surface: CvDownloadSurface = "result",
 ): Promise<string | null> {
   try {
-    const res = await api.get(fileUrl(item, format), { responseType: "blob" });
+    const res = await api.get(withDownloadIntent(fileUrl(item, format), surface), {
+      responseType: "blob",
+    });
     downloadBlob(res.data as Blob, format === "html" ? htmlFilename(item.filename) : item.filename);
     return null;
   } catch (err) {

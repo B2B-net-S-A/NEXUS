@@ -39,7 +39,7 @@ from app.services.cv_generator_b2b.docx_renderer import (
     style_education_row,
     TRANSLATIONS,
 )
-from app.services.cv_rodo_clause import is_rodo_text
+from app.services.cv_rodo_clause import is_rodo_node
 
 RENDERER_VERSION = "approved-html-2"
 BLOCKS = {
@@ -506,14 +506,9 @@ def render_approved_docx(
             return marker
         return _SECTION_TITLES.get(_norm_title("".join(node.itertext())))
 
-    def is_rodo(node) -> bool:
-        return (
-            node.get("data-cv-section") == "rodo"
-            or "rodo" in node.get("class", "").split()
-            # Older approved HTML lost the consent marker in the editor; the
-            # clause is still recognisable by its fixed opening words.
-            or is_rodo_text("".join(node.itertext()))
-        )
+    # Older approved HTML lost the consent marker in the editor; the clause is
+    # still recognisable by its fixed opening words (``is_rodo_node``).
+    is_rodo = is_rodo_node
 
     def ruled():
         if not state["rule"]:

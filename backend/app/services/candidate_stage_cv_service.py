@@ -339,13 +339,15 @@ async def render_stage_editor_docx(csv, content_html: str) -> tuple[bytes, bytes
 
     from app.services.cv_approved_docx import ApprovedDocxError, render_approved_docx
     from app.services.cv_document_assets import default_template
+    from app.services.cv_rodo_clause import keep_rodo_clause
     from app.services.html_sanitizer import sanitize_cv_html
 
     template = csv.branded_template_content or await run_in_threadpool(default_template)
     try:
         docx = await run_in_threadpool(
             render_approved_docx,
-            sanitize_cv_html(content_html),
+            # Podgląd i szkic do pobrania pokazują to, co zostanie zatwierdzone.
+            keep_rodo_clause(csv.branded_draft_html, sanitize_cv_html(content_html)),
             template,
             consent=csv.branded_consent_content,
             language=csv.branded_language or "pl",
@@ -457,11 +459,14 @@ async def finalize_stage_cv(
     from app.services.cv_approval_provenance import approval_provenance
     from app.services.cv_approved_docx import RENDERER_VERSION
     from app.services.cv_document_versions import freeze_approved_version
+    from app.services.cv_rodo_clause import keep_rodo_clause
     from app.services.cv_version_map_jobs import schedule_approved_map
     from app.services.html_sanitizer import sanitize_cv_html
 
     stage_id = csv.candidate_stage_id
-    csv.branded_draft_html = sanitize_cv_html(content_html)
+    csv.branded_draft_html = keep_rodo_clause(
+        csv.branded_draft_html, sanitize_cv_html(content_html)
+    )
     if not csv.branded_draft_html.strip():
         raise HTTPException(
             status_code=422,

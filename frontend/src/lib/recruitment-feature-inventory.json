@@ -1705,6 +1705,70 @@
    "file": "components/v2/modals/ScreeningSheet.tsx",
    "marker": "ScreeningFullForm",
    "v3_home": "panel osoby → Rozmowy → Formularz screeningu"
+  },
+  {
+   "id": "cv.editor-fullscreen",
+   "area": "cv",
+   "opis": "Edytor CV na cały ekran: kartka w układzie szablonu Worda, akcje w górnym pasku (Drukuj / PDF, Pobierz, Zamknij, Zapisz)",
+   "file": "components/v2/modals/CVBrandedEditModal.tsx",
+   "marker": "Edytor CV do klienta",
+   "v3_home": "karta „CV do klienta” → Edytuj"
+  },
+  {
+   "id": "cv.editor-toolbar",
+   "area": "cv",
+   "opis": "Pasek narzędzi edytora CV: cofnij/ponów, pogrubienie, lista, „Typ akapitu”, „Dodaj” (stanowisko, punkt, wiersz edukacji, grupa umiejętności, certyfikat, język)",
+   "file": "components/v2/cv-editor/CvEditorToolbar.tsx",
+   "marker": "Narzędzia edytora CV",
+   "v3_home": "karta „CV do klienta” → Edytuj"
+  },
+  {
+   "id": "cv.editor-role-blocks",
+   "area": "cv",
+   "opis": "Stanowisko jako blok: przenieś wyżej/niżej, powiel, usuń (z potwierdzeniem) — razem z firmą, obowiązkami i technologiami",
+   "file": "components/v2/cv-editor/CvEditorToolbar.tsx",
+   "marker": "Powiel stanowisko",
+   "v3_home": "karta „CV do klienta” → Edytuj"
+  },
+  {
+   "id": "cv.editor-sources",
+   "area": "cv",
+   "opis": "Źródła obok edytora: oryginalne CV i pliki kandydata, wymagania klienta, „Po ludzku”, notatki z rekrutacji",
+   "file": "components/v2/cv-editor/CvEditorSourcesPane.tsx",
+   "marker": "Notatki",
+   "v3_home": "karta „CV do klienta” → Edytuj → Źródła"
+  },
+  {
+   "id": "cv.editor-word-preview",
+   "area": "cv",
+   "opis": "„Podgląd Word” w edytorze: plik DOCX złożony z bieżącej treści, bez pobierania",
+   "file": "components/v2/cv-editor/CvEditorWordPreview.tsx",
+   "marker": "Podgląd pliku Word",
+   "v3_home": "karta „CV do klienta” → Edytuj → Podgląd Word"
+  },
+  {
+   "id": "cv.editor-rodo-locked",
+   "area": "cv",
+   "opis": "Klauzula zgody RODO w edytorze jest stała: nie da się jej zmienić ani usunąć (serwer pilnuje tego samego przy zapisie)",
+   "file": "lib/cv-editor-structure.ts",
+   "marker": "cv-rodo-locked",
+   "v3_home": "karta „CV do klienta” → Edytuj"
+  },
+  {
+   "id": "cv.editor-unfilled-fields",
+   "area": "cv",
+   "opis": "„Zapisz” nie zatwierdza CV, dopóki w nowo wstawionych blokach zostały pola w nawiasach kwadratowych; szkic jest zapisany",
+   "file": "components/v2/modals/CVBrandedEditModal.tsx",
+   "marker": "Uzupełnij albo usuń pola w nawiasach",
+   "v3_home": "karta „CV do klienta” → Edytuj"
+  },
+  {
+   "id": "cv.download-intent",
+   "area": "cv",
+   "opis": "Przycisk „Pobierz” CV (edytor, karta, podgląd etapu, kolejka Cpro, wynik generatora, pliki) zostawia wpis o pobraniu; podgląd nie",
+   "file": "lib/cv-download-intent.ts",
+   "marker": "intent=download",
+   "v3_home": "każde „Pobierz” pliku CV"
   }
  ]
 }

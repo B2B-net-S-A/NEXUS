@@ -15,7 +15,11 @@ async def test_enqueue_receipt_reuses_same_attempt_and_rejects_changed_content(
     monkeypatch, standalone
 ):
     values = dict(
-        id=12, edit_revision=3, branded_status="draft", generated_document_id=11
+        id=12,
+        edit_revision=3,
+        branded_status="draft",
+        generated_document_id=11,
+        branded_draft_html="<p>Saved</p>",
     )
     draft = CvGeneratedDraft(**values) if standalone else SimpleNamespace(**values)
     payload = CVBrandedReview(
@@ -62,7 +66,11 @@ async def test_enqueue_receipt_reuses_same_attempt_and_rejects_changed_content(
 
 async def test_unchanged_verified_content_does_not_enqueue(monkeypatch):
     draft = SimpleNamespace(
-        id=1, edit_revision=0, branded_status="draft", generated_document_id=11
+        id=1,
+        edit_revision=0,
+        branded_status="draft",
+        generated_document_id=11,
+        branded_draft_html="<p>Saved</p>",
     )
     monkeypatch.setattr(
         queue, "prepare_approval_review", AsyncMock(return_value={"status": "verified"})
@@ -141,6 +149,7 @@ async def test_candidate_lock_failure_cannot_create_review_snapshot(monkeypatch,
         branded_status="draft",
         generated_document_id=11,
         candidate_id=5,
+        branded_draft_html="<p>Saved</p>",
     )
     payload = CVBrandedReview(
         expected_revision=3, content_html="<p>Claim</p>", request_key=uuid4()

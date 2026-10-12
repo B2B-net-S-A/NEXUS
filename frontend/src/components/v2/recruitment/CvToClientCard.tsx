@@ -53,6 +53,7 @@ import {
   downloadBlob,
   postAuthenticatedDownload,
 } from "@/lib/authenticated-files";
+import { withDownloadIntent } from "@/lib/cv-download-intent";
 import { CV_CONTENT_MODES } from "@/lib/cv-generator";
 import {
   cvToClientRowsQueryKey,
@@ -341,12 +342,15 @@ export function CvToClientCard({
     try {
       if (branded.status === "finalized") {
         await downloadAuthenticatedFile(
-          `/api/candidates/stages/${cvStageId}/cv/branded/versions/${branded.version}/docx`,
+          withDownloadIntent(
+            `/api/candidates/stages/${cvStageId}/cv/branded/versions/${branded.version}/docx`,
+            "card",
+          ),
           branded.docx_filename || "CV.docx",
         );
       } else {
         const result = await postAuthenticatedDownload(
-          `/api/candidates/stages/${cvStageId}/cv/branded/preview-docx`,
+          withDownloadIntent(`/api/candidates/stages/${cvStageId}/cv/branded/preview-docx`, "card"),
           { content_html: branded.content_html ?? "", expected_revision: branded.edit_revision },
         );
         downloadBlob(result.blob, result.filename || "SZKIC_CV.docx");

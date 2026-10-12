@@ -193,7 +193,11 @@ describe("CproQueueDialog — kolejka Cpro, jedna osoba na firmę", () => {
       ),
     );
     await userEvent.click(within(dialog).getByRole("button", { name: "Pobierz CV: Robert Zieliński" }));
-    await waitFor(() => expect(fetchAuthenticatedDownload).toHaveBeenCalledWith("/api/cv-generator/generated/5/docx"));
+    await waitFor(() =>
+      expect(fetchAuthenticatedDownload).toHaveBeenCalledWith(
+        "/api/cv-generator/generated/5/docx?intent=download&surface=cpro",
+      ),
+    );
     expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), "CV Robert.docx");
   });
 
@@ -205,7 +209,7 @@ describe("CproQueueDialog — kolejka Cpro, jedna osoba na firmę", () => {
     await userEvent.click(
       await within(dialog).findByRole("button", { name: "Pobierz CV: Robert Zieliński" }),
     );
-    await waitFor(() => expect(fetchStageCvFile).toHaveBeenCalledWith(81));
+    await waitFor(() => expect(fetchStageCvFile).toHaveBeenCalledWith(81, { download: "cpro" }));
     expect(fetchAuthenticatedDownload).not.toHaveBeenCalled();
     expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), "CV_po_QC.docx");
   });

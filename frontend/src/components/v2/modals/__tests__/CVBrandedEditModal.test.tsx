@@ -31,6 +31,20 @@ vi.mock("@tiptap/react", () => {
   };
 });
 vi.mock("@tiptap/starter-kit", () => ({ default: {} }));
+// Wtyczka struktury, pasek, źródła i podgląd Word mają własne testy na
+// prawdziwym edytorze; tu sprawdzamy sesję, zapis i zatwierdzenie okna.
+vi.mock("@/lib/cv-editor-structure", () => ({
+  cvEditorExtensions: () => [],
+  loadCvHtml: (editor: { commands: { setContent: (html: string) => void } }, html: string) =>
+    editor.commands.setContent(html),
+}));
+vi.mock("@/components/v2/cv-editor/CvEditorToolbar", () => ({ CvEditorToolbar: () => null }));
+vi.mock("@/components/v2/cv-editor/CvEditorSources", () => ({ CvEditorSources: () => null }));
+vi.mock("@/components/v2/cv-editor/CvEditorWordPreview", () => ({
+  CvEditorWordPreview: ({ load }: { load: () => Promise<Blob> }) => (
+    <button onClick={() => void load()}>wczytaj podgląd Word</button>
+  ),
+}));
 const toast = vi.hoisted(() => ({ showSuccess: vi.fn(), showError: vi.fn() }));
 vi.mock("@/components/Toast", () => ({ useToast: () => toast }));
 vi.mock("@/lib/authenticated-files", () => ({ openAuthenticatedFile: vi.fn(), downloadAuthenticatedFile: vi.fn(),
@@ -159,7 +173,7 @@ it("after a revision conflict the recruiter can load the current version", async
   update.mockRestore();
 });
 
-/** Stopka ma przycisk „Zamknij" z tekstem; krzyżyk okna ma tylko etykietę. */
+/** Pasek okna ma przycisk „Zamknij" z tekstem (okno na cały ekran nie ma krzyżyka). */
 function footerClose(): HTMLElement {
   const button = screen.getAllByRole("button", {name: "Zamknij"}).find(b => b.textContent?.trim() === "Zamknij");
   if (!button) throw new Error("footer close button not found");
@@ -307,8 +321,9 @@ it.each(["pipeline", "standalone"])("%s pobiera szkic DOCX z bieżącą treści�
   await screen.findByText("Szkic v1");
   fireEvent.change(screen.getByLabelText("audit editor"), {target: {value: "<p>New verified text</p>"}});
   fireEvent.click(screen.getByRole("button", {name: "Pobierz szkic DOCX"}));
+  // Pobranie niesie intencję (serwer zapisuje wpis pobrania), podgląd nie.
   await waitFor(() => expect(postAuthenticatedDownload).toHaveBeenCalledWith(
-    `${base}/preview-docx`,
+    `${base}/preview-docx?intent=download&surface=editor`,
     {content_html: "<p>New verified text</p>", expected_revision: 1},
   ));
   await waitFor(() => expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), "SZKIC_Reviewed.docx"));
@@ -321,7 +336,69 @@ it.each(["pipeline", "standalone"])("%s pobiera szkic DOCX z bieżącą treści�
     {...target} candidateName="Synthetic person" /></QueryClientProvider>);
   fireEvent.click(await screen.findByRole("button", {name: "Pobierz zatwierdzony DOCX v1"}));
   await waitFor(() => expect(downloadAuthenticatedFile).toHaveBeenCalledWith(
-    `${base}/versions/1/docx`, "Reviewed.docx",
+    `${base}/versions/1/docx?intent=download&surface=editor`, "Reviewed.docx",
   ));
   state.status = "draft";
+});
+
+it("okno zajmuje cały ekran, a nie 90% wysokości zwykłego okna", async () => {
+  state.html = state.stored = "<p>Old text</p>";
+  state.status = "draft"; state.revision = 1;
+  const qc = new QueryClient({defaultOptions: {queries: {retry: false}}});
+  render(<QueryClientProvider client={qc}><CVBrandedEditModal open onOpenChange={() => {}}
+    stageId={21} candidateName="Synthetic" /></QueryClientProvider>);
+  const dialog = await screen.findByRole("dialog", {name: "Edytor CV do klienta"});
+  const classes = dialog.className.split(/\s+/);
+  expect(classes).toEqual(expect.arrayContaining(["h-dvh", "w-full", "max-w-none", "max-h-dvh", "rounded-none"]));
+  for (const base of ["max-h-[90dvh]", "max-w-[95vw]", "rounded-xl", "top-[50%]"]) {
+    expect(classes).not.toContain(base);
+  }
+  // Jedno „Zamknij” — tekstowe; krzyżyk okna nakładałby się na pasek akcji.
+  expect(screen.getAllByRole("button", {name: "Zamknij"})).toHaveLength(1);
+});
+
+it("pola w nawiasach z nowych bloków zatrzymują „Zapisz”, ale szkic się zapisuje", async () => {
+  state.html = state.stored = "<p>Old text</p>";
+  state.snapshot = ""; state.status = "draft"; state.revision = 1;
+  vi.clearAllMocks();
+  const finalize = vi.spyOn(cvGeneratedEditorApi, "finalize");
+  const close = vi.fn();
+  const qc = new QueryClient({defaultOptions: {queries: {retry: false}}});
+  render(<QueryClientProvider client={qc}><CVBrandedEditModal open onOpenChange={close}
+    stageId={21} candidateName="Synthetic" /></QueryClientProvider>);
+  fireEvent.change(await screen.findByLabelText("audit editor"),
+    {target: {value: "<p><strong>[Stanowisko]</strong> [MM.RRRR – MM.RRRR]</p>"}});
+  fireEvent.click(screen.getByRole("button", {name: "Zapisz"}));
+  expect(await screen.findByText(/Uzupełnij albo usuń pola w nawiasach/)).toHaveTextContent(
+    "[Stanowisko], [MM.RRRR – MM.RRRR]");
+  expect(close).not.toHaveBeenCalled();
+  expect(finalize).not.toHaveBeenCalled();
+  expect(state.stored).toContain("[Stanowisko]");
+  // Poprawka treści zdejmuje komunikat i odblokowuje zapis.
+  fireEvent.change(screen.getByLabelText("audit editor"), {target: {value: "<p><strong>Dev</strong> 01.2020 – 02.2022</p>"}});
+  await waitFor(() => expect(screen.queryByText(/Uzupełnij albo usuń pola/)).toBeNull());
+  fireEvent.click(screen.getByRole("button", {name: "Zapisz"}));
+  await waitFor(() => expect(close).toHaveBeenCalledWith(false));
+  finalize.mockRestore();
+});
+
+it("„Podgląd Word” rysuje plik z bieżącej treści i nie liczy się jako pobranie", async () => {
+  state.html = state.stored = "<p>Old text</p>";
+  state.snapshot = ""; state.status = "draft"; state.revision = 1;
+  vi.clearAllMocks();
+  const qc = new QueryClient({defaultOptions: {queries: {retry: false}}});
+  render(<QueryClientProvider client={qc}><CVBrandedEditModal open onOpenChange={() => {}}
+    stageId={21} candidateName="Synthetic" /></QueryClientProvider>);
+  fireEvent.change(await screen.findByLabelText("audit editor"), {target: {value: "<p>Unsaved text</p>"}});
+  fireEvent.click(screen.getByRole("button", {name: "Podgląd Word"}));
+  fireEvent.click(await screen.findByRole("button", {name: "wczytaj podgląd Word"}));
+  await waitFor(() => expect(postAuthenticatedDownload).toHaveBeenCalledWith(
+    "/api/candidates/stages/21/cv/branded/preview-docx",
+    {content_html: "<p>Unsaved text</p>", expected_revision: 1},
+  ));
+  expect(downloadBlob).not.toHaveBeenCalled();
+  // Edytor zostaje zamontowany pod podglądem; „Edycja” wraca do niego bez wczytywania.
+  expect(screen.getByLabelText("audit editor")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", {name: "Edycja"}));
+  expect(screen.queryByRole("button", {name: "wczytaj podgląd Word"})).toBeNull();
 });

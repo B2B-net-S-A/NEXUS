@@ -23,6 +23,7 @@ import { downloadBlob } from "@/lib/authenticated-files";
 import { alignB2bLetterheadPreview } from "@/lib/cv-docx-preview";
 import { observeDocxFit } from "@/lib/docx-fit";
 import { renderDocxSafely } from "@/lib/docx-preview-safe";
+import { withDownloadIntent } from "@/lib/cv-download-intent";
 import { fetchStageCvFile } from "@/lib/stage-cv-file";
 
 // ── CV wygenerowane automatycznie ────────────────────────────────────────────
@@ -146,12 +147,15 @@ export function StageCvPreview({
   const download = async () => {
     try {
       if (fromStage) {
-        const file = await loadStageCvFile(cvStageId as number);
+        const file = await loadStageCvFile(cvStageId as number, { download: "preview" });
         downloadBlob(file.blob, file.filename || "CV.docx");
         return;
       }
       if (!cv) return;
-      const res = await api.get(`/api/cv-generator/generated/${cv.id}/docx`, { responseType: "blob" });
+      const res = await api.get(
+        withDownloadIntent(`/api/cv-generator/generated/${cv.id}/docx`, "preview"),
+        { responseType: "blob" },
+      );
       downloadBlob(res.data as Blob, cv.filename);
     } catch (error) {
       showError(apiErrorMessage(error, "Nie udało się pobrać CV."));

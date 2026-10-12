@@ -11,6 +11,7 @@ from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.cv_approval_job import CvApprovalJob
 from app.models.cv_generated_draft import CvGeneratedDraft
 from app.services.cv_document_versions import check_revision
+from app.services.cv_rodo_clause import keep_rodo_clause
 from app.services.html_sanitizer import sanitize_cv_html
 from app.services.cv_approval_review import prepare_approval_review
 from app.services.cv_approval_snapshot import serialize_review, protocol
@@ -50,7 +51,11 @@ async def enqueue_review(db, draft, payload, user_id):
     check_revision(draft, payload.expected_revision)
     if draft.branded_status != "draft":
         raise HTTPException(409, "CV jest już zatwierdzone.")
-    content = sanitize_cv_html(payload.content_html)
+    # Ta sama treść, którą zapisze zatwierdzenie (klauzula zgody przywrócona):
+    # zatwierdzenie szuka wyniku kontroli po skrócie treści.
+    content = keep_rodo_clause(
+        draft.branded_draft_html, sanitize_cv_html(payload.content_html)
+    )
     if not content.strip():
         raise HTTPException(422, "CV nie może być puste.")
     request_key = str(payload.request_key)

@@ -8,6 +8,9 @@
  * `CvToClientCard`: wersja zatwierdzona → jej DOCX, szkic → podgląd DOCX
  * z bieżącej treści (serwer sprawdza zgodę RODO i odpowiada 409
  * `consent_required` z polskim komunikatem).
+ *
+ * `download` podaje przycisk „Pobierz” (miejsce w aplikacji) — serwer zapisuje
+ * wtedy pobranie pliku; podgląd woła bez niego.
  */
 
 import api, { type CVBrandedState } from "@/lib/api";
@@ -16,19 +19,24 @@ import {
   postAuthenticatedDownload,
   type AuthenticatedDownload,
 } from "@/lib/authenticated-files";
+import { withDownloadIntent, type CvDownloadSurface } from "@/lib/cv-download-intent";
 
-export async function fetchStageCvFile(stageId: number): Promise<AuthenticatedDownload> {
+export async function fetchStageCvFile(
+  stageId: number,
+  opts?: { download?: CvDownloadSurface },
+): Promise<AuthenticatedDownload> {
+  const url = (path: string) => (opts?.download ? withDownloadIntent(path, opts.download) : path);
   const { data: branded } = await api.get<CVBrandedState>(
     `/api/candidates/stages/${stageId}/cv/branded`,
   );
   if (branded.status === "finalized") {
     const file = await fetchAuthenticatedDownload(
-      `/api/candidates/stages/${stageId}/cv/branded/versions/${branded.version}/docx`,
+      url(`/api/candidates/stages/${stageId}/cv/branded/versions/${branded.version}/docx`),
     );
     return { blob: file.blob, filename: file.filename || branded.docx_filename || "CV.docx" };
   }
   const file = await postAuthenticatedDownload(
-    `/api/candidates/stages/${stageId}/cv/branded/preview-docx`,
+    url(`/api/candidates/stages/${stageId}/cv/branded/preview-docx`),
     { content_html: branded.content_html ?? "", expected_revision: branded.edit_revision },
   );
   return { blob: file.blob, filename: file.filename || "SZKIC_CV.docx" };

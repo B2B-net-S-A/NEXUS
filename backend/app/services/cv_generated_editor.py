@@ -21,6 +21,7 @@ from app.services.cv_approved_docx import (
 )
 from app.services.cv_generator_b2b.public_view import build_public_payload
 from app.services.cv_generator_b2b.html_export import render_interactive_html
+from app.services.cv_rodo_clause import keep_rodo_clause
 from app.services.html_sanitizer import sanitize_cv_html
 
 
@@ -128,7 +129,7 @@ def save(draft, expected_revision, html):
     check_revision(draft, expected_revision)
     if draft.branded_status != "draft":
         raise HTTPException(409, "Utwórz nowy szkic przed edycją zatwierdzonego CV.")
-    cleaned = sanitize_cv_html(html)
+    cleaned = keep_rodo_clause(draft.branded_draft_html, sanitize_cv_html(html))
     if not cleaned.strip():
         raise HTTPException(422, "CV nie może być puste.")
     draft.branded_draft_html = cleaned
@@ -148,7 +149,8 @@ async def render(draft, html):
     try:
         return await run_in_threadpool(
             render_approved_docx,
-            sanitize_cv_html(html),
+            # Podgląd i szkic do pobrania pokazują to, co zostanie zatwierdzone.
+            keep_rodo_clause(draft.branded_draft_html, sanitize_cv_html(html)),
             draft.branded_template_content,
             consent=draft.branded_consent_content,
             language=draft.branded_language,
@@ -161,7 +163,7 @@ async def finalize(db, draft, expected_revision, html, user_id):
     check_revision(draft, expected_revision)
     if draft.branded_status != "draft":
         raise HTTPException(409, "CV jest już zatwierdzone.")
-    cleaned = sanitize_cv_html(html)
+    cleaned = keep_rodo_clause(draft.branded_draft_html, sanitize_cv_html(html))
     if not cleaned.strip():
         raise HTTPException(422, "CV nie może być puste.")
     docx = await render(draft, cleaned)

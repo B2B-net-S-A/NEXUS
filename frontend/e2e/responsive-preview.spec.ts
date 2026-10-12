@@ -55,6 +55,7 @@ const PAGES = [
   "/preview/cv-generator",
   "/preview/cv-generator-client-rules",
   "/preview/cv-qc",
+  "/preview/cv-editor",
   "/preview/custom-dashboard",
   "/preview/cv-search",
   "/preview/daily",

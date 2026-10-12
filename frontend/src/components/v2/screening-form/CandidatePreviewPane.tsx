@@ -557,6 +557,11 @@ export interface CandidatePreviewPaneProps {
   budgetHourly?: number | null;
   /** Screening: wybór gotowego CV z profilu, zmiana i edycja CV firmowego. */
   cvActions?: PreviewCvActions;
+  /**
+   * Które źródła CV pokazać w przełączniku. Edytor CV podaje oryginał i pliki:
+   * CV firmowe to dokument, który właśnie edytuje.
+   */
+  cvSources?: ReadonlyArray<PreviewCvSource>;
   /** Harness: bajty plików bez sieci. */
   loadDocumentBlob?: typeof fetchDocumentBlob;
   loadOriginalBlob?: OriginalBlobLoader;
@@ -579,6 +584,7 @@ export function CandidatePreviewPane({
   extraTab,
   budgetHourly = null,
   cvActions,
+  cvSources,
   loadDocumentBlob = fetchDocumentBlob,
   loadOriginalBlob = defaultOriginalLoader,
   loadStageCvFile,
@@ -662,6 +668,7 @@ export function CandidatePreviewPane({
               searchRequest={searchRequest}
               loadDocumentBlob={loadDocumentBlob}
               loadOriginalBlob={loadOriginalBlob}
+              sources={cvSources}
               cvActions={cvActions}
               loadStageCvFile={loadStageCvFile}
             />
