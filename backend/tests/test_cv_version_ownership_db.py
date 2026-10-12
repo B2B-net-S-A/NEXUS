@@ -234,7 +234,15 @@ async def test_standalone_approval_share_roundtrip(
         assert finalized.json()["version"] == 2
         assert finalized.json()["document_version_id"] != version_id
         assert review.await_count == 1
-        assert review.call_args.args[2] == submitted
+        # Klauzula zgody RODO jest stała (decyzja Artura 12.10.2026, D3): treść
+        # przysłana bez niej jest sprawdzana i zatwierdzana z klauzulą
+        # z zapisanego CV — do 12.10 zatwierdzało się dokładnie to, co przyszło.
+        from app.services.cv_rodo_clause import keep_rodo_clause
+
+        reviewed = review.call_args.args[2]
+        assert reviewed.startswith(submitted)
+        assert reviewed == keep_rodo_clause(version.content_html, submitted)
+        assert reviewed != submitted
         still_original = await app_client.get(f"/api/public/cv-i/{token}")
         assert still_original.status_code == 200, still_original.text
         assert still_original.json()["cv_html"] == public.json()["cv_html"]
