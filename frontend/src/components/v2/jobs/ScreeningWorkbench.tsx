@@ -26,7 +26,7 @@
  * `next/dynamic` — pilnuje tego `heavy-bundle-boundaries.test.ts`.
  */
 
-import { useMemo, useState, type ComponentProps } from "react";
+import { useMemo, useRef, useState, type ComponentProps } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
@@ -138,6 +138,9 @@ export function ScreeningWorkbench({
   const [formMounted, setFormMounted] = useState(false);
   const [previewTab, setPreviewTab] = useState<PreviewTab | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  // „Historia osoby” w podglądzie — otwiera ją też „Pokaż” w profilu przed telefonem.
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const previewColumnRef = useRef<HTMLDivElement | null>(null);
   // Od 1024 px szerokości okna podgląd stoi w lewej strefie panelu osoby.
   const previewInSide = usePersonPanelSideActive();
 
@@ -200,6 +203,16 @@ export function ScreeningWorkbench({
     setFormMounted(true);
     setPreviewTab("requirements");
   };
+  // Historia stoi w zakładce CV podglądu; w wąskim oknie podgląd trzeba też odsłonić.
+  const openHistory = () => {
+    setHistoryOpen(true);
+    setPreviewTab("cv");
+    setPreviewOpen(true);
+    // Poniżej 1024 px podgląd stoi nad profilem — bez przewinięcia klik wyglądałby na pusty.
+    if (!previewInSide) {
+      requestAnimationFrame(() => previewColumnRef.current?.scrollIntoView?.({ block: "nearest" }));
+    }
+  };
 
   const badges = (
     <>
@@ -255,6 +268,7 @@ export function ScreeningWorkbench({
               readOnly={readOnly}
               onTake={onTake ? () => onTake(item) : undefined}
               onStartScreening={startScreening}
+              onOpenHistory={openHistory}
             />
           </div>
         ) : null}
@@ -336,6 +350,7 @@ export function ScreeningWorkbench({
       <PersonPanelSide
         inline={(content) => (
           <div
+            ref={previewColumnRef}
             className={cn("min-w-0", previewOpen ? "flex h-[70dvh] flex-col" : "hidden")}
             data-testid="screening-preview-column"
           >
@@ -349,6 +364,8 @@ export function ScreeningWorkbench({
           stageId={state?.stage_id ?? item.id}
           tab={tab}
           onTabChange={setPreviewTab}
+          historyOpen={historyOpen}
+          onHistoryOpenChange={setHistoryOpen}
           budgetHourly={jobBudgetHourly}
           cvActions={readOnly || ended ? undefined : { candidateName: name }}
           className="flex-1"

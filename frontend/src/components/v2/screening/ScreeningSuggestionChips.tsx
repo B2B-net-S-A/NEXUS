@@ -31,7 +31,12 @@ import type { RateUnit } from "@/lib/api";
 export interface ScreeningSuggestionChipsProps {
   suggestions: ScreeningSuggestions | null | undefined;
   disabled?: boolean;
-  onUseRate: (fill: { rate: string; unit: RateUnit }) => void;
+  /**
+   * Tylko jedna z podpowiedzi — formularz screeningu stawia każdą pod swoim
+   * polem (stawka w bloku stawki, dostępność pod „Dostępnością”). Brak = obie.
+   */
+  only?: "rate" | "availability";
+  onUseRate?: (fill: { rate: string; unit: RateUnit }) => void;
   /** Zapis dostępności w PROFILU. Brak = użytkownik nie może edytować kandydata. */
   onSaveAvailability?: (patch: { availability_date: string }) => void;
   savingAvailability?: boolean;
@@ -84,15 +89,17 @@ function Chip({
 export function ScreeningSuggestionChips({
   suggestions,
   disabled = false,
+  only,
   onUseRate,
   onSaveAvailability,
   savingAvailability = false,
   profileHref,
 }: ScreeningSuggestionChipsProps) {
-  const rate = suggestions?.rate_redacted ? undefined : suggestions?.rate;
-  const availabilityText = suggestions?.availability
-    ? availabilitySuggestionText(suggestions.availability)
-    : null;
+  const rate = only === "availability" || suggestions?.rate_redacted ? undefined : suggestions?.rate;
+  const availabilityText =
+    only !== "rate" && suggestions?.availability
+      ? availabilitySuggestionText(suggestions.availability)
+      : null;
   if (!rate && !availabilityText) return null;
 
   const fill = rate ? rateSuggestionFill(rate) : null;
@@ -101,12 +108,12 @@ export function ScreeningSuggestionChips({
     ? availabilityProfilePatch(suggestions.availability)
     : null;
   return (
-    <div className="flex flex-wrap gap-1.5" data-testid="screening-suggestions">
+    <div className="flex flex-wrap gap-1.5" data-testid="screening-suggestions" data-only={only}>
       {rate ? (
         <Chip
           text={rateSuggestionLabel(rate)}
           actionLabel="Użyj stawki z notatek"
-          onUse={!disabled && fill ? () => onUseRate(fill) : undefined}
+          onUse={!disabled && fill && onUseRate ? () => onUseRate(fill) : undefined}
           hint={!fill ? "inna waluta lub jednostka — wpisz ręcznie" : undefined}
         />
       ) : null}
