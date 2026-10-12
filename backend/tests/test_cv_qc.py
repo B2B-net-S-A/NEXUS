@@ -1283,7 +1283,6 @@ def test_ai_fix_on_a_cv_saved_by_the_editor_keeps_one_flat_list() -> None:
             "current_text": None,
         },
         "Aplikacje webowe w **Java** i React dla klientów sklepu.",
-        original_text=ORIGINAL,
         experience=EXPERIENCE,
     )
     assert (
@@ -1300,7 +1299,6 @@ def test_ai_fix_on_a_cv_saved_by_the_editor_keeps_one_flat_list() -> None:
             "current_text": "Rozwój usług w Java i Spring.",
         },
         "Rozwój usług **Java** na **Kubernetes**",
-        original_text=ORIGINAL,
         experience=EXPERIENCE,
     )
     assert (
