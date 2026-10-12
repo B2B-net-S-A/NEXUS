@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useUrlWriter } from "@/lib/url-selection";
 
 import {
   positiveIntParam,
@@ -972,6 +973,7 @@ export default function ClientDetailPage() {
   // czego nie robił.
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { replaceUrl } = useUrlWriter();
   // Kliknięcie zakładki zapisuje ją w adresie (replace, bez nowego wpisu
   // w historii) — F5 odtwarza zakładkę, a kolejny link z powiadomienia do
   // `?tab=zamowienia` zmienia wartość parametru i naprawdę przełącza widok.
@@ -979,9 +981,9 @@ export default function ClientDetailPage() {
     (tab: ClientTab) => {
       const next = new URLSearchParams(searchParams.toString());
       next.set("tab", tab);
-      router.replace(`/clients/${id}?${next.toString()}`, { scroll: false });
+      replaceUrl(`/clients/${id}?${next.toString()}`);
     },
-    [router, id, searchParams],
+    [replaceUrl, id, searchParams],
   );
   const [activeTab, setActiveTab, selectTab] = useClientTab(
     searchParams.get("tab"),
@@ -995,8 +997,8 @@ export default function ClientDetailPage() {
   // Dokument z maila obsłużony albo porzucony — parametr znika z adresu, żeby
   // odświeżenie strony nie otwierało okna zamówienia drugi raz.
   const clearOrderMailDoc = useCallback(() => {
-    router.replace(`/clients/${id}?tab=zamowienia`, { scroll: false });
-  }, [router, id]);
+    replaceUrl(`/clients/${id}?tab=zamowienia`);
+  }, [replaceUrl, id]);
   // Deep linki z panelu „Moi klienci": konkretne zamówienie (`?order=`),
   // zamówienie MD/kosztowe (`?group=`) albo umowa ramowa (`?framework=`).
   // Zakładka czyta WARTOŚĆ parametru (miękka nawigacja nie odmontowuje
@@ -1010,9 +1012,9 @@ export default function ClientDetailPage() {
       next.set("tab", "importy-md");
       if (importId == null) next.delete("import");
       else next.set("import", String(importId));
-      router.replace(`/clients/${id}?${next.toString()}`, { scroll: false });
+      replaceUrl(`/clients/${id}?${next.toString()}`);
     },
-    [router, id, searchParams],
+    [replaceUrl, id, searchParams],
   );
   const focusOrderId = positiveIntParam(searchParams.get("order"));
   const focusGroupId = positiveIntParam(searchParams.get("group"));
@@ -1027,8 +1029,8 @@ export default function ClientDetailPage() {
     next.delete("group");
     next.delete("contract");
     next.delete("framework");
-    router.replace(`/clients/${id}?${next.toString()}`, { scroll: false });
-  }, [router, id, searchParams]);
+    replaceUrl(`/clients/${id}?${next.toString()}`);
+  }, [replaceUrl, id, searchParams]);
   const [showEdit, setShowEdit] = useState(false);
   const openTab = useTabsStore((s) => s.openTab);
   const queryClient = useQueryClient();

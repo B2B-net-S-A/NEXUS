@@ -20,7 +20,8 @@
  */
 
 import { Suspense, useEffect, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useUrlWriter } from "@/lib/url-selection";
 import { AxiosError } from "axios";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -398,16 +399,14 @@ const MODES = [
 
 /** Lustro `ClientsWorkspace` z `app/clients/page.tsx` — tryb z `?view=`. */
 function ClientsWorkspace() {
-  const router = useRouter();
+  const { replaceUrl } = useUrlWriter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const view = resolveClientsView(searchParams.get("view"));
 
   const changeView = (next: ClientsView) => {
     if (next === view) return;
-    router.replace(next === "contacts" ? `${pathname}?view=contacts` : pathname, {
-      scroll: false,
-    });
+    replaceUrl(next === "contacts" ? `${pathname}?view=contacts` : pathname);
   };
 
   const modeTabs = (

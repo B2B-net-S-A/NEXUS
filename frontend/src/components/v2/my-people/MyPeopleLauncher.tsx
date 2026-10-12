@@ -15,7 +15,8 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useUrlWriter } from "@/lib/url-selection";
 import { Users, X } from "lucide-react";
 
 import { useMyPeopleSummary } from "@/lib/api/myPeople";
@@ -249,7 +250,7 @@ function MyPeopleBuddy() {
 /** `?people=1` (link z dzwonka) otwiera panel i znika z adresu. */
 function PeopleParamOpener() {
   const params = useSearchParams();
-  const router = useRouter();
+  const { replaceUrl } = useUrlWriter();
   const pathname = usePathname();
   const openPanel = useMyPeoplePanel((s) => s.openPanel);
   const flag = params?.get("people");
@@ -259,7 +260,7 @@ function PeopleParamOpener() {
     const next = new URLSearchParams(params?.toString() ?? "");
     next.delete("people");
     const qs = next.toString();
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    replaceUrl(qs ? `${pathname}?${qs}` : pathname);
     // Efekt na WARTOŚCI parametru — miękka nawigacja nie odmontowuje shella.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flag, pathname]);

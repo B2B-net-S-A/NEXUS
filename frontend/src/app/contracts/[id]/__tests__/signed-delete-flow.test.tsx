@@ -578,10 +578,11 @@ describe("ContractDetailPage — audyt 24.09 (blok D)", () => {
 
     expect(await screen.findByText("zakładka aneksów")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Timeline/ }));
-    expect(mocks.replace).toHaveBeenCalledWith(
-      expect.stringContaining("tab=timeline"),
-      { scroll: false },
-    );
+    // Natywna historia, nie router — ten przewijałby stronę na górę.
+    expect(window.location.pathname).toBe("/contracts/563");
+    expect(window.location.search).toContain("tab=timeline");
+    expect(window.location.search).toContain("from=contracts");
+    expect(mocks.replace).not.toHaveBeenCalled();
   });
 
   it("tytułem jest osoba, a klient i numer kontraktu stoją w podtytule", async () => {

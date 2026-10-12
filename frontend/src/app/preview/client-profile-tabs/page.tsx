@@ -11,9 +11,10 @@
  * przekierowania na `/login` widać wtedy błąd w zakładce. Użytkownik w store
  * to fikcyjny admin z finansami — widać kwoty i akcje.
  *
- * Strona czyta `useParams()` i zapisuje zakładkę przez `router.replace` pod
- * `/clients/{id}`. Harness podaje jej parametr trasy i router, który adresy
- * tego klienta przepisuje na adres harnessu — klik w zakładkę zostaje tutaj.
+ * Strona czyta `useParams()` i zapisuje zakładkę pod `/clients/{id}` przez
+ * `useUrlWriter`, który poza tą ścieżką oddaje zapis routerowi. Harness podaje
+ * jej parametr trasy i router, który adresy tego klienta przepisuje na adres
+ * harnessu — klik w zakładkę zostaje tutaj.
  *
  * `?tab=` wybiera zakładkę: profil, zasady, projekty, zamowienia, importy-md,
  * zespol, kontakty, umowy-ramowe, analityka. `?tab=importy-md&import=3302`
@@ -139,7 +140,8 @@ function toHarnessHref(href: string): string {
 
 /**
  * Strona profilu żyje pod `/clients/[id]`: bierze `id` z `useParams()`,
- * a wybraną zakładkę zapisuje przez `router.replace("/clients/{id}?tab=…")`.
+ * a wybraną zakładkę zapisuje pod `/clients/{id}?tab=…` (poza tą ścieżką —
+ * czyli tutaj — przez `router.replace`).
  * Tutaj dostaje parametr trasy i router przepisujący te adresy na harness —
  * bez tego klik w zakładkę wychodziłby na prawdziwy profil (i na `/login`).
  */

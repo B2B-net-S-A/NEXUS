@@ -1,6 +1,7 @@
 "use client"
 
-import { useRouter, useSearchParams } from "next/navigation"
+import { useSearchParams } from "next/navigation"
+import { useUrlWriter } from "@/lib/url-selection"
 import { Briefcase, Building2, ListChecks, Users } from "lucide-react"
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -30,14 +31,14 @@ function isValidTab(value: string | null): value is TabValue {
 
 export function DeliveryTabs({ userId }: DeliveryTabsProps) {
   const searchParams = useSearchParams()
-  const router = useRouter()
+  const { replaceUrl } = useUrlWriter()
   const raw = searchParams.get("tab")
   const active: TabValue = isValidTab(raw) ? raw : DEFAULT_TAB
 
   const setActive = (next: TabValue) => {
     const params = new URLSearchParams(searchParams.toString())
     params.set("tab", next)
-    router.replace(`/dashboard/delivery-lead?${params.toString()}`, { scroll: false })
+    replaceUrl(`/dashboard/delivery-lead?${params.toString()}`)
   }
 
   return (
