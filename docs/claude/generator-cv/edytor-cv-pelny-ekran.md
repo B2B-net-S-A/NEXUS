@@ -185,7 +185,10 @@ i kontrola AI ostatniej zatwierdzonej wersji. Komponent
   sprzed żądania).
 - **Zatwierdzona wersja: najpierw szkic, potem poprawka** (`ensureDraft` w
   oknie). Wczytanie nowego szkicu jest poza historią cofania, więc poprawka
-  nałożona przed nim nie dałaby się cofnąć.
+  nałożona przed nim nie dałaby się cofnąć. Szkic powstaje dopiero PO tym, jak
+  serwer potwierdzi, że poprawka coś zmienia: nowy szkic zdejmuje z CV stan
+  „zatwierdzone” (linki, wysyłka), więc poprawka, której nie da się nałożyć,
+  nie może kosztować ponownego zatwierdzania.
 - **„Popraw wszystko” (decyzja D2)** bierze tylko: pogrubienie wymagań,
   pisownię technologii i zdania AI w brzmieniu z serwera (cytat sprawdzony przy
   pobraniu propozycji). Usunięcie terminu i zdanie AI z własnym tekstem
@@ -193,7 +196,9 @@ i kontrola AI ostatniej zatwierdzonej wersji. Komponent
   `bulk`), front tylko jej nie wysyła (`bulkPlan`). Poprawka, której nie da się
   nałożyć, wraca w `skipped` z powodem (200, nie 422) i nie zatrzymuje
   pozostałych. Propozycji AI panel nie pobiera sam — to płatne wywołanie,
-  rekruter klika.
+  rekruter klika. Zdania AI serwer nakłada PIERWSZE, niezależnie od kolejności
+  w żądaniu: szukają swojej linii po tekście, a pisownia ten tekst zmienia
+  (poprawka AI wracała jako „punkt się zmienił”).
 - **„Tytuł” nie wchodzi do „Popraw wszystko”,** choć był na makiecie:
   sprawdzenie `title_matches_role` nie ma poprawki w kodzie.
 - **Miejsce uwagi szuka się po tym, co widać, nie po indeksie bloku.** QC
@@ -208,7 +213,11 @@ i kontrola AI ostatniej zatwierdzonej wersji. Komponent
 - **Lista QC dotyczy ostatnio zapisanej treści.** Panel odświeża ją 1,5 s po
   autozapisie przez `GET …/qc?transient=true` (bez zapisu przebiegu — inaczej
   każda pauza w pisaniu dopisywała wiersz `cv_qc_runs`). Przebieg dla Tablicy
-  zapisuje się raz, przy zamknięciu edytora, i tylko gdy treść się zmieniła.
+  zapisuje się raz, przy zamknięciu edytora, i tylko gdy treść się zmieniła —
+  przez `queryClient.fetchQuery`, żeby awaria trafiła do zgłaszania błędów
+  zapytań (panelu już wtedy nie ma). Każde otwarcie edytora liczy QC od nowa
+  (`refetchOnMount: "always"`, `gcTime: 0`): wynik trzymany w pamięci po
+  zamknięciu pokazywał przy ponownym otwarciu listę sprzed poprawek.
 - **QC bierze zatwierdzone CV pary, a para może mieć CV na kilku wierszach
   etapu.** Gdy `cv.stage_id` z QC nie jest etapem otwartym w edytorze, panel
   pokazuje komunikat zamiast listy, która nie dotyczy tej treści.
@@ -219,7 +228,9 @@ i kontrola AI ostatniej zatwierdzonej wersji. Komponent
   których linia nadal stoi w CV. Nie ma „Sprawdź teraz” — kontrola biegnie po
   „Zapisz”.
 - **Awaria QC nie wygląda jak CV bez uwag:** osobny komunikat z „Ponów”,
-  bez zielonej plakietki. Brak dostępu mówi o dostępie.
+  bez zielonej plakietki. Brak dostępu mówi o dostępie. Licznik w pasku niesie
+  stan (`CvIssueCount.state`): „Do poprawy” bez liczby, dopóki QC się liczy,
+  „Do poprawy (?)” po awarii (panel otwiera się wtedy sam) — zero znaczy zero.
 - **Panel nie ma obejścia QC ani ruchu karty** — to zostaje w oknie QC. Karty
   są wspólne (`recruitment/cv-qc-cards.tsx`); „Pokaż w CV” i odnośniki
   w nowej karcie włącza kontekst edytora (`locate`, `linksInNewTab`).
@@ -233,6 +244,20 @@ i kontrola AI ostatniej zatwierdzonej wersji. Komponent
   nich (z okna QC) nie ma panelu.
 - **Ślad użycia:** `Activity(action="cv_qc_fix_applied", details.via="editor")`
   — ten sam wpis co poprawki z okna QC, z polem `bulk`.
+- **Koszt `qc/transform` jest ograniczony** (przegląd bezpieczeństwa
+  13.10.2026). Trasa bierze do 500 KB treści od klienta i każda poprawka czyta
+  ją od nowa, więc: liczenie idzie w wątku (`run_in_threadpool`), żądanie
+  niesie najwyżej 20 poprawek, powtórzona wraca jako `duplicate`, a po
+  `TRANSFORM_BUDGET_S` (4 s procesora wątku; pierwsza poprawka idzie zawsze)
+  pozostałe wracają jako `budget` z prośbą o nałożenie osobno. Limit 20/min.
+  Budżet działa MIĘDZY poprawkami, więc każda musi być liniowa sama z siebie:
+  `EditableCv` nie szuka bloków liniowo (`_block_at`, `_starts`), separator
+  listy przed terminem ma kotwicę na początku ciągu odstępów (`_SEP_LEAD` — bez
+  niej 40 KB spacji liczyło się 12 s), `_wrap_matches` sprawdza kolizję trafień
+  po dwóch sąsiadach, a lista technologii jest rozpoznawana raz na blok. Wątek
+  nie ratuje przed jednym długim wywołaniem `re` (trzyma GIL). Nowa operacja na
+  treści z edytora ma być liniowa — pilnują testy z limitem czasu procesora
+  w `tests/test_cv_qc.py` (`TRANSFORM_CPU_LIMIT`, kształty z przeglądu).
 
 ## Harness
 

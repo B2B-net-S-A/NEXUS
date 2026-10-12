@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
@@ -1385,9 +1386,10 @@ def test_bulk_transform_refuses_what_needs_a_human_decision() -> None:
         bulk=True,
     )
     assert [a["action"] for a in applied] == ["spelling"]
+    # Zdania AI serwer bierze pierwsze — stąd kolejność pominiętych.
     assert [(s["action"], s["code"]) for s in skipped] == [
-        ("remove_term", "not_in_bulk"),
         ("ai_fix", "not_in_bulk"),
+        ("remove_term", "not_in_bulk"),
     ]
     assert "Docker" in out and "Własne zdanie." not in out
 
@@ -1407,12 +1409,12 @@ def test_single_transform_takes_any_fix_and_reports_what_did_nothing() -> None:
         ],
         bulk=False,
     )
-    assert [a["action"] for a in applied] == ["remove_term", "ai_fix"]
+    assert [a["action"] for a in applied] == ["ai_fix", "remove_term"]
     assert "Docker" not in out
     assert "Własne <b>zdanie</b>." in out
     assert [(s["action"], s["code"]) for s in skipped] == [
-        ("bold_all", "nothing_to_do"),
         ("ai_fix", "unknown_fix"),
+        ("bold_all", "nothing_to_do"),
         ("nieznana", "unknown_action"),
     ]
     assert all(s["message"] for s in skipped)
@@ -2330,6 +2332,217 @@ async def test_fix_on_a_draft_changed_elsewhere_is_refused_and_changes_nothing(
         await _cleanup(world, [hor_id])
 
 
+# Koszt `qc/transform`: treść przychodzi od klienta (do 500 KB), a poprawek jest
+# kilka naraz. Granica jak w testach sanitizera — czas procesora, bo zegar
+# ścienny zależy od tego, co jeszcze biegnie na maszynie.
+TRANSFORM_CPU_LIMIT = 30.0
+
+
+def _cpu(run) -> float:
+    started = time.process_time()
+    run()
+    return time.process_time() - started
+
+
+def test_removing_a_term_from_a_huge_list_is_not_quadratic() -> None:
+    """45 tys. punktów „x” (ok. 450 KB): każdy pasujący punkt przeglądał
+    wszystkie zakresy dokumentu — jedno żądanie zajmowało serwer na minuty."""
+    html = "<ul>" + "<li>x</li>" * 45000 + "</ul>"
+    result: list = []
+    spent = _cpu(lambda: result.append(qc.remove_term(html, "x")))
+    assert spent < TRANSFORM_CPU_LIMIT, f"{spent:.1f} s"
+    out, count = result[0]
+    assert count == 45000 and out == "<ul></ul>"
+
+
+def test_parsing_many_empty_list_items_is_not_quadratic() -> None:
+    """Pusty punkt nie trafia na listę bloków, więc szukanie go od końca
+    przeglądało ją całą — 20 tys. pustych punktów przy 20 tys. pełnych."""
+    html = "<ul>" + "<li>Punkt o Javie.</li><li></li>" * 20000 + "</ul>"
+    result: list = []
+    spent = _cpu(lambda: result.append(qc.EditableCv.parse(html)))
+    assert spent < TRANSFORM_CPU_LIMIT, f"{spent:.1f} s"
+    doc = result[0]
+    assert len(doc.blocks) == 20000 and len(doc.items) == 20000
+    assert doc.item_span(0) == (1, 3) and doc.item_is_only_this_block(0)
+
+
+@pytest.mark.parametrize(
+    ("html", "action"),
+    [
+        # Długi ciąg odstępów bez przecinka: wyrażenie na separator listy
+        # próbowało od każdej spacji od nowa.
+        (
+            "<p>a" + " " * 400000 + "b</p>",
+            {"action": "remove_term", "term": "Docker"},
+        ),
+        (
+            "<p>Docker ," + " " * 400000 + "</p>",
+            {"action": "remove_term", "term": "Docker"},
+        ),
+        # Tysiące trafień w jednym akapicie: każde porównywane ze wszystkimi.
+        ("<p>" + "Java " * 90000 + "</p>", {"action": "bold_all", "scope": "must"}),
+        # Jeden akapit z tysiącami węzłów: lista technologii rozpoznawana od
+        # nowa dla każdego węzła.
+        (
+            "<p>Technologie: " + "Kafka, <i>x</i> " * 20000 + "</p>",
+            {"action": "remove_term", "term": "Docker"},
+        ),
+        ("<p>" + "Javascript " * 40000 + "</p>", {"action": "spelling"}),
+    ],
+    ids=[
+        "odstepy",
+        "odstepy-po-separatorze",
+        "tysiace-trafien",
+        "tysiace-wezlow",
+        "pisownia",
+    ],
+)
+def test_one_fix_on_a_hostile_shape_stays_within_the_cpu_limit(
+    html: str, action: dict
+) -> None:
+    """Budżet czasu działa MIĘDZY poprawkami — pojedyncza musi być liniowa
+    sama z siebie (przegląd 13.10.2026: 40 KB odstępów trwało 12 s)."""
+    spent = _cpu(lambda: _transform([action], bulk=False, html=html))
+    assert spent < TRANSFORM_CPU_LIMIT, f"{spent:.1f} s"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Java, Docker, Kafka",
+        "Java ,  Docker ; Kafka",
+        "Docker",
+        "Docker 24.0, Kafka",
+        "Java / Docker | Kafka · Docker",
+        "  Docker  ,  Java",
+        "Java,\n   Docker\n",
+        "Zna Dockera i Kafkę, pracuje z Docker Compose.",
+    ],
+)
+def test_removing_a_term_gives_the_same_text_as_before_the_speedup(text: str) -> None:
+    """Wyrażenie na separator dostało kotwicę na początku ciągu odstępów —
+    wynik ma być ten sam co z wyrażeniem bez niej."""
+    out, count = qc.remove_term(f"<p>Technologie: {text}</p>", "Docker")
+    expected, expected_count = text, 0
+    for pattern in dz._patterns("Docker"):
+        body = pattern.pattern + qc._VERSION_TAIL
+        loose = r"\s*[,;/|·]\s*"
+        expected, n1 = re.subn(loose + f"(?:{body})", "", expected, flags=pattern.flags)
+        expected, n2 = re.subn(f"(?:{body})" + loose, "", expected, flags=pattern.flags)
+        expected_count += n1 + n2
+    assert count == expected_count
+    assert out == f"<p>Technologie: {expected}</p>"
+
+
+def test_bolding_keeps_the_first_pattern_when_matches_overlap() -> None:
+    """Dłuższa nazwa wygrywa z krótszą w tym samym miejscu, jak dotąd."""
+    patterns = [re.compile("Spring Boot"), re.compile("Spring"), re.compile("Boot")]
+    out, count = qc._wrap_matches("Spring Boot, Spring i Boot", patterns)
+    assert out == "<b>Spring Boot</b>, <b>Spring</b> i <b>Boot</b>"
+    assert count == 3
+
+
+def test_fix_all_applies_ai_sentences_before_spelling_changes_their_line() -> None:
+    """Kolejność z przycisku „Popraw wszystko”: pogrubienie, pisownia, zdania
+    AI. Pisownia zmieniała linię, którą miało zastąpić zdanie AI — poprawka
+    AI wracała jako pominięta („punkt się zmienił”)."""
+    html, applied, skipped = _transform(
+        [
+            {"action": "bold_all", "scope": "must"},
+            {"action": "spelling"},
+            {"action": "ai_fix", "fix_id": TRANSFORM_FIX["id"]},
+        ],
+        bulk=True,
+    )
+    assert skipped == []
+    assert [item["action"] for item in applied] == ["ai_fix", "bold_all", "spelling"]
+    assert "<b>Kubernetes</b>" in html
+
+
+def _only_this_block_by_scan(doc: qc.EditableCv, index: int) -> bool:
+    """Odpowiedź sprzed zmiany: przegląd wszystkich zakresów dokumentu."""
+    start, end = doc.item_span(index)
+    if start is None or end is None:
+        return False
+    inside = [
+        i
+        for i, (first, _) in enumerate(doc.spans)
+        if first is not None and start <= first <= end
+    ]
+    return inside == [index]
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        "<ul><li>Docker<ul><li>Compose</li></ul></li><li><p>Java</p></li></ul>",
+        "<ul><li><p>Kafka</p><p>i kolejki</p></li><li></li><li>x</li></ul>",
+        "<p>Technologie: Java, Docker</p><ul><li>a<ul><li>b<ul><li>c</li></ul></li></ul></li></ul>",
+        "<ul><li>x</li><li><b>x</b></li><li>x<br>y</li></ul><h2>Tytuł</h2><p>Tekst</p>",
+        "luźny tekst<ul><li></li><li><p></p></li><li>ostatni</ul>",
+    ],
+)
+def test_only_this_block_answers_as_before_the_speedup(html: str) -> None:
+    """Szybsze liczenie nie zmienia odpowiedzi: punkt z podpunktem albo
+    drugim akapitem to więcej niż jeden blok."""
+    doc = qc.EditableCv.parse(html)
+    assert doc.blocks
+    for index in range(len(doc.blocks)):
+        assert doc.item_is_only_this_block(index) == _only_this_block_by_scan(
+            doc, index
+        ), (html, index)
+
+
+def test_point_with_a_sub_point_is_more_than_its_text() -> None:
+    doc = qc.EditableCv.parse(
+        "<ul><li>Docker<ul><li>Compose</li></ul></li>"
+        "<li><p>Kafka</p><p>i kolejki</p></li><li><p>Java</p></li></ul>"
+    )
+    only = {
+        block.text: doc.item_is_only_this_block(i) for i, block in enumerate(doc.blocks)
+    }
+    assert only["Docker"] is False and only["Kafka"] is False
+    assert only["Compose"] is True and only["Java"] is True
+
+
+def test_transform_skips_a_repeated_fix_instead_of_computing_it_again() -> None:
+    html, applied, skipped = _transform(
+        [{"action": "spelling"}] * 3 + [{"action": "bold_all", "scope": "must"}] * 2,
+        bulk=True,
+    )
+    assert [item["action"] for item in applied] == ["spelling", "bold_all"]
+    assert [item["code"] for item in skipped] == ["duplicate"] * 3
+    assert "JavaScript" in html and "<b>Java</b>" in html
+
+
+def test_transform_stops_adding_fixes_when_the_time_budget_is_spent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pierwsza poprawka idzie zawsze; kolejne tylko, dopóki starcza budżetu
+    czasu — długie CV z wieloma poprawkami nie trzyma wątku bez końca."""
+    monkeypatch.setattr(qc, "TRANSFORM_BUDGET_S", 0.0)
+    html, applied, skipped = _transform(
+        [{"action": "spelling"}, {"action": "bold_all", "scope": "must"}], bulk=True
+    )
+    assert [item["action"] for item in applied] == ["spelling"]
+    assert [(item["action"], item["code"]) for item in skipped] == [
+        ("bold_all", "budget")
+    ]
+    assert "osobno" in skipped[0]["message"]
+    assert "JavaScript" in html and "<b>Java</b>" not in html
+
+
+def test_largest_content_with_the_most_fixes_stays_within_the_cpu_limit() -> None:
+    html = "<p>Rozwój usług w Javascript i Docker, zespół Postgres.</p>" * 7800
+    assert len(html) > 450000
+    actions = [{"action": "spelling"}, {"action": "bold_all", "scope": "must"}] + [
+        {"action": "remove_term", "term": f"termin{n}"} for n in range(18)
+    ]
+    spent = _cpu(lambda: _transform(actions, bulk=False, html=html))
+    assert spent < TRANSFORM_CPU_LIMIT, f"{spent:.1f} s"
+
+
 def test_transform_request_bounds_content_and_action_count() -> None:
     from pydantic import ValidationError
 
@@ -2340,7 +2553,7 @@ def test_transform_request_bounds_content_and_action_count() -> None:
     for bad in (
         {"content_html": "", "actions": [{"action": "spelling"}]},
         {"content_html": "<p>x</p>", "actions": []},
-        {"content_html": "<p>x</p>", "actions": [{"action": "spelling"}] * 41},
+        {"content_html": "<p>x</p>", "actions": [{"action": "spelling"}] * 21},
         {"content_html": "x" * 500001, "actions": [{"action": "spelling"}]},
         {"content_html": "<p>x</p>", "actions": [{"action": "drop_table"}]},
     ):
@@ -2396,8 +2609,8 @@ async def test_editor_transform_fixes_the_sent_content_and_leaves_the_draft_alon
         assert "Docker" in body["content_html"]
         assert [a["action"] for a in body["applied"]] == ["spelling"]
         assert [(s["action"], s["code"]) for s in body["skipped"]] == [
-            ("remove_term", "not_in_bulk"),
             ("ai_fix", "unknown_fix"),
+            ("remove_term", "not_in_bulk"),
         ]
 
         nothing = await api_client.post(

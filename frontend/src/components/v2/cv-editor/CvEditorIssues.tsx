@@ -72,10 +72,15 @@ import { candidateQuestion, countForm, splitChecks, type IssueTarget } from "@/l
 import { isForbiddenError } from "@/lib/view-state";
 import { cn } from "@/lib/utils";
 
-/** Ile uwag jest na liście i ile z nich zatrzymuje wysyłkę (licznik QC z serwera). */
+/**
+ * Ile uwag jest na liście i ile z nich zatrzymuje wysyłkę (licznik QC z serwera).
+ * `state` mówi, czy liczbie można wierzyć: zero w trakcie liczenia albo po
+ * awarii QC to nie „brak uwag”.
+ */
 export interface CvIssueCount {
   total: number;
   blocking: number;
+  state: "loading" | "ready" | "failed";
 }
 
 export interface CvEditorIssuesProps {
@@ -106,6 +111,12 @@ const FOCUS_MS = 2600;
 
 const NO_FINDINGS: CvReviewFinding[] = [];
 const NO_WARNINGS: readonly string[] = [];
+
+/** Po najbliższym rysowaniu ekranu (stan Reacta z tej samej chwili jest już w DOM). */
+function afterPaint(callback: () => void): void {
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => setTimeout(callback, 0));
+  else setTimeout(callback, 0);
+}
 
 interface BulkOutcome {
   applied: number;
@@ -235,7 +246,12 @@ export function CvEditorIssues({
     queryKey: cvEditorQcQueryKey(stageKey),
     queryFn: () => api.qc(stageKey),
     enabled: hasStage,
+    // W trakcie sesji odświeża je sam panel (po autozapisie). Każde otwarcie
+    // edytora liczy od nowa i nie trzyma wyniku po zamknięciu — inaczej
+    // ponowne otwarcie pokazywało listę sprzed poprawek z poprzedniej sesji.
     staleTime: Infinity,
+    refetchOnMount: "always",
+    gcTime: 0,
     retry: false,
   });
   const issuesQuery = useQuery<CvEditorIssuesData>({
@@ -243,6 +259,8 @@ export function CvEditorIssues({
     queryFn: () => api.issues(stageKey),
     enabled: hasStage,
     staleTime: Infinity,
+    refetchOnMount: "always",
+    gcTime: 0,
     retry: false,
   });
   const [aiRequested, setAiRequested] = useState(false);
@@ -276,12 +294,17 @@ export function CvEditorIssues({
     return () => {
       if (!savedHere.current && latestRevision.current === openedRevision) return;
       // Tablica i kolejki czytają ZAPISANY przebieg QC — jeden na sesję edycji.
-      void api
-        .persistQc(stageKey)
-        .then((result) => {
-          queryClient.setQueryData(cvQcQueryKey(stageKey), result);
-          invalidateAfterQcChange(queryClient, result.job_id);
+      // Przez `fetchQuery`: wynik trafia do klucza okna QC, a awaria do
+      // zgłaszania błędów zapytań (`QueryProvider`) — panelu już nie ma,
+      // więc nie ma komu pokazać komunikatu.
+      void queryClient
+        .fetchQuery({
+          queryKey: cvQcQueryKey(stageKey),
+          queryFn: () => api.persistQc(stageKey),
+          staleTime: 0,
+          retry: false,
         })
+        .then((result) => invalidateAfterQcChange(queryClient, result.job_id))
         .catch(() => undefined);
     };
   }, [api, hasStage, queryClient, stageKey]);
@@ -326,8 +349,9 @@ export function CvEditorIssues({
   useEffect(() => () => clearTimeout(focusTimer.current), []);
   const flash = (where: IssueRange | readonly IssueRange[], afterFix = false) => {
     onShowCv();
-    // Kartka mogła być ukryta (wąski ekran) — przewijamy po jej pokazaniu.
-    setTimeout(() => {
+    // Kartka mogła być ukryta (wąski ekran, podgląd Word) — przewijamy dopiero
+    // po klatce, w której React ją pokazał.
+    afterPaint(() => {
       showIssueInCv(editor, where);
       // Po poprawce klawiatura wraca do tekstu: Ctrl+Z działa bez klikania w kartkę.
       // Nie na ekranie dotykowym — tam fokus wysuwa klawiaturę na pół ekranu.
@@ -336,7 +360,7 @@ export function CvEditorIssues({
       }
       clearTimeout(focusTimer.current);
       focusTimer.current = setTimeout(() => clearIssueFocus(editor), FOCUS_MS);
-    }, 0);
+    });
   };
   const locate = (target: IssueTarget) => {
     if (editor.isDestroyed) return;
@@ -356,19 +380,26 @@ export function CvEditorIssues({
     workingRef.current = true;
     setWorking(true);
     try {
-      if (!(await ensureDraft()) || editor.isDestroyed) return;
       const before = editor.state.doc;
       const result = await api.transform(stageKey, { content_html: editor.getHTML(), actions, bulk });
       if (editor.isDestroyed) return;
-      if (!editor.state.doc.eq(before)) {
+      const changedMeanwhile = () => {
+        if (editor.state.doc.eq(before)) return false;
         showError("Treść CV zmieniła się, zanim poprawka była gotowa — kliknij jeszcze raz.");
-        return;
-      }
-      const step = result.changed ? fixStep(editor.state, result.content_html) : null;
-      if (!step) {
+        return true;
+      };
+      if (changedMeanwhile()) return;
+      // Pusta treść nie jest poprawką — nie zastępujemy nią CV.
+      const usable = result.changed && result.content_html.trim() !== "";
+      if (!usable || !fixStep(editor.state, result.content_html)) {
         showError(result.skipped[0]?.message ?? "Tej poprawki nie da się nałożyć na bieżącą treść CV.");
         return;
       }
+      // Szkic dopiero teraz: nowy szkic zdejmuje z CV stan „zatwierdzone”,
+      // więc poprawka, która nic nie zmienia, nie może go zakładać.
+      if (!(await ensureDraft()) || editor.isDestroyed || changedMeanwhile()) return;
+      const step = fixStep(editor.state, result.content_html);
+      if (!step) return;
       editor.view.dispatch(step.transaction);
       flash(step.changed, true);
       if (bulk) {
@@ -449,9 +480,10 @@ export function CvEditorIssues({
   const classified = useMemo(() => classifyCvWarnings(warnings), [warnings]);
   const total = split.tasks.length + split.notes.length + classified.review.length + presentFindings.length;
   const blocking = qc && !otherDocument ? qc.blocking_failed : 0;
+  const countState: CvIssueCount["state"] = !hasStage || qc ? "ready" : qcQuery.isError ? "failed" : "loading";
   useEffect(() => {
-    onCount?.({ total, blocking });
-  }, [onCount, total, blocking]);
+    onCount?.({ total, blocking, state: countState });
+  }, [onCount, total, blocking, countState]);
 
   // „Cofnij” przy wyniku „Popraw wszystko” — dopóki nic nie zmieniono po poprawce.
   const canUndoBulk = bulkOutcome != null && !editor.isDestroyed && editor.state.doc === bulkDoc.current;

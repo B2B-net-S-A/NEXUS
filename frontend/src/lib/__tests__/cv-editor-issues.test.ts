@@ -214,12 +214,13 @@ describe("„Popraw wszystko”", () => {
       ],
       [fix("f1"), fix("f2")],
     );
+    // Zdania AI pierwsze: szukają swojej linii po tekście, który pisownia zmienia.
     expect(plan.actions).toEqual([
+      { action: "ai_fix", fix_id: "f1" },
+      { action: "ai_fix", fix_id: "f2" },
       { action: "bold_all", scope: "must" },
       { action: "bold_all", scope: "nice" },
       { action: "spelling" },
-      { action: "ai_fix", fix_id: "f1" },
-      { action: "ai_fix", fix_id: "f2" },
     ]);
     expect(plan.parts).toEqual([
       "pogrubienie 2 wymagań must-have",

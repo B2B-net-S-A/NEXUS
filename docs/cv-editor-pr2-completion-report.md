@@ -46,12 +46,36 @@ Backend: trasy `GET …/cv/branded/issues` i `POST …/qc/transform`, parametr
 | Backend z bazą | w CI | 3 nowe testy z bazą (`qc/apply` z wersją, `qc/transform`, `…/issues`); lokalnie nie ma Postgresa |
 | Przeglądarka | przeklikane | harness `/preview/cv-editor` przy 1280×720, 768×1024, 390×844: lista, znaczniki, „Pokaż w CV”, „Popraw wszystko”, „Cofnij”, zdanie AI, usunięcie terminu, świeża lista po autozapisie, poprawka na zatwierdzonej wersji (zakłada szkic), stany „bez uwag”, „QC niedostępne”, „wynik generatora”; konsola bez błędów, brak poziomego przewijania |
 
+## Przeglądy przed PR-em (13.10.2026)
+
+Trzy przebiegi (TypeScript, Python, bezpieczeństwo), każdy z dowodem z uruchomienia.
+Wszystkie uwagi blokujące naniesione, każda z testem.
+
+| Uwaga | Skąd | Poprawka |
+|---|---|---|
+| `qc/transform` mogło zająć serwer na minuty: `remove_term` na tysiącach punktów, odczyt tysięcy pustych `<li>`, 40 KB odstępów (12 s), tysiące trafień pogrubienia, 40 poprawek × 500 KB w pętli zdarzeń | bezpieczeństwo, Python | operacje liniowe (parser, separator listy, kolizje trafień), liczenie w wątku, najwyżej 20 poprawek, powtórzona = `duplicate`, budżet 4 s między poprawkami, limit 20/min. Stary i nowy parser identyczne na 13 600 losowych dokumentach |
+| „Popraw wszystko”: pisownia zmieniała linię, którą miało zastąpić zdanie AI — zdanie wracało jako pominięte | Python | serwer nakłada zdania AI pierwsze; front wysyła je pierwsze |
+| Ponowne otwarcie edytora pokazywało QC z poprzedniej sesji (wynik w pamięci 5 minut) | TypeScript | każde otwarcie liczy od nowa |
+| Poprawka, której nie da się nałożyć, na zatwierdzonym CV zakładała nowy szkic (CV traciło stan „zatwierdzone”) | TypeScript | najpierw odpowiedź serwera, szkic dopiero gdy poprawka coś zmienia |
+| Nieudany zapis przebiegu QC przy zamknięciu był połykany | TypeScript | idzie przez react-query — awaria trafia do zgłaszania błędów |
+| „Do poprawy (0)” w pasku, gdy QC nie odpowiada albo jeszcze się liczy | TypeScript | licznik ze stanem: bez liczby w trakcie, „(?)” po awarii, panel otwiera się sam |
+| `review_findings` rzucało wyjątek przy statusie złego typu i przy indeksie na tysiące cyfr | Python (nieblokujące) | sprawdzenie typu, indeks najwyżej 6 cyfr |
+
+Sprawdzone i bez uwag: uprawnienia obu tras (te same bramki co sąsiednie, poprawka
+AI z innego etapu nie da się wczytać), tekst rekrutera w poprawce AI (escapowany,
+potem sanitizer), klauzula zgody (trasa niczego nie zapisuje), brak HTML-a
+z serwera w panelu, fikcyjne dane w harnessie, `fixStep` (1496 losowych edycji:
+dokument równy serwerowemu, jedno cofnięcie przywraca oryginał), wtyczka
+struktury, StrictMode, wyniesienie kart z okna QC.
+
 ## Świadomie poza zakresem
 
 - „Sprawdź teraz” (kontrola AI na żądanie) i poprawka tytułu — patrz odstępstwa.
 - Propozycje AI liczone na treści z edytora: `qc/fixes` czyta zapisany szkic,
   więc propozycja może dotyczyć linii zmienionej po zapisie. Serwer odpowiada
   wtedy „pominięto” z powodem, a panel pokazuje go rekruterowi.
+- `_load_sources` czyta i rozbiera oryginalne CV przy każdym odczycie QC,
+  także `transient` — koszt, nie błąd; to samo robi okno QC.
 - Usunięcie terminu działa jak w oknie QC — tylko na listach technologii.
   Termin w zdaniu rekruter poprawia ręcznie („Pokaż w CV” wskazuje miejsce).
 - Skrót klawiszowy w komunikacie to „Ctrl+Z” (docelowy sprzęt to laptopy
@@ -59,6 +83,10 @@ Backend: trasy `GET …/cv/branded/issues` i `POST …/qc/transform`, parametr
 
 ## Niepotwierdzone
 
+- Po poprawkach z przeglądów nie dało się ponownie obejrzeć harnessu w
+  przeglądarce (panel przeglądarki był ukryty, Chrome niepodłączony): etykieta
+  „Do poprawy (?)” i przewinięcie po poprawce na wąskim ekranie mają testy
+  (`CVBrandedEditModal.issues.test.tsx`, `CvEditorIssues.test.tsx`), bez zrzutu.
 - Zachowanie na produkcji — do sprawdzenia po wdrożeniu (`/api/health` → SHA
   z maina, otwarcie edytora na prawdziwym CV bez zapisu zmian).
 - Wpisy `cv_qc_fix_applied` z `via: "editor"` — pojawią się po pierwszej

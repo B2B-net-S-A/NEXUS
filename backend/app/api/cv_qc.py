@@ -181,7 +181,7 @@ class QcTransformRequest(BaseModel):
     """Treść z edytora CV i poprawki do nałożenia na nią (bez zapisu szkicu)."""
 
     content_html: str = Field(min_length=1, max_length=500000)
-    actions: list[QcTransformAction] = Field(min_length=1, max_length=40)
+    actions: list[QcTransformAction] = Field(min_length=1, max_length=20)
     # „Popraw wszystko”: serwer sam pomija poprawki spoza `cv_qc.BULK_ACTIONS`.
     bulk: bool = False
 
@@ -374,7 +374,7 @@ async def apply_stage_qc_fix(
 
 
 @router.post("/stages/{stage_id}/qc/transform", response_model=QcTransformResponse)
-@limiter.limit("30/minute", key_func=user_or_ip_key)
+@limiter.limit("20/minute", key_func=user_or_ip_key)
 async def transform_stage_cv_for_editor(
     request: Request,
     stage_id: int,

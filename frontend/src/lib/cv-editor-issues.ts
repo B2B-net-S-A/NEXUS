@@ -217,10 +217,12 @@ export interface BulkPlan {
  * formalne (pogrubienie wymagań, pisownia technologii) i zdania AI
  * w brzmieniu z serwera, czyli z cytatem sprawdzonym w źródle. Usunięcie
  * terminu i zdanie AI po edycji zatwierdza się pojedynczo — serwer i tak
- * odrzuca je w trybie `bulk` (`cv_qc.BULK_ACTIONS`).
+ * odrzuca je w trybie `bulk` (`cv_qc.BULK_ACTIONS`). Zdania AI idą pierwsze:
+ * szukają swojej linii po tekście, który pisownia by zmieniła (serwer ustawia
+ * tę kolejność także sam).
  */
 export function bulkPlan(checks: readonly QcCheck[], fixes: readonly QcFix[]): BulkPlan {
-  const actions: QcFixAction[] = [];
+  const actions: QcFixAction[] = fixes.map((fix) => ({ action: "ai_fix", fix_id: fix.id }));
   const parts: string[] = [];
   let spelling = 0;
   for (const check of checks) {
@@ -241,7 +243,6 @@ export function bulkPlan(checks: readonly QcCheck[], fixes: readonly QcFix[]): B
     actions.push({ action: "spelling" });
     parts.push(`pisownia ${countForm(spelling, ["technologii", "technologii", "technologii"])}`);
   }
-  for (const fix of fixes) actions.push({ action: "ai_fix", fix_id: fix.id });
   if (fixes.length > 0) {
     parts.push(`${countForm(fixes.length, ["zdanie", "zdania", "zdań"])} AI z cytatem ze źródła`);
   }

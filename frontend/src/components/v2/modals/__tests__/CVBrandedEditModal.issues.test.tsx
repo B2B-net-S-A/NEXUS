@@ -17,7 +17,7 @@ const state = vi.hoisted(() => ({
   onUpdate: null as null | (() => void),
   newDrafts: 0,
   failNewDraft: false,
-  count: { total: 3, blocking: 1 },
+  count: { total: 3, blocking: 1, state: "ready" } as { total: number; blocking: number; state: "loading" | "ready" | "failed" },
   drafted: [] as boolean[],
   issuesProps: [] as Array<Record<string, unknown>>,
 }));
@@ -49,7 +49,7 @@ vi.mock("@/components/v2/cv-editor/CvEditorIssues", async () => {
   const { useEffect } = await import("react");
   return {
     CvEditorIssues: (props: {
-      onCount?: (count: { total: number; blocking: number }) => void;
+      onCount?: (count: typeof state.count) => void;
       ensureDraft: () => Promise<boolean>;
       onShowCv: () => void;
     }) => {
@@ -129,7 +129,7 @@ beforeEach(() => {
     html: "<p>Treść CV</p>",
     newDrafts: 0,
     failNewDraft: false,
-    count: { total: 3, blocking: 1 },
+    count: { total: 3, blocking: 1, state: "ready" },
     drafted: [],
     issuesProps: [],
   });
@@ -161,11 +161,25 @@ it("laptop 1280: są uwagi — obok kartki staje „Do poprawy”, źródła ust
 });
 
 it("bez uwag źródła zostają otwarte, a licznik w pasku pokazuje zero", async () => {
-  state.count = { total: 0, blocking: 0 };
+  state.count = { total: 0, blocking: 0, state: "ready" };
   await open();
   expect(await screen.findByRole("button", { name: "Do poprawy (0)" })).toHaveAttribute("aria-pressed", "false");
   expect(sourcesShown()).toBe(true);
   expect(panel()).toHaveAttribute("hidden");
+});
+
+it("QC nie odpowiada: panel otwiera się sam, a licznik pokazuje „?”, nie zero", async () => {
+  state.count = { total: 0, blocking: 0, state: "failed" };
+  await open();
+  await waitFor(() => expect(panel()).not.toHaveAttribute("hidden"));
+  expect(screen.getByRole("button", { name: "Do poprawy (?)" })).toHaveAttribute("aria-pressed", "true");
+});
+
+it("QC jeszcze się liczy: przycisk bez liczby, źródła zostają", async () => {
+  state.count = { total: 0, blocking: 0, state: "loading" };
+  await open();
+  expect(await screen.findByRole("button", { name: "Do poprawy" })).toHaveAttribute("aria-pressed", "false");
+  expect(sourcesShown()).toBe(true);
 });
 
 it("szeroki ekran (1540+) mieści oba panele naraz", async () => {

@@ -27,7 +27,7 @@ from app.services.cv_editor_review import EDITOR_REVIEW_VERSION, _review_lines
 REVIEW_STATUSES = frozenset({"verified", "reviewed", "unverified"})
 MAX_WARNINGS = 100
 MAX_WARNING_CHARS = 500
-_CLAIM_PATH = re.compile(r"/why_points/(\d+)\Z")
+_CLAIM_PATH = re.compile(r"/why_points/(\d{1,6})\Z")
 
 
 def generator_warnings(value: Any) -> list[str]:
@@ -46,7 +46,9 @@ def review_findings(receipt: Any, content_html: Optional[str]) -> dict:
         return {"status": None, "findings": []}
     status = receipt.get("status")
     result: dict = {
-        "status": status if status in REVIEW_STATUSES else None,
+        "status": status
+        if isinstance(status, str) and status in REVIEW_STATUSES
+        else None,
         "findings": [],
     }
     found = receipt.get("findings")

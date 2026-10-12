@@ -109,6 +109,19 @@ def test_broken_receipt_never_raises(receipt):
     assert result["status"] in (None, "reviewed")
 
 
+@pytest.mark.parametrize("status", [["reviewed"], {"a": 1}, 7, None])
+def test_status_of_a_wrong_type_is_no_status(status):
+    """Lista albo słownik w miejscu statusu nie da się sprawdzić w zbiorze."""
+    receipt = {**_receipt(HTML, {"/why_points/0": "unsupported"}), "status": status}
+    assert review_findings(receipt, HTML)["status"] is None
+
+
+def test_absurd_line_index_is_ignored():
+    """Indeks na tysiące cyfr nie zamienia się w liczbę (limit Pythona 3.11+)."""
+    receipt = _receipt(HTML, {"/why_points/" + "9" * 5000: "unsupported"})
+    assert review_findings(receipt, HTML)["findings"] == []
+
+
 def test_review_without_content_keeps_only_the_status():
     assert review_findings(_receipt(HTML, {"/why_points/0": "unsupported"}), None) == {
         "status": "reviewed",

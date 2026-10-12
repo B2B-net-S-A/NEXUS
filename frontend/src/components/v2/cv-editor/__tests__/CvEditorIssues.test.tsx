@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Editor } from "@tiptap/core";
 
 import type { CvEditorIssuesApi, CvEditorIssuesData } from "@/lib/api/cvEditorIssues";
@@ -123,10 +123,16 @@ interface Setup {
   api?: CvEditorIssuesApi;
   editor?: Editor;
   props?: Partial<Parameters<typeof CvEditorIssues>[0]>;
+  client?: QueryClient;
 }
 
-function setup({ api = memoryApi(), editor = openEditor(), props = {} }: Setup = {}) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function setup({
+  api = memoryApi(),
+  editor = openEditor(),
+  props = {},
+  // Jak w aplikacji: wynik zapytania żyje w pamięci 5 minut po odmontowaniu.
+  client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+}: Setup = {}) {
   const counts: CvIssueCount[] = [];
   const onShowCv = vi.fn();
   const ensureDraft = vi.fn(async () => true);
@@ -201,7 +207,7 @@ describe("panel „Do poprawy” w edytorze CV", () => {
     expect(review).toHaveTextContent("1 uwaga dotyczyła linii, której już nie ma w CV.");
 
     // 1 blokująca + 1 uwaga QC + 1 uwaga generatora + 1 linia kontroli AI.
-    await waitFor(() => expect(counts.at(-1)).toEqual({ total: 4, blocking: 1 }));
+    await waitFor(() => expect(counts.at(-1)).toEqual({ total: 4, blocking: 1, state: "ready" }));
     // Miejsca uwag są zaznaczone na kartce.
     await waitFor(() => expect(editor.view.dom.querySelector(".cv-issue-term.cv-issue--blocking")?.textContent).toBe("AWS"));
     // Panel nie ma obejścia QC ani ruchu karty.
@@ -330,12 +336,53 @@ describe("panel „Do poprawy” w edytorze CV", () => {
     expect(editor.can().undo()).toBe(false);
   });
 
-  it("bez szkicu (zatwierdzona wersja, której nie udało się otworzyć) poprawka nie idzie do serwera", async () => {
-    const { api, ensureDraft } = setup();
+  it("nie udało się założyć szkicu na zatwierdzonej wersji — poprawka nie rusza treści", async () => {
+    const { editor, ensureDraft } = setup();
+    const before = editor.getHTML();
     ensureDraft.mockResolvedValueOnce(false);
-    fireEvent.click(await screen.findByRole("button", { name: "Usuń „AWS” z CV" }));
+    const notes = await screen.findByRole("region", { name: "Warto poprawić — nie blokuje" });
+    fireEvent.click(within(notes).getByRole("button", { name: /Must-have pogrubione/ }));
+    fireEvent.click(within(notes).getByRole("button", { name: "Pogrub wszystkie" }));
     await waitFor(() => expect(ensureDraft).toHaveBeenCalled());
-    expect(api.transform).not.toHaveBeenCalled();
+    expect(editor.getHTML()).toBe(before);
+    expect(toast.showSuccess).not.toHaveBeenCalled();
+  });
+
+  it("szkic powstaje dopiero, gdy serwer potwierdzi, że poprawka coś zmienia", async () => {
+    // Nowy szkic zdejmuje z CV stan „zatwierdzone” (linki, wysyłka). Poprawka,
+    // której nie da się nałożyć, nie może kosztować ponownego zatwierdzania.
+    const order: string[] = [];
+    const api = memoryApi({
+      transform: vi.fn(async (_stage: number, body: QcTransformBody) => {
+        order.push("transform");
+        return {
+          content_html: body.content_html,
+          changed: false,
+          applied: [],
+          skipped: [{ action: "remove_term", code: "nothing_to_do", message: "Nie ma czego usunąć." }],
+        };
+      }),
+    });
+    const { ensureDraft } = setup({ api });
+    ensureDraft.mockImplementation(async () => {
+      order.push("ensureDraft");
+      return true;
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Usuń „AWS” z CV" }));
+    await waitFor(() => expect(toast.showError).toHaveBeenCalledWith("Nie ma czego usunąć."));
+    expect(order).toEqual(["transform"]);
+  });
+
+  it("pusta treść z serwera nie zastępuje CV", async () => {
+    const api = memoryApi({
+      transform: vi.fn(async () => ({ content_html: "  ", changed: true, applied: [{ action: "spelling" }], skipped: [] })),
+    });
+    const { editor, ensureDraft } = setup({ api });
+    const before = editor.getHTML();
+    fireEvent.click(await screen.findByRole("button", { name: "Usuń „AWS” z CV" }));
+    await waitFor(() => expect(toast.showError).toHaveBeenCalled());
+    expect(editor.getHTML()).toBe(before);
+    expect(ensureDraft).not.toHaveBeenCalled();
   });
 
   it("treść zmieniona w trakcie liczenia: wynik nie nadpisuje tego, co rekruter wpisał", async () => {
@@ -400,13 +447,61 @@ describe("panel „Do poprawy” w edytorze CV", () => {
     expect(edited.api.persistQc).toHaveBeenCalledWith(STAGE);
   });
 
+  it("ponowne otwarcie edytora liczy QC od nowa, zamiast pokazać wynik z poprzedniej sesji", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const qc = vi
+      .fn<CvEditorIssuesApi["qc"]>()
+      .mockResolvedValueOnce(qcResult())
+      .mockResolvedValue(qcResult({ blocking_failed: 0, passed: true, checks: [] }));
+    const api = memoryApi({ qc });
+    const first = setup({ api, client });
+    await screen.findByText("Blokuje wysyłkę: 1");
+    first.view.unmount();
+
+    setup({ api, client });
+    expect(await screen.findByText("Nic nie blokuje wysyłki")).toBeInTheDocument();
+    expect(screen.queryByText("Blokuje wysyłkę: 1")).not.toBeInTheDocument();
+    expect(qc).toHaveBeenCalledTimes(2);
+    expect(api.issues).toHaveBeenCalledTimes(2);
+  });
+
+  it("licznik w pasku nie udaje zera, gdy QC jeszcze się liczy albo nie odpowiada", async () => {
+    const down = setup({
+      api: memoryApi({
+        qc: vi.fn(async () => Promise.reject({ response: { status: 500 } })),
+        issues: vi.fn(async () => ({ ...ISSUES, generator_warnings: [], content_review: { status: null, version: null, findings: [] } })),
+      }),
+    });
+    expect(down.counts[0]).toMatchObject({ state: "loading" });
+    await screen.findByText(/Nie udało się policzyć QC/);
+    await waitFor(() => expect(down.counts.at(-1)).toEqual({ total: 0, blocking: 0, state: "failed" }));
+    down.view.unmount();
+
+    const fine = setup();
+    await waitFor(() => expect(fine.counts.at(-1)).toEqual({ total: 4, blocking: 1, state: "ready" }));
+  });
+
+  it("nieudany zapis przebiegu QC przy zamknięciu trafia do zgłaszania błędów zapytań", async () => {
+    const failures: unknown[] = [];
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+      queryCache: new QueryCache({ onError: (error) => failures.push(error) }),
+    });
+    const boom = new Error("500");
+    const { view, rerender } = setup({ client, api: memoryApi({ persistQc: vi.fn(async () => Promise.reject(boom)) }) });
+    await screen.findByText("Blokuje wysyłkę: 1");
+    rerender({ savedRevision: 5 });
+    view.unmount();
+    await waitFor(() => expect(failures).toContain(boom));
+  });
+
   it("edytor wyniku generatora: same uwagi generatora, bez zapytań o QC", async () => {
     const { api, counts } = setup({
       props: { stageId: undefined, generatorWarnings: ["MUST-HAVE: brak Kafka w źródłach."] },
     });
     expect(screen.getByText(/nie jest jeszcze na etapie rekrutacji/)).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Uwagi generatora" })).toHaveTextContent("MUST-HAVE: brak Kafka");
-    await waitFor(() => expect(counts.at(-1)).toEqual({ total: 1, blocking: 0 }));
+    await waitFor(() => expect(counts.at(-1)).toEqual({ total: 1, blocking: 0, state: "ready" }));
     expect(api.qc).not.toHaveBeenCalled();
     expect(api.issues).not.toHaveBeenCalled();
   });

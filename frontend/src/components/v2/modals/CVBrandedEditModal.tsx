@@ -92,7 +92,7 @@ const SIDE_BY_SIDE_MIN_WIDTH = 1180;
 /** Od tej szerokości mieszczą się oba panele: źródła (440) + kartka (794) + „Do poprawy” (360). */
 const BOTH_PANELS_MIN_WIDTH = 1540;
 
-const NO_ISSUES: CvIssueCount = { total: 0, blocking: 0 };
+const NO_ISSUES: CvIssueCount = { total: 0, blocking: 0, state: "loading" };
 
 type CvDraftPayload = { content_html: string; expected_revision: number };
 
@@ -244,13 +244,17 @@ function CVBrandedEditContent({
   const sideBySide = bodyWidth >= SIDE_BY_SIDE_MIN_WIDTH;
   const bothPanels = bodyWidth >= BOTH_PANELS_MIN_WIDTH;
 
-  // Są uwagi — panel „Do poprawy” otwiera się sam, raz; potem decyduje człowiek.
+  // Są uwagi albo QC nie odpowiada — panel „Do poprawy” otwiera się sam, raz;
+  // potem decyduje człowiek. Awaria QC schowana w zamkniętym panelu wyglądałaby
+  // jak CV bez uwag.
+  const issuesNeedAttention =
+    issueCount.state === "failed" || (issueCount.state === "ready" && issueCount.total > 0);
   useEffect(() => {
-    if (sideTouched.current || issueCount.total === 0) return;
+    if (sideTouched.current || !issuesNeedAttention) return;
     sideTouched.current = true;
     setIssuesOpen(true);
     setLastSide("issues");
-  }, [issueCount.total]);
+  }, [issuesNeedAttention]);
 
   const { data, isLoading, error: loadError, refetch, isFetching } = useQuery<CVBrandedState>({
     queryKey: [scopeKey, stageId],
@@ -548,7 +552,13 @@ function CVBrandedEditContent({
     setIssuesOpen(!issuesSide);
     if (!issuesSide) setLastSide("issues");
   };
-  const issuesLabel = `Do poprawy (${issueCount.total})`;
+  // Bez liczby, dopóki QC się liczy; „?” gdy nie odpowiada — zero znaczy zero.
+  const issuesLabel =
+    issueCount.state === "ready"
+      ? `Do poprawy (${issueCount.total})`
+      : issueCount.state === "failed"
+        ? "Do poprawy (?)"
+        : "Do poprawy";
   const sources = isGenerated ? (
     <CvEditorSources context={sourceContext ?? null} loaders={sourceLoaders} />
   ) : (
