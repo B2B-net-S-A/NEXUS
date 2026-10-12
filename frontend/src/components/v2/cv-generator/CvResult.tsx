@@ -296,6 +296,7 @@ export function CvResultLive(props: CvResultLiveProps) {
         <CVBrandedEditModal
           open
           generatedId={editItem.id}
+          generatorWarnings={editItem.warnings ?? []}
           candidateName={editItem.candidate_name}
           onRegenerate={() => {
             setEditItem(null);

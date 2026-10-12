@@ -210,6 +210,7 @@ Formularz i widok screeningu, karta rekomendacji, rodzaje notatek, wzmianki, „
 - `notatki-przypiecie-odpowiedzi-automaty-bez-notatek.md` — Notatki: przypięcie, odpowiedzi, automaty bez notatek (0399, 29.09.2026)
 - `podsumowanie-aktywnosci-kandydata-ai.md` — Podsumowanie aktywności kandydata (AI)
 - `pole-notatki-rosnie-duze-okno-szkic.md` — Pole notatki: rośnie z tekstem, duże okno pisania, szkic (12.10.2026) · trzy stany pola na dole panelu osoby, klawisze (Enter w dużym oknie = nowa linia), szkic w sessionStorage i jego czyszczenie, lista „@” przy linii kursora, czaty bez rośnięcia
+- `rekrutacja-bez-pytan-i-pomin-brakujace.md` — Rekrutacja bez pytań screeningowych i „Pomiń brakujące” poza przepięciem (12.10.2026) · bramka „Zweryfikowany” w rekrutacji bez Profilu Championa (wystarcza „Dlaczego ten kandydat”), kto może pominąć pytania bez odpowiedzi: przepięcie, wcześniejszy screening, osoba zatrudniona przez nas
 - `rodzaj-notatki-co-czyta-ai-wyszukiwanie-i-rekruter.md` — Rodzaj notatki — co czyta AI, wyszukiwanie i rekruter (0412, 03.10.2026)
 - `screening-wybor-gotowego-cv-z-profilu-i-edycja.md` — Screening: wybór gotowego CV z profilu i edycja (09.10.2026)
 - `stawka-od-i-historia-stawek-kandydata.md` — „Stawka od” i historia stawek kandydata (0414, 04.10.2026)
@@ -241,7 +242,7 @@ Generator CV, reguły CV klienta, zgoda RODO, interaktywne CV, automaty rekrutac
 
 - `automaty-rekrutacji-v3.md` — Automaty rekrutacji v3 (21.09.2026, migracja 0335)
 - `autonomiczny-przeplyw-cv.md` — Autonomiczny przepływ CV (17.09.2026)
-- `edytor-cv-pelny-ekran.md` — Edytor CV na cały ekran — kartka, bloki, źródła, stała klauzula RODO (12.10.2026) · kontrakt HTML edytor ↔ Word, bloki i etykiety szablonu, blokada klauzuli (przeglądarka + serwer), pola w nawiasach, wpis `cv_file_downloaded`, harness `/preview/cv-editor`
+- `edytor-cv-pelny-ekran.md` — Edytor CV na cały ekran — kartka, bloki, źródła, stała klauzula RODO (12.10.2026) · kontrakt HTML edytor ↔ Word, bloki i etykiety szablonu, blokada klauzuli (przeglądarka + serwer), pola w nawiasach, wpis `cv_file_downloaded`, panel „Do poprawy” (QC, uwagi generatora, kontrola AI, „Popraw wszystko”, `qc/transform`), harness `/preview/cv-editor`
 - `generator-cv-domyslnie-sciezka-sprzed-przebudowy.md` — Generator CV — domyślnie ścieżka sprzed przebudowy (`legacy_v7`, 10.09.2026)
 - `generator-cv-v3-jeden-ekran-od-osoby.md` — Generator CV v3 — jeden ekran od osoby (23.09.2026)
 - `interaktywne-cv-publiczny-link-do-wygenerowanego-cv.md` — Interaktywne CV (publiczny link do wygenerowanego CV)

@@ -18,8 +18,13 @@
  * zapis to dalej „Zapisz screening”. Awaria Luny to komunikat z „Spróbuj
  * ponownie”, nie blokada: arkusz działa ręcznie jak dotąd.
  *
- * „Pomiń brakujące — przepięcie” zostaje wyłącznie przy przepięciu; pominięte
- * odpowiedzi i notatka wewnętrzna NIGDY nie idą do klienta.
+ * „Pomiń brakujące” (12.10.2026): do tej daty wyłącznie przy przepięciu
+ * z panelu „Podobne rekrutacje”. Zespół przepina też ręcznie, a panel nie
+ * pozwala wybrać osoby zatrudnionej w rekrutacji źródłowej — dlatego serwer
+ * mówi, czy wolno pominąć (`skip_reason`): przepięcie, wcześniejsza rozmowa
+ * screeningowa w innej rekrutacji albo osoba zatrudniona przez nas. Ta ostatnia
+ * nie musi mieć wcześniejszych rozmów — wtedy blok pokazuje samo pole wyboru,
+ * bez Luny. Pominięte odpowiedzi i notatka wewnętrzna NIGDY nie idą do klienta.
  *
  * Komponent musi stać WEWNĄTRZ `<Form>` arkusza — pole notatki korzysta
  * z kontekstu formularza. Pola arkusza renderuje jako `children`, którym
@@ -38,6 +43,7 @@ import {
   type ScreeningQuestion,
   type ScreeningReassignSuggestion,
   type ScreeningReassignSuggestionsResponse,
+  type ScreeningSkipReason,
 } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { Button } from "@/components/ui/button";
@@ -56,6 +62,13 @@ export const screeningSuggestionsQueryKey = (stageId: number) =>
 export const STALE_ANSWER_DAYS = 30;
 
 const LUNA_FAILED = "Luna nie odpowiedziała — uzupełnij odpowiedzi ręcznie.";
+
+/** Napis pola wyboru mówi, dlaczego wolno pominąć pytania bez odpowiedzi. */
+export const SKIP_MISSING_LABEL: Record<ScreeningSkipReason, string> = {
+  reassign: "Pomiń brakujące — przepięcie",
+  earlier_screening: "Pomiń brakujące — osoba po wcześniejszym screeningu",
+  employed: "Pomiń brakujące — osoba zatrudniona przez nas",
+};
 
 /** „to 7 tygodni temu — dopytaj” dla odpowiedzi starszej niż 30 dni; inaczej `null`. */
 export function answerAgeNote(date: string | null | undefined, now: Date = new Date()): string | null {
@@ -119,6 +132,11 @@ export function ScreeningReassignSuggestions({
   const available = contextQuery.isSuccess && Boolean(context?.available);
   // Serwer sprzed 02.10.2026 nie zna `kind` — rekrutacja źródłowa znaczy przepięcie.
   const kind = context?.kind ?? (context?.source ? "reassign" : null);
+  // Serwer sprzed 12.10.2026 nie zna `skip_reason` — jak dotąd: tylko przepięcie.
+  const skipReason: ScreeningSkipReason | null =
+    contextQuery.isSuccess && context
+      ? (context.skip_reason ?? (context.available && kind === "reassign" ? "reassign" : null))
+      : null;
 
   const savedHasGap = useMemo(
     () =>
@@ -238,7 +256,7 @@ export function ScreeningReassignSuggestions({
       </>
     );
   }
-  if (!available || !context) return <>{children(() => null)}</>;
+  if (!context || (!available && !skipReason)) return <>{children(() => null)}</>;
 
   const source = context.source;
   const conversations = context.earlier_conversations ?? 0;
@@ -261,7 +279,10 @@ export function ScreeningReassignSuggestions({
     ) : null;
 
   let state: ReactNode;
-  if (readOnly) {
+  if (!available) {
+    // Osoba zatrudniona przez nas bez wcześniejszych rozmów — nie ma czego podpowiadać.
+    state = <>Nie ma wcześniejszych rozmów screeningowych, z których Luna mogłaby podpowiedzieć. {profileLink}</>;
+  } else if (readOnly) {
     state = <>Wcześniejsze odpowiedzi zobaczysz w profilu kandydata. {profileLink}</>;
   } else if (!savedHasGap) {
     state = <>Arkusz ma już odpowiedź na każde pytanie. {profileLink}</>;
@@ -315,6 +336,8 @@ export function ScreeningReassignSuggestions({
       shouldDirty: true,
       shouldValidate: methods.formState.isSubmitted,
     });
+    // Powód wybiera domyślną notatkę wewnętrzną — Delivery Lead ma zobaczyć prawdziwy.
+    methods.setValue("skip_reason", checked ? skipReason : null, { shouldDirty: true });
   };
 
   return (
@@ -329,7 +352,9 @@ export function ScreeningReassignSuggestions({
             <p className="text-sm font-medium text-foreground [overflow-wrap:anywhere]">
               {kind === "reassign" && source
                 ? `Przepięcie z: ${source.job_title}${source.date ? ` · ${formatDate(source.date)}` : ""}`
-                : `Ta osoba ma ${earlierConversationsLabel(conversations)}`}
+                : available
+                  ? `Ta osoba ma ${earlierConversationsLabel(conversations)}`
+                  : "Ta osoba jest albo była zatrudniona przez nas"}
             </p>
             <p role="status" className="text-xs text-muted-foreground">
               {state}
@@ -337,15 +362,15 @@ export function ScreeningReassignSuggestions({
           </div>
         </div>
 
-        {kind === "reassign" && !readOnly && (
+        {skipReason && !readOnly && (
           <div className="space-y-2 border-t border-primary/20 pt-3">
             <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-foreground">
               <Checkbox
                 checked={skipMissing}
                 onCheckedChange={(v) => toggleSkip(v === true)}
-                aria-label="Pomiń brakujące — przepięcie"
+                aria-label={SKIP_MISSING_LABEL[skipReason]}
               />
-              <span>Pomiń brakujące — przepięcie</span>
+              <span>{SKIP_MISSING_LABEL[skipReason]}</span>
             </label>
             {skipMissing && (
               <>
@@ -362,7 +387,11 @@ export function ScreeningReassignSuggestions({
                   <TextareaField
                     name="internal_note"
                     rows={2}
-                    placeholder="Np. te same pytania co w poprzedniej rekrutacji, klient zna kandydata"
+                    placeholder={
+                      skipReason === "employed"
+                        ? "Np. pracuje u nas od dwóch lat u tego klienta, znamy odpowiedzi"
+                        : "Np. te same pytania co w poprzedniej rekrutacji, klient zna kandydata"
+                    }
                   />
                 </FormField>
               </>

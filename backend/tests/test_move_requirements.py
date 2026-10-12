@@ -10,7 +10,11 @@ from dataclasses import replace
 
 import pytest
 
-from app.services.move_requirements import PairFacts, build_requirements
+from app.services.move_requirements import (
+    PairFacts,
+    build_requirements,
+    screening_requirement,
+)
 
 VERIFIED_READY = PairFacts(
     from_column="verified",
@@ -439,3 +443,80 @@ def test_answers_written_in_the_note_count_as_the_screening_sheet() -> None:
     assert sheet["status"] == "ok"
     assert sheet["detail"] == "odpowiedzi są w notatce rekrutera"
     assert sheet["action"] is None
+
+
+# ── Rekrutacja bez pytań screeningowych (12.10.2026) ─────────────────────────
+
+NO_QUESTIONS = PairFacts(
+    from_column="screening",
+    stage_id=5,
+    candidate_rate=True,
+    has_screening_questions=False,
+)
+
+
+def test_job_without_questions_asks_for_the_assessment_instead_of_the_sheet() -> None:
+    """Zgłoszenie 12.10.2026: rekrutacja z Traffita bez Profilu Championa nie
+    ma pytań, więc arkusza nie da się zapisać, a okno kazało go uzupełnić."""
+    result = build_requirements(NO_QUESTIONS, "verified")
+    assert _keys(result) == [
+        "why_candidate",
+        "candidate_rate",
+        "availability",
+        "recommendation_card",
+    ]
+    item = _item(result, "why_candidate")
+    assert item["label"] == "Dlaczego ten kandydat"
+    assert item["status"] == "missing" and item["blocking"] is True
+    assert "nie ma pytań screeningowych" in item["detail"]
+    assert item["action"] == {
+        "kind": "open_card",
+        "label": "Uzupełnij w screeningu",
+        "stage_id": 5,
+    }
+    assert result["primary"] == {
+        "kind": "blocked",
+        "label": "Najpierw uzupełnij: Dlaczego ten kandydat",
+    }
+
+
+def test_job_without_questions_moves_once_the_assessment_is_written() -> None:
+    facts = replace(NO_QUESTIONS, card_exists=True, card_recommendation=True)
+    result = build_requirements(facts, "verified")
+    item = _item(result, "why_candidate")
+    assert item["status"] == "ok" and item["action"] is None
+    assert result["primary"] == {"kind": "move", "label": "Przesuń na „Zweryfikowany”"}
+
+
+def test_assessment_does_not_replace_the_sheet_when_the_job_has_questions() -> None:
+    facts = PairFacts(
+        from_column="screening",
+        stage_id=5,
+        candidate_rate=True,
+        card_exists=True,
+        card_recommendation=True,
+    )
+    result = build_requirements(facts, "verified")
+    assert _item(result, "screening_sheet")["status"] == "missing"
+    assert result["primary"]["kind"] == "blocked"
+
+
+@pytest.mark.parametrize(
+    ("facts", "expected"),
+    [
+        (PairFacts(from_column="new"), ("screening_sheet", False)),
+        (PairFacts(from_column="new", screening_done=True), ("screening_sheet", True)),
+        (PairFacts(from_column="new", card_answers=True), ("screening_sheet", True)),
+        (
+            PairFacts(from_column="new", card_recommendation=True),
+            ("screening_sheet", False),
+        ),
+        (NO_QUESTIONS, ("why_candidate", False)),
+        (replace(NO_QUESTIONS, card_recommendation=True), ("why_candidate", True)),
+        # Arkusz zapisany, zanim pytania zniknęły z profilu, dalej się liczy.
+        (replace(NO_QUESTIONS, screening_done=True), ("why_candidate", True)),
+        (replace(NO_QUESTIONS, card_answers=True), ("why_candidate", True)),
+    ],
+)
+def test_screening_requirement(facts: PairFacts, expected: tuple[str, bool]) -> None:
+    assert screening_requirement(facts) == expected

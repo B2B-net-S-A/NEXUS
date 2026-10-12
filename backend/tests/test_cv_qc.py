@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
@@ -1255,6 +1256,246 @@ def test_spelling_fix_in_html() -> None:
     assert count == 2 and out == "<p>JavaScript &amp; PostgreSQL</p>"
 
 
+# ── poprawka QC a edytor otwarty obok (Edytor CV 2, PR 2) ───────────────────
+
+
+def test_fix_is_refused_when_the_draft_changed_since_the_list_was_loaded() -> None:
+    """`qc/apply` podbijało wersję szkicu bez sprawdzenia: edytor otwarty obok
+    dostawał przy następnym autozapisie 409 i baner „zmienione w innej sesji”."""
+    from fastapi import HTTPException
+
+    draft = SimpleNamespace(edit_revision=7)
+    qc.ensure_fresh_draft(draft, None)  # karta sprzed zmiany nie wysyła wersji
+    qc.ensure_fresh_draft(draft, 7)
+    with pytest.raises(HTTPException) as refused:
+        qc.ensure_fresh_draft(draft, 6)
+    assert refused.value.status_code == 409
+    assert refused.value.detail["code"] == "CV_CHANGED"
+    assert "odśwież" in refused.value.detail["message"].lower()
+
+
+def test_qc_reports_the_draft_version_it_was_computed_on() -> None:
+    src = SimpleNamespace(
+        generated={"source": "branded_draft", "stage_id": 5, "edit_revision": 7},
+        bold_known=True,
+        blocks=[],
+    )
+    assert qc._cv_payload(src)["edit_revision"] == 7
+    # CV z generatora bez szkicu na etapie nie ma jeszcze wersji do porównania.
+    src.generated = {"source": "generated", "generated_document_id": 3}
+    assert qc._cv_payload(src)["edit_revision"] is None
+
+
+def test_fix_never_rewrites_the_consent_clause() -> None:
+    """Pisownia chodzi po całym tekście, a usuwanie terminu pomija tylko
+    nagłówki — klauzula zgody RODO jest stała także dla poprawek QC."""
+    from app.services.cv_generator_b2b.docx_renderer import TRANSLATIONS
+
+    clause = TRANSLATIONS["pl"]["rodo"]
+    before = f'<p>Zna Javascript.</p><p data-cv-section="rodo">{clause}</p>'
+    touched = before.replace("Javascript", "JavaScript").replace(
+        "B2B.net S.A.", "Innej Firmy"
+    )
+    after = qc.draft_after_fix(before, touched)
+    assert "<p>Zna JavaScript.</p>" in after
+    assert clause in after
+    assert "Innej Firmy" not in after
+
+
+def test_apply_request_carries_the_expected_draft_version() -> None:
+    from app.api.cv_qc import QcApplyRequest, QcCv
+
+    body = QcApplyRequest(action="spelling", expected_revision=3)
+    assert body.model_dump(exclude_none=True) == {
+        "action": "spelling",
+        "expected_revision": 3,
+    }
+    assert "expected_revision" not in QcApplyRequest(action="spelling").model_dump(
+        exclude_none=True
+    )
+    assert (
+        QcCv(
+            source="branded_draft", editable=True, blocks=[], edit_revision=4
+        ).edit_revision
+        == 4
+    )
+
+
+# ── poprawki liczone na treści z edytora (bez zapisu) ───────────────────────
+
+TRANSFORM_HTML = (
+    '<h2 data-cv-section="experience">Doświadczenie</h2>'
+    '<p data-cv-section="role"><b>Senior Developer</b> 2021–obecnie</p>'
+    '<p data-cv-section="employer">Acme Bank</p>'
+    "<ul><li><p>Rozwój usług w Java i Javascript.</p></li></ul>"
+    '<p data-cv-section="technologies">Technologie: Java, Docker, Postgres</p>'
+)
+TRANSFORM_FIX = {
+    "id": "f1-000000000000",
+    "requirement": "Kubernetes",
+    "role_index": 0,
+    "cv_role_label": "Senior Developer 2021–obecnie · Acme Bank",
+    "current_text": "Rozwój usług w Java i Javascript.",
+    "proposed_text": "Rozwój mikroserwisów **Java** na **Kubernetes**.",
+}
+
+
+def _transform(actions: list[dict], *, bulk: bool, html: str = TRANSFORM_HTML):
+    return qc.transform_html(
+        html,
+        actions,
+        must=_reqs("Java"),
+        nice=_reqs("Docker"),
+        fixes={TRANSFORM_FIX["id"]: TRANSFORM_FIX},
+        experience=EXPERIENCE,
+        bulk=bulk,
+    )
+
+
+def test_bulk_transform_applies_formal_and_evidenced_fixes_in_one_pass() -> None:
+    """„Popraw wszystko” (decyzja D2): pogrubienia, pisownia i nieedytowana
+    poprawka AI z cytatem sprawdzonym przy jej pobraniu."""
+    out, applied, skipped = _transform(
+        [
+            {"action": "ai_fix", "fix_id": TRANSFORM_FIX["id"]},
+            {"action": "bold_all", "scope": "must"},
+            {"action": "spelling"},
+        ],
+        bulk=True,
+    )
+    assert skipped == []
+    assert [a["action"] for a in applied] == ["ai_fix", "bold_all", "spelling"]
+    assert "<b>Kubernetes</b>" in out
+    assert "Technologie: <b>Java</b>, Docker, PostgreSQL" in out
+    assert "Javascript" not in out
+    # Kształt edytora zostaje: punkt to nadal `<li><p>…</p></li>`.
+    assert "<li><p>" in out and "<ul><li><ul>" not in out
+
+
+def test_bulk_transform_refuses_what_needs_a_human_decision() -> None:
+    out, applied, skipped = _transform(
+        [
+            {"action": "remove_term", "term": "Docker"},
+            {
+                "action": "ai_fix",
+                "fix_id": TRANSFORM_FIX["id"],
+                "text": "Własne zdanie.",
+            },
+            {"action": "spelling"},
+        ],
+        bulk=True,
+    )
+    assert [a["action"] for a in applied] == ["spelling"]
+    # Zdania AI serwer bierze pierwsze — stąd kolejność pominiętych.
+    assert [(s["action"], s["code"]) for s in skipped] == [
+        ("ai_fix", "not_in_bulk"),
+        ("remove_term", "not_in_bulk"),
+    ]
+    assert "Docker" in out and "Własne zdanie." not in out
+
+
+def test_single_transform_takes_any_fix_and_reports_what_did_nothing() -> None:
+    out, applied, skipped = _transform(
+        [
+            {"action": "remove_term", "term": "Docker"},
+            {
+                "action": "ai_fix",
+                "fix_id": TRANSFORM_FIX["id"],
+                "text": "Własne **zdanie**.",
+            },
+            {"action": "bold_all", "scope": "nice"},
+            {"action": "ai_fix", "fix_id": "f9-ffffffffffff"},
+            {"action": "nieznana"},
+        ],
+        bulk=False,
+    )
+    assert [a["action"] for a in applied] == ["ai_fix", "remove_term"]
+    assert "Docker" not in out
+    assert "Własne <b>zdanie</b>." in out
+    assert [(s["action"], s["code"]) for s in skipped] == [
+        ("ai_fix", "unknown_fix"),
+        ("bold_all", "nothing_to_do"),
+        ("nieznana", "unknown_action"),
+    ]
+    assert all(s["message"] for s in skipped)
+
+
+def test_transform_keeps_the_consent_clause_and_untouched_content_as_sent() -> None:
+    from app.services.cv_generator_b2b.docx_renderer import TRANSLATIONS
+
+    clause = f'<p data-cv-section="rodo">{TRANSLATIONS["pl"]["rodo"]}</p>'
+    out, applied, _ = _transform(
+        [{"action": "spelling"}], bulk=True, html=TRANSFORM_HTML + clause
+    )
+    assert applied and out.endswith(clause)
+    same, applied, skipped = _transform(
+        [{"action": "bold_all", "scope": "nice"}],
+        bulk=True,
+        html="<p>Nic do zmiany.</p>",
+    )
+    assert same == "<p>Nic do zmiany.</p>" and applied == [] and len(skipped) == 1
+
+
+# ── stanowisko kończy się na nagłówku sekcji (h1/h2), nie na każdym ──────────
+
+SUBHEADING_HTML = (
+    '<h2 data-cv-section="experience">DOŚWIADCZENIE</h2>'
+    '<p data-cv-section="role"><strong>Senior Dev</strong> 2021 – 2024</p>'
+    '<p data-cv-section="employer">Acme Bank</p>'
+    "<h3>Projekt płatności</h3><ul><li>Rozwój usług w Java.</li></ul>"
+    '<p data-cv-section="role"><strong>Dev</strong> 2018 – 2021</p>'
+    '<p data-cv-section="employer">Globex</p>'
+    "<h4>Zespół</h4><ul><li>Testy w Python.</li></ul>"
+    '<h2 data-cv-section="education">EDUKACJA</h2><p>Politechnika</p>'
+)
+
+
+def test_subheading_inside_a_role_does_not_end_the_role_or_the_experience_section() -> (
+    None
+):
+    """Każdy nagłówek h1–h4 kończył rolę i gasił sekcję doświadczenia: po
+    `<h3>` w opisie stanowiska QC nie widziało żadnego następnego stanowiska.
+    Edytor kończy rolę na h1/h2, a Word zmienia sekcję tylko na h2."""
+    blocks = _blocks(SUBHEADING_HTML)
+    assert [(b.kind, b.level) for b in blocks if b.kind == "h"] == [
+        ("h", 2),
+        ("h", 3),
+        ("h", 4),
+        ("h", 2),
+    ]
+    roles = qc.cv_roles(blocks, [])
+    assert [r.role.title for r in roles] == [
+        "Senior Dev 2021 – 2024",
+        "Dev 2018 – 2021",
+    ]
+    assert "Projekt płatności" in roles[0].role.text
+    assert "Rozwój usług w Java." in roles[0].role.text
+    assert "Testy w Python." in roles[1].role.text
+    assert "Politechnika" not in roles[1].role.text
+    assert [r.title for r in dz.generated_roles(blocks)] == [
+        "Senior Dev 2021 – 2024",
+        "Dev 2018 – 2021",
+    ]
+    assert [r.text for r in dz.generated_roles(blocks)] == [r.role.text for r in roles]
+
+
+def test_section_heading_still_ends_the_role() -> None:
+    html = SUBHEADING_HTML.replace("<h3>Projekt płatności</h3>", "<h2>PROJEKTY</h2>")
+    assert [r.role.title for r in qc.cv_roles(_blocks(html), [])] == [
+        "Senior Dev 2021 – 2024"
+    ]
+
+
+def test_qc_blocks_carry_the_heading_level_for_the_screen() -> None:
+    src = SimpleNamespace(
+        generated={"source": "branded_draft", "stage_id": 5},
+        bold_known=True,
+        blocks=_blocks(SUBHEADING_HTML),
+    )
+    levels = [b["level"] for b in qc._cv_payload(src)["blocks"] if b["kind"] == "h"]
+    assert levels == [2, 3, 4, 2]
+
+
 # ── CV zapisane w edytorze: punkt listy to `<li><p>…</p></li>` ───────────────
 #
 # Tiptap owija treść punktu w akapit. Parser bloków zakładał na tym akapicie
@@ -1981,12 +2222,24 @@ async def test_ai_fix_is_proposed_from_sources_and_applied_to_the_draft(
         ).json()
         assert again["cached"] is True and len(calls) == 1
 
+        listed = (
+            await api_client.get(f"/api/pipeline/stages/{stage_id}/qc", headers=hor)
+        ).json()
+        revision = listed["cv"]["edit_revision"]
+        assert revision is not None
         applied = await api_client.post(
             f"/api/pipeline/stages/{stage_id}/qc/apply",
             headers=hor,
-            json={"action": "ai_fix", "fix_id": body["fixes"][0]["id"]},
+            json={
+                "action": "ai_fix",
+                "fix_id": body["fixes"][0]["id"],
+                "expected_revision": revision,
+            },
         )
         assert applied.status_code == 200, applied.text
+        # Odpowiedź niesie nową wersję szkicu — następna poprawka z tego okna
+        # i autozapis edytora wiedzą, na czym stoją.
+        assert applied.json()["cv"]["edit_revision"] == revision + 1
         checks = {c["key"]: c for c in applied.json()["checks"]}
         assert checks["must_in_cv"]["status"] == "pass"
         async with AsyncSessionLocal() as db:
@@ -2017,6 +2270,397 @@ async def test_ai_fix_is_proposed_from_sources_and_applied_to_the_draft(
             json={"action": "ai_fix", "fix_id": "f9-000000000000"},
         )
         assert unknown.status_code == 422
+    finally:
+        await _cleanup_qc(world, stage_id)
+        await _cleanup(world, [hor_id])
+
+
+@pytest.mark.asyncio
+async def test_fix_on_a_draft_changed_elsewhere_is_refused_and_changes_nothing(
+    api_client: AsyncClient,
+) -> None:
+    """Edytor otwarty obok zapisał zmianę po wczytaniu listy QC: poprawka
+    z okna QC dostaje 409 `CV_CHANGED`, a szkic i jego wersja zostają."""
+    world = await _seed_world()
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    hor = await _login(api_client, hor_creds)
+    stage_id = await _seed_review(world, hor, api_client)
+    try:
+        listed = (
+            await api_client.get(f"/api/pipeline/stages/{stage_id}/qc", headers=hor)
+        ).json()
+        revision = listed["cv"]["edit_revision"]
+        async with AsyncSessionLocal() as db:
+            csv = await db.scalar(
+                select(CandidateStageCV).where(
+                    CandidateStageCV.candidate_stage_id == listed["cv"]["stage_id"]
+                )
+            )
+            csv.edit_revision = revision + 1
+            before = (csv.branded_draft_html, csv.branded_status, csv.branded_version)
+            await db.commit()
+        stale = await api_client.post(
+            f"/api/pipeline/stages/{stage_id}/qc/apply",
+            headers=hor,
+            json={"action": "spelling", "expected_revision": revision},
+        )
+        assert stale.status_code == 409, stale.text
+        assert stale.json()["detail"]["code"] == "CV_CHANGED"
+        async with AsyncSessionLocal() as db:
+            csv = await db.scalar(
+                select(CandidateStageCV).where(
+                    CandidateStageCV.candidate_stage_id == listed["cv"]["stage_id"]
+                )
+            )
+            assert (
+                csv.branded_draft_html,
+                csv.branded_status,
+                csv.branded_version,
+            ) == before
+            assert csv.edit_revision == revision + 1
+        # Z bieżącą wersją sprawdzenie przechodzi — odmowa dotyczy już samej
+        # poprawki (w tym CV nie ma pisowni do poprawienia).
+        current = await api_client.post(
+            f"/api/pipeline/stages/{stage_id}/qc/apply",
+            headers=hor,
+            json={"action": "spelling", "expected_revision": revision + 1},
+        )
+        assert current.status_code == 422, current.text
+        assert current.json()["detail"]["code"] == "CV_QC_FIX_FAILED"
+    finally:
+        await _cleanup_qc(world, stage_id)
+        await _cleanup(world, [hor_id])
+
+
+# Koszt `qc/transform`: treść przychodzi od klienta (do 500 KB), a poprawek jest
+# kilka naraz. Granica jak w testach sanitizera — czas procesora, bo zegar
+# ścienny zależy od tego, co jeszcze biegnie na maszynie.
+TRANSFORM_CPU_LIMIT = 30.0
+
+
+def _cpu(run) -> float:
+    started = time.process_time()
+    run()
+    return time.process_time() - started
+
+
+def test_removing_a_term_from_a_huge_list_is_not_quadratic() -> None:
+    """45 tys. punktów „x” (ok. 450 KB): każdy pasujący punkt przeglądał
+    wszystkie zakresy dokumentu — jedno żądanie zajmowało serwer na minuty."""
+    html = "<ul>" + "<li>x</li>" * 45000 + "</ul>"
+    result: list = []
+    spent = _cpu(lambda: result.append(qc.remove_term(html, "x")))
+    assert spent < TRANSFORM_CPU_LIMIT, f"{spent:.1f} s"
+    out, count = result[0]
+    assert count == 45000 and out == "<ul></ul>"
+
+
+def test_parsing_many_empty_list_items_is_not_quadratic() -> None:
+    """Pusty punkt nie trafia na listę bloków, więc szukanie go od końca
+    przeglądało ją całą — 20 tys. pustych punktów przy 20 tys. pełnych."""
+    html = "<ul>" + "<li>Punkt o Javie.</li><li></li>" * 20000 + "</ul>"
+    result: list = []
+    spent = _cpu(lambda: result.append(qc.EditableCv.parse(html)))
+    assert spent < TRANSFORM_CPU_LIMIT, f"{spent:.1f} s"
+    doc = result[0]
+    assert len(doc.blocks) == 20000 and len(doc.items) == 20000
+    assert doc.item_span(0) == (1, 3) and doc.item_is_only_this_block(0)
+
+
+@pytest.mark.parametrize(
+    ("html", "action"),
+    [
+        # Długi ciąg odstępów bez przecinka: wyrażenie na separator listy
+        # próbowało od każdej spacji od nowa.
+        (
+            "<p>a" + " " * 400000 + "b</p>",
+            {"action": "remove_term", "term": "Docker"},
+        ),
+        (
+            "<p>Docker ," + " " * 400000 + "</p>",
+            {"action": "remove_term", "term": "Docker"},
+        ),
+        # Tysiące trafień w jednym akapicie: każde porównywane ze wszystkimi.
+        ("<p>" + "Java " * 90000 + "</p>", {"action": "bold_all", "scope": "must"}),
+        # Jeden akapit z tysiącami węzłów: lista technologii rozpoznawana od
+        # nowa dla każdego węzła.
+        (
+            "<p>Technologie: " + "Kafka, <i>x</i> " * 20000 + "</p>",
+            {"action": "remove_term", "term": "Docker"},
+        ),
+        ("<p>" + "Javascript " * 40000 + "</p>", {"action": "spelling"}),
+    ],
+    ids=[
+        "odstepy",
+        "odstepy-po-separatorze",
+        "tysiace-trafien",
+        "tysiace-wezlow",
+        "pisownia",
+    ],
+)
+def test_one_fix_on_a_hostile_shape_stays_within_the_cpu_limit(
+    html: str, action: dict
+) -> None:
+    """Budżet czasu działa MIĘDZY poprawkami — pojedyncza musi być liniowa
+    sama z siebie (przegląd 13.10.2026: 40 KB odstępów trwało 12 s)."""
+    spent = _cpu(lambda: _transform([action], bulk=False, html=html))
+    assert spent < TRANSFORM_CPU_LIMIT, f"{spent:.1f} s"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Java, Docker, Kafka",
+        "Java ,  Docker ; Kafka",
+        "Docker",
+        "Docker 24.0, Kafka",
+        "Java / Docker | Kafka · Docker",
+        "  Docker  ,  Java",
+        "Java,\n   Docker\n",
+        "Zna Dockera i Kafkę, pracuje z Docker Compose.",
+    ],
+)
+def test_removing_a_term_gives_the_same_text_as_before_the_speedup(text: str) -> None:
+    """Wyrażenie na separator dostało kotwicę na początku ciągu odstępów —
+    wynik ma być ten sam co z wyrażeniem bez niej."""
+    out, count = qc.remove_term(f"<p>Technologie: {text}</p>", "Docker")
+    expected, expected_count = text, 0
+    for pattern in dz._patterns("Docker"):
+        body = pattern.pattern + qc._VERSION_TAIL
+        loose = r"\s*[,;/|·]\s*"
+        expected, n1 = re.subn(loose + f"(?:{body})", "", expected, flags=pattern.flags)
+        expected, n2 = re.subn(f"(?:{body})" + loose, "", expected, flags=pattern.flags)
+        expected_count += n1 + n2
+    assert count == expected_count
+    assert out == f"<p>Technologie: {expected}</p>"
+
+
+def test_bolding_keeps_the_first_pattern_when_matches_overlap() -> None:
+    """Dłuższa nazwa wygrywa z krótszą w tym samym miejscu, jak dotąd."""
+    patterns = [re.compile("Spring Boot"), re.compile("Spring"), re.compile("Boot")]
+    out, count = qc._wrap_matches("Spring Boot, Spring i Boot", patterns)
+    assert out == "<b>Spring Boot</b>, <b>Spring</b> i <b>Boot</b>"
+    assert count == 3
+
+
+def test_fix_all_applies_ai_sentences_before_spelling_changes_their_line() -> None:
+    """Kolejność z przycisku „Popraw wszystko”: pogrubienie, pisownia, zdania
+    AI. Pisownia zmieniała linię, którą miało zastąpić zdanie AI — poprawka
+    AI wracała jako pominięta („punkt się zmienił”)."""
+    html, applied, skipped = _transform(
+        [
+            {"action": "bold_all", "scope": "must"},
+            {"action": "spelling"},
+            {"action": "ai_fix", "fix_id": TRANSFORM_FIX["id"]},
+        ],
+        bulk=True,
+    )
+    assert skipped == []
+    assert [item["action"] for item in applied] == ["ai_fix", "bold_all", "spelling"]
+    assert "<b>Kubernetes</b>" in html
+
+
+def _only_this_block_by_scan(doc: qc.EditableCv, index: int) -> bool:
+    """Odpowiedź sprzed zmiany: przegląd wszystkich zakresów dokumentu."""
+    start, end = doc.item_span(index)
+    if start is None or end is None:
+        return False
+    inside = [
+        i
+        for i, (first, _) in enumerate(doc.spans)
+        if first is not None and start <= first <= end
+    ]
+    return inside == [index]
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        "<ul><li>Docker<ul><li>Compose</li></ul></li><li><p>Java</p></li></ul>",
+        "<ul><li><p>Kafka</p><p>i kolejki</p></li><li></li><li>x</li></ul>",
+        "<p>Technologie: Java, Docker</p><ul><li>a<ul><li>b<ul><li>c</li></ul></li></ul></li></ul>",
+        "<ul><li>x</li><li><b>x</b></li><li>x<br>y</li></ul><h2>Tytuł</h2><p>Tekst</p>",
+        "luźny tekst<ul><li></li><li><p></p></li><li>ostatni</ul>",
+    ],
+)
+def test_only_this_block_answers_as_before_the_speedup(html: str) -> None:
+    """Szybsze liczenie nie zmienia odpowiedzi: punkt z podpunktem albo
+    drugim akapitem to więcej niż jeden blok."""
+    doc = qc.EditableCv.parse(html)
+    assert doc.blocks
+    for index in range(len(doc.blocks)):
+        assert doc.item_is_only_this_block(index) == _only_this_block_by_scan(
+            doc, index
+        ), (html, index)
+
+
+def test_point_with_a_sub_point_is_more_than_its_text() -> None:
+    doc = qc.EditableCv.parse(
+        "<ul><li>Docker<ul><li>Compose</li></ul></li>"
+        "<li><p>Kafka</p><p>i kolejki</p></li><li><p>Java</p></li></ul>"
+    )
+    only = {
+        block.text: doc.item_is_only_this_block(i) for i, block in enumerate(doc.blocks)
+    }
+    assert only["Docker"] is False and only["Kafka"] is False
+    assert only["Compose"] is True and only["Java"] is True
+
+
+def test_transform_skips_a_repeated_fix_instead_of_computing_it_again() -> None:
+    html, applied, skipped = _transform(
+        [{"action": "spelling"}] * 3 + [{"action": "bold_all", "scope": "must"}] * 2,
+        bulk=True,
+    )
+    assert [item["action"] for item in applied] == ["spelling", "bold_all"]
+    assert [item["code"] for item in skipped] == ["duplicate"] * 3
+    assert "JavaScript" in html and "<b>Java</b>" in html
+
+
+def test_transform_stops_adding_fixes_when_the_time_budget_is_spent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pierwsza poprawka idzie zawsze; kolejne tylko, dopóki starcza budżetu
+    czasu — długie CV z wieloma poprawkami nie trzyma wątku bez końca."""
+    monkeypatch.setattr(qc, "TRANSFORM_BUDGET_S", 0.0)
+    html, applied, skipped = _transform(
+        [{"action": "spelling"}, {"action": "bold_all", "scope": "must"}], bulk=True
+    )
+    assert [item["action"] for item in applied] == ["spelling"]
+    assert [(item["action"], item["code"]) for item in skipped] == [
+        ("bold_all", "budget")
+    ]
+    assert "osobno" in skipped[0]["message"]
+    assert "JavaScript" in html and "<b>Java</b>" not in html
+
+
+def test_largest_content_with_the_most_fixes_stays_within_the_cpu_limit() -> None:
+    html = "<p>Rozwój usług w Javascript i Docker, zespół Postgres.</p>" * 7800
+    assert len(html) > 450000
+    actions = [{"action": "spelling"}, {"action": "bold_all", "scope": "must"}] + [
+        {"action": "remove_term", "term": f"termin{n}"} for n in range(18)
+    ]
+    spent = _cpu(lambda: _transform(actions, bulk=False, html=html))
+    assert spent < TRANSFORM_CPU_LIMIT, f"{spent:.1f} s"
+
+
+def test_transform_request_bounds_content_and_action_count() -> None:
+    from pydantic import ValidationError
+
+    from app.api.cv_qc import QcTransformRequest
+
+    ok = QcTransformRequest(content_html="<p>x</p>", actions=[{"action": "spelling"}])
+    assert ok.bulk is False
+    for bad in (
+        {"content_html": "", "actions": [{"action": "spelling"}]},
+        {"content_html": "<p>x</p>", "actions": []},
+        {"content_html": "<p>x</p>", "actions": [{"action": "spelling"}] * 21},
+        {"content_html": "x" * 500001, "actions": [{"action": "spelling"}]},
+        {"content_html": "<p>x</p>", "actions": [{"action": "drop_table"}]},
+    ):
+        with pytest.raises(ValidationError):
+            QcTransformRequest(**bad)
+
+
+@pytest.mark.asyncio
+async def test_editor_transform_fixes_the_sent_content_and_leaves_the_draft_alone(
+    api_client: AsyncClient,
+) -> None:
+    """Panel „Do poprawy” w edytorze: serwer liczy poprawkę na treści
+    z edytora, a szkic w bazie, jego wersja i przebiegi QC zostają."""
+    world = await _seed_world()
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    hor = await _login(api_client, hor_creds)
+    stage_id = await _seed_review(world, hor, api_client)
+    url = f"/api/pipeline/stages/{stage_id}/qc"
+    try:
+        runs = await _runs(world)
+        seen = await api_client.get(url, headers=hor, params={"transient": "true"})
+        assert seen.status_code == 200, seen.text
+        assert seen.json()["run_id"] is None
+        assert await _runs(world) == runs
+
+        async with AsyncSessionLocal() as db:
+            csv = await db.scalar(
+                select(CandidateStageCV).where(
+                    CandidateStageCV.candidate_stage_id == stage_id
+                )
+            )
+            csv_id = csv.id
+            before = (csv.branded_draft_html, csv.edit_revision, csv.branded_status)
+
+        sent = TRANSFORM_HTML
+        out = await api_client.post(
+            f"{url}/transform",
+            headers=hor,
+            json={
+                "content_html": sent,
+                "bulk": True,
+                "actions": [
+                    {"action": "spelling"},
+                    {"action": "remove_term", "term": "Docker"},
+                    {"action": "ai_fix", "fix_id": "f9-000000000000"},
+                ],
+            },
+        )
+        assert out.status_code == 200, out.text
+        body = out.json()
+        assert body["changed"] is True
+        assert "JavaScript" in body["content_html"]
+        assert "Docker" in body["content_html"]
+        assert [a["action"] for a in body["applied"]] == ["spelling"]
+        assert [(s["action"], s["code"]) for s in body["skipped"]] == [
+            ("ai_fix", "unknown_fix"),
+            ("remove_term", "not_in_bulk"),
+        ]
+
+        nothing = await api_client.post(
+            f"{url}/transform",
+            headers=hor,
+            json={
+                "content_html": "<p>Bez zmian.</p>",
+                "actions": [{"action": "spelling"}],
+            },
+        )
+        assert nothing.status_code == 200, nothing.text
+        assert nothing.json()["changed"] is False
+        assert nothing.json()["content_html"] == "<p>Bez zmian.</p>"
+        assert nothing.json()["skipped"][0]["code"] == "nothing_to_do"
+
+        async with AsyncSessionLocal() as db:
+            csv = await db.get(CandidateStageCV, csv_id)
+            assert (
+                csv.branded_draft_html,
+                csv.edit_revision,
+                csv.branded_status,
+            ) == before
+            logged = (
+                await db.scalars(
+                    select(Activity).where(
+                        Activity.action == "cv_qc_fix_applied",
+                        Activity.entity_type == "candidate_stage_cv",
+                        Activity.entity_id == csv_id,
+                    )
+                )
+            ).all()
+            # Jeden wpis: za poprawkę nałożoną; próba bez zmian nie zostawia śladu.
+            assert [row.details["via"] for row in logged] == ["editor"]
+            assert logged[0].details["actions"] == ["spelling"]
+            assert logged[0].details["bulk"] is True
+            await db.execute(
+                delete(Activity).where(
+                    Activity.entity_type == "candidate_stage_cv",
+                    Activity.entity_id == csv_id,
+                )
+            )
+            await db.commit()
+        assert await _runs(world) == runs
+
+        missing = await api_client.post(
+            "/api/pipeline/stages/999999999/qc/transform",
+            headers=hor,
+            json={"content_html": "<p>x</p>", "actions": [{"action": "spelling"}]},
+        )
+        assert missing.status_code == 404
     finally:
         await _cleanup_qc(world, stage_id)
         await _cleanup(world, [hor_id])

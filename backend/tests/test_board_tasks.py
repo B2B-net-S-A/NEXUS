@@ -344,7 +344,7 @@ async def _login(client: AsyncClient, creds: dict[str, str]) -> dict[str, str]:
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
-async def _seed_world() -> dict:
+async def _seed_world(*, champion_profile: dict | None = None) -> dict:
     unique = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
         cli = Client(name=f"Nordea BT {unique}")
@@ -392,6 +392,7 @@ async def _seed_world() -> dict:
             remote_policy=RemotePolicy.hybrid,
             client_id=cli.id,
             pipeline_template_id=tpl.id,
+            champion_profile=champion_profile,
         )
         db.add(job)
         await db.commit()

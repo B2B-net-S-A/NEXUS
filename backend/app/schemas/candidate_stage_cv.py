@@ -96,6 +96,28 @@ class StageCvSourcesResponse(BaseModel):
     items: list[StageCvSourceItem]
 
 
+class CVReviewFinding(BaseModel):
+    """Uwaga kontroli AI z tekstem linii CV, której dotyczy."""
+
+    text: str
+    status: str
+
+
+class CVContentReviewIssues(BaseModel):
+    status: Literal["verified", "reviewed", "unverified"] | None = None
+    # Zatwierdzona wersja, której dotyczy kontrola (biegnie po „Zapisz”).
+    version: int | None = None
+    findings: list[CVReviewFinding] = []
+
+
+class CVEditorIssues(BaseModel):
+    """Dane panelu „Do poprawy” w edytorze CV: uwagi generatora i kontroli AI."""
+
+    generated_document_id: int | None = None
+    generator_warnings: list[str] = []
+    content_review: CVContentReviewIssues = CVContentReviewIssues()
+
+
 class CVBrandedResponse(BaseModel):
     presentation_review: dict | None = None
     docx_available: bool = False

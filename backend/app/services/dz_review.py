@@ -75,10 +75,23 @@ class Block:
     kind: str  # "h" | "p" | "li"
     section: Optional[str]
     runs: list[dict] = field(default_factory=list)  # {"t": str, "b": bool}
+    # Poziom nagłówka (1–4); `None` dla akapitów i punktów.
+    level: Optional[int] = None
 
     @property
     def text(self) -> str:
         return "".join(r["t"] for r in self.runs).strip()
+
+    @property
+    def ends_section(self) -> bool:
+        """Nagłówek sekcji (h1/h2) — kończy stanowisko i sekcję doświadczenia.
+
+        Śródtytuł w opisie stanowiska (h3/h4, np. nazwa projektu) należy do
+        roli: edytor kończy rolę na h1/h2, a Word zmienia sekcję tylko na h2.
+        Do 12.10.2026 każdy nagłówek gasił doświadczenie i QC nie widziało
+        stanowisk stojących po śródtytule.
+        """
+        return self.kind == "h" and (self.level or 1) <= 2
 
 
 class _BlockParser(HTMLParser):
@@ -115,7 +128,9 @@ class _BlockParser(HTMLParser):
         # sekcji; znacznik dokłada dopiero zapis w edytorze.
         if not section and "rodo" in (attrs.get("class") or "").split():
             section = RODO_SECTION
-        self._current = Block(kind=kind, section=section)
+        self._current = Block(
+            kind=kind, section=section, level=int(tag[1]) if kind == "h" else None
+        )
 
     def _flush(self) -> None:
         if self._current is not None and self._current.text:
@@ -422,7 +437,7 @@ def generated_roles(blocks: list[Block]) -> list[Role]:
     current: Optional[dict] = None
     in_experience = False
     for block in blocks:
-        if block.kind == "h" or block.section == RODO_SECTION:
+        if block.ends_section or block.section == RODO_SECTION:
             in_experience = block.kind == "h" and block.section == "experience"
             if current is not None:
                 roles.append(_close(current))
@@ -754,6 +769,9 @@ async def _generated_cv(
             "stage_id": row.candidate_stage_id,
             "generated_document_id": row.generated_document_id,
             "updated_at": row.branded_finalized_at or row.branded_updated_at,
+            # Wersja szkicu, na której liczy się QC — poprawka z okna QC odsyła
+            # ją z powrotem, żeby nie nadpisać zmian z edytora otwartego obok.
+            "edit_revision": row.edit_revision or 0,
             "html": row.branded_draft_html,
         }
     doc = (
@@ -1279,7 +1297,12 @@ async def build_review(db: AsyncSession, stage: CandidateStage) -> dict:
                 "bold_known": bold_known,
                 "updated_at": generated["updated_at"],
                 "blocks": [
-                    {"kind": b.kind, "section": b.section, "runs": b.runs}
+                    {
+                        "kind": b.kind,
+                        "section": b.section,
+                        "runs": b.runs,
+                        "level": b.level,
+                    }
                     for b in blocks
                 ],
             }

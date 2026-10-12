@@ -120,3 +120,46 @@ it("wynik generatora bez rekrutacji mówi panelowi źródeł, że nie ma czego p
   expect(await within(dialog).findByTestId("sources")).toHaveTextContent("bez rekrutacji");
   noNetwork();
 });
+
+it("panel „Do poprawy” bierze QC, uwagi i poprawki z pamięci — pełny obieg bez sieci", async () => {
+  const dialog = await openEditor();
+  // jsdom nie liczy szerokości: układ wąski, panel pod przełącznikiem kolumny.
+  fireEvent.click(await within(dialog).findByRole("button", { name: "Do poprawy (7)" }));
+  expect(within(dialog).getByText("Blokuje wysyłkę: 2")).toBeInTheDocument();
+  expect(within(dialog).getByRole("region", { name: "Uwagi generatora" })).toHaveTextContent("MUST-HAVE");
+  expect(within(dialog).getByRole("region", { name: "Kontrola AI" })).toHaveTextContent("Przeglądy kodu");
+  // Miejsca uwag są zaznaczone na kartce, ale nie w zapisywanej treści.
+  const paper = dialog.querySelector(".cv-paper .ProseMirror") as HTMLElement;
+  expect(paper.querySelector(".cv-issue-term.cv-issue--blocking")).toHaveTextContent("Jenkins");
+  expect(paper.querySelector(".cv-issue-block.cv-issue--blocking")).toHaveTextContent("Java Developer 01.2017");
+
+  fireEvent.click(within(dialog).getByRole("button", { name: "Popraw wszystko (2)" }));
+  await waitFor(() => expect(paper).toHaveTextContent("Docker, Jenkins, GitHub"));
+  expect(paper.querySelectorAll("strong")).toContainEqual(expect.objectContaining({ textContent: "PostgreSQL" }));
+  // Usunięcie „Jenkins” (treść) nie wchodzi do hurtu.
+  expect(paper).toHaveTextContent("Jenkins");
+  // Poprawka przełącza na kartkę; wynik z „Cofnij” czeka w panelu.
+  fireEvent.click(within(dialog).getByRole("button", { name: /^Do poprawy \(/ }));
+  const outcome = within(dialog).getByRole("region", { name: "Wynik poprawek" });
+  expect(outcome).toHaveTextContent("Nałożono: 2 poprawki.");
+  fireEvent.click(within(outcome).getByRole("button", { name: "Cofnij" }));
+  expect(paper).toHaveTextContent("Docker, Jenkins, Github");
+  noNetwork();
+});
+
+it("QC nie odpowiada: panel mówi o awarii, a nie że CV jest bez uwag", async () => {
+  const dialog = await openEditor("qcdown");
+  fireEvent.click(await within(dialog).findByRole("button", { name: /^Do poprawy \(/ }));
+  expect(await within(dialog).findByText(/Nie udało się policzyć QC — to nie znaczy, że CV jest bez uwag/)).toBeInTheDocument();
+  expect(within(dialog).queryByText(/Nic nie blokuje wysyłki/)).not.toBeInTheDocument();
+  noNetwork();
+});
+
+it("wynik generatora bez rekrutacji ma w panelu same uwagi generatora", async () => {
+  const dialog = await openEditor("nosources");
+  fireEvent.click(await within(dialog).findByRole("button", { name: "Do poprawy (2)" }));
+  expect(within(dialog).getByText(/nie jest jeszcze na etapie rekrutacji/)).toBeInTheDocument();
+  expect(within(dialog).getByRole("region", { name: "Uwagi generatora" })).toHaveTextContent("WERYFIKUJ");
+  expect(within(dialog).queryByRole("region", { name: "Kontrola AI" })).not.toBeInTheDocument();
+  noNetwork();
+});

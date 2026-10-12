@@ -70,6 +70,8 @@ class QcBlock(BaseModel):
     kind: Literal["h", "p", "li"]
     section: Optional[str] = None
     runs: list[QcRun]
+    # Poziom nagłówka (1–4); śródtytuł h3/h4 nie kończy stanowiska.
+    level: Optional[int] = None
 
 
 class QcCv(BaseModel):
@@ -81,6 +83,8 @@ class QcCv(BaseModel):
     filename: Optional[str] = None
     bold_known: bool = True
     updated_at: Optional[datetime] = None
+    # Wersja szkicu CV etapu, na której policzono QC (brak dla CV bez szkicu).
+    edit_revision: Optional[int] = None
     blocks: list[QcBlock]
 
 
@@ -160,6 +164,48 @@ class QcApplyRequest(BaseModel):
     text: Optional[str] = Field(default=None, max_length=1000)
     scope: Optional[Literal["must", "nice"]] = None
     term: Optional[str] = Field(default=None, max_length=120)
+    # Wersja szkicu z odpowiedzi QC; inna niż w bazie = 409 `CV_CHANGED`.
+    # Opcjonalna: karty otwarte przed tą zmianą jej nie wysyłają.
+    expected_revision: Optional[int] = Field(default=None, ge=0)
+
+
+class QcTransformAction(BaseModel):
+    action: Literal["ai_fix", "bold_all", "remove_term", "spelling"]
+    fix_id: Optional[str] = Field(default=None, max_length=40)
+    text: Optional[str] = Field(default=None, max_length=1000)
+    scope: Optional[Literal["must", "nice"]] = None
+    term: Optional[str] = Field(default=None, max_length=120)
+
+
+class QcTransformRequest(BaseModel):
+    """Treść z edytora CV i poprawki do nałożenia na nią (bez zapisu szkicu)."""
+
+    content_html: str = Field(min_length=1, max_length=500000)
+    actions: list[QcTransformAction] = Field(min_length=1, max_length=20)
+    # „Popraw wszystko”: serwer sam pomija poprawki spoza `cv_qc.BULK_ACTIONS`.
+    bulk: bool = False
+
+
+class QcTransformApplied(BaseModel):
+    action: str
+    fix_id: Optional[str] = None
+    edited: Optional[bool] = None
+    scope: Optional[str] = None
+    term: Optional[str] = None
+    count: Optional[int] = None
+
+
+class QcTransformSkipped(BaseModel):
+    action: str
+    code: str
+    message: str
+
+
+class QcTransformResponse(BaseModel):
+    content_html: str
+    changed: bool
+    applied: list[QcTransformApplied]
+    skipped: list[QcTransformSkipped]
 
 
 class QcConfirmRequest(BaseModel):
@@ -253,11 +299,14 @@ async def get_stage_qc(
     stage_id: int,
     current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
+    transient: bool = False,
 ) -> QcResponse:
     """QC CV firmowego pary (kandydat, rekrutacja) z wiersza etapu.
 
     Liczy świeżo i zapisuje przebieg (identyczny z poprzednim nie dostaje
     nowego wiersza) — tablica i bramka ruchu czytają ten sam stan.
+    `transient=true` liczy bez zapisu: edytor CV odświeża listę po każdym
+    autozapisie, a przebieg zapisuje raz, przy zamknięciu.
     """
 
     stage = await _stage(db, stage_id)
@@ -266,7 +315,7 @@ async def get_stage_qc(
         db,
         request,
         current_user,
-        await cv_qc.run_qc(db, stage, user_id=current_user.id),
+        await cv_qc.run_qc(db, stage, user_id=current_user.id, persist=not transient),
     )
 
 
@@ -322,6 +371,37 @@ async def apply_stage_qc_fix(
         ) from exc
     await db.commit()
     return await _response(db, request, current_user, result)
+
+
+@router.post("/stages/{stage_id}/qc/transform", response_model=QcTransformResponse)
+@limiter.limit("20/minute", key_func=user_or_ip_key)
+async def transform_stage_cv_for_editor(
+    request: Request,
+    stage_id: int,
+    payload: QcTransformRequest,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> QcTransformResponse:
+    """Poprawki z panelu „Do poprawy” policzone na treści z edytora CV.
+
+    Niczego nie zapisuje w szkicu: edytor nakłada wynik jednym cofalnym
+    krokiem i utrwala go autozapisem. Poprawka, której nie da się nałożyć,
+    wraca w `skipped` z powodem (200, nie 422) — przy „Popraw wszystko”
+    jedna nieudana nie zatrzymuje pozostałych.
+    """
+
+    stage = await _stage(db, stage_id)
+    await ensure_job_membership(db, current_user, stage.job_id)
+    result = await cv_qc.transform_for_editor(
+        db,
+        stage,
+        payload.content_html,
+        [action.model_dump(exclude_none=True) for action in payload.actions],
+        bulk=payload.bulk,
+        user_id=current_user.id,
+    )
+    await db.commit()
+    return QcTransformResponse(**result)
 
 
 @router.post("/stages/{stage_id}/qc/override", response_model=QcResponse)

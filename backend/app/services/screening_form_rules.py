@@ -536,7 +536,7 @@ def diff_snapshots(
             VersionChange(
                 "answers",
                 "internal_note",
-                "Notatka wewnętrzna (przepięcie)",
+                "Notatka wewnętrzna (pominięte pytania)",
                 before_note,
                 after_note,
             )
