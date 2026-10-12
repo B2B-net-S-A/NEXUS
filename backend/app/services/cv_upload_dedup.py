@@ -40,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import Candidate
 from app.models.candidate_document import CandidateDocument
+from app.services.candidate_identity_quarantine import source_is_eligible_clause
 from app.services.dedup_service import find_candidate_by_email
 
 logger = logging.getLogger(__name__)
@@ -79,7 +80,10 @@ async def _duplicates_by_file_hash(
     """Kandydaci, którzy mają JUŻ dokument o tych samych bajtach.
 
     Bierze wyłącznie dokumenty żywe (`source_deleted_at IS NULL`) — wiersz po
-    skasowaniu źródła nie dowodzi, że kandydat ten plik nadal ma.
+    skasowaniu źródła nie dowodzi, że kandydat ten plik nadal ma. Pomija też
+    pliki z kwarantanny tożsamości: taki plik leży w profilu, ale system sam
+    uznał go za CV innej osoby, więc wskazywałby cudzy profil (poczta
+    podpinałaby tam mail, a `/from-cv` wysyłał tam klienta dogrywającego CV).
     """
     rows = (
         await db.execute(
@@ -88,6 +92,11 @@ async def _duplicates_by_file_hash(
             .where(
                 CandidateDocument.content_sha256 == digest,
                 CandidateDocument.source_deleted_at.is_(None),
+                source_is_eligible_clause(
+                    candidate_id_column=CandidateDocument.candidate_id,
+                    source_id_column=CandidateDocument.id,
+                    source_kind="document",
+                ),
             )
             .order_by(Candidate.id)
             .limit(_MAX_ROWS)

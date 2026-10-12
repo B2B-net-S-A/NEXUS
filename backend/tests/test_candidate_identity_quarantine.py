@@ -555,12 +555,13 @@ async def test_stale_legacy_quarantine_never_clears_newer_document_projection(
     assert db.added == []
 
 
-def _profile_of_the_right_person(**overrides) -> SimpleNamespace:
-    """Profil z faktami z POPRZEDNIEGO CV; `cv_filename` przejął już nowy plik."""
+def _profile_with_cv_facts(**overrides) -> SimpleNamespace:
+    """Profil z faktami z CV; `cv_filename` wskazuje już plik „nowe.pdf”."""
     fields = dict(
         id=11,
         cv_extracted_data={
             "skills": [{"name": "Python"}],
+            "email": "osoba@example.com",
             "cv_highlights": {"source_document_id": None},
             "_manual_override_ai_summary": True,
         },
@@ -586,6 +587,41 @@ def _profile_of_the_right_person(**overrides) -> SimpleNamespace:
     return SimpleNamespace(**fields)
 
 
+def _fresh_upload() -> SimpleNamespace:
+    return SimpleNamespace(
+        id=22, filename="nowe.pdf", content_sha256="b" * 64, is_primary=True
+    )
+
+
+def _forbid_invalidation(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def unexpected(*_args, **_kwargs):
+        pytest.fail("profil właściwej osoby nie może tracić faktów ani wektora")
+
+    monkeypatch.setattr(
+        "app.services.match_score_cache.mark_stale_for_candidate", unexpected
+    )
+    monkeypatch.setattr(
+        "app.services.embedding_service.delete_candidate_embedding", unexpected
+    )
+
+
+def _assert_profile_untouched(candidate: SimpleNamespace, db: _ProjectionDB) -> None:
+    assert candidate.raw_cv_text == "tekst CV właściwej osoby"
+    assert candidate.ai_summary == "Podsumowanie rekrutera."
+    assert candidate.skills == [{"name": "Python"}]
+    assert candidate.years_it_experience == 7
+    assert candidate.email == "osoba@example.com"
+    assert candidate.cv_parsed_at is not None
+    assert candidate.embedding_id == "wektor-1"
+    assert db.added == []
+    # Profil mówi rekruterowi, że wgrane CV nie zasiliło danych.
+    assert candidate.cv_extracted_data["_identity_quarantine_source"] == {
+        "kind": "document",
+        "id": 22,
+    }
+    assert candidate.cv_extracted_data["skills"] == [{"name": "Python"}]
+
+
 @pytest.mark.asyncio
 async def test_quarantined_fresh_upload_hands_primary_back_and_keeps_the_profile(
     monkeypatch: pytest.MonkeyPatch,
@@ -598,23 +634,12 @@ async def test_quarantined_fresh_upload_hands_primary_back_and_keeps_the_profile
     pliku za dowód, że fakty pochodzą z nowego pliku, i kasowała tekst CV,
     podsumowanie i wektor, zostawiając kandydata bez głównego CV. Na produkcji
     91% profili nie ma zapisanego dokumentu źródłowego, więc decyduje jawna
-    informacja z uploadu, które CV zostało zastąpione.
+    informacja z uploadu o tym, co plik zastąpił.
     """
-    candidate = _profile_of_the_right_person()
-    quarantined = SimpleNamespace(
-        id=22, filename="nowe.pdf", content_sha256="b" * 64, is_primary=True
-    )
+    candidate = _profile_with_cv_facts()
+    quarantined = _fresh_upload()
     previous = SimpleNamespace(id=21, filename="stare.pdf", is_primary=False)
-
-    async def unexpected(*_args, **_kwargs):
-        pytest.fail("profil właściwej osoby nie może tracić faktów ani wektora")
-
-    monkeypatch.setattr(
-        "app.services.match_score_cache.mark_stale_for_candidate", unexpected
-    )
-    monkeypatch.setattr(
-        "app.services.embedding_service.delete_candidate_embedding", unexpected
-    )
+    _forbid_invalidation(monkeypatch)
     db = _ProjectionDB(candidate, quarantined, previous)
 
     result = await quarantine._clear_quarantined_cv_projection(
@@ -622,7 +647,9 @@ async def test_quarantined_fresh_upload_hands_primary_back_and_keeps_the_profile
         candidate_id=11,
         source_kind="document",
         source_id=22,
-        replaced_primary_document_id=21,
+        replaced_primary=quarantine.ReplacedPrimaryCv(
+            document_id=21, cv_filename="stare.pdf"
+        ),
     )
 
     assert result == {"cleared_fields": 0, "tombstoned_languages": 0}
@@ -632,31 +659,49 @@ async def test_quarantined_fresh_upload_hands_primary_back_and_keeps_the_profile
     # (unikalny indeks „jedno główne CV na kandydata”).
     assert db.flushes == 1
     assert candidate.cv_filename == "stare.pdf"
-    assert candidate.raw_cv_text == "tekst CV właściwej osoby"
-    assert candidate.ai_summary == "Podsumowanie rekrutera."
-    assert candidate.skills == [{"name": "Python"}]
-    assert candidate.years_it_experience == 7
-    assert candidate.email == "osoba@example.com"
-    assert candidate.embedding_id == "wektor-1"
-    assert db.added == []
-    # Profil mówi rekruterowi, że wgrane CV nie zasiliło danych.
-    assert candidate.cv_extracted_data["_identity_quarantine_source"] == {
-        "kind": "document",
-        "id": 22,
-    }
-    assert candidate.cv_extracted_data["skills"] == [{"name": "Python"}]
+    _assert_profile_untouched(candidate, db)
 
 
 @pytest.mark.asyncio
-async def test_quarantined_upload_without_a_live_previous_cv_leaves_no_pointer(
+async def test_quarantined_first_cv_document_keeps_facts_that_came_from_elsewhere(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Poprzednie CV zniknęło albo jest nieaktualne — fakty zostają, ale wskaźnik
-    pliku nie może wskazywać CV z kwarantanny."""
-    candidate = _profile_of_the_right_person()
-    quarantined = SimpleNamespace(
-        id=22, filename="nowe.pdf", content_sha256="b" * 64, is_primary=True
+    """Profil ma dane z CV (import, stary odczyt), ale żadnego głównego dokumentu.
+
+    Wgrany plik niczego jeszcze w profilu nie zapisał — odczyt biegnie po bramce
+    tożsamości — więc brak zastąpionego dokumentu nie robi z niego źródła faktów.
+    Na produkcji 12.10.2026 takich profili było 254.
+    """
+    candidate = _profile_with_cv_facts()
+    quarantined = _fresh_upload()
+    _forbid_invalidation(monkeypatch)
+    db = _ProjectionDB(candidate, quarantined)
+
+    result = await quarantine._clear_quarantined_cv_projection(
+        db,  # type: ignore[arg-type]
+        candidate_id=11,
+        source_kind="document",
+        source_id=22,
+        replaced_primary=quarantine.ReplacedPrimaryCv(
+            document_id=None, cv_filename="z-importu.pdf"
+        ),
     )
+
+    assert result == {"cleared_fields": 0, "tombstoned_languages": 0}
+    assert quarantined.is_primary is False
+    assert candidate.cv_filename == "z-importu.pdf"
+    _assert_profile_untouched(candidate, db)
+
+
+@pytest.mark.asyncio
+async def test_quarantined_upload_never_leaves_the_pointer_on_its_own_file(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Poprzednie CV zniknęło, a stary wskaźnik miał tę samą nazwę co nowy plik —
+    kopia na dysku jest już nadpisana, więc wskaźnik nie może na nią wskazywać."""
+    candidate = _profile_with_cv_facts()
+    quarantined = _fresh_upload()
+    _forbid_invalidation(monkeypatch)
     db = _ProjectionDB(candidate, quarantined, None)
 
     await quarantine._clear_quarantined_cv_projection(
@@ -664,7 +709,9 @@ async def test_quarantined_upload_without_a_live_previous_cv_leaves_no_pointer(
         candidate_id=11,
         source_kind="document",
         source_id=22,
-        replaced_primary_document_id=21,
+        replaced_primary=quarantine.ReplacedPrimaryCv(
+            document_id=21, cv_filename="nowe.pdf"
+        ),
     )
 
     assert quarantined.is_primary is False
@@ -673,11 +720,12 @@ async def test_quarantined_upload_without_a_live_previous_cv_leaves_no_pointer(
 
 
 @pytest.mark.asyncio
-async def test_first_cv_of_a_profile_still_clears_its_own_projection(
+async def test_reread_of_the_file_that_fed_the_profile_still_clears_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Bez zastąpionego CV nic się nie zmienia: plik, który sam zasilił profil
-    (zgodność nazwy przy braku pochodzenia), po kwarantannie traci swoje fakty."""
+    """Ponowny odczyt pliku, który od dawna jest głównym CV (żądanie niczego nie
+    zastępowało): bez zapisanego pochodzenia zgodność nazwy dalej oznacza, że
+    fakty pochodzą z tego pliku — po kwarantannie znikają jak dotąd."""
 
     async def noop(*_args, **_kwargs):
         return None
@@ -687,13 +735,14 @@ async def test_first_cv_of_a_profile_still_clears_its_own_projection(
         "app.services.embedding_service.delete_candidate_embedding",
         AsyncMock(return_value=True),
     )
-    candidate = _profile_of_the_right_person(
-        cv_extracted_data={"skills": [{"name": "Python"}]}
+    candidate = _profile_with_cv_facts(
+        cv_extracted_data={
+            "skills": [{"name": "Python"}],
+            "email": "osoba@example.com",
+        }
     )
-    quarantined = SimpleNamespace(
-        id=22, filename="nowe.pdf", content_sha256="b" * 64, is_primary=True
-    )
-    db = _ProjectionDB(candidate, quarantined)
+    long_standing_primary = _fresh_upload()
+    db = _ProjectionDB(candidate, long_standing_primary)
 
     await quarantine._clear_quarantined_cv_projection(
         db,  # type: ignore[arg-type]
@@ -702,11 +751,12 @@ async def test_first_cv_of_a_profile_still_clears_its_own_projection(
         source_id=22,
     )
 
-    assert quarantined.is_primary is False
+    assert long_standing_primary.is_primary is False
     assert candidate.raw_cv_text is None
     assert candidate.cv_filename is None
     assert candidate.ai_summary is None
     assert candidate.skills == []
+    assert candidate.email is None
 
 
 @pytest.mark.asyncio
@@ -724,16 +774,13 @@ async def test_quarantine_clear_keeps_a_manually_written_summary(
         "app.services.embedding_service.delete_candidate_embedding",
         AsyncMock(return_value=True),
     )
-    candidate = _profile_of_the_right_person(
+    candidate = _profile_with_cv_facts(
         cv_extracted_data={
             "cv_highlights": {"source_document_id": 22},
             "_manual_override_ai_summary": True,
         }
     )
-    quarantined = SimpleNamespace(
-        id=22, filename="nowe.pdf", content_sha256="b" * 64, is_primary=True
-    )
-    db = _ProjectionDB(candidate, quarantined)
+    db = _ProjectionDB(candidate, _fresh_upload())
 
     await quarantine._clear_quarantined_cv_projection(
         db,  # type: ignore[arg-type]
@@ -744,4 +791,3 @@ async def test_quarantine_clear_keeps_a_manually_written_summary(
 
     assert candidate.raw_cv_text is None
     assert candidate.ai_summary == "Podsumowanie rekrutera."
-

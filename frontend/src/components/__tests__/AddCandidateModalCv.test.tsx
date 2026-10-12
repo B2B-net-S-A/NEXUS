@@ -214,7 +214,7 @@ describe("AddCandidateModal — start od CV", () => {
     expect(apiPatch).not.toHaveBeenCalled();
   });
 
-  it("zajęty e-mail odrzucony dopiero przez serwer (wyścig) pokazuje się przy polu e-mail", async () => {
+  it("zajęty e-mail zwrócony przez serwer samym zdaniem (409) pokazuje się przy polu e-mail", async () => {
     apiPost.mockImplementation((url: string) => {
       if (url.startsWith("/api/candidates/cv/preview")) {
         return Promise.resolve({ data: PREVIEW } as never);
@@ -344,5 +344,12 @@ describe("AddCandidateModal — start od CV", () => {
     expect(screen.getByRole("button", { name: "Dodaj to CV do profilu" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Zapisz mimo to" })).toBeNull();
     expect(onSuccess).not.toHaveBeenCalled();
+
+    // Pole e-mail jest puste, więc nie ma czego poprawić — wyjściem jest
+    // wczytanie CV mimo odmowy (adres trafia wtedy do formularza).
+    await user.click(screen.getByRole("button", { name: "Wczytaj mimo to" }));
+    await waitFor(() =>
+      expect(callsTo("/api/candidates/cv/preview?force=true")).toHaveLength(1),
+    );
   });
 });

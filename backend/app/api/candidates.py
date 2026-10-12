@@ -5700,7 +5700,7 @@ async def update_candidate_document(
                     "zanim ustawisz je jako główne."
                 ),
             )
-        replaced_primary_id = await _primary_cv_document_id(db, candidate_id)
+        replaced_primary = await _primary_cv_before_change(db, candidate_id)
         await db.execute(
             update(CandidateDocument)
             .where(
@@ -5740,7 +5740,7 @@ async def update_candidate_document(
             doc_id,
             doc.content_sha256,
             actor_user_id=current_user.id,
-            replaced_primary_document_id=replaced_primary_id,
+            replaced_primary=replaced_primary,
         )
 
     return (await _documents_with_people(db, [doc]))[0]
@@ -6634,6 +6634,7 @@ from app.services.candidate_language_writer import (  # noqa: E402
     sync_candidate_languages_from_source,
 )
 from app.services.candidate_identity_quarantine import (  # noqa: E402
+    ReplacedPrimaryCv,
     record_detected_identity,
 )
 
@@ -6646,7 +6647,7 @@ async def _parsed_source_is_quarantined(
     source_kind: Literal["document", "legacy_cv"],
     source_id: int,
     provenance: str,
-    replaced_primary_document_id: Optional[int] = None,
+    replaced_primary: Optional[ReplacedPrimaryCv] = None,
 ) -> bool:
     """Persist the identity decision before any parsed CV fact is projected."""
 
@@ -6658,19 +6659,21 @@ async def _parsed_source_is_quarantined(
         observed_first_name=parsed.get("first_name"),
         observed_last_name=parsed.get("last_name"),
         provenance=provenance,
-        replaced_primary_document_id=replaced_primary_document_id,
+        replaced_primary=replaced_primary,
     )
     return review.is_quarantined
 
 
-async def _primary_cv_document_id(db: AsyncSession, candidate_id: int) -> Optional[int]:
-    """Id głównego CV kandydata — odczytane PRZED wgraniem albo wyborem nowego.
+async def _primary_cv_before_change(
+    db: AsyncSession, candidate_id: int
+) -> ReplacedPrimaryCv:
+    """Główne CV i wskaźnik pliku — odczytane PRZED wgraniem albo wyborem nowego.
 
     Nowe główne CV przejmuje flagę i `cv_filename` od razu, a bramka tożsamości
-    biegnie w tle. Gdy plik okaże się CV innej osoby, kwarantanna oddaje główne
-    CV temu dokumentowi zamiast czyścić profil właściwej osoby.
+    biegnie w tle. Gdy plik okaże się CV innej osoby, kwarantanna przywraca ten
+    stan zamiast czyścić profil właściwej osoby.
     """
-    return await db.scalar(
+    document_id = await db.scalar(
         select(CandidateDocument.id).where(
             CandidateDocument.candidate_id == candidate_id,
             CandidateDocument.document_kind == CandidateDocumentKind.cv,
@@ -6678,6 +6681,10 @@ async def _primary_cv_document_id(db: AsyncSession, candidate_id: int) -> Option
             CandidateDocument.source_deleted_at.is_(None),
         )
     )
+    cv_filename = await db.scalar(
+        select(Candidate.cv_filename).where(Candidate.id == candidate_id)
+    )
+    return ReplacedPrimaryCv(document_id=document_id, cv_filename=cv_filename)
 
 
 async def _auto_assign_primary_cc(candidate: Candidate, db: AsyncSession) -> None:
@@ -6864,7 +6871,7 @@ async def _enrich_candidate_from_document_task(
     expected_hash: Optional[str] = None,
     trigger: str = "cv_upload",
     actor_user_id: Optional[int] = None,
-    replaced_primary_document_id: Optional[int] = None,
+    replaced_primary: Optional[ReplacedPrimaryCv] = None,
 ) -> None:
     """Extract and enrich from the still-current primary CV version."""
 
@@ -6939,7 +6946,7 @@ async def _enrich_candidate_from_document_task(
                 source_kind="document",
                 source_id=document.id,
                 provenance="cv_parser:document",
-                replaced_primary_document_id=replaced_primary_document_id,
+                replaced_primary=replaced_primary,
             ):
                 # Keep the source available for human review, but do not let a
                 # confirmed different person alter the candidate projection.
@@ -7883,7 +7890,7 @@ async def _after_cv_commit(
     candidate: Candidate,
     document: CandidateDocument,
     actor_user_id: Optional[int] = None,
-    replaced_primary_document_id: Optional[int] = None,
+    replaced_primary: Optional[ReplacedPrimaryCv] = None,
 ) -> None:
     """Schedule identity-gated extraction/enrichment once the row is durable."""
     candidate_id = candidate.id
@@ -7895,7 +7902,7 @@ async def _after_cv_commit(
         document.id,
         document.content_sha256,
         actor_user_id=actor_user_id,
-        replaced_primary_document_id=replaced_primary_document_id,
+        replaced_primary=replaced_primary,
     )
 
 
@@ -7937,7 +7944,7 @@ async def upload_cv(
         )
     safe_filename = _sanitize_upload_filename(raw_filename, fallback="upload.pdf")
 
-    replaced_primary_id = await _primary_cv_document_id(db, candidate_id)
+    replaced_primary = await _primary_cv_before_change(db, candidate_id)
     document = await _ingest_candidate_cv_file(
         db,
         candidate=candidate,
@@ -7954,7 +7961,7 @@ async def upload_cv(
         candidate=candidate,
         document=document,
         actor_user_id=current_user.id,
-        replaced_primary_document_id=replaced_primary_id,
+        replaced_primary=replaced_primary,
     )
 
     # Re-fetch with eager-loaded relations so CandidateResponse can build
@@ -8041,9 +8048,9 @@ async def upload_candidate_document(
         )
 
     if kind == CandidateDocumentKind.cv:
-        replaced_primary_id = await _primary_cv_document_id(db, candidate_id)
+        replaced_primary = await _primary_cv_before_change(db, candidate_id)
         if not is_primary:
-            is_primary = replaced_primary_id is None
+            is_primary = replaced_primary.document_id is None
         if is_primary:
             document = await _ingest_candidate_cv_file(
                 db,
@@ -8062,7 +8069,7 @@ async def upload_candidate_document(
                 candidate=candidate,
                 document=document,
                 actor_user_id=current_user.id,
-                replaced_primary_document_id=replaced_primary_id,
+                replaced_primary=replaced_primary,
             )
             return (await _documents_with_people(db, [document]))[0]
 

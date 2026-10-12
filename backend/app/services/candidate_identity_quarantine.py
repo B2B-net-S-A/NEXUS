@@ -138,41 +138,63 @@ def _quarantined_cv_language_source_refs(
     return tuple(refs)
 
 
+@dataclass(frozen=True)
+class ReplacedPrimaryCv:
+    """Stan sprzed wgrania albo wyboru nowego głównego CV.
+
+    Podaje go żądanie, które zrobiło z pliku główne CV. Sama obecność tego
+    obiektu mówi bramce tożsamości, że plik niczego jeszcze w profilu nie
+    zapisał (odczyt biegnie PO bramce), więc zgodność `cv_filename` z jego nazwą
+    nie dowodzi, skąd pochodzą fakty — także wtedy, gdy profil nie miał
+    wcześniej żadnego głównego dokumentu (`document_id=None`).
+    """
+
+    document_id: int | None
+    cv_filename: str | None
+
+
 async def _hand_primary_back(
     db: AsyncSession,
     *,
     candidate: Candidate,
     quarantined: CandidateDocument,
-    previous_document_id: int,
+    replaced: ReplacedPrimaryCv,
     source_kind: SourceKind,
     source_id: int,
 ) -> None:
-    """Oddaj główne CV plikowi, który miał je przed wgraniem pliku z kwarantanny.
+    """Przywróć wybór CV sprzed wgrania pliku, który trafił do kwarantanny.
 
-    Fakty w profilu zostają nietknięte — pochodzą z poprzedniego CV właściwej
-    osoby. Wraca tylko wybór pliku i wskaźnik `cv_filename`, a profil dostaje
-    znacznik, po którym ekran mówi, że wgrane CV nie zasiliło danych.
+    Fakty w profilu zostają nietknięte — nie pochodzą z tego pliku. Wraca tylko
+    wybór głównego CV i wskaźnik `cv_filename`, a profil dostaje znacznik, po
+    którym ekran mówi, że wgrane CV nie zasiliło danych.
     """
-    # Flaga musi zejść z pliku w kwarantannie, zanim dostanie ją poprzedni:
-    # `ux_candidate_documents_active_primary_cv` pozwala na jedno główne CV,
-    # a jeden flush wysłałby oba UPDATE-y w kolejności id.
-    await db.flush()
-    previous = await db.scalar(
-        select(CandidateDocument).where(
-            CandidateDocument.id == previous_document_id,
-            CandidateDocument.candidate_id == candidate.id,
-            CandidateDocument.document_kind == CandidateDocumentKind.cv,
-            CandidateDocument.source_deleted_at.is_(None),
-            CandidateDocument.outdated_at.is_(None),
+    previous = None
+    if replaced.document_id is not None:
+        # Flaga musi zejść z pliku w kwarantannie, zanim dostanie ją poprzedni:
+        # `ux_candidate_documents_active_primary_cv` pozwala na jedno główne
+        # CV, a jeden flush wysłałby oba UPDATE-y w kolejności id.
+        await db.flush()
+        previous = await db.scalar(
+            select(CandidateDocument).where(
+                CandidateDocument.id == replaced.document_id,
+                CandidateDocument.candidate_id == candidate.id,
+                CandidateDocument.document_kind == CandidateDocumentKind.cv,
+                CandidateDocument.source_deleted_at.is_(None),
+                CandidateDocument.outdated_at.is_(None),
+            )
         )
-    )
-    took_filename = candidate.cv_filename == quarantined.filename
     if previous is not None:
         previous.is_primary = True
-        if took_filename:
-            candidate.cv_filename = previous.filename
-    elif took_filename:
-        candidate.cv_filename = None
+    if candidate.cv_filename == quarantined.filename:
+        # Upload przejął wskaźnik pliku. Stara nazwa równa nowej oznacza, że
+        # kopia na dysku jest już nadpisana — wtedy wskaźnika nie ma do czego
+        # przywrócić.
+        restored = previous.filename if previous is not None else replaced.cv_filename
+        candidate.cv_filename = (
+            restored
+            if previous is not None or restored != quarantined.filename
+            else None
+        )
     _raw = candidate.cv_extracted_data
     extracted = dict(_raw) if isinstance(_raw, dict) else {}
     extracted["_identity_quarantine_source"] = {"kind": source_kind, "id": source_id}
@@ -185,16 +207,17 @@ async def _clear_quarantined_cv_projection(
     candidate_id: int,
     source_kind: SourceKind,
     source_id: int,
-    replaced_primary_document_id: int | None = None,
+    replaced_primary: ReplacedPrimaryCv | None = None,
 ) -> dict[str, Any]:
     """Remove only facts provably projected from the quarantined CV source.
 
-    `replaced_primary_document_id` — główne CV, które ten plik zastąpił przy
-    wgraniu (podaje je upload). Upload przejmuje flagę głównego CV
-    i `cv_filename`, zanim odczyt dojdzie do bramki tożsamości, więc zgodność
-    nazwy pliku nie dowodzi wtedy, że fakty w profilu pochodzą z tego pliku —
-    pochodzą z zastąpionego CV właściwej osoby (12.10.2026: nowe CV jest
-    domyślnie głównym; 91% profili nie ma zapisanego dokumentu źródłowego).
+    `replaced_primary` podaje żądanie, które właśnie zrobiło z pliku główne CV
+    (wgranie albo „Ustaw jako główne CV”). Plik przejmuje flagę i `cv_filename`
+    od razu, a odczyt biegnie dopiero po bramce tożsamości — więc zgodność nazwy
+    pliku nie dowodzi wtedy, że fakty w profilu pochodzą z niego. Pochodzą
+    z wcześniejszego CV albo importu właściwej osoby i zostają (12.10.2026: nowe
+    CV jest domyślnie głównym; 91% profili nie ma zapisanego dokumentu
+    źródłowego). `None` = ponowny odczyt pliku, który już był głównym CV.
     """
 
     if source_kind in {"note", "talent_radar_cv"}:
@@ -243,10 +266,12 @@ async def _clear_quarantined_cv_projection(
     owns_projection = (
         source_kind == "legacy_cv" and not legacy_has_newer_document
     ) or (projected_document_id == source_id)
-    replaced_other_cv = (
+    # Plik właśnie stał się głównym CV i nie był nim wcześniej (ponowne
+    # wgranie TEGO SAMEGO głównego pliku to zwykły ponowny odczyt).
+    freshly_selected = (
         document is not None
-        and replaced_primary_document_id is not None
-        and replaced_primary_document_id != source_id
+        and replaced_primary is not None
+        and replaced_primary.document_id != source_id
         and not owns_projection
     )
     if (
@@ -254,7 +279,7 @@ async def _clear_quarantined_cv_projection(
         and document.is_primary
         and candidate.cv_filename
         and candidate.cv_filename == document.filename
-        and not replaced_other_cv
+        and not freshly_selected
     ):
         owns_projection = True
     if document is not None:
@@ -262,12 +287,12 @@ async def _clear_quarantined_cv_projection(
         # rows have no source_document_id provenance.
         document.is_primary = False
     if not owns_projection:
-        if replaced_other_cv and document is not None:
+        if freshly_selected and document is not None and replaced_primary is not None:
             await _hand_primary_back(
                 db,
                 candidate=candidate,
                 quarantined=document,
-                previous_document_id=replaced_primary_document_id,
+                replaced=replaced_primary,
                 source_kind=source_kind,
                 source_id=source_id,
             )
@@ -606,7 +631,7 @@ async def record_detected_identity(
     observed_first_name: Any,
     observed_last_name: Any,
     provenance: str,
-    replaced_primary_document_id: int | None = None,
+    replaced_primary: ReplacedPrimaryCv | None = None,
 ) -> CandidateSourceIdentityReview:
     """Persist an automatic decision without weakening a manual decision."""
 
@@ -647,7 +672,7 @@ async def record_detected_identity(
                 candidate_id=candidate.id,
                 source_kind=source_kind,
                 source_id=source_id,
-                replaced_primary_document_id=replaced_primary_document_id,
+                replaced_primary=replaced_primary,
             )
         return row
     if row is None:
@@ -680,7 +705,7 @@ async def record_detected_identity(
             candidate_id=candidate.id,
             source_kind=source_kind,
             source_id=source_id,
-            replaced_primary_document_id=replaced_primary_document_id,
+            replaced_primary=replaced_primary,
         )
     if row.is_quarantined:
         candidate_audit.record_candidate_audit(

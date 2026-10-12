@@ -57,10 +57,17 @@ wskazującą obcą osobę. Kandydata w bazie nie było i nie został dodany.
   za dowód, że fakty pochodzą z niego, i kasowała tekst CV, podsumowanie
   i wektor, zostawiając kandydata bez głównego CV. Mechanizm istniał wcześniej,
   ale „główne CV” stało się ustawieniem domyślnym (niezgodność wychodzi w 2%
-  odczytów dokumentów). Wgranie i „Ustaw jako główne CV” podają teraz, które CV
-  zostało zastąpione; przy niezgodności wraca ono jako główne, a profil pokazuje,
-  że wgrany plik nie zasilił danych. Ręcznie poprawione podsumowanie nie jest
-  czyszczone.
+  odczytów dokumentów). Wgranie i „Ustaw jako główne CV” podają teraz stan
+  sprzed zmiany (poprzednie główne CV i wskaźnik pliku); przy niezgodności ten
+  stan wraca, a profil pokazuje, że wgrany plik nie zasilił danych. Działa to
+  też dla profili bez głównego dokumentu (254 na produkcji) — to doprecyzowanie
+  z przeglądu kodu. Ręcznie poprawione podsumowanie nie jest czyszczone.
+- `backend/app/services/cv_upload_dedup.py` (znalezione w przeglądzie kodu) —
+  rozpoznanie po identycznym pliku pomija pliki z kwarantanny tożsamości.
+  Taki plik leży w profilu, ale system sam uznał go za CV innej osoby, więc
+  poczta podpinałaby mail do cudzego profilu (właściwa osoba nie dostałaby
+  profilu), a `/from-cv` wskazywałby ten profil klientowi dogrywającemu CV.
+  Na produkcji leżało 155 takich plików.
 - Front: `ExistingCandidateNotice` w „Dodaj kandydata” i w „Dodaj z CV”
   rekrutacji („Dodaj to CV do profilu”, „Otwórz profil”, „Wczytaj mimo to”);
   okno pyta tylko o e-mail i pamięta „Wczytaj mimo to” przy zapisie; limit 120 s
@@ -79,6 +86,10 @@ wskazującą obcą osobę. Kandydata w bazie nie było i nie został dodany.
 - Nie zmienia zewnętrznego scrapera: żeby trzymał regułę, ma wysyłać do
   `/check-duplicates` tylko e-mail.
 - Nie pokazuje nieudanego odczytu CV w tle w profilu, który miał już odczytane CV.
+- Nie zmienia bramki tożsamości: gdy w pliku różni się tylko imię albo tylko
+  nazwisko, wynik jest „nierozstrzygnięty” i nowe główne CV odświeża profil.
+- Nie naprawia 88 profili, które wcześniej straciły główne CV przez kwarantannę
+  — do przejrzenia osobno.
 
 ## Testy
 

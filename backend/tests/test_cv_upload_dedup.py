@@ -499,6 +499,40 @@ async def test_cleared_form_email_skips_the_email_step(monkeypatch):
     assert rows == []
 
 
+async def test_hash_sieve_skips_files_quarantined_as_someone_elses():
+    """Plik uznany za CV innej osoby (kwarantanna tożsamości) leży w profilu,
+    ale nie dowodzi, że to CV tej osoby.
+
+    Bez tego warunku poczta podpinała mail do profilu z plikiem w kwarantannie
+    i właściwa osoba nigdy nie dostawała profilu, a `/from-cv` wskazywał ten
+    profil klientowi, który dogrywa tam CV. 12.10.2026 w profilach leżało
+    155 takich plików.
+    """
+    from types import SimpleNamespace
+
+    from sqlalchemy.dialects import postgresql
+
+    from app.services.cv_upload_dedup import _duplicates_by_file_hash
+
+    captured = {}
+
+    class _Db:
+        async def execute(self, stmt):
+            captured["stmt"] = stmt
+            return SimpleNamespace(all=lambda: [])
+
+    assert await _duplicates_by_file_hash(_Db(), digest="a" * 64) == []
+
+    sql = str(
+        captured["stmt"].compile(
+            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+        )
+    )
+    assert "NOT (EXISTS" in sql
+    assert "candidate_source_identity_reviews" in sql
+    assert "confirmed_mismatch" in sql
+
+
 async def test_candidate_without_contact_is_not_sieved():
     """Brak e-maila → sito milczy (poza skrótem pliku)."""
     from app.services.cv_upload_dedup import find_duplicates_without_llm

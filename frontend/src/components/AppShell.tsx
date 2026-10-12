@@ -1387,6 +1387,12 @@ export function AddCandidateModal({
                 onAttachCv={cvFile ? () => void attachCvTo(existingNow) : undefined}
                 attaching={attaching}
                 onOpenProfile={onClose}
+                // Trafienie znane tylko z odmowy zapisu (adres z CV, pole
+                // e-mail puste): wczytanie mimo to wstawia ten adres do
+                // formularza, gdzie da się go poprawić albo wyczyścić.
+                onReadAnyway={
+                  cvFile && !currentKey ? () => void readCv(cvFile, true) : undefined
+                }
                 hint={
                   cvFile
                     ? undefined

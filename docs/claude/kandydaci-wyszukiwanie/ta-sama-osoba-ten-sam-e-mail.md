@@ -14,7 +14,10 @@ więc ostrzeżenie „podobny kandydat” trafiało bardzo często i nic nie zna
   e-mail to inna osoba i zapis idzie bez ostrzeżeń. CV bez e-maila zakłada nowy
   profil — w oknie, w `/from-cv`, w imporcie masowym i w poczcie M365 tak samo.
 - Jedyny inny dowód to **ten sam plik** (SHA-256) leżący już w czyimś profilu,
-  bo jest dokładny, a nie zgadywany.
+  bo jest dokładny, a nie zgadywany. Plik z kwarantanny tożsamości się nie
+  liczy (`source_is_eligible_clause` w `_duplicates_by_file_hash`): leży
+  w profilu, ale system sam uznał go za CV innej osoby, więc wskazywałby cudzy
+  profil. 12.10.2026 takich plików było 155.
 - Telefon, LinkedIn oraz imię i nazwisko nie odmawiają i nie podpinają CV,
   bo wspólny numer (agencja, biuro) wrzucał CV do cudzego profilu — na
   produkcji 313 numerów należało do kilku różnych osób.
@@ -62,14 +65,16 @@ więc ostrzeżenie „podobny kandydat” trafiało bardzo często i nic nie zna
 - CV innej osoby wgrane jako główne nie może zniszczyć profilu. Bramka
   tożsamości (imię i nazwisko z pliku) biegnie w tle, a nowy plik przejmuje
   główne CV i `cv_filename` od razu, więc wgranie i „Ustaw jako główne CV”
-  podają bramce, które CV zostało zastąpione (`replaced_primary_document_id`,
-  `_primary_cv_document_id`). Przy niezgodności stare CV wraca jako główne,
-  fakty i wektor zostają, a profil dostaje znacznik
-  `_identity_quarantine_source` („wgrane CV nie zasiliło profilu”). Sama
-  zgodność nazwy pliku nie jest dowodem, że fakty pochodzą z nowego pliku:
-  91% profili nie ma zapisanego dokumentu źródłowego. Pomiar z 12.10.2026:
-  155 niezgodności na 7 757 odczytów dokumentów (2%), 88 profili ze znacznikiem
-  i bez głównego CV.
+  podają bramce stan sprzed zmiany (`ReplacedPrimaryCv` z
+  `_primary_cv_before_change`: poprzednie główne CV i wskaźnik pliku). Przy
+  niezgodności ten stan wraca, fakty i wektor zostają, a profil dostaje
+  znacznik `_identity_quarantine_source` („wgrane CV nie zasiliło profilu”).
+  Dotyczy to także profilu bez głównego dokumentu (dane z importu; 254 takie
+  profile) — wgrany plik niczego jeszcze w profilu nie zapisał, bo odczyt
+  biegnie po bramce. Sama zgodność nazwy pliku jest dowodem pochodzenia faktów
+  tylko przy ponownym odczycie pliku, który już był głównym CV: 91% profili
+  nie ma zapisanego dokumentu źródłowego. Pomiar z 12.10.2026: 155 niezgodności
+  na 7 757 odczytów dokumentów (2%), 88 profili ze znacznikiem i bez głównego CV.
 - Odświeżenie nie rusza danych kontaktowych ani pól poprawionych ręcznie:
   `PATCH` ustawia `_manual_override_<pole>` dla umiejętności i historii pracy,
   a od 12.10.2026 także dla lat doświadczenia, wykształcenia i podsumowania
