@@ -338,6 +338,13 @@
    "home": "Rekrutacje → karta"
   },
   {
+   "id": "r.rate_hints",
+   "opis": "Stawki z notatek, gdy etap ich nie ma (karta rekomendacji, notatka z wysyłki)",
+   "file": "components/v2/candidate-profile/RecruitmentsTab.tsx",
+   "marker": "clientRateNoteCaption",
+   "home": "Rekrutacje → karta"
+  },
+  {
    "id": "r.original_cv",
    "opis": "Pokaż CV oryginalne",
    "file": "components/v2/candidate-profile/RecruitmentsTab.tsx",

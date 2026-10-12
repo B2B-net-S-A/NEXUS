@@ -50,6 +50,7 @@ import { Badge } from "@/components/ui/badge";
 import { CANDIDATE_SOURCE_TABS, type CandidateSourceTab } from "@/components/v2/recruitment/types";
 import { searchBaseKey } from "@/components/v2/recruitment/useSearchBaseTab";
 import { screenedOutQueryKey } from "@/lib/api/applicationScreenings";
+import { recruitmentRateHintsQueryKey } from "@/lib/api/recruitmentRateHints";
 import type { MoveRequirementsResponse } from "@/lib/api/moveRequirements";
 import { plainBriefQueryKey, type PlainBrief } from "@/lib/api/plainKnowledge";
 import {
@@ -611,6 +612,30 @@ const PREVIEW_VIEWER_SCOPE = candidateViewerScopeKey({ id: 7, role: "recruiter",
 
 function seedCardPanel(qc: QueryClient, item: KanbanItem, columnName: string): void {
   const candidateId = item.candidate_id;
+  // 12.10.2026: para z czasów Traffita — „Karol” nie ma stawek na etapie,
+  // leżą w karcie rekomendacji i w notatce Delivery Leada z dnia wysyłki.
+  const fromNotes = item.name === "Karol";
+  seedFresh(qc, recruitmentRateHintsQueryKey(candidateId, JOB_ID), {
+    candidate_id: candidateId,
+    job_id: JOB_ID,
+    expected_rate_hint: fromNotes
+      ? {
+          amount_hourly: 90,
+          raw: "90 zł/h",
+          at: new Date(Date.now() - 21 * 24 * HOUR).toISOString(),
+          source: "card",
+          author_name: "Marta Nowak",
+        }
+      : null,
+    client_rate_note: fromNotes
+      ? {
+          note_id: 9001,
+          text: "Wysłany 150/100-110, dostępny od zaraz",
+          at: new Date(Date.now() - 20 * 24 * HOUR).toISOString(),
+          author_name: "Piotr Zieliński",
+        }
+      : null,
+  });
   // Notatki osoby (ta rekrutacja + „Wcześniej u nas”), wyniki rekrutacji i ruchy pary.
   seedFresh(
     qc,

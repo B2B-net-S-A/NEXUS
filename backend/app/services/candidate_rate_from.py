@@ -283,16 +283,9 @@ async def this_job_rates(
     observations = await collect(db, candidate_ids)
     out: dict[int, dict[str, Any]] = {}
     for cid, items in observations.items():
-        same_job = [
-            o
-            for o in items
-            if o.job_id == job_id
-            and o.amount_hourly is not None
-            and not o.not_comparable
-        ]
-        if not same_job:
+        newest = _newest_by_job(items).get(job_id)
+        if newest is None:
             continue
-        newest = max(same_job, key=_sort_key)
         out[cid] = {
             "amount": newest.amount_hourly,
             "raw": newest.raw,
@@ -300,6 +293,28 @@ async def this_job_rates(
             "source": newest.source,
         }
     return out
+
+
+def _newest_by_job(items: Iterable[RateObservation]) -> dict[int, RateObservation]:
+    out: dict[int, RateObservation] = {}
+    for obs in items:
+        if obs.job_id is None or obs.amount_hourly is None or obs.not_comparable:
+            continue
+        current = out.get(obs.job_id)
+        if current is None or _sort_key(obs) > _sort_key(current):
+            out[obs.job_id] = obs
+    return out
+
+
+async def candidate_job_rates(
+    db: AsyncSession, candidate_id: int
+) -> dict[int, RateObservation]:
+    """Rekrutacja → stawka podana w niej przez JEDNEGO kandydata.
+
+    Ta sama reguła co :func:`this_job_rates`, w drugą stronę: zakładka
+    „Rekrutacje” profilu pyta o wszystkie rekrutacje osoby naraz.
+    """
+    return _newest_by_job((await collect(db, [candidate_id]))[candidate_id])
 
 
 # ── Przeliczenie ────────────────────────────────────────────────────────────
