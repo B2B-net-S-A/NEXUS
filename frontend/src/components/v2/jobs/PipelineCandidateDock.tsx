@@ -127,7 +127,6 @@ import {
   recruitmentRateHintsQueryKey,
 } from "@/lib/api/recruitmentRateHints";
 import { canViewClientRate } from "@/lib/client-rate-access";
-import { useAuthStore } from "@/store/auth";
 import { availabilityText, onsiteText } from "@/lib/person-facts";
 import { PersonContactLine } from "@/components/v2/person/PersonContactLine";
 import { PersonFacts, RateWithBudget } from "@/components/v2/person/PersonFacts";
