@@ -850,6 +850,14 @@
    "v3_home": "Tablica → panel osoby"
   },
   {
+   "id": "dock.rate-hints",
+   "area": "panel",
+   "opis": "Stawki z notatek, gdy etap ich nie ma: stawka kandydata z karty rekomendacji i notatka z wysyłki pod „Do klienta”",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "fetchRecruitmentRateHints",
+   "v3_home": "Tablica → panel osoby → fakty"
+  },
+  {
    "id": "dock.note-footer",
    "area": "panel",
    "opis": "Pole notatki zawsze na dole doku (Enter wysyła, @ oznacza osobę)",

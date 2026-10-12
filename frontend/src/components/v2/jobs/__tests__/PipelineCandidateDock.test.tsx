@@ -593,6 +593,67 @@ describe("PipelineCandidateDock — nawigator, oś czasu i główna akcja", () =
     expect(within(facts).getByText("Do klienta")).toBeTruthy();
   });
 
+  // 12.10.2026: para z czasów Traffita ma etapy bez kwot — stawki leżą
+  // w karcie rekomendacji i w notatce Delivery Leada z dnia wysyłki.
+  const rateHints = {
+    candidate_id: 42,
+    job_id: 10,
+    expected_rate_hint: {
+      amount_hourly: 90,
+      raw: "90 zł/h",
+      at: "2026-09-21T10:00:00+00:00",
+      source: "card",
+      author_name: "Anna Nowak",
+    },
+    client_rate_note: {
+      note_id: 7,
+      text: "Wysłany 150/100-110",
+      at: "2026-09-22T09:53:00+00:00",
+      author_name: "Ewa Lis",
+    },
+  };
+  const withRateHints = () =>
+    apiGet.mockImplementation((url: string) =>
+      Promise.resolve({
+        data: url.endsWith("/recruitment-rate-hints") ? rateHints : { items: [] },
+      }),
+    );
+
+  it("bez stawki na etapie pokazuje stawkę z karty i notatkę z wysyłki, z informacją skąd są", async () => {
+    withRateHints();
+    renderDock();
+    const facts = await screen.findByTestId("dock-facts");
+    expect(await within(facts).findByTestId("dock-rate-hint")).toHaveTextContent("90 zł/h");
+    expect(within(facts).getByText("Screening (z notatki) · Anna Nowak · 21.09.2026")).toBeTruthy();
+    expect(within(facts).queryByText("brak stawki", { selector: "span.text-muted-foreground" })).toBeTruthy();
+    expect(
+      within(facts).getByText("Notatka z wysyłki · Ewa Lis · 22.09.2026: „Wysłany 150/100-110”"),
+    ).toBeTruthy();
+    expect(apiGet).toHaveBeenCalledWith("/api/candidates/42/recruitment-rate-hints", {
+      params: { job_id: 10 },
+    });
+  });
+
+  it("stawki zapisane na etapie wygrywają i dok o podpowiedzi nie pyta", async () => {
+    withRateHints();
+    renderDock({
+      item: baseItem({
+        expected_rate_value: "120",
+        expected_rate_unit: "hourly",
+        expected_rate_currency: "PLN",
+        client_rate_value: "180",
+        client_rate_unit: "hourly",
+        client_rate_currency: "PLN",
+      }),
+    });
+    const facts = await screen.findByTestId("dock-facts");
+    expect(within(facts).queryByTestId("dock-rate-hint")).toBeNull();
+    expect(within(facts).queryByText(/Notatka z wysyłki/)).toBeNull();
+    expect(
+      apiGet.mock.calls.some(([url]) => String(url).endsWith("/recruitment-rate-hints")),
+    ).toBe(false);
+  });
+
   it("stawka ponad budżet jest nazwana wprost", async () => {
     renderDock({
       item: baseItem({
