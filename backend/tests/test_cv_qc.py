@@ -1320,6 +1320,66 @@ def test_apply_request_carries_the_expected_draft_version() -> None:
     )
 
 
+# ── stanowisko kończy się na nagłówku sekcji (h1/h2), nie na każdym ──────────
+
+SUBHEADING_HTML = (
+    '<h2 data-cv-section="experience">DOŚWIADCZENIE</h2>'
+    '<p data-cv-section="role"><strong>Senior Dev</strong> 2021 – 2024</p>'
+    '<p data-cv-section="employer">Acme Bank</p>'
+    "<h3>Projekt płatności</h3><ul><li>Rozwój usług w Java.</li></ul>"
+    '<p data-cv-section="role"><strong>Dev</strong> 2018 – 2021</p>'
+    '<p data-cv-section="employer">Globex</p>'
+    "<h4>Zespół</h4><ul><li>Testy w Python.</li></ul>"
+    '<h2 data-cv-section="education">EDUKACJA</h2><p>Politechnika</p>'
+)
+
+
+def test_subheading_inside_a_role_does_not_end_the_role_or_the_experience_section() -> (
+    None
+):
+    """Każdy nagłówek h1–h4 kończył rolę i gasił sekcję doświadczenia: po
+    `<h3>` w opisie stanowiska QC nie widziało żadnego następnego stanowiska.
+    Edytor kończy rolę na h1/h2, a Word zmienia sekcję tylko na h2."""
+    blocks = _blocks(SUBHEADING_HTML)
+    assert [(b.kind, b.level) for b in blocks if b.kind == "h"] == [
+        ("h", 2),
+        ("h", 3),
+        ("h", 4),
+        ("h", 2),
+    ]
+    roles = qc.cv_roles(blocks, [])
+    assert [r.role.title for r in roles] == [
+        "Senior Dev 2021 – 2024",
+        "Dev 2018 – 2021",
+    ]
+    assert "Projekt płatności" in roles[0].role.text
+    assert "Rozwój usług w Java." in roles[0].role.text
+    assert "Testy w Python." in roles[1].role.text
+    assert "Politechnika" not in roles[1].role.text
+    assert [r.title for r in dz.generated_roles(blocks)] == [
+        "Senior Dev 2021 – 2024",
+        "Dev 2018 – 2021",
+    ]
+    assert [r.text for r in dz.generated_roles(blocks)] == [r.role.text for r in roles]
+
+
+def test_section_heading_still_ends_the_role() -> None:
+    html = SUBHEADING_HTML.replace("<h3>Projekt płatności</h3>", "<h2>PROJEKTY</h2>")
+    assert [r.role.title for r in qc.cv_roles(_blocks(html), [])] == [
+        "Senior Dev 2021 – 2024"
+    ]
+
+
+def test_qc_blocks_carry_the_heading_level_for_the_screen() -> None:
+    src = SimpleNamespace(
+        generated={"source": "branded_draft", "stage_id": 5},
+        bold_known=True,
+        blocks=_blocks(SUBHEADING_HTML),
+    )
+    levels = [b["level"] for b in qc._cv_payload(src)["blocks"] if b["kind"] == "h"]
+    assert levels == [2, 3, 4, 2]
+
+
 # ── CV zapisane w edytorze: punkt listy to `<li><p>…</p></li>` ───────────────
 #
 # Tiptap owija treść punktu w akapit. Parser bloków zakładał na tym akapicie

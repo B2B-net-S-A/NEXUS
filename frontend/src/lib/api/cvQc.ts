@@ -65,6 +65,8 @@ export interface QcCvBlock {
   kind: "h" | "p" | "li";
   section: string | null;
   runs: QcCvRun[];
+  /** Poziom nagłówka (1–4); brak w wynikach sprzed 12.10.2026. */
+  level?: number | null;
 }
 
 export interface QcCv {

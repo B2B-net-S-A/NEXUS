@@ -200,8 +200,10 @@ export function segmentCv(blocks: QcCvBlock[], gaps: RoleGap[]): CvSegment[] {
   let inExperience = false;
   let roleCount = 0;
   for (const block of blocks) {
-    // Nagłówek sekcji stoi sam — nie należy do stanowiska nad nim.
-    if (block.kind === "h") {
+    // Nagłówek sekcji (h1/h2) stoi sam — nie należy do stanowiska nad nim.
+    // Śródtytuł h3/h4 w opisie roli zostaje w roli, jak w `cv_roles` na
+    // serwerze; nagłówek bez poziomu (starszy wynik) kończy rolę jak dotąd.
+    if (block.kind === "h" && (block.level ?? 1) <= 2) {
       segments.push({ blocks: [block], gap: null });
       inExperience = block.section === "experience";
       current = null;

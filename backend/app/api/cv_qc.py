@@ -70,6 +70,8 @@ class QcBlock(BaseModel):
     kind: Literal["h", "p", "li"]
     section: Optional[str] = None
     runs: list[QcRun]
+    # Poziom nagłówka (1–4); śródtytuł h3/h4 nie kończy stanowiska.
+    level: Optional[int] = None
 
 
 class QcCv(BaseModel):

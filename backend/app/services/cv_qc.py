@@ -60,7 +60,7 @@ FIXES_PROMPT_VERSION = "cv-qc-fixes-v3"
 # Wersja reguł liczenia QC, zapisywana w przebiegu. Po zmianie reguł nieudane
 # przebiegi starszej wersji przelicza `recompute_outdated` — plakietka na
 # Tablicy czyta zapisany wynik, a nie liczy QC przy każdym odczycie.
-QC_VERSION = "roles-from-cv-read-1"
+QC_VERSION = "role-ends-at-section-heading-1"
 # Runda 8 (R8-N8-2): cytat źródła musi być zdaniem o wymaganiu, nie słowem.
 SOURCE_QUOTE_MIN_WORDS = 4
 NOTES_TEXT_MAX = 12_000
@@ -286,7 +286,7 @@ def cv_roles(blocks: list[Block], orig_roles: list[Role]) -> list[CvRole]:
 
     for i, block in enumerate(blocks):
         # Klauzula zgody stoi tuż po ostatnim stanowisku — kończy rolę i sekcję.
-        if block.kind == "h" or block.section == dz.RODO_SECTION:
+        if block.ends_section or block.section == dz.RODO_SECTION:
             in_experience = block.kind == "h" and block.section == "experience"
             close()
             continue
@@ -1586,7 +1586,8 @@ def _cv_payload(src: dz.ReviewSources) -> Optional[dict]:
         # najnowszy, do sprawdzenia przez człowieka.
         "ambiguous": bool(gen.get("ambiguous")),
         "blocks": [
-            {"kind": b.kind, "section": b.section, "runs": b.runs} for b in src.blocks
+            {"kind": b.kind, "section": b.section, "runs": b.runs, "level": b.level}
+            for b in src.blocks
         ],
     }
 
