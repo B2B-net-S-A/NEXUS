@@ -173,6 +173,7 @@ Design system i tokeny, responsywność, nazewnictwo w interfejsie, Ustawienia, 
 Lista `/jobs`, Tablica, ruch kart i bramki, panel osoby, QC CV i Cpro, przegląd DL, podobne rekrutacje, przydział rekruterów, dzwonki przekazań.
 
 - `audyt-manualny-codexa-13-15-09-2026-reguly-ktore.md` — Audyt manualny Codexa 13–15.09.2026 — reguły, które łatwo cofnąć · budżet PLN/h rekrutacji, szkic Championa, „W procesie”, prep kit, tagi kandydata, pasek boczny
+- `dodaj-do-rekrutacji-zamknieta-karta.md` — „Dodaj do rekrutacji”: zamknięta karta to nie „już w rekrutacji” (12.10.2026) · powód pominięcia `closed_in_job`, okno zostaje z powodem z serwera, „Przywróć” ruchem karty, czego dodanie nadal nie robi samo
 - `duzy-podglad-po-lewej-stronie-panelu-osoby.md` — Duży podgląd po lewej stronie panelu osoby (D1–D6, 09.10.2026)
 - `dzwonek-przy-przekazaniu-karty-qc-dl-cv-wyslane.md` — Dzwonek przy przekazaniu karty: QC → DL, CV wysłane → rekruter (02.10.2026)
 - `follow-up-z-kandydatem-gdy-klient-milczy.md` — Follow-up z kandydatem, gdy klient milczy (0372, 24.09.2026)
@@ -206,6 +207,7 @@ Formularz i widok screeningu, karta rekomendacji, rodzaje notatek, wzmianki, „
 - `karta-rekomendacji-z-notatki-i-uloz-w-zdanie.md` — Karta rekomendacji z notatki i „Ułóż w zdanie” (0421, 06.10.2026)
 - `notatki-przypiecie-odpowiedzi-automaty-bez-notatek.md` — Notatki: przypięcie, odpowiedzi, automaty bez notatek (0399, 29.09.2026)
 - `podsumowanie-aktywnosci-kandydata-ai.md` — Podsumowanie aktywności kandydata (AI)
+- `pole-notatki-rosnie-duze-okno-szkic.md` — Pole notatki: rośnie z tekstem, duże okno pisania, szkic (12.10.2026) · trzy stany pola na dole panelu osoby, klawisze (Enter w dużym oknie = nowa linia), szkic w sessionStorage i jego czyszczenie, lista „@” przy linii kursora, czaty bez rośnięcia
 - `rodzaj-notatki-co-czyta-ai-wyszukiwanie-i-rekruter.md` — Rodzaj notatki — co czyta AI, wyszukiwanie i rekruter (0412, 03.10.2026)
 - `screening-wybor-gotowego-cv-z-profilu-i-edycja.md` — Screening: wybór gotowego CV z profilu i edycja (09.10.2026)
 - `stawka-od-i-historia-stawek-kandydata.md` — „Stawka od” i historia stawek kandydata (0414, 04.10.2026)

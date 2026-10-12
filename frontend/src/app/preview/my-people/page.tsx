@@ -19,6 +19,10 @@ import {
   type RowActions,
 } from "@/components/v2/my-people/MyPeopleViews";
 import { MyPeopleBuddyView } from "@/components/v2/my-people/MyPeopleLauncher";
+import {
+  AddToRecruitmentOutcome,
+  type ClosedRow,
+} from "@/components/v2/recruitment/AddToRecruitmentDialog";
 
 const CATEGORIES = [
   { id: 1, name_pl: "Infrastruktura i operacje" },
@@ -89,6 +93,25 @@ const FOR_JOB: ForJobResponse = {
   ],
 };
 
+// Wynik „Dodaj do rekrutacji”, gdy osoba ma w rekrutacji zamkniętą kartę.
+function closedRow(overrides: Partial<ClosedRow> & Pick<ClosedRow, "candidate_id">): ClosedRow {
+  return {
+    reason: "closed_in_job",
+    reason_label: "Zamknięta karta w tej rekrutacji: Odrzucony 08.10.2026 (Bartek Testowy)",
+    closed: { candidate_name: "Anna Przykładowa", state_version: 2, restore_stage: "new", restore_stage_def_id: 1 },
+    ...overrides,
+  };
+}
+
+const CLOSED_ROWS: ClosedRow[] = [
+  closedRow({ candidate_id: 1 }),
+  closedRow({
+    candidate_id: 3,
+    reason_label: "Zamknięta karta w tej rekrutacji: Wycofany 30.09.2026",
+    closed: { candidate_name: "Celina Fikcyjna", state_version: 4, restore_stage: "new", restore_stage_def_id: 1 },
+  }),
+];
+
 const noop = () => undefined;
 const ACTIONS: RowActions = { onAdd: noop, onSnooze: noop, onUnsnooze: noop };
 
@@ -128,6 +151,36 @@ export default function MyPeoplePreviewPage() {
           <ForJobView
             data={{ ...FOR_JOB, degraded: true, rows: FOR_JOB.rows.map((r) => ({ ...r, score: null, measurement: "unavailable", eligibility: null })) }}
             actions={{ onAdd: noop }}
+          />
+        </Frame>
+        <Frame title="Dodaj do rekrutacji — zamknięta karta">
+          <AddToRecruitmentOutcome
+            headline="Nikogo nie dodano do „Senior Java Developer”."
+            closedRows={CLOSED_ROWS.slice(0, 1)}
+            otherText={null}
+            restoredIds={new Set()}
+            restoringId={null}
+            onRestore={noop}
+          />
+        </Frame>
+        <Frame title="Dodaj do rekrutacji — jedna przywrócona, reszta pominięta">
+          <AddToRecruitmentOutcome
+            headline="Dodano 2 osoby do „Senior Java Developer”."
+            closedRows={CLOSED_ROWS}
+            otherText="Pominięto: 2× już w rekrutacji."
+            restoredIds={new Set([1])}
+            restoringId={null}
+            onRestore={noop}
+          />
+        </Frame>
+        <Frame title="Dodaj do rekrutacji — inny powód">
+          <AddToRecruitmentOutcome
+            headline="Nikogo nie dodano do „Senior Java Developer”."
+            closedRows={[]}
+            otherText="Dawid Wzorcowy odrzucił(a) tego kandydata po rozmowie 01.10.2026 — powód: „Za wysoka stawka”. To ten sam hiring manager co w tej rekrutacji."
+            restoredIds={new Set()}
+            restoringId={null}
+            onRestore={noop}
           />
         </Frame>
         <Frame title="Pusta lista">
