@@ -474,7 +474,7 @@ async def test_twin_can_be_transferred_with_the_team_of_the_nexus_recruitment(
 
     (job,) = report["jobs"]
     assert job["status"] == "transferred", job
-    assert job["twin_job_id"] == twin_id
+    assert job["twin_job_id"] == twin_id and job["twin_exact"] is True
     assert job["recruiter_from_twin"] == owner
     assert await _job_state(seed["job_id"]) == ("published", True, True, "searching")
     async with AsyncSessionLocal() as db:
@@ -502,3 +502,53 @@ async def test_twin_can_be_transferred_with_the_team_of_the_nexus_recruitment(
             )
         ).one()
         assert (twin_state[0], twin_state[1]) == ("published", owner)
+
+
+@pytest.mark.asyncio
+async def test_similar_title_does_not_move_the_team(
+    post_commit_calls: list[Any],
+) -> None:
+    # Tytuł tylko PODOBNY: rekrutacja jest przenoszona, ale zostaje przy
+    # swoim prowadzącym — przypisane osoby mają się nie zmieniać.
+    seed = await _seed()
+    actor = await _admin_id()
+    other_owner = await new_recruiter()
+    async with AsyncSessionLocal() as db:
+        before = (
+            await db.execute(
+                text("SELECT recruiter_id FROM jobs WHERE id = :i"),
+                {"i": seed["job_id"]},
+            )
+        ).scalar_one()
+        twin = Job(
+            title=seed["title"] + " II",
+            status=JobStatus.published,
+            client_id=seed["client_id"],
+            external_source="manual",
+            recruiter_id=other_owner,
+        )
+        db.add(twin)
+        await db.commit()
+
+    scope = transfer.Scope(job_ids=(seed["job_id"],), include_twins=True)
+    async with AsyncSessionLocal() as db:
+        report = await transfer.process(
+            db,
+            _traffit_for(seed),
+            scope,
+            dry_run=False,
+            actor_user_id=actor,
+            actor_label="test",
+        )
+
+    (job,) = report["jobs"]
+    assert job["status"] == "transferred" and job["twin_exact"] is False, job
+    assert "recruiter_from_twin" not in job
+    async with AsyncSessionLocal() as db:
+        after = (
+            await db.execute(
+                text("SELECT recruiter_id FROM jobs WHERE id = :i"),
+                {"i": seed["job_id"]},
+            )
+        ).scalar_one()
+    assert after == before

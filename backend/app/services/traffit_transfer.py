@@ -39,11 +39,12 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from difflib import SequenceMatcher
-from typing import Any, Optional
+from typing import Any, NamedTuple, Optional
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -270,19 +271,52 @@ def _title_key(title: str) -> str:
     return " ".join(title.lower().split())
 
 
-def find_twin(title: str, candidates: list[tuple[int, str]]) -> Optional[int]:
-    """Rekrutacja NEXUSA o niemal tym samym tytule (ten sam klient) albo ``None``."""
+# Numer requestu klienta na końcu tytułu: „… (42961)”, „… (ZOB-3054)”.
+_REQUEST_ID_RE = re.compile(r"\s*\([^()]*\d[^()]*\)\s*$")
+
+
+def title_core(title: str) -> str:
+    """Tytuł bez numeru requestu w nawiasie na końcu, małymi literami."""
+    return _REQUEST_ID_RE.sub("", _title_key(title))
+
+
+class Twin(NamedTuple):
+    job_id: int
+    #: Ten sam tytuł (z dokładnością do numeru requestu w nawiasie) — pewne,
+    #: że to ten sam request. ``False`` = tylko podobny tytuł.
+    exact: bool
+
+
+def match_twin(title: str, candidates: list[tuple[int, str]]) -> Optional[Twin]:
+    """Rekrutacja NEXUSA tego samego klienta dla tego samego requestu.
+
+    Najpierw tytuł identyczny po odjęciu numeru requestu („MS Power Platform
+    Expert” i „MS Power Platform Expert (42732)”), potem najbardziej podobny
+    powyżej progu. Podobieństwo wystarcza, żeby rekrutację OSTROŻNIE pominąć,
+    ale nie żeby przenieść na nią czyjś zespół: trzy różne rekrutacje
+    „IT Developer …” potrafią wskazać tę samą rekrutację NEXUSA.
+    """
+    core = title_core(title)
+    for job_id, other in candidates:
+        if core and title_core(other) == core:
+            return Twin(job_id, True)
     key = _title_key(title)
     best: tuple[float, int] = (0.0, 0)
     for job_id, other in candidates:
         ratio = SequenceMatcher(None, key, _title_key(other)).ratio()
         if ratio > best[0]:
             best = (ratio, job_id)
-    return best[1] if best[0] >= TWIN_MIN_RATIO else None
+    return Twin(best[1], False) if best[0] >= TWIN_MIN_RATIO else None
 
 
-async def load_twins(db: AsyncSession, jobs: list[WaveJob]) -> dict[int, int]:
-    """``job_id`` rekrutacji z Traffita → ``job_id`` bliźniaka w NEXUSIE."""
+def find_twin(title: str, candidates: list[tuple[int, str]]) -> Optional[int]:
+    """Rekrutacja NEXUSA o niemal tym samym tytule (ten sam klient) albo ``None``."""
+    twin = match_twin(title, candidates)
+    return twin.job_id if twin is not None else None
+
+
+async def load_twins(db: AsyncSession, jobs: list[WaveJob]) -> dict[int, Twin]:
+    """``job_id`` rekrutacji z Traffita → jej bliźniak w NEXUSIE."""
     client_ids = sorted({j.client_id for j in jobs if j.client_id is not None})
     if not client_ids:
         return {}
@@ -301,11 +335,11 @@ async def load_twins(db: AsyncSession, jobs: list[WaveJob]) -> dict[int, int]:
     by_client: dict[int, list[tuple[int, str]]] = {}
     for r in rows.all():
         by_client.setdefault(int(r.client_id), []).append((int(r.id), r.title or ""))
-    out: dict[int, int] = {}
+    out: dict[int, Twin] = {}
     for job in jobs:
         if job.client_id is None:
             continue
-        twin = find_twin(job.title, by_client.get(int(job.client_id), []))
+        twin = match_twin(job.title, by_client.get(int(job.client_id), []))
         if twin is not None:
             out[job.job_id] = twin
     return out
@@ -594,6 +628,7 @@ async def process_job(
     actor_user_id: Optional[int],
     dry_run: bool,
     include_twins: bool = False,
+    twin_exact: bool = False,
 ) -> dict[str, Any]:
     """Próba albo przeniesienie jednej rekrutacji — własna transakcja."""
     from fastapi import HTTPException
@@ -612,7 +647,11 @@ async def process_job(
         return _job_report(
             job, None, status="skipped", skip_reason=SKIP_TWIN, twin_job_id=twin_job_id
         )
-    twin = {"twin_job_id": twin_job_id} if twin_job_id is not None else {}
+    twin: dict[str, Any] = (
+        {"twin_job_id": twin_job_id, "twin_exact": twin_exact}
+        if twin_job_id is not None
+        else {}
+    )
 
     # Połączenie wraca do puli na czas zapytań do Traffita.
     await db.rollback()
@@ -680,9 +719,12 @@ async def process_job(
             # Ktoś przełączył albo otworzył ją w międzyczasie — poprawki cofamy.
             await db.rollback()
             return _job_report(job, plan, status="skipped", skip_reason="changed")
-        if twin_job_id is not None:
+        if twin_job_id is not None and twin_exact:
             # PRZED otwarciem: przypisanie i dzwonek idą do prowadzącego,
-            # którego Delivery Lead wskazał w NEXUSIE.
+            # którego Delivery Lead wskazał w NEXUSIE. Tylko przy pewnym
+            # bliźniaku — podobny tytuł nie wystarcza, żeby zmienić komuś
+            # prowadzącego (decyzja Artura 12.10.2026: przypisane osoby
+            # mają się nie zmieniać).
             twin.update(await _adopt_twin_team(db, job_row, twin_job_id, actor.id))
         effects = job_lifecycle.PostCommit()
         # Te same funkcje co „Otwórz ponownie”: flaga „Prowadzona w NEXUSIE”,
@@ -770,6 +812,7 @@ async def process(
 
     reports: list[dict[str, Any]] = []
     for job in jobs:
+        twin = twins.get(job.job_id)
         reports.append(
             await process_job(
                 db,
@@ -777,7 +820,8 @@ async def process(
                 importer,
                 job,
                 defs=defs,
-                twin_job_id=twins.get(job.job_id),
+                twin_job_id=twin.job_id if twin else None,
+                twin_exact=bool(twin and twin.exact),
                 fallback=fallback,
                 actor_user_id=actor_user_id,
                 dry_run=dry_run,
@@ -920,7 +964,10 @@ __all__ = [
     "LOG_KEY",
     "Scope",
     "WaveJob",
+    "Twin",
     "find_twin",
+    "match_twin",
+    "title_core",
     "finish_run",
     "fresh_dry_run_exists",
     "process",
