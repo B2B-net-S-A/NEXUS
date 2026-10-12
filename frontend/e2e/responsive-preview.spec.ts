@@ -438,3 +438,43 @@ test.describe("duży monitor — tabela listy wypełnia ekran", () => {
     });
   }
 });
+
+/**
+ * 12.10.2026 (zgłoszenie z pulpitu): każda zmiana filtra w kafelku „Requesty
+ * i obłożenie” przewijała stronę na górę — pomiar na produkcji: 1834 → 0 px
+ * w tym harnessie, 1000 → 24 px na `/dashboard`. Filtry zapisywał
+ * `router.replace(…, { scroll: false })`, a router Next 15 na ZBUDOWANEJ
+ * aplikacji gubi `scroll: false`, gdy zmieniają się same parametry adresu
+ * (ścieżka „aliased prefetch” pod głównym `loading.tsx`). Serwer deweloperski
+ * tej ścieżki nie ma, więc test łapie regresję dopiero na zbudowanym stosie.
+ */
+test.describe("pulpit — filtr „Requesty i obłożenie” nie przewija strony", () => {
+  test("/preview/custom-dashboard: po zmianie filtra pasek filtrów stoi w miejscu", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto("/preview/custom-dashboard?as=hor");
+    const tile = page.getByTestId("dashboard-tile-request_board");
+    const priority = tile.getByLabel("Priorytet");
+    await expect(priority).toBeVisible();
+    const unscrolled = await priority.boundingBox();
+    expect(unscrolled?.y ?? 0, "kafelek stoi poniżej pierwszego ekranu").toBeGreaterThan(720);
+    await priority.scrollIntoViewIfNeeded();
+    const before = await priority.boundingBox();
+
+    await priority.selectOption("p1");
+    await expect(page).toHaveURL(/rb_prio=p1/);
+    await expect(priority).toHaveValue("p1");
+    // Wartość pola idzie przez adres — szybkie pisanie nie może gubić liter.
+    const position = tile.getByLabel("Stanowisko");
+    await position.pressSequentially("Java Developer", { delay: 30 });
+    await expect(position).toHaveValue("Java Developer");
+    await expect(page).toHaveURL(/rb_q=Java\+Developer/);
+
+    // Przewinięcie routera przychodzi z klatką po zmianie adresu.
+    await page.waitForTimeout(300);
+    const after = await priority.boundingBox();
+    expect(
+      Math.abs((after?.y ?? -1) - (before?.y ?? 0)),
+      `pasek filtrów w oknie: przed ${before?.y}, po ${after?.y}`,
+    ).toBeLessThanOrEqual(1);
+  });
+});

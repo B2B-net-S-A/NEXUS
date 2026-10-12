@@ -98,9 +98,15 @@ describe("RequestBoard — zakres kafelka", () => {
 
   it("zmiana filtra przez człowieka zapisuje się w adresie razem z zakresem", async () => {
     const user = userEvent.setup()
+    const replaceState = vi.spyOn(window.history, "replaceState")
     render(<RequestBoard scope="my_category" />)
     await user.click(screen.getByRole("button", { name: /Bez rekrutera/ }))
-    expect(mocks.replace).toHaveBeenCalledWith("/dashboard?rb_cat=4&rb_nobody=1", { scroll: false })
+    // Stan `null`: tylko wtedy Next przenosi nowy adres do `useSearchParams`.
+    expect(replaceState).toHaveBeenCalledWith(null, "", "/dashboard?rb_cat=4&rb_nobody=1")
+    // Nie przez router: `router.replace(…, { scroll: false })` na produkcji
+    // przewijał stronę na górę przy każdej zmianie filtra (12.10.2026).
+    expect(mocks.replace).not.toHaveBeenCalled()
+    replaceState.mockRestore()
   })
 
   it("widz bez kategorii: wszystkie requesty, bez linii filtra", () => {
