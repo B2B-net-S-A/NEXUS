@@ -17,11 +17,15 @@ import {
   useMentionableUsers,
 } from "@/hooks/useMentionableUsers";
 import {
+  chooseCaretPlacement,
   choosePopupPlacement,
   findMentionToken,
   matchMentionUsers,
   type PopupPlacement,
 } from "@/lib/mention-autocomplete";
+import { textareaFitHeight } from "@/lib/textarea-autogrow";
+import { caretOffsetTop, contentScrollHeight } from "@/lib/textarea-mirror";
+import { useElementWidth } from "@/lib/use-element-width";
 import { cn } from "@/lib/utils";
 import { ROLE_LABELS, type UserRole } from "@/store/auth";
 import type { ChatUserMini } from "@/types/job-chat";
@@ -46,6 +50,14 @@ interface MentionTextareaProps {
   scope: MentionScope;
   placeholder?: string;
   rows?: number;
+  /** Pole rośnie z tekstem od `rows` do tylu linii, dalej przewija się w środku. */
+  maxRows?: number;
+  /**
+   * `false` = wysokość zostaje przy `rows` i klasach: czat (lista wiadomości
+   * trzyma się dołu tylko przy nowej wiadomości, więc rosnące pole wypychałoby
+   * ostatnie poza widok) i pole, które wypełnia okno.
+   */
+  autoGrow?: boolean;
   disabled?: boolean;
   className?: string;
   /** Klasy opakowania (pole i lista) — np. gdy pole stoi w wierszu flex. */
@@ -59,7 +71,12 @@ interface MentionTextareaProps {
 }
 
 const MAX_SUGGESTIONS_DEFAULT = 6;
+const MAX_ROWS_DEFAULT = 10;
 const POPUP_DESIRED_HEIGHT = 264;
+/** Odstęp listy od krawędzi pola albo linii z „@” (jak `mt-1` / `mb-1`). */
+const POPUP_EDGE_GAP = 4;
+/** Powyżej tylu linii wysokości lista staje przy linii z „@”, nie przy krawędzi pola. */
+const CARET_ANCHOR_ROWS = 3;
 
 /** Miejsce nad i pod polem, którego nie ucina okno ani przewijany przodek. */
 function measurePopupSpace(field: HTMLElement): { above: number; below: number } {
@@ -86,6 +103,10 @@ function measurePopupSpace(field: HTMLElement): { above: number; below: number }
  * polskich znaków) i staje po tej stronie pola, gdzie jest miejsce. Gdy jest
  * otwarta: Enter i Tab wybierają, strzałki zmieniają osobę, Escape zamyka;
  * w pozostałych przypadkach `onKeyDown` idzie do rodzica (Enter wysyła czat).
+ *
+ * Pole rośnie z tekstem (12.10.2026): od `rows` do `maxRows` linii. W polu
+ * wyższym niż trzy linie lista staje przy linii z „@” — nad całym polem
+ * byłaby daleko od kursora, a w dużym oknie notatki ucięta.
  */
 export function MentionTextarea({
   value,
@@ -93,6 +114,8 @@ export function MentionTextarea({
   scope,
   placeholder,
   rows = 3,
+  maxRows = MAX_ROWS_DEFAULT,
+  autoGrow = true,
   disabled = false,
   className,
   onFocus,
@@ -106,6 +129,32 @@ export function MentionTextarea({
   const innerRef = useRef<HTMLTextAreaElement | null>(null);
   const ref = textareaRef ?? innerRef;
   const [mention, setMention] = useState<MentionState>(initialMentionState);
+
+  // Opakowanie ma szerokość pola (`w-full`) — po zmianie szerokości tekst
+  // zawija się inaczej i wysokość trzeba policzyć od nowa.
+  const [wrapper, setWrapper] = useState<HTMLDivElement | null>(null);
+  const width = useElementWidth(wrapper);
+  useLayoutEffect(() => {
+    const field = ref.current;
+    if (!field) return;
+    const style = autoGrow ? getComputedStyle(field) : null;
+    const fit = style
+      ? textareaFitHeight(
+          {
+            scrollHeight: contentScrollHeight(field, width),
+            lineHeight: parseFloat(style.lineHeight),
+            padding: parseFloat(style.paddingTop) + parseFloat(style.paddingBottom),
+            // Z kroju, nie z `offsetHeight − clientHeight`: w ukrytym panelu
+            // oba są zerem, a pole ma wrócić z dobrą wysokością.
+            border:
+              (parseFloat(style.borderTopWidth) || 0) + (parseFloat(style.borderBottomWidth) || 0),
+          },
+          maxRows,
+        )
+      : null;
+    field.style.height = fit ? `${fit.height}px` : "";
+    field.style.overflowY = fit ? (fit.scroll ? "auto" : "hidden") : "";
+  }, [ref, value, rows, maxRows, autoGrow, width]);
 
   const usersQuery = useMentionableUsers(scope);
   const users = usersQuery.data;
@@ -138,12 +187,29 @@ export function MentionTextarea({
     maxHeight: POPUP_DESIRED_HEIGHT,
   });
   useLayoutEffect(() => {
-    if (!popupVisible || !ref.current) return;
-    const space = measurePopupSpace(ref.current);
+    const field = ref.current;
+    if (!popupVisible || !field) return;
+    const space = measurePopupSpace(field);
+    const style = getComputedStyle(field);
+    const lineHeight = parseFloat(style.lineHeight);
+    const tall =
+      field.clientHeight >
+      lineHeight * CARET_ANCHOR_ROWS + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
     setPlacement(
-      choosePopupPlacement(space.above, space.below, POPUP_DESIRED_HEIGHT),
+      tall
+        ? chooseCaretPlacement(
+            space.above,
+            space.below,
+            // Opakowanie bywa o kilka px wyższe niż pole (linia bazowa pola
+            // `inline-block`), a lista jest pozycjonowana względem opakowania.
+            wrapper?.offsetHeight || field.offsetHeight,
+            caretOffsetTop(field, mention.startIndex),
+            lineHeight,
+            POPUP_DESIRED_HEIGHT,
+          )
+        : choosePopupPlacement(space.above, space.below, POPUP_DESIRED_HEIGHT),
     );
-  }, [popupVisible, ref]);
+  }, [popupVisible, ref, wrapper, mention.startIndex]);
 
   // Rodzic wyczyścił albo podmienił tekst (Enter wysłał wiadomość) — lista
   // nie może zostać nad pustym polem ze starym zapytaniem.
@@ -228,17 +294,28 @@ export function MentionTextarea({
   };
 
   return (
-    <div className={cn("relative", wrapperClassName)}>
+    <div ref={setWrapper} className={cn("relative", wrapperClassName)}>
       {popupVisible && (
         <div
           role="listbox"
           aria-label="Osoby do oznaczenia"
           // Kliknięcie w listę nie może zabrać fokusu z pola (zamknęłoby ją).
           onMouseDown={(e) => e.preventDefault()}
-          style={{ maxHeight: placement.maxHeight }}
+          style={{
+            maxHeight: placement.maxHeight,
+            ...(placement.offset == null
+              ? null
+              : placement.side === "above"
+                ? { bottom: placement.offset + POPUP_EDGE_GAP }
+                : { top: placement.offset + POPUP_EDGE_GAP }),
+          }}
           className={cn(
             "absolute left-0 right-0 z-30 min-w-56 overflow-y-auto rounded-lg border border-border bg-card shadow-lg",
-            placement.side === "above" ? "bottom-full mb-1" : "top-full mt-1",
+            placement.offset != null
+              ? null
+              : placement.side === "above"
+                ? "bottom-full mb-1"
+                : "top-full mt-1",
           )}
         >
           {filtered.map((m, idx) => (

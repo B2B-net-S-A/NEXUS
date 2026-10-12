@@ -2695,6 +2695,11 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const onKey = (e: KeyboardEvent) => {
  if (e.key !== "Escape" || e.defaultPrevented) return;
  if (document.querySelector('[role="dialog"],[role="alertdialog"]')) return;
+ // Duże okno notatki w doku jest warstwą nad panelem — zmniejsza je sam
+ // dok (`DockNoteComposer`), a panel zostaje otwarty. Okno w doku ukrytym
+ // pod przeglądem DL warstwą nie jest.
+ const noteWindow = document.querySelector("[data-note-enlarged]");
+ if (noteWindow && !noteWindow.closest("[hidden]")) return;
  if (dlReviewTask) closeDlReview();
  else if (workbenchOpen) collapseWorkbench();
  else closeDock();

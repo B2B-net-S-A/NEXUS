@@ -79,6 +79,11 @@ export function matchMentionUsers<T extends MentionCandidate>(
 export interface PopupPlacement {
   side: "above" | "below";
   maxHeight: number;
+  /**
+   * Lista przy linii z „@”: odległość od górnej (`below`) albo dolnej (`above`)
+   * krawędzi pola w px. Brak = lista przy krawędzi całego pola.
+   */
+  offset?: number;
 }
 
 const MIN_POPUP_HEIGHT = 120;
@@ -100,5 +105,32 @@ export function choosePopupPlacement(
   return {
     side,
     maxHeight: Math.max(MIN_POPUP_HEIGHT, Math.min(desired, space - POPUP_GAP)),
+  };
+}
+
+/**
+ * Lista przy linii z „@” zamiast przy krawędzi pola — dla pola wyższego niż
+ * kilka linii (rośnie z tekstem, duże okno notatki; 12.10.2026). Nad całym
+ * polem stałaby do 200 px od kursora, a w dużym oknie notatki nie ma miejsca
+ * ani nad polem, ani pod nim. Miejsce liczymy od tej linii: to, co jest poza
+ * polem, plus odległość linii od jego krawędzi.
+ */
+export function chooseCaretPlacement(
+  spaceAbove: number,
+  spaceBelow: number,
+  fieldHeight: number,
+  caretTop: number,
+  lineHeight: number,
+  desired: number,
+): PopupPlacement {
+  const top = Math.min(Math.max(caretTop, 0), Math.max(fieldHeight - lineHeight, 0));
+  const placement = choosePopupPlacement(
+    spaceAbove + top,
+    spaceBelow + fieldHeight - top - lineHeight,
+    desired,
+  );
+  return {
+    ...placement,
+    offset: placement.side === "below" ? top + lineHeight : fieldHeight - top,
   };
 }

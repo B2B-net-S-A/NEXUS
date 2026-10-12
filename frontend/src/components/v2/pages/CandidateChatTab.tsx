@@ -592,6 +592,9 @@ export default function CandidateChatTab({
                   : "Napisz wiadomość… (@ oznacza osobę, Enter wysyła, Shift+Enter = nowa linia)"
               }
               rows={2}
+              // Lista wiadomości trzyma się dołu tylko przy nowej wiadomości —
+              // rosnące pole wypychałoby ostatnie poza widok.
+              autoGrow={false}
               disabled={sendMutation.isPending || editMutation.isPending}
               ariaLabel="Treść wiadomości chatu kandydata"
             />

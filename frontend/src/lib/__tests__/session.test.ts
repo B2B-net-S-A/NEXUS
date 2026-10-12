@@ -45,6 +45,19 @@ describe("clearSessionArtifacts", () => {
     expect(localStorage.getItem("nexus-full-job:7:42")).toBeNull();
   });
 
+  it("usuwa szkice notatek z panelu osoby (sessionStorage)", () => {
+    // Niewysłana notatka niesie dane kandydata — nie czeka na kolejną osobę.
+    sessionStorage.setItem("nexus:note-draft:v1:7:10:42", "Oddzwonić po 15");
+    sessionStorage.setItem("nexus:note-draft:v1:7:11:43", "Chce hybrydę");
+    sessionStorage.setItem("unrelated_session_key", "keep");
+
+    clearSessionArtifacts();
+
+    expect(sessionStorage.getItem("nexus:note-draft:v1:7:10:42")).toBeNull();
+    expect(sessionStorage.getItem("nexus:note-draft:v1:7:11:43")).toBeNull();
+    expect(sessionStorage.getItem("unrelated_session_key")).toBe("keep");
+  });
+
   it("kasuje cookie nexus_access", () => {
     document.cookie = "nexus_access=abc; path=/";
     clearSessionArtifacts();
