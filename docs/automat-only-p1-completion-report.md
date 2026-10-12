@@ -25,6 +25,12 @@ automat dodawał rekrutera tylko przy P1.
   (P1 i nie „Przyjmujemy kandydatów”); nowe przydziały i propozycje tylko dla
   takich requestów; żywa propozycja przy innym requeście jest zwalniana z powodem
   `not_p1`, więc tryb `auto` jej nie aktywuje. Osoby już przypisane zostają.
+- Urlop nie zwalnia osoby z requestu innego niż P1 (znalezione w przeglądzie
+  kodu): nikt by jej nie zastąpił, a zwolnienie automatu jest trwałe. Dziś to
+  ścieżka uśpiona (urlopy z Compassa są wyłączone), po ich włączeniu jeden
+  dzień urlopu zdejmowałby osobę z jej requestów P2 na stałe. „Poza
+  przydziałem”, brak kategorii i nieaktywne konto zwalniają jak dotąd, tylko
+  bez następcy.
 - `backend/app/services/new_job_leads.py` — „Automat przydziela…” w „Nowe
   rekrutacje — kto prowadzi” tylko dla P1.
 - Front, jedna reguła `automatAssigns` w `lib/request-priority.ts`:
@@ -48,8 +54,8 @@ automat dodawał rekrutera tylko przy P1.
 ## Testy
 
 - `backend/tests/test_request_allocation_plan.py` — nowe przypadki padały na
-  starym planerze (5 z 7) i przechodzą po zmianie; cały plik: 45 zielonych
-  (lokalnie, bez bazy).
+  starym planerze (5 z 7, potem 2 z 3 dla urlopu) i przechodzą po zmianie;
+  cały plik: 48 zielonych (lokalnie, bez bazy).
 - `backend/tests/test_audit_r4_recruitment.py`, `test_request_allocation_proposals.py`,
   `test_board_tasks.py` — dopasowane; testy z bazą biegną w CI.
 - Front: vitest na zmienionych modułach i ich zależnych testach, `tsc --noEmit`,

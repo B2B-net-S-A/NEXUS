@@ -547,6 +547,58 @@ def test_proposal_on_a_request_below_p1_is_released_not_activated(mode: str) -> 
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("mode", ["shadow", "auto"])
+def test_person_on_leave_keeps_a_request_below_p1(mode: str) -> None:
+    # Urlop zwalnia tam, gdzie automat dobierze następcę. Przy requeście
+    # innym niż P1 nikt by go nie zastąpił, a zwolnienie automatu jest trwałe
+    # — po jednym dniu urlopu request zostałby bez rekrutera na stałe.
+    live = [LiveAssignment(10, 1, "recruiter", "auto", "active")]
+    below = plan_assignments(
+        PlanInput(
+            requests=[req(10, p1=False)],
+            people=[recruiter(2)],
+            live=live,
+            mode=mode,
+            availability_known=True,
+            eligible_ids=frozenset({1, 2}),
+        )
+    )
+    assert below == []
+    # Ten sam urlop przy P1: zwolnienie i następca, jak dotąd.
+    urgent = plan_assignments(
+        PlanInput(
+            requests=[req(10, p1=True)],
+            people=[recruiter(2)],
+            live=live,
+            mode=mode,
+            availability_known=True,
+            eligible_ids=frozenset({1, 2}),
+        )
+    )
+    assert released(urgent) == [(10, 1, "unavailable")]
+    assert assigned(urgent) == {10: 2}
+
+
+@pytest.mark.unit
+def test_person_out_of_allocation_leaves_a_request_below_p1_empty() -> None:
+    # „Poza przydziałem” to decyzja człowieka o tej osobie — przypisanie
+    # automatu jest zwalniane także przy P2, ale nikt nie jest dokładany.
+    changes = plan_assignments(
+        PlanInput(
+            requests=[req(10, p1=False)],
+            people=[recruiter(2)],
+            live=[LiveAssignment(10, 1, "recruiter", "auto", "active")],
+            mode="auto",
+            availability_known=False,
+            eligible_ids=frozenset({2}),
+        )
+    )
+    assert [(c.kind, c.job_id, c.user_id, c.reason) for c in changes] == [
+        ("release", 10, 1, "excluded")
+    ]
+
+
+@pytest.mark.unit
 def test_request_raised_to_p1_gets_a_person_despite_an_earlier_removal() -> None:
     # Ten sam request po zmianie P2 → P1: automat dobiera, ale nie osobę
     # zdjętą ręcznie w bieżącym stanie requestu.

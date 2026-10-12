@@ -10,7 +10,9 @@ zapisu to ``services/request_allocation``. Reguły:
   P2 zostaje w puli, jego ludzie zostają, ale po zdjęciu osoby nikt nie jest
   dokładany — do tej daty automat brał następną osobę i ręczne zdjęcie
   z requestu P2 niczego nie zmieniało. Propozycja przy takim requeście jest
-  zwalniana (``not_p1``).
+  zwalniana (``not_p1``). Urlop nie zwalnia osoby z takiego requestu (nikt
+  by jej nie zastąpił); „Poza przydziałem” i martwe konto zwalniają jak
+  wszędzie, ale bez następcy.
 * **Kolejność:** requesty bez nikogo wysłanego do klienta, potem 1–2 wysłane,
   potem 3+; w grupie najbliższy termin (brak terminu na końcu).
 * **„Przyjmujemy kandydatów”** (``passive``): jak wyżej — request zostaje
@@ -282,7 +284,10 @@ def _own_release_reason(
     if row.user_id not in people and row.source == "auto" and not row.in_process:
         if data.eligible_ids is not None and row.user_id not in data.eligible_ids:
             return "excluded"
-        if data.availability_known:
+        # Urlop zwalnia tylko tam, gdzie automat dobierze następcę. Przy
+        # requeście innym niż P1 nikt by osoby nie zastąpił, a zwolnienie
+        # automatu jest trwałe — request zostałby bez rekrutera na stałe.
+        if data.availability_known and pool[row.job_id].automat_assigns:
             return "unavailable"
     return None
 
