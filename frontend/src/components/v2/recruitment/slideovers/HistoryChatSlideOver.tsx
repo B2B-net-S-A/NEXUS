@@ -22,7 +22,7 @@ import api, { jobChatApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { httpStatusFromError } from "@/lib/view-state";
 import { Button } from "@/components/ui/button";
-import { cn, formatDate } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import {
   BACKGROUND_EVENTS_MAX,
   BACKGROUND_EVENTS_STEP,
@@ -38,6 +38,12 @@ import { EmptyState, TabbedNav } from "@/components/ds";
 import { RequestHistorySection } from "@/components/RequestHistorySection";
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
 import JobChatTab from "@/components/v2/pages/JobChatTab";
+import {
+  jobMovesQueryKey,
+  MoveLogList,
+  moveWhen,
+  type JobMoveLogPage,
+} from "@/components/v2/recruitment/JobMoveLog";
 
 import {
   formatDaysAgo,
@@ -127,63 +133,7 @@ function MovesList({
 
 // ── Dziennik ruchów rekrutacji (`GET /api/pipeline/job/{id}/moves`) ─────────
 
-export interface JobMoveLogItem {
-  id: number;
-  candidate_id: number;
-  /** `null` = rola bez odczytu kandydatów (nazwiska zredagowane). */
-  candidate_name: string | null;
-  from_stage_name: string | null;
-  to_stage_name: string | null;
-  moved_by_name: string | null;
-  moved_at: string | null;
-  source: "traffit" | "nexus" | (string & {});
-}
-
-interface JobMoveLogPage {
-  items: JobMoveLogItem[];
-  total: number;
-  next_offset?: number | null;
-}
-
 const MOVES_PAGE = 50;
-
-export const jobMovesQueryKey = (jobId: number) => ["job-pipeline-moves", jobId] as const;
-
-function moveWhen(iso: string | null): string {
-  if (!iso) return "—";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "—";
-  const time = date.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" });
-  return `${formatDate(iso)} ${time}`;
-}
-
-function MoveLogList({ items }: { items: readonly JobMoveLogItem[] }) {
-  return (
-    <ul className="space-y-2.5" aria-label="Ruchy w rekrutacji">
-      {items.map((move) => (
-        <li key={move.id} className="flex gap-3 text-[13px]">
-          <span className="w-[92px] shrink-0 text-xs text-muted-foreground">{moveWhen(move.moved_at)}</span>
-          <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-primary" aria-hidden="true" />
-          <span className="min-w-0">
-            <Link
-              href={`/candidates/${move.candidate_id}`}
-              className="font-medium text-foreground hover:text-primary hover:underline"
-            >
-              {move.candidate_name ?? `Kandydat #${move.candidate_id}`}
-            </Link>
-            <span className="text-foreground">
-              {move.from_stage_name ? ` ${move.from_stage_name}` : ""} → {move.to_stage_name ?? "—"}
-            </span>
-            <span className="block text-xs text-muted-foreground">
-              {move.moved_by_name ?? (move.source === "traffit" ? "import z Traffita" : "autor nieznany")}
-              {move.source === "traffit" && move.moved_by_name ? " · Traffit" : ""}
-            </span>
-          </span>
-        </li>
-      ))}
-    </ul>
-  );
-}
 
 /**
  * Pełny dziennik ruchów z serwera; gdy trasy jeszcze nie ma (404 — starszy

@@ -388,3 +388,160 @@ async def test_return_shortly_after_closing_keeps_the_sheet(
         assert latest.screening_answers == SHEET
     finally:
         await _cleanup(world, [rec_id])
+
+
+# ── Zamknięta karta przy „Dodaj do rekrutacji” (12.10.2026) ──────────────────
+
+
+async def _bulk_add(client: AsyncClient, headers: dict, world: dict):
+    return await client.post(
+        f"/api/jobs/{world['job_id']}/proposals/bulk",
+        headers=headers,
+        json={"candidate_ids": [world["candidate_id"]], "source": "candidate_list"},
+    )
+
+
+async def _stage_rows(world: dict) -> int:
+    async with AsyncSessionLocal() as db:
+        rows = await db.scalars(
+            select(CandidateStage.id).where(
+                CandidateStage.candidate_id == world["candidate_id"],
+                CandidateStage.job_id == world["job_id"],
+            )
+        )
+        return len(rows.all())
+
+
+@pytest.mark.asyncio
+async def test_bulk_add_names_the_closed_card_and_a_move_restores_it(
+    api_client: AsyncClient,
+) -> None:
+    """Zgłoszenie 12.10.2026: osoba odrzucona kilka dni wcześniej dawała
+    „Pominięto: 1” bez powodu. Dodanie mówi teraz, że karta jest zamknięta,
+    i podaje cel ruchu, którym okno ją przywraca."""
+    world = await _seed_world()
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    rec = await _login(api_client, rec_creds)
+    try:
+        await _closed_attempt_with_sheet(world, rec_id, closed_days=4)
+        before = await _stage_rows(world)
+
+        resp = await _bulk_add(api_client, rec, world)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["added"] == []
+        (row,) = body["skipped"]
+        assert row["reason"] == "closed_in_job"
+        assert row["reason_label"].startswith(
+            "Zamknięta karta w tej rekrutacji: Odrzucony "
+        )
+        assert "(BT recruiter" in row["reason_label"]
+        closed = row["closed"]
+        assert closed["candidate_name"].startswith("Ewa ")
+        # Cel = etap, na który to dodanie i tak by trafiło.
+        assert closed["restore_stage"] == "screening"
+        assert closed["restore_stage_def_id"] == world["defs"]["screening"]
+        assert closed["state_version"] == (await _latest_process(world)).state_version
+        # Pominięcie niczego nie zapisuje.
+        assert await _stage_rows(world) == before
+
+        moved = await api_client.post(
+            "/api/pipeline/move",
+            headers=rec,
+            json={
+                "candidate_id": world["candidate_id"],
+                "job_id": world["job_id"],
+                "stage": closed["restore_stage"],
+                "stage_def_id": closed["restore_stage_def_id"],
+                "expected_state_version": closed["state_version"],
+            },
+        )
+        assert moved.status_code == 200, moved.text
+        proc = await _latest_process(world)
+        assert proc.attempt_no == 2 and proc.status == ProcessStatus.open
+
+        # Karta w toku to zwykłe „już w rekrutacji” — bez przywracania.
+        again = await _bulk_add(api_client, rec, world)
+        assert again.status_code == 200, again.text
+        (active,) = again.json()["skipped"]
+        assert active["reason"] == "already_in_job"
+        assert active["closed"] is None
+    finally:
+        await _cleanup(world, [rec_id])
+
+
+@pytest.mark.asyncio
+async def test_bulk_add_does_not_offer_to_restore_a_hired_person(
+    api_client: AsyncClient,
+) -> None:
+    world = await _seed_world()
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    rec = await _login(api_client, rec_creds)
+    try:
+        async with AsyncSessionLocal() as db:
+            await transition_process(
+                db,
+                candidate_id=world["candidate_id"],
+                job_id=world["job_id"],
+                stage=PipelineStage.hired,
+                actor_user_id=rec_id,
+            )
+            await db.commit()
+
+        resp = await _bulk_add(api_client, rec, world)
+        assert resp.status_code == 200, resp.text
+        (row,) = resp.json()["skipped"]
+        assert row["reason"] == "already_in_job"
+        assert row["closed"] is None
+    finally:
+        await _cleanup(world, [rec_id])
+
+
+@pytest.mark.asyncio
+async def test_recruitment_without_its_own_template_restores_by_stage_code(
+    api_client: AsyncClient,
+) -> None:
+    """Większość rekrutacji (i ta ze zgłoszenia) nie ma własnego szablonu:
+    cel przywrócenia to sam kod etapu, bez ``stage_def_id``."""
+    world = await _seed_world()
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    rec = await _login(api_client, rec_creds)
+    try:
+        async with AsyncSessionLocal() as db:
+            job = await db.get(Job, world["job_id"])
+            job.pipeline_template_id = None
+            await db.commit()
+        async with AsyncSessionLocal() as db:
+            await transition_process(
+                db,
+                candidate_id=world["candidate_id"],
+                job_id=world["job_id"],
+                stage=PipelineStage.rejected,
+                actor_user_id=rec_id,
+                ended_by="recruiter",
+            )
+            await db.commit()
+
+        resp = await _bulk_add(api_client, rec, world)
+        assert resp.status_code == 200, resp.text
+        (row,) = resp.json()["skipped"]
+        assert row["reason"] == "closed_in_job"
+        closed = row["closed"]
+        assert closed["restore_stage"] == "new"
+        assert closed["restore_stage_def_id"] is None
+
+        moved = await api_client.post(
+            "/api/pipeline/move",
+            headers=rec,
+            json={
+                "candidate_id": world["candidate_id"],
+                "job_id": world["job_id"],
+                "stage": closed["restore_stage"],
+                "expected_state_version": closed["state_version"],
+            },
+        )
+        assert moved.status_code == 200, moved.text
+        proc = await _latest_process(world)
+        assert proc.attempt_no == 2 and proc.status == ProcessStatus.open
+    finally:
+        await _cleanup(world, [rec_id])

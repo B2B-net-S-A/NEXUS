@@ -12,10 +12,10 @@
  */
 
 import { useContext, type ComponentProps } from "react";
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // 09.10.2026: sekcja „Screening” czyta stan formularza pary
 // (`GET /api/screening-form`), nie arkusz etapu.
@@ -110,6 +110,7 @@ import { WorkbenchBelowTabsContext } from "@/components/v2/person/WorkbenchBelow
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { formState } from "@/components/v2/screening-form/__tests__/screening-form-fixtures";
 import type { ScreeningFormState } from "@/lib/api/screeningForm";
+import { useAuthStore } from "@/store/auth";
 
 /** Stan formularza screeningu pary z doku (kandydat 42, rekrutacja 10, wiersz etapu 501). */
 function dockForm(overrides: Partial<ScreeningFormState> = {}): ScreeningFormState {
@@ -1227,6 +1228,55 @@ describe("PipelineCandidateDock — awaria odczytu to nie pustka", () => {
     await user.click(screen.getByRole("button", { name: /^Notatki/ }));
     expect(await screen.findByText(/Nie udało się wczytać: notatki/)).toBeTruthy();
     expect(screen.queryByText(/Brak notatek dla tej rekrutacji/)).toBeNull();
+    expect(screen.queryByText(/jeszcze nic nie zapisano/)).toBeNull();
+  });
+
+  it("notatki: podpis sekcji mówi o historii poza rekrutacją, a „Cała historia” otwiera zakładkę", async () => {
+    const user = userEvent.setup();
+    const onOpenWorkbench = vi.fn();
+    apiGet.mockImplementation((url: string) =>
+      url === "/api/notes?candidate_id=42"
+        ? Promise.resolve({
+            data: {
+              items: [
+                { id: 1, job_id: 77, job_title: "Analityk systemowy", content: "Feedback klienta.", author_name: "Piotr Wrona", created_at: "2025-04-02T09:40:00Z", group: "talks", replies: [] },
+                { id: 2, job_id: null, content: "Nie dzwonić przed 10:00.", author_name: null, created_at: "2023-05-11T07:12:00Z", group: "talks", replies: [] },
+                { id: 3, job_id: 77, content: "Auto-match 70/100.", is_system: true, group: "automat", created_at: "2025-03-01T00:00:00Z", replies: [] },
+              ],
+            },
+          })
+        : Promise.resolve({ data: { items: [] } }),
+    );
+    renderDock({ onOpenWorkbench });
+
+    // Zwinięta sekcja od razu mówi, że osoba ma u nas historię (12.10.2026:
+    // 1 417 otwartych kart pokazywało „0 w tej rekrutacji” mimo notatek gdzie indziej).
+    expect(await screen.findByRole("button", { name: /^Notatki.*0 tu · 2 wcześniej/ })).toBeTruthy();
+    // Jedno zapytanie o wszystkie notatki osoby, bez `job_id`.
+    expect(apiGet.mock.calls.some(([url]) => String(url).includes("job_id="))).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: /^Notatki/ }));
+    expect(await screen.findByText("W tej rekrutacji jeszcze nic nie zapisano.")).toBeTruthy();
+    expect(screen.getByText("Feedback klienta.")).toBeTruthy();
+    expect(screen.queryByText(/Auto-match 70/)).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Cała historia (2)" }));
+    expect(onOpenWorkbench).toHaveBeenLastCalledWith("notes");
+  });
+
+  it("notatki: bez historii poza rekrutacją podpis zostaje „N w tej rekrutacji”", async () => {
+    apiGet.mockImplementation((url: string) =>
+      url === "/api/notes?candidate_id=42"
+        ? Promise.resolve({
+            data: {
+              items: [
+                { id: 1, job_id: 10, content: "Umówiony telefon.", author_name: "Anna Kowalczyk", created_at: "2026-10-12T08:00:00Z", group: "talks", replies: [] },
+              ],
+            },
+          })
+        : Promise.resolve({ data: { items: [] } }),
+    );
+    renderDock();
+    expect(await screen.findByRole("button", { name: /^Notatki.*1 w tej rekrutacji/ })).toBeTruthy();
   });
 });
 
@@ -1394,5 +1444,252 @@ describe("PipelineCandidateDock — rozwinięty panel i dane kontaktowe (09.10.2
     expect(scroll.contains(bar)).toBe(false);
     expect(within(bar).getByRole("button", { name: "Zamknij dok" })).toBeTruthy();
     expect(scroll.contains(screen.getByLabelText("Dodaj notatkę"))).toBe(false);
+  });
+});
+
+// ── Pole notatki: rośnie, duże okno pisania, szkic (12.10.2026, zgłoszenie
+//    rekruterów: jedna linia 230 px, tekst znikał po przejściu do innej osoby)
+
+describe("PipelineCandidateDock — pole notatki: duże okno i szkic (12.10.2026)", () => {
+  const DRAFT_KEY = "nexus:note-draft:v1:7:10:42";
+  const HINT = "Enter dodaje notatkę · Shift+Enter nowa linia";
+  const HINT_BIG = "Enter nowa linia · Ctrl+Enter dodaje";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+    useAuthStore.setState({ user: { id: 7, role: "recruiter", roles: ["recruiter"] } } as never);
+    pairCvGet.mockResolvedValue({
+      data: { items: [], branded_cv: { status: "none", stage_id: null, stage_name: null, finalized_at: null } },
+    });
+    formGet.mockResolvedValue({ data: dockForm() });
+    originalGet.mockResolvedValue({ data: { has_snapshot: false } });
+    brandedGet.mockResolvedValue({ data: { status: "none" } });
+    candidatesGet.mockResolvedValue({ data: { email: "anna@example.com" } });
+    apiGet.mockResolvedValue({ data: { items: [] } });
+    apiPost.mockResolvedValue({ data: {} });
+  });
+
+  afterEach(() => {
+    useAuthStore.setState({ user: null } as never);
+    sessionStorage.clear();
+  });
+
+  const noteBox = () => screen.getByRole("textbox", { name: "Dodaj notatkę" });
+  const enlargeButton = () => screen.queryByRole("button", { name: "Powiększ pole notatki" });
+  const notePosts = () => apiPost.mock.calls.filter(([url]) => url === "/api/notes");
+
+  /** Dok z własnym klientem zapytań — do ponownego montażu i zmiany propsów. */
+  function dockTree(
+    overrides: Partial<DockProps> = {},
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+  ) {
+    const props: DockProps = {
+      item: baseItem(),
+      jobId: 10,
+      currentStageLabel: "Nowi / Analiza CV",
+      moveTargets: [],
+      readOnly: false,
+      contactFeatureEnabled: false,
+      canReject: true,
+      onClose: vi.fn(),
+      onMoveTo: vi.fn(),
+      onOpenScreening: vi.fn(),
+      onReject: vi.fn(),
+      ...overrides,
+    };
+    return (
+      <QueryClientProvider client={qc}>
+        <TooltipProvider>
+          <PipelineCandidateDock {...props} />
+        </TooltipProvider>
+      </QueryClientProvider>
+    );
+  }
+
+  async function enlarge(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(noteBox());
+    await user.click(screen.getByRole("button", { name: "Powiększ pole notatki" }));
+  }
+
+  it("w spoczynku jest zwarte; po wejściu pokazuje klawisze i „Powiększ”, a Tab nie zwija rzędu", async () => {
+    const user = userEvent.setup();
+    renderDock();
+    expect(enlargeButton()).toBeNull();
+    expect(screen.queryByText(HINT)).toBeNull();
+    expect(screen.getByRole("button", { name: "Dodaj notatkę — wyślij" })).toBeDisabled();
+
+    await user.click(noteBox());
+    expect(screen.getByText(HINT)).toBeTruthy();
+    expect(enlargeButton()).toBeTruthy();
+
+    await user.tab();
+    expect(enlargeButton()).toHaveFocus();
+  });
+
+  it("puste pole po wyjściu wraca do zwartego, pole z tekstem zostaje otwarte", async () => {
+    const user = userEvent.setup();
+    renderDock();
+    await user.type(noteBox(), "Chce hybrydę");
+    await user.click(screen.getByText("Anna Kowalska"));
+    expect(enlargeButton()).toBeTruthy();
+
+    await user.clear(noteBox());
+    await user.click(screen.getByText("Anna Kowalska"));
+    expect(enlargeButton()).toBeNull();
+  });
+
+  it("„Powiększ”: pole dostaje fokus, reszta doku jest ukryta (nie odmontowana), Enter robi nową linię", async () => {
+    const user = userEvent.setup();
+    renderDock();
+    const body = screen.getByTestId("dock-body");
+    await user.type(noteBox(), "Rozmowa 12.10");
+    await user.click(screen.getByRole("button", { name: "Powiększ pole notatki" }));
+
+    expect(screen.getByTestId("dock-body")).toBe(body);
+    expect(body).not.toBeVisible();
+    expect(body).toHaveAttribute("inert");
+    expect(screen.getByTestId("dock-person-bar")).toBeVisible();
+    expect(noteBox()).toHaveFocus();
+    expect(noteBox()).toHaveValue("Rozmowa 12.10");
+    expect(screen.getByText(HINT_BIG)).toBeTruthy();
+
+    await user.type(noteBox(), "{Enter}Selenium: 4 lata");
+    expect(noteBox()).toHaveValue("Rozmowa 12.10\nSelenium: 4 lata");
+    expect(notePosts()).toHaveLength(0);
+  });
+
+  it("w dużym oknie Ctrl+Enter dodaje notatkę i wraca zwykłe pole", async () => {
+    const user = userEvent.setup();
+    renderDock();
+    await enlarge(user);
+    await user.type(noteBox(), "Rozmowa 12.10{Enter}Dostępny od listopada");
+    await user.keyboard("{Control>}{Enter}{/Control}");
+
+    await waitFor(() =>
+      expect(apiPost).toHaveBeenCalledWith("/api/notes", {
+        candidate_id: 42,
+        job_id: 10,
+        content: "Rozmowa 12.10\nDostępny od listopada",
+        note_type: "general",
+      }),
+    );
+    await waitFor(() => expect(screen.getByTestId("dock-body")).toBeVisible());
+    expect(noteBox()).toHaveValue("");
+  });
+
+  it("w dużym oknie notatkę dodaje też przycisk; „Zmniejsz” zostawia tekst", async () => {
+    const user = userEvent.setup();
+    renderDock();
+    await enlarge(user);
+    await user.type(noteBox(), "Oddzwonić po 15");
+    await user.click(screen.getByRole("button", { name: "Zmniejsz" }));
+    expect(screen.getByTestId("dock-body")).toBeVisible();
+    expect(noteBox()).toHaveValue("Oddzwonić po 15");
+
+    await user.click(screen.getByRole("button", { name: "Powiększ pole notatki" }));
+    await user.click(screen.getByRole("button", { name: "Dodaj notatkę" }));
+    await waitFor(() => expect(notePosts()).toHaveLength(1));
+  });
+
+  it("Esc zmniejsza duże okno także wtedy, gdy fokus jest poza polem", async () => {
+    const user = userEvent.setup();
+    renderDock();
+    await enlarge(user);
+    await user.type(noteBox(), "Oddzwonić");
+    act(() => (document.activeElement as HTMLElement).blur());
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.getByTestId("dock-body")).toBeVisible());
+    expect(noteBox()).toHaveValue("Oddzwonić");
+  });
+
+  it("Esc w dużym oknie jest oznaczony jako obsłużony — nasłuch Tablicy go pominie w każdej kolejności", async () => {
+    // W przeglądarce React przerysowuje między dwoma nasłuchami `window`: gdy
+    // ten z doku działa pierwszy, znacznik dużego okna znika, zanim Tablica go
+    // sprawdzi. Zostaje jej tylko `defaultPrevented` (przegląd kodu 12.10.2026).
+    const user = userEvent.setup();
+    renderDock();
+    await enlarge(user);
+    const escape = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    act(() => {
+      window.dispatchEvent(escape);
+    });
+    expect(escape.defaultPrevented).toBe(true);
+    expect(screen.getByTestId("dock-body")).toBeVisible();
+  });
+
+  it("duże okno w ukrytym doku (przegląd DL nad panelem) nie przechwytuje Esc", async () => {
+    const user = userEvent.setup();
+    const view = render(dockTree());
+    await enlarge(user);
+    view.container.hidden = true;
+    const escape = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    act(() => {
+      window.dispatchEvent(escape);
+    });
+    expect(escape.defaultPrevented).toBe(false);
+    expect(screen.getByTestId("dock-body")).toHaveAttribute("hidden");
+  });
+
+  it("dok tylko do odczytu nie zostaje pustym panelem po dużym oknie", async () => {
+    const user = userEvent.setup();
+    // Ten sam klient zapytań i to samo miejsce w drzewie — zmienia się tylko `readOnly`.
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(dockTree({}, qc));
+    await enlarge(user);
+    expect(screen.getByTestId("dock-body")).not.toBeVisible();
+
+    view.rerender(dockTree({ readOnly: true }, qc));
+    expect(screen.queryByRole("textbox", { name: "Dodaj notatkę" })).toBeNull();
+    expect(screen.getByTestId("dock-body")).toBeVisible();
+  });
+
+  it("szkic wraca po ponownym otwarciu tej samej osoby i nie pojawia się u innej", async () => {
+    const user = userEvent.setup();
+    const first = render(dockTree());
+    await user.type(noteBox(), "Oddzwonić po 15");
+    expect(sessionStorage.getItem(DRAFT_KEY)).toBe("Oddzwonić po 15");
+    first.unmount();
+
+    const other = render(dockTree({ item: baseItem({ id: 502, candidate_id: 43, name: "Jan", lastname: "Nowak" }) }));
+    expect(noteBox()).toHaveValue("");
+    other.unmount();
+
+    render(dockTree());
+    expect(noteBox()).toHaveValue("Oddzwonić po 15");
+    // Szkic otwiera pole — widać, że coś czeka na wysłanie.
+    expect(enlargeButton()).toBeTruthy();
+  });
+
+  it("po udanym dodaniu szkicu nie ma", async () => {
+    const user = userEvent.setup();
+    renderDock();
+    await user.type(noteBox(), "Chce hybrydę{Enter}");
+    await waitFor(() => expect(noteBox()).toHaveValue(""));
+    expect(sessionStorage.getItem(DRAFT_KEY)).toBeNull();
+  });
+
+  it("szkic znika z pamięci w chwili wysłania, a po błędzie zapisu wraca", async () => {
+    // `onSuccess` działa też po odmontowaniu doku: gdyby szkic czekał w pamięci
+    // do odpowiedzi serwera, „wyślij, wyjdź, wróć” oddawałoby wysłany tekst.
+    let fail!: (error: Error) => void;
+    apiPost.mockImplementation((url: string) =>
+      url === "/api/notes"
+        ? new Promise((_resolve, reject) => {
+            fail = reject;
+          })
+        : Promise.resolve({ data: {} }),
+    );
+    const user = userEvent.setup();
+    renderDock();
+    await user.type(noteBox(), "Chce hybrydę{Enter}");
+    await waitFor(() => expect(notePosts()).toHaveLength(1));
+    expect(sessionStorage.getItem(DRAFT_KEY)).toBeNull();
+
+    await act(async () => fail(new Error("Błąd sieci")));
+    await waitFor(() => expect(sessionStorage.getItem(DRAFT_KEY)).toBe("Chce hybrydę"));
+    expect(noteBox()).toHaveValue("Chce hybrydę");
+    expect(toastError).toHaveBeenCalled();
   });
 });

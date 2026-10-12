@@ -278,6 +278,7 @@ export function NotesList({
   now,
   emptyText = "Brak notatek.",
   hideRecruitment = false,
+  hideRecruitmentFilter = false,
   includeSystem = false,
   cardLinks,
   onOpenCard,
@@ -300,6 +301,8 @@ export function NotesList({
   emptyText?: string;
   /** Lista jednej rekrutacji (dok osoby): bez filtra i plakietki rekrutacji. */
   hideRecruitment?: boolean;
+  /** Krótki wycinek z kilku rekrutacji: plakietka zostaje, filtr nie ma czego filtrować. */
+  hideRecruitmentFilter?: boolean;
   /** Zakładka „Automat”: wpisy systemowe widoczne od razu, bez przełącznika. */
   includeSystem?: boolean;
   /** Co z której notatki trafiło do karty rekomendacji (profil kandydata). */
@@ -600,7 +603,7 @@ export function NotesList({
     <div className="space-y-2">
       {notes.length > 0 ? (
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          {options.length > 2 && !hideRecruitment ? (
+          {options.length > 2 && !hideRecruitment && !hideRecruitmentFilter ? (
             <label className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
               <Target className="h-3.5 w-3.5 shrink-0" />
               <span className="sr-only">Filtr rekrutacji</span>
