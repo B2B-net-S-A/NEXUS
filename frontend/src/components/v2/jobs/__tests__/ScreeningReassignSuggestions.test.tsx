@@ -38,6 +38,7 @@ vi.mock("@/components/Toast", () => ({
 import { Form } from "@/components/v2/forms";
 import {
   DEFAULT_SKIP_NOTE,
+  SKIP_NOTE_BY_REASON,
   ScreeningFormFields,
   buildScreeningPayload,
   makeSchema,
@@ -389,6 +390,84 @@ describe("przepięcie", () => {
   });
 });
 
+describe("„Pomiń brakujące” poza przepięciem z panelu (12.10.2026)", () => {
+  const BANNER = { name: "Wcześniejsze odpowiedzi kandydata" };
+
+  it("serwer bez powodu pominięcia: przy samych wcześniejszych rozmowach pola wyboru nie ma", async () => {
+    renderHarness();
+    await screen.findByRole("region", BANNER);
+    expect(screen.queryByLabelText(/Pomiń brakujące/)).toBeNull();
+  });
+
+  it("osoba po wcześniejszym screeningu, dodana ręcznie: puste pytania zapisują się jako pominięte", async () => {
+    reassignContext.mockResolvedValue({ data: { ...HISTORY.data, skip_reason: "earlier_screening" } });
+    const user = userEvent.setup();
+    renderHarness();
+    const skip = await screen.findByLabelText("Pomiń brakujące — osoba po wcześniejszym screeningu");
+    expect(screen.queryByLabelText("Pomiń brakujące — przepięcie")).toBeNull();
+    await user.type(answerField(Q1), "5 lat");
+    await user.click(skip);
+    await user.click(screen.getByRole("button", { name: "Zapisz screening" }));
+    await waitFor(() => expect(submit).toHaveBeenCalled());
+    const payload = submit.mock.calls[0][1];
+    expect(payload.answers[1]).toMatchObject({ question_id: "q2", response: "", skipped: true });
+    // Notatka dla Delivery Leada mówi prawdziwy powód, nie „przepięcie”.
+    expect(payload.internal_note).toBe("Pominięte — osoba po wcześniejszym screeningu");
+    expect(screen.queryByText("pominięte — przepięcie")).toBeNull();
+  });
+
+  it("osoba zatrudniona przez nas, bez własnej notatki: domyślna notatka mówi o zatrudnieniu", async () => {
+    reassignContext.mockResolvedValue({
+      data: { ...HISTORY.data, available: false, kind: null, earlier_conversations: 0, skip_reason: "employed" },
+    });
+    const user = userEvent.setup();
+    renderHarness();
+    await user.click(await screen.findByLabelText("Pomiń brakujące — osoba zatrudniona przez nas"));
+    expect(screen.getAllByText("pominięte")).toHaveLength(2);
+    await user.click(screen.getByRole("button", { name: "Zapisz screening" }));
+    await waitFor(() => expect(submit).toHaveBeenCalled());
+    expect(submit.mock.calls[0][1].internal_note).toBe("Pominięte — osoba zatrudniona przez nas");
+  });
+
+  it("osoba zatrudniona przez nas bez wcześniejszych rozmów: samo pole wyboru, Luna nie jest wołana", async () => {
+    reassignContext.mockResolvedValue({
+      data: {
+        stage_id: 7,
+        candidate_id: 1,
+        available: false,
+        kind: null,
+        source: null,
+        previous_answers_count: 0,
+        earlier_conversations: 0,
+        skip_reason: "employed",
+      },
+    });
+    const user = userEvent.setup();
+    renderHarness();
+    const banner = await screen.findByRole("region", BANNER);
+    expect(banner).toHaveTextContent("Ta osoba jest albo była zatrudniona przez nas");
+    expect(banner).not.toHaveTextContent("0 wcześniejszych");
+    await user.click(screen.getByLabelText("Pomiń brakujące — osoba zatrudniona przez nas"));
+    expect(screen.getByText(/2 pytania bez odpowiedzi zapiszą się jako pominięte|2 pytania bez odpowiedzi zapisze się jako pominięte/)).toBeTruthy();
+    await user.type(screen.getByPlaceholderText(/pracuje u nas od dwóch lat/), "Konsultant schodzi z projektu");
+    await user.click(screen.getByRole("button", { name: "Zapisz screening" }));
+    await waitFor(() => expect(submit).toHaveBeenCalled());
+    const payload = submit.mock.calls[0][1];
+    expect(payload.answers.map((a: { skipped?: boolean }) => a.skipped)).toEqual([true, true]);
+    expect(payload.internal_note).toBe("Konsultant schodzi z projektu");
+    expect(reassignSuggestions).not.toHaveBeenCalled();
+  });
+
+  it("tylko do odczytu: osoba zatrudniona przez nas nie dostaje pola wyboru", async () => {
+    reassignContext.mockResolvedValue({
+      data: { ...HISTORY.data, available: false, kind: null, earlier_conversations: 0, skip_reason: "employed" },
+    });
+    renderHarness({ readOnly: true });
+    await screen.findByRole("region", BANNER);
+    expect(screen.queryByLabelText(/Pomiń brakujące/)).toBeNull();
+  });
+});
+
 describe("opisy wcześniejszych rozmów", () => {
   const now = new Date("2026-10-02T12:00:00Z");
 
@@ -438,6 +517,25 @@ describe("buildScreeningPayload", () => {
     const payload = buildScreeningPayload(QUESTIONS, fromNote);
     // Serwer zamienia `note_sync` na `note_import` przy zapisie człowieka.
     expect(payload.answers.map((a) => a.origin)).toEqual(["note_sync", "note_sync"]);
+  });
+
+  it("domyślna notatka pominięcia zależy od powodu; bez powodu — jak przy przepięciu", () => {
+    expect(SKIP_NOTE_BY_REASON.reassign).toBe(DEFAULT_SKIP_NOTE);
+    const base = {
+      answers: { q1: { response: "", deal_breaker_hit: false }, q2: { response: "", deal_breaker_hit: false } },
+      overall_fit: "uncertain" as const,
+      notes: "",
+      skip_missing: true,
+      internal_note: "",
+    };
+    expect(buildScreeningPayload(QUESTIONS, { ...base, skip_reason: "employed" }).internal_note).toBe(
+      "Pominięte — osoba zatrudniona przez nas",
+    );
+    expect(buildScreeningPayload(QUESTIONS, { ...base, skip_reason: null }).internal_note).toBe(DEFAULT_SKIP_NOTE);
+    // Własna notatka rekrutera zawsze wygrywa.
+    expect(
+      buildScreeningPayload(QUESTIONS, { ...base, skip_reason: "employed", internal_note: "Znamy go" }).internal_note,
+    ).toBe("Znamy go");
   });
 
   it("pominięcie bez własnej notatki dostaje notatkę domyślną", () => {

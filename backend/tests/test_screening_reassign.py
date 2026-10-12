@@ -798,6 +798,118 @@ async def test_earlier_conversations_feed_suggestions_without_reassign(
     assert "NOTATKA-Z-INNEJ-REKRUTACJI" not in prompt
 
 
+# ── „Pomiń brakujące”: kto może (12.10.2026) ─────────────────────────────────
+
+
+class _NoDb:
+    """Powód znany z kontekstu nie potrzebuje zapytania."""
+
+    def __getattr__(self, name: str):
+        pytest.fail(f"baza nie powinna być wołana ({name})")
+
+
+async def test_skip_reason_from_context_needs_no_query() -> None:
+    reassign = svc.SuggestionContext(
+        kind="reassign",
+        answers=[],
+        conversations=0,
+        reassign=svc.ReassignContext(
+            source_job_id=7, source_job_title="Java", date=None
+        ),
+    )
+    history = svc.SuggestionContext(kind="history", answers=[], conversations=2)
+    assert (
+        await svc.skip_missing_reason(_NoDb(), candidate_id=1, job_id=2, ctx=reassign)
+        == svc.SKIP_REASSIGN
+    )
+    assert (
+        await svc.skip_missing_reason(_NoDb(), candidate_id=1, job_id=2, ctx=history)
+        == svc.SKIP_EARLIER_SCREENING
+    )
+
+
+async def test_person_added_by_hand_without_history_cannot_skip(
+    app_client: AsyncClient,
+) -> None:
+    seed = await _seed_history(others=0)
+    headers, _uid = await _seed_recruiter(app_client)
+    r = await app_client.get(CONTEXT.format(stage_id=seed["stage_id"]), headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["available"] is False
+    assert r.json()["skip_reason"] is None
+
+
+async def test_person_hired_in_another_recruitment_can_skip(
+    app_client: AsyncClient,
+) -> None:
+    """Zgłoszenie 12.10.2026: konsultant, który schodzi z projektu, dodany
+    ręcznie do nowej rekrutacji — panel przepięć nie pozwala wybrać
+    zatrudnionych, a arkusz kazał odpowiadać na każde pytanie od nowa."""
+    from app.models.job import Job, JobStatus
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+
+    seed = await _seed_history(others=0)
+    async with AsyncSessionLocal() as db:
+        target = await db.get(Job, seed["target_id"])
+        earlier = Job(
+            title="Wcześniejsza rekrutacja",
+            status=JobStatus.closed,
+            client_id=target.client_id,
+        )
+        db.add(earlier)
+        await db.flush()
+        db.add(
+            CandidateStage(
+                candidate_id=seed["candidate_id"],
+                job_id=earlier.id,
+                stage=PipelineStage.hired,
+                moved_at=datetime(2025, 3, 1, tzinfo=timezone.utc),
+            )
+        )
+        await db.commit()
+    headers, _uid = await _seed_recruiter(app_client)
+    r = await app_client.get(CONTEXT.format(stage_id=seed["stage_id"]), headers=headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    # Nie ma z czego podpowiadać, ale pominąć wolno.
+    assert body["available"] is False and body["kind"] is None
+    assert body["skip_reason"] == "employed"
+
+
+async def test_person_with_a_live_contract_can_skip(app_client: AsyncClient) -> None:
+    """Konsultant sprzed NEXUSA nie ma wiersza „Zatrudniony” — ma kontrakt."""
+    from app.models.contract import Contract, ContractStatus
+    from app.models.job import Job
+
+    seed = await _seed_history(others=0)
+    async with AsyncSessionLocal() as db:
+        target = await db.get(Job, seed["target_id"])
+        db.add(
+            Contract(
+                candidate_id=seed["candidate_id"],
+                client_id=target.client_id,
+                start_date=None,
+                status=ContractStatus.ending,
+            )
+        )
+        await db.commit()
+    headers, _uid = await _seed_recruiter(app_client)
+    r = await app_client.get(CONTEXT.format(stage_id=seed["stage_id"]), headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["skip_reason"] == "employed"
+
+
+async def test_reassigned_person_keeps_the_reassign_reason(
+    app_client: AsyncClient,
+) -> None:
+    seed = await _seed_pair(owner_id=None)
+    headers, _uid = await _seed_recruiter(app_client)
+    r = await app_client.get(CONTEXT.format(stage_id=seed["stage_id"]), headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["kind"] == "reassign"
+    assert r.json()["skip_reason"] == "reassign"
+
+
 # ── trasy ────────────────────────────────────────────────────────────────────
 
 
@@ -886,6 +998,7 @@ async def test_context_route_reports_earlier_conversations(app_client: AsyncClie
         "source": None,
         "previous_answers_count": 2,
         "earlier_conversations": 2,
+        "skip_reason": "earlier_screening",
     }
 
 

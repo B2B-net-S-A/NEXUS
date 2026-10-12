@@ -548,6 +548,56 @@ describe("ScreeningFullForm — „Zapisz i przekaż dalej”", () => {
   });
 });
 
+describe("ScreeningFullForm — rekrutacja bez pytań screeningowych (12.10.2026)", () => {
+  const forward = { stage: "verified", stageDefId: 12, label: "Zweryfikowany" };
+
+  beforeEach(() => {
+    serverState = formState({ champion_profile: {} });
+  });
+
+  it("pusty stan mówi, co wystarcza do ruchu dalej, zamiast odsyłać po pytania", async () => {
+    mount({ forward });
+    const section = await screen.findByRole("region", { name: "Pytania z Profilu Championa" });
+    expect(section).toHaveTextContent("Ta rekrutacja nie ma pytań screeningowych w Profilu Championa");
+    expect(section).toHaveTextContent("wystarczy stawka kandydata i pole „Dlaczego ten kandydat”");
+    expect(section).not.toHaveTextContent("TAC");
+  });
+
+  it("bez „Dlaczego ten kandydat” nie zapisuje i nie przesuwa — mówi, co wpisać", async () => {
+    const user = userEvent.setup();
+    mount({ forward });
+    await screen.findByLabelText("Dlaczego ten kandydat");
+    await user.type(screen.getByLabelText("Kwota"), "150");
+    await user.click(screen.getByRole("button", { name: /Zapisz i przekaż dalej/ }));
+    expect(mocks.showError).toHaveBeenCalledWith(
+      "Ta rekrutacja nie ma pytań screeningowych — przed przekazaniem dalej wpisz „Dlaczego ten kandydat”.",
+    );
+    expect(await screen.findByText("Wpisz, dlaczego ten kandydat")).toBeTruthy();
+    expect(mocks.put).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+    // Błąd nie zostaje pod polem po wpisaniu treści.
+    await user.type(screen.getByLabelText("Dlaczego ten kandydat"), "SQL");
+    await waitFor(() => expect(screen.queryByText("Wpisz, dlaczego ten kandydat")).toBeNull());
+  });
+
+  it("z „Dlaczego ten kandydat” i stawką zapisuje i przesuwa na „Zweryfikowany”", async () => {
+    mocks.put.mockImplementation(() =>
+      Promise.resolve({ data: formSaveResult(serverState, { process_state_version: 2 }) }),
+    );
+    mocks.send.mockResolvedValue({ ok: true, data: {} });
+    const user = userEvent.setup();
+    mount({ forward });
+    await user.type(await screen.findByLabelText("Dlaczego ten kandydat"), "Raportowanie podatkowe, SQL");
+    await user.type(screen.getByLabelText("Kwota"), "150");
+    await user.click(screen.getByRole("button", { name: /Zapisz i przekaż dalej/ }));
+
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1));
+    expect(lastPut().card?.fields).toMatchObject({ recommendation: "Raportowanie podatkowe, SQL" });
+    expect(mocks.send.mock.calls[0][0]).toMatchObject({ stage: "verified", expected_rate_value: 150 });
+    expect(mocks.showError).not.toHaveBeenCalled();
+  });
+});
+
 describe("ScreeningFullForm — prośba Delivery Leada o poprawki (D6)", () => {
   const fixRequest = {
     version_no: 3,

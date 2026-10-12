@@ -34,6 +34,7 @@ import {
   type ScreeningAnswerItem,
   type ScreeningAnswers,
   type ScreeningQuestion,
+  type ScreeningSkipReason,
 } from "@/lib/api";
 import {
   EXPERIENCE_KIND_LABEL,
@@ -114,6 +115,11 @@ export interface ScreeningFormValues {
    * odpowiedzi zapisują się jako pominięte zamiast blokować zapis.
    */
   skip_missing?: boolean;
+  /**
+   * Dlaczego wolno pominąć (12.10.2026) — ustawia blok wcześniejszych
+   * odpowiedzi przy zaznaczeniu „Pomiń brakujące”; wybiera domyślną notatkę.
+   */
+  skip_reason?: ScreeningSkipReason | null;
   /** Notatka wewnętrzna do pominięcia — nigdy nie idzie do klienta. */
   internal_note?: string;
   /** Sekcja 4 Championa — patrz `ExperienceCheckRow`. */
@@ -153,6 +159,20 @@ export function experienceCheckRows(
 /** Notatka wstawiana, gdy rekruter pominął pytania bez własnego komentarza. */
 export const DEFAULT_SKIP_NOTE = "Pominięte — przepięcie";
 
+/**
+ * Domyślna notatka mówi prawdziwy powód: Delivery Lead czyta ją w widoku
+ * „Screening”, a od 12.10.2026 pominąć można nie tylko przy przepięciu.
+ */
+export const SKIP_NOTE_BY_REASON: Record<ScreeningSkipReason, string> = {
+  reassign: DEFAULT_SKIP_NOTE,
+  earlier_screening: "Pominięte — osoba po wcześniejszym screeningu",
+  employed: "Pominięte — osoba zatrudniona przez nas",
+};
+
+export function defaultSkipNote(reason: ScreeningSkipReason | null | undefined): string {
+  return reason ? SKIP_NOTE_BY_REASON[reason] : DEFAULT_SKIP_NOTE;
+}
+
 export function makeSchema(questions: ScreeningQuestion[]) {
   const answersShape = Object.fromEntries(
     questions.map((q) => [
@@ -173,6 +193,7 @@ export function makeSchema(questions: ScreeningQuestion[]) {
       overall_fit: z.enum(["fit", "uncertain", "miss"]),
       notes: z.string().optional().default(""),
       skip_missing: z.boolean().optional().default(false),
+      skip_reason: z.enum(["reassign", "earlier_screening", "employed"]).nullable().optional().default(null),
       internal_note: z
         .string()
         .max(2000, "Notatka może mieć najwyżej 2000 znaków")
@@ -238,7 +259,7 @@ export function buildScreeningPayload(
     overall_fit: values.overall_fit,
     notes: values.notes ?? "",
     internal_note: anySkipped
-      ? (values.internal_note ?? "").trim() || DEFAULT_SKIP_NOTE
+      ? (values.internal_note ?? "").trim() || defaultSkipNote(values.skip_reason)
       : null,
     experience_checks: (values.experience_checks ?? []).map((row) => ({
       kind: row.kind,
@@ -300,6 +321,7 @@ export function useScreeningForm({
       overall_fit: "uncertain",
       notes: "",
       skip_missing: false,
+      skip_reason: null,
       internal_note: "",
       experience_checks: [],
     },
@@ -326,6 +348,7 @@ export function useScreeningForm({
       overall_fit: existing?.overall_fit ?? "uncertain",
       notes: existing?.notes ?? "",
       skip_missing: Boolean(existing?.answers.some((a) => a.skipped)),
+      skip_reason: null,
       internal_note: existing?.internal_note ?? "",
       experience_checks: experienceCheckRows(
         data.champion_profile,
@@ -454,6 +477,7 @@ export function ScreeningFormFields({
         );
         const dealBreakerHit = Boolean(methods.watch(dealBreakerName));
         const skipped = Boolean(methods.watch("skip_missing")) && !answered;
+        const skipReason = methods.watch("skip_reason");
         const originBadge = answerOriginBadge(methods.watch(`answers.${q.id}.origin`));
         const responseName = `answers.${q.id}.response` as const;
         const suggestion = phrase?.results[q.id];
@@ -502,7 +526,9 @@ export function ScreeningFormFields({
                   : answered
                     ? "odpowiedziano"
                     : skipped
-                      ? "pominięte — przepięcie"
+                      ? skipReason && skipReason !== "reassign"
+                        ? "pominięte"
+                        : "pominięte — przepięcie"
                       : "bez odpowiedzi"}
               </span>
             </div>
@@ -737,9 +763,10 @@ export function ScreeningNoQuestions({
   onOpenChampion,
 }: {
   /**
-   * Wejście do sekcji 5 Championa. Bez niego pusty stan mówi „poproś TAC"
-   * i zostawia czytelnika bez drogi — a pytania uzupełnia się o jedną
-   * zakładkę stąd.
+   * Wejście do sekcji 5 Championa — pytania uzupełnia się o jedną zakładkę
+   * stąd. Pusty stan mówi też, co wystarcza do ruchu dalej: bez pytań serwer
+   * zamiast arkusza wymaga „Dlaczego ten kandydat” (12.10.2026; do tej daty
+   * tekst odsyłał do nieistniejącej roli TAC, a ruch i tak był niemożliwy).
    */
   onOpenChampion?: () => void;
 } = {}) {
@@ -747,8 +774,9 @@ export function ScreeningNoQuestions({
     <div className="py-8 text-center text-sm text-muted-foreground">
       <AlertTriangle className="mx-auto mb-2 h-10 w-10 opacity-40" />
       <p>
-        Ta rekrutacja nie ma skonfigurowanego Champion Profile — poproś TAC
-        o uzupełnienie pytań screeningowych.
+        Ta rekrutacja nie ma pytań screeningowych w Profilu Championa. Żeby przekazać
+        osobę dalej, wystarczy stawka kandydata i pole „Dlaczego ten kandydat” w sekcji
+        „Ocena”.
       </p>
       {onOpenChampion && (
         <button
