@@ -59,10 +59,43 @@ class EmploymentInfo(BaseModel):
     job_id: Optional[int] = None
     contract_end_date: Optional[date] = None
     source: Literal["contract", "conflict", "pipeline", "none"] = "none"
-    # WSZYSTKIE aktywne kontrakty (ta sama populacja co gałąź `contract` wyżej —
-    # celowo bez `ending`, żeby lista nigdy nie przeczyła pojedynczym polom).
+    # WSZYSTKIE żywe kontrakty (`active` i `ending` — ta sama populacja co
+    # gałąź `contract` wyżej, żeby lista nigdy nie przeczyła pojedynczym polom).
     # Pierwszy wpis = ten sam kontrakt co `client_id`/`contract_id`.
     engagements: list[EmploymentEngagement] = []
+
+
+EmploymentPhase = Literal["working", "ending", "starting"]
+
+
+class EmploymentMarkerClient(BaseModel):
+    """Jeden klient w znaczniku „Pracuje u nas” — bez kwot, widzi każda rola."""
+
+    client_id: Optional[int] = None
+    client_name: Optional[str] = None
+    contract_id: Optional[int] = None
+    phase: EmploymentPhase
+    # Koniec łańcucha zamówień bez kontynuacji; None = bez daty końca.
+    order_end_date: Optional[date] = None
+    # Tylko faza `starting`: umowa podpisana, start w przyszłości.
+    starts_on: Optional[date] = None
+    delivery_lead_name: Optional[str] = None
+
+
+class EmploymentMarker(BaseModel):
+    """Znacznik przy osobie na każdym ekranie — `services/employment_marker.py`.
+
+    Istnieje dokładnie wtedy, gdy `EmploymentInfo.state == employed_at_client`;
+    `phase` odróżnia „pracuje” od „zaczyna” i „kończy”, czego stare pole nie
+    umie.
+    """
+
+    phase: EmploymentPhase
+    source: Literal["contract", "conflict", "pipeline"]
+    # Liczone tylko, gdy znany jest klient rekrutacji: True = któryś z klientów
+    # znacznika jest spoza rodziny klienta tej rekrutacji.
+    elsewhere: Optional[bool] = None
+    clients: list[EmploymentMarkerClient] = []
 
 
 _VALID_SKILL_LEVELS = {"expert", "senior", "mid", "junior", None}

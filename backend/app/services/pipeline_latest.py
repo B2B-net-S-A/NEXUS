@@ -50,16 +50,14 @@ def latest_stage_ids(*, job_ids: Optional[Sequence[int]] = None) -> Subquery:
     return stmt.subquery()
 
 
-def current_hired_stage_exists(candidate_id: Any, *, client_id: Any = None):
-    """``EXISTS``: kandydat stoi DZIŚ na ``hired`` w jakiejś rekrutacji.
+def current_hired_stage_clause():
+    """Warunek dla zapytania po ``CandidateStage``: wiersz ``hired`` bez
+    późniejszego ruchu w tej samej parze (kandydat, rekrutacja).
 
     ``candidate_stages`` to historia dopisywana, więc „stoi dziś" znaczy:
-    wiersz ``hired`` bez późniejszego ruchu w tej samej parze (kandydat,
-    rekrutacja) — tym samym tiebreakerem ``(moved_at, id)`` co
-    :func:`latest_stage_ids`. Korelacja idzie po przekazanym wyrażeniu
-    (``Candidate.id`` w filtrze listy kandydatów, ``Contract.candidate_id``
-    w definicji żywej umowy), a ``client_id`` zawęża do rekrutacji tego
-    klienta. Jedna kopia reguły — wcześniej żyła w ``_at_client_predicate``.
+    wiersz bez nowszego ruchu, tym samym tiebreakerem ``(moved_at, id)`` co
+    :func:`latest_stage_ids`. Jedna kopia reguły — czyta ją filtr listy
+    kandydatów i znacznik „Pracuje u nas".
     """
     later = aliased(CandidateStage)
     newer_move_exists = (
@@ -79,14 +77,28 @@ def current_hired_stage_exists(candidate_id: Any, *, client_id: Any = None):
         )
         .exists()
     )
+    return and_(CandidateStage.stage == PipelineStage.hired, ~newer_move_exists)
+
+
+def current_hired_stage_exists(candidate_id: Any, *, client_id: Any = None):
+    """``EXISTS``: kandydat stoi DZIŚ na ``hired`` w jakiejś rekrutacji.
+
+    Korelacja idzie po przekazanym wyrażeniu (``Candidate.id`` w filtrze listy
+    kandydatów, ``Contract.candidate_id`` w definicji żywej umowy),
+    a ``client_id`` zawęża do rekrutacji tego klienta. Reguła „stoi dziś"
+    żyje w :func:`current_hired_stage_clause`.
+    """
     conditions = [
         CandidateStage.candidate_id == candidate_id,
-        CandidateStage.stage == PipelineStage.hired,
-        ~newer_move_exists,
+        current_hired_stage_clause(),
     ]
     if client_id is not None:
         conditions += [Job.id == CandidateStage.job_id, Job.client_id == client_id]
     return select(1).where(and_(*conditions)).exists()
 
 
-__all__ = ["current_hired_stage_exists", "latest_stage_ids"]
+__all__ = [
+    "current_hired_stage_clause",
+    "current_hired_stage_exists",
+    "latest_stage_ids",
+]
