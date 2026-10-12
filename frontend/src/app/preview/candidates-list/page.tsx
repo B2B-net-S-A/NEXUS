@@ -20,6 +20,8 @@
  * z sekcji 2 Championa (start od wierszy DL-a).
  * Spis miast (`/api/candidates/places/suggest`) też odpowiada lokalnie —
  * słowo-miasto w wierszu pokazuje podpowiedź „Ustaw lokalizację”.
+ * Lista rekrutacji bloku „Rekrutacje” („Historia z nami”) odpowiada z lokalnej,
+ * fikcyjnej listy: szukanie po nazwie, kliencie i numerze, status, „cały klient”.
  * Dane są fikcyjne — repo jest publiczne.
  */
 
@@ -47,6 +49,11 @@ import {
   foldKeyword,
   type KeywordSuggestion,
 } from "@/lib/keyword-suggest";
+import {
+  RECRUITMENT_LOOKUP_ENDPOINT,
+  type RecruitmentLookupItem,
+  type RecruitmentLookupResponse,
+} from "@/lib/recruitment-lookup";
 import { useAuthStore } from "@/store/auth";
 
 const daysAgo = (days: number) => {
@@ -295,6 +302,55 @@ function fakePlaces(q: string) {
   };
 }
 
+const FAKE_RECRUITMENTS: RecruitmentLookupItem[] = [
+  { id: 2160, title: "UX Designer", client_id: 4, client_name: "Klient Omega", status: "open" },
+  { id: 2150, title: "Data Engineer", client_id: 1, client_name: "Klient Demo", status: "open" },
+  { id: 2143, title: "Java Developer", client_id: 1, client_name: "Klient Demo", status: "open" },
+  { id: 2101, title: "QA Engineer", client_id: 2, client_name: "Klient Beta", status: "open" },
+  { id: 2088, title: "DevOps Engineer", client_id: 2, client_name: "Klient Beta", status: "open" },
+  { id: 1764, title: "Java Developer", client_id: 1, client_name: "Klient Demo", status: "closed" },
+  {
+    id: 1502,
+    title: "Analityk biznesowy",
+    client_id: 2,
+    client_name: "Klient Beta",
+    status: "closed",
+  },
+];
+
+const numberList = (value: unknown): number[] =>
+  (Array.isArray(value) ? value : value == null ? [] : [value]).map(Number);
+
+/** Lokalna odpowiedź `GET /api/jobs-lookup/search` — te same dwa tryby co serwer. */
+function fakeRecruitmentLookup(params: Record<string, unknown>): RecruitmentLookupResponse {
+  const clients = [...new Set(FAKE_RECRUITMENTS.map((r) => r.client_id))].map((id) => {
+    const jobs = FAKE_RECRUITMENTS.filter((r) => r.client_id === id);
+    return { id: id ?? 0, name: jobs[0].client_name ?? "", jobs_count: jobs.length };
+  });
+  const ids = numberList(params.ids);
+  const clientIds = numberList(params.client_ids);
+  if (ids.length > 0 || clientIds.length > 0) {
+    const items = FAKE_RECRUITMENTS.filter((r) => ids.includes(r.id));
+    return {
+      items,
+      clients: clients.filter((c) => clientIds.includes(c.id)),
+      total: items.length,
+    };
+  }
+  const q = foldKeyword(String(params.q ?? ""));
+  const status = String(params.status ?? "open");
+  const items = FAKE_RECRUITMENTS.filter(
+    (r) =>
+      (status === "all" || r.status === status) &&
+      (!q || foldKeyword(`${r.title} ${r.client_name} ${r.id}`).includes(q)),
+  );
+  return {
+    items,
+    clients: q.length >= 2 ? clients.filter((c) => foldKeyword(c.name).includes(q)) : [],
+    total: items.length,
+  };
+}
+
 function fakeKeywordSuggestions(q: string) {
   const t = foldKeyword(q);
   const items: KeywordSuggestion[] = FAKE_SKILLS.filter(
@@ -463,6 +519,18 @@ export default function CandidatesListPreview() {
         const q = String((config.params as { q?: string } | undefined)?.q ?? "");
         config.adapter = async () => ({
           data: fakePlaces(q),
+          status: 200,
+          statusText: "OK",
+          headers: {},
+          config,
+        });
+        return config;
+      }
+      // Lista rekrutacji w bloku „Rekrutacje” filtra „Historia z nami”.
+      if (config.url === RECRUITMENT_LOOKUP_ENDPOINT) {
+        const params = (config.params as Record<string, unknown> | undefined) ?? {};
+        config.adapter = async () => ({
+          data: fakeRecruitmentLookup(params),
           status: 200,
           statusText: "OK",
           headers: {},

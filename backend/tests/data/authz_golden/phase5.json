@@ -26,6 +26,7 @@
   "GET /api/clients-lookup": "PPPPPPPDPPPPPPPPPPP",
   "GET /api/embed-diagnostics": "PDDDDDDDDDDDDDDDDDD",
   "GET /api/jobs-lookup": "PPPPPPPDPPPPPPPPPPP",
+  "GET /api/jobs-lookup/search": "PPPPPPPDPPPPPPPPPPP",
   "PATCH /api/rate-history/{rate_id}": "PDDDDDDDDDDDDDDDDDD",
   "POST /api/candidates/{candidate_id}/rate-history": "PDDDDDDDDDDDDDDDDDD",
   "POST /api/embed-init": "PDDPDDDDPPPDDDDDDDD"

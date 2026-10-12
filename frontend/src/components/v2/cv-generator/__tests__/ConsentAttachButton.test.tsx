@@ -8,6 +8,12 @@ import { ConsentAttachButton } from "../ConsentAttachButton";
 
 const uploadMock = vi.fn(async (_id: number, _file: File) => ({ data: { consent_token: "tok-1", filename: "zgoda.png" } }));
 const attachMock = vi.fn(async (_id: number, _token: string) => ({ data: {} }));
+const stageUploadMock = vi.fn(async (_candidateId: number, _stageId: number, _file: File) => ({
+  data: { consent_token: "tok-etap", filename: "zgoda.png" },
+}));
+const stageAttachMock = vi.fn(async (_stageId: number, _token: string) => ({
+  data: { status: "draft", consent_attached: true },
+}));
 // Wyszukiwanie z debounce i kaskada zapytań — pod obciążeniem (pełny
 // przebieg na współdzielonej maszynie) domyślna sekunda to za mało.
 configure({ asyncUtilTimeout: 10000 });
@@ -20,14 +26,23 @@ vi.mock("@/lib/api", async (importOriginal) => {
       listGenerated: vi.fn(),
       identifyUpload: vi.fn(),
       uploadConsentForGenerated: (id: number, file: File) => uploadMock(id, file),
+      uploadConsentForStage: (candidateId: number, stageId: number, file: File) =>
+        stageUploadMock(candidateId, stageId, file),
       attachConsent: (id: number, token: string) => attachMock(id, token),
       deleteGenerated: vi.fn(),
+    },
+    candidateStageCvApi: {
+      branded: {
+        attachConsent: (stageId: number, token: string) => stageAttachMock(stageId, token),
+      },
     },
   };
 });
 
-function renderButton(props: Partial<Parameters<typeof ConsentAttachButton>[0]> = {}) {
-  const qc = new QueryClient();
+function renderButton(
+  props: Partial<Parameters<typeof ConsentAttachButton>[0]> = {},
+  qc: QueryClient = new QueryClient(),
+) {
   return render(
     <QueryClientProvider client={qc}>
       <ToastProvider>
@@ -46,6 +61,8 @@ function pick(file: File) {
 beforeEach(() => {
   uploadMock.mockClear();
   attachMock.mockClear();
+  stageUploadMock.mockClear();
+  stageAttachMock.mockClear();
 });
 
 describe("ConsentAttachButton", () => {
@@ -57,6 +74,23 @@ describe("ConsentAttachButton", () => {
     await waitFor(() => expect(onAttached).toHaveBeenCalled());
     expect(uploadMock).toHaveBeenCalledWith(42, file);
     expect(attachMock).toHaveBeenCalledWith(42, "tok-1");
+  });
+
+  it("kopia CV bez dokumentu generatora: zrzut wiązany z kandydatem i etapem, zgoda na CV etapu", async () => {
+    // 12.10.2026: plik Word albo CV z innej rekrutacji nie ma wiersza
+    // generatora — trasa generatora (`/generated/{id}/consent`) go nie obsłuży.
+    const onAttached = vi.fn();
+    const qc = new QueryClient();
+    renderButton({ generatedId: undefined, stageCopy: { candidateId: 7, stageId: 31 }, onAttached }, qc);
+    const file = new File(["img"], "zgoda.png", { type: "image/png" });
+    pick(file);
+    await waitFor(() => expect(onAttached).toHaveBeenCalled());
+    expect(stageUploadMock).toHaveBeenCalledWith(7, 31, file);
+    expect(stageAttachMock).toHaveBeenCalledWith(31, "tok-etap");
+    expect(uploadMock).not.toHaveBeenCalled();
+    expect(attachMock).not.toHaveBeenCalled();
+    // Karta czyta stan zgody z CV etapu — odpowiedź trafia od razu pod jego klucz.
+    expect(qc.getQueryData(["cv-branded", 31])).toMatchObject({ consent_attached: true });
   });
 
   it("gdy zrzut już jest — „Wymień zrzut”", () => {

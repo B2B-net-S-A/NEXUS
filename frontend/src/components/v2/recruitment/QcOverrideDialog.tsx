@@ -6,6 +6,10 @@
  * wymagało 10 znaków i zbierało wpisy bez treści. Okno mówi wprost, z czym
  * CV pójdzie dalej. Tylko osoby z uprawnieniem „Rekrutacje: zakładanie,
  * zamykanie, wysyłka CV do klienta” (serwer odmawia reszcie).
+ *
+ * Tryb doradczy (`advisory`, 12.10.2026): to samo okno z tytułem „Przesuń mimo
+ * uwag QC” — otwiera je także rekruter z rekrutacji, a Delivery Lead dostaje
+ * powiadomienie. Powody i walidacja są te same.
  */
 
 import { useId, useState } from "react";
@@ -17,7 +21,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/Toast";
 import { apiErrorMessage } from "@/lib/api-error";
-import { useQcOverride } from "@/lib/api/cvQc";
+import { useQcOverride, type QcResult } from "@/lib/api/cvQc";
 import {
   QC_OVERRIDE_NOTE_MAX,
   QC_OVERRIDE_REASONS,
@@ -36,6 +40,10 @@ export interface QcOverrideDialogProps {
   /** Tytuły rzeczy, które zostają niepoprawione. */
   pending: string[];
   onChanged?: () => void;
+  /** QC doradza, nie blokuje — inne nazwy tytułu, opisu i przycisku. */
+  advisory?: boolean;
+  /** Po zapisaniu powodu, ze świeżym wynikiem QC (np. od razu „Przesuń dalej”). */
+  onDone?: (result: QcResult) => void;
 }
 
 export function overrideSummary(count: number): string {
@@ -45,7 +53,15 @@ export function overrideSummary(count: number): string {
     : `CV pójdzie dalej z ${count} niepoprawionymi rzeczami:`;
 }
 
-export function QcOverrideDialog({ stageId, open, onOpenChange, pending, onChanged }: QcOverrideDialogProps) {
+export function QcOverrideDialog({
+  stageId,
+  open,
+  onOpenChange,
+  pending,
+  onChanged,
+  advisory = false,
+  onDone,
+}: QcOverrideDialogProps) {
   const [reason, setReason] = useState<QcOverrideReason | null>(null);
   const [note, setNote] = useState("");
   const [touched, setTouched] = useState(false);
@@ -68,9 +84,10 @@ export function QcOverrideDialog({ stageId, open, onOpenChange, pending, onChang
     if (error || !reason || override.isPending) return;
     const clean = note.trim();
     override.mutate(clean ? { reason_code: reason, reason: clean } : { reason_code: reason }, {
-      onSuccess: () => {
+      onSuccess: (result) => {
         showSuccess("Przepuszczono mimo QC — powód zapisany w historii.");
         close(false);
+        onDone?.(result);
       },
       onError: (err) => showError(apiErrorMessage(err, "Nie udało się przepuścić. Spróbuj ponownie.")),
     });
@@ -82,8 +99,12 @@ export function QcOverrideDialog({ stageId, open, onOpenChange, pending, onChang
       open={open}
       onOpenChange={close}
       size="md"
-      title="Przepuść mimo QC"
-      description="Powód zobaczy każdy w historii kandydata."
+      title={advisory ? "Przesuń mimo uwag QC" : "Przepuść mimo QC"}
+      description={
+        advisory
+          ? "Delivery Lead dostanie powiadomienie, zobaczy, co zostało niepoprawione, i może cofnąć kartę do poprawy."
+          : "Powód zobaczy każdy w historii kandydata."
+      }
       footer={
         <>
           <Button variant="outline" onClick={() => close(false)}>
@@ -91,7 +112,7 @@ export function QcOverrideDialog({ stageId, open, onOpenChange, pending, onChang
           </Button>
           <Button onClick={submit} disabled={override.isPending || (touched && !!error)}>
             {override.isPending ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
-            Przepuść CV
+            {advisory ? "Przesuń mimo uwag" : "Przepuść CV"}
           </Button>
         </>
       }

@@ -53,6 +53,8 @@ export function filterGroupCounts(
     remote: filters.remote.length,
     history:
       filters.recruitmentIds.length +
+      filters.recruitmentClientIds.length +
+      (filters.recruitmentPresence ? 1 : 0) +
       stageCount +
       (filters.sentToClientFrom || filters.sentToClientTo ? 1 : 0) +
       filters.workedAtClientIds.length +

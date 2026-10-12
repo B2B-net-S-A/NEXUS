@@ -133,6 +133,14 @@ class FixOptionOut(BaseModel):
     group: Literal["answers", "terms", "assessment", "rate", "cv"]
 
 
+class QcOverrideOut(BaseModel):
+    """Kto i dlaczego przesunął kartę mimo uwag QC (`cv_qc._latest_override`)."""
+
+    reason: str
+    by_name: Optional[str] = None
+    at: datetime
+
+
 class DlReviewContext(BaseModel):
     candidate_id: int
     candidate_name: str
@@ -143,6 +151,7 @@ class DlReviewContext(BaseModel):
     category_name: Optional[str] = None
     qc_status: str
     qc_blocking_failed: int = 0
+    qc_override: Optional[QcOverrideOut] = None
     can_see_amounts: bool
     can_see_client_rates: bool
     candidate_rate: Optional[RateOut] = None

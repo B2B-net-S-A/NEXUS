@@ -5,6 +5,7 @@ import {
   pairSourceStageId,
   resolveCvToClient,
   stageCvBadge,
+  stageCvOrigin,
   stageCvStatus,
   type StageGeneratedCvRow,
 } from "@/lib/cv-to-client";
@@ -135,5 +136,95 @@ describe("pairSourceStageId (runda 12)", () => {
     expect(pairSourceStageId({ status: "none" })).toBeNull();
     expect(pairSourceStageId({ status: "none", pair_source_stage_id: null })).toBeNull();
     expect(pairSourceStageId(undefined)).toBeNull();
+  });
+});
+
+describe("CV wybrane zamiast generacji (12.10.2026)", () => {
+  const CHOSEN_AT = "2026-10-12T10:00:00Z";
+  const copy = (extra: Record<string, unknown> = {}) => ({
+    status: "draft",
+    from_generator: true,
+    generated_document_id: null,
+    source: "generator",
+    origin: { kind: "stage_copy", label: "ZOB-9000", selected_at: CHOSEN_AT },
+    ...extra,
+  });
+
+  it("starsza generacja nie jest „nowszą wersją” świeżo wybranego CV", () => {
+    // Auto-CV z rana i kopia wybrana o 10:00 — karta nie może radzić nadpisania.
+    const state = resolveCvToClient({
+      branded: copy(),
+      rows: [row({ id: 40, origin: "auto", created_at: "2026-10-12T08:00:00Z" })],
+    });
+    expect(state.kind).toBe("ready");
+    expect(state.candidate).toBeNull();
+    expect(state.attached).toBeNull();
+  });
+
+  it("generacja zlecona PO wyborze jest proponowana jako „Użyj nowej wersji”", () => {
+    const state = resolveCvToClient({
+      branded: copy(),
+      rows: [row({ id: 41, created_at: "2026-10-12T11:30:00Z" })],
+    });
+    expect(state.candidate?.id).toBe(41);
+  });
+
+  it("generacja bez daty nie przykrywa wyboru; szkic sprzed 12.10 działa jak dotąd", () => {
+    expect(resolveCvToClient({ branded: copy(), rows: [row({ id: 42 })] }).candidate).toBeNull();
+    const before = resolveCvToClient({
+      branded: { status: "draft", from_generator: false, source: "document", generated_document_id: null },
+      rows: [row({ id: 43, created_at: "2026-10-09T09:00:00Z" })],
+    });
+    expect(before.candidate?.id).toBe(43);
+  });
+
+  it("brak zgody czyta z samej kopii, bo wiersza generatora nie ma", () => {
+    const missing = resolveCvToClient({ branded: copy({ consent_missing: true }), rows: [] });
+    expect(missing.consentMissing).toBe(true);
+    expect(missing.attached).toBeNull();
+    expect(resolveCvToClient({ branded: copy(), rows: [] }).consentMissing).toBe(false);
+  });
+
+  it("plakietka mówi, skąd CV; ostrzeżenie przy przepięciu schodzi po zatwierdzeniu", () => {
+    expect(stageCvOrigin(copy())).toMatchObject({ badge: "z rekrutacji ZOB-9000", tone: "neutral" });
+    const carried = copy({ origin: { kind: "reassign", label: "ZOB-9000", selected_at: CHOSEN_AT } });
+    expect(stageCvOrigin(carried)).toMatchObject({
+      badge: "przeniesione z rekrutacji ZOB-9000 — sprawdź przed wysyłką",
+      tone: "warning",
+    });
+    expect(stageCvOrigin({ ...carried, status: "finalized" })).toMatchObject({
+      badge: "przeniesione z rekrutacji ZOB-9000",
+      tone: "neutral",
+    });
+    expect(
+      stageCvOrigin(copy({ source: "document", from_generator: false, origin: { kind: "upload", label: "CV_gotowe.docx" } })),
+    ).toMatchObject({
+      badge: "z pliku Word",
+      sentence: "Wczytane z pliku CV_gotowe.docx. Treść przeniesiona bez AI — sprawdź układ w edytorze.",
+    });
+    // Szkic z pliku sprzed 12.10 nie ma `origin` — zostaje plakietka po źródle.
+    expect(stageCvOrigin({ status: "draft", from_generator: false, source: "document" })?.badge).toBe("z pliku Word");
+    expect(stageCvOrigin(copy({ origin: { kind: "generated_other_job" } }))?.badge).toBe("z innej rekrutacji");
+  });
+
+  it("kopia CV wczytanego z pliku Word nie twierdzi, że nagłówek jest już poprawiony", () => {
+    // Serwer podmienia tytuł tylko w treści z generatora — nagłówek z pliku
+    // zostaje (bywa w nim numer zapytania innego klienta).
+    for (const kind of ["reassign", "stage_copy"]) {
+      const word = stageCvOrigin(
+        copy({ source: "document", from_generator: false, origin: { kind, label: "ZOB-9000" } }),
+      );
+      expect(word?.sentence).not.toContain("Nagłówek ma tytuł tej rekrutacji");
+      expect(word?.sentence).toContain("Nagłówek pochodzi z pliku Word — sprawdź go przed wysyłką.");
+      expect(stageCvOrigin(copy({ origin: { kind, label: "ZOB-9000" } }))?.sentence).toContain(
+        "Nagłówek ma tytuł tej rekrutacji.",
+      );
+    }
+  });
+
+  it("CV z generatora tej rekrutacji i brak CV nie mają plakietki pochodzenia", () => {
+    expect(stageCvOrigin({ status: "draft", from_generator: true, generated_document_id: 7 })).toBeNull();
+    expect(stageCvOrigin({ status: "none" })).toBeNull();
+    expect(stageCvOrigin({ status: "draft", from_generator: false })).toBeNull();
   });
 });

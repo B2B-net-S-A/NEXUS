@@ -197,6 +197,8 @@ describe("Panel „Podobne rekrutacje” — przepięcie jednym kliknięciem", (
       total_added: 2,
       total_skipped: 0,
       linked_now: [1725],
+      // Jedna z osób miała CV w rekrutacji źródłowej (12.10.2026).
+      cv_carried: [10],
     });
     renderPanel();
     fireEvent.click(screen.getByLabelText("Przepnij z: Analityk 1725"));
@@ -219,6 +221,7 @@ describe("Panel „Podobne rekrutacje” — przepięcie jednym kliknięciem", (
       expect.stringContaining("Przepięto 2 osoby do Nowych."),
       expect.objectContaining({ actionLabel: "Cofnij" }),
     );
+    expect(showActionToast.mock.calls[0][0]).toContain("CV z tamtej rekrutacji przeniesiono u 1 z 2.");
 
     // „Cofnij” zdejmuje dodanych z rekrutacji i rozłącza nowe połączenie.
     removeFromRecruitment.mockResolvedValue({});

@@ -218,6 +218,49 @@ async def test_filtered_export_recruitment_matches_list(
 
 
 @pytest.mark.asyncio
+async def test_filtered_export_recruitment_block_matches_list(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Blok „Rekrutacje”: tryb bez zakresu i zakres klienta dają w pliku ten
+    sam zbiór co na ekranie."""
+    cohort = f"ExportRecrBlock{uuid.uuid4().hex[:12]}"
+    member = await _seed_candidate(cohort, suffix="Member")
+    outsider = await _seed_candidate(cohort, suffix="Outsider")
+    job_id, client_id = await _seed_recruitment(member)
+    try:
+        for presence, expected in (
+            ("never", {outsider}),
+            ("ever", {member}),
+            ("not_in_process", {outsider}),
+        ):
+            ids = await _assert_parity(
+                app_client,
+                app_auth_headers,
+                query_params=[("q", cohort), ("recruitment_presence", presence)],
+                filters={"q": cohort, "recruitment_presence": presence},
+            )
+            assert ids == expected, presence
+
+        ids = await _assert_parity(
+            app_client,
+            app_auth_headers,
+            query_params=[
+                ("q", cohort),
+                ("recruitment_client_id", str(client_id)),
+                ("recruitment_match", "not_assigned"),
+            ],
+            filters={
+                "q": cohort,
+                "recruitment_client_id": [client_id],
+                "recruitment_match": "not_assigned",
+            },
+        )
+        assert ids == {outsider}
+    finally:
+        await _cleanup([member, outsider], job_id=job_id, client_id=client_id)
+
+
+@pytest.mark.asyncio
 async def test_filtered_export_boolean_search_matches_list(
     app_client: AsyncClient, app_auth_headers: dict
 ):

@@ -365,6 +365,8 @@ export interface BulkProposalsResponse {
   warnings?: BulkWarningRow[];
   total_added: number;
   total_skipped: number;
+  /** Osoby z przepięcia, którym przeniesiono CV z rekrutacji źródłowej. */
+  cv_carried?: number[];
 }
 
 export interface AssignableStage {

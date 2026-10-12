@@ -8,6 +8,11 @@ import { KEYWORD_SCOPE_OPTIONS, type CandidateFilters } from"@/lib/url-filters";
 import { PIPELINE_STAGE_OPTIONS } from "@/lib/filter-options";
 import { describeLanguageFilter } from "@/lib/candidate-languages";
 import {
+  patchForRemovedRecruitment,
+  patchForRemovedRecruitmentClient,
+} from "@/lib/recruitment-filter";
+import { useRecruitmentLabels } from "@/lib/recruitment-lookup";
+import {
  parseSkillExpression,
  serializeSkillBuckets,
 } from"@/lib/skill-expression";
@@ -62,6 +67,15 @@ const OPEN_TO_LABELS: Record<string, string> = {
  expert_consult: "Konsultacje eksperckie",
 };
 
+const RECRUITMENT_PRESENCE_LABELS: Record<
+ Exclude<CandidateFilters["recruitmentPresence"], "">,
+ string
+> = {
+ never: "Nie brał udziału w żadnej rekrutacji",
+ ever: "Brał udział w rekrutacji",
+ not_in_process: "Bez procesu w toku",
+};
+
 // Etykiety etapów z tego samego źródła co panel filtrów — osobny słownik nie
 // znał „posting” i chip pokazywał surowy slug.
 const STAGE_LABELS: Record<string, string> = Object.fromEntries(
@@ -83,7 +97,8 @@ function collectChips(
  usersById?: Map<number, string>,
  clientsById?: Map<number, string>,
  ccById?: Map<number, string>,
- recruitmentsById?: Map<number, string>
+ recruitmentsById?: Map<number, string>,
+ recruitmentClientsById?: Map<number, string>,
 ): Chip[] {
  const chips: Chip[] = [];
 
@@ -488,16 +503,29 @@ function collectChips(
  ? "Poza rekrutacją"
  : "Rekrutacja"
  }: ${title ? `${title} #${id}` : `#${id}`}`,
- clear: () =>
- onUpdate({
- recruitmentIds: filters.recruitmentIds.filter((item) => item !== id),
- ...(filters.recruitmentIds.length <= 1
- ? { recruitmentMatch: "assigned" as const }
- : {}),
- page: 1,
- }),
+ clear: () => onUpdate({ ...patchForRemovedRecruitment(filters, id), page: 1 }),
  });
  });
+ // „Wszystkie rekrutacje klienta” — część tego samego zakresu co chipy wyżej.
+ filters.recruitmentClientIds.forEach((id) => {
+ const name = recruitmentClientsById?.get(id);
+ chips.push({
+ key: `recruitment_client:${id}`,
+ label: `${
+ filters.recruitmentMatch === "not_assigned"
+ ? "Poza rekrutacjami klienta"
+ : "Rekrutacje klienta"
+ }: ${name ?? `#${id}`}`,
+ clear: () => onUpdate({ ...patchForRemovedRecruitmentClient(filters, id), page: 1 }),
+ });
+ });
+ if (filters.recruitmentPresence) {
+ chips.push({
+ key: "recruitment_presence",
+ label: RECRUITMENT_PRESENCE_LABELS[filters.recruitmentPresence],
+ clear: () => onUpdate({ recruitmentPresence: "", page: 1 }),
+ });
+ }
  if (filters.experienceMin !== null || filters.experienceMax !== null) {
  const lo = filters.experienceMin;
  const hi = filters.experienceMax;
@@ -665,18 +693,21 @@ export function ActiveFilterChips({
  return new Map(ccData.map((c) => [c.id, c.name_pl] as const));
  }, [ccData]);
 
- // Tytuły rekrutacji dla chipu „Rekrutacja” — ten sam klucz co
- // <RecruitmentMultiSelect>, więc po otwarciu pickera to trafienie w cache.
- const { data: recruitmentsData } = useQuery<Array<{ id: number; title: string }>>({
- queryKey: ["jobs-lookup"],
- queryFn: () => api.get("/api/jobs-lookup").then((r) => r.data),
- staleTime: 60_000,
- enabled: filters.recruitmentIds.length > 0,
- });
+ // Nazwy wybranych rekrutacji i klientów zakresu — to samo zapytanie co
+ // przycisk listy w bloku „Rekrutacje” (`useRecruitmentLabels`), także dla
+ // pozycji spoza bieżącej strony listy i z zapisanych wyszukiwań.
+ const { data: recruitmentLabels } = useRecruitmentLabels(
+ filters.recruitmentIds,
+ filters.recruitmentClientIds,
+ );
  const resolvedRecruitments = useMemo(() => {
- if (!recruitmentsData) return undefined;
- return new Map(recruitmentsData.map((r) => [r.id, r.title] as const));
- }, [recruitmentsData]);
+ if (!recruitmentLabels) return undefined;
+ return new Map(recruitmentLabels.items.map((r) => [r.id, r.title] as const));
+ }, [recruitmentLabels]);
+ const resolvedRecruitmentClients = useMemo(() => {
+ if (!recruitmentLabels) return undefined;
+ return new Map(recruitmentLabels.clients.map((c) => [c.id, c.name] as const));
+ }, [recruitmentLabels]);
 
  const chips = collectChips(
  filters,
@@ -686,6 +717,7 @@ export function ActiveFilterChips({
  resolvedClients,
  resolvedCcs,
  resolvedRecruitments,
+ resolvedRecruitmentClients,
  ).filter((chip) => !omitKey?.(chip.key));
  if (chips.length === 0) return null;
 
@@ -716,6 +748,8 @@ export function ActiveFilterChips({
  workedAtClientIds: [],
  recruitmentIds: [],
  recruitmentMatch: "assigned",
+ recruitmentClientIds: [],
+ recruitmentPresence: "",
  experienceMin: null,
  experienceMax: null,
  rateMin: null,

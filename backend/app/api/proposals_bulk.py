@@ -17,7 +17,7 @@ Returned shape lets the UI render a "Added 7, skipped 3" toast with reasons.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
@@ -192,6 +192,9 @@ class BulkProposalsResponse(BaseModel):
     # ``added`` jest wtedy puste — integracja liczy sukces po ``proposed``.
     proposed: list[int] = Field(default_factory=list)
     total_proposed: int = 0
+    # 12.10.2026: osoby z przepięcia, którym CV z rekrutacji źródłowej
+    # przeniesiono jako szkic tej (`stage_cv_copy.carry_on_reassign`).
+    cv_carried: list[int] = Field(default_factory=list)
 
 
 class AssignableStage(BaseModel):
@@ -436,6 +439,7 @@ class IntakeResult:
     skipped: list[BulkSkippedRow]
     warnings: list[BulkWarningRow]
     stage_ids: dict[int, int]
+    cv_carried: list[int] = field(default_factory=list)
 
 
 async def add_candidates_to_job(
@@ -538,6 +542,7 @@ async def add_candidates_to_job(
 
     added: list[int] = []
     stage_ids: dict[int, int] = {}
+    cv_carried: list[int] = []
     skipped: list[BulkSkippedRow] = []
     warnings: list[BulkWarningRow] = []
     reassign_sources = await _reassign_sources(db, job.id, lock_ordered_ids)
@@ -612,7 +617,26 @@ async def add_candidates_to_job(
             # (recommendations.assign_candidate_to_job) already holds. Bulk-add was
             # skipping it, so a client dispute could lack the sent CV. Idempotent +
             # fail-soft on a missing CV, so it never breaks the batch.
-            await create_original_cv_snapshot(db, stage)
+            stage_cv = await create_original_cv_snapshot(db, stage)
+            # 12.10.2026: osoba z przepięcia ma zwykle gotowe CV w rekrutacji,
+            # z której przychodzi. Kopia jako szkic sprawia, że automat po
+            # „Zweryfikowany” nie generuje nowego (`pair_cv_exists`), a rekruter
+            # nie poprawia go drugi raz. `flush` PRZED kopią: jej `except` nie
+            # może połknąć błędu zapisu samego dodania.
+            reassign_from = reassign_sources.get(candidate_id)
+            if reassign_from is not None:
+                from app.services.stage_cv_copy import (  # noqa: PLC0415
+                    carry_on_reassign,
+                )
+
+                await db.flush()
+                if await carry_on_reassign(
+                    db,
+                    stage_cv,
+                    source_job_id=reassign_from,
+                    user_id=actor_user_id,
+                ):
+                    cv_carried.append(candidate_id)
             # Etap pochodzi z command service (writer fence), więc okazja
             # kontaktu wisi na jego wierszu, nie na własnym `CandidateStage`.
             await maybe_ensure_contact_opportunity(
@@ -664,7 +688,11 @@ async def add_candidates_to_job(
         await mark_added_fail_soft(db, job_id=job.id, candidate_ids=added)
 
     return IntakeResult(
-        added=added, skipped=skipped, warnings=warnings, stage_ids=stage_ids
+        added=added,
+        skipped=skipped,
+        warnings=warnings,
+        stage_ids=stage_ids,
+        cv_carried=cv_carried,
     )
 
 
@@ -920,4 +948,5 @@ async def bulk_add_proposals(
         total_skipped=len(skipped),
         proposed=proposed,
         total_proposed=len(proposed),
+        cv_carried=result.cv_carried,
     )

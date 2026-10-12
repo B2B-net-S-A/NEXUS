@@ -184,3 +184,69 @@ async def test_upload_issues_receipt_for_declared_cv_bytes_and_real_operator(
     )
     assert receipt["storage_key"] == response.json()["storage_key"]
     assert receipt["binding"]["uploaded_by"] == 7
+
+
+@pytest.mark.parametrize("central", [True, False])
+async def test_stage_receipt_matches_the_context_used_when_attaching_to_a_stage_copy(
+    monkeypatch, central
+):
+    """Kopia CV etapu (12.10.2026) dołącza zgodę pokwitowaniem z tej trasy.
+
+    Wystawienie i weryfikacja liczą kontekst jednym kodem
+    (`stage_binding_context`) — numer projektu z rekrutacji i etap też.
+    """
+    from app.models.job import Job
+    from app.models.recruitment_pipeline import CandidateStage
+    from app.services.cv_consent_attach import stage_binding_context
+
+    stage = SimpleNamespace(id=2, candidate_id=1, job_id=11)
+    job = SimpleNamespace(
+        id=11, client_id=3, client_reference="ZOB: 48213", reference_number=None
+    )
+    db = AsyncMock()
+    db.get.side_effect = lambda model, _id: {CandidateStage: stage, Job: job}[model]
+    app = FastAPI()
+    app.include_router(api.router)
+    app.state.limiter = api.limiter
+    app.dependency_overrides[api.get_db] = lambda: db
+    app.dependency_overrides[get_args(api.CandidateWriteAccess)[1].dependency] = (
+        lambda: User(id=7, role=UserRole.admin, roles=[UserRole.admin.value])
+    )
+    monkeypatch.setattr(api.central_policies, "enabled", lambda: central)
+    monkeypatch.setattr(
+        api,
+        "resolve_client_rule",
+        AsyncMock(
+            return_value=SimpleNamespace(require_project_ref=True, managed_policy=None)
+        ),
+    )
+    monkeypatch.setattr(api.object_storage, "is_available", lambda: True)
+    monkeypatch.setattr(
+        api.object_storage, "upload_cv", lambda *args: "cv/synthetic-consent.png"
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/cv-generator/consent-screenshot",
+            files={"file": ("consent.png", _tiny_png(), "image/png")},
+            data={"candidate_id": "1", "stage_id": "2"},
+        )
+    assert response.status_code == 200, response.text
+
+    context = await stage_binding_context(db, candidate_id=1, stage_id=2, job=job)
+    receipt = binding.verify(response.json()["consent_token"], 7, context)
+
+    assert receipt["binding"]["subject"] == context
+    if central:
+        assert context["project_ref"] == "48213"
+        assert context["recruitment_stage_id"] == 2
+    else:
+        assert context == binding.subject(candidate_id=1, stage_id=2, client_id=3)
+    # Pokwitowanie z innego etapu tej samej osoby nie przechodzi.
+    with pytest.raises(ValueError):
+        binding.verify(
+            response.json()["consent_token"],
+            7,
+            await stage_binding_context(db, candidate_id=1, stage_id=9, job=job),
+        )

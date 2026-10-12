@@ -14,6 +14,14 @@
  *    i rekrutacją już ustawionymi; serwer sam podpina gotowe CV do etapu;
  *  - stary szablon — szkic HTML sprzed generatora: tylko podgląd.
  *
+ * 12.10.2026 — „Użyj innego CV”: pomiar na produkcji pokazał, że 16 z 22
+ * auto-CV z dwóch tygodni powstało dla osób, które miały już gotowe CV,
+ * a karta dawała tylko „Wygeneruj ponownie”. Pasek „Ta osoba ma już gotowe
+ * CV” podpowiada najlepsze z nich, a okno `UseOtherCvDialog` daje wybór:
+ * CV etapu z innej rekrutacji (z poprawkami rekrutera), plik Word z profilu
+ * albo z dysku. Kopia bez dokumentu generatora ma własną plakietkę
+ * pochodzenia i własne dołączenie zgody RODO.
+ *
  * Karta NICZEGO nie blokuje („Kanban bez bramek”): ruch na „CV wysłane”
  * i stawka do klienta żyją obok, w warsztacie wysyłki. Brak zgody RODO
  * wyłącza wyłącznie pobranie pliku — serwer i tak odpowiada wtedy 409.
@@ -31,6 +39,7 @@ import {
   Loader2,
   Pencil,
   RefreshCcw,
+  Repeat2,
   Sparkles,
 } from "lucide-react";
 
@@ -50,8 +59,10 @@ import {
   cvToClientShouldPoll,
   resolveCvToClient,
   stageBrandedQueryKey,
+  stageCvOrigin,
   type StageGeneratedCvRow,
 } from "@/lib/cv-to-client";
+import { bestReadyCv, otherReadyCvCount, type StageCvOption } from "@/lib/stage-cv-options";
 import {
   BACKGROUND_EVENTS_STEP,
   autoCvSkipReason,
@@ -64,16 +75,12 @@ import { useStageBrandedCv } from "@/hooks/useStageBrandedCv";
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { CvGeneratorDialog } from "@/components/v2/cv-generator/CvGeneratorDialog";
 import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachButton";
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
+import { CvHtmlPreviewDialog } from "@/components/v2/recruitment/CvHtmlPreviewDialog";
+import { UseOtherCvDialog } from "@/components/v2/recruitment/UseOtherCvDialog";
+import { useReadyCvChoice } from "@/components/v2/recruitment/useReadyCvChoice";
 
 // Edytor CV to TipTap — za granicą `dynamic()`, jak w doku kanbana.
 const CVBrandedEditModal = dynamic(
@@ -119,58 +126,50 @@ export function AutoCvSkipNotice({ jobId, candidateId }: { jobId: number; candid
 }
 
 /**
- * Podgląd treści CV etapu. Treść pochodzi z edytora (HTML), więc przed
- * wstawieniem przechodzi przez DOMPurify — ładowany dopiero przy otwarciu.
- * Działa także bez zgody RODO: blokada dotyczy pobrania pliku, nie czytania.
+ * „Ta osoba ma już gotowe CV” — podpowiedź zamiast generacji. Pokazuje
+ * najlepsze z gotowych CV (CV etapu z innej rekrutacji, potem plik Word,
+ * potem generację spoza tej rekrutacji); resztę otwiera okno wyboru.
  */
-function CvHtmlPreviewDialog({
-  open,
-  onOpenChange,
-  html,
-  title,
+function ReadyCvHint({
+  best,
+  count,
+  busy,
+  onUse,
+  onShowAll,
 }: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  html: string | null;
-  title: string;
+  best: StageCvOption;
+  count: number;
+  busy: boolean;
+  onUse: () => void;
+  onShowAll: () => void;
 }) {
-  const [safe, setSafe] = useState<string | null>(null);
-  useEffect(() => {
-    if (!open || !html) return;
-    let cancelled = false;
-    void import("dompurify").then(({ default: DOMPurify }) => {
-      if (cancelled) return;
-      setSafe(DOMPurify.sanitize(html, { FORBID_TAGS: ["style", "script"] }));
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, html]);
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="2xl" className="flex max-h-[92vh] flex-col p-0">
-        <DialogHeader className="border-b border-border px-5 py-3">
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>Podgląd treści CV do klienta.</DialogDescription>
-        </DialogHeader>
-        <div className="flex-1 overflow-auto bg-background p-5">
-          {!html ? (
-            <p className="text-sm text-muted-foreground">To CV nie ma jeszcze treści.</p>
-          ) : safe == null ? (
-            <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
-              <Loader2 className="size-3.5 animate-spin" aria-hidden /> Wczytywanie podglądu…
-            </p>
-          ) : (
-            <div
-              data-testid="cv-to-client-preview"
-              className="prose prose-sm max-w-none rounded-lg border border-border bg-card p-4"
-              // Treść po DOMPurify (bez skryptów i stylów).
-              dangerouslySetInnerHTML={{ __html: safe }}
-            />
-          )}
+    <div
+      role="note"
+      data-testid="ready-cv-hint"
+      className="space-y-2 rounded-md border border-info/25 bg-info-muted px-2.5 py-2 text-xs text-info-muted-foreground"
+    >
+      <div className="flex items-start gap-1.5">
+        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+        <div className="min-w-0">
+          <p className="font-semibold">Ta osoba ma już gotowe CV</p>
+          <p className="break-words">
+            {best.title}
+            {best.origin ? ` · ${best.origin}` : ""}
+          </p>
+          {best.detail ? <p className="break-words">{best.detail}</p> : null}
+          {best.note ? <p className="mt-0.5">{best.note}</p> : null}
         </div>
-      </DialogContent>
-    </Dialog>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        <Button size="sm" loading={busy} disabled={busy} onClick={onUse}>
+          Użyj tego CV
+        </Button>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={onShowAll}>
+          {count > 1 ? `Pokaż wszystkie (${count})` : "Inne źródło albo plik z dysku"}
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -200,6 +199,7 @@ export function CvToClientCard({
   const [editorOpen, setEditorOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [originalOpen, setOriginalOpen] = useState(false);
+  const [otherOpen, setOtherOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
   // Generacja zlecona z TEJ karty — czekamy, aż serwer ją podepnie do etapu.
   const [pending, setPending] = useState<{ id: number; expired: boolean } | null>(null);
@@ -238,6 +238,49 @@ export function CvToClientCard({
     rows: rowsQuery.data,
     pendingGeneratedId: pendingId,
   });
+
+  // „Użyj innego CV”: gotowe CV tej osoby zamiast generacji. Podpowiedź
+  // pokazujemy, gdy CV jeszcze nie ma albo leży auto-CV, którego nikt nie
+  // przejrzał — rekruter, który sam wygenerował albo wybrał CV, już zdecydował.
+  const hasCv = branded != null && branded.status !== "none";
+  // Dopiero po wczytaniu stanu karty: w trakcie ładowania „brak CV” jest
+  // tylko brakiem danych i pytalibyśmy o gotowe CV przy każdym otwarciu.
+  const hintWanted =
+    !readOnly &&
+    brandedQuery.isSuccess &&
+    rowsQuery.isSuccess &&
+    (state.kind === "none" || (state.kind === "ready" && state.needsReview));
+  const choice = useReadyCvChoice({
+    candidateId,
+    jobId,
+    stageId,
+    targetStageId: cvStageId,
+    revision: branded?.edit_revision ?? 0,
+    replaces: hasCv,
+    enabled: !readOnly && (hintWanted || otherOpen),
+    onChosen: () => {
+      setOtherOpen(false);
+      // Wybrane CV kończy czekanie na generację zleconą z tej karty.
+      setPending(null);
+    },
+  });
+  const bestReady = hintWanted && !choice.isPending ? bestReadyCv(choice.options) : null;
+  const readyHint = bestReady ? (
+    <ReadyCvHint
+      best={bestReady}
+      count={otherReadyCvCount(choice.options)}
+      busy={choice.busyKey != null || choice.uploading}
+      onUse={() => void choice.choose(bestReady)}
+      onShowAll={() => setOtherOpen(true)}
+    />
+  ) : null;
+  const useOtherButton = !readOnly ? (
+    <Button size="sm" variant="outline" onClick={() => setOtherOpen(true)}>
+      <Repeat2 className="h-3.5 w-3.5" aria-hidden />{" "}
+      {hasCv ? "Użyj innego CV" : "Użyj gotowego CV"}
+    </Button>
+  ) : null;
+  const origin = stageCvOrigin(branded);
 
   // Odpytywanie: generacja w toku albo czekamy na podpięcie zleconej z karty.
   // Sufit czasu — etap ze starym szkicem nie dostanie podpięcia nigdy, a karta
@@ -369,6 +412,16 @@ export function CvToClientCard({
               wygenerowane automatycznie — sprawdź przed wysyłką
             </Badge>
           ) : null}
+          {origin ? (
+            <Badge
+              size="sm"
+              variant={origin.tone === "warning" ? "warning" : "neutral"}
+              className="h-auto whitespace-normal py-0.5 text-left"
+              data-testid="cv-origin-badge"
+            >
+              {origin.badge}
+            </Badge>
+          ) : null}
         </div>
         {state.attached?.origin === "auto" && state.attached.created_at ? (
           <p className="text-[11px] text-muted-foreground">
@@ -376,6 +429,8 @@ export function CvToClientCard({
             „Zweryfikowany”.
           </p>
         ) : null}
+        {origin ? <p className="text-[11px] text-muted-foreground">{origin.sentence}</p> : null}
+        {readyHint}
         {state.findings > 0 ? (
           <p
             role="note"
@@ -412,7 +467,7 @@ export function CvToClientCard({
             <Download className="h-3.5 w-3.5" aria-hidden /> Pobierz DOCX
           </Button>
         </div>
-        {state.consentMissing && state.attached ? (
+        {state.consentMissing ? (
           <div
             role="note"
             className="flex flex-col items-start gap-2 rounded-md border border-destructive/25 bg-destructive-muted px-2.5 py-2 text-xs text-destructive-muted-foreground"
@@ -420,14 +475,23 @@ export function CvToClientCard({
             <span>
               Zgoda RODO: brak zrzutu. Bez niego nie pobierzesz CV.
             </span>
-            {!readOnly ? (
+            {readOnly ? null : state.attached ? (
               <ConsentAttachButton
                 compact
                 generatedId={state.attached.id}
                 hasConsent={false}
                 onAttached={refresh}
               />
-            ) : null}
+            ) : (
+              // Kopia (plik Word, CV z innej rekrutacji, przepięcie) nie ma
+              // dokumentu generatora — zgoda idzie na CV etapu.
+              <ConsentAttachButton
+                compact
+                stageCopy={{ candidateId, stageId: cvStageId }}
+                hasConsent={false}
+                onAttached={refresh}
+              />
+            )}
           </div>
         ) : null}
         {state.generating ? (
@@ -454,9 +518,12 @@ export function CvToClientCard({
           </div>
         ) : null}
         {!readOnly ? (
-          <Button size="sm" variant="ghost" onClick={openGenerator}>
-            <RefreshCcw className="h-3.5 w-3.5" aria-hidden /> Wygeneruj ponownie
-          </Button>
+          <div className="flex flex-wrap gap-1.5">
+            {useOtherButton}
+            <Button size="sm" variant="ghost" onClick={openGenerator}>
+              <RefreshCcw className="h-3.5 w-3.5" aria-hidden /> Wygeneruj ponownie
+            </Button>
+          </div>
         ) : null}
       </div>
     );
@@ -497,6 +564,7 @@ export function CvToClientCard({
             >
               Użyj tej wersji
             </Button>
+            {useOtherButton}
             <Button size="sm" variant="ghost" onClick={openGenerator}>
               <RefreshCcw className="h-3.5 w-3.5" aria-hidden /> Wygeneruj ponownie
             </Button>
@@ -512,9 +580,12 @@ export function CvToClientCard({
           {state.failed?.error_message ? `: ${state.failed.error_message}` : "."}
         </p>
         {!readOnly ? (
-          <Button size="sm" onClick={openGenerator}>
-            <Sparkles className="h-3.5 w-3.5" aria-hidden /> Spróbuj ponownie
-          </Button>
+          <div className="flex flex-wrap gap-1.5">
+            <Button size="sm" onClick={openGenerator}>
+              <Sparkles className="h-3.5 w-3.5" aria-hidden /> Spróbuj ponownie
+            </Button>
+            {useOtherButton}
+          </div>
         ) : null}
       </div>
     );
@@ -548,6 +619,7 @@ export function CvToClientCard({
               <Sparkles className="h-3.5 w-3.5" aria-hidden /> Wygeneruj CV
             </Button>
           ) : null}
+          {useOtherButton}
         </div>
       </div>
     );
@@ -556,13 +628,19 @@ export function CvToClientCard({
       <div className="space-y-2">
         <AutoCvSkipNotice jobId={jobId} candidateId={candidateId} />
         <p className="text-sm text-foreground">Jeszcze nie ma CV do klienta dla tej rekrutacji.</p>
+        {readyHint}
         {!readOnly ? (
           <div className="space-y-1">
-            <Button size="sm" onClick={openGenerator}>
-              <Sparkles className="h-3.5 w-3.5" aria-hidden /> Generuj CV
-            </Button>
+            <div className="flex flex-wrap gap-1.5">
+              <Button size="sm" variant={readyHint ? "outline" : "primary"} onClick={openGenerator}>
+                <Sparkles className="h-3.5 w-3.5" aria-hidden /> Generuj CV
+              </Button>
+              {/* Pasek ma już wejście do okna wyboru — bez drugiego obok. */}
+              {readyHint ? null : useOtherButton}
+            </div>
             <p className="text-[11px] text-muted-foreground">
-              Otworzy okno generatora z tą osobą i tą rekrutacją.
+              Otworzy okno generatora z tą osobą i tą rekrutacją. CV wybrane albo wgrane tutaj
+              nie zostanie nadpisane przez automat po ruchu na „Zweryfikowany”.
             </p>
           </div>
         ) : (
@@ -629,6 +707,18 @@ export function CvToClientCard({
           stageId={cvStageId}
           jobTitle={jobLabel}
           candidateName={candidateName}
+        />
+      ) : null}
+      {choice.confirmDialog}
+      {otherOpen && !readOnly ? (
+        <UseOtherCvDialog
+          open
+          onOpenChange={setOtherOpen}
+          candidateId={candidateId}
+          candidateName={candidateName}
+          jobLabel={jobLabel}
+          choice={choice}
+          replaces={hasCv}
         />
       ) : null}
       {previewOpen ? (

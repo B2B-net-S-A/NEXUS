@@ -44,6 +44,8 @@ interface StageFilterPanelProps {
   value: StageFilterValue;
   /** Patch one or more sub-values. Caller resets `page` to 1. */
   onChange: (patch: Partial<StageFilterValue>) => void;
+  /** Wyłącza cały filtr (np. „nie brał udziału w żadnej rekrutacji”). */
+  disabled?: boolean;
 }
 
 const EMPTY: StageFilterValue = {
@@ -74,7 +76,7 @@ function facetCount(v: StageFilterValue): number {
  * w okresie od–do" in one place. Backend correlates every sub-field on the
  * SAME stage move (see GET /api/candidates `stage_*` params).
  */
-export function StageFilterPanel({ value, onChange }: StageFilterPanelProps) {
+export function StageFilterPanel({ value, onChange, disabled = false }: StageFilterPanelProps) {
   const [open, setOpen] = useState(false);
   const count = facetCount(value);
   const isActive = count > 0;
@@ -97,11 +99,12 @@ export function StageFilterPanel({ value, onChange }: StageFilterPanelProps) {
   };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open && !disabled} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
           size="md"
           variant="outline"
+          disabled={disabled}
           className={cn(
             "justify-between gap-1.5 bg-card shadow-xs w-[180px]",
             "hover:bg-violet-50 hover:border-violet-300 dark:hover:bg-violet-950/30 dark:hover:border-violet-700",

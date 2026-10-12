@@ -251,6 +251,40 @@ describe("CvHandoffWorkbench", () => {
     expect(screen.queryByText(/dostępne na etapie „Zweryfikowany”/)).toBeNull();
   });
 
+  it("osoba w „Nowych” dostaje kartę CV bez sekcji wysyłki (12.10.2026)", () => {
+    // Gotowe CV da się wskazać, zanim automat po „Zweryfikowany” wygeneruje nowe.
+    const early: KanbanColumn = {
+      stage: "new",
+      name: "Nowi",
+      category: "internal",
+      stage_def_id: 2,
+      count: 1,
+      items: [item({ id: 11, candidate_id: 111, stage: "new" })],
+    };
+    renderWorkbench({
+      columns: [early, ...columns([])],
+      focusCandidateId: 111,
+      panelFallback: <div data-testid="saved-cv-view" />,
+    });
+
+    expect(screen.getByTestId("cv-to-client-card-stub").textContent).toBe("card:11/111/7/rw");
+    expect(screen.getByTestId("cv-send-later-note")).toHaveTextContent("na etapie „Zweryfikowany”");
+    expect(screen.queryByRole("region", { name: "Wysyłka do klienta" })).toBeNull();
+    expect(screen.queryByTestId("saved-cv-view")).toBeNull();
+  });
+
+  it("po „CV wysłane” zostaje podgląd tylko do odczytu, nie karta", () => {
+    renderWorkbench({
+      columns: columns([]),
+      focusCandidateId: 131,
+      panelFallback: <div data-testid="saved-cv-view" />,
+    });
+
+    expect(screen.getByTestId("saved-cv-view")).toBeInTheDocument();
+    expect(screen.queryByTestId("cv-to-client-card-stub")).toBeNull();
+    expect(screen.queryByTestId("cv-send-later-note")).toBeNull();
+  });
+
   it("sekwencja idzie: ruch ze stawką (Pipeline v4) → link na etapie SPRZED ruchu", async () => {
     const { onMoved } = renderWorkbench();
     await readySendButton();

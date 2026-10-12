@@ -65,4 +65,25 @@ describe("candidate-list-staging", () => {
     expect(listSearchLabel(DEFAULT_FILTERS)).toBe("Wszyscy kandydaci");
     expect(listSearchLabel(f({ q: "tester", status: ["active"] }))).toBe("„tester” · +1 filtr");
   });
+
+  it("każda zmiana w bloku „Rekrutacje” czeka na „Szukaj” — żadna nie jest niewidoczna", () => {
+    const states: CandidateFilters[] = [
+      f({}),
+      f({ recruitmentPresence: "ever" }),
+      f({ recruitmentPresence: "never" }),
+      f({ recruitmentPresence: "not_in_process" }),
+      f({ recruitmentIds: [7] }),
+      f({ recruitmentIds: [7], recruitmentMatch: "not_assigned" }),
+      f({ recruitmentClientIds: [3] }),
+      f({ recruitmentClientIds: [3], recruitmentMatch: "not_assigned" }),
+      f({ recruitmentIds: [7], recruitmentClientIds: [3] }),
+    ];
+    for (const applied of states) {
+      for (const draft of states) {
+        if (draft === applied) continue;
+        expect(filterChangeCount(draft, applied)).toBeGreaterThan(0);
+        expect(carryImmediate(applied, draft)).toBe(applied);
+      }
+    }
+  });
 });

@@ -216,7 +216,7 @@ def test_rodo_clause_is_not_part_of_the_last_role() -> None:
         blocks = _blocks(BRANDED_HTML + clause)
         assert blocks[-1].section == "rodo"
         rodo_index = len(blocks) - 1
-        roles = qc.cv_roles(blocks, dz.original_roles(EXPERIENCE, ORIGINAL))
+        roles = qc.cv_roles(blocks, dz.original_roles(EXPERIENCE))
         assert rodo_index not in roles[-1].blocks
         assert "zgod" not in roles[-1].role.text.casefold()
         assert "consent" not in roles[-1].role.text.casefold()
@@ -239,7 +239,6 @@ def test_ai_fix_for_the_last_role_lands_before_the_rodo_clause() -> None:
         html,
         {"role_index": 0, "cv_role_label": "Developer 2018–2021 · Globex"},
         "Aplikacje webowe w **Java** dla klientów sklepu.",
-        original_text=ORIGINAL,
         experience=EXPERIENCE,
     )
     texts = [b.text for b in _blocks(out)]
@@ -322,6 +321,170 @@ def test_critical_skill_described_in_its_roles_passes() -> None:
     assert by["critical_skills"]["status"] == "pass"
     assert by["critical_skills"]["summary"] == "1/1"
     assert qc.summarize(checks)[:2] == (True, 0)
+
+
+# ── Role z odczytu CV (12.10.2026) ───────────────────────────────────────────
+
+# Fikcyjne CV: programista Pythona, wcześniej support i grafik.
+ROLES_READ = [
+    {
+        "company": "Acme Soft",
+        "role": "Backend Developer",
+        "desc": "Rozwój usług rozliczeniowych w Pythonie i Django dla działu finansów.",
+        "technologies": ["Python", "Django", "PostgreSQL"],
+    },
+    {
+        "company": "Globex sp.k.",
+        "role": "Specjalista IT Support & Graphic Designer",
+        "desc": "Wsparcie użytkowników, konfiguracja stacji roboczych, projekty ulotek.",
+        "technologies": ["Windows", "Photoshop"],
+    },
+]
+ROLES_EXPERIENCE_TEXT = (
+    "DOŚWIADCZENIE\n"
+    "Acme Soft 2022-obecnie Backend Developer\n"
+    "Rozwój usług rozliczeniowych w Pythonie i Django dla działu finansów.\n"
+    "Globex sp.k. 2018-2021 Specjalista IT Support & Graphic Designer\n"
+    "Wsparcie użytkowników, konfiguracja stacji roboczych, projekty ulotek.\n"
+)
+ROLES_SKILLS_TEXT = (
+    "UMIEJĘTNOŚCI\nPython, Java, SQL, Photoshop\nKURSY\nJava od podstaw (2023)\n"
+)
+ROLES_HTML = (
+    '<h2 data-cv-section="experience">Doświadczenie</h2>'
+    '<p data-cv-section="role"><b>Backend Developer</b> 2022–obecnie</p>'
+    '<p data-cv-section="employer">Acme Soft</p>'
+    "<ul><li>Rozwijał usługi rozliczeniowe w <b>Pythonie</b> i Django dla działu "
+    "finansów firmy.</li></ul>"
+    '<p data-cv-section="role"><b>Specjalista IT Support &amp; Graphic Designer</b> '
+    "2018–2021</p>"
+    '<p data-cv-section="employer">Globex sp.k.</p>'
+    "<ul><li>Wspierał użytkowników i konfigurował stacje robocze w całej firmie.</li>"
+    "</ul>"
+)
+PYTHON_OR_JAVA = dz.Requirement(
+    label="python lub java", alternatives=("python", "java"), terms=("python", "java")
+)
+SUPPORT_ROLE = "Specjalista IT Support & Graphic Designer · Globex sp.k."
+
+
+def _roles_check(original: str, **extra) -> dict:
+    base = dict(
+        must=[PYTHON_OR_JAVA],
+        critical=[PYTHON_OR_JAVA],
+        original_text=original,
+        experience=ROLES_READ,
+    )
+    base.update(extra)
+    return _by_key(qc.compute_checks(_qc_input(ROLES_HTML, **base)))["critical_skills"]
+
+
+@pytest.mark.parametrize(
+    "original",
+    [
+        # Sekcja umiejętności i kursy POD doświadczeniem: ostatnia rola w pliku
+        # wchłaniała je razem z „Python, Java”.
+        ROLES_EXPERIENCE_TEXT + ROLES_SKILLS_TEXT,
+        # Firma wspomniana w podsumowaniu, umiejętności PRZED doświadczeniem.
+        "PROFIL\nOd 2018 w Globex sp.k., potem programista.\n"
+        + ROLES_SKILLS_TEXT
+        + ROLES_EXPERIENCE_TEXT,
+    ],
+)
+def test_skills_section_does_not_put_the_skill_into_a_role(original: str) -> None:
+    """Zgłoszenie 12.10.2026: QC żądało zdania o „python lub java” w roli
+    supportu, bo tekst roli sięgał od nazwy firmy do końca pliku."""
+    check = _roles_check(original)
+    assert check["status"] == "pass" and check["items"] == []
+    assert {(r["role"], r["state"]) for r in check["roles"]} == {
+        ("Backend Developer · Acme Soft", "described"),
+        (SUPPORT_ROLE, "not_in_original"),
+    }
+
+
+def test_role_gap_carries_the_fragment_of_the_original_it_stands_on() -> None:
+    html = ROLES_HTML.replace(
+        "Rozwijał usługi rozliczeniowe w <b>Pythonie</b> i Django dla działu "
+        "finansów firmy.",
+        "Utrzymywał systemy rozliczeniowe dla działu finansów całej firmy.",
+    )
+    check = _by_key(
+        qc.compute_checks(
+            _qc_input(
+                html,
+                must=[PYTHON_OR_JAVA],
+                critical=[PYTHON_OR_JAVA],
+                original_text=ROLES_EXPERIENCE_TEXT,
+                experience=ROLES_READ,
+            )
+        )
+    )["critical_skills"]
+    assert check["status"] == "fail"
+    (item,) = check["items"]
+    assert item["role"] == "Backend Developer · Acme Soft"
+    assert item["evidence_kind"] == "description"
+    assert item["evidence"] == ROLES_READ[0]["desc"]
+
+
+@pytest.mark.parametrize(
+    ("entry", "kind", "evidence"),
+    [
+        # Opisu nie ma, technologia stoi tylko na liście roli.
+        ({"technologies": ["Java", "Selenium"]}, "technologies", "Java, Selenium"),
+        # Sama nazwa stanowiska.
+        ({"role": "Java Tester"}, "title", "Java Tester"),
+    ],
+)
+def test_role_evidence_names_where_the_read_mentions_the_skill(
+    entry: dict, kind: str, evidence: str
+) -> None:
+    role = dz.original_roles([{"company": "Umbrella", "role": "Tester", **entry}])[0]
+    assert qc.role_evidence(role, _reqs("Java")[0]) == (kind, evidence)
+    assert qc.role_evidence(role, _reqs("Kafka")[0]) == (None, None)
+
+
+def test_read_without_role_descriptions_is_manual_not_a_block() -> None:
+    """Decyzja Artura 12.10.2026: gdy odczyt nie mówi, czego kandydat używał
+    w której roli, QC nie zgaduje z tekstu pliku — „sprawdź ręcznie”."""
+    bare = [{k: e[k] for k in ("company", "role")} for e in ROLES_READ]
+    check = _roles_check(ROLES_EXPERIENCE_TEXT + ROLES_SKILLS_TEXT, experience=bare)
+    assert check["status"] == "manual" and check["items"] == []
+    assert check["summary"] == "Odczyt CV nie ma opisów ról — sprawdź role ręcznie"
+    assert {r["state"] for r in check["roles"]} == {"unverified"}
+    passed, blocking, _ = qc.summarize([check])
+    assert passed and blocking == 0
+
+
+def test_role_entries_prefer_the_cv_read_over_a_bare_profile_history() -> None:
+    """Historia z importu Traffita nie ma opisów; pełny odczyt CV zostaje
+    w `cv_extracted_data` i to on mówi, co kandydat robił w której roli."""
+    bare = [{k: e[k] for k in ("company", "role")} for e in ROLES_READ]
+    read = [
+        {**{k: v for k, v in e.items() if k != "desc"}, "description": e["desc"]}
+        for e in ROLES_READ
+    ]
+    rich = SimpleNamespace(
+        experience=bare, cv_extracted_data={"_profile_schema": 2, "experience": read}
+    )
+    roles = dz.original_roles(dz.role_entries(rich, ROLES_EXPERIENCE_TEXT))
+    assert [r.detail for r in roles] == [True, True]
+    assert roles[0].desc == ROLES_READ[0]["desc"]
+
+    # Odczyt sprzed profilu v7 (bez `_profile_schema`) i odczyt bez opisów.
+    for extracted in ({"experience": read}, {"_profile_schema": 2, "experience": bare}):
+        weak = SimpleNamespace(experience=bare, cv_extracted_data=extracted)
+        assert dz.role_entries(weak, ROLES_EXPERIENCE_TEXT) == bare
+    # Odczyt innego pliku niż oryginał pary: jego firm nie ma w tekście.
+    other = SimpleNamespace(
+        experience=bare,
+        cv_extracted_data={
+            "_profile_schema": 2,
+            "experience": [
+                {"company": "Initech", "role": "Dev", "description": "Java w banku."}
+            ],
+        },
+    )
+    assert dz.role_entries(other, ROLES_EXPERIENCE_TEXT) == bare
 
 
 def test_critical_requirements_follow_the_search_gate() -> None:
@@ -892,6 +1055,93 @@ def test_parse_fixes_quote_must_be_a_sentence_about_the_requirement(
 # ── Edycja HTML ─────────────────────────────────────────────────────────────
 
 
+def _roles_material() -> dict:
+    """Brak w roli supportu; druga rola oryginału to programista Pythona."""
+    return {
+        "items": [
+            {
+                "requirement": "python lub java",
+                "terms": ["python", "java"],
+                "role": SUPPORT_ROLE,
+                "role_index": 1,
+                "cv_role_label": SUPPORT_ROLE,
+                "cv_points": [],
+                "original_role": "Wsparcie użytkowników, konfiguracja stacji roboczych.",
+                "company": "Globex sp.k.",
+                "other_roles": [ROLES_READ[0]["desc"]],
+                "other_companies": ["Acme Soft"],
+            }
+        ],
+        "original": ROLES_EXPERIENCE_TEXT + ROLES_SKILLS_TEXT,
+        "notes": "Kandydat pisał w Globex skrypty w Pythonie do instalacji stacji.",
+        "cv": "",
+    }
+
+
+def _roles_fix(quote: str, source: str = "original") -> str:
+    return json.dumps(
+        {
+            "fixes": [
+                {
+                    "requirement": "python lub java",
+                    "role": SUPPORT_ROLE,
+                    "current_text": None,
+                    "proposed_text": "Pisał skrypty w **Pythonie** do instalacji stacji.",
+                    "source": source,
+                    "source_quote": quote,
+                }
+            ]
+        },
+        ensure_ascii=False,
+    )
+
+
+@pytest.mark.parametrize(
+    "quote",
+    [
+        # Zdanie z roli programisty — stoi w odczycie INNEJ roli.
+        "Rozwój usług rozliczeniowych w Pythonie i Django",
+        # Lista z sekcji umiejętności to nie zdanie o pracy.
+        "Python, Java, SQL, Photoshop",
+    ],
+)
+def test_parse_fixes_drops_quotes_that_belong_elsewhere(quote: str) -> None:
+    """12.10.2026: serwer przyjmował zdanie o Pythonie do roli supportu
+    z cytatem z dowolnego miejsca pliku."""
+    assert qc.parse_fixes(_roles_fix(quote), _roles_material(), "f" * 64) == []
+
+
+def test_parse_fixes_drops_a_quote_standing_under_another_employer() -> None:
+    """Cytatu nie ma w odczycie żadnej roli, ale w pliku stoi pod inną firmą."""
+    material = _roles_material()
+    material["items"][0]["other_roles"] = []
+    material["original"] = (
+        "Acme Soft 2022-obecnie\nAutomatyzacja wdrożeń skryptami w Pythonie i Bashu.\n"
+        "Globex sp.k. 2018-2021\nWsparcie użytkowników i konfiguracja stacji.\n"
+    )
+    raw = _roles_fix("Automatyzacja wdrożeń skryptami w Pythonie i Bashu")
+    assert qc.parse_fixes(raw, material, "a" * 64) == []
+    # Nazwa firmy tej roli bywa częścią cytatu.
+    own = _roles_fix("Globex sp.k. 2018-2021 skrypty w Pythonie do stacji")
+    material["original"] = (
+        "Acme Soft 2022-obecnie\nRozwój usług.\n"
+        "Globex sp.k. 2018-2021 skrypty w Pythonie do stacji roboczych.\n"
+    )
+    assert len(qc.parse_fixes(own, material, "d" * 64)) == 1
+    # Ten sam cytat pod firmą tej roli przechodzi.
+    material["original"] = (
+        "Acme Soft 2022-obecnie\nRozwój usług.\n"
+        "Globex sp.k. 2018-2021\nAutomatyzacja wdrożeń skryptami w Pythonie i Bashu.\n"
+    )
+    assert len(qc.parse_fixes(raw, material, "b" * 64)) == 1
+
+
+def test_parse_fixes_keeps_a_sentence_from_the_notes() -> None:
+    raw = _roles_fix("pisał w Globex skrypty w Pythonie do instalacji", "notes")
+    (fix,) = qc.parse_fixes(raw, _roles_material(), "c" * 64)
+    assert fix["source"] == "notes" and fix["role"] == SUPPORT_ROLE
+
+
 def test_editable_parser_sees_the_same_blocks_as_the_review() -> None:
     doc = qc.EditableCv.parse(BRANDED_HTML)
     assert [b.text for b in doc.blocks] == [b.text for b in _blocks(BRANDED_HTML)]
@@ -924,7 +1174,6 @@ def test_ai_fix_replaces_a_point_or_appends_one_to_the_role() -> None:
         BRANDED_HTML,
         fix,
         "Rozwój usług **Java** na **Kubernetes** <script>",
-        original_text=ORIGINAL,
         experience=EXPERIENCE,
     )
     assert (
@@ -941,7 +1190,6 @@ def test_ai_fix_replaces_a_point_or_appends_one_to_the_role() -> None:
             "current_text": None,
         },
         "Aplikacje webowe w **Java** i React dla klientów sklepu.",
-        original_text=ORIGINAL,
         experience=EXPERIENCE,
     )
     texts = [b.text for b in _blocks(appended)]
@@ -953,7 +1201,6 @@ def test_ai_fix_replaces_a_point_or_appends_one_to_the_role() -> None:
             BRANDED_HTML,
             {**fix, "current_text": "Punkt, którego już nie ma."},
             "x **Java**",
-            original_text=ORIGINAL,
             experience=EXPERIENCE,
         )
 
@@ -974,7 +1221,6 @@ def test_ai_fix_never_replaces_the_same_text_in_another_role() -> None:
             html,
             fix,
             "Code review usług **Kubernetes** w zespole platformy.",
-            original_text=ORIGINAL,
             experience=EXPERIENCE,
         )
 
@@ -1265,6 +1511,8 @@ async def test_gate_blocks_cv_sent_until_qc_passes_or_dl_overrides(
     api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", True)
+    # Stan sprzed trybu doradczego: obejście ma wyłącznie osoba od wysyłki.
+    monkeypatch.setattr(settings, "CV_QC_ADVISORY", False)
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
     world = await _seed_world()
     hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
@@ -1934,3 +2182,338 @@ def test_company_claim_needs_two_words_not_a_generic_first_word() -> None:
         today=date(2026, 10, 5),
     )
     assert [c[2] for c in claims] == ["Bank Pekao S.A."]
+
+
+def test_qc_decisions_despite_remarks_are_made_by_a_person_not_an_integration() -> None:
+    """Token klienta OAuth (scraper, n8n) działa jako konto z rolą operacyjną —
+    bez tej odmowy przeszedłby obejście QC i zapis „potwierdzone z kandydatem”
+    tą samą bramką co rekruter (przegląd bezpieczeństwa 12.10.2026)."""
+    from fastapi import HTTPException
+
+    from app.api import cv_qc as api
+
+    person = SimpleNamespace(state=SimpleNamespace())
+    api._ensure_person(person)
+    integration = SimpleNamespace(state=SimpleNamespace(oauth_client_id="scrapers"))
+    with pytest.raises(HTTPException) as refused:
+        api._ensure_person(integration)
+    assert refused.value.status_code == 403
+
+
+# ── Tryb doradczy, potwierdzenie z kandydatem, przeliczenie (12.10.2026) ─────
+
+
+async def _assign_job(world: dict, **fields) -> None:
+    """Rekruter i Delivery Lead rekrutacji (członkostwo, odbiorca dzwonka)."""
+    from app.models.job import Job
+
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job_id"])
+        for name, value in fields.items():
+            setattr(job, name, value)
+        await db.commit()
+
+
+async def _cleanup_advisory(world: dict, stage_id: int, user_ids: list[int]) -> None:
+    from app.models.note import Note
+    from app.models.notification import Notification
+
+    await _assign_job(world, recruiter_id=None, delivery_lead_id=None)
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(Notification).where(Notification.user_id.in_(user_ids)))
+        await db.execute(delete(Note).where(Note.candidate_id == world["candidate_id"]))
+        await db.execute(
+            delete(Activity).where(
+                Activity.entity_type == "candidate_stage",
+                Activity.entity_id == stage_id,
+                Activity.action.in_(("cv_qc_override", "cv_qc_confirmed")),
+            )
+        )
+        await db.commit()
+    await _cleanup_qc(world, stage_id)
+    await _cleanup(world, user_ids)
+
+
+@pytest.mark.asyncio
+async def test_advisory_mode_lets_the_recruiter_pass_and_rings_the_delivery_lead(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Decyzja Artura 12.10.2026: na czas wdrażania zespołu QC doradza —
+    rekruter przesuwa kartę mimo uwag, Delivery Lead dostaje dzwonek. Obejście
+    ma ten, kto może przesuwać karty (rekrutacje są wspólne od 23.09.2026)."""
+    from app.models.notification import Notification
+
+    monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", True)
+    monkeypatch.setattr(settings, "CV_QC_ADVISORY", True)
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
+    world = await _seed_world()
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    hor = await _login(api_client, hor_creds)
+    dl = await _login(api_client, dl_creds)
+    rec = await _login(api_client, rec_creds)
+    stage_id = await _seed_review(world, hor, api_client)
+    await _mark_critical(world, "Java", "Kubernetes")
+    await _assign_job(world, delivery_lead_id=dl_id)
+    qc_url = f"/api/pipeline/stages/{stage_id}/qc"
+
+    async def bells(user_id: int) -> list[str]:
+        async with AsyncSessionLocal() as db:
+            rows = await db.scalars(
+                select(Notification.title).where(
+                    Notification.user_id == user_id,
+                    Notification.related_entity_type == "candidate_stage",
+                    Notification.related_entity_id == stage_id,
+                )
+            )
+            return list(rows)
+
+    try:
+        with hydrated_taxonomy():
+            mine = (await api_client.get(qc_url, headers=rec)).json()
+        assert mine["advisory"] is True and mine["can_override"] is True
+
+        with hydrated_taxonomy():
+            ok = await api_client.post(
+                f"{qc_url}/override",
+                headers=rec,
+                json={"reason_code": "confirmed_in_call"},
+            )
+        assert ok.status_code == 200, ok.text
+        assert (
+            ok.json()["override"]["reason"] == qc.OVERRIDE_REASONS["confirmed_in_call"]
+        )
+        assert [t.split(":")[0] for t in await bells(dl_id)] == [
+            "Przesunięte mimo uwag QC"
+        ]
+        assert await bells(rec_id) == []
+        async with AsyncSessionLocal() as db:
+            details = await db.scalar(
+                select(Activity.details).where(
+                    Activity.action == "cv_qc_override", Activity.entity_id == stage_id
+                )
+            )
+        assert details["advisory"] is True
+
+        # Delivery Lead widzi to w przeglądzie przed wysyłką.
+        with hydrated_taxonomy():
+            context = await api_client.get(
+                "/api/dl-review/context",
+                headers=dl,
+                params={
+                    "candidate_id": world["candidate_id"],
+                    "job_id": world["job_id"],
+                },
+            )
+        assert context.status_code == 200, context.text
+        body = context.json()
+        assert body["qc_status"] == "overridden"
+        assert body["qc_override"]["reason"] == qc.OVERRIDE_REASONS["confirmed_in_call"]
+        assert "qc_overridden" in {r["code"] for r in body["risks"]}
+
+        # Obejście osoby od wysyłki nikogo nie powiadamia.
+        with hydrated_taxonomy():
+            by_dl = await api_client.post(
+                f"{qc_url}/override",
+                headers=dl,
+                json={"reason_code": "client_short_cv"},
+            )
+        assert by_dl.status_code == 200, by_dl.text
+        assert len(await bells(dl_id)) == 1
+
+        # Wyłącznik: obejście wraca do osoby z uprawnieniem wysyłki.
+        monkeypatch.setattr(settings, "CV_QC_ADVISORY", False)
+        with hydrated_taxonomy():
+            strict = (await api_client.get(qc_url, headers=rec)).json()
+        assert strict["advisory"] is False and strict["can_override"] is False
+        refused = await api_client.post(
+            f"{qc_url}/override", headers=rec, json={"reason_code": "client_short_cv"}
+        )
+        assert refused.status_code == 403
+    finally:
+        await _cleanup_advisory(world, stage_id, [hor_id, dl_id, rec_id])
+
+
+@pytest.mark.asyncio
+async def test_advisory_override_opens_the_cpro_queue_for_the_recruiter(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """U Nordei do kolejki Cpro przekazuje rekruter — bez obejścia utykał tam
+    na bramce QC, bo przeglądu Delivery Leada po drodze nie ma."""
+    monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", True)
+    monkeypatch.setattr(settings, "CV_QC_ADVISORY", True)
+    world = await _seed_world()
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", str(world["client_id"]))
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    hor = await _login(api_client, hor_creds)
+    rec = await _login(api_client, rec_creds)
+    stage_id = await _seed_review(world, hor, api_client)
+    await _mark_critical(world, "Java", "Kubernetes")
+    to_queue = {
+        "candidate_id": world["candidate_id"],
+        "job_id": world["job_id"],
+        "stage_def_id": world["defs"]["cpro"],
+    }
+    try:
+        with hydrated_taxonomy():
+            refused = await api_client.post(
+                "/api/pipeline/move", headers=rec, json=to_queue
+            )
+        assert refused.status_code == 409, refused.text
+        assert refused.json()["detail"]["code"] == "CV_QC_FAILED"
+        with hydrated_taxonomy():
+            passed = await api_client.post(
+                f"/api/pipeline/stages/{stage_id}/qc/override",
+                headers=rec,
+                json={"reason_code": "requirement_not_applicable"},
+            )
+            assert passed.status_code == 200, passed.text
+            moved = await api_client.post(
+                "/api/pipeline/move", headers=rec, json=to_queue
+            )
+        assert moved.status_code == 200, moved.text
+
+        async def status() -> str:
+            pair = (world["candidate_id"], world["job_id"])
+            async with AsyncSessionLocal() as db:
+                return (await qc.pair_statuses(db, [pair]))[pair]["status"]
+
+        # W kolejce Cpro karta jest „przepuszczona mimo QC”, nie „do poprawy”.
+        assert await status() == "overridden"
+
+        # Obejście rekrutera działa do zwrotu karty: po powrocie z kolejki QC
+        # znów pyta, a nowe „Przesuń mimo uwag…” znów powiadamia.
+        with hydrated_taxonomy():
+            await _move(api_client, hor, world, "qc")
+            again = await api_client.post(
+                "/api/pipeline/move", headers=rec, json=to_queue
+            )
+        assert again.status_code == 409, again.text
+        assert again.json()["detail"]["code"] == "CV_QC_FAILED"
+        assert await status() == "failed"
+    finally:
+        await _cleanup_advisory(world, stage_id, [hor_id, rec_id])
+
+
+@pytest.mark.asyncio
+async def test_confirmed_with_candidate_becomes_a_note_and_clears_the_item(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """„Jest w CV, a nie ma tego w oryginale” + kandydat potwierdził w rozmowie:
+    potwierdzenie zostaje notatką pary, a QC — które notatki już czyta jako
+    źródło — przestaje zgłaszać pozycję."""
+    from app.models.job import Job
+    from app.models.note import Note
+    from app.services import note_kinds
+
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
+    world = await _seed_world()
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    hor = await _login(api_client, hor_creds)
+    rec = await _login(api_client, rec_creds)
+    stage_id = await _seed_review(world, hor, api_client)
+    # „Spring” stoi w CV firmowym, a oryginał i notatki o nim nie mówią.
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job_id"])
+        job.must_skills = ["Java", "Spring"]
+        await db.commit()
+    qc_url = f"/api/pipeline/stages/{stage_id}/qc"
+
+    def unsupported(body: dict) -> list[str]:
+        check = next(c for c in body["checks"] if c["key"] == "no_unsupported")
+        return [i["term"] for i in check["items"]] if check["status"] == "fail" else []
+
+    try:
+        with hydrated_taxonomy():
+            before = (await api_client.get(qc_url, headers=rec)).json()
+        assert unsupported(before) == ["Spring"] and before["confirmations"] == []
+
+        with hydrated_taxonomy():
+            unknown = await api_client.post(
+                f"{qc_url}/confirm", headers=rec, json={"term": "Kafka"}
+            )
+        assert unknown.status_code == 422
+        assert unknown.json()["detail"]["code"] == "CV_QC_CONFIRM_FAILED"
+
+        with hydrated_taxonomy():
+            ok = await api_client.post(
+                f"{qc_url}/confirm",
+                headers=rec,
+                json={"term": "spring", "text": "  Spring Boot w Acme,\n150/110  "},
+            )
+        assert ok.status_code == 200, ok.text
+        after = ok.json()
+        assert unsupported(after) == []
+        (confirmation,) = after["confirmations"]
+        assert confirmation["text"] == (
+            "Potwierdzone z kandydatem: Spring — Spring Boot w Acme, 150/110"
+        )
+        async with AsyncSessionLocal() as db:
+            note = await db.scalar(
+                select(Note).where(
+                    Note.candidate_id == world["candidate_id"],
+                    Note.external_source == note_kinds.QC_CONFIRM_SOURCE,
+                )
+            )
+        # Zwykła notatka z rozmowy mimo kwoty w treści — czyta ją QC i modele.
+        assert note.kind == note_kinds.HUMAN
+        assert note.job_id == world["job_id"] and note.author_id == rec_id
+    finally:
+        await _cleanup_advisory(world, stage_id, [hor_id, rec_id])
+
+
+@pytest.mark.asyncio
+async def test_recompute_outdated_refreshes_failed_runs_of_older_rules(
+    api_client: AsyncClient,
+) -> None:
+    """Plakietka na Tablicy czyta zapisany przebieg — po zmianie reguł QC
+    nieudane przebiegi starszej wersji liczą się od nowa, raz."""
+    from sqlalchemy import text
+
+    world = await _seed_world()
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    hor = await _login(api_client, hor_creds)
+    stage_id = await _seed_review(world, hor, api_client)
+    await _mark_critical(world, "Java", "Kubernetes")
+
+    async def versions() -> list[str]:
+        async with AsyncSessionLocal() as db:
+            rows = await db.scalars(
+                select(CvQcRun.result["qc_version"].astext)
+                .where(CvQcRun.candidate_id == world["candidate_id"])
+                .order_by(CvQcRun.id)
+            )
+            return list(rows)
+
+    try:
+        with hydrated_taxonomy():
+            first = await api_client.get(
+                f"/api/pipeline/stages/{stage_id}/qc", headers=hor
+            )
+        assert first.json()["passed"] is False
+        assert await versions() == [qc.QC_VERSION]
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                text(
+                    "UPDATE cv_qc_runs SET result = "
+                    "jsonb_set(result, '{qc_version}', '\"old\"') "
+                    "WHERE candidate_id = :cid"
+                ),
+                {"cid": world["candidate_id"]},
+            )
+            await db.commit()
+
+        with hydrated_taxonomy():
+            async with AsyncSessionLocal() as db:
+                assert await qc.recompute_outdated(db) >= 1
+            assert await versions() == ["old", qc.QC_VERSION]
+            # Drugie przejście nie ma już czego liczyć dla tej pary.
+            async with AsyncSessionLocal() as db:
+                await qc.recompute_outdated(db)
+        assert await versions() == ["old", qc.QC_VERSION]
+    finally:
+        await _cleanup_qc(world, stage_id)
+        await _cleanup(world, [hor_id])

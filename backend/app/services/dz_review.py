@@ -397,6 +397,11 @@ class Role:
     company: Optional[str]
     text: str
     title: Optional[str] = None
+    # Role z oryginału (`original_roles`): opis i technologie z odczytu TEJ
+    # roli. ``detail=False`` = odczyt nie mówi, czego kandydat w niej używał.
+    desc: str = ""
+    technologies: tuple[str, ...] = ()
+    detail: bool = True
 
 
 def _role_label(company: Optional[str], title: Optional[str]) -> str:
@@ -467,38 +472,92 @@ def segment_by_companies(text: str, companies: list[str]) -> dict[str, str]:
     return out
 
 
-def original_roles(experience: Any, original_text: str) -> list[Role]:
-    """Role z oryginału: wpisy ``candidate.experience`` (odczyt CV).
+def _entry_desc(entry: dict) -> str:
+    """Opis roli: ``desc`` w historii profilu, ``description`` w odczycie CV."""
+    return str(entry.get("desc") or entry.get("description") or "").strip()
 
-    Treść roli = opis i technologie z odczytu, a gdy ich brak (odczyt starszy
-    niż profil v7) — kawałek tekstu oryginału przy nazwie firmy.
+
+def _entry_technologies(entry: dict) -> tuple[str, ...]:
+    raw = entry.get("technologies")
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        return ()
+    return tuple(str(t).strip() for t in raw if str(t or "").strip())
+
+
+def _read_matches_original(entries: list[dict], original_text: str) -> bool:
+    """Czy odczyt opisuje TEN plik: co najmniej połowa firm stoi w oryginale.
+
+    Odczyt w profilu pochodzi z najnowszego CV kandydata, a QC porównuje
+    z migawką oryginału pary — po wgraniu nowego pliku mogą się różnić.
+    """
+    low = (original_text or "").casefold()
+    names = {
+        str(e.get("company") or "").strip().casefold()
+        for e in entries
+        if len(str(e.get("company") or "").strip()) >= 3
+    }
+    if not low.strip() or not names:
+        return True
+    return sum(1 for name in names if name in low) * 2 >= len(names)
+
+
+def role_entries(candidate: Any, original_text: str) -> list[dict]:
+    """Wpisy ról, z których QC i przegląd czytają „co kandydat robił i gdzie”.
+
+    Pełny odczyt CV (v7) zostaje w ``cv_extracted_data["experience"]`` także
+    wtedy, gdy ``candidate.experience`` pochodzi z importu Traffita i opisów
+    nie ma (pomiar 12.10.2026: 26 z 41 kandydatów w QC bez opisów ról
+    w historii profilu). Bez takiego odczytu — historia profilu.
+    """
+    from app.services.profile_projection import has_rich_profile
+
+    profile = [
+        e for e in (getattr(candidate, "experience", None) or []) if isinstance(e, dict)
+    ]
+    extracted = getattr(candidate, "cv_extracted_data", None)
+    if not isinstance(extracted, dict) or not has_rich_profile(extracted):
+        return profile
+    read = [
+        e
+        for e in (extracted.get("experience") or [])
+        if isinstance(e, dict) and (e.get("company") or e.get("role"))
+    ]
+    if not any(_entry_desc(e) or _entry_technologies(e) for e in read):
+        return profile
+    return read if _read_matches_original(read, original_text) else profile
+
+
+def original_roles(experience: Any) -> list[Role]:
+    """Role z oryginału: wpisy odczytu CV (`role_entries`).
+
+    Treść roli = stanowisko, opis i technologie z odczytu TEJ roli. Do
+    12.10.2026 doklejany był też kawałek tekstu pliku od nazwy firmy do
+    następnej firmy albo do końca dokumentu: ostatnia rola wchłaniała sekcję
+    umiejętności i kursy, a firma wspomniana w podsumowaniu — wszystko, co
+    stało po nim. QC żądało wtedy zdania o technologii w roli, w której
+    kandydat jej nie używał. Wpis bez opisu i technologii (``detail=False``)
+    nie mówi nic o tym, czego kandydat w roli używał.
     """
 
-    entries = [e for e in (experience or []) if isinstance(e, dict)]
-    companies = [e.get("company") for e in entries if e.get("company")]
-    segments = segment_by_companies(original_text or "", companies)
     roles: list[Role] = []
-    for e in entries:
+    for e in experience or []:
+        if not isinstance(e, dict):
+            continue
         company = e.get("company") or None
         title = e.get("role") or None
-        own = " ".join(
-            str(v)
-            for v in (
-                title,
-                e.get("desc"),
-                " ".join(e.get("technologies") or [])
-                if isinstance(e.get("technologies"), list)
-                else e.get("technologies"),
-            )
-            if v
-        )
-        segment = segments.get(company or "", "")
+        desc = _entry_desc(e)
+        technologies = _entry_technologies(e)
         roles.append(
             Role(
                 label=_role_label(company, title),
                 company=company,
-                text=f"{own}\n{segment}".strip(),
+                text="\n".join(v for v in (title, desc, ", ".join(technologies)) if v),
                 title=title,
+                desc=desc,
+                technologies=technologies,
+                detail=bool(desc or technologies),
             )
         )
     return roles
@@ -572,7 +631,7 @@ def analyze(
     gen_text = blocks_text(blocks)
     bolds = bold_texts(blocks)
     bold_joined = "\n".join(bolds)
-    orig_roles = original_roles(experience, original_text)
+    orig_roles = original_roles(experience)
     gen_roles = generated_roles(blocks)
     if not gen_roles and orig_roles:
         # CV bez znaczników generatora: role po nazwach firm z oryginału.
@@ -1193,7 +1252,7 @@ async def build_review(db: AsyncSession, stage: CandidateStage) -> dict:
         nice,
         blocks,
         original.get("text") or "",
-        candidate.experience,
+        role_entries(candidate, original.get("text") or ""),
         bold_known=bold_known,
     )
     name = " ".join(p for p in (candidate.name, candidate.lastname) if p) or "Kandydat"

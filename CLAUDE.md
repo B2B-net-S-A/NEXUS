@@ -184,6 +184,7 @@ Lista `/jobs`, Tablica, ruch kart i bramki, panel osoby, QC CV i Cpro, przegląd
 - `prostszy-ekran-rekrutacji-fakty-kafle-kandydaci-do.md` — Prostszy ekran rekrutacji — fakty, kafle „Kandydaci do dodania”, kolumna „Zamknięci” (02.10.2026)
 - `przeglad-delivery-leada-v2.md` — Przegląd Delivery Leada v2 (D6, D9, D10, 08.10.2026)
 - `przydzial-ludzi-do-requestow-stany-requestu-i.md` — Przydział ludzi do requestów, stany requestu i pulpit „Requesty i obłożenie” (0371, 24.09.2026)
+- `qc-cv-tryb-doradczy-role-z-odczytu-potwierdzenie.md` — QC CV: tryb doradczy, role z odczytu CV, „Potwierdzone z kandydatem” (12.10.2026) · QC doradza zamiast blokować (wyłącznik `CV_QC_ADVISORY`), skąd QC wie, w której roli kandydat czego używał, potwierdzenie z kandydatem jako notatka, przeliczenie przebiegów po zmianie reguł
 - `rekrutacja-drobne-usprawnienia-ux.md` — Rekrutacja — drobne usprawnienia UX (24.09.2026)
 - `rekrutacja-v3-lista-jobs-i-wiecej-w-pasku-bocznym.md` — Rekrutacja v3: lista `/jobs` i „Więcej" w pasku bocznym
 - `rekrutacja-v5-8-kolumn-strzalka-przesun-dalej-qc-cv.md` — Rekrutacja v5 — 8 kolumn, strzałka „Przesuń dalej”, QC CV, firmowa kolejka Cpro (0361, 24.09.2026)
@@ -217,6 +218,7 @@ Lista i profil kandydata, słowa kluczowe, kolejność „Dopasowanie”, Talent
 - `competence-categories.md` — Competence Categories (od 24.09.2026 CZTERY — podział profili, filtr, badge wszędzie)
 - `dwa-silniki-wyszukiwania-jedna-semantyka-filtrow.md` — Dwa silniki wyszukiwania — jedna semantyka filtrów (09.2026)
 - `ekran-kandydaci-i-profil-kandydata-uproszczenie.md` — Ekran „Kandydaci” i profil kandydata — uproszczenie (22.09.2026)
+- `filtr-rekrutacje-bral-nie-bral-bez-procesu.md` — Blok „Rekrutacje” w filtrze „Historia z nami”: brał / nie brał udziału, bez procesu w toku (12.10.2026) · odpowiednik „Nieprzypisany” z Traffita, zakres klienta, lista rekrutacji z szukaniem po stronie serwera, cztery pola stanu i tryb wyliczany
 - `indeks-wektorowy-dryf-degradacja-i-pula-ofert.md` — Indeks wektorowy: dryf, degradacja i pula ofert (18.09.2026)
 - `kolejnosc-dopasowanie-i-gorne-pole-listy.md` — Kolejność „Dopasowanie” i górne pole listy (25.09.2026)
 - `moi-ludzie-lista-rekrutera-dzwonek-przy-nowej.md` — „Moi ludzie" — lista rekrutera, dzwonek przy nowej rekrutacji, postać w rogu (21.09.2026)
@@ -330,7 +332,7 @@ Traffit, COMPASS, CloudTalk, kalendarz i rozmowy u klienta, prepy w Teams, archi
 - `kalendarz-rozmowy-u-klienta.md` — Kalendarz = „Rozmowy u klienta” (0338, 22.09.2026)
 - `prepy-w-teams-transkrypt-notatka-i-ocena-prepu.md` — Prepy w Teams → transkrypt, notatka i ocena prepu (0370, 23.09.2026)
 - `przeniesienie-rekrutacji-z-traffita-falami.md` — Przeniesienie rekrutacji z Traffita do NEXUSA falami (11.10.2026) · próba i wykonanie fali, lista osób per stan jako źródło prawdy, remis czasu wpisów historii, osoby zdjęte w Traffit, bliźniaki, scalenie duplikatów, skutki otwarcia
-- `traffit-daily-sync-scheduled-import.md` — Traffit daily sync (scheduled import)
+- `traffit-daily-sync-scheduled-import.md` — Traffit daily sync (scheduled import) · wyłączony 12.10.2026 (zespół pracuje tylko w NEXUSIE) — co stoi, co zostało tylko w Traffit, jak zrobić ostatni import
 
 ### Programy — `docs/claude/programy/`
 
