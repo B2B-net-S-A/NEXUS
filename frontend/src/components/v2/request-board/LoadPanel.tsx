@@ -149,9 +149,9 @@ function PersonRequests({
 
 /**
  * Lista osób z obłożeniem. `columns` = wariant na pulpit („Czeka na Ciebie”):
- * osoby w kilku kolumnach, a requesty klikniętej osoby pod listą na całą
- * szerokość — panel stoi nad kafelkami, więc dwadzieścia osób nie może zająć
- * siedmiuset pikseli wysokości.
+ * osoby w kilku kolumnach, a requesty klikniętej osoby pod nimi jako lista,
+ * jeden request w wierszu — panel stoi nad kafelkami, więc dwadzieścia osób
+ * nie może zająć siedmiuset pikseli wysokości.
  */
 export function LoadPeople({
   load,
@@ -209,13 +209,15 @@ export function LoadPeople({
         <div
           role="group"
           aria-label={`Requesty: ${opened.name}`}
-          className="mt-2 rounded-md border border-border bg-muted/30 px-3 py-2"
+          // Szerokość z limitem: termin stoi przy prawej krawędzi wiersza,
+          // więc na szerokim monitorze odjeżdżałby daleko od tytułu.
+          className="mt-2 max-w-3xl rounded-md border border-border bg-muted/30 px-3 py-2"
         >
           <p className="mb-1 text-xs font-medium text-foreground">{opened.name}</p>
           <PersonRequests
             person={opened}
             today={today}
-            className="columns-[420px] gap-x-8 [&>li]:mb-1 [&>li]:break-inside-avoid"
+            className="flex flex-col divide-y divide-border [&>li]:py-1"
           />
         </div>
       )}
