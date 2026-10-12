@@ -117,6 +117,7 @@ Deploy przez Coolify, `/api/health`, zmienne środowiskowe, CI i kolejka merge'�
 - `specyfika-tej-apki.md` — Specyfika tej apki
 - `stabilizacja-pod-obciazeniem-reguly-po-audycie-13.md` — Stabilizacja pod obciążeniem — reguły po audycie 13.09 i reaudycie 14.09.2026 · deploy = przerwa dla użytkowników, ponowienia HTTP, polling, single-flight cache, eksport XLSX, uploady
 - `tabele-worda-z-wgranych-plikow.md` — Tabele Worda z wgranych plików — komórki przez `app/core/docx_cells.py` (11.10.2026)
+- `wersja-frontu-w-otwartej-karcie.md` — Otwarta karta sama przechodzi na nową wersję frontu (12.10.2026)
 
 ### Role i uprawnienia — `docs/claude/uprawnienia/`
 
