@@ -59,6 +59,17 @@ więc ostrzeżenie „podobny kandydat” trafiało bardzo często i nic nie zna
   (`attachCvFormData`). W zakładce Pliki pole „Ustaw jako główne CV (AI odświeży
   profil)” jest domyślnie zaznaczone; przy kilku plikach głównym zostaje ostatni,
   bo każde główne CV to osobny płatny odczyt.
+- CV innej osoby wgrane jako główne nie może zniszczyć profilu. Bramka
+  tożsamości (imię i nazwisko z pliku) biegnie w tle, a nowy plik przejmuje
+  główne CV i `cv_filename` od razu, więc wgranie i „Ustaw jako główne CV”
+  podają bramce, które CV zostało zastąpione (`replaced_primary_document_id`,
+  `_primary_cv_document_id`). Przy niezgodności stare CV wraca jako główne,
+  fakty i wektor zostają, a profil dostaje znacznik
+  `_identity_quarantine_source` („wgrane CV nie zasiliło profilu”). Sama
+  zgodność nazwy pliku nie jest dowodem, że fakty pochodzą z nowego pliku:
+  91% profili nie ma zapisanego dokumentu źródłowego. Pomiar z 12.10.2026:
+  155 niezgodności na 7 757 odczytów dokumentów (2%), 88 profili ze znacznikiem
+  i bez głównego CV.
 - Odświeżenie nie rusza danych kontaktowych ani pól poprawionych ręcznie:
   `PATCH` ustawia `_manual_override_<pole>` dla umiejętności i historii pracy,
   a od 12.10.2026 także dla lat doświadczenia, wykształcenia i podsumowania

@@ -289,3 +289,83 @@ async def test_resending_the_same_value_does_not_lock_the_field(
         )
     finally:
         await _cleanup(candidate_id)
+
+
+@pytest.mark.asyncio
+async def test_wrong_person_cv_uploaded_as_primary_keeps_the_profile(
+    app_client, app_auth_headers, monkeypatch
+):
+    """12.10.2026: nowe CV jest domyślnie głównym, a bramka tożsamości biegnie w tle.
+
+    Upload przejmuje główne CV i `cv_filename` od razu. Gdy plik okaże się CV
+    innej osoby, profil ma dalej opisywać właściwą osobę z POPRZEDNIEGO CV,
+    a to CV ma wrócić jako główne. Do tej poprawki kwarantanna kasowała tekst
+    CV, podsumowanie i wektor i zostawiała kandydata bez głównego CV. Test idzie
+    przez prawdziwą trasę, bo to ona podaje, które CV zostało zastąpione.
+    """
+    from app.api import candidates as candidates_api
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.candidate_document import CandidateDocument
+    from sqlalchemy import select
+
+    first, last = "Anna", f"Testowa{uuid.uuid4().hex[:6]}"
+    candidate_id, document_id, digest = await _seed(first, last)
+    parse = AsyncMock(return_value=_parsed(first, last, with_languages=False))
+    monkeypatch.setattr(
+        "app.services.cv_text_extractor.extract_text",
+        lambda *_args, **_kwargs: "CV — Python developer",
+    )
+    monkeypatch.setattr("app.services.cv_parser.parse_cv", parse)
+    monkeypatch.setattr(
+        "app.services.index_outbox_service.schedule_or_embed_candidate",
+        AsyncMock(return_value=True),
+    )
+    try:
+        # Profil zasilony pierwszym, właściwym CV.
+        await candidates_api._enrich_candidate_from_document_task(
+            candidate_id, document_id, digest
+        )
+
+        parse.return_value = _parsed("Zupelnie", "Inny", with_languages=False)
+        uploaded = await app_client.post(
+            f"/api/candidates/{candidate_id}/documents",
+            headers=app_auth_headers,
+            files={
+                "file": (
+                    "cv-innej-osoby.pdf",
+                    f"%PDF-1.4 {uuid.uuid4().hex}".encode(),
+                    "application/pdf",
+                )
+            },
+            data={"document_kind": "cv", "is_primary": "true"},
+        )
+        assert uploaded.status_code == 201, uploaded.text
+        new_id = uploaded.json()["id"]
+
+        async with AsyncSessionLocal() as db:
+            candidate = await db.scalar(
+                select(Candidate).where(Candidate.id == candidate_id)
+            )
+            primary = {
+                row.id: row.is_primary
+                for row in (
+                    await db.scalars(
+                        select(CandidateDocument).where(
+                            CandidateDocument.candidate_id == candidate_id
+                        )
+                    )
+                ).all()
+            }
+
+        assert primary == {document_id: True, new_id: False}
+        assert candidate.cv_filename == "cv-testowe.pdf"
+        assert candidate.raw_cv_text
+        assert candidate.cv_parsed_at is not None
+        assert [s["name"] for s in candidate.skills] == ["Python"]
+        assert candidate.cv_extracted_data["_identity_quarantine_source"] == {
+            "kind": "document",
+            "id": new_id,
+        }
+    finally:
+        await _cleanup(candidate_id)

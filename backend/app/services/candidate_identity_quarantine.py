@@ -138,14 +138,64 @@ def _quarantined_cv_language_source_refs(
     return tuple(refs)
 
 
+async def _hand_primary_back(
+    db: AsyncSession,
+    *,
+    candidate: Candidate,
+    quarantined: CandidateDocument,
+    previous_document_id: int,
+    source_kind: SourceKind,
+    source_id: int,
+) -> None:
+    """Oddaj główne CV plikowi, który miał je przed wgraniem pliku z kwarantanny.
+
+    Fakty w profilu zostają nietknięte — pochodzą z poprzedniego CV właściwej
+    osoby. Wraca tylko wybór pliku i wskaźnik `cv_filename`, a profil dostaje
+    znacznik, po którym ekran mówi, że wgrane CV nie zasiliło danych.
+    """
+    # Flaga musi zejść z pliku w kwarantannie, zanim dostanie ją poprzedni:
+    # `ux_candidate_documents_active_primary_cv` pozwala na jedno główne CV,
+    # a jeden flush wysłałby oba UPDATE-y w kolejności id.
+    await db.flush()
+    previous = await db.scalar(
+        select(CandidateDocument).where(
+            CandidateDocument.id == previous_document_id,
+            CandidateDocument.candidate_id == candidate.id,
+            CandidateDocument.document_kind == CandidateDocumentKind.cv,
+            CandidateDocument.source_deleted_at.is_(None),
+            CandidateDocument.outdated_at.is_(None),
+        )
+    )
+    took_filename = candidate.cv_filename == quarantined.filename
+    if previous is not None:
+        previous.is_primary = True
+        if took_filename:
+            candidate.cv_filename = previous.filename
+    elif took_filename:
+        candidate.cv_filename = None
+    _raw = candidate.cv_extracted_data
+    extracted = dict(_raw) if isinstance(_raw, dict) else {}
+    extracted["_identity_quarantine_source"] = {"kind": source_kind, "id": source_id}
+    candidate.cv_extracted_data = extracted
+
+
 async def _clear_quarantined_cv_projection(
     db: AsyncSession,
     *,
     candidate_id: int,
     source_kind: SourceKind,
     source_id: int,
+    replaced_primary_document_id: int | None = None,
 ) -> dict[str, Any]:
-    """Remove only facts provably projected from the quarantined CV source."""
+    """Remove only facts provably projected from the quarantined CV source.
+
+    `replaced_primary_document_id` — główne CV, które ten plik zastąpił przy
+    wgraniu (podaje je upload). Upload przejmuje flagę głównego CV
+    i `cv_filename`, zanim odczyt dojdzie do bramki tożsamości, więc zgodność
+    nazwy pliku nie dowodzi wtedy, że fakty w profilu pochodzą z tego pliku —
+    pochodzą z zastąpionego CV właściwej osoby (12.10.2026: nowe CV jest
+    domyślnie głównym; 91% profili nie ma zapisanego dokumentu źródłowego).
+    """
 
     if source_kind in {"note", "talent_radar_cv"}:
         return {"cleared_fields": 0, "tombstoned_languages": 0}
@@ -193,11 +243,18 @@ async def _clear_quarantined_cv_projection(
     owns_projection = (
         source_kind == "legacy_cv" and not legacy_has_newer_document
     ) or (projected_document_id == source_id)
+    replaced_other_cv = (
+        document is not None
+        and replaced_primary_document_id is not None
+        and replaced_primary_document_id != source_id
+        and not owns_projection
+    )
     if (
         document is not None
         and document.is_primary
         and candidate.cv_filename
         and candidate.cv_filename == document.filename
+        and not replaced_other_cv
     ):
         owns_projection = True
     if document is not None:
@@ -205,6 +262,15 @@ async def _clear_quarantined_cv_projection(
         # rows have no source_document_id provenance.
         document.is_primary = False
     if not owns_projection:
+        if replaced_other_cv and document is not None:
+            await _hand_primary_back(
+                db,
+                candidate=candidate,
+                quarantined=document,
+                previous_document_id=replaced_primary_document_id,
+                source_kind=source_kind,
+                source_id=source_id,
+            )
         return {"cleared_fields": 0, "tombstoned_languages": 0}
 
     cleared_fields: list[str] = []
@@ -228,7 +294,11 @@ async def _clear_quarantined_cv_projection(
         cleared_fields.append("cv_filename")
     candidate.cv_parsed_at = None
     cleared_fields.append("cv_parsed_at")
-    if candidate.ai_summary is not None:
+    # Podsumowanie poprawione ręcznie (blokada z 12.10.2026) nie jest faktem
+    # z CV — zostaje jak ręcznie poprawiona historia pracy.
+    if candidate.ai_summary is not None and not extracted.get(
+        "_manual_override_ai_summary"
+    ):
         candidate.ai_summary = None
         cleared_fields.append("ai_summary")
 
@@ -536,6 +606,7 @@ async def record_detected_identity(
     observed_first_name: Any,
     observed_last_name: Any,
     provenance: str,
+    replaced_primary_document_id: int | None = None,
 ) -> CandidateSourceIdentityReview:
     """Persist an automatic decision without weakening a manual decision."""
 
@@ -576,6 +647,7 @@ async def record_detected_identity(
                 candidate_id=candidate.id,
                 source_kind=source_kind,
                 source_id=source_id,
+                replaced_primary_document_id=replaced_primary_document_id,
             )
         return row
     if row is None:
@@ -608,6 +680,7 @@ async def record_detected_identity(
             candidate_id=candidate.id,
             source_kind=source_kind,
             source_id=source_id,
+            replaced_primary_document_id=replaced_primary_document_id,
         )
     if row.is_quarantined:
         candidate_audit.record_candidate_audit(
