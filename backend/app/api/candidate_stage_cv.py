@@ -72,6 +72,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.services.html_sanitizer import sanitize_cv_html
+from app.services.cv_download_log import log_cv_download
 from app.services.cv_rodo_clause import keep_rodo_clause
 from app.services.cv_document_versions import check_revision, freeze_approved_version
 
@@ -1195,6 +1196,8 @@ async def render_branded_cv_for_print(
     stage_id: int,
     current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
+    intent: Optional[str] = None,
+    surface: Optional[str] = None,
 ) -> HTMLResponse:
     """Wrap brandowane CV w printable HTML z auto window.print() — FE otwiera w
     nowej karcie i drukuje (Save as PDF)."""
@@ -1212,6 +1215,17 @@ async def render_branded_cv_for_print(
     label = (
         f"{candidate.name} {candidate.lastname}" if candidate else f"stage_{stage_id}"
     )
+    await log_cv_download(
+        db,
+        intent=intent,
+        surface=surface,
+        entity_type="candidate_stage_cv",
+        entity_id=csv.id,
+        user_id=current_user.id,
+        file_format="print",
+        state="draft" if csv.branded_status == "draft" else "approved",
+        version=csv.branded_version,
+    )
     # M4 PR-04 (audyt P1.9): printable HTML przechodzi allowlist sanitizer —
     # authenticated flow otwiera blob text/html w nowej karcie.
     return HTMLResponse(content=_wrap_printable_cv(draft_html, stage_id, label))
@@ -1226,6 +1240,8 @@ async def preview_branded_docx(
     payload: CVBrandedFinalize,
     current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
+    intent: Optional[str] = None,
+    surface: Optional[str] = None,
 ) -> Response:
     """Render the current editor contents and frozen assets without approval."""
     csv = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
@@ -1239,6 +1255,17 @@ async def preview_branded_docx(
     # DOCX renderuje się z obrazu zgody KOPII etapu (R7-X4-4).
     consent_gate.ensure_copy_downloadable(await _generated_for_stage_cv(db, csv), csv)
     docx, _ = await _render_editor_docx(csv, payload.content_html)
+    await log_cv_download(
+        db,
+        intent=intent,
+        surface=surface,
+        entity_type="candidate_stage_cv",
+        entity_id=csv.id,
+        user_id=current_user.id,
+        file_format="docx",
+        state="draft",
+        version=csv.branded_version,
+    )
     return Response(
         content=docx,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -1312,6 +1339,8 @@ async def download_approved_docx(
     version_number: int,
     current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
+    intent: Optional[str] = None,
+    surface: Optional[str] = None,
 ) -> Response:
     csv = await _load_csv_for_stage(db, stage_id, current_user, read_access=True)
     version = await db.scalar(
@@ -1334,6 +1363,17 @@ async def download_approved_docx(
             409,
             "Ta historyczna wersja nie ma zatwierdzonego DOCX. Utwórz i zatwierdź nową wersję.",
         )
+    await log_cv_download(
+        db,
+        intent=intent,
+        surface=surface,
+        entity_type="candidate_stage_cv",
+        entity_id=csv.id,
+        user_id=current_user.id,
+        file_format="docx",
+        state="approved",
+        version=version.version,
+    )
     return Response(
         content=version.docx_content,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",

@@ -153,6 +153,7 @@ _ACTION_LABELS_PL: dict = {
     "imported": "zaimportował(a)",
     "stage_changed": "zmienił(a) etap",
     "cv_uploaded": "wgrał(a) CV",
+    "cv_file_downloaded": "pobrał(a) plik CV",
     "hired": "zatrudnił(a)",
     "candidate_added": "dodał(a) kandydata",
     "screening_done": "przeprowadził(a) screening",
