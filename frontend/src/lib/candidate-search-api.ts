@@ -301,6 +301,8 @@ export interface MatchScoresResponse {
 
 export type BulkSkipReason =
   | "already_in_job"
+  // Karta osoby stoi w „Zamkniętych” tej rekrutacji — wiersz niesie `closed`.
+  | "closed_in_job"
   | "blacklisted"
   | "candidate_not_found"
   | "rejected_by_hiring_manager";
@@ -347,10 +349,23 @@ export interface BulkProposalsRequest {
   source?: BulkAddSource | null;
 }
 
+/**
+ * Zamknięta karta osoby w tej rekrutacji — lustro `ClosedCardInfo`.
+ * Przywrócenie to ruch karty na `restore_stage` / `restore_stage_def_id`
+ * z `state_version` jako `expected_state_version`.
+ */
+export interface BulkClosedCard {
+  candidate_name: string;
+  state_version: number;
+  restore_stage: string;
+  restore_stage_def_id?: number | null;
+}
+
 export interface BulkSkippedRow {
   candidate_id: number;
   reason: BulkSkipReason;
   reason_label?: string | null;
+  closed?: BulkClosedCard | null;
 }
 
 export interface BulkWarningRow {

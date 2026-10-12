@@ -375,6 +375,66 @@ test.describe("panel osoby — duży podgląd po lewej na laptopie", () => {
       expect(await pageOverflowPx(page), `poziomy scroll strony: ${name}`).toBeLessThanOrEqual(1);
     }
   });
+
+  // 12.10.2026 (zgłoszenie rekruterów): pole notatki miało jedną linię 230 px
+  // i nie dało się go powiększyć. Rośnie z tekstem do 10 linii, a „Powiększ”
+  // otwiera je na cały panel pod paskiem osoby — wszystko w oknie 1280 × 650.
+  test("/preview/job-detail: pole notatki rośnie, a duże okno pisania mieści się w oknie laptopa", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 650 });
+    await page.goto("/preview/job-detail");
+    await page.getByRole("link", { name: "Karol Wzorcowy" }).first().click();
+    const panel = page.locator("aside[data-person-panel]");
+    await expect(panel).toHaveAttribute("data-size", "dock");
+    const composer = panel.locator('[data-help="jobs.person.note"]');
+    const field = panel.getByRole("textbox", { name: "Dodaj notatkę" });
+    const bottom = async () => {
+      const box = await composer.boundingBox();
+      return (box?.y ?? 0) + (box?.height ?? 0);
+    };
+
+    await field.click();
+    await field.fill(Array.from({ length: 14 }, (_, i) => `linia ${i + 1}`).join("\n"));
+    const grown = await field.boundingBox();
+    expect(grown?.width ?? 0, "pole na szerokość panelu").toBeGreaterThanOrEqual(340);
+    expect(grown?.height ?? 0, "pole rośnie z tekstem").toBeGreaterThanOrEqual(190);
+    expect(grown?.height ?? 0, "sufit 10 linii").toBeLessThanOrEqual(240);
+    expect(await bottom(), "kompozytor z długim tekstem w oknie").toBeLessThanOrEqual(650);
+
+    await panel.getByRole("button", { name: "Powiększ pole notatki" }).click();
+    await expect(panel.getByTestId("dock-body")).toBeHidden();
+    await expect(panel.getByTestId("dock-person-bar")).toBeVisible();
+    expect((await field.boundingBox())?.height ?? 0, "duże okno pisania").toBeGreaterThanOrEqual(300);
+    expect(await bottom(), "duże okno w oknie").toBeLessThanOrEqual(650);
+
+    // Lista „@” staje przy linii kursora — w całości w panelu, nie pod górnym paskiem.
+    await field.press("Control+End");
+    await field.pressSequentially("\n@");
+    const list = panel.getByRole("listbox", { name: "Osoby do oznaczenia" });
+    await expect(list).toBeVisible();
+    const listBox = await list.boundingBox();
+    const panelBox = await panel.boundingBox();
+    expect(listBox?.y ?? 0, "lista pod górną krawędzią panelu").toBeGreaterThanOrEqual(panelBox?.y ?? 0);
+    expect((listBox?.y ?? 0) + (listBox?.height ?? 0), "lista w oknie").toBeLessThanOrEqual(650);
+
+    // Esc zamyka najwyższą warstwę: listę, potem duże okno. Panel i tekst zostają.
+    await page.keyboard.press("Escape");
+    await expect(list).toBeHidden();
+    await page.keyboard.press("Escape");
+    await expect(panel.getByTestId("dock-body")).toBeVisible();
+    await expect(panel).toHaveAttribute("data-size", "dock");
+    await expect(field).toHaveValue(/linia 14/);
+    expect(await pageOverflowPx(page)).toBeLessThanOrEqual(1);
+
+    // „Powiększ”, potem „Rozwiń”, potem Esc: nasłuch Tablicy rejestruje się po
+    // „Rozwiń” na nowo i działa jako DRUGI — jedno naciśnięcie zamykało wtedy
+    // i duże okno, i rozwinięcie (przegląd kodu 12.10.2026; jsdom tego nie pokaże).
+    await panel.getByRole("button", { name: "Powiększ pole notatki" }).click();
+    await panel.getByRole("button", { name: "Rozwiń" }).click();
+    await expect(panel).toHaveAttribute("data-size", "split");
+    await page.keyboard.press("Escape");
+    await expect(panel.getByTestId("dock-body")).toBeVisible();
+    await expect(panel).toHaveAttribute("data-size", "split");
+  });
 });
 
 /**
