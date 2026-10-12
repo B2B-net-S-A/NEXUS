@@ -41,7 +41,8 @@ from typing import Any, Optional
 
 from fastapi import HTTPException
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, select
+from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate_stage_cv import CandidateStageCV
@@ -1600,39 +1601,77 @@ async def _latest_run(
     )
 
 
+def _is_advisory_override():
+    return func.coalesce(CvQcRun.result["override_advisory"].astext, "false") == "true"
+
+
 def _override_applies():
     """Warunek SQL: wiersz jest obejściem, które nadal przepuszcza parę.
 
     Obejście osoby od wysyłki (Delivery Lead, admin) dotyczy pary bez końca.
     Obejście doradcze — rekrutera, który przesunął kartę mimo uwag — działa do
-    NASTĘPNEGO ruchu karty: gdy Delivery Lead ją cofnie, QC znów pyta, a kolejne
-    „Przesuń mimo uwag…” znów go powiadamia. Bez tego cofnięcie karty nic by
-    nie znaczyło — drugi ruch przechodziłby po cichu na starym obejściu.
+    ZWROTU karty (`spend_advisory_overrides`): gdy Delivery Lead ją cofnie, QC
+    znów pyta, a kolejne „Przesuń mimo uwag…” znów go powiadamia. Bez tego
+    cofnięcie karty nic by nie znaczyło — drugi ruch przechodziłby po cichu na
+    starym obejściu.
     """
 
-    advisory = (
-        func.coalesce(CvQcRun.result["override_advisory"].astext, "false") == "true"
+    return and_(
+        CvQcRun.override_reason.is_not(None),
+        CvQcRun.result["override_spent_at"].astext.is_(None),
     )
-    moved_since = (
-        select(CandidateStage.id)
-        .where(
-            CandidateStage.candidate_id == CvQcRun.candidate_id,
-            CandidateStage.job_id == CvQcRun.job_id,
-            CandidateStage.moved_at > CvQcRun.created_at,
+
+
+async def has_live_advisory_override(
+    db: AsyncSession, candidate_id: int, job_id: int
+) -> bool:
+    """Czy para ma obejście doradcze, które jeszcze przepuszcza."""
+
+    return (
+        await db.scalar(
+            select(CvQcRun.id)
+            .where(
+                CvQcRun.candidate_id == candidate_id,
+                CvQcRun.job_id == job_id,
+                _override_applies(),
+                _is_advisory_override(),
+            )
+            .limit(1)
         )
-        .exists()
+    ) is not None
+
+
+async def spend_advisory_overrides(
+    db: AsyncSession, candidate_id: int, job_id: int
+) -> None:
+    """Zwrot karty kończy obejścia doradcze pary (bez commitu).
+
+    Wiersz zostaje w historii przebiegów jako ślad, kto i dlaczego przesunął
+    kartę; przestaje tylko przepuszczać.
+    """
+
+    await db.execute(
+        sql_text(
+            """
+            UPDATE cv_qc_runs
+               SET result = jsonb_set(
+                       result, '{override_spent_at}', to_jsonb(now()::text)
+                   )
+             WHERE candidate_id = :candidate_id
+               AND job_id = :job_id
+               AND override_reason IS NOT NULL
+               AND coalesce(result->>'override_advisory', 'false') = 'true'
+               AND result->>'override_spent_at' IS NULL
+            """
+        ),
+        {"candidate_id": candidate_id, "job_id": job_id},
     )
-    return and_(CvQcRun.override_reason.is_not(None), or_(~advisory, ~moved_since))
 
 
 async def _latest_override(
-    db: AsyncSession, candidate_id: int, job_id: int, *, include_spent: bool = False
+    db: AsyncSession, candidate_id: int, job_id: int
 ) -> Optional[dict]:
-    """Najnowsze obejście, które przepuszcza parę (`_override_applies`).
-
-    ``include_spent`` — także obejście doradcze sprzed ostatniego ruchu:
-    przegląd Delivery Leada pokazuje, kto i dlaczego przesunął kartę mimo uwag.
-    """
+    """Najnowsze obejście, które przepuszcza parę (`_override_applies`)."""
 
     from app.models.user import User
 
@@ -1643,9 +1682,7 @@ async def _latest_override(
             .where(
                 CvQcRun.candidate_id == candidate_id,
                 CvQcRun.job_id == job_id,
-                CvQcRun.override_reason.is_not(None)
-                if include_spent
-                else _override_applies(),
+                _override_applies(),
             )
             .order_by(CvQcRun.created_at.desc(), CvQcRun.id.desc())
             .limit(1)
@@ -1888,8 +1925,8 @@ async def record_override(
                 "cv_source": (src.generated or {}).get("source"),
                 "qc_version": QC_VERSION,
                 "override_reason_code": reason_code,
-                # Obejście doradcze działa do następnego ruchu karty
-                # (`_override_applies`).
+                # Obejście doradcze działa do zwrotu karty
+                # (`spend_advisory_overrides`).
                 "override_advisory": notify_reviewers,
             },
             override_reason=reason,
@@ -2051,6 +2088,7 @@ async def recompute_outdated(db: AsyncSession, *, limit: int = 300) -> int:
             CvQcRun.candidate_id,
             CvQcRun.job_id,
             CvQcRun.passed,
+            CvQcRun.created_at,
             CvQcRun.result["qc_version"].astext.label("qc_version"),
         )
         .where(CvQcRun.override_reason.is_(None))
@@ -2070,6 +2108,8 @@ async def recompute_outdated(db: AsyncSession, *, limit: int = 300) -> int:
                 latest.c.passed.is_(False),
                 func.coalesce(latest.c.qc_version, "") != QC_VERSION,
             )
+            # Pary sprzed wysłania to te najświeższe — limit nie może ich pominąć.
+            .order_by(latest.c.created_at.desc())
             .limit(limit)
         )
     ).all()
@@ -2105,8 +2145,8 @@ async def pair_statuses(
 
     ``passed`` — najnowszy przebieg przeszedł; ``overridden`` — nie przeszedł,
     ale Delivery Lead/admin kiedyś przepuścił parę; ``failed``; ``unchecked``
-    — pary nikt jeszcze nie sprawdzał. Obejście doradcze sprzed ostatniego
-    ruchu karty się nie liczy (`_override_applies`).
+    — pary nikt jeszcze nie sprawdzał. Obejście doradcze sprzed zwrotu karty
+    się nie liczy (`_override_applies`).
     """
 
     wanted = {(int(c), int(j)) for c, j in pairs}
@@ -2404,14 +2444,15 @@ def _quote_from_other_role(quote: str, item: dict, original: str) -> bool:
     if at < 0 or len(own) < 3 or own not in original:
         return False
 
-    def last_before(name: str) -> int:
-        return original.rfind(name, 0, at) if len(name) >= 3 else -1
+    def last_before(name: str, end: int) -> int:
+        return original.rfind(name, 0, end) if len(name) >= 3 else -1
 
     others = max(
-        (last_before(_norm(c)) for c in item.get("other_companies") or []),
+        (last_before(_norm(c), at) for c in item.get("other_companies") or []),
         default=-1,
     )
-    return others > last_before(own)
+    # Nazwa własnej firmy bywa częścią cytatu („Acme: rozwój usług w Javie”).
+    return others > last_before(own, at + len(quote))
 
 
 def parse_fixes(raw: str, material: dict, digest: str) -> list[dict]:

@@ -926,14 +926,10 @@ async def build_context(
     ) or {}
     qc_status = qc.get("status") or "unchecked"
     qc_override = None
-    if qc_status in ("overridden", "failed"):
+    if qc_status == "overridden":
         from app.services.cv_qc import _latest_override  # noqa: PLC0415
 
-        # Także obejście doradcze sprzed ruchu na „QC CV”: Delivery Lead ma
-        # widzieć, kto i dlaczego przesunął kartę mimo uwag.
-        qc_override = await _latest_override(
-            db, candidate_id, job.id, include_spent=True
-        )
+        qc_override = await _latest_override(db, candidate_id, job.id)
     person = _person(
         batch,
         job,

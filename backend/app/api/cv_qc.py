@@ -339,15 +339,18 @@ async def override_stage_qc(
     która przesuwa kartę — wtedy Delivery Lead dostaje dzwonek i może ją cofnąć.
     """
 
-    stage = await _stage(db, stage_id)
     reviewer = has_permission(current_user, ProductAction.recruitment_manage)
+    if not reviewer:
+        # Odmowa pada PRZED odczytem etapu — poza trybem doradczym po nazwie
+        # uprawnienia, w nim tylko dla integracji.
+        if not cv_qc.advisory_mode():
+            ensure_permission(current_user, ProductAction.recruitment_manage)
+        _ensure_person(request)
+    stage = await _stage(db, stage_id)
     if reviewer:
         await ensure_job_read_access(db, current_user, stage.job_id)
-    elif cv_qc.advisory_mode():
-        _ensure_person(request)
-        await ensure_job_membership(db, current_user, stage.job_id)
     else:
-        ensure_permission(current_user, ProductAction.recruitment_manage)
+        await ensure_job_membership(db, current_user, stage.job_id)
     result = await cv_qc.record_override(
         db,
         stage,

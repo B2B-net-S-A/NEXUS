@@ -1121,6 +1121,13 @@ def test_parse_fixes_drops_a_quote_standing_under_another_employer() -> None:
     )
     raw = _roles_fix("Automatyzacja wdrożeń skryptami w Pythonie i Bashu")
     assert qc.parse_fixes(raw, material, "a" * 64) == []
+    # Nazwa firmy tej roli bywa częścią cytatu.
+    own = _roles_fix("Globex sp.k. 2018-2021 skrypty w Pythonie do stacji")
+    material["original"] = (
+        "Acme Soft 2022-obecnie\nRozwój usług.\n"
+        "Globex sp.k. 2018-2021 skrypty w Pythonie do stacji roboczych.\n"
+    )
+    assert len(qc.parse_fixes(own, material, "d" * 64)) == 1
     # Ten sam cytat pod firmą tej roli przechodzi.
     material["original"] = (
         "Acme Soft 2022-obecnie\nRozwój usług.\n"
@@ -2259,8 +2266,16 @@ async def test_advisory_override_opens_the_cpro_queue_for_the_recruiter(
             )
         assert moved.status_code == 200, moved.text
 
-        # Obejście rekrutera działa do następnego ruchu karty: po zwrocie
-        # z kolejki QC znów pyta, a nowe „Przesuń mimo uwag…” znów powiadamia.
+        async def status() -> str:
+            pair = (world["candidate_id"], world["job_id"])
+            async with AsyncSessionLocal() as db:
+                return (await qc.pair_statuses(db, [pair]))[pair]["status"]
+
+        # W kolejce Cpro karta jest „przepuszczona mimo QC”, nie „do poprawy”.
+        assert await status() == "overridden"
+
+        # Obejście rekrutera działa do zwrotu karty: po powrocie z kolejki QC
+        # znów pyta, a nowe „Przesuń mimo uwag…” znów powiadamia.
         with hydrated_taxonomy():
             await _move(api_client, hor, world, "qc")
             again = await api_client.post(
@@ -2268,11 +2283,7 @@ async def test_advisory_override_opens_the_cpro_queue_for_the_recruiter(
             )
         assert again.status_code == 409, again.text
         assert again.json()["detail"]["code"] == "CV_QC_FAILED"
-        async with AsyncSessionLocal() as db:
-            status = await qc.pair_statuses(
-                db, [(world["candidate_id"], world["job_id"])]
-            )
-        assert status[(world["candidate_id"], world["job_id"])]["status"] == "failed"
+        assert await status() == "failed"
     finally:
         await _cleanup_advisory(world, stage_id, [hor_id, rec_id])
 
@@ -2351,7 +2362,7 @@ async def test_recompute_outdated_refreshes_failed_runs_of_older_rules(
 ) -> None:
     """Plakietka na Tablicy czyta zapisany przebieg — po zmianie reguł QC
     nieudane przebiegi starszej wersji liczą się od nowa, raz."""
-    from sqlalchemy import update
+    from sqlalchemy import text
 
     world = await _seed_world()
     hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
@@ -2377,9 +2388,12 @@ async def test_recompute_outdated_refreshes_failed_runs_of_older_rules(
         assert await versions() == [qc.QC_VERSION]
         async with AsyncSessionLocal() as db:
             await db.execute(
-                update(CvQcRun)
-                .where(CvQcRun.candidate_id == world["candidate_id"])
-                .values(result=func.jsonb_set(CvQcRun.result, "{qc_version}", '"old"'))
+                text(
+                    "UPDATE cv_qc_runs SET result = "
+                    "jsonb_set(result, '{qc_version}', '\"old\"') "
+                    "WHERE candidate_id = :cid"
+                ),
+                {"cid": world["candidate_id"]},
             )
             await db.commit()
 

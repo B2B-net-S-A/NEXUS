@@ -366,10 +366,8 @@ export function DlReviewBody({ task, canSendToClient, onClose, layout, previewLo
   }, [hint, canSend]);
 
   // Karta przesunięta mimo uwag QC — DL widzi to, zanim wyśle CV do klienta.
-  // Obejście rekrutera działa do następnego ruchu karty, więc po przekazaniu
-  // do przeglądu QC znów jest „do poprawy” — powód rekrutera zostaje na banerze.
   const qcOverride =
-    context.data && context.data.qc_status !== "passed" ? (context.data.qc_override ?? null) : null;
+    context.data?.qc_status === "overridden" ? (context.data.qc_override ?? null) : null;
 
   const quickView = useQuery<QuickViewSubset>({
     queryKey: candidateQueryKeys.quickView(candidateId),

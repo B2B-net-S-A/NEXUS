@@ -42,6 +42,7 @@ from app.api.recruitment_access import (
     ensure_job_editor,
     job_edit_level,
 )
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.rate_limit import limiter
 from app.core.security import hash_password
@@ -257,7 +258,13 @@ async def test_return_to_traffit_is_refused_before_anything_is_written() -> None
     assert job.managed_in_nexus is True
 
 
-async def test_qc_override_asks_for_the_permission_before_it_reads_the_stage() -> None:
+async def test_qc_override_asks_for_the_permission_before_it_reads_the_stage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Poza trybem doradczym (12.10.2026) obejście ma wyłącznie posiadacz
+    # uprawnienia; w nim każdy, kto przesuwa karty, dochodzi do etapu.
+    monkeypatch.setattr(settings, "CV_QC_ADVISORY", False)
+
     def request() -> Request:
         return Request(
             {
@@ -292,6 +299,13 @@ async def test_qc_override_asks_for_the_permission_before_it_reads_the_stage() -
         with pytest.raises(HTTPException) as missing_stage:
             await cv_qc.override_stage_qc(request(), 1, payload, holder, db)
         assert missing_stage.value.status_code == 404
+
+        monkeypatch.setattr(settings, "CV_QC_ADVISORY", True)
+        with pytest.raises(HTTPException) as advisory:
+            await cv_qc.override_stage_qc(
+                request(), 1, payload, _account(UserRole.recruiter), db
+            )
+        assert advisory.value.status_code == 404
     finally:
         limiter.enabled = limiter_was_enabled
 
@@ -766,8 +780,10 @@ async def test_client_rate_write_and_its_flag_follow_the_permission(
 
 
 async def test_return_to_traffit_and_qc_override_follow_the_permission(
-    app_client: AsyncClient,
+    app_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Obejście QC idzie za uprawnieniem poza trybem doradczym (12.10.2026).
+    monkeypatch.setattr(settings, "CV_QC_ADVISORY", False)
     headers, user_id = await _seed_user(app_client, "recruiter")
     job_id = await _seed_job(traffit=True)
     switch = f"/api/jobs/{job_id}/manage-in-nexus"

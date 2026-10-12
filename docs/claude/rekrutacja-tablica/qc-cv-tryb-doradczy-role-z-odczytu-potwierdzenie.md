@@ -20,16 +20,19 @@ kandydatów w QC nie miało opisów ról w historii profilu.
   przywraca obejście wyłącznie osobie z uprawnieniem `recruitment_manage`.
   Powrót do blokady = ta jedna wartość (kod albo workflow „Coolify set env”);
   podstawą decyzji ma być liczba obejść rekruterów i cofnięć Delivery Leada.
-- **Obejście doradcze działa do następnego ruchu karty**
-  (`cv_qc._override_applies`: wiersz z `result.override_advisory`, po którym
-  nie ma jeszcze nowszego wiersza etapu pary). Obejście osoby od wysyłki
-  (Delivery Lead, admin) dotyczy pary bez końca, jak dotąd. Bez tego cofnięcie
-  karty nic by nie znaczyło: rekruter przesunąłby ją drugi raz po cichu, na
-  starym obejściu i bez nowego dzwonka. Tę samą regułę czyta bramka ruchu,
-  plakietka na Tablicy (`pair_statuses`) i okno QC — nie rozdzielaj ich.
-  Przegląd DL pokazuje powód rekrutera także po ruchu na „QC CV”
-  (`_latest_override(include_spent=True)`), choć QC jest wtedy znów „do
-  poprawy” i wysyłka wymaga decyzji Delivery Leada.
+- **Obejście doradcze działa do zwrotu karty.** Wiersz obejścia rekrutera
+  niesie `result.override_advisory`; każdy ruch inny niż naprzód (wstecz,
+  z kolejki Cpro do „QC CV”, do „Zamkniętych”) zapisuje mu
+  `override_spent_at` (`pipeline._spend_advisory_qc_override_on_return` →
+  `cv_qc.spend_advisory_overrides`, w transakcji ruchu, także `/bulk-move`).
+  Obejście osoby od wysyłki (Delivery Lead, admin) dotyczy pary bez końca, jak
+  dotąd. Bez tego cofnięcie karty nic by nie znaczyło: rekruter przesunąłby ją
+  drugi raz po cichu, na starym obejściu i bez nowego dzwonka. Naprzód
+  obejście rekrutera przepuszcza wszystko — także wysyłkę przez Delivery
+  Leada, który widzi baner z powodem — a kolejka Cpro pokazuje „przepuszczone
+  mimo QC”. Tę samą regułę (`cv_qc._override_applies`) czyta bramka ruchu,
+  plakietka na Tablicy (`pair_statuses`), okno QC i przegląd DL — nie
+  rozdzielaj ich.
 - **Integracje nie decydują w QC.** Token klienta OAuth (scraper, n8n) działa
   jako konto z rolą operacyjną i przechodzi `ensure_job_membership`, więc
   obejście w trybie doradczym i `…/qc/confirm` odmawiają mu jawnie

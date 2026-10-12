@@ -685,19 +685,6 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
       );
     });
 
-    it("po przekazaniu do przeglądu QC jest znów „do poprawy”, a powód rekrutera zostaje na banerze", async () => {
-      mockApi({
-        context: {
-          ...overridden({ reason: "To wymaganie nie dotyczy tej roli", by_name: "Marta Rekruterka", at: OVERRIDE_AT }),
-          qc_status: "failed",
-        },
-      });
-      renderPanel(task({ qc_status: "failed", qc_blocking_failed: 2 }));
-      expect(await screen.findByTestId("dl-review-qc-override")).toHaveTextContent(
-        `Przesunięte mimo uwag QC — Marta Rekruterka, ${formatDate(OVERRIDE_AT)}: To wymaganie nie dotyczy tej roli. Do sprawdzenia: 2.`,
-      );
-    });
-
     it("banera nie ma, gdy QC przeszło albo kontekst nie niesie obejścia", async () => {
       mockApi({
         context: {
