@@ -427,3 +427,78 @@ async def test_execution_needs_a_fresh_dry_run_of_the_same_wave() -> None:
         )
         await db.commit()
         assert not await transfer.fresh_dry_run_exists(db, wave)
+
+
+@pytest.mark.asyncio
+async def test_twin_can_be_transferred_with_the_team_of_the_nexus_recruitment(
+    post_commit_calls: list[Any],
+) -> None:
+    from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
+
+    seed = await _seed()
+    actor = await _admin_id()
+    owner, lead, helper = (
+        await new_recruiter(),
+        await new_recruiter(),
+        await new_recruiter(),
+    )
+    async with AsyncSessionLocal() as db:
+        twin = Job(
+            title=seed["title"],
+            status=JobStatus.published,
+            client_id=seed["client_id"],
+            external_source="manual",
+            recruiter_id=owner,
+            delivery_lead_id=lead,
+        )
+        db.add(twin)
+        await db.flush()
+        db.add(
+            JobCollaborator(
+                job_id=twin.id, user_id=helper, source=JobCollaboratorSource.manual
+            )
+        )
+        await db.commit()
+        twin_id = twin.id
+
+    scope = transfer.Scope(job_ids=(seed["job_id"],), include_twins=True)
+    async with AsyncSessionLocal() as db:
+        report = await transfer.process(
+            db,
+            _traffit_for(seed),
+            scope,
+            dry_run=False,
+            actor_user_id=actor,
+            actor_label="test",
+        )
+
+    (job,) = report["jobs"]
+    assert job["status"] == "transferred", job
+    assert job["twin_job_id"] == twin_id
+    assert job["recruiter_from_twin"] == owner
+    assert await _job_state(seed["job_id"]) == ("published", True, True, "searching")
+    async with AsyncSessionLocal() as db:
+        row = (
+            await db.execute(
+                text("SELECT recruiter_id, delivery_lead_id FROM jobs WHERE id = :i"),
+                {"i": seed["job_id"]},
+            )
+        ).one()
+        helpers = (
+            await db.execute(
+                text("SELECT user_id FROM job_collaborators WHERE job_id = :i"),
+                {"i": seed["job_id"]},
+            )
+        ).scalars()
+        assert (row[0], row[1]) == (owner, lead)
+        assert helper in set(helpers)
+        # Rekrutacja założona w NEXUSIE zostaje nietknięta.
+        twin_state = (
+            await db.execute(
+                text(
+                    "SELECT CAST(status AS text), recruiter_id FROM jobs WHERE id = :i"
+                ),
+                {"i": twin_id},
+            )
+        ).one()
+        assert (twin_state[0], twin_state[1]) == ("published", owner)

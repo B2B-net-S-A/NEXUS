@@ -183,6 +183,8 @@ def test_wave_key_identifies_the_same_wave_regardless_of_order():
     assert Scope(job_ids=(3, 1, 2)).key() == Scope(job_ids=(1, 2, 3)).key()
     assert Scope(client_id=7).key() != Scope(client_id=8).key()
     assert Scope(client_id=7).key() != Scope(client_id=7, active_days=14).key()
+    # Próba bez bliźniaków nie autoryzuje wykonania z bliźniakami.
+    assert Scope(client_id=7).key() != Scope(client_id=7, include_twins=True).key()
 
 
 def test_columns_follow_the_board_rule_for_traffit_state_names():

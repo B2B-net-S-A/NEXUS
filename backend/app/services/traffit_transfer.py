@@ -19,9 +19,12 @@ Fala to dwa biegi tej samej reguły:
 
 Czego ta wersja świadomie NIE robi:
 
-* nie przenosi rekrutacji, która ma bliźniaka założonego w NEXUSIE (ten sam
-  klient, niemal ten sam tytuł) — która z dwóch zostaje, to osobna decyzja;
-  raport takie rekrutacje wskazuje i pomija;
+* domyślnie nie przenosi rekrutacji, która ma bliźniaka założonego
+  w NEXUSIE (ten sam klient, niemal ten sam tytuł) — raport ją wskazuje
+  i pomija. ``include_twins`` (12.10.2026, migracja całego zespołu) otwiera
+  kopię z Traffita z prowadzącym, DL-em i ręcznymi współpracownikami
+  bliźniaka; rekrutacji NEXUSA nie rusza, więc request jest wtedy widoczny
+  dwa razy, dopóki obu nie scali osobny krok;
 * nie zakłada kandydatów — osoba z Traffita, której NEXUS nie zna, trafia do
   raportu z numerem osoby;
 * nie rusza kart dodanych w NEXUSIE ani par, których ostatni ruch zrobiono
@@ -96,12 +99,15 @@ class Scope:
     client_id: Optional[int] = None
     job_ids: tuple[int, ...] = ()
     active_days: int = ACTIVE_DAYS_DEFAULT
+    #: Przenieś także rekrutacje, które mają bliźniaka w NEXUSIE (12.10.2026).
+    include_twins: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "client_id": self.client_id,
             "job_ids": sorted(self.job_ids),
             "active_days": self.active_days,
+            "include_twins": self.include_twins,
         }
 
     def key(self) -> str:
@@ -507,6 +513,57 @@ async def _apply_plan(
     return receipt
 
 
+async def _adopt_twin_team(
+    db: AsyncSession, job_row: Any, twin_job_id: int, actor_id: int
+) -> dict[str, Any]:
+    """Zespół z rekrutacji założonej w NEXUSIE przechodzi na kopię z Traffita.
+
+    Ten sam request bywa w NEXUSIE dwa razy: Delivery Lead założył go tutaj
+    (wskazał prowadzącego, siebie, dopisał współpracowników), a kandydaci są
+    w kopii z Traffita, w której „prowadzącym” jest pierwsza osoba z listy
+    Traffita. Otwierana kopia dostaje więc prowadzącego (aktywnego), DL-a
+    i ręcznie dopisanych współpracowników z rekrutacji NEXUSA — inaczej nie
+    trafiłaby do „moich rekrutacji” ludzi, którzy nad nią pracują. Rekrutacja
+    NEXUSA zostaje nietknięta; scalenie obu to osobny krok. Bez commitu.
+    """
+    from app.models.job import Job
+    from app.models.user import User
+
+    twin = await db.get(Job, twin_job_id)
+    if twin is None:
+        return {}
+    adopted: dict[str, Any] = {}
+    if twin.recruiter_id is not None and twin.recruiter_id != job_row.recruiter_id:
+        owner = await db.get(User, twin.recruiter_id)
+        if owner is not None and owner.is_active:
+            job_row.recruiter_id = owner.id
+            adopted["recruiter_from_twin"] = owner.id
+    if (
+        twin.delivery_lead_id is not None
+        and twin.delivery_lead_id != job_row.delivery_lead_id
+    ):
+        job_row.delivery_lead_id = twin.delivery_lead_id
+        job_row.delivery_lead_auto_filled = False
+        adopted["delivery_lead_from_twin"] = twin.delivery_lead_id
+    copied = await db.execute(
+        text(
+            """
+            INSERT INTO job_collaborators (job_id, user_id, added_by, source)
+            SELECT :job_id, jc.user_id, :actor, jc.source
+            FROM job_collaborators jc
+            WHERE jc.job_id = :twin_id
+              AND jc.source = 'manual'
+              AND NOT jc.removed_from_auto_cc
+              AND jc.removed_at IS NULL
+            ON CONFLICT (job_id, user_id) DO NOTHING
+            """
+        ),
+        {"job_id": job_row.id, "twin_id": twin_job_id, "actor": actor_id},
+    )
+    adopted["collaborators_from_twin"] = int(copied.rowcount or 0)
+    return adopted
+
+
 def _job_report(
     job: WaveJob, plan: Optional[JobPlan], *, status: str, **extra: Any
 ) -> dict[str, Any]:
@@ -536,6 +593,7 @@ async def process_job(
     fallback: Any,
     actor_user_id: Optional[int],
     dry_run: bool,
+    include_twins: bool = False,
 ) -> dict[str, Any]:
     """Próba albo przeniesienie jednej rekrutacji — własna transakcja."""
     from fastapi import HTTPException
@@ -550,10 +608,11 @@ async def process_job(
 
     if job.people > MAX_PEOPLE:
         return _job_report(job, None, status="skipped", skip_reason=SKIP_LARGE)
-    if twin_job_id is not None:
+    if twin_job_id is not None and not include_twins:
         return _job_report(
             job, None, status="skipped", skip_reason=SKIP_TWIN, twin_job_id=twin_job_id
         )
+    twin = {"twin_job_id": twin_job_id} if twin_job_id is not None else {}
 
     # Połączenie wraca do puli na czas zapytań do Traffita.
     await db.rollback()
@@ -593,7 +652,7 @@ async def process_job(
         if dry_run:
             await db.rollback()
             return _job_report(
-                job, plan, status="ready", columns=columns, blockers=blockers
+                job, plan, status="ready", columns=columns, blockers=blockers, **twin
             )
 
         actor = await db.get(User, actor_user_id) if actor_user_id else None
@@ -621,6 +680,10 @@ async def process_job(
             # Ktoś przełączył albo otworzył ją w międzyczasie — poprawki cofamy.
             await db.rollback()
             return _job_report(job, plan, status="skipped", skip_reason="changed")
+        if twin_job_id is not None:
+            # PRZED otwarciem: przypisanie i dzwonek idą do prowadzącego,
+            # którego Delivery Lead wskazał w NEXUSIE.
+            twin.update(await _adopt_twin_team(db, job_row, twin_job_id, actor.id))
         effects = job_lifecycle.PostCommit()
         # Te same funkcje co „Otwórz ponownie”: flaga „Prowadzona w NEXUSIE”,
         # status, „Szukamy”, przypisanie prowadzącego. Bramki braków NIE
@@ -635,7 +698,7 @@ async def process_job(
                 entity_id=job.job_id,
                 action="traffit_transfer",
                 user_id=actor.id,
-                details={**plan_counts(plan), "traffit_id": job.traffit_id},
+                details={**plan_counts(plan), "traffit_id": job.traffit_id, **twin},
             )
         )
         await db.commit()
@@ -654,7 +717,13 @@ async def process_job(
 
     await job_lifecycle.run_post_commit(effects)
     return _job_report(
-        job, plan, status="transferred", columns=columns, blockers=blockers, **receipt
+        job,
+        plan,
+        status="transferred",
+        columns=columns,
+        blockers=blockers,
+        **receipt,
+        **twin,
     )
 
 
@@ -712,6 +781,7 @@ async def process(
                 fallback=fallback,
                 actor_user_id=actor_user_id,
                 dry_run=dry_run,
+                include_twins=scope.include_twins,
             )
         )
 
