@@ -205,7 +205,10 @@ export function MyPeoplePanel() {
           candidate_ids: [row.candidate_id],
           source: "my_people",
         });
-        showSuccess(addToRecruitmentSummary({ job: { id: jobId, title }, response }));
+        // Nikogo nie dodano = powód w tonie błędu, nie zielone „Pominięto: 1”.
+        const summary = addToRecruitmentSummary({ job: { id: jobId, title }, response });
+        if (response.total_added > 0) showSuccess(summary);
+        else showError(summary);
         void queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
         void queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
         void queryClient.invalidateQueries({ queryKey: ["my-next-steps"] });

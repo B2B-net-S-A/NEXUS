@@ -173,6 +173,7 @@ Design system i tokeny, responsywność, nazewnictwo w interfejsie, Ustawienia, 
 Lista `/jobs`, Tablica, ruch kart i bramki, panel osoby, QC CV i Cpro, przegląd DL, podobne rekrutacje, przydział rekruterów, dzwonki przekazań.
 
 - `audyt-manualny-codexa-13-15-09-2026-reguly-ktore.md` — Audyt manualny Codexa 13–15.09.2026 — reguły, które łatwo cofnąć · budżet PLN/h rekrutacji, szkic Championa, „W procesie”, prep kit, tagi kandydata, pasek boczny
+- `dodaj-do-rekrutacji-zamknieta-karta.md` — „Dodaj do rekrutacji”: zamknięta karta to nie „już w rekrutacji” (12.10.2026) · powód pominięcia `closed_in_job`, okno zostaje z powodem z serwera, „Przywróć” ruchem karty, czego dodanie nadal nie robi samo
 - `duzy-podglad-po-lewej-stronie-panelu-osoby.md` — Duży podgląd po lewej stronie panelu osoby (D1–D6, 09.10.2026)
 - `dzwonek-przy-przekazaniu-karty-qc-dl-cv-wyslane.md` — Dzwonek przy przekazaniu karty: QC → DL, CV wysłane → rekruter (02.10.2026)
 - `follow-up-z-kandydatem-gdy-klient-milczy.md` — Follow-up z kandydatem, gdy klient milczy (0372, 24.09.2026)

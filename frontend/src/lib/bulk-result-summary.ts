@@ -13,6 +13,7 @@ import type {
 
 const SKIP_LABELS: Record<BulkSkipReason, string> = {
   already_in_job: "już w rekrutacji",
+  closed_in_job: "zamknięta karta w tej rekrutacji",
   blacklisted: "czarna lista",
   candidate_not_found: "nie znaleziono",
   rejected_by_hiring_manager: "hiring manager odrzucił po rozmowie",

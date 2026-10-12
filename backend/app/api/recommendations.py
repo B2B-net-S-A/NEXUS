@@ -1457,7 +1457,7 @@ async def _assign_by_human(
     ``skipped`` z ``add_candidates_to_job`` to wyścig po tym sprawdzeniu —
     mapowany na te same odpowiedzi.
     """
-    from app.api.proposals_bulk import add_candidates_to_job
+    from app.api.proposals_bulk import IN_JOB_SKIP_REASONS, add_candidates_to_job
     from app.services import candidate_claim
     from app.services.match_telemetry_service import (
         emit_pipeline_additions,
@@ -1477,7 +1477,7 @@ async def _assign_by_human(
     if not result.added:
         skipped = result.skipped[0] if result.skipped else None
         await db.rollback()
-        if skipped is not None and skipped.reason == "already_in_job":
+        if skipped is not None and skipped.reason in IN_JOB_SKIP_REASONS:
             return {"status": "already_in_pipeline", "count": 1}
         raise HTTPException(
             status_code=409,

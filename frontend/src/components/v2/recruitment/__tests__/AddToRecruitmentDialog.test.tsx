@@ -4,10 +4,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { BulkProposalsResponse } from "@/lib/candidate-search-api";
 
-const mocks = vi.hoisted(() => ({ add: vi.fn() }));
+const mocks = vi.hoisted(() => ({ add: vi.fn(), send: vi.fn() }));
 
 vi.mock("@/lib/candidate-search-api", () => ({
   proposalsBulkApi: { add: (...args: unknown[]) => mocks.add(...args) },
+}));
+
+// Ruch karty ma własne testy (`usePipelineMoveCore.test.tsx`); tu liczy się
+// ładunek, z którym okno go woła.
+vi.mock("@/hooks/usePipelineMoveCore", () => ({
+  usePipelineMoveCore: () => ({
+    send: (...args: unknown[]) => mocks.send(...args),
+    dialogs: null,
+  }),
 }));
 
 vi.mock("@/components/v2/recruitment/JobPicker", () => ({
@@ -45,10 +54,25 @@ function renderDialog(props: Partial<React.ComponentProps<typeof AddToRecruitmen
 
 const RESPONSE: BulkProposalsResponse = { added: [5], skipped: [{ candidate_id: 6, reason: "already_in_job" }], total_added: 1, total_skipped: 1 };
 
+const CLOSED_ROW = {
+  candidate_id: 6,
+  reason: "closed_in_job",
+  reason_label: "Zamknięta karta w tej rekrutacji: Odrzucony 08.10.2026 (Jan Testowy)",
+  closed: { candidate_name: "Ewa Testowa", state_version: 2, restore_stage: "new", restore_stage_def_id: 11 },
+} as const;
+const CLOSED: BulkProposalsResponse = { added: [], skipped: [CLOSED_ROW], total_added: 0, total_skipped: 1 };
+
+async function addToJavaDeveloper() {
+  fireEvent.click(screen.getByRole("button", { name: /Wybierz Java Developer/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Dodaj do „Java Developer”" }));
+  await waitFor(() => expect(mocks.add).toHaveBeenCalled());
+}
+
 describe("AddToRecruitmentDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.add.mockResolvedValue(RESPONSE);
+    mocks.send.mockResolvedValue({ ok: true, data: {} });
   });
 
   it("bez wyboru rekrutacji nie da się zapisać", () => {
@@ -190,9 +214,115 @@ describe("AddToRecruitmentDialog", () => {
     );
   });
 
-  it("podsumowanie liczy dodanych i pominiętych", () => {
+  it("zamknięta karta: okno zostaje, mówi skąd i od kiedy, a „Przywróć” rusza kartę", async () => {
+    // Zgłoszenie 12.10.2026: „Nikogo nie dodano… Pominięto: 1” bez powodu,
+    // a osoba stała w „Zamkniętych” tej rekrutacji od kilku dni.
+    mocks.add.mockResolvedValue(CLOSED);
+    const { onOpenChange, onAdded } = renderDialog({ candidateIds: [6] });
+    await addToJavaDeveloper();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Ewa Testowa");
+    expect(alert).toHaveTextContent("Odrzucony 08.10.2026 (Jan Testowy)");
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    expect(onAdded).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Przywróć do „Nowych”" }));
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(mocks.send).toHaveBeenCalledWith(
+      { candidate_id: 6, job_id: 42, stage: "new", stage_def_id: 11, expected_state_version: 2 },
+      expect.objectContaining({ candidateName: "Ewa Testowa" }),
+    );
+    expect(onAdded).toHaveBeenCalledTimes(1);
+    const result = onAdded.mock.calls[0][0];
+    expect(addToRecruitmentSummary(result)).toBe("Przywrócono 1 osobę do „Java Developer”.");
+  });
+
+  it("odmowa ruchu zostawia kartę do przywrócenia", async () => {
+    mocks.add.mockResolvedValue(CLOSED);
+    mocks.send.mockResolvedValue({ ok: false, refusal: { kind: "other", message: "Błąd" } });
+    const { onOpenChange, onAdded } = renderDialog({ candidateIds: [6] });
+    await addToJavaDeveloper();
+    fireEvent.click(await screen.findByRole("button", { name: "Przywróć do „Nowych”" }));
+    await waitFor(() => expect(mocks.send).toHaveBeenCalled());
+    expect(await screen.findByRole("button", { name: "Przywróć do „Nowych”" })).toBeEnabled();
+    expect(onAdded).not.toHaveBeenCalled();
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+  });
+
+  it("rekrutacja bez szablonu: ruch idzie samym kodem etapu", async () => {
+    mocks.add.mockResolvedValue({
+      ...CLOSED,
+      skipped: [{ ...CLOSED_ROW, closed: { ...CLOSED_ROW.closed, restore_stage_def_id: null } }],
+    });
+    renderDialog({ candidateIds: [6] });
+    await addToJavaDeveloper();
+    fireEvent.click(await screen.findByRole("button", { name: "Przywróć do „Nowych”" }));
+    await waitFor(() => expect(mocks.send).toHaveBeenCalled());
+    expect(mocks.send.mock.calls[0][0]).toEqual({
+      candidate_id: 6, job_id: 42, stage: "new", expected_state_version: 2,
+    });
+  });
+
+  it("nikogo nie dodano z innego powodu: okno zostaje i mówi powód z serwera", async () => {
+    mocks.add.mockResolvedValue({
+      added: [],
+      skipped: [{ candidate_id: 6, reason: "rejected_by_hiring_manager", reason_label: "Hiring manager odrzucił tego kandydata po rozmowie 01.10.2026." }],
+      total_added: 0,
+      total_skipped: 1,
+    });
+    const { onOpenChange, onAdded } = renderDialog({ candidateIds: [6] });
+    await addToJavaDeveloper();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Nikogo nie dodano do „Java Developer”.");
+    expect(alert).toHaveTextContent("Hiring manager odrzucił tego kandydata po rozmowie 01.10.2026.");
+    expect(screen.queryByRole("button", { name: /Przywróć/ })).not.toBeInTheDocument();
+    expect(onAdded).not.toHaveBeenCalled();
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    // Dwa „Zamknij”: krzyżyk okna i przycisk w stopce — klikamy stopkę.
+    fireEvent.click(screen.getAllByRole("button", { name: "Zamknij" }).at(-1)!);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("część dodana, jedna zamknięta karta: dodani idą do ekranu, okno czeka z kartą", async () => {
+    const partial: BulkProposalsResponse = { added: [5], skipped: [CLOSED_ROW], total_added: 1, total_skipped: 1 };
+    mocks.add.mockResolvedValue(partial);
+    const { onOpenChange, onAdded } = renderDialog();
+    await addToJavaDeveloper();
+    expect(await screen.findByRole("button", { name: "Przywróć do „Nowych”" })).toBeInTheDocument();
+    expect(onAdded).toHaveBeenCalledWith({ job: { id: 42, title: "Java Developer" }, response: partial });
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    // Lista kandydatów czyści zaznaczenie w `onAdded` — opis wyniku nie liczy
+    // osób z propsa, tylko nazywa rekrutację.
+    expect(screen.getByText("Rekrutacja „Java Developer”.")).toBeInTheDocument();
+    expect(screen.queryByText(/Wybierz rekrutację/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Dodaj/ })).not.toBeInTheDocument();
+  });
+
+  it("dwie zamknięte karty przywraca się po kolei, a przycisk nazywa kolumnę", async () => {
+    const second = {
+      ...CLOSED_ROW,
+      candidate_id: 7,
+      closed: { ...CLOSED_ROW.closed, candidate_name: "Bartek Testowy", restore_stage: "screening" },
+    };
+    mocks.add.mockResolvedValue({ added: [], skipped: [CLOSED_ROW, second], total_added: 0, total_skipped: 2 });
+    // Pierwszy ruch czeka (np. na okno „Przenieś mimo to”).
+    mocks.send.mockReturnValue(new Promise(() => undefined));
+    const { onOpenChange } = renderDialog({ candidateIds: [6, 7] });
+    await addToJavaDeveloper();
+    const toScreening = await screen.findByRole("button", { name: "Przywróć do „Screeningu”" });
+    fireEvent.click(screen.getByRole("button", { name: "Przywróć do „Nowych”" }));
+    await waitFor(() => expect(toScreening).toBeDisabled());
+    fireEvent.click(toScreening);
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+    // Zamknięcie w trakcie ruchu zostawiłoby jego okno bez rodzica.
+    fireEvent.click(screen.getAllByRole("button", { name: "Zamknij" }).at(-1)!);
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+  });
+
+  it("podsumowanie liczy dodanych i mówi, dlaczego kogoś pominięto", () => {
     const job = { id: 42, title: "Java Developer" };
-    expect(addToRecruitmentSummary({ job, response: RESPONSE })).toBe("Dodano 1 osobę do „Java Developer”. Pominięto: 1.");
+    expect(addToRecruitmentSummary({ job, response: RESPONSE })).toBe("Dodano 1 osobę do „Java Developer”. Pominięto: 1× już w rekrutacji.");
+    expect(addToRecruitmentSummary({ job, response: CLOSED })).toBe("Nikogo nie dodano do „Java Developer”. Pominięto: 1× zamknięta karta w tej rekrutacji.");
     expect(addToRecruitmentSummary({ job, response: { ...RESPONSE, added: [], total_added: 0, total_skipped: 0, skipped: [] } })).toBe("Nikogo nie dodano do „Java Developer”.");
     expect(addToRecruitmentSummary({ job, response: { ...RESPONSE, total_added: 3, total_skipped: 0 } })).toBe("Dodano 3 osoby do „Java Developer”.");
     expect(addToRecruitmentSummary({ job, response: { ...RESPONSE, total_added: 12, total_skipped: 0 } })).toBe("Dodano 12 osób do „Java Developer”.");
