@@ -43,6 +43,27 @@ async def test_duplicate_email_returns_409_and_keeps_single_candidate(
     assert third.status_code == 201, third.text
 
 
+async def test_duplicate_email_in_other_case_returns_409(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    """12.10.2026: ta sama osoba = ten sam e-mail, bez rozróżniania wielkości liter.
+
+    Unikalny indeks jest na surowej kolumnie, więc „dup-…@” i „DUP-…@”
+    zakładały dwa profile (na produkcji było pięć takich par).
+    """
+    email = f"dup-{uuid.uuid4().hex[:10]}@example.com"
+    first = await app_client.post(
+        "/api/candidates", json=_payload(email), headers=app_auth_headers
+    )
+    assert first.status_code == 201, first.text
+
+    second = await app_client.post(
+        "/api/candidates", json=_payload(email.upper()), headers=app_auth_headers
+    )
+    assert second.status_code == 409, second.text
+    assert second.json()["detail"] == "Kandydat z tym adresem e-mail już istnieje."
+
+
 async def test_candidates_without_email_are_not_duplicates(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ) -> None:
@@ -85,6 +106,38 @@ async def test_patch_to_taken_email_returns_409_not_500(
         headers=app_auth_headers,
     )
     assert same.status_code == 200, same.text
+
+
+async def test_patch_to_taken_email_in_other_case_returns_409(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    taken = f"dup-{uuid.uuid4().hex[:10]}@example.com"
+    first = await app_client.post(
+        "/api/candidates", json=_payload(taken), headers=app_auth_headers
+    )
+    assert first.status_code == 201, first.text
+    other = await app_client.post(
+        "/api/candidates",
+        json=_payload(f"dup-{uuid.uuid4().hex[:10]}@example.com"),
+        headers=app_auth_headers,
+    )
+    assert other.status_code == 201, other.text
+
+    resp = await app_client.patch(
+        f"/api/candidates/{other.json()['id']}",
+        json={"email": taken.upper()},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"] == "Kandydat z tym adresem e-mail już istnieje."
+
+    # Zmiana wielkości liter we WŁASNYM adresie to nie cudzy adres.
+    own = await app_client.patch(
+        f"/api/candidates/{first.json()['id']}",
+        json={"email": taken.upper()},
+        headers=app_auth_headers,
+    )
+    assert own.status_code == 200, own.text
 
 
 async def test_too_long_fields_are_422_not_500(

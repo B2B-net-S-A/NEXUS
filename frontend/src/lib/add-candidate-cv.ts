@@ -185,3 +185,25 @@ export function duplicateMatchesFromConflict(error: unknown): CvDuplicateMatch[]
         : [],
     }));
 }
+
+/**
+ * Odmowa po bajtach pliku (`identical_file`): to CV już leży w czyimś profilu.
+ * Każde inne trafienie to ten sam e-mail — „ta sama osoba = ten sam e-mail”
+ * (decyzja Artura, 12.10.2026).
+ */
+export function isSameFileMatch(match: Pick<CvDuplicateMatch, "match_reasons">): boolean {
+  return match.match_reasons.includes("identical_file");
+}
+
+/**
+ * „Dodaj to CV do profilu”: `POST /api/candidates/{id}/documents`. Plik idzie
+ * od razu jako GŁÓWNE CV — tylko wtedy serwer czyta go modelem i odświeża
+ * profil (zwykły plik CV leży w zakładce Pliki nieprzeczytany).
+ */
+export function attachCvFormData(file: File): FormData {
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("document_kind", "cv");
+  fd.append("is_primary", "true");
+  return fd;
+}

@@ -16,6 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects import postgresql
 
 from app.models.candidate import Candidate
+from app.services import dedup_service
 from app.services.m365 import matcher, sync
 
 BACKEND = Path(__file__).resolve().parents[1]
@@ -41,6 +42,14 @@ def test_m365_queries_use_the_indexed_expression() -> None:
         source = inspect.getsource(module)
         assert "func.lower(func.trim(Candidate.email))" not in source
         assert QUERY_EXPR in source
+
+
+def test_dedup_uses_the_indexed_expression() -> None:
+    # „Ta sama osoba = ten sam e-mail” (12.10.2026) pyta o adres przy każdym
+    # dodaniu kandydata — `lower(email)` bez `btrim` omijało oba indeksy.
+    source = inspect.getsource(dedup_service)
+    assert "func.lower(Candidate.email)" not in source
+    assert QUERY_EXPR in source
 
 
 def test_indexed_expression_compiles_to_lower_btrim() -> None:

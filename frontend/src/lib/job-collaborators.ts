@@ -50,13 +50,22 @@ export interface CollaboratorChanges {
  * Różnica między ręcznie dopisanymi osobami przed i po edycji. Pierwszy
  * rekruter (`recruiter_id`) nie jest dopisywany drugi raz (serwer odpowiada
  * wtedy 409).
+ *
+ * `previousOwnerId` = pierwszy rekruter sprzed zapisu. Gdy okno go zmienia,
+ * serwer sam zdejmuje zastąpionej osobie wpis „kolejnej osoby” — jeśli nadal
+ * stoi w polu, trzeba ją dopisać ponownie, inaczej znikłaby po cichu.
  */
 export function collaboratorChanges(
   before: readonly number[],
   after: readonly number[],
   primaryOwnerId?: number | null,
+  previousOwnerId?: number | null,
 ): CollaboratorChanges {
-  const was = new Set(before);
+  const replacedOwnerId =
+    previousOwnerId != null && previousOwnerId !== (primaryOwnerId ?? null)
+      ? previousOwnerId
+      : null;
+  const was = new Set(before.filter((id) => id !== replacedOwnerId));
   const next = new Set(after.filter((id) => id !== primaryOwnerId));
   return {
     add: [...next].filter((id) => !was.has(id)),

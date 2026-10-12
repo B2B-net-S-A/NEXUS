@@ -2950,7 +2950,7 @@ async def generate_from_upload(
 class UploadIdentityMatch(BaseModel):
     candidate_id: int
     full_name: str
-    # `identical_file` (te same bajty), `email_exact`, `phone_exact`.
+    # `identical_file` (te same bajty) albo `email_exact`.
     match_reasons: list[str] = Field(default_factory=list)
 
 
@@ -2971,7 +2971,7 @@ async def identify_upload(
     Zanim rekruter wygeneruje CV z pliku z dysku, generator pyta, czy to nie
     ktoś z bazy — wtedy lepiej wybrać tę osobę (procesy, notatki, Champion).
     Te same darmowe sita co `/api/candidates/from-cv` PRZED płatnym odczytem:
-    identyczny plik, e-mail i telefon z NAGŁÓWKA CV. ZERO wywołań modelu —
+    identyczny plik i e-mail z NAGŁÓWKA CV. ZERO wywołań modelu —
     pusta lista znaczy „nie rozpoznano", nie „na pewno nowa osoba".
     """
     import os

@@ -385,7 +385,7 @@ describe("JobsListV2 — filtr „Data otwarcia”", () => {
 describe("JobsListV2 — kolumna „Rekruter” i priorytet w wierszu", () => {
   beforeEach(() => mockQuickCounts());
 
-  it("jedna osoba, dwie osoby (+1), sama propozycja, nikt — każdy stan w swojej komórce", async () => {
+  it("jedna osoba, dwie osoby, sama propozycja, nikt — każdy stan w swojej komórce", async () => {
     mockJobsResponse([
       jobRow({ id: 1, title: "Jedna osoba", recruiters: [person(3, "Anna Nowak")] }),
       jobRow({
@@ -411,13 +411,15 @@ describe("JobsListV2 — kolumna „Rekruter” i priorytet w wierszu", () => {
 
     expect(screen.getByRole("columnheader", { name: "Rekruter" })).toBeInTheDocument();
 
-    // Jeden układ dla każdej szerokości: pierwsza osoba i „+N”.
+    // Jeden układ dla każdej szerokości: dwie osoby z nazwiska, potem „+N”.
     const one = cellOf("Jedna osoba");
     expect(one.getByTitle("Rekruter: Anna Nowak")).toHaveTextContent("Anna N.");
     expect(one.queryByText(/^\+/)).not.toBeInTheDocument();
 
     const two = cellOf("Dwie osoby");
-    expect(two.getByText("+1")).toBeInTheDocument();
+    expect(two.getByText("Anna N.")).toBeInTheDocument();
+    expect(two.getByText("Jan K.")).toBeInTheDocument();
+    expect(two.queryByText(/^\+/)).not.toBeInTheDocument();
     expect(two.getAllByTitle("Rekruterzy: Anna Nowak, Jan Kowalski").length).toBeGreaterThan(0);
 
     const proposal = cellOf("Sama propozycja");
@@ -464,10 +466,30 @@ describe("JobsListV2 — kolumna „Rekruter” i priorytet w wierszu", () => {
     ]);
     renderJobs();
     const cell = within(await screen.findByTestId("job-recruiter-cell"));
+    const names = cell.getByTitle("Rekruterzy: Anna Nowak, Jan Kowalski");
+    expect(names).toHaveTextContent("Anna N.");
+    expect(names).toHaveTextContent("Jan K.");
+    expect(cell.queryByText(/^\+/)).not.toBeInTheDocument();
+  });
+
+  it("filtr „Rekruter” po trzeciej osobie: wiersz pokazuje ją z nazwiska", async () => {
+    setAddress("who=4");
+    mockJobsResponse([
+      jobRow({
+        recruiters: [
+          person(3, "Anna Nowak"),
+          person(5, "Ewa Zielińska", { via: "assignment" }),
+          person(4, "Jan Kowalski", { via: "collaborator" }),
+        ],
+      }),
+    ]);
+    renderJobs();
+    const cell = within(await screen.findByTestId("job-recruiter-cell"));
+    expect(latestParams()).toMatchObject({ worked_by: [4] });
+    expect(cell.getByText("Jan K.")).toBeInTheDocument();
+    expect(cell.getByText("Anna N.")).toBeInTheDocument();
+    expect(cell.queryByText("Ewa Z.")).not.toBeInTheDocument();
     expect(cell.getByText("+1")).toBeInTheDocument();
-    expect(
-      cell.getByTitle("Rekruterzy: Anna Nowak, Jan Kowalski"),
-    ).toHaveTextContent("Anna N.");
   });
 
   it("priorytet przy tytule: P1 i „Przyjmujemy” mają plakietkę, P2 — nie; bez osobnej kolumny", async () => {

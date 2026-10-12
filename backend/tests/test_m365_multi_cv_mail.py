@@ -44,7 +44,7 @@ def _inputs(tmp_path):
 
 
 def _patch(monkeypatch, tmp_path, duplicates):
-    from app.services import dedup_service
+    from app.services import cv_upload_dedup, dedup_service
 
     monkeypatch.setattr(attachment_handler, "STORAGE_ROOT", tmp_path)
     monkeypatch.setattr(attachment_handler.settings, "M365_AUTO_PARSE_CV", True)
@@ -62,7 +62,10 @@ def _patch(monkeypatch, tmp_path, duplicates):
         ),
     )
     monkeypatch.setattr(
-        dedup_service, "find_candidate_duplicates", AsyncMock(return_value=duplicates)
+        dedup_service, "find_candidate_by_email", AsyncMock(return_value=duplicates)
+    )
+    monkeypatch.setattr(
+        cv_upload_dedup, "_duplicates_by_file_hash", AsyncMock(return_value=[])
     )
     parse = AsyncMock()
     monkeypatch.setattr(attachment_handler, "try_parse_cv", parse)
@@ -110,10 +113,15 @@ async def test_second_cv_of_new_person_creates_candidate(monkeypatch, tmp_path) 
 
 
 async def test_unresolved_second_cv_is_terminal(monkeypatch, tmp_path) -> None:
+    # Ten sam adres na dwóch profilach — jedyny przypadek bez rozstrzygnięcia
+    # po 12.10.2026 (samo imię i nazwisko zakłada już nowy profil).
     _patch(
         monkeypatch,
         tmp_path,
-        [{"candidate_id": 5, "match_score": 0.9, "match_reasons": ["name_exact"]}],
+        [
+            {"candidate_id": 5, "match_score": 1.0, "match_reasons": ["email_exact"]},
+            {"candidate_id": 6, "match_score": 1.0, "match_reasons": ["email_exact"]},
+        ],
     )
     attachment, email = _inputs(tmp_path)
     assert (
@@ -122,7 +130,7 @@ async def test_unresolved_second_cv_is_terminal(monkeypatch, tmp_path) -> None:
         )
         is None
     )
-    assert attachment.parse_error == "possible_duplicate_name"
+    assert attachment.parse_error == "conflicting_identity"
     assert attachment.cv_parse_attempted_at is not None
 
 

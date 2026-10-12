@@ -43,8 +43,11 @@ Raport: `docs/cv-autonomous-flow-completion-report.md`. Trzy reguły, które ła
   ostrzegają: ostrzeżenie czyta człowiek, a automat nie ma kogo ostrzec
   (`auto_match_service._BLOCKING_WARNINGS` → decyzja `penalized`).
 - **CV z maila od nadawcy spoza bazy** (`attachment_handler.try_create_candidate_from_cv`):
-  tożsamość z TREŚCI CV (rekruterzy przesyłają CV dalej). E-mail/telefon/LinkedIn
-  pasuje → mail podpięty (`EmailMatchMethod.cv_identity`); pasuje samo imię
-  i nazwisko → nic (`possible_duplicate_name`); CV bez imienia, nazwiska albo
-  kontaktu → nic (`identity_insufficient`). Tylko poczta z ostatnich
+  tożsamość z TREŚCI CV (rekruterzy przesyłają CV dalej). Od 12.10.2026 ta sama
+  osoba = ten sam e-mail (`kandydaci-wyszukiwanie/ta-sama-osoba-ten-sam-e-mail.md`):
+  e-mail z CV należy do kandydata → mail podpięty (`EmailMatchMethod.cv_identity`);
+  inny e-mail albo jego brak → nowy kandydat (imiennik i wspólny telefon to inna
+  osoba); ten sam plik już w czyimś profilu → CV idzie do tego profilu; adres
+  albo plik na dwóch profilach → nic (`conflicting_identity`); CV bez imienia,
+  nazwiska albo kontaktu → nic (`identity_insufficient`). Tylko poczta z ostatnich
   `M365_AUTO_CREATE_LOOKBACK_DAYS` (14). Wyłącznik `M365_AUTO_CREATE_CANDIDATE_FROM_CV`.

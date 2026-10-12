@@ -87,6 +87,11 @@ const inDays = (days: number) => {
   return d.toISOString().slice(0, 10);
 };
 
+/** Zalogowana osoba harnessu. */
+const VIEWER_ID = 1;
+/** Osoba, po której filtruje `/preview/jobs-list-v3?who=71`. */
+const FILTERED_PERSON = 71;
+
 /** Osoba w roli „Rekruter” — kształt z `GET /api/jobs` (`recruiters[]`). */
 const recruiter = (
   user_id: number,
@@ -127,10 +132,13 @@ const MINE = [
     opened_at: inDays(-14),
     status: "published",
     tac_id: 3,
-    // Kolumna „Rekruter”: dwie osoby pracują → pierwsza i „+1”.
+    // Kolumna „Rekruter”: trzy osoby, oglądający jest trzeci → komórka pokazuje
+    // jego i pierwszą osobę, resztę jako „+1”. Z `?who=71` pierwsza stoi osoba
+    // z filtra.
     recruiters: [
       recruiter(41, "Marta Kowalska"),
-      recruiter(71, "Anna Współpracowniczka", { via: "collaborator" }),
+      recruiter(FILTERED_PERSON, "Anna Współpracowniczka", { via: "collaborator" }),
+      recruiter(VIEWER_ID, "Preview Rekruter", { via: "assignment" }),
     ],
     delivery_lead_user: { id: 9, name: "Ewa Przykładowa" },
     priority: "urgent",
@@ -347,6 +355,23 @@ function seededClient(): QueryClient {
     jobsListQueryKey({ ...BASE, mine: true, openOnly: true, sort: "attention" }),
     page(MINE),
   );
+  // `?who=71`: filtr „Rekruter” po osobie, która w rekrutacji jest druga.
+  qc.setQueryData(
+    jobsListQueryKey({
+      ...BASE,
+      workedBy: [FILTERED_PERSON],
+      mine: true,
+      openOnly: true,
+      sort: "attention",
+    }),
+    page(
+      MINE.filter((job) =>
+        (job.recruiters as readonly JobRecruiter[]).some(
+          (person) => person.user_id === FILTERED_PERSON,
+        ),
+      ),
+    ),
+  );
   qc.setQueryData(
     jobsListQueryKey({ ...BASE, mine: false, myCategory: true, openOnly: false, sort: "newest" }),
     page(MY_CATEGORY),
@@ -448,7 +473,7 @@ export default function JobsListV3Preview() {
     );
     useAuthStore.setState({
       user: {
-        id: 1,
+        id: VIEWER_ID,
         email: "preview@example.com",
         name: "Preview Rekruter",
         // Wielorolowe: `admin` daje „Nowa rekrutacja", `recruiter` — domyślny

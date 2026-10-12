@@ -117,6 +117,72 @@ describe("CandidateFilesTab upload", () => {
     await waitFor(() => expect(showToast).toHaveBeenCalled());
   });
 
+  // 12.10.2026 (decyzja Artura): nowe CV w profilu ma od razu zasilić profil.
+  // Do tej decyzji plik tylko leżał na liście, dopóki ktoś nie kliknął
+  // „Ustaw jako główne CV” — serwer czyta modelem wyłącznie główne CV.
+  it("sends a new CV as the primary one by default so AI refreshes the profile", async () => {
+    renderTab();
+    await screen.findByRole("button", { name: /Dodaj plik/ });
+    expect(
+      screen.getByRole("checkbox", { name: /Ustaw jako główne CV \(AI odświeży profil\)/ }),
+    ).toBeChecked();
+
+    pickFile(new File(["cv"], "cv-nowe.pdf", { type: "application/pdf" }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    const formData = vi.mocked(api.post).mock.calls[0][1] as FormData;
+    expect(formData.get("document_kind")).toBe("cv");
+    expect(formData.get("is_primary")).toBe("true");
+    await waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith(expect.stringMatching(/AI czyta je w tle/), "success"),
+    );
+  });
+
+  it("keeps the CV as a plain file when the checkbox is cleared", async () => {
+    const user = userEvent.setup();
+    renderTab();
+    await screen.findByRole("button", { name: /Dodaj plik/ });
+
+    await user.click(screen.getByRole("checkbox", { name: /Ustaw jako główne CV/ }));
+    pickFile(new File(["cv"], "cv-en.pdf", { type: "application/pdf" }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    const formData = vi.mocked(api.post).mock.calls[0][1] as FormData;
+    expect(formData.get("is_primary")).toBeNull();
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Plik dodany.", "success"));
+  });
+
+  it("never sends the primary flag for a non-CV kind (the server answers 422)", async () => {
+    renderTab();
+    await screen.findByRole("button", { name: /Dodaj plik/ });
+
+    fireEvent.change(screen.getByLabelText("Rodzaj"), { target: { value: "certificate" } });
+    expect(screen.queryByRole("checkbox", { name: /Ustaw jako główne CV/ })).toBeNull();
+    pickFile(new File(["scan"], "certyfikat.pdf", { type: "application/pdf" }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    expect((vi.mocked(api.post).mock.calls[0][1] as FormData).get("is_primary")).toBeNull();
+  });
+
+  it("makes only the last of several CVs primary — one AI read, not one per file", async () => {
+    renderTab();
+    await screen.findByRole("button", { name: /Dodaj plik/ });
+
+    fireEvent.change(screen.getByTestId("candidate-document-upload-input"), {
+      target: {
+        files: [
+          new File(["a"], "cv-pl.pdf", { type: "application/pdf" }),
+          new File(["b"], "cv-en.pdf", { type: "application/pdf" }),
+        ],
+      },
+    });
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(2));
+    const [first, second] = vi.mocked(api.post).mock.calls.map(([, body]) => body as FormData);
+    expect(first.get("is_primary")).toBeNull();
+    expect(second.get("is_primary")).toBe("true");
+  });
+
   it("uploads several files sequentially and refetches the list once done", async () => {
     renderTab();
     await screen.findByRole("button", { name: /Dodaj plik/ });

@@ -207,4 +207,34 @@ describe("RecruiterChips — compact (komórka tabeli)", () => {
     render(<RecruiterChips people={[]} compact emptyLabel="Bez rekrutera" />);
     expect(screen.getByText("Bez rekrutera")).toBeInTheDocument();
   });
+
+  it("`maxNames={2}`: dwie osoby z nazwiska, „+N” dopiero za nimi", () => {
+    render(
+      <RecruiterChips people={[owner, assigned, collaborator, proposal]} compact maxNames={2} />,
+    );
+
+    const tooltip =
+      "Rekruterzy: Marta Kowalska, Jan Nowak, Ewa Zielińska · Propozycja automatu: Piotr Wiśniewski";
+    const cell = screen.getByTitle(tooltip);
+    expect(within(cell).getByText("Marta K.")).toBeInTheDocument();
+    expect(within(cell).getByText("Jan N.")).toBeInTheDocument();
+    expect(within(cell).queryByText("Ewa Z.")).not.toBeInTheDocument();
+    expect(within(cell).getByText("+1")).toHaveAttribute("aria-hidden", "true");
+    expect(within(cell).getByText(tooltip)).toHaveClass("sr-only");
+    expect(cell.className).toContain("relative");
+  });
+
+  it("`maxNames={2}` przy dwóch osobach: obie z nazwiska, bez „+N”", () => {
+    render(<RecruiterChips people={[owner, assigned]} compact maxNames={2} />);
+    const cell = screen.getByTitle("Rekruterzy: Marta Kowalska, Jan Nowak");
+    expect(within(cell).getByText("Marta K.")).toBeInTheDocument();
+    expect(within(cell).getByText("Jan N.")).toBeInTheDocument();
+    expect(screen.queryByText(/^\+\d/)).not.toBeInTheDocument();
+  });
+
+  it("`maxNames={2}` przy jednej osobie: ta sama postać co dotąd", () => {
+    render(<RecruiterChips people={[owner]} compact maxNames={2} />);
+    expect(screen.getByTitle("Rekruter: Marta Kowalska")).toHaveTextContent("Marta K.");
+    expect(screen.queryByText(/^\+\d/)).not.toBeInTheDocument();
+  });
 });

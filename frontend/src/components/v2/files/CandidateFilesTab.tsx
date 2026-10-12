@@ -46,6 +46,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 
 export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
@@ -60,6 +61,11 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  const [previewDoc, setPreviewDoc] = useState<CandidateDocument | null>(null);
  const [uploadKind, setUploadKind] =
  useState<CandidateDocument["document_kind"]>("cv");
+ // Nowe CV domyślnie staje się głównym (decyzja Artura, 12.10.2026): serwer
+ // czyta modelem i odświeża profil wyłącznie z głównego CV — bez tego plik
+ // tylko leżał na liście. Odznaczone = sam plik, np. wersja angielska obok
+ // polskiej.
+ const [cvAsPrimary, setCvAsPrimary] = useState(true);
  const fileInputRef = useRef<HTMLInputElement>(null);
  const { data: documents, isLoading, error } = useQuery<CandidateDocument[]>({
  queryKey: candidateQueryKeys.documents(candidateId),
@@ -119,15 +125,22 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  // przestawia flagę primary, więc równoległe zapisy tego samego kandydata
  // ścigałyby się o ten sam wiersz.
  mutationFn: async (files: File[]) => {
- for (const file of files) {
+ // Flaga tylko dla CV — przy innym rodzaju serwer odpowiada 422.
+ const madePrimary = uploadKind === "cv" && cvAsPrimary;
+ for (const [index, file] of files.entries()) {
  const fd = new FormData();
  fd.append("file", file);
  fd.append("document_kind", uploadKind);
+ // Przy kilku plikach głównym zostaje ostatni: każde główne CV to osobny
+ // odczyt modelem, a główne i tak jest jedno.
+ if (madePrimary && index === files.length - 1) {
+ fd.append("is_primary", "true");
+ }
  await api.post(`/api/candidates/${candidateId}/documents`, fd, {
  headers: { "Content-Type": "multipart/form-data" },
  });
  }
- return files.length;
+ return { count: files.length, madePrimary };
  },
  // Odświeżamy w onSettled, nie w onSuccess: przy wielu plikach błąd na
  // trzecim nie unieważnia faktu, że dwa pierwsze już się zapisały — lista
@@ -142,11 +155,15 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  void queryClient.invalidateQueries({ queryKey });
  }
  },
- onSuccess: (count: number) =>
+ onSuccess: ({ count, madePrimary }: { count: number; madePrimary: boolean }) => {
+ const added = count === 1 ? "Plik dodany." : `Dodano pliki: ${count}.`;
  showToast(
- count === 1 ? "Plik dodany." : `Dodano pliki: ${count}.`,
+ madePrimary
+ ? `${count === 1 ? "CV dodane jako główne." : `${added} Ostatnie CV jest główne.`} AI czyta je w tle — profil odświeży się za około minutę.`
+ : added,
  "success",
- ),
+ );
+ },
  onError: (mutationError) =>
  showError(
  extractErrorMsg(mutationError) || "Nie udało się dodać pliku.",
@@ -216,6 +233,20 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  <option value="certificate">Certyfikat</option>
  <option value="other">Inny</option>
  </select>
+ {uploadKind === "cv" ? (
+ <label
+ htmlFor="candidate-document-primary"
+ className="inline-flex items-center gap-1.5 text-xs text-foreground"
+ >
+ <Checkbox
+ id="candidate-document-primary"
+ checked={cvAsPrimary}
+ onCheckedChange={(checked) => setCvAsPrimary(checked === true)}
+ disabled={uploadMutation.isPending}
+ />
+ Ustaw jako główne CV (AI odświeży profil)
+ </label>
+ ) : null}
  <input
  ref={fileInputRef}
  type="file"

@@ -18,7 +18,7 @@ import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -455,8 +455,9 @@ def _m365_inputs(tmp_path):
     return attachment, email
 
 
-def _patch_m365(monkeypatch, tmp_path, parsed, duplicates):
-    from app.services import dedup_service
+def _patch_m365(monkeypatch, tmp_path, parsed, duplicates, same_file=()):
+    """`duplicates` = profile z tym samym e-mailem; `same_file` = z tym samym plikiem."""
+    from app.services import cv_upload_dedup, dedup_service
     from app.services.m365 import attachment_handler
 
     monkeypatch.setattr(attachment_handler, "STORAGE_ROOT", tmp_path)
@@ -470,7 +471,12 @@ def _patch_m365(monkeypatch, tmp_path, parsed, duplicates):
         AsyncMock(return_value=("tekst", parsed)),
     )
     monkeypatch.setattr(
-        dedup_service, "find_candidate_duplicates", AsyncMock(return_value=duplicates)
+        dedup_service, "find_candidate_by_email", AsyncMock(return_value=duplicates)
+    )
+    monkeypatch.setattr(
+        cv_upload_dedup,
+        "_duplicates_by_file_hash",
+        AsyncMock(return_value=list(same_file)),
     )
     parse = AsyncMock()
     monkeypatch.setattr(attachment_handler, "try_parse_cv", parse)
@@ -498,23 +504,72 @@ async def test_unknown_sender_cv_with_strong_identity_links_existing(
     parse.assert_awaited_once()
 
 
+def _db_that_assigns_id(candidate_id: int):
+    db = AsyncMock()
+    db.add = MagicMock()
+
+    async def _flush():
+        db.add.call_args_list[0].args[0].id = candidate_id
+
+    db.flush.side_effect = _flush
+    return db
+
+
 @pytest.mark.asyncio
-async def test_unknown_sender_cv_matching_only_by_name_creates_nothing(
+async def test_unknown_sender_cv_of_a_namesake_creates_a_candidate(
     monkeypatch, tmp_path
 ):
+    """12.10.2026: ta sama osoba = ten sam e-mail.
+
+    Imiennik (i wspólny telefon) to inna osoba — CV zakłada nowy profil. Do tej
+    decyzji samo imię i nazwisko odkładało załącznik (`possible_duplicate_name`),
+    a telefon podpinał CV do cudzego profilu.
+    """
+    from app.services import dedup_service, index_outbox_service
+
     handler, parse = _patch_m365(
         monkeypatch,
         tmp_path,
         {"first_name": "Jan", "last_name": "Kowalski", "phone": "600100200"},
-        [{"candidate_id": 5, "match_score": 0.9, "match_reasons": ["name_exact"]}],
+        [],
+    )
+    monkeypatch.setattr(
+        index_outbox_service, "schedule_or_embed_candidate", AsyncMock()
     )
     attachment, email = _m365_inputs(tmp_path)
-    db = AsyncMock()
-    assert await handler.try_create_candidate_from_cv(db, attachment, email) is None
-    assert attachment.parse_error == "possible_duplicate_name"
-    assert email.candidate_id is None
+    db = _db_that_assigns_id(88)
+
+    assert await handler.try_create_candidate_from_cv(db, attachment, email) == 88
+    # Pytanie o osobę niesie wyłącznie e-mail (tu: brak), nie telefon ani nazwisko.
+    dedup_service.find_candidate_by_email.assert_awaited_once_with(db, None)
+    assert attachment.parse_error is None
+    assert email.candidate_id == 88
+    assert parse.await_args.kwargs["candidate_id"] == 88
+
+
+@pytest.mark.asyncio
+async def test_unknown_sender_cv_resent_file_goes_to_the_profile_that_has_it(
+    monkeypatch, tmp_path
+):
+    """CV bez e-maila zakłada profil — ale ten sam plik przysłany drugi raz
+    nie może założyć drugiego."""
+    handler, parse = _patch_m365(
+        monkeypatch,
+        tmp_path,
+        {"first_name": "Jan", "last_name": "Kowalski", "phone": "600100200"},
+        [],
+        same_file=[
+            {"candidate_id": 77, "match_score": 1.0, "match_reasons": ["identical_file"]}
+        ],
+    )
+    attachment, email = _m365_inputs(tmp_path)
+    attachment.sha256 = "a" * 64
+    db = _db_that_assigns_id(88)
+
+    assert await handler.try_create_candidate_from_cv(db, attachment, email) == 77
     db.add.assert_not_called()
-    parse.assert_not_awaited()
+    assert email.candidate_id == 77
+    assert parse.await_args.kwargs["candidate_id"] == 77
 
 
 @pytest.mark.asyncio
@@ -602,7 +657,7 @@ async def test_unknown_sender_cv_creates_a_candidate(monkeypatch, tmp_path):
                 ),
             )
             monkeypatch.setattr(
-                dedup_service, "find_candidate_duplicates", AsyncMock(return_value=[])
+                dedup_service, "find_candidate_by_email", AsyncMock(return_value=[])
             )
             second_id = await handler.try_create_candidate_from_cv(
                 db, other, other_email
@@ -779,20 +834,17 @@ async def test_claim_never_collides_and_dead_letters_exhausted_events(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_unknown_sender_cv_with_conflicting_strong_matches_creates_nothing(
+async def test_unknown_sender_cv_with_email_on_two_profiles_creates_nothing(
     monkeypatch, tmp_path
 ):
+    """Dwa profile z tym samym adresem (różna wielkość liter, sprzed 12.10.2026)
+    — nie zgadujemy, do którego podpiąć CV."""
     handler, parse = _patch_m365(
         monkeypatch,
         tmp_path,
-        {
-            "first_name": "Jan",
-            "last_name": "Nowak",
-            "email": "jan@example.com",
-            "phone": "600100200",
-        },
+        {"first_name": "Jan", "last_name": "Nowak", "email": "jan@example.com"},
         [
-            {"candidate_id": 1, "match_score": 1.0, "match_reasons": ["phone_exact"]},
+            {"candidate_id": 1, "match_score": 1.0, "match_reasons": ["email_exact"]},
             {"candidate_id": 2, "match_score": 1.0, "match_reasons": ["email_exact"]},
         ],
     )

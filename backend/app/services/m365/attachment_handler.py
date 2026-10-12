@@ -519,11 +519,6 @@ async def _extract_and_parse(
     return text, parsed
 
 
-_STRONG_IDENTITY_REASONS = frozenset(
-    {"email_exact", "phone_exact", "linkedin_slug_match"}
-)
-
-
 async def try_create_candidate_from_cv(
     db: AsyncSession,
     attachment: EmailAttachment,
@@ -537,12 +532,18 @@ async def try_create_candidate_from_cv(
     że nadawca nie jest jeszcze kandydatem. Tożsamość bierzemy z TREŚCI CV, nie
     z adresu nadawcy — rekruterzy przesyłają CV dalej ze swoich skrzynek.
 
-    - e-mail / telefon / LinkedIn z CV pasuje do kandydata → mail podpięty
-      (`cv_identity`) i odczyt jak dla znanego kandydata;
-    - pasuje wyłącznie imię i nazwisko → nic nie zakładamy
-      (`possible_duplicate_name`): dwóch Janów Kowalskich to nie ta sama osoba;
-    - brak dopasowania, a CV ma imię, nazwisko i dane kontaktowe → nowy kandydat
-      (`source="email"`) i ta sama wspólna ścieżka co upload;
+    Ta sama osoba = ten sam e-mail (decyzja Artura z 12.10.2026) — tak samo jak
+    w oknie „Dodaj kandydata” i w `/from-cv`:
+
+    - e-mail z CV należy do kandydata → mail podpięty (`cv_identity`) i odczyt
+      jak dla znanego kandydata;
+    - inny e-mail albo brak e-maila, a CV ma imię, nazwisko i dane kontaktowe →
+      nowy kandydat (`source="email"`) i ta sama wspólna ścieżka co upload.
+      Telefon, LinkedIn oraz imię i nazwisko nie łączą: wspólny numer wrzucał CV
+      do cudzego profilu, a imiennik odkładał załącznik bez śladu w aplikacji;
+    - TEN SAM PLIK leży już w czyimś profilu → CV idzie do tego profilu (bez
+      tego ponownie przesłane CV bez e-maila zakładałoby kolejny profil);
+    - adres albo plik wskazuje dwa profile → `conflicting_identity`;
     - CV bez imienia, nazwiska albo kontaktu → `identity_insufficient`.
 
     ``link_email=False`` (runda 6 audytu): kolejne CV z maila, który już
@@ -594,31 +595,24 @@ async def try_create_candidate_from_cv(
         attachment.parse_error = "identity_insufficient"
         return None
 
-    from app.services.dedup_service import find_candidate_duplicates
+    # Importy w funkcji: testy podmieniają oba zapytania przez moduł źródłowy.
+    from app.services.cv_upload_dedup import _duplicates_by_file_hash
+    from app.services.dedup_service import find_candidate_by_email
 
-    duplicates = await find_candidate_duplicates(
-        db,
-        email=email,
-        phone=phone,
-        linkedin=linkedin,
-        name=first_name,
-        lastname=last_name,
-    )
-    strong = [
-        d
-        for d in duplicates
-        if _STRONG_IDENTITY_REASONS & set(d.get("match_reasons") or [])
-    ]
+    matches = await find_candidate_by_email(db, email)
+    file_hash = getattr(attachment, "sha256", None)
+    if not matches and file_hash:
+        matches = await _duplicates_by_file_hash(db, digest=file_hash)
     now = datetime.now(timezone.utc)
-    if len({int(d["candidate_id"]) for d in strong}) > 1:
-        # E-mail z CV wskazuje jedną osobę, telefon drugą: podpięcie do którejś
-        # wpisałoby jej cudzy kontakt (i łamało unikalność e-maila w bazie).
+    if len({int(m["candidate_id"]) for m in matches}) > 1:
+        # Dwa profile z tym samym adresem (różnią się wielkością liter) albo
+        # ten sam plik u dwóch osób — nie zgadujemy, do którego podpiąć CV.
         attachment.parse_error = "conflicting_identity"
         return None
-    if strong:
-        candidate_id = int(strong[0]["candidate_id"])
+    if matches:
+        candidate_id = int(matches[0]["candidate_id"])
         if link_email:
-            _link_email(email_row, candidate_id, float(strong[0]["match_score"]), now)
+            _link_email(email_row, candidate_id, float(matches[0]["match_score"]), now)
         await try_parse_cv(
             db,
             attachment,
@@ -627,9 +621,6 @@ async def try_create_candidate_from_cv(
             candidate_id=candidate_id,
         )
         return candidate_id
-    if duplicates:
-        attachment.parse_error = "possible_duplicate_name"
-        return None
 
     from app.models.activity import Activity
 

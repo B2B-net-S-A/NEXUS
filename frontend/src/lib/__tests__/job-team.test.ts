@@ -9,6 +9,7 @@ import {
   hasRecruiter,
   hasWorkingOwner,
   joinJob,
+  pinRecruiters,
   proposedRecruiters,
   recruitersOf,
   recruitersSummary,
@@ -186,6 +187,36 @@ describe("recruitersSummary", () => {
       proposedNames: [],
       tooltip: "",
     });
+  });
+});
+
+describe("pinRecruiters", () => {
+  const team = [owner, assigned, collaborator, proposal];
+
+  it("osoba z listy idzie na początek, reszta zostaje w kolejności z serwera", () => {
+    expect(pinRecruiters(team, [3]).map((p) => p.user_id)).toEqual([3, 1, 2, 4]);
+  });
+
+  it("kilka osób: kolejność przypięcia wygrywa z kolejnością z serwera", () => {
+    expect(pinRecruiters(team, [3, 2]).map((p) => p.user_id)).toEqual([3, 2, 1, 4]);
+    expect(pinRecruiters(team, [2, 3, 2]).map((p) => p.user_id)).toEqual([2, 3, 1, 4]);
+  });
+
+  it("propozycja automatu nie wchodzi przed pracujących", () => {
+    expect(pinRecruiters(team, [4]).map((p) => p.user_id)).toEqual([1, 2, 3, 4]);
+  });
+
+  it("osoba spoza zespołu, brak id albo pusta lista — bez zmian", () => {
+    expect(pinRecruiters(team, [99])).toEqual(team);
+    expect(pinRecruiters(team, [null, undefined])).toEqual(team);
+    expect(pinRecruiters(team, [])).toEqual(team);
+    expect(pinRecruiters([], [1])).toEqual([]);
+  });
+
+  it("nie zmienia przekazanej listy", () => {
+    const before = [...team];
+    pinRecruiters(team, [3]);
+    expect(team).toEqual(before);
   });
 });
 

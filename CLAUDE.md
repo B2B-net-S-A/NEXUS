@@ -117,6 +117,7 @@ Deploy przez Coolify, `/api/health`, zmienne środowiskowe, CI i kolejka merge'�
 - `specyfika-tej-apki.md` — Specyfika tej apki
 - `stabilizacja-pod-obciazeniem-reguly-po-audycie-13.md` — Stabilizacja pod obciążeniem — reguły po audycie 13.09 i reaudycie 14.09.2026 · deploy = przerwa dla użytkowników, ponowienia HTTP, polling, single-flight cache, eksport XLSX, uploady
 - `tabele-worda-z-wgranych-plikow.md` — Tabele Worda z wgranych plików — komórki przez `app/core/docx_cells.py` (11.10.2026)
+- `wersja-frontu-w-otwartej-karcie.md` — Otwarta karta sama przechodzi na nową wersję frontu (12.10.2026)
 
 ### Role i uprawnienia — `docs/claude/uprawnienia/`
 
@@ -225,6 +226,7 @@ Lista i profil kandydata, słowa kluczowe, kolejność „Dopasowanie”, Talent
 - `podglad-cv-pdf-js-lupa-szukaj-w-cv.md` — Podgląd CV: pdf.js + lupa „Szukaj w CV” (09.2026)
 - `slowa-kluczowe-przez-korpus-zlozony-lista-najpierw.md` — Słowa kluczowe przez korpus złożony + lista „najpierw id” (0385, 25.09.2026)
 - `szukaj-recznie-nie-wycina-sygnaly-mile-widziane.md` — „Szukaj ręcznie” nie wycina — sygnały „Mile widziane” (26.09.2026)
+- `ta-sama-osoba-ten-sam-e-mail.md` — Ta sama osoba = ten sam e-mail; nowe CV czytane od razu (12.10.2026) · reguła duplikatów kandydata w oknach, /from-cv, poczcie M365 i imporcie; LinkedIn tylko z adresu profilu; główne CV = odczyt AI; blokady ręcznych poprawek
 - `talent-radar-wklejasz-request-ranking-bazy-bez.md` — Talent Radar (wklejasz request → ranking bazy, bez zakładania rekrutacji)
 - `wyszukiwanie-reczne-podpowiedzi-przycisk-szukaj.md` — Wyszukiwanie ręczne: podpowiedzi, przycisk „Szukaj”, pamięć (25.09.2026)
 

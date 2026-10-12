@@ -150,7 +150,10 @@ from app.services.scoring_service import (
     resolve_active_profile,
     summarize_match_stats,
 )
-from app.services.dedup_service import find_candidate_duplicates
+from app.services.dedup_service import (
+    find_candidate_by_email,
+    find_candidate_duplicates,
+)
 from app.schemas.pipeline import HiringManagerVetoBrief
 from app.services.hiring_manager_verdicts import (
     load_all_vetoes_for_candidate,
@@ -3655,9 +3658,9 @@ async def create_candidate(
     # poniżej 500 (audyt QA 14.09.2026). Sprawdzenie przed zapisem daje czytelną
     # odmowę; SAVEPOINT łapie wyścig dwóch równoległych zapisów tego samego adresu.
     duplicate_message = "Kandydat z tym adresem e-mail już istnieje."
-    if candidate.email and await db.scalar(
-        select(Candidate.id).where(Candidate.email == candidate.email)
-    ):
+    # Bez rozróżniania wielkości liter (12.10.2026): unikalny indeks jest na
+    # surowej kolumnie, więc „Jan@…” i „jan@…” zakładały dwa profile.
+    if candidate.email and await find_candidate_by_email(db, candidate.email):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=duplicate_message
         )
@@ -5722,6 +5725,7 @@ async def update_candidate_document(
                     "zanim ustawisz je jako główne."
                 ),
             )
+        replaced_primary = await _primary_cv_before_change(db, candidate_id)
         await db.execute(
             update(CandidateDocument)
             .where(
@@ -5761,6 +5765,7 @@ async def update_candidate_document(
             doc_id,
             doc.content_sha256,
             actor_user_id=current_user.id,
+            replaced_primary=replaced_primary,
         )
 
     return (await _documents_with_people(db, [doc]))[0]
@@ -6107,16 +6112,24 @@ async def update_candidate(
 
     # Phase D4: flag manual edits to `experience` so a subsequent CV upload
     # does not silently overwrite recruiter-curated data with AI extraction.
-    if {"experience", "skills"} & updates.keys():
+    # 12.10.2026 (decyzja Artura): to samo dla lat doświadczenia, wykształcenia
+    # i podsumowania — nowe główne CV odświeża profil (`CvWritePolicy.REFRESH`),
+    # a te trzy pola nie miały blokady. Blokuje dopiero faktyczna zmiana
+    # wartości, nie samo przysłanie pola.
+    manually_edited = [f for f in ("experience", "skills") if f in updates] + [
+        f
+        for f in ("years_it_experience", "education", "ai_summary")
+        if f in updates and updates[f] != getattr(candidate, f)
+    ]
+    if manually_edited:
         # A non-empty list is truthy, so `or {}` does not catch it and `dict()`
         # raises — a 500 on exactly the rows that already broke the sync.
         _raw_extracted = candidate.cv_extracted_data
         current_extracted = (
             dict(_raw_extracted) if isinstance(_raw_extracted, dict) else {}
         )
-        for field in ("experience", "skills"):
-            if field in updates:
-                current_extracted[f"_manual_override_{field}"] = True
+        for field in manually_edited:
+            current_extracted[f"_manual_override_{field}"] = True
         updates["cv_extracted_data"] = current_extracted
 
     # `preferences` scala się PŁYTKO (0278): klucz z payloadu nadpisuje, klucz
@@ -6146,10 +6159,8 @@ async def update_candidate(
     duplicate_message = "Kandydat z tym adresem e-mail już istnieje."
     new_email = updates.get("email")
     if new_email and new_email != candidate.email:
-        if await db.scalar(
-            select(Candidate.id).where(
-                Candidate.email == new_email, Candidate.id != candidate.id
-            )
+        if await find_candidate_by_email(
+            db, new_email, exclude_candidate_id=candidate.id
         ):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT, detail=duplicate_message
@@ -6648,6 +6659,7 @@ from app.services.candidate_language_writer import (  # noqa: E402
     sync_candidate_languages_from_source,
 )
 from app.services.candidate_identity_quarantine import (  # noqa: E402
+    ReplacedPrimaryCv,
     record_detected_identity,
 )
 
@@ -6660,6 +6672,7 @@ async def _parsed_source_is_quarantined(
     source_kind: Literal["document", "legacy_cv"],
     source_id: int,
     provenance: str,
+    replaced_primary: Optional[ReplacedPrimaryCv] = None,
 ) -> bool:
     """Persist the identity decision before any parsed CV fact is projected."""
 
@@ -6671,8 +6684,32 @@ async def _parsed_source_is_quarantined(
         observed_first_name=parsed.get("first_name"),
         observed_last_name=parsed.get("last_name"),
         provenance=provenance,
+        replaced_primary=replaced_primary,
     )
     return review.is_quarantined
+
+
+async def _primary_cv_before_change(
+    db: AsyncSession, candidate_id: int
+) -> ReplacedPrimaryCv:
+    """Główne CV i wskaźnik pliku — odczytane PRZED wgraniem albo wyborem nowego.
+
+    Nowe główne CV przejmuje flagę i `cv_filename` od razu, a bramka tożsamości
+    biegnie w tle. Gdy plik okaże się CV innej osoby, kwarantanna przywraca ten
+    stan zamiast czyścić profil właściwej osoby.
+    """
+    document_id = await db.scalar(
+        select(CandidateDocument.id).where(
+            CandidateDocument.candidate_id == candidate_id,
+            CandidateDocument.document_kind == CandidateDocumentKind.cv,
+            CandidateDocument.is_primary.is_(True),
+            CandidateDocument.source_deleted_at.is_(None),
+        )
+    )
+    cv_filename = await db.scalar(
+        select(Candidate.cv_filename).where(Candidate.id == candidate_id)
+    )
+    return ReplacedPrimaryCv(document_id=document_id, cv_filename=cv_filename)
 
 
 async def _auto_assign_primary_cc(candidate: Candidate, db: AsyncSession) -> None:
@@ -6859,6 +6896,7 @@ async def _enrich_candidate_from_document_task(
     expected_hash: Optional[str] = None,
     trigger: str = "cv_upload",
     actor_user_id: Optional[int] = None,
+    replaced_primary: Optional[ReplacedPrimaryCv] = None,
 ) -> None:
     """Extract and enrich from the still-current primary CV version."""
 
@@ -6933,6 +6971,7 @@ async def _enrich_candidate_from_document_task(
                 source_kind="document",
                 source_id=document.id,
                 provenance="cv_parser:document",
+                replaced_primary=replaced_primary,
             ):
                 # Keep the source available for human review, but do not let a
                 # confirmed different person alter the candidate projection.
@@ -7357,6 +7396,7 @@ async def _read_cv_for_new_candidate(
     user_id: int,
     force: bool,
     remember: bool,
+    form_email: Optional[str] = None,
 ) -> tuple[str, dict[str, Any]]:
     """Tekst i odczyt CV — z pamięci procesu albo jednym płatnym wywołaniem.
 
@@ -7380,7 +7420,7 @@ async def _read_cv_for_new_candidate(
     async def _free_sieve(raw_text: str) -> None:
         if not force and settings.FROM_CV_SIEVE_ENABLED:
             cheap_rows = await find_duplicates_without_llm(
-                db, content=content, raw_text=raw_text
+                db, content=content, raw_text=raw_text, form_email=form_email
             )
             if cheap_rows:
                 _raise_from_cv_duplicate_conflict(cheap_rows)
@@ -7455,10 +7495,10 @@ async def preview_candidate_cv(
     status_code=status.HTTP_201_CREATED,
     responses={
         status.HTTP_409_CONFLICT: {
-            "description": "A candidate that closely matches the parsed CV "
-            "already exists (by email, phone, LinkedIn, or name). The response "
-            "body carries `existing_candidate_id` + `matches` so the UI can "
-            "offer 'open existing' / 'save anyway' actions.",
+            "description": "Kandydat z tym adresem e-mail już istnieje albo "
+            "ten sam plik jest już w czyimś profilu. Odpowiedź niesie "
+            "`existing_candidate_id` + `matches`, żeby okno mogło dodać CV do "
+            "tego profilu albo go otworzyć.",
         }
     },
 )
@@ -7468,9 +7508,8 @@ async def create_candidate_from_cv(
     file: UploadFile = File(...),
     force: bool = Query(
         default=False,
-        description="When true, bypass dedup check and create the candidate "
-        "even if a close match exists. The duplicates array on the response "
-        "is still populated for audit.",
+        description="True pomija sito identycznego pliku i adresu z nagłówka. "
+        "Adres e-mail zajęty przez innego kandydata odmawia mimo to.",
     ),
     name: Optional[str] = Form(default=None),
     lastname: Optional[str] = Form(default=None),
@@ -7489,8 +7528,8 @@ async def create_candidate_from_cv(
          — albo weź odczyt z `/cv/preview` (ten sam plik, 30 min).
       3. Pola formularza (`name`, `lastname`, `email`, `phone`, `city`,
          `linkedin`) wygrywają z odczytem.
-      4. Scan for duplicates via `find_candidate_duplicates` — return 409
-         with `existing_candidate_id` unless `?force=true`.
+      4. Ta sama osoba = ten sam e-mail (`find_candidate_by_email`) — 409
+         z `existing_candidate_id`; przy `?force=true` 409 ze zdaniem przy polu.
       5. Insert a Candidate, apply enrichment (contact fields, summary,
          experience), and auto-assign a primary Competence Category.
 
@@ -7517,6 +7556,10 @@ async def create_candidate_from_cv(
             ) from None
 
     # 1b/2 — darmowe sito duplikatów, potem odczyt (albo odczyt z podglądu).
+    # Pola świadomie wyczyszczone w formularzu. FastAPI zamienia pusty napis
+    # z formularza multipart na brak pola, więc `""` nie dociera — lista
+    # przychodzi osobno (`cleared=email,city`).
+    cleared_fields = _cleared_form_fields(cleared)
     raw_text, parsed = await _read_cv_for_new_candidate(
         db,
         content=content,
@@ -7525,6 +7568,8 @@ async def create_candidate_from_cv(
         user_id=current_user.id,
         force=force,
         remember=False,
+        # Adres z formularza wygrywa z nagłówkiem pliku także w sicie.
+        form_email="" if "email" in cleared_fields else email_override,
     )
     overrides: dict[str, Optional[str]] = {
         "first_name": _clean_override(name, 100),
@@ -7534,33 +7579,20 @@ async def create_candidate_from_cv(
         "city": _clean_override(city, 100),
         "linkedin_url": _clean_override(linkedin, 500),
     }
-    # Pola świadomie wyczyszczone w formularzu. FastAPI zamienia pusty napis
-    # z formularza multipart na brak pola, więc `""` nie dociera — lista
-    # przychodzi osobno (`cleared=email,city`).
-    for form_key in _cleared_form_fields(cleared):
+    for form_key in cleared_fields:
         overrides[_FROM_CV_FORM_FIELDS[form_key]] = ""
     parsed = _apply_from_cv_overrides(parsed, overrides)
 
-    # 3 — dedup scan (po scaleniu z polami formularza)
-    dup_rows = await find_candidate_duplicates(
-        db,
-        email=parsed.get("email"),
-        phone=parsed.get("phone"),
-        linkedin=parsed.get("linkedin_url"),
-        name=parsed.get("first_name"),
-        lastname=parsed.get("last_name"),
-    )
-    duplicates = _from_cv_duplicates(dup_rows)
-    if duplicates and not force:
-        _raise_from_cv_duplicate_conflict(dup_rows)
-
-    # 3b — adres zajęty przez INNEGO kandydata = twarda odmowa, także przy
-    # `force` (jak `POST /api/candidates`). „Zapisz mimo to” tworzy drugą
-    # osobę, a zapis profilu po cichu pominąłby wpisany e-mail.
-    taken_email = str(parsed.get("email") or "").strip().lower()
-    if taken_email and await db.scalar(
-        select(Candidate.id).where(func.lower(Candidate.email) == taken_email).limit(1)
-    ):
+    # 3 — ta sama osoba = ten sam e-mail (decyzja Artura, 12.10.2026), po
+    # scaleniu z polami formularza. Telefon, LinkedIn oraz imię i nazwisko nie
+    # odmawiają: inny e-mail to inna osoba. JEDNO sprawdzenie na oba tryby:
+    # bez `force` odmowa niesie `existing_candidate_id` (okna i klient JustJoin
+    # dodają wtedy CV do tego profilu), z `force` zostaje zdanie przy polu —
+    # drugiego profilu z tym samym adresem nie zakładamy (jak `POST /api/candidates`).
+    same_email_rows = await find_candidate_by_email(db, parsed.get("email"))
+    if same_email_rows:
+        if not force:
+            _raise_from_cv_duplicate_conflict(same_email_rows)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=_TAKEN_EMAIL_MESSAGE
         )
@@ -7675,7 +7707,9 @@ async def create_candidate_from_cv(
     return CandidateFromCVResponse(
         candidate=_candidate_to_response(full),
         confidence=confidence,
-        duplicates=duplicates,
+        # Zostaje w kształcie odpowiedzi dla dotychczasowych klientów; od
+        # 12.10.2026 zawsze puste — trafienie po e-mailu kończy się 409.
+        duplicates=[],
         source=parsed.get("_source"),
     )
 
@@ -7881,6 +7915,7 @@ async def _after_cv_commit(
     candidate: Candidate,
     document: CandidateDocument,
     actor_user_id: Optional[int] = None,
+    replaced_primary: Optional[ReplacedPrimaryCv] = None,
 ) -> None:
     """Schedule identity-gated extraction/enrichment once the row is durable."""
     candidate_id = candidate.id
@@ -7892,6 +7927,7 @@ async def _after_cv_commit(
         document.id,
         document.content_sha256,
         actor_user_id=actor_user_id,
+        replaced_primary=replaced_primary,
     )
 
 
@@ -7933,6 +7969,7 @@ async def upload_cv(
         )
     safe_filename = _sanitize_upload_filename(raw_filename, fallback="upload.pdf")
 
+    replaced_primary = await _primary_cv_before_change(db, candidate_id)
     document = await _ingest_candidate_cv_file(
         db,
         candidate=candidate,
@@ -7949,6 +7986,7 @@ async def upload_cv(
         candidate=candidate,
         document=document,
         actor_user_id=current_user.id,
+        replaced_primary=replaced_primary,
     )
 
     # Re-fetch with eager-loaded relations so CandidateResponse can build
@@ -8035,16 +8073,9 @@ async def upload_candidate_document(
         )
 
     if kind == CandidateDocumentKind.cv:
+        replaced_primary = await _primary_cv_before_change(db, candidate_id)
         if not is_primary:
-            has_primary_cv = await db.scalar(
-                select(CandidateDocument.id).where(
-                    CandidateDocument.candidate_id == candidate_id,
-                    CandidateDocument.document_kind == CandidateDocumentKind.cv,
-                    CandidateDocument.is_primary.is_(True),
-                    CandidateDocument.source_deleted_at.is_(None),
-                )
-            )
-            is_primary = has_primary_cv is None
+            is_primary = replaced_primary.document_id is None
         if is_primary:
             document = await _ingest_candidate_cv_file(
                 db,
@@ -8063,6 +8094,7 @@ async def upload_candidate_document(
                 candidate=candidate,
                 document=document,
                 actor_user_id=current_user.id,
+                replaced_primary=replaced_primary,
             )
             return (await _documents_with_people(db, [document]))[0]
 
@@ -8431,8 +8463,9 @@ async def check_duplicates(
     """
     Return candidates matching the provided identifiers (email/phone/linkedin/name+lastname).
 
-    Non-blocking — the API does not reject on duplicates. Callers (UI import modals,
-    create/update flows) decide how to react. Used for duplicate-warning banners.
+    Non-blocking — the API does not reject on duplicates. Podpowiedzi dla
+    człowieka (okno scalania wysyła wszystkie pola). Okno „Dodaj kandydata”
+    wysyła sam e-mail: ta sama osoba = ten sam e-mail (12.10.2026).
     """
     return await find_candidate_duplicates(
         db,

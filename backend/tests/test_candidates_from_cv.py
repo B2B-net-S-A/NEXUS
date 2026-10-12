@@ -3,11 +3,14 @@
 Covers:
   * Happy path: CV → new candidate with contact fields populated
   * Dedup: 409 when the parsed email matches an existing candidate
-  * Force: ?force=true creates the candidate and still reports duplicates
+  * Force: ?force=true still refuses a taken e-mail (no second profile)
+  * 12.10.2026 — ta sama osoba = ten sam e-mail: imiennik, ten sam telefon
+    i ten sam LinkedIn z INNYM adresem zakładają nowy profil
 """
 
 from __future__ import annotations
 
+import uuid
 from io import BytesIO
 
 import pytest
@@ -165,54 +168,129 @@ async def test_from_cv_returns_409_on_duplicate_email(
         await _cleanup_candidate(FAKE_PARSED["email"])
 
 
+def _unique_pdf_bytes() -> bytes:
+    """Inna treść przy każdym wywołaniu — sito identycznego pliku nie może
+    przesłonić reguły e-maila."""
+    return f"%PDF-1.4 {uuid.uuid4().hex}".encode()
+
+
+def _person(unique: str, **fields) -> dict:
+    base = {
+        "first_name": "Regula",
+        "last_name": f"Email{unique}",
+        "email": f"regula-{unique}@example.com",
+        "phone": None,
+        "linkedin_url": None,
+        "_confidence": {},
+        "_source": "claude:test",
+    }
+    return {**base, **fields}
+
+
+async def _post_cv(client: AsyncClient, headers: dict, *, force: bool = False):
+    return await client.post(
+        f"/api/candidates/from-cv{'?force=true' if force else ''}",
+        headers=headers,
+        files={"file": ("cv.pdf", _unique_pdf_bytes(), "application/pdf")},
+    )
+
+
 @pytest.mark.asyncio
-async def test_from_cv_force_bypasses_dedup(
+async def test_from_cv_force_does_not_create_a_second_profile_with_the_same_email(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
-    """?force=true creates the candidate even when a duplicate exists."""
-    # Use a distinct email so we can cleanup both candidates independently.
-    payload = dict(FAKE_PARSED)
-    payload["email"] = "force.test@example.com"
-    payload["first_name"] = "Force"
-    payload["last_name"] = "Tester"
-    _patch_parser_and_extractor(monkeypatch, payload)
-    await _cleanup_candidate(payload["email"])
-
-    files = {"file": ("force.pdf", _fake_pdf_bytes(), "application/pdf")}
-
-    created_ids: list[int] = []
+    """`?force=true` omija sito, ale zajęty e-mail odmawia mimo to."""
+    unique = uuid.uuid4().hex[:8]
+    person = _person(unique)
+    _patch_parser_and_extractor(monkeypatch, person)
     try:
-        first = await app_client.post(
-            "/api/candidates/from-cv",
-            headers=app_auth_headers,
-            files=files,
-        )
+        first = await _post_cv(app_client, app_auth_headers)
         assert first.status_code == 201, first.text
-        created_ids.append(first.json()["candidate"]["id"])
 
-        # Force override — note ?force=true
-        second = await app_client.post(
-            "/api/candidates/from-cv?force=true",
-            headers=app_auth_headers,
-            files={"file": ("force2.pdf", _fake_pdf_bytes(), "application/pdf")},
-        )
-        # email has UNIQUE constraint so the second insert will hit a DB
-        # violation — we accept either 201 (if DB lets it through because of
-        # a different email detection path) or 409/500 from the DB. What we
-        # assert is that the dedup-soft-block didn't swallow it.
-        assert second.status_code in (201, 409, 500), second.text
-        if second.status_code == 201:
-            created_ids.append(second.json()["candidate"]["id"])
-            assert len(second.json()["duplicates"]) >= 1
+        second = await _post_cv(app_client, app_auth_headers, force=True)
+        assert second.status_code == 409, second.text
+        assert second.json()["detail"] == "Kandydat z tym adresem e-mail już istnieje."
     finally:
-        # Cleanup all candidates with the shared email.
-        async with AsyncSessionLocal() as db:
-            for cid in created_ids:
-                row = await db.scalar(select(Candidate).where(Candidate.id == cid))
-                if row:
-                    await db.delete(row)
-            await db.commit()
-        await _cleanup_candidate(payload["email"])
+        await _cleanup_candidate(person["email"])
+
+
+@pytest.mark.asyncio
+async def test_from_cv_namesake_with_other_email_is_created(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """To samo imię i nazwisko, inny e-mail = inna osoba, bez odmowy."""
+    unique = uuid.uuid4().hex[:8]
+    first_person = _person(unique)
+    namesake = _person(unique, email=f"imiennik-{unique}@example.com")
+    try:
+        _patch_parser_and_extractor(monkeypatch, first_person)
+        first = await _post_cv(app_client, app_auth_headers)
+        assert first.status_code == 201, first.text
+
+        _patch_parser_and_extractor(monkeypatch, namesake)
+        second = await _post_cv(app_client, app_auth_headers)
+        assert second.status_code == 201, second.text
+        assert second.json()["candidate"]["id"] != first.json()["candidate"]["id"]
+        assert second.json()["duplicates"] == []
+    finally:
+        await _cleanup_candidate(first_person["email"])
+        await _cleanup_candidate(namesake["email"])
+
+
+@pytest.mark.asyncio
+async def test_from_cv_same_phone_and_linkedin_other_email_is_created(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Wspólny telefon i ten sam LinkedIn nie robią z dwóch adresów jednej osoby."""
+    unique = uuid.uuid4().hex[:8]
+    shared = {
+        "phone": "+48 512 9" + f"{uuid.uuid4().int % 100000:05d}",
+        "linkedin_url": f"https://linkedin.com/in/regula-{unique}",
+    }
+    first_person = _person(unique, **shared)
+    other_person = _person(
+        unique,
+        first_name="Inna",
+        last_name=f"Osoba{unique}",
+        email=f"inna-{unique}@example.com",
+        **shared,
+    )
+    try:
+        _patch_parser_and_extractor(monkeypatch, first_person)
+        first = await _post_cv(app_client, app_auth_headers)
+        assert first.status_code == 201, first.text
+
+        _patch_parser_and_extractor(monkeypatch, other_person)
+        second = await _post_cv(app_client, app_auth_headers)
+        assert second.status_code == 201, second.text
+    finally:
+        await _cleanup_candidate(first_person["email"])
+        await _cleanup_candidate(other_person["email"])
+
+
+@pytest.mark.asyncio
+async def test_from_cv_same_email_in_other_case_is_409_with_existing_id(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Odmowa bez `force` wskazuje profil — okna i klient JustJoin dodają
+    wtedy CV do niego, więc `detail` musi zostać słownikiem."""
+    unique = uuid.uuid4().hex[:8]
+    person = _person(unique)
+    try:
+        _patch_parser_and_extractor(monkeypatch, person)
+        first = await _post_cv(app_client, app_auth_headers)
+        assert first.status_code == 201, first.text
+
+        _patch_parser_and_extractor(
+            monkeypatch, _person(unique, email=person["email"].upper())
+        )
+        second = await _post_cv(app_client, app_auth_headers)
+        assert second.status_code == 409, second.text
+        detail = second.json()["detail"]
+        assert detail["existing_candidate_id"] == first.json()["candidate"]["id"]
+        assert detail["matches"][0]["match_reasons"] == ["email_exact"]
+    finally:
+        await _cleanup_candidate(person["email"])
 
 
 @pytest.mark.asyncio

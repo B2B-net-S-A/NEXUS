@@ -97,6 +97,17 @@ class _BlockParser(HTMLParser):
         self._stack: list[str] = []
 
     def _open(self, tag: str, attrs: dict) -> None:
+        current = self._current
+        if (
+            tag == "p"
+            and current is not None
+            and current.kind == "li"
+            and not current.text
+        ):
+            # Edytor (Tiptap) zapisuje punkt jako `<li><p>…</p></li>`: ten
+            # akapit JEST treścią punktu. Jako osobny blok „p” zabierał roli
+            # wszystkie punkty (QC dopisywało wtedy listę w liście).
+            return
         self._flush()
         kind = "h" if tag in _HEADINGS else "li" if tag == "li" else "p"
         section = attrs.get("data-cv-section")

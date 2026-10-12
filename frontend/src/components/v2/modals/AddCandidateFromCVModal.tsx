@@ -29,6 +29,9 @@ import {
  DialogTitle,
 } from"@/components/ui/dialog";
 import { Button } from"@/components/ui/button";
+import { ExistingCandidateNotice } from"@/components/v2/candidates/ExistingCandidateNotice";
+import { invalidateCandidateMutation } from"@/components/v2/pages/candidate-cache";
+import { attachCvFormData, isSameFileMatch } from"@/lib/add-candidate-cv";
 
 /**
  * Response shape from POST /api/candidates/from-cv (201).
@@ -131,12 +134,15 @@ export function AddCandidateFromCVModal({ open, onOpenChange, onAdded }: Props) 
  const [dragOver, setDragOver] = useState(false);
  const [result, setResult] = useState<FromCVResponse | null>(null);
  const [conflict, setConflict] = useState<ConflictDetail | null>(null);
+ // „Dodaj to CV do profilu”: osoba, do której profilu trafił plik.
+ const [attachedTo, setAttachedTo] = useState<{ id: number; name: string } | null>(null);
  const [error, setError] = useState<string | null>(null);
 
  const reset = () => {
  setFile(null);
  setResult(null);
  setConflict(null);
+ setAttachedTo(null);
  setError(null);
  };
 
@@ -183,6 +189,30 @@ export function AddCandidateFromCVModal({ open, onOpenChange, onAdded }: Props) 
  ? err.response.data.detail : "Nie udało się przetworzyć pliku. Sprawdź format i spróbuj ponownie.";
  setError(msg);
  },
+ });
+
+ // Ta sama osoba = ten sam e-mail (12.10.2026): zamiast drugiego profilu plik
+ // idzie jako główne CV istniejącej osoby — serwer czyta je w tle.
+ const attachMut = useMutation({
+ mutationFn: async (match: ConflictDetail["matches"][number]) => {
+ if (!file) throw new Error("Brak pliku CV");
+ await api.post(`/api/candidates/${match.candidate_id}/documents`, attachCvFormData(file), {
+ headers: {"Content-Type":"multipart/form-data" },
+ });
+ return match;
+ },
+ onSuccess: (match) => {
+ invalidateCandidateMutation(queryClient, match.candidate_id, "document");
+ setAttachedTo({
+ id: match.candidate_id,
+ name: `${match.name ??""} ${match.lastname ??""}`.trim(),
+ });
+ setConflict(null);
+ setError(null);
+ // W rekrutacji ta osoba trafia do „Nowych” — jak nowy kandydat z CV.
+ onAdded?.(match.candidate_id);
+ },
+ onError: () => setError("Nie udało się dodać CV do profilu. Spróbuj ponownie."),
  });
 
  const handleFile = (f: File) => {
@@ -312,53 +342,77 @@ export function AddCandidateFromCVModal({ open, onOpenChange, onAdded }: Props) 
  );
  }
 
- // ── conflict view: duplicate candidate found ───────────────────────────
- if (conflict) {
- const top = conflict.matches[0];
+ // ── CV dodane do profilu osoby, która już była w bazie ─────────────────
+ if (attachedTo) {
  return (
  <Dialog open={open} onOpenChange={onOpenChange}>
  <DialogContent size="md">
  <DialogHeader>
  <div className="flex items-center gap-2">
- <UserCheck className="h-5 w-5 text-amber-600" />
- <DialogTitle>Znaleziono podobnego kandydata</DialogTitle>
+ <CheckCircle2 className="h-5 w-5 text-primary" />
+ <DialogTitle>CV dodane do profilu</DialogTitle>
  </div>
- <DialogDescription>{conflict.detail}</DialogDescription>
+ <DialogDescription>
+ {attachedTo.name} — AI czyta nowe CV w tle, profil odświeży się za około minutę.
+ </DialogDescription>
+ </DialogHeader>
+ <DialogFooter>
+ <Button variant="ghost" asChild>
+ <Link href={`/candidates/${attachedTo.id}`}>Otwórz profil</Link>
+ </Button>
+ <Button variant="primary" onClick={() => onOpenChange(false)}>
+ Zamknij
+ </Button>
+ </DialogFooter>
+ </DialogContent>
+ </Dialog>
+ );
+ }
+
+ // ── conflict view: ta osoba (albo ten plik) już jest w bazie ───────────
+ if (conflict) {
+ const top = conflict.matches[0];
+ const sameFile = isSameFileMatch(top);
+ return (
+ <Dialog open={open} onOpenChange={onOpenChange}>
+ <DialogContent size="md">
+ <DialogHeader>
+ <div className="flex items-center gap-2">
+ <UserCheck className="h-5 w-5 text-warning" />
+ <DialogTitle>Nie zakładamy drugiego profilu</DialogTitle>
+ </div>
+ <DialogDescription>
+ {sameFile
+ ?"Dokładnie ten plik leży już w profilu tej osoby."
+ :"W bazie jest kandydat z tym samym adresem e-mail. Dodaj CV do jego profilu — AI je odczyta i odświeży profil."}
+ </DialogDescription>
  </DialogHeader>
  <DialogBody>
- <div className="space-y-2">
- {conflict.matches.slice(0, 5).map((m) => (
- <Link
- key={m.candidate_id}
- href={`/candidates/${m.candidate_id}`}
- className="flex items-center justify-between rounded-lg border border-border p-3 text-sm hover:bg-primary/10 hover:border-primary"
- >
- <div>
- <div className="font-medium text-foreground">
- {m.name} {m.lastname}
- </div>
- {m.email && (
- <div className="text-xs text-muted-foreground">
- {m.email}
- </div>
+ <ExistingCandidateNotice
+ match={{
+ candidate_id: top.candidate_id,
+ name: top.name ??"",
+ lastname: top.lastname ??"",
+ email: top.email ?? null,
+ }}
+ sameFile={sameFile}
+ onAttachCv={sameFile ? undefined : () => attachMut.mutate(top)}
+ attaching={attachMut.isPending}
+ onOpenProfile={() => onOpenChange(false)}
+ />
+ {error && (
+ <p role="alert" className="mt-3 text-sm text-destructive">
+ {error}
+ </p>
  )}
- </div>
- <div className="text-right">
- <div className="text-xs text-muted-foreground">
- match: {(m.match_score * 100).toFixed(0)}%
- </div>
- <div className="text-[10px] text-muted-foreground">
- {m.match_reasons.join(",")}
- </div>
- </div>
- </Link>
- ))}
- </div>
  </DialogBody>
  <DialogFooter>
  <Button variant="ghost" onClick={() => setConflict(null)}>
  Anuluj upload
  </Button>
+ {/* Przy tym samym e-mailu serwer i tak odmawia — „mimo to” ma sens
+ tylko dla identycznego pliku (np. to samo CV innej osoby). */}
+ {sameFile ? (
  <Button
  variant="outline"
  loading={uploadMut.isPending}
@@ -366,11 +420,7 @@ export function AddCandidateFromCVModal({ open, onOpenChange, onAdded }: Props) 
  >
  Zapisz mimo to
  </Button>
- <Button variant="primary" asChild>
- <Link href={`/candidates/${top.candidate_id}`}>
- Otwórz istniejącego
- </Link>
- </Button>
+ ) : null}
  </DialogFooter>
  </DialogContent>
  </Dialog>

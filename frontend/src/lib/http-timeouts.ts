@@ -17,3 +17,15 @@
  * którym widać, że zadanie utknęło.
  */
 export const SLOW_ENDPOINT_TIMEOUT_MS = 120_000;
+
+/**
+ * Timeout po stronie PRZEGLĄDARKI (sufit instancji albo per-request
+ * `SLOW_ENDPOINT_TIMEOUT_MS`). Żądanie dotarło i backend nadal je liczy —
+ * powtórka nie skraca oczekiwania, tylko mnoży pracę i koszt modelu. Tu, a nie
+ * w `lib/api.ts`, bo okna pokazują po nim osobny komunikat, a ich testy
+ * podmieniają cały `@/lib/api`.
+ */
+export function isClientTimeout(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null | undefined)?.code;
+  return code === "ECONNABORTED" || code === "ETIMEDOUT";
+}

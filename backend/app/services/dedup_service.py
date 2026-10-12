@@ -1,13 +1,19 @@
 """
 Duplicate detection for candidates.
 
-Critical for IT staffing when importing 40k+ CVs — prevents double-entry.
-Soft-warning semantics: callers (API endpoints, import flows) may choose to
-block, warn, or auto-merge based on match_score.
+Dwie rzeczy, których nie wolno mylić (decyzja Artura, 12.10.2026):
 
-Match score semantics:
+* **Ta sama osoba = ten sam e-mail** — `find_candidate_by_email`. Tylko to
+  wolno brać, gdy kod DECYDUJE: odmawia założenia kandydata albo podpina CV do
+  istniejącego profilu (okno „Dodaj kandydata”, `/from-cv`, poczta M365,
+  import masowy). Inny e-mail to inna osoba — bez ostrzeżeń.
+* **Możliwe duplikaty** — `find_candidate_duplicates`. Lista podpowiedzi dla
+  człowieka (okno scalania, `/check-duplicates`) i wyszukanie profilu po
+  adresie LinkedIn we wtyczce. Niczego sama nie blokuje.
+
+Match score semantics (`find_candidate_duplicates`):
   1.00 — email exact, or phone last-9-digits match
-  0.95 — linkedin slug match (last path segment of profile URL)
+  0.95 — linkedin slug match (`…linkedin.com/in/<slug>`)
   0.90 — exact (name, lastname) match after lower-case normalization
   0.00 — below threshold, not returned
 """
@@ -44,13 +50,59 @@ def _normalize_name(s: Optional[str]) -> Optional[str]:
 
 
 def _linkedin_slug(url: Optional[str]) -> Optional[str]:
-    """Extract the last path segment of a LinkedIn URL — stable cross-variants."""
-    if not url:
+    """Identyfikator profilu z adresu `…linkedin.com/in/<slug>`, inaczej None.
+
+    Do 12.10.2026 był to ostatni kawałek po „/” z DOWOLNEJ wartości pola, więc
+    „linkedin.com”, „LinkedIn” czy „?locale=en_US” stawały się identyfikatorem
+    osoby — na produkcji 34 obce osoby z „linkedin.com” w polu wychodziły jako
+    „podobni kandydaci” (1 579 z 27 583 wartości nie było adresem profilu).
+    """
+    from app.services.proxycurl import normalize_linkedin_url
+
+    canonical = normalize_linkedin_url(url)
+    if not canonical:
         return None
-    stripped = url.strip().rstrip("/")
-    if not stripped:
-        return None
-    return stripped.split("/")[-1].lower() or None
+    return canonical.rsplit("/", 1)[-1].lower() or None
+
+
+async def find_candidate_by_email(
+    db: AsyncSession,
+    email: Optional[str],
+    *,
+    exclude_candidate_id: Optional[int] = None,
+) -> list[dict]:
+    """Kandydaci z tym adresem e-mail (bez rozróżniania wielkości liter).
+
+    Reguła „ta sama osoba = ten sam e-mail”. Zwykle jeden wiersz; kilka tylko
+    dla par sprzed tej reguły, różniących się wielkością liter (unikalny indeks
+    jest na surowej kolumnie) — stąd stała kolejność po id.
+
+    Wyrażenie musi zostać DOKŁADNIE `lower(btrim(email))`: tylko wtedy planer
+    bierze `ix_candidates_email_lower_btrim` (`test_candidate_email_lower_index`).
+    """
+    norm_email = _normalize_email(email)
+    if not norm_email:
+        return []
+
+    stmt = select(
+        Candidate.id, Candidate.name, Candidate.lastname, Candidate.email
+    ).where(func.lower(func.btrim(Candidate.email)) == norm_email)
+    if exclude_candidate_id is not None:
+        stmt = stmt.where(Candidate.id != exclude_candidate_id)
+    stmt = stmt.order_by(Candidate.id).limit(5)
+
+    rows = (await db.execute(stmt)).all()
+    return [
+        {
+            "candidate_id": row.id,
+            "name": row.name,
+            "lastname": row.lastname,
+            "email": row.email,
+            "match_score": 1.0,
+            "match_reasons": ["email_exact"],
+        }
+        for row in rows
+    ]
 
 
 async def find_candidate_duplicates(
@@ -67,6 +119,8 @@ async def find_candidate_duplicates(
     """
     Return candidates that match any of the identifiers, sorted by match_score desc.
 
+    Podpowiedzi dla człowieka, nie reguła tożsamości — patrz docstring modułu.
+
     Each entry: {candidate_id, name, lastname, email, match_score, match_reasons}
     """
     norm_email = _normalize_email(email)
@@ -77,7 +131,7 @@ async def find_candidate_duplicates(
 
     clauses = []
     if norm_email:
-        clauses.append(func.lower(Candidate.email) == norm_email)
+        clauses.append(func.lower(func.btrim(Candidate.email)) == norm_email)
     if norm_phone:
         # Compare last-9-digits of stored phone after stripping non-digits
         clauses.append(
@@ -86,15 +140,12 @@ async def find_candidate_duplicates(
             )
         )
     if norm_linkedin_slug:
-        # Migration 0106 added `linkedin_slug` as a STORED generated column
-        # with an index, so equality lookups are O(log n). Fallback ilike()
-        # path stays for graceful behaviour on the (now-impossible) chance
-        # the migration is missing in a dev DB.
+        # `linkedin_slug` to kolumna generowana z indeksem częściowym (0106,
+        # bez pustych) — stąd jawne `!= ''`. Bez zapasowego `ILIKE` na surowym
+        # polu: dla krótkiej końcówki ładował pół bazy przy każdym sprawdzeniu.
         clauses.append(
-            or_(
-                Candidate.linkedin_slug == norm_linkedin_slug,
-                Candidate.linkedin.ilike(f"%{norm_linkedin_slug}%"),
-            )
+            (Candidate.linkedin_slug != "")
+            & (Candidate.linkedin_slug == norm_linkedin_slug)
         )
     if norm_name and norm_lastname:
         clauses.append(
@@ -105,12 +156,20 @@ async def find_candidate_duplicates(
     if not clauses:
         return []
 
-    stmt = select(Candidate).where(or_(*clauses))
+    # Tylko kolumny potrzebne do porównania — pełny wiersz niesie tekst CV.
+    stmt = select(
+        Candidate.id,
+        Candidate.name,
+        Candidate.lastname,
+        Candidate.email,
+        Candidate.phone,
+        Candidate.linkedin_slug,
+    ).where(or_(*clauses))
     if exclude_candidate_id is not None:
         stmt = stmt.where(Candidate.id != exclude_candidate_id)
 
     result = await db.execute(stmt)
-    candidates = result.scalars().all()
+    candidates = result.all()
 
     matches: list[dict] = []
     for c in candidates:
@@ -127,11 +186,11 @@ async def find_candidate_duplicates(
                 reasons.append("phone_exact")
                 score = max(score, 1.0)
 
-        if norm_linkedin_slug and c.linkedin:
-            c_slug = _linkedin_slug(c.linkedin)
-            if c_slug and c_slug == norm_linkedin_slug:
-                reasons.append("linkedin_slug_match")
-                score = max(score, 0.95)
+        # Powód z kolumny, którą dopasował SQL — ponowne liczenie z surowego
+        # pola w Pythonie gubiłoby wiersze (np. adres mobilny `/mwlite/in/…`).
+        if norm_linkedin_slug and c.linkedin_slug == norm_linkedin_slug:
+            reasons.append("linkedin_slug_match")
+            score = max(score, 0.95)
 
         if (
             norm_name
@@ -156,5 +215,7 @@ async def find_candidate_duplicates(
                 }
             )
 
-    matches.sort(key=lambda x: -x["match_score"])
+    # Drugi klucz po id: wtyczka LinkedIn bierze pierwszy wiersz, a kilka
+    # profili potrafi dzielić ten sam identyfikator.
+    matches.sort(key=lambda x: (-x["match_score"], x["candidate_id"]))
     return matches

@@ -44,6 +44,7 @@ import { emailFieldError } from "@/lib/email-field-error";
 import {
   CV_ACCEPT,
   CV_FIELD_LABELS,
+  attachCvFormData,
   changedFormKeys,
   duplicateMatchesFromConflict,
   cvKnownFields,
@@ -51,9 +52,14 @@ import {
   fillEmptyFromCv,
   fromCvFormEntries,
   fromCvOverrides,
+  isSameFileMatch,
   type CandidateCvPreview,
   type CvFormField,
 } from "@/lib/add-candidate-cv";
+import { isClientTimeout, SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
+import { ExistingCandidateNotice } from "@/components/v2/candidates/ExistingCandidateNotice";
+import { invalidateCandidateMutation } from "@/components/v2/pages/candidate-cache";
+import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { defaultMeetingWindow } from "@/lib/meeting-defaults";
 import { newClientRequestId } from "@/lib/client-request-id";
 import {
@@ -646,6 +652,7 @@ function CandidateFormFields({
   importedTagLabels = [],
   collapseSecondary = false,
   emailError = null,
+  afterContact = null,
 }: {
   form: CandidateFormData;
   onChange: (k: keyof CandidateFormData, v: string) => void;
@@ -662,6 +669,8 @@ function CandidateFormFields({
   collapseSecondary?: boolean;
   /** Runda 10 (F05): błąd e-maila z serwera — przy polu, z fokusem na nim. */
   emailError?: string | null;
+  /** „Dodaj kandydata”: ramka pod wierszem e-mail/telefon (ten adres już jest w bazie). */
+  afterContact?: React.ReactNode;
 }) {
   const emailInputId = useId();
   useEffect(() => {
@@ -923,6 +932,7 @@ function CandidateFormFields({
         <FieldGroup label="Telefon">
           <Input type="tel" value={form.phone} onChange={e => onChange("phone", e.target.value)} placeholder="+48 500..." />
         </FieldGroup>
+        {afterContact ? <div className="col-span-2">{afterContact}</div> : null}
         <FieldGroup label="Miasto">
           <Input value={form.city} onChange={e => onChange("city", e.target.value)} placeholder="Warszawa" />
         </FieldGroup>
@@ -950,32 +960,15 @@ interface DuplicateCandidateHit {
   match_reasons: string[];
 }
 
-type DuplicateIdentityFields = Pick<CandidateFormData, "email" | "phone" | "linkedin" | "name" | "lastname">;
-
 /**
- * Tożsamość sprawdzana automatycznie — te same pola, po których dopasowuje
- * backend (`dedup_service`: e-mail, telefon, LinkedIn, imię+nazwisko). Zmiana
- * któregokolwiek = nowe sprawdzenie; inaczej zapis użyłby wyniku sprzed
- * wpisania nazwiska albo profilu LinkedIn istniejącej osoby.
+ * Tożsamość sprawdzana automatycznie: sam e-mail. Ta sama osoba = ten sam
+ * e-mail (decyzja Artura, 12.10.2026) — telefon, LinkedIn oraz imię i nazwisko
+ * nie robią z dwóch adresów jednej osoby. Do tej decyzji okno pytało o
+ * wszystkie pola i pokazywało np. 34 obcych osób z „linkedin.com” w polu
+ * LinkedIn jako „podobnych kandydatów”. Pusty klucz = nie ma czego sprawdzać.
  */
-function duplicateIdentityKey(form: DuplicateIdentityFields): string {
-  return JSON.stringify([
-    form.email.trim().toLowerCase(),
-    form.phone.trim(),
-    form.linkedin.trim().toLowerCase(),
-    form.name.trim().toLowerCase(),
-    form.lastname.trim().toLowerCase(),
-  ]);
-}
-
-/** Czy jest z czym porównać: kontakt, LinkedIn albo pełne imię i nazwisko. */
-function hasDuplicateIdentity(form: DuplicateIdentityFields): boolean {
-  return Boolean(
-    form.email.trim() ||
-      form.phone.trim() ||
-      form.linkedin.trim() ||
-      (form.name.trim() && form.lastname.trim()),
-  );
+function duplicateIdentityKey(form: Pick<CandidateFormData, "email">): string {
+  return form.email.trim().toLowerCase();
 }
 
 const DUPLICATE_CHECK_DEBOUNCE_MS = 400;
@@ -987,17 +980,20 @@ export function AddCandidateModal({
 }: {
   onClose: () => void;
   onSuccess: (msg: string) => void;
-  /** Id zapisanego kandydata — np. okno rekrutacji dodaje go od razu do „Nowych”. */
+  /**
+   * Id kandydata — np. okno rekrutacji dodaje go od razu do „Nowych”. Także
+   * po „Dodaj to CV do profilu”: wtedy to id osoby, która już była w bazie.
+   */
   onCreated?: (candidateId: number) => void;
 }) {
+  const queryClient = useQueryClient();
   const [form, setForm] = useState<CandidateFormData>(EMPTY_CANDIDATE);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [duplicates, setDuplicates] = useState<DuplicateCandidateHit[]>([]);
-  // Klucz tożsamości (e-mail, telefon, LinkedIn, imię i nazwisko), dla którego `duplicates` jest aktualne.
+  // Kandydat z e-mailem z formularza — ta sama osoba, więc zamiast zapisu jest ramka.
+  const [existing, setExisting] = useState<DuplicateCandidateHit | null>(null);
+  // E-mail, dla którego `existing` jest aktualne.
   const [checkedKey, setCheckedKey] = useState<string>(() => duplicateIdentityKey(EMPTY_CANDIDATE));
-  // Zapis zatrzymany na trafieniach — rekruter wybiera „Otwórz istniejącego” albo „Zapisz mimo to”.
-  const [decisionPending, setDecisionPending] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
   // „Wgraj CV (opcjonalnie)”: odczyt CV wypełnia puste pola, a zapis idzie
   // przez `/from-cv` z polami formularza (serwer bierze ten sam odczyt).
@@ -1008,6 +1004,11 @@ export function AddCandidateModal({
   // Pola, dla których odczyt CV dał wartość — wyczyszczone idą jako jawne "".
   const [cvKnown, setCvKnown] = useState<CvFormField[]>([]);
   const [cvConflict, setCvConflict] = useState<DuplicateCandidateHit[] | null>(null);
+  // „Wczytaj mimo to”: rekruter kazał czytać plik mimo odmowy sita, więc zapis
+  // też idzie z `force` — inaczej sito odmówiłoby drugi raz, a okno nie ma już
+  // „Zapisz mimo to”.
+  const [cvForced, setCvForced] = useState(false);
+  const [attaching, setAttaching] = useState(false);
   const [cvDragOver, setCvDragOver] = useState(false);
   const cvInputRef = useRef<HTMLInputElement>(null);
   const cvReadSeqRef = useRef(0);
@@ -1043,63 +1044,72 @@ export function AddCandidateModal({
     });
 
   /**
-   * Sprawdza duplikaty dla migawki formularza. Każde wywołanie unieważnia
-   * wcześniejsze w locie (licznik), więc spóźniona odpowiedź dla starego
-   * e-maila nie nadpisze wyniku dla bieżącego. Zwraca trafienia tego
-   * wywołania (fail-open: błąd usługi = brak trafień, nie blokada zapisu).
+   * Sprawdza, czy e-mail z migawki formularza ma już kandydat. Każde wywołanie
+   * unieważnia wcześniejsze w locie (licznik), więc spóźniona odpowiedź dla
+   * starego e-maila nie nadpisze wyniku dla bieżącego. Zwraca trafienie tego
+   * wywołania (fail-open: błąd usługi = brak trafienia, nie blokada zapisu —
+   * zajęty adres i tak odrzuci serwer).
    */
-  const checkDuplicates = async (snapshot: CandidateFormData): Promise<DuplicateCandidateHit[]> => {
+  const checkDuplicates = async (snapshot: CandidateFormData): Promise<DuplicateCandidateHit | null> => {
     const seq = ++checkSeqRef.current;
     const key = duplicateIdentityKey(snapshot);
-    if (!hasDuplicateIdentity(snapshot)) {
-      setDuplicates([]);
+    if (!key) {
+      setExisting(null);
       setCheckedKey(key);
-      return [];
+      return null;
     }
-    let hits: DuplicateCandidateHit[] = [];
+    let hit: DuplicateCandidateHit | null = null;
     try {
       const res = await api.post("/api/candidates/check-duplicates", {
-        email: snapshot.email || undefined,
-        phone: snapshot.phone || undefined,
-        linkedin: snapshot.linkedin || undefined,
-        name: snapshot.name || undefined,
-        lastname: snapshot.lastname || undefined,
+        email: snapshot.email.trim(),
       });
-      hits = Array.isArray(res?.data) ? res.data : [];
+      hit = Array.isArray(res?.data) ? res.data[0] ?? null : null;
     } catch (err) {
       console.error("Duplicate check failed: ", err);
     }
     if (seq === checkSeqRef.current) {
-      setDuplicates(hits);
+      setExisting(hit);
       setCheckedKey(key);
     }
-    return hits;
+    return hit;
   };
 
   const debouncedIdentityKey = useDebouncedValue(duplicateIdentityKey(form), DUPLICATE_CHECK_DEBOUNCE_MS);
   useEffect(() => {
     const snapshot = formRef.current;
-    // Pierwszy render z pustym formularzem — nic do sprawdzenia.
-    if (!hasDuplicateIdentity(snapshot) && duplicates.length === 0) return;
+    // Pierwszy render z pustym e-mailem — nic do sprawdzenia.
+    if (!duplicateIdentityKey(snapshot) && !existing) return;
     // Klucz się zmienił w trakcie opóźnienia — kolejne wywołanie efektu sprawdzi świeży stan.
     if (duplicateIdentityKey(snapshot) !== debouncedIdentityKey) return;
     void checkDuplicates(snapshot);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedIdentityKey]);
 
+  /**
+   * Trafienie znane tylko z odmowy zapisu (adres z CV przy pustym polu e-mail)
+   * dotyczy pliku — znika razem z nim, żeby ramka nie blokowała ręcznego wpisu.
+   */
+  const dropFileOnlyHit = () => {
+    if (!duplicateIdentityKey(formRef.current)) setExisting(null);
+  };
+
   const readCv = async (file: File, force = false) => {
     const seq = ++cvReadSeqRef.current;
     setCvFile(file);
+    setCvForced(force);
     setCvReading(true);
     setCvError(null);
     setCvConflict(null);
+    dropFileOnlyHit();
     try {
       const fd = new FormData();
       fd.append("file", file);
       const res = await api.post<CandidateCvPreview>(
         `/api/candidates/cv/preview${force ? "?force=true" : ""}`,
         fd,
-        { headers: { "Content-Type": "multipart/form-data" } },
+        // Odczyt liczy model: 12.10.2026 serwer odpowiedział po 36,8 s, a okno
+        // na domyślnych 30 s pokazało „Nie udało się przeczytać CV”.
+        { headers: { "Content-Type": "multipart/form-data" }, timeout: SLOW_ENDPOINT_TIMEOUT_MS },
       );
       if (seq !== cvReadSeqRef.current) return;
       // Uzupełniamy tylko PUSTE pola — to, co rekruter zdążył wpisać, zostaje.
@@ -1112,6 +1122,11 @@ export function AddCandidateModal({
       const matches = duplicateMatchesFromConflict(err);
       if (matches && matches.length > 0) {
         setCvConflict(matches);
+      } else if (isClientTimeout(err)) {
+        // Serwer kończy odczyt i trzyma go 30 min — druga próba jest szybka.
+        setCvError(
+          "Odczyt CV trwa dłużej niż zwykle. Spróbuj ponownie za chwilę albo uzupełnij pola ręcznie — plik i tak dodamy przy zapisie.",
+        );
       } else {
         setCvError(formErrorMsg(err, "Nie udało się przeczytać CV. Uzupełnij pola ręcznie albo wgraj inny plik."));
       }
@@ -1128,11 +1143,13 @@ export function AddCandidateModal({
   const removeCv = () => {
     cvReadSeqRef.current += 1;
     setCvFile(null);
+    setCvForced(false);
     setCvReading(false);
     setCvError(null);
     setCvConflict(null);
     setCvFilled([]);
     setCvKnown([]);
+    dropFileOnlyHit();
   };
 
   /**
@@ -1158,29 +1175,27 @@ export function AddCandidateModal({
     const created = await api.post(
       `/api/candidates/from-cv${force ? "?force=true" : ""}`,
       fd,
-      { headers: { "Content-Type": "multipart/form-data" } },
+      // Bez odczytu w pamięci serwera (np. po wdrożeniu) zapis czyta CV modelem.
+      { headers: { "Content-Type": "multipart/form-data" }, timeout: SLOW_ENDPOINT_TIMEOUT_MS },
     );
     return Number(created?.data?.candidate?.id);
   };
 
   const currentKey = duplicateIdentityKey(form);
-  const showDecision = decisionPending && duplicates.length > 0 && currentKey === checkedKey;
+  // Ramka dotyczy e-maila, który jest w polu TERAZ — nie wyniku sprzed poprawki.
+  const existingNow = currentKey === checkedKey ? existing : null;
 
-  const saveCandidate = async (force: boolean) => {
+  const saveCandidate = async () => {
     if (cvReading) { setError("Poczekaj, aż skończymy czytać CV."); return; }
     if (!form.name || !form.lastname) { setError("Imię i nazwisko są wymagane"); return; }
     setSaving(true); setError(""); setEmailError(null);
     try {
-      if (!force) {
-        // Szybki zapis przed końcem debounce: sprawdź to, co jest w polach teraz.
-        const hits = currentKey === checkedKey ? duplicates : await checkDuplicates(form);
-        if (hits.length > 0) {
-          setDecisionPending(true);
-          return;
-        }
-      }
+      // Szybki zapis przed końcem debounce: sprawdź e-mail, który jest w polu teraz.
+      const hit = currentKey === checkedKey ? existing : await checkDuplicates(form);
+      // Ten sam e-mail = ta sama osoba: zamiast zapisu jest ramka z akcjami.
+      if (hit) return;
       const createdId = cvFile
-        ? await saveFromCv(cvFile, force)
+        ? await saveFromCv(cvFile, cvForced)
         : Number((await api.post("/api/candidates", candidateFormToPayload(form)))?.data?.id);
       const noteSaved = Number.isFinite(createdId)
         ? await saveCandidateFormNote(createdId, form.notes)
@@ -1196,23 +1211,61 @@ export function AddCandidateModal({
       const emailMsg = emailFieldError(err);
       const conflictMatches = duplicateMatchesFromConflict(err);
       if (emailMsg) {
-        setDecisionPending(false);
         setEmailError(emailMsg);
       } else if (conflictMatches && conflictMatches.length > 0) {
-        // `/from-cv` znalazł duplikat (sito po pliku albo skan po odczycie).
-        setDuplicates(conflictMatches);
-        setCheckedKey(currentKey);
-        setDecisionPending(true);
+        // `/from-cv` odmówił przy zapisie: ten sam plik już jest w czyimś
+        // profilu albo adres e-mail (znany serwerowi z odczytu CV) ma kandydat.
+        if (isSameFileMatch(conflictMatches[0])) {
+          setCvConflict(conflictMatches);
+        } else {
+          setExisting(conflictMatches[0]);
+          setCheckedKey(currentKey);
+        }
+      } else if (isClientTimeout(err)) {
+        setError(
+          "Zapis trwa dłużej niż zwykle. Zanim spróbujesz ponownie, sprawdź listę kandydatów — ta osoba mogła już zostać dodana.",
+        );
       } else {
         setError(formErrorMsg(err, "Błąd podczas zapisywania"));
       }
     } finally { setSaving(false); }
   };
 
+  /**
+   * „Dodaj to CV do profilu”: plik idzie jako główne CV osoby, która już jest
+   * w bazie — serwer czyta je w tle i odświeża profil. Bez płatnego odczytu
+   * w tym żądaniu, więc na domyślnym limicie.
+   */
+  const attachCvTo = async (match: DuplicateCandidateHit) => {
+    if (!cvFile) return;
+    setAttaching(true); setError("");
+    try {
+      await api.post(`/api/candidates/${match.candidate_id}/documents`, attachCvFormData(cvFile), {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      invalidateCandidateMutation(queryClient, match.candidate_id, "document");
+      void queryClient.invalidateQueries({ queryKey: candidateQueryKeys.quickView(match.candidate_id) });
+      // W oknie rekrutacji ta osoba trafia też do „Nowych” — jak nowy kandydat.
+      onCreated?.(match.candidate_id);
+      onSuccess("CV dodane do profilu. AI czyta je w tle — profil odświeży się za około minutę.");
+      onClose();
+    } catch (err) {
+      setError(formErrorMsg(err, "Nie udało się dodać CV do profilu."));
+    } finally { setAttaching(false); }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await saveCandidate(false);
+    await saveCandidate();
   };
+
+  const cvConflictHit = cvConflict?.[0] ?? null;
+  const cvConflictSameFile = cvConflictHit ? isSameFileMatch(cvConflictHit) : false;
+  // Ta sama osoba po e-mailu z formularza — wystarczy jedna ramka (pod polem).
+  const showCvConflict =
+    cvConflictHit !== null &&
+    cvFile !== null &&
+    (cvConflictSameFile || existingNow?.candidate_id !== cvConflictHit.candidate_id);
 
   const cvUploader = (
     <div
@@ -1250,7 +1303,7 @@ export function AddCandidateModal({
           <span className="min-w-0 truncate font-medium text-foreground">{cvFile.name}</span>
           {cvReading ? (
             <span role="status" className="inline-flex items-center gap-1.5 text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> Czytam CV…
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> Czytam CV… to może potrwać do minuty
             </span>
           ) : null}
           <button
@@ -1287,32 +1340,28 @@ export function AddCandidateModal({
       ) : null}
       {cvError ? (
         <p role="alert" className="mt-2 text-xs text-destructive">
-          {cvError}
-        </p>
-      ) : null}
-      {cvConflict && cvFile ? (
-        <div role="alert" className="mt-2 space-y-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-sm dark:bg-amber-900/20">
-          <p className="text-foreground">
-            To CV wygląda na kandydata z bazy: {cvConflict[0].name} {cvConflict[0].lastname}
-            {cvConflict[0].email ? ` (${cvConflict[0].email})` : ""}.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Link
-              href={`/candidates/${cvConflict[0].candidate_id}`}
-              onClick={onClose}
-              className="inline-flex h-9 items-center rounded-lg bg-primary px-3 text-xs font-medium text-white hover:bg-primary/90"
-            >
-              Otwórz istniejącego
-            </Link>
+          {cvError}{" "}
+          {cvFile ? (
             <button
               type="button"
-              onClick={() => void readCv(cvFile, true)}
-              className="h-9 rounded-lg border border-border bg-card px-3 text-xs font-medium hover:bg-muted"
+              onClick={() => void readCv(cvFile, cvForced)}
+              className="font-medium underline underline-offset-2 hover:no-underline"
             >
-              Wczytaj mimo to
+              Spróbuj ponownie
             </button>
-          </div>
-        </div>
+          ) : null}
+        </p>
+      ) : null}
+      {showCvConflict && cvConflictHit && cvFile ? (
+        <ExistingCandidateNotice
+          className="mt-2"
+          match={cvConflictHit}
+          sameFile={cvConflictSameFile}
+          onAttachCv={cvConflictSameFile ? undefined : () => void attachCvTo(cvConflictHit)}
+          attaching={attaching}
+          onOpenProfile={onClose}
+          onReadAnyway={() => void readCv(cvFile, true)}
+        />
       ) : null}
     </div>
   );
@@ -1322,39 +1371,6 @@ export function AddCandidateModal({
       <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80dvh] overflow-y-auto">
         {cvUploader}
         {error && <ErrorBanner error={error} />}
-        {duplicates.length > 0 && (
-          <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-900/20 p-3 space-y-2">
-            <div className="flex items-start gap-2">
-              <span className="text-amber-700 dark:text-amber-300 font-medium text-sm">
-                ⚠️ Znaleziono {duplicates.length} podobnego kandydata w bazie:
-              </span>
-            </div>
-            <ul className="space-y-1 text-sm">
-              {duplicates.slice(0, 5).map((d) => (
-                <li key={d.candidate_id} className="flex items-center justify-between">
-                  <span className="text-foreground dark:text-muted-foreground">
-                    {d.name} {d.lastname}
-                    {d.email ? ` (${d.email})` : ""}
-                    <span className="ml-2 text-xs text-amber-700">
-                      score {d.match_score} · {d.match_reasons.join(", ")}
-                    </span>
-                  </span>
-                  <a
-                    href={`/candidates/${d.candidate_id}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-primary hover:underline text-xs"
-                  >
-                    Otwórz profil ↗
-                  </a>
-                </li>
-              ))}
-            </ul>
-            <p className="text-xs text-amber-800">
-              Możesz kontynuować, jeśli masz pewność że to inny kandydat.
-            </p>
-          </div>
-        )}
         <CandidateFormFields
           form={form}
           onChange={onChange}
@@ -1364,47 +1380,33 @@ export function AddCandidateModal({
           clients={clients}
           collapseSecondary
           emailError={emailError}
+          afterContact={
+            existingNow ? (
+              <ExistingCandidateNotice
+                match={existingNow}
+                onAttachCv={cvFile ? () => void attachCvTo(existingNow) : undefined}
+                attaching={attaching}
+                onOpenProfile={onClose}
+                // Trafienie znane tylko z odmowy zapisu (adres z CV, pole
+                // e-mail puste): wczytanie mimo to wstawia ten adres do
+                // formularza, gdzie da się go poprawić albo wyczyścić.
+                onReadAnyway={
+                  cvFile && !currentKey ? () => void readCv(cvFile, true) : undefined
+                }
+                hint={
+                  cvFile
+                    ? undefined
+                    : "Masz nowe CV tej osoby? Wgraj plik wyżej — dodamy go do tego profilu."
+                }
+              />
+            ) : null
+          }
         />
-        {showDecision ? (
-          <div
-            role="alert"
-            className="space-y-3 rounded-md border border-amber-300 bg-amber-50 p-3 dark:bg-amber-900/20"
-          >
-            <p className="text-sm font-medium text-foreground">
-              Ten kandydat może już być w bazie: {duplicates[0].name} {duplicates[0].lastname}
-              {duplicates[0].email ? ` (${duplicates[0].email})` : ""}.
-            </p>
-            <div className="flex flex-wrap justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setDecisionPending(false)}
-                className="h-10 px-4 text-sm text-muted-foreground hover:text-foreground rounded-lg transition-colors"
-              >
-                Wróć do formularza
-              </button>
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => void saveCandidate(true)}
-                className="h-10 px-4 text-sm font-medium rounded-lg border border-border bg-card hover:bg-muted disabled:opacity-60 transition-colors"
-              >
-                Zapisz mimo to
-              </button>
-              <Link
-                href={`/candidates/${duplicates[0].candidate_id}`}
-                onClick={onClose}
-                className="inline-flex h-10 items-center px-4 bg-primary hover:bg-primary/90 text-white rounded-lg text-sm font-medium transition-all"
-              >
-                Otwórz istniejącego
-              </Link>
-            </div>
-          </div>
-        ) : (
-          <div className="flex justify-end items-center gap-3 pt-1">
-            <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
-            <SaveButton saving={saving} label="Dodaj kandydata" />
-          </div>
-        )}
+        <div className="flex justify-end items-center gap-3 pt-1">
+          <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
+          {/* Ten sam e-mail = ta sama osoba: zapis zastępują akcje w ramce pod polem. */}
+          {existingNow ? null : <SaveButton saving={saving} label="Dodaj kandydata" />}
+        </div>
       </form>
     </Modal>
   );
@@ -1995,6 +1997,7 @@ export function EditJobModal({
       manualCollaboratorIds(job.collaborators),
       collaborators,
       primaryOwnerId,
+      job.recruiter_id ?? null,
     );
     if (!hasCollaboratorChanges(changes)) return null;
     return saveCollaboratorChanges(job.id, changes);
