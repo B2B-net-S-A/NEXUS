@@ -1039,6 +1039,20 @@ function seededClient(employed: boolean): QueryClient {
             contract_end_date: null,
             source: "contract",
           },
+          employment_marker: {
+            phase: "working",
+            source: "contract",
+            clients: [
+              {
+                client_id: 31,
+                client_name: "Bank Przykładowy",
+                contract_id: 77,
+                phase: "working",
+                order_end_date: "2026-12-31",
+                delivery_lead_name: "Olga Wzorcowa",
+              },
+            ],
+          },
         }
       : CANDIDATE,
   );

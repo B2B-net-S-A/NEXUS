@@ -57,7 +57,24 @@ const ROWS: MyPeopleRow[] = [
   person({ candidate_id: 3, full_name: "Celina Fikcyjna", category_id: 1, last_sent_client_name: "Klient Beta", days_since_last_send: 91, expected_rate_hourly: 175 }),
   person({ candidate_id: 4, full_name: "Dawid Wzorcowy", category_id: 3, source: "pinned", last_sent_at: null, furthest_stage: null, days_since_last_send: null, sent_count: 0, last_sent_client_name: null }),
   person({ candidate_id: 5, full_name: "Ewa Bezkategorii", category_id: null, days_since_last_send: 44 }),
-  person({ candidate_id: 6, full_name: "Filip Pracujący", working: true }),
+  person({
+    candidate_id: 6,
+    full_name: "Filip Pracujący",
+    working: true,
+    employment_marker: {
+      phase: "working",
+      source: "contract",
+      clients: [
+        {
+          client_id: 31,
+          client_name: "Bank Przykładowy",
+          contract_id: 77,
+          phase: "working",
+          order_end_date: "2026-12-31",
+        },
+      ],
+    },
+  }),
   person({ candidate_id: 7, full_name: "Grażyna Uśpiona", snoozed: true, snooze_reason: "found_job" }),
 ];
 
