@@ -1203,7 +1203,7 @@ async def list_jobs(
     priority_level: Optional[list[str]] = Query(
         None,
         description=(
-            "Priorytet w trzech poziomach: p1 („P1 Pilne”) · p2 („P2 Standard”) "
+            "Priorytet w trzech poziomach: p1 („P1 Pilne”) · p2 („Bez priorytetu”) "
             "· accepting („Przyjmujemy kandydatów”). Powtarzalny, LUB "
             "(`services/job_priority`)."
         ),

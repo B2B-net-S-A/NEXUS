@@ -79,12 +79,12 @@ describe("etykiety", () => {
     expect(PRIORITY_LEVELS).toEqual(["p1", "p2", "accepting"]);
     expect(PRIORITY_LEVEL_LABEL).toEqual({
       p1: "P1 Pilne",
-      p2: "P2 Standard",
+      p2: "Bez priorytetu",
       accepting: "Przyjmujemy kandydatów",
     });
     expect(PRIORITY_LEVEL_SHORT_LABEL).toEqual({
       p1: "P1",
-      p2: "P2",
+      p2: "Bez priorytetu",
       accepting: "Przyjmujemy",
     });
   });
@@ -92,7 +92,7 @@ describe("etykiety", () => {
   it("opcje wyboru idą w kolejności poziomów", () => {
     expect(PRIORITY_LEVEL_OPTIONS).toEqual([
       { value: "p1", label: "P1 Pilne" },
-      { value: "p2", label: "P2 Standard" },
+      { value: "p2", label: "Bez priorytetu" },
       { value: "accepting", label: "Przyjmujemy kandydatów" },
     ]);
   });

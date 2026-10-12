@@ -1859,7 +1859,7 @@ describe("NewJobPage", () => {
     });
 
     it.each([
-      ["P2 Standard", "medium"],
+      ["Bez priorytetu", "medium"],
       ["Przyjmujemy kandydatów", "low"],
     ])("priorytet „%s” przy automacie: mówi wprost, że automat dobiera rekrutera tylko do P1", async (label, raw) => {
       allocationOptions(true, "shadow");
@@ -2038,7 +2038,7 @@ describe("NewJobPage", () => {
         within(screen.getByRole("radiogroup", { name: "Priorytet" }))
           .getAllByRole("radio")
           .map((radio) => radio.textContent),
-      ).toEqual(["P1 Pilne", "P2 Standard", "Przyjmujemy kandydatów"]);
+      ).toEqual(["P1 Pilne", "Bez priorytetu", "Przyjmujemy kandydatów"]);
       expect(priorityOption("P1 Pilne")).toBeChecked();
 
       await pickRecruiterAndHandoff();
@@ -2046,10 +2046,10 @@ describe("NewJobPage", () => {
       expect(jobPostBody()).toMatchObject({ priority: "urgent" });
     });
 
-    it("P2 wybrane ręcznie idzie jako „medium”", async () => {
+    it("„Bez priorytetu” wybrane ręcznie idzie jako „medium”", async () => {
       await readRequest();
-      fireEvent.click(priorityOption("P2 Standard"));
-      expect(priorityOption("P2 Standard")).toBeChecked();
+      fireEvent.click(priorityOption("Bez priorytetu"));
+      expect(priorityOption("Bez priorytetu")).toBeChecked();
 
       await createJob();
       expect(jobPostBody()).toMatchObject({ priority: "medium" });
