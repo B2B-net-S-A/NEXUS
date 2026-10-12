@@ -381,11 +381,8 @@ async def test_file_that_is_not_word_is_refused_with_a_polish_sentence(
     assert (await _csv(world["stage_id"])).branded_status == "none"
 
 
-@pytest.mark.asyncio
-async def test_client_requiring_consent_screenshot_sends_the_recruiter_to_the_generator(
-    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
-):
-    """Kopii z profilu nie da się dołączyć zgody — pobranie byłoby zablokowane."""
+def consent_client(monkeypatch) -> None:
+    """Klient tej rekrutacji wymaga zrzutu zgody RODO pod treścią CV."""
     from app.services.cv_generator_b2b import client_rules
 
     async def _rule(db, client_id):
@@ -395,25 +392,63 @@ async def test_client_requiring_consent_screenshot_sends_the_recruiter_to_the_ge
     monkeypatch.setattr(
         client_rules,
         "snapshot_rule",
-        lambda rule: SimpleNamespace(requires_rodo_consent_block=True),
+        lambda rule: SimpleNamespace(
+            requires_rodo_consent_block=True, filename_pattern=None
+        ),
     )
+
+
+@pytest.mark.asyncio
+async def test_client_requiring_consent_screenshot_gets_a_copy_with_download_blocked(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """12.10.2026: do tej daty wybór kończył się 422 — kopii nie dało się
+    dołączyć zgody. Teraz kopia powstaje z zamrożonym wymogiem, a pobranie
+    czeka na zrzut (dołącza go `POST …/cv/branded/consent`)."""
+    consent_client(monkeypatch)
     world = await _seed()
+    base = _base(world["stage_id"])
     generated_id = await _generated(world["candidate_id"], world["other_job_id"])
-    revision = await _revision(app_client, app_auth_headers, world["stage_id"])
     by_document = await app_client.post(
-        _base(world["stage_id"]) + "/select-document",
+        base + "/select-document",
         headers=app_auth_headers,
-        json={"expected_revision": revision, "document_id": world["document_id"]},
+        json={
+            "expected_revision": await _revision(
+                app_client, app_auth_headers, world["stage_id"]
+            ),
+            "document_id": world["document_id"],
+        },
     )
+    assert by_document.status_code == 200, by_document.text
     by_generated = await app_client.post(
-        _base(world["stage_id"]) + "/select-generated",
+        base + "/select-generated",
         headers=app_auth_headers,
-        json={"expected_revision": revision, "generated_document_id": generated_id},
+        json={
+            "expected_revision": by_document.json()["edit_revision"],
+            "generated_document_id": generated_id,
+        },
     )
-    for response in (by_document, by_generated):
-        assert response.status_code == 422, response.text
-        assert response.json()["detail"]["code"] == "consent_client_needs_generator"
-    assert (await _csv(world["stage_id"])).branded_status == "none"
+    assert by_generated.status_code == 200, by_generated.text
+    for body in (by_document.json(), by_generated.json()):
+        assert body["status"] == "draft"
+        assert (
+            body["consent_required"],
+            body["consent_attached"],
+            body["consent_missing"],
+        ) == (True, False, True)
+    csv = await _csv(world["stage_id"])
+    assert csv.branded_render_metadata["consent_required"] is True
+    assert csv.branded_consent_content is None
+    blocked = await app_client.post(
+        base + "/preview-docx",
+        headers=app_auth_headers,
+        json={
+            "content_html": by_generated.json()["content_html"],
+            "expected_revision": by_generated.json()["edit_revision"],
+        },
+    )
+    assert blocked.status_code == 409, blocked.text
+    assert blocked.json()["detail"]["code"] == "consent_required"
 
 
 @pytest.mark.asyncio

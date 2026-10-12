@@ -927,7 +927,7 @@
   {
    "id": "board.cv-qc",
    "area": "pipeline",
-   "opis": "QC CV przed „CV wysłane”/Cpro: pasek „Co sprawdza QC” z umiejętnościami krytycznymi i ich źródłem, „Do poprawy przed wysłaniem” (karta na wymaganie: brak CV firmowego, umiejętności krytyczne, treść spoza oryginału, reguły klienta) z przyciskiem naprawy, „Warto poprawić — nie blokuje”, „W porządku”, CV firmowe z zaznaczonymi brakami, naprawy (pogrub wszystkie, pisownia, usuń termin, pytanie do kandydata, generator CV), propozycje poprawek AI ze źródłem (zastosuj/edytuj/odrzuć), „Przepuść mimo QC…” z gotowym powodem dla DL i admina, „Przesuń dalej” ze stopki",
+   "opis": "QC CV przed „CV wysłane”/Cpro: pasek „Co sprawdza QC” z umiejętnościami krytycznymi i ich źródłem, „Do poprawy przed wysłaniem” (karta na wymaganie: brak CV firmowego, umiejętności krytyczne, treść spoza oryginału, reguły klienta) z przyciskiem naprawy, „Warto poprawić — nie blokuje”, „W porządku”, CV firmowe z zaznaczonymi brakami, naprawy (pogrub wszystkie, pisownia, usuń termin, pytanie do kandydata, generator CV), propozycje poprawek AI ze źródłem (zastosuj/edytuj/odrzuć), „Przepuść mimo QC…” z gotowym powodem dla DL i admina, „Przesuń dalej” ze stopki; od 12.10.2026: karta umiejętności krytycznej pokazuje dla każdej roli dowód z oryginału („W oryginale”: zdanie z opisu roli, lista technologii albo nazwa stanowiska) i stan w CV firmowym, a gdy oryginał ma ją tylko na liście technologii — „Skopiuj pytanie do kandydata” zamiast przycisku AI; rozwinięte sprawdzenie pokazuje „Rola po roli” (opisane, brakuje zdania, oryginał nie pokazuje, do sprawdzenia ręcznie); tryb doradczy: „Zalecane poprawki przed wysłaniem”, „Przesuń mimo uwag…” także dla rekrutera z rekrutacji (decyduje serwer), po zapisaniu powodu karta od razu idzie dalej",
    "file": "components/v2/recruitment/CvQcDialog.tsx",
    "marker": "CvQcDialog",
    "v3_home": "Tablica → kolumna „QC CV” / Pulpit → przegląd DL → Otwórz QC"
@@ -979,6 +979,70 @@
    "file": "components/v2/recruitment/CvToClientCard.tsx",
    "marker": "Użyj nowej wersji",
    "v3_home": "panel → CV → karta „CV do klienta”"
+  },
+  {
+   "id": "cv.to-client-use-other",
+   "area": "cv",
+   "opis": "„Użyj innego CV” na karcie „CV do klienta” (12.10.2026): okno z gotowymi CV osoby zamiast generacji — CV etapu z innej rekrutacji, plik Word z profilu, plik z dysku",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "Użyj innego CV",
+   "v3_home": "panel → CV → karta „CV do klienta”"
+  },
+  {
+   "id": "cv.to-client-ready-hint",
+   "area": "cv",
+   "opis": "Pasek „Ta osoba ma już gotowe CV” — podpowiedź najlepszego gotowego CV, gdy CV jeszcze nie ma albo leży nieprzejrzane auto-CV; „Użyj tego CV” podmienia jednym kliknięciem",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "Ta osoba ma już gotowe CV",
+   "v3_home": "panel → CV → karta „CV do klienta”"
+  },
+  {
+   "id": "cv.to-client-copy-consent",
+   "area": "cv",
+   "opis": "Zgoda RODO dla CV bez dokumentu generatora (plik Word, kopia z innej rekrutacji, przepięcie): zrzut dołączany do CV etapu, a nie do dokumentu generatora",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "stageCopy={{ candidateId, stageId: cvStageId }}",
+   "v3_home": "panel → CV → karta „CV do klienta”"
+  },
+  {
+   "id": "cv.to-client-origin-badge",
+   "area": "cv",
+   "opis": "Plakietka pochodzenia CV wybranego zamiast generacji („z rekrutacji …”, „z pliku Word”, „przeniesione z … — sprawdź przed wysyłką”)",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "cv-origin-badge",
+   "v3_home": "panel → CV → karta „CV do klienta”"
+  },
+  {
+   "id": "cv.use-other-upload",
+   "area": "cv",
+   "opis": "Wgranie pliku Word z dysku jako szkicu CV do klienta (bez AI, plik nie trafia do plików kandydata); wysyłka dopiero po „Użyj tego pliku”",
+   "file": "components/v2/recruitment/UseOtherCvDialog.tsx",
+   "marker": "Wgraj plik CV z dysku",
+   "v3_home": "panel → CV → karta „CV do klienta” → „Użyj innego CV”"
+  },
+  {
+   "id": "cv.stage-copy-from-other-job",
+   "area": "cv",
+   "opis": "Grupa „Z innych rekrutacji” na liście gotowych CV: CV etapu tej osoby z innej rekrutacji w wersji po poprawkach rekrutera (screening i karta „CV do klienta”)",
+   "file": "components/v2/screening-form/StageCvPicker.tsx",
+   "marker": "Z innych rekrutacji",
+   "v3_home": "panel → Screening → podgląd „CV firmowe” oraz panel → CV → „Użyj innego CV”"
+  },
+  {
+   "id": "cv.to-client-before-verified",
+   "area": "cv",
+   "opis": "Karta „CV do klienta” także dla osób w „Nowych” i „Screeningu” (bez sekcji wysyłki) — gotowe CV da się wskazać, zanim automat po „Zweryfikowany” wygeneruje nowe",
+   "file": "components/v2/jobs/CvHandoffWorkbench.tsx",
+   "marker": "cv-send-later-note",
+   "v3_home": "panel → CV"
+  },
+  {
+   "id": "similar.reassign-carries-cv",
+   "area": "pipeline",
+   "opis": "Przepięcie przenosi CV z rekrutacji źródłowej jako szkic; komunikat po przepięciu mówi, u ilu osób",
+   "file": "components/v2/jobs/SimilarJobsPanel.tsx",
+   "marker": "CV z tamtej rekrutacji przeniesiono",
+   "v3_home": "okno „Kandydaci do dodania” → Podobne rekrutacje"
   },
   {
    "id": "header.recruitment-path",
@@ -1056,10 +1120,18 @@
   {
    "id": "board.cv-qc-override-reasons",
    "area": "pipeline",
-   "opis": "„Przepuść mimo QC”: cztery gotowe powody, opis wymagany tylko przy „Inny powód”, lista rzeczy, które zostają niepoprawione; powód trafia do historii kandydata",
+   "opis": "„Przepuść mimo QC”: cztery gotowe powody, opis wymagany tylko przy „Inny powód”, lista rzeczy, które zostają niepoprawione; powód trafia do historii kandydata; w trybie doradczym to samo okno jako „Przesuń mimo uwag QC” (przycisk „Przesuń mimo uwag”) z informacją, że Delivery Lead dostanie powiadomienie i może cofnąć kartę do poprawy",
    "file": "components/v2/recruitment/QcOverrideDialog.tsx",
    "marker": "QcOverrideDialog",
    "v3_home": "Okno QC CV → stopka → „Przepuść mimo QC…”"
+  },
+  {
+   "id": "board.cv-qc-confirmed-with-candidate",
+   "area": "pipeline",
+   "opis": "„Potwierdzone z kandydatem” na karcie treści spoza oryginału: formularz „Co powiedział kandydat? (opcjonalnie)”, zapis jako notatka pary i świeże QC (działa też, gdy CV nie da się edytować w NEXUSIE); lista potwierdzeń z autorem i datą pod ramką „Co sprawdza QC”",
+   "file": "components/v2/recruitment/CvQcDialog.tsx",
+   "marker": "useQcConfirm",
+   "v3_home": "Okno QC CV → karta „…jest w CV, a nie ma tego w oryginale” → „Potwierdzone z kandydatem”"
   },
   {
    "id": "dock.screening-answers",

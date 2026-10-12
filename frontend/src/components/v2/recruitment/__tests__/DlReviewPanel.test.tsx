@@ -57,6 +57,7 @@ import { DlReviewPanel, dlReviewMode } from "@/components/v2/recruitment/DlRevie
 import { formState } from "@/components/v2/screening-form/__tests__/screening-form-fixtures";
 import type { BoardTaskRow } from "@/lib/api/boardTasks";
 import type { ScreeningFormState } from "@/lib/api/screeningForm";
+import { formatDate } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
 
@@ -216,12 +217,12 @@ function mockApi({
 
 function renderPanel(row: BoardTaskRow = task(), onOpenChange = vi.fn()) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(
+  const view = render(
     <QueryClientProvider client={qc}>
       <DlReviewPanel task={row} open onOpenChange={onOpenChange} />
     </QueryClientProvider>,
   );
-  return { onOpenChange, qc };
+  return { onOpenChange, qc, view };
 }
 
 describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => {
@@ -651,6 +652,57 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
     expect(screen.queryByRole("dialog", { name: "QC CV" })).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: /Otwórz QC/ }));
     expect(screen.getByRole("dialog", { name: "QC CV" })).toHaveTextContent("QC etapu 11");
+  });
+
+  describe("karta przesunięta mimo uwag QC (tryb doradczy)", () => {
+    const OVERRIDE_AT = "2026-10-12T10:00:00Z";
+    const overridden = (qc_override: Record<string, unknown> | null) => ({
+      ...CONTEXT,
+      qc_status: "overridden",
+      qc_blocking_failed: 2,
+      qc_override,
+    });
+
+    it("baner mówi kto, kiedy, dlaczego i ile zostało do sprawdzenia; „Otwórz QC” otwiera okno QC", async () => {
+      mockApi({
+        context: overridden({ reason: "Klient prosił o krótsze CV", by_name: "Marta Rekruterka", at: OVERRIDE_AT }),
+      });
+      renderPanel(task({ qc_status: "overridden", qc_blocking_failed: 2 }));
+      const banner = await screen.findByTestId("dl-review-qc-override");
+      expect(banner).toHaveTextContent(
+        `Przesunięte mimo uwag QC — Marta Rekruterka, ${formatDate(OVERRIDE_AT)}: Klient prosił o krótsze CV. Do sprawdzenia: 2.`,
+      );
+      expect(screen.queryByRole("dialog", { name: "QC CV" })).toBeNull();
+      await userEvent.click(within(banner).getByRole("button", { name: "Otwórz QC" }));
+      expect(screen.getByRole("dialog", { name: "QC CV" })).toHaveTextContent("QC etapu 11");
+    });
+
+    it("bez nazwiska pisze „rekruter”; kropka z końca powodu się nie dubluje", async () => {
+      mockApi({ context: overridden({ reason: "Kandydat potwierdził w rozmowie.", by_name: null, at: OVERRIDE_AT }) });
+      renderPanel();
+      expect(await screen.findByTestId("dl-review-qc-override")).toHaveTextContent(
+        `Przesunięte mimo uwag QC — rekruter, ${formatDate(OVERRIDE_AT)}: Kandydat potwierdził w rozmowie. Do sprawdzenia: 2.`,
+      );
+    });
+
+    it("banera nie ma, gdy QC przeszło albo kontekst nie niesie obejścia", async () => {
+      mockApi({
+        context: {
+          ...CONTEXT,
+          qc_override: { reason: "Klient prosił o krótsze CV", by_name: "Marta Rekruterka", at: OVERRIDE_AT },
+        },
+      });
+      const first = renderPanel();
+      // Kontekst jest już wczytany (wymagania na ekranie), a banera nie ma.
+      expect(await screen.findByText("…Java 17 w banku…")).toBeTruthy();
+      expect(screen.queryByTestId("dl-review-qc-override")).toBeNull();
+      first.view.unmount();
+
+      mockApi({ context: overridden(null) });
+      renderPanel();
+      expect(await screen.findByText("…Java 17 w banku…")).toBeTruthy();
+      expect(screen.queryByTestId("dl-review-qc-override")).toBeNull();
+    });
   });
 
   it("409 CV_QC_FAILED przy wysyłce → komunikat i okno QC wskazanego etapu", async () => {

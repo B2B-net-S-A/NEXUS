@@ -117,6 +117,7 @@ Deploy przez Coolify, `/api/health`, zmienne środowiskowe, CI i kolejka merge'�
 - `specyfika-tej-apki.md` — Specyfika tej apki
 - `stabilizacja-pod-obciazeniem-reguly-po-audycie-13.md` — Stabilizacja pod obciążeniem — reguły po audycie 13.09 i reaudycie 14.09.2026 · deploy = przerwa dla użytkowników, ponowienia HTTP, polling, single-flight cache, eksport XLSX, uploady
 - `tabele-worda-z-wgranych-plikow.md` — Tabele Worda z wgranych plików — komórki przez `app/core/docx_cells.py` (11.10.2026)
+- `wersja-frontu-w-otwartej-karcie.md` — Otwarta karta sama przechodzi na nową wersję frontu (12.10.2026)
 
 ### Role i uprawnienia — `docs/claude/uprawnienia/`
 
@@ -184,6 +185,7 @@ Lista `/jobs`, Tablica, ruch kart i bramki, panel osoby, QC CV i Cpro, przegląd
 - `prostszy-ekran-rekrutacji-fakty-kafle-kandydaci-do.md` — Prostszy ekran rekrutacji — fakty, kafle „Kandydaci do dodania”, kolumna „Zamknięci” (02.10.2026)
 - `przeglad-delivery-leada-v2.md` — Przegląd Delivery Leada v2 (D6, D9, D10, 08.10.2026)
 - `przydzial-ludzi-do-requestow-stany-requestu-i.md` — Przydział ludzi do requestów, stany requestu i pulpit „Requesty i obłożenie” (0371, 24.09.2026)
+- `qc-cv-tryb-doradczy-role-z-odczytu-potwierdzenie.md` — QC CV: tryb doradczy, role z odczytu CV, „Potwierdzone z kandydatem” (12.10.2026) · QC doradza zamiast blokować (wyłącznik `CV_QC_ADVISORY`), skąd QC wie, w której roli kandydat czego używał, potwierdzenie z kandydatem jako notatka, przeliczenie przebiegów po zmianie reguł
 - `rekrutacja-drobne-usprawnienia-ux.md` — Rekrutacja — drobne usprawnienia UX (24.09.2026)
 - `rekrutacja-v3-lista-jobs-i-wiecej-w-pasku-bocznym.md` — Rekrutacja v3: lista `/jobs` i „Więcej" w pasku bocznym
 - `rekrutacja-v5-8-kolumn-strzalka-przesun-dalej-qc-cv.md` — Rekrutacja v5 — 8 kolumn, strzałka „Przesuń dalej”, QC CV, firmowa kolejka Cpro (0361, 24.09.2026)

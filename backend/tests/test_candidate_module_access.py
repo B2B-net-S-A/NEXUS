@@ -206,6 +206,7 @@ READ_ENDPOINTS = [
     ("GET", "/api/candidates/stages/999999/cv/original/download", None),
     ("GET", "/api/candidates/stages/999999/cv/branded", None),
     ("GET", "/api/candidates/stages/999999/cv/branded/render-pdf", None),
+    ("GET", "/api/candidates/stages/999999/cv/branded/sources", None),
     ("GET", "/api/candidates/pins", None),
     ("GET", "/api/candidates/999999/pin", None),
     ("POST", "/api/candidates/999999/pin", None),

@@ -24,6 +24,14 @@ function originOf(raw: string | undefined): string | null {
   }
 }
 
+/**
+ * Dokumenty stron (bez `/_next/` i plików z rozszerzeniem). Przeglądarka nie
+ * może ich przechowywać: karta przywrócona z jej pamięci ładowała stary
+ * dokument, a z nim pliki JS sprzed kilku wdrożeń (12.10.2026). Pliki
+ * `/_next/static/*` zostają z rocznym `immutable` — nowy dokument wskazuje nowe.
+ */
+export const DOCUMENT_PATHS = "/((?!_next/|.*\\..*).*)";
+
 /** Endpoint `security` Sentry z publicznego DSN (report-uri CSP). */
 export function sentryCspReportUri(dsn: string | undefined): string | null {
   if (!dsn) return null;
@@ -176,6 +184,10 @@ const nextConfig: NextConfig = {
       {
         source: "/:path*",
         headers: buildSecurityHeaders(),
+      },
+      {
+        source: DOCUMENT_PATHS,
+        headers: [{ key: "Cache-Control", value: "no-store" }],
       },
     ];
   },

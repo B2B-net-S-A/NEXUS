@@ -154,6 +154,20 @@ def test_card_assist_note_stays_a_human_note_after_edit():
     )
 
 
+def test_qc_confirmation_stays_a_human_note_whatever_it_says():
+    """12.10.2026: „Potwierdzone z kandydatem” z okna QC CV jest źródłem dla QC
+    i modeli — dopisana kwota nie może zrobić z niego wpisu o stawce do
+    klienta (zakrytego i pomijanego przez AI)."""
+    for content in (
+        "Potwierdzone z kandydatem: testing",
+        "Potwierdzone z kandydatem: Spring — 150/110",
+        "Potwierdzone z kandydatem: Java 17 — wyślijmy za 161 zł/h",
+    ):
+        kind = classify(content, external_source=note_kinds.QC_CONFIRM_SOURCE)
+        assert kind == note_kinds.HUMAN
+        assert kind not in note_kinds.AI_EXCLUDED_KINDS
+
+
 def test_only_real_mail_threads_are_email():
     thread = (
         "Podpisane dokumenty w załącznikach. Pozdrawiam, Jan. "

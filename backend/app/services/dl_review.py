@@ -359,6 +359,16 @@ def risks_for(
         out.append(
             {"code": "qc_failed", "label": "CV nie przeszło QC", "severity": "high"}
         )
+    if qc_status == "overridden":
+        # Tryb doradczy QC (12.10.2026): rekruter przesunął kartę mimo uwag —
+        # Delivery Lead ma to zobaczyć przed wysyłką, nie po niej.
+        out.append(
+            {
+                "code": "qc_overridden",
+                "label": "Przesunięte mimo uwag QC — sprawdź, co zostało",
+                "severity": "medium",
+            }
+        )
     if over_budget_by is not None and over_budget_by > 0:
         out.append(
             {
@@ -915,6 +925,11 @@ async def build_context(
         (candidate_id, job.id)
     ) or {}
     qc_status = qc.get("status") or "unchecked"
+    qc_override = None
+    if qc_status == "overridden":
+        from app.services.cv_qc import _latest_override  # noqa: PLC0415
+
+        qc_override = await _latest_override(db, candidate_id, job.id)
     person = _person(
         batch,
         job,
@@ -1006,6 +1021,7 @@ async def build_context(
         "category_name": category,
         "qc_status": qc_status,
         "qc_blocking_failed": int(qc.get("blocking_failed") or 0),
+        "qc_override": qc_override,
         "can_see_amounts": access.amounts,
         "can_see_client_rates": access.client_rates,
         "rate_from_hourly": (

@@ -7,7 +7,14 @@
 // z propozycji AI i kody błędów. Wszystko zwraca TEKST — nic nie trafia na
 // stronę jako HTML.
 
-import type { QcCheck, QcCvBlock, QcFixKind, QcItem } from "@/lib/api/cvQc";
+import type {
+  QcCheck,
+  QcCvBlock,
+  QcFixKind,
+  QcItem,
+  QcRoleState,
+  QcRoleStateKind,
+} from "@/lib/api/cvQc";
 
 // ── Podświetlenie terminów ───────────────────────────────────────────────────
 //
@@ -347,6 +354,48 @@ export const QC_TASK_TAG: Record<string, string> = {
   no_unsupported: "zgodność z oryginałem",
   client_rules: "reguły klienta",
 };
+
+// ── Dowód z oryginału i „rola po roli" ───────────────────────────────────────
+
+/**
+ * Czy oryginał mówi, co kandydat robił z umiejętnością w tych rolach: `true`,
+ * gdy choć jedna pozycja stoi na zdaniu z opisu roli albo nie niesie dowodu
+ * (przebieg sprzed 12.10.2026). `false` = same listy technologii i nazwy
+ * stanowisk — AI nie ma z czego ułożyć zdania, trzeba zapytać kandydata.
+ */
+export function originalDescribesSkill(items: QcItem[]): boolean {
+  return items.some((item) => !item.evidence_kind || item.evidence_kind === "description");
+}
+
+/** Co stoi w CV firmowym w roli z brakiem — z opisu pozycji (`cv_qc._role_items`). */
+export function companyCvRoleState(item: QcItem): string {
+  return item.detail?.trim().startsWith("Jest tylko na liście technologii")
+    ? "tylko na liście technologii"
+    : "brak w tej roli";
+}
+
+export const QC_ROLE_STATE_LABEL: Record<QcRoleStateKind, string> = {
+  described: "opisane w CV firmowym",
+  missing: "brakuje zdania w CV firmowym",
+  not_in_original: "oryginał nie pokazuje tej umiejętności w tej roli — opis nie jest wymagany",
+  unverified: "odczyt CV nie ma opisu tej roli — sprawdź ręcznie",
+};
+
+export interface RoleStateGroup {
+  requirement: string;
+  roles: QcRoleState[];
+}
+
+/** „Rola po roli" pogrupowana po wymaganiu, w kolejności z serwera. */
+export function groupRoleStates(roles: QcRoleState[]): RoleStateGroup[] {
+  const groups = new Map<string, RoleStateGroup>();
+  for (const role of roles) {
+    const group = groups.get(role.requirement) ?? { requirement: role.requirement, roles: [] };
+    group.roles.push(role);
+    groups.set(role.requirement, group);
+  }
+  return [...groups.values()];
+}
 
 // ── „Przepuść mimo QC" ───────────────────────────────────────────────────────
 

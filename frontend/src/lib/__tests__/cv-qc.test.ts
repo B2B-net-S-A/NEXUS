@@ -4,14 +4,18 @@ import { groupCproByJob, type BoardTaskRow } from "@/lib/api/boardTasks";
 import type { QcCheck, QcCvBlock } from "@/lib/api/cvQc";
 import {
   QC_OVERRIDE_REASONS,
+  QC_ROLE_STATE_LABEL,
   apiErrorCode,
   blockingTasks,
   candidateQuestion,
   checkLevelFixes,
   checkTasks,
+  companyCvRoleState,
   countForm,
+  groupRoleStates,
   highlightTerms,
   notePreview,
+  originalDescribesSkill,
   parseBoldMarkup,
   qcFailedStageId,
   qcOverrideError,
@@ -267,6 +271,64 @@ describe("co jest do poprawy, a co jest uwagą", () => {
     expect(notePreview(check({ items: names.slice(0, 2) }))).toBe("Kafka, JUnit 5");
     expect(notePreview(check({ items: [{ detail: "Rola bez dat." }] }))).toBe("Rola bez dat.");
     expect(notePreview(check({ items: [] }))).toBeNull();
+  });
+});
+
+describe("dowód z oryginału i „rola po roli”", () => {
+  it("AI ma z czego pisać, gdy choć jedna rola stoi na zdaniu z opisu albo przebieg jest sprzed dowodów", () => {
+    expect(originalDescribesSkill([{ evidence_kind: "technologies" }, { evidence_kind: "description" }])).toBe(true);
+    // Stary zapisany przebieg nie ma `evidence_kind` — zachowuje się jak dotąd.
+    expect(originalDescribesSkill([{ requirement: "Java", role: "Alfa" }])).toBe(true);
+    expect(originalDescribesSkill([{ evidence_kind: "technologies" }, { evidence_kind: null }])).toBe(true);
+  });
+
+  it("same listy technologii i nazwy stanowisk — pytanie do kandydata", () => {
+    expect(originalDescribesSkill([{ evidence_kind: "technologies" }, { evidence_kind: "title" }])).toBe(false);
+    expect(originalDescribesSkill([{ evidence_kind: "title" }])).toBe(false);
+  });
+
+  it("stan w CV firmowym czyta z opisu pozycji z serwera", () => {
+    expect(
+      companyCvRoleState({ detail: "Jest tylko na liście technologii — dopisz zdanie, co kandydat w tej roli z tym robił." }),
+    ).toBe("tylko na liście technologii");
+    expect(companyCvRoleState({ detail: "Brak w tej roli, a w oryginale jest." })).toBe("brak w tej roli");
+    expect(companyCvRoleState({})).toBe("brak w tej roli");
+  });
+
+  it("„rola po roli” grupuje po wymaganiu w kolejności z serwera", () => {
+    const groups = groupRoleStates([
+      { requirement: "Java", role: "Alfa", state: "described" },
+      { requirement: "Kafka", role: "Alfa", state: "missing" },
+      { requirement: "Java", role: "Beta", state: "not_in_original" },
+    ]);
+    expect(groups.map((g) => [g.requirement, g.roles.map((r) => `${r.role}:${r.state}`)])).toEqual([
+      ["Java", ["Alfa:described", "Beta:not_in_original"]],
+      ["Kafka", ["Alfa:missing"]],
+    ]);
+    expect(groupRoleStates([])).toEqual([]);
+  });
+
+  it("każdy stan roli ma swoje zdanie", () => {
+    expect(QC_ROLE_STATE_LABEL).toEqual({
+      described: "opisane w CV firmowym",
+      missing: "brakuje zdania w CV firmowym",
+      not_in_original: "oryginał nie pokazuje tej umiejętności w tej roli — opis nie jest wymagany",
+      unverified: "odczyt CV nie ma opisu tej roli — sprawdź ręcznie",
+    });
+  });
+
+  it("krytyczne „sprawdź ręcznie” (odczyt bez opisów ról) trafia do uwag i nie zaznacza ról w CV", () => {
+    const manual = check({
+      key: "critical_skills",
+      status: "manual",
+      summary: "Odczyt CV nie ma opisów ról — sprawdź role ręcznie",
+      roles: [{ requirement: "Java", role: "Alfa", state: "unverified" }],
+    });
+    const split = splitChecks([manual]);
+    expect(split.tasks).toEqual([]);
+    expect(split.notes.map((c) => c.key)).toEqual(["critical_skills"]);
+    expect(notePreview(manual)).toBeNull();
+    expect(roleGaps([manual])).toEqual([]);
   });
 });
 

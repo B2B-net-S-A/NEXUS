@@ -26,6 +26,11 @@ export function stageBrandedQueryKey(stageId: number | null) {
   return ["cv-branded", stageId] as const;
 }
 
+/** Gotowe CV etapu tej osoby z innych rekrutacji („Użyj innego CV”). */
+export function stageCvSourcesQueryKey(stageId: number | null) {
+  return ["cv-stage-sources", stageId] as const;
+}
+
 /**
  * Wiersz etapu, na którym leży CV firmowe pary, gdy bieżący wiersz go nie ma.
  *
@@ -70,6 +75,14 @@ export interface StageBrandedSummary {
   generated_document_id?: number | null;
   /** `document` = plik Word wybrany z profilu kandydata (09.10.2026). */
   source?: string | null;
+  /** CV wybrane zamiast generacji (12.10.2026): skąd i kiedy. */
+  origin?: {
+    kind?: string | null;
+    label?: string | null;
+    selected_at?: string | null;
+  } | null;
+  /** Kopia bez dokumentu generatora: klient wymaga zgody, a CV jej nie ma. */
+  consent_missing?: boolean;
 }
 
 /**
@@ -107,6 +120,59 @@ export function stageCvBadge(
   return branded?.status === "finalized"
     ? { label: "CV do klienta: gotowe", tone: "success" }
     : { label: "CV do klienta: szkic", tone: "info" };
+}
+
+/**
+ * Plakietka i zdanie o pochodzeniu CV wybranego zamiast generacji.
+ * `null` = CV z generatora tej rekrutacji (karta mówi o nim po swojemu).
+ */
+export function stageCvOrigin(
+  branded: StageBrandedSummary | null | undefined,
+): { badge: string; tone: "neutral" | "warning"; sentence: string } | null {
+  if (!branded || stageCvStatus(branded) !== "ready") return null;
+  const kind = branded.origin?.kind ?? null;
+  const label = branded.origin?.label?.trim() || null;
+  const fromJob = label ? `z rekrutacji ${label}` : "z innej rekrutacji";
+  // Tytuł w nagłówku podmieniamy tylko w treści z generatora. CV wczytane
+  // z pliku Word niesie nagłówek z pliku — bywa w nim numer zapytania innego
+  // klienta, więc karta nie może twierdzić, że nagłówek jest już poprawiony.
+  const header =
+    branded.source === "document"
+      ? "Nagłówek pochodzi z pliku Word — sprawdź go przed wysyłką."
+      : "Nagłówek ma tytuł tej rekrutacji.";
+  if (kind === "reassign") {
+    return {
+      // Po zatwierdzeniu ktoś je już przejrzał — ostrzeżenie schodzi.
+      badge:
+        branded.status === "draft"
+          ? `przeniesione ${fromJob} — sprawdź przed wysyłką`
+          : `przeniesione ${fromJob}`,
+      tone: branded.status === "draft" ? "warning" : "neutral",
+      sentence: `Przeniesione przy przepięciu ${fromJob}, w wersji po poprawkach rekrutera. ${header}`,
+    };
+  }
+  if (kind === "stage_copy") {
+    return {
+      badge: fromJob,
+      tone: "neutral",
+      sentence: `Skopiowane ${fromJob}, w wersji po poprawkach rekrutera. ${header}`,
+    };
+  }
+  if (kind === "generated_other_job") {
+    return {
+      badge: fromJob,
+      tone: "neutral",
+      sentence: `CV z generatora ${fromJob}. Nagłówek ma tytuł tej rekrutacji.`,
+    };
+  }
+  if (kind === "upload" || kind === "profile_file" || branded.source === "document") {
+    return {
+      badge: "z pliku Word",
+      tone: "neutral",
+      sentence: `Wczytane z pliku${label ? ` ${label}` : " Word"}. Treść przeniesiona bez AI — sprawdź układ w edytorze.`,
+    };
+  }
+  return null;
 }
 
 export type CvToClientKind =
@@ -163,11 +229,21 @@ export function resolveCvToClient({
     : null;
   const latestReady = list.find((r) => r.status === "ready") ?? null;
   const attachedPackage = attached?.package_id ?? null;
+  // CV wybrane zamiast generacji (kopia, plik) nie ma wiersza generatora,
+  // więc każda gotowa generacja wyglądałaby na „nowszą”. Proponujemy tylko
+  // te, które powstały PO wyborze — inaczej karta od razu radziłaby nadpisać
+  // CV, które rekruter przed chwilą świadomie wskazał.
+  const chosenAt = attachedId == null ? Date.parse(branded?.origin?.selected_at ?? "") : NaN;
+  const olderThanChoice =
+    status === "ready" &&
+    Number.isFinite(chosenAt) &&
+    !(Date.parse(latestReady?.created_at ?? "") > chosenAt);
   const candidate =
     latestReady &&
     latestReady.id !== attachedId &&
     (attachedId == null || latestReady.id > attachedId) &&
-    !(attachedPackage != null && latestReady.package_id === attachedPackage)
+    !(attachedPackage != null && latestReady.package_id === attachedPackage) &&
+    !olderThanChoice
       ? latestReady
       : null;
 
@@ -189,7 +265,8 @@ export function resolveCvToClient({
     return {
       ...base,
       kind: "ready",
-      consentMissing: attached?.consent_missing === true,
+      // Wiersz generatora mówi o swoim pakiecie; kopia bez niego — sama o sobie.
+      consentMissing: attached?.consent_missing === true || branded?.consent_missing === true,
       findings,
       needsReview: attached?.needs_review === true,
     };

@@ -3,7 +3,11 @@
  */
 import { describe, expect, it } from "vitest";
 
-import nextConfig, { buildSecurityHeaders, sentryCspReportUri } from "../../../next.config";
+import nextConfig, {
+  DOCUMENT_PATHS,
+  buildSecurityHeaders,
+  sentryCspReportUri,
+} from "../../../next.config";
 
 type Header = { key: string; value: string };
 
@@ -75,3 +79,30 @@ describe("Content-Security-Policy", () => {
     );
   });
 });
+
+describe("dokument strony zawsze z serwera (12.10.2026)", () => {
+  // Karta przywrócona przez przeglądarkę brała dokument z jej pamięci, a z nim
+  // stare pliki JS — ludzie pracowali na wersji sprzed kilku wdrożeń.
+  it("strony dostają `Cache-Control: no-store`", async () => {
+    const rules = await nextConfig.headers!();
+    const rule = rules.find((r) => r.source === DOCUMENT_PATHS);
+    expect(rule?.headers).toEqual([{ key: "Cache-Control", value: "no-store" }]);
+  });
+
+  it("reguła obejmuje strony, a omija pliki statyczne i `/_next/`", () => {
+    // `source` to ścieżka path-to-regexp z jedną grupą — sama grupa jest zwykłym wyrażeniem.
+    const matches = (path: string) => new RegExp(`^${DOCUMENT_PATHS}$`).test(path);
+    for (const page of ["/", "/login", "/jobs/new", "/jobs/5027", "/settings"]) {
+      expect(matches(page), page).toBe(true);
+    }
+    for (const file of [
+      "/_next/static/chunks/webpack-40c1879d1d3c8767.js",
+      "/_next/image",
+      "/version.json",
+      "/favicon.ico",
+    ]) {
+      expect(matches(file), file).toBe(false);
+    }
+  });
+});
+
