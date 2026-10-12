@@ -572,3 +572,48 @@ def test_review_outcome_reads_findings_off_the_saved_version():
     # Wersje sprzed wdrożenia: brak wpisu = brak komunikatu, nie „niedostępna".
     assert review_outcome({}) == (None, None)
     assert review_outcome(None) == (None, None)
+
+
+async def test_edited_cv_review_reaches_the_reviewer_unstubbed(
+    approval_advisory, monkeypatch
+):
+    """Regresja 23.09–12.10.2026: każdy test wyżej podmienia
+    `verify_editor_content`, więc nie widział, że prawdziwe nie podaje
+    recenzentowi żadnego twierdzenia i zatwierdzenie zawsze kończy się
+    `unverified/review_protocol_invalid_review`. Tu podmieniony jest tylko model."""
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock
+
+    from app.services import cv_approval_review as review_module
+
+    @asynccontextmanager
+    async def quota(*args, **kwargs):
+        yield
+
+    asked = []
+
+    def reviewer(content, request_id, system=None, **kwargs):
+        claims = json.loads(content)["claims"]
+        asked.append(claims)
+        return json.dumps(
+            {
+                "claims": [
+                    {
+                        "path": path,
+                        "status": "supported",
+                        "evidence": [{"source": "cv", "start_line": 1, "end_line": 1}],
+                    }
+                    for path in claims
+                ]
+            }
+        )
+
+    monkeypatch.setattr(review_module, "ai_feature", quota)
+    monkeypatch.setattr(factual_verification, "analyze_with_ai", reviewer)
+    prepared = await _prepared(monkeypatch, review_module)
+
+    result = await review_module.execute_approval_review(AsyncMock(), prepared, 17)
+
+    assert asked == [{"/why_points/0": "Twierdzenie"}]
+    assert result["status"] == "verified"
+    assert "method_detail" not in result

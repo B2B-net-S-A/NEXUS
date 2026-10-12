@@ -2683,6 +2683,11 @@ class _EditableParser(dz._BlockParser):
         self.tokens: list[Optional[dict]] = []
         self.spans: list[tuple[Optional[int], Optional[int]]] = []
         self.ctx: dict[int, dict] = {}
+        # Blok punktu listy → tokeny `<li>` i `</li>`. Zakres w `spans` to sam
+        # tekst (dla `<li><p>…</p></li>` z edytora: wewnętrzny akapit), a nowy
+        # punkt i usunięcie punktu muszą działać na całym `<li>`.
+        self.items: dict[int, tuple[int, int]] = {}
+        self._open_items: list[tuple[Block, int]] = []
         self._last: Optional[int] = None
         self._end: Optional[int] = None
         self._cur_start: Optional[int] = None
@@ -2691,7 +2696,13 @@ class _EditableParser(dz._BlockParser):
         self.tokens.append({"k": "tag", "raw": self.get_starttag_text() or f"<{tag}>"})
         self._last = len(self.tokens) - 1
         self._end = None
+        start = self._last
         super().handle_starttag(tag, attrs)
+        if tag == "li" and self._current is not None:
+            # Dopiero PO otwarciu: blok rodzica z tekstem („Docker<ul><li>…”)
+            # trafia na listę bloków właśnie teraz, więc liczenie pozycji
+            # sprzed otwarcia przypisywało rodzicowi tokeny dziecka.
+            self._open_items.append((self._current, start))
 
     def handle_startendtag(self, tag, attrs):
         self.tokens.append({"k": "tag", "raw": self.get_starttag_text() or f"<{tag}/>"})
@@ -2704,6 +2715,12 @@ class _EditableParser(dz._BlockParser):
         self.tokens.append({"k": "tag", "raw": f"</{tag}>"})
         self._end = len(self.tokens) - 1
         super().handle_endtag(tag)
+        if tag == "li" and self._open_items:
+            block, start = self._open_items.pop()
+            for index in range(len(self.blocks) - 1, -1, -1):
+                if self.blocks[index] is block:
+                    self.items[index] = (start, self._end)
+                    break
         self._end = None
 
     def handle_data(self, data):
@@ -2737,13 +2754,30 @@ class EditableCv:
     blocks: list[Block]
     spans: list[tuple[Optional[int], Optional[int]]]
     ctx: dict[int, dict]
+    items: dict[int, tuple[int, int]] = field(default_factory=dict)
 
     @classmethod
     def parse(cls, html: str) -> "EditableCv":
         parser = _EditableParser()
         parser.feed(html or "")
         parser.close()
-        return cls(parser.tokens, parser.blocks, parser.spans, parser.ctx)
+        return cls(parser.tokens, parser.blocks, parser.spans, parser.ctx, parser.items)
+
+    def item_span(self, index: int) -> tuple[Optional[int], Optional[int]]:
+        """Tokeny całego punktu listy (`<li>` … `</li>`), nie samego tekstu."""
+        return self.items.get(index, self.spans[index])
+
+    def item_is_only_this_block(self, index: int) -> bool:
+        """Czy punkt nie niesie nic poza tym blokiem (podpunktów, drugiego akapitu)."""
+        start, end = self.item_span(index)
+        if start is None or end is None:
+            return False
+        inside = [
+            i
+            for i, (first, _) in enumerate(self.spans)
+            if first is not None and start <= first <= end
+        ]
+        return inside == [index]
 
     def html(self) -> str:
         out: list[str] = []
@@ -2831,13 +2865,16 @@ def apply_ai_fix(
     if role_idx is None:
         raise ApplyError("Nie znaleziono tej roli w CV — dopisz zdanie w edytorze.")
     indices = roles[role_idx].blocks
-    li_ends = [
-        doc.spans[i][1]
+    points = [
+        i
         for i in indices
-        if doc.blocks[i].kind == "li" and doc.spans[i][1] is not None
+        if doc.blocks[i].kind == "li" and doc.item_span(i)[1] is not None
     ]
-    if li_ends:
-        at, insert = li_ends[-1], f"<li>{rendered}</li>"
+    if points:
+        at = doc.item_span(points[-1])[1]
+        # Ten sam kształt co sąsiedni punkt: edytor owija treść w akapit.
+        wrapped = at != doc.spans[points[-1]][1]
+        insert = f"<li><p>{rendered}</p></li>" if wrapped else f"<li>{rendered}</li>"
     else:
         ends = [doc.spans[i][1] for i in indices if doc.spans[i][1] is not None]
         if not ends:
@@ -2907,12 +2944,14 @@ def remove_term(html: str, term: str) -> tuple[str, int]:
     count = 0
     target = _norm(term)
     for i, block in enumerate(doc.blocks):
-        start, end = doc.spans[i]
+        start, end = doc.item_span(i)
         if (
             block.kind == "li"
             and _norm(block.text) == target
             and start is not None
             and end is not None
+            # Punkt z podpunktami albo drugim akapitem to więcej niż termin.
+            and doc.item_is_only_this_block(i)
         ):
             for j in range(start, end + 1):
                 doc.tokens[j] = None
