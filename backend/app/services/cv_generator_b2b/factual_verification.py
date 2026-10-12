@@ -175,6 +175,7 @@ def verify_final_cv(
     model: str | None = None,
     fallback_models: Sequence[str] | None = None,
     total_timeout: float | None = None,
+    claims: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Review the final CV against its sources with an INDEPENDENT model.
 
@@ -185,10 +186,15 @@ def verify_final_cv(
 
     `total_timeout` is the budget for the WHOLE review, shared across batches;
     without it a long CV could spend one full provider budget per batch.
+
+    `claims` replaces the inventory derived from `data`. The editor needs it:
+    its document is a list of text lines, not CV fields, so it names the lines
+    to review itself and keeps the rest as context (`cv_editor_review`).
     """
     sources = {"cv": cv_text, "screening_notes": screening_notes, "identity": identity}
     projection = factual_projection(data)
-    claims = claim_inventory(data)
+    if claims is None:
+        claims = claim_inventory(data)
     if not claims or len(claims) > 1000:
         raise FactualVerificationError()
     model = model or model_for(AIFeatureKey.cv_factual_verification)
