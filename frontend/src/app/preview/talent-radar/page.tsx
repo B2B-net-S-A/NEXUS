@@ -62,6 +62,21 @@ const RESULTS: TalentRadarResult[] = [
   mockResult(102, "Bartosz", "Nowak", 71.2, {
     gap_must: ["AWS"],
     matching_nice: ["Terraform", "Docker"],
+    // Znacznik „Pracuje u nas” u innego klienta niż klient wyszukiwania.
+    employment_marker: {
+      phase: "working",
+      source: "contract",
+      elsewhere: true,
+      clients: [
+        {
+          client_id: 31,
+          client_name: "Bank Przykładowy",
+          contract_id: 77,
+          phase: "working",
+          order_end_date: "2026-12-31",
+        },
+      ],
+    },
   }),
   mockResult(103, "Celina", "Wiśniewska", 54.9, {
     matching_must: ["Python"],

@@ -16,6 +16,8 @@ export interface MatchReason {
 export interface MatchCardProps extends React.HTMLAttributes<HTMLDivElement> {
   name: string
   role?: string
+  /** Plakietka pod podpisem osoby (np. znacznik „Pracuje u nas”). */
+  badge?: React.ReactNode
   /** Match score, 0-100. */
   score: number
   reasons?: MatchReason[]
@@ -37,7 +39,7 @@ function clampScore(score: number): number {
 }
 
 export const MatchCard = React.forwardRef<HTMLDivElement, MatchCardProps>(
-  ({ name, role, score, reasons, notice, actions, className, ...props }, ref) => {
+  ({ name, role, badge, score, reasons, notice, actions, className, ...props }, ref) => {
     const value = clampScore(score)
 
     return (
@@ -52,6 +54,7 @@ export const MatchCard = React.forwardRef<HTMLDivElement, MatchCardProps>(
               {role ? (
                 <p className="truncate text-sm text-muted-foreground">{role}</p>
               ) : null}
+              {badge ? <div className="mt-1 flex min-w-0">{badge}</div> : null}
             </div>
           </div>
 

@@ -235,6 +235,7 @@ Lista i profil kandydata, słowa kluczowe, kolejność „Dopasowanie”, Talent
 - `ta-sama-osoba-ten-sam-e-mail.md` — Ta sama osoba = ten sam e-mail; nowe CV czytane od razu (12.10.2026) · reguła duplikatów kandydata w oknach, /from-cv, poczcie M365 i imporcie; LinkedIn tylko z adresu profilu; główne CV = odczyt AI; blokady ręcznych poprawek
 - `talent-radar-wklejasz-request-ranking-bazy-bez.md` — Talent Radar (wklejasz request → ranking bazy, bez zakładania rekrutacji)
 - `wyszukiwanie-reczne-podpowiedzi-przycisk-szukaj.md` — Wyszukiwanie ręczne: podpowiedzi, przycisk „Szukaj”, pamięć (25.09.2026)
+- `znacznik-pracuje-u-nas.md` — Znacznik „Pracuje u nas” — jedna reguła na każdym ekranie (12.10.2026) · znacznik zatrudnienia przy osobie (pracuje / kończy / zaczyna u nas), koniec zamówienia i Delivery Lead, okna dodawania do rekrutacji, Tablica, „Potwierdź zatrudnienie”, dzwonek do Delivery Leada obecnego klienta
 
 ### Generator CV i automaty — `docs/claude/generator-cv/`
 

@@ -43,6 +43,7 @@ import {
   workModeLabel,
   yearsLabel,
 } from "@/lib/proposal-facts";
+import { ADD_ANYWAY_HINT, EmploymentNotice } from "@/components/v2/employment/EmploymentNotice";
 import { availabilityLabel } from "@/lib/proposals-merge";
 import { similarPersonScoreKey } from "@/lib/similar-jobs-api";
 import { cn, formatRelativeTime } from "@/lib/utils";
@@ -237,6 +238,9 @@ export function PersonPreview({
       </div>
 
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
+        {f?.employment_marker ? (
+          <EmploymentNotice marker={f.employment_marker} hint={ADD_ANYWAY_HINT} />
+        ) : null}
         <Section
           title="Dopasowanie do tej rekrutacji"
           aside={<ScoreBadge query={score} candidateId={candidateId} />}

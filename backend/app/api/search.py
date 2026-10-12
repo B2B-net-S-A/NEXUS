@@ -17,12 +17,14 @@ from app.api.candidate_access import CandidateSearchAccess, user_has_candidate_r
 from app.api.deps import CurrentUser
 from app.core.database import get_db
 from app.core.rate_limit import limiter, user_or_ip_key
+from app.core.scheduling import business_today
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.competence_category import CompetenceCategory
 from app.models.contact import Contact
 from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage
+from app.schemas.candidate import EmploymentMarker
 from app.schemas.candidate_search import (
     CandidateSearchItem,
     CandidateSearchRequest,
@@ -39,6 +41,7 @@ from app.services import candidate_search_predicates as predicates
 from app.services.keyword_terms import KeywordTooShort
 from app.services.ai_health import ai_status
 from app.services.eligibility_annotation import eligibility_annotation
+from app.services.employment_marker import load_employment_markers
 from app.services.candidate_text_retrieval import (
     HYBRID_POOL_DEFAULT,
     hybrid_pool_size,
@@ -268,6 +271,7 @@ def _candidate_to_item(
     score: float,
     eligibility: Optional[dict[str, Any]] = None,
     unknown_fields: Optional[list[str]] = None,
+    employment_marker: Optional[EmploymentMarker] = None,
 ) -> CandidateSearchItem:
     profile_rate = rate_summary(c)["rate_from_hourly"]
     return CandidateSearchItem(
@@ -301,6 +305,7 @@ def _candidate_to_item(
         created_at=c.created_at.isoformat() if c.created_at else None,
         updated_at=c.updated_at.isoformat() if c.updated_at else None,
         eligibility=eligibility,
+        employment_marker=employment_marker,
         unknown_fields=unknown_fields or [],
     )
 
@@ -516,7 +521,6 @@ async def _record_manual_search_impressions(
     przeglądu — mianownik do pomiaru jest tu, nie w wyniku dodania.
     Telemetria nigdy nie psuje odpowiedzi.
     """
-    from app.core.scheduling import business_today  # noqa: PLC0415
     from app.services.match_telemetry_service import (  # noqa: PLC0415
         ImpressionEntry,
         pseudonymize,
@@ -908,6 +912,7 @@ async def advanced_candidate_search(
     # set — skip it for now since the postgres-side ORDER BY already returns
     # rows in score-descending order.
     eligibility_by_id: dict[int, dict[str, Any]] = {}
+    job_client_id: Optional[int] = None
     if body.exclude_in_job_id is not None:
         # Plakietki niosą werdykt hiring managera tej rekrutacji — dane, które
         # gdzie indziej stoją za `ensure_job_read_access`. Bez dostępu do
@@ -920,9 +925,22 @@ async def advanced_candidate_search(
             eligibility_by_id = await _page_eligibility(
                 db, body.exclude_in_job_id, list(candidates)
             )
+            job_client_id = await db.scalar(
+                select(Job.client_id).where(Job.id == body.exclude_in_job_id)
+            )
+    employment_markers = await load_employment_markers(
+        db,
+        [c.id for c in candidates],
+        today=business_today(),
+        job_client_id=job_client_id,
+    )
     items = [
         _candidate_to_item(
-            c, 0.0, eligibility_by_id.get(c.id), _unknown_fields(body, c)
+            c,
+            0.0,
+            eligibility_by_id.get(c.id),
+            _unknown_fields(body, c),
+            employment_markers.get(c.id),
         )
         for c in candidates
     ]

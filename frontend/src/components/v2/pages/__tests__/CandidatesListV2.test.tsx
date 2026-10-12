@@ -366,11 +366,32 @@ describe("CandidatesListV2", () => {
             { job_id: 3, job_title: "C", stage: "rejected", moved_at: "2026-09-12T10:00:00Z" },
           ],
         },
-        { id: 2, name: "Tomasz", lastname: "Nowicki" },
+        {
+          id: 2,
+          name: "Tomasz",
+          lastname: "Nowicki",
+          // Osoba, która u nas pracuje i nie ma żadnego procesu w toku.
+          employment: { state: "employed_at_client", client_name: "Bank Przykładowy" },
+          employment_marker: {
+            phase: "working",
+            source: "contract",
+            clients: [
+              {
+                client_id: 7,
+                client_name: "Bank Przykładowy",
+                contract_id: 70,
+                phase: "working",
+                order_end_date: "2026-12-31",
+              },
+            ],
+          },
+        },
       ];
       listTotal = 2;
       renderList();
       const row = await screen.findByTestId("candidate-row-1");
+      // Bez znacznika — osoba u nas nie pracuje.
+      expect(within(row).queryByText(/Pracuje u nas/)).toBeNull();
       expect(within(row).getByText("od 01.10")).toBeTruthy();
       expect(within(row).getByText("160 zł/h")).toBeTruthy();
       expect(within(row).getByText("Senior Java Developer")).toBeTruthy();
@@ -393,6 +414,12 @@ describe("CandidatesListV2", () => {
       // Stanowisko, telefon, stawka, dostępność i CV — pięć „brak”.
       expect(within(empty).getAllByText("brak")).toHaveLength(5);
       expect(within(empty).getByText("brak lokalizacji")).toBeTruthy();
+      // Znacznik zatrudnienia stoi pod nazwiskiem (kolumna wymagana), a nie
+      // w „W procesie”, którą da się ukryć i która liczy rekrutacje.
+      expect(
+        within(empty).getByText("Pracuje u nas · Bank Przykładowy · do 31.12.2026"),
+      ).toBeTruthy();
+      expect(within(empty).queryByRole("button", { name: /^W procesie:/ })).toBeNull();
       expect(within(empty).queryByRole("button", { name: /Podgląd CV/ })).toBeNull();
       expect(
         within(empty).getByRole("button", { name: "Przypisz Tomasz Nowicki do rekrutacji" }),

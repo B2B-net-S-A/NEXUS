@@ -10,7 +10,11 @@ Reguła „umowa trwa" godzi dwie istniejące, rozjechane definicje:
 ``contractor_identity.is_current_contract`` (sama data startu). Status
 rozstrzyga KONIEC (umowa B2B jest bezterminowa, dopóki ktoś jej nie zakończy —
 ``end_date`` świadomie nie jest czytane), data startu rozstrzyga, czy umowa już
-się zaczęła. ``_derive_employment`` jest celowo nietknięte — to inny ekran.
+się zaczęła. ``_derive_employment`` jest celowo nietknięte: jego
+``employed_at_client`` znaczy „ma u nas żywą umowę albo sygnał zatrudnienia",
+także przed dniem startu (filtr listy „Otwarci" nie może łapać osoby
+z podpisaną umową). „Pracuje" od „zaczyna" i „kończy" odróżnia znacznik
+z ``services/employment_marker.py`` — na tej samej regule „umowa trwa".
 """
 
 from __future__ import annotations

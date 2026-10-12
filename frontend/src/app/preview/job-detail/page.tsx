@@ -137,6 +137,25 @@ const REQUIREMENTS: MatchingRequirements = {
   ],
 };
 
+/** Znacznik „Pracuje u nas” u innego klienta niż klient tej rekrutacji. */
+function PREVIEW_EMPLOYED(phase: "working" | "ending", orderEnd: string | null) {
+  return {
+    phase,
+    source: "contract",
+    elsewhere: true,
+    clients: [
+      {
+        client_id: 31,
+        client_name: "Bank Przykładowy",
+        contract_id: 77,
+        phase,
+        order_end_date: orderEnd,
+        delivery_lead_name: "Olga Wzorcowa",
+      },
+    ],
+  };
+}
+
 let nextId = 1;
 function card(first: string, last: string, extra: Partial<KanbanItem> = {}): KanbanItem {
   const id = nextId++;
@@ -182,8 +201,16 @@ function columns(): KanbanColumn[] {
     col("new", "Nowi / Analiza CV", 21, [
       card("Anna", "Przykładowa"),
       card("Jan", "Testowy"),
-      card("Ewa", "Fikcyjna"),
-      card("Piotr", "Próbny"),
+      // Osoby, które u nas pracują (12.10.2026): znacznik na karcie, pigułka
+      // w panelu osoby, ostrzeżenie pary z serwera. Poza dwiema osobami,
+      // których panel mierzy test wysokości doku.
+      card("Ewa", "Fikcyjna", {
+        warnings: ["client_nda"],
+        employment_marker: PREVIEW_EMPLOYED("working", "2026-12-31"),
+      } as never),
+      card("Piotr", "Próbny", {
+        employment_marker: PREVIEW_EMPLOYED("ending", "2026-10-30"),
+      } as never),
     ]),
     col("screening", "Screening", 22, [
       card("Marek", "Przykładowy", { entry_source: "proposal" }),
@@ -216,7 +243,14 @@ function columns(): KanbanColumn[] {
         },
       } as never),
     ]),
-    col("negotiation", "Umowa", 27, [card("Iza", "Umowna", { claim_until: null } as never)]),
+    // Iza ma trwającą umowę u innego klienta — ruch na „Zatrudniony” pyta
+    // „Co z obecną współpracą?”.
+    col("negotiation", "Umowa", 27, [
+      card("Iza", "Umowna", {
+        claim_until: null,
+        employment_marker: PREVIEW_EMPLOYED("working", null),
+      } as never),
+    ]),
     col("hired", "Zatrudniony", 28, []),
     col("rejected", "Odrzucony", 29, [card("Zofia", "Szkicowa", { claim_until: null } as never)], "terminal", "rejected"),
     col("withdrawn", "Wycofany", 30, [], "terminal", "withdrawn"),

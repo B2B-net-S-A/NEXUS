@@ -9,6 +9,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 import type { MatchEligibility } from "@/lib/api";
+import type { EmploymentMarker } from "@/lib/employment-marker";
 import { WS_BACKED_SAFETY_POLL_MS } from "@/lib/polling";
 
 export type SnoozeReason = "found_job" | "not_interested" | "no_contact" | "other";
@@ -40,6 +41,8 @@ export interface MyPeopleRow {
   active_processes: number;
   /** Żywa umowa — osoba pracuje, grupa „Pracują". */
   working: boolean;
+  /** Znacznik „Pracuje u nas” z klientem i końcem zamówienia. */
+  employment_marker?: EmploymentMarker | null;
   snoozed: boolean;
   snooze_reason: SnoozeReason | null;
   snoozed_at: string | null;

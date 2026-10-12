@@ -63,6 +63,57 @@ describe("QuickAssignV2 (C5)", () => {
     await waitFor(() => expect(mocks.assignToJob).toHaveBeenCalledWith(5, 1));
   });
 
+  it("mówi, że osoba u nas pracuje, i oznacza rekrutację u tego samego klienta", async () => {
+    mocks.jobsList.mockResolvedValue({
+      data: {
+        items: [
+          { id: 1, title: "U obecnego klienta", client_id: 4 },
+          { id: 2, title: "U innego klienta", client_id: 9 },
+        ],
+      },
+    });
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <QuickAssignV2
+          open
+          onOpenChange={vi.fn()}
+          candidateId={5}
+          candidateName="Anna Nowak"
+          employment={{
+            phase: "working",
+            source: "contract",
+            clients: [
+              {
+                client_id: 4,
+                client_name: "Bank Przykładowy",
+                contract_id: 40,
+                phase: "working",
+                order_end_date: "2026-12-31",
+                delivery_lead_name: "Karol Wzorcowy",
+              },
+            ],
+          }}
+        />
+      </QueryClientProvider>,
+    );
+
+    const notice = screen.getByRole("note");
+    expect(notice).toHaveTextContent("Pracuje u nas · Bank Przykładowy");
+    expect(notice).toHaveTextContent("Zamówienie do 31.12.2026 · Delivery Lead: Karol Wzorcowy");
+
+    const mine = await screen.findByRole("region", { name: "Moje otwarte" });
+    await within(mine).findByText("U obecnego klienta");
+    expect(within(mine).getAllByText("Ten sam klient, u którego pracuje")).toHaveLength(1);
+    // Znacznik nie blokuje: przypisanie do obu rekrutacji działa jak dotąd.
+    expect(within(mine).getAllByRole("button", { name: "Przypisz" })).toHaveLength(2);
+  });
+
+  it("bez znacznika okno nie rysuje ramki", async () => {
+    renderSheet();
+    await screen.findByRole("region", { name: "Moje otwarte" });
+    expect(screen.queryByRole("note")).toBeNull();
+  });
+
   it("po wpisaniu frazy skróty znikają", async () => {
     renderSheet();
     await screen.findByRole("region", { name: "Moje otwarte" });

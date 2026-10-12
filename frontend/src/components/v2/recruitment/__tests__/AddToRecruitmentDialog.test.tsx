@@ -126,6 +126,94 @@ describe("AddToRecruitmentDialog", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Rekrutacja jest zamknięta.");
   });
 
+  describe("osoby, które u nas pracują", () => {
+    const marker = {
+      phase: "working" as const,
+      source: "contract" as const,
+      clients: [
+        {
+          client_id: 4,
+          client_name: "Bank Przykładowy",
+          contract_id: 40,
+          phase: "working" as const,
+          order_end_date: "2026-12-31",
+        },
+      ],
+    };
+    const anna = { id: 5, name: "Anna Przykładowa", marker };
+
+    it("okno mówi, kto z wyboru u nas pracuje, i domyślnie dodaje wszystkich", async () => {
+      renderDialog({ candidateIds: [5, 6, 7], employed: [anna, { id: 99, name: "Spoza wyboru", marker }] });
+
+      const notice = screen.getByRole("note");
+      expect(notice).toHaveTextContent("1 z 3 osób pracuje u nas");
+      expect(notice).toHaveTextContent("Anna Przykładowa — pracuje u nas · Bank Przykładowy · do 31.12.2026");
+      expect(notice).not.toHaveTextContent("Spoza wyboru");
+
+      fireEvent.click(screen.getByRole("button", { name: /Wybierz Java Developer/ }));
+      fireEvent.click(screen.getByRole("button", { name: "Dodaj do „Java Developer”" }));
+      await waitFor(() => expect(mocks.add).toHaveBeenCalled());
+      expect(mocks.add).toHaveBeenCalledWith(42, { candidate_ids: [5, 6, 7], source: "candidate_list" });
+    });
+
+    it("„Dodaj bez tej osoby” zdejmuje ją z zapisu, „Przywróć” cofa", async () => {
+      renderDialog({ candidateIds: [5, 6, 7], employed: [anna] });
+
+      fireEvent.click(screen.getByRole("button", { name: "Dodaj bez tej osoby" }));
+      expect(screen.getByText("Wybierz rekrutację dla 2 osób.")).toBeInTheDocument();
+      expect(screen.getByRole("note")).toHaveTextContent("Bez 1 osoby, która u nas pracuje.");
+
+      fireEvent.click(screen.getByRole("button", { name: /Wybierz Java Developer/ }));
+      fireEvent.click(screen.getByRole("button", { name: "Dodaj do „Java Developer”" }));
+      await waitFor(() => expect(mocks.add).toHaveBeenCalled());
+      expect(mocks.add).toHaveBeenCalledWith(42, { candidate_ids: [6, 7], source: "candidate_list" });
+    });
+
+    it("„Przywróć” wraca do pełnego wyboru", () => {
+      renderDialog({ candidateIds: [5, 6], employed: [anna] });
+
+      fireEvent.click(screen.getByRole("button", { name: "Dodaj bez tej osoby" }));
+      fireEvent.click(screen.getByRole("button", { name: "Przywróć" }));
+
+      expect(screen.getByText("Wybierz rekrutację dla 2 osób.")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Dodaj bez tej osoby" })).toBeInTheDocument();
+    });
+
+    it("jedna osoba: pełne szczegóły i bez przycisku, który zostawiłby pusty wybór", () => {
+      renderDialog({ candidateIds: [5], employed: [anna], subject: "Anna Przykładowa" });
+
+      expect(screen.getByRole("note")).toHaveTextContent("Anna Przykładowa pracuje u nas · Bank Przykładowy");
+      expect(screen.queryByRole("button", { name: /Dodaj bez/ })).toBeNull();
+    });
+
+    it("bez osób pracujących okno wygląda jak dotąd", () => {
+      renderDialog();
+
+      expect(screen.queryByRole("note")).toBeNull();
+    });
+  });
+
+  it("podsumowanie mówi o ostrzeżeniach przy dodanych osobach", () => {
+    const job = { id: 42, title: "Java Developer" };
+    expect(
+      addToRecruitmentSummary({
+        job,
+        response: {
+          added: [5, 6],
+          skipped: [],
+          warnings: [
+            { candidate_id: 5, reason: "current_employment" },
+            { candidate_id: 6, reason: "client_nda" },
+          ],
+          total_added: 2,
+          total_skipped: 0,
+        },
+      }),
+    ).toBe(
+      "Dodano 2 osoby do „Java Developer”. Uwaga: 1× obecne zatrudnienie u klienta, 1× konflikt: NDA z klientem.",
+    );
+  });
+
   it("zamknięta karta: okno zostaje, mówi skąd i od kiedy, a „Przywróć” rusza kartę", async () => {
     // Zgłoszenie 12.10.2026: „Nikogo nie dodano… Pominięto: 1” bez powodu,
     // a osoba stała w „Zamkniętych” tej rekrutacji od kilku dni.

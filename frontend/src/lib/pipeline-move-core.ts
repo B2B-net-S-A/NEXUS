@@ -24,6 +24,7 @@ import {
 } from "@/lib/pipeline-version-conflict";
 import {
   verifiedRequirementsOf,
+  type HiredCurrentEngagement,
   type HiredSignedVia,
   type VerifiedRequirementsMissing,
 } from "@/lib/verified-gate";
@@ -56,6 +57,7 @@ export interface PipelineMovePayload {
   fix_fields?: string[];
   hired_signed_via?: HiredSignedVia;
   hired_signed_note?: string;
+  hired_current_engagement?: HiredCurrentEngagement;
 }
 
 /** Odpowiedź `POST /api/pipeline/move` — pola, które czytają ekrany. */

@@ -30,7 +30,13 @@ export type RecruitmentPresence = "" | "never" | "ever" | "not_in_process";
 export type RecentlyChangedJobs = 1 | 2 | 3 | null;
 
 export type CandidateStatusFilter = "active" | "passive" | "blacklisted";
-export type EmploymentFilter = "at_client" | "available";
+/**
+ * Wartości parametru `employment` — JEDNA lista dla adresu, listy i backendu
+ * (`_EMPLOYMENT_FILTER_VALUES` w `api/candidates.py`). `ending_soon` =
+ * pracuje u nas, a zamówienie kończy się w 60 dni bez kontynuacji.
+ */
+export const EMPLOYMENT_FILTER_VALUES = ["at_client", "available", "ending_soon"] as const;
+export type EmploymentFilter = (typeof EMPLOYMENT_FILTER_VALUES)[number];
 export type AvailabilityFilter =
   | "actively_looking"
   | "open_to_offers"
@@ -57,7 +63,7 @@ const CANDIDATE_STATUS_VALUES: ReadonlySet<string> = new Set([
   "passive",
   "blacklisted",
 ]);
-const EMPLOYMENT_VALUES: ReadonlySet<string> = new Set(["at_client", "available"]);
+const EMPLOYMENT_VALUES: ReadonlySet<string> = new Set(EMPLOYMENT_FILTER_VALUES);
 const AVAILABILITY_VALUES: ReadonlySet<string> = new Set([
   "actively_looking",
   "open_to_offers",

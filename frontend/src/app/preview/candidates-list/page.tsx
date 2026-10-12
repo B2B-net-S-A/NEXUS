@@ -180,6 +180,21 @@ const CANDIDATES = [
     last_contacted_at: daysAgo(30),
     cv_filename: "CV_przykladowe.pdf",
     employment: { state: "employed_at_client", client_name: "Klient Omega" },
+    // Znacznik „Pracuje u nas” pod nazwiskiem (12.10.2026).
+    employment_marker: {
+      phase: "working",
+      source: "contract",
+      clients: [
+        {
+          client_id: 9,
+          client_name: "Klient Omega",
+          contract_id: 90,
+          phase: "working",
+          order_end_date: "2026-12-31",
+          delivery_lead_name: "Karol Wzorcowy",
+        },
+      ],
+    },
     active_recruitments: [],
   },
   {

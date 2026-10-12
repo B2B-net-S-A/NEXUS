@@ -40,7 +40,8 @@ from app.models.candidate import Candidate, CandidateStatus
 from app.models.competence_category import CandidateCompetenceCategory
 from app.models.my_people import MyPeopleJobMatch, MyPeopleOverride
 from app.models.recruitment_pipeline import STAGE_ORDER
-from app.services.current_employment import current_employment_client_ids
+from app.schemas.candidate import EmploymentMarker
+from app.services.employment_marker import load_employment_markers
 from app.services.candidate_rate_from import rate_summary
 
 # Bezpiecznik, nie limit biznesowy: lista nie ma horyzontu czasu, więc po latach
@@ -133,10 +134,23 @@ class PersonRow:
     source: str = "auto"
     active_processes: int = 0
     working: bool = False
+    # Znacznik „Pracuje u nas” z klientem i końcem zamówienia; `working`
+    # wynika z niego (żywa umowa, która już ruszyła), więc grupa „Pracują”
+    # i pigułka idą z jednej reguły.
+    employment_marker: Optional[EmploymentMarker] = None
     snoozed: bool = False
     snooze_reason: Optional[str] = None
     snoozed_at: Optional[datetime] = None
     new_matches: int = 0
+
+
+def _works_now(marker: Optional[EmploymentMarker]) -> bool:
+    """Żywa umowa, która już ruszyła — bez ręcznych oznaczeń i etapu `hired`."""
+    return (
+        marker is not None
+        and marker.source == "contract"
+        and any(client.phase != "starting" for client in marker.clients)
+    )
 
 
 @dataclass
@@ -329,7 +343,7 @@ async def load_my_people(db: AsyncSession, user_id: int) -> MyPeople:
     ids = [cid for cid in ids if cid in candidates]
     today = business_today()
     categories = await _primary_categories(db, ids)
-    employment = await current_employment_client_ids(db, ids, today=today)
+    employment = await load_employment_markers(db, ids, today=today)
     processes = await active_process_counts(db, ids)
     unseen = await _unseen_match_counts(db, user_id)
 
@@ -356,7 +370,8 @@ async def load_my_people(db: AsyncSession, user_id: int) -> MyPeople:
                 city=cand.city,
                 source="auto" if cid in stats else "pinned",
                 active_processes=processes.get(cid, 0),
-                working=bool(employment.get(cid)),
+                working=_works_now(employment.get(cid)),
+                employment_marker=employment.get(cid),
                 snoozed=bool(ov and ov.kind == "snoozed"),
                 snooze_reason=ov.reason if ov and ov.kind == "snoozed" else None,
                 snoozed_at=ov.created_at if ov and ov.kind == "snoozed" else None,

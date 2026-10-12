@@ -9,6 +9,7 @@
  * tabeli z kilkuset wierszami.
  */
 
+import { eligibilityWarningBadges } from "@/lib/eligibility-reason-labels";
 import {
   colId,
   columnLabel,
@@ -235,7 +236,7 @@ export function buildProcessRows(
 export type RowBadgeTone = "warning" | "danger" | "info";
 
 export interface RowBadge {
-  key: "over-budget" | "screening" | "scorecard" | "hm-veto" | "auto-cv";
+  key: "over-budget" | "screening" | "scorecard" | "hm-veto" | "auto-cv" | `warning:${string}`;
   label: string;
   tone: RowBadgeTone;
   title: string;
@@ -269,6 +270,16 @@ export function rowBadges(row: ProcessPersonRow, ctx: RowBadgeContext = {}): Row
       label: "ponad budżet",
       tone: "warning",
       title: "Stawka ponad budżet rekrutacji — informacja, nie blokada.",
+    });
+  }
+  // Pozostałe ostrzeżenia pary (konflikt z klientem, czarna lista) — chip
+  // „Ostrzeżenia” liczył je od zawsze, ale wiersz nie mówił, o co chodzi.
+  for (const warning of eligibilityWarningBadges(row.warnings, item.employment_marker)) {
+    out.push({
+      key: `warning:${warning.code}`,
+      label: warning.label,
+      tone: warning.tone,
+      title: warning.title,
     });
   }
   // `=== true`: odznaka obiecuje gotowy dokument, więc brak pola jej nie daje.

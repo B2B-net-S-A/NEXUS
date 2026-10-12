@@ -807,6 +807,78 @@ describe("usePipelineMove — ruch zbiorczy", () => {
     );
   });
 
+  describe("osoba ma już trwającą umowę u innego klienta (12.10.2026)", () => {
+    const marker = {
+      phase: "working" as const,
+      source: "contract" as const,
+      elsewhere: true,
+      clients: [
+        {
+          client_id: 4,
+          client_name: "Bank Przykładowy",
+          contract_id: 40,
+          phase: "working" as const,
+          order_end_date: "2026-12-31",
+          delivery_lead_name: "Karol Wzorcowy",
+        },
+      ],
+    };
+
+    it("okno pyta „Co z obecną współpracą?” i wysyła odpowiedź razem z ruchem", async () => {
+      const item = card({ id: 44, candidate_id: 404, process_state_version: 1, employment_marker: marker });
+      const b = board({ fresh: [item] });
+      const hired = column("hired", 8, "Zatrudniony", "terminal", [], "hired");
+      post.mockResolvedValue({ data: { id: 902, process_state_version: 2 } });
+      mount([...b.all, hired], { apply: vi.fn(), confirm: vi.fn() });
+
+      React.act(() => controls.requestMove(item, b.fresh, hired));
+      const confirmButton = await screen.findByRole("button", { name: "Potwierdź zatrudnienie" });
+      const notice = screen.getByRole("note");
+      expect(notice).toHaveTextContent("Pracuje u nas · Bank Przykładowy");
+      expect(notice).toHaveTextContent("Zamówienie do 31.12.2026 · Delivery Lead: Karol Wzorcowy");
+
+      // Sam sposób podpisania nie wystarcza — potrzebna jest też odpowiedź.
+      fireEvent.click(screen.getByRole("radio", { name: "Umowa o pracę" }));
+      expect(confirmButton).toBeDisabled();
+      fireEvent.click(screen.getByRole("radio", { name: "Będzie pracować równolegle u obu klientów" }));
+      expect(confirmButton).toBeEnabled();
+
+      fireEvent.click(confirmButton);
+      await waitFor(() =>
+        expect(post).toHaveBeenCalledWith(
+          "/api/pipeline/move",
+          expect.objectContaining({
+            candidate_id: 404,
+            hired_signed_via: "uop",
+            hired_current_engagement: "parallel",
+          }),
+        ),
+      );
+    });
+
+    it("praca u klienta tej rekrutacji nie wywołuje pytania", async () => {
+      const item = card({
+        id: 45,
+        candidate_id: 405,
+        process_state_version: 1,
+        employment_marker: { ...marker, elsewhere: false },
+      });
+      const b = board({ fresh: [item] });
+      const hired = column("hired", 8, "Zatrudniony", "terminal", [], "hired");
+      post.mockResolvedValue({ data: { id: 903, process_state_version: 2 } });
+      mount([...b.all, hired], { apply: vi.fn(), confirm: vi.fn() });
+
+      React.act(() => controls.requestMove(item, b.fresh, hired));
+      const confirmButton = await screen.findByRole("button", { name: "Potwierdź zatrudnienie" });
+      expect(screen.queryByText("Co z obecną współpracą?")).toBeNull();
+
+      fireEvent.click(screen.getByRole("radio", { name: "Umowa o pracę" }));
+      fireEvent.click(confirmButton);
+      await waitFor(() => expect(post).toHaveBeenCalled());
+      expect(post.mock.calls[0][1]).not.toHaveProperty("hired_current_engagement", expect.anything());
+    });
+  });
+
   describe("umowa z Generatora „W trakcie” (04.10.2026)", () => {
     const agreement = {
       id: 55,

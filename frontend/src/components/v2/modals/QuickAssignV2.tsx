@@ -3,7 +3,7 @@
 import * as React from"react";
 import { useEffect, useMemo, useState } from"react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Briefcase, CheckCircle2, Search, Sparkles } from"lucide-react";
+import { AlertCircle, AlertTriangle, Briefcase, CheckCircle2, Search, Sparkles } from"lucide-react";
 import api, {
  jobsApi,
  recommendationsApi,
@@ -28,10 +28,13 @@ import { RiskBadge } from"@/components/v2/RiskBadge";
 import { assignErrorMessage } from"@/lib/assign-error";
 import type { CandidateRiskProfile } from"@/types/candidate-risk";
 import { useTabsStore } from "@/store/tabs";
+import { ADD_ANYWAY_HINT, EmploymentNotice } from "@/components/v2/employment/EmploymentNotice";
+import { sameClientNote, type EmploymentMarker } from "@/lib/employment-marker";
 
 interface JobLite {
  id: number;
  title: string;
+ client_id?: number | null;
  location?: string | null;
  seniority?: string | null;
  status?: string;
@@ -51,6 +54,8 @@ interface Props {
  onOpenChange: (open: boolean) => void;
  candidateId: number;
  candidateName: string;
+ /** Znacznik „Pracuje u nas” od ekranu, który otwiera okno (lista, profil). */
+ employment?: EmploymentMarker | null;
  onAssigned?: (jobId: number) => void;
 }
 
@@ -59,6 +64,7 @@ export function QuickAssignV2({
  onOpenChange,
  candidateId,
  candidateName,
+ employment,
  onAssigned,
 }: Props) {
  const [matches, setMatches] = useState<JobMatch[]>([]);
@@ -201,10 +207,12 @@ export function QuickAssignV2({
  const renderJobRow = (job: {
  id: number;
  title?: string | null;
+ client_id?: number | null;
  location?: string | null;
  seniority?: string | null;
  }, score?: number | null) => {
  const jobId = job.id;
+ const sameClient = sameClientNote(employment, job.client_id);
  const assigned = assignedIds.has(jobId);
  const isAssigning = assigning === jobId;
  return (
@@ -233,6 +241,12 @@ export function QuickAssignV2({
  {job.location}
  {job.seniority ? ` · ${job.seniority}` :""}
  </div>
+ )}
+ {sameClient && (
+ <Badge variant="warning" size="md" className="mt-1">
+ <AlertCircle className="h-3 w-3" aria-hidden />
+ {sameClient}
+ </Badge>
  )}
  </div>
  {assigned ? (
@@ -264,6 +278,9 @@ export function QuickAssignV2({
  <SheetDescription>
  Wybierz rekrutację dla <strong>{candidateName}</strong>.
  </SheetDescription>
+ {employment && (
+ <EmploymentNotice marker={employment} hint={ADD_ANYWAY_HINT} className="mt-2" />
+ )}
  {risk && <RiskBadge profile={risk} className="mt-2" />}
  </SheetHeader>
 
