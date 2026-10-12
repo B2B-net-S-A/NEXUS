@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * CVBrandedEditModal — edytor CV do klienta (Tiptap + autosave).
+ * CVBrandedEditModal — edytor CV do klienta (Tiptap + autosave), na cały ekran.
  *
  * Dwa miejsca, jeden edytor: CV etapu rekrutacji (`stageId`, karta „CV do
  * klienta”, dok kanbana, profil kandydata) i wynik generatora (`generatedId`,
@@ -18,15 +18,21 @@
  *
  * Etap bez CV (`status: "none"`) nie ma już treści ze starego szablonu —
  * edytor mówi „Najpierw wygeneruj CV” i odsyła do generatora.
+ *
+ * Edytor CV 2 (12.10.2026, decyzje D1 i D3): okno na cały ekran, kartka
+ * w układzie szablonu Worda (`.cv-paper` w `globals.css`), pasek narzędzi
+ * z blokami CV (`cv-editor/CvEditorToolbar`), źródła obok
+ * (`cv-editor/CvEditorSources`), „Podgląd Word” z bieżącej treści i stała
+ * klauzula zgody (`lib/cv-editor-structure.ts`). Logika sesji, zapisu
+ * i zatwierdzenia została bez zmian.
  */
 
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEditor, EditorContent } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import { CvEditorSection } from "@/lib/cv-editor-section";
 import {
   Loader2,
+  PanelLeft,
   Printer,
   Download,
   RefreshCcw,
@@ -35,16 +41,26 @@ import {
   AlertCircle,
 } from "lucide-react";
 
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CvDraftSession, type CvSaveState } from "@/lib/cv-draft-session";
 import { useToast } from "@/components/Toast";
 import {
+  CvEditorSources,
+  type CvEditorSourceContext,
+  type CvEditorSourcesProps,
+} from "@/components/v2/cv-editor/CvEditorSources";
+import { CvEditorToolbar } from "@/components/v2/cv-editor/CvEditorToolbar";
+import { CvEditorWordPreview } from "@/components/v2/cv-editor/CvEditorWordPreview";
+import { keepDialogOpenOnDocumentSearchEscape } from "@/components/v2/files/DocumentSearchBar";
+import {
   openAuthenticatedFile,
   downloadAuthenticatedFile,
+  fetchAuthenticatedBlob,
   postAuthenticatedDownload,
   downloadBlob,
+  type AuthenticatedDownload,
 } from "@/lib/authenticated-files";
 import {
   candidateStageCvApi,
@@ -56,6 +72,54 @@ import {
   stageApprovalKey,
   startBackgroundApproval,
 } from "@/lib/cv-background-approval";
+import { withDownloadIntent } from "@/lib/cv-download-intent";
+import { cvPlaceholders, type CvLang } from "@/lib/cv-editor-blocks";
+import { cvEditorExtensions, loadCvHtml } from "@/lib/cv-editor-structure";
+import { useElementWidth } from "@/lib/use-element-width";
+import { cn } from "@/lib/utils";
+
+/** Od tej szerokości okna (px) źródła stoją obok kartki; węziej — przełącznik. */
+const SIDE_BY_SIDE_MIN_WIDTH = 1180;
+
+type CvDraftPayload = { content_html: string; expected_revision: number };
+
+/** Pliki edytora. Harness podaje wersję z pamięci — podgląd `/preview/*` nie ma sieci. */
+export interface CvEditorFiles {
+  /** Word z bieżącej treści szkicu: do pobrania albo do „Podglądu Word”. */
+  draftDocx: (payload: CvDraftPayload, purpose: "download" | "preview") => Promise<AuthenticatedDownload>;
+  downloadApproved: (version: number, filename: string) => Promise<void>;
+  previewApproved: (version: number) => Promise<Blob>;
+  print: () => Promise<void>;
+}
+
+/** Stan i zapis edytora — te same cztery operacje dla CV etapu i wyniku generatora. */
+export type CvEditorApi = Pick<
+  typeof candidateStageCvApi.branded,
+  "get" | "update" | "newDraft" | "finalize"
+>;
+
+function networkFiles(basePath: string): CvEditorFiles {
+  return {
+    draftDocx: (payload, purpose) =>
+      postAuthenticatedDownload(
+        purpose === "download"
+          ? withDownloadIntent(`${basePath}/preview-docx`, "editor")
+          : `${basePath}/preview-docx`,
+        payload,
+      ),
+    downloadApproved: (version, filename) =>
+      downloadAuthenticatedFile(
+        withDownloadIntent(`${basePath}/versions/${version}/docx`, "editor"),
+        filename,
+      ),
+    previewApproved: (version) => fetchAuthenticatedBlob(`${basePath}/versions/${version}/docx`),
+    // Print view is Bearer-guarded — a raw window.open sends no Authorization
+    // header and lands on a white "Not authenticated" page. Fetch the HTML with
+    // auth and open it as a same-origin blob URL (its inline window.print() runs).
+    print: () =>
+      openAuthenticatedFile(withDownloadIntent(`${basePath}/render-pdf`, "editor"), "text/html"),
+  };
+}
 
 type Props = {
   open: boolean;
@@ -65,6 +129,15 @@ type Props = {
 
   candidateName: string;
   jobTitle?: string;
+  /**
+   * Kandydat i rekrutacja dla panelu źródeł, gdy edytor nie zna etapu (wynik
+   * generatora). `null` = CV bez rekrutacji. CV etapu ustala parę samo.
+   */
+  sourceContext?: CvEditorSourceContext | null;
+  /** Harness: stan, zapis i pliki z pamięci zamiast sieci. */
+  editorApi?: CvEditorApi;
+  editorFiles?: CvEditorFiles;
+  sourceLoaders?: CvEditorSourcesProps["loaders"];
 } & ({ stageId: number; generatedId?: never } | { generatedId: number; stageId?: never });
 
 function getErrorMessage(e: unknown): string {
@@ -97,12 +170,18 @@ function CVBrandedEditContent({
   generatedId,
   candidateName,
   jobTitle,
+  sourceContext,
+  editorApi: editorApiOverride,
+  editorFiles,
+  sourceLoaders,
 }: Props) {
   const stageId = (generatedId ?? pipelineStageId)!;
   const isGenerated = generatedId !== undefined;
   const scopeKey = isGenerated ? "cv-generated-editor" : "cv-branded";
-  const editorApi = isGenerated ? cvGeneratedEditorApi : candidateStageCvApi.branded;
+  const editorApi: CvEditorApi =
+    editorApiOverride ?? (isGenerated ? cvGeneratedEditorApi : candidateStageCvApi.branded);
   const basePath = isGenerated ? `/api/cv-generator/generated/${generatedId}/editor` : `/api/candidates/stages/${stageId}/cv/branded`;
+  const files = editorFiles ?? networkFiles(basePath);
   const approvalKey = isGenerated ? generatedApprovalKey(stageId) : stageApprovalKey(stageId);
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
@@ -113,6 +192,13 @@ function CVBrandedEditContent({
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [reloading, setReloading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // Pola w nawiasach z nowo wstawionych bloków, które zatrzymały „Zapisz”.
+  const [unfilled, setUnfilled] = useState<string[]>([]);
+  const [mode, setMode] = useState<"edit" | "word">("edit");
+  const [sourcesOpen, setSourcesOpen] = useState(true);
+  const [narrowPane, setNarrowPane] = useState<"cv" | "sources">("cv");
+  const [body, setBody] = useState<HTMLElement | null>(null);
+  const sideBySide = useElementWidth(body) >= SIDE_BY_SIDE_MIN_WIDTH;
 
   const { data, isLoading, error: loadError, refetch, isFetching } = useQuery<CVBrandedState>({
     queryKey: [scopeKey, stageId],
@@ -124,13 +210,9 @@ function CVBrandedEditContent({
 
   const editor = useEditor({
     immediatelyRender: false,
-    extensions: [StarterKit, CvEditorSection],
+    extensions: cvEditorExtensions(),
     content: "",
-    editorProps: {
-      attributes: {
-        class: "prose prose-sm max-w-none min-h-[400px] focus:outline-hidden border border-border rounded-lg bg-card p-4",
-      },
-    },
+    editorProps: { attributes: { "aria-label": "Treść CV" } },
   });
 
   // Async callbacks (nowy szkic, ponowne wczytanie) mogą wrócić po zamknięciu
@@ -160,7 +242,8 @@ function CVBrandedEditContent({
     sessionRef.current = session;
     loadedStage.current = stageId;
     setSaveState(session.state);
-    liveEditor()?.commands.setContent(session.html, { emitUpdate: false });
+    const live = liveEditor();
+    if (live) loadCvHtml(live, session.html);
     queryClient.setQueryData([scopeKey, stageId], state);
   };
 
@@ -190,7 +273,7 @@ function CVBrandedEditContent({
         loadState(response.data);
         const current = liveEditor();
         if (current && typed != null && typed !== sessionRef.current?.html) {
-          current.commands.setContent(typed, { emitUpdate: false });
+          loadCvHtml(current, typed);
           sessionRef.current?.edit(typed);
         }
       })
@@ -198,7 +281,7 @@ function CVBrandedEditContent({
         showError(`Nie udało się utworzyć nowej wersji: ${getErrorMessage(error)}`);
         // Zmiana nie trafiła do żadnego szkicu — wracamy do zatwierdzonej treści.
         const current = liveEditor();
-        if (sessionRef.current && current) current.commands.setContent(sessionRef.current.html, { emitUpdate: false });
+        if (sessionRef.current && current) loadCvHtml(current, sessionRef.current.html);
       })
       .finally(() => {
         newDraftRef.current = null;
@@ -213,6 +296,7 @@ function CVBrandedEditContent({
     const handler = () => {
       const session = sessionRef.current;
       if (!session) return;
+      setUnfilled([]);
       if (session.state === "finalized") {
         startNewDraftRef.current();
         return;
@@ -293,6 +377,14 @@ function CVBrandedEditContent({
       onOpenChange(false);
       return;
     }
+    // Nowe bloki mają pola w nawiasach kwadratowych. Szkic z nimi zapisuje
+    // się normalnie, ale do zatwierdzenia (i do klienta) nie mogą pójść.
+    const missing = cvPlaceholders(current.html);
+    if (missing.length > 0) {
+      setUnfilled(missing);
+      setSubmitting(false);
+      return;
+    }
     const payload = { content_html: current.html, expected_revision: current.revision };
     setSubmitting(false);
     onOpenChange(false);
@@ -311,13 +403,10 @@ function CVBrandedEditContent({
     );
   };
 
-  // Print view is Bearer-guarded — a raw window.open sends no Authorization
-  // header and lands on a white "Not authenticated" page. Fetch the HTML with
-  // auth and open it as a same-origin blob URL (its inline window.print() runs).
   const handlePrint = async () => {
     try {
       await flush();
-      await openAuthenticatedFile(`${basePath}/render-pdf`, "text/html");
+      await files.print();
     } catch (error) {
       // 409 `consent_required` (wymóg zgody RODO — wydruk nie niesie zrzutu)
       // przychodzi z polskim komunikatem serwera, jak przy pobraniu DOCX.
@@ -333,9 +422,9 @@ function CVBrandedEditContent({
     setDownloadingDocx(true);
     try {
       await session.settle();
-      const result = await postAuthenticatedDownload(
-        `${basePath}/preview-docx`,
+      const result = await files.draftDocx(
         {content_html: session.html, expected_revision: session.revision},
+        "download",
       );
       downloadBlob(result.blob, result.filename || "SZKIC_CV.docx");
     } catch (error) { showError(getErrorMessage(error)); }
@@ -345,12 +434,23 @@ function CVBrandedEditContent({
     if (!data?.docx_available) return;
     setDownloadingDocx(true);
     try {
-      await downloadAuthenticatedFile(
-        `${basePath}/versions/${data.version}/docx`,
-        data.docx_filename || "CV.docx",
-      );
+      await files.downloadApproved(data.version, data.docx_filename || "CV.docx");
     } catch (error) { showError(getErrorMessage(error)); }
     finally { setDownloadingDocx(false); }
+  };
+  /** „Podgląd Word”: ten sam plik co „Pobierz”, z treści widocznej w edytorze. */
+  const loadWordPreview = async (): Promise<Blob> => {
+    const session = sessionRef.current;
+    if (!session) throw new Error("Edytor nie wczytał jeszcze CV.");
+    await session.settle();
+    if (session.state === "finalized" && data?.docx_available) {
+      return files.previewApproved(data.version);
+    }
+    const file = await files.draftDocx(
+      {content_html: session.html, expected_revision: session.revision},
+      "preview",
+    );
+    return file.blob;
   };
 
   const statusText = {
@@ -362,11 +462,37 @@ function CVBrandedEditContent({
     finalized: `Zatwierdzona wersja ${data?.version ?? ""} — zmiana utworzy nowy szkic`,
   }[saveState];
 
+  const language: CvLang = data?.language === "en" ? "en" : "pl";
+  const hasCv = !!data && !noCv;
+  const showSources = hasCv && (sideBySide ? sourcesOpen : narrowPane === "sources");
+  const showCv = sideBySide || narrowPane === "cv" || !hasCv;
+  const sources = isGenerated ? (
+    <CvEditorSources context={sourceContext ?? null} loaders={sourceLoaders} />
+  ) : (
+    <CvEditorSources stageId={stageId} context={sourceContext ?? undefined} loaders={sourceLoaders} />
+  );
+
   return (
     <>
       <Dialog open={open} onOpenChange={(value) => void closeEditor(value)}>
-        <DialogContent size="2xl" className="p-0 max-h-[92dvh] flex flex-col">
-          {saveProblem && <div role="alert" className="pl-5 pr-16 py-3 border-b border-border text-sm space-y-2">
+        <DialogContent
+          size="full"
+          hideClose
+          // `max-h-dvh`, nie `max-h-none`: tailwind-merge 2 nie zna `max-h-none`
+          // jako max-height i zostawiłby obok bazowe `max-h-[90dvh]` okna.
+          className="left-0 top-0 h-dvh max-h-dvh w-full max-w-none translate-x-0 translate-y-0 rounded-none border-0 p-0 shadow-none"
+          // Escape w „Szukaj w CV” czyści wyszukiwanie, a w tekście CV nie robi
+          // nic — okno zamyka się nim tylko spoza treści (zapis jak przy „Zamknij”).
+          onEscapeKeyDown={(event) => {
+            keepDialogOpenOnDocumentSearchEscape(event);
+            const target = event.target;
+            if (target instanceof HTMLElement && target.closest(".ProseMirror")) event.preventDefault();
+          }}
+          // Okno zajmuje cały ekran; klik w toast (poza drzewem okna) nie może go zamknąć.
+          onInteractOutside={(event) => event.preventDefault()}
+        >
+          <DialogTitle className="sr-only">Edytor CV do klienta</DialogTitle>
+          {saveProblem && <div role="alert" className="px-4 py-3 border-b border-border text-sm space-y-2">
             <p className="text-destructive">Nie udało się zapisać CV: {saveProblem.message}</p>
             {saveProblem.conflict && <p className="text-muted-foreground">
               Ktoś zapisał nowszą wersję tego CV. Wczytanie aktualnej wersji zastąpi niezapisane poprawki w edytorze.
@@ -381,86 +507,39 @@ function CVBrandedEditContent({
               <Button size="sm" variant="ghost" onClick={() => setConfirmDiscard(true)}>Zamknij bez zapisu</Button>
             </div>
           </div>}
-          <div className="flex items-center justify-between gap-3 pl-5 pr-16 py-3 border-b border-border">
-            <div className="min-w-0">
-              <div className="text-xs uppercase tracking-wider text-muted-foreground">
-                CV do klienta
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-2 border-b border-border">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="min-w-0">
+                <div className="text-xs uppercase tracking-wider text-muted-foreground">
+                  CV do klienta
+                </div>
+                <div className="text-sm font-medium text-foreground truncate">
+                  {candidateName}
+                  {jobTitle ? (
+                    <span className="text-muted-foreground font-normal"> — {jobTitle}</span>
+                  ) : null}
+                </div>
               </div>
-              <div className="text-sm font-medium text-foreground truncate">
-                {candidateName}
-                {jobTitle ? (
-                  <span className="text-muted-foreground font-normal"> — {jobTitle}</span>
-                ) : null}
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
               {data?.status === "draft" ? (
                 <Badge variant="info" size="sm">Szkic v{data?.version ?? 1}</Badge>
               ) : null}
             </div>
-          </div>
-
-          {data?.presentation_review?.status === "conflict" && <p role="alert" className="px-5 py-2 text-sm text-destructive">
-            Reguły klienta dla zapisanego szkicu: {data.presentation_review.message}
-          </p>}
-          {data?.presentation_review?.status === "needs_review" && <p className="px-5 py-2 text-xs text-muted-foreground">
-            {data.presentation_review.reason === "rule_snapshot_unavailable"
-              ? "Brak potwierdzonej kopii reguł klienta dla tego CV. Sprawdź wymagania klienta przed wysyłką."
-              : `Przed wysyłką sprawdź ręcznie: ${(data.presentation_review.manual_fields ?? []).map(field => MANUAL_FIELD_LABELS[field] ?? "dodatkową regułę klienta").join(", ") || "reguły klienta"}. Automatyczna kontrola nie potwierdziła tych reguł.`}
-          </p>}
-          {!noCv && data ? (
-            <div className="flex items-center justify-end gap-2 px-5 py-2 border-b border-border bg-background">
-              <span className="text-[11px] text-muted-foreground" role="status">
-                {creatingDraft ? "Tworzenie nowego szkicu…" : statusText}
-              </span>
-              {saveState === "error" ? <Button size="sm" variant="outline" onClick={() => void saveCurrent()}>Ponów zapis</Button> : null}
-            </div>
-          ) : null}
-
-          <div className="flex-1 overflow-auto p-5 bg-background">
-            {loadError && <div role="alert" className="mb-4 space-y-2 text-sm text-destructive">
-              <p>Nie udało się wczytać CV: {getErrorMessage(loadError)}</p>
-              <Button variant="outline" size="sm" disabled={isFetching} onClick={() => void refetch()}>
-                Ponów wczytanie
-              </Button>
-              {!data && onRegenerate && (loadError as {response?: {data?: {detail?: {code?: string}}}}).response?.data?.detail?.code === "cv_editor_assets_unavailable" && (
-                <Button variant="outline" size="sm" disabled={isFetching} onClick={() => { onOpenChange(false); onRegenerate(); }}>
-                  Przejdź do generatora
-                </Button>
-              )}
-            </div>}
-            {isLoading ? (
-              <div className="text-center text-sm text-muted-foreground py-10">
-                Ładowanie…
-              </div>
-            ) : noCv ? (
-              <div className="mx-auto max-w-md space-y-3 py-10 text-center">
-                <p className="text-sm font-medium text-foreground">Najpierw wygeneruj CV</p>
-                <p className="text-sm text-muted-foreground">
-                  Ta rekrutacja nie ma jeszcze CV do klienta. Gotowe CV z generatora podepnie się tutaj samo.
-                </p>
-                {onRegenerate ? (
-                  <Button size="sm" onClick={() => { onOpenChange(false); onRegenerate(); }}>
-                    <Sparkles className="h-3.5 w-3.5 mr-1.5" /> Wygeneruj CV
-                  </Button>
-                ) : null}
-              </div>
-            ) : data ? (
-              <EditorContent editor={editor} />
-            ) : null}
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3 border-t border-border">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handlePrint}
-              disabled={!data?.content_html || noCv}
-            >
-              <Printer className="h-3.5 w-3.5 mr-1.5" />
-              Drukuj / PDF
-            </Button>
             <div className="flex flex-wrap items-center gap-2">
+              {hasCv ? (
+                <span className="text-[11px] text-muted-foreground" role="status">
+                  {creatingDraft ? "Tworzenie nowego szkicu…" : statusText}
+                </span>
+              ) : null}
+              {hasCv && saveState === "error" ? <Button size="sm" variant="outline" onClick={() => void saveCurrent()}>Ponów zapis</Button> : null}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handlePrint}
+                disabled={!data?.content_html || noCv}
+              >
+                <Printer className="h-3.5 w-3.5 mr-1.5" />
+                Drukuj / PDF
+              </Button>
               {!isFinalized && data?.status === "draft" && <Button size="sm" variant="outline"
                 disabled={downloadingDocx || submitting} onClick={() => void previewDocx()}>
                 <Download className="h-3.5 w-3.5 mr-1.5" /> Pobierz szkic DOCX
@@ -484,6 +563,99 @@ function CVBrandedEditContent({
                 {submitting ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
                 Zapisz
               </Button>
+            </div>
+          </div>
+
+          {data?.presentation_review?.status === "conflict" && <p role="alert" className="px-4 py-2 text-sm text-destructive">
+            Reguły klienta dla zapisanego szkicu: {data.presentation_review.message}
+          </p>}
+          {data?.presentation_review?.status === "needs_review" && <p className="px-4 py-2 text-xs text-muted-foreground">
+            {data.presentation_review.reason === "rule_snapshot_unavailable"
+              ? "Brak potwierdzonej kopii reguł klienta dla tego CV. Sprawdź wymagania klienta przed wysyłką."
+              : `Przed wysyłką sprawdź ręcznie: ${(data.presentation_review.manual_fields ?? []).map(field => MANUAL_FIELD_LABELS[field] ?? "dodatkową regułę klienta").join(", ") || "reguły klienta"}. Automatyczna kontrola nie potwierdziła tych reguł.`}
+          </p>}
+          {unfilled.length > 0 && <p role="alert" className="px-4 py-2 text-sm text-destructive">
+            Uzupełnij albo usuń pola w nawiasach, zanim zapiszesz CV dla klienta: {unfilled.join(", ")}. Szkic jest zapisany.
+          </p>}
+          {hasCv && editor ? (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-background px-3 py-1.5">
+              <CvEditorToolbar editor={editor} language={language} disabled={mode === "word" || submitting} />
+              <div className="flex flex-none items-center gap-1" role="group" aria-label="Widok CV">
+                <Button size="sm" variant={mode === "edit" ? "secondary" : "ghost"} aria-pressed={mode === "edit"}
+                  onClick={() => setMode("edit")}>Edycja</Button>
+                <Button size="sm" variant={mode === "word" ? "secondary" : "ghost"} aria-pressed={mode === "word"}
+                  onClick={() => { setMode("word"); setNarrowPane("cv"); }}>Podgląd Word</Button>
+              </div>
+              {sideBySide ? (
+                <Button size="sm" variant="ghost" aria-pressed={sourcesOpen} className="flex-none"
+                  onClick={() => setSourcesOpen((value) => !value)}>
+                  <PanelLeft className="h-3.5 w-3.5 mr-1.5" />
+                  {sourcesOpen ? "Ukryj źródła" : "Pokaż źródła"}
+                </Button>
+              ) : (
+                <div className="flex flex-none items-center gap-1" role="group" aria-label="Kolumna">
+                  <Button size="sm" variant={narrowPane === "cv" ? "secondary" : "ghost"} aria-pressed={narrowPane === "cv"}
+                    onClick={() => setNarrowPane("cv")}>CV</Button>
+                  <Button size="sm" variant={narrowPane === "sources" ? "secondary" : "ghost"} aria-pressed={narrowPane === "sources"}
+                    onClick={() => setNarrowPane("sources")}>Źródła</Button>
+                </div>
+              )}
+            </div>
+          ) : null}
+
+          <div ref={setBody} className="flex min-h-0 flex-1">
+            {showSources ? (
+              <aside
+                aria-label="Źródła CV"
+                className={cn(
+                  "min-h-0 min-w-0 bg-card",
+                  sideBySide ? "w-[440px] flex-none border-r border-border" : "flex-1",
+                )}
+              >
+                {sources}
+              </aside>
+            ) : null}
+            <div
+              hidden={!showCv}
+              data-cv-lang={language}
+              className="cv-paper relative min-h-0 min-w-0 flex-1 overflow-auto bg-muted/40 p-4"
+            >
+              {loadError && <div role="alert" className="mb-4 space-y-2 text-sm text-destructive">
+                <p>Nie udało się wczytać CV: {getErrorMessage(loadError)}</p>
+                <Button variant="outline" size="sm" disabled={isFetching} onClick={() => void refetch()}>
+                  Ponów wczytanie
+                </Button>
+                {!data && onRegenerate && (loadError as {response?: {data?: {detail?: {code?: string}}}}).response?.data?.detail?.code === "cv_editor_assets_unavailable" && (
+                  <Button variant="outline" size="sm" disabled={isFetching} onClick={() => { onOpenChange(false); onRegenerate(); }}>
+                    Przejdź do generatora
+                  </Button>
+                )}
+              </div>}
+              {isLoading ? (
+                <div className="text-center text-sm text-muted-foreground py-10">
+                  Ładowanie…
+                </div>
+              ) : noCv ? (
+                <div className="mx-auto max-w-md space-y-3 py-10 text-center">
+                  <p className="text-sm font-medium text-foreground">Najpierw wygeneruj CV</p>
+                  <p className="text-sm text-muted-foreground">
+                    Ta rekrutacja nie ma jeszcze CV do klienta. Gotowe CV z generatora podepnie się tutaj samo.
+                  </p>
+                  {onRegenerate ? (
+                    <Button size="sm" onClick={() => { onOpenChange(false); onRegenerate(); }}>
+                      <Sparkles className="h-3.5 w-3.5 mr-1.5" /> Wygeneruj CV
+                    </Button>
+                  ) : null}
+                </div>
+              ) : data ? (
+                <>
+                  {/* Edytor zostaje zamontowany pod podglądem — stan i kursor nie giną. */}
+                  <div hidden={mode !== "edit"}>
+                    <EditorContent editor={editor} />
+                  </div>
+                  {mode === "word" ? <CvEditorWordPreview load={loadWordPreview} /> : null}
+                </>
+              ) : null}
             </div>
           </div>
         </DialogContent>
