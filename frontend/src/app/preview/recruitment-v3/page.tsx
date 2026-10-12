@@ -335,16 +335,23 @@ function seededClient(columns: KanbanColumn[]): QueryClient {
         linkedin_current_title: "Java Developer",
         email: null,
       });
-      client.setQueryData([...candidateQueryKeys.notes(item.candidate_id), JOB_ID], {
-        items: [
-          {
-            id: item.candidate_id,
-            content: "Rozmowa wstępna: dostępny od października, preferuje pracę hybrydową.",
-            author_name: "Marta Rekruter",
-            created_at: "2026-09-12T09:30:00Z",
-          },
-        ],
-      });
+      // 12.10.2026: panel czyta WSZYSTKIE notatki osoby i sam wybiera te z tej
+      // rekrutacji (`job_id`); znacznik dzień w przód, bo zapytanie ma własny `staleTime`.
+      client.setQueryData(
+        candidateQueryKeys.notes(item.candidate_id),
+        {
+          items: [
+            {
+              id: item.candidate_id,
+              job_id: JOB_ID,
+              content: "Rozmowa wstępna: dostępny od października, preferuje pracę hybrydową.",
+              author_name: "Marta Rekruter",
+              created_at: "2026-09-12T09:30:00Z",
+            },
+          ],
+        },
+        { updatedAt: Date.now() + 86_400_000 },
+      );
     }
   }
   client.setQueryData(["pipeline-scores", String(JOB_ID)], {

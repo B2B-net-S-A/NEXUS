@@ -45,6 +45,11 @@ export const candidateQueryKeys = {
     ["candidate-history", candidateId(id), { viewerScope }] as const,
   historyRoot: (id: number | string) =>
     ["candidate-history", candidateId(id)] as const,
+  // Wyniki rekrutacji osoby dla panelu w rekrutacji — pod `historyRoot`, więc
+  // łapie je każde unieważnienie historii; osobny klucz, bo profil trzyma
+  // historię z `gcTime: 0` i odświeża ją przy każdym montowaniu.
+  recruitmentOutcomes: (id: number | string, viewerScope: string) =>
+    ["candidate-history", candidateId(id), "outcomes", { viewerScope }] as const,
   timeline: (id: number | string, limit: number) =>
     ["candidate-timeline", candidateId(id), { limit }] as const,
   timelineRoot: (id: number | string) =>

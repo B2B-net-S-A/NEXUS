@@ -15,6 +15,8 @@
  */
 
 import { useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { Loader2 } from "lucide-react";
 
 import { ClientQuestions } from "@/components/calendar/cycle/ClientQuestions";
 import { TabbedNav } from "@/components/ds";
@@ -22,12 +24,15 @@ import { AgreementPanelTab } from "@/components/v2/b2b-generator/AgreementPanelT
 import { JobContractTab } from "@/components/v2/jobs/JobContractTab";
 import type { JobDetailTab } from "@/components/v2/jobs/JobDetailCompactHeader";
 import { JobInterviewsTab } from "@/components/v2/jobs/JobInterviewsTab";
-import { JobNotesBlock, useJobNotes } from "@/components/v2/jobs/workbench-chrome";
+import { DockLoadError } from "@/components/v2/jobs/workbench-chrome";
+import { candidateNoteItems, useCandidateNotes } from "@/components/v2/pages/candidate-notes-query";
+import { PersonNotesHistory } from "@/components/v2/person/PersonNotesHistory";
 import { PersonPanelSideSection } from "@/components/v2/person/PersonPanelSide";
 import { PersonSidePreview } from "@/components/v2/person/PersonSidePreview";
 import { WorkbenchBelowTabsContext } from "@/components/v2/person/WorkbenchBelowTabs";
 import { DopasowanieTab } from "@/components/v2/pages/DopasowanieTab";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
+import { MoveLogList, pairMovesQueryKey, type JobMoveLogPage } from "@/components/v2/recruitment/JobMoveLog";
 import { CvHandoffWorkbench, ScreeningWorkbench } from "@/components/v2/recruitment/panel-workbenches";
 import { SavedCvView } from "@/components/v2/recruitment/PanelSavedViews";
 import { ScreeningSummarySection } from "@/components/v2/screening-form/ScreeningSummaryView";
@@ -38,6 +43,8 @@ import {
   type OffTemplateBucket,
 } from "@/components/v2/recruitment/person-rows";
 import type { PersonPanelSection, ProcessPersonRow } from "@/components/v2/recruitment/types";
+import api from "@/lib/api";
+import { humanNoteCount } from "@/lib/candidate-notes-view";
 import { countHired, findStageColumn, isNewColumn, VERIFIED_STAGE } from "@/lib/pipeline-flow";
 import { formatDate } from "@/lib/utils";
 
@@ -202,55 +209,108 @@ function daysPhrase(days: number): string {
   return `od ${days} ${days === 1 ? "dnia" : "dni"}`;
 }
 
+/** Sufit trasy `/moves`; jedna osoba w jednej rekrutacji ma ruchów kilka, nie setki. */
+const PAIR_MOVES_LIMIT = 200;
+
 /**
- * Notatki w tej rekrutacji + oś czasu z faktów, które niesie wiersz. Pole
- * nowej notatki stoi zawsze na dole panelu — tu go nie dublujemy.
+ * Prawdziwe ruchy tej osoby w tej rekrutacji (`/moves?candidate_id=`): kto, kiedy,
+ * z jakiego etapu na jaki. `stageId` w kluczu — po ruchu karta dostaje nowy
+ * wiersz etapu i lista odświeża się sama.
+ */
+function PairMoves({
+  jobId,
+  candidateId,
+  stageId,
+  fallback,
+}: {
+  jobId: number;
+  candidateId: number;
+  stageId: number;
+  /** Fakty z karty — gdy dziennik nie ma jeszcze żadnego wiersza tej osoby. */
+  fallback: ReactNode;
+}) {
+  const query = useQuery<JobMoveLogPage>({
+    queryKey: [...pairMovesQueryKey(jobId, candidateId), stageId],
+    queryFn: ({ signal }) =>
+      api
+        .get<JobMoveLogPage>(`/api/pipeline/job/${jobId}/moves`, {
+          params: { candidate_id: candidateId, limit: PAIR_MOVES_LIMIT },
+          signal,
+        })
+        .then((r) => r.data),
+    retry: false,
+    staleTime: 30_000,
+    // Po ruchu klucz się zmienia — dotychczasowa lista zostaje do nowej odpowiedzi.
+    placeholderData: keepPreviousData,
+  });
+  if (query.isLoading) {
+    return (
+      <p className="flex items-center gap-1.5 text-xs text-muted-foreground" role="status">
+        <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /> Wczytywanie ruchów…
+      </p>
+    );
+  }
+  if (query.isError) {
+    return <DockLoadError what="historię ruchów" onRetry={() => void query.refetch()} />;
+  }
+  // Serwer sprzed filtra ignoruje `candidate_id` i oddaje ruchy wszystkich osób.
+  const items = (Array.isArray(query.data?.items) ? query.data.items : []).filter(
+    (move) => move.candidate_id === candidateId,
+  );
+  if (items.length === 0) return <>{fallback}</>;
+  return <MoveLogList items={items} hideCandidate />;
+}
+
+/**
+ * Notatki osoby (ta rekrutacja + „Wcześniej u nas”) i historia ruchów w tej
+ * rekrutacji. Pole nowej notatki stoi zawsze na dole panelu — tu go nie dublujemy.
  */
 function NotesTab({ row, jobId, readOnly }: { row: ProcessPersonRow; jobId: number; readOnly: boolean }) {
-  const notesQuery = useJobNotes(row.candidateId, jobId);
   const { item } = row;
   return (
     <div className="space-y-4 text-[13px]">
-      <section aria-label="Notatki" className="space-y-2">
-        <h3 className="text-xs font-semibold text-muted-foreground">Notatki w tej rekrutacji</h3>
-        <JobNotesBlock
-          candidateId={row.candidateId}
-          query={notesQuery}
-          readOnly={readOnly}
-          emptyText="Brak notatek w tej rekrutacji."
-        />
-      </section>
-      {/* Oś czasu WYŁĄCZNIE z faktów, które niesie wiersz — zmyślony wpis
-          w historii jest gorszy niż jej brak. */}
+      <PersonNotesHistory candidateId={row.candidateId} jobId={jobId} readOnly={readOnly} />
       <section aria-label="Historia w rekrutacji" className="space-y-2">
-        <h3 className="text-xs font-semibold text-muted-foreground">Historia w rekrutacji</h3>
-        <ul className="space-y-2">
-          {row.nextAction.label ? (
-            <li className="grid grid-cols-[76px_minmax(0,1fr)] gap-x-2.5">
-              <span className="text-xs font-medium text-primary">teraz</span>
-              <span className="text-foreground">Następny krok: {row.nextAction.label}</span>
-            </li>
-          ) : null}
-          {row.daysInStage != null ? (
-            <li className="grid grid-cols-[76px_minmax(0,1fr)] gap-x-2.5">
-              <span className="text-xs text-muted-foreground">etap</span>
-              <span className="text-foreground">
-                {row.stageLabel} — {daysPhrase(row.daysInStage)}
-              </span>
-            </li>
-          ) : null}
-          <li className="grid grid-cols-[76px_minmax(0,1fr)] gap-x-2.5">
-            <span className="text-xs text-muted-foreground">
-              {item.added_to_job_at ? formatDate(item.added_to_job_at) : "—"}
-            </span>
-            <span className="min-w-0">
-              <span className="block text-foreground">Dodany do rekrutacji</span>
-              <span className="block text-xs text-muted-foreground">
-                {item.added_to_job_by_name?.trim() || "Brak danych o osobie dodającej"}
-              </span>
-            </span>
-          </li>
-        </ul>
+        <h3 className="text-xs font-semibold text-muted-foreground">Historia w tej rekrutacji</h3>
+        {row.nextAction.label ? (
+          <p className="flex gap-3">
+            <span className="w-[92px] shrink-0 text-xs font-medium text-primary">teraz</span>
+            <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full border border-primary" aria-hidden="true" />
+            <span className="min-w-0 text-foreground">Następny krok: {row.nextAction.label}</span>
+          </p>
+        ) : null}
+        <PairMoves
+          jobId={jobId}
+          candidateId={row.candidateId}
+          stageId={item.id}
+          // Oś czasu WYŁĄCZNIE z faktów, które niesie wiersz — zmyślony wpis
+          // w historii jest gorszy niż jej brak.
+          fallback={
+            <ul className="space-y-2">
+              {row.daysInStage != null ? (
+                <li className="flex gap-3">
+                  <span className="w-[92px] shrink-0 text-xs text-muted-foreground">etap</span>
+                  <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-primary" aria-hidden="true" />
+                  <span className="min-w-0 text-foreground">
+                    {row.stageLabel} — {daysPhrase(row.daysInStage)}
+                  </span>
+                </li>
+              ) : null}
+              <li className="flex gap-3">
+                <span className="w-[92px] shrink-0 text-xs text-muted-foreground">
+                  {item.added_to_job_at ? formatDate(item.added_to_job_at) : "—"}
+                </span>
+                <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-primary" aria-hidden="true" />
+                <span className="min-w-0">
+                  <span className="block text-foreground">Dodany do rekrutacji</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {item.added_to_job_by_name?.trim() || "Brak danych o osobie dodającej"}
+                  </span>
+                </span>
+              </li>
+            </ul>
+          }
+        />
       </section>
     </div>
   );
@@ -280,6 +340,9 @@ export function PersonWorkbenchTabs({
   const candidateId = row.candidateId;
   const { item } = row;
   const belowTabs = useContext(WorkbenchBelowTabsContext);
+  // Licznik na zakładce: notatki ludzi o tej osobie (ta rekrutacja i wcześniejsze).
+  // Ten sam klucz co lista w zakładce i dok — jedno pobranie.
+  const notesCount = humanNoteCount(candidateNoteItems(useCandidateNotes(candidateId).data));
 
   // Odwiedzone zakładki tej osoby zostają zamontowane. Zmiana osoby czyści zbiór.
   const [visited, setVisited] = useState<{ candidateId: number; sections: PersonPanelSection[] }>({
@@ -450,6 +513,16 @@ export function PersonWorkbenchTabs({
             value === "notes" ? (
               <>
                 Notatki <span className="@max-md:hidden">i historia</span>
+                {/* Liczba zwykłym tekstem, nie plakietką `count`: w kolumnie
+                    460 px plakietka zrzucała tę zakładkę do drugiego rzędu.
+                    Spacja stoi W liczniku — po schowanym „i historia” zlewa się
+                    ze spacją po „Notatki” w jedną. */}
+                {notesCount > 0 ? (
+                  <span className="text-[11px] tabular-nums text-muted-foreground" data-testid="notes-tab-count">
+                    {" "}
+                    {notesCount > 99 ? "99+" : notesCount}
+                  </span>
+                ) : null}
               </>
             ) : (
               label
