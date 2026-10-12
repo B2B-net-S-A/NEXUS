@@ -502,7 +502,9 @@ async def move_pairs_to_job(
             CandidateStage.job_id == source_job_id,
             CandidateStage.candidate_id.in_(movable),
         )
-        .values(job_id=target_job_id)
+        # `updated_at` zostaje: po nim „ostatnio ruszany etap” wybierają
+        # telefonia i kolejka Priority Work, a przepięcie nie jest ruchem.
+        .values(job_id=target_job_id, updated_at=CandidateStage.updated_at)
         .execution_options(synchronize_session=False)
     )
     plain = [candidate_id for candidate_id in movable if candidate_id not in offsets]
@@ -513,7 +515,7 @@ async def move_pairs_to_job(
                 RecruitmentProcess.job_id == source_job_id,
                 RecruitmentProcess.candidate_id.in_(plain),
             )
-            .values(job_id=target_job_id)
+            .values(job_id=target_job_id, updated_at=RecruitmentProcess.updated_at)
             .execution_options(synchronize_session=False)
         )
     for candidate_id, offset in offsets.items():
@@ -526,6 +528,7 @@ async def move_pairs_to_job(
             .values(
                 job_id=target_job_id,
                 attempt_no=RecruitmentProcess.attempt_no + offset,
+                updated_at=RecruitmentProcess.updated_at,
             )
             .execution_options(synchronize_session=False)
         )

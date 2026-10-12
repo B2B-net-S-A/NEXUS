@@ -147,6 +147,22 @@ Co weszło:
   `GET …/twins-merge/status`; ten sam werdykt bramek co przeniesienie.
 - Bez migracji i bez zmian schematu.
 
+Niezależny przegląd kodu przed scaleniem wskazał dwie rzeczy blokujące, obie
+sprawdzone na produkcji (tylko odczyt) i poprawione:
+
+- Lista tabel idących za osobą nie miała terminów rozmów, prepów, feedbacku,
+  zaplanowanych maili odmowy ani wykluczeń placementów — bramka debriefu
+  i wysyłka maila zgubiłyby parę. Na 28 kopiach było w nich 0 wierszy; tabele
+  dopisane, bo ludzie pracują w kopiach na bieżąco.
+- Unieważniony proces rekrutacji NEXUSA mógłby zabrać kredyt KPI kamieniom
+  milowym kopii. U wszystkich 13 osób z takim procesem proces z Traffita
+  otworzył się wcześniej, więc 0 kamieni wpadało w lukę; narzędzie dostało
+  strażnika (`kpi_hold`).
+
+Z uwag nieblokujących weszły: scalona kopia nie wraca do fali przeniesienia,
+paragon przy kopii w transakcji pary, wykonanie tylko par z próby, przepięcie
+nie rusza `updated_at`.
+
 Świadome wybory: osoba z kartą w obu rekrutacjach nie jest przenoszona;
 kopia zamyka się bez daty i powodu zamknięcia (nie jest zamkniętym requestem);
 zespół rekrutacji NEXUSA się nie zmienia; zamknięta rekrutacja NEXUSA nie
@@ -155,7 +171,7 @@ przyjmuje ludzi — tę parę rozstrzyga Delivery Lead.
 | Plik | Zakres | Gdzie |
 |---|---|---|
 | `tests/test_job_twin_merge_plan.py` | kiedy para jest parą, powody pominięcia, lista tabel idących za osobą, zakres trasy | lokalnie i CI |
-| `tests/test_job_twin_merge.py` | próba bez zmian; przepięcie z historią, numery prób, notatki, karta, „Stawka od”, propozycje, zamknięcie kopii, przypisania, zespół bez zmian; zamknięta rekrutacja NEXUSA; podobny tytuł; brak wykonawcy; kopia zamknięta przez człowieka; świeżość próby | tylko CI (Postgres) |
+| `tests/test_job_twin_merge.py` | próba bez zmian; przepięcie z historią, numery prób, notatki, karta, termin rozmowy, „Stawka od”, propozycje i ich notatki, `updated_at` bez zmian, zamknięcie kopii, przypisania, zespół bez zmian, paragon przy kopii, scalona kopia poza falą; osoba wstrzymana przez kredyt KPI; tylko pary z próby; zamknięta rekrutacja NEXUSA; podobny tytuł; brak wykonawcy; kopia zamknięta przez człowieka; świeżość próby | tylko CI (Postgres) |
 
 ## Niepotwierdzone / poza zakresem
 

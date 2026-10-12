@@ -124,9 +124,57 @@ def test_pair_tables_follow_by_job_and_candidate() -> None:
 
 def test_unique_pair_tables_keep_the_row_of_the_nexus_recruitment() -> None:
     by_key = {follow.key: follow for follow in merge.FOLLOW}
-    for key in ("recommendation_cards", "screening_forms"):
+    for key in (
+        "recommendation_cards",
+        "screening_forms",
+        "slot_requests",
+        "placement_exclusions",
+    ):
         assert "NOT EXISTS" in by_key[key].where
         assert "x.job_id = :target" in by_key[key].where
+
+
+def test_pair_readers_named_by_the_review_are_followed() -> None:
+    # Bramka debriefu, checklista ruchu, prepy i wysyłka maila odmowy czytają
+    # parę po (kandydat, rekrutacja) — bez przepięcia zgubiłyby osobę.
+    tables = {follow.table for follow in merge.FOLLOW}
+    assert {
+        "calendar_events",
+        "client_interview_slot_requests",
+        "interview_feedback",
+        "prep_meetings",
+        "prep_transcripts",
+        "prep_reviews",
+        "interview_question_ratings",
+        "scheduled_rejection_emails",
+        "placement_exclusions",
+        "application_submissions",
+        "application_screenings",
+    } <= tables
+
+
+def test_follow_tables_and_columns_exist_in_the_models() -> None:
+    # Surowy SQL nie przechodzi przez ORM — literówka w nazwie wyszłaby dopiero
+    # na produkcji, w połowie pary.
+    import re
+
+    import app.models  # noqa: F401 — rejestruje wszystkie tabele
+    from app.models.base import Base
+
+    for follow in merge.FOLLOW:
+        table = Base.metadata.tables[follow.table]
+        assert follow.column in table.c, follow
+        own_where = follow.where.split("NOT EXISTS")[0]
+        for column in re.findall(r"\b([a-z_]+) = ", own_where):
+            assert column in table.c, (follow.table, column)
+
+
+def test_merged_copy_is_never_a_transfer_wave_candidate() -> None:
+    from app.services import traffit_transfer as transfer
+
+    for scope in (transfer.Scope(job_ids=(1,)), transfer.Scope(client_id=1)):
+        sql = transfer._jobs_sql(scope)  # noqa: SLF001
+        assert f"merged.action = '{merge.MERGE_ACTION}'" in sql
 
 
 def test_totals_add_up_pairs_and_columns() -> None:

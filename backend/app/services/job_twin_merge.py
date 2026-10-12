@@ -30,6 +30,8 @@ Czego scalenie świadomie NIE robi:
   kopii (raport wymienia te osoby);
 * nie przenosi rzeczy liczonych per rekrutacja (dopasowania, migawki
   propozycji, „Moi ludzie”) — NEXUS policzy je dla rekrutacji, która zostaje;
+* nie przenosi osoby, której przepięcie odebrałoby kredyt KPI (``kpi_hold``,
+  patrz ``_PEOPLE_SQL``) — reguł KPI dla jednego biegu nie zmieniamy;
 * nie zdejmuje z kopii flagi „Prowadzona w NEXUSIE”: bez niej import odtworzyłby
   w kopii pary, które właśnie przeszły.
 
@@ -65,6 +67,7 @@ SKIP_SHARED = "target_has_two_copies"
 SKIP_CLIENT = "different_client"
 SKIP_TARGET_CLOSED = "target_not_open"
 SKIP_CHANGED = "changed"
+SKIP_NOT_REVIEWED = "not_in_dry_run"
 
 
 @dataclass(frozen=True)
@@ -153,19 +156,42 @@ WHERE a.entity_type = 'job' AND a.action = 'traffit_transfer'
 ORDER BY a.entity_id, a.id DESC
 """
 
-_PEOPLE_SQL = """
+# `kpi_hold`: `VERIFIER_ANCHORED_CTE` (`services/kpi_panel.py`) kredytuje
+# historię sprzed pierwszego sklasyfikowanego procesu pary tylko do chwili jego
+# otwarcia — a liczy też procesy unieważnione. Unieważniony proces rekrutacji
+# NEXUSA, otwarty wcześniej niż pierwszy sklasyfikowany proces kopii, zabrałby
+# po przepięciu kredyt kamieniom milowym z tej przerwy. Takiej osoby nie
+# przenosimy; raport ją wymienia.
+_FIRST_CLASSIFIED = """
+    SELECT MIN(p.opened_at) AS opened_at
+    FROM recruitment_processes p
+    WHERE p.job_id = {job} AND p.candidate_id = people.candidate_id
+      AND p.opened_at IS NOT NULL AND p.origin_kind IS NOT NULL
+      AND CAST(p.origin_kind AS text) <> 'legacy'
+"""
+
+_PEOPLE_SQL = f"""
 SELECT people.candidate_id,
-       EXISTS (
+       (EXISTS (
            SELECT 1 FROM candidate_stages x
            WHERE x.job_id = :target AND x.candidate_id = people.candidate_id
        ) OR EXISTS (
            SELECT 1 FROM recruitment_processes p
            WHERE p.job_id = :target AND p.candidate_id = people.candidate_id
              AND p.status <> 'voided'
-       ) AS in_target
+       )) AS in_target,
+       EXISTS (
+           SELECT 1 FROM analytics_first_milestones afm
+           WHERE afm.job_id = :source AND afm.candidate_id = people.candidate_id
+             AND afm.first_reached_at >= in_nexus.opened_at
+             AND (in_copy.opened_at IS NULL
+                  OR afm.first_reached_at < in_copy.opened_at)
+       ) AS kpi_hold
 FROM (
     SELECT DISTINCT candidate_id FROM candidate_stages WHERE job_id = :source
 ) people
+LEFT JOIN LATERAL ({_FIRST_CLASSIFIED.format(job=":target")}) in_nexus ON true
+LEFT JOIN LATERAL ({_FIRST_CLASSIFIED.format(job=":source")}) in_copy ON true
 ORDER BY people.candidate_id
 """
 
@@ -179,8 +205,8 @@ WHERE cs.job_id = :source
 ORDER BY cs.candidate_id, cs.moved_at DESC, cs.id DESC
 """
 
-_OPEN_PROPOSALS_SQL = """
-SELECT count(*) FROM job_proposals jp
+_OPEN_PROPOSAL_PEOPLE_SQL = """
+SELECT jp.candidate_id FROM job_proposals jp
 WHERE jp.job_id = :source AND jp.status = 'proposed'
   AND NOT EXISTS (
       SELECT 1 FROM job_proposals x
@@ -195,7 +221,7 @@ WHERE jp.job_id = :source AND jp.status = 'proposed'
 
 
 class Follow(NamedTuple):
-    """Tabela z danymi pary, które idą za przeniesioną osobą."""
+    """Tabela z danymi pary, które idą za przeniesioną osobą albo propozycją."""
 
     key: str
     table: str
@@ -229,6 +255,34 @@ FOLLOW: tuple[Follow, ...] = (
     Follow("cv_qc_runs", "cv_qc_runs", _PAIR_ROWS),
     Follow("rate_changes", "candidate_rate_changes", _PAIR_ROWS),
     Follow("contracts", "b2b_generated_contracts", _PAIR_ROWS),
+    # Terminy, prepy i feedback czytają parę po (kandydat, rekrutacja):
+    # bramka debriefu, checklista ruchu, odznaka rozmowy na karcie.
+    Follow("calendar_events", "calendar_events", _PAIR_ROWS),
+    Follow("interview_feedback", "interview_feedback", _PAIR_ROWS),
+    Follow("prep_meetings", "prep_meetings", _PAIR_ROWS),
+    Follow("prep_transcripts", "prep_transcripts", _PAIR_ROWS),
+    Follow("prep_reviews", "prep_reviews", _PAIR_ROWS),
+    Follow("question_ratings", "interview_question_ratings", _PAIR_ROWS),
+    # Wysyłka sprawdza bieżący etap pary — bez tego anulowałaby maila.
+    Follow("rejection_emails", "scheduled_rejection_emails", _PAIR_ROWS),
+    # Ślad zgłoszenia osoby, której propozycja przechodzi.
+    Follow("application_screenings", "application_screenings", _PAIR_ROWS),
+    Follow("source_events", "candidate_source_events", _PAIR_ROWS),
+    Follow(
+        "application_submissions",
+        "application_submissions",
+        "job_id = :source AND matched_candidate_id = ANY(CAST(:ids AS integer[]))",
+    ),
+    Follow(
+        "slot_requests",
+        "client_interview_slot_requests",
+        _unless_target_has("client_interview_slot_requests"),
+    ),
+    Follow(
+        "placement_exclusions",
+        "placement_exclusions",
+        _unless_target_has("placement_exclusions"),
+    ),
     Follow(
         "recommendation_cards",
         "recommendation_cards",
@@ -322,16 +376,31 @@ async def load_merged(db: AsyncSession, job_ids: list[int]) -> set[int]:
     return {int(r.entity_id) for r in rows.all()}
 
 
-async def _people(db: AsyncSession, pair: Pair) -> tuple[list[int], list[int]]:
-    """Osoby kopii: te, które przejdą, i te, które są w obu rekrutacjach."""
+class People(NamedTuple):
+    """Osoby z kartą w kopii."""
+
+    movable: list[int]
+    in_both: list[int]
+    kpi_hold: list[int]
+
+    def everyone(self) -> set[int]:
+        return {*self.movable, *self.in_both, *self.kpi_hold}
+
+
+async def _people(db: AsyncSession, pair: Pair) -> People:
+    """Kto przejdzie, kto jest w obu rekrutacjach, kogo wstrzymuje kredyt KPI."""
     rows = await db.execute(
         text(_PEOPLE_SQL), {"source": pair.source_id, "target": pair.target_id}
     )
-    movable: list[int] = []
-    in_both: list[int] = []
+    people = People([], [], [])
     for row in rows.all():
-        (in_both if row.in_target else movable).append(int(row.candidate_id))
-    return movable, in_both
+        if row.in_target:
+            people.in_both.append(int(row.candidate_id))
+        elif row.kpi_hold:
+            people.kpi_hold.append(int(row.candidate_id))
+        else:
+            people.movable.append(int(row.candidate_id))
+    return people
 
 
 async def _columns(db: AsyncSession, pair: Pair, ids: list[int]) -> dict[str, int]:
@@ -353,42 +422,49 @@ async def _columns(db: AsyncSession, pair: Pair, ids: list[int]) -> dict[str, in
 
 
 async def _follow_counts(
-    db: AsyncSession, pair: Pair, ids: list[int]
+    db: AsyncSession, pair: Pair, movable: list[int]
 ) -> dict[str, int]:
+    """Próba: ile wierszy pójdzie za osobami z kartą i za propozycjami."""
+    with_card = set(movable)
+    rows = await db.execute(
+        text(_OPEN_PROPOSAL_PEOPLE_SQL),
+        {"source": pair.source_id, "target": pair.target_id},
+    )
+    # Kto przechodzi z kartą, po przepięciu stoi w pipeline — jego propozycja
+    # zostaje przy kopii (lustro `job_proposals.move_open_to_job`).
+    proposed = [int(r.candidate_id) for r in rows.all()]
+    proposed = [
+        candidate_id for candidate_id in proposed if candidate_id not in with_card
+    ]
+    ids = sorted(with_card | set(proposed))
     counts: dict[str, int] = {}
     for follow in FOLLOW:
         sql = follow.count_sql()
         counts[follow.key] = int(
             (await db.execute(text(sql), _params(sql, pair, ids))).scalar_one()
         )
-    counts["proposals"] = int(
-        (
-            await db.execute(
-                text(_OPEN_PROPOSALS_SQL),
-                {"source": pair.source_id, "target": pair.target_id},
-            )
-        ).scalar_one()
-    )
+    counts["proposals"] = len(proposed)
     return counts
 
 
-async def _follow(db: AsyncSession, pair: Pair, ids: list[int]) -> dict[str, int]:
+async def _follow(db: AsyncSession, pair: Pair, moved: list[int]) -> dict[str, int]:
+    """Wykonanie — wołane PO przepięciu kart (propozycje patrzą na pipeline)."""
     from app.services import job_proposals
 
-    counts: dict[str, int] = {}
+    proposed = await job_proposals.move_open_to_job(
+        db, source_job_id=pair.source_id, target_job_id=pair.target_id
+    )
+    ids = sorted({*moved, *proposed})
+    counts: dict[str, int] = {follow.key: 0 for follow in FOLLOW}
     if ids:
         for follow in FOLLOW:
             sql = follow.update_sql()
             result = await db.execute(text(sql), _params(sql, pair, ids))
             counts[follow.key] = int(result.rowcount or 0)
-    else:
-        counts = {follow.key: 0 for follow in FOLLOW}
-    counts["proposals"] = await job_proposals.move_open_to_job(
-        db, source_job_id=pair.source_id, target_job_id=pair.target_id
-    )
+    counts["proposals"] = len(proposed)
     # Osoba, która przeszła z kartą, nie jest już propozycją tej rekrutacji.
     counts["proposals_added"] = await job_proposals.mark_added(
-        db, job_id=pair.target_id, candidate_ids=ids
+        db, job_id=pair.target_id, candidate_ids=moved
     )
     return counts
 
@@ -526,13 +602,16 @@ async def merge_pair(
             return _report(pair, status="skipped", skip_reason=reason)
         if not dry_run:
             await allocation_lock(db)
-        movable, in_both = await _people(db, pair)
+        people = await _people(db, pair)
+        movable, in_both, held = people
         if dry_run:
             plan = {
-                "people": len(movable) + len(in_both),
+                "people": len(people.everyone()),
                 "moved": len(movable),
                 "in_both": len(in_both),
                 "in_both_ids": in_both,
+                "kpi_hold": len(held),
+                "kpi_hold_ids": held,
                 "columns": await _columns(db, pair, movable),
                 "copy_already_closed": facts[pair.source_id].status == "closed",
                 **await _follow_counts(db, pair, movable),
@@ -566,33 +645,43 @@ async def merge_pair(
             ).all()
         }
         source, target = jobs.get(pair.source_id), jobs.get(pair.target_id)
-        if skip_reason(_facts(source), _facts(target), shared=shared, merged=False):
-            # Ktoś zmienił rekrutację w międzyczasie — przepięcie cofamy.
+        changed = skip_reason(
+            _facts(source), _facts(target), shared=shared, merged=False
+        )
+        # Karta dodana do kopii po odczycie listy osób zostałaby w zamkniętej
+        # rekrutacji — wtedy parę zostawiamy następnemu biegowi.
+        arrived = (await _people(db, pair)).everyone() - people.everyone()
+        if changed or arrived:
             await db.rollback()
             return _report(pair, status="skipped", skip_reason=SKIP_CHANGED)
         followed = await _follow(db, pair, moved)
         closed = await _close_copy(
             db, source, target, actor_id=actor.id, effects=effects, now=now
         )
-        stayed = sorted((set(movable) | set(in_both)) - set(moved))
+        stayed = sorted({*movable, *in_both} - set(moved))
         receipt = {
-            "people": len(movable) + len(in_both),
+            "people": len(people.everyone()),
             "moved": len(moved),
             "in_both": len(stayed),
             "in_both_ids": stayed,
+            "kpi_hold": len(held),
+            "kpi_hold_ids": held,
             "moved_candidate_ids": moved,
             "columns": columns,
             "copy_closed": closed,
             **followed,
         }
         summary = {k: v for k, v in receipt.items() if not k.endswith("_ids")}
+        # Pełny paragon przy kopii, w tej samej transakcji co przepięcie:
+        # raport biegu powstaje dopiero na końcu, a deploy w trakcie biegu
+        # zostawiłby scaloną parę bez listy przeniesionych osób.
         db.add(
             Activity(
                 entity_type="job",
                 entity_id=pair.source_id,
                 action=MERGE_ACTION,
                 user_id=actor.id,
-                details={"merged_into": pair.target_id, **summary},
+                details={"merged_into": pair.target_id, **receipt},
             )
         )
         db.add(
@@ -625,6 +714,7 @@ COUNT_KEYS = (
     "people",
     "moved",
     "in_both",
+    "kpi_hold",
     "proposals",
     "proposals_added",
     *(follow.key for follow in FOLLOW),
@@ -656,8 +746,13 @@ async def process(
     dry_run: bool,
     actor_user_id: Optional[int],
     actor_label: str,
+    reviewed: Optional[frozenset[int]] = None,
 ) -> dict[str, Any]:
-    """Jeden bieg. Zwraca raport (zapis raportu: :func:`finish_run`)."""
+    """Jeden bieg. Zwraca raport (zapis raportu: :func:`finish_run`).
+
+    ``reviewed`` — kopie, które próba pokazała jako gotowe. Wykonanie z trasy
+    scala tylko je: para, która doszła po próbie, nie przechodzi bez raportu.
+    """
     known = await load_pairs(db)
     # Liczone po WSZYSTKICH parach: zawężenie biegu do jednej kopii nie może
     # ukryć drugiej kopii tej samej rekrutacji.
@@ -667,17 +762,23 @@ async def process(
     merged = await load_merged(db, [pair.source_id for pair in pairs])
     await db.rollback()
 
-    reports = [
-        await merge_pair(
-            db,
-            pair,
-            shared=targets[pair.target_id] > 1,
-            merged=pair.source_id in merged,
-            actor_user_id=actor_user_id,
-            dry_run=dry_run,
+    reports: list[dict[str, Any]] = []
+    for pair in pairs:
+        if reviewed is not None and pair.source_id not in reviewed:
+            reports.append(
+                _report(pair, status="skipped", skip_reason=SKIP_NOT_REVIEWED)
+            )
+            continue
+        reports.append(
+            await merge_pair(
+                db,
+                pair,
+                shared=targets[pair.target_id] > 1,
+                merged=pair.source_id in merged,
+                actor_user_id=actor_user_id,
+                dry_run=dry_run,
+            )
         )
-        for pair in pairs
-    ]
     return {
         "dry_run": dry_run,
         "scope": scope.as_dict(),
@@ -753,12 +854,21 @@ async def run_merge(
             return
         async with lock:
             async with AsyncSessionLocal() as db:
+                reviewed: Optional[frozenset[int]] = None
+                if not dry_run_mode:
+                    rehearsal = await _read_setting(db, DRY_RUN_KEY) or {}
+                    reviewed = frozenset(
+                        int(pair["job_id"])
+                        for pair in rehearsal.get("pairs") or []
+                        if pair.get("status") == "ready"
+                    )
                 report = await process(
                     db,
                     scope,
                     dry_run=dry_run_mode,
                     actor_user_id=actor_user_id,
                     actor_label=actor_label,
+                    reviewed=reviewed,
                 )
                 await finish_run(db, report, started=started)
                 logger.info(

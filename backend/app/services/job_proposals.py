@@ -564,7 +564,7 @@ async def mark_added(
 
 async def move_open_to_job(
     db: AsyncSession, *, source_job_id: int, target_job_id: int
-) -> int:
+) -> list[int]:
     """Otwarte propozycje rekrutacji-duplikatu przechodzą do tej, która zostaje.
 
     Scalanie po migracji z Traffita (12.10.2026): zamknięcie kopii wygasza jej
@@ -573,7 +573,8 @@ async def move_open_to_job(
     ma propozycji tej osoby z tego samego źródła
     (``uq_job_proposals_pair_source``) i osoba nie stoi już w jej pipeline.
     ``dismissed`` i ``added`` zostają przy kopii: decyzja o cudzej rekrutacji
-    nie jest decyzją o tej. Zwraca liczbę wierszy.
+    nie jest decyzją o tej. Zwraca kandydata każdego przeniesionego wiersza
+    (osoba z dwóch źródeł jest na liście dwa razy).
     """
     twin = JobProposal.__table__.alias("twin")
     same_source = exists(
@@ -592,9 +593,10 @@ async def move_open_to_job(
             ~_in_pipeline(literal(target_job_id), JobProposal.candidate_id),
         )
         .values(job_id=target_job_id)
+        .returning(JobProposal.candidate_id)
         .execution_options(synchronize_session=False)
     )
-    return int(result.rowcount or 0)
+    return [int(candidate_id) for candidate_id in result.scalars().all()]
 
 
 async def mark_added_fail_soft(

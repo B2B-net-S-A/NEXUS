@@ -20,6 +20,7 @@ from sqlalchemy import text
 
 from app.core.database import AsyncSessionLocal
 from app.models.activity import Activity
+from app.models.calendar_event import CalendarEvent, EventType
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.job import Job, JobCloseReason, JobStatus
@@ -28,12 +29,14 @@ from app.models.job_work_assignment import JobWorkAssignment
 from app.models.note import Note
 from app.models.recommendation_card import RecommendationCard
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+from app.models.recruitment_priority import PriorityOriginKind
 from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
 
 # Relacja `CortexSkillFact` → `Skill` (patrz test_traffit_managed_in_nexus).
 from app.models.skill import Skill  # noqa: F401
 from app.services import job_lifecycle
 from app.services import job_twin_merge as merge
+from app.services import traffit_transfer as transfer
 from tests._job_factory import new_recruiter
 
 UTC = timezone.utc
@@ -63,16 +66,21 @@ async def _seed(
     exact: bool = True,
     target_status: JobStatus = JobStatus.published,
     copy_closed_by_person: bool = False,
+    kpi_gap: bool = False,
 ) -> dict[str, Any]:
     """Kopia z Traffita i rekrutacja NEXUSA tego samego requestu.
 
     * ``only_copy``     — karta tylko w kopii: dwa wiersze historii, notatka,
-      karta rekomendacji, „Stawka od” z kopii; w NEXUSIE jest jej propozycją;
+      karta rekomendacji, termin rozmowy u klienta, „Stawka od” z kopii;
+      w NEXUSIE jest jej propozycją;
     * ``both``          — karta w obu rekrutacjach;
     * ``returning``     — w kopii druga próba; w NEXUSIE unieważniony proces
       po karcie ze scrapera zamienionej na propozycję;
-    * ``applied``       — zgłoszenie z ogłoszenia, propozycja tylko w kopii;
-    * ``applied_twice`` — to samo zgłoszenie jako propozycja w obu.
+    * ``applied``       — zgłoszenie z ogłoszenia: propozycja i notatka tylko
+      w kopii;
+    * ``applied_twice`` — to samo zgłoszenie jako propozycja w obu;
+    * ``held`` (``kpi_gap``) — w kopii „CV wysłane” bez sklasyfikowanego
+      procesu, w NEXUSIE wcześniejszy unieważniony proces sklasyfikowany.
     """
     unique = uuid.uuid4().hex[:8]
     now = datetime.now(UTC)
@@ -114,7 +122,7 @@ async def _seed(
                 external_source="traffit",
                 external_id=f"tm-emp-{key}-{unique}",
             )
-            for key in PEOPLE
+            for key in (*PEOPLE, *(("held",) if kpi_gap else ()))
         }
         db.add_all([copy, nexus, *people.values()])
         await db.flush()
@@ -130,13 +138,20 @@ async def _seed(
                 external_id=f"tm-h-{uuid.uuid4().hex[:10]}" if traffit else None,
             )
 
-        def process(who: str, job: Job, status: ProcessStatus, attempt: int = 1):
+        def process(
+            who: str,
+            job: Job,
+            status: ProcessStatus,
+            attempt: int = 1,
+            origin: Optional[PriorityOriginKind] = None,
+        ):
             return RecruitmentProcess(
                 candidate_id=people[who].id,
                 job_id=job.id,
                 client_id=client.id,
                 attempt_no=attempt,
                 status=status,
+                origin_kind=origin,
                 opened_at=when,
                 closed_at=now if status == ProcessStatus.closed else None,
                 voided_at=now if status == ProcessStatus.voided else None,
@@ -169,6 +184,20 @@ async def _seed(
                     content="Notatka osoby z obu rekrutacji.",
                     candidate_id=people["both"].id,
                     job_id=copy.id,
+                ),
+                Note(
+                    content="Odpowiedzi z formularza zgłoszenia.",
+                    candidate_id=people["applied"].id,
+                    job_id=copy.id,
+                ),
+                CalendarEvent(
+                    title="Rozmowa u klienta",
+                    event_type=EventType.client_interview,
+                    start_time=now + timedelta(days=1),
+                    end_time=now + timedelta(days=1, hours=1),
+                    candidate_id=people["only_copy"].id,
+                    job_id=copy.id,
+                    client_id=client.id,
                 ),
                 RecommendationCard(candidate_id=people["only_copy"].id, job_id=copy.id),
                 JobProposal(
@@ -224,6 +253,24 @@ async def _seed(
                 ),
             ]
         )
+        if kpi_gap:
+            db.add_all(
+                [
+                    row(
+                        "held",
+                        copy,
+                        PipelineStage.cv_sent,
+                        at=when + timedelta(hours=2),
+                    ),
+                    process("held", copy, ProcessStatus.open),
+                    process(
+                        "held",
+                        nexus,
+                        ProcessStatus.voided,
+                        origin=PriorityOriginKind.assigned,
+                    ),
+                ]
+            )
         await db.commit()
         return {
             "copy": copy.id,
@@ -315,7 +362,11 @@ async def _merge_activities(job_id: int) -> list[dict[str, Any]]:
 
 
 async def _run(
-    seed: dict[str, Any], *, dry_run: bool, actor: Optional[int]
+    seed: dict[str, Any],
+    *,
+    dry_run: bool,
+    actor: Optional[int],
+    reviewed: Optional[frozenset[int]] = None,
 ) -> dict[str, Any]:
     async with AsyncSessionLocal() as db:
         return await merge.process(
@@ -324,6 +375,7 @@ async def _run(
             dry_run=dry_run,
             actor_user_id=actor,
             actor_label="test",
+            reviewed=reviewed,
         )
 
 
@@ -355,8 +407,10 @@ async def test_dry_run_reports_the_plan_and_changes_nothing(
     assert (pair["people"], pair["moved"], pair["in_both"]) == (3, 2, 1)
     assert pair["in_both_ids"] == [people["both"]]
     assert pair["columns"] == {"screening": 2}
-    assert (pair["notes"], pair["recommendation_cards"], pair["rate_from"]) == (1, 1, 1)
-    assert pair["proposals"] == 1
+    assert pair["kpi_hold_ids"] == []
+    # Notatka osoby z kartą i notatka osoby, której propozycja przechodzi.
+    assert (pair["notes"], pair["recommendation_cards"], pair["rate_from"]) == (2, 1, 1)
+    assert (pair["proposals"], pair["calendar_events"]) == (1, 1)
     assert pair["copy_already_closed"] is False
     assert report["totals"]["by_status"] == {"ready": 1}
     # Zero zmian.
@@ -375,6 +429,8 @@ async def test_merge_moves_pairs_with_history_and_closes_the_copy(
     actor = await _admin_id()
     people, copy, nexus = seed["people"], seed["copy"], seed["nexus"]
 
+    ((before_run,),) = await _all("SELECT clock_timestamp()")
+
     report = await _run(seed, dry_run=False, actor=actor)
 
     (pair,) = report["pairs"]
@@ -384,8 +440,9 @@ async def test_merge_moves_pairs_with_history_and_closes_the_copy(
     )
     assert pair["in_both_ids"] == [people["both"]]
     assert pair["copy_closed"] is True
-    assert (pair["notes"], pair["recommendation_cards"], pair["rate_from"]) == (1, 1, 1)
+    assert (pair["notes"], pair["recommendation_cards"], pair["rate_from"]) == (2, 1, 1)
     assert (pair["proposals"], pair["proposals_added"]) == (1, 1)
+    assert pair["calendar_events"] == 1
 
     # Cała historia pary przechodzi: nic nie zostaje w kopii, nic się nie dubluje.
     assert await _rows(copy, people["only_copy"]) == 0
@@ -407,12 +464,36 @@ async def test_merge_moves_pairs_with_history_and_closes_the_copy(
 
     notes = dict(
         await _all(
-            "SELECT candidate_id, job_id FROM notes WHERE candidate_id IN (:a, :b)",
+            "SELECT candidate_id, job_id FROM notes WHERE candidate_id IN (:a, :b, :c)",
             a=people["only_copy"],
             b=people["both"],
+            c=people["applied"],
         )
     )
-    assert notes == {people["only_copy"]: nexus, people["both"]: copy}
+    # Notatka idzie za kartą i za przeniesioną propozycją; osoba z obu zostaje.
+    assert notes == {
+        people["only_copy"]: nexus,
+        people["both"]: copy,
+        people["applied"]: nexus,
+    }
+    # Termin rozmowy u klienta: po nim bramka debriefu i checklista ruchu
+    # znajdują parę.
+    assert await _all(
+        "SELECT job_id FROM calendar_events WHERE candidate_id = :c",
+        c=people["only_copy"],
+    ) == [(nexus,)]
+    # Przepięcie nie jest ruchem: `updated_at` historii zostaje.
+    assert await _all(
+        "SELECT count(*) FROM candidate_stages WHERE job_id = :j AND updated_at >= :t",
+        j=nexus,
+        t=before_run,
+    ) == [(0,)]
+    assert await _all(
+        "SELECT count(*) FROM recruitment_processes "
+        "WHERE job_id = :j AND status <> 'voided' AND updated_at >= :t",
+        j=nexus,
+        t=before_run,
+    ) == [(0,)]
     assert await _all(
         "SELECT job_id FROM recommendation_cards WHERE candidate_id = :c",
         c=people["only_copy"],
@@ -459,8 +540,15 @@ async def test_merge_moves_pairs_with_history_and_closes_the_copy(
     (on_nexus,) = await _merge_activities(nexus)
     assert (on_copy["merged_into"], on_copy["moved"]) == (nexus, 2)
     assert (on_nexus["merged_from"], on_nexus["moved"]) == (copy, 2)
-    assert "moved_candidate_ids" not in on_copy
+    # Pełny paragon przy kopii — w tej samej transakcji co przepięcie.
+    assert on_copy["moved_candidate_ids"] == pair["moved_candidate_ids"]
+    assert "moved_candidate_ids" not in on_nexus
     assert len(post_commit_calls) == 1
+
+    # Scalona kopia wygląda jak „przełączona, ale zamknięta” — przeniesienie
+    # wskazane wprost nie może jej otworzyć ponownie.
+    async with AsyncSessionLocal() as db:
+        assert await transfer.load_wave(db, transfer.Scope(job_ids=(copy,))) == []
 
     # Drugi bieg niczego nie rusza.
     again = await _run(seed, dry_run=False, actor=actor)
@@ -468,6 +556,51 @@ async def test_merge_moves_pairs_with_history_and_closes_the_copy(
     assert (pair["status"], pair["skip_reason"]) == ("skipped", merge.SKIP_MERGED)
     assert await _rows(nexus, people["only_copy"]) == 2
     assert len(post_commit_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_person_whose_kpi_credit_would_be_lost_stays_in_the_copy(
+    post_commit_calls: list[Any],
+) -> None:
+    seed = await _seed(kpi_gap=True)
+    actor = await _admin_id()
+    people, copy, nexus = seed["people"], seed["copy"], seed["nexus"]
+
+    rehearsal = await _run(seed, dry_run=True, actor=None)
+    (pair,) = rehearsal["pairs"]
+    assert pair["kpi_hold_ids"] == [people["held"]]
+    assert (pair["people"], pair["moved"], pair["kpi_hold"]) == (4, 2, 1)
+
+    report = await _run(seed, dry_run=False, actor=actor)
+
+    (pair,) = report["pairs"]
+    assert pair["status"] == "merged", pair
+    assert pair["kpi_hold_ids"] == [people["held"]]
+    assert people["held"] not in pair["moved_candidate_ids"]
+    assert await _rows(copy, people["held"]) == 1
+    assert await _rows(nexus, people["held"]) == 0
+    assert await _processes(nexus, people["held"]) == {1: "voided"}
+    # Reszta pary przechodzi normalnie.
+    assert await _rows(nexus, people["only_copy"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_execution_merges_only_pairs_shown_by_the_dry_run(
+    post_commit_calls: list[Any],
+) -> None:
+    seed = await _seed()
+    actor = await _admin_id()
+
+    report = await _run(seed, dry_run=False, actor=actor, reviewed=frozenset())
+
+    (pair,) = report["pairs"]
+    assert (pair["status"], pair["skip_reason"]) == (
+        "skipped",
+        merge.SKIP_NOT_REVIEWED,
+    )
+    assert await _rows(seed["copy"], seed["people"]["only_copy"]) == 2
+    assert (await _job(seed["copy"]))["status"] == "published"
+    assert post_commit_calls == []
 
 
 @pytest.mark.asyncio

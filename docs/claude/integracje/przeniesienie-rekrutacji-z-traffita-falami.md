@@ -138,13 +138,36 @@ wykonanie tego samego zakresu, jak przy fali; `job_ids` to id KOPII.
   osoby. Dwóch historii jednej osoby nie sklejamy w ciemno.
 - **Za osobą idzie to, co opisuje pracę z nią w tej rekrutacji** (lista
   `FOLLOW`): notatki, CV etapu, wygenerowane CV, QC CV, zmiany stawki, umowa,
-  karta rekomendacji, formularz screeningu, „Stawka od”. Rzeczy liczone per
-  rekrutacja (dopasowania, migawki propozycji, „Moi ludzie”) zostają —
-  NEXUS policzy je dla rekrutacji, która zostaje. Nowa tabela z `job_id`
+  karta rekomendacji, formularz screeningu, „Stawka od”, terminy rozmów
+  i prośby o terminy, feedback, prepy z transkryptem i oceną, zaplanowany mail
+  odmowy, wykluczenie placementu, ślad zgłoszenia. Bramka debriefu, checklista
+  ruchu i wysyłka maila odmowy szukają pary po (kandydat, rekrutacja) — wiersz
+  zostawiony przy kopii znaczyłby dla nich „nie ma”. Rzeczy liczone per
+  rekrutacja (dopasowania, migawki propozycji, „Moi ludzie”) zostają — NEXUS
+  policzy je dla rekrutacji, która zostaje. Nowa tabela z `job_id`
   i `candidate_id` = dopisz ją do `FOLLOW` albo świadomie pomiń.
 - **Otwarte propozycje kopii przechodzą** (`job_proposals.move_open_to_job`),
   bo wśród nich są zgłoszenia z ogłoszeń, a zamknięcie kopii wygasza jej
-  propozycje. `dismissed` i `added` zostają przy kopii.
+  propozycje. `dismissed` i `added` zostają przy kopii. Za przeniesioną
+  propozycją idą te same tabele co za kartą (notatka z formularza, zgłoszenie).
+- **Osoba, której przepięcie zabrałoby kredyt KPI, zostaje w kopii**
+  (`kpi_hold`). `VERIFIER_ANCHORED_CTE` kredytuje historię sprzed pierwszego
+  sklasyfikowanego procesu pary tylko do chwili jego otwarcia i liczy przy tym
+  także procesy unieważnione. Unieważniony proces rekrutacji NEXUSA (karta ze
+  scrapera zamieniona na propozycję), otwarty przed pierwszym sklasyfikowanym
+  procesem kopii, odebrałby kredyt kamieniom milowym z tej przerwy. 12.10.2026
+  takich osób było 0 z 828; reguły KPI dla jednego biegu nie zmieniamy.
+- **Wykonanie scala tylko pary, które próba pokazała jako gotowe**
+  (`not_in_dry_run` dla reszty), a pełny paragon — z id przeniesionych osób —
+  zapisuje się przy kopii w tej samej transakcji co przepięcie (wpis
+  `traffit_twin_merged`). Raport biegu powstaje dopiero na końcu; deploy
+  w trakcie zostawiłby scalone pary bez listy osób.
+- **Przepięcie nie jest ruchem karty:** `updated_at` wierszy etapów i procesów
+  zostaje (po nim telefonia i kolejka Priority Work wybierają „ostatnio
+  ruszany”).
+- **Scalona kopia nie wchodzi do fali przeniesienia** (`_jobs_sql`). Wygląda
+  jak „przełączona ręcznie, ale zamknięta”; otwarcie jej dopisałoby karty
+  osobom, które przeszły do rekrutacji NEXUSA.
 - **Zespół rekrutacji NEXUSA się nie zmienia.** Przypisania kopii są
   zwalniane z powodem `reassigned`, gdy osoba ma ten sam request w rekrutacji
   NEXUSA — ten powód nie trafia do porannego „Zwolnione: …”.
