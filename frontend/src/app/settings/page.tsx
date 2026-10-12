@@ -38,6 +38,7 @@ import { NotificationsSettings } from "@/components/settings/NotificationsSettin
 import { USER_PREFERENCES_QUERY_KEY, type UserPreferences } from "@/lib/api/userPreferences";
 import TeamsNotificationsCard from "@/components/settings/TeamsNotificationsCard";
 import { TraffitSyncCard } from "@/components/settings/TraffitSyncCard";
+import JobAdFixedBlocksCard from "@/components/settings/JobAdFixedBlocksCard";
 import JobBoardsCard from "@/components/settings/JobBoardsCard";
 import EmailTemplatesCard from "@/components/settings/EmailTemplatesCard";
 import { useAuthStore, hasRole, type UserRole } from "@/store/auth";
@@ -386,6 +387,8 @@ function SettingsItemBody({ item, user }: { item: SettingsItem; user: Parameters
       );
     case "skills":
       return <SkillDictionaryTab />;
+    case "job-ad-blocks":
+      return <JobAdFixedBlocksCard />;
     case "roles":
       return <RoleLibraryTab />;
     case "traffit":

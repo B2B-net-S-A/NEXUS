@@ -56,6 +56,19 @@ Raport: `docs/person-history-notes-completion-report.md`.
   jako pierwsza grupa „Ta rekrutacja” — grupy zawsze rozwinięte, pigułki rodzajów jak w „Historii” profilu
   (liczniki z `group_counts` serwera, rodzaj bez notatek nie ma pigułki). Tylko do odczytu: przypinanie,
   odpowiedzi i edycja zostają w zakładce „Notatki i historia”.
+- **Profil przed telefonem mówi, co już wiemy** (PR 3, `screening-form/BeforeCallProfile.tsx`): blok „Warunki —
+  co już wiemy” (ostatnio podana stawka z miesiącem z historii stawek, a bez dostępu do niej „od …” z karty;
+  dostępność i tryb pracy z profilu — te same reguły `lib/person-facts` co fakty doku) oraz „Wcześniej u nas”
+  (ostatnia ZAKOŃCZONA rekrutacja z wynikiem i powodem, liczba wcześniejszych notatek z „Pokaż”, a gdy
+  najnowsza ma ponad 6 miesięcy — uwaga, żeby potwierdzić warunki). Od 09.10.2026 głowa rozwiniętego panelu
+  nie pokazuje faktów w „Nowych”, a profil ich „nie dublował” — przed telefonem nie było ich nigdzie.
+  „Pokaż” otwiera „Historię osoby” w podglądzie (`ScreeningWorkbench.openHistory`: historia + zakładka CV,
+  w wąskim oknie także odsłonięcie podglądu). Każde z tych zapytań jest dodatkiem: awaria daje „—” albo
+  brak sekcji, nigdy błąd w profilu.
+- **W formularzu screeningu podpowiedź stoi pod polem, którego dotyczy:** dostępność z notatek
+  (`ScreeningSuggestionChips only="availability"`, „Użyj” nadal zapisuje ją w PROFILU kandydata) pod
+  „Dostępnością”, tryb z profilu („W profilu: Do 2 dni w biurze”) pod „Trybem pracy”. W bloku stawki zostaje
+  sama stawka (`only="rate"`). Nie dokładaj czwartej podpowiedzi stawki — ma już trzy.
 - Harness: `/preview/job-detail` — pierwsza karta „Nowych” ma fikcyjną historię
   (`app/preview/person-history-fixtures.ts`), druga notatkę tylko w tej rekrutacji, reszta jest pusta;
   `/preview/screening-form` ma tę samą historię w podglądzie obok formularza.

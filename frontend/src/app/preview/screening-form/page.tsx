@@ -663,6 +663,31 @@ const STAGE_CV_SOURCES = [
   },
 ];
 
+/** Warunki z profilu kandydata (dane fikcyjne) — te same pola co fakty doku osoby. */
+const CANDIDATE_CONDITIONS = {
+  id: CANDIDATE_ID,
+  name: "Tomasz",
+  lastname: "Wzorcowy",
+  availability_date: null,
+  availability_status: "open_to_offers",
+  notice_period: 1,
+  notice_period_unit: "months",
+  max_onsite_days_per_week: 2,
+};
+
+/** Ostatnio podana stawka z historii stawek („Stawka od” w stanie formularza to 140 zł/h). */
+const RATE_OVERVIEW = {
+  candidate_id: CANDIDATE_ID,
+  enabled: true,
+  window_start: "2025-04-12",
+  rate_from: null,
+  latest_amount: 150,
+  latest_at: "2025-03-14T15:20:00Z",
+  count: 2,
+  observations: [],
+  paid: [],
+};
+
 /** Zakres widza konta ustawianego w `Harness` — pod nim panel trzyma wyniki rekrutacji. */
 const PREVIEW_VIEWER_SCOPE =
   candidateViewerScopeKey({ id: RECRUITER.id, role: "recruiter", roles: ["recruiter"] }) ?? "";
@@ -704,6 +729,10 @@ function seededClient(state: HarnessState): QueryClient {
   // tej rekrutacji) i wyniki jej wcześniejszych rekrutacji dla konta harnessu.
   qc.setQueryData(candidateQueryKeys.notes(CANDIDATE_ID), richHistoryNotes(CANDIDATE_ID), SEED_FRESH);
   qc.setQueryData(candidateQueryKeys.recruitmentOutcomes(CANDIDATE_ID, PREVIEW_VIEWER_SCOPE), RICH_HISTORY_OUTCOMES, SEED_FRESH);
+  // Profil przed telefonem i podpowiedź pod „Trybem pracy”: warunki z profilu
+  // i ostatnio podana stawka (klucze doku osoby i historii stawek).
+  qc.setQueryData(candidateQueryKeys.detail(CANDIDATE_ID), CANDIDATE_CONDITIONS, SEED_FRESH);
+  qc.setQueryData(candidateQueryKeys.rateOverview(CANDIDATE_ID), RATE_OVERVIEW, SEED_FRESH);
   return qc;
 }
 

@@ -679,8 +679,8 @@ def _timeouts_for(template: PromptTemplate) -> dict:
 def _strip_json_fences(raw: str) -> str:
     """Strip ```json ... ``` markdown fences that LLMs occasionally emit.
 
-    Mirrors the behaviour in app/api/ai_writer.py:259-263 so both Claude call-
-    sites share the same unwrap logic.
+    The same unwrap as the other JSON-returning Claude call sites (for example
+    `job_public_profile._parse_draft`).
     """
     raw = raw.strip()
     if raw.startswith("```"):

@@ -120,10 +120,10 @@
   {
    "id": "header.ai-writer",
    "area": "naglowek",
-   "opis": "Szkic ogłoszenia (AI)",
+   "opis": "Ogłoszenie na portale: treść na Pracuj.pl i JustJoin.IT układana z Profilu Championa (do 12.10.2026 „Szkic ogłoszenia”)",
    "file": "app/jobs/[id]/page.tsx",
-   "marker": "AIJobWriterModal",
-   "v3_home": "menu … / Profil Championa → Zespół i ogłoszenie"
+   "marker": "JobAdWindow",
+   "v3_home": "menu … → Ogłoszenie na portale / Profil Championa → Zespół i ogłoszenie → Przygotuj ogłoszenie na portale"
   },
   {
    "id": "header.chat-unread",
@@ -1787,6 +1787,38 @@
    "v3_home": "karta „CV do klienta” → Edytuj"
   },
   {
+   "id": "cv.editor-issues-panel",
+   "area": "cv",
+   "opis": "Panel „Do poprawy” w edytorze CV: QC CV pary (te same karty co w oknie QC), uwagi generatora i kontrola AI zatwierdzonej wersji w jednym miejscu, przy tekście",
+   "file": "components/v2/cv-editor/CvEditorIssues.tsx",
+   "marker": "Uwagi generatora",
+   "v3_home": "karta „CV do klienta” → Edytuj → Do poprawy"
+  },
+  {
+   "id": "cv.editor-issues-counter",
+   "area": "cv",
+   "opis": "Licznik w edytorze CV: „Do poprawy (N)” w pasku i „Blokuje wysyłkę: N” w panelu (liczba z QC na serwerze); lista odświeża się po autozapisie",
+   "file": "components/v2/cv-editor/CvEditorIssues.tsx",
+   "marker": "Blokuje wysyłkę:",
+   "v3_home": "karta „CV do klienta” → Edytuj → Do poprawy"
+  },
+  {
+   "id": "cv.editor-issue-locate",
+   "area": "cv",
+   "opis": "„Pokaż w CV”: uwaga przewija kartkę do swojego miejsca i wyróżnia je; miejsca uwag są zaznaczone w tekście (czerwone = zatrzymuje wysyłkę)",
+   "file": "components/v2/recruitment/cv-qc-cards.tsx",
+   "marker": "Pokaż w CV",
+   "v3_home": "karta „CV do klienta” → Edytuj → Do poprawy"
+  },
+  {
+   "id": "cv.editor-fix-all",
+   "area": "cv",
+   "opis": "„Popraw wszystko” w edytorze CV: pogrubienie wymagań, pisownia technologii i zdania AI z cytatem ze źródła jednym kliknięciem, z „Cofnij”; usunięcie treści i własne poprawki pojedynczo",
+   "file": "components/v2/cv-editor/CvEditorIssues.tsx",
+   "marker": "Popraw wszystko",
+   "v3_home": "karta „CV do klienta” → Edytuj → Do poprawy"
+  },
+  {
    "id": "cv.download-intent",
    "area": "cv",
    "opis": "Przycisk „Pobierz” CV (edytor, karta, podgląd etapu, kolejka Cpro, wynik generatora, pliki) zostawia wpis o pobraniu; podgląd nie",
@@ -1843,6 +1875,54 @@
    "v3_home": "Tablica → ruch na „Zatrudniony”"
   },
   {
+   "id": "ad.pracuj-fields",
+   "area": "zlecenie",
+   "opis": "Zakładka Pracuj.pl: pola w kolejności formularza portalu, każde z własnym „Kopiuj”, wybory z list formularza jako podpowiedź",
+   "file": "components/v2/job-ad/PracujTab.tsx",
+   "marker": "Pola w kolejności formularza Pracuj.pl",
+   "v3_home": "menu … → Ogłoszenie na portale → Pracuj.pl"
+  },
+  {
+   "id": "ad.jjit-body",
+   "area": "zlecenie",
+   "opis": "Zakładka JustJoin.IT: pola formularza, tech stack z poziomem (zmiana poziomu, usunięcie) i jeden opis kopiowany z formatowaniem albo jako zwykły tekst",
+   "file": "components/v2/job-ad/JustJoinTab.tsx",
+   "marker": "Tech stack z poziomem",
+   "v3_home": "menu … → Ogłoszenie na portale → JustJoin.IT"
+  },
+  {
+   "id": "ad.edit-field",
+   "area": "zlecenie",
+   "opis": "Ręczna poprawka pola ogłoszenia („Edytuj” → „Zapisz”); ta sama treść w obu zakładkach",
+   "file": "components/v2/job-ad/AdBlock.tsx",
+   "marker": "Edytuj",
+   "v3_home": "menu … → Ogłoszenie na portale → Edytuj przy polu"
+  },
+  {
+   "id": "ad.checks",
+   "area": "zlecenie",
+   "opis": "Kontrola przed skopiowaniem: nazwa klienta, kwota, kontakt i nazwisko wyłączają kopiowanie; „Pokaż” i „Usuń fragment”; uwagi doradcze",
+   "file": "components/v2/job-ad/AdChecksPanel.tsx",
+   "marker": "Kontrola przed skopiowaniem",
+   "v3_home": "menu … → Ogłoszenie na portale → panel kontroli"
+  },
+  {
+   "id": "ad.terms",
+   "area": "zlecenie",
+   "opis": "Warunki w ogłoszeniu (start, długość, język pracy) i lista danych, których rekrutacji brakuje",
+   "file": "components/v2/job-ad/AdFactsRail.tsx",
+   "marker": "Warunki w ogłoszeniu",
+   "v3_home": "menu … → Ogłoszenie na portale → lewa kolumna"
+  },
+  {
+   "id": "ad.regenerate",
+   "area": "zlecenie",
+   "opis": "„Przygotuj ponownie” i zmiana języka PL/EN z potwierdzeniem; awaria modelu nie zastępuje zapisanej treści",
+   "file": "components/v2/job-ad/JobAdWindow.tsx",
+   "marker": "Przygotuj ponownie",
+   "v3_home": "menu … → Ogłoszenie na portale → nagłówek okna"
+  },
+  {
    "id": "panel.notes-earlier",
    "area": "panel",
    "opis": "„Wcześniej u nas”: notatki osoby z innych rekrutacji i bez rekrutacji, pogrupowane po rekrutacji z jej wynikiem; licznik notatek ludzi na zakładce",
@@ -1873,6 +1953,14 @@
    "file": "components/v2/screening-form/CandidatePreviewPane.tsx",
    "marker": "Historia osoby",
    "v3_home": "Tablica → panel osoby → Rozwiń → podgląd po lewej (każda zakładka)"
+  },
+  {
+   "id": "screening.before-call-earlier",
+   "area": "panel",
+   "opis": "Profil przed telefonem: „Warunki — co już wiemy” (ostatnio podana stawka z datą, dostępność, tryb pracy) i „Wcześniej u nas” (ostatnia zakończona rekrutacja z wynikiem, wcześniejsze notatki z „Pokaż”)",
+   "file": "components/v2/screening-form/BeforeCallProfile.tsx",
+   "marker": "Warunki — co już wiemy",
+   "v3_home": "Tablica → panel osoby → Screening („Nowi”, przed „Zacznij screening”)"
   }
  ]
 }

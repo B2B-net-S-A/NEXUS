@@ -156,6 +156,7 @@ Design system i tokeny, responsywność, nazewnictwo w interfejsie, Ustawienia, 
 - `jobs-new-jeden-ekran-i-odczyt-pustych-pol.md` — `/jobs/new`: jeden ekran, „Wypełnij z…” i odczyt tylko pustych pól (D1–D4, 10.10.2026)
 - `jobs-new-w-szesciu-sekcjach-wiersze-wymagan-deal.md` — `/jobs/new` w sześciu sekcjach: wiersze wymagań, deal breaker, kategoria i prowadzący (02.10.2026)
 - `nowa-rekrutacja-strona-jobs-new-z-requestu-klienta.md` — Nowa rekrutacja = strona `/jobs/new` z requestu klienta (22.09.2026)
+- `ogloszenie-na-portale-kopiuj-wklej.md` — Ogłoszenie na portale — treść do wklejenia w Pracuj.pl i JustJoin.IT (0430, 12.10.2026) · okno „Ogłoszenie na portale”, jedna treść w dwóch formatach, kontrola przed skopiowaniem, stałe części firmy, awaria modelu nie nadpisuje treści, relacja do publikacji przez API
 - `pliki-rekrutacji.md` — Pliki rekrutacji (0428, 09.10.2026)
 - `profil-championa-sekcje-4-i-8-propozycja-luny-z.md` — Profil Championa: sekcje 4 i 8 + propozycja Luny z maila (23.09.2026)
 - `profil-championa-szesc-sekcji-karta-klienta.md` — Profil Championa — sześć sekcji + karta klienta (przebudowa 09.2026)
@@ -241,7 +242,7 @@ Generator CV, reguły CV klienta, zgoda RODO, interaktywne CV, automaty rekrutac
 
 - `automaty-rekrutacji-v3.md` — Automaty rekrutacji v3 (21.09.2026, migracja 0335)
 - `autonomiczny-przeplyw-cv.md` — Autonomiczny przepływ CV (17.09.2026)
-- `edytor-cv-pelny-ekran.md` — Edytor CV na cały ekran — kartka, bloki, źródła, stała klauzula RODO (12.10.2026) · kontrakt HTML edytor ↔ Word, bloki i etykiety szablonu, blokada klauzuli (przeglądarka + serwer), pola w nawiasach, wpis `cv_file_downloaded`, harness `/preview/cv-editor`
+- `edytor-cv-pelny-ekran.md` — Edytor CV na cały ekran — kartka, bloki, źródła, stała klauzula RODO (12.10.2026) · kontrakt HTML edytor ↔ Word, bloki i etykiety szablonu, blokada klauzuli (przeglądarka + serwer), pola w nawiasach, wpis `cv_file_downloaded`, panel „Do poprawy” (QC, uwagi generatora, kontrola AI, „Popraw wszystko”, `qc/transform`), harness `/preview/cv-editor`
 - `generator-cv-domyslnie-sciezka-sprzed-przebudowy.md` — Generator CV — domyślnie ścieżka sprzed przebudowy (`legacy_v7`, 10.09.2026)
 - `generator-cv-v3-jeden-ekran-od-osoby.md` — Generator CV v3 — jeden ekran od osoby (23.09.2026)
 - `interaktywne-cv-publiczny-link-do-wygenerowanego-cv.md` — Interaktywne CV (publiczny link do wygenerowanego CV)

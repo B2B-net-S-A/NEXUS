@@ -83,6 +83,10 @@ dłuższy niż czas procesora. Kolumna „po” to czas procesora.
   39 cytowanych odpowiedzi z poczty, 40 poziomów listy) albo ponad 1000
   elementów wpisanych wprost w tabelę traci część struktury; tekst zostaje.
   Zwykłe CV ma 7–8 poziomów, wklejone z Worda kilkanaście.
-- Produkcja działa na Pythonie 3.13, a próby lokalne i CI na 3.12 — różnice
-  w `HTMLParser` między wersjami są niepotwierdzone do sprawdzenia po
-  wdrożeniu.
+
+## Po wdrożeniu (12.10.2026)
+
+Próby lokalne i CI biegły na Pythonie 3.12, produkcja na 3.13. Po wdrożeniu
+(`/api/health` → `9c58ead1d`, 20:59 UTC) sprawdzone tylko do odczytu w kontenerze
+backendu (Python 3.13.14): zachowanie na wzorcach bez zmian, zaczepy w bleach
+żywe, wrogie treści 500 KB kosztują 0,02–1,7 s czasu procesora.

@@ -5621,6 +5621,10 @@ END $$""",
     "CREATE TABLE IF NOT EXISTS job_files (id SERIAL PRIMARY KEY, job_id INTEGER NULL REFERENCES jobs(id) ON DELETE CASCADE, intake_form_id INTEGER NULL REFERENCES job_intake_forms(id) ON DELETE SET NULL, source VARCHAR(16) NOT NULL DEFAULT 'upload', filename VARCHAR(255) NOT NULL, file_path VARCHAR(512) NOT NULL, content_type VARCHAR(128) NULL, size_bytes INTEGER NOT NULL DEFAULT 0, uploaded_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), CONSTRAINT ck_job_files_source CHECK (source IN ('request', 'upload')))",
     "CREATE INDEX IF NOT EXISTS ix_job_files_job ON job_files (job_id) WHERE job_id IS NOT NULL",
     "CREATE INDEX IF NOT EXISTS ix_job_files_intake_form ON job_files (intake_form_id) WHERE intake_form_id IS NOT NULL",
+    # 0430: ogłoszenie rekrutacji do wklejenia na portale (Pracuj.pl,
+    # JustJoin.IT). Lustro 1:1 z `app/services/job_ad_schema.py` (pilnuje
+    # test_job_ads_migration_mirror).
+    "CREATE TABLE IF NOT EXISTS job_ads (job_id INTEGER PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE, lang VARCHAR(2) NOT NULL DEFAULT 'pl', content JSONB NOT NULL, tech JSONB NOT NULL, source VARCHAR(16) NOT NULL DEFAULT 'ai', material_hash VARCHAR(64) NULL, generated_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, generated_at TIMESTAMPTZ NULL, updated_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), CONSTRAINT ck_job_ads_lang CHECK (lang IN ('pl', 'en')), CONSTRAINT ck_job_ads_source CHECK (source IN ('ai', 'template')))",
     # 0352: debrief z jawnym „klient nie zadawał pytań” (bramka przed „Umową”).
     "ALTER TABLE interview_feedback ADD COLUMN IF NOT EXISTS "
     "no_client_questions BOOLEAN NOT NULL DEFAULT false",

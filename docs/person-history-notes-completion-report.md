@@ -79,9 +79,29 @@ Pomiar na produkcji 12.10.2026 (odczyt, same liczby, bez danych osób):
   `/preview/job-detail` — przycisk w zakładkach Screening, Rozmowy, Umowa i Notatki, jeden widoczny podgląd;
   `/preview/dl-review?layout=panel` i `/preview/cv-editor` — bez przycisku.
 
-## PR 3
+## PR 3 — Screening „zanim zadzwonisz”
 
-Dopisywany w kolejnym PR-ze: Screening „zanim zadzwonisz”.
+- `screening-form/BeforeCallProfile.tsx`: „Warunki — co już wiemy” (ostatnio podana stawka z miesiącem,
+  dostępność ze „stan na”, tryb pracy) i „Wcześniej u nas” (ostatnia zakończona rekrutacja z wynikiem
+  i powodem, liczba wcześniejszych notatek, „Pokaż”, uwaga o wieku danych po 6 miesiącach).
+- `jobs/ScreeningWorkbench.tsx`: „Pokaż” otwiera „Historię osoby” w podglądzie obok (zakładka CV).
+- `screening-form/ScreeningFullForm.tsx` + `screening/ScreeningSuggestionChips.tsx`: podpowiedź dostępności
+  z notatek pod polem „Dostępność”, tryb z profilu pod „Trybem pracy”; blok stawki bez zmian w treści.
+- Harnessy (profil kandydata i historia stawek), strażnik `harness-seeds`, wpis
+  `screening.before-call-earlier`, stempel przewodnika `jobs.person`.
+
+### Weryfikacja PR 3
+
+- vitest: `BeforeCallProfile` (6, nowy plik), `ScreeningFullForm` (22, w tym trzy nowe), `ScreeningWorkbench`
+  (15, w tym „Pokaż”), `CandidatePreviewPane`, `app/preview/__tests__` — zielone; `npm run type-check`, `eslint`.
+- Chromium (Playwright): `/preview/screening-form?state=nowi` i `?state=filled` przy 1280 × 720.
+
+## Sprawdzenie na produkcji
+
+- PR 1 (B2B-net-S-A/NEXUS#2152): scalony 12.10.2026 22:16 UTC, `/api/health` → `94b2e1e69`. Dla otwartej karty
+  bez notatek w rekrutacji `GET /api/notes?candidate_id=` oddał 8 notatek ludzi (0 z tej rekrutacji,
+  2 rekrutacje i 2 bez rekrutacji) — tyle samo co SQL; `GET /api/pipeline/job/{id}/moves?candidate_id=` oddał
+  3 ruchy tej pary (SQL: 3), a bez filtra dalej 113.
 
 ## Poza zakresem
 

@@ -60,6 +60,21 @@ osobę od Cpro per rekrutacja (0353) i kolejkę „Czeka na DZ” (0348).
   blok (`item_is_only_this_block`): punkt z podpunktami albo drugim akapitem
   to więcej niż sam termin. Testy poprawek pisz także na HTML-u w tym kształcie
   (`EDITED_HTML` w `tests/test_cv_qc.py`).
+  **Poprawka z okna QC a edytor otwarty obok** (12.10.2026): odpowiedź QC
+  niesie `cv.edit_revision`, a `qc/apply` odsyła ją jako `expected_revision`;
+  inna wersja w bazie = 409 `CV_CHANGED` („odśwież listę”), szkic zostaje.
+  Wcześniej poprawka podbijała wersję bez sprawdzenia i edytor dostawał 409 przy
+  autozapisie. Wynik poprawki przechodzi przez `keep_rodo_clause` — pisownia
+  i usuwanie terminu nie ruszają klauzuli zgody.
+  **Rola kończy się na nagłówku sekcji (h1/h2), nie na każdym nagłówku**
+  (`Block.ends_section`, 12.10.2026): śródtytuł h3/h4 w opisie stanowiska
+  zostaje w roli. Wcześniej zamykał rolę i gasił sekcję doświadczenia, więc
+  kolejne stanowiska znikały z QC. Trzy miejsca liczą to samo i muszą się
+  zgadzać: `cv_qc.cv_roles` / `dz.generated_roles`, `segmentCv` w oknie QC
+  i `cvOutline` w edytorze.
+  **Poprawki w edytorze CV** idą przez `qc/transform` (liczone na treści
+  z ekranu, bez zapisu szkicu) — reguły w
+  `generator-cv/edytor-cv-pelny-ekran.md`, sekcja „Panel »Do poprawy«”.
 - **Bramka:** `/move` i `/bulk-move` na „CV wysłane” albo etap Cpro z kolumn
   przed wysłaniem → 409 `CV_QC_FAILED` (z `stage_id` do otwarcia QC), chyba że QC
   przechodzi albo ktoś przepuścił parę z powodem — Delivery Lead/admin, a od

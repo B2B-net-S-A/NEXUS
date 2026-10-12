@@ -102,6 +102,8 @@ const LLM_PATH_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
     re: /champion-profile\/(briefing(?![\w/-])|generate-from-[\w-]+)/,
   },
   { name: "ai/generate-*", re: /\/api\/ai\/generate-/ },
+  // Ogłoszenie na portale: model układa treść do minuty.
+  { name: "portal-ad/generate", re: /\/portal-ad\/generate/ },
   { name: "prep-kit", re: /\/api\/prep-kit\/generate/ },
   { name: "refresh-criteria", re: /\/refresh-criteria/ },
   { name: "recompute-scores", re: /\/recompute-scores/ },

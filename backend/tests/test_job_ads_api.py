@@ -1,0 +1,550 @@
+"""Ogłoszenie na portale (0430) — trasy z bazą.
+
+Kontrakt ``docs/claude/rekrutacja-tworzenie/ogloszenie-na-portale-kopiuj-wklej.md``:
+
+- odpowiedź nigdy nie niesie klienta ani stawki (test na KSZTAŁT odpowiedzi);
+- pierwsze ogłoszenie bez modelu = złożenie oznaczone ``template``; awaria
+  modelu przy istniejącym ogłoszeniu = 503 i treść bez zmian; wersja
+  angielska bez modelu nie powstaje;
+- kontrola widzi pola ogłoszenia, miasto rekrutacji i stałe bloki;
+- zapis poprawki ze starą wersją = 409; ponowne przygotowanie nie zastępuje
+  poprawki zapisanej, kiedy model układał treść; stałe bloki zapisuje admin
+  i HoR.
+"""
+
+from __future__ import annotations
+
+import json
+import uuid
+from datetime import datetime, timezone
+
+import pytest
+import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import delete
+
+from app.core.database import AsyncSessionLocal
+from app.core.security import hash_password
+from app.models.app_setting import AppSetting
+from app.models.client import Client
+from app.models.job import Job
+from app.models.job_ad import JobAd
+from app.models.user import User, UserRole
+from app.services.job_ad import fixed_blocks, generate
+from app.services.job_ad_schema import SOURCE_AI, SOURCE_TEMPLATE
+from tests.test_career_links_api import _login, _owner_with_job
+
+pytestmark = pytest.mark.asyncio
+
+
+@pytest_asyncio.fixture
+async def api() -> AsyncClient:
+    from app.core.rate_limit import limiter
+    from app.main import app
+
+    limiter.enabled = False
+    async with AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="http://testserver",
+    ) as client:
+        yield client
+
+
+_MODEL_REPLY = {
+    "lead": "Szukamy osoby do zespołu rozliczeń.",
+    "about": "Zespół rozwija system rozliczeń w sektorze bankowym.",
+    "responsibilities": ["rozwój mikroserwisów w Javie", "przeglądy kodu"],
+    "requirements": ["praktyczna znajomość Javy 17 w projektach produkcyjnych"],
+    "nice_to_have": ["doświadczenie z Apache Kafka"],
+    "offer": [],
+}
+
+
+def _model(monkeypatch, *, reply: dict | None = None, error: Exception | None = None):
+    calls: list[dict] = []
+
+    class _Block:
+        type = "text"
+        text = json.dumps(reply if reply is not None else _MODEL_REPLY)
+
+    class _Message:
+        content = [_Block()]
+
+    def fake_call_claude(**kwargs):
+        calls.append(kwargs)
+        if error is not None:
+            raise error
+        return _Message()
+
+    monkeypatch.setattr(
+        "app.services.llm_providers.api_key_configured", lambda model: True
+    )
+    monkeypatch.setattr("app.services.claude_client.call_claude", fake_call_claude)
+    return calls
+
+
+def _no_model(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.llm_providers.api_key_configured", lambda model: False
+    )
+
+
+async def _seed_role_user(role: UserRole) -> tuple[str, str]:
+    unique = uuid.uuid4().hex[:8]
+    email = f"jobad-{role.value}-{unique}@example.com"
+    password = f"T3st_{unique}!Ad"
+    async with AsyncSessionLocal() as db:
+        db.add(
+            User(
+                email=email,
+                password_hash=hash_password(password),
+                name=f"Osoba Testowa{unique}",
+                role=role,
+                is_active=True,
+            )
+        )
+        await db.commit()
+    return email, password
+
+
+async def _client_name(job_id: int) -> str:
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        client = await db.get(Client, job.client_id)
+        return client.name
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _default_fixed_blocks():
+    """Stałe bloki są globalne — każdy test startuje od domyślnych."""
+    yield
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(AppSetting).where(AppSetting.key == fixed_blocks.BLOCKS_KEY)
+        )
+        await db.commit()
+
+
+# ── Odczyt i pierwsze przygotowanie ─────────────────────────────────────────
+
+
+async def test_job_without_an_ad_returns_facts_and_no_content(api: AsyncClient):
+    _, headers, job_id = await _owner_with_job(api)
+    resp = await api.get(f"/api/jobs/{job_id}/portal-ad", headers=headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["ad"] is None and body["rendered"] is None
+    assert body["can_copy"] is False
+    assert {"key": "city", "label": "Miasto", "value": "Warszawa"} in body["facts"]
+    ready = {r["key"]: r["present"] for r in body["readiness"]}
+    assert ready["must"] is True and ready["about"] is False
+
+
+async def test_generate_saves_the_model_content_without_client_or_rate(
+    api: AsyncClient, monkeypatch
+):
+    _, headers, job_id = await _owner_with_job(api)
+    calls = _model(monkeypatch)
+    resp = await api.post(
+        f"/api/jobs/{job_id}/portal-ad/generate", json={"lang": "pl"}, headers=headers
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["ad"]["source"] == "ai" and body["ad"]["stale"] is False
+    assert body["ad"]["content"]["about"] == _MODEL_REPLY["about"]
+    # Tytuł i warunki idą z rekrutacji, nie z modelu.
+    assert body["ad"]["content"]["start"] == "10.2026"
+    assert body["rendered"]["title"].endswith("(k/m/x)")
+    assert body["can_copy"] is True
+    assert len(calls) == 1
+
+    # KSZTAŁT odpowiedzi: ani prompt, ani żadne pole nie niesie klienta i stawki.
+    # Znaczniki czasu odpadają — mikrosekundy mogłyby przypadkiem dać „175”.
+    shape = {**body, "ad": {**body["ad"], "generated_at": None, "updated_at": None}}
+    client_name = await _client_name(job_id)
+    for text in (
+        json.dumps(shape, ensure_ascii=False),
+        json.dumps(calls[0]["messages"], ensure_ascii=False),
+    ):
+        assert client_name not in text and "sekretny opis" not in text
+        assert "175" not in text and "180" not in text
+
+    again = await api.get(f"/api/jobs/{job_id}/portal-ad", headers=headers)
+    assert again.json()["ad"]["content"] == body["ad"]["content"]
+
+
+async def test_first_ad_without_a_model_is_a_labelled_template(
+    api: AsyncClient, monkeypatch
+):
+    _, headers, job_id = await _owner_with_job(api)
+    _no_model(monkeypatch)
+    resp = await api.post(
+        f"/api/jobs/{job_id}/portal-ad/generate", json={"lang": "pl"}, headers=headers
+    )
+    assert resp.status_code == 200, resp.text
+    ad = resp.json()["ad"]
+    assert ad["source"] == "template"
+    assert ad["content"]["requirements"] == ["Java 17"]
+    assert ad["content"]["lead"] == ""
+    # Złożenie nie zostawia „[uzupełnij]” w tym, co idzie do schowka
+    # (komunikaty kontroli mogą radzić „uzupełnij Profil Championa”).
+    body = resp.json()
+    copied = json.dumps([ad["content"], body["rendered"]], ensure_ascii=False)
+    assert "uzupełnij" not in copied.lower()
+
+
+async def test_model_failure_never_replaces_a_saved_ad(api: AsyncClient, monkeypatch):
+    _, headers, job_id = await _owner_with_job(api)
+    _model(monkeypatch)
+    first = await api.post(
+        f"/api/jobs/{job_id}/portal-ad/generate", json={"lang": "pl"}, headers=headers
+    )
+    saved = first.json()["ad"]
+
+    _model(monkeypatch, error=RuntimeError("529 overloaded_error"))
+    failed = await api.post(
+        f"/api/jobs/{job_id}/portal-ad/generate", json={"lang": "pl"}, headers=headers
+    )
+    assert failed.status_code == 503, failed.text
+    assert "bez zmian" in failed.json()["detail"]
+
+    after = await api.get(f"/api/jobs/{job_id}/portal-ad", headers=headers)
+    assert after.json()["ad"]["content"] == saved["content"]
+    assert after.json()["ad"]["source"] == "ai"
+
+
+async def test_english_ad_is_not_assembled_without_a_model(
+    api: AsyncClient, monkeypatch
+):
+    _, headers, job_id = await _owner_with_job(api)
+    _no_model(monkeypatch)
+    resp = await api.post(
+        f"/api/jobs/{job_id}/portal-ad/generate", json={"lang": "en"}, headers=headers
+    )
+    assert resp.status_code == 503, resp.text
+    async with AsyncSessionLocal() as db:
+        assert await db.get(JobAd, job_id) is None
+
+
+async def test_english_ad_takes_translated_terms_from_the_model(
+    api: AsyncClient, monkeypatch
+):
+    _, headers, job_id = await _owner_with_job(api)
+    _model(
+        monkeypatch,
+        reply={
+            **_MODEL_REPLY,
+            "start": "October 2026",
+            "duration": "12+ months",
+            "language": "English",
+        },
+    )
+    resp = await api.post(
+        f"/api/jobs/{job_id}/portal-ad/generate", json={"lang": "en"}, headers=headers
+    )
+    assert resp.status_code == 200, resp.text
+    content = resp.json()["ad"]["content"]
+    assert (content["start"], content["duration"]) == ("October 2026", "12+ months")
+    # Rekrutacja nie ma języka pracy — model nie może go dopisać.
+    assert content["language"] == ""
+    assert resp.json()["rendered"]["title"].endswith("(f/m/x)")
+
+
+# ── Poprawki rekrutera i kontrola ───────────────────────────────────────────
+
+
+async def _generated(api: AsyncClient, headers, job_id: int, monkeypatch) -> dict:
+    _model(monkeypatch)
+    resp = await api.post(
+        f"/api/jobs/{job_id}/portal-ad/generate", json={"lang": "pl"}, headers=headers
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()["ad"]
+
+
+async def test_edit_before_generate_is_404(api: AsyncClient):
+    _, headers, job_id = await _owner_with_job(api)
+    resp = await api.put(
+        f"/api/jobs/{job_id}/portal-ad",
+        json={"content": {"about": "Opis."}, "tech": []},
+        headers=headers,
+    )
+    assert resp.status_code == 404
+
+
+async def test_edit_reruns_the_check_and_blocks_on_the_client_name(
+    api: AsyncClient, monkeypatch
+):
+    _, headers, job_id = await _owner_with_job(api)
+    ad = await _generated(api, headers, job_id, monkeypatch)
+    client_name = await _client_name(job_id)
+    content = {**ad["content"], "about": f"System rozliczeń klienta {client_name}."}
+    resp = await api.put(
+        f"/api/jobs/{job_id}/portal-ad",
+        json={
+            "content": content,
+            "tech": ad["tech"],
+            "expected_updated_at": ad["updated_at"],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["can_copy"] is False
+    assert [(f["code"], f["severity"], f["field"]) for f in body["findings"]][0] == (
+        "client_name",
+        "block",
+        "about",
+    )
+    # Poprawka usuwa blokadę.
+    fixed = await api.put(
+        f"/api/jobs/{job_id}/portal-ad",
+        json={
+            "content": {**content, "about": "System rozliczeń w sektorze bankowym."},
+            "tech": ad["tech"],
+            "expected_updated_at": body["ad"]["updated_at"],
+        },
+        headers=headers,
+    )
+    assert fixed.status_code == 200 and fixed.json()["can_copy"] is True
+
+
+async def test_display_and_legal_client_names_block_too(api: AsyncClient, monkeypatch):
+    _, headers, job_id = await _owner_with_job(api)
+    ad = await _generated(api, headers, job_id, monkeypatch)
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        client = await db.get(Client, job.client_id)
+        client.display_name = "Granitowy Dom Maklerski"
+        client.legal_name = "Granitowy Holding Spółka Akcyjna"
+        await db.commit()
+    for name in ("Granitowy Dom Maklerski", "Granitowy Holding"):
+        resp = await api.put(
+            f"/api/jobs/{job_id}/portal-ad",
+            json={
+                "content": {**ad["content"], "lead": f"Projekt dla {name}."},
+                "tech": ad["tech"],
+            },
+            headers=headers,
+        )
+        codes = [(f["code"], f["field"]) for f in resp.json()["findings"]]
+        assert ("client_name", "lead") in codes, name
+
+
+async def test_city_from_the_recruitment_is_checked(api: AsyncClient, monkeypatch):
+    _, headers, job_id = await _owner_with_job(api)
+    await _generated(api, headers, job_id, monkeypatch)
+    client_name = await _client_name(job_id)
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        job.location = f"Warszawa, biuro {client_name}"
+        await db.commit()
+    body = (await api.get(f"/api/jobs/{job_id}/portal-ad", headers=headers)).json()
+    assert ("client_name", "terms") in [
+        (f["code"], f["field"]) for f in body["findings"]
+    ]
+    assert body["can_copy"] is False
+    # Zmiana rekrutacji po przygotowaniu ogłoszenia jest widoczna.
+    assert body["ad"]["stale"] is True
+
+
+async def test_stale_edit_is_409(api: AsyncClient, monkeypatch):
+    _, headers, job_id = await _owner_with_job(api)
+    ad = await _generated(api, headers, job_id, monkeypatch)
+    payload = {"content": ad["content"], "tech": ad["tech"]}
+    first = await api.put(
+        f"/api/jobs/{job_id}/portal-ad",
+        json={**payload, "expected_updated_at": ad["updated_at"]},
+        headers=headers,
+    )
+    assert first.status_code == 200, first.text
+    second = await api.put(
+        f"/api/jobs/{job_id}/portal-ad",
+        json={**payload, "expected_updated_at": ad["updated_at"]},
+        headers=headers,
+    )
+    assert second.status_code == 409
+    assert second.json()["detail"]["code"] == "job_ad_changed"
+
+
+def _slow_model(monkeypatch, meanwhile, *, source: str = SOURCE_AI):
+    """Model „liczy”, a w tym czasie ktoś inny zapisuje ogłoszenie
+    (``meanwhile`` — osobna sesja, zatwierdzona przed odpowiedzią modelu)."""
+
+    async def fake_generate_content(db, mat, **kwargs):
+        await meanwhile()
+        return (
+            generate.clean_content({"about": "Treść z modelu."}, title=mat.title),
+            source,
+        )
+
+    monkeypatch.setattr(generate, "generate_content", fake_generate_content)
+
+
+async def test_regenerate_keeps_an_edit_saved_while_the_model_was_working(
+    api: AsyncClient, monkeypatch
+):
+    _, headers, job_id = await _owner_with_job(api)
+    ad = await _generated(api, headers, job_id, monkeypatch)
+
+    async def someone_edits():
+        async with AsyncSessionLocal() as db:
+            row = await db.get(JobAd, job_id)
+            row.content = {**row.content, "about": "Poprawka innej osoby."}
+            row.updated_at = datetime.now(timezone.utc)
+            await db.commit()
+
+    _slow_model(monkeypatch, someone_edits)
+    resp = await api.post(
+        f"/api/jobs/{job_id}/portal-ad/generate",
+        json={"lang": "pl", "expected_updated_at": ad["updated_at"]},
+        headers=headers,
+    )
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "job_ad_changed"
+    after = await api.get(f"/api/jobs/{job_id}/portal-ad", headers=headers)
+    assert after.json()["ad"]["content"]["about"] == "Poprawka innej osoby."
+
+
+async def test_template_never_replaces_an_ad_created_while_the_model_was_failing(
+    api: AsyncClient, monkeypatch
+):
+    """Rekrutacja bez ogłoszenia: A klika „Przygotuj”, model pada, a B w tym
+    czasie przygotowuje ogłoszenie. Złożenie A nie może go zastąpić."""
+    owner_id, headers, job_id = await _owner_with_job(api)
+
+    async def someone_generates():
+        async with AsyncSessionLocal() as db:
+            now = datetime.now(timezone.utc)
+            db.add(
+                JobAd(
+                    job_id=job_id,
+                    lang="pl",
+                    content=generate.clean_content(
+                        {"about": "Ogłoszenie innej osoby."}, title="Java Developer"
+                    ),
+                    tech=[],
+                    source=SOURCE_AI,
+                    material_hash="x",
+                    generated_by=owner_id,
+                    generated_at=now,
+                    updated_by=owner_id,
+                    updated_at=now,
+                )
+            )
+            await db.commit()
+
+    _slow_model(monkeypatch, someone_generates, source=SOURCE_TEMPLATE)
+    resp = await api.post(
+        f"/api/jobs/{job_id}/portal-ad/generate", json={"lang": "pl"}, headers=headers
+    )
+    assert resp.status_code == 409, resp.text
+    after = (await api.get(f"/api/jobs/{job_id}/portal-ad", headers=headers)).json()
+    assert after["ad"]["source"] == "ai"
+    assert after["ad"]["content"]["about"] == "Ogłoszenie innej osoby."
+
+
+async def test_regenerate_from_a_stale_window_is_409_before_the_model_is_called(
+    api: AsyncClient, monkeypatch
+):
+    _, headers, job_id = await _owner_with_job(api)
+    ad = await _generated(api, headers, job_id, monkeypatch)
+    edited = await api.put(
+        f"/api/jobs/{job_id}/portal-ad",
+        json={"content": ad["content"], "tech": ad["tech"]},
+        headers=headers,
+    )
+    assert edited.status_code == 200, edited.text
+
+    calls = _model(monkeypatch)
+    resp = await api.post(
+        f"/api/jobs/{job_id}/portal-ad/generate",
+        json={"lang": "pl", "expected_updated_at": ad["updated_at"]},
+        headers=headers,
+    )
+    assert resp.status_code == 409, resp.text
+    assert calls == []
+
+
+async def test_edit_rejects_too_many_items_instead_of_trimming(
+    api: AsyncClient, monkeypatch
+):
+    _, headers, job_id = await _owner_with_job(api)
+    ad = await _generated(api, headers, job_id, monkeypatch)
+    resp = await api.put(
+        f"/api/jobs/{job_id}/portal-ad",
+        json={
+            "content": {**ad["content"], "offer": [f"punkt {i}" for i in range(7)]},
+            "tech": ad["tech"],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422
+
+
+# ── Dostęp ──────────────────────────────────────────────────────────────────
+
+
+async def test_missing_job_is_404_and_viewer_is_denied(api: AsyncClient):
+    _, headers, job_id = await _owner_with_job(api)
+    assert (
+        await api.get("/api/jobs/999999999/portal-ad", headers=headers)
+    ).status_code == 404
+    email, password = await _seed_role_user(UserRole.user)
+    viewer = await _login(api, email, password)
+    assert (
+        await api.get(f"/api/jobs/{job_id}/portal-ad", headers=viewer)
+    ).status_code == 403
+    assert (await api.get(f"/api/jobs/{job_id}/portal-ad")).status_code == 401
+
+
+# ── Stałe części ogłoszenia ─────────────────────────────────────────────────
+
+
+async def test_fixed_blocks_are_for_admin_and_head_of_recruitment(api: AsyncClient):
+    _, recruiter, _job_id = await _owner_with_job(api)
+    assert (
+        await api.get("/api/job-ads/fixed-blocks", headers=recruiter)
+    ).status_code == 403
+    for role in (UserRole.admin, UserRole.head_of_recruitment):
+        headers = await _login(api, *await _seed_role_user(role))
+        resp = await api.get("/api/job-ads/fixed-blocks", headers=headers)
+        assert resp.status_code == 200, (role, resp.text)
+        assert resp.json() == fixed_blocks.DEFAULTS.as_dict()
+
+
+async def test_saved_fixed_blocks_reach_every_ad(api: AsyncClient, monkeypatch):
+    _, recruiter, job_id = await _owner_with_job(api)
+    await _generated(api, recruiter, job_id, monkeypatch)
+    admin = await _login(api, *await _seed_role_user(UserRole.admin))
+    blocks = {
+        "title_suffix": "km",
+        "pl": {
+            "offer": ["karta sportowa"],
+            "process": ["Rozmowa z rekruterem"],
+            "about": "Łączymy specjalistów z projektami.",
+        },
+        "en": {"offer": [], "process": [], "about": ""},
+    }
+    saved = await api.put("/api/job-ads/fixed-blocks", json=blocks, headers=admin)
+    assert saved.status_code == 200, saved.text
+
+    body = (await api.get(f"/api/jobs/{job_id}/portal-ad", headers=recruiter)).json()
+    assert body["rendered"]["title"].endswith("(k/m)")
+    offer = next(f for f in body["rendered"]["pracuj"]["fields"] if f["key"] == "offer")
+    assert offer["items"][-1] == "karta sportowa" and offer["fixed_count"] == 1
+    assert "Łączymy specjalistów z projektami." in body["rendered"]["jjit"]["body_text"]
+
+
+async def test_fixed_blocks_refuse_amounts_and_contacts(api: AsyncClient):
+    admin = await _login(api, *await _seed_role_user(UserRole.admin))
+    base = fixed_blocks.DEFAULTS.as_dict()
+    for bad in ("premia 500 zł za polecenie", "pisz na rekrutacja@example.com"):
+        resp = await api.put(
+            "/api/job-ads/fixed-blocks",
+            json={**base, "pl": {**base["pl"], "offer": [bad]}},
+            headers=admin,
+        )
+        assert resp.status_code == 422, bad
+    unchanged = await api.get("/api/job-ads/fixed-blocks", headers=admin)
+    assert unchanged.json() == base

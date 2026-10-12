@@ -34,6 +34,8 @@ import html as html_lib
 import json
 import logging
 import re
+import time
+from bisect import bisect_left, bisect_right
 from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timezone
@@ -60,7 +62,7 @@ FIXES_PROMPT_VERSION = "cv-qc-fixes-v3"
 # Wersja reguł liczenia QC, zapisywana w przebiegu. Po zmianie reguł nieudane
 # przebiegi starszej wersji przelicza `recompute_outdated` — plakietka na
 # Tablicy czyta zapisany wynik, a nie liczy QC przy każdym odczycie.
-QC_VERSION = "roles-from-cv-read-1"
+QC_VERSION = "role-ends-at-section-heading-1"
 # Runda 8 (R8-N8-2): cytat źródła musi być zdaniem o wymaganiu, nie słowem.
 SOURCE_QUOTE_MIN_WORDS = 4
 NOTES_TEXT_MAX = 12_000
@@ -286,7 +288,7 @@ def cv_roles(blocks: list[Block], orig_roles: list[Role]) -> list[CvRole]:
 
     for i, block in enumerate(blocks):
         # Klauzula zgody stoi tuż po ostatnim stanowisku — kończy rolę i sekcję.
-        if block.kind == "h" or block.section == dz.RODO_SECTION:
+        if block.ends_section or block.section == dz.RODO_SECTION:
             in_experience = block.kind == "h" and block.section == "experience"
             close()
             continue
@@ -1581,11 +1583,13 @@ def _cv_payload(src: dz.ReviewSources) -> Optional[dict]:
         "filename": gen.get("filename"),
         "bold_known": src.bold_known,
         "updated_at": gen.get("updated_at"),
+        "edit_revision": gen.get("edit_revision"),
         # Runda 9 (R9-V2-5): kilka plików „…B2B…” tego klienta — wskazany
         # najnowszy, do sprawdzenia przez człowieka.
         "ambiguous": bool(gen.get("ambiguous")),
         "blocks": [
-            {"kind": b.kind, "section": b.section, "runs": b.runs} for b in src.blocks
+            {"kind": b.kind, "section": b.section, "runs": b.runs, "level": b.level}
+            for b in src.blocks
         ],
     }
 
@@ -2688,6 +2692,10 @@ class _EditableParser(dz._BlockParser):
         # punkt i usunięcie punktu muszą działać na całym `<li>`.
         self.items: dict[int, tuple[int, int]] = {}
         self._open_items: list[tuple[Block, int]] = []
+        # Tożsamość bloku → jego indeks. Szukanie bloku od końca listy było
+        # kwadratowe: pusty punkt nie trafia na listę, więc każde `</li>`
+        # przeglądało ją całą.
+        self._block_at: dict[int, int] = {}
         self._last: Optional[int] = None
         self._end: Optional[int] = None
         self._cur_start: Optional[int] = None
@@ -2717,10 +2725,9 @@ class _EditableParser(dz._BlockParser):
         super().handle_endtag(tag)
         if tag == "li" and self._open_items:
             block, start = self._open_items.pop()
-            for index in range(len(self.blocks) - 1, -1, -1):
-                if self.blocks[index] is block:
-                    self.items[index] = (start, self._end)
-                    break
+            index = self._block_at.get(id(block))
+            if index is not None and self.blocks[index] is block:
+                self.items[index] = (start, self._end)
         self._end = None
 
     def handle_data(self, data):
@@ -2745,7 +2752,10 @@ class _EditableParser(dz._BlockParser):
     def _flush(self):
         if self._current is not None and self._current.text:
             self.spans.append((self._cur_start, self._end))
+        known = len(self.blocks)
         super()._flush()
+        if len(self.blocks) > known:
+            self._block_at[id(self.blocks[-1])] = known
 
 
 @dataclass
@@ -2755,6 +2765,9 @@ class EditableCv:
     spans: list[tuple[Optional[int], Optional[int]]]
     ctx: dict[int, dict]
     items: dict[int, tuple[int, int]] = field(default_factory=dict)
+    # Początki zakresów bloków, posortowane — liczone raz (zakresy nie
+    # zmieniają się po odczycie; edycja podmienia same tokeny).
+    _starts: Optional[list[int]] = field(default=None, init=False, repr=False)
 
     @classmethod
     def parse(cls, html: str) -> "EditableCv":
@@ -2772,12 +2785,13 @@ class EditableCv:
         start, end = self.item_span(index)
         if start is None or end is None:
             return False
-        inside = [
-            i
-            for i, (first, _) in enumerate(self.spans)
-            if first is not None and start <= first <= end
-        ]
-        return inside == [index]
+        own = self.spans[index][0]
+        if own is None or not start <= own <= end:
+            return False
+        if self._starts is None:
+            self._starts = sorted(first for first, _ in self.spans if first is not None)
+        # Dokładnie jeden blok zaczyna się w punkcie — i jest nim ten.
+        return bisect_right(self._starts, end) - bisect_left(self._starts, start) == 1
 
     def html(self) -> str:
         out: list[str] = []
@@ -2887,16 +2901,23 @@ def apply_ai_fix(
 
 
 def _wrap_matches(text: str, patterns: list[re.Pattern[str]]) -> tuple[str, int]:
+    # Przyjęte zakresy są rozłączne i posortowane, więc kolizję nowego trafienia
+    # widać po dwóch sąsiadach. Porównywanie z każdym przyjętym było kwadratowe
+    # (tysiące trafień w jednym akapicie od klienta).
     spans: list[tuple[int, int]] = []
     for pattern in patterns:
         for m in pattern.finditer(text):
-            if m.end() > m.start() and not any(
-                a < m.end() and m.start() < b for a, b in spans
-            ):
-                spans.append(m.span())
+            a, b = m.span()
+            if b <= a:
+                continue
+            at = bisect_left(spans, (a,))
+            if at < len(spans) and spans[at][0] < b:
+                continue
+            if at > 0 and spans[at - 1][1] > a:
+                continue
+            spans.insert(at, (a, b))
     if not spans:
         return html_lib.escape(text, quote=False), 0
-    spans.sort()
     out, pos = [], 0
     for a, b in spans:
         out.append(html_lib.escape(text[pos:a], quote=False))
@@ -2929,6 +2950,11 @@ def bold_all(html: str, requirements: list[Requirement]) -> tuple[str, int]:
 
 
 _SEP = r"\s*[,;/|·]\s*"
+# Separator PRZED terminem albo na końcu tekstu: dopasowanie może się zacząć
+# tylko na początku ciągu odstępów. Bez kotwicy silnik próbował od każdej spacji
+# od nowa — 40 KB odstępów w akapicie od klienta liczyło się 12 s. Wynik jest
+# ten sam: dopasowanie najbardziej z lewej i tak zaczyna się na początku ciągu.
+_SEP_LEAD = r"(?<!\s)" + _SEP
 # Numer wersji tuż za nazwą na liście technologii („15”, „v3.4+”, „8.x”).
 _VERSION_TAIL = r"(?:\s+v?\d[\w.]*\+?)?"
 
@@ -2956,20 +2982,25 @@ def remove_term(html: str, term: str) -> tuple[str, int]:
             for j in range(start, end + 1):
                 doc.tokens[j] = None
             count += 1
+    # Raz na blok: akapit z tysiącami węzłów liczył to dla każdego z nich.
+    tech_blocks: dict[int, bool] = {}
     for i, tok, ctx in list(doc.data_tokens()):
         if doc.tokens[i] is None or ctx["skip"]:
             continue
         block = ctx["block"]
         if block is None or block.kind == "h":
             continue
-        tech = block.section in _TECH_SECTIONS or is_tech_list(block.text)
+        tech = tech_blocks.get(id(block))
+        if tech is None:
+            tech = block.section in _TECH_SECTIONS or is_tech_list(block.text)
+            tech_blocks[id(block)] = tech
         text = tok["text"]
         changed = 0
         for pattern in patterns:
             # Wymagania szukamy bez wersji, więc „Angular” z „Angular 15”
             # schodzi z listy razem z numerem — sama liczba by została.
             body = pattern.pattern + _VERSION_TAIL
-            text, n1 = re.subn(_SEP + f"(?:{body})", "", text, flags=pattern.flags)
+            text, n1 = re.subn(_SEP_LEAD + f"(?:{body})", "", text, flags=pattern.flags)
             text, n2 = re.subn(f"(?:{body})" + _SEP, "", text, flags=pattern.flags)
             changed += n1 + n2
             if tech and re.fullmatch(rf"\s*(?:{body})\s*", text, flags=pattern.flags):
@@ -2986,7 +3017,7 @@ def _strip_neighbour_separator(doc: EditableCv, idx: int, block: Block) -> None:
     """Termin był całym węzłem („Java, <b>Docker</b>, Kafka”) — zdejmij
     przecinek z sąsiedniego węzła tego samego bloku."""
 
-    tail = re.compile(_SEP + r"$")
+    tail = re.compile(_SEP_LEAD + r"$")
     head = re.compile(r"^" + _SEP)
     for j in range(idx - 1, -1, -1):
         tok = doc.tokens[j]
@@ -3022,8 +3053,238 @@ def fix_spelling_html(html: str) -> tuple[str, int]:
     return doc.html(), count
 
 
+def ensure_fresh_draft(csv: CandidateStageCV, expected: Optional[int]) -> None:
+    """409 `CV_CHANGED`, gdy szkic zmienił się od wczytania listy QC.
+
+    Poprawka podbija wersję szkicu. Bez tego sprawdzenia nadpisywała zmiany
+    z edytora otwartego obok, a jego następny autozapis kończył się 409.
+    `expected=None` (karta sprzed tej zmiany) niczego nie sprawdza.
+    """
+    if expected is None or expected == (csv.edit_revision or 0):
+        return
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "CV_CHANGED",
+            "message": (
+                "CV zmieniło się od wczytania tej listy. Odśwież ją i nałóż "
+                "poprawkę jeszcze raz."
+            ),
+        },
+    )
+
+
+def draft_after_fix(previous_html: str, fixed_html: str) -> str:
+    """Treść szkicu po poprawce QC: sanitizer i stała klauzula zgody RODO."""
+    from app.services.cv_rodo_clause import keep_rodo_clause
+    from app.services.html_sanitizer import sanitize_cv_html
+
+    return keep_rodo_clause(previous_html, sanitize_cv_html(fixed_html))
+
+
+# „Popraw wszystko” (decyzja Artura D2, 12.10.2026): tylko poprawki formalne
+# i poprawka AI w brzmieniu, którego cytat serwer sprawdził przy jej pobraniu.
+# Usunięcie terminu i własny tekst rekrutera zatwierdza się pojedynczo.
+BULK_ACTIONS = frozenset({"bold_all", "spelling", "ai_fix"})
+_ACTIONS = BULK_ACTIONS | {"remove_term"}
+# Każda poprawka czyta całą treść od nowa (do 500 KB od klienta). Pierwsza idzie
+# zawsze, kolejne dopóki wątek nie zużył tyle sekund procesora: zwykłe CV
+# (kilkadziesiąt KB) mieści w tym wszystkie 20 poprawek z dużym zapasem.
+TRANSFORM_BUDGET_S = 4.0
+
+
+def transform_html(
+    html: str,
+    actions: list[dict],
+    *,
+    must: list[Requirement],
+    nice: list[Requirement],
+    fixes: dict[str, dict],
+    experience: Any,
+    bulk: bool,
+) -> tuple[str, list[dict], list[dict]]:
+    """Nałóż poprawki QC na podaną treść — bez bazy i bez zapisu.
+
+    Zwraca ``(treść, nałożone, pominięte)``. Poprawka, której nie da się
+    nałożyć, trafia do pominiętych z powodem i nie zatrzymuje pozostałych.
+    Gdy nic się nie nałożyło, wraca TA SAMA treść. Koszt jest ograniczony:
+    powtórzona poprawka nie liczy się drugi raz, a po wyczerpaniu budżetu
+    czasu (`TRANSFORM_BUDGET_S`) pozostałe wracają jako pominięte.
+    """
+    current = html
+    applied: list[dict] = []
+    skipped: list[dict] = []
+    seen: set[tuple] = set()
+    started: Optional[float] = None
+
+    def skip(action: str, code: str, message: str) -> None:
+        skipped.append({"action": action, "code": code, "message": message})
+
+    # Zdanie AI szuka linii po jej tekście, a pisownia i usunięcie terminu ten
+    # tekst zmieniają — zdania AI idą więc pierwsze, w podanej kolejności.
+    for payload in sorted(actions, key=lambda item: item.get("action") != "ai_fix"):
+        action = str(payload.get("action") or "")
+        if action not in _ACTIONS:
+            skip(action, "unknown_action", "Nieznana poprawka.")
+            continue
+        edited = action == "ai_fix" and bool(str(payload.get("text") or "").strip())
+        if bulk and (action not in BULK_ACTIONS or edited):
+            skip(action, "not_in_bulk", "Tę poprawkę zatwierdza się pojedynczo.")
+            continue
+        key = (
+            action,
+            *(
+                str(payload.get(name) or "")
+                for name in ("fix_id", "text", "scope", "term")
+            ),
+        )
+        if key in seen:
+            skip(action, "duplicate", "Ta poprawka jest na liście dwa razy.")
+            continue
+        seen.add(key)
+        if started is None:
+            started = time.thread_time()
+        elif time.thread_time() - started > TRANSFORM_BUDGET_S:
+            skip(
+                action,
+                "budget",
+                "To CV jest za długie na tyle poprawek naraz — nałóż pozostałe osobno.",
+            )
+            continue
+        try:
+            if action == "ai_fix":
+                fix = fixes.get(str(payload.get("fix_id") or ""))
+                if fix is None:
+                    skip(
+                        action,
+                        "unknown_fix",
+                        "Nie ma takiej propozycji — odśwież propozycje poprawek.",
+                    )
+                    continue
+                text = str(payload.get("text") or fix["proposed_text"]).strip()
+                if len(text) > 1000:
+                    raise ApplyError("Poprawka jest za długa (najwyżej 1000 znaków).")
+                current = apply_ai_fix(current, fix, text, experience=experience)
+                applied.append(
+                    {
+                        "action": action,
+                        "fix_id": fix["id"],
+                        "edited": text != fix["proposed_text"],
+                    }
+                )
+                continue
+            if action == "bold_all":
+                scope = payload.get("scope") or "must"
+                changed, count = bold_all(current, nice if scope == "nice" else must)
+                nothing = "Nie ma nic do pogrubienia — wymagania są już pogrubione."
+                done: dict = {"action": action, "scope": scope}
+            elif action == "remove_term":
+                term = str(payload.get("term") or "").strip()
+                if not term:
+                    raise ApplyError("Podaj termin do usunięcia.")
+                changed, count = remove_term(current, term)
+                nothing = (
+                    f"„{term}” nie stoi na liście technologii — usuń je w edytorze CV."
+                )
+                done = {"action": action, "term": term[:120]}
+            else:
+                changed, count = fix_spelling_html(current)
+                nothing = "Nie ma pisowni do poprawienia."
+                done = {"action": action}
+            if not count:
+                skip(action, "nothing_to_do", nothing)
+                continue
+            current = changed
+            applied.append({**done, "count": count})
+        except ApplyError as exc:
+            skip(action, "failed", str(exc))
+    if not applied:
+        return html, [], skipped
+    return draft_after_fix(html, current), applied, skipped
+
+
+async def transform_for_editor(
+    db: AsyncSession,
+    stage: CandidateStage,
+    content_html: str,
+    actions: list[dict],
+    *,
+    bulk: bool,
+    user_id: int,
+) -> dict:
+    """Poprawki z panelu „Do poprawy” policzone na treści z edytora CV.
+
+    Szkic w bazie zostaje nietknięty: edytor nakłada wynik jednym cofalnym
+    krokiem i zapisuje go zwykłym autozapisem. Jedna droga zapisu = brak
+    wyścigu o wersję szkicu między panelem a pisaniem. Ślad użycia zostaje
+    w tym samym wpisie co poprawki z okna QC (`cv_qc_fix_applied`).
+    """
+    from app.models.activity import Activity
+    from app.services.html_sanitizer import sanitize_cv_html
+
+    src = await _load_sources(db, stage)
+    fixes: dict[str, dict] = {}
+    wanted = {
+        str(payload.get("fix_id") or "")
+        for payload in actions
+        if payload.get("action") == "ai_fix"
+    }
+    for fix_id in sorted(wanted):
+        fix = await load_fix(db, stage.id, fix_id)
+        if fix is not None:
+            fixes[fix["id"]] = fix
+    experience = dz.role_entries(src.candidate, src.original.get("text") or "")
+
+    def compute() -> tuple[str, list[dict], list[dict]]:
+        return transform_html(
+            sanitize_cv_html(content_html),
+            actions,
+            must=src.must,
+            nice=src.nice,
+            fixes=fixes,
+            experience=experience,
+            bulk=bulk,
+        )
+
+    # Sam procesor (do 500 KB treści od klienta razy kilka poprawek) — w wątku,
+    # żeby jedno żądanie nie zatrzymywało obsługi pozostałych.
+    html, applied, skipped = await run_in_threadpool(compute)
+    if applied:
+        csv_id = await db.scalar(
+            select(CandidateStageCV.id).where(
+                CandidateStageCV.candidate_stage_id == stage.id
+            )
+        )
+        if csv_id is not None:
+            db.add(
+                Activity(
+                    entity_type="candidate_stage_cv",
+                    entity_id=csv_id,
+                    action="cv_qc_fix_applied",
+                    user_id=user_id,
+                    details={
+                        "via": "editor",
+                        "bulk": bulk,
+                        "candidate_stage_id": stage.id,
+                        "actions": [item["action"] for item in applied],
+                    },
+                )
+            )
+    return {
+        "content_html": html if applied else content_html,
+        "changed": bool(applied),
+        "applied": applied,
+        "skipped": skipped,
+    }
+
+
 async def _editable_csv(
-    db: AsyncSession, stage: CandidateStage, gen: dict, *, user_id: int
+    db: AsyncSession,
+    stage: CandidateStage,
+    gen: dict,
+    *,
+    user_id: int,
+    expected_revision: Optional[int] = None,
 ) -> CandidateStageCV:
     """Szkic CV firmowego pary do edycji (z blokadą wiersza).
 
@@ -3046,6 +3307,8 @@ async def _editable_csv(
         )
         if csv is None:
             raise ApplyError("CV firmowe zniknęło — odśwież okno QC.")
+        # Przed „nową wersją” zatwierdzonego CV — odmowa niczego nie zmienia.
+        ensure_fresh_draft(csv, expected_revision)
     else:
         latest = await db.scalar(
             select(CandidateStage)
@@ -3117,7 +3380,6 @@ async def apply_action(
     """
 
     from app.models.activity import Activity
-    from app.services.html_sanitizer import sanitize_cv_html
 
     src = await _load_sources(db, stage)
     gen = src.generated
@@ -3149,7 +3411,13 @@ async def apply_action(
     elif action not in ("bold_all", "remove_term", "spelling"):
         raise ApplyError("Nieznana poprawka.")
 
-    csv = await _editable_csv(db, stage, gen, user_id=user_id)
+    csv = await _editable_csv(
+        db,
+        stage,
+        gen,
+        user_id=user_id,
+        expected_revision=payload.get("expected_revision"),
+    )
     html = csv.branded_draft_html or ""
     details: dict[str, Any] = {"candidate_stage_id": csv.candidate_stage_id}
     if action == "ai_fix":
@@ -3193,7 +3461,7 @@ async def apply_action(
             raise ApplyError("Nie ma pisowni do poprawienia.")
         details.update({"count": count})
 
-    csv.branded_draft_html = sanitize_cv_html(new_html)
+    csv.branded_draft_html = draft_after_fix(html, new_html)
     csv.edit_revision += 1
     csv.branded_updated_at = datetime.now(timezone.utc)
     csv.branded_updated_by = user_id

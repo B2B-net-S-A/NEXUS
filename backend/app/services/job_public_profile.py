@@ -486,6 +486,16 @@ def _payload_texts(payload: dict[str, Any]) -> list[str]:
     return texts
 
 
+def client_name_variants(client: Any) -> list[str]:
+    """Nazwy klienta zapisane na jego wierszu — bez duplikatów i pustych."""
+    out: list[str] = []
+    for attr in ("name", "display_name", "legal_name"):
+        value = str(getattr(client, attr, None) or "").strip()
+        if value and value not in out:
+            out.append(value)
+    return out
+
+
 async def _client_names(db: AsyncSession, client_id: Optional[int]) -> list[str]:
     if client_id is None:
         return []
@@ -502,6 +512,25 @@ async def _client_names(db: AsyncSession, client_id: Optional[int]) -> list[str]
         )
     ).scalars()
     names.extend(a for a in aliases if a)
+    return names
+
+
+async def client_lint_names(db: AsyncSession, client_id: Optional[int]) -> list[str]:
+    """Nazwy klienta dla kontroli OGŁOSZENIA NA PORTALE: nazwa, aliasy, nazwa
+    wyświetlana i prawna.
+
+    Strona kariery (``lint_payload``, ``slug_findings``) zostaje przy
+    ``_client_names``: szersza lista przy najbliższym zatwierdzeniu obróciłaby
+    adresy ``/r/<slug>`` już rozesłanych linków (``rotate_unsafe_job_slugs``)
+    i zaczęła odmawiać opisom, które dotąd przechodziły — to osobna decyzja.
+    """
+    names = await _client_names(db, client_id)
+    if client_id is None:
+        return names
+    client = await db.get(Client, client_id)
+    for value in client_name_variants(client) if client is not None else []:
+        if value not in names:
+            names.append(value)
     return names
 
 
@@ -525,6 +554,12 @@ async def _person_names(db: AsyncSession, job: Job) -> list[str]:
         if contact is not None and contact.name:
             names.append(contact.name)
     return names
+
+
+# Publiczne nazwy dla ``services/job_ad`` (ogłoszenie na portale czyta te same
+# źródła, co strona kariery).
+stack_names = _stack_names
+person_names = _person_names
 
 
 async def lint_payload(

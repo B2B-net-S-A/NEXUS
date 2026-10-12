@@ -25,6 +25,7 @@
   "DELETE /api/candidates/stages/{stage_id}/cv/branded/review/{review_id}": "PPPPPPDDPPPPPPPPPPP",
   "DELETE /api/candidates/stages/{stage_id}/cv/share-tokens": "PPPPPPDDPPPPPPPPPPP",
   "GET /api/candidates/stages/{stage_id}/cv/branded": "PPPPPPDDPPPPPPPPPPP",
+  "GET /api/candidates/stages/{stage_id}/cv/branded/issues": "PPPPPPDDPPPPPPPPPPP",
   "GET /api/candidates/stages/{stage_id}/cv/branded/render-pdf": "PPPPPPDDPPPPPPPPPPP",
   "GET /api/candidates/stages/{stage_id}/cv/branded/review/{review_id}": "PPPPPPDDPPPPPPPPPPP",
   "GET /api/candidates/stages/{stage_id}/cv/branded/sources": "PPPPPPDDPPPPPPPPPPP",
