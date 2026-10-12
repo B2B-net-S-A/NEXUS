@@ -429,6 +429,113 @@ async def note_external_stage_row(
     return True
 
 
+async def move_pairs_to_job(
+    db: AsyncSession,
+    *,
+    source_job_id: int,
+    target_job_id: int,
+    candidate_ids: Iterable[int],
+) -> list[int]:
+    """Przepnij historię par (kandydat, rekrutacja) do innej rekrutacji.
+
+    Scalanie duplikatów po migracji z Traffita (12.10.2026): ten sam request
+    istniał jako rekrutacja założona w NEXUSIE i jako kopia z Traffita,
+    w której byli kandydaci. Wiersze etapów i procesy pary zmieniają tylko
+    ``job_id`` — każde zdarzenie zostaje policzone raz, a operację odwraca
+    to samo wywołanie w drugą stronę.
+
+    Para przechodzi wyłącznie wtedy, gdy w rekrutacji docelowej kandydat nie
+    ma żadnego wiersza etapu ani procesu innego niż unieważniony. Kto jest
+    w obu, zostaje, gdzie był: dwóch historii jednej osoby nie sklejamy
+    w ciemno. Numer próby przechodzi ZA unieważnione próby docelowej
+    (``uq_process_attempt``), więc przeniesiony proces zostaje najnowszym.
+    Zwraca id kandydatów faktycznie przeniesionych. Bez commitu.
+    """
+
+    ids = canonical_candidate_lock_order(candidate_ids)
+    if not ids or source_job_id == target_job_id:
+        return []
+    await db.execute(lock_candidates_stmt(ids))
+    in_target = set(
+        (
+            await db.scalars(
+                select(CandidateStage.candidate_id).where(
+                    CandidateStage.job_id == target_job_id,
+                    CandidateStage.candidate_id.in_(ids),
+                )
+            )
+        ).all()
+    )
+    in_target |= set(
+        (
+            await db.scalars(
+                select(RecruitmentProcess.candidate_id).where(
+                    RecruitmentProcess.job_id == target_job_id,
+                    RecruitmentProcess.candidate_id.in_(ids),
+                    RecruitmentProcess.status != ProcessStatus.voided,
+                )
+            )
+        ).all()
+    )
+    movable = [candidate_id for candidate_id in ids if candidate_id not in in_target]
+    if not movable:
+        return []
+    offsets = {
+        int(candidate_id): int(last or 0)
+        for candidate_id, last in (
+            await db.execute(
+                select(
+                    RecruitmentProcess.candidate_id,
+                    func.max(RecruitmentProcess.attempt_no),
+                )
+                .where(
+                    RecruitmentProcess.job_id == target_job_id,
+                    RecruitmentProcess.candidate_id.in_(movable),
+                )
+                .group_by(RecruitmentProcess.candidate_id)
+            )
+        ).all()
+    }
+    await db.execute(
+        update(CandidateStage)
+        .where(
+            CandidateStage.job_id == source_job_id,
+            CandidateStage.candidate_id.in_(movable),
+        )
+        # `updated_at` zostaje: po nim „ostatnio ruszany etap” wybierają
+        # telefonia i kolejka Priority Work, a przepięcie nie jest ruchem.
+        .values(job_id=target_job_id, updated_at=CandidateStage.updated_at)
+        .execution_options(synchronize_session=False)
+    )
+    plain = [candidate_id for candidate_id in movable if candidate_id not in offsets]
+    if plain:
+        await db.execute(
+            update(RecruitmentProcess)
+            .where(
+                RecruitmentProcess.job_id == source_job_id,
+                RecruitmentProcess.candidate_id.in_(plain),
+            )
+            .values(job_id=target_job_id, updated_at=RecruitmentProcess.updated_at)
+            .execution_options(synchronize_session=False)
+        )
+    for candidate_id, offset in offsets.items():
+        await db.execute(
+            update(RecruitmentProcess)
+            .where(
+                RecruitmentProcess.job_id == source_job_id,
+                RecruitmentProcess.candidate_id == candidate_id,
+            )
+            .values(
+                job_id=target_job_id,
+                attempt_no=RecruitmentProcess.attempt_no + offset,
+                updated_at=RecruitmentProcess.updated_at,
+            )
+            .execution_options(synchronize_session=False)
+        )
+    await db.flush()
+    return movable
+
+
 async def update_latest_expected_rate(
     db: AsyncSession,
     *,
