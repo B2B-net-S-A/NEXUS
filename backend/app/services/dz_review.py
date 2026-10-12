@@ -754,6 +754,9 @@ async def _generated_cv(
             "stage_id": row.candidate_stage_id,
             "generated_document_id": row.generated_document_id,
             "updated_at": row.branded_finalized_at or row.branded_updated_at,
+            # Wersja szkicu, na której liczy się QC — poprawka z okna QC odsyła
+            # ją z powrotem, żeby nie nadpisać zmian z edytora otwartego obok.
+            "edit_revision": row.edit_revision or 0,
             "html": row.branded_draft_html,
         }
     doc = (

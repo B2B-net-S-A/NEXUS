@@ -1255,6 +1255,71 @@ def test_spelling_fix_in_html() -> None:
     assert count == 2 and out == "<p>JavaScript &amp; PostgreSQL</p>"
 
 
+# ── poprawka QC a edytor otwarty obok (Edytor CV 2, PR 2) ───────────────────
+
+
+def test_fix_is_refused_when_the_draft_changed_since_the_list_was_loaded() -> None:
+    """`qc/apply` podbijało wersję szkicu bez sprawdzenia: edytor otwarty obok
+    dostawał przy następnym autozapisie 409 i baner „zmienione w innej sesji”."""
+    from fastapi import HTTPException
+
+    draft = SimpleNamespace(edit_revision=7)
+    qc.ensure_fresh_draft(draft, None)  # karta sprzed zmiany nie wysyła wersji
+    qc.ensure_fresh_draft(draft, 7)
+    with pytest.raises(HTTPException) as refused:
+        qc.ensure_fresh_draft(draft, 6)
+    assert refused.value.status_code == 409
+    assert refused.value.detail["code"] == "CV_CHANGED"
+    assert "odśwież" in refused.value.detail["message"].lower()
+
+
+def test_qc_reports_the_draft_version_it_was_computed_on() -> None:
+    src = SimpleNamespace(
+        generated={"source": "branded_draft", "stage_id": 5, "edit_revision": 7},
+        bold_known=True,
+        blocks=[],
+    )
+    assert qc._cv_payload(src)["edit_revision"] == 7
+    # CV z generatora bez szkicu na etapie nie ma jeszcze wersji do porównania.
+    src.generated = {"source": "generated", "generated_document_id": 3}
+    assert qc._cv_payload(src)["edit_revision"] is None
+
+
+def test_fix_never_rewrites_the_consent_clause() -> None:
+    """Pisownia chodzi po całym tekście, a usuwanie terminu pomija tylko
+    nagłówki — klauzula zgody RODO jest stała także dla poprawek QC."""
+    from app.services.cv_generator_b2b.docx_renderer import TRANSLATIONS
+
+    clause = TRANSLATIONS["pl"]["rodo"]
+    before = f'<p>Zna Javascript.</p><p data-cv-section="rodo">{clause}</p>'
+    touched = before.replace("Javascript", "JavaScript").replace(
+        "B2B.net S.A.", "Innej Firmy"
+    )
+    after = qc.draft_after_fix(before, touched)
+    assert "<p>Zna JavaScript.</p>" in after
+    assert clause in after
+    assert "Innej Firmy" not in after
+
+
+def test_apply_request_carries_the_expected_draft_version() -> None:
+    from app.api.cv_qc import QcApplyRequest, QcCv
+
+    body = QcApplyRequest(action="spelling", expected_revision=3)
+    assert body.model_dump(exclude_none=True) == {
+        "action": "spelling",
+        "expected_revision": 3,
+    }
+    assert "expected_revision" not in QcApplyRequest(action="spelling").model_dump(
+        exclude_none=True
+    )
+    assert (
+        QcCv(
+            source="branded_draft", editable=True, blocks=[], edit_revision=4
+        ).edit_revision
+        == 4
+    )
+
+
 # ── CV zapisane w edytorze: punkt listy to `<li><p>…</p></li>` ───────────────
 #
 # Tiptap owija treść punktu w akapit. Parser bloków zakładał na tym akapicie
@@ -1981,12 +2046,24 @@ async def test_ai_fix_is_proposed_from_sources_and_applied_to_the_draft(
         ).json()
         assert again["cached"] is True and len(calls) == 1
 
+        listed = (
+            await api_client.get(f"/api/pipeline/stages/{stage_id}/qc", headers=hor)
+        ).json()
+        revision = listed["cv"]["edit_revision"]
+        assert revision is not None
         applied = await api_client.post(
             f"/api/pipeline/stages/{stage_id}/qc/apply",
             headers=hor,
-            json={"action": "ai_fix", "fix_id": body["fixes"][0]["id"]},
+            json={
+                "action": "ai_fix",
+                "fix_id": body["fixes"][0]["id"],
+                "expected_revision": revision,
+            },
         )
         assert applied.status_code == 200, applied.text
+        # Odpowiedź niesie nową wersję szkicu — następna poprawka z tego okna
+        # i autozapis edytora wiedzą, na czym stoją.
+        assert applied.json()["cv"]["edit_revision"] == revision + 1
         checks = {c["key"]: c for c in applied.json()["checks"]}
         assert checks["must_in_cv"]["status"] == "pass"
         async with AsyncSessionLocal() as db:
@@ -2017,6 +2094,63 @@ async def test_ai_fix_is_proposed_from_sources_and_applied_to_the_draft(
             json={"action": "ai_fix", "fix_id": "f9-000000000000"},
         )
         assert unknown.status_code == 422
+    finally:
+        await _cleanup_qc(world, stage_id)
+        await _cleanup(world, [hor_id])
+
+
+@pytest.mark.asyncio
+async def test_fix_on_a_draft_changed_elsewhere_is_refused_and_changes_nothing(
+    api_client: AsyncClient,
+) -> None:
+    """Edytor otwarty obok zapisał zmianę po wczytaniu listy QC: poprawka
+    z okna QC dostaje 409 `CV_CHANGED`, a szkic i jego wersja zostają."""
+    world = await _seed_world()
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    hor = await _login(api_client, hor_creds)
+    stage_id = await _seed_review(world, hor, api_client)
+    try:
+        listed = (
+            await api_client.get(f"/api/pipeline/stages/{stage_id}/qc", headers=hor)
+        ).json()
+        revision = listed["cv"]["edit_revision"]
+        async with AsyncSessionLocal() as db:
+            csv = await db.scalar(
+                select(CandidateStageCV).where(
+                    CandidateStageCV.candidate_stage_id == listed["cv"]["stage_id"]
+                )
+            )
+            csv.edit_revision = revision + 1
+            before = (csv.branded_draft_html, csv.branded_status, csv.branded_version)
+            await db.commit()
+        stale = await api_client.post(
+            f"/api/pipeline/stages/{stage_id}/qc/apply",
+            headers=hor,
+            json={"action": "spelling", "expected_revision": revision},
+        )
+        assert stale.status_code == 409, stale.text
+        assert stale.json()["detail"]["code"] == "CV_CHANGED"
+        async with AsyncSessionLocal() as db:
+            csv = await db.scalar(
+                select(CandidateStageCV).where(
+                    CandidateStageCV.candidate_stage_id == listed["cv"]["stage_id"]
+                )
+            )
+            assert (
+                csv.branded_draft_html,
+                csv.branded_status,
+                csv.branded_version,
+            ) == before
+            assert csv.edit_revision == revision + 1
+        # Z bieżącą wersją sprawdzenie przechodzi — odmowa dotyczy już samej
+        # poprawki (w tym CV nie ma pisowni do poprawienia).
+        current = await api_client.post(
+            f"/api/pipeline/stages/{stage_id}/qc/apply",
+            headers=hor,
+            json={"action": "spelling", "expected_revision": revision + 1},
+        )
+        assert current.status_code == 422, current.text
+        assert current.json()["detail"]["code"] == "CV_QC_FIX_FAILED"
     finally:
         await _cleanup_qc(world, stage_id)
         await _cleanup(world, [hor_id])

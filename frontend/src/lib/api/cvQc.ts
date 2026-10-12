@@ -8,6 +8,7 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tansta
 
 import api from "@/lib/api";
 import { BOARD_TASKS_QUERY_KEY } from "@/lib/api/boardTasks";
+import { apiErrorCode } from "@/lib/cv-qc";
 
 export type QcCheckStatus = "pass" | "fail" | "manual" | "skip";
 export type QcSeverity = "blocking" | "warning";
@@ -76,6 +77,8 @@ export interface QcCv {
   /** `false` = pogrubień nie da się odczytać (CV z PDF-a). */
   bold_known: boolean;
   updated_at: string | null;
+  /** Wersja szkicu CV etapu, na której policzono QC; brak dla CV bez szkicu. */
+  edit_revision?: number | null;
   blocks: QcCvBlock[];
 }
 
@@ -148,11 +151,15 @@ export interface QcFixesResponse {
   fixes: QcFix[];
 }
 
-export type QcApplyBody =
+export type QcApplyBody = (
   | { action: "ai_fix"; fix_id: string; text?: string }
   | { action: "bold_all"; scope: "must" | "nice" }
   | { action: "remove_term"; term: string }
-  | { action: "spelling" };
+  | { action: "spelling" }
+) & { expected_revision?: number };
+
+/** 409 z `qc/apply`: szkic zmienił się od wczytania listy QC. */
+export const CV_CHANGED_CODE = "CV_CHANGED";
 
 export const cvQcQueryKey = (stageId: number) => ["cv-qc", stageId] as const;
 export const cvQcFixesQueryKey = (stageId: number) => ["cv-qc", stageId, "fixes"] as const;
@@ -191,22 +198,44 @@ export function invalidateAfterQcChange(queryClient: QueryClient, jobId: number)
   void queryClient.invalidateQueries({ queryKey: BOARD_TASKS_QUERY_KEY });
 }
 
-function useQcWrite<TBody>(stageId: number | null, path: string, onChanged?: () => void) {
+function useQcWrite<TBody>(
+  stageId: number | null,
+  path: string,
+  onChanged?: () => void,
+  prepare?: (body: TBody, cached: QcResult | undefined) => TBody,
+) {
   const queryClient = useQueryClient();
+  const key = cvQcQueryKey(stageId ?? 0);
   return useMutation<QcResult, unknown, TBody>({
     mutationFn: (body) =>
-      api.post<QcResult>(`/api/pipeline/stages/${stageId}/qc/${path}`, body).then((r) => r.data),
+      api
+        .post<QcResult>(
+          `/api/pipeline/stages/${stageId}/qc/${path}`,
+          prepare ? prepare(body, queryClient.getQueryData<QcResult>(key)) : body,
+        )
+        .then((r) => r.data),
     onSuccess: (result) => {
       queryClient.setQueryData(cvQcQueryKey(stageId ?? result.stage_id), result);
       invalidateAfterQcChange(queryClient, result.job_id);
       onChanged?.();
     },
+    onError: (error) => {
+      // Szkic zmienił się poza tym oknem (edytor obok) — lista jest nieaktualna.
+      if (apiErrorCode(error) === CV_CHANGED_CODE) void queryClient.invalidateQueries({ queryKey: key, exact: true });
+    },
   });
 }
 
-/** Zastosowanie poprawki — serwer zwraca świeży wynik QC, który zastępuje cache. */
+/**
+ * Zastosowanie poprawki — serwer zwraca świeży wynik QC, który zastępuje cache.
+ * Żądanie niesie wersję szkicu, na której policzono listę: poprawka nie
+ * nadpisuje zmian z edytora otwartego obok (409 `CV_CHANGED`).
+ */
 export function useQcApply(stageId: number | null, onChanged?: () => void) {
-  return useQcWrite<QcApplyBody>(stageId, "apply", onChanged);
+  return useQcWrite<QcApplyBody>(stageId, "apply", onChanged, (body, cached) => {
+    const revision = cached?.cv?.edit_revision;
+    return typeof revision === "number" ? { ...body, expected_revision: revision } : body;
+  });
 }
 
 /** Gotowy powód (`reason_code`) z opcjonalnym opisem; opis wymagany przy „Inny powód". */

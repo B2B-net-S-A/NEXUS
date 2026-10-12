@@ -368,6 +368,42 @@ describe("CvQcDialog — QC CV", () => {
     expect(keys()).toEqual(expect.arrayContaining(['["kanban","31"]', '["kanban",31]', '["board-tasks"]']));
   });
 
+  it("poprawka odsyła wersję szkicu, na której policzono listę", async () => {
+    serve(result({ cv: { ...result().cv!, edit_revision: 12 } }));
+    post.mockResolvedValue({ data: passed() });
+    renderDialog();
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(await within(dialog).findByRole("button", { name: /Must-have są pogrubione/ }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Pogrub wszystkie" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(`${QC_URL}/apply`, {
+        action: "bold_all",
+        scope: "must",
+        expected_revision: 12,
+      }),
+    );
+  });
+
+  it("szkic zmieniony w edytorze obok: odmowa słowami serwera i lista liczy się od nowa", async () => {
+    serve(result({ cv: { ...result().cv!, edit_revision: 12 } }));
+    post.mockRejectedValue({
+      response: {
+        status: 409,
+        data: { detail: { code: "CV_CHANGED", message: "CV zmieniło się od wczytania tej listy. Odśwież ją i nałóż poprawkę jeszcze raz." } },
+      },
+    });
+    renderDialog();
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(await within(dialog).findByRole("button", { name: /Must-have są pogrubione/ }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Pogrub wszystkie" }));
+    await waitFor(() =>
+      expect(showError).toHaveBeenCalledWith(
+        "CV zmieniło się od wczytania tej listy. Odśwież ją i nałóż poprawkę jeszcze raz.",
+      ),
+    );
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+  });
+
   it("zamknięcie okna odświeża Tablicę — chip QC nie zostaje stary", async () => {
     const { keys, onClose } = renderDialog();
     const dialog = await screen.findByRole("dialog");

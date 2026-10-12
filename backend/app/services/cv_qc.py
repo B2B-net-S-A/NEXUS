@@ -1581,6 +1581,7 @@ def _cv_payload(src: dz.ReviewSources) -> Optional[dict]:
         "filename": gen.get("filename"),
         "bold_known": src.bold_known,
         "updated_at": gen.get("updated_at"),
+        "edit_revision": gen.get("edit_revision"),
         # Runda 9 (R9-V2-5): kilka plików „…B2B…” tego klienta — wskazany
         # najnowszy, do sprawdzenia przez człowieka.
         "ambiguous": bool(gen.get("ambiguous")),
@@ -3022,8 +3023,42 @@ def fix_spelling_html(html: str) -> tuple[str, int]:
     return doc.html(), count
 
 
+def ensure_fresh_draft(csv: CandidateStageCV, expected: Optional[int]) -> None:
+    """409 `CV_CHANGED`, gdy szkic zmienił się od wczytania listy QC.
+
+    Poprawka podbija wersję szkicu. Bez tego sprawdzenia nadpisywała zmiany
+    z edytora otwartego obok, a jego następny autozapis kończył się 409.
+    `expected=None` (karta sprzed tej zmiany) niczego nie sprawdza.
+    """
+    if expected is None or expected == (csv.edit_revision or 0):
+        return
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "CV_CHANGED",
+            "message": (
+                "CV zmieniło się od wczytania tej listy. Odśwież ją i nałóż "
+                "poprawkę jeszcze raz."
+            ),
+        },
+    )
+
+
+def draft_after_fix(previous_html: str, fixed_html: str) -> str:
+    """Treść szkicu po poprawce QC: sanitizer i stała klauzula zgody RODO."""
+    from app.services.cv_rodo_clause import keep_rodo_clause
+    from app.services.html_sanitizer import sanitize_cv_html
+
+    return keep_rodo_clause(previous_html, sanitize_cv_html(fixed_html))
+
+
 async def _editable_csv(
-    db: AsyncSession, stage: CandidateStage, gen: dict, *, user_id: int
+    db: AsyncSession,
+    stage: CandidateStage,
+    gen: dict,
+    *,
+    user_id: int,
+    expected_revision: Optional[int] = None,
 ) -> CandidateStageCV:
     """Szkic CV firmowego pary do edycji (z blokadą wiersza).
 
@@ -3046,6 +3081,8 @@ async def _editable_csv(
         )
         if csv is None:
             raise ApplyError("CV firmowe zniknęło — odśwież okno QC.")
+        # Przed „nową wersją” zatwierdzonego CV — odmowa niczego nie zmienia.
+        ensure_fresh_draft(csv, expected_revision)
     else:
         latest = await db.scalar(
             select(CandidateStage)
@@ -3117,7 +3154,6 @@ async def apply_action(
     """
 
     from app.models.activity import Activity
-    from app.services.html_sanitizer import sanitize_cv_html
 
     src = await _load_sources(db, stage)
     gen = src.generated
@@ -3149,7 +3185,13 @@ async def apply_action(
     elif action not in ("bold_all", "remove_term", "spelling"):
         raise ApplyError("Nieznana poprawka.")
 
-    csv = await _editable_csv(db, stage, gen, user_id=user_id)
+    csv = await _editable_csv(
+        db,
+        stage,
+        gen,
+        user_id=user_id,
+        expected_revision=payload.get("expected_revision"),
+    )
     html = csv.branded_draft_html or ""
     details: dict[str, Any] = {"candidate_stage_id": csv.candidate_stage_id}
     if action == "ai_fix":
@@ -3193,7 +3235,7 @@ async def apply_action(
             raise ApplyError("Nie ma pisowni do poprawienia.")
         details.update({"count": count})
 
-    csv.branded_draft_html = sanitize_cv_html(new_html)
+    csv.branded_draft_html = draft_after_fix(html, new_html)
     csv.edit_revision += 1
     csv.branded_updated_at = datetime.now(timezone.utc)
     csv.branded_updated_by = user_id

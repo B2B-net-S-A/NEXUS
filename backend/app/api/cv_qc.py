@@ -81,6 +81,8 @@ class QcCv(BaseModel):
     filename: Optional[str] = None
     bold_known: bool = True
     updated_at: Optional[datetime] = None
+    # Wersja szkicu CV etapu, na której policzono QC (brak dla CV bez szkicu).
+    edit_revision: Optional[int] = None
     blocks: list[QcBlock]
 
 
@@ -160,6 +162,9 @@ class QcApplyRequest(BaseModel):
     text: Optional[str] = Field(default=None, max_length=1000)
     scope: Optional[Literal["must", "nice"]] = None
     term: Optional[str] = Field(default=None, max_length=120)
+    # Wersja szkicu z odpowiedzi QC; inna niż w bazie = 409 `CV_CHANGED`.
+    # Opcjonalna: karty otwarte przed tą zmianą jej nie wysyłają.
+    expected_revision: Optional[int] = Field(default=None, ge=0)
 
 
 class QcConfirmRequest(BaseModel):
