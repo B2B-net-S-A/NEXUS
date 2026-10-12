@@ -427,3 +427,316 @@ async def test_execution_needs_a_fresh_dry_run_of_the_same_wave() -> None:
         )
         await db.commit()
         assert not await transfer.fresh_dry_run_exists(db, wave)
+
+
+@pytest.mark.asyncio
+async def test_twin_can_be_transferred_with_the_team_of_the_nexus_recruitment(
+    post_commit_calls: list[Any],
+) -> None:
+    from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
+
+    seed = await _seed()
+    actor = await _admin_id()
+    owner, lead, helper = (
+        await new_recruiter(),
+        await new_recruiter(),
+        await new_recruiter(),
+    )
+    async with AsyncSessionLocal() as db:
+        twin = Job(
+            title=seed["title"],
+            status=JobStatus.published,
+            client_id=seed["client_id"],
+            external_source="manual",
+            recruiter_id=owner,
+            delivery_lead_id=lead,
+        )
+        db.add(twin)
+        await db.flush()
+        db.add(
+            JobCollaborator(
+                job_id=twin.id, user_id=helper, source=JobCollaboratorSource.manual
+            )
+        )
+        await db.commit()
+        twin_id = twin.id
+
+    scope = transfer.Scope(job_ids=(seed["job_id"],), include_twins=True)
+    async with AsyncSessionLocal() as db:
+        report = await transfer.process(
+            db,
+            _traffit_for(seed),
+            scope,
+            dry_run=False,
+            actor_user_id=actor,
+            actor_label="test",
+        )
+
+    (job,) = report["jobs"]
+    assert job["status"] == "transferred", job
+    assert job["twin_job_id"] == twin_id and job["twin_exact"] is True
+    assert job["recruiter_from_twin"] == owner
+    assert await _job_state(seed["job_id"]) == ("published", True, True, "searching")
+    async with AsyncSessionLocal() as db:
+        row = (
+            await db.execute(
+                text("SELECT recruiter_id, delivery_lead_id FROM jobs WHERE id = :i"),
+                {"i": seed["job_id"]},
+            )
+        ).one()
+        helpers = (
+            await db.execute(
+                text("SELECT user_id FROM job_collaborators WHERE job_id = :i"),
+                {"i": seed["job_id"]},
+            )
+        ).scalars()
+        assert (row[0], row[1]) == (owner, lead)
+        assert helper in set(helpers)
+        # Rekrutacja założona w NEXUSIE zostaje nietknięta.
+        twin_state = (
+            await db.execute(
+                text(
+                    "SELECT CAST(status AS text), recruiter_id FROM jobs WHERE id = :i"
+                ),
+                {"i": twin_id},
+            )
+        ).one()
+        assert (twin_state[0], twin_state[1]) == ("published", owner)
+
+
+@pytest.mark.asyncio
+async def test_similar_title_does_not_move_the_team(
+    post_commit_calls: list[Any],
+) -> None:
+    # Tytuł tylko PODOBNY: rekrutacja jest przenoszona, ale zostaje przy
+    # swoim prowadzącym — przypisane osoby mają się nie zmieniać.
+    seed = await _seed()
+    actor = await _admin_id()
+    other_owner = await new_recruiter()
+    async with AsyncSessionLocal() as db:
+        before = (
+            await db.execute(
+                text("SELECT recruiter_id FROM jobs WHERE id = :i"),
+                {"i": seed["job_id"]},
+            )
+        ).scalar_one()
+        twin = Job(
+            title=seed["title"] + " II",
+            status=JobStatus.published,
+            client_id=seed["client_id"],
+            external_source="manual",
+            recruiter_id=other_owner,
+        )
+        db.add(twin)
+        await db.commit()
+
+    scope = transfer.Scope(job_ids=(seed["job_id"],), include_twins=True)
+    async with AsyncSessionLocal() as db:
+        report = await transfer.process(
+            db,
+            _traffit_for(seed),
+            scope,
+            dry_run=False,
+            actor_user_id=actor,
+            actor_label="test",
+        )
+
+    (job,) = report["jobs"]
+    assert job["status"] == "transferred" and job["twin_exact"] is False, job
+    assert "recruiter_from_twin" not in job
+    async with AsyncSessionLocal() as db:
+        after = (
+            await db.execute(
+                text("SELECT recruiter_id FROM jobs WHERE id = :i"),
+                {"i": seed["job_id"]},
+            )
+        ).scalar_one()
+    assert after == before
+
+
+async def _delivery_lead_id() -> int:
+    from app.core.security import hash_password
+    from app.models.user import User, UserRole
+
+    async with AsyncSessionLocal() as db:
+        user = User(
+            email=f"transfer-dl-{uuid.uuid4().hex[:8]}@example.com",
+            password_hash=hash_password("not-a-login"),
+            name="Transfer DL",
+            role=UserRole.delivery_lead,
+            roles=["delivery_lead"],
+            is_active=True,
+        )
+        db.add(user)
+        await db.commit()
+        return user.id
+
+
+async def _owner_and_lead(job_id: int) -> tuple[Optional[int], Optional[int]]:
+    async with AsyncSessionLocal() as db:
+        row = (
+            await db.execute(
+                text("SELECT recruiter_id, delivery_lead_id FROM jobs WHERE id = :i"),
+                {"i": job_id},
+            )
+        ).one()
+        return row[0], row[1]
+
+
+async def _active_assignments(job_id: int) -> int:
+    async with AsyncSessionLocal() as db:
+        return (
+            await db.execute(
+                text(
+                    "SELECT count(*) FROM job_work_assignments "
+                    "WHERE job_id = :i AND state = 'active'"
+                ),
+                {"i": job_id},
+            )
+        ).scalar_one()
+
+
+@pytest.mark.asyncio
+async def test_delivery_lead_from_traffit_does_not_become_the_recruiter(
+    post_commit_calls: list[Any],
+) -> None:
+    # W Traffit „osobą odpowiedzialną” jest Delivery Lead; po otwarciu nie
+    # może zostać policzony jako rekruter requestu (12.10.2026).
+    seed = await _seed()
+    actor = await _admin_id()
+    lead = await _delivery_lead_id()
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text("UPDATE jobs SET recruiter_id = :u WHERE id = :i"),
+            {"u": lead, "i": seed["job_id"]},
+        )
+        await db.commit()
+
+    report = await _run(seed, _traffit_for(seed), dry_run=False, actor=actor)
+
+    (job,) = report["jobs"]
+    assert job["status"] == "transferred", job
+    assert job["owner_without_recruiter_role"] == lead
+    assert await _owner_and_lead(seed["job_id"]) == (None, lead)
+    assert await _active_assignments(seed["job_id"]) == 0
+
+
+@pytest.mark.asyncio
+async def test_recruiter_from_traffit_stays_the_recruiter(
+    post_commit_calls: list[Any],
+) -> None:
+    seed = await _seed()
+    actor = await _admin_id()
+    before = await _owner_and_lead(seed["job_id"])
+
+    report = await _run(seed, _traffit_for(seed), dry_run=False, actor=actor)
+
+    (job,) = report["jobs"]
+    assert "owner_without_recruiter_role" not in job
+    assert (await _owner_and_lead(seed["job_id"]))[0] == before[0]
+
+
+@pytest.mark.asyncio
+async def test_next_run_repairs_recruitments_opened_with_a_delivery_lead_as_owner(
+    post_commit_calls: list[Any],
+) -> None:
+    from app.models.activity import Activity
+    from app.models.job_work_assignment import JobWorkAssignment
+
+    seed = await _seed()
+    actor = await _admin_id()
+    lead = await _delivery_lead_id()
+    # Stan po pierwszej fali: rekrutacja otwarta, DL jako prowadzący
+    # z aktywnym przypisaniem „Rekruter”.
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text(
+                "UPDATE jobs SET status = 'published', is_open = true, "
+                "managed_in_nexus = true, work_state = 'searching', "
+                "recruiter_id = :u WHERE id = :i"
+            ),
+            {"u": lead, "i": seed["job_id"]},
+        )
+        db.add(
+            Activity(
+                entity_type="job",
+                entity_id=seed["job_id"],
+                action="traffit_transfer",
+                user_id=actor,
+            )
+        )
+        db.add(
+            JobWorkAssignment(
+                job_id=seed["job_id"],
+                user_id=lead,
+                role="recruiter",
+                source="owner",
+                state="active",
+            )
+        )
+        await db.commit()
+    assert await _active_assignments(seed["job_id"]) == 1
+
+    async with AsyncSessionLocal() as db:
+        preview = await transfer.repair_transferred_owners(
+            db, actor_user_id=None, dry_run=True
+        )
+    assert seed["job_id"] in preview["owners_settled_job_ids"]
+    assert await _owner_and_lead(seed["job_id"]) == (lead, None)
+
+    async with AsyncSessionLocal() as db:
+        done = await transfer.repair_transferred_owners(
+            db, actor_user_id=actor, dry_run=False
+        )
+    assert seed["job_id"] in done["owners_settled_job_ids"]
+    assert await _owner_and_lead(seed["job_id"]) == (None, lead)
+    assert await _active_assignments(seed["job_id"]) == 0
+
+
+@pytest.mark.asyncio
+async def test_recruitment_switched_by_hand_but_still_closed_is_opened_when_listed(
+    post_commit_calls: list[Any],
+) -> None:
+    # Ktoś kliknął „Przełącz do NEXUSA” i nie otworzył rekrutacji: import jej
+    # już nie rusza, a w NEXUSIE dalej jest zamknięta.
+    seed = await _seed()
+    actor = await _admin_id()
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text("UPDATE jobs SET managed_in_nexus = true WHERE id = :i"),
+            {"i": seed["job_id"]},
+        )
+        await db.commit()
+
+    report = await _run(seed, _traffit_for(seed), dry_run=False, actor=actor)
+
+    (job,) = report["jobs"]
+    assert job["status"] == "transferred", job
+    assert await _job_state(seed["job_id"]) == ("published", True, True, "searching")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("auto_filled", "replaced"), [(True, True), (False, False)])
+async def test_delivery_lead_from_traffit_replaces_only_an_auto_filled_lead(
+    post_commit_calls: list[Any], auto_filled: bool, replaced: bool
+) -> None:
+    # Automat wpisuje głównego DL-a klienta; u klienta z kilkoma DL-ami
+    # rekrutację prowadzi ten z Traffita. DL wpisany przez człowieka zostaje.
+    seed = await _seed()
+    actor = await _admin_id()
+    lead, other = await _delivery_lead_id(), await _delivery_lead_id()
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text(
+                "UPDATE jobs SET recruiter_id = :u, delivery_lead_id = :o, "
+                "delivery_lead_auto_filled = :a WHERE id = :i"
+            ),
+            {"u": lead, "o": other, "a": auto_filled, "i": seed["job_id"]},
+        )
+        await db.commit()
+
+    report = await _run(seed, _traffit_for(seed), dry_run=False, actor=actor)
+
+    (job,) = report["jobs"]
+    assert job["status"] == "transferred", job
+    assert await _owner_and_lead(seed["job_id"]) == (None, lead if replaced else other)

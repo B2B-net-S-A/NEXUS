@@ -273,12 +273,17 @@ async def traffit_file_dates_repair_status(
 # Falami, WYŁĄCZNIE ręcznie: najpierw próba (`dry_run=true`, zero zmian, raport
 # per rekrutacja w statusie), potem — po akceptacji raportu przez właściciela —
 # wykonanie (`dry_run=false`) dla TEJ SAMEJ fali. Fala to klient (`client_id`)
-# albo wskazane rekrutacje (`job_ids`, id NEXUSA po przecinku). Szczegóły:
-# `app/services/traffit_transfer.py`.
+# albo wskazane rekrutacje (`job_ids`, id NEXUSA po przecinku). Rekrutację,
+# która ma bliźniaka założonego w NEXUSIE, bieg pomija, chyba że dostanie
+# `include_twins=true` — wtedy otwiera kopię z Traffita z zespołem bliźniaka.
+# Szczegóły: `app/services/traffit_transfer.py`.
 
 
 def _transfer_scope(
-    client_id: Optional[int], job_ids: Optional[str], active_days: int
+    client_id: Optional[int],
+    job_ids: Optional[str],
+    active_days: int,
+    include_twins: bool = False,
 ) -> transfer.Scope:
     ids: list[int] = []
     for part in (job_ids or "").split(","):
@@ -298,7 +303,10 @@ def _transfer_scope(
             detail="Podaj falę: client_id albo job_ids.",
         )
     return transfer.Scope(
-        client_id=client_id, job_ids=tuple(sorted(set(ids))), active_days=active_days
+        client_id=client_id,
+        job_ids=tuple(sorted(set(ids))),
+        active_days=active_days,
+        include_twins=include_twins,
     )
 
 
@@ -311,11 +319,12 @@ async def trigger_traffit_transfer(
     client_id: Optional[int] = Query(None, ge=1),
     job_ids: Optional[str] = Query(None, max_length=4000),
     active_days: int = Query(transfer.ACTIVE_DAYS_DEFAULT, ge=1, le=365),
+    include_twins: bool = Query(False),
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     """Przeniesienie fali rekrutacji z Traffita do NEXUSA (w tle)."""
     _traffit_configured_or_503()
-    scope = _transfer_scope(client_id, job_ids, active_days)
+    scope = _transfer_scope(client_id, job_ids, active_days, include_twins)
     if not dry_run and caller.user is None:
         # Otwarcie rekrutacji zapisuje, kto je wykonał (historia, przypisanie
         # prowadzącego) — klucz konta serwisowego może tylko zrobić próbę.

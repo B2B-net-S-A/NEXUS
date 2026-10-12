@@ -19,9 +19,12 @@ Fala to dwa biegi tej samej reguły:
 
 Czego ta wersja świadomie NIE robi:
 
-* nie przenosi rekrutacji, która ma bliźniaka założonego w NEXUSIE (ten sam
-  klient, niemal ten sam tytuł) — która z dwóch zostaje, to osobna decyzja;
-  raport takie rekrutacje wskazuje i pomija;
+* domyślnie nie przenosi rekrutacji, która ma bliźniaka założonego
+  w NEXUSIE (ten sam klient, niemal ten sam tytuł) — raport ją wskazuje
+  i pomija. ``include_twins`` (12.10.2026, migracja całego zespołu) otwiera
+  kopię z Traffita z prowadzącym, DL-em i ręcznymi współpracownikami
+  bliźniaka; rekrutacji NEXUSA nie rusza, więc request jest wtedy widoczny
+  dwa razy, dopóki obu nie scali osobny krok;
 * nie zakłada kandydatów — osoba z Traffita, której NEXUS nie zna, trafia do
   raportu z numerem osoby;
 * nie rusza kart dodanych w NEXUSIE ani par, których ostatni ruch zrobiono
@@ -36,11 +39,12 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from difflib import SequenceMatcher
-from typing import Any, Optional
+from typing import Any, NamedTuple, Optional
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -96,12 +100,15 @@ class Scope:
     client_id: Optional[int] = None
     job_ids: tuple[int, ...] = ()
     active_days: int = ACTIVE_DAYS_DEFAULT
+    #: Przenieś także rekrutacje, które mają bliźniaka w NEXUSIE (12.10.2026).
+    include_twins: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "client_id": self.client_id,
             "job_ids": sorted(self.job_ids),
             "active_days": self.active_days,
+            "include_twins": self.include_twins,
         }
 
     def key(self) -> str:
@@ -134,11 +141,21 @@ class RosterUnavailable(RuntimeError):
 
 
 def _jobs_sql(scope: Scope) -> str:
+    # Rekrutacja już przełączona ręcznie („Przełącz do NEXUSA”), ale nadal
+    # zamknięta, wchodzi do fali tylko wtedy, gdy jest wskazana wprost —
+    # 12.10.2026 trzy takie zostały w pół drogi (import ich nie rusza, a nikt
+    # ich nie otworzył). Fala po kliencie ich nie bierze: zamknięcie
+    # przełączonej rekrutacji bywa świadomą decyzją.
+    not_switched = (
+        "(NOT j.managed_in_nexus OR j.status = 'closed')"
+        if scope.job_ids
+        else "NOT j.managed_in_nexus"
+    )
     clauses = [
         "j.external_source = 'traffit'",
         "j.external_id IS NOT NULL",
         "j.closed_at IS NULL",
-        "NOT j.managed_in_nexus",
+        not_switched,
         """EXISTS (
             SELECT 1 FROM candidate_stages cs
             WHERE cs.job_id = j.id AND cs.external_source = 'traffit'
@@ -264,19 +281,52 @@ def _title_key(title: str) -> str:
     return " ".join(title.lower().split())
 
 
-def find_twin(title: str, candidates: list[tuple[int, str]]) -> Optional[int]:
-    """Rekrutacja NEXUSA o niemal tym samym tytule (ten sam klient) albo ``None``."""
+# Numer requestu klienta na końcu tytułu: „… (42961)”, „… (ZOB-3054)”.
+_REQUEST_ID_RE = re.compile(r"\s*\([^()]*\d[^()]*\)\s*$")
+
+
+def title_core(title: str) -> str:
+    """Tytuł bez numeru requestu w nawiasie na końcu, małymi literami."""
+    return _REQUEST_ID_RE.sub("", _title_key(title))
+
+
+class Twin(NamedTuple):
+    job_id: int
+    #: Ten sam tytuł (z dokładnością do numeru requestu w nawiasie) — pewne,
+    #: że to ten sam request. ``False`` = tylko podobny tytuł.
+    exact: bool
+
+
+def match_twin(title: str, candidates: list[tuple[int, str]]) -> Optional[Twin]:
+    """Rekrutacja NEXUSA tego samego klienta dla tego samego requestu.
+
+    Najpierw tytuł identyczny po odjęciu numeru requestu („MS Power Platform
+    Expert” i „MS Power Platform Expert (42732)”), potem najbardziej podobny
+    powyżej progu. Podobieństwo wystarcza, żeby rekrutację OSTROŻNIE pominąć,
+    ale nie żeby przenieść na nią czyjś zespół: trzy różne rekrutacje
+    „IT Developer …” potrafią wskazać tę samą rekrutację NEXUSA.
+    """
+    core = title_core(title)
+    for job_id, other in candidates:
+        if core and title_core(other) == core:
+            return Twin(job_id, True)
     key = _title_key(title)
     best: tuple[float, int] = (0.0, 0)
     for job_id, other in candidates:
         ratio = SequenceMatcher(None, key, _title_key(other)).ratio()
         if ratio > best[0]:
             best = (ratio, job_id)
-    return best[1] if best[0] >= TWIN_MIN_RATIO else None
+    return Twin(best[1], False) if best[0] >= TWIN_MIN_RATIO else None
 
 
-async def load_twins(db: AsyncSession, jobs: list[WaveJob]) -> dict[int, int]:
-    """``job_id`` rekrutacji z Traffita → ``job_id`` bliźniaka w NEXUSIE."""
+def find_twin(title: str, candidates: list[tuple[int, str]]) -> Optional[int]:
+    """Rekrutacja NEXUSA o niemal tym samym tytule (ten sam klient) albo ``None``."""
+    twin = match_twin(title, candidates)
+    return twin.job_id if twin is not None else None
+
+
+async def load_twins(db: AsyncSession, jobs: list[WaveJob]) -> dict[int, Twin]:
+    """``job_id`` rekrutacji z Traffita → jej bliźniak w NEXUSIE."""
     client_ids = sorted({j.client_id for j in jobs if j.client_id is not None})
     if not client_ids:
         return {}
@@ -295,11 +345,11 @@ async def load_twins(db: AsyncSession, jobs: list[WaveJob]) -> dict[int, int]:
     by_client: dict[int, list[tuple[int, str]]] = {}
     for r in rows.all():
         by_client.setdefault(int(r.client_id), []).append((int(r.id), r.title or ""))
-    out: dict[int, int] = {}
+    out: dict[int, Twin] = {}
     for job in jobs:
         if job.client_id is None:
             continue
-        twin = find_twin(job.title, by_client.get(int(job.client_id), []))
+        twin = match_twin(job.title, by_client.get(int(job.client_id), []))
         if twin is not None:
             out[job.job_id] = twin
     return out
@@ -507,6 +557,185 @@ async def _apply_plan(
     return receipt
 
 
+async def _adopt_twin_team(
+    db: AsyncSession, job_row: Any, twin_job_id: int, actor_id: int
+) -> dict[str, Any]:
+    """Zespół z rekrutacji założonej w NEXUSIE przechodzi na kopię z Traffita.
+
+    Ten sam request bywa w NEXUSIE dwa razy: Delivery Lead założył go tutaj
+    (wskazał prowadzącego, siebie, dopisał współpracowników), a kandydaci są
+    w kopii z Traffita, w której „prowadzącym” jest pierwsza osoba z listy
+    Traffita. Otwierana kopia dostaje więc prowadzącego (aktywnego), DL-a
+    i ręcznie dopisanych współpracowników z rekrutacji NEXUSA — inaczej nie
+    trafiłaby do „moich rekrutacji” ludzi, którzy nad nią pracują. Rekrutacja
+    NEXUSA zostaje nietknięta; scalenie obu to osobny krok. Bez commitu.
+    """
+    from app.models.job import Job
+    from app.models.user import User
+
+    twin = await db.get(Job, twin_job_id)
+    if twin is None:
+        return {}
+    adopted: dict[str, Any] = {}
+    if twin.recruiter_id is not None and twin.recruiter_id != job_row.recruiter_id:
+        owner = await db.get(User, twin.recruiter_id)
+        if owner is not None and owner.is_active:
+            job_row.recruiter_id = owner.id
+            adopted["recruiter_from_twin"] = owner.id
+    if (
+        twin.delivery_lead_id is not None
+        and twin.delivery_lead_id != job_row.delivery_lead_id
+    ):
+        job_row.delivery_lead_id = twin.delivery_lead_id
+        job_row.delivery_lead_auto_filled = False
+        adopted["delivery_lead_from_twin"] = twin.delivery_lead_id
+    copied = await db.execute(
+        text(
+            """
+            INSERT INTO job_collaborators (job_id, user_id, added_by, source)
+            SELECT :job_id, jc.user_id, :actor, jc.source
+            FROM job_collaborators jc
+            WHERE jc.job_id = :twin_id
+              AND jc.source = 'manual'
+              AND NOT jc.removed_from_auto_cc
+              AND jc.removed_at IS NULL
+            ON CONFLICT (job_id, user_id) DO NOTHING
+            """
+        ),
+        {"job_id": job_row.id, "twin_id": twin_job_id, "actor": actor_id},
+    )
+    adopted["collaborators_from_twin"] = int(copied.rowcount or 0)
+    return adopted
+
+
+async def _settle_owner(db: AsyncSession, job_row: Any) -> dict[str, Any]:
+    """Prowadzący z Traffita bez roli rekrutera nie zostaje rekruterem requestu.
+
+    W Traffit „osobą odpowiedzialną” za rekrutację jest zwykle Delivery Lead,
+    a import wpisuje ją do ``jobs.recruiter_id``. Dopóki rekrutacja była
+    archiwum, nic z tego nie wynikało; po otwarciu prowadzący jest przy
+    requeście z urzędu jako „Rekruter” (wiersz ``owner`` automatu przydziału)
+    — 12.10.2026 pierwsza fala pokazała w „Obłożeniu” trzech Delivery Leadów
+    z 10–18 requestami. Aktywna osoba bez roli pracy przy requestach
+    (``job_team.WORK_ROLES``) trafia więc na miejsce Delivery Leada, jeśli
+    jest puste albo wypełnił je automat, a rekrutacja zostaje bez rekrutera
+    — nikogo nowego nie przypisujemy, o rekruterze decyduje człowiek.
+    Bez commitu.
+    """
+    from app.models.user import User, UserRole
+    from app.services.job_team import WORK_ROLES
+
+    if job_row.recruiter_id is None:
+        return {}
+    owner = await db.get(User, job_row.recruiter_id)
+    if owner is None or not owner.is_active or owner.has_any_role(*WORK_ROLES):
+        return {}
+    settled: dict[str, Any] = {"owner_without_recruiter_role": owner.id}
+    # DL-a wpisanego przez automat (główny DL klienta) zastępujemy: u klienta
+    # z kilkoma Delivery Leadami rekrutację prowadzi ten z Traffita, a automat
+    # wpisywał wszystkim jednego — 35 rekrutacji jednego DL-a dostało innego.
+    # DL-a wpisanego przez człowieka nie ruszamy.
+    lead_slot_free = job_row.delivery_lead_id is None or bool(
+        job_row.delivery_lead_auto_filled
+    )
+    if owner.has_any_role(UserRole.delivery_lead) and lead_slot_free:
+        if job_row.delivery_lead_id != owner.id:
+            settled["owner_moved_to_delivery_lead"] = True
+        job_row.delivery_lead_id = owner.id
+        job_row.delivery_lead_auto_filled = False
+    job_row.recruiter_id = None
+    return settled
+
+
+_TRANSFERRED_WITH_OWNER_SQL = """
+SELECT j.id
+FROM jobs j
+JOIN users u ON u.id = j.recruiter_id
+WHERE j.external_source = 'traffit'
+  AND j.managed_in_nexus
+  AND j.status = 'published'
+  AND u.is_active
+  AND EXISTS (SELECT 1 FROM activities a
+              WHERE a.entity_type = 'job' AND a.entity_id = j.id
+                AND a.action = 'traffit_transfer')
+ORDER BY j.id
+"""
+
+
+async def repair_transferred_owners(
+    db: AsyncSession, *, actor_user_id: Optional[int], dry_run: bool
+) -> dict[str, Any]:
+    """Zastosuj :func:`_settle_owner` do rekrutacji przeniesionych wcześniej.
+
+    Pierwsza fala (12.10.2026) otworzyła rekrutacje z Delivery Leadem jako
+    prowadzącym. Ten przebieg zdejmuje go z miejsca rekrutera i zwalnia jego
+    przypisanie „Rekruter” tą samą funkcją co zmiana prowadzącego w oknie
+    edycji. Idempotentny: po naprawie rekrutacja nie ma prowadzącego, więc
+    kolejny bieg jej nie widzi.
+    """
+    from sqlalchemy import select
+
+    from app.models.activity import Activity
+    from app.models.job import Job
+    from app.models.user import User
+    from app.services import job_lifecycle
+    from app.services.job_team import WORK_ROLES
+    from app.services.recruitment_allocation import allocation_lock
+
+    job_ids = [int(r[0]) for r in (await db.execute(text(_TRANSFERRED_WITH_OWNER_SQL)))]
+    await db.rollback()
+    repaired: list[int] = []
+    moved_to_lead = 0
+    for job_id in job_ids:
+        if dry_run:
+            job_row = await db.get(Job, job_id)
+            owner = await db.get(User, job_row.recruiter_id) if job_row else None
+            if owner is not None and not owner.has_any_role(*WORK_ROLES):
+                repaired.append(job_id)
+            continue
+        if actor_user_id is None:
+            break
+        await allocation_lock(db)
+        job_row = (
+            await db.execute(
+                select(Job)
+                .where(Job.id == job_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one()
+        previous = job_row.recruiter_id
+        settled = await _settle_owner(db, job_row)
+        if not settled:
+            await db.rollback()
+            continue
+        await job_lifecycle._api()._sync_work_assignments_with_owner(  # noqa: SLF001
+            db,
+            job=job_row,
+            previous_owner_id=previous,
+            owner=None,
+            actor_id=actor_user_id,
+        )
+        db.add(
+            Activity(
+                entity_type="job",
+                entity_id=job_id,
+                action="traffit_transfer_owner_settled",
+                user_id=actor_user_id,
+                details=settled,
+            )
+        )
+        await db.commit()
+        repaired.append(job_id)
+        moved_to_lead += int(bool(settled.get("owner_moved_to_delivery_lead")))
+    await db.rollback()
+    return {
+        "owners_settled": len(repaired),
+        "owners_moved_to_delivery_lead": moved_to_lead,
+        "owners_settled_job_ids": repaired[:200],
+    }
+
+
 def _job_report(
     job: WaveJob, plan: Optional[JobPlan], *, status: str, **extra: Any
 ) -> dict[str, Any]:
@@ -536,6 +765,8 @@ async def process_job(
     fallback: Any,
     actor_user_id: Optional[int],
     dry_run: bool,
+    include_twins: bool = False,
+    twin_exact: bool = False,
 ) -> dict[str, Any]:
     """Próba albo przeniesienie jednej rekrutacji — własna transakcja."""
     from fastapi import HTTPException
@@ -550,10 +781,15 @@ async def process_job(
 
     if job.people > MAX_PEOPLE:
         return _job_report(job, None, status="skipped", skip_reason=SKIP_LARGE)
-    if twin_job_id is not None:
+    if twin_job_id is not None and not include_twins:
         return _job_report(
             job, None, status="skipped", skip_reason=SKIP_TWIN, twin_job_id=twin_job_id
         )
+    twin: dict[str, Any] = (
+        {"twin_job_id": twin_job_id, "twin_exact": twin_exact}
+        if twin_job_id is not None
+        else {}
+    )
 
     # Połączenie wraca do puli na czas zapytań do Traffita.
     await db.rollback()
@@ -593,7 +829,7 @@ async def process_job(
         if dry_run:
             await db.rollback()
             return _job_report(
-                job, plan, status="ready", columns=columns, blockers=blockers
+                job, plan, status="ready", columns=columns, blockers=blockers, **twin
             )
 
         actor = await db.get(User, actor_user_id) if actor_user_id else None
@@ -613,14 +849,18 @@ async def process_job(
                 .execution_options(populate_existing=True)
             )
         ).scalar_one()
-        if (
-            job_row.external_source != "traffit"
-            or job_row.managed_in_nexus
-            or job_row.status != JobStatus.closed
-        ):
-            # Ktoś przełączył albo otworzył ją w międzyczasie — poprawki cofamy.
+        if job_row.external_source != "traffit" or job_row.status != JobStatus.closed:
+            # Ktoś otworzył ją w międzyczasie — poprawki cofamy.
             await db.rollback()
             return _job_report(job, plan, status="skipped", skip_reason="changed")
+        if twin_job_id is not None and twin_exact:
+            # PRZED otwarciem: przypisanie i dzwonek idą do prowadzącego,
+            # którego Delivery Lead wskazał w NEXUSIE. Tylko przy pewnym
+            # bliźniaku — podobny tytuł nie wystarcza, żeby zmienić komuś
+            # prowadzącego (decyzja Artura 12.10.2026: przypisane osoby
+            # mają się nie zmieniać).
+            twin.update(await _adopt_twin_team(db, job_row, twin_job_id, actor.id))
+        twin.update(await _settle_owner(db, job_row))
         effects = job_lifecycle.PostCommit()
         # Te same funkcje co „Otwórz ponownie”: flaga „Prowadzona w NEXUSIE”,
         # status, „Szukamy”, przypisanie prowadzącego. Bramki braków NIE
@@ -635,7 +875,7 @@ async def process_job(
                 entity_id=job.job_id,
                 action="traffit_transfer",
                 user_id=actor.id,
-                details={**plan_counts(plan), "traffit_id": job.traffit_id},
+                details={**plan_counts(plan), "traffit_id": job.traffit_id, **twin},
             )
         )
         await db.commit()
@@ -654,7 +894,13 @@ async def process_job(
 
     await job_lifecycle.run_post_commit(effects)
     return _job_report(
-        job, plan, status="transferred", columns=columns, blockers=blockers, **receipt
+        job,
+        plan,
+        status="transferred",
+        columns=columns,
+        blockers=blockers,
+        **receipt,
+        **twin,
     )
 
 
@@ -699,8 +945,13 @@ async def process(
     fallback = await importer._build_withdrawn_fallback_reason_map()  # noqa: SLF001
     await db.commit()
 
+    owners = await repair_transferred_owners(
+        db, actor_user_id=actor_user_id, dry_run=dry_run
+    )
+
     reports: list[dict[str, Any]] = []
     for job in jobs:
+        twin = twins.get(job.job_id)
         reports.append(
             await process_job(
                 db,
@@ -708,10 +959,12 @@ async def process(
                 importer,
                 job,
                 defs=defs,
-                twin_job_id=twins.get(job.job_id),
+                twin_job_id=twin.job_id if twin else None,
+                twin_exact=bool(twin and twin.exact),
                 fallback=fallback,
                 actor_user_id=actor_user_id,
                 dry_run=dry_run,
+                include_twins=scope.include_twins,
             )
         )
 
@@ -732,6 +985,7 @@ async def process(
         "scope_key": scope.key(),
         "actor": actor_label,
         "totals": _totals(reports),
+        "owners": owners,
         "jobs": reports,
     }
 
@@ -850,11 +1104,15 @@ __all__ = [
     "LOG_KEY",
     "Scope",
     "WaveJob",
+    "Twin",
     "find_twin",
+    "match_twin",
+    "title_core",
     "finish_run",
     "fresh_dry_run_exists",
     "process",
     "process_job",
+    "repair_transferred_owners",
     "read_status",
     "run_transfer",
     "spawn_running_guard",

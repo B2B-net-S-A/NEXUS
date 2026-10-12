@@ -183,6 +183,8 @@ def test_wave_key_identifies_the_same_wave_regardless_of_order():
     assert Scope(job_ids=(3, 1, 2)).key() == Scope(job_ids=(1, 2, 3)).key()
     assert Scope(client_id=7).key() != Scope(client_id=8).key()
     assert Scope(client_id=7).key() != Scope(client_id=7, active_days=14).key()
+    # Próba bez bliźniaków nie autoryzuje wykonania z bliźniakami.
+    assert Scope(client_id=7).key() != Scope(client_id=7, include_twins=True).key()
 
 
 def test_columns_follow_the_board_rule_for_traffit_state_names():
@@ -224,3 +226,17 @@ def test_closed_card_of_a_person_removed_in_traffit_is_left_as_is():
 def test_empty_roster_is_never_trusted():
     # Brak nagłówka z licznikiem czyta się jako 0 — pusta lista zdjęłaby wszystkich.
     assert not roster_is_trustworthy({}, 0)
+
+
+def test_same_request_is_recognised_despite_the_request_number():
+    from app.services.traffit_transfer import Twin, match_twin
+
+    nexus_jobs = [(1, "MS Power Platform Expert"), (2, "IT Developer - Senior (42961)")]
+
+    # Ten sam request: tytuł różni się tylko numerem klienta w nawiasie.
+    assert match_twin("MS Power Platform Expert (42732)", nexus_jobs) == Twin(1, True)
+    assert match_twin("it developer -  senior (42961)", nexus_jobs) == Twin(2, True)
+    # Podobny tytuł to za mało, żeby uznać request za ten sam.
+    similar = match_twin("IT Developer - Senior Java (42999)", nexus_jobs)
+    assert similar == Twin(2, False)
+    assert match_twin("Scrum Master", nexus_jobs) is None
