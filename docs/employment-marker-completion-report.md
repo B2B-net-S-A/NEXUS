@@ -23,7 +23,7 @@ przy dodawaniu działało tylko dla klienta tej samej rekrutacji.
 | Wyszukiwarki | Znacznik w wynikach wyszukiwarki z górnego paska, na karcie Talent Radaru i w przeglądzie bazy. |
 | „Moi ludzie” (D5) | Osobę z grupy „Pracują” można dodać do rekrutacji; wiersz mówi, u kogo pracuje. Automat dopasowań dalej pomija pracujących. |
 | Zatrudnienie (D3) | „Potwierdź zatrudnienie” pyta „Co z obecną współpracą?”, gdy osoba ma trwającą umowę u innego klienta. Odpowiedź trafia do historii ruchu, na oś czasu profilu i do dzwonka. Umów ani zamówień nie zmienia. |
-| Dzwonek (D3, D4) | Nowy typ `consultant_in_other_recruitment` (migracja 0430, własna grupa do wyciszenia w „Kontrakty, zamówienia i podpisy”): Delivery Lead klienta, u którego osoba pracuje, dostaje powiadomienie, gdy jej CV idzie do innego klienta (raz na parę) albo gdy zostaje tam zatrudniona. Samo dodanie do rekrutacji nie dzwoni. |
+| Dzwonek (D3, D4) | Nowy typ `consultant_in_other_recruitment` (migracja 0431, własna grupa do wyciszenia w „Kontrakty, zamówienia i podpisy”): Delivery Lead klienta, u którego osoba pracuje, dostaje powiadomienie, gdy jej CV idzie do innego klienta (raz na parę) albo gdy zostaje tam zatrudniona. Samo dodanie do rekrutacji nie dzwoni. |
 | Pomoc | Pięć przewodników Jarvisa (lista, Tablica, karta kandydata, profil, „Do przejrzenia”) mówi, co znaczy znacznik; sześć wpisów inwentarza funkcji. |
 
 ## Znalezione po drodze i naprawione

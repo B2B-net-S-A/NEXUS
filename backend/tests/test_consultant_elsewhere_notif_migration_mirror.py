@@ -1,4 +1,4 @@
-"""0430: typ dzwonka „nasz konsultant w innej rekrutacji” ma lustro
+"""0431: typ dzwonka „nasz konsultant w innej rekrutacji” ma lustro
 w entrypoincie (prod alembic bywa osierocony), a downgrade odmawia, zanim
 stary kod trafi na wpis, którego nie odczyta."""
 
@@ -10,11 +10,11 @@ from pathlib import Path
 from app.models.notification import NotificationType
 
 BACKEND = Path(__file__).resolve().parents[1]
-MIGRATION = BACKEND / "alembic" / "versions" / "0430_consultant_elsewhere_notif.py"
+MIGRATION = BACKEND / "alembic" / "versions" / "0431_consultant_elsewhere_notif.py"
 
 
 def _migration_module():
-    spec = importlib.util.spec_from_file_location("m0430", MIGRATION)
+    spec = importlib.util.spec_from_file_location("m0431", MIGRATION)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
@@ -23,8 +23,8 @@ def _migration_module():
 
 def test_migration_chains_after_recruiter_member_backfill() -> None:
     module = _migration_module()
-    assert module.revision == "0430_consultant_elsewhere_notif"
-    assert module.down_revision == "0429_recruiter_member_backfill"
+    assert module.revision == "0431_consultant_elsewhere_notif"
+    assert module.down_revision == "0430_job_ads"
 
 
 def test_entrypoint_adds_the_same_enum_value_as_the_migration() -> None:
@@ -51,7 +51,7 @@ def test_downgrade_only_refuses_when_such_notifications_exist(monkeypatch) -> No
     module.downgrade()
     assert executed == [module.REFUSE_WITH_LIVE_ROWS]
     guard = executed[0]
-    assert "RAISE EXCEPTION 'Downgrade 0430 odmawia" in guard
+    assert "RAISE EXCEPTION 'Downgrade 0431 odmawia" in guard
     assert "notification_type::text = 'consultant_in_other_recruitment'" in guard
     # Wartość enuma zostaje (Postgres nie ma DROP VALUE) i nic nie jest kasowane.
     assert "DROP" not in guard and "DELETE" not in guard

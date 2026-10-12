@@ -92,7 +92,7 @@ https://claude.ai/artifact/QekWy3zx3pXNEKDKQmikf6, raport:
   `candidate_hired_engagement_*` — oś nie czyta `details`).
 - **Okno niczego nie zmienia w umowach i zamówieniach.** Zakończenie
   współpracy dalej zaczyna się w oknie zakończenia (`/terminate`).
-- **Dzwonek `consultant_in_other_recruitment`** (0430,
+- **Dzwonek `consultant_in_other_recruitment`** (0431,
   `services/consultant_elsewhere_notifications.py`): do Delivery Leadów
   klienta, u którego osoba pracuje, gdy karta wchodzi na „CV wysłane”
   w rekrutacji u innego klienta (raz na parę osoba–rekrutacja) albo gdy osoba

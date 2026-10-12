@@ -1,7 +1,7 @@
 """notificationtype: ``consultant_in_other_recruitment`` — dzwonek dla Delivery Leada.
 
-Revision ID: 0430_consultant_elsewhere_notif
-Revises: 0429_recruiter_member_backfill
+Revision ID: 0431_consultant_elsewhere_notif
+Revises: 0430_job_ads
 
 Decyzja Artura 12.10.2026 (D3, D4): gdy osoba, która u nas pracuje, zostaje
 zatrudniona w innej rekrutacji albo jej CV idzie do innego klienta, Delivery
@@ -14,8 +14,8 @@ Sama zmiana nie wymaga DDL poza wartością enuma. Lustro w ``entrypoint.sh``
 
 from alembic import op
 
-revision = "0430_consultant_elsewhere_notif"
-down_revision = "0429_recruiter_member_backfill"
+revision = "0431_consultant_elsewhere_notif"
+down_revision = "0430_job_ads"
 branch_labels = None
 depends_on = None
 
@@ -30,7 +30,7 @@ BEGIN
         SELECT 1 FROM notifications
         WHERE notification_type::text = 'consultant_in_other_recruitment'
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0430 odmawia: notifications ma wpisy consultant_in_other_recruitment, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0431 odmawia: notifications ma wpisy consultant_in_other_recruitment, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 

@@ -497,7 +497,7 @@ const TYPE_CONFIG: Record<
     color: "text-primary",
     bgColor: "bg-primary/10",
   },
-  // 0430: nasz konsultant w innej rekrutacji (CV wysłane / zatrudnienie).
+  // 0431: nasz konsultant w innej rekrutacji (CV wysłane / zatrudnienie).
   consultant_in_other_recruitment: {
     icon: <Users className="w-3.5 h-3.5" />,
     color: "text-warning",
