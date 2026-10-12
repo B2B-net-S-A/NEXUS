@@ -39,7 +39,9 @@ import {
   HelpCircle,
   Loader2,
   Mail,
+  Maximize,
   Maximize2,
+  Minimize,
   Minimize2,
   MoreHorizontal,
   PhoneOff,
@@ -69,7 +71,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { readNoteDraft, writeNoteDraft } from "@/lib/note-drafts";
 import { cn, formatDate } from "@/lib/utils";
+import { useAuthStore } from "@/store/auth";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatusBadge";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
@@ -496,6 +500,172 @@ function PersonMoreMenu({
   );
 }
 
+const NOTE_KEYS_HINT = "Enter dodaje notatkę · Shift+Enter nowa linia";
+const NOTE_KEYS_HINT_BIG = "Enter nowa linia · Ctrl+Enter dodaje";
+
+/**
+ * Pole notatki na dole panelu osoby (12.10.2026, zgłoszenie rekruterów: jedna
+ * linia 230 px bez możliwości powiększenia). Trzy stany:
+ * - zwarty — puste pole bez fokusu: jedna linia i ikona wysyłki, jak dotąd,
+ * - otwarty — fokus w kompozytorze albo wpisany tekst: pole na całą szerokość
+ *   rośnie z tekstem (z fokusem 3–10 linii, bez fokusu najwyżej 3, żeby długi
+ *   szkic nie zabierał sekcjom doku miejsca na laptopie 1280 × 650),
+ * - duży — „Powiększ”: pole wypełnia panel pod paskiem osoby, a Enter robi
+ *   nową linię, bo długa notatka z rozmowy nie może wysłać się w połowie.
+ * Margines 92 px „na maskotkę Jarvisa” zniknął: od 04.10.2026 maskotka chowa
+ * się, gdy panel osoby jest otwarty (`globals.css`).
+ */
+function DockNoteComposer({
+  value,
+  onChange,
+  onSubmit,
+  pending,
+  jobId,
+  big,
+  onBigChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onSubmit: () => void;
+  pending: boolean;
+  jobId: number;
+  big: boolean;
+  onBigChange: (big: boolean) => void;
+}) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const fieldRef = useRef<HTMLTextAreaElement | null>(null);
+  const [focused, setFocused] = useState(false);
+  const open = big || focused || value.trim().length > 0;
+  const cannotSend = !value.trim() || pending;
+
+  // Esc zamyka najwyższą warstwę panelu, a duże okno jest najwyższą — także
+  // gdy fokus jest poza polem (podgląd CV, tło). Zamknięcie listy „@”
+  // przychodzi tu jako `defaultPrevented`. Tablica ma własny nasłuch `window`
+  // i kolejność obu nie jest stała (tamten rejestruje się na nowo po „Rozwiń”
+  // i po odświeżeniu karty), a React przerysowuje między nimi. Dlatego dwa
+  // zabezpieczenia: `preventDefault()` tutaj (Tablica druga — widzi obsłużone
+  // zdarzenie) i `data-note-enlarged` (Tablica pierwsza — widzi otwarte okno).
+  // Dok ukryty pod przeglądem Delivery Leada nie jest warstwą: Esc należy
+  // wtedy do przeglądu.
+  useEffect(() => {
+    if (!big) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (document.querySelector('[role="dialog"],[role="alertdialog"]')) return;
+      if (rootRef.current?.closest("[hidden]")) return;
+      e.preventDefault();
+      onBigChange(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [big, onBigChange]);
+
+  const setBig = (next: boolean) => {
+    onBigChange(next);
+    fieldRef.current?.focus();
+  };
+
+  return (
+    <div
+      ref={rootRef}
+      className={cn(
+        "border-t border-border bg-muted/10 p-3",
+        big ? "flex min-h-0 flex-1 flex-col gap-2" : open ? "space-y-1.5" : "flex items-end gap-1.5",
+      )}
+      data-help="jobs.person.note"
+      data-note-enlarged={big ? "" : undefined}
+      onFocus={() => setFocused(true)}
+      onBlur={(e) => {
+        // Fokus wewnątrz kompozytora (Tab na „Powiększ”) to dalej pisanie.
+        if (!e.currentTarget.contains(e.relatedTarget)) setFocused(false);
+      }}
+    >
+      {big ? (
+        <div className="flex items-center gap-2">
+          <p className="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground">
+            Nowa notatka
+          </p>
+          <Button size="sm" variant="outline" onClick={() => setBig(false)}>
+            <Minimize className="h-3.5 w-3.5" aria-hidden="true" /> Zmniejsz
+          </Button>
+        </div>
+      ) : null}
+      <MentionTextarea
+        value={value}
+        onChange={onChange}
+        scope={{ kind: "job", jobId }}
+        textareaRef={fieldRef}
+        onKeyDown={(e) => {
+          if (e.key !== "Enter") return;
+          // Duże okno: Enter to nowa linia, wysyła Ctrl/⌘+Enter (działa też w małym).
+          if (big ? !(e.ctrlKey || e.metaKey) : e.shiftKey) return;
+          e.preventDefault();
+          onSubmit();
+        }}
+        ariaLabel="Dodaj notatkę"
+        placeholder="Dodaj notatkę… (@ oznacza osobę)"
+        rows={focused && !big ? 3 : 1}
+        maxRows={focused ? 10 : 3}
+        autoGrow={!big}
+        wrapperClassName={big ? "flex min-h-0 flex-1 flex-col" : open ? undefined : "w-0 flex-1"}
+        className={cn(
+          "block rounded-md focus:ring-primary",
+          big
+            ? "min-h-0 flex-1 px-3 py-2 text-sm"
+            : open
+              ? "px-3 py-2 text-sm"
+              : "min-h-8 px-3 py-1.5 text-xs",
+        )}
+      />
+      {open ? (
+        // Klik w rząd (także w wyłączony przycisk wysyłki) nie zabiera fokusu
+        // z pola — inaczej puste pole zwijałoby się pod kursorem.
+        <div className="flex items-center gap-1.5" onMouseDown={(e) => e.preventDefault()}>
+          <p className="min-w-0 flex-1 text-[11px] leading-tight text-muted-foreground">
+            {big ? NOTE_KEYS_HINT_BIG : NOTE_KEYS_HINT}
+          </p>
+          {big ? (
+            <Button size="sm" onClick={onSubmit} disabled={cannotSend} loading={pending}>
+              <Send className="h-3.5 w-3.5" aria-hidden="true" /> Dodaj notatkę
+            </Button>
+          ) : (
+            <>
+              <Button
+                size="icon-sm"
+                variant="outline"
+                onClick={() => setBig(true)}
+                aria-label="Powiększ pole notatki"
+                title="Powiększ pole notatki"
+              >
+                <Maximize className="h-3.5 w-3.5" aria-hidden="true" />
+              </Button>
+              <Button
+                size="sm"
+                onClick={onSubmit}
+                disabled={cannotSend}
+                loading={pending}
+                aria-label="Dodaj notatkę — wyślij"
+              >
+                <Send className="h-3.5 w-3.5" />
+              </Button>
+            </>
+          )}
+        </div>
+      ) : (
+        <Button
+          size="sm"
+          onClick={onSubmit}
+          disabled={cannotSend}
+          loading={pending}
+          aria-label="Dodaj notatkę — wyślij"
+        >
+          <Send className="h-3.5 w-3.5" />
+        </Button>
+      )}
+    </div>
+  );
+}
+
 export function PipelineCandidateDock({
   item,
   jobId,
@@ -553,7 +723,20 @@ export function PipelineCandidateDock({
   const [openGenerator, setOpenGenerator] = useState(false);
   const [openShare, setOpenShare] = useState(false);
   const [openEmail, setOpenEmail] = useState(false);
-  const [noteText, setNoteText] = useState("");
+  // Szkic notatki per osoba + rekrutacja (12.10.2026): dok montuje się na
+  // nowo dla każdej osoby (`key` w `KanbanBoardV2`), więc niewysłany tekst
+  // wraca z pamięci karty przeglądarki, a nie ze stanu.
+  const userId = useAuthStore((s) => s.user?.id);
+  const [noteText, setNoteTextState] = useState(() =>
+    readNoteDraft(userId, jobId, item.candidate_id),
+  );
+  const setNoteText = (text: string) => {
+    setNoteTextState(text);
+    writeNoteDraft(userId, jobId, item.candidate_id, text);
+  };
+  const [noteBigRequested, setNoteBig] = useState(false);
+  // Dok tylko do odczytu nie ma pola notatki — nie może zostać z ukrytą treścią.
+  const noteBig = noteBigRequested && !readOnly;
   // Okna akcji z ramki „Następny etap” (te same, które otwiera „Przesuń dalej”).
   const [qcStageId, setQcStageId] = useState<number | null>(null);
   const [debriefEventId, setDebriefEventId] = useState<number | null>(null);
@@ -562,12 +745,11 @@ export function PipelineCandidateDock({
   const [stageFoldOpen, setStageFoldOpen] = useState(false);
   const [profileCvPreviewId, setProfileCvPreviewId] = useState<number | null>(null);
 
-  // Zmiana kandydata (nowy klik na tablicy) — wróć na pierwszą zakładkę i
-  // wyczyść niedokończony draft notatki; inaczej dok pokazywałby zakładkę
-  // „Notatki" poprzedniego kandydata z jego niewysłanym tekstem.
+  // Zmiana kandydata (nowy klik na tablicy) — wróć na pierwszą zakładkę;
+  // inaczej dok pokazywałby zakładkę „Notatki" poprzedniego kandydata.
+  // Niewysłana notatka jest szkicem tej osoby (wyżej), nie stanem do czyszczenia.
   useEffect(() => {
     setOpenSections(new Set([nowSectionForStage(item.stage)]));
-    setNoteText("");
     setStageFoldOpen(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- tylko zmiana osoby
   }, [item.candidate_id]);
@@ -650,8 +832,13 @@ export function PipelineCandidateDock({
         content,
         note_type: "general",
       }),
+    // Szkic znika z pamięci przy wysłaniu, nie po odpowiedzi serwera:
+    // `onSuccess` działa też po odmontowaniu doku, więc „wyślij, wyjdź, wróć”
+    // oddawałoby wysłany tekst jako szkic — gotowy duplikat.
+    onMutate: () => writeNoteDraft(userId, jobId, item.candidate_id, ""),
     onSuccess: () => {
       setNoteText("");
+      setNoteBig(false);
       queryClient.invalidateQueries({
         queryKey: candidateQueryKeys.notes(item.candidate_id),
       });
@@ -671,7 +858,13 @@ export function PipelineCandidateDock({
       queryClient.invalidateQueries({ queryKey: MOVE_REQUIREMENTS_PREFIX });
       showSuccess("Notatka dodana.");
     },
-    onError: (e) => showError(extractErrorMsg(e) || "Nie udało się dodać notatki"),
+    onError: (e, content) => {
+      // Nieudany zapis oddaje szkic, o ile w międzyczasie nie powstał nowy.
+      if (!readNoteDraft(userId, jobId, item.candidate_id)) {
+        writeNoteDraft(userId, jobId, item.candidate_id, content);
+      }
+      showError(extractErrorMsg(e) || "Nie udało się dodać notatki");
+    },
   });
 
   const submitNote = () => {
@@ -1209,6 +1402,10 @@ export function PipelineCandidateDock({
         className={cn("min-h-0 flex-1", tabsOpen ? "flex flex-col" : "overflow-y-auto")}
         data-person-scroll={tabsOpen ? undefined : ""}
         data-testid="dock-body"
+        // Duże okno notatki zajmuje to miejsce: środek doku jest wtedy UKRYTY,
+        // nie odmontowany (otwarte sekcje, zakładka i podgląd CV zostają).
+        hidden={noteBig}
+        inert={noteBig || undefined}
       >
       <div
         className={cn(
@@ -1730,40 +1927,17 @@ export function PipelineCandidateDock({
       </div>
       </div>
 
-      {/* Notatka zawsze pod ręką — bez przechodzenia do sekcji „Notatki".
-          Prawy margines zostawia róg maskotce Jarvisa (fixed, 64 px + 20 px
-          odstępu) — bez niego zasłaniała przycisk wysyłania notatki. */}
+      {/* Notatka zawsze pod ręką — bez przechodzenia do sekcji „Notatki". */}
       {!readOnly && (
-        <div
-          className="flex items-end gap-1.5 border-t border-border bg-muted/10 p-3 pr-[5.75rem]"
-          data-help="jobs.person.note"
-        >
-          <MentionTextarea
-            value={noteText}
-            onChange={setNoteText}
-            scope={{ kind: "job", jobId }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                submitNote();
-              }
-            }}
-            ariaLabel="Dodaj notatkę"
-            placeholder="Dodaj notatkę… (@ oznacza osobę)"
-            rows={1}
-            wrapperClassName="w-0 flex-1"
-            className="block min-h-8 rounded-md px-3 py-1.5 text-xs focus:ring-primary"
-          />
-          <Button
-            size="sm"
-            onClick={submitNote}
-            disabled={!noteText.trim() || addNoteMutation.isPending}
-            loading={addNoteMutation.isPending}
-            aria-label="Dodaj notatkę — wyślij"
-          >
-            <Send className="h-3.5 w-3.5" />
-          </Button>
-        </div>
+        <DockNoteComposer
+          value={noteText}
+          onChange={setNoteText}
+          onSubmit={submitNote}
+          pending={addNoteMutation.isPending}
+          jobId={jobId}
+          big={noteBig}
+          onBigChange={setNoteBig}
+        />
       )}
 
       {profileCvPreviewId != null && profileCvQuery.data && (

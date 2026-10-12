@@ -167,7 +167,7 @@
       },
       {
         "q": "Jak dodać notatkę lub wysłać wiadomość?",
-        "a": "Notatkę wpisz na dole karty i naciśnij Enter; „@” otwiera listę osób — oznaczona osoba dostaje powiadomienie. Mail: w „Więcej akcji osoby” wybierz „Wyślij wiadomość”, sprawdź adres i treść, kliknij „Wyślij”. NEXUS wyśle go z Twojej skrzynki Microsoft 365; wątek znajdziesz w profilu w „Historia → Maile”.",
+        "a": "Notatkę wpisz na dole karty i naciśnij Enter. „Powiększ” daje duże pole: tam Enter to nowa linia, a notatkę dodaje przycisk. „@” otwiera listę osób — oznaczona dostaje powiadomienie. Niewysłany tekst zostaje przy osobie. Mail: w „Więcej akcji osoby” wybierz „Wyślij wiadomość”; idzie z Twojej skrzynki Microsoft 365, wątek jest w „Historia → Maile”.",
         "anchor": "jobs.person.note"
       },
       {
@@ -190,7 +190,7 @@
       {"id": "jobs.person.dock", "label": "Karta kandydata", "describe": "Panel osoby wysuwany z prawej po kliknięciu karty."},
       {"id": "jobs.person.actions", "label": "Akcje etapu", "describe": "Przenieś na etap, Inny etap, Odrzuć z powodem, Zrezygnował."},
       {"id": "jobs.person.screening-form", "label": "Formularz screeningu", "describe": "Pytania z Profilu Championa, warunki ze stawką kandydata i ocena dla Delivery Leada — z historią zmian."},
-      {"id": "jobs.person.note", "label": "Szybka notatka", "describe": "Pole notatki na dole karty."},
+      {"id": "jobs.person.note", "label": "Szybka notatka", "describe": "Pole notatki na dole karty: rośnie z tekstem, „Powiększ” otwiera duże pole."},
       {"id": "jobs.person.followup", "label": "Kontakt z kandydatem", "describe": "Kto dzwoni do kandydata, gdy klient milczy, i kiedy — z przyciskami „Zapisz wynik telefonu” i „Zrobię to ja”."},
       {"id": "jobs.person.expand", "label": "Rozwiń panel", "describe": "Poszerza panel osoby i pokazuje pełne narzędzia: CV do klienta, screening, rozmowy, umowę, dopasowanie i notatki."}
     ],
