@@ -1009,6 +1009,74 @@ def test_spelling_fix_in_html() -> None:
     assert count == 2 and out == "<p>JavaScript &amp; PostgreSQL</p>"
 
 
+# ── CV zapisane w edytorze: punkt listy to `<li><p>…</p></li>` ───────────────
+#
+# Tiptap owija treść punktu w akapit. Parser bloków zakładał na tym akapicie
+# nowy blok „p” i porzucał pusty „li”, więc rola nie miała punktów: „Zastosuj”
+# dopisywało `<ul><li>…</li></ul>` za `</p>`, czyli WEWNĄTRZ ostatniego punktu
+# (w Wordzie wcięty punktor), a usunięcie technologii zostawiało pusty punkt.
+
+EDITED_HTML = BRANDED_HTML.replace("<li>", "<li><p>").replace("</li>", "</p></li>")
+
+
+def test_points_saved_by_the_editor_are_list_blocks() -> None:
+    expected = [(b.kind, b.text) for b in _blocks(BRANDED_HTML)]
+    assert ("li", "Rozwój usług w Java i Spring.") in expected
+    assert [(b.kind, b.text) for b in _blocks(EDITED_HTML)] == expected
+    doc = qc.EditableCv.parse(EDITED_HTML)
+    assert [(b.kind, b.text) for b in doc.blocks] == expected
+    assert doc.html() == EDITED_HTML
+
+
+def test_ai_fix_on_a_cv_saved_by_the_editor_keeps_one_flat_list() -> None:
+    appended = qc.apply_ai_fix(
+        EDITED_HTML,
+        {
+            "role_index": 1,
+            "cv_role_label": "Developer 2018–2021 · Globex",
+            "current_text": None,
+        },
+        "Aplikacje webowe w **Java** i React dla klientów sklepu.",
+        original_text=ORIGINAL,
+        experience=EXPERIENCE,
+    )
+    assert (
+        "<ul><li><p>Aplikacje webowe, <b>React</b>.</p></li>"
+        "<li><p>Aplikacje webowe w <b>Java</b> i React dla klientów sklepu.</p></li></ul>"
+    ) in appended
+    assert appended.count("<ul>") == EDITED_HTML.count("<ul>")
+
+    replaced = qc.apply_ai_fix(
+        EDITED_HTML,
+        {
+            "role_index": 0,
+            "cv_role_label": "Senior Developer 2021–obecnie · Acme Bank",
+            "current_text": "Rozwój usług w Java i Spring.",
+        },
+        "Rozwój usług **Java** na **Kubernetes**",
+        original_text=ORIGINAL,
+        experience=EXPERIENCE,
+    )
+    assert (
+        "<ul><li><p>Rozwój usług <b>Java</b> na <b>Kubernetes</b></p></li></ul>"
+        in replaced
+    )
+
+
+def test_remove_term_drops_the_whole_point_saved_by_the_editor() -> None:
+    html = (
+        '<p data-cv-section="technologies">Technologie Java, Docker, Kafka</p>'
+        "<ul><li><p>Docker</p></li>"
+        "<li><p>Wdrożył Docker w zespole platformy.</p></li></ul>"
+    )
+    out, count = qc.remove_term(html, "Docker")
+    assert count == 2
+    assert out == (
+        '<p data-cv-section="technologies">Technologie Java, Kafka</p>'
+        "<ul><li><p>Wdrożył Docker w zespole platformy.</p></li></ul>"
+    )
+
+
 # ── Obejście QC ─────────────────────────────────────────────────────────────
 
 
