@@ -28,6 +28,7 @@ import type {
   ProposalTraineeHandover,
 } from "@/lib/job-proposals-api";
 import { SEARCH_AVAILABILITY_OPTIONS } from "@/lib/search-availability";
+import type { EmploymentMarker } from "@/lib/employment-marker";
 import { warsawDateOf } from "@/lib/warsaw-date";
 import {
   PROPOSAL_SOURCE_LABEL,
@@ -66,6 +67,8 @@ export interface ProposalDetail {
   availabilityDate: string | null;
   requirements: ProposalRequirement[];
   eligibility: MatchEligibility | null;
+  /** Znacznik „Pracuje u nas” — tylko gdy osoba ma sygnał zatrudnienia. */
+  employment?: EmploymentMarker;
   rateFit: RateFit | null;
   officeFit: string | null;
   /** Sprzeczny wymiar pracy (plakietka, nie ukrycie) — z żywego przeglądu. */
@@ -354,6 +357,7 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
     d.detail.availabilityStatus ??= c.availability_status;
     d.detail.availabilityDate ??= c.availability_date;
     d.detail.eligibility ??= item.eligibility;
+    if (item.employment_marker) d.detail.employment ??= item.employment_marker;
     d.detail.firstSeenAt ??= item.first_seen_at;
     if (item.posting_recent === true) d.detail.postingRecent = true;
     d.detail.postingSeenAt ??= item.posting_seen_at ?? null;
@@ -396,6 +400,7 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
       if (rate != null && pln) d.detail.rateHourly ??= rate;
       // Żywy przegląd jest świeższy niż zapis w skrzynce — nadpisuje plakietkę.
       if (row.eligibility) d.detail.eligibility = row.eligibility;
+      if (row.employment_marker) d.detail.employment = row.employment_marker;
       d.detail.rateFit = row.match?.rate_fit ?? d.detail.rateFit;
       d.detail.officeFit = row.match?.office_fit ?? d.detail.officeFit;
       d.detail.workTimeFit = row.match?.work_time_fit ?? d.detail.workTimeFit;
@@ -506,6 +511,7 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
         isNew: d.isNew,
         previouslyDismissed: d.previouslyDismissed,
         runId: d.runId,
+        ...(detail.employment ? { employment: detail.employment } : {}),
         ...(handoverNote ? { handoverNote } : {}),
         ...(d.historyPoints > 0 ? { historyPoints: d.historyPoints } : {}),
       },

@@ -76,6 +76,7 @@ import {
   sortByClientHistory,
   type ProposalSortMode,
 } from "@/lib/proposal-facts";
+import { markerCoversEligibility } from "@/lib/employment-marker";
 import { useSimilarJobs } from "@/lib/similar-jobs-api";
 import { similarPeopleTotal } from "@/lib/similar-reassign";
 import { cn, formatRelativeTime } from "@/lib/utils";
@@ -163,8 +164,13 @@ function proposalRow(
   const { row, detail } = entry;
   const source = row.sources.includes("reassign") ? "reassign" : row.sources[0];
   const warnings: PickRow["warnings"] = [];
+  // Skrzynka niesie znacznik od razu; fakty doczytują go dla pozostałych źródeł.
+  const employment = detail.employment ?? facts?.employment_marker ?? null;
   const elig = eligibilityWarning(detail.eligibility);
-  if (elig) warnings.push(elig);
+  // „Pracuje u tego klienta” mówi już znacznik — bez drugiej plakietki.
+  if (elig && !markerCoversEligibility(employment, detail.eligibility?.reason_code)) {
+    warnings.push(elig);
+  }
   for (const code of row.warnings) {
     if (code === "over_budget") {
       warnings.push(overBudgetWarning(detail.rateHourly, budgetHourly));
@@ -193,6 +199,7 @@ function proposalRow(
     facts: proposalFactsLine(facts),
     cvBadge: cvYearBadge(facts?.cv_uploaded_on),
     sourceLabel: source ? PROPOSAL_SOURCE_LABEL[source] : null,
+    employment,
     warnings,
   };
 }

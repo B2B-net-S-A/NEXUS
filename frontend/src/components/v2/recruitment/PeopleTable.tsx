@@ -23,6 +23,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { EMPLOYMENT_ONLY_WARNING_PL } from "@/lib/proposals-merge";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { cn } from "@/lib/utils";
+import { EmploymentPill } from "@/components/ds/EmploymentMarker";
 import { useToast } from "@/components/Toast";
 import { candidatePipelinesQueryKey } from "@/components/CandidatePipelinesWidget";
 import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatusBadge";
@@ -260,6 +261,13 @@ function ProposalNameCell({ row }: { row: ProposalPersonRow }) {
   return (
     <span className="flex min-w-0 items-center gap-1.5">
       <span className="min-w-0 truncate font-semibold">{row.fullName}</span>
+      {row.employment ? (
+        <EmploymentPill
+          marker={row.employment}
+          label={{ clients: "none", date: "short" }}
+          className="shrink-0"
+        />
+      ) : null}
       {row.isNew ? (
         <span className="inline-flex h-[18px] shrink-0 items-center rounded bg-primary/10 px-1.5 text-[10px] font-semibold text-primary">
           nowa

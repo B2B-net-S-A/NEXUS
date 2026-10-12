@@ -9,7 +9,7 @@ import { RequirementVerificationDialog } from "./RequirementVerificationDialog";
 import { FullCandidateSearchStatus } from "./FullCandidateSearchStatus";
 import { fullSearchFitBadges } from "@/lib/fit-badges";
 import { EmploymentPill } from "@/components/ds/EmploymentMarker";
-import { markerCoversEligibility } from "@/lib/employment-marker";
+import { markerCoversEligibility, type EmploymentMarker } from "@/lib/employment-marker";
 import type { BulkAddSource } from "@/lib/candidate-search-api";
 import {
   AddToRecruitmentDialog,
@@ -42,7 +42,7 @@ export function FullCandidateSearchResults({ data, error, loading, fetching, off
   /** Brak = brak przycisku (rola bez prawa dodawania do pipeline'u). */
   addToRecruitment?: ResultsAddToRecruitment;
 }) {
-  const [addTarget, setAddTarget] = useState<{ id: number; name: string } | null>(null);
+  const [addTarget, setAddTarget] = useState<{ id: number; name: string; marker?: EmploymentMarker | null } | null>(null);
   // A transient read error while the scan is still running must not hide the
   // progress: the scan keeps going on the server and polling resumes by itself.
   if (error && !needsNewRun && data && searchIsRunning(data.state)) return <div className="space-y-4">
@@ -89,7 +89,7 @@ export function FullCandidateSearchResults({ data, error, loading, fetching, off
           {jobId && canVerify && onVerified && <RequirementVerificationDialog jobId={jobId} candidateId={row.candidate.id} candidateName={[row.candidate.name, row.candidate.lastname].filter(Boolean).join(" ")} onSaved={onVerified} />}
           <div className="flex flex-wrap gap-2">
             {canOpenProfile && <Link className={buttonVariants({ variant: "outline" })} href={`/candidates/${row.candidate.id}?from=talent-radar`}>Otwórz profil</Link>}
-            {addToRecruitment && <Button variant="outline" onClick={() => setAddTarget({ id: row.candidate.id, name: [row.candidate.name, row.candidate.lastname].filter(Boolean).join(" ") || `Kandydat #${row.candidate.id}` })}>Dodaj do rekrutacji</Button>}
+            {addToRecruitment && <Button variant="outline" onClick={() => setAddTarget({ id: row.candidate.id, name: [row.candidate.name, row.candidate.lastname].filter(Boolean).join(" ") || `Kandydat #${row.candidate.id}`, marker: row.employment_marker })}>Dodaj do rekrutacji</Button>}
           </div>
         </article>)}
       </div>
@@ -101,6 +101,7 @@ export function FullCandidateSearchResults({ data, error, loading, fetching, off
       source={addToRecruitment.source}
       runId={data.run_id}
       subject={`Wybierz rekrutację dla: ${addTarget.name}.`}
+      employed={addTarget.marker ? [{ id: addTarget.id, name: addTarget.name, marker: addTarget.marker }] : undefined}
       onAdded={addToRecruitment.onAdded}
     />}
   </div>;

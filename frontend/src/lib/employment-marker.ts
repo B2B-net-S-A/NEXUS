@@ -129,6 +129,22 @@ export function markerCoversEligibility(
   return marker?.elsewhere === false && reasonCode === "client_current_employment";
 }
 
+/**
+ * Plakietka przy rekrutacji na liście „Przypisz do rekrutacji”: klient tej
+ * rekrutacji to klient, u którego osoba już pracuje albo zaczyna.
+ */
+export function sameClientNote(
+  marker: EmploymentMarker | null | undefined,
+  clientId: number | null | undefined,
+): string | null {
+  if (!marker || clientId == null) return null;
+  const match = marker.clients.find((client) => client.client_id === clientId);
+  if (!match) return null;
+  return match.phase === "starting"
+    ? "Ten sam klient, u którego zaczyna"
+    : "Ten sam klient, u którego pracuje";
+}
+
 export interface MarkerDetailLine {
   key: string;
   title: string;

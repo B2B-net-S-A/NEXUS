@@ -37,6 +37,7 @@ import {
   type EmploymentInfo,
 } from "@/components/v2/CandidateHighlights";
 import { CompetenceCategoryBadge } from "@/components/v2/CompetenceCategoryBadge";
+import type { EmploymentMarker } from "@/lib/employment-marker";
 import { MarkEmployedAction } from "@/components/v2/MarkEmployedAction";
 import { QuickAssignV2 } from "@/components/v2/modals/QuickAssignV2";
 import { RiskBadge } from "@/components/v2/RiskBadge";
@@ -82,6 +83,7 @@ interface QuickViewCandidate {
   location?: string | null;
   status?: string | null;
   employment?: EmploymentInfo | null;
+  employment_marker?: EmploymentMarker | null;
   competence_category_id?: number | null;
   competence_category?: string | null;
   contact_case?: CandidateContactSummary | null;
@@ -811,6 +813,7 @@ export function CandidateQuickView({
           onOpenChange={setAssignOpen}
           candidateId={candidateId}
           candidateName={fullName}
+          employment={candidate?.employment_marker}
           onAssigned={() => {
             invalidateCandidateMutation(queryClient, candidateId, "assignment");
             void queryClient.invalidateQueries({

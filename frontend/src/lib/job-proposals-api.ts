@@ -6,6 +6,7 @@
  * historię migawek rekomendacji (`proposalsApi` w `lib/api.ts`).
  */
 
+import type { EmploymentMarker } from "@/lib/employment-marker";
 import { api, type MatchEligibility } from "@/lib/api";
 import type { SearchState } from "@/lib/full-candidate-search-api";
 import type { ProposalSource } from "@/components/v2/recruitment/types";
@@ -69,6 +70,8 @@ export interface ProposalInboxItem {
   /** Przegląd bazy, który zaproponował tę osobę (telemetria dodania). */
   run_id?: string | null;
   eligibility: MatchEligibility | null;
+  /** Znacznik „Pracuje u nas”; `elsewhere` względem klienta tej rekrutacji. */
+  employment_marker?: EmploymentMarker | null;
   /** Przepięcie (0341): skąd osoba przychodzi — rekrutacja, etap, data wysłania. */
   reassign_from?: ProposalReassignFrom | null;
   /** Przekazanie przez praktykanta (0374): kto, kiedy i z jaką notatką. */
@@ -225,6 +228,8 @@ export interface ProposalFacts {
   rate_latest_hourly?: number | null;
   rate_this_job_hourly?: number | null;
   client_history: ProposalClientHistory | null;
+  /** Znacznik „Pracuje u nas” — ramka w podglądzie osoby. */
+  employment_marker?: EmploymentMarker | null;
   /**
    * Data wgrania głównego CV (ISO, 30.09.2026). `null`/brak = nie znamy
    * prawdziwej daty (import) — wtedy plakietki „CV z RRRR” nie ma.

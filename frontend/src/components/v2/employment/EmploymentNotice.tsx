@@ -18,6 +18,9 @@ import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 
 export const ASK_DELIVERY_HINT = "Przed wysłaniem profilu zapytaj Delivery.";
+/** Okna dodawania: znacznik informuje, nie blokuje (decyzja D2, 12.10.2026). */
+export const ADD_ANYWAY_HINT =
+  "Dodanie jest możliwe. Przed wysłaniem CV do klienta uzgodnij to z Delivery Leadem.";
 
 type FrameTone = EmploymentMarkerTone | "neutral";
 
