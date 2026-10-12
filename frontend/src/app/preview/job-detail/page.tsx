@@ -36,7 +36,8 @@ import { CandidateSourcesStrip } from "@/components/v2/jobs/CandidateSourcesStri
 import { JobDetailCompactHeader } from "@/components/v2/jobs/JobDetailCompactHeader";
 import { reassignContextQueryKey } from "@/components/v2/jobs/ScreeningReassignSuggestions";
 import { RequestStatusBadge } from "@/components/v2/jobs/JobListCells";
-import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
+import { candidateQueryKeys, candidateViewerScopeKey } from "@/components/v2/pages/candidate-query-keys";
+import { pairMovesQueryKey } from "@/components/v2/recruitment/JobMoveLog";
 import { pinnedNotesQueryKey } from "@/components/v2/recruitment/PinnedCandidateNotes";
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
@@ -78,6 +79,14 @@ import {
 } from "@/lib/similar-jobs-api";
 import { useAuthStore } from "@/store/auth";
 import { useUiStore } from "@/store/ui";
+
+import {
+  currentJobNotes,
+  NO_NOTES,
+  pairMoves,
+  RICH_HISTORY_OUTCOMES,
+  richHistoryNotes,
+} from "@/app/preview/person-history-fixtures";
 
 const JOB_ID = 4344;
 const HOUR = 3_600_000;
@@ -627,8 +636,31 @@ const MOVE_REQUIREMENTS: MoveRequirementsResponse = {
   primary: { kind: "move", label: "Przesuń dalej" },
 };
 
-function seedCardPanel(qc: QueryClient, item: KanbanItem): void {
+/** Osoba, na której harness pokazuje „Wcześniej u nas” (pierwsza karta „Nowych”). */
+const RICH_HISTORY_CANDIDATE_ID = 9101;
+/** Osoba z notatką tylko w tej rekrutacji — zakładka bez historii. */
+const CURRENT_JOB_NOTES_CANDIDATE_ID = 9102;
+/** Ten sam zakres widza co konto ustawiane w `useEffect` strony. */
+const PREVIEW_VIEWER_SCOPE = candidateViewerScopeKey({ id: 7, role: "recruiter", roles: ["recruiter"] }) ?? "";
+
+function seedCardPanel(qc: QueryClient, item: KanbanItem, columnName: string): void {
   const candidateId = item.candidate_id;
+  // Notatki osoby (ta rekrutacja + „Wcześniej u nas”), wyniki rekrutacji i ruchy pary.
+  seedFresh(
+    qc,
+    candidateQueryKeys.notes(candidateId),
+    candidateId === RICH_HISTORY_CANDIDATE_ID
+      ? richHistoryNotes(candidateId)
+      : candidateId === CURRENT_JOB_NOTES_CANDIDATE_ID
+        ? currentJobNotes(candidateId, JOB_ID, "Starszy Programista Frontend (Angular)")
+        : NO_NOTES,
+  );
+  seedFresh(
+    qc,
+    candidateQueryKeys.recruitmentOutcomes(candidateId, PREVIEW_VIEWER_SCOPE),
+    candidateId === RICH_HISTORY_CANDIDATE_ID ? RICH_HISTORY_OUTCOMES : [],
+  );
+  seedFresh(qc, [...pairMovesQueryKey(JOB_ID, candidateId), item.id], pairMoves(candidateId, item.id, columnName));
   seedFresh(qc, ["cv-share-tokens-recruitment", candidateId, JOB_ID], {
     items: [],
     branded_cv: { status: "none", stage_id: null, stage_name: null, finalized_at: null },
@@ -840,7 +872,7 @@ function seededClient(): QueryClient {
 
   // „Szukaj w bazie”: te same trzy odczyty i TE SAME funkcje filtrów co okno.
   seedFresh(qc, ["matching-requirements", JOB_ID], REQUIREMENTS);
-  for (const column of columns()) column.items.forEach((item) => seedCardPanel(qc, item));
+  for (const column of columns()) column.items.forEach((item) => seedCardPanel(qc, item, column.name ?? ""));
   // Generator CV w panelu osoby: reguły klienta (tu bez reguł centralnych).
   seedFresh(qc, ["central-cv-policy", null, null, false], { managed: false, content_mode: "polished" });
   seedFresh(qc, ["job-questions", JOB_ID], []);
