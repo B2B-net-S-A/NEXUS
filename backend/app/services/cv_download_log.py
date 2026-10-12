@@ -33,7 +33,7 @@ async def log_cv_download(
     surface: Optional[str],
     entity_type: str,
     entity_id: int,
-    user_id: int,
+    user,
     file_format: str,
     state: str,
     version: Optional[int] = None,
@@ -52,7 +52,7 @@ async def log_cv_download(
                     entity_type=entity_type,
                     entity_id=entity_id,
                     action=ACTION,
-                    user_id=user_id,
+                    user_id=user.id,
                     details={
                         "format": file_format,
                         "state": state,

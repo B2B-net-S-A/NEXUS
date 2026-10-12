@@ -11,11 +11,16 @@ i zatwierdzeniu — także dla starej karty i wywołania API.
 
 from __future__ import annotations
 
+import copy
 import html as html_lib
+import logging
 from functools import lru_cache
 from typing import Optional
 
+from fastapi import HTTPException
 from lxml import html as lxml_html
+
+logger = logging.getLogger(__name__)
 
 OPENING_WORDS = 5
 # Klauzula zaczyna się od stałych słów; dalsza część akapitu nie jest potrzebna.
@@ -51,9 +56,43 @@ def is_rodo_node(node) -> bool:
     )
 
 
+def _wrap_loose_clause_text(root) -> None:
+    """Luźny tekst między blokami, który wygląda jak klauzula → własny akapit.
+
+    Generator Worda robi z takiego tekstu akapit i przypina go jak każdą
+    klauzulę; bez tego cudza klauzula wpisana przed prawdziwą jako goły tekst
+    przechodziła niezauważona.
+    """
+    from app.services.cv_approved_docx import BLOCKS, _WRAPPERS
+
+    def paragraph(text: str):
+        node = lxml_html.Element("p")
+        node.text = text
+        return node
+
+    def walk(container) -> None:
+        if is_rodo_text(container.text or ""):
+            container.insert(0, paragraph(container.text))
+            container.text = None
+        for child in list(container):
+            if is_rodo_text(child.tail or ""):
+                child.addnext(paragraph(child.tail))
+                child.tail = None
+            if (
+                child.tag in _WRAPPERS
+                and any(inner.tag in BLOCKS for inner in child)
+                and not child.get("data-cv-section")
+                and not (child.text or "").strip()
+                and not is_rodo_node(child)
+            ):
+                walk(child)
+
+    walk(root)
+
+
 def _clause_like(root) -> list:
-    # Te same bloki, które generator Worda bierze za akapit: `p` albo `div` bez
-    # bloków w środku. Punkt listy cytujący klauzulę to treść CV, nie klauzula.
+    # Bloki, które generator Worda bierze za akapit: `p` albo `div` bez bloków
+    # w środku — gdziekolwiek stoją. Punkt listy cytujący klauzulę to treść CV.
     from app.services.cv_approved_docx import BLOCKS
 
     return [
@@ -64,6 +103,37 @@ def _clause_like(root) -> list:
         and is_rodo_node(node)
         and not any(parent.tag in ("ul", "ol") for parent in node.iterancestors())
     ]
+
+
+def _pinned_by_word(node, root) -> bool:
+    """Czy generator Worda przypnie ten akapit na dole strony jako klauzulę.
+
+    Lustro `cv_approved_docx.flatten` i `paragraph_block`: akapit musi stać na
+    poziomie dokumentu (albo w opakowaniu, które generator rozwija) i nie może
+    zawierać obrazka. Klauzula schowana w cytacie albo komórce tabeli nie jest
+    przypinana — przypięty zostałby następny akapit, który ją udaje.
+    """
+    from app.services.cv_approved_docx import _WRAPPERS
+
+    if node.find(".//img") is not None:
+        return False
+    for parent in node.iterancestors():
+        if parent is root:
+            return True
+        if (
+            parent.tag not in _WRAPPERS
+            or parent.get("data-cv-section")
+            or (parent.text or "").strip()
+            or is_rodo_node(parent)
+        ):
+            return False
+    return False
+
+
+def _parse(content_html: str):
+    root = lxml_html.fragment_fromstring(content_html, create_parent="div")
+    _wrap_loose_clause_text(root)
+    return root
 
 
 def _same_text(node, other) -> bool:
@@ -79,45 +149,92 @@ def _unmark(node) -> None:
         node.attrib.pop("class", None)
 
 
+# Zdjęcie znacznika z opakowania potrafi odsłonić w nim następny akapit, który
+# udaje klauzulę, a sanitizer i lxml budują z wrogiego HTML-a różne drzewa —
+# stąd naprawa w kilku przebiegach, każdy na świeżo sparsowanej treści.
+_MAX_ROUNDS = 4
+
+
+def _restore(kept, incoming_html: str) -> str:
+    """Jeden przebieg naprawy; nietknięta treść wraca TYM SAMYM obiektem."""
+    try:
+        root = _parse(incoming_html)
+    except Exception as error:  # noqa: BLE001
+        raise HTTPException(
+            422,
+            "Nie udało się odczytać treści CV. Usuń nietypowe znaki i zapisz ponownie.",
+        ) from error
+    nodes = _clause_like(root)
+    keeper = next(
+        (
+            node
+            for node in nodes
+            if _pinned_by_word(node, root) and _same_text(node, kept)
+        ),
+        None,
+    )
+    if keeper is not None and len(nodes) == 1:
+        return incoming_html
+    for _ in range(len(nodes) + 1):
+        others = [node for node in _clause_like(root) if node is not keeper]
+        if not others:
+            break
+        for node in others:
+            if is_rodo_text("".join(node.itertext())):
+                node.drop_tree()
+            else:
+                _unmark(node)
+    # `root.text` to już zdekodowany tekst — bez ponownego zakodowania encje
+    # sprzed pierwszego bloku wróciłyby jako znaczniki. Treść przeszła przez
+    # drugi parser, więc sanitizer ma ostatnie słowo.
+    from app.services.html_sanitizer import sanitize_cv_html
+
+    rebuilt = sanitize_cv_html(
+        html_lib.escape(root.text or "", quote=False)
+        + "".join(lxml_html.tostring(child, encoding="unicode") for child in root)
+    )
+    if keeper is not None:
+        return rebuilt
+    # Klauzula jako osobny, domknięty fragment na końcu: doklejona w drzewie
+    # potrafiła po sanitizerze wylądować w niedomkniętym `<li>`.
+    clause = copy.deepcopy(kept)
+    clause.tail = None
+    return rebuilt + sanitize_cv_html(lxml_html.tostring(clause, encoding="unicode"))
+
+
 def keep_rodo_clause(previous_html: Optional[str], incoming_html: str) -> str:
     """Treść z edytora z klauzulą zgody taką jak w zapisanym CV.
 
-    Nietknięta klauzula = ``incoming_html`` wraca bez zmian, bajt w bajt.
-    Usunięta albo zmieniona wraca z ``previous_html`` na koniec dokumentu;
-    inny tekst, na który przeszedł jej znacznik, zostaje w treści bez znacznika
-    (Word przypina na dole pierwszy oznaczony akapit). CV zapisane bez
-    klauzuli przyjmuje każdą treść, a pusta treść wraca pusta — odmowę
-    „CV nie może być puste” daje wołający.
+    Nietknięta klauzula = ``incoming_html`` wraca bez zmian, bajt w bajt:
+    w treści jest dokładnie jeden akapit klauzuli, ten sam co zapisany, i to
+    jego generator Worda przypnie na dole. W każdym innym układzie zapisana
+    klauzula wraca na koniec dokumentu, zmienione i schowane kopie znikają,
+    a inny tekst ze znacznikiem klauzuli zostaje w treści bez znacznika.
+    CV zapisane bez klauzuli (albo z taką, której Word nie przypina) przyjmuje
+    każdą treść, a pusta treść wraca pusta — odmowę „CV nie może być puste”
+    daje wołający.
     """
     if not (previous_html or "").strip() or not (incoming_html or "").strip():
         return incoming_html
-    saved = _clause_like(
-        lxml_html.fragment_fromstring(previous_html, create_parent="div")
-    )
+    try:
+        saved_root = _parse(previous_html)
+    except Exception:  # noqa: BLE001 — stara treść nie może zablokować zapisu CV
+        logger.warning(
+            "[cv_rodo] zapisane CV nie daje się odczytać — klauzula bez ochrony"
+        )
+        return incoming_html
+    saved = [
+        node for node in _clause_like(saved_root) if _pinned_by_word(node, saved_root)
+    ]
     if not saved:
         return incoming_html
-    kept = saved[0]
-    root = lxml_html.fragment_fromstring(incoming_html, create_parent="div")
-    nodes = _clause_like(root)
-    if nodes and _same_text(nodes[0], kept):
-        return incoming_html
-    found = False
-    for node in nodes:
-        if not found and _same_text(node, kept):
-            found = True
-        elif is_rodo_text("".join(node.itertext())):
-            node.drop_tree()
-        else:
-            _unmark(node)
-    if not found:
-        kept.tail = None
-        root.append(kept)
-    # `root.text` to już zdekodowany tekst — bez ponownego zakodowania encje
-    # sprzed pierwszego bloku wróciłyby jako znaczniki.
-    rebuilt = html_lib.escape(root.text or "", quote=False) + "".join(
-        lxml_html.tostring(child, encoding="unicode") for child in root
+    content = incoming_html
+    for _ in range(_MAX_ROUNDS):
+        restored = _restore(saved[0], content)
+        if restored is content:
+            return content
+        content = restored
+    logger.warning(
+        "[cv_rodo] treść CV nie ustabilizowała się po %s przebiegach", _MAX_ROUNDS
     )
-    # Treść przeszła przez drugi parser — sanitizer ma ostatnie słowo.
-    from app.services.html_sanitizer import sanitize_cv_html
-
-    return sanitize_cv_html(rebuilt)
+    return content

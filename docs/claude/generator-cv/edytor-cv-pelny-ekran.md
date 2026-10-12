@@ -77,11 +77,29 @@ PR 1 (edytor bez AI); kolejne PR-y dopisują swoje sekcje tutaj.
   i zatwierdzenie muszą dostać tę samą treść: zatwierdzenie szuka wyniku
   kontroli po skrócie treści, więc kontrola policzona bez klauzuli kończyła się
   409 „Uruchom kontrolę” bez końca.
-- Nietknięta klauzula = treść wraca bajt w bajt; usunięta albo zmieniona wraca
-  z zapisanego CV; inny tekst ze znacznikiem klauzuli zostaje w treści bez
-  znacznika. Kandydat na klauzulę to `p` albo `div` bez bloków w środku, tak
-  jak w generatorze Worda. Przebudowana treść przechodzi jeszcze raz przez
-  sanitizer. Pusta treść zostaje pusta, żeby wołający dał swoje 422.
+- Strażnik liczy to samo, co przypnie generator Worda (`_pinned_by_word` =
+  lustro `cv_approved_docx.flatten` i `paragraph_block`): akapit `p` albo `div`
+  bez bloków w środku, na poziomie dokumentu, bez obrazka. Treść wraca bajt
+  w bajt tylko wtedy, gdy jest w niej dokładnie jeden akapit udający klauzulę
+  i to on jest zapisaną klauzulą na przypinanym miejscu. W każdym innym
+  układzie zapisana klauzula wraca na koniec, kopie i przeróbki znikają (także
+  schowane w cytacie, komórce tabeli, jako luźny tekst między blokami), a inny
+  tekst ze znacznikiem klauzuli zostaje w treści bez znacznika. Bez tego
+  prawdziwa klauzula schowana w cytacie przepuszczała cudzą, którą Word
+  przypinał na dole; pusty blok z klasą klauzuli zostawiał stronę bez niej.
+- Naprawa idzie do skutku na świeżo sparsowanej treści (kilka przebiegów),
+  bo lxml i sanitizer budują z niedomkniętych znaczników różne drzewa.
+  Przebudowana treść przechodzi przez sanitizer, klauzula jest doklejana jako
+  osobny, domknięty fragment. Pusta treść zostaje pusta, żeby wołający dał
+  swoje 422.
+- `sanitize_cv_html` usuwa znaki, których lxml nie przyjmuje (form feed i inne
+  sterujące, także jako odwołania `&#12;`). Przechodziły przez bleach, a lxml
+  w strażniku i w generatorze Worda rzucał wyjątkiem: zapis kończył się 500,
+  a zapisana z nimi treść blokowała każdy następny zapis. Zapisanego CV,
+  którego nie da się odczytać, strażnik nie chroni (ostrzeżenie w logu) —
+  stara treść nie może zablokować zapisu.
+- CV zapisane bez klauzuli nie ma czego chronić: pierwszy akapit klauzuli,
+  który ktoś do niego dopisze, staje się chroniony przy następnym zapisie.
 - Strażnika nie ma w `_write_stage_draft`: nowy szkic z generatora albo
   z innego CV może przynieść inną klauzulę i to jest poprawne.
 - Rozpoznanie klauzuli jest jedno: `is_rodo_node` (znacznik edytora, klasa

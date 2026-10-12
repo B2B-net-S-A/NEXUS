@@ -40,7 +40,7 @@ async def _log(db, **overrides):
         "surface": "editor",
         "entity_type": "candidate_stage_cv",
         "entity_id": 12,
-        "user_id": 7,
+        "user": SimpleNamespace(id=7),
         "file_format": "docx",
         "state": "draft",
         "version": 3,
@@ -74,6 +74,13 @@ async def test_unknown_surface_is_stored_as_other(surface):
     db = _session()
     await _log(db, surface=surface)
     assert db.add.call_args.args[0].details["surface"] == "other"
+
+
+async def test_preview_does_not_even_look_at_the_user():
+    # Testy tras wołają handlery wprost z atrapą użytkownika bez `id`.
+    db = _session()
+    await _log(db, intent=None, user=object())
+    db.add.assert_not_called()
 
 
 async def test_failed_write_does_not_stop_the_download(caplog):

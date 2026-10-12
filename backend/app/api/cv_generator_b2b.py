@@ -3270,7 +3270,7 @@ async def _log_generated_download(
         surface=surface,
         entity_type="cv_generated_document",
         entity_id=generated_id,
-        user_id=user.id,
+        user=user,
         file_format=file_format,
         state=state,
         version=version,

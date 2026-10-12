@@ -50,8 +50,8 @@ otwierają edytor, i ścieżka modułu zostają.
 | Typy, lint, moduły nieosiągalne | zielone lokalnie | `tsc --noEmit`, `eslint` bez błędów, `check-unreachable-modules`: 0 nowych |
 | Testy frontu | zielone lokalnie, po scaleniu `main` | 5258 testów w 380 plikach (edytor, okna, rekrutacja, pulpit, generator, pliki, strażnicy harnessów, inwentarz) |
 | Cały harness na prawdziwym edytorze | zielone lokalnie | `cv-editor-harness.test.tsx`: zero żądań, blokada „Zapisz”, brak nowego szkicu; test mutacyjny (cofnięcie `setEditable(…, false)`) wywraca 2 z 4 |
-| Testy backendu bez bazy | zielone lokalnie, po scaleniu `main` | 132 testy: strażnik klauzuli, kolejka kontroli, edytor generatora, generator Worda, import DOCX, wpis pobrania, lustro etykiet, kontrola po edycji, indeks reguł |
-| Testy backendu z bazą | w CI | `test_route_logs_a_download_and_only_a_download` (9 tras), `test_refused_download_is_not_logged`, `test_saving_and_approving_keep_the_saved_consent_clause` |
+| Testy backendu bez bazy | zielone lokalnie, po scaleniu `main` | 1478 testów w 120 plikach dotykających zmienionych modułów (pozostałe 372 wymagają bazy i idą w CI) |
+| Testy backendu z bazą | zielone w sicie CI na PR-ze | `test_route_logs_a_download_and_only_a_download` (9 tras), `test_refused_download_is_not_logged`, `test_saving_and_approving_keep_the_saved_consent_clause` |
 | Parametry tras | potwierdzone lokalnie | `app.openapi()`: `intent`, `surface` jako opcjonalne parametry zapytania na 9 trasach, ciało żądań POST bez zmian |
 | Przeglądarka 1280 × 720 | przeklikane lokalnie | harness: kartka i źródła obok siebie, nowe stanowisko po bieżącym, wpisany tytuł zastępuje pole, „Zapisz” wypisuje pozostałe pola i nie zamyka okna, klauzula zostaje ostatnia; trzy razy Delete na końcu ostatniego bloku nic nie zmienia (jedna klauzula, „Cofnij” nadal wyłączone), pisanie dalej działa |
 | Przeglądarka 768 i 390 | sprawdzone lokalnie | brak przewijania strony w bok, jedna kolumna z przełącznikami, pasek narzędzi przewija się w swoim wierszu |
@@ -70,11 +70,23 @@ Każde znalezisko zostało najpierw odtworzone testem, który padał.
 | Kontrola AI liczyła treść bez przywróconej klauzuli, zatwierdzenie z przywróconą — zatwierdzenie nie znajdowało wyniku kontroli i odpowiadało 409 bez końca | blokuje | Strażnik także w `enqueue_review` i w obu renderach szkicu | `test_ai_review_checks_the_content_that_approval_will_store`, `test_word_preview_renders_the_content_that_approval_will_store` |
 | Klauzula przepisana jako `div` omijała strażnika, a Word przypinał ją na dole | średnia | Kandydat na klauzulę to `p` albo `div` bez bloków w środku, jak w generatorze Worda | `test_clause_rewritten_as_a_div_is_replaced_too` |
 | Tekst przed pierwszym blokiem wracał z encji jako znaczniki (tylko gdy strażnik przebudowywał treść) | niska | Tekst jest kodowany przed złożeniem, a przebudowana treść przechodzi przez sanitizer | `test_text_before_the_first_block_stays_text_when_the_clause_is_restored` |
-SECURITY_ROW
+| Spreparowane żądanie przypinało w Wordzie inną klauzulę: prawdziwa schowana w cytacie, komórce tabeli albo z obrazkiem, a obok cudza z klasą klauzuli; pusty blok z tą klasą zostawiał stronę bez klauzuli (przegląd bezpieczeństwa + własna próba) | blokuje | Strażnik liczy to, co przypina generator Worda, i naprawia do skutku | `test_word_pins_the_saved_clause_whatever_the_request_hides_or_adds` — 7 układów sprawdzonych na prawdziwym pliku DOCX |
+| Form feed (także jako `&#12;`) kończył zapis błędem 500, a zapisany blokował CV na stałe (przegląd bezpieczeństwa) | blokuje | `sanitize_cv_html` usuwa znaki, których lxml nie przyjmuje; nieczytelne zapisane CV nie blokuje zapisu | `test_characters_lxml_rejects_do_not_break_saving`, `test_unreadable_saved_cv_can_still_be_overwritten`; próba 120 000 wrogich treści: 0 wyjątków, 0 odmów |
+| Cztery testy wołające trasy plików wprost z atrapą użytkownika padły w sicie CI (`user.id` czytane także przy podglądzie) | blokuje | Użytkownik jest czytany dopiero przy pobraniu | sito CI; `test_preview_does_not_even_look_at_the_user` |
 
-Świadomie zostaje: klauzula zagnieżdżona w `blockquote` albo komórce tabeli jest
-przyjmowana bez zmian, a Word jej nie przypina — tak samo było przed tą zmianą
-i edytor takiej treści nie tworzy.
+Przegląd bezpieczeństwa bez uwag: brak aktywnej treści po przebudowie HTML-a
+(70 000 losowych treści i 9 000 otwartych w Chromium — 0 skryptów), parametry
+`intent` / `surface` nie zmieniają uprawnień ani bramek, w `details` nie ma nic
+od użytkownika poza wartością z listy, harness ma wyłącznie fikcyjne dane.
+
+Świadomie zostaje:
+
+- CV zapisane bez klauzuli nie ma czego chronić — pierwsza klauzula, którą ktoś
+  do niego dopisze, staje się chroniona. CV z generatora zawsze ją mają.
+- Znalezione przy okazji w `sanitize_cv_html`, poza zakresem tego PR-a: czas
+  rośnie z kwadratem głębokości zagnieżdżenia (500 KB niedomkniętych `<div>` to
+  kilka minut w jednym żądaniu), a nieprawidłowy `style` kończy się wyjątkiem.
+  Zgłoszone jako osobne zadanie.
 
 ## Niepotwierdzone
 

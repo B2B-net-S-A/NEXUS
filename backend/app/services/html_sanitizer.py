@@ -25,6 +25,7 @@ migracji danych.
 
 from __future__ import annotations
 
+import re
 from html.parser import HTMLParser
 
 import bleach
@@ -231,6 +232,21 @@ class _VisibleCVMarkup(HTMLParser):
         self.handle_data(f"&#{name};")
 
 
+# Znaki, których nie przyjmuje lxml (generator Worda, strażnik klauzuli RODO).
+# Form feed przechodzi przez bleach wprost, a odwołania liczbowe (`&#12;`)
+# zostają w wyniku jako tekst i lxml dekoduje je dopiero u siebie. Zapisana
+# z nimi treść kończyła każdy następny zapis błędem 500.
+_XML_INCOMPATIBLE = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]")
+_NUMERIC_REFERENCE = re.compile(r"&#(?:[xX]([0-9a-fA-F]{1,8})|([0-9]{1,8}));?")
+
+
+def _without_incompatible_reference(match: re.Match[str]) -> str:
+    code = int(match.group(1), 16) if match.group(1) else int(match.group(2))
+    if code > 0x10FFFF or _XML_INCOMPATIBLE.fullmatch(chr(code)):
+        return " "
+    return match.group(0)
+
+
 def sanitize_cv_html(html: str | None) -> str:
     """Zwraca HTML przefiltrowany allowlistą (pusty string dla None)."""
     if not html:
@@ -238,7 +254,7 @@ def sanitize_cv_html(html: str | None) -> str:
     visible = _VisibleCVMarkup()
     visible.feed(html)
     visible.close()
-    return bleach.clean(
+    cleaned = bleach.clean(
         "".join(visible.parts),
         tags=ALLOWED_TAGS,
         attributes=ALLOWED_ATTRIBUTES,
@@ -247,3 +263,5 @@ def sanitize_cv_html(html: str | None) -> str:
         strip=True,
         strip_comments=True,
     )
+    cleaned = _NUMERIC_REFERENCE.sub(_without_incompatible_reference, cleaned)
+    return _XML_INCOMPATIBLE.sub(" ", cleaned)

@@ -221,3 +221,105 @@ async def test_word_preview_renders_the_content_that_approval_will_store(monkeyp
     await stage_service.render_stage_editor_docx(_draft(), BODY)
     expected = keep_rodo_clause(SAVED, BODY)
     assert rendered == [expected, expected]
+
+
+def _pinned_in_word(content_html: str) -> str:
+    """Tekst, który generator Worda przypina na dole strony jako klauzulę."""
+    import re
+    import zipfile
+    from io import BytesIO
+
+    from app.services.cv_approved_docx import render_approved_docx
+    from app.services.cv_document_assets import default_template
+
+    docx = render_approved_docx(content_html, default_template())
+    xml = zipfile.ZipFile(BytesIO(docx)).read("word/document.xml").decode()
+    boxes = re.findall(r"<w:txbxContent>(.*?)</w:txbxContent>", xml, re.S)
+    return " | ".join(
+        "".join(re.findall(r"<w:t[^>]*>([^<]*)</w:t>", box)) for box in boxes
+    )
+
+
+_PIXEL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+
+
+@pytest.mark.parametrize(
+    "decoy",
+    [
+        # Prawdziwa klauzula schowana tam, skąd Word jej nie przypina…
+        f'<blockquote><p data-cv-section="rodo">{CLAUSE}</p></blockquote><p class="rodo">INNA KLAUZULA</p>',
+        f'<table><tbody><tr><td><p data-cv-section="rodo">{CLAUSE}</p></td></tr></tbody></table>'
+        '<p class="rodo">INNA KLAUZULA</p>',
+        f'<p data-cv-section="rodo">{CLAUSE}<img src="{_PIXEL}"></p><p class="rodo">INNA KLAUZULA</p>',
+        # …pusty albo zagnieżdżony blok z klasą klauzuli przed prawdziwą (Word
+        # przypina pierwszy taki blok — pusty zostawiał stronę bez klauzuli)…
+        f'<div class="rodo"></div><p data-cv-section="rodo">{CLAUSE}</p>',
+        '<div class="rodo"><div class="rodo">Wyrażam zgodę na przetwarzanie moich danych — INNA KLAUZULA</div></div>'
+        f'<p data-cv-section="rodo">{CLAUSE}</p>',
+        # …albo cudza jako luźny tekst przed prawdziwą.
+        f"Wyrażam zgodę na przetwarzanie moich danych — INNA KLAUZULA<p>{CLAUSE}</p>",
+        f'<p>x</p>Wyrażam zgodę na przetwarzanie moich danych — INNA KLAUZULA<p data-cv-section="rodo">{CLAUSE}</p>',
+    ],
+)
+def test_word_pins_the_saved_clause_whatever_the_request_hides_or_adds(decoy):
+    from app.services.html_sanitizer import sanitize_cv_html
+
+    guarded = keep_rodo_clause(SAVED, sanitize_cv_html(BODY + decoy))
+    pinned = _pinned_in_word(guarded)
+    assert CLAUSE[:60] in pinned
+    assert "INNA KLAUZULA" not in pinned
+    assert pinned.count("Wyrażam zgodę") == 1
+
+
+def test_saved_clause_the_word_renderer_would_not_pin_is_not_protected():
+    # Stare CV z klauzulą w cytacie: Word jej nie przypina, więc nie ma czego
+    # przywracać — treść przechodzi bez zmian.
+    saved = f"{BODY}<blockquote><p>{CLAUSE}</p></blockquote>"
+    incoming = "<p>Nowa treść</p>"
+    assert keep_rodo_clause(saved, incoming) is incoming
+
+
+@pytest.mark.parametrize(
+    "hostile",
+    [
+        "\x0cabc<p>x</p>",
+        f"<p>{CLAUSE[:50]} xx</p>\x0cabc<p>b</p>",
+        "<p>b</p>\x0cogon",
+        # Odwołania liczbowe bleach zostawia jako tekst — dekoduje je dopiero lxml.
+        "&#12;abc<p>x</p>",
+        "&#x0B;abc<p>x</p>",
+        "<p>a</p>&#xFFFE;b&#0;c",
+    ],
+)
+def test_characters_lxml_rejects_do_not_break_saving(hostile):
+    from app.services.html_sanitizer import sanitize_cv_html
+
+    cleaned = sanitize_cv_html(hostile)
+    assert "\x0c" not in cleaned and "&#" not in cleaned
+    assert keep_rodo_clause(SAVED, cleaned).endswith(f"{CLAUSE}</p>")
+    # Zapisana, nie może zablokować następnego zapisu (500 przed tą zmianą).
+    assert keep_rodo_clause(cleaned, "<p>Nowa treść</p>").startswith("<p>Nowa treść</p>")
+
+
+def test_ordinary_numeric_references_survive_sanitizing():
+    from app.services.html_sanitizer import sanitize_cv_html
+
+    assert (
+        sanitize_cv_html("<p>Krak&#243;w &#x2013; &#9;tab</p>")
+        == "<p>Krak&#243;w &#x2013; &#9;tab</p>"
+    )
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [
+        "\x0cabc<p>x</p>",
+        "<html></html>",
+        "<!DOCTYPE html>",
+        "<html><head></head></html>",
+    ],
+)
+def test_unreadable_saved_cv_can_still_be_overwritten(stored):
+    # Treść zapisana przed tą zmianą nie może zablokować CV na zawsze.
+    incoming = f"<p>Nowa treść</p><p>{CLAUSE}</p>"
+    assert keep_rodo_clause(stored, incoming) is incoming
