@@ -6,28 +6,44 @@
  *
  * Wszystko, co trzeba wiedzieć przed wybraniem numeru: obecne stanowisko
  * i staż, skąd osoba przyszła i jak pasowała przy wejściu, w jakich innych
- * rekrutacjach jest teraz, ostatnia notatka i próby kontaktu. Jedno
- * zapytanie (`/quick-view`, ten sam klucz co szybki podgląd na liście
- * kandydatów). Stawka, dostępność i tryb pracy są w głowie panelu — tu ich
- * nie dublujemy.
+ * rekrutacjach jest teraz, ostatnia notatka i próby kontaktu (`/quick-view`,
+ * ten sam klucz co szybki podgląd na liście kandydatów).
+ *
+ * 12.10.2026: także to, co już wiemy z wcześniejszych rozmów — ostatnio
+ * podana stawka, dostępność i tryb pracy (te same reguły `lib/person-facts`
+ * co fakty doku) oraz ostatnia zakończona rekrutacja z wynikiem i liczba
+ * wcześniejszych notatek z „Pokaż”. Od 09.10.2026 głowa rozwiniętego panelu
+ * nie pokazuje faktów w „Nowych”, więc przed telefonem nie było ich nigdzie.
+ * Profil kandydata, notatki i stawki czytają klucze, które dok osoby ma już
+ * w cache; każde z tych zapytań jest dodatkiem — jego awaria daje „—”.
  *
  * Akcje: „Biorę — 12 h” (ta sama blokada co karta), „Nie odebrał” (ta sama
  * notatka-próba co dok) i „Zacznij screening” — formularz w miejscu profilu.
  */
 
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ClipboardCheck, Loader2, PhoneOff, UserPlus } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { isRecruitmentEnded } from "@/components/v2/candidate-profile/profile-helpers";
+import { candidateNoteItems, useCandidateNotes } from "@/components/v2/pages/candidate-notes-query";
+import { useCandidateRecruitmentOutcomes } from "@/components/v2/pages/candidate-outcomes-query";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
+import { notesCountLabel, splitPersonNotes } from "@/components/v2/person/notes-by-recruitment";
 import { PersonFacts } from "@/components/v2/person/PersonFacts";
 import { useNoAnswerNote } from "@/hooks/useNoAnswerNote";
-import api from "@/lib/api";
+import api, { candidatesApi } from "@/lib/api";
+import { useRateOverview } from "@/lib/api/candidateRates";
 import { aiScreeningBadge } from "@/lib/board-card-badges";
 import { autoMatchBadgeLabel, autoMatchBadgeTitle } from "@/lib/candidate-notes-view";
+import { hourlyText, monthYear } from "@/lib/candidate-rate";
+import { notesAvailabilityOrigin } from "@/lib/notes-facts";
+import { availabilityText, onsiteText } from "@/lib/person-facts";
 import { contactAttemptsLabel } from "@/lib/recommendation-card";
-import { entrySourceLabel } from "@/lib/recruitment-stage-label";
+import { entrySourceLabel, recruitmentOutcome } from "@/lib/recruitment-stage-label";
 import { formatDate } from "@/lib/utils";
 
 /** Wycinek odpowiedzi `/api/candidates/{id}/quick-view`, którego używa profil. */
@@ -50,6 +66,27 @@ export interface BeforeCallQuickView {
   }>;
   contact_attempts?: number;
   cv_highlights?: { years_experience?: number | null } | null;
+}
+
+/** Wycinek profilu kandydata (`GET /api/candidates/{id}`) — warunki, które już znamy. */
+interface CandidateConditions {
+  availability_date?: string | null;
+  availability_status?: string | null;
+  notice_period?: number | null;
+  notice_period_unit?: string | null;
+  max_onsite_days_per_week?: number | null;
+  cv_extracted_data?: unknown;
+}
+
+/** Po tylu miesiącach od ostatniej notatki warunki trzeba potwierdzić w rozmowie. */
+const STALE_AFTER_MONTHS = 6;
+const MONTH_MS = 30.44 * 24 * 60 * 60 * 1000;
+
+function monthsSince(iso: string | null | undefined, now: number): number | null {
+  if (!iso) return null;
+  const at = Date.parse(iso);
+  if (Number.isNaN(at)) return null;
+  return Math.floor((now - at) / MONTH_MS);
 }
 
 function yearsText(years: number | null | undefined): string | null {
@@ -77,9 +114,18 @@ export interface BeforeCallProfileProps {
   /** „Biorę — 12 h” — ta sama blokada co przycisk na karcie. */
   onTake?: () => void;
   onStartScreening: () => void;
+  /** „Pokaż” przy wcześniejszych notatkach — otwiera „Historię osoby” w podglądzie obok. */
+  onOpenHistory?: () => void;
 }
 
-export function BeforeCallProfile({ item, jobId, readOnly, onTake, onStartScreening }: BeforeCallProfileProps) {
+export function BeforeCallProfile({
+  item,
+  jobId,
+  readOnly,
+  onTake,
+  onStartScreening,
+  onOpenHistory,
+}: BeforeCallProfileProps) {
   const candidateId = item.candidate_id;
   const query = useQuery<BeforeCallQuickView>({
     queryKey: candidateQueryKeys.quickView(candidateId),
@@ -100,6 +146,47 @@ export function BeforeCallProfile({ item, jobId, readOnly, onTake, onStartScreen
   const source = entrySourceLabel(item.entry_source);
   const claimedByOther = item.claim_user_id != null && item.can_take === false;
   const canTake = !readOnly && onTake != null && item.can_take === true && item.claim_user_id == null;
+
+  // ── Co już wiemy: warunki z profilu i ostatnio podana stawka ─────────────
+  // Ten sam klucz i ta sama trasa co dok osoby — w panelu odpowiedź jest w cache.
+  const detailQuery = useQuery<CandidateConditions>({
+    queryKey: candidateQueryKeys.detail(candidateId),
+    queryFn: () => candidatesApi.get(candidateId).then((r) => r.data as CandidateConditions),
+    enabled: candidateId > 0,
+    staleTime: 60_000,
+  });
+  const detail = detailQuery.data ?? null;
+  const rateQuery = useRateOverview(candidateId, candidateId > 0);
+  const latestRate = hourlyText(rateQuery.data?.latest_amount);
+  const latestRateWhen = monthYear(rateQuery.data?.latest_at ?? null);
+  const rateFrom = hourlyText(item.candidate_rate_from_hourly);
+  const availabilityOrigin = detail ? notesAvailabilityOrigin(detail) : undefined;
+
+  // ── Wcześniej u nas: ostatnia zakończona rekrutacja i notatki spoza tej ──
+  const notesQuery = useCandidateNotes(candidateId);
+  const outcomesQuery = useCandidateRecruitmentOutcomes(candidateId);
+  const earlier = useMemo(() => {
+    const split = splitPersonNotes(candidateNoteItems(notesQuery.data), jobId);
+    const newestAt = split.earlier
+      .filter((note) => !note.is_system && note.created_at)
+      .map((note) => String(note.created_at))
+      .sort()
+      .pop();
+    return { count: split.earlierHuman, newestAt: newestAt ?? null };
+  }, [notesQuery.data, jobId]);
+  const lastEnded = useMemo(
+    () =>
+      (outcomesQuery.data ?? [])
+        .filter(
+          (row) =>
+            row.job_id !== jobId &&
+            isRecruitmentEnded({ job_status: row.job_status, latest_stage: row.latest_stage }),
+        )
+        .sort((a, b) => Date.parse(b.last_seen ?? "") - Date.parse(a.last_seen ?? ""))[0] ?? null,
+    [outcomesQuery.data, jobId],
+  );
+  const lastEndedOutcome = lastEnded ? recruitmentOutcome(lastEnded) : null;
+  const staleMonths = monthsSince(earlier.newestAt, Date.now());
 
   return (
     <section aria-label="Profil przed telefonem" className="space-y-3 text-[13px]" data-testid="before-call-profile">
@@ -169,6 +256,109 @@ export function BeforeCallProfile({ item, jobId, readOnly, onTake, onStartScreen
             : []),
         ]}
       />
+
+      <PersonFacts
+        testId="before-call-conditions"
+        title="Warunki — co już wiemy"
+        pairs
+        rows={[
+          {
+            label: "Stawka",
+            wide: true,
+            value: latestRate ?? (rateFrom ? `od ${rateFrom}` : null),
+            hint: latestRate
+              ? [
+                  latestRateWhen ? `ostatnio podana ${latestRateWhen}` : "ostatnio podana",
+                  rateFrom && rateFrom !== latestRate ? `najniższa ${rateFrom}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
+              : null,
+          },
+          {
+            label: "Dostępność",
+            wide: true,
+            value: availabilityText(
+              detail
+                ? {
+                    date: detail.availability_date,
+                    status: detail.availability_status,
+                    noticePeriod: detail.notice_period,
+                    // Profil bez jednostki okresu wypowiedzenia — dni, jak w doku.
+                    noticeUnit: detail.notice_period_unit ?? "days",
+                  }
+                : null,
+            ),
+            hint: availabilityOrigin?.text,
+          },
+          { label: "Tryb pracy", wide: true, value: onsiteText(detail?.max_onsite_days_per_week) },
+        ]}
+      />
+      {detailQuery.isError ? (
+        // Kreska przy dostępności i trybie nie może znaczyć „nie wiemy”, gdy padł odczyt.
+        <p role="alert" className="text-xs text-destructive-muted-foreground">
+          Nie udało się wczytać warunków z profilu.{" "}
+          <button
+            type="button"
+            className="font-medium underline underline-offset-2"
+            onClick={() => void detailQuery.refetch()}
+          >
+            Ponów
+          </button>
+        </p>
+      ) : null}
+
+      {lastEnded || earlier.count > 0 || notesQuery.isError ? (
+        <section aria-label="Wcześniej u nas" className="space-y-1.5">
+          <h3 className="text-xs font-semibold text-muted-foreground">Wcześniej u nas</h3>
+          {notesQuery.isError ? (
+            // Awaria odczytu nie może wyglądać jak osoba bez historii.
+            <p role="alert" className="text-xs text-destructive-muted-foreground">
+              Nie udało się sprawdzić wcześniejszych notatek.{" "}
+              <button
+                type="button"
+                className="font-medium underline underline-offset-2"
+                onClick={() => void notesQuery.refetch()}
+              >
+                Ponów
+              </button>
+            </p>
+          ) : null}
+          {lastEnded && lastEndedOutcome ? (
+            <div className="rounded-md border border-border bg-muted/20 px-2.5 py-1.5 text-xs">
+              <span className="font-medium text-foreground">
+                {lastEnded.job_title ?? `Rekrutacja #${lastEnded.job_id}`}
+              </span>
+              {lastEnded.client_name ? (
+                <span className="text-muted-foreground"> · {lastEnded.client_name}</span>
+              ) : null}{" "}
+              <Badge size="sm" variant={lastEndedOutcome.tone}>
+                {lastEndedOutcome.label}
+              </Badge>
+              <span className="block text-muted-foreground">
+                {[lastEnded.rejection_reason, monthYear(lastEnded.last_seen)].filter(Boolean).join(" · ") ||
+                  "bez zapisanego powodu"}
+              </span>
+            </div>
+          ) : null}
+          {earlier.count > 0 ? (
+            <p className="text-xs text-muted-foreground">
+              {notesCountLabel(earlier.count)} z wcześniejszych rozmów
+              {earlier.newestAt ? ` · ostatnia ${formatDate(earlier.newestAt)}` : ""}.{" "}
+              {onOpenHistory ? (
+                <button type="button" className="font-medium text-primary hover:underline" onClick={onOpenHistory}>
+                  Pokaż
+                </button>
+              ) : null}
+            </p>
+          ) : null}
+          {staleMonths != null && staleMonths >= STALE_AFTER_MONTHS ? (
+            <p role="note" className="text-[11px] text-warning-muted-foreground">
+              Ostatnia wcześniejsza notatka sprzed {staleMonths} mies. — potwierdź warunki w rozmowie.
+            </p>
+          ) : null}
+        </section>
+      ) : null}
 
       <section aria-label="Historia z nami" className="space-y-1.5">
         <h3 className="text-xs font-semibold text-muted-foreground">W innych rekrutacjach</h3>

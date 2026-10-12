@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
   showError: vi.fn(),
   showInfo: vi.fn(),
   showActionToast: vi.fn(),
+  candidate: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => {
@@ -38,7 +39,7 @@ vi.mock("@/lib/api", () => {
     __esModule: true,
     default: client,
     api: client,
-    candidatesApi: { update: vi.fn() },
+    candidatesApi: { update: vi.fn(), get: (...a: unknown[]) => mocks.candidate(...a) },
     screeningApi: {
       reassignContext: () =>
         Promise.resolve({ data: { stage_id: 0, available: false, source: null, previous_answers_count: 0 } }),
@@ -107,6 +108,7 @@ beforeEach(() => {
   for (const fn of Object.values(mocks)) fn.mockReset();
   serverState = formState();
   mocks.get.mockImplementation((url: string) => routeGet(url));
+  mocks.candidate.mockResolvedValue({ data: {} });
 });
 
 describe("ScreeningFullForm — zapis", () => {
@@ -609,5 +611,58 @@ describe("ScreeningFullForm — prośba Delivery Leada o poprawki (D6)", () => {
     await screen.findAllByLabelText("Odpowiedź");
     expect(screen.queryByTestId("fix-request-banner")).toBeNull();
     expect(screen.queryByRole("button", { name: /oddaj do przeglądu DL/ })).toBeNull();
+  });
+});
+
+describe("ScreeningFullForm — to, co już wiemy, stoi pod swoim polem (12.10.2026)", () => {
+  const field = (key: string) => document.querySelector(`[data-card-field="${key}"]`) as HTMLElement;
+
+  it("dostępność z notatek jest pod polem „Dostępność”, a w bloku stawki zostaje sama stawka", async () => {
+    serverState = formState({
+      suggestions_from_notes: {
+        rate: { value: 130, unit: "hour", currency: "PLN", raw: "130/h", source_note_id: 1, noted_at: "2025-03-14" },
+        availability: {
+          raw: "miesiąc wypowiedzenia",
+          notice_period: "1 miesiąc",
+          available_from: null,
+          source_note_id: 1,
+          noted_at: "2025-03-14",
+        },
+      },
+    });
+    mount();
+    await screen.findByRole("region", { name: "Warunki" });
+
+    const rateBlock = screen.getByTestId("screening-form-rate");
+    const rateChips = rateBlock.querySelectorAll('[data-testid="screening-suggestions"]');
+    expect(rateChips).toHaveLength(1);
+    expect(rateChips[0]).toHaveAttribute("data-only", "rate");
+    expect(rateChips[0]).toHaveTextContent("130 zł/h · 14.03");
+    expect(rateChips[0]).not.toHaveTextContent(/wypowiedzeni/);
+
+    const availabilityChips = field("availability").querySelector('[data-testid="screening-suggestions"]');
+    expect(availabilityChips).toHaveAttribute("data-only", "availability");
+    expect(availabilityChips).toHaveTextContent(/Z notatek:.*14\.03/);
+    expect(availabilityChips).not.toHaveTextContent("130 zł/h");
+    // Tryb pracy nie dostaje podpowiedzi dostępności.
+    expect(field("work_mode").querySelector('[data-testid="screening-suggestions"]')).toBeNull();
+  });
+
+  it("pod „Trybem pracy” stoi tryb z profilu kandydata; bez niego nic", async () => {
+    mocks.candidate.mockResolvedValue({ data: { max_onsite_days_per_week: 2 } });
+    mount();
+    await screen.findByRole("region", { name: "Warunki" });
+    await waitFor(() => expect(field("work_mode")).toHaveTextContent("W profilu: Do 2 dni w biurze"));
+    expect(mocks.candidate).toHaveBeenCalledWith(FORM_CANDIDATE_ID);
+    expect(field("availability")).not.toHaveTextContent("W profilu");
+  });
+
+  it("awaria odczytu profilu nie psuje formularza — po prostu brak podpowiedzi", async () => {
+    mocks.candidate.mockRejectedValue(new Error("500"));
+    mount();
+    await screen.findByRole("region", { name: "Warunki" });
+    await waitFor(() => expect(mocks.candidate).toHaveBeenCalled());
+    expect(field("work_mode")).not.toHaveTextContent("W profilu");
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

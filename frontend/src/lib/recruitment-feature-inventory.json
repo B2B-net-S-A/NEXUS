@@ -1873,6 +1873,14 @@
    "file": "components/v2/screening-form/CandidatePreviewPane.tsx",
    "marker": "Historia osoby",
    "v3_home": "Tablica → panel osoby → Rozwiń → podgląd po lewej (każda zakładka)"
+  },
+  {
+   "id": "screening.before-call-earlier",
+   "area": "panel",
+   "opis": "Profil przed telefonem: „Warunki — co już wiemy” (ostatnio podana stawka z datą, dostępność, tryb pracy) i „Wcześniej u nas” (ostatnia zakończona rekrutacja z wynikiem, wcześniejsze notatki z „Pokaż”)",
+   "file": "components/v2/screening-form/BeforeCallProfile.tsx",
+   "marker": "Warunki — co już wiemy",
+   "v3_home": "Tablica → panel osoby → Screening („Nowi”, przed „Zacznij screening”)"
   }
  ]
 }

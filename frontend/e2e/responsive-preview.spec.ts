@@ -319,6 +319,26 @@ test.describe("panel osoby — duży podgląd po lewej na laptopie", () => {
     expect(Math.abs(widthAfter - widthBefore), "szerokość strony CV po powrocie").toBeLessThanOrEqual(1);
   });
 
+  // 12.10.2026: przed telefonem rekruter widzi, co już wiemy (stawka, dostępność,
+  // tryb) i czym skończyła się ostatnia rekrutacja; „Pokaż” otwiera notatki obok.
+  test("/preview/screening-form: profil przed telefonem mówi, co już wiemy, i otwiera historię", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto("/preview/screening-form?state=nowi");
+    const profile = page.getByTestId("before-call-profile");
+    const conditions = profile.getByTestId("before-call-conditions");
+    await expect(conditions).toContainText("150 zł/h");
+    await expect(conditions).toContainText("ostatnio podana 03.2025");
+    await expect(conditions).toContainText("Do 2 dni w biurze");
+    const earlier = profile.getByRole("region", { name: "Wcześniej u nas" });
+    await expect(earlier).toContainText("Analityk systemowy");
+    await expect(earlier).toContainText("Odrzucony");
+    await earlier.getByRole("button", { name: "Pokaż" }).click();
+    await expect(
+      page.getByTestId("candidate-preview-pane").getByRole("region", { name: "Historia osoby" }),
+    ).toBeVisible();
+    expect(await pageOverflowPx(page)).toBeLessThanOrEqual(1);
+  });
+
   test("/preview/job-detail: panel na całą szerokość zakrywa menu boczne", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto("/preview/job-detail");
