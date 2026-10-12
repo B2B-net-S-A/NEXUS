@@ -99,7 +99,9 @@ https://claude.ai/artifact/QekWy3zx3pXNEKDKQmikf6, raport:
   zostaje tam zatrudniona. Samo dodanie do rekrutacji nie dzwoni.
 - **Jedno wpięcie:** `stage_notification_emitter.notify_stage_change` — przez
   nie idzie ruch pojedynczy, zbiorczy, automat i podpis w Generatorze. Po
-  commicie ruchu; błąd dzwonka nie cofa ruchu.
+  commicie ruchu; błąd dzwonka nie cofa ruchu. Cały dzwonek stoi
+  w savepoincie, bo jest wołany przed regułami etapów w tej samej sesji —
+  nieudane zapytanie bez savepointu zabrałoby zwykłe dzwonki tego ruchu.
 - **Odbiorcy:** `bell_recipients` (admini tylko jako zapas); autora ruchu
   odsiewamy PO wyznaczeniu odbiorców — odsianie przed dałoby zapas na adminów
   zawsze, gdy kartę rusza jedyny Delivery Lead klienta.
