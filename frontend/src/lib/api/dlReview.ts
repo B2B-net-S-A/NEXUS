@@ -91,6 +91,13 @@ export interface DlReviewFixOption {
   group: "answers" | "terms" | "assessment" | "rate" | "cv";
 }
 
+/** Kto i dlaczego przesunął kartę mimo uwag QC. */
+export interface DlReviewQcOverride {
+  reason: string;
+  by_name: string | null;
+  at: string;
+}
+
 export interface DlReviewContext {
   candidate_id: number;
   candidate_name: string;
@@ -101,6 +108,7 @@ export interface DlReviewContext {
   category_name: string | null;
   qc_status: string;
   qc_blocking_failed: number;
+  qc_override?: DlReviewQcOverride | null;
   can_see_amounts: boolean;
   can_see_client_rates: boolean;
   candidate_rate: DlReviewRate | null;

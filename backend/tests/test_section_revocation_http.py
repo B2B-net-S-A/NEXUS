@@ -69,6 +69,11 @@ _CASES = [
         "/api/jobs-lookup",
         {"sourcing": "none", "pipeline": "none", "insights": "none"},
     ),
+    (
+        "GET",
+        "/api/jobs-lookup/search",
+        {"sourcing": "none", "pipeline": "none", "insights": "none"},
+    ),
 ]
 
 

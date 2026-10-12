@@ -1874,6 +1874,7 @@ async def upload_consent_screenshot(
     z dysku) albo ``candidate_id`` + ``stage_id`` (proces) / ``candidate_id``
     + ``client_id`` (kandydat bez procesu, generator v3).
     """
+    stage_bound = False
     if generated_id is not None:
         if cv_sha256 or candidate_id is not None or stage_id is not None:
             raise HTTPException(
@@ -1932,10 +1933,19 @@ async def upload_consent_screenshot(
                 status_code=422,
                 detail="Kontekst klienta uległ zmianie. Odśwież formularz.",
             )
-        context = consent_binding.subject(
-            candidate_id=candidate_id, stage_id=stage_id, client_id=job.client_id
+        from app.services.cv_consent_attach import stage_binding_context
+
+        # Wspólne z dołączeniem zgody do kopii CV etapu — jeden kod liczy
+        # kontekst, z którym pokwitowanie jest potem porównywane.
+        context = await stage_binding_context(
+            db,
+            candidate_id=candidate_id,
+            stage_id=stage_id,
+            job=job,
+            project_ref=project_ref,
         )
-    if central_policies.enabled() and generated_id is None:
+        stage_bound = True
+    if central_policies.enabled() and generated_id is None and not stage_bound:
         binding_job = None
         if cv_sha256 and binding_stage_id:
             binding_stage = await db.get(CandidateStage, binding_stage_id)
@@ -1944,10 +1954,6 @@ async def upload_consent_screenshot(
             )
             if not binding_job or binding_job.client_id != client_id:
                 raise HTTPException(422, "Zgoda dotyczy innej rekrutacji lub klienta.")
-        elif not cv_sha256 and stage_id is not None:
-            binding_job = await db.get(
-                Job, (await db.get(CandidateStage, stage_id)).job_id
-            )
         if binding_job is not None:
             # Ten sam numer projektu, który wyprowadzi generacja (PKO BP: numer
             # ZOB z rekrutacji, gdy pole jest puste) — inaczej pokwitowanie

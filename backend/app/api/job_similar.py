@@ -393,6 +393,7 @@ async def reassign_from_similar_jobs(
         warnings=result.warnings if result else [],
         total_added=len(added),
         total_skipped=len(result.skipped) if result else 0,
+        cv_carried=result.cv_carried if result else [],
     )
     return {
         **response.model_dump(),

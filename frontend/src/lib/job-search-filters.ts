@@ -298,5 +298,13 @@ export function candidatesListFiltersForQuery(
   embed: { jobId: number } | null | undefined,
 ): CandidateFilters {
   if (!embed) return filters;
-  return { ...filters, recruitmentIds: [embed.jobId], recruitmentMatch: "not_assigned" };
+  // Zakres należy tu do okna: „nie w tej rekrutacji” i nic więcej. Zakres
+  // klienta przywrócony z pamięci filtrowałby niewidocznie za zablokowanym
+  // polem; tryb bez zakresu (`recruitmentPresence`) zostaje — pigułki są na ekranie.
+  return {
+    ...filters,
+    recruitmentIds: [embed.jobId],
+    recruitmentMatch: "not_assigned",
+    recruitmentClientIds: [],
+  };
 }

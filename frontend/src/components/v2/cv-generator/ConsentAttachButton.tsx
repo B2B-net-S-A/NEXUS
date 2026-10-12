@@ -6,26 +6,34 @@ import { Loader2, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/Toast";
-import { cvGeneratorApi } from "@/lib/api";
+import { candidateStageCvApi, cvGeneratorApi } from "@/lib/api";
 import { extractErrorDetail } from "@/lib/cv-generator";
+import { stageBrandedQueryKey } from "@/lib/cv-to-client";
 
 export const CONSENT_IMAGE_ACCEPT = "image/png,image/jpeg,image/webp";
 const MAX_MB = 8;
 
 export interface ConsentAttachButtonProps {
-  generatedId: number;
+  /** Wygenerowane CV, do którego dołączamy zgodę (cały pakiet językowy). */
+  generatedId?: number;
+  /**
+   * CV etapu BEZ dokumentu generatora (plik Word, kopia z innej rekrutacji,
+   * przepięcie — 12.10.2026): zgoda wiązana z kandydatem i etapem, na którym
+   * leży CV. Dokładnie jedno z `generatedId` / `stageCopy`.
+   */
+  stageCopy?: { candidateId: number; stageId: number };
   hasConsent: boolean;
   onAttached?: () => void;
   compact?: boolean;
 }
 
 /**
- * Zrzut maila ze zgodą kandydata dla JUŻ wygenerowanego CV (wymóg PKO BP).
+ * Zrzut maila ze zgodą kandydata dla JUŻ gotowego CV (wymóg PKO BP).
  * Wgranie podpisuje przypisanie do dokumentu, a dołączenie przerysowuje
  * wszystkie wersje językowe pakietu — bez ponownej generacji i bez AI.
  * Gdy zrzut już jest, ten sam przycisk go wymienia.
  */
-export function ConsentAttachButton({ generatedId, hasConsent, onAttached, compact = false }: ConsentAttachButtonProps) {
+export function ConsentAttachButton({ generatedId, stageCopy, hasConsent, onAttached, compact = false }: ConsentAttachButtonProps) {
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -46,8 +54,16 @@ export function ConsentAttachButton({ generatedId, hasConsent, onAttached, compa
     }
     setBusy(true);
     try {
-      const { data } = await cvGeneratorApi.uploadConsentForGenerated(generatedId, file);
-      await cvGeneratorApi.attachConsent(generatedId, data.consent_token);
+      if (stageCopy) {
+        const { data } = await cvGeneratorApi.uploadConsentForStage(stageCopy.candidateId, stageCopy.stageId, file);
+        const attached = await candidateStageCvApi.branded.attachConsent(stageCopy.stageId, data.consent_token);
+        queryClient.setQueryData(stageBrandedQueryKey(stageCopy.stageId), attached.data);
+      } else if (generatedId != null) {
+        const { data } = await cvGeneratorApi.uploadConsentForGenerated(generatedId, file);
+        await cvGeneratorApi.attachConsent(generatedId, data.consent_token);
+      } else {
+        return;
+      }
       void queryClient.invalidateQueries({ queryKey: ["cv-generated"] });
       void queryClient.invalidateQueries({ queryKey: ["cv-my-list"] });
       void queryClient.invalidateQueries({ queryKey: ["cv-result"] });

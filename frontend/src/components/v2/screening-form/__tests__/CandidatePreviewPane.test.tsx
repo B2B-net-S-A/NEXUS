@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
   branded: vi.fn(),
   selectGenerated: vi.fn(),
   selectDocument: vi.fn(),
+  selectStageCv: vi.fn(),
+  sources: vi.fn(),
   previewMounted: vi.fn(),
 }));
 
@@ -27,6 +29,8 @@ vi.mock("@/lib/api", () => ({
       get: (...a: unknown[]) => mocks.branded(...a),
       selectGenerated: (...a: unknown[]) => mocks.selectGenerated(...a),
       selectDocument: (...a: unknown[]) => mocks.selectDocument(...a),
+      selectStageCv: (...a: unknown[]) => mocks.selectStageCv(...a),
+      sources: (...a: unknown[]) => mocks.sources(...a),
     },
   },
 }));
@@ -260,6 +264,32 @@ describe("CandidatePreviewPane — wybór i edycja CV firmowego (screening)", ()
       return Promise.resolve({ data: [...PROFILE_DOCS, B2B_DOC] });
     });
     mocks.branded.mockResolvedValue({ data: { status: "none", edit_revision: 0 } });
+    mocks.sources.mockResolvedValue({ data: { items: [] } });
+  });
+
+  it("CV etapu z innej rekrutacji stoi pierwsze i wypiera generację tej samej rekrutacji (12.10.2026)", async () => {
+    // Kopia z generatora gubi ręczne poprawki — CV etapu je niesie.
+    mocks.sources.mockResolvedValue({
+      data: {
+        items: [
+          { job_id: 300, stage_id: 31, job_title: "DevOps Engineer", reference_number: "ZOB-9000", status: "finalized", version: 2 },
+        ],
+      },
+    });
+    mocks.selectStageCv.mockResolvedValue({
+      data: { status: "draft", source: "generator", from_generator: true, edit_revision: 1 },
+    });
+    const user = userEvent.setup();
+    mountScreening();
+    await user.click(await screen.findByRole("button", { name: "CV firmowe · wybierz (2)" }));
+
+    const stages = screen.getByRole("region", { name: "Z innych rekrutacji" });
+    expect(within(stages).getByText("zatwierdzone · wersja 2")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Z generatora" })).toBeNull();
+
+    await user.click(within(stages).getByRole("button", { name: "Wybierz: DevOps Engineer" }));
+    expect(mocks.selectStageCv).toHaveBeenCalledWith(901, 300, 0);
+    expect(mocks.selectGenerated).not.toHaveBeenCalled();
   });
 
   it("bez CV firmowego pokazuje gotowe CV z profilu, a „Wybierz” podpina plik Word", async () => {

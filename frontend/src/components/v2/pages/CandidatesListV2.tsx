@@ -1602,6 +1602,8 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  tagsFilter.length +
  workedAtClientIds.length +
  recruitmentIds.length +
+ traffitExtras.recruitmentClientIds.length +
+ (traffitExtras.recruitmentPresence ? 1 : 0) +
  (experienceMin !== null || experienceMax !== null ? 1 : 0) +
  (rateMin !== null || rateMax !== null ? 1 : 0) +
  stageMovedByIds.length +

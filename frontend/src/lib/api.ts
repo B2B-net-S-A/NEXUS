@@ -6167,6 +6167,37 @@ export type CVBrandedStatus = "none" | "draft" | "finalized";
 export type CVTemplate = "standard" | "blind";
 export type CVLanguage = "pl" | "en";
 
+/**
+ * Skąd przyszła treść CV wybranego zamiast generacji (12.10.2026): CV etapu
+ * z innej rekrutacji, przepięcie, plik z dysku albo z profilu. `selected_at`
+ * to chwila wyboru — karta proponuje „Użyj nowej wersji” tylko dla generacji
+ * młodszych od niej.
+ */
+export interface CVBrandedOrigin {
+  kind: "stage_copy" | "reassign" | "upload" | "profile_file" | "generated_other_job";
+  label?: string | null;
+  job_id?: number | null;
+  selected_at?: string | null;
+}
+
+/** Gotowe CV etapu tej osoby z innej rekrutacji — jedno na rekrutację. */
+export interface StageCvSourceItem {
+  job_id: number;
+  /** Wiersz etapu, na którym leży to CV — do podglądu treści. */
+  stage_id: number;
+  job_title?: string | null;
+  reference_number?: string | null;
+  client_name?: string | null;
+  status: "draft" | "finalized";
+  version?: number;
+  language?: string | null;
+  blind?: boolean;
+  updated_at?: string | null;
+  updated_by_name?: string | null;
+  /** Ten sam klient i źródło ma zrzut zgody — pojedzie z kopią. */
+  consent_carried?: boolean;
+}
+
 export interface CVBrandedState {
   presentation_review?: { status: string; message?: string; manual_fields?: string[]; checked_fields?: string[]; reason?: string } | null;
   docx_available?: boolean;
@@ -6175,6 +6206,13 @@ export interface CVBrandedState {
   from_generator?: boolean;
   /** Skąd treść: generator, plik Word z profilu kandydata albo stary szablon. */
   source?: "generator" | "document" | "legacy" | null;
+  /** Kopia wybrana zamiast generacji; `null` = CV z generatora tej pary. */
+  origin?: CVBrandedOrigin | null;
+  /** Wymóg zrzutu zgody zamrożony na CV etapu i to, czy CV ma własny obraz. */
+  consent_required?: boolean;
+  consent_attached?: boolean;
+  /** Wymagana zgoda, a CV jej nie ma — pobranie odpowie 409. */
+  consent_missing?: boolean;
   edit_revision: number;
   version: number;
   candidate_stage_id: number | null;
@@ -6279,6 +6317,29 @@ export const candidateStageCvApi = {
       api.post<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded/select-document`, {
         document_id, expected_revision,
       }),
+    /** Gotowe CV etapu tej osoby z INNYCH rekrutacji (bez zapisu). */
+    sources: (stageId: number) =>
+      api.get<{ items: StageCvSourceItem[] }>(`/api/candidates/stages/${stageId}/cv/branded/sources`),
+    /** CV etapu z innej rekrutacji (z poprawkami rekrutera) → szkic tej. */
+    selectStageCv: (stageId: number, source_job_id: number, expected_revision: number) =>
+      api.post<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded/select-stage-cv`, {
+        source_job_id, expected_revision,
+      }),
+    /** Plik Word z dysku → szkic (bez AI; plik nie trafia do plików kandydata). */
+    uploadDocx: (stageId: number, file: File, expected_revision: number) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("expected_revision", String(expected_revision));
+      return api.post<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded/upload`, fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: SLOW_ENDPOINT_TIMEOUT_MS,
+      });
+    },
+    /** Zrzut zgody RODO dla CV etapu bez dokumentu generatora (kopia). */
+    attachConsent: (stageId: number, consentToken: string) =>
+      api.post<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded/consent`, {
+        consent_screenshot_token: consentToken,
+      }, { timeout: SLOW_ENDPOINT_TIMEOUT_MS }),
     get: (stageId: number) =>
       api.get<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded`),
     update: (
@@ -6531,6 +6592,18 @@ export const cvGeneratorApi = {
     const fd = new FormData();
     fd.append("file", file);
     fd.append("generated_id", String(generatedId));
+    return api.post<{ consent_token: string; filename: string }>(
+      "/api/cv-generator/consent-screenshot",
+      fd,
+      { headers: { "Content-Type": "multipart/form-data" }, timeout: 60_000 },
+    );
+  },
+  /** Zrzut zgody dla CV etapu bez dokumentu generatora — przypisanie do etapu. */
+  uploadConsentForStage: (candidateId: number, stageId: number, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("candidate_id", String(candidateId));
+    fd.append("stage_id", String(stageId));
     return api.post<{ consent_token: string; filename: string }>(
       "/api/cv-generator/consent-screenshot",
       fd,

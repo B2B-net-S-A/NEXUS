@@ -10,7 +10,22 @@ vi.mock("@/lib/api", async () => {
     default: {
       get: vi.fn((url: string) =>
         Promise.resolve({
-          data: url === "/api/jobs-lookup" ? [{ id: 454, title: "Rekrutacja Testowa" }] : [],
+          data:
+            url === "/api/jobs-lookup/search"
+              ? {
+                  items: [
+                    {
+                      id: 454,
+                      title: "Rekrutacja Testowa",
+                      client_id: 3,
+                      client_name: "Bank Alfa",
+                      status: "open",
+                    },
+                  ],
+                  clients: [{ id: 3, name: "Bank Alfa", jobs_count: 12 }],
+                  total: 1,
+                }
+              : [],
         }),
       ),
     },
@@ -48,6 +63,29 @@ describe("ActiveFilterChips (UAT B-B06)", () => {
     expect(onUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ recruitmentIds: [], recruitmentMatch: "assigned" }),
     );
+  });
+
+  it("blok „Rekrutacje”: chip klienta z kierunkiem i chip trybu bez zakresu", async () => {
+    const onUpdate = renderChips({
+      recruitmentClientIds: [3],
+      recruitmentMatch: "not_assigned",
+    });
+    expect(await screen.findByText("Poza rekrutacjami klienta: Bank Alfa")).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: /Usuń filtr: Poza rekrutacjami klienta/ }),
+    );
+    // Ostatnia pozycja zakresu zdejmuje filtr — nie zamienia go w „w żadnej rekrutacji”.
+    expect(onUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ recruitmentClientIds: [], recruitmentMatch: "assigned" }),
+    );
+    expect(onUpdate.mock.calls[0][0]).not.toHaveProperty("recruitmentPresence");
+  });
+
+  it("blok „Rekrutacje”: tryb bez zakresu ma własny chip", async () => {
+    const onUpdate = renderChips({ recruitmentPresence: "never" });
+    expect(screen.getByText("Nie brał udziału w żadnej rekrutacji")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /Usuń filtr: Nie brał udziału/ }));
+    expect(onUpdate).toHaveBeenCalledWith(expect.objectContaining({ recruitmentPresence: "" }));
   });
 
   it("does not hide or duplicate chips nested under other filters", () => {

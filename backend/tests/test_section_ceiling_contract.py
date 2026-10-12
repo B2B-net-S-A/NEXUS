@@ -241,6 +241,7 @@ _EXPECTED_SECTIONS = [
     ("GET", "/api/team-structure/my-team", {D, P}),
     ("GET", "/api/clients-lookup", {S, P, D, INS, F}),
     ("GET", "/api/jobs-lookup", {P, S, INS}),
+    ("GET", "/api/jobs-lookup/search", {P, S, INS}),
 ]
 
 

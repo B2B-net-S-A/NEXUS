@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { CriticalResolution } from "@/lib/critical-skills";
 import {
+  candidatesListFiltersForQuery,
   criticalSearchRows,
   jobListFilters,
   jobSearchPlan,
@@ -9,6 +10,7 @@ import {
   splitByCritical,
   type ManualSearchJob,
 } from "@/lib/job-search-filters";
+import { DEFAULT_FILTERS } from "@/lib/url-filters";
 
 const critical = (patch: Partial<CriticalResolution>): CriticalResolution => ({
   stored: null,
@@ -88,5 +90,28 @@ describe("jedna reguła „są wiersze do szukania” (okno ręczne, zakładka, 
     );
     expect(plan.hasRows).toBe(true);
     expect(plan.split.preferred).toEqual([["Scala"]]);
+  });
+});
+
+describe("candidatesListFiltersForQuery — okno „Szukaj ręcznie”", () => {
+  const restored = {
+    ...DEFAULT_FILTERS,
+    recruitmentIds: [99],
+    recruitmentClientIds: [3],
+    recruitmentMatch: "assigned" as const,
+    recruitmentPresence: "not_in_process" as const,
+  };
+
+  it("wymusza „nie w tej rekrutacji”, zdejmuje cudzy zakres, zostawia tryb", () => {
+    const query = candidatesListFiltersForQuery(restored, { jobId: 7 });
+    expect(query.recruitmentIds).toEqual([7]);
+    expect(query.recruitmentMatch).toBe("not_assigned");
+    // Zakres klienta z pamięci okna filtrowałby niewidocznie za zablokowanym polem.
+    expect(query.recruitmentClientIds).toEqual([]);
+    expect(query.recruitmentPresence).toBe("not_in_process");
+  });
+
+  it("poza oknem rekrutacji nie zmienia filtrów", () => {
+    expect(candidatesListFiltersForQuery(restored, null)).toBe(restored);
   });
 });

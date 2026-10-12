@@ -71,6 +71,8 @@ describe("url-filters", () => {
       workedAtClientIds: [10, 11],
       recruitmentIds: [42, 7],
       recruitmentMatch: "not_assigned",
+      recruitmentClientIds: [3, 12],
+      recruitmentPresence: "",
       experienceMin: 2,
       experienceMax: 30,
       rateMin: 80,
@@ -623,5 +625,55 @@ describe("filtry z porównania z Traffitem (22.09.2026)", () => {
   it("promień spoza 1–300 km w adresie jest odrzucany", () => {
     expect(decodeFilters(new URLSearchParams("loc=Gdańsk&radius=999")).locationRadiusKm).toBeNull();
     expect(decodeFilters(new URLSearchParams("q_in=foo")).qScope).toBe("all");
+  });
+
+  it("blok „Rekrutacje”: tryb i zakres klienta przeżywają adres", () => {
+    for (const presence of ["never", "ever", "not_in_process"] as const) {
+      const filters: CandidateFilters = { ...DEFAULT_FILTERS, recruitmentPresence: presence };
+      expect(encodeFilters(filters).toString()).toBe(`recr_p=${presence}`);
+      expect(decodeFilters(encodeFilters(filters))).toEqual(filters);
+    }
+    const client: CandidateFilters = {
+      ...DEFAULT_FILTERS,
+      recruitmentClientIds: [3, 12],
+      recruitmentMatch: "not_assigned",
+    };
+    const encoded = encodeFilters(client);
+    // Kierunek idzie do adresu także wtedy, gdy zakres to sam klient.
+    expect([...encoded.keys()]).toEqual(["recr_mode", "recr_cl"]);
+    expect(encoded.get("recr_cl")).toBe("3,12");
+    expect(decodeFilters(encoded)).toEqual(client);
+    expect(decodeFilters(sp("recr_p=sometimes")).recruitmentPresence).toBe("");
+  });
+
+  it("blok „Rekrutacje”: stare adresy i zapisy wyglądają jak dotąd", () => {
+    const legacy: CandidateFilters = {
+      ...DEFAULT_FILTERS,
+      recruitmentIds: [17],
+      recruitmentMatch: "not_assigned",
+    };
+    expect([...encodeFilters(legacy).entries()]).toEqual([
+      ["recr", "17"],
+      ["recr_mode", "not_assigned"],
+    ]);
+    expect(decodeFilters(sp("recr=17&recr_mode=not_assigned"))).toEqual(legacy);
+  });
+
+  it("blok „Rekrutacje” → parametry listy", () => {
+    expect(
+      filtersToApiParams({ ...DEFAULT_FILTERS, recruitmentPresence: "not_in_process" }, 1),
+    ).toMatchObject({ recruitment_presence: "not_in_process" });
+    const scoped = filtersToApiParams(
+      { ...DEFAULT_FILTERS, recruitmentClientIds: [3], recruitmentMatch: "not_assigned" },
+      1,
+    );
+    expect(scoped.recruitment_client_id).toEqual([3]);
+    expect(scoped.recruitment_match).toBe("not_assigned");
+    expect(scoped.recruitment_id).toBeUndefined();
+
+    const none = filtersToApiParams(DEFAULT_FILTERS, 1);
+    expect(none.recruitment_presence).toBeUndefined();
+    expect(none.recruitment_client_id).toBeUndefined();
+    expect(none.recruitment_match).toBeUndefined();
   });
 });

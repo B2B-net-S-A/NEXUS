@@ -20,7 +20,6 @@ import api, { competenceCategoriesApi } from "@/lib/api";
 import { UserMultiSelect } from "@/components/v2/filters/UserMultiSelect";
 import { ClientMultiSelect } from "@/components/v2/filters/ClientMultiSelect";
 import { CompetenceCategoryMultiSelect } from "@/components/v2/filters/CompetenceCategoryMultiSelect";
-import { RecruitmentMultiSelect } from "@/components/v2/filters/RecruitmentMultiSelect";
 import { AddedByMultiSelect } from "@/components/v2/filters/AddedByMultiSelect";
 import { TalentPoolMultiSelect } from "@/components/v2/filters/TalentPoolMultiSelect";
 
@@ -113,43 +112,6 @@ describe("CompetenceCategoryMultiSelect", () => {
     );
   });
 });
-
-describe("RecruitmentMultiSelect", () => {
-  it("shows an error with retry instead of „Brak rekrutacji”", async () => {
-    const user = userEvent.setup();
-    get.mockRejectedValueOnce(new Error("500"));
-    renderWithQuery(<RecruitmentMultiSelect value={[]} onChange={vi.fn()} />);
-    await user.click(screen.getByRole("button", { name: /Dowolna rekrutacja/i }));
-
-    expect(
-      await screen.findByText("Nie udało się pobrać listy rekrutacji."),
-    ).toBeInTheDocument();
-    expect(screen.queryByText("Brak rekrutacji.")).not.toBeInTheDocument();
-
-    get.mockResolvedValueOnce({ data: [{ id: 3, title: "Java Developer" }] });
-    await user.click(screen.getByRole("button", { name: /Ponów/i }));
-    expect(await screen.findByText("Java Developer")).toBeInTheDocument();
-  });
-
-  it("shows loading, not the empty message, while the lookup is pending", async () => {
-    const user = userEvent.setup();
-    get.mockReturnValueOnce(new Promise(() => {}));
-    renderWithQuery(<RecruitmentMultiSelect value={[]} onChange={vi.fn()} />);
-    await user.click(screen.getByRole("button", { name: /Dowolna rekrutacja/i }));
-
-    expect(await screen.findByText("Ładowanie rekrutacji…")).toBeInTheDocument();
-    expect(screen.queryByText("Brak rekrutacji.")).not.toBeInTheDocument();
-  });
-
-  it("still says „Brak rekrutacji” for a real empty result", async () => {
-    const user = userEvent.setup();
-    get.mockResolvedValueOnce({ data: [] });
-    renderWithQuery(<RecruitmentMultiSelect value={[]} onChange={vi.fn()} />);
-    await user.click(screen.getByRole("button", { name: /Dowolna rekrutacja/i }));
-    expect(await screen.findByText("Brak rekrutacji.")).toBeInTheDocument();
-  });
-});
-
 describe("AddedByMultiSelect", () => {
   it("shows an error with retry instead of „Brak użytkowników”", async () => {
     const user = userEvent.setup();

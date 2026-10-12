@@ -25,10 +25,12 @@ Word „B2B”; PDF-y poza zakresem. Raport: `docs/screening-cv-pick-completion-
   rekrutacji dostaje w nagłówku tytuł TEJ rekrutacji i traci linię „Rozważany
   na stanowisko” (tytuł źródłowy bywa numerem zapytania innego klienta); CV
   blind ma w nazwie pliku „Kandydat”, nie nazwisko. Klient z wymogiem
-  zrzutu zgody = 422 `consent_client_needs_generator` (kopii nie da się dziś
-  dołączyć zgody, więc pobranie byłoby zablokowane na stałe); front wyszarza
-  takie opcje. Nie przywracaj powiązania z dokumentem generatora dla kopii
-  z innej rekrutacji — blokada pobrania i pakiet czytają wtedy cudzego klienta.
+  zrzutu zgody: od 12.10.2026 kopia powstaje z wymogiem zamrożonym na sobie,
+  pobranie czeka na zrzut, a zgodę dołącza się do CV etapu (do tej daty 422
+  `consent_client_needs_generator` i wyszarzone opcje) — szczegóły w
+  `generator-cv/zrzut-zgody-rodo-na-koncu-cv-wymog-pko-bp.md`. Nie przywracaj
+  powiązania z dokumentem generatora dla kopii z innej rekrutacji — blokada
+  pobrania i pakiet czytają wtedy cudzego klienta.
 - **Import Word → edytor: `services/cv_docx_import.py`**, bez AI. Jest
   odwrotnością układu `render_approved_docx`: sekcje po tytułach, tabela
   edukacji jako akapit, blok „daty / Nazwa firmy: / Stanowisko:” jako rola ze
@@ -55,3 +57,52 @@ Word „B2B”; PDF-y poza zakresem. Raport: `docs/screening-cv-pick-completion-
 - Kontrola AI przy zatwierdzaniu kopii odłączonej daje „niedostępna”
   (`no_generated_source`) — istniejące zachowanie, nie błąd.
 - Harness `/preview/screening-form?state=cvpick|cvconsent|cvready`.
+
+## „Użyj innego CV” w karcie „CV do klienta” (12.10.2026)
+
+Pomiar na produkcji 12.10.2026: 16 z 22 auto-CV z dwóch tygodni powstało dla
+osób, które miały już gotowe CV (11 — plik Word „B2B”, 5 — CV generatora
+z innej rekrutacji, 4 — CV etapu w innej rekrutacji), a karta dawała tylko
+„Wygeneruj ponownie”. Decyzje Artura: automat zostaje bez zmian, karta
+podpowiada gotowe CV, przepięcie przenosi je samo. Raport:
+`docs/cv-reuse-in-card-completion-report.md`.
+
+- **Trzecie źródło: CV ETAPU z innej rekrutacji** (`services/stage_cv_copy.py`,
+  `GET …/cv/branded/sources`, `POST …/select-stage-cv`). Kopia bierze treść po
+  poprawkach rekrutera (zatwierdzoną, a bez niej szkic); `select-generated`
+  dla innej rekrutacji renderuje wynik generatora od nowa i poprawki gubi,
+  więc lista chowa generację rekrutacji, która ma CV etapu
+  (`lib/stage-cv-options.ts`). Stary szablon „CV firmowe” nie jest źródłem.
+- **Metadane kopii z listy dozwolonych kluczy, nigdy przez przepisanie źródła**
+  (`detached_metadata`). Skrót treści generatora dałby kopii fałszywe
+  „zweryfikowane” przy zatwierdzaniu, a migawka reguł — limity cudzego klienta.
+  `source` zostaje przy `document` / `generated_other_job` (każda inna wartość
+  robi z kopii „stary szablon” tylko do odczytu); pochodzenie niesie
+  `origin {kind, label, job_id, selected_at}` i z niego karta bierze plakietkę.
+- **Nagłówek kopii podmienia `retitle_copied_html`** (na `cv_qc.EditableCv`,
+  nie regexem i nie przez lxml): pierwsze `<h1>` dostaje tytuł tej rekrutacji,
+  linia „Rozważany na stanowisko” znika, reszta dokumentu wychodzi bez zmian.
+  Tylko dla treści z generatora — nagłówek pliku Word pochodzi z pliku.
+- **Plik z dysku NIE trafia do plików kandydata** (`POST …/cv/branded/upload`):
+  w teczce mógłby stać się „aktualnym CV” osoby i źródłem dla generatora oraz
+  auto-CV, a powtórne wgranie tych samych bajtów przemianowałoby istniejący
+  plik. Zostaje nazwa i skrót treści w śladzie; ponowne użycie daje kopia CV
+  etapu.
+- **`GET …/cv/branded` dla etapu bez wiersza CV to stan pusty (200), nie 404**
+  — karta jest widoczna także w „Nowych” i „Screeningu” (bez sekcji wysyłki),
+  a etapy z importu Traffita wiersza nie mają.
+- **Pasek „Ta osoba ma już gotowe CV”** pokazuje się, gdy CV nie ma albo leży
+  nieprzejrzane auto-CV; karta pyta o gotowe CV dopiero po wczytaniu własnego
+  stanu. „Użyj nowej wersji” dotyczy tylko generacji młodszych niż
+  `origin.selected_at` — inaczej karta od razu radziłaby nadpisać CV, które
+  rekruter przed chwilą świadomie wskazał.
+- **Przepięcie kopiuje CV z rekrutacji źródłowej** (`carry_on_reassign` w
+  `add_candidates_to_job`, zaraz po migawce oryginału): savepoint, nigdy nie
+  rzuca, `flush` przed kopią. Obejmuje panel podobnych rekrutacji, „Do
+  przejrzenia”, przypisanie z listy i automat; ruch świeżej pary przez
+  `/pipeline/move`, shortlistę i wtyczkę LinkedIn — nie. Ta sama reguła
+  dostępu co przy ręcznym wyborze: kopię przenosi tylko osoba, która może
+  czytać rekrutację źródłową (`ensure_job_read_access`); odmowa i brak osoby
+  działającej (automat bez właściciela rekrutacji) to „nie przenoś”, nie błąd.
+  CV wczytane z pliku Word jedzie z nagłówkiem z pliku — karta każe go sprawdzić.
+- Harness `/preview/cv-generator?state=card` (pięć stanów karty i okno wyboru).

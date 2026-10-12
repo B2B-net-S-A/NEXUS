@@ -1,5 +1,47 @@
 # Traffit daily sync (scheduled import)
 
+<!-- indeks: wyłączony 12.10.2026 (zespół pracuje tylko w NEXUSIE) — co stoi, co zostało tylko w Traffit, jak zrobić ostatni import -->
+
+## Stan od 12.10.2026: sync jest wyłączony
+
+Decyzja Artura 12.10.2026: zespół przeszedł na NEXUSA w całości (185 rekrutacji
+przeniesionych, duplikaty scalone — `przeniesienie-rekrutacji-z-traffita-falami.md`),
+z Traffita nikt już nie korzysta, więc import nie jest potrzebny. Reszta tego
+pliku opisuje mechanizm, który nadal jest w kodzie — czytaj ją, zanim go
+ruszysz albo włączysz ponownie.
+
+- **Jak jest wyłączony:** `TRAFFIT_SYNC_ENABLED=false` w Coolify (workflow
+  „Coolify set env”, 12.10.2026 12:17 UTC) oraz plik `/root/scripts/traffit-stop`
+  na hoście — stary cron `traffit-delta-sync.sh` (22:00 UTC) kończy się na nim
+  od razu. Sekrety Traffita zostają: korzysta z nich narzędzie przeniesienia
+  (`POST /api/admin/traffit/transfer`), które flagi nie czyta.
+- **Co stanęło razem z importem:** archiwizacja rekrutacji z Traffita po fazie
+  `jobs`, poranne przypomnienie o kolejce Cpro liczone z importu
+  (`cpro_queue_reminder` — karty przesuwane w NEXUSIE dają zwykły dzwonek),
+  dociąganie tekstu, imion i pól z CV pobranych z Traffita
+  (`candidates_cv_text`, `candidates_enrich_names`, `candidates_cv_fields`).
+- **Co działa bez zmian:** pozostałe nocne zadania (dopasowania, wnioski
+  z notatek, ewaluacja) mają własne pętle; zamrożenie wyścigów przy wyłączonym
+  syncu nie czeka na znacznik `__daily__` (`competition_rules.freeze_readiness`);
+  wykrywanie wykluczeń placementów biegnie przed zamrożeniem;
+  `/api/health.checks.traffit` pokazuje `unconfigured` i to jest stan
+  oczekiwany, nie awaria.
+- **Co zostało tylko w Traffit:** wszystko, co ktoś tam zrobił po ostatnim
+  imporcie (start 12.10.2026 02:15 UTC) — notatki, pliki CV, nowi kandydaci,
+  ruchy na rekrutacjach nieprzeniesionych — oraz 40 kart-duplikatów, których
+  import nigdy nie przyjął (kolizja e-maila; ich etapy, notatki i pliki).
+  W ostatnich 14 dniach przed wyłączeniem sync przynosił ok. 36 nowych
+  kandydatów dziennie, także w soboty — jeśli jakieś ogłoszenie albo formularz
+  nadal kieruje zgłoszenia do Traffita, te osoby do NEXUSA nie trafią.
+- **Ostatni import przed rezygnacją z Traffita:** `TRAFFIT_SYNC_ENABLED=true`
+  → deploy → nocą `POST /api/admin/traffit/sync?mode=full` → sprawdzenie
+  `/sync/status` → z powrotem `false`. Rekrutacji „Prowadzonych w NEXUSIE”
+  (przeniesione i scalone kopie) import nie rusza, więc taki bieg niczego im
+  nie nadpisze.
+- **Nie włączaj ponownie bez decyzji Artura.** Włączony sync co noc zamyka
+  każdą rekrutację z Traffita bez flagi „Prowadzona w NEXUSIE” i dopisuje jej
+  etapy z Traffita — po migracji to źródło, którego nikt nie aktualizuje.
+
 Migracja Traffit→Nexus z maja 2026 była **one-shot CLI** (`python -m app.cli.import_traffit`). Ten moduł dodaje **zaplanowany sync** żeby Nexus był kompletny i aktualny: codzienny delta + tygodniowy full reconcile. PR 2026-06-17. Pełny opis: `docs/traffit-daily-sync-completion-report.md`.
 
 - **Loop:** `app/tasks/traffit_sync.py` → `traffit_daily_sync_loop` (zarejestrowany w `main.py` lifespan jako `traffit_sync`). Budzi się co `TRAFFIT_SYNC_CHECK_INTERVAL_SECONDS` (30 min, clamp >=300s) i decyduje z **persisted watermark** (`traffit_sync_state`), NIE z in-memory timera → restart-safe (Coolify rebuild na każdym pushu NIE re-triggeruje importu).
