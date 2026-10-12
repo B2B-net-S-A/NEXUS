@@ -72,33 +72,59 @@ function removableRange(doc: PMNode, position: number, node: PMNode): [number, n
   return [from, to];
 }
 
+/**
+ * Kopia klauzuli w akapicie: cały akapit (`whole`) albo zakres jej tekstu na
+ * początku lub końcu akapitu, z którym się skleiła — po wklejeniu ze schowka,
+ * po Backspace na jej początku (w liście Tiptap przenosi treść przez „usuń
+ * i wstaw”, czego mapowanie pozycji w `clauseLeaks` nie pokazuje).
+ */
+function clauseCopy(node: PMNode, clause: PMNode): "whole" | [number, number] | null {
+  if (!node.isTextblock) return null;
+  const own = clause.textContent;
+  const size = node.content.size;
+  if (node.textContent === own) return "whole";
+  if (size <= own.length) return null;
+  if (node.textBetween(0, own.length) === own) return [0, own.length];
+  if (node.textBetween(size - own.length, size) === own) return [size - own.length, size];
+  return null;
+}
+
 function repair(state: EditorState, clause: PMNode | null): Transaction | null {
   const tr = state.tr;
   const drop: Array<[number, number]> = [];
+  const blocks = clause ? cvOutline(state.doc).blocks : [];
+  const last = blocks[blocks.length - 1];
+  const kept = clause && last && last.node.eq(clause) ? last : null;
   state.doc.descendants((node, position, parent) => {
-    if (!parent || parent === state.doc) return true;
-    // Kopia klauzuli wklejona w głąb listy (np. razem z treścią innego CV)
-    // poszłaby do klienta jako punkt obowiązków.
-    if (clause && node.isTextblock && node.textContent === clause.textContent) {
+    const top = parent === state.doc;
+    if (kept && top && position === kept.from) return false;
+    const copy = clause ? clauseCopy(node, clause) : null;
+    if (copy === "whole") {
+      // Także w głębi listy: wklejona z treścią innego CV poszłaby do klienta
+      // jako punkt obowiązków.
       drop.push(removableRange(state.doc, position, node));
       return false;
     }
-    if (typeof node.attrs.cvSection === "string") {
+    if (copy) {
+      // Z akapitu, z którym się skleiła, znika tylko jej tekst.
+      drop.push([position + 1 + copy[0], position + 1 + copy[1]]);
+      if (node.attrs.cvSection === "rodo") {
+        tr.setNodeMarkup(position, undefined, { ...node.attrs, cvSection: null });
+      }
+      return false;
+    }
+    if (!top && typeof node.attrs.cvSection === "string") {
       tr.setNodeMarkup(position, undefined, { ...node.attrs, cvSection: null });
     }
     return true;
   });
   if (clause) {
-    const { blocks } = cvOutline(state.doc);
-    const clauses = blocks.filter((block) => isRodoNode(block.node));
-    const last = blocks[blocks.length - 1];
-    const kept = last && last.node.eq(clause) ? last : null;
-    if (!kept || clauses.length !== 1) {
-      // Najpierw klauzula na koniec (dokument nie może zostać pusty), potem
-      // znikają zmienione, przeniesione i wklejone drugi raz.
-      if (!kept) tr.insert(state.doc.content.size, clause);
-      for (const block of clauses) {
-        if (block !== kept) drop.push([block.from, block.to]);
+    // Klauzula na koniec (dokument nie może zostać pusty); znikają też akapity,
+    // które ją udają: zmieniona, przeniesiona, cudza ze znacznikiem.
+    if (!kept) tr.insert(state.doc.content.size, clause);
+    for (const block of blocks) {
+      if (block !== kept && isRodoNode(block.node) && !clauseCopy(block.node, clause)) {
+        drop.push([block.from, block.to]);
       }
     }
   }

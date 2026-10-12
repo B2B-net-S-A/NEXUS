@@ -62,8 +62,13 @@ PR 1 (edytor bez AI); kolejne PR-y dopisują swoje sekcje tutaj.
   punktu (klawisz obsługuje model ProseMirrora, więc `contenteditable=false`
   go nie zatrzyma), usunięcie zaznaczenia sięgającego w głąb klauzuli, tekst
   wpisany w nią. Naprawa dołożyłaby wtedy klauzulę drugi raz, a doklejony
-  tekst poszedłby do klienta jako treść CV. Kopię klauzuli wklejoną w głąb
-  listy naprawa usuwa.
+  tekst poszedłby do klienta jako treść CV.
+- Naprawa usuwa też kopie klauzuli (`clauseCopy`): cały akapit, także w głębi
+  listy, albo sam jej tekst z początku lub końca akapitu, z którym się skleiła.
+  Tak kończy się wklejenie ze schowka CV z klauzulą w środek akapitu
+  i Backspace na początku klauzuli — w liście Tiptap przenosi treść przez
+  „usuń i wstaw”, czego filtr po mapowaniu pozycji nie widzi. Usuwanie całego
+  sklejonego akapitu kasowało resztę akapitu użytkownika.
 - Serwer: `cv_rodo_clause.keep_rodo_clause(zapisane, przysłane)` wszędzie,
   gdzie treść z edytora jest zapisywana, sprawdzana albo składana w Word:
   `update_branded_cv`, `finalize_stage_cv`, `cv_generated_editor.save` /

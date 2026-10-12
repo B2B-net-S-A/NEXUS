@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Editor } from "@tiptap/core";
+import { DOMParser } from "@tiptap/pm/model";
 
 import { cvOutline } from "../cv-editor-blocks";
 import { cvEditorExtensions, loadCvHtml } from "../cv-editor-structure";
@@ -34,10 +35,14 @@ function positionOf(editor: Editor, text: string): number {
 }
 
 /** Klawisz Delete obsługuje model ProseMirrora, nie przeglądarka — `contenteditable` go nie zatrzyma. */
-function pressDelete(editor: Editor): void {
+function pressKey(editor: Editor, key: string, keyCode: number): void {
   editor.view.dom.dispatchEvent(
-    new KeyboardEvent("keydown", { key: "Delete", keyCode: 46, bubbles: true, cancelable: true }),
+    new KeyboardEvent("keydown", { key, keyCode, bubbles: true, cancelable: true }),
   );
+}
+
+function pressDelete(editor: Editor): void {
+  pressKey(editor, "Delete", 46);
 }
 
 function clauses(editor: Editor): number {
@@ -90,6 +95,18 @@ describe("klauzula zgody jest stała", () => {
     expect(clauses(editor)).toBe(1);
   });
 
+  it("Backspace na jej początku nie dokleja jej do poprzedniego punktu ani akapitu", () => {
+    // W liście Tiptap przenosi treść przez „usuń i wstaw” — mapowanie pozycji
+    // tego nie pokazuje, więc pilnuje tego naprawa, nie filtr.
+    for (const content of [CV, TAIL_CV]) {
+      const editor = open(content);
+      const before = editor.getHTML();
+      editor.commands.setTextSelection(positionOf(editor, "Wyrażam"));
+      pressKey(editor, "Backspace", 8);
+      expect(editor.getHTML()).toBe(before);
+    }
+  });
+
   it("usunięcie zaznaczenia sięgającego w głąb klauzuli nie zostawia jej reszty w treści", () => {
     const editor = open(TAIL_CV);
     const before = editor.getHTML();
@@ -136,6 +153,20 @@ describe("klauzula zgody jest stała", () => {
     lone.commands.insertContentAt(1, "<p>x</p>");
     expect(clauses(lone)).toBe(1);
     expect(lone.getHTML()).toBe(`<p>x</p>${open(BODY).getHTML()}${savedClause(CV)}`);
+  });
+
+  it("wklejona ze schowka klauzula nie zabiera reszty akapitu, z którą się skleiła", () => {
+    // Schowek daje wycinek otwarty z obu stron: ostatni wklejony akapit
+    // (klauzula z innego CV) skleja się z końcem akapitu, w który wklejono.
+    const editor = open(`${BODY}<p>Pierwsza połowa. Druga połowa.</p>${RODO}`);
+    editor.commands.setTextSelection(positionOf(editor, "Druga połowa."));
+    const clipboard = document.createElement("div");
+    clipboard.innerHTML = `<p>Wklejone</p>${RODO}`;
+    const slice = DOMParser.fromSchema(editor.schema).parseSlice(clipboard);
+    editor.view.dispatch(editor.state.tr.replaceSelection(slice));
+    expect(editor.getHTML()).toBe(
+      `${open(BODY).getHTML()}<p>Pierwsza połowa. Wklejone</p><p>Druga połowa.</p>${savedClause(CV)}`,
+    );
   });
 
   it("rozpoznaje klauzulę bez znacznika po pierwszych słowach szablonu", () => {
