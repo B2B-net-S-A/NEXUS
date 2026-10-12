@@ -721,3 +721,67 @@ async def test_undo_removes_the_carried_cv(
 
     assert undo.status_code in (200, 204), undo.text
     assert await _stage_cv_in_target(world) is None
+
+
+async def test_cv_is_carried_only_by_someone_who_may_read_the_source_recruitment():
+    """Kopia przy przepięciu trzyma regułę ręcznego wyboru (`select-stage-cv`).
+
+    Propozycja przepięcia powstaje w każdej połączonej rekrutacji, a dodanie
+    z „Do przejrzenia” sprawdza tylko rekrutację docelową — hak nie może być
+    drogą dookoła bramki odczytu rekrutacji źródłowej.
+    """
+    from app.models.candidate_stage_cv import CandidateStageCV
+    from app.models.user import User, UserRole
+    from app.services import stage_cv_copy
+
+    world = await _world()
+    await _stage_cv_in_source(world)
+    async with AsyncSessionLocal() as db:
+        # Konto podglądu spoza zespołu rekrutacji A i administrator.
+        outsider = User(
+            email=f"cv-carry-outsider-{world['tag']}@example.com",
+            name="Spoza zespołu",
+            role=UserRole.user,
+            roles=[UserRole.user.value],
+            is_active=True,
+        )
+        admin = User(
+            email=f"cv-carry-admin-{world['tag']}@example.com",
+            name="Administrator",
+            role=UserRole.admin,
+            roles=[UserRole.admin.value],
+            is_active=True,
+        )
+        stage = CandidateStage(
+            candidate_id=world["sent"], job_id=world["b"], stage=PipelineStage.new
+        )
+        db.add_all([outsider, admin, stage])
+        await db.flush()
+        target = CandidateStageCV(
+            candidate_stage_id=stage.id,
+            candidate_id=world["sent"],
+            job_id=world["b"],
+            branded_status="none",
+        )
+        db.add(target)
+        await db.flush()
+
+        async def _carry(user_id):
+            return await stage_cv_copy.carry_on_reassign(
+                db, target, source_job_id=world["a"], user_id=user_id
+            )
+
+        async def _status():
+            return await db.scalar(
+                select(CandidateStageCV.branded_status).where(
+                    CandidateStageCV.id == target.id
+                )
+            )
+
+        assert await _carry(outsider.id) is False
+        assert await _carry(None) is False
+        assert await _status() == "none"
+        # Ta sama osoba, ta sama rekrutacja źródłowa — różni je tylko dostęp.
+        assert await _carry(admin.id) is True
+        assert await _status() == "draft"
+        await db.rollback()

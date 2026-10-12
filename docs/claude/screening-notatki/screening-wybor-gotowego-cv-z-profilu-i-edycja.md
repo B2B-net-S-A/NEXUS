@@ -100,5 +100,9 @@ podpowiada gotowe CV, przepięcie przenosi je samo. Raport:
   `add_candidates_to_job`, zaraz po migawce oryginału): savepoint, nigdy nie
   rzuca, `flush` przed kopią. Obejmuje panel podobnych rekrutacji, „Do
   przejrzenia”, przypisanie z listy i automat; ruch świeżej pary przez
-  `/pipeline/move`, shortlistę i wtyczkę LinkedIn — nie.
+  `/pipeline/move`, shortlistę i wtyczkę LinkedIn — nie. Ta sama reguła
+  dostępu co przy ręcznym wyborze: kopię przenosi tylko osoba, która może
+  czytać rekrutację źródłową (`ensure_job_read_access`); odmowa i brak osoby
+  działającej (automat bez właściciela rekrutacji) to „nie przenoś”, nie błąd.
+  CV wczytane z pliku Word jedzie z nagłówkiem z pliku — karta każe go sprawdzić.
 - Harness `/preview/cv-generator?state=card` (pięć stanów karty i okno wyboru).

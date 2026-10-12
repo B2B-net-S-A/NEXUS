@@ -207,6 +207,21 @@ describe("CV wybrane zamiast generacji (12.10.2026)", () => {
     expect(stageCvOrigin(copy({ origin: { kind: "generated_other_job" } }))?.badge).toBe("z innej rekrutacji");
   });
 
+  it("kopia CV wczytanego z pliku Word nie twierdzi, że nagłówek jest już poprawiony", () => {
+    // Serwer podmienia tytuł tylko w treści z generatora — nagłówek z pliku
+    // zostaje (bywa w nim numer zapytania innego klienta).
+    for (const kind of ["reassign", "stage_copy"]) {
+      const word = stageCvOrigin(
+        copy({ source: "document", from_generator: false, origin: { kind, label: "ZOB-9000" } }),
+      );
+      expect(word?.sentence).not.toContain("Nagłówek ma tytuł tej rekrutacji");
+      expect(word?.sentence).toContain("Nagłówek pochodzi z pliku Word — sprawdź go przed wysyłką.");
+      expect(stageCvOrigin(copy({ origin: { kind, label: "ZOB-9000" } }))?.sentence).toContain(
+        "Nagłówek ma tytuł tej rekrutacji.",
+      );
+    }
+  });
+
   it("CV z generatora tej rekrutacji i brak CV nie mają plakietki pochodzenia", () => {
     expect(stageCvOrigin({ status: "draft", from_generator: true, generated_document_id: 7 })).toBeNull();
     expect(stageCvOrigin({ status: "none" })).toBeNull();

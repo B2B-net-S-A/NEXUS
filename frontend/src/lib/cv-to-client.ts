@@ -133,6 +133,13 @@ export function stageCvOrigin(
   const kind = branded.origin?.kind ?? null;
   const label = branded.origin?.label?.trim() || null;
   const fromJob = label ? `z rekrutacji ${label}` : "z innej rekrutacji";
+  // Tytuł w nagłówku podmieniamy tylko w treści z generatora. CV wczytane
+  // z pliku Word niesie nagłówek z pliku — bywa w nim numer zapytania innego
+  // klienta, więc karta nie może twierdzić, że nagłówek jest już poprawiony.
+  const header =
+    branded.source === "document"
+      ? "Nagłówek pochodzi z pliku Word — sprawdź go przed wysyłką."
+      : "Nagłówek ma tytuł tej rekrutacji.";
   if (kind === "reassign") {
     return {
       // Po zatwierdzeniu ktoś je już przejrzał — ostrzeżenie schodzi.
@@ -141,14 +148,14 @@ export function stageCvOrigin(
           ? `przeniesione ${fromJob} — sprawdź przed wysyłką`
           : `przeniesione ${fromJob}`,
       tone: branded.status === "draft" ? "warning" : "neutral",
-      sentence: `Przeniesione przy przepięciu ${fromJob}, w wersji po poprawkach rekrutera. Nagłówek ma tytuł tej rekrutacji.`,
+      sentence: `Przeniesione przy przepięciu ${fromJob}, w wersji po poprawkach rekrutera. ${header}`,
     };
   }
   if (kind === "stage_copy") {
     return {
       badge: fromJob,
       tone: "neutral",
-      sentence: `Skopiowane ${fromJob}, w wersji po poprawkach rekrutera. Nagłówek ma tytuł tej rekrutacji.`,
+      sentence: `Skopiowane ${fromJob}, w wersji po poprawkach rekrutera. ${header}`,
     };
   }
   if (kind === "generated_other_job") {

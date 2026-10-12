@@ -126,7 +126,7 @@ export function UseOtherCvDialog({
                 onChoose={(option) => void choice.choose(option)}
                 onPreviewDocument={setPreviewDocumentId}
                 onPreviewStage={setPreviewStage}
-                intro="CV z innej rekrutacji wchodzi w wersji po poprawkach rekrutera, z tytułem tej rekrutacji w nagłówku."
+                intro="CV z innej rekrutacji wchodzi w wersji po poprawkach rekrutera. Nagłówek CV z generatora dostaje tytuł tej rekrutacji; w CV wczytanym z pliku Word zostaje z pliku — sprawdź go."
               />
             )}
 

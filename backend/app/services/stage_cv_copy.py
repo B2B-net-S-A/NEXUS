@@ -430,11 +430,31 @@ async def carry_on_reassign(
     poprawiał je drugi raz. W savepoincie: awaria kopii nie może cofnąć
     dodania osoby do rekrutacji. Wołający zrobił `flush` przed wywołaniem,
     żeby ten `except` nie połknął cudzego błędu zapisu.
+
+    Ta sama reguła co ręczny wybór (`select-stage-cv`): treść CV powstała dla
+    rekrutacji źródłowej, więc przenosi ją tylko ten, kto może ją tam czytać.
+    Propozycja przepięcia powstaje dla każdej połączonej rekrutacji, a dodanie
+    z „Do przejrzenia” sprawdza wyłącznie rekrutację docelową — bez tego
+    warunku hak byłby drogą dookoła bramki odczytu. Odmowa i brak osoby
+    działającej to „nie przenoś”, nie błąd.
     """
+    from fastapi import HTTPException
+
+    from app.api.recruitment_access import ensure_job_read_access
+
+    if user_id is None:
+        return False
+    # Przed savepointem: jego wycofanie wygasza zmieniony wiersz, a odczyt
+    # wygaszonego pola w `except` sam by rzucił.
+    target_stage_id = target.candidate_stage_id
     try:
         async with db.begin_nested():
             if target.branded_status != "none":
                 return False
+            actor = await db.get(User, user_id)
+            if actor is None:
+                return False
+            await ensure_job_read_access(db, actor, source_job_id)
             source = await reusable_pair_cv(
                 db, candidate_id=target.candidate_id, job_id=source_job_id
             )
@@ -443,10 +463,12 @@ async def carry_on_reassign(
             await copy_stage_cv(db, target, source, user_id=user_id, reassign=True)
             await db.flush()
         return True
+    except HTTPException:
+        return False
     except Exception as exc:  # noqa: BLE001 — kopia CV nigdy nie psuje przepięcia
         logger.warning(
             "[stage_cv_copy] carry skipped stage=%s source_job=%s: %s",
-            target.candidate_stage_id,
+            target_stage_id,
             source_job_id,
             type(exc).__name__,
         )
