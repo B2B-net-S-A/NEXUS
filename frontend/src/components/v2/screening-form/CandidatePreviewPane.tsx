@@ -46,7 +46,9 @@ import {
 } from "@/components/v2/files/FilePreviewModal";
 import { DockCallCheatsheet } from "@/components/v2/jobs/DockCallCheatsheet";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
+import { candidateNoteItems, useCandidateNotes } from "@/components/v2/pages/candidate-notes-query";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
+import { PersonNotesHistory } from "@/components/v2/person/PersonNotesHistory";
 import { StageCvPreview } from "@/components/v2/person/StageCvPreview";
 import {
   StageCvPicker,
@@ -56,6 +58,7 @@ import {
 import { useStageBrandedCv } from "@/hooks/useStageBrandedCv";
 import api, { candidateStageCvApi, type CVOriginalSnapshot } from "@/lib/api";
 import { downloadAuthenticatedFile, fetchAuthenticatedBlob } from "@/lib/authenticated-files";
+import { humanNoteCount } from "@/lib/candidate-notes-view";
 import { stageBrandedQueryKey, stageCvStatus } from "@/lib/cv-to-client";
 import { dockOriginalCv, primaryProfileCv, type DockProfileCvDoc } from "@/lib/dock-cv-summary";
 import type { fetchStageCvFile } from "@/lib/stage-cv-file";
@@ -140,6 +143,19 @@ interface CvTabProps {
   sources?: ReadonlyArray<PreviewCvSource>;
   cvActions?: PreviewCvActions;
   loadStageCvFile?: typeof fetchStageCvFile;
+  /**
+   * „Historia osoby” obok źródeł CV. To nie czwarte źródło: CV zostaje
+   * zamontowane pod spodem, żeby powrót nie pobierał pliku drugi raz.
+   */
+  history?: PreviewHistory;
+}
+
+interface PreviewHistory {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** Notatki ludzi o tej osobie; 0 = przycisk bez liczby. */
+  count: number;
+  content: ReactNode;
 }
 
 function CvTab({
@@ -154,7 +170,13 @@ function CvTab({
   sources,
   cvActions,
   loadStageCvFile,
+  history,
 }: CvTabProps) {
+  // Treść historii montuje się przy pierwszym otwarciu i potem zostaje
+  // (wybrany filtr), tak jak odwiedzone zakładki podglądu.
+  const [historyMounted, setHistoryMounted] = useState(false);
+  if (history?.open && !historyMounted) setHistoryMounted(true);
+  const historyOpen = history?.open === true;
   const { showError } = useToast();
   const queryClient = useQueryClient();
   const { askConfirm, confirmDialog } = useConfirmV2();
@@ -456,29 +478,63 @@ function CvTab({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
-      <div role="group" aria-label="Które CV pokazać" className="inline-flex w-fit flex-wrap rounded-md border border-border bg-muted/30 p-0.5">
-        {SOURCES.filter((option) => !sources || sources.includes(option.value)).map((option) => (
+      <div className="flex flex-wrap items-center gap-2">
+        <div role="group" aria-label="Które CV pokazać" className="inline-flex w-fit flex-wrap rounded-md border border-border bg-muted/30 p-0.5">
+          {SOURCES.filter((option) => !sources || sources.includes(option.value)).map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              aria-pressed={!historyOpen && source === option.value}
+              onClick={() => {
+                history?.onOpenChange(false);
+                onSourceChange(option.value);
+              }}
+              className={cn(
+                "rounded px-2.5 py-1 text-xs font-medium transition-colors pointer-coarse:py-2",
+                !historyOpen && source === option.value
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {option.label}
+              {option.value === "files" && docsQuery.isSuccess ? ` (${docs.length})` : ""}
+              {option.value === "company" && canAct && noCompanyCv && picker.options.total > 0
+                ? ` · wybierz (${picker.options.total})`
+                : ""}
+            </button>
+          ))}
+        </div>
+        {history ? (
           <button
-            key={option.value}
             type="button"
-            aria-pressed={source === option.value}
-            onClick={() => onSourceChange(option.value)}
+            aria-pressed={historyOpen}
+            onClick={() => history.onOpenChange(!historyOpen)}
             className={cn(
-              "rounded px-2.5 py-1 text-xs font-medium transition-colors pointer-coarse:py-2",
-              source === option.value
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground",
+              "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors pointer-coarse:py-2",
+              historyOpen
+                ? "border-primary/40 bg-primary/10 text-primary"
+                : "border-border text-muted-foreground hover:text-foreground",
             )}
           >
-            {option.label}
-            {option.value === "files" && docsQuery.isSuccess ? ` (${docs.length})` : ""}
-            {option.value === "company" && canAct && noCompanyCv && picker.options.total > 0
-              ? ` · wybierz (${picker.options.total})`
-              : ""}
+            Historia osoby{history.count > 0 ? ` (${history.count})` : ""}
           </button>
-        ))}
+        ) : null}
       </div>
-      {body}
+      {/* Stałe opakowanie: `contents` nie zmienia układu, a `hidden` chowa CV
+          bez odmontowania — plik nie pobiera się drugi raz po powrocie. */}
+      <div hidden={historyOpen} className="contents">
+        {body}
+      </div>
+      {history && historyMounted ? (
+        <div
+          role="region"
+          aria-label="Historia osoby"
+          hidden={!historyOpen}
+          className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-border bg-background p-3"
+        >
+          {history.content}
+        </div>
+      ) : null}
       {confirmDialog}
       {canAct && editorOpen && cvStageId != null ? (
         <CVBrandedEditModal
@@ -562,6 +618,15 @@ export interface CandidatePreviewPaneProps {
    * CV firmowe to dokument, który właśnie edytuje.
    */
   cvSources?: ReadonlyArray<PreviewCvSource>;
+  /**
+   * „Historia osoby (N)” obok źródeł CV — wszystkie notatki osoby w dużej
+   * strefie, w każdej zakładce panelu. Edytor CV jej nie pokazuje (ma własne
+   * „Notatki” tej rekrutacji).
+   */
+  showHistory?: boolean;
+  /** Historia sterowana z zewnątrz („Pokaż” w profilu przed telefonem). */
+  historyOpen?: boolean;
+  onHistoryOpenChange?: (open: boolean) => void;
   /** Harness: bajty plików bez sieci. */
   loadDocumentBlob?: typeof fetchDocumentBlob;
   loadOriginalBlob?: OriginalBlobLoader;
@@ -585,6 +650,9 @@ export function CandidatePreviewPane({
   budgetHourly = null,
   cvActions,
   cvSources,
+  showHistory = true,
+  historyOpen: controlledHistoryOpen,
+  onHistoryOpenChange,
   loadDocumentBlob = fetchDocumentBlob,
   loadOriginalBlob = defaultOriginalLoader,
   loadStageCvFile,
@@ -604,6 +672,26 @@ export function CandidatePreviewPane({
     preferCompanyCv && branded.query.isSuccess && stageCvStatus(branded.query.data) !== "none";
   const source: PreviewCvSource = pickedSource ?? (companyReady ? "company" : "original");
 
+  // Historia osoby: ten sam klucz notatek co dok i zakładka panelu, więc bez
+  // drugiego pobrania. Bez notatek przycisku nie ma; przy awarii odczytu
+  // zostaje (bez liczby), a czytnik pokazuje błąd z „Ponów” — awaria nie może
+  // wyglądać jak osoba bez historii.
+  const [ownHistoryOpen, setOwnHistoryOpen] = useState(false);
+  const historyOpen = controlledHistoryOpen ?? ownHistoryOpen;
+  const changeHistoryOpen = onHistoryOpenChange ?? setOwnHistoryOpen;
+  const notesQuery = useCandidateNotes(candidateId, showHistory);
+  const noteItems = candidateNoteItems(notesQuery.data);
+  const history =
+    showHistory && (noteItems.length > 0 || notesQuery.isError)
+      ? {
+          open: historyOpen,
+          onOpenChange: changeHistoryOpen,
+          count: humanNoteCount(noteItems),
+          // Czytnik: bez edycji, przypinania i odpowiedzi — te są w zakładce „Notatki”.
+          content: <PersonNotesHistory variant="reader" candidateId={candidateId} jobId={jobId} readOnly />,
+        }
+      : undefined;
+
   const [searchRequest, setSearchRequest] = useState<{ text: string; nonce: number } | null>(null);
   const [visited, setVisited] = useState<ReadonlySet<PreviewTab>>(() => new Set([tab]));
   if (!visited.has(tab)) setVisited(new Set([...visited, tab]));
@@ -618,7 +706,7 @@ export function CandidatePreviewPane({
   const panelHidden = (value: PreviewTab) => !dual && tab !== value;
 
   // „Szukaj w CV” przy wymaganiu. CV firmowe nie ma paska wyszukiwania, więc
-  // przełączamy na oryginał.
+  // przełączamy na oryginał; otwarta historia osoby ustępuje CV.
   const pickRequirement = useCallback(
     (name: string) => {
       setPickedSource((current) => {
@@ -626,9 +714,10 @@ export function CandidatePreviewPane({
         return effective === "company" ? "original" : current;
       });
       setSearchRequest({ text: name, nonce: Date.now() });
+      changeHistoryOpen(false);
       changeTab("cv");
     },
-    [changeTab, companyReady],
+    [changeHistoryOpen, changeTab, companyReady],
   );
 
   const tabs = extraTab ? [...TABS, { value: "extra" as const, label: extraTab.label }] : TABS;
@@ -671,6 +760,7 @@ export function CandidatePreviewPane({
               sources={cvSources}
               cvActions={cvActions}
               loadStageCvFile={loadStageCvFile}
+              history={history}
             />
           </div>
         ) : null}

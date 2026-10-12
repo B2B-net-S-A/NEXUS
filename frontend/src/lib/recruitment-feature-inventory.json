@@ -1809,6 +1809,14 @@
    "file": "components/v2/person/PersonWorkbenchTabs.tsx",
    "marker": "pairMovesQueryKey",
    "v3_home": "Tablica → panel osoby → Rozwiń → Notatki i historia"
+  },
+  {
+   "id": "preview.person-history",
+   "area": "panel",
+   "opis": "„Historia osoby (N)” w dużym podglądzie po lewej: wszystkie notatki osoby pogrupowane po rekrutacji, z filtrem rodzajów; CV zostaje zamontowane pod spodem",
+   "file": "components/v2/screening-form/CandidatePreviewPane.tsx",
+   "marker": "Historia osoby",
+   "v3_home": "Tablica → panel osoby → Rozwiń → podgląd po lewej (każda zakładka)"
   }
  ]
 }
