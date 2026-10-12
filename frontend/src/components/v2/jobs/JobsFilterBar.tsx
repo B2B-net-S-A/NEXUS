@@ -447,7 +447,7 @@ export function JobsFilterBar({
           })}
         </div>
         <p className="text-xs text-muted-foreground">
-          Kilka poziomów naraz to „którykolwiek z nich”. Rekrutacja bez plakietki ma P2.
+          Kilka poziomów naraz to „którykolwiek z nich”. Rekrutacja bez plakietki nie ma priorytetu.
         </p>
       </FilterPill>
 

@@ -88,7 +88,7 @@ export function automaticAssignmentHint(
 
 /**
  * Automat dobiera rekrutera tylko do requestów P1 (`automatAssigns`
- * w `request-priority.ts`). Przy „P2 Standard” i „Przyjmujemy kandydatów”
+ * w `request-priority.ts`). Przy „Bez priorytetu” i „Przyjmujemy kandydatów”
  * obietnica przydziału albo propozycji byłaby nieprawdą, więc pole mówi to
  * wprost.
  */

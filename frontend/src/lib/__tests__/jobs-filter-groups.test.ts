@@ -51,7 +51,7 @@ describe("prioritySummary", () => {
     expect(prioritySummary([])).toBeNull();
     expect(prioritySummary(["p1"])).toBe("P1");
     expect(prioritySummary(["accepting", "p1"])).toBe("P1, Przyjmujemy");
-    expect(prioritySummary(["p2", "accepting", "p1"])).toBe("P1, P2, Przyjmujemy");
+    expect(prioritySummary(["p2", "accepting", "p1"])).toBe("P1, Bez priorytetu, Przyjmujemy");
   });
 });
 
