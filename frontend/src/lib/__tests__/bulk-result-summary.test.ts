@@ -46,6 +46,21 @@ describe("summarizeBulkResult", () => {
     ]);
   });
 
+  it("names a closed card apart from a person still in the recruitment", () => {
+    const s = summarizeBulkResult({
+      added: [],
+      skipped: [
+        { candidate_id: 1, reason: "closed_in_job" },
+        { candidate_id: 2, reason: "already_in_job" },
+      ],
+      total_added: 0,
+      total_skipped: 2,
+    });
+    expect(formatReasonCounts(s.skipped)).toBe(
+      "1× zamknięta karta w tej rekrutacji, 1× już w rekrutacji",
+    );
+  });
+
   it("tallies warnings by reason", () => {
     const s = summarizeBulkResult(resp);
     expect(s.warnings).toEqual([

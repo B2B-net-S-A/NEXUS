@@ -173,6 +173,7 @@ Design system i tokeny, responsywność, nazewnictwo w interfejsie, Ustawienia, 
 Lista `/jobs`, Tablica, ruch kart i bramki, panel osoby, QC CV i Cpro, przegląd DL, podobne rekrutacje, przydział rekruterów, dzwonki przekazań.
 
 - `audyt-manualny-codexa-13-15-09-2026-reguly-ktore.md` — Audyt manualny Codexa 13–15.09.2026 — reguły, które łatwo cofnąć · budżet PLN/h rekrutacji, szkic Championa, „W procesie”, prep kit, tagi kandydata, pasek boczny
+- `dodaj-do-rekrutacji-zamknieta-karta.md` — „Dodaj do rekrutacji”: zamknięta karta to nie „już w rekrutacji” (12.10.2026) · powód pominięcia `closed_in_job`, okno zostaje z powodem z serwera, „Przywróć” ruchem karty, czego dodanie nadal nie robi samo
 - `duzy-podglad-po-lewej-stronie-panelu-osoby.md` — Duży podgląd po lewej stronie panelu osoby (D1–D6, 09.10.2026)
 - `dzwonek-przy-przekazaniu-karty-qc-dl-cv-wyslane.md` — Dzwonek przy przekazaniu karty: QC → DL, CV wysłane → rekruter (02.10.2026)
 - `follow-up-z-kandydatem-gdy-klient-milczy.md` — Follow-up z kandydatem, gdy klient milczy (0372, 24.09.2026)
@@ -200,6 +201,7 @@ Formularz i widok screeningu, karta rekomendacji, rodzaje notatek, wzmianki, „
 
 - `dane-po-scraperze-narzedzia-naprawy.md` — Dane po scraperze — narzędzia naprawy (06.10.2026)
 - `fakty-z-notatek-rekruterow-na-profilu-kandydata.md` — Fakty z notatek rekruterów na profilu kandydata (22.09.2026)
+- `historia-osoby-w-panelu-rekrutacji.md` — Historia notatek osoby w panelu rekrutacji (12.10.2026) · „Wcześniej u nas” w zakładce „Notatki i historia” i w wąskim doku, jedno zapytanie o notatki osoby, wynik rekrutacji z historii, prawdziwe ruchy pary, licznik notatek ludzi
 - `jeden-formularz-screeningu.md` — Jeden formularz screeningu (0424, 07.10.2026)
 - `jeden-widok-screening-zamiast-karty-rekomendacji.md` — Jeden widok „Screening” zamiast karty rekomendacji (09.10.2026)
 - `karta-rekomendacji-z-notatek.md` — Karta rekomendacji z notatek (0413, 03.10.2026)

@@ -348,6 +348,40 @@ test.describe("panel osoby — duży podgląd po lewej na laptopie", () => {
     );
   });
 
+  // 12.10.2026: panel pokazywał wyłącznie notatki bieżącej rekrutacji, więc
+  // osoba z historią wyglądała jak nieznana (1 417 z 3 433 otwartych kart).
+  // Zakładka ma „Wcześniej u nas”, a licznik notatek nie może zrzucić jej do
+  // drugiego rzędu w kolumnie 460 px (plakietka `count` to robiła).
+  test("/preview/job-detail: „Notatki i historia” pokazuje wcześniejsze notatki osoby", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto("/preview/job-detail");
+    await page.getByRole("link", { name: "Anna Przykładowa" }).first().click();
+    const panel = page.locator("aside[data-person-panel]");
+    const tabs = panel.getByRole("tablist", { name: "Narzędzia osoby" });
+    const notesTab = tabs.getByRole("tab", { name: /Notatki/ });
+    await expect(notesTab).toContainText("8");
+    await notesTab.click();
+    const earlier = panel.getByRole("region", { name: "Wcześniej u nas" });
+    await expect(earlier.getByText("8 notatek · 2 rekrutacje · od 2023")).toBeVisible();
+    await expect(earlier.getByRole("article", { name: "Rekrutacja: Analityk systemowy" }).getByText("Odrzucony")).toBeVisible();
+    await expect(panel.getByRole("region", { name: "Historia w rekrutacji" }).getByText(/Dodany do rekrutacji/)).toBeVisible();
+    const tabTops = await tabs
+      .getByRole("tab")
+      .evaluateAll((els) => [...new Set(els.map((el) => Math.round(el.getBoundingClientRect().top)))]);
+    expect(tabTops, "zakładki panelu w jednym rzędzie").toHaveLength(1);
+    expect(await pageOverflowPx(page)).toBeLessThanOrEqual(1);
+
+    // Wąski dok: podpis zwiniętej sekcji mówi o historii, „Cała historia” wraca do zakładki.
+    await panel.getByRole("button", { name: "Zwiń" }).click();
+    await expect(panel).toHaveAttribute("data-size", "dock");
+    const section = panel.getByRole("button", { name: /^Notatki/ });
+    await expect(section).toContainText("0 tu · 8 wcześniej");
+    await section.click();
+    await panel.getByRole("button", { name: "Cała historia (8)" }).click();
+    await expect(panel).toHaveAttribute("data-size", "split");
+    await expect(notesTab).toHaveAttribute("aria-selected", "true");
+  });
+
   // 09.10.2026 (zgłoszenie z laptopa 1280 × 650): w wąskim doku cała głowa
   // (warunki, „Następny etap”, przyciski etapów) stała w miejscu, a na sekcje
   // zostawały 92 px; przy otwartej sprawie zmiany stawki przyciski i pole

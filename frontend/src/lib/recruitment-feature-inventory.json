@@ -1793,6 +1793,30 @@
    "file": "lib/cv-download-intent.ts",
    "marker": "intent=download",
    "v3_home": "każde „Pobierz” pliku CV"
+  },
+  {
+   "id": "panel.notes-earlier",
+   "area": "panel",
+   "opis": "„Wcześniej u nas”: notatki osoby z innych rekrutacji i bez rekrutacji, pogrupowane po rekrutacji z jej wynikiem; licznik notatek ludzi na zakładce",
+   "file": "components/v2/person/PersonNotesHistory.tsx",
+   "marker": "Wcześniej u nas",
+   "v3_home": "Tablica → panel osoby → Rozwiń → Notatki i historia"
+  },
+  {
+   "id": "dock.notes-earlier",
+   "area": "panel",
+   "opis": "Sekcja „Notatki” wąskiego doku: podpis „N tu · M wcześniej”, ostatnie rozmowy z innych rekrutacji i „Cała historia (M)”",
+   "file": "components/v2/person/PersonNotesHistory.tsx",
+   "marker": "Cała historia (",
+   "v3_home": "Tablica → panel osoby → Notatki"
+  },
+  {
+   "id": "panel.pair-moves",
+   "area": "panel",
+   "opis": "Historia w tej rekrutacji z prawdziwych ruchów osoby (z jakiego etapu na jaki, kto i kiedy)",
+   "file": "components/v2/person/PersonWorkbenchTabs.tsx",
+   "marker": "pairMovesQueryKey",
+   "v3_home": "Tablica → panel osoby → Rozwiń → Notatki i historia"
   }
  ]
 }

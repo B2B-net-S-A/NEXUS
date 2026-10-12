@@ -2982,6 +2982,9 @@ async def get_stage_history(
 # wierszach pary (kandydat, rekrutacja) — dlatego okno stoi w CTE, a stronicowanie
 # dopiero na zewnątrz: LIMIT w tym samym SELECT-cie ucinałby historię, z której
 # LAG czyta. `COUNT(*) OVER ()` = `total` bez drugiego zapytania.
+# `candidate_id` zawęża dziennik do jednej osoby (panel osoby): filtr stoi w CTE,
+# bo okno jest partycjonowane po kandydacie — odpada cała partycja, a LAG dalej
+# widzi komplet ruchów tej pary.
 _JOB_MOVES_SQL = text(
     """
     WITH moves AS (
@@ -2997,6 +3000,7 @@ _JOB_MOVES_SQL = text(
         FROM candidate_stages cs
         LEFT JOIN pipeline_stage_defs sd ON sd.id = cs.stage_def_id
         WHERE cs.job_id = :job_id
+          AND (CAST(:candidate_id AS INTEGER) IS NULL OR cs.candidate_id = :candidate_id)
         WINDOW w AS (PARTITION BY cs.candidate_id ORDER BY cs.moved_at, cs.id)
     )
     SELECT m.id,
@@ -3021,7 +3025,8 @@ _JOB_MOVES_SQL = text(
 )
 
 _JOB_MOVES_COUNT_SQL = text(
-    "SELECT COUNT(*) FROM candidate_stages cs WHERE cs.job_id = :job_id"
+    "SELECT COUNT(*) FROM candidate_stages cs WHERE cs.job_id = :job_id "
+    "AND (CAST(:candidate_id AS INTEGER) IS NULL OR cs.candidate_id = :candidate_id)"
 )
 
 
@@ -3043,6 +3048,7 @@ async def list_job_moves(
     current_user: OperationalUser,
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    candidate_id: Optional[int] = Query(None, ge=1),
     db: AsyncSession = Depends(get_db),
 ):
     """Ruchy etapów całej rekrutacji, od najnowszych.
@@ -3050,6 +3056,7 @@ async def list_job_moves(
     Ta sama bramka co tablica: odczyt sekcji Pipeline (router) + zakres
     rekrutacji. Imię i nazwisko kandydata tylko dla ról z odczytem kandydatów;
     pozostali dostają `candidate_id` i `candidate_names_redacted`.
+    `candidate_id` = ruchy jednej osoby w tej rekrutacji (panel osoby).
     """
     job_exists = await db.scalar(select(Job.id).where(Job.id == job_id))
     if job_exists is None:
@@ -3057,16 +3064,15 @@ async def list_job_moves(
     await ensure_job_read_access(db, current_user, job_id)
 
     show_names = user_has_candidate_read(current_user)
+    scope = {"job_id": job_id, "candidate_id": candidate_id}
     rows = (
-        await db.execute(
-            _JOB_MOVES_SQL, {"job_id": job_id, "limit": limit, "offset": offset}
-        )
+        await db.execute(_JOB_MOVES_SQL, {**scope, "limit": limit, "offset": offset})
     ).all()
     if rows:
         total = int(rows[0].total)
     elif offset:
         # Strona za końcem listy nie niesie wiersza z `total`.
-        total = int(await db.scalar(_JOB_MOVES_COUNT_SQL, {"job_id": job_id}) or 0)
+        total = int(await db.scalar(_JOB_MOVES_COUNT_SQL, scope) or 0)
     else:
         total = 0
     items = [
