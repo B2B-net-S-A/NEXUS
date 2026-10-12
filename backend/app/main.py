@@ -210,6 +210,7 @@ from app.api import job_files as job_files_api
 from app.api import job_ads as job_ads_api
 from app.api import job_intake_forms as job_intake_forms_api
 from app.api import screening_reassign as screening_reassign_api
+from app.api import cv_editor_ai as cv_editor_ai_api
 from app.api import cv_qc as cv_qc_api
 from app.api import pipeline_requirements as pipeline_requirements_api
 from app.api import champion_suggestions as champion_suggestions_api
@@ -1073,6 +1074,7 @@ app.include_router(job_ads_api.router, prefix="/api", tags=["jobs"])
 app.include_router(screening_reassign_api.router, prefix="/api", tags=["pipeline"])
 # Rekrutacja v5: QC CV (bramka przed „CV wysłane”/Cpro, poprawki AI).
 app.include_router(cv_qc_api.router, prefix="/api/pipeline", tags=["pipeline"])
+app.include_router(cv_editor_ai_api.router, prefix="/api/pipeline", tags=["pipeline"])
 # Rekrutacja v5: wymagania przejścia na kolumnę (okno „Przesuń dalej”).
 app.include_router(
     pipeline_requirements_api.router, prefix="/api/pipeline", tags=["pipeline"]
