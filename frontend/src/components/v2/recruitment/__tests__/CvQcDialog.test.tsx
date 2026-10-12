@@ -32,8 +32,9 @@ vi.mock("next/dynamic", () => ({
 }));
 
 import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
-import type { QcCheck, QcResult } from "@/lib/api/cvQc";
+import type { QcCheck, QcItem, QcResult } from "@/lib/api/cvQc";
 import type { Permission } from "@/lib/permissions";
+import { formatDate } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
 
@@ -175,6 +176,25 @@ function renderDialog(props: Partial<React.ComponentProps<typeof CvQcDialog>> = 
 const serve = (data: QcResult) =>
   get.mockImplementation((url: string) => (url === QC_URL ? Promise.resolve({ data }) : Promise.reject(new Error(url))));
 
+/** Wynik z podmienionym jednym sprawdzeniem. */
+const withCheck = (key: string, over: Partial<QcCheck>, base: QcResult = result()): QcResult => ({
+  ...base,
+  checks: base.checks.map((c) => (c.key === key ? { ...c, ...over } : c)),
+});
+
+const ROLE_ALFA = "Firma Alfa — Java Developer";
+const ROLE_BETA = "Firma Beta — Programista";
+const OVERRIDE = { reason: "Klient prosił o krótsze CV", by_name: "Piotr Zając", at: "2026-10-02T10:00:00Z" };
+
+/** Karta rzeczy do poprawy po jej tytule. */
+async function taskCard(title: string | RegExp, region = "Do poprawy przed wysłaniem") {
+  const dialog = await screen.findByRole("dialog");
+  const tasks = await within(dialog).findByRole("region", { name: region });
+  const card = within(tasks).getByText(title).closest("li");
+  if (!card) throw new Error(`brak karty: ${title}`);
+  return { dialog, card };
+}
+
 describe("CvQcDialog — QC CV", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -193,6 +213,11 @@ describe("CvQcDialog — QC CV", () => {
       "href",
       "/jobs/31?tab=champion",
     );
+    expect(explainer).toHaveTextContent(
+      "Opis jest wymagany tylko w tych rolach, w których oryginalne CV pokazuje tę umiejętność.",
+    );
+    // Poza trybem doradczym QC nie mówi, że doradza.
+    expect(explainer).not.toHaveTextContent("QC doradza");
 
     const tasks = within(dialog).getByRole("region", { name: "Do poprawy przed wysłaniem" });
     expect(within(tasks).getByText("Do poprawy przed wysłaniem (2)")).toBeTruthy();
@@ -290,9 +315,9 @@ describe("CvQcDialog — QC CV", () => {
     serve(passed({ client_request: { must: ["Java"], nice: [], critical: [], critical_source: "none" } }));
     renderDialog();
     const dialog = await screen.findByRole("dialog");
-    expect(await within(dialog).findByRole("region", { name: "Co sprawdza QC" })).toHaveTextContent(
-      "Ta rekrutacja nie ma umiejętności krytycznych",
-    );
+    const explainer = await within(dialog).findByRole("region", { name: "Co sprawdza QC" });
+    expect(explainer).toHaveTextContent("Ta rekrutacja nie ma umiejętności krytycznych");
+    expect(explainer).not.toHaveTextContent("Opis jest wymagany tylko w tych rolach");
   });
 
   it("„Otwórz w edytorze CV” otwiera edytor sprawdzanego CV etapu, a po zamknięciu QC liczy się od nowa (runda 10, F22)", async () => {
@@ -545,5 +570,418 @@ describe("CvQcDialog — QC CV", () => {
     const dialog = await screen.findByRole("dialog");
     expect(await within(dialog).findByText("Nie udało się policzyć QC. Spróbuj ponownie.")).toBeTruthy();
     expect(within(dialog).getByRole("button", { name: "Ponów" })).toBeTruthy();
+  });
+
+  it("poza trybem doradczym obejście nie przesuwa karty samo — „Przesuń dalej” klika człowiek", async () => {
+    signIn("delivery_lead");
+    post.mockResolvedValue({ data: result({ override: OVERRIDE }) });
+    const onMoveNext = vi.fn();
+    renderDialog({ onMoveNext });
+    const dialog = await screen.findByRole("dialog", { name: /Anna Kowalczyk/ });
+    const next = await within(dialog).findByRole("button", { name: /Przesuń dalej/ });
+    expect(next).toHaveAttribute("title", "Najpierw popraw rzeczy z listy „Do poprawy przed wysłaniem”.");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Przepuść mimo QC…" }));
+    const form = await screen.findByRole("dialog", { name: "Przepuść mimo QC" });
+    await userEvent.click(within(form).getByRole("radio", { name: "Klient prosił o krótsze CV" }));
+    await userEvent.click(within(form).getByRole("button", { name: "Przepuść CV" }));
+    expect(await screen.findByText("Przepuszczone mimo QC")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Przepuść mimo QC" })).toBeNull());
+    expect(onMoveNext).not.toHaveBeenCalled();
+    expect(within(dialog).getByRole("button", { name: /Przesuń dalej/ })).toBeEnabled();
+  });
+
+  describe("tryb doradczy — QC doradza, nie blokuje", () => {
+    const advisory = (over: Partial<QcResult> = {}): QcResult =>
+      result({ advisory: true, can_override: true, ...over });
+
+    it("rekruter z `can_override` widzi „Przesuń mimo uwag…”, a lista to „Zalecane poprawki”", async () => {
+      serve(advisory());
+      renderDialog({ onMoveNext: vi.fn() });
+      const dialog = await screen.findByRole("dialog");
+      const tasks = await within(dialog).findByRole("region", { name: "Zalecane poprawki przed wysłaniem" });
+      expect(within(tasks).getByText("Zalecane poprawki przed wysłaniem (2)")).toBeTruthy();
+      expect(within(tasks).getByText("Java — brak opisu w 1 roli")).toBeTruthy();
+      expect(within(dialog).queryByRole("region", { name: "Do poprawy przed wysłaniem" })).toBeNull();
+      expect(within(dialog).getByRole("region", { name: "Co sprawdza QC" })).toHaveTextContent(
+        "QC doradza: możesz przesunąć kartę mimo uwag — Delivery Lead zobaczy, co zostało niepoprawione, i może cofnąć ją do poprawy.",
+      );
+      expect(within(dialog).getByRole("button", { name: "Przesuń mimo uwag…" })).toBeTruthy();
+      expect(within(dialog).queryByRole("button", { name: "Przepuść mimo QC…" })).toBeNull();
+      const next = within(dialog).getByRole("button", { name: /Przesuń dalej/ });
+      expect(next).toBeDisabled();
+      expect(next).toHaveAttribute("title", "Popraw rzeczy z listy albo użyj „Przesuń mimo uwag…”.");
+    });
+
+    it("o przycisku decyduje serwer: `can_override: false` chowa go także Delivery Leadowi", async () => {
+      signIn("delivery_lead");
+      serve(advisory({ can_override: false }));
+      renderDialog();
+      const dialog = await screen.findByRole("dialog");
+      await within(dialog).findByText("Do poprawy: 2 rzeczy");
+      expect(within(dialog).queryByRole("button", { name: "Przesuń mimo uwag…" })).toBeNull();
+      expect(within(dialog).queryByRole("button", { name: "Przepuść mimo QC…" })).toBeNull();
+    });
+
+    it("w podglądzie jako inny użytkownik przycisku nie ma mimo `can_override`", async () => {
+      signIn("recruiter", { realUser: { id: 9, role: "admin", roles: ["admin"] } });
+      serve(advisory());
+      renderDialog();
+      const dialog = await screen.findByRole("dialog");
+      await within(dialog).findByText("Do poprawy: 2 rzeczy");
+      expect(within(dialog).queryByRole("button", { name: "Przesuń mimo uwag…" })).toBeNull();
+    });
+
+    it("po zapisaniu powodu karta idzie dalej od razu — jedno przejście zamiast dwóch", async () => {
+      serve(advisory());
+      post.mockResolvedValue({ data: advisory({ override: OVERRIDE }) });
+      const onMoveNext = vi.fn();
+      const { keys } = renderDialog({ onMoveNext });
+      const dialog = await screen.findByRole("dialog", { name: /Anna Kowalczyk/ });
+      await userEvent.click(await within(dialog).findByRole("button", { name: "Przesuń mimo uwag…" }));
+      const form = await screen.findByRole("dialog", { name: "Przesuń mimo uwag QC" });
+      expect(form).toHaveTextContent("Delivery Lead dostanie powiadomienie");
+      expect(form).toHaveTextContent("CV pójdzie dalej z 2 niepoprawionymi rzeczami:");
+      await userEvent.click(within(form).getByRole("radio", { name: "Klient prosił o krótsze CV" }));
+      await userEvent.click(within(form).getByRole("button", { name: "Przesuń mimo uwag" }));
+      await waitFor(() => expect(post).toHaveBeenCalledWith(`${QC_URL}/override`, { reason_code: "client_short_cv" }));
+      await waitFor(() => expect(onMoveNext).toHaveBeenCalledTimes(1));
+      expect(onMoveNext).toHaveBeenCalledWith(
+        expect.objectContaining({ candidate_id: 21, job_id: 31, override: OVERRIDE }),
+      );
+      expect(keys()).toEqual(expect.arrayContaining(['["kanban","31"]', '["kanban",31]', '["board-tasks"]']));
+    });
+
+    it("bez „Przesuń dalej” u wołającego obejście tylko zapisuje powód", async () => {
+      serve(advisory());
+      post.mockResolvedValue({ data: advisory({ override: OVERRIDE }) });
+      renderDialog();
+      const dialog = await screen.findByRole("dialog", { name: /Anna Kowalczyk/ });
+      await userEvent.click(await within(dialog).findByRole("button", { name: "Przesuń mimo uwag…" }));
+      const form = await screen.findByRole("dialog", { name: "Przesuń mimo uwag QC" });
+      await userEvent.click(within(form).getByRole("radio", { name: "Klient prosił o krótsze CV" }));
+      await userEvent.click(within(form).getByRole("button", { name: "Przesuń mimo uwag" }));
+      expect(await screen.findByText("Przepuszczone mimo QC")).toBeTruthy();
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "Przesuń mimo uwag QC" })).toBeNull());
+      expect(screen.queryByRole("button", { name: "Przesuń mimo uwag…" })).toBeNull();
+    });
+  });
+
+  describe("karta umiejętności krytycznej — dowód z oryginału", () => {
+    const critical = (items: QcItem[]) => withCheck("critical_skills", { items });
+    const roleItem = (over: Partial<QcItem>): QcItem => ({
+      requirement: "Java",
+      role: ROLE_ALFA,
+      detail: "Brak w tej roli, a w oryginale jest.",
+      fix: "ai",
+      role_index: 0,
+      ...over,
+    });
+
+    it("zdanie z opisu roli: cytat z oryginału i przycisk AI", async () => {
+      serve(critical([roleItem({ evidence: "Built the SEPA transfers module in Java 11.", evidence_kind: "description" })]));
+      renderDialog();
+      const { card } = await taskCard("Java — brak opisu w 1 roli");
+      expect(card).toHaveTextContent(
+        "Oryginalne CV pokazuje tę umiejętność w tej roli. W CV firmowym brakuje tam zdania o tym, co kandydat z nią robił.",
+      );
+      const role = within(within(card).getByRole("list", { name: "Role bez opisu: Java" })).getByRole("listitem");
+      expect(role).toHaveTextContent(ROLE_ALFA);
+      const quote = within(role).getByText("„Built the SEPA transfers module in Java 11.”");
+      expect(quote).toHaveClass("italic");
+      expect(within(role).getByText("W oryginale").nextElementSibling).toContainElement(quote);
+      expect(within(role).getByText("W CV firmowym").nextElementSibling).toHaveTextContent("brak w tej roli");
+      expect(within(card).getByRole("button", { name: /Dopisz zdania z oryginału \(AI\)/ })).toBeEnabled();
+      expect(within(card).getByRole("button", { name: "Poprawię w edytorze" })).toBeTruthy();
+      expect(within(card).queryByRole("button", { name: /Skopiuj pytanie do kandydata/ })).toBeNull();
+    });
+
+    it("jedna rola z opisem wystarcza, żeby AI miało z czego pisać — druga pokazuje listę technologii", async () => {
+      serve(
+        critical([
+          roleItem({
+            detail: "Jest tylko na liście technologii — dopisz zdanie, co kandydat w tej roli z tym robił.",
+            evidence: "Built the SEPA transfers module in Java 11.",
+            evidence_kind: "description",
+          }),
+          roleItem({ role: ROLE_BETA, role_index: 1, evidence: "Java 8, Spring, Oracle", evidence_kind: "technologies" }),
+        ]),
+      );
+      renderDialog();
+      const { card } = await taskCard("Java — brak opisu w 2 rolach");
+      expect(card).toHaveTextContent("Oryginalne CV pokazuje tę umiejętność w tych rolach.");
+      const [alfa, beta] = within(within(card).getByRole("list", { name: "Role bez opisu: Java" })).getAllByRole(
+        "listitem",
+      );
+      expect(within(alfa).getByText("W CV firmowym").nextElementSibling).toHaveTextContent(
+        "tylko na liście technologii",
+      );
+      expect(within(beta).getByText("W oryginale").nextElementSibling).toHaveTextContent(
+        "lista technologii tej roli: Java 8, Spring, Oracle",
+      );
+      expect(within(beta).getByText("W CV firmowym").nextElementSibling).toHaveTextContent("brak w tej roli");
+      expect(within(card).getByRole("button", { name: /Dopisz zdania z oryginału \(AI\)/ })).toBeTruthy();
+    });
+
+    it("tylko lista technologii albo nazwa stanowiska: pytanie do kandydata zamiast AI", async () => {
+      copyTextToClipboard.mockResolvedValue(true);
+      serve(
+        critical([
+          roleItem({
+            detail: "Jest tylko na liście technologii — dopisz zdanie, co kandydat w tej roli z tym robił.",
+            evidence: "Java 11, Spring Boot",
+            evidence_kind: "technologies",
+          }),
+          roleItem({ role: ROLE_BETA, role_index: 1, evidence: "Java Developer", evidence_kind: "title" }),
+        ]),
+      );
+      renderDialog();
+      const { card } = await taskCard("Java — brak opisu w 2 rolach");
+      expect(card).toHaveTextContent(
+        "Oryginalne CV wymienia tę umiejętność w tych rolach, ale nie opisuje, co kandydat z nią robił. Zapytaj kandydata — AI ułoży zdanie dopiero wtedy, gdy powiedzą o tym notatki.",
+      );
+      const [alfa, beta] = within(within(card).getByRole("list", { name: "Role bez opisu: Java" })).getAllByRole(
+        "listitem",
+      );
+      expect(within(alfa).getByText("W oryginale").nextElementSibling).toHaveTextContent(
+        "lista technologii tej roli: Java 11, Spring Boot",
+      );
+      expect(within(alfa).getByText("W CV firmowym").nextElementSibling).toHaveTextContent(
+        "tylko na liście technologii",
+      );
+      expect(within(beta).getByText("W oryginale").nextElementSibling).toHaveTextContent(
+        "nazwa stanowiska: Java Developer",
+      );
+      expect(within(card).queryByRole("button", { name: /Dopisz zdania z oryginału/ })).toBeNull();
+      expect(within(card).getByRole("button", { name: "Poprawię w edytorze" })).toBeTruthy();
+      await userEvent.click(within(card).getByRole("button", { name: /Skopiuj pytanie do kandydata/ }));
+      // Pytanie o pierwszą rolę z listy — do schowka, nic nie jest wysyłane.
+      await waitFor(() => expect(copyTextToClipboard).toHaveBeenCalledWith(`Czy używał(a) Java w ${ROLE_ALFA}?`));
+      await waitFor(() => expect(showSuccess).toHaveBeenCalledWith("Pytanie skopiowane — wyślij je kandydatowi."));
+      expect(post).not.toHaveBeenCalled();
+    });
+
+    it("przebieg sprzed zmiany (bez dowodu): nie ma wiersza „W oryginale”, AI zostaje", async () => {
+      renderDialog();
+      const { card } = await taskCard("Java — brak opisu w 1 roli");
+      expect(card).toHaveTextContent("Oryginalne CV pokazuje tę umiejętność w tej roli.");
+      expect(within(card).queryByText("W oryginale")).toBeNull();
+      expect(within(card).getByText("W CV firmowym").nextElementSibling).toHaveTextContent("brak w tej roli");
+      expect(within(card).getByRole("button", { name: /Dopisz zdania z oryginału \(AI\)/ })).toBeTruthy();
+    });
+  });
+
+  describe("„Potwierdzone z kandydatem” — treść spoza oryginału", () => {
+    const DOCKER = "Docker — jest w CV, a nie ma tego w oryginale";
+    const FIELD = "Co powiedział kandydat? (opcjonalnie)";
+
+    it("zapisuje to, co powiedział kandydat, i podmienia wynik QC", async () => {
+      post.mockResolvedValue({ data: passed() });
+      const { onChanged, keys } = renderDialog();
+      const { dialog, card } = await taskCard(DOCKER);
+      expect(card).toHaveTextContent(
+        "Oryginalne CV i notatki z rozmów o tym nie wspominają. Usuń to z CV albo potwierdź u kandydata i zapisz potwierdzenie.",
+      );
+      // Formularz otwiera się dopiero po kliknięciu.
+      expect(within(card).queryByLabelText(FIELD)).toBeNull();
+      await userEvent.click(within(card).getByRole("button", { name: "Potwierdzone z kandydatem" }));
+      const field = within(card).getByLabelText(FIELD);
+      expect(field.tagName).toBe("TEXTAREA");
+      expect(field).toHaveAttribute("maxlength", "1000");
+      await userEvent.type(field, "  Używał w projekcie migracji, ok. roku ");
+      await userEvent.click(within(card).getByRole("button", { name: "Zapisz potwierdzenie" }));
+      await waitFor(() =>
+        expect(post).toHaveBeenCalledWith(`${QC_URL}/confirm`, {
+          term: "Docker",
+          text: "Używał w projekcie migracji, ok. roku",
+        }),
+      );
+      await waitFor(() =>
+        expect(showSuccess).toHaveBeenCalledWith("Potwierdzenie zapisane w notatkach kandydata — QC przeliczone."),
+      );
+      // Świeży wynik z odpowiedzi zastępuje cache — bez drugiego odczytu.
+      expect(await within(dialog).findByText("QC przechodzi")).toBeTruthy();
+      expect(get).toHaveBeenCalledTimes(1);
+      expect(onChanged).toHaveBeenCalled();
+      expect(keys()).toEqual(expect.arrayContaining(['["kanban","31"]', '["kanban",31]', '["board-tasks"]']));
+    });
+
+    it("opis jest opcjonalny, a przycisk działa też przy CV, którego nie da się edytować", async () => {
+      serve(result({ cv: { ...result().cv!, source: "document", editable: false, stage_id: null } }));
+      post.mockResolvedValue({ data: passed() });
+      renderDialog();
+      const { card } = await taskCard(DOCKER);
+      expect(within(card).getByRole("button", { name: "Usuń „Docker” z CV" })).toBeDisabled();
+      const open = within(card).getByRole("button", { name: "Potwierdzone z kandydatem" });
+      expect(open).toBeEnabled();
+      await userEvent.click(open);
+      await userEvent.click(within(card).getByRole("button", { name: "Zapisz potwierdzenie" }));
+      await waitFor(() => expect(post).toHaveBeenCalledWith(`${QC_URL}/confirm`, { term: "Docker" }));
+    });
+
+    it("odmowa serwera (422) pokazuje jego komunikat i zostawia formularz z treścią", async () => {
+      post.mockRejectedValue({
+        response: {
+          status: 422,
+          data: { detail: { code: "CV_QC_CONFIRM_FAILED", message: "QC nie zgłasza już tej pozycji — odśwież okno." } },
+        },
+      });
+      renderDialog();
+      const { card } = await taskCard(DOCKER);
+      await userEvent.click(within(card).getByRole("button", { name: "Potwierdzone z kandydatem" }));
+      await userEvent.type(within(card).getByLabelText(FIELD), "Zna z kursu");
+      await userEvent.click(within(card).getByRole("button", { name: "Zapisz potwierdzenie" }));
+      await waitFor(() => expect(showError).toHaveBeenCalledWith("QC nie zgłasza już tej pozycji — odśwież okno."));
+      expect(showSuccess).not.toHaveBeenCalled();
+      expect(within(card).getByLabelText(FIELD)).toHaveValue("Zna z kursu");
+    });
+
+    it("awaria bez komunikatu serwera → zdanie zastępcze", async () => {
+      post.mockRejectedValue({ response: { status: 500, data: {} } });
+      renderDialog();
+      const { card } = await taskCard(DOCKER);
+      await userEvent.click(within(card).getByRole("button", { name: "Potwierdzone z kandydatem" }));
+      await userEvent.click(within(card).getByRole("button", { name: "Zapisz potwierdzenie" }));
+      await waitFor(() =>
+        expect(showError).toHaveBeenCalledWith("Nie udało się zapisać potwierdzenia. Spróbuj ponownie."),
+      );
+    });
+
+    it("„Anuluj” zamyka formularz bez zapisu", async () => {
+      renderDialog();
+      const { card } = await taskCard(DOCKER);
+      await userEvent.click(within(card).getByRole("button", { name: "Potwierdzone z kandydatem" }));
+      await userEvent.click(within(card).getByRole("button", { name: "Anuluj" }));
+      expect(within(card).queryByLabelText(FIELD)).toBeNull();
+      expect(within(card).getByRole("button", { name: "Potwierdzone z kandydatem" })).toBeTruthy();
+      expect(post).not.toHaveBeenCalled();
+    });
+
+    it("lista potwierdzeń stoi pod ramką „Co sprawdza QC” — co, kto i kiedy", async () => {
+      const at = "2026-10-12T10:00:00Z";
+      serve(
+        result({
+          confirmations: [
+            { text: "Potwierdzone z kandydatem: Kafka — dwa lata w Firmie Alfa", by_name: "Marta Rekruterka", at },
+            { text: "Potwierdzone z kandydatem: Scala", by_name: null, at },
+          ],
+        }),
+      );
+      renderDialog();
+      const dialog = await screen.findByRole("dialog");
+      const list = await within(dialog).findByRole("region", { name: "Potwierdzone z kandydatem" });
+      expect(within(list).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+        `Potwierdzone z kandydatem: Kafka — dwa lata w Firmie Alfa — Marta Rekruterka, ${formatDate(at)}`,
+        `Potwierdzone z kandydatem: Scala — ${formatDate(at)}`,
+      ]);
+      const explainer = within(dialog).getByRole("region", { name: "Co sprawdza QC" });
+      expect(explainer.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(explainer.nextElementSibling).toBe(list);
+    });
+
+    it("bez potwierdzeń sekcji nie ma", async () => {
+      renderDialog();
+      const dialog = await screen.findByRole("dialog");
+      await within(dialog).findByText("Do poprawy: 2 rzeczy");
+      expect(within(dialog).queryByRole("region", { name: "Potwierdzone z kandydatem" })).toBeNull();
+    });
+  });
+
+  describe("„Rola po roli” i krytyczne do sprawdzenia ręcznie", () => {
+    it("rozwinięte sprawdzenie pokazuje stan każdej roli, pogrupowany po wymaganiu", async () => {
+      const base = withCheck(
+        "critical_skills",
+        {
+          roles: [
+            { requirement: "Java", role: ROLE_ALFA, state: "described" },
+            { requirement: "Java", role: ROLE_BETA, state: "not_in_original" },
+          ],
+        },
+        passed(),
+      );
+      serve({
+        ...base,
+        checks: [
+          ...base.checks,
+          {
+            key: "must_in_roles",
+            label: "Pozostałe wymagania opisane w rolach z oryginału",
+            severity: "warning",
+            status: "fail",
+            summary: "1 do uzupełnienia",
+            items: [{ requirement: "Kafka", role: ROLE_ALFA, fix: "ai", role_index: 0 }],
+            roles: [
+              { requirement: "Kafka", role: ROLE_ALFA, state: "missing" },
+              { requirement: "Spring", role: ROLE_ALFA, state: "described" },
+              { requirement: "Kafka", role: ROLE_BETA, state: "not_in_original" },
+            ],
+          },
+        ],
+      });
+      renderDialog();
+      const dialog = await screen.findByRole("dialog");
+      const notes = await within(dialog).findByRole("region", { name: "Warto poprawić — nie blokuje" });
+      await userEvent.click(within(notes).getByRole("button", { name: /Pozostałe wymagania opisane w rolach/ }));
+      const group = within(notes).getByRole("group", { name: "Rola po roli" });
+      // Kafka ma dwie role pod jednym nagłówkiem, mimo że serwer przeplótł je ze Springiem.
+      expect(within(group).getAllByRole("list")).toHaveLength(2);
+      expect(within(group).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+        `${ROLE_ALFA} — brakuje zdania w CV firmowym`,
+        `${ROLE_BETA} — oryginał nie pokazuje tej umiejętności w tej roli — opis nie jest wymagany`,
+        `${ROLE_ALFA} — opisane w CV firmowym`,
+      ]);
+      expect(within(group).getByText("Kafka")).toBeTruthy();
+      expect(within(group).getByText("Spring")).toBeTruthy();
+
+      // Zaliczone sprawdzenie bez pozycji też się rozwija, gdy niesie same role.
+      const fine = within(dialog).getByRole("region", { name: "W porządku" });
+      await userEvent.click(within(fine).getByRole("button", { name: /W porządku \(/ }));
+      const rows = within(fine).getByRole("list");
+      const criticalRow = within(rows).getByRole("button", { name: /Umiejętności krytyczne są w CV/ });
+      expect(criticalRow).toHaveAttribute("aria-expanded", "false");
+      await userEvent.click(criticalRow);
+      expect(within(within(fine).getByRole("group", { name: "Rola po roli" })).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+        `${ROLE_ALFA} — opisane w CV firmowym`,
+        `${ROLE_BETA} — oryginał nie pokazuje tej umiejętności w tej roli — opis nie jest wymagany`,
+      ]);
+      // Sprawdzenie bez pozycji i bez ról dalej się nie rozwija.
+      expect(within(rows).getByRole("button", { name: /CV firmowe jest przygotowane/ })).not.toHaveAttribute(
+        "aria-expanded",
+      );
+    });
+
+    it("krytyczne „sprawdź ręcznie” (odczyt CV bez opisów ról) to uwaga, nie blokada", async () => {
+      serve(
+        withCheck(
+          "critical_skills",
+          {
+            status: "manual",
+            summary: "Odczyt CV nie ma opisów ról — sprawdź role ręcznie",
+            items: [],
+            roles: [{ requirement: "Java", role: ROLE_ALFA, state: "unverified" }],
+          },
+          result({ blocking_failed: 1 }),
+        ),
+      );
+      renderDialog();
+      const dialog = await screen.findByRole("dialog");
+      expect(await within(dialog).findByText("Do poprawy: 1 rzecz")).toBeTruthy();
+      const tasks = within(dialog).getByRole("region", { name: "Do poprawy przed wysłaniem" });
+      expect(within(tasks).getByText("Do poprawy przed wysłaniem (1)")).toBeTruthy();
+      expect(within(tasks).queryByText(/Java — brak/)).toBeNull();
+      expect(within(tasks).queryByText("umiejętność krytyczna")).toBeNull();
+
+      const notes = within(dialog).getByRole("region", { name: "Warto poprawić — nie blokuje" });
+      expect(within(notes).getByText("Warto poprawić — nie blokuje (3)")).toBeTruthy();
+      const row = within(notes).getByRole("button", { name: /Umiejętności krytyczne są w CV i opisane w rolach/ });
+      expect(row).toHaveTextContent("Odczyt CV nie ma opisów ról — sprawdź role ręcznie");
+      expect(row).toHaveTextContent("sprawdź ręcznie");
+      await userEvent.click(row);
+      expect(within(notes).getByRole("group", { name: "Rola po roli" })).toHaveTextContent(
+        `${ROLE_ALFA} — odczyt CV nie ma opisu tej roli — sprawdź ręcznie`,
+      );
+      // Nie wiemy, czy w roli czegoś brakuje — CV nie dostaje czerwonej krawędzi.
+      const cv = within(dialog).getByRole("article", { name: "CV firmowe" });
+      expect(cv.querySelector('[data-qc-gap="blocking"]')).toBeNull();
+    });
   });
 });

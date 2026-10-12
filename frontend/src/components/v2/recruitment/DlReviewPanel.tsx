@@ -27,7 +27,9 @@
  *
  * Kontekst decyzji (wymagania z dowodem, ocena rekrutera, ryzyka, budżet,
  * podpowiedź stawki do klienta, mediana marży u klienta) daje
- * `GET /api/dl-review/context` (`lib/api/dlReview.ts`).
+ * `GET /api/dl-review/context` (`lib/api/dlReview.ts`). Gdy rekruter przesunął
+ * kartę mimo uwag QC (tryb doradczy, 12.10.2026), nad decyzją stoi baner: kto,
+ * kiedy, dlaczego i ile rzeczy zostało do sprawdzenia, z „Otwórz QC”.
  *
  * Układ zależy od zmierzonej szerokości PRZEGLĄDU, nie okna (`dlReviewMode`):
  * na Tablicy przegląd stoi w panelu osoby `review` na całą szerokość, na
@@ -362,6 +364,12 @@ export function DlReviewBody({ task, canSendToClient, onClose, layout, previewLo
       return String(hint.amount);
     });
   }, [hint, canSend]);
+
+  // Karta przesunięta mimo uwag QC — DL widzi to, zanim wyśle CV do klienta.
+  // Obejście rekrutera działa do następnego ruchu karty, więc po przekazaniu
+  // do przeglądu QC znów jest „do poprawy” — powód rekrutera zostaje na banerze.
+  const qcOverride =
+    context.data && context.data.qc_status !== "passed" ? (context.data.qc_override ?? null) : null;
 
   const quickView = useQuery<QuickViewSubset>({
     queryKey: candidateQueryKeys.quickView(candidateId),
@@ -707,6 +715,22 @@ export function DlReviewBody({ task, canSendToClient, onClose, layout, previewLo
             ) : null
           }
         >
+          {qcOverride ? (
+            <div
+              role="note"
+              data-testid="dl-review-qc-override"
+              className="flex flex-wrap items-start gap-2 rounded-lg bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
+            >
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
+              <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+                Przesunięte mimo uwag QC — {qcOverride.by_name ?? "rekruter"}, {formatDate(qcOverride.at)}:{" "}
+                {qcOverride.reason.replace(/[.\s]+$/, "")}. Do sprawdzenia: {context.data?.qc_blocking_failed ?? 0}.
+              </span>
+              <Button size="sm" variant="outline" onClick={() => setQcStageId(task.stage_id)}>
+                Otwórz QC
+              </Button>
+            </div>
+          ) : null}
           {dealBreaker ? (
             <p
               role="note"

@@ -583,6 +583,11 @@ class Settings(BaseSettings):
     # chyba że QC przechodzi albo Delivery Lead/admin je obszedł. False =
     # ruch bez sprawdzenia (QC dalej liczy się na żądanie i na tablicy).
     CV_QC_GATE_ENABLED: bool = True
+    # QC doradza, nie blokuje (decyzja Artura 12.10.2026, na czas wdrażania
+    # zespołu): „Przepuść mimo QC” ma każdy, kto przesuwa karty, a Delivery
+    # Lead dostaje dzwonek i może cofnąć kartę do poprawy. False = obejście
+    # wraca wyłącznie do osoby z uprawnieniem `recruitment_manage`.
+    CV_QC_ADVISORY: bool = True
 
     # ── Bramka „Zweryfikowany” (decyzja Artura 04.10.2026, D1) ──────────────
     # Wejście na „Zweryfikowany” z kolumn Nowi/Screening wymaga arkusza

@@ -20,6 +20,9 @@ export type QcFixKind =
   | "ai"
   | "spelling";
 
+/** Na czym w odczycie oryginału stoi „oryginał ma tę umiejętność w tej roli”. */
+export type QcEvidenceKind = "description" | "technologies" | "title";
+
 export interface QcItem {
   requirement?: string | null;
   role?: string | null;
@@ -28,6 +31,18 @@ export interface QcItem {
   term?: string | null;
   /** Numer stanowiska w CV (kolejność ról w sekcji doświadczenia, od 0). */
   role_index?: number | null;
+  /** Fragment odczytu oryginalnego CV — przebiegi sprzed 12.10.2026 go nie mają. */
+  evidence?: string | null;
+  evidence_kind?: QcEvidenceKind | null;
+}
+
+export type QcRoleStateKind = "described" | "missing" | "not_in_original" | "unverified";
+
+/** „Rola po roli”: stan jednego wymagania w jednej roli z oryginału. */
+export interface QcRoleState {
+  requirement: string;
+  role: string;
+  state: QcRoleStateKind;
 }
 
 export interface QcCheck {
@@ -37,6 +52,7 @@ export interface QcCheck {
   status: QcCheckStatus;
   summary: string | null;
   items: QcItem[];
+  roles?: QcRoleState[];
 }
 
 export interface QcCvRun {
@@ -69,6 +85,13 @@ export interface QcOverride {
   at: string | null;
 }
 
+/** „Potwierdzone z kandydatem” — notatka pary zapisana z okna QC. */
+export interface QcConfirmation {
+  text: string;
+  by_name: string | null;
+  at: string;
+}
+
 /** Skąd są umiejętności krytyczne: wybór Delivery Leada, podpowiedź z historii albo brak. */
 export type QcCriticalSource = "dl" | "suggested" | "none";
 
@@ -91,6 +114,11 @@ export interface QcResult {
   blocking_failed: number;
   warnings_count: number;
   override: QcOverride | null;
+  /** QC doradza, nie blokuje (`CV_QC_ADVISORY`). */
+  advisory?: boolean;
+  /** Czy TA osoba może przesunąć kartę mimo uwag QC. */
+  can_override?: boolean;
+  confirmations?: QcConfirmation[];
   run_id: number | null;
   computed_at: string | null;
   cv: QcCv | null;
@@ -187,7 +215,21 @@ export interface QcOverrideBody {
   reason?: string;
 }
 
-/** „Przepuść mimo QC" — tylko admin i Delivery Lead (serwer odmawia reszcie). */
+/**
+ * „Przepuść mimo QC" — osoba z uprawnieniem wysyłki CV do klienta, a w trybie
+ * doradczym także rekruter z rekrutacji (serwer odmawia reszcie).
+ */
 export function useQcOverride(stageId: number | null, onChanged?: () => void) {
   return useQcWrite<QcOverrideBody>(stageId, "override", onChanged);
+}
+
+/** Pozycja „spoza oryginału” z listy QC i to, co powiedział kandydat. */
+export interface QcConfirmBody {
+  term: string;
+  text?: string;
+}
+
+/** „Potwierdzone z kandydatem” — serwer zapisuje notatkę pary i zwraca świeży wynik QC. */
+export function useQcConfirm(stageId: number | null, onChanged?: () => void) {
+  return useQcWrite<QcConfirmBody>(stageId, "confirm", onChanged);
 }

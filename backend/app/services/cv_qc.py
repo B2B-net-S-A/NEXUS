@@ -41,7 +41,7 @@ from typing import Any, Optional
 
 from fastapi import HTTPException
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate_stage_cv import CandidateStageCV
@@ -55,7 +55,11 @@ from app.core.scheduling import business_today
 
 logger = logging.getLogger(__name__)
 
-FIXES_PROMPT_VERSION = "cv-qc-fixes-v2"
+FIXES_PROMPT_VERSION = "cv-qc-fixes-v3"
+# Wersja reguł liczenia QC, zapisywana w przebiegu. Po zmianie reguł nieudane
+# przebiegi starszej wersji przelicza `recompute_outdated` — plakietka na
+# Tablicy czyta zapisany wynik, a nie liczy QC przy każdym odczycie.
+QC_VERSION = "roles-from-cv-read-1"
 # Runda 8 (R8-N8-2): cytat źródła musi być zdaniem o wymaganiu, nie słowem.
 SOURCE_QUOTE_MIN_WORDS = 4
 NOTES_TEXT_MAX = 12_000
@@ -65,6 +69,9 @@ PROMPT_ROLE_MAX = 2_000
 MAX_FIXES = 12
 PROPOSED_TEXT_MAX = 600
 SOURCE_QUOTE_MAX = 300
+EVIDENCE_MAX = 240
+CONFIRM_TEXT_MAX = 1000
+CONFIRMATIONS_MAX = 20
 DESCRIPTIVE_MIN_WORDS = 6
 HEADER_BLOCKS = 6
 TITLE_BLOCKS = 3
@@ -334,11 +341,14 @@ def cv_roles(blocks: list[Block], orig_roles: list[Role]) -> list[CvRole]:
 
 
 def role_pairs(
-    blocks: list[Block], original_text: str, experience: Any
+    blocks: list[Block], role_entries: Any
 ) -> tuple[list[Role], list[CvRole], list[Optional[int]]]:
-    """Role oryginału, role CV i indeks roli CV dla każdej roli oryginału."""
+    """Role oryginału, role CV i indeks roli CV dla każdej roli oryginału.
 
-    orig = dz.original_roles(experience, original_text)
+    ``role_entries`` — wpisy odczytu CV (`dz.role_entries`).
+    """
+
+    orig = dz.original_roles(role_entries)
     roles = cv_roles(blocks, orig)
     paired = dz.pair_roles(orig, [r.role for r in roles])
     index_of = {id(r.role): n for n, r in enumerate(roles)}
@@ -741,6 +751,8 @@ class QcInput:
     today: Optional[date] = None
     # Podzbiór `must`: umiejętności krytyczne rekrutacji (`critical_requirements`).
     critical: list[Requirement] = field(default_factory=list)
+    # Wpisy ról z odczytu CV (`dz.role_entries`); None = `experience`.
+    role_entries: Any = None
 
 
 def critical_requirements(
@@ -793,7 +805,11 @@ def with_critical_terms(
 
 
 def _check(
-    key: str, status: str, summary: str, items: Optional[list[dict]] = None
+    key: str,
+    status: str,
+    summary: str,
+    items: Optional[list[dict]] = None,
+    roles: Optional[list[dict]] = None,
 ) -> dict:
     return {
         "key": key,
@@ -802,6 +818,8 @@ def _check(
         "status": status,
         "summary": summary,
         "items": items or [],
+        # „Rola po roli”: stan każdej pary wymaganie × rola (`_role_items`).
+        "roles": roles or [],
     }
 
 
@@ -813,6 +831,8 @@ def _item(
     fix: Optional[str] = None,
     term: Optional[str] = None,
     role_index: Optional[int] = None,
+    evidence: Optional[str] = None,
+    evidence_kind: Optional[str] = None,
 ) -> dict:
     return {
         "requirement": requirement,
@@ -821,6 +841,10 @@ def _item(
         "fix": fix,
         "term": term,
         "role_index": role_index,
+        # Fragment odczytu oryginału, na którym stoi „oryginał ma to w tej
+        # roli”, i jego rodzaj: description | technologies | title.
+        "evidence": evidence,
+        "evidence_kind": evidence_kind,
     }
 
 
@@ -830,26 +854,63 @@ def _status(items: list[dict], *, manual: bool = False) -> str:
     return "manual" if manual else "pass"
 
 
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?;])\s+|\n+")
+
+
+def role_evidence(role: Role, req: Requirement) -> tuple[Optional[str], Optional[str]]:
+    """(rodzaj, fragment): gdzie odczyt roli z oryginału wymienia wymaganie.
+
+    Zdanie z opisu roli wygrywa z listą technologii, lista z nazwą stanowiska
+    — rekruter widzi na karcie, na czym stoi „oryginał ma to w tej roli”.
+    """
+
+    for sentence in _SENTENCE_SPLIT.split(role.desc or ""):
+        if sentence.strip() and dz._found(sentence, req):
+            return "description", sentence.strip()[:EVIDENCE_MAX]
+    technologies = ", ".join(role.technologies)
+    if technologies and dz._found(technologies, req):
+        return "technologies", technologies[:EVIDENCE_MAX]
+    if role.title and dz._found(role.title, req):
+        return "title", role.title[:EVIDENCE_MAX]
+    return None, None
+
+
 def _role_items(
     reqs: list[Requirement],
     blocks: list[Block],
     orig_roles: list[Role],
     roles: list[CvRole],
     pairs: list[Optional[int]],
-) -> tuple[list[dict], int]:
+) -> tuple[list[dict], int, list[dict]]:
     """Braki wymagań w rolach CV, w których oryginał je wymienia.
 
-    Zwraca (pozycje, liczba sprawdzonych par wymaganie × rola). Pozycja
-    powstaje także wtedy, gdy wymagania nie ma w całym CV — z niej AI proponuje
-    zdanie do tej roli (`fixes_material`).
+    Zwraca (pozycje, liczba sprawdzonych par wymaganie × rola, stan każdej
+    pary). Pozycja powstaje także wtedy, gdy wymagania nie ma w całym CV —
+    z niej AI proponuje zdanie do tej roli (`fixes_material`).
+
+    Stan pary: ``described`` | ``missing`` | ``not_in_original`` (odczyt roli
+    wymagania nie wymienia) | ``unverified`` (odczyt nie ma opisów ról —
+    nie wiemy, czego kandydat gdzie używał; nie zgadujemy z tekstu pliku).
     """
 
     items: list[dict] = []
+    states: list[dict] = []
     checked = 0
+    has_detail = any(role.detail for role in orig_roles)
     for req in reqs:
         for orig, idx in zip(orig_roles, pairs):
-            if idx is None or not dz._found(orig.text, req):
-                continue  # rola pominięta w CV albo bez tego wymagania
+            if idx is None:
+                continue  # rola pominięta w CV
+            kind, evidence = role_evidence(orig, req)
+            if kind is None:
+                states.append(
+                    {
+                        "requirement": req.label,
+                        "role": orig.label,
+                        "state": "not_in_original" if has_detail else "unverified",
+                    }
+                )
+                continue
             checked += 1
             role_blocks = [blocks[i] for i in roles[idx].blocks]
             role_text = "\n".join(b.text for b in role_blocks)
@@ -861,7 +922,13 @@ def _role_items(
                     "kandydat w tej roli z tym robił."
                 )
             else:
+                states.append(
+                    {"requirement": req.label, "role": orig.label, "state": "described"}
+                )
                 continue
+            states.append(
+                {"requirement": req.label, "role": orig.label, "state": "missing"}
+            )
             items.append(
                 _item(
                     requirement=req.label,
@@ -869,9 +936,11 @@ def _role_items(
                     detail=detail,
                     fix="ai",
                     role_index=idx,
+                    evidence=evidence,
+                    evidence_kind=kind,
                 )
             )
-    return items, checked
+    return items, checked, states
 
 
 def _versioned_claim(text: str, req: Requirement) -> Optional[Requirement]:
@@ -926,7 +995,10 @@ def compute_checks(data: QcInput) -> list[dict]:
     critical_labels = {req.label for req in data.critical}
     # Pozostałe must-have: uwagi, nigdy blokada.
     rest = [req for req in data.must if req.label not in critical_labels]
-    orig_roles, roles, pairs = role_pairs(blocks, original, data.experience)
+    orig_roles, roles, pairs = role_pairs(
+        blocks,
+        data.role_entries if data.role_entries is not None else data.experience,
+    )
 
     # `in_cv` dla WSZYSTKICH must — czyta je też sprawdzenie pogrubień.
     in_cv = {
@@ -944,7 +1016,9 @@ def compute_checks(data: QcInput) -> list[dict]:
             )
         )
     else:
-        critical_items, _ = _role_items(data.critical, blocks, orig_roles, roles, pairs)
+        critical_items, _, critical_roles = _role_items(
+            data.critical, blocks, orig_roles, roles, pairs
+        )
         with_role = {item["requirement"] for item in critical_items}
         for req in data.critical:
             if in_cv[req.label] or req.label in with_role:
@@ -966,16 +1040,25 @@ def compute_checks(data: QcInput) -> list[dict]:
         # Role nierozpoznane (CV wklejone ręcznie, PDF): obecność w CV da się
         # potwierdzić, opisu w rolach — nie.
         roles_unknown = bool(orig_roles) and not roles
+        # Odczyt bez opisów ról: wiemy, że umiejętność jest w CV, ale nie
+        # wiemy, w których rolach kandydat jej używał — nie blokujemy na
+        # zgadywaniu (decyzja Artura 12.10.2026).
+        roles_unverified = any(r["state"] == "unverified" for r in critical_roles)
+        if critical_items:
+            summary = f"{len(data.critical) - len(failing)}/{len(data.critical)}"
+        elif roles_unknown:
+            summary = "Nie rozpoznano ról w CV — sprawdź ręcznie"
+        elif roles_unverified:
+            summary = "Odczyt CV nie ma opisów ról — sprawdź role ręcznie"
+        else:
+            summary = f"{len(data.critical)}/{len(data.critical)}"
         checks.append(
             _check(
                 "critical_skills",
-                _status(critical_items, manual=roles_unknown),
-                (
-                    "Nie rozpoznano ról w CV — sprawdź ręcznie"
-                    if roles_unknown and not critical_items
-                    else f"{len(data.critical) - len(failing)}/{len(data.critical)}"
-                ),
+                _status(critical_items, manual=roles_unknown or roles_unverified),
+                summary,
                 critical_items,
+                critical_roles,
             )
         )
 
@@ -1065,17 +1148,23 @@ def compute_checks(data: QcInput) -> list[dict]:
             )
         )
     else:
-        role_items, checked = _role_items(rest, blocks, orig_roles, roles, pairs)
+        role_items, checked, role_states = _role_items(
+            rest, blocks, orig_roles, roles, pairs
+        )
+        unverified = any(r["state"] == "unverified" for r in role_states)
+        if role_items:
+            summary = f"{len(role_items)} do uzupełnienia"
+        elif unverified:
+            summary = "Odczyt CV nie ma opisów ról — sprawdź role ręcznie"
+        else:
+            summary = f"{checked} ról OK"
         checks.append(
             _check(
                 "must_in_roles",
-                _status(role_items),
-                (
-                    f"{len(role_items)} do uzupełnienia"
-                    if role_items
-                    else f"{checked} ról OK"
-                ),
+                _status(role_items, manual=unverified),
+                summary,
                 role_items,
+                role_states,
             )
         )
 
@@ -1469,6 +1558,7 @@ def _qc_input(src: dz.ReviewSources, notes: str, consent: Optional[str]) -> QcIn
         bold_known=src.bold_known,
         original_text=(src.original.get("text") or ""),
         experience=src.candidate.experience,
+        role_entries=dz.role_entries(src.candidate, src.original.get("text") or ""),
         notes_text=notes,
         job_title=src.job.title,
         candidate_email=src.candidate.email,
@@ -1510,9 +1600,40 @@ async def _latest_run(
     )
 
 
+def _override_applies():
+    """Warunek SQL: wiersz jest obejściem, które nadal przepuszcza parę.
+
+    Obejście osoby od wysyłki (Delivery Lead, admin) dotyczy pary bez końca.
+    Obejście doradcze — rekrutera, który przesunął kartę mimo uwag — działa do
+    NASTĘPNEGO ruchu karty: gdy Delivery Lead ją cofnie, QC znów pyta, a kolejne
+    „Przesuń mimo uwag…” znów go powiadamia. Bez tego cofnięcie karty nic by
+    nie znaczyło — drugi ruch przechodziłby po cichu na starym obejściu.
+    """
+
+    advisory = (
+        func.coalesce(CvQcRun.result["override_advisory"].astext, "false") == "true"
+    )
+    moved_since = (
+        select(CandidateStage.id)
+        .where(
+            CandidateStage.candidate_id == CvQcRun.candidate_id,
+            CandidateStage.job_id == CvQcRun.job_id,
+            CandidateStage.moved_at > CvQcRun.created_at,
+        )
+        .exists()
+    )
+    return and_(CvQcRun.override_reason.is_not(None), or_(~advisory, ~moved_since))
+
+
 async def _latest_override(
-    db: AsyncSession, candidate_id: int, job_id: int
+    db: AsyncSession, candidate_id: int, job_id: int, *, include_spent: bool = False
 ) -> Optional[dict]:
+    """Najnowsze obejście, które przepuszcza parę (`_override_applies`).
+
+    ``include_spent`` — także obejście doradcze sprzed ostatniego ruchu:
+    przegląd Delivery Leada pokazuje, kto i dlaczego przesunął kartę mimo uwag.
+    """
+
     from app.models.user import User
 
     row = (
@@ -1522,7 +1643,9 @@ async def _latest_override(
             .where(
                 CvQcRun.candidate_id == candidate_id,
                 CvQcRun.job_id == job_id,
-                CvQcRun.override_reason.is_not(None),
+                CvQcRun.override_reason.is_not(None)
+                if include_spent
+                else _override_applies(),
             )
             .order_by(CvQcRun.created_at.desc(), CvQcRun.id.desc())
             .limit(1)
@@ -1531,6 +1654,42 @@ async def _latest_override(
     if row is None:
         return None
     return {"reason": row.override_reason, "by_name": row.name, "at": row.created_at}
+
+
+def advisory_mode() -> bool:
+    """QC doradza, nie blokuje: obejście ma każdy, kto przesuwa karty
+    (`CV_QC_ADVISORY`, decyzja Artura 12.10.2026 na czas wdrażania zespołu)."""
+
+    from app.core.config import settings
+
+    return bool(settings.CV_QC_ADVISORY)
+
+
+async def _confirmations(db: AsyncSession, candidate_id: int) -> list[dict]:
+    """Potwierdzenia z kandydatem zapisane z okna QC — co, kto i kiedy."""
+
+    from app.models.note import Note
+    from app.models.user import User
+    from app.services import note_kinds
+
+    rows = await db.execute(
+        select(Note.content, Note.created_at, User.name)
+        .outerjoin(User, User.id == Note.author_id)
+        .where(
+            Note.candidate_id == candidate_id,
+            Note.external_source == note_kinds.QC_CONFIRM_SOURCE,
+            Note.source_deleted_at.is_(None),
+            # Para „X/Y” wpisana przez Delivery Leada to wpis o stawce do
+            # klienta — zakryty dla części ról, więc nie cytujemy go w oknie.
+            note_kinds.not_client_rate_clause(),
+        )
+        .order_by(Note.created_at.desc(), Note.id.desc())
+        .limit(CONFIRMATIONS_MAX)
+    )
+    return [
+        {"text": dz._strip_html(row.content), "by_name": row.name, "at": row.created_at}
+        for row in rows
+    ]
 
 
 async def _load_sources(db: AsyncSession, stage: CandidateStage) -> dz.ReviewSources:
@@ -1575,6 +1734,9 @@ async def _store_run(
         latest is not None
         and latest.cv_fingerprint == fp
         and (latest.result or {}).get("checks_hash") == digest
+        # Przebieg starszych reguł dostaje nowy wiersz także przy tym samym
+        # wyniku — inaczej `recompute_outdated` wracałby do niego co start.
+        and (latest.result or {}).get("qc_version") == QC_VERSION
     ):
         return latest.id, latest.created_at
     now = datetime.now(timezone.utc)
@@ -1586,7 +1748,12 @@ async def _store_run(
         passed=passed,
         blocking_failed=blocking_failed,
         warnings_count=warnings_count,
-        result={"checks": checks, "checks_hash": digest, "cv_source": cv_source},
+        result={
+            "checks": checks,
+            "checks_hash": digest,
+            "cv_source": cv_source,
+            "qc_version": QC_VERSION,
+        },
         created_by_user_id=user_id,
         created_at=now,
     )
@@ -1648,6 +1815,8 @@ async def run_qc(
         "blocking_failed": blocking_failed,
         "warnings_count": warnings_count,
         "override": await _latest_override(db, src.candidate.id, src.job.id),
+        "advisory": advisory_mode(),
+        "confirmations": await _confirmations(db, src.candidate.id),
         "run_id": run_id,
         "computed_at": computed_at,
         "cv": _cv_payload(src),
@@ -1686,11 +1855,16 @@ async def record_override(
     user_id: int,
     reason: str,
     reason_code: Optional[str] = None,
+    notify_reviewers: bool = False,
 ) -> dict:
-    """Obejście QC przez Delivery Leada/admina — wiersz przebiegu + Activity.
+    """Obejście QC — wiersz przebiegu + Activity.
 
     Wiersz obejścia niesie wynik QC z tej chwili (odcisk CV i skrót wyników),
     więc kolejne otwarcie okna z tym samym CV czyta go zamiast dopisywać nowy.
+
+    ``notify_reviewers`` — przepuszcza rekruter w trybie doradczym: Delivery
+    Lead rekrutacji dostaje dzwonek, żeby sprawdzić, co zostało niepoprawione,
+    i w razie potrzeby cofnąć kartę.
     """
 
     from app.models.activity import Activity
@@ -1712,7 +1886,11 @@ async def record_override(
                 "checks": checks,
                 "checks_hash": _checks_hash(checks),
                 "cv_source": (src.generated or {}).get("source"),
+                "qc_version": QC_VERSION,
                 "override_reason_code": reason_code,
+                # Obejście doradcze działa do następnego ruchu karty
+                # (`_override_applies`).
+                "override_advisory": notify_reviewers,
             },
             override_reason=reason,
             override_by_user_id=user_id,
@@ -1732,11 +1910,189 @@ async def record_override(
                 "reason": reason,
                 "reason_code": reason_code,
                 "blocking_failed": blocking_failed,
+                "advisory": notify_reviewers,
+            },
+        )
+    )
+    if notify_reviewers:
+        await _notify_reviewers_of_override(
+            db,
+            src,
+            stage,
+            actor_id=user_id,
+            reason=reason,
+            blocking_failed=blocking_failed,
+        )
+    await db.flush()
+    return await run_qc(db, stage, user_id=user_id, persist=True)
+
+
+async def _notify_reviewers_of_override(
+    db: AsyncSession,
+    src: dz.ReviewSources,
+    stage: CandidateStage,
+    *,
+    actor_id: int,
+    reason: str,
+    blocking_failed: int,
+) -> None:
+    """Dzwonek do Delivery Leada: rekruter przesunął kartę mimo uwag QC.
+
+    Ci sami odbiorcy co przy przekazaniu karty do przeglądu
+    (`stage_handoff_recipients._dl_reviewers`); tylko dzwonek, bez maila,
+    i nigdy do osoby, która sama przepuściła.
+    """
+
+    from app.api.notifications import create_notification
+    from app.models.notification import NotificationType
+    from app.services.stage_handoff_recipients import _dl_reviewers
+
+    name = (
+        " ".join(p for p in (src.candidate.name, src.candidate.lastname) if p)
+        or "Kandydat"
+    )
+    message = f"{src.job.title} · do sprawdzenia: {max(1, blocking_failed)} · {reason}"
+    for reviewer_id in await _dl_reviewers(db, src.job):
+        if reviewer_id == actor_id:
+            continue
+        await create_notification(
+            db,
+            reviewer_id,
+            title=f"Przesunięte mimo uwag QC: {name}",
+            message=message[:500],
+            notification_type=NotificationType.stage_changed,
+            link=f"/jobs/{src.job.id}?candidate={src.candidate.id}&panel=cv",
+            related_entity_type="candidate_stage",
+            related_entity_id=stage.id,
+            dedupe_resurface=True,
+        )
+
+
+async def confirm_with_candidate(
+    db: AsyncSession,
+    stage: CandidateStage,
+    *,
+    term: str,
+    text: Optional[str],
+    user_id: int,
+) -> dict:
+    """„Potwierdzone z kandydatem”: zapisz potwierdzenie i policz QC od nowa.
+
+    QC uznaje notatki za źródło obok oryginalnego CV („nic spoza oryginału
+    i notatek”), więc potwierdzenie jest notatką pary — z autorem i datą,
+    widoczną w profilu. Rzuca `ApplyError` (422), gdy QC tej pozycji już nie
+    zgłasza. W treści nie ma tytułu rekrutacji: wymieniałby cudze wymagania,
+    a notatka czytana jako źródło „potwierdzałaby” je wszystkie.
+    """
+
+    from app.models.activity import Activity
+    from app.models.note import Note, NoteType
+    from app.services import note_kinds
+
+    src, checks, _ = await evaluate(db, stage)
+    wanted = _norm(term)
+    item = next(
+        (
+            i
+            for c in checks
+            if c["key"] == "no_unsupported" and c["status"] == "fail"
+            for i in c["items"]
+            if wanted and _norm(i.get("term") or i.get("requirement")) == wanted
+        ),
+        None,
+    )
+    if item is None:
+        raise ApplyError("QC nie zgłasza już tej pozycji — odśwież okno.")
+    literal = str(item.get("term") or item.get("requirement") or "").strip()
+    said = " ".join((text or "").split())[:CONFIRM_TEXT_MAX]
+    db.add(
+        Note(
+            # Bez kropki po nazwie: „Java 17.” czytałoby się jak inna wersja.
+            content=f"Potwierdzone z kandydatem: {literal}"
+            + (f" — {said}" if said else ""),
+            note_type=NoteType.general,
+            candidate_id=src.candidate.id,
+            job_id=src.job.id,
+            author_id=user_id,
+            external_source=note_kinds.QC_CONFIRM_SOURCE,
+        )
+    )
+    db.add(
+        Activity(
+            entity_type="candidate_stage",
+            entity_id=stage.id,
+            action="cv_qc_confirmed",
+            user_id=user_id,
+            details={
+                "candidate_id": src.candidate.id,
+                "job_id": src.job.id,
+                "term": literal[:120],
             },
         )
     )
     await db.flush()
     return await run_qc(db, stage, user_id=user_id, persist=True)
+
+
+async def recompute_outdated(db: AsyncSession, *, limit: int = 300) -> int:
+    """Przelicz nieudane przebiegi policzone starszymi regułami QC.
+
+    Plakietka na Tablicy czyta zapisany wynik (`pair_statuses`), więc po
+    zmianie reguł pokazywałaby stare „do poprawy”, dopóki ktoś nie otworzy
+    okna. Tylko pary sprzed wysłania; po przeliczeniu przebieg ma bieżącą
+    `QC_VERSION`, więc kolejne wywołanie nic nie znajduje. Commit po każdej
+    parze — awaria jednej nie cofa pozostałych.
+    """
+
+    from app.services import pipeline_move_rules
+
+    latest = (
+        select(
+            CvQcRun.candidate_id,
+            CvQcRun.job_id,
+            CvQcRun.passed,
+            CvQcRun.result["qc_version"].astext.label("qc_version"),
+        )
+        .where(CvQcRun.override_reason.is_(None))
+        .distinct(CvQcRun.candidate_id, CvQcRun.job_id)
+        .order_by(
+            CvQcRun.candidate_id,
+            CvQcRun.job_id,
+            CvQcRun.created_at.desc(),
+            CvQcRun.id.desc(),
+        )
+        .subquery()
+    )
+    pairs = (
+        await db.execute(
+            select(latest.c.candidate_id, latest.c.job_id)
+            .where(
+                latest.c.passed.is_(False),
+                func.coalesce(latest.c.qc_version, "") != QC_VERSION,
+            )
+            .limit(limit)
+        )
+    ).all()
+    done = 0
+    for candidate_id, job_id in pairs:
+        try:
+            current, column = await pipeline_move_rules.gate_stage_row(
+                db, candidate_id=candidate_id, job_id=job_id
+            )
+            if current is None or column not in (
+                "new",
+                "screening",
+                "verified",
+                "cv_qc",
+            ):
+                continue
+            await run_qc(db, current, user_id=None, persist=True)
+            await db.commit()
+            done += 1
+        except Exception as exc:  # noqa: BLE001 — zadanie tła nie może paść
+            await db.rollback()
+            logger.warning("[cv_qc] recompute failed (%s)", type(exc).__name__)
+    return done
 
 
 # ── Tablica i bramka ────────────────────────────────────────────────────────
@@ -1749,7 +2105,8 @@ async def pair_statuses(
 
     ``passed`` — najnowszy przebieg przeszedł; ``overridden`` — nie przeszedł,
     ale Delivery Lead/admin kiedyś przepuścił parę; ``failed``; ``unchecked``
-    — pary nikt jeszcze nie sprawdzał.
+    — pary nikt jeszcze nie sprawdzał. Obejście doradcze sprzed ostatniego
+    ruchu karty się nie liczy (`_override_applies`).
     """
 
     wanted = {(int(c), int(j)) for c, j in pairs}
@@ -1759,7 +2116,7 @@ async def pair_statuses(
     if not wanted:
         return out
     has_override = (
-        func.bool_or(CvQcRun.override_reason.is_not(None))
+        func.bool_or(_override_applies())
         .over(partition_by=(CvQcRun.candidate_id, CvQcRun.job_id))
         .label("has_override")
     )
@@ -1951,7 +2308,9 @@ def fixes_material(src: dz.ReviewSources, checks: list[dict], notes: str) -> dic
 
     by_key = {c["key"]: c for c in checks}
     original = src.original.get("text") or ""
-    orig_roles, roles, _ = role_pairs(src.blocks, original, src.candidate.experience)
+    orig_roles, roles, _ = role_pairs(
+        src.blocks, dz.role_entries(src.candidate, original)
+    )
     orig_by_label = {r.label: r for r in orig_roles}
     req_by_label = {r.label: r for r in src.must}
     items: list[dict] = []
@@ -1983,6 +2342,18 @@ def fixes_material(src: dz.ReviewSources, checks: list[dict], notes: str) -> dic
                 "cv_role_label": cv_role.role.label,
                 "cv_points": points,
                 "original_role": (orig.text if orig else "")[:PROMPT_ROLE_MAX],
+                # Do odrzucenia cytatu z innej roli (`_quote_from_other_role`).
+                "company": (orig.company if orig else None),
+                "other_roles": [
+                    r.text[:PROMPT_ROLE_MAX] for r in orig_roles if r is not orig
+                ],
+                "other_companies": sorted(
+                    {
+                        r.company
+                        for r in orig_roles
+                        if r.company and (orig is None or r.company != orig.company)
+                    }
+                ),
                 "check_key": check_key,
             }
         )
@@ -2015,6 +2386,34 @@ def _json_object(raw: str) -> dict:
     return json.loads(body[start : end + 1])
 
 
+def _quote_from_other_role(quote: str, item: dict, original: str) -> bool:
+    """Czy cytat (znormalizowany) na pewno pochodzi z innej roli oryginału.
+
+    Tak, gdy stoi w odczycie innej roli, a nie tej, albo gdy w pliku
+    najbliższa poprzedzająca go nazwa firmy to inny pracodawca. Cytat, którego
+    nie da się przypisać (firmy tej roli nie ma w tekście pliku), przechodzi —
+    odrzucamy pewne pomyłki, nie wszystko, czego nie umiemy sprawdzić.
+    """
+
+    if quote in _norm(item.get("original_role")):
+        return False
+    if any(quote in _norm(text) for text in item.get("other_roles") or []):
+        return True
+    own = _norm(item.get("company"))
+    at = original.find(quote)
+    if at < 0 or len(own) < 3 or own not in original:
+        return False
+
+    def last_before(name: str) -> int:
+        return original.rfind(name, 0, at) if len(name) >= 3 else -1
+
+    others = max(
+        (last_before(_norm(c)) for c in item.get("other_companies") or []),
+        default=-1,
+    )
+    return others > last_before(own)
+
+
 def parse_fixes(raw: str, material: dict, digest: str) -> list[dict]:
     """JSON modelu → poprawki. Odrzuca propozycje bez cytatu ze źródeł.
 
@@ -2023,6 +2422,10 @@ def parse_fixes(raw: str, material: dict, digest: str) -> list[dict]:
     * cytat ma co najmniej ``SOURCE_QUOTE_MIN_WORDS`` słów i zawiera wymaganie
       (runda 8, R8-N8-2: cytat „a” był podciągiem każdego oryginału),
     * zdanie musi zawierać wymaganie,
+    * cytat jest zdaniem, nie listą technologii, i nie pochodzi z INNEJ roli
+      oryginału (12.10.2026: „Python, Java, SQL” z sekcji umiejętności albo
+      zdanie z roli programisty przechodziły jako źródło zdania do roli
+      supportu),
     * ``current_text`` spoza punktów tej roli w CV = nowy punkt (null).
     """
 
@@ -2048,10 +2451,12 @@ def parse_fixes(raw: str, material: dict, digest: str) -> list[dict]:
         quote = " ".join(str(entry.get("source_quote") or "").split())
         if not proposed or not quote or len(proposed) > PROPOSED_TEXT_MAX:
             continue
-        if len(quote.split()) < SOURCE_QUOTE_MIN_WORDS:
+        if len(quote.split()) < SOURCE_QUOTE_MIN_WORDS or is_tech_list(quote):
             continue
         nq = _norm(quote)
         if nq and nq in original:
+            if _quote_from_other_role(nq, item, original):
+                continue
             source = "original"
         elif nq and nq in notes:
             source = "notes"
@@ -2341,14 +2746,13 @@ def apply_ai_fix(
     fix: dict,
     text: str,
     *,
-    original_text: str = "",
     experience: Any = None,
 ) -> str:
     doc = EditableCv.parse(html)
     rendered = render_inline(text)
     if not rendered.strip():
         raise ApplyError("Poprawka jest pusta.")
-    orig_roles = dz.original_roles(experience, original_text)
+    orig_roles = dz.original_roles(experience)
     roles = cv_roles(doc.blocks, orig_roles)
     role_idx = fix.get("role_index")
     if not (isinstance(role_idx, int) and 0 <= role_idx < len(roles)) or (
@@ -2677,8 +3081,7 @@ async def apply_action(
             html,
             fix,
             text,
-            original_text=src.original.get("text") or "",
-            experience=src.candidate.experience,
+            experience=dz.role_entries(src.candidate, src.original.get("text") or ""),
         )
         details.update(
             {
