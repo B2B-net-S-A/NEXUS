@@ -38,7 +38,7 @@ import {
   PersonPanelSideZone,
 } from "@/components/v2/person/PersonPanelSide";
 import { reassignContextQueryKey } from "@/components/v2/jobs/ScreeningReassignSuggestions";
-import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
+import { candidateQueryKeys, candidateViewerScopeKey } from "@/components/v2/pages/candidate-query-keys";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { ScreeningSummarySection } from "@/components/v2/screening-form/ScreeningSummaryView";
 import {
@@ -70,6 +70,8 @@ import {
 } from "@/lib/api/screeningForm";
 import { stageBrandedQueryKey, stageCvSourcesQueryKey } from "@/lib/cv-to-client";
 import { useAuthStore } from "@/store/auth";
+
+import { RICH_HISTORY_OUTCOMES, richHistoryNotes } from "@/app/preview/person-history-fixtures";
 
 const JOB_ID = 201;
 const CANDIDATE_ID = 101;
@@ -683,6 +685,10 @@ const STAGE_CV_SOURCES = [
   },
 ];
 
+/** Zakres widza konta ustawianego w `Harness` — pod nim panel trzyma wyniki rekrutacji. */
+const PREVIEW_VIEWER_SCOPE =
+  candidateViewerScopeKey({ id: RECRUITER.id, role: "recruiter", roles: ["recruiter"] }) ?? "";
+
 function seededClient(state: HarnessState): QueryClient {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity, refetchOnWindowFocus: false } },
@@ -737,6 +743,10 @@ function seededClient(state: HarnessState): QueryClient {
   qc.setQueryData(plainBriefQueryKey(JOB_ID), BRIEF, SEED_FRESH);
   qc.setQueryData(["job", String(JOB_ID)], { id: JOB_ID, rate_budget_hourly_min: 130, effective_budget_hourly: 150 }, SEED_FRESH);
   qc.setQueryData(recommendationCardQueryKey(CANDIDATE_ID, JOB_ID), CARD, SEED_FRESH);
+  // 12.10.2026: „Historia osoby” w podglądzie — notatki osoby (wszystkie spoza
+  // tej rekrutacji) i wyniki jej wcześniejszych rekrutacji dla konta harnessu.
+  qc.setQueryData(candidateQueryKeys.notes(CANDIDATE_ID), richHistoryNotes(CANDIDATE_ID), SEED_FRESH);
+  qc.setQueryData(candidateQueryKeys.recruitmentOutcomes(CANDIDATE_ID, PREVIEW_VIEWER_SCOPE), RICH_HISTORY_OUTCOMES, SEED_FRESH);
   return qc;
 }
 

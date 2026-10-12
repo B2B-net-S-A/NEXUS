@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 vi.mock("@/components/Toast", () => ({
@@ -96,5 +96,107 @@ describe("RecruitmentRateRow — flagi serwera", () => {
   it("brak flag w odpowiedzi — zapas z roli", () => {
     renderAs(["delivery_lead"], { canView: null, canWrite: undefined });
     expect(screen.getByTestId("client-rate-edit")).toBeInTheDocument();
+  });
+});
+
+// 12.10.2026: para z czasów Traffita nie ma stawek na etapie — oczekiwanie
+// kandydata leży w karcie rekomendacji, cena wysłania w notatce Delivery Leada
+// z dnia wysyłki. Serwer dokłada je do `/history` jako podpowiedzi.
+describe("RecruitmentRateRow — stawki z notatek, gdy etap ich nie ma", () => {
+  const expectedRateHint = {
+    amount_hourly: 90,
+    raw: "90 zł/h",
+    at: "2026-09-21T10:00:00+00:00",
+    source: "card",
+    author_name: "Anna Nowak",
+  };
+  const clientRateNote = {
+    note_id: 7,
+    text: "Wysłany 150/100-110",
+    at: "2026-09-22T09:53:00+00:00",
+    author_name: "Ewa Lis",
+  };
+
+  function renderHints(
+    roles: string[],
+    props: Partial<Parameters<typeof RecruitmentRateRow>[0]> = {},
+  ) {
+    useAuthStore.setState({
+      user: { id: 1, email: "osoba@example.com", name: "Osoba", role: roles[0], roles } as never,
+      hydrated: true,
+    });
+    return render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RecruitmentRateRow
+          candidateId={1}
+          jobId={2}
+          clientRate={null}
+          expectedRate={null}
+          expectedRateHint={expectedRateHint}
+          clientRateNote={clientRateNote}
+          {...props}
+        />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("stawka kandydata z karty stoi zamiast „—”, z informacją skąd jest", () => {
+    renderHints(["delivery_lead"]);
+    expect(screen.getByText("90 PLN/h")).toBeInTheDocument();
+    expect(screen.getByTestId("expected-rate-footnote")).toHaveTextContent(
+      "Screening (z notatki) · Anna Nowak · 21.09.2026",
+    );
+    // Nadal podpowiedź, nie zapisana stawka.
+    expect(screen.getByTestId("expected-rate-edit")).toHaveTextContent("Uzupełnij");
+  });
+
+  it("„Uzupełnij” otwiera pole z kwotą z karty i jednostką godzinową", () => {
+    renderHints(["delivery_lead"]);
+    fireEvent.click(screen.getByTestId("expected-rate-edit"));
+    expect(screen.getByTestId("expected-rate-input")).toHaveValue(90);
+    expect(screen.getByLabelText("Stawka kandydata — jednostka")).toHaveValue("hourly");
+  });
+
+  it("podpowiedź, która doszła po zamontowaniu wiersza, też trafia do pola", () => {
+    const { rerender } = renderHints(["delivery_lead"], { expectedRateHint: null });
+    expect(screen.queryByText("90 PLN/h")).not.toBeInTheDocument();
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <RecruitmentRateRow
+          candidateId={1}
+          jobId={2}
+          clientRate={null}
+          expectedRate={null}
+          expectedRateHint={expectedRateHint}
+        />
+      </QueryClientProvider>,
+    );
+    fireEvent.click(screen.getByTestId("expected-rate-edit"));
+    expect(screen.getByTestId("expected-rate-input")).toHaveValue(90);
+    expect(screen.getByLabelText("Stawka kandydata — jednostka")).toHaveValue("hourly");
+  });
+
+  it("Delivery Lead widzi pod pustą stawką do klienta notatkę z wysyłki — bez wpisanej kwoty", () => {
+    renderHints(["delivery_lead"]);
+    expect(screen.getByTestId("client-rate-footnote")).toHaveTextContent(
+      "Notatka z wysyłki · Ewa Lis · 22.09.2026: „Wysłany 150/100-110”",
+    );
+    fireEvent.click(screen.getByTestId("client-rate-edit"));
+    expect(screen.getByTestId("client-rate-input")).toHaveValue(null);
+  });
+
+  it("rekruter nie dostaje notatki z wysyłki, nawet gdyby odpowiedź ją niosła", () => {
+    renderHints(["recruiter"]);
+    expect(screen.getByText("90 PLN/h")).toBeInTheDocument();
+    expect(screen.queryByTestId("client-rate-footnote")).not.toBeInTheDocument();
+    expect(screen.queryByText(/150\/100-110/)).not.toBeInTheDocument();
+  });
+
+  it("zapisana stawka wygrywa — podpowiedzi i dopisków nie ma", () => {
+    renderHints(["delivery_lead"], { clientRate, expectedRate });
+    expect(screen.getByText("150 PLN/h")).toBeInTheDocument();
+    expect(screen.queryByText("90 PLN/h")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("expected-rate-footnote")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("client-rate-footnote")).not.toBeInTheDocument();
   });
 });

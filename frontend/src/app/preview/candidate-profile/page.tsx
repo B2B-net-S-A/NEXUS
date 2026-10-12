@@ -187,6 +187,38 @@ const HISTORY = {
       client_rate: null,
       expected_rate: { value: 160, unit: "hourly", currency: "PLN" },
     },
+    // 12.10.2026: para z czasów Traffita — etapy bez kwot, stawki w notatkach.
+    {
+      job_id: 503,
+      job_title: "Test Automation Engineer",
+      client_name: "Bank Przykładowy",
+      job_status: "published",
+      latest_stage: "cv_sent",
+      latest_stage_id: null,
+      first_seen: daysAgo(21),
+      last_seen: daysAgo(20),
+      next_action_owner: "client",
+      stages: [
+        { stage: "cv_sent", moved_at: daysAgo(20) },
+        { stage: "verified", moved_at: daysAgo(21) },
+        { stage: "new", moved_at: daysAgo(21) },
+      ],
+      client_rate: null,
+      expected_rate: null,
+      expected_rate_hint: {
+        amount_hourly: 90,
+        raw: "90 zł/h",
+        at: daysAgo(21),
+        source: "card",
+        author_name: "Marta Nowak",
+      },
+      client_rate_note: {
+        note_id: 9001,
+        text: "Wysłany 150/100-110, dostępny od zaraz",
+        at: daysAgo(20),
+        author_name: "Piotr Zieliński",
+      },
+    },
     {
       job_id: 480,
       job_title: "Java Tech Lead",

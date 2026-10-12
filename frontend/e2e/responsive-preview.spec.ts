@@ -286,6 +286,37 @@ test.describe("panel osoby — duży podgląd po lewej na laptopie", () => {
     expect(await pageOverflowPx(page)).toBeLessThanOrEqual(1);
   });
 
+  // 12.10.2026: „Historia osoby” to przycisk obok źródeł CV, nie czwarte źródło —
+  // CV zostaje zamontowane pod spodem, więc po powrocie strona ma tę samą
+  // szerokość i nie ładuje się od nowa.
+  test("/preview/screening-form: „Historia osoby” w podglądzie nie odmontowuje CV", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto("/preview/screening-form?state=nowi");
+    const pane = page.getByTestId("candidate-preview-pane");
+    const cvPage = pane.locator(".page").first();
+    await expect(cvPage).toBeVisible();
+    const pagesBefore = await pane.locator(".page").count();
+    const widthBefore = (await cvPage.boundingBox())?.width ?? 0;
+    const toggle = pane.getByRole("button", { name: "Historia osoby (8)" });
+    await toggle.click();
+    const reader = pane.getByRole("region", { name: "Historia osoby" });
+    await expect(reader).toBeVisible();
+    await expect(reader.getByRole("group", { name: "Rodzaj notatek" }).getByRole("button", { name: /Rozmowy/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(reader.getByRole("article", { name: "Rekrutacja: Analityk systemowy" })).toBeVisible();
+    await expect(cvPage).toBeHidden();
+    expect(await pane.locator(".page").count(), "strony CV zamontowane pod historią").toBe(pagesBefore);
+    expect(await pageOverflowPx(page)).toBeLessThanOrEqual(1);
+
+    await pane.getByRole("button", { name: "CV oryginalne" }).click();
+    await expect(reader).toBeHidden();
+    await expect(cvPage).toBeVisible();
+    const widthAfter = (await cvPage.boundingBox())?.width ?? 0;
+    expect(Math.abs(widthAfter - widthBefore), "szerokość strony CV po powrocie").toBeLessThanOrEqual(1);
+  });
+
   test("/preview/job-detail: panel na całą szerokość zakrywa menu boczne", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto("/preview/job-detail");

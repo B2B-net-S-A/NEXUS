@@ -14,7 +14,7 @@
  * „Stawka od”) — tu zostało to, co dotyczy procesów.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -55,6 +55,12 @@ import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreview
 import { CVShareLinkModal } from "@/components/v2/modals/CVShareLinkModal";
 import { CandidateInterviewFeedbackPanel } from "@/components/feedback/CandidateInterviewFeedbackPanel";
 import { RateChangeLatest } from "@/components/v2/rate-change/RateChangeLatest";
+import {
+  clientRateNoteCaption,
+  expectedRateHintCaption,
+  type ClientRateNote,
+  type ExpectedRateHint,
+} from "@/lib/api/recruitmentRateHints";
 import { SuggestedJobsWidget } from "@/components/SuggestedJobsWidget";
 import { candidatePipelinesQueryKey } from "@/components/CandidatePipelinesWidget";
 import { DopasowanieTab } from "@/components/v2/pages/DopasowanieTab";
@@ -485,6 +491,8 @@ function EditableRateCell({
   candidateId,
   label,
   rate,
+  suggested = null,
+  footnote = null,
   mutationFn,
   successMessage,
   testIdPrefix,
@@ -493,6 +501,13 @@ function EditableRateCell({
   candidateId: number;
   label: string;
   rate: RecruitmentRate;
+  /**
+   * Kwota z notatek, gdy etap jej nie ma (12.10.2026): stoi w miejscu „—”,
+   * a „Uzupełnij” otwiera pole już z nią. Stawką staje się po zapisie.
+   */
+  suggested?: RecruitmentRate;
+  /** Skąd jest kwota albo notatka, która ją niesie — mały tekst pod wartością. */
+  footnote?: ReactNode;
   mutationFn: (payload: RatePayload) => Promise<unknown>;
   successMessage: string;
   testIdPrefix: string;
@@ -501,8 +516,15 @@ function EditableRateCell({
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
   const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(rate?.value != null ? String(rate.value) : "");
-  const [unit, setUnit] = useState<RateUnit>((rate?.unit as RateUnit) ?? "monthly");
+  const shown = rate ?? suggested;
+  const [value, setValue] = useState(shown?.value != null ? String(shown.value) : "");
+  const [unit, setUnit] = useState<RateUnit>((shown?.unit as RateUnit) ?? "monthly");
+  // Pole startuje od tego, co widać TERAZ — stawka albo podpowiedź mogły dojść
+  // po zamontowaniu wiersza (odświeżenie `/history`).
+  const resetDraft = () => {
+    setValue(shown?.value != null ? String(shown.value) : "");
+    setUnit((shown?.unit as RateUnit) ?? "monthly");
+  };
 
   const mut = useMutation({
     mutationFn: (payload: RatePayload) => {
@@ -534,7 +556,10 @@ function EditableRateCell({
         {!editing && !readOnly ? (
           <button
             type="button"
-            onClick={() => setEditing(true)}
+            onClick={() => {
+              resetDraft();
+              setEditing(true);
+            }}
             className="text-primary hover:underline"
             data-testid={`${testIdPrefix}-edit`}
           >
@@ -575,8 +600,7 @@ function EditableRateCell({
             variant="ghost"
             onClick={() => {
               setEditing(false);
-              setValue(rate?.value != null ? String(rate.value) : "");
-              setUnit((rate?.unit as RateUnit) ?? "monthly");
+              resetDraft();
             }}
           >
             Anuluj
@@ -584,9 +608,17 @@ function EditableRateCell({
         </div>
       ) : (
         <div className="font-medium text-foreground">
-          {rate ? formatRate(rate.value, rate.currency, rate.unit) : "—"}
+          {shown ? formatRate(shown.value, shown.currency, shown.unit) : "—"}
         </div>
       )}
+      {!rate && footnote ? (
+        <div
+          className="mt-1 break-words text-[11px] text-muted-foreground"
+          data-testid={`${testIdPrefix}-footnote`}
+        >
+          {footnote}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -598,6 +630,8 @@ export function RecruitmentRateRow({
   jobId,
   clientRate,
   expectedRate,
+  expectedRateHint = null,
+  clientRateNote = null,
   readOnly = false,
   clientRateAccess,
 }: {
@@ -605,6 +639,13 @@ export function RecruitmentRateRow({
   jobId: number;
   clientRate: RecruitmentRate;
   expectedRate: RecruitmentRate;
+  /**
+   * Para z czasów Traffita nie ma stawek na etapie (12.10.2026): serwer
+   * dokłada oczekiwanie kandydata z karty rekomendacji i notatkę Delivery
+   * Leada z dnia wysyłki (`services/recruitment_rate_hints.py`).
+   */
+  expectedRateHint?: ExpectedRateHint | null;
+  clientRateNote?: ClientRateNote | null;
   readOnly?: boolean;
   clientRateAccess?: ClientRateAccess;
 }) {
@@ -633,6 +674,16 @@ export function RecruitmentRateRow({
           candidateId={candidateId}
           label="Stawka kandydata"
           rate={expectedRate}
+          suggested={
+            expectedRateHint
+              ? {
+                  value: Number(expectedRateHint.amount_hourly),
+                  unit: "hourly",
+                  currency: "PLN",
+                }
+              : null
+          }
+          footnote={expectedRateHint ? expectedRateHintCaption(expectedRateHint) : null}
           testIdPrefix="expected-rate"
           successMessage="Zapisano stawkę kandydata"
           readOnly={readOnly}
@@ -645,6 +696,13 @@ export function RecruitmentRateRow({
             candidateId={candidateId}
             label="Stawka do klienta"
             rate={clientRate}
+            footnote={
+              clientRateNote ? (
+                <>
+                  {clientRateNoteCaption(clientRateNote)}: „{clientRateNote.text}”
+                </>
+              ) : null
+            }
             testIdPrefix="client-rate"
             successMessage="Zapisano stawkę do klienta"
             readOnly={readOnly || !clientRateWritable}
@@ -866,6 +924,8 @@ function RecruitmentCard({
           jobId={jobId}
           clientRate={job.client_rate ?? null}
           expectedRate={job.expected_rate ?? null}
+          expectedRateHint={job.expected_rate_hint ?? null}
+          clientRateNote={job.client_rate_note ?? null}
           readOnly={readOnly}
           clientRateAccess={clientRateAccess}
         />

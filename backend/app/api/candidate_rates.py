@@ -6,6 +6,9 @@
   kwoty tylko dla osób z dostępem do finansów klienta.
 * ``PUT /api/candidates/{id}/rate-observations/{key}`` — „Nie licz jako
   minimum” / „Przywróć”. Bramka jak edycja faktów profilu.
+* ``GET /api/candidates/{id}/recruitment-rate-hints?job_id=`` — stawki pary,
+  których nie ma na etapie, a leżą w notatkach (panel osoby na Tablicy;
+  zakładka „Rekrutacje” profilu dostaje to samo w ``/history``).
 
 „Ustaw minimum” to istniejący ``PATCH …/profile-rate`` z ``is_minimum``.
 """
@@ -14,7 +17,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.candidate_access import (
     CandidateProfileFactsReadAccess,
     CandidateProfileFactsWriteAccess,
+    user_can_view_client_rate,
 )
 from app.api.financial_access import can_read_client_finance
 from app.api.recruitment_access import job_read_scope_clause
@@ -36,6 +40,7 @@ from app.models.job import Job
 from app.models.rate_history import RateHistory
 from app.models.user import User
 from app.services import candidate_rate_from as rate_from
+from app.services import recruitment_rate_hints
 from app.services.access_scope import resolve_delivery_lead_finance_client_ids
 from app.services.candidate_rate_observations import RateObservation, collect
 from app.services.client_consultant_rates import contract_hourly
@@ -44,6 +49,8 @@ from app.services.job_working_title import job_display_title_expr
 
 router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 
+# Klucze to PostgreSQL ``integer``; większa liczba wywracała asyncpg (500).
+_INT32_MAX = 2_147_483_647
 _PAID_STATUSES = (ContractStatus.active, ContractStatus.ending, ContractStatus.ended)
 _KEY_PATTERN = (
     r"^(card|stage|profile|apply|note):[0-9]+$|^profile-current$"
@@ -96,6 +103,28 @@ class RateOverviewResponse(BaseModel):
     count: int
     observations: list[RateObservationOut]
     paid: list[PaidRateOut]
+
+
+class JobRateHintOut(BaseModel):
+    amount_hourly: Decimal
+    raw: Optional[str]
+    at: Optional[datetime]
+    source: str
+    author_name: Optional[str]
+
+
+class SendNoteOut(BaseModel):
+    note_id: int
+    text: str
+    at: datetime
+    author_name: Optional[str]
+
+
+class RecruitmentRateHintsResponse(BaseModel):
+    candidate_id: int
+    job_id: int
+    expected_rate_hint: Optional[JobRateHintOut]
+    client_rate_note: Optional[SendNoteOut]
 
 
 class RateDecisionIn(BaseModel):
@@ -289,6 +318,47 @@ async def get_rate_overview(
         count=result.count,
         observations=out_items,
         paid=await _paid_rates(db, current_user, candidate_id, today),
+    )
+
+
+@router.get(
+    "/{candidate_id}/recruitment-rate-hints",
+    response_model=RecruitmentRateHintsResponse,
+)
+async def get_recruitment_rate_hints(
+    current_user: CandidateProfileFactsReadAccess,
+    candidate_id: int = Path(..., ge=1, le=_INT32_MAX),
+    job_id: int = Query(..., ge=1, le=_INT32_MAX),
+    db: AsyncSession = Depends(get_db),
+) -> RecruitmentRateHintsResponse:
+    """Stawki pary, których nie ma na etapie (`services/recruitment_rate_hints`).
+
+    Stawkę kandydata widzi każdy; notatkę z wysyłki, która niesie cenę dla
+    klienta — tylko ``user_can_view_client_rate``.
+    """
+    candidate = await db.scalar(
+        select(Candidate.id).where(Candidate.id == candidate_id)
+    )
+    job = await db.scalar(
+        select(Job.id).where(
+            Job.id == job_id, job_read_scope_clause(current_user, Job.id)
+        )
+    )
+    if candidate is None or job is None:
+        raise HTTPException(
+            status_code=404, detail="Nie znaleziono kandydata albo rekrutacji."
+        )
+    rates = await recruitment_rate_hints.candidate_rates(db, candidate_id, [job_id])
+    notes = (
+        await recruitment_rate_hints.send_notes(db, candidate_id, [job_id])
+        if user_can_view_client_rate(current_user)
+        else {}
+    )
+    return RecruitmentRateHintsResponse(
+        candidate_id=candidate_id,
+        job_id=job_id,
+        expected_rate_hint=rates.get(job_id),
+        client_rate_note=notes.get(job_id),
     )
 
 

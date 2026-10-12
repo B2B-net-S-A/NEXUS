@@ -750,6 +750,15 @@ describe("/preview/screening-form (0424) zasiewa formularz tymi samymi kluczami 
     expect(harness).toContain("setQueryData(candidateQueryKeys.cvDocuments(CANDIDATE_ID)");
     expect(harness).toContain("setQueryData(stageBrandedQueryKey(STAGE_ID)");
     expect(harness).toContain("setQueryData(plainBriefQueryKey(JOB_ID)");
+    // 12.10.2026: „Historia osoby” w podglądzie — notatki osoby i wyniki jej
+    // rekrutacji pod kluczami z funkcji; bez zasiewu przycisk znika po cichu.
+    const notesQuery = withoutComments(read("components/v2/pages/candidate-notes-query.ts"));
+    expect(notesQuery).toContain("queryKey: candidateQueryKeys.notes(candidateId)");
+    expect(preview).toContain("useCandidateNotes(candidateId, showHistory)");
+    expect(harness).toContain("setQueryData(candidateQueryKeys.notes(CANDIDATE_ID)");
+    const outcomesQuery = withoutComments(read("components/v2/pages/candidate-outcomes-query.ts")).replace(/\s+/g, " ");
+    expect(outcomesQuery).toContain("queryKey: candidateQueryKeys.recruitmentOutcomes(candidateId,");
+    expect(harness).toMatch(/setQueryData\( ?candidateQueryKeys\.recruitmentOutcomes\(CANDIDATE_ID, PREVIEW_VIEWER_SCOPE\)/);
   });
 
   it("zasiewa klucze wyboru gotowego CV z profilu (09.10.2026)", () => {
