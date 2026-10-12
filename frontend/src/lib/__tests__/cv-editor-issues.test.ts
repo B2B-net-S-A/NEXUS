@@ -4,10 +4,9 @@ import { Editor } from "@tiptap/core";
 import type { QcCheck, QcFix } from "../api/cvQc";
 import {
   bulkPlan,
-  changedRange,
-  changedRangeStep,
   findingsInCv,
   fixAlreadyInCv,
+  fixStep,
   issueMarks,
   locateTarget,
   termRanges,
@@ -237,19 +236,31 @@ describe("„Popraw wszystko”", () => {
 });
 
 describe("nałożenie wyniku serwera", () => {
-  it("zamienia tylko zmieniony zakres i cofa się jednym krokiem", () => {
+  it("zamienia tylko zmieniony blok i cofa się jednym krokiem", () => {
     const editor = open();
     const before = editor.getHTML();
     const fixed = before.replace("Przeglądy kodu.", "Przeglądy kodu i <strong>Kubernetes</strong>.");
-    const step = changedRangeStep(editor.state, fixed);
+    const step = fixStep(editor.state, fixed);
     expect(step).not.toBeNull();
-    expect(step!.steps).toHaveLength(1);
-    editor.view.dispatch(step!);
+    editor.view.dispatch(step!.transaction);
     expect(editor.getHTML()).toBe(fixed);
-    const range = changedRange(step!);
-    expect(textAt(editor, range)).toContain("Kubernetes");
-    // Zakres zmiany nie obejmuje reszty CV.
-    expect(textAt(editor, range)).not.toContain("Senior Developer");
+    // Wyróżnione miejsce to sam zmieniony punkt, nie reszta CV.
+    expect(step!.changed.map((range) => textAt(editor, range))).toEqual(["Przeglądy kodu i Kubernetes."]);
+    editor.commands.undo();
+    expect(editor.getHTML()).toBe(before);
+  });
+
+  it("dwie poprawki w różnych sekcjach to dwa małe miejsca i nadal JEDNO cofnięcie", () => {
+    const editor = open();
+    const before = editor.getHTML();
+    const fixed = before.replace("Kotlin", "Kotlin, Scala").replace("Usługi REST w Java 11.", "Usługi REST w <strong>Java</strong> 11.");
+    const step = fixStep(editor.state, fixed)!;
+    editor.view.dispatch(step.transaction);
+    expect(editor.getHTML()).toBe(fixed);
+    expect(step.changed.map((range) => textAt(editor, range))).toEqual([
+      "Języki: Java, Kotlin, Scala, JavaScript",
+      "Usługi REST w Java 11.",
+    ]);
     editor.commands.undo();
     expect(editor.getHTML()).toBe(before);
   });
@@ -260,7 +271,7 @@ describe("nałożenie wyniku serwera", () => {
     editor.commands.insertContentAt(at, " Dopisek.");
     const typed = editor.getHTML();
     expect(typed).toContain("Dopisek.");
-    editor.view.dispatch(changedRangeStep(editor.state, typed.replace("Dopisek.", "Dopisek i poprawka."))!);
+    editor.view.dispatch(fixStep(editor.state, typed.replace("Dopisek.", "Dopisek i poprawka."))!.transaction);
     editor.commands.undo();
     expect(editor.getHTML()).toBe(typed);
   });
@@ -279,18 +290,26 @@ describe("nałożenie wyniku serwera", () => {
     };
     expect(fixAlreadyInCv(editor.state.doc, fix)).toBe(false);
     const fixed = editor.getHTML().replace("Przeglądy kodu.", "Przeglądy kodu i wdrożenia na <strong>Kubernetes</strong>.");
-    editor.view.dispatch(changedRangeStep(editor.state, fixed)!);
+    editor.view.dispatch(fixStep(editor.state, fixed)!.transaction);
     expect(fixAlreadyInCv(editor.state.doc, fix)).toBe(true);
     editor.commands.undo();
     expect(fixAlreadyInCv(editor.state.doc, fix)).toBe(false);
   });
 
-  it("dopisany taki sam punkt nie myli początku z końcem zmiany", () => {
+  it("dopisany punkt (także taki sam jak sąsiedni) zmienia tylko listę", () => {
     const editor = open();
     const before = editor.getHTML();
     const fixed = before.replace("<li><p>Przeglądy kodu.</p></li>", "<li><p>Przeglądy kodu.</p></li><li><p>Przeglądy kodu.</p></li>");
-    const step = changedRangeStep(editor.state, fixed);
-    editor.view.dispatch(step!);
+    const step = fixStep(editor.state, fixed)!;
+    editor.view.dispatch(step.transaction);
+    expect(editor.getHTML()).toBe(fixed);
+    expect(step.changed.map((range) => textAt(editor, range))).toEqual(["Przeglądy kodu."]);
+  });
+
+  it("usunięty blok i zmieniona liczba bloków też dają nową treść", () => {
+    const editor = open();
+    const fixed = editor.getHTML().replace('<p data-cv-section="technologies">Technologie: Java, Kafka</p>', "").replace("Kotlin", "Scala");
+    editor.view.dispatch(fixStep(editor.state, fixed)!.transaction);
     expect(editor.getHTML()).toBe(fixed);
   });
 
@@ -298,13 +317,13 @@ describe("nałożenie wyniku serwera", () => {
     const editor = open();
     // `<b>` i dodatkowe odstępy serwera to dla edytora ten sam dokument.
     const same = editor.getHTML().replace("<strong>Senior Developer</strong>", "<b>Senior Developer</b>");
-    expect(changedRangeStep(editor.state, same)).toBeNull();
+    expect(fixStep(editor.state, same)).toBeNull();
   });
 
   it("klauzula zgody zostaje jedna i na końcu", () => {
     const editor = open();
     const fixed = editor.getHTML().replace("Kotlin", "Kotlin, Scala");
-    editor.view.dispatch(changedRangeStep(editor.state, fixed)!);
+    editor.view.dispatch(fixStep(editor.state, fixed)!.transaction);
     expect(editor.getHTML().split(CLAUSE)).toHaveLength(2);
     expect(editor.getHTML().endsWith(`${CLAUSE}</p>`)).toBe(true);
   });

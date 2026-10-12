@@ -17,7 +17,7 @@
 
 import { createDocument } from "@tiptap/core";
 import { closeHistory } from "@tiptap/pm/history";
-import type { Node as PMNode } from "@tiptap/pm/model";
+import { Fragment, Slice, type Node as PMNode } from "@tiptap/pm/model";
 import type { EditorState, Transaction } from "@tiptap/pm/state";
 
 import type { CvReviewFinding } from "@/lib/api/cvEditorIssues";
@@ -250,17 +250,20 @@ export function bulkPlan(checks: readonly QcCheck[], fixes: readonly QcFix[]): B
 
 // ── Nałożenie wyniku serwera ─────────────────────────────────────────────────
 
-/**
- * Transakcja zamieniająca TYLKO zakres, którym nowa treść różni się od
- * bieżącej; `null`, gdy po wczytaniu do schematu edytora nic się nie zmienia.
- * Zaczyna nowy krok historii: „Cofnij” zdejmuje samą poprawkę, a nie poprawkę
- * razem z tym, co rekruter wpisał chwilę wcześniej.
- */
-export function changedRangeStep(state: EditorState, html: string): Transaction | null {
-  const next = createDocument(html, state.schema);
-  const start = state.doc.content.findDiffStart(next.content);
+interface Change {
+  /** Zakres w bieżącym dokumencie i to, co go zastępuje. */
+  from: number;
+  to: number;
+  slice: Slice;
+  /** Ten sam fragment w nowym dokumencie — do wyróżnienia po poprawce. */
+  placed: IssueRange;
+}
+
+/** Zamiana różniącego się zakresu treści węzła (początek i koniec wspólne zostają). */
+function contentChange(current: PMNode, next: PMNode, currentAt: number, nextAt: number): Change | null {
+  const start = current.content.findDiffStart(next.content);
   if (start == null) return null;
-  const end = state.doc.content.findDiffEnd(next.content);
+  const end = current.content.findDiffEnd(next.content);
   if (!end) return null;
   let { a: endCurrent, b: endNext } = end;
   // Powtórzony fragment (np. dopisany taki sam punkt) daje koniec przed początkiem.
@@ -269,21 +272,78 @@ export function changedRangeStep(state: EditorState, html: string): Transaction 
     endCurrent += overlap;
     endNext += overlap;
   }
-  return closeHistory(state.tr.replace(start, endCurrent, next.slice(start, endNext)));
+  return {
+    from: currentAt + start,
+    to: currentAt + endCurrent,
+    slice: next.slice(start, endNext),
+    placed: { from: nextAt + start, to: nextAt + endNext, block: true },
+  };
 }
 
-/** Zakres, który transakcja z `changedRangeStep` zostawiła w nowym dokumencie. */
-export function changedRange(transaction: Transaction): IssueRange | null {
-  let from = Infinity;
-  let to = -Infinity;
-  transaction.mapping.maps.forEach((map, index) => {
-    map.forEach((_oldStart, _oldEnd, newStart, newEnd) => {
-      const rest = transaction.mapping.slice(index + 1);
-      from = Math.min(from, rest.map(newStart, -1));
-      to = Math.max(to, rest.map(newEnd, 1));
-    });
-  });
-  if (from === Infinity) return null;
-  const size = transaction.doc.content.size;
-  return { from: Math.max(0, Math.min(from, size)), to: Math.max(0, Math.min(to, size)), block: true };
+/**
+ * Najmniejsze zamiany prowadzące od `current` do `next`. Węzły o tej samej
+ * budowie porównuje dziecko po dziecku — pogrubienie w jednym punkcie i literówka
+ * trzy sekcje wyżej to dwie małe zamiany, a nie jedna na pół dokumentu.
+ * `currentAt` / `nextAt` to pozycje początku TREŚCI węzła.
+ */
+function collectChanges(current: PMNode, next: PMNode, currentAt: number, nextAt: number, out: Change[]): void {
+  if (current.content.eq(next.content)) return;
+  if (current.isTextblock || current.childCount !== next.childCount) {
+    const change = contentChange(current, next, currentAt, nextAt);
+    if (change) out.push(change);
+    return;
+  }
+  let a = currentAt;
+  let b = nextAt;
+  for (let index = 0; index < current.childCount; index += 1) {
+    const mine = current.child(index);
+    const theirs = next.child(index);
+    if (!mine.eq(theirs)) {
+      if (!mine.isLeaf && !mine.isTextblock && mine.sameMarkup(theirs)) {
+        collectChanges(mine, theirs, a + 1, b + 1, out);
+      } else {
+        out.push({
+          from: a,
+          to: a + mine.nodeSize,
+          slice: new Slice(Fragment.from(theirs), 0, 0),
+          placed: { from: b, to: b + theirs.nodeSize, block: true },
+        });
+      }
+    }
+    a += mine.nodeSize;
+    b += theirs.nodeSize;
+  }
+}
+
+export interface FixStep {
+  transaction: Transaction;
+  /** Zmienione miejsca w nowym dokumencie, w kolejności czytania. */
+  changed: IssueRange[];
+}
+
+/**
+ * Transakcja zamieniająca TYLKO to, czym nowa treść różni się od bieżącej;
+ * `null`, gdy po wczytaniu do schematu edytora nic się nie zmienia. Wszystkie
+ * zamiany są jednym krokiem historii, zaczętym od nowa: „Cofnij” zdejmuje samą
+ * poprawkę, a nie poprawkę razem z tym, co rekruter wpisał chwilę wcześniej.
+ */
+export function fixStep(state: EditorState, html: string): FixStep | null {
+  const next = createDocument(html, state.schema);
+  const changes: Change[] = [];
+  collectChanges(state.doc, next, 0, 0, changes);
+  if (changes.length === 0) return null;
+  let transaction = state.tr;
+  // Od końca: wcześniejsze pozycje zostają ważne.
+  for (const change of [...changes].sort((first, second) => second.from - first.from)) {
+    transaction.replace(change.from, change.to, change.slice);
+  }
+  let changed = changes.map((change) => change.placed).sort((first, second) => first.from - second.from);
+  if (!transaction.doc.eq(next)) {
+    // Zamiany po kawałku nie złożyły się w nową treść — jedna zamiana całego różniącego się zakresu.
+    const whole = contentChange(state.doc, next, 0, 0);
+    if (!whole) return null;
+    transaction = state.tr.replace(whole.from, whole.to, whole.slice);
+    changed = [whole.placed];
+  }
+  return { transaction: closeHistory(transaction), changed };
 }

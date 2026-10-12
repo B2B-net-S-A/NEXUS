@@ -8,7 +8,13 @@
 //
 // `?state=` — `draft` (domyślnie), `finalized` (zatwierdzona wersja: pierwsza
 // zmiana zakłada szkic), `conflict` (szkic łamie regułę klienta), `nosources`
-// (wynik generatora bez rekrutacji — panel źródeł mówi, czemu jest pusty).
+// (wynik generatora bez rekrutacji — panel źródeł mówi, czemu jest pusty,
+// a „Do poprawy” ma same uwagi generatora), `clean` (CV bez uwag), `qcdown`
+// (QC nie odpowiada — panel nie udaje, że uwag nie ma).
+//
+// Panel „Do poprawy” dostaje QC, uwagi i poprawki z `issues-fixture.ts`:
+// lista liczy się z ostatnio zapisanej treści, więc widać cały obieg
+// poprawka → autozapis → świeża lista.
 
 import { useEffect, useMemo, useState } from "react";
 import { AxiosError, type AxiosResponse } from "axios";
@@ -35,6 +41,8 @@ import { plainBriefQueryKey, type PlainBrief } from "@/lib/api/plainKnowledge";
 import { stageBrandedQueryKey } from "@/lib/cv-to-client";
 import { useAuthStore } from "@/store/auth";
 
+import { GENERATOR_ONLY_WARNINGS, memoryIssuesApi, withoutIssues } from "./issues-fixture";
+
 const JOB_ID = 201;
 const CANDIDATE_ID = 101;
 const STAGE_ID = 901;
@@ -42,12 +50,14 @@ const GENERATED_ID = 77;
 const DAY_MS = 86_400_000;
 const SEED_FRESH = { updatedAt: Date.now() + DAY_MS };
 
-type HarnessState = "draft" | "finalized" | "conflict" | "nosources";
+type HarnessState = "draft" | "finalized" | "conflict" | "nosources" | "clean" | "qcdown";
 const STATES: Record<HarnessState, string> = {
   draft: "Szkic",
   finalized: "Zatwierdzona wersja",
   conflict: "Szkic łamie regułę klienta",
   nosources: "Wynik generatora bez rekrutacji",
+  clean: "Bez uwag",
+  qcdown: "QC niedostępne",
 };
 
 const RODO =
@@ -66,7 +76,7 @@ const CV_HTML =
   "<p>2012 – 2017 <strong>Politechnika Przykładowa</strong> — Informatyka, mgr inż.</p>" +
   '<h2 data-cv-section="skills">UMIEJĘTNOŚCI</h2>' +
   "<p><strong>Języki programowania: </strong>Java 17, Kotlin, SQL</p>" +
-  "<p><strong>Narzędzia: </strong>Docker, Jenkins, Git</p>" +
+  "<p><strong>Narzędzia: </strong>Docker, Jenkins, Github</p>" +
   '<h2 data-cv-section="languages">JĘZYKI</h2><p>polski – ojczysty · angielski – B2</p>' +
   '<h2 data-cv-section="experience">DOŚWIADCZENIE</h2>' +
   '<p data-cv-section="role"><strong>Senior Java Developer</strong> 03.2021 – 06.2024</p>' +
@@ -101,7 +111,7 @@ function brandedState(state: HarnessState): CVBrandedState {
     version: finalized ? 2 : 3,
     candidate_stage_id: state === "nosources" ? null : STAGE_ID,
     status: finalized ? "finalized" : "draft",
-    content_html: CV_HTML,
+    content_html: state === "clean" ? withoutIssues(CV_HTML) : CV_HTML,
     template: "standard",
     language: "pl",
     updated_at: "2026-10-12T12:32:00Z",
@@ -120,9 +130,9 @@ function respond<T>(data: T): Promise<AxiosResponse<T>> {
 }
 
 /** Edytor na stanie z pamięci: zapis podbija wersję roboczą, nic nie idzie do API. */
-function memoryApi(initial: CVBrandedState): CvEditorApi {
+function memoryApi(initial: CVBrandedState): { api: CvEditorApi; savedHtml: () => string } {
   let current = initial;
-  return {
+  const api: CvEditorApi = {
     get: () => respond(current),
     update: (_id, payload) => {
       if ("content_html" in payload) {
@@ -161,6 +171,7 @@ function memoryApi(initial: CVBrandedState): CvEditorApi {
       });
     },
   };
+  return { api, savedHtml: () => current.content_html ?? "" };
 }
 
 async function staticFile(path: string): Promise<Blob> {
@@ -218,7 +229,7 @@ const PROFILE: ChampionProfileResponse = {
   champion_profile: {
     basics: { role_name: "Senior Java Developer", rate_value: 150, work_mode: "hybrydowo" },
     stack: {
-      must: [{ name: "Java 17" }, { name: "Spring Boot" }, { name: "Kafka" }],
+      must: [{ name: "Java 17" }, { name: "Spring Boot" }, { name: "Kafka" }, { name: "PostgreSQL" }],
       nice: [{ name: "Kubernetes" }],
       notes: "",
     },
@@ -307,7 +318,11 @@ export default function CvEditorPreviewPage() {
   const [open, setOpen] = useState(true);
   const [state, setState] = useState<HarnessState>("draft");
   const queryClient = useMemo(() => seededClient(state), [state]);
-  const editorApi = useMemo(() => memoryApi(brandedState(state)), [state]);
+  const backend = useMemo(() => {
+    const editor = memoryApi(brandedState(state));
+    const variant = state === "qcdown" ? "down" : state === "clean" ? "clean" : "issues";
+    return { editorApi: editor.api, issuesApi: memoryIssuesApi(editor.savedHtml, variant) };
+  }, [state]);
 
   useEffect(() => {
     setState(harnessState(new URLSearchParams(window.location.search).get("state")));
@@ -366,7 +381,9 @@ export default function CvEditorPreviewPage() {
           candidateName="Anna Przykładowa"
           jobTitle="Senior Java Developer"
           sourceContext={state === "nosources" ? null : undefined}
-          editorApi={editorApi}
+          editorApi={backend.editorApi}
+          issuesApi={backend.issuesApi}
+          generatorWarnings={state === "nosources" ? GENERATOR_ONLY_WARNINGS : undefined}
           editorFiles={MEMORY_FILES}
           sourceLoaders={SOURCE_LOADERS}
           {...target}

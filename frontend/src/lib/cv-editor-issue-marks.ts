@@ -17,7 +17,7 @@ import type { IssueMark, IssueRange } from "./cv-editor-issues";
 
 interface MarksMeta {
   marks?: readonly IssueMark[];
-  focus?: IssueRange | null;
+  focus?: readonly IssueRange[] | null;
 }
 
 interface MarksState {
@@ -72,7 +72,10 @@ export const CvEditorIssueMarks = Extension.create({
             if (meta?.marks) marks = markSet(tr.doc, meta.marks);
             if (meta && "focus" in meta) {
               focus = meta.focus
-                ? DecorationSet.create(tr.doc, decorate(tr.doc, meta.focus, "cv-issue-focus"))
+                ? DecorationSet.create(
+                    tr.doc,
+                    meta.focus.flatMap((range) => decorate(tr.doc, range, "cv-issue-focus")),
+                  )
                 : DecorationSet.empty;
             }
             return marks === value.marks && focus === value.focus ? value : { marks, focus };
@@ -104,16 +107,22 @@ export function clearIssueFocus(editor: Editor): void {
 }
 
 /**
- * „Pokaż w CV”: wyróżnia miejsce, stawia przy nim kursor i przewija kartkę.
- * Wołający gasi wyróżnienie przez `clearIssueFocus` (po chwili).
+ * „Pokaż w CV”: wyróżnia miejsca (po poprawce bywa ich kilka), stawia kursor
+ * przy pierwszym i przewija do niego kartkę. Wołający gasi wyróżnienie przez
+ * `clearIssueFocus` (po chwili).
  */
-export function showIssueInCv(editor: Editor, range: IssueRange): void {
-  if (editor.isDestroyed || !inBounds(editor.state.doc, range)) return;
+export function showIssueInCv(editor: Editor, where: IssueRange | readonly IssueRange[]): void {
+  if (editor.isDestroyed) return;
+  const ranges = (Array.isArray(where) ? where : [where as IssueRange]).filter((range) =>
+    inBounds(editor.state.doc, range),
+  );
+  const range = ranges[0];
+  if (!range) return;
   // Blok: kursor na początek jego tekstu; fragment: tuż przed nim.
   const anchor = Math.min(range.block ? range.from + 1 : range.from, editor.state.doc.content.size);
   const transaction = editor.state.tr
     .setSelection(TextSelection.near(editor.state.doc.resolve(anchor)))
-    .setMeta(marksKey, { focus: range })
+    .setMeta(marksKey, { focus: ranges })
     .setMeta("addToHistory", false);
   editor.view.dispatch(transaction);
   const at = editor.view.domAtPos(anchor).node;

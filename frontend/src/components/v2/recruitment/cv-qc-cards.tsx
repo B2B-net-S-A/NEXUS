@@ -480,8 +480,8 @@ export function CheckRow({ check, ctx }: { check: QcCheck; ctx: ActionContext })
 /** Zaliczone i niedotyczące — jedna linia, szczegóły po rozwinięciu. */
 export function PassedChecks({ passed, skipped, ctx }: { passed: QcCheck[]; skipped: QcCheck[]; ctx: ActionContext }) {
   const [open, setOpen] = useState(false);
-  if (passed.length + skipped.length === 0) return null;
   const listId = useId();
+  if (passed.length + skipped.length === 0) return null;
   // Bez CV nic nie jest „w porządku” — reszty po prostu nie sprawdzono.
   const title = passed.length > 0 ? "W porządku" : "Nie sprawdzono";
   return (

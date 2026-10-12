@@ -663,6 +663,8 @@ function CVBrandedEditContent({
           {hasCv && editor ? (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-background px-3 py-1.5">
               <CvEditorToolbar editor={editor} language={language} disabled={mode === "word" || submitting} />
+              {/* Wąski ekran: przełączniki w osobnym wierszu — pasek narzędzi nie traci na nie miejsca. */}
+              <div className={cn("flex flex-wrap items-center gap-x-3 gap-y-1", sideBySide ? "flex-none" : "basis-full")}>
               <div className="flex flex-none items-center gap-1" role="group" aria-label="Widok CV">
                 <ViewToggle active={mode === "edit"} onClick={() => setMode("edit")}>Edycja</ViewToggle>
                 <ViewToggle active={mode === "word"} onClick={() => { setMode("word"); setNarrowPane("cv"); }}>
@@ -695,6 +697,7 @@ function CVBrandedEditContent({
                   ) : null}
                 </div>
               )}
+              </div>
             </div>
           ) : null}
 

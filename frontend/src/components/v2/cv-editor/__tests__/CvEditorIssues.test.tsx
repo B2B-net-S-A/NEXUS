@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Editor } from "@tiptap/core";
@@ -112,7 +112,8 @@ function memoryApi(overrides: Partial<CvEditorIssuesApi> = {}): CvEditorIssuesAp
 const editors: Editor[] = [];
 
 function openEditor(): Editor {
-  const editor = new Editor({ extensions: cvEditorExtensions(), content: "" });
+  const element = document.body.appendChild(document.createElement("div"));
+  const editor = new Editor({ element, extensions: cvEditorExtensions(), content: "" });
   loadCvHtml(editor, CV);
   editors.push(editor);
   return editor;
@@ -150,6 +151,15 @@ function setup({ api = memoryApi(), editor = openEditor(), props = {} }: Setup =
   return { api, editor, client, counts, onShowCv, ensureDraft, view, rerender: (extra = {}) => view.rerender(element(extra)) };
 }
 
+beforeAll(() => {
+  // ProseMirror z fokusem przewija do kursora; jsdom nie liczy układu.
+  const noRects = () => [] as unknown as DOMRectList;
+  Range.prototype.getClientRects = noRects;
+  Range.prototype.getBoundingClientRect = () => new DOMRect();
+  Element.prototype.getClientRects = noRects;
+  document.elementFromPoint = () => null;
+});
+
 beforeEach(() => {
   toast.showSuccess.mockClear();
   toast.showError.mockClear();
@@ -158,7 +168,12 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
-  while (editors.length) editors.pop()?.destroy();
+  while (editors.length) {
+    const editor = editors.pop()!;
+    const mount = editor.view.dom.parentElement;
+    editor.destroy();
+    mount?.remove();
+  }
 });
 
 describe("panel „Do poprawy” w edytorze CV", () => {
@@ -227,6 +242,8 @@ describe("panel „Do poprawy” w edytorze CV", () => {
     fireEvent.click(within(review).getByRole("button", { name: "Pokaż w CV" }));
     expect(onShowCv).toHaveBeenCalled();
     await waitFor(() => expect(editor.view.dom.querySelector(".cv-issue-focus")?.textContent).toBe("Przeglądy kodu."));
+    // Samo wskazanie miejsca nie zabiera fokusu z listy.
+    expect(editor.view.dom).not.toHaveFocus();
   });
 
   it("miejsce, którego już nie ma, daje komunikat zamiast cichego niczego", async () => {
@@ -257,6 +274,8 @@ describe("panel „Do poprawy” w edytorze CV", () => {
     // Zmiana idzie zwykłą drogą edytora — autozapis utrwali ją sam.
     expect(updates).toHaveBeenCalledTimes(1);
     expect(toast.showSuccess).toHaveBeenCalledWith("Pogrubiono wszystkie wystąpienia. Ctrl+Z cofa.");
+    // Klawiatura wraca do tekstu — Ctrl+Z cofa poprawkę bez klikania w kartkę.
+    await waitFor(() => expect(editor.view.dom).toHaveFocus());
     editor.commands.undo();
     expect(editor.getHTML()).toBe(before);
   });

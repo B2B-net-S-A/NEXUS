@@ -60,12 +60,12 @@ import { clearIssueFocus, setIssueMarks, showIssueInCv } from "@/lib/cv-editor-i
 import {
   REVIEW_FINDING_LABEL,
   bulkPlan,
-  changedRange,
-  changedRangeStep,
   findingsInCv,
   fixAlreadyInCv,
+  fixStep,
   issueMarks,
   locateTarget,
+  type IssueRange,
 } from "@/lib/cv-editor-issues";
 import { classifyCvWarnings } from "@/lib/cv-generator";
 import { candidateQuestion, countForm, splitChecks, type IssueTarget } from "@/lib/cv-qc";
@@ -270,11 +270,11 @@ export function CvEditorIssues({
   // Wersja mogła się zmienić tuż przed zamknięciem — zanim minęło opóźnienie.
   const latestRevision = useRef(savedRevision);
   latestRevision.current = savedRevision;
-  const openedRevision = useRef(savedRevision);
   useEffect(() => {
     if (!hasStage) return;
+    const openedRevision = latestRevision.current;
     return () => {
-      if (!savedHere.current && latestRevision.current === openedRevision.current) return;
+      if (!savedHere.current && latestRevision.current === openedRevision) return;
       // Tablica i kolejki czytają ZAPISANY przebieg QC — jeden na sesję edycji.
       void api
         .persistQc(stageKey)
@@ -324,11 +324,16 @@ export function CvEditorIssues({
 
   const focusTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(focusTimer.current), []);
-  const flash = (range: { from: number; to: number; block: boolean }) => {
+  const flash = (where: IssueRange | readonly IssueRange[], afterFix = false) => {
     onShowCv();
     // Kartka mogła być ukryta (wąski ekran) — przewijamy po jej pokazaniu.
     setTimeout(() => {
-      showIssueInCv(editor, range);
+      showIssueInCv(editor, where);
+      // Po poprawce klawiatura wraca do tekstu: Ctrl+Z działa bez klikania w kartkę.
+      // Nie na ekranie dotykowym — tam fokus wysuwa klawiaturę na pół ekranu.
+      if (afterFix && !editor.isDestroyed && !window.matchMedia?.("(pointer: coarse)").matches) {
+        editor.view.dom.focus({ preventScroll: true });
+      }
       clearTimeout(focusTimer.current);
       focusTimer.current = setTimeout(() => clearIssueFocus(editor), FOCUS_MS);
     }, 0);
@@ -359,14 +364,13 @@ export function CvEditorIssues({
         showError("Treść CV zmieniła się, zanim poprawka była gotowa — kliknij jeszcze raz.");
         return;
       }
-      const step = result.changed ? changedRangeStep(editor.state, result.content_html) : null;
+      const step = result.changed ? fixStep(editor.state, result.content_html) : null;
       if (!step) {
         showError(result.skipped[0]?.message ?? "Tej poprawki nie da się nałożyć na bieżącą treść CV.");
         return;
       }
-      editor.view.dispatch(step);
-      const range = changedRange(step);
-      if (range) flash(range);
+      editor.view.dispatch(step.transaction);
+      flash(step.changed, true);
       if (bulk) {
         bulkDoc.current = editor.state.doc;
         setBulkOutcome({ applied: result.applied.length, skipped: result.skipped });
