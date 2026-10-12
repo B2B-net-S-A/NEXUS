@@ -598,6 +598,125 @@ async def _adopt_twin_team(
     return adopted
 
 
+async def _settle_owner(db: AsyncSession, job_row: Any) -> dict[str, Any]:
+    """Prowadzący z Traffita bez roli rekrutera nie zostaje rekruterem requestu.
+
+    W Traffit „osobą odpowiedzialną” za rekrutację jest zwykle Delivery Lead,
+    a import wpisuje ją do ``jobs.recruiter_id``. Dopóki rekrutacja była
+    archiwum, nic z tego nie wynikało; po otwarciu prowadzący jest przy
+    requeście z urzędu jako „Rekruter” (wiersz ``owner`` automatu przydziału)
+    — 12.10.2026 pierwsza fala pokazała w „Obłożeniu” trzech Delivery Leadów
+    z 10–18 requestami. Aktywna osoba bez roli pracy przy requestach
+    (``job_team.WORK_ROLES``) trafia więc na miejsce Delivery Leada, jeśli
+    jest puste, a rekrutacja zostaje bez rekrutera — nikogo nowego nie
+    przypisujemy, o rekruterze decyduje człowiek. Bez commitu.
+    """
+    from app.models.user import User, UserRole
+    from app.services.job_team import WORK_ROLES
+
+    if job_row.recruiter_id is None:
+        return {}
+    owner = await db.get(User, job_row.recruiter_id)
+    if owner is None or not owner.is_active or owner.has_any_role(*WORK_ROLES):
+        return {}
+    settled: dict[str, Any] = {"owner_without_recruiter_role": owner.id}
+    if job_row.delivery_lead_id is None and owner.has_any_role(UserRole.delivery_lead):
+        job_row.delivery_lead_id = owner.id
+        job_row.delivery_lead_auto_filled = False
+        settled["owner_moved_to_delivery_lead"] = True
+    job_row.recruiter_id = None
+    return settled
+
+
+_TRANSFERRED_WITH_OWNER_SQL = """
+SELECT j.id
+FROM jobs j
+JOIN users u ON u.id = j.recruiter_id
+WHERE j.external_source = 'traffit'
+  AND j.managed_in_nexus
+  AND j.status = 'published'
+  AND u.is_active
+  AND EXISTS (SELECT 1 FROM activities a
+              WHERE a.entity_type = 'job' AND a.entity_id = j.id
+                AND a.action = 'traffit_transfer')
+ORDER BY j.id
+"""
+
+
+async def repair_transferred_owners(
+    db: AsyncSession, *, actor_user_id: Optional[int], dry_run: bool
+) -> dict[str, Any]:
+    """Zastosuj :func:`_settle_owner` do rekrutacji przeniesionych wcześniej.
+
+    Pierwsza fala (12.10.2026) otworzyła rekrutacje z Delivery Leadem jako
+    prowadzącym. Ten przebieg zdejmuje go z miejsca rekrutera i zwalnia jego
+    przypisanie „Rekruter” tą samą funkcją co zmiana prowadzącego w oknie
+    edycji. Idempotentny: po naprawie rekrutacja nie ma prowadzącego, więc
+    kolejny bieg jej nie widzi.
+    """
+    from sqlalchemy import select
+
+    from app.models.activity import Activity
+    from app.models.job import Job
+    from app.models.user import User
+    from app.services import job_lifecycle
+    from app.services.job_team import WORK_ROLES
+    from app.services.recruitment_allocation import allocation_lock
+
+    job_ids = [int(r[0]) for r in (await db.execute(text(_TRANSFERRED_WITH_OWNER_SQL)))]
+    await db.rollback()
+    repaired: list[int] = []
+    moved_to_lead = 0
+    for job_id in job_ids:
+        if dry_run:
+            job_row = await db.get(Job, job_id)
+            owner = await db.get(User, job_row.recruiter_id) if job_row else None
+            if owner is not None and not owner.has_any_role(*WORK_ROLES):
+                repaired.append(job_id)
+            continue
+        if actor_user_id is None:
+            break
+        await allocation_lock(db)
+        job_row = (
+            await db.execute(
+                select(Job)
+                .where(Job.id == job_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one()
+        previous = job_row.recruiter_id
+        settled = await _settle_owner(db, job_row)
+        if not settled:
+            await db.rollback()
+            continue
+        await job_lifecycle._api()._sync_work_assignments_with_owner(  # noqa: SLF001
+            db,
+            job=job_row,
+            previous_owner_id=previous,
+            owner=None,
+            actor_id=actor_user_id,
+        )
+        db.add(
+            Activity(
+                entity_type="job",
+                entity_id=job_id,
+                action="traffit_transfer_owner_settled",
+                user_id=actor_user_id,
+                details=settled,
+            )
+        )
+        await db.commit()
+        repaired.append(job_id)
+        moved_to_lead += int(bool(settled.get("owner_moved_to_delivery_lead")))
+    await db.rollback()
+    return {
+        "owners_settled": len(repaired),
+        "owners_moved_to_delivery_lead": moved_to_lead,
+        "owners_settled_job_ids": repaired[:200],
+    }
+
+
 def _job_report(
     job: WaveJob, plan: Optional[JobPlan], *, status: str, **extra: Any
 ) -> dict[str, Any]:
@@ -726,6 +845,7 @@ async def process_job(
             # prowadzącego (decyzja Artura 12.10.2026: przypisane osoby
             # mają się nie zmieniać).
             twin.update(await _adopt_twin_team(db, job_row, twin_job_id, actor.id))
+        twin.update(await _settle_owner(db, job_row))
         effects = job_lifecycle.PostCommit()
         # Te same funkcje co „Otwórz ponownie”: flaga „Prowadzona w NEXUSIE”,
         # status, „Szukamy”, przypisanie prowadzącego. Bramki braków NIE
@@ -810,6 +930,10 @@ async def process(
     fallback = await importer._build_withdrawn_fallback_reason_map()  # noqa: SLF001
     await db.commit()
 
+    owners = await repair_transferred_owners(
+        db, actor_user_id=actor_user_id, dry_run=dry_run
+    )
+
     reports: list[dict[str, Any]] = []
     for job in jobs:
         twin = twins.get(job.job_id)
@@ -846,6 +970,7 @@ async def process(
         "scope_key": scope.key(),
         "actor": actor_label,
         "totals": _totals(reports),
+        "owners": owners,
         "jobs": reports,
     }
 
@@ -972,6 +1097,7 @@ __all__ = [
     "fresh_dry_run_exists",
     "process",
     "process_job",
+    "repair_transferred_owners",
     "read_status",
     "run_transfer",
     "spawn_running_guard",
