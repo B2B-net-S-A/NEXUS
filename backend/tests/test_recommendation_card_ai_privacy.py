@@ -234,6 +234,9 @@ def test_screening_form_history_is_read_only_by_people():
         # Prośba DL o poprawki (D6, 08.10.2026): wersja `fix_requested`
         # z migawką; czytają ją formularz, dzwonek i „CV w drodze” (ludzie).
         "app/services/screening_fix_requests.py",
+        # Scalenie rekrutacji-duplikatów (12.10.2026) zmienia wersjom tylko
+        # `job_id` — wartości nie czyta ani nie zwraca.
+        "app/services/job_twin_merge.py",
     }
     reader = re.compile(
         r"screening_form_versions|ScreeningFormVersion"
