@@ -537,7 +537,7 @@
   {
    "id": "champ.handoff-assignment",
    "area": "zlecenie",
-   "opis": "Pole „Rekruter” przy przekazaniu: automat („Przydzieli automat” w trybie auto, „Zaproponuje automat” w trybie propozycji) albo „Wybieram sam”",
+   "opis": "Pole „Rekruter” przy przekazaniu: automat („Przydzieli automat” w trybie auto, „Zaproponuje automat” w trybie propozycji; dobiera tylko przy priorytecie P1 — przy pozostałych pole mówi, że rekrutacja zostanie bez rekrutera) albo „Wybieram sam”",
    "file": "components/v2/jobs/JobHandoffButton.tsx",
    "marker": "RecruiterAssignmentChoice",
    "v3_home": "Profil Championa → Brief → Do dopięcia → Przekaż do searchu"
@@ -819,7 +819,7 @@
   {
    "id": "new.team-step",
    "area": "zlecenie",
-   "opis": "Sekcja „Kategoria i zespół” (02.10.2026): Delivery Lead potwierdza kategorię kompetencji (uczestnikami zostają wszyscy z kategorii), rekruter prowadzący — „Przydzieli automat” albo „Wskażę sam” — i priorytet w trzech poziomach (domyślnie P2)",
+   "opis": "Sekcja „Kategoria i zespół” (02.10.2026): Delivery Lead potwierdza kategorię kompetencji (uczestnikami zostają wszyscy z kategorii), rekruter prowadzący — „Przydzieli automat” albo „Wskażę sam” — i priorytet w trzech poziomach (domyślnie P1; automat dobiera rekrutera tylko przy P1)",
    "file": "components/v2/jobs/new/NewJobPage.tsx",
    "marker": "NewJobTeamStep",
    "v3_home": "nowa rekrutacja → 6 · Kategoria i zespół"

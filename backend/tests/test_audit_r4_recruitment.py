@@ -202,6 +202,8 @@ def _request(job_id: int = 10) -> RequestInfo:
         sent=0,
         deadline=None,
         base_matches=None,
+        # P1 — tylko takim requestom automat dobiera ludzi.
+        priority_rank=0,
     )
 
 

@@ -26,6 +26,7 @@ import {
 } from "@/lib/recruiter-assignment";
 import {
   PRIORITY_LEVEL_OPTIONS,
+  automatAssigns,
   type PriorityLevel,
 } from "@/lib/request-priority";
 import { sectionAnchor } from "@/lib/job-request-intake";
@@ -272,7 +273,7 @@ export function NewJobTeamStep({
           automaticAvailable={automaticAvailable}
           unavailableReason={automaticOff ? AUTOMATIC_DISABLED_TEXT : null}
           mode={mode}
-          passive={priorityLevel === "accepting"}
+          automatSkips={!automatAssigns(priorityLevel)}
           manualLabel="Wskażę sam"
           disabled={disabled}
         />
@@ -329,7 +330,7 @@ export function NewJobTeamStep({
           disabled={disabled}
         />
         <p className="text-xs leading-snug text-muted-foreground">
-          Nowa rekrutacja zaczyna od P1 — idzie pierwsza w kolejce automatu.
+          Nowa rekrutacja zaczyna od P1 — tylko do P1 automat dobiera rekrutera.
           „Przyjmujemy kandydatów” znaczy, że nie szukamy aktywnie.
         </p>
       </div>

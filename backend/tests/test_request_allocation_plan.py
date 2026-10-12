@@ -22,8 +22,9 @@ INFRA, DEV, QA, PM = 1, 2, 4, 5
 
 
 def req(
-    job_id, cat=DEV, *, sent=0, deadline=None, base=None, p1=False, passive=False
+    job_id, cat=DEV, *, sent=0, deadline=None, base=None, p1=True, passive=False
 ) -> RequestInfo:
+    # Domyślnie P1: tylko takim requestom automat dobiera ludzi.
     return RequestInfo(
         job_id=job_id,
         categories=frozenset({cat}),
@@ -342,6 +343,7 @@ def test_request_without_category_goes_to_the_least_loaded_person() -> None:
         sent=0,
         deadline=None,
         base_matches=None,
+        priority_rank=0,
     )
     live = [
         LiveAssignment(
@@ -478,12 +480,13 @@ def released(changes) -> list[tuple[int, int, str]]:
 
 
 @pytest.mark.unit
-def test_p1_requests_go_before_everything_else() -> None:
-    # P1 wygrywa z „nikt nie wysłany” i z bliższym terminem zwykłego requestu.
+def test_only_p1_requests_get_a_person() -> None:
+    # Automat dobiera ludzi tylko do P1 (prośba Head of Recruitment,
+    # 12.10.2026) — zwykły request zostaje bez rekrutera mimo bliższego terminu.
     changes = plan_assignments(
         PlanInput(
             requests=[
-                req(10, sent=0, deadline=date(2026, 10, 5)),
+                req(10, sent=0, deadline=date(2026, 10, 5), p1=False),
                 req(11, sent=3, deadline=date(2026, 12, 1), p1=True),
                 req(12, sent=0, p1=True),
             ],
@@ -491,7 +494,124 @@ def test_p1_requests_go_before_everything_else() -> None:
             live=[],
         )
     )
-    assert [c.job_id for c in changes if c.kind == "assign"] == [12, 11, 10]
+    assert [c.job_id for c in changes if c.kind == "assign"] == [12, 11]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("mode", ["shadow", "auto"])
+def test_request_below_p1_stays_empty_after_manual_removal(mode: str) -> None:
+    # Zgłoszenie: osoba zdjęta ręcznie z requestu P2, a automat dokładał
+    # następną. Teraz request zostaje „Bez rekrutera”, w obu trybach.
+    changes = plan_assignments(
+        PlanInput(
+            requests=[req(10, DEV, p1=False)],
+            people=[recruiter(1, DEV), recruiter(2, DEV)],
+            live=[],
+            mode=mode,
+            blocked=frozenset({(10, 1)}),
+        )
+    )
+    assert changes == []
+
+
+@pytest.mark.unit
+def test_request_below_p1_keeps_the_person_it_already_has() -> None:
+    # Bramka dotyczy tylko nowych przydziałów — kto pracuje, zostaje.
+    changes = plan_assignments(
+        PlanInput(
+            requests=[req(10, p1=False)],
+            people=[recruiter(1), recruiter(2)],
+            live=[LiveAssignment(10, 1, "recruiter", "auto", "active")],
+            mode="auto",
+        )
+    )
+    assert changes == []
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("mode", ["shadow", "auto"])
+def test_proposal_on_a_request_below_p1_is_released_not_activated(mode: str) -> None:
+    # Propozycja sprzed zmiany priorytetu (albo sprzed tej reguły) znika —
+    # w trybie „auto” inaczej stałaby się aktywnym przydziałem.
+    changes = plan_assignments(
+        PlanInput(
+            requests=[req(10, p1=False)],
+            people=[recruiter(1)],
+            live=[LiveAssignment(10, 1, "recruiter", "auto", "proposed")],
+            mode=mode,
+        )
+    )
+    assert [(c.kind, c.job_id, c.user_id, c.reason) for c in changes] == [
+        ("release", 10, 1, "not_p1")
+    ]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("mode", ["shadow", "auto"])
+def test_person_on_leave_keeps_a_request_below_p1(mode: str) -> None:
+    # Urlop zwalnia tam, gdzie automat dobierze następcę. Przy requeście
+    # innym niż P1 nikt by go nie zastąpił, a zwolnienie automatu jest trwałe
+    # — po jednym dniu urlopu request zostałby bez rekrutera na stałe.
+    live = [LiveAssignment(10, 1, "recruiter", "auto", "active")]
+    below = plan_assignments(
+        PlanInput(
+            requests=[req(10, p1=False)],
+            people=[recruiter(2)],
+            live=live,
+            mode=mode,
+            availability_known=True,
+            eligible_ids=frozenset({1, 2}),
+        )
+    )
+    assert below == []
+    # Ten sam urlop przy P1: zwolnienie i następca, jak dotąd.
+    urgent = plan_assignments(
+        PlanInput(
+            requests=[req(10, p1=True)],
+            people=[recruiter(2)],
+            live=live,
+            mode=mode,
+            availability_known=True,
+            eligible_ids=frozenset({1, 2}),
+        )
+    )
+    assert released(urgent) == [(10, 1, "unavailable")]
+    assert assigned(urgent) == {10: 2}
+
+
+@pytest.mark.unit
+def test_person_out_of_allocation_leaves_a_request_below_p1_empty() -> None:
+    # „Poza przydziałem” to decyzja człowieka o tej osobie — przypisanie
+    # automatu jest zwalniane także przy P2, ale nikt nie jest dokładany.
+    changes = plan_assignments(
+        PlanInput(
+            requests=[req(10, p1=False)],
+            people=[recruiter(2)],
+            live=[LiveAssignment(10, 1, "recruiter", "auto", "active")],
+            mode="auto",
+            availability_known=False,
+            eligible_ids=frozenset({2}),
+        )
+    )
+    assert [(c.kind, c.job_id, c.user_id, c.reason) for c in changes] == [
+        ("release", 10, 1, "excluded")
+    ]
+
+
+@pytest.mark.unit
+def test_request_raised_to_p1_gets_a_person_despite_an_earlier_removal() -> None:
+    # Ten sam request po zmianie P2 → P1: automat dobiera, ale nie osobę
+    # zdjętą ręcznie w bieżącym stanie requestu.
+    changes = plan_assignments(
+        PlanInput(
+            requests=[req(10, DEV, p1=True)],
+            people=[recruiter(1, DEV), recruiter(2, DEV)],
+            live=[],
+            mode="auto",
+            blocked=frozenset({(10, 1)}),
+        )
+    )
+    assert assigned(changes) == {10: 2}
 
 
 @pytest.mark.unit

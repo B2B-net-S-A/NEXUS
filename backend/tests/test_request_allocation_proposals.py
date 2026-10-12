@@ -858,9 +858,9 @@ async def test_automat_proposes_once_notifies_hor_and_withdraws_when_someone_wor
             await db.rollback()
 
 
-async def test_automat_proposes_nobody_to_a_request_that_only_accepts_candidates(
-    monkeypatch,
-) -> None:
+async def test_automat_proposes_only_to_p1_requests(monkeypatch) -> None:
+    """„Przyjmujemy kandydatów” i P2 zostają bez propozycji — automat dobiera
+    ludzi tylko do P1 (prośba Head of Recruitment, 12.10.2026)."""
     from app.services.recruitment_allocation import allocation_lock
     from app.services.request_allocation import _requests, run_request_allocation
 
@@ -869,6 +869,8 @@ async def test_automat_proposes_nobody_to_a_request_that_only_accepts_candidates
     person, _ = await _user(UserRole.recruiter)
     await _give_category(person, category)
     passive = await _job(competence_category_id=category, priority=JobPriority.low)
+    # Domyślna kolumny (`medium`) = P2.
+    standard = await _job(competence_category_id=category)
     urgent = await _job(competence_category_id=category, priority=JobPriority.high)
     now = datetime.now(timezone.utc)
     today = now.astimezone(ZoneInfo(settings.BUSINESS_TZ)).date().isoformat()
@@ -876,6 +878,8 @@ async def test_automat_proposes_nobody_to_a_request_that_only_accepts_candidates
     async with AsyncSessionLocal() as db:
         infos = {r.job_id: r for r in await _requests(db)}
         assert (infos[passive].passive, infos[passive].priority_rank) == (True, 1)
+        assert (infos[standard].passive, infos[standard].priority_rank) == (False, 1)
+        assert not infos[standard].automat_assigns
         # Historyczne ``high`` to dziś P1.
         assert (infos[urgent].passive, infos[urgent].priority_rank) == (False, 0)
         try:
@@ -891,7 +895,7 @@ async def test_automat_proposes_nobody_to_a_request_that_only_accepts_candidates
             live = (
                 await db.execute(
                     select(JobWorkAssignment.job_id, JobWorkAssignment.state).where(
-                        JobWorkAssignment.job_id.in_([passive, urgent])
+                        JobWorkAssignment.job_id.in_([passive, standard, urgent])
                     )
                 )
             ).all()

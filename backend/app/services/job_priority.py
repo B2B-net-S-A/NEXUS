@@ -5,10 +5,11 @@ Kolumna ``jobs.priority`` ma cztery wartości (``low``/``medium``/``high``/
 miała ``medium``. Wraca w trzech poziomach, tak jak zespół prowadził to
 w Traffit („P1 – URGENT”, „WILL ACCEPT CANDIDATES”):
 
-* ``p1`` — „P1 Pilne”: ``urgent`` (i historyczne ``high``); pierwsze w kolejce
-  automatu przydziału i na górze sortowania „Wymaga uwagi”;
+* ``p1`` — „P1 Pilne”: ``urgent`` (i historyczne ``high``); jedyny poziom,
+  do którego automat przydziału dobiera ludzi (od 12.10.2026), i góra
+  sortowania „Wymaga uwagi”;
 * ``p2`` — „P2 Standard”: ``medium``; tak czyta się też wartość pustą
-  i nieznaną;
+  i nieznaną; rekrutera przypisuje człowiek;
 * ``accepting`` — „Przyjmujemy kandydatów”: ``low``; nie szukamy aktywnie,
   więc automat nikogo do takiego requestu nie proponuje.
 
@@ -73,7 +74,7 @@ def priorities_for_levels(levels: Iterable[str]) -> list[JobPriority]:
 
 
 def priority_rank(priority: object) -> int:
-    """0 = P1, 1 = reszta — kolejność automatu przydziału."""
+    """0 = P1, 1 = reszta — automat przydziału dobiera ludzi tylko do P1."""
     return 0 if level_of(priority) == "p1" else 1
 
 

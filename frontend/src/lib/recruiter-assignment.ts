@@ -87,20 +87,21 @@ export function automaticAssignmentHint(
 }
 
 /**
- * Priorytet „Przyjmujemy kandydatów” znaczy „nie szukamy aktywnie” — automat
- * takim requestom nikogo nie proponuje (`job_priority.is_passive`). Obietnica
- * propozycji byłaby wtedy nieprawdą, więc pole mówi to wprost.
+ * Automat dobiera rekrutera tylko do requestów P1 (`automatAssigns`
+ * w `request-priority.ts`). Przy „P2 Standard” i „Przyjmujemy kandydatów”
+ * obietnica przydziału albo propozycji byłaby nieprawdą, więc pole mówi to
+ * wprost.
  */
-export const AUTOMATIC_PASSIVE_NOTE =
-  "Przy priorytecie „Przyjmujemy kandydatów” automat nikogo nie proponuje — rekrutacja zostanie bez rekrutera, dopóki ktoś jej nie weźmie albo nie wskażesz osoby.";
+export const AUTOMATIC_ONLY_P1_NOTE =
+  "Automat dobiera rekrutera tylko przy priorytecie P1 — ta rekrutacja zostanie bez rekrutera, dopóki ktoś jej nie weźmie albo nie wskażesz osoby.";
 
 /** Co stanie się z obsadą po przekazaniu z automatem — jedno pełne zdanie. */
 export function automaticHandoffOutcome(
   mode: AllocationMode | null | undefined,
-  passive = false,
+  automatSkips = false,
 ): string {
-  if (passive) {
-    return "Rekrutacja zostaje bez rekrutera — przy priorytecie „Przyjmujemy kandydatów” automat nikogo nie proponuje.";
+  if (automatSkips) {
+    return "Rekrutacja zostaje bez rekrutera — automat dobiera go tylko przy priorytecie P1.";
   }
   return mode === "auto"
     ? "Rekrutera prowadzącego przydzieli automat — zwykle w ciągu minuty."

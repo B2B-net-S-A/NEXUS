@@ -96,9 +96,11 @@ tylko `recruiter_id`), a Head of Recruitment nie mógł zmienić rekrutera.
   ID) — z tego liczymy trafność automatu przed ewentualnym trybem `auto`.
   Zaakceptowana albo wybrana osoba dostaje dzwonek `request_assignment_changed`
   (kategoria obowiązkowa „Wzmianki”).
-- **Planer** (`request_allocation_plan.py`): kolejność = P1, potem kubełek
-  wysłanych, termin; request „Przyjmujemy kandydatów” (`passive`) zostaje
-  w puli, ale nie dostaje propozycji; request z osobą pracującą inną drogą
+- **Planer** (`request_allocation_plan.py`): od 12.10.2026 dobiera
+  i proponuje ludzi tylko do P1 (sekcja „Przydział ludzi do requestów…”);
+  kolejność = kubełek wysłanych, termin; request P2 i „Przyjmujemy
+  kandydatów” (`passive`) zostaje w puli, ale nie dostaje osoby ani
+  propozycji; request z osobą pracującą inną drogą
   (`staffed`, np. ręczny współpracownik) jest pokryty, a propozycja przy nim
   jest zwalniana (`superseded`); `extra_load` dolicza takie requesty do
   obłożenia.

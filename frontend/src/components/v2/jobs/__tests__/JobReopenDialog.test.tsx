@@ -72,7 +72,7 @@ function renderDialog(
   const onOpenChange = vi.fn();
   const onOpenChampion = vi.fn();
   const onOpenTeam = vi.fn();
-  render(
+  const { unmount } = render(
     <QueryClientProvider client={queryClient}>
       <JobReopenDialog
         jobId={9}
@@ -86,6 +86,7 @@ function renderDialog(
     </QueryClientProvider>,
   );
   return {
+    unmount,
     onOpenChange,
     onOpenChampion,
     onOpenTeam,
@@ -170,6 +171,24 @@ describe("JobReopenDialog", () => {
       ),
     );
     expect(screen.getByTestId("job-reopen-recruiter-note")).not.toHaveTextContent("Rekruter Dawny");
+  });
+
+  it("bez rekrutera przy włączonym automacie: obietnica przydziału tylko dla P1", async () => {
+    mockReadiness({ ready: true, allocation_mode: "auto" });
+    const urgent = renderDialog("reopen", { cachedJob: { priority_level: "p1" } });
+    await waitFor(() =>
+      expect(screen.getByTestId("job-reopen-recruiter-note")).toHaveTextContent(
+        "Rekrutacja nie ma rekrutera — po otwarciu przydzieli go automat.",
+      ),
+    );
+    urgent.unmount();
+
+    renderDialog("reopen", { cachedJob: { priority_level: "p2" } });
+    await waitFor(() =>
+      expect(screen.getByTestId("job-reopen-recruiter-note")).toHaveTextContent(
+        "Rekrutacja nie ma rekrutera — automat dobiera go tylko przy priorytecie P1, więc po otwarciu wskaże go Head of Recruitment.",
+      ),
+    );
   });
 
   it("bez rekrutera i bez automatu: wskaże go Head of Recruitment, przycisk działa", async () => {

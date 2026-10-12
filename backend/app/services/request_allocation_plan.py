@@ -5,11 +5,19 @@ zapisu to ``services/request_allocation``. Reguły:
 
 * **Pula:** requesty „Szukamy kandydatów” bez championa. Request, który z niej
   wyszedł (champion, „Klient milczy”, „Zakończony”), zwalnia swoich ludzi.
-* **Kolejność:** najpierw P1, potem reszta; dalej requesty bez nikogo
-  wysłanego do klienta, potem 1–2 wysłane, potem 3+; w grupie najbliższy
-  termin (brak terminu na końcu).
-* **„Przyjmujemy kandydatów”** (``passive``): request zostaje w puli, jego
-  ludzie zostają, ale automat nikogo nowego nie dobiera ani nie proponuje.
+* **Tylko P1** (prośba Head of Recruitment, 12.10.2026): automat dobiera
+  i proponuje ludzi wyłącznie do requestów P1 (``automat_assigns``). Request
+  P2 zostaje w puli, jego ludzie zostają, ale po zdjęciu osoby nikt nie jest
+  dokładany — do tej daty automat brał następną osobę i ręczne zdjęcie
+  z requestu P2 niczego nie zmieniało. Propozycja przy takim requeście jest
+  zwalniana (``not_p1``). Urlop nie zwalnia osoby z takiego requestu (nikt
+  by jej nie zastąpił); „Poza przydziałem” i martwe konto zwalniają jak
+  wszędzie, ale bez następcy.
+* **Kolejność:** requesty bez nikogo wysłanego do klienta, potem 1–2 wysłane,
+  potem 3+; w grupie najbliższy termin (brak terminu na końcu).
+* **„Przyjmujemy kandydatów”** (``passive``): jak wyżej — request zostaje
+  w puli, jego ludzie zostają, automat nikogo nowego nie dobiera ani nie
+  proponuje; propozycja ma własny powód zwolnienia.
 * **Ktoś już pracuje:** request z osobą, która nad nim pracuje (aktywne
   przypisanie albo ``staffed`` — osoby bez wiersza, np. ręcznie dopisany
   współpracownik), jest pokryty, a propozycja przy nim jest zwalniana.
@@ -58,6 +66,8 @@ RELEASE_REASONS = {
     # 02.10.2026: propozycje do akceptacji przez Head of Recruitment.
     "superseded": "Przydzielono kogoś innego",
     "passive": "Request tylko przyjmuje kandydatów",
+    # 12.10.2026: automat dobiera ludzi tylko do P1.
+    "not_p1": "Automat dobiera tylko do requestów P1",
     "rejected": "Propozycja odrzucona",
     "replaced": "Wybrano inną osobę",
 }
@@ -100,6 +110,11 @@ class RequestInfo:
     priority_rank: int = 1
     # „Przyjmujemy kandydatów” — nie szukamy aktywnie, automat nikogo nie dobiera.
     passive: bool = False
+
+    @property
+    def automat_assigns(self) -> bool:
+        """Automat dobiera i proponuje ludzi tylko do P1."""
+        return self.priority_rank == 0 and not self.passive
 
 
 @dataclass(frozen=True)
@@ -269,7 +284,10 @@ def _own_release_reason(
     if row.user_id not in people and row.source == "auto" and not row.in_process:
         if data.eligible_ids is not None and row.user_id not in data.eligible_ids:
             return "excluded"
-        if data.availability_known:
+        # Urlop zwalnia tylko tam, gdzie automat dobierze następcę. Przy
+        # requeście innym niż P1 nikt by osoby nie zastąpił, a zwolnienie
+        # automatu jest trwałe — request zostałby bez rekrutera na stałe.
+        if data.availability_known and pool[row.job_id].automat_assigns:
             return "unavailable"
     return None
 
@@ -303,11 +321,14 @@ def plan_assignments(data: PlanInput) -> list[Change]:
     for row, reason in rows:
         if reason is None and row.state == "proposed":
             # Propozycja to nie praca. Znika, gdy request tylko przyjmuje
-            # kandydatów albo gdy ktoś już przy nim pracuje (Delivery Lead
-            # przypisał rekrutera, rekruter wziął request sam) — inaczej Head
-            # of Recruitment akceptowałby osobę do requestu, który ma obsadę.
+            # kandydatów, nie jest P1 albo gdy ktoś już przy nim pracuje
+            # (Delivery Lead przypisał rekrutera, rekruter wziął request sam)
+            # — inaczej Head of Recruitment akceptowałby osobę do requestu,
+            # który ma obsadę, a tryb „auto” aktywowałby ją przy P2.
             if pool[row.job_id].passive:
                 reason = "passive"
+            elif not pool[row.job_id].automat_assigns:
+                reason = "not_p1"
             elif row.job_id in worked:
                 reason = "superseded"
         if reason is not None:
@@ -330,7 +351,7 @@ def plan_assignments(data: PlanInput) -> list[Change]:
         return changes
 
     sequence = sorted(
-        (r for r in data.requests if r.job_id not in covered and not r.passive),
+        (r for r in data.requests if r.job_id not in covered and r.automat_assigns),
         key=request_order,
     )
     candidates = list(people.values())

@@ -43,6 +43,26 @@ z kategorią, brak urlopów z Compassa, jednorazowa kolejka przy handoffie) —
   `jobs.recruiter_id`, jeśli puste. Bez świeżych urlopów z Compassa `auto`
   nie przydziela nowych (shadow proponuje dalej). Pętla działa dopiero przy
   `RECRUITMENT_ALLOCATION_ENABLED=true`.
+- **Automat dobiera i proponuje ludzi tylko do requestów P1** (12.10.2026,
+  prośba Head of Recruitment; `RequestInfo.automat_assigns` w planerze, lustro
+  frontu `automatAssigns` w `lib/request-priority.ts`). Do tej daty priorytet
+  ustawiał tylko kolejność, więc po ręcznym zdjęciu osoby z requestu P2 pętla
+  (przebieg co 30 s) brała następną najmniej obłożoną — blokada `_blocked`
+  dotyczy pary (request, osoba), nie requestu. Teraz request P2
+  i „Przyjmujemy kandydatów” zostaje „Bez rekrutera”, dopóki człowiek kogoś
+  nie doda. Osoby już przypisane do P2 zostają: planer nie rusza działających
+  przypisań, a **urlop nie zwalnia osoby z requestu innego niż P1** — nikt by
+  jej nie zastąpił, a zwolnienie automatu jest trwałe (`_auto_released`), więc
+  po jednym dniu urlopu request zostałby bez rekrutera. „Poza przydziałem”,
+  brak kategorii i nieaktywne konto zwalniają przypisanie automatu także przy
+  P2 (decyzja człowieka o osobie), tylko bez następcy. Żywa propozycja przy P2
+  jest zwalniana z powodem `not_p1`, więc tryb `auto` jej nie aktywuje. Zmiana P2 → P1 przy requeście bez rekrutera
+  = automat dobierze osobę przy najbliższym przebiegu. Ekrany mówią to samo:
+  nagłówek pulpitu, potwierdzenie zdjęcia ostatniej osoby (`refillNote`), pole
+  „Rekruter” przy przekazaniu i na `/jobs/new` (`AUTOMATIC_ONLY_P1_NOTE`),
+  panel „Zespół”, okno ponownego otwarcia; „Automat przydziela…” w „Nowe
+  rekrutacje — kto prowadzi” tylko dla P1. Nowe miejsce, które obiecuje
+  przydział albo propozycję automatu, pyta `automatAssigns`.
 - **Zwolnienie automatu jest trwałe w bieżącym stanie requestu** (audyt
   24.09.2026): osoba zwolniona przez automat (urlop, „Poza przydziałem”) nie
   wraca adopcją jako `owner` (`_auto_released`), zwolnienie rekrutera automatu

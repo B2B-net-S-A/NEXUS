@@ -17,7 +17,7 @@ import {
   type AllocationMode,
   type RecruiterAssignment,
 } from "@/lib/recruiter-assignment";
-import type { PriorityLevel } from "@/lib/request-priority";
+import { automatAssigns, type PriorityLevel } from "@/lib/request-priority";
 import { RecruiterAssignmentChoice } from "@/components/v2/jobs/RecruiterAssignmentChoice";
 
 interface RecruiterOption {
@@ -29,8 +29,8 @@ interface RecruiterOption {
 interface JobHandoffButtonProps {
   jobId: number;
   /**
-   * Priorytet rekrutacji. Przy „Przyjmujemy kandydatów” automat nikogo nie
-   * proponuje — pole mówi to zamiast obiecywać propozycję.
+   * Priorytet rekrutacji. Automat dobiera rekrutera tylko do P1 — przy
+   * pozostałych pole mówi to zamiast obiecywać propozycję.
    */
   priorityLevel?: PriorityLevel;
   /**
@@ -82,7 +82,9 @@ export function JobHandoffButton({
   const isDraft = (jobStatus ?? cachedJob?.status) === "draft";
   const actionLabel = isDraft ? "Przekaż i opublikuj" : "Przekaż do searchu";
   const recruiterLabelId = useId();
-  const passive = priorityLevel === "accepting";
+  // Automat dobiera rekrutera tylko do P1; nieznany priorytet niczego nie
+  // przesądza.
+  const automatSkips = priorityLevel != null && !automatAssigns(priorityLevel);
   const [open, setOpen] = useState(false);
   // `undefined` = nikt jeszcze nie dotknął listy — wtedy podpowiadamy obecnego
   // rekrutera rekrutacji, o ile jest na liście.
@@ -101,7 +103,7 @@ export function JobHandoffButton({
   const [done, setDone] = useState<{
     automatic: boolean;
     mode?: AllocationMode;
-    passive: boolean;
+    automatSkips: boolean;
   } | null>(null);
 
   // Braki pokazujemy ZANIM ktoś kliknie. Na próbce 100 rekrutacji z produkcji
@@ -190,7 +192,7 @@ export function JobHandoffButton({
       } else if (recruiterId) {
         await jobsApi.handoff(jobId, recruiterId, undefined, channel);
       }
-      setDone({ automatic, mode: readiness?.allocation_mode, passive });
+      setDone({ automatic, mode: readiness?.allocation_mode, automatSkips });
       // Przekazanie zmienia obsadę (osoba albo propozycja automatu) i stan
       // bramki — odświeżamy oba, zamiast czekać na ponowne wejście.
       invalidateJobTeam(queryClient, jobId);
@@ -228,8 +230,8 @@ export function JobHandoffButton({
         <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" />
         <span>
           {done.automatic
-            ? `Przekazano do searchu. ${automaticHandoffOutcome(done.mode, done.passive)}${
-                done.mode === "auto" || done.passive
+            ? `Przekazano do searchu. ${automaticHandoffOutcome(done.mode, done.automatSkips)}${
+                done.mode === "auto" || done.automatSkips
                   ? ""
                   : " Do tego czasu rekrutacja jest bez rekrutera."
               }`
@@ -352,7 +354,7 @@ export function JobHandoffButton({
               automaticAvailable={automaticAvailable}
               unavailableReason={unavailableReason}
               mode={readiness?.allocation_mode}
-              passive={passive}
+              automatSkips={automatSkips}
               disabled={submitting}
             />
             {!automatic && (

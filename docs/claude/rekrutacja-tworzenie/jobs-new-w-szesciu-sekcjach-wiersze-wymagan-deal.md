@@ -76,7 +76,9 @@ z „wymagań do wyszukiwania” powtarzało must, deal breaker miały 3 z 99 py
   Członkostwo (dostęp, czat) nadal go liczy. Pole „Kolejne osoby”
   zniknęło z `/jobs/new` (osobę dopisuje się w panelu „Zespół”).
 - **Rekruter prowadzący: automat przydziela OD RAZU** (tryb `auto`), bez
-  akceptacji Head of Recruitment i bez danych o urlopach. Planer blokuje tryb
+  akceptacji Head of Recruitment i bez danych o urlopach — od 12.10.2026 tylko
+  przy priorytecie P1; przy pozostałych pole mówi, że rekrutacja zostanie bez
+  rekrutera (`docs/claude/rekrutacja-tablica/przydzial-ludzi-do-requestow-stany-requestu-i.md`). Planer blokuje tryb
   `auto` tylko, gdy Compass jest WŁĄCZONY i nieświeży (`PlanInput.leave_blocks_auto`);
   `PUT /mode` pozwala na `auto` przy wyłączonym Compassie. Przypisana osoba
   dostaje dzwonek `request_assignment_changed` od razu

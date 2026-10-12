@@ -133,6 +133,7 @@ import {
 } from "@/lib/recruiter-assignment";
 import {
   NEW_JOB_PRIORITY_LEVEL,
+  automatAssigns,
   rawPriorityForLevel,
   type PriorityLevel,
 } from "@/lib/request-priority";
@@ -640,8 +641,9 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
   const assignment = resolveRecruiterAssignment(assignmentChoice, automaticAvailable);
   const automatic = assignment === "automatic";
   const automaticOffNotice = handoffOptionsQuery.isSuccess && !automaticAvailable;
-  // „Przyjmujemy kandydatów”: automat takim requestom nikogo nie proponuje.
-  const passive = priorityLevel === "accepting";
+  // Automat dobiera rekrutera tylko do P1 — przy pozostałych priorytetach
+  // rekrutacja zostaje bez rekrutera.
+  const automatSkips = !automatAssigns(priorityLevel);
 
   // Portale wyłączone flagami (produkcja dziś) = `any_ready: false` → sekcji nie ma.
   const portalConfigQuery = useQuery({
@@ -1217,7 +1219,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     }
     showSuccess(
       automatic
-        ? `Rekrutacja utworzona i opublikowana. ${automaticHandoffOutcome(allocationMode, passive)}`
+        ? `Rekrutacja utworzona i opublikowana. ${automaticHandoffOutcome(allocationMode, automatSkips)}`
         : "Rekrutacja utworzona i opublikowana.",
     );
     router.push(`/jobs/${jobId}`);
@@ -1530,7 +1532,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
                 ) : portalBlocker ? (
                   `Ogłoszenie na portalach: ${portalBlocker}`
                 ) : automatic ? (
-                  automaticHandoffOutcome(allocationMode, passive)
+                  automaticHandoffOutcome(allocationMode, automatSkips)
                 ) : (
                   "Uczestnikami zostaną wszyscy z potwierdzonej kategorii."
                 )}

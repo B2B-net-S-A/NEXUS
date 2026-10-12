@@ -1148,7 +1148,12 @@ async def _seed_job_leads(hor_id: int, dl_id: int) -> dict:
             "owner": job("owner", handed_off=fresh, recruiter_id=people["owner"]),
             "proposed": job("proposed", handed_off=fresh),
             "passive": job("passive", handed_off=fresh, priority=JobPriority.low),
-            "fresh_empty": job("fresh-empty", handed_off=fresh),
+            "fresh_empty": job(
+                "fresh-empty", handed_off=fresh, priority=JobPriority.urgent
+            ),
+            # P2 świeżo po przekazaniu: automat dobiera tylko do P1, więc nikt
+            # jej „właśnie nie przydziela”.
+            "fresh_standard": job("fresh-standard", handed_off=fresh),
             "stale_empty": job("stale-empty", handed_off=timedelta(minutes=5)),
             # Poza listą: przekazana dawno, nieprzekazana, zamknięta.
             "old": job("old", handed_off=timedelta(days=8)),
@@ -1278,6 +1283,7 @@ async def test_new_job_leads_show_who_leads_fresh_handoffs(
                 "proposed",
                 "passive",
                 "fresh_empty",
+                "fresh_standard",
                 "stale_empty",
                 "not_handed_off",
             )
@@ -1362,8 +1368,10 @@ async def test_new_job_leads_show_who_leads_fresh_handoffs(
         assert passive["priority_level"] == "accepting"
         assert passive["pending_reason"] == "passive"
         assert mine[jobs["fresh_empty"]]["pending_reason"] == "assigning"
+        assert mine[jobs["fresh_standard"]]["priority_level"] == "p2"
+        assert mine[jobs["fresh_standard"]]["pending_reason"] == "none"
         assert mine[jobs["stale_empty"]]["pending_reason"] == "none"
-        for key in ("passive", "fresh_empty", "stale_empty"):
+        for key in ("passive", "fresh_empty", "fresh_standard", "stale_empty"):
             row = mine[jobs[key]]
             assert row["lead_user_id"] is None and row["lead_name"] is None
             assert row["lead_source"] is None and row["proposed"] is False

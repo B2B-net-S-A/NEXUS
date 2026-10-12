@@ -22,7 +22,11 @@ import {
   type RecruiterAccess,
 } from "@/lib/job-team";
 import { invalidateJobTeam } from "@/lib/job-team-cache";
-import { priorityLevelOf, type PrioritySource } from "@/lib/request-priority";
+import {
+  automatAssigns,
+  priorityLevelOf,
+  type PrioritySource,
+} from "@/lib/request-priority";
 import { hasSectionAccess } from "@/lib/section-access";
 import { hasRole, ROLE_LABELS, useAuthStore, type UserRole } from "@/store/auth";
 import { useCapability } from "@/hooks/useCapability";
@@ -292,16 +296,16 @@ export function JobOwnershipPanel({
     job.primary_owner && !ownerSeatTaken
       ? `${job.primary_owner.name} ma nieaktywne konto. `
       : "";
-  // „Przyjmujemy kandydatów” = nie szukamy aktywnie; automat takim requestom
-  // nikogo nie proponuje, więc nie obiecujemy propozycji.
-  const passive = priorityLevelOf(job) === "accepting";
+  // Automat dobiera rekrutera tylko do P1 — przy pozostałych priorytetach nie
+  // obiecujemy propozycji.
+  const automatSkips = !automatAssigns(priorityLevelOf(job));
   const nextStep =
     people.length > 0
       ? null
       : `${inactiveOwnerNote}${
           canStaff
-            ? passive
-              ? "Przypisz osobę — przy priorytecie „Przyjmujemy kandydatów” automat nikogo nie proponuje."
+            ? automatSkips
+              ? "Przypisz osobę — automat dobiera rekrutera tylko przy priorytecie P1."
               : "Przypisz osobę albo poczekaj na propozycję automatu (jeśli jest włączony)."
             : canClaim
               ? "Możesz wziąć tę rekrutację — kliknij „Biorę”."

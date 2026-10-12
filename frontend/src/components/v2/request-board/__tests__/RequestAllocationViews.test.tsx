@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest"
 vi.mock("@/lib/api", () => ({ default: {}, api: {} }))
 
 import { CompetenceTeamView } from "@/components/v2/competence-team/CompetenceTeamPanel"
-import { RequestBoardView } from "@/components/v2/request-board/RequestBoard"
+import { RequestBoardView, refillNote } from "@/components/v2/request-board/RequestBoard"
 import { RequestReviewView } from "@/components/v2/request-review/RequestReview"
 import type {
   CompetenceTeam,
@@ -111,13 +111,48 @@ describe("RequestBoardView", () => {
     expect(
       screen.getByText(/Automat proponuje — akceptuje Head of Recruitment\./),
     ).toHaveTextContent("Na akceptację czeka 1 propozycja.")
+    expect(
+      screen.getByText(/Automat proponuje — akceptuje Head of Recruitment\./),
+    ).toHaveTextContent("Propozycje dostają tylko requesty P1.")
   })
 
-  it("w trybie „auto” mówi, że automat przydziela od razu, a Head of Recruitment może to zmienić", () => {
+  it("w trybie „auto” mówi, że automat przydziela od razu tylko requesty P1, a resztę obsadza się ręcznie", () => {
     render(<Board data={{ ...board, mode: "auto" }} />)
-    expect(screen.getByText(/Automat przydziela od razu\./)).toHaveTextContent(
-      "Rekruter prowadzący jest przypisany zaraz po przekazaniu do searchu — Head of Recruitment może go zmienić.",
+    expect(
+      screen.getByText(/Automat przydziela od razu — tylko requesty P1\./),
+    ).toHaveTextContent(
+      "Przy P1 rekruter prowadzący jest przypisany zaraz po przekazaniu do searchu — Head of Recruitment może go zmienić. Pozostałe requesty obsadza się ręcznie.",
     )
+  })
+
+  it("potwierdzenie zdjęcia ostatniej osoby mówi, co zrobi automat: P1 dostanie kolejną, P2 zostanie bez rekrutera", () => {
+    const working = { ...bartek, proposed: false, source: "auto", via: "assignment" } as const
+    const second = { ...celina, proposed: false, source: "manual", via: "assignment" } as const
+    const proposal = { ...anna, proposed: true, source: "auto", via: "assignment" } as const
+    const request = (
+      priority_level: "p1" | "p2" | "accepting",
+      people: RequestBoard["requests"][number]["people"] = [working],
+      champion = false,
+    ) => ({ ...board.requests[0], priority_level, champion, people })
+
+    expect(refillNote("auto", request("p1"), working)).toBe(
+      " To request P1, więc automat dobierze kolejną osobę, jeśli ktoś jest dostępny.",
+    )
+    for (const level of ["p2", "accepting"] as const) {
+      expect(refillNote("auto", request(level), working)).toBe(
+        " Request zostanie bez rekrutera — automat dobiera ludzi tylko do P1.",
+      )
+    }
+    // Propozycja to nie praca — zdejmowana osoba nadal jest ostatnią pracującą.
+    expect(refillNote("auto", request("p2", [working, proposal]), working)).toContain(
+      "zostanie bez rekrutera",
+    )
+    // Ktoś jeszcze pracuje, mamy championa albo automat niczego sam nie
+    // przydziela — nie ma czego zapowiadać.
+    expect(refillNote("auto", request("p1", [working, second]), working)).toBe("")
+    expect(refillNote("auto", request("p1", [working], true), working)).toBe("")
+    expect(refillNote("shadow", request("p1"), working)).toBe("")
+    expect(refillNote("off", request("p2"), working)).toBe("")
   })
 
   it("ma kolumny listy rekrutacji: kategoria, Delivery Lead, data otwarcia, priorytet", () => {

@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   AUTOMATIC_DISABLED_TEXT,
-  AUTOMATIC_PASSIVE_NOTE,
+  AUTOMATIC_ONLY_P1_NOTE,
   RECRUITER_ASSIGNMENT_LABEL,
   automaticAssignmentAvailable,
   automaticAssignmentHint,
@@ -89,13 +89,13 @@ describe("zdania pola", () => {
     expect(automaticHandoffOutcome(undefined)).toBe(automaticHandoffOutcome("shadow"));
   });
 
-  it("priorytet „Przyjmujemy kandydatów” nie obiecuje propozycji — w żadnym trybie", () => {
+  it("priorytet inny niż P1 nie obiecuje przydziału ani propozycji — w żadnym trybie", () => {
     for (const mode of ["shadow", "auto", undefined] as const) {
       expect(automaticHandoffOutcome(mode, true)).toBe(
-        "Rekrutacja zostaje bez rekrutera — przy priorytecie „Przyjmujemy kandydatów” automat nikogo nie proponuje.",
+        "Rekrutacja zostaje bez rekrutera — automat dobiera go tylko przy priorytecie P1.",
       );
     }
-    expect(AUTOMATIC_PASSIVE_NOTE).toContain("automat nikogo nie proponuje");
+    expect(AUTOMATIC_ONLY_P1_NOTE).toContain("tylko przy priorytecie P1");
   });
 
   it("powody, dla których automatu nie da się wybrać", () => {
