@@ -106,7 +106,8 @@ export function CvEditorToolbar({ editor, language, disabled = false }: CvEditor
   // pole do wypełnienia — pisanie ma je zastąpić, więc fokus wraca do tekstu.
   const backToText = (event: Event) => {
     event.preventDefault();
-    editor.view.focus();
+    // Menu potrafi domknąć się już po zamknięciu okna — edytora wtedy nie ma.
+    if (!editor.isDestroyed) editor.view.focus();
   };
   const removeRole = async () => {
     const confirmed = await askConfirm({

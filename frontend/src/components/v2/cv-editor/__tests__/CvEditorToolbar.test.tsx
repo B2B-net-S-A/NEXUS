@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { Editor } from "@tiptap/core";
 import { afterEach, expect, it } from "vitest";
 
@@ -118,4 +118,14 @@ it("pogrubienie i lista działają na zaznaczeniu, wyłączony pasek nie robi ni
   fireEvent.click(button("Lista punktowana"));
   expect(editor.getHTML()).toContain("<p><strong>Usługi płatnicze.</strong></p>");
   expect(editor.getHTML()).not.toContain("<ul>");
+});
+
+it("menu domykane po zamknięciu edytora nie sięga do nieistniejącego widoku", async () => {
+  const editor = mount();
+  fireEvent.keyDown(button("Dodaj"), { key: "ArrowDown" });
+  const item = await screen.findByRole("menuitem", { name: "Język" });
+  act(() => editor.destroy());
+  // Radix oddaje fokus po zamknięciu menu; nieobsłużony wyjątek wywraca bieg vitest.
+  fireEvent.keyDown(item, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("menuitem", { name: "Język" })).toBeNull());
 });
