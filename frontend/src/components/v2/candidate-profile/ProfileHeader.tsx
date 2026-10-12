@@ -313,7 +313,11 @@ export function ProfileHeader({
         ) : null}
 
         {candidate.employment ? (
-          <AtOurClientBanner employment={candidate.employment} variant="compact" />
+          <AtOurClientBanner
+            employment={candidate.employment}
+            marker={candidate.employment_marker}
+            variant="compact"
+          />
         ) : null}
 
         {/* Bez prawa zapisu zostaje samo menu „⋯” z oknami do odczytu

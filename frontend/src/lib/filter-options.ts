@@ -21,15 +21,6 @@ export const CANDIDATE_STATUS_OPTIONS: ReadonlyArray<
   { value: "blacklisted", label: "Zablokowani" },
 ];
 
-export type EmploymentValue = "at_client" | "available";
-
-export const EMPLOYMENT_OPTIONS: ReadonlyArray<
-  MultiSelectFilterOption<EmploymentValue>
-> = [
-  { value: "at_client", label: "U naszego klienta" },
-  { value: "available", label: "Dostępni (bez projektu)" },
-];
-
 export type AvailabilityValue =
   | "actively_looking"
   | "open_to_offers"
