@@ -40,6 +40,7 @@ vi.mock("@/lib/cv-editor-structure", () => ({
 }));
 vi.mock("@/components/v2/cv-editor/CvEditorToolbar", () => ({ CvEditorToolbar: () => null }));
 vi.mock("@/components/v2/cv-editor/CvEditorSources", () => ({ CvEditorSources: () => null }));
+vi.mock("@/components/v2/cv-editor/CvEditorIssues", () => ({ CvEditorIssues: () => null }));
 vi.mock("@/components/v2/cv-editor/CvEditorWordPreview", () => ({
   CvEditorWordPreview: ({ load }: { load: () => Promise<Blob> }) => (
     <button onClick={() => void load()}>wczytaj podgląd Word</button>

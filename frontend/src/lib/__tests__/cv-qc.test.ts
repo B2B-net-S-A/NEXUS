@@ -138,6 +138,35 @@ describe("braki z wyniku QC", () => {
     expect(segmentCv(blocks, gaps).map((s) => s.gap?.requirements ?? null)).toEqual([null, null, ["Kafka"]]);
   });
 
+  it("śródtytuł w opisie stanowiska (h3/h4) nie kończy roli ani sekcji doświadczenia", () => {
+    // Lustro `cv_roles` z backendu: stanowisko kończy nagłówek sekcji (h1/h2).
+    const text = (t: string) => [{ t, b: false }];
+    const blocks: QcCvBlock[] = [
+      { kind: "h", level: 2, section: "experience", runs: text("Doświadczenie") },
+      { kind: "p", section: "role", runs: text("Senior Dev 2021 – 2024") },
+      { kind: "h", level: 3, section: null, runs: text("Projekt płatności") },
+      { kind: "li", section: null, runs: text("Rozwój usług w Java.") },
+      { kind: "p", section: "role", runs: text("Dev 2018 – 2021") },
+      { kind: "li", section: null, runs: text("Testy w Python.") },
+      { kind: "h", level: 2, section: "education", runs: text("Edukacja") },
+    ];
+    const gaps = [{ roleIndex: 1, role: "Dev · Globex", requirements: ["Kafka"] }] as never;
+    const segments = segmentCv(blocks, gaps);
+    expect(segments.map((s) => s.blocks.length)).toEqual([1, 3, 2, 1]);
+    expect(segments.map((s) => s.gap?.requirements ?? null)).toEqual([null, null, ["Kafka"], null]);
+  });
+
+  it("nagłówek bez poziomu (wynik sprzed 12.10.2026) kończy rolę jak dotąd", () => {
+    const text = (t: string) => [{ t, b: false }];
+    const blocks: QcCvBlock[] = [
+      { kind: "h", section: "experience", runs: text("Doświadczenie") },
+      { kind: "p", section: "role", runs: text("Senior Dev") },
+      { kind: "h", section: null, runs: text("Projekty") },
+      { kind: "p", section: "role", runs: text("Dev") },
+    ];
+    expect(segmentCv(blocks, []).map((s) => s.blocks.length)).toEqual([1, 1, 1, 1]);
+  });
+
   it("krawędź roli: krytyczne blokują, pozostałe must-have to uwaga", () => {
     const gaps = roleGaps([
       check({

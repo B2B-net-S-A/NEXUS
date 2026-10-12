@@ -1787,6 +1787,38 @@
    "v3_home": "karta „CV do klienta” → Edytuj"
   },
   {
+   "id": "cv.editor-issues-panel",
+   "area": "cv",
+   "opis": "Panel „Do poprawy” w edytorze CV: QC CV pary (te same karty co w oknie QC), uwagi generatora i kontrola AI zatwierdzonej wersji w jednym miejscu, przy tekście",
+   "file": "components/v2/cv-editor/CvEditorIssues.tsx",
+   "marker": "Uwagi generatora",
+   "v3_home": "karta „CV do klienta” → Edytuj → Do poprawy"
+  },
+  {
+   "id": "cv.editor-issues-counter",
+   "area": "cv",
+   "opis": "Licznik w edytorze CV: „Do poprawy (N)” w pasku i „Blokuje wysyłkę: N” w panelu (liczba z QC na serwerze); lista odświeża się po autozapisie",
+   "file": "components/v2/cv-editor/CvEditorIssues.tsx",
+   "marker": "Blokuje wysyłkę:",
+   "v3_home": "karta „CV do klienta” → Edytuj → Do poprawy"
+  },
+  {
+   "id": "cv.editor-issue-locate",
+   "area": "cv",
+   "opis": "„Pokaż w CV”: uwaga przewija kartkę do swojego miejsca i wyróżnia je; miejsca uwag są zaznaczone w tekście (czerwone = zatrzymuje wysyłkę)",
+   "file": "components/v2/recruitment/cv-qc-cards.tsx",
+   "marker": "Pokaż w CV",
+   "v3_home": "karta „CV do klienta” → Edytuj → Do poprawy"
+  },
+  {
+   "id": "cv.editor-fix-all",
+   "area": "cv",
+   "opis": "„Popraw wszystko” w edytorze CV: pogrubienie wymagań, pisownia technologii i zdania AI z cytatem ze źródła jednym kliknięciem, z „Cofnij”; usunięcie treści i własne poprawki pojedynczo",
+   "file": "components/v2/cv-editor/CvEditorIssues.tsx",
+   "marker": "Popraw wszystko",
+   "v3_home": "karta „CV do klienta” → Edytuj → Do poprawy"
+  },
+  {
    "id": "cv.download-intent",
    "area": "cv",
    "opis": "Przycisk „Pobierz” CV (edytor, karta, podgląd etapu, kolejka Cpro, wynik generatora, pliki) zostawia wpis o pobraniu; podgląd nie",

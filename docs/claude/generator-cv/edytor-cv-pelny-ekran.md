@@ -1,6 +1,6 @@
 # Edytor CV na cały ekran — kartka, bloki, źródła, stała klauzula RODO (12.10.2026)
 
-<!-- indeks: kontrakt HTML edytor ↔ Word, bloki i etykiety szablonu, blokada klauzuli (przeglądarka + serwer), pola w nawiasach, wpis `cv_file_downloaded`, harness `/preview/cv-editor` -->
+<!-- indeks: kontrakt HTML edytor ↔ Word, bloki i etykiety szablonu, blokada klauzuli (przeglądarka + serwer), pola w nawiasach, wpis `cv_file_downloaded`, panel „Do poprawy” (QC, uwagi generatora, kontrola AI, „Popraw wszystko”, `qc/transform`), harness `/preview/cv-editor` -->
 
 Pomiar na produkcji (30 dni do 12.10.2026, tylko odczyt, same liczby): 686 CV
 z generatora, w edytorze poprawiono 17 (2,5%), mediana 2 zapisy i 1,5 minuty.
@@ -8,7 +8,8 @@ Poprawki szły w Wordzie poza NEXUSEM, a wersja wysłana klientowi nie wracała.
 Decyzje Artura D1–D6 (makiety: https://claude.ai/artifact/N82z8poJ4waexM46zLvMkg,
 prywatne): pełny ekran, „Popraw wszystko” tylko z dowodem, klauzula RODO bez
 edycji, powrót pliku Word, zapis pobrań, pięć PR-ów po kolei. Ten plik opisuje
-PR 1 (edytor bez AI); kolejne PR-y dopisują swoje sekcje tutaj.
+PR 1 (edytor bez AI) i PR 2 (panel „Do poprawy”); kolejne PR-y dopisują swoje
+sekcje tutaj.
 
 ## Kontrakt HTML — edytor pisze to, z czego serwer składa Word
 
@@ -48,8 +49,9 @@ PR 1 (edytor bez AI); kolejne PR-y dopisują swoje sekcje tutaj.
 - Pełny ekran to `DialogContent` z klasami nadpisującymi bazę okna;
   `max-h-dvh`, nie `max-h-none` (tailwind-merge nie uznaje `none` za wysokość
   i zostawia `max-h-[90dvh]`). Kontrakt klas ma test okna.
-- Od 1180 px szerokości źródła stoją obok kartki (440 px, zwijane), węziej jest
-  jedna kolumna z przełącznikiem „CV | Źródła”.
+- Od 1180 px szerokości panel stoi obok kartki, węziej jest jedna kolumna
+  z przełącznikiem „CV | Źródła | Do poprawy (N)”. Układ paneli: sekcja
+  „Panel »Do poprawy«” niżej.
 
 ## Klauzula zgody RODO jest stała (D3)
 
@@ -159,11 +161,111 @@ działa dalej.
   `SELECT details->>'surface', details->>'state', count(*) FROM activities
   WHERE action = 'cv_file_downloaded' GROUP BY 1, 2`.
 
+## Panel „Do poprawy” (PR 2, 12.10.2026)
+
+Jedno miejsce na to, co system już wie o CV: QC CV pary, uwagi generatora
+i kontrola AI ostatniej zatwierdzonej wersji. Komponent
+`components/v2/cv-editor/CvEditorIssues.tsx`, logika w
+`lib/cv-editor-issues.ts`, znaczniki w `lib/cv-editor-issue-marks.ts`.
+
+- **Poprawkę liczy serwer na treści Z EDYTORA, a zapisuje autozapis.**
+  `POST /api/pipeline/stages/{id}/qc/transform` dostaje HTML z ekranu i listę
+  poprawek, zwraca nową treść i NIE zapisuje szkicu. Panel nakłada wynik
+  transakcją Tiptapa, a utrwala go zwykły autozapis. Jedna droga zapisu = panel
+  i pisanie nie ścigają się o `edit_revision`. Nie wołaj z edytora `qc/apply`:
+  zapisuje szkic po stronie serwera i edytor otwarty obok dostaje 409 przy
+  następnym autozapisie (okno QC dalej używa `qc/apply`, teraz
+  z `expected_revision` → 409 `CV_CHANGED`).
+- **Jedno „Cofnij” = jedna poprawka.** `fixStep` zamienia tylko bloki, którymi
+  nowa treść różni się od bieżącej (kilka małych zamian w jednej transakcji),
+  i zaczyna nowy krok historii (`closeHistory`). Bez tego „Cofnij” zabierało
+  razem z poprawką tekst wpisany pół sekundy wcześniej, a jedna zamiana całego
+  różniącego się zakresu wyróżniała pół dokumentu. Wynik, który przyszedł po
+  tym, jak rekruter coś dopisał, nie jest nakładany (porównanie dokumentu
+  sprzed żądania).
+- **Zatwierdzona wersja: najpierw szkic, potem poprawka** (`ensureDraft` w
+  oknie). Wczytanie nowego szkicu jest poza historią cofania, więc poprawka
+  nałożona przed nim nie dałaby się cofnąć. Szkic powstaje dopiero PO tym, jak
+  serwer potwierdzi, że poprawka coś zmienia: nowy szkic zdejmuje z CV stan
+  „zatwierdzone” (linki, wysyłka), więc poprawka, której nie da się nałożyć,
+  nie może kosztować ponownego zatwierdzania.
+- **„Popraw wszystko” (decyzja D2)** bierze tylko: pogrubienie wymagań,
+  pisownię technologii i zdania AI w brzmieniu z serwera (cytat sprawdzony przy
+  pobraniu propozycji). Usunięcie terminu i zdanie AI z własnym tekstem
+  zatwierdza się pojedynczo. Listę pilnuje SERWER (`cv_qc.BULK_ACTIONS`, pole
+  `bulk`), front tylko jej nie wysyła (`bulkPlan`). Poprawka, której nie da się
+  nałożyć, wraca w `skipped` z powodem (200, nie 422) i nie zatrzymuje
+  pozostałych. Propozycji AI panel nie pobiera sam — to płatne wywołanie,
+  rekruter klika. Zdania AI serwer nakłada PIERWSZE, niezależnie od kolejności
+  w żądaniu: szukają swojej linii po tekście, a pisownia ten tekst zmienia
+  (poprawka AI wracała jako „punkt się zmienił”).
+- **„Tytuł” nie wchodzi do „Popraw wszystko”,** choć był na makiecie:
+  sprawdzenie `title_matches_role` nie ma poprawki w kodzie.
+- **Miejsce uwagi szuka się po tym, co widać, nie po indeksie bloku.** QC
+  opisuje ZAPISANĄ treść blokami tekstu, edytor trzyma dokument, który rekruter
+  zmienia. `locateTarget`: numer stanowiska w sekcji doświadczenia (lustro
+  `cv_qc.cv_roles`), etykieta roli, termin w tekście (najpierw w tej roli),
+  treść całej linii. Klauzula zgody nie jest miejscem żadnej uwagi. Uwaga,
+  której miejsca już nie ma, traci znacznik, a „Pokaż w CV” mówi o tym wprost.
+- **Znaczniki przy tekście to dekoracje widoku** (`cv-issue-*`): nie trafiają
+  do `getHTML()`, zapisu, Worda ani historii cofania. Czerwony = zatrzymuje
+  wysyłkę. Sprawdzenia pogrubień zaznaczają tylko wystąpienia bez pogrubienia.
+- **Lista QC dotyczy ostatnio zapisanej treści.** Panel odświeża ją 1,5 s po
+  autozapisie przez `GET …/qc?transient=true` (bez zapisu przebiegu — inaczej
+  każda pauza w pisaniu dopisywała wiersz `cv_qc_runs`). Przebieg dla Tablicy
+  zapisuje się raz, przy zamknięciu edytora, i tylko gdy treść się zmieniła —
+  przez `queryClient.fetchQuery`, żeby awaria trafiła do zgłaszania błędów
+  zapytań (panelu już wtedy nie ma). Każde otwarcie edytora liczy QC od nowa
+  (`refetchOnMount: "always"`, `gcTime: 0`): wynik trzymany w pamięci po
+  zamknięciu pokazywał przy ponownym otwarciu listę sprzed poprawek.
+- **QC bierze zatwierdzone CV pary, a para może mieć CV na kilku wierszach
+  etapu.** Gdy `cv.stage_id` z QC nie jest etapem otwartym w edytorze, panel
+  pokazuje komunikat zamiast listy, która nie dotyczy tej treści.
+- **Uwagi generatora i kontroli AI:** `GET …/cv/branded/issues`
+  (`services/cv_editor_issues.py`). Kontrola AI zapisuje tylko wskaźniki linii;
+  tekst linii jest odtwarzany z zatwierdzonej treści wyłącznie przy zgodnym
+  skrócie i tej samej wersji podziału na linie. Panel pokazuje te uwagi,
+  których linia nadal stoi w CV. Nie ma „Sprawdź teraz” — kontrola biegnie po
+  „Zapisz”.
+- **Awaria QC nie wygląda jak CV bez uwag:** osobny komunikat z „Ponów”,
+  bez zielonej plakietki. Brak dostępu mówi o dostępie. Licznik w pasku niesie
+  stan (`CvIssueCount.state`): „Do poprawy” bez liczby, dopóki QC się liczy,
+  „Do poprawy (?)” po awarii (panel otwiera się wtedy sam) — zero znaczy zero.
+- **Panel nie ma obejścia QC ani ruchu karty** — to zostaje w oknie QC. Karty
+  są wspólne (`recruitment/cv-qc-cards.tsx`); „Pokaż w CV” i odnośniki
+  w nowej karcie włącza kontekst edytora (`locate`, `linksInNewTab`).
+- **Układ:** 1180–1539 px (laptop 1280) — obok kartki JEDEN panel: źródła
+  (440 px, lewa) albo „Do poprawy” (360 px, prawa); od 1540 px oba; węziej
+  przełącznik kolumny. Gdy są uwagi, „Do poprawy” otwiera się samo, raz. Panel
+  jest zamontowany także ukryty (`hidden`), bo liczy znaczniki i licznik
+  w pasku — nie zamieniaj tego na warunkowe renderowanie.
+- **Edytor wyniku generatora** (bez etapu) ma w panelu tylko uwagi generatora
+  podane z listy (`generatorWarnings`); QC nie widzi jego edycji. Otwarty bez
+  nich (z okna QC) nie ma panelu.
+- **Ślad użycia:** `Activity(action="cv_qc_fix_applied", details.via="editor")`
+  — ten sam wpis co poprawki z okna QC, z polem `bulk`.
+- **Koszt `qc/transform` jest ograniczony** (przegląd bezpieczeństwa
+  13.10.2026). Trasa bierze do 500 KB treści od klienta i każda poprawka czyta
+  ją od nowa, więc: liczenie idzie w wątku (`run_in_threadpool`), żądanie
+  niesie najwyżej 20 poprawek, powtórzona wraca jako `duplicate`, a po
+  `TRANSFORM_BUDGET_S` (4 s procesora wątku; pierwsza poprawka idzie zawsze)
+  pozostałe wracają jako `budget` z prośbą o nałożenie osobno. Limit 20/min.
+  Budżet działa MIĘDZY poprawkami, więc każda musi być liniowa sama z siebie:
+  `EditableCv` nie szuka bloków liniowo (`_block_at`, `_starts`), separator
+  listy przed terminem ma kotwicę na początku ciągu odstępów (`_SEP_LEAD` — bez
+  niej 40 KB spacji liczyło się 12 s), `_wrap_matches` sprawdza kolizję trafień
+  po dwóch sąsiadach, a lista technologii jest rozpoznawana raz na blok. Wątek
+  nie ratuje przed jednym długim wywołaniem `re` (trzyma GIL). Nowa operacja na
+  treści z edytora ma być liniowa — pilnują testy z limitem czasu procesora
+  w `tests/test_cv_qc.py` (`TRANSFORM_CPU_LIMIT`, kształty z przeglądu).
+
 ## Harness
 
-`/preview/cv-editor?state=draft|finalized|conflict|nosources` — prawdziwy
-edytor na stanie z pamięci (`editorApi`, `editorFiles`, `sourceLoaders` jako
-propsy okna), źródła z zasiewu, sieć odcięta. Test
+`/preview/cv-editor?state=draft|finalized|conflict|nosources|clean|qcdown` —
+prawdziwy edytor na stanie z pamięci (`editorApi`, `issuesApi`, `editorFiles`,
+`sourceLoaders` jako propsy okna), źródła z zasiewu, sieć odcięta. Panel
+„Do poprawy” dostaje dane z `issues-fixture.ts`: „QC” liczy się tam z ostatnio
+zapisanej treści, więc widać obieg poprawka → autozapis → świeża lista. Test
 `app/preview/__tests__/cv-editor-harness.test.tsx` montuje całą stronę bez atrapy
 Tiptapa; testy okna (`CVBrandedEditModal.test.tsx`) mają atrapę, więc zachowania
 zależnego od prawdziwego edytora nie złapią.

@@ -326,6 +326,91 @@ async def test_saving_and_approving_keep_the_saved_consent_clause(
 
 
 @pytest.mark.asyncio
+async def test_issues_route_serves_generator_warnings_and_review_findings(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Panel „Do poprawy” w edytorze (PR 2): uwagi generatora z dokumentu
+    podpiętego do etapu i uwagi kontroli AI ostatniej zatwierdzonej wersji —
+    z tekstem linii, nie samym wskaźnikiem."""
+    from app.models.cv_generated_document import CvGeneratedDocument
+    from app.services.cv_editor_review import EDITOR_REVIEW_VERSION, editor_claims
+
+    html = "<h1>Brand</h1><p>Zna Kafkę od 5 lat.</p><p>Prowadził zespół.</p>"
+    sid, _, _ = await _seed_full_stage()
+    url = f"/api/candidates/stages/{sid}/cv/branded/issues"
+
+    empty = await app_client.get(url, headers=app_auth_headers)
+    assert empty.status_code == 200, empty.text
+    assert empty.json() == {
+        "generated_document_id": None,
+        "generator_warnings": [],
+        "content_review": {"status": None, "version": None, "findings": []},
+    }
+
+    await _seed_draft(sid, html)
+    async with AsyncSessionLocal() as db:
+        csv = await db.scalar(
+            select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == sid)
+        )
+        generated = CvGeneratedDocument(
+            candidate_id=csv.candidate_id,
+            job_id=csv.job_id,
+            candidate_name="Fikcyjna Osoba",
+            filename="cv.docx",
+            mode="new",
+            status="ready",
+            warnings=["MUST-HAVE: Kubernetes — brak w CV", "  "],
+        )
+        db.add(generated)
+        await db.flush()
+        csv.generated_document_id = generated.id
+        index = editor_claims(html).index("Zna Kafkę od 5 lat.")
+        db.add(
+            CvDocumentVersion(
+                candidate_stage_cv_id=csv.id,
+                generated_document_id=generated.id,
+                version=1,
+                content_html=html,
+                content_sha256=hashlib.sha256(html.encode()).hexdigest(),
+                render_metadata={
+                    "content_review": {
+                        "status": "reviewed",
+                        "html_sha256": hashlib.sha256(html.encode()).hexdigest(),
+                        "editor_review_version": EDITOR_REVIEW_VERSION,
+                        "findings": {
+                            "count": 1,
+                            "paths": [f"/why_points/{index}"],
+                            "statuses": {f"/why_points/{index}": "unsupported"},
+                        },
+                    }
+                },
+                language="pl",
+                template="standard",
+                approved_at=datetime.now(timezone.utc),
+            )
+        )
+        generated_id = generated.id
+        await db.commit()
+
+    res = await app_client.get(url, headers=app_auth_headers)
+    assert res.status_code == 200, res.text
+    assert res.json() == {
+        "generated_document_id": generated_id,
+        "generator_warnings": ["MUST-HAVE: Kubernetes — brak w CV"],
+        "content_review": {
+            "status": "reviewed",
+            "version": 1,
+            "findings": [{"text": "Zna Kafkę od 5 lat.", "status": "unsupported"}],
+        },
+    }
+    assert (await app_client.get(url)).status_code in (401, 403)
+    missing = await app_client.get(
+        "/api/candidates/stages/999999999/cv/branded/issues", headers=app_auth_headers
+    )
+    assert missing.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_patch_on_an_empty_stage_is_refused(
     app_client: AsyncClient, app_auth_headers: dict
 ):

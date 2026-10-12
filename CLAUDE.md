@@ -241,7 +241,7 @@ Generator CV, reguły CV klienta, zgoda RODO, interaktywne CV, automaty rekrutac
 
 - `automaty-rekrutacji-v3.md` — Automaty rekrutacji v3 (21.09.2026, migracja 0335)
 - `autonomiczny-przeplyw-cv.md` — Autonomiczny przepływ CV (17.09.2026)
-- `edytor-cv-pelny-ekran.md` — Edytor CV na cały ekran — kartka, bloki, źródła, stała klauzula RODO (12.10.2026) · kontrakt HTML edytor ↔ Word, bloki i etykiety szablonu, blokada klauzuli (przeglądarka + serwer), pola w nawiasach, wpis `cv_file_downloaded`, harness `/preview/cv-editor`
+- `edytor-cv-pelny-ekran.md` — Edytor CV na cały ekran — kartka, bloki, źródła, stała klauzula RODO (12.10.2026) · kontrakt HTML edytor ↔ Word, bloki i etykiety szablonu, blokada klauzuli (przeglądarka + serwer), pola w nawiasach, wpis `cv_file_downloaded`, panel „Do poprawy” (QC, uwagi generatora, kontrola AI, „Popraw wszystko”, `qc/transform`), harness `/preview/cv-editor`
 - `generator-cv-domyslnie-sciezka-sprzed-przebudowy.md` — Generator CV — domyślnie ścieżka sprzed przebudowy (`legacy_v7`, 10.09.2026)
 - `generator-cv-v3-jeden-ekran-od-osoby.md` — Generator CV v3 — jeden ekran od osoby (23.09.2026)
 - `interaktywne-cv-publiczny-link-do-wygenerowanego-cv.md` — Interaktywne CV (publiczny link do wygenerowanego CV)

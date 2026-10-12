@@ -549,7 +549,9 @@ describe("/preview/cv-editor (Edytor CV 2) — edytor z pamięci, źródła z za
   const harness = withoutComments(read("app/preview/cv-editor/page.tsx")).replace(/\s+/g, " ");
 
   it("stan, zapis i pliki CV idą propsami, nie przez API", () => {
-    expect(harness).toContain("editorApi={editorApi}");
+    expect(harness).toContain("editorApi={backend.editorApi}");
+    // Panel „Do poprawy”: QC, uwagi i poprawki też z pamięci.
+    expect(harness).toContain("issuesApi={backend.issuesApi}");
     expect(harness).toContain("editorFiles={MEMORY_FILES}");
     expect(harness).toContain("sourceLoaders={SOURCE_LOADERS}");
   });
@@ -571,6 +573,7 @@ describe("/preview/cv-editor (Edytor CV 2) — edytor z pamięci, źródła z za
   it("części edytora nie mają własnych stałych kluczy", () => {
     for (const file of [
       "components/v2/modals/CVBrandedEditModal.tsx",
+      "components/v2/cv-editor/CvEditorIssues.tsx",
       "components/v2/cv-editor/CvEditorSources.tsx",
       "components/v2/cv-editor/CvEditorSourcesPane.tsx",
       "components/v2/cv-editor/CvEditorToolbar.tsx",

@@ -46,6 +46,12 @@ function termSource(term: string): string | null {
   return `${left}${core}${right}`;
 }
 
+/** Wyrażenie na jeden termin z granicami słowa jak wyżej; `null` dla pustego. */
+export function termRegExp(term: string): RegExp | null {
+  const source = termSource(term);
+  return source ? new RegExp(source, "giu") : null;
+}
+
 /** Alternatywy wymagania („Java lub Kotlin") — jak `requirement_contract.alternatives`. */
 export function requirementAlternatives(label: string): string[] {
   return label
@@ -156,7 +162,7 @@ export function roleGaps(checks: QcCheck[]): RoleGap[] {
   return [...byRole.values()];
 }
 
-function normalize(value: string): string {
+export function normalizeQcText(value: string): string {
   return value
     .toLocaleLowerCase("pl")
     .normalize("NFKD")
@@ -167,10 +173,10 @@ function normalize(value: string): string {
 
 /** Części etykiety roli: „Allegro — Senior Java Dev · 2019–2022" → [allegro, senior java dev].
  *  Lata odpadają — CV pisze daty w innym formacie niż etykieta. */
-function roleParts(role: string): string[] {
+export function roleLabelParts(role: string): string[] {
   return role
     .split(/\s+[—–\-·|]\s+|,\s+/)
-    .map(normalize)
+    .map(normalizeQcText)
     .filter((p) => p.length >= 2 && !/\d{4}/.test(p));
 }
 
@@ -200,8 +206,10 @@ export function segmentCv(blocks: QcCvBlock[], gaps: RoleGap[]): CvSegment[] {
   let inExperience = false;
   let roleCount = 0;
   for (const block of blocks) {
-    // Nagłówek sekcji stoi sam — nie należy do stanowiska nad nim.
-    if (block.kind === "h") {
+    // Nagłówek sekcji (h1/h2) stoi sam — nie należy do stanowiska nad nim.
+    // Śródtytuł h3/h4 w opisie roli zostaje w roli, jak w `cv_roles` na
+    // serwerze; nagłówek bez poziomu (starszy wynik) kończy rolę jak dotąd.
+    if (block.kind === "h" && (block.level ?? 1) <= 2) {
       segments.push({ blocks: [block], gap: null });
       inExperience = block.section === "experience";
       current = null;
@@ -230,10 +238,10 @@ export function segmentCv(blocks: QcCvBlock[], gaps: RoleGap[]): CvSegment[] {
   }
   for (const segment of segments) {
     if (segment.gap || !segment.blocks.some((b) => b.section === "role")) continue;
-    const text = normalize(segment.blocks.map((b) => b.runs.map((r) => r.t).join("")).join(" "));
+    const text = normalizeQcText(segment.blocks.map((b) => b.runs.map((r) => r.t).join("")).join(" "));
     const gap = gaps.find((g) => {
       if (used.has(g) || g.roleIndex != null) return false;
-      const parts = roleParts(g.role);
+      const parts = roleLabelParts(g.role);
       return parts.length > 0 && parts.every((p) => text.includes(p));
     });
     if (gap) {
@@ -395,6 +403,29 @@ export function groupRoleStates(roles: QcRoleState[]): RoleStateGroup[] {
     groups.set(role.requirement, group);
   }
   return [...groups.values()];
+}
+
+// ── Miejsce pozycji w tekście CV (edytor) ────────────────────────────────────
+
+/**
+ * Gdzie w CV leży to, czego dotyczy pozycja: stanowisko (numer w sekcji
+ * doświadczenia albo etykieta), termin w tekście (opcjonalnie w danej roli)
+ * albo cała linia. Edytor CV zamienia to na pozycję w dokumencie
+ * (`lib/cv-editor-issues.ts`); okno QC z tego nie korzysta.
+ */
+export type IssueTarget =
+  | { kind: "role"; roleIndex: number | null; label: string | null }
+  | { kind: "term"; term: string; roleIndex: number | null; label: string | null }
+  | { kind: "line"; text: string };
+
+/** Miejsce pozycji QC w CV; `null` = pozycja dotyczy całego CV (np. brak zgody). */
+export function itemTarget(item: QcItem): IssueTarget | null {
+  const roleIndex = typeof item.role_index === "number" ? item.role_index : null;
+  const label = item.role?.trim() || null;
+  const term = item.term?.trim();
+  if (term) return { kind: "term", term, roleIndex, label };
+  if (roleIndex != null || label) return { kind: "role", roleIndex, label };
+  return null;
 }
 
 // ── „Przepuść mimo QC" ───────────────────────────────────────────────────────
