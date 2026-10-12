@@ -4,6 +4,7 @@ import * as React from "react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useUrlWriter } from "@/lib/url-selection";
 import {
   useInfiniteQuery,
   useMutation,
@@ -565,7 +566,7 @@ export function B2BContractGeneratorV2() {
   // prowadzą wprost na miejsce, a F5 nie wraca na „Generator”.
   const searchParams = useSearchParams();
   const pathname = usePathname();
-  const router = useRouter();
+  const { replaceUrl } = useUrlWriter();
   const tabParam = searchParams?.get("tab") ?? null;
   const qParam = searchParams?.get("q") ?? null;
   const candidateParam = positiveIntParam(
@@ -600,7 +601,7 @@ export function B2BContractGeneratorV2() {
     // Fraza dotyczy zakładki, z której przyszła — w innej zawęziłaby listę
     // po cichu. Para (kandydat, rekrutacja) należy do formularza i zostaje.
     params.delete("q");
-    router.replace(`${pathname ?? ""}?${params.toString()}`, { scroll: false });
+    replaceUrl(`${pathname ?? ""}?${params.toString()}`);
   };
 
   return (
@@ -716,10 +717,7 @@ export function B2BContractGeneratorV2() {
                     if (!params.has("edit")) return;
                     params.delete("edit");
                     const query = params.toString();
-                    router.replace(
-                      query ? `${pathname ?? ""}?${query}` : (pathname ?? ""),
-                      { scroll: false },
-                    );
+                    replaceUrl(query ? `${pathname ?? ""}?${query}` : (pathname ?? ""));
                   }}
                   onClearPrefill={() => {
                     if (!candidateParam && !jobParam) return;
@@ -729,10 +727,7 @@ export function B2BContractGeneratorV2() {
                     params.delete("candidate");
                     params.delete("job");
                     const query = params.toString();
-                    router.replace(
-                      query ? `${pathname ?? ""}?${query}` : (pathname ?? ""),
-                      { scroll: false },
-                    );
+                    replaceUrl(query ? `${pathname ?? ""}?${query}` : (pathname ?? ""));
                   }}
                 />
               </TabsContent>
@@ -2295,6 +2290,7 @@ export function GeneratedContractsTab({
 } = {}) {
   const toast = useToast();
   const router = useRouter();
+  const { replaceUrl } = useUrlWriter();
   const queryClient = useQueryClient();
   const [signatureRow, setSignatureRow] =
     useState<B2BGeneratedContractRow | null>(null);
@@ -2928,9 +2924,7 @@ export function GeneratedContractsTab({
                                   size="sm"
                                   className="h-8 w-8 p-0 pointer-coarse:h-10 pointer-coarse:w-10"
                                   onClick={() =>
-                                    router.replace(generatorEditHref(r.id), {
-                                      scroll: false,
-                                    })
+                                    replaceUrl(generatorEditHref(r.id))
                                   }
                                   title="Popraw umowę (ten sam numer)"
                                   aria-label={`Popraw umowę ${r.contract_number}`}

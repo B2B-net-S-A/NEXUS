@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+import { useUrlWriter } from "@/lib/url-selection";
 import {
   FileText,
   Landmark,
@@ -233,7 +234,7 @@ export function resolveInsightsLocation(
 }
 
 export function InsightsView() {
-  const router = useRouter();
+  const { replaceUrl, pushUrl } = useUrlWriter();
   const searchParams = useSearchParams();
   const user = useAuthStore((s) => s.user);
   const hydrated = useAuthStore((s) => s.hydrated);
@@ -279,13 +280,13 @@ export function InsightsView() {
       location.dropHash || typeof window === "undefined"
         ? ""
         : window.location.hash;
-    router.replace(`/insights?${params.toString()}${hash}`, { scroll: false });
-  }, [hydrated, user, location, router, searchParams]);
+    replaceUrl(`/insights?${params.toString()}${hash}`);
+  }, [hydrated, user, location, replaceUrl, searchParams]);
 
   const handleTabChange = (next: TabId) => {
     // Widoki mają różne domyślne okresy — przeniesiony okres jednego
     // udawałby wybór w drugim.
-    router.push(`/insights?tab=${next}`, { scroll: false });
+    pushUrl(`/insights?tab=${next}`);
   };
 
   const firmaVisible = visibleTabIds.includes("firma");

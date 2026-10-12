@@ -6,7 +6,8 @@
  */
 
 import * as React from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useUrlWriter } from "@/lib/url-selection";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { EmptyState } from "@/components/ds/EmptyState";
@@ -33,7 +34,7 @@ function parseView(value: string | null): AcademyView {
 }
 
 export function AcademyScreen({ programId }: { programId: number }) {
-  const router = useRouter();
+  const { replaceUrl } = useUrlWriter();
   const pathname = usePathname();
   const params = useSearchParams();
   const view = parseView(params.get("view"));
@@ -69,7 +70,7 @@ export function AcademyScreen({ programId }: { programId: number }) {
     if (next === "edition") search.delete("view");
     else search.set("view", next);
     const qs = search.toString();
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    replaceUrl(qs ? `${pathname}?${qs}` : pathname);
   };
 
   const refreshAll = () =>

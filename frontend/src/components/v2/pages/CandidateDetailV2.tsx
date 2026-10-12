@@ -22,6 +22,7 @@ import * as React from "react";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useUrlWriter } from "@/lib/url-selection";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -163,6 +164,7 @@ export function CandidateDetailV2({
 }: CandidateDetailV2Props = {}) {
   const routeParams = useParams();
   const router = useRouter();
+  const { replaceUrl } = useUrlWriter();
   const id = candidateId ?? Number(routeParams?.id);
   const profilePath = basePath ?? `/candidates/${id}`;
   const queryClient = useQueryClient();
@@ -233,9 +235,9 @@ export function CandidateDetailV2({
       const parsed = parseCandidateProfileView(params);
       setProfileView({ ...parsed, isLegacy: false });
       if (embedded) return;
-      router.replace(`${profilePath}?${params.toString()}`, { scroll: false });
+      replaceUrl(`${profilePath}?${params.toString()}`);
     },
-    [embedded, profilePath, router, searchString],
+    [embedded, profilePath, replaceUrl, searchString],
   );
 
   const goToSection = React.useCallback(
@@ -267,7 +269,7 @@ export function CandidateDetailV2({
     setComposeNoteRequest((value) => value + 1);
     const params = new URLSearchParams(searchString);
     params.delete("compose");
-    router.replace(`${profilePath}?${params.toString()}`, { scroll: false });
+    replaceUrl(`${profilePath}?${params.toString()}`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [composeParam]);
 
@@ -283,8 +285,8 @@ export function CandidateDetailV2({
       new URLSearchParams(searchString),
       profileViewFromUrl,
     );
-    router.replace(`${profilePath}?${params.toString()}`, { scroll: false });
-  }, [backJobId, embedded, profilePath, profileViewFromUrl, router, searchString]);
+    replaceUrl(`${profilePath}?${params.toString()}`);
+  }, [backJobId, embedded, profilePath, profileViewFromUrl, replaceUrl, searchString]);
 
   const activeTab = profileView.section;
 
@@ -753,7 +755,7 @@ export function CandidateDetailV2({
                       params.set("note", String(target.noteId));
                       setProfileView({ ...parseCandidateProfileView(params), isLegacy: false });
                       if (!embedded) {
-                        router.replace(`${profilePath}?${params.toString()}`, { scroll: false });
+                        replaceUrl(`${profilePath}?${params.toString()}`);
                       }
                       return;
                     }

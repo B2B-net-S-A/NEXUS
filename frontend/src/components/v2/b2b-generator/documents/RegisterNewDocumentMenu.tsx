@@ -5,7 +5,7 @@
 // a „Zarejestruj wypowiedzenie Partnera” otwiera okno bez dokumentu.
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useUrlWriter } from "@/lib/url-selection";
 import { useQuery } from "@tanstack/react-query";
 import { FilePlus2, Loader2 } from "lucide-react";
 
@@ -34,7 +34,7 @@ export interface RegisterNewDocumentMenuProps {
 }
 
 export function RegisterNewDocumentMenu({ row }: RegisterNewDocumentMenuProps) {
-  const router = useRouter();
+  const { pushUrl } = useUrlWriter();
   const [open, setOpen] = useState(false);
   const [noticeOpen, setNoticeOpen] = useState(false);
   // Definicje dopiero po otwarciu menu — rejestr ma setki wierszy.
@@ -82,9 +82,7 @@ export function RegisterNewDocumentMenu({ row }: RegisterNewDocumentMenuProps) {
                   <DropdownMenuItem
                     key={t.key}
                     onSelect={() =>
-                      router.push(documentsHref({ newType: t.key, parentId: row.id }), {
-                        scroll: false,
-                      })
+                      pushUrl(documentsHref({ newType: t.key, parentId: row.id }))
                     }
                   >
                     {t.label}

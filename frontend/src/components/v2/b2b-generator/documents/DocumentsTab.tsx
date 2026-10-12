@@ -7,7 +7,8 @@
 // miękka nawigacja na tej samej stronie.
 
 import { useEffect, useMemo, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useUrlWriter } from "@/lib/url-selection";
 import { useInfiniteQuery, useMutation } from "@tanstack/react-query";
 import {
   CheckCircle2,
@@ -91,7 +92,7 @@ export interface WizardState {
 export function DocumentsTab({ canGenerate = true }: { canGenerate?: boolean }) {
   const searchParams = useSearchParams();
   const pathname = usePathname();
-  const router = useRouter();
+  const { replaceUrl } = useUrlWriter();
   const intent = parseDocumentsIntent(searchParams);
   const [wizard, setWizard] = useState<WizardState | null>(null);
 
@@ -101,13 +102,12 @@ export function DocumentsTab({ canGenerate = true }: { canGenerate?: boolean }) 
     if (!intentOpensWizard(intent)) return;
     if (intent.newType && isAnnexTypeKey(intent.newType)) {
       // Stary link „?tab=documents&new=annex_…” — aneksy tworzy Generator aneksów.
-      router.replace(
+      replaceUrl(
         annexesHref({
           newType: intent.newType,
           parentId: intent.parentId,
           contractId: intent.contractId,
         }),
-        { scroll: false },
       );
       return;
     }
@@ -121,9 +121,7 @@ export function DocumentsTab({ canGenerate = true }: { canGenerate?: boolean }) 
     const params = new URLSearchParams(searchParams?.toString() ?? "");
     for (const key of DOCUMENTS_INTENT_KEYS) params.delete(key);
     const query = params.toString();
-    router.replace(query ? `${pathname ?? ""}?${query}` : (pathname ?? ""), {
-      scroll: false,
-    });
+    replaceUrl(query ? `${pathname ?? ""}?${query}` : (pathname ?? ""));
     // Tylko wartości parametrów — `searchParams` zmienia tożsamość przy
     // każdej nawigacji, a zdjęcie parametrów nie może otworzyć kreatora znowu.
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -1,7 +1,8 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useUrlWriter } from "@/lib/url-selection";
 import { ClientsListV2 } from "@/components/v2/pages/ClientsListV2";
 import { KeyRelationshipsPanel } from "@/components/clients/KeyRelationshipsPanel";
 import { WorkspaceModeTabs } from "@/components/ds/WorkspaceModeTabs";
@@ -37,7 +38,7 @@ const MODES = [
 ] as const satisfies readonly { value: ClientsView; label: string }[];
 
 function ClientsWorkspace() {
-  const router = useRouter();
+  const { replaceUrl } = useUrlWriter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   // Tryb czytany z WARTOŚCI parametru przy każdym renderze — miękka
@@ -47,9 +48,7 @@ function ClientsWorkspace() {
   const changeView = (next: ClientsView) => {
     if (next === view) return;
     // Wejście w tryb jest świeże: filtry listy nie przechodzą do kontaktów.
-    router.replace(next === "contacts" ? `${pathname}?view=contacts` : pathname, {
-      scroll: false,
-    });
+    replaceUrl(next === "contacts" ? `${pathname}?view=contacts` : pathname);
   };
 
   const modeTabs = (

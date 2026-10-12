@@ -478,3 +478,42 @@ test.describe("pulpit — filtr „Requesty i obłożenie” nie przewija strony
     ).toBeLessThanOrEqual(1);
   });
 });
+
+/**
+ * Ten sam błąd routera co wyżej dotyczył każdej zakładki i filtra zapisanego
+ * w adresie przez `router.replace(…, { scroll: false })`. Od 12.10.2026 takie
+ * zapisy idą przez `useUrlWriter` (natywna historia). Profil kandydata jest
+ * reprezentantem: harness stoi pod własną ścieżką, więc zapis idzie tą samą
+ * drogą co na produkcji. Czerwony wynik daje tylko zbudowany stos.
+ */
+test.describe("zakładka zapisana w adresie nie przewija strony", () => {
+  test("/preview/candidate-profile: po zmianie zakładki profil zostaje w miejscu", async ({ page }) => {
+    // Niskie okno: lewa kolumna profilu jest wtedy wyższa od okna przy każdej
+    // zakładce, więc krótsza treść zakładki nie cofnie przewinięcia sama.
+    await page.setViewportSize({ width: 1280, height: 600 });
+    await page.goto("/preview/candidate-profile?tab=documents");
+    const tabs = page.getByRole("tablist", { name: "Sekcje profilu kandydata" });
+    const documents = tabs.getByRole("tab", { name: /CV i dokumenty/ });
+    const recruitments = tabs.getByRole("tab", { name: /Rekrutacje/ });
+    await expect(documents).toHaveAttribute("aria-selected", "true");
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollHeight))
+      .toBeGreaterThan(700);
+
+    // Lekko przewinięty profil: pasek zakładek nadal widać, początku strony już nie.
+    await page.evaluate(() => window.scrollTo(0, 60));
+    expect(await page.evaluate(() => window.scrollY), "profil daje się przewinąć").toBe(60);
+
+    for (const [tab, address] of [
+      [recruitments, /tab=recruitments/],
+      [documents, /tab=documents/],
+    ] as const) {
+      await tab.click();
+      await expect(tab).toHaveAttribute("aria-selected", "true");
+      await expect(page).toHaveURL(address);
+      // Przewinięcie routera przychodzi z klatką po zmianie adresu.
+      await page.waitForTimeout(300);
+      expect(await page.evaluate(() => window.scrollY), `przewinięcie po ${address}`).toBe(60);
+    }
+  });
+});

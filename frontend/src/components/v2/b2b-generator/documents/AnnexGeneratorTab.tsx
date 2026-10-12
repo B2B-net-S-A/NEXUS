@@ -7,7 +7,8 @@
 // otwiera kreator od razu; efekt działa na WARTOŚCI parametrów.
 
 import { useEffect, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useUrlWriter } from "@/lib/url-selection";
 import { Loader2 } from "lucide-react";
 
 import { Alert } from "@/components/ui/alert";
@@ -29,7 +30,7 @@ interface AnnexWizardState {
 export function AnnexGeneratorTab() {
   const searchParams = useSearchParams();
   const pathname = usePathname();
-  const router = useRouter();
+  const { replaceUrl } = useUrlWriter();
   const intent = parseDocumentsIntent(searchParams);
   const [wizard, setWizard] = useState<AnnexWizardState>({
     key: 0,
@@ -49,9 +50,7 @@ export function AnnexGeneratorTab() {
     const params = new URLSearchParams(searchParams?.toString() ?? "");
     for (const key of DOCUMENTS_INTENT_KEYS) params.delete(key);
     const query = params.toString();
-    router.replace(query ? `${pathname ?? ""}?${query}` : (pathname ?? ""), {
-      scroll: false,
-    });
+    replaceUrl(query ? `${pathname ?? ""}?${query}` : (pathname ?? ""));
     // Tylko wartości parametrów — zdjęcie ich z adresu nie może otworzyć
     // kreatora drugi raz.
     // eslint-disable-next-line react-hooks/exhaustive-deps

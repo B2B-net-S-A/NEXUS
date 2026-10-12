@@ -139,7 +139,7 @@ Design system i tokeny, responsywność, nazewnictwo w interfejsie, Ustawienia, 
 - `design-system-ui-zawsze-przy-pracy-nad-wygladem.md` — Design system & UI — ZAWSZE przy pracy nad wyglądem
 - `klienci-kontrakty-finanse-spokojne-tabele.md` — Klienci, Kontrakty, Finanse — spokojne tabele (02.10.2026)
 - `nazewnictwo-rekrutacja-nie-oferta-modul-jobs.md` — Nazewnictwo: „Rekrutacja", nie „Oferta" (moduł `/jobs`)
-- `parametry-adresu-natywna-historia-nie-router-replace.md` — Filtr albo zakładka w adresie: natywna historia, nie `router.replace(…, { scroll: false })` (12.10.2026) · zmiana samych parametrów adresu przez router Next przewija stronę na górę na produkcji
+- `parametry-adresu-natywna-historia-nie-router-replace.md` — Filtr albo zakładka w adresie: `useUrlWriter`, nie `router.replace(…, { scroll: false })` (12.10.2026) · zmiana samych parametrów adresu przez router Next przewija stronę na górę na produkcji
 - `responsywnosc-reguly-po-audycie-23-09-2026.md` — Responsywność — reguły po audycie 23.09.2026
 - `ustawienia-jedno-wejscie-z-kafelkami.md` — Ustawienia = jedno wejście z kafelkami (22.09.2026)
 - `wlasny-pulpit-startowy.md` — Własny pulpit startowy (0337, 21.09.2026)

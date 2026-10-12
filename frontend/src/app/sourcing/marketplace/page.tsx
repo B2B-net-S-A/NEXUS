@@ -1,7 +1,8 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+import { useUrlWriter } from "@/lib/url-selection";
 import { Search, Store, UploadCloud } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CVDropzoneMatch } from "@/components/sourcing/CVDropzoneMatch";
@@ -14,7 +15,7 @@ type TabKey = "snapshot" | "manual" | "cv";
 const VALID_TABS: ReadonlySet<TabKey> = new Set(["snapshot", "manual", "cv"]);
 
 function MarketplacePageContent() {
-  const router = useRouter();
+  const { replaceUrl } = useUrlWriter();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
   const initialTab: TabKey = VALID_TABS.has(tabParam as TabKey)
@@ -29,9 +30,7 @@ function MarketplacePageContent() {
     setTab(nextTab);
     const params = new URLSearchParams(searchParams.toString());
     params.set("tab", nextTab);
-    router.replace(`/sourcing/marketplace?${params.toString()}`, {
-      scroll: false,
-    });
+    replaceUrl(`/sourcing/marketplace?${params.toString()}`);
   };
 
   return (

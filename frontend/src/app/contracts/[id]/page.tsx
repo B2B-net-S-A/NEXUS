@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useUrlWriter } from "@/lib/url-selection";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api, {
@@ -466,6 +467,7 @@ function contractToForm(c: ContractDetail): EditForm {
 export default function ContractDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const { replaceUrl } = useUrlWriter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
@@ -506,9 +508,8 @@ export default function ContractDetailPage() {
   const [activeTab, setActiveTab] = useContractDetailTab(
     searchParams?.get("tab") ?? null,
     (tab) =>
-      router.replace(
+      replaceUrl(
         contractDetailTabHref(window.location.pathname, window.location.search, tab),
-        { scroll: false },
       ),
   );
   const [editing, setEditing] = useState(false);

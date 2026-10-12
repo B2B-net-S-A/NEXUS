@@ -10,7 +10,8 @@ import {
 } from "react";
 import Link from "next/link";
 import { apiErrorMessage } from "@/lib/api-error";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useUrlWriter } from "@/lib/url-selection";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Archive,
@@ -217,7 +218,7 @@ export function ClientsListV2({
   /** Przełącznik trybów modułu (Lista / Kluczowe relacje) — pod tytułem. */
   modeTabs?: ReactNode;
 } = {}) {
-  const router = useRouter();
+  const urlWriter = useUrlWriter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
@@ -274,9 +275,10 @@ export function ClientsListV2({
       else params.delete("q");
       params.set("page", String(next.page));
       const href = `${pathname || "/clients"}?${params.toString()}`;
-      router[mode](href, { scroll: false });
+      if (mode === "push") urlWriter.pushUrl(href);
+      else urlWriter.replaceUrl(href);
     },
-    [pathname, router, searchParams],
+    [pathname, urlWriter, searchParams],
   );
 
   // Canonical URL makes the default state copyable too, while invalid or
@@ -413,9 +415,7 @@ export function ClientsListV2({
     else params.set("mine", next ? "1" : "0");
     params.set("page", "1");
     setPage(1);
-    router.replace(`${pathname || "/clients"}?${params.toString()}`, {
-      scroll: false,
-    });
+    urlWriter.replaceUrl(`${pathname || "/clients"}?${params.toString()}`);
   };
 
   const goToPage = (next: number) => {
