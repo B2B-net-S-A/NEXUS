@@ -5,7 +5,7 @@ import axios, { AxiosError } from "axios";
 import { messageFromApiResponse } from "./api-error";
 import { apiSupportsCorrelation, probeTelemetryCapability } from "./telemetry-capability";
 
-import { SLOW_ENDPOINT_TIMEOUT_MS } from "./http-timeouts";
+import { isClientTimeout, SLOW_ENDPOINT_TIMEOUT_MS } from "./http-timeouts";
 import { clearSessionArtifacts, getAccessToken } from "./session";
 import type { WorkMode } from "./work-mode";
 import type { CallFactsPatch } from "./candidate-call-facts";
@@ -203,18 +203,9 @@ function transientRetryDelayMs(attempts: number): number {
 
 type RetryableConfig = { _transientRetryCount?: number };
 
-/**
- * Timeout po stronie PRZEGLĄDARKI (sufit instancji albo per-request
- * `SLOW_ENDPOINT_TIMEOUT_MS`). Żądanie dotarło i backend nadal je liczy —
- * powtórka nie skraca oczekiwania, tylko mnoży pracę i koszt modelu
- * (`lib/http-timeouts.ts` opisuje dokładnie ten tryb awarii). Nie powtarzamy
- * takiego błędu żadnym czasownikiem.
- */
-function isClientTimeout(err: AxiosError): boolean {
-  return err.code === "ECONNABORTED" || err.code === "ETIMEDOUT";
-}
-
 function isRetryable(err: AxiosError, method: string): boolean {
+  // Timeout przeglądarki: żądanie dotarło i backend nadal je liczy — nie
+  // powtarzamy takiego błędu żadnym czasownikiem (`lib/http-timeouts.ts`).
   if (isClientTimeout(err)) return false;
   if (IDEMPOTENT_METHODS.has(method)) {
     return !err.response || TRANSIENT_RETRY_STATUSES.has(err.response.status);
