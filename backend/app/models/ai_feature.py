@@ -154,6 +154,10 @@ class AIFeatureKey(str, enum.Enum):
     # „Ułóż w zdanie” (0421): hasła rekrutera w odpowiedzi screeningowej albo
     # polu opisowym karty → pełne zdanie. Kod odrzuca zdanie z nowym faktem.
     screening_answer_phrasing = "screening_answer_phrasing"
+    # Edytor CV 2, PR 3 (0431): AI na zaznaczonym fragmencie CV — skróć,
+    # rozwiń z oryginału, przeredaguj, popraw język, na angielski. Wynik to
+    # zawsze propozycja; nowy fakt bez cytatu ze źródła odrzuca kod.
+    cv_selection_edit = "cv_selection_edit"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -188,6 +192,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.application_screening: "Zgłoszenia z linku rekrutacji — przegląd CV przed wejściem do „Nowi”",
     AIFeatureKey.recommendation_card_note_read: "Screening — wypełnienie z notatki rekrutera",
     AIFeatureKey.screening_answer_phrasing: "„Ułóż w zdanie” — odpowiedzi i pola opisowe screeningu",
+    AIFeatureKey.cv_selection_edit: "Edytor CV — AI na zaznaczonym fragmencie",
 }
 
 
@@ -328,6 +333,11 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     AIFeatureKey.screening_answer_phrasing: [
         "Hasła rekrutera z jednej odpowiedzi albo pola opisowego i treść pytania",
         "(bez danych z profilu kandydata, nazwy klienta i stawek do klienta)",
+    ],
+    AIFeatureKey.cv_selection_edit: [
+        "Zaznaczony fragment CV dla klienta, jego akapit albo punkt i nagłówek roli",
+        "Przy „Rozwiń z oryginału”: tekst oryginalnego CV i notatki rekruterów czytelne dla AI",
+        "(bez stawek, narodowości, danych kontaktowych i nazwy klienta)",
     ],
 }
 

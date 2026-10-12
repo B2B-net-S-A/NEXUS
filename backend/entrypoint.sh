@@ -276,6 +276,8 @@ _ENUM_STATEMENTS = [
     # 0421: karta rekomendacji z notatki i „Ułóż w zdanie” (GPT-6 Luna).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'recommendation_card_note_read'",
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'screening_answer_phrasing'",
+    # 0431: AI na zaznaczonym fragmencie w edytorze CV (Sonnet 5).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_selection_edit'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -6651,6 +6653,11 @@ _DATA_STATEMENTS = [
     "SELECT 'screening_answer_phrasing', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'screening_answer_phrasing')",
+    # 0431: seed klucza AI „AI na zaznaczonym fragmencie” (edytor CV).
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'cv_selection_edit', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'cv_selection_edit')",
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są
     # jednym statementem: entrypoint leci przy każdym starcie, więc bez guardu
     # ponownie aktywowałby kontrakt świadomie zakończony później przez admina.

@@ -147,6 +147,8 @@ DECISION_2026_09_16 = {
     # F28/F29 — decyzja 06.10.2026: karta z notatki i „Ułóż w zdanie”.
     AIFeatureKey.recommendation_card_note_read: ("F28", "gpt-6-luna"),
     AIFeatureKey.screening_answer_phrasing: ("F29", "gpt-6-luna"),
+    # F30 — decyzja 12.10.2026 (Edytor CV 2, PR 3): AI na zaznaczonym fragmencie CV.
+    AIFeatureKey.cv_selection_edit: ("F30", "claude-sonnet-5"),
 }
 
 
