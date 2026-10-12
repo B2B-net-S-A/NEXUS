@@ -562,6 +562,41 @@ async def mark_added(
     return int(result.rowcount or 0)
 
 
+async def move_open_to_job(
+    db: AsyncSession, *, source_job_id: int, target_job_id: int
+) -> int:
+    """Otwarte propozycje rekrutacji-duplikatu przechodzą do tej, która zostaje.
+
+    Scalanie po migracji z Traffita (12.10.2026): zamknięcie kopii wygasza jej
+    propozycje, a wśród nich są zgłoszenia z ogłoszeń — osoby, które same
+    aplikowały na ten request. Wiersz przechodzi, gdy rekrutacja docelowa nie
+    ma propozycji tej osoby z tego samego źródła
+    (``uq_job_proposals_pair_source``) i osoba nie stoi już w jej pipeline.
+    ``dismissed`` i ``added`` zostają przy kopii: decyzja o cudzej rekrutacji
+    nie jest decyzją o tej. Zwraca liczbę wierszy.
+    """
+    twin = JobProposal.__table__.alias("twin")
+    same_source = exists(
+        select(literal(1)).where(
+            twin.c.job_id == target_job_id,
+            twin.c.candidate_id == JobProposal.candidate_id,
+            twin.c.source == JobProposal.source,
+        )
+    )
+    result = await db.execute(
+        update(JobProposal)
+        .where(
+            JobProposal.job_id == source_job_id,
+            JobProposal.status == "proposed",
+            ~same_source,
+            ~_in_pipeline(literal(target_job_id), JobProposal.candidate_id),
+        )
+        .values(job_id=target_job_id)
+        .execution_options(synchronize_session=False)
+    )
+    return int(result.rowcount or 0)
+
+
 async def mark_added_fail_soft(
     db: AsyncSession, *, job_id: int, candidate_ids: Sequence[int]
 ) -> None:

@@ -38,6 +38,7 @@ from app.tasks.traffit_sync import (
     validate_phases,
 )
 
+from app.services import job_twin_merge as twin_merge
 from app.services import traffit_file_dates_repair as file_dates_repair
 from app.services import traffit_notes_repair as notes_repair
 from app.services import traffit_transfer as transfer
@@ -363,3 +364,82 @@ async def traffit_transfer_status(
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     return await transfer.read_status(db)
+
+
+# ── Scalenie rekrutacji-duplikatów po migracji (12.10.2026) ─────────────────
+#
+# Ten sam request istniał jako rekrutacja założona w NEXUSIE i jako kopia
+# z Traffita. Zostaje rekrutacja NEXUSA: pary z kopii przechodzą do niej
+# z historią, kopia się zamyka. Próba → wykonanie tego samego zakresu, jak
+# przy przeniesieniu. Szczegóły: `app/services/job_twin_merge.py`.
+
+
+def _merge_scope(job_ids: Optional[str]) -> twin_merge.Scope:
+    ids: list[int] = []
+    for part in (job_ids or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if not part.isdigit():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="job_ids: lista id kopii z Traffita (id NEXUSA) po przecinku.",
+            )
+        ids.append(int(part))
+    if job_ids is not None and not ids:
+        # Pusty parametr nie może znaczyć „wszystkie pary”.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="job_ids: podaj id albo pomiń parametr (wszystkie pewne pary).",
+        )
+    return twin_merge.Scope(job_ids=tuple(sorted(set(ids))))
+
+
+@router.post("/twins-merge")
+@limiter.limit(_service_rate_limit)
+async def trigger_traffit_twins_merge(
+    request: Request,
+    caller: TraffitSyncCaller,
+    dry_run: bool = Query(True),
+    job_ids: Optional[str] = Query(None, max_length=4000),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Scalenie kopii z Traffita z rekrutacjami NEXUSA (w tle)."""
+    scope = _merge_scope(job_ids)
+    if not dry_run and caller.user is None:
+        # Zamknięcie kopii zapisuje, kto je wykonał — klucz API robi tylko próbę.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Scalenie wykonuje zalogowany administrator, nie klucz API.",
+        )
+    reason = twin_merge.spawn_running_guard()
+    if reason:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=reason)
+    if not dry_run and not await twin_merge.fresh_dry_run_exists(db, scope):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Najpierw próba (dry_run=true) dla tego samego zakresu — wykonanie "
+                "wymaga raportu próbnego z ostatnich 24 godzin."
+            ),
+        )
+    spawn(
+        twin_merge.run_merge(
+            scope=scope,
+            dry_run_mode=dry_run,
+            actor_user_id=caller.user.id if caller.user is not None else None,
+            actor_label=caller.audit_label,
+        ),
+        f"traffit_twins_merge(dry_run={dry_run}, scope={scope.key()})",
+    )
+    return {"status": "started", "dry_run": dry_run, "scope": scope.as_dict()}
+
+
+@router.get("/twins-merge/status")
+@limiter.limit(_service_rate_limit)
+async def traffit_twins_merge_status(
+    request: Request,
+    _caller: TraffitReadCaller,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    return await twin_merge.read_status(db)

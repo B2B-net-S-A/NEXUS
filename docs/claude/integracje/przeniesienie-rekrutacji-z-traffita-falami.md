@@ -1,6 +1,6 @@
 # Przeniesienie rekrutacji z Traffita do NEXUSA falami (11.10.2026)
 
-<!-- indeks: próba i wykonanie fali, lista osób per stan jako źródło prawdy, remis czasu wpisów historii, osoby zdjęte w Traffit, bliźniaki, skutki otwarcia -->
+<!-- indeks: próba i wykonanie fali, lista osób per stan jako źródło prawdy, remis czasu wpisów historii, osoby zdjęte w Traffit, bliźniaki, scalenie duplikatów, skutki otwarcia -->
 
 Decyzje Artura 11.10.2026: zespół przechodzi z Traffita **falami** (klient po
 kliencie), nie przez lustro „na żywo”; „otwarta” rekrutacja to taka bez daty
@@ -74,7 +74,8 @@ bo bieg objąłby wszystko naraz.
   tytule (`match_twin`, `TWIN_MIN_RATIO`). `include_twins=true` (migracja całego
   zespołu, 12.10.2026) otwiera kopię z Traffita jak każdą inną; rekrutacji
   NEXUSA nie rusza, więc request jest wtedy widoczny dwa razy, dopóki obu nie
-  scali osobny krok. `include_twins` wchodzi do klucza fali.
+  scali osobny krok („Scalenie duplikatów” niżej). `include_twins` wchodzi do
+  klucza fali.
 - **Zespół bliźniaka przechodzi tylko przy PEWNYM dopasowaniu** (`Twin.exact`,
   `assign_twins`): ten sam tytuł i ten sam numer requestu w nawiasie, albo ten
   sam tytuł, gdy numeru nie ma jedna ze stron i dopasowanie jest jedyne.
@@ -113,6 +114,49 @@ bo bieg objąłby wszystko naraz.
   karta-duplikat z kolizją maila), trafia do raportu z numerem osoby.
 - **Worek zgłoszeń nie jest rekrutacją.** Powyżej `MAX_PEOPLE` (3000) par
   rekrutacja jest pomijana („projekty wewnętrzne” mają 14,6 tys. zgłoszeń).
+
+## Scalenie duplikatów (12.10.2026)
+
+Po migracji całego zespołu request z pewnym bliźniakiem stał na liście dwa
+razy: w kopii z Traffita byli kandydaci, w rekrutacji NEXUSA zespół, Profil
+Championa i propozycje. `POST /api/admin/traffit/twins-merge?dry_run=…[&job_ids=…]`
+i `GET …/twins-merge/status` (`services/job_twin_merge.py`) zostawiają
+rekrutację NEXUSA, przepinają do niej pary z kopii i zamykają kopię. Próba →
+wykonanie tego samego zakresu, jak przy fali; `job_ids` to id KOPII.
+
+- **Para pochodzi z paragonu przeniesienia** (ostatni wpis `traffit_transfer`
+  kopii z `twin_exact`), nie z ponownego porównania tytułów. Podobny tytuł to
+  może być inny request.
+- **Historia pary zmienia tylko `job_id`**
+  (`recruitment_process_commands.move_pairs_to_job`): wiersze etapów i procesy
+  przechodzą w całości, więc każde zdarzenie jest policzone raz, a parę da się
+  cofnąć tym samym przepięciem w drugą stronę (paragon niesie id kandydatów).
+  Numer próby staje ZA unieważnionymi próbami rekrutacji NEXUSA
+  (`uq_process_attempt`).
+- **Kto ma kartę w obu rekrutacjach, nie jest przenoszony.** Zostaje karta
+  z NEXUSA, historia z Traffita przy zamkniętej kopii; raport wymienia te
+  osoby. Dwóch historii jednej osoby nie sklejamy w ciemno.
+- **Za osobą idzie to, co opisuje pracę z nią w tej rekrutacji** (lista
+  `FOLLOW`): notatki, CV etapu, wygenerowane CV, QC CV, zmiany stawki, umowa,
+  karta rekomendacji, formularz screeningu, „Stawka od”. Rzeczy liczone per
+  rekrutacja (dopasowania, migawki propozycji, „Moi ludzie”) zostają —
+  NEXUS policzy je dla rekrutacji, która zostaje. Nowa tabela z `job_id`
+  i `candidate_id` = dopisz ją do `FOLLOW` albo świadomie pomiń.
+- **Otwarte propozycje kopii przechodzą** (`job_proposals.move_open_to_job`),
+  bo wśród nich są zgłoszenia z ogłoszeń, a zamknięcie kopii wygasza jej
+  propozycje. `dismissed` i `added` zostają przy kopii.
+- **Zespół rekrutacji NEXUSA się nie zmienia.** Przypisania kopii są
+  zwalniane z powodem `reassigned`, gdy osoba ma ten sam request w rekrutacji
+  NEXUSA — ten powód nie trafia do porannego „Zwolnione: …”.
+- **Kopia zamyka się jak archiwum: bez `closed_at` i `close_reason`.**
+  Duplikat nie jest zamkniętym requestem; data i powód policzyłyby go
+  w raportach zamknięć i w Lidze DL. Kopia zamknięta wcześniej przez człowieka
+  zostaje z jego powodem, a jej osoby i tak przechodzą.
+- **Kopia zostaje „Prowadzona w NEXUSIE”.** Bez tej flagi import odtworzyłby
+  w niej pary, które przeszły (zna je po `external_id`). Na scalonej kopii
+  nie klikaj „Wróć do Traffita”.
+- **Zamknięta rekrutacja NEXUSA nie przyjmuje ludzi** (`target_not_open`) —
+  przepięcie schowałoby ich z Tablicy; o otwarciu decyduje Delivery Lead.
 
 ## Co wywołuje otwarcie fali
 
