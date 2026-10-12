@@ -737,7 +737,7 @@ async def test_previous_owner_is_released_only_when_the_owner_changes(monkeypatc
     await jobs_api._sync_work_assignments_with_owner(
         changed, job=job, previous_owner_id=8, owner=owner, actor_id=1
     )
-    assert changed.execute.await_count == 2
+    assert changed.execute.await_count == 3
     sql = _compiled(changed.execute.await_args_list[0].args[0])
     assert sql.startswith("UPDATE job_work_assignments SET"), sql
     assert "state='released'" in sql, sql
@@ -749,8 +749,16 @@ async def test_previous_owner_is_released_only_when_the_owner_changes(monkeypatc
     # Tylko AKTYWNE przypisanie — propozycji automatu zmiana rekrutera nie rusza.
     assert "job_work_assignments.state = 'active'" in sql, sql
 
-    # Drugi UPDATE dotyczy NOWEJ osoby: jej ręczne zdjęcie przestaje blokować.
-    voided = _compiled(changed.execute.await_args_list[1].args[0])
+    # Zastąpiona osoba traci też trwały wpis w zespole (była kolejną osobą,
+    # zanim została prowadzącym) — inaczej „Zmień” by jej nie zdejmowało.
+    dropped = _compiled(changed.execute.await_args_list[1].args[0])
+    assert dropped.startswith("DELETE FROM job_collaborators"), dropped
+    assert "job_collaborators.job_id = 5" in dropped, dropped
+    assert "job_collaborators.user_id = 8" in dropped, dropped
+    assert "job_collaborators.source = 'manual'" in dropped, dropped
+
+    # Ostatni UPDATE dotyczy NOWEJ osoby: jej ręczne zdjęcie przestaje blokować.
+    voided = _compiled(changed.execute.await_args_list[2].args[0])
     assert "release_reason='reassigned'" in voided, voided
     assert "job_work_assignments.user_id = 9" in voided, voided
     assert "job_work_assignments.release_reason = 'manual'" in voided, voided
@@ -773,10 +781,13 @@ async def test_cleared_owner_only_releases_the_previous_person(monkeypatch):
         db, job=_pool_job(), previous_owner_id=8, owner=None, actor_id=1
     )
 
-    db.execute.assert_awaited_once()
-    sql = _compiled(db.execute.await_args.args[0])
+    assert db.execute.await_count == 2
+    sql = _compiled(db.execute.await_args_list[0].args[0])
     assert "release_reason='owner_changed'" in sql, sql
     assert "job_work_assignments.user_id = 8" in sql, sql
+    dropped = _compiled(db.execute.await_args_list[1].args[0])
+    assert dropped.startswith("DELETE FROM job_collaborators"), dropped
+    assert "job_collaborators.user_id = 8" in dropped, dropped
     manual_add.assert_not_awaited()
 
 

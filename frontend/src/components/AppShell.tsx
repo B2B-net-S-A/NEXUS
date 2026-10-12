@@ -1995,6 +1995,7 @@ export function EditJobModal({
       manualCollaboratorIds(job.collaborators),
       collaborators,
       primaryOwnerId,
+      job.recruiter_id ?? null,
     );
     if (!hasCollaboratorChanges(changes)) return null;
     return saveCollaboratorChanges(job.id, changes);

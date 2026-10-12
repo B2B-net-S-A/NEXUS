@@ -33,6 +33,7 @@ from dataclasses import dataclass
 from typing import Iterable, Optional
 
 from sqlalchemy import and_, exists, not_, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, load_only
 
@@ -326,7 +327,71 @@ def working(people: Iterable[TeamPerson]) -> list[TeamPerson]:
     return [person for person in people if not person.proposed]
 
 
-# ── Zdjęcie osoby z roli „Rekruter” ──────────────────────────────────────────
+# ── Dopisanie i zdjęcie osoby w roli „Rekruter” ──────────────────────────────
+
+
+async def add_manual_member(
+    db: AsyncSession, *, job_id: int, user_id: int, actor_id: Optional[int]
+) -> bool:
+    """Trwały wpis osoby w roli „Rekruter” (punkt 3 reguły) — lustro ``remove_recruiter``.
+
+    Zgłoszenie Head of Recruitment 12.10.2026: osoba dodana z pulpitu miała samo
+    przypisanie (``job_work_assignments``), które automat zwalnia, gdy request
+    wychodzi z „Szukamy” — znikała wtedy z filtra „Rekruter”, choć prowadzący
+    i osoby dopisane w panelu „Zespół” zostawały. Każda ścieżka, którą człowiek
+    dopisuje osobę (pulpit, panel, okno edycji, akceptacja propozycji), woła tę
+    funkcję; przypisanie niesie już tylko obłożenie w puli.
+
+    Prowadzący (``jobs.recruiter_id``) wiersza nie dostaje — jest przy
+    rekrutacji z urzędu. Wiersz ``auto_cc`` (cała kategoria) albo zdjęty
+    wcześniej staje się ``manual``. Zwraca ``True``, gdy wiersz powstał albo
+    zmienił się na ręczny. Bez commitu.
+    """
+    # Sesja nie robi autoflush: prowadzący wpisany chwilę wcześniej na obiekcie
+    # rekrutacji musi być w bazie, zanim go odczytamy.
+    await db.flush()
+    owner_id = await db.scalar(select(Job.recruiter_id).where(Job.id == job_id))
+    if owner_id == user_id:
+        return False
+    previous_source = await db.scalar(
+        select(JobCollaborator.source).where(
+            JobCollaborator.job_id == job_id, JobCollaborator.user_id == user_id
+        )
+    )
+    changed = await db.scalar(
+        pg_insert(JobCollaborator)
+        .values(job_id=job_id, user_id=user_id, added_by=actor_id)
+        .on_conflict_do_update(
+            index_elements=["job_id", "user_id"],
+            set_={
+                "source": JobCollaboratorSource.manual,
+                "removed_from_auto_cc": False,
+                "removed_at": None,
+                "added_by": actor_id,
+            },
+            where=or_(
+                JobCollaborator.source != JobCollaboratorSource.manual,
+                JobCollaborator.removed_from_auto_cc.is_(True),
+            ),
+        )
+        .returning(JobCollaborator.id)
+    )
+    if changed is None:
+        return False
+    details: dict = {"collaborator_id": user_id}
+    if previous_source is not None:
+        details["promoted_from"] = "auto_cc"
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job_id,
+            action="collaborator_added",
+            user_id=actor_id,
+            details=details,
+        )
+    )
+    await db.flush()
+    return True
 
 
 async def remove_recruiter(

@@ -283,6 +283,7 @@ function JobsTable({
   onPreview,
   onInvite,
   onSimilar,
+  workedBy,
 }: {
   items: any[];
   /** Rekrutacja otwarta w doku podglądu — jej wiersz jest podświetlony. */
@@ -294,6 +295,8 @@ function JobsTable({
   onInvite?: (id: number) => void;
   /** Okno „Podobne rekrutacje" (0341) — ikona w kolumnie akcji. */
   onSimilar: (id: number) => void;
+  /** Filtr „Rekruter” — te osoby komórka pokazuje z nazwiska jako pierwsze. */
+  workedBy: readonly number[];
 }) {
   return (
     // Jeden układ dla każdej szerokości (02.10.2026): wiersz to nazwa stanowiska,
@@ -464,7 +467,7 @@ function JobsTable({
                 <JobDeadlineCell deadline={job.deadline} deadlineTime={job.deadline_time} />
               </TableCell>
               <TableCell className={NARROW_CELL}>
-                <JobRecruiterCell job={job} />
+                <JobRecruiterCell job={job} highlightIds={workedBy} />
               </TableCell>
               <TableCell className={NARROW_CELL}>
                 <div className="flex items-center justify-end gap-0.5">
@@ -1177,6 +1180,7 @@ export function JobsListV2() {
               }
               onInvite={canInvite ? (id) => setInviteModalForJob(id) : undefined}
               onSimilar={(id) => setSimilarForJob(id)}
+              workedBy={filterValue.workedBy}
             />
           )}
 

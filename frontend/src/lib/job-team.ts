@@ -164,6 +164,35 @@ export function recruitersSummary(
   };
 }
 
+/**
+ * Osoby z `pinnedIds` na początek listy pracujących (w kolejności `pinnedIds`),
+ * reszta w kolejności z serwera, propozycje na końcu. Komórka tabeli pokazuje
+ * pierwsze osoby z nazwiska — dzięki temu osoba, po której się filtruje,
+ * i zalogowany rekruter stoją w wierszu także wtedy, gdy są trzeci na liście
+ * (zgłoszenie 12.10.2026: „po filtrze widać tylko tę główną”).
+ */
+export function pinRecruiters<T extends RecruiterLike>(
+  people: readonly T[],
+  pinnedIds: readonly (number | null | undefined)[],
+): T[] {
+  const order = new Map<number, number>();
+  for (const id of pinnedIds) {
+    if (id != null && !order.has(id)) order.set(id, order.size);
+  }
+  const working = workingRecruiters(people);
+  const pinned = working
+    .filter((person) => order.has(person.user_id))
+    .sort(
+      (a, b) => (order.get(a.user_id) ?? 0) - (order.get(b.user_id) ?? 0),
+    );
+  if (pinned.length === 0) return [...people];
+  return [
+    ...pinned,
+    ...working.filter((person) => !order.has(person.user_id)),
+    ...proposedRecruiters(people),
+  ];
+}
+
 /** „przydzielił(a) Anna L.” — podpis pod osobą; `null`, gdy nie wiadomo, kto. */
 export function assignedByCaption(person: RecruiterLike): string | null {
   const name = shortenPersonName(person.assigned_by_name);

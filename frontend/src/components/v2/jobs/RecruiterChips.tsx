@@ -13,6 +13,8 @@ export interface RecruiterChipsProps<T extends RecruiterLike = RecruiterLike> {
   size?: "sm" | "md";
   /** Komórka tabeli: samo nazwisko pierwszej osoby i „+N”, reszta w podpowiedzi. */
   compact?: boolean;
+  /** Ile osób `compact` pokazuje z nazwiska, jedna pod drugą, zanim da „+N” (domyślnie 1). */
+  maxNames?: number;
   /** Linia pod osobą, np. `assignedByCaption` („przydzielił(a) Anna L.”). */
   caption?: (person: T) => ReactNode;
   /** Podanie funkcji pokazuje przycisk „Zdejmij {imię i nazwisko}”. */
@@ -80,6 +82,7 @@ export function RecruiterChips<T extends RecruiterLike = RecruiterLike>({
   people,
   size = "md",
   compact = false,
+  maxNames = 1,
   caption,
   onRemove,
   canRemove,
@@ -97,9 +100,10 @@ export function RecruiterChips<T extends RecruiterLike = RecruiterLike>({
     // Nikt nie pracuje: pokazujemy pierwszą propozycję, przerywaną ramką.
     const proposedOnly = summary.lead === null;
     const firstName = proposedOnly ? summary.proposedNames[0] : summary.names[0];
+    const shown = summary.names.slice(0, Math.max(1, maxNames));
     const more = proposedOnly
       ? summary.proposedNames.length - 1
-      : summary.more;
+      : summary.names.length - shown.length;
     const moreBadge =
       more > 0 ? (
         <span
@@ -135,6 +139,31 @@ export function RecruiterChips<T extends RecruiterLike = RecruiterLike>({
           <span aria-hidden="true" className="text-[11px] text-muted-foreground">
             propozycja
           </span>
+          <span className="sr-only">{summary.tooltip}</span>
+        </span>
+      );
+    }
+    if (shown.length > 1) {
+      // Nazwiska jedno pod drugim: w jednej linii dwa nie mieszczą się
+      // w kolumnie 120 px, a tabela listy ledwo mieści się w oknie 1280 px.
+      return (
+        <span
+          title={summary.tooltip}
+          className={cn(
+            "relative inline-flex min-w-0 max-w-full flex-col gap-0.5 leading-tight text-foreground",
+            className,
+          )}
+        >
+          {shown.map((name, index) => (
+            <span
+              key={`${name}-${index}`}
+              aria-hidden="true"
+              className={cn("flex min-w-0 items-center whitespace-nowrap", sizes.compact)}
+            >
+              <span className="min-w-0 truncate">{shortenPersonName(name) ?? name}</span>
+              {index === shown.length - 1 ? moreBadge : null}
+            </span>
+          ))}
           <span className="sr-only">{summary.tooltip}</span>
         </span>
       );

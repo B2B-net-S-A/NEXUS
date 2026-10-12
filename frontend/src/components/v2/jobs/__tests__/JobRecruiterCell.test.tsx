@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -63,5 +63,52 @@ describe("JobRecruiterCell", () => {
   it("nie pokazuje plakietki Rekruterowi rekrutacji", () => {
     render(<JobRecruiterCell job={job({ recruiters: [recruiter(ME)] })} />);
     expect(screen.queryByTestId("job-my-candidates")).not.toBeInTheDocument();
+  });
+
+  const team = [
+    recruiter(1, { name: "Anna Nowak" }),
+    recruiter(2, { name: "Jan Kowalski", via: "assignment" }),
+    recruiter(3, { name: "Ewa Zielińska", via: "collaborator" }),
+    recruiter(4, { name: "Olga Lis", via: "collaborator" }),
+  ];
+
+  it("dwie osoby z nazwiska, reszta za „+N”", () => {
+    render(<JobRecruiterCell job={job({ recruiters: team })} />);
+    const cell = within(screen.getByTestId("job-recruiter-cell"));
+    expect(cell.getByText("Anna N.")).toBeInTheDocument();
+    expect(cell.getByText("Jan K.")).toBeInTheDocument();
+    expect(cell.queryByText("Ewa Z.")).not.toBeInTheDocument();
+    expect(cell.getByText("+2")).toBeInTheDocument();
+  });
+
+  it("osoba z filtra „Rekruter” stoi w wierszu z nazwiska, choć jest czwarta", () => {
+    render(<JobRecruiterCell job={job({ recruiters: team })} highlightIds={[4]} />);
+    const cell = within(screen.getByTestId("job-recruiter-cell"));
+    expect(cell.getByText("Olga L.")).toBeInTheDocument();
+    expect(cell.getByText("Anna N.")).toBeInTheDocument();
+    expect(cell.queryByText("Jan K.")).not.toBeInTheDocument();
+    expect(cell.getByText("+2")).toBeInTheDocument();
+    // W podpowiedzi nadal wszyscy.
+    expect(
+      cell.getByTitle("Rekruterzy: Olga Lis, Anna Nowak, Jan Kowalski, Ewa Zielińska"),
+    ).toBeInTheDocument();
+  });
+
+  it("zalogowany rekruter widzi siebie w wierszu, choć jest trzeci", () => {
+    const mine = [team[0], team[1], recruiter(ME, { name: "Marek Testowy", via: "assignment" })];
+    render(<JobRecruiterCell job={job({ recruiters: mine })} />);
+    const cell = within(screen.getByTestId("job-recruiter-cell"));
+    expect(cell.getByText("Marek T.")).toBeInTheDocument();
+    expect(cell.getByText("Anna N.")).toBeInTheDocument();
+    expect(cell.getByText("+1")).toBeInTheDocument();
+  });
+
+  it("osoba z filtra stoi przed zalogowaną", () => {
+    const mine = [...team, recruiter(ME, { name: "Marek Testowy", via: "assignment" })];
+    render(<JobRecruiterCell job={job({ recruiters: mine })} highlightIds={[3]} />);
+    const cell = within(screen.getByTestId("job-recruiter-cell"));
+    expect(cell.getByText("Ewa Z.")).toBeInTheDocument();
+    expect(cell.getByText("Marek T.")).toBeInTheDocument();
+    expect(cell.getByText("+3")).toBeInTheDocument();
   });
 });

@@ -90,6 +90,74 @@ def test_mine_clause_counts_manual_collaborators_only() -> None:
     assert "job_secondary" not in category, category
 
 
+# ── Trwały wpis w zespole (``add_manual_member``) ────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_add_manual_member_skips_the_owner() -> None:
+    """Prowadzący jest przy rekrutacji z urzędu — wiersza nie dostaje."""
+    from unittest.mock import AsyncMock, Mock
+
+    from app.services.job_team import add_manual_member
+
+    db = AsyncMock()
+    db.add = Mock()
+    db.scalar.return_value = 7  # jobs.recruiter_id
+
+    assert await add_manual_member(db, job_id=5, user_id=7, actor_id=1) is False
+    # Sesja nie robi autoflush — prowadzący wpisany przed chwilą musi być w bazie.
+    db.flush.assert_awaited()
+    assert db.scalar.await_count == 1
+    db.add.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_add_manual_member_upserts_and_promotes_a_category_row() -> None:
+    from unittest.mock import AsyncMock, Mock
+
+    from app.models.job_collaborator import JobCollaboratorSource
+    from app.services.job_team import add_manual_member
+
+    db = AsyncMock()
+    db.add = Mock()
+    # Prowadzący, źródło istniejącego wiersza, id wiersza po upsercie.
+    db.scalar.side_effect = [3, JobCollaboratorSource.auto_cc, 41]
+
+    assert await add_manual_member(db, job_id=5, user_id=9, actor_id=1) is True
+
+    sql = _sql(db.scalar.await_args_list[2].args[0])
+    assert sql.startswith("INSERT INTO job_collaborators"), sql
+    # Para (rekrutacja, osoba) jest unikalna, a rekruter z kategorii ma już
+    # wiersz ``auto_cc`` — zwykły INSERT kończyłby się błędem.
+    assert "ON CONFLICT (job_id, user_id) DO UPDATE SET" in sql, sql
+    updated = sql.split("DO UPDATE SET", 1)[1]
+    for column in ("source = ", "removed_from_auto_cc = ", "removed_at = ", "added_by = "):
+        assert column in updated, sql
+    # Wiersz już ręczny zostaje nietknięty (i nie liczy się jako dopisanie).
+    assert "WHERE job_collaborators.source != " in updated, sql
+    assert "job_collaborators.removed_from_auto_cc IS true" in updated, sql
+    assert "RETURNING job_collaborators.id" in sql, sql
+    activity = db.add.call_args.args[0]
+    assert activity.action == "collaborator_added"
+    assert activity.details == {"collaborator_id": 9, "promoted_from": "auto_cc"}
+
+
+@pytest.mark.asyncio
+async def test_add_manual_member_reports_no_change_for_a_manual_row() -> None:
+    from unittest.mock import AsyncMock, Mock
+
+    from app.models.job_collaborator import JobCollaboratorSource
+    from app.services.job_team import add_manual_member
+
+    db = AsyncMock()
+    db.add = Mock()
+    # Upsert z warunkiem WHERE nie zwraca wiersza, gdy nic nie zmienił.
+    db.scalar.side_effect = [3, JobCollaboratorSource.manual, None]
+
+    assert await add_manual_member(db, job_id=5, user_id=9, actor_id=1) is False
+    db.add.assert_not_called()
+
+
 # ── Parzystość loader ⇔ SQL (baza) ───────────────────────────────────────────
 
 

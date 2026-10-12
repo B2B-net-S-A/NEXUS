@@ -70,6 +70,37 @@ tylko `recruiter_id`), a Head of Recruitment nie mógł zmienić rekrutera.
   samym stanie requestu była prowadzącą, której reguła zespołu nie liczyła —
   kolejna dodana osoba wchodziła na jej miejsce. Nowa ścieżka, którą człowiek
   przypisuje osobę do requestu, idzie przez `manual_add` albo woła ten helper.
+- **Dopisanie osoby = trwały wpis w zespole, niezależnie od miejsca (0429,
+  12.10.2026)** — `job_team.add_manual_member`, lustro `remove_recruiter`.
+  Zgłoszenie Head of Recruitment: osoba dodana z pulpitu miała samo
+  przypisanie, które automat zwalnia przy wyjściu requestu z „Szukamy”, więc
+  znikała z filtra „Rekruter”, a prowadzący i osoby z panelu „Zespół”
+  zostawały; dopisanie z panelu nie wysyłało dzwonka. Teraz:
+  - wołają ją `manual_add` (pulpit, zamiana propozycji), `accept_proposal`,
+    `restore_after_champion_removed` i `POST /api/jobs/{id}/collaborators`;
+    przypisanie niesie już tylko obłożenie w puli. Nowa droga dopisania osoby
+    przez człowieka też ma ją wołać;
+  - prowadzący wiersza nie dostaje (jest przy rekrutacji z urzędu), wiersz
+    `auto_cc` albo zdjęty staje się `manual`. Sesja nie robi autoflush —
+    funkcja sama robi `flush`, zanim odczyta prowadzącego;
+  - przypisań automatu (`source = 'auto'`) nie utrwalamy: automat zwalnia je
+    za urlop, a trwały wpis trzymałby request „pokryty” przez osobę, której
+    nie ma;
+  - `POST …/collaborators` dzwoni „Nowy request do pracy” (`_notify_new_owner`)
+    — bez dzwonka dla siebie, dla osoby, która już przy rekrutacji pracuje,
+    i przy rekrutacji zamkniętej;
+  - zastąpiony prowadzący traci też ręczny wiersz współpracownika
+    (`_sync_work_assignments_with_owner`), inaczej „Zmień” by go nie zdejmowało.
+    Okno edycji dopisuje go ponownie, jeśli po zmianie pierwszego rekrutera
+    nadal stoi w polu „Kolejne osoby” (`collaboratorChanges` z
+    `previousOwnerId`) — inaczej znikłby po cichu, choć okno go pokazywało;
+  - `DELETE …/collaborators/{user_id}` dla osoby z aktywnym przypisaniem woła
+    `remove_recruiter` (schodzi z obu miejsc) i wymaga roli przydzielającej
+    (`user_can_staff_job`); pozostali redaktorzy dostają 409. Wiersz
+    prowadzącego kasuje się jak dotąd, bez ruszania jego przypisania;
+  - pilnuje `tests/test_recruiter_role_persists.py`: każda droga dopisania →
+    `GET /api/jobs?worked_by=` zwraca rekrutację także po championie,
+    „Klient milczy”, powrocie do przejrzenia i zamknięciu.
 - **Uprawnienia** (`api/recruitment_access.py`, lustra w `capabilities.test.ts`):
   `/owner` POST/DELETE i edycja pulpitu — `require_job_staffing`: uprawnienie
   „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta” (domyślnie admin
