@@ -36,6 +36,7 @@ from app.services.process_entry_meta import (
 )
 from app.models.contract import ContractType, RateUnit
 from app.services.board_stage_badges import (
+    BOARD_COLUMN_ORDER,
     _NAME_ONLY_KINDS as NAME_ONLY_STAGE_KINDS,
     board_column_for,
     ensure_badge_stage_allowed,
@@ -980,6 +981,60 @@ async def _assert_cv_qc_gate(
     )
 
 
+async def _spend_advisory_qc_override_on_return(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    job_id: int,
+    stage_def: Optional[PipelineStageDef],
+    legacy_value: Optional[str],
+) -> None:
+    """Zwrot karty kończy obejście doradcze QC (tryb doradczy, 12.10.2026).
+
+    „Przesuń mimo uwag…” rekrutera przepuszcza kartę naprzód — także wysyłkę
+    przez Delivery Leada, który widzi baner z powodem. Każdy inny ruch (wstecz,
+    z kolejki Cpro do „QC CV”, do „Zamkniętych”) je kończy: gdy karta wróci,
+    QC znów pyta, a kolejne obejście znów powiadamia Delivery Leada. Zapis
+    w transakcji ruchu — odmowa ruchu cofa także ten zapis.
+    """
+
+    from app.services import cv_qc
+
+    if not await cv_qc.has_live_advisory_override(db, candidate_id, job_id):
+        return
+    target_column = board_column_for(
+        stage_def.name if stage_def else None,
+        (stage_def.legacy_enum_value if stage_def else None) or legacy_value,
+        category=(
+            stage_def.category.value if stage_def and stage_def.category else None
+        ),
+        terminal_type=(
+            stage_def.terminal_type.value
+            if stage_def and stage_def.terminal_type
+            else None
+        ),
+    )
+    _current, current_column = await pipeline_move_rules.gate_stage_row(
+        db, candidate_id=candidate_id, job_id=job_id
+    )
+    order = BOARD_COLUMN_ORDER
+    forward = (
+        target_column in order
+        and current_column in order
+        and (
+            order.index(target_column) > order.index(current_column)
+            # Ta sama kolumna „QC CV”: naprzód idzie tylko wejście do kolejki Cpro.
+            or (
+                target_column == current_column
+                and stage_def is not None
+                and is_cpro_stage(stage_def.name)
+            )
+        )
+    )
+    if not forward:
+        await cv_qc.spend_advisory_overrides(db, candidate_id, job_id)
+
+
 @router.post("/move", response_model=CandidateStageResponse)
 async def move_candidate(
     data: StageMove,
@@ -1088,6 +1143,13 @@ async def move_candidate(
         stage_def=stage_def,
         legacy_value=data.stage.value if data.stage is not None else None,
         client_id=job.client_id,
+    )
+    await _spend_advisory_qc_override_on_return(
+        db,
+        candidate_id=data.candidate_id,
+        job_id=job.id,
+        stage_def=stage_def,
+        legacy_value=data.stage.value if data.stage is not None else None,
     )
     # 0348/0353: osoba, która wysyła do Cpro — od 23.09.2026 JEDNA na całą
     # rekrutację (`jobs.cpro_sender_id`); pole przy ruchu ustawia ją dla
@@ -3757,6 +3819,13 @@ async def bulk_move_candidates(
             stage_def=bulk_stage_def,
             legacy_value=data.stage.value,
             client_id=job.client_id,
+        )
+        await _spend_advisory_qc_override_on_return(
+            db,
+            candidate_id=cid,
+            job_id=job.id,
+            stage_def=bulk_stage_def,
+            legacy_value=data.stage.value,
         )
 
     # Faza 1 globalnej kolejności blokad: komplet kandydatów rosnąco, ZANIM
