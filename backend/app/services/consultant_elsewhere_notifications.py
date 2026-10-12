@@ -256,16 +256,19 @@ async def notify_current_client_leads(
     commicie ruchu karty.
     """
     try:
-        return await _notify(
-            db,
-            new_stage=new_stage,
-            previous_stage=previous_stage,
-            job=job,
-            candidate=candidate,
-            mover=mover,
-            hired_engagement=hired_engagement,
-            scope=scope,
-        )
+        # Savepoint: w tej samej sesji idą potem zwykłe dzwonki ruchu, a po
+        # nieudanym zapytaniu bez niego transakcja zostaje przerwana.
+        async with db.begin_nested():
+            return await _notify(
+                db,
+                new_stage=new_stage,
+                previous_stage=previous_stage,
+                job=job,
+                candidate=candidate,
+                mover=mover,
+                hired_engagement=hired_engagement,
+                scope=scope,
+            )
     except Exception as exc:  # noqa: BLE001 — dzwonek nie może zepsuć ruchu
         logger.warning(
             "consultant_elsewhere: failed for stage=%s: %s",

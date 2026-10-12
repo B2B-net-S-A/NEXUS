@@ -382,6 +382,37 @@ async def test_other_stages_do_not_ring():
     assert await _bells(world["lead"]) == []
 
 
+async def test_a_database_error_in_the_bell_leaves_the_session_usable(monkeypatch):
+    """Błąd bazy w tym dzwonku nie zabiera zwykłych dzwonków ruchu.
+
+    `notify_stage_change` woła ten serwis jako pierwszy, w tej samej sesji co
+    reguły etapów. Bez savepointu nieudane zapytanie zostawia transakcję
+    przerwaną i każde następne zapytanie efektu pada.
+    """
+    from sqlalchemy import text
+
+    from app.core.database import AsyncSessionLocal
+    from app.services import consultant_elsewhere_notifications as svc
+
+    async def broken(db, **_kwargs):
+        await db.execute(text("SELECT 1 / 0"))
+
+    monkeypatch.setattr(svc, "_notify", broken)
+
+    async with AsyncSessionLocal() as db:
+        sent = await svc.notify_current_client_leads(
+            db,
+            new_stage=SimpleNamespace(id=1),
+            previous_stage=None,
+            job=SimpleNamespace(),
+            candidate=SimpleNamespace(),
+            mover=None,
+        )
+
+        assert sent == 0
+        assert (await db.execute(text("SELECT 1"))).scalar_one() == 1
+
+
 async def test_employed_elsewhere_client_ids_names_the_current_client():
     from app.core.database import AsyncSessionLocal
     from app.models.job import Job
