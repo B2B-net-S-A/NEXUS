@@ -9,6 +9,7 @@ Faza 3 (PR2) — `branded` draft + finalize (mirror Contract Draft). Od
 generatora v3 (23.09.2026) szkic pochodzi wyłącznie z generatora; stary
 szablon „CV firmowe" wycofany (GET `none` = pusty stan, zmiana szablonu 410):
   GET    /api/candidates/stages/{stage_id}/cv/branded
+  GET    /api/candidates/stages/{stage_id}/cv/branded/issues
   PATCH  /api/candidates/stages/{stage_id}/cv/branded
   GET    /api/candidates/stages/{stage_id}/cv/branded/render-pdf
   POST   /api/candidates/stages/{stage_id}/cv/branded/finalize
@@ -72,6 +73,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.services.html_sanitizer import sanitize_cv_html
+from app.services import cv_editor_issues
 from app.services.cv_download_log import log_cv_download
 from app.services.cv_rodo_clause import keep_rodo_clause
 from app.services.cv_document_versions import check_revision, freeze_approved_version
@@ -102,6 +104,7 @@ from app.schemas.candidate_stage_cv import (
     CVBrandedResponse,
     CVBrandedUpdate,
     CVBrandedSelectDocument,
+    CVEditorIssues,
     CVBrandedSelectGenerated,
     CVBrandedSelectStageCv,
     CVOriginalSnapshotResponse,
@@ -582,6 +585,42 @@ async def get_branded_cv(
         updated_by_name=updated_by_name,
         finalized_by_name=finalized_by_name,
     )
+
+
+@router.get(
+    "/candidates/stages/{stage_id}/cv/branded/issues",
+    response_model=CVEditorIssues,
+)
+async def get_branded_cv_issues(
+    stage_id: int,
+    current_user: CandidateDocumentAccess,
+    db: AsyncSession = Depends(get_db),
+) -> CVEditorIssues:
+    """Panel „Do poprawy” w edytorze CV: uwagi generatora i kontroli AI.
+
+    Osobna trasa, nie pole stanu: stan wraca z każdego autozapisu, a te dane
+    zmieniają się tylko po generacji i po zatwierdzeniu. Ta sama bramka co
+    odczyt CV etapu; etap bez CV to pusta lista, nie błąd. QC ma własną trasę
+    (``/api/pipeline/stages/{id}/qc``).
+    """
+    row = (
+        await db.execute(
+            select(CandidateStage.job_id, CandidateStageCV)
+            .select_from(CandidateStage)
+            .outerjoin(
+                CandidateStageCV,
+                CandidateStageCV.candidate_stage_id == CandidateStage.id,
+            )
+            .where(CandidateStage.id == stage_id)
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Stage nie znaleziony")
+    job_id, csv = row
+    await ensure_job_read_access(db, current_user, job_id)
+    if csv is None:
+        return CVEditorIssues()
+    return CVEditorIssues(**await cv_editor_issues.stage_issues(db, csv))
 
 
 async def apply_generated_to_stage_cv(
