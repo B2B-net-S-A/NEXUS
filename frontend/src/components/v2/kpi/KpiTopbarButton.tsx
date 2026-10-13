@@ -36,7 +36,16 @@ export function kpiValueClass(mark: KpiMark): string {
   return "text-foreground";
 }
 
-function Segment({ segment, first }: { segment: KpiSegment; first: boolean }) {
+function Segment({
+  segment,
+  first,
+  lead,
+}: {
+  segment: KpiSegment;
+  first: boolean;
+  /** „Zespół” przed podpisem pierwszego segmentu — tylko w formie pełnej. */
+  lead: string | null;
+}) {
   return (
     <span
       data-kpi-segment={segment.id}
@@ -51,6 +60,9 @@ function Segment({ segment, first }: { segment: KpiSegment; first: boolean }) {
       )}
     >
       <span className="text-[11px] leading-[13px] text-muted-foreground">
+        {lead ? (
+          <span className="hidden font-semibold text-foreground 2xl:inline">{lead} · </span>
+        ) : null}
         <span className="2xl:hidden">{segment.labelCompact}</span>
         <span className="hidden 2xl:inline">{segment.label}</span>
       </span>
@@ -78,7 +90,8 @@ function Segment({ segment, first }: { segment: KpiSegment; first: boolean }) {
  * w połowie albo zgniatać wyszukiwarkę. Zmierzone 13.10.2026: okno 1280 px
  * z przypiętym menu mieści trzy segmenty przy krótkich okruszkach i jeden przy
  * długich. Poniżej 1024 px słowo „Cele”; forma zwarta („tydz.”, „mies.”) do
- * 1535 px, od 1536 pełna z podpisem „czyje”. Wszystko jest w DOM naraz —
+ * 1535 px, od 1536 pełna z przedrostkiem „czyje” („Zespół · Weryfikacje”).
+ * Wszystko jest w DOM naraz —
  * wybiera CSS, a nazwa dla czytnika ekranu zawsze mówi o wszystkich celach.
  */
 export function KpiTopbarButton({
@@ -110,16 +123,13 @@ export function KpiTopbarButton({
         <Target className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
         Cele
       </span>
-      {model.lead ? (
-        <span className="hidden h-full flex-col justify-center gap-px whitespace-nowrap bg-muted px-3 2xl:flex">
-          <span className="text-[11px] font-semibold leading-[13px] text-foreground">
-            {model.lead.title}
-          </span>
-          <span className="text-[11px] leading-4 text-muted-foreground">{model.lead.subtitle}</span>
-        </span>
-      ) : null}
       {model.segments.map((segment, index) => (
-        <Segment key={segment.id} segment={segment} first={index === 0} />
+        <Segment
+          key={segment.id}
+          segment={segment}
+          first={index === 0}
+          lead={index === 0 ? model.lead : null}
+        />
       ))}
       {/* Strzałka mówi „tu jest więcej” — także wtedy, gdy część segmentów się nie zmieściła. */}
       <ChevronDown

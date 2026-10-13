@@ -29,17 +29,24 @@ lupę i skrót. Dlatego licznik nie ma progów okna, tylko sam oddaje miejsce:
 pokazuje tyle całych segmentów, ile się mieści, a wyszukiwarka ma od 1024 px
 gwarantowane 220 px.
 
-| Okno (menu przypięte) | Okruszki długie (ekran rekrutacji) | Okruszki krótkie (lista, pulpit) |
-|---|---|---|
-| 1280 × 720 | 1 segment, wyszukiwarka 220 px | 3 segmenty, wyszukiwarka 241–305 px |
-| 1366 × 768 | 2 segmenty, wyszukiwarka 220 px | 3 segmenty |
-| 1440 × 800 | 3 segmenty, wyszukiwarka 243 px | 3 segmenty |
-| 1536 × 864 | forma pełna, wyszukiwarka 313 px | forma pełna (Head z „Zespół · 12 osób”: 449 px) |
+Liczby po scaleniu z ikoną „Rozmowy” (#2170), która zabrała paskowi kolejne
+44 px; menu przypięte, pasek = okno − 240 px:
 
-Poniżej 1024 px zostaje słowo „Cele” (74 px, tyle co dawne „KPI”). Strona
-harnessu nie ma poziomego przewijania przy 360 px. Najciaśniejszy przypadek
-(zespół + okruszki na 70 znaków, 1280 × 650): jeden segment, wyszukiwarka
-220 px, okruszki przycięte do 259 px, sąsiednie przyciski bez zmian.
+| Okno | Rekruter, długie okruszki (ekran rekrutacji) | Head, krótkie okruszki | Delivery Lead, krótkie okruszki |
+|---|---|---|---|
+| 1280 × 720 | 1 segment | 2 segmenty | 3 segmenty |
+| 1366 × 768 | 1 segment | 3 segmenty | 3 segmenty |
+| 1440 × 800 | 2 segmenty | 3 segmenty | 3 segmenty |
+| 1536 × 864 | 3 segmenty, forma pełna | 3 segmenty, forma pełna | 3 segmenty, forma pełna |
+
+W każdej komórce wyszukiwarka ma co najmniej 220 px, pasek się nie przelewa,
+a sąsiednie przyciski mają 36 px. Rekruter przy 1280 px widzi trzy segmenty
+na pulpicie, dwa na listach („Rekrutacje”, „Kandydaci”) i jeden na ekranie
+rekrutacji — reszta celów jest w panelu po kliknięciu. Poniżej 1024 px zostaje
+słowo „Cele” (74 px, tyle co dawne „KPI”); strona harnessu nie ma poziomego
+przewijania przy 360 px. Najciaśniejszy przypadek (zespół, okruszki na 70
+znaków i pigułka „zadzwoń” w ikonie „Rozmowy”, 1280 × 650): jeden segment,
+wyszukiwarka 220 px, okruszki przycięte do 169 px.
 
 ## Znalezione po drodze
 
@@ -81,7 +88,8 @@ harnessu nie ma poziomego przewijania przy 360 px. Najciaśniejszy przypadek
 - Wiersz „Otwarte teraz” w panelu Delivery Leada (wymaga nowego zapytania).
 - Łagodniejsza reguła tempa dla sum zespołu (zespół 0 z 48 o 9:15 nadal jest poniżej tempa).
 - Trzy segmenty zawsze przy 1280 px: wymagałoby schowania przełączników
-  wyglądu (112 px) pod jeden przycisk.
+  wyglądu (112 px) pod jeden przycisk — decyzja właściciela (tę samą ulgę
+  zaproponował raport okienka „Rozmowy”).
 - Kolory `KpiNudgeToaster.tsx` (nadal twarde).
 
 ## Niepotwierdzone

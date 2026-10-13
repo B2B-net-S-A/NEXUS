@@ -236,7 +236,8 @@ describe("licznik celów — rekruter", () => {
 describe("licznik celów — Head of Recruitment i TCM", () => {
   it("te same trzy cele jako suma zespołu, z podpisem czyje; precyzja tylko w panelu", () => {
     const model = buildKpiTopbarModel([], teamGoals());
-    expect(model?.lead).toEqual({ title: "Zespół", subtitle: "12 osób" });
+    expect(model?.lead).toBe("Zespół");
+    expect(model?.panelAside).toBe("12 osób");
     expect(model?.segments.map((s) => [s.label, s.value, s.rest, s.mark])).toEqual([
       ["Weryfikacje", "31", "/ 48 dziś", null],
       ["Rekomendacje", "41", "/ 180 tydzień", "behind"],

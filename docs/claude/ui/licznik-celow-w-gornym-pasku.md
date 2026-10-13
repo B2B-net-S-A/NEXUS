@@ -36,10 +36,10 @@ ratio. Makiety: https://claude.ai/artifact/SDmwSbF8c9wWoqnUtB3KLt, raport:
   segmenty i ma wysokość jednego wiersza, więc nadmiarowy segment spada do
   ukrytego wiersza. Wyszukiwarka ma od 1024 px gwarantowane 220 px, a grupa
   akcji kurczy się przed okruszkami (`shell/topbar-layout.ts`). Zmierzone na
-  harnessie 13.10.2026 przy oknie 1280 × 720 z przypiętym menu: krótkie
-  okruszki = trzy segmenty, długie (ekran rekrutacji) = jeden; 1366 px = dwa;
-  od 1440 px trzy. Bez tego mechanizmu trzy segmenty zostawiały wyszukiwarce
-  109 px. Nie zastępuj tego progiem okna (`xl:`): okno nie wie, czy menu jest
+  harnessie 13.10.2026 (menu przypięte, z ikoną „Rozmowy”): rekruter przy
+  1280 px widzi trzy segmenty na pulpicie, dwa na listach i jeden na ekranie
+  rekrutacji; przy 1440 px dwa na ekranie rekrutacji; od 1536 px trzy wszędzie.
+  Bez tego mechanizmu trzy segmenty zostawiały wyszukiwarce 109 px. Nie zastępuj tego progiem okna (`xl:`): okno nie wie, czy menu jest
   przypięte ani jak długie są okruszki. Kontener na `<header>` też odpada —
   panel dzwonka renderuje się w pasku bez portalu.
 - **Mechanizm ma trzy warunki, każdy złapany pomiarem:** (1) w grupie akcji
@@ -53,7 +53,9 @@ ratio. Makiety: https://claude.ai/artifact/SDmwSbF8c9wWoqnUtB3KLt, raport:
   sąsiad 36 px, zero zawiniętych i wystających segmentów.
 - **Forma zależy od okna tylko w dwóch miejscach:** poniżej 1024 px samo słowo
   „Cele”, do 1535 px skróty okresu („tydz.”, „mies.”) i krótszy podpis, od
-  1536 px forma pełna z segmentem „Zespół · N osób”. Wszystkie formy są w DOM
+  1536 px forma pełna z przedrostkiem „Zespół ·” w podpisie pierwszego
+  segmentu (osobny segment „Zespół” zajmował w ciasnym pasku miejsce jedynego
+  celu, który się mieścił). Wszystkie formy są w DOM
   naraz (jsdom nie liczy CSS) — testy sprawdzają tekst i klasy mechanizmu,
   układ sprawdza `e2e/responsive-preview.spec.ts` na `/preview/kpi-topbar`.
 - **Pasek postępu** (`KpiProgressBar`) ma kolory z tokenów. Kreska tempa jest

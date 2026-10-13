@@ -57,8 +57,12 @@ export interface KpiPanelGroup {
 }
 
 export interface KpiTopbarModel {
-  /** Czyje cele („Zespół · 12 osób”) — segment formy pełnej; null u rekrutera i DL. */
-  lead: { title: string; subtitle: string } | null;
+  /**
+   * Czyje cele („Zespół”) — przedrostek podpisu pierwszego segmentu w formie
+   * pełnej; null u rekrutera i DL. Nie jest osobnym segmentem: w ciasnym pasku
+   * zajmowałby miejsce jedynego celu, który się mieści.
+   */
+  lead: string | null;
   /** W kolejności ważności: gdy w pasku brakuje miejsca, znikają od końca. */
   segments: KpiSegment[];
   /** Nazwa przycisku dla czytnika ekranu — to samo, co mówią segmenty. */
@@ -439,7 +443,7 @@ export function buildKpiTopbarModel(
   const segments = inBar.map(segmentOf);
   const people = peopleLabel(leader.people);
   return {
-    lead: people ? { title: "Zespół", subtitle: people } : null,
+    lead: "Zespół",
     segments,
     spoken: spokenOf("Cele zespołu", segments),
     panelTitle: "Cele zespołu",
