@@ -34,7 +34,13 @@ import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { scoreFailureFor } from "@/hooks/useVisibleMatchScores";
 import api from "@/lib/api";
 import { candidateSearchApi, type MatchScoresResponse } from "@/lib/candidate-search-api";
-import { jobProposalsApi, jobProposalsKeys, type ProposalFacts } from "@/lib/job-proposals-api";
+import {
+  jobProposalsApi,
+  jobProposalsKeys,
+  talkCheckLabel,
+  type ProposalFacts,
+  type TalkCheck,
+} from "@/lib/job-proposals-api";
 import { summarizeBreakdown, unmeasuredReason } from "@/lib/match-breakdown";
 import {
   clientHistoryLine,
@@ -76,6 +82,8 @@ export interface PersonPreviewProps {
     /** Podpis pola wyboru — albo powód, dla którego osoby nie da się wybrać. */
     label: string;
   };
+  /** „Zapytaj w rozmowie” rekrutacji (`…/proposal-counts`) — tego nie ma w CV. */
+  talkChecks?: readonly TalkCheck[];
   "data-testid"?: string;
 }
 
@@ -111,6 +119,7 @@ export function PersonPreview({
   onClose,
   canOpenProfile,
   selection,
+  talkChecks = [],
   "data-testid": testId = "person-preview",
 }: PersonPreviewProps) {
   const rootRef = useRef<HTMLElement>(null);
@@ -246,6 +255,21 @@ export function PersonPreview({
           aside={<ScoreBadge query={score} candidateId={candidateId} />}
         >
           <ScoreBody query={score} candidateId={candidateId} />
+          {talkChecks.length > 0 ? (
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">Zapytaj w rozmowie</p>
+              <ul className="flex flex-wrap gap-1.5" aria-label="Zapytaj w rozmowie">
+                {talkChecks.map((check) => (
+                  <li
+                    key={`${check.kind}-${check.label}`}
+                    className="rounded-full border border-border bg-card px-2 py-0.5 text-xs text-foreground"
+                  >
+                    {talkCheckLabel(check)}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </Section>
 
         {extra ? <Section title={extra.title}>{extra.content}</Section> : null}

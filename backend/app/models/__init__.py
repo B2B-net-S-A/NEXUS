@@ -802,3 +802,8 @@ from app.models.screening_form_version import ScreeningFormVersion  # noqa: F401
 from app.models.client_framework_contract_chunk import (  # noqa: F401
     ClientFrameworkContractChunk,
 )
+
+# 0438: decyzje „Wymagania do poprawy” (porządki wymagań otwartych rekrutacji).
+from app.models.requirement_cleanup import (  # noqa: F401
+    RequirementCleanupDecision,
+)

@@ -20,6 +20,7 @@
     ["programista", "programist*", "developer"],
     ["kierownik projektu", "project manager"],
     ["telekomunikacja", "telekomunik*", "telecommunications"],
-    ["energetyka", "energetyk*", "energy"]
+    ["energetyka", "energetyk*", "energy"],
+    ["przetarg*", "PZP", "SIWZ", "SWZ", "OPZ", "tender*"]
   ]
 }

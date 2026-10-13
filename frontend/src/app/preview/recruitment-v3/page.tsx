@@ -227,6 +227,16 @@ const SCENARIO_LABEL: Record<ProposalsScenario, string> = {
 
 const noop = () => undefined;
 
+// Wariant A (13.10.2026): „Zapytaj w rozmowie” na karcie osoby — fikcyjne pozycje.
+const TALK = {
+  checks: [
+    { label: "bankowość detaliczna", kind: "domains" },
+    { label: "angielski B2", kind: "language" },
+    { label: "Doświadczenie w zespole rozproszonym", kind: "must" },
+  ],
+  notSearchableMust: ["Doświadczenie w zespole rozproszonym"],
+};
+
 function proposalsState(
   scenario: ProposalsScenario,
   filters: ProposalViewFilters,
@@ -591,6 +601,7 @@ function Harness() {
           onFiltersChange={setFilters}
           onOpenManualSearch={() => setLastSlideOver("manual-search")}
           onOpenQuickAdd={noop}
+          talk={TALK}
         />
       </div>
     </QueryClientProvider>

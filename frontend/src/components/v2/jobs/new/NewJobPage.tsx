@@ -74,7 +74,12 @@ import {
   type TemplateRows,
   type TemplateSourceJob,
 } from "@/lib/job-request-intake";
-import type { RowCriticalState } from "@/lib/requirement-rows";
+import {
+  CRITICAL_PEOPLE_MIN,
+  criticalReachWarning,
+  type RowCriticalState,
+} from "@/lib/requirement-rows";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { fetchRowsFromLegacy, useRowCriticalInfo } from "@/lib/requirement-rows-api";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { cn } from "@/lib/utils";
@@ -696,6 +701,9 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     enabled: !preview,
   });
   const criticalInfo = preview?.criticalInfo ?? liveCriticalInfo;
+  // D2 (13.10.2026): ile osób zostawiają krytyczne razem — „Utwórz” pyta poniżej 20.
+  const [criticalReach, setCriticalReach] = useState<number | null | undefined>(undefined);
+  const { askConfirm, confirmDialog } = useConfirmV2();
   const missing = useMemo(
     () => missingFor(form, { criticalInfo: criticalInfo.info }),
     [form, criticalInfo.info],
@@ -1144,6 +1152,15 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
         ?.scrollIntoView?.({ behavior: "smooth", block: "start" });
       return;
     }
+    if (criticalReach != null && criticalReach < CRITICAL_PEOPLE_MIN) {
+      const ok = await askConfirm({
+        title: "Krytyczne zostawiają mało osób",
+        description: `${criticalReachWarning(criticalReach)} Utworzyć rekrutację z tymi krytycznymi?`,
+        confirmLabel: "Utwórz mimo to",
+        cancelLabel: "Wróć do wymagań",
+      });
+      if (!ok) return;
+    }
     setSaving("create");
     setSaveError(null);
     setServerBlockers(null);
@@ -1277,6 +1294,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
 
   return (
     <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-4 md:px-2 md:pt-2">
+      {confirmDialog}
       <PageHeader
         title="Nowa rekrutacja"
         description="Wybierz klienta i wypełnij formularz — ręcznie albo z maila, pliku lub innej rekrutacji."
@@ -1408,6 +1426,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
             clientId={client?.id ?? null}
             countEnabled={!preview}
             criticalInfo={criticalInfo}
+            onCriticalCountChange={setCriticalReach}
             clientTitleError={
               clientTitleAttempted && !jobTitleFor(form) ? CLIENT_TITLE_REQUIRED_TEXT : null
             }

@@ -58,7 +58,9 @@ export const CHAMPION_SECTIONS: readonly ChampionSectionMeta[] = [
   {
     id: "experience",
     anchor: "champion-section-experience",
-    label: "4 · Doświadczenie poza stackiem",
+    // 13.10.2026 (wariant A): druga lista wymagań — rzeczy, których nie
+    // znajdziemy w CV słowem (zdania, branża, certyfikaty, poziom).
+    label: "4 · Rekruter sprawdza w rozmowie",
   },
   { id: "search", anchor: "champion-section-search", label: "2 · Co wpisać (search)" },
   { id: "project", anchor: "champion-section-project", label: "5 · O projekcie" },
@@ -152,6 +154,7 @@ function isSectionFilled(id: ChampionSectionId, profile: ChampionProfile): boole
           (hasItems(e.domains) ||
             hasItems(e.certifications) ||
             hasItems(e.regulations) ||
+            hasItems(e.skills) ||
             hasText(e.notes)),
       );
     }

@@ -14,7 +14,7 @@
  */
 
 import type { ChampionExperience, ExperienceItem, ExperienceKind } from "@/lib/api";
-import { hasExperience } from "@/lib/champion-experience";
+import { EXPERIENCE_KINDS, hasExperience } from "@/lib/champion-experience";
 import { formatIsoDatePl } from "@/lib/date-pl";
 import { personNameKey } from "@/lib/hiring-manager";
 import {
@@ -191,7 +191,6 @@ const LIST_KEYS = [
 ] as const;
 type ListKey = (typeof LIST_KEYS)[number];
 
-const EXPERIENCE_KINDS: readonly ExperienceKind[] = ["domains", "certifications", "regulations"];
 
 /**
  * Pola proste formularza — wszystkie poza listami. Pola decyzji człowieka
@@ -690,12 +689,13 @@ export function applyIntakeRead(
   let experienceAdded = false;
   const experience: ChampionExperience = { ...next.experience };
   for (const kind of EXPERIENCE_KINDS) {
-    const known = new Set(experience[kind].map((item) => fold(item.name)));
+    const current = experience[kind] ?? [];
+    const known = new Set(current.map((item) => fold(item.name)));
     const added = (read.experience[kind] ?? []).filter(
       (item) => !blank(item.name) && !known.has(fold(item.name)),
     );
     if (added.length === 0) continue;
-    experience[kind] = [...experience[kind], ...added];
+    experience[kind] = [...current, ...added];
     experienceAdded = true;
   }
   if (experienceAdded) {
@@ -848,8 +848,10 @@ function fillUndo(before: IntakeForm, after: IntakeForm): IntakeFillUndo {
   }
   const experience = {} as Record<ExperienceKind, ExperienceItem[]>;
   for (const kind of EXPERIENCE_KINDS) {
-    const known = new Set(before.experience[kind].map((item) => fold(item.name)));
-    experience[kind] = after.experience[kind].filter((item) => !known.has(fold(item.name)));
+    const known = new Set((before.experience[kind] ?? []).map((item) => fold(item.name)));
+    experience[kind] = (after.experience[kind] ?? []).filter(
+      (item) => !known.has(fold(item.name)),
+    );
   }
   const provenanceKeys = new Set([
     ...Object.keys(before.provenance ?? {}),
@@ -895,9 +897,10 @@ export function undoIntakeFill(form: IntakeForm, undo: IntakeFillUndo): IntakeFo
   }
   const experience: ChampionExperience = { ...form.experience };
   for (const kind of EXPERIENCE_KINDS) {
-    const written = undo.experience[kind];
+    // Łatka zapisana przed 13.10.2026 nie zna `skills`.
+    const written = undo.experience[kind] ?? [];
     if (written.length === 0) continue;
-    experience[kind] = form.experience[kind].filter(
+    experience[kind] = (form.experience[kind] ?? []).filter(
       (item) => !written.some((added) => sameValue(added, item)),
     );
   }

@@ -1197,6 +1197,13 @@ def _build_job_text_v1(job, *, max_field_chars: int | None = 1200) -> str:
         loc = basics.get("candidate_location_pref")
         if isinstance(loc, str) and loc.strip():
             parts.append(f"lokalizacja: {loc}")
+        # „Rekruter sprawdza w rozmowie” (13.10.2026): zdania, które do tej daty
+        # stały w must i trafiały tu przez kolumnę `must_skills`. Tylko gdy są —
+        # tekst rekrutacji bez nich zostaje bajt w bajt.
+        for item in champion_view.experience(champion).get("skills") or []:
+            name = item.get("name")
+            if isinstance(name, str) and name.strip():
+                parts.append(name[:160])
 
     # Must / nice skills names
     for bucket_name, bucket in (("must", job.must_skills), ("nice", job.nice_skills)):

@@ -1280,9 +1280,9 @@
   {
    "id": "board.sources-search",
    "area": "pipeline",
-   "opis": "„Szukaj w bazie”: wyszukiwanie po słowach z Championa uruchamiane od razu; słowa i „Po tym nie szukamy” (zdania z must-have), trafienia w CV, „Zmień słowa i filtry” do pełnego „Szukaj ręcznie”",
+   "opis": "„Szukaj w bazie”: wyszukiwanie po słowach z Championa uruchamiane od razu; linie „Wymagane (krytyczne)”, „Musi mieć (Delivery Lead)”, „Mile widziane”, „Lokalizacja kandydata” i „Rekruter sprawdza w rozmowie” (dawne „Po tym nie szukamy”, wariant A 13.10.2026), trafienia w CV, „Zmień słowa i filtry” do pełnego „Szukaj ręcznie”",
    "file": "components/v2/recruitment/useSearchBaseTab.tsx",
-   "marker": "Po tym nie szukamy",
+   "marker": "Rekruter sprawdza w rozmowie",
    "v3_home": "okno „Kandydaci do dodania” → Szukaj w bazie"
   },
   {

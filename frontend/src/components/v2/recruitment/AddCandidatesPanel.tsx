@@ -66,6 +66,7 @@ import {
   jobProposalsApi,
   jobProposalsKeys,
   PROPOSAL_FACTS_MAX_IDS,
+  talkChecksOf,
   type ProposalFacts,
 } from "@/lib/job-proposals-api";
 import { unmeasuredReason } from "@/lib/match-breakdown";
@@ -297,6 +298,9 @@ function AddCandidatesPanelOpen({
     staleTime: 30_000,
     retry: false,
   });
+  // „Zapytaj w rozmowie” (wariant A, 13.10.2026) — zakładka wyszukiwania
+  // i podgląd osoby czytają tę samą listę.
+  const talkChecks = useMemo(() => talkChecksOf(counts.data), [counts.data]);
   const similarJobs = useSimilarJobs(jobId, !readOnly);
   const similarTab = useSimilarJobsTab(jobId, {
     enabled: visited.has("similar"),
@@ -306,7 +310,8 @@ function AddCandidatesPanelOpen({
   const searchTab = useSearchBaseTab(jobId, {
     enabled: visited.has("search"),
     seed: searchSeed,
-    notSearchable: counts.data?.not_searchable_must ?? [],
+    talkChecks,
+    talkChecksError: counts.isError ? apiErrorMessage(counts.error, "błąd serwera") : null,
     readOnly,
     canOpenProfile,
     onOpenManualSearch: () => {
@@ -809,6 +814,7 @@ function AddCandidatesPanelOpen({
         onNext={() => setPreviewId(listRows[previewIndex + 1]?.candidateId ?? previewRow.candidateId)}
         onClose={closePreview}
         canOpenProfile={canOpenProfile}
+        talkChecks={talkChecks}
         selection={{
           checked: selectedIds.has(previewRow.candidateId),
           disabled: readOnly || previewRow.warnings.some((w) => w.blocking),

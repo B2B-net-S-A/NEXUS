@@ -81,6 +81,7 @@ PanelKey = Literal[
     "new_job_leads",
     "team_load",
     "pending_jobs",
+    "requirement_fixes",
     "board_flow",
     "followups",
     "agreements",

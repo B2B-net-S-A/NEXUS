@@ -383,6 +383,24 @@ async def _notify(
 PROPOSALS_ACTIVITY_ENTITY = "job_automation"
 
 
+def _requirement_statuses(scored: Optional[Scored]) -> list[dict]:
+    """Wymagania must z oceną tak, jak czyta je karta propozycji (13.10.2026).
+
+    Bez „niespełnione”: brak w liście umiejętności to nie dowód, a zdanie
+    („doświadczenie w przetargach”) nie jest w ogóle sprawdzane — do tej daty
+    karta pokazywała przy nim „✕”. „Nie znaleźliśmy” = ``unknown``.
+    """
+    if scored is None:
+        return []
+    return [
+        {"name": label, "level": "must", "status": "met"}
+        for label in scored.matching_must
+    ] + [
+        {"name": label, "level": "must", "status": "unknown"}
+        for label in scored.gap_must
+    ]
+
+
 async def _publish_proposals(
     db: AsyncSession,
     *,
@@ -437,6 +455,7 @@ async def _publish_proposals(
                 "evidence": {
                     "matched_must": list(scored.matching_must) if scored else [],
                     "missing_must": list(scored.gap_must) if scored else [],
+                    "requirements": _requirement_statuses(scored),
                 },
             }
         )

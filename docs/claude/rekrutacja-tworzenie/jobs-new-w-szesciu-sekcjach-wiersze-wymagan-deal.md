@@ -42,7 +42,8 @@ z „wymagań do wyszukiwania” powtarzało must, deal breaker miały 3 z 99 py
   „Frazy do LinkedIna” usunięte z formularza, edytora i podglądu (dane w
   profilach zostają).
 - **„Szukaj ręcznie” dla profilu z wierszami wymaga tylko wierszy KRYTYCZNYCH**
-  (`ManualSearchPanel.championCriticalRowFlags`); pozostałe „musi mieć” idą do
+  (`job-search-filters.splitByCritical`; `championCriticalRowFlags` usunięte
+  w #2056); pozostałe „musi mieć” idą do
   „Mile widziane”. Profil bez wierszy — jak dotąd (technologie obowiązkowe).
 - **Deal breaker przy każdym pytaniu jest wymagany do „Przekaż do searchu”**
   (`job_readiness.MSG_DEAL_BREAKER`, lustro `job-readiness-blockers.json`) —

@@ -68,3 +68,22 @@ describe("screening — „Sprawdź w rozmowie”", () => {
     expect(experienceCheckRows({}, undefined)).toEqual([]);
   });
 });
+
+describe("lista „Rekruter sprawdza w rozmowie” (13.10.2026)", () => {
+  it("addTalkItem dopisuje całe zdanie, bez dzielenia po przecinkach i bez powtórek", async () => {
+    const { addTalkItem } = await import("@/lib/champion-experience");
+    const once = addTalkItem([], "Software Developer, Data Engineer (min. 3 lata)", "nice");
+    expect(once).toEqual([
+      { name: "Software Developer, Data Engineer (min. 3 lata)", level: "nice", min_years: null, note: "" },
+    ]);
+    expect(addTalkItem(once, "software developer, data engineer (min. 3 lata)")).toHaveLength(1);
+    expect(addTalkItem([], "   ")).toEqual([]);
+  });
+
+  it("joinLanguage dopisuje język do pola bez powtórek", async () => {
+    const { joinLanguage } = await import("@/lib/champion-experience");
+    expect(joinLanguage("", "angielski B2")).toBe("angielski B2");
+    expect(joinLanguage("polski", "angielski B2")).toBe("polski, angielski B2");
+    expect(joinLanguage("polski, angielski B2", "Angielski B2")).toBe("polski, angielski B2");
+  });
+});

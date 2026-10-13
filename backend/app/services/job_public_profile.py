@@ -234,6 +234,15 @@ def _stack_names(job: Job, key: str) -> list[str]:
             for n in iter_skill_names(getattr(job, column, None))
             if isinstance(n, str) and n.strip()
         ]
+    if isinstance(raw, dict) and raw:
+        # „Rekruter sprawdza w rozmowie” (13.10.2026): zdania, które do tej daty
+        # stały w must/nice. Wyszukiwanie ich nie czyta, ale strona kariery
+        # i ogłoszenie nadal je pokazują — przeniesienie nie może ich ukryć.
+        names.extend(
+            str(item.get("name")).strip()
+            for item in champion_view.experience(raw).get("skills") or []
+            if item.get("level", "must") == key
+        )
     seen: set[str] = set()
     out: list[str] = []
     for name in names:

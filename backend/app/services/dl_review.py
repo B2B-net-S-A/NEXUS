@@ -198,7 +198,9 @@ def job_requirement_inputs(job: Any) -> list[RequirementInput]:
         for index, req in enumerate(nice)
     )
     experience = champion_view.experience(getattr(job, "champion_profile", None))
-    for kind in ("domains", "certifications", "regulations"):
+    # `skills` = „Rekruter sprawdza w rozmowie” (13.10.2026): DL widzi je obok
+    # wymagań, choć zwykle zostają „do potwierdzenia”.
+    for kind in ("domains", "certifications", "regulations", "skills"):
         for index, item in enumerate(experience.get(kind) or []):
             name = str(item.get("name") or "").strip()
             if not name:

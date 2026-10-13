@@ -131,7 +131,7 @@
       }
     ],
     "pitfalls": [
-      "Wynik „nie policzono” to brak danych, nie słabe dopasowanie.",
+      "Wynik „nie policzono” to brak danych, nie słabe dopasowanie. W „Wymaganiach” ✓ i ? dotyczą słów sprawdzonych w CV; „Zapytaj w rozmowie” to rzeczy, których CV nie potwierdzi (zdania, branża, język) — sprawdź je w rozmowie.",
       "Osoby z ostrzeżeniem (np. konflikt z klientem) są widoczne i da się je dodać — sprawdź powód przed wysłaniem do klienta; weto hiring managera blokuje dodanie. Ramka „Pracuje u nas” w panelu osoby mówi, u którego klienta osoba ma trwającą umowę i kto jest jej Delivery Leadem — to informacja, nie blokada.",
     "Budżet i dni w biurze nikogo nie ukrywają — to plakietki: „oczekuje +X% ponad budżet”, „mniej dni w biurze”, „poniżej minimum — zgoda na telefon”, „preferuje pracę zdalną” (przy hybrydzie; przy pracy w biurze od 4 dni taka osoba jest ukryta).",
     "Plakietka „Szuka części etatu” albo „Tylko pełny etat” znaczy, że wymiar pracy z rozmowy nie pasuje do rekrutacji. Osoba zostaje na liście — sprawdź to z nią przed dodaniem."
@@ -226,13 +226,13 @@
       },
       {
         "q": "Jak wpisać wymagania jako słowa kluczowe?",
-        "a": "W Briefie kliknij „Edytuj” przy „Czego szukamy”. Wiersz to wymaganie, słowa w wierszu to warianty, a poziom to „Krytyczne”, „Musi mieć” albo „Mile widziane”. Od nich rekruter zaczyna „Szukaj w bazie”. Starszy profil zamienisz na listę przyciskiem „Uprość do słów kluczowych”.",
+        "a": "W Briefie kliknij „Edytuj” przy „Czego szukamy”. Wiersz to wymaganie, słowa to warianty, poziom: „Krytyczne”, „Musi mieć”, „Mile widziane”. Zdanie (np. „doświadczenie w przetargach”) zamień na słowa z podpowiedzi albo „Do rozmowy” — trafi do „Rekruter sprawdza w rozmowie”. Starszy profil: „Uprość do słów kluczowych”.",
         "anchor": "job.champion.tabs"
       }
     ],
     "pitfalls": [
       "Wymagania z „Czego szukamy” są tym, po czym system dopasowuje kandydatów — sama proza w opisie projektu wystarcza gorzej.",
-      "Kandydata z list AI ukrywa tylko brak wymagania krytycznego. Wybiera je Delivery Lead: najwyżej trzy, dowolna fraza — szukamy słów jej wiersza w profilu, CV i notatkach. Bez decyzji działa podpowiedź z historii; „Brak krytycznych” = nikt nie jest ukrywany.",
+      "Kandydata z list AI ukrywa tylko brak wymagania krytycznego: najwyżej trzy słowa do szukania (zdanie nie może być krytyczne). Gdy razem zostawiają mniej niż 20 osób, zapis pyta. Bez decyzji działa podpowiedź z historii; „Brak krytycznych” = nikt nie jest ukrywany.",
       "Budżet podany zakresem (np. 60–80) widać jako przedział, a plakietki liczą się od górnej granicy.",
       "Tytuł w nagłówku to tytuł dla rekrutera: składa się sam z profilu (rola, must-have, lata, dziedzina), dopóki nikt go nie zmieni w „Edytuj rekrutację”. Do klienta idą nazwa i numer od klienta."
     ],

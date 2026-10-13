@@ -103,14 +103,40 @@ async def test_stale_profile_hash_is_refused_with_the_current_profile(
 async def test_critical_phrase_outside_technologies_stays_critical(
     app_client: AsyncClient, app_auth_headers: dict, offline_matching
 ):
-    """09.10.2026: o tym, co jest krytyczne, decyduje Delivery Lead — fraza
-    spoza technologii zostaje krytyczna i zapis nie zgłasza uwagi. Do tej daty
-    schodziła do „musi mieć” z komunikatem (P4 audytu 06.10.2026)."""
+    """09.10.2026: o tym, co jest krytyczne, decyduje Delivery Lead — słowo
+    spoza technologii („Temenos T24”, „bankowość”) zostaje krytyczne i zapis nie
+    zgłasza uwagi. Do tej daty schodziło do „musi mieć” (P4 audytu 06.10.2026).
+
+    13.10.2026 (wariant A, D2): zdanie i umiejętność miękka nie są słowem do
+    szukania, więc nie mogą być krytyczne — „komunikatywność” przechodzi do
+    „Rekruter sprawdza w rozmowie”, a jej krytyczne znika z uwagą."""
     from tests.taxonomy_fixture import hydrated_taxonomy
 
     job = await _create(app_client, app_auth_headers, await _client())
     with hydrated_taxonomy():
         saved = await app_client.put(
+            _url(job["id"]),
+            json={
+                "stack": {
+                    "rows": [
+                        {"words": ["Python"], "level": "must"},
+                        {"words": ["Temenos T24"], "level": "must"},
+                        {"words": ["bankowość"], "level": "must"},
+                    ],
+                    "critical": ["Python", "Temenos T24", "bankowość"],
+                }
+            },
+            headers=app_auth_headers,
+        )
+        assert saved.status_code == 200, saved.text
+        body = saved.json()
+        critical = body["champion_profile"]["stack"].get("critical") or []
+        assert [c.lower() for c in critical] == ["python", "temenos t24", "bankowość"]
+        assert not any(
+            "Temenos" in notice or "bankowość" in notice for notice in body["notices"]
+        ), body["notices"]
+
+        only_soft = await app_client.put(
             _url(job["id"]),
             json={
                 "stack": {
@@ -123,25 +149,12 @@ async def test_critical_phrase_outside_technologies_stays_critical(
             },
             headers=app_auth_headers,
         )
-        assert saved.status_code == 200, saved.text
-        body = saved.json()
-        critical = body["champion_profile"]["stack"].get("critical") or []
-        assert [c.lower() for c in critical] == ["python", "komunikatywność"], body
-        assert not any("komunikatywność" in notice for notice in body["notices"])
-
-        only_soft = await app_client.put(
-            _url(job["id"]),
-            json={
-                "stack": {
-                    "rows": [{"words": ["komunikatywność"], "level": "must"}],
-                    "critical": ["komunikatywność"],
-                }
-            },
-            headers=app_auth_headers,
-        )
     assert only_soft.status_code == 200, only_soft.text
-    kept = only_soft.json()["champion_profile"]["stack"].get("critical") or []
-    assert [c.lower() for c in kept] == ["komunikatywność"]
+    body = only_soft.json()
+    profile = body["champion_profile"]
+    assert [c.lower() for c in profile["stack"].get("critical") or []] == ["python"]
+    assert [s["name"] for s in profile["experience"]["skills"]] == ["komunikatywność"]
+    assert any("komunikatywność" in notice for notice in body["notices"])
 
 
 async def test_saving_rows_realigns_the_must_column(

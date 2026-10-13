@@ -211,7 +211,8 @@ export function ChampionBriefView({
   const experienceCount =
     (profile.experience?.domains?.length ?? 0) +
     (profile.experience?.certifications?.length ?? 0) +
-    (profile.experience?.regulations?.length ?? 0);
+    (profile.experience?.regulations?.length ?? 0) +
+    (profile.experience?.skills?.length ?? 0);
   const recruiterNames = workingRecruiters(recruitersOf(job)).map((p) => p.name);
   const sellingPoints = profile.client?.selling_points?.trim() ?? "";
 
@@ -272,7 +273,7 @@ export function ChampionBriefView({
             </div>
             {experienceCount > 0 ? (
               <div className="space-y-1.5">
-                <Eyebrow>Doświadczenie poza stackiem</Eyebrow>
+                <Eyebrow>Rekruter sprawdza w rozmowie</Eyebrow>
                 <ExperienceChips experience={profile.experience} />
               </div>
             ) : null}

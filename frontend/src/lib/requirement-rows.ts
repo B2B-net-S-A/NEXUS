@@ -462,9 +462,38 @@ export function criticalSummary(
 
 // ── Co serwer wie o wierszach (etykieta, słownik, podpowiedź z historii) ──
 
+/**
+ * Jak serwer czyta słowo wiersza (`requirement_phrase.read_phrase`, 13.10.2026,
+ * wariant A): słowo do szukania albo rzecz do sprawdzenia w rozmowie.
+ */
+export interface PhraseReading {
+  text: string;
+  kind:
+    | "technology"
+    | "keyword"
+    | "prose"
+    | "soft"
+    | "language"
+    | "domain"
+    | "category"
+    | "role"
+    | "city";
+  /** Słowo do szukania po oczyszczeniu („SQL” z „SQL (bardzo dobra znajomość)”). */
+  keyword: string | null;
+  /** Treść nawiasu albo wstęp, gdy są komentarzem. */
+  comment: string | null;
+  /** Dokąd fraza idzie do rozmowy: sekcja 4 (`skills`/`domains`) albo pole „Język”. */
+  talk: "skills" | "domains" | "language" | null;
+  talk_text: string | null;
+  suggestions: string[];
+  needs_decision: boolean;
+}
+
 export interface RowCriticalInfo {
   /** Etykieta wiersza w `stack.must` („Kafka lub RabbitMQ”). */
   label: string;
+  /** Odczyt każdego słowa wiersza (kolejność słów). */
+  readings?: PhraseReading[];
   /**
    * Technologia ze słownika: od niej zależy wymóg decyzji o krytycznych,
    * podpowiedź z historii i tytuł dla rekrutera. Oznaczyć jako krytyczny
@@ -495,6 +524,8 @@ export const EMPTY_ROW_CRITICAL_STATE: RowCriticalState = {
 /** Odpowiedź `POST /api/job-intake/critical-suggestion` z `rows`. */
 export interface RowCriticalResponse {
   labels?: string[];
+  /** Od 13.10.2026: odczyt słów każdego wiersza (kolejność jak w żądaniu). */
+  readings?: PhraseReading[][];
   eligible: string[];
   suggested: string[];
   stats: Record<string, CriticalStat>;
@@ -515,6 +546,7 @@ export function rowCriticalInfo(
       eligible: has(response.eligible ?? [], label),
       suggested: has(response.suggested ?? [], label),
       stat: response.stats?.[label],
+      readings: response.readings?.[index],
     };
   });
   return out;
@@ -555,4 +587,96 @@ export function applySuggestion(
     if (keys.includes(row.key)) return { ...row, level: "critical" as const };
     return row.level === "critical" ? { ...row, level: "must" as const } : row;
   });
+}
+
+// ── Słowo do szukania czy rzecz do rozmowy (wariant A, 13.10.2026) ──
+
+/** Rodzaje frazy, które nie mogą zostać słowem do szukania bez decyzji. */
+const DECISION_KINDS = new Set<PhraseReading["kind"]>(["prose", "soft", "language", "domain"]);
+
+/**
+ * Słowo wiersza, które wymaga decyzji „zamień na słowa” albo „do rozmowy”
+ * (zdanie, umiejętność miękka, język, branża opisana zdaniem). `null` = wiersz
+ * jest w porządku albo serwer jeszcze nie odpowiedział.
+ */
+export function rowDecision(info: RowCriticalInfo | null | undefined): PhraseReading | null {
+  return (
+    info?.readings?.find((reading) => reading.needs_decision && DECISION_KINDS.has(reading.kind)) ??
+    null
+  );
+}
+
+/** Miasto wpisane jako wymaganie — podpowiedź, nie blokada. */
+export function rowCity(info: RowCriticalInfo | null | undefined): PhraseReading | null {
+  return info?.readings?.find((reading) => reading.kind === "city") ?? null;
+}
+
+/** Technologia z komentarzem („SQL (bardzo dobra znajomość)”) — da się rozdzielić. */
+export function rowComment(info: RowCriticalInfo | null | undefined): PhraseReading | null {
+  return (
+    info?.readings?.find(
+      (reading) =>
+        !reading.needs_decision &&
+        reading.keyword != null &&
+        reading.comment != null &&
+        fold(reading.keyword) !== fold(reading.text),
+    ) ?? null
+  );
+}
+
+/** Klucze wierszy, przy których decyzja jeszcze nie zapadła (blokują zapis). */
+export function rowsNeedingDecision(
+  rows: readonly RequirementRowForm[],
+  info: Record<string, RowCriticalInfo> | null | undefined,
+): string[] {
+  if (!info) return [];
+  return requiredRows(rows)
+    .filter((row) => rowDecision(info[row.key]) != null)
+    .map((row) => row.key);
+}
+
+/** Pozycja przenoszona do „Rekruter sprawdza w rozmowie” (albo pola „Język”). */
+export interface TalkItem {
+  name: string;
+  kind: "skills" | "domains" | "language";
+  level: "must" | "nice";
+}
+
+/**
+ * Słowo `word` wiersza `key` zastąpione słowami `replacement` (pusta lista =
+ * słowo wypada). Wiersz bez słów znika z listy.
+ */
+export function replaceRowWord(
+  rows: readonly RequirementRowForm[],
+  key: string,
+  word: string,
+  replacement: readonly string[],
+): RequirementRowForm[] {
+  const out: RequirementRowForm[] = [];
+  for (const row of rows) {
+    if (row.key !== key) {
+      out.push(row);
+      continue;
+    }
+    const words: string[] = [];
+    for (const current of row.words) {
+      const next = fold(current) === fold(word) ? replacement : [current];
+      for (const candidate of next) {
+        if (!words.some((w) => fold(w) === fold(candidate))) words.push(candidate);
+      }
+    }
+    if (words.length > 0) out.push({ ...row, words });
+  }
+  return out;
+}
+
+/** Ile osób zostawiają krytyczne razem — poniżej tej liczby pytamy (D2). */
+export const CRITICAL_PEOPLE_MIN = 20;
+
+/** Zdanie pod listą, gdy krytyczne razem zostawiają mało osób; `null` = w porządku. */
+export function criticalReachWarning(count: number | null | undefined): string | null {
+  if (count == null || count >= CRITICAL_PEOPLE_MIN) return null;
+  return count === 0
+    ? "Krytyczne razem nie zostawiają nikogo w bazie — propozycje AI i „Szukaj w bazie” będą puste."
+    : `Krytyczne razem zostawiają ${count.toLocaleString("pl-PL")} ${count === 1 ? "osobę" : count < 5 ? "osoby" : "osób"} z bazy — propozycje AI pokażą tylko je.`;
 }

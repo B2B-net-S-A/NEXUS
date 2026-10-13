@@ -104,13 +104,21 @@ import { ChampionExperienceFields } from "@/components/champion/ChampionExperien
 import { SearchRequirementsEditor } from "@/components/champion/SearchRequirementsEditor";
 import { RequirementRowsEditor } from "@/components/champion/RequirementRowsEditor";
 import {
+  CRITICAL_PEOPLE_MIN,
+  criticalReachWarning,
   criticalRows,
   mustHeads,
   niceHeads,
   rowsFromStored,
+  rowsNeedingDecision,
   searchRows,
   type RequirementRowForm,
+  type TalkItem,
 } from "@/lib/requirement-rows";
+import { addTalkItem, joinLanguage } from "@/lib/champion-experience";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
+import { RequirementProposalDialog } from "@/components/champion/RequirementProposalDialog";
+import { useRequirementProposal } from "@/lib/requirement-proposal-api";
 import { fetchRowsFromLegacy, useRowCriticalInfo } from "@/lib/requirement-rows-api";
 import { ChampionInsightsSection } from "@/components/champion/ChampionInsightsSection";
 import { syncLegacyInsight, type InsightChange } from "@/lib/champion-insights";
@@ -394,6 +402,28 @@ export function ChampionProfileEditor({
   );
   const [simplifying, setSimplifying] = useState(false);
   const [simplifyError, setSimplifyError] = useState<string | null>(null);
+  // Wariant A (13.10.2026): „Do rozmowy” z edytora wierszy i liczba osób,
+  // które zostawiają krytyczne razem (D2 — zapis pyta poniżej 20).
+  const [criticalReach, setCriticalReach] = useState<number | null | undefined>(undefined);
+  const { askConfirm, confirmDialog } = useConfirmV2();
+  // D4 (13.10.2026): propozycja uporządkowania wymagań tej rekrutacji.
+  const proposalQuery = useRequirementProposal(jobId, Boolean(data));
+  const proposal = proposalQuery.data?.proposal ?? null;
+  const [proposalOpen, setProposalOpen] = useState(false);
+  const moveToTalk = (item: TalkItem) =>
+    setDraft((d) => {
+      if (item.kind === "language") {
+        return { ...d, basics: { ...d.basics, language: joinLanguage(d.basics.language ?? "", item.name) } };
+      }
+      const experience = d.experience ?? EMPTY_CHAMPION_EXPERIENCE;
+      return {
+        ...d,
+        experience: {
+          ...experience,
+          [item.kind]: addTalkItem(experience[item.kind] ?? [], item.name, item.level),
+        },
+      };
+    });
 
   // Live refresh when another user edits this job's Champion Profile.
   // The WS hook dispatches CHAMPION_PROFILE_CHANGED_EVENT on the window;
@@ -481,6 +511,31 @@ export function ChampionProfileEditor({
       setSaveStatus("error");
     },
   });
+
+  /**
+   * „Zapisz” (wariant A, 13.10.2026): zdanie w wierszach czeka na decyzję
+   * (D3), a krytyczne zostawiające mniej niż 20 osób wymagają potwierdzenia (D2).
+   */
+  const requestSave = async () => {
+    if (requirementRows && rowsNeedingDecision(requirementRows, rowCriticalInfo.info).length > 0) {
+      setSaveError("Przy zdaniach w wymaganiach zdecyduj: słowa do szukania czy „Do rozmowy”.");
+      setSaveStatus("error");
+      document
+        .querySelector('[data-testid="requirement-row-decision"]')
+        ?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+      return;
+    }
+    if (criticalReach != null && criticalReach < CRITICAL_PEOPLE_MIN) {
+      const ok = await askConfirm({
+        title: "Krytyczne zostawiają mało osób",
+        description: `${criticalReachWarning(criticalReach)} Zapisać z tymi krytycznymi?`,
+        confirmLabel: "Zapisz mimo to",
+        cancelLabel: "Wróć do wymagań",
+      });
+      if (!ok) return;
+    }
+    mutation.mutate(draft);
+  };
 
   const updateQuestion = (i: number, patch: Partial<ScreeningQuestion>) => {
     setDraft((d) => {
@@ -615,9 +670,17 @@ export function ChampionProfileEditor({
           must: mustHeads(rows).map((name) => ({ name })),
           nice: niceHeads(rows).map((name) => ({ name })),
           critical: criticalRows(rows).length === 0 && result.no_critical ? [] : null,
-          notes: [d.stack.notes?.trim(), ...result.descriptive].filter(Boolean).join("\n"),
         },
         search: { ...d.search, requirements: searchRows(rows) },
+        // Zdania klienta idą do „Rekruter sprawdza w rozmowie” (13.10.2026),
+        // nie do niuansów — w screeningu są punktem do sprawdzenia.
+        experience: result.descriptive.reduce(
+          (experience, sentence) => ({
+            ...experience,
+            skills: addTalkItem(experience.skills ?? [], sentence, "must"),
+          }),
+          d.experience ?? EMPTY_CHAMPION_EXPERIENCE,
+        ),
       }));
     } catch (error) {
       setSimplifyError(
@@ -778,8 +841,34 @@ export function ChampionProfileEditor({
       </p>
     </div>
   ) : null;
+  const proposalBanner = proposal ? (
+    <div
+      role="note"
+      className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-foreground"
+      data-testid="champion-requirement-proposal-banner"
+    >
+      <span className="min-w-0 flex-[1_1_20rem]">
+        <strong>Propozycja uporządkowania wymagań.</strong>{" "}
+        {proposal.reasons.map((reason) => reason.text).join(" · ")}
+      </span>
+      <button
+        type="button"
+        onClick={() => setProposalOpen(true)}
+        className="rounded-md border border-border bg-card px-2 py-1 text-xs font-medium text-foreground hover:bg-accent"
+      >
+        Pokaż zmiany
+      </button>
+      <RequirementProposalDialog
+        jobId={jobId}
+        open={proposalOpen}
+        onOpenChange={setProposalOpen}
+      />
+    </div>
+  ) : null;
   const statusBanners = (
     <>
+      {confirmDialog}
+      {proposalBanner}
       {conflictBanner}
       {saveErrorAlert}
 
@@ -1290,6 +1379,8 @@ export function ChampionProfileEditor({
                 onExcludeChange={(exclude) => patchSearch({ exclude })}
                 critical={rowCriticalInfo}
                 disabled={disabled}
+                onMoveToTalk={moveToTalk}
+                onCriticalCountChange={setCriticalReach}
               />
             </div>
             <div className="mt-3">
@@ -1675,7 +1766,7 @@ export function ChampionProfileEditor({
             </button>
             <button
               type="button"
-              onClick={() => mutation.mutate(draft)}
+              onClick={() => void requestSave()}
               disabled={mutation.isPending}
               className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white shadow-xs hover:bg-primary/90 disabled:opacity-60"
               data-testid="save-champion-profile"
@@ -1771,7 +1862,7 @@ export function ChampionProfileEditor({
         </button>
         <button
           type="button"
-          onClick={() => mutation.mutate(draft)}
+          onClick={() => void requestSave()}
           disabled={mutation.isPending || dirtySections === 0}
           className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white shadow-xs hover:bg-primary/90 disabled:opacity-60"
           data-testid="save-champion-profile"
@@ -1820,7 +1911,7 @@ export function ChampionProfileEditor({
         {canEdit && (
           <button
             type="button"
-            onClick={() => mutation.mutate(draft)}
+            onClick={() => void requestSave()}
             disabled={mutation.isPending}
             className="inline-flex shrink-0 items-center gap-1.5 bg-primary hover:bg-primary/90 text-white px-3 py-1.5 pointer-coarse:py-2 rounded-lg text-sm font-medium shadow-xs disabled:opacity-60"
             data-testid="save-champion-profile"

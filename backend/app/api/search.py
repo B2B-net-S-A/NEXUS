@@ -5,7 +5,7 @@ import hashlib
 import json
 import time
 from datetime import datetime, timezone
-from typing import Any, List, Optional
+from typing import Any, List, Mapping, Optional, Sequence
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
@@ -589,8 +589,14 @@ async def candidate_match_scores(
         scores=scores,
         breakdowns=breakdowns,
         profile_key=_profile_key(context.weights),
-        non_technology_must=_non_technology_must(breakdowns),
+        non_technology_must=_non_technology_must(breakdowns, _critical_options(job)),
     )
+
+
+def _critical_options(job: Any) -> dict[str, tuple[str, ...]]:
+    from app.services.critical_skills import critical_gate_options  # noqa: PLC0415
+
+    return critical_gate_options(job)
 
 
 def _previewing(request: Optional[Request]) -> bool:
@@ -653,14 +659,21 @@ async def _record_manual_search_impressions(
         )
 
 
-def _non_technology_must(breakdowns: dict[str, Any]) -> list[str]:
+def _non_technology_must(
+    breakdowns: dict[str, Any], options: Optional[Mapping[str, Sequence[str]]] = None
+) -> list[str]:
     """Pozycje must z odpowiedzi, które nie są technologią (zdanie, branża,
     język, rola) — ta sama reguła co bramka must (``must_gate_terms``).
 
     Ekran pokazujący „jest / nie znaleziono” pomija je: zdania nie da się
     znaleźć w CV, więc plakietka „nie znaleziono” przy nim nic nie mówi.
+    ``options`` (``critical_skills.critical_gate_options``): krytyczna fraza
+    Delivery Leada, której słów bramka SZUKA, nie jest „nieszukana” (13.10.2026
+    — lista „Po tym nie szukamy” wymieniała twardy filtr).
     """
-    from app.services.must_gate_terms import gate_requirement  # noqa: PLC0415
+    from app.services.must_gate_terms import (  # noqa: PLC0415
+        requirement_with_options,
+    )
 
     labels: dict[str, None] = {}
     for detail in breakdowns.values():
@@ -668,7 +681,9 @@ def _non_technology_must(breakdowns: dict[str, Any]) -> list[str]:
             for label in detail.get(key) or []:
                 if isinstance(label, str):
                     labels.setdefault(label)
-    return [label for label in labels if gate_requirement(label) is None]
+    return [
+        label for label in labels if requirement_with_options(label, options) is None
+    ]
 
 
 def _profile_key(weights: dict) -> str:

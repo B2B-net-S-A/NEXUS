@@ -34,6 +34,10 @@
  *    z „Dokończ / Uzupełnij / Zamknij" i Twoimi niedokończonymi formularzami
  *    nowej rekrutacji (`PendingJobsSection`). Jak lista prowadzących — nie
  *    liczy się do tego, czy coś „czeka".
+ *  - „Wymagania do poprawy” (13.10.2026, D4) — propozycje uporządkowania
+ *    wymagań otwartych rekrutacji do zatwierdzenia albo odrzucenia
+ *    (`RequirementFixesSection`). Jak lista do dokończenia — nie liczy się
+ *    do tego, czy coś „czeka”.
  *  - „Umowy do potwierdzenia / do zamknięcia” (04.10.2026) — podpis umowy
  *    z Generatora potwierdza osoba z „Podpis B2B”; rekruter widzi swoje
  *    prośby w „U innych” (`AgreementTasksSection`).
@@ -52,8 +56,8 @@
  * Kolejka „Czeka na DZ" i przegląd DZ (0353) zniknęły — zastąpiło je QC CV.
  * Panel „Czeka na Ciebie" nie renderuje się, gdy nic nie czeka — pusta ramka
  * uczyłaby go ignorować (zostają wtedy najwyżej listy informacyjne: „Nowe
- * rekrutacje — kto prowadzi", „Rekrutacje do dokończenia albo zamknięcia" i pasek
- * „Twoje CV w drodze"). Kotwica `#czeka-na-ciebie` = link z porannego dzwonka.
+ * rekrutacje — kto prowadzi", „Rekrutacje do dokończenia albo zamknięcia",
+ * „Wymagania do poprawy” i pasek „Twoje CV w drodze"). Kotwica `#czeka-na-ciebie` = link z porannego dzwonka.
  */
 
 import Link from "next/link";
@@ -90,6 +94,7 @@ import { CproQueueDialog, CproSenderControl } from "./CproQueueDialog";
 import { CvInTransitSection } from "./CvInTransitSection";
 import { NewJobLeadsSection } from "./NewJobLeadsSection";
 import { PendingJobsSection, hasPendingJobsContent } from "./PendingJobsSection";
+import { RequirementFixesSection } from "./RequirementFixesSection";
 import { TeamLoadSection } from "./TeamLoadSection";
 
 export const BOARD_TASKS_ANCHOR = "czeka-na-ciebie";
@@ -215,6 +220,8 @@ export function BoardTasksPanel({
   // zaległość, nie zadanie z Tablicy: do `total` się nie liczy, jak lista
   // prowadzących. Starszy serwer pól nie oddaje (`undefined`/`null`).
   const hasPendingJobs = hasPendingJobsContent(data.pending_jobs, data.unfinished_forms);
+  // „Wymagania do poprawy” — tak samo: zaległość obok zadań, do `total` się nie liczy.
+  const fixes = data.requirement_fixes ?? [];
   // Admin i Head of Recruitment widzą listę do dokończenia zwiniętą do jednej
   // linii, gdy obok są zadania — to zaległość, nie praca na dziś.
   const collapsePending = data.can_decide_proposals === true;
@@ -232,7 +239,16 @@ export function BoardTasksPanel({
     // tak samo. Pozostałe role: bez pustej ramki, jak dotąd. Przy pasie „Do
     // wysłania do klienta” zdania nie ma — o pustej kolejce mówi pas.
     const quiet = data.flow?.applies === true && !dlSendBand;
-    if (!quiet && !canSetSender && !transit && leads.length === 0 && !hasPendingJobs) return null;
+    if (
+      !quiet &&
+      !canSetSender &&
+      !transit &&
+      leads.length === 0 &&
+      !hasPendingJobs &&
+      fixes.length === 0
+    ) {
+      return null;
+    }
     return (
       <div className="flex flex-col gap-3">
         {quiet ? (
@@ -252,6 +268,7 @@ export function BoardTasksPanel({
         <NewJobLeadsSection rows={leads} standalone />
         {showLoad ? <TeamLoadSection standalone /> : null}
         <PendingJobsSection pending={data.pending_jobs} forms={data.unfinished_forms} standalone />
+        <RequirementFixesSection rows={fixes} standalone />
         {transit ? <CvInTransitSection transit={transit} standalone /> : null}
       </div>
     );
@@ -309,6 +326,7 @@ export function BoardTasksPanel({
           forms={data.unfinished_forms}
           collapsed={collapsePending}
         />
+        <RequirementFixesSection rows={fixes} collapsed={collapsePending} />
         <BoardFlowSections
           flow={data.flow}
           finance={data.finance}

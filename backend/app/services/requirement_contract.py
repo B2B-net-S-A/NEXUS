@@ -118,7 +118,12 @@ def requirements_for_job(job) -> MatchingRequirements:
 # dowolna fraza, nie tylko nazwa technologii; bramka szuka wtedy słów jej
 # wiersza w profilu, CV i notatkach, a słowa wiersza liczą się też przy
 # technologii (`critical_skills.critical_gate_options`).
-MUST_GATE_POLICY_VERSION = "critical-v11"
+# v12 (13.10.2026, pomiar na produkcji): nawias po technologii ze słownika to
+# komentarz („SQL (bardzo dobra znajomość)” = SQL, „Python (… API …)” = Python),
+# alternatywą jest tylko „(lub X)” albo lista samych technologii; wstęp wokół
+# jednej nazwy ze słownika („Bardzo dobra znajomość SQL”) daje tę nazwę;
+# „OWASP Top 10” nie traci „10” jako wersji.
+MUST_GATE_POLICY_VERSION = "critical-v12"
 
 
 def search_dealbreaker_inputs(job, *, exclude_missing_must: bool | None = None):

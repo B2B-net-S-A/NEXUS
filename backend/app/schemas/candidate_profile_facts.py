@@ -18,6 +18,7 @@ from pydantic import (
 )
 
 from app.models.recruitment_pipeline import PipelineStage
+from app.schemas.champion import ExperienceKind
 
 CefrLevel = Literal["A1", "A2", "B1", "B2", "C1", "C2"]
 LanguageProvenance = Literal[
@@ -227,7 +228,7 @@ class ScreeningConversationAnswer(BaseModel):
 
 
 class ScreeningConversationCheck(BaseModel):
-    kind: Literal["domains", "certifications", "regulations"] = "domains"
+    kind: ExperienceKind = "domains"
     name: str
     status: Literal["confirmed", "not_confirmed", "unknown"] = "unknown"
     note: str = ""

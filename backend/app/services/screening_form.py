@@ -62,6 +62,7 @@ from app.models.screening_form_version import ScreeningFormVersion
 from app.models.user import User
 from app.schemas.champion import (
     EXPERIENCE_ITEMS_MAX,
+    EXPERIENCE_KINDS,
     SCREENING_ANSWERS_MAX,
     ExperienceCheck,
     ScreeningAnswerItem,
@@ -129,7 +130,7 @@ class SheetInput(BaseModel):
         default_factory=list, max_length=SCREENING_ANSWERS_MAX
     )
     experience_checks: list[ExperienceCheck] = Field(
-        default_factory=list, max_length=EXPERIENCE_ITEMS_MAX * 3
+        default_factory=list, max_length=EXPERIENCE_ITEMS_MAX * len(EXPERIENCE_KINDS)
     )
     overall_fit: Literal["fit", "uncertain", "miss"] = "uncertain"
     internal_note: Optional[str] = Field(default=None, max_length=2000)

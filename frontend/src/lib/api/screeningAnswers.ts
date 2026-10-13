@@ -7,7 +7,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import api from "@/lib/api";
+import api, { type ExperienceKind } from "@/lib/api";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 
 export interface ScreeningConversationAnswer {
@@ -24,7 +24,7 @@ export interface ScreeningConversationAnswer {
 }
 
 export interface ScreeningConversationCheck {
-  kind: "domains" | "certifications" | "regulations";
+  kind: ExperienceKind;
   name: string;
   status: "confirmed" | "not_confirmed" | "unknown";
   note: string;

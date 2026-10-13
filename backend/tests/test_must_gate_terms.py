@@ -208,3 +208,78 @@ def test_practices_outside_the_dictionary_do_not_gate(label):
     """30.09.2026: praktyki i role spoza słownika przechodziły regułę
     składniową; wysłani „mieli” je w 0–37% przypadków (audyt B2)."""
     assert gate_requirement(label) is None
+
+
+# ── 13.10.2026: nawias po technologii to komentarz, nie opcje ───────────────
+# Pomiar na produkcji: „SQL (bardzo dobra znajomość)” i „JMeter (narzędzie do
+# testowania wydajności)” wypadały z bramki i z punktów w całości, a „Python
+# (DAG-i Airflow, ETL, API, LLM)” zamieniał się w alternatywę spełnianą przez
+# każdego z „API” w CV.
+
+from tests.taxonomy_fixture import PROD_LIKE_SKILLS  # noqa: E402
+
+PAREN_SKILLS = {
+    **PROD_LIKE_SKILLS,
+    "SQL": ("database", ()),
+    "JMeter": ("qa", ()),
+    "Airflow": ("data", ("apache airflow",)),
+    "RabbitMQ": ("messaging", ()),
+    "Google Cloud Platform": ("cloud", ("gcp",)),
+    "WebDriver": ("qa", ()),
+}
+
+
+@pytest.mark.parametrize(
+    "label, options",
+    [
+        ("SQL (bardzo dobra znajomość)", ("SQL",)),
+        ("JMeter (narzędzie do testowania wydajności)", ("JMeter",)),
+        ("Selenium (testy UI)", ("Selenium",)),
+        ("Python (DAG-i Airflow, ETL, API, LLM)", ("Python",)),
+        ("Kafka (lub RabbitMQ)", ("Kafka", "RabbitMQ")),
+        ("Kafka (lub podobne)", ("Kafka",)),
+        ("Java (np. Spring Boot)", ("Java", "Spring Boot")),
+        ("SQL (PostgreSQL, Oracle)", ("SQL", "PostgreSQL", "Oracle")),
+        ("Docker/Kubernetes (konteneryzacja)", ("Docker", "Kubernetes")),
+        (
+            "Google Cloud Platform (GCP) (praktyczne doświadczenie)",
+            ("Google Cloud Platform", "GCP"),
+        ),
+        # Wstęp wokół jednej nazwy ze słownika.
+        ("Bardzo dobra znajomość SQL", ("SQL",)),
+        ("Good knowledge of Kafka", ("Kafka",)),
+        # Bez zmian względem 30.09.2026.
+        ("Bazy danych (Oracle, PostgreSQL)", ("Oracle", "PostgreSQL")),
+        ("Znajomość baz danych (np. Oracle, PostgreSQL)", ("Oracle", "PostgreSQL")),
+        ("Java (minimalna 11)", ("Java",)),
+        ("CI/CD tools like Bitbucket, Jenkins", ("Bitbucket", "Jenkins")),
+    ],
+)
+def test_parenthesis_after_technology_is_a_comment(label, options):
+    with hydrated_taxonomy(PAREN_SKILLS):
+        requirement = gate_requirement(label)
+        assert requirement is not None and requirement.options == options
+        assert requirement.label == label
+
+
+@pytest.mark.parametrize(
+    "label, reason",
+    [
+        # Odmiana spoza słownika i zdanie z nawiasem zostają prozą.
+        ("bardzo dobra znajomość Kafki", "prose"),
+        ("Doświadczenie z integracją systemów (on-premise, hybrid, cloud)", "prose"),
+        ("doświadczenie w przetargach", "prose"),
+        # Rola ze słownika z komentarzem nadal nie bramkuje.
+        ("QA (testy manualne)", "category"),
+    ],
+)
+def test_parenthesis_does_not_turn_prose_into_a_technology(label, reason):
+    with hydrated_taxonomy(PAREN_SKILLS):
+        assert gate_requirement(label) is None
+        assert ignored_reason(label) == reason
+
+
+def test_top_n_is_part_of_the_name_not_a_version():
+    assert strip_version("OWASP Top 10") == ("OWASP Top 10", None)
+    assert strip_version("CWE Top 25") == ("CWE Top 25", None)
+    assert strip_version("Java 17") == ("Java", "17")

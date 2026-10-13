@@ -77,6 +77,30 @@ async function countPeople(
   return typeof data?.total === "number" ? data.total : null;
 }
 
+/**
+ * Liczba osób dla słów podpowiedzianych zamiast zdania („przetarg* · 727”).
+ * Ten sam klucz co liczba przy wierszu, więc słowo raz policzone nie pyta drugi raz.
+ */
+export function useWordCounts(
+  words: readonly string[],
+  enabled: boolean,
+): Record<string, number | null | undefined> {
+  const queries = useQueries({
+    queries: words.map((word) => ({
+      queryKey: ["requirement-row-count", [word]],
+      enabled,
+      staleTime: 5 * 60_000,
+      queryFn: ({ signal }: { signal?: AbortSignal }) => countPeople([[word]], [], signal),
+    })),
+  });
+  const out: Record<string, number | null | undefined> = {};
+  words.forEach((word, index) => {
+    const query = queries[index];
+    out[word] = query?.isSuccess ? query.data : query?.isError ? null : undefined;
+  });
+  return out;
+}
+
 export interface RowCounts {
   /** Po kluczu wiersza: liczba osób, `null` = nie policzono, brak klucza = liczę. */
   perRow: Record<string, number | null>;

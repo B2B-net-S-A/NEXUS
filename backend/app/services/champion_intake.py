@@ -54,7 +54,8 @@ SECTION_KEYS = (
     "insights",
     "documents",
 )
-EXPERIENCE_LISTS = ("domains", "certifications", "regulations")
+# = `schemas.champion.EXPERIENCE_KINDS` (pilnuje `test_experience_skills.py`).
+EXPERIENCE_LISTS = ("domains", "certifications", "regulations", "skills")
 RUBRICS = {
     "rate_value": "rate_budget_hourly",
     "onsite_days_per_week": "onsite_days_per_week",

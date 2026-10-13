@@ -283,6 +283,9 @@ def scoring_algorithm_version() -> str:
     payload["location_contract"] = "2026-09-27-place-dictionary"
     payload["alias_mention_contract"] = "2026-10-07-rest-plain-word"
     payload["skill_text_evidence"] = "2026-10-07-no-gaps-no-negated-answers"
+    # Mianownik `_score_skills` liczy technologie bramką must (`_technology_labels`)
+    # — nawias i wstęp „znajomość …” czytane od 13.10.2026 zmieniają wynik.
+    payload["gate_label_contract"] = "2026-10-13-parenthesis-comment"
     # Adapter zapytania zmienia podobieństwo semantyczne, więc i wynik. Klucz
     # tylko przy włączonym adapterze — wyłączony nie unieważnia pamięci wyników.
     from app.services.query_adapter import version_tag as _query_adapter_tag

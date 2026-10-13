@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { mergeProposals } from "@/lib/proposals-merge";
@@ -101,6 +101,71 @@ describe("ProposalPanel", () => {
     render(<ProposalPanel jobId={42} entry={withHistory} budgetHourly={150} onAdd={vi.fn()} onShortlist={vi.fn()} onDismiss={vi.fn()} />);
     expect(screen.getByText(/etap: Rozmowa u klienta/)).toBeTruthy();
     expect(screen.queryByText(/client_interview/)).toBeNull();
+  });
+
+  describe("wariant A (13.10.2026): sprawdzone w CV ≠ do rozmowy", () => {
+    const PROSE = "Doświadczenie w projektach bankowych";
+    function withProse() {
+      return mergeProposals({
+        inbox: [{
+          candidate: { id: 5, name: "Jan", lastname: "Kowalski", title: null, city: null, availability_status: null, availability_date: null, expected_rate_hourly: null, expected_rate_redacted: false },
+          sources: ["new_cv"], score: 80,
+          evidence: { requirements: [{ name: "Java", level: "must", status: "met" }, { name: "AWS", level: "must", status: "unknown" }, { name: PROSE, level: "must", status: "unknown" }] },
+          first_seen_at: null, last_seen_at: null, is_new: false, status: "proposed", eligibility: null,
+        }],
+      })[0];
+    }
+    const talk = {
+      checks: [
+        { label: "bankowość", kind: "domains" },
+        { label: "angielski B2", kind: "language" },
+        { label: "  doświadczenie w projektach  BANKOWYCH ", kind: "must" },
+      ],
+      notSearchableMust: [],
+    };
+
+    it("must-have do rozmowy nie dostaje „?” — stoi w „Zapytaj w rozmowie”", () => {
+      render(<ProposalPanel jobId={42} entry={withProse()} budgetHourly={null} talk={talk} onAdd={vi.fn()} onShortlist={vi.fn()} onDismiss={vi.fn()} />);
+      expect(screen.getByText("Sprawdzone w CV, profilu i notatkach")).toBeInTheDocument();
+      expect(screen.getByText("Java").parentElement).toHaveTextContent("spełnione");
+      expect(screen.getByText("AWS").parentElement).toHaveTextContent("brak potwierdzenia");
+      // Zdanie z must-have nie jest wymaganiem „nie znaleźliśmy”.
+      expect(screen.queryByText(PROSE)).toBeNull();
+      const chips = within(screen.getByRole("list", { name: "Zapytaj w rozmowie" }));
+      expect(chips.getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+        "bankowość",
+        "Język: angielski B2",
+        talk.checks[2].label,
+      ]);
+    });
+
+    it("`not_searchable_must` też zdejmuje „?”; bez listy do rozmowy — dawny widok", () => {
+      const { unmount } = render(<ProposalPanel jobId={42} entry={withProse()} budgetHourly={null} talk={{ checks: [], notSearchableMust: [PROSE] }} onAdd={vi.fn()} onShortlist={vi.fn()} onDismiss={vi.fn()} />);
+      expect(screen.queryByText(PROSE)).toBeNull();
+      expect(screen.queryByRole("list", { name: "Zapytaj w rozmowie" })).toBeNull();
+      unmount();
+      render(<ProposalPanel jobId={42} entry={withProse()} budgetHourly={null} onAdd={vi.fn()} onShortlist={vi.fn()} onDismiss={vi.fn()} />);
+      expect(screen.getByText(PROSE).parentElement).toHaveTextContent("brak potwierdzenia");
+    });
+
+    it("same wymagania do rozmowy: bez pustego bloku „Sprawdzone…”; bramka i weryfikacja zostają", () => {
+      const base = withProse();
+      const onlyProse = {
+        ...base,
+        detail: { ...base.detail, missingMustGate: ["Kafka"], requirements: base.detail.requirements.filter((r) => r.label === PROSE) },
+      };
+      render(<ProposalPanel jobId={42} entry={onlyProse} budgetHourly={null} talk={talk} canVerify onVerified={vi.fn()} onAdd={vi.fn()} onShortlist={vi.fn()} onDismiss={vi.fn()} />);
+      expect(screen.queryByText("Sprawdzone w CV, profilu i notatkach")).toBeNull();
+      expect(screen.queryByText(/Brak oceny wymagań/)).toBeNull();
+      expect(screen.getByText("Bramka must-have: brak Kafka")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Zweryfikuj wymaganie/ })).toBeInTheDocument();
+      expect(screen.getByRole("list", { name: "Zapytaj w rozmowie" })).toBeInTheDocument();
+    });
+
+    it("awaria odczytu listy do rozmowy mówi o awarii, nie znika po cichu", () => {
+      render(<ProposalPanel jobId={42} entry={withProse()} budgetHourly={null} talkError="Błąd serwera" onAdd={vi.fn()} onShortlist={vi.fn()} onDismiss={vi.fn()} />);
+      expect(screen.getByRole("alert")).toHaveTextContent("Nie wczytano listy „Zapytaj w rozmowie”: Błąd serwera");
+    });
   });
 
   it("bez aktywnej osoby pokazuje podpowiedź", () => {

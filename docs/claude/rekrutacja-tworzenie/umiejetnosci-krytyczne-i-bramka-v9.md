@@ -9,7 +9,7 @@ wysłał do klienta, budżet — 32%, dni w biurze — 8%. Decyzje Artura 30.09.
   `lib/critical-skills.ts`), z podpowiedzi z historii najwyżej dwie
   (`critical_skills.SUGGEST_MAX` — działa bez decyzji człowieka, więc trzecia
   automatyczna bramka wymaga pomiaru) (`services/critical_skills.py`,
-  `MUST_GATE_POLICY_VERSION`, dziś `critical-v11`). Pole Championa `stack.critical`:
+  `MUST_GATE_POLICY_VERSION`, dziś `critical-v12`). Pole Championa `stack.critical`:
   `None` = DL nie zdecydował (działa podpowiedź), `[]` = „Brak krytycznych”
   (bramka must nie ukrywa nikogo), lista = bramka. Serializer zdejmuje `None`
   (stare profile nie zmieniają kształtu). Wybór nie zmienia wymagań roli
@@ -17,6 +17,12 @@ wysłał do klienta, budżet — 32%, dni w biurze — 8%. Decyzje Artura 30.09.
   nie kasuje kontraktu wymagań i nie odpala przeliczeń. Idzie za listą MUST
   (`_prune_critical`; stracone wszystkie = z powrotem `None`), kopia
   rekrutacji ma `None`, zły wybór = 422 po polsku (`critical_errors`).
+- **13.10.2026 (wariant A, `critical-v12`) — zdanie nie może być krytyczne.**
+  Edytor wyłącza „Krytyczne” przy zdaniu, języku i umiejętności miękkiej do
+  decyzji „słowa / do rozmowy”, a serwer przenosi je przy zapisie do „Rekruter
+  sprawdza w rozmowie”; krytyczne zostawiające razem < 20 osób wymagają
+  potwierdzenia. Reguły: `dwie-listy-wymagan.md`. Poniższy
+  akapit z 09.10 dotyczy fraz-słów (kategoria, rola, nazwa spoza słownika).
 - **Krytyczną może być KAŻDA fraza — decyduje Delivery Lead (decyzja Artura
   09.10.2026, `critical-v11`).** System nie odrzuca już branży, języka,
   umiejętności miękkiej, kategorii, roli ani zdania (`critical_selectable`

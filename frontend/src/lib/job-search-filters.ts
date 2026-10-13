@@ -127,6 +127,12 @@ export interface MandatorySplit {
   required: string[][];
   /** Wiersze, które tylko podnoszą w kolejności. */
   preferred: string[][];
+  /**
+   * Niekrytyczne wiersze „Musi mieć” z Championa (wariant A, 13.10.2026) —
+   * tylko do opisu na ekranie. `preferred` zaczyna się od tych samych wierszy
+   * w tej samej kolejności, dalej idą wiersze „mile widziane”.
+   */
+  must: string[][];
   source: MandatorySource;
   /** Etykiety krytycznych („Kafka lub RabbitMQ”). */
   labels: string[];
@@ -171,7 +177,8 @@ export function splitByCritical(
     }
     required.push(merged);
   }
-  const preferred: string[][] = rows.filter((_, i) => !used.has(i)).map((row) => [...row]);
+  const must: string[][] = rows.filter((_, i) => !used.has(i)).map((row) => [...row]);
+  const preferred: string[][] = must.map((row) => [...row]);
   for (const row of niceRows) {
     const key = row.map(foldKey).join("|");
     if (!preferred.some((r) => r.map(foldKey).join("|") === key)) preferred.push([...row]);
@@ -179,6 +186,7 @@ export function splitByCritical(
   return {
     required,
     preferred,
+    must,
     source: critical ? critical.source : "unknown",
     labels: critical ? [...(critical.effective ?? [])] : [],
     skipped: critical

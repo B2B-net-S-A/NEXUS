@@ -119,6 +119,62 @@ export interface ProposalCounts {
   screened_out: number;
   /** Must-have, po których nie da się szukać (zdania) — do rozmowy. */
   not_searchable_must: string[];
+  /**
+   * „Zapytaj w rozmowie” (13.10.2026, wariant A): sekcja 4 Championa, język
+   * pracy i must-have, których wyszukiwanie nie czyta. Starszy serwer pola
+   * nie zna — wtedy zostają same `not_searchable_must` (`talkChecksOf`).
+   */
+  talk_checks?: TalkCheck[];
+}
+
+export type TalkCheckKind =
+  | "skills"
+  | "domains"
+  | "certifications"
+  | "regulations"
+  | "language"
+  | "must";
+
+/** Coś, czego wyszukiwanie nie sprawdzi w CV — rekruter pyta w rozmowie. */
+export interface TalkCheck {
+  label: string;
+  /** `string` w unii: nowy rodzaj z serwera nie może wywrócić widoku. */
+  kind: TalkCheckKind | (string & {});
+}
+
+/** Lista „Zapytaj w rozmowie”; starszy serwer = same must-have zdaniem. */
+export function talkChecksOf(
+  counts: Pick<ProposalCounts, "not_searchable_must" | "talk_checks"> | null | undefined,
+): TalkCheck[] {
+  if (!counts) return [];
+  if (Array.isArray(counts.talk_checks)) return counts.talk_checks;
+  return (counts.not_searchable_must ?? []).map((label) => ({ label, kind: "must" }));
+}
+
+/** Napis na plakietce: język pracy z dopiskiem „Język:”, reszta bez zmian. */
+export function talkCheckLabel(check: TalkCheck): string {
+  return check.kind === "language" && !/^język/i.test(check.label.trim())
+    ? `Język: ${check.label}`
+    : check.label;
+}
+
+/** Klucz porównania etykiet: bez wielkości liter i nadmiarowych spacji. */
+export function talkLabelKey(label: string): string {
+  return label.trim().replace(/\s+/g, " ").toLocaleLowerCase("pl");
+}
+
+/**
+ * Must-have, których wyszukiwanie nie sprawdza w CV. Na karcie propozycji nie
+ * dostają „?” („nie znaleźliśmy”) — stoją w „Zapytaj w rozmowie”.
+ */
+export function interviewOnlyKeys(
+  checks: readonly TalkCheck[],
+  notSearchableMust: readonly string[] = [],
+): Set<string> {
+  return new Set([
+    ...checks.filter((c) => c.kind === "must").map((c) => talkLabelKey(c.label)),
+    ...notSearchableMust.map(talkLabelKey),
+  ]);
 }
 
 export interface ProposalTraineeHandover {

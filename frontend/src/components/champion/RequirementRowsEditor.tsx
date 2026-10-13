@@ -24,6 +24,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { ChipField, type ChipCommitSource } from "@/components/v2/filters/AdvancedSearchPopover";
 import { peopleCountLabel } from "@/components/champion/SearchRequirementsEditor";
+import {
+  CityCallout,
+  CommentCallout,
+  DecisionCallout,
+} from "@/components/champion/RequirementRowCallouts";
 import { statSentence } from "@/lib/critical-skills";
 import {
   hintKey,
@@ -41,14 +46,19 @@ import {
   addRow,
   applySuggestion,
   canAddRow,
+  criticalReachWarning,
   criticalRows,
   criticalSummary,
   enterRequirements,
   levelBlockedReason,
   parseRequirementEntry,
   requiredOverflowNotice,
+  replaceRowWord,
   requiredRows,
+  rowCity,
+  rowComment,
   rowCountHint,
+  rowDecision,
   rowHead,
   setRowLevel,
   suggestedRowKeys,
@@ -56,6 +66,7 @@ import {
   type RequirementLevel,
   type RequirementRowForm,
   type RowCriticalState,
+  type TalkItem,
 } from "@/lib/requirement-rows";
 import { useRowCounts } from "@/lib/requirement-rows-api";
 import { cn } from "@/lib/utils";
@@ -87,6 +98,14 @@ export interface RequirementRowsEditorProps {
   /** Bez prawa edycji: sama lista wymagań z poziomami, bez pól. */
   disabled?: boolean;
   className?: string;
+  /**
+   * „Do rozmowy” (wariant A, 13.10.2026): zdanie, język albo umiejętność
+   * miękka wypada z wiersza i trafi do „Rekruter sprawdza w rozmowie” /
+   * pola „Język” — rodzic dopisuje je do Profilu Championa.
+   */
+  onMoveToTalk?: (item: TalkItem) => void;
+  /** Ile osób zostawiają krytyczne razem (`undefined` = liczę, `null` = nie wiadomo). */
+  onCriticalCountChange?: (count: number | null | undefined) => void;
 }
 
 /** Podpowiedzi w wierszu: lista dopiero po wpisaniu tekstu (nie zasłania wiersza niżej). */
@@ -129,6 +148,8 @@ export function RequirementRowsEditor({
   countEnabled = true,
   disabled = false,
   className,
+  onMoveToTalk,
+  onCriticalCountChange,
 }: RequirementRowsEditorProps) {
   const noCriticalId = useId();
   const shown = useMemo<RequirementRowForm[]>(
@@ -159,6 +180,10 @@ export function RequirementRowsEditor({
   const [entryNote, setEntryNote] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const counts = useRowCounts(shown, exclude, countEnabled && !disabled);
+  const criticalCount = criticalRows(shown).length > 0 ? counts.critical : null;
+  useEffect(() => {
+    onCriticalCountChange?.(criticalCount);
+  }, [criticalCount, onCriticalCountChange]);
   const hints = useMemo(
     () =>
       keywordHints(shown.map((row) => row.words)).filter(
@@ -303,14 +328,25 @@ export function RequirementRowsEditor({
           // O tym, co jest krytyczne, decyduje Delivery Lead (09.10.2026):
           // „Krytyczne” wyłącza wyłącznie limit, nigdy treść wiersza ani
           // oczekiwanie na odpowiedź serwera.
+          // Wariant A (13.10.2026): zdanie, język i umiejętność miękka czekają
+          // na decyzję i nie mogą być krytyczne — CV ich nie potwierdzi.
+          const decision = rowDecision(info);
+          const comment = decision ? null : rowComment(info);
+          const city = decision ? null : rowCity(info);
+          const cityKey = city ? `city:${city.text}` : "";
+          const talkLevel = row.level === "nice" ? "nice" : "must";
+          const toTalk = (text: string, kind: TalkItem["kind"]) =>
+            onMoveToTalk?.({ name: text, kind, level: talkLevel });
           const criticalTitle =
             row.level === "critical"
               ? undefined
-              : (levelBlockedReason(shown, row.key, "critical") ?? undefined);
+              : decision
+                ? "Najpierw zdecyduj: słowa do szukania czy rozmowa."
+                : (levelBlockedReason(shown, row.key, "critical") ?? undefined);
           const stat = info?.suggested ? statSentence(info.stat) : null;
           // N8 (06.10.2026): liczba osób jest tylko przy wierszach obowiązkowych.
           const countHint =
-            countEnabled && row.level !== "nice" && row.words.length > 0
+            !decision && !city && countEnabled && row.level !== "nice" && row.words.length > 0
               ? rowCountHint(counts.perRow[row.key])
               : null;
           const rowHints = hints.filter((hint) => hint.row === index);
@@ -440,6 +476,38 @@ export function RequirementRowsEditor({
                 >
                   {OUTSIDE_DICTIONARY_NOTE}
                 </p>
+              ) : null}
+              {decision ? (
+                <DecisionCallout
+                  reading={decision}
+                  countEnabled={countEnabled && !disabled}
+                  onUseWord={(word) => {
+                    onRowsChange(replaceRowWord(shown, row.key, decision.text, [word]));
+                    toTalk(decision.talk_text ?? decision.text, decision.talk ?? "skills");
+                  }}
+                  onTalk={() => {
+                    onRowsChange(replaceRowWord(shown, row.key, decision.text, []));
+                    toTalk(decision.talk_text ?? decision.text, decision.talk ?? "skills");
+                  }}
+                />
+              ) : null}
+              {comment ? (
+                <CommentCallout
+                  reading={comment}
+                  onSplit={() => {
+                    onRowsChange(
+                      replaceRowWord(shown, row.key, comment.text, [comment.keyword ?? comment.text]),
+                    );
+                    if (comment.talk_text) toTalk(comment.talk_text, "skills");
+                  }}
+                />
+              ) : null}
+              {city && !dismissed.has(cityKey) ? (
+                <CityCallout
+                  reading={city}
+                  onRemove={() => remove(row.key)}
+                  onKeep={() => setDismissed((prev) => new Set(prev).add(cityKey))}
+                />
               ) : null}
               {countHint ? (
                 <p
@@ -595,6 +663,15 @@ export function RequirementRowsEditor({
               </>
             ) : null}
             . „Szukaj ręcznie” wymaga tylko krytycznych — reszta podnosi w kolejności.
+          </span>
+        ) : null}
+        {criticalReachWarning(criticalCount) ? (
+          <span
+            className="text-xs font-medium text-warning-muted-foreground"
+            data-testid="requirement-critical-reach"
+          >
+            {criticalReachWarning(criticalCount)} Zmień któreś krytyczne na „Musi mieć” albo
+            zostaw, jeśli tak ma być.
           </span>
         ) : null}
       </div>

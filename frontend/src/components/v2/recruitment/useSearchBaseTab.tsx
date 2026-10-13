@@ -6,14 +6,15 @@
  * Zastępuje „Znajdź w bazie (AI)”: wyszukiwanie rusza samo, po SŁOWACH, które
  * Delivery Lead wpisał w sekcji 2 Championa („Wymagania do wyszukiwania”) —
  * ten sam silnik i te same filtry startowe co pełne „Szukaj ręcznie”. Zdania
- * z must-have („Minimum 5 lat doświadczenia…”) nie są kryterium: stoją osobno
- * jako rzeczy do sprawdzenia w rozmowie.
+ * z must-have („Minimum 5 lat doświadczenia…”), sekcja 4 Championa i język
+ * nie są kryterium: stoją w linii „Rekruter sprawdza w rozmowie” (wariant A,
+ * 13.10.2026). Każda linia mówi, co robi z listą: wycina, podnosi albo nic.
  *
  * Lista jest krótka (strony po 20, „Pokaż więcej”) i ma ten sam podgląd osoby
  * co pozostałe zakładki. Zmiana słów i filtrów = pełne „Szukaj ręcznie”.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useInfiniteQuery, useQueries, useQueryClient } from "@tanstack/react-query";
 import { UserPlus } from "lucide-react";
 
@@ -26,7 +27,7 @@ import { getCurrentTitle, type CandidateLite } from "@/components/v2/pages/candi
 import { apiErrorMessage } from "@/lib/api-error";
 import { formatReasonCounts, summarizeBulkResult } from "@/lib/bulk-result-summary";
 import { candidateSearchApi, proposalsBulkApi } from "@/lib/candidate-search-api";
-import { jobProposalsKeys } from "@/lib/job-proposals-api";
+import { jobProposalsKeys, talkCheckLabel, type TalkCheck } from "@/lib/job-proposals-api";
 import { requirementLabel } from "@/lib/keyword-requirements";
 import { yearsLabel } from "@/lib/proposal-facts";
 import type { EmploymentMarker } from "@/lib/employment-marker";
@@ -57,6 +58,17 @@ interface SearchPage {
   page_size: number;
 }
 
+type WordTone = "required" | "must" | "nice" | "not" | "place" | "talk";
+
+const WORD_CLASS: Record<WordTone, string> = {
+  required: "rounded bg-primary/10 px-1.5 py-0.5 text-xs font-semibold text-primary",
+  must: "rounded border border-primary/30 px-1.5 py-0.5 text-xs font-medium text-primary",
+  nice: "rounded border border-dashed border-border px-1.5 py-0.5 text-xs text-foreground",
+  not: "rounded bg-destructive-muted px-1.5 py-0.5 text-xs font-semibold text-destructive-muted-foreground",
+  place: "rounded border border-border bg-card px-1.5 py-0.5 text-xs text-foreground",
+  talk: "rounded-full border border-border bg-card px-2 py-0.5 text-xs text-foreground",
+};
+
 /** Klucz listy wyników — także kafel czyta stąd liczbę osób. */
 export const searchBaseKey = (jobId: number, filtersKey: string) =>
   ["job-search-base", jobId, filtersKey] as const;
@@ -74,8 +86,10 @@ function rateLabel(c: SearchCandidate): string | null {
 export interface SearchBaseTabOptions {
   enabled: boolean;
   seed: JobSearchSeed;
-  /** Must-have, po których nie szukamy (zdania) — z `GET …/proposal-counts`. */
-  notSearchable: readonly string[];
+  /** Czego nie szukamy, tylko pytamy w rozmowie — z `GET …/proposal-counts`. */
+  talkChecks: readonly TalkCheck[];
+  /** Awaria odczytu tej listy — nie udaje „nie ma o co pytać”. */
+  talkChecksError?: string | null;
   readOnly?: boolean;
   canOpenProfile: boolean;
   /** Pełne „Szukaj ręcznie” (zmiana słów i filtrów). */
@@ -94,7 +108,8 @@ export function useSearchBaseTab(
   {
     enabled,
     seed,
-    notSearchable,
+    talkChecks,
+    talkChecksError = null,
     readOnly = false,
     canOpenProfile,
     onOpenManualSearch,
@@ -236,27 +251,30 @@ export function useSearchBaseTab(
     }
   };
 
-  const wordRow = (label: string, row: readonly string[], tone: "must" | "nice" | "not", key: string) => (
-    <li key={key} className="flex flex-wrap items-center gap-1.5">
-      <span className="w-24 shrink-0 text-xs text-muted-foreground">{label}</span>
-      {row.map((word, index) => (
-        <span key={`${word}-${index}`} className="inline-flex items-center gap-1.5">
-          {index > 0 ? <span className="text-xs text-muted-foreground">lub</span> : null}
-          <span
-            className={
-              tone === "must"
-                ? "rounded bg-primary/10 px-1.5 py-0.5 text-xs font-semibold text-primary"
-                : tone === "nice"
-                  ? "rounded border border-dashed border-border px-1.5 py-0.5 text-xs text-foreground"
-                  : "rounded bg-destructive-muted px-1.5 py-0.5 text-xs font-semibold text-destructive-muted-foreground"
-            }
-          >
-            {word}
-          </span>
-        </span>
-      ))}
+  // Wariant A (13.10.2026): każda linia mówi, co robi z listą — wycina,
+  // podnosi w kolejności albo nic (sprawdza rekruter w rozmowie).
+  const line = (key: string, label: string, hint: string | null, content: ReactNode) => (
+    <li key={key} className="flex flex-col gap-1 sm:flex-row sm:gap-3">
+      <div className="shrink-0 sm:w-40">
+        <p className="text-xs font-medium text-foreground">{label}</p>
+        {hint ? <p className="text-[11px] leading-snug text-muted-foreground">{hint}</p> : null}
+      </div>
+      <div className="min-w-0 flex-1 space-y-1">{content}</div>
     </li>
   );
+  const wordRows = (rows: readonly (readonly string[])[], tone: WordTone) =>
+    rows.map((row, r) => (
+      <div key={r} className="flex flex-wrap items-center gap-1.5">
+        {row.map((word, index) => (
+          <span key={`${word}-${index}`} className="inline-flex items-center gap-1.5">
+            {index > 0 ? <span className="text-xs text-muted-foreground">lub</span> : null}
+            <span className={WORD_CLASS[tone]}>{word}</span>
+          </span>
+        ))}
+      </div>
+    ));
+  const nice = seed.preferred.slice(seed.must.length);
+  const cities = seed.filters?.locationPreferred ?? [];
 
   const body = (
     <div className="space-y-3">
@@ -302,10 +320,64 @@ export function useSearchBaseTab(
             <p className="text-xs text-muted-foreground" data-testid="search-base-source">
               {seed.sourceNote}
             </p>
-            <ul className="space-y-1.5" aria-label="Wymagania do wyszukiwania">
-              {seed.required.map((row, i) => wordRow("Musi mieć", row, "must", `must-${i}`))}
-              {seed.preferred.map((row, i) => wordRow("Mile widziane", row, "nice", `nice-${i}`))}
-              {seed.exclude.length > 0 ? wordRow("Wyklucz", seed.exclude, "not", "exclude") : null}
+            <ul className="space-y-2.5" aria-label="Wymagania do wyszukiwania">
+              {seed.required.length > 0
+                ? line(
+                    "required",
+                    "Wymagane (krytyczne)",
+                    "bez tego słowa osoba nie pojawi się na liście",
+                    wordRows(seed.required, "required"),
+                  )
+                : null}
+              {seed.must.length > 0
+                ? line(
+                    "must",
+                    "Musi mieć (Delivery Lead)",
+                    "podnosi w kolejności, nie wycina",
+                    wordRows(seed.must, "must"),
+                  )
+                : null}
+              {nice.length > 0 ? line("nice", "Mile widziane", null, wordRows(nice, "nice")) : null}
+              {seed.exclude.length > 0
+                ? line("exclude", "Wyklucz", null, wordRows([seed.exclude], "not"))
+                : null}
+              {cities.length > 0
+                ? line(
+                    "location",
+                    "Lokalizacja kandydata",
+                    "miasto w profilu kandydata, nie słowo w CV · podnosi w kolejności",
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {cities.map((city) => (
+                        <span key={city} className={WORD_CLASS.place}>
+                          📍 {city}
+                        </span>
+                      ))}
+                    </div>,
+                  )
+                : null}
+              {talkChecksError
+                ? line(
+                    "talk",
+                    "Rekruter sprawdza w rozmowie",
+                    null,
+                    <p role="alert" className="text-xs text-muted-foreground">
+                      Nie wczytano listy do rozmowy: {talkChecksError}
+                    </p>,
+                  )
+                : talkChecks.length > 0
+                  ? line(
+                      "talk",
+                      "Rekruter sprawdza w rozmowie",
+                      "tego nie szukamy — zapytaj w rozmowie",
+                      <ul className="flex flex-wrap gap-1.5" aria-label="Rekruter sprawdza w rozmowie">
+                        {talkChecks.map((check) => (
+                          <li key={`${check.kind}-${check.label}`} className={WORD_CLASS.talk}>
+                            {talkCheckLabel(check)}
+                          </li>
+                        ))}
+                      </ul>,
+                    )
+                  : null}
             </ul>
             <p className="text-xs text-muted-foreground" data-testid="search-base-summary">
               {list.isError
@@ -317,24 +389,6 @@ export function useSearchBaseTab(
                     : `Nic nie jest obowiązkowe — osób: ${total}, od najlepiej dopasowanych.`}
             </p>
           </section>
-
-          {notSearchable.length > 0 ? (
-            <section
-              aria-label="Po tym nie szukamy"
-              className="space-y-1 rounded-md border border-dashed border-border p-3"
-            >
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Po tym nie szukamy · sprawdzisz w rozmowie
-              </p>
-              <ul className="space-y-0.5">
-                {notSearchable.map((label) => (
-                  <li key={label} className="text-sm">
-                    {label}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
 
           {list.isError ? (
             <p role="alert" className="text-sm text-destructive">
@@ -435,6 +489,7 @@ export function useSearchBaseTab(
       onNext={() => setPreviewId(items[previewIndex + 1]?.id ?? previewItem.id)}
       onClose={closePreview}
       canOpenProfile={canOpenProfile}
+      talkChecks={talkChecks}
       selection={{
         checked: selected.has(previewItem.id),
         disabled: readOnly,
