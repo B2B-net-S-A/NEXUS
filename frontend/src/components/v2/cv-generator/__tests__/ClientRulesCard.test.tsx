@@ -29,3 +29,11 @@ describe("ClientRulesCard — zgoda RODO (runda 10, F20)", () => {
     expect(screen.getByText("brak zrzutu")).toBeInTheDocument();
   });
 });
+
+describe("ClientRulesCard — bez wybranego procesu (13.10.2026)", () => {
+  it("prosi o proces, nie o klienta — klient wynika z rekrutacji", () => {
+    render(<ClientRulesCard {...base} clientName={null} clientSource={null} consentRequired={false} />);
+    expect(screen.getByText(/Wybierz proces, żeby zobaczyć reguły jego klienta/)).toBeInTheDocument();
+    expect(screen.queryByText(/Wybierz klienta/)).not.toBeInTheDocument();
+  });
+});

@@ -47,7 +47,7 @@ export function ClientRulesCard(props: ClientRulesCardProps) {
       </div>
       {!props.clientName ? (
         <p className="text-sm text-muted-foreground">
-          Wybierz klienta, żeby zobaczyć jego reguły: język, nazwę pliku, numer projektu i zgodę RODO.
+          Wybierz proces, żeby zobaczyć reguły jego klienta: język, nazwę pliku, numer projektu i zgodę RODO.
         </p>
       ) : props.loading ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
