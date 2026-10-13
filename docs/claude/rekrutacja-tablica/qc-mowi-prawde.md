@@ -1,5 +1,5 @@
-# QC CV mówi prawdę (13.10.2026, QC_VERSION „qc-truth-1”)
-<!-- indeks: odpowiedzi ze screeningu jako źródło QC, `dz_review.found_in` (presence/support), słownik `cv_term_translations.json`, nagłówek CV nie jest twierdzeniem, tytuł z `cv_role_title`, pogrubienia tylko gdy generator pogrubiał, zdanie w roli tylko przy opisie roli (także krytyczne), pozycje informacyjne `info`, „Szukałem w”, klucz pozycji, propozycje AI tylko z tej roli, przeliczenie wszystkich par, skrypt `qc_truth_audit.py` -->
+# QC CV mówi prawdę (13.10.2026)
+<!-- indeks: zapis i tłumaczenia (`found_in`), odpowiedzi jako źródło, zdanie w roli tylko przy opisie, „Szukałem w” -->
 
 Zespół mówił, że QC „proponuje głupoty”. Pomiar z 13.10.2026 (121 par
 z 3 dni, tylko odczyt): średnio 8–9 uwag na CV, około połowa fałszywa albo
