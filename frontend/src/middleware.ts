@@ -490,6 +490,8 @@ const PUBLIC_PATHS = [
   // Przegląd Delivery Leada: karta, uwagi dla rekrutera, „Wróć do poprawy”.
   "/preview/dl-review",
   "/preview/dl-send",
+  // Okno odrzucenia z podglądem maila do kandydata (13.10.2026).
+  "/preview/rejection-email",
   // Praktykanci (0374): `/preview/trainee` pokrywa też `/preview/trainees`.
   "/preview/trainee",
   // Strona kariery (kandydaci z LinkedIna) — publiczna z definicji. Na własnym

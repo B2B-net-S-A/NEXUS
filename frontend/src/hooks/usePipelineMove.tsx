@@ -50,6 +50,7 @@ import {
   announceRejectionEmail,
   rejectionEmailAvailableFrom,
   rejectionEmailBulkSkipMessage,
+  type RejectionEmailText,
 } from "@/lib/rejection-email";
 import { DebriefRequiredDialog } from "@/components/v2/recruitment/DebriefRequiredDialog";
 import {
@@ -215,6 +216,8 @@ interface MoveReason {
   freeReason?: string;
   // Kto zakończył proces (0352).
   endedBy?: EndedBy;
+  // Temat i treść maila poprawione w oknie odrzucenia (tylko jedna osoba).
+  emailText?: RejectionEmailText | null;
 }
 
 interface SendMoveOptions {
@@ -543,6 +546,8 @@ export function usePipelineMove({
           rejection_reason: reason?.freeReason || undefined,
           notes: reason?.notes,
           send_rejection_email: reason?.sendRejectionEmail ?? undefined,
+          rejection_email_subject: reason?.emailText?.subject,
+          rejection_email_body: reason?.emailText?.body,
           candidate_offer_response: reason?.candidateOfferResponse ?? undefined,
           expected_state_version:
             opts?.checkVersion === false ? undefined : expectedStateVersionOf(item),
@@ -1203,7 +1208,8 @@ export function usePipelineMove({
     candidateOfferResponse: "pending" | "accepted" | "declined" | null | undefined,
     freeReason?: string,
     endedBy?: EndedBy,
-    cancelAgreementId?: number | null
+    cancelAgreementId?: number | null,
+    emailText?: RejectionEmailText | null
   ) => {
     if (!pendingRejection) return;
     const { entries, destCol, followUp } = pendingRejection;
@@ -1226,6 +1232,7 @@ export function usePipelineMove({
             candidateOfferResponse: candidateOfferResponse ?? null,
             freeReason,
             endedBy,
+            emailText: entries.length === 1 ? emailText ?? null : null,
           },
           {
             silent: entries.length > 1,
@@ -1306,6 +1313,17 @@ export function usePipelineMove({
             : null
         }
         nextPerson={pendingRejection?.followUp ? pendingRejection.followUp.next : undefined}
+        emailPreview={
+          pendingRejection
+            ? {
+                jobId,
+                people: pendingRejection.entries.map((entry) => ({
+                  candidateId: entry.item.candidate_id,
+                  name: itemFullName(entry.item),
+                })),
+              }
+            : null
+        }
       />
 
       {debriefRequired && (
