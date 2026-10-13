@@ -135,6 +135,7 @@ from app.models.recruitment_pipeline import STAGE_CATEGORY, PipelineStage, Stage
 from app.schemas.pipeline import ClientRateUpdate, STAGE_LABELS
 from app.services.match_score_cache import bulk_get_or_compute
 from app.services.notes_profile_fill import availability_origin
+from app.services.candidate_added_date import added_to_base_sql
 from app.services.critical_events import record_executed
 from app.services.process_entry_meta import auto_match_badge
 from app.services.rejection_reason_labels import rejection_reason_label
@@ -1714,8 +1715,11 @@ def _apply_requested_sort(
             ).asc(),
             Candidate.id.asc(),
         )
+    # „Najnowsi” / „Najstarsi” po „w bazie od” (0437), nie po chwili wstawienia
+    # do NEXUSA — 43 tys. osób z Traffita ma tam dzień importu. Wyrażenie jest
+    # dokładnie tym z indeksu `ix_candidates_added_to_base_id`.
     if filters.sort == "oldest":
-        return query.order_by(Candidate.created_at.asc(), Candidate.id.asc())
+        return query.order_by(added_to_base_sql(Candidate).asc(), Candidate.id.asc())
     if filters.sort == "name":
         # Etykieta w UI brzmi „Nazwisko (A-Z)", więc kluczem wiodącym jest
         # NAZWISKO — dotąd sortowaliśmy po imieniu i lista tylko wyglądała na
@@ -1766,7 +1770,7 @@ def _apply_requested_sort(
                 )
                 ordering.insert(0, exact_email.asc())
             return query.order_by(*ordering)
-    return query.order_by(Candidate.created_at.desc(), Candidate.id.desc())
+    return query.order_by(added_to_base_sql(Candidate).desc(), Candidate.id.desc())
 
 
 async def _list_page_ids_first(

@@ -2883,6 +2883,8 @@ END $$""",
     # 0435: „Usuń z profilu” — kto i kiedy usunął plik kandydata.
     'ALTER TABLE candidate_documents ADD COLUMN IF NOT EXISTS removed_at TIMESTAMPTZ',
     'ALTER TABLE candidate_documents ADD COLUMN IF NOT EXISTS removed_by INTEGER REFERENCES users(id) ON DELETE SET NULL',
+    # 0437: „W bazie od” — data dodania kandydata u źródła (Traffit `created_at`).
+    'ALTER TABLE candidates ADD COLUMN IF NOT EXISTS source_created_at TIMESTAMPTZ',
     # 0207: durable, PII-minimized identity quarantine for candidate sources.
     """CREATE TABLE IF NOT EXISTS candidate_source_identity_reviews (
         id                  SERIAL PRIMARY KEY,
@@ -8983,6 +8985,9 @@ _INDEX_STATEMENTS = [
     # 0385: domyślne sortowanie listy kandydatów (najnowsi) bez skanu tabeli.
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidates_created_at_id "
     "ON candidates (created_at DESC, id DESC)",
+    # 0437: sortowanie listy po „w bazie od” (LEAST z daty u źródła i w NEXUSIE).
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidates_added_to_base_id "
+    "ON candidates ((LEAST(created_at, source_created_at)) DESC, id DESC)",
     # 0390 (runda 9, R9-N14-2): skaner alertów zapisanych wyszukiwań pyta
     # o notatki, dokumenty i rozmowy nowsze niż poprzedni przebieg.
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_notes_created_at ON notes (created_at)",

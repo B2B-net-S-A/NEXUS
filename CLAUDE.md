@@ -224,6 +224,7 @@ Formularz i widok screeningu, karta rekomendacji, rodzaje notatek, wzmianki, „
 - `screening-wybor-gotowego-cv-z-profilu-i-edycja.md` — Screening: wybór gotowego CV z profilu i edycja (09.10.2026)
 - `stawka-od-i-historia-stawek-kandydata.md` — „Stawka od” i historia stawek kandydata (0414, 04.10.2026)
 - `stawki-pary-z-notatek-gdy-etap-ich-nie-ma.md` — Stawki pary z notatek, gdy etap ich nie ma (12.10.2026) · para z czasów Traffita ma etapy bez kwot; stawka kandydata z karty rekomendacji i notatka z wysyłki jako podpowiedzi w profilu → Rekrutacje i w panelu osoby; nic nie jest zapisywane ani zgadywane
+- `w-bazie-od-data-wejscia-do-bazy.md` — „W bazie od” — kiedy osoba trafiła do bazy (13.10.2026) · data wejścia do bazy w panelu osoby, na Tablicy, w profilu przed telefonem i na liście; source_created_at z Traffita (0437) i naprawa dat; „Nowy w bazie” do 14 dni; data niedokładna = „przed …”
 - `wzmianki-w-notatkach-i-czatach.md` — Wzmianki „@” w notatkach i czatach (08.10.2026)
 - `zmiana-stawki-kandydata-w-trakcie-procesu.md` — Zmiana stawki kandydata w trakcie procesu (0418, 04.10.2026)
 

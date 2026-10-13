@@ -134,6 +134,7 @@ import { availabilityText, onsiteText } from "@/lib/person-facts";
 import { dockNotesSummary, splitPersonNotes } from "@/components/v2/person/notes-by-recruitment";
 import { PersonContactLine } from "@/components/v2/person/PersonContactLine";
 import { PersonFacts, RateWithBudget } from "@/components/v2/person/PersonFacts";
+import { NewInBasePill, type CandidateInBase } from "@/components/v2/person/PersonInBase";
 import { PersonNotesHistory } from "@/components/v2/person/PersonNotesHistory";
 import { WorkbenchBelowTabsContext } from "@/components/v2/person/WorkbenchBelowTabs";
 import { RateChangeBanner } from "@/components/v2/rate-change/RateChangeBanner";
@@ -258,7 +259,7 @@ function DockSection({
 
 /** Wycinek `CandidateResponse`, którego dok naprawdę używa. `candidatesApi.get`
  *  nie jest typowane, więc typujemy tu wprost — zamiast `any`. */
-interface CandidateDetail {
+interface CandidateDetail extends CandidateInBase {
   email?: string | null;
   phone?: string | null;
   city?: string | null;
@@ -1415,6 +1416,8 @@ export function PipelineCandidateDock({
               się, a treść pod nią ma tylko ~390 px przy 1280 × 650. Klient,
               koniec zamówienia i Delivery Lead są w dymku po kliknięciu. */}
           {item.employment_marker && <EmploymentPopoverPill marker={item.employment_marker} />}
+          {/* „W bazie od” (13.10.2026): świeża osoba widoczna na każdej zakładce. */}
+          <NewInBasePill candidate={candidate} />
           {candidate?.status === "blacklisted" && (
             <Badge
               variant={candidate.status === "blacklisted" ? "danger" : "neutral"}

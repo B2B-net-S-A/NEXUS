@@ -34,6 +34,7 @@ from app.models.recruitment_pipeline import CandidateStage
 from app.models.trainee import TraineeCallItem, TraineeCallList, TraineeProgram
 from app.models.user import User, UserRole
 from app.services import trainee_call_list as lists
+from app.services.candidate_added_date import added_to_base_of
 from app.services.role_merge import normalize_role_value
 from app.services import trainee_rules as rules_mod
 
@@ -208,6 +209,7 @@ def _facts(candidate: Candidate) -> dict[str, Any]:
 
 def item_row(item: TraineeCallItem, candidate: Candidate) -> dict[str, Any]:
     first = _first_experience(candidate)
+    in_base = added_to_base_of(candidate)
     name = " ".join(p for p in (candidate.name, candidate.lastname) if p).strip()
     reasons = dict(item.reasons or {})
     reasons.pop("job_ids", None)
@@ -222,7 +224,11 @@ def item_row(item: TraineeCallItem, candidate: Candidate) -> dict[str, Any]:
         "company": first.get("company") or candidate.linkedin_current_company,
         "city": candidate.city or candidate.location,
         "phone": candidate.phone,
-        "in_base_since": candidate.created_at.year if candidate.created_at else None,
+        # „W bazie od” (0437): niedokładna data (import z Traffita bez daty
+        # u źródła) to dzień importu — lepiej nic niż fałszywy rok.
+        "in_base_since": (
+            in_base.at.year if in_base.exact and in_base.at is not None else None
+        ),
         "last_contact_at": candidate.last_contacted_at.isoformat()
         if candidate.last_contacted_at
         else None,

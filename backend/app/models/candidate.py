@@ -431,6 +431,14 @@ class Candidate(Base, TimestampMixin):
     external_deleted_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Data dodania osoby U ŹRÓDŁA (Traffit `created_at`, 0437). `created_at`
+    # zostaje czasem wstawienia do NEXUSA — dla 65 tys. osób z Traffita to dzień
+    # importu. „W bazie od” liczy `app/services/candidate_added_date.py`.
+    # Indeks wyrażeniowy na LEAST(created_at, source_created_at) jest tylko
+    # w migracji i `entrypoint.sh` (jak `ix_candidates_created_at_id`).
+    source_created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     cv_file_content: Mapped[Optional[bytes]] = mapped_column(LargeBinary)
     # Klucz w Hetzner Object Storage (audit-2026-05-07 round 2, migracja 0080).
     # Po finalize-delete-bytea cv_file_content = NULL dla zmigrowanych rekordów.
