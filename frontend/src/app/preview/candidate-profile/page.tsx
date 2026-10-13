@@ -449,6 +449,10 @@ const DOCUMENTS = [
   },
 ];
 
+/** Lista plików po „Usuń z profilu” z menu wiersza (bez przeładowania strony). */
+let documents = DOCUMENTS;
+const REMOVED_DOCUMENT = new RegExp(`^/api/candidates/${CANDIDATE_ID}/documents/(\\d+)$`);
+
 const RISK = {
   candidate_id: CANDIDATE_ID,
   level: "medium",
@@ -894,8 +898,8 @@ const ROUTES: Array<[RegExp, (config: InternalAxiosRequestConfig) => unknown]> =
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/timeline`), () => TIMELINE],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/documents`), (config) =>
     String(config.url).includes("kind=cv")
-      ? DOCUMENTS.filter((d) => d.document_kind === "cv")
-      : DOCUMENTS],
+      ? documents.filter((d) => d.document_kind === "cv")
+      : documents],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/risk$`), () => RISK],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/ai-profile$`), () => AI_PROFILE],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/activity-summary$`), () => ACTIVITY_SUMMARY],
@@ -990,10 +994,25 @@ function localResponse(config: InternalAxiosRequestConfig):
   | { ok: true; response: AxiosResponse }
   | { ok: false; error: AxiosError } {
   const path = String(config.url ?? "").split("?")[0];
+  const method = (config.method ?? "get").toLowerCase();
+  // „Usuń z profilu” — jedyny zapis, który harness udaje: plik znika
+  // z lokalnej listy, jak po odpowiedzi serwera.
+  const removedId = method === "delete" ? REMOVED_DOCUMENT.exec(path)?.[1] : undefined;
+  if (removedId) {
+    documents = documents.filter((d) => d.id !== Number(removedId));
+    return {
+      ok: true,
+      response: {
+        data: null,
+        status: 204,
+        statusText: "No Content",
+        headers: new AxiosHeaders(),
+        config,
+      },
+    };
+  }
   const route =
-    (config.method ?? "get").toLowerCase() === "get"
-      ? ROUTES.find(([pattern]) => pattern.test(path))
-      : undefined;
+    method === "get" ? ROUTES.find(([pattern]) => pattern.test(path)) : undefined;
   if (!route) {
     const error = new AxiosError("preview: brak danych", "ERR_BAD_REQUEST");
     error.response = {

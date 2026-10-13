@@ -57,6 +57,9 @@ cofnąć „przy okazji”:
   z CV zostają; do rejestru `cv_source_cleanup` nic z usunięcia nie trafia (do
   26.09 szły tam wszystkie klucze osoby). Nie dokładaj kasowania CV do usuwania
   kandydata ani do żadnego automatu bez wyraźnego polecenia Artura.
+  „Usuń z profilu” przy pojedynczym pliku (13.10.2026) też niczego nie kasuje —
+  chowa plik i zostawia go w magazynie:
+  `kandydaci-wyszukiwanie/usun-plik-z-profilu-kandydata.md`.
 - **M365: kursor folderu przesuwa się tylko po czystym biegu folderu.** Graph
   daje `deltaLink` dopiero na ostatniej stronie, więc „ostatnia czysta strona”
   nie istnieje — przy jakimkolwiek błędzie importu folder zostaje na starym

@@ -34,6 +34,8 @@ CV_DOWNLOADED = "cv_downloaded"
 BULK_CV_DOWNLOADED = "bulk_cv_downloaded"
 DOCUMENT_DOWNLOADED = "document_downloaded"
 DOCUMENT_URL_ISSUED = "document_url_issued"
+# 0435: „Usuń z profilu” przy pliku kandydata (plik zostaje w magazynie).
+DOCUMENT_REMOVED = "candidate_document_removed"
 SENSITIVE_OPERATION_BLOCKED = "sensitive_operation_blocked"
 # Trwałe usunięcie profilu kandydata (admin). Zapisywane PRZED usunięciem, żeby
 # ślad przetrwał samą operację — po `db.delete()` nie ma już czego audytować.

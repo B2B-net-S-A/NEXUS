@@ -237,6 +237,7 @@ Lista i profil kandydata, słowa kluczowe, kolejność „Dopasowanie”, Talent
 - `szukaj-recznie-nie-wycina-sygnaly-mile-widziane.md` — „Szukaj ręcznie” nie wycina — sygnały „Mile widziane” (26.09.2026)
 - `ta-sama-osoba-ten-sam-e-mail.md` — Ta sama osoba = ten sam e-mail; nowe CV czytane od razu (12.10.2026) · reguła duplikatów kandydata w oknach, /from-cv, poczcie M365 i imporcie; LinkedIn tylko z adresu profilu; główne CV = odczyt AI; blokady ręcznych poprawek
 - `talent-radar-wklejasz-request-ranking-bazy-bez.md` — Talent Radar (wklejasz request → ranking bazy, bez zakładania rekrutacji)
+- `usun-plik-z-profilu-kandydata.md` — „Usuń z profilu” przy pliku kandydata (0435, 13.10.2026) · kto usuwa plik z profilu (admin, Head of Recruitment), co znika, a co zostaje w magazynie, główne CV i wskaźnik CV na kandydacie, synchronizacja poczty, jak przywrócić
 - `wyszukiwanie-reczne-podpowiedzi-przycisk-szukaj.md` — Wyszukiwanie ręczne: podpowiedzi, przycisk „Szukaj”, pamięć (25.09.2026)
 - `znacznik-pracuje-u-nas.md` — Znacznik „Pracuje u nas” — jedna reguła na każdym ekranie (12.10.2026) · znacznik zatrudnienia przy osobie (pracuje / kończy / zaczyna u nas), koniec zamówienia i Delivery Lead, okna dodawania do rekrutacji, Tablica, „Potwierdź zatrudnienie”, dzwonek do Delivery Leada obecnego klienta
 

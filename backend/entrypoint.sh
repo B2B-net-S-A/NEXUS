@@ -2880,6 +2880,9 @@ END $$""",
     'ALTER TABLE candidate_documents ADD COLUMN IF NOT EXISTS outdated_at TIMESTAMPTZ',
     'ALTER TABLE candidate_documents ADD COLUMN IF NOT EXISTS outdated_by INTEGER REFERENCES users(id) ON DELETE SET NULL',
     'ALTER TABLE candidate_documents ADD COLUMN IF NOT EXISTS uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL',
+    # 0435: „Usuń z profilu” — kto i kiedy usunął plik kandydata.
+    'ALTER TABLE candidate_documents ADD COLUMN IF NOT EXISTS removed_at TIMESTAMPTZ',
+    'ALTER TABLE candidate_documents ADD COLUMN IF NOT EXISTS removed_by INTEGER REFERENCES users(id) ON DELETE SET NULL',
     # 0207: durable, PII-minimized identity quarantine for candidate sources.
     """CREATE TABLE IF NOT EXISTS candidate_source_identity_reviews (
         id                  SERIAL PRIMARY KEY,

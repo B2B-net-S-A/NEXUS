@@ -552,11 +552,15 @@ _SUPPORTED_CV_DOC_PATTERNS = ("%.pdf", "%.docx")
 
 
 def _supported_cv_doc_filter() -> Any:
-    return or_(
-        *(
-            func.lower(CandidateDocument.filename).like(pat)
-            for pat in _SUPPORTED_CV_DOC_PATTERNS
-        )
+    # Plik usunięty z profilu (`source_deleted_at`, 0435) nie jest źródłem CV.
+    return and_(
+        CandidateDocument.source_deleted_at.is_(None),
+        or_(
+            *(
+                func.lower(CandidateDocument.filename).like(pat)
+                for pat in _SUPPORTED_CV_DOC_PATTERNS
+            )
+        ),
     )
 
 
@@ -2558,7 +2562,10 @@ async def load_candidate_generation_source(
     if cv_doc is None:
         any_doc_id = await db.scalar(
             select(CandidateDocument.id)
-            .where(CandidateDocument.candidate_id == candidate_id)
+            .where(
+                CandidateDocument.candidate_id == candidate_id,
+                CandidateDocument.source_deleted_at.is_(None),
+            )
             .limit(1)
         )
         if any_doc_id is not None:

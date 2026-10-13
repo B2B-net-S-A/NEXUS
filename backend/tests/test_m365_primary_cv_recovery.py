@@ -134,6 +134,88 @@ async def test_restored_primary_waits_for_identity_gate(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("same_person", [True, False])
+async def test_file_removed_from_profile_is_not_restored_for_the_same_person(
+    monkeypatch, tmp_path, same_person
+):
+    """0435: „Usuń z profilu” przeżywa powrót załącznika w synchronizacji.
+
+    U tej samej osoby plik zostaje usunięty; załącznik przypisany innej osobie
+    (rematch) trafia do niej normalnie i przestaje być „usunięty”.
+    """
+    now = datetime.now(timezone.utc)
+    ext_id = f"m365-removed-{uuid.uuid4().hex}"
+    content = b"Synthetic Alex Example CV"
+    (tmp_path / "synthetic.pdf").write_bytes(content)
+    monkeypatch.setattr(attachment_handler, "STORAGE_ROOT", tmp_path)
+    monkeypatch.setattr(attachment_handler.settings, "M365_AUTO_PARSE_CV", True)
+    monkeypatch.setattr(cv_text_extractor, "extract_text", lambda *_: "Synthetic CV")
+    monkeypatch.setattr(
+        cv_parser,
+        "parse_cv",
+        AsyncMock(return_value={"first_name": "Alex", "last_name": "Example"}),
+    )
+    monkeypatch.setattr(cv_ingest_service, "finish_cv_ingest", AsyncMock())
+    monkeypatch.setattr(
+        candidate_identity_quarantine,
+        "record_detected_identity",
+        AsyncMock(return_value=SimpleNamespace(is_quarantined=False)),
+    )
+
+    async with AsyncSessionLocal() as db:
+        owner = Candidate(name="Alex", lastname="Example")
+        other = Candidate(name="Other", lastname="Example")
+        db.add_all([owner, other])
+        await db.flush()
+        removed = CandidateDocument(
+            candidate_id=owner.id,
+            filename="synthetic.pdf",
+            file_content=content,
+            content_type="application/pdf",
+            size_bytes=len(content),
+            document_kind=CandidateDocumentKind.cv,
+            is_primary=False,
+            source_deleted_at=now,
+            removed_at=now,
+            external_source="m365",
+            external_id=ext_id,
+        )
+        db.add(removed)
+        await db.flush()
+
+        target = owner if same_person else other
+        attachment = SimpleNamespace(
+            id=1,
+            is_cv_candidate=True,
+            storage_path="synthetic.pdf",
+            filename="synthetic.pdf",
+            content_type="application/pdf",
+            sha256=None,
+            m365_attachment_id=ext_id,
+            parsed_candidate_id=None,
+            parse_error=None,
+        )
+        email = SimpleNamespace(
+            candidate_id=target.id, received_at=now - timedelta(days=1)
+        )
+        await attachment_handler.try_parse_cv(db, attachment, email)
+        await db.flush()
+        await db.refresh(removed)
+
+        assert attachment.parsed_candidate_id == target.id
+        if same_person:
+            assert removed.source_deleted_at is not None
+            assert removed.removed_at is not None
+            assert removed.is_primary is False
+            assert owner.raw_cv_text is None
+        else:
+            assert removed.candidate_id == other.id
+            assert removed.source_deleted_at is None
+            assert removed.removed_at is None
+        # Dane syntetyczne, bez commitu: zamknięcie sesji je wycofuje.
+
+
+@pytest.mark.asyncio
 async def test_already_applied_attachment_is_not_parsed_again(monkeypatch):
     """Delta pages must not pay for and reapply the same CV on every pass."""
     monkeypatch.setattr(attachment_handler.settings, "M365_AUTO_PARSE_CV", True)
