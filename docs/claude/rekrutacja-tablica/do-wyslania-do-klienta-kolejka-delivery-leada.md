@@ -64,6 +64,13 @@ stare przypomnienie o etapie „CV wysłane” — 4 695 wpisów do 8 osób.
   N dni” i przycisk „Przejrzyj i wyślij”; „Przejrzyj po kolei (N)” zastępuje
   opis kolumny od 2 gotowych osób. `onAdvance` otwiera „Przesuń dalej”, nie
   przegląd — przycisk idzie przez `onReviewSend`.
+- **Tablica liczy jak pas (14.10.2026).** Karta niesie `dl_send_counts`: rekrutacja opublikowana
+  i bieżący etap nie z importu Traffita, czyli ten sam zakres co `dl_send_queue`. Przy `false`
+  karta nie ma „Czeka na Ciebie” ani „Czeka na DL”, nie ma „Twój ruch” i nie wchodzi do
+  „Przejrzyj po kolei” (`countsForDlReview`). Przycisk „Przejrzyj i wyślij” zostaje
+  (`isReadyForDlSend`). Powód: audyt 13.10 pokazał, że Tablica wliczała karty z importu i karty
+  zamkniętych rekrutacji, których pas nie liczy. „Moje następne kroki” pytają o „czyj przegląd”
+  raz na żądanie (`_viewer_owns_dl_review(memo=…)`), a nie raz na każdą tablicę.
 - **Lista rekrutacji:** bez nowej kolumny (tabela ledwo mieści się przy
   1280 px). Komórka „QC” w „Etapach” świeci u Delivery Leada, gdy ktoś czeka
   na jego wysyłkę (`dl_send_ready_count` pod `include_stage_counts`), a filtr
