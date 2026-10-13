@@ -4,7 +4,8 @@
 Dostęp: sekcja Insights; POST /freeze dodatkowo tylko admin.
 """
 
-from typing import Optional
+import math
+from typing import Awaitable, Callable, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -20,6 +21,7 @@ from app.services.insights_scoring_config import league_points_formula
 from app.models.competition_winner import CompetitionType, CompetitionWinner
 from app.models.user import User
 from app.services import competitions as comp_service
+from app.services.league_standing import league_kind, league_leaders, league_standing
 
 router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 
@@ -59,9 +61,9 @@ def _parse_type(type_str: str) -> CompetitionType:
 # sekcji moze jednak ten domyslny dostep jawnie wycofac.
 #
 # To jedyny wspoldzielony endpoint, ktory wolno bylo poszerzyc NA MIEJSCU:
-# jego jedynym konsumentem we froncie jest ChampionsSection.tsx, czyli sama
-# powierzchnia Insights (`grep -rn "/api/competitions" frontend/src`), a
-# `/my-position` juz stalo na CurrentUser. Pozostale powierzchnie (/api/reports/*,
+# jego konsumentami we froncie sa powierzchnie Insights (ChampionsSection.tsx,
+# „Moj miesiac”) i od 13.10.2026 przycisk ligi w gornym pasku (`/my-league`,
+# ta sama bramka sekcji), a `/my-position` juz stalo na CurrentUser. Pozostale powierzchnie (/api/reports/*,
 # /api/admin/clients-overview, /api/dashboard/v2/*) sa wspoldzielone z INNYMI
 # stronami — tam Insights dostaje wlasne /api/insights/*, zamiast poszerzac cudzy
 # guard. Zapisy (freeze) zostaja na AdminUser.
@@ -403,6 +405,127 @@ async def resolve_tie(
         raise HTTPException(status_code=exc.status_code, detail=exc.message)
     await cache_invalidate(_CACHE_PREFIX)
     return result
+
+
+# Przycisk ligi w górnym pasku wisi na każdej stronie u każdej osoby, a jedno
+# przeliczenie Ligi to ok. 3 s Postgresa. Pasek czyta ranking przez własny
+# klucz z dłuższym czasem życia niż `/current`: przelicza Ligę najwyżej raz na
+# 5 minut na proces. Zamrożenie i remis czyszczą go razem z resztą prefiksu.
+_TOPBAR_CACHE_TTL_SECONDS = 300
+
+
+async def _topbar_cached(
+    key: str, compute: Callable[[], Awaitable[dict]], db: AsyncSession
+) -> dict:
+    async with cache_single_flight(key, db=db):
+        cached = await cache_get(key)
+        if cached is not None:
+            return cached
+        value = await compute()
+        jitter = 30 if _TOPBAR_CACHE_TTL_SECONDS > 0 else 0
+        await cache_set(
+            key, value, ttl_seconds=_TOPBAR_CACHE_TTL_SECONDS, jitter_seconds=jitter
+        )
+        return value
+
+
+async def _dl_league_numbers(db: AsyncSession, user_id: int, period: str) -> dict:
+    """Liczby Delivery Leada w lidze DL — także poniżej progu.
+
+    Ranking DL (`_rank_dls_by_placements`) pomija osobę poniżej progu i tnie
+    listę do 10, więc stąd bierze się „ile brakuje do ligi”. Liczniki to te same
+    `dl_portfolio_counts` co liga i cel portfela, jeden wpis dla całej firmy.
+    """
+
+    async def compute() -> dict:
+        year, quarter = comp_service.parse_quarter(period)
+        start, end = comp_service.quarter_bounds(year, quarter)
+        placements, requests = await comp_service.dl_portfolio_counts(
+            db, start=start, end=end
+        )
+        return {"placements": placements, "requests": requests}
+
+    counts = await _topbar_cached(f"{_CACHE_PREFIX}dl-counts:{period}", compute, db)
+    placements = int(counts["placements"].get(user_id, 0))
+    closed = int(counts["requests"].get(user_id, 0))
+    target = comp_service.HIT_RATIO_TARGET
+    min_placements = comp_service.QUARTERLY_MIN_PLACEMENTS
+    # Ta sama arytmetyka co ranking DL: hit ratio zaokrąglone do 0,1.
+    hit_ratio = round(placements / closed * 100, 1) if closed else None
+    qualified = (
+        hit_ratio is not None and placements >= min_placements and hit_ratio >= target
+    )
+    # Najpierw mnożenie, potem dzielenie (jak cel portfela w `kpi_goals`).
+    needed = max(min_placements, math.ceil(closed * target / 100))
+    return {
+        "placements": placements,
+        "closed_requests": closed,
+        "hit_ratio": hit_ratio,
+        "hit_ratio_target": target,
+        "min_placements": min_placements,
+        "missing_placements": 0 if qualified else max(needed - placements, 0),
+        "qualified": qualified,
+    }
+
+
+@router.get("/my-league")
+async def my_league(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Liga Mistrzów zalogowanej osoby do przycisku w górnym pasku.
+
+    Rekruter — miejsce i punkty w Lidze rekruterów, Delivery Lead — miejsce
+    i placementy w Lidze DL, pozostali — prowadzący Ligę rekruterów. Ranking
+    z tej samej ścieżki co `/current` (podium na „Rywalizacji”).
+    """
+    kind = league_kind(current_user)
+    ctype = (
+        CompetitionType.quarterly_champions_dl
+        if kind == "delivery_lead"
+        else CompetitionType.quarterly_champions_recruiter
+    )
+    today = business_today()
+    # Okres w kluczu: po starcie kwartału wpis paska nie podaje starego kwartału
+    # obok dni nowego.
+    current = await _topbar_cached(
+        f"{_CACHE_PREFIX}topbar:{ctype.value}:"
+        f"{comp_service.current_quarter_period(today)}",
+        lambda: _cached_current(db, ctype, None),
+        db,
+    )
+    period = current["period"]
+    rows = current["full_ranking"]
+    payload: dict = {
+        "kind": kind,
+        "type": ctype.value,
+        "period": period,
+        "days_remaining": comp_service.days_left_in_quarter(today),
+        "prizes_pln": comp_service.QUARTERLY_PRIZES_PLN,
+        "total": len(rows),
+    }
+    if kind == "spectator":
+        payload["leaders"] = league_leaders(rows)
+        return payload
+
+    payload["standing"] = league_standing(rows, current_user.id, current.get("ties"))
+    if kind == "delivery_lead":
+        payload["dl"] = await _dl_league_numbers(db, current_user.id, period)
+        return payload
+
+    # Punktacja tego kwartału (migawka, R4-16) i próg progresywny — liczone
+    # tutaj, nie czytane z cache `/current`, żeby wpis sprzed wdrożenia nie
+    # zostawił paska bez progu.
+    config = await comp_service.league_scoring_config(db, period)
+    year, quarter = comp_service.parse_quarter(period)
+    payload["points_formula"] = league_points_formula(config)
+    payload["required_placements"] = comp_service.required_placements_for_quarter(
+        year, quarter, config, today
+    )
+    payload["required_placements_by_month"] = [
+        int(config[f"league_min_placements_month{month}"]) for month in (1, 2, 3)
+    ]
+    return payload
 
 
 @router.get("/my-position")

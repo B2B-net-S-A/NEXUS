@@ -1603,6 +1603,22 @@
    "v3_home": "Górny pasek → Do wysłania / Menu → Rekrutacje (licznik)"
   },
   {
+   "id": "league.topbar",
+   "area": "powłoka",
+   "opis": "Przycisk Ligi Mistrzów w górnym pasku przed licznikiem celów: kółko z numerem miejsca (złote, srebrne, brązowe 1–3) i punkty kwartału rekrutera, placementy Delivery Leada w lidze DL, lider ligi u osób, które nie grają; panel po kliknięciu z dystansem do podium przeliczonym na pracę, rozbiciem punktów, warunkiem udziału, sąsiadami ±2 i linkiem do Rywalizacji",
+   "file": "components/v2/league/MyLeagueWidget.tsx",
+   "marker": "MyLeagueWidget",
+   "v3_home": "Górny pasek → Liga"
+  },
+  {
+   "id": "shell.appearance-menu",
+   "area": "powłoka",
+   "opis": "Menu „Wygląd” w górnym pasku: motyw koloru, styl interfejsu, tryb gry i tryb ciemny w jednym przycisku (na telefonie te przełączniki są osobno w szufladzie nawigacji)",
+   "file": "components/v2/shell/AppearanceMenu.tsx",
+   "marker": "AppearanceMenu",
+   "v3_home": "Górny pasek → Wygląd"
+  },
+  {
    "id": "dl-send.board-card",
    "area": "tablica",
    "opis": "Karta gotowa do wysyłki w „QC CV”: przycisk „Przejrzyj i wyślij” zamiast strzałki (każdy z prawem wysyłki); u Delivery Leada tej rekrutacji „Twój ruch” i plakietka „Czeka na Ciebie · N dni” liczona od zaliczenia QC",

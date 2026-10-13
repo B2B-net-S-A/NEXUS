@@ -42,6 +42,12 @@ ratio. Makiety: https://claude.ai/artifact/SDmwSbF8c9wWoqnUtB3KLt, raport:
   Bez tego mechanizmu trzy segmenty zostawiały wyszukiwarce 109 px. Nie zastępuj tego progiem okna (`xl:`): okno nie wie, czy menu jest
   przypięte ani jak długie są okruszki. Kontener na `<header>` też odpada —
   panel dzwonka renderuje się w pasku bez portalu.
+- **Sąsiedzi od 13.10.2026** (`liga-w-gornym-pasku.md`): przed licznikiem stoi
+  przycisk Ligi Mistrzów, który się nie ściska (bez `data-topbar-shrinks`),
+  a trzy przełączniki wyglądu (112 px) zastąpiło menu „Wygląd” (36 px).
+  Liczby segmentów z akapitu wyżej są sprzed tej zmiany; po niej przy 1280 px
+  Head of Recruitment i Delivery Lead widzą na pulpicie jeden segment zamiast
+  dwóch, rekruter bez zmian, przy 1536 px bez zmian.
 - **Mechanizm ma trzy warunki, każdy złapany pomiarem:** (1) w grupie akcji
   ściska się wyłącznie element z `data-topbar-shrinks` (licznik) — reszta dzieci
   dostaje `shrink-0` z klasy grupy; przycisk-ikona `w-9` bez `shrink-0` kurczył
