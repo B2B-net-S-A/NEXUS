@@ -44,6 +44,7 @@ import {
   visibleNotes,
   type NoteRecruitmentFilter,
 } from "@/lib/candidate-notes-view";
+import { pageNotes } from "@/lib/candidate-notes-paging";
 import { unwrapNoteContent } from "./profile-shared";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- notatki i rekrutacje przychodzą z luźno typowanych endpointów profilu */
@@ -263,6 +264,12 @@ export function NoteComposer({
  * długa treść zwinięta, filtr rekrutacji, notatki automatów schowane za
  * „Pokaż systemowe”, przypięcie wspólne dla zespołu i odpowiedzi (jeden
  * poziom). Reguły listy: `lib/candidate-notes-view.ts`.
+ *
+ * 13.10.2026 (E4): ikony akcji notatki widać po najechaniu albo fokusie
+ * w notatce, na dotyku zawsze. Profil włącza grupy miesięczne
+ * (`groupByMonth`) i „Pokaż starsze” (`initialVisible`) — obie opcje są
+ * domyślnie wyłączone, bo tę samą listę rysuje `JobNotesList` (Tablica,
+ * panel osoby). Reguły podziału: `lib/candidate-notes-paging.ts`.
  */
 export function NotesList({
   notes: rawNotes,
@@ -282,6 +289,8 @@ export function NotesList({
   includeSystem = false,
   cardLinks,
   onOpenCard,
+  groupByMonth = false,
+  initialVisible,
 }: {
   notes: any[];
   recruitments?: any[];
@@ -308,6 +317,10 @@ export function NotesList({
   /** Co z której notatki trafiło do karty rekomendacji (profil kandydata). */
   cardLinks?: ReadonlyMap<number, CandidateCardNoteLink>;
   onOpenCard?: (link: CandidateCardNoteLink) => void;
+  /** Nagłówki miesięcy („Wrzesień 2026 · 9”), przypięte osobno na górze. */
+  groupByMonth?: boolean;
+  /** Tyle najnowszych notatek (bez przypiętych), reszta za „Pokaż starsze (M)”. */
+  initialVisible?: number;
 }) {
   const notes = useMemo(
     () =>
@@ -347,7 +360,23 @@ export function NotesList({
       : undefined;
   const focusedHidden =
     focusedThread != null && !shown.some((n: any) => n.id === focusedThread.id);
-  const listed = focusedHidden ? [focusedThread, ...shown] : shown;
+  const listed = useMemo(
+    () => (focusedHidden ? [focusedThread, ...shown] : shown),
+    [focusedHidden, focusedThread, shown],
+  );
+  const [olderShown, setOlderShown] = useState(false);
+  const paged = groupByMonth || initialVisible != null;
+  const page = useMemo(
+    () =>
+      paged
+        ? pageNotes(listed, {
+            groupByMonth,
+            limit: initialVisible != null && !olderShown ? initialVisible : null,
+            focusedNoteId,
+          })
+        : null,
+    [paged, listed, groupByMonth, initialVisible, olderShown, focusedNoteId],
+  );
   const handledNoteFocusRef = useRef<number | null>(null);
   useEffect(() => {
     if (focusedThread == null || focusedNoteId == null) return;
@@ -505,12 +534,25 @@ export function NotesList({
 
   const iconButton =
     "inline-flex items-center justify-center rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground hit-area";
+  // Ikony akcji po najechaniu albo fokusie w notatce (Tab z klawiatury też
+  // je odsłania), na dotyku zawsze — `hover` w Tailwind v4 działa tylko
+  // z myszą. Przyciski zostają w DOM (opacity), więc czytnik ekranu i testy
+  // znajdują je po `aria-label`.
+  const noteActionsClass =
+    "pointer-fine:opacity-0 pointer-fine:group-hover/note:opacity-100 pointer-fine:group-focus-within/note:opacity-100 focus-within:opacity-100 transition-opacity";
+  const replyActionsClass =
+    "pointer-fine:opacity-0 pointer-fine:group-hover/reply:opacity-100 pointer-fine:group-focus-within/reply:opacity-100 focus-within:opacity-100 transition-opacity";
 
   const renderActions = (n: any, { isReply }: { isReply: boolean }) => {
     const editable = canModifyNote(n);
     const pinned = n.pinned_at != null;
     return (
-      <span className="ml-auto inline-flex shrink-0 items-center gap-0.5">
+      <span
+        className={cn(
+          "ml-auto inline-flex shrink-0 items-center gap-0.5",
+          isReply ? replyActionsClass : noteActionsClass,
+        )}
+      >
         {!isReply && !n.is_system && onPin && !readOnly ? (
           <button
             type="button"
@@ -599,6 +641,118 @@ export function NotesList({
     </span>
   );
 
+  const renderNote = (n: any, i: number) => {
+    const isEditing = editingId != null && editingId === n.id;
+    const jobTitle = hideRecruitment
+      ? null
+      : n.job_title ?? jobTitleById.get(Number(n.job_id));
+    const replies: any[] = Array.isArray(n.replies) ? n.replies : [];
+    const pinned = n.pinned_at != null;
+    return (
+      <article
+        key={n.id ?? i}
+        data-note-id={n.id ?? undefined}
+        aria-label={pinned ? "Przypięta notatka" : "Notatka"}
+        className={cn(
+          "group/note rounded-lg border border-border bg-background/40 px-3 py-2",
+          pinned && "border-primary/40 bg-primary/5",
+          n.is_system && "opacity-80",
+          focusedNoteId != null &&
+            Number(n.id) === focusedNoteId &&
+            "border-primary ring-2 ring-primary/30",
+        )}
+      >
+        <div className="flex items-start gap-2 text-xs text-muted-foreground">
+          {pinned ? (
+            <Pin
+              className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary"
+              aria-label={
+                n.pinned_by_name ? `Przypięta przez: ${n.pinned_by_name}` : "Przypięta"
+              }
+            />
+          ) : null}
+          {metaLine(n, jobTitle)}
+          {!isEditing ? renderActions(n, { isReply: false }) : null}
+        </div>
+        {isEditing ? renderEditor(n) : renderBody(n)}
+        {!isEditing ? renderCardLink(n) : null}
+
+        {replies.length > 0 || replyTo === n.id ? (
+          <div className="mt-2 space-y-1.5 border-l-2 border-border pl-3">
+            {replies.map((r: any) => {
+              const replyEditing = editingId != null && editingId === r.id;
+              return (
+                <div
+                  key={r.id}
+                  data-note-id={r.id}
+                  className={cn(
+                    "group/reply rounded-md",
+                    focusedNoteId != null &&
+                      Number(r.id) === focusedNoteId &&
+                      "ring-2 ring-primary/30",
+                  )}
+                >
+                  <div className="flex items-start gap-2 text-xs text-muted-foreground">
+                    {metaLine(r)}
+                    {!replyEditing ? renderActions(r, { isReply: true }) : null}
+                  </div>
+                  {replyEditing ? renderEditor(r) : renderBody(r)}
+                </div>
+              );
+            })}
+            {replyTo === n.id ? (
+              <div className="space-y-1.5">
+                <MentionTextarea
+                  value={replyText}
+                  onChange={setReplyText}
+                  scope={
+                    n.job_id != null
+                      ? { kind: "job", jobId: Number(n.job_id) }
+                      : { kind: "global" }
+                  }
+                  placeholder="Odpowiedź… (@ oznacza osobę)"
+                  rows={2}
+                  ariaLabel="Treść odpowiedzi"
+                />
+                <div className="flex items-center justify-end gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setReplyTo(null);
+                      setReplyText("");
+                    }}
+                  >
+                    Anuluj
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    loading={busyId === n.id}
+                    disabled={!replyText.trim() || busyId === n.id}
+                    onClick={async () => {
+                      if (!onReply) return;
+                      setBusyId(n.id);
+                      const ok = await onReply(n.id, replyText.trim());
+                      setBusyId(null);
+                      if (ok) {
+                        setReplyTo(null);
+                        setReplyText("");
+                      }
+                    }}
+                  >
+                    <Reply className="h-3.5 w-3.5" />
+                    Odpowiedz
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </article>
+    );
+  };
+
   return (
     <div className="space-y-2">
       {notes.length > 0 ? (
@@ -639,118 +793,45 @@ export function NotesList({
         <div className="py-6 text-center text-sm text-muted-foreground">
           {notes.length === 0 ? emptyText : "Brak notatek dla wybranych filtrów."}
         </div>
-      ) : (
-        listed.map((n: any, i: number) => {
-          const isEditing = editingId != null && editingId === n.id;
-          const jobTitle = hideRecruitment
-            ? null
-            : n.job_title ?? jobTitleById.get(Number(n.job_id));
-          const replies: any[] = Array.isArray(n.replies) ? n.replies : [];
-          const pinned = n.pinned_at != null;
-          return (
-            <article
-              key={n.id ?? i}
-              data-note-id={n.id ?? undefined}
-              aria-label={pinned ? "Przypięta notatka" : "Notatka"}
-              className={cn(
-                "rounded-lg border border-border bg-background/40 px-3 py-2",
-                pinned && "border-primary/40 bg-primary/5",
-                n.is_system && "opacity-80",
-                focusedNoteId != null &&
-                  Number(n.id) === focusedNoteId &&
-                  "border-primary ring-2 ring-primary/30",
-              )}
-            >
-              <div className="flex items-start gap-2 text-xs text-muted-foreground">
-                {pinned ? (
-                  <Pin
-                    className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary"
-                    aria-label={
-                      n.pinned_by_name ? `Przypięta przez: ${n.pinned_by_name}` : "Przypięta"
-                    }
-                  />
-                ) : null}
-                {metaLine(n, jobTitle)}
-                {!isEditing ? renderActions(n, { isReply: false }) : null}
-              </div>
-              {isEditing ? renderEditor(n) : renderBody(n)}
-              {!isEditing ? renderCardLink(n) : null}
-
-              {replies.length > 0 || replyTo === n.id ? (
-                <div className="mt-2 space-y-1.5 border-l-2 border-border pl-3">
-                  {replies.map((r: any) => {
-                    const replyEditing = editingId != null && editingId === r.id;
-                    return (
-                      <div
-                        key={r.id}
-                        data-note-id={r.id}
-                        className={cn(
-                          "rounded-md",
-                          focusedNoteId != null &&
-                            Number(r.id) === focusedNoteId &&
-                            "ring-2 ring-primary/30",
-                        )}
-                      >
-                        <div className="flex items-start gap-2 text-xs text-muted-foreground">
-                          {metaLine(r)}
-                          {!replyEditing ? renderActions(r, { isReply: true }) : null}
-                        </div>
-                        {replyEditing ? renderEditor(r) : renderBody(r)}
-                      </div>
-                    );
-                  })}
-                  {replyTo === n.id ? (
-                    <div className="space-y-1.5">
-                      <MentionTextarea
-                        value={replyText}
-                        onChange={setReplyText}
-                        scope={
-                          n.job_id != null
-                            ? { kind: "job", jobId: Number(n.job_id) }
-                            : { kind: "global" }
-                        }
-                        placeholder="Odpowiedź… (@ oznacza osobę)"
-                        rows={2}
-                        ariaLabel="Treść odpowiedzi"
-                      />
-                      <div className="flex items-center justify-end gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setReplyTo(null);
-                            setReplyText("");
-                          }}
-                        >
-                          Anuluj
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="primary"
-                          loading={busyId === n.id}
-                          disabled={!replyText.trim() || busyId === n.id}
-                          onClick={async () => {
-                            if (!onReply) return;
-                            setBusyId(n.id);
-                            const ok = await onReply(n.id, replyText.trim());
-                            setBusyId(null);
-                            if (ok) {
-                              setReplyTo(null);
-                              setReplyText("");
-                            }
-                          }}
-                        >
-                          <Reply className="h-3.5 w-3.5" />
-                          Odpowiedz
-                        </Button>
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
+      ) : page ? (
+        <>
+          {page.pinned.length > 0 ? (
+            <section aria-label="Przypięte notatki" className="space-y-2">
+              {groupByMonth ? (
+                <h3 className="pt-1 text-xs font-semibold text-muted-foreground">
+                  Przypięte · {page.pinned.length}
+                </h3>
               ) : null}
-            </article>
-          );
-        })
+              {page.pinned.map(renderNote)}
+            </section>
+          ) : null}
+          {page.sections.map((section) =>
+            section.label ? (
+              <section
+                key={section.key}
+                aria-label={section.label}
+                data-note-month={section.key}
+                className="space-y-2"
+              >
+                <h3 className="pt-1 text-xs font-semibold text-muted-foreground">
+                  {section.label} · {section.total}
+                </h3>
+                {section.notes.map(renderNote)}
+              </section>
+            ) : (
+              <div key={section.key} className="space-y-2">
+                {section.notes.map(renderNote)}
+              </div>
+            ),
+          )}
+          {page.hidden > 0 ? (
+            <Button size="sm" variant="outline" onClick={() => setOlderShown(true)}>
+              Pokaż starsze ({page.hidden})
+            </Button>
+          ) : null}
+        </>
+      ) : (
+        listed.map(renderNote)
       )}
 
       <ConfirmV2

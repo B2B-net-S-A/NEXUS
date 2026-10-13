@@ -1,34 +1,39 @@
 "use client";
 
 /**
- * Zakładka „Notatki i historia” (do 04.10.2026 „Historia”): jeden kompozytor notatki u góry i filtry. Od
- * 03.10.2026 notatki mają zakładkę na każdy rodzaj — „Rozmowy · Próby
- * kontaktu · Delivery Lead · Maile · Automat” — z licznikami z serwera
- * (decyzja: nic nie znika, szum ma własne miejsce). Dalej „Wszystko” (oś
- * czasu), „Telefony” (rejestr połączeń) i „Czat zespołu”. Domyślnie
- * „Rozmowy” (klucz `notes`).
+ * Zakładka „Notatki” (do 04.10.2026 „Historia”, do 13.10.2026 „Notatki
+ * i historia”): jeden kompozytor notatki u góry, pod nim filtry w dwóch
+ * grupach (E4, 13.10.2026):
+ * - notatki po rodzaju — „Rozmowy · Delivery Lead · Próby kontaktu ·
+ *   Automat” — z licznikami z serwera (decyzja 03.10: nic nie znika, szum ma
+ *   własne miejsce); rodzaj bez notatek jest schowany (poza „Rozmowami”
+ *   i wybranym). Domyślnie „Rozmowy” (klucz `notes`);
+ * - inne źródła — „Maile” (skrzynka M365 i maile zapisane w notatkach)
+ *   i „Czat zespołu”;
+ * - przełącznik „Zmiany etapów i automaty” = oś czasu (klucz `timeline`,
+ *   dawne „Wszystko”), ładowana dopiero tutaj, z „Pokaż więcej” do 200
+ *   wpisów i „Pokaż CV obok”.
  *
- * 04.10.2026: pole notatki zwinięte do jednej linii, filtry rodzajów bez
- * notatek są schowane (poza „Rozmowami” i wybranym), „Wszystko” nie ma liczby
- * (pokazywało limit pobrania, 50), a oś czasu ładuje się dopiero tutaj, z
- * „Pokaż więcej” do 200 wpisów.
+ * Lista notatek ma grupy miesięczne, przypięte na górze i 10 najnowszych
+ * z „Pokaż starsze”. Filtr „Telefony” (rejestr połączeń CloudTalk) zniknął
+ * 13.10.2026 — stary adres `activity=calls` otwiera oś czasu.
  *
  * Czytnik maili (`EmailThreadList`) MUSI mieć tu wejście — raz już osierociał
  * (PR #539), a synchronizacja M365 zapisuje treści maili pod RODO.
  */
 
 import * as React from "react";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Download, FileText, Loader2 } from "lucide-react";
 
-import api, { callsApi, extractErrorMsg, type Call } from "@/lib/api";
+import api, { extractErrorMsg } from "@/lib/api";
 import { celebrate } from "@/lib/celebrate";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import EmailThreadList from "@/components/emails/EmailThreadList";
-import CallsTimeline from "@/components/calls/CallsTimeline";
 import CandidateChatTab from "@/components/v2/pages/CandidateChatTab";
 import {
   FilePreviewContent,
@@ -71,52 +76,46 @@ const ScreeningSummaryDialog = dynamic(
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- oś czasu i notatki są luźno typowane */
 
-export const ACTIVITY_FILTER_LABELS: Record<CandidateActivityView, string> = {
+/** Grupa notatek po rodzaju — kolejność z makiety E4 (13.10.2026). */
+const NOTE_FILTERS = ["notes", "delivery", "contact", "automat"] as const;
+/** Inne źródła: skrzynka M365 (z mailami zapisanymi w notatkach) i czat zespołu. */
+const SOURCE_FILTERS = ["emails", "chat"] as const;
+
+export type ActivityFilter =
+  | (typeof NOTE_FILTERS)[number]
+  | (typeof SOURCE_FILTERS)[number];
+
+export const ACTIVITY_FILTER_LABELS: Record<ActivityFilter, string> = {
   notes: "Rozmowy",
-  contact: "Próby kontaktu",
   delivery: "Delivery Lead",
-  emails: "Maile",
+  contact: "Próby kontaktu",
   automat: "Automat",
-  timeline: "Wszystko",
-  calls: "Telefony",
+  emails: "Maile",
   chat: "Czat zespołu",
 };
 
-const FILTER_ORDER: CandidateActivityView[] = [
-  "notes",
-  "contact",
-  "delivery",
-  "emails",
-  "automat",
-  "timeline",
-  "calls",
-  "chat",
-];
+/** Przełącznik osi czasu (widok `timeline`, do 13.10.2026 filtr „Wszystko”). */
+const TIMELINE_TOGGLE_LABEL = "Zmiany etapów i automaty";
 
 /** Oś czasu: pierwsza porcja i sufit backendu (`/timeline?limit=` ≤ 200). */
 const TIMELINE_FIRST_PAGE = 50;
 const TIMELINE_MAX = 200;
 
-/** Rodzaje notatek, których filtr stoi zawsze — także przy zerze. */
-const ALWAYS_VISIBLE: ReadonlySet<CandidateActivityView> = new Set([
-  "notes",
-  "emails",
-  "timeline",
-  "calls",
-  "chat",
-]);
+/** Notatki: tyle najnowszych od razu, reszta za „Pokaż starsze”. */
+const NOTES_FIRST_PAGE = 10;
 
 /**
- * Filtry do pokazania: rodzaj notatek bez żadnej notatki znika (decyzja D1,
- * 04.10.2026), chyba że jest wybrany albo liczby jeszcze nie znamy.
+ * Filtry rodzajów notatek do pokazania: rodzaj bez żadnej notatki znika
+ * (decyzja D1, 04.10.2026), chyba że jest wybrany albo liczby jeszcze nie
+ * znamy. „Rozmowy” stoją zawsze.
  */
 export function visibleActivityFilters(
   active: CandidateActivityView,
   counts: Partial<Record<CandidateActivityView, number>>,
-): CandidateActivityView[] {
-  return FILTER_ORDER.filter(
+): ActivityFilter[] {
+  return NOTE_FILTERS.filter(
     (value) =>
-      ALWAYS_VISIBLE.has(value) ||
+      value === "notes" ||
       value === active ||
       counts[value] === undefined ||
       (counts[value] ?? 0) > 0,
@@ -148,7 +147,7 @@ export interface HistoryTabProps {
 export function HistoryTab({
   candidateId,
   candidate,
-  activityView,
+  activityView: requestedView,
   onActivityViewChange,
   recruitments,
   defaultJobId,
@@ -161,6 +160,10 @@ export function HistoryTab({
   composeRequest,
   onComposeHandled,
 }: HistoryTabProps) {
+  // `calls` („Telefony”) to już tylko stary klucz z adresu — nawigacja
+  // zamienia go na oś czasu; tu zabezpieczenie, gdyby dotarł.
+  const activityView: CandidateActivityView =
+    requestedView === "calls" ? "timeline" : requestedView;
   const { showError } = useToast();
   const queryClient = useQueryClient();
   const [noteText, setNoteText] = useState("");
@@ -238,12 +241,6 @@ export function HistoryTab({
     [cardOverview.data],
   );
 
-  const callsQuery = useQuery<Call[]>({
-    queryKey: candidateQueryKeys.calls(candidateId),
-    queryFn: () => callsApi.getForCandidate(candidateId),
-    enabled: candidateId > 0 && activityView === "calls",
-  });
-
   const {
     invalidateNotes,
     editNote: handleEditNote,
@@ -277,7 +274,7 @@ export function HistoryTab({
   const noteCount = (group: keyof typeof VIEW_BY_NOTE_GROUP) =>
     notesQuery.isSuccess ? groupCounts[group] : undefined;
   const counts: Partial<Record<CandidateActivityView, number>> = {
-    // „Wszystko” bez liczby: pokazywała limit pobrania (50), nie liczbę zdarzeń.
+    // Oś czasu bez liczby: pokazywała limit pobrania (50), nie liczbę zdarzeń.
     // Liczniki notatek liczy serwer dla całej historii (bez odpowiedzi).
     notes: noteCount("talks"),
     contact: noteCount("contact"),
@@ -285,8 +282,9 @@ export function HistoryTab({
     // „Maile” bez licznika: zakładka łączy skrzynkę M365 z mailami zapisanymi
     // w notatkach, a liczba samych notatek czytałaby się jak liczba maili.
     automat: noteCount("automat"),
-    calls: callsQuery.isSuccess ? (callsQuery.data ?? []).length : undefined,
   };
+  const timelineOn = activityView === "timeline";
+  const timelineToggleId = useId();
 
   const notesList = (emptyText: string) => (
     <NotesList
@@ -304,8 +302,38 @@ export function HistoryTab({
       includeSystem={activeGroup === "automat"}
       cardLinks={cardLinks}
       onOpenCard={setOpenCard}
+      groupByMonth
+      initialVisible={NOTES_FIRST_PAGE}
     />
   );
+
+  const filterTab = (value: ActivityFilter) => {
+    const active = value === activityView;
+    const count = counts[value];
+    return (
+      <button
+        key={value}
+        type="button"
+        role="tab"
+        aria-selected={active}
+        data-filter={value}
+        onClick={() => onActivityViewChange(value)}
+        className={cn(
+          "inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+          active
+            ? "bg-card text-foreground shadow-xs"
+            : "text-muted-foreground hover:bg-accent hover:text-foreground",
+        )}
+      >
+        {ACTIVITY_FILTER_LABELS[value]}
+        {/* Spacja dla czytników ekranu: „Rozmowy · 4”, nie „Rozmowy· 4”. */}
+        {typeof count === "number" ? " " : null}
+        {typeof count === "number" ? (
+          <span className="tabular-nums text-muted-foreground">· {count}</span>
+        ) : null}
+      </button>
+    );
+  };
 
   return (
     <div className="space-y-4">
@@ -329,43 +357,30 @@ export function HistoryTab({
         />
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        {/* Przy włączonej osi czasu żaden filtr nie jest wybrany — klik
+            w filtr wyłącza przełącznik. */}
         <div
           role="tablist"
-          aria-label="Filtr historii"
-          className="flex max-w-full gap-1 overflow-x-auto rounded-lg bg-muted p-1"
+          aria-label="Filtr notatek"
+          className="flex max-w-full items-center gap-1 overflow-x-auto rounded-lg bg-muted p-1"
         >
-          {visibleActivityFilters(activityView, counts).map((value) => {
-            const active = value === activityView;
-            const count = counts[value];
-            return (
-              <button
-                key={value}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                data-filter={value}
-                onClick={() => onActivityViewChange(value)}
-                className={cn(
-                  "inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
-                  active
-                    ? "bg-card text-foreground shadow-xs"
-                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                )}
-              >
-                {ACTIVITY_FILTER_LABELS[value]}
-                {/* Spacja dla czytników ekranu: „Rozmowy · 4”, nie „Rozmowy· 4”. */}
-                {typeof count === "number" ? " " : null}
-                {typeof count === "number" ? (
-                  <span className="tabular-nums text-muted-foreground">
-                    · {count}
-                  </span>
-                ) : null}
-              </button>
-            );
-          })}
+          {visibleActivityFilters(activityView, counts).map(filterTab)}
+          <span aria-hidden="true" className="mx-1 h-5 w-px shrink-0 bg-border" />
+          {SOURCE_FILTERS.map(filterTab)}
         </div>
-        {activityView === "timeline" && candidate.cv_filename ? (
+        <label
+          htmlFor={timelineToggleId}
+          className="inline-flex min-h-9 cursor-pointer items-center gap-2 text-xs font-medium text-muted-foreground"
+        >
+          <Switch
+            id={timelineToggleId}
+            checked={timelineOn}
+            onCheckedChange={(on) => onActivityViewChange(on ? "timeline" : "notes")}
+          />
+          {TIMELINE_TOGGLE_LABEL}
+        </label>
+        {timelineOn && candidate.cv_filename ? (
           <Button
             size="sm"
             variant="ghost"
@@ -379,7 +394,7 @@ export function HistoryTab({
         ) : null}
       </div>
 
-      {activityView === "timeline" ? (
+      {timelineOn ? (
         timelineQuery.isPending ? (
           <SectionLoading label="Ładowanie historii…" />
         ) : timelineQuery.error && timelineItems.length === 0 ? (
@@ -412,8 +427,8 @@ export function HistoryTab({
               </Button>
             ) : timelineItems.length >= TIMELINE_MAX ? (
               <p className="text-xs text-muted-foreground">
-                Pokazujemy {TIMELINE_MAX} najnowszych zdarzeń. Starsze notatki są
-                w filtrach rodzajów notatek.
+                Pokazujemy {TIMELINE_MAX} najnowszych zdarzeń. Starsze notatki
+                zobaczysz po wyłączeniu przełącznika „{TIMELINE_TOGGLE_LABEL}”.
               </p>
             ) : null}
           </>
@@ -458,19 +473,6 @@ export function HistoryTab({
             </section>
           ) : null}
         </div>
-      ) : null}
-
-      {activityView === "calls" ? (
-        callsQuery.error ? (
-          <SectionError
-            title="Nie udało się pobrać połączeń"
-            onRetry={() => callsQuery.refetch()}
-          />
-        ) : callsQuery.isPending ? (
-          <SectionLoading label="Ładowanie połączeń…" />
-        ) : (
-          <CallsTimeline calls={callsQuery.data ?? []} />
-        )
       ) : null}
 
       {activityView === "chat" ? (
