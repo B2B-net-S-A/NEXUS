@@ -55,27 +55,33 @@ _NUMBER = r"\d[\d\s.,]*+"
 # należy do liczby, więc startu nie blokuje.
 _RUN_START = r"(?<!\d)(?<!\d[\s.,])(?<!\d[\s.,][\s.,])"
 _AMOUNT = rf"{_RUN_START}{_NUMBER}"
-_MULTIPLIER = r"(?:k|tys\.?|tysi[ęe]cy|mln|mld)"
+# Kreska po przecinku albo kropce: „180,- zł”, „180.-PLN” — zapis kwoty
+# z faktur. Tylko po separatorze, więc „5-osobowy” i „2.0-RC” jej nie mają.
+_DASH = r"(?:(?<=[.,])-)?"
+# „tyś” to częsty błąd pisowni „tys.” — „30 tyś. zł” przechodziło (audyt 13.10.2026).
+_THOUSANDS = r"(?:ty[sś]\.?|tysi[ęe]cy)"
+_MULTIPLIER = rf"(?:k|{_THOUSANDS}|mln|mld)"
 # Tylko formy, w których „złoty” jest walutą. „00-120 Złota 59” to adres,
 # a „zlot” bez „ł” to także zjazd („2 zloty firmowe rocznie”).
 _CURRENCY_WORD = r"(?:złot(?:ych|ego|ówk\w*|e|y)|dolar\w*|funt\w*|czk|nok|dkk|huf|uah)"
 
 # Kwota „na pewno”: liczba z walutą albo ze stawką za jednostkę czasu.
-# Ogłoszenie na portale (`job_ad.lint`) blokuje kopiowanie tylko przy nich,
-# a liczbę przy samym słowie „stawka”/„rate” traktuje jako uwagę.
+# Ogłoszenie na portale (`job_ad.lint`) blokuje kopiowanie przy nich i przy
+# liczbie obok słowa o wynagrodzeniu (``PAY_WORD_MONEY_PATTERN``), a liczbę
+# przy samym słowie „stawka”/„rate” traktuje jako uwagę.
 CERTAIN_MONEY_PATTERNS = (
-    # „180 zł", „25 000 PLN", „20k PLN", „15 tys. zł"
+    # „180 zł", „25 000 PLN", „20k PLN", „15 tys. zł", „180,- zł", „30tyś PLN"
     re.compile(
-        rf"{_AMOUNT}\s*(?:k|tys\.?|tysi[ęe]cy)?\s*{_CURRENCY}(?![a-ząćęłńóśźż])",
+        rf"{_AMOUNT}{_DASH}\s*(?:k|{_THOUSANDS})?\s*{_CURRENCY}(?![a-ząćęłńóśźż])",
         re.IGNORECASE,
     ),
     # „PLN 180", „zł 150"
     re.compile(rf"(?<![a-ząćęłńóśźż]){_CURRENCY}\s*{_NUMBER}", re.IGNORECASE),
     # „180/h", „25k/mc", „1200 / MD", „k/h"
-    re.compile(rf"(?:{_AMOUNT}\s*k?|\bk)\s*/\s*{_RATE_UNIT}\b", re.IGNORECASE),
+    re.compile(rf"(?:{_AMOUNT}{_DASH}\s*k?|\bk)\s*/\s*{_RATE_UNIT}\b", re.IGNORECASE),
     # „200 złotych", „20 tysięcy złotych", „150 dolarów", „3000 CZK"
     re.compile(
-        rf"{_AMOUNT}\s*{_MULTIPLIER}?\s*{_CURRENCY_WORD}(?![a-ząćęłńóśźż])",
+        rf"{_AMOUNT}{_DASH}\s*{_MULTIPLIER}?\s*{_CURRENCY_WORD}(?![a-ząćęłńóśźż])",
         re.IGNORECASE,
     ),
     # „2 mln PLN"
@@ -92,14 +98,23 @@ CERTAIN_MONEY_PATTERNS = (
         re.IGNORECASE,
     ),
 )
+_NEAR_NUMBER = r"\W{1,3}(?:\w+\W{1,3}){0,5}\d{2,}"
+# „budżet do 25 000", „widełki 20-25", „pensja 9000" — słowo mówi, że liczba
+# jest kwotą. Ogłoszenie na portale blokuje je tak samo jak strona kariery
+# (decyzja Artura 14.10.2026 po audycie 13.10: „Widełki 20–25k” dało się
+# skopiować na portal).
+PAY_WORD_MONEY_PATTERN = re.compile(
+    r"\b(?:bud[żz]et\w*|wynagrodzeni\w*|wide[łl]k\w*|salary|pensj\w*|zarob\w*)"
+    + _NEAR_NUMBER,
+    re.IGNORECASE,
+)
 _MONEY_PATTERNS = (
     *CERTAIN_MONEY_PATTERNS,
-    # „stawka 180", „budżet do 25 000", „widełki 20-25"
-    re.compile(
-        r"\b(?:stawk\w*|bud[żz]et\w*|wynagrodzeni\w*|wide[łl]k\w*|rate|salary)"
-        r"\W{1,3}(?:\w+\W{1,3}){0,5}\d{2,}",
-        re.IGNORECASE,
-    ),
+    PAY_WORD_MONEY_PATTERN,
+    # „stawka 180", „rate 17" — w ogłoszeniu tylko uwaga („rate limiting …
+    # Java 17”). Idzie PO słowach o wynagrodzeniu: znalezisko z nich ma
+    # pierwszeństwo, gdy zdanie ma oba.
+    re.compile(r"\b(?:stawk\w*|rate)" + _NEAR_NUMBER, re.IGNORECASE),
 )
 # Runda 9 (R9-V3-4): start tylko na początku ciągu znaków adresu i kwantyfikatory
 # zaborcze — dawny wzorzec próbował od KAŻDEJ pozycji długiego ciągu liter
@@ -136,7 +151,8 @@ _CONTACT_PATTERNS = (
 # nie kończą zdania nawet przed wielką literą: „30 tys. PLN” to najzwyklejszy
 # zapis kwoty, a cięcie po „tys.” chowało go przed każdym wzorcem.
 _SEGMENT_SPLIT = re.compile(
-    r"(?<=[.!?;])(?<!\btys\.)(?<!\bgodz\.)(?<!\bmies\.)\s+(?=[A-ZĄĆĘŁŃÓŚŹŻ0-9])|\n+"
+    r"(?<=[.!?;])(?<!\btys\.)(?<!\btyś\.)(?<!\bgodz\.)(?<!\bmies\.)"
+    r"\s+(?=[A-ZĄĆĘŁŃÓŚŹŻ0-9])|\n+"
 )
 
 

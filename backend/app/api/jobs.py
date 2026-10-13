@@ -2890,6 +2890,31 @@ async def delete_job(
                     "jest opublikowana na zewnątrz.",
                 },
             )
+        # 0432: ogłoszenie wklejone ręcznie też wisi na portalu, a NEXUS go nie
+        # zdejmie. Kaskada kasowała jedyny ślad, gdzie wisi (audyt 13.10.2026).
+        from app.models.job_ad_publication import JobAdPublication  # noqa: PLC0415
+
+        ad_portals = sorted(
+            (
+                await db.scalars(
+                    select(JobAdPublication.portal).where(
+                        JobAdPublication.job_id == job_id,
+                        JobAdPublication.removed_at.is_(None),
+                    )
+                )
+            ).all()
+        )
+        if ad_portals:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "job_has_ad_on_portal",
+                    "portals": ad_portals,
+                    "message": "Ogłoszenie tej rekrutacji wisi na portalu. Zdejmij "
+                    "je z portalu i oznacz „Zdjęte z portalu” w oknie „Ogłoszenie "
+                    "na portale” — dopiero wtedy usuń rekrutację.",
+                },
+            )
         process_rows = int(
             await db.scalar(
                 select(func.count(RecruitmentProcess.id)).where(

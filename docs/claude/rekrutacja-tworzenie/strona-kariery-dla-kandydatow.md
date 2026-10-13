@@ -41,6 +41,23 @@ Reguły, które łatwo cofnąć:
     szerokości, selektory wariantu, wypełniacze hangul) i znakami pełnej
     szerokości — porównanie idzie po `for_lint`, więc nazwa klienta z miękkim
     łącznikiem w środku nadal jest nazwą klienta.
+- **Od 14.10.2026 (audyt 13.10.2026) kontrola łapie też** zapisy, które
+  przechodziły: „180,- zł”, „180,-zł”, „180.- PLN” (kreska tylko po
+  przecinku albo kropce — „5-osobowy” i „2.0-RC” kwotą nie są), „30 tyś. zł”,
+  „30tyś PLN”, „30 tyś. netto” („tyś.” nie kończy zdania, jak „tys.”) oraz
+  liczbę przy słowach „pensja” i „zarobki” (obok „budżet”, „widełki”,
+  „wynagrodzenie”, „salary”, „stawka”, „rate”). Słowa o wynagrodzeniu
+  (bez „stawka”/„rate”) siedzą w osobnym `PAY_WORD_MONEY_PATTERN`, bo
+  ogłoszenie na portale blokuje je, a liczbę przy „stawka”/„rate” tylko
+  zgłasza jako uwagę (decyzja Artura „A”).
+- **Zapis opisu wycina znaki formatujące** (kategoria Cf, jak
+  `job_ad/text.visible`; `api/career_links.put_public_profile`: tytuł,
+  podtytuł, opis). „\u202ełz 081\u202c” przeglądarka pokazuje jako
+  „180 zł”, a kontrola porównuje tekst bez tych znaków i widziała „łz 081”.
+  Po zapisie strona pokazuje to, co czyta kontrola. Opisy zapisane przed
+  14.10.2026 nie są czyszczone wstecz — przejdą przez to przy następnym
+  zapisie. Ponowny zapis opisu, który miał np. miękki łącznik, zmienia
+  skrót treści i zatwierdzony opis wraca do szkicu.
 - **Wzorce są zawężone tam, gdzie łapały zwykły tekst** (przegląd
   13.10.2026) — nie poszerzaj ich bez przykładu z prawdziwego opisu:
   - „[at]”/„(at)” tylko małymi literami („Austria (AT) i Szwajcaria (CH)”
