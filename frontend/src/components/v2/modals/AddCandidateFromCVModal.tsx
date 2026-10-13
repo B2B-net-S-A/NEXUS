@@ -9,16 +9,24 @@ import type { AxiosError } from"axios";
 import {
  AlertCircle,
  AlertTriangle,
+ Check,
  CheckCircle2,
  FileUp,
+ Loader2,
  Sparkles,
  Upload,
  UserCheck,
  XCircle,
 } from"lucide-react";
-import api from"@/lib/api";
+import api, { candidateStageCvApi, phase3Api, type CandidatePipelineRow } from"@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import { cn } from"@/lib/utils";
 import { celebrate } from"@/lib/celebrate";
+import { assignErrorMessage } from "@/lib/assign-error";
+import { formatReasonCounts, summarizeBulkResult } from "@/lib/bulk-result-summary";
+import { proposalsBulkApi } from "@/lib/candidate-search-api";
+import { ClosedCardRestore } from "@/components/v2/recruitment/ClosedCardRestore";
+import type { ClosedRow } from "@/components/v2/recruitment/AddToRecruitmentDialog";
 import {
  Dialog,
  DialogBody,
@@ -29,7 +37,6 @@ import {
  DialogTitle,
 } from"@/components/ui/dialog";
 import { Button } from"@/components/ui/button";
-import { ExistingCandidateNotice } from"@/components/v2/candidates/ExistingCandidateNotice";
 import { invalidateCandidateMutation } from"@/components/v2/pages/candidate-cache";
 import { attachCvFormData, isSameFileMatch } from"@/lib/add-candidate-cv";
 
@@ -74,7 +81,66 @@ interface ConflictDetail {
 interface Props {
  open: boolean;
  onOpenChange: (open: boolean) => void;
- onAdded?: (candidateId: number) => void;
+ /** Rekrutacja, do której okno dodaje osobę (do „Nowych”). */
+ job: { id: number; title: string };
+ /** Coś zmieniło się na Tablicy (dodanie, przywrócenie, nowe CV). */
+ onChanged?: () => void;
+ /** „Otwórz w panelu” — panel osoby na Tablicy tej rekrutacji. */
+ onOpenPerson?: (candidateId: number) => void;
+}
+
+/** Wynik dodania do rekrutacji (13.10.2026: okno samo dodaje do „Nowych”). */
+type JobAdd =
+ | { kind: "added" }
+ | { kind: "already"; label: string | null }
+ | { kind: "closed"; row: ClosedRow }
+ | { kind: "skipped"; text: string };
+
+/** Osoba z bazy po akcji w oknie — widok końcowy. */
+type ExistingOutcome =
+ | {
+ kind: "added" | "restored" | "replaced" | "hired" | "profile_only";
+ candidateId: number;
+ name: string;
+ stageName?: string | null;
+ }
+ | { kind: "closed"; candidateId: number; name: string; row: ClosedRow };
+
+/**
+ * Karta osoby w tej rekrutacji według kolumny Tablicy (`board_column` —
+ * ta sama reguła co karta i `proposals/bulk`): lista rezerwowa jest zamknięta,
+ * choć nie jest etapem końcowym, a zatrudniony nie jest „zamknięty”.
+ */
+type CardState = "none" | "in_progress" | "hired" | "closed";
+
+function cardState(card: CandidatePipelineRow | null): CardState {
+ if (!card) return "none";
+ if (card.board_column === "closed") return "closed";
+ if (card.board_column === "hired") return "hired";
+ return "in_progress";
+}
+
+/** Formaty, które mogą zostać CV rekrutacji (kopia etapu bierze się z głównego CV). */
+function canBeStageCv(file: File): boolean {
+ return /\.(pdf|docx?)$/i.test(file.name);
+}
+
+async function addToJob(jobId: number, candidateId: number): Promise<JobAdd> {
+ const response = await proposalsBulkApi.add(jobId, { candidate_ids: [candidateId], source: "quick_add" });
+ if (response.total_added > 0) return { kind: "added" };
+ const row = response.skipped.find((r) => r.candidate_id === candidateId) ?? response.skipped[0];
+ if (row?.reason === "closed_in_job" && row.closed) return { kind: "closed", row: row as ClosedRow };
+ if (row?.reason === "already_in_job") return { kind: "already", label: row.reason_label ?? null };
+ return {
+ kind: "skipped",
+ text: row?.reason_label ?? formatReasonCounts(summarizeBulkResult(response).skipped),
+ };
+}
+
+/** Bieżąca karta osoby w tej rekrutacji (najnowszy wiersz etapu) albo `null`. */
+async function jobCard(candidateId: number, jobId: number): Promise<CandidatePipelineRow | null> {
+ const { data } = await phase3Api.candidatePipelines(candidateId);
+ return data.pipelines.find((row) => row.job_id === jobId) ?? null;
 }
 
 const LOW_CONFIDENCE = 0.7;
@@ -127,22 +193,27 @@ function ConfidenceRow({
  );
 }
 
-export function AddCandidateFromCVModal({ open, onOpenChange, onAdded }: Props) {
+export function AddCandidateFromCVModal({ open, onOpenChange, job, onChanged, onOpenPerson }: Props) {
  const queryClient = useQueryClient();
  const fileInputRef = useRef<HTMLInputElement>(null);
  const [file, setFile] = useState<File | null>(null);
  const [dragOver, setDragOver] = useState(false);
  const [result, setResult] = useState<FromCVResponse | null>(null);
+ // Nowy kandydat z CV: wynik dodania do „Nowych” tej rekrutacji.
+ const [newCandidateAdd, setNewCandidateAdd] = useState<JobAdd | "pending" | "failed" | null>(null);
  const [conflict, setConflict] = useState<ConflictDetail | null>(null);
- // „Dodaj to CV do profilu”: osoba, do której profilu trafił plik.
- const [attachedTo, setAttachedTo] = useState<{ id: number; name: string } | null>(null);
+ // Osoba z bazy: karta w tej rekrutacji (do opisu, co zrobi przycisk).
+ const [existingCard, setExistingCard] = useState<CandidatePipelineRow | null | "loading" | "unknown">(null);
+ const [outcome, setOutcome] = useState<ExistingOutcome | null>(null);
  const [error, setError] = useState<string | null>(null);
 
  const reset = () => {
  setFile(null);
  setResult(null);
+ setNewCandidateAdd(null);
  setConflict(null);
- setAttachedTo(null);
+ setExistingCard(null);
+ setOutcome(null);
  setError(null);
  };
 
@@ -171,8 +242,13 @@ export function AddCandidateFromCVModal({ open, onOpenChange, onAdded }: Props) 
  setConflict(null);
  queryClient.invalidateQueries({ queryKey: ["candidates"] });
  queryClient.invalidateQueries({ queryKey: ["candidates-v2"] });
- onAdded?.(data.candidate.id);
  celebrate({ small: true, message: "Kandydat dodany! ✨" });
+ // Nowy kandydat z CV od razu trafia do „Nowych” tej rekrutacji.
+ setNewCandidateAdd("pending");
+ addToJob(job.id, data.candidate.id)
+ .then((add) => setNewCandidateAdd(add))
+ .catch(() => setNewCandidateAdd("failed"))
+ .finally(() => onChanged?.());
  },
  onError: (err: AxiosError<{ detail?: ConflictDetail | string }>) => {
  // 409 → structured duplicate alert; other errors → plain message.
@@ -181,6 +257,14 @@ export function AddCandidateFromCVModal({ open, onOpenChange, onAdded }: Props) 
  if (detail && typeof detail === "object" &&"matches" in detail) {
  setConflict(detail);
  setError(null);
+ const top = detail.matches[0];
+ if (top) {
+ // Tylko do opisu w oknie — akcję i tak rozstrzyga odpowiedź serwera.
+ setExistingCard("loading");
+ jobCard(top.candidate_id, job.id)
+ .then(setExistingCard)
+ .catch(() => setExistingCard("unknown"));
+ }
  return;
  }
  }
@@ -191,28 +275,54 @@ export function AddCandidateFromCVModal({ open, onOpenChange, onAdded }: Props) 
  },
  });
 
- // Ta sama osoba = ten sam e-mail (12.10.2026): zamiast drugiego profilu plik
- // idzie jako główne CV istniejącej osoby — serwer czyta je w tle.
- const attachMut = useMutation({
- mutationFn: async (match: ConflictDetail["matches"][number]) => {
+ // Osoba już jest w bazie (ten sam e-mail albo ten sam plik): CV na górę
+ // profilu i osoba w tej rekrutacji — prośba rekruterów z 13.10.2026.
+ // Osoba w toku: nowe CV zastępuje kopię CV przy jej zgłoszeniu (jedno
+ // żądanie `…/cv/original/upload`). Pozostali: plik jako główne CV
+ // (deduplikacja po SHA ustawia też identyczny plik), potem „Nowi”.
+ const existingMut = useMutation({
+ mutationFn: async (match: ConflictDetail["matches"][number]): Promise<ExistingOutcome> => {
  if (!file) throw new Error("Brak pliku CV");
- await api.post(`/api/candidates/${match.candidate_id}/documents`, attachCvFormData(file), {
+ const candidateId = match.candidate_id;
+ const name = `${match.name ??""} ${match.lastname ??""}`.trim() || "Kandydat";
+ // Świeży odczyt karty — opis w oknie mógł powstać przed chwilą zmianą na Tablicy.
+ const card = await jobCard(candidateId, job.id);
+ const state = cardState(card);
+ if (state === "in_progress" && card && canBeStageCv(file)) {
+ // Osoba w toku (D5): nowe CV jest głównym CV i kopią przy jej zgłoszeniu.
+ await candidateStageCvApi.original.upload(card.candidate_stage_id, file);
+ return { kind: "replaced", candidateId, name, stageName: card.stage_name };
+ }
+ await api.post(`/api/candidates/${candidateId}/documents`, attachCvFormData(file), {
  headers: {"Content-Type":"multipart/form-data" },
  });
- return match;
+ invalidateCandidateMutation(queryClient, candidateId, "document");
+ if (state === "hired") return { kind: "hired", candidateId, name, stageName: card?.stage_name ?? null };
+ if (state === "in_progress") return { kind: "profile_only", candidateId, name, stageName: card?.stage_name ?? null };
+ const add = await addToJob(job.id, candidateId);
+ if (add.kind === "added") return { kind: "added", candidateId, name };
+ if (add.kind === "closed") return { kind: "closed", candidateId, name, row: add.row };
+ // Karta, której odczyt nie znał (dodana w tej chwili w innym oknie):
+ // CV jest w profilu, kopię przy zgłoszeniu podmienia ramka w panelu osoby.
+ if (add.kind === "already") return { kind: "profile_only", candidateId, name, stageName: null };
+ throw new Error(`CV jest na górze profilu, ale osoba nie trafiła do tej rekrutacji: ${add.text}`);
  },
- onSuccess: (match) => {
- invalidateCandidateMutation(queryClient, match.candidate_id, "document");
- setAttachedTo({
- id: match.candidate_id,
- name: `${match.name ??""} ${match.lastname ??""}`.trim(),
- });
+ onSuccess: (done) => {
+ invalidateCandidateMutation(queryClient, done.candidateId, "document");
+ queryClient.invalidateQueries({ queryKey: ["cv-original"] });
+ setOutcome(done);
  setConflict(null);
  setError(null);
- // W rekrutacji ta osoba trafia do „Nowych” — jak nowy kandydat z CV.
- onAdded?.(match.candidate_id);
+ onChanged?.();
  },
- onError: () => setError("Nie udało się dodać CV do profilu. Spróbuj ponownie."),
+ onError: (err) => {
+ setError(
+ err instanceof Error && err.message.startsWith("CV jest na górze profilu")
+ ? err.message
+ : apiErrorMessage(err, assignErrorMessage(err)),
+ );
+ onChanged?.();
+ },
  });
 
  const handleFile = (f: File) => {
@@ -325,6 +435,7 @@ export function AddCandidateFromCVModal({ open, onOpenChange, onAdded }: Props) 
  </div>
  </div>
  )}
+ <NewCandidateJobLine add={newCandidateAdd} jobTitle={job.title} />
  </DialogBody>
  <DialogFooter>
  <Button variant="ghost" onClick={() => reset()}>
@@ -333,6 +444,17 @@ export function AddCandidateFromCVModal({ open, onOpenChange, onAdded }: Props) 
  <Button variant="outline" asChild>
  <Link href={`/candidates/${c.id}`}>Otwórz profil</Link>
  </Button>
+ {onOpenPerson && typeof newCandidateAdd === "object" && newCandidateAdd?.kind === "added" ? (
+ <Button
+ variant="outline"
+ onClick={() => {
+ onOpenPerson(c.id);
+ onOpenChange(false);
+ }}
+ >
+ Otwórz w panelu
+ </Button>
+ ) : null}
  <Button variant="primary" onClick={() => onOpenChange(false)}>
  Zamknij
  </Button>
@@ -342,24 +464,86 @@ export function AddCandidateFromCVModal({ open, onOpenChange, onAdded }: Props) 
  );
  }
 
- // ── CV dodane do profilu osoby, która już była w bazie ─────────────────
- if (attachedTo) {
+ // ── osoba z bazy po akcji: w „Nowych”, przywrócona, CV podmienione ──────
+ if (outcome) {
+ if (outcome.kind === "closed") {
  return (
  <Dialog open={open} onOpenChange={onOpenChange}>
  <DialogContent size="md">
  <DialogHeader>
  <div className="flex items-center gap-2">
  <CheckCircle2 className="h-5 w-5 text-primary" />
- <DialogTitle>CV dodane do profilu</DialogTitle>
+ <DialogTitle>CV jest na górze profilu</DialogTitle>
  </div>
  <DialogDescription>
- {attachedTo.name} — AI czyta nowe CV w tle, profil odświeży się za około minutę.
+ {outcome.name} ma w tej rekrutacji zamkniętą kartę. Przywróć ją, jeśli osoba ma wrócić do procesu.
  </DialogDescription>
  </DialogHeader>
+ <DialogBody>
+ <ClosedCardRestore
+ job={job}
+ row={outcome.row}
+ headline={`Karta w rekrutacji „${job.title}” jest zamknięta:`}
+ onRestored={() => {
+ setOutcome({ kind: "restored", candidateId: outcome.candidateId, name: outcome.name });
+ onChanged?.();
+ }}
+ />
+ </DialogBody>
  <DialogFooter>
- <Button variant="ghost" asChild>
- <Link href={`/candidates/${attachedTo.id}`}>Otwórz profil</Link>
+ <Button variant="primary" onClick={() => onOpenChange(false)}>
+ Zamknij
  </Button>
+ </DialogFooter>
+ </DialogContent>
+ </Dialog>
+ );
+ }
+ const fileName = file?.name ?? "CV";
+ const stageSuffix = outcome.stageName ? ` · ${outcome.stageName}` : "";
+ const title =
+ outcome.kind === "replaced" || outcome.kind === "profile_only"
+ ? `${outcome.name} jest już w tej rekrutacji${stageSuffix}`
+ : outcome.kind === "hired"
+ ? `CV dodane do profilu · ${outcome.name}${stageSuffix}`
+ : outcome.kind === "restored"
+ ? `${outcome.name} jest znowu w „Nowych”`
+ : `${outcome.name} jest w „Nowych”`;
+ const description =
+ outcome.kind === "replaced"
+ ? "Nowe CV jest głównym CV w profilu i zastąpiło CV przy zgłoszeniu w tej rekrutacji. AI odświeży profil za około minutę."
+ : outcome.kind === "hired"
+ ? "Nowe CV jest głównym CV w profilu. Ta osoba ma w tej rekrutacji kartę zatrudnienia, więc CV przy zgłoszeniu zostaje bez zmian."
+ : outcome.kind === "profile_only"
+ ? file && !canBeStageCv(file)
+ ? "Nowe CV jest głównym CV w profilu. CV przy zgłoszeniu zostało bez zmian, bo plik TXT nie może być CV rekrutacji — wgraj PDF albo DOCX w panelu osoby."
+ : "Nowe CV jest głównym CV w profilu. CV przy zgłoszeniu podmienisz w panelu osoby: „W profilu jest nowsze CV” → „Użyj w tej rekrutacji”."
+ : `${fileName} jest głównym CV w profilu i CV tej rekrutacji. AI odświeży profil za około minutę.`;
+ return (
+ <Dialog open={open} onOpenChange={onOpenChange}>
+ <DialogContent size="md">
+ <DialogHeader>
+ <div className="flex items-center gap-2">
+ <CheckCircle2 className="h-5 w-5 text-primary" />
+ <DialogTitle>{title}</DialogTitle>
+ </div>
+ <DialogDescription>{description}</DialogDescription>
+ </DialogHeader>
+ <DialogFooter>
+ <Button variant="ghost" onClick={() => reset()}>
+ Dodaj kolejne CV
+ </Button>
+ {onOpenPerson ? (
+ <Button
+ variant="outline"
+ onClick={() => {
+ onOpenPerson(outcome.candidateId);
+ onOpenChange(false);
+ }}
+ >
+ Otwórz w panelu
+ </Button>
+ ) : null}
  <Button variant="primary" onClick={() => onOpenChange(false)}>
  Zamknij
  </Button>
@@ -373,54 +557,121 @@ export function AddCandidateFromCVModal({ open, onOpenChange, onAdded }: Props) 
  if (conflict) {
  const top = conflict.matches[0];
  const sameFile = isSameFileMatch(top);
+ const fullName = `${top.name ??""} ${top.lastname ??""}`.trim() || "Kandydat";
+ const initials = `${top.name?.[0] ??""}${top.lastname?.[0] ??""}`.toUpperCase() || "?";
+ const card = typeof existingCard === "object" ? existingCard : null;
+ const state = cardState(card);
+ const primaryLabel =
+ state === "in_progress"
+ ? "Podmień CV w tej rekrutacji"
+ : state === "hired"
+ ? "Dodaj CV do profilu"
+ : sameFile
+ ? "Dodaj do rekrutacji"
+ : "Dodaj do rekrutacji z tym CV";
  return (
  <Dialog open={open} onOpenChange={onOpenChange}>
  <DialogContent size="md">
  <DialogHeader>
  <div className="flex items-center gap-2">
  <UserCheck className="h-5 w-5 text-warning" />
- <DialogTitle>Nie zakładamy drugiego profilu</DialogTitle>
+ <DialogTitle>{fullName} już jest w bazie</DialogTitle>
  </div>
  <DialogDescription>
  {sameFile
- ?"Dokładnie ten plik leży już w profilu tej osoby."
- :"W bazie jest kandydat z tym samym adresem e-mail. Dodaj CV do jego profilu — AI je odczyta i odświeży profil."}
+ ?"Ten plik leży już w profilu tej osoby, więc nie zakładamy drugiego profilu."
+ :"Ten sam adres e-mail co w CV, więc nie zakładamy drugiego profilu."}
  </DialogDescription>
  </DialogHeader>
  <DialogBody>
- <ExistingCandidateNotice
- match={{
- candidate_id: top.candidate_id,
- name: top.name ??"",
- lastname: top.lastname ??"",
- email: top.email ?? null,
- }}
- sameFile={sameFile}
- onAttachCv={sameFile ? undefined : () => attachMut.mutate(top)}
- attaching={attachMut.isPending}
- onOpenProfile={() => onOpenChange(false)}
- />
+ <div className="space-y-3">
+ <div className="flex items-center gap-3 rounded-lg border border-border p-3">
+ <span
+ aria-hidden
+ className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-semibold text-primary"
+ >
+ {initials}
+ </span>
+ <div className="min-w-0 flex-1">
+ <p className="font-medium text-foreground">{fullName}</p>
+ {top.email ? <p className="break-words text-xs text-muted-foreground">{top.email}</p> : null}
+ </div>
+ <Link
+ href={`/candidates/${top.candidate_id}`}
+ target="_blank"
+ rel="noopener"
+ className="shrink-0 text-xs font-medium text-primary hover:underline"
+ >
+ Otwórz profil ↗
+ </Link>
+ </div>
+ <ul className="space-y-1.5 text-sm" aria-label="Co się stanie">
+ <li className="flex items-start gap-2">
+ <Check className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden />
+ <span>
+ {sameFile
+ ?"Ten plik stanie się głównym CV w profilu."
+ :"CV trafi na górę profilu jako główne, AI odświeży profil."}
+ </span>
+ </li>
+ <li className="flex items-start gap-2">
+ {existingCard === "loading" ? (
+ <>
+ <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-muted-foreground" aria-hidden />
+ <span className="text-muted-foreground">Sprawdzam, czy ta osoba jest już w tej rekrutacji…</span>
+ </>
+ ) : (
+ <>
+ <Check className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden />
+ <span>
+ {state === "in_progress"
+ ? `Jest już w tej rekrutacji (${card?.stage_name ?? "w toku"}) — nowe CV zastąpi CV przy zgłoszeniu.`
+ : state === "hired"
+ ? `Ma w tej rekrutacji kartę zatrudnienia (${card?.stage_name ?? "zatrudniony"}) — CV trafi tylko do profilu.`
+ : state === "closed"
+ ? `Ma w tej rekrutacji zamkniętą kartę (${card?.stage_name ?? "zamknięta"}) — po dodaniu CV zdecydujesz, czy ją przywrócić.`
+ : `Trafi do „Nowych” w rekrutacji ${job.title}.`}
+ </span>
+ </>
+ )}
+ </li>
+ </ul>
+ {sameFile ? (
+ <button
+ type="button"
+ className="text-xs font-medium text-primary hover:underline disabled:opacity-50"
+ disabled={uploadMut.isPending || existingMut.isPending}
+ onClick={() => handleUpload(true)}
+ >
+ To CV innej osoby? Załóż osobny profil
+ </button>
+ ) : null}
  {error && (
- <p role="alert" className="mt-3 text-sm text-destructive">
+ <p role="alert" className="text-sm text-destructive">
  {error}
  </p>
  )}
+ </div>
  </DialogBody>
  <DialogFooter>
- <Button variant="ghost" onClick={() => setConflict(null)}>
- Anuluj upload
- </Button>
- {/* Przy tym samym e-mailu serwer i tak odmawia — „mimo to” ma sens
- tylko dla identycznego pliku (np. to samo CV innej osoby). */}
- {sameFile ? (
  <Button
- variant="outline"
- loading={uploadMut.isPending}
- onClick={() => handleUpload(true)}
+ variant="ghost"
+ onClick={() => {
+ setConflict(null);
+ setExistingCard(null);
+ setError(null);
+ }}
  >
- Zapisz mimo to
+ Anuluj
  </Button>
- ) : null}
+ <Button
+ variant="primary"
+ loading={existingMut.isPending}
+ disabled={existingMut.isPending || uploadMut.isPending}
+ onClick={() => existingMut.mutate(top)}
+ >
+ <Upload className="h-4 w-4" /> {primaryLabel}
+ </Button>
  </DialogFooter>
  </DialogContent>
  </Dialog>
@@ -459,7 +710,10 @@ export function AddCandidateFromCVModal({ open, onOpenChange, onAdded }: Props) 
  role="button"
  tabIndex={0}
  onKeyDown={(e) => {
- if (e.key === "Enter" || e.key === "") fileInputRef.current?.click();
+ if (e.key === "Enter" || e.key === " ") {
+ e.preventDefault();
+ fileInputRef.current?.click();
+ }
  }}
  className={cn("cursor-pointer rounded-lg border-2 border-dashed p-8 text-center transition-colors",
  dragOver
@@ -524,5 +778,44 @@ export function AddCandidateFromCVModal({ open, onOpenChange, onAdded }: Props) 
  </DialogFooter>
  </DialogContent>
  </Dialog>
+ );
+}
+
+/** Nowy kandydat z CV: czy trafił do „Nowych” tej rekrutacji. */
+function NewCandidateJobLine({
+ add,
+ jobTitle,
+}: {
+ add: JobAdd | "pending" | "failed" | null;
+ jobTitle: string;
+}) {
+ if (add == null) return null;
+ if (add === "pending") {
+ return (
+ <p className="mt-3 flex items-center gap-1.5 text-sm text-muted-foreground">
+ <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Dodaję do „Nowych” w tej rekrutacji…
+ </p>
+ );
+ }
+ if (add === "failed") {
+ return (
+ <p role="alert" className="mt-3 text-sm text-destructive">
+ Profil powstał, ale nie udało się dodać osoby do tej rekrutacji. Dodaj ją przez „Dodaj kandydatów”.
+ </p>
+ );
+ }
+ if (add.kind === "added") {
+ return (
+ <p className="mt-3 flex items-center gap-1.5 text-sm text-foreground">
+ <Check className="h-4 w-4 text-success" aria-hidden /> Osoba jest w „Nowych” w rekrutacji {jobTitle}.
+ </p>
+ );
+ }
+ const reason =
+ add.kind === "skipped" ? add.text : add.kind === "closed" ? add.row.reason_label ?? "zamknięta karta" : add.label ?? "już w rekrutacji";
+ return (
+ <p role="alert" className="mt-3 text-sm text-destructive">
+ Kandydat jest w bazie, ale nie trafił do tej rekrutacji: {reason}.
+ </p>
  );
 }

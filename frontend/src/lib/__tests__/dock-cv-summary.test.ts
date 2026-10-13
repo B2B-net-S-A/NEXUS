@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   companyCvSentence,
+  companyCvStale,
+  companyDraftSince,
   dockOriginalCv,
+  newerProfileCv,
   originalCvSentence,
   pairCompanyCv,
   pairCvOnOtherStage,
@@ -177,5 +180,99 @@ describe("CV firmowe pary na innym etapie (runda 10, F23)", () => {
       text: "CV firmowe: szkic — z etapu „QC CV”, nie podpięte do bieżącego etapu",
       tone: "info",
     });
+  });
+});
+
+const snapshot = (date: string, source: string | null = null, filename: string | null = "cv.pdf") =>
+  dockOriginalCv({
+    snapshot: {
+      has_snapshot: true,
+      original_snapshot_at: date,
+      original_cv_filename: filename,
+      original_snapshot_source: source,
+    },
+    snapshotLoading: false,
+    profileDocs: undefined,
+    profileDocsFailed: false,
+  });
+
+describe("nowe CV w rekrutacji (13.10.2026)", () => {
+  it("zdanie mówi, skąd jest kopia CV tej rekrutacji", () => {
+    expect(originalCvSentence(snapshot("2026-10-13T13:10:00Z", "manual_upload", "Anna_CV.pdf"))).toBe(
+      "Oryginał CV: wgrane w rekrutacji · Anna_CV.pdf · 13.10.2026",
+    );
+    expect(originalCvSentence(snapshot("2026-10-13T13:10:00Z", "manual_refresh"))).toBe(
+      "Oryginał CV: z profilu · cv.pdf · podmienione 13.10.2026",
+    );
+    expect(originalCvSentence(snapshot("2026-10-13T13:10:00Z", "stage_create"))).toBe(
+      "Oryginał CV: dołączony do zgłoszenia · 13.10.2026",
+    );
+    // Bramka tożsamości: wgrane CV było cudze, kopia wróciła do CV osoby.
+    expect(originalCvSentence(snapshot("2026-10-13T13:12:00Z", "quarantine_restore", "wlasne.pdf"))).toBe(
+      "Oryginał CV: poprzednie CV · wlasne.pdf — wgrane nie pasowało do tej osoby",
+    );
+  });
+
+  it("nowsze CV w profilu: główne CV młodsze od kopii o co najmniej minutę", () => {
+    const original = snapshot("2026-10-08T10:00:00Z");
+    const newer = doc(7, { is_primary: true, uploaded_at: "2026-10-13T09:00:00Z" });
+    expect(newerProfileCv(original, [doc(1), newer])?.id).toBe(7);
+    // Upload z rekrutacji: dokument chwilę przed kopią — bez ramki.
+    expect(
+      newerProfileCv(snapshot("2026-10-13T09:00:05Z"), [
+        doc(8, { is_primary: true, uploaded_at: "2026-10-13T09:00:00Z" }),
+      ]),
+    ).toBeNull();
+    expect(newerProfileCv(original, [doc(9, { is_primary: true, uploaded_at: "2026-10-01T09:00:00Z" })])).toBeNull();
+  });
+
+  it("nowsze CV w profilu: liczy się plik, który skopiuje serwer — nie główne CV w TXT", () => {
+    const original = snapshot("2026-10-08T10:00:00Z");
+    const txt = doc(11, { is_primary: true, filename: "cv.txt", uploaded_at: "2026-10-13T09:00:00Z" });
+    const oldPdf = doc(12, { filename: "stare.pdf", uploaded_at: "2026-10-01T09:00:00Z" });
+    expect(newerProfileCv(original, [txt, oldPdf])).toBeNull();
+    const newPdf = doc(13, { filename: "nowe.pdf", uploaded_at: "2026-10-12T09:00:00Z" });
+    expect(newerProfileCv(original, [txt, oldPdf, newPdf])?.id).toBe(13);
+  });
+
+  it("nowsze CV w profilu: bez kopii i bez listy plików nie ma czego porównać", () => {
+    const profileOnly = dockOriginalCv({
+      snapshot: { has_snapshot: false },
+      snapshotLoading: false,
+      profileDocs: [doc(1, { is_primary: true, uploaded_at: "2026-10-13T09:00:00Z" })],
+      profileDocsFailed: false,
+    });
+    expect(newerProfileCv(profileOnly, [doc(1, { is_primary: true, uploaded_at: "2026-10-13T09:00:00Z" })])).toBeNull();
+    expect(newerProfileCv(snapshot("2026-10-08T10:00:00Z"), undefined)).toBeNull();
+  });
+
+  it("początek szkicu: dokument generatora, potem wybór gotowego CV, potem ostatnia zmiana", () => {
+    const rows = [{ id: 5, created_at: "2026-10-10T08:00:00Z" }];
+    expect(companyDraftSince({ status: "draft", generated_document_id: 5, updated_at: "2026-10-12T08:00:00Z" }, rows)).toBe(
+      "2026-10-10T08:00:00Z",
+    );
+    expect(
+      companyDraftSince(
+        { status: "draft", origin: { kind: "upload", label: "x", selected_at: "2026-10-11T08:00:00Z" }, updated_at: "2026-10-12T08:00:00Z" },
+        rows,
+      ),
+    ).toBe("2026-10-11T08:00:00Z");
+    expect(companyDraftSince({ status: "draft", updated_at: "2026-10-12T08:00:00Z" }, undefined)).toBe("2026-10-12T08:00:00Z");
+    expect(companyDraftSince(null, rows)).toBeNull();
+  });
+
+  it("szkic CV firmowego starszy niż podmienione CV — tylko szkic i tylko kopia podmieniona ręcznie", () => {
+    const uploaded = snapshot("2026-10-13T13:10:00Z", "manual_upload");
+    expect(companyCvStale({ brandedStatus: "draft", original: uploaded, draftSince: "2026-10-13T11:20:00Z" })).toBe(true);
+    expect(companyCvStale({ brandedStatus: "finalized", original: uploaded, draftSince: "2026-10-13T11:20:00Z" })).toBe(false);
+    expect(companyCvStale({ brandedStatus: "draft", original: uploaded, draftSince: "2026-10-13T14:00:00Z" })).toBe(false);
+    expect(
+      companyCvStale({
+        brandedStatus: "draft",
+        original: snapshot("2026-10-13T13:10:00Z", "stage_create"),
+        draftSince: "2026-10-10T11:20:00Z",
+      }),
+    ).toBe(false);
+    expect(companyCvStale({ brandedStatus: "draft", original: uploaded, draftSince: null })).toBe(false);
   });
 });

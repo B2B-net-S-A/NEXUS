@@ -43,7 +43,7 @@ import {
   Sparkles,
 } from "lucide-react";
 
-import api, {
+import {
   candidateStageCvApi,
   type CVOriginalSnapshot,
 } from "@/lib/api";
@@ -61,7 +61,6 @@ import {
   resolveCvToClient,
   stageBrandedQueryKey,
   stageCvOrigin,
-  type StageGeneratedCvRow,
 } from "@/lib/cv-to-client";
 import { bestReadyCv, otherReadyCvCount, type StageCvOption } from "@/lib/stage-cv-options";
 import {
@@ -72,6 +71,7 @@ import {
   latestAutoCvSkip,
 } from "@/lib/job-background-events";
 import { formatDate } from "@/lib/utils";
+import { useCvToClientRows } from "@/hooks/useCvToClientRows";
 import { useStageBrandedCv } from "@/hooks/useStageBrandedCv";
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
@@ -219,15 +219,7 @@ export function CvToClientCard({
   // wskazuje ten wiersz (`pair_source_stage_id`) — karta pokazuje, pobiera
   // i edytuje TEN dokument zamiast proponować generację od nowa.
   const { query: brandedQuery, pairStageId, cvStageId } = useStageBrandedCv(stageId);
-  const rowsQuery = useQuery<StageGeneratedCvRow[]>({
-    queryKey: cvToClientRowsQueryKey(candidateId, jobId),
-    queryFn: () =>
-      api
-        .get<StageGeneratedCvRow[]>("/api/cv-generator/generated", {
-          params: { candidate_id: candidateId, job_id: jobId, limit: 20 },
-        })
-        .then((r) => r.data),
-  });
+  const rowsQuery = useCvToClientRows(candidateId, jobId);
   const originalQuery = useQuery<CVOriginalSnapshot>({
     queryKey: ["cv-original", stageId],
     queryFn: () => candidateStageCvApi.original.get(stageId).then((r) => r.data),

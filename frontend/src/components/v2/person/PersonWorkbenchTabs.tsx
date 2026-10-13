@@ -30,6 +30,7 @@ import { AddedToBaseHistoryRow, PersonInBase } from "@/components/v2/person/Pers
 import { PersonNotesHistory } from "@/components/v2/person/PersonNotesHistory";
 import { PersonPanelSideSection } from "@/components/v2/person/PersonPanelSide";
 import { PersonSidePreview } from "@/components/v2/person/PersonSidePreview";
+import { useCapability } from "@/hooks/useCapability";
 import { WorkbenchBelowTabsContext } from "@/components/v2/person/WorkbenchBelowTabs";
 import { DopasowanieTab } from "@/components/v2/pages/DopasowanieTab";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
@@ -368,6 +369,9 @@ export function PersonWorkbenchTabs({
 
   const kanban = ctx.kanbanQueryState;
   const jobLabel = ctx.jobTitle?.trim() || `Rekrutacja #${jobId}`;
+  // „Wgraj CV” w podglądzie po lewej — ta sama bramka co kafelek w doku.
+  const canManageDocuments = useCapability("candidate.document.manage");
+  const cvUpload = !readOnly && canManageDocuments ? { candidateName: row.fullName, jobTitle: jobLabel } : undefined;
 
   const renderSection = (value: PersonPanelSection): ReactNode => {
     switch (value) {
@@ -438,6 +442,7 @@ export function PersonWorkbenchTabs({
               jobId={jobId}
               stageId={item.id}
               budgetHourly={ctx.budgetHourly}
+              cvUpload={cvUpload}
               extraTab={{
                 label: "Pytania klienta",
                 content: <ClientQuestions jobId={jobId} clientName={ctx.clientName ?? null} roomy />,
@@ -555,6 +560,7 @@ export function PersonWorkbenchTabs({
             jobId={jobId}
             stageId={item.id}
             budgetHourly={ctx.budgetHourly}
+            cvUpload={cvUpload}
           />
         </PersonPanelSideSection>
       ) : null}

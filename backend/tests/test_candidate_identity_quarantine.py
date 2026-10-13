@@ -467,7 +467,8 @@ async def test_document_quarantine_clears_only_matching_cv_projection(
     db = _ProjectionDB(
         candidate,
         document,
-        language_batches=[[language], []],
+        # Trzecie zapytanie: kopie CV etapu z tym plikiem (13.10.2026) — brak.
+        language_batches=[[language], [], []],
     )
     result = await quarantine._clear_quarantined_cv_projection(
         db,  # type: ignore[arg-type]

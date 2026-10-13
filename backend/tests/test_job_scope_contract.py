@@ -86,7 +86,6 @@ _SCOPE_MARKERS = (
     "ensure_job_read_access",
     "ensure_optional_job_read_access",
     "job_read_scope_clause",
-    "_ensure_stage_membership",
     "_load_csv_for_stage",
     "ensure_delivery_lead_job_visible",
     "_load_scoped_suggestion",

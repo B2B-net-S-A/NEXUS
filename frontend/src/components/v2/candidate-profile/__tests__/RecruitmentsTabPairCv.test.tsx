@@ -105,7 +105,9 @@ describe("RecruitmentsTab — CV do klienta z wiersza pary (runda 12)", () => {
       }),
     );
     renderTab();
-    const edit = await screen.findByRole("button", { name: "Edytuj CV" });
+    // Dwa kolejne odczyty (wiersz etapu, potem wiersz pary) — w pełnym biegu
+    // kolejki merge'ów domyślna sekunda `findBy` nie wystarczała (13.10.2026: 1,9 s).
+    const edit = await screen.findByRole("button", { name: "Edytuj CV" }, { timeout: 5000 });
     expect(screen.queryByRole("button", { name: "Generuj CV" })).toBeNull();
     expect(brandedGet).toHaveBeenCalledWith(20);
     await userEvent.click(edit);

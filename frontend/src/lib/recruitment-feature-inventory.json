@@ -2289,6 +2289,46 @@
    "file": "lib/board-card-badges.ts",
    "marker": "new_in_base",
    "v3_home": "Tablica"
+  },
+  {
+   "id": "dock.cv-upload",
+   "area": "panel",
+   "opis": "„Wgraj nowe CV” w sekcji CV panelu osoby i upuszczenie pliku na panel: plik staje się głównym CV profilu i CV tej rekrutacji (13.10.2026)",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "Wgraj nowe CV",
+   "v3_home": "Tablica → panel osoby → sekcja CV"
+  },
+  {
+   "id": "dock.cv-newer-in-profile",
+   "area": "panel",
+   "opis": "„W profilu jest nowsze CV” z „Użyj w tej rekrutacji” i ostrzeżenie, gdy wgrane CV nie pasuje do osoby",
+   "file": "components/v2/jobs/DockCvFreshness.tsx",
+   "marker": "Użyj w tej rekrutacji",
+   "v3_home": "Tablica → panel osoby → sekcja CV"
+  },
+  {
+   "id": "dock.company-cv-stale",
+   "area": "panel",
+   "opis": "„CV firmowe powstało z poprzedniego CV” z „Wygeneruj od nowa” i „Użyj nowej wersji”",
+   "file": "components/v2/recruitment/CompanyCvStaleNotice.tsx",
+   "marker": "Wygeneruj od nowa",
+   "v3_home": "Tablica → panel osoby → sekcja CV"
+  },
+  {
+   "id": "screening-form.preview-cv-upload",
+   "area": "formularz screeningu",
+   "opis": "„Wgraj CV” w pasku źródeł podglądu po „Rozwiń”, upuszczenie pliku na podgląd i kafelek przy braku CV",
+   "file": "components/v2/screening-form/CandidatePreviewPane.tsx",
+   "marker": "preview-cv-upload-input",
+   "v3_home": "panel osoby → lewa strefa → CV"
+  },
+  {
+   "id": "add-from-cv.existing-person",
+   "area": "naglowek",
+   "opis": "Okno „Dodaj z CV” przy osobie z bazy: „Dodaj do rekrutacji z tym CV” (CV na górę profilu i „Nowi”), „Podmień CV w tej rekrutacji” przy osobie w toku, „Przywróć” przy zamkniętej karcie",
+   "file": "components/v2/modals/AddCandidateFromCVModal.tsx",
+   "marker": "Dodaj do rekrutacji z tym CV",
+   "v3_home": "menu „⋯” → Dodaj z pliku CV"
   }
  ]
 }

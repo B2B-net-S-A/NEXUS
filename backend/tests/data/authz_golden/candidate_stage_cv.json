@@ -47,6 +47,7 @@
   "POST /api/candidates/stages/{stage_id}/cv/branded/select-stage-cv": "PPPPPPDDPPPPPPPPPPP",
   "POST /api/candidates/stages/{stage_id}/cv/branded/upload": "PPPPPPDDPPPPPPPPPPP",
   "POST /api/candidates/stages/{stage_id}/cv/original/refresh": "PPPPPPDDPPPPPPPPPPP",
+  "POST /api/candidates/stages/{stage_id}/cv/original/upload": "PPPPPPDDPPPPPPPPPPP",
   "POST /api/candidates/stages/{stage_id}/cv/share-token": "PPPPPPDDPPPPPPPPPPP"
  }
 }

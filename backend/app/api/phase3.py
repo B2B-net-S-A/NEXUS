@@ -37,6 +37,7 @@ from app.models.pipeline_template import (
 )
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User
+from app.services.board_stage_badges import board_column_for
 from app.schemas.scorecard import ScorecardSchema, ScorecardSubmission
 
 logger = logging.getLogger(__name__)
@@ -310,6 +311,18 @@ async def candidate_pipelines(
                 "stage_name": sd.name if sd else (s.stage.value if s.stage else None),
                 "stage_category": sd.category.value if sd else None,
                 "is_terminal": sd.is_terminal if sd else False,
+                # Kolumna Tablicy (ta sama reguła co karta i `proposals/bulk`):
+                # „Lista rezerwowa” jest zamknięta, choć nie jest etapem
+                # końcowym, a zatrudniony nie jest „zamknięty” (13.10.2026,
+                # okno „Dodaj z CV”).
+                "board_column": board_column_for(
+                    sd.name if sd else None,
+                    s.stage.value if s.stage else None,
+                    category=sd.category.value if sd else None,
+                    terminal_type=(
+                        sd.terminal_type.value if sd and sd.terminal_type else None
+                    ),
+                ),
                 "moved_at": s.moved_at.isoformat() if s.moved_at else None,
                 "days_in_stage": max(0, (now - moved).days),
                 "rating": s.rating,
