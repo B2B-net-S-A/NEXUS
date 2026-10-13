@@ -1205,6 +1205,85 @@ def test_parse_fixes_keeps_a_sentence_from_the_notes() -> None:
     assert fix["source"] == "notes" and fix["role"] == SUPPORT_ROLE
 
 
+CARD_NOTE = (
+    "Stawka: 130 zł/h netto\n"
+    "Red flags: zwolniony dyscyplinarnie z poprzedniej firmy za spóźnienia\n"
+    "Motywacja: odchodzi przez konflikt z przełożonym w obecnym zespole\n"
+    "Notatka: w Acme wdrażał Helm na Kubernetes przez dwa lata"
+)
+
+
+@pytest.mark.asyncio
+async def test_fix_proposals_read_notes_without_commercial_card_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Zdanie z propozycji trafia do CV dla klienta, więc model nie czyta
+    stawki, red flags ani motywacji z karty rekomendacji — jak generator CV
+    (decyzja Artura 13.10.2026). Sprawdzenia QC czytają notatki po staremu."""
+    seen: dict = {}
+    src = SimpleNamespace(
+        generated={"source": "branded"}, candidate=SimpleNamespace(id=3)
+    )
+
+    async def evaluated(_db, _stage):
+        return src, [], qc.notes_text([CARD_NOTE])
+
+    async def rows(_db, _candidate_id):
+        return [CARD_NOTE]
+
+    def material(_src, _checks, notes):
+        seen["notes"] = notes
+        return {"items": []}
+
+    monkeypatch.setattr(qc, "evaluate", evaluated)
+    monkeypatch.setattr(qc, "_note_rows", rows)
+    monkeypatch.setattr(qc, "fixes_material", material)
+    out = await qc.generate_fixes(object(), SimpleNamespace(id=9), user_id=1)
+    assert (out["status"], out["fixes"]) == ("ok", [])
+    for hidden in ("130 zł", "dyscyplinarnie", "konflikt z przełożonym"):
+        assert hidden not in seen["notes"]
+    assert "wdrażał Helm na Kubernetes" in seen["notes"]
+
+
+@pytest.mark.parametrize(
+    ("proposed", "quote"),
+    [
+        # Stawka wpisana prozą (bez etykiety karty) nie znika z notatek sama.
+        (
+            "Wdrażał Helm na **Kubernetes**; stawka 150 zł/h.",
+            "wdrażał Helm na Kubernetes w Acme",
+        ),
+        (
+            "Wdrażał Helm na **Kubernetes** w zespole platformy.",
+            "wdrażał Helm na Kubernetes w Acme, stawka 150 zł/h",
+        ),
+    ],
+)
+def test_parse_fixes_drops_a_sentence_or_quote_that_states_pay(
+    proposed: str, quote: str
+) -> None:
+    """Pieniądze nie są treścią CV: propozycja ze stawką ani cytat ze stawką
+    jako jej „źródło” nie przechodzą (ta sama reguła co `rate_mentions`)."""
+    material = _material()
+    material["notes"] = "Kandydat wdrażał Helm na Kubernetes w Acme, stawka 150 zł/h."
+    raw = json.dumps(
+        {
+            "fixes": [
+                {
+                    "requirement": "Kubernetes",
+                    "role": "Senior Developer · Acme Bank",
+                    "current_text": None,
+                    "proposed_text": proposed,
+                    "source": "notes",
+                    "source_quote": quote,
+                }
+            ]
+        }
+    )
+    assert qc.parse_fixes(raw, material, "d" * 64) == []
+    assert "nie są treścią CV" in qc._fixes_prompt(material)
+
+
 def test_editable_parser_sees_the_same_blocks_as_the_review() -> None:
     doc = qc.EditableCv.parse(BRANDED_HTML)
     assert [b.text for b in doc.blocks] == [b.text for b in _blocks(BRANDED_HTML)]
