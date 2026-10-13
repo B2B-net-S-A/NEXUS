@@ -30,7 +30,8 @@ const SUBJECT = "Informacja zwrotna — Senior Data Architect";
 
 const PEOPLE: Record<State, { candidateId: number; name: string }[]> = {
   one: [{ candidateId: 501, name: "Anna Przykładowa" }],
-  blocked: [{ candidateId: 501, name: "Anna Przykładowa" }],
+  // Inna osoba niż w `one` — każdy stan ma własny klucz podglądu w cache.
+  blocked: [{ candidateId: 511, name: "Anna Przykładowa" }],
   bulk: [
     { candidateId: 501, name: "Anna Przykładowa" },
     { candidateId: 502, name: "Jan Testowy" },
@@ -48,7 +49,7 @@ const PREVIEW: Record<State, RejectionEmailPreview> = {
     subject: null,
     body: null,
     people: [
-      { candidate_id: 501, to_email: "anna.przykladowa@example.com", skip_reason: "no_mailbox" },
+      { candidate_id: 511, to_email: "anna.przykladowa@example.com", skip_reason: "no_mailbox" },
     ],
   },
   bulk: {
