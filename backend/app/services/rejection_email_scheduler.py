@@ -315,7 +315,13 @@ async def preview(
     first_ok: Optional[Candidate] = None
     for candidate_id in ids:
         candidate = candidates.get(candidate_id)
-        email = (candidate.email or None) if candidate is not None else None
+        # Adres tylko osoby, która w TEJ rekrutacji była u klienta — id spoza
+        # rekrutacji nie może posłużyć do odczytu cudzego e-maila.
+        email = (
+            (candidate.email or None)
+            if candidate is not None and candidate_id in visible
+            else None
+        )
         if candidate_id not in visible:
             reason: Optional[str] = EMAIL_SKIP_NOT_CLIENT_VISIBLE
         elif not email:

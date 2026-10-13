@@ -992,6 +992,7 @@ async def test_preview_says_who_gets_the_mail_and_shows_the_text(
             db, job=other_job, candidate_ids=[ids["candidate_id"]], sender=sender
         )
         assert none_here.people[0].skip_reason == "not_client_visible"
+        assert none_here.people[0].to_email is None  # bez adresu spoza rekrutacji
         assert none_here.subject is None and none_here.body is None
 
         candidate = await db.get(Candidate, ids["candidate_id"])

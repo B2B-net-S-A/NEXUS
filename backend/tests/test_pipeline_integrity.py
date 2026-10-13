@@ -1024,6 +1024,7 @@ async def test_rejection_mail_preview_route(
         (early, "not_client_visible"),
     ]
     assert body["people"][0]["to_email"].endswith("@example.com")
+    assert body["people"][1]["to_email"] is None  # nie był u klienta — bez adresu
     assert body["subject"].startswith("Informacja zwrotna — Int-Job-")
     assert body["body"].startswith("Cześć Int,")
 
