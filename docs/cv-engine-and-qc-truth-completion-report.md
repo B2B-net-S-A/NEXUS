@@ -66,16 +66,30 @@ Pomiar tym samym skryptem (`backend/scripts/qc_truth_audit.py`) na tych samych 1
 
 | Co | Przed | Po |
 |---|---|---|
-| Uwagi na CV | 8,13 | 2,79 |
-| Pary zaliczone | 61 | 76 |
-| Pozycje blokujące | 115 | 77 |
+| Uwagi na CV | 8,13 | 3,19 |
+| Pary zaliczone | 61 | 74 |
+| Pozycje blokujące | 115 | 79 |
 | Tytuł | 97 | 12 |
 | Pogrubienia must / nice | 146 / 52 | 10 / 4 |
 | Pogrubienia bez pokrycia | 145 | 9 |
-| Zdanie w roli (must) | 111 | 14 (93 jako informacja) |
-| Krytyczne | 38 | 11 (23 jako informacja) |
-| Must-have nie w CV | 294 | 187 (10 jako informacja) |
+| Zdanie w roli (must) | 111 | 14 (95 jako informacja) |
+| Krytyczne | 38 | 13 (23 jako informacja) |
+| Must-have nie w CV | 294 | 234 (27 jako informacja) |
 | Spoza oryginału | 59 | 48 |
+
+Przegląd python-reviewer znalazł 5 problemów blokujących. Wszystkie poprawione z testami:
+- luźny rdzeń przepuszczał krytyczną „Spring” przy „sprint planning”;
+- przeliczenie zaliczonych par zerowało czas oczekiwania w kolejce Delivery Leada;
+- kropka rozcinała „.NET 8” w odpowiedziach, a odpowiedź w kilku liniach była ucięta;
+- cytat notatki w oknie QC niósł stawkę z karty;
+- cytat z linii o innej firmie przechodził jako dowód.
+
+Liczby w tabeli są już po tych poprawkach. Braków must-have jest więcej niż w pierwszym pomiarze (187 → 234), bo przestały przechodzić fałszywe trafienia z prefiksu.
+
+Okno QC z nowymi polami przeklikane na harnessie `/preview/cv-qc?state=truth` w 1280×720:
+- „Szukałem w” mieści się w jednym wierszu;
+- „Informacje — bez poprawki” widać w zaliczonym sprawdzeniu;
+- okno ma 32–1248 px, nic nie wychodzi w poziomie.
 
 Pozostałe uwagi przejrzane ręcznie:
 - tytuł: model zmienił rolę od klienta albo plik z dysku jest o innej roli;
