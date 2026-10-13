@@ -94,6 +94,7 @@ vi.mock("@/components/v2/modals/CVOriginalPreviewModal", () => ({
 }));
 
 import { CvToClientCard } from "@/components/v2/recruitment/CvToClientCard";
+import { cvToClientRowsQueryKey, stageBrandedQueryKey } from "@/lib/cv-to-client";
 
 type Row = Record<string, unknown> & { id: number };
 let rows: Row[] = [];
@@ -438,6 +439,51 @@ describe("CvToClientCard — CV gotowe", () => {
     await waitFor(() => expect(mocks.selectGenerated).toHaveBeenCalledWith(21, 9, 7));
     expect(mocks.showSuccess).toHaveBeenCalledWith("CV podpięte do tej rekrutacji.");
   });
+
+  it("podmiana szkicu niesie wersję z chwili zlecenia — edycja w trakcie generacji daje 409, nie nadpisanie", async () => {
+    // Przegląd PR 4: wersja szkicu czytana przy podpięciu zawsze przechodziła
+    // `check_revision`, więc autozapis z edytora w trakcie generacji ginął.
+    mocks.brandedGet.mockResolvedValue({
+      data: { status: "draft", from_generator: true, generated_document_id: 5, edit_revision: 4, version: 1 },
+    });
+    mocks.selectGenerated.mockRejectedValue({ response: { status: 409, data: { detail: "Szkic zmienił się." } } });
+    rows = [{ id: 5, status: "ready", package_id: 5 }];
+    mocks.apiPost.mockImplementation(async () => {
+      rows = [{ id: 5, status: "ready", package_id: 5 }, { id: 77, status: "processing", package_id: 77 }];
+      return { data: { id: 77, status: "processing", candidate_name: "Jan Kowalski" } };
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <CvToClientCard
+          stageId={21}
+          candidateId={121}
+          candidateName="Jan Kowalski"
+          jobId={42}
+          jobTitle="Senior Java Developer"
+          readOnly={false}
+        />
+      </QueryClientProvider>,
+    );
+    await userEvent.click(await screen.findByRole("button", { name: /Wygeneruj ponownie/ }));
+    const panel = await screen.findByTestId("cv-generate-panel");
+    const generate = within(panel).getByRole("button", { name: /^Generuj$/ });
+    await waitFor(() => expect(generate).toBeEnabled());
+    await userEvent.click(generate);
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalled());
+
+    // Autozapis edytora w trakcie generacji: szkic ma już wersję 5.
+    mocks.brandedGet.mockResolvedValue({
+      data: { status: "draft", from_generator: true, generated_document_id: 5, edit_revision: 5, version: 1 },
+    });
+    await client.invalidateQueries({ queryKey: stageBrandedQueryKey(21) });
+    rows = [{ id: 5, status: "ready", package_id: 5 }, { id: 77, status: "ready", package_id: 77 }];
+    await client.invalidateQueries({ queryKey: cvToClientRowsQueryKey(121, 42) });
+
+    await waitFor(() => expect(mocks.selectGenerated).toHaveBeenCalledWith(21, 77, 4));
+    expect(mocks.selectGenerated).toHaveBeenCalledTimes(1);
+    expect(mocks.showError).toHaveBeenCalledWith("Szkic zmienił się.");
+  }, 20000);
 
   it("„Wygeneruj ponownie”: panel w karcie, a gotowa wersja sama zastępuje szkic", async () => {
     mocks.brandedGet.mockResolvedValue({

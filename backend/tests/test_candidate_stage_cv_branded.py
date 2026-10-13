@@ -977,6 +977,60 @@ async def test_competing_cv_saves_have_exactly_one_winner(app_client, app_auth_h
     assert stored["edit_revision"] == original["edit_revision"] + 1
 
 
+async def test_select_generated_runs_qc_after_the_swap(
+    app_client, app_auth_headers, monkeypatch
+):
+    """CV w procesie (13.10.2026): po „Użyj nowej wersji” (i podmianie szkicu
+    z karty) QC liczy się w tle, żeby plakietka na Tablicy nie czekała na
+    otwarcie okna QC. Odmowa 409 (szkic zmienił się) niczego nie przelicza."""
+    from app.core.config import settings
+    from app.models.cv_generated_document import CvGeneratedDocument
+    from app.services import cv_qc
+
+    calls: list[int] = []
+
+    async def run_after_move(stage_id, user_id):
+        calls.append(stage_id)
+
+    monkeypatch.setattr(cv_qc, "run_after_move", run_after_move)
+    monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", True)
+    sid, cid, jid = await _seed_full_stage()
+    base = f"/api/candidates/stages/{sid}/cv/branded"
+    initial = (await app_client.get(base, headers=app_auth_headers)).json()
+    async with AsyncSessionLocal() as db:
+        source = CvGeneratedDocument(
+            candidate_id=cid,
+            job_id=jid,
+            candidate_name="Synthetic",
+            filename="selected.docx",
+            status="ready",
+            render_payload={"name": "Synthetic", "why_points": ["Python w Acme"]},
+        )
+        db.add(source)
+        await db.commit()
+        generated_id = source.id
+    stale = await app_client.post(
+        base + "/select-generated",
+        headers=app_auth_headers,
+        json={
+            "expected_revision": initial["edit_revision"] + 5,
+            "generated_document_id": generated_id,
+        },
+    )
+    assert stale.status_code == 409, stale.text
+    assert calls == []
+    choice = await app_client.post(
+        base + "/select-generated",
+        headers=app_auth_headers,
+        json={
+            "expected_revision": initial["edit_revision"],
+            "generated_document_id": generated_id,
+        },
+    )
+    assert choice.status_code == 200, choice.text
+    assert calls == [sid]
+
+
 async def test_selected_generated_document_is_edited_approved_and_pinned_to_link(
     app_client, app_auth_headers
 ):

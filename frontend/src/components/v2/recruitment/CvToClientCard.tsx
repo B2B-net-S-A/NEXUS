@@ -223,8 +223,16 @@ export function CvToClientCard({
   const [downloading, setDownloading] = useState(false);
   // Generacja zlecona z TEJ karty — czekamy, aż serwer ją podepnie do etapu
   // (`replace` = etap miał już CV: gotową wersję podpinamy sami, jak „Użyj
-  // nowej wersji”, bo serwer podpina tylko do etapu bez szkicu).
-  const [pending, setPending] = useState<{ id: number; expired: boolean; replace: boolean } | null>(null);
+  // nowej wersji”, bo serwer podpina tylko do etapu bez szkicu). Wiersz etapu
+  // i wersję szkicu zapamiętujemy w chwili zlecenia: edycja szkicu w trakcie
+  // generacji ma dać 409 przy podmianie, a nie zostać nadpisana.
+  const [pending, setPending] = useState<{
+    id: number;
+    expired: boolean;
+    replace: boolean;
+    stageId: number;
+    revision: number;
+  } | null>(null);
   const pendingId = pending?.id ?? null;
   useEffect(() => {
     if (pendingId == null) return;
@@ -333,14 +341,10 @@ export function CvToClientCard({
   };
 
   const attachVersionMut = useMutation({
-    mutationFn: (generatedId: number) =>
-      candidateStageCvApi.branded.selectGenerated(
-        cvStageId,
-        generatedId,
-        branded?.edit_revision ?? 0,
-      ),
-    onSuccess: (response) => {
-      queryClient.setQueryData(stageBrandedQueryKey(cvStageId), response.data);
+    mutationFn: (target: { stageId: number; generatedId: number; revision: number }) =>
+      candidateStageCvApi.branded.selectGenerated(target.stageId, target.generatedId, target.revision),
+    onSuccess: (response, target) => {
+      queryClient.setQueryData(stageBrandedQueryKey(target.stageId), response.data);
       void queryClient.invalidateQueries({ queryKey: cvToClientRowsQueryKey(candidateId, jobId) });
       showSuccess("CV podpięte do tej rekrutacji.");
     },
@@ -352,6 +356,10 @@ export function CvToClientCard({
         ),
       ),
   });
+
+  /** „Użyj nowej wersji” — wersja szkicu z chwili kliknięcia. */
+  const attachNewVersion = (generatedId: number) =>
+    attachVersionMut.mutate({ stageId: cvStageId, generatedId, revision: branded?.edit_revision ?? 0 });
 
   const download = async () => {
     if (!branded) return;
@@ -397,7 +405,10 @@ export function CvToClientCard({
     }
     if (pendingStatus !== "ready" || replaceTried.current === pending.id) return;
     replaceTried.current = pending.id;
-    attachVersion(pending.id, { onSettled: () => setPending(null) });
+    attachVersion(
+      { stageId: pending.stageId, generatedId: pending.id, revision: pending.revision },
+      { onSettled: () => setPending(null) },
+    );
   }, [pending, attachedId, pendingStatus, attachVersion]);
   const replacing = pending?.replace === true && pendingStatus === "ready";
   const replaceFailed = pending?.replace === true && pendingStatus === "failed" ? pendingRow : null;
@@ -414,7 +425,13 @@ export function CvToClientCard({
   // serwer podepnie nową wersję do niego sam — szkicu tamtego wiersza nie ruszamy.
   const replacesDraft = hasCv && pairStageId == null;
   const onEnqueued = (generatedId: number) => {
-    setPending({ id: generatedId, expired: false, replace: replacesDraft });
+    setPending({
+      id: generatedId,
+      expired: false,
+      replace: replacesDraft,
+      stageId: cvStageId,
+      revision: branded?.edit_revision ?? 0,
+    });
     setGenerateOpen(false);
     void queryClient.invalidateQueries({ queryKey: cvToClientRowsQueryKey(candidateId, jobId) });
   };
@@ -585,7 +602,7 @@ export function CvToClientCard({
               variant="outline"
               loading={attachVersionMut.isPending}
               disabled={attachVersionMut.isPending}
-              onClick={() => attachVersionMut.mutate(state.candidate!.id)}
+              onClick={() => attachNewVersion(state.candidate!.id)}
             >
               Użyj nowej wersji
             </Button>
@@ -632,7 +649,7 @@ export function CvToClientCard({
               size="sm"
               loading={attachVersionMut.isPending}
               disabled={attachVersionMut.isPending}
-              onClick={() => attachVersionMut.mutate(state.candidate!.id)}
+              onClick={() => attachNewVersion(state.candidate!.id)}
             >
               Użyj tej wersji
             </Button>
@@ -677,7 +694,7 @@ export function CvToClientCard({
               variant="outline"
               loading={attachVersionMut.isPending}
               disabled={attachVersionMut.isPending}
-              onClick={() => attachVersionMut.mutate(state.candidate!.id)}
+              onClick={() => attachNewVersion(state.candidate!.id)}
             >
               Użyj wygenerowanego CV
             </Button>

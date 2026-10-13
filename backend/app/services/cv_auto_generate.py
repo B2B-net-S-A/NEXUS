@@ -474,11 +474,11 @@ async def attach_as_stage_draft(
         )
         return False
     if attached:
-        await _qc_after_attach(stage_id, user_id)
+        await qc_after_attach(stage_id, user_id)
     return attached
 
 
-async def _qc_after_attach(stage_id: int, user_id: int) -> None:
+async def qc_after_attach(stage_id: int, user_id: int) -> None:
     """QC zaraz po podpięciu CV do etapu (13.10.2026): karta „CV do klienta”
     i Tablica pokazują liczbę rzeczy do sprawdzenia bez otwierania okna QC.
     Nigdy nie rzuca (`cv_qc.run_after_move`)."""

@@ -73,9 +73,9 @@ async def test_qc_runs_right_after_the_cv_is_attached(monkeypatch: pytest.Monkey
 
     monkeypatch.setattr(cv_qc, "run_after_move", run_after_move)
     monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", True)
-    await cv_auto_generate._qc_after_attach(7, 8)
+    await cv_auto_generate.qc_after_attach(7, 8)
     monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", False)
-    await cv_auto_generate._qc_after_attach(9, 10)
+    await cv_auto_generate.qc_after_attach(9, 10)
     assert calls == [(7, 8)]
 
 
