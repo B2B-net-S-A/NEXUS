@@ -225,6 +225,20 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
 - **`link-contract` wymaga zapisu u klienta WIERSZA**, odrzuca wiersze z Excela
   i kontrakt innej osoby (klucz `candidate_identity_key`; zdublowany rekord tej
   samej osoby przechodzi — ticket 1460) (audyt 24.09.2026).
+- **`link-contract` uzupełnia kontrakt z umowy, tylko puste pola** (13.10.2026,
+  `fill_contract_from_linked_agreement` w `b2b_contract_automation`): kontrakt
+  wiązany tą akcją powstał poza podpisem (ręcznie albo z zamówienia), więc nie
+  ma rekrutacji ani `b2b_contract_details`. Bez `job_id` wypada ze średniego
+  czasu obsadzenia klienta, Insights Hiring Managerów i podkategorii rejestru.
+  Rekrutacja wchodzi tylko, gdy należy do klienta kontraktu; numer umowy jest
+  stemplowany jak przy podpisie; niepełny `render_payload` albo usunięta rola
+  nie zatrzymują powiązania. Kontaktu konsultanta ta ścieżka nadal nie przenosi.
+- **Okno wymuszonego usunięcia kontraktu mówi, co stanie się z umową**
+  (`SignedContractDeleteConfirmation`): podpisana umowa zostaje w rejestrze bez
+  kontraktu, a po usunięciu duplikatu trzeba ją podpiąć akcją „Powiąż
+  z kontraktem”. Bez tego zdania administrator usuwał zdublowany kontrakt
+  i zostawiał umowę ze znacznikiem (1520/2026). Automatycznego przepinania nie
+  dodawaj: dwa kontrakty tej samej osoby bywają dwoma projektami (0244).
 - **Poprawki po audycie 23.09.2026** (`test_b2b_generator_audit_2026_09_23.py`):
   - **Numer nigdy nie wraca do puli.** Usunięty wpis zostawia `Activity`
     `deleted` z numerem (`_deleted_contract_numbers`): `/render` odmawia 409

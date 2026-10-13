@@ -147,6 +147,15 @@ export function SignedContractDeleteConfirmation({
           Kontrakt #{contractId} ma umowę B2B potwierdzoną jako podpisana przez
           obie strony. Usunięcie jest nieodwracalne.
         </div>
+        <p
+          data-testid="signed-delete-agreement-consequence"
+          className="text-sm text-muted-foreground"
+        >
+          Podpisana umowa zostanie w „Wygenerowane umowy” bez kontraktu, ze
+          znacznikiem „Kontrakt usunięty — brak kontraktora”. Jeśli usuwasz
+          zdublowany kontrakt tej osoby, po usunięciu użyj przy umowie akcji
+          „Powiąż z kontraktem” i wskaż kontrakt, który zostaje.
+        </p>
         <div>
           <Label htmlFor="signed-contract-delete-confirmation" className="mb-1.5 block">
             Wpisz {contractorName ? `„${contractorName}” albo ` : ""}numer kontraktu

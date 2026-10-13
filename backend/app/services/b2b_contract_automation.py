@@ -484,6 +484,82 @@ async def _upsert_b2b_detail(
     return detail
 
 
+async def _linked_agreement_payload(
+    db: AsyncSession, generated: B2BGeneratedContract
+) -> Any | None:
+    """Formularz umowy do uzupełnienia szczegółów kontraktu albo ``None``.
+
+    Stary albo niepełny ``render_payload`` nie może zatrzymać powiązania —
+    wtedy na kontrakt idą tylko numer, data i język z wiersza rejestru.
+    Rola usunięta ze słownika po wygenerowaniu umowy złamałaby klucz obcy.
+    """
+
+    from pydantic import ValidationError
+
+    from app.models.b2b_contract_role import B2BContractRole
+    from app.schemas.b2b_contract_generator import B2BRenderRequest
+
+    try:
+        payload = B2BRenderRequest(**(generated.render_payload or {}))
+    except (ValidationError, TypeError):
+        return None
+    role_id = _payload_value(payload, "role_id")
+    if role_id is not None and await db.get(B2BContractRole, role_id) is None:
+        payload = payload.model_copy(update={"role_id": None})
+    return payload
+
+
+async def fill_contract_from_linked_agreement(
+    db: AsyncSession, contract: Contract, generated: B2BGeneratedContract
+) -> list[str]:
+    """Uzupełnij kontrakt z podpisanej umowy, z którą właśnie go powiązano.
+
+    „Powiąż z kontraktem” łączy umowę z kontraktem założonym poza podpisem
+    (ręcznie albo z zamówienia), czyli bez rekrutacji i bez szczegółów B2B.
+    Kontrakt bez ``job_id`` wypada z raportów liczonych po rekrutacji (czas
+    obsadzenia klienta, Insights Hiring Managerów, podkategorie rejestru).
+
+    Tylko puste pola, jak na ścieżce podpisu; numer umowy jest stemplowany
+    zawsze, bo mówi, KTÓRY dokument podpisano. Rekrutacja wchodzi tylko wtedy,
+    gdy należy do klienta kontraktu — ta sama reguła co przy zakładaniu
+    kontraktu (``job_client_mismatch``).
+
+    Zwraca nazwy uzupełnionych pól — do audytu, nie do sterowania przepływem.
+    """
+
+    # Relacja 1:1 musi być wczytana, zanim ``_upsert_b2b_detail`` do niej
+    # przypisze — leniwe doczytanie w sesji asynchronicznej kończy się błędem.
+    await db.refresh(contract, attribute_names=["b2b_detail"])
+    existing = contract.b2b_detail
+    previous_number = existing.contract_number if existing is not None else None
+
+    filled: list[str] = []
+    if contract.job_id is None and generated.job_id is not None:
+        job_client_id = await db.scalar(
+            select(Job.client_id).where(Job.id == generated.job_id)
+        )
+        if job_client_id == contract.client_id:
+            contract.job_id = generated.job_id
+            filled.append("job_id")
+
+    await _upsert_b2b_detail(
+        db,
+        contract,
+        existing,
+        await _linked_agreement_payload(db, generated),
+        contract_number=generated.contract_number,
+        signing_date=generated.signing_date,
+        language=generated.language,
+        canonicalize_number=True,
+        canonicalize_signing_date=False,
+    )
+    if existing is None:
+        filled.append("b2b_detail")
+    elif previous_number != generated.contract_number:
+        filled.append("contract_number")
+    return filled
+
+
 def _seed_candidate_rate_schedule(
     contract: Contract,
     payload: Any | None,

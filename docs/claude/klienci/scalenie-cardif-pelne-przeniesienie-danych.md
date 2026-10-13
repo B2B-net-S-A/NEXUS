@@ -29,7 +29,9 @@ właściwego klienta (dwa zgłoszenia z sierpnia → migracja 0244, potem umowa
   wiersza i kolumna `client_name` (rejestr, przyszłe aneksy); `render_payload`
   to treść podpisanego dokumentu i zostaje. Korekta nie dołącza DOCX do
   dokumentów kontraktu — byłby to odtworzony, niepodpisany plik, który
-  synchronizacja wysłałaby do SharePointa.
+  synchronizacja wysłałaby do SharePointa. Rekrutację i numer umowy kontrakt
+  #689 dostał drugim biegiem (`0436_cardif_contract_fill`), bo pierwszy
+  powiązał umowę, zanim powiązanie zaczęło uzupełniać kontrakt.
 - **Rekord 52 jest nagrobkiem.** Zgłoszenie prosiło o pusty, widoczny rekord;
   decyzją z 13.10.2026 jest oznaczony jako scalony, bo widoczny duplikat dawał
   się dalej wybrać, a pięć rekrutacji bez „Prowadzona w NEXUSIE” wróciłoby na

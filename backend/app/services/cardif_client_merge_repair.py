@@ -44,6 +44,7 @@ from app.models.dl_alert import DlAlert
 from app.models.job import Job
 from app.models.recruitment_process import RecruitmentProcess
 from app.services import contract_client_reassign as reassign
+from app.services.b2b_contract_automation import fill_contract_from_linked_agreement
 from app.services.client_deletion import (
     _configured,
     _merge_singleton_conflicts,
@@ -57,6 +58,10 @@ logger = logging.getLogger(__name__)
 
 REPAIR_MARKER = "0435_cardif_client_merge"
 SOURCE = REPAIR_MARKER
+# Drugi, osobny bieg: pierwsza wersja korekty powiązała umowę z kontraktem,
+# ale powiązanie nie uzupełniało jeszcze rekrutacji ani szczegółów B2B
+# kontraktu (``fill_contract_from_linked_agreement`` doszło później).
+CONTRACT_FILL_MARKER = "0436_cardif_contract_fill"
 
 # Wpis katalogu rekordu źródłowego — zostaje (inwariant manifestu portfela).
 _EXPECTED_REMAINING = frozenset(
@@ -448,6 +453,66 @@ async def run_cardif_client_merge(
     db.add(AppSetting(key=marker, value=summary))
     await db.flush()
     logger.info("cardif client merge: %s", summarize_for_log(summary))
+    return summary
+
+
+async def run_cardif_contract_fill(
+    db: AsyncSession,
+    *,
+    target: CardifMergeTarget = TARGET,
+    marker: str = CONTRACT_FILL_MARKER,
+) -> Optional[dict[str, Any]]:
+    """Kontrakt powiązany korektą dostaje rekrutację i numer umowy.
+
+    ``None`` = już wykonane. Wołający commituje.
+    """
+
+    await db.execute(text("SET LOCAL lock_timeout = '15s'"))
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": marker}
+    )
+    if await db.get(AppSetting, marker) is not None:
+        return None
+    summary: dict[str, Any] = {
+        "executed_at": datetime.now(timezone.utc).isoformat(),
+        "skipped": None,
+        "filled": [],
+    }
+    link = target.agreement
+    contract = row = None
+    if link is not None:
+        contract = await db.scalar(
+            select(Contract).where(Contract.id == link.contract_id).with_for_update()
+        )
+        row = await db.scalar(
+            select(B2BGeneratedContract)
+            .where(
+                B2BGeneratedContract.id == link.generated_id,
+                B2BGeneratedContract.contract_number == link.contract_number,
+            )
+            .with_for_update()
+        )
+    if contract is None or row is None:
+        summary["skipped"] = "pair_missing"
+    elif row.contract_id != contract.id:
+        summary["skipped"] = "not_linked"
+    elif contract.client_id != target.target_id:
+        summary["skipped"] = "contract_client_mismatch"
+    else:
+        filled = await fill_contract_from_linked_agreement(db, contract, row)
+        summary["filled"] = filled
+        if filled:
+            db.add(
+                Activity(
+                    entity_type="contract",
+                    entity_id=contract.id,
+                    action="updated",
+                    user_id=None,
+                    details={"filled_fields": filled, "source": marker},
+                )
+            )
+    db.add(AppSetting(key=marker, value=summary))
+    await db.flush()
     return summary
 
 

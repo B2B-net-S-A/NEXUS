@@ -47,7 +47,7 @@ wypełnione tylko u celu — nic nie zostało nadpisane.
 | Blok `repair-cardif-client-merge` w `entrypoint.sh` | w PR | test obecności bloku |
 | Wpis „Scalenie klientów” w Historii zdarzeń | w PR | etykieta `client.merge` |
 | Reguły w `docs/claude/klienci/scalenie-cardif-pelne-przeniesienie-danych.md` | w PR | indeks w `CLAUDE.md` |
-| Wykonanie na produkcji | przy wdrożeniu PR-a | paragon `app_settings['0435_cardif_client_merge']` |
+| Wykonanie na produkcji | wykonane 13.10.2026 | paragon `app_settings['0435_cardif_client_merge']` |
 
 ## Jak sprawdzić po wdrożeniu
 
@@ -64,16 +64,39 @@ wypełnione tylko u celu — nic nie zostało nadpisane.
 5. Ekran: Generator umów → 1520/2026 bez znacznika; Klienci → brak
    „BNP Paribas Cardif” na liście, `/clients/52` przekierowuje na cel.
 
-## Poza zakresem (do osobnych zgłoszeń)
+## Wynik na produkcji (13.10.2026)
 
-- Zwykłe usunięcie kontraktu odpina podpisaną umowę bez ostrzeżenia, gdy jej
-  klient różni się od klienta kontraktu (`signed_generated_link_filter`).
-- Podpis umowy nie rozpoznaje kontraktu tej samej osoby u bliźniaczego rekordu
-  klienta i zakłada drugi kontrakt.
-- Kontrakt #689 nie ma rekrutacji (`job_id`) ani numeru umowy w szczegółach B2B;
-  skan podpisanej umowy trzeba dołączyć ręcznie w dokumentach kontraktu.
-- Umowa 1474/2026 nadal drukuje „BNP Paribas Cardif” (treść podpisanego
-  dokumentu, świadomie nieruszana od 0244).
-- `docs/claude/klienci/audyt-pomylonych-klientow-get-api-admin-client.md`
-  twierdzi, że przepięcia kontraktu nie da się zrobić z interfejsu — od
-  wprowadzenia akcji „Przepnij na innego klienta” to nieaktualne.
+PR #2171 wdrożony (`fda268bbe`). Paragon `0435_cardif_client_merge`: bez
+pominięć, 5 rekrutacji, 210 procesów, 7 kontaktów, karta i jej zdarzenie,
+3 alerty, umowa powiązana z kontraktem #689, rekord 52 oznaczony jako scalony,
+`unexpected_references` puste. Na rekordzie 52 zostały tylko zakres portfela,
+wiersz importu i przydział DL.
+
+## Znaleziska po scaleniu i co z nimi zrobiono (drugi PR)
+
+Jak naprawdę doszło do osierocenia umowy (historia kontraktów na produkcji):
+podpis 29.09 założył kontrakt #679 u klienta rekrutacji (52); 1.10 automat
+z zamówienia założył drugi kontrakt tej osoby (#689) u 38335, bo jej kontraktu
+u tego klienta nie było; 5.10 administrator usunął #679 wymuszeniem, a umowa
+została bez kontraktu. Scalenie rekordów usuwa źródło (zamówienia i rekrutacje
+trafiają odtąd do jednego klienta).
+
+| Znalezisko | Co zrobiono |
+|---|---|
+| Okno wymuszonego usunięcia nie mówiło, co stanie się z podpisaną umową | dopisane zdanie o skutku i o akcji „Powiąż z kontraktem” |
+| Kontrakt #689 bez rekrutacji i numeru umowy | „Powiąż z kontraktem” uzupełnia odtąd puste pola kontraktu; #689 dociąga jednorazowy bieg `0436_cardif_contract_fill` |
+| Wpis o powiązaniu umowy na osi czasu kontraktu jako „Zdarzenie systemowe” | polska etykieta |
+| Rodzina „BNP” | sprawdzona odczytem: 5 nieaktywnych rekordów to odrębne spółki z samymi kontaktami — nic do scalania |
+| Nieaktualne zdanie w regule o audycie pomylonych klientów | poprawione |
+| „Ciche odpięcie przy zwykłym usunięciu kontraktu” | nie było przyczyną i nie jest błędem: reguła `signed_generated_link_filter` jest świadoma, a na produkcji nie ma ani jednej umowy z klientem innym niż klient jej kontraktu |
+
+## Zostaje
+
+- Skan podpisanej umowy 1520/2026 trzeba dołączyć ręcznie w dokumentach
+  kontraktu #689.
+- Umowy 1474/2026 i 1520/2026 drukują „BNP Paribas Cardif” — to treść
+  dokumentów podpisanych przez obie strony (reguła z 0242/0244).
+- Umowa 1460/2026 nadal nie ma kontraktu: jej rekord osoby nie ma żadnego
+  kontraktu, więc właściwy musi wskazać człowiek („Powiąż z kontraktem”).
+- Kontrakt #600 ma podpisaną umowę 1476/2026, ale nie ma szczegółów B2B
+  (inna przyczyna niż tutaj, niezbadana).

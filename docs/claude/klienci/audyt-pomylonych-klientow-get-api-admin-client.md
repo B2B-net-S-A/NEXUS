@@ -11,5 +11,11 @@ zgłoszeniach tej samej pomyłki (BNP Paribas Cardif ↔ CARDIF - ASSURANCES…)
   bazy to jedna rodzina. **`ł` trzeba transliterować ręcznie** — NFKD go nie
   rozkłada, więc „SPÓŁKA” tnie się na „spo” + „ka”.
 - **Zero mutacji.** Podobna nazwa bywa naprawdę innym klientem; rozstrzyga
-  człowiek. Uwaga: `ContractUpdate` NIE ma `client_id`, więc przepięcia
-  kontraktu na innego klienta nie da się dziś zrobić z interfejsu w ogóle.
+  człowiek. `ContractUpdate` nie ma `client_id` — pojedynczy kontrakt przepina
+  administrator akcją „Przepnij na innego klienta” (`contract_client_reassign`),
+  a duplikat klienta z historią scala się wzorem z
+  `scalenie-cardif-pelne-przeniesienie-danych.md`.
+- **Stan rodziny „BNP” (odczyt 13.10.2026):** po scaleniu Cardif żaden
+  nieaktywny rekord z Traffita (Arval, Faktoring, Real Estate, Lease Group,
+  Group Service Center) nie trzyma rekrutacji, kontraktów ani umów — to
+  odrębne spółki z kilkoma kontaktami, nie duplikaty.

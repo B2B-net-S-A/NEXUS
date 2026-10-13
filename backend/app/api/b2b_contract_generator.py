@@ -137,6 +137,7 @@ from app.services.b2b_contract_automation import (
     ORDER_SKIPPED_OPEN_GROUP_LINE,
     ensure_b2b_employment_draft,
     fill_candidate_contact,
+    fill_contract_from_linked_agreement,
     should_auto_create_order,
 )
 from app.services.b2b_contract_generator.clause_overrides import (
@@ -2932,8 +2933,10 @@ async def apply_contract_link(
 
     Wspólny dla akcji z rejestru i jednorazowej korekty danych
     (``cardif_client_merge_repair``, tam bez autora). Poprzednie wartości
-    zostają w historii statusów umowy i w Activity kontraktu. Walidacje
-    i commit należą do wołającego.
+    zostają w historii statusów umowy i w Activity kontraktu. Kontrakt dostaje
+    z umowy rekrutację i szczegóły B2B, jeśli ich nie ma
+    (``fill_contract_from_linked_agreement``). Walidacje i commit należą do
+    wołającego.
     """
 
     previous = {
@@ -2959,6 +2962,7 @@ async def apply_contract_link(
             .values(client_id=contract.client_id)
             .execution_options(synchronize_session=False)
         )
+    filled_fields = await fill_contract_from_linked_agreement(db, contract, row)
     db.add(
         B2BGeneratedContractStatusEvent(
             generated_contract_id=row.id,
@@ -2982,6 +2986,7 @@ async def apply_contract_link(
             details={
                 "generated_contract_id": row.id,
                 "contract_number": row.contract_number,
+                "filled_fields": filled_fields,
                 **previous,
             },
         )

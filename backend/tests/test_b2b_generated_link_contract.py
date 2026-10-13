@@ -17,6 +17,7 @@ from sqlalchemy import select
 from app.api import b2b_contract_generator
 from app.core.database import AsyncSessionLocal
 from app.models.activity import Activity
+from app.models.b2b_contract_detail import B2BContractDetail
 from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.b2b_generated_contract_status_event import (
     B2BGeneratedContractStatusEvent,
@@ -25,6 +26,7 @@ from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus
 from app.models.contract_document import ContractDocument
+from app.models.job import Job, JobStatus
 
 pytestmark = pytest.mark.asyncio
 
@@ -351,3 +353,115 @@ async def test_link_moves_derived_documents_to_the_right_client(
     async with AsyncSessionLocal() as db:
         annex = await db.get(B2BContractDocument, annex_id)
         assert annex.client_id == ids["right_client"]
+
+
+async def _job_for(agreement_id: int, client_id: int) -> int:
+    """Rekrutacja u wskazanego klienta, wpisana na umowę."""
+
+    async with AsyncSessionLocal() as db:
+        job = Job(
+            title=f"Link job {uuid.uuid4().hex[:6]}",
+            status=JobStatus.closed,
+            client_id=client_id,
+        )
+        db.add(job)
+        await db.flush()
+        row = await db.get(B2BGeneratedContract, agreement_id)
+        row.job_id = job.id
+        await db.commit()
+        return job.id
+
+
+async def _link(app_client, app_auth_headers, monkeypatch, ids) -> None:
+    monkeypatch.setattr(
+        b2b_contract_generator, "_render_generated_row_docx", _render_fails
+    )
+    resp = await app_client.post(
+        f"{PATH}/{ids['row']}/link-contract",
+        json={"contract_id": ids["contract"]},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+
+async def test_link_fills_missing_job_and_b2b_details_on_the_contract(
+    app_client, app_auth_headers, monkeypatch
+):
+    """Kontrakt założony poza podpisem nie ma rekrutacji ani szczegółów B2B.
+
+    Umowa 1520/2026 (10.2026): po powiązaniu kontrakt wypadał z raportów
+    liczonych po rekrutacji, a eksport „bez zamówienia” nie znał numeru umowy.
+    """
+
+    ids = await _seed()
+    job_id = await _job_for(ids["row"], ids["right_client"])
+    await _link(app_client, app_auth_headers, monkeypatch, ids)
+
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, ids["contract"])
+        assert contract.job_id == job_id
+        detail = await db.scalar(
+            select(B2BContractDetail).where(
+                B2BContractDetail.contract_id == ids["contract"]
+            )
+        )
+        assert detail is not None
+        assert detail.contract_number == ids["number"]
+        activity = await db.scalar(
+            select(Activity).where(
+                Activity.entity_type == "contract",
+                Activity.entity_id == ids["contract"],
+                Activity.action == "generated_contract_linked",
+            )
+        )
+        assert activity.details["filled_fields"] == ["job_id", "b2b_detail"]
+
+
+async def test_link_does_not_take_a_job_from_another_client(
+    app_client, app_auth_headers, monkeypatch
+):
+    ids = await _seed()
+    await _job_for(ids["row"], ids["wrong_client"])
+    await _link(app_client, app_auth_headers, monkeypatch, ids)
+
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(Contract, ids["contract"])).job_id is None
+
+
+async def test_link_keeps_the_job_and_details_the_contract_already_has(
+    app_client, app_auth_headers, monkeypatch
+):
+    ids = await _seed()
+    await _job_for(ids["row"], ids["right_client"])
+    async with AsyncSessionLocal() as db:
+        own_job = Job(
+            title=f"Link own job {uuid.uuid4().hex[:6]}",
+            status=JobStatus.closed,
+            client_id=ids["right_client"],
+        )
+        db.add(own_job)
+        await db.flush()
+        contract = await db.get(Contract, ids["contract"])
+        contract.job_id = own_job.id
+        db.add(
+            B2BContractDetail(
+                contract_id=contract.id,
+                contract_number="stary/2025",
+                project_city="Kraków",
+            )
+        )
+        await db.commit()
+        own_job_id = own_job.id
+    await _link(app_client, app_auth_headers, monkeypatch, ids)
+
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(Contract, ids["contract"])).job_id == own_job_id
+        detail = await db.scalar(
+            select(B2BContractDetail).where(
+                B2BContractDetail.contract_id == ids["contract"]
+            )
+        )
+        # Numer mówi, KTÓRY dokument podpisano — stempel jak przy podpisie;
+        # reszta szczegółów zostaje.
+        assert detail.contract_number == ids["number"]
+        assert detail.project_city == "Kraków"

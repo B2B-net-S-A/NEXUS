@@ -49,6 +49,7 @@ const ACTION_LABELS: Record<string, string> = {
   document_uploaded: "Dodano dokument",
   document_deleted: "Usunięto dokument",
   b2b_generated: "Wygenerowano umowę B2B",
+  generated_contract_linked: "Powiązano podpisaną umowę B2B z kontraktem",
   auto_drafted_from_order_mail: "Założono szkic z zamówienia z maila",
   // Ticket 7 (09.2026): techniczne zmiany pól linii zamówienia MD (waluta,
   // jednostka stawki) — historia zamówienia ich nie pokazuje.
