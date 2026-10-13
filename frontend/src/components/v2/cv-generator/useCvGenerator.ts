@@ -164,8 +164,9 @@ export function useCvGenerator({
     queryKey: cvAiSourcesQueryKey(aiStageId ?? 0),
     queryFn: () => fetchCvAiSources(aiStageId ?? 0),
     enabled: aiStageId != null,
-    // Wczytywanie blokuje „Generuj”, awaria — nie; krótko, zamiast pełnej serii ponowień.
-    retry: 1,
+    // Wczytywanie blokuje „Generuj”, awaria — nie. Ponawia tylko axios (jeden
+    // właściciel ponowień, `QueryProvider.test`), więc awaria widać od razu.
+    retry: false,
   });
   const [aiChoice, setAiChoice] = useState<{ stageId: number; value: CvAiSourceToggles } | null>(null);
   const aiSources: CvAiSourceToggles | null =
