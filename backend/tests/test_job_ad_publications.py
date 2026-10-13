@@ -1,4 +1,4 @@
-"""Oznaczenia publikacji ogłoszenia (0431) — czyste funkcje, bez bazy."""
+"""Oznaczenia publikacji ogłoszenia (0432) — czyste funkcje, bez bazy."""
 
 from __future__ import annotations
 

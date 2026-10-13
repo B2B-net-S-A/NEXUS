@@ -1,4 +1,4 @@
-"""Oznaczenie publikacji ogłoszenia na portalu — 0431.
+"""Oznaczenie publikacji ogłoszenia na portalu — 0432.
 
 Kolumny i powód istnienia: ``app/services/job_ad_publication_schema.py``.
 Logika: ``app/services/job_ad/publications.py``, trasy: ``app/api/job_ads.py``.

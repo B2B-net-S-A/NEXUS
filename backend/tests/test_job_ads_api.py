@@ -10,7 +10,7 @@ Kontrakt ``docs/claude/rekrutacja-tworzenie/ogloszenie-na-portale-kopiuj-wklej.m
 - zapis poprawki ze starą wersją = 409; ponowne przygotowanie nie zastępuje
   poprawki zapisanej, kiedy model układał treść; stałe bloki zapisuje admin
   i HoR;
-- oznaczenie publikacji (0431): link tylko do portalu, „do aktualizacji” po
+- oznaczenie publikacji (0432): link tylko do portalu, „do aktualizacji” po
   zmianie treści, zdjęcie z portalu zostawia ślad, lista rekrutacji niesie
   tylko aktywne ogłoszenia.
 """
@@ -485,7 +485,7 @@ async def test_edit_rejects_too_many_items_instead_of_trimming(
     assert resp.status_code == 422
 
 
-# ── Oznaczenie publikacji (0431) ────────────────────────────────────────────
+# ── Oznaczenie publikacji (0432) ────────────────────────────────────────────
 
 _PRACUJ_URL = "https://www.pracuj.pl/praca/java-developer-warszawa,oferta,1004"
 

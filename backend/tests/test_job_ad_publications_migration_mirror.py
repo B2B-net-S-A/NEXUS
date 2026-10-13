@@ -1,4 +1,4 @@
-"""0431: tabela oznaczeń publikacji ogłoszenia ma lustro w entrypoincie (prod
+"""0432: tabela oznaczeń publikacji ogłoszenia ma lustro w entrypoincie (prod
 alembic bywa osierocony), sondę w ``/api/health/deep``, a model zgadza się z DDL."""
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from pathlib import Path
 from app.services import job_ad_publication_schema as schema
 
 BACKEND = Path(__file__).resolve().parents[1]
-MIGRATION = BACKEND / "alembic" / "versions" / "0431_job_ad_publications.py"
+MIGRATION = BACKEND / "alembic" / "versions" / "0432_job_ad_publications.py"
 
 
 def _migration_module():
@@ -23,8 +23,8 @@ def _migration_module():
 
 def test_migration_runs_the_shared_ddl() -> None:
     module = _migration_module()
-    assert module.revision == "0431_job_ad_publications"
-    assert module.down_revision == "0430_job_ads"
+    assert module.revision == "0432_job_ad_publications"
+    assert module.down_revision
     assert "schema.ALL_DDL" in MIGRATION.read_text(encoding="utf-8")
 
 

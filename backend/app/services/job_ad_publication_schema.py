@@ -1,6 +1,6 @@
-"""Gdzie wisi ogłoszenie rekrutacji — SQL migracji 0431 i lustra.
+"""Gdzie wisi ogłoszenie rekrutacji — SQL migracji 0432 i lustra.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0431_job_ad_publications.py``
+JEDNO źródło instrukcji dla ``alembic/versions/0432_job_ad_publications.py``
 i ``entrypoint.sh`` (alembic na prodzie bywa osierocony); test
 ``test_job_ad_publications_migration_mirror.py`` sprawdza, że każda stoi
 w entrypoincie dosłownie.

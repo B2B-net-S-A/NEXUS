@@ -7,7 +7,7 @@
   złożenie z pól rekrutacji) i ZAPISUJE ją;
 * ``PUT  /api/jobs/{job_id}/portal-ad`` — ręczne poprawki rekrutera;
 * ``PUT/DELETE /api/jobs/{job_id}/portal-ad/publications/{portal}`` — „wisi
-  na portalu” (z linkiem) i „zdjęte z portalu” (0431);
+  na portalu” (z linkiem) i „zdjęte z portalu” (0432);
 * ``GET/PUT /api/job-ads/fixed-blocks`` — stałe części firmy (admin i Head of
   Recruitment).
 

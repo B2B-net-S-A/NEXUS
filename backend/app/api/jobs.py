@@ -1604,7 +1604,7 @@ async def list_jobs(
     # Rola „Rekruter” — jedno wywołanie na stronę, ta sama reguła co filtr
     # `worked_by` i pulpit „Requesty i obłożenie” (`services/job_team`).
     recruiters_by_job = await recruiters_for_jobs(db, job_ids)
-    # Kolumna „Ogłoszenia” (0431) — też jedno zapytanie na stronę.
+    # Kolumna „Ogłoszenia” (0432) — też jedno zapytanie na stronę.
     ad_publications_by_job = await ad_publications_for_jobs(db, job_ids)
 
     # Hiring manager names batch lookup — denormalized na response żeby UI

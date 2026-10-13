@@ -1,6 +1,6 @@
 # Ogłoszenie na portale — „Oznacz jako opublikowane” i kolumna „Ogłoszenia” (etap 2)
 
-Data: 13.10.2026 · Migracja: 0431 · Reguły: `docs/claude/rekrutacja-tworzenie/ogloszenie-na-portale-kopiuj-wklej.md`
+Data: 13.10.2026 · Migracja: 0432 · Reguły: `docs/claude/rekrutacja-tworzenie/ogloszenie-na-portale-kopiuj-wklej.md`
 · Etap 1: `docs/job-ad-generator-completion-report.md` (PR #2158)
 
 ## Po co
@@ -50,7 +50,7 @@ ogłoszenie ma już nieaktualną treść i które wisi mimo zamkniętej rekrutac
 
 | Co | Wynik |
 |---|---|
-| Testy bez bazy: `test_job_ad_publications.py` (odcisk, link), lustro migracji 0431 | zielone lokalnie |
+| Testy bez bazy: `test_job_ad_publications.py` (odcisk, link), lustro migracji 0432 | zielone lokalnie |
 | Strażnicy: sekcje tras, macierz uprawnień (dwie nowe trasy jak pozostałe trasy ogłoszenia), inwentarz schematu, DDL entrypointu, stemple przewodników | zielone lokalnie |
 | Trasy z bazą (`test_job_ads_api.py`, +5 testów: oznaczenie, „do aktualizacji”, zdjęcie i powrót, odmowy, lista i szczegół) | sprawdza CI |
 | Vitest: `AdPublications`, okno, komórka listy, nagłówki tabeli, harnessy, inwentarz funkcji | zielone lokalnie |

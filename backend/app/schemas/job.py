@@ -379,7 +379,7 @@ class JobResponse(BaseModel):
     # plus propozycje automatu z ``proposed=True`` (`services/job_team`).
     # Wypełniają lista i ``GET /api/jobs/{id}``; inne odpowiedzi niosą pustą.
     recruiters: list[JobRecruiterOut] = []
-    # Aktywne ogłoszenia wklejone ręcznie na portalach (0431); wypełnia lista
+    # Aktywne ogłoszenia wklejone ręcznie na portalach (0432); wypełnia lista
     # i `GET /api/jobs/{id}` (`job_ad.publications.for_jobs`).
     ad_publications: list[JobAdPublicationOut] = []
     # Delivery Lead rozwinięty do ``UserBrief`` — wypełniają lista

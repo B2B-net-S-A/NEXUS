@@ -1,4 +1,4 @@
-# Ogłoszenie na portale — treść do wklejenia w Pracuj.pl i JustJoin.IT (0430–0431, 12–13.10.2026)
+# Ogłoszenie na portale — treść do wklejenia w Pracuj.pl i JustJoin.IT (0430 i 0432, 12–13.10.2026)
 
 <!-- indeks: okno „Ogłoszenie na portale”, jedna treść w dwóch formatach, kontrola przed skopiowaniem, stałe części firmy, awaria modelu nie nadpisuje treści, „Oznacz jako opublikowane” i kolumna „Ogłoszenia”, relacja do publikacji przez API -->
 
@@ -113,7 +113,7 @@ rekrutację); front `components/v2/job-ad/`, `lib/api/jobAd.ts`, karta
   zapisuj w `job_postings`: to kolejka workera, więc taki wiersz dostałby
   zlecenie wysyłki przez API, a przy Pracuj.pl trwale blokował usunięcie
   rekrutacji. Połączenie obu treści to osobny etap.
-- **Oznaczenie publikacji to zapis tego, co zrobił człowiek (0431).** Tabela
+- **Oznaczenie publikacji to zapis tego, co zrobił człowiek (0432).** Tabela
   `job_ad_publications` (jeden wiersz na rekrutację i portal: `pracuj`,
   `jjit`), logika `services/job_ad/publications.py`, trasy
   `PUT/DELETE /api/jobs/{id}/portal-ad/publications/{portal}`, front

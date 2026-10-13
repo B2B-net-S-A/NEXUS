@@ -1,4 +1,4 @@
-"""Gdzie wisi ogłoszenie — oznaczenia publikacji (0431).
+"""Gdzie wisi ogłoszenie — oznaczenia publikacji (0432).
 
 Rekruter wkleja treść na portalu ręcznie, a potem oznacza to tutaj. Stan
 czyta okno „Ogłoszenie na portale”, sekcja „Zespół i ogłoszenie” i kolumna
