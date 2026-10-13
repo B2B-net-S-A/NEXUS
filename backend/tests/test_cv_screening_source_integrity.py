@@ -27,6 +27,7 @@ async def test_ai_summary_without_transcript_is_not_candidate_evidence(language)
         job=SimpleNamespace(id=2, champion_profile={}),
         warnings=warnings,
         language=language,
+        sources={"transcripts": True},
     )
     assert text == ""
     assert len(warnings) == 1
@@ -56,9 +57,50 @@ async def test_transcript_is_preserved_and_summary_is_never_mixed_into_it():
         stage=SimpleNamespace(screening_answers={}, notes=None),
         job=SimpleNamespace(id=2, champion_profile={}),
         warnings=warnings,
+        sources={"transcripts": True},
     )
     assert text == "[Transkrypt rozmowy]\nNie posiadam certyfikatu AWS."
     assert warnings == []
+
+
+@pytest.mark.asyncio
+async def test_call_transcripts_are_off_unless_chosen():
+    # 13.10.2026: rozmowa nie ma pola rekrutacji, więc do CV szły też rozmowy
+    # o innych procesach. Domyślnie bez transkryptów — bez zapytania o rozmowy.
+    db = AsyncMock()
+    db.scalar.return_value = None
+    rows = [[], []]
+    db.scalars.side_effect = [SimpleNamespace(all=lambda row=row: row) for row in rows]
+    text = await svc.collect_screening_notes_text(
+        db,
+        candidate_id=1,
+        stage=SimpleNamespace(screening_answers={}, notes=None),
+        job=SimpleNamespace(id=2, champion_profile={}),
+    )
+    assert text == ""
+    assert db.scalars.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_rates_and_availability_are_cut_from_free_notes():
+    db = AsyncMock()
+    db.scalar.return_value = None
+    note = SimpleNamespace(
+        content="150 PLN/h + VAT, Lublin, dostępny 06.03.2023 r. W Javie od 2018."
+    )
+    rows = [[], [note]]
+    db.scalars.side_effect = [SimpleNamespace(all=lambda row=row: row) for row in rows]
+    text = await svc.collect_screening_notes_text(
+        db,
+        candidate_id=1,
+        stage=SimpleNamespace(
+            screening_answers={}, notes="Stawka 140 zł, start od zaraz. Zna Kafkę."
+        ),
+        job=SimpleNamespace(id=2, champion_profile={}),
+    )
+    assert "150" not in text and "140" not in text
+    assert "06.03.2023" not in text
+    assert "W Javie od 2018." in text and "Zna Kafkę." in text
 
 
 def test_internal_judgments_cannot_pad_screening_source():
@@ -140,4 +182,6 @@ async def test_worker_excludes_ai_only_notes_and_explains_omission(
             db, candidate_id=1, stage_id=1, client_rule=rule
         )
         assert pipeline.call_args.kwargs["screening_notes_text"] == ""
-        assert "podsumowań rozmów AI bez transkryptu" in result.warnings[0]
+        # Od 13.10.2026 rozmowy są domyślnie poza materiałem generatora (PR 4
+        # doda przełącznik w karcie CV), więc o podsumowaniach nie ma uwagi.
+        assert not any("podsumowań rozmów" in w for w in result.warnings)

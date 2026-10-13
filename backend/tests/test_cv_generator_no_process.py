@@ -281,6 +281,35 @@ async def test_preview_champion_has_priority_on_a_stage_too(monkeypatch):
     assert "Rust" in source.champion_json and "COBOL" not in source.champion_json
 
 
+async def test_position_equal_to_job_title_still_gets_a_clean_header(monkeypatch):
+    # Pole „Stanowisko” jest podpowiadane tytułem rekrutacji — ten sam tekst
+    # nie jest decyzją rekrutera, więc nagłówek bierze rolę bez kodów (D2).
+    world = await _world()
+    title = "PRJ 4412 - Data Platform Developer (51234)"
+    async with AsyncSessionLocal() as db:
+        document = CandidateDocument(
+            candidate_id=world["candidate_id"],
+            filename="header.docx",
+            storage_key=f"cv/test/header-{world['candidate_id']}.docx",
+            is_primary=True,
+        )
+        db.add(document)
+        (await db.get(Job, world["job_id"])).title = title
+        await db.commit()
+        document_id = document.id
+    monkeypatch.setattr(object_storage, "download_cv", lambda key: _docx())
+    async with AsyncSessionLocal() as db:
+        source = await load_candidate_generation_source(
+            db,
+            candidate_id=world["candidate_id"],
+            stage_id=world["stage_id"],
+            cv_document_id=document_id,
+            position=title,
+        )
+    assert source.position_override == ""
+    assert source.job_title == "Data Platform Developer"
+
+
 async def test_stage_row_attach_and_stage_less_rows_share_the_list(
     pv_client: AsyncClient,
 ):

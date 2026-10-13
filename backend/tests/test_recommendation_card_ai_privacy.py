@@ -43,8 +43,15 @@ async def test_cv_generator_reads_the_card_without_commercial_fields():
     )
 
     assert "Notatka: mocny w Springu" in text
-    assert "Dostępność: 1 miesiąc" in text
-    for hidden in ("135", "polska", "długo bez projektu", "większego projektu"):
+    # Dostępność od 13.10.2026 też nie idzie do generatora CV (money_text) —
+    # klient widzi ją tylko z profilu.
+    for hidden in (
+        "135",
+        "polska",
+        "długo bez projektu",
+        "większego projektu",
+        "Dostępność",
+    ):
         assert hidden not in text
 
 

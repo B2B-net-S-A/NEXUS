@@ -209,9 +209,11 @@ def test_bold_only_champion_list_in_tailored_and_none_below(defaults):
     assert tailored.render_payload["highlight_keywords"] == ["Kubernetes", "Terraform"]
 
 
-def test_missing_industry_defaults_to_it_like_the_baseline(defaults):
+def test_missing_industry_stays_empty_instead_of_a_guessed_it(defaults):
+    # D1 (13.10.2026): branża tylko ze źródła; zgadnięte „IT” trafiało do
+    # klienta jako „Firma · IT” i do blind jako „Firma z branży IT”.
     result = _run()
-    assert result.render_payload["experience"][0]["industry"] == "IT"
+    assert result.render_payload["experience"][0]["industry"] == ""
 
 
 def test_career_headline_uses_the_baseline_rounding(defaults):
@@ -297,7 +299,7 @@ def test_real_render_and_rerender_of_a_legacy_payload(defaults, monkeypatch):
     assert svc.rerender_docx_from_payload(result.render_payload)[:2] == b"PK"
 
 
-def test_central_document_has_one_translated_header_without_workflow_labels(
+def test_central_document_header_is_the_client_role_not_a_translation(
     defaults, monkeypatch
 ):
     from io import BytesIO
@@ -307,26 +309,29 @@ def test_central_document_has_one_translated_header_without_workflow_labels(
     from app.services.cv_generator_b2b.public_view import build_public_payload
 
     monkeypatch.setattr(legacy, "render_cv_to_bytes", render_cv_to_bytes)
+    # Model tłumaczy rolę („Programista zaplecza”), ale nagłówek to nazwa roli
+    # od klienta bez tłumaczenia (D2, 13.10.2026).
     defaults["response"]["presentation_position"] = "Programista zaplecza"
     result = _run(rule=_rule(managed_policy={"key": "standard"}))
     payload = result.render_payload
     assert payload["generic_cv"] is True  # internal state, not document text
     assert payload["position"] == "Backend Developer"
     assert payload["experience"][0]["position"] == "Backend Developer"
-    assert payload["presentation_position"] == "Programista zaplecza"
+    assert payload["presentation_position"] == "Backend Developer"
     assert "considered_for" not in payload
-    assert "Programista zaplecza" in result.filename
+    assert "Backend" in result.filename
+    assert "Programista" not in result.filename
     document = Document(BytesIO(result.docx_bytes))
     text = "\n".join(p.text for p in document.paragraphs)
-    assert document.paragraphs[0].text == "Programista zaplecza – Jan Kowalski"
+    assert document.paragraphs[0].text == "Backend Developer – Jan Kowalski"
     for label in ("General CV", "CV ogólne", "Considered for:"):
         assert label not in text
     public = build_public_payload(payload)
-    assert public["position"] == "Programista zaplecza"
+    assert public["position"] == "Backend Developer"
     assert public["considered_for"] is None
     assert "generic_cv" not in public
     html = render_interactive_html(public, [], document_only=True)
-    assert "Programista zaplecza – Jan Kowalski</h1>" in html
+    assert "Backend Developer – Jan Kowalski</h1>" in html
     assert 'class="considered"' not in html
     assert "CV ogólne" not in html
     assert "Polish (pl)" in defaults["calls"][0]["system"]
@@ -620,10 +625,10 @@ def test_explicit_position_lands_in_header_and_filename(defaults, monkeypatch, m
     assert document.paragraphs[0].text == "Starszy Inżynier Testów – Jan Kowalski"
 
 
-def test_without_explicit_position_the_model_title_stays(defaults):
+def test_without_explicit_position_the_client_role_wins_over_the_model(defaults):
     defaults["response"]["presentation_position"] = "Programista zaplecza"
     result = _run_with_position(None, _rule(managed_policy={"key": "standard"}))
-    assert result.render_payload["presentation_position"] == "Programista zaplecza"
+    assert result.render_payload["presentation_position"] == "Backend Developer"
 
 
 async def test_source_override_reaches_the_pipeline_as_position_ref(monkeypatch):
@@ -658,3 +663,293 @@ async def test_source_override_reaches_the_pipeline_as_position_ref(monkeypatch)
     )
     await generate_cv_from_candidate_source(source, content_mode="polished")
     assert seen["position_ref"] == "Starszy Inżynier Testów"
+
+
+# ── Silnik bez wypełniacza (13.10.2026, D1–D3) ─────────────────────────────
+
+
+@pytest.mark.parametrize("language", ["pl", "en"])
+@pytest.mark.parametrize("mode", ["basic", "polished", "tailored"])
+def test_prompt_has_no_mandatory_requirements_point_or_sales_tone(language, mode):
+    prompt = legacy_prompt(language, False, mode)
+    for banned in (
+        "OBOWIĄZKOWE: Jeśli kandydat posiada technologie z listy MUST-HAVE",
+        "MANDATORY: If the candidate possesses technologies from the MUST-HAVE list",
+        "Dodaj dedykowany punkt",
+        "Add a dedicated point",
+        "marketingowa i atrakcyjna",
+        "marketing-oriented and attractive",
+        "bezwzględny priorytet",
+        "take absolute priority",
+        "Traktuj informacje ze screeningu jako równie ważne",
+        "equally important as CV information",
+        "[Największa firma]",
+        "[Biggest company]",
+        "wiodącej firmie",
+        "a leading [industry] company",
+    ):
+        assert banned not in prompt, banned
+    question_rule = (
+        'Linie zaczynające się od "P:" to PYTANIA'
+        if language == "pl"
+        else 'Lines starting with "P:" are the recruiter\'s QUESTIONS'
+    )
+    assert question_rule in prompt
+
+
+def test_presentation_instructions_keep_the_client_role_untranslated():
+    from app.services.cv_generator_b2b.presentation_title import instructions
+
+    text = instructions("pl")
+    assert "do not translate" in text
+    assert "Programista platformy danych" not in text
+    assert "Programista Python" not in text
+
+
+def _tenure_data(why_point):
+    return {
+        "why_points": [why_point],
+        "experience": [
+            {
+                "dates": "01.2023 – obecnie",
+                "company": "Firma Danych Sp. z o.o.",
+                "position": "Data Engineer",
+                "technologies": ["Python", "AWS"],
+            },
+            {
+                "dates": "01.2014 – 12.2022",
+                "company": "Sklep Testowy Sp. z o.o.",
+                "position": "Kierownik sklepu",
+                "technologies": [],
+            },
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    "point,language",
+    [
+        ("Doświadczenie w AWS od 2023 roku", "pl"),
+        ("2 lata doświadczenia w SQL", "pl"),
+        ("2.5 years combined experience across test automation", "en"),
+        ("4,5 roku doświadczenia jako Data Engineer w bankowości", "pl"),
+    ],
+)
+def test_years_outside_a_career_headline_stay_as_the_model_wrote_them(
+    monkeypatch, point, language
+):
+    from datetime import datetime
+
+    from app.services.cv_generator_b2b.legacy_v7 import _helpers
+
+    monkeypatch.setattr(_helpers, "local_now", lambda: datetime(2026, 9, 26, 12, 0))
+    data = _tenure_data(point)
+    _helpers._fix_experience_years(data, language)
+    _helpers._fix_scoped_years(data, language)
+    assert data["why_points"] == [point]
+
+
+def test_role_headline_never_takes_years_from_another_role(monkeypatch):
+    # Produkcja do 13.10.2026: „3 lata jako Data Engineer” przy dziewięciu
+    # latach w sklepie zamieniało się w „13 lat”.
+    from datetime import datetime
+
+    from app.services.cv_generator_b2b.legacy_v7 import _helpers
+
+    monkeypatch.setattr(_helpers, "local_now", lambda: datetime(2026, 9, 26, 12, 0))
+    data = _tenure_data("3 lata doświadczenia jako Data Engineer")
+    _helpers._fix_experience_years(data, "pl")
+    # Rola Data Engineer od 01.2023 = 45 miesięcy → 4 lata; nigdy 13.
+    assert data["why_points"] == ["4 lata doświadczenia jako Data Engineer"]
+
+
+def test_decimal_career_headline_is_replaced_whole(monkeypatch):
+    # Produkcja: „4.5 years” → „4.4 years” (wzorzec brał „5 years” ze środka).
+    from datetime import datetime
+
+    from app.services.cv_generator_b2b.legacy_v7 import _helpers
+
+    monkeypatch.setattr(_helpers, "local_now", lambda: datetime(2026, 9, 26, 12, 0))
+    data = _tenure_data("4.5 years of experience")
+    data["experience"] = data["experience"][:1]
+    _helpers._fix_experience_years(data, "en")
+    assert data["why_points"] == ["4 years of experience"]
+
+
+def _guard_data():
+    return {
+        "experience": [
+            {
+                "position": "Data Engineer",
+                "technologies": ["Apache Kafka", "Kafka Connect SMT", "Java"],
+            }
+        ],
+        "skills": [
+            {
+                "label": "Obserwowalność:",
+                "content": "Grafana, Prometheus, OpenTelemetry",
+            },
+            {
+                "label": "Dane:",
+                "content": "dbt, Iceberg (podstawowa znajomość – brak praktycznego doświadczenia)",
+            },
+        ],
+    }
+
+
+def test_terms_only_from_questions_or_requirements_leave_the_cv():
+    from app.services.cv_generator_b2b.legacy_v7._helpers import strip_unsupported_terms
+
+    data = _guard_data()
+    notes = (
+        "P: Czy pracowała Pani z Prometheus, Grafana lub OpenTelemetry?\n"
+        "O: Używała Grafany i Prometheusa, tworzyła alerty. Nie zna Apache Iceberg."
+    )
+    warnings = strip_unsupported_terms(
+        data,
+        cv_text="Data Engineer. Apache Kafka, Kafka Connect, Java, dbt, Iceberg.",
+        screening_notes_text=notes,
+        requirements=["Kafka Connect", "Kafka SMT"],
+        language="pl",
+    )
+    assert data["experience"][0]["technologies"] == ["Apache Kafka", "Java"]
+    assert data["skills"] == [
+        {"label": "Obserwowalność:", "content": "Grafana, Prometheus"},
+        {"label": "Dane:", "content": "dbt"},
+    ]
+    joined = " ".join(warnings)
+    assert "OpenTelemetry" in joined and "Kafka Connect SMT" in joined
+    assert "brak praktycznego doświadczenia" in joined
+
+
+def test_term_confirmed_by_an_answer_stays_even_when_asked_about():
+    from app.services.cv_generator_b2b.legacy_v7._helpers import strip_unsupported_terms
+
+    data = {
+        "experience": [],
+        "skills": [{"label": "API:", "content": "GraphQL, REST API"}],
+    }
+    warnings = strip_unsupported_terms(
+        data,
+        cv_text="Projektowała RESTful APIs dla systemu płatności.",
+        screening_notes_text="P: Jakie masz doświadczenie z GraphQL?\nO: Użyła GraphQL kilka razy.",
+        requirements=["GraphQL", "REST API"],
+        language="pl",
+    )
+    assert data["skills"] == [{"label": "API:", "content": "GraphQL, REST API"}]
+    assert warnings == []
+
+
+@pytest.mark.parametrize(
+    "cv_text,term",
+    [
+        ("Backend w NodeJS", "Node.js"),
+        ("Frontend: Vue, Nuxt", "Vue.js"),
+        ("Wdrożenia na k8s", "Kubernetes"),
+        ("Pipelines gitlab ci", "GitLab CI/CD"),
+        ("Skills: JS", "JavaScript"),
+        ("Skills: MS SQL", "Microsoft SQL Server"),
+        ("Kandydat: Kafka oraz RabbitMQ", "Apache Kafka"),
+        ("Programowanie w Javie", "Java"),
+        ("Integracje oparte na Kafce", "Kafka"),
+        ("dotnet core", ".NET"),
+    ],
+)
+def test_requirement_the_candidate_has_under_another_spelling_stays(cv_text, term):
+    # Przegląd PR 1: model normalizuje pisownię („k8s” → „Kubernetes”), a
+    # kandydat zwykle ma dokładnie technologie z wymagań — strażnik nie może
+    # ich wyciąć tylko dlatego, że CV zapisuje je inaczej.
+    from app.services.cv_generator_b2b.legacy_v7._helpers import strip_unsupported_terms
+
+    data = {"experience": [{"technologies": [term]}], "skills": []}
+    warnings = strip_unsupported_terms(
+        data,
+        cv_text=cv_text,
+        screening_notes_text="",
+        requirements=[term],
+        language="pl",
+    )
+    assert data["experience"][0]["technologies"] == [term]
+    assert warnings == []
+
+
+def test_skill_list_is_split_outside_brackets_only():
+    from app.services.cv_generator_b2b.legacy_v7._helpers import strip_unsupported_terms
+
+    data = {
+        "experience": [],
+        "skills": [
+            {"label": "Chmura:", "content": "AWS (EC2, S3, Lambda), Docker"},
+            {
+                "label": "Dane:",
+                "content": "Iceberg (podstawowa znajomość, brak praktycznego "
+                "doświadczenia), dbt",
+            },
+            {
+                "label": "Języki:",
+                "content": "Python (bez praktycznego doświadczenia w ML), SQL",
+            },
+        ],
+    }
+    warnings = strip_unsupported_terms(
+        data,
+        cv_text="AWS EC2 S3 Lambda Docker dbt Python SQL",
+        screening_notes_text="",
+        requirements=["Lambda"],
+        language="pl",
+    )
+    assert data["skills"] == [
+        {"label": "Chmura:", "content": "AWS (EC2, S3, Lambda), Docker"},
+        {"label": "Dane:", "content": "dbt"},
+        {"label": "Języki:", "content": "Python, SQL"},
+    ]
+    joined = " ".join(warnings)
+    assert "Iceberg" in joined and "Python" not in joined
+
+
+def test_multiline_question_is_one_question_line():
+    from app.services.cv_generator_b2b.legacy_v7._helpers import (
+        screening_text_without_questions,
+    )
+
+    text = svc._format_candidate_answers(
+        {"answers": [{"question_id": "q1", "response": "Używałem Grafany."}]},
+        [{"id": "q1", "question": "Czy pracował Pan z:\n- OpenTelemetry\n- Grafana?"}],
+    )
+    assert "OpenTelemetry" not in screening_text_without_questions(text)
+    assert "Używałem Grafany." in text
+
+
+def test_question_lines_are_not_evidence_for_the_guards():
+    from app.services.cv_generator_b2b.legacy_v7._helpers import (
+        screening_text_without_questions,
+    )
+
+    notes = "[Odpowiedzi]\nP: Czy znasz OpenTelemetry?\nO: Tylko Grafanę."
+    assert screening_text_without_questions(notes) == "[Odpowiedzi]\nO: Tylko Grafanę."
+
+
+def test_pipeline_drops_question_only_skill_and_warns(defaults):
+    defaults["response"] = _ai_json(
+        skills=[{"label": "Obserwowalność", "content": "Grafana, OpenTelemetry"}]
+    )
+    result = svc._run_generation_pipeline(
+        cv_bytes=b"cv",
+        cv_filename="cv.pdf",
+        champion_dto=None,
+        screening_notes_text=(
+            "P: Czy pracował Pan z Grafana lub OpenTelemetry?\nO: Używał Grafany."
+        ),
+        language="pl",
+        blind_cv=False,
+        request_id="legacy-test",
+        fallback_name="Jan Kowalski",
+        started_at=time.time(),
+        job_id=1,
+        job_title="Backend Developer",
+        content_mode="polished",
+    )
+    assert result.render_payload["skills"] == [
+        {"label": "Obserwowalność", "content": "Grafana"}
+    ]
+    assert any("OpenTelemetry" in w for w in result.warnings)

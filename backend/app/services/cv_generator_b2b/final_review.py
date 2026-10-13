@@ -198,7 +198,9 @@ def review_warnings(
         label = _field_label(path, lang)
         snippet = _claim_snippet(projection, path)
         suffix = _REASON_SUFFIX[lang].get(verdict, _REASON_SUFFIX[lang]["unsupported"])
-        prefix = soft if verdict == "private" else high
+        # Błędny cytat recenzenta to jego pomyłka, nie pewny brak w źródle —
+        # więc „WERYFIKUJ”, nie „BRAK POKRYCIA” (13.10.2026).
+        prefix = soft if verdict in ("private", "invalid_evidence") else high
         quoted = (
             f" „{snippet}”"
             if snippet and lang == "pl"

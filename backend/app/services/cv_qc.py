@@ -58,6 +58,7 @@ from app.services.recommendation_card_parser import (
     redact_card_text,
 )
 from app.services.dz_review import Block, Requirement, Role
+from app.services.money_text import MONEY_RE, RATE_WORD_RE
 from app.services.prompt_fencing import fence, restore_tags
 from app.core.scheduling import business_today
 
@@ -624,7 +625,6 @@ def role_has_dates(blocks: list[Block], indices: list[int]) -> bool:
 
 # ── Reguły klienta: stawki, kontakt ─────────────────────────────────────────
 
-_RATE_WORD = re.compile(r"stawk|\brate\b|wynagrodz|salary|zarobk", re.IGNORECASE)
 _AMOUNT = re.compile(
     r"\d[\d\s.,]*\s*(?:z[łl]|pln|eur|€|usd|\$)(?:\s*/\s*(?:h|godz|md|dzie[nń]|mies))?"
     r"|\d[\d\s.,]*\s*/\s*(?:h|godz|md)\b",
@@ -633,13 +633,9 @@ _AMOUNT = re.compile(
 # Kwota pieniędzy, ściślej niż `_AMOUNT`, które bierze „3 europejskich”
 # i „5 złożonych” za euro i złote: tam decyduje dopiero słowo „stawka” obok,
 # a ten wzorzec sam odrzuca cytat albo propozycję (poprawki QC, AI w edytorze).
-_MONEY = re.compile(
-    r"\d[\d\s.,]*\s*(?:(?:tys|mln)\b\.?\s*|k\s*)?(?:zł|zl|pln|euro|eur|usd|€|\$)(?!\w)"
-    r"(?:\s*/\s*(?:h|godz|md|dzie[nń]|mies)\w*)?"
-    r"|[€$]\s*\d[\d\s.,]*\d|[€$]\s*\d"
-    r"|\d[\d\s.,]*\s*/\s*(?:h|godz|md)\b",
-    re.IGNORECASE,
-)
+# Jeden wzorzec z materiałem generatora CV (`money_text`).
+_MONEY = MONEY_RE
+_RATE_WORD = RATE_WORD_RE
 _PHONE_LIKE = re.compile(r"\+?\d[\d\s\-().]{7,}\d")
 
 

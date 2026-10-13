@@ -118,7 +118,9 @@ def _normalize_candidate_data(data: Any, fallback_name: str | None) -> dict[str,
             {
                 "dates": str(job.get("dates") or "").strip(),
                 "company": str(job.get("company") or "").strip(),
-                "industry": str(job.get("industry") or "IT").strip(),
+                # D1 (13.10.2026): branża tylko ze źródła; bez niej puste pole,
+                # a nie zgadnięte „IT" (blind drukuje wtedy samo „Firma").
+                "industry": str(job.get("industry") or "").strip(),
                 "position": str(job.get("position") or "").strip(),
                 "responsibilities": _str_list(job.get("responsibilities")),
                 "technologies": _str_list(job.get("technologies")),
@@ -261,14 +263,29 @@ def _total_experience_years(experience: list[dict[str, Any]]) -> int | None:
 
 # A years-of-experience figure in a why_point ("Ponad 4 lata doświadczenia…").
 # The optional approximate prefix is swallowed so it gets replaced by the exact
-# figure (recruiter: "5 years must read 5, not 'over 4'").
+# figure (recruiter: "5 years must read 5, not 'over 4'"). A decimal figure
+# ("4,5 roku") is matched whole: until 13.10.2026 the pattern took "5 roku" out
+# of "4.5 roku" and the fix wrote "4.4 lata" (22 CVs in 30 days on production).
 _YEARS_PHRASE_RE = re.compile(
     r"(?:ponad|powyżej|przeszło|niemal|prawie|blisko|około|ok\.?|~|"
     r"over|nearly|almost|about|more than)?\s*"
-    r"\d+(?:\s*[-–/]\s*\d+)?\s*"
+    r"(?<![\d.,])(\d+(?:[.,]\d+)?)(?:\s*[-–/]\s*\d+)?\+?\s*"
     r"(?:lata|lat|roku|rok|years|year|yrs|yr)\b",
     re.IGNORECASE,
 )
+
+# Staż ma najwyżej dwie cyfry. „Od 2023 roku" to data, nie staż — do 13.10.2026
+# poprawka zamieniała ją na „od13 lat".
+_MAX_TENURE_FIGURE = 99
+
+
+def _tenure_figure(match: re.Match[str]) -> float | None:
+    """Liczba lat z dopasowania albo ``None`` dla daty i nieczytelnej liczby."""
+    try:
+        value = float(match.group(1).replace(",", "."))
+    except (TypeError, ValueError):
+        return None
+    return value if value <= _MAX_TENURE_FIGURE else None
 
 
 def _polish_year_unit(years: int) -> str:
@@ -279,11 +296,10 @@ def _polish_year_unit(years: int) -> str:
     return "lat"
 
 
-# Connectors that bind a duration to a specific technology, tool or company
-# ("5 lat z Kubernetes", "3 years with Docker", "8 years at Gigaset", "5 lat
-# w Gigaset"). Role connectors ("jako" / "as") are deliberately excluded — a
-# duration tied to a ROLE is the total-career headline we DO want to correct.
-_BOUND_CONNECTOR_RE = re.compile(r"\b(?:z|ze|w|we|u|with|in|at)\b", re.IGNORECASE)
+def _years_text(years: int, language: str) -> str:
+    if language == "en":
+        return f"{years} {'year' if years == 1 else 'years'}"
+    return f"{years} {_polish_year_unit(years)}"
 
 
 # Markers introducing the "w tym Y lat w [firmie]" sub-figure of a why_point.
@@ -291,68 +307,52 @@ _BOUND_CONNECTOR_RE = re.compile(r"\b(?:z|ze|w|we|u|with|in|at)\b", re.IGNORECAS
 # must never land on it — only the clause BEFORE a marker is searched.
 _SUBFIGURE_SPLIT_RE = re.compile(r"\sw tym\s|\sincluding\s|\sincl\.?\s", re.IGNORECASE)
 
-
-def _experience_bound_terms(candidate_data: dict[str, Any]) -> set[str]:
-    """Collect the vocabulary a duration must never be inflated against: the
-    champion highlight list, every role's ``technologies`` and every role's
-    company name — lowercased. Used to tell a scoped duration ("2 lata z
-    Intune", "5 years at Gigaset") apart from the total-career headline so the
-    recompute never inflates the former. Sub-4-char tokens are dropped to
-    avoid spurious substring hits (e.g. "AI", "Go", "MDM")."""
-    raw: list[str] = list(candidate_data.get("highlight_keywords") or [])
-    for job in candidate_data.get("experience") or []:
-        raw.extend(job.get("technologies") or [])
-        company = str(job.get("company") or "")
-        raw.append(company)
-        raw.extend(company.split())
-    return {s for t in raw if len(s := str(t).strip().lower()) >= 4}
-
-
-def _years_bound_to_tech_or_company(
-    point: str, years_end: int, bound_terms: set[str]
-) -> bool:
-    """True when the years figure is tied to a specific technology or company
-    rather than a role — e.g. "6 lat doświadczenia z Microsoft Intune" or
-    "5 years at Gigaset". Only the clause the figure introduces is inspected
-    (up to the next comma / "w tym" / "including") so a trailing tech mention
-    or the "w tym Y lat w [firma]" sub-figure can't trigger a false positive."""
-    if not bound_terms:
-        return False
-    tail = point[years_end:]
-    clause = re.split(r"[,;]| w tym | including | incl\.? ", tail, maxsplit=1)[0]
-    conn = _BOUND_CONNECTOR_RE.search(clause)
-    if not conn:
-        return False
-    after = clause[conn.end() :].lower()
-    return any(term in after for term in bound_terms)
+# Ogólny staż kariery (jak v10, ``standalone_service._GENERIC_TENURE_*``):
+# przed liczbą najwyżej „łącznie", po niej samo „doświadczenia (w IT)".
+# „2 lata w SQL", „2.5 years combined experience across test automation"
+# i „od 2023 roku" nie są stażem kariery i zostają, jak napisał model.
+_GENERIC_TENURE_PREFIX_RE = re.compile(
+    r"(?:łącznie|ogółem|total|a total of)?\s*", re.IGNORECASE
+)
+_GENERIC_TENURE_TAIL_RE = re.compile(
+    r"\s*(?:doświadczenia(?:\s+(?:zawodowego|komercyjnego|łącznie))?"
+    r"|(?:of\s+)?(?:(?:professional|work|total)\s+)?experience)"
+    r"(?:\s+(?:w|in)\s+(?:IT|branży IT|the IT industry))?\s*[,.;:]?\s*",
+    re.IGNORECASE,
+)
+# „N lat doświadczenia jako X" / „N years of experience as X": staż w roli X.
+_ROLE_TENURE_LEAD_RE = re.compile(
+    r"\s*(?:doświadczenia(?:\s+(?:zawodowego|komercyjnego))?"
+    r"|(?:of\s+)?(?:(?:professional|work)\s+)?experience)(?=\s+(?:jako|as)\s)",
+    re.IGNORECASE,
+)
 
 
 def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None:
-    """Overwrite the (often under-counted) total-years figure in the experience
-    why_point with the exact value computed from the candidate's dates. Only
-    the headline total is touched — the "w tym Y lat w …" sub-figure and any
-    other point are left as Claude wrote them.
+    """Popraw liczbę lat w nagłówku kariery (pierwszy punkt z „doświadczenia").
 
-    A technology- or company-specific duration ("2 lata z Microsoft Intune",
-    "5 years at Gigaset") is left alone: overwriting it with the total career
-    figure would falsely inflate experience with that one technology or tenure
-    at that one company, so such points are skipped in favour of a generic
-    role/seniority headline.
+    Model liczy staż z dat słabo („ponad 4" przy 5 latach), więc kod liczy go
+    sam — ale nigdy nie dopisuje lat z cudzych ról (13.10.2026: „3 lata jako
+    Data Engineer" przy roli kierownika sklepu stawało się „13 lat").
 
-    Only the clause before "w tym" / "including" is searched. When the headline
-    figure itself is unparseable (e.g. "5+ years"), the search must not drift
-    into the sub-figure — that once turned "including 5 years at Gigaset" into
-    "including 8 years at Gigaset" by stamping the career total there.
+    * Ogólny staż („5 lat doświadczenia", „7 years of experience") — suma
+      wszystkich ról.
+    * „N lat doświadczenia jako X" — ``min(cała kariera, max(liczba modelu,
+      role pasujące do X))``: liczba rośnie tylko wtedy, gdy potwierdzają to
+      daty ról X, i nigdy ponad całą karierę. Brak pasującej roli albo ułamek,
+      którego nie trzeba zmieniać = bez zmiany.
+    * Wszystko inne („2 lata w SQL", „od 2023 roku", „2.5 years combined …")
+      zostaje, jak napisał model; sprawdzają to bezpieczniki i kontrola AI.
+
+    Szukamy tylko przed „w tym" / „including" — liczba po nim dotyczy jednej
+    firmy.
     """
-    years = _total_experience_years(candidate_data.get("experience") or [])
-    if not years:
+    experience = [
+        job for job in candidate_data.get("experience") or [] if isinstance(job, dict)
+    ]
+    total = _total_experience_years(experience)
+    if not total:
         return
-    if language == "en":
-        replacement = f"{years} {'year' if years == 1 else 'years'}"
-    else:
-        replacement = f"{years} {_polish_year_unit(years)}"
-
-    bound_terms = _experience_bound_terms(candidate_data)
 
     points = candidate_data.get("why_points") or []
     for i, point in enumerate(points):
@@ -365,9 +365,35 @@ def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None
         match = _YEARS_PHRASE_RE.search(head)
         if not match:
             continue
-        if _years_bound_to_tech_or_company(point, match.end(), bound_terms):
+        figure = _tenure_figure(match)
+        if figure is None or not _GENERIC_TENURE_PREFIX_RE.fullmatch(
+            head[: match.start()]
+        ):
             continue
-        points[i] = point[: match.start()] + replacement + point[match.end() :]
+        tail = head[match.end() :]
+        if _GENERIC_TENURE_TAIL_RE.fullmatch(tail):
+            years: float = total
+        else:
+            lead = _ROLE_TENURE_LEAD_RE.match(tail)
+            scoped = (
+                _scoped_years(tail[lead.end() :], experience, _company_keys(experience))
+                if lead
+                else None
+            )
+            if not scoped:
+                continue
+            years = min(total, max(figure, scoped))
+        if years == figure and figure != int(figure):
+            break  # ułamek modelu jest zgodny z datami — zostaje
+        lead_space = match.group(0)[
+            : len(match.group(0)) - len(match.group(0).lstrip())
+        ]
+        points[i] = (
+            point[: match.start()]
+            + lead_space
+            + _years_text(int(round(years)), language)
+            + point[match.end() :]
+        )
         break
 
 
@@ -391,6 +417,49 @@ def _scope_key(text: str) -> str:
     return re.sub(r"[^\w+#]+", " ", str(text or "").casefold()).strip()
 
 
+def _company_keys(roles: list[dict[str, Any]]) -> list[str]:
+    return sorted(
+        {key for job in roles if len(key := _scope_key(job.get("company") or "")) >= 4},
+        key=len,
+        reverse=True,
+    )
+
+
+def _scoped_years(
+    tail: str, roles: list[dict[str, Any]], companies: list[str]
+) -> int | None:
+    """Lata ról pasujących do frazy po liczbie: „jako X" (stanowisko zawiera X)
+    albo „w/u/at Firma" (dokładnie ta firma). ``None`` = brak dopasowania albo
+    niepełne daty — wtedy liczba zostaje, jak napisał model."""
+    role = _SCOPED_ROLE_CONNECTOR_RE.match(tail)
+    if role:
+        rest = tail[role.end() :]
+        end = _SCOPED_PHRASE_END_RE.search(rest)
+        phrase = _scope_key(rest[: end.start()] if end else rest)
+        if len(phrase) < 4:
+            return None
+        pattern = re.compile(rf"(?:^|\s){re.escape(phrase)}(?:\s|$)")
+        matched = [
+            job for job in roles if pattern.search(_scope_key(job.get("position")))
+        ]
+    else:
+        company = _SCOPED_COMPANY_CONNECTOR_RE.match(tail)
+        if not company:
+            return None
+        rest = _scope_key(tail[company.end() :])
+        name = next(
+            (c for c in companies if rest == c or rest.startswith(c + " ")), None
+        )
+        if name is None:
+            return None
+        matched = [job for job in roles if _scope_key(job.get("company")) == name]
+    if not matched or any(
+        _parse_date_range(str(job.get("dates") or "")) is None for job in matched
+    ):
+        return None
+    return _total_experience_years(matched)
+
+
 def _fix_scoped_years(candidate_data: dict[str, Any], language: str) -> None:
     """Przelicz z dat liczby lat przypięte do KONKRETNEJ roli albo firmy.
 
@@ -401,53 +470,15 @@ def _fix_scoped_years(candidate_data: dict[str, Any], language: str) -> None:
     stanowisko zawiera frazę po „jako"/„as", albo firma jest dokładnie tą
     nazwą po „w"/„u"/„at". Brak dopasowania, fleksja („jako Developera") czy
     niepełne daty = liczba zostaje, jak napisał model. Dzięki temu poprawka
-    nigdy nie dolicza lat z innej roli ani innej firmy.
+    nigdy nie dolicza lat z innej roli ani innej firmy. Daty („od 2023 roku")
+    nie są liczbą lat i zostają.
     """
     roles = [
         job for job in candidate_data.get("experience") or [] if isinstance(job, dict)
     ]
     if not roles:
         return
-
-    def unit(years: int) -> str:
-        if language == "en":
-            return "year" if years == 1 else "years"
-        return _polish_year_unit(years)
-
-    companies = sorted(
-        {key for job in roles if len(key := _scope_key(job.get("company") or "")) >= 4},
-        key=len,
-        reverse=True,
-    )
-
-    def scoped_years(tail: str) -> int | None:
-        role = _SCOPED_ROLE_CONNECTOR_RE.match(tail)
-        if role:
-            rest = tail[role.end() :]
-            end = _SCOPED_PHRASE_END_RE.search(rest)
-            phrase = _scope_key(rest[: end.start()] if end else rest)
-            if len(phrase) < 4:
-                return None
-            pattern = re.compile(rf"(?:^|\s){re.escape(phrase)}(?:\s|$)")
-            matched = [
-                job for job in roles if pattern.search(_scope_key(job.get("position")))
-            ]
-        else:
-            company = _SCOPED_COMPANY_CONNECTOR_RE.match(tail)
-            if not company:
-                return None
-            rest = _scope_key(tail[company.end() :])
-            name = next(
-                (c for c in companies if rest == c or rest.startswith(c + " ")), None
-            )
-            if name is None:
-                return None
-            matched = [job for job in roles if _scope_key(job.get("company")) == name]
-        if not matched or any(
-            _parse_date_range(str(job.get("dates") or "")) is None for job in matched
-        ):
-            return None
-        return _total_experience_years(matched)
+    companies = _company_keys(roles)
 
     points = candidate_data.get("why_points") or []
     for i, point in enumerate(points):
@@ -455,12 +486,14 @@ def _fix_scoped_years(candidate_data: dict[str, Any], language: str) -> None:
             continue
 
         def replace(match: re.Match[str]) -> str:
-            years = scoped_years(match.string[match.end() :])
+            if _tenure_figure(match) is None:
+                return match.group(0)
+            years = _scoped_years(match.string[match.end() :], roles, companies)
             if not years:
                 return match.group(0)
             text = match.group(0)
             lead = text[: len(text) - len(text.lstrip())]
-            return f"{lead}{years} {unit(years)}"
+            return f"{lead}{_years_text(years, language)}"
 
         points[i] = _YEARS_PHRASE_RE.sub(replace, point)
 
@@ -585,6 +618,215 @@ _HIGH_PREFIX = {"pl": "BRAK POKRYCIA", "en": "NOT IN SOURCE"}
 
 
 _MED_PREFIX = {"pl": "WERYFIKUJ", "en": "VERIFY"}
+
+
+# Pozycje umiejętności, które same sobie przeczą: „Iceberg (podstawowa znajomość
+# – brak praktycznego doświadczenia)". Klient czyta to jako brak umiejętności.
+_NEGATED_SKILL_RE = re.compile(
+    r"brak\s+(?:praktyczn\w*\s+)?doświadcz\w*|bez\s+praktyczn\w*|nie\s+zna\b"
+    r"|no\s+(?:practical|hands-on|commercial)\s+experience|no\s+experience",
+    re.IGNORECASE,
+)
+# Dopisek o braku doświadczenia W CZYMŚ innym („Python (bez praktycznego
+# doświadczenia w ML)”) dotyczy tej drugiej rzeczy — pozycja zostaje bez dopisku.
+_SCOPED_NEGATION_RE = re.compile(
+    r"(?:\s+(?:doświadcz\w*|experience))?\s+(?:w|we|z|ze|przy|in|with|for)\s+\w",
+    re.I,
+)
+_QUESTION_LINE_RE = re.compile(r"^\s*P:\s?(.*)$")
+_TERM_TOKEN_RE = re.compile(r"[a-z0-9+#]+")
+
+# Słowa, które nie rozstrzygają, czy kandydat zna termin: dostawca („Apache
+# Kafka” = „Kafka”), przyrostek („Vue.js” = „Vue”) i człon ogólny („GitLab
+# CI/CD” = „GitLab”). Gdy termin składa się tylko z nich („CI/CD”), liczą się.
+_GENERIC_TERM_TOKENS = frozenset(
+    {"apache", "microsoft", "ms", "js", "ci", "cd", "core", "server", "framework"}
+)
+# Ta sama technologia innym zapisem; model normalizuje pisownię do lewej strony.
+_TERM_ALIASES = {
+    "k8s": "kubernetes",
+    "js": "javascript",
+    "ts": "typescript",
+    "nodejs": "node",
+    "vuejs": "vue",
+    "reactjs": "react",
+    "nextjs": "next",
+    "angularjs": "angular",
+    "golang": "go",
+    "postgres": "postgresql",
+    "mssql": "sql",
+    "dotnet": "net",
+}
+
+
+def screening_text_without_questions(notes: str) -> str:
+    """Notatki bez linii pytań rekrutera („P: …").
+
+    Treść pytania nie jest faktem o kandydacie: pytanie „Czy pracował Pan
+    z OpenTelemetry?" przy odpowiedzi o Grafanie nie potwierdza OpenTelemetry.
+    Bezpieczniki i kontrola AI porównują CV z tym tekstem, nie z pytaniami.
+    """
+    return "\n".join(
+        line for line in (notes or "").splitlines() if not _QUESTION_LINE_RE.match(line)
+    )
+
+
+def _question_text(notes: str) -> str:
+    return "\n".join(
+        m.group(1)
+        for line in (notes or "").splitlines()
+        if (m := _QUESTION_LINE_RE.match(line))
+    )
+
+
+def _source_tokens(text: str) -> set[str]:
+    """Słowa tekstu razem z ich odpowiednikami („k8s” daje też „kubernetes”)."""
+    tokens = set(_TERM_TOKEN_RE.findall(_norm_for_guard(text)))
+    return tokens | {_TERM_ALIASES[t] for t in tokens if t in _TERM_ALIASES}
+
+
+def _term_tokens(term: str) -> list[str]:
+    raw = [t for t in _TERM_TOKEN_RE.findall(_norm_for_guard(term)) if len(t) >= 2]
+    significant = [t for t in raw if t not in _GENERIC_TERM_TOKENS] or raw
+    return [_TERM_ALIASES.get(t, t) for t in significant]
+
+
+def _stem(token: str) -> str:
+    """Rdzeń słowa na odmianę: „java” → „jav” („Javie”), „kafka” → „kaf”
+    („Kafce”). Krótkie skróty (SQL, API) bez zmian."""
+    return token[: max(3, len(token) - 2)] if len(token) >= 4 else token
+
+
+def _token_present(token: str, haystack_tokens: set[str]) -> bool:
+    # Prefiks, nie równość: „API” ↔ „APIs”. Luźniej = strażnik zostawia więcej,
+    # a termin bez pokrycia i tak pokaże QC.
+    stem = _stem(token)
+    return any(word.startswith(stem) for word in haystack_tokens)
+
+
+def _loosely_present(term: str, haystack_tokens: set[str]) -> bool:
+    """Każde istotne słowo terminu (jego rdzeń) zaczyna jakieś słowo źródła
+    („REST API" ↔ „RESTful APIs", „Grafana" ↔ „Grafany", „Node.js" ↔
+    „NodeJS"). Alternatywa w nawiasie liczy się osobno („Kubernetes (K8s)")."""
+    variants = [term]
+    paren = re.search(r"\(([^)]*)\)", term)
+    if paren:
+        variants = [term[: paren.start()], paren.group(1)]
+    for variant in variants:
+        tokens = _term_tokens(variant)
+        if tokens and all(_token_present(tok, haystack_tokens) for tok in tokens):
+            return True
+    return False
+
+
+def _split_skills(content: str) -> list[str]:
+    """Pozycje umiejętności po przecinkach poza nawiasami: „AWS (EC2, S3)”
+    to jedna pozycja."""
+    items: list[str] = []
+    depth = 0
+    current: list[str] = []
+    for ch in content:
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth = max(0, depth - 1)
+        if ch == "," and depth == 0:
+            items.append("".join(current).strip())
+            current = []
+        else:
+            current.append(ch)
+    items.append("".join(current).strip())
+    return [item for item in items if item]
+
+
+def _without_negated_note(item: str) -> str | None:
+    """Pozycja bez dopisku o braku doświadczenia; ``None``, gdy dopisek
+    przeczy samej pozycji („Iceberg (brak praktycznego doświadczenia)”)."""
+    match = _NEGATED_SKILL_RE.search(item)
+    if not match:
+        return item
+    if not _SCOPED_NEGATION_RE.match(item, match.end()):
+        return None
+    for group in re.finditer(r"\([^()]*\)", item):
+        if group.start() <= match.start() and match.end() <= group.end():
+            return (item[: group.start()] + item[group.end() :]).strip() or None
+    head = re.split(r"\s+[-–—]\s+", item[: match.start()])[0]
+    return head.strip(" ,;-–—(") or None
+
+
+def strip_unsupported_terms(
+    candidate_data: dict[str, Any],
+    *,
+    cv_text: str,
+    screening_notes_text: str,
+    requirements: list[str],
+    language: str,
+) -> list[str]:
+    """Usuń z technologii ról i umiejętności to, co pochodzi z pytań albo wymagań.
+
+    Termin znika, gdy (a) nie ma go w CV ani w odpowiedziach i notatkach (bez
+    linii pytań), a (b) wszystkie jego słowa stoją w pytaniach rekrutera albo
+    w wymaganiach klienta — czyli model wziął go z ogłoszenia, nie od kandydata
+    (13.10.2026: „OpenTelemetry" tylko z pytania, „Kafka Connect SMT" z
+    nice-to-have). Znika też pozycja umiejętności, która sama sobie przeczy
+    („… – brak praktycznego doświadczenia"). Zwraca uwagi do listy ostrzeżeń.
+    """
+    evidence = _source_tokens(
+        f"{cv_text}\n{screening_text_without_questions(screening_notes_text)}"
+    )
+    asked = _source_tokens(
+        _question_text(screening_notes_text) + "\n" + "\n".join(requirements)
+    )
+    removed: list[str] = []
+    negated: list[str] = []
+
+    def from_ad(term: str) -> bool:
+        tokens = _term_tokens(term)
+        if not tokens or _loosely_present(term, evidence):
+            return False
+        if all(tok in asked for tok in tokens):
+            removed.append(term.strip())
+            return True
+        return False
+
+    for job in candidate_data.get("experience") or []:
+        techs = job.get("technologies") or []
+        job["technologies"] = [t for t in techs if not from_ad(str(t))]
+
+    skills: list[dict[str, str]] = []
+    for cat in candidate_data.get("skills") or []:
+        kept: list[str] = []
+        for item in _split_skills(str(cat.get("content") or "")):
+            cleaned = _without_negated_note(item)
+            if cleaned is None:
+                negated.append(item)
+            elif not from_ad(cleaned):
+                kept.append(cleaned)
+        if kept:
+            skills.append({**cat, "content": ", ".join(kept)})
+    candidate_data["skills"] = skills
+
+    notes: list[str] = []
+    prefix = _MED_PREFIX["en" if language == "en" else "pl"]
+    if removed:
+        names = ", ".join(dict.fromkeys(removed))
+        notes.append(
+            f"{prefix}: removed items found only in recruiter questions or client "
+            f"requirements, not in the CV or answers: {names}"
+            if language == "en"
+            else f"{prefix}: usunięto pozycje, które były tylko w pytaniach rekrutera "
+            f"albo wymaganiach klienta, a nie w CV ani odpowiedziach: {names}"
+        )
+    if negated:
+        names = ", ".join(dict.fromkeys(negated))
+        notes.append(
+            f"{prefix}: removed skills that deny themselves (no practical "
+            f"experience): {names}"
+            if language == "en"
+            else f"{prefix}: usunięto umiejętności z dopiskiem o braku "
+            f"doświadczenia: {names}"
+        )
+    return notes
 
 
 #: A number is only judged when it is attached to something countable. Bare
