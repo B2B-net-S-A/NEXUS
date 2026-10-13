@@ -27,6 +27,7 @@ import {
   type CvVersionsResponse,
 } from "@/lib/api/cvEditorHistory";
 import {
+  contentDiffers,
   contentLines,
   diffLines,
   htmlToDoc,
@@ -254,7 +255,7 @@ export function useCvHistory({
   const apply = async () => {
     if (!editor || !incoming || !enabled || applying.current) return;
     // Nic do zmiany = bez szkicu: nowy szkic zdejmuje z CV stan „zatwierdzone”.
-    if (!replaceContentStep(editor.state, incoming.doc)) return;
+    if (!contentDiffers(editor.state, incoming.doc)) return;
     const mine = ticket.current;
     applying.current = true;
     setBusy(true);
@@ -262,8 +263,10 @@ export function useCvHistory({
       if (!(await ensureDraft()) || editor.isDestroyed) return;
       // Panel zamknięty, „Zapisz” albo podgląd Word w trakcie zakładania szkicu.
       if (ticket.current !== mine || !enabledNow.current) return;
+      if (!contentDiffers(editor.state, incoming.doc)) return;
+      // `null` przy różnej treści = edytor nie przyjąłby zmiany albo jej cofnięcia.
       const transaction = replaceContentStep(editor.state, incoming.doc);
-      if (!transaction) return;
+      if (!transaction) return showError(MSG_NOT_APPLIED);
       const before = editor.state.doc;
       editor.view.dispatch(transaction);
       // Edytor odrzuca transakcję po cichu (filtr wtyczki) — sukces ogłaszamy

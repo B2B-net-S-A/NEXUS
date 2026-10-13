@@ -302,6 +302,24 @@ describe("zastąpienie treści edytora", () => {
     },
   );
 
+  it.each(["Wolontariat.", "Wyrażam się jasno."])(
+    "klauzula bez znacznika (starsze CV): akapit „%s” usunięty tuż przed nią da się cofnąć",
+    (removed) => {
+      // Lustrzany przypadek: najmniejsza zamiana KOŃCZYŁA się w środku klauzuli.
+      // Zmiana wchodziła, ale jej odwrotność wtyczka struktury odrzucała —
+      // „Cofnij” nic nie robiło i blokowało wszystkie wcześniejsze poprawki.
+      const editor = open(`<h1>CV</h1><p>Opis.</p><p>${removed}</p><p>${CLAUSE}</p>`);
+      const before = editor.getHTML();
+      const transaction = replaceContentStep(editor.state, "<h1>CV</h1><p>Opis.</p>")!;
+      editor.view.dispatch(transaction);
+      expect(editor.getHTML()).toBe(saved(`<h1>CV</h1><p>Opis.</p><p>${CLAUSE}</p>`));
+      editor.commands.undo();
+      expect(editor.getHTML()).toBe(before);
+      // Krok zszedł ze stosu — nie blokuje wcześniejszych poprawek.
+      expect(editor.can().undo()).toBe(false);
+    },
+  );
+
   it("CV bez klauzuli zostaje bez niej — klauzuli z pliku nie przyjmujemy", () => {
     const editor = open("<h1>CV</h1><p>Stara treść.</p>");
     const before = editor.getHTML();

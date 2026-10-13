@@ -862,6 +862,8 @@ function CVBrandedEditContent({
                     // zajmują jego miejsce. Klik przy otwartej historii zamyka ją
                     // i pokazuje uwagi (planu nie — ten czeka na decyzję).
                     <Button size="sm" variant="ghost" aria-pressed={issuesSide && !takeover}
+                      // Plan zmian czeka na decyzję — do tego czasu nie przełączamy panelu pod nim.
+                      disabled={planOpen}
                       onClick={() => {
                         if (!historyOpen) return toggleIssues();
                         history.close();
