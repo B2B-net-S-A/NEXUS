@@ -285,7 +285,9 @@ async def _seed_stored_cv(
         return document_id
 
 
-async def _set_pointer(candidate_id: int, *, filename: str, storage_key: str) -> None:
+async def _set_pointer(
+    candidate_id: int, *, filename: str | None, storage_key: str
+) -> None:
     async with AsyncSessionLocal() as db:
         candidate = await db.get(Candidate, candidate_id)
         assert candidate is not None
@@ -385,6 +387,68 @@ async def test_pointer_of_another_file_in_the_profile_is_left_alone(
     assert await _pointer(candidate_id) == (None, None)
     # Ten sam klucz co w usuniętym wierszu — drugiego wiersza nie trzeba.
     assert await _pointer_copies(candidate_id) == []
+
+
+async def test_pointer_named_after_the_removed_file_follows_its_key(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    """Nowe główne CV zmienia we wskaźniku samą nazwę; klucz zostaje przy
+    starszym pliku. Bez poprawy nazwy zasilanie w `entrypoint.sh` odtworzyłoby
+    po wdrożeniu główne CV o nazwie usuniętego pliku."""
+    candidate_id = await _candidate(app_client, app_auth_headers)
+    unique = uuid.uuid4().hex[:8]
+    old_key = f"cv/old-{unique}.pdf"
+    await _seed_stored_cv(
+        candidate_id, filename="cv-stare.pdf", storage_key=old_key, is_primary=False
+    )
+    new_id = await _seed_stored_cv(
+        candidate_id,
+        filename="cv-nowe.pdf",
+        storage_key=f"cv/new-{unique}.pdf",
+        is_primary=True,
+    )
+    await _set_pointer(candidate_id, filename="cv-nowe.pdf", storage_key=old_key)
+
+    removed = await app_client.delete(
+        f"/api/candidates/{candidate_id}/documents/{new_id}",
+        headers=app_auth_headers,
+    )
+    assert removed.status_code == 204, removed.text
+    assert await _pointer(candidate_id) == ("cv-stare.pdf", old_key)
+    assert await _pointer_copies(candidate_id) == []
+
+
+async def test_nameless_pointer_with_its_own_key_is_detached_with_the_cv(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    """Kwarantanna tożsamości czyści we wskaźniku samą nazwę — klucz drugiej
+    kopii zostaje i bez odpięcia dalej zasilałby `get_current_cv`."""
+    from app.services.cv_source import get_current_cv
+
+    candidate_id = await _candidate(app_client, app_auth_headers)
+    unique = uuid.uuid4().hex[:8]
+    pointer_key = f"cv/pointer-{unique}.pdf"
+    doc_id = await _seed_stored_cv(
+        candidate_id,
+        filename="CV_Import.pdf",
+        storage_key=f"cv/doc-{unique}.pdf",
+        is_primary=True,
+    )
+    await _set_pointer(candidate_id, filename=None, storage_key=pointer_key)
+
+    removed = await app_client.delete(
+        f"/api/candidates/{candidate_id}/documents/{doc_id}",
+        headers=app_auth_headers,
+    )
+    assert removed.status_code == 204, removed.text
+    assert await _pointer(candidate_id) == (None, None)
+    copies = await _pointer_copies(candidate_id)
+    assert [copy.storage_key for copy in copies] == [pointer_key]
+    assert copies[0].filename == "CV_Import.pdf"
+    async with AsyncSessionLocal() as db:
+        candidate = await db.get(Candidate, candidate_id)
+        assert candidate is not None
+        assert await get_current_cv(db, candidate) is None
 
 
 async def test_pointer_moves_to_the_primary_cv_that_stays(

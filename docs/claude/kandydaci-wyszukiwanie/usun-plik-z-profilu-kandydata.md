@@ -38,8 +38,14 @@ nieaktualne”.
   a `entrypoint.sh` przy każdym wdrożeniu odtwarza z niego wiersz dokumentu,
   jeśli w profilu nie ma głównego CV ani pliku o tej nazwie. Usunięcie pliku
   odpina więc wskaźnik, gdy pokazuje on na ten plik
-  (`_pointer_is_removed_file`): ten sam klucz, te same bajty albo ta sama
+  (`_detach_candidate_cv_pointer`): ten sam klucz, te same bajty albo ta sama
   nazwa bez względu na wielkość liter.
+- **Nazwa i klucz to dwa osobne fakty.** Wgranie nowego głównego CV zmienia
+  we wskaźniku samą nazwę (klucz zostaje przy starszym pliku — 89 osób),
+  a kwarantanna tożsamości samą nazwę czyści (70 wskaźników z kluczem bez
+  nazwy). Gdy klucz należy do pliku, który zostaje, a nazwa do usuwanego,
+  nazwa przechodzi na właściciela klucza. Klucz bez nazwy, którego nie ma
+  żaden plik z listy, odpinamy razem z usuwanym CV.
 - **Ta sama nazwa, inny klucz to ten sam plik.** Import z Traffita wgrywał CV
   dwa razy: raz pod klucz wskaźnika, raz pod klucz dokumentu. Pomiar
   13.10.2026 (tylko odczyt): 62 216 wskaźników z kluczem, 55 017 z nich ma

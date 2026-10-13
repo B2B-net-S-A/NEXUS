@@ -42,6 +42,12 @@ Reguła i miejsca w kodzie:
   „usunięte” CV dalej szłoby do migawki CV etapu i paczki ZIP. Teraz wskaźnik
   jest odpinany w całości, gdy pokazuje na usuwany plik (klucz, bajty albo
   nazwa), a druga kopia z magazynu dostaje własny usunięty wiersz.
+- **Bloker z przeglądu kodu (w tej poprawce):** gdy klucz wskaźnika należał do
+  innego pliku z listy, nazwa dalej wskazywała usunięty plik i zasilanie przy
+  wdrożeniu odtworzyłoby główne CV pod tą nazwą (89 osób dziś, każda osoba ze
+  zgłoszenia z ogłoszenia w przyszłości). Drugi układ: klucz bez nazwy po
+  kwarantannie tożsamości (70). Nazwa i klucz są teraz rozstrzygane osobno;
+  12 układów wskaźnika sprawdzonych na prawdziwej funkcji.
 - **Trzy odczyty nie filtrowały miękko usuniętych plików**: bieżące CV
   (`cv_source`), źródła CV w generatorze i data głównego CV w propozycjach.
   Do tej pory nic nie ustawiało `source_deleted_at` na plikach, więc luka była
@@ -60,6 +66,11 @@ Reguła i miejsca w kodzie:
 | Wzorzec bramek: nowa trasa przechodzi tylko dla `admin`, `head_of_recruitment` i kont łączonych z HoR | diff w PR |
 
 ## Poza zakresem
+
+- `candidate_identity_quarantine._hand_primary_back` przywraca nazwę
+  poprzedniego głównego CV bez sprawdzenia, czy ten plik nie został w tym
+  czasie usunięty. Wymaga usunięcia poprzedniego głównego CV w trakcie odczytu
+  nowego i kwarantanny nowego — wąskie okno, stan sprzed tej zmiany.
 
 - „Przywróć” na ekranie. Ten sam plik można wgrać ponownie; przywrócenie
   starego wiersza to dziś ręczna zmiana w bazie.

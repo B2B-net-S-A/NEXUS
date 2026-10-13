@@ -33,6 +33,9 @@ from app.models.candidate_document import CandidateDocument, CandidateDocumentKi
 # Wiersz utworzony ze wskaźnika kandydata w chwili usuwania pliku.
 POINTER_COPY_SOURCE = "legacy_pointer"
 
+# Jak w `cv_source`: te rodzaje nigdy nie są bieżącym CV.
+_NOT_CV_KINDS = (CandidateDocumentKind.certificate, CandidateDocumentKind.cover_letter)
+
 
 async def remove_candidate_document(
     db: AsyncSession,
@@ -67,7 +70,18 @@ async def _detach_candidate_cv_pointer(
     removed_at: datetime,
     actor_id: int,
 ) -> None:
-    """Wskaźnik CV na kandydacie nie może dalej pokazywać usuniętego pliku."""
+    """Wskaźnik CV na kandydacie nie może dalej pokazywać usuniętego pliku.
+
+    Nazwa i klucz to dwa osobne fakty: nowe główne CV zmienia we wskaźniku
+    samą nazwę, a kwarantanna tożsamości samą nazwę czyści. Dlatego każdy
+    rozstrzygamy osobno.
+    """
+    same_bytes = False
+    if candidate.cv_file_content is not None:
+        same_bytes = await _document_holds_same_bytes(db, candidate, document)
+        if not same_bytes:
+            # Bajty innego pliku albo jedyna kopia tych samych — nie ruszamy.
+            return
 
     live = (
         await db.execute(
@@ -83,16 +97,40 @@ async def _detach_candidate_cv_pointer(
             )
         )
     ).all()
-    live_keys = {row.storage_key for row in live if row.storage_key}
-    if not await _pointer_is_removed_file(db, candidate, document, live_keys):
+    pointer_name = (candidate.cv_filename or "").strip()
+    names_removed_file = pointer_name.lower() == document.filename.lower()
+    pointer_key = candidate.cv_storage_key
+
+    key_owner = next(
+        (row for row in live if pointer_key and row.storage_key == pointer_key), None
+    )
+    if key_owner is not None:
+        # Klucz innego pliku, który zostaje w profilu. Nazwa mogła już przejść
+        # na usuwany plik (wgranie nowego głównego CV zmienia samą nazwę).
+        if names_removed_file:
+            candidate.cv_filename = key_owner.filename
+        candidate.cv_file_content = None
         return
 
-    pointer_key = candidate.cv_storage_key
-    if pointer_key and pointer_key != document.storage_key:
+    # Klucz, którego nie ma żaden plik z listy: druga kopia usuwanego pliku,
+    # gdy wskaźnik nosi jego nazwę albo nie ma nazwy wcale.
+    twin_key = bool(pointer_key) and pointer_key != document.storage_key
+    nameless_cv_twin = (
+        twin_key and not pointer_name and document.document_kind not in _NOT_CV_KINDS
+    )
+    if not (
+        same_bytes
+        or names_removed_file
+        or nameless_cv_twin
+        or (pointer_key and pointer_key == document.storage_key)
+    ):
+        return
+
+    if twin_key:
         db.add(
             CandidateDocument(
                 candidate_id=candidate.id,
-                filename=(candidate.cv_filename or document.filename)[:500],
+                filename=(pointer_name or document.filename)[:500],
                 storage_key=pointer_key,
                 content_type=document.content_type,
                 document_kind=document.document_kind,
@@ -114,43 +152,21 @@ async def _detach_candidate_cv_pointer(
     )
     candidate.cv_filename = successor.filename if successor else None
     candidate.cv_storage_key = successor.storage_key if successor else None
-    # Bezpieczne: bajty w wierszu kandydata są tu albo puste, albo te same,
-    # które zostają przy dokumencie (`_pointer_is_removed_file`).
     candidate.cv_file_content = None
 
 
-async def _pointer_is_removed_file(
-    db: AsyncSession,
-    candidate: Candidate,
-    document: CandidateDocument,
-    live_keys: set[str],
+async def _document_holds_same_bytes(
+    db: AsyncSession, candidate: Candidate, document: CandidateDocument
 ) -> bool:
-    """Czy wskaźnik CV kandydata pokazuje na usuwany plik."""
+    """Bajty CV z wiersza kandydata wolno zdjąć tylko wtedy, gdy ten sam plik
+    zostaje przy dokumencie (magazyn albo BYTEA) — inaczej zginęłoby CV."""
 
-    if candidate.cv_file_content is not None:
-        # Bajty rozstrzygają same. Zdejmujemy je tylko wtedy, gdy ten sam plik
-        # zostaje przy dokumencie — inaczej zginęłoby CV.
-        same_bytes = (
-            bool(document.content_sha256)
-            and hashlib.sha256(bytes(candidate.cv_file_content)).hexdigest()
-            == document.content_sha256
-        )
-        return same_bytes and await _document_keeps_bytes(db, document)
-
-    pointer_key = candidate.cv_storage_key
-    if pointer_key:
-        if pointer_key == document.storage_key:
-            return True
-        if pointer_key in live_keys:
-            # Wskaźnik innego pliku, który zostaje w profilu.
-            return False
-    return (
-        bool(candidate.cv_filename)
-        and candidate.cv_filename.lower() == document.filename.lower()
-    )
-
-
-async def _document_keeps_bytes(db: AsyncSession, document: CandidateDocument) -> bool:
+    if (
+        not document.content_sha256
+        or hashlib.sha256(bytes(candidate.cv_file_content)).hexdigest()
+        != document.content_sha256
+    ):
+        return False
     if document.storage_key:
         return True
     return bool(
