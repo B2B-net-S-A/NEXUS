@@ -2836,6 +2836,73 @@ async def _assert_link_same_person(
         raise HTTPException(status_code=409, detail=_LINK_OTHER_PERSON)
 
 
+async def apply_contract_link(
+    db: AsyncSession,
+    row: B2BGeneratedContract,
+    contract: Contract,
+    *,
+    user_id: int | None,
+) -> None:
+    """Rdzeń „Powiąż z kontraktem”: kontrakt, osoba i klient wiersza z kontraktu.
+
+    Wspólny dla akcji z rejestru i jednorazowej korekty danych
+    (``cardif_client_merge_repair``, tam bez autora). Poprzednie wartości
+    zostają w historii statusów umowy i w Activity kontraktu. Walidacje
+    i commit należą do wołającego.
+    """
+
+    previous = {
+        "previous_contract_id": row.contract_id,
+        "previous_candidate_id": row.candidate_id,
+        "previous_client_id": row.client_id,
+    }
+    row.contract_id = contract.id
+    row.candidate_id = contract.candidate_id
+    row.client_id = contract.client_id
+    if previous["previous_client_id"] != contract.client_id:
+        # Aneksy i rozwiązania tej umowy idą za nią do właściwego klienta —
+        # bramka dostępu dokumentu czyta jego własne ``client_id`` (runda 6
+        # audytu, REA-1, bliźniak przepięcia kontraktu na innego klienta).
+        await db.execute(
+            update(B2BContractDocument)
+            .where(
+                B2BContractDocument.parent_generated_contract_id == row.id,
+                B2BContractDocument.client_id.is_not_distinct_from(
+                    previous["previous_client_id"]
+                ),
+            )
+            .values(client_id=contract.client_id)
+            .execution_options(synchronize_session=False)
+        )
+    db.add(
+        B2BGeneratedContractStatusEvent(
+            generated_contract_id=row.id,
+            from_status=row.contract_status,
+            to_status=row.contract_status,
+            client_id=contract.client_id,
+            changed_by=user_id,
+            details={
+                "source": LINK_CONTRACT_EVENT_SOURCE,
+                "contract_id": contract.id,
+                **previous,
+            },
+        )
+    )
+    db.add(
+        Activity(
+            entity_type="contract",
+            entity_id=contract.id,
+            action="generated_contract_linked",
+            user_id=user_id,
+            details={
+                "generated_contract_id": row.id,
+                "contract_number": row.contract_number,
+                **previous,
+            },
+        )
+    )
+
+
 @router.post(
     "/generated/{generated_id}/link-contract",
     response_model=B2BLinkContractResponse,
@@ -2922,56 +2989,7 @@ async def link_generated_contract_to_contract(
         )
     await _assert_link_same_person(db, row, contract)
 
-    previous = {
-        "previous_contract_id": row.contract_id,
-        "previous_candidate_id": row.candidate_id,
-        "previous_client_id": row.client_id,
-    }
-    row.contract_id = contract.id
-    row.candidate_id = contract.candidate_id
-    row.client_id = contract.client_id
-    if previous["previous_client_id"] != contract.client_id:
-        # Aneksy i rozwiązania tej umowy idą za nią do właściwego klienta —
-        # bramka dostępu dokumentu czyta jego własne ``client_id`` (runda 6
-        # audytu, REA-1, bliźniak przepięcia kontraktu na innego klienta).
-        await db.execute(
-            update(B2BContractDocument)
-            .where(
-                B2BContractDocument.parent_generated_contract_id == row.id,
-                B2BContractDocument.client_id.is_not_distinct_from(
-                    previous["previous_client_id"]
-                ),
-            )
-            .values(client_id=contract.client_id)
-            .execution_options(synchronize_session=False)
-        )
-    db.add(
-        B2BGeneratedContractStatusEvent(
-            generated_contract_id=row.id,
-            from_status=row.contract_status,
-            to_status=row.contract_status,
-            client_id=contract.client_id,
-            changed_by=current_user.id,
-            details={
-                "source": LINK_CONTRACT_EVENT_SOURCE,
-                "contract_id": contract.id,
-                **previous,
-            },
-        )
-    )
-    db.add(
-        Activity(
-            entity_type="contract",
-            entity_id=contract.id,
-            action="generated_contract_linked",
-            user_id=current_user.id,
-            details={
-                "generated_contract_id": row.id,
-                "contract_number": row.contract_number,
-                **previous,
-            },
-        )
-    )
+    await apply_contract_link(db, row, contract, user_id=current_user.id)
 
     attached = False
     note: str | None = None

@@ -10746,6 +10746,42 @@ async def repair():
 asyncio.run(repair())
 PY
 
+# Pełne scalenie „BNP Paribas Cardif” 52 → Cardif Assurances 38335 (13.10.2026) —
+# jednorazowo: rekrutacje z procesami, kontakty, karta klienta i alerty DL
+# przechodzą na klienta docelowego, podpisana umowa 1520/2026 dostaje właściwy
+# kontrakt (#689), a rekord 52 zostaje oznaczony jako scalony. Logika
+# w `app/services/cardif_client_merge_repair.py`, przypięta do id i nazwy;
+# marker w `app_settings` + advisory lock; porażka nie zapisuje niczego.
+# Log: wyłącznie liczby i kody.
+startup_phase "repair-cardif-client-merge"
+echo "Clients: merge BNP Paribas Cardif 52 -> 38335 (one-shot)..."
+python - <<'PY' || echo "cardif client merge skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.cardif_client_merge_repair import (
+    run_cardif_client_merge,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_cardif_client_merge(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane osób
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"cardif client merge failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"cardif client merge: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
 # Reset any m365_connections stuck in 'running' from a killed sync task.
 # Without this, a container OOM/SIGTERM during backfill leaves last_sync_status
 # pinned at 'running' and the sync loop keeps re-entering mid-flow instead of

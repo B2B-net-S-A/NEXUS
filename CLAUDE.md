@@ -269,6 +269,7 @@ Profil i karta klienta, scalanie i usuwanie klientów, Historia zdarzeń, Centru
 - `jednorazowe-czyszczenie-nieaktywnych-klientow.md` — Jednorazowe czyszczenie „Nieaktywnych klientów" (migracja 0303)
 - `karta-klienta-client-playbooks.md` — Karta klienta (`client_playbooks`)
 - `klienci-profil-tabela-konsultantow-stawki-z.md` — Klienci → Profil: tabela konsultantów + stawki z harmonogramu
+- `scalenie-cardif-pelne-przeniesienie-danych.md` — Pełne scalenie klienta-duplikatu: BNP Paribas Cardif (52) → Cardif Assurances (38335) (13.10.2026) · jednorazowa korekta `cardif_client_merge_repair`, kolejność „najpierw dane, potem flaga scalenia”, co zostaje na duplikacie, umowa 1520/2026 powiązana z kontraktem bez zmiany treści dokumentu, wzór na kolejne duplikaty z Traffita
 - `usuwanie-klienta-z-profilu-historia-zdarzen.md` — Usuwanie klienta z profilu + Historia zdarzeń (migracja 0307)
 
 ### Kontrakty i umowy B2B — `docs/claude/kontrakty/`
