@@ -18,6 +18,7 @@ import { eligibilityBadgeClass } from "@/lib/conflicts";
 import { ADD_ANYWAY_HINT, EmploymentNotice } from "@/components/v2/employment/EmploymentNotice";
 import { markerCoversEligibility } from "@/lib/employment-marker";
 import { formatBudgetHourly } from "@/lib/job-budget";
+import { interviewOnlyKeys, talkCheckLabel, talkLabelKey, type TalkCheck } from "@/lib/job-proposals-api";
 import {
   formatHourlyRate,
   proposalRateFit,
@@ -53,6 +54,17 @@ export interface ProposalPanelProps {
   adminTools?: ReactNode;
   /** Pełne szczegóły dopasowania (np. uzasadnienie AI na żądanie) — pod „Kontekst". */
   matchDetails?: ReactNode;
+  /** „Zapytaj w rozmowie” z `GET …/proposal-counts`; `null` = jeszcze nie wiadomo. */
+  talk?: ProposalTalkChecks | null;
+  /** Awaria odczytu listy do rozmowy — nie udaje „nie ma o co pytać”. */
+  talkError?: string | null;
+}
+
+/** To, czego wyszukiwanie nie sprawdzi w CV (13.10.2026, wariant A). */
+export interface ProposalTalkChecks {
+  checks: readonly TalkCheck[];
+  /** Must-have zdaniem — na karcie bez „?”, bo nikt ich w CV nie szukał. */
+  notSearchableMust: readonly string[];
 }
 
 const OFFICE_FIT_LABEL: Record<string, string> = {
@@ -117,6 +129,8 @@ export function ProposalPanel({
   onVerified,
   adminTools,
   matchDetails,
+  talk = null,
+  talkError = null,
 }: ProposalPanelProps) {
   if (!entry) {
     return (
@@ -127,8 +141,11 @@ export function ProposalPanel({
   }
   const { row, detail } = entry;
   const id = row.candidateId;
-  const must = detail.requirements.filter((r) => r.level === "must");
-  const nice = detail.requirements.filter((r) => r.level === "nice");
+  // Wymagania do rozmowy nie dostają „?” — nikt ich w CV nie szukał.
+  const interviewOnly = talk ? interviewOnlyKeys(talk.checks, talk.notSearchableMust) : new Set<string>();
+  const checked = detail.requirements.filter((r) => !interviewOnly.has(talkLabelKey(r.label)));
+  const must = checked.filter((r) => r.level === "must");
+  const nice = checked.filter((r) => r.level === "nice");
   const rateFit = proposalRateFit(detail, budgetHourly);
   const vetoed = detail.eligibility?.assignment_allowed === false;
   const actionsDisabled = readOnly || busy;
@@ -234,8 +251,9 @@ export function ProposalPanel({
           <p className="text-muted-foreground">
             Brak oceny wymagań dla tej osoby — uruchom przegląd bazy, żeby ją policzyć.
           </p>
-        ) : (
+        ) : checked.length > 0 ? (
           <div className="space-y-1.5">
+            <p className="text-[11px] text-muted-foreground">Sprawdzone w CV, profilu i notatkach</p>
             {must.length > 0 && <RequirementList items={must} />}
             {nice.length > 0 && (
               <div className="text-muted-foreground">
@@ -244,7 +262,28 @@ export function ProposalPanel({
               </div>
             )}
           </div>
-        )}
+        ) : null}
+        {/* Wariant A (13.10.2026): tego wyszukiwanie nie sprawdza w CV —
+            sekcja 4 Championa, język i must-have zdaniem. */}
+        {talkError ? (
+          <p role="alert" className="text-[11px] text-muted-foreground">
+            Nie wczytano listy „Zapytaj w rozmowie”: {talkError}
+          </p>
+        ) : talk && talk.checks.length > 0 ? (
+          <div className="space-y-1">
+            <p className="text-[11px] text-muted-foreground">Zapytaj w rozmowie</p>
+            <ul className="flex flex-wrap gap-1.5" aria-label="Zapytaj w rozmowie">
+              {talk.checks.map((check) => (
+                <li
+                  key={`${check.kind}-${check.label}`}
+                  className="rounded-full border border-border bg-card px-2 py-0.5 text-xs text-foreground"
+                >
+                  {talkCheckLabel(check)}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         {canVerify && !readOnly && onVerified && (
           <RequirementVerificationDialog jobId={jobId} candidateId={id} candidateName={row.fullName} onSaved={onVerified} />
         )}

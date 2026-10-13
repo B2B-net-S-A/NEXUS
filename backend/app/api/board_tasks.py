@@ -260,6 +260,22 @@ class PendingJobsBlock(BaseModel):
     items: list[PendingJobRow]
 
 
+class RequirementFixReason(BaseModel):
+    code: str
+    text: str
+
+
+class RequirementFixRow(BaseModel):
+    """„Wymagania do poprawy” — kształt ``requirement_cleanup.load_fixes``."""
+
+    job_id: int
+    title: str
+    reasons: list[RequirementFixReason]
+    can_apply: bool
+    rows: int
+    talk: int
+
+
 class UnfinishedFormRow(BaseModel):
     """Mój formularz „Nowa rekrutacja” leżący dłużej niż 2 dni."""
 
@@ -494,6 +510,9 @@ class BoardTasksResponse(BaseModel):
     # (tylko DL, HoR i admin) albo nie ma żadnej.
     pending_jobs: Optional[PendingJobsBlock] = None
     unfinished_forms: list[UnfinishedFormRow] = []
+    # 13.10.2026 (D4): porządki wymagań otwartych rekrutacji — Delivery Lead
+    # swoich, Head of Recruitment i admin wszystkich.
+    requirement_fixes: list[RequirementFixRow] = []
     # 04.10.2026: umowy z Generatora — prośby o podpis i rozjazdy z Tablicą.
     # `None` = liczenie się nie powiodło.
     agreements: Optional[AgreementTasksBlock] = None
@@ -631,6 +650,9 @@ async def build_board_tasks(db: AsyncSession, current_user: User) -> BoardTasksR
     flow = await board_flow.load_flow(db, current_user, now=now)
     finance = await board_flow.load_finance(db, current_user, now=now)
     pending = await pending_job_completion.load_pending_jobs_safely(db, current_user)
+    from app.services import requirement_cleanup
+
+    fixes = await requirement_cleanup.load_fixes_safely(db, current_user)
     agreements = await agreement_tasks.load_safely(
         db, current_user, portfolio=portfolio
     )
@@ -683,6 +705,7 @@ async def build_board_tasks(db: AsyncSession, current_user: User) -> BoardTasksR
             else None
         ),
         unfinished_forms=[UnfinishedFormRow(**asdict(f)) for f in unfinished],
+        requirement_fixes=[RequirementFixRow(**row) for row in fixes],
         rate_changes=[
             RateChangeTaskRow(**asdict(t))
             for t in (rate_tasks.mine if rate_tasks else [])

@@ -704,3 +704,129 @@ describe("RequirementRowsEditor — audyt 06.10.2026", () => {
     expect(onRowsChange).not.toHaveBeenCalled();
   });
 });
+
+describe("wariant A (13.10.2026): słowo do szukania czy rozmowa", () => {
+  const TENDER: RequirementRowForm[] = [
+    { key: "azure", words: ["Azure"], level: "must" },
+    { key: "tender", words: ["doświadczenie w przetargach"], level: "must" },
+    { key: "sql", words: ["SQL (bardzo dobra znajomość)"], level: "must" },
+  ];
+  const reading = (over: Record<string, unknown>) => ({
+    text: "",
+    kind: "keyword",
+    keyword: null,
+    comment: null,
+    talk: null,
+    talk_text: null,
+    suggestions: [],
+    needs_decision: false,
+    ...over,
+  });
+  const TENDER_INFO = {
+    azure: { label: "Azure", eligible: true, suggested: false },
+    tender: {
+      label: "doświadczenie w przetargach",
+      eligible: false,
+      suggested: false,
+      readings: [
+        reading({
+          text: "doświadczenie w przetargach",
+          kind: "prose",
+          talk: "skills",
+          talk_text: "doświadczenie w przetargach",
+          suggestions: ["przetarg*", "PZP"],
+          needs_decision: true,
+        }),
+      ],
+    },
+    sql: {
+      label: "SQL (bardzo dobra znajomość)",
+      eligible: false,
+      suggested: false,
+      readings: [
+        reading({
+          text: "SQL (bardzo dobra znajomość)",
+          kind: "technology",
+          keyword: "SQL",
+          comment: "bardzo dobra znajomość",
+          talk: "skills",
+          talk_text: "SQL — bardzo dobra znajomość",
+        }),
+      ],
+    },
+  } as unknown as Record<string, RowCriticalInfo>;
+
+  it("zdanie czeka na decyzję: słowo z podpowiedzi albo „Do rozmowy”", () => {
+    const onMoveToTalk = vi.fn();
+    const { onRowsChange } = renderEditor({
+      rows: TENDER,
+      critical: known(TENDER_INFO),
+      onMoveToTalk,
+    });
+    const callout = screen.getByTestId("requirement-row-decision");
+    expect(callout).toHaveTextContent("to zdanie");
+    fireEvent.click(within(callout).getByRole("button", { name: /przetarg\*/ }));
+    const rows = onRowsChange.mock.calls.at(-1)![0] as RequirementRowForm[];
+    expect(rows.find((r) => r.key === "tender")?.words).toEqual(["przetarg*"]);
+    // Zdanie nie przepada — trafia do „Rekruter sprawdza w rozmowie”.
+    expect(onMoveToTalk).toHaveBeenCalledWith({
+      name: "doświadczenie w przetargach",
+      kind: "skills",
+      level: "must",
+    });
+  });
+
+  it("„Do rozmowy” zdejmuje wiersz i oddaje zdanie rodzicowi", () => {
+    const onMoveToTalk = vi.fn();
+    const { onRowsChange } = renderEditor({
+      rows: TENDER,
+      critical: known(TENDER_INFO),
+      onMoveToTalk,
+    });
+    fireEvent.click(
+      within(screen.getByTestId("requirement-row-decision")).getByRole("button", {
+        name: "Do rozmowy",
+      }),
+    );
+    const rows = onRowsChange.mock.calls.at(-1)![0] as RequirementRowForm[];
+    expect(rows.map((r) => r.key)).toEqual(["azure", "sql"]);
+    expect(onMoveToTalk).toHaveBeenCalledTimes(1);
+  });
+
+  it("zdanie nie może być krytyczne, dopóki nie zapadnie decyzja", () => {
+    renderEditor({ rows: TENDER, critical: known(TENDER_INFO) });
+    expect(levelOption("doświadczenie w przetargach", "Krytyczne")).toBeDisabled();
+    expect(levelOption("Azure", "Krytyczne")).not.toBeDisabled();
+  });
+
+  it("komentarz w nawiasie: „Rozdziel teraz” zostawia słowo, poziom idzie do rozmowy", () => {
+    const onMoveToTalk = vi.fn();
+    const { onRowsChange } = renderEditor({
+      rows: TENDER,
+      critical: known(TENDER_INFO),
+      onMoveToTalk,
+    });
+    const note = screen.getByTestId("requirement-row-comment");
+    expect(note).toHaveTextContent("Szukamy „SQL”");
+    fireEvent.click(within(note).getByRole("button", { name: "Rozdziel teraz" }));
+    const rows = onRowsChange.mock.calls.at(-1)![0] as RequirementRowForm[];
+    expect(rows.find((r) => r.key === "sql")?.words).toEqual(["SQL"]);
+    expect(onMoveToTalk).toHaveBeenCalledWith({
+      name: "SQL — bardzo dobra znajomość",
+      kind: "skills",
+      level: "must",
+    });
+  });
+
+  it("krytyczne zostawiające mniej niż 20 osób dostają ostrzeżenie pod listą", () => {
+    mocks.counts = { perRow: {}, required: 9, critical: 3, failed: false };
+    renderEditor({
+      rows: [{ key: "azure", words: ["Azure"], level: "critical" }],
+      critical: known({ azure: { label: "Azure", eligible: true, suggested: false } }),
+      countEnabled: true,
+    });
+    expect(screen.getByTestId("requirement-critical-reach")).toHaveTextContent(
+      "Krytyczne razem zostawiają 3 osoby",
+    );
+  });
+});

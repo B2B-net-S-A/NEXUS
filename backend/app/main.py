@@ -2923,6 +2923,7 @@ async def api_health_deep_check():
     from app.models.contract_document import ContractDocument
     from app.models.cv_qc_run import CvQcRun
     from app.models.application_screening import ApplicationScreening
+    from app.models.requirement_cleanup import RequirementCleanupDecision
     from app.models.recommendation_card import RecommendationCard
     from app.models.candidate_rate_change import CandidateRateChange
     from app.models.screening_form_version import ScreeningFormVersion
@@ -3181,6 +3182,9 @@ async def api_health_deep_check():
         # „Przygotuj ogłoszenie” w rekrutacji.
         ("job_ads", JobAd),
         ("job_ad_publications", JobAdPublication),
+        # 0438: „Wymagania do poprawy” — zatwierdzenie i odrzucenie propozycji
+        # zapisują decyzję; brak tabeli = 500 przy obu.
+        ("requirement_cleanup_decisions", RequirementCleanupDecision),
     ]
 
     checks: dict[str, str] = {}

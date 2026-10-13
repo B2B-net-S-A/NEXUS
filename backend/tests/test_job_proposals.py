@@ -1224,6 +1224,7 @@ async def test_inbox_items_and_counts_endpoint_agree_on_postings(
         "base",
         "screened_out",
         "not_searchable_must",
+        "talk_checks",
     }
     assert (body["job_id"], body["days"]) == (job_id, 7)
     assert (body["postings_recent"], body["base"]) == (2, 2)

@@ -47,7 +47,7 @@ export function ExperienceChips({
   return (
     <ul
       className={cn("flex flex-wrap gap-1.5", className)}
-      aria-label="Doświadczenie poza stackiem"
+      aria-label="Rekruter sprawdza w rozmowie"
       data-testid="experience-chips"
     >
       {EXPERIENCE_KINDS.flatMap((kind) =>

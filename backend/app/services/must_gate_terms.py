@@ -41,6 +41,20 @@ _EXAMPLES = re.compile(
 )
 # „Bazy danych (Oracle, PostgreSQL)” — nawias z listą po kategorii.
 _PAREN_LIST = re.compile(r"^(?P<head>[^()]+?)\s*\((?P<opts>[^()]*[,/][^()]*)\)\s*$")
+# Ostatni nawias etykiety: „SQL (bardzo dobra znajomość)”, „Google Cloud
+# Platform (GCP) (praktyczne doświadczenie)” — głowa może mieć własny nawias.
+_PAREN_TAIL = re.compile(r"^(?P<head>.+?)\s*\((?P<body>[^()]*)\)\s*\.?$")
+# Treść nawiasu po technologii: alternatywa („Kafka (lub RabbitMQ)”),
+# przykłady („Java (np. Spring)”) albo ogólnik, który nie jest opcją.
+_PAREN_ALTERNATIVE = re.compile(r"^\s*(?:lub|albo|or)\s+(?P<rest>.+)$", re.I)
+_PAREN_EXAMPLES = re.compile(
+    r"^\s*(?:np\.?|e\.\s?g\.?|eg\.|like|such\s+as|including|incl\.?|"
+    r"m\.\s?in\.?|takie\s+jak|typu)\s+",
+    re.I,
+)
+_PAREN_VAGUE = re.compile(
+    r"\b(?:podobn\w*|similar|equivalent|odpowiednik\w*|inne|other|itp|etc)\b", re.I
+)
 # Alternatywa w samej etykiecie: „Kafka lub RabbitMQ”, „Docker/Kubernetes”.
 # „i”, „and”, „oraz” i przecinek to KONIUNKCJA („python i bash” = oba), więc
 # nie tworzą opcji — taka etykieta nie bramkuje (punkt wymagań).
@@ -507,6 +521,82 @@ def _split_options(text: str, pattern: re.Pattern[str]) -> list[str]:
     return [p for p in (_clean(x.replace(_SLASH_GUARD, "/")) for x in parts) if p]
 
 
+def _dictionary_name(text: str) -> Optional[str]:
+    """Technologia ze słownika po zdjęciu wstępu („bardzo dobra znajomość”).
+
+    ``None``, gdy zostaje coś innego niż nazwa ze słownika (albo kilka nazw
+    przez „/”, „lub”) — także kategoria („baz danych”) czy odmiana („Kafki”).
+    Nazwa ze słownika ze słowem kategorii („Google Cloud Platform”) przechodzi;
+    rolę i metodykę („QA”, „Scrum”) odrzuca dalej ``_analyse``.
+    """
+    from app.services.scoring_service import ALIAS_MAP
+
+    words = [
+        w for w in text.split() if w.lower().strip(".,:;") not in _HEAD_FILLER_WORDS
+    ]
+    if not words:
+        return None
+    name = _clean(" ".join(words))
+    guarded = _guard_slash_names(name)
+    pieces = _split_options(name, _ALT_SPLIT) if _ALT_SPLIT.search(guarded) else [name]
+    known = all(
+        p.lower() in ALIAS_MAP or p.lower() in _SLASH_NAMES for p in pieces if p
+    )
+    return name if pieces and known else None
+
+
+def _parenthetical(label: str, text: str) -> Optional[GateRequirement]:
+    """Technologia z nawiasem (13.10.2026): nawias to komentarz, nie opcje.
+
+    „SQL (bardzo dobra znajomość)”, „JMeter (narzędzie do testowania
+    wydajności)” i „Python (DAG-i Airflow, ETL, API, LLM)” wymagają głowy —
+    do tej daty pierwsze dwie wypadały z bramki w całości, a trzecia
+    zamieniała się w „Python lub … API …”, które spełnia każdy z „API” w CV.
+    Nawias jest alternatywą tylko, gdy zaczyna się od „lub / or / albo”
+    („Kafka (lub RabbitMQ)”) albo wylicza same technologie ze słownika
+    („SQL (PostgreSQL, Oracle)”, „Java (np. Spring)”). Głowa musi być nazwą
+    ze słownika — „Bazy danych (…)” i zdania z nawiasem idą starą drogą.
+    """
+    match = _PAREN_TAIL.match(text)
+    if not match:
+        return None
+    head = _clean(match.group("head"))
+    if _PAREN_TAIL.match(head):
+        base = _analyse(head)[0]
+    else:
+        name = _dictionary_name(head)
+        base = _analyse(name)[0] if name else None
+    if base is None:
+        return None
+    body = _clean(match.group("body"))
+    alternative = _PAREN_ALTERNATIVE.match(body)
+    examples = _PAREN_EXAMPLES.match(body)
+    items = _split_options(
+        alternative.group("rest")
+        if alternative
+        else body[examples.end() :]
+        if examples
+        else body,
+        _EXAMPLE_SPLIT,
+    )
+    extra: list[str] = []
+    for item in items:
+        if _PAREN_VAGUE.search(item):
+            continue
+        name, _reason = _normalize_option(item)
+        if name is None or (not alternative and not is_gate_technology(name)):
+            if alternative:
+                continue
+            # Choć jedna pozycja spoza słownika = komentarz, nie lista opcji.
+            return GateRequirement(label=label, options=base.options)
+        extra.append(name)
+    options = list(base.options)
+    for name in extra:
+        if name.lower() not in {o.lower() for o in options}:
+            options.append(name)
+    return GateRequirement(label=label, options=tuple(options))
+
+
 def _analyse(label: str) -> tuple[Optional[GateRequirement], Optional[str]]:
     text = _clean(label)
     if not text:
@@ -514,6 +604,16 @@ def _analyse(label: str) -> tuple[Optional[GateRequirement], Optional[str]]:
     # Wersja odcięta PRZED podziałem na opcje: „React.js (v18 or higher)” to
     # jedna technologia, a „or” w nawiasie wersji nie jest alternatywą.
     text = strip_version(text)[0]
+    with_comment = _parenthetical(label, text)
+    if with_comment is not None:
+        return with_comment, None
+    # „Bardzo dobra znajomość SQL” — wstęp wokół JEDNEJ nazwy ze słownika
+    # (13.10.2026). Odmiana spoza słownika („znajomość Kafki”) zostaje prozą.
+    bare = _dictionary_name(text)
+    if bare is not None and bare != text:
+        requirement = _analyse(bare)[0]
+        if requirement is not None:
+            return GateRequirement(label=label, options=requirement.options), None
     raw_options: list[str]
     example = _EXAMPLES.match(text) or _PAREN_LIST.match(text)
     if example:

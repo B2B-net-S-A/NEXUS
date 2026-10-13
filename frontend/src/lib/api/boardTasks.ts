@@ -358,6 +358,17 @@ export interface UnfinishedJobForm {
   updated_at: string;
 }
 
+/** „Wymagania do poprawy” (13.10.2026, D4) — lustro `requirement_cleanup.load_fixes`. */
+export interface RequirementFixRow {
+  job_id: number;
+  title: string;
+  reasons: { code: string; text: string }[];
+  /** `false` = brak słów do szukania — zatwierdzić się nie da, trzeba uzupełnić. */
+  can_apply: boolean;
+  rows: number;
+  talk: number;
+}
+
 /** Sprawa z grupy „Umowy” — lustro `services/agreement_tasks.py` (04.10.2026). */
 export type AgreementTaskReason =
   | "requested"
@@ -533,6 +544,8 @@ export interface BoardTasksResponse {
   pending_jobs?: PendingJobs | null;
   /** Twoje niedokończone formularze nowej rekrutacji. */
   unfinished_forms?: UnfinishedJobForm[] | null;
+  /** Porządki wymagań otwartych rekrutacji — DL swoich, HoR i admin wszystkich. */
+  requirement_fixes?: RequirementFixRow[];
   /** Umowy z Generatora do potwierdzenia albo zamknięcia (04.10.2026).
    *  `null`/brak = serwer jej nie policzył albo starszy backend. */
   agreements?: AgreementTasks | null;

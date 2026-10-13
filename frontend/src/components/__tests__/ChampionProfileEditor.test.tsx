@@ -425,7 +425,7 @@ describe("ChampionProfileEditor — wymagania jako wiersze słów kluczowych (02
     expect(payload).not.toHaveProperty("search");
   });
 
-  it("„Uprość do słów kluczowych” zamienia stare pola na wiersze, a zdania klienta idą do niuansów", async () => {
+  it("„Uprość do słów kluczowych” zamienia stare pola na wiersze, a zdania klienta idą do „Rekruter sprawdza w rozmowie”", async () => {
     getMock.mockResolvedValue({
       data: {
         job_id: 23,
@@ -463,12 +463,19 @@ describe("ChampionProfileEditor — wymagania jako wiersze słów kluczowych (02
     await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
     const payload = putMock.mock.calls[0][1] as {
       stack: { rows: unknown[]; notes: string };
+      experience: { skills: { name: string; level: string }[] };
     };
     expect(payload.stack.rows).toEqual([
       { words: ["bankow*", "banking"], level: "must" },
       { words: ["Java"], level: "must" },
     ]);
-    expect(payload.stack.notes).toBe("Java 17+\nDoświadczenie w dużych projektach bankowych");
+    // 13.10.2026 (wariant A): zdania nie lądują w niuansach — w screeningu są
+    // punktem „Sprawdź w rozmowie”.
+    expect(payload.stack.notes).toBe("");
+    expect(payload.experience.skills.map((item) => item.name)).toEqual([
+      "Java 17+",
+      "Doświadczenie w dużych projektach bankowych",
+    ]);
   });
 
   it("bez prawa edycji — lista wymagań z poziomami, bez pól", async () => {

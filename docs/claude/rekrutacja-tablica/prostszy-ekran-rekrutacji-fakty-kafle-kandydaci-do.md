@@ -47,8 +47,10 @@ rekrutacji i pasek filtrów z 24.09 oraz blok propozycji w „Nowych” z 22.09.
     wypada i nikt się nie dubluje. „Pomiń” z powodem jak na ekranie propozycji.
   - „Szukaj w bazie” (`useSearchBaseTab` + `useJobSearchSeed`): lista na tym
     samym API i tych samych filtrach co „Szukaj ręcznie” (wiersze `search.
-    requirements` Championa, `sort=match`), uruchamiana od razu; blok „Po tym
-    nie szukamy” pokazuje must-have wpisane zdaniem. Bez wierszy w Championie
+    requirements` Championa, `sort=match`), uruchamiana od razu; od 13.10.2026 linie „Wymagane (krytyczne)”, „Musi
+    mieć (Delivery Lead)”, „Mile widziane”, „Lokalizacja kandydata” i „Rekruter
+    sprawdza w rozmowie” (`talk_checks` z `proposal-counts`) zastąpiły blok
+    „Po tym nie szukamy” — `dwie-listy-wymagan.md`. Bez wierszy w Championie
     zakładka NIE pokazuje całej bazy — odsyła do Championa i „Szukaj ręcznie”.
     Zastąpiła „Znajdź w bazie (AI)”; ręczny pełny przegląd AI startuje z menu
     „⋯” (`fullReviewRequest` — raz na kliknięcie, nigdy przy otwarciu okna).

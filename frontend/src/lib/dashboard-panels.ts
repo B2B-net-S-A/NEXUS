@@ -18,6 +18,7 @@ export const DASHBOARD_PANEL_KEYS = [
   "new_job_leads",
   "team_load",
   "pending_jobs",
+  "requirement_fixes",
   "board_flow",
   "followups",
   "agreements",
@@ -35,6 +36,7 @@ export const PANEL_LABELS: Record<DashboardPanelKey, string> = {
   new_job_leads: "Nowe rekrutacje — kto prowadzi",
   team_load: "Obłożenie",
   pending_jobs: "Rekrutacje do dokończenia albo zamknięcia",
+  requirement_fixes: "Wymagania do poprawy",
   board_flow: "Praca na Tablicach i zamówienia",
   followups: "Follow-up z kandydatami",
   agreements: "Umowy do potwierdzenia",
@@ -92,6 +94,7 @@ export function withoutHiddenPanels(
     next.pending_jobs = null
     next.unfinished_forms = null
   }
+  if (hidden.has("requirement_fixes")) next.requirement_fixes = []
   if (hidden.has("board_flow")) {
     next.flow = null
     next.finance = null

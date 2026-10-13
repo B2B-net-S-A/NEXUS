@@ -4747,12 +4747,14 @@ export interface ExperienceItem {
   note?: string;
 }
 
-export type ExperienceKind = "domains" | "certifications" | "regulations";
+export type ExperienceKind = "domains" | "certifications" | "regulations" | "skills";
 
 export interface ChampionExperience {
   domains: ExperienceItem[];
   certifications: ExperienceItem[];
   regulations: ExperienceItem[];
+  /** „Rekruter sprawdza w rozmowie” (13.10.2026) — profil sprzed tej daty go nie ma. */
+  skills?: ExperienceItem[];
   notes: string;
 }
 

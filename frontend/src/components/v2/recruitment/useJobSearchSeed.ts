@@ -29,6 +29,8 @@ export interface JobSearchSeed {
   hasRows: boolean;
   required: string[][];
   preferred: string[][];
+  /** Niekrytyczne „Musi mieć” — początek `preferred` (opis na ekranie). */
+  must: string[][];
   exclude: string[];
   /** Skąd są obowiązkowe wiersze (DL, podpowiedź z historii, brak). */
   source: MandatorySource;
@@ -85,6 +87,7 @@ export function useJobSearchSeed(
       hasRows: plan.hasRows,
       required: split.required,
       preferred: split.preferred,
+      must: split.must,
       exclude: plan.exclude,
       source: split.source,
       sourceNote: mandatorySourceNote(split),

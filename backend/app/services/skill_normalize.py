@@ -290,4 +290,7 @@ def strip_version(name: str) -> tuple[str, str | None]:
     base = text[: match.start()].strip()
     if not base:
         return text, None
+    # „OWASP Top 10”, „CWE Top 25” — liczba jest częścią nazwy (13.10.2026).
+    if re.search(r"\btop$", base, re.IGNORECASE):
+        return text, None
     return base, match.group(0).strip().strip("()").strip()

@@ -91,6 +91,7 @@ def table_profile(data: bytes) -> dict | None:
         ("dziedzina", "experience.domains"),
         ("certyfikaty", "experience.certifications"),
         ("regulacje", "experience.regulations"),
+        ("rekruter sprawdza", "experience.skills"),
         ("od klienta", "insights.client"),
     )
 

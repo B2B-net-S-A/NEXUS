@@ -53,8 +53,8 @@ MSG_CRITICAL = (
     "„Brak krytycznych”)."
 )
 MSG_SEARCH_REQUIREMENTS = (
-    "Dodaj co najmniej jedno wymaganie do wyszukiwania w bazie "
-    "(sekcja „Co wpisać” w Profilu Championa)."
+    "Dodaj co najmniej jedno słowo do szukania w Profilu Championa — rzeczy "
+    "do sprawdzenia w rozmowie nie wystarczą."
 )
 MSG_DEAL_BREAKER = (
     "Przy każdym pytaniu screeningowym wpisz odpowiedź, która dyskwalifikuje "

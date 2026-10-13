@@ -26,6 +26,9 @@
 // z jednej rekrutacji, więc z „porównaj”; jedna ponad budżet), jedna jeszcze
 // u rekrutera (QC do poprawy) i jedna z importu Traffita. W wariantach bez
 // zadań pas mówi jednym zdaniem, że nikt nie czeka. Sam pas: `/preview/dl-send`.
+// „Wymagania do poprawy” (13.10.2026, D4) — DL, Head i admin, warianty „Układ
+// roli” i „Pulpit z kafelkami”: rekrutacja z propozycją („Pokaż zmiany” otwiera
+// zasiane porównanie) i rekrutacja bez słów do szukania („Uzupełnij”).
 
 import { useEffect, useState } from "react";
 import { AxiosError } from "axios";
@@ -73,8 +76,13 @@ import {
   type FlowBlock,
   type NewJobLeadRow,
   type PendingJobs,
+  type RequirementFixRow,
   type UnfinishedJobForm,
 } from "@/lib/api/boardTasks";
+import {
+  requirementProposalKey,
+  type RequirementProposalResponse,
+} from "@/lib/requirement-proposal-api";
 import {
   REQUEST_BOARD_QUERY_KEY,
   type LoadPerson,
@@ -563,6 +571,64 @@ const UNFINISHED_FORMS: UnfinishedJobForm[] = [
   { id: 1, label: "Java Developer", client_name: "Bank Północny", updated_at: daysAgo(3) },
 ];
 
+// „Wymagania do poprawy” (dane fikcyjne): jedna rekrutacja do zatwierdzenia,
+// druga bez słów do szukania — tej zatwierdzić się nie da.
+const REQUIREMENT_FIXES: RequirementFixRow[] = [
+  {
+    job_id: 803,
+    title: "Programista Java · Spring",
+    reasons: [
+      { code: "prose_rows", text: "zdania w wymaganiach — wyszukiwanie ich nie znajdzie" },
+      { code: "paren", text: "komentarz w nawiasie wyłącza technologię z wyszukiwania" },
+    ],
+    can_apply: true,
+    rows: 4,
+    talk: 2,
+  },
+  {
+    job_id: 804,
+    title: "Analityk biznesowy · bankowość",
+    reasons: [{ code: "no_search_words", text: "brak słów do szukania — propozycje AI się nie pojawią" }],
+    can_apply: false,
+    rows: 0,
+    talk: 3,
+  },
+];
+const REQUIREMENT_PROPOSAL: RequirementProposalResponse = {
+  can_decide: true,
+  proposal: {
+    job_id: 803,
+    reasons: REQUIREMENT_FIXES[0].reasons,
+    before: {
+      must: [
+        "Java 17 (najlepiej z doświadczeniem w migracjach)",
+        "Spring Boot",
+        "Doświadczenie w pracy z klientem z sektora finansowego",
+        "Komunikatywność i samodzielność",
+      ],
+      critical: ["Doświadczenie w pracy z klientem z sektora finansowego"],
+      language: null,
+    },
+    after: {
+      rows: [
+        { words: ["Java"], level: "must" },
+        { words: ["Spring Boot", "Spring"], level: "must" },
+        { words: ["Kafka", "RabbitMQ"], level: "nice" },
+        { words: ["Docker"], level: "nice" },
+      ],
+      critical: null,
+      talk: [
+        { name: "Praca z klientem z sektora finansowego", kind: "domains", level: "must" },
+        { name: "Komunikatywność i samodzielność", kind: "skills", level: "nice" },
+      ],
+      language: "angielski B2",
+    },
+    profile_hash: "0".repeat(64),
+    contract_reviewed: true,
+    can_apply: true,
+  },
+};
+
 const NO_TASKS: BoardTasksResponse = {
   window_days: 14,
   dl_review_window_days: 30,
@@ -614,6 +680,8 @@ function seededClient(
     ...(persona === "finance" ? { cv_in_transit: null, dl_review: [], cpro_to_send: [], cpro_sent: [] } : {}),
     // Rekrutacje do dokończenia serwer daje tylko DL-owi, Headowi i adminowi.
     ...(persona === "dl" || persona === "dlr" || decides ? {} : { pending_jobs: null }),
+    // Porządki wymagań — tak samo: DL swoich, Head i admin wszystkich.
+    ...(persona === "dl" || persona === "dlr" || decides ? {} : { requirement_fixes: [] }),
   };
   qc.setQueryData<BoardTasksResponse>(
     BOARD_TASKS_QUERY_KEY,
@@ -628,6 +696,7 @@ function seededClient(
       : { ...withFlow, can_decide_proposals: false },
   );
   // Nowe kafelki układu ról (04.10.2026).
+  qc.setQueryData<RequirementProposalResponse>(requirementProposalKey(803), REQUIREMENT_PROPOSAL);
   qc.setQueryData<CycleOverview>(interviewCycleQueryKey("mine"), CYCLE);
   qc.setQueryData<CycleOverview>(interviewCycleQueryKey("jobs"), { ...CYCLE, scope: "jobs" });
   qc.setQueryData<MyKpiPanel>(MY_WEEK_QUERY_KEY, MY_WEEK);
@@ -767,7 +836,17 @@ export default function CustomDashboardPreview() {
       hydrated: true,
     });
     setClients({
-      role: seededClient([], { ...NO_TASKS, cv_in_transit: TRANSIT_RETURNED, pending_jobs: PENDING_JOBS }, as, true),
+      role: seededClient(
+        [],
+        {
+          ...NO_TASKS,
+          cv_in_transit: TRANSIT_RETURNED,
+          pending_jobs: PENDING_JOBS,
+          requirement_fixes: REQUIREMENT_FIXES,
+        },
+        as,
+        true,
+      ),
       filled: seededClient(
         TILES,
         {
@@ -775,6 +854,7 @@ export default function CustomDashboardPreview() {
           cv_in_transit: TRANSIT_RETURNED,
           pending_jobs: PENDING_JOBS,
           unfinished_forms: UNFINISHED_FORMS,
+          requirement_fixes: REQUIREMENT_FIXES,
         },
         as,
       ),

@@ -735,7 +735,10 @@ async def save_champion_core(
         diff_champion_profile,
         summarize_sections,
     )
-    from app.services.champion_requirement_rows import expand_patch
+    from app.services.champion_requirement_rows import (
+        expand_patch,
+        separate_talk_items,
+    )
     from app.services.job_matching_refresh import refresh_job_matching
     from app.services.job_working_title import refresh_working_title
     from app.services.requirement_contract import apply_requirement_source_update
@@ -780,6 +783,23 @@ async def save_champion_core(
     old_profile = dict(job.champion_profile or {})
     normalized_old = ChampionProfile.model_validate(old_profile).model_dump(mode="json")
 
+    # Wariant A (13.10.2026): zdanie, język i umiejętność miękka z NOWEGO albo
+    # zmienionego wiersza przechodzą do „Rekruter sprawdza w rozmowie” / pola
+    # „Język” — wyszukiwanie szuka słów dosłownie, więc zdanie nie znajdzie
+    # nikogo, a jako krytyczne ukryłoby prawie wszystkich.
+    old_stack = old_profile.get("stack") or {}
+    payload, talk_notices = separate_talk_items(
+        payload,
+        previous_rows=old_stack.get("rows") if isinstance(old_stack, dict) else None,
+        previous_experience=old_profile.get("experience"),
+        previous_language=(old_profile.get("basics") or {}).get("language"),
+        keep_required=bool(getattr(job, "is_open", False)),
+    )
+    if talk_notices:
+        effects.results["notices"] = [
+            *(effects.results.get("notices") or []),
+            *talk_notices,
+        ]
     # Wiersze wymagań (02.10.2026): `stack.rows` jest źródłem, a `must`,
     # `nice`, `critical` i `search.requirements` wyprowadza serwer.
     payload = expand_patch(

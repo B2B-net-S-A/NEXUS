@@ -172,12 +172,15 @@ def documents(source: Any) -> list:
 
 
 def experience(source: Any) -> dict:
-    """Sekcja 4 — doświadczenie poza stackiem (dziedzina, certyfikaty, regulacje).
+    """Sekcja 4 — doświadczenie poza stackiem (dziedzina, certyfikaty, regulacje)
+    i od 13.10.2026 `skills`: zdania do sprawdzenia w rozmowie.
 
     Stary kształt jej nie ma; pusty słownik znaczy „DL nic nie podał".
     """
+    from app.schemas.champion import EXPERIENCE_KINDS
+
     out = _sub(as_dict(source), "experience")
-    for key in ("domains", "certifications", "regulations"):
+    for key in EXPERIENCE_KINDS:
         value = out.get(key)
         out[key] = [
             item
@@ -386,6 +389,12 @@ def requirement_source(
     if "stack" in out:
         out["stack"] = without_critical(out["stack"])
     exp = out.get("experience")
+    if isinstance(exp, Mapping) and "skills" in exp:
+        # „Rekruter sprawdza w rozmowie” (13.10.2026) nie jest wymaganiem roli:
+        # nie trafia do bramki, punktów ani wyszukiwania, więc jego edycja nie
+        # kasuje kontraktu wymagań i nie odpala przeliczeń.
+        exp = {k: v for k, v in exp.items() if k != "skills"}
+        out["experience"] = exp
     if (
         isinstance(exp, Mapping)
         and not any(

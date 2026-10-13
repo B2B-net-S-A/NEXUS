@@ -262,7 +262,15 @@ class CriticalSuggestionRequest(BaseModel):
     title: Optional[str] = Field(default=None, max_length=300)
     # 02.10.2026: wiersze wymagań (słowa = warianty). Gdy podane, lista MUST
     # to ich etykiety — te same, które serwer zapisze w profilu.
-    rows: Optional[list[list[str]]] = Field(default=None, max_length=30)
+    # Limity wewnętrzne (przegląd bezpieczeństwa 13.10.2026): surowe słowa szły
+    # do odczytu frazy bez limitu długości — jedno żądanie zamrażało API.
+    rows: Optional[
+        list[
+            Annotated[
+                list[Annotated[str, Field(max_length=1000)]], Field(max_length=50)
+            ]
+        ]
+    ] = Field(default=None, max_length=30)
 
 
 @router.post("/critical-suggestion")
@@ -286,16 +294,19 @@ async def critical_suggestion(
     from app.services.must_gate_terms import critical_eligible
 
     labels: list[str] = []
+    row_words: list[list[str]] = []
     if body.rows is not None:
         from app.services.champion_requirement_rows import clean_rows, row_label
 
-        # Etykieta per wiersz w kolejności żądania (pusta dla wiersza bez słów).
-        labels = [
-            row_label(cleaned[0]["words"]) if cleaned else ""
+        # Słowa per wiersz po sicie zapisu (≤ 20 słów po ≤ 100 znaków), w kolejności
+        # żądania; wiersz bez słów = pusta lista i pusta etykieta.
+        row_words = [
+            cleaned[0]["words"] if cleaned else []
             for cleaned in (
                 clean_rows([{"words": row, "level": "must"}]) for row in body.rows
             )
         ]
+        labels = [row_label(words) if words else "" for words in row_words]
         must = [label for label in labels if label]
     else:
         must = [s.strip()[:500] for s in body.must_skills if s and s.strip()]
@@ -305,7 +316,15 @@ async def critical_suggestion(
         stat = stat_for(label)
         if stat is not None:
             stats[label] = {"rate": stat.rate, "jobs": stat.jobs}
+    # 13.10.2026 (wariant A): jak system przeczyta każde słowo wiersza — edytor
+    # pokazuje pod zdaniem „zamień na słowa” albo „do rozmowy”.
+    from app.services.requirement_phrase import read_row
+
+    readings = [
+        [reading.as_dict() for reading in read_row(words)] for words in row_words
+    ]
     return {
+        "readings": readings,
         "suggested": list(suggest_from_must(must, body.title or "")),
         "eligible": eligible,
         # Od 09.10.2026 krytyczną może być każda pozycja — decyduje Delivery

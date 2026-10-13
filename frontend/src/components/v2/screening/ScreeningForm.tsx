@@ -202,7 +202,7 @@ export function makeSchema(questions: ScreeningQuestion[]) {
       experience_checks: z
         .array(
           z.object({
-            kind: z.enum(["domains", "certifications", "regulations"]),
+            kind: z.enum(["domains", "certifications", "regulations", "skills"]),
             name: z.string(),
             label: z.string(),
             level: z.enum(["must", "nice"]),

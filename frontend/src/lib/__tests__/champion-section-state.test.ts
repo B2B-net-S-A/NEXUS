@@ -183,7 +183,7 @@ describe("CHAMPION_SECTIONS — kolejność kroku 02", () => {
     // Etykieta drugiego wpisu niesie numer 3 — wiąże ekran ze wzorem Word,
     // po którym poruszają się Delivery Leadowie.
     expect(CHAMPION_SECTIONS[1].label.startsWith("3 · ")).toBe(true);
-    expect(CHAMPION_SECTIONS[2].label).toBe("4 · Doświadczenie poza stackiem");
+    expect(CHAMPION_SECTIONS[2].label).toBe("4 · Rekruter sprawdza w rozmowie");
     expect(CHAMPION_SECTIONS[7].label).toBe("8 · Wiedza z rozmów");
   });
 

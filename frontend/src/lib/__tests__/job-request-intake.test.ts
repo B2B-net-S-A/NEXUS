@@ -1490,3 +1490,25 @@ describe("odczyt: wiersze, które się nie zmieściły", () => {
     expect(droppedRequirementsText([])).toBeNull();
   });
 });
+
+describe("missingFor — zdanie w wierszach czeka na decyzję (13.10.2026)", () => {
+  it("„decision” tylko wtedy, gdy serwer przeczytał zdanie w wierszu obowiązkowym", () => {
+    const form = complete();
+    const row = form.rows.find((r) => r.level !== "nice" && r.words.length > 0)!;
+    const prose = {
+      text: row.words[0],
+      kind: "prose" as const,
+      keyword: null,
+      comment: null,
+      talk: "skills" as const,
+      talk_text: row.words[0],
+      suggestions: [],
+      needs_decision: true,
+    };
+    const info: Record<string, RowCriticalInfo> = {
+      [row.key]: { label: row.words[0], eligible: false, suggested: false, readings: [prose] },
+    };
+    expect(missingFor(form, { criticalInfo: info })).toContain("decision");
+    expect(missingFor(form, { criticalInfo: null })).not.toContain("decision");
+  });
+});
