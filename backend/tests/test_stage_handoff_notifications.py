@@ -23,10 +23,10 @@ from app.models.pipeline_template import PipelineStageDef, StageCategoryEnum
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
-from app.services import cpro_sender
 from app.services import stage_handoff_recipients as handoff
 from app.services import stage_notification_emitter as emitter
 from tests.test_board_tasks import (
+    CPRO_RATE,
     _cleanup,
     _login,
     _move,
@@ -51,8 +51,9 @@ def _def(name: str, enum: str | None, category: str = "internal"):
     [
         (_def("QC CV", "interview"), False, handoff.REASON_DL_REVIEW),
         (_def("Przepuszczony przez DZ", "interview"), False, handoff.REASON_DL_REVIEW),
-        # U Nordei QC CV poprawia rekruter — przekazaniem jest kolejka Cpro.
-        (_def("QC CV", "interview"), True, None),
+        # U Nordei „QC CV” to też przegląd DL — akceptacja do kolejki Cpro
+        # (13.10.2026; wcześniej rekruter wkładał kartę do kolejki sam).
+        (_def("QC CV", "interview"), True, handoff.REASON_DL_REVIEW),
         (_def("Wysłać do Cpro", None), True, handoff.REASON_CPRO_QUEUE),
         (_def("NORDEA: Wysłać do Cpro", "screening"), True, handoff.REASON_CPRO_QUEUE),
         (_def("Wysłać do Cpro", None), False, None),
@@ -96,8 +97,16 @@ def test_return_from_the_cpro_queue_is_a_handoff_only_at_nordea(monkeypatch) -> 
         handoff.handoff_kind(qc, client_id=7, previous_def=cpro)
         == handoff.REASON_CPRO_RETURNED
     )
-    # Zwykłe wejście do „QC CV” u Nordei to praca rekrutera, nie przekazanie.
-    assert handoff.handoff_kind(qc, client_id=7, previous_def=verified) is None
+    # Zwykłe wejście do „QC CV” u Nordei to prośba o akceptację DL-a.
+    assert (
+        handoff.handoff_kind(qc, client_id=7, previous_def=verified)
+        == handoff.REASON_DL_REVIEW
+    )
+    # „Wróć do poprawy” z „QC CV” działa u Nordei jak u innych klientów.
+    assert (
+        handoff.handoff_kind(verified, client_id=7, previous_def=qc)
+        == handoff.REASON_QC_RETURNED
+    )
     monkeypatch.setattr(handoff, "cpro_enabled_for_client", lambda _cid: False)
     assert (
         handoff.handoff_kind(qc, client_id=7, previous_def=cpro)
@@ -163,14 +172,68 @@ def test_handoff_bell_says_what_to_do_and_opens_the_person_on_the_board() -> Non
     assert "Sandra S. wysłał(a) CV kandydata Jan Testowy" in message
     assert link == "/jobs/3?candidate=9"
 
-    title, _message, link = _content(handoff.REASON_CPRO_QUEUE)
-    assert title == "Do wrzucenia do Cpro: Jan Testowy"
+    title, message, link = _content(handoff.REASON_CPRO_QUEUE)
+    # Nazwa od klienta w tytule: ta sama osoba w dwóch rekrutacjach Nordei
+    # nie daje już dwóch identycznych dzwonków.
+    assert title == "Do wrzucenia do Cpro: Jan Testowy · ZOB-1 Java"
+    assert "Sandra S. zaakceptował(a) kandydata Jan Testowy do Cpro" in message
+    # Stawka nie trafia do dzwonka ani maila — tylko informacja, że jest.
+    assert "Stawka do Cpro jest wpisana" in message
     assert link == "/jobs/3?candidate=9"
 
     title, message, link = _content(handoff.REASON_CPRO_RETURNED)
     assert title == "Wrócił z kolejki Cpro: Jan Testowy"
     assert "Sandra S. zwrócił(a) kandydata Jan Testowy z kolejki Cpro" in message
     assert link == "/jobs/3?candidate=9"
+
+
+def test_nordea_bells_speak_about_the_cpro_acceptance(monkeypatch) -> None:
+    """13.10.2026: u Nordei DL akceptuje do Cpro, a osoba od Cpro dostaje
+    rekrutację i numer u klienta w tytule (i temacie maila)."""
+
+    monkeypatch.setattr(emitter, "cpro_enabled_for_client", lambda _cid: True)
+    job = SimpleNamespace(
+        id=3,
+        title="ZOB-1 Java",
+        working_title="Java · Spring",
+        client_id=11,
+        client_reference="NOR-0412",
+    )
+    title, message, _link = emitter._inapp_content(
+        reason=handoff.REASON_DL_REVIEW,
+        candidate=SimpleNamespace(id=9),
+        candidate_full_name="Jan Testowy",
+        stage_display_name="QC CV",
+        job=job,
+        mover=SimpleNamespace(name="Piotr R."),
+    )
+    assert title == "CV do przeglądu: Jan Testowy"
+    assert message.endswith("Sprawdź CV i zaakceptuj do kolejki Cpro.")
+
+    title, _message, _link = emitter._inapp_content(
+        reason=handoff.REASON_CPRO_QUEUE,
+        candidate=SimpleNamespace(id=9),
+        candidate_full_name="Jan Testowy",
+        stage_display_name="Wysłać do Cpro",
+        job=job,
+        mover=SimpleNamespace(name="Marcin W."),
+    )
+    assert title == "Do wrzucenia do Cpro: Jan Testowy · ZOB-1 Java (NOR-0412)"
+    # Prefiks tytułu decyduje o rodzaju maila i o przypomnieniu po imporcie.
+    assert title.startswith(handoff.TITLE_CPRO_QUEUE)
+
+
+def test_cpro_bell_title_fits_the_column() -> None:
+    title, _message, _link = emitter._inapp_content(
+        reason=handoff.REASON_CPRO_QUEUE,
+        candidate=SimpleNamespace(id=9),
+        candidate_full_name="Jan Testowy",
+        stage_display_name="Wysłać do Cpro",
+        job=SimpleNamespace(id=3, title="X" * 255, working_title=None),
+        mover=None,
+    )
+    assert len(title) == 255
+    assert title.endswith("…")
 
 
 def test_badge_stage_bell_names_the_stage_and_opens_the_board() -> None:
@@ -335,21 +398,27 @@ async def test_qc_without_job_delivery_lead_rings_the_client_portfolio(
 
 
 @pytest.mark.asyncio
-async def test_nordea_cpro_queue_rings_the_cpro_sender_not_the_delivery_lead(
+async def test_nordea_cpro_sender_hears_only_after_the_delivery_lead_accepts(
     api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Zgłoszenie 13.10.2026: osoba od Cpro dostawała zadanie, gdy rekruter
+    kończył QC — zanim Delivery Lead Nordei zaakceptował kandydata."""
+
     world = await _seed_world()
     await seed_entry_row(world["candidate_id"], world["job_id"])
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", str(world["client_id"]))
     admin_id, admin_creds = await _seed_user(UserRole.admin)
     rec_id, rec_creds = await _seed_user(UserRole.recruiter)
     sender_id, _ = await _seed_user(UserRole.recruiter)
-    dl_id, _ = await _seed_user(UserRole.delivery_lead)
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
     admin = await _login(api_client, admin_creds)
     rec = await _login(api_client, rec_creds)
+    dl = await _login(api_client, dl_creds)
     cid, jid = world["candidate_id"], world["job_id"]
     async with AsyncSessionLocal() as db:
-        (await db.get(Job, jid)).delivery_lead_id = dl_id
+        job = await db.get(Job, jid)
+        job.delivery_lead_id = dl_id
+        job.client_reference = "NOR-0412"
         await db.commit()
     try:
         async with restore_cpro_sender():
@@ -360,20 +429,56 @@ async def test_nordea_cpro_queue_rings_the_cpro_sender_not_the_delivery_lead(
                 json={"user_id": sender_id, "until": None},
             )
             assert put.status_code == 200, put.text
-            async with AsyncSessionLocal() as db:
-                assert (await cpro_sender.effective_sender(db)).user_id == sender_id
 
             await _move(api_client, rec, world, "verified")
             await _move(api_client, rec, world, "qc")
-            # U Nordei QC CV poprawia rekruter — DL nie dostaje przeglądu.
-            assert await _stage_bells(dl_id, cid) == []
+            # „QC CV” u Nordei to prośba o akceptację DL-a; osoba od Cpro cisza.
+            dl_bells = await _stage_bells(dl_id, cid)
+            assert [b.title.split(":")[0] for b in dl_bells] == ["CV do przeglądu"]
+            assert dl_bells[0].notification_type == NotificationType.board_task_waiting
+            assert "zaakceptuj do kolejki Cpro" in dl_bells[0].message
+            assert await _stage_bells(sender_id, cid) == []
 
-            await _move(api_client, rec, world, "cpro")
+            # Rekruter nie przeskoczy akceptacji.
+            refused = await api_client.post(
+                "/api/pipeline/move",
+                headers=rec,
+                json={
+                    "candidate_id": cid,
+                    "job_id": jid,
+                    "stage_def_id": world["defs"]["cpro"],
+                },
+            )
+            assert refused.status_code == 403, refused.text
+            assert await _stage_bells(sender_id, cid) == []
+
+            await _move(
+                api_client,
+                dl,
+                world,
+                "cpro",
+                recruiter_remark="Dostępna od listopada, tylko zdalnie",
+                **CPRO_RATE,
+            )
             bells = await _stage_bells(sender_id, cid)
-            assert [b.title.split(":")[0] for b in bells] == ["Do wrzucenia do Cpro"]
-            assert bells[0].notification_type == NotificationType.board_task_waiting
-            assert bells[0].link == f"/jobs/{jid}?candidate={cid}"
-            assert await _stage_bells(dl_id, cid) == []
+            assert len(bells) == 1
+            bell = bells[0]
+            assert bell.title.startswith("Do wrzucenia do Cpro: ")
+            assert bell.title.endswith(f"· {world['job_title']} (NOR-0412)")
+            assert bell.notification_type == NotificationType.board_task_waiting
+            assert bell.link == f"/jobs/{jid}?candidate={cid}"
+            assert "zaakceptował(a)" in bell.message
+            assert "Dostępna od listopada" in bell.message
+            # Kwota nigdy nie idzie dzwonkiem ani mailem.
+            assert "158" not in bell.message and "158" not in bell.title
+            assert not bell.is_read
+            # DL nie dostaje dzwonka o własnym ruchu.
+            assert len(await _stage_bells(dl_id, cid)) == 1
+
+            # DL oznacza „Wysłane do Cpro” sam — zadanie osoby od Cpro gaśnie.
+            await _move(api_client, dl, world, "cv_sent")
+            (bell,) = await _stage_bells(sender_id, cid)
+            assert bell.is_read
     finally:
         await _cleanup(world, [admin_id, rec_id, sender_id, dl_id])
 
@@ -479,9 +584,11 @@ async def test_return_from_the_cpro_queue_rings_the_person_who_queued_the_card(
     admin_id, admin_creds = await _seed_user(UserRole.admin)
     rec_id, rec_creds = await _seed_user(UserRole.recruiter)
     sender_id, sender_creds = await _seed_user(UserRole.recruiter)
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
     admin = await _login(api_client, admin_creds)
     rec = await _login(api_client, rec_creds)
     sender = await _login(api_client, sender_creds)
+    dl = await _login(api_client, dl_creds)
     cid, jid = world["candidate_id"], world["job_id"]
     try:
         async with restore_cpro_sender():
@@ -495,24 +602,31 @@ async def test_return_from_the_cpro_queue_rings_the_person_who_queued_the_card(
 
             await _move(api_client, rec, world, "verified")
             await _move(api_client, rec, world, "qc")
-            await _move(api_client, rec, world, "cpro")
+            # Od 13.10.2026 do kolejki wkłada Delivery Lead po akceptacji.
+            await _move(api_client, dl, world, "cpro", **CPRO_RATE)
             assert await _stage_bells(rec_id, cid) == []
 
-            # „Zwróć do rekrutera”: ruch wstecz, a mimo to dzwonek.
+            # „Zwróć”: ruch wstecz, a mimo to dzwonek — do akceptującego DL-a
+            # (karta wraca do jego przeglądu).
             await _move(api_client, sender, world, "qc")
-            bells = await _stage_bells(rec_id, cid)
+            bells = await _stage_bells(dl_id, cid)
             assert [b.title.split(":")[0] for b in bells] == ["Wrócił z kolejki Cpro"]
             assert bells[0].notification_type == NotificationType.board_task_waiting
             assert bells[0].link == f"/jobs/{jid}?candidate={cid}"
-            # Osoba od Cpro nie dostaje dzwonka o własnym zwrocie.
-            assert len(await _stage_bells(sender_id, cid)) == 1
+            # Osoba od Cpro nie dostaje dzwonka o własnym zwrocie (ma tylko
+            # zgaszone „Do wrzucenia”).
+            sender_bells = await _stage_bells(sender_id, cid)
+            assert [b.title.split(":")[0] for b in sender_bells] == [
+                "Do wrzucenia do Cpro"
+            ]
+            assert sender_bells[0].is_read
 
-            # Zwykłe cofnięcie karty nadal nikogo nie powiadamia.
+            # Cofnięcie z „QC CV” nie dzwoni do osoby od Cpro, choć to ona
+            # przesunęła kartę do „QC CV” — CV poprawia rekruter.
             await _move(api_client, rec, world, "verified")
-            assert len(await _stage_bells(rec_id, cid)) == 1
             assert len(await _stage_bells(sender_id, cid)) == 1
     finally:
-        await _cleanup(world, [admin_id, rec_id, sender_id])
+        await _cleanup(world, [admin_id, rec_id, sender_id, dl_id])
 
 
 async def _add_badge_stages(world: dict) -> None:

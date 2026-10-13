@@ -110,7 +110,13 @@ vi.mock("@/components/v2/recruitment/DlReviewPanel", () => ({
     onDecided,
     sequence,
   }: {
-    task: { stage_id: number; verified_by_name?: string | null; cv_stage_id?: number | null };
+    task: {
+      stage_id: number;
+      verified_by_name?: string | null;
+      cv_stage_id?: number | null;
+      target_stage_def_id?: number | null;
+      cpro?: boolean;
+    };
     canSendToClient?: boolean;
     onClose: () => void;
     layout: string;
@@ -124,6 +130,8 @@ vi.mock("@/components/v2/recruitment/DlReviewPanel", () => ({
       data-verified-by={task.verified_by_name ?? ""}
       data-cv-stage-id={String(task.cv_stage_id ?? "")}
       data-can-send={String(canSendToClient)}
+      data-target-stage-def-id={String(task.target_stage_def_id ?? "")}
+      data-cpro={String(task.cpro === true)}
     >
       <button type="button" onClick={onClose}>
         zamknij przegląd
@@ -1852,6 +1860,41 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(post.mock.calls.filter((c) => c[0] === "/api/pipeline/move")).toHaveLength(0);
   });
 
+  // Nordea (13.10.2026): „Przejrzyj i zaakceptuj do Cpro” z okna „Przesuń
+  // dalej” otwiera przegląd z celem „Wysłać do Cpro” — goły ruch na etap Cpro
+  // bez stawki serwer odrzuca (422).
+  it("Nordea: „Przejrzyj i zaakceptuj do Cpro” w oknie „Przesuń dalej” otwiera przegląd, nie ruch", async () => {
+    useAuthStore.setState({ user: { id: 7, role: "delivery_lead", roles: ["delivery_lead"] } } as never);
+    qcResultCandidate.id = 8302;
+    get.mockImplementation((url: string) =>
+      url === "/api/pipeline/move-requirements"
+        ? Promise.resolve({
+            data: {
+              from_column: "cv_qc",
+              to_column: "cv_sent",
+              skipped_columns: [],
+              items: [],
+              primary: { kind: "hand_to_cpro", label: "Przejrzyj i zaakceptuj do Cpro", target_stage_def_id: 304 },
+              owner_note: null,
+            },
+          })
+        : Promise.resolve({ data: {} }),
+    );
+    renderBoard(qcColumns({ status: "passed", blocking_failed: 0 }) as never, undefined, false, true, true);
+    await screen.findByTestId("pipeline-board");
+    const card = document.querySelector('[data-candidate-id="8302"]') as HTMLElement;
+    await userEvent.click(within(card).getByRole("button", { name: /otwórz QC CV dla Kuba Braki/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "QC: przesuń dalej" }));
+    const dialog = await screen.findByTestId("move-next-dialog");
+    await userEvent.click(await within(dialog).findByRole("button", { name: /Przejrzyj i zaakceptuj do Cpro/ }));
+
+    const panel = await screen.findByTestId("dl-review-panel");
+    expect(panel).toHaveAttribute("data-stage-id", "7302");
+    expect(panel).toHaveAttribute("data-target-stage-def-id", "304");
+    expect(panel).toHaveAttribute("data-cpro", "true");
+    expect(post.mock.calls.filter((c) => c[0] === "/api/pipeline/move")).toHaveLength(0);
+  });
+
   // Test na produkcji 03.10.2026: strzałka na karcie otwierała samo okno stawki
   // do klienta — bez karty rekomendacji, uwag i „Wróć do poprawy”. Od 13.10.2026
   // gotowa karta ma u osoby z prawem wysyłki „Przejrzyj i wyślij” zamiast
@@ -2331,14 +2374,30 @@ describe("KanbanBoardV2 — „Do wysłania do klienta” (13.10.2026)", () => {
     expect(screen.queryByTestId("move-next-dialog")).toBeNull();
   });
 
-  it.each<[string, boolean, boolean]>([
-    ["tablica tylko do odczytu", true, false],
-    ["klient z kolejką Cpro", false, true],
-  ])("%s: bez przycisków przeglądu, także u Delivery Leada rekrutacji", async (_label, readOnly, cproEnabled) => {
-    renderBoard(readyColumns(2), undefined, readOnly, cproEnabled, true);
+  it("tablica tylko do odczytu: bez przycisków przeglądu, także u Delivery Leada rekrutacji", async () => {
+    renderBoard(readyColumns(2), undefined, true, false, true);
     await screen.findByTestId("pipeline-board");
     expect(screen.queryByTestId("card-review-send")).toBeNull();
     expect(screen.queryByTestId("dl-review-sequence-start")).toBeNull();
+  });
+
+  it("Nordea (13.10.2026): Delivery Lead akceptuje w przeglądzie, a jego celem jest etap „Wysłać do Cpro”", async () => {
+    renderBoard(readyColumns(2), undefined, false, true, true);
+    await screen.findByTestId("pipeline-board");
+    const card = cardOf(8301);
+    expect(within(card).getByTestId("card-next-who")).toHaveTextContent("Twój ruch");
+    expect(within(card).getByTestId("card-badge-dl_review")).toHaveTextContent("Czeka na Ciebie · 1 dzień");
+    expect(screen.getByTestId("dl-review-sequence-start")).toHaveTextContent("Przejrzyj po kolei (2)");
+    expect(screen.getByTestId("dl-review-compare")).toBeInTheDocument();
+
+    await userEvent.click(within(card).getByTestId("card-review-send"));
+
+    const panel = await screen.findByTestId("dl-review-panel");
+    expect(panel).toHaveAttribute("data-stage-id", "7301");
+    // „Wysłać do Cpro” w szablonie Default B2B (`defaultB2BColumns`, indeks 4).
+    expect(panel).toHaveAttribute("data-target-stage-def-id", "304");
+    expect(panel).toHaveAttribute("data-cpro", "true");
+    expect(moveCalls()).toHaveLength(0);
   });
 });
 

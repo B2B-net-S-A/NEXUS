@@ -96,9 +96,13 @@ const stageIdOf = (row: BoardTaskRow): number => row.stage_id;
 /** Od kiedy osoba czeka na Delivery Leada; starszy serwer nie zna `ready_since`. */
 const sinceOf = (row: BoardTaskRow): string => row.ready_since ?? row.since;
 
+/** Nordea (13.10.2026): przegląd kończy akceptacja do kolejki Cpro. */
+const CPRO_ROW_SUFFIX = " · → Cpro";
+
 function jobLine(row: BoardTaskRow): string {
   const title = row.job_working_title?.trim() || row.job_title;
-  return row.client_name ? `${title} · ${row.client_name}` : title;
+  const line = row.client_name ? `${title} · ${row.client_name}` : title;
+  return row.cpro ? `${line}${CPRO_ROW_SUFFIX}` : line;
 }
 
 /**

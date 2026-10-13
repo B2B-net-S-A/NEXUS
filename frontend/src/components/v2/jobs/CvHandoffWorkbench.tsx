@@ -799,14 +799,14 @@ export function CvHandoffWorkbench({
                   </div>
                   <p className="text-[10.5px] text-muted-foreground">
                     {cproEnabled
-                      ? "Puste pole wysyła bez stawki — DL uzupełni ją później na karcie rekrutacji."
+                      ? "Z kolejki Cpro wyślesz bez stawki — wpisał ją Delivery Lead przy akceptacji. Z pominięciem kolejki stawka do Cpro jest wymagana."
                       : "Bez stawki do klienta nie wyślesz. Stawka do klienta jest punktem odniesienia dla zamówienia klienta; do umowy idzie stawka kandydata."}
                   </p>
                 </DockSection>
               ) : (
                 <p className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
                   {cproEnabled
-                    ? `Stawkę do klienta ustala osoba z uprawnieniem „${permissionLabel("recruitment_manage")}” — wysyłka idzie bez stawki, zostanie uzupełniona później.`
+                    ? `Do Cpro wysyła się z kolejki Cpro, po akceptacji osoby z uprawnieniem „${permissionLabel("recruitment_manage")}” — to ona wpisuje stawkę do Cpro.`
                     : `${CLIENT_SEND_DENIED_MESSAGE} Ona też ustala stawkę do klienta.`}
                 </p>
               )}

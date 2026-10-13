@@ -182,14 +182,14 @@ describe("MoveNextDialog", () => {
     expect(toastSuccess).not.toHaveBeenCalledWith(HAND_TO_DL_MESSAGE);
   });
 
-  it("hand_to_cpro: ruch na etap Cpro wskazany przez serwer", async () => {
+  it("hand_to_cpro (Delivery Lead Nordei): akceptacja na etap Cpro wskazany przez serwer", async () => {
     respond({
       from_column: "cv_qc",
       to_column: "cv_sent",
-      primary: { kind: "hand_to_cpro", label: "Przekaż do Cpro", target_stage_def_id: 45 },
+      primary: { kind: "hand_to_cpro", label: "Przejrzyj i zaakceptuj do Cpro", target_stage_def_id: 45 },
     });
     const props = renderDialog({ cproEnabled: true, targetKey: "cv_sent", fromKey: "cv_qc" });
-    await userEvent.click(await screen.findByRole("button", { name: /Przekaż do Cpro/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /Przejrzyj i zaakceptuj do Cpro/ }));
     expect(props.onHandToCpro).toHaveBeenCalledWith(45);
     expect(props.onMove).not.toHaveBeenCalled();
   });

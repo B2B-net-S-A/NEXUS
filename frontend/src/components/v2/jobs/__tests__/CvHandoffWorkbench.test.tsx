@@ -350,14 +350,16 @@ describe("CvHandoffWorkbench", () => {
     );
   });
 
-  it("u Nordei bez `can_write_client_rate` pole stawki znika, a wysyłka i tak idzie", async () => {
+  it("u Nordei bez `can_write_client_rate` pole stawki znika, a wysyłka z kolejki Cpro i tak idzie", async () => {
     // Nawet admin z roli — decyduje pole z serwera, nie zgadywanie po roli.
+    // Od 13.10.2026 stawkę do Cpro wpisuje Delivery Lead przy akceptacji;
+    // wysyłkę z pominięciem kolejki odrzuca serwer.
     renderWorkbench({ canWriteClientRate: false, cproEnabled: true });
     await readySendButton();
 
     expect(screen.queryByLabelText("Kwota")).toBeNull();
     expect(
-      screen.getByText(/Stawkę do klienta ustala osoba z uprawnieniem „Rekrutacje: zakładanie/),
+      screen.getByText(/Do Cpro wysyła się z kolejki Cpro, po akceptacji osoby z uprawnieniem „Rekrutacje: zakładanie/),
     ).toBeTruthy();
 
     await userEvent.click(await sendButton());

@@ -572,6 +572,7 @@ async def _seed_world(*, champion_profile: dict | None = None) -> dict:
             "client_id": cli.id,
             "candidate_id": cand.id,
             "job_id": job.id,
+            "job_title": job.title,
             "template_id": tpl.id,
             "defs": {k: d.id for k, d in defs.items()},
         }
@@ -655,6 +656,14 @@ async def clear_cpro_sender() -> None:
         await db.commit()
 
 
+# Akceptacja do kolejki Cpro (13.10.2026): Delivery Lead i stawka do Cpro.
+CPRO_RATE = {
+    "client_rate_value": "158",
+    "client_rate_unit": "hourly",
+    "client_rate_currency": "PLN",
+}
+
+
 async def _move(client: AsyncClient, headers: dict, world: dict, key: str, **extra):
     resp = await client.post(
         "/api/pipeline/move",
@@ -680,8 +689,10 @@ async def test_nordea_cpro_queue_with_one_sender_for_the_company(
     hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
     rec_id, rec_creds = await _seed_user(UserRole.recruiter)
     other_id, other_creds = await _seed_user(UserRole.recruiter)
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
     hor = await _login(api_client, hor_creds)
     rec = await _login(api_client, rec_creds)
+    dl = await _login(api_client, dl_creds)
     cid, defs = world["candidate_id"], world["defs"]
     try:
         async with restore_cpro_sender():
@@ -691,11 +702,35 @@ async def test_nordea_cpro_queue_with_one_sender_for_the_company(
             await _move(api_client, hor, world, "verified")
             await _move(api_client, hor, world, "qc")
             queue = (await api_client.get("/api/board-tasks", headers=hor)).json()
-            # U Nordei osoba w QC CV nie czeka na przegląd DL.
+            # Przegląd DL (u Nordei: akceptacja do Cpro) nie jest zadaniem HoR.
             assert _rows(queue, "dl_review", cid) == []
             assert "dz" not in queue and "can_approve_dz" not in queue
 
-            await _move(api_client, rec, world, "cpro")
+            # 13.10.2026: rekruter nie wkłada osoby do kolejki Cpro —
+            # akceptuje Delivery Lead i wpisuje stawkę do Cpro.
+            refused = await api_client.post(
+                "/api/pipeline/move",
+                headers=rec,
+                json={
+                    "candidate_id": cid,
+                    "job_id": world["job_id"],
+                    "stage_def_id": defs["cpro"],
+                },
+            )
+            assert refused.status_code == 403, refused.text
+            assert "Delivery Lead" in refused.json()["detail"]["message"]
+            no_rate = await api_client.post(
+                "/api/pipeline/move",
+                headers=dl,
+                json={
+                    "candidate_id": cid,
+                    "job_id": world["job_id"],
+                    "stage_def_id": defs["cpro"],
+                },
+            )
+            assert no_rate.status_code == 422, no_rate.text
+            assert "stawkę do Cpro" in no_rate.json()["detail"]
+            await _move(api_client, dl, world, "cpro", **CPRO_RATE)
             queue = (await api_client.get("/api/board-tasks", headers=hor)).json()
             todo = _rows(queue, "cpro_to_send", cid)
             assert len(todo) == 1 and todo[0]["assignee_id"] is None
@@ -739,7 +774,10 @@ async def test_nordea_cpro_queue_with_one_sender_for_the_company(
             assert item["return_stage_def_id"] == defs["qc"]
             assert item["qc_status"] == "unchecked"
             assert item["cv"] is None
-            assert item["client_rate_value"] is None
+            # Stawka z akceptacji i kto zaakceptował — komplet dla osoby od Cpro.
+            assert item["client_rate_value"] == 158.0
+            assert item["accepted"] is True and item["accepted_by_name"]
+            assert item["accepted_at"] is not None
             before_sent = cpro["sent_today"]
 
             # Stawkę do klienta widzi HoR i osoba od Cpro, inny rekruter nie
@@ -777,7 +815,7 @@ async def test_nordea_cpro_queue_with_one_sender_for_the_company(
             ).json()
             assert cpro["sent_today"] == before_sent + 1
     finally:
-        await _cleanup(world, [hor_id, rec_id, other_id])
+        await _cleanup(world, [hor_id, rec_id, other_id, dl_id])
 
 
 def test_removed_dz_routes_are_gone() -> None:
@@ -1083,7 +1121,9 @@ async def test_assignee_on_ready_move_still_sets_the_job_fallback(
                 assert refused.status_code == 403, refused.text
             async with AsyncSessionLocal() as db:
                 assert (await db.get(Job, jid)).cpro_sender_id is None
-            await _move(api_client, admin, world, "cpro", task_assignee_id=rec_id)
+            await _move(
+                api_client, admin, world, "cpro", task_assignee_id=rec_id, **CPRO_RATE
+            )
             async with AsyncSessionLocal() as db:
                 assert (await db.get(Job, jid)).cpro_sender_id == rec_id
             async with AsyncSessionLocal() as db:

@@ -22,8 +22,8 @@ bieżąca migawka różni się od migawki prośby w tym polu (CV — gdy CV firm
 zmienił po prośbie człowiek; szkic podpięty przez automat auto-CV po ruchu na
 „Zweryfikowany” się nie liczy).
 
-Wyłącznie poza Nordeą (tam nie ma przeglądu DL) i wyłącznie przy ruchu
-z „QC CV” na „Zweryfikowany”.
+Wyłącznie przy ruchu z „QC CV” na „Zweryfikowany” — od 13.10.2026 także
+u Nordei, gdzie „QC CV” to przegląd DL przed kolejką Cpro.
 """
 
 from __future__ import annotations
@@ -44,7 +44,6 @@ from app.models.screening_form_version import ScreeningFormVersion
 from app.models.user import User
 from app.services import screening_form_rules as rules
 from app.services import screening_sheets
-from app.services.board_stage_badges import cpro_enabled_for_client
 from app.services.recommendation_card_rules import DISPLAY_LABELS
 
 ACTION = "fix_requested"
@@ -136,12 +135,12 @@ def assert_allowed(
     target_column: Optional[str],
     client_id: Optional[int],
 ) -> None:
-    """Lista poprawek tylko przy „Wróć do poprawy” z „QC CV”, poza Nordeą."""
-    if cpro_enabled_for_client(client_id):
-        raise _invalid(
-            "U tego klienta nie ma przeglądu Delivery Leada — CV idzie do Cpro.",
-            NOT_ALLOWED_CODE,
-        )
+    """Lista poprawek tylko przy „Wróć do poprawy” z „QC CV”.
+
+    ``client_id`` zostaje w sygnaturze: do 13.10.2026 Nordea (bez przeglądu
+    DL) dostawała tu odmowę, a wołający go podają.
+    """
+    del client_id
     if from_column != FROM_COLUMN or target_column != TARGET_COLUMN:
         raise _invalid(
             "Listę poprawek wysyła się tylko przy cofnięciu z „QC CV” na "

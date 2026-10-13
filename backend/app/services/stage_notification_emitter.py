@@ -37,6 +37,7 @@ from app.services.notification_delivery import (
     load_policy,
 )
 from app.services.notification_triggers import emit
+from app.services.board_stage_badges import cpro_enabled_for_client
 from app.services.consultant_elsewhere_notifications import (
     notify_current_client_leads,
 )
@@ -123,6 +124,21 @@ def _inapp_content(
     return title, message, link
 
 
+# `notifications.title` to VARCHAR(255); nazwa rekrutacji od klienta bywa długa.
+_TITLE_MAX = 255
+
+
+def _fit_title(title: str) -> str:
+    return title if len(title) <= _TITLE_MAX else title[: _TITLE_MAX - 1].rstrip() + "…"
+
+
+def _cpro_job_label(job: Job) -> str:
+    """Rekrutacja tak, jak zna ją Nordea: nazwa od klienta i numer (0380)."""
+
+    reference = (getattr(job, "client_reference", None) or "").strip()
+    return f"{job.title} ({reference})" if reference else job.title
+
+
 def _inapp_base(
     *,
     reason: Optional[str],
@@ -136,26 +152,37 @@ def _inapp_base(
     who = mover.name if mover and mover.name else "Ktoś z zespołu"
     board_link = f"/jobs/{job.id}?candidate={candidate.id}"
     if reason == REASON_DL_REVIEW:
+        next_step = (
+            "Sprawdź CV i zaakceptuj do kolejki Cpro."
+            if cpro_enabled_for_client(getattr(job, "client_id", None))
+            else "Sprawdź CV i wyślij je do klienta."
+        )
         return (
             f"{TITLE_DL_REVIEW} {candidate_full_name}",
             f"{who} przekazał(a) CV kandydata {candidate_full_name} do QC "
-            f"w rekrutacji „{job_title}”. Sprawdź CV i wyślij je do klienta.",
+            f"w rekrutacji „{job_title}”. {next_step}",
             # Prosto do przeglądu (stawka do klienta, trzy decyzje), nie do
             # samego panelu osoby — 04.10.2026.
             f"{board_link}&review=1",
         )
     if reason == REASON_CPRO_QUEUE:
         return (
-            f"{TITLE_CPRO_QUEUE} {candidate_full_name}",
-            f"{who} przekazał(a) kandydata {candidate_full_name} do kolejki "
-            f"Cpro w rekrutacji „{job_title}”.",
+            # Rekrutacja i numer u klienta w tytule (i temacie maila): ta sama
+            # osoba w dwóch rekrutacjach Nordei dawała dwa identyczne dzwonki.
+            _fit_title(
+                f"{TITLE_CPRO_QUEUE} {candidate_full_name} · {_cpro_job_label(job)}"
+            ),
+            f"{who} zaakceptował(a) kandydata {candidate_full_name} do Cpro "
+            f"w rekrutacji „{job_title}”. Stawka do Cpro jest wpisana — komplet "
+            "danych czeka w kolejce Cpro na pulpicie.",
             board_link,
         )
     if reason == REASON_CPRO_RETURNED:
         return (
             f"{TITLE_CPRO_RETURNED} {candidate_full_name}",
             f"{who} zwrócił(a) kandydata {candidate_full_name} z kolejki Cpro "
-            f"w rekrutacji „{job_title}”. Popraw CV i przekaż ponownie.",
+            f"w rekrutacji „{job_title}”. Osoba wróciła do przeglądu Delivery "
+            "Leada w „QC CV”.",
             board_link,
         )
     if reason == REASON_QC_RETURNED:

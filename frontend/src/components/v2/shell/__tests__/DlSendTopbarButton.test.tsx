@@ -42,7 +42,8 @@ const QUEUE: DlSendQueueResponse = {
       waiting_workdays: 1,
       handed_over_by_name: null,
     }),
-    row({ stage_id: 503, candidate_id: 23, candidate_name: "Adam Fikcyjny", urgency: "fresh", waiting_workdays: 0 }),
+    // Nordea (13.10.2026): osoba czeka na akceptację do kolejki Cpro.
+    row({ stage_id: 503, candidate_id: 23, candidate_name: "Adam Fikcyjny", urgency: "fresh", waiting_workdays: 0, cpro: true }),
   ],
   ready_total: 3,
   not_ready_total: 2,
@@ -114,6 +115,10 @@ describe("DlSendTopbarButton — licznik „Do wysłania” w górnym pasku", ()
     const second = screen.getByRole("link", { name: /Tomasz Testowy/ });
     expect(second).toHaveTextContent("Analityk danych (BI) · Telko Przykładowe");
     expect(second).not.toHaveTextContent("przekazał(a)");
+    expect(second).not.toHaveTextContent("Cpro");
+    expect(screen.getByRole("link", { name: /Adam Fikcyjny/ })).toHaveTextContent(
+      "Java Developer · Bank Przykładowy · → Cpro · przekazał(a) Ola Rekruterska",
+    );
 
     expect(screen.getByRole("link", { name: "Przejrzyj po kolei (3)" })).toHaveAttribute(
       "href",

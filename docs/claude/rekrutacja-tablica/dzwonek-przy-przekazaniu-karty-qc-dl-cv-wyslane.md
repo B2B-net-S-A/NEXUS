@@ -7,8 +7,9 @@ i zasiane raz, w kwietniu — „QC CV” (0361) nie ma żadnej, a „CV wysłan
 znało tylko `jobs.recruiter_id` (osobę z automatu przydziału albo nikogo).
 
 - **Trzy przekazania działają bez reguł** (`services/stage_handoff_recipients.py`,
-  wpięte w `stage_notification_resolver.resolve_recipients`): „QC CV” poza
-  Nordeą → Delivery Lead rekrutacji (lustro `board_tasks._sees_dl_review`:
+  wpięte w `stage_notification_resolver.resolve_recipients`): „QC CV” →
+  Delivery Lead rekrutacji (od 13.10.2026 także u Nordei — prośba
+  o akceptację do kolejki Cpro, `rekrutacja-tablica/nordea-akceptacja-dl-przed-cpro.md`) (lustro `board_tasks._sees_dl_review`:
   aktywny DL z rekrutacji, bez niego DL-e z portfelem klienta); kolejka Cpro
   u Nordei → osoba od Cpro (firmowa, bez niej zapasowa rekrutacji); „CV
   wysłane” → rekruter kandydata (`interview_slots.default_recruiter_id`:

@@ -490,6 +490,33 @@ def _items_for(column: str, f: PairFacts) -> list[_Item]:
             )
         ]
         if f.nordea:
+            # Od 13.10.2026 do kolejki Cpro wkłada Delivery Lead po akceptacji
+            # i wpisuje stawkę do Cpro (`pipeline_move_rules.requires_dl_client_rate`).
+            if f.is_client_sender:
+                items.append(
+                    _Item(
+                        column,
+                        "client_rate",
+                        "Stawka do Cpro",
+                        OK if f.client_rate else WAITING,
+                        False,
+                        None if f.client_rate else "wpiszesz ją przy akceptacji",
+                        None
+                        if f.client_rate
+                        else _action("set_client_rate", "Przejrzyj i zaakceptuj", sid),
+                    )
+                )
+            else:
+                items.append(
+                    _Item(
+                        column,
+                        "dl_acceptance",
+                        "Akceptacja Delivery Leada",
+                        WAITING,
+                        False,
+                        "Delivery Lead akceptuje i wpisuje stawkę do Cpro",
+                    )
+                )
             items.extend(_items_for_cpro_upload(column, f))
         elif f.is_client_sender:
             items.append(
@@ -626,18 +653,51 @@ def build_requirements(facts: PairFacts, to_column: str) -> dict[str, Any]:
                     if facts.cpro_sender_name
                     else "Nikt nie jest ustawiony do wysyłki do Cpro."
                 )
-        else:
+        elif facts.is_client_sender and from_column == "cv_qc":
+            # Delivery Lead akceptuje osobę do kolejki Cpro w przeglądzie
+            # (stawka do Cpro wymagana) — front otwiera przegląd, nie goły ruch.
             primary = {
                 "kind": "hand_to_cpro",
-                "label": "Przekaż do kolejki Cpro",
+                "label": "Przejrzyj i zaakceptuj do Cpro",
                 "target_stage_def_id": facts.cpro_stage_def_id,
             }
             owner_note = (
-                f"Do Cpro wrzuca {facts.cpro_sender_name} — osoba trafi do kolejki Cpro."
+                f"Po akceptacji osoba trafi do kolejki Cpro — wrzuca {facts.cpro_sender_name}."
                 if facts.cpro_sender_name
                 else (
-                    "Nikt nie jest ustawiony do wysyłki do Cpro — ustaw osobę "
-                    "w kolejce Cpro."
+                    "Po akceptacji osoba trafi do kolejki Cpro. Nikt nie jest "
+                    "ustawiony do wysyłki do Cpro — ustaw osobę w kolejce Cpro."
+                )
+            )
+        else:
+            # Rekruter przekazuje osobę Delivery Leadowi (13.10.2026) — do
+            # kolejki Cpro wkłada dopiero DL po akceptacji. Delivery Lead
+            # z kolumny sprzed „QC CV” najpierw przenosi tam kartę: przegląd
+            # i akceptacja są w „QC CV”. Blokuje tylko to, co potrzebne do
+            # wejścia do „QC CV”.
+            qc_index = BOARD_COLUMN_ORDER.index("cv_qc")
+            blocking = [
+                item
+                for item in blocking
+                if BOARD_COLUMN_ORDER.index(item.column) <= qc_index
+            ]
+            primary = {
+                "kind": "hand_to_dl",
+                "label": (
+                    "Przenieś do „QC CV” do akceptacji"
+                    if facts.is_client_sender
+                    else "Przekaż Delivery Leadowi"
+                ),
+                "target_stage_def_id": (
+                    None if from_column == "cv_qc" else facts.qc_stage_def_id
+                ),
+            }
+            owner_note = (
+                "Akceptuje Delivery Lead — po akceptacji osoba trafi do kolejki "
+                + (
+                    f"Cpro (wrzuca {facts.cpro_sender_name})."
+                    if facts.cpro_sender_name
+                    else "Cpro."
                 )
             )
     elif to_column == "cv_sent" and not facts.is_client_sender:

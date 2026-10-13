@@ -192,7 +192,8 @@ class DlReviewQueueItem(BaseModel):
 
 class DlReviewQueue(BaseModel):
     job_id: int
-    # Nordea: CV idzie do Cpro, przeglądu DL nie ma — lista zawsze pusta.
+    # Nordea: przegląd kończy akceptacja do kolejki Cpro (13.10.2026), nie
+    # wysyłka do klienta. Do tego dnia lista była tu zawsze pusta.
     cpro_client: bool
     items: list[DlReviewQueueItem]
     total: int
@@ -242,10 +243,6 @@ async def get_dl_review_queue(
     _assert_reviewer(user)
     await ensure_job_read_access(db, user, job_id)
     job = await _job(db, job_id)
-    if cpro_enabled_for_client(job.client_id):
-        return DlReviewQueue(
-            job_id=job_id, cpro_client=True, items=[], total=0, limit=svc.QUEUE_LIMIT
-        )
     snapshot = await board_tasks_svc.load_snapshot(db, job_id=job_id)
     tasks = [
         t
@@ -274,7 +271,7 @@ async def get_dl_review_queue(
         )
     return DlReviewQueue(
         job_id=job_id,
-        cpro_client=False,
+        cpro_client=cpro_enabled_for_client(job.client_id),
         items=items,
         total=len(tasks),
         limit=svc.QUEUE_LIMIT,

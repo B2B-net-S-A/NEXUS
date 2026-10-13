@@ -117,12 +117,16 @@ function taskRow(
   };
 }
 
+// Rekrutacja „nordycka” (fikcyjna): od 13.10.2026 przegląd kończy tu
+// akceptacja do kolejki Cpro — wiersz z dopiskiem „→ Cpro”.
 const DATA_ROW: Partial<BoardTaskRow> = {
   job_id: DATA_JOB,
   job_title: "Analityk danych (ZOB-0002)",
   job_working_title: "Analityk danych · SQL, Power BI",
   client_id: 8,
-  client_name: "Telko Wzorcowe",
+  client_name: "Bank Nordycki",
+  cpro: true,
+  target_stage_def_id: 304,
   budget_min_hourly: 110,
   budget_max_hourly: 130,
   deadline: dayAhead(18),
