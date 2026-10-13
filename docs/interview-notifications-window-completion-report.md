@@ -71,7 +71,9 @@ Bez migracji i bez nowych typów powiadomień.
 | Reguła „moje” i wskazanie wykonawcy dla 10 rodzajów zadań | przechodzi | `pytest tests/test_interview_cycle.py` (część bez bazy), 27 testów, 13.10.2026 |
 | Strażnicy tras (`test_route_authz_contract`, `test_section_ceiling_contract`, `test_notification_section_access`, `test_authz_guard_matrix`) | przechodzą | lokalnie, Python 3.12 bez bazy; wzorzec `authz_golden/notifications.json` +2 wiersze |
 | Lint i format backendu | przechodzą | `ruff check`, `ruff format --check` na zmienionych plikach |
-| Testy backendu z bazą (`test_interview_notifications_window.py`, `test_interview_cycle.py`) | w CI | lokalnie nieuruchamiane (bez Postgresa) — sito na PR-ze B2B-net-S-A/NEXUS#2170 |
+| Testy backendu z bazą (`test_interview_notifications_window.py`, `test_interview_cycle.py`) | przechodzą w CI | lokalnie nieuruchamiane (bez Postgresa); sito na PR-ze B2B-net-S-A/NEXUS#2170: 267 testów (bieg 38372769498) |
+| Pełny bieg CI na gałęzi | przechodzi | `gh workflow run CI` — 12 shardów pytest, vitest z pokryciem, lint, typy, build, Trivy (bieg 38377923063, commit `5a214cc62`) |
+| E2E na gałęzi | przechodzi | `gh workflow run e2e.yml -f k6_profile=smoke` — 22 scenariusze stosu, 165 testów harnessów `/preview/*`, w tym nowy harness w pięciu szerokościach (bieg 38377926660) |
 | Testy frontendu: logika okienka, kontener, dzwonek, gniazdo, strażnicy | przechodzą | `npx vitest run` — pliki zmiany i sąsiednie katalogi, 316 plików, 4751 testów |
 | Typy, lint, bramka nieosiągalnych modułów | przechodzą | `npm run type-check`, `npx eslint` na zmienionych plikach, `check-unreachable-modules.mjs` |
 | Wygląd okienka i stanów | sprawdzone na harnessie | zrzuty przy 1280×720, 1280×960 i 360 px; przy 360 px bez poziomego przewijania |
