@@ -13,7 +13,16 @@
  * (`attach_as_stage_draft`). Karta tylko opisuje stan — niczego nie blokuje:
  * ruch na „CV wysłane” działa niezależnie od niej („Kanban bez bramek”).
  * Zgoda RODO blokuje wyłącznie POBRANIE pliku (serwer odpowiada 409).
+ *
+ * 13.10.2026 (PR 4 „CV w procesie”): karta pokazuje JEDNĄ liczbę rzeczy do
+ * sprawdzenia przed wysłaniem — QC, uwagi generatora i kontrola AI razem
+ * (`cvChecksBeforeSending`), ta sama co „Do poprawy (N)” w edytorze. Osobny
+ * licznik kontroli AI z listy wygenerowanych CV zniknął.
  */
+
+import type { QcCheck } from "@/lib/api/cvQc";
+import { classifyCvWarnings } from "@/lib/cv-generator";
+import { splitChecks, warningsBeyondQc } from "@/lib/cv-qc";
 
 /** Lista wygenerowanych CV pary — prefiks `cv-generated` jak reszta generatora
  *  (dołączenie zgody i nowa generacja unieważniają go hurtem). */
@@ -199,8 +208,6 @@ export interface CvToClientState {
   failed: StageGeneratedCvRow | null;
   /** Dokument etapu nie ma zrzutu zgody, której wymaga reguła klienta. */
   consentMissing: boolean;
-  /** Liczba uwag niezależnej kontroli AI (0 = brak albo kontrola nie biegła). */
-  findings: number;
   /** Auto-CV, którego nikt jeszcze nie przejrzał. */
   needsReview: boolean;
 }
@@ -253,21 +260,15 @@ export function resolveCvToClient({
     generating,
     failed: null as StageGeneratedCvRow | null,
     consentMissing: false,
-    findings: 0,
     needsReview: false,
   };
 
   if (status === "ready") {
-    const findings =
-      attached?.factual_review?.status === "advisory"
-        ? Math.max(0, attached.factual_review.findings ?? 0)
-        : 0;
     return {
       ...base,
       kind: "ready",
       // Wiersz generatora mówi o swoim pakiecie; kopia bez niego — sama o sobie.
       consentMissing: attached?.consent_missing === true || branded?.consent_missing === true,
-      findings,
       needsReview: attached?.needs_review === true,
     };
   }
@@ -296,4 +297,42 @@ export function cvToClientShouldPoll(
   // wiersz jest już „ready”). Porażka i podpięte CV kończą odpytywanie; sufit
   // czasu trzyma wołający — etap ze starym szkicem nie dostanie podpięcia nigdy.
   return state.kind === "none" || state.kind === "unattached" || state.kind === "legacy";
+}
+
+// ── „N rzeczy do sprawdzenia przed wysłaniem” (13.10.2026) ──────────────────
+
+/**
+ * QC karty — bez zapisu przebiegu (`transient`), jak lista w edytorze. Wersja
+ * szkicu w kluczu: zapis i nowe CV liczą się od nowa. Prefiks `["cv-qc", id]`
+ * jest wspólny z oknem QC, więc jego unieważnienia odświeżają też kartę.
+ */
+export function cvToClientQcQueryKey(stageId: number, revision: number | null = null) {
+  return ["cv-qc", stageId, "card", revision] as const;
+}
+
+/** Uwagi generatora i kontroli AI karty — prefiks klucza edytora (`["cv-editor-issues", id]`). */
+export function cvToClientIssuesQueryKey(stageId: number, revision: number | null = null) {
+  return ["cv-editor-issues", stageId, "card", revision] as const;
+}
+
+export interface CvChecksInput {
+  /** Sprawdzenia QC tego CV (puste, gdy QC opisuje inne CV pary). */
+  checks: QcCheck[];
+  /** Uwagi generatora (bez pominiętych — serwer je zdejmuje). */
+  warnings: readonly string[];
+  /** Uwagi kontroli AI zatwierdzonej wersji (bez pominiętych). */
+  findings: readonly unknown[];
+}
+
+/**
+ * Jedna liczba rzeczy do sprawdzenia przed wysłaniem: rzeczy do poprawy z QC
+ * (blokujące pozycje i niewyciszone uwagi, po pominięciach), uwagi generatora
+ * „Do sprawdzenia” bez tych, które QC już pokazuje, i uwagi kontroli AI.
+ * Edytor liczy tak samo, tylko kontrolę AI bierze z linii, które nadal stoją
+ * w CV (`buildIssueList`).
+ */
+export function cvChecksBeforeSending({ checks, warnings, findings }: CvChecksInput): number {
+  const split = splitChecks(checks);
+  const review = classifyCvWarnings(warnings).review;
+  return split.tasks.length + split.notes.length + warningsBeyondQc(review, checks).kept.length + findings.length;
 }

@@ -32,6 +32,8 @@ import type { CvCandidateOption } from "@/components/v2/cv-generator/useCvGenera
 import { CvToClientCard } from "@/components/v2/recruitment/CvToClientCard";
 import { api, type GeneratedCvItem } from "@/lib/api";
 import {
+  cvToClientIssuesQueryKey,
+  cvToClientQcQueryKey,
   cvToClientRowsQueryKey,
   stageBrandedQueryKey,
   stageCvSourcesQueryKey,
@@ -346,6 +348,34 @@ function seedCardStates(qc: QueryClient) {
             },
           ];
     qc.setQueryData(cvToClientRowsQueryKey(person.candidateId, CARD_JOB_ID), rows);
+    if (person.variant !== "none") {
+      // Jedna liczba rzeczy do sprawdzenia (13.10.2026): QC karty i uwagi edytora.
+      const fresh = { updatedAt: Date.now() + 86_400_000 };
+      qc.setQueryData(
+        cvToClientQcQueryKey(person.stageId, 1),
+        { stage_id: person.stageId, cv: { stage_id: person.stageId }, checks: [] },
+        fresh,
+      );
+      qc.setQueryData(
+        cvToClientIssuesQueryKey(person.stageId, 1),
+        {
+          generated_document_id: detached ? null : generatedId,
+          generator_warnings: [],
+          content_review: {
+            status: person.variant === "ready" ? "reviewed" : null,
+            version: person.variant === "ready" ? 1 : null,
+            findings:
+              person.variant === "ready"
+                ? [
+                    { text: "Przeglądy kodu i wdrażanie młodszych programistów.", status: "unsupported" },
+                    { text: "Prowadzenie warsztatów z architektury.", status: "contradicted" },
+                  ]
+                : [],
+          },
+        },
+        fresh,
+      );
+    }
     qc.setQueryData(stageBrandedQueryKey(person.stageId), {
       status: person.variant === "none" ? "none" : "draft",
       from_generator: person.variant !== "none" && person.variant !== "copy",

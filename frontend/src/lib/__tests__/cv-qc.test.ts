@@ -19,7 +19,11 @@ import {
   dismissedQcItems,
   groupRoleStates,
   highlightTerms,
+  mustHaveWarningName,
   notePreview,
+  qcCoversRequirement,
+  sameRequirement,
+  warningsBeyondQc,
   originalDescribesSkill,
   parseBoldMarkup,
   qcDismissError,
@@ -515,5 +519,60 @@ describe("„To nieprawda” i „Jakość QC” (D5–D6, 13.10.2026)", () => {
     expect(split.muted.map((c) => c.key)).toEqual(["must_bolded"]);
     expect(split.tasks.map((t) => t.check.key)).toEqual(["no_unsupported"]);
     expect(split.passed.map((c) => c.key)).toEqual(["dates"]);
+  });
+});
+
+describe("uwagi generatora „MUST-HAVE: X” a pozycje QC (13.10.2026)", () => {
+  const check = (partial: Partial<QcCheck> & Pick<QcCheck, "key">): QcCheck => ({
+    label: partial.key,
+    severity: "warning",
+    status: "fail",
+    summary: null,
+    items: [],
+    ...partial,
+  });
+
+  it("czyta nazwę wymagania bez dopisku", () => {
+    expect(mustHaveWarningName("MUST-HAVE: Kafka")).toBe("Kafka");
+    expect(mustHaveWarningName("MUST-HAVE: Apache Kafka — brak w CV")).toBe("Apache Kafka");
+    expect(mustHaveWarningName("MUST-HAVE: Kubernetes (brak w źródłach).")).toBe("Kubernetes");
+    expect(mustHaveWarningName("must-have:  CI/CD;")).toBe("CI/CD");
+    expect(mustHaveWarningName("NICE-TO-HAVE: Terraform")).toBeNull();
+    expect(mustHaveWarningName("WERYFIKUJ: MUST-HAVE: Kafka")).toBeNull();
+  });
+
+  it("to samo wymaganie: równe, alternatywa albo całe słowo w nazwie — nie fragment słowa", () => {
+    expect(sameRequirement("Kafka", "Apache Kafka")).toBe(true);
+    expect(sameRequirement("kafka", "KAFKA")).toBe(true);
+    expect(sameRequirement("Kotlin", "Java lub Kotlin")).toBe(true);
+    expect(sameRequirement("Java", "JavaScript")).toBe(false);
+    expect(sameRequirement("Spring", "Kubernetes")).toBe(false);
+    expect(sameRequirement("", "Kafka")).toBe(false);
+  });
+
+  it("QC pokrywa wymaganie pozycją must_in_cv albo critical_skills — także informacją i pominiętą", () => {
+    const checks = [
+      check({ key: "must_in_cv", items: [{ requirement: "Docker" }], info: [{ requirement: "Helm" }] }),
+      check({
+        key: "critical_skills",
+        severity: "blocking",
+        status: "pass",
+        dismissed_items: [{ requirement: "Kafka", key: "critical_skills|kafka|cv" }],
+      }),
+      // Inne sprawdzenie o tej samej nazwie nie pokrywa wymagania.
+      check({ key: "must_bolded", items: [{ requirement: "Java", term: "Java" }] }),
+    ];
+    expect(qcCoversRequirement(checks, "Docker")).toBe(true);
+    expect(qcCoversRequirement(checks, "Helm")).toBe(true);
+    expect(qcCoversRequirement(checks, "Kafka")).toBe(true);
+    expect(qcCoversRequirement(checks, "Java")).toBe(false);
+  });
+
+  it("zaliczone sprawdzenie bez pozycji nie zdejmuje uwagi generatora", () => {
+    const warnings = [{ text: "MUST-HAVE: Kafka" }, { text: "WERYFIKUJ: daty" }];
+    const passed = [check({ key: "must_in_cv", status: "pass" })];
+    expect(warningsBeyondQc(warnings, passed)).toEqual({ kept: warnings, covered: [] });
+    const failing = [check({ key: "must_in_cv", items: [{ requirement: "Kafka" }] })];
+    expect(warningsBeyondQc(warnings, failing)).toEqual({ kept: [warnings[1]], covered: [warnings[0]] });
   });
 });

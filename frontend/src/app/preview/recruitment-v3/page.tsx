@@ -27,6 +27,8 @@ import { QueryClient, QueryClientProvider, type InfiniteData } from "@tanstack/r
 import { api } from "@/lib/api";
 import { candidateContactQueryKeys } from "@/lib/candidate-contact";
 import {
+  cvToClientIssuesQueryKey,
+  cvToClientQcQueryKey,
   cvToClientRowsQueryKey,
   stageBrandedQueryKey,
   stageCvSourcesQueryKey,
@@ -472,6 +474,42 @@ function seededClient(columns: KanbanColumn[]): QueryClient {
             },
           ];
     client.setQueryData(cvToClientRowsQueryKey(item.candidate_id, JOB_ID), rows);
+    if (variant !== 1) {
+      // „N rzeczy do sprawdzenia przed wysłaniem” (13.10.2026): QC karty i uwagi
+      // generatora / kontroli AI — szkic ma wersję 1.
+      const fresh = { updatedAt: Date.now() + 86_400_000 };
+      client.setQueryData(
+        cvToClientQcQueryKey(item.id, 1),
+        {
+          stage_id: item.id,
+          cv: { stage_id: item.id },
+          checks:
+            variant === 0
+              ? [{ key: "must_in_cv", label: "Pozostałe wymagania klienta są w CV", severity: "warning", status: "fail", summary: null, items: [{ requirement: "Kafka", fix: "ai" }] }]
+              : [],
+        },
+        fresh,
+      );
+      client.setQueryData(
+        cvToClientIssuesQueryKey(item.id, 1),
+        {
+          generated_document_id: generatedId,
+          generator_warnings: [],
+          content_review: {
+            status: variant === 0 ? "reviewed" : null,
+            version: variant === 0 ? 1 : null,
+            findings:
+              variant === 0
+                ? [
+                    { text: "Przeglądy kodu i wdrażanie młodszych programistów.", status: "unsupported" },
+                    { text: "Prowadzenie warsztatów z architektury.", status: "contradicted" },
+                  ]
+                : [],
+          },
+        },
+        fresh,
+      );
+    }
     client.setQueryData(stageBrandedQueryKey(item.id), {
       status: variant === 1 ? "none" : "draft",
       from_generator: variant !== 1,

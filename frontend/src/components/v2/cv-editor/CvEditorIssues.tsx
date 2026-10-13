@@ -21,6 +21,12 @@
  * „To nieprawda” (D5, 13.10.2026) jest przy pozycjach QC (te same karty co
  * w oknie QC), uwagach generatora i kontroli AI; pominięte stoją zwinięte
  * w „Pominięte” z „Przywróć”. Bez etapu nie ma pary, więc nie ma pominięć.
+ *
+ * PR 4 „CV w procesie” (13.10.2026): trzy źródła to JEDNA lista
+ * (`buildIssueList`) — grupy sekcji CV w kolejności kartki z etykietą źródła
+ * przy każdej pozycji, potem „Zapytaj kandydata”, „Pominięte”, „Informacje”
+ * i „W porządku”. Uwaga generatora „MUST-HAVE: X” nie dubluje pozycji QC o X.
+ * Ta sama liczba stoi na karcie „CV do klienta” (`cvChecksBeforeSending`).
  */
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
@@ -41,6 +47,7 @@ import {
   MutedChecks,
   PassedChecks,
   SECTION_TITLE,
+  SourceTag,
   TaskCard,
   qcDismissedEntries,
   type ActionContext,
@@ -71,17 +78,20 @@ import {
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { clearIssueFocus, setIssueMarks, showIssueInCv } from "@/lib/cv-editor-issue-marks";
 import {
+  ISSUE_SOURCE_LABEL,
   REVIEW_FINDING_LABEL,
+  buildIssueList,
   bulkPlan,
   findingsInCv,
   fixAlreadyInCv,
   fixStep,
   issueMarks,
   locateTarget,
+  type IssueEntry,
   type IssueRange,
 } from "@/lib/cv-editor-issues";
-import { classifyCvWarnings } from "@/lib/cv-generator";
-import { candidateQuestion, countForm, splitChecks, type IssueTarget } from "@/lib/cv-qc";
+import { classifyCvWarnings, type ClassifiedCvWarning } from "@/lib/cv-generator";
+import { candidateQuestion, countForm, type IssueTarget } from "@/lib/cv-qc";
 import { isForbiddenError } from "@/lib/view-state";
 import { cn } from "@/lib/utils";
 
@@ -207,82 +217,131 @@ function GeneratorWarnings({ warnings, dismiss }: { warnings: readonly string[];
   );
 }
 
-function ReviewFindings({
-  review,
-  present,
+/** Uwaga generatora jako pozycja jednej listy. */
+function WarningItem({ warning, dismiss }: { warning: ClassifiedCvWarning; dismiss?: IssueDismiss }) {
+  const [formOpen, setFormOpen] = useState(false);
+  return (
+    <li className="space-y-1 rounded-lg border border-warning/30 px-3 py-2 text-sm" data-issue-kind="generator">
+      <p className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-warning-muted-foreground">{warning.kind}</span>
+        <SourceTag label={ISSUE_SOURCE_LABEL.generator} />
+      </p>
+      <p className="[overflow-wrap:anywhere]">{warning.text}</p>
+      {dismiss ? (
+        formOpen ? (
+          <DismissForm
+            subject={warning.text}
+            pending={dismiss.pending}
+            onSubmit={(value) =>
+              dismiss.submit({ source: "generator", text: warning.text, status: null }, value, () => setFormOpen(false))
+            }
+            onClose={() => setFormOpen(false)}
+          />
+        ) : (
+          <DismissButton onClick={() => setFormOpen(true)} disabled={dismiss.pending} />
+        )
+      ) : null}
+    </li>
+  );
+}
+
+/** Uwaga kontroli AI (linia, która nadal stoi w CV) jako pozycja jednej listy. */
+function FindingItem({
+  finding,
+  version,
   onLocate,
   dismiss,
 }: {
-  review: CvEditorIssuesData["content_review"];
-  /** Uwagi, których linia nadal stoi w CV. */
-  present: CvReviewFinding[];
+  finding: CvReviewFinding;
+  version: number | null;
   onLocate: (target: IssueTarget) => void;
   dismiss?: IssueDismiss;
 }) {
-  // Uwaga kontroli AI to linia + status — ten sam tekst może mieć dwie uwagi.
-  const [dismissId, setDismissId] = useState<string | null>(null);
-  if (review.status == null) return null;
-  const version = review.version != null ? ` v${review.version}` : "";
-  const gone = review.findings.length - present.length;
+  const [formOpen, setFormOpen] = useState(false);
   return (
-    <section aria-label="Kontrola AI" className="space-y-2">
-      <h3 className={SECTION_TITLE}>
-        Kontrola AI zatwierdzonej wersji{version} ({present.length})
-      </h3>
-      {review.status === "unverified" ? (
-        <p className="text-xs text-muted-foreground">
-          Kontrola AI nie wykonała się dla tej wersji — sprawdź treść ręcznie. Uruchomi się ponownie po „Zapisz”.
-        </p>
-      ) : present.length === 0 ? (
-        <p className="text-xs text-muted-foreground">
-          {gone > 0
-            ? "Linie wskazane przez kontrolę AI zostały już zmienione."
-            : "Kontrola AI nie miała uwag do zatwierdzonej wersji."}
-        </p>
-      ) : (
-        <ul className="space-y-1.5">
-          {present.map((finding, index) => {
-            const id = `${finding.status}:${finding.text}`;
-            const formOpen = dismiss != null && dismissId === id;
-            return (
-              <li key={`${index}:${finding.text}`} className="space-y-1 rounded-lg border border-warning/30 px-3 py-2 text-sm">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-warning-muted-foreground">
-                  {REVIEW_FINDING_LABEL[finding.status] ?? "do sprawdzenia"}
-                </p>
-                <p className="italic [overflow-wrap:anywhere]">„{finding.text}”</p>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button size="sm" variant="ghost" onClick={() => onLocate({ kind: "line", text: finding.text })}>
-                    <LocateFixed className="size-3.5" aria-hidden />
-                    Pokaż w CV
-                  </Button>
-                  {dismiss && !formOpen ? (
-                    <DismissButton onClick={() => setDismissId(id)} disabled={dismiss.pending} />
-                  ) : null}
-                </div>
-                {dismiss && formOpen ? (
-                  <DismissForm
-                    subject={`„${finding.text}”`}
-                    pending={dismiss.pending}
-                    onSubmit={(value) =>
-                      dismiss.submit({ source: "review", text: finding.text, status: finding.status }, value, () =>
-                        setDismissId(null),
-                      )
-                    }
-                    onClose={() => setDismissId(null)}
-                  />
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      {gone > 0 && present.length > 0 ? (
-        <p className="text-xs text-muted-foreground">
-          {countForm(gone, ["uwaga dotyczyła linii, której", "uwagi dotyczyły linii, których", "uwag dotyczyło linii, których"])} już
-          nie ma w CV.
-        </p>
+    <li className="space-y-1 rounded-lg border border-warning/30 px-3 py-2 text-sm" data-issue-kind="review">
+      <p className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-warning-muted-foreground">
+          {REVIEW_FINDING_LABEL[finding.status] ?? "do sprawdzenia"}
+        </span>
+        <SourceTag label={version != null ? `${ISSUE_SOURCE_LABEL.review} v${version}` : ISSUE_SOURCE_LABEL.review} />
+      </p>
+      <p className="italic [overflow-wrap:anywhere]">„{finding.text}”</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="ghost" onClick={() => onLocate({ kind: "line", text: finding.text })}>
+          <LocateFixed className="size-3.5" aria-hidden />
+          Pokaż w CV
+        </Button>
+        {dismiss && !formOpen ? <DismissButton onClick={() => setFormOpen(true)} disabled={dismiss.pending} /> : null}
+      </div>
+      {dismiss && formOpen ? (
+        <DismissForm
+          subject={`„${finding.text}”`}
+          pending={dismiss.pending}
+          onSubmit={(value) =>
+            dismiss.submit({ source: "review", text: finding.text, status: finding.status }, value, () => setFormOpen(false))
+          }
+          onClose={() => setFormOpen(false)}
+        />
       ) : null}
-    </section>
+    </li>
+  );
+}
+
+/** Jedna pozycja listy — karta QC (te same co w oknie QC) albo uwaga generatora / kontroli AI. */
+function EntryView({
+  entry,
+  ctx,
+  reviewVersion,
+  onLocate,
+  dismiss,
+}: {
+  entry: IssueEntry;
+  ctx: ActionContext | null;
+  reviewVersion: number | null;
+  onLocate: (target: IssueTarget) => void;
+  dismiss: IssueDismiss;
+}) {
+  switch (entry.kind) {
+    case "task":
+      return ctx ? <TaskCard task={entry.task} ctx={ctx} sourceLabel={ISSUE_SOURCE_LABEL.qc} /> : null;
+    case "check":
+      return ctx ? <CheckRow check={entry.check} ctx={ctx} sourceLabel={ISSUE_SOURCE_LABEL.qc} /> : null;
+    case "warning":
+      return <WarningItem warning={entry.warning} dismiss={dismiss} />;
+    case "finding":
+      return <FindingItem finding={entry.finding} version={reviewVersion} onLocate={onLocate} dismiss={dismiss} />;
+  }
+}
+
+/** Informacje generatora — co zrobił i dlaczego; zwinięte, nie liczą się. */
+function GeneratorInfo({ items }: { items: readonly ClassifiedCvWarning[] }) {
+  const listId = useId();
+  const [open, setOpen] = useState(false);
+  if (items.length === 0) return null;
+  return (
+    <div className="rounded-lg border border-border">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={listId}
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-muted-foreground"
+      >
+        <ChevronRight aria-hidden className={cn("size-3.5 flex-none transition-transform", open && "rotate-90")} />
+        <span className="font-semibold text-foreground">Od generatora ({items.length})</span>
+        <span className="min-w-0 truncate">— co zrobił i dlaczego</span>
+      </button>
+      {open ? (
+        <ul id={listId} className="space-y-1.5 border-t border-border px-3 py-2 text-xs text-muted-foreground">
+          {items.map((item) => (
+            <li key={item.text} className="[overflow-wrap:anywhere]">
+              {item.text}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
 }
 
@@ -606,11 +665,24 @@ export function CvEditorIssues({
     })),
   ];
 
-  const split = useMemo(() => splitChecks(checks), [checks]);
   const plan = useMemo(() => bulkPlan(checks, visibleFixes), [checks, visibleFixes]);
   const hasAiGaps = checks.some((check) => check.status === "fail" && check.items.some((item) => item.fix === "ai"));
   const classified = useMemo(() => classifyCvWarnings(warnings), [warnings]);
-  const total = split.tasks.length + split.notes.length + classified.review.length + presentFindings.length;
+  // Jedna lista: QC, generator i kontrola AI po sekcjach CV (miejsca liczone na bieżącej treści).
+  const list = useMemo(
+    () =>
+      buildIssueList({
+        doc: editor.isDestroyed ? null : editor.state.doc,
+        checks,
+        warnings,
+        findings: presentFindings,
+      }),
+    // `docTick` = treść się zmieniła.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [editor, checks, warnings, presentFindings, docTick],
+  );
+  const total = list.total;
+  const anyBlocking = checks.some((check) => check.status === "fail" && check.severity === "blocking");
   const blocking = qc && !otherDocument ? qc.blocking_failed : 0;
   const countState: CvIssueCount["state"] = !hasStage || qc ? "ready" : qcQuery.isError ? "failed" : "loading";
   useEffect(() => {
@@ -646,7 +718,24 @@ export function CvEditorIssues({
   }
 
   const qcFailed = qcQuery.isError && !qc;
-  const tasksTitle = qc?.advisory ? "Zalecane poprawki przed wysłaniem" : "Do poprawy przed wysłaniem";
+  const reviewVersion = review?.version ?? null;
+  const goneFindings = allFindings.length - presentFindings.length;
+  const hasInfo =
+    review?.status === "unverified" ||
+    goneFindings > 0 ||
+    list.covered.length > 0 ||
+    list.info.length > 0 ||
+    (ctx != null && (list.muted.length > 0 || (qc?.confirmations?.length ?? 0) > 0));
+  const entryView = (entry: IssueEntry) => (
+    <EntryView
+      key={entry.id}
+      entry={entry}
+      ctx={ctx}
+      reviewVersion={reviewVersion}
+      onLocate={locate}
+      dismiss={issueDismiss}
+    />
+  );
   const status = qcQuery.isFetching
     ? "Sprawdzam zapisaną treść…"
     : unsaved
@@ -765,25 +854,30 @@ export function CvEditorIssues({
           </section>
         ) : null}
 
-        {ctx ? (
-          split.tasks.length > 0 ? (
-            <section aria-label={tasksTitle} className="space-y-2">
-              <h3 className={SECTION_TITLE}>
-                {tasksTitle} ({split.tasks.length})
-              </h3>
-              <ul className="space-y-2">
-                {split.tasks.map((task) => (
-                  <TaskCard key={task.id} task={task} ctx={ctx} />
-                ))}
-              </ul>
-            </section>
-          ) : (
-            <p role="status" className="flex items-center gap-2 rounded-lg border border-success/30 bg-success-muted px-3 py-2 text-sm text-success-muted-foreground">
-              <CheckCircle2 className="size-4 shrink-0" aria-hidden />
-              Nic nie blokuje wysyłki tego CV.
-            </p>
-          )
+        {issuesQuery.isError ? (
+          <p role="alert" className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground">
+            Nie udało się wczytać uwag generatora i kontroli AI.{" "}
+            <button type="button" className="font-medium text-primary hover:underline" onClick={() => void issuesQuery.refetch()}>
+              Ponów
+            </button>
+          </p>
         ) : null}
+        {ctx && !anyBlocking ? (
+          <p role="status" className="flex items-center gap-2 rounded-lg border border-success/30 bg-success-muted px-3 py-2 text-sm text-success-muted-foreground">
+            <CheckCircle2 className="size-4 shrink-0" aria-hidden />
+            Nic nie blokuje wysyłki tego CV.
+          </p>
+        ) : null}
+
+        {/* Jedna lista po sekcjach CV — w grupie najpierw to, co zatrzymuje wysyłkę. */}
+        {list.sections.map((group) => (
+          <section key={group.key} aria-label={group.label} className="space-y-2">
+            <h3 className={SECTION_TITLE}>
+              {group.label} ({group.entries.length})
+            </h3>
+            <ul className="space-y-2">{group.entries.map(entryView)}</ul>
+          </section>
+        ))}
         {ctx && hasAiGaps ? (
           <AiFixesView
             sectionId={aiSectionId}
@@ -805,34 +899,51 @@ export function CvEditorIssues({
             onDismiss={(id) => setDismissed((prev) => new Set(prev).add(id))}
           />
         ) : null}
-        {ctx && split.notes.length > 0 ? (
-          <section aria-label="Warto poprawić — nie blokuje" className="space-y-2">
-            <h3 className={SECTION_TITLE}>Warto poprawić — nie blokuje ({split.notes.length})</h3>
-            <ul className="space-y-2">
-              {split.notes.map((check) => (
-                <CheckRow key={check.key} check={check} ctx={ctx} />
-              ))}
-            </ul>
+        {list.ask.length > 0 ? (
+          <section aria-label="Zapytaj kandydata" className="space-y-2">
+            <h3 className={SECTION_TITLE}>Zapytaj kandydata ({list.ask.length})</h3>
+            <p className="text-xs text-muted-foreground">
+              Bez kandydata tego nie poprawisz: skopiuj pytanie, a odpowiedź zapisz jako potwierdzenie.
+            </p>
+            <ul className="space-y-2">{list.ask.map(entryView)}</ul>
           </section>
         ) : null}
-        {ctx ? <MutedChecks checks={split.muted} ctx={ctx} /> : null}
-
-        {issuesQuery.isError ? (
-          <p role="alert" className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground">
-            Nie udało się wczytać uwag generatora i kontroli AI.{" "}
-            <button type="button" className="font-medium text-primary hover:underline" onClick={() => void issuesQuery.refetch()}>
-              Ponów
-            </button>
-          </p>
-        ) : null}
-        <GeneratorWarnings warnings={warnings} dismiss={issueDismiss} />
-        {review ? (
-          <ReviewFindings review={review} present={presentFindings} onLocate={locate} dismiss={issueDismiss} />
-        ) : null}
         <DismissedSection entries={dismissedEntries} restoring={restoreQc.isPending || restoreIssue.isPending} />
-
-        {ctx ? <Confirmations items={qc?.confirmations ?? []} /> : null}
-        {ctx ? <PassedChecks passed={split.passed} skipped={split.skipped} ctx={ctx} /> : null}
+        {hasInfo ? (
+          <section aria-label="Informacje" className="space-y-2">
+            <h3 className={SECTION_TITLE}>Informacje</h3>
+            {review?.status === "unverified" ? (
+              <p className="text-xs text-muted-foreground">
+                Kontrola AI nie wykonała się dla zatwierdzonej wersji — sprawdź treść ręcznie. Uruchomi się ponownie po
+                „Zapisz”.
+              </p>
+            ) : null}
+            {goneFindings > 0 ? (
+              <p className="text-xs text-muted-foreground">
+                {countForm(goneFindings, [
+                  "uwaga kontroli AI dotyczyła linii, której",
+                  "uwagi kontroli AI dotyczyły linii, których",
+                  "uwag kontroli AI dotyczyło linii, których",
+                ])}{" "}
+                już nie ma w CV.
+              </p>
+            ) : null}
+            {list.covered.length > 0 ? (
+              <p className="text-xs text-muted-foreground">
+                {countForm(list.covered.length, [
+                  "uwaga generatora o brakującym wymaganiu stoi",
+                  "uwagi generatora o brakujących wymaganiach stoją",
+                  "uwag generatora o brakujących wymaganiach stoi",
+                ])}{" "}
+                przy pozycji QC o tym samym wymaganiu.
+              </p>
+            ) : null}
+            {ctx ? <MutedChecks checks={list.muted} ctx={ctx} /> : null}
+            <GeneratorInfo items={list.info} />
+            {ctx ? <Confirmations items={qc?.confirmations ?? []} /> : null}
+          </section>
+        ) : null}
+        {ctx ? <PassedChecks passed={list.passed} skipped={list.skipped} ctx={ctx} /> : null}
       </div>
     </div>
   );

@@ -3,6 +3,7 @@ import { Editor } from "@tiptap/core";
 
 import type { QcCheck, QcFix } from "../api/cvQc";
 import {
+  buildIssueList,
   bulkPlan,
   findingsInCv,
   fixAlreadyInCv,
@@ -375,5 +376,122 @@ describe("nałożenie wyniku serwera", () => {
     editor.view.dispatch(fixStep(editor.state, fixed)!.transaction);
     expect(editor.getHTML().split(CLAUSE)).toHaveLength(2);
     expect(editor.getHTML().endsWith(`${CLAUSE}</p>`)).toBe(true);
+  });
+});
+
+describe("jedna lista „Do poprawy” (PR 4, 13.10.2026)", () => {
+  const ids = (entries: { id: string }[]) => entries.map((entry) => entry.id);
+
+  it("grupuje po sekcjach CV w kolejności kartki, „Całe CV” pierwsze, w grupie blokady pierwsze", () => {
+    const editor = open();
+    const list = buildIssueList({
+      doc: editor.state.doc,
+      checks: [
+        check({ key: "client_rules", severity: "blocking", items: [{ detail: "Stawka w CV" }] }),
+        check({ key: "must_bolded", items: [{ requirement: "Java", term: "Java", fix: "bold_all" }] }),
+        check({ key: "no_unsupported", severity: "blocking", items: [{ term: "Kafka", fix: "remove_term" }] }),
+        check({ key: "title_matches_role", items: [{ term: "Dev" }] }),
+        check({ key: "dates", status: "pass" }),
+        check({ key: "years_header", status: "skip" }),
+      ],
+      warnings: ["WERYFIKUJ: usunięto „OpenTelemetry” z umiejętności", "Wyróżnienia: pogrubiono 4 terminy."],
+      findings: [{ text: "Przeglądy kodu.", status: "unsupported" }],
+    });
+    expect(list.sections.map((group) => [group.key, group.label])).toEqual([
+      ["whole", "Całe CV"],
+      ["header", "Nagłówek"],
+      ["skills", "Umiejętności"],
+      ["experience", "Doświadczenie"],
+    ]);
+    const [whole, header, skills, experience] = list.sections;
+    expect(ids(whole.entries)).toEqual([
+      "qc:client_rules:#0",
+      "generator:WERYFIKUJ: usunięto „OpenTelemetry” z umiejętności",
+    ]);
+    expect(ids(header.entries)).toEqual(["qc:title_matches_role"]);
+    // Pierwsze „Java” stoi w umiejętnościach.
+    expect(ids(skills.entries)).toEqual(["qc:must_bolded"]);
+    // W grupie najpierw to, co zatrzymuje wysyłkę, potem reszta w kolejności tekstu.
+    expect(ids(experience.entries)).toEqual(["qc:no_unsupported:Kafka", "review:0:unsupported:Przeglądy kodu."]);
+    expect(experience.entries.map((entry) => entry.source)).toEqual(["qc", "review"]);
+    expect(list.info.map((item) => item.text)).toEqual(["Wyróżnienia: pogrubiono 4 terminy."]);
+    expect(list.passed.map((c) => c.key)).toEqual(["dates"]);
+    expect(list.skipped.map((c) => c.key)).toEqual(["years_header"]);
+    // 2 blokady + 2 uwagi QC + 1 uwaga generatora + 1 linia kontroli AI.
+    expect(list.total).toBe(6);
+  });
+
+  it("„MUST-HAVE: X” od generatora nie dubluje pozycji QC o X — zostaje w „covered”", () => {
+    const editor = open();
+    const list = buildIssueList({
+      doc: editor.state.doc,
+      checks: [check({ key: "must_in_cv", items: [{ requirement: "Apache Kafka", detail: "Brak w CV", fix: "ai" }] })],
+      warnings: ["MUST-HAVE: Kafka", "MUST-HAVE: Kubernetes"],
+      findings: [],
+    });
+    const all = list.sections.flatMap((group) => group.entries);
+    expect(ids(all)).toEqual(["qc:must_in_cv", "generator:MUST-HAVE: Kubernetes"]);
+    expect(list.covered.map((item) => item.text)).toEqual(["MUST-HAVE: Kafka"]);
+    expect(list.total).toBe(2);
+  });
+
+  it("„Zapytaj kandydata”: krytyczna bez opisu w oryginale i uwaga z samymi pytaniami", () => {
+    const editor = open();
+    const list = buildIssueList({
+      doc: editor.state.doc,
+      checks: [
+        check({
+          key: "critical_skills",
+          severity: "blocking",
+          items: [
+            { requirement: "Docker", role: "Bank Przykładowy — Senior Developer", role_index: 0, evidence_kind: "technologies" },
+            { requirement: "Kafka", role: "Bank Przykładowy — Senior Developer", role_index: 0, evidence_kind: "description" },
+          ],
+        }),
+        check({ key: "must_in_cv", items: [{ requirement: "Terraform", fix: "ask_candidate" }] }),
+      ],
+      warnings: [],
+      findings: [],
+    });
+    expect(ids(list.ask)).toEqual(["qc:critical_skills:Docker", "qc:must_in_cv"]);
+    // Kafka ma zdanie w oryginale — AI dopisze, więc zostaje przy stanowisku.
+    expect(list.sections.map((group) => [group.key, ids(group.entries)])).toEqual([
+      ["experience", ["qc:critical_skills:Kafka"]],
+    ]);
+    expect(list.total).toBe(3);
+  });
+
+  it("pozycja w kilku sekcjach i bez dokumentu trafia do „Całe CV”", () => {
+    const editor = open();
+    const spread = check({
+      key: "spelling",
+      items: [
+        { term: "Kotlin", fix: "spelling" },
+        { term: "REST", role_index: 1, fix: "spelling" },
+      ],
+    });
+    expect(buildIssueList({ doc: editor.state.doc, checks: [spread], warnings: [], findings: [] }).sections[0].key).toBe(
+      "whole",
+    );
+    const blind = buildIssueList({
+      doc: null,
+      checks: [check({ key: "must_bolded", items: [{ term: "Java", fix: "bold_all" }] })],
+      warnings: [],
+      findings: [{ text: "Przeglądy kodu.", status: "unsupported" }],
+    });
+    expect(blind.sections.map((group) => [group.key, group.entries.length])).toEqual([["whole", 2]]);
+  });
+
+  it("wyciszone w „Jakość QC” stoją w informacjach i się nie liczą", () => {
+    const editor = open();
+    const list = buildIssueList({
+      doc: editor.state.doc,
+      checks: [check({ key: "must_bolded", muted: true, items: [{ term: "Java", fix: "bold_all" }] })],
+      warnings: [],
+      findings: [],
+    });
+    expect(list.sections).toEqual([]);
+    expect(list.muted.map((c) => c.key)).toEqual(["must_bolded"]);
+    expect(list.total).toBe(0);
   });
 });

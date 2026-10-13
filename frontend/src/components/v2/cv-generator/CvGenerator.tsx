@@ -9,6 +9,7 @@ import { canMutateSection } from "@/lib/section-access";
 import { useAuthStore } from "@/store/auth";
 
 import { AdvancedOptions } from "./AdvancedOptions";
+import { AiSourcesRows } from "./AiSourcesRows";
 import type { CvLanguageChoice, LanguagePolicy } from "./cv-generator-form";
 import { CvResultLive } from "./CvResult";
 import { ClientRulesCard, GenerateBar } from "./GenerateBar";
@@ -152,24 +153,39 @@ function GeneratorSteps({ g }: { g: CvGeneratorState }) {
         onChange={g.chooseProcess}
       >
         {g.recruitment ? (
-          <ProcessSources
-            jobId={g.recruitment.job_id}
-            hasChampion={!!g.recruitment.has_champion}
-            championOverride={g.championOverride}
-            championBusy={g.championBusy}
-            championMessage={g.championMessage}
-            onChampionFile={(file) => void g.readChampionFile(file)}
-            onChampionError={g.setChampionMessage}
-            hasNotes={!!g.recruitment.has_notes}
-            notesChars={g.recruitment.notes_chars ?? 0}
-            noteDraft={g.noteDraft}
-            onNoteDraftChange={g.setNoteDraft}
-            sources={g.sources}
-            sourcesLoading={g.sourcesQuery.isPending}
-            sourcesError={g.sourcesQuery.isError}
-            cvDocumentId={g.cvDocumentId}
-            onSourceChange={g.setSourceChoice}
-          />
+          <>
+            <ProcessSources
+              jobId={g.recruitment.job_id}
+              hasChampion={!!g.recruitment.has_champion}
+              championOverride={g.championOverride}
+              championBusy={g.championBusy}
+              championMessage={g.championMessage}
+              onChampionFile={(file) => void g.readChampionFile(file)}
+              onChampionError={g.setChampionMessage}
+              hasNotes={!!g.recruitment.has_notes}
+              notesChars={g.recruitment.notes_chars ?? 0}
+              noteDraft={g.noteDraft}
+              onNoteDraftChange={g.setNoteDraft}
+              sources={g.sources}
+              sourcesLoading={g.sourcesQuery.isPending}
+              sourcesError={g.sourcesQuery.isError}
+              cvDocumentId={g.cvDocumentId}
+              onSourceChange={g.setSourceChoice}
+            />
+            {/* „Z czego powstało” (D4): te same przełączniki co w karcie „CV do klienta”. */}
+            <AiSourcesRows
+              title="Co jeszcze przeczyta AI"
+              togglesOnly
+              className="p-4"
+              data={g.aiSourcesQuery.data}
+              loading={g.aiSourcesQuery.isPending}
+              error={g.aiSourcesQuery.isError}
+              onRetry={() => void g.aiSourcesQuery.refetch()}
+              value={g.aiSources}
+              onChange={g.setAiSource}
+              disabled={g.generating}
+            />
+          </>
         ) : null}
       </ProcessStep>
       {noRecruitment ? null : <ContentStep g={g} />}

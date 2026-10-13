@@ -12,6 +12,11 @@
  * wynik zamienia się w JEDNĄ transakcję obejmującą tylko zmieniony zakres:
  * jedno „Cofnij” wraca do stanu sprzed poprawki, kursor zostaje na miejscu.
  *
+ * Od 13.10.2026 (PR 4 „CV w procesie”) panel ma JEDNĄ listę: QC, uwagi
+ * generatora i kontrola AI razem, pogrupowane po sekcjach CV, z małą etykietą
+ * źródła przy każdej pozycji (`buildIssueList`). Uwaga generatora „MUST-HAVE:
+ * X” znika, gdy QC ma pozycję X — ta sama rzecz nie liczy się dwa razy.
+ *
  * Moduł nie importuje `@tiptap/react`.
  */
 
@@ -21,16 +26,21 @@ import { Fragment, Slice, type Node as PMNode } from "@tiptap/pm/model";
 import { TextSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
 
 import type { CvReviewFinding } from "@/lib/api/cvEditorIssues";
-import type { QcCheck, QcFix, QcFixAction } from "@/lib/api/cvQc";
-import { cvOutline, type CvOutline, type CvRole } from "@/lib/cv-editor-blocks";
+import type { QcCheck, QcFix, QcFixAction, QcItem } from "@/lib/api/cvQc";
+import { cvOutline, type CvOutline, type CvRole, type CvSectionKey } from "@/lib/cv-editor-blocks";
+import { classifyCvWarnings, type ClassifiedCvWarning } from "@/lib/cv-generator";
 import {
   countForm,
   itemTarget,
   normalizeQcText,
+  originalDescribesSkill,
   roleGaps,
   roleLabelParts,
+  splitChecks,
   termRegExp,
+  warningsBeyondQc,
   type IssueTarget,
+  type QcTask,
 } from "@/lib/cv-qc";
 
 export interface IssueRange {
@@ -203,6 +213,210 @@ export const REVIEW_FINDING_LABEL: Record<string, string> = {
   private: "dane prywatne",
   invalid_evidence: "kontrola nie wskazała źródła",
 };
+
+// ── Jedna lista „Do poprawy” (PR 4, 13.10.2026) ──────────────────────────────
+
+/** Skąd jest pozycja — mała etykieta przy każdej rzeczy na liście. */
+export type IssueSource = "qc" | "generator" | "review";
+
+export const ISSUE_SOURCE_LABEL: Record<IssueSource, string> = {
+  qc: "QC",
+  generator: "generator",
+  review: "kontrola AI",
+};
+
+export type IssueEntry =
+  /** Pozycja QC zatrzymująca wysyłkę (jedno wymaganie albo jedna rzecz bez nazwy). */
+  | { kind: "task"; id: string; source: "qc"; task: QcTask }
+  /** Uwaga QC — całe sprawdzenie (ma przyciski poziomu sprawdzenia, np. „Pogrub wszystkie”). */
+  | { kind: "check"; id: string; source: "qc"; check: QcCheck }
+  | { kind: "warning"; id: string; source: "generator"; warning: ClassifiedCvWarning }
+  | { kind: "finding"; id: string; source: "review"; finding: CvReviewFinding };
+
+/** Grupa sekcji CV: „Całe CV” (bez miejsca albo w kilku sekcjach), nagłówek, sekcje szablonu, pozostałe. */
+export type IssueGroupKey = "whole" | "header" | "other" | CvSectionKey;
+
+export const ISSUE_GROUP_LABEL: Record<IssueGroupKey, string> = {
+  whole: "Całe CV",
+  header: "Nagłówek",
+  why_points: "Dlaczego nasz kandydat",
+  education: "Edukacja",
+  skills: "Umiejętności",
+  certifications: "Certyfikaty",
+  languages: "Języki",
+  experience: "Doświadczenie",
+  other: "Pozostałe sekcje",
+};
+
+export interface IssueGroup {
+  key: IssueGroupKey;
+  label: string;
+  entries: IssueEntry[];
+}
+
+export interface IssueList {
+  /** Grupy sekcji CV w kolejności kartki; „Całe CV” pierwsze. */
+  sections: IssueGroup[];
+  /** Rzeczy, których nie da się poprawić bez kandydata (pytanie, potwierdzenie). */
+  ask: IssueEntry[];
+  /** Uwagi wyciszone w „Jakość QC” (D6) — informacja, nie liczą się. */
+  muted: QcCheck[];
+  /** Co generator zrobił i dlaczego — informacja, nie liczy się. */
+  info: ClassifiedCvWarning[];
+  /** Uwagi generatora „MUST-HAVE: X” schowane, bo QC ma pozycję X. */
+  covered: ClassifiedCvWarning[];
+  passed: QcCheck[];
+  skipped: QcCheck[];
+  /** Ile rzeczy do sprawdzenia (grupy sekcji + „Zapytaj kandydata”) — licznik w pasku i na karcie. */
+  total: number;
+}
+
+export interface IssueListInput {
+  /** Bieżący dokument edytora; `null` = bez miejsc (wszystko w „Całe CV”). */
+  doc: PMNode | null;
+  checks: readonly QcCheck[];
+  /** Uwagi generatora z serwera (bez pominiętych). */
+  warnings: readonly string[];
+  /** Uwagi kontroli AI, których linia nadal stoi w CV (`findingsInCv`). */
+  findings: readonly CvReviewFinding[];
+}
+
+/** Sekcja CV, w której stoi pozycja dokumentu. Klauzula zgody nie jest sekcją uwag. */
+function groupAt(outline: CvOutline, position: number): IssueGroupKey {
+  const block = outline.blocks.find((candidate) => position >= candidate.from && position < candidate.to);
+  if (!block || (outline.rodo && block.index === outline.rodo.index)) return "whole";
+  if (block.section) return block.section;
+  const firstSection = outline.sections[0]?.headingIndex ?? Infinity;
+  return block.index < firstSection ? "header" : "other";
+}
+
+interface Placement {
+  group: IssueGroupKey;
+  /** Pierwsze miejsce w dokumencie — kolejność w grupie. */
+  position: number | null;
+}
+
+const NOWHERE: Placement = { group: "whole", position: null };
+
+/** Miejsce pozycji: jedna sekcja, gdy wszystkie jej miejsca w niej stoją; kilka sekcji albo brak miejsca = „Całe CV”. */
+function placeTargets(doc: PMNode | null, outline: CvOutline | null, targets: ReadonlyArray<IssueTarget | null>): Placement {
+  if (!doc || !outline) return NOWHERE;
+  const ranges = targets.flatMap((target) => {
+    const range = target ? locateTarget(doc, target, outline) : null;
+    return range ? [range] : [];
+  });
+  if (ranges.length === 0) return NOWHERE;
+  const position = Math.min(...ranges.map((range) => range.from));
+  const groups = new Set(ranges.map((range) => groupAt(outline, range.from)));
+  return groups.size === 1 ? { group: [...groups][0], position } : { group: "whole", position };
+}
+
+/**
+ * Pozycja do wyjaśnienia z kandydatem: umiejętność krytyczna, której oryginał
+ * nie opisuje w rolach (karta daje pytanie, nie AI), albo same pozycje
+ * „zapytaj kandydata”.
+ */
+function asksCandidate(checkKey: string, items: readonly QcItem[]): boolean {
+  if (items.length === 0) return false;
+  if (checkKey === "critical_skills") {
+    const inRoles = items.filter((item) => item.role);
+    if (inRoles.length > 0) return !originalDescribesSkill(inRoles);
+  }
+  return items.every((item) => item.fix === "ask_candidate");
+}
+
+/**
+ * Jedna lista panelu „Do poprawy”: pozycje QC (blokujące i uwagi), uwagi
+ * generatora „Do sprawdzenia” i kontrola AI, pogrupowane po sekcjach CV
+ * (`cvOutline`) w kolejności kartki. „Całe CV” zbiera to, co nie ma miejsca
+ * w tekście albo stoi w kilku sekcjach. W grupie najpierw to, co zatrzymuje
+ * wysyłkę, potem w kolejności tekstu. Rzeczy do wyjaśnienia z kandydatem idą
+ * osobno, informacje i zaliczone sprawdzenia — na koniec.
+ */
+export function buildIssueList({ doc, checks, warnings, findings }: IssueListInput): IssueList {
+  const outline = doc ? cvOutline(doc) : null;
+  const split = splitChecks([...checks]);
+  const classified = classifyCvWarnings(warnings);
+  const { kept, covered } = warningsBeyondQc(classified.review, checks);
+
+  type Placed = { entry: IssueEntry; blocking: boolean; place: Placement; order: number };
+  const placed: Placed[] = [];
+  const ask: IssueEntry[] = [];
+  const add = (entry: IssueEntry, blocking: boolean, place: Placement, toAsk = false) => {
+    if (toAsk) ask.push(entry);
+    else placed.push({ entry, blocking, place, order: placed.length });
+  };
+
+  for (const task of split.tasks) {
+    add(
+      { kind: "task", id: `qc:${task.id}`, source: "qc", task },
+      true,
+      placeTargets(doc, outline, task.items.map(itemTarget)),
+      asksCandidate(task.check.key, task.items),
+    );
+  }
+  for (const check of split.notes) {
+    add(
+      { kind: "check", id: `qc:${check.key}`, source: "qc", check },
+      false,
+      placeTargets(doc, outline, check.items.map(itemTarget)),
+      asksCandidate(check.key, check.items),
+    );
+  }
+  for (const warning of kept) {
+    add({ kind: "warning", id: `generator:${warning.text}`, source: "generator", warning }, false, NOWHERE);
+  }
+  findings.forEach((finding, index) => {
+    add(
+      { kind: "finding", id: `review:${index}:${finding.status}:${finding.text}`, source: "review", finding },
+      false,
+      placeTargets(doc, outline, [{ kind: "line", text: finding.text }]),
+    );
+  });
+
+  // Kolejność grup: „Całe CV”, nagłówek, sekcje w kolejności kartki, pozostałe.
+  const sectionOrder: IssueGroupKey[] = ["whole", "header"];
+  for (const section of outline?.sections ?? []) {
+    if (!sectionOrder.includes(section.key)) sectionOrder.push(section.key);
+  }
+  sectionOrder.push("other");
+  const rank = (key: IssueGroupKey) => {
+    const index = sectionOrder.indexOf(key);
+    return index === -1 ? sectionOrder.length : index;
+  };
+
+  const byGroup = new Map<IssueGroupKey, Placed[]>();
+  for (const item of placed) {
+    const list = byGroup.get(item.place.group) ?? [];
+    list.push(item);
+    byGroup.set(item.place.group, list);
+  }
+  const sections: IssueGroup[] = [...byGroup.entries()]
+    .sort(([first], [second]) => rank(first) - rank(second))
+    .map(([key, items]) => ({
+      key,
+      label: ISSUE_GROUP_LABEL[key],
+      entries: [...items]
+        .sort(
+          (first, second) =>
+            Number(second.blocking) - Number(first.blocking) ||
+            (first.place.position ?? Infinity) - (second.place.position ?? Infinity) ||
+            first.order - second.order,
+        )
+        .map((item) => item.entry),
+    }));
+
+  return {
+    sections,
+    ask,
+    muted: split.muted,
+    info: classified.info,
+    covered,
+    passed: split.passed,
+    skipped: split.skipped,
+    total: placed.length + ask.length,
+  };
+}
 
 // ── „Popraw wszystko” ────────────────────────────────────────────────────────
 
