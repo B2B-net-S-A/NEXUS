@@ -302,9 +302,11 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
 - **Generator aneksów (`?tab=annexes`, 0401, 29.09.2026)** — KAŻDY aneks
   powstaje w tej zakładce (Dokumenty tworzą rozwiązania i przedwstępną;
   `documentsHref` z typem `annex_*` przekierowuje tam). Trzy typy z ticketu
-  (dane firmy, data startu, stawka) mają `allows_external`: umowa z „Umów
-  bieżących” ALBO „Umowa spoza Nexusa” (dane wpisane ręcznie, dokument NIE jest
-  zapisywany, odpowiedź bez `X-Document-Id`, `X-Document-Saved: 0`). Treść trzech
+  (dane firmy, data startu, stawka) mają `allows_external`: umowa z rejestru
+  ALBO umowa spoza Nexusa (dane umowy wpisane ręcznie). Od 13.10.2026 taki aneks
+  JEST zapisywany i ma kontrakt — rejestr aneksów, wybór osoby, podpis ze
+  skanem i zakładka „Aneksy” kontraktu: `rejestr-aneksow-i-aneks-w-kontrakcie.md`.
+  Treść trzech
   szablonów PL buduje `scripts/build_b2b_annex_templates.py` z opisu w tickecie
   (oprawa z `annex_party_data_pl.docx`), nie builder wzorów działu — zmiana
   treści = zmiana listy bloków i ponowne uruchomienie. EN tych typów zostało
