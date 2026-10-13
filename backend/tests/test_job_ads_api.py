@@ -9,7 +9,10 @@ Kontrakt ``docs/claude/rekrutacja-tworzenie/ogloszenie-na-portale-kopiuj-wklej.m
 - kontrola widzi pola ogłoszenia, miasto rekrutacji i stałe bloki;
 - zapis poprawki ze starą wersją = 409; ponowne przygotowanie nie zastępuje
   poprawki zapisanej, kiedy model układał treść; stałe bloki zapisuje admin
-  i HoR.
+  i HoR;
+- oznaczenie publikacji (0432): link tylko do portalu, „do aktualizacji” po
+  zmianie treści, zdjęcie z portalu zostawia ślad, lista rekrutacji niesie
+  tylko aktywne ogłoszenia.
 """
 
 from __future__ import annotations
@@ -482,6 +485,213 @@ async def test_edit_rejects_too_many_items_instead_of_trimming(
     assert resp.status_code == 422
 
 
+# ── Oznaczenie publikacji (0432) ────────────────────────────────────────────
+
+_PRACUJ_URL = "https://www.pracuj.pl/praca/java-developer-warszawa,oferta,1004"
+
+
+def _publication(body: dict, portal: str) -> dict | None:
+    return next((p for p in body["publications"] if p["portal"] == portal), None)
+
+
+async def test_marking_published_keeps_the_link_and_who_did_it(
+    api: AsyncClient, monkeypatch
+):
+    _, headers, job_id = await _owner_with_job(api)
+    await _generated(api, headers, job_id, monkeypatch)
+    before = await api.get(f"/api/jobs/{job_id}/portal-ad", headers=headers)
+    assert before.json()["publications"] == []
+
+    resp = await api.put(
+        f"/api/jobs/{job_id}/portal-ad/publications/pracuj",
+        json={"url": _PRACUJ_URL},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    pracuj = _publication(resp.json(), "pracuj")
+    assert pracuj["url"] == _PRACUJ_URL
+    assert pracuj["outdated"] is False
+    assert pracuj["removed_at"] is None
+    assert pracuj["published_by_name"]
+    assert _publication(resp.json(), "jjit") is None
+
+
+async def test_an_edit_after_publication_marks_it_outdated_until_marked_again(
+    api: AsyncClient, monkeypatch
+):
+    _, headers, job_id = await _owner_with_job(api)
+    ad = await _generated(api, headers, job_id, monkeypatch)
+    base = f"/api/jobs/{job_id}/portal-ad"
+    marked = await api.put(f"{base}/publications/jjit", json={}, headers=headers)
+    assert marked.status_code == 200, marked.text
+    assert _publication(marked.json(), "jjit")["url"] is None
+
+    edited = await api.put(
+        base,
+        json={
+            "content": {**ad["content"], "about": "Opis po poprawce."},
+            "tech": ad["tech"],
+        },
+        headers=headers,
+    )
+    assert _publication(edited.json(), "jjit")["outdated"] is True
+
+    again = await api.put(
+        f"{base}/publications/jjit", json={"content_updated": True}, headers=headers
+    )
+    assert _publication(again.json(), "jjit")["outdated"] is False
+
+
+async def test_adding_a_link_does_not_confirm_the_content_or_change_who_published(
+    api: AsyncClient, monkeypatch
+):
+    """Ogłoszenie na Pracuj.pl bywa widoczne po moderacji: rekruter oznacza
+    publikację bez linku, a link dopisuje później. To nie jest potwierdzenie,
+    że treść na portalu jest aktualna."""
+    _, headers, job_id = await _owner_with_job(api)
+    ad = await _generated(api, headers, job_id, monkeypatch)
+    base = f"/api/jobs/{job_id}/portal-ad"
+    first = _publication(
+        (await api.put(f"{base}/publications/jjit", json={}, headers=headers)).json(),
+        "jjit",
+    )
+    await api.put(
+        base,
+        json={
+            "content": {**ad["content"], "about": "Opis po poprawce."},
+            "tech": ad["tech"],
+        },
+        headers=headers,
+    )
+
+    link = "https://justjoin.it/job-offer/przyklad-java-developer"
+    linked = await api.put(
+        f"{base}/publications/jjit", json={"url": link}, headers=headers
+    )
+    assert linked.status_code == 200, linked.text
+    after = _publication(linked.json(), "jjit")
+    assert after["url"] == link
+    assert after["outdated"] is True
+    assert after["published_at"] == first["published_at"]
+    assert after["published_by_name"] == first["published_by_name"]
+
+    confirmed = await api.put(
+        f"{base}/publications/jjit",
+        json={"url": link, "content_updated": True},
+        headers=headers,
+    )
+    done = _publication(confirmed.json(), "jjit")
+    assert done["outdated"] is False
+    # Ogłoszenie wisi od pierwszego oznaczenia — aktualizacja tej daty nie rusza.
+    assert done["published_at"] == first["published_at"]
+
+
+async def test_removed_publication_leaves_a_trace_and_can_come_back(
+    api: AsyncClient, monkeypatch
+):
+    _, headers, job_id = await _owner_with_job(api)
+    await _generated(api, headers, job_id, monkeypatch)
+    url = f"/api/jobs/{job_id}/portal-ad/publications/pracuj"
+    assert (await api.delete(url, headers=headers)).status_code == 404
+    await api.put(url, json={"url": _PRACUJ_URL}, headers=headers)
+
+    removed = await api.delete(url, headers=headers)
+    assert removed.status_code == 200, removed.text
+    pracuj = _publication(removed.json(), "pracuj")
+    assert pracuj["removed_at"] is not None
+    assert pracuj["outdated"] is False
+    # Drugi raz nie ma czego zdejmować.
+    assert (await api.delete(url, headers=headers)).status_code == 404
+
+    back = await api.put(url, json={"url": _PRACUJ_URL}, headers=headers)
+    assert _publication(back.json(), "pracuj")["removed_at"] is None
+
+
+async def test_publication_needs_an_ad_a_portal_link_and_clean_content(
+    api: AsyncClient, monkeypatch
+):
+    _, headers, job_id = await _owner_with_job(api)
+    base = f"/api/jobs/{job_id}/portal-ad"
+    no_ad = await api.put(f"{base}/publications/pracuj", json={}, headers=headers)
+    assert no_ad.status_code == 404
+
+    ad = await _generated(api, headers, job_id, monkeypatch)
+    for portal, url in (
+        ("pracuj", "https://justjoin.it/job-offer/x"),
+        ("jjit", "https://justjoin.it.przyklad.example/x"),
+    ):
+        wrong = await api.put(
+            f"{base}/publications/{portal}", json={"url": url}, headers=headers
+        )
+        assert wrong.status_code == 422, wrong.text
+    unknown = await api.put(f"{base}/publications/olx", json={}, headers=headers)
+    assert unknown.status_code == 422
+
+    client_name = await _client_name(job_id)
+    await api.put(
+        base,
+        json={
+            "content": {**ad["content"], "about": f"Projekt dla {client_name}."},
+            "tech": ad["tech"],
+        },
+        headers=headers,
+    )
+    blocked = await api.put(f"{base}/publications/pracuj", json={}, headers=headers)
+    assert blocked.status_code == 409, blocked.text
+    assert blocked.json()["detail"]["code"] == "job_ad_blocked"
+
+
+async def test_blocked_content_cannot_be_confirmed_but_the_link_can_change(
+    api: AsyncClient, monkeypatch
+):
+    _, headers, job_id = await _owner_with_job(api)
+    ad = await _generated(api, headers, job_id, monkeypatch)
+    base = f"/api/jobs/{job_id}/portal-ad"
+    await api.put(f"{base}/publications/pracuj", json={}, headers=headers)
+    client_name = await _client_name(job_id)
+    await api.put(
+        base,
+        json={
+            "content": {**ad["content"], "about": f"Projekt dla {client_name}."},
+            "tech": ad["tech"],
+        },
+        headers=headers,
+    )
+
+    confirm = await api.put(
+        f"{base}/publications/pracuj", json={"content_updated": True}, headers=headers
+    )
+    assert confirm.status_code == 409, confirm.text
+    linked = await api.put(
+        f"{base}/publications/pracuj", json={"url": _PRACUJ_URL}, headers=headers
+    )
+    assert linked.status_code == 200, linked.text
+    assert _publication(linked.json(), "pracuj")["outdated"] is True
+
+
+async def test_jobs_list_and_detail_carry_only_active_publications(
+    api: AsyncClient, monkeypatch
+):
+    owner_id, headers, job_id = await _owner_with_job(api)
+    await _generated(api, headers, job_id, monkeypatch)
+    base = f"/api/jobs/{job_id}/portal-ad/publications"
+    await api.put(f"{base}/pracuj", json={"url": _PRACUJ_URL}, headers=headers)
+    await api.put(f"{base}/jjit", json={}, headers=headers)
+    await api.delete(f"{base}/jjit", headers=headers)
+
+    detail = await api.get(f"/api/jobs/{job_id}", headers=headers)
+    assert detail.status_code == 200, detail.text
+    expected = [{"portal": "pracuj", "url": _PRACUJ_URL, "outdated": False}]
+    assert detail.json()["ad_publications"] == expected
+
+    listing = await api.get(
+        "/api/jobs", params={"owner_id": owner_id, "page_size": 100}, headers=headers
+    )
+    assert listing.status_code == 200, listing.text
+    rows = {row["id"]: row for row in listing.json()["items"]}
+    assert rows[job_id]["ad_publications"] == expected
+
+
 # ── Dostęp ──────────────────────────────────────────────────────────────────
 
 
@@ -496,6 +706,9 @@ async def test_missing_job_is_404_and_viewer_is_denied(api: AsyncClient):
         await api.get(f"/api/jobs/{job_id}/portal-ad", headers=viewer)
     ).status_code == 403
     assert (await api.get(f"/api/jobs/{job_id}/portal-ad")).status_code == 401
+    publication = f"/api/jobs/{job_id}/portal-ad/publications/pracuj"
+    assert (await api.put(publication, json={}, headers=viewer)).status_code == 403
+    assert (await api.delete(publication, headers=viewer)).status_code == 403
 
 
 # ── Stałe części ogłoszenia ─────────────────────────────────────────────────

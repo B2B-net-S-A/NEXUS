@@ -55,6 +55,7 @@ import {
 import { JobPreviewDetails } from "@/components/v2/jobs/JobPreviewDetails";
 import { JobReadinessDock } from "@/components/v2/jobs/JobReadinessDock";
 import {
+  JobAdPublicationsCell,
   JobCategoryShortBadge,
   JobDeadlineCell,
   JobRecruiterCell,
@@ -319,6 +320,8 @@ function JobsTable({
           <TableHead className={cn("w-[108px]", NARROW_CELL)}>Termin</TableHead>
           {/* Delivery Lead stoi drobnym drukiem pod osobami — bez własnej kolumny. */}
           <TableHead className={cn("w-[120px]", NARROW_CELL)}>Rekruter</TableHead>
+          {/* Gdzie wisi ogłoszenie wklejone ręcznie (Pracuj.pl, JustJoin.IT). */}
+          <TableHead className={cn("w-[84px]", NARROW_CELL)}>Ogłoszenia</TableHead>
           <TableHead className={cn("w-[96px]", NARROW_CELL)} />
         </TableRow>
       </TableHeader>
@@ -468,6 +471,9 @@ function JobsTable({
               </TableCell>
               <TableCell className={NARROW_CELL}>
                 <JobRecruiterCell job={job} highlightIds={workedBy} />
+              </TableCell>
+              <TableCell className={NARROW_CELL}>
+                <JobAdPublicationsCell job={job} />
               </TableCell>
               <TableCell className={NARROW_CELL}>
                 <div className="flex items-center justify-end gap-0.5">

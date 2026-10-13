@@ -6,6 +6,8 @@
 * ``POST /api/jobs/{job_id}/portal-ad/generate`` — układa treść (model albo
   złożenie z pól rekrutacji) i ZAPISUJE ją;
 * ``PUT  /api/jobs/{job_id}/portal-ad`` — ręczne poprawki rekrutera;
+* ``PUT/DELETE /api/jobs/{job_id}/portal-ad/publications/{portal}`` — „wisi
+  na portalu” (z linkiem) i „zdjęte z portalu” (0432);
 * ``GET/PUT /api/job-ads/fixed-blocks`` — stałe części firmy (admin i Head of
   Recruitment).
 
@@ -38,8 +40,16 @@ from app.schemas.job_ad import (
     FixedBlocksModel,
     JobAdResponse,
 )
+from app.schemas.job_ad_publication import AdPortal, AdPublishRequest
 from app.services import job_public_profile as jpp
-from app.services.job_ad import fixed_blocks, generate, lint, material, render
+from app.services.job_ad import (
+    fixed_blocks,
+    generate,
+    lint,
+    material,
+    publications,
+    render,
+)
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
@@ -109,6 +119,9 @@ async def _response(
         findings=[f.as_dict() for f in findings],
         rendered=rendered,
         can_copy=not lint.has_blocking(findings),
+        publications=[
+            vars(item) for item in await publications.for_job(db, job.id, ad)
+        ],
     )
 
 
@@ -244,6 +257,83 @@ async def put_portal_ad(
     await db.commit()
     await db.refresh(ad)
     return await _response(db, job, ad, mat)
+
+
+@router.put(
+    "/jobs/{job_id}/portal-ad/publications/{portal}", response_model=JobAdResponse
+)
+async def mark_ad_published(
+    job_id: int,
+    portal: AdPortal,
+    data: AdPublishRequest,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> JobAdResponse:
+    """Ogłoszenie wisi na portalu (link opcjonalny).
+
+    Pierwsze oznaczenie i ``content_updated`` potwierdzają OBECNĄ treść —
+    przy znalezisku blokującym odmowa: takiej treści nie wolno było wkleić.
+    Sama zmiana linku przy aktywnym oznaczeniu niczego nie potwierdza.
+    """
+    job = await _load_job(db, current_user, job_id)
+    ad = await db.get(JobAd, job_id)
+    if ad is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Najpierw przygotuj ogłoszenie — potem oznaczysz publikację.",
+        )
+    try:
+        url = publications.clean_url(data.url, portal)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    mat = await _material(db, job)
+    try:
+        await publications.mark_published(
+            db,
+            ad,
+            portal=portal,
+            url=url,
+            user_id=current_user.id,
+            content_updated=data.content_updated,
+            blocked=not (await _response(db, job, ad, mat)).can_copy,
+        )
+    except publications.ContentBlocked as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "job_ad_blocked",
+                "message": (
+                    "W treści są fragmenty, których nie publikujemy. Usuń je, "
+                    "zanim oznaczysz ogłoszenie jako opublikowane."
+                ),
+            },
+        ) from exc
+    await db.commit()
+    return await _response(db, job, ad, mat)
+
+
+@router.delete(
+    "/jobs/{job_id}/portal-ad/publications/{portal}", response_model=JobAdResponse
+)
+async def mark_ad_removed(
+    job_id: int,
+    portal: AdPortal,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> JobAdResponse:
+    """Ogłoszenie zdjęte z portalu — wiersz zostaje jako ślad."""
+    job = await _load_job(db, current_user, job_id)
+    if not await publications.mark_removed(
+        db, job_id, portal=portal, user_id=current_user.id
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail="To ogłoszenie nie jest oznaczone jako opublikowane.",
+        )
+    await db.commit()
+    return await _response(
+        db, job, await db.get(JobAd, job_id), await _material(db, job)
+    )
 
 
 @router.get("/job-ads/fixed-blocks", response_model=FixedBlocksModel)

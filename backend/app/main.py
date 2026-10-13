@@ -2922,6 +2922,7 @@ async def api_health_deep_check():
     )
     from app.models.job_file import JobFile
     from app.models.job_ad import JobAd
+    from app.models.job_ad_publication import JobAdPublication
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -3169,6 +3170,7 @@ async def api_health_deep_check():
         # 0430: ogłoszenie do wklejenia na portale — brak tabeli = 500 przy
         # „Przygotuj ogłoszenie” w rekrutacji.
         ("job_ads", JobAd),
+        ("job_ad_publications", JobAdPublication),
     ]
 
     checks: dict[str, str] = {}

@@ -41,6 +41,7 @@ import { cn } from "@/lib/utils";
 
 import { AdChecksPanel } from "./AdChecksPanel";
 import { AdFactsRail, TERM_KEYS, type AdTerms } from "./AdFactsRail";
+import { AdPublications, JOBS_LIST_QUERY_ROOT } from "./AdPublications";
 import { JustJoinTab } from "./JustJoinTab";
 import { PracujTab } from "./PracujTab";
 import {
@@ -53,12 +54,17 @@ import {
 
 export type JobAdTab = "pracuj" | "jjit";
 
-/** Trzy wywołania okna — harness `/preview/job-ad` podaje je z pamięci. */
-export type JobAdWindowApi = Pick<typeof jobAdApi, "get" | "generate" | "save">;
+/** Wywołania okna — harness `/preview/job-ad` podaje je z pamięci. */
+export type JobAdWindowApi = Pick<
+  typeof jobAdApi,
+  "get" | "generate" | "save" | "markPublished" | "markRemoved"
+>;
 
 export interface JobAdWindowProps {
   jobId: number;
   jobTitle: string;
+  /** Zamknięta rekrutacja z wiszącym ogłoszeniem = przypomnienie o zdjęciu. */
+  jobClosed?: boolean;
   open: boolean;
   onClose: () => void;
   api?: JobAdWindowApi;
@@ -86,6 +92,7 @@ function checksSummary(findings: AdFinding[]): string {
 export function JobAdWindow({
   jobId,
   jobTitle,
+  jobClosed = false,
   open,
   onClose,
   api = jobAdApi,
@@ -125,6 +132,10 @@ export function JobAdWindow({
   const applyState = (state: JobAdState) => {
     queryClient.setQueryData(queryKey, state);
     baseVersion.current = state.ad?.updated_at ?? null;
+    // Zmiana treści zapala „do aktualizacji” w kolumnie „Ogłoszenia” listy.
+    if (state.publications.some((item) => !item.removed_at)) {
+      void queryClient.invalidateQueries({ queryKey: [JOBS_LIST_QUERY_ROOT] });
+    }
     // Nowa treść = nowe teksty do skopiowania; stare „Skopiowane” już nie obowiązuje.
     setCopied(new Set());
   };
@@ -406,6 +417,15 @@ export function JobAdWindow({
                             {blockingCount === 1 ? "go" : "je"} albo popraw tekst.
                           </p>
                         ) : null}
+                        {/* Po wklejeniu treści na portalu rekruter oznacza to tutaj. */}
+                        <AdPublications
+                          jobId={jobId}
+                          portals={[tab]}
+                          state={state}
+                          jobClosed={jobClosed}
+                          locked={busy}
+                          api={api}
+                        />
                         <TabsContent value="pracuj" className="mt-0">
                           <PracujTab
                             content={ad.content}

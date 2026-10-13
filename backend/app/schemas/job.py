@@ -19,6 +19,7 @@ from app.models.job import (
     WorkMode,
 )
 from app.schemas.candidate import _normalize_skill_list
+from app.schemas.job_ad_publication import JobAdPublicationOut
 from app.schemas.job_team import JobRecruiterOut
 from app.schemas.matching_requirements import MatchingRequirements
 from app.services.job_priority import default_priority_for_new_job, level_of
@@ -378,6 +379,9 @@ class JobResponse(BaseModel):
     # plus propozycje automatu z ``proposed=True`` (`services/job_team`).
     # Wypełniają lista i ``GET /api/jobs/{id}``; inne odpowiedzi niosą pustą.
     recruiters: list[JobRecruiterOut] = []
+    # Aktywne ogłoszenia wklejone ręcznie na portalach (0432); wypełnia lista
+    # i `GET /api/jobs/{id}` (`job_ad.publications.for_jobs`).
+    ad_publications: list[JobAdPublicationOut] = []
     # Delivery Lead rozwinięty do ``UserBrief`` — wypełniają lista
     # (``GET /api/jobs``, „DL: …” obok rekrutera; zgłoszenie 30.09.2026) i
     # ``GET /api/jobs/{id}`` (Brief Profilu Championa, 04.10.2026).

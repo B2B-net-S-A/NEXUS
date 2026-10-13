@@ -21,6 +21,7 @@ import {
   useCompetenceCategories,
 } from "@/components/v2/CompetenceCategoryBadge";
 import { RecruiterChips } from "@/components/v2/jobs/RecruiterChips";
+import { AD_PORTALS, portalAdHref, type JobAdPublicationBrief } from "@/lib/api/jobAd";
 import { shortenPersonName } from "@/lib/job-header-subtitle";
 import {
   pinRecruiters,
@@ -486,6 +487,9 @@ export function SimilarJobsCell({
 export interface JobListRowFields extends JobTeamSource {
   /** Osoby w roli „Rekruter”: pracujący w kolejności z serwera, na końcu propozycje. */
   recruiters?: JobRecruiter[] | null;
+  /** Aktywne ogłoszenia wklejone ręcznie na portalach (kolumna „Ogłoszenia”). */
+  ad_publications?: JobAdPublicationBrief[] | null;
+  status?: string | null;
   /** Poziom priorytetu liczony przez serwer; bez niego `priorityLevelOf` czyta `priority`. */
   priority_level?: PriorityLevel;
   priority?: string | null;
@@ -630,5 +634,62 @@ export function JobCategoryShortBadge({
     >
       <span className="truncate">{competenceShortLabel(category.slug) ?? category.name_pl}</span>
     </Badge>
+  );
+}
+
+// ── Ogłoszenia na portalach (13.10.2026) ─────────────────────────────────────
+
+/**
+ * Kolumna „Ogłoszenia”: gdzie rekrutacja ma wklejone ogłoszenie. Plakietka
+ * z linkiem otwiera je na portalu; żółta znaczy „treść zmieniła się po
+ * publikacji” albo „rekrutacja zamknięta, a ogłoszenie nadal wisi”.
+ */
+export function JobAdPublicationsCell({ job }: { job: JobListRowFields }) {
+  const items = job.ad_publications ?? [];
+  if (items.length === 0) {
+    return <span className="text-[13px] text-muted-foreground">—</span>;
+  }
+  const closed = job.status === "closed";
+  return (
+    <div className="flex flex-col items-start gap-0.5" data-testid="job-ad-publications-cell">
+      {AD_PORTALS.map(({ key, label, short }) => {
+        const item = items.find((entry) => entry.portal === key);
+        if (!item) return null;
+        const href = portalAdHref(key, item.url);
+        const note = closed
+          ? "rekrutacja zamknięta — zdejmij ogłoszenie z portalu"
+          : item.outdated
+            ? "treść zmieniła się po publikacji — do aktualizacji"
+            : null;
+        const className = cn(
+          "inline-flex h-5 items-center gap-1 whitespace-nowrap rounded-full px-2 text-[11px] font-medium",
+          note
+            ? "bg-warning-muted text-warning-muted-foreground"
+            : "bg-muted text-foreground",
+        );
+        // `title` na samym odnośniku zastąpiłby jego nazwę dostępną — stoi na opakowaniu.
+        return (
+          <span key={key} title={note ? `${label}: ${note}` : label}>
+            {href ? (
+              <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`${label} — otwórz ogłoszenie${note ? ` (${note})` : ""}`}
+                className={cn(className, "hover:underline")}
+                // Klik w wiersz otwiera rekrutację; odnośnik prowadzi na portal.
+                onClick={(event) => event.stopPropagation()}
+              >
+                {short}
+              </a>
+            ) : (
+              <span className={className} aria-label={`${label}${note ? ` (${note})` : ""}`}>
+                {short}
+              </span>
+            )}
+          </span>
+        );
+      })}
+    </div>
   );
 }

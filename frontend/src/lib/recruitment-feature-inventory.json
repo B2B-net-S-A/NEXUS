@@ -1923,6 +1923,30 @@
    "v3_home": "menu … → Ogłoszenie na portale → nagłówek okna"
   },
   {
+   "id": "ad.publications",
+   "area": "zlecenie",
+   "opis": "Gdzie ogłoszenie wisi: „Oznacz jako opublikowane” z linkiem do portalu, „do aktualizacji” po zmianie treści, „Zdjęte z portalu”, przypomnienie przy zamkniętej rekrutacji",
+   "file": "components/v2/job-ad/AdPublications.tsx",
+   "marker": "Oznacz jako opublikowane",
+   "v3_home": "menu … → Ogłoszenie na portale → nad polami zakładki; Profil Championa → Zespół i ogłoszenie"
+  },
+  {
+   "id": "order.ad-publications",
+   "area": "zlecenie",
+   "opis": "Stan ogłoszeń na Pracuj.pl i JustJoin.IT w sekcji ogłoszenia rekrutacji",
+   "file": "components/v2/jobs/JobAnnouncementSection.tsx",
+   "marker": "AdPublications",
+   "v3_home": "Profil Championa → Zespół i ogłoszenie"
+  },
+  {
+   "id": "list.ad-publications",
+   "area": "lista",
+   "opis": "Kolumna „Ogłoszenia”: plakietki portali z linkiem do ogłoszenia, żółte przy treści do aktualizacji albo zamkniętej rekrutacji",
+   "file": "components/v2/pages/JobsListV2.tsx",
+   "marker": "JobAdPublicationsCell",
+   "v3_home": "Lista rekrutacji → kolumna „Ogłoszenia”"
+  },
+  {
    "id": "panel.notes-earlier",
    "area": "panel",
    "opis": "„Wcześniej u nas”: notatki osoby z innych rekrutacji i bez rekrutacji, pogrupowane po rekrutacji z jej wynikiem; licznik notatek ludzi na zakładce",

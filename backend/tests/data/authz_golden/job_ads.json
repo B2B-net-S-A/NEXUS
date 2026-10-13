@@ -21,10 +21,12 @@
   "recruiter+amounts_edit"
  ],
  "routes": {
+  "DELETE /api/jobs/{job_id}/portal-ad/publications/{portal}": "PPPPPPDDPPPPPPPPPPP",
   "GET /api/job-ads/fixed-blocks": "PDPDDDDDDPDPDDDDDDD",
   "GET /api/jobs/{job_id}/portal-ad": "PPPPPPDDPPPPPPPPPPP",
   "POST /api/jobs/{job_id}/portal-ad/generate": "PPPPPPDDPPPPPPPPPPP",
   "PUT /api/job-ads/fixed-blocks": "PDPDDDDDDPDPDDDDDDD",
-  "PUT /api/jobs/{job_id}/portal-ad": "PPPPPPDDPPPPPPPPPPP"
+  "PUT /api/jobs/{job_id}/portal-ad": "PPPPPPDDPPPPPPPPPPP",
+  "PUT /api/jobs/{job_id}/portal-ad/publications/{portal}": "PPPPPPDDPPPPPPPPPPP"
  }
 }

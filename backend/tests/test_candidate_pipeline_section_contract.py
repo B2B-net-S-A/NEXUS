@@ -105,6 +105,8 @@ def test_candidate_mutations_require_candidate_write(method: str, path: str) -> 
         ("GET", "/api/jobs/{job_id}/portal-ad"),
         ("POST", "/api/jobs/{job_id}/portal-ad/generate"),
         ("PUT", "/api/jobs/{job_id}/portal-ad"),
+        ("PUT", "/api/jobs/{job_id}/portal-ad/publications/{portal}"),
+        ("DELETE", "/api/jobs/{job_id}/portal-ad/publications/{portal}"),
         ("GET", "/api/job-ads/fixed-blocks"),
         ("PUT", "/api/job-ads/fixed-blocks"),
         ("POST", "/api/jobs/{job_id}/refresh-criteria"),
