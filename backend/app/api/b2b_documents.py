@@ -33,6 +33,7 @@ from app.api.b2b_contract_generator import (
     _has_signature_permission,
     _like_needle,
     _load_legal_scoped_job,
+    _rate_visibility,
     _require_contract_generation,
     _require_generated_contract_management,
     _require_generator_rate_content,
@@ -64,6 +65,7 @@ from app.services.action_permissions import (
 )
 from app.services import ezdrowie
 from app.services.b2b_documents import annex_register, effects
+from app.services.b2b_documents.annex_summary import annex_change
 from app.services.b2b_documents.context import (
     BaseContractInfo,
     build_document_context,
@@ -193,6 +195,31 @@ class DocumentItem(BaseModel):
     can_delete: bool = False
     can_confirm_signed: bool = False
     cancelled_reason: Optional[str] = None
+    # Rejestr aneksów (13.10.2026): dla kogo, jaki aneks, od kiedy, w jakim stanie.
+    client_id: Optional[int] = None
+    person_name: Optional[str] = None
+    partner_legal_name: Optional[str] = None
+    partner_nip: Optional[str] = None
+    #: Aneks bez umowy w rejestrze (umowa spoza NEXUSA, zlecenie).
+    external: bool = False
+    effective_date: Optional[date] = None
+    #: ``effects.ANNEX_STATES`` — jeden stan zamiast pary status + podpis.
+    state: str = "waiting"
+    #: Skrót zmiany (``annex_summary.annex_change``); kwoty pod bramką stawek.
+    change: Optional[dict] = None
+    can_restore: bool = False
+    can_link_contract: bool = False
+
+
+class LinkContractRequest(BaseModel):
+    contract_id: int
+
+
+class DocumentHistoryEntry(BaseModel):
+    action: str
+    at: Optional[str] = None
+    by_name: Optional[str] = None
+    note: Optional[str] = None
 
 
 # ── pomocnicze ───────────────────────────────────────────────────────────────
@@ -695,6 +722,54 @@ async def _serialize(
         can_manage = True
     except HTTPException:
         can_manage = False
+    # Pola rejestru aneksów — jedno zapytanie na rodzaj danych, nie na wiersz.
+    people: dict[int, str | None] = {}
+    candidate_ids = {r.candidate_id for r in rows if r.candidate_id}
+    if candidate_ids:
+        found = await db.execute(
+            select(Candidate.id, Candidate.name, Candidate.lastname).where(
+                Candidate.id.in_(candidate_ids)
+            )
+        )
+        people = {cid: _full_name(name, last) for cid, name, last in found.all()}
+    clients: dict[int, Client] = {}
+    client_ids = {r.client_id for r in rows if r.client_id}
+    if client_ids:
+        found_clients = await db.scalars(
+            select(Client).where(Client.id.in_(client_ids))
+        )
+        clients = {c.id: c for c in found_clients.all()}
+    contract_of = {
+        r.id: effects.current_contract_id(
+            r, parents.get(r.parent_generated_contract_id or -1)
+        )
+        for r in rows
+    }
+    void_contracts: set[int] = set()
+    linked_ids = {cid for cid in contract_of.values() if cid is not None}
+    if linked_ids:
+        found_void = await db.scalars(
+            select(Contract.id).where(
+                Contract.id.in_(linked_ids), Contract.status == ContractStatus.void
+            )
+        )
+        void_contracts = set(found_void.all())
+    rate_visibility = await _rate_visibility(
+        db,
+        user,
+        {
+            job_id
+            for r in rows
+            for job_id in (
+                r.job_id,
+                getattr(
+                    parents.get(r.parent_generated_contract_id or -1), "job_id", None
+                ),
+            )
+            if job_id is not None
+        },
+    )
+    today = business_today()
     items: list[DocumentItem] = []
     for row in rows:
         doc_type = TYPES.get(row.document_type)
@@ -705,6 +780,40 @@ async def _serialize(
         parent = parents.get(row.parent_generated_contract_id or -1)
         open_unsigned = row.status == "issued" and row.signature_status != "signed_both"
         own = is_admin or row.created_by == user.id
+        contract_id = contract_of[row.id]
+        orphan = effects.is_unlinked_external_annex(doc_type, parent, contract_id)
+        is_annex = doc_type.family == "annex"
+        # Podpisany aneks: dzień zapisany przy podpisie; wcześniej — ta sama
+        # reguła, którą podpis zastosuje.
+        effective = _date((row.effect_summary or {}).get("effective_date")) or (
+            effects.annex_effective_date(
+                row.document_type,
+                values,
+                row.document_date,
+                contract_client_id=row.client_id if contract_id is not None else None,
+            )
+            if is_annex
+            else None
+        )
+        rates_visible = rate_visibility.visible(
+            client_id=row.client_id,
+            created_by=parent.created_by if parent else row.created_by,
+            job_id=parent.job_id if parent else row.job_id,
+        )
+        can_link = (
+            is_annex
+            and can_manage
+            and open_unsigned
+            and (contract_id is None or contract_id in void_contracts)
+            and (
+                (parent is None and _takes_contract(doc_type))
+                or (
+                    parent is not None
+                    and doc_type.parent == "b2b"
+                    and contract_id is None
+                )
+            )
+        )
         items.append(
             DocumentItem(
                 id=row.id,
@@ -718,11 +827,44 @@ async def _serialize(
                 parent_contract_number=(payload.get("base") or {}).get(
                     "contract_number"
                 ),
-                contract_id=row.contract_id,
+                # Kontrakt, na który podpis faktycznie zadziała — bieżący
+                # kontrakt umowy bazowej, nie migawka z chwili generowania.
+                contract_id=contract_id,
                 candidate_id=row.candidate_id,
                 partner_name=values.get("partner_name"),
                 client_name=(payload.get("base") or {}).get("client_name")
-                or (parent.client_name if parent else None),
+                or (parent.client_name if parent else None)
+                or _client_label(clients.get(row.client_id or -1)),
+                client_id=row.client_id,
+                person_name=people.get(row.candidate_id or -1)
+                or values.get("partner_name"),
+                partner_legal_name=values.get("partner_legal_name")
+                or values.get("new_legal_name"),
+                partner_nip=values.get("partner_nip") or values.get("new_nip"),
+                external=parent is None and _takes_contract(doc_type),
+                effective_date=effective,
+                state=effects.annex_state(
+                    status=row.status,
+                    signature_status=row.signature_status,
+                    effective=effective,
+                    today=today,
+                ),
+                change=(
+                    annex_change(
+                        row.document_type,
+                        values,
+                        rates_visible=rates_visible,
+                        rates_before=(
+                            annex_register.rates_before(row, parent)
+                            if rates_visible and row.document_type == RATE_ANNEX_TYPE
+                            else None
+                        ),
+                    )
+                    if is_annex
+                    else None
+                ),
+                can_restore=can_manage and own and row.status == "cancelled",
+                can_link_contract=can_link,
                 status=row.status,
                 signature_status=row.signature_status,
                 signed_at=row.signed_at.isoformat() if row.signed_at else None,
@@ -736,7 +878,10 @@ async def _serialize(
                 sensitive_fields=sorted(doc_type.sensitive_keys),
                 can_edit=can_manage and open_unsigned and own,
                 can_delete=can_manage and open_unsigned and own,
+                # Aneks „Bez kontraktu” czeka na powiązanie — przycisk prowadziłby
+                # prosto do odmowy.
                 can_confirm_signed=open_unsigned
+                and not orphan
                 and (
                     can_sign
                     or (
@@ -1460,6 +1605,7 @@ async def list_documents(
     parent_generated_contract_id: Optional[int] = Query(None),
     document_type: Optional[str] = Query(None),
     status_filter: Optional[str] = Query(None, alias="status"),
+    family: Optional[list[str]] = Query(None),
     q: Optional[str] = Query(None, max_length=120),
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -1477,11 +1623,52 @@ async def list_documents(
     if document_type:
         _type_or_422(document_type)
         query = query.where(B2BContractDocument.document_type == document_type)
+    if family:
+        # Rejestr aneksów pyta o `annex`, zakładka „Dokumenty” o pozostałe
+        # rodziny. Nieznana rodzina = 422 z nazwą pomyłki: ciche pominięcie
+        # filtra oddałoby pełną listę pod nagłówkiem, który obiecuje podzbiór.
+        known = {t.family for t in TYPES.values()}
+        unknown = sorted(set(family) - known)
+        if unknown:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Nieznana rodzina dokumentów: {', '.join(unknown)}.",
+            )
+        query = query.where(
+            B2BContractDocument.document_type.in_(
+                [key for key, t in TYPES.items() if t.family in family]
+            )
+        )
     if status_filter:
         if status_filter == "unsigned":
             query = query.where(
                 B2BContractDocument.status == "issued",
                 B2BContractDocument.signature_status == "unsigned",
+            )
+        elif status_filter == "no_contract":
+            # Aneks czekający na podpis bez kontraktu, na który podpis mógłby
+            # zadziałać: własnego (umowa spoza NEXUSA) albo umowy bazowej.
+            parent_contract = (
+                select(B2BGeneratedContract.contract_id)
+                .where(
+                    B2BGeneratedContract.id
+                    == B2BContractDocument.parent_generated_contract_id
+                )
+                .scalar_subquery()
+            )
+            query = query.where(
+                B2BContractDocument.status == "issued",
+                B2BContractDocument.signature_status == "unsigned",
+                or_(
+                    and_(
+                        B2BContractDocument.parent_generated_contract_id.is_(None),
+                        B2BContractDocument.contract_id.is_(None),
+                    ),
+                    and_(
+                        B2BContractDocument.parent_generated_contract_id.is_not(None),
+                        parent_contract.is_(None),
+                    ),
+                ),
             )
         elif status_filter in ("issued", "signed", "cancelled"):
             query = query.where(B2BContractDocument.status == status_filter)
@@ -1489,17 +1676,33 @@ async def list_documents(
             raise HTTPException(status_code=422, detail="Nieznany status dokumentu.")
     needle = (q or "").strip()
     if needle:
-        like = f"%{needle.lower()}%"
-        query = query.where(
-            or_(
-                func.lower(
-                    B2BContractDocument.render_payload["values"]["partner_name"].astext
-                ).like(like),
-                func.lower(
-                    B2BContractDocument.render_payload["base"]["contract_number"].astext
-                ).like(like),
-            )
+        # Osoba, firma, NIP albo numer umowy. `polish_folded_ilike` escapuje
+        # `%` i `_` (do 13.10.2026 wzorzec szedł do LIKE bez escapu) i nie
+        # rozróżnia polskich znaków.
+        values = B2BContractDocument.render_payload["values"]
+        query = query.outerjoin(
+            Candidate, Candidate.id == B2BContractDocument.candidate_id
         )
+        clauses = [
+            polish_folded_ilike(values["partner_name"].astext, needle),
+            polish_folded_ilike(values["partner_legal_name"].astext, needle),
+            polish_folded_ilike(values["new_legal_name"].astext, needle),
+            polish_folded_ilike(
+                B2BContractDocument.render_payload["base"]["contract_number"].astext,
+                needle,
+            ),
+            polish_folded_ilike(Candidate.name, needle),
+            polish_folded_ilike(Candidate.lastname, needle),
+            polish_folded_ilike(
+                func.concat(Candidate.name, " ", Candidate.lastname), needle
+            ),
+        ]
+        nip_needle = re.sub(r"\D", "", needle)
+        if len(nip_needle) >= 5:
+            pattern = _like_needle(nip_needle)
+            clauses.append(values["partner_nip"].astext.ilike(pattern, escape="\\"))
+            clauses.append(values["new_nip"].astext.ilike(pattern, escape="\\"))
+        query = query.where(or_(*clauses))
     rows = list(
         (
             await db.execute(
@@ -1778,6 +1981,9 @@ async def cancel_document(
             user_id=current_user.id,
             details={
                 "document_type": doc.document_type,
+                # Powód zostaje w historii także po przywróceniu aneksu,
+                # które czyści go na dokumencie.
+                "reason": doc.cancelled_reason,
                 **({"register_restored": restored} if restored else {}),
             },
         )
@@ -1785,6 +1991,208 @@ async def cancel_document(
     await db.commit()
     await db.refresh(doc)
     return (await _serialize(db, [doc], current_user))[0]
+
+
+@router.post("/documents/{doc_id}/restore", response_model=DocumentItem)
+async def restore_document(
+    doc_id: int,
+    current_user: B2BGeneratorAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    """Przywróć anulowany dokument — wraca na „czeka na podpis”.
+
+    Aneks nie ma numeru, więc anulowany dałoby się wystawić od nowa, ale
+    wtedy rejestr trzymałby dwa wpisy tego samego aneksu. „Podpisany” ustawia
+    nadal wyłącznie „Oznacz jako podpisany”."""
+    doc, _doc_type, parent = await _load_document(db, current_user, doc_id, lock=True)
+    _require_generated_contract_management(current_user)
+    if doc.status != "cancelled":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Przywrócić można tylko anulowany dokument.",
+        )
+    if not current_user.has_role(UserRole.admin) and doc.created_by != current_user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Przywrócić dokument może jego autor albo administrator.",
+        )
+    await _authorize_document_write(db, current_user, doc, parent)
+    doc.status = "issued"
+    doc.cancelled_reason = None
+    # Wiersz rejestru wraca do wartości najnowszego aktywnego aneksu tego
+    # typu — przywrócony starszy aneks nie wypiera nowszego.
+    changed = await annex_register.restore(db, doc, parent)
+    db.add(
+        Activity(
+            entity_type="b2b_contract_document",
+            entity_id=doc.id,
+            action="restored",
+            user_id=current_user.id,
+            details={
+                "document_type": doc.document_type,
+                **({"register_changed": changed} if changed else {}),
+            },
+        )
+    )
+    await db.commit()
+    await db.refresh(doc)
+    return (await _serialize(db, [doc], current_user))[0]
+
+
+@router.post("/documents/{doc_id}/link-contract", response_model=DocumentItem)
+async def link_document_contract(
+    doc_id: int,
+    body: LinkContractRequest,
+    current_user: B2BGeneratorAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    """Powiąż niepodpisany aneks z kontraktem, w którym podpis ma coś zmienić.
+
+    Aneks „Bez kontraktu” (osoba nie miała kontraktu w chwili generowania)
+    i aneks, którego kontrakt unieważniono, czekają tu na właściwy kontrakt.
+    Przy aneksie do umowy z rejestru powiązanie dostaje WIERSZ umowy — kontrakt
+    musi być jednym z trwających kontraktów tej osoby u tego klienta.
+
+    Blokady: kontrakt docelowy, potem dokument i wiersz (runda 6 audytu,
+    LOCK-1). Dotychczasowego kontraktu nie blokujemy — podpis trzyma go
+    i czeka na dokument, więc blokada w odwrotnej kolejności by się zakleszczyła."""
+    _require_generated_contract_management(current_user)
+    await db.execute(
+        select(Contract.id).where(Contract.id == body.contract_id).with_for_update()
+    )
+    doc, doc_type, parent = await _load_document(db, current_user, doc_id, lock=True)
+    if doc.status != "issued" or doc.signature_status == "signed_both":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Powiązać z kontraktem można tylko aneks czekający na podpis.",
+        )
+    if doc_type.family != "annex":
+        raise HTTPException(
+            status_code=422, detail="Z kontraktem wiąże się wyłącznie aneksy."
+        )
+    if parent is not None:
+        if doc_type.parent != "b2b":
+            raise HTTPException(
+                status_code=422, detail="Ten aneks nie ma kontraktu do powiązania."
+            )
+        if parent.contract_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Umowa ma już kontrakt — zmień go w rejestrze umów "
+                    "(„Powiąż z kontraktem”)."
+                ),
+            )
+        await _authorize_parent(db, current_user, parent)
+        live = await effects.live_contract_ids_for_unlinked_row(
+            db,
+            row_id=parent.id,
+            candidate_id=parent.candidate_id,
+            client_id=parent.client_id,
+            contract_type=ContractType.b2b,
+        )
+        if body.contract_id not in live:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Ten kontrakt nie należy do osoby i klienta tej umowy "
+                    "albo ma już własną umowę w rejestrze."
+                ),
+            )
+        parent.contract_id = body.contract_id
+        doc.contract_id = body.contract_id
+    else:
+        if not _takes_contract(doc_type):
+            raise HTTPException(
+                status_code=422, detail="Ten aneks nie ma kontraktu do powiązania."
+            )
+        await _authorize_document_write(db, current_user, doc, None)
+        current = (
+            await db.get(Contract, doc.contract_id)
+            if doc.contract_id is not None
+            else None
+        )
+        if current is not None and current.status != ContractStatus.void:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Aneks jest już powiązany z kontraktem.",
+            )
+        contract = await _load_subject_contract(
+            db, current_user, doc_type, body.contract_id
+        )
+        doc.contract_id = contract.id
+        doc.candidate_id = contract.candidate_id
+        doc.job_id = contract.job_id
+        doc.client_id = contract.client_id
+    db.add(
+        Activity(
+            entity_type="b2b_contract_document",
+            entity_id=doc.id,
+            action="contract_linked",
+            user_id=current_user.id,
+            details={
+                "document_type": doc.document_type,
+                "contract_id": body.contract_id,
+            },
+        )
+    )
+    await db.commit()
+    await db.refresh(doc)
+    return (await _serialize(db, [doc], current_user))[0]
+
+
+#: Zdarzenia aneksu pokazywane w historii — reszta wpisów (i ich szczegóły)
+#: zostaje w dzienniku.
+_HISTORY_ACTIONS = frozenset(
+    {
+        "generated",
+        "regenerated",
+        "cancelled",
+        "restored",
+        "contract_linked",
+        "signed_effect_applied",
+        "signed_scan_attached",
+    }
+)
+
+
+@router.get("/documents/{doc_id}/history", response_model=list[DocumentHistoryEntry])
+async def document_history(
+    doc_id: int,
+    current_user: B2BGeneratorAccess,
+    db: AsyncSession = Depends(get_db),
+) -> list[DocumentHistoryEntry]:
+    """Historia dokumentu z dziennika zdarzeń: kto i kiedy wygenerował,
+    poprawił, anulował, przywrócił, powiązał z kontraktem, podpisał.
+
+    Bez osobnej tabeli statusów: aneks ma dwa ręczne przejścia (anuluj,
+    przywróć), a każde zdarzenie zapisuje już ``Activity``. Oddajemy wyłącznie
+    nazwę zdarzenia i powód anulowania — ``details`` podpisu niesie id aneksów
+    kontraktu i nie jest treścią dla listy."""
+    await _load_document(db, current_user, doc_id)
+    found = await db.execute(
+        select(Activity, User.name)
+        .outerjoin(User, User.id == Activity.user_id)
+        .where(
+            Activity.entity_type == "b2b_contract_document",
+            Activity.entity_id == doc_id,
+            Activity.action.in_(_HISTORY_ACTIONS),
+        )
+        .order_by(Activity.created_at.asc(), Activity.id.asc())
+    )
+    return [
+        DocumentHistoryEntry(
+            action=activity.action,
+            at=activity.created_at.isoformat() if activity.created_at else None,
+            by_name=name,
+            note=(
+                (activity.details or {}).get("reason")
+                if activity.action == "cancelled"
+                else None
+            ),
+        )
+        for activity, name in found.all()
+    ]
 
 
 @router.delete("/documents/{doc_id}", status_code=status.HTTP_204_NO_CONTENT)

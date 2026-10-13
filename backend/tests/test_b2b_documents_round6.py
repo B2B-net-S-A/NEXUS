@@ -292,6 +292,15 @@ def test_document_paths_lock_the_contract_before_the_register_row():
     assert _index(confirm, "_lock_contract_first(") < _index(confirm, "_load_document(")
     notice = inspect.getsource(b2b_documents.register_partner_notice)
     assert _index(notice, "_lock_contract_first(") < _index(notice, "_load_parent(")
+    # Rejestr aneksów (13.10.2026): powiązanie aneksu blokuje kontrakt docelowy
+    # przed dokumentem i wierszem; dowiązanie umowy bez kontraktu przy
+    # generowaniu — kontrakt przed wierszem.
+    relink = inspect.getsource(b2b_documents.link_document_contract)
+    assert _index(relink, "select(Contract.id)") < _index(relink, "_load_document(")
+    lock_parent = inspect.getsource(b2b_documents._lock_parent_linking_contract)
+    assert _index(lock_parent, "select(Contract.id)") < _index(
+        lock_parent, "_load_parent("
+    )
     link = inspect.getsource(b2b_contract_generator.link_generated_contract_to_contract)
     assert _index(link, "select(Contract)") < _index(
         link, "select(B2BGeneratedContract)"

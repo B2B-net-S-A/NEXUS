@@ -8,7 +8,7 @@ i nieczyszczona: asercje wyłącznie na własnych wierszach.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -918,3 +918,193 @@ async def test_subjects_pair_an_unlinked_agreement_with_its_live_contract(
     assert agreement["parent_generated_contract_id"] == rid
     assert agreement["contract_id"] is None
     assert [o["contract_id"] for o in agreement["contract_options"]] == [contract_id]
+
+
+# ── rejestr aneksów: lista, przywrócenie, powiązanie, historia ───────────────
+
+
+async def _listed(app_client, headers, doc_id: int, **params) -> dict | None:
+    resp = await app_client.get(f"{BASE}/documents", headers=headers, params=params)
+    assert resp.status_code == 200, resp.text
+    return next((item for item in resp.json() if item["id"] == doc_id), None)
+
+
+async def test_register_row_says_for_whom_what_and_since_when(
+    app_client, app_auth_headers
+):
+    from app.core.scheduling import business_today
+    from app.models.contract import Contract, RateUnit
+    from tests.test_b2b_generator_rate_visibility import _seed_user
+
+    contract_id, client_id = await _seed_linked_contract()
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+        contract.rate_candidate = Decimal("140")
+        contract.rate_candidate_currency = "PLN"
+        contract.rate_unit = RateUnit.hourly
+        await db.commit()
+    lastname = await _lastname(contract_id)
+    nip = "5213900011"
+    in_a_month = (business_today() + timedelta(days=30)).isoformat()
+    resp = await _external(
+        app_client,
+        app_auth_headers,
+        "annex_rate_change",
+        contract_id=contract_id,
+        values={
+            "effective_date": in_a_month,
+            "partner_nip": nip,
+            "rate_items": [{"rate": "145"}],
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    doc_id = int(resp.headers["X-Document-Id"])
+
+    # Szukanie po osobie z kontraktu i po NIP-ie, tylko w rodzinie aneksów.
+    item = await _listed(
+        app_client, app_auth_headers, doc_id, family="annex", q=lastname
+    )
+    assert item is not None
+    assert await _listed(app_client, app_auth_headers, doc_id, q="521-390-00-11")
+    assert (
+        await _listed(app_client, app_auth_headers, doc_id, family="termination", q=nip)
+        is None
+    )
+    assert item["state"] == "waiting"
+    assert item["effective_date"] == in_a_month
+    assert item["contract_id"] == contract_id
+    assert item["client_id"] == client_id
+    assert item["external"] is True
+    assert item["partner_nip"] == nip
+    assert item["person_name"].endswith(lastname)
+    assert item["change"]["kind"] == "rate"
+    assert [i["rate"] for i in item["change"]["items"]] == [145.0]
+    assert item["can_confirm_signed"] is True
+    assert item["can_link_contract"] is False
+
+    unknown = await app_client.get(
+        f"{BASE}/documents", headers=app_auth_headers, params={"family": "wszystko"}
+    )
+    assert unknown.status_code == 422, unknown.text
+
+    # Rekruter, który nie jest autorem ani prowadzącym, widzi aneks bez kwot.
+    recruiter_headers, _ = await _seed_user(app_client, "recruiter")
+    seen = await _listed(app_client, recruiter_headers, doc_id, family="annex", q=nip)
+    assert seen is not None
+    assert seen["change"] == {"kind": "rate", "hidden": True}
+
+    signed = await app_client.post(
+        f"{BASE}/documents/{doc_id}/confirm-signed", headers=app_auth_headers
+    )
+    # Aneks podpisany z datą w przyszłości jeszcze nie obowiązuje.
+    assert signed.status_code == 200, signed.text
+    assert signed.json()["state"] == "signed_pending"
+
+
+async def test_annex_without_contract_waits_until_it_is_linked(
+    app_client, app_auth_headers
+):
+    from app.models.contract import Contract
+
+    contract_id, client_id = await _seed_linked_contract()
+    saved = await _external(
+        app_client,
+        app_auth_headers,
+        "annex_start_date",
+        client_id=client_id,
+        values={"contract_number": "BK-1/2025", "new_start_date": "2026-11-16"},
+    )
+    assert saved.status_code == 200, saved.text
+    doc_id = int(saved.headers["X-Document-Id"])
+
+    item = await _listed(app_client, app_auth_headers, doc_id, status="no_contract")
+    assert item is not None
+    assert item["contract_id"] is None
+    assert item["can_confirm_signed"] is False
+    assert item["can_link_contract"] is True
+
+    linked = await app_client.post(
+        f"{BASE}/documents/{doc_id}/link-contract",
+        headers=app_auth_headers,
+        json={"contract_id": contract_id},
+    )
+    assert linked.status_code == 200, linked.text
+    assert linked.json()["contract_id"] == contract_id
+    assert linked.json()["can_confirm_signed"] is True
+    assert (
+        await _listed(app_client, app_auth_headers, doc_id, status="no_contract")
+        is None
+    )
+    again = await app_client.post(
+        f"{BASE}/documents/{doc_id}/link-contract",
+        headers=app_auth_headers,
+        json={"contract_id": contract_id},
+    )
+    assert again.status_code == 409, again.text
+
+    signed = await app_client.post(
+        f"{BASE}/documents/{doc_id}/confirm-signed", headers=app_auth_headers
+    )
+    assert signed.status_code == 200, signed.text
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(Contract, contract_id)).start_date == date(2026, 11, 16)
+    after = await app_client.post(
+        f"{BASE}/documents/{doc_id}/link-contract",
+        headers=app_auth_headers,
+        json={"contract_id": contract_id},
+    )
+    assert after.status_code == 409, after.text
+
+
+async def test_restore_brings_a_cancelled_annex_back_without_displacing_a_newer_one(
+    app_client, app_auth_headers
+):
+    rid, _ = await _signed_parent(app_client)
+    older = await _create(
+        app_client,
+        app_auth_headers,
+        "annex_start_date",
+        rid,
+        new_start_date="2026-11-15",
+    )
+    newer = await _create(
+        app_client,
+        app_auth_headers,
+        "annex_start_date",
+        rid,
+        new_start_date="2026-11-20",
+    )
+
+    async def post(doc_id: int, action: str, **json):
+        return await app_client.post(
+            f"{BASE}/documents/{doc_id}/{action}", headers=app_auth_headers, **json
+        )
+
+    not_cancelled = await post(older, "restore")
+    assert not_cancelled.status_code == 409, not_cancelled.text
+
+    cancelled = await post(older, "cancel", json={"reason": "Partner nie podpisał"})
+    assert cancelled.status_code == 200, cancelled.text
+    restored = await post(older, "restore")
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["status"] == "issued"
+    assert restored.json()["state"] == "waiting"
+    assert restored.json()["cancelled_reason"] is None
+    # Późniejszy aneks nadal wygrywa w wierszu umowy.
+    assert (await _row(rid)).start_date == date(2026, 11, 20)
+
+    # Jedyny aktywny aneks po przywróceniu wraca do wiersza.
+    assert (
+        await post(newer, "cancel", json={"reason": "Zmiana ustaleń"})
+    ).status_code == 200
+    assert (await _row(rid)).start_date == date(2026, 11, 15)
+
+    history = await app_client.get(
+        f"{BASE}/documents/{older}/history", headers=app_auth_headers
+    )
+    assert history.status_code == 200, history.text
+    entries = history.json()
+    assert [e["action"] for e in entries] == ["generated", "cancelled", "restored"]
+    assert entries[1]["note"] == "Partner nie podpisał"
+    assert entries[0]["note"] is None
+    assert all(set(e) == {"action", "at", "by_name", "note"} for e in entries)

@@ -7,6 +7,7 @@ mówić to samo, co ``effects.apply`` zapisuje w aneksie kontraktu.
 
 from datetime import date
 
+from app.services.b2b_documents.annex_summary import annex_change
 from app.services.b2b_documents.effects import (
     ANNEX_STATES,
     annex_effective_date,
@@ -113,6 +114,64 @@ def test_signed_annex_is_pending_until_its_effective_day():
     # W dniu wejścia w życie aneks już obowiązuje.
     assert annex_state(**signed, effective=day, today=day) == "in_force"
     assert annex_state(**signed, effective=None, today=day) == "in_force"
+
+
+# ── skrót zmiany na liście ───────────────────────────────────────────────────
+
+
+def test_rate_change_shows_amounts_only_to_people_who_see_rates():
+    values = {
+        "rate_items": [{"rate": "150", "from": "2026-11-01", "client_id": 7}],
+        "effective_date": "2026-11-01",
+    }
+    hidden = annex_change("annex_rate_change", values, rates_visible=False)
+    assert hidden == {"kind": "rate", "hidden": True}
+
+    shown = annex_change(
+        "annex_rate_change",
+        values,
+        rates_visible=True,
+        rates_before=[{"rate": 140.0, "from": None, "to": None}],
+    )
+    assert shown["hidden"] is False
+    assert shown["currency"] == "PLN"
+    assert [item["rate"] for item in shown["items"]] == [150.0]
+    assert [item["rate"] for item in shown["before"]] == [140.0]
+
+
+def test_rate_change_from_before_the_annex_generator_has_one_item():
+    shown = annex_change("annex_rate_change", {"new_rate": "165"}, rates_visible=True)
+    assert [item["rate"] for item in shown["items"]] == [165.0]
+    assert shown["before"] == []
+
+
+def test_other_annexes_summarise_what_the_document_says():
+    assert annex_change(
+        "annex_start_date",
+        {"current_start_date": "2026-11-02", "new_start_date": "2026-11-16"},
+        rates_visible=False,
+    ) == {"kind": "start_date", "before": "2026-11-02", "after": "2026-11-16"}
+    assert annex_change(
+        "annex_party_data",
+        {"new_legal_name": " ZAJĄC IT ", "new_nip": "521-390-00-11"},
+        rates_visible=False,
+    ) == {"kind": "party", "legal_name": "ZAJĄC IT", "nip": "5213900011"}
+    assert annex_change(
+        "annex_subcontractor", {"delegate_name": "Paweł Sowa"}, rates_visible=False
+    ) == {"kind": "delegate", "name": "Paweł Sowa"}
+    mandate = annex_change(
+        "annex_mandate",
+        {"period_from": "2026-10-01", "change_rate": True, "rate_gross": "80"},
+        rates_visible=False,
+    )
+    # Aneks zlecenia mówi tylko, że stawka się zmienia — bez kwoty.
+    assert mandate == {
+        "kind": "mandate",
+        "period_from": "2026-10-01",
+        "period_to": None,
+        "rate_changed": True,
+    }
+    assert annex_change("termination_agreement", {}, rates_visible=True) is None
 
 
 def test_cancelled_annex_stays_cancelled_whatever_the_signature_says():

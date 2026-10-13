@@ -212,11 +212,48 @@ async def revert(
     return await _recompute(db, row, doc.document_type, exclude_id=doc.id)
 
 
+async def restore(
+    db: AsyncSession,
+    doc: B2BContractDocument,
+    row: B2BGeneratedContract | None,
+) -> list[str]:
+    """Przywrócony aneks (anulowany → czeka na podpis): odwrotność ``revert``.
+
+    Samo przeliczenie, NIE ``apply``: aneks sprzed 29.09.2026 nie ma zapisu
+    „sprzed” i ``apply`` wziąłby za niego bieżący wiersz — czyli wartość
+    późniejszego aneksu — a jako najstarszy dokument stałby się bazą dla
+    wszystkich. Wołający ustawił już ``status`` na ``issued``."""
+    if row is None or not _applied(doc):
+        return []
+    await db.flush()
+    return await _recompute(db, row, doc.document_type)
+
+
+def rates_before(
+    doc: B2BContractDocument, row: B2BGeneratedContract | None
+) -> list[dict[str, Any]]:
+    """Stawki umowy sprzed tego aneksu — do skrótu „przed → po” w rejestrze.
+
+    Tylko dla aneksu do umowy z rejestru: przy umowie spoza NEXUSA „przed”
+    byłoby stawką kontraktu, do której autor aneksu nie musi mieć wglądu."""
+    if row is None:
+        return []
+    before = (doc.render_payload or {}).get("register_before")
+    annex = before.get("annex_rates") if isinstance(before, dict) else None
+    if isinstance(annex, dict) and annex.get("items"):
+        return [dict(i) for i in annex["items"] if isinstance(i, dict)]
+    return _rates_from_signed_agreement(row)
+
+
 def rate_items_from_register(row: B2BGeneratedContract) -> list[dict[str, Any]]:
     """Obecne stawki umowy: ostatni aneks albo etapy z wygenerowanej umowy."""
     annex = row.annex_rates if isinstance(row.annex_rates, dict) else None
     if annex and annex.get("items"):
         return [dict(i) for i in annex["items"] if isinstance(i, dict)]
+    return _rates_from_signed_agreement(row)
+
+
+def _rates_from_signed_agreement(row: B2BGeneratedContract) -> list[dict[str, Any]]:
     payload = row.render_payload or {}
     stages = payload.get("rate_stages") or []
     items: list[dict[str, Any]] = []
