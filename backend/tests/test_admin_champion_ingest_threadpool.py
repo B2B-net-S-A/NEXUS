@@ -1,14 +1,20 @@
-"""Runda 9 (R9-X1-6): odczyt pliku Championa (pdfplumber + OCR) poza pętlą."""
+"""Ingest profili Championa z karty Traffita — od 14.10.2026 zawsze 410.
+
+Do 14.10 test pilnował, że odczyt pliku (pdfplumber + OCR, Runda 9 R9-X1-6)
+biegnie poza pętlą. Traffit jest wyłączony na stałe (decyzja Artura,
+`app/services/traffit_retired.py`), a collector czyta pliki z karty Traffita —
+trasa odpowiada 410 przed odczytem pliku, więc nie ma już czego wątkować.
+"""
 
 from __future__ import annotations
 
-import threading
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
 from app.api import admin_champion_ingest as mod
+from app.services.traffit_retired import TRAFFIT_RETIRED_MESSAGE
 
 
 class _Upload:
@@ -20,21 +26,17 @@ class _Upload:
 
 
 @pytest.mark.asyncio
-async def test_document_text_is_extracted_off_the_event_loop(monkeypatch) -> None:
-    loop_thread = threading.get_ident()
-    seen: list[int] = []
+async def test_ingest_answers_410_without_extracting_the_document(
+    monkeypatch,
+) -> None:
+    extracted: list[str] = []
 
     def fake_extract(content: bytes, filename: str) -> str:
-        seen.append(threading.get_ident())
+        extracted.append(filename)
         return ""
 
     monkeypatch.setattr(mod, "extract_document_text", fake_extract)
-    result = MagicMock()
-    result.scalar_one_or_none.return_value = SimpleNamespace(
-        id=7, champion_profile=None
-    )
     db = AsyncMock()
-    db.execute.return_value = result
 
     handler = mod.champion_ingest.__wrapped__
     resp = await handler(
@@ -46,5 +48,7 @@ async def test_document_text_is_extracted_off_the_event_loop(monkeypatch) -> Non
         db=db,
     )
 
-    assert resp.status_code == 422  # krótki tekst = no_text
-    assert seen and seen[0] != loop_thread
+    assert resp.status_code == 410
+    assert TRAFFIT_RETIRED_MESSAGE in resp.body.decode("utf-8")
+    assert extracted == []
+    db.execute.assert_not_awaited()

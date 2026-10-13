@@ -805,8 +805,11 @@ async def test_return_to_traffit_and_qc_override_follow_the_permission(
 
     await grant_permissions(user_id, RM)
 
+    # Z uprawnieniem bramka przepuszcza, ale od 14.10.2026 Traffit jest
+    # wyłączony — powrót odpowiada 410 i rekrutacja zostaje w NEXUSIE.
     reverted = await app_client.post(switch, headers=headers, json={"enabled": False})
-    assert reverted.status_code == 200, reverted.text
-    assert reverted.json()["managed_in_nexus"] is False
+    assert reverted.status_code == 410, reverted.text
+    detail = await app_client.get(f"/api/jobs/{job_id}", headers=headers)
+    assert detail.json()["managed_in_nexus"] is True
     missing_stage = await app_client.post(override, headers=headers, json=reason)
     assert missing_stage.status_code == 404, missing_stage.text

@@ -1,6 +1,6 @@
 # Traffit daily sync (scheduled import)
 
-<!-- indeks: wyłączony 12.10.2026 (zespół pracuje tylko w NEXUSIE) — co stoi, co zostało tylko w Traffit, jak zrobić ostatni import -->
+<!-- indeks: wyłączony na stałe 14.10.2026 (strażnik `traffit_retired.py`, 410, pętle nie startują) — co stoi, co zostało tylko w Traffit -->
 
 ## Stan od 14.10.2026: Traffit wyłączony na stałe w kodzie
 
@@ -37,10 +37,30 @@ Traffita). Od 14.10 obowiązuje:
   `monkeypatch.setattr`, co walidator omija.
 - **Health:** `checks.traffit` = `disabled`, stała wartość bez zapytania
   o `__daily__` i bez łączenia się z Traffitem. Kafelek „Stan systemu” pokazuje
-  „Wyłączone”, uptime-probe — ostrzeżenie, nie alarm (jak dawne `unconfigured`).
+  „Wyłączone”. Uptime-probe ma `"traffit":["disabled"]` w `ALLOWLIST`
+  (`.github/workflows/uptime-probe.yml`, od 14.10.2026) — milczy jak przy
+  `priority_work=disabled`; `degraded` i awarie nadal ostrzegają albo alarmują.
 - **Zostaje:** modele, tabele, migracje i dane z Traffita (archiwum,
   `external_source='traffit'`, kolumny), ich odczyt w aplikacji, moduły
   importera (historia; testy wołają ich funkcje wewnętrzne wprost).
+- **Profile Championa z karty Traffita:** `POST /api/admin/champion-profiles/ingest`
+  (cel collectora uruchamianego w karcie Traffita) odpowiada **410** z tym samym
+  komunikatem zaraz po bramce admina — bez odczytu pliku, bazy i modelu.
+  `GET …/coverage` zostaje (odczyt z bazy NEXUSA). Funkcje serwisu
+  `champion_profile_ingest.py` zostają jako historia.
+- **„Wróć do Traffita”:** `POST /api/jobs/{id}/manage-in-nexus` z
+  `enabled=false` odpowiada **410** „Traffit jest wyłączony od 14.10.2026 —
+  rekrutacja zostaje prowadzona w NEXUSIE.”, także gdy przełącznik już był
+  wyłączony; nic nie zapisuje. Bramka uprawnienia „Rekrutacje: zakładanie,
+  zamykanie, wysyłka CV do klienta” zostaje przed 410 (bez niego 403, które je
+  nazywa). `enabled=true` („Przełącz do NEXUSA”) działa jak dotąd. Chip
+  „Prowadzona w NEXUSIE od …” w nagłówku rekrutacji jest samą informacją —
+  bez okna powrotu, także dla admina i Delivery Leada.
+- **Ekrany:** kafelek Ustawień „Import z Traffita” ma opis „Wyłączony
+  14.10.2026 — historia ostatnich importów.”; w Insights → Integracje wiersz
+  ostatniego biegu to „Nowi kandydaci” (runner JJIT nie zakłada już nikogo
+  w Traffit), a kafelek „Duplikaty (znani w Traffit do 14.10.2026)” — duplikaty
+  liczyło wyszukiwanie w Traffit, które stanęło 14.10. Dane bez zmian.
 - **Poza kodem:** cron hosta `/root/scripts/traffit-delta-sync.sh` dalej
   zatrzymuje plik `/root/scripts/traffit-stop`; sekrety `TRAFFIT_*` w Coolify
   nic już nie uruchamiają.

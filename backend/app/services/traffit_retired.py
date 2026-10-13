@@ -31,7 +31,7 @@ TRAFFIT_RETIRED_MESSAGE = (
 )
 #: Wartość `checks.traffit` w `/api/health`. `disabled`, nie nowe słowo:
 #: kafelek „Stan systemu” pokazuje je jako „Wyłączone” (jak dotychczasowe
-#: `unconfigured`), a uptime-probe jako ostrzeżenie, nie alarm.
+#: `unconfigured`), a uptime-probe milczy (allowlista od 14.10.2026).
 TRAFFIT_HEALTH_VALUE = "disabled"
 
 

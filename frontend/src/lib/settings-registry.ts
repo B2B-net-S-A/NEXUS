@@ -267,7 +267,7 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
   },
   {
     id: "traffit", area: "sys", title: "Import z Traffita",
-    description: "Czy nocny import przeszedł bez błędów.",
+    description: "Wyłączony 14.10.2026 — historia ostatnich importów.",
     keywords: "traffit synchronizacja import",
     gate: { roles: ["admin"] },
   },

@@ -186,8 +186,8 @@ wykonanie tego samego zakresu, jak przy fali; `job_ids` to id KOPII.
   w raportach zamknięć i w Lidze DL. Kopia zamknięta wcześniej przez człowieka
   zostaje z jego powodem, a jej osoby i tak przechodzą.
 - **Kopia zostaje „Prowadzona w NEXUSIE”.** Bez tej flagi import odtworzyłby
-  w niej pary, które przeszły (zna je po `external_id`). Na scalonej kopii
-  nie klikaj „Wróć do Traffita”.
+  w niej pary, które przeszły (zna je po `external_id`). „Wróć do Traffita”
+  od 14.10.2026 nie działa (410) — Traffit jest wyłączony na stałe.
 - **Zamknięta rekrutacja NEXUSA nie przyjmuje ludzi** (`target_not_open`) —
   przepięcie schowałoby ich z Tablicy; o otwarciu decyduje Delivery Lead.
 
@@ -220,8 +220,9 @@ w statusie syncu) — ta liczba pokazuje, czy ktoś nadal rusza karty w Traffit.
 Od 12.10.2026 nocny import jest wyłączony w całości (decyzja Artura,
 `traffit-daily-sync-scheduled-import.md`); od 14.10.2026 także narzędzie
 przeniesienia i scalenia (410, patrz początek pliku).
-Cofnięcie: „Wróć do Traffita” na rekrutacji i jej zamknięcie; wiersze dopisane
-przy przeniesieniu mają `external_id` z prefiksem `transfer:`.
+Cofnięcie przeniesienia przez „Wróć do Traffita” nie istnieje od 14.10.2026
+(trasa odpowiada 410, Traffit wyłączony na stałe); wiersze dopisane przy
+przeniesieniu mają `external_id` z prefiksem `transfer:`.
 
 Znany dług, którego ta zmiana nie rusza: remis czasu w imporcie dotyczy
 wszystkich rekrutacji z Traffita, nie tylko przenoszonych.
