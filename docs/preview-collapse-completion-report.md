@@ -66,6 +66,15 @@ Bez przewijania strony w bok w żadnym układzie.
   zwinięte CV po połowie i pamiętane po przeładowaniu; zwinięte wymagania dają CV całą strefę przy 1730 px)
   na lokalnym `next dev`.
 
+## Przegląd kodu (13.10.2026)
+
+Dwa problemy znalezione i naprawione przed PR-em, każdy z testem, który najpierw padał:
+
+- historia osoby otwarta przed zwinięciem CV zostawała otwarta, więc „Pokaż” z profilu przed telefonem nic nie
+  zmieniał — zwinięcie CV zamyka teraz historię w każdym podglądzie;
+- układ jest wspólny dla sekcji panelu, więc zwinięcie wymagań w zakładce CV montowało i pobierało CV w ukrytym
+  podglądzie Screeningu — podgląd ukrytej sekcji nie montuje nic nowego, dopóki nie wróci.
+
 ## Niepotwierdzone
 
 - Zalogowana produkcja z prawdziwym CV (PDF i Word) — do przeklikania po wdrożeniu.
