@@ -221,7 +221,8 @@ describe("CvToClientCard — brak CV", () => {
     expect(screen.queryByRole("button", { name: /Generuj CV/ })).toBeNull();
 
     const sources = within(panel).getByRole("region", { name: "Z czego powstało" });
-    expect(within(sources).getByTestId("ai-source-original")).toHaveTextContent("Jan_Kowalski_CV.pdf");
+    // Wiersze pojawiają się po odczycie `…/ai-sources` („Wczytuję źródła…”).
+    expect(await within(sources).findByTestId("ai-source-original")).toHaveTextContent("Jan_Kowalski_CV.pdf");
     expect(within(sources).getByTestId("ai-source-original")).toHaveTextContent("zawsze");
     expect(within(sources).getByTestId("ai-source-champion")).toHaveTextContent("zawsze");
     expect(within(sources).getByTestId("ai-source-answers")).toHaveTextContent(
