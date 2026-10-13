@@ -653,7 +653,7 @@ def build_requirements(facts: PairFacts, to_column: str) -> dict[str, Any]:
                     if facts.cpro_sender_name
                     else "Nikt nie jest ustawiony do wysyłki do Cpro."
                 )
-        elif facts.is_client_sender:
+        elif facts.is_client_sender and from_column == "cv_qc":
             # Delivery Lead akceptuje osobę do kolejki Cpro w przeglądzie
             # (stawka do Cpro wymagana) — front otwiera przegląd, nie goły ruch.
             primary = {
@@ -671,8 +671,10 @@ def build_requirements(facts: PairFacts, to_column: str) -> dict[str, Any]:
             )
         else:
             # Rekruter przekazuje osobę Delivery Leadowi (13.10.2026) — do
-            # kolejki Cpro wkłada dopiero DL po akceptacji. Blokuje tylko to,
-            # co potrzebne do wejścia do „QC CV”.
+            # kolejki Cpro wkłada dopiero DL po akceptacji. Delivery Lead
+            # z kolumny sprzed „QC CV” najpierw przenosi tam kartę: przegląd
+            # i akceptacja są w „QC CV”. Blokuje tylko to, co potrzebne do
+            # wejścia do „QC CV”.
             qc_index = BOARD_COLUMN_ORDER.index("cv_qc")
             blocking = [
                 item
@@ -681,7 +683,11 @@ def build_requirements(facts: PairFacts, to_column: str) -> dict[str, Any]:
             ]
             primary = {
                 "kind": "hand_to_dl",
-                "label": "Przekaż Delivery Leadowi",
+                "label": (
+                    "Przenieś do „QC CV” do akceptacji"
+                    if facts.is_client_sender
+                    else "Przekaż Delivery Leadowi"
+                ),
                 "target_stage_def_id": (
                     None if from_column == "cv_qc" else facts.qc_stage_def_id
                 ),

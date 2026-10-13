@@ -3025,10 +3025,14 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  return;
  }
  // Delivery Lead akceptuje do kolejki Cpro w przeglądzie (stawka do Cpro).
- if (openDlReviewIfSending(moveNext.item, cpro)) return;
+ // Okno pamięta kartę z chwili otwarcia — QC mogło się w międzyczasie
+ // zaliczyć albo zostać przepuszczone (jak w `handleMoveNextMove`).
+ const item =
+ cols.flatMap((c) => c.items).find((i) => i.id === moveNext.item.id) ?? moveNext.item;
+ if (openDlReviewIfSending(item, cpro)) return;
  requestMove(moveNext.item, moveNext.srcColId, cpro);
  },
- [moveNext, stageCols, requestMove, showError, openDlReviewIfSending]
+ [moveNext, cols, stageCols, requestMove, showError, openDlReviewIfSending]
  );
 
  // Kolumny do renderu: 8 kolumn Tablicy (+ rozwinięci zamknięci + kubełek

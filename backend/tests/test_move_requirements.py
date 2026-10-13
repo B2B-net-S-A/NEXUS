@@ -205,6 +205,29 @@ def test_nordea_delivery_lead_accepts_to_the_cpro_queue() -> None:
     assert failed["primary"]["kind"] == "blocked"
 
 
+def test_nordea_delivery_lead_before_qc_moves_the_card_to_qc_first() -> None:
+    """Przegląd i akceptacja do Cpro są w „QC CV” — z wcześniejszej kolumny
+    Delivery Lead dostaje ruch do „QC CV”, nie goły ruch do kolejki (przegląd
+    kodu 13.10.2026: front nie otwierał przeglądu i serwer dawał 422)."""
+    facts = replace(
+        VERIFIED_READY,
+        from_column="verified",
+        company_cv=True,
+        qc_status="passed",
+        nordea=True,
+        cpro_stage_def_id=44,
+        qc_stage_def_id=41,
+        cpro_sender_name="Kinga Sordyl",
+        is_client_sender=True,
+    )
+    result = build_requirements(facts, "cv_sent")
+    assert result["primary"] == {
+        "kind": "hand_to_dl",
+        "label": "Przenieś do „QC CV” do akceptacji",
+        "target_stage_def_id": 41,
+    }
+
+
 def test_nordea_card_already_in_the_queue_moves_only_for_the_sender() -> None:
     facts = replace(
         VERIFIED_READY,

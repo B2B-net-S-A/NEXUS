@@ -1860,6 +1860,41 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(post.mock.calls.filter((c) => c[0] === "/api/pipeline/move")).toHaveLength(0);
   });
 
+  // Nordea (13.10.2026): „Przejrzyj i zaakceptuj do Cpro” z okna „Przesuń
+  // dalej” otwiera przegląd z celem „Wysłać do Cpro” — goły ruch na etap Cpro
+  // bez stawki serwer odrzuca (422).
+  it("Nordea: „Przejrzyj i zaakceptuj do Cpro” w oknie „Przesuń dalej” otwiera przegląd, nie ruch", async () => {
+    useAuthStore.setState({ user: { id: 7, role: "delivery_lead", roles: ["delivery_lead"] } } as never);
+    qcResultCandidate.id = 8302;
+    get.mockImplementation((url: string) =>
+      url === "/api/pipeline/move-requirements"
+        ? Promise.resolve({
+            data: {
+              from_column: "cv_qc",
+              to_column: "cv_sent",
+              skipped_columns: [],
+              items: [],
+              primary: { kind: "hand_to_cpro", label: "Przejrzyj i zaakceptuj do Cpro", target_stage_def_id: 304 },
+              owner_note: null,
+            },
+          })
+        : Promise.resolve({ data: {} }),
+    );
+    renderBoard(qcColumns({ status: "passed", blocking_failed: 0 }) as never, undefined, false, true, true);
+    await screen.findByTestId("pipeline-board");
+    const card = document.querySelector('[data-candidate-id="8302"]') as HTMLElement;
+    await userEvent.click(within(card).getByRole("button", { name: /otwórz QC CV dla Kuba Braki/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "QC: przesuń dalej" }));
+    const dialog = await screen.findByTestId("move-next-dialog");
+    await userEvent.click(await within(dialog).findByRole("button", { name: /Przejrzyj i zaakceptuj do Cpro/ }));
+
+    const panel = await screen.findByTestId("dl-review-panel");
+    expect(panel).toHaveAttribute("data-stage-id", "7302");
+    expect(panel).toHaveAttribute("data-target-stage-def-id", "304");
+    expect(panel).toHaveAttribute("data-cpro", "true");
+    expect(post.mock.calls.filter((c) => c[0] === "/api/pipeline/move")).toHaveLength(0);
+  });
+
   // Test na produkcji 03.10.2026: strzałka na karcie otwierała samo okno stawki
   // do klienta — bez karty rekomendacji, uwag i „Wróć do poprawy”. Od 13.10.2026
   // gotowa karta ma u osoby z prawem wysyłki „Przejrzyj i wyślij” zamiast
