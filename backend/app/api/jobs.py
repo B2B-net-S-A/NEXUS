@@ -15,7 +15,7 @@ from fastapi import (
     status,
 )
 from fastapi.concurrency import run_in_threadpool
-from pydantic import Field
+from pydantic import BaseModel, Field
 from sqlalchemy import (
     and_,
     case,
@@ -3443,6 +3443,130 @@ async def apply_champion_import(
         expected_fingerprint=expected,
         sync_fields=fields,
     )
+
+
+# ── „Wymagania do poprawy” — porządki wymagań otwartych rekrutacji (D4) ─────
+
+
+class RequirementProposalDecision(BaseModel):
+    profile_hash: str = Field(min_length=64, max_length=64)
+
+
+@router.get("/{job_id}/requirement-proposal")
+async def get_requirement_proposal(
+    job_id: int,
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Propozycja uporządkowania wymagań (liczona na żywo) albo ``None``."""
+    from app.services import requirement_cleanup
+
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
+    proposal = await requirement_cleanup.pending_proposal(db, job)
+    return {
+        "proposal": proposal.as_dict() if proposal else None,
+        "can_decide": requirement_cleanup.can_decide(current_user, job),
+    }
+
+
+async def _locked_proposal(
+    db: AsyncSession, job_id: int, current_user: User, profile_hash: str
+):
+    from app.services import requirement_cleanup
+
+    job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not requirement_cleanup.can_decide(current_user, job):
+        raise HTTPException(
+            403,
+            "Propozycję zatwierdza Delivery Lead tej rekrutacji albo Head of "
+            "Recruitment.",
+        )
+    proposal = requirement_cleanup.build_proposal(job)
+    if proposal is None:
+        raise HTTPException(409, "Wymagania tej rekrutacji nie wymagają już poprawek.")
+    if proposal.profile_hash != profile_hash:
+        raise HTTPException(
+            409,
+            {
+                "code": "requirement_proposal_stale",
+                "message": "Profil Championa zmienił się — sprawdź nową propozycję.",
+                "proposal": proposal.as_dict(),
+            },
+        )
+    return job, proposal
+
+
+@router.post("/{job_id}/requirement-proposal/apply")
+async def apply_requirement_proposal(
+    job_id: int,
+    body: RequirementProposalDecision,
+    current_user: JobEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Zatwierdzenie propozycji = zwykły zapis Profilu Championa z wierszami."""
+    from app.services import requirement_cleanup
+    from app.services.champion_intake import profile_hash, response_context
+
+    job, proposal = await _locked_proposal(db, job_id, current_user, body.profile_hash)
+    if not proposal.can_apply:
+        raise HTTPException(
+            422,
+            "Dodaj w Profilu Championa co najmniej jedno słowo do szukania — "
+            "tej propozycji nie da się zatwierdzić.",
+        )
+    effects = job_lifecycle.PostCommit()
+    await job_lifecycle.save_champion_core(
+        db,
+        job,
+        requirement_cleanup.apply_payload(proposal),
+        current_user,
+        effects,
+        expected_profile_hash=proposal.profile_hash,
+    )
+    await requirement_cleanup.record_decision(
+        db,
+        job_id=job.id,
+        profile_hash=profile_hash(job),
+        status="applied",
+        user_id=current_user.id,
+    )
+    await db.commit()
+    await db.refresh(job)
+    response = {
+        "job_id": job.id,
+        "champion_profile": _champion_response(job.champion_profile),
+        **response_context(job),
+        "notices": list(effects.results.get("notices") or []),
+    }
+    await job_lifecycle.run_post_commit(effects)
+    return response
+
+
+@router.post("/{job_id}/requirement-proposal/dismiss")
+async def dismiss_requirement_proposal(
+    job_id: int,
+    body: RequirementProposalDecision,
+    current_user: JobEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """„Odrzuć” — propozycja nie wraca, dopóki profil się nie zmieni."""
+    from app.services import requirement_cleanup
+
+    job, proposal = await _locked_proposal(db, job_id, current_user, body.profile_hash)
+    await requirement_cleanup.record_decision(
+        db,
+        job_id=job.id,
+        profile_hash=proposal.profile_hash,
+        status="dismissed",
+        user_id=current_user.id,
+    )
+    await db.commit()
+    return {"job_id": job.id, "status": "dismissed"}
 
 
 async def _save_champion_profile(

@@ -874,6 +874,16 @@ except Exception as _rate_from_err:  # noqa: BLE001
     _RATE_FROM_DDL = []
     _RATE_FROM_BACKFILL = []
 
+# Decyzje „Wymagania do poprawy” (migracja 0438) — JEDNO źródło z migracją
+# (`app/services/requirement_cleanup_schema.py`).
+try:
+    from app.services import requirement_cleanup_schema as _requirement_cleanup
+
+    _REQUIREMENT_CLEANUP_DDL = list(_requirement_cleanup.TABLE_DDL)
+except Exception as _requirement_cleanup_err:  # noqa: BLE001
+    print(f"requirement cleanup DDL unavailable: {_requirement_cleanup_err!r}")
+    _REQUIREMENT_CLEANUP_DDL = []
+
 # Zmiana stawki kandydata w trakcie procesu (migracja 0418): tabela spraw
 # i wyzwalacz kolejki „Stawki od” — JEDNO źródło z migracją
 # (`app/services/candidate_rate_change_schema.py`). Wartości enuma niżej
@@ -979,6 +989,7 @@ _COLUMN_STATEMENTS = [
     *_KEYWORD_CORPUS_DDL,
     *_JOB_PROPOSAL_FEEDBACK_COLUMNS,
     *_PLAIN_KNOWLEDGE_DDL,
+    *_REQUIREMENT_CLEANUP_DDL,
     *_APPLICATION_SCREENING_DDL,
     *_RATE_FROM_DDL,
     *_RATE_CHANGE_DDL,
