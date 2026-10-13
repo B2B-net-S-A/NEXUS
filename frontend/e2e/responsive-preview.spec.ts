@@ -81,6 +81,7 @@ const PAGES = [
   "/preview/jarvis",
   "/preview/kariera",
   "/preview/kpi-targets",
+  "/preview/kpi-topbar",
   "/preview/jobs-list-v3",
   "/preview/job-board-screening",
   "/preview/job-board-screening?state=closed",
@@ -633,6 +634,58 @@ test.describe("pulpit — filtr „Requesty i obłożenie” nie przewija strony
   });
 });
 
+test.describe("górny pasek — licznik celów", () => {
+  test("/preview/kpi-topbar: licznik celów nie zgniata wyszukiwarki w oknach laptopów", async ({ page }) => {
+    // 13.10.2026: trzy podpisane segmenty przy 1280 px z przypiętym menu
+    // i długimi okruszkami zostawiały wyszukiwarce 109 px. Licznik ma chować
+    // całe segmenty, a wyszukiwarka trzymać 220 px.
+    for (const size of WINDOWS_LAPTOP_WINDOWS) {
+      await page.setViewportSize(size);
+      await page.goto("/preview/kpi-topbar");
+      const strips = page.getByTestId("shell-strip");
+      await expect(strips).toHaveCount(4);
+      for (const strip of await strips.all()) {
+        const label = `${await strip.getAttribute("aria-label")} @ ${size.width}`;
+        const search = await strip.getByTestId("topbar-search").boundingBox();
+        expect(search?.width ?? 0, `wyszukiwarka: ${label}`).toBeGreaterThanOrEqual(220);
+        const bar = strip.getByTestId("topbar-replica");
+        const overflow = await bar.evaluate((el) => el.scrollWidth - el.clientWidth);
+        expect(overflow, `pasek bez przelewu: ${label}`).toBe(0);
+        // Co najmniej jeden cały segment zostaje w pierwszym (widocznym) wierszu.
+        const visible = await strip
+          .getByRole("button", { name: /^(Twoje cele|Cele zespołu|Cel portfela)/ })
+          .evaluate((button) => {
+            const top = button.getBoundingClientRect().top;
+            return [...button.querySelectorAll("[data-kpi-segment]")].filter(
+              (segment) => Math.abs(segment.getBoundingClientRect().top - top) < 4,
+            ).length;
+          });
+        expect(visible, `widoczne segmenty: ${label}`).toBeGreaterThanOrEqual(1);
+        // W grupie akcji ściska się tylko licznik: przycisk-ikona zostaje 36 px
+        // (bez tej reguły „Moi ludzie” kurczył się do 22 px).
+        const neighbour = await strip.getByRole("button", { name: "Moi ludzie (atrapa)" }).boundingBox();
+        expect(Math.round(neighbour?.width ?? 0), `sąsiedni przycisk: ${label}`).toBe(36);
+        // Tekst segmentu nie łamie się, a ukryty wiersz nie wystaje do widocznego.
+        const glitches = await strip
+          .getByRole("button", { name: /^(Twoje cele|Cele zespołu|Cel portfela)/ })
+          .evaluate((button) => {
+            const box = button.getBoundingClientRect();
+            return [...button.querySelectorAll<HTMLElement>("[data-kpi-segment]")].filter((segment) => {
+              if (getComputedStyle(segment).display === "none") return false;
+              const value = segment.lastElementChild?.getBoundingClientRect();
+              const caption = segment.firstElementChild?.getBoundingClientRect();
+              const hiddenRow = Math.abs(segment.getBoundingClientRect().top - box.top) >= 4;
+              const wrapped = (value?.height ?? 0) > 18;
+              const leaks = hiddenRow && (caption?.top ?? box.bottom) < box.bottom - 1;
+              return wrapped || leaks;
+            }).length;
+          });
+        expect(glitches, `zawinięte albo wystające segmenty: ${label}`).toBe(0);
+      }
+    }
+  });
+});
+
 /**
  * Ten sam błąd routera co wyżej dotyczył każdej zakładki i filtra zapisanego
  * w adresie przez `router.replace(…, { scroll: false })`. Od 12.10.2026 takie
@@ -669,5 +722,68 @@ test.describe("zakładka zapisana w adresie nie przewija strony", () => {
       await page.waitForTimeout(300);
       expect(await page.evaluate(() => window.scrollY), `przewinięcie po ${address}`).toBe(60);
     }
+  });
+});
+
+/**
+ * Lista rekrutacji pamięta ostatni widok osoby (13.10.2026). Powroty, które
+ * zależą od prawdziwego routera i historii przeglądarki — jsdom ich nie
+ * pokaże: goły adres (menu „Rekrutacje”), „Wstecz” do linku z zakresem
+ * równym domyślnemu roli i „Rekrutacje” kliknięte na otwartej liście.
+ * Harness ma własny klucz pamięci i zasiane cztery zakresy, więc każdy krok
+ * pokazuje wiersze bez sieci.
+ */
+test.describe("lista rekrutacji — ostatnie filtry wracają po wyjściu", () => {
+  const LIST = "/preview/jobs-list-v3";
+  const scope = (page: Page, name: RegExp) =>
+    page.getByRole("group", { name: "Zakres rekrutacji" }).getByRole("button", { name });
+  /** Nawigacja routera aplikacji — to samo, co robi link w menu bocznym. */
+  const routerPush = (page: Page, href: string) =>
+    page.evaluate((to) => {
+      (window as unknown as { next: { router: { push: (url: string) => void } } }).next.router.push(to);
+    }, href);
+
+  test("goły adres otwiera ostatni widok, a link z zakresem wygrywa także po „Wstecz”", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto(LIST);
+    await expect(scope(page, /Moje/)).toHaveAttribute("aria-pressed", "true");
+    await scope(page, /Otwarte/).click();
+    await expect(page).toHaveURL(/open=1/);
+
+    await routerPush(page, "/login");
+    await expect(page).toHaveURL(/\/login/);
+    await routerPush(page, LIST);
+    await expect(scope(page, /Otwarte/)).toHaveAttribute("aria-pressed", "true");
+    await expect(page).toHaveURL(/open=1/);
+    await expect(page.locator("tbody tr").first()).toBeVisible();
+
+    // Link z zakresem domyślnym roli pokazuje „Moje” i trzyma zakres w adresie,
+    // więc „Wstecz” z innej strony wraca do „Moich”, nie do zapamiętanych „Otwartych”.
+    await routerPush(page, `${LIST}?mine=1`);
+    await expect(scope(page, /Moje/)).toHaveAttribute("aria-pressed", "true");
+    await expect(page).toHaveURL(/mine=1/);
+    await routerPush(page, "/login");
+    await expect(page).toHaveURL(/\/login/);
+    await page.goBack();
+    await expect(scope(page, /Moje/)).toHaveAttribute("aria-pressed", "true");
+  });
+
+  test("„Rekrutacje” kliknięte na otwartej liście nie gubi filtrów", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto(LIST);
+    await scope(page, /Wszystkie/).click();
+    await expect(page).toHaveURL(/mine=0/);
+
+    // Lista otwarta z gołego adresu: router widzi ten sam adres, komponent zostaje.
+    // Nowy wpis historii = router skończył tę nawigację, zanim pójdzie następna.
+    const entries = await page.evaluate(() => window.history.length);
+    await routerPush(page, LIST);
+    await expect.poll(() => page.evaluate(() => window.history.length)).toBe(entries + 1);
+    await expect(scope(page, /Wszystkie/)).toHaveAttribute("aria-pressed", "true");
+    await routerPush(page, "/login");
+    await expect(page).toHaveURL(/\/login/);
+    await page.goBack();
+    await expect(scope(page, /Wszystkie/)).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator("tbody tr").first()).toBeVisible();
   });
 });

@@ -346,6 +346,12 @@ const OPEN_TABS: Tab[] = [
 /** Własny klucz — „Pokaż” / „Ukryj” w harnessie nie zmienia preferencji z aplikacji. */
 const RAIL_STORAGE_KEY = "nexus.preview.jobTabsRail.collapsed";
 
+/**
+ * Własny klucz pamięci filtrów — harness loguje fikcyjne konto o id 1 i nie
+ * może czytać ani nadpisywać ostatniego widoku prawdziwej osoby o tym id.
+ */
+const LIST_MEMORY_KEY = "nexus.preview.jobs-list-filters";
+
 const BASE: Omit<JobsListQueryState, "mine" | "openOnly" | "sort"> = {
   search: "",
   page: 1,
@@ -559,7 +565,7 @@ export default function JobsListV3Preview() {
               />
             }
           >
-            <JobsListV2 />
+            <JobsListV2 memoryKey={LIST_MEMORY_KEY} />
           </OpenTabsRailFrame>
         </div>
       </QueryClientProvider>

@@ -18,6 +18,11 @@ interface Props {
  variant?:"compact" |"full";
  /** Stabilny identyfikator KPI — dedup „level up" celebrate (raz na sesję). */
  id?: string;
+ /**
+  * Kreska na pasku, 0–100: tempo „na teraz” albo próg (hit ratio DL).
+  * Bez wartości pasek wygląda jak dotąd.
+  */
+ expectedPct?: number | null;
  className?: string;
 }
 
@@ -25,20 +30,22 @@ interface Props {
 // several KpiProgressBar instances render the same KPI.
 const celebratedQuests = new Set<string>();
 
+// Kolory z tokenów. „Powyżej tempa” wygląda jak „w tempie”: do 13.10.2026
+// 1 z 4 o 10:00 świeciło tą samą zielenią co cel zrobiony.
 const STATE_BAR_CLASS: Record<KpiState, string> = {
- hit: "bg-emerald-500",
- ahead: "bg-emerald-500",
+ hit: "bg-success",
+ ahead: "bg-primary",
  on_track: "bg-primary",
- behind: "bg-amber-500",
- missed: "bg-neutral-400",
+ behind: "bg-warning",
+ missed: "bg-muted-foreground/40",
 };
 
 const STATE_TEXT_CLASS: Record<KpiState, string> = {
- hit: "text-emerald-700",
- ahead: "text-emerald-700",
- on_track: "text-primary",
- behind: "text-amber-700",
- missed: "text-neutral-500",
+ hit: "text-success-muted-foreground",
+ ahead: "text-foreground",
+ on_track: "text-foreground",
+ behind: "text-warning-muted-foreground",
+ missed: "text-muted-foreground",
 };
 
 /**
@@ -52,6 +59,7 @@ export function KpiProgressBar({
  title,
  variant ="full",
  id,
+ expectedPct,
  className,
 }: Props) {
  const kidsMode = useThemeStore((s) => s.kidsMode);
@@ -105,8 +113,9 @@ export function KpiProgressBar({
  )}
  </div>
  )}
+ <div className="relative">
  <div
- className={cn("w-full rounded-full bg-background overflow-hidden",
+ className={cn("w-full rounded-full bg-muted overflow-hidden",
  trackClass,
  flash &&"kids-levelup-flash",
  )}
@@ -121,6 +130,17 @@ export function KpiProgressBar({
  )}
  style={{ width: `${clamped}%` }}
  />
+ </div>
+ {/* Kreska stoi OBOK toru i jest `span`-em: tryb Kids farbuje tęczą każdy
+ `div` bezpośrednio w `[role="progressbar"]` (globals.css). */}
+ {expectedPct != null ? (
+ <span
+ aria-hidden
+ data-testid="kpi-pace-tick"
+ className="pointer-events-none absolute top-1/2 h-3 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-sm bg-foreground"
+ style={{ left: `${Math.min(100, Math.max(0, expectedPct))}%` }}
+ />
+ ) : null}
  </div>
  </div>
  );

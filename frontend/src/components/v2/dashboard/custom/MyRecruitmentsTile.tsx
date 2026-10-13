@@ -50,6 +50,10 @@ export const MY_RECRUITMENTS_PARAMS = {
 
 export const MY_RECRUITMENTS_QUERY_KEY = ["dashboard", "my-recruitments", MY_RECRUITMENTS_PARAMS] as const
 
+// Jawny zakres „Moje”: goły `/jobs` otwiera ostatni widok osoby
+// (`lib/jobs-list-memory.ts`), a kafel prowadzi do tych samych rekrutacji, które pokazuje.
+const MY_JOBS_HREF = "/jobs?mine=1"
+
 /** „DL”, „Rekruter”, „DL + Rekruter” albo `null`, gdy żadne. */
 export function myRoleInJob(row: MyRecruitmentRow, userId: number): string | null {
   const isDl = row.delivery_lead_id === userId
@@ -98,7 +102,7 @@ export function MyRecruitmentsTile() {
     return (
       <div className="flex flex-col gap-2 text-sm">
         <p className="text-muted-foreground">Nie masz otwartych rekrutacji.</p>
-        <Link href="/jobs" className="self-start font-medium text-primary hover:underline">
+        <Link href={MY_JOBS_HREF} className="self-start font-medium text-primary hover:underline">
           Wszystkie →
         </Link>
       </div>
@@ -169,7 +173,7 @@ export function MyRecruitmentsTile() {
           </tbody>
         </table>
       </div>
-      <Link href="/jobs" className="mt-auto self-start font-medium text-primary hover:underline">
+      <Link href={MY_JOBS_HREF} className="mt-auto self-start font-medium text-primary hover:underline">
         {total > rows.length ? `Wszystkie (${total}) →` : "Wszystkie →"}
       </Link>
     </div>

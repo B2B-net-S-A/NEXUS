@@ -109,6 +109,9 @@ function signInAs(...roles: string[]) {
 }
 
 beforeEach(() => {
+  // Lista pamięta ostatni widok osoby (localStorage) — bez czyszczenia goły
+  // adres następnego testu otwierałby filtry poprzedniego.
+  window.localStorage.clear();
   signInAs("recruiter");
 });
 
@@ -264,7 +267,7 @@ describe("JobsListV2 — filtry Szybkie → parametry zapytania", () => {
     window.history.replaceState(null, "", "/jobs");
   });
 
-  it("miękka nawigacja na goły /jobs zdejmuje filtry — jak F5 (R10-N15-12)", async () => {
+  it("miękka nawigacja na goły /jobs po nietkniętym linku: bez pamięci wraca widok domyślny", async () => {
     navState.search = "client=5&stage=champion&q=java";
     window.history.replaceState(null, "", `/jobs?${navState.search}`);
     const view = renderJobs();
@@ -276,7 +279,9 @@ describe("JobsListV2 — filtry Szybkie → parametry zapytania", () => {
       }),
     );
 
-    // Menu „Rekrutacje” → `/jobs` bez parametrów, komponent zostaje.
+    // Menu „Rekrutacje” → `/jobs` bez parametrów, komponent zostaje. Osoba
+    // niczego na liście nie zmieniła, więc widok z linku ustępuje jej
+    // ostatniemu widokowi — tu pustemu (`JobsListV2Memory.test.tsx`).
     navState.search = "";
     window.history.replaceState(null, "", "/jobs");
     view.rerender(

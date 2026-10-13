@@ -457,6 +457,13 @@ export interface JobsListUrlState {
   priorityLevels?: readonly PriorityLevel[];
   /** „Data otwarcia” (`op_from` / `op_to`). */
   openedRange?: JobOpenedRange;
+  /**
+   * Zakres trafia do adresu także wtedy, gdy równa się domyślnemu roli —
+   * dla nietkniętego linku z jawnym zakresem (`/jobs?mine=1` u rekrutera).
+   * Bez tego pierwszy zapis robiłby z niego goły adres, a goły adres znaczy
+   * „ostatni widok osoby” (`lib/jobs-list-memory.ts`).
+   */
+  keepScope?: boolean;
 }
 
 const SCOPE_URL: Record<JobScope, [key: string, value: string]> = {
@@ -466,7 +473,8 @@ const SCOPE_URL: Record<JobScope, [key: string, value: string]> = {
   all: ["mine", "0"],
 };
 
-const MANAGED_KEYS = [
+/** Klucze, z których lista odtwarza widok (`rs`/`ws` — stare, mapowane na pigułki stanu). */
+const READ_KEYS = [
   "mine",
   "mycat",
   "open",
@@ -486,10 +494,16 @@ const MANAGED_KEYS = [
   "prio",
   "op_from",
   "op_to",
+  "rs",
+  "ws",
+] as const;
+
+const MANAGED_KEYS = [
+  ...READ_KEYS,
   // Klucze kolumny filtrów sprzed 25.09.2026 (typ, status, osoba
-  // odpowiedzialna, „Szybkie”, Priority Work, dwa rzędy statusu). Lista ich
-  // już nie czyta — zapisane zakładki przeglądarki działają, a pierwszy zapis
-  // filtrów zdejmuje je z adresu. `priority` to dawny filtr Priority Work —
+  // odpowiedzialna, „Szybkie”, Priority Work). Lista ich już nie czyta —
+  // zapisane zakładki przeglądarki działają, a pierwszy zapis filtrów
+  // zdejmuje je z adresu. `priority` to dawny filtr Priority Work —
   // priorytet rekrutacji ma własny klucz `prio`.
   "type",
   "status",
@@ -498,9 +512,16 @@ const MANAGED_KEYS = [
   "active_search",
   "no_owner",
   "priority",
-  "rs",
-  "ws",
 ] as const;
+
+/**
+ * Czy adres niesie widok listy (link z pulpitu, powiadomienia, „Wstecz”).
+ * Adres bez tych kluczy — także z samymi martwymi kluczami sprzed
+ * 25.09.2026 — jest goły: lista otwiera wtedy ostatni widok osoby.
+ */
+export function hasJobsListParams(params: URLSearchParams): boolean {
+  return READ_KEYS.some((key) => params.has(key));
+}
 
 /**
  * Stan filtrów → querystring (bez `?`). Wartości domyślne NIE są zapisywane,
@@ -508,7 +529,8 @@ const MANAGED_KEYS = [
  * nie zarządza, zostają nietknięte.
  *
  * Zakres trafia do adresu tylko wtedy, gdy różni się od domyślnego ROLI
- * (`mine=0`/`open=1` u rekrutera, `mine=1`/`mine=0` u admina). Sortowanie:
+ * (`mine=0`/`open=1` u rekrutera, `mine=1`/`mine=0` u admina) albo przy
+ * `keepScope` (nietknięty link z jawnym zakresem). Sortowanie:
  * tylko gdy różni się od domyślnego dla bieżącego zakresu.
  */
 export function encodeJobsListUrl(
@@ -517,7 +539,7 @@ export function encodeJobsListUrl(
 ): string {
   const next = new URLSearchParams(current);
   for (const key of MANAGED_KEYS) next.delete(key);
-  if (state.scope !== state.defaultScope) {
+  if (state.scope !== state.defaultScope || state.keepScope) {
     const [key, value] = SCOPE_URL[state.scope];
     next.set(key, value);
   }

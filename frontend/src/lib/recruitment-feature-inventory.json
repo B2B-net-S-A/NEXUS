@@ -2075,6 +2075,14 @@
    "v3_home": "Lista rekrutacji → kolumna „Ogłoszenia”"
   },
   {
+   "id": "list.filter-memory",
+   "area": "lista",
+   "opis": "Lista pamięta ostatnie filtry osoby (zakres, sortowanie, stan requestu, pasek filtrów, przełączniki): goły adres z menu albo okruszka otwiera ostatni widok, link z parametrami wygrywa, „Wyczyść” kasuje wpis",
+   "file": "components/v2/pages/JobsListV2.tsx",
+   "marker": "readJobsListMemory",
+   "v3_home": "Lista rekrutacji → filtry (pamięć w przeglądarce, per osoba)"
+  },
+  {
    "id": "panel.notes-earlier",
    "area": "panel",
    "opis": "„Wcześniej u nas”: notatki osoby z innych rekrutacji i bez rekrutacji, pogrupowane po rekrutacji z jej wynikiem; licznik notatek ludzi na zakładce",

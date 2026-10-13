@@ -402,16 +402,44 @@ describe("„Nowe” — powiadomienia", () => {
     expect(w.news.map((r) => [r.title, r.status])).toEqual([["Igor Sowa", "Prep 1 dziś 15:43"]]);
   });
 
-  it("przypomnienie o wydarzeniu spoza agendy żyje dobę i prowadzi po swoim linku", () => {
-    const fresh = notif("interview_scheduled", "/calendar?event=77", {
+  // Produkcja 13.10.2026: w „Nowe” wisiało 8 przypomnień „Za 15 minut: …”
+  // sprzed nawet 23 godzin — wydarzenia spoza agendy cyklu żyły tam dobę.
+  it("przypomnienie o wydarzeniu spoza agendy znika, gdy wydarzenie się zaczęło", () => {
+    const upcoming = notif("interview_scheduled", "/calendar?event=77", {
       message: "Za 15 minut: Screening",
-      created_at: at(-60),
+      created_at: at(-14),
     });
-    const old = notif("interview_scheduled", "/calendar?event=78", { created_at: at(-60 * 25) });
-    const w = build(overview(), [fresh, old]);
+    const started = notif("interview_scheduled", "/calendar?event=78", {
+      message: "Za 15 minut: Rozmowa",
+      created_at: at(-44),
+    });
+    const lastMinute = notif("interview_scheduled", "/calendar?event=79", {
+      message: "Za 1 minutę: Termin",
+      created_at: at(-2),
+    });
+    const yesterday = notif("interview_scheduled", "/calendar?event=80", {
+      message: "Za 2 minuty: Rozmowa",
+      created_at: at(-60 * 23),
+    });
+    const w = build(overview(), [upcoming, started, lastMinute, yesterday]);
 
     expect(w.news.map((r) => [r.detail, r.href])).toEqual([
       ["Za 15 minut: Screening", "/calendar?event=77"],
+    ]);
+  });
+
+  it("przypomnienie bez liczby minut w treści żyje najwyżej dobę", () => {
+    const recent = notif("interview_scheduled", "/calendar?event=77", {
+      message: "Przypomnienie: Screening",
+      created_at: at(-60 * 5),
+    });
+    const old = notif("interview_scheduled", "/calendar?event=78", {
+      message: "Przypomnienie: Screening",
+      created_at: at(-60 * 25),
+    });
+
+    expect(build(overview(), [recent, old]).news.map((r) => r.href)).toEqual([
+      "/calendar?event=77",
     ]);
   });
 
