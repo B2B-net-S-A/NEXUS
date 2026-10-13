@@ -6,6 +6,9 @@ zwraca PROPOZYCJĘ i niczego nie zapisuje w szkicu CV — przyjętą propozycję
 nakłada edytor, a utrwala ją zwykły autozapis. Klient wysyła tekst (fragment,
 jego akapit, opis roli), nigdy HTML ani pozycji w dokumencie.
 
+„Polecenie dla całego CV” (PR 4): rekruter pisze, co zmienić, a trasa zwraca
+PLAN — operacje na wierszach, które przeszły kontrolę. Też bez zapisu.
+
 Te same bramki co poprawki QC: kto może ruszać kartą w pipeline
 (`RecruiterPlus` + członkostwo w rekrutacji). Każde wywołanie to płatny model,
 więc tokeny integracji dostają 403. Logika i kontrola „bez nowych faktów”:
@@ -27,7 +30,7 @@ from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.recruitment_pipeline import CandidateStage
-from app.services import cv_selection_ai
+from app.services import cv_command_ai, cv_selection_ai
 from app.services.candidate_claim import is_integration_request
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
@@ -137,3 +140,114 @@ async def propose_for_selection(
     )
     await db.commit()
     return SelectionResponse(**result)
+
+
+# ── Polecenie własnymi słowami dla całego CV (PR 4) ──────────────────────────
+
+# Łączna długość tekstu CV w żądaniu: trzy–cztery strony to kilkanaście tysięcy
+# znaków; limit trzyma koszt jednego wywołania modelu w ryzach.
+COMMAND_TEXT_TOTAL_MAX = 60_000
+
+
+class CommandLine(BaseModel):
+    """Wiersz CV: blok dokumentu albo punkt listy, w kolejności dokumentu."""
+
+    id: int = Field(ge=0, le=10_000)
+    kind: Literal[
+        "title",
+        "heading",
+        "role",
+        "employer",
+        "label",
+        "technologies",
+        "bullet",
+        "text",
+    ]
+    # Pogrubienie jako `**tekst**`.
+    text: str = Field(default="", max_length=cv_command_ai.LINE_TEXT_MAX)
+    section: Optional[str] = Field(default=None, max_length=40)
+    # Numer stanowiska w CV (od zera), gdy wiersz do niego należy.
+    role: Optional[int] = Field(default=None, ge=0, le=200)
+
+
+class CommandRequest(BaseModel):
+    preset: Optional[
+        Literal["shorten", "drop_old_roles", "order_by_requirements", "unify_sentences"]
+    ] = None
+    command: Optional[str] = Field(default=None, max_length=cv_command_ai.COMMAND_MAX)
+    lines: list[CommandLine] = Field(min_length=1, max_length=cv_command_ai.LINES_MAX)
+
+    @model_validator(mode="after")
+    def _command_and_lines(self) -> "CommandRequest":
+        if self.preset is None and len((self.command or "").strip()) < 3:
+            raise ValueError("Napisz, co asystent ma zmienić w CV.")
+        if len({line.id for line in self.lines}) != len(self.lines):
+            raise ValueError("Wiersze CV mają powtórzone numery.")
+        if sum(len(line.text) for line in self.lines) > COMMAND_TEXT_TOTAL_MAX:
+            raise ValueError("To CV jest za długie na polecenie dla całego dokumentu.")
+        return self
+
+
+class CommandOperation(BaseModel):
+    id: int
+    type: Literal[
+        "remove", "replace", "merge", "reorder", "remove_role", "remove_section"
+    ]
+    # Wiersze, których dotyczy operacja (dla `reorder` — w nowej kolejności).
+    lines: list[int]
+    # Nowa treść (`replace`, `merge`); `**tekst**` = pogrubienie.
+    text: Optional[str] = None
+    why: str = ""
+    # Wymagania rekrutacji, które po tej operacji znikają z CV.
+    loses: list[str] = []
+
+
+class CommandDropped(BaseModel):
+    type: Optional[str] = None
+    reason: str
+    problem: Optional[str] = None
+
+
+class CommandResponse(BaseModel):
+    """`ok` = plan z co najmniej jedną operacją; pozostałe statusy niosą `message`."""
+
+    status: Literal["ok", "empty", "unavailable"]
+    operations: list[CommandOperation] = []
+    # Operacje modelu, które nie przeszły kontroli — do zdania „N zmian odrzuconych”.
+    dropped: list[CommandDropped] = []
+    message: Optional[str] = None
+
+
+@router.post("/stages/{stage_id}/cv-ai/command", response_model=CommandResponse)
+@limiter.limit("6/minute", key_func=user_or_ip_key)
+async def propose_plan_for_command(
+    request: Request,
+    stage_id: int,
+    payload: CommandRequest,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> CommandResponse:
+    """Plan zmian dla całego CV z polecenia rekrutera. Nigdy 5xx z powodu modelu.
+
+    Wynik biznesowy zawsze wraca jako 200 ze statusem: plan (`ok`), brak zmian
+    albo wszystkie odrzucone przez kontrolę (`empty`), chwilowa niedostępność
+    modelu (`unavailable`). Trasa niczego nie zapisuje w szkicu CV.
+    """
+
+    if is_integration_request(request):
+        raise HTTPException(
+            status_code=403,
+            detail="Podpowiedzi AI w edytorze CV zamawia osoba, nie integracja.",
+        )
+    stage = await db.get(CandidateStage, stage_id)
+    if stage is None:
+        raise HTTPException(status_code=404, detail="Nie ma takiego etapu kandydata.")
+    await ensure_job_membership(db, current_user, stage.job_id)
+    result = await cv_command_ai.propose_plan(
+        db,
+        stage,
+        user_id=current_user.id,
+        payload=payload.model_dump(exclude_none=True),
+    )
+    await db.commit()
+    return CommandResponse(**result)

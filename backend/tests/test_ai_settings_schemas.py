@@ -96,6 +96,8 @@ class TestFeatureKeyEnum:
             "screening_answer_phrasing",
             # 0433: AI na zaznaczonym fragmencie w edytorze CV.
             "cv_selection_edit",
+            # 0434: polecenie własnymi słowami dla całego CV w edytorze.
+            "cv_editor_command",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

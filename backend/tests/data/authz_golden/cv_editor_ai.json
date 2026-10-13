@@ -21,6 +21,7 @@
   "recruiter+amounts_edit"
  ],
  "routes": {
+  "POST /api/pipeline/stages/{stage_id}/cv-ai/command": "PPPPPPDDPPPPPPPPPPP",
   "POST /api/pipeline/stages/{stage_id}/cv-ai/selection": "PPPPPPDDPPPPPPPPPPP"
  }
 }

@@ -278,6 +278,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'screening_answer_phrasing'",
     # 0433: AI na zaznaczonym fragmencie w edytorze CV (Sonnet 5).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_selection_edit'",
+    # 0434: polecenie własnymi słowami dla całego CV w edytorze (Sonnet 5).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_editor_command'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -6664,6 +6666,11 @@ _DATA_STATEMENTS = [
     "SELECT 'cv_selection_edit', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'cv_selection_edit')",
+    # 0434: seed klucza AI „polecenie dla całego CV” (edytor CV).
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'cv_editor_command', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'cv_editor_command')",
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są
     # jednym statementem: entrypoint leci przy każdym starcie, więc bez guardu
     # ponownie aktywowałby kontrakt świadomie zakończony później przez admina.

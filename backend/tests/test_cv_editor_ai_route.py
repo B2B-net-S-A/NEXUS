@@ -14,11 +14,18 @@ from httpx import AsyncClient
 from pydantic import ValidationError
 from sqlalchemy import delete, select
 
-from app.api.cv_editor_ai import SelectionRequest, propose_for_selection
+from app.api.cv_editor_ai import (
+    COMMAND_TEXT_TOTAL_MAX,
+    CommandRequest,
+    SelectionRequest,
+    propose_for_selection,
+    propose_plan_for_command,
+)
 from app.core.database import AsyncSessionLocal
 from app.models.activity import Activity
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.user import UserRole
+from app.services import cv_command_ai as command_ai
 from app.services import cv_selection_ai as ai
 from tests.test_board_tasks import _cleanup, _login, _seed_user, _seed_world
 from tests.test_cv_qc import _cleanup_qc, api_client  # noqa: F401 — fixture
@@ -199,6 +206,173 @@ async def test_proposal_is_returned_and_the_draft_is_left_alone(
         assert too_long.status_code == 422
         missing = await api_client.post(
             "/api/pipeline/stages/999999999/cv-ai/selection", headers=hor, json=BASE
+        )
+        assert missing.status_code == 404
+    finally:
+        await _cleanup_qc(world, stage_id)
+        await _cleanup(world, [hor_id])
+
+
+# ── Polecenie dla całego CV (PR 4) ───────────────────────────────────────────
+
+COMMAND = {
+    "command": "Skróć CV, zostaw wszystko o Kafce",
+    "lines": [
+        {"id": 0, "kind": "title", "text": "Anna Przykładowa"},
+        {"id": 1, "kind": "heading", "text": "Doświadczenie", "section": "experience"},
+        {
+            "id": 2,
+            "kind": "role",
+            "text": "Java Developer 2021 – 2024",
+            "section": "experience",
+            "role": 0,
+        },
+        {
+            "id": 3,
+            "kind": "bullet",
+            "text": "Usługi w **Java 17**.",
+            "section": "experience",
+            "role": 0,
+        },
+        {
+            "id": 4,
+            "kind": "bullet",
+            "text": "Udział w spotkaniach zespołu.",
+            "section": "experience",
+            "role": 0,
+        },
+    ],
+}
+
+
+def test_command_request_accepts_own_words_or_a_preset() -> None:
+    assert CommandRequest(**COMMAND).preset is None
+    preset = CommandRequest(preset="shorten", lines=COMMAND["lines"])
+    assert preset.command is None
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"command": "  "},
+        {"command": "x" * (command_ai.COMMAND_MAX + 1)},
+        {"preset": "napisz_od_nowa"},
+        {"lines": []},
+        {"lines": [COMMAND["lines"][0]] * 2},
+        {"lines": [{"id": 0, "kind": "obrazek", "text": "x"}]},
+        {
+            "lines": [
+                {"id": 0, "kind": "text", "text": "x" * (command_ai.LINE_TEXT_MAX + 1)}
+            ]
+        },
+        {
+            "lines": [
+                {"id": n, "kind": "text", "text": "x" * command_ai.LINE_TEXT_MAX}
+                for n in range(COMMAND_TEXT_TOTAL_MAX // command_ai.LINE_TEXT_MAX + 1)
+            ]
+        },
+    ],
+)
+def test_command_request_bounds(change: dict) -> None:
+    with pytest.raises(ValidationError):
+        CommandRequest(**{**COMMAND, **change})
+
+
+@pytest.mark.asyncio
+async def test_integration_token_cannot_order_a_plan() -> None:
+    from fastapi import HTTPException
+
+    request = SimpleNamespace(state=SimpleNamespace(oauth_client_id="scrapers"))
+    with pytest.raises(HTTPException) as refused:
+        await propose_plan_for_command.__wrapped__(  # type: ignore[attr-defined]
+            request=request,
+            stage_id=1,
+            payload=CommandRequest(**COMMAND),
+            current_user=SimpleNamespace(id=1),
+            db=None,
+        )
+    assert refused.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_plan_is_returned_and_the_draft_is_left_alone(
+    api_client: AsyncClient,  # noqa: F811 — fixture z test_cv_qc
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    world = await _seed_world()
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    hor = await _login(api_client, hor_creds)
+    stage_id = await _seed_review(world, hor, api_client)
+    url = f"/api/pipeline/stages/{stage_id}/cv-ai/command"
+    answer = {
+        "operations": [
+            {"type": "remove", "lines": [4], "why": "Ogólnik."},
+            {"type": "replace", "line": 3, "text": "Usługi w **Java 21**."},
+        ]
+    }
+    monkeypatch.setattr(command_ai, "_call_model", lambda *_a: json.dumps(answer))
+    monkeypatch.setattr(command_ai, "api_key_configured", lambda _model: True)
+    try:
+        async with AsyncSessionLocal() as db:
+            csv = await db.scalar(
+                select(CandidateStageCV).where(
+                    CandidateStageCV.candidate_stage_id == stage_id
+                )
+            )
+            csv_id = csv.id
+            before = (csv.branded_draft_html, csv.edit_revision, csv.branded_status)
+
+        ok = await api_client.post(url, headers=hor, json=COMMAND)
+        assert ok.status_code == 200, ok.text
+        body = ok.json()
+        assert body["status"] == "ok"
+        assert [(op["type"], op["lines"]) for op in body["operations"]] == [
+            ("remove", [4])
+        ]
+        # Zmiana wersji technologii to nowy fakt — nie trafia do planu.
+        assert [item["reason"] for item in body["dropped"]] == ["new_fact"]
+
+        def broken(*_a):
+            raise RuntimeError("model padł")
+
+        monkeypatch.setattr(command_ai, "_call_model", broken)
+        down = await api_client.post(url, headers=hor, json=COMMAND)
+        assert down.status_code == 200 and down.json()["status"] == "unavailable"
+
+        async with AsyncSessionLocal() as db:
+            csv = await db.get(CandidateStageCV, csv_id)
+            assert (
+                csv.branded_draft_html,
+                csv.edit_revision,
+                csv.branded_status,
+            ) == before
+            logged = (
+                await db.scalars(
+                    select(Activity).where(
+                        Activity.action == "cv_command_ai",
+                        Activity.entity_type == "candidate_stage_cv",
+                        Activity.entity_id == csv_id,
+                    )
+                )
+            ).all()
+            # Jeden wpis: plan. Awaria modelu nie zostawia wpisu.
+            assert [row.details for row in logged] == [
+                {"preset": None, "status": "ok", "operations": 1, "dropped": 1}
+            ]
+            await db.execute(
+                delete(Activity).where(
+                    Activity.entity_type == "candidate_stage_cv",
+                    Activity.entity_id == csv_id,
+                )
+            )
+            await db.commit()
+
+        empty = await api_client.post(
+            url, headers=hor, json={**COMMAND, "command": " "}
+        )
+        assert empty.status_code == 422
+        missing = await api_client.post(
+            "/api/pipeline/stages/999999999/cv-ai/command", headers=hor, json=COMMAND
         )
         assert missing.status_code == 404
     finally:

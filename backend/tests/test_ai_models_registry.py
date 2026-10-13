@@ -149,6 +149,8 @@ DECISION_2026_09_16 = {
     AIFeatureKey.screening_answer_phrasing: ("F29", "gpt-6-luna"),
     # F30 — decyzja 12.10.2026 (Edytor CV 2, PR 3): AI na zaznaczonym fragmencie CV.
     AIFeatureKey.cv_selection_edit: ("F30", "claude-sonnet-5"),
+    # F31 — decyzja 12.10.2026 (Edytor CV 2, PR 4): polecenie dla całego CV.
+    AIFeatureKey.cv_editor_command: ("F31", "claude-sonnet-5"),
 }
 
 
