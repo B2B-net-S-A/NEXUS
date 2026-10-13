@@ -89,6 +89,14 @@ interface Props {
   *  domyślnie anulujemy, przy podpisanej z kontraktem prowadzimy do
   *  „Zakończ współpracę” (decyzja Artura 04.10.2026). */
  agreement?: CardAgreement | null;
+ /** Jedna osoba: kogo zamykasz (13.10.2026). Przy przechodzeniu z panelu
+  *  osoby od razu do następnej łatwo pomylić osoby — okno to ostatnie
+  *  miejsce, gdzie to widać. */
+ subject?: { name: string; stageLabel?: string | null } | null;
+ /** Okno otwarte z panelu osoby: kogo panel pokaże po potwierdzeniu.
+  *  `null` — to ostatnia osoba, panel się zamknie. Bez propu (kilka osób,
+  *  karta, przeciągnięcie) okno niczego nie zapowiada. */
+ nextPerson?: { name: string; stageLabel: string } | null;
 }
 
 const TYPE_LABEL: Record<string, string> = {
@@ -109,6 +117,8 @@ export function RejectionV2({
  emailAvailable: emailAvailableProp,
  initialNotes = null,
  agreement = null,
+ subject = null,
+ nextPerson,
 }: Props) {
  // Notatkę startową czytamy tylko przy otwarciu (efekt resetu niżej) —
  // zmiana propa przy otwartym oknie nie kasuje tego, co ktoś już wpisał.
@@ -220,6 +230,11 @@ export function RejectionV2({
  <DialogDescription>
  Podaj powód — pomoże to raportom o lejku rekrutacyjnym.
  </DialogDescription>
+ {subject ? (
+ <p className="rounded-md border border-border bg-muted/40 px-2.5 py-1.5 text-sm font-medium text-foreground">
+ {subject.stageLabel ? `${subject.name} · ${subject.stageLabel}` : subject.name}
+ </p>
+ ) : null}
  </DialogHeader>
 
  <DialogBody>
@@ -379,6 +394,13 @@ export function RejectionV2({
  </DialogBody>
 
  <DialogFooter>
+ {nextPerson !== undefined ? (
+ <p className="min-w-0 self-center text-xs text-muted-foreground sm:mr-auto">
+ {nextPerson
+ ? `Dalej: ${nextPerson.name} · ${nextPerson.stageLabel}`
+ : "To ostatnia osoba na Tablicy — panel się zamknie."}
+ </p>
+ ) : null}
  <Button variant="ghost" onClick={() => onOpenChange(false)}>
  Anuluj
  </Button>

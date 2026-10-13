@@ -64,7 +64,23 @@ vi.mock("@/components/Toast", () => ({
 }));
 
 vi.mock("@/components/v2/modals/RejectionV2", () => ({
-  RejectionV2: () => <div data-testid="rejection-stub" />,
+  RejectionV2: (props: {
+    subject?: { name: string; stageLabel?: string | null } | null;
+    nextPerson?: { name: string; stageLabel: string } | null;
+    onConfirm: (...a: unknown[]) => void;
+  }) => (
+    <div data-testid="rejection-stub">
+      {props.subject ? (
+        <p>{props.subject.stageLabel ? `${props.subject.name} · ${props.subject.stageLabel}` : props.subject.name}</p>
+      ) : null}
+      {props.nextPerson !== undefined ? (
+        <p>{props.nextPerson ? `Dalej: ${props.nextPerson.name}` : "ostatnia osoba"}</p>
+      ) : null}
+      <button type="button" onClick={() => props.onConfirm("", "", false, null, "Brak Azure")}>
+        potwierdź odrzucenie
+      </button>
+    </div>
+  ),
 }));
 
 import { ScreeningFullForm } from "../ScreeningFullForm";
@@ -714,5 +730,55 @@ describe("ScreeningFullForm — to, co już wiemy, stoi pod swoim polem (12.10.2
     await waitFor(() => expect(mocks.candidate).toHaveBeenCalled());
     expect(field("work_mode")).not.toHaveTextContent("W profilu");
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+// 13.10.2026: „Odrzuć” w stopce formularza w panelu osoby też przenosi panel
+// do następnej osoby — migawka kolejności z chwili kliknięcia, przejście po
+// udanym ruchu.
+describe("ScreeningFullForm — odrzucenie z panelu osoby", () => {
+  const REJECT_TARGET = {
+    stage: "rejected",
+    stageDefId: 9,
+    previousStage: "new",
+    previousCategory: "internal" as const,
+  };
+
+  it("okno dostaje migawkę następnej osoby, a po udanym ruchu panel dostaje powód", async () => {
+    const onFollowUpMoved = vi.fn();
+    const rejectFollowUp = vi.fn(() => ({
+      stageLabel: "Nowi",
+      next: { name: "Anna Wiśniewska", stageLabel: "Nowi" },
+      onMoved: onFollowUpMoved,
+    }));
+    const onMoved = vi.fn();
+    mocks.send.mockResolvedValue({ ok: true, data: {} });
+    const user = userEvent.setup();
+    mount({ reject: REJECT_TARGET, rejectFollowUp, onMoved });
+
+    await user.click(await screen.findByRole("button", { name: /^Odrzuć$/ }));
+    expect(rejectFollowUp).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Tomasz Wzorcowy · Nowi")).toBeInTheDocument();
+    expect(screen.getByText("Dalej: Anna Wiśniewska")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "potwierdź odrzucenie" }));
+    await waitFor(() => expect(onFollowUpMoved).toHaveBeenCalledWith({ reasonLabel: "Brak Azure" }));
+    expect(onMoved).toHaveBeenCalled();
+  });
+
+  it("odmowa serwera nie przenosi panelu", async () => {
+    const onFollowUpMoved = vi.fn();
+    mocks.send.mockResolvedValue({ ok: false, refusal: { kind: "other", message: "Nie" } });
+    const user = userEvent.setup();
+    mount({
+      reject: REJECT_TARGET,
+      rejectFollowUp: () => ({ stageLabel: "Nowi", next: null, onMoved: onFollowUpMoved }),
+    });
+
+    await user.click(await screen.findByRole("button", { name: /^Odrzuć$/ }));
+    expect(screen.getByText("ostatnia osoba")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "potwierdź odrzucenie" }));
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1));
+    expect(onFollowUpMoved).not.toHaveBeenCalled();
   });
 });

@@ -140,6 +140,7 @@ import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import {
  usePipelineMove,
  type PipelineMoveConfirmedPatch,
+ type RejectFollowUp,
 } from "@/hooks/usePipelineMove";
 import {
  PipelineCandidateDock,
@@ -1670,7 +1671,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const [viewPreference, setViewPreference] = useKanbanViewPreference();
  const queryClient = useQueryClient();
  const contactFeature = useCandidateContactFeature();
- const { showSuccess, showError, showInfo } = useToast();
+ const { showSuccess, showError, showInfo, showActionToast } = useToast();
  const [cols, setCols] = useState(() => composeColumns(columns, offTemplate));
  // Kolumny SZABLONU — wszystko, co wybiera cel ruchu albo mierzy pipeline,
  // musi iść po tej liście, nie po `cols` (w `cols` siedzi też kubełek).
@@ -2393,27 +2394,34 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // `dockCandidateId`). Jedno przejście po `cols` starcza na trójkę: samą
  // kartę, id kolumny w której dziś stoi (do wykluczenia z pigułek ruchu i
  // do `requestMove`) i etykietę tej kolumny (do nagłówka „Etap ·" w doku).
+ // Ta sama reguła służy zapowiedzi następnej osoby w oknie odrzucenia.
+ const locateCandidate = useCallback(
+ (candidateId: number): { item: KanbanItem; colId: string; label: string } | null => {
+ for (const c of cols) {
+ const found = c.items.find((i) => i.candidate_id === candidateId);
+ if (found) {
+ const host = hostByColId.get(colId(c));
+ return {
+ item: found,
+ colId: colId(c),
+ label: (host ? boardLabelByColId.get(colId(host)) : undefined) ?? columnLabel(c),
+ };
+ }
+ }
+ return null;
+ },
+ [cols, hostByColId, boardLabelByColId]
+ );
  const { dockItem, dockItemColId, dockItemColLabel } = useMemo((): {
  dockItem: KanbanItem | null;
  dockItemColId: string | null;
  dockItemColLabel: string | null;
  } => {
- if (dockCandidateId != null) {
- for (const c of cols) {
- const found = c.items.find((i) => i.candidate_id === dockCandidateId);
- if (found) {
- const host = hostByColId.get(colId(c));
- return {
- dockItem: found,
- dockItemColId: colId(c),
- dockItemColLabel:
- (host ? boardLabelByColId.get(colId(host)) : undefined) ?? columnLabel(c),
- };
- }
- }
- }
- return { dockItem: null, dockItemColId: null, dockItemColLabel: null };
- }, [cols, dockCandidateId, hostByColId, boardLabelByColId]);
+ const place = dockCandidateId != null ? locateCandidate(dockCandidateId) : null;
+ return place
+ ? { dockItem: place.item, dockItemColId: place.colId, dockItemColLabel: place.label }
+ : { dockItem: null, dockItemColId: null, dockItemColLabel: null };
+ }, [dockCandidateId, locateCandidate]);
 
  // Panel osoby zabiera tablicy 380 px z prawej (`lg:pr-[380px]`) — po jego
  // otwarciu i przy „‹ ›” w panelu tablica przewija się tak, żeby karta
@@ -2784,18 +2792,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  [dockItem, dockItemColId, stageCols, requestMove, showError]
  );
 
- const handleDockReject = useCallback(
- (options?: { notes?: string | null }) => {
- if (!dockItem || !dockItemColId || !rejectedTemplateCol) return;
- requestReject(dockItem, rejectedTemplateCol, { notes: options?.notes ?? null });
- },
- [dockItem, dockItemColId, rejectedTemplateCol, requestReject]
- );
- const handleDockWithdraw = useCallback(() => {
- if (!dockItem) return;
- move.requestWithdraw(dockItem);
- }, [dockItem, move]);
-
  // ── Okno „Przesuń dalej" (Rekrutacja v5) ────────────────────────────────
  const refreshMoveRequirements = useCallback(() => {
  void queryClient.invalidateQueries({ queryKey: MOVE_REQUIREMENTS_PREFIX });
@@ -3031,16 +3027,11 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // dokładnie jak `dockCandidateId`.
  const dockOrder = useMemo(() => dockNavigationOrder(visibleCols), [visibleCols]);
  const dockIndex = dockItem ? dockOrder.indexOf(dockItem.candidate_id) : -1;
- const selectAdjacentDockCard = useCallback(
- (delta: -1 | 1) => {
- if (dockOrder.length === 0) return;
- const current = dockIndex;
- if (current < 0) return;
- const next = current + delta;
- if (next < 0 || next >= dockOrder.length) return;
- const nextId = dockOrder[next];
  // 0424: w panelu dzielonym „‹ ›” po „Nowych” i „Screeningu” zostaje przy
- // formularzu — rekruter przechodzi kolejkę bez zwijania panelu.
+ // formularzu — rekruter przechodzi kolejkę bez zwijania panelu. Ta sama
+ // reguła po odrzuceniu z panelu (niżej).
+ const showInDock = useCallback(
+ (nextId: number) => {
  if (screeningSplit) {
  const nextItem = cols.flatMap((c) => c.items).find((i) => i.candidate_id === nextId);
  const key = nextItem ? columnByItemId.get(nextItem.id) : null;
@@ -3051,8 +3042,117 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  }
  setDockCandidateId(nextId);
  },
- [dockOrder, dockIndex, screeningSplit, cols, columnByItemId, openWorkbench]
+ [screeningSplit, cols, columnByItemId, openWorkbench]
  );
+ const selectAdjacentDockCard = useCallback(
+ (delta: -1 | 1) => {
+ if (dockOrder.length === 0) return;
+ const current = dockIndex;
+ if (current < 0) return;
+ const next = current + delta;
+ if (next < 0 || next >= dockOrder.length) return;
+ showInDock(dockOrder[next]);
+ },
+ [dockOrder, dockIndex, showInDock]
+ );
+
+ // ── Po odrzuceniu albo rezygnacji z panelu: następna osoba (13.10.2026) ──
+ // Prośba rekrutera, decyzje Artura D1–D4: panel pokazuje osobę, która stała
+ // za zamkniętą w kolejności „›”. Dopiero po ruchu potwierdzonym przez serwer
+ // — wcześniej może wyskoczyć „Przenieś mimo to” albo debrief dla tej samej
+ // osoby. Po ostatniej osobie panel się zamyka z komunikatem.
+ // Zasady: docs/claude/rekrutacja-tablica/nastepna-osoba-po-odrzuceniu.md.
+ type ClosedVerb = "Odrzucono" | "Rezygnacja";
+ const [afterClose, setAfterClose] = useState<{
+ closedId: number;
+ name: string;
+ verb: ClosedVerb;
+ reason: string | null;
+ nextId: number;
+ /** Wiersz etapu następnej osoby — po jej ruchu pasek znika. */
+ nextStageId: number;
+ } | null>(null);
+ const advanceAfterClose = useCallback(
+ (closed: KanbanItem, verb: ClosedVerb, after: readonly number[], reason: string | null) => {
+ // Rekruter zdążył otworzyć kogoś innego albo zamknąć panel — nie skaczemy.
+ if (dockCandidateId !== closed.candidate_id) return;
+ const live = new Set(dockOrder);
+ const nextId = after.find((id) => id !== closed.candidate_id && live.has(id));
+ const next = nextId != null ? locateCandidate(nextId) : null;
+ const name = itemFullName(closed);
+ if (nextId == null || !next) {
+ closeDock();
+ showActionToast(`${verb}: ${name}. To była ostatnia osoba w kolejności Tablicy.`, {
+ actionLabel: "Pokaż",
+ onAction: () => setDockCandidateId(closed.candidate_id),
+ });
+ return;
+ }
+ setAfterClose({ closedId: closed.candidate_id, name, verb, reason, nextId, nextStageId: next.item.id });
+ showInDock(nextId);
+ },
+ [dockCandidateId, dockOrder, locateCandidate, closeDock, showActionToast, showInDock]
+ );
+ // `onMoved` przychodzi po odpowiedzi serwera — czyta stan z tej chwili.
+ const advanceAfterCloseRef = useRef(advanceAfterClose);
+ useEffect(() => {
+ advanceAfterCloseRef.current = advanceAfterClose;
+ }, [advanceAfterClose]);
+ useEffect(() => {
+ if (afterClose && dockCandidateId !== afterClose.closedId && dockCandidateId !== afterClose.nextId) {
+ setAfterClose(null);
+ }
+ }, [afterClose, dockCandidateId]);
+ // Migawka kolejności w chwili otwarcia okna: kto stoi za zamykaną osobą.
+ const dockFollowUp = useCallback(
+ (closed: KanbanItem, verb: ClosedVerb): RejectFollowUp | undefined => {
+ if (dockIndex < 0) return undefined;
+ const after = dockOrder.slice(dockIndex + 1);
+ const preview = after.length > 0 ? locateCandidate(after[0]) : null;
+ return {
+ stageLabel: dockItemColLabel,
+ next: preview ? { name: itemFullName(preview.item), stageLabel: preview.label } : null,
+ onMoved: ({ reasonLabel }) => advanceAfterCloseRef.current(closed, verb, after, reasonLabel),
+ };
+ },
+ [dockIndex, dockOrder, locateCandidate, dockItemColLabel]
+ );
+ const handleDockReject = useCallback(
+ (options?: { notes?: string | null }) => {
+ if (!dockItem || !dockItemColId || !rejectedTemplateCol) return;
+ requestReject(dockItem, rejectedTemplateCol, {
+ notes: options?.notes ?? null,
+ followUp: dockFollowUp(dockItem, "Odrzucono"),
+ });
+ },
+ [dockItem, dockItemColId, rejectedTemplateCol, requestReject, dockFollowUp]
+ );
+ const handleDockWithdraw = useCallback(() => {
+ if (!dockItem) return;
+ move.requestWithdraw(dockItem, { followUp: dockFollowUp(dockItem, "Rezygnacja") });
+ }, [dockItem, move, dockFollowUp]);
+ // „Odrzuć” w formularzu screeningu (panel „Rozwiń”) ma własny ruch —
+ // ta sama migawka, ten sam skok po udanym ruchu.
+ const workbenchRejectFollowUp = useCallback(
+ (candidateId: number) =>
+ dockItem && dockItem.candidate_id === candidateId ? dockFollowUp(dockItem, "Odrzucono") : undefined,
+ [dockItem, dockFollowUp]
+ );
+ const dockClosedNotice =
+ afterClose &&
+ dockItem?.candidate_id === afterClose.nextId &&
+ dockItem.id === afterClose.nextStageId
+ ? {
+ verb: afterClose.verb,
+ name: afterClose.name,
+ reason: afterClose.reason,
+ onShow: () => setDockCandidateId(afterClose.closedId),
+ }
+ : null;
+ const returnToQueueItem =
+ afterClose && dockItem?.candidate_id === afterClose.closedId && dockIndex < 0
+ ? locateCandidate(afterClose.nextId)?.item ?? null
+ : null;
 
  const boardEntries = useMemo(
  () => visibleCols.map((col) => ({ kind: "column" as const, key: colId(col), col })),
@@ -3481,6 +3581,8 @@ headerAction={
  total={dockOrder.length}
  onSelectPrevious={() => selectAdjacentDockCard(-1)}
  onSelectNext={() => selectAdjacentDockCard(1)}
+ closedNotice={dockClosedNotice}
+ onReturnToQueue={returnToQueueItem ? () => openDock(returnToQueueItem) : undefined}
  nextAction={dockNextAction}
  primaryTarget={dockPrimaryMove?.target ?? null}
  primaryBlocked={dockPrimaryMove?.blocked ?? null}
@@ -3545,6 +3647,7 @@ headerAction={
  budgetHourly: jobBudgetHourlyValue ?? null,
  kanbanQueryState,
  onTake: readOnly ? undefined : (item) => void takeCandidate(item),
+ rejectFollowUp: workbenchRejectFollowUp,
  }}
  />
  ) : null
