@@ -10,9 +10,10 @@ Ten moduł jest jedynym miejscem, które liczy te wiersze. Czytają go pulpit
 poranny dzwonek i mail, lista rekrutacji, przypomnienie rekrutera i sygnał
 dla Head of Recruitment:
 
-* **wiersz** = najnowszy wiersz pary na etapie QC opublikowanej rekrutacji
-  klienta bez kolejki Cpro, BEZ okna czasu (karta stojąca ponad 30 dni
-  znikała z pulpitu, choć na Tablicy stała dalej);
+* **wiersz** = najnowszy wiersz pary na etapie QC opublikowanej rekrutacji,
+  BEZ okna czasu (karta stojąca ponad 30 dni znikała z pulpitu, choć na
+  Tablicy stała dalej); u Nordei (od 13.10.2026) to akceptacja do kolejki
+  Cpro — ``cpro=True``, celem jest etap „Wysłać do Cpro”, nie „CV wysłane”;
 * **gotowe** (``ready``) = QC zdane albo przepuszczone — ta sama reguła,
   którą karta na Tablicy stosuje od v5 (`board-card-badges.ts`); reszta
   kolumny jest jeszcze u rekrutera;
@@ -273,9 +274,9 @@ async def load_rows(
         effective = catalog.effective_def_id(r.template_id, r.stage_def_id)
         if effective is None or effective not in stages.qc_ids:
             continue
-        if cpro_enabled_for_client(r.client_id):
-            # U Nordei po QC CV idzie kolejka Cpro, nie przegląd DL.
-            continue
+        # U Nordei Delivery Lead akceptuje osobę do kolejki Cpro (13.10.2026);
+        # bez etapu Cpro w szablonie celu nie ma — przegląd to powie.
+        cpro = cpro_enabled_for_client(r.client_id)
         name = " ".join(p for p in (r.cname, r.clastname) if p) or "Kandydat"
         tasks.append(
             BoardTask(
@@ -291,7 +292,7 @@ async def load_rows(
                 client_name=r.client_name,
                 since=r.moved_at,
                 process_state_version=0,
-                target_stage_def_id=stages.cv_sent_id,
+                target_stage_def_id=stages.cpro_id if cpro else stages.cv_sent_id,
                 rejected_stage_def_id=stages.rejected_id,
                 return_stage_def_id=stages.verified_id,
                 moved_by=r.moved_by,
@@ -299,6 +300,7 @@ async def load_rows(
                 template_id=r.template_id,
                 imported=r.external_source == TRAFFIT_SOURCE,
                 deadline=r.deadline,
+                cpro=cpro,
             )
         )
     await attach_readiness(db, tasks, now=now)

@@ -80,6 +80,9 @@ export interface BoardTaskRow {
   budget_min_hourly?: number | null;
   budget_max_hourly?: number | null;
   deadline?: string | null;
+  /** Przegląd DL u Nordei (13.10.2026): akceptacja do kolejki Cpro —
+   *  `target_stage_def_id` to wtedy etap „Wysłać do Cpro”. */
+  cpro?: boolean;
 }
 
 /** Pilność w dniach roboczych od gotowości: 0 / 1 / 2 i więcej. */
@@ -122,6 +125,8 @@ export interface DlSendRow {
   waiting_workdays: number;
   urgency: DlSendUrgency;
   handed_over_by_name?: string | null;
+  /** Nordea: osoba czeka na akceptację do kolejki Cpro. */
+  cpro?: boolean;
 }
 
 export interface DlSendQueueResponse {
@@ -622,6 +627,14 @@ export interface CproQueueItem {
     generated_document_id: number | null;
     document_id: number | null;
   } | null;
+  /** Kto włożył osobę do kolejki i kiedy. Od 13.10.2026 robi to wyłącznie
+   *  Delivery Lead po akceptacji; `accepted: false` = karta sprzed tej zmiany,
+   *  włożona przez rekrutera („Bez akceptacji DL”). */
+  accepted?: boolean;
+  accepted_by_name?: string | null;
+  accepted_at?: string | null;
+  /** Uwaga Delivery Leada zapisana przy akceptacji. */
+  dl_note?: string | null;
 }
 
 export interface CproQueueJob {

@@ -49,7 +49,8 @@ const PREP_BADGE_TITLE: Partial<Record<string, string>> = {
 
 export interface CardBadgeContext {
   column: BoardColumnKey | null;
-  /** Rekrutacja Nordei — przegląd DL zastępuje kolejka Cpro. */
+  /** Rekrutacja Nordei — przegląd DL kończy akceptacja do kolejki Cpro
+   *  (13.10.2026), nie wysyłka do klienta. */
   cproEnabled: boolean;
   viewerId: number | null;
   now: Date;
@@ -101,16 +102,17 @@ function daysLabel(days: number): string {
 const DAY_MS = 86_400_000;
 
 /**
- * Karta czeka na wysłanie do klienta przez Delivery Leada: kolumna „QC CV”
- * poza kolejką Cpro, a CV przeszło QC albo ktoś je przepuścił. Przy
+ * Karta czeka na Delivery Leada: kolumna „QC CV”, karta nie stoi już
+ * w kolejce Cpro, a CV przeszło QC albo ktoś je przepuścił. Poza Nordeą DL
+ * wysyła do klienta, u Nordei akceptuje do kolejki Cpro (13.10.2026). Przy
  * niesprawdzonym lub niezaliczonym QC ruch ma rekruter.
  */
 export function isReadyForDlSend(
   item: KanbanItem,
   column: BoardColumnKey | null,
-  cproEnabled: boolean,
+  inCproQueue: boolean,
 ): boolean {
-  if (column !== "cv_qc" || cproEnabled) return false;
+  if (column !== "cv_qc" || inCproQueue) return false;
   return item.qc?.status === "passed" || item.qc?.status === "overridden";
 }
 
@@ -142,17 +144,19 @@ function dlWaitingDays(item: KanbanItem, now: Date): number {
 
 /**
  * Kolejka przeglądu „po kolei” z kart kolumny „QC CV”: tylko gotowe do
- * wysłania, najdłużej czekające pierwsze.
+ * wysłania (u Nordei — do akceptacji), najdłużej czekające pierwsze. Karty
+ * w kolejce Cpro (ta sama kolumna, znacznik „W kolejce Cpro”) czekają już
+ * na osobę od Cpro.
  */
 export function dlSendQueue(
   qcColumnItems: readonly KanbanItem[],
-  cproEnabled: boolean,
+  inCproQueue: (item: KanbanItem) => boolean,
   now: Date,
 ): KanbanItem[] {
   const since = (item: KanbanItem) =>
     dlReadySince(item) ?? now.getTime() - (item.days_in_stage ?? 0) * DAY_MS;
   return qcColumnItems
-    .filter((item) => isReadyForDlSend(item, "cv_qc", cproEnabled))
+    .filter((item) => isReadyForDlSend(item, "cv_qc", inCproQueue(item)))
     .sort((a, b) => since(a) - since(b));
 }
 
@@ -316,7 +320,7 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
   // niesprawdzonym lub niezaliczonym QC ruch ma rekruter. Dni liczą się od
   // gotowości, nie od wejścia do kolumny; Delivery Lead tej rekrutacji czyta
   // „Czeka na Ciebie” (13.10.2026).
-  if (isReadyForDlSend(item, column, ctx.cproEnabled)) {
+  if (isReadyForDlSend(item, column, ctx.stageBadge === "cpro")) {
     const waited = daysLabel(dlWaitingDays(item, ctx.now));
     out.push(
       ctx.viewerOwnsDlReview
@@ -324,13 +328,17 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
             key: "dl_review",
             label: `Czeka na Ciebie · ${waited}`,
             tone: "wait",
-            title: "Przejrzyj CV, wpisz stawkę do klienta i wyślij.",
+            title: ctx.cproEnabled
+              ? "Przejrzyj CV, wpisz stawkę do Cpro i zaakceptuj do kolejki Cpro."
+              : "Przejrzyj CV, wpisz stawkę do klienta i wyślij.",
           }
         : {
             key: "dl_review",
             label: `Czeka na DL · ${waited}`,
             tone: "wait",
-            title: "Delivery Lead przegląda CV i wpisuje stawkę do klienta przed wysłaniem.",
+            title: ctx.cproEnabled
+              ? "Delivery Lead przegląda CV, wpisuje stawkę do Cpro i akceptuje osobę do kolejki Cpro."
+              : "Delivery Lead przegląda CV i wpisuje stawkę do klienta przed wysłaniem.",
           },
     );
   }
@@ -648,17 +656,19 @@ export function cardNextStep(
     if (ctx.stageBadge !== "cpro" && item.qc?.status !== "passed" && item.qc?.status !== "overridden") {
       return { ...recruiter(), label: "Sprawdź QC CV" };
     }
-    if (ctx.cproEnabled) {
-      return ctx.stageBadge === "cpro"
-        ? { who: "Osoba od Cpro", mine: false, label: "Wrzuć CV do Cpro" }
-        : { ...recruiter(), label: "Przekaż do Cpro" };
+    if (ctx.stageBadge === "cpro") {
+      return { who: "Osoba od Cpro", mine: false, label: "Wrzuć CV do Cpro" };
     }
+    // U Nordei Delivery Lead akceptuje osobę do kolejki Cpro (13.10.2026).
+    const label = ctx.cproEnabled
+      ? "Przegląd CV i akceptacja do Cpro"
+      : "Przegląd CV i wysłanie do klienta";
     // Delivery Lead tej rekrutacji widzi swój ruch jak rekruter swój; pozostali
     // (także DL innej rekrutacji i admin) — „DL”.
-    if (ctx.viewerOwnsDlReview && isReadyForDlSend(item, ctx.column, ctx.cproEnabled)) {
-      return { who: MY_MOVE_LABEL, mine: true, label: "Przegląd CV i wysłanie do klienta" };
+    if (ctx.viewerOwnsDlReview && isReadyForDlSend(item, ctx.column, false)) {
+      return { who: MY_MOVE_LABEL, mine: true, label };
     }
-    return { who: "DL", mine: false, label: "Przegląd CV i wysłanie do klienta" };
+    return { who: "DL", mine: false, label };
   }
   if (action.kind === "none" || action.owner === "none" || !action.label) return null;
   const role = ROLE_WHO[action.owner];

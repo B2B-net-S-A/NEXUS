@@ -10,12 +10,14 @@ z `jobs.recruiter_id`, która tego kandydata nie prowadziła.
 Przekazania wynikają z samego przepływu, więc nie zależą od tego, czy
 ktoś dopisał regułę do etapu:
 
-* „QC CV” poza Nordeą → Delivery Lead rekrutacji (ta sama reguła co kolejka
-  „Czeka na Twój przegląd”, `board_tasks._sees_dl_review`);
+* „QC CV” → Delivery Lead rekrutacji (ta sama reguła co kolejka
+  „Czeka na Twój przegląd”, `board_tasks._sees_dl_review`); u Nordei od
+  13.10.2026 to prośba o akceptację do kolejki Cpro;
 * kolejka Cpro u Nordei → osoba od Cpro (`board_tasks`: firmowa, bez niej
-  zapasowa z rekrutacji);
-* zwrot z kolejki Cpro do „QC CV” → osoba, która kartę tam przekazała
-  (jedyne przekazanie, które jest ruchem wstecz);
+  zapasowa z rekrutacji) — kartę wkłada tam wyłącznie Delivery Lead
+  (`pipeline_move_rules.requires_dl_client_rate`);
+* zwrot z kolejki Cpro do „QC CV” → osoba, która kartę tam przekazała,
+  i Delivery Lead rekrutacji, bo karta wraca do jego przeglądu;
 * „CV wysłane” → rekruter, który prowadzi kandydata w tej rekrutacji
   (`interview_slots.default_recruiter_id`: właściciel procesu → pierwszy
   weryfikator → prowadzący rekrutację) ORAZ osoba, która przekazała kartę
@@ -35,10 +37,11 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.job import Job
+from app.models.notification import Notification, NotificationType
 from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.team_structure import DeliveryLeadClientAssignment
@@ -48,6 +51,7 @@ from app.services.board_stage_badges import (
     CV_QC_COLUMN,
     board_column_for,
     cpro_enabled_for_client,
+    is_cpro_stage,
     stage_badge_kind,
 )
 
@@ -133,8 +137,7 @@ def handoff_kind(
     column = _column(stage_def, stage_code)
     nordea = cpro_enabled_for_client(client_id)
     if (
-        not nordea
-        and column in _BEFORE_QC_COLUMNS
+        column in _BEFORE_QC_COLUMNS
         and previous_def is not None
         and _column(previous_def) == CV_QC_COLUMN
     ):
@@ -142,10 +145,10 @@ def handoff_kind(
     if column == CV_QC_COLUMN:
         if stage_badge_kind(stage_def.name) == "cpro":
             return REASON_CPRO_QUEUE if nordea else None
-        if nordea:
-            # U Nordei QC CV poprawia rekruter, a dalej idzie kolejka Cpro —
-            # dzwonek tylko, gdy karta wraca z tej kolejki do poprawy.
-            return REASON_CPRO_RETURNED if _is_cpro_queue(previous_def) else None
+        if nordea and _is_cpro_queue(previous_def):
+            return REASON_CPRO_RETURNED
+        # U Nordei „QC CV” to też przegląd Delivery Leada: akceptacja do
+        # kolejki Cpro zamiast wysyłki do klienta (13.10.2026).
         return REASON_DL_REVIEW
     if column == CV_SENT_COLUMN:
         return REASON_CV_SENT
@@ -254,14 +257,25 @@ async def handoff_recipients(
     if kind == REASON_CPRO_QUEUE:
         return kind, await _cpro_senders(db, job)
     if kind == REASON_CPRO_RETURNED:
+        # Kto włożył kartę do kolejki (od 13.10.2026 akceptujący DL) i DL
+        # rekrutacji — karta wraca do jego przeglądu.
         sender = previous_stage.moved_by if previous_stage is not None else None
-        return kind, [sender] if sender is not None else []
+        ids = (sender, *await _dl_reviewers(db, job))
+        return kind, [uid for uid in dict.fromkeys(ids) if uid is not None]
     if kind == REASON_QC_RETURNED:
         # Kto przekazał kartę do QC i rekruter kandydata — to oni poprawiają.
         recruiter = await pair_recruiter_id(
             db, candidate_id=candidate_id, job_id=job.id
         )
         sender = previous_stage.moved_by if previous_stage is not None else None
+        if (
+            sender is not None
+            and cpro_enabled_for_client(job.client_id)
+            and sender in await _cpro_senders(db, job)
+        ):
+            # Karta wróciła do „QC CV” z kolejki Cpro — autorem tamtego ruchu
+            # jest osoba od Cpro, która CV nie poprawia.
+            sender = None
         return kind, [
             uid for uid in dict.fromkeys((sender, recruiter)) if uid is not None
         ]
@@ -280,6 +294,45 @@ async def handoff_recipients(
     return None, []
 
 
+async def close_cpro_queue_bells(
+    db: AsyncSession,
+    *,
+    previous: Optional[CandidateStage],
+    target_name: Optional[str],
+) -> int:
+    """Karta wyszła z kolejki Cpro — dzwonek „Do wrzucenia do Cpro” gaśnie.
+
+    Pomiar 12–13.10.2026: Delivery Lead oznaczał „Wysłane do Cpro” sam
+    (8 z 10 ruchów), a osoba od Cpro zostawała z nieprzeczytanym zadaniem
+    o kimś, kto już był wysłany. Gaszone są tylko dzwonki tego wiersza
+    kolejki (encja = wiersz etapu); przypomnienie po imporcie Traffita
+    (encja = osoba) zostaje. Ponowny ruch na etap Cpro niczego nie gasi.
+    """
+
+    if previous is None or previous.stage_def_id is None or is_cpro_stage(target_name):
+        return 0
+    previous_name = await db.scalar(
+        select(PipelineStageDef.name).where(
+            PipelineStageDef.id == previous.stage_def_id
+        )
+    )
+    if not is_cpro_stage(previous_name):
+        return 0
+    result = await db.execute(
+        update(Notification)
+        .where(
+            Notification.notification_type == NotificationType.board_task_waiting,
+            Notification.related_entity_type == "candidate_stage",
+            Notification.related_entity_id == previous.id,
+            Notification.title.startswith(TITLE_CPRO_QUEUE),
+            Notification.is_read.is_(False),
+        )
+        .values(is_read=True)
+        .execution_options(synchronize_session=False)
+    )
+    return result.rowcount or 0
+
+
 __all__ = [
     "REASON_CPRO_QUEUE",
     "REASON_CPRO_RETURNED",
@@ -289,6 +342,7 @@ __all__ = [
     "BACKWARD_REASONS",
     "REASON_STAGE_REACHED",
     "TASK_REASONS",
+    "close_cpro_queue_bells",
     "handoff_kind",
     "handoff_recipients",
     "pair_recruiter_id",

@@ -167,6 +167,9 @@ class BoardTask:
     budget_min_hourly: Optional[float] = None
     budget_max_hourly: Optional[float] = None
     deadline: Optional[date] = None
+    # Przegląd DL u Nordei (13.10.2026): akceptacja do kolejki Cpro zamiast
+    # wysyłki do klienta — ``target_stage_def_id`` to wtedy etap Cpro.
+    cpro: bool = False
 
     def as_dict(self) -> dict:
         return {
@@ -209,6 +212,7 @@ class BoardTask:
             "budget_min_hourly": self.budget_min_hourly,
             "budget_max_hourly": self.budget_max_hourly,
             "deadline": self.deadline,
+            "cpro": self.cpro,
         }
 
 

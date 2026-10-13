@@ -99,6 +99,7 @@ import {
  boardColumnStep,
  foldBoardColumns,
  impliedBadges,
+ isCproStageName,
  placeStage,
  type BoardColumnKey,
  type StageBadgeKey,
@@ -849,7 +850,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  // karcie przycisk przeglądu zamiast strzałki — strzałka otwierała okno
  // „Przesuń dalej”, a dopiero z niego przegląd.
  const reviewSend = Boolean(
- v5 && !readOnly && v5.canReviewAsDl && isReadyForDlSend(item, boardKey, v5.cproEnabled)
+ v5 && !readOnly && v5.canReviewAsDl && isReadyForDlSend(item, boardKey, stageBadge === "cpro")
  );
  const forwardGap = nextColumnLabel ? knownForwardGap(item, boardKey) : null;
  const qc = boardKey === "cv_qc" ? qcChip(item) : null;
@@ -1811,14 +1812,21 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  () => boardFold.columns.find((f) => f.key === "cv_sent")?.host ?? null,
  [boardFold]
  );
+ // U Nordei przegląd kończy akceptacja do kolejki Cpro (13.10.2026): celem
+ // jest etap „Wysłać do Cpro” szablonu (w tej samej kolumnie „QC CV”).
+ const cproStageCol = useMemo(
+ () => (cproEnabled ? (stageCols.find((c) => isCproStageName(c.name)) ?? null) : null),
+ [cproEnabled, stageCols]
+ );
+ const dlSendTarget = cproEnabled ? (cproStageCol ?? cvSentHost) : cvSentHost;
  // „Przejrzyj i wyślij” na karcie: od razu przegląd. Gdy przegląd się nie
  // należy (np. QC zdążyło spaść) — okno „Przesuń dalej”, jak strzałka.
  const onReviewSend = useCallback(
  (item: KanbanItem) => {
- if (cvSentHost && openDlReviewRef.current(item, cvSentHost)) return;
+ if (dlSendTarget && openDlReviewRef.current(item, dlSendTarget)) return;
  onAdvance(item);
  },
- [cvSentHost, onAdvance]
+ [dlSendTarget, onAdvance]
  );
  // „Przejrzyj po kolei” (13.10.2026): gotowe karty „QC CV”, najdłużej
  // czekające pierwsze. Kolejka trzyma osoby po `candidate_id` — id wiersza
@@ -1827,10 +1835,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  () =>
  dlSendQueue(
  boardFold.columns.find((f) => f.key === "cv_qc")?.items ?? [],
- cproEnabled,
+ (item) => boardFold.badgeByItemId.get(item.id) === "cpro",
  new Date()
  ),
- [boardFold, cproEnabled]
+ [boardFold]
  );
  const {
  active: sequenceActive,
@@ -2651,13 +2659,19 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // CV" przez osobę z prawem wysyłki otwiera przegląd (karta, uwagi dla
  // rekrutera, „Wróć do poprawy"). Test na produkcji 03.10.2026: strzałka
  // otwierała samo okno stawki i omijała przegląd.
+ // U Nordei (13.10.2026) ta sama droga kończy się akceptacją do kolejki
+ // Cpro: wysyłką jest ruch na „Wysłane do Cpro” albo na etap Cpro, a celem
+ // przeglądu — etap Cpro. Karta już w kolejce czeka na osobę od Cpro.
  const openDlReviewIfSending = useCallback(
  (item: KanbanItem, dst: KanbanColumn): boolean => {
+ const sendTarget = cproEnabled
+ ? dst.stage === "cv_sent" || isCproStageName(dst.name)
+ : dst.stage === "cv_sent";
  if (
- dst.stage !== "cv_sent" ||
- cproEnabled ||
+ !sendTarget ||
  !canReviewAsDl ||
  columnByItemId.get(item.id) !== "cv_qc" ||
+ boardFold.badgeByItemId.get(item.id) === "cpro" ||
  item.qc?.status === "failed"
  ) {
  return false;
@@ -2679,7 +2693,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  client_name: null,
  since: item.moved_at ?? new Date().toISOString(),
  process_state_version: item.process_state_version ?? 0,
- target_stage_def_id: dst.stage_def_id ?? null,
+ target_stage_def_id: cproEnabled
+ ? (cproStageCol?.stage_def_id ?? null)
+ : (dst.stage_def_id ?? null),
+ cpro: cproEnabled,
  rejected_stage_def_id: rejectedTemplateCol?.stage_def_id ?? null,
  // „Wróć do poprawy": gospodarz kolumny „Zweryfikowany".
  return_stage_def_id:
@@ -2709,7 +2726,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  .catch(() => undefined);
  return true;
  },
- [cproEnabled, canReviewAsDl, columnByItemId, jobId, jobTitle, clientId, rejectedTemplateCol, boardFold]
+ [cproEnabled, cproStageCol, canReviewAsDl, columnByItemId, jobId, jobTitle, clientId, rejectedTemplateCol, boardFold]
  );
  useEffect(() => {
  openDlReviewRef.current = openDlReviewIfSending;
@@ -2735,10 +2752,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // Fokus po całej kolejce wraca tam, skąd ją uruchomiono, nie do przycisku
  // z przeglądu poprzedniej osoby.
  const back = reviewReturnFocusRef.current;
- const opened = cvSentHost !== null && openDlReviewIfSending(sequenceCurrent, cvSentHost);
+ const opened = dlSendTarget !== null && openDlReviewIfSending(sequenceCurrent, dlSendTarget);
  if (back) reviewReturnFocusRef.current = back;
  if (!opened) closeDlReview();
- }, [sequenceActive, sequenceCurrent, sequenceSkipped, reviewCandidateId, cvSentHost, openDlReviewIfSending, closeDlReview, showInfo]);
+ }, [sequenceActive, sequenceCurrent, sequenceSkipped, reviewCandidateId, dlSendTarget, openDlReviewIfSending, closeDlReview, showInfo]);
  const startReviewSequence = useCallback(
  () => startSequence(dlReadyItems),
  [startSequence, dlReadyItems]
@@ -2762,10 +2779,15 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const item = cols
  .flatMap((c) => c.items)
  .find((i) => i.candidate_id === pendingReviewCandidateId);
- if (!item || !cvSentColumn || !openDlReviewIfSending(item, cvSentColumn)) {
- showInfo("Ta osoba nie czeka teraz na przegląd przed wysłaniem do klienta.");
+ const reviewTarget = cproEnabled ? (cproStageCol ?? cvSentColumn) : cvSentColumn;
+ if (!item || !reviewTarget || !openDlReviewIfSending(item, reviewTarget)) {
+ showInfo(
+ cproEnabled
+ ? "Ta osoba nie czeka teraz na akceptację do kolejki Cpro."
+ : "Ta osoba nie czeka teraz na przegląd przed wysłaniem do klienta."
+ );
  }
- }, [pendingReviewCandidateId, cols, cvSentColumn, openDlReviewIfSending, showInfo]);
+ }, [pendingReviewCandidateId, cols, cproEnabled, cproStageCol, cvSentColumn, openDlReviewIfSending, showInfo]);
  const handleDockMove = useCallback(
  (dst: KanbanColumn) => {
  if (!dockItem || !dockItemColId) return;
@@ -2787,9 +2809,12 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  showError("Nie znaleziono tego etapu w szablonie tej rekrutacji.");
  return;
  }
+ // Akceptacja do kolejki Cpro (Delivery Lead) idzie przez przegląd —
+ // ze stawką do Cpro, nie gołym ruchem.
+ if (openDlReviewIfSending(dockItem, dst)) return;
  requestMove(dockItem, dockItemColId, dst);
  },
- [dockItem, dockItemColId, stageCols, requestMove, showError]
+ [dockItem, dockItemColId, stageCols, requestMove, showError, openDlReviewIfSending]
  );
 
  // ── Okno „Przesuń dalej" (Rekrutacja v5) ────────────────────────────────
@@ -2923,10 +2948,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  case "generate_cv":
  case "set_client_rate":
  if (action.kind === "set_client_rate") {
- // Stawkę do klienta wpisuje się w przeglądzie — razem z kartą
- // i uwagami dla rekrutera.
- const sent = boardFold.columns.find((f) => f.key === "cv_sent")?.host;
- if (sent && openDlReviewIfSending(item, sent)) {
+ // Stawkę do klienta (u Nordei — do Cpro) wpisuje się w przeglądzie —
+ // razem z kartą i uwagami dla rekrutera.
+ if (dlSendTarget && openDlReviewIfSending(item, dlSendTarget)) {
  setMoveNextOpen(false);
  return;
  }
@@ -2977,7 +3001,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  return;
  }
  },
- [suspendMoveNext, boardFold, cols, requestMove, requestReject, rejectedTemplateCol, workbenchContext, jobId, jobTitle, clientId, canAddClientSlots, openDlReviewIfSending, showInfo, openWorkbench, openScreeningFor]
+ [suspendMoveNext, boardFold, cols, requestMove, requestReject, rejectedTemplateCol, workbenchContext, jobId, jobTitle, clientId, canAddClientSlots, dlSendTarget, openDlReviewIfSending, showInfo, openWorkbench, openScreeningFor]
  );
  const handleMoveNextMove = useCallback(
  (target: KanbanColumn) => {
@@ -3002,9 +3026,15 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  showError("Nie znaleziono tego etapu w szablonie tej rekrutacji.");
  return;
  }
+ // Delivery Lead akceptuje do kolejki Cpro w przeglądzie (stawka do Cpro).
+ // Okno pamięta kartę z chwili otwarcia — QC mogło się w międzyczasie
+ // zaliczyć albo zostać przepuszczone (jak w `handleMoveNextMove`).
+ const item =
+ cols.flatMap((c) => c.items).find((i) => i.id === moveNext.item.id) ?? moveNext.item;
+ if (openDlReviewIfSending(item, cpro)) return;
  requestMove(moveNext.item, moveNext.srcColId, cpro);
  },
- [moveNext, stageCols, requestMove, showError]
+ [moveNext, cols, stageCols, requestMove, showError, openDlReviewIfSending]
  );
 
  // Kolumny do renderu: 8 kolumn Tablicy (+ rozwinięci zamknięci + kubełek
@@ -3496,7 +3526,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  badgeByItemId={boardFold.badgeByItemId}
  step={boardColumnStep(boardKeyByColId.get(entry.key))}
 headerAction={
- boardKeyByColId.get(entry.key) === "cv_qc" && canReviewAsDl && !cproEnabled && entry.col.count >= 2 && !readOnly ? (
+ boardKeyByColId.get(entry.key) === "cv_qc" && canReviewAsDl && entry.col.count >= 2 && !readOnly ? (
  <Button
  type="button"
  size="sm"
@@ -3514,7 +3544,7 @@ headerAction={
  // u Delivery Leada tej rekrutacji i od dwóch gotowych osób (jedną
  // otwiera przycisk na karcie). Nic nie dochodzi nad tablicą.
  purposeAction={
- boardKeyByColId.get(entry.key) === "cv_qc" && viewerOwnsDlReview && canReviewAsDl && !cproEnabled && !readOnly && dlReadyItems.length >= 2 ? (
+ boardKeyByColId.get(entry.key) === "cv_qc" && viewerOwnsDlReview && canReviewAsDl && !readOnly && dlReadyItems.length >= 2 ? (
  <button
  type="button"
  onClick={startReviewSequence}

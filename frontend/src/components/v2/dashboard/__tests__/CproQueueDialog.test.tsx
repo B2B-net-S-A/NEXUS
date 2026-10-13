@@ -38,7 +38,7 @@ vi.mock("@/lib/authenticated-files", () => ({
   downloadBlob: (...a: unknown[]) => downloadBlob(...a),
 }));
 
-import { CproQueueDialog } from "@/components/v2/dashboard/CproQueueDialog";
+import { CproAcceptance, CproQueueDialog } from "@/components/v2/dashboard/CproQueueDialog";
 import type { CproQueueItem, CproQueueResponse } from "@/lib/api/boardTasks";
 import { useAuthStore } from "@/store/auth";
 
@@ -260,5 +260,39 @@ describe("CproQueueDialog — kolejka Cpro, jedna osoba na firmę", () => {
     const dialog = await screen.findByRole("dialog");
     expect(await within(dialog).findByText("Nie udało się wczytać kolejki Cpro. Spróbuj ponownie.")).toBeTruthy();
     expect(within(dialog).getByRole("button", { name: "Ponów" })).toBeTruthy();
+  });
+});
+
+// 13.10.2026: do kolejki wkłada Delivery Lead po akceptacji — osoba od Cpro
+// widzi, kto i kiedy zaakceptował, oraz uwagę DL-a.
+describe("CproAcceptance — wiersz akceptacji w kolejce Cpro", () => {
+  it("zaakceptowana osoba: kto, kiedy i uwaga DL-a", () => {
+    render(
+      <CproAcceptance
+        item={item({
+          accepted: true,
+          accepted_by_name: "Marcin Wiśniewski",
+          accepted_at: "2026-10-13T12:33:00Z",
+          dl_note: "Dostępna od listopada",
+        })}
+      />,
+    );
+    expect(screen.getByTestId("cpro-accepted")).toHaveTextContent(
+      "✓ Zaakceptował(a): Marcin Wiśniewski · 13.10.2026",
+    );
+    expect(screen.getByText("Uwaga DL: Dostępna od listopada")).toBeInTheDocument();
+  });
+
+  it("karta sprzed zmiany, włożona przez rekrutera: „Bez akceptacji DL”", () => {
+    render(<CproAcceptance item={item({ accepted: false, accepted_by_name: "Piotr Rekruter" })} />);
+    expect(screen.getByTestId("cpro-not-accepted")).toHaveTextContent(
+      "Bez akceptacji DL — do kolejki przekazał(a) Piotr Rekruter",
+    );
+    expect(screen.queryByTestId("cpro-accepted")).toBeNull();
+  });
+
+  it("starszy serwer bez pól akceptacji — nic nie pokazuje", () => {
+    const { container } = render(<CproAcceptance item={item({})} />);
+    expect(container).toBeEmptyDOMElement();
   });
 });

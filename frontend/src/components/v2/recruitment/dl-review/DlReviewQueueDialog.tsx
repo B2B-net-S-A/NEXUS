@@ -160,7 +160,7 @@ export function DlReviewQueueDialog({ jobId, jobTitle, open, onOpenChange, onRev
       ) : queue.isSuccess && items.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           {queue.data?.cpro_client
-            ? "U tego klienta CV idzie do Cpro — przeglądu Delivery Leada nie ma."
+            ? "Nikt w tej rekrutacji nie czeka na akceptację do kolejki Cpro."
             : "Nikt w tej rekrutacji nie czeka na Twój przegląd."}
         </p>
       ) : (
