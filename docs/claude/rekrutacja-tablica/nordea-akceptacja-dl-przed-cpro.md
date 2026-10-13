@@ -50,6 +50,6 @@ Makiety i decyzje D1–D6: https://claude.ai/artifact/Si7j1pcC3cXxUKYMNVGWa1.
   na „Wysłane do Cpro” albo na etap Cpro i otwiera przegląd z celem Cpro;
   karta w kolejce (znacznik `cpro`) czeka na osobę od Cpro, nie na DL-a
   (`isReadyForDlSend(item, column, inCproQueue)`).
-- Harnessy: `/preview/dl-review?client=nordea`, `/preview/cpro-queue`
+- Harnessy: `/preview/dl-review?client=cpro`, `/preview/cpro-queue`
   (wiersz zaakceptowany i „Bez akceptacji DL”), `/preview/dl-send` (wiersze
   „→ Cpro”).
