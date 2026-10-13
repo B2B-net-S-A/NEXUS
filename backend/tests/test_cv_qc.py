@@ -30,6 +30,7 @@ from app.models.user import UserRole
 from app.services import cv_qc as qc
 from app.services import dz_review as dz
 from tests.test_board_tasks import (
+    CPRO_RATE,
     _cleanup,
     _login,
     _move,
@@ -2099,15 +2100,18 @@ async def test_leaving_the_cpro_queue_does_not_repeat_qc(
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", str(world["client_id"]))
     hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
     rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
     hor = await _login(api_client, hor_creds)
     rec = await _login(api_client, rec_creds)
+    dl = await _login(api_client, dl_creds)
     try:
         async with restore_cpro_sender():
             await clear_cpro_sender()
-            # Wejście do kolejki sprzed bramki (jak osoby z przeglądu DZ).
+            # Wejście do kolejki sprzed bramki (jak osoby z przeglądu DZ);
+            # od 13.10.2026 osobę do kolejki wkłada Delivery Lead ze stawką.
             monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", False)
             await _move(api_client, hor, world, "verified")
-            await _move(api_client, hor, world, "cpro")
+            await _move(api_client, dl, world, "cpro", **CPRO_RATE)
             monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", True)
 
             send = {
@@ -2123,7 +2127,7 @@ async def test_leaving_the_cpro_queue_does_not_repeat_qc(
             assert moved.status_code == 200, moved.text
             assert await _runs(world) == 0
     finally:
-        await _cleanup(world, [hor_id, rec_id])
+        await _cleanup(world, [hor_id, rec_id, dl_id])
 
 
 @pytest.mark.asyncio
@@ -2151,7 +2155,9 @@ async def test_fallback_sender_of_the_job_can_upload_without_firm_sender(
             monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", False)
             await _move(api_client, hor, world, "verified")
             # Osobę zapasową rekrutacji wskazuje admin albo DL Nordei (PR #1844).
-            await _move(api_client, admin, world, "cpro", task_assignee_id=rec_id)
+            await _move(
+                api_client, admin, world, "cpro", task_assignee_id=rec_id, **CPRO_RATE
+            )
             monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", True)
 
             # HoR widzi zadanie z osobą zapasową, bo nikt nie jest na firmę.
@@ -3209,30 +3215,34 @@ async def test_advisory_mode_lets_the_recruiter_pass_and_rings_the_delivery_lead
 
 
 @pytest.mark.asyncio
-async def test_advisory_override_opens_the_cpro_queue_for_the_recruiter(
+async def test_advisory_override_lets_the_delivery_lead_accept_to_cpro(
     api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """U Nordei do kolejki Cpro przekazuje rekruter — bez obejścia utykał tam
-    na bramce QC, bo przeglądu Delivery Leada po drodze nie ma."""
+    """U Nordei do kolejki Cpro wkłada Delivery Lead po akceptacji
+    (13.10.2026). Obejście doradcze rekrutera przepuszcza ruch naprzód —
+    także akceptację DL-a — do zwrotu karty."""
     monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", True)
     monkeypatch.setattr(settings, "CV_QC_ADVISORY", True)
     world = await _seed_world()
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", str(world["client_id"]))
     hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
     rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
     hor = await _login(api_client, hor_creds)
     rec = await _login(api_client, rec_creds)
+    dl = await _login(api_client, dl_creds)
     stage_id = await _seed_review(world, hor, api_client)
     await _mark_critical(world, "Java", "Kubernetes")
     to_queue = {
         "candidate_id": world["candidate_id"],
         "job_id": world["job_id"],
         "stage_def_id": world["defs"]["cpro"],
+        **CPRO_RATE,
     }
     try:
         with hydrated_taxonomy():
             refused = await api_client.post(
-                "/api/pipeline/move", headers=rec, json=to_queue
+                "/api/pipeline/move", headers=dl, json=to_queue
             )
         assert refused.status_code == 409, refused.text
         assert refused.json()["detail"]["code"] == "CV_QC_FAILED"
@@ -3243,8 +3253,13 @@ async def test_advisory_override_opens_the_cpro_queue_for_the_recruiter(
                 json={"reason_code": "requirement_not_applicable"},
             )
             assert passed.status_code == 200, passed.text
-            moved = await api_client.post(
+            # Rekruter sam do kolejki nie wkłada — przekazuje osobę DL-owi.
+            by_recruiter = await api_client.post(
                 "/api/pipeline/move", headers=rec, json=to_queue
+            )
+            assert by_recruiter.status_code == 403, by_recruiter.text
+            moved = await api_client.post(
+                "/api/pipeline/move", headers=dl, json=to_queue
             )
         assert moved.status_code == 200, moved.text
 
@@ -3261,13 +3276,13 @@ async def test_advisory_override_opens_the_cpro_queue_for_the_recruiter(
         with hydrated_taxonomy():
             await _move(api_client, hor, world, "qc")
             again = await api_client.post(
-                "/api/pipeline/move", headers=rec, json=to_queue
+                "/api/pipeline/move", headers=dl, json=to_queue
             )
         assert again.status_code == 409, again.text
         assert again.json()["detail"]["code"] == "CV_QC_FAILED"
         assert await status() == "failed"
     finally:
-        await _cleanup_advisory(world, stage_id, [hor_id, rec_id])
+        await _cleanup_advisory(world, stage_id, [hor_id, rec_id, dl_id])
 
 
 @pytest.mark.asyncio

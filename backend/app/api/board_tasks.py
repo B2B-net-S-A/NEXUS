@@ -62,6 +62,7 @@ from app.services import (
     prep_attention,
     request_allocation_proposals,
     stage_handoff_recipients,
+    stage_remarks,
 )
 from app.services.notification_triggers import emit
 
@@ -125,6 +126,9 @@ class BoardTaskRow(BaseModel):
     budget_min_hourly: Optional[float] = None
     budget_max_hourly: Optional[float] = None
     deadline: Optional[date] = None
+    # Przegląd DL u Nordei (13.10.2026): akceptacja do kolejki Cpro, a
+    # ``target_stage_def_id`` to etap „Wysłać do Cpro”.
+    cpro: bool = False
 
 
 class DlSendRow(BaseModel):
@@ -145,6 +149,8 @@ class DlSendRow(BaseModel):
     waiting_workdays: int
     urgency: Literal["fresh", "due", "late"]
     handed_over_by_name: Optional[str] = None
+    # Nordea: osoba czeka na akceptację do kolejki Cpro.
+    cpro: bool = False
 
 
 class DlSendQueueResponse(BaseModel):
@@ -543,6 +549,14 @@ class CproQueueItem(BaseModel):
     availability: Optional[date] = None
     qc_status: Literal["passed", "failed", "overridden", "unchecked"] = "unchecked"
     cv: Optional[CproQueueCv] = None
+    # Kto włożył osobę do kolejki i kiedy. Od 13.10.2026 robi to wyłącznie
+    # Delivery Lead po akceptacji (``accepted``); wcześniej także rekruter —
+    # taka karta ma ``accepted=False`` („Bez akceptacji DL”).
+    accepted: bool = False
+    accepted_by_name: Optional[str] = None
+    accepted_at: Optional[datetime] = None
+    # Uwaga Delivery Leada zapisana przy akceptacji (`stage_remarks`).
+    dl_note: Optional[str] = None
 
 
 class CproQueueJob(BaseModel):
@@ -894,6 +908,7 @@ async def get_dl_send_queue(
                 waiting_workdays=t.waiting_workdays,
                 urgency=t.urgency,
                 handed_over_by_name=t.handed_over_by_name,
+                cpro=t.cpro,
             )
             for t in shown
         ],
@@ -1124,6 +1139,18 @@ async def get_cpro_queue(
     rates = await latest_client_rates(db, pairs)
     cvs = await move_requirements.company_cv_refs(db, pairs)
     availability = await _availability(db, {t.candidate_id for t in to_send})
+    mover_ids = {t.moved_by for t in to_send if t.moved_by is not None}
+    movers = (
+        {
+            u.id: u
+            for u in (
+                await db.scalars(select(User).where(User.id.in_(mover_ids)))
+            ).all()
+        }
+        if mover_ids
+        else {}
+    )
+    dl_notes = await stage_remarks.for_stages(db, [t.stage_id for t in to_send])
 
     jobs: dict[int, CproQueueJob] = {}
     for t in to_send:
@@ -1135,6 +1162,7 @@ async def get_cpro_queue(
         )
         rate = rates.get(pair) if show_rate or fallback_sender else None
         cv = cvs.get(pair)
+        mover = movers.get(t.moved_by) if t.moved_by is not None else None
         item = CproQueueItem(
             stage_id=t.stage_id,
             candidate_id=t.candidate_id,
@@ -1157,6 +1185,11 @@ async def get_cpro_queue(
                 if cv
                 else None
             ),
+            accepted=mover is not None
+            and has_permission(mover, ProductAction.recruitment_manage),
+            accepted_by_name=mover.name if mover is not None else None,
+            accepted_at=t.since,
+            dl_note=stage_remarks.short(dl_notes.get(t.stage_id)),
         )
         group = jobs.get(t.job_id)
         if group is None:

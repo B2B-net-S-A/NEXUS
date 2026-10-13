@@ -104,7 +104,7 @@ class TransitRow:
     card_edited_fields: tuple[str, ...] = ()
     # D6 (08.10.2026): „Wróć do poprawy” z listą pól — co poprawić.
     fix_labels: tuple[str, ...] = ()
-    # 13.10.2026, tylko „QC CV” poza Nordeą (`KIND_IN_REVIEW`): stan QC pary,
+    # 13.10.2026, tylko „QC CV” (`KIND_IN_REVIEW`, u Nordei od tego dnia też): stan QC pary,
     # od kiedy CV jest gotowe i czeka na Delivery Leada, ile dni roboczych
     # i czy rekruter może już przypomnieć (`ReviewState`).
     qc_status: Optional[str] = None
@@ -265,10 +265,10 @@ def classify(
     if column == CV_QC_COLUMN:
         if badge == "cpro":
             return KIND_CPRO_QUEUE if nordea else None
-        if nordea:
-            # U Nordei „QC CV” to praca rekrutera; wpisem jest tylko zwrot
-            # z kolejki Cpro.
-            return KIND_CPRO_RETURNED if prev_badge == "cpro" else None
+        if nordea and prev_badge == "cpro":
+            return KIND_CPRO_RETURNED
+        # U Nordei od 13.10.2026 „QC CV” to też przegląd Delivery Leada
+        # (akceptacja do kolejki Cpro).
         return KIND_IN_REVIEW
     if column == "closed":
         return KIND_REJECTED_BY_DL if ended_by == "delivery_lead" else None

@@ -28,8 +28,10 @@ import {
   XCircle,
 } from "lucide-react";
 
+import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { CvGeneratorDialog } from "@/components/v2/cv-generator/CvGeneratorDialog";
 import type {
   QcCheck,
   QcConfirmBody,
@@ -110,8 +112,36 @@ function LocateButton({ target, ctx }: { target: IssueTarget | null; ctx: Action
   );
 }
 
-const generatorHref = (data: QcResult) =>
-  `/cv-generator?candidate_id=${data.candidate_id}&job_id=${data.job_id}`;
+/**
+ * Generator CV w oknie, z osobą i rekrutacją z QC. Osobnego ekranu
+ * `/cv-generator` nie ma w menu od 13.10.2026 (CV powstaje w ścieżce
+ * rekrutacji), więc QC nie wyprowadza na niego, tylko otwiera to samo okno
+ * co karta „CV do klienta” w panelu osoby.
+ */
+function GeneratorOpener({ data, children }: { data: QcResult; children: (open: () => void) => React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const { showSuccess } = useToast();
+  return (
+    <>
+      {children(() => setOpen(true))}
+      {open ? (
+        <CvGeneratorDialog
+          open
+          onOpenChange={setOpen}
+          candidateId={data.candidate_id}
+          candidateName={data.candidate_name}
+          jobId={data.job_id}
+          onEnqueued={() => {
+            setOpen(false);
+            showSuccess(
+              "CV generuje się w tle. Gdy etap nie ma jeszcze CV do klienta, gotowy dokument zostanie do niego podpięty.",
+            );
+          }}
+        />
+      ) : null}
+    </>
+  );
+}
 
 function CheckActions({ check, ctx }: { check: QcCheck; ctx: ActionContext }) {
   const kinds = checkLevelFixes(check);
@@ -200,19 +230,25 @@ function ItemAction({ item, ctx }: { item: QcItem; ctx: ActionContext }) {
       return (
         <span className="text-xs text-muted-foreground">
           Zrzut zgody RODO wgrywa się w generatorze CV —{" "}
-          <Link href={generatorHref(ctx.data)} className="font-medium text-primary hover:underline" {...newTab(ctx)}>
-            otwórz generator
-          </Link>
+          <GeneratorOpener data={ctx.data}>
+            {(open) => (
+              <button type="button" className="font-medium text-primary hover:underline" onClick={open}>
+                otwórz generator
+              </button>
+            )}
+          </GeneratorOpener>
           , wgraj zrzut i wygeneruj CV ponownie.
         </span>
       );
     case "generate_cv":
       return (
-        <Button asChild size="sm">
-          <Link href={generatorHref(ctx.data)} {...newTab(ctx)}>
-            Wygeneruj CV
-          </Link>
-        </Button>
+        <GeneratorOpener data={ctx.data}>
+          {(open) => (
+            <Button size="sm" onClick={open}>
+              Wygeneruj CV
+            </Button>
+          )}
+        </GeneratorOpener>
       );
     default:
       return null;

@@ -2760,7 +2760,6 @@ SCREENS: dict[str, tuple[str, str]] = {
     "contracts": ("/contracts", "Kontrakty"),
     "calendar_event": ("/calendar?event={id}", "Wydarzenie w kalendarzu"),
     "calendar": ("/calendar", "Kalendarz"),
-    "cv_generator": ("/cv-generator", "Generator CV"),
     "b2b_generator": ("/contracts/b2b-generator", "Generator umów B2B"),
     "order_mail": (
         "/contracts?view=order-mail",
@@ -2813,7 +2812,9 @@ OPEN_SCREEN = JarvisTool(
         "więc nie pisz „otworzyłem”, tylko „użyj przycisku”. Użyj ZAWSZE, gdy prośba "
         "dotyczy operacji, której nie wykonujesz: usunięcie, zakończenie współpracy, "
         "wypowiedzenie, podpis umowy, zmiana stawek, wysyłka maila, generowanie CV lub "
-        "umowy, uprawnienia. Wyjaśnij w 'reason', co tam kliknąć."
+        "umowy, uprawnienia. CV generuje się z rekrutacji (panel osoby → „CV do "
+        "klienta”) albo z profilu kandydata — osobnego ekranu generatora nie ma. "
+        "Wyjaśnij w 'reason', co tam kliknąć."
     ),
     input_schema=_schema(
         {

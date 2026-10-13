@@ -94,6 +94,37 @@ function invalidateCpro(queryClient: ReturnType<typeof useQueryClient>, jobId?: 
   }
 }
 
+// ── Kto zaakceptował (13.10.2026) ────────────────────────────────────────────
+
+/**
+ * Od 13.10.2026 do kolejki wkłada Delivery Lead po akceptacji, ze stawką do
+ * Cpro. Karta włożona wcześniej przez rekrutera ma ostrzeżenie — można ją
+ * zwrócić („Nie da się wrzucić”) i wtedy trafia do przeglądu DL-a.
+ */
+export function CproAcceptance({ item }: { item: CproQueueItem }) {
+  if (item.accepted === undefined) return null;
+  const who = item.accepted_by_name ?? "ktoś z zespołu";
+  const when = item.accepted_at ? ` · ${formatDate(item.accepted_at)}` : "";
+  return (
+    <div className="mt-1 space-y-0.5 text-xs">
+      {item.accepted ? (
+        <p className="text-success-muted-foreground" data-testid="cpro-accepted">
+          ✓ Zaakceptował(a): {who}
+          {when}
+        </p>
+      ) : (
+        <p className="text-warning-muted-foreground" data-testid="cpro-not-accepted">
+          Bez akceptacji DL — do kolejki przekazał(a) {who}
+          {when}
+        </p>
+      )}
+      {item.dl_note ? (
+        <p className="text-foreground [overflow-wrap:anywhere]">Uwaga DL: {item.dl_note}</p>
+      ) : null}
+    </div>
+  );
+}
+
 // ── Kto wrzuca (cała firma) ──────────────────────────────────────────────────
 
 interface SenderControlProps {
@@ -402,7 +433,7 @@ export function CproQueueDialog({ open, onClose, initialJobId = null }: CproQueu
                 : ""}
             </DialogTitle>
             <DialogDescription id="cpro-queue-desc" className="text-xs text-muted-foreground">
-              Tylko Nordea. Osoby trafiają tu po QC CV.
+              Tylko Nordea. Osoby trafiają tu po akceptacji Delivery Leada.
             </DialogDescription>
           </div>
           <CproSenderControl sender={sender} loading={!sender && (queue.isLoading || senderQuery.isLoading)} />
@@ -536,6 +567,7 @@ export function CproQueueDialog({ open, onClose, initialJobId = null }: CproQueu
                             </span>
                             <span>czeka {waitingFor(item.since)}</span>
                           </p>
+                          <CproAcceptance item={item} />
                         </div>
                         <div className="col-span-2 flex flex-wrap gap-1.5 sm:col-span-1 sm:justify-end">
                           <Button

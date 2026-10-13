@@ -174,14 +174,26 @@ def test_review_belongs_to_the_job_lead_then_to_the_client_portfolio() -> None:
     admin = _user(1, UserRole.admin)
     portfolio = frozenset({7})
     # Delivery Lead rekrutacji wygrywa z portfelem.
-    assert svc.reviews_as_dl(lead, delivery_lead_id=5, client_id=7, portfolio=frozenset())
-    assert not svc.reviews_as_dl(other, delivery_lead_id=5, client_id=7, portfolio=portfolio)
+    assert svc.reviews_as_dl(
+        lead, delivery_lead_id=5, client_id=7, portfolio=frozenset()
+    )
+    assert not svc.reviews_as_dl(
+        other, delivery_lead_id=5, client_id=7, portfolio=portfolio
+    )
     # Bez DL-a w rekrutacji (albo z nieaktywnym kontem) — portfel klienta.
-    assert svc.reviews_as_dl(other, delivery_lead_id=None, client_id=7, portfolio=portfolio)
-    assert not svc.reviews_as_dl(lead, delivery_lead_id=None, client_id=7, portfolio=frozenset())
-    assert not svc.reviews_as_dl(other, delivery_lead_id=None, client_id=None, portfolio=portfolio)
+    assert svc.reviews_as_dl(
+        other, delivery_lead_id=None, client_id=7, portfolio=portfolio
+    )
+    assert not svc.reviews_as_dl(
+        lead, delivery_lead_id=None, client_id=7, portfolio=frozenset()
+    )
+    assert not svc.reviews_as_dl(
+        other, delivery_lead_id=None, client_id=None, portfolio=portfolio
+    )
     # Admin bez roli Delivery Leada nie ma przeglądu.
-    assert not svc.reviews_as_dl(admin, delivery_lead_id=1, client_id=7, portfolio=portfolio)
+    assert not svc.reviews_as_dl(
+        admin, delivery_lead_id=1, client_id=7, portfolio=portfolio
+    )
 
 
 def test_row_dict_carries_the_send_queue_fields() -> None:
@@ -403,7 +415,7 @@ async def test_viewer_scope_is_the_job_lead_then_the_client_portfolio(
 
 
 @pytest.mark.asyncio
-async def test_cpro_client_is_skipped_and_traffit_row_is_marked_imported(
+async def test_cpro_client_is_accepted_to_cpro_and_traffit_row_is_marked_imported(
     api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     world = await _seed_world()
@@ -421,14 +433,19 @@ async def test_cpro_client_is_skipped_and_traffit_row_is_marked_imported(
         )
         await _add_qc_run(world, passed=True, created_at=now - timedelta(days=2))
 
-        # U klienta z kolejką Cpro przeglądu DL nie ma.
+        # U klienta z kolejką Cpro (Nordea) przegląd DL kończy akceptacja do
+        # kolejki Cpro (13.10.2026) — wiersz jest, celem jest etap Cpro.
         monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", str(world["client_id"]))
-        assert await _rows_for_pair(world, now=now) == []
+        (nordea_row,) = await _rows_for_pair(world, now=now)
+        assert nordea_row.cpro is True
+        assert nordea_row.target_stage_def_id == world["defs"]["cpro"]
 
         # Poza nim: wiersz z importu jest w kolejce, ale nie budzi licznika.
         monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
         rows = await _rows_for_pair(world, now=now)
         assert len(rows) == 1
+        assert rows[0].cpro is False
+        assert rows[0].target_stage_def_id == world["defs"]["cv_sent"]
         assert rows[0].imported is True
         assert rows[0].ready is True
         assert queue.counts_for_reviewer(rows[0]) is False

@@ -267,7 +267,12 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     roles: [...CAPABILITY_ROLES["candidate.write"]],
     placement: "more",
     moreGroup: "documents",
-    inPalette: true,
+    // Zdjęte z menu i palety 13.10.2026 (decyzja Artura): zespół pracuje
+    // w NEXUSIE i generuje CV w ścieżce rekrutacji — karta „CV do klienta”
+    // w panelu osoby, profil kandydata, dok kanbanu, okno QC. Strona zostaje
+    // dla starych linków z powiadomień i zakładek.
+    inSidebar: false,
+    inPalette: false,
   },
   // Dostęp do Generatora Umów B2B jest konfigurowany osobno od sekcji
   // Sourcing. Edycja katalogu ról umownych nadal pozostaje admin-only.
