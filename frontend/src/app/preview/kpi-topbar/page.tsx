@@ -10,6 +10,10 @@
  * zostaje wyszukiwarce. Sąsiedzi licznika mają prawdziwe rozmiary (ikony
  * „Czaty” i „Rozmowy” to prawdziwe komponenty prezentacyjne), a licznik
  * w paskach to ten sam komponent co w aplikacji (klik otwiera panel).
+ *
+ * Od 13.10.2026 przed licznikiem stoi przycisk Ligi Mistrzów (prawdziwy
+ * `LeagueTopbarPopover` na danych fikcyjnych), a trzy przełączniki wyglądu
+ * zastąpiło jedno menu „Wygląd” — jak w `TopbarV2`.
  */
 
 import { Bell, Plus, Search, Users } from "lucide-react";
@@ -20,11 +24,31 @@ import { KpiGoalsPanel } from "@/components/v2/kpi/KpiGoalsPanel";
 import { KpiTopbarButton } from "@/components/v2/kpi/KpiTopbarButton";
 import { KpiTopbarPopover } from "@/components/v2/kpi/MyKpiWidget";
 import { buildKpiTopbarModel, type KpiTopbarModel } from "@/components/v2/kpi/kpi-topbar-model";
+import { LeaguePanel } from "@/components/v2/league/LeaguePanel";
+import { LeagueTopbarButton } from "@/components/v2/league/LeagueTopbarButton";
+import { LeagueTopbarPopover } from "@/components/v2/league/MyLeagueWidget";
+import {
+  LEAGUE_DL_BEYOND_TEN,
+  LEAGUE_DL_NO_CLOSED,
+  LEAGUE_DL_OUTSIDE,
+  LEAGUE_DL_SECOND,
+  LEAGUE_RECRUITER_FOURTH,
+  LEAGUE_RECRUITER_LEADER,
+  LEAGUE_RECRUITER_SECOND,
+  LEAGUE_RECRUITER_TIED,
+  LEAGUE_RECRUITER_UNQUALIFIED,
+  LEAGUE_RECRUITER_ZERO,
+  LEAGUE_SPECTATOR,
+} from "@/components/v2/league/league-fixtures";
+import {
+  buildLeagueTopbarModel,
+  leagueErrorModel,
+  type LeagueTopbarModel,
+} from "@/components/v2/league/league-topbar-model";
 import { ChatTopbarButton } from "@/components/v2/shell/ChatNotificationsDropdown";
 import { DlSendPill } from "@/components/v2/shell/DlSendTopbarButton";
 import { InterviewsTopbarButton } from "@/components/v2/shell/InterviewNotificationsDropdown";
-import { PaletteSwitcher } from "@/components/v2/shell/PaletteSwitcher";
-import { KidsModeToggleButton, ThemeToggleButton } from "@/components/v2/shell/ThemeControls";
+import { AppearanceMenu } from "@/components/v2/shell/AppearanceMenu";
 import {
   TOPBAR_ACTIONS_CLASS,
   TOPBAR_BREADCRUMB_CLASS,
@@ -205,6 +229,32 @@ const HEAD = model([], TEAM);
 const DELIVERY_LEAD = model([], deliveryLead(2, 10));
 const DELIVERY_LEAD_EMPTY = model([], deliveryLead(2, 0));
 
+function league(data: Parameters<typeof buildLeagueTopbarModel>[0], baselineRank: number | null = null): LeagueTopbarModel {
+  const built = buildLeagueTopbarModel(data, { baselineRank });
+  if (!built) throw new Error("Harness: dane fikcyjne bez modelu ligi");
+  return built;
+}
+
+const LEAGUE_RECRUITER = league(LEAGUE_RECRUITER_FOURTH);
+const LEAGUE_HEAD = league(LEAGUE_SPECTATOR);
+const LEAGUE_DL = league(LEAGUE_DL_OUTSIDE);
+
+const LEAGUE_STATES: { title: string; note: string; model: LeagueTopbarModel }[] = [
+  { title: "Lider", note: "złote kółko, w panelu przewaga nad 2. miejscem", model: league(LEAGUE_RECRUITER_LEADER) },
+  { title: "Podium", note: "srebro; dystans do 1. miejsca", model: league(LEAGUE_RECRUITER_SECOND) },
+  { title: "Poza podium", note: "od 4. miejsca dystans do podium", model: LEAGUE_RECRUITER },
+  { title: "Awans dziś", note: "strzałka do północy; spadek bez strzałki", model: league(LEAGUE_RECRUITER_FOURTH, 6) },
+  { title: "Remis", note: "remis o płatne miejsce rozstrzyga admin", model: league(LEAGUE_RECRUITER_TIED) },
+  { title: "Bez miejsca", note: "punkty są, warunek udziału nie", model: league(LEAGUE_RECRUITER_UNQUALIFIED) },
+  { title: "Bez punktów", note: "też 1. dnia kwartału", model: league(LEAGUE_RECRUITER_ZERO) },
+  { title: "Awaria", note: "„—”, nigdy „0 pkt”", model: leagueErrorModel() },
+  { title: "DL w lidze", note: "liga DL liczy placementy", model: league(LEAGUE_DL_SECOND) },
+  { title: "DL poza 10.", note: "próg spełniony, poza listą 10", model: league(LEAGUE_DL_BEYOND_TEN) },
+  { title: "DL poza ligą", note: "w panelu droga do progu", model: LEAGUE_DL },
+  { title: "DL bez zamkniętych", note: "hit ratio niepoliczone", model: league(LEAGUE_DL_NO_CLOSED) },
+  { title: "Kto nie gra", note: "HoR, TCM, admin, Finanse", model: LEAGUE_HEAD },
+];
+
 const DAY_STATES: { title: string; note: string; model: KpiTopbarModel }[] = [
   {
     title: "Przed 9:00",
@@ -280,11 +330,13 @@ function ShellStrip({
   title,
   breadcrumb,
   model: stripModel,
+  league: leagueModel,
   callPill = false,
 }: {
   title: string;
   breadcrumb: string;
   model: KpiTopbarModel;
+  league: LeagueTopbarModel;
   /** Ikona „Rozmowy” jako pigułka „zadzwoń po rozmowie” — najszerszy stan sąsiada. */
   callPill?: boolean;
 }) {
@@ -312,11 +364,10 @@ function ShellStrip({
             </div>
           </div>
           <div className={TOPBAR_ACTIONS_CLASS}>
+            <LeagueTopbarPopover model={leagueModel} className="hidden md:block" />
             <KpiTopbarPopover model={stripModel} className="hidden md:block" />
-            <div className="hidden items-center gap-2 sm:flex">
-              <PaletteSwitcher />
-              <KidsModeToggleButton />
-              <ThemeToggleButton />
+            <div className="hidden items-center sm:flex">
+              <AppearanceMenu />
             </div>
             <Button variant="ghost" size="icon" aria-label="Moi ludzie (atrapa)">
               <Users className="h-4 w-4" aria-hidden />
@@ -345,6 +396,17 @@ function ShellStrip({
   );
 }
 
+function LeaguePanelFrame({ title, model: panelModel }: { title: string; model: LeagueTopbarModel }) {
+  return (
+    <section className="w-full max-w-[360px] shrink-0">
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
+      <div className="overflow-hidden rounded-lg border border-border bg-card shadow-md" role="dialog" aria-label={title}>
+        <LeaguePanel model={panelModel} />
+      </div>
+    </section>
+  );
+}
+
 function PanelFrame({ title, model: panelModel }: { title: string; model: KpiTopbarModel }) {
   return (
     <section className="w-full max-w-[360px] shrink-0">
@@ -365,7 +427,8 @@ export default function KpiTopbarPreviewPage() {
           Podpisane segmenty zamiast trzech par „znak + liczba”, znaczek tylko przy wyjątku, szczegóły
           w panelu po kliknięciu. Dane fikcyjne, bez zapytań do serwera. Licznik pokazuje tyle całych
           segmentów, ile mieści pasek (wyszukiwarka ma gwarantowane 220 px); poniżej 1024 px słowo „Cele”,
-          forma zwarta do 1535 px, od 1536 pełna.
+          forma zwarta do 1535 px, od 1536 pełna. Przed licznikiem przycisk Ligi Mistrzów, który się nie
+          ściska; motyw, tryb gry i tryb ciemny są w menu „Wygląd”.
         </p>
       </div>
 
@@ -374,18 +437,27 @@ export default function KpiTopbarPreviewPage() {
           title="Rekruter — wtorek 13:15"
           breadcrumb="Rekrutacje › Senior Java Developer"
           model={RECRUITER_MIDDAY}
+          league={LEAGUE_RECRUITER}
         />
-        <ShellStrip title="Head of Recruitment i TCM — zespół 12 osób" breadcrumb="Pulpit" model={HEAD} />
         <ShellStrip
-          title="Head of Recruitment — najciaśniej: długie okruszki i pigułka „Rozmowy”"
+          title="Head of Recruitment i TCM — zespół 12 osób"
+          breadcrumb="Pulpit"
+          model={HEAD}
+          league={LEAGUE_HEAD}
+        />
+        {/* Najszerszy przycisk ligi (DL poza ligą, 163 px): HoR z rolą DL ma cele zespołu i ligę DL. */}
+        <ShellStrip
+          title="Head of Recruitment z rolą DL — najciaśniej: długie okruszki i pigułka „Rozmowy”"
           breadcrumb="Rekrutacje › Senior Java Developer z Kafką i Springiem (Warszawa, hybryda)"
           model={HEAD}
+          league={LEAGUE_DL}
           callPill
         />
         <ShellStrip
           title="Delivery Lead — 10 zamkniętych rekrutacji, 2 placementy"
           breadcrumb="Pulpit"
           model={DELIVERY_LEAD}
+          league={LEAGUE_DL}
         />
       </div>
 
@@ -400,6 +472,25 @@ export default function KpiTopbarPreviewPage() {
             </li>
           ))}
         </ul>
+
+        <h2 className="mb-3 mt-8 text-sm font-semibold text-foreground">Liga Mistrzów — stany przycisku</h2>
+        <ul className="flex flex-col gap-3" data-testid="league-states">
+          {LEAGUE_STATES.map((leagueState) => (
+            <li key={leagueState.title} className="flex flex-wrap items-center gap-x-4 gap-y-1">
+              <span className="w-32 shrink-0 text-sm font-medium text-foreground">{leagueState.title}</span>
+              <LeagueTopbarButton model={leagueState.model} open={false} />
+              <span className="text-xs text-muted-foreground">{leagueState.note}</span>
+            </li>
+          ))}
+        </ul>
+
+        <h2 className="mb-3 mt-8 text-sm font-semibold text-foreground">Liga Mistrzów — panel po kliknięciu</h2>
+        <div className="flex flex-wrap items-start gap-6">
+          <LeaguePanelFrame title="Liga — rekruter na 4. miejscu" model={LEAGUE_RECRUITER} />
+          <LeaguePanelFrame title="Liga — bez miejsca" model={league(LEAGUE_RECRUITER_UNQUALIFIED)} />
+          <LeaguePanelFrame title="Liga — Delivery Lead poza ligą" model={LEAGUE_DL} />
+          <LeaguePanelFrame title="Liga — kto nie gra" model={LEAGUE_HEAD} />
+        </div>
 
         <h2 className="mb-3 mt-8 text-sm font-semibold text-foreground">Panel po kliknięciu</h2>
         <div className="flex flex-wrap items-start gap-6">

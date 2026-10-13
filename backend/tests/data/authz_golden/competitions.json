@@ -24,6 +24,7 @@
   "GET /api/competitions/current": "PPPPPPPDPPPPPPPPPPP",
   "GET /api/competitions/history": "PPPPPPPDPPPPPPPPPPP",
   "GET /api/competitions/monthly-races": "PPPPPPPDPPPPPPPPPPP",
+  "GET /api/competitions/my-league": "PPPPPPPDPPPPPPPPPPP",
   "GET /api/competitions/my-position": "PPPPPPPDPPPPPPPPPPP",
   "GET /api/competitions/ties": "PDDDDDDDDDDDDDDDDDD",
   "POST /api/competitions/freeze": "PDDDDDDDDDDDDDDDDDD",
