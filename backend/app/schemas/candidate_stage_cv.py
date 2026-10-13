@@ -23,6 +23,10 @@ BrandedStatusLiteral = Literal["none", "draft", "finalized"]
 TemplateLiteral = Literal["standard", "blind"]
 LanguageLiteral = Literal["pl", "en"]
 
+# Najdłuższa treść CV, jaką przyjmuje zapis z edytora (PATCH, zatwierdzenie).
+# Podgląd importu Worda odmawia dłuższego wyniku — nie dałoby się go zapisać.
+CV_CONTENT_HTML_MAX = 500_000
+
 
 class CVOriginalSnapshotResponse(BaseModel):
     candidate_stage_id: int
@@ -167,7 +171,7 @@ class CVBrandedUpdate(BaseModel):
     """
 
     expected_revision: int = Field(ge=0)
-    content_html: Optional[str] = Field(default=None, max_length=500000)
+    content_html: Optional[str] = Field(default=None, max_length=CV_CONTENT_HTML_MAX)
     template: Optional[TemplateLiteral] = None
     language: Optional[LanguageLiteral] = None
 
@@ -185,7 +189,7 @@ class CVBrandedUpdate(BaseModel):
 
 class CVBrandedFinalize(BaseModel):
     expected_revision: int = Field(ge=0)
-    content_html: str = Field(min_length=1, max_length=500000)
+    content_html: str = Field(min_length=1, max_length=CV_CONTENT_HTML_MAX)
 
 
 class CVBrandedReview(CVBrandedFinalize):
@@ -194,6 +198,40 @@ class CVBrandedReview(CVBrandedFinalize):
 
 class CVBrandedNewDraft(BaseModel):
     expected_revision: int = Field(ge=0)
+
+
+class CVVersionSummary(BaseModel):
+    """Zatwierdzona wersja CV etapu na liście historii w edytorze."""
+
+    version: int
+    # ``None`` tylko dla CV zatwierdzonego bez zapisanej daty (stare wiersze).
+    approved_at: Optional[datetime] = None
+    # Imię i nazwisko z konta, nie e-mail; ``None``, gdy konta już nie ma.
+    approved_by_name: Optional[str] = None
+    language: LanguageLiteral
+    docx_available: bool = False
+    # Wersja, którą etap pokazuje teraz jako zatwierdzoną.
+    is_current: bool = False
+
+
+class CVVersionsResponse(BaseModel):
+    """Od najnowszej. Pusta lista = CV nie było jeszcze zatwierdzone."""
+
+    versions: list[CVVersionSummary]
+
+
+class CVVersionContent(BaseModel):
+    version: int
+    content_html: str
+    language: LanguageLiteral
+    approved_at: Optional[datetime] = None
+
+
+class CVImportPreview(BaseModel):
+    """Plik Word jako HTML edytora — odpowiedź trasy, która nic nie zapisuje."""
+
+    content_html: str
+    filename: str
 
 
 class CVBrandedFinalizeResponse(BaseModel):

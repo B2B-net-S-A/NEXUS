@@ -301,3 +301,271 @@ async def test_selected_content_cannot_be_silently_regenerated_from_profile(
     assert exc.value.status_code == 410
     assert csv.branded_draft_html == "<p>old</p>"
     db.commit.assert_not_awaited()
+
+
+# ── Historia wersji w edytorze CV (Edytor CV 2, PR 5) ────────────────────────
+
+APPROVED = datetime(2026, 10, 1, 9, 30, tzinfo=timezone.utc)
+
+
+def _stage_cv(status="finalized", version=3):
+    return CandidateStageCV(
+        id=1,
+        candidate_stage_id=2,
+        candidate_id=3,
+        job_id=4,
+        branded_status=status,
+        branded_version=version,
+        branded_language="en",
+        branded_draft_html="<p>Treść na etapie</p>",
+        branded_finalized_at=APPROVED if status == "finalized" else None,
+        branded_finalized_by=9 if status == "finalized" else None,
+    )
+
+
+def test_history_lists_versions_newest_first_and_marks_the_approved_one():
+    from app.services.cv_document_versions import version_summaries
+
+    rows = [
+        (1, APPROVED, "Fikcyjna Rekruterka", "pl", False),
+        (3, APPROVED, None, "en", True),
+        (2, APPROVED, "  ", None, True),
+    ]
+
+    listed = version_summaries(_stage_cv("finalized", 3), rows)
+
+    assert [item["version"] for item in listed] == [3, 2, 1]
+    assert [item["is_current"] for item in listed] == [True, False, False]
+    assert listed[0] == {
+        "version": 3,
+        "approved_at": APPROVED,
+        "approved_by_name": None,
+        "language": "en",
+        "docx_available": True,
+        "is_current": True,
+    }
+    # Nazwa to imię i nazwisko z konta; pusta albo brak konta = nieznany.
+    assert [item["approved_by_name"] for item in listed] == [
+        None,
+        None,
+        "Fikcyjna Rekruterka",
+    ]
+    # Wiersz bez języka (starszy) to polskie CV — kontrakt zna tylko pl i en.
+    assert [item["language"] for item in listed] == ["en", "pl", "pl"]
+    assert [item["docx_available"] for item in listed] == [True, True, False]
+
+
+def test_history_marks_no_version_as_current_while_a_new_draft_is_open():
+    """Szkic nosi już następny numer: etap nie pokazuje wtedy żadnej wersji
+    jako zatwierdzonej, więc każdą z listy da się przywrócić."""
+    from app.services.cv_document_versions import version_summaries
+
+    rows = [(2, APPROVED, None, "pl", True), (1, APPROVED, None, "pl", False)]
+
+    listed = version_summaries(_stage_cv("draft", 3), rows)
+
+    assert [item["version"] for item in listed] == [2, 1]
+    assert not any(item["is_current"] for item in listed)
+
+
+def test_history_of_a_cv_that_was_never_approved_is_empty():
+    from app.services.cv_document_versions import version_summaries
+
+    assert version_summaries(_stage_cv("draft", 1), []) == []
+    assert version_summaries(_stage_cv("none", 1), []) == []
+
+
+def test_history_shows_an_approved_cv_that_has_no_frozen_row_yet():
+    """CV zatwierdzone przed migracją 0287 dostaje wiersz wersji dopiero przy
+    nowym szkicu albo linku. Lista jest tylko do odczytu, więc pokazuje je
+    z wiersza etapu — pusta lista znaczyłaby „nigdy nie zatwierdzone”."""
+    from app.services.cv_document_versions import version_summaries
+
+    listed = version_summaries(
+        _stage_cv("finalized", 2),
+        [(1, APPROVED, None, "pl", True)],
+        "Fikcyjny Zatwierdzający",
+    )
+
+    assert listed[0] == {
+        "version": 2,
+        "approved_at": APPROVED,
+        "approved_by_name": "Fikcyjny Zatwierdzający",
+        "language": "en",
+        "docx_available": False,
+        "is_current": True,
+    }
+    assert [item["version"] for item in listed] == [2, 1]
+    assert listed[1]["is_current"] is False
+
+
+def _history_db(*, rows=(), content=None, approver=None):
+    """Atrapa bazy dla odczytów historii: lista wersji albo jedna treść."""
+    db = AsyncMock()
+    db.execute.return_value = Mock(
+        all=Mock(return_value=list(rows)), first=Mock(return_value=content)
+    )
+    db.scalar.return_value = approver
+    db.add = Mock()
+    return db
+
+
+def _history_route(monkeypatch, csv):
+    monkeypatch.setattr(api, "_stage_job_and_cv", AsyncMock(return_value=(4, csv)))
+    scope = AsyncMock()
+    monkeypatch.setattr(api, "ensure_job_read_access", scope)
+    return scope
+
+
+def _nothing_written(db) -> bool:
+    return not (
+        db.add.called
+        or db.commit.await_count
+        or db.flush.await_count
+        or db.delete.await_count
+    )
+
+
+async def test_versions_route_answers_in_the_contract_shape_and_writes_nothing(
+    monkeypatch,
+):
+    csv = _stage_cv("finalized", 2)
+    scope = _history_route(monkeypatch, csv)
+    db = _history_db(
+        rows=[
+            (2, APPROVED, "Fikcyjna Rekruterka", "pl", True),
+            (1, APPROVED, None, "pl", False),
+        ]
+    )
+    user = SimpleNamespace(id=9)
+
+    result = await api.list_branded_cv_versions(2, user, db)
+
+    assert result.model_dump(mode="json") == {
+        "versions": [
+            {
+                "version": 2,
+                "approved_at": "2026-10-01T09:30:00Z",
+                "approved_by_name": "Fikcyjna Rekruterka",
+                "language": "pl",
+                "docx_available": True,
+                "is_current": True,
+            },
+            {
+                "version": 1,
+                "approved_at": "2026-10-01T09:30:00Z",
+                "approved_by_name": None,
+                "language": "pl",
+                "docx_available": False,
+                "is_current": False,
+            },
+        ]
+    }
+    # Ta sama bramka zakresu co odczyt CV etapu: rekrutacja tego etapu.
+    scope.assert_awaited_once_with(db, user, 4)
+    assert _nothing_written(db)
+
+
+async def test_versions_route_answers_an_empty_list_for_a_stage_without_a_cv_row(
+    monkeypatch,
+):
+    """Etap z importu nie ma wiersza CV — to stan, nie 404 (jak `GET …/branded`)."""
+    scope = _history_route(monkeypatch, None)
+    db = _history_db()
+
+    result = await api.list_branded_cv_versions(2, SimpleNamespace(id=9), db)
+
+    assert result.model_dump() == {"versions": []}
+    scope.assert_awaited_once()
+    db.execute.assert_not_awaited()
+
+
+async def test_history_routes_check_the_recruitment_before_reading_anything(
+    monkeypatch,
+):
+    scope = _history_route(monkeypatch, _stage_cv("finalized", 2))
+    scope.side_effect = HTTPException(403, "Brak dostępu do tej rekrutacji.")
+    db = _history_db(content=("<p>Tajne</p>", "pl", APPROVED))
+
+    for call in (
+        api.list_branded_cv_versions(2, SimpleNamespace(id=9), db),
+        api.get_branded_cv_version(2, 2, SimpleNamespace(id=9), db),
+    ):
+        with pytest.raises(HTTPException) as refused:
+            await call
+        assert refused.value.status_code == 403
+    db.execute.assert_not_awaited()
+
+
+async def test_single_version_route_returns_the_frozen_content(monkeypatch):
+    _history_route(monkeypatch, _stage_cv("draft", 3))
+    # Treść wersji przechodzi przez sanitizer także przy odczycie.
+    db = _history_db(
+        content=("<p>Wersja druga</p><script>alert(1)</script>", "en", APPROVED)
+    )
+
+    result = await api.get_branded_cv_version(2, 2, SimpleNamespace(id=9), db)
+
+    body = result.model_dump(mode="json")
+    assert body["version"] == 2 and body["language"] == "en"
+    assert body["approved_at"] == "2026-10-01T09:30:00Z"
+    assert "<p>Wersja druga</p>" in body["content_html"]
+    assert "<script" not in body["content_html"]
+    assert set(body) == {"version", "content_html", "language", "approved_at"}
+    assert _nothing_written(db)
+
+
+@pytest.mark.parametrize("csv_exists", [True, False])
+async def test_single_version_route_answers_404_in_polish(monkeypatch, csv_exists):
+    _history_route(monkeypatch, _stage_cv("draft", 3) if csv_exists else None)
+    db = _history_db(content=None)
+
+    with pytest.raises(HTTPException) as missing:
+        await api.get_branded_cv_version(2, 7, SimpleNamespace(id=9), db)
+
+    assert missing.value.status_code == 404
+    assert missing.value.detail == "Nie znaleziono zatwierdzonej wersji CV."
+
+
+async def test_single_version_route_serves_an_approved_cv_without_a_frozen_row(
+    monkeypatch,
+):
+    """Bliźniak listy: wersja pokazana z wiersza etapu musi dać się otworzyć."""
+    csv = _stage_cv("finalized", 2)
+    _history_route(monkeypatch, csv)
+    db = _history_db(content=None)
+
+    result = await api.get_branded_cv_version(2, 2, SimpleNamespace(id=9), db)
+
+    assert result.model_dump(mode="json") == {
+        "version": 2,
+        "content_html": "<p>Treść na etapie</p>",
+        "language": "en",
+        "approved_at": "2026-10-01T09:30:00Z",
+    }
+    # Szkic o tym samym numerze NIE jest zatwierdzoną wersją.
+    csv.branded_status = "draft"
+    with pytest.raises(HTTPException) as missing:
+        await api.get_branded_cv_version(2, 2, SimpleNamespace(id=9), db)
+    assert missing.value.status_code == 404
+
+
+def test_history_routes_do_not_shadow_the_word_download():
+    """`…/versions/{n}` i `…/versions/{n}/docx` to różne trasy — żadna nie
+    może przejąć adresu drugiej, niezależnie od kolejności rejestracji."""
+    from starlette.routing import compile_path
+
+    from app.main import app
+    from tests._route_introspection import iter_api_routes
+
+    def handlers(path: str) -> list[str]:
+        return [
+            route.endpoint.__name__
+            for template, route in iter_api_routes(app)
+            if "GET" in route.methods and compile_path(template)[0].match(path)
+        ]
+
+    base = "/api/candidates/stages/5/cv/branded"
+    assert handlers(base + "/versions") == ["list_branded_cv_versions"]
+    assert handlers(base + "/versions/2") == ["get_branded_cv_version"]
+    assert handlers(base + "/versions/2/docx") == ["download_approved_docx"]

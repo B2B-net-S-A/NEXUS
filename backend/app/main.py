@@ -156,6 +156,7 @@ from app.api import b2b_register_import
 from app.api import contract_folder_docs
 from app.api import jarvis as jarvis_api
 from app.api import candidate_stage_cv as candidate_stage_cv_api
+from app.api import cv_editor_import as cv_editor_import_api
 from app.api import calendar
 from app.api import notifications
 from app.api import import_export
@@ -1567,6 +1568,10 @@ app.include_router(marketplace_api.router, prefix="/api", tags=["marketplace"])
 app.include_router(cv_generator_b2b.router, prefix="/api", tags=["cv-generator-b2b"])
 app.include_router(
     candidate_stage_cv_api.router, prefix="/api", tags=["candidate-stage-cv"]
+)
+# Edytor CV 2 (PR 5): podgląd importu Worda — trasa z limitem, osobny moduł.
+app.include_router(
+    cv_editor_import_api.router, prefix="/api", tags=["candidate-stage-cv"]
 )
 app.include_router(calendar.router, prefix="/api", tags=["calendar"])
 app.include_router(notifications.router, prefix="/api", tags=["notifications"])

@@ -12,12 +12,16 @@ from __future__ import annotations
 import copy
 import re
 from io import BytesIO
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from docx import Document
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from fastapi import HTTPException, UploadFile
 from lxml import html as lxml_html
+from pydantic import ValidationError
 
 from app.services.cv_approved_docx import render_approved_docx
 from app.services.cv_document_assets import default_template
@@ -321,3 +325,223 @@ def test_document_with_too_many_lines_is_refused():
     with pytest.raises(CvImportError) as error:
         docx_to_editor_html(_save(doc))
     assert "zbyt długi" in str(error.value)
+
+
+# ── Podgląd importu w edytorze CV: `…/import-preview` (Edytor CV 2, PR 5) ────
+#
+# Trasa zamienia plik Word na HTML edytora i NICZEGO nie zapisuje — treść
+# przyjmuje edytor, a utrwala zwykły autozapis. Tu logika bez bazy (atrapa
+# sesji); dostęp i brak zapisu na prawdziwej bazie: `test_stage_cv_copy.py`.
+
+
+class _Upload(BytesIO):
+    """Plik z formularza, który pamięta, o ile bajtów go poproszono."""
+
+    def __init__(self, data: bytes) -> None:
+        super().__init__(data)
+        self.asked: list[int] = []
+
+    def read(self, size: int = -1) -> bytes:
+        self.asked.append(size)
+        return super().read(size)
+
+
+def _preview_db(job_id: int | None = 4) -> AsyncMock:
+    db = AsyncMock()
+    db.scalar.return_value = job_id
+    db.add = Mock()
+    return db
+
+
+async def _preview(monkeypatch, data: bytes, name: str = "CV.docx", **overrides):
+    from app.api import cv_editor_import as api
+
+    scope = overrides.pop("scope", None) or AsyncMock()
+    monkeypatch.setattr(api, "ensure_job_membership", scope)
+    source = _Upload(data)
+    call = {
+        "request": SimpleNamespace(),
+        "stage_id": 2,
+        "current_user": SimpleNamespace(id=9),
+        "file": UploadFile(file=source, filename=name),
+        "db": _preview_db(),
+        **overrides,
+    }
+    try:
+        # Sam handler, bez dekoratora limitu (ten potrzebuje prawdziwego żądania).
+        result = await api.preview_stage_cv_import.__wrapped__(**call)
+    except HTTPException as refused:
+        result = refused
+    return result, call["db"], source, scope
+
+
+async def test_import_preview_returns_editor_html_and_writes_nothing(monkeypatch):
+    data = _hand_made_docx()
+
+    result, db, source, scope = await _preview(
+        monkeypatch, data, "C:\\Pulpit\\CV_od_klienta.docx"
+    )
+
+    # Ta sama konwersja co `…/upload` — z sanitizerem w środku.
+    assert result.model_dump() == {
+        "content_html": docx_to_editor_html(data).html,
+        "filename": "CV_od_klienta.docx",
+    }
+    assert "<b>cloud</b>" not in result.content_html
+    # Zakres jak przy wgraniu pliku: zespół rekrutacji tego etapu.
+    scope.assert_awaited_once_with(db, SimpleNamespace(id=9), 4)
+    assert source.asked == [MAX_BYTES + 1]
+    # Jedyny kontakt z bazą to odczyt rekrutacji etapu.
+    assert db.scalar.await_count == 1
+    assert not db.add.called
+    for write in (db.execute, db.flush, db.commit, db.refresh, db.delete):
+        write.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("data", "fragment"),
+    [
+        (b"%PDF-1.7 to nie jest Word", "tylko plik Word"),
+        (b"PK\x03\x04 to nie jest archiwum", "Nie udało się odczytać"),
+        (b"", "pusty"),
+    ],
+    ids=["pdf", "uszkodzony-zip", "pusty"],
+)
+async def test_import_preview_refuses_unreadable_files_in_polish(
+    monkeypatch, data, fragment
+):
+    refused, db, _, _ = await _preview(monkeypatch, data)
+
+    assert isinstance(refused, HTTPException)
+    assert refused.status_code == 422
+    assert fragment in refused.detail
+    # Komunikat jest dla rekrutera: bez nazw wyjątków i śladu stosu.
+    assert "Traceback" not in refused.detail and "Error" not in refused.detail
+    db.commit.assert_not_awaited()
+
+
+async def test_import_preview_reads_the_upload_with_a_ceiling(monkeypatch):
+    from app.services import cv_docx_import
+
+    monkeypatch.setattr(cv_docx_import, "MAX_BYTES", 64)
+
+    refused, _, source, _ = await _preview(monkeypatch, _hand_made_docx())
+
+    assert isinstance(refused, HTTPException) and refused.status_code == 422
+    assert "za duży" in refused.detail
+    # Jeden odczyt o bajt ponad limit — reszta pliku nie trafia do pamięci.
+    assert source.asked == [65]
+
+
+async def test_import_preview_refuses_content_the_editor_could_not_save(monkeypatch):
+    """Zapis z edytora (PATCH) ma limit znaków — dłuższego importu nie dałoby
+    się utrwalić, więc podgląd odmawia od razu, zamiast dać treść do stracenia."""
+    from app.api import cv_editor_import as api
+    from app.schemas.candidate_stage_cv import CV_CONTENT_HTML_MAX, CVBrandedUpdate
+
+    assert api.CV_CONTENT_HTML_MAX == CV_CONTENT_HTML_MAX == 500_000
+    CVBrandedUpdate(expected_revision=0, content_html="x" * CV_CONTENT_HTML_MAX)
+    with pytest.raises(ValidationError):
+        CVBrandedUpdate(
+            expected_revision=0, content_html="x" * (CV_CONTENT_HTML_MAX + 1)
+        )
+
+    data = _hand_made_docx()
+    length = len(docx_to_editor_html(data).html)
+    monkeypatch.setattr(api, "CV_CONTENT_HTML_MAX", length)
+    fits, _, _, _ = await _preview(monkeypatch, data)
+    monkeypatch.setattr(api, "CV_CONTENT_HTML_MAX", length - 1)
+    refused, db, _, _ = await _preview(monkeypatch, data)
+
+    assert len(fits.content_html) == length
+    assert isinstance(refused, HTTPException) and refused.status_code == 422
+    assert "za długa" in refused.detail
+    db.commit.assert_not_awaited()
+
+
+async def test_import_preview_checks_the_stage_before_touching_the_file(monkeypatch):
+    missing, _, unread, scope = await _preview(
+        monkeypatch, _hand_made_docx(), db=_preview_db(job_id=None)
+    )
+    outsider, _, untouched, _ = await _preview(
+        monkeypatch,
+        _hand_made_docx(),
+        scope=AsyncMock(side_effect=HTTPException(403, "Brak dostępu.")),
+    )
+
+    assert isinstance(missing, HTTPException) and missing.status_code == 404
+    scope.assert_not_awaited()
+    assert isinstance(outsider, HTTPException) and outsider.status_code == 403
+    assert unread.asked == [] and untouched.asked == []
+
+
+async def test_import_preview_over_http_takes_a_form_file_and_keeps_its_limit(
+    monkeypatch,
+):
+    """Cała trasa przez ASGI: formularz z plikiem, bramka roli i limit żądań.
+
+    Testy wyżej wołają sam handler, więc nie widzą dekoratora limitu ani tego,
+    jak FastAPI czyta parametry trasy pod tym dekoratorem (plik z formularza,
+    bramka `Annotated`) — poprawne żądanie nie może skończyć się 422.
+    """
+    import httpx
+
+    from app.api import cv_editor_import as api
+    from app.api import deps
+    from app.core.database import get_db
+    from app.core.rate_limit import limiter
+    from app.main import app
+    from tests._authz_matrix import PERSONAS, build_user
+
+    personas = {persona.key: persona for persona in PERSONAS}
+    recruiter = build_user(personas["recruiter"], user_id=900_001)
+    viewer = build_user(personas["user"], user_id=900_002)
+    holder = {"user": recruiter}
+    db = _preview_db()
+
+    async def _current_user():
+        return holder["user"]
+
+    async def _database():
+        return db
+
+    monkeypatch.setattr(api, "ensure_job_membership", AsyncMock())
+    monkeypatch.setattr(limiter, "enabled", True)
+    monkeypatch.setitem(app.dependency_overrides, deps.get_current_user, _current_user)
+    monkeypatch.setitem(app.dependency_overrides, get_db, _database)
+    url = "/api/candidates/stages/2/cv/branded/import-preview"
+    data = _hand_made_docx()
+    mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+    async def send(client: httpx.AsyncClient) -> httpx.Response:
+        return await client.post(
+            url, files={"file": ("CV po poprawkach.docx", data, mime)}
+        )
+
+    limiter.reset()
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://cv-import"
+        ) as client:
+            accepted = await send(client)
+            without_file = await client.post(url, json={"file": "CV.docx"})
+            holder["user"] = viewer
+            refused = await send(client)
+            holder["user"] = recruiter
+            burst = [(await send(client)).status_code for _ in range(10)]
+    finally:
+        limiter.reset()
+
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json() == {
+        "content_html": docx_to_editor_html(data).html,
+        "filename": "CV po poprawkach.docx",
+    }
+    assert without_file.status_code == 422
+    # Konto tylko do odczytu odpada na bramce, zanim plik zostanie przeczytany.
+    assert refused.status_code == 403
+    # 10 na minutę na osobę; odmowy bramki i walidacji nie zużywają limitu.
+    assert burst == [200] * 9 + [429]
+    assert not db.add.called
+    for write in (db.execute, db.flush, db.commit):
+        write.assert_not_awaited()

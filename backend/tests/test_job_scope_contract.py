@@ -40,6 +40,8 @@ from typing import Any
 # here is how a surface gets protected; removing one needs a reason.
 _SCOPED_MODULES = {
     "app.api.candidate_stage_cv",  # CV snapshot + branded CV + share tokens
+    # Podgląd importu Worda w edytorze CV etapu (trasa z limitem → osobny moduł).
+    "app.api.cv_editor_import",
     "app.api.interview_feedback",  # candidate assessments per job
     "app.api.hiring_manager_feedback",  # werdykty HM per job (te same dane co wyżej)
     "app.api.application_submissions",  # parked applications w/ candidate PII

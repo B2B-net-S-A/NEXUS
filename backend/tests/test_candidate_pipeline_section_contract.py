@@ -73,6 +73,8 @@ def test_read_only_posts_require_candidate_read_not_write(
         ("POST", "/api/candidates/stages/{stage_id}/cv/original/refresh"),
         ("POST", "/api/candidates/stages/{stage_id}/cv/branded/select-stage-cv"),
         ("POST", "/api/candidates/stages/{stage_id}/cv/branded/upload"),
+        # Sam podgląd, ale tylko dla tego, kto może zapisać wynik w edytorze.
+        ("POST", "/api/candidates/stages/{stage_id}/cv/branded/import-preview"),
         ("POST", "/api/candidates/stages/{stage_id}/cv/branded/consent"),
         ("POST", "/api/cv-generator/generate"),
         ("POST", "/api/candidates/{candidate_id}/emails/compose"),

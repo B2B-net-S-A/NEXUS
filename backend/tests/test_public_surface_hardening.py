@@ -62,6 +62,8 @@ _RATE_LIMITED_MODULES = (
     "api/job_files.py",
     # AI na zaznaczeniu w edytorze CV (0433): każde wywołanie to płatny model.
     "api/cv_editor_ai.py",
+    # Podgląd importu Worda w edytorze CV: upload do 10 MB i konwersja na żądanie.
+    "api/cv_editor_import.py",
 )
 
 # Moduły, których docstringi tras trafiają do publicznego /openapi.json.
