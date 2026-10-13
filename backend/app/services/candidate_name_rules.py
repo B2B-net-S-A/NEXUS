@@ -39,6 +39,14 @@ _NAME_MARKER_MESSAGE = (
 )
 
 
+# Imię i nazwisko mają w bazie po 100 znaków. Dłuższej wartości nie skanujemy:
+# wzorce z opcjonalnym `\s*` na początku są kwadratowe na długim ciągu spacji
+# albo separatorów (20 000 spacji = ok. 30 s zablokowanej pętli zdarzeń),
+# a import zbiorczy i CSV wołają regułę PRZED walidacją długości — taka
+# wartość i tak odpada dalej na limicie pola.
+MAX_SCANNED_NAME_LENGTH = 200
+
+
 def name_marker_message() -> str:
     """Zdanie dla użytkownika przy odmowie zapisu imienia z dopiskiem."""
     return _NAME_MARKER_MESSAGE
@@ -235,6 +243,8 @@ def strip_name_markers(value: Optional[str]) -> tuple[str, list[str]]:
     """
     if not value:
         return value or "", []
+    if len(value) > MAX_SCANNED_NAME_LENGTH:
+        return value, []
     found: list[str] = []
     # 1. Pełne pary nawiasów — przed regułami statusu, bo „(zaakceptowany
     #    przez klienta)” musi zniknąć w całości, a nie od „(” do pierwszego słowa.
@@ -278,7 +288,10 @@ def without_name_markers(value: Optional[str]) -> Optional[str]:
 def has_blacklist_marker(*values: Optional[str]) -> bool:
     """Czy którekolwiek z pól niesie dopisek czarnej listy (w dowolnym zapisie)."""
     return any(
-        value and _BLACKLIST_WORD_RE.search(value) is not None for value in values
+        value
+        and len(value) <= MAX_SCANNED_NAME_LENGTH
+        and _BLACKLIST_WORD_RE.search(value) is not None
+        for value in values
     )
 
 
@@ -293,7 +306,11 @@ def strip_employment_marker(value: str) -> str:
     ``"Kowalski - zatrudniony"`` → ``"Kowalski"``. Może zwrócić ``""``, gdy
     pole było samym dopiskiem.
     """
-    if not value or "zatrudnion" not in value.lower():
+    if (
+        not value
+        or len(value) > MAX_SCANNED_NAME_LENGTH
+        or "zatrudnion" not in value.lower()
+    ):
         return value
     cleaned = _EMPLOYMENT_MARKER_RE.sub(" ", value)
     cleaned = re.sub(r"\s{2,}", " ", cleaned)
