@@ -54,6 +54,7 @@ export type SettingsItemId =
   | "register-import"
   | "contract-docs-sharepoint"
   | "ai"
+  | "qc-quality"
   | "traffit"
   | "job-boards"
   | "teams-prep"
@@ -256,6 +257,15 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     gate: { roles: ["admin"], section: "system_admin" },
   },
   {
+    id: "qc-quality", area: "sys", title: "Jakość QC",
+    description: "Jak często QC CV się myli i które uwagi są tylko informacją.",
+    keywords: "qc cv trafnosc nieprawda pominiete uwagi wycisz informacja jakosc kontrola",
+    route: "/settings/ai/qc-quality",
+    wide: true,
+    // `GET/PATCH /api/settings/ai/qc-quality` = `AdminUser`.
+    gate: { roles: ["admin"], section: "system_admin" },
+  },
+  {
     id: "traffit", area: "sys", title: "Import z Traffita",
     description: "Czy nocny import przeszedł bez błędów.",
     keywords: "traffit synchronizacja import",
@@ -367,11 +377,16 @@ export function findSettingsArea(id: string | null | undefined): SettingsArea | 
   return id ? SETTINGS_AREAS.find((a) => a.id === id) : undefined;
 }
 
-/** Pozycja z osobną trasą, której adres zaczyna się od `pathname`. */
+/** Pozycja z osobną trasą, której adres zaczyna się od `pathname` — najdłuższa
+ *  pasująca trasa wygrywa (`/settings/ai/qc-quality` to nie „Koszty AI”). */
 export function findSettingsItemByRoute(pathname: string): SettingsItem | undefined {
-  return SETTINGS_ITEMS.find(
-    (i) => i.route && (pathname === i.route || pathname.startsWith(`${i.route}/`)),
-  );
+  let best: SettingsItem | undefined;
+  for (const item of SETTINGS_ITEMS) {
+    const route = item.route;
+    if (!route || (pathname !== route && !pathname.startsWith(`${route}/`))) continue;
+    if (!best || route.length > (best.route?.length ?? 0)) best = item;
+  }
+  return best;
 }
 
 export function settingsItemHref(item: SettingsItem): string {

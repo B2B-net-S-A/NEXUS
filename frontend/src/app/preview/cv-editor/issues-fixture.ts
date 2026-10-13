@@ -3,9 +3,21 @@
 // Zero sieci: „QC” liczy się z OSTATNIO ZAPISANEJ treści edytora, a poprawki to
 // proste zamiany tekstu — tyle, żeby przeklikać cały obieg: poprawka → autozapis
 // → świeża lista. Prawdziwe reguły są na serwerze (`services/cv_qc.py`).
+// „To nieprawda” zdejmuje pozycję z listy do „Pominięte” w pamięci — jak
+// `cv_finding_dismissals.apply_dismissals` i `cv_editor_issues._split_dismissed`.
 
-import type { CvEditorIssuesApi, CvEditorIssuesData } from "@/lib/api/cvEditorIssues";
-import type { QcCheck, QcConfirmation, QcFix, QcResult, QcTransformApplied, QcTransformSkipped } from "@/lib/api/cvQc";
+import type { CvDismissedIssue, CvEditorIssuesApi, CvEditorIssuesData } from "@/lib/api/cvEditorIssues";
+import type {
+  QcCheck,
+  QcConfirmation,
+  QcDismissal,
+  QcDismissReason,
+  QcFix,
+  QcResult,
+  QcTransformApplied,
+  QcTransformSkipped,
+} from "@/lib/api/cvQc";
+import { QC_DISMISS_REASONS } from "@/lib/cv-qc";
 
 export type IssuesVariant = "issues" | "clean" | "down";
 
@@ -50,6 +62,7 @@ function checksFor(html: string, confirmed: ReadonlySet<string>): QcCheck[] {
         ? []
         : [
             {
+              key: "critical_skills|kafka|software house przyklad — java developer",
               requirement: "Kafka",
               role: "Software House Przykład — Java Developer",
               role_index: 1,
@@ -65,20 +78,31 @@ function checksFor(html: string, confirmed: ReadonlySet<string>): QcCheck[] {
       "Zgodność z oryginałem",
       "blocking",
       text.includes(UNSUPPORTED) && !confirmed.has(UNSUPPORTED)
-        ? [{ term: UNSUPPORTED, fix: "remove_term", detail: "Nie ma tego w oryginalnym CV ani w notatkach." }]
+        ? [
+            {
+              key: "no_unsupported|jenkins|cv",
+              term: UNSUPPORTED,
+              fix: "remove_term",
+              detail: "Nie ma tego w oryginalnym CV ani w notatkach.",
+            },
+          ]
         : [],
     ),
     check(
       "must_bolded",
       "Must-have pogrubione",
       "warning",
-      unbolded(html, UNBOLDED) > 0 ? [{ requirement: UNBOLDED, term: UNBOLDED, fix: "bold_all" }] : [],
+      unbolded(html, UNBOLDED) > 0
+        ? [{ key: "must_bolded|postgresql|cv", requirement: UNBOLDED, term: UNBOLDED, fix: "bold_all" }]
+        : [],
     ),
     check(
       "spelling",
       "Pisownia technologii",
       "warning",
-      text.includes(MISSPELLED) ? [{ term: MISSPELLED, fix: "spelling", detail: "„Github” → „GitHub”" }] : [],
+      text.includes(MISSPELLED)
+        ? [{ key: "spelling|github|cv", term: MISSPELLED, fix: "spelling", detail: "„Github” → „GitHub”" }]
+        : [],
     ),
     check("dates", "Daty w rolach", "warning", []),
     check("client_rules", "Reguły klienta", "blocking", []),
@@ -121,12 +145,58 @@ export function withoutIssues(html: string): string {
     .replace(KAFKA_LINE, bold(KAFKA_FIX.proposed_text));
 }
 
+/** Pominięcie z pamięci harnessu — autor fikcyjny, data z chwili kliknięcia. */
+function memoryDismissal(id: number, reason: QcDismissReason, note: string | undefined): QcDismissal {
+  return {
+    id,
+    reason,
+    reason_label: QC_DISMISS_REASONS.find((option) => option.code === reason)?.label ?? reason,
+    note: note ?? null,
+    by_name: "Marta Testowa",
+    at: new Date().toISOString(),
+  };
+}
+
+/** Pozycje z pominiętym kluczem przechodzą do `dismissed_items`; sprawdzenie bez pozycji przechodzi. */
+function withDismissals(checks: QcCheck[], dismissed: ReadonlyMap<string, QcDismissal>): QcCheck[] {
+  return checks.map((item) => {
+    const hidden = item.items.filter((entry) => entry.key && dismissed.has(entry.key));
+    if (hidden.length === 0) return item;
+    const kept = item.items.filter((entry) => !hidden.includes(entry));
+    return {
+      ...item,
+      items: kept,
+      status: kept.length === 0 && item.status === "fail" ? "pass" : item.status,
+      summary: kept.length === 0 ? `OK · pominięte: ${hidden.length}` : item.summary,
+      dismissed_items: hidden.map((entry) => ({ ...entry, dismissal: dismissed.get(entry.key ?? "") ?? null })),
+    };
+  });
+}
+
 export function memoryIssuesApi(savedHtml: () => string, variant: IssuesVariant): CvEditorIssuesApi {
   const confirmed = new Set<string>();
   const confirmations: QcConfirmation[] = [];
+  let nextId = 1;
+  const dismissedQc = new Map<string, QcDismissal>();
+  const dismissedIssues: CvDismissedIssue[] = [];
+
+  const issues = (): CvEditorIssuesData => {
+    const base = variant === "clean" ? NO_ISSUES : ISSUES;
+    const hidden = (source: CvDismissedIssue["source"], text: string, status: string | null) =>
+      dismissedIssues.some((d) => d.source === source && d.text === text && d.status === status);
+    return {
+      ...base,
+      generator_warnings: base.generator_warnings.filter((text) => !hidden("generator", text, null)),
+      content_review: {
+        ...base.content_review,
+        findings: base.content_review.findings.filter((f) => !hidden("review", f.text, f.status)),
+      },
+      dismissed: [...dismissedIssues],
+    };
+  };
 
   const result = (): QcResult => {
-    const checks = checksFor(savedHtml(), confirmed);
+    const checks = withDismissals(checksFor(savedHtml(), confirmed), dismissedQc);
     const blocking = checks.filter((item) => item.status === "fail" && item.severity === "blocking").length;
     return {
       stage_id: 901,
@@ -169,7 +239,29 @@ export function memoryIssuesApi(savedHtml: () => string, variant: IssuesVariant)
   return {
     qc,
     persistQc: qc,
-    issues: async () => (variant === "clean" ? NO_ISSUES : ISSUES),
+    issues: async () => issues(),
+    dismiss: async (_stageId, body) => {
+      dismissedQc.set(body.key, memoryDismissal(nextId++, body.reason, body.note));
+      return result();
+    },
+    restore: async (_stageId, dismissalId) => {
+      for (const [key, dismissal] of dismissedQc) if (dismissal.id === dismissalId) dismissedQc.delete(key);
+      return result();
+    },
+    dismissIssue: async (_stageId, body) => {
+      dismissedIssues.unshift({
+        source: body.source,
+        text: body.text,
+        status: body.source === "review" ? (body.status ?? null) : null,
+        dismissal: memoryDismissal(nextId++, body.reason, body.note),
+      });
+      return issues();
+    },
+    restoreIssue: async (_stageId, dismissalId) => {
+      const index = dismissedIssues.findIndex((d) => d.dismissal.id === dismissalId);
+      if (index >= 0) dismissedIssues.splice(index, 1);
+      return issues();
+    },
     fixes: async () => ({ status: "ok", cached: false, fixes: [KAFKA_FIX] }),
     confirm: async (_stageId, body) => {
       confirmed.add(body.term);

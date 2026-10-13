@@ -9,6 +9,12 @@
  * z ekranu i nakłada jednym cofalnym krokiem (`qc/transform`). „Pokaż w CV”
  * pojawia się tylko tam, gdzie kontekst podaje `locate`.
  *
+ * „To nieprawda” (D5, 13.10.2026): przy pozycji, którą da się pominąć, jest
+ * przycisk z formularzem powodu; pominięte pozycje stoją zwinięte w „Pominięte”
+ * z „Przywróć”. Uwagę blokującą pomija tylko osoba z prawem obejścia
+ * (`canDismissBlocking`), brak CV i reguł klienta — nikt. Uwagi wyciszone
+ * w „Jakość QC” (D6) stoją osobno jako informacja.
+ *
  * Treść CV, dowodów i propozycji to TEKST — nic nie trafia na stronę jako HTML.
  */
 
@@ -16,6 +22,7 @@ import Link from "next/link";
 import { useId, useState } from "react";
 import {
   AlertTriangle,
+  Ban,
   CheckCircle2,
   ChevronDown,
   Copy,
@@ -26,6 +33,7 @@ import {
   MinusCircle,
   RefreshCw,
   Sparkles,
+  Undo2,
   XCircle,
 } from "lucide-react";
 
@@ -37,6 +45,9 @@ import type {
   QcCheck,
   QcConfirmBody,
   QcConfirmation,
+  QcDismissal,
+  QcDismissBody,
+  QcDismissReason,
   QcFix,
   QcFixAction,
   QcFixesResponse,
@@ -46,17 +57,24 @@ import type {
 } from "@/lib/api/cvQc";
 import {
   CV_NOT_EDITABLE_MESSAGE,
+  QC_DISMISS_NOTE_MAX,
+  QC_DISMISS_QUOTE_MAX,
+  QC_DISMISS_REASONS,
   QC_FIX_SOURCE_LABEL,
   QC_ROLE_STATE_LABEL,
   QC_SEARCH_SOURCE_LABEL,
   QC_TASK_TAG,
+  canDismissItem,
   checkLevelFixes,
   companyCvRoleState,
+  dismissNeedsQuote,
+  dismissedQcItems,
   groupRoleStates,
   itemTarget,
   notePreview,
   originalDescribesSkill,
   parseBoldMarkup,
+  qcDismissError,
   taskTitle,
   type IssueTarget,
   type QcTask,
@@ -65,7 +83,11 @@ import { cn, formatDate } from "@/lib/utils";
 
 export const SECTION_TITLE = "text-xs font-semibold uppercase tracking-wider text-muted-foreground";
 
-function StatusIcon({ status }: { status: QcCheck["status"] }) {
+/** Uwaga wyciszona w „Jakość QC”, która nadal coś zgłasza — informacja, nie uwaga. */
+const isMutedNote = (check: QcCheck) => check.muted === true && (check.status === "fail" || check.status === "manual");
+
+function StatusIcon({ status, muted = false }: { status: QcCheck["status"]; muted?: boolean }) {
+  if (muted) return <Info className="size-4 text-info" aria-label="Informacja" />;
   if (status === "pass") return <CheckCircle2 className="size-4 text-success" aria-label="Przechodzi" />;
   if (status === "fail") return <AlertTriangle className="size-4 text-warning" aria-label="Warto poprawić" />;
   if (status === "manual")
@@ -74,6 +96,7 @@ function StatusIcon({ status }: { status: QcCheck["status"] }) {
 }
 
 function statusBadge(check: QcCheck) {
+  if (isMutedNote(check)) return <Badge variant="info" size="sm">informacja</Badge>;
   if (check.status === "pass") return <Badge variant="success" size="sm">{check.summary || "OK"}</Badge>;
   if (check.status === "manual") return <Badge variant="info" size="sm">sprawdź ręcznie</Badge>;
   if (check.status === "skip") return <Badge variant="outline" size="sm">nie dotyczy</Badge>;
@@ -101,6 +124,14 @@ export interface ActionContext {
   locate?: (target: IssueTarget) => void;
   /** Odnośniki poza listę otwierają nową kartę (edytor CV zostaje otwarty). */
   linksInNewTab?: boolean;
+  /** „To nieprawda” — pominięcie pozycji dla pary; świeży wynik QC zastępuje listę. */
+  dismiss: (body: QcDismissBody, onSaved?: () => void) => void;
+  dismissing: boolean;
+  /** Czy ta osoba pomija uwagi blokujące (`can_override` z wyniku) — działa to jak obejście. */
+  canDismissBlocking: boolean;
+  /** „Przywróć” przy pominiętej pozycji (id pominięcia). */
+  restore: (dismissalId: number) => void;
+  restoring: boolean;
 }
 
 const newTab = (ctx: ActionContext) => (ctx.linksInNewTab ? { target: "_blank", rel: "noreferrer" } : {});
@@ -260,7 +291,7 @@ function ItemAction({ item, ctx }: { item: QcItem; ctx: ActionContext }) {
 }
 
 /** Rola z brakiem: na czym w oryginale stoi wymóg opisu i co jest w CV firmowym. */
-function RoleEvidence({ item, ctx }: { item: QcItem; ctx: ActionContext }) {
+function RoleEvidence({ item, ctx, onDismiss }: { item: QcItem; ctx: ActionContext; onDismiss?: () => void }) {
   const evidence = item.evidence?.trim();
   return (
     <li className="space-y-1 rounded-md border border-border bg-card px-2.5 py-2">
@@ -268,7 +299,10 @@ function RoleEvidence({ item, ctx }: { item: QcItem; ctx: ActionContext }) {
         <Badge variant="outline" size="sm">
           {item.role}
         </Badge>
-        <LocateButton target={itemTarget(item)} ctx={ctx} />
+        <span className="flex flex-wrap items-center gap-1">
+          <LocateButton target={itemTarget(item)} ctx={ctx} />
+          {onDismiss ? <DismissButton onClick={onDismiss} disabled={ctx.dismissing} /> : null}
+        </span>
       </span>
       <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-xs">
         {evidence ? (
@@ -381,13 +415,206 @@ function ConfirmForm({ term, ctx, onClose }: { term: string; ctx: ActionContext;
   );
 }
 
+// ── „To nieprawda” ──────────────────────────────────────────────────────────
+
+export function DismissButton({ onClick, disabled }: { onClick: () => void; disabled?: boolean }) {
+  return (
+    <Button size="sm" variant="ghost" onClick={onClick} disabled={disabled}>
+      <Ban className="size-3.5" aria-hidden />
+      To nieprawda
+    </Button>
+  );
+}
+
+/** Powód z formularza „To nieprawda” — bez pustego opisu i fragmentu. */
+export interface DismissFormValue {
+  reason: QcDismissReason;
+  note?: string;
+  quote?: string;
+}
+
+export interface DismissFormProps {
+  /** Czego dotyczy pominięcie — zdanie nad powodami. */
+  subject: string;
+  /** Czy przy tym powodzie trzeba wkleić fragment źródła. */
+  needsQuote?: (reason: QcDismissReason | null) => boolean;
+  /** Uwaga blokująca — pominięcie działa jak obejście. */
+  blocking?: boolean;
+  /** Dodatkowa wskazówka pod powodami. */
+  hint?: React.ReactNode;
+  pending: boolean;
+  onSubmit: (value: DismissFormValue) => void;
+  onClose: () => void;
+}
+
+/** Formularz „To nieprawda”: powód (5 gotowych), opis i — gdy trzeba — fragment źródła. */
+export function DismissForm({ subject, needsQuote, blocking = false, hint, pending, onSubmit, onClose }: DismissFormProps) {
+  const [reason, setReason] = useState<QcDismissReason | null>(null);
+  const [note, setNote] = useState("");
+  const [quote, setQuote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const baseId = useId();
+  const noteId = `${baseId}-note`;
+  const quoteId = `${baseId}-quote`;
+  const quoteHintId = `${baseId}-quote-hint`;
+  const quoteNeeded = needsQuote?.(reason) ?? false;
+  return (
+    <form
+      aria-label={`To nieprawda: ${subject}`}
+      className="space-y-2 rounded-md border border-border bg-card px-2.5 py-2 text-sm"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const problem = qcDismissError(reason, note, quoteNeeded ? quote : null);
+        setError(problem);
+        if (problem || !reason) return;
+        const cleanNote = note.trim();
+        onSubmit({
+          reason,
+          ...(cleanNote ? { note: cleanNote } : {}),
+          ...(quoteNeeded ? { quote: quote.trim() } : {}),
+        });
+      }}
+    >
+      <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
+        Oznaczasz jako nieprawdę: <span className="font-medium text-foreground">{subject}</span>
+      </p>
+      {blocking ? (
+        <p className="rounded-md border border-warning/40 bg-warning-muted px-2 py-1.5 text-xs text-warning-muted-foreground">
+          To uwaga blokująca — pominięcie działa jak przepuszczenie mimo QC, a Delivery Lead dostanie powiadomienie.
+        </p>
+      ) : null}
+      <fieldset className="space-y-1">
+        <legend className="text-xs font-medium">Dlaczego to nieprawda?</legend>
+        {QC_DISMISS_REASONS.map((option) => (
+          <label key={option.code} className="flex cursor-pointer items-start gap-2 text-sm">
+            <input
+              type="radio"
+              name={`${baseId}-reason`}
+              value={option.code}
+              checked={reason === option.code}
+              onChange={() => {
+                setReason(option.code);
+                setError(null);
+              }}
+              className="mt-1 accent-primary"
+            />
+            <span>{option.label}</span>
+          </label>
+        ))}
+      </fieldset>
+      {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
+      {quoteNeeded ? (
+        <div className="space-y-1">
+          <label htmlFor={quoteId} className="block text-xs font-medium">
+            Fragment źródła
+          </label>
+          <p id={quoteHintId} className="text-xs text-muted-foreground">
+            Wklej fragment oryginału, notatki albo odpowiedzi, w którym to stoi — serwer go sprawdzi.
+          </p>
+          <textarea
+            id={quoteId}
+            aria-describedby={quoteHintId}
+            className="min-h-14 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+            maxLength={QC_DISMISS_QUOTE_MAX}
+            value={quote}
+            onChange={(event) => setQuote(event.target.value)}
+          />
+        </div>
+      ) : null}
+      <div className="space-y-1">
+        <label htmlFor={noteId} className="block text-xs font-medium">
+          {reason === "other" ? "Opis (wymagany)" : "Opis (opcjonalnie)"}
+        </label>
+        <textarea
+          id={noteId}
+          className="min-h-14 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+          maxLength={QC_DISMISS_NOTE_MAX}
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+        />
+      </div>
+      {error ? (
+        <p role="alert" className="text-xs text-destructive">
+          {error}
+        </p>
+      ) : null}
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" size="sm" disabled={pending}>
+          {pending ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
+          Oznacz jako nieprawdę
+        </Button>
+        <Button type="button" size="sm" variant="ghost" onClick={onClose} disabled={pending}>
+          Anuluj
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+/** Nazwa pozycji w formularzu i na liście „Pominięte”: wymaganie albo termin, rola. */
+function qcItemSubject(check: QcCheck, item: QcItem): string {
+  const name = (item.requirement ?? item.term ?? "").trim() || item.detail?.trim() || check.label;
+  return item.role ? `${name} · ${item.role}` : name;
+}
+
+/** „To nieprawda” przy pozycji QC — klucz pozycji z wyniku idzie do serwera bez zmian. */
+function QcDismissForm({
+  check,
+  item,
+  ctx,
+  onClose,
+}: {
+  check: QcCheck;
+  item: QcItem;
+  ctx: ActionContext;
+  onClose: () => void;
+}) {
+  return (
+    <DismissForm
+      subject={qcItemSubject(check, item)}
+      needsQuote={(reason) => dismissNeedsQuote(check.key, reason)}
+      blocking={check.severity === "blocking"}
+      hint={
+        check.key === "no_unsupported"
+          ? "Kandydat powiedział o tym w rozmowie? Zapisz to przez „Potwierdzone z kandydatem”, nie tutaj."
+          : undefined
+      }
+      pending={ctx.dismissing}
+      onSubmit={(value) => ctx.dismiss({ check_key: check.key, key: item.key ?? "", ...value }, onClose)}
+      onClose={onClose}
+    />
+  );
+}
+
+/** Czy `ItemAction` coś rysuje dla tej pozycji (poprawki całego sprawdzenia stoją niżej). */
+function itemHasAction(item: QcItem): boolean {
+  if (item.fix === "remove_term") return Boolean((item.term ?? item.requirement ?? "").trim());
+  return item.fix === "ask_candidate" || item.fix === "upload_consent" || item.fix === "generate_cv";
+}
+
 /** Jedna rzecz do poprawy przed wysłaniem: co jest nie tak, gdzie i przycisk naprawy. */
 export function TaskCard({ task, ctx }: { task: QcTask; ctx: ActionContext }) {
   const { check, name, items } = task;
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // Klucz pozycji, której formularz „To nieprawda” jest otwarty.
+  const [dismissKey, setDismissKey] = useState<string | null>(null);
   const title = taskTitle(task);
   const roleItems = items.filter((i) => i.role);
   const first = items[0];
+  const dismissable = items.filter((item) => canDismissItem(check, item, ctx.canDismissBlocking));
+  const openDismiss = (key: string) => {
+    setConfirmOpen(false);
+    setDismissKey(key);
+  };
+  // Kilka ról z brakiem — przycisk przy każdej roli; inaczej karta pokazuje
+  // jedną pozycję i przycisk stoi w wierszu akcji.
+  const perRole = check.key === "critical_skills" && roleItems.length > 1;
+  const single = !perRole && first && dismissable.includes(first) ? first : null;
+  const dismissButton =
+    single && dismissKey !== single.key ? (
+      <DismissButton onClick={() => openDismiss(single.key ?? "")} disabled={ctx.dismissing} />
+    ) : null;
+  const dismissItem = dismissKey ? items.find((item) => item.key === dismissKey) ?? null : null;
   const editorButton = ctx.openEditor ? (
     <Button size="sm" variant="outline" onClick={ctx.openEditor}>
       Poprawię w edytorze
@@ -410,7 +637,16 @@ export function TaskCard({ task, ctx }: { task: QcTask; ctx: ActionContext }) {
         </p>
         <ul className="space-y-1.5" aria-label={`Role bez opisu: ${name}`}>
           {roleItems.map((item, i) => (
-            <RoleEvidence key={i} item={item} ctx={ctx} />
+            <RoleEvidence
+              key={item.key ?? i}
+              item={item}
+              ctx={ctx}
+              onDismiss={
+                perRole && item.key && dismissKey !== item.key && dismissable.includes(item)
+                  ? () => openDismiss(item.key ?? "")
+                  : undefined
+              }
+            />
           ))}
         </ul>
       </>
@@ -448,7 +684,14 @@ export function TaskCard({ task, ctx }: { task: QcTask; ctx: ActionContext }) {
         {term ? <RemoveTermButton term={term} ctx={ctx} /> : null}
         <AskCandidateButtons item={first} ctx={ctx} />
         {term && !confirmOpen ? (
-          <Button size="sm" variant="outline" onClick={() => setConfirmOpen(true)}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setDismissKey(null);
+              setConfirmOpen(true);
+            }}
+          >
             Potwierdzone z kandydatem
           </Button>
         ) : null}
@@ -477,6 +720,10 @@ export function TaskCard({ task, ctx }: { task: QcTask; ctx: ActionContext }) {
       ) : null;
   }
 
+  if (dismissItem) {
+    form = <QcDismissForm check={check} item={dismissItem} ctx={ctx} onClose={() => setDismissKey(null)} />;
+  }
+
   return (
     <li className="space-y-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5">
       <p className="flex flex-wrap items-center gap-1.5">
@@ -489,7 +736,12 @@ export function TaskCard({ task, ctx }: { task: QcTask; ctx: ActionContext }) {
         ) : null}
       </p>
       {body}
-      {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+      {actions || dismissButton ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {actions}
+          {dismissButton}
+        </div>
+      ) : null}
       {form}
     </li>
   );
@@ -497,6 +749,7 @@ export function TaskCard({ task, ctx }: { task: QcTask; ctx: ActionContext }) {
 
 export function CheckRow({ check, ctx }: { check: QcCheck; ctx: ActionContext }) {
   const [open, setOpen] = useState(false);
+  const [dismissKey, setDismissKey] = useState<string | null>(null);
   const roleGroups = groupRoleStates(check.roles ?? []);
   const info = check.info ?? [];
   const hasBody =
@@ -517,7 +770,7 @@ export function CheckRow({ check, ctx }: { check: QcCheck; ctx: ActionContext })
           !hasBody && "cursor-default",
         )}
       >
-        <StatusIcon status={check.status} />
+        <StatusIcon status={check.status} muted={isMutedNote(check)} />
         <span className="min-w-0">
           <span className="block text-sm font-medium">{check.label}</span>
           {preview && !open ? (
@@ -533,30 +786,41 @@ export function CheckRow({ check, ctx }: { check: QcCheck; ctx: ActionContext })
       </button>
       {open && hasBody ? (
         <div id={bodyId} className="space-y-2 px-3 py-2.5">
-          {check.items.map((item, i) => (
-            <div key={i} className="space-y-1.5 rounded-md border border-border/70 px-2.5 py-2 text-sm">
-              <p className="flex flex-wrap items-center gap-1.5">
-                {item.role ? (
-                  <Badge variant="outline" size="sm">
-                    {item.role}
-                  </Badge>
-                ) : null}
-                {item.requirement || item.term ? (
-                  <span className="font-medium">{item.requirement ?? item.term}</span>
-                ) : null}
-              </p>
-              {item.detail ? <p className="text-xs text-muted-foreground">{item.detail}</p> : null}
-              <SearchedChips searched={item.searched} />
-              {ctx.locate && itemTarget(item) ? (
-                <div className="flex flex-wrap items-center gap-2">
+          {check.items.map((item, i) => {
+            const canDismiss = canDismissItem(check, item, ctx.canDismissBlocking);
+            const formOpen = canDismiss && item.key != null && dismissKey === item.key;
+            const where = ctx.locate ? itemTarget(item) : null;
+            return (
+              <div key={item.key ?? i} className="space-y-1.5 rounded-md border border-border/70 px-2.5 py-2 text-sm">
+                <p className="flex flex-wrap items-center gap-1.5">
+                  {item.role ? (
+                    <Badge variant="outline" size="sm">
+                      {item.role}
+                    </Badge>
+                  ) : null}
+                  {item.requirement || item.term ? (
+                    <span className="font-medium">{item.requirement ?? item.term}</span>
+                  ) : null}
+                </p>
+                {item.detail ? <p className="text-xs text-muted-foreground">{item.detail}</p> : null}
+                <SearchedChips searched={item.searched} />
+                {where || (canDismiss && !formOpen) ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {itemHasAction(item) ? <ItemAction item={item} ctx={ctx} /> : null}
+                    <LocateButton target={where} ctx={ctx} />
+                    {canDismiss && !formOpen ? (
+                      <DismissButton onClick={() => setDismissKey(item.key ?? null)} disabled={ctx.dismissing} />
+                    ) : null}
+                  </div>
+                ) : (
                   <ItemAction item={item} ctx={ctx} />
-                  <LocateButton target={itemTarget(item)} ctx={ctx} />
-                </div>
-              ) : (
-                <ItemAction item={item} ctx={ctx} />
-              )}
-            </div>
-          ))}
+                )}
+                {formOpen ? (
+                  <QcDismissForm check={check} item={item} ctx={ctx} onClose={() => setDismissKey(null)} />
+                ) : null}
+              </div>
+            );
+          })}
           {roleGroups.length > 0 ? (
             <div role="group" aria-label="Rola po roli" className="space-y-1.5 text-xs">
               <p className="font-semibold text-muted-foreground">Rola po roli</p>
@@ -611,6 +875,97 @@ export function PassedChecks({ passed, skipped, ctx }: { passed: QcCheck[]; skip
         <ul id={listId} className="space-y-2">
           {[...passed, ...skipped].map((check) => (
             <CheckRow key={check.key} check={check} ctx={ctx} />
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
+/**
+ * Uwagi wyciszone w „Jakość QC” (D6): QC zbyt często się przy nich myliło,
+ * więc widać je jako informację — nie liczą się do „Warto poprawić”.
+ */
+export function MutedChecks({ checks, ctx }: { checks: QcCheck[]; ctx: ActionContext }) {
+  if (checks.length === 0) return null;
+  return (
+    <section aria-label="Informacje — wyciszone w „Jakość QC”" className="space-y-2">
+      <h3 className={SECTION_TITLE}>Informacje — nie liczą się do uwag ({checks.length})</h3>
+      <p className="text-xs text-muted-foreground">
+        Wyciszone w „Jakość QC” — przy tych sprawdzeniach QC często się myliło. Zobacz, czy coś jest do poprawy.
+      </p>
+      <ul className="space-y-2">
+        {checks.map((check) => (
+          <CheckRow key={check.key} check={check} ctx={ctx} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** Wiersz listy „Pominięte” — pozycja QC, uwaga generatora albo kontroli AI. */
+export interface DismissedEntry {
+  id: string;
+  title: string;
+  /** Skąd jest uwaga (sprawdzenie QC, rola, „Uwaga generatora”). */
+  context?: string | null;
+  dismissal: QcDismissal;
+  onRestore: () => void;
+}
+
+/** Pozycje QC oznaczone „To nieprawda” jako wiersze listy „Pominięte”. */
+export function qcDismissedEntries(checks: QcCheck[], ctx: ActionContext): DismissedEntry[] {
+  return dismissedQcItems(checks).map(({ check, item }) => {
+    const dismissal = item.dismissal as QcDismissal;
+    return {
+      id: `qc:${dismissal.id}`,
+      title: (item.requirement ?? item.term ?? "").trim() || item.detail?.trim() || check.label,
+      context: [check.label, item.role].filter(Boolean).join(" · "),
+      dismissal,
+      onRestore: () => ctx.restore(dismissal.id),
+    };
+  });
+}
+
+/** „Pominięte (n)” — zwinięte; kto, kiedy i dlaczego, z „Przywróć”. */
+export function DismissedSection({ entries, restoring }: { entries: DismissedEntry[]; restoring: boolean }) {
+  const [open, setOpen] = useState(false);
+  const listId = useId();
+  if (entries.length === 0) return null;
+  return (
+    <section aria-label="Pominięte" className="space-y-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-controls={listId}
+        className="flex w-full items-start gap-2 rounded-lg border border-border px-3 py-2 text-left text-xs text-muted-foreground"
+      >
+        <Ban className="mt-0.5 size-4 shrink-0" aria-hidden />
+        <span className="min-w-0 flex-1">
+          <span className="font-semibold text-foreground">Pominięte ({entries.length})</span>
+          <span> — oznaczone jako nieprawda, nie liczą się do uwag</span>
+        </span>
+        <ChevronDown className={cn("mt-0.5 size-4 shrink-0 transition-transform", open && "rotate-180")} aria-hidden />
+      </button>
+      {open ? (
+        <ul id={listId} className="space-y-1.5">
+          {entries.map((entry) => (
+            <li key={entry.id} className="space-y-1 rounded-md border border-border px-2.5 py-2 text-xs">
+              <p className="text-sm font-medium [overflow-wrap:anywhere]">{entry.title}</p>
+              {entry.context ? <p className="text-muted-foreground [overflow-wrap:anywhere]">{entry.context}</p> : null}
+              <p className="[overflow-wrap:anywhere]">
+                {entry.dismissal.reason_label}
+                {entry.dismissal.note ? <span className="text-muted-foreground"> — „{entry.dismissal.note}”</span> : null}
+              </p>
+              <p className="flex flex-wrap items-center justify-between gap-2 text-muted-foreground">
+                <span>{[entry.dismissal.by_name, formatDate(entry.dismissal.at)].filter(Boolean).join(", ")}</span>
+                <Button size="sm" variant="outline" onClick={entry.onRestore} disabled={restoring}>
+                  <Undo2 className="size-3.5" aria-hidden />
+                  Przywróć
+                </Button>
+              </p>
+            </li>
           ))}
         </ul>
       ) : null}

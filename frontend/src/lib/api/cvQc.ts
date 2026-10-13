@@ -47,6 +47,21 @@ export interface QcItem {
   evidence?: string | null;
   evidence_kind?: QcEvidenceKind | null;
   searched?: QcSearch[];
+  /** Tylko w `QcCheck.dismissed_items`: kto, kiedy i dlaczego oznaczył „To nieprawda”. */
+  dismissal?: QcDismissal | null;
+}
+
+/** Powód „To nieprawda” — lustro `cv_finding_dismissals.REASONS` (13.10.2026, D5). */
+export type QcDismissReason = "in_cv" | "other_name" | "wrong_place" | "not_needed" | "other";
+
+/** Pominięcie uwagi („To nieprawda”) — pary kandydat × rekrutacja, nie pliku. */
+export interface QcDismissal {
+  id: number;
+  reason: string;
+  reason_label: string;
+  note: string | null;
+  by_name: string | null;
+  at: string;
 }
 
 export type QcRoleStateKind = "described" | "missing" | "listed_only" | "not_in_original" | "unverified";
@@ -68,6 +83,10 @@ export interface QcCheck {
   roles?: QcRoleState[];
   /** Informacje bez zadania — nie liczą się do uwag ani bramki (od 13.10.2026). */
   info?: QcItem[];
+  /** Pozycje oznaczone „To nieprawda” — nie liczą się, można je przywrócić (D5). */
+  dismissed_items?: QcItem[];
+  /** Uwaga wyciszona w „Jakość QC” (D6): widać ją, ale nie liczy się do uwag. */
+  muted?: boolean;
 }
 
 export interface QcCvRun {
@@ -250,9 +269,9 @@ export function invalidateAfterQcChange(queryClient: QueryClient, jobId: number)
 
 function useQcWrite<TBody>(
   stageId: number | null,
-  path: string,
+  path: string | ((body: TBody) => string),
   onChanged?: () => void,
-  prepare?: (body: TBody, cached: QcResult | undefined) => TBody,
+  prepare?: (body: TBody, cached: QcResult | undefined) => unknown,
 ) {
   const queryClient = useQueryClient();
   const key = cvQcQueryKey(stageId ?? 0);
@@ -260,7 +279,7 @@ function useQcWrite<TBody>(
     mutationFn: (body) =>
       api
         .post<QcResult>(
-          `/api/pipeline/stages/${stageId}/qc/${path}`,
+          `/api/pipeline/stages/${stageId}/qc/${typeof path === "function" ? path(body) : path}`,
           prepare ? prepare(body, queryClient.getQueryData<QcResult>(key)) : body,
         )
         .then((r) => r.data),
@@ -311,4 +330,28 @@ export interface QcConfirmBody {
 /** „Potwierdzone z kandydatem” — serwer zapisuje notatkę pary i zwraca świeży wynik QC. */
 export function useQcConfirm(stageId: number | null, onChanged?: () => void) {
   return useQcWrite<QcConfirmBody>(stageId, "confirm", onChanged);
+}
+
+/** „To nieprawda”: która pozycja (klucz z wyniku QC) i dlaczego. */
+export interface QcDismissBody {
+  check_key: string;
+  key: string;
+  reason: QcDismissReason;
+  note?: string;
+  /** Fragment źródła — tylko „pod inną nazwą” przy treści spoza oryginału. */
+  quote?: string;
+}
+
+/**
+ * „To nieprawda” — serwer zapisuje pominięcie pary i zwraca świeży wynik QC.
+ * Uwagę blokującą pomija tylko osoba, która może przesunąć kartę mimo uwag
+ * (403 dla reszty); brak CV i reguł klienta nie da się pominąć (422).
+ */
+export function useQcDismiss(stageId: number | null, onChanged?: () => void) {
+  return useQcWrite<QcDismissBody>(stageId, "dismiss", onChanged);
+}
+
+/** Przywrócenie pominiętej uwagi — bez ciała, świeży wynik QC w odpowiedzi. */
+export function useQcRestore(stageId: number | null, onChanged?: () => void) {
+  return useQcWrite<number>(stageId, (dismissalId) => `dismissals/${dismissalId}/restore`, onChanged, () => undefined);
 }

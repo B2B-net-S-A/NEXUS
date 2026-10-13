@@ -10,6 +10,7 @@
 import type {
   QcCheck,
   QcCvBlock,
+  QcDismissReason,
   QcFix,
   QcFixKind,
   QcItem,
@@ -289,6 +290,11 @@ export interface QcSplit {
   tasks: QcTask[];
   /** Uwagi i sprawdzenia do obejrzenia ręcznie — „Warto poprawić — nie blokuje". */
   notes: QcCheck[];
+  /**
+   * Uwagi wyciszone w „Jakość QC” (`muted`, D6) — widać je jako informację,
+   * nie liczą się do „Warto poprawić” (lustro `cv_qc.summarize`).
+   */
+  muted: QcCheck[];
   /** Zaliczone. */
   passed: QcCheck[];
   /** Nie dotyczą tego CV albo tej rekrutacji. */
@@ -296,11 +302,13 @@ export interface QcSplit {
 }
 
 export function splitChecks(checks: QcCheck[]): QcSplit {
-  const split: QcSplit = { tasks: [], notes: [], passed: [], skipped: [] };
+  const split: QcSplit = { tasks: [], notes: [], muted: [], passed: [], skipped: [] };
   for (const check of checks) {
     if (check.status === "pass") split.passed.push(check);
     else if (check.status === "skip") split.skipped.push(check);
     else if (check.status === "fail" && check.severity === "blocking") split.tasks.push(...checkTasks(check));
+    // Blokad serwer nigdy nie wycisza — `muted` dotyczy tylko uwag.
+    else if (check.muted && check.severity === "warning") split.muted.push(check);
     else split.notes.push(check);
   }
   return split;
@@ -465,6 +473,64 @@ export function qcOverrideError(reason: QcOverrideReason | null, note: string): 
   if (clean.length > QC_OVERRIDE_NOTE_MAX) return `Opis może mieć najwyżej ${QC_OVERRIDE_NOTE_MAX} znaków.`;
   if (reason === "other" && !clean) return "Przy „Inny powód” napisz, dlaczego przepuszczasz.";
   return null;
+}
+
+// ── „To nieprawda” (D5, 13.10.2026) ─────────────────────────────────────────
+
+/** Lustro `cv_finding_dismissals.REASONS`; trzy pierwsze to „QC się myli” (liczą się do trafności). */
+export const QC_DISMISS_REASONS: ReadonlyArray<{ code: QcDismissReason; label: string }> = [
+  { code: "in_cv", label: "Jest w CV — QC tego nie znalazło" },
+  { code: "other_name", label: "Jest w źródłach pod inną nazwą" },
+  { code: "wrong_place", label: "Dotyczy innej roli albo sekcji" },
+  { code: "not_needed", label: "Nie dotyczy tej rekrutacji" },
+  { code: "other", label: "Inny powód" },
+];
+
+/** Brak CV i reguły klienta (stawka, kontakt, zgoda RODO) — tych uwag nie da się pominąć. */
+export const QC_NOT_DISMISSABLE: ReadonlySet<string> = new Set(["cv_present", "client_rules"]);
+
+export const QC_DISMISS_NOTE_MAX = 500;
+export const QC_DISMISS_QUOTE_MAX = 300;
+
+/** Kto może pominąć tę pozycję: bez klucza (przebieg sprzed 13.10) i w regułach klienta — nikt. */
+export function canDismissItem(check: QcCheck, item: QcItem, canDismissBlocking: boolean): boolean {
+  if (!item.key || QC_NOT_DISMISSABLE.has(check.key)) return false;
+  return check.severity !== "blocking" || canDismissBlocking;
+}
+
+/** „Pod inną nazwą” przy treści spoza oryginału wymaga fragmentu źródła (serwer go szuka). */
+export function dismissNeedsQuote(checkKey: string, reason: QcDismissReason | null): boolean {
+  return checkKey === "no_unsupported" && reason === "other_name";
+}
+
+/** Zdanie błędu formularza „To nieprawda” albo `null`, gdy można wysłać. */
+export function qcDismissError(
+  reason: QcDismissReason | null,
+  note: string,
+  quote: string | null,
+): string | null {
+  if (!reason) return "Wybierz powód.";
+  const clean = note.trim();
+  if (clean.length > QC_DISMISS_NOTE_MAX) return `Opis może mieć najwyżej ${QC_DISMISS_NOTE_MAX} znaków.`;
+  if (reason === "other" && !clean) return "Przy „Inny powód” opisz, dlaczego uwaga jest nieprawdziwa.";
+  if (quote !== null) {
+    const fragment = quote.trim();
+    if (!fragment) return "Wklej fragment oryginału, notatki albo odpowiedzi, w którym to stoi.";
+    if (fragment.length > QC_DISMISS_QUOTE_MAX) return `Fragment może mieć najwyżej ${QC_DISMISS_QUOTE_MAX} znaków.`;
+  }
+  return null;
+}
+
+export interface DismissedQcItem {
+  check: QcCheck;
+  item: QcItem;
+}
+
+/** Pominięte pozycje ze wszystkich sprawdzeń (także tych, które po pominięciu przechodzą). */
+export function dismissedQcItems(checks: QcCheck[]): DismissedQcItem[] {
+  return checks.flatMap((check) =>
+    (check.dismissed_items ?? []).filter((item) => item.dismissal).map((item) => ({ check, item })),
+  );
 }
 
 // ── Akcje naprawy ────────────────────────────────────────────────────────────

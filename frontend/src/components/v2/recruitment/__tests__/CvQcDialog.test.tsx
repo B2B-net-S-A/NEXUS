@@ -1156,4 +1156,289 @@ describe("CvQcDialog — QC CV", () => {
       expect(cv.querySelector('[data-qc-gap="blocking"]')).toBeNull();
     });
   });
+
+  describe("„To nieprawda” i „Pominięte” (D5, 13.10.2026)", () => {
+    const DOCKER = "Docker — jest w CV, a nie ma tego w oryginale";
+    const SUBMIT = "Oznacz jako nieprawdę";
+    const DISMISSAL = {
+      id: 41,
+      reason: "other_name",
+      reason_label: "Jest w źródłach pod inną nazwą",
+      note: "W oryginale jako Podman",
+      by_name: "Marta Rekruterka",
+      at: "2026-10-13T08:30:00Z",
+    };
+
+    /** Wynik z kluczami pozycji — jak z serwera od 13.10.2026. */
+    const keyed = (over: Partial<QcResult> = {}): QcResult => {
+      const base = result(over);
+      return {
+        ...base,
+        checks: base.checks.map((c) => ({
+          ...c,
+          items: c.items.map((item) => ({
+            ...item,
+            key: `${c.key}|${(item.requirement ?? item.term ?? "").toLowerCase()}|${item.role?.toLowerCase() ?? "cv"}`,
+          })),
+        })),
+      };
+    };
+
+    /** Rozwija uwagę w „Warto poprawić” i zwraca jej sekcję. */
+    async function openNote(label: RegExp) {
+      const dialog = await screen.findByRole("dialog");
+      const notes = await within(dialog).findByRole("region", { name: "Warto poprawić — nie blokuje" });
+      await userEvent.click(within(notes).getByRole("button", { name: label }));
+      return { dialog, notes };
+    }
+
+    it("uwaga: wysyła klucz pozycji, powód i opis; świeży wynik przenosi ją do „Pominięte”", async () => {
+      serve(keyed());
+      post.mockResolvedValue({
+        data: withCheck(
+          "must_bolded",
+          {
+            status: "pass",
+            items: [],
+            dismissed_items: [
+              { key: "must_bolded|kafka|cv", requirement: "Kafka", term: "Kafka", dismissal: { ...DISMISSAL, reason: "in_cv" } },
+            ],
+          },
+          keyed(),
+        ),
+      });
+      const { onChanged, keys } = renderDialog();
+      const { dialog, notes } = await openNote(/Must-have są pogrubione/);
+      await userEvent.click(within(notes).getByRole("button", { name: "To nieprawda" }));
+      const form = within(notes).getByRole("form", { name: "To nieprawda: Kafka" });
+      // Bez powodu nic nie idzie do serwera.
+      await userEvent.click(within(form).getByRole("button", { name: SUBMIT }));
+      expect(within(form).getByRole("alert")).toHaveTextContent("Wybierz powód.");
+      expect(post).not.toHaveBeenCalled();
+      await userEvent.click(within(form).getByRole("radio", { name: "Jest w CV — QC tego nie znalazło" }));
+      // Fragment źródła jest tylko przy treści spoza oryginału.
+      expect(within(form).queryByLabelText("Fragment źródła")).toBeNull();
+      await userEvent.type(within(form).getByLabelText("Opis (opcjonalnie)"), "  pogrubione w podsumowaniu ");
+      await userEvent.click(within(form).getByRole("button", { name: SUBMIT }));
+      await waitFor(() =>
+        expect(post).toHaveBeenCalledWith(`${QC_URL}/dismiss`, {
+          check_key: "must_bolded",
+          key: "must_bolded|kafka|cv",
+          reason: "in_cv",
+          note: "pogrubione w podsumowaniu",
+        }),
+      );
+      await waitFor(() => expect(showSuccess).toHaveBeenCalledWith("Oznaczono jako nieprawdę — QC przeliczone."));
+      expect(onChanged).toHaveBeenCalled();
+      expect(keys()).toEqual(expect.arrayContaining(['["kanban","31"]', '["kanban",31]', '["board-tasks"]']));
+      expect(await within(dialog).findByRole("region", { name: "Pominięte" })).toHaveTextContent("Pominięte (1)");
+      expect(get).toHaveBeenCalledTimes(1);
+    });
+
+    it("„Inny powód” wymaga opisu", async () => {
+      serve(keyed());
+      post.mockResolvedValue({ data: keyed() });
+      renderDialog();
+      const { notes } = await openNote(/Pisownia technologii/);
+      await userEvent.click(within(notes).getByRole("button", { name: "To nieprawda" }));
+      const form = within(notes).getByRole("form", { name: "To nieprawda: Postgres" });
+      await userEvent.click(within(form).getByRole("radio", { name: "Inny powód" }));
+      await userEvent.click(within(form).getByRole("button", { name: SUBMIT }));
+      expect(within(form).getByRole("alert")).toHaveTextContent(
+        "Przy „Inny powód” opisz, dlaczego uwaga jest nieprawdziwa.",
+      );
+      expect(post).not.toHaveBeenCalled();
+      await userEvent.type(within(form).getByLabelText("Opis (wymagany)"), "Klient pisze Postgres w ofercie");
+      await userEvent.click(within(form).getByRole("button", { name: SUBMIT }));
+      await waitFor(() =>
+        expect(post).toHaveBeenCalledWith(`${QC_URL}/dismiss`, {
+          check_key: "spelling",
+          key: "spelling|postgres|cv",
+          reason: "other",
+          note: "Klient pisze Postgres w ofercie",
+        }),
+      );
+    });
+
+    it("treść spoza oryginału „pod inną nazwą” wymaga fragmentu źródła; blokada mówi, że to obejście", async () => {
+      serve(keyed({ can_override: true }));
+      post.mockResolvedValue({ data: keyed({ can_override: true }) });
+      renderDialog();
+      const { card } = await taskCard(DOCKER);
+      await userEvent.click(within(card).getByRole("button", { name: "To nieprawda" }));
+      const form = within(card).getByRole("form", { name: "To nieprawda: Docker" });
+      expect(form).toHaveTextContent("To uwaga blokująca — pominięcie działa jak przepuszczenie mimo QC");
+      // „Mówił(a) w rozmowie” to dalej „Potwierdzone z kandydatem”.
+      expect(form).toHaveTextContent("Zapisz to przez „Potwierdzone z kandydatem”");
+      await userEvent.click(within(form).getByRole("radio", { name: "Jest w źródłach pod inną nazwą" }));
+      const quote = within(form).getByLabelText("Fragment źródła");
+      expect(quote).toHaveAttribute("maxlength", "300");
+      await userEvent.click(within(form).getByRole("button", { name: SUBMIT }));
+      expect(within(form).getByRole("alert")).toHaveTextContent(
+        "Wklej fragment oryginału, notatki albo odpowiedzi, w którym to stoi.",
+      );
+      expect(post).not.toHaveBeenCalled();
+      await userEvent.type(quote, " Konteneryzacja: Podman, obrazy OCI ");
+      await userEvent.click(within(form).getByRole("button", { name: SUBMIT }));
+      await waitFor(() =>
+        expect(post).toHaveBeenCalledWith(`${QC_URL}/dismiss`, {
+          check_key: "no_unsupported",
+          key: "no_unsupported|docker|cv",
+          reason: "other_name",
+          quote: "Konteneryzacja: Podman, obrazy OCI",
+        }),
+      );
+    });
+
+    it("bez prawa obejścia nie ma „To nieprawda” przy blokadach — przy uwagach jest", async () => {
+      serve(keyed({ can_override: false }));
+      renderDialog();
+      const { card } = await taskCard(DOCKER);
+      expect(within(card).queryByRole("button", { name: "To nieprawda" })).toBeNull();
+      const critical = await taskCard("Java — brak opisu w 1 roli");
+      expect(within(critical.card).queryByRole("button", { name: "To nieprawda" })).toBeNull();
+      const { notes } = await openNote(/Pisownia technologii/);
+      expect(within(notes).getByRole("button", { name: "To nieprawda" })).toBeTruthy();
+    });
+
+    it("z prawem obejścia przycisk jest przy blokadzie", async () => {
+      serve(keyed({ can_override: true }));
+      renderDialog();
+      const { card } = await taskCard(DOCKER);
+      expect(within(card).getByRole("button", { name: "To nieprawda" })).toBeEnabled();
+    });
+
+    it("w podglądzie jako inny użytkownik blokady nie da się pominąć", async () => {
+      signIn("delivery_lead", { realUser: { id: 99, role: "admin", roles: ["admin"] } });
+      serve(keyed({ can_override: true }));
+      renderDialog();
+      const { card } = await taskCard(DOCKER);
+      expect(within(card).queryByRole("button", { name: "To nieprawda" })).toBeNull();
+    });
+
+    it("brak CV i reguły klienta — bez „To nieprawda”, nawet z prawem obejścia", async () => {
+      const rate = "Stawka w CV: „150 zł/h”. Usuń — stawek w CV nie wysyłamy.";
+      const consent = "Klient wymaga zrzutu zgody RODO pod CV — brak zrzutu.";
+      let data = withCheck(
+        "client_rules",
+        { status: "fail", items: [{ key: "client_rules|rate|cv", detail: rate }] },
+        keyed({ can_override: true }),
+      );
+      data = withCheck(
+        "cv_present",
+        { status: "fail", items: [{ key: "cv_present||cv", detail: consent, fix: "upload_consent" }] },
+        data,
+      );
+      serve(data);
+      renderDialog();
+      for (const title of [rate, consent]) {
+        const { card } = await taskCard(title);
+        expect(within(card).queryByRole("button", { name: "To nieprawda" })).toBeNull();
+      }
+      // Reszta blokad z prawem obejścia — tak.
+      expect(within((await taskCard(DOCKER)).card).getByRole("button", { name: "To nieprawda" })).toBeTruthy();
+    });
+
+    it("pozycja bez klucza (przebieg sprzed 13.10) nie ma przycisku", async () => {
+      serve(result({ can_override: true }));
+      renderDialog();
+      const { card } = await taskCard(DOCKER);
+      expect(within(card).queryByRole("button", { name: "To nieprawda" })).toBeNull();
+    });
+
+    it("kilka ról z brakiem — przycisk przy każdej roli, w żądaniu klucz tej roli", async () => {
+      const roleItem = (role: string, roleIndex: number): QcItem => ({
+        key: `critical_skills|java|${role.toLowerCase()}`,
+        requirement: "Java",
+        role,
+        detail: "Brak w tej roli, a w oryginale jest.",
+        fix: "ai",
+        role_index: roleIndex,
+      });
+      serve(withCheck("critical_skills", { items: [roleItem(ROLE_ALFA, 0), roleItem(ROLE_BETA, 1)] }, keyed({ can_override: true })));
+      post.mockResolvedValue({ data: keyed({ can_override: true }) });
+      renderDialog();
+      const { card } = await taskCard("Java — brak opisu w 2 rolach");
+      const [, beta] = within(within(card).getByRole("list", { name: "Role bez opisu: Java" })).getAllByRole("listitem");
+      expect(within(card).getAllByRole("button", { name: "To nieprawda" })).toHaveLength(2);
+      await userEvent.click(within(beta).getByRole("button", { name: "To nieprawda" }));
+      const form = within(card).getByRole("form", { name: `To nieprawda: Java · ${ROLE_BETA}` });
+      await userEvent.click(within(form).getByRole("radio", { name: "Dotyczy innej roli albo sekcji" }));
+      await userEvent.click(within(form).getByRole("button", { name: SUBMIT }));
+      await waitFor(() =>
+        expect(post).toHaveBeenCalledWith(`${QC_URL}/dismiss`, {
+          check_key: "critical_skills",
+          key: `critical_skills|java|${ROLE_BETA.toLowerCase()}`,
+          reason: "wrong_place",
+        }),
+      );
+    });
+
+    it("odmowa serwera (403) — jego słowa, formularz zostaje z treścią", async () => {
+      serve(keyed({ can_override: true }));
+      post.mockRejectedValue({
+        response: { status: 403, data: { detail: "Uwagę blokującą pomija osoba, która może przepuścić CV mimo QC." } },
+      });
+      renderDialog();
+      const { card } = await taskCard(DOCKER);
+      await userEvent.click(within(card).getByRole("button", { name: "To nieprawda" }));
+      const form = within(card).getByRole("form", { name: "To nieprawda: Docker" });
+      await userEvent.click(within(form).getByRole("radio", { name: "Nie dotyczy tej rekrutacji" }));
+      await userEvent.type(within(form).getByLabelText("Opis (opcjonalnie)"), "inna rola");
+      await userEvent.click(within(form).getByRole("button", { name: SUBMIT }));
+      await waitFor(() =>
+        expect(showError).toHaveBeenCalledWith("Uwagę blokującą pomija osoba, która może przepuścić CV mimo QC."),
+      );
+      expect(showSuccess).not.toHaveBeenCalled();
+      expect(within(form).getByLabelText("Opis (opcjonalnie)")).toHaveValue("inna rola");
+    });
+
+    it("„Pominięte” — zwinięte; co, dlaczego, kto i kiedy; „Przywróć” wysyła id pominięcia", async () => {
+      serve(
+        withCheck(
+          "no_unsupported",
+          {
+            status: "pass",
+            items: [],
+            dismissed_items: [{ key: "no_unsupported|docker|cv", requirement: "Docker", term: "Docker", dismissal: DISMISSAL }],
+          },
+          keyed(),
+        ),
+      );
+      post.mockResolvedValue({ data: keyed() });
+      const { onChanged } = renderDialog();
+      const dialog = await screen.findByRole("dialog");
+      const section = await within(dialog).findByRole("region", { name: "Pominięte" });
+      const toggle = within(section).getByRole("button", { name: /Pominięte \(1\)/ });
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      expect(within(section).queryByRole("listitem")).toBeNull();
+      await userEvent.click(toggle);
+      const entry = within(section).getByRole("listitem");
+      expect(entry).toHaveTextContent("Docker");
+      expect(entry).toHaveTextContent("CV nie twierdzi niczego spoza oryginału");
+      expect(entry).toHaveTextContent("Jest w źródłach pod inną nazwą — „W oryginale jako Podman”");
+      expect(entry).toHaveTextContent(`Marta Rekruterka, ${formatDate(DISMISSAL.at)}`);
+      await userEvent.click(within(entry).getByRole("button", { name: "Przywróć" }));
+      await waitFor(() => expect(post).toHaveBeenCalledWith(`${QC_URL}/dismissals/41/restore`, undefined));
+      await waitFor(() => expect(showSuccess).toHaveBeenCalledWith("Uwaga przywrócona — QC przeliczone."));
+      expect(onChanged).toHaveBeenCalled();
+      // Świeży wynik: Docker znów do poprawy, „Pominięte” znika.
+      expect((await taskCard(DOCKER)).card).toBeTruthy();
+      await waitFor(() => expect(within(dialog).queryByRole("region", { name: "Pominięte" })).toBeNull());
+    });
+
+    it("uwaga wyciszona w „Jakość QC” jest informacją — nie liczy się do „Warto poprawić”", async () => {
+      serve(withCheck("must_bolded", { muted: true }, keyed()));
+      renderDialog();
+      const dialog = await screen.findByRole("dialog");
+      const notes = await within(dialog).findByRole("region", { name: "Warto poprawić — nie blokuje" });
+      expect(within(notes).getByText("Warto poprawić — nie blokuje (1)")).toBeTruthy();
+      expect(within(notes).queryByText("Must-have są pogrubione")).toBeNull();
+      const muted = within(dialog).getByRole("region", { name: "Informacje — wyciszone w „Jakość QC”" });
+      expect(muted).toHaveTextContent("Informacje — nie liczą się do uwag (1)");
+      expect(within(muted).getByText("Must-have są pogrubione")).toBeTruthy();
+      expect(within(muted).getByText("informacja")).toBeTruthy();
+      expect(within(muted).getByLabelText("Informacja")).toBeTruthy();
+    });
+  });
 });
