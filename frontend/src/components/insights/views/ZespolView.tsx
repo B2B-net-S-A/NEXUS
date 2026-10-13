@@ -253,7 +253,16 @@ function AttentionPanel() {
               </span>
               <div className="min-w-0 text-sm leading-snug">
                 <p className="text-foreground">{item.label}</p>
-                {item.report ? (
+                {item.href ? (
+                  // Sygnały „Gdzie stoi” niosą gotowy adres listy rekrutacji —
+                  // „Zobacz w tabeli” prowadziło je do tabeli ludzi.
+                  <Link
+                    href={item.href}
+                    className="font-semibold text-primary hover:underline"
+                  >
+                    Pokaż listę
+                  </Link>
+                ) : item.report ? (
                   <Link
                     href={reportHref(item.report as ReportId)}
                     className="font-semibold text-primary hover:underline"

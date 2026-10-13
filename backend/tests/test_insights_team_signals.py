@@ -27,8 +27,10 @@ from app.models.client import Client
 from app.models.job import Job, JobStatus, RemotePolicy
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
+from app.services import board_tasks, dl_send_queue
 from app.services.insights_team_signals import (
     TeamPeople,
+    dl_send_stale_count,
     people_payload,
     previous_matching_window,
     stale_jobs,
@@ -147,6 +149,44 @@ def test_workdays_stop_at_today_and_skip_holidays() -> None:
     assert workdays_in_window(start, end, date(2026, 11, 13)) == 9
     # Okres zamknięty liczy się do końca okna, nie do „dziś".
     assert workdays_in_window(start, end, date(2027, 1, 5)) == 20
+
+
+def _send_row(**over) -> board_tasks.BoardTask:
+    base = dict(
+        kind=board_tasks.KIND_DL_REVIEW,
+        stage_id=1,
+        candidate_id=1,
+        candidate_name="Kandydat Testowy",
+        job_id=1,
+        job_title="Rekrutacja testowa",
+        client_id=7,
+        client_name="Klient testowy",
+        since=datetime(2026, 3, 2, 10, 0, tzinfo=timezone.utc),
+        process_state_version=0,
+        target_stage_def_id=None,
+        ready=True,
+    )
+    base.update(over)
+    return board_tasks.BoardTask(**base)
+
+
+def test_dl_send_stale_counts_people_ready_for_three_workdays() -> None:
+    """Sygnał „Gdzie stoi” (13.10.2026) liczy OSOBY z całej firmy, tą samą
+    regułą co kolejka Delivery Leada: bez QC do poprawy i bez etapów z importu
+    Traffita, a próg to dni robocze od gotowości."""
+    stale = dl_send_queue.STALE_WORKDAYS
+    rows = [
+        _send_row(job_id=1, waiting_workdays=stale),
+        _send_row(job_id=1, waiting_workdays=stale + 4),
+        _send_row(job_id=2, waiting_workdays=stale),
+        # Jeszcze przed progiem — rekruter może przypomnieć, Head nie widzi.
+        _send_row(job_id=2, waiting_workdays=stale - 1),
+        # QC do poprawy: ruch ma rekruter, nie Delivery Lead.
+        _send_row(job_id=3, ready=False, waiting_workdays=0),
+        _send_row(job_id=3, imported=True, waiting_workdays=stale + 10),
+    ]
+    assert dl_send_stale_count(rows) == 3
+    assert dl_send_stale_count([]) == 0
 
 
 async def _job(
@@ -301,6 +341,8 @@ async def test_team_routes_answer_for_head_of_recruitment_and_refuse_recruiter(
         "no_one_sent",
         "overdue",
         "stale_postings",
+        # 13.10.2026: gotowe CV czekające na wysyłkę do klienta.
+        "dl_send_stale",
     }
     for item in attention.json()["items"]:
         # Każdy sygnał prowadzi gdzieś: raport Insights albo lista rekrutacji.

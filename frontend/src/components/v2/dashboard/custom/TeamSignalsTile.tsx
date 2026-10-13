@@ -31,7 +31,8 @@ export function teamSignalHref(signal: TeamSignal): string | null {
   return null
 }
 
-const DANGER_KINDS = new Set(["no_one_sent", "overdue"])
+// `dl_send_stale` (13.10.2026): gotowe CV czeka u Delivery Leada 3 dni robocze.
+const DANGER_KINDS = new Set(["no_one_sent", "overdue", "dl_send_stale"])
 
 export function TeamSignalsTile() {
   const query = useQuery({

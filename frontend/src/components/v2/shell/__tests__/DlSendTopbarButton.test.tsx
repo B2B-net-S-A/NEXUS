@@ -97,7 +97,7 @@ describe("DlSendTopbarButton — licznik „Do wysłania” w górnym pasku", ()
   it("licznik to liczba osób gotowych do wysłania, z pilnością w nazwie", async () => {
     renderButton();
     const pill = await screen.findByRole("button", {
-      name: "Do wysłania do klienta: 3 osoby — ktoś czeka ponad 2 dni robocze",
+      name: "Do wysłania do klienta: 3 osoby — ktoś czeka 2+ dni robocze",
     });
     expect(pill).toHaveTextContent("3");
   });

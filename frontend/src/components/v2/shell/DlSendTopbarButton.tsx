@@ -52,7 +52,7 @@ const WAIT_TONE: Record<DlSendUrgency, string> = {
 const URGENCY_HINT: Record<DlSendUrgency, string> = {
   fresh: "",
   due: " — ktoś czeka od wczoraj",
-  late: " — ktoś czeka ponad 2 dni robocze",
+  late: " — ktoś czeka 2+ dni robocze",
 };
 
 function countLabel(n: number): string {

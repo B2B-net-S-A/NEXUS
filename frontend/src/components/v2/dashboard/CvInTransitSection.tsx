@@ -12,6 +12,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { ChevronDown, ChevronUp, MoreHorizontal, Send } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
@@ -23,7 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { apiErrorMessage } from "@/lib/api-error";
-import { waitingFor, type CvInTransit, type CvTransitRow } from "@/lib/api/boardTasks";
+import { nudgeDlSend, waitingFor, type CvInTransit, type CvTransitRow } from "@/lib/api/boardTasks";
 import { useSetDashboardPanelHidden } from "@/lib/api/userDashboard";
 import {
   CV_TRANSIT_EMPTY,
@@ -40,6 +41,11 @@ import {
   transitRowWho,
   transitSummary,
 } from "@/lib/cv-in-transit";
+import { cn } from "@/lib/utils";
+
+// Lustro `dl_send_queue.LATE_WORKDAYS`: od tylu dni roboczych gotowe CV czeka
+// za długo — czas robi się czerwony, a serwer pozwala przypomnieć.
+const LATE_WORKDAYS = 2;
 
 function boardLink(row: CvTransitRow): string {
   return `/jobs/${row.job_id}?candidate=${row.candidate_id}`;
@@ -141,6 +147,77 @@ function InfoRow({ row }: { row: CvTransitRow }) {
   );
 }
 
+/** Karta stoi w „QC CV”, ale QC nie przeszło — ruch ma rekruter, nie
+ *  Delivery Lead (13.10.2026). */
+function qcNote(row: CvTransitRow): string | null {
+  if (row.qc_status === "failed") return "QC do poprawy — Twój ruch";
+  if (row.qc_status === "unchecked") return "QC nie sprawdzone — Twój ruch";
+  return null;
+}
+
+function NudgeButton({ row }: { row: CvTransitRow }) {
+  const { showSuccess, showError, showInfo } = useToast();
+  const nudge = useMutation({
+    mutationFn: () => nudgeDlSend(row.stage_id),
+    onSuccess: (result) => {
+      if (result.sent) showSuccess("Przypomnienie wysłane do Delivery Leada.");
+      else showInfo("Dziś już przypomniano — Delivery Lead ma to w dzwonku.");
+    },
+    onError: (error) => showError(apiErrorMessage(error, "Nie udało się wysłać przypomnienia.")),
+  });
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      className="shrink-0"
+      disabled={nudge.isPending}
+      onClick={() => nudge.mutate()}
+      aria-label={`Przypomnij Delivery Leadowi: ${row.candidate_name}`}
+    >
+      Przypomnij
+    </Button>
+  );
+}
+
+/** Wiersz „QC CV” poza Nordeą: dopóki QC nie przeszło, mówi „Twój ruch”;
+ *  potem liczy czekanie od gotowości i od 2 dni roboczych daje „Przypomnij”. */
+function ReviewRow({ row }: { row: CvTransitRow }) {
+  const note = qcNote(row);
+  const who = transitRowWho(row);
+  const remark = transitRemark(row);
+  const cardEdit = transitCardEdit(row);
+  const late = Boolean(row.ready_since) && (row.waiting_workdays ?? 0) >= LATE_WORKDAYS;
+  return (
+    <li className="flex flex-col gap-1 px-3 py-2">
+      <div className="flex items-baseline gap-2">
+        <Link href={boardLink(row)} className="min-w-0 flex-1 truncate text-sm font-medium hover:underline">
+          {row.candidate_name}
+        </Link>
+        <span
+          className={cn(
+            "shrink-0 text-xs tabular-nums",
+            late ? "font-medium text-destructive" : "text-muted-foreground",
+          )}
+        >
+          {waitingFor(row.ready_since ?? row.since)}
+        </span>
+      </div>
+      <p className="truncate text-xs text-muted-foreground">{transitJobLabel(row)}</p>
+      {note ? (
+        <p className="break-words text-xs font-medium text-warning-muted-foreground">{note}</p>
+      ) : (
+        // Przycisk schodzi do nowej linii, gdy kolumna jest za wąska na oba.
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          {who ? <p className="min-w-0 flex-1 basis-40 truncate text-xs">{who}</p> : null}
+          {row.can_nudge ? <NudgeButton row={row} /> : null}
+        </div>
+      )}
+      {remark ? <p className="break-words text-xs">{remark}</p> : null}
+      {cardEdit ? <p className="break-words text-xs text-muted-foreground">{cardEdit}</p> : null}
+    </li>
+  );
+}
+
 function GroupHeading({ children }: { children: React.ReactNode }) {
   return <li className="bg-muted px-3 py-1.5 text-xs font-semibold text-muted-foreground">{children}</li>;
 }
@@ -167,9 +244,13 @@ function TransitList({
       {open && transit.in_review.length > 0 ? (
         <>
           <GroupHeading>W przeglądzie · {transit.in_review_total}</GroupHeading>
-          {transit.in_review.map((row) => (
-            <InfoRow key={row.stage_id} row={row} />
-          ))}
+          {transit.in_review.map((row) =>
+            row.kind === "in_review" ? (
+              <ReviewRow key={row.stage_id} row={row} />
+            ) : (
+              <InfoRow key={row.stage_id} row={row} />
+            ),
+          )}
         </>
       ) : null}
       {open && transit.sent.length > 0 ? (

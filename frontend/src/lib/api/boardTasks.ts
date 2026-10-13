@@ -293,6 +293,16 @@ export interface CvTransitRow {
   card_edited_fields?: string[];
   /** D6 (08.10.2026): pola, które Delivery Lead wskazał do poprawy. */
   fix_labels?: string[];
+  // 13.10.2026 — tylko „QC CV” poza Nordeą (`in_review`). Starszy serwer i
+  // pozostałe rodzaje wierszy pól nie niosą.
+  /** Stan QC pary: `failed` / `unchecked` = ruch ma jeszcze rekruter. */
+  qc_status?: QcStatus | null;
+  /** Od kiedy CV jest gotowe i czeka na Delivery Leada (`null` = jeszcze nie). */
+  ready_since?: string | null;
+  /** Dni robocze od gotowości. */
+  waiting_workdays?: number;
+  /** Gotowe CV czeka co najmniej 2 dni robocze — rekruter może przypomnieć. */
+  can_nudge?: boolean;
 }
 
 export interface CvInTransit {
@@ -559,6 +569,20 @@ export function fetchDlReviewRow(candidateId: number, jobId: number) {
       params: { candidate_id: candidateId, job_id: jobId },
     })
     .then((r) => r.data);
+}
+
+export interface DlSendNudgeResult {
+  sent: boolean;
+  /** Ilu Delivery Leadów dostało dzwonek (przy `sent`). */
+  recipients?: number;
+  /** `already_today` — dziś już przypomniano o tej karcie. */
+  reason?: string;
+}
+
+/** „Przypomnij” w „Twoje CV w drodze”: dzwonek do Delivery Leada o gotowym CV,
+ *  które czeka na wysyłkę do klienta. Najwyżej raz dziennie na kartę. */
+export function nudgeDlSend(stageId: number) {
+  return api.post<DlSendNudgeResult>(`/api/board-tasks/dl-send/${stageId}/nudge`).then((r) => r.data);
 }
 
 // ── Cpro: jedna osoba na firmę (v5) ─────────────────────────────────────────

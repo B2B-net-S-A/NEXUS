@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Optional
+from typing import TYPE_CHECKING, Iterable, Optional
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +31,9 @@ from app.services.insights_person_scope import (
 from app.services.kpi_team import TeamPanelResult, compute_team_panel
 from app.services.order_burn_rate import workdays_between
 from app.services.request_work_state import WORK_STATES
+
+if TYPE_CHECKING:
+    from app.services.board_tasks import BoardTask
 
 # Rekrutacja opublikowana bez żadnego ruchu w pipeline od tylu dni.
 STALE_JOB_DAYS = 14
@@ -366,10 +369,35 @@ async def flow_signals(
     }
 
 
+def dl_send_stale_count(tasks: Iterable[BoardTask]) -> int:
+    """Ile osób gotowych do wysłania czeka u Delivery Leadów ``STALE_WORKDAYS``
+    dni roboczych albo dłużej.
+
+    Liczy z wierszy kolejki „Do wysłania do klienta” tą samą regułą co pas na
+    pulpicie Delivery Leada (`dl_send_queue.ready_job_counts`): QC do poprawy
+    i etapy z importu Traffita nie wchodzą, a czas biegnie od gotowości.
+    """
+    from app.services.dl_send_queue import (  # noqa: PLC0415
+        STALE_WORKDAYS,
+        ready_job_counts,
+    )
+
+    return sum(ready_job_counts(tasks, min_workdays=STALE_WORKDAYS).values())
+
+
+async def dl_send_stale(db: AsyncSession, *, now: datetime) -> int:
+    """Sygnał „Gdzie stoi”: gotowe CV czekające na wysyłkę w całej firmie."""
+    from app.services import dl_send_queue  # noqa: PLC0415
+
+    return dl_send_stale_count(await dl_send_queue.load_rows(db, now=now))
+
+
 __all__ = [
     "LOW_PRECISION_PCT",
     "NO_ONE_SENT_DAYS",
     "STALE_POSTING_DAYS",
+    "dl_send_stale",
+    "dl_send_stale_count",
     "flow_signals",
     "current_team_panel",
     "QUIET_WORK_STATES",

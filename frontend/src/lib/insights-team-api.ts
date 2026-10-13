@@ -179,7 +179,16 @@ export interface TeamPeopleResponse {
   };
 }
 
-export type TeamAttentionKind = "stale_jobs" | "low_precision" | "weak_preps";
+/** Rodzaje sygnałów z `GET /api/insights/team/attention`
+ *  (`backend/app/api/insights_team_signals.py`). */
+export type TeamAttentionKind =
+  | "stale_jobs"
+  | "no_one_sent"
+  | "overdue"
+  | "dl_send_stale"
+  | "stale_postings"
+  | "low_precision"
+  | "weak_preps";
 
 export interface TeamAttentionItem {
   kind: TeamAttentionKind;
@@ -187,6 +196,8 @@ export interface TeamAttentionItem {
   label: string;
   /** Raport, który pokazuje listę. `null` = sygnał wskazuje wiersze tabeli. */
   report: string | null;
+  /** Gotowy adres listy (np. rekrutacje z filtrem) — sygnały „Gdzie stoi”. */
+  href?: string | null;
   user_ids?: number[];
 }
 

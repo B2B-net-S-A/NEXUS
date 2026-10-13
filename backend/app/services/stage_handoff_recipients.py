@@ -75,6 +75,10 @@ TITLE_DL_REVIEW = "CV do przeglądu:"
 TITLE_CPRO_QUEUE = "Do wrzucenia do Cpro:"
 TITLE_CPRO_RETURNED = "Wrócił z kolejki Cpro:"
 TITLE_QC_RETURNED = "Wróciło do poprawy:"
+# „Przypomnij” rekrutera (13.10.2026): gotowe CV czeka u Delivery Leada. To
+# zadanie dla DL, nie zwrot — poza `RETURNED_TITLE_PREFIXES`, żeby mail szedł
+# jako „CV czeka na przegląd”.
+TITLE_DL_NUDGE = "Wciąż czeka na wysyłkę:"
 RETURNED_TITLE_PREFIXES = (TITLE_CPRO_RETURNED, TITLE_QC_RETURNED)
 
 CV_SENT_COLUMN = "cv_sent"
