@@ -27,6 +27,7 @@ from app.core.scheduling import business_today
 from app.core.security import hash_password
 from app.models.activity import Activity
 from app.models.app_setting import AppSetting
+from app.models.b2b_contract_detail import B2BContractDetail
 from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.b2b_generated_contract_status_event import (
     B2BGeneratedContractStatusEvent,
@@ -49,6 +50,7 @@ from app.services.cardif_client_merge_repair import (
     AgreementLink,
     CardifMergeTarget,
     run_cardif_client_merge,
+    run_cardif_contract_fill,
     summarize_for_log,
 )
 from tests.test_client_deletion import _client
@@ -286,6 +288,14 @@ async def test_merge_moves_everything_links_agreement_and_marks_duplicate():
         }
         assert row.contract_number == number
         assert row.signature_status == "signed_both"
+        assert (
+            await db.scalar(
+                select(B2BContractDetail.contract_number).where(
+                    B2BContractDetail.contract_id == contract_id
+                )
+            )
+            == number
+        )
         event = await db.scalar(
             select(B2BGeneratedContractStatusEvent).where(
                 B2BGeneratedContractStatusEvent.generated_contract_id == agreement_id
@@ -474,6 +484,85 @@ async def test_blocked_contract_stays_and_duplicate_is_not_marked_merged():
     async with AsyncSessionLocal() as db:
         assert (await db.get(Contract, stuck)).client_id == source
     assert (await _client_row(source)).merged_into_client_id is None
+
+
+async def _linked_pair(*, linked: bool) -> tuple[CardifMergeTarget, int, int, int, str]:
+    """Kontrakt u klienta docelowego i podpisana umowa z rekrutacją tego klienta."""
+
+    canonical, source, token = await _pair()
+    job_id = await _closed_job(canonical)
+    person = await _candidate()
+    contract_id = await _live_contract(canonical, person)
+    agreement_id, number = await _signed_agreement(
+        canonical, person, contract_id=contract_id if linked else None
+    )
+    async with AsyncSessionLocal() as db:
+        (await db.get(B2BGeneratedContract, agreement_id)).job_id = job_id
+        await db.commit()
+    target = CardifMergeTarget(
+        source_id=source,
+        target_id=canonical,
+        name_token=token,
+        agreement=AgreementLink(
+            generated_id=agreement_id, contract_number=number, contract_id=contract_id
+        ),
+    )
+    return target, contract_id, job_id, agreement_id, number
+
+
+async def test_contract_fill_gives_the_linked_contract_its_job_and_agreement_number():
+    """Bieg z 13.10.2026 powiązał umowę, zanim powiązanie uzupełniało kontrakt."""
+
+    target, contract_id, job_id, _, number = await _linked_pair(linked=True)
+    marker = f"test_cardif_fill_{uuid.uuid4().hex[:8]}"
+    async with AsyncSessionLocal() as db:
+        summary = await run_cardif_contract_fill(db, target=target, marker=marker)
+        await db.commit()
+
+    assert summary is not None and summary["skipped"] is None
+    assert summary["filled"] == ["job_id", "b2b_detail"]
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(Contract, contract_id)).job_id == job_id
+        detail = await db.scalar(
+            select(B2BContractDetail).where(
+                B2BContractDetail.contract_id == contract_id
+            )
+        )
+        assert detail.contract_number == number
+        trace = await db.scalar(
+            select(Activity).where(
+                Activity.entity_type == "contract",
+                Activity.entity_id == contract_id,
+                Activity.action == "updated",
+            )
+        )
+        assert trace.details == {
+            "filled_fields": ["job_id", "b2b_detail"],
+            "source": marker,
+        }
+        again = await run_cardif_contract_fill(db, target=target, marker=marker)
+    assert again is None
+
+
+async def test_contract_fill_leaves_an_unlinked_pair_alone():
+    target, contract_id, _, _, _ = await _linked_pair(linked=False)
+    marker = f"test_cardif_fill_{uuid.uuid4().hex[:8]}"
+    async with AsyncSessionLocal() as db:
+        summary = await run_cardif_contract_fill(db, target=target, marker=marker)
+        await db.commit()
+
+    assert summary is not None and summary["skipped"] == "not_linked"
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(Contract, contract_id)).job_id is None
+        assert (
+            await db.scalar(
+                select(B2BContractDetail.id).where(
+                    B2BContractDetail.contract_id == contract_id
+                )
+            )
+            is None
+        )
+        assert await db.get(AppSetting, marker) is not None
 
 
 def test_entrypoint_runs_the_merge_and_logs_only_the_summary():
