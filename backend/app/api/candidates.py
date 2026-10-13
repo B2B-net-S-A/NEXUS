@@ -230,6 +230,13 @@ from app.services.candidate_location_writer import (
     apply_candidate_location_from_source,
     normalize_candidate_location,
 )
+from app.services.candidate_name_rules import (
+    NAME_MARKER_ERROR_TYPE,
+    find_name_markers,
+    name_marker_message,
+    strip_name_markers,
+    without_name_markers,
+)
 from app.services.candidate_identity_ownership import (
     identity_sync_state,
     lock_changed_traffit_identity_fields,
@@ -3722,12 +3729,35 @@ async def export_candidates_v2(
     )
 
 
+def _reject_name_markers(fields: dict[str, Any]) -> None:
+    """Imię/nazwisko wpisane RĘCZNIE z dopiskiem → 422 przy polu (D6, 13.10.2026).
+
+    „[ACTIVE]”, „(zaakceptowany)”, „(czarna lista)” mają w NEXUSIE własne pola
+    (Dostępność, Status, zatrudnienie z umowy). Reguła: ``candidate_name_rules``.
+    Celowo w handlerach, nie w ``CandidateCreate`` — ten sam schemat waliduje
+    zbiorcze dodawanie (tam dopisek zdejmujemy po cichu) i resztę formularza
+    `/from-cv` z imieniem zastępczym „-”.
+    """
+    detail = [
+        {
+            "loc": ["body", field],
+            "msg": name_marker_message(),
+            "type": NAME_MARKER_ERROR_TYPE,
+        }
+        for field, value in fields.items()
+        if isinstance(value, str) and find_name_markers(value)
+    ]
+    if detail:
+        raise HTTPException(status_code=422, detail=detail)
+
+
 @router.post("", response_model=CandidateResponse, status_code=status.HTTP_201_CREATED)
 async def create_candidate(
     data: CandidateCreate,
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
 ):
+    _reject_name_markers({"name": data.name, "lastname": data.lastname})
     candidate = Candidate(**data.model_dump())
     apply_candidate_location_from_source(
         candidate,
@@ -3906,8 +3936,10 @@ def _derive_names_from_preview(
     if preview is not None:
         name = getattr(preview, "name", None)
         lastname = getattr(preview, "lastname", None)
-    name = (name or "").strip()
-    lastname = (lastname or "").strip()
+    # Dopisek z podglądu strony (D6, 13.10.2026) znika bez odmowy; pole, które
+    # było samym dopiskiem, dostaje fallback niżej.
+    name = strip_name_markers((name or "").strip())[0]
+    lastname = strip_name_markers((lastname or "").strip())[0]
     if not name and not lastname:
         slug = _slug_from_linkedin_url(normalized_url) or "Profile"
         return "LinkedIn", slug
@@ -6228,6 +6260,16 @@ async def update_candidate(
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
     updates = data.model_dump(exclude_unset=True)
+    # D6 (13.10.2026): odmowa tylko dla pola, które się ZMIENIA — oba okna
+    # edycji wysyłają imię i nazwisko przy każdym zapisie, a stary dopisek
+    # z importu nie może blokować edycji telefonu.
+    _reject_name_markers(
+        {
+            field: updates[field]
+            for field in ("name", "lastname")
+            if field in updates and updates[field] != getattr(candidate, field)
+        }
+    )
     activity_details = dict(updates)
     if {"expected_rate_hourly", "expected_rate_currency"} & updates.keys():
         raise HTTPException(
@@ -7526,10 +7568,19 @@ def _cv_preview_response(sha256: str, parsed: dict[str, Any]) -> CandidateCVPrev
         for key, value in (parsed.get("_confidence") or {}).items()
         if isinstance(value, (int, float))
     }
+
+    def _name(key: str) -> Optional[str]:
+        # Dopisek odczytany z CV nie trafia do formularza — zapis tego pola
+        # z dopiskiem dostałby 422 (D6, 13.10.2026).
+        value = _text(key)
+        if value is None:
+            return None
+        return strip_name_markers(value)[0] or None
+
     return CandidateCVPreview(
         cv_sha256=sha256,
-        name=_text("first_name"),
-        lastname=_text("last_name"),
+        name=_name("first_name"),
+        lastname=_name("last_name"),
         email=_text("email"),
         phone=_text("phone"),
         city=_text("city"),
@@ -7696,6 +7747,10 @@ async def create_candidate_from_cv(
     content = await _read_upload_bounded(file, label="CV file")
 
     # 1a — reszta formularza i e-mail walidowane PRZED płatnym odczytem.
+    # Imię i nazwisko wpisane w formularzu z dopiskiem → 422 (D6, 13.10.2026).
+    _reject_name_markers(
+        {"name": _clean_override(name, 100), "lastname": _clean_override(lastname, 100)}
+    )
     extras = _validated_from_cv_extras(candidate_fields)
     email_override = _clean_override(email, 255)
     if email_override:
@@ -7735,6 +7790,12 @@ async def create_candidate_from_cv(
     for form_key in cleared_fields:
         overrides[_FROM_CV_FORM_FIELDS[form_key]] = ""
     parsed = _apply_from_cv_overrides(parsed, overrides)
+    # Imię odczytane z CV traci dopisek po cichu (D6) — w kopii odczytu, żeby
+    # bramka tożsamości i uzupełnianie profilu widziały to samo imię.
+    for key in ("first_name", "last_name"):
+        value = parsed.get(key)
+        if isinstance(value, str) and value.strip():
+            parsed[key] = strip_name_markers(value.strip())[0] or None
 
     # 3 — ta sama osoba = ten sam e-mail (decyzja Artura, 12.10.2026), po
     # scaleniu z polami formularza. Telefon, LinkedIn oraz imię i nazwisko nie
@@ -8468,6 +8529,11 @@ async def bulk_import_candidates(
     item_results: list[dict[str, Any]] = []
     for index, raw_item in enumerate(data):
         raw = dict(raw_item)
+        # Import zbiorczy nie odmawia przez dopisek w imieniu — zdejmuje go
+        # przed walidacją (D6, 13.10.2026).
+        for name_field in ("name", "lastname"):
+            if isinstance(raw.get(name_field), str):
+                raw[name_field] = without_name_markers(raw[name_field])
         raw_languages = raw.pop("languages", None)
         language_present = "languages" in raw_item
         field_errors: list[dict[str, str]] = []

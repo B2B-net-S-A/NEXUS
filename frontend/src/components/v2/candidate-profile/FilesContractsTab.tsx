@@ -1,11 +1,19 @@
 "use client";
 
 /**
- * Zakładka „CV i dokumenty” (do 04.10.2026 „Pliki i umowy”) — jedna strona
- * bez podzakładek: „CV i umiejętności” (przeniesione z Profilu), „Dane do
- * umowy” (JDG), umowy (aktualne, draft, historia) i pliki kandydata z grupą
- * „CV dla klientów”. `?documents=contracts` (np. stary link `?tab=umowa`)
- * przewija do umów.
+ * Zakładka „Dokumenty” (od 13.10.2026; wcześniej „CV i dokumenty”, do
+ * 04.10.2026 „Pliki i umowy”) — jedna strona bez podzakładek: umowy, pliki
+ * kandydata w grupach i zwinięte „Dane do umowy” (JDG) na dole. CV,
+ * umiejętności i doświadczenie mają własną zakładkę „CV” (`CvSkillsSection`).
+ * `?documents=contracts` (np. stary link `?tab=umowa`) przewija do umów.
+ *
+ * D7 (13.10.2026): umowy z `GET /api/contracts` czyta tylko konto
+ * z uprawnieniem „Klienci, kontrakty i zamówienia: podgląd” (`delivery_view`).
+ * Bez niego zapytania nie ma, a sekcja mówi neutralnie „Umowy prowadzi
+ * Delivery”: umowy z `/history` (klient, status, daty — bez kwot) i Delivery
+ * Lead ze znacznika zatrudnienia. Nigdy „Brak umowy z nami” — historia jest
+ * przycięta zakresem rekrutacji, więc front tego nie wie. Załączniki umowy,
+ * Autenti, szkic i stawki idą za `contractAccess()`, jak na karcie kontraktu.
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -22,7 +30,13 @@ import {
 
 import { contractsApi } from "@/lib/api";
 import { ContractTerminationSummary } from "@/components/contracts/ContractTerminationSummary";
+import { contractAccess } from "@/lib/contract-access";
 import { downloadContractDocument } from "@/lib/contract-documents";
+import { recruitmentCodes, type RecruitmentCodeSource } from "@/lib/candidate-files";
+import type { EmploymentMarkerClient } from "@/lib/employment-marker";
+import { hasPermission } from "@/lib/permissions";
+import { CONTRACT_STATUS_LABELS, CONTRACT_STATUS_VARIANTS } from "@/lib/status-labels";
+import { useAuthStore } from "@/store/auth";
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,7 +46,6 @@ import { AutentiEnvelopeCard } from "@/components/v2/contract/AutentiEnvelopeCar
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import type { CandidateDocumentView } from "@/components/v2/pages/candidate-profile-navigation";
 import { formatDate } from "@/lib/utils";
-import { CvSkillsSection } from "./CvSkillsSection";
 import { JDGPanel } from "./JdgPanel";
 import {
   SectionError,
@@ -46,7 +59,8 @@ import {
 // TipTap/ProseMirror ładowany dopiero, gdy edytor draftu ma się faktycznie
 // pokazać (istniejący draft umowy). Statyczny import trzymał całe drzewo
 // ProseMirror w chunku trasy `/candidates/[id]` — koszcie KAŻDEGO otwarcia
-// profilu. Pilnuje tego `heavy-bundle-boundaries.test.ts`.
+// profilu. Pilnuje tego `heavy-bundle-boundaries.test.ts`. Renderuje się
+// tylko z prawem edycji dokumentów kontraktu (`contractAccess`).
 const DraftEditor = dynamic(
   () => import("@/components/v2/pages/ContractDraftEditor").then((m) => m.DraftEditor),
   {
@@ -68,14 +82,70 @@ const STATUS_LABEL: Record<string, string> = {
   ended: "Zakończona",
 };
 
+/** Umowa z `GET /api/candidates/{id}/history` (`contracts[]`) — bez kwot. */
+export interface HistoryContract {
+  contract_id: number;
+  client_name: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  status: string;
+}
+
 export interface FilesContractsTabProps {
-  /** Payload kandydata — CV, umiejętności, doświadczenie, dane JDG. */
+  /** Payload kandydata — telefon, dane JDG. */
   candidate: any;
   candidateName: string;
   readOnly: boolean;
   focus: CandidateDocumentView;
-  /** Otwiera okno generatora CV. Brak = brak prawa zapisu. */
-  onGenerateCv?: () => void;
+  /** Rekrutacje osoby z `/history` — kody z tytułów rozpoznają CV wysłane klientom. */
+  recruitments?: readonly RecruitmentCodeSource[];
+  /**
+   * `contracts[]` z `/history` — pokazywane kontu bez `delivery_view`.
+   * Luźno typowane: z wpisu bierzemy wyłącznie pola `HistoryContract`.
+   */
+  historyContracts?: readonly unknown[];
+  /** `candidate.employment_marker` — Delivery Lead dla konta bez `delivery_view`. */
+  employmentMarker?: unknown;
+}
+
+function textOrNull(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+/**
+ * Umowy z `/history` zawężone do pól bez kwot. Wpis niesie też stawki
+ * (`rate_candidate`, `rate_client`) — kopiujemy tylko pięć pól, więc nic
+ * z kwot nie trafi do widoku przez przypadek.
+ */
+function historyContractsOf(items: readonly unknown[] | undefined): HistoryContract[] {
+  return (items ?? []).flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const raw = item as Record<string, unknown>;
+    if (typeof raw.contract_id !== "number") return [];
+    return [
+      {
+        contract_id: raw.contract_id,
+        client_name: textOrNull(raw.client_name),
+        start_date: textOrNull(raw.start_date),
+        end_date: textOrNull(raw.end_date),
+        status: textOrNull(raw.status) ?? "",
+      },
+    ];
+  });
+}
+
+/** Delivery Leadzi z `employment_marker.clients[]`, bez powtórzeń. */
+function deliveryLeadNames(marker: unknown): string[] {
+  if (!marker || typeof marker !== "object") return [];
+  const clients = (marker as { clients?: unknown }).clients;
+  if (!Array.isArray(clients)) return [];
+  const names = new Set<string>();
+  for (const client of clients) {
+    if (!client || typeof client !== "object") continue;
+    const name = (client as EmploymentMarkerClient).delivery_lead_name;
+    if (typeof name === "string" && name.trim()) names.add(name.trim());
+  }
+  return [...names];
 }
 
 export function FilesContractsTab({
@@ -83,9 +153,17 @@ export function FilesContractsTab({
   candidateName,
   readOnly,
   focus,
-  onGenerateCv,
+  recruitments,
+  historyContracts,
+  employmentMarker,
 }: FilesContractsTabProps) {
   const candidateId = Number(candidate.id);
+  const user = useAuthStore((state) => state.user);
+  // D7: bez podglądu Delivery `GET /api/contracts` nie leci w ogóle.
+  const canViewContracts = hasPermission(user, "delivery_view");
+  const codes = useMemo(() => recruitmentCodes(recruitments), [recruitments]);
+  const deliveryLeads = useMemo(() => deliveryLeadNames(employmentMarker), [employmentMarker]);
+  const pastContracts = useMemo(() => historyContractsOf(historyContracts), [historyContracts]);
   const candidatePhone: string | null = candidate.phone ?? null;
   const jdgComplete = Boolean(candidate.legal_name && candidate.nip);
   const contractsRef = useRef<HTMLElement | null>(null);
@@ -125,7 +203,7 @@ export function FilesContractsTab({
     queryKey: candidateQueryKeys.contracts(candidateId),
     queryFn: () =>
       contractsApi.byCandidate(candidateId).then((r: any) => r.data),
-    enabled: candidateId > 0,
+    enabled: candidateId > 0 && canViewContracts,
   });
   const contracts: any[] = Array.isArray(contractsQuery.data)
     ? contractsQuery.data
@@ -133,7 +211,7 @@ export function FilesContractsTab({
 
   useEffect(() => {
     if (focus !== "contracts") return;
-    // Po klatce — lista plików nad umowami dorysowuje się i przesuwa układ.
+    // Po klatce — zakładka dopiero się dorysowuje i przesuwa układ.
     const timer = window.setTimeout(
       () => contractsRef.current?.scrollIntoView?.({ block: "start" }),
       120,
@@ -143,18 +221,6 @@ export function FilesContractsTab({
 
   return (
     <div className="space-y-6">
-      <CvSkillsSection
-        candidate={candidate}
-        readOnly={readOnly}
-        onGenerateCv={onGenerateCv}
-        onOpenFiles={() =>
-          document
-            .getElementById("candidate-files-section")
-            ?.scrollIntoView?.({ block: "start", behavior: "smooth" })
-        }
-      />
-
-
       <section
         ref={contractsRef}
         id="candidate-contracts-section"
@@ -162,7 +228,9 @@ export function FilesContractsTab({
         className="scroll-mt-4"
       >
         <SectionHeading id="candidate-contracts-heading">Umowy</SectionHeading>
-        {contractsQuery.error ? (
+        {!canViewContracts ? (
+          <DeliveryContractsNotice contracts={pastContracts} deliveryLeads={deliveryLeads} />
+        ) : contractsQuery.error ? (
           <SectionError
             title="Nie udało się pobrać umów"
             onRetry={() => contractsQuery.refetch()}
@@ -178,6 +246,15 @@ export function FilesContractsTab({
             onFillJdg={onFillJdg}
           />
         )}
+      </section>
+
+      <section
+        id="candidate-files-section"
+        aria-labelledby="candidate-files-heading"
+        className="scroll-mt-4"
+      >
+        {/* Nagłówek „Pliki” z „Dodaj plik” renderuje `CandidateFilesTab`. */}
+        <CandidateFilesTab candidateId={candidateId} recruitmentCodes={codes} />
       </section>
 
       {!readOnly ? (
@@ -208,15 +285,61 @@ export function FilesContractsTab({
           ) : null}
         </section>
       ) : null}
+    </div>
+  );
+}
 
-      <section
-        id="candidate-files-section"
-        aria-labelledby="candidate-files-heading"
-        className="scroll-mt-4"
-      >
-        <SectionHeading id="candidate-files-heading">Pliki kandydata</SectionHeading>
-        <CandidateFilesTab candidateId={candidateId} />
-      </section>
+/**
+ * D7: konto bez podglądu Delivery. Neutralny blok — umowy z `/history`
+ * (klient, status, daty) i Delivery Lead; bez kwot, bez zapytań.
+ */
+function DeliveryContractsNotice({
+  contracts,
+  deliveryLeads,
+}: {
+  contracts: readonly HistoryContract[];
+  deliveryLeads: readonly string[];
+}) {
+  return (
+    <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-3 text-sm">
+      <div>
+        <p className="font-medium text-foreground">Umowy prowadzi Delivery</p>
+        <p className="text-xs text-muted-foreground">
+          Stawki, załączniki i podpisy umów widzi zespół Delivery.
+        </p>
+      </div>
+      {deliveryLeads.length > 0 ? (
+        <p className="text-foreground">
+          <span className="text-muted-foreground">Delivery Lead:</span>{" "}
+          {deliveryLeads.join(", ")}
+        </p>
+      ) : null}
+      {contracts.length > 0 ? (
+        <ul
+          aria-label="Umowy kandydata"
+          className="divide-y divide-border rounded-lg border border-border bg-card"
+        >
+          {contracts.map((contract) => (
+            <li
+              key={contract.contract_id}
+              className="flex flex-wrap items-center justify-between gap-2 px-3 py-2"
+            >
+              <span className="min-w-0">
+                <span className="block font-medium text-foreground">
+                  {contract.client_name ?? "Klient bez nazwy"}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {formatDate(contract.start_date)} —{" "}
+                  {contract.end_date ? formatDate(contract.end_date) : "bezterminowo"}
+                </span>
+              </span>
+              <Badge size="sm" variant={CONTRACT_STATUS_VARIANTS[contract.status] ?? "neutral"}>
+                {CONTRACT_STATUS_LABELS[contract.status] ?? contract.status}
+              </Badge>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }
@@ -251,6 +374,14 @@ function ContractsSection({
   const draft = sorted.find((c) => c.status === "draft");
   const history = sorted.filter((c) => c.status === "ended");
   const [historyOpen, setHistoryOpen] = useState(false);
+  const user = useAuthStore((state) => state.user);
+  const impersonating = useAuthStore((state) => state.realUser !== null);
+  // Szkic niesie stawki, a edytor zapisuje — ta sama granica co dokumenty
+  // na karcie kontraktu.
+  const canEditDraft = draft
+    ? contractAccess(user, { impersonating, clientId: draft.client_id })
+        .canEditContractDocuments
+    : false;
 
   // Dane JDG trafiają do szablonu umowy — ostrzeżenie ma sens tylko, gdy jest
   // draft do wyrenderowania.
@@ -303,7 +434,7 @@ function ContractsSection({
         </div>
       ) : null}
 
-      {draft ? (
+      {draft && canEditDraft ? (
         <div>
           <p className="mb-2 text-xs font-medium text-muted-foreground">
             Draft umowy do edycji
@@ -313,6 +444,20 @@ function ContractsSection({
             candidateName={candidateName}
             contractMeta={draft}
           />
+        </div>
+      ) : draft ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 text-sm">
+          <span className="flex items-center gap-2">
+            <span className="font-medium text-foreground">
+              {draft.client_name ?? `Klient #${draft.client_id}`}
+            </span>
+            <Badge variant="soft" size="sm">
+              Szkic umowy
+            </Badge>
+          </span>
+          <Link href={`/contracts/${draft.id}`} className="text-xs text-primary underline">
+            Zarządzaj kontraktem →
+          </Link>
         </div>
       ) : null}
 
@@ -387,13 +532,25 @@ function CurrentContractCard({
   candidatePhone: string | null;
 }) {
   const { showError } = useToast();
+  const user = useAuthStore((state) => state.user);
+  const impersonating = useAuthStore((state) => state.realUser !== null);
+  // Dokumenty i szkice mogą nieść stawki — granica kwot u klienta tej umowy
+  // („Stawki i kwoty: podgląd”); wysyłka do podpisu wymaga też edycji
+  // kontraktów. To samo lustro co karta kontraktu (`lib/contract-access.ts`).
+  const access = contractAccess(user, { impersonating, clientId: contract.client_id });
   // `isError`/`isSuccess`, nie samo `data`: padnięte pobranie dokumentów NIE
   // może renderować się jako „Brak załączników” — rekruter wysyłał wtedy
   // umowę do podpisu drugi raz.
   const docsQuery = useQuery<any[]>({
     queryKey: ["contract-docs", contract.id],
     queryFn: () => contractsApi.documents(contract.id).then((r: any) => r.data),
+    enabled: access.canViewContractDocuments,
+    retry: false,
   });
+  // 403 = serwer liczy zakres inaczej niż lustro — sekcja po prostu nie
+  // istnieje (wzór `OrderDocumentsSection`). Każda inna awaria jest widoczna.
+  const docsForbidden =
+    (docsQuery.error as { response?: { status?: number } } | null)?.response?.status === 403;
   const documents = docsQuery.data ?? [];
   const legacyCurrency = contract.currency ?? "PLN";
   const clientRateCurrency = contract.rate_client_currency ?? legacyCurrency;
@@ -444,81 +601,91 @@ function CurrentContractCard({
           </div>
         </div>
         <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-          <StatTile
-            label="Stawka kandydata"
-            value={formatRate(
-              contract.rate_candidate,
-              candidateRateCurrency,
-              contract.rate_unit,
-            )}
-          />
-          <StatTile
-            label="Stawka klienta"
-            value={formatRate(contract.rate_client, clientRateCurrency, contract.rate_unit)}
-          />
-          <StatTile
-            label="Marża"
-            value={formatRate(
-              hasComparableCurrencies ? contract.margin : null,
-              clientRateCurrency,
-              contract.rate_unit,
-            )}
-          />
+          {access.canViewFinance ? (
+            <>
+              <StatTile
+                label="Stawka kandydata"
+                value={formatRate(
+                  contract.rate_candidate,
+                  candidateRateCurrency,
+                  contract.rate_unit,
+                )}
+              />
+              <StatTile
+                label="Stawka klienta"
+                value={formatRate(contract.rate_client, clientRateCurrency, contract.rate_unit)}
+              />
+              <StatTile
+                label="Marża"
+                value={formatRate(
+                  hasComparableCurrencies ? contract.margin : null,
+                  clientRateCurrency,
+                  contract.rate_unit,
+                )}
+              />
+            </>
+          ) : null}
           <StatTile label="Tryb pracy" value={contract.work_mode ?? "—"} />
         </div>
-        <div>
-          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-            Dokumenty
+        {access.canViewContractDocuments && !docsForbidden ? (
+          <div>
+            <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              Dokumenty
+            </div>
+            {docsQuery.isError ? (
+              <div className="flex flex-wrap items-center gap-2 text-xs text-destructive">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                <span>
+                  Nie udało się wczytać listy załączników — nie wiemy, czy umowa je
+                  ma.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => docsQuery.refetch()}
+                  className="underline"
+                >
+                  Ponów
+                </button>
+              </div>
+            ) : !docsQuery.isSuccess ? (
+              <div className="text-xs text-muted-foreground">Wczytywanie…</div>
+            ) : documents.length === 0 ? (
+              <div className="text-xs text-muted-foreground">
+                Brak załączników. Dodasz je z poziomu strony kontraktu.
+              </div>
+            ) : (
+              <ul className="space-y-1">
+                {documents.map((d: any) => (
+                  <li key={d.id} className="flex items-center justify-between text-sm">
+                    <span className="flex items-center gap-2">
+                      <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                      {d.filename}
+                      <Badge variant="neutral" size="sm">
+                        {d.doc_type}
+                      </Badge>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleDownload(d)}
+                      className="inline-flex items-center gap-1 text-xs text-primary"
+                    >
+                      <Download className="h-3 w-3" /> pobierz
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
-          {docsQuery.isError ? (
-            <div className="flex flex-wrap items-center gap-2 text-xs text-destructive">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-              <span>
-                Nie udało się wczytać listy załączników — nie wiemy, czy umowa je
-                ma.
-              </span>
-              <button
-                type="button"
-                onClick={() => docsQuery.refetch()}
-                className="underline"
-              >
-                Ponów
-              </button>
-            </div>
-          ) : !docsQuery.isSuccess ? (
-            <div className="text-xs text-muted-foreground">Wczytywanie…</div>
-          ) : documents.length === 0 ? (
-            <div className="text-xs text-muted-foreground">
-              Brak załączników. Dodasz je z poziomu strony kontraktu.
-            </div>
-          ) : (
-            <ul className="space-y-1">
-              {documents.map((d: any) => (
-                <li key={d.id} className="flex items-center justify-between text-sm">
-                  <span className="flex items-center gap-2">
-                    <FileText className="h-3.5 w-3.5 text-muted-foreground" />
-                    {d.filename}
-                    <Badge variant="neutral" size="sm">
-                      {d.doc_type}
-                    </Badge>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => handleDownload(d)}
-                    className="inline-flex items-center gap-1 text-xs text-primary"
-                  >
-                    <Download className="h-3 w-3" /> pobierz
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-        <AutentiEnvelopeCard
-          contractId={contract.id}
-          candidateName={candidateName}
-          candidatePhone={candidatePhone}
-        />
+        ) : null}
+        {/* Karta Autenti to wysyłka do podpisu (przyciski zapisu) — tylko
+            z prawem edycji dokumentów kontraktu. */}
+        {access.canEditContractDocuments ? (
+          <AutentiEnvelopeCard
+            contractId={contract.id}
+            candidateName={candidateName}
+            candidatePhone={candidatePhone}
+          />
+        ) : null}
       </CardContent>
     </Card>
   );

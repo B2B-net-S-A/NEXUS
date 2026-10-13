@@ -103,9 +103,6 @@ vi.mock("@/components/v2/modals/GenerateInviteLinkV2", () => ({
 vi.mock("@/components/v2/pages/CandidateQuickView", () => ({
   CandidateQuickView: () => null,
 }));
-vi.mock("@/components/v2/filters/PinnedCandidatesBar", () => ({
-  PinnedCandidatesBar: () => null,
-}));
 vi.mock("@/components/v2/filters/SavedSearchesMenu", () => ({
   SavedSearchesMenu: () => null,
 }));

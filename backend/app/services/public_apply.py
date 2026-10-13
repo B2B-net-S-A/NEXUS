@@ -61,6 +61,7 @@ from app.models.notification import NotificationType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.recruitment_priority import PriorityOriginKind
 from app.models.user_activity import UserActionType, UserActivity
+from app.services.candidate_name_rules import without_name_markers
 from app.services.career_consent import (
     CONSENT_TEXT_SHA256,
     CONSENT_TEXT_VERSION,
@@ -593,8 +594,10 @@ async def _create_candidate(
             "profile_rate_updated_at": now,
         }
     candidate = Candidate(
-        name=applicant.first_name,
-        lastname=applicant.last_name,
+        # Kandydat wpisuje imię sam — dopisek w nawiasie znika bez odmowy
+        # (D6, 13.10.2026), zgłoszenie przechodzi.
+        name=without_name_markers(applicant.first_name),
+        lastname=without_name_markers(applicant.last_name),
         email=applicant.email,
         phone=applicant.phone,
         linkedin=applicant.linkedin,

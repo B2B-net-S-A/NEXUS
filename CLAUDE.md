@@ -232,6 +232,7 @@ Lista i profil kandydata, słowa kluczowe, kolejność „Dopasowanie”, Talent
 - `dwa-silniki-wyszukiwania-jedna-semantyka-filtrow.md` — Dwa silniki wyszukiwania — jedna semantyka filtrów (09.2026)
 - `ekran-kandydaci-i-profil-kandydata-uproszczenie.md` — Ekran „Kandydaci” i profil kandydata — uproszczenie (22.09.2026)
 - `filtr-rekrutacje-bral-nie-bral-bez-procesu.md` — Blok „Rekrutacje” w filtrze „Historia z nami”: brał / nie brał udziału, bez procesu w toku (12.10.2026) · odpowiednik „Nieprzypisany” z Traffita, zakres klienta, lista rekrutacji z szukaniem po stronie serwera, cztery pola stanu i tryb wyliczany
+- `imie-bez-dopiskow.md` — Imię i nazwisko bez dopisków (D6, 13.10.2026) · dopiski z Traffita („[ACTIVE]”, „(zaakceptowany)”, „(czarna lista)”) w imieniu, jedna reguła `candidate_name_rules`, odmowa 422 przy ręcznym wpisie, ciche zdejmowanie na ścieżkach automatycznych, migracja 0436 i faza startu, czarna lista → status, „active” → dostępność
 - `indeks-wektorowy-dryf-degradacja-i-pula-ofert.md` — Indeks wektorowy: dryf, degradacja i pula ofert (18.09.2026)
 - `kolejnosc-dopasowanie-i-gorne-pole-listy.md` — Kolejność „Dopasowanie” i górne pole listy (25.09.2026)
 - `moi-ludzie-lista-rekrutera-dzwonek-przy-nowej.md` — „Moi ludzie" — lista rekrutera, dzwonek przy nowej rekrutacji, postać w rogu (21.09.2026)

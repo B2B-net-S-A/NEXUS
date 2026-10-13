@@ -20,6 +20,13 @@ describe("getCandidateInitials", () => {
     expect(getCandidateInitials({ name: "Anna", lastname: null })).toBe("A");
     expect(getCandidateInitials({ name: null, lastname: "Nowak" })).toBe("N");
   });
+
+  it("takes letters only — a bracketed note in the name never becomes an initial (13.10.2026)", () => {
+    // Produkcja 13.10.2026: „[ACTIVE] Zbigniew” dawało w awatarze „[I”.
+    expect(getCandidateInitials({ name: "[ACTIVE] Adam", lastname: "Nowicki" })).toBe("AN");
+    expect(getCandidateInitials({ name: "(1) Łukasz", lastname: "Żak" })).toBe("ŁŻ");
+    expect(getCandidateInitials({ name: "?", lastname: "?" })).toBe("");
+  });
 });
 
 describe("getCurrentTitle", () => {

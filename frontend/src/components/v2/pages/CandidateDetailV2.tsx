@@ -5,17 +5,18 @@
  * zakładek, karta osoby, pięć zakładek i modale akcji. Treść zakładek żyje
  * w `components/v2/candidate-profile/*` (dawniej jeden plik ~4,9 tys. linii).
  *
- * Układ od 04.10.2026 (wariant B, wersja 5): od 1100 px dwie kolumny — po
- * lewej karta osoby (kontakt, „Przypisz do rekrutacji”, „Dodaj notatkę”,
- * „Nie odebrał”, menu „⋯”) i karta „Podsumowanie” (fakty, „W skrócie”,
- * „Ustalenia z notatek”), po prawej zakładki. Węziej lewa kolumna stoi nad
- * zakładkami.
+ * Układ od 13.10.2026 (decyzje E1–E6, makiety
+ * https://claude.ai/artifact/LPzm9GQGPQCrnWjdtg2WG9): na górze pasek osoby na
+ * całą szerokość (imię, pigułki, kontakt, akcje, menu „⋯”), pod nim od 1100 px
+ * dwie kolumny — po lewej karta „Do propozycji” (ramka „Pracuje u nas”,
+ * fakty po jednej linii, „do sprawdzenia z rozmowy”), po prawej zakładki.
+ * Węziej karta stoi nad zakładkami.
  *
- * Zakładki (`?tab=`): `summary` „Przegląd”, `recruitments` „Rekrutacje”,
- * `screening` „Odpowiedzi ze screeningu”, `activity` „Notatki i historia”,
- * `documents` „CV i dokumenty”. Stare klucze (`matching`, `emails`, `chat`,
- * `umowa`…) mapuje `candidate-profile-navigation.ts` — linki z powiadomień są
- * zapisane w bazie.
+ * Zakładki (`?tab=`): `summary` „Przegląd”, `recruitments` „Rekrutacje”
+ * (licznik = w toku), `screening` „Screening”, `activity` „Notatki”, `cv`
+ * „CV”, `documents` „Dokumenty”. Stare klucze (`matching`, `emails`, `chat`,
+ * `umowa`, `calls`…) mapuje `candidate-profile-navigation.ts` — linki
+ * z powiadomień są zapisane w bazie.
  */
 
 import * as React from "react";
@@ -27,13 +28,19 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Calendar,
+  FileText,
   Files,
   ListChecks,
   MessageSquare,
   User,
 } from "lucide-react";
 
-import api, { candidatesApi, extractErrorMsg } from "@/lib/api";
+import api, {
+  candidateFactsApi,
+  candidatesApi,
+  extractErrorMsg,
+  type CandidateNotesFacts,
+} from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -50,9 +57,8 @@ import { CvGeneratorDialog } from "@/components/v2/cv-generator/CvGeneratorDialo
 import { QuickAssignV2 } from "@/components/v2/modals/QuickAssignV2";
 import { PrepInviteModal } from "@/components/v2/modals/PrepInviteModal";
 import ScheduleInterviewModal from "@/components/calendar/ScheduleInterviewModal";
-import { AddToMarketplaceButton } from "@/components/marketplace/AddToMarketplaceButton";
+import { AtOurClientBanner } from "@/components/v2/CandidateHighlights";
 import { CandidateProfileFactsBar } from "@/components/v2/pages/CandidateProfileFactsBar";
-import { CandidateActivitySummaryCard } from "@/components/v2/pages/CandidateActivitySummaryCard";
 import { CandidateFollowupDialog } from "@/components/v2/followups/CandidateFollowupDialog";
 import { useCandidateFollowup } from "@/lib/api/candidateFollowups";
 import type { CandidateDocument } from "@/components/v2/files/FilePreviewModal";
@@ -84,19 +90,13 @@ import {
   type CandidateProfileView,
   type CandidateProfileViewInput,
 } from "@/components/v2/pages/candidate-profile-navigation";
-import { ContactOutcomeSheet } from "@/components/candidate-contact/ContactOutcomeSheet";
-import {
-  candidateContactApi,
-  candidateContactQueryKeys,
-  type CandidateContactCase,
-} from "@/lib/candidate-contact";
-import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import { useCapability } from "@/hooks/useCapability";
-import { useCloudTalkEnabled } from "@/hooks/useCloudTalkEnabled";
 import {
-  ProfileHeader,
+  ProfilePersonBar,
   ProfileTopBar,
 } from "@/components/v2/candidate-profile/ProfileHeader";
+import { CvSkillsSection } from "@/components/v2/candidate-profile/CvSkillsSection";
+import { splitRecruitments } from "@/components/v2/candidate-profile/profile-helpers";
 import { ProfileTab } from "@/components/v2/candidate-profile/ProfileTab";
 import { RecruitmentsTab } from "@/components/v2/candidate-profile/RecruitmentsTab";
 import { HistoryTab } from "@/components/v2/candidate-profile/HistoryTab";
@@ -110,6 +110,17 @@ import {
 import { useNoAnswer } from "@/components/v2/candidate-profile/useNoteActions";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- payload kandydata i osi czasu jest luźno typowany */
+
+/**
+ * Ile ustaleń z notatek różni się od profilu (serwer liczy `can_apply`) —
+ * linia „N do sprawdzenia z rozmowy” w karcie „Do propozycji”.
+ */
+function notesFactsToCheck(data: CandidateNotesFacts | undefined): number {
+  if (!data) return 0;
+  return [data.rate, data.work_mode, data.contract_form, data.availability, data.office_cities].filter(
+    (fact) => Boolean(fact && (fact as { can_apply?: boolean }).can_apply),
+  ).length;
+}
 
 function requestStatus(error: unknown): number | null {
   if (!error || typeof error !== "object" || !("response" in error)) return null;
@@ -361,10 +372,7 @@ export function CandidateDetailV2({
   // Osobno od `scheduleOpen`: „Zaplanuj rozmowę” wysyła przez Graph, a prep
   // daje rekruterowi SZKIC do własnego Outlooka (żeby dołożył CV).
   const [prepInviteOpen, setPrepInviteOpen] = useState(false);
-  const [contactOutcomeOpen, setContactOutcomeOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
-  const [editingIdentity, setEditingIdentity] = useState(false);
-  const [marketplaceOpen, setMarketplaceOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [tagsPoolsOpen, setTagsPoolsOpen] = useState(false);
   const [conflictsOpen, setConflictsOpen] = useState(false);
@@ -377,19 +385,6 @@ export function CandidateDetailV2({
   // + sekcja sourcing write + blokada impersonacji).
   const canWriteSourcing = useCapability("candidate.write");
   const canManageProfileFacts = useCapability("candidate.profile_fact.manage");
-  const cloudTalkEnabled = useCloudTalkEnabled({
-    enabled: Boolean(currentUser) && canWriteSourcing,
-  });
-  const contactFeature = useCandidateContactFeature({
-    queryEnabled: hasRole(
-      currentUser,
-      "admin",
-      "head_of_recruitment",
-      "delivery_lead",
-      "talent_community_manager",
-      "recruiter",
-    ),
-  });
   const { viewers: presenceViewers, setEditing: setPresenceEditing } = usePresence(
     "candidate",
     Number.isFinite(Number(id)) ? Number(id) : null,
@@ -403,24 +398,12 @@ export function CandidateDetailV2({
     enabled: !!id,
   });
   const { data: candidate, isLoading } = candidateQuery;
-  const contactCaseQuery = useQuery<CandidateContactCase | null>({
-    queryKey: candidateContactQueryKeys.candidate(Number(id)),
-    queryFn: () => candidateContactApi.forCandidate(Number(id)),
-    enabled: contactFeature.enabled && Number.isFinite(Number(id)) && Number(id) > 0,
-    staleTime: 30_000,
-    retry: false,
-  });
 
   useEffect(() => {
     if (candidate && !embedded) {
       openTab("candidate", Number(id), `${candidate.name} ${candidate.lastname}`.trim());
     }
   }, [candidate, id, openTab, embedded]);
-
-  // Przełączenie kandydata (prev/next w szufladzie) zamyka edycję tożsamości.
-  useEffect(() => {
-    setEditingIdentity(false);
-  }, [id]);
 
   // Notatki: licznik zakładki „Notatki i historia” (29.09.2026 — liczba
   // notatek ludzi, bez odpowiedzi i wpisów automatów) i „Ostatnia rozmowa”
@@ -459,7 +442,18 @@ export function CandidateDetailV2({
   const hasFollowupMeetings = (followupQuery.data?.meetings?.length ?? 0) > 0;
   const noAnswer = useNoAnswer(Number(id), !canWriteSourcing);
 
-  // Ryzyko rezygnacji — odznaka w nagłówku (recompute event-driven + TTL 24h).
+  // Ustalenia z notatek (bez wywołania modelu) — ta sama kwerenda co okno
+  // „Ustalenia z notatek”, więc okno nie pobiera drugi raz.
+  const notesFactsQuery = useQuery<CandidateNotesFacts>({
+    queryKey: candidateQueryKeys.notesFacts(id),
+    queryFn: () => candidateFactsApi.getNotesFacts(id),
+    enabled: !!id && canManageProfileFacts,
+    retry: false,
+    staleTime: 30_000,
+  });
+
+  // Ryzyko rezygnacji — odznaka w pasku osoby (recompute event-driven + TTL 24h).
+  // Awaria = brak odznaki (dodatek, nie warunek działania profilu).
   const riskQuery = useQuery<CandidateRiskProfile>({
     queryKey: candidateQueryKeys.risk(id),
     queryFn: ({ signal }) =>
@@ -541,16 +535,7 @@ export function CandidateDetailV2({
   const candidateNumericId = Number(id);
   const fullName = `${candidate.name ?? ""} ${candidate.lastname ?? ""}`.trim();
   const readOnly = !canWriteSourcing;
-
-  // „Zaloguj wynik” — tylko właściciel sprawy kontaktu w kolejce.
-  const contactCase = contactCaseQuery.data ?? null;
-  const canLogContactOutcome =
-    Boolean(candidate.phone) &&
-    canWriteSourcing &&
-    contactCase != null &&
-    hasRole(currentUser, "talent_community_manager", "recruiter") &&
-    contactCase.owner?.id === currentUser?.id &&
-    ["queued", "callback_due"].includes(contactCase.status);
+  const toCheck = notesFactsToCheck(notesFactsQuery.data);
 
   const fileCount = documentsQuery.isSuccess ? (documentsQuery.data ?? []).length : undefined;
   const tabs = [
@@ -559,20 +544,25 @@ export function CandidateDetailV2({
       value: "recruitments",
       label: "Rekrutacje",
       icon: Calendar,
-      count: historyQuery.visibleData !== undefined ? history.length : undefined,
+      // E6 (13.10.2026): licznik = procesy w toku; zakończone widać w zakładce.
+      count:
+        historyQuery.visibleData !== undefined
+          ? splitRecruitments(history).active.length
+          : undefined,
     },
     // Bez licznika: liczba rozmów wymagałaby dodatkowego zapytania przy
     // każdym otwarciu profilu.
-    { value: "screening", label: "Odpowiedzi ze screeningu", icon: ListChecks },
+    { value: "screening", label: "Screening", icon: ListChecks },
     {
       value: "activity",
-      label: "Notatki i historia",
+      label: "Notatki",
       icon: MessageSquare,
       count: notesCountQuery.isSuccess
         ? humanNoteCount(notesCountQuery.data?.items ?? [])
         : undefined,
     },
-    { value: "documents", label: "CV i dokumenty", icon: Files, count: fileCount },
+    { value: "cv", label: "CV", icon: FileText },
+    { value: "documents", label: "Dokumenty", icon: Files, count: fileCount },
   ];
 
   const navProps = showNav
@@ -618,25 +608,37 @@ export function CandidateDetailV2({
         candidateId={candidateNumericId}
       />
 
-      {riskQuery.error ? (
-        <div
-          role="status"
-          className="flex items-center justify-between gap-3 rounded-lg border border-warning/30 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
-        >
-          <span>Ocena ryzyka jest chwilowo niedostępna.</span>
-          <button
-            type="button"
-            className="inline-flex min-h-11 min-w-11 items-center justify-center font-medium underline"
-            onClick={() => riskQuery.refetch()}
-          >
-            Ponów
-          </button>
-        </div>
-      ) : null}
+      <ProfilePersonBar
+        candidate={candidate}
+        candidateId={candidateNumericId}
+        canWrite={canWriteSourcing}
+        riskProfile={riskQuery.data ?? null}
+        viewers={presenceViewers}
+        onClose={embedded && !showNav ? onClose : undefined}
+        actions={{
+          onAssign: () => setAssignOpen(true),
+          onAddNote: openNoteComposer,
+          onNoAnswer: () => void noAnswer.recordNoAnswer(backJobId),
+          noAnswerSaving: noAnswer.saving,
+          onEmail: () => setEmailOpen(true),
+          onScheduleInterview: () => setScheduleOpen(true),
+          onPrepInvite: () => setPrepInviteOpen(true),
+          onFollowup:
+            hasFollowup || hasFollowupMeetings ? () => setFollowupOpen(true) : undefined,
+          followupLabel: hasFollowupMeetings
+            ? "Spotkania i transkrypty Teams"
+            : "Zaplanuj follow-up w Teams",
+          onEdit: () => setEditOpen(true),
+          onTagsPools: () => setTagsPoolsOpen(true),
+          onConflicts: () => setConflictsOpen(true),
+          onDelete: canDeleteCandidate ? () => setDeleteOpen(true) : undefined,
+          onMerge: canMerge ? () => setMergeOpen(true) : undefined,
+        }}
+      />
 
-      {/* Od 1100 px: karta osoby i „Podsumowanie” po lewej (przyklejone),
-          zakładki po prawej. `min-[1100px]` = szerokość okna; w szufladzie
-          (embedded) zawsze jedna kolumna — szuflada jest wąska. */}
+      {/* Od 1100 px: karta „Do propozycji” po lewej (przyklejona), zakładki
+          po prawej. `min-[1100px]` = szerokość okna; w szufladzie (embedded)
+          zawsze jedna kolumna — szuflada jest wąska. */}
       <div
         className={
           embedded
@@ -652,58 +654,44 @@ export function CandidateDetailV2({
               : "space-y-4 min-[1100px]:sticky min-[1100px]:top-4 min-[1100px]:max-h-[calc(100dvh-2rem)] min-[1100px]:overflow-y-auto min-[1100px]:pb-2"
           }
         >
-          <ProfileHeader
+          <CandidateProfileFactsBar
             candidate={candidate}
-            candidateId={candidateNumericId}
-            canWrite={canWriteSourcing}
-            canCall={cloudTalkEnabled}
-            riskProfile={riskQuery.data ?? null}
-            contactCase={contactCase}
-            showContactStatus={contactFeature.enabled}
-            onLogContactOutcome={canLogContactOutcome ? () => setContactOutcomeOpen(true) : undefined}
-            viewers={presenceViewers}
-            editingIdentity={editingIdentity}
-            onCloseIdentityEditor={() => setEditingIdentity(false)}
-            onClose={embedded && !showNav ? onClose : undefined}
-            actions={{
-              onAssign: () => setAssignOpen(true),
-              onAddNote: openNoteComposer,
-              onNoAnswer: () => void noAnswer.recordNoAnswer(backJobId),
-              noAnswerSaving: noAnswer.saving,
-              onEmail: () => setEmailOpen(true),
-              onScheduleInterview: () => setScheduleOpen(true),
-              onPrepInvite: () => setPrepInviteOpen(true),
-              onFollowup:
-                hasFollowup || hasFollowupMeetings ? () => setFollowupOpen(true) : undefined,
-              followupLabel: hasFollowupMeetings
-                ? "Spotkania i transkrypty Teams"
-                : "Zaplanuj follow-up w Teams",
-              onGenerateCv: () => setCvOpen(true),
-              onEdit: () => setEditOpen(true),
-              onTagsPools: () => setTagsPoolsOpen(true),
-              onConflicts: () => setConflictsOpen(true),
-              onMarketplace: () => setMarketplaceOpen(true),
-              onEditIdentity: candidate.identity_sync ? () => setEditingIdentity(true) : undefined,
-              onDelete: canDeleteCandidate ? () => setDeleteOpen(true) : undefined,
-              onMerge: canMerge ? () => setMergeOpen(true) : undefined,
-            }}
-          />
-
-          <CandidateProfileFactsBar candidate={candidate} layout="column">
-            <CandidateActivitySummaryCard
-              candidateId={candidateNumericId}
-              cvSummary={candidate.ai_summary ?? null}
-              variant="compact"
-            />
+            layout="proposal"
+            lead={
+              candidate.employment ? (
+                <AtOurClientBanner
+                  employment={candidate.employment}
+                  marker={candidate.employment_marker}
+                  variant="compact"
+                />
+              ) : null
+            }
+          >
             {canManageProfileFacts ? (
-              <button
-                type="button"
-                data-help="candidate.profile.notes_facts"
-                onClick={() => setNotesFactsOpen(true)}
-                className="inline-flex min-h-8 items-center text-xs font-medium text-primary hover:underline"
-              >
-                Ustalenia z notatek
-              </button>
+              toCheck > 0 ? (
+                <button
+                  type="button"
+                  data-help="candidate.profile.notes_facts"
+                  onClick={() => setNotesFactsOpen(true)}
+                  className="mt-2 flex min-h-9 w-full items-center justify-between gap-2 rounded-lg bg-warning-muted px-2.5 text-left text-xs font-medium text-warning-muted-foreground hover:underline"
+                >
+                  <span>
+                    {toCheck === 1
+                      ? "1 rzecz do sprawdzenia z rozmowy"
+                      : `${toCheck} rzeczy do sprawdzenia z rozmowy`}
+                  </span>
+                  <span className="shrink-0 underline">Sprawdź</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  data-help="candidate.profile.notes_facts"
+                  onClick={() => setNotesFactsOpen(true)}
+                  className="mt-1 inline-flex min-h-8 items-center text-xs font-medium text-primary hover:underline"
+                >
+                  Ustalenia z notatek
+                </button>
+              )
             ) : null}
           </CandidateProfileFactsBar>
         </aside>
@@ -759,7 +747,12 @@ export function CandidateDetailV2({
                       }
                       return;
                     }
-                    goToSection(target.section);
+                    goToSection(
+                      target.section,
+                      target.section === "activity" && target.activity
+                        ? { activity: target.activity }
+                        : {},
+                    );
                   }}
                 />
               </TabsContent>
@@ -818,13 +811,26 @@ export function CandidateDetailV2({
                 />
               </TabsContent>
 
+              <TabsContent value="cv" className="mt-0">
+                <CvSkillsSection
+                  candidate={candidate}
+                  readOnly={readOnly}
+                  onGenerateCv={canWriteSourcing ? () => setCvOpen(true) : undefined}
+                  onOpenFiles={() => goToSection("documents")}
+                />
+              </TabsContent>
+
               <TabsContent value="documents" className="mt-0">
                 <FilesContractsTab
                   candidate={candidate}
                   candidateName={fullName}
                   readOnly={readOnly}
                   focus={profileView.documents}
-                  onGenerateCv={canWriteSourcing ? () => setCvOpen(true) : undefined}
+                  recruitments={history}
+                  historyContracts={
+                    historyRaw && !Array.isArray(historyRaw) ? (historyRaw.contracts ?? []) : []
+                  }
+                  employmentMarker={candidate.employment_marker}
                 />
               </TabsContent>
             </div>
@@ -912,21 +918,6 @@ export function CandidateDetailV2({
             onToast={(message, type) =>
               type === "error" ? showError(message) : showSuccess(message)
             }
-          />
-          {/* Modal targu sterowany z rodzica — nakładka przeżywa zamknięcie menu. */}
-          <AddToMarketplaceButton
-            candidateId={candidate.id}
-            candidateName={fullName}
-            hideTrigger
-            open={marketplaceOpen}
-            onOpenChange={setMarketplaceOpen}
-          />
-          <ContactOutcomeSheet
-            contactCase={contactCase}
-            open={contactOutcomeOpen}
-            onOpenChange={setContactOutcomeOpen}
-            onSaved={() => void contactCaseQuery.refetch()}
-            onConflict={() => void contactCaseQuery.refetch()}
           />
         </>
       ) : null}

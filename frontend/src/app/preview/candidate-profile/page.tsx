@@ -5,7 +5,9 @@
  * i bez logowania. Zakładki przełącza `?tab=` (np. `?tab=recruitments`,
  * `?tab=activity&activity=notes`, `?tab=documents&documents=contracts`,
  * stare `?tab=matching` / `?tab=emails` też działają). `?employed=1` pokazuje
- * osobę pracującą u naszego klienta (dopisek w karcie osoby).
+ * osobę pracującą u naszego klienta (ramka w „Do propozycji” i umowa
+ * w „Dokumentach”). `?role=recruiter` ogląda profil kontem rekrutera — bez
+ * `delivery_view` i `amounts_view` (umowy z `/history`, bez stawki do klienta).
  *
  * ZERO zapytań sieciowych:
  *   1. cache react-query jest zasiany tymi samymi kluczami co komponenty
@@ -55,7 +57,7 @@ const MENTIONABLE_USERS = [
 ];
 const BASE_PATH = "/preview/candidate-profile";
 
-const PREVIEW_USER = {
+const PREVIEW_ADMIN = {
   id: 1,
   email: "preview@example.com",
   name: "Ola Nowak",
@@ -66,6 +68,10 @@ const PREVIEW_USER = {
   force_password_change: false,
   force_password_change_at: null,
 };
+// Domyślne uprawnienia roli (bez `effective_action_access`) — rekruter nie ma
+// `delivery_view` ani `amounts_view`.
+const PREVIEW_RECRUITER = { ...PREVIEW_ADMIN, role: "recruiter", roles: ["recruiter"] };
+type PreviewUser = typeof PREVIEW_ADMIN;
 
 const daysAgo = (days: number) => {
   const d = new Date();
@@ -136,6 +142,28 @@ const CANDIDATE = {
       start: "2019-01",
       end: "2022-02",
       desc: "Moduły core banking, migracja na mikroserwisy.",
+    },
+    // „Ostatnio” w Przeglądzie bierze trzy, CV zwija od piątego.
+    {
+      role: "Junior Java Developer",
+      company: "Software House Demo",
+      start: "2017-07",
+      end: "2018-12",
+      desc: "Aplikacje dla handlu, Spring MVC i Oracle.",
+    },
+    {
+      role: "Stażystka Java",
+      company: "Software House Demo",
+      start: "2016-10",
+      end: "2017-06",
+      desc: "Testy jednostkowe i poprawki błędów.",
+    },
+    {
+      role: "Praktykantka QA",
+      company: "Bank Demo",
+      start: "2016-07",
+      end: "2016-09",
+      desc: "Testy manualne aplikacji mobilnej.",
     },
   ],
   education: [
@@ -219,6 +247,44 @@ const HISTORY = {
         author_name: "Piotr Zieliński",
       },
     },
+    // 13.10.2026 (E3): tabela „W toku” — ruch po naszej stronie i kod
+    // rekrutacji w tytule (plik „…ZOB-2962…” trafia do „CV wysłane klientom”).
+    {
+      job_id: 504,
+      job_title: "Kafka Engineer (ZOB-2962)",
+      client_name: "Logistyka Demo",
+      job_status: "published",
+      latest_stage: "screening",
+      latest_stage_id: null,
+      first_seen: daysAgo(9),
+      last_seen: daysAgo(7),
+      next_action_owner: "recruiter",
+      stages: [
+        { stage: "screening", moved_at: daysAgo(7) },
+        { stage: "new", moved_at: daysAgo(9) },
+      ],
+      client_rate: { value: 175, unit: "hourly", currency: "PLN" },
+      expected_rate: null,
+    },
+    {
+      job_id: 505,
+      job_title: "Platform Engineer",
+      client_name: "Telekom Demo",
+      job_status: "published",
+      latest_stage: "client_interview",
+      latest_stage_id: null,
+      first_seen: daysAgo(30),
+      last_seen: daysAgo(2),
+      next_action_owner: "delivery",
+      stages: [
+        { stage: "client_interview", moved_at: daysAgo(2) },
+        { stage: "cv_sent", moved_at: daysAgo(12) },
+        { stage: "verified", moved_at: daysAgo(25) },
+        { stage: "new", moved_at: daysAgo(30) },
+      ],
+      client_rate: { value: 190, unit: "hourly", currency: "PLN" },
+      expected_rate: { value: 165, unit: "hourly", currency: "PLN" },
+    },
     {
       job_id: 480,
       job_title: "Java Tech Lead",
@@ -257,8 +323,67 @@ const HISTORY = {
       expected_rate: null,
     },
   ],
-  contracts: [],
+  // Zakończona umowa z przeszłości. Wpis `/history` niesie kwoty — rola bez
+  // `delivery_view` widzi z niego tylko klienta, daty i status (D7).
+  contracts: [
+    {
+      contract_id: 61,
+      client_name: "Logistyka Demo",
+      start_date: "2024-03-01",
+      end_date: "2025-02-28",
+      status: "ended",
+      rate_candidate: 140,
+      rate_client: 170,
+      currency: "PLN",
+      rate_client_currency: "PLN",
+      rate_candidate_currency: "PLN",
+    },
+  ] as Array<Record<string, unknown>>,
 };
+
+/** Umowa z klientem przy `?employed=1` — ten sam kontrakt co znacznik zatrudnienia. */
+const EMPLOYED_CONTRACT = {
+  contract_id: 77,
+  client_name: "Bank Przykładowy",
+  start_date: "2026-07-01",
+  end_date: null,
+  status: "active",
+  rate_candidate: 160,
+  rate_client: 190,
+  currency: "PLN",
+  rate_client_currency: "PLN",
+  rate_candidate_currency: "PLN",
+};
+
+/** `GET /api/contracts?candidate_id=` — karta kontraktu (konto z `delivery_view`). */
+function contractsFor(employed: boolean) {
+  const rows = employed ? [EMPLOYED_CONTRACT, ...HISTORY.contracts] : HISTORY.contracts;
+  return {
+    items: rows.map((row) => ({
+      id: row.contract_id,
+      client_id: row.contract_id === 77 ? 31 : 32,
+      client_name: row.client_name,
+      project_name: null,
+      start_date: row.start_date,
+      end_date: row.end_date,
+      status: row.status,
+      rate_candidate: row.rate_candidate,
+      rate_client: row.rate_client,
+      currency: "PLN",
+      rate_unit: "hourly",
+    })),
+  };
+}
+
+/** Wariant strony ustawiany raz przy starcie (`?employed=1`) — czytają go trasy. */
+const variant = { employed: false };
+
+function historyFor(employed: boolean) {
+  return employed ? { ...HISTORY, contracts: [EMPLOYED_CONTRACT, ...HISTORY.contracts] } : HISTORY;
+}
+
+const minutesBefore = (iso: string, minutes: number) =>
+  new Date(Date.parse(iso) - minutes * 60_000).toISOString();
 
 const TIMELINE = {
   timeline: [
@@ -269,6 +394,15 @@ const TIMELINE = {
       author_name: "Ola Nowak",
       content: "Potwierdziła dostępność od 01.10. Druga rozmowa w czwartek.",
     },
+    // Trzy pobrania z jednego dnia zwijają się do „Pobrano pliki · 3” (E4).
+    ...[0, 4, 9].map((minutes, i) => ({
+      type: "activity",
+      id: 90 + i,
+      action: "document_downloaded",
+      user_name: "Piotr Zieliński",
+      timestamp: minutesBefore(daysAgo(1), minutes),
+      details: { filename: "CV_Marta_Kowalczyk.pdf" },
+    })),
     {
       type: "stage_change",
       id: 72,
@@ -412,10 +546,26 @@ const NOTES = {
       external_source: "traffit",
       replies: [],
     },
+    // Starsze rozmowy (E4): grupy miesięczne i „Pokaż starsze” po 10 najnowszych.
+    ...[
+      [36, "Pierwszy telefon: zainteresowana projektami w fintechu, prosi o widełki."],
+      [41, "Wysłała zaktualizowane CV, dopisała projekt z Kafką."],
+      [47, "Rozmowa o oczekiwaniach: B2B, 160–170 zł/h, hybryda."],
+      [53, "Nie pasuje jej praca w pełni stacjonarna — tylko hybryda."],
+      [58, "Kontakt z polecenia, umówiona rozmowa na przyszły tydzień."],
+    ].map(([days, content], i) => ({
+      id: 60 + i,
+      created_at: daysAgo(days as number),
+      author_id: 1,
+      author_name: "Ola Nowak",
+      content: content as string,
+      job_id: null,
+      replies: [],
+    })),
   ],
-  total: 9,
+  total: 14,
   // Liczniki zakładek liczy serwer dla całej historii.
-  group_counts: { talks: 4, contact: 2, delivery: 2, email: 0, automat: 1 },
+  group_counts: { talks: 9, contact: 2, delivery: 2, email: 0, automat: 1 },
 };
 
 const DOCUMENTS = [
@@ -446,6 +596,27 @@ const DOCUMENTS = [
     content_type: "application/pdf",
     size_bytes: 90_000,
     created_at: daysAgo(10),
+  },
+  // Grupy plików (E5): kod rekrutacji „ZOB-2962” w nazwie = CV wysłane
+  // klientowi; „Formularz” w nazwie = załącznik rekrutacji.
+  {
+    id: 14,
+    filename: "ZOB-2962_Marta_Kowalczyk.docx",
+    document_kind: "cv",
+    is_primary: false,
+    content_type:
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    size_bytes: 58_000,
+    created_at: daysAgo(6),
+  },
+  {
+    id: 15,
+    filename: "Formularz_osobowy_Logistyka_Demo.pdf",
+    document_kind: "other",
+    is_primary: false,
+    content_type: "application/pdf",
+    size_bytes: 40_000,
+    created_at: daysAgo(6),
   },
 ];
 
@@ -686,8 +857,6 @@ const RECOMMENDATIONS = {
   meta: null,
 };
 
-const CONTRACTS = { items: [] };
-
 // Karty rekomendacji osoby: ustalenia z datą i źródłem, odpowiedzi z notatki
 // (rekrutacja bez arkusza screeningu) i co z której notatki trafiło do karty.
 const CARD_OVERVIEW: CandidateCardOverview = {
@@ -894,7 +1063,7 @@ const M365_CONNECTION = { connected: false };
 /** Odpowiedzi lokalnego adaptera: [wzorzec ścieżki, dane]. */
 const ROUTES: Array<[RegExp, (config: InternalAxiosRequestConfig) => unknown]> = [
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}$`), () => CANDIDATE],
-  [new RegExp(`^/api/candidates/${CANDIDATE_ID}/history$`), () => HISTORY],
+  [new RegExp(`^/api/candidates/${CANDIDATE_ID}/history$`), () => historyFor(variant.employed)],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/timeline`), () => TIMELINE],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/documents`), (config) =>
     String(config.url).includes("kind=cv")
@@ -911,15 +1080,14 @@ const ROUTES: Array<[RegExp, (config: InternalAxiosRequestConfig) => unknown]> =
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/rate-overview$`), () => RATE_OVERVIEW],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/conflicts$`), () => []],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/hiring-manager-vetoes$`), () => []],
-  [new RegExp(`^/api/candidates/${CANDIDATE_ID}/calls$`), () => []],
-  [new RegExp(`^/api/candidates/${CANDIDATE_ID}/pin$`), () => ({ pinned: false })],
   [/order-documents/, () => ({ documents: [] })],
   [new RegExp(`^/api/candidates/${CANDIDATE_ID}/recommendation-cards$`), () => CARD_OVERVIEW],
   // Okno „Screening tej rekrutacji” przy notatce (09.10.2026).
   [/^\/api\/screening-form$/, () => NOTE_SCREENING],
   [/^\/api\/recommendation-cards$/, () => ({ legacy_text: NOTE_SCREENING_LEGACY })],
   [/^\/api\/notes/, () => NOTES],
-  [/^\/api\/contracts$/, () => CONTRACTS],
+  [/^\/api\/contracts$/, () => contractsFor(variant.employed)],
+  [/^\/api\/contracts\/\d+\/documents$/, () => []],
   [/^\/api\/presence\//, () => ({ viewers: [] })],
   [/^\/api\/users\/mentionable/, () => MENTIONABLE_USERS],
   [/^\/api\/clients-lookup/, () => []],
@@ -1064,7 +1232,8 @@ function installLocalApi(): () => void {
   };
 }
 
-function seededClient(employed: boolean): QueryClient {
+function seededClient(employed: boolean, user: PreviewUser): QueryClient {
+  variant.employed = employed;
   const qc = new QueryClient({
     defaultOptions: {
       queries: {
@@ -1076,7 +1245,7 @@ function seededClient(employed: boolean): QueryClient {
       },
     },
   });
-  const scope = candidateViewerScopeKey(PREVIEW_USER) ?? "unauthenticated";
+  const scope = candidateViewerScopeKey(user) ?? "unauthenticated";
   qc.setQueryData(
     candidateQueryKeys.detail(CANDIDATE_ID),
     employed
@@ -1107,7 +1276,7 @@ function seededClient(employed: boolean): QueryClient {
         }
       : CANDIDATE,
   );
-  qc.setQueryData(candidateQueryKeys.history(CANDIDATE_ID, scope), HISTORY);
+  qc.setQueryData(candidateQueryKeys.history(CANDIDATE_ID, scope), historyFor(employed));
   qc.setQueryData(candidateQueryKeys.timeline(CANDIDATE_ID, 50), TIMELINE);
   qc.setQueryData(candidateQueryKeys.notes(CANDIDATE_ID), NOTES);
   qc.setQueryData(candidateQueryKeys.documents(CANDIDATE_ID), DOCUMENTS);
@@ -1117,8 +1286,7 @@ function seededClient(employed: boolean): QueryClient {
   );
   qc.setQueryData(candidateQueryKeys.risk(CANDIDATE_ID), RISK);
   qc.setQueryData(candidateQueryKeys.aiProfile(CANDIDATE_ID), AI_PROFILE);
-  qc.setQueryData(candidateQueryKeys.calls(CANDIDATE_ID), []);
-  qc.setQueryData(candidateQueryKeys.contracts(CANDIDATE_ID), CONTRACTS);
+  qc.setQueryData(candidateQueryKeys.contracts(CANDIDATE_ID), contractsFor(employed));
   qc.setQueryData(candidateQueryKeys.activitySummary(CANDIDATE_ID, scope), ACTIVITY_SUMMARY);
   qc.setQueryData(candidateQueryKeys.screeningAnswers(CANDIDATE_ID, scope), SCREENING_ANSWERS);
   qc.setQueryData(candidateQueryKeys.cardOverview(CANDIDATE_ID, scope), CARD_OVERVIEW);
@@ -1139,7 +1307,6 @@ function seededClient(employed: boolean): QueryClient {
   qc.setQueryData(["interview-feedback", "by-candidate", CANDIDATE_ID], []);
   qc.setQueryData(candidateQueryKeys.recommendations(CANDIDATE_ID, 10), RECOMMENDATIONS);
   qc.setQueryData(["suggested-pools", CANDIDATE_ID], []);
-  qc.setQueryData(["candidate-pin-state", CANDIDATE_ID], { pinned: false });
   qc.setQueryData(["presence", "candidate", CANDIDATE_ID], []);
   qc.setQueryData(["competence-categories-active"], [
     { id: 2, slug: "software_development", name_pl: "Software Development" },
@@ -1157,16 +1324,18 @@ export default function CandidateProfilePreviewPage() {
 }
 
 function CandidateProfilePreview() {
-  const employed = useSearchParams()?.get("employed") === "1";
+  const params = useSearchParams();
+  const employed = params?.get("employed") === "1";
+  const user = params?.get("role") === "recruiter" ? PREVIEW_RECRUITER : PREVIEW_ADMIN;
   const [ready, setReady] = useState(false);
-  const [qc] = useState(() => seededClient(employed));
+  const [qc] = useState(() => seededClient(employed, user));
 
   useEffect(() => {
     const uninstall = installLocalApi();
-    useAuthStore.setState({ user: PREVIEW_USER as never, hydrated: true });
+    useAuthStore.setState({ user: user as never, hydrated: true });
     setReady(true);
     return uninstall;
-  }, []);
+  }, [user]);
 
   if (!ready) {
     return <div className="p-8 text-sm text-muted-foreground">Ładowanie…</div>;

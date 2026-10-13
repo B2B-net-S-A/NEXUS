@@ -39,6 +39,7 @@ from app.api.recruitment_access import (
 )
 from app.core.database import get_db
 from app.core.scheduling import business_today
+from app.services.candidate_name_rules import without_name_markers
 from app.services.candidate_stage_cv_service import create_original_cv_snapshot
 from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
 from app.models.activity import Activity
@@ -422,8 +423,9 @@ async def resolve_application_submission(
             if clash is not None:
                 email_val = None
         candidate = Candidate(
-            name=submission.submitted_first_name,
-            lastname=submission.submitted_last_name,
+            # Imię wpisane przez kandydata — dopisek znika bez odmowy (D6).
+            name=without_name_markers(submission.submitted_first_name),
+            lastname=without_name_markers(submission.submitted_last_name),
             email=email_val,
             phone=submission.submitted_phone,
             linkedin=submission.submitted_linkedin,

@@ -52,6 +52,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.services.candidate_location_writer import normalize_candidate_location
+from app.services.candidate_name_rules import without_name_markers
 from app.services.dedup_service import find_candidate_duplicates
 from app.core.scheduling import business_today
 
@@ -385,8 +386,10 @@ class TalentRadarImporter:
             "external_id": str(row["traffit_id"]),
             "external_source": SOURCE_VALUE,
             "email": (row["email"] or "").strip() or None,
-            "name": (row["name"] or "").strip() or "?",
-            "lastname": (row["lastname"] or "").strip() or "?",
+            # Dopisek z Traffita w imieniu znika (D6, 13.10.2026) — ponowny
+            # import nie może nadpisać imion oczyszczonych przez korektę 0436.
+            "name": without_name_markers((row["name"] or "").strip()) or "?",
+            "lastname": without_name_markers((row["lastname"] or "").strip()) or "?",
             "raw_cv_text": row["raw_cv_text"],
             # BYTEA remains an in-memory fallback until the post-gate upload.
             "cv_file_content": cv_bytes,
