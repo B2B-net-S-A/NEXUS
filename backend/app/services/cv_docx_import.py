@@ -39,6 +39,19 @@ MIN_TEXT_CHARS = 200
 # limity zatrzymują dokument zbudowany po to, żeby zająć pamięć albo procesor.
 MAX_LINES = 5000
 MAX_TABLE_DEPTH = 4
+# Akapity i wiersze tabel w CAŁYM pliku, także puste i zagnieżdżone. Pusty
+# akapit nie daje wiersza, więc `MAX_LINES` go nie liczy, a i tak kosztuje:
+# 20 tys. pustych akapitów z pliku 37 KB zajmowało konwersję na kilka sekund,
+# 10 MB takich akapitów — na minuty (przegląd bezpieczeństwa 13.10.2026).
+MAX_BLOCKS = 10_000
+# python-docx szuka stylu akapitu, przeglądając `styles.xml`; tysiące stylów
+# mnożyły koszt każdego akapitu. Zwykły dokument ma ich kilkadziesiąt.
+MAX_STYLES = 1_000
+MSG_TOO_LONG = "Ten plik jest zbyt długi, żeby wczytać go do edytora."
+MSG_TOO_MANY_STYLES = (
+    "Ten plik ma zbyt wiele stylów, żeby wczytać go do edytora. Skopiuj treść "
+    "do nowego dokumentu Word i wgraj go ponownie."
+)
 
 Runs = list[tuple[str, bool]]
 
@@ -117,11 +130,38 @@ def _in_textbox(element: Any, stop: Any) -> bool:
     return False
 
 
+def _style_facts(paragraph: Any) -> tuple[str, bool]:
+    """Nazwa i pogrubienie stylu akapitu — czytane raz na styl w pliku.
+
+    `paragraph.style` przegląda cały `styles.xml` przy każdym wywołaniu, a CV
+    używa kilku stylów w setkach akapitów.
+    """
+    cache: dict = paragraph.part.__dict__.setdefault("_cv_import_styles", {})
+    key = paragraph._p.style
+    if key not in cache:
+        style = paragraph.style
+        cache[key] = (
+            (style.name or "") if style is not None else "",
+            bool(style is not None and style.font is not None and style.font.bold),
+        )
+    return cache[key]
+
+
+def _guard_size(doc: Any) -> None:
+    """Odmowa, zanim zaczniemy czytać plik zbudowany po to, żeby zająć procesor."""
+    blocks = 0
+    for _ in doc.element.body.iter(f"{_W}p", f"{_W}tr"):
+        blocks += 1
+        if blocks > MAX_BLOCKS:
+            raise CvImportError(MSG_TOO_LONG)
+    if len(doc.styles.element.findall(f"{_W}style")) > MAX_STYLES:
+        raise CvImportError(MSG_TOO_MANY_STYLES)
+
+
 def _paragraph_runs(paragraph: Any) -> Runs:
     from docx.text.run import Run
 
-    style = paragraph.style
-    para_bold = bool(style is not None and style.font is not None and style.font.bold)
+    _, para_bold = _style_facts(paragraph)
     runs: Runs = []
     # Wszystkie runy akapitu, także w hiperłączu, polu formularza i wstawce
     # śledzenia zmian (`paragraph.runs` widzi tylko bezpośrednie dzieci). Runy
@@ -140,7 +180,7 @@ def _paragraph_line(paragraph: Any) -> Optional[_Line]:
     text = "".join(t for t, _ in runs).strip()
     if not text:
         return None
-    style_name = paragraph.style.name if paragraph.style is not None else ""
+    style_name, _ = _style_facts(paragraph)
     properties = paragraph._p.pPr
     numbered = properties is not None and properties.numPr is not None
     is_list = numbered or "list" in style_name.casefold()
@@ -234,7 +274,7 @@ def _lines(doc: Any) -> list[_Line]:
         if line is None:
             return
         if len(lines) >= MAX_LINES:
-            raise CvImportError("Ten plik jest zbyt długi, żeby wczytać go do edytora.")
+            raise CvImportError(MSG_TOO_LONG)
         lines.append(line)
 
     for element in _block_elements(doc.element.body):
@@ -431,6 +471,7 @@ def docx_to_editor_html(data: bytes) -> ImportedCv:
     try:
         assert_safe_ooxml(data)
         doc = Document(io.BytesIO(data))
+        _guard_size(doc)
         lines = _lines(doc)
         textboxes = _textbox_texts(doc)
     except CvImportError:

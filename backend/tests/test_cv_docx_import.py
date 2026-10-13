@@ -259,6 +259,74 @@ def test_files_that_cannot_be_read_are_refused_in_polish(data, fragment):
     assert fragment in str(error.value)
 
 
+def _long_text() -> str:
+    return (
+        "Rozwój usług płatniczych w banku i integracje z systemami zewnętrznymi. " * 4
+    )
+
+
+def test_thousands_of_empty_paragraphs_are_refused_before_reading():
+    """Pusty akapit nie daje wiersza, ale kosztuje: plik z dziesiątkami tysięcy
+    pustych akapitów zajmował konwersję na wiele sekund (przegląd bezpieczeństwa
+    13.10.2026). Limit liczy wszystkie akapity i wiersze tabel, także puste."""
+    import time
+
+    doc = Document()
+    body = doc.element.body
+    first = doc.add_paragraph("")._p
+    for _ in range(12_000):
+        body.insert(0, copy.deepcopy(first))
+    doc.add_paragraph(_long_text())
+    data = _save(doc)
+    started = time.process_time()
+    with pytest.raises(CvImportError) as refused:
+        docx_to_editor_html(data)
+    assert "zbyt długi" in str(refused.value)
+    assert time.process_time() - started < 2.0
+
+
+def test_thousands_of_styles_are_refused():
+    """Każdy akapit szuka swojego stylu w `styles.xml`; tysiące stylów mnożyły
+    koszt każdego akapitu."""
+    doc = Document()
+    styles = doc.styles.element
+    base = styles.findall(qn("w:style"))[0]
+    for index in range(1_200):
+        clone = copy.deepcopy(base)
+        clone.set(qn("w:styleId"), f"Zbedny{index}")
+        styles.append(clone)
+    doc.add_paragraph(_long_text())
+    with pytest.raises(CvImportError) as refused:
+        docx_to_editor_html(_save(doc))
+    assert "stylów" in str(refused.value)
+
+
+def test_paragraph_style_is_remembered_per_style_not_per_file():
+    """Pogrubienie stylu czytamy raz na styl — ale każdy styl osobno."""
+    from docx.enum.style import WD_STYLE_TYPE
+
+    doc = Document()
+    strong = doc.styles.add_style("Mocny akapit", WD_STYLE_TYPE.PARAGRAPH)
+    strong.font.bold = True
+    doc.styles.add_style("Zwykly akapit", WD_STYLE_TYPE.PARAGRAPH)
+    # Pierwsza linia pliku to tytuł CV — porównujemy akapity treści.
+    doc.add_paragraph("Senior Java Developer – Anna Przykładowa")
+    doc.add_paragraph(
+        "Pierwszy akapit o rozwoju usług płatniczych w banku.", style="Mocny akapit"
+    )
+    doc.add_paragraph(
+        "Drugi akapit o integracjach z systemami zewnętrznymi.", style="Zwykly akapit"
+    )
+    doc.add_paragraph(
+        "Trzeci akapit o testach jednostkowych i integracyjnych.", style="Mocny akapit"
+    )
+    doc.add_paragraph(_long_text())
+    html = docx_to_editor_html(_save(doc)).html
+    bold = " ".join(re.findall(r"<strong>(.*?)</strong>", html))
+    assert "Pierwszy akapit" in bold and "Trzeci akapit" in bold
+    assert "Drugi akapit" not in bold
+
+
 def test_empty_document_is_refused():
     doc = Document()
     doc.add_paragraph("CV")
