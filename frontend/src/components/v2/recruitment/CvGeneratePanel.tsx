@@ -106,6 +106,7 @@ function CvGeneratePanelForm({
           capBasic={g.capBasic}
           disabled={g.generating}
           canAddChampion={false}
+          compact
         />
         <LanguageChoice
           value={g.languageChoice}
@@ -113,6 +114,7 @@ function CvGeneratePanelForm({
           policy={g.languagePolicy}
           clientName={g.clientName}
           disabled={g.generating}
+          compact
         />
       </div>
       <AdvancedOptions

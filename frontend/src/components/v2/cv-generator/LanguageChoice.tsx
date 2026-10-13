@@ -13,10 +13,19 @@ export interface LanguageChoiceProps {
   policy: LanguagePolicy;
   clientName: string | null;
   disabled?: boolean;
+  /** Etykieta nad przełącznikiem — wąska karta „CV do klienta”. */
+  compact?: boolean;
 }
 
 /** Język CV: PL · EN · Obie. Język wymuszony regułą klienta blokuje resztę. */
-export function LanguageChoice({ value, onChange, policy, clientName, disabled = false }: LanguageChoiceProps) {
+export function LanguageChoice({
+  value,
+  onChange,
+  policy,
+  clientName,
+  disabled = false,
+  compact = false,
+}: LanguageChoiceProps) {
   const hint = policy.forced
     ? `${clientName ?? "Ten klient"} wymaga CV wyłącznie po ${policy.forced === "en" ? "angielsku" : "polsku"}.`
     : [
@@ -30,7 +39,7 @@ export function LanguageChoice({ value, onChange, policy, clientName, disabled =
     title: languageOptionEnabled(v, policy) ? undefined : "Klient wymaga innego języka",
   });
   return (
-    <div className="grid gap-2 sm:grid-cols-[110px_minmax(0,1fr)] sm:items-start">
+    <div className={compact ? "grid gap-2" : "grid gap-2 sm:grid-cols-[110px_minmax(0,1fr)] sm:items-start"}>
       <p className="pt-1.5 text-sm font-semibold text-foreground">Język</p>
       <div className="space-y-2">
         <Segmented<CvLanguageChoice>

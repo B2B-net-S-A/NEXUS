@@ -15,6 +15,8 @@ export interface ProcessingTilesProps {
    * nie ma — Championa uzupełnia się w rekrutacji, więc podpowiedź o tym mówi.
    */
   canAddChampion?: boolean;
+  /** Etykieta nad kaflami — wąska karta „CV do klienta” (kolumna 110 px się nie mieści). */
+  compact?: boolean;
 }
 
 /** Dwa kafle obróbki: Redakcja i Pod rekrutację. Domyślny wynika z Championa. */
@@ -25,6 +27,7 @@ export function ProcessingTiles({
   capBasic = false,
   disabled = false,
   canAddChampion = true,
+  compact = false,
 }: ProcessingTilesProps) {
   const addChampion = canAddChampion ? "Wgraj Championa wyżej" : "Uzupełnij Profil Championa w rekrutacji";
   const hint = capBasic
@@ -37,7 +40,7 @@ export function ProcessingTiles({
         ? "Te same fakty, poprawiony język. Bez dopasowania do wymagań rekrutacji."
         : `Bez Championa robimy Redakcję. ${addChampion}, a przełączymy na „Pod rekrutację”.`;
   return (
-    <div className="grid gap-2 sm:grid-cols-[110px_minmax(0,1fr)] sm:items-start">
+    <div className={compact ? "grid gap-2" : "grid gap-2 sm:grid-cols-[110px_minmax(0,1fr)] sm:items-start"}>
       <p className="pt-1.5 text-sm font-semibold text-foreground">Obróbka</p>
       <div className="space-y-2">
         <Segmented<CvProcessingMode>
