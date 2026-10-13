@@ -272,6 +272,11 @@ def expand_patch(patch: Any, *, previous_notes: Optional[str] = None) -> Any:
     }
 
 
+# Wierszy czytanych przy zapisie: 10 obowiązkowych + 20 mile widzianych
+# z zapasem; dalsze `split_rows` i tak odkłada do opisu.
+_TALK_ROWS_MAX = 60
+
+
 def _row_key(words: Any) -> frozenset[str]:
     return frozenset(
         w.strip().casefold() for w in words or () if isinstance(w, str) and w.strip()
@@ -346,14 +351,22 @@ def separate_talk_items(
     notices: list[str] = []
     renamed: dict[str, str] = {}
     rows: list[dict[str, Any]] = []
-    for raw in stack["rows"]:
+    for index, raw in enumerate(stack["rows"]):
         data = raw.model_dump() if hasattr(raw, "model_dump") else raw
         if not isinstance(data, Mapping):
             continue
-        words = [w for w in data.get("words") or [] if isinstance(w, str)]
         level = data.get("level")
-        if _row_key(words) in known:
+        if index >= _TALK_ROWS_MAX:
+            # Ponad limit zapisu i tak trafia do opisu (`split_rows`) — bez
+            # czytania, żeby długie ciało żądania nie zamroziło API.
             rows.append(dict(data))
+            continue
+        # Słowa po sicie wiersza (≤ 20 po ≤ 100 znaków) — przegląd
+        # bezpieczeństwa 13.10.2026: surowy tekst do 30 MB szedł do odczytu
+        # przed limitami schematu.
+        words = _row_words(data.get("words"))
+        if _row_key(words) in known:
+            rows.append({**data, "words": words})
             continue
         kept: list[str] = []
         for word in words:

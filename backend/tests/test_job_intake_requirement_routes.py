@@ -163,3 +163,33 @@ async def test_rows_come_back_with_readings_per_word(app_client) -> None:
     assert tender["kind"] == "prose" and tender["needs_decision"] is True
     assert tender["talk"] == "skills" and "przetarg*" in tender["suggestions"]
     assert english["talk"] == "language" and english["needs_decision"] is True
+
+
+@pytest.mark.asyncio
+async def test_rows_are_bounded_and_read_after_the_row_sieve(app_client) -> None:
+    """Przegląd bezpieczeństwa 13.10.2026: surowy tekst wiersza szedł do odczytu
+    frazy bez limitu — jedno żądanie zamrażało API. Schemat ogranicza słowa,
+    a odczyt dostaje słowa po sicie zapisu (≤ 100 znaków)."""
+    _, headers = await make_user(UserRole.delivery_lead)
+
+    with hydrated_taxonomy():
+        too_long = await app_client.post(
+            CRITICAL_URL, json={"rows": [["x" * 1001]]}, headers=headers
+        )
+        too_many = await app_client.post(
+            CRITICAL_URL,
+            json={"rows": [[f"słowo{i}" for i in range(51)]]},
+            headers=headers,
+        )
+        resp = await app_client.post(
+            CRITICAL_URL,
+            json={"rows": [["doświadczenie " * 70]]},
+            headers=headers,
+        )
+
+    assert too_long.status_code == 422
+    assert too_many.status_code == 422
+    assert resp.status_code == 200, resp.text
+    readings = resp.json()["readings"]
+    assert len(readings) == 1 and readings[0]
+    assert max(len(reading["text"]) for reading in readings[0]) <= 100

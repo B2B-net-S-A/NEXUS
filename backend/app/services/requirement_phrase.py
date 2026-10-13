@@ -36,6 +36,7 @@ NEEDS_DECISION = frozenset({"prose", "soft", "language", "city"})
 # (`api/candidates.py` `_CLASSIFY_CITY_POPULATION`).
 CITY_POPULATION = 20_000
 MAX_SUGGESTIONS = 5
+PHRASE_MAX_CHARS = 500
 TALK_ITEM_MAX_CHARS = 160
 
 # Komentarz w nawiasie, który mówi o poziomie albo doświadczeniu — przechodzi
@@ -230,7 +231,9 @@ def _city(text: str) -> bool:
 
 def read_phrase(text: str) -> PhraseReading:
     """Jak system czyta frazę — patrz docstring modułu."""
-    clean = _clean(text or "")
+    # Słowo wiersza ma najwyżej 100 znaków; przycięcie chroni pamięć
+    # podręczną bramki przed kluczami z megabajtowego ciała żądania.
+    clean = _clean((text or "")[:PHRASE_MAX_CHARS])
     if not clean:
         return PhraseReading(text, "prose", None, None, None, None, (), True)
     requirement = gate_requirement(clean)

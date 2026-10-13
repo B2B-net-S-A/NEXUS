@@ -121,3 +121,28 @@ def test_talk_items_are_appended_to_stored_experience():
 def test_payload_without_rows_is_untouched():
     patch = {"stack": {"notes": "x"}}
     assert _run(patch) == (patch, [])
+
+
+def test_raw_text_is_cut_to_row_limits_before_reading(monkeypatch):
+    """Przegląd bezpieczeństwa 13.10.2026: surowy tekst wiersza (do 30 MB ciała
+    żądania) szedł do `read_phrase` przed limitami schematu — jedno żądanie
+    zamrażało API. Odczyt dostaje słowa po sicie wiersza: ≤ 20 słów po ≤ 100
+    znaków, a wierszy najwyżej tyle, ile zmieści zapis z nadmiarem."""
+    from app.services import requirement_phrase
+
+    seen: list[str] = []
+    real = requirement_phrase.read_phrase
+
+    def spy(text):
+        seen.append(text)
+        return real(text)
+
+    monkeypatch.setattr(requirement_phrase, "read_phrase", spy)
+    huge = "doświadczenie " * 100_000
+    rows = [{"words": [huge], "level": "must"}] + [
+        {"words": [f"słowo{i}-{j}" for j in range(500)], "level": "nice"}
+        for i in range(200)
+    ]
+    _run(_patch(rows))
+    assert seen and max(len(text) for text in seen) <= 100
+    assert len(seen) <= 60 * 20
