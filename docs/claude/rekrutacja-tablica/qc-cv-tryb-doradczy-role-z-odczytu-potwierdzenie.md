@@ -33,6 +33,17 @@ kandydatów w QC nie miało opisów ról w historii profilu.
   mimo QC”. Tę samą regułę (`cv_qc._override_applies`) czyta bramka ruchu,
   plakietka na Tablicy (`pair_statuses`), okno QC i przegląd DL — nie
   rozdzielaj ich.
+- **Obejście doradcze dotyczy wersji CV i trybu (14.10.2026).** Audyt 13.10
+  pokazał, że obejście rekrutera przepuszczało dalej po zmianie CV i po
+  `CV_QC_ADVISORY=False`, więc „powrót do blokady jedną wartością” nie
+  działał. Teraz `_override_applies` liczy obejście doradcze tylko w trybie
+  doradczym i tylko przy odcisku CV (`cv_fingerprint`), przy którym je
+  zrobiono: bramka i okno porównują z CV liczonym teraz (`run_qc`), plakietka
+  i przegląd DL — z CV najnowszego przebiegu pary. Obejście osoby od wysyłki
+  bez zmian (bez końca). Zwrot karty zużywa każde niezużyte obejście doradcze
+  (`has_live_advisory_override` bez warunku CV i trybu), żeby nie ożyło po
+  powrocie do starego CV. Testy: `test_fix48_ws11_qc_override_rule.py`,
+  `test_fix48_ws11_qc_pair_status.py`.
 - **Integracje nie decydują w QC.** Token klienta OAuth (scraper, n8n) działa
   jako konto z rolą operacyjną i przechodzi `ensure_job_membership`, więc
   obejście w trybie doradczym i `…/qc/confirm` odmawiają mu jawnie

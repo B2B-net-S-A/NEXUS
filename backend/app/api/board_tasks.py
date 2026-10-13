@@ -50,6 +50,7 @@ from app.services import agreement_tasks, rate_change_tasks
 from app.services import board_tasks as svc
 from app.services.stage_client_rate import latest_client_rates
 from app.services.action_permissions import ProductAction, has_permission
+from app.services.effective_access import resolve_effective_access
 from app.services import (
     board_flow,
     candidate_followups,
@@ -1173,6 +1174,9 @@ async def get_cpro_queue(
         if mover_ids
         else {}
     )
+    # „✓ Zaakceptował(a)” czyta prawo wysyłki z bazy (panel „Osoby i role”),
+    # nie z domyślnego zestawu roli — konto z tabeli nie ma polityki żądania.
+    await resolve_effective_access(db, movers.values())
     dl_notes = await stage_remarks.for_stages(db, [t.stage_id for t in to_send])
 
     jobs: dict[int, CproQueueJob] = {}

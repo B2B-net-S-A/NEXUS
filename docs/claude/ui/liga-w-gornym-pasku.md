@@ -35,6 +35,13 @@ i rekomendacje D1–D6. Raport: `docs/league-topbar-completion-report.md`.
   liczby DL — jeden wpis dla całej firmy `competitions:dl-counts:{okres}`.
   Zamrożenie i remis czyszczą je razem z prefiksem `competitions:`. Front pyta
   co 5 minut, bez odświeżania przy powrocie do karty.
+- **Okres w kluczu = okres w wartości (14.10.2026).** Klucz paska to
+  `competitions:topbar:{typ}:{kwartał}`, a wartość brała wpis `/current` bez
+  okresu, który żyje 60 s — audyt 13.10 pokazał, że tuż po starcie kwartału
+  pod kluczem nowego kwartału zostawał na 5 minut ranking starego. `my_league`
+  bierze teraz wpis `/current` tylko wtedy, gdy ma okres z klucza; inaczej
+  liczy ranking dla tego kwartału. Test zamrożenia woła trasy `freeze`
+  i `resolve-tie`, nie samo czyszczenie cache (`test_competitions_my_league.py`).
 - **Dystans liczy się z całej listy** (`league_standing`): miejsce 1 — przewaga
   nad 2.; miejsca 2–3 — do miejsca wyżej; od 4. i bez miejsca — do wyniku
   3. miejsca, nigdy ujemny. `/my-position` oddaje tylko ±2 sąsiadów i od
