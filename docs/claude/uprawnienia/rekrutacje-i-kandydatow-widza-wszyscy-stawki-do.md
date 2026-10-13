@@ -64,11 +64,27 @@ stawki, za jaką osoby są wysyłane do klienta”.
   i fragment w dzwonku wzmianki (`_mention_snippet`, jak dla `dl_rate`).
   Notatki o stawce KANDYDATA (rekruter, karta, screening) zostają jawne; autor
   widzi swoją notatkę. Nowa powierzchnia z treścią notatek = ta sama para wywołań.
-  Jeszcze bez zakrycia (pliki poza tą zmianą): podgląd kandydata i „Ostatnia
-  rozmowa” na liście (`api/candidates.py`), oś `/timeline`, wycinki wyszukiwania
-  (`note_rate_visibility_clause`), oś kontraktu (`api/contracts.py`). Notatka
-  napisana PRZED ruchem na „CV wysłane” dostaje fragment w dzwonku z treścią
-  (ruchu jeszcze nie ma) — lista i tak ją zakryje po ruchu.
+  Notatka napisana PRZED ruchem na „CV wysłane” dostaje fragment w dzwonku
+  z treścią (ruchu jeszcze nie ma) — lista i tak ją zakryje po ruchu.
+- **Od 14.10.2026 decyzja C obejmuje każdą powierzchnię z treścią notatek
+  kandydata** (audyt 13.10 pokazał, że po WS10 rekruter czytał tę samą cenę
+  w podglądzie, na liście i na osiach). Poza `GET /api/notes` i dzwonkiem:
+  - lista kandydatów (`GET /api/candidates`): „Ostatnia rozmowa”
+    (`include_last_talk`) i „ostatnia notatka” (`include_last_activity`) mają
+    zdanie zastępcze (`_list_note_preview`); wycinki wyszukiwania nie biorą
+    takiej notatki za źródło (`_snippet_notes_by_candidate` — jak `dl_rate`
+    w `note_rate_visibility_clause`). Jedno `hidden_send_note_ids` na stronę dla
+    wszystkich trzech (dwa zapytania; rola ze stawką do klienta — zero);
+  - podgląd kandydata (`GET /api/candidates/{id}/quick-view`, `recent_notes`);
+  - oś `GET /api/candidates/{id}/timeline` — notatki główne, odpowiedzi
+    i `content_hidden`;
+  - oś kontraktu `GET /api/contracts/{id}/notes`
+    (`_note_timeline_item(..., send_note=)`; podgląd Delivery da się nadać
+    rekruterowi).
+  Jeszcze bez zakrycia: samo TRAFIENIE wyszukiwania w treść takiej notatki
+  (`q`/słowa kluczowe w zakresie „notatki” znajdują osobę po kwocie —
+  `advanced_candidate_search`, `keyword_corpus` wycinają tylko `dl_rate`)
+  i czytniki AI notatek (QC CV, podsumowanie aktywności) — niesprawdzone.
 - **Rekruter prowadzi swoich kandydatów w cudzej rekrutacji** (decyzja Artura
   07.10.2026: ludzie przepinają swoich kandydatów poza oficjalnym przydziałem).
   Dodający zostaje właścicielem procesu (`recruitment_processes.owner_user_id`),
