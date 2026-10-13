@@ -100,10 +100,12 @@ dopasowanie dla N”, otwierał osobę, zaznaczał i dopiero dodawał.
   serwer oddaje jej propozycję (`added` → `proposed`,
   `job_proposals.reopen_after_quick_undo`), więc wiersz wraca do zwykłego
   stanu; później propozycja zostaje `added`, a pominięta (`dismissed`) — pominięta.
-- **Powód w wierszu:** do trzech chipów w jednej linii (skracane, tokeny
+- **Powód w wierszu:** do trzech chipów i „+N” za resztę (tokeny
   `success-muted` / `destructive-muted` / `warning-muted`): „✓ spełnia”,
-  „✕ brakuje”, „? … — zapytaj”, najpierw po jednym z rodzaju
-  (`reason-chips.ts`). Propozycje — z `detail.requirements` (bez zapytania),
+  „✕ brakuje”, „? zapytaj w rozmowie”, najpierw po jednym z rodzaju
+  (`reason-chips.ts`). Chipy stoją pod CAŁYM wierszem (także pod „+ Dodaj”
+  i strzałką), najwyżej dwie linie, etykieta do 18 znaków, cała w podpowiedzi
+  — obok przycisków w oknie 540 px mieściły 1–3 litery. Propozycje — z `detail.requirements` (bez zapytania),
   „Szukaj w bazie” — z `matching_must` / `gap_must` odpowiedzi `/scores`,
   „zapytaj” — must-have zdaniem (`not_searchable_must`). Jednolinijkowy powód
   (`row.reason`) zostaje.

@@ -142,29 +142,63 @@ describe("PickList — dopasowanie bez klikania, „+ Dodaj”, „Cofnij” i p
     expect(screen.queryByRole("button", { name: /Cofnij/ })).toBeNull();
   });
 
-  it("chipy powodu w jednej linii pod faktami; powód zdaniem zostaje jedną linią", () => {
+  it("chipy powodu pod całym wierszem (także pod przyciskami): do 2 linii, etykieta do 18 znaków, „+N”", () => {
     render(
       <PickList
         {...base}
+        onAdd={vi.fn()}
+        onDismiss={vi.fn()}
+        onPreview={vi.fn()}
         rows={[
           row({
             note: "Spełnia: Java, Spring",
-            chips: [
-              { tone: "met", label: "Java" },
-              { tone: "gap", label: "Kafka" },
-              { tone: "ask", label: "Minimum 5 lat doświadczenia w projektach dla sektora finansowego" },
-            ],
+            chips: {
+              shown: [
+                { tone: "met", label: "Java" },
+                { tone: "gap", label: "Kafka" },
+                { tone: "ask", label: "Minimum 5 lat doświadczenia w projektach dla sektora finansowego" },
+              ],
+              hidden: [
+                { tone: "met", label: "Spring" },
+                { tone: "met", label: "SQL" },
+              ],
+            },
           }),
         ]}
       />,
     );
-    const reasons = screen.getByRole("group", { name: "Dlaczego ta osoba" });
-    expect(reasons.className).toContain("flex-nowrap");
+    const item = screen.getByRole("listitem");
+    const reasons = within(item).getByRole("group", { name: "Dlaczego ta osoba" });
+    // Wiersz chipów jest rodzeństwem bloku z przyciskami, nie jego kolumną.
+    const addButton = within(item).getByRole("button", { name: "Dodaj do „Nowych”: Anna Przykładowa" });
+    expect(reasons.parentElement).toBe(item);
+    expect(reasons.contains(addButton)).toBe(false);
+    expect(addButton.closest("div")?.contains(reasons)).toBe(false);
+    expect(reasons.className).toContain("flex-wrap");
+    expect(reasons.className).toContain("max-h-11");
     expect(within(reasons).getByText("Java")).toBeInTheDocument();
     expect(within(reasons).getByText("Kafka").parentElement).toHaveAttribute("data-tone", "gap");
-    expect(
-      within(reasons).getByText("Minimum 5 lat doświadczenia w projektach dla sektora finansowego").className,
-    ).toContain("truncate");
+    // Długa etykieta: 18 znaków na chipie, cała w podpowiedzi, bez „— zapytaj”.
+    const ask = within(reasons).getByText("Minimum 5 lat doś…");
+    expect(ask.parentElement).toHaveAttribute(
+      "title",
+      "Nie wiemy — zapytaj w rozmowie: Minimum 5 lat doświadczenia w projektach dla sektora finansowego",
+    );
+    // Bez dopisku „— zapytaj” — mówi to „?” na początku (i tekst dla czytnika).
+    expect(ask.parentElement?.textContent).toBe("?Nie wiemy — zapytaj w rozmowie: Minimum 5 lat doś…");
+    const more = within(reasons).getByText("+2").parentElement as HTMLElement;
+    expect(more).toHaveAttribute("title", "✓ Spring, ✓ SQL");
     expect(screen.getByText("Spełnia: Java, Spring").className).toContain("line-clamp-1");
+  });
+
+  it("dodana osoba nie pokazuje chipów (ma status z „Cofnij”)", () => {
+    render(
+      <PickList
+        {...base}
+        rows={[row({ addState: "added", chips: { shown: [{ tone: "met", label: "Java" }], hidden: [] } })]}
+        onUndo={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole("group", { name: "Dlaczego ta osoba" })).toBeNull();
   });
 });

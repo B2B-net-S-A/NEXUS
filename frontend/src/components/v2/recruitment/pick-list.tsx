@@ -24,7 +24,7 @@ import { EmploymentPill } from "@/components/ds/EmploymentMarker";
 import type { EmploymentMarker } from "@/lib/employment-marker";
 import { cn } from "@/lib/utils";
 
-import type { ReasonChip, ReasonChipTone } from "./reason-chips";
+import { shortChipLabel, type ReasonChipList, type ReasonChipTone } from "./reason-chips";
 
 /** Wiersz listy do zaznaczenia — wspólny dla wszystkich źródeł. */
 export interface PickRow {
@@ -44,8 +44,8 @@ export interface PickRow {
   warnings: Array<{ key: string; label: string; blocking: boolean }>;
   /** Dodatkowa treść pod wierszem (np. trafienia słów kluczowych w CV). */
   extra?: ReactNode;
-  /** Do trzech chipów „✓ / ✕ / ? — zapytaj” (powód bez otwierania osoby). */
-  chips?: readonly ReasonChip[] | null;
+  /** Do trzech chipów „✓ / ✕ / ?” i „+N” (powód bez otwierania osoby). */
+  chips?: ReasonChipList | null;
   /**
    * „+ Dodaj” w toku, osoba dodana w tym oknie (wiersz zostaje z „Cofnij”)
    * albo cofanie w toku.
@@ -151,36 +151,46 @@ const CHIP_TITLE: Record<ReasonChipTone, string> = {
   gap: "Brakuje",
   ask: "Nie wiemy — zapytaj w rozmowie",
 };
+const CHIP_BASE =
+  "inline-flex min-w-0 max-w-full items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] font-semibold leading-4";
 
-/** Jedna linia chipów — dłuższe etykiety się skracają, wiersz nie rośnie. */
-function ReasonChips({ chips }: { chips: readonly ReasonChip[] }) {
+/**
+ * Chipy powodu pod całym wierszem (także pod przyciskami po prawej) —
+ * najwyżej dwie linie, etykieta do ~18 znaków, cała w podpowiedzi.
+ */
+function ReasonChips({ chips }: { chips: ReasonChipList }) {
+  const { shown, hidden } = chips;
   return (
     <div
       role="group"
       aria-label="Dlaczego ta osoba"
-      className="mt-1 flex min-w-0 flex-nowrap gap-1 overflow-hidden"
+      className="mt-1 flex max-h-11 flex-wrap gap-1 overflow-hidden pl-7"
       data-testid="pick-row-reasons"
     >
-      {chips.map((chip) => (
+      {shown.map((chip) => (
         <span
           key={`${chip.tone}-${chip.label}`}
           title={`${CHIP_TITLE[chip.tone]}: ${chip.label}`}
           data-tone={chip.tone}
-          className={cn(
-            "inline-flex min-w-0 max-w-[60%] shrink items-center gap-1 rounded px-1.5 text-[10.5px] font-semibold",
-            CHIP_CLASS[chip.tone],
-          )}
+          className={cn(CHIP_BASE, CHIP_CLASS[chip.tone])}
         >
           <span aria-hidden="true">{CHIP_GLYPH[chip.tone]}</span>
           <span className="sr-only">{CHIP_TITLE[chip.tone]}: </span>
-          <span className="truncate">{chip.label}</span>
-          {chip.tone === "ask" ? (
-            <span className="shrink-0" aria-hidden="true">
-              — zapytaj
-            </span>
-          ) : null}
+          <span className="truncate">{shortChipLabel(chip.label)}</span>
         </span>
       ))}
+      {hidden.length > 0 ? (
+        <span
+          title={hidden.map((chip) => `${CHIP_GLYPH[chip.tone]} ${chip.label}`).join(", ")}
+          data-tone="more"
+          className={cn(CHIP_BASE, "bg-muted text-muted-foreground")}
+        >
+          <span aria-hidden="true">+{hidden.length}</span>
+          <span className="sr-only">
+            I jeszcze: {hidden.map((chip) => `${CHIP_TITLE[chip.tone]}: ${chip.label}`).join(", ")}
+          </span>
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -219,151 +229,153 @@ function PickListItem({
       data-candidate-id={row.candidateId}
       data-added={added || undefined}
       className={cn(
-        "flex items-start gap-3 px-3 py-2",
+        "px-3 py-2",
         checked && "bg-primary/5",
         added && "bg-success-muted/40",
         active && "bg-primary/10",
       )}
     >
-      <Checkbox
-        id={inputId}
-        checked={checked}
-        disabled={readOnly || Boolean(blocking) || added}
-        onCheckedChange={() => onToggle(row)}
-        aria-label={`Zaznacz ${row.fullName}`}
-        className="mt-0.5"
-      />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-start justify-between gap-2">
-          {onPreview ? (
-            <button
-              type="button"
-              onClick={(event) => onPreview(row, event.currentTarget)}
-              className={cn(
-                "min-w-0 truncate text-left text-sm font-medium hover:text-primary hover:underline",
-                active ? "text-primary" : "text-foreground",
-              )}
-            >
-              {row.fullName}
-            </button>
-          ) : (
-            <label htmlFor={inputId} className="min-w-0 truncate text-sm font-medium text-foreground">
-              {row.fullName}
-            </label>
-          )}
-          {renderScore ? renderScore(row) : <ScoreBadge score={row.fitScore} />}
-        </div>
-        {/* Fakty zamiast pustych pól — nieznane po prostu nie wchodzą. */}
-        {row.facts ? (
-          <p className="text-xs text-muted-foreground">{row.facts}</p>
-        ) : row.rateLabel || row.availabilityLabel ? (
-          <p className="text-xs text-muted-foreground">
-            {[row.rateLabel, row.availabilityLabel].filter(Boolean).join(" · ")}
-          </p>
-        ) : null}
-        {/* Jedna linia powodu — całość w podpowiedzi i w podglądzie osoby. */}
-        {row.note && (
-          <p className="line-clamp-1 text-xs text-muted-foreground" title={row.note}>
-            {row.note}
-          </p>
-        )}
-        {added ? (
-          <p
-            role="status"
-            className="mt-0.5 flex flex-wrap items-center gap-x-1 text-xs font-medium text-success-muted-foreground"
-            data-testid="pick-row-added"
-          >
-            <Check className="h-3.5 w-3.5" aria-hidden="true" />
-            Dodano do „Nowych” · rezerwacja 12 h
-            {onUndo && !readOnly ? (
-              <>
-                <span aria-hidden="true">·</span>
-                <button
-                  type="button"
-                  onClick={() => onUndo(row)}
-                  disabled={row.addState === "undoing"}
-                  aria-label={`Cofnij dodanie: ${row.fullName}`}
-                  className="font-semibold text-primary hover:underline disabled:opacity-60"
-                >
-                  {row.addState === "undoing" ? "Cofam…" : "Cofnij"}
-                </button>
-              </>
-            ) : null}
-          </p>
-        ) : row.chips && row.chips.length > 0 ? (
-          <ReasonChips chips={row.chips} />
-        ) : null}
-        {row.extra}
-        {(row.sourceLabel || row.cvBadge || row.employment || row.warnings.length > 0) && (
-          <div className="mt-1 flex flex-wrap items-center gap-1">
-            {/* Poza przyciskiem nazwiska i linią faktów — ich treść
-                jest nazwą dostępną wiersza i tekstem do skanowania. */}
-            {row.employment ? <EmploymentPill marker={row.employment} /> : null}
-            {row.cvBadge ? <CvBadge badge={row.cvBadge} /> : null}
-            {row.sourceLabel && (
-              <span className="rounded bg-muted px-1.5 text-[10.5px] font-semibold text-muted-foreground">
-                {row.sourceLabel}
-              </span>
-            )}
-            {row.warnings.map((w) => (
-              <span
-                key={w.key}
+      <div className="flex items-start gap-3">
+        <Checkbox
+          id={inputId}
+          checked={checked}
+          disabled={readOnly || Boolean(blocking) || added}
+          onCheckedChange={() => onToggle(row)}
+          aria-label={`Zaznacz ${row.fullName}`}
+          className="mt-0.5"
+        />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            {onPreview ? (
+              <button
+                type="button"
+                onClick={(event) => onPreview(row, event.currentTarget)}
                 className={cn(
-                  "rounded px-1.5 text-[10.5px] font-semibold",
-                  eligibilityBadgeClass({ assignment_allowed: !w.blocking }),
+                  "min-w-0 truncate text-left text-sm font-medium hover:text-primary hover:underline",
+                  active ? "text-primary" : "text-foreground",
                 )}
               >
-                {w.label}
-              </span>
-            ))}
+                {row.fullName}
+              </button>
+            ) : (
+              <label htmlFor={inputId} className="min-w-0 truncate text-sm font-medium text-foreground">
+                {row.fullName}
+              </label>
+            )}
+            {renderScore ? renderScore(row) : <ScoreBadge score={row.fitScore} />}
           </div>
-        )}
+          {/* Fakty zamiast pustych pól — nieznane po prostu nie wchodzą. */}
+          {row.facts ? (
+            <p className="text-xs text-muted-foreground">{row.facts}</p>
+          ) : row.rateLabel || row.availabilityLabel ? (
+            <p className="text-xs text-muted-foreground">
+              {[row.rateLabel, row.availabilityLabel].filter(Boolean).join(" · ")}
+            </p>
+          ) : null}
+          {/* Jedna linia powodu — całość w podpowiedzi i w podglądzie osoby. */}
+          {row.note && (
+            <p className="line-clamp-1 text-xs text-muted-foreground" title={row.note}>
+              {row.note}
+            </p>
+          )}
+          {added ? (
+            <p
+              role="status"
+              className="mt-0.5 flex flex-wrap items-center gap-x-1 text-xs font-medium text-success-muted-foreground"
+              data-testid="pick-row-added"
+            >
+              <Check className="h-3.5 w-3.5" aria-hidden="true" />
+              Dodano do „Nowych” · rezerwacja 12 h
+              {onUndo && !readOnly ? (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <button
+                    type="button"
+                    onClick={() => onUndo(row)}
+                    disabled={row.addState === "undoing"}
+                    aria-label={`Cofnij dodanie: ${row.fullName}`}
+                    className="font-semibold text-primary hover:underline disabled:opacity-60"
+                  >
+                    {row.addState === "undoing" ? "Cofam…" : "Cofnij"}
+                  </button>
+                </>
+              ) : null}
+            </p>
+          ) : null}
+          {row.extra}
+          {(row.sourceLabel || row.cvBadge || row.employment || row.warnings.length > 0) && (
+            <div className="mt-1 flex flex-wrap items-center gap-1">
+              {/* Poza przyciskiem nazwiska i linią faktów — ich treść
+                  jest nazwą dostępną wiersza i tekstem do skanowania. */}
+              {row.employment ? <EmploymentPill marker={row.employment} /> : null}
+              {row.cvBadge ? <CvBadge badge={row.cvBadge} /> : null}
+              {row.sourceLabel && (
+                <span className="rounded bg-muted px-1.5 text-[10.5px] font-semibold text-muted-foreground">
+                  {row.sourceLabel}
+                </span>
+              )}
+              {row.warnings.map((w) => (
+                <span
+                  key={w.key}
+                  className={cn(
+                    "rounded px-1.5 text-[10.5px] font-semibold",
+                    eligibilityBadgeClass({ assignment_allowed: !w.blocking }),
+                  )}
+                >
+                  {w.label}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+        {onAdd && !readOnly && !added ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 shrink-0 gap-1 px-2"
+            onClick={() => onAdd(row)}
+            disabled={Boolean(blocking)}
+            loading={row.addState === "adding"}
+            aria-label={`Dodaj do „Nowych”: ${row.fullName}`}
+            title={blocking ? blocking.label : "Dodaj do „Nowych” — rezerwacja 12 h dla Ciebie"}
+            data-testid="pick-row-add"
+          >
+            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+            Dodaj
+          </Button>
+        ) : null}
+        {onDismiss && !readOnly && !added ? (
+          <button
+            type="button"
+            aria-label={`Pomiń: ${row.fullName}`}
+            title="Pomiń — wróci tylko z nową wersją CV"
+            onClick={() => onDismiss(row)}
+            className="hit-area rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <X className="h-4 w-4" aria-hidden />
+          </button>
+        ) : null}
+        {onPreview ? (
+          <button
+            type="button"
+            aria-label={`Podgląd: ${row.fullName}`}
+            aria-pressed={active}
+            onClick={(event) => (active ? onClosePreview?.() : onPreview(row, event.currentTarget))}
+            className={cn(
+              "hit-area rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground",
+              active && "text-primary",
+            )}
+          >
+            {active ? (
+              <ChevronLeft className="h-4 w-4" aria-hidden />
+            ) : (
+              <ChevronRight className="h-4 w-4" aria-hidden />
+            )}
+          </button>
+        ) : null}
       </div>
-      {onAdd && !readOnly && !added ? (
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-7 shrink-0 gap-1 px-2"
-          onClick={() => onAdd(row)}
-          disabled={Boolean(blocking)}
-          loading={row.addState === "adding"}
-          aria-label={`Dodaj do „Nowych”: ${row.fullName}`}
-          title={blocking ? blocking.label : "Dodaj do „Nowych” — rezerwacja 12 h dla Ciebie"}
-          data-testid="pick-row-add"
-        >
-          <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-          Dodaj
-        </Button>
-      ) : null}
-      {onDismiss && !readOnly && !added ? (
-        <button
-          type="button"
-          aria-label={`Pomiń: ${row.fullName}`}
-          title="Pomiń — wróci tylko z nową wersją CV"
-          onClick={() => onDismiss(row)}
-          className="hit-area rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-        >
-          <X className="h-4 w-4" aria-hidden />
-        </button>
-      ) : null}
-      {onPreview ? (
-        <button
-          type="button"
-          aria-label={`Podgląd: ${row.fullName}`}
-          aria-pressed={active}
-          onClick={(event) => (active ? onClosePreview?.() : onPreview(row, event.currentTarget))}
-          className={cn(
-            "hit-area rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground",
-            active && "text-primary",
-          )}
-        >
-          {active ? (
-            <ChevronLeft className="h-4 w-4" aria-hidden />
-          ) : (
-            <ChevronRight className="h-4 w-4" aria-hidden />
-          )}
-        </button>
-      ) : null}
+      {/* Pod całym wierszem, nie obok przycisków — inaczej chip mieścił 1–3 litery. */}
+      {!added && row.chips && row.chips.shown.length > 0 ? <ReasonChips chips={row.chips} /> : null}
     </li>
   );
 }

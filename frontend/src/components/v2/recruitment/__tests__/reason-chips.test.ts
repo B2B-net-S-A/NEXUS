@@ -4,33 +4,44 @@ import {
   breakdownReasonChips,
   proposalReasonChips,
   reasonChips,
+  shortChipLabel,
   withKeptRows,
 } from "../reason-chips";
 
 describe("reasonChips — powód w wierszu", () => {
-  it("najpierw po jednym z każdego rodzaju, najwyżej trzy", () => {
+  it("najpierw po jednym z każdego rodzaju, najwyżej trzy; reszta idzie do „+N”", () => {
     expect(
       reasonChips({ met: ["Java", "Spring", "SQL"], gap: ["Kafka"], ask: ["5 lat w bankowości"] }),
-    ).toEqual([
-      { tone: "met", label: "Java" },
-      { tone: "gap", label: "Kafka" },
-      { tone: "ask", label: "5 lat w bankowości" },
-    ]);
+    ).toEqual({
+      shown: [
+        { tone: "met", label: "Java" },
+        { tone: "gap", label: "Kafka" },
+        { tone: "ask", label: "5 lat w bankowości" },
+      ],
+      hidden: [
+        { tone: "met", label: "Spring" },
+        { tone: "met", label: "SQL" },
+      ],
+    });
   });
 
   it("brak jednego rodzaju = kolejne pozycje pozostałych", () => {
-    expect(reasonChips({ met: ["Java", "Spring", "SQL"], gap: ["Kafka"] })).toEqual([
-      { tone: "met", label: "Java" },
-      { tone: "gap", label: "Kafka" },
-      { tone: "met", label: "Spring" },
-    ]);
-    expect(reasonChips({})).toEqual([]);
+    expect(reasonChips({ met: ["Java", "Spring", "SQL"], gap: ["Kafka"] })).toEqual({
+      shown: [
+        { tone: "met", label: "Java" },
+        { tone: "gap", label: "Kafka" },
+        { tone: "met", label: "Spring" },
+      ],
+      hidden: [{ tone: "met", label: "SQL" }],
+    });
+    expect(reasonChips({})).toEqual({ shown: [], hidden: [] });
   });
 
   it("ta sama etykieta raz, puste pomijane", () => {
-    expect(reasonChips({ met: ["Java", " "], gap: ["java"], ask: ["Java"] })).toEqual([
-      { tone: "met", label: "Java" },
-    ]);
+    expect(reasonChips({ met: ["Java", " "], gap: ["java"], ask: ["Java"] })).toEqual({
+      shown: [{ tone: "met", label: "Java" }],
+      hidden: [],
+    });
   });
 
   it("propozycja: must-have przed mile widzianymi, nieznane = „zapytaj”", () => {
@@ -44,23 +55,33 @@ describe("reasonChips — powód w wierszu", () => {
         ],
         ["5 lat w finansach"],
       ),
-    ).toEqual([
-      { tone: "met", label: "Angular" },
-      { tone: "ask", label: "TypeScript" },
-      { tone: "met", label: "Scala" },
-    ]);
-    expect(proposalReasonChips(undefined)).toEqual([]);
+    ).toEqual({
+      shown: [
+        { tone: "met", label: "Angular" },
+        { tone: "ask", label: "TypeScript" },
+        { tone: "met", label: "Scala" },
+      ],
+      hidden: [{ tone: "ask", label: "5 lat w finansach" }],
+    });
+    expect(proposalReasonChips(undefined)).toEqual({ shown: [], hidden: [] });
   });
 
   it("wyszukiwanie: rozbicie dopasowania i must-have zdaniem", () => {
     expect(
-      breakdownReasonChips({ matching_must: ["Angular"], gap_must: ["TypeScript"] }, ["5 lat w finansach"]),
+      breakdownReasonChips({ matching_must: ["Angular"], gap_must: ["TypeScript"] }, ["5 lat w finansach"]).shown,
     ).toEqual([
       { tone: "met", label: "Angular" },
       { tone: "gap", label: "TypeScript" },
       { tone: "ask", label: "5 lat w finansach" },
     ]);
-    expect(breakdownReasonChips(null, [])).toEqual([]);
+    expect(breakdownReasonChips(null, [])).toEqual({ shown: [], hidden: [] });
+  });
+
+  it("etykieta do 18 znaków, dłuższa skrócona wielokropkiem", () => {
+    expect(shortChipLabel("TypeScript")).toBe("TypeScript");
+    expect(shortChipLabel("Doświadczenie w KYC")).toBe("Doświadczenie w K…");
+    expect(shortChipLabel("Minimum 5 lat doświadczenia w projektach")).toBe("Minimum 5 lat doś…");
+    expect([...shortChipLabel("Minimum 5 lat doświadczenia w projektach")]).toHaveLength(18);
   });
 });
 

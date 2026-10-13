@@ -731,7 +731,8 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
       expect([...chips.children].map((c) => [c.getAttribute("data-tone"), c.textContent])).toEqual([
         ["met", "✓Spełnia: Java"],
         ["gap", "✕Brakuje: Kafka"],
-        ["ask", "?Nie wiemy — zapytaj w rozmowie: 5 lat w bankowości— zapytaj"],
+        ["ask", "?Nie wiemy — zapytaj w rozmowie: 5 lat w bankowości"],
+        ["more", "+1I jeszcze: Spełnia: Spring"],
       ]),
     );
   });

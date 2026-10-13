@@ -1,7 +1,9 @@
 /**
  * Powód w wierszu okna „Kandydaci do dodania” (14.10.2026): do trzech chipów
- * „✓ spełnia”, „✕ brakuje”, „? zapytaj”, żeby rekruter nie otwierał osoby,
- * tylko po to, by zobaczyć, czemu jest na liście.
+ * „✓ spełnia”, „✕ brakuje”, „? zapytaj” i „+N” za resztę, żeby rekruter nie
+ * otwierał osoby tylko po to, by zobaczyć, czemu jest na liście. Etykieta
+ * do ~18 znaków (`shortChipLabel`), cała w podpowiedzi — chip skrócony do
+ * trzech liter był gorszy niż żaden (zrzut 1280 × 720, okno 540 px).
  *
  * Najpierw po jednym z każdego rodzaju (co pasuje, czego brakuje, o co
  * zapytać), potem reszta po kolei — trzy „✓” nie mówią, czego brakuje.
@@ -21,6 +23,23 @@ export interface ReasonChip {
 }
 
 export const REASON_CHIPS_MAX = 3;
+/** Tyle znaków etykiety widać na chipie; resztę mówi podpowiedź (`title`). */
+export const REASON_CHIP_LABEL_MAX = 18;
+
+/** Chipy do pokazania i reszta (chip „+N”, lista w podpowiedzi). */
+export interface ReasonChipList {
+  shown: ReasonChip[];
+  hidden: ReasonChip[];
+}
+
+const EMPTY: ReasonChipList = { shown: [], hidden: [] };
+
+/** „Minimum 5 lat doświadczenia…” — skrót etykiety do `max` znaków. */
+export function shortChipLabel(label: string, max: number = REASON_CHIP_LABEL_MAX): string {
+  const chars = [...label.trim()];
+  if (chars.length <= max) return chars.join("");
+  return `${chars.slice(0, max - 1).join("").trimEnd()}…`;
+}
 
 const TONES: readonly ReasonChipTone[] = ["met", "gap", "ask"];
 
@@ -30,7 +49,7 @@ const labelKey = (label: string) => label.trim().replace(/\s+/g, " ").toLocaleLo
 export function reasonChips(
   lists: Partial<Record<ReasonChipTone, readonly string[]>>,
   max: number = REASON_CHIPS_MAX,
-): ReasonChip[] {
+): ReasonChipList {
   const seen = new Set<string>();
   const queues = TONES.map((tone) => ({
     tone,
@@ -42,16 +61,16 @@ export function reasonChips(
     }),
   }));
   const out: ReasonChip[] = [];
-  for (let round = 0; out.length < max; round += 1) {
+  for (let round = 0; ; round += 1) {
     const before = out.length;
     for (const { tone, labels } of queues) {
-      if (out.length >= max) break;
       const label = labels[round];
       if (label) out.push({ tone, label: label.trim() });
     }
     if (out.length === before) break;
   }
-  return out;
+  if (out.length === 0) return EMPTY;
+  return { shown: out.slice(0, max), hidden: out.slice(max) };
 }
 
 /**
@@ -61,7 +80,7 @@ export function reasonChips(
 export function proposalReasonChips(
   requirements: readonly ProposalRequirement[] | null | undefined,
   askLabels: readonly string[] = [],
-): ReasonChip[] {
+): ReasonChipList {
   const reqs = requirements ?? [];
   const pick = (level: "must" | "nice", status: ProposalRequirement["status"]) =>
     reqs.filter((r) => r.level === level && r.status === status).map((r) => r.label);
@@ -76,7 +95,7 @@ export function proposalReasonChips(
 export function breakdownReasonChips(
   breakdown: MatchBreakdown | null | undefined,
   askLabels: readonly string[] = [],
-): ReasonChip[] {
+): ReasonChipList {
   return reasonChips({
     met: breakdown?.matching_must ?? [],
     gap: breakdown?.gap_must ?? [],
