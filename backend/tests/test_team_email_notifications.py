@@ -191,6 +191,44 @@ def test_counts_and_deadlines_make_sections():
     assert "Terminy Twoich rekrutacji w ciągu 7 dni" in titles
 
 
+def test_screening_gaps_are_named_in_polish_also_in_a_job_without_questions():
+    """13.10.2026: kolejka oddaje brak `why_candidate` w rekrutacji bez pytań
+    screeningowych — skrót czyta te same wiersze i nie może wypisać klucza."""
+
+    def pair(candidate_id: int, name: str, missing: list[str]) -> dict:
+        return dict(
+            candidate_id=candidate_id,
+            candidate_name=name,
+            job_id=5,
+            job_title="Analityk",
+            since=datetime(2026, 10, 12, tzinfo=timezone.utc),
+            missing=missing,
+        )
+
+    flow = dict(
+        applies=True,
+        postings=[],
+        postings_total=0,
+        claimed=[],
+        screening=[
+            pair(1, "Jan Nowak", ["why_candidate", "rate"]),
+            pair(2, "Ewa Lis", ["sheet"]),
+        ],
+        verified=[],
+        waiting_client=[],
+        waiting_client_days=7,
+        unsigned_contracts=[],
+        order_mail_review=0,
+    )
+    sections = daily_digest.build_sections(_empty_tasks(flow=flow))
+    rows = next(s for s in sections if s.title == "Screening do uzupełnienia").rows
+    assert [r.text for r in rows] == [
+        "Jan Nowak — Analityk (brak „Dlaczego ten kandydat”, brak stawki)",
+        "Ewa Lis — Analityk (brak arkusza)",
+    ]
+    assert all("why_candidate" not in r.text for r in rows)
+
+
 def test_render_escapes_html_from_data():
     tasks = _empty_tasks(dl_review=[_dl_row(1, name="<script>x</script>")])
     subject, _text, html = daily_digest.render(

@@ -13,6 +13,8 @@
  * lokalnie) — sekcje, które same pobierają dane (propozycje na górze Nowych),
  * pokazują wtedy swój stan błędu, a nie przerzucają na /login.
  * `?as=dl` — patrzy Delivery Lead (widzi „Przejmij” na cudzej blokadzie).
+ * `?questions=none` — rekrutacja bez pytań screeningowych (13.10.2026): dwie
+ * karty w „Screeningu”, bez oceny („Dlaczego ten kandydat”) i z oceną.
  *
  * Screening (02.10.2026): arkusz Zielińskiego ma podpowiedzi z dwóch
  * wcześniejszych rozmów, Dąbrowskiej — z przepięcia (odpowiedź i notatka),
@@ -91,7 +93,7 @@ function col(
   } as unknown as KanbanColumn;
 }
 
-function columns(viewerId: number): KanbanColumn[] {
+function columns(viewerId: number, noQuestions = false): KanbanColumn[] {
   nextId = 1;
   return [
     col("posting", "Ogłoszenia", "internal", 10, [
@@ -128,7 +130,29 @@ function columns(viewerId: number): KanbanColumn[] {
       }),
       card("Jakub", "Mazur", { entry_source: "proposal", can_take: true }),
     ]),
-    col("screening", "Screening", "internal", 12, []),
+    col(
+      "screening",
+      "Screening",
+      "internal",
+      12,
+      noQuestions
+        ? [
+            card("Olga", "Bezpytań", {
+              days_in_stage: 2,
+              screening_done: false,
+              screening_requirement: "why_candidate",
+            }),
+            card("Igor", "Oceniony", {
+              days_in_stage: 1,
+              screening_done: true,
+              screening_requirement: "why_candidate",
+              expected_rate_value: 140,
+              expected_rate_unit: "hourly",
+              expected_rate_currency: "PLN",
+            }),
+          ]
+        : [],
+    ),
     col("verified", "Zweryfikowany", "internal", 13, [
       card("Anna", "Kowalczyk", {
         days_in_stage: 1,
@@ -496,7 +520,8 @@ function PipelineV4Harness() {
     });
     setReady(true);
   }, [asDl, viewerId]);
-  const cols = useMemo(() => columns(viewerId), [viewerId]);
+  const noQuestions = params.get("questions") === "none";
+  const cols = useMemo(() => columns(viewerId, noQuestions), [viewerId, noQuestions]);
   // 0404: „Odrzuceni przez AI” — pusta lista, bez zapytania.
   useMemo(() => {
     client.setQueryData(screenedOutQueryKey(JOB_ID), { job_id: JOB_ID, total: 0, items: [] });

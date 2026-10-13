@@ -38,8 +38,21 @@ Decyzje Artura 12.10.2026:
   pola) — „przepięcie” zostaje tylko przy przepięciu. Pominięte odpowiedzi i notatka dalej nie
   idą do klienta.
 
-Świadomie poza zakresem: karta Tablicy i „Czeka na Ciebie” w rekrutacji bez pytań nadal piszą
-„Uzupełnij arkusz screeningu”, dopóki osoba stoi w „Screeningu” (osobne reguły:
-`pipeline_next_action`, `board_flow`, `screening_done` na karcie). Arkusz z samymi sprawdzeniami
-doświadczenia zapisuje się, ale bramki nie spełnia. Odpowiedzi z notatki (`card_answers`) nie
-mają okna próby zamkniętej dawno temu — stan sprzed tej zmiany.
+- **Karta Tablicy i „Czeka na Ciebie” mówią to samo co bramka (13.10.2026).** W rekrutacji bez
+  pytań karta niesie `screening_requirement: "why_candidate"`, a `screening_done` znaczy „ocena
+  wpisana” (`move_requirements.card_screening_state` z podsumowań kart, które Tablica i tak
+  wczytuje — bez dodatkowego zapytania). Krok w „Screeningu” to „Wpisz „Dlaczego ten kandydat””
+  (na karcie skrót „Wpisz ocenę”, bo pełna nazwa pola nie mieści się w kolumnie przy 1280 px),
+  podpowiedź strzałki „Brak „Dlaczego ten kandydat””. Etykieta kroku żyje w dwóch językach
+  (`pipeline_next_action.py`, `pipeline-next-action.ts`) na wspólnych przypadkach
+  `next-action-cases.json`. Kolejka oddaje brak `why_candidate` zamiast `sheet`
+  (`board_flow._screening`, `missing_screening_requirement`). Klucze braków czytają trzy miejsca:
+  schemat odpowiedzi (`api/board_tasks.py`), plakietki na pulpicie (`BoardFlowSections`)
+  i poranny skrót mailem (`daily_digest._MISSING`) — nowy klucz dopisuje się we wszystkich,
+  inaczej mail wypisze go surowego. Rekrutacja z pytaniami nie zmienia się w żadnym z tych
+  miejsc: karta dalej liczy sam arkusz.
+
+Świadomie poza zakresem: opis kolumny „Screening” na Tablicy („Arkusz pytań z…”) jest stały dla
+każdej rekrutacji. Arkusz z samymi sprawdzeniami doświadczenia zapisuje się, ale bramki nie
+spełnia. Odpowiedzi z notatki (`card_answers`) nie mają okna próby zamkniętej dawno temu — stan
+sprzed tej zmiany.

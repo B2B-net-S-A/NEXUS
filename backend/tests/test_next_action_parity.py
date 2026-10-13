@@ -36,6 +36,7 @@ def test_next_action_matches_frontend(case):
         StageColumn.from_meta(case["column"]),
         days_in_stage=case["item"]["days_in_stage"],
         screening_done=case["item"]["screening_done"],
+        screening_requirement=case["item"].get("screening_requirement"),
         hm_veto=bool(case["item"]["hm_veto"]),
         group=case["group"],
         sla_days=case["sla_days"],

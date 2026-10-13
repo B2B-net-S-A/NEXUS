@@ -15,7 +15,7 @@ import {
   cardShortName,
   shortStepLabel,
 } from "@/lib/board-card-badges";
-import { nextActionFor } from "@/lib/pipeline-next-action";
+import { WHY_CANDIDATE_LABEL, nextActionFor } from "@/lib/pipeline-next-action";
 
 const NOW = new Date("2026-09-23T10:00:00Z");
 
@@ -175,6 +175,13 @@ describe("Rekrutacja v5: chip QC, znany brak i „kto ma ruch”", () => {
     expect(knownForwardGap(item({ screening_done: true }), "screening")).toBeNull();
     // Brak pola (starszy serwer) to nie brak arkusza.
     expect(knownForwardGap(item({}), "screening")).toBeNull();
+    // Rekrutacja bez pytań screeningowych: brakuje oceny, nie arkusza (13.10.2026).
+    expect(
+      knownForwardGap(item({ screening_done: false, screening_requirement: "why_candidate" }), "screening"),
+    ).toBe("Brak „Dlaczego ten kandydat”");
+    expect(
+      knownForwardGap(item({ screening_done: true, screening_requirement: "why_candidate" }), "screening"),
+    ).toBeNull();
     expect(knownForwardGap(item({ qc: { status: "failed", blocking_failed: 2 } }), "cv_qc")).toBe(
       "QC: 2 do poprawy",
     );
@@ -330,6 +337,12 @@ describe("karta na laptopie (04.10.2026)", () => {
     expect(shortStepLabel("Przygotuj CV do QC")).toBe("CV do QC");
     expect(shortStepLabel("Umów interview / feedback klienta")).toBe("Umów rozmowę");
     expect(shortStepLabel("Feedback klienta")).toBe("Feedback klienta");
+  });
+
+  it("rekrutacja bez pytań: krok na karcie mówi o „Dlaczego ten kandydat”, nie o arkuszu (13.10.2026)", () => {
+    expect(WHY_CANDIDATE_LABEL).toBe("Wpisz „Dlaczego ten kandydat”");
+    expect(shortStepLabel(WHY_CANDIDATE_LABEL)).toBe("Wpisz ocenę");
+    expect(shortStepLabel("Uzupełnij arkusz screeningu")).toBe("Arkusz screeningu");
   });
 
   it("skraca kroki cyklu rozmowy u klienta (05.10.2026)", () => {

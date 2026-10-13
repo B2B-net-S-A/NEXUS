@@ -312,6 +312,75 @@
    }
   },
   {
+   "name": "screening w rekrutacji bez pytań, bez oceny",
+   "group": "screening",
+   "column": {
+    "stage": "screening",
+    "category": "internal",
+    "terminal_type": null,
+    "name": "screening"
+   },
+   "item": {
+    "days_in_stage": 2,
+    "screening_done": false,
+    "hm_veto": false,
+    "screening_requirement": "why_candidate"
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Wpisz „Dlaczego ten kandydat”",
+    "tone": "normal",
+    "kind": "screening",
+    "owner": "recruiter"
+   }
+  },
+  {
+   "name": "screening w rekrutacji bez pytań, z oceną",
+   "group": "screening",
+   "column": {
+    "stage": "screening",
+    "category": "internal",
+    "terminal_type": null,
+    "name": "screening"
+   },
+   "item": {
+    "days_in_stage": 2,
+    "screening_done": true,
+    "hm_veto": false,
+    "screening_requirement": "why_candidate"
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Zweryfikuj i przenieś dalej",
+    "tone": "normal",
+    "kind": "verification",
+    "owner": "recruiter"
+   }
+  },
+  {
+   "name": "screening w rekrutacji bez pytań po 7 dniach, bez oceny",
+   "group": "screening",
+   "column": {
+    "stage": "screening",
+    "category": "internal",
+    "terminal_type": null,
+    "name": "screening"
+   },
+   "item": {
+    "days_in_stage": 8,
+    "screening_done": false,
+    "hm_veto": false,
+    "screening_requirement": "why_candidate"
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Wpisz „Dlaczego ten kandydat”",
+    "tone": "due",
+    "kind": "screening",
+    "owner": "recruiter"
+   }
+  },
+  {
    "name": "zweryfikowany",
    "group": "verification",
    "column": {

@@ -73,6 +73,13 @@ export interface NextAction {
  */
 export const NO_NEXT_ACTION_LABEL = "Brak następnej akcji";
 
+/**
+ * Krok w „Screeningu” w rekrutacji bez pytań screeningowych: arkusza tam nie
+ * ma, bramka „Zweryfikowany” wymaga „Dlaczego ten kandydat” (13.10.2026).
+ * Ten sam napis co `WHY_CANDIDATE_LABEL` w `services/pipeline_next_action.py`.
+ */
+export const WHY_CANDIDATE_LABEL = "Wpisz „Dlaczego ten kandydat”";
+
 /** Powyżej tylu dni na etapie karta jest „zaległa" (próg z `CandidateKanbanCard`). */
 export const STUCK_DAYS = 7;
 
@@ -284,7 +291,12 @@ function baseActionFor(
         };
       }
       return {
-        label: "Uzupełnij arkusz screeningu",
+        // Rekrutacja bez pytań screeningowych nie ma arkusza — zapisem rozmowy
+        // jest „Dlaczego ten kandydat” (13.10.2026, lustro `_base_action`).
+        label:
+          item.screening_requirement === "why_candidate"
+            ? WHY_CANDIDATE_LABEL
+            : "Uzupełnij arkusz screeningu",
         tone: overdue ? "due" : "normal",
         kind: "screening",
       };

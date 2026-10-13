@@ -311,7 +311,8 @@ class FlowPairRow(BaseModel):
     since: datetime
     claimed_until: Optional[datetime] = None
     # Screening: czego brakuje do „Zweryfikowany” (`sheet`, `rate`).
-    missing: list[Literal["sheet", "rate"]] = []
+    # `why_candidate`: rekrutacja bez pytań — brakuje oceny zamiast arkusza.
+    missing: list[Literal["sheet", "why_candidate", "rate"]] = []
     # Zweryfikowany: stan QC CV (`passed`, `failed`, `overridden`, `unchecked`).
     qc_status: Optional[str] = None
 

@@ -2362,6 +2362,7 @@ def _with_next_action_owner(payload: dict, column: StageColumn, group: str) -> d
         column,
         days_in_stage=payload.get("days_in_stage"),
         screening_done=payload.get("screening_done"),
+        screening_requirement=payload.get("screening_requirement"),
         hm_veto=payload.get("hm_veto") is not None,
         group=group,
         interview_phase=badge.get("phase"),
@@ -2606,9 +2607,16 @@ async def build_kanban_view(
     from sqlalchemy import func, or_
 
     from app.models.note import Note as _Note
-    from app.services import note_kinds, recommendation_cards
+    from app.services import (
+        move_requirements,
+        note_kinds,
+        recommendation_cards,
+        screening_sheets,
+    )
 
     from app.services import candidate_rate_change as _rate_change
+
+    job_has_questions = bool(screening_sheets.question_texts(job.champion_profile))
 
     # 0418: otwarta sprawa zmiany stawki pary — plakietka na karcie.
     rate_change_by_candidate = await _rate_change.open_badges_for_job(db, job_id=job_id)
@@ -2683,7 +2691,16 @@ async def build_kanban_view(
             added_to_job_at=added_at,
             candidate_expected_rate_hourly=profile_rate_by_id.get(e.candidate_id),
         )
-        payload["screening_done"] = e.candidate_id in screened_pairs
+        # Rekrutacja bez pytań: karta mówi o „Dlaczego ten kandydat”, nie
+        # o arkuszu, którego tam nie ma (ta sama reguła co bramka ruchu).
+        (
+            payload["screening_done"],
+            payload["screening_requirement"],
+        ) = move_requirements.card_screening_state(
+            has_questions=job_has_questions,
+            sheet=e.candidate_id in screened_pairs,
+            card=card_by_candidate.get(e.candidate_id),
+        )
         payload["candidate_rate_from_hourly"] = rate_from_by_id.get(e.candidate_id)
         if e.expected_rate_value is None:
             rate_row = carried_expected_rate.get(e.candidate_id)

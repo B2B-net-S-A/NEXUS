@@ -339,6 +339,8 @@ const FLOW: FlowBlock = {
   screening: [
     flowPair({ candidate_id: 602, candidate_name: "Piotr Wzorcowy", missing: ["sheet", "rate"], since: daysAgo(3) }),
     flowPair({ candidate_id: 603, candidate_name: "Alicja Makietowa", job_id: 502, job_title: "Tester automatyzujący · Python", client_name: "Bank Kappa", missing: ["rate"] }),
+    // 13.10.2026: rekrutacja bez pytań screeningowych — brakuje oceny, nie arkusza.
+    flowPair({ candidate_id: 605, candidate_name: "Olga Bezpytań", job_id: 503, job_title: "Analityk raportów podatkowych", client_name: "Bank Kappa", missing: ["why_candidate", "rate"] }),
   ],
   verified: [flowPair({ candidate_id: 604, candidate_name: "Kamil Przykładowy", since: daysAgo(2) })],
   waiting_client: [],
