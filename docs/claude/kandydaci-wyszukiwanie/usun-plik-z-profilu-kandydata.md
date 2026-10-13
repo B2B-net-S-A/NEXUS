@@ -24,6 +24,16 @@ nieaktualne”.
   klienta. Profil zostaje bez głównego CV, dopóki ktoś nie kliknie „Ustaw jako
   główne CV” przy innym pliku albo nie wgra nowego. Okno potwierdzenia mówi to
   wprost.
+- **Bieżące CV bez głównego (14.10.2026, audyt 13.10).** `get_current_cv`
+  (kopia CV etapu, paczka ZIP, domyślne źródło generatora) brał po usunięciu
+  głównego CV następny plik — także „nieaktualny” albo „…B2B…” przygotowany
+  dla innego klienta. Teraz `cv_source.current_cv_filters` pomija pliki
+  „nieaktualne” (`outdated_at`) i pliki z kwarantanny tożsamości. Plików
+  „…B2B…” nie odsiewamy po nazwie — u osób bez wskazanego głównego CV (stare
+  importy) bywa to jedyne CV; ścisłe „brak głównego = brak CV” czeka na pomiar
+  i decyzję Artura. Starsze
+  zwykłe CV osoby dalej służy za kopię; nie ma takiego — zostaje wskaźnik
+  CV na kandydacie (niżej) albo kopia jest pusta.
 - Dane odczytane wcześniej z usuniętego CV (umiejętności, doświadczenie,
   `raw_cv_text`, wektor) zostają w profilu. Kopie w rekrutacjach (oryginał CV
   przy etapie, CV firmowe, CV z generatora) to osobne byty i też zostają.
@@ -91,5 +101,6 @@ nieaktualne”.
   jak dotąd — patrz `uprawnienia/integralnosc-i-uprawnienia-reguly-po-audytach.md`.
 
 Testy: `backend/tests/test_candidate_document_removal.py`,
+`backend/tests/test_fix48_ws03_cv_source.py` i `…_db.py` (bieżące CV),
 `frontend/src/components/v2/files/__tests__/CandidateFilesTab.test.tsx`,
 wzorzec bramek `tests/data/authz_golden/candidates.json`.

@@ -235,6 +235,15 @@ describe("nowe CV w rekrutacji (13.10.2026)", () => {
     expect(newerProfileCv(original, [txt, oldPdf, newPdf])?.id).toBe(13);
   });
 
+  it("nowsze CV w profilu: plik „nieaktualny” nie jest CV do skopiowania (audyt 13.10.2026)", () => {
+    const original = snapshot("2026-10-08T10:00:00Z");
+    const outdated = {
+      ...doc(14, { filename: "cv_2024.pdf", uploaded_at: "2026-10-13T09:00:00Z" }),
+      outdated_at: "2026-10-13T09:30:00Z",
+    };
+    expect(newerProfileCv(original, [outdated])).toBeNull();
+  });
+
   it("nowsze CV w profilu: bez kopii i bez listy plików nie ma czego porównać", () => {
     const profileOnly = dockOriginalCv({
       snapshot: { has_snapshot: false },

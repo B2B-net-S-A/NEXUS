@@ -279,6 +279,29 @@ interface CandidateDetail extends CandidateInBase {
   cv_filename?: string | null;
   /** Odczyt AI głównego CV — linia „AI czyta nowe CV” po wgraniu z rekrutacji. */
   cv_parsed_at?: string | null;
+  /** Tu tylko znacznik kwarantanny tożsamości (`_identity_quarantine_source`). */
+  cv_extracted_data?: unknown;
+}
+
+/**
+ * Pliki CV z profilu bez pliku z kwarantanny tożsamości (CV innej osoby —
+ * znacznik `_identity_quarantine_source` w `cv_extracted_data`). Audyt
+ * 13.10.2026, pkt 8: kopia etapu jest po kwarantannie pusta, a dok sięgał
+ * wtedy po najnowszy plik z profilu, czyli właśnie cudze CV. Plik, który ktoś
+ * po zwolnieniu znów ustawił jako główne, zostaje. Znacznik wskazuje ostatni
+ * plik z kwarantanny.
+ */
+export function withoutQuarantinedCv<T extends { id: number; is_primary: boolean }>(
+  docs: readonly T[] | undefined,
+  extracted: unknown,
+): readonly T[] | undefined {
+  const marker =
+    extracted && typeof extracted === "object"
+      ? (extracted as { _identity_quarantine_source?: { kind?: unknown; id?: unknown } })
+          ._identity_quarantine_source
+      : undefined;
+  if (!docs || marker?.kind !== "document" || typeof marker.id !== "number") return docs;
+  return docs.filter((doc) => doc.id !== marker.id || doc.is_primary);
 }
 
 /** Etykiety statusu kandydata — lustro `CandidateStatus` z backendu. */
@@ -925,11 +948,16 @@ export function PipelineCandidateDock({
       profileReadPending(cvUpload.uploadedAt, query.state.data ?? null) ? 15_000 : false,
   });
   const candidate = candidateDetailQuery.data ?? null;
+  // Bez cudzego CV z kwarantanny tożsamości (audyt 13.10.2026, pkt 8).
+  const ownProfileCvDocs = withoutQuarantinedCv(
+    profileCvQuery.data as DockProfileCvDoc[] | undefined,
+    candidate?.cv_extracted_data,
+  );
 
   const originalCv = dockOriginalCv({
     snapshot: cvOriginalQuery.data,
     snapshotLoading: cvOriginalQuery.isLoading,
-    profileDocs: profileCvQuery.data as DockProfileCvDoc[] | undefined,
+    profileDocs: ownProfileCvDocs,
     profileDocsFailed: profileCvQuery.isError,
     cvFilename: candidate?.cv_filename ?? null,
   });
@@ -1896,14 +1924,17 @@ export function PipelineCandidateDock({
                 <DockCvFreshness
                   stageId={item.id}
                   original={originalCv}
-                  profileDocs={profileCvQuery.data as DockProfileCvDoc[] | undefined}
+                  profileDocs={ownProfileCvDocs}
                   candidate={candidate}
                   uploadedAt={cvUpload.uploadedAt}
                   onShowProfileCv={setProfileCvPreviewId}
                 />
-                {stageCv === "ready" ? (
+                {/* Szkic CV firmowego bywa na poprzednim wierszu etapu pary
+                    (ruch karty) — ramka czyta go tam (audyt 13.10.2026). */}
+                {stageCv === "ready" || pairCvElsewhere?.status === "draft" ? (
                   <CompanyCvStaleNotice
                     stageId={item.id}
+                    cvStageId={editStageId}
                     candidateId={item.candidate_id}
                     candidateName={fullName}
                     jobId={jobId}
