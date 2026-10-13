@@ -95,7 +95,7 @@ export function PersonInBase({
         { label: "Skąd", value: inBaseSourceText(data) },
         {
           label: "W tej rekrutacji",
-          value: sinceInJob ? [`od ${sinceInJob}`, inJobHow].filter(Boolean).join(" · ") : null,
+          value: [sinceInJob ? `od ${sinceInJob}` : null, inJobHow].filter(Boolean).join(" · ") || null,
         },
       ]}
     />
