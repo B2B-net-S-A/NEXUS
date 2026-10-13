@@ -425,6 +425,8 @@ export function PersonWorkbenchTabs({
             onTabChange={ctx.onTabChange ?? (() => undefined)}
             onTake={ctx.onTake}
             rejectFollowUp={ctx.rejectFollowUp}
+            onForwarded={ctx.onForwarded}
+            noteFill={ctx.noteFill}
             panelFallback={<ScreeningSummarySection candidateId={candidateId} jobId={jobId} showLockNote />}
           />
         );
@@ -451,6 +453,9 @@ export function PersonWorkbenchTabs({
               canWriteClientRate={canWriteClientRate}
               cproEnabled={ctx.cproEnabled ?? false}
               budgetHourly={ctx.budgetHourly}
+              forwarded={ctx.forwardedCandidateId === candidateId}
+              nextInColumn={ctx.nextInColumn}
+              openPerson={ctx.openPerson}
               panelFallback={
                 <SavedCvView
                   item={item}

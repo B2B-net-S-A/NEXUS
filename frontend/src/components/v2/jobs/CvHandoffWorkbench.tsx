@@ -97,6 +97,7 @@ import {
   type DockTabItem,
 } from "@/components/v2/jobs/workbench-chrome";
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
+import type { WorkbenchContext } from "@/components/v2/person/PersonWorkbenchTabs";
 import { TabbedNav } from "@/components/ds";
 import { CvToClientCard } from "@/components/v2/recruitment/CvToClientCard";
 import type { WorkbenchPanelProps } from "@/components/v2/recruitment/types";
@@ -107,6 +108,11 @@ import type { WorkbenchPanelProps } from "@/components/v2/recruitment/types";
  * z szyną) już nie ma.
  */
 export interface CvHandoffWorkbenchProps extends WorkbenchPanelProps {
+  /** Osobę przed chwilą przekazano dalej z formularza — karta CV pokazuje
+   *  blok postępu (CV → QC) i „Następna w Screeningu” (14.10.2026). */
+  forwarded?: boolean;
+  nextInColumn?: WorkbenchContext["nextInColumn"];
+  openPerson?: (candidateId: number) => void;
   jobId: number;
   jobTitle?: string;
   clientId: number | null;

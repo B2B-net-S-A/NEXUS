@@ -21,7 +21,7 @@ import { AlertCircle, ArrowRight, Loader2 } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
-import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
+import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { MoveRequirementList } from "@/components/v2/recruitment/MoveRequirementList";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
@@ -106,6 +106,8 @@ export interface DockNextStageProps {
    * arkusza screeningu) — wtedy wymagania liczymy od nowa.
    */
   refreshToken?: unknown;
+  /** Karta z Tablicy — „Czeka u Delivery Leada od …” w „QC CV” (14.10.2026). */
+  item?: KanbanItem;
 }
 
 export function DockNextStage({

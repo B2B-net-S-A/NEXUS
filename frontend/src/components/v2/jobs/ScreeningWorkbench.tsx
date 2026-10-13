@@ -38,6 +38,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { JobDetailTab } from "@/components/v2/jobs/JobDetailCompactHeader";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
+import type { NoteFillChannel } from "@/lib/note-fill-channel";
 import { PersonPanelSide, usePersonPanelSideActive } from "@/components/v2/person/PersonPanelSide";
 import type { WorkbenchPanelProps } from "@/components/v2/recruitment/types";
 import { BeforeCallProfile } from "@/components/v2/screening-form/BeforeCallProfile";
@@ -93,6 +94,10 @@ export interface ScreeningWorkbenchProps extends Omit<WorkbenchPanelProps, "layo
   onTake?: (item: KanbanItem) => void;
   /** Panel osoby: dokąd przejść po „Odrzuć” w formularzu (13.10.2026). */
   rejectFollowUp?: (candidateId: number) => RejectFollowUp | undefined;
+  /** „Zapisz i przekaż dalej” przeszło — panel przechodzi na „CV” (14.10.2026). */
+  onForwarded?: (candidateId: number) => void;
+  /** D3: formularz przyjmuje notatkę zapisaną w doku (14.10.2026). */
+  noteFill?: NoteFillChannel;
   /** Harness `/preview/screening-form`: bajty CV z plików statycznych, bez API. */
   previewLoaders?: Pick<PreviewProps, "loadDocumentBlob" | "loadOriginalBlob" | "loadStageCvFile">;
 }

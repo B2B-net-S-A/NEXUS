@@ -82,6 +82,7 @@ import { candidateNoteItems, useCandidateNotes } from "@/components/v2/pages/can
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { DopasowanieTab } from "@/components/v2/pages/DopasowanieTab";
 import { type KanbanColumn, type KanbanItem } from "@/components/v2/pages/kanban-shared";
+import type { NoteFillChannel } from "@/lib/note-fill-channel";
 import type { NextAction } from "@/lib/pipeline-next-action";
 import { DockCallCheatsheet } from "@/components/v2/jobs/DockCallCheatsheet";
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
@@ -327,6 +328,8 @@ function TimelineEntry({
 
 export interface PipelineCandidateDockProps {
   item: KanbanItem;
+  /** D3: „Zapisz notatkę i wypełnij formularz” — kanał do formularza screeningu (14.10.2026). */
+  noteFill?: NoteFillChannel;
   jobId: number;
   currentStageLabel: string;
   /** Tytuł rekrutacji — nagłówki modali CV i zakładka „Dopasowanie". Bez
