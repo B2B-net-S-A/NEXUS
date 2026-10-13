@@ -19,12 +19,16 @@ import { resolveViewState } from "@/lib/view-state";
 import { canViewClientFinance, useAuthStore } from "@/store/auth";
 import {
   CalendarPlus,
+  CalendarClock,
   Banknote,
+  Building2,
   LayoutGrid,
   X as StopIcon,
   Loader2,
   AlertCircle,
   FilePlus2,
+  FileText,
+  UserPlus,
 } from "lucide-react";
 
 const TYPE_LABELS: Record<string, string> = {
@@ -32,19 +36,45 @@ const TYPE_LABELS: Record<string, string> = {
   rate_change: "Zmiana stawki",
   scope_change: "Zmiana zakresu",
   early_termination: "Wcześniejsze zakończenie",
+  // Typy zapisywane po podpisie aneksu z Generatora aneksów (0362).
+  start_date_change: "Zmiana daty startu",
+  party_data_change: "Uzupełnienie danych firmy",
+  subcontractor_consent: "Osoba skierowana",
+  mandate_change: "Aneks do umowy zlecenie",
 };
+
+/** Nazwa typu aneksu; typ, którego front jeszcze nie zna, nie zostaje pusty. */
+export function amendmentTypeLabel(type: string): string {
+  return TYPE_LABELS[type] ?? "Aneks";
+}
 
 const TYPE_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   extension: CalendarPlus,
   rate_change: Banknote,
   scope_change: LayoutGrid,
   early_termination: StopIcon,
+  start_date_change: CalendarClock,
+  party_data_change: Building2,
+  subcontractor_consent: UserPlus,
+  mandate_change: FileText,
 };
+
+/** Typy, które zakłada formularz tej zakładki. */
+type ManualAmendmentType =
+  | "extension"
+  | "rate_change"
+  | "scope_change"
+  | "early_termination";
 
 interface Amendment {
   id: number;
   contract_id: number;
-  amendment_type: "extension" | "rate_change" | "scope_change" | "early_termination";
+  amendment_type:
+    | ManualAmendmentType
+    | "start_date_change"
+    | "party_data_change"
+    | "subcontractor_consent"
+    | "mandate_change";
   old_values: Record<string, unknown> | null;
   new_values: Record<string, unknown> | null;
   effective_date: string;
@@ -55,7 +85,7 @@ interface Amendment {
   created_at: string;
 }
 
-type AmendmentType = Amendment["amendment_type"];
+type AmendmentType = ManualAmendmentType;
 
 interface FormState {
   amendment_type: AmendmentType;
@@ -436,7 +466,9 @@ export function ContractAmendmentsTab({
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-baseline gap-2">
-                      <span className="font-medium">{TYPE_LABELS[a.amendment_type]}</span>
+                      <span className="font-medium">
+                        {amendmentTypeLabel(a.amendment_type)}
+                      </span>
                       <span className="text-xs text-muted-foreground dark:text-muted-foreground">
                         Wchodzi w życie {formatDate(a.effective_date)}
                       </span>

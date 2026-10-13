@@ -66,6 +66,37 @@ describe("contract timeline labels", () => {
     expect(contractDetailValue("early", false)).toBe("nie");
   });
 
+  // Aneksy podpisane w Generatorze aneksów (0362) zapisują te klucze w
+  // `new_values`; bez etykiet zakładka „Aneksy” pokazywała „legal name”
+  // i surowe `sole_trader`.
+  it("pola aneksów z Generatora aneksów mają etykiety i wartości po polsku", () => {
+    const rows = contractActivityDetailRows({
+      legal_name: "ZAJĄC IT Piotr Zając",
+      nip: "5213900011",
+      entity_type: "sole_trader",
+      delegate_name: "Paweł Sowa",
+      start_date_mode: "not_later",
+      period_from: "2026-10-01",
+      period_to: "2026-12-31",
+      rate_changed: true,
+    });
+    const byKey = Object.fromEntries(rows.map((r) => [r.key, r]));
+
+    expect(byKey.legal_name.label).toBe("Nazwa firmy");
+    expect(byKey.nip.label).toBe("NIP");
+    expect(byKey.entity_type.label).toBe("Forma działalności");
+    expect(byKey.entity_type.value).toBe("JDG");
+    expect(contractDetailValue("entity_type", "company")).toBe("spółka");
+    expect(byKey.delegate_name.label).toBe("Osoba skierowana");
+    expect(byKey.start_date_mode.label).toBe("Tryb daty rozpoczęcia");
+    expect(byKey.start_date_mode.value).toBe("nie później niż");
+    expect(byKey.period_from.label).toBe("Okres zlecenia od");
+    expect(byKey.period_from.value).toBe("01.10.2026");
+    expect(byKey.period_to.label).toBe("Okres zlecenia do");
+    expect(byKey.rate_changed.label).toBe("Zmieniono stawkę");
+    expect(byKey.rate_changed.value).toBe("tak");
+  });
+
   it("nieznany klucz dostaje czytelną etykietę, a zagnieżdżony obiekt zwięzły JSON", () => {
     const [row] = contractActivityDetailRows({ some_new_key: { a: 1 } });
     expect(row.label).toBe("some new key");

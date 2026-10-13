@@ -284,6 +284,41 @@ describe("audyt 24.09 (blok D) — zakładki kontraktu", () => {
     expect(screen.queryByText(/"end_date"/)).not.toBeInTheDocument();
   });
 
+  // Aneksy podpisane w Generatorze aneksów zapisują cztery typy spoza
+  // pierwotnej czwórki — do 13.10.2026 ich wiersz nie miał nazwy typu.
+  it("aneks z Generatora aneksów ma nazwę typu, a nieznany typ — „Aneks”", async () => {
+    const amendment = (id: number, amendment_type: string, new_values: object) => ({
+      id,
+      contract_id: 5,
+      amendment_type,
+      old_values: {},
+      new_values,
+      effective_date: "2026-11-16",
+      reason: null,
+      document_id: null,
+      created_by: null,
+      created_by_email: null,
+      created_at: "2026-10-10T10:00:00Z",
+    });
+    mocks.get.mockResolvedValue({
+      data: [
+        amendment(1, "start_date_change", { start_date: "2026-11-16" }),
+        amendment(2, "party_data_change", { legal_name: "ZAJĄC IT Piotr Zając" }),
+        amendment(3, "subcontractor_consent", { delegate_name: "Paweł Sowa" }),
+        amendment(4, "mandate_change", { rate_changed: true }),
+        amendment(5, "typ_z_przyszlosci", {}),
+      ],
+    });
+    renderWith(<ContractAmendmentsTab contractId={5} clientId={2} readOnly />);
+
+    expect(await screen.findByText("Zmiana daty startu")).toBeInTheDocument();
+    expect(screen.getByText("Uzupełnienie danych firmy")).toBeInTheDocument();
+    // Nazwa typu i etykieta pola `delegate_name` brzmią tak samo.
+    expect(screen.getAllByText("Osoba skierowana").length).toBeGreaterThan(0);
+    expect(screen.getByText("Aneks do umowy zlecenie")).toBeInTheDocument();
+    expect(screen.getByText("Aneks")).toBeInTheDocument();
+  });
+
   it("formularz aneksu nie ma już gałęzi „wcześniejsze zakończenie” (S5)", async () => {
     mocks.get.mockResolvedValue({ data: [] });
     renderWith(<ContractAmendmentsTab contractId={5} clientId={2} />);
