@@ -4,7 +4,10 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import api from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
+import { activeCardsWarningFrom, type ActiveCardsWarning } from "@/lib/job-close";
 import { useToast } from "@/components/Toast";
+import { ActiveCardsNotice } from "@/components/v2/jobs/JobCloseWithReasonDialog";
 import { JOB_CLOSE_REASONS, type JobCloseReason } from "@/types/client-profile";
 
 interface Props {
@@ -17,6 +20,8 @@ interface Props {
 export function CloseJobAsLostModal({ jobId, jobTitle, clientId, onClose }: Props) {
   const [reason, setReason] = useState<JobCloseReason>("budget");
   const [notes, setNotes] = useState("");
+  // Osoby w toku: pierwsze zamknięcie serwer zatrzymuje ostrzeżeniem.
+  const [activeCards, setActiveCards] = useState<ActiveCardsWarning | null>(null);
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
 
@@ -25,6 +30,7 @@ export function CloseJobAsLostModal({ jobId, jobTitle, clientId, onClose }: Prop
       api.post(`/api/jobs/${jobId}/close`, {
         reason,
         notes: notes.trim() || null,
+        ...(activeCards ? { acknowledge_active_cards: true } : {}),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["client-profile", clientId] });
@@ -32,7 +38,14 @@ export function CloseJobAsLostModal({ jobId, jobTitle, clientId, onClose }: Prop
       showSuccess("Rekrutacja zamknięta jako przegrana");
       onClose();
     },
-    onError: () => showError("Nie udało się zamknąć rekrutacji"),
+    onError: (e) => {
+      const warning = activeCardsWarningFrom(e);
+      if (warning) {
+        setActiveCards(warning);
+        return;
+      }
+      showError(apiErrorMessage(e, "Nie udało się zamknąć rekrutacji"));
+    },
   });
 
   return (
@@ -41,6 +54,8 @@ export function CloseJobAsLostModal({ jobId, jobTitle, clientId, onClose }: Prop
         Rekrutacja:{" "}
         <span className="font-medium text-foreground dark:text-muted-foreground">{jobTitle}</span>
       </p>
+
+      {activeCards ? <ActiveCardsNotice warning={activeCards} /> : null}
 
       <div>
         <label className="text-xs font-semibold text-muted-foreground dark:text-muted-foreground block mb-1">
@@ -84,7 +99,7 @@ export function CloseJobAsLostModal({ jobId, jobTitle, clientId, onClose }: Prop
           disabled={mutation.isPending}
           className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded-lg disabled:opacity-50"
         >
-          {mutation.isPending ? "Zamykam..." : "Zamknij jako lost"}
+          {mutation.isPending ? "Zamykam..." : activeCards ? "Zamknij mimo to" : "Zamknij jako lost"}
         </button>
       </div>
     </ModalShell>

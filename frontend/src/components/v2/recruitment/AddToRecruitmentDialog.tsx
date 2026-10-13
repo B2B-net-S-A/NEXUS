@@ -30,6 +30,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { formatReasonCounts, summarizeBulkResult } from "@/lib/bulk-result-summary";
 import { pluralPl } from "@/lib/plural-pl";
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
+import type { PipelineMovePayload } from "@/lib/pipeline-move-core";
 import {
   ADD_ANYWAY_HINT,
   EmployedPeopleNotice,
@@ -113,6 +114,21 @@ function withoutLabel(n: number): string {
   return n === 1
     ? "Dodaj bez tej osoby"
     : `Dodaj bez tych ${n} ${pluralPl(n, "osoby", "osób", "osób")}`;
+}
+
+/** Ruch, który przywraca zamkniętą kartę — cel i wersja z odpowiedzi serwera. */
+export function restoreMovePayload(
+  candidateId: number,
+  jobId: number,
+  closed: BulkClosedCard,
+): PipelineMovePayload {
+  return {
+    candidate_id: candidateId,
+    job_id: jobId,
+    stage: closed.restore_stage,
+    ...(closed.restore_stage_def_id != null ? { stage_def_id: closed.restore_stage_def_id } : {}),
+    expected_state_version: closed.state_version,
+  };
 }
 
 /** Kolumna, do której wraca karta — etap, na który trafiłoby to dodanie. */
@@ -279,13 +295,7 @@ export function AddToRecruitmentDialog({
     let restored = false;
     try {
       const outcome = await move.send(
-        {
-          candidate_id: row.candidate_id,
-          job_id: target.id,
-          stage: row.closed.restore_stage,
-          ...(row.closed.restore_stage_def_id != null ? { stage_def_id: row.closed.restore_stage_def_id } : {}),
-          expected_state_version: row.closed.state_version,
-        },
+        restoreMovePayload(row.candidate_id, target.id, row.closed),
         {
           candidateName: row.closed.candidate_name,
           eligibilitySubject: row.closed.candidate_name,
