@@ -66,12 +66,12 @@
       },
       {
         "q": "Jak przesunąć kandydata dalej?",
-        "a": "Kliknij strzałkę „→” na karcie. Otworzy się okno „Przesuń dalej” z listą tego, czego brakuje do następnego etapu, i przyciskami, które te braki uzupełniają. Możesz też przeciągnąć kartę — na sąsiednią kolumnę bez braków przesunie się od razu. Gdy odpowiedź narusza „Odpada, gdy…”, okno to pokaże i zaproponuje „Odrzuć z powodem”.",
+        "a": "Kliknij strzałkę „→” na karcie. Gdy niczego nie brakuje, karta przechodzi od razu, a przez 10 s możesz kliknąć „Cofnij”. Gdy czegoś brakuje, otworzy się „Przesuń dalej” z brakami i przyciskami, które je uzupełniają. Przeciągnięcie na sąsiednią kolumnę bez braków też przesuwa od razu. W „QC CV” karta mówi, od kiedy czeka u Delivery Leada.",
         "anchor": "jobs.board.columns"
       },
       {
         "q": "Jak dodać kandydatów?",
-        "a": "Kliknij kafel nad tablicą: „Podobne rekrutacje”, „Nowi z ogłoszeń” (7 dni), „Propozycje z bazy” albo „Szukaj w bazie” (słowa z Championa; obowiązkowe tylko umiejętności krytyczne). Klik w nazwisko pokazuje podgląd osoby obok. Zaznacz osoby i kliknij „Dodaj do Nowych” — przez 12 godzin są zarezerwowane dla Ciebie.",
+        "a": "Kliknij kafel nad tablicą: „Podobne rekrutacje”, „Nowi z ogłoszeń”, „Propozycje z bazy” albo „Szukaj w bazie”. Dopasowanie liczy się samo, a wiersz pokazuje, które wymagania są w CV. „+ Dodaj” w wierszu dodaje osobę do Nowych na 12 h rezerwacji („Cofnij” obok); kilka osób zaznacz i dodaj stopką. „Szukaj ręcznie” to zakładka tego okna.",
         "anchor": "jobs.board.sources"
       },
       {
@@ -153,11 +153,11 @@
     "title": "Karta kandydata w rekrutacji",
     "section": "pipeline",
     "roles": ["recruiter", "delivery_lead"],
-    "what": "Tu prowadzisz jedną osobę w tej rekrutacji; telefon i e-mail są pod nazwiskiem. W „Nowych” i „Screeningu” panel zajmuje całe okno: po lewej duże CV, wymagania i opis „po ludzku”, po prawej profil przed rozmową albo formularz screeningu.",
+    "what": "Tu prowadzisz jedną osobę w tej rekrutacji; telefon i e-mail są pod nazwiskiem. W „Nowych” i „Screeningu” panel zajmuje całe okno: po lewej duże CV, wymagania i opis „po ludzku”, po prawej formularz screeningu z blokiem „Co już wiemy”.",
     "tasks": [
       {
         "q": "Jak zapisać screening rozmowy?",
-        "a": "Wpisz warunki ze stawką, odpowiedzi na pytania z Profilu Championa i ocenę dla Delivery Leada („Uzupełnij z notatki” wypełni pola z notatki). „Zapisz” dodaje wersję do historii, „Zapisz i przekaż dalej” przesuwa na „Zweryfikowany”. Gdy DL odeśle kartę do poprawy, pola są podświetlone — po poprawkach „Zapisz i oddaj do przeglądu DL”.",
+        "a": "Wpisz warunki, odpowiedzi z Profilu Championa i ocenę dla DL. Stawkę podpowiada notatka albo „Stawka od” (pod polem widać skąd), a „Zapisz notatkę i wypełnij formularz” przy notatce wypełni puste pola. „Zapisz i przekaż dalej” przesuwa na „Zweryfikowany” i otwiera zakładkę „CV”. Po zwrocie od DL — „Zapisz i oddaj do przeglądu DL”.",
         "anchor": "jobs.person.screening-form"
       },
       {
@@ -172,7 +172,7 @@
       },
       {
         "q": "Jak przygotować CV do klienta?",
-        "a": "Sekcja „CV” mówi o CV firmowym i o oryginale. Nowe CV od kandydata wgrasz kafelkiem „Wgraj nowe CV” albo upuszczając plik na panel — stanie się głównym CV w profilu i CV tej rekrutacji. „Generuj CV” otwiera generator, a gdy CV już jest — „Edytuj CV”. Na „Zweryfikowanym” „Otwórz QC” pokazuje, co poprawić. U PKO BP pobranie czeka na zgodę RODO."
+        "a": "Po „Zweryfikowany” automat robi CV firmowe i daje znać dzwonkiem „CV gotowe”. Gotowe CV wybierzesz w karcie („Użyj innego CV”), nowe CV kandydata wgrasz „Wgraj nowe CV”. „Sprawdź i popraw” otwiera edytor: „Popraw wszystko”, a w stopce „Zapisz i przekaż do DL” z uwagą dla Delivery Leada. U PKO BP pobranie czeka na zgodę RODO."
       },
       {
         "q": "Gdzie są rozmowa u klienta i umowa?",
@@ -181,7 +181,7 @@
       }
     ],
     "pitfalls": [
-      "Osoba zarezerwowana przez kogoś innego (12 h) nie da się przesunąć, dopóki rezerwacja nie wygaśnie albo ktoś uprawniony jej nie przejmie. Pigułka „Pracuje u nas” pod danymi kontaktowymi znaczy trwającą umowę u nas — kliknij ją, żeby zobaczyć klienta, koniec zamówienia i Delivery Leada; przed wysłaniem CV uzgodnij to z nim.",
+      "Pierwszy zapis formularza screeningu bierze wolną osobę na 12 h. Osoby zarezerwowanej przez kogoś innego nie przesuniesz, dopóki rezerwacja nie wygaśnie albo ktoś uprawniony jej nie przejmie. Pigułka „Pracuje u nas” pod danymi kontaktowymi znaczy trwającą umowę u nas — kliknij ją, żeby zobaczyć klienta, koniec zamówienia i Delivery Leada; przed wysłaniem CV uzgodnij to z nim.",
       "Odznaka „Follow-up: Anna K. · zaległy 2 dni” znaczy, że klient milczy od 14 dni i ta osoba zadzwoni do kandydata — jedna osoba, nawet gdy kandydat jest w kilku procesach. Nie dzwoń drugi raz: zapisz wynik albo kliknij „Zrobię to ja” w bloku „Kontakt z kandydatem”.",
       "Stawkę kandydata wpisz w „Warunkach” formularza albo przyciskiem „Zmień” przy „W tej rekrutacji”, nie w notatce. Po wysłaniu CV wyższa stawka czeka na Delivery Leada: w ramce pod faktami zleca on negocjację albo decyduje o stawce do klienta. Kwota z dopiskiem „Screening (z notatki)” przy „W tej rekrutacji” i „Notatka z wysyłki” pod „Do klienta” to podpowiedzi z notatek sprzed NEXUSA — stawką stają się dopiero po zapisaniu. Pytania bez odpowiedzi zapiszesz jako pominięte („Pomiń brakujące”), gdy osoba jest przepięta, miała już screening w innej rekrutacji albo jest zatrudniona przez nas; w rekrutacji bez pytań do „Zweryfikowany” wystarcza stawka i „Dlaczego ten kandydat”.",
       "Sekcja „Notatki” pokazuje notatki z tej rekrutacji i ostatnie rozmowy z wcześniejszych; podpis „0 tu · 14 wcześniej” znaczy, że osoba ma u nas historię. Całość jest po „Rozwiń” w „Notatki i historia”, w grupach „Wcześniej u nas” z wynikiem każdej rekrutacji. Przypięte notatki są na górze karty. Pigułka „Nowy w bazie · N dni” przy nazwisku znaczy, że osoba weszła do bazy w ostatnich 14 dniach; datę, skąd jest i kto ją dodał pokazuje „Osoba w bazie” na górze „Notatek i historii”."

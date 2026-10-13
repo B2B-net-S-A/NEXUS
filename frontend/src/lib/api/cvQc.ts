@@ -247,9 +247,9 @@ export function useCvQc(stageId: number | null, enabled = true) {
 
 /**
  * Propozycje poprawek AI — POST, bo pierwszy odczyt danej treści płaci za
- * model; serwer pamięta wynik per treść. `enabled` = rekruter kliknął
- * „Zaproponuj poprawki (AI)". Wynik zapisany wcześniej w cache (także zasiew
- * harnessu) jest widoczny bez kliknięcia.
+ * model; serwer pamięta wynik per treść i od 14.10.2026 liczy go sam zaraz po
+ * automacie CV (D5). `enabled` = są uwagi z poprawką AI — propozycje ładują się
+ * bez kliknięcia (dawne „Zaproponuj poprawki (AI)”).
  */
 export function useCvQcFixes(stageId: number | null, enabled: boolean) {
   return useQuery<QcFixesResponse>({

@@ -63,7 +63,8 @@ stare przypomnienie o etapie „CV wysłane” — 4 695 wpisów do 8 osób.
   1280×720) — karta właściciela ma „Twój ruch”, plakietkę „Czeka na Ciebie ·
   N dni” i przycisk „Przejrzyj i wyślij”; „Przejrzyj po kolei (N)” zastępuje
   opis kolumny od 2 gotowych osób. `onAdvance` otwiera „Przesuń dalej”, nie
-  przegląd — przycisk idzie przez `onReviewSend`.
+  przegląd — przycisk idzie przez `onReviewSend`. Strzałka karty bez braków ma
+  od 14.10.2026 własną obsługę (ruch odroczony z „Cofnij”, `droga-rekrutera-do-dl.md`, D7).
 - **Lista rekrutacji:** bez nowej kolumny (tabela ledwo mieści się przy
   1280 px). Komórka „QC” w „Etapach” świeci u Delivery Leada, gdy ktoś czeka
   na jego wysyłkę (`dl_send_ready_count` pod `include_stage_counts`), a filtr

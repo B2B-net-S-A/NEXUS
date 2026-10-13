@@ -356,7 +356,7 @@
    "opis": "Wyszukaj manualnie w rekrutacji",
    "file": "components/v2/recruitment/ManualSearchPanel.tsx",
    "marker": "ManualSearchPanel",
-   "v3_home": "okno Szukaj ręcznie"
+   "v3_home": "okno „Kandydaci do dodania” → zakładka „Szukaj ręcznie” (?win=add&wintab=manual)"
   },
   {
    "id": "src.portals",
@@ -481,7 +481,7 @@
   {
    "id": "move.verified-rate",
    "area": "ruch",
-   "opis": "Stawka przy „Zweryfikowany” + Pomiń",
+   "opis": "Stawka przy „Zweryfikowany” — okno tylko, gdy para nie ma stawki etapu (D2, 14.10.2026)",
    "file": "hooks/usePipelineMove.tsx",
    "marker": "VerifiedRateModal",
    "v3_home": "usePipelineMove"
@@ -1304,7 +1304,7 @@
   {
    "id": "board.sources-search",
    "area": "pipeline",
-   "opis": "„Szukaj w bazie”: wyszukiwanie po słowach z Championa uruchamiane od razu; linie „Wymagane (krytyczne)”, „Musi mieć (Delivery Lead)”, „Mile widziane”, „Lokalizacja kandydata” i „Rekruter sprawdza w rozmowie” (dawne „Po tym nie szukamy”, wariant A 13.10.2026), trafienia w CV, „Zmień słowa i filtry” do pełnego „Szukaj ręcznie”",
+   "opis": "„Szukaj w bazie”: wyszukiwanie po słowach z Championa uruchamiane od razu; linie „Wymagane (krytyczne)”, „Musi mieć (Delivery Lead)”, „Mile widziane”, „Lokalizacja kandydata” i „Rekruter sprawdza w rozmowie” (dawne „Po tym nie szukamy”, wariant A 13.10.2026), trafienia w CV, „Zmień słowa i filtry” przełącza na zakładkę „Szukaj ręcznie” tego samego okna",
    "file": "components/v2/recruitment/useSearchBaseTab.tsx",
    "marker": "Rekruter sprawdza w rozmowie",
    "v3_home": "okno „Kandydaci do dodania” → Szukaj w bazie"
@@ -1845,10 +1845,10 @@
   {
    "id": "screening-form.before-call",
    "area": "formularz screeningu",
-   "opis": "Profil przed telefonem w „Nowych”: stanowisko, staż, źródło, inne rekrutacje, ostatnia notatka; „Zacznij screening”, „Biorę — 12 h”, „Nie odebrał”",
+   "opis": "Formularz od razu (bez „Zacznij screening” i „Biorę — 12 h”, 14.10.2026): nad nim zwijany blok „Co już wiemy” — stanowisko, staż, źródło, inne rekrutacje, „Nie odebrał”; osobę na 12 h bierze pierwszy zapis formularza",
    "file": "components/v2/screening-form/BeforeCallProfile.tsx",
-   "marker": "Zacznij screening",
-   "v3_home": "Tablica → klik w osobę z „Nowych”"
+   "marker": "Co już wiemy",
+   "v3_home": "Tablica → klik w osobę z „Nowych” / „Screeningu” → nad formularzem"
   },
   {
    "id": "screening-form.split-panel",
@@ -2277,10 +2277,10 @@
   {
    "id": "screening.before-call-earlier",
    "area": "panel",
-   "opis": "Profil przed telefonem: „Warunki — co już wiemy” (ostatnio podana stawka z datą, dostępność, tryb pracy) i „Wcześniej u nas” (ostatnia zakończona rekrutacja z wynikiem, wcześniejsze notatki z „Pokaż”)",
+   "opis": "Blok „Co już wiemy” nad formularzem: „Warunki — co już wiemy” (ostatnio podana stawka z datą, dostępność, tryb pracy) i „Wcześniej u nas” (ostatnia zakończona rekrutacja z wynikiem, wcześniejsze notatki z „Pokaż”)",
    "file": "components/v2/screening-form/BeforeCallProfile.tsx",
    "marker": "Warunki — co już wiemy",
-   "v3_home": "Tablica → panel osoby → Screening („Nowi”, przed „Zacznij screening”)"
+   "v3_home": "Tablica → panel osoby → Screening → blok „Co już wiemy” nad formularzem"
   },
   {
    "id": "panel.in-base",
@@ -2301,10 +2301,10 @@
   {
    "id": "screening.before-call-in-base",
    "area": "panel",
-   "opis": "Profil przed telefonem: wiersz „W bazie od” (data, wiek, skąd) w bloku „Kandydat”",
+   "opis": "Blok „Co już wiemy”: wiersz „W bazie od” (data, wiek, skąd) w bloku „Kandydat”",
    "file": "components/v2/screening-form/BeforeCallProfile.tsx",
    "marker": "W bazie od",
-   "v3_home": "Tablica → panel osoby → Screening („Nowi”, przed „Zacznij screening”)"
+   "v3_home": "Tablica → panel osoby → Screening → blok „Co już wiemy” nad formularzem"
   },
   {
    "id": "card.new-in-base",
@@ -2377,6 +2377,110 @@
    "file": "components/v2/cv-editor/CvEditorIssues.tsx",
    "marker": "dismissIssue",
    "v3_home": "karta „CV do klienta” → Edytuj → Do poprawy"
+  },
+  {
+   "id": "board.arrow-undo",
+   "area": "ruch",
+   "opis": "Strzałka „→” na karcie bez braków przesuwa bez okna, z „Cofnij” przez 10 s (ruch odroczony, D7 14.10.2026)",
+   "file": "hooks/usePipelineMove.tsx",
+   "marker": "deferMove",
+   "v3_home": "Tablica → karta → „→”"
+  },
+  {
+   "id": "card.cv-state",
+   "area": "pipeline",
+   "opis": "Plakietka CV na karcie w „Zweryfikowany”: „CV w przygotowaniu…”, „CV gotowe · N do poprawy”, „CV gotowe · bez uwag”",
+   "file": "lib/board-card-badges.ts",
+   "marker": "cvStateBadge",
+   "v3_home": "Tablica → karta w „Zweryfikowany”"
+  },
+  {
+   "id": "board.dl-waiting",
+   "area": "pipeline",
+   "opis": "„Czeka u Delivery Leada od …” w „Przesuń dalej” i ramce „Następny etap” dla karty w „QC CV” (zamiast martwego „Przekaż Delivery Leadowi”)",
+   "file": "components/v2/recruitment/MoveNextDialog.tsx",
+   "marker": "move-next-waiting",
+   "v3_home": "Tablica → karta w „QC CV” → „→”"
+  },
+  {
+   "id": "board.sources-row-add",
+   "area": "pozyskiwanie",
+   "opis": "„+ Dodaj” w wierszu okna „Kandydaci do dodania” (propozycje, ogłoszenia, „Szukaj w bazie”)",
+   "file": "components/v2/recruitment/pick-list.tsx",
+   "marker": "pick-row-add",
+   "v3_home": "okno „Kandydaci do dodania” → wiersz"
+  },
+  {
+   "id": "board.sources-row-undo",
+   "area": "pozyskiwanie",
+   "opis": "„Dodano do „Nowych” · rezerwacja 12 h · Cofnij” po dodaniu z wiersza; do 15 min propozycja wraca na listę",
+   "file": "components/v2/recruitment/pick-list.tsx",
+   "marker": "Cofnij dodanie: ",
+   "v3_home": "okno „Kandydaci do dodania” → wiersz po dodaniu"
+  },
+  {
+   "id": "board.sources-row-reasons",
+   "area": "pozyskiwanie",
+   "opis": "Do trzech plakietek wymagań w wierszu: „✓”, „✕”, „? zapytaj”",
+   "file": "components/v2/recruitment/pick-list.tsx",
+   "marker": "Dlaczego ta osoba",
+   "v3_home": "okno „Kandydaci do dodania” → wiersz"
+  },
+  {
+   "id": "board.sources-manual-tab",
+   "area": "pozyskiwanie",
+   "opis": "„Szukaj ręcznie” jako zakładka okna „Kandydaci do dodania” (szerokie okno, zaznaczenia nie giną)",
+   "file": "components/v2/recruitment/AddCandidatesPanel.tsx",
+   "marker": "manual-search-tab",
+   "v3_home": "okno „Kandydaci do dodania” → Szukaj ręcznie"
+  },
+  {
+   "id": "board.sources-auto-score",
+   "area": "pozyskiwanie",
+   "opis": "Dopasowanie liczy się samo dla widocznych wierszy (bez „Policz dopasowanie”, D1 14.10.2026)",
+   "file": "components/v2/recruitment/AddCandidatesPanel.tsx",
+   "marker": "onRowVisible",
+   "v3_home": "okno „Kandydaci do dodania”"
+  },
+  {
+   "id": "screening.use-all-answers",
+   "area": "formularz screeningu",
+   "opis": "„Użyj wszystkich odpowiedzi (N)” z poprzedniego screeningu tej osoby",
+   "file": "components/v2/jobs/ScreeningReassignSuggestions.tsx",
+   "marker": "Użyj wszystkich odpowiedzi",
+   "v3_home": "panel osoby → Screening → podpowiedzi z poprzedniego screeningu"
+  },
+  {
+   "id": "panel.note-fills-form",
+   "area": "panel",
+   "opis": "„Zapisz notatkę i wypełnij formularz” w polu notatki doku — notatka zapisuje się raz i wypełnia puste pola screeningu (D3)",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "Zapisz notatkę i wypełnij formularz",
+   "v3_home": "panel osoby → pole notatki (przy otwartym formularzu)"
+  },
+  {
+   "id": "cv.editor-handoff",
+   "area": "CV",
+   "opis": "Stopka edytora CV na „Zweryfikowany”: „Uwaga dla Delivery Leada”, „Zapisz i przekaż do DL”, „Przekaż mimo uwag…” (D6)",
+   "file": "components/v2/cv-editor/CvEditorHandoffBar.tsx",
+   "marker": "Zapisz i przekaż do DL",
+   "v3_home": "panel osoby → CV → „Sprawdź i popraw” → stopka edytora"
+  },
+  {
+   "id": "cv.forward-progress",
+   "area": "CV",
+   "opis": "Po „Zapisz i przekaż dalej” karta CV pokazuje postęp (CV / źródło gotowego CV / powód pominięcia → QC) i „Następna w Screeningu”",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "cv-forward-progress",
+   "v3_home": "panel osoby → CV (zaraz po przekazaniu)"
+  },
+  {
+   "id": "dl-review.recruiter-remark",
+   "area": "przegląd DL",
+   "opis": "„Od rekrutera (…)” — uwaga z przekazania na górze przeglądu Delivery Leada",
+   "file": "components/v2/recruitment/DlReviewPanel.tsx",
+   "marker": "dl-review-recruiter-remark",
+   "v3_home": "przegląd DL → kolumna decyzji"
   }
  ]
 }
