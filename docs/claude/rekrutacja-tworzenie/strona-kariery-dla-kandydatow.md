@@ -25,6 +25,61 @@ Reguły, które łatwo cofnąć:
   (`AIFeatureKey.job_public_description`, Sonnet 5) jest tylko podpowiedzią —
   nie zapisuje się sam i nie omija kontroli. Kontrola skanuje też tytuł
   rekrutacji: klient w tytule blokuje publikację.
+- **Kontrola ma jedno źródło ze sprawdzaniem ogłoszeń na portale**
+  (`services/job_ad/lint.py` woła `lint_public_texts`; 13.10.2026). Nową
+  regułę dopisuj w `public_profile_lint.py`, nie w kopii — kopia w ogłoszeniu
+  miała już raz węższy wzorzec kwoty niż oryginał. Od tej daty kontrola łapie
+  też:
+  - kwoty słownie i bez symbolu waluty: „200 złotych”, „150 dolarów”,
+    „3000 CZK”, „2 mln PLN”, „30 tys. netto”, „180 netto/h”, „15 000 brutto”;
+  - „30 tys. PLN” — skróty „tys.”, „godz.” i „mies.” nie kończą zdania nawet
+    przed wielką literą; cięcie po „tys.” chowało najzwyklejszy zapis kwoty;
+  - linki (`http://`, `https://`, `www.`), e-mail zapisany jako
+    „jan [at] firma” / „jan(at)firma(dot)pl”, telefon stacjonarny
+    („22 555 12 34”) i z numerem kierunkowym („+48 22 555 12 34”);
+  - tekst ze znakami, których nie widać (miękki łącznik, spacja zerowej
+    szerokości, selektory wariantu, wypełniacze hangul) i znakami pełnej
+    szerokości — porównanie idzie po `for_lint`, więc nazwa klienta z miękkim
+    łącznikiem w środku nadal jest nazwą klienta.
+- **Wzorce są zawężone tam, gdzie łapały zwykły tekst** (przegląd
+  13.10.2026) — nie poszerzaj ich bez przykładu z prawdziwego opisu:
+  - „[at]”/„(at)” tylko małymi literami („Austria (AT) i Szwajcaria (CH)”
+    to kody krajów);
+  - „złoty” tylko w formach waluty („złotych”, „złote”, „złoty”) — „00-120
+    Złota 59” to adres, a „zlot” bez „ł” to także zjazd;
+  - liczba przed „netto/brutto” nie może być samym rokiem ani jedną cyfrą
+    („przepisy 2024 brutto/netto”, „wersja 2 brutto/netto”);
+  - adres bez „http” i „www” („firma.pl”) NIE jest regułą: końcówki „.net”,
+    „.io”, „.js” to nazwy technologii, a strona kariery nie ma poziomu
+    „uwaga” — każde znalezisko odmawia zatwierdzenia.
+- **Czego kontrola nadal nie łapie** (sprawdzone 13.10.2026, nie obiecuj
+  więcej): kwoty w całości słownie („dwieście złotych”), waluty oddzielonej
+  od liczby słowem albo nową linią („180 w PLN”, „200⏎złotych”), kwoty bez
+  waluty i bez słowa „stawka” („15 000 na rękę”, „90/hr”), walut spoza listy
+  (SEK, RON, CAD…), adresów bez „http”/„www” („bit.ly/…”), linków pisanych
+  „hxxps://” albo „www[.]x”, telefonów z kropkami, ukośnikami albo w innych
+  grupach („600.100.200”, „22 555 1234”), e-maila „jan at firma dot pl”,
+  liter z innego alfabetu podstawionych w nazwie klienta i nazw odmienionych
+  (te łapie dopiero alias klienta).
+- **Liczba we wzorcu kwoty nie startuje ze środka ciągu cyfr** (`_RUN_START`).
+  NFKC wydłuża tekst („⒛” to „20.”), a wzorzec próbowany od każdej cyfry
+  długiego ciągu liczył się kwadratowo — 4000 takich znaków dawało ponad
+  2 s. Strażnik nie zmienia wyników: pilnuje tego test na 20 tys. losowych
+  ciągów (`test_amount_start_guard_does_not_change_what_matches`), który
+  złapał pierwszą, za szeroką wersję („ok.180 zł” przestawało być kwotą).
+- **Kontrola sluga czyta część z tytułu, nie losową końcówkę.**
+  `slug_findings` puszcza przez tę samą kontrolę adres `/r/<slug>`, a przy
+  zatwierdzeniu opisu adres ze znaleziskiem jest WYMIENIANY (stary daje 404,
+  `rotate_unsafe_job_slugs`). Końcówkę z czterech losowych znaków dopisujemy
+  sami i potrafi wyglądać jak kwota: „…-zl1v” trafiało we wzorzec od
+  początku istnienia kontroli (raz na ok. 1800 linków), „…-1czk” w nowy.
+  Dlatego wymiana czyta `career_slugs.job_slug_content(slug)`. Nowa reguła
+  nadal nie może pasować do części z tytułu („tester-22-555-12-34”): numer
+  stacjonarny nie może stać po cyfrze ani łączniku.
+- **Zaostrzenie kontroli nie zdejmuje opublikowanych stron.** Kontrola biegnie
+  w podglądzie edytora i przy `approve`; opublikowany opis zostaje, dopóki
+  ktoś go nie zmieni — dopiero ponowne zatwierdzenie przejdzie przez nowe
+  reguły.
 - **Zgoda jest wymagana na OBU formularzach** (nowym i starym `/apply/{token}`),
   zapis w `candidate_consents` w tej samej transakcji (tekst + wersja + sha256,
   `services/career_consent.py`; administrator B2B.NET S.A.). Zmiana treści zgody
