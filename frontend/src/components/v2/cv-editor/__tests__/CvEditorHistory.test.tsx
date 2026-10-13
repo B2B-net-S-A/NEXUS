@@ -448,6 +448,25 @@ describe("porównanie z wersją i przywrócenie", () => {
     expect(panel()).not.toHaveTextContent("Biegi górskie.");
   });
 
+  it("zmiana treści w tej samej chwili, w której pojawia się porównanie, też przelicza różnice", async () => {
+    const { editor } = setup();
+    await openPanel();
+    // Zmiana przychodzi zaraz po narysowaniu porównania — zanim przeglądarka odda sterowanie.
+    const edited = new Promise<void>((resolve) => {
+      const observer = new MutationObserver(() => {
+        if (!screen.queryByRole("heading", { name: "Wersja 1 a bieżąca treść" })) return;
+        observer.disconnect();
+        const end = editor.state.doc.content.size - editor.state.doc.lastChild!.nodeSize;
+        editor.commands.insertContentAt(end, "<p>Biegi górskie.</p>");
+        resolve();
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    });
+    fireEvent.click(within(row(1)).getByRole("button", { name: "Porównaj" }));
+    await edited;
+    await waitFor(() => expect(within(panel()).getByRole("status")).toHaveTextContent("2 różnice"));
+  });
+
   it("po przywróceniu klawiatura wraca do kartki", async () => {
     const { editor } = setup();
     const focus = vi.spyOn(editor.view.dom, "focus").mockImplementation(() => undefined);

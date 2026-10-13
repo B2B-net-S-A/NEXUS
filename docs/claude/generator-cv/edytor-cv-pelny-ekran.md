@@ -494,6 +494,11 @@ jednym przyciskiem — wstawiają treść do edytora.
   niczego nie wstawiamy). Plik z samą klauzulą nie czyści CV. Zmiany samej
   struktury (znaczniki, kursywa) nie są na liście — przy równych tekstach
   panel mówi „Treść jest taka sama.” i niczego nie proponuje.
+- **Lista różnic dotyczy treści z edytora teraz** — przelicza się 200 ms po
+  zmianie. Nasłuch zmian w `useCvHistory` stoi w `useLayoutEffect`, nie
+  w `useEffect`: zmiana treści między narysowaniem porównania a zwykłym
+  efektem przepadała i licznik zostawał stary (13.10.2026 test wypadł przez to
+  z kolejki merge'ów — na wolniejszej maszynie edycja zdążyła przed efektem).
 - **Wszystko albo nic.** Makieta miała wybór per różnica i ocenę zgodności ze
   źródłami; weszła lista różnic + jedno wstawienie. Po wstawieniu treść ocenia
   panel „Do poprawy” (QC, w tym twierdzenia bez pokrycia w oryginale).
