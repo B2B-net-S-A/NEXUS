@@ -204,6 +204,57 @@ def split_rate_steps(
     return mine, other
 
 
+#: Stany aneksu — rejestr aneksów, wiersz umowy i zakładka „Aneksy” kontraktu.
+ANNEX_STATES: tuple[str, ...] = ("waiting", "signed_pending", "in_force", "cancelled")
+
+
+def annex_effective_date(
+    doc_type_key: str,
+    values: dict[str, Any],
+    document_date: date | None,
+    *,
+    contract_client_id: int | None = None,
+) -> date | None:
+    """Dzień, od którego obowiązuje zmiana z aneksu.
+
+    Jedna reguła dla rejestru aneksów, wiersza umowy i zakładki „Aneksy”: to
+    ta sama data, którą ``apply`` zapisuje w aneksie kontraktu. Aneks stawki —
+    najwcześniejszy krok klienta tego kontraktu (krok innego klienta kontraktu
+    nie zmienia); bez takiego kroku albo bez kontraktu — najwcześniejszy krok.
+    Zmiana daty startu — nowa data rozpoczęcia, nie pole „Data wejścia zmian
+    w życie” z formularza."""
+    fallback = _date(values.get("effective_date")) or document_date
+    if doc_type_key == "annex_rate_change":
+        steps = rate_steps(values, document_date)
+        mine = [
+            s
+            for s in steps
+            if contract_client_id is None or s.client_id in (None, contract_client_id)
+        ]
+        days = [s.effective for s in (mine or steps) if s.effective is not None]
+        return min(days) if days else fallback
+    if doc_type_key == "annex_start_date":
+        return _date(values.get("new_start_date")) or fallback
+    return fallback
+
+
+def annex_state(
+    *, status: str, signature_status: str, effective: date | None, today: date
+) -> str:
+    """Stan aneksu: jeden zamiast pary „status aneksu” + „status podpisu”.
+
+    Przy aneksie obie osie mówią to samo (niepodpisany = w trakcie, podpisany
+    = aktywny), a „aktywny” przed dniem wejścia w życie byłby nieprawdą —
+    stąd osobne „podpisany, wejdzie w życie” (``signed_pending``)."""
+    if status == "cancelled":
+        return "cancelled"
+    if status != "signed" and signature_status != "signed_both":
+        return "waiting"
+    if effective is not None and effective > today:
+        return "signed_pending"
+    return "in_force"
+
+
 def _pl_rate(value: Decimal) -> str:
     text = f"{value:.2f}".replace(".", ",")
     return text[:-3] if text.endswith(",00") else text
@@ -640,6 +691,14 @@ async def apply(
 
     key = doc_type.key
     reason = f"{doc_type.label} z dnia {_pl(doc.document_date)} (dokument #{doc.id})"
+    effective_day = annex_effective_date(
+        key,
+        values,
+        doc.document_date,
+        contract_client_id=contract.client_id if contract is not None else None,
+    )
+    if doc_type.family == "annex" and effective_day is not None:
+        summary["effective_date"] = effective_day.isoformat()
 
     if key == "annex_rate_change" and contract is not None:
         from app.schemas.contract_amendment import ContractAmendmentCreate
@@ -693,7 +752,7 @@ async def apply(
                     "start_date": new_start.isoformat(),
                     "start_date_mode": values.get("new_start_date_mode"),
                 },
-                effective=new_start,
+                effective=effective_day,
                 reason=reason,
                 document_id=stored.id if stored else None,
                 actor_id=user.id,
@@ -733,7 +792,7 @@ async def apply(
                 ContractAmendmentType.party_data_change,
                 old={},
                 new={"legal_name": legal_name, "nip": nip, "entity_type": entity},
-                effective=_date(values.get("effective_date")) or doc.document_date,
+                effective=effective_day,
                 reason=reason,
                 document_id=stored.id if stored else None,
                 actor_id=user.id,
@@ -746,7 +805,7 @@ async def apply(
             ContractAmendmentType.subcontractor_consent,
             old={},
             new={"delegate_name": values.get("delegate_name")},
-            effective=_date(values.get("effective_date")) or doc.document_date,
+            effective=effective_day,
             reason=reason,
             document_id=stored.id if stored else None,
             actor_id=user.id,
@@ -763,7 +822,7 @@ async def apply(
                 "period_to": values.get("period_to"),
                 "rate_changed": bool(values.get("change_rate")),
             },
-            effective=_date(values.get("effective_date")) or doc.document_date,
+            effective=effective_day,
             reason=reason,
             document_id=stored.id if stored else None,
             actor_id=user.id,
