@@ -406,11 +406,16 @@ async def test_annex_by_a_recruiter_does_not_link_the_register_row(
     """Dowiązanie wiersza do kontraktu to zapis w Delivery: aneks rekrutera
     powstaje, ale wiersz zostaje bez kontraktu, a wskazanie kontraktu wprost
     kończy się odmową."""
+    from app.models.b2b_generated_contract import B2BGeneratedContract
     from tests.test_b2b_generator_rate_visibility import _seed_user
 
     contract_id, client_id = await _seed_linked_contract()
     rid = await _unlinked_row(app_client, contract_id=contract_id, client_id=client_id)
-    recruiter_headers, _ = await _seed_user(app_client, "recruiter")
+    recruiter_headers, recruiter_id = await _seed_user(app_client, "recruiter")
+    async with AsyncSessionLocal() as db:
+        # Rekruter wystawia dokumenty do umów, których stawki widzi — własnych.
+        (await db.get(B2BGeneratedContract, rid)).created_by = recruiter_id
+        await db.commit()
 
     doc_id = await _create(
         app_client,
