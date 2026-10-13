@@ -197,7 +197,7 @@ Lista `/jobs`, Tablica, ruch kart i bramki, panel osoby, QC CV i Cpro, przegląd
 - `prostszy-ekran-rekrutacji-fakty-kafle-kandydaci-do.md` — Prostszy ekran rekrutacji — fakty, kafle „Kandydaci do dodania”, kolumna „Zamknięci” (02.10.2026)
 - `przeglad-delivery-leada-v2.md` — Przegląd Delivery Leada v2 (D6, D9, D10, 08.10.2026)
 - `przydzial-ludzi-do-requestow-stany-requestu-i.md` — Przydział ludzi do requestów, stany requestu i pulpit „Requesty i obłożenie” (0371, 24.09.2026)
-- `qc-cv-tryb-doradczy-role-z-odczytu-potwierdzenie.md` — QC CV: tryb doradczy, role z odczytu CV, „Potwierdzone z kandydatem” (12.10.2026) · QC doradza zamiast blokować (wyłącznik `CV_QC_ADVISORY`), skąd QC wie, w której roli kandydat czego używał, potwierdzenie z kandydatem jako notatka, przeliczenie przebiegów po zmianie reguł
+- `qc-cv-tryb-doradczy-role-z-odczytu-potwierdzenie.md` — QC CV: tryb doradczy, role z odczytu CV, „Potwierdzone z kandydatem” (12.10.2026) · QC doradza (`CV_QC_ADVISORY`), rola technologii z odczytu CV, potwierdzenie z kandydatem jako notatka, przeliczenie po zmianie reguł
 - `qc-mowi-prawde.md` — QC CV mówi prawdę (13.10.2026) · `found_in`, odpowiedzi jako źródło, zdanie w roli tylko przy opisie, „Szukałem w”
 - `qc-to-nieprawda-i-jakosc-qc.md` — „To nieprawda” i „Jakość QC” (13.10.2026, D5–D6) · pominięcie uwagi per para, blokada = obejście, trafność < 70% → informacja
 - `rekrutacja-drobne-usprawnienia-ux.md` — Rekrutacja — drobne usprawnienia UX (24.09.2026)
@@ -266,7 +266,7 @@ Generator CV, reguły CV klienta, zgoda RODO, interaktywne CV, automaty rekrutac
 - `generator-cv-v3-jeden-ekran-od-osoby.md` — Generator CV v3 — jeden ekran od osoby (23.09.2026)
 - `interaktywne-cv-publiczny-link-do-wygenerowanego-cv.md` — Interaktywne CV (publiczny link do wygenerowanego CV)
 - `reguly-cv-per-klient-pelna-recepta-delivery-leada.md` — Reguły CV per klient — pełna recepta Delivery Leada
-- `silnik-cv-bez-wypelniacza.md` — Silnik CV bez wypełniacza (13.10.2026, D1–D3) · bez punktu MUST, pytanie ≠ fakt, strażnik terminów, branża ze źródła, nagłówek `cv_role_title`, lata, notatki bez stawek i transkryptów
+- `silnik-cv-bez-wypelniacza.md` — Silnik CV bez wypełniacza (13.10.2026, D1–D3) · bez punktu MUST, pytanie ≠ fakt, branża ze źródła, nagłówek `cv_role_title`, lata, notatki bez stawek
 - `zrzut-zgody-rodo-na-koncu-cv-wymog-pko-bp.md` — Zrzut zgody RODO na końcu CV (wymóg PKO BP)
 
 ### AI i Jarvis — `docs/claude/ai-jarvis/`
