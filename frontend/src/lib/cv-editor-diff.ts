@@ -17,9 +17,8 @@
  */
 
 import { createDocument } from "@tiptap/core";
-import { closeHistory } from "@tiptap/pm/history";
 import { Fragment, type Node as PMNode, type Schema } from "@tiptap/pm/model";
-import { TextSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
+import type { EditorState, Transaction } from "@tiptap/pm/state";
 
 import { cvOutline, isRodoNode } from "@/lib/cv-editor-blocks";
 import { docStep } from "@/lib/cv-editor-issues";
@@ -201,52 +200,19 @@ function withCurrentClause(current: PMNode, incoming: PMNode): PMNode {
  * wtyczka by je odrzuciła, treść jest zamieniana cała naraz — klauzula znika
  * wtedy i wraca w jednym kroku, czego wtyczka nie uznaje za przeciek.
  */
-/**
- * Czy wtyczki przyjmą zmianę ORAZ jej cofnięcie.
- *
- * Wtyczka struktury odrzuca transakcję, która rozcina klauzulę zgody. Sama
- * zmiana bywa w porządku, a jej odwrotność już nie: przy klauzuli bez znacznika
- * (starsze CV) najmniejsza zamiana kończyła się w środku klauzuli — treść
- * wchodziła, ale „Cofnij” nic nie robiło i blokowało cały stos cofania
- * (przegląd 13.10.2026). Historia cofa, odwracając kroki — sprawdzamy to samo.
- */
-function acceptedBothWays(state: EditorState, transaction: Transaction): boolean {
-  // Odrzucona transakcja nie trafia na listę zastosowanych.
-  const applied = state.applyTransaction(transaction);
-  if (!applied.transactions.includes(transaction)) return false;
-  try {
-    const back = applied.state.tr;
-    for (let index = transaction.steps.length - 1; index >= 0; index -= 1) {
-      back.step(transaction.steps[index].invert(transaction.docs[index]));
-    }
-    return applied.state.applyTransaction(back).transactions.includes(back);
-  } catch {
-    // Wtyczka coś dopisała po zmianie i odwrotność już nie pasuje do dokumentu.
-    return false;
-  }
-}
-
 /** Czy treść przychodząca (z bieżącą klauzulą na końcu) różni się od dokumentu. */
 export function contentDiffers(state: EditorState, incoming: PMNode | string): boolean {
   const doc = typeof incoming === "string" ? htmlToDoc(state.schema, incoming) : incoming;
-  return docStep(state, withCurrentClause(state.doc, doc)) != null;
+  return !state.doc.content.eq(withCurrentClause(state.doc, doc).content);
 }
 
 /**
  * Jedna transakcja wstawiająca treść przychodzącą; `null`, gdy nie ma czego
  * zmieniać (`contentDiffers`) albo edytor nie przyjąłby zmiany razem z jej
- * cofnięciem — wtedy niczego nie wstawiamy.
+ * cofnięciem — wtedy niczego nie wstawiamy. Kolejne próby (najmniejsze zamiany,
+ * całe bloki, cała treść) i sprawdzenie w obie strony robi `docStep`.
  */
 export function replaceContentStep(state: EditorState, incoming: PMNode | string): Transaction | null {
   const doc = typeof incoming === "string" ? htmlToDoc(state.schema, incoming) : incoming;
-  const next = withCurrentClause(state.doc, doc);
-  const step = docStep(state, next);
-  if (!step) return null;
-  const minimal = step.transaction;
-  if (minimal.doc.eq(next) && acceptedBothWays(state, minimal)) return minimal;
-  // Cała treść jednym krokiem: klauzula znika i wraca w całości, w obie strony.
-  const whole = closeHistory(state.tr.replaceWith(0, state.doc.content.size, next.content));
-  // Kursor na początek treści — domyślnie lądował w zablokowanej klauzuli na końcu.
-  whole.setSelection(TextSelection.atStart(whole.doc));
-  return acceptedBothWays(state, whole) ? whole : null;
+  return docStep(state, withCurrentClause(state.doc, doc))?.transaction ?? null;
 }

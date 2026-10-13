@@ -314,6 +314,54 @@ describe("nałożenie wyniku serwera", () => {
     expect(editor.getHTML()).toBe(fixed);
   });
 
+  // Starsze CV: klauzula zgody bez znacznika ma tę samą budowę co zwykły akapit.
+  // Najmniejsza zamiana sąsiedniego akapitu zaczynającego się tą samą literą
+  // („W…” jak „Wyrażam…”) wchodziła wtedy W ŚRODEK klauzuli: wtyczka struktury
+  // odrzucała ją po cichu albo — gorzej — przyjmowała, ale odrzucała jej cofnięcie.
+  const UNMARKED = `<p>${CLAUSE}</p>`;
+
+  it.each(["Wolontariat.", "Wyrażam się jasno."])(
+    "klauzula bez znacznika: akapit „%s” dopisany tuż przed nią wchodzi i daje się cofnąć",
+    (added) => {
+      const editor = open(`<h1>CV</h1><p>Opis.</p>${UNMARKED}`);
+      const before = editor.getHTML();
+      const fixed = `<h1>CV</h1><p>Opis.</p><p>${added}</p>${UNMARKED}`;
+      const step = fixStep(editor.state, fixed)!;
+      expect(editor.state.applyTransaction(step.transaction).transactions).toContain(step.transaction);
+      editor.view.dispatch(step.transaction);
+      expect(editor.getHTML()).toBe(fixed);
+      editor.commands.undo();
+      expect(editor.getHTML()).toBe(before);
+      expect(editor.can().undo()).toBe(false);
+    },
+  );
+
+  it.each(["Wolontariat.", "Wyrażam się jasno."])(
+    "klauzula bez znacznika: akapit „%s” usunięty tuż przed nią daje się cofnąć",
+    (removed) => {
+      const editor = open(`<h1>CV</h1><p>Opis.</p><p>${removed}</p>${UNMARKED}`);
+      const before = editor.getHTML();
+      const fixed = `<h1>CV</h1><p>Opis.</p>${UNMARKED}`;
+      const step = fixStep(editor.state, fixed)!;
+      editor.view.dispatch(step.transaction);
+      expect(editor.getHTML()).toBe(fixed);
+      editor.commands.undo();
+      // Bez poprawki: „Cofnij” nic nie robiło i blokowało wcześniejsze zmiany.
+      expect(editor.getHTML()).toBe(before);
+      expect(editor.can().undo()).toBe(false);
+    },
+  );
+
+  it("klauzula bez znacznika: zmienione miejsca nadal wskazują sam dopisany akapit", () => {
+    const editor = open(`<h1>CV</h1><p>Opis.</p>${UNMARKED}`);
+    const step = fixStep(editor.state, `<h1>CV</h1><p>Opis.</p><p>Wolontariat.</p>${UNMARKED}`)!;
+    editor.view.dispatch(step.transaction);
+    // Podświetlenie po poprawce nie obejmuje całego dokumentu ani klauzuli.
+    const marked = step.changed.map((range) => textAt(editor, range)).join(" ");
+    expect(marked).toContain("olontariat.");
+    expect(marked).not.toContain("przetwarzanie");
+  });
+
   it("treść równa bieżącej (po wczytaniu do schematu) nie daje transakcji", () => {
     const editor = open();
     // `<b>` i dodatkowe odstępy serwera to dla edytora ten sam dokument.

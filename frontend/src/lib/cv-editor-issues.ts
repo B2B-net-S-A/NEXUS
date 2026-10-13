@@ -18,7 +18,7 @@
 import { createDocument } from "@tiptap/core";
 import { closeHistory } from "@tiptap/pm/history";
 import { Fragment, Slice, type Node as PMNode } from "@tiptap/pm/model";
-import type { EditorState, Transaction } from "@tiptap/pm/state";
+import { TextSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
 
 import type { CvReviewFinding } from "@/lib/api/cvEditorIssues";
 import type { QcCheck, QcFix, QcFixAction } from "@/lib/api/cvQc";
@@ -332,7 +332,64 @@ export function fixStep(state: EditorState, html: string): FixStep | null {
   return docStep(state, createDocument(html, state.schema));
 }
 
-/** To samo dla gotowego dokumentu — bez przejścia przez HTML (`lib/cv-editor-diff.ts`). */
+/**
+ * Czy wtyczki przyjmą zmianę ORAZ jej cofnięcie.
+ *
+ * Wtyczka struktury odrzuca transakcję, która rozcina klauzulę zgody. Klauzula
+ * bez znacznika (starsze CV) ma tę samą budowę co zwykły akapit, więc
+ * najmniejsza zamiana sąsiedniego akapitu zaczynającego się tą samą literą
+ * („W…” jak „Wyrażam…”) wchodziła w jej środek. Dopisany akapit wtyczka
+ * odrzucała po cichu; usunięty wchodził, ale jego odwrotność już nie —
+ * „Cofnij” nic nie robiło i blokowało cały stos cofania (przegląd 13.10.2026).
+ * Historia cofa, odwracając kroki — sprawdzamy to samo.
+ */
+export function acceptedBothWays(state: EditorState, transaction: Transaction): boolean {
+  // Odrzucona transakcja nie trafia na listę zastosowanych.
+  const applied = state.applyTransaction(transaction);
+  if (!applied.transactions.includes(transaction)) return false;
+  try {
+    const back = applied.state.tr;
+    for (let index = transaction.steps.length - 1; index >= 0; index -= 1) {
+      back.step(transaction.steps[index].invert(transaction.docs[index]));
+    }
+    return applied.state.applyTransaction(back).transactions.includes(back);
+  } catch {
+    // Wtyczka coś dopisała po zmianie i odwrotność już nie pasuje do dokumentu.
+    return false;
+  }
+}
+
+/** Całe bloki dokumentu, którymi nowa treść różni się od bieżącej (od początku i od końca). */
+function blockChange(current: PMNode, next: PMNode): Change {
+  const shared = Math.min(current.childCount, next.childCount);
+  let head = 0;
+  while (head < shared && current.child(head).eq(next.child(head))) head += 1;
+  let tail = 0;
+  while (
+    tail < shared - head &&
+    current.child(current.childCount - 1 - tail).eq(next.child(next.childCount - 1 - tail))
+  ) {
+    tail += 1;
+  }
+  const span = (doc: PMNode) => {
+    let from = 0;
+    for (let index = 0; index < head; index += 1) from += doc.child(index).nodeSize;
+    let to = doc.content.size;
+    for (let index = 0; index < tail; index += 1) to -= doc.child(doc.childCount - 1 - index).nodeSize;
+    return { from, to };
+  };
+  const mine = span(current);
+  const theirs = span(next);
+  return { from: mine.from, to: mine.to, slice: next.slice(theirs.from, theirs.to), placed: { ...theirs, block: true } };
+}
+
+/**
+ * To samo dla gotowego dokumentu — bez przejścia przez HTML (`lib/cv-editor-diff.ts`).
+ *
+ * Trzy próby, każda musi przejść w obie strony (`acceptedBothWays`): najmniejsze
+ * zamiany, potem całe różniące się bloki, na końcu cała treść jednym krokiem.
+ * `null` = nie ma czego zmieniać albo edytor nie przyjąłby żadnej z nich.
+ */
 export function docStep(state: EditorState, next: PMNode): FixStep | null {
   const changes: Change[] = [];
   collectChanges(state.doc, next, 0, 0, changes);
@@ -350,5 +407,18 @@ export function docStep(state: EditorState, next: PMNode): FixStep | null {
     transaction = state.tr.replace(whole.from, whole.to, whole.slice);
     changed = [whole.placed];
   }
-  return { transaction: closeHistory(transaction), changed };
+  const minimal = closeHistory(transaction);
+  if (acceptedBothWays(state, minimal)) return { transaction: minimal, changed };
+
+  // Całe bloki: zamiana kończy się na granicy bloku, więc nie wchodzi w klauzulę.
+  const blocks = blockChange(state.doc, next);
+  const placed = blocks.placed.to > blocks.placed.from ? [blocks.placed] : [];
+  const byBlocks = closeHistory(state.tr.replace(blocks.from, blocks.to, blocks.slice));
+  if (byBlocks.doc.eq(next) && acceptedBothWays(state, byBlocks)) return { transaction: byBlocks, changed: placed };
+
+  // Cała treść jednym krokiem: klauzula znika i wraca w całości, w obie strony.
+  const everything = closeHistory(state.tr.replaceWith(0, state.doc.content.size, next.content));
+  // Kursor na początek treści — domyślnie lądował w zablokowanej klauzuli na końcu.
+  everything.setSelection(TextSelection.atStart(everything.doc));
+  return acceptedBothWays(state, everything) ? { transaction: everything, changed: placed } : null;
 }
