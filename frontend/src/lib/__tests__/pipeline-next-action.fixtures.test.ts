@@ -24,6 +24,8 @@ interface FixtureCase {
   item: {
     days_in_stage: number | null;
     screening_done: boolean | null;
+    /** Rekrutacja bez pytań screeningowych — zamiast arkusza „Dlaczego ten kandydat”. */
+    screening_requirement?: string | null;
     hm_veto: boolean;
     /** Faza cyklu rozmowy — na karcie niesie ją odznaka terminarza. */
     interview_phase?: string | null;
@@ -63,6 +65,9 @@ describe("nextActionFor — przypadki wspólne z backendem", () => {
         stage: c.column.stage,
         ...(c.item.days_in_stage == null ? {} : { days_in_stage: c.item.days_in_stage }),
         ...(c.item.screening_done == null ? {} : { screening_done: c.item.screening_done }),
+        ...(c.item.screening_requirement == null
+          ? {}
+          : { screening_requirement: c.item.screening_requirement as KanbanItem["screening_requirement"] }),
         hm_veto: c.item.hm_veto ? VETO : null,
         ...(c.item.interview_phase == null
           ? {}

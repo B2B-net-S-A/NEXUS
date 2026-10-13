@@ -30,6 +30,10 @@ NUDGE_DAYS = 5
 FRESH_INTAKE_DAYS = 1
 
 NO_NEXT_ACTION_LABEL = "Brak następnej akcji"
+# Wymaganie rozmowy w rekrutacji bez pytań screeningowych — ten sam klucz co
+# `move_requirements.WHY_CANDIDATE` (moduł zostaje lekki, więc bez importu).
+WHY_CANDIDATE = "why_candidate"
+WHY_CANDIDATE_LABEL = "Wpisz „Dlaczego ten kandydat”"
 
 GroupKey = Literal[
     "posting", "intake", "screening", "verification", "client", "contract", "closed"
@@ -244,6 +248,7 @@ def _base_action(
     sla_days: Optional[int],
     interview_phase: Optional[str] = None,
     interview_date: Optional[str] = None,
+    screening_requirement: Optional[str] = None,
 ) -> tuple[str, str, str]:
     if group == "closed":
         return ("", "normal", "none")
@@ -264,6 +269,10 @@ def _base_action(
         tone = "due" if overdue else "normal"
         if screening_done is True:
             return ("Zweryfikuj i przenieś dalej", tone, "verification")
+        # Rekrutacja bez pytań screeningowych nie ma arkusza — zapisem rozmowy
+        # jest „Dlaczego ten kandydat” (13.10.2026).
+        if screening_requirement == WHY_CANDIDATE:
+            return (WHY_CANDIDATE_LABEL, tone, "screening")
         return ("Uzupełnij arkusz screeningu", tone, "screening")
 
     if group == "verification":
@@ -337,6 +346,7 @@ def next_action_for(
     sla_days: Optional[int] = None,
     interview_phase: Optional[str] = None,
     interview_date: Optional[str] = None,
+    screening_requirement: Optional[str] = None,
 ) -> NextAction:
     """Co dalej z kartą — z faktów, które karta niesie (lustro ``nextActionFor``).
 
@@ -359,6 +369,7 @@ def next_action_for(
         sla_days=sla_days,
         interview_phase=interview_phase,
         interview_date=interview_date,
+        screening_requirement=screening_requirement,
     )
     return NextAction(
         label=label,

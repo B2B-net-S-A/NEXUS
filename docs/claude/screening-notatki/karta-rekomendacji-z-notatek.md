@@ -249,7 +249,11 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
   przepięcia i QC CV, wzbogacanie Championa z notatki, narzędzia Jarvisa
   `get_candidate` i `get_candidate_timeline`), a generator CV dodatkowo nie
   dostaje stawki, red flags ani motywacji — to ustalenia handlowe, nie treść
-  CV. „Dlaczego ten kandydat” wpisane na karcie w NEXUSIE dochodzi jako blok
+  CV. Tak samo czytają notatki funkcje, których zdanie trafia do CV dla
+  klienta: „Rozwiń z oryginału” w edytorze CV i propozycje poprawek w QC
+  (`cv_qc.generate_fixes`, decyzja Artura 13.10.2026). Sprawdzenia QC czytają
+  notatki po staremu (bez samej narodowości) — tam notatka jest dowodem, nie
+  źródłem zdania. „Dlaczego ten kandydat” wpisane na karcie w NEXUSIE dochodzi jako blok
   „[Rekomendacja rekrutera]” (tylko z bieżącej próby procesu). Dwa przejścia:
   etykiety ze słownika karty, potem wiersze z polem zapisanym inaczej
   („Nationality:”, „Stawka B2B netto:”, „Red flags – …”, samo „Motywacja”

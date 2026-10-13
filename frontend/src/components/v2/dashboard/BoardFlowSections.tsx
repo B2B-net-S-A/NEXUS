@@ -39,7 +39,12 @@ import { ORDER_CHANGES_POLL_MS } from "@/lib/polling";
 import { Section } from "./BoardTasksSection";
 import { BoardTopProposals, topProposalsCount } from "./BoardTopProposals";
 
-const MISSING_LABEL = { sheet: "arkusz", rate: "stawka" } as const;
+const MISSING_LABEL = {
+  sheet: "arkusz",
+  // Rekrutacja bez pytań screeningowych: arkusza tam nie ma (13.10.2026).
+  why_candidate: "„Dlaczego ten kandydat”",
+  rate: "stawka",
+} as const;
 
 type Toggle = {
   expanded: Record<string, boolean>;
@@ -185,7 +190,7 @@ export function BoardFlowSections({
       {flow && flow.screening.length > 0 && (
         <Section
           title="Screening — brakuje danych"
-          hint="Bez arkusza screeningu i stawki kandydata karta nie wejdzie na „Zweryfikowany”."
+          hint="Bez arkusza screeningu i stawki kandydata karta nie wejdzie na „Zweryfikowany”. W rekrutacji bez pytań zamiast arkusza wystarcza „Dlaczego ten kandydat”."
           count={flow.screening.length}
           expanded={expanded["flow_screening"] === true}
           onToggle={() => onToggle("flow_screening")}

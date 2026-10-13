@@ -13,6 +13,7 @@ import pytest
 from app.services.move_requirements import (
     PairFacts,
     build_requirements,
+    card_screening_state,
     screening_requirement,
 )
 
@@ -520,3 +521,44 @@ def test_assessment_does_not_replace_the_sheet_when_the_job_has_questions() -> N
 )
 def test_screening_requirement(facts: PairFacts, expected: tuple[str, bool]) -> None:
     assert screening_requirement(facts) == expected
+
+
+# ── Karta Tablicy i „Czeka na Ciebie” w rekrutacji bez pytań (13.10.2026) ────
+
+CARD_WITH_ASSESSMENT = {"missing": ["rate", "motivation"], "answers": 0}
+CARD_WITHOUT_ASSESSMENT = {"missing": ["recommendation", "motivation"], "answers": 0}
+
+
+def test_card_in_a_job_with_questions_keeps_the_sheet_rule() -> None:
+    """Rekrutacja z pytaniami: karta mówi o arkuszu jak dotąd — ocena go nie
+    zastępuje, a pole wymagania zostaje puste."""
+    assert card_screening_state(
+        has_questions=True, sheet=False, card=CARD_WITH_ASSESSMENT
+    ) == (False, None)
+    assert card_screening_state(has_questions=True, sheet=True, card=None) == (
+        True,
+        None,
+    )
+
+
+@pytest.mark.parametrize(
+    ("sheet", "card", "done"),
+    [
+        (False, None, False),
+        (False, CARD_WITHOUT_ASSESSMENT, False),
+        (False, CARD_WITH_ASSESSMENT, True),
+        # Odpowiedzi zapisane w notatce i arkusz sprzed usunięcia pytań też
+        # spełniają bramkę — karta nie może wtedy prosić o ocenę.
+        (False, {"missing": ["recommendation"], "answers": 2}, True),
+        (True, None, True),
+    ],
+)
+def test_card_in_a_job_without_questions_follows_the_gate(
+    sheet: bool, card: dict | None, done: bool
+) -> None:
+    """Zgłoszenie 13.10.2026: po poprawce bramki karta w „Screeningu” dalej
+    pisała „Uzupełnij arkusz screeningu”, choć arkusza tam nie ma."""
+    assert card_screening_state(has_questions=False, sheet=sheet, card=card) == (
+        done,
+        "why_candidate",
+    )

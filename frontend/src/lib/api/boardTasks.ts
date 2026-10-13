@@ -308,7 +308,8 @@ export interface FlowPostingRow {
   oldest_at: string;
 }
 
-export type FlowMissing = "sheet" | "rate";
+/** `why_candidate`: rekrutacja bez pytań screeningowych — brakuje oceny zamiast arkusza. */
+export type FlowMissing = "sheet" | "why_candidate" | "rate";
 
 /** Jedna osoba w jednej rekrutacji (Nowi z blokadą, Screening, Zweryfikowany, DL). */
 export interface FlowPairRow {

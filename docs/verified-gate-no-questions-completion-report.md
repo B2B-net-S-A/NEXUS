@@ -60,7 +60,7 @@ screeningu”, a w formularzu nie było czego uzupełnić.
 | Front | zielone | `npx vitest run` na 7 plikach, 170 testów (formularz, reguły formularza, wcześniejsze odpowiedzi, hooki ruchu karty, zasiew podglądów); `npm run type-check` kod 0; `eslint` na zmienionych plikach kod 0 |
 | Podgląd przy 1280 × 720 | przeklikane | `?state=noquestions`: pusty stan, odmowa z kursorem w polu, błąd znika po wpisaniu; `?state=employed`: blok „zatrudniona przez nas”, pole wyboru, licznik pominiętych pytań, notatka wewnętrzna; konsola bez błędów |
 | Przegląd kodu (tylko blokery) | dwa blokery, oba poprawione | niezależny przegląd diffu: okno próby dla oceny i fałszywy powód w domyślnej notatce pominięcia — poprawki i testy w tym PR-ze |
-| Produkcja po wdrożeniu | po wdrożeniu | `/api/health` z SHA z maina; odczyt wymagań ruchu dla zgłoszonej pary |
+| Produkcja po wdrożeniu | potwierdzone 13.10.2026 | `/api/health` zgłasza SHA scalenia; odczyt bazy: obie zgłoszone pary mają 0 pytań, otwarty proces, wpisane „Dlaczego ten kandydat” i stawkę — spełniają nową regułę. Samego ruchu na produkcji nie wykonywano |
 
 ## Skutki uboczne, zamierzone
 
@@ -69,10 +69,33 @@ screeningu”, a w formularzu nie było czego uzupełnić.
 - Rekruter może pominąć pytania przy osobie po wcześniejszym screeningu albo zatrudnionej przez
   nas; pominięte odpowiedzi i notatka wewnętrzna są widoczne dla zespołu i nie idą do klienta.
 
+## Dopisek 13.10.2026 — napis na karcie Tablicy i w „Czeka na Ciebie”
+
+Po wdrożeniu bramki karta w „Screeningu” i kolejka dalej pisały o arkuszu, którego w rekrutacji
+bez pytań nie ma. Osobny PR:
+
+- **Karta Tablicy** — w rekrutacji bez pytań niesie `screening_requirement: "why_candidate"`,
+  a `screening_done` znaczy „ocena wpisana” (ta sama reguła co bramka, liczona z podsumowań kart,
+  które Tablica już wczytuje). Krok: „Wpisz „Dlaczego ten kandydat”” (skrót na karcie „Wpisz
+  ocenę”), po wpisaniu „Zweryfikuj i przenieś dalej”; podpowiedź strzałki „Brak „Dlaczego ten
+  kandydat””. Ten sam krok widzi „Twoje najbliższe kroki” na pulpicie.
+- **„Czeka na Ciebie”** — sekcja „Screening — brakuje danych” pokazuje plakietkę „Dlaczego ten
+  kandydat” zamiast „arkusz”; osoba z wpisaną oceną ma już tylko brak stawki. Poranny skrót
+  mailem czyta te same wiersze i pisze „brak „Dlaczego ten kandydat”” (znalezione w przeglądzie
+  kodu: bez wpisu w jego mapie etykiet mail wypisałby surowy klucz).
+- **Rekrutacje z pytaniami** — bez zmian w obu miejscach.
+
+| Część | Stan | Dowód |
+|---|---|---|
+| Reguła karty, zgodność front ↔ serwer i poranny skrót (bez bazy) | zielone | `tests/test_move_requirements.py`, `tests/test_next_action_parity.py`, `tests/test_team_email_notifications.py`: 162 testy; nowe przypadki padały przed zmianą kodu |
+| Front | zielone | `npx vitest run` na 38 plikach dotykających zmienionych modułów: 1022 testy; `npm run type-check` i `eslint` kod 0 |
+| Przegląd kodu (tylko blokery) | jeden bloker, poprawiony | poranny skrót mailem nie znał nowego klucza braku — etykieta i test w tym PR-ze |
+| Podgląd przy 1280 × 720 | przeklikane | `/preview/pipeline-v4?questions=none`: karta bez oceny „Wpisz ocenę”, z oceną „Zweryfikuj”; `/preview/custom-dashboard?as=recruiter`: plakietka w kolejce, bez poziomego przewijania także przy 390 px |
+| Testy z bazą | w CI | `tests/test_board_flow.py` (kolejka w rekrutacji bez pytań), `tests/test_pipeline_integrity.py` (karta Tablicy) |
+
 ## Poza zakresem
 
-- Karta Tablicy i „Czeka na Ciebie” w rekrutacji bez pytań nadal piszą „Uzupełnij arkusz
-  screeningu”, dopóki osoba stoi w „Screeningu” (osobne reguły najbliższego kroku i kolejki).
+- Opis kolumny „Screening” na Tablicy („Arkusz pytań z…”) jest stały dla każdej rekrutacji.
 - Arkusz z samymi sprawdzeniami doświadczenia zapisuje się, ale bramki nie spełnia.
 - „Zapisz i przekaż dalej” wymaga odpowiedzi na wszystkie pytania, serwerowi wystarcza jedna.
 - Odpowiedzi z notatki (`card_answers`) nie mają okna próby zamkniętej dawno temu — stan sprzed

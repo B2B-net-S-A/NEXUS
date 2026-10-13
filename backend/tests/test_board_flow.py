@@ -46,7 +46,17 @@ async def _user(db, role, *, extra_roles: tuple[str, ...] = ()):
     return user
 
 
-async def _world(db, *, recruiter_id=None, delivery_lead_id=None, category_id=None):
+QUESTIONS = {"screening_questions": [{"id": "q1", "question": "Ile lat z Javą?"}]}
+
+
+async def _world(
+    db,
+    *,
+    recruiter_id=None,
+    delivery_lead_id=None,
+    category_id=None,
+    champion_profile=None,
+):
     from app.models.client import Client
     from app.models.job import Job, JobStatus, RemotePolicy
     from app.models.pipeline_template import (
@@ -91,6 +101,7 @@ async def _world(db, *, recruiter_id=None, delivery_lead_id=None, category_id=No
         recruiter_id=recruiter_id,
         delivery_lead_id=delivery_lead_id,
         competence_category_id=category_id,
+        champion_profile=champion_profile,
     )
     db.add(job)
     await db.flush()
@@ -186,7 +197,7 @@ async def test_recruiter_sees_postings_claims_screening_and_verified() -> None:
     async with AsyncSessionLocal() as db:
         rec = await _user(db, "recruiter")
         other = await _user(db, "recruiter")
-        world = await _world(db, recruiter_id=rec.id)
+        world = await _world(db, recruiter_id=rec.id, champion_profile=QUESTIONS)
         old = await _person_at(db, world, "posting", ago=timedelta(days=4))
         fresh = await _person_at(db, world, "posting", ago=timedelta(hours=3))
         screening = await _person_at(db, world, "screening", ago=timedelta(hours=5))
@@ -235,6 +246,53 @@ async def test_recruiter_sees_postings_claims_screening_and_verified() -> None:
             assert _for_job(other_flow.screening, world["job_id"]) == []
     finally:
         await _cleanup([world], candidates, [rec_id, other_id])
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_screening_in_a_job_without_questions_misses_the_assessment() -> None:
+    """Zgłoszenie 13.10.2026: w rekrutacji bez pytań screeningowych kolejka
+    pisała „arkusz”, którego nie da się tam zapisać. Brakuje oceny „Dlaczego
+    ten kandydat” — a gdy jest wpisana, zostaje tylko stawka."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.recommendation_card import RecommendationCard
+    from app.services import board_flow
+
+    candidates: list[int] = []
+    async with AsyncSessionLocal() as db:
+        rec = await _user(db, "recruiter")
+        world = await _world(db, recruiter_id=rec.id)
+        bare = await _person_at(db, world, "screening", ago=timedelta(hours=5))
+        assessed = await _person_at(db, world, "screening", ago=timedelta(hours=3))
+        candidates += [bare, assessed]
+        db.add(
+            RecommendationCard(
+                candidate_id=assessed,
+                job_id=world["job_id"],
+                fields_manual={
+                    "recommendation": {
+                        "raw": "Zna raportowanie podatkowe.",
+                        "at": datetime.now(timezone.utc).isoformat(),
+                    }
+                },
+            )
+        )
+        await db.commit()
+        rec_id = rec.id
+
+    try:
+        async with AsyncSessionLocal() as db:
+            from app.models.user import User
+
+            flow = await board_flow.load_flow(db, await db.get(User, rec_id))
+            assert flow is not None
+            missing = {
+                r.candidate_id: set(r.missing)
+                for r in _for_job(flow.screening, world["job_id"])
+            }
+            assert missing == {bare: {"why_candidate", "rate"}, assessed: {"rate"}}
+    finally:
+        await _cleanup([world], candidates, [rec_id])
 
 
 @needs_db

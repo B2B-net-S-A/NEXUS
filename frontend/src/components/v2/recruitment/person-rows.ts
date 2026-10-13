@@ -297,7 +297,10 @@ export function rowBadges(row: ProcessPersonRow, ctx: RowBadgeContext = {}): Row
       key: "screening",
       label: "Uzupełnij screening",
       tone: "info",
-      title: "Arkusz screeningu na tym etapie nie jest jeszcze zapisany.",
+      title:
+        item.screening_requirement === "why_candidate"
+          ? "Ta rekrutacja nie ma pytań screeningowych — wpisz „Dlaczego ten kandydat” w screeningu."
+          : "Arkusz screeningu na tym etapie nie jest jeszcze zapisany.",
     });
   }
   if (
