@@ -105,6 +105,8 @@ const LLM_PATH_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
   // Ogłoszenie na portale: model układa treść do minuty.
   { name: "portal-ad/generate", re: /\/portal-ad\/generate/ },
   { name: "prep-kit", re: /\/api\/prep-kit\/generate/ },
+  // Edytor CV: AI na zaznaczeniu i polecenie dla całego CV — plan do 60 s (audyt 13.10.2026).
+  { name: "cv-editor-ai", re: /\/cv-ai\/(?:selection|command)/ },
   { name: "refresh-criteria", re: /\/refresh-criteria/ },
   { name: "recompute-scores", re: /\/recompute-scores/ },
   { name: "cv-generator/classify", re: /\/api\/cv-generator\/classify-technologies/ },
