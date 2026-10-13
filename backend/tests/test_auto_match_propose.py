@@ -142,7 +142,12 @@ async def test_propose_mode_writes_a_proposal_and_nothing_to_the_pipeline(monkey
             assert (proposal.source, proposal.status) == ("new_cv", "proposed")
             assert proposal.candidate_id == ids["candidate"]
             assert proposal.cv_revision == "rev-1"
-            assert proposal.evidence == {"matched_must": ["Python"]}
+            # 13.10.2026 (B3): wymagania ze statusem dla karty propozycji —
+            # bez „✕”, brak w liście umiejętności to „unknown”.
+            assert proposal.evidence == {
+                "matched_must": ["Python"],
+                "requirements": [{"name": "Python", "level": "must", "status": "met"}],
+            }
             assert float(proposal.score) == 86.0
             log = (
                 await db.execute(
