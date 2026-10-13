@@ -29,9 +29,10 @@ mówi, GDZIE powstaje CV, ta — z czego i jak rekruter widzi, co sprawdzić.
 ## QC zaraz po podpięciu CV
 
 `cv_auto_generate.attach_as_stage_draft` (auto-CV i ręczna generacja z
-etapem) po podpięciu szkicu woła `cv_qc.run_after_move` (flaga
-`CV_QC_GATE_ENABLED`, nigdy nie rzuca). Karta i Tablica pokazują liczbę rzeczy
-do sprawdzenia bez otwierania okna QC.
+etapem) po podpięciu szkicu, a `POST …/cv/branded/select-generated` („Użyj
+nowej wersji” i podmiana szkicu z karty) w tle, woła `qc_after_attach` →
+`cv_qc.run_after_move` (flaga `CV_QC_GATE_ENABLED`, nigdy nie rzuca). Karta
+i Tablica pokazują liczbę rzeczy do sprawdzenia bez otwierania okna QC.
 
 ## Karta „CV do klienta” i edytor
 
@@ -47,7 +48,9 @@ do sprawdzenia bez otwierania okna QC.
   blokuje generacji: żądanie idzie bez `sources` (domyślne serwera) i panel
   to mówi.
 - **Nowa wersja zastępuje szkic** raz, istniejącym „Użyj nowej wersji”
-  (`selectGenerated` z wersją szkicu); gdy to się nie uda, przycisk zostaje.
+  (`selectGenerated`) z wierszem etapu i wersją szkicu zapamiętanymi w chwili
+  zlecenia generacji — edycja szkicu w trakcie generacji kończy się 409, a nie
+  nadpisaniem. Gdy podmiana się nie uda, przycisk zostaje.
   Nieudana generacja zostawia bieżące CV („Nowa wersja nie powstała: …”).
 - **Jedna liczba w karcie** (`CvToClientChecks`, `cvChecksBeforeSending`
   w `lib/cv-to-client.ts`): zadania QC blokujące + uwagi QC poza wyciszonymi +
