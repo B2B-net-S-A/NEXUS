@@ -29,6 +29,8 @@
   "GET /api/candidates/stages/{stage_id}/cv/branded/render-pdf": "PPPPPPDDPPPPPPPPPPP",
   "GET /api/candidates/stages/{stage_id}/cv/branded/review/{review_id}": "PPPPPPDDPPPPPPPPPPP",
   "GET /api/candidates/stages/{stage_id}/cv/branded/sources": "PPPPPPDDPPPPPPPPPPP",
+  "GET /api/candidates/stages/{stage_id}/cv/branded/versions": "PPPPPPDDPPPPPPPPPPP",
+  "GET /api/candidates/stages/{stage_id}/cv/branded/versions/{version_number}": "PPPPPPDDPPPPPPPPPPP",
   "GET /api/candidates/stages/{stage_id}/cv/branded/versions/{version_number}/docx": "PPPPPPDDPPPPPPPPPPP",
   "GET /api/candidates/stages/{stage_id}/cv/original": "PPPPPPDDPPPPPPPPPPP",
   "GET /api/candidates/stages/{stage_id}/cv/original/download": "PPPPPPDDPPPPPPPPPPP",

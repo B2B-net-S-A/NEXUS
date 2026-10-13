@@ -50,6 +50,10 @@ vi.mock("@/components/v2/cv-editor/useCvCommandPlan", () => ({
 vi.mock("@/components/v2/cv-editor/useCvSelectionAi", () => ({
   useCvSelectionAi: () => ({ enabled: false, selection: { ok: false, reason: null, hidden: true }, phase: "idle" }),
 }));
+// Historia wersji porównuje dokument prawdziwego edytora — ma własne testy.
+vi.mock("@/components/v2/cv-editor/useCvHistory", () => ({
+  useCvHistory: () => ({ enabled: false, open: false, busy: false, show: () => undefined, close: () => undefined }),
+}));
 vi.mock("@/components/v2/cv-editor/CvEditorWordPreview", () => ({
   CvEditorWordPreview: ({ load }: { load: () => Promise<Blob> }) => (
     <button onClick={() => void load()}>wczytaj podgląd Word</button>

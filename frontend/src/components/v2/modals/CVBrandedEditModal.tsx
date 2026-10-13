@@ -36,12 +36,17 @@
  * (`cv-editor/useCvSelectionAi`, `CvEditorSelectionAi`). Tylko dla CV etapu
  * (potrzebne źródła i wymagania rekrutacji); propozycja trafia do CV dopiero po
  * „Przyjmij”.
+ *
+ * PR 5: „Historia” — zatwierdzone wersje i powrót pliku Word
+ * (`cv-editor/useCvHistory`, `CvEditorHistory`). Panel zajmuje miejsce planu
+ * zmian (jedno albo drugie), a treść trafia do CV dopiero po obejrzeniu różnic.
  */
 
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEditor, EditorContent } from "@tiptap/react";
 import {
+  History,
   ListChecks,
   Loader2,
   PanelLeft,
@@ -67,8 +72,10 @@ import { CV_AI_CARD_ATTR } from "@/components/v2/cv-editor/CvAiProposalCard";
 import { CvEditorIssues, type CvIssueCount } from "@/components/v2/cv-editor/CvEditorIssues";
 import { CvEditorSelectionAi } from "@/components/v2/cv-editor/CvEditorSelectionAi";
 import { CvEditorCommandBar, CV_COMMAND_ATTR } from "@/components/v2/cv-editor/CvEditorCommandBar";
+import { CvEditorHistory } from "@/components/v2/cv-editor/CvEditorHistory";
 import { CvEditorPlan } from "@/components/v2/cv-editor/CvEditorPlan";
 import { useCvCommandPlan } from "@/components/v2/cv-editor/useCvCommandPlan";
+import { useCvHistory } from "@/components/v2/cv-editor/useCvHistory";
 import { CvEditorToolbar } from "@/components/v2/cv-editor/CvEditorToolbar";
 import { CvEditorWordPreview } from "@/components/v2/cv-editor/CvEditorWordPreview";
 import { useCvSelectionAi } from "@/components/v2/cv-editor/useCvSelectionAi";
@@ -88,6 +95,7 @@ import {
 } from "@/lib/api";
 import type { CvEditorAiApi } from "@/lib/api/cvEditorAi";
 import type { CvEditorCommandApi } from "@/lib/api/cvEditorCommand";
+import type { CvEditorHistoryApi } from "@/lib/api/cvEditorHistory";
 import type { CvEditorIssuesApi } from "@/lib/api/cvEditorIssues";
 import {
   generatedApprovalKey,
@@ -175,6 +183,8 @@ type Props = {
   aiApi?: CvEditorAiApi;
   /** Harness: plan zmian dla polecenia z pamięci zamiast sieci. */
   commandApi?: CvEditorCommandApi;
+  /** Harness: wersje CV i treść pliku Word z pamięci zamiast sieci. */
+  historyApi?: CvEditorHistoryApi;
 } & ({ stageId: number; generatedId?: never } | { generatedId: number; stageId?: never });
 
 function getErrorMessage(e: unknown): string {
@@ -230,6 +240,7 @@ function CVBrandedEditContent({
   issuesApi,
   aiApi,
   commandApi,
+  historyApi,
 }: Props) {
   const stageId = (generatedId ?? pipelineStageId)!;
   const isGenerated = generatedId !== undefined;
@@ -257,7 +268,7 @@ function CVBrandedEditContent({
   const [lastSide, setLastSide] = useState<"sources" | "issues">("sources");
   const sideTouched = useRef(false);
   const [issueCount, setIssueCount] = useState<CvIssueCount>(NO_ISSUES);
-  const [narrowPane, setNarrowPane] = useState<"cv" | "sources" | "issues" | "plan">("cv");
+  const [narrowPane, setNarrowPane] = useState<"cv" | "sources" | "issues" | "plan" | "history">("cv");
   // Pasek „polecenia dla całego CV” (wynik: plan zmian w panelu obok).
   const [commandOpen, setCommandOpen] = useState(false);
   const [body, setBody] = useState<HTMLElement | null>(null);
@@ -579,23 +590,61 @@ function CVBrandedEditContent({
     ensureDraft,
     api: aiApi,
   });
+  const history = useCvHistory({
+    editor,
+    stageId: isGenerated ? undefined : stageId,
+    // Bez `creatingDraft`: szkic na zatwierdzonej wersji zakłada samo „Przywróć” / „Wstaw”.
+    // Z `!open`: zamknięte okno nie przyjmuje treści, której zakładanie szkicu jeszcze trwało.
+    disabled: !open || !hasCv || mode === "word" || submitting,
+    ensureDraft,
+    downloadVersion: (version) => {
+      // Wersja, którą etap pokazuje teraz, ma nazwę jak przycisk w nagłówku; starsze niosą numer.
+      const name = data?.docx_filename || "CV.docx";
+      return files.downloadApproved(
+        version,
+        version === data?.version ? name : name.replace(/(\.docx)?$/i, `_v${version}.docx`),
+      );
+    },
+    onApplied: () => setNarrowPane("cv"),
+    api: historyApi,
+  });
+  const historyOpen = history.open;
   const hasIssuesPanel = hasCv && (!isGenerated || generatorWarnings !== undefined);
   const issuesSide = hasIssuesPanel && issuesOpen && (bothPanels || !sourcesOpen || lastSide === "issues");
   const sourcesSide = sourcesOpen && (bothPanels || !issuesSide);
   const pane =
-    (narrowPane === "issues" && !hasIssuesPanel) || (narrowPane === "plan" && !planOpen) ? "cv" : narrowPane;
-  // Plan zmian zajmuje miejsce panelu „Do poprawy”; przy jednym panelu naraz także źródeł.
+    (narrowPane === "issues" && !hasIssuesPanel) ||
+    (narrowPane === "plan" && !planOpen) ||
+    (narrowPane === "history" && !historyOpen)
+      ? "cv"
+      : narrowPane;
+  // Plan zmian i historia (jedno albo drugie) zajmują miejsce panelu „Do poprawy”;
+  // przy jednym panelu naraz także źródeł.
+  const takeover = planOpen || historyOpen;
   const showPlan = planOpen && (sideBySide || pane === "plan");
-  const showSources = hasCv && (sideBySide ? sourcesSide && (bothPanels || !planOpen) : pane === "sources");
-  const showIssues = hasIssuesPanel && !planOpen && (sideBySide ? issuesSide : pane === "issues");
+  const showHistory = historyOpen && !planOpen && (sideBySide || pane === "history");
+  const showSources = hasCv && (sideBySide ? sourcesSide && (bothPanels || !takeover) : pane === "sources");
+  const showIssues = hasIssuesPanel && !takeover && (sideBySide ? issuesSide : pane === "issues");
   const showCv = sideBySide || pane === "cv" || !hasCv;
   // Wąski ekran: plan pokazuje się od razu, a po decyzji wraca kartka.
   useEffect(() => {
     setNarrowPane((current) => (planOpen ? "plan" : current === "plan" ? "cv" : current));
   }, [planOpen]);
+  useEffect(() => {
+    setNarrowPane((current) => (historyOpen ? "history" : current === "history" ? "cv" : current));
+  }, [historyOpen]);
   const closeCommand = () => {
     command.discard();
     setCommandOpen(false);
+  };
+  // Historia i polecenie wykluczają się: otwarcie jednego zamyka drugie.
+  const openCommand = () => {
+    history.close();
+    setCommandOpen(true);
+  };
+  const openHistory = () => {
+    closeCommand();
+    history.show();
   };
   // Zlecone wyszukanie cytatu dotyczy tego pokazania źródeł: po ich schowaniu
   // wygasa, żeby ponowne otwarcie nie szukało starego cytatu od nowa.
@@ -778,13 +827,28 @@ function CVBrandedEditContent({
                   size="sm"
                   variant="ghost"
                   aria-pressed={commandOpen}
-                  disabled={mode === "word" || submitting}
+                  disabled={mode === "word" || submitting || history.busy}
                   title="Polecenie własnymi słowami dla całego CV"
                   className={cn("flex-none", commandOpen && "bg-primary/10 text-primary hover:bg-primary/10")}
-                  onClick={() => (commandOpen ? closeCommand() : setCommandOpen(true))}
+                  onClick={() => (commandOpen ? closeCommand() : openCommand())}
                 >
                   <Sparkles className="h-3.5 w-3.5 mr-1.5" />
                   Polecenie
+                </Button>
+              ) : null}
+              {!isGenerated ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  aria-pressed={historyOpen}
+                  // Plan zmian czeka na decyzję — najpierw „Zastosuj” albo „Odrzuć plan”.
+                  disabled={mode === "word" || submitting || planOpen || history.busy}
+                  title="Zatwierdzone wersje CV i poprawiony plik Word"
+                  className={cn("flex-none", historyOpen && "bg-primary/10 text-primary hover:bg-primary/10")}
+                  onClick={() => (historyOpen ? history.close() : openHistory())}
+                >
+                  <History className="h-3.5 w-3.5 mr-1.5" />
+                  Historia
                 </Button>
               ) : null}
               {sideBySide ? (
@@ -794,10 +858,22 @@ function CVBrandedEditContent({
                     {sourcesSide ? "Ukryj źródła" : "Pokaż źródła"}
                   </Button>
                   {hasIssuesPanel ? (
-                    <Button size="sm" variant="ghost" aria-pressed={issuesSide} onClick={toggleIssues}
+                    // Włączony tylko, gdy panel faktycznie widać: plan zmian i historia
+                    // zajmują jego miejsce. Klik przy otwartej historii zamyka ją
+                    // i pokazuje uwagi (planu nie — ten czeka na decyzję).
+                    <Button size="sm" variant="ghost" aria-pressed={issuesSide && !takeover}
+                      // Plan zmian czeka na decyzję — do tego czasu nie przełączamy panelu pod nim.
+                      disabled={planOpen}
+                      onClick={() => {
+                        if (!historyOpen) return toggleIssues();
+                        history.close();
+                        sideTouched.current = true;
+                        setIssuesOpen(true);
+                        setLastSide("issues");
+                      }}
                       className={cn(
-                        issuesSide && "bg-primary/10 text-primary hover:bg-primary/10",
-                        !issuesSide && issueCount.blocking > 0 && "text-destructive",
+                        issuesSide && !takeover && "bg-primary/10 text-primary hover:bg-primary/10",
+                        !(issuesSide && !takeover) && issueCount.blocking > 0 && "text-destructive",
                       )}>
                       <ListChecks className="h-3.5 w-3.5 mr-1.5" />
                       {issuesLabel}
@@ -808,11 +884,14 @@ function CVBrandedEditContent({
                 <div className="flex flex-none items-center gap-1" role="group" aria-label="Kolumna">
                   <ViewToggle active={pane === "cv"} onClick={() => setNarrowPane("cv")}>CV</ViewToggle>
                   <ViewToggle active={pane === "sources"} onClick={() => setNarrowPane("sources")}>Źródła</ViewToggle>
-                  {hasIssuesPanel && !planOpen ? (
+                  {hasIssuesPanel && !takeover ? (
                     <ViewToggle active={pane === "issues"} onClick={() => setNarrowPane("issues")}>{issuesLabel}</ViewToggle>
                   ) : null}
                   {planOpen ? (
                     <ViewToggle active={pane === "plan"} onClick={() => setNarrowPane("plan")}>Plan zmian</ViewToggle>
+                  ) : null}
+                  {historyOpen && !planOpen ? (
+                    <ViewToggle active={pane === "history"} onClick={() => setNarrowPane("history")}>Historia</ViewToggle>
                   ) : null}
                 </div>
               )}
@@ -922,6 +1001,16 @@ function CVBrandedEditContent({
                 )}
               >
                 <CvEditorPlan controller={command} onShowCv={sideBySide ? undefined : () => setNarrowPane("cv")} />
+              </aside>
+            ) : null}
+            {showHistory ? (
+              <aside
+                className={cn(
+                  "min-h-0 min-w-0 bg-card",
+                  sideBySide ? "w-[360px] flex-none border-l border-border" : "flex-1",
+                )}
+              >
+                <CvEditorHistory controller={history} />
               </aside>
             ) : null}
           </div>

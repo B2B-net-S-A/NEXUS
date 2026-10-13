@@ -30,6 +30,13 @@ Wybór gotowego CV z profilu kandydata (09.10.2026):
   POST   /api/candidates/stages/{stage_id}/cv/branded/consent
          (zrzut zgody RODO dla CV bez dokumentu generatora)
 
+Historia wersji w edytorze CV (Edytor CV 2, PR 5) — tylko odczyt:
+  GET    /api/candidates/stages/{stage_id}/cv/branded/versions
+  GET    /api/candidates/stages/{stage_id}/cv/branded/versions/{n}
+  Podgląd importu pliku Word (`…/cv/branded/import-preview`) ma limit żądań,
+  więc stoi w `cv_editor_import.py`: ten moduł ma `from __future__ import
+  annotations`, którego nie wolno łączyć z `@limiter.limit`.
+
 Faza 4 (PR2) — public share:
   POST   /api/candidates/stages/{stage_id}/cv/share-token
   DELETE /api/candidates/stages/cv/share-token/{token}
@@ -76,7 +83,12 @@ from app.services.html_sanitizer import sanitize_cv_html
 from app.services import cv_editor_issues
 from app.services.cv_download_log import log_cv_download
 from app.services.cv_rodo_clause import keep_rodo_clause
-from app.services.cv_document_versions import check_revision, freeze_approved_version
+from app.services.cv_document_versions import (
+    check_revision,
+    freeze_approved_version,
+    stage_version_content,
+    stage_versions,
+)
 
 # M2 audit follow-up (PR1b): the stage-CV snapshot router serves the SAME
 # candidate CV bytes that PR1 closed on /api/candidates/*, but only its
@@ -112,6 +124,8 @@ from app.schemas.candidate_stage_cv import (
     CVShareTokensForRecruitment,
     CVShareTokenListItem,
     CVShareTokenResponse,
+    CVVersionContent,
+    CVVersionsResponse,
     RecruitmentBrandedCvSummary,
     StageCvSourcesResponse,
 )
@@ -879,6 +893,47 @@ async def select_generated_cv(
     return _build_branded_response(csv)
 
 
+async def read_word_upload(file: UploadFile) -> tuple[bytes, str]:
+    """Bajty i nazwa pliku Word wgranego z dysku; 422, gdy pusty albo za duży.
+
+    Jedno wejście dla `…/upload` (zapis szkicu) i `…/import-preview` (sam
+    podgląd w edytorze): ten sam limit i te same komunikaty.
+    """
+    from app.services.cv_docx_import import MAX_BYTES
+
+    # Odczyt z limitem: `MAX_BYTES + 1` wystarcza, żeby odmówić bez wczytania
+    # całego (dowolnie dużego) pliku. Format sprawdza konwerter (ZIP + OOXML).
+    content = await file.read(MAX_BYTES + 1)
+    if not content:
+        raise HTTPException(422, "Plik jest pusty.")
+    if len(content) > MAX_BYTES:
+        raise HTTPException(
+            422, "Plik jest za duży, żeby wczytać go do edytora (limit 10 MB)."
+        )
+    filename = (file.filename or "").replace("\\", "/").rsplit("/", 1)[-1].strip()
+    return content, filename[:200] or "CV.docx"
+
+
+async def word_to_editor_html(content: bytes):
+    """Plik Word → HTML edytora, bez AI (`cv_docx_import`). Konwersja w wątku.
+
+    Plik, którego nie da się wczytać, kończy się 422 z komunikatem dla
+    rekrutera (`CvImportError` niesie tylko taki tekst). Do logu idzie sam
+    rodzaj przyczyny — bez nazwy pliku i bez treści (obie niosą dane osoby).
+    """
+    from app.services.cv_docx_import import CvImportError, docx_to_editor_html
+
+    try:
+        return await run_in_threadpool(docx_to_editor_html, content)
+    except CvImportError as error:
+        logger.info(
+            "[stage_cv] word import refused: %s (%s)",
+            error,
+            type(error.__cause__).__name__ if error.__cause__ else "rule",
+        )
+        raise HTTPException(422, str(error)) from error
+
+
 async def _import_docx_as_draft(
     db: AsyncSession,
     csv: CandidateStageCV,
@@ -898,13 +953,9 @@ async def _import_docx_as_draft(
     """
     from app.services.candidate_stage_cv_service import detached_copy_settings
     from app.services.cv_document_assets import default_template
-    from app.services.cv_docx_import import CvImportError, docx_to_editor_html
 
     settings = await detached_copy_settings(db, csv)
-    try:
-        imported = await run_in_threadpool(docx_to_editor_html, content)
-    except CvImportError as error:
-        raise HTTPException(422, str(error)) from error
+    imported = await word_to_editor_html(content)
     csv = await db.scalar(
         select(CandidateStageCV)
         .where(CandidateStageCV.id == csv.id)
@@ -1032,21 +1083,9 @@ async def upload_stage_cv(
     i skrót treści w śladzie; ponowne użycie w innej rekrutacji daje
     `select-stage-cv`.
     """
-    from app.services.cv_docx_import import MAX_BYTES
-
     csv = await _load_csv_for_stage(db, stage_id, current_user, create_missing=True)
     check_revision(csv, expected_revision)
-    # Odczyt z limitem: `MAX_BYTES + 1` wystarcza, żeby odmówić bez wczytania
-    # całego (dowolnie dużego) pliku. Format sprawdza konwerter (ZIP + OOXML).
-    content = await file.read(MAX_BYTES + 1)
-    if not content:
-        raise HTTPException(422, "Plik jest pusty.")
-    if len(content) > MAX_BYTES:
-        raise HTTPException(
-            422, "Plik jest za duży, żeby wczytać go do edytora (limit 10 MB)."
-        )
-    filename = (file.filename or "").replace("\\", "/").rsplit("/", 1)[-1].strip()
-    filename = filename[:200] or "CV.docx"
+    content, filename = await read_word_upload(file)
     return await _import_docx_as_draft(
         db,
         csv,
@@ -1370,6 +1409,88 @@ async def finalize_branded_cv(
         content_review_status=review_status,
         content_review_findings=review_findings,
     )
+
+
+async def _stage_job_and_cv(
+    db: AsyncSession, stage_id: int
+) -> tuple[int, Optional[CandidateStageCV]]:
+    """Rekrutacja etapu i jego CV (albo ``None``) dla tras TYLKO DO ODCZYTU.
+
+    Brak wiersza CV to stan, nie błąd (etapy z importu Traffita go nie mają),
+    więc nie przez ``_load_csv_for_stage``. Zakresu rekrutacji ta funkcja NIE
+    sprawdza — wołający robi to od razu (``ensure_job_read_access``), zanim
+    cokolwiek z wyniku przeczyta.
+    """
+    row = (
+        await db.execute(
+            select(CandidateStage.job_id, CandidateStageCV)
+            .select_from(CandidateStage)
+            .outerjoin(
+                CandidateStageCV,
+                CandidateStageCV.candidate_stage_id == CandidateStage.id,
+            )
+            .where(CandidateStage.id == stage_id)
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Stage nie znaleziony")
+    return row[0], row[1]
+
+
+@router.get(
+    "/candidates/stages/{stage_id}/cv/branded/versions",
+    response_model=CVVersionsResponse,
+)
+async def list_branded_cv_versions(
+    stage_id: int,
+    current_user: CandidateDocumentAccess,
+    db: AsyncSession = Depends(get_db),
+) -> CVVersionsResponse:
+    """Historia wersji w edytorze CV: zatwierdzone wersje etapu, od najnowszej.
+
+    Ta sama bramka co odczyt CV etapu; etap bez CV albo bez zatwierdzonej
+    wersji to pusta lista, nie błąd. Trasa niczego nie zapisuje.
+    """
+    job_id, csv = await _stage_job_and_cv(db, stage_id)
+    await ensure_job_read_access(db, current_user, job_id)
+    if csv is None:
+        return CVVersionsResponse(versions=[])
+    return CVVersionsResponse(versions=await stage_versions(db, csv))
+
+
+@router.get(
+    "/candidates/stages/{stage_id}/cv/branded/versions/{version_number}",
+    response_model=CVVersionContent,
+)
+async def get_branded_cv_version(
+    stage_id: int,
+    version_number: int,
+    current_user: CandidateDocumentAccess,
+    db: AsyncSession = Depends(get_db),
+) -> CVVersionContent:
+    """Treść jednej zatwierdzonej wersji CV — do podglądu i przywrócenia w edytorze.
+
+    Przywrócenie robi edytor jedną cofalną zmianą, a utrwala je autozapis; ta
+    trasa niczego nie zapisuje.
+    """
+    # Bramka jak przy `GET …/cv/branded`, które oddaje treść CV w tym samym
+    # kształcie: odczyt dokumentów + odczyt TEJ rekrutacji. Blokada zgody RODO
+    # pilnuje plików wychodzących do klienta (Word, wydruk, link), a treść
+    # w edytorze widać i bez zrzutu zgody — pobranie Worda tej wersji dalej
+    # idzie przez `…/versions/{n}/docx` z blokadą.
+    job_id, csv = await _stage_job_and_cv(db, stage_id)
+    await ensure_job_read_access(db, current_user, job_id)
+    content = (
+        await stage_version_content(db, csv, version_number)
+        if csv is not None
+        else None
+    )
+    if content is None:
+        raise HTTPException(404, "Nie znaleziono zatwierdzonej wersji CV.")
+    # Starsze wersje powstały przed dzisiejszym sanitizerem; edytor dostaje
+    # treść w tej samej postaci, jaką przyjąłby przy zapisie.
+    content["content_html"] = sanitize_cv_html(content["content_html"])
+    return CVVersionContent(**content)
 
 
 @router.get("/candidates/stages/{stage_id}/cv/branded/versions/{version_number}/docx")

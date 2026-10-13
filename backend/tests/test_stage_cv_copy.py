@@ -23,9 +23,11 @@ from app.models.activity import Activity
 from app.models.candidate_document import CandidateDocument
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.client import Client
+from app.models.cv_document_version import CvDocumentVersion
 from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
+from app.services.cv_docx_import import docx_to_editor_html
 from tests.test_stage_cv_pick_from_profile import (
     MARKER,
     _base,
@@ -533,3 +535,195 @@ async def test_other_client_copy_does_not_carry_the_consent_image(
     )
     assert blocked.status_code == 409, blocked.text
     assert blocked.json()["detail"]["code"] == "consent_required"
+
+
+# ── Podgląd importu Worda w edytorze CV: `…/import-preview` (PR 5) ───────────
+
+AFTER_WORD = "Dopisane w Wordzie: wdrożyła monitoring usług płatniczych"
+
+
+async def _untouchable(world: dict) -> tuple:
+    """Wszystko, czego podgląd importu nie może zmienić: CV etapu i jego ślady."""
+    async with AsyncSessionLocal() as db:
+        csv = await db.scalar(
+            select(CandidateStageCV).where(
+                CandidateStageCV.candidate_stage_id == world["stage_id"]
+            )
+        )
+        if csv is None:
+            return (None,)
+        counts = [
+            await db.scalar(select(func.count()).select_from(model).where(*where))
+            for model, where in (
+                (
+                    Activity,
+                    (
+                        Activity.entity_type == "candidate_stage_cv",
+                        Activity.entity_id == csv.id,
+                    ),
+                ),
+                (
+                    CvDocumentVersion,
+                    (CvDocumentVersion.candidate_stage_cv_id == csv.id,),
+                ),
+                (
+                    CandidateDocument,
+                    (CandidateDocument.candidate_id == world["candidate_id"],),
+                ),
+            )
+        ]
+        return (
+            csv.branded_status,
+            csv.branded_draft_html,
+            csv.edit_revision,
+            csv.branded_version,
+            csv.branded_updated_at,
+            csv.branded_render_metadata,
+            *counts,
+        )
+
+
+@pytest.mark.asyncio
+async def test_import_preview_converts_the_file_and_saves_nothing(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Plik poprawiony w Wordzie wraca do edytora jako treść do przyjęcia:
+    szkic, rewizja, wersje, historia zdarzeń i pliki kandydata zostają."""
+    world = await _seed()
+    url = _base(world["stage_id"])
+    drafted = await app_client.post(
+        url + "/upload",
+        headers=app_auth_headers,
+        data={
+            "expected_revision": str(
+                await _revision(app_client, app_auth_headers, world["stage_id"])
+            )
+        },
+        files={"file": ("cv.docx", _docx(), DOCX_MIME)},
+    )
+    assert drafted.status_code == 200, drafted.text
+    before = await _untouchable(world)
+    corrected = _docx(AFTER_WORD)
+
+    preview = await app_client.post(
+        url + "/import-preview",
+        headers=app_auth_headers,
+        files={"file": ("C:\\Pulpit\\CV_po_poprawkach.docx", corrected, DOCX_MIME)},
+    )
+
+    assert preview.status_code == 200, preview.text
+    # Ta sama konwersja (z sanitizerem) co przy `…/upload`.
+    assert preview.json() == {
+        "content_html": docx_to_editor_html(corrected).html,
+        "filename": "CV_po_poprawkach.docx",
+    }
+    assert AFTER_WORD in preview.json()["content_html"]
+    assert await _untouchable(world) == before
+    current = (await app_client.get(url, headers=app_auth_headers)).json()
+    assert current["edit_revision"] == drafted.json()["edit_revision"]
+    assert MARKER in current["content_html"]
+    assert AFTER_WORD not in current["content_html"]
+
+    # Etap bez wiersza CV (import Traffita): podgląd działa i wiersza nie zakłada.
+    bare = await _seed(with_cv_row=False)
+    on_bare = await app_client.post(
+        _base(bare["stage_id"]) + "/import-preview",
+        headers=app_auth_headers,
+        files={"file": ("cv.docx", corrected, DOCX_MIME)},
+    )
+    assert on_bare.status_code == 200, on_bare.text
+    assert await _csv(bare["stage_id"]) is None
+
+
+@pytest.mark.asyncio
+async def test_import_preview_refuses_bad_files_in_polish_like_the_upload(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    from app.api import cv_editor_import
+    from app.services import cv_docx_import
+
+    world = await _seed()
+    url = _base(world["stage_id"]) + "/import-preview"
+    before = await _untouchable(world)
+
+    async def _preview(content: bytes, name: str = "cv.docx"):
+        return await app_client.post(
+            url, headers=app_auth_headers, files={"file": (name, content, DOCX_MIME)}
+        )
+
+    pdf = await _preview(b"%PDF-1.7 to nie jest Word", "cv.pdf")
+    empty = await _preview(b"")
+    no_file = await app_client.post(url, headers=app_auth_headers)
+    # Dłuższej treści edytor nie mógłby zapisać (limit `PATCH …/cv/branded`).
+    monkeypatch.setattr(cv_editor_import, "CV_CONTENT_HTML_MAX", 20)
+    too_long = await _preview(_docx())
+    monkeypatch.setattr(cv_docx_import, "MAX_BYTES", 64)
+    too_big = await _preview(_docx())
+
+    refusals = (pdf, empty, no_file, too_long, too_big)
+    assert [response.status_code for response in refusals] == [422] * 5
+    assert "tylko plik Word" in pdf.json()["detail"]
+    assert "pusty" in empty.json()["detail"]
+    assert "za długa" in too_long.json()["detail"]
+    assert "za duży" in too_big.json()["detail"]
+    assert await _untouchable(world) == before
+
+
+@pytest.mark.asyncio
+async def test_import_preview_has_the_gates_of_the_upload(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    from app.core.security import create_access_token
+    from tests.test_board_tasks import _login, _seed_user
+
+    world = await _seed()
+    url = _base(world["stage_id"])
+    async with AsyncSessionLocal() as db:
+        viewer = User(
+            email=f"cv-import-viewer-{uuid.uuid4().hex[:8]}@example.com",
+            name="Konto bez zapisu",
+            role=UserRole.user,
+            roles=[UserRole.user.value],
+            is_active=True,
+        )
+        db.add(viewer)
+        await db.commit()
+        viewer_headers = {
+            "Authorization": f"Bearer {create_access_token(viewer.id, UserRole.user.value)}"
+        }
+    _, outsider_credentials = await _seed_user(UserRole.recruiter)
+    outsider = await _login(app_client, outsider_credentials)
+
+    def files() -> dict:
+        return {"file": ("cv.docx", _docx(), DOCX_MIME)}
+
+    anonymous = await app_client.post(url + "/import-preview", files=files())
+    refused = await app_client.post(
+        url + "/import-preview", headers=viewer_headers, files=files()
+    )
+    unknown = await app_client.post(
+        _base(2_000_000_000) + "/import-preview",
+        headers=app_auth_headers,
+        files=files(),
+    )
+    # Rekruter spoza zespołu tej rekrutacji dostaje to samo co przy wgraniu
+    # pliku — obie trasy pytają o zespół tę samą funkcję.
+    outsider_preview = await app_client.post(
+        url + "/import-preview", headers=outsider, files=files()
+    )
+    outsider_upload = await app_client.post(
+        url + "/upload",
+        headers=outsider,
+        data={
+            "expected_revision": str(
+                await _revision(app_client, app_auth_headers, world["stage_id"])
+            )
+        },
+        files=files(),
+    )
+
+    assert anonymous.status_code in (401, 403)
+    assert refused.status_code == 403
+    assert unknown.status_code == 404
+    assert outsider_upload.status_code in (200, 403), outsider_upload.text
+    assert outsider_preview.status_code == outsider_upload.status_code

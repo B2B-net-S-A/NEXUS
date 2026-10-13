@@ -1086,3 +1086,207 @@ async def test_review_rejection_keeps_database_draft(
     )
     assert current.status_code == 200
     assert current.json()["status"] == "draft"
+
+
+# ── Historia wersji w edytorze CV (Edytor CV 2, PR 5) ───────────────────────
+
+
+async def _approve(client, headers, url: str, revision: int, html: str) -> dict:
+    approved = await client.post(
+        url + "/finalize",
+        headers=headers,
+        json={"expected_revision": revision, "content_html": html},
+    )
+    assert approved.status_code == 200, approved.text
+    return approved.json()
+
+
+@pytest.mark.asyncio
+async def test_version_history_lists_approved_versions_and_serves_each_content(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Dwie zatwierdzone wersje: lista od najnowszej z nazwą osoby (nie
+    e-mailem), treść każdej taka jak przy zatwierdzeniu, nic nie zapisane."""
+    sid, _, _ = await _seed_full_stage()
+    url = f"/api/candidates/stages/{sid}/cv/branded"
+
+    never_approved = await app_client.get(url + "/versions", headers=app_auth_headers)
+    assert never_approved.status_code == 200, never_approved.text
+    assert never_approved.json() == {"versions": []}
+
+    await _seed_draft(sid)
+    state = (await app_client.get(url, headers=app_auth_headers)).json()
+    first = await _approve(
+        app_client,
+        app_auth_headers,
+        url,
+        state["edit_revision"],
+        "<p>Pierwsza wersja</p>",
+    )
+    draft = await app_client.post(
+        url + "/new-draft",
+        headers=app_auth_headers,
+        json={"expected_revision": first["edit_revision"]},
+    )
+    assert draft.status_code == 200, draft.text
+    while_drafting = await app_client.get(url + "/versions", headers=app_auth_headers)
+    second = await _approve(
+        app_client,
+        app_auth_headers,
+        url,
+        draft.json()["edit_revision"],
+        "<p>Druga wersja</p>",
+    )
+
+    listed = await app_client.get(url + "/versions", headers=app_auth_headers)
+    one = await app_client.get(url + "/versions/1", headers=app_auth_headers)
+    two = await app_client.get(url + "/versions/2", headers=app_auth_headers)
+    missing = await app_client.get(url + "/versions/7", headers=app_auth_headers)
+    docx = await app_client.get(url + "/versions/1/docx", headers=app_auth_headers)
+    after = (await app_client.get(url, headers=app_auth_headers)).json()
+
+    # Otwarty szkic nosi numer 2 — wersja 1 nie jest wtedy „bieżącą”.
+    assert [
+        (item["version"], item["is_current"])
+        for item in while_drafting.json()["versions"]
+    ] == [(1, False)]
+    assert listed.status_code == 200, listed.text
+    versions = listed.json()["versions"]
+    assert [
+        (item["version"], item["is_current"], item["language"]) for item in versions
+    ] == [(2, True, "pl"), (1, False, "pl")]
+    assert set(versions[0]) == {
+        "version",
+        "approved_at",
+        "approved_by_name",
+        "language",
+        "docx_available",
+        "is_current",
+    }
+    assert all(item["docx_available"] and item["approved_at"] for item in versions)
+    # Imię i nazwisko z konta (fixture `app_client`), nie adres e-mail.
+    assert {item["approved_by_name"] for item in versions} == {"Pytest Admin"}
+
+    assert (one.status_code, two.status_code) == (200, 200)
+    assert one.json()["version"] == 1 and one.json()["language"] == "pl"
+    assert one.json()["approved_at"] == versions[1]["approved_at"]
+    assert "Pierwsza wersja" in one.json()["content_html"]
+    assert "Druga wersja" not in one.json()["content_html"]
+    assert "Druga wersja" in two.json()["content_html"]
+    assert missing.status_code == 404
+    assert missing.json()["detail"] == "Nie znaleziono zatwierdzonej wersji CV."
+    # Plik Word tej samej wersji dalej stoi pod własnym adresem.
+    assert docx.status_code == 200, docx.text
+    assert docx.content[:2] == b"PK"
+    # Odczyty historii niczego nie zmieniły w CV etapu.
+    assert (after["status"], after["version"], after["edit_revision"]) == (
+        "finalized",
+        2,
+        second["edit_revision"],
+    )
+
+
+@pytest.mark.asyncio
+async def test_version_history_shows_an_approved_cv_that_was_never_frozen(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """CV zatwierdzone przed migracją 0287 nie ma wiersza wersji. Historia
+    pokazuje je z wiersza etapu i nie zakłada wiersza przy odczycie."""
+    sid, _, _ = await _seed_full_stage()
+    url = f"/api/candidates/stages/{sid}/cv/branded"
+    await _seed_draft(sid)
+    state = (await app_client.get(url, headers=app_auth_headers)).json()
+    approved = await _approve(
+        app_client,
+        app_auth_headers,
+        url,
+        state["edit_revision"],
+        "<p>Zatwierdzone dawno temu</p>",
+    )
+    async with AsyncSessionLocal() as db:
+        await db.delete(
+            await db.get(CvDocumentVersion, approved["document_version_id"])
+        )
+        await db.commit()
+
+    listed = await app_client.get(url + "/versions", headers=app_auth_headers)
+    content = await app_client.get(url + "/versions/1", headers=app_auth_headers)
+
+    assert listed.status_code == 200, listed.text
+    (only,) = listed.json()["versions"]
+    assert (only["version"], only["is_current"], only["docx_available"]) == (
+        1,
+        True,
+        False,
+    )
+    assert only["approved_by_name"] == "Pytest Admin" and only["approved_at"]
+    assert content.status_code == 200, content.text
+    assert "Zatwierdzone dawno temu" in content.json()["content_html"]
+    async with AsyncSessionLocal() as db:
+        frozen = await db.scalar(
+            select(CvDocumentVersion.id).where(
+                CvDocumentVersion.id == approved["document_version_id"]
+            )
+        )
+    assert frozen is None
+
+
+@pytest.mark.asyncio
+async def test_version_history_keeps_the_gates_of_the_stage_cv_read(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Bez sesji i dla konta bez dostępu do dokumentów — odmowa; etap bez
+    wiersza CV to pusta lista (stan), nieistniejący etap to 404."""
+    from app.core.security import create_access_token
+    from app.models.user import User, UserRole
+
+    sid, candidate_id, job_id = await _seed_full_stage()
+    await _seed_draft(sid)
+    url = f"/api/candidates/stages/{sid}/cv/branded"
+    state = (await app_client.get(url, headers=app_auth_headers)).json()
+    await _approve(
+        app_client, app_auth_headers, url, state["edit_revision"], "<p>Treść</p>"
+    )
+    async with AsyncSessionLocal() as db:
+        viewer = User(
+            email=f"cv-history-viewer-{uuid.uuid4().hex[:8]}@example.com",
+            name="Konto bez dokumentów",
+            role=UserRole.user,
+            roles=[UserRole.user.value],
+            is_active=True,
+        )
+        bare_stage = CandidateStage(
+            candidate_id=candidate_id, job_id=job_id, stage=PipelineStage.screening
+        )
+        db.add_all([viewer, bare_stage])
+        await db.commit()
+        viewer_headers = {
+            "Authorization": "Bearer "
+            + create_access_token(viewer.id, UserRole.user.value)
+        }
+        bare_url = f"/api/candidates/stages/{bare_stage.id}/cv/branded"
+
+    for path in ("/versions", "/versions/1"):
+        anonymous = await app_client.get(url + path)
+        refused = await app_client.get(url + path, headers=viewer_headers)
+        unknown = await app_client.get(
+            "/api/candidates/stages/999999999/cv/branded" + path,
+            headers=app_auth_headers,
+        )
+        assert anonymous.status_code in (401, 403), path
+        assert refused.status_code == 403, path
+        assert unknown.status_code == 404, path
+    no_row_list = await app_client.get(bare_url + "/versions", headers=app_auth_headers)
+    no_row_one = await app_client.get(
+        bare_url + "/versions/1", headers=app_auth_headers
+    )
+    assert no_row_list.status_code == 200, no_row_list.text
+    assert no_row_list.json() == {"versions": []}
+    assert no_row_one.status_code == 404
+    async with AsyncSessionLocal() as db:
+        created = await db.scalar(
+            select(CandidateStageCV.id).where(
+                CandidateStageCV.candidate_stage_id == bare_stage.id
+            )
+        )
+    assert created is None

@@ -1,6 +1,6 @@
 # Edytor CV na cały ekran — kartka, bloki, źródła, stała klauzula RODO (12.10.2026)
 
-<!-- indeks: kontrakt HTML edytor ↔ Word, bloki i etykiety szablonu, blokada klauzuli (przeglądarka + serwer), pola w nawiasach, wpis `cv_file_downloaded`, panel „Do poprawy” (QC, uwagi generatora, kontrola AI, „Popraw wszystko”, `qc/transform`), AI na zaznaczeniu (`cv-ai/selection`, kontrola „bez nowych faktów”, klucz `cv_selection_edit`), polecenie dla całego CV (`cv-ai/command`, plan zmian sprawdzany przez kod, klucz `cv_editor_command`), harness `/preview/cv-editor` -->
+<!-- indeks: kontrakt HTML edytor ↔ Word, bloki i etykiety szablonu, blokada klauzuli (przeglądarka + serwer), pola w nawiasach, wpis `cv_file_downloaded`, panel „Do poprawy” (QC, uwagi generatora, kontrola AI, „Popraw wszystko”, `qc/transform`), AI na zaznaczeniu (`cv-ai/selection`, kontrola „bez nowych faktów”, klucz `cv_selection_edit`), polecenie dla całego CV (`cv-ai/command`, plan zmian sprawdzany przez kod, klucz `cv_editor_command`), historia wersji i powrót pliku Word (`…/versions`, `…/import-preview` bez zapisu, treść nakłada edytor), harness `/preview/cv-editor` -->
 
 Pomiar na produkcji (30 dni do 12.10.2026, tylko odczyt, same liczby): 686 CV
 z generatora, w edytorze poprawiono 17 (2,5%), mediana 2 zapisy i 1,5 minuty.
@@ -436,13 +436,85 @@ dopiero to, co rekruter zostawi zaznaczone i zatwierdzi „Zastosuj zaznaczone�
   etap trzyma jedno CV w jednym języku, a druga wersja to osobny dokument
   generatora (ok. 3% CV etapów). Do decyzji Artura.
 
+## Historia wersji i powrót pliku Word (PR 5, 13.10.2026)
+
+Przycisk „Historia” w pasku otwiera panel: zatwierdzone wersje CV etapu
+(„Porównaj”, „Pobierz DOCX”) i „Wgraj poprawiony plik Word”. Obie funkcje
+najpierw pokazują **różnice** wobec bieżącej treści, a dopiero potem —
+jednym przyciskiem — wstawiają treść do edytora.
+
+- **Jedna ścieżka zapisu.** Przywrócenie wersji i przyjęcie treści z Worda
+  nakłada EDYTOR jedną cofalną zmianą (`lib/cv-editor-diff.replaceContentStep`),
+  a utrwala je zwykły autozapis. Serwer nie dostał żadnej nowej trasy
+  zapisującej. Dzięki temu CV zostaje podpięte do generatora, zachowuje zrzut
+  zgody, szablon, znacznik „blind” i metadane — inaczej niż „Użyj innego CV”
+  (`…/cv/branded/upload`), które zapisuje od razu i odłącza CV.
+- **Trasy są tylko do odczytu:**
+  - `GET …/cv/branded/versions` — zatwierdzone wersje od najnowszej (numer,
+    data, IMIĘ zatwierdzającego — nie e-mail, język, czy jest plik Word,
+    `is_current`). „Bieżąca” = etap zatwierdzony i ten numer; przy otwartym
+    szkicu żadna. CV zatwierdzone przed migracją 0287 nie ma wiersza wersji —
+    lista bierze je z wiersza etapu, niczego nie zapisując.
+  - `GET …/cv/branded/versions/{n}` — treść wersji (HTML przez sanitizer).
+    Bez bramki zgody, jak `GET …/cv/branded`: bramka pilnuje plików, które
+    wychodzą do klienta, a pobranie Worda wersji idzie przez bramkowane `/docx`.
+  - `POST …/cv/branded/import-preview` — plik Word → HTML edytora, **bez
+    zapisu** (szkic, rewizja, wersje i historia zdarzeń nietknięte). Osobny
+    moduł `api/cv_editor_import.py`, bo trasa ma limit żądań (10/min),
+    a `candidate_stage_cv.py` ma `from __future__ import annotations`. Bramka
+    jak przy `…/upload` (zapis w kandydatach + zespół rekrutacji). Odczyt
+    pliku i konwersja są wspólne z `…/upload` (`read_word_upload`,
+    `word_to_editor_html`); wynik dłuższy niż `CV_CONTENT_HTML_MAX` to 422,
+    bo takiej treści nie dałoby się potem zapisać.
+- **Historia to zatwierdzone wersje.** Migawek szkicu nie ma w danych (PATCH
+  nadpisuje, `edit_revision` to licznik) — panel ich nie udaje.
+- **Klauzula zgody zostaje z bieżącego CV** (D3). Treść przychodząca traci
+  swoją klauzulę (inną, taką samą, w środku tekstu), a bieżąca wraca na koniec;
+  CV bez klauzuli zostaje bez niej. `replaceContentStep` sprawdza, czy wtyczka
+  struktury przyjmie minimalną zmianę ORAZ jej cofnięcie (`acceptedBothWays`:
+  historia cofa, odwracając kroki, a przy klauzuli bez znacznika odwrotność
+  potrafiła wejść w klauzulę — „Cofnij” nic wtedy nie robiło i blokowało stos).
+  Gdy nie — podmienia całą treść jednym krokiem; gdy i tego edytor nie
+  przyjmie, niczego nie wstawia (`contentDiffers` odróżnia „nie ma czego
+  zmieniać” od odmowy). Sterownik ogłasza sukces dopiero, gdy dokument
+  naprawdę się zmienił.
+- **Różnice liczymy po wierszach** (`contentLines` + `diffLines`, własny LCS,
+  bez zależności), nie po HTML-u: treść z importu ma inny kształt niż treść
+  edytora (`<article>`, `li` bez `p`, tylko pogrubienie). Ponad 600 wierszy
+  po którejś stronie = komunikat i brak przycisku wstawienia (bez listy różnic
+  niczego nie wstawiamy). Plik z samą klauzulą nie czyści CV. Zmiany samej
+  struktury (znaczniki, kursywa) nie są na liście — przy równych tekstach
+  panel mówi „Treść jest taka sama.” i niczego nie proponuje.
+- **Wszystko albo nic.** Makieta miała wybór per różnica i ocenę zgodności ze
+  źródłami; weszła lista różnic + jedno wstawienie. Po wstawieniu treść ocenia
+  panel „Do poprawy” (QC, w tym twierdzenia bez pokrycia w oryginale).
+- **Szkic dopiero przy wstawieniu.** Otwarcie panelu, porównanie i wgranie
+  pliku niczego w CV nie zmieniają; na zatwierdzonej wersji nowy szkic powstaje
+  przy „Przywróć…” / „Wstaw…” (`ensureDraft`).
+- **Wgranie pliku idzie jako `multipart/form-data` jawnie** — instancja `api`
+  ma domyślne `application/json` i axios zserializowałby `FormData` do JSON-a
+  (strażnik `lib/__tests__/formdata-multipart.test.ts`).
+- **Język CV się nie zmienia.** Podgląd importu nie zwraca języka pliku:
+  funkcja jest dla TEGO SAMEGO CV poprawionego w Wordzie. Angielski plik
+  wstawiony do polskiego CV zostaje „pl” (etykiety przy składaniu Worda).
+- **Historia i plan zmian wykluczają się** (jedno miejsce po prawej; przy
+  otwartym planie „Historia” jest wyłączona). „Do poprawy” w pasku jest
+  włączone tylko, gdy panel faktycznie widać.
+- **Konwerter Worda ma limit kosztu** (`cv_docx_import`): akapity i wiersze
+  tabel w całym pliku, także puste (`MAX_BLOCKS`), liczba stylów (`MAX_STYLES`),
+  styl akapitu czytany raz na styl. Bez tego plik z dziesiątkami tysięcy
+  pustych akapitów zajmował konwersję na wiele sekund — a podgląd importu
+  dodał do konwertera drugie wejście.
+- **Edytor wyniku generatora** (bez etapu) nie ma historii.
+
 ## Harness
 
 `/preview/cv-editor?state=draft|finalized|conflict|nosources|clean|qcdown|aidown` —
-prawdziwy edytor na stanie z pamięci (`editorApi`, `issuesApi`, `aiApi`, `commandApi`,
+prawdziwy edytor na stanie z pamięci (`editorApi`, `issuesApi`, `aiApi`, `commandApi`, `historyApi`,
 `editorFiles`, `sourceLoaders` jako propsy okna), źródła z zasiewu, sieć odcięta.
 „AI na zaznaczeniu” dostaje propozycje z `ai-fixture.ts` (proste przekształcenia
-tekstu, bez modelu), a „Polecenie” plan z `command-fixture.ts` (`commandApi`). Panel
+tekstu, bez modelu), a „Polecenie” plan z `command-fixture.ts` (`commandApi`). „Historia”
+ma dwie wersje i plik Word z `history-fixture.ts` (`uszkodzony.docx` = odmowa serwera). Panel
 „Do poprawy” dostaje dane z `issues-fixture.ts`: „QC” liczy się tam z ostatnio
 zapisanej treści, więc widać obieg poprawka → autozapis → świeża lista. Test
 `app/preview/__tests__/cv-editor-harness.test.tsx` montuje całą stronę bez atrapy
