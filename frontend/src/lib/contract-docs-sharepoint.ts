@@ -284,8 +284,24 @@ export function sharePointBadge(doc: {
   if (doc.source === "sharepoint" || doc.source === "sharepoint_import") {
     return { label: "z SharePointa", tone: "neutral" };
   }
-  if (doc.sharepoint_item_id)
+  if (doc.sharepoint_item_id) {
+    // Treść podmieniona w NEXUSIE po wysyłce (skan aneksu): stan wraca na
+    // „czeka”, dopóki synchronizacja nie podmieni pliku w SharePoincie.
+    // Brak pola (odpowiedź bez stanu wysyłki) to nie „stara wersja”.
+    if (
+      doc.sharepoint_push_status !== undefined &&
+      doc.sharepoint_push_status !== "done"
+    ) {
+      return {
+        label: "w SharePoincie poprzednia wersja",
+        tone: "warning",
+        title:
+          doc.sharepoint_push_error ??
+          "Nowa wersja trafi do SharePointa przy najbliższej synchronizacji.",
+      };
+    }
     return { label: "w SharePoincie", tone: "success" };
+  }
   if (
     doc.sharepoint_push_status === "skipped" ||
     doc.sharepoint_push_status === "failed"

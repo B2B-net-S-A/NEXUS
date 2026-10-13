@@ -39,3 +39,18 @@ Ustawienia → Umowy i stawki (`ContractDocsSharePointPanel`, harness
   stronie nie kasuje drugiej. Folder synchronizacji ustawia dopiero ZAPIS
   pierwszego pobrania, nie podgląd. Klucz pliku na dysku nie niesie nazwy
   (podfoldery miewają dwa „umowa.pdf”).
+- **Treść podmieniona w NEXUSIE po wysyłce** (skan podpisanego aneksu —
+  jedyny dokument podmieniany w miejscu, 13.10.2026): wołający cofa stan na
+  „czeka” przez `store.requeue_replaced_content` (`sharepoint_item_id`
+  zostaje), a `sync._replace_one` podmienia treść TEGO pliku
+  (`sp.replace_content`, PUT po id elementu) zamiast dokładać drugi. Do
+  13.10.2026 wiersz z `sharepoint_item_id` nie wracał do wysyłki wcale i
+  w SharePoincie zostawał stary skan. Podmieniamy wyłącznie plik, który
+  wysłał NEXUS (`contract_doc_sp_items.status = 'pushed'`) i który nadal jest
+  w folderze — plik powiązany z dokumentem tylko po treści należy do działu,
+  wtedy nowa treść idzie jako nowy plik. Najpierw nazwa, potem treść: przy
+  zmianie typu pliku nieudana zmiana nazwy przerywa podmianę (ponowi ją
+  następny bieg), przy tym samym typie zostaje stara nazwa. Plakietka
+  dokumentu z `sharepoint_item_id` i stanem innym niż `done` mówi
+  „w SharePoincie poprzednia wersja”. Nowy dokument podmieniany w miejscu =
+  to samo wywołanie przed nadpisaniem pól.

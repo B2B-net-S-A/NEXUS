@@ -72,6 +72,8 @@ poprawką. Wszystkie poniższe są naprawione w tym PR-ze.
 | „Popraw” zamrażał wiersz rejestru | po poprawce aneksu wiersz „Umów bieżących” trzymał starą wartość na zawsze — nie ruszało jej anulowanie, przywrócenie ani kolejny aneks (błąd sprzed tej zmiany) | poprawka przenosi `register_applied`, przeliczenie zna wartość sprzed niej | `test_corrected_annex_moves_the_register_row_and_stays_reversible` (bez bazy), `test_correcting_an_annex_moves_the_register_row` |
 | Wejście z kontraktu | kreator brał pierwszy wynik; nowsza umowa tej osoby bez powiązania wypierała umowę powiązaną z kontraktem | umowa powiązana wygrywa; umowa bez powiązania tylko dla aneksu i tylko gdy jest jedna | `test_subjects_from_a_contract_prefer_its_own_agreement` |
 | Aneks zlecenia „Bez kontraktu” | dawał się podpisać bez skutku, potem nie dało się go powiązać | czeka na powiązanie jak pozostałe typy | `test_every_annex_that_takes_a_contract_waits_for_it_before_signature`, `test_mandate_annex_without_contract_waits_for_linking` |
+| Podmieniony skan a SharePoint | skan podmieniony po wysyłce do SharePointa zostawał tam w starej wersji — dokument z plikiem w SharePoincie nie wracał do wysyłki | podmieniony skan wraca na „czeka”, synchronizacja podmienia treść tego samego pliku; plakietka mówi „w SharePoincie poprzednia wersja” | `test_replaced_scan_overwrites_the_same_sharepoint_file`, `test_file_nexus_did_not_send_is_never_overwritten` (bez bazy), dopisek w `test_signed_scan_lands_in_contract_documents_and_on_the_amendment` |
+| Plik skanu przed commitem | podmiana nadpisywała albo usuwała plik na dysku przed zapisem w bazie | nowy plik pod kluczem z treści, stary znika po commicie | ten sam test skanu (stary plik znika, nowy jest na dysku) |
 
 Świadomie nie wdrożone: ograniczenie „Powiąż z kontraktem” do autora aneksu. Aneks „Bez
 kontraktu” przygotowany przez rekrutera ma wiązać osoba prowadząca kontrakty; granicą jest
@@ -99,6 +101,11 @@ prawo edycji kontraktów u klienta kontraktu i zapis u klienta dokumentu.
   ile wierszy „Umów bieżących” zamroziła wcześniej poprawka aneksu.
 - Widok wyboru osoby dla konta bez prawa edycji kontraktów sprawdzony testem komponentu,
   nie zrzutem (różni się wyłącznie tekstami).
+- Podmiana treści pliku w SharePoincie sprawdzona na podmienionym kliencie Graph, nie na
+  prawdziwej bibliotece: nie wiem, czy synchronizacja jest włączona na produkcji ani czy
+  biblioteka prowadzi historię wersji. Zmiana nazwy pliku z parametrem konfliktu nazwy
+  opiera się na dokumentacji Graph — przy odmowie zostaje stara nazwa (ten sam typ pliku)
+  albo podmiana jest ponawiana (inny typ).
 
 ## Skutki uboczne i ryzyka
 
@@ -110,7 +117,8 @@ prawo edycji kontraktów u klienta kontraktu i zapis u klienta dokumentu.
   sprzed poprawki — kod nie odróżni ich od zmiany spoza generatora.
 - Skan aneksu danych firmy albo zlecenia zawiera dane osobowe; trafia do Dokumentów kontraktu
   i — przy włączonej synchronizacji — do folderu osoby w SharePoincie, jak plik dołączany
-  tam dziś ręcznie. Podmieniony skan nie nadpisuje pliku wysłanego już do SharePointa.
+  tam dziś ręcznie. Podmieniony skan zastępuje tam treść tego samego pliku przy
+  najbliższej synchronizacji.
 - Otwarta stara karta dostanie odmowę przy aneksie spoza Nexusa do czasu odświeżenia (karta
   sama przechodzi na nową wersję frontu).
 - Aneksów spoza Nexusa wystawionych przed wdrożeniem nie da się odtworzyć — nie były

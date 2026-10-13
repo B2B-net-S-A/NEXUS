@@ -31,6 +31,7 @@ from app.models.b2b_contract_document import B2BContractDocument
 from app.models.contract_amendment import ContractAmendment
 from app.models.contract_document import ContractDocument, ContractDocumentType
 from app.services import storage_service
+from app.services.contract_folder_docs.store import requeue_replaced_content
 
 MAX_SCAN_BYTES = 20 * 1024 * 1024
 
@@ -104,13 +105,17 @@ async def attach(
     content_type: str,
     data: bytes,
     actor_id: int | None,
-) -> ContractDocument:
+) -> str | None:
     """Zapisz skan przy kontrakcie i przepnij na niego aneksy tego dokumentu.
 
     Wołający trzyma blokadę dokumentu i sprawdził uprawnienia. Kontrakt
     bierzemy z aneksów, które podpis utworzył (albo z zapisu skutku) — umowa
     bazowa mogła po podpisie dostać inny kontrakt, a skan należy do tego,
-    który aneks faktycznie zmienił. Kolejny skan PODMIENIA poprzedni."""
+    który aneks faktycznie zmienił. Kolejny skan PODMIENIA poprzedni.
+
+    Zwraca ścieżkę podmienionego pliku (albo ``None``). Stary plik usuwa
+    wołający PO commicie (``discard``): usunięty wcześniej zostawiałby po
+    nieudanym commicie wiersz wskazujący plik, którego już nie ma."""
     if doc.signature_status != "signed_both" or doc.effect_applied_at is None:
         raise HTTPException(status_code=409, detail=MSG_NOT_SIGNED)
     amendments = list(
@@ -133,12 +138,15 @@ async def attach(
     amendments = [a for a in amendments if a.contract_id == contract_id]
 
     suffix = PurePath(filename).suffix.lower()
+    digest = hashlib.sha256(data).hexdigest()
     path, size = storage_service.save_contract_document(
         contract_id,
         filename,
         io.BytesIO(data),
-        # Stały klucz: ponowienie po awarii i podmiana skanu nadpisują plik.
-        stored_name=f"b2b-document-{doc.id}-skan{suffix}",
+        # Klucz z treści: ponowienie po awarii trafia w ten sam plik, a inny
+        # skan zapisuje się obok — plik, na który wskazuje wiersz, zostaje
+        # nietknięty do commitu.
+        stored_name=f"b2b-document-{doc.id}-skan-{digest[:16]}{suffix}",
     )
     previous_id = signed_scan_id(doc)
     record = (
@@ -146,6 +154,7 @@ async def attach(
     )
     if record is not None and record.contract_id != contract_id:
         record = None
+    replaced_path: str | None = None
     if record is None:
         record = ContractDocument(
             contract_id=contract_id,
@@ -153,14 +162,17 @@ async def attach(
             source="upload",
         )
         db.add(record)
-    elif record.file_path != path:
-        # Podmiana na plik o innym rozszerzeniu — stary nie zostaje sierotą.
-        storage_service.delete_contract_document(record.file_path)
+    else:
+        # Skan wysłany już do SharePointa wraca do wysyłki — synchronizacja
+        # podmieni tam treść tego samego pliku.
+        requeue_replaced_content(record, content_sha256=digest, filename=filename)
+        if record.file_path != path:
+            replaced_path = record.file_path
     record.filename = filename
     record.file_path = path
     record.content_type = content_type
     record.size_bytes = size
-    record.content_sha256 = hashlib.sha256(data).hexdigest()
+    record.content_sha256 = digest
     record.uploaded_by = actor_id
     await db.flush()
 
@@ -193,4 +205,10 @@ async def attach(
             },
         )
     )
-    return record
+    return replaced_path
+
+
+def discard(replaced_path: str | None) -> None:
+    """Usuń plik podmienionego skanu — po udanym commicie."""
+    if replaced_path is not None:
+        storage_service.delete_contract_document(replaced_path)

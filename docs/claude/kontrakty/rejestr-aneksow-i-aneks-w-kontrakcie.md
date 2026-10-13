@@ -93,7 +93,11 @@ spoza Nexusa — nie był zapisywany wcale. Raport:
   JPG albo PNG do 20 MB, rozszerzenie zgodne z pierwszymi bajtami. Trafia do
   Dokumentów kontraktu jako „Aneks” i wskazują na niego wszystkie aneksy
   kontraktu utworzone przez ten dokument (`effect_summary.amendment_ids`);
-  kolejny skan podmienia poprzedni; wygenerowany DOCX zostaje obok. Okno
+  kolejny skan podmienia poprzedni (ten sam dokument kontraktu; nowy plik
+  zapisuje się pod kluczem z treści, stary znika dopiero po commicie —
+  `signed_scan.discard`; skan wysłany już do SharePointa wraca do wysyłki
+  i podmienia tam ten sam plik — `dokumenty-kontraktow-z-sharepointa.md`);
+  wygenerowany DOCX zostaje obok. Okno
   podpisu woła `confirm-signed` (bez zmian), POTEM wysyła skan — nieudany skan
   nie cofa podpisu. Dwie trasy na jednej funkcji: generator (bramki jak
   podpis + skutek w kontrakcie) i kontrakt

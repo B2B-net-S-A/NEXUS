@@ -16,7 +16,9 @@ from fastapi import HTTPException
 from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
+from app.services import storage_service
 from app.services.b2b_documents import signed_scan
+from app.services.contract_folder_docs import sync
 from tests.test_b2b_documents_api import (  # noqa: F401
     BASE,
     _create,
@@ -139,6 +141,11 @@ async def test_signed_scan_lands_in_contract_documents_and_on_the_amendment(
         assert doc.effect_summary["signed_scan_document_id"] == scan_id
         # Reszta zapisu skutku zostaje nietknięta.
         assert doc.effect_summary["contract_id"] == contract_id
+        # Synchronizacja wysłała już ten skan do SharePointa.
+        first_path = scan.file_path
+        scan.sharepoint_item_id = f"up-{scan_id}"
+        scan.sharepoint_push_status = "done"
+        await db.commit()
 
     # Drugi skan podmienia pierwszy, nie dokłada kolejnego dokumentu.
     again = await _upload(app_client, app_auth_headers, url, "poprawiony.png", PNG)
@@ -148,6 +155,20 @@ async def test_signed_scan_lands_in_contract_documents_and_on_the_amendment(
         scan = await db.get(ContractDocument, scan_id)
         assert scan.filename == "poprawiony.png"
         assert scan.content_type == "image/png"
+        # W SharePoincie leży jeszcze stary skan: dokument wraca do wysyłki
+        # z tym samym plikiem docelowym (do 13.10.2026 nie wracał wcale).
+        assert scan.sharepoint_item_id == f"up-{scan_id}"
+        assert scan.sharepoint_push_status is None
+        waiting = await db.execute(
+            sync._push_candidates(None).where(ContractDocument.id == scan_id)
+        )
+        assert len(waiting.all()) == 1
+        new_path = scan.file_path
+    # Stary plik znika dopiero po zapisie nowego.
+    assert new_path != first_path
+    assert storage_service.get_contract_document_path(new_path).read_bytes() == PNG
+    with pytest.raises(FileNotFoundError):
+        storage_service.get_contract_document_path(first_path)
 
 
 async def test_scan_can_be_attached_from_the_contract_side_only_to_generator_annexes(

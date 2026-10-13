@@ -2088,7 +2088,7 @@ async def upload_signed_scan(
             status_code=403, detail=effects.RATE_ANNEX_CONFIRMER_BLOCKER
         )
     name, content_type, data = await signed_scan.read_scan(file)
-    await signed_scan.attach(
+    replaced_path = await signed_scan.attach(
         db,
         doc=doc,
         filename=name,
@@ -2097,6 +2097,7 @@ async def upload_signed_scan(
         actor_id=current_user.id,
     )
     await db.commit()
+    signed_scan.discard(replaced_path)
     await db.refresh(doc)
     return (await _serialize(db, [doc], current_user))[0]
 

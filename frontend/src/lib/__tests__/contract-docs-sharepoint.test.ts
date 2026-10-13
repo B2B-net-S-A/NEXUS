@@ -111,8 +111,31 @@ describe("contract docs from SharePoint", () => {
       "z SharePointa",
     );
     expect(
+      sharePointBadge({
+        source: "upload",
+        sharepoint_item_id: "x",
+        sharepoint_push_status: "done",
+      })?.label,
+    ).toBe("w SharePoincie");
+    expect(
       sharePointBadge({ source: "upload", sharepoint_item_id: "x" })?.label,
     ).toBe("w SharePoincie");
+    // Skan podmieniony po wysyłce: w SharePoincie leży jeszcze stara wersja.
+    const stale = sharePointBadge({
+      source: "upload",
+      sharepoint_item_id: "x",
+      sharepoint_push_status: null,
+    });
+    expect(stale?.label).toBe("w SharePoincie poprzednia wersja");
+    expect(stale?.tone).toBe("warning");
+    expect(
+      sharePointBadge({
+        source: "upload",
+        sharepoint_item_id: "x",
+        sharepoint_push_status: "failed",
+        sharepoint_push_error: "SharePoint odmówił",
+      })?.title,
+    ).toBe("SharePoint odmówił");
     expect(
       sharePointBadge({ source: "upload", sharepoint_push_status: "skipped" })
         ?.tone,

@@ -5784,7 +5784,7 @@ async def attach_amendment_signed_scan(
         .execution_options(populate_existing=True)
     )
     name, content_type, data = await signed_scan.read_scan(file)
-    await signed_scan.attach(
+    replaced_path = await signed_scan.attach(
         db,
         doc=document,
         filename=name,
@@ -5793,6 +5793,7 @@ async def attach_amendment_signed_scan(
         actor_id=current_user.id,
     )
     await db.commit()
+    signed_scan.discard(replaced_path)
     await db.refresh(amendment)
     finance_ok = await _can_read_contract_finance(contract, current_user, db)
     return await _amendment_to_response(db, amendment, finance_ok=finance_ok)
