@@ -119,6 +119,7 @@ import {
  type QcChipTone,
  compactCardBadge,
  cardShortName,
+ cvStateBadge,
  dlSendQueue,
  isReadyForDlSend,
  shortStepLabel,
@@ -131,7 +132,10 @@ import {
  workbenchSectionOwnsMove,
  type BoardWorkbenchContext,
  type KanbanQueryState,
+ type NextInColumn,
 } from "@/components/v2/person/PersonWorkbenchTabs";
+import { createNoteFillChannel } from "@/lib/note-fill-channel";
+import { screeningFormQueryKey } from "@/lib/api/screeningForm";
 import { buildProcessRows } from "@/components/v2/recruitment/person-rows";
 import type { PersonPanelSection } from "@/components/v2/recruitment/types";
 import { useBulkCvHandoff } from "@/components/v2/recruitment/useBulkCvHandoff";
@@ -316,6 +320,34 @@ export const composeColumns = (
  name: offTemplate.name,
  },
  ];
+};
+
+/**
+ * Ruchy strzałką „→” czekające na wysłanie (14.10.2026) na świeżym stanie
+ * z serwera. Serwer jeszcze o nich nie wie — odświeżenie tablicy w ciągu tych
+ * 10 s cofałoby kartę na stare miejsce, a potem przesuwało ją drugi raz.
+ */
+export const withPendingMoves = (
+ cols: KanbanColumn[],
+ pending: ReadonlyArray<{ candidateId: number; toColumn: KanbanColumn }>
+): KanbanColumn[] => {
+ let next = cols;
+ for (const { candidateId, toColumn } of pending) {
+ const target = colId(toColumn);
+ const from = next.find((c) => c.items.some((i) => i.candidate_id === candidateId));
+ if (!from || colId(from) === target || !next.some((c) => colId(c) === target)) continue;
+ const moved = from.items.find((i) => i.candidate_id === candidateId) as KanbanItem;
+ next = next.map((c) => {
+ if (c === from) {
+ const items = c.items.filter((i) => i.candidate_id !== candidateId);
+ return { ...c, items, count: items.length };
+ }
+ if (colId(c) !== target) return c;
+ const items = [...c.items, { ...moved, stage: c.stage, days_in_stage: 0 }];
+ return { ...c, items, count: items.length };
+ });
+ }
+ return next;
 };
 
 const defaultFocusColumnId = (cols: KanbanColumn[]) => {
@@ -708,7 +740,7 @@ interface BoardV4Ctx {
  onTake: (item: KanbanItem) => void;
  /** Rekrutacja v5: następna kolumna Tablicy karty (`null` = brak strzałki). */
  nextColumnLabel: (item: KanbanItem) => string | null;
- /** Strzałka „→" — okno „Przesuń dalej". */
+ /** Strzałka „→": ruch od razu z „Cofnij” albo okno „Przesuń dalej" (14.10.2026). */
  onAdvance: (item: KanbanItem) => void;
  /** Chip QC — okno QC CV. */
  onOpenQc: (item: KanbanItem) => void;
@@ -854,6 +886,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  );
  const forwardGap = nextColumnLabel ? knownForwardGap(item, boardKey) : null;
  const qc = boardKey === "cv_qc" ? qcChip(item) : null;
+ const cvBadge = cvStateBadge(item, boardKey);
  const normalizedMatchScore =
  typeof matchScore === "number" && Number.isFinite(matchScore)
  ? Math.max(0, Math.min(100, Math.round(matchScore)))
@@ -1200,17 +1233,20 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  className={cn("basis-full text-[10.5px]", desktopOverview && "xl:pointer-fine:hidden")}
  />
  )}
- {/* `=== true`: odznaka obiecuje gotowy dokument (dawna odznaka
- kolumny „Następny krok" w Tabeli). */}
- {item.auto_cv_ready === true && (
+ {/* Stan CV firmowego (14.10.2026, `cvStateBadge` — ta sama reguła
+ co wiersz tabeli): automat pisze CV, „CV gotowe · N do poprawy” /
+ „bez uwag” po QC na „Zweryfikowanym”, „CV gotowe w tle” przed QC. */}
+ {cvBadge && (
  <span
+ data-testid="card-cv-state"
  className={cn(
- "inline-flex items-center rounded px-1 text-[10px] font-semibold bg-info/15 text-info",
+ "inline-flex items-center rounded px-1 text-[10px] font-semibold",
+ CARD_BADGE_TONE_CLASS[cvBadge.tone],
  desktopOverview && "xl:pointer-fine:hidden"
  )}
- title="CV wygenerowane automatycznie po weryfikacji czeka w warsztacie CV — sprawdź je przed wysyłką."
+ title={cvBadge.title}
  >
- CV gotowe w tle
+ {cvBadge.label}
  </span>
  )}
  {!readOnly && scorecardDue && (
@@ -1802,6 +1838,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  },
  [nextFoldByItemId, cols, openMoveNext]
  );
+ // Strzałka „→” na karcie (D7, 14.10.2026) — ciało niżej, po `usePipelineMove`.
+ const arrowAdvanceRef = useRef<(item: KanbanItem) => void>(() => undefined);
+ const onArrowAdvance = useCallback((item: KanbanItem) => arrowAdvanceRef.current(item), []);
  const onOpenQc = useCallback((item: KanbanItem) => setQcStageId(item.id), []);
  // Przegląd przed wysłaniem do klienta (`openDlReviewIfSending`) powstaje
  // niżej — potrzebuje kolumn zamkniętych; karta i przeciągnięcie wołają go
@@ -1886,13 +1925,13 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  takingIds,
  onTake: takeCandidate,
  nextColumnLabel,
- onAdvance,
+ onAdvance: onArrowAdvance,
  onOpenQc,
  canReviewAsDl,
  viewerOwnsDlReview,
  onReviewSend,
  }),
- [columnByItemId, cproEnabled, authUser?.id, readOnly, takingIds, takeCandidate, nextColumnLabel, onAdvance, onOpenQc, canReviewAsDl, viewerOwnsDlReview, onReviewSend]
+ [columnByItemId, cproEnabled, authUser?.id, readOnly, takingIds, takeCandidate, nextColumnLabel, onArrowAdvance, onOpenQc, canReviewAsDl, viewerOwnsDlReview, onReviewSend]
  );
  const [focusedColId, setFocusedColId] = useState<string | null>(() =>
  defaultFocusColumnId(columns)
@@ -1941,6 +1980,20 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  setDockCandidateId(candidateId);
  setWorkbench({ candidateId, section, open: true });
  }, []);
+ // „Zapisz i przekaż dalej” w formularzu screeningu przeszło (14.10.2026):
+ // panel tej osoby przechodzi na „CV”, a karta CV pokazuje postęp (CV → QC).
+ // Inna osoba w panelu — znacznik znika.
+ const [forwardedCandidateId, setForwardedCandidateId] = useState<number | null>(null);
+ useEffect(() => {
+ setForwardedCandidateId((id) => (id != null && id !== dockCandidateId ? null : id));
+ }, [dockCandidateId]);
+ const onWorkbenchForwarded = useCallback((candidateId: number) => {
+ setForwardedCandidateId(candidateId);
+ setWorkbench((prev) => (prev && prev.candidateId === candidateId ? { ...prev, section: "cv" } : prev));
+ }, []);
+ // D3: pole notatki w doku wypełnia otwarty formularz screeningu tej osoby —
+ // jeden kanał na Tablicę (dok i formularz są w różnych gałęziach panelu).
+ const noteFill = useMemo(() => createNoteFillChannel(), []);
  // 0424 (D3 „od razu z boku”): osoba z „Nowych” i „Screeningu” otwiera się
  // od razu w panelu dzielonym — formularz screeningu (albo profil przed
  // telefonem) i CV obok. „Zwiń” wraca do doku 380 px. Bez kontekstu
@@ -2075,8 +2128,11 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const [pendingRemoval, setPendingRemoval] = useState<KanbanItem | null>(null);
  const [removeBusy, setRemoveBusy] = useState(false);
 
+ // Odłożone ruchy strzałką „→” — `usePipelineMove` niżej; ref, bo synchronizacja
+ // ze stanem serwera stoi wyżej niż hak.
+ const pendingMovesRef = useRef<() => ReadonlyArray<{ candidateId: number; toColumn: KanbanColumn }>>(() => []);
  useEffect(() => {
- setCols(composeColumns(columns, offTemplate));
+ setCols(withPendingMoves(composeColumns(columns, offTemplate), pendingMovesRef.current()));
  setFocusedColId((current) =>
  current && columns.some((col) => colId(col) === current)
  ? current
@@ -2132,9 +2188,11 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
 
  const applyOptimistic = useCallback(
  (item: KanbanItem, srcId: string, dst: KanbanColumn) => {
+ let index = -1;
  setCols((prev) =>
  prev.map((c) => {
  if (colId(c) === srcId) {
+ index = c.items.findIndex((i) => i.id === item.id);
  const items = c.items.filter((i) => i.id !== item.id);
  return { ...c, items, count: items.length };
  }
@@ -2143,6 +2201,20 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  return { ...c, items, count: items.length };
  }
  return c;
+ })
+ );
+ // „Cofnij” po strzałce „→” (14.10.2026): karta wraca na swoje miejsce
+ // w kolumnie źródłowej, bez żądania (także po odświeżeniu w międzyczasie).
+ return () =>
+ setCols((prev) =>
+ prev.map((c) => {
+ const items = c.items.filter((i) => i.candidate_id !== item.candidate_id);
+ if (colId(c) !== srcId) {
+ return items.length === c.items.length ? c : { ...c, items, count: items.length };
+ }
+ const at = index >= 0 ? Math.min(index, items.length) : items.length;
+ const restored = [...items.slice(0, at), item, ...items.slice(at)];
+ return { ...c, items: restored, count: restored.length };
  })
  );
  },
@@ -2158,9 +2230,12 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const fresh = await pipelineApi.kanban(jobId);
  if (Array.isArray(fresh.data?.columns)) {
  setCols(
+ withPendingMoves(
  composeColumns(
  fresh.data.columns as KanbanColumn[],
  fresh.data.off_template as OffTemplateColumn | null
+ ),
+ pendingMovesRef.current()
  )
  );
  }
@@ -2232,7 +2307,19 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  openScreeningFor(item);
  },
  });
- const { requestMove, requestReject } = move;
+ const { requestMove, requestReject, canMoveWithoutDialog, deferMove, commitPendingMove } = move;
+ pendingMovesRef.current = move.pendingMoves;
+ // Osoba z odłożonym ruchem strzałką otwarta w panelu: ruch idzie od razu —
+ // formularz screeningu i wymagania czytają stan z serwera, który jeszcze go
+ // nie zna (inaczej „Zapisz i przekaż dalej” trafiał na konflikt wersji).
+ useEffect(() => {
+ if (dockCandidateId == null) return;
+ void commitPendingMove(dockCandidateId).then((sent) => {
+ if (sent) {
+ void queryClient.invalidateQueries({ queryKey: screeningFormQueryKey(jobId, dockCandidateId) });
+ }
+ });
+ }, [dockCandidateId, commitPendingMove, queryClient, jobId]);
 
  // Rekrutacja v5: ruch NAPRZÓD przez Tablicę. Na sąsiednią kolumnę bez
  // znanych braków — od razu (`usePipelineMove`, jak dotąd). Dalej niż
@@ -2240,6 +2327,18 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // wysyłka przez DL / kolejka Cpro) — najpierw okno „Przesuń dalej".
  // Ruchy wstecz i na etapy-znaczniki w tej samej kolumnie idą od razu.
  // Przegląd przed wysłaniem do klienta woła przez `openDlReviewRef` (wyżej).
+ const forwardNeedsMoveNext = useCallback(
+ (item: KanbanItem, fromIndex: number, toIndex: number): boolean => {
+ const fromKey = boardFold.columns[fromIndex]?.key ?? null;
+ const toKey = boardFold.columns[toIndex]?.key ?? null;
+ const stageBadge = boardFold.badgeByItemId.get(item.id) ?? null;
+ const directToClient =
+ toKey === "cv_sent" &&
+ !(cproEnabled ? stageBadge === "cpro" : canReviewAsDl && item.qc?.status !== "failed");
+ return toIndex - fromIndex > 1 || knownForwardGap(item, fromKey) != null || directToClient;
+ },
+ [boardFold, cproEnabled, canReviewAsDl]
+ );
  const routeMove = useCallback(
  (item: KanbanItem, srcColId: string, dst: KanbanColumn) => {
  const fromIndex = foldIndexByColId.get(srcColId);
@@ -2249,20 +2348,37 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  return;
  }
  if (openDlReviewRef.current(item, dst)) return;
- const fromKey = boardFold.columns[fromIndex]?.key ?? null;
- const toKey = boardFold.columns[toIndex]?.key ?? null;
- const stageBadge = boardFold.badgeByItemId.get(item.id) ?? null;
- const directToClient =
- toKey === "cv_sent" &&
- !(cproEnabled ? stageBadge === "cpro" : canReviewAsDl && item.qc?.status !== "failed");
- if (toIndex - fromIndex > 1 || knownForwardGap(item, fromKey) || directToClient) {
+ if (forwardNeedsMoveNext(item, fromIndex, toIndex)) {
  openMoveNext(item, srcColId, dst);
  return;
  }
  requestMove(item, srcColId, dst);
  },
- [foldIndexByColId, boardFold, cproEnabled, canReviewAsDl, openMoveNext, requestMove]
+ [foldIndexByColId, forwardNeedsMoveNext, openMoveNext, requestMove]
  );
+ // Strzałka „→” na karcie (D7, decyzja Artura 14.10.2026): ta sama reguła co
+ // przeciągnięcie na sąsiednią kolumnę, ale ruch, który nie potrzebuje
+ // żadnego okna (stawka, wysyłka, zatrudnienie) ani nie ma znanego braku,
+ // idzie bez okna „Przesuń dalej” — karta przechodzi od razu, a komunikat
+ // ma 10 s na „Cofnij” (`deferMove`). Reszta — okno „Przesuń dalej” jak dotąd.
+ // Przeciąganie zostaje natychmiastowe; dok i okno QC wołają `onAdvance`.
+ arrowAdvanceRef.current = (item: KanbanItem) => {
+ const next = nextFoldByItemId.get(item.id);
+ const src = cols.find((c) => c.items.some((i) => i.id === item.id));
+ if (!next || !src) return;
+ const fromIndex = foldIndexByColId.get(colId(src));
+ const toIndex = foldIndexByColId.get(colId(next.host));
+ if (
+ fromIndex != null &&
+ toIndex != null &&
+ !forwardNeedsMoveNext(item, fromIndex, toIndex) &&
+ canMoveWithoutDialog(item, next.host)
+ ) {
+ deferMove(item, colId(src), next.host, { targetLabel: next.label });
+ return;
+ }
+ openMoveNext(item, colId(src), next.host);
+ };
 
  const onDragEnd = useCallback(
  (res: DropResult) => {
@@ -3076,6 +3192,47 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  },
  [screeningSplit, cols, columnByItemId, openWorkbench]
  );
+ // „Następna w Screeningu” w karcie CV panelu (14.10.2026): kolejność „›”
+ // zawężona do jednej kolumny Tablicy — pierwsza osoba za wskazaną, a gdy za
+ // nią nikogo nie ma, pierwsza od góry tej kolumny.
+ const nextInColumn = useCallback(
+ (candidateId: number, column: BoardColumnKey): NextInColumn | null => {
+ const byCandidate = new Map<number, KanbanItem>();
+ for (const c of cols) for (const i of c.items) byCandidate.set(i.candidate_id, i);
+ const inColumn = dockOrder.filter((id) => {
+ const found = byCandidate.get(id);
+ return id !== candidateId && found != null && columnByItemId.get(found.id) === column;
+ });
+ if (inColumn.length === 0) return null;
+ const at = dockOrder.indexOf(candidateId);
+ const nextId = (at >= 0 ? inColumn.find((id) => dockOrder.indexOf(id) > at) : undefined) ?? inColumn[0];
+ const next = byCandidate.get(nextId) as KanbanItem;
+ const days = next.days_in_stage;
+ return {
+ candidateId: nextId,
+ name: itemFullName(next),
+ detail:
+ days == null ? null : days <= 0 ? "czeka od dziś" : days === 1 ? "czeka 1 dzień" : `czeka ${days} dni`,
+ };
+ },
+ [cols, dockOrder, columnByItemId]
+ );
+ // „Otwórz” przy następnej osobie w karcie CV: osoba z „Nowych”/„Screeningu”
+ // dostaje formularz w panelu dzielonym (jak klik w kartę) — rekruter zwykle
+ // przechodzi wtedy do kolejnego screeningu, a panel stoi na „CV”, więc samo
+ // „›” dałoby wąski dok. Inna kolumna — jak „›”.
+ const openPersonInPanel = useCallback(
+ (candidateId: number) => {
+ const found = cols.flatMap((c) => c.items).find((i) => i.candidate_id === candidateId);
+ const key = found ? columnByItemId.get(found.id) : null;
+ if (canSplit && (key === "new" || key === "screening")) {
+ openWorkbench(candidateId, "screening");
+ return;
+ }
+ showInDock(candidateId);
+ },
+ [cols, columnByItemId, canSplit, openWorkbench, showInDock]
+ );
  const selectAdjacentDockCard = useCallback(
  (delta: -1 | 1) => {
  if (dockOrder.length === 0) return;
@@ -3595,6 +3752,7 @@ headerAction={
  <PipelineCandidateDock
  key={dockItem.candidate_id}
  item={dockItem}
+ noteFill={noteFill}
  jobId={jobId}
  onOpenQc={() => setQcStageId(dockItem.id)}
  onTake={readOnly ? undefined : () => void takeCandidate(dockItem)}
@@ -3680,6 +3838,11 @@ headerAction={
  kanbanQueryState,
  onTake: readOnly ? undefined : (item) => void takeCandidate(item),
  rejectFollowUp: workbenchRejectFollowUp,
+ onForwarded: onWorkbenchForwarded,
+ forwardedCandidateId,
+ nextInColumn,
+ openPerson: openPersonInPanel,
+ noteFill,
  }}
  />
  ) : null

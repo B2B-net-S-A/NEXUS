@@ -92,7 +92,8 @@ export function hoursLeft(until: string, now: Date): string {
   return `${Math.floor(ms / 3_600_000)} h`;
 }
 
-function daysLabel(days: number): string {
+/** „dziś”, „1 dzień”, „3 dni” — ile osoba czeka (plakietki karty). */
+export function daysLabel(days: number): string {
   if (days <= 0) return "dziś";
   if (days === 1) return "1 dzień";
   return `${days} dni`;
@@ -128,7 +129,7 @@ function timeOf(value: string | null | undefined): number | null {
  * i zaliczenia QC — karta bywa w „QC CV” kilka dni, zanim QC przejdzie.
  * `null` = tablica nie zna którejś z dat (starszy serwer).
  */
-function dlReadySince(item: KanbanItem): number | null {
+export function dlReadySince(item: KanbanItem): number | null {
   const moved = timeOf(item.moved_at);
   const ok = timeOf(item.qc?.ok_at);
   return moved == null || ok == null ? null : Math.max(moved, ok);
@@ -136,7 +137,7 @@ function dlReadySince(item: KanbanItem): number | null {
 
 /** Dni KALENDARZOWE w Europe/Warsaw od gotowości — ta sama arytmetyka co
  *  `waitingFor` (`lib/api/boardTasks.ts`); bez dat zostają dni na etapie. */
-function dlWaitingDays(item: KanbanItem, now: Date): number {
+export function dlWaitingDays(item: KanbanItem, now: Date): number {
   const since = dlReadySince(item);
   if (since == null) return item.days_in_stage ?? 0;
   const dayNumber = (d: Date) => Date.parse(`${warsawToday(d)}T00:00:00Z`) / DAY_MS;
@@ -159,6 +160,96 @@ export function dlSendQueue(
   return qcColumnItems
     .filter((item) => isReadyForDlSend(item, "cv_qc", inCproQueue(item)))
     .sort((a, b) => since(a) - since(b));
+}
+
+/** „od dziś”, „od 1 dnia”, „od 3 dni”. */
+function sinceLabel(days: number): string {
+  if (days <= 0) return "od dziś";
+  if (days === 1) return "od 1 dnia";
+  return `od ${days} dni`;
+}
+
+export interface DlWaitingStatus {
+  /** Osoba jest już w kolejce Delivery Leada (QC zdane albo przepuszczone). */
+  ready: boolean;
+  text: string;
+}
+
+/**
+ * Osoba stoi w „QC CV” i dalej prowadzi ją Delivery Lead (14.10.2026): okno
+ * „Przesuń dalej” i ramka „Następny etap” mówią, od kiedy czeka — albo co
+ * rekruter musi jeszcze zrobić, zanim DL ją zobaczy (kolejka DL liczy tylko
+ * gotowe karty). Do tej daty był tu przycisk z toastem o kolejce „Czeka na
+ * Ciebie”, której rekruter nie ma. Bez karty (starszy wołający) — zdanie,
+ * które jest prawdą zawsze.
+ */
+export function dlWaitingStatus(item: KanbanItem | null | undefined, now: Date): DlWaitingStatus {
+  if (!item) {
+    return { ready: false, text: "Osoba jest w „QC CV” — trafi do Delivery Leada, gdy QC przejdzie." };
+  }
+  if (isReadyForDlSend(item, "cv_qc", false)) {
+    return { ready: true, text: `Czeka u Delivery Leada ${sinceLabel(dlWaitingDays(item, now))}.` };
+  }
+  if (item.qc?.status === "failed") {
+    return {
+      ready: false,
+      text: `QC: ${item.qc.blocking_failed} do poprawy — popraw CV, zanim Delivery Lead je zobaczy.`,
+    };
+  }
+  return {
+    ready: false,
+    text: "QC jeszcze nie sprawdzone — sprawdź CV, zanim Delivery Lead je zobaczy.",
+  };
+}
+
+// ── Stan CV firmowego na karcie (14.10.2026) ────────────────────────────────
+
+/**
+ * Jedna plakietka o CV firmowym — karta Tablicy i wiersz tabeli osób:
+ * automat jeszcze pisze CV, CV jest i QC już je sprawdziło (ile do poprawy —
+ * uwagi blokujące i nieblokujące razem), albo gotowe auto-CV czeka na
+ * przegląd (QC jeszcze nie biegło). Wynik QC pokazujemy tylko na
+ * „Zweryfikowanym” — w „QC CV” mówi o nim chip QC. `=== true`: odznaka
+ * obiecuje gotowy dokument, więc brak pola (starszy serwer) jej nie daje.
+ */
+export function cvStateBadge(item: KanbanItem, column: BoardColumnKey | null): CardBadge | null {
+  if (item.auto_cv_state === "processing") {
+    return {
+      key: "cv_state",
+      label: "CV w przygotowaniu…",
+      tone: "neutral",
+      title: "Automat przygotowuje CV firmowe po weryfikacji — za chwilę będzie w sekcji CV.",
+    };
+  }
+  const qc = item.qc ?? null;
+  const qcRan = qc?.status === "passed" || qc?.status === "failed" || qc?.status === "overridden";
+  const hasCompanyCv =
+    item.company_cv === true || (item.company_cv == null && item.auto_cv_ready === true);
+  if (column === "verified" && hasCompanyCv && qc && qcRan) {
+    const toFix = qc.blocking_failed + (qc.warnings_count ?? 0);
+    return toFix > 0
+      ? {
+          key: "cv_state",
+          label: `CV gotowe · ${toFix} do poprawy`,
+          tone: "wait",
+          title: "CV firmowe jest gotowe, a QC znalazło rzeczy do poprawy — popraw je, zanim przekażesz osobę dalej.",
+        }
+      : {
+          key: "cv_state",
+          label: "CV gotowe · bez uwag",
+          tone: "ok",
+          title: "CV firmowe jest gotowe i QC nie ma uwag — możesz przekazać osobę do „QC CV”.",
+        };
+  }
+  if (item.auto_cv_ready === true) {
+    return {
+      key: "cv_state",
+      label: "CV gotowe w tle",
+      tone: "info",
+      title: "CV wygenerowane automatycznie po weryfikacji czeka w warsztacie CV — sprawdź je przed wysyłką.",
+    };
+  }
+  return null;
 }
 
 export function formatClientRate(item: KanbanItem): string | null {
@@ -559,6 +650,11 @@ export function knownForwardGap(
     return item.screening_requirement === "why_candidate"
       ? "Brak „Dlaczego ten kandydat”"
       : "Brak arkusza screeningu";
+  }
+  // 14.10.2026: bez CV firmowego przeciągnięcie na „QC CV” wkładało osobę
+  // wprost do kolejki Delivery Leada. `null`/brak pola = nie wiadomo.
+  if (from === "verified" && item.company_cv === false) {
+    return "Brak CV firmowego";
   }
   if (from === "cv_qc" && item.qc?.status === "failed") {
     return `QC: ${item.qc.blocking_failed} do poprawy`;

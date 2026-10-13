@@ -136,6 +136,27 @@ describe("buildProcessRows", () => {
     expect(rowBadges(byId(rows, 4))).toEqual([]);
   });
 
+  it("stan CV firmowego jak na karcie Tablicy: w przygotowaniu, wynik QC na „Zweryfikowanym” (14.10.2026)", () => {
+    const rows = buildProcessRows(
+      template({
+        3: [
+          item(1, { auto_cv_state: "processing" }),
+          item(2, { company_cv: true, qc: { status: "failed", blocking_failed: 1, warnings_count: 2 } }),
+          item(3, { company_cv: true, qc: { status: "passed", blocking_failed: 0, warnings_count: 0 } }),
+          item(4, { company_cv: false, qc: { status: "failed", blocking_failed: 1 } }),
+        ],
+      }),
+    );
+    const cv = (id: number) =>
+      rowBadges(byId(rows, id))
+        .filter((b) => b.key === "auto-cv")
+        .map((b) => [b.label, b.tone]);
+    expect(cv(1)).toEqual([["CV w przygotowaniu…", "info"]]);
+    expect(cv(2)).toEqual([["CV gotowe · 3 do poprawy", "warning"]]);
+    expect(cv(3)).toEqual([["CV gotowe · bez uwag", "info"]]);
+    expect(cv(4)).toEqual([]);
+  });
+
   it("weto HM: kod ostrzeżenia, odznaka i ruch po stronie rekrutera", () => {
     const veto = {
       hiring_manager_contact_id: 1,

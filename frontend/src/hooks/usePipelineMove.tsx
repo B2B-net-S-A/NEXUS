@@ -15,13 +15,17 @@
  * - 409 `PIPELINE_VERSION_CONFLICT` → toast + odświeżenie, BEZ ponowienia;
  *   wersję wysyła wyłącznie ruch pojedynczy z karty, która niesie liczbę;
  * - mail odrzucenia jest opt-in, a zaplanowany mail ma toast „Cofnij wysyłkę";
- * - „Zatrudniony" wymaga potwierdzenia; „Zweryfikowany" pyta o stawkę
- *   (podpowiedź z profilu, „Pomiń stawkę"); „CV wysłane" pyta o stawkę do
- *   klienta tylko przy `canWriteClientRate`;
- * - ruch zbiorczy = pętla pojedynczych ruchów i kolejki okien, nigdy `/bulk-move`.
+ * - „Zatrudniony" wymaga potwierdzenia; „Zweryfikowany" pyta o stawkę tylko
+ *   wtedy, gdy para jej jeszcze nie ma (D2, 14.10.2026 — stawka etapu jest na
+ *   karcie, serwer przenosi ją z poprzedniego wiersza); „CV wysłane" pyta
+ *   o stawkę do klienta tylko przy `canWriteClientRate`;
+ * - ruch zbiorczy = pętla pojedynczych ruchów i kolejki okien, nigdy `/bulk-move`;
+ * - strzałka „→” na karcie (`deferMove`, 14.10.2026): karta przechodzi od razu,
+ *   żądanie idzie po 10 s albo przy zamknięciu Tablicy, „Cofnij” w komunikacie
+ *   wraca bez żądania.
  */
 
-import { useCallback, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import api, {
@@ -207,6 +211,28 @@ interface MoveEntry {
   srcColId: string;
 }
 
+/** Ile karta po strzałce „→” czeka na ekranie, zanim ruch pójdzie do serwera. */
+export const DEFERRED_MOVE_MS = 10_000;
+
+/** Odłożony ruch strzałką „→” — jeszcze nie wysłany. */
+interface DeferredMove {
+  item: KanbanItem;
+  srcColId: string;
+  dst: KanbanColumn;
+  timer: ReturnType<typeof setTimeout>;
+  /** Cofnięcie stanu optymistycznego, jeśli adapter je dał. */
+  rollback: void | (() => void);
+}
+
+/**
+ * D2 (14.10.2026): para ma już stawkę etapu — z karty albo przeniesioną przez
+ * serwer z poprzedniego wiersza (`carried_expected_rate`). Ruch na
+ * „Zweryfikowany” idzie wtedy bez okna stawki.
+ */
+function hasStageRate(item: KanbanItem): boolean {
+  return item.expected_rate_value != null && item.expected_rate_value !== "";
+}
+
 interface MoveReason {
   id: string;
   notes: string;
@@ -304,6 +330,30 @@ export interface PipelineMoveControls {
     items: KanbanItem | KanbanItem[],
     options?: { followUp?: RejectFollowUp }
   ) => void;
+  /**
+   * Ruch przejdzie bez żadnego okna (stawka, wysyłka, zatrudnienie, powód)
+   * i bez ostrzeżenia, które karta już zna — strzałka „→” może go odłożyć.
+   */
+  canMoveWithoutDialog: (item: KanbanItem, toColumn: KanbanColumn) => boolean;
+  /**
+   * Strzałka „→” (14.10.2026): karta przechodzi na ekranie od razu, ruch idzie
+   * do serwera po `delayMs` (domyślnie 10 s) albo przy zamknięciu Tablicy.
+   * Komunikat „<osoba> → <kolumna>” ma „Cofnij” — karta wraca bez żądania.
+   * Wołający sprawdza wcześniej `canMoveWithoutDialog`.
+   */
+  deferMove: (
+    item: KanbanItem,
+    fromColumn: KanbanColumn | string,
+    toColumn: KanbanColumn,
+    options: { targetLabel: string; delayMs?: number }
+  ) => void;
+  /** Ruchy czekające na wysłanie — Tablica nakłada je na stan z serwera. */
+  pendingMoves: () => ReadonlyArray<{ candidateId: number; toColumn: KanbanColumn }>;
+  /**
+   * Wyślij od razu odłożony ruch tej osoby (panel osoby czyta stan z serwera).
+   * `null` = nic nie czekało, `true`/`false` = serwer przyjął / odmówił.
+   */
+  commitPendingMove: (candidateId: number) => Promise<boolean | null>;
   /** Trwa pętla ruchu zbiorczego. */
   isMoving: boolean;
   /** Wszystkie okna przepływu — wyrenderuj raz w drzewie wołającego. */
@@ -410,10 +460,22 @@ export function usePipelineMove({
     onDismiss?: () => void;
   } | null>(null);
 
+  // Ostatnie pola, które serwer potwierdził po ruchu (nowe id etapu, wersja
+  // procesu), po `candidate_id`. Okno albo pętla trzymające kartę sprzed tego
+  // ruchu wysyłają następny ruch już z nimi — strzałka „→” odkłada ruch
+  // o 10 s, więc karta sprzed ruchu żyje dłużej niż dawniej.
+  const confirmedRef = useRef(
+    new Map<number, { fromId: number; patch: PipelineMoveConfirmedPatch }>()
+  );
+  const latest = useCallback((item: KanbanItem): KanbanItem => {
+    const confirmed = confirmedRef.current.get(item.candidate_id);
+    return confirmed && confirmed.fromId === item.id ? { ...item, ...confirmed.patch } : item;
+  }, []);
+
   const applyOptimistic = useCallback(
     (item: KanbanItem, srcId: string, dst: KanbanColumn) =>
-      optimisticRef.current?.apply(item, srcId, dst),
-    []
+      optimisticRef.current?.apply(latest(item), srcId, dst),
+    [latest]
   );
 
   // Strona trzyma pipeline pod `["kanban", id]` (`id` to string z `useParams`)
@@ -531,11 +593,12 @@ export function usePipelineMove({
 
   const sendMove = useCallback(
     async (
-      item: KanbanItem,
+      movedItem: KanbanItem,
       dst: KanbanColumn,
       reason?: MoveReason,
       opts?: SendMoveOptions
     ): Promise<boolean> => {
+      const item = latest(movedItem);
       try {
         const response = await api.post<PipelineMoveResult>("/api/pipeline/move", {
           candidate_id: item.candidate_id,
@@ -583,6 +646,7 @@ export function usePipelineMove({
           if (typeof serverVersion === "number") {
             patch.process_state_version = serverVersion;
           }
+          confirmedRef.current.set(item.candidate_id, { fromId: item.id, patch });
           optimisticRef.current?.confirm?.({
             item,
             fromColId: null,
@@ -710,6 +774,7 @@ export function usePipelineMove({
     [
       jobId,
       queryClient,
+      latest,
       refreshAfterMove,
       syncKanbanCache,
       showActionToast,
@@ -722,9 +787,64 @@ export function usePipelineMove({
   const sendMoveRef = useRef<typeof sendMove | null>(null);
   sendMoveRef.current = sendMove;
 
+  // ── Strzałka „→”: ruch odłożony o 10 s z „Cofnij” (14.10.2026) ──────────
+  const deferredRef = useRef(new Map<number, DeferredMove>());
+  const [deferredCount, setDeferredCount] = useState(0);
+  const dropDeferred = useCallback((candidateId: number): DeferredMove | null => {
+    const pending = deferredRef.current.get(candidateId) ?? null;
+    if (!pending) return null;
+    clearTimeout(pending.timer);
+    deferredRef.current.delete(candidateId);
+    setDeferredCount(deferredRef.current.size);
+    return pending;
+  }, []);
+  // Wysyła odłożony ruch tej osoby od razu. `true` = nic nie czekało albo
+  // serwer przyjął ruch (błąd pokazuje i cofa sam `sendMove`).
+  const commitDeferred = useCallback(
+    async (candidateId: number): Promise<boolean> => {
+      const pending = dropDeferred(candidateId);
+      if (!pending) return true;
+      return (await sendMoveRef.current?.(pending.item, pending.dst)) ?? false;
+    },
+    [dropDeferred]
+  );
+  // „Cofnij”: karta wraca na miejsce, do serwera nic nie idzie.
+  const cancelDeferred = useCallback(
+    (candidateId: number) => {
+      const pending = dropDeferred(candidateId);
+      if (!pending) {
+        showError("Ruch jest już zapisany — przesuń osobę z powrotem ręcznie.");
+        return;
+      }
+      if (typeof pending.rollback === "function") pending.rollback();
+      else void optimisticRef.current?.sync?.();
+    },
+    [dropDeferred, showError]
+  );
+  // Tablica znika (inna strona, zamknięty panel rekrutacji) — odłożone ruchy
+  // idą od razu, nie przepadają.
+  useEffect(() => {
+    const pending = deferredRef.current;
+    return () => {
+      for (const candidateId of Array.from(pending.keys())) {
+        void commitDeferred(candidateId);
+      }
+    };
+  }, [commitDeferred]);
+  // Zamknięcie karty przeglądarki przed wysłaniem — przeglądarka pyta.
+  useEffect(() => {
+    if (deferredCount === 0) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [deferredCount]);
+
   const requestMove = useCallback(
     (
-      item: KanbanItem,
+      rawItem: KanbanItem,
       fromColumn: KanbanColumn | string,
       dst: KanbanColumn,
       options?: { taskAssigneeId?: number }
@@ -732,6 +852,15 @@ export function usePipelineMove({
       const srcColId = typeof fromColumn === "string" ? fromColumn : colId(fromColumn);
       if (readOnly) return;
       if (srcColId === colId(dst)) return;
+      // Odłożony ruch tej osoby czeka jeszcze na wysłanie: najpierw on, potem
+      // ten — już z wersją procesu po pierwszym (`latest`).
+      if (deferredRef.current.has(rawItem.candidate_id)) {
+        void commitDeferred(rawItem.candidate_id).then((ok) => {
+          if (ok) requestMoveRef.current?.(rawItem, srcColId, dst, options);
+        });
+        return;
+      }
+      const item = latest(rawItem);
 
       // Ta sama bramka co pigułki doku i warsztaty 05–07.
       const dstTerminal = terminalOf(dst);
@@ -752,6 +881,13 @@ export function usePipelineMove({
 
       // „Zweryfikowany" — najpierw zapytaj o stawkę, dopiero potem ruch.
       // NIE applyOptimistic tu, bo rekruter może anulować w modalu.
+      // D2 (14.10.2026): para ma już stawkę etapu — ruch bez okna, jak każdy
+      // inny (serwer przenosi stawkę; brak arkusza = 409 i formularz).
+      if (dialog === "verified_rate" && hasStageRate(item)) {
+        applyOptimistic(item, srcColId, dst);
+        void sendMove(item, dst);
+        return;
+      }
       if (dialog === "verified_rate") {
         if (!canEditRates) {
           showError(RATE_EDIT_DENIED_MESSAGE);
@@ -814,6 +950,8 @@ export function usePipelineMove({
     },
     [
       readOnly,
+      latest,
+      commitDeferred,
       applyOptimistic,
       sendMove,
       showError,
@@ -822,6 +960,84 @@ export function usePipelineMove({
       canSendToClient,
       cproEnabled,
     ]
+  );
+  const requestMoveRef = useRef(requestMove);
+  requestMoveRef.current = requestMove;
+
+  const canMoveWithoutDialog = useCallback(
+    (item: KanbanItem, dst: KanbanColumn): boolean => {
+      if (readOnly) return false;
+      const dstTerminal = terminalOf(dst);
+      const terminal = dstTerminal === "rejected" || dstTerminal === "withdrawn";
+      // Weto HM i globalna czarna lista: serwer zapyta „Przenieś mimo to” —
+      // takie pytanie nie może przyjść 10 s po kliknięciu.
+      if (
+        bulkMoveSkipReason({ item, readOnly, terminal, targetStage: dst.stage, targetColumn: dst }) ||
+        (item.warnings ?? []).includes("blacklisted")
+      ) {
+        return false;
+      }
+      switch (moveDialogFor(dst)) {
+        case "none":
+          return true;
+        case "verified_rate":
+          return hasStageRate(latest(item));
+        case "client_rate":
+          return cproEnabled && !canWriteClientRate;
+        default:
+          return false;
+      }
+    },
+    [readOnly, latest, cproEnabled, canWriteClientRate]
+  );
+
+  const deferMove = useCallback(
+    (
+      item: KanbanItem,
+      fromColumn: KanbanColumn | string,
+      dst: KanbanColumn,
+      options: { targetLabel: string; delayMs?: number }
+    ) => {
+      if (readOnly) return;
+      const srcColId = typeof fromColumn === "string" ? fromColumn : colId(fromColumn);
+      if (srcColId === colId(dst)) return;
+      // Druga strzałka przed wysłaniem pierwszej: pierwszy ruch idzie od razu,
+      // ten czeka już z wersją procesu po nim.
+      if (deferredRef.current.has(item.candidate_id)) {
+        void commitDeferred(item.candidate_id).then((ok) => {
+          if (ok) deferMoveRef.current?.(item, srcColId, dst, options);
+        });
+        return;
+      }
+      const current = latest(item);
+      const delayMs = options.delayMs ?? DEFERRED_MOVE_MS;
+      const rollback = applyOptimistic(current, srcColId, dst);
+      const timer = setTimeout(() => void commitDeferred(current.candidate_id), delayMs);
+      deferredRef.current.set(current.candidate_id, { item: current, srcColId, dst, timer, rollback });
+      setDeferredCount(deferredRef.current.size);
+      showActionToast(`${itemFullName(current)} → ${options.targetLabel}`, {
+        actionLabel: "Cofnij",
+        onAction: () => cancelDeferred(current.candidate_id),
+        durationMs: delayMs,
+      });
+    },
+    [readOnly, latest, applyOptimistic, commitDeferred, cancelDeferred, showActionToast]
+  );
+  const deferMoveRef = useRef(deferMove);
+  deferMoveRef.current = deferMove;
+
+  const pendingMoves = useCallback(
+    () =>
+      Array.from(deferredRef.current.values()).map((pending) => ({
+        candidateId: pending.item.candidate_id,
+        toColumn: pending.dst,
+      })),
+    []
+  );
+  const commitPendingMove = useCallback(
+    async (candidateId: number): Promise<boolean | null> =>
+      deferredRef.current.has(candidateId) ? commitDeferred(candidateId) : null,
+    [commitDeferred]
   );
 
   // Submit z okna „Zweryfikowany". `payload === null` = „Pomiń stawkę" (stawka
@@ -835,7 +1051,8 @@ export function usePipelineMove({
       if (verifiedSubmittingRef.current) return;
       verifiedSubmittingRef.current = true;
       setVerifiedSubmitting(true);
-      const { item, destCol, srcColId } = verifiedRatePrompt;
+      const { destCol, srcColId } = verifiedRatePrompt;
+      const item = latest(verifiedRatePrompt.item);
       const isSingleMove = verifiedBulkTotal <= 1;
       const advanceQueue = () => {
         const [next, ...rest] = verifiedQueue;
@@ -867,6 +1084,17 @@ export function usePipelineMove({
         // Backend tworzy NOWY CandidateStage — bierzemy jego id (nie stare
         // item.id), żeby screening zapisał się na świeżym etapie „verified".
         const newStageId = (res?.data as { id?: number } | undefined)?.id ?? null;
+        if (newStageId != null && newStageId !== item.id) {
+          confirmedRef.current.set(item.candidate_id, {
+            fromId: item.id,
+            patch: {
+              id: newStageId,
+              ...(typeof res?.data?.process_state_version === "number"
+                ? { process_state_version: res.data.process_state_version }
+                : {}),
+            },
+          });
+        }
         optimisticRef.current?.confirm?.({
           item,
           fromColId: srcColId,
@@ -926,6 +1154,7 @@ export function usePipelineMove({
       verifiedRatePrompt,
       verifiedQueue,
       verifiedBulkTotal,
+      latest,
       jobId,
       queryClient,
       refreshAfterMove,
@@ -1004,6 +1233,13 @@ export function usePipelineMove({
       options?: { onHandled?: () => void }
     ) => {
       const onHandled = options?.onHandled;
+      // Odłożone ruchy strzałką tych osób idą najpierw — pętla wyśle swoje
+      // już z wersją procesu po nich (`latest`).
+      await Promise.all(
+        items
+          .filter((i) => deferredRef.current.has(i.candidate_id))
+          .map((i) => commitDeferred(i.candidate_id))
+      );
       // Karty wraz z kolumną źródłową; karty już w celu pomijamy.
       const entries: MoveEntry[] = [];
       const skippedEntries: { name: string; reason: string }[] = [];
@@ -1042,22 +1278,31 @@ export function usePipelineMove({
         return;
       }
 
-      // „Zweryfikowany" pyta o stawkę per kandydat (opcjonalnie — „Pomiń
-      // stawkę") → kolejka okien, jedno po drugim.
+      // „Zweryfikowany" pyta o stawkę per kandydat → kolejka okien, jedno po
+      // drugim. D2 (14.10.2026): osoby ze stawką etapu idą bez okna, w pętli
+      // niżej; okna dostają tylko osoby bez stawki.
+      let quietEntries = entries;
       if (dst.stage === "verified") {
-        if (!canEditRates) {
-          showError(RATE_EDIT_DENIED_MESSAGE);
+        const withoutRate = entries.filter((e) => !hasStageRate(latest(e.item)));
+        quietEntries = entries.filter((e) => hasStageRate(latest(e.item)));
+        if (withoutRate.length > 0) {
+          if (!canEditRates) {
+            showError(RATE_EDIT_DENIED_MESSAGE);
+            if (quietEntries.length === 0) return;
+          } else {
+            setVerifiedBulkTotal(withoutRate.length);
+            setVerifiedQueue(withoutRate.slice(1));
+            setVerifiedRatePrompt({
+              item: withoutRate[0].item,
+              destCol: dst,
+              srcColId: withoutRate[0].srcColId,
+            });
+          }
+        }
+        if (quietEntries.length === 0) {
+          onHandled?.();
           return;
         }
-        setVerifiedBulkTotal(entries.length);
-        setVerifiedQueue(entries.slice(1));
-        setVerifiedRatePrompt({
-          item: entries[0].item,
-          destCol: dst,
-          srcColId: entries[0].srcColId,
-        });
-        onHandled?.();
-        return;
       }
 
       // „CV wysłane" — stawka do klienta per kandydat → kolejka modali.
@@ -1098,7 +1343,7 @@ export function usePipelineMove({
       setBulkBusy(true);
       try {
         const failed: { name: string; reason: string }[] = [];
-        for (const { item, srcColId } of entries) {
+        for (const { item, srcColId } of quietEntries) {
           applyOptimistic(item, srcColId, dst);
           let reason = "nieznany błąd";
           const ok = await sendMove(item, dst, undefined, {
@@ -1112,13 +1357,13 @@ export function usePipelineMove({
           if (!ok) failed.push({ name: itemFullName(item), reason });
         }
         if (failed.length > 0) {
-          showError(bulkMoveFailureMessage(failed, entries.length));
+          showError(bulkMoveFailureMessage(failed, quietEntries.length));
           // `refreshAfterMove` odświeża też zapytanie strony.
           await refreshAfterMove();
         } else {
           syncKanbanCache();
-          if (entries.length > 1) {
-            showSuccess(`Przeniesiono ${entries.length} kandydatów.`);
+          if (quietEntries.length > 1) {
+            showSuccess(`Przeniesiono ${quietEntries.length} kandydatów.`);
           }
         }
         onHandled?.();
@@ -1129,6 +1374,8 @@ export function usePipelineMove({
     [
       columns,
       readOnly,
+      latest,
+      commitDeferred,
       canEditRates,
       canWriteClientRate,
       canSendToClient,
@@ -1163,6 +1410,9 @@ export function usePipelineMove({
         entries.push({ item: candidate, srcColId: colId(src) });
       }
       if (entries.length === 0) return;
+      // Odłożony ruch strzałką idzie od razu — odrzucenie po potwierdzeniu
+      // wyśle już wersję procesu po nim (`latest`).
+      for (const entry of entries) void commitDeferred(entry.item.candidate_id);
       setPendingRejection({
         entries,
         destCol: dst,
@@ -1172,7 +1422,7 @@ export function usePipelineMove({
         followUp: entries.length === 1 ? options?.followUp : undefined,
       });
     },
-    [columns]
+    [columns, commitDeferred]
   );
 
   const requestWithdraw = useCallback(
@@ -1191,6 +1441,7 @@ export function usePipelineMove({
         entries.push({ item: candidate, srcColId: colId(src) });
       }
       if (entries.length === 0) return;
+      for (const entry of entries) void commitDeferred(entry.item.candidate_id);
       setPendingRejection({
         entries,
         destCol: dst,
@@ -1198,7 +1449,7 @@ export function usePipelineMove({
         followUp: entries.length === 1 ? options?.followUp : undefined,
       });
     },
-    [columns, showError]
+    [columns, showError, commitDeferred]
   );
 
   const confirmRejection = (
@@ -1661,6 +1912,10 @@ export function usePipelineMove({
     requestBulkMove,
     requestReject,
     requestWithdraw,
+    canMoveWithoutDialog,
+    deferMove,
+    pendingMoves,
+    commitPendingMove,
     isMoving: bulkBusy,
     dialogs,
   };

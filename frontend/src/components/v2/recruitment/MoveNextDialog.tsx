@@ -45,6 +45,7 @@ import {
 } from "@/lib/board-stages";
 import { itemFullName } from "@/lib/pipeline-flow";
 import { planPrimaryStep } from "@/lib/move-primary";
+import { dlWaitingStatus } from "@/lib/board-card-badges";
 import { MoveRequirementList } from "@/components/v2/recruitment/MoveRequirementList";
 import { cn } from "@/lib/utils";
 
@@ -193,6 +194,9 @@ export function MoveNextDialog({
   const close = () => onOpenChange(false);
 
   const step = planPrimaryStep(data, gaps.length);
+  // Osoba już w „QC CV” — dalej prowadzi ją Delivery Lead (14.10.2026): stan
+  // zamiast przycisku, który nic nie przesuwał.
+  const waiting = step.type === "waiting" ? dlWaitingStatus(item, new Date()) : null;
   const runPrimary = () => {
     if (!item || !target || !primary || readOnly) return;
     switch (step.type) {
@@ -200,10 +204,6 @@ export function MoveNextDialog({
         close();
         onHandToCpro(step.stageDefId);
         if (step.notice) showSuccess(step.notice);
-        return;
-      case "notice":
-        showSuccess(step.message);
-        close();
         return;
       case "error":
         showError(step.message);
@@ -305,11 +305,25 @@ export function MoveNextDialog({
                   }}
                 />
               )}
-              {data.owner_note && (
+              {waiting ? (
+                <p
+                  role="status"
+                  data-testid="move-next-waiting"
+                  data-ready={waiting.ready ? "true" : "false"}
+                  className={cn(
+                    "rounded-md border px-3 py-2 text-sm",
+                    waiting.ready
+                      ? "border-primary/30 bg-primary/5 text-foreground"
+                      : "border-warning/40 bg-warning/10 text-warning",
+                  )}
+                >
+                  {waiting.text}
+                </p>
+              ) : data.owner_note ? (
                 <p data-testid="move-next-owner-note" className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
                   {data.owner_note}
                 </p>
-              )}
+              ) : null}
             </>
           ) : null}
         </DialogBody>
@@ -320,9 +334,9 @@ export function MoveNextDialog({
             </p>
           )}
           <Button variant="ghost" onClick={close}>
-            Anuluj
+            {waiting ? "Zamknij" : "Anuluj"}
           </Button>
-          {primary && (
+          {primary && !waiting && (
             <Button
               data-testid="move-next-primary"
               onClick={runPrimary}

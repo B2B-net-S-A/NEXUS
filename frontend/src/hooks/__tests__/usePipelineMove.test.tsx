@@ -193,12 +193,12 @@ function mount(
 ) {
   const queryClient = new QueryClient();
   const invalidate = vi.spyOn(queryClient, "invalidateQueries");
-  render(
+  const { unmount } = render(
     <QueryClientProvider client={queryClient}>
       <Harness columns={columns} optimistic={optimistic} options={options} />
     </QueryClientProvider>
   );
-  return { invalidate };
+  return { invalidate, unmount };
 }
 
 const kanbanKeys = (invalidate: { mock: { calls: unknown[][] } }) =>
@@ -450,6 +450,81 @@ describe("usePipelineMove — ruch pojedynczy", () => {
       expect(screen.queryByRole("button", { name: "Zostaw zapisaną stawkę" })).toBeNull()
     );
     expect(move).toHaveBeenCalledTimes(1);
+  });
+
+  // D2 (14.10.2026): para ma już stawkę etapu (serwer przenosi ją z poprzedniego
+  // wiersza) — „Zweryfikowany” idzie bez okna stawki, jak każdy inny ruch.
+  it("„Zweryfikowany” przy stawce etapu na karcie: ruch od razu, bez okna i bez nowej stawki (D2)", async () => {
+    const item = card({
+      id: 16,
+      candidate_id: 106,
+      process_state_version: 2,
+      expected_rate_value: "140.00",
+      expected_rate_unit: "hourly",
+      expected_rate_currency: "PLN",
+    });
+    const b = board({ fresh: [item] });
+    post.mockResolvedValue({ data: { id: 516, process_state_version: 3, verification_status: "active" } });
+    const apply = vi.fn();
+    const confirm = vi.fn();
+    mount(b.all, { apply, confirm });
+
+    React.act(() => controls.requestMove(item, b.fresh, b.verified));
+    expect(apply).toHaveBeenCalledWith(item, "def:1", b.verified);
+    expect(screen.queryByLabelText("Kwota")).toBeNull();
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(post.mock.calls[0][1]).toMatchObject({
+      candidate_id: 106,
+      stage: "verified",
+      stage_def_id: 3,
+      expected_state_version: 2,
+    });
+    expect(post.mock.calls[0][1]).not.toHaveProperty("expected_rate_value");
+    expect(move).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(confirm.mock.calls[0][0]).toMatchObject({
+        fromColId: null,
+        toColumn: b.verified,
+        patch: { id: 516, verification_status: "active", process_state_version: 3 },
+      })
+    );
+  });
+
+  it("stawka etapu bez prawa do stawek: ruch bez okna, bez odmowy (strażnik tylko przy oknie)", async () => {
+    useAuthStore.setState({ user: { id: 2, role: "user", email: "s@example.com" } } as never);
+    const item = card({ id: 17, candidate_id: 107, expected_rate_value: 120 });
+    const b = board({ fresh: [item] });
+    post.mockResolvedValue({ data: { id: 517 } });
+    mount(b.all, { apply: vi.fn(), confirm: vi.fn() });
+    React.act(() => controls.requestMove(item, b.fresh, b.verified));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(showError).not.toHaveBeenCalled();
+  });
+
+  it("stawka etapu, ale brak arkusza: 409 VERIFIED_REQUIREMENTS_MISSING otwiera formularz u wołającego", async () => {
+    const item = card({ id: 18, candidate_id: 108, process_state_version: 1, expected_rate_value: 120 });
+    const b = board({ fresh: [item] });
+    post.mockRejectedValueOnce({
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            code: "VERIFIED_REQUIREMENTS_MISSING",
+            missing: ["screening_sheet"],
+            screening_stage_id: 78,
+            message: "Przed „Zweryfikowany” uzupełnij: arkusz screeningu.",
+          },
+        },
+      },
+    });
+    const onMissing = vi.fn();
+    const sync = vi.fn();
+    mount(b.all, { apply: vi.fn(), confirm: vi.fn(), sync }, { onVerifiedRequirementsMissing: onMissing });
+    React.act(() => controls.requestMove(item, b.fresh, b.verified));
+    await waitFor(() => expect(onMissing).toHaveBeenCalledTimes(1));
+    expect(showError).toHaveBeenCalledWith("Przed „Zweryfikowany” uzupełnij: arkusz screeningu.");
+    // Karta wraca na miejsce — prawda serwera.
+    expect(sync).toHaveBeenCalled();
   });
 
   it("rola bez prawa do stawek dostaje komunikat zamiast okna", () => {
@@ -1132,3 +1207,218 @@ describe("usePipelineMove — wysyłka CV do klienta za uprawnieniem", () => {
     expect(post).not.toHaveBeenCalled();
   });
 });
+
+describe("usePipelineMove — „Zweryfikowany” zbiorczo przy stawce etapu (D2)", () => {
+  it("osoby ze stawką idą pętlą bez okna, okno stawki dostają tylko osoby bez niej", async () => {
+    const withRate = card({ id: 41, candidate_id: 401, expected_rate_value: 150 });
+    const noRate = card({ id: 42, candidate_id: 402 });
+    const b = board({ fresh: [withRate, noRate] });
+    post.mockResolvedValue({ data: { id: 741 } });
+    const onHandled = vi.fn();
+    mount(b.all, { apply: vi.fn(), confirm: vi.fn() });
+
+    await React.act(async () => {
+      await controls.requestBulkMove([withRate, noRate], b.verified, { onHandled });
+    });
+
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(post.mock.calls[0][1]).toMatchObject({ candidate_id: 401, stage: "verified" });
+    // Okno stawki — jedna osoba, bez licznika „(1/2)”.
+    expect(await screen.findByText(/\(wymagana\)/)).toBeTruthy();
+    expect(screen.getByText(/Kowalski402/)).toBeTruthy();
+    expect(screen.queryByText(/\(1\/2\)/)).toBeNull();
+    expect(onHandled).toHaveBeenCalled();
+  });
+
+  it("same osoby ze stawką: żadnego okna", async () => {
+    const a = card({ id: 43, candidate_id: 403, expected_rate_value: 150 });
+    const c = card({ id: 44, candidate_id: 404, expected_rate_value: "160" });
+    const b = board({ fresh: [a, c] });
+    post.mockResolvedValue({ data: {} });
+    mount(b.all, { apply: vi.fn(), confirm: vi.fn() });
+    await React.act(async () => {
+      await controls.requestBulkMove([a, c], b.verified);
+    });
+    expect(post).toHaveBeenCalledTimes(2);
+    expect(screen.queryByLabelText("Kwota")).toBeNull();
+    expect(showSuccess).toHaveBeenCalledWith("Przeniesiono 2 kandydatów.");
+  });
+});
+
+describe("usePipelineMove — strzałka „→”: ruch odłożony z „Cofnij” (14.10.2026)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const moveCalls = () => post.mock.calls.filter((c) => c[0] === "/api/pipeline/move");
+  const lastToast = () => showActionToast.mock.calls[showActionToast.mock.calls.length - 1];
+
+  it("karta przechodzi od razu, żądanie po 10 s; komunikat „Imię Nazwisko → kolumna” z „Cofnij”", async () => {
+    vi.useFakeTimers();
+    const item = card({ id: 50, candidate_id: 500, process_state_version: 4 });
+    const b = board({ fresh: [item] });
+    post.mockResolvedValue({ data: { id: 950, process_state_version: 5 } });
+    const apply = vi.fn();
+    const confirm = vi.fn();
+    mount(b.all, { apply, confirm });
+
+    React.act(() => controls.deferMove(item, b.fresh, b.screening, { targetLabel: "Screening" }));
+    expect(apply).toHaveBeenCalledWith(item, "def:1", b.screening);
+    expect(lastToast()[0]).toBe("Jan Kowalski500 → Screening");
+    expect(lastToast()[1]).toMatchObject({ actionLabel: "Cofnij", durationMs: 10_000 });
+
+    await React.act(async () => {
+      await vi.advanceTimersByTimeAsync(9_999);
+    });
+    expect(moveCalls()).toHaveLength(0);
+    await React.act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(moveCalls()).toHaveLength(1);
+    expect(moveCalls()[0][1]).toMatchObject({
+      candidate_id: 500,
+      stage: "screening",
+      expected_state_version: 4,
+    });
+    expect(confirm).toHaveBeenCalledTimes(1);
+  });
+
+  it("„Cofnij” zwraca kartę bez żadnego żądania", async () => {
+    vi.useFakeTimers();
+    const item = card({ id: 51, candidate_id: 501 });
+    const b = board({ fresh: [item] });
+    const rollback = vi.fn();
+    const sync = vi.fn();
+    mount(b.all, { apply: vi.fn(() => rollback), sync });
+
+    React.act(() => controls.deferMove(item, b.fresh, b.screening, { targetLabel: "Screening" }));
+    React.act(() => {
+      void lastToast()[1].onAction();
+    });
+    expect(rollback).toHaveBeenCalledTimes(1);
+    expect(sync).not.toHaveBeenCalled();
+    await React.act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    expect(post).not.toHaveBeenCalled();
+    expect(controls.pendingMoves()).toEqual([]);
+  });
+
+  it("zamknięcie Tablicy wysyła odłożony ruch od razu", async () => {
+    vi.useFakeTimers();
+    const item = card({ id: 52, candidate_id: 502 });
+    const b = board({ fresh: [item] });
+    post.mockResolvedValue({ data: {} });
+    const { unmount } = mount(b.all, { apply: vi.fn() });
+
+    React.act(() => controls.deferMove(item, b.fresh, b.screening, { targetLabel: "Screening" }));
+    expect(controls.pendingMoves()).toEqual([{ candidateId: 502, toColumn: b.screening }]);
+    unmount();
+    expect(moveCalls()).toHaveLength(1);
+    expect(moveCalls()[0][1]).toMatchObject({ candidate_id: 502, stage: "screening" });
+    // Licznik już nie wyśle drugi raz.
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(moveCalls()).toHaveLength(1);
+  });
+
+  it("zamknięcie karty przeglądarki z odłożonym ruchem — przeglądarka pyta; po wysłaniu już nie", async () => {
+    vi.useFakeTimers();
+    const item = card({ id: 53, candidate_id: 503 });
+    const b = board({ fresh: [item] });
+    post.mockResolvedValue({ data: {} });
+    mount(b.all, { apply: vi.fn() });
+
+    const unload = () => {
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    expect(unload()).toBe(false);
+    React.act(() => controls.deferMove(item, b.fresh, b.screening, { targetLabel: "Screening" }));
+    expect(unload()).toBe(true);
+    await React.act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(unload()).toBe(false);
+  });
+
+  it("ruch tej samej osoby przed wysłaniem: najpierw odłożony, potem nowy z wersją po nim", async () => {
+    vi.useFakeTimers();
+    const item = card({ id: 54, candidate_id: 504, process_state_version: 1 });
+    const b = board({ fresh: [item] });
+    post
+      .mockResolvedValueOnce({ data: { id: 954, process_state_version: 2 } })
+      .mockResolvedValueOnce({ data: { id: 955, process_state_version: 3 } });
+    const apply = vi.fn();
+    mount(b.all, { apply, confirm: vi.fn() });
+
+    React.act(() => controls.deferMove(item, b.fresh, b.screening, { targetLabel: "Screening" }));
+    // Karta z chwili kliknięcia (stare id etapu i wersja) — jak z tablicy.
+    await React.act(async () => {
+      controls.requestMove(item, colIdOf(b.screening), b.clientInterview);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(moveCalls()).toHaveLength(2);
+    expect(moveCalls()[0][1]).toMatchObject({ stage: "screening", expected_state_version: 1 });
+    expect(moveCalls()[1][1]).toMatchObject({ stage: "client_interview", expected_state_version: 2 });
+    // Drugi ruch przesuwa kartę z nowym id etapu.
+    expect(apply.mock.calls[1][0]).toMatchObject({ id: 954, process_state_version: 2 });
+    await React.act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    expect(moveCalls()).toHaveLength(2);
+  });
+
+  it("canMoveWithoutDialog: zwykły etap tak; stawka, wysyłka, zatrudnienie, weto i czarna lista — nie", () => {
+    const plain = card({ id: 55, candidate_id: 505 });
+    const b = board({ fresh: [plain] });
+    const hired = column("hired", 8, "Zatrudniony", "terminal", [], "hired");
+    const cvSent = column("cv_sent", 5, "CV wysłane", "internal");
+    mount(b.all);
+    expect(controls.canMoveWithoutDialog(plain, b.screening)).toBe(true);
+    expect(controls.canMoveWithoutDialog(plain, b.verified)).toBe(false);
+    expect(controls.canMoveWithoutDialog(card({ id: 56, candidate_id: 506, expected_rate_value: 100 }), b.verified)).toBe(true);
+    expect(controls.canMoveWithoutDialog(plain, cvSent)).toBe(false);
+    expect(controls.canMoveWithoutDialog(plain, hired)).toBe(false);
+    expect(controls.canMoveWithoutDialog(plain, b.rejected)).toBe(false);
+    expect(
+      controls.canMoveWithoutDialog(
+        card({
+          id: 57,
+          candidate_id: 507,
+          hm_veto: {
+            hiring_manager_contact_id: 1,
+            source_job_id: 2,
+            rejected_at: "2026-09-01",
+            rejection_reason_name: "Brak Kafki",
+          },
+        }),
+        b.clientInterview,
+      ),
+    ).toBe(false);
+    expect(controls.canMoveWithoutDialog(card({ id: 58, candidate_id: 508, warnings: ["blacklisted"] }), b.screening)).toBe(
+      false,
+    );
+  });
+
+  it("u Nordei bez prawa do stawki do klienta „Wysłane do Cpro” idzie bez okna", () => {
+    const plain = card({ id: 59, candidate_id: 509 });
+    const b = board({ fresh: [plain] });
+    const cvSent = column("cv_sent", 5, "CV wysłane", "internal");
+    mount(b.all, undefined, { cproEnabled: true });
+    expect(controls.canMoveWithoutDialog(plain, cvSent)).toBe(true);
+  });
+
+  it("tablica tylko do odczytu: nic nie odkłada", () => {
+    const plain = card({ id: 60, candidate_id: 510 });
+    const b = board({ fresh: [plain] });
+    const apply = vi.fn();
+    mount(b.all, { apply }, { readOnly: true });
+    expect(controls.canMoveWithoutDialog(plain, b.screening)).toBe(false);
+    React.act(() => controls.deferMove(plain, b.fresh, b.screening, { targetLabel: "Screening" }));
+    expect(apply).not.toHaveBeenCalled();
+    expect(showActionToast).not.toHaveBeenCalled();
+  });
+});
+
+const colIdOf = (c: KanbanColumn) => `def:${c.stage_def_id}`;

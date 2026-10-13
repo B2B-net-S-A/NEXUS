@@ -19,6 +19,12 @@
  * `?questions=none` — rekrutacja bez pytań screeningowych (13.10.2026): dwie
  * karty w „Screeningu”, bez oceny („Dlaczego ten kandydat”) i z oceną.
  *
+ * Droga rekrutera do DL (14.10.2026): w „Zweryfikowanym” stan CV firmowego —
+ * „CV w przygotowaniu…”, „CV gotowe · 3 do poprawy”, „CV gotowe · bez uwag”
+ * i karta bez CV firmowego (szara strzałka „Brak CV firmowego” otwiera
+ * „Przesuń dalej”). Strzałka na karcie bez braków przesuwa od razu z „Cofnij”
+ * — żądanie i tak odrzuca blokada sieci harnessu (komunikat błędu po 10 s).
+ *
  * Screening (02.10.2026): arkusz Zielińskiego ma podpowiedzi z dwóch
  * wcześniejszych rozmów, Dąbrowskiej — z przepięcia (odpowiedź i notatka),
  * a dok Lisa pokazuje zapisane pytania z odpowiedziami. Wszystko z zasianego
@@ -162,8 +168,18 @@ function columns(viewerId: number, noQuestions = false, dlQueue = false): Kanban
         expected_rate_value: 150,
         expected_rate_unit: "hourly",
         auto_cv_ready: true,
+        company_cv: true,
+        qc: { status: "failed", blocking_failed: 1, warnings_count: 2 },
       }),
-      card("Michał", "Wójcik", { days_in_stage: 0, auto_cv_ready: true }),
+      card("Michał", "Wójcik", { days_in_stage: 0, auto_cv_state: "processing", company_cv: false }),
+      card("Beata", "Próbna", {
+        days_in_stage: 1,
+        expected_rate_value: 145,
+        expected_rate_unit: "hourly",
+        company_cv: true,
+        qc: { status: "passed", blocking_failed: 0, warnings_count: 0, ok_at: daysAgo(0) },
+      }),
+      card("Filip", "Testowy", { days_in_stage: 2, company_cv: false }),
     ]),
     // Jeden panel osoby (04.10.2026): DL wysyłający tę osobę do klienta
     // dostaje przegląd w panelu osoby (`?as=dl`).

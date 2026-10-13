@@ -24,6 +24,31 @@ DL z „QC CV” do poprawy nie jest bramkowany, „Pomiń stawkę” zostało t
 podpisaną”. Wyłączniki `VERIFIED_GATE_ENABLED`, `HIRED_SIGNED_VIA_REQUIRED`;
 w testach wyłączone autouse-fixturą, `test_verified_gate.py` włącza je jawnie.
 
+**Mniej kliknięć na Tablicy (decyzje Artura D2 i D7, 14.10.2026):**
+
+- **Okno stawki tylko bez stawki (D2).** Ruch na „Zweryfikowany” pary, która
+  ma już stawkę etapu (`expected_rate_value` na karcie — serwer przenosi ją
+  z poprzedniego wiersza, `carried_expected_rate`), idzie bez okna, zwykłym
+  `/move` (`usePipelineMove.requestMove`, `hasStageRate`). Okno
+  `VerifiedRateModal` i strażnik `canEditRates` zostają tylko dla pary bez
+  stawki. Zbiorczo: osoby ze stawką idą pętlą, okna dostają tylko pozostałe.
+  Brak arkusza dalej daje 409 `VERIFIED_REQUIREMENTS_MISSING` i formularz.
+- **Strzałka „→” bez okna, z „Cofnij” (D7).** Ta sama reguła co
+  przeciągnięcie na sąsiednią kolumnę (`forwardNeedsMoveNext` w
+  `KanbanBoardV2`): bez znanego braku (`knownForwardGap`), poza wysyłką do
+  klienta i gdy ruch nie pyta o nic (`canMoveWithoutDialog`: stawka, stawka do
+  klienta, zatrudnienie, powód, weto HM, globalna czarna lista) — karta
+  przechodzi od razu, a komunikat „Imię Nazwisko → kolumna” ma 10 s na
+  „Cofnij” (`deferMove`). Żądanie idzie po 10 s, od razu przy zamknięciu
+  Tablicy i przy otwarciu tej osoby w panelu (formularz i wymagania czytają
+  stan z serwera); „Cofnij” zwraca kartę bez żadnego żądania; zamknięcie karty
+  przeglądarki z odłożonym ruchem pyta (`beforeunload`). Odświeżenie tablicy
+  w tym czasie nakłada odłożone ruchy na stan serwera (`withPendingMoves`),
+  a kolejny ruch tej osoby najpierw wysyła odłożony i bierze wersję procesu
+  po nim. Reszta ruchów strzałką — okno „Przesuń dalej” jak dotąd.
+  Przeciąganie, ramka „Następny etap” w doku i „Przesuń dalej” z okna QC
+  zostają natychmiastowe.
+
 - **Brak karty „Oczekuje".** Bramka jest USUNIĘTA z kodu (18.09.2026; do tego
   dnia wyłączała ją flaga — nazwa w raportach z 17.09.2026, #1593; stara
   zmienna w Coolify jest nieszkodliwa, `Settings` ignoruje nieznane env).

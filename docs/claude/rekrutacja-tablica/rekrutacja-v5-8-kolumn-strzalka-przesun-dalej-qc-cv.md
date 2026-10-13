@@ -20,6 +20,21 @@ osobę od Cpro per rekrutacja (0353) i kolejkę „Czeka na DZ” (0348).
   brak ma przycisk, który go usuwa. Przeciągnięcie na sąsiednią kolumnę bez braków
   przesuwa od razu; skok, znany brak albo „CV wysłane” otwiera okno. Serwer
   wymusza wyłącznie bramkę QC, stawkę DL i debrief — reszta wymagań to podpowiedź.
+  Od 14.10.2026 strzałka bez braków i bez okna ruchu przesuwa od razu z „Cofnij”
+  (10 s) — `rekrutacja-tablica/kanban-bez-bramek.md`, „Mniej kliknięć”.
+  **Znany brak ze „Zweryfikowanego”: CV firmowe** (14.10.2026) — karta
+  z `company_cv === false` ma szarą strzałkę „Brak CV firmowego”, a
+  przeciągnięcie na „QC CV” otwiera okno zamiast wkładać osobę bez CV do
+  kolejki Delivery Leada. Brak pola / `null` = nie wiadomo, bez braku.
+  **Osoba już w „QC CV” (przekazana DL)** — okno i ramka „Następny etap” nie
+  mają przycisku (`planPrimaryStep` → `waiting`): „Czeka u Delivery Leada od
+  N dni” (od gotowości, `dlWaitingStatus`), a przy QC do poprawy albo
+  niesprawdzonym — co rekruter ma zrobić, zanim DL zobaczy CV. Do tej daty
+  przycisk dawał toast o kolejce „Czeka na Ciebie”, której rekruter nie ma.
+  **Stan CV na karcie „Zweryfikowanego”** (`cvStateBadge`, ta sama reguła
+  w tabeli osób): „CV w przygotowaniu…” (`auto_cv_state`), po QC „CV gotowe ·
+  N do poprawy” (blokujące + uwagi, `warnings_count`) albo „· bez uwag”,
+  a przed QC dawne „CV gotowe w tle”.
 - **QC CV zamiast DZ** (`services/cv_qc.py`, `api/cv_qc.py`, tabela `cv_qc_runs`).
   **Od 02.10.2026 blokują CZTERY sprawdzenia** (decyzja Artura; do tej daty
   blokowało siedem i QC przeszła 1 z 8 par, bo „każde must z maila klienta
