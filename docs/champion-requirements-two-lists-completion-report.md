@@ -1,7 +1,7 @@
 # Wymagania Championa: dwie listy i uczciwe wyszukiwanie — raport (13.10.2026)
 
 Decyzja Artura 13.10.2026: wariant A (D1–D6) i poprawki błędów. Pomiar i makiety:
-https://claude.ai/artifact/8qx5WrueDSLHht7VezW2L5. Reguły: `docs/claude/rekrutacja-tworzenie/dwie-listy-wymagan-slowa-i-rozmowa.md`.
+https://claude.ai/artifact/8qx5WrueDSLHht7VezW2L5. Reguły: `docs/claude/rekrutacja-tworzenie/dwie-listy-wymagan.md`.
 
 ## Co było źle (pomiar na produkcji, 206 opublikowanych rekrutacji)
 

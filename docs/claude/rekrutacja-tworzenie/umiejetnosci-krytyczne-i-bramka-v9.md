@@ -21,7 +21,7 @@ wysłał do klienta, budżet — 32%, dni w biurze — 8%. Decyzje Artura 30.09.
   Edytor wyłącza „Krytyczne” przy zdaniu, języku i umiejętności miękkiej do
   decyzji „słowa / do rozmowy”, a serwer przenosi je przy zapisie do „Rekruter
   sprawdza w rozmowie”; krytyczne zostawiające razem < 20 osób wymagają
-  potwierdzenia. Reguły: `dwie-listy-wymagan-slowa-i-rozmowa.md`. Poniższy
+  potwierdzenia. Reguły: `dwie-listy-wymagan.md`. Poniższy
   akapit z 09.10 dotyczy fraz-słów (kategoria, rola, nazwa spoza słownika).
 - **Krytyczną może być KAŻDA fraza — decyduje Delivery Lead (decyzja Artura
   09.10.2026, `critical-v11`).** System nie odrzuca już branży, języka,

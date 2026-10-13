@@ -1,4 +1,6 @@
-# Dwie listy wymagań: słowa do szukania i „Rekruter sprawdza w rozmowie” (wariant A, 13.10.2026)
+# Dwie listy wymagań (13.10.2026)
+
+Słowa do szukania i „Rekruter sprawdza w rozmowie” — wariant A.
 
 Decyzja Artura 13.10.2026 (D1–D6, makiety https://claude.ai/artifact/8qx5WrueDSLHht7VezW2L5).
 Pomiar na produkcji: 30% pozycji „musi mieć” w 206 opublikowanych rekrutacjach to zdania,
