@@ -48,9 +48,12 @@ export const ACTIVITY_VIEWS = [
   "calls",
   "chat",
 ] as const;
-/** Sekcja zakładki „Pliki i umowy”, do której przewijamy. */
+/** Sekcja zakładki „Dokumenty”, do której przewijamy. */
 export const DOCUMENT_VIEWS = ["files", "contracts"] as const;
-/** Sekcja zakładki „Rekrutacje” — `matching` rozwija „Dopasowanie do rekrutacji”. */
+/**
+ * Sekcja zakładki „Rekrutacje” — `matching` rozwija wiersz rekrutacji
+ * w toku z otwartą „Oceną dopasowania” (od 13.10.2026, E3).
+ */
 export const RECRUITMENT_VIEWS = ["list", "matching"] as const;
 
 export type CandidateProfileSection = (typeof PROFILE_SECTIONS)[number];

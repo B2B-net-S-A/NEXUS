@@ -56,8 +56,6 @@ export const candidateQueryKeys = {
     ["candidate-timeline", candidateId(id)] as const,
   notes: (id: number | string) =>
     ["candidate-notes", candidateId(id)] as const,
-  calls: (id: number | string) =>
-    ["candidate-calls", candidateId(id)] as const,
   aiProfile: (id: number | string) =>
     ["candidate-ai-profile", candidateId(id)] as const,
   activitySummary: (id: number | string, viewerScope: string) =>

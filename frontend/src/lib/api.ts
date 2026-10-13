@@ -7089,8 +7089,6 @@ export interface SyncAgentsResponse {
 }
 
 export const callsApi = {
-  getForCandidate: (candidateId: number) =>
-    api.get<Call[]>(`/api/candidates/${candidateId}/calls`).then((r) => r.data),
   getStats: () => api.get<CallStats>("/api/calls/stats").then((r) => r.data),
 };
 

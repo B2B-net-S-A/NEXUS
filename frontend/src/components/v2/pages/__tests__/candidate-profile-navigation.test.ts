@@ -334,7 +334,6 @@ describe("candidate query keys", () => {
       42,
       { limit: 3 },
     ]);
-    expect(candidateQueryKeys.calls("42")).toEqual(["candidate-calls", 42]);
     expect(candidateQueryKeys.risk("42")).toEqual(["candidate-risk", 42]);
     expect(candidateQueryKeys.history("42", "viewer:17")).toEqual([
       "candidate-history",

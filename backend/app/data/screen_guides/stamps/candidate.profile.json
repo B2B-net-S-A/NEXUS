@@ -1,9 +1,9 @@
 {
-  "entry": "b29dfe70b78cfc68e7a0624c5fb4763951a2f8557836893ff0ce22602e44f247",
+  "entry": "e6757ceda8e28fca7b488201eff477606c1a125204ed6d9cfe4c8c1b448dd760",
   "guide": "candidate.profile",
   "sources": {
-    "frontend/src/components/v2/candidate-profile/ProfileHeader.tsx": "54dccfff5d791cd1c2f92b0fb4b3c7b47b09ea358da96105368d017845c7de4a",
-    "frontend/src/components/v2/pages/CandidateDetailV2.tsx": "a0e7f9d0f8165ef2c849ba0c6ba619a1c638c042d5d9e4824a29f9d2b627400c",
-    "frontend/src/components/v2/pages/CandidateProfileFactsBar.tsx": "289d50d66884e78e74e4f9c257f0bd88806d3d1586a3eb2069c7c78f86bff27f"
+    "frontend/src/components/v2/candidate-profile/ProfileHeader.tsx": "e623aa6722cf10f33ef98d1301ff9f04cb4a3ceeb1842873c36bcdd80fcce453",
+    "frontend/src/components/v2/pages/CandidateDetailV2.tsx": "a4bbd64dc500203598522669d4a7bbdb44bf503a28e160360b2d368af65a173f",
+    "frontend/src/components/v2/pages/CandidateProfileFactsBar.tsx": "cb7cddffb4af36de946e97962a58735c3d8113ff94176136cf54dad6044a03b0"
   }
 }
