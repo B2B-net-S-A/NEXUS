@@ -13,7 +13,7 @@
  * treści, więc zawsze mówi o tym, co jest w edytorze teraz.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Editor } from "@tiptap/core";
 import type { Node as PMNode } from "@tiptap/pm/model";
@@ -164,7 +164,9 @@ export function useCvHistory({
   // Różnice dotyczą treści z edytora TERAZ — po każdej zmianie liczą się od nowa.
   const comparing = incoming != null;
   const [docTick, setDocTick] = useState(0);
-  useEffect(() => {
+  // Nasłuch stoi, zanim przeglądarka odda sterowanie po narysowaniu porównania: zmiana treści
+  // między rysowaniem a zwykłym efektem przepadała i licznik różnic zostawał stary.
+  useLayoutEffect(() => {
     if (!editor || !comparing) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const onTransaction = ({ transaction }: { transaction: { docChanged: boolean } }) => {

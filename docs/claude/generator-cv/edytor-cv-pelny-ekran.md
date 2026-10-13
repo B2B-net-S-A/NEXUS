@@ -183,6 +183,12 @@ i kontrola AI ostatniej zatwierdzonej wersji. Komponent
   różniącego się zakresu wyróżniała pół dokumentu. Wynik, który przyszedł po
   tym, jak rekruter coś dopisał, nie jest nakładany (porównanie dokumentu
   sprzed żądania).
+  Od 13.10.2026 krok jest sprawdzany w obie strony (`acceptedBothWays`
+  w `docStep`): przy klauzuli zgody bez znacznika (starsze CV) poprawka
+  dopisująca albo usuwająca akapit tuż przed klauzulą była odrzucana po cichu
+  (panel i tak ogłaszał sukces) albo nie dawała się cofnąć. Gdy najmniejsze
+  zamiany nie przechodzą, `docStep` zamienia całe bloki, a w ostateczności całą
+  treść; `null` znaczy też „edytor tego nie przyjmie”.
 - **Zatwierdzona wersja: najpierw szkic, potem poprawka** (`ensureDraft` w
   oknie). Wczytanie nowego szkicu jest poza historią cofania, więc poprawka
   nałożona przed nim nie dałaby się cofnąć. Szkic powstaje dopiero PO tym, jak
@@ -470,14 +476,17 @@ jednym przyciskiem — wstawiają treść do edytora.
   nadpisuje, `edit_revision` to licznik) — panel ich nie udaje.
 - **Klauzula zgody zostaje z bieżącego CV** (D3). Treść przychodząca traci
   swoją klauzulę (inną, taką samą, w środku tekstu), a bieżąca wraca na koniec;
-  CV bez klauzuli zostaje bez niej. `replaceContentStep` sprawdza, czy wtyczka
-  struktury przyjmie minimalną zmianę ORAZ jej cofnięcie (`acceptedBothWays`:
-  historia cofa, odwracając kroki, a przy klauzuli bez znacznika odwrotność
-  potrafiła wejść w klauzulę — „Cofnij” nic wtedy nie robiło i blokowało stos).
-  Gdy nie — podmienia całą treść jednym krokiem; gdy i tego edytor nie
-  przyjmie, niczego nie wstawia (`contentDiffers` odróżnia „nie ma czego
-  zmieniać” od odmowy). Sterownik ogłasza sukces dopiero, gdy dokument
-  naprawdę się zmienił.
+  CV bez klauzuli zostaje bez niej. Krok buduje wspólne `docStep`
+  (`lib/cv-editor-issues.ts` — to samo, co nakłada poprawki z panelu „Do
+  poprawy”): każda próba musi przejść przez wtyczkę struktury razem ze swoim
+  cofnięciem (`acceptedBothWays`: historia cofa, odwracając kroki, a przy
+  klauzuli BEZ znacznika najmniejsza zamiana sąsiedniego akapitu na tę samą
+  literę wchodziła w środek klauzuli — dopisany akapit wtyczka odrzucała po
+  cichu, usunięty wchodził, ale „Cofnij” nic nie robiło i blokowało stos).
+  Kolejność prób: najmniejsze zamiany → całe różniące się bloki → cała treść
+  jednym krokiem; gdy żadna nie przechodzi, `docStep` zwraca `null` i niczego
+  nie wstawiamy (`contentDiffers` odróżnia „nie ma czego zmieniać” od odmowy).
+  Sterownik ogłasza sukces dopiero, gdy dokument naprawdę się zmienił.
 - **Różnice liczymy po wierszach** (`contentLines` + `diffLines`, własny LCS,
   bez zależności), nie po HTML-u: treść z importu ma inny kształt niż treść
   edytora (`<article>`, `li` bez `p`, tylko pogrubienie). Ponad 600 wierszy
@@ -485,6 +494,11 @@ jednym przyciskiem — wstawiają treść do edytora.
   niczego nie wstawiamy). Plik z samą klauzulą nie czyści CV. Zmiany samej
   struktury (znaczniki, kursywa) nie są na liście — przy równych tekstach
   panel mówi „Treść jest taka sama.” i niczego nie proponuje.
+- **Lista różnic dotyczy treści z edytora teraz** — przelicza się 200 ms po
+  zmianie. Nasłuch zmian w `useCvHistory` stoi w `useLayoutEffect`, nie
+  w `useEffect`: zmiana treści między narysowaniem porównania a zwykłym
+  efektem przepadała i licznik zostawał stary (13.10.2026 test wypadł przez to
+  z kolejki merge'ów — na wolniejszej maszynie edycja zdążyła przed efektem).
 - **Wszystko albo nic.** Makieta miała wybór per różnica i ocenę zgodności ze
   źródłami; weszła lista różnic + jedno wstawienie. Po wstawieniu treść ocenia
   panel „Do poprawy” (QC, w tym twierdzenia bez pokrycia w oryginale).
