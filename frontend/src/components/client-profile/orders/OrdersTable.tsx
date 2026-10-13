@@ -86,19 +86,27 @@ const HEAD_ROW = "border-b border-border bg-muted/50";
 
 /** Szerokości kolumn sekcji MD i kosztowej — te same w nagłówku sekcji
  *  i w każdym zamówieniu (`table-fixed`), więc kolumny trzymają jedną linię. */
-function TileColumns() {
+function TileColumns({ scopedMd }: { scopedMd: boolean }) {
   return (
     <colgroup>
-      <col className="w-[26%]" />
+      <col className={scopedMd ? "w-[20%]" : "w-[26%]"} />
       <col className="w-[7rem]" />
       <col className="w-[7rem]" />
       {/* Pasek (96 px) + „22 / 60 MD” potrzebują 184 px treści — przy 11,5 rem
-          liczba wchodziła pod przycisk „Zużycie”. */}
-      <col className="w-[13rem]" />
+          liczba wchodziła pod przycisk „Zużycie”. Dwa paski CeZ z etykietą
+          i „184 / 190 MD 97%” to ok. 300 px, więc ta sekcja oddaje kolumnie
+          część nazwiska: przy tabeli 958 px (ekran 1280) „Uwagi” mają ok. 85 px
+          i nie ma przewijania w bok (pomiar na produkcji 13.10.2026). */}
+      <col className={scopedMd ? "w-[18rem]" : "w-[13rem]"} />
       <col className="w-[10.5rem]" />
       <col />
     </colgroup>
   );
+}
+
+/** Czy w sekcji jest choć jedna osoba z paskami podstawy i opcji (CeZ). */
+function sectionHasScopedMd(rows: OrdersTableRow[]): boolean {
+  return rows.some((row) => row.kind === "line" && !row.ended && hasScopedMd(row.line, row.group));
 }
 
 function tileHeaders(costSection: boolean, groupTile: boolean): string[] {
@@ -306,6 +314,7 @@ export function OrdersTable({
     <div className="flex flex-col gap-4" data-orders-table data-help="client.orders.table">
       {sections.map((section) => {
         const periodic = section.type === "periodic";
+        const scopedMd = sectionHasScopedMd(section.rows);
         const renderRow = (row: OrdersTableRow) => (
           <OrdersTableRowView
             key={row.key}
@@ -353,7 +362,7 @@ export function OrdersTable({
               <div className="relative overflow-x-auto rounded-lg border border-border bg-card">
                 <div className="min-w-[940px] [&>div:last-child>table>tbody>tr:last-child]:border-b-0">
                   <table aria-hidden="true" data-orders-columns className="w-full table-fixed border-collapse">
-                    <TileColumns />
+                    <TileColumns scopedMd={scopedMd} />
                     <thead>
                       <tr className={HEAD_ROW}>
                         {tileHeaders(section.type === "cost", true).map((label, index) => (
@@ -371,7 +380,7 @@ export function OrdersTable({
                   {buildSectionTiles(section.rows).map((tile) => (
                     <div key={tile.key} data-order-tile={tile.header ? "group" : "contractor"}>
                       <table className="w-full table-fixed border-collapse text-sm tabular-nums">
-                        <TileColumns />
+                        <TileColumns scopedMd={scopedMd} />
                         <thead>
                           {tile.header ? renderRow(tile.header) : null}
                           <tr className="sr-only">

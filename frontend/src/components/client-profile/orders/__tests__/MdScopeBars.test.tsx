@@ -60,6 +60,16 @@ describe("MdScopeBars — podstawa + opcja (CeZ)", () => {
     expect(screen.getByText(/Wykorzystano łącznie/)).toHaveTextContent(/154 \/ 360 MD 43%/);
   });
 
+  it("w ciasnej komórce zwęża się pasek, a nie liczby (13.10.2026)", () => {
+    render(<MdScopeBars line={line()} />);
+    for (const name of [/Podstawa/, /Opcja/]) {
+      const bar = screen.getByRole("progressbar", { name });
+      expect(bar).toHaveClass("shrink", "min-w-10");
+      expect(bar).not.toHaveClass("shrink-0");
+      expect(bar.nextElementSibling).toHaveClass("shrink-0");
+    }
+  });
+
   it("umowa bez opcji: kursywa zamiast pustego paska „0 / 0”", () => {
     render(
       <MdScopeBars

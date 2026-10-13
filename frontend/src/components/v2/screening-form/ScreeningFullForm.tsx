@@ -74,6 +74,7 @@ import {
   CARD_PHRASABLE_FIELDS,
   cardFieldSource,
 } from "@/lib/recommendation-card";
+import type { RejectFollowUp } from "@/lib/reject-follow-up";
 import { loadJobRejectionReasons, type RejectionReasonOption } from "@/lib/rejection-reasons";
 import {
   answerOriginAfterEdit,
@@ -835,6 +836,9 @@ export interface ScreeningFullFormProps {
   forward?: (ScreeningFormMoveTarget & { label: string }) | null;
   /** „Odrzuć” z powodem — tylko z „Nowych” i „Screeningu”. */
   reject?: (ScreeningFormMoveTarget & { previousStage: string; previousCategory: "internal" | "external" }) | null;
+  /** Panel osoby (13.10.2026): po udanym „Odrzuć” panel pokazuje następną
+   *  osobę. Woła się przy kliknięciu — migawka kolejności Tablicy. */
+  rejectFollowUp?: () => RejectFollowUp | undefined;
   /** Ruch zablokowany (np. tryb odczytu) — przyciski ruchu znikają. */
   readOnly?: boolean;
   banner?: ReactNode;
@@ -855,6 +859,7 @@ export function ScreeningFullForm({
   jobBudgetHourly,
   forward = null,
   reject = null,
+  rejectFollowUp,
   readOnly = false,
   banner,
   onMoved,
@@ -874,6 +879,7 @@ export function ScreeningFullForm({
   const [error, setError] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectSnapshot, setRejectSnapshot] = useState<RejectFollowUp | undefined>(undefined);
   const [forwarding, setForwarding] = useState(false);
   const [handingBack, setHandingBack] = useState(false);
   const dirty = methods.formState.isDirty || model.note != null;
@@ -1115,6 +1121,7 @@ export function ScreeningFullForm({
       sendRejectionEmail: boolean | null;
       offerResponse: CandidateOfferResponse | null;
       freeReason?: string;
+      followUp?: RejectFollowUp;
     }) => {
       if (!reject || !state) throw new Error("Brak etapu docelowego.");
       return moveCore.send(
@@ -1133,7 +1140,7 @@ export function ScreeningFullForm({
         { candidateName, fallbackMessage: "Nie udało się zapisać decyzji." },
       );
     },
-    onSuccess: (outcome) => {
+    onSuccess: (outcome, vars) => {
       if (!outcome.ok) {
         if (outcome.refusal.kind === "version_conflict") {
           setRejectOpen(false);
@@ -1143,6 +1150,10 @@ export function ScreeningFullForm({
       }
       setRejectOpen(false);
       showSuccess("Zapisano decyzję.");
+      vars.followUp?.onMoved({
+        reasonLabel:
+          reasonsQuery.data?.find((r) => r.id === vars.reasonId)?.label ?? (vars.freeReason?.trim() || null),
+      });
       void queryClient.invalidateQueries({ queryKey: screeningFormQueryKey(jobId, candidateId) });
       onMoved?.();
     },
@@ -1246,7 +1257,10 @@ export function ScreeningFullForm({
           size="sm"
           variant="quiet"
           disabled={busy}
-          onClick={() => setRejectOpen(true)}
+          onClick={() => {
+            setRejectSnapshot(rejectFollowUp?.());
+            setRejectOpen(true);
+          }}
           title="Ten sam modal powodu i ta sama reguła maila co na Tablicy"
         >
           <Ban className="h-3.5 w-3.5" aria-hidden /> Odrzuć
@@ -1344,6 +1358,8 @@ export function ScreeningFullForm({
           reasons={reasonsQuery.data ?? []}
           previousStageCategory={reject.previousCategory}
           previousStage={reject.previousStage}
+          subject={{ name: candidateName, stageLabel: rejectSnapshot?.stageLabel ?? null }}
+          nextPerson={rejectSnapshot ? rejectSnapshot.next : undefined}
           onConfirm={(reasonId, notes, sendRejectionEmail, offerResponse, freeReason) =>
             rejectMut.mutate({
               reasonId,
@@ -1351,6 +1367,7 @@ export function ScreeningFullForm({
               sendRejectionEmail,
               offerResponse: offerResponse ?? null,
               freeReason,
+              followUp: rejectSnapshot,
             })
           }
         />

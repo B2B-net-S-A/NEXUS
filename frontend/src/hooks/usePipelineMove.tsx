@@ -45,6 +45,7 @@ import {
 import { VerifiedRateModal } from "@/components/v2/modals/VerifiedRateModal";
 import { ClientRateModal } from "@/components/v2/modals/ClientRateModal";
 import { RejectionV2, type EndedBy } from "@/components/v2/modals/RejectionV2";
+import type { RejectFollowUp } from "@/lib/reject-follow-up";
 import {
   announceRejectionEmail,
   rejectionEmailAvailableFrom,
@@ -127,6 +128,8 @@ const ConfirmFullySignedDialog = dynamic(
 
 export const RATE_EDIT_DENIED_MESSAGE =
   "Ruch na „Zweryfikowany” może zapisać stawkę kandydata — mogą go wykonać: rekruter, Delivery Lead, Talent Community Manager, Head of Recruitment, Finanse lub administrator.";
+
+export type { RejectFollowUp };
 
 export interface PipelineRejectionReasonOption {
   id: string;
@@ -240,6 +243,9 @@ interface SendMoveOptions {
   // Runda 10 (R10-V2-1): ruch zbiorczy zbiera statusy maila odrzucenia
   // i mówi o niezaplanowanych RAZ, po pętli.
   onRejectionEmailStatus?: (status: string | null) => void;
+  // 13.10.2026: ruch potwierdzony przez serwer — także ponowiony po
+  // „Przenieś mimo to” i po debriefie (oba niosą te same `opts`).
+  onMoved?: () => void;
 }
 
 type RatePayload = {
@@ -284,10 +290,17 @@ export interface PipelineMoveControls {
   requestReject: (
     items: KanbanItem | KanbanItem[],
     toColumn?: KanbanColumn,
-    options?: { endedBy?: Exclude<EndedBy, "candidate">; notes?: string | null }
+    options?: {
+      endedBy?: Exclude<EndedBy, "candidate">;
+      notes?: string | null;
+      followUp?: RejectFollowUp;
+    }
   ) => void;
   /** „Zrezygnował" — `RejectionV2` na kolumnie „Wycofany". */
-  requestWithdraw: (items: KanbanItem | KanbanItem[]) => void;
+  requestWithdraw: (
+    items: KanbanItem | KanbanItem[],
+    options?: { followUp?: RejectFollowUp }
+  ) => void;
   /** Trwa pętla ruchu zbiorczego. */
   isMoving: boolean;
   /** Wszystkie okna przepływu — wyrenderuj raz w drzewie wołającego. */
@@ -352,6 +365,8 @@ export function usePipelineMove({
     endedBy?: Exclude<EndedBy, "candidate"> | null;
     /** Notatka startowa okna odrzucenia. */
     notes?: string | null;
+    /** Tylko z panelu osoby i tylko przy jednej osobie. */
+    followUp?: RejectFollowUp;
   } | null>(null);
   const [verifiedRatePrompt, setVerifiedRatePrompt] = useState<{
     item: KanbanItem;
@@ -599,6 +614,7 @@ export function usePipelineMove({
         }
 
         if (!opts?.deferCacheSync) syncKanbanCache(item.candidate_id);
+        opts?.onMoved?.();
         return true;
       } catch (e) {
         console.error("Move failed", e);
@@ -1125,7 +1141,11 @@ export function usePipelineMove({
     (
       items: KanbanItem | KanbanItem[],
       toColumn?: KanbanColumn,
-      options?: { endedBy?: Exclude<EndedBy, "candidate">; notes?: string | null }
+      options?: {
+        endedBy?: Exclude<EndedBy, "candidate">;
+        notes?: string | null;
+        followUp?: RejectFollowUp;
+      }
     ) => {
       const dst = toColumn ?? columns.find((c) => terminalOf(c) === "rejected");
       if (!dst) return;
@@ -1144,13 +1164,14 @@ export function usePipelineMove({
         terminalType: "rejected",
         endedBy: options?.endedBy ?? null,
         notes: options?.notes ?? null,
+        followUp: entries.length === 1 ? options?.followUp : undefined,
       });
     },
     [columns]
   );
 
   const requestWithdraw = useCallback(
-    (items: KanbanItem | KanbanItem[]) => {
+    (items: KanbanItem | KanbanItem[], options?: { followUp?: RejectFollowUp }) => {
       const dst = columns.find((c) => terminalOf(c) === "withdrawn");
       if (!dst) {
         showError("Ten szablon nie ma etapu „Wycofany” — użyj „Odrzuć”.");
@@ -1165,7 +1186,12 @@ export function usePipelineMove({
         entries.push({ item: candidate, srcColId: colId(src) });
       }
       if (entries.length === 0) return;
-      setPendingRejection({ entries, destCol: dst, terminalType: "withdrawn" });
+      setPendingRejection({
+        entries,
+        destCol: dst,
+        terminalType: "withdrawn",
+        followUp: entries.length === 1 ? options?.followUp : undefined,
+      });
     },
     [columns, showError]
   );
@@ -1180,8 +1206,10 @@ export function usePipelineMove({
     cancelAgreementId?: number | null
   ) => {
     if (!pendingRejection) return;
-    const { entries, destCol } = pendingRejection;
+    const { entries, destCol, followUp } = pendingRejection;
     setPendingRejection(null);
+    const reasonLabel =
+      job.rejectionReasons.find((r) => r.id === reasonId)?.label ?? (freeReason?.trim() || null);
     void (async () => {
       const failed: { name: string; reason: string }[] = [];
       const emailStatuses: (string | null)[] = [];
@@ -1209,6 +1237,7 @@ export function usePipelineMove({
             onRejectionEmailStatus: (status) => {
               emailStatuses.push(status);
             },
+            onMoved: followUp ? () => followUp.onMoved({ reasonLabel }) : undefined,
           }
         );
         if (!ok) failed.push({ name: itemFullName(item), reason: failureReason });
@@ -1268,6 +1297,15 @@ export function usePipelineMove({
             ? pendingRejection.entries[0].item.agreement ?? null
             : null
         }
+        subject={
+          pendingRejection && pendingRejection.entries.length === 1
+            ? {
+                name: itemFullName(pendingRejection.entries[0].item),
+                stageLabel: pendingRejection.followUp?.stageLabel ?? null,
+              }
+            : null
+        }
+        nextPerson={pendingRejection?.followUp ? pendingRejection.followUp.next : undefined}
       />
 
       {debriefRequired && (

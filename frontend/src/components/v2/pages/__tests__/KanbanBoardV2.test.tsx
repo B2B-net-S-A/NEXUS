@@ -23,6 +23,7 @@ const move = vi.fn();
 const toastError = vi.fn();
 const toastSuccess = vi.fn();
 const toastInfo = vi.fn();
+const toastAction = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   __esModule: true,
@@ -48,7 +49,7 @@ vi.mock("@/lib/api", () => ({
 
 vi.mock("@/components/Toast", () => ({
   useToast: () => ({
-    showActionToast: vi.fn(),
+    showActionToast: toastAction,
     showSuccess: toastSuccess,
     showError: toastError,
     showInfo: toastInfo,
@@ -158,15 +159,30 @@ vi.mock("@/components/v2/person/PersonWorkbenchTabs", async (importOriginal) => 
       section,
       row,
       onSectionChange,
+      workbenchContext,
     }: {
       section: string;
       row: { candidateId: number };
       onSectionChange: (section: string) => void;
+      workbenchContext?: {
+        rejectFollowUp?: (
+          candidateId: number,
+        ) => { onMoved: (info: { reasonLabel: string | null }) => void } | undefined;
+      };
     }) => (
       <div data-testid="person-workbench-stub" data-section={section} data-candidate={row.candidateId}>
         <input aria-label="pole warsztatu" defaultValue="" />
         <button type="button" onClick={() => onSectionChange("contract")}>
           zakładka umowa
+        </button>
+        {/* Jak „Odrzuć” w formularzu screeningu: migawka przy kliknięciu, potem udany ruch. */}
+        <button
+          type="button"
+          onClick={() =>
+            workbenchContext?.rejectFollowUp?.(row.candidateId)?.onMoved({ reasonLabel: "Brak Azure" })
+          }
+        >
+          formularz: odrzucono
         </button>
       </div>
     ),
@@ -179,6 +195,7 @@ import { useAuthStore } from "@/store/auth";
 import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
 import { useUiStore } from "@/store/ui";
 import { KANBAN_VIEW_MODE_STORAGE_KEY } from "@/lib/kanban-view-preferences";
+import { PIPELINE_VERSION_CONFLICT_CODE } from "@/lib/pipeline-version-conflict";
 
 // Domyślnie `nexus-ui` chowa puste kolumny (przegląd UX 17.09.2026). Te testy
 // liczą kolumny szablonu, więc startują z pełną tablicą; testy ukrywania
@@ -2789,5 +2806,390 @@ describe("KanbanBoardV2 — „Rozwiń”: pełne narzędzia w tym samym panelu 
     fireEvent.click(link.closest("[data-kanban-card]") as HTMLElement);
     const panel = await screen.findByRole("complementary", { name: "Panel osoby" });
     expect(within(panel).queryByRole("button", { name: "Rozwiń" })).toBeNull();
+  });
+});
+
+// Prośba rekrutera (13.10.2026, D1–D4): po „Odrzuć z powodem” i „Zrezygnował”
+// z panelu osoby panel pokazuje osobę, która stała za zamkniętą w kolejności
+// strzałki „›”. Do tej daty zostawał na odrzuconej osobie bez „‹ N z M ›”.
+describe("KanbanBoardV2 — po zamknięciu osoby z panelu następna osoba (13.10.2026)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    kanban.mockResolvedValue({ data: { columns: [], off_template: null } });
+    post.mockResolvedValue({ data: {} });
+    useAuthStore.setState({ user: { id: 1, role: "admin" } } as never);
+  });
+
+  const moveCalls = () => post.mock.calls.filter((c) => c[0] === "/api/pipeline/move");
+
+  const person = (id: number, stage: string, name: string, lastname: string) => ({
+    id: 900 + id,
+    candidate_id: id,
+    stage,
+    name,
+    lastname,
+    days_in_stage: 2,
+  });
+
+  function closingColumns() {
+    return [
+      {
+        stage: "new",
+        name: "Nowi / Analiza CV",
+        category: "internal",
+        stage_def_id: 501,
+        count: 2,
+        terminal_type: null,
+        items: [person(61, "new", "Michał", "Zieliński"), person(62, "new", "Anna", "Wiśniewska")],
+      },
+      {
+        stage: "screening",
+        name: "Screening",
+        category: "internal",
+        stage_def_id: 502,
+        count: 1,
+        terminal_type: null,
+        items: [person(63, "screening", "Tomasz", "Wójcik")],
+      },
+      {
+        stage: "verified",
+        name: "Zweryfikowany",
+        category: "internal",
+        stage_def_id: 503,
+        count: 0,
+        terminal_type: null,
+        items: [],
+      },
+      {
+        stage: "rejected",
+        name: "Odrzucony",
+        category: "terminal",
+        stage_def_id: 508,
+        count: 0,
+        terminal_type: "rejected",
+        items: [],
+      },
+      {
+        stage: "withdrawn",
+        name: "Wycofany",
+        category: "terminal",
+        stage_def_id: 509,
+        count: 0,
+        terminal_type: "withdrawn",
+        items: [],
+      },
+    ] as never;
+  }
+
+  async function openPerson(name: string) {
+    const link = await screen.findByRole("link", { name });
+    fireEvent.click(link.closest("[data-kanban-card]") as HTMLElement);
+    return screen.findByRole("complementary", { name: "Panel osoby" });
+  }
+
+  async function confirmClosing(dialog: HTMLElement, reason = "Brak Azure") {
+    fireEvent.change(within(dialog).getByPlaceholderText(/brak wymaganych kompetencji/), {
+      target: { value: reason },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Potwierdź" }));
+  }
+
+  it("po „Potwierdź” panel pokazuje następną osobę z kolejności „›” i pasek „Odrzucono”", async () => {
+    renderBoard(closingColumns());
+    const panel = await openPerson("Michał Zieliński");
+    expect(within(panel).getByText("1 z 3")).toBeInTheDocument();
+
+    fireEvent.click(within(panel).getByRole("button", { name: /Odrzuć z powodem/ }));
+    const dialog = await screen.findByRole("dialog");
+    // Okno mówi, kogo odrzucasz i kto będzie następny.
+    expect(within(dialog).getByText("Michał Zieliński · Nowi")).toBeInTheDocument();
+    expect(within(dialog).getByText("Dalej: Anna Wiśniewska · Nowi")).toBeInTheDocument();
+    await confirmClosing(dialog);
+
+    await waitFor(() => expect(within(panel).getByText("1 z 2")).toBeInTheDocument());
+    expect(within(panel).getAllByText("Anna Wiśniewska").length).toBeGreaterThan(0);
+    const notice = within(panel).getByRole("status", { name: "Poprzednia osoba" });
+    expect(notice).toHaveTextContent("Odrzucono: Michał Zieliński · Brak Azure");
+    expect(moveCalls()[0][1]).toMatchObject({ candidate_id: 61, stage_def_id: 508 });
+
+    // „Pokaż” wraca do odrzuconej osoby, „Wróć do kolejki” — do następnej.
+    fireEvent.click(within(notice).getByRole("button", { name: "Pokaż" }));
+    await waitFor(() => expect(within(panel).getAllByText("Michał Zieliński").length).toBeGreaterThan(0));
+    fireEvent.click(within(panel).getByRole("button", { name: "Wróć do kolejki" }));
+    await waitFor(() => expect(within(panel).getByText("1 z 2")).toBeInTheDocument());
+    expect(within(panel).getAllByText("Anna Wiśniewska").length).toBeGreaterThan(0);
+  });
+
+  it("pasek znika po przejściu do innej osoby", async () => {
+    renderBoard(closingColumns());
+    const panel = await openPerson("Michał Zieliński");
+    fireEvent.click(within(panel).getByRole("button", { name: /Odrzuć z powodem/ }));
+    await confirmClosing(await screen.findByRole("dialog"));
+    await within(panel).findByRole("status", { name: "Poprzednia osoba" });
+
+    fireEvent.click(within(panel).getByRole("button", { name: "Następna karta" }));
+    await waitFor(() => expect(within(panel).getByText("2 z 2")).toBeInTheDocument());
+    expect(within(panel).queryByRole("status", { name: "Poprzednia osoba" })).toBeNull();
+    fireEvent.click(within(panel).getByRole("button", { name: "Poprzednia karta" }));
+    await waitFor(() => expect(within(panel).getByText("1 z 2")).toBeInTheDocument());
+    expect(within(panel).queryByRole("status", { name: "Poprzednia osoba" })).toBeNull();
+  });
+
+  it("„Zrezygnował” też przechodzi dalej, pasek mówi „Rezygnacja”", async () => {
+    renderBoard(closingColumns());
+    const panel = await openPerson("Michał Zieliński");
+    fireEvent.click(within(panel).getByRole("button", { name: "Zrezygnował" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Dalej: Anna Wiśniewska · Nowi")).toBeInTheDocument();
+    await confirmClosing(dialog, "Przyjął inną ofertę");
+
+    const notice = await within(panel).findByRole("status", { name: "Poprzednia osoba" });
+    expect(notice).toHaveTextContent("Rezygnacja: Michał Zieliński · Przyjął inną ofertę");
+    expect(within(panel).getByText("1 z 2")).toBeInTheDocument();
+    expect(moveCalls()[0][1]).toMatchObject({ candidate_id: 61, stage_def_id: 509 });
+  });
+
+  it("ostatnia osoba w kolejności: okno to zapowiada, panel się zamyka, komunikat ma „Pokaż”", async () => {
+    renderBoard(closingColumns());
+    const panel = await openPerson("Tomasz Wójcik");
+    expect(within(panel).getByText("3 z 3")).toBeInTheDocument();
+    fireEvent.click(within(panel).getByRole("button", { name: /Odrzuć z powodem/ }));
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).getByText("To ostatnia osoba na Tablicy — panel się zamknie."),
+    ).toBeInTheDocument();
+    await confirmClosing(dialog);
+
+    await waitFor(() =>
+      expect(screen.queryByRole("complementary", { name: "Panel osoby" })).toBeNull(),
+    );
+    expect(toastAction).toHaveBeenCalledTimes(1);
+    const [message, options] = toastAction.mock.calls[0];
+    expect(message).toBe("Odrzucono: Tomasz Wójcik. To była ostatnia osoba w kolejności Tablicy.");
+    expect(options.actionLabel).toBe("Pokaż");
+    act(() => {
+      options.onAction();
+    });
+    const back = await screen.findByRole("complementary", { name: "Panel osoby" });
+    expect(within(back).getAllByText("Tomasz Wójcik").length).toBeGreaterThan(0);
+  });
+
+  it("odmowa serwera (ktoś inny zmienił kartę) zostawia panel na tej samej osobie, bez paska", async () => {
+    post.mockRejectedValueOnce({
+      response: { status: 409, data: { detail: { code: PIPELINE_VERSION_CONFLICT_CODE } } },
+    });
+    renderBoard(closingColumns());
+    const panel = await openPerson("Michał Zieliński");
+    fireEvent.click(within(panel).getByRole("button", { name: /Odrzuć z powodem/ }));
+    await confirmClosing(await screen.findByRole("dialog"));
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(within(panel).getAllByText("Michał Zieliński").length).toBeGreaterThan(0);
+    expect(within(panel).queryByRole("status", { name: "Poprzednia osoba" })).toBeNull();
+    expect(within(panel).queryAllByText("Anna Wiśniewska")).toHaveLength(0);
+  });
+
+  it("ostrzeżenie serwera: przejście dopiero po „Przenieś mimo to” i udanym ruchu", async () => {
+    post
+      .mockRejectedValueOnce({
+        response: {
+          status: 409,
+          data: {
+            detail: {
+              code: "ELIGIBILITY_WARNING",
+              reason_code: "blacklist",
+              reason: "Kandydat jest na czarnej liście klienta.",
+              message: "Kandydat jest na czarnej liście klienta.",
+              can_acknowledge: true,
+            },
+          },
+        },
+      })
+      .mockResolvedValueOnce({ data: { id: 1961 } });
+    // Po ostrzeżeniu tablica dociąga prawdę serwera — Michał dalej w „Nowych”.
+    kanban.mockResolvedValue({ data: { columns: closingColumns(), off_template: null } });
+    renderBoard(closingColumns());
+    const panel = await openPerson("Michał Zieliński");
+    fireEvent.click(within(panel).getByRole("button", { name: /Odrzuć z powodem/ }));
+    await confirmClosing(await screen.findByRole("dialog"));
+
+    const warning = await screen.findByRole("dialog");
+    expect(within(warning).getByText("Kandydat jest na czarnej liście klienta.")).toBeInTheDocument();
+    // Okno ostrzeżenia dotyczy jeszcze Michała.
+    expect(within(panel).getAllByText("Michał Zieliński").length).toBeGreaterThan(0);
+    expect(within(panel).queryByRole("status", { name: "Poprzednia osoba" })).toBeNull();
+
+    fireEvent.click(within(warning).getByRole("button", { name: "Przenieś mimo to" }));
+    const notice = await within(panel).findByRole("status", { name: "Poprzednia osoba" });
+    expect(notice).toHaveTextContent("Odrzucono: Michał Zieliński");
+    // Atrapa serwera po ruchu dalej zwraca Michała w „Nowych”, więc liczymy osobę, nie licznik.
+    expect(within(panel).getAllByText("Anna Wiśniewska").length).toBeGreaterThan(0);
+  });
+
+  it("panel przeniesiony na inną osobę w trakcie ruchu nie skacze", async () => {
+    let resolveMove: (value: unknown) => void = () => {};
+    post.mockImplementationOnce(() => new Promise((resolve) => (resolveMove = resolve)));
+    renderBoard(closingColumns());
+    const panel = await openPerson("Michał Zieliński");
+    fireEvent.click(within(panel).getByRole("button", { name: /Odrzuć z powodem/ }));
+    await confirmClosing(await screen.findByRole("dialog"));
+    await waitFor(() => expect(moveCalls()).toHaveLength(1));
+
+    // Zanim serwer odpowie, rekruter otwiera kogoś innego.
+    const other = await openPerson("Tomasz Wójcik");
+    await act(async () => {
+      resolveMove({ data: { id: 1962 } });
+    });
+    expect(within(other).getAllByText("Tomasz Wójcik").length).toBeGreaterThan(0);
+    expect(within(other).queryByRole("status", { name: "Poprzednia osoba" })).toBeNull();
+  });
+});
+
+describe("KanbanBoardV2 — „Rozwiń”: po odrzuceniu widok zostaje jak po „›” (13.10.2026)", () => {
+  const ctx = { clientId: 3, clientName: "Bank Alfa", onMoved: vi.fn(), canCloseJob: false };
+  const query = { isLoading: false, isError: false, error: null, isSuccess: true, refetch: vi.fn() };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    kanban.mockResolvedValue({ data: { columns: [] } });
+    post.mockResolvedValue({ data: {} });
+  });
+
+  it("następna osoba z „Nowych” zostaje przy formularzu, osoba z dalszej kolumny — w zwykłym doku", async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <TooltipProvider>
+          <KanbanBoardV2
+            columns={[
+              {
+                stage: "new",
+                name: "Nowi",
+                category: "internal",
+                stage_def_id: 11,
+                count: 2,
+                items: [
+                  { id: 701, candidate_id: 7, name: "Michał", lastname: "Zieliński", stage: "new", days_in_stage: 1 },
+                  { id: 702, candidate_id: 8, name: "Anna", lastname: "Wiśniewska", stage: "new", days_in_stage: 1 },
+                ],
+              },
+              {
+                stage: "verified",
+                name: "Zweryfikowany",
+                category: "internal",
+                stage_def_id: 13,
+                count: 1,
+                items: [{ id: 777, candidate_id: 5, name: "Marta", lastname: "Lis", stage: "verified", days_in_stage: 1 }],
+              },
+              {
+                stage: "rejected",
+                name: "Odrzucony",
+                category: "terminal",
+                stage_def_id: 18,
+                count: 0,
+                terminal_type: "rejected",
+                items: [],
+              },
+            ] as never}
+            jobId={10}
+            workbenchContext={ctx}
+            kanbanQueryState={query}
+            onInitialWorkbenchHandled={vi.fn()}
+          />
+        </TooltipProvider>
+      </QueryClientProvider>,
+    );
+    const card = (await screen.findByRole("link", { name: "Michał Zieliński" })).closest(
+      "[data-kanban-card]",
+    ) as HTMLElement;
+    fireEvent.click(card);
+    const panel = await screen.findByRole("complementary", { name: "Panel osoby" });
+    await waitFor(() => expect(panel).toHaveAttribute("data-size", "split"));
+
+    const reject = async () => {
+      fireEvent.click(within(panel).getByRole("button", { name: /Odrzuć z powodem/ }));
+      const dialog = await screen.findByRole("dialog");
+      fireEvent.change(within(dialog).getByPlaceholderText(/brak wymaganych kompetencji/), {
+        target: { value: "Brak Azure" },
+      });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Potwierdź" }));
+    };
+
+    await reject();
+    await waitFor(() =>
+      expect(screen.getByTestId("person-workbench-stub")).toHaveAttribute("data-candidate", "8"),
+    );
+    expect(panel).toHaveAttribute("data-size", "split");
+    expect(screen.getByTestId("person-workbench-stub")).toHaveAttribute("data-section", "screening");
+
+    await reject();
+    await waitFor(() => expect(panel).toHaveAttribute("data-size", "dock"));
+    expect(within(panel).getAllByText("Marta Lis").length).toBeGreaterThan(0);
+    expect(within(panel).getByRole("status", { name: "Poprzednia osoba" })).toHaveTextContent(
+      "Odrzucono: Anna Wiśniewska",
+    );
+  });
+});
+
+describe("KanbanBoardV2 — „Odrzuć” w formularzu screeningu też przenosi panel (13.10.2026)", () => {
+  const ctx = { clientId: 3, clientName: "Bank Alfa", onMoved: vi.fn(), canCloseJob: false };
+  const query = { isLoading: false, isError: false, error: null, isSuccess: true, refetch: vi.fn() };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    kanban.mockResolvedValue({ data: { columns: [] } });
+    post.mockResolvedValue({ data: {} });
+  });
+
+  it("po udanym odrzuceniu z formularza panel pokazuje następną osobę z „Nowych” z paskiem", async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <TooltipProvider>
+          <KanbanBoardV2
+            columns={[
+              {
+                stage: "new",
+                name: "Nowi",
+                category: "internal",
+                stage_def_id: 11,
+                count: 2,
+                items: [
+                  { id: 701, candidate_id: 7, name: "Michał", lastname: "Zieliński", stage: "new", days_in_stage: 1 },
+                  { id: 702, candidate_id: 8, name: "Anna", lastname: "Wiśniewska", stage: "new", days_in_stage: 1 },
+                ],
+              },
+              {
+                stage: "rejected",
+                name: "Odrzucony",
+                category: "terminal",
+                stage_def_id: 18,
+                count: 0,
+                terminal_type: "rejected",
+                items: [],
+              },
+            ] as never}
+            jobId={10}
+            workbenchContext={ctx}
+            kanbanQueryState={query}
+            onInitialWorkbenchHandled={vi.fn()}
+          />
+        </TooltipProvider>
+      </QueryClientProvider>,
+    );
+    fireEvent.click(
+      (await screen.findByRole("link", { name: "Michał Zieliński" })).closest("[data-kanban-card]") as HTMLElement,
+    );
+    const panel = await screen.findByRole("complementary", { name: "Panel osoby" });
+    await waitFor(() => expect(panel).toHaveAttribute("data-size", "split"));
+
+    fireEvent.click(screen.getByRole("button", { name: "formularz: odrzucono" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("person-workbench-stub")).toHaveAttribute("data-candidate", "8"),
+    );
+    expect(panel).toHaveAttribute("data-size", "split");
+    expect(within(panel).getByRole("status", { name: "Poprzednia osoba" })).toHaveTextContent(
+      "Odrzucono: Michał Zieliński · Brak Azure",
+    );
   });
 });

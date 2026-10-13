@@ -4,6 +4,7 @@
  * przy `true`.
  */
 
+import type * as React from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -281,3 +282,44 @@ describe("RejectionV2 — umowa z Generatora (04.10.2026)", () => {
   });
 });
 
+
+// 13.10.2026: okno mówi, kogo zamykasz, a z panelu osoby — kto będzie następny.
+describe("RejectionV2 — kogo zamykasz i kto dalej", () => {
+  function renderWith(extra: Partial<React.ComponentProps<typeof RejectionV2>>) {
+    render(
+      <RejectionV2
+        open
+        onOpenChange={() => {}}
+        terminalType="rejected"
+        reasons={reasons}
+        previousStageCategory="internal"
+        previousStage="new"
+        onConfirm={vi.fn()}
+        {...extra}
+      />,
+    );
+  }
+
+  it("pokazuje osobę z kolumną i następną osobę z panelu", () => {
+    renderWith({
+      subject: { name: "Michał Zieliński", stageLabel: "Nowi" },
+      nextPerson: { name: "Anna Wiśniewska", stageLabel: "Nowi" },
+    });
+    expect(screen.getByText("Michał Zieliński · Nowi")).toBeInTheDocument();
+    expect(screen.getByText("Dalej: Anna Wiśniewska · Nowi")).toBeInTheDocument();
+  });
+
+  it("`nextPerson: null` zapowiada zamknięcie panelu po ostatniej osobie", () => {
+    renderWith({ subject: { name: "Tomasz Wójcik" }, nextPerson: null });
+    expect(screen.getByText("Tomasz Wójcik")).toBeInTheDocument();
+    expect(
+      screen.getByText("To ostatnia osoba na Tablicy — panel się zamknie."),
+    ).toBeInTheDocument();
+  });
+
+  it("bez propów (np. kilka osób, przeciągnięcie karty) nie ma żadnej z tych linii", () => {
+    renderWith({});
+    expect(screen.queryByText(/^Dalej:/)).toBeNull();
+    expect(screen.queryByText(/To ostatnia osoba/)).toBeNull();
+  });
+});
