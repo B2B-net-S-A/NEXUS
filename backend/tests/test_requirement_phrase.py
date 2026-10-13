@@ -117,6 +117,35 @@ def test_long_sentence_with_a_category_word_is_prose(text):
     assert reading.talk == "skills"
 
 
+@pytest.mark.parametrize(
+    "text", ["MITRE ATT&CK", "SailPoint IdentityIQ (IIQ)", "Oracle EBS R12"]
+)
+def test_short_tool_name_outside_the_dictionary_stays_a_search_word(text):
+    """Produkcja 13.10.2026 (378990, 754289): nazwa narzędzia spoza słownika
+    ze znakiem „&”, nawiasem albo cyfrą była „zdaniem” — zapis przenosił ją do
+    rozmowy, a rekrutacja traciła jedyne słowo do szukania."""
+    reading = _read(text)
+    assert (reading.kind, reading.needs_decision, reading.keyword) == (
+        "keyword",
+        False,
+        text,
+    )
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Wykształcenie wyższe",
+        "doświadczenie w przetargach",
+        "Min. 5 lat",
+        "Zarządzanie projektami IT",
+        "Testowanie systemów IT",
+    ],
+)
+def test_short_sentence_without_a_name_still_needs_a_decision(text):
+    assert _read(text).needs_decision is True
+
+
 def test_talk_item_is_capped_at_section_limit():
     long_text = "Doświadczenie " + "bardzo długie zdanie klienta " * 12
     reading = _read(long_text)
