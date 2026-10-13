@@ -192,6 +192,8 @@ Przypomnienia o zaległych kartach (`stage_stuck_7d`, `dl_stage_stale_6h`) **nie
 budzą etapu z importu Traffita** — także wierszy dopisanych przy przeniesieniu
 (`external_source='traffit'`). Zaczynają działać po pierwszym ruchu karty
 w NEXUSIE (`notification_triggers._set_in_nexus`, decyzja Artura 11.10.2026).
+Od 13.10.2026 `dl_stage_stale_6h` jest usunięty; kolejka „Do wysłania do
+klienta” trzyma tę samą regułę polem `imported` (`services/dl_send_queue.py`).
 Bez tego pierwsza fala dałaby jednej osobie 146 przypomnień.
 
 ## Po fali

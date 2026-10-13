@@ -110,7 +110,9 @@ osobę od Cpro per rekrutacja (0353) i kolejkę „Czeka na DZ” (0348).
   rekrutacji, „✓ Wrzucone” = zwykły `/move`). `jobs.cpro_sender_id` zostaje w bazie
   jako zapas, pasek „Do Cpro wysyła” nad Tablicą usunięty.
 - **Przegląd DL** = osoby w kolumnie QC CV u klientów innych niż Nordea (z wynikiem
-  QC), nie osoby w „Zweryfikowanym”.
+  QC), nie osoby w „Zweryfikowanym”. Od 13.10.2026 Delivery Leada budzą tylko
+  osoby GOTOWE (QC zdane albo przepuszczone); reszta kolumny jest „jeszcze
+  u rekrutera” — `rekrutacja-tablica/do-wyslania-do-klienta-kolejka-delivery-leada.md`.
 - **Kto widzi „Czeka na Ciebie” (decyzja Artura 24.09.2026, `board_tasks._sees_*`):**
   obie listy Cpro — wyłącznie osoba od Cpro (gdy nikt nie jest ustawiony: listę
   „do wrzucenia” widzi admin i HoR, bo tylko tam da się kogoś ustawić; DL nigdy);

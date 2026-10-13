@@ -15,6 +15,12 @@ kolejkę tylko osobie od Cpro). Makieta: https://claude.ai/artifact/LaqZviMeU41V
   wiersza sprzed ruchu** — ta sama reguła odbiorcy co dzwonki przekazań. Własny
   ruch nie jest „wróciło”; wiersz, który DL ma w „Czeka na Twój przegląd”, nie
   dubluje się tutaj.
+- **„W przeglądzie” mówi, czyj jest ruch (13.10.2026):** wiersz niesie stan QC
+  i czas od gotowości. Przy QC do poprawy albo niesprawdzonym ruch jest
+  rekrutera („… — Twój ruch”); gdy CV jest gotowe i czeka 2+ dni robocze,
+  rekruter ma „Przypomnij” (dzwonek do Delivery Leada, raz dziennie). Imię
+  Delivery Leada stoi także wtedy, gdy przegląd idzie do portfela klienta —
+  `rekrutacja-tablica/do-wyslania-do-klienta-kolejka-delivery-leada.md`.
 - **Nie jest kafelkiem siatki** (decyzja Artura 02.10.2026: każdy ma ją
   domyślnie, komu się nie podoba — usuwa). Stoi w panelu jako kolumna, a gdy
   panel jest pusty i nic nie wróciło — jako wąski pasek, także z pustym stanem

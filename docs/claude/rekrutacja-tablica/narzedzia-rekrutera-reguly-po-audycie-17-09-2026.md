@@ -54,6 +54,9 @@ cofnąć „przy okazji”:
   pierwszej fali (10 rekrutacji) jedna osoba dostałaby 146 przypomnień
   o kartach, których w NEXUSIE nikt nie dotknął. Przypomnienia po rozmowie
   u klienta wiszą na wydarzeniu z kalendarza i tej reguły nie czytają.
+  Od 13.10.2026 triggera `dl_stage_stale_6h` nie ma (przypominał o osobach
+  już wysłanych); tę samą regułę „import nie budzi” stosuje kolejka „Do
+  wysłania do klienta” (`dl_send_queue`, pole `imported`).
 - **Powiadomienie z triggera ma JEDNĄ bramkę odbiorcy i JEDEN helper
   rekrutacji (od 18.09.2026).** `emit()` w `notification_triggers.py` pyta
   `notification_recipient_has_access` (`is_active` + polityka sekcji) — to
