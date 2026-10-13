@@ -2213,7 +2213,22 @@ async def list_recruitments_with_readiness(
 
 # Rodzaje materiału dla modelu generatora CV (13.10.2026). Przełączniki w karcie
 # „CV do klienta” (PR 4) nadpisują te wartości dla jednej generacji.
-AI_SOURCE_DEFAULTS: dict[str, bool] = {"transcripts": False, "prep": False}
+# Źródła dla modelu (D4, 13.10.2026) — przełączniki „Z czego powstało” w karcie
+# „CV do klienta”. Oryginalne CV i Champion wchodzą zawsze.
+AI_SOURCE_DEFAULTS: dict[str, bool] = {
+    "answers": True,
+    "notes": True,
+    "transcripts": False,
+    "prep": False,
+}
+
+
+def chosen_sources(sources: dict[str, bool] | None) -> dict[str, bool]:
+    """Wybór rekrutera nałożony na domyślne; nieznane klucze odpadają."""
+    return {
+        key: bool((sources or {}).get(key, default))
+        for key, default in AI_SOURCE_DEFAULTS.items()
+    }
 
 
 async def collect_screening_notes_text(
@@ -2248,6 +2263,7 @@ async def collect_screening_notes_text(
     Pusty string = brak notatek (wołający decyduje, czy to błąd).
     """
     screening_parts: list[str] = []
+    chosen = chosen_sources(sources)
 
     sn_q = (
         select(ScreeningNote)
@@ -2257,7 +2273,7 @@ async def collect_screening_notes_text(
         )
         .order_by(ScreeningNote.created_at.desc())
     )
-    screening_notes = (await db.scalars(sn_q)).all()
+    screening_notes = (await db.scalars(sn_q)).all() if chosen["notes"] else []
     for sn in screening_notes:
         text = _format_screening_note(sn)
         if text:
@@ -2267,18 +2283,20 @@ async def collect_screening_notes_text(
     # the recruiter in the screening sheet (CandidateStage.screening_answers).
     # These are candidate-provided facts — the generator must weave them into
     # the CV just like any other screening note.
-    answers_text = _format_candidate_answers(
-        stage.screening_answers,
-        (job.champion_profile or {}).get("screening_questions"),
+    answers_text = (
+        _format_candidate_answers(
+            stage.screening_answers,
+            (job.champion_profile or {}).get("screening_questions"),
+        )
+        if chosen["answers"]
+        else ""
     )
     if answers_text:
         screening_parts.append(
             f"[Odpowiedzi kandydata na pytania screeningowe]\n{answers_text}"
         )
 
-    chosen = {**AI_SOURCE_DEFAULTS, **(sources or {})}
-
-    stage_notes = strip_rates_and_availability(stage.notes)
+    stage_notes = strip_rates_and_availability(stage.notes) if chosen["notes"] else ""
     if stage_notes:
         screening_parts.append(f"[Notatka z procesu]\n{stage_notes}")
 
@@ -2294,7 +2312,12 @@ async def collect_screening_notes_text(
     )
     if not chosen["prep"]:
         notes_q = notes_q.where(Note.kind.is_distinct_from(note_kinds.PREP_SUMMARY))
-    notes = (await db.scalars(notes_q)).all()
+    if not chosen["notes"]:
+        # Same podsumowania prepu (gdy włączone), bez pozostałych notatek.
+        notes_q = notes_q.where(Note.kind == note_kinds.PREP_SUMMARY)
+    notes = (
+        (await db.scalars(notes_q)).all() if chosen["notes"] or chosen["prep"] else []
+    )
     for note in notes:
         # 0413: karta rekomendacji w notatce niesie ustalenia handlowe
         # (stawka, red flags, motywacja) i narodowość — to nie jest treść CV.
@@ -2307,8 +2330,12 @@ async def collect_screening_notes_text(
 
     # „Dlaczego ten kandydat” wpisane na karcie w NEXUSIE (pole z notatki jest
     # już w treści notatki wyżej).
-    card = await recommendation_cards.load_card(
-        db, candidate_id=candidate_id, job_id=job.id
+    card = (
+        await recommendation_cards.load_card(
+            db, candidate_id=candidate_id, job_id=job.id
+        )
+        if chosen["notes"]
+        else None
     )
     manual = (card.fields_manual or {}).get("recommendation") if card else None
     recommendation = strip_rates_and_availability(
@@ -2470,6 +2497,9 @@ class CandidateGenerationSource:
     # dotąd (tytuł rekrutacji dopasowuje model). Domyślna wartość, więc
     # snapshoty zadań sprzed tej zmiany dekodują się bez niego.
     position_override: str = ""
+    # Źródła wybrane w karcie „CV do klienta” (D4) — trafiają do migawki CV,
+    # żeby karta pokazała, z czego powstała dana wersja. Puste = sprzed zmiany.
+    ai_sources: tuple[tuple[str, bool], ...] = ()
 
     def champion(self) -> ChampionProfileForPrompt:
         # Each renderer owns a fresh DTO; mutation cannot contaminate another variant.
@@ -2519,6 +2549,7 @@ async def load_candidate_generation_source(
     client_id: int | None = None,
     champion_profile: dict | None = None,
     extra_notes: str = "",
+    sources: dict[str, bool] | None = None,
 ) -> CandidateGenerationSource:
     """Read the chosen file, recruitment context and notes once; no provider calls.
 
@@ -2671,6 +2702,7 @@ async def load_candidate_generation_source(
             job=job,
             warnings=source_warnings,
             language=language,
+            sources=sources,
         )
     else:
         screening_notes_text = await collect_candidate_notes_text(
@@ -2729,6 +2761,9 @@ async def load_candidate_generation_source(
         else (),
         client_id=job.client_id if job is not None else client_id,
         position_override=position_override,
+        ai_sources=(
+            tuple(chosen_sources(sources).items()) if stage is not None else ()
+        ),
     )
 
 

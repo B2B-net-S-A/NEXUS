@@ -438,6 +438,7 @@ async def attach_as_stage_draft(
     from app.models.candidate_stage_cv import CandidateStageCV
     from app.models.cv_generated_document import CvGeneratedDocument
 
+    attached = False
     try:
         from app.api.candidate_stage_cv import apply_generated_to_stage_cv
 
@@ -466,12 +467,28 @@ async def attach_as_stage_draft(
                 activity_action=activity_action,
             )
             await db.commit()
-            return True
+            attached = True
     except Exception as exc:  # noqa: BLE001 — dokument i tak jest na liście
         logger.warning(
             "[cv_auto] stage=%s draft not attached: %s", stage_id, type(exc).__name__
         )
         return False
+    if attached:
+        await _qc_after_attach(stage_id, user_id)
+    return attached
+
+
+async def _qc_after_attach(stage_id: int, user_id: int) -> None:
+    """QC zaraz po podpięciu CV do etapu (13.10.2026): karta „CV do klienta”
+    i Tablica pokazują liczbę rzeczy do sprawdzenia bez otwierania okna QC.
+    Nigdy nie rzuca (`cv_qc.run_after_move`)."""
+    from app.core.config import settings
+
+    if not settings.CV_QC_GATE_ENABLED:
+        return
+    from app.services import cv_qc
+
+    await cv_qc.run_after_move(stage_id, user_id)
 
 
 async def _record_failure(

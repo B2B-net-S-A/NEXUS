@@ -31,7 +31,7 @@ from contextlib import nullcontext
 import secrets
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 from urllib.parse import quote
 
 from fastapi import (
@@ -201,6 +201,19 @@ class RecruitmentOption(BaseModel):
     can_schedule: bool = True
 
 
+class AiSourcesIn(BaseModel):
+    """„Z czego powstało” (D4, 13.10.2026): rodzaje materiału dla modelu.
+
+    Oryginalne CV i Profil Championa wchodzą zawsze. Notatki ze stawką są
+    zawsze wycinane (`money_text`) — tego nie da się włączyć.
+    """
+
+    answers: bool = True
+    notes: bool = True
+    transcripts: bool = False
+    prep: bool = False
+
+
 class GenerateRequest(BaseModel):
     cv_document_id: int = Field(..., ge=1, le=_INT32_MAX)
     candidate_id: int = Field(..., ge=1, le=_INT32_MAX)
@@ -240,6 +253,8 @@ class GenerateRequest(BaseModel):
     # trafiałaby do CV pod KAŻDEGO kolejnego klienta. Z etapem ignorowane
     # (notatki procesu zapisuje się w rekrutacji).
     screening_notes: str = Field(default="", max_length=20000)
+    # Przełączniki źródeł z karty „CV do klienta”; tylko z etapem.
+    sources: Optional[AiSourcesIn] = None
 
     @field_validator("champion_profile")
     @classmethod
@@ -876,6 +891,17 @@ async def _frozen_or_prepared_source_facts(db: AsyncSession, prepare):
     return source_facts
 
 
+def _record_ai_sources(source: CandidateGenerationSource, result: Any) -> None:
+    """Karta „CV do klienta” pokazuje, z czego powstała ta wersja (D4).
+
+    Klient tego nie dostaje — `public_view.build_public_payload` wybiera
+    wyłącznie pola dokumentu.
+    """
+    payload = getattr(result, "render_payload", None)
+    if source.ai_sources and isinstance(payload, dict):
+        payload["ai_sources"] = dict(source.ai_sources)
+
+
 @terminal_operation("cv-generation")
 async def _run_generate_new_job(
     generated_id: int,
@@ -954,6 +980,7 @@ async def _run_generate_new_job(
                         prepared_source_facts=source_facts,
                         position_fallback=position_fallback,
                     )
+                _record_ai_sources(source, result)
             except StandaloneGenerationError as err:
                 await _finalize_failure(
                     db, generated_id, err.message, diagnostic_code=err.diagnostic_code
@@ -1119,6 +1146,7 @@ async def _run_generate_new_job(
                         prepared_source_facts=source_facts,
                         position_fallback=position_fallback,
                     )
+                _record_ai_sources(source, second_result)
             except StandaloneGenerationError as err:
                 await _finalize_failure(
                     db, second_id, err.message, diagnostic_code=err.diagnostic_code
@@ -2175,6 +2203,7 @@ async def enqueue_candidate_generation(
     attach_stage_draft: bool = False,
     champion_profile: Optional[dict] = None,
     screening_notes: str = "",
+    sources: Optional[dict[str, bool]] = None,
 ) -> tuple[int, int, str]:
     """Walidacje reguły klienta → wiersz „processing" → trwałe zadanie generacji.
 
@@ -2323,6 +2352,7 @@ async def enqueue_candidate_generation(
             client_id=client_id,
             champion_profile=imported_profile,
             extra_notes=screening_notes if stage_id is None else "",
+            sources=sources if stage_id is not None else None,
         )
     except StandaloneGenerationError as err:
         raise HTTPException(status_code=422, detail=err.message) from None
@@ -2553,6 +2583,7 @@ async def generate(
         attach_stage_draft=stage is not None,
         champion_profile=payload.champion_profile,
         screening_notes=payload.screening_notes,
+        sources=payload.sources.model_dump() if payload.sources else None,
     )
     from app.services.cv_generator_b2b.durable_jobs import execute_job
 

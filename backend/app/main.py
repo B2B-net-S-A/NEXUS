@@ -157,6 +157,7 @@ from app.api import contract_folder_docs
 from app.api import jarvis as jarvis_api
 from app.api import candidate_stage_cv as candidate_stage_cv_api
 from app.api import cv_editor_import as cv_editor_import_api
+from app.api import cv_ai_sources as cv_ai_sources_api
 from app.api import calendar
 from app.api import notifications
 from app.api import import_export
@@ -1576,6 +1577,7 @@ app.include_router(
 app.include_router(
     cv_editor_import_api.router, prefix="/api", tags=["candidate-stage-cv"]
 )
+app.include_router(cv_ai_sources_api.router, prefix="/api", tags=["candidate-stage-cv"])
 app.include_router(calendar.router, prefix="/api", tags=["calendar"])
 app.include_router(notifications.router, prefix="/api", tags=["notifications"])
 app.include_router(import_export.router, prefix="/api", tags=["import-export"])
