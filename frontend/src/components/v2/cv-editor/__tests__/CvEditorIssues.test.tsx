@@ -115,6 +115,21 @@ function memoryApi(overrides: Partial<CvEditorIssuesApi> = {}): CvEditorIssuesAp
 
 const editors: Editor[] = [];
 
+/** Pozycja listy (karta QC, uwaga generatora, linia kontroli AI) po swoim tekście. */
+function itemOf(text: string | RegExp): HTMLElement {
+  const item = screen.getByText(text).closest("li");
+  if (!item) throw new Error(`brak pozycji: ${String(text)}`);
+  return item as HTMLElement;
+}
+
+/** Nazwy grup listy w kolejności panelu. */
+function regionOrder(names: readonly string[]): string[] {
+  return screen
+    .getAllByRole("region")
+    .map((region) => region.getAttribute("aria-label") ?? "")
+    .filter((name) => names.includes(name));
+}
+
 function openEditor(): Editor {
   const element = document.body.appendChild(document.createElement("div"));
   const editor = new Editor({ element, extensions: cvEditorExtensions(), content: "" });
@@ -187,28 +202,43 @@ afterEach(() => {
 });
 
 describe("panel „Do poprawy” w edytorze CV", () => {
-  it("zbiera QC, uwagi generatora i kontrolę AI oraz podaje licznik do paska", async () => {
+  it("jedna lista: QC, generator i kontrola AI po sekcjach CV, z etykietą źródła, i licznik do paska", async () => {
     const { counts, editor } = setup();
     expect(await screen.findByText("Blokuje wysyłkę: 1")).toBeInTheDocument();
 
-    const tasks = screen.getByRole("region", { name: "Zalecane poprawki przed wysłaniem" });
-    expect(within(tasks).getByText("AWS — jest w CV, a nie ma tego w oryginale")).toBeInTheDocument();
-    expect(within(tasks).getByRole("button", { name: "Usuń „AWS” z CV" })).toBeEnabled();
-    expect(screen.getByRole("region", { name: "Warto poprawić — nie blokuje" })).toHaveTextContent("Must-have pogrubione");
-
-    const generator = await screen.findByRole("region", { name: "Uwagi generatora" });
-    expect(generator).toHaveTextContent("MUST-HAVE: brak Kafka w źródłach.");
-    // „Wyróżnienia: …” to informacja o tym, co generator zrobił — zwinięta.
-    expect(generator).not.toHaveTextContent("pogrubiono 4 terminy");
-    expect(within(generator).getByRole("button", { name: /Informacje \(1\)/ })).toHaveAttribute("aria-expanded", "false");
-
+    // Sekcja doświadczenia: blokada QC pierwsza, potem uwaga QC i linia kontroli AI.
+    const experience = await screen.findByRole("region", { name: "Doświadczenie" });
+    await within(experience).findByText("„Przeglądy kodu.”");
+    const items = within(experience).getAllByRole("listitem").filter((li) => li.parentElement?.parentElement === experience);
+    expect(items.map((li) => li.textContent)).toEqual([
+      expect.stringContaining("AWS — jest w CV, a nie ma tego w oryginale"),
+      expect.stringContaining("Must-have pogrubione"),
+      expect.stringContaining("„Przeglądy kodu.”"),
+    ]);
+    expect(within(experience).getByRole("button", { name: "Usuń „AWS” z CV" })).toBeEnabled();
+    expect(items[0]).toHaveTextContent("QC");
+    expect(items[2]).toHaveTextContent("kontrola AI v2");
+    expect(items[2]).toHaveTextContent("bez pokrycia w źródłach");
     // Kontrola AI: tylko linia, która nadal stoi w CV.
-    const review = screen.getByRole("region", { name: "Kontrola AI" });
-    expect(review).toHaveTextContent("Kontrola AI zatwierdzonej wersji v2 (1)");
-    expect(review).toHaveTextContent("„Przeglądy kodu.”");
-    expect(review).toHaveTextContent("bez pokrycia w źródłach");
-    expect(review).not.toHaveTextContent("Linia, której już nie ma.");
-    expect(review).toHaveTextContent("1 uwaga dotyczyła linii, której już nie ma w CV.");
+    expect(screen.queryByText("„Linia, której już nie ma.”")).not.toBeInTheDocument();
+
+    // Uwaga generatora bez miejsca w tekście — „Całe CV”, przed sekcjami kartki.
+    const whole = screen.getByRole("region", { name: "Całe CV" });
+    expect(whole).toHaveTextContent("MUST-HAVE: brak Kafka w źródłach.");
+    expect(within(whole).getByText("generator")).toBeInTheDocument();
+
+    // „Wyróżnienia: …” to informacja o tym, co generator zrobił — zwinięta w „Informacjach”.
+    const info = screen.getByRole("region", { name: "Informacje" });
+    expect(info).not.toHaveTextContent("pogrubiono 4 terminy");
+    expect(within(info).getByRole("button", { name: /Od generatora \(1\)/ })).toHaveAttribute("aria-expanded", "false");
+    expect(info).toHaveTextContent("1 uwaga kontroli AI dotyczyła linii, której już nie ma w CV.");
+
+    expect(regionOrder(["Całe CV", "Doświadczenie", "Zapytaj kandydata", "Pominięte", "Informacje", "W porządku"])).toEqual([
+      "Całe CV",
+      "Doświadczenie",
+      "Informacje",
+      "W porządku",
+    ]);
 
     // 1 blokująca + 1 uwaga QC + 1 uwaga generatora + 1 linia kontroli AI.
     await waitFor(() => expect(counts.at(-1)).toEqual({ total: 4, blocking: 1, state: "ready" }));
@@ -243,13 +273,14 @@ describe("panel „Do poprawy” w edytorze CV", () => {
     expect(screen.queryByText(/Blokuje wysyłkę/)).not.toBeInTheDocument();
     expect(editor.view.dom.querySelector(".cv-issue-term")).toBeNull();
     // Uwagi generatora i kontroli AI należą do TEGO wiersza etapu — zostają.
-    expect(await screen.findByRole("region", { name: "Uwagi generatora" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Całe CV" })).toHaveTextContent("MUST-HAVE: brak Kafka");
+    expect(await screen.findByText("„Przeglądy kodu.”")).toBeInTheDocument();
   });
 
   it("„Pokaż w CV” pokazuje kartkę i wyróżnia linię", async () => {
     const { editor, onShowCv } = setup();
-    const review = await screen.findByRole("region", { name: "Kontrola AI" });
-    fireEvent.click(within(review).getByRole("button", { name: "Pokaż w CV" }));
+    await screen.findByText("„Przeglądy kodu.”");
+    fireEvent.click(within(itemOf("„Przeglądy kodu.”")).getByRole("button", { name: "Pokaż w CV" }));
     expect(onShowCv).toHaveBeenCalled();
     await waitFor(() => expect(editor.view.dom.querySelector(".cv-issue-focus")?.textContent).toBe("Przeglądy kodu."));
     // Samo wskazanie miejsca nie zabiera fokusu z listy.
@@ -258,10 +289,11 @@ describe("panel „Do poprawy” w edytorze CV", () => {
 
   it("miejsce, którego już nie ma, daje komunikat zamiast cichego niczego", async () => {
     const { editor } = setup();
-    const tasks = await screen.findByRole("region", { name: "Zalecane poprawki przed wysłaniem" });
+    await screen.findByText("AWS — jest w CV, a nie ma tego w oryginale");
+    const task = itemOf("AWS — jest w CV, a nie ma tego w oryginale");
     const html = editor.getHTML().replace(" i AWS", "");
     loadCvHtml(editor, html);
-    fireEvent.click(within(tasks).getByRole("button", { name: "Pokaż w CV" }));
+    fireEvent.click(within(task).getByRole("button", { name: "Pokaż w CV" }));
     expect(toast.showError).toHaveBeenCalledWith(expect.stringContaining("Tego miejsca nie ma już w treści CV"));
   });
 
@@ -270,7 +302,7 @@ describe("panel „Do poprawy” w edytorze CV", () => {
     const before = editor.getHTML();
     const updates = vi.fn();
     editor.on("update", updates);
-    const notes = await screen.findByRole("region", { name: "Warto poprawić — nie blokuje" });
+    const notes = await screen.findByRole("region", { name: "Doświadczenie" });
     fireEvent.click(within(notes).getByRole("button", { name: /Must-have pogrubione/ }));
     fireEvent.click(within(notes).getByRole("button", { name: "Pogrub wszystkie" }));
 
@@ -344,7 +376,7 @@ describe("panel „Do poprawy” w edytorze CV", () => {
     const { editor, ensureDraft } = setup();
     const before = editor.getHTML();
     ensureDraft.mockResolvedValueOnce(false);
-    const notes = await screen.findByRole("region", { name: "Warto poprawić — nie blokuje" });
+    const notes = await screen.findByRole("region", { name: "Doświadczenie" });
     fireEvent.click(within(notes).getByRole("button", { name: /Must-have pogrubione/ }));
     fireEvent.click(within(notes).getByRole("button", { name: "Pogrub wszystkie" }));
     await waitFor(() => expect(ensureDraft).toHaveBeenCalled());
@@ -542,7 +574,7 @@ describe("„To nieprawda” w panelu „Do poprawy” (D5, 13.10.2026)", () => 
     };
     const api = memoryApi({ dismissIssue: vi.fn(async () => after) });
     const { counts } = setup({ api });
-    const generator = await screen.findByRole("region", { name: "Uwagi generatora" });
+    const generator = await screen.findByRole("region", { name: "Całe CV" });
     fireEvent.click(within(generator).getByRole("button", { name: "To nieprawda" }));
     const form = within(generator).getByRole("form", { name: "To nieprawda: MUST-HAVE: brak Kafka w źródłach." });
     fireEvent.click(within(form).getByRole("radio", { name: "Jest w źródłach pod inną nazwą" }));
@@ -562,7 +594,9 @@ describe("„To nieprawda” w panelu „Do poprawy” (D5, 13.10.2026)", () => 
       }),
     );
     expect(toast.showSuccess).toHaveBeenCalledWith("Oznaczono jako nieprawdę.");
-    await waitFor(() => expect(generator).not.toHaveTextContent("MUST-HAVE: brak Kafka w źródłach."));
+    // Jedyna pozycja „Całe CV” zniknęła — razem z grupą.
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Całe CV" })).not.toBeInTheDocument());
+    expect(screen.queryByText("MUST-HAVE: brak Kafka w źródłach.")).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Pominięte" })).toHaveTextContent("Pominięte (1)");
     // Pominięta uwaga nie liczy się do paska: 1 blokująca + 1 uwaga QC + 1 linia kontroli AI.
     await waitFor(() => expect(counts.at(-1)).toEqual({ total: 3, blocking: 1, state: "ready" }));
@@ -571,7 +605,8 @@ describe("„To nieprawda” w panelu „Do poprawy” (D5, 13.10.2026)", () => 
   it("uwaga kontroli AI: tekst linii i status idą do serwera; „Inny powód” wymaga opisu", async () => {
     const api = memoryApi();
     setup({ api });
-    const review = await screen.findByRole("region", { name: "Kontrola AI" });
+    await screen.findByText("„Przeglądy kodu.”");
+    const review = itemOf("„Przeglądy kodu.”");
     fireEvent.click(within(review).getByRole("button", { name: "To nieprawda" }));
     const form = within(review).getByRole("form", { name: "To nieprawda: „Przeglądy kodu.”" });
     fireEvent.click(within(form).getByRole("radio", { name: "Inny powód" }));
@@ -600,7 +635,7 @@ describe("„To nieprawda” w panelu „Do poprawy” (D5, 13.10.2026)", () => 
       ),
     });
     setup({ api });
-    const generator = await screen.findByRole("region", { name: "Uwagi generatora" });
+    const generator = await screen.findByRole("region", { name: "Całe CV" });
     fireEvent.click(within(generator).getByRole("button", { name: "To nieprawda" }));
     const form = within(generator).getByRole("form", { name: /^To nieprawda:/ });
     fireEvent.click(within(form).getByRole("radio", { name: "Nie dotyczy tej rekrutacji" }));
@@ -621,7 +656,8 @@ describe("„To nieprawda” w panelu „Do poprawy” (D5, 13.10.2026)", () => 
       restore: vi.fn(async () => qcResult({ checks: KEYED })),
     });
     const { client } = setup({ api });
-    const tasks = await screen.findByRole("region", { name: "Zalecane poprawki przed wysłaniem" });
+    await screen.findByText("AWS — jest w CV, a nie ma tego w oryginale");
+    const tasks = itemOf("AWS — jest w CV, a nie ma tego w oryginale");
     fireEvent.click(within(tasks).getByRole("button", { name: "To nieprawda" }));
     const form = within(tasks).getByRole("form", { name: "To nieprawda: AWS" });
     fireEvent.click(within(form).getByRole("radio", { name: "Jest w CV — QC tego nie znalazło" }));
@@ -644,10 +680,11 @@ describe("„To nieprawda” w panelu „Do poprawy” (D5, 13.10.2026)", () => 
 
   it("bez prawa obejścia blokady nie da się pominąć — uwagę tak", async () => {
     setup({ api: memoryApi({ qc: vi.fn(async () => qcResult({ can_override: false, checks: KEYED })) }) });
-    const tasks = await screen.findByRole("region", { name: "Zalecane poprawki przed wysłaniem" });
+    await screen.findByText("AWS — jest w CV, a nie ma tego w oryginale");
+    const tasks = itemOf("AWS — jest w CV, a nie ma tego w oryginale");
     expect(within(tasks).queryByRole("button", { name: "To nieprawda" })).not.toBeInTheDocument();
-    const notes = screen.getByRole("region", { name: "Warto poprawić — nie blokuje" });
-    fireEvent.click(within(notes).getByRole("button", { name: /Must-have pogrubione/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Must-have pogrubione/ }));
+    const notes = itemOf("Must-have pogrubione");
     expect(within(notes).getByRole("button", { name: "To nieprawda" })).toBeInTheDocument();
   });
 
@@ -683,7 +720,8 @@ describe("„To nieprawda” w panelu „Do poprawy” (D5, 13.10.2026)", () => 
     expect(await screen.findByRole("region", { name: "Informacje — wyciszone w „Jakość QC”" })).toHaveTextContent(
       "Must-have pogrubione",
     );
-    expect(screen.queryByRole("region", { name: "Warto poprawić — nie blokuje" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Informacje" })).toHaveTextContent("Must-have pogrubione");
+    expect(screen.getByRole("region", { name: "Doświadczenie" })).not.toHaveTextContent("Must-have pogrubione");
     // 1 blokująca + 1 uwaga generatora + 1 linia kontroli AI — bez wyciszonej.
     await waitFor(() => expect(counts.at(-1)).toEqual({ total: 3, blocking: 1, state: "ready" }));
   });

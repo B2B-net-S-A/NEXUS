@@ -592,8 +592,21 @@ function itemHasAction(item: QcItem): boolean {
   return item.fix === "ask_candidate" || item.fix === "upload_consent" || item.fix === "generate_cv";
 }
 
+/**
+ * Mała etykieta źródła pozycji („QC”, „generator”, „kontrola AI”) — jedna lista
+ * „Do poprawy” w edytorze CV łączy trzy źródła (13.10.2026). Okno QC jej nie
+ * podaje.
+ */
+export function SourceTag({ label }: { label: string }) {
+  return (
+    <Badge variant="outline" size="sm" className="font-normal text-muted-foreground" data-issue-source={label}>
+      {label}
+    </Badge>
+  );
+}
+
 /** Jedna rzecz do poprawy przed wysłaniem: co jest nie tak, gdzie i przycisk naprawy. */
-export function TaskCard({ task, ctx }: { task: QcTask; ctx: ActionContext }) {
+export function TaskCard({ task, ctx, sourceLabel }: { task: QcTask; ctx: ActionContext; sourceLabel?: string }) {
   const { check, name, items } = task;
   const [confirmOpen, setConfirmOpen] = useState(false);
   // Klucz pozycji, której formularz „To nieprawda” jest otwarty.
@@ -734,6 +747,7 @@ export function TaskCard({ task, ctx }: { task: QcTask; ctx: ActionContext }) {
             {QC_TASK_TAG[check.key]}
           </Badge>
         ) : null}
+        {sourceLabel ? <SourceTag label={sourceLabel} /> : null}
       </p>
       {body}
       {actions || dismissButton ? (
@@ -747,7 +761,7 @@ export function TaskCard({ task, ctx }: { task: QcTask; ctx: ActionContext }) {
   );
 }
 
-export function CheckRow({ check, ctx }: { check: QcCheck; ctx: ActionContext }) {
+export function CheckRow({ check, ctx, sourceLabel }: { check: QcCheck; ctx: ActionContext; sourceLabel?: string }) {
   const [open, setOpen] = useState(false);
   const [dismissKey, setDismissKey] = useState<string | null>(null);
   const roleGroups = groupRoleStates(check.roles ?? []);
@@ -778,6 +792,7 @@ export function CheckRow({ check, ctx }: { check: QcCheck; ctx: ActionContext })
           ) : null}
         </span>
         <span className="flex items-center gap-1.5">
+          {sourceLabel ? <SourceTag label={sourceLabel} /> : null}
           {statusBadge(check)}
           {hasBody ? (
             <ChevronDown className={cn("size-4 text-muted-foreground transition-transform", open && "rotate-180")} aria-hidden />

@@ -6513,6 +6513,8 @@ export interface CvGeneratePayload {
   consent_screenshot_token?: string;
   /** Tylko bez procesu: notatki idą do tego CV, nie do profilu kandydata. */
   screening_notes?: string;
+  /** „Z czego powstało” (D4): rodzaje materiału dla modelu — tylko z etapem. */
+  sources?: { answers: boolean; notes: boolean; transcripts: boolean; prep: boolean };
 }
 
 export const cvGeneratorApi = {

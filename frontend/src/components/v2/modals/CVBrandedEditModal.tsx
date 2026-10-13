@@ -160,6 +160,11 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   /** Otwiera generator (np. etap bez CV albo CV bez źródeł do edycji). */
   onRegenerate?: () => void;
+  /**
+   * Panel otwarty od razu: „Sprawdź i popraw” z karty „CV do klienta” otwiera
+   * edytor na „Do poprawy” (także w wąskim oknie, zamiast kartki).
+   */
+  initialPanel?: "issues";
 
   candidateName: string;
   jobTitle?: string;
@@ -228,6 +233,7 @@ function CVBrandedEditContent({
   open,
   onOpenChange,
   onRegenerate,
+  initialPanel,
   stageId: pipelineStageId,
   generatedId,
   candidateName,
@@ -263,12 +269,15 @@ function CVBrandedEditContent({
   const [unfilled, setUnfilled] = useState<string[]>([]);
   const [mode, setMode] = useState<"edit" | "word">("edit");
   const [sourcesOpen, setSourcesOpen] = useState(true);
-  const [issuesOpen, setIssuesOpen] = useState(false);
+  const issuesFirst = initialPanel === "issues";
+  const [issuesOpen, setIssuesOpen] = useState(issuesFirst);
   // Który panel wygrywa, gdy obok kartki mieści się tylko jeden.
-  const [lastSide, setLastSide] = useState<"sources" | "issues">("sources");
-  const sideTouched = useRef(false);
+  const [lastSide, setLastSide] = useState<"sources" | "issues">(issuesFirst ? "issues" : "sources");
+  const sideTouched = useRef(issuesFirst);
   const [issueCount, setIssueCount] = useState<CvIssueCount>(NO_ISSUES);
-  const [narrowPane, setNarrowPane] = useState<"cv" | "sources" | "issues" | "plan" | "history">("cv");
+  const [narrowPane, setNarrowPane] = useState<"cv" | "sources" | "issues" | "plan" | "history">(
+    issuesFirst ? "issues" : "cv",
+  );
   // Pasek „polecenia dla całego CV” (wynik: plan zmian w panelu obok).
   const [commandOpen, setCommandOpen] = useState(false);
   const [body, setBody] = useState<HTMLElement | null>(null);

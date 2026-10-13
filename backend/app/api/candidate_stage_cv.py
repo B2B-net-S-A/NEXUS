@@ -1015,6 +1015,7 @@ async def select_generated_cv(
     stage_id: int,
     payload: CVBrandedSelectGenerated,
     current_user: CandidateWriteAccess,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ) -> CVBrandedResponse:
     """Explicitly replace the current draft with one of the candidate's generated CVs.
@@ -1059,6 +1060,11 @@ async def select_generated_cv(
         )
     await db.commit()
     await db.refresh(csv)
+    # CV w procesie (13.10.2026): QC nowej wersji liczy się w tle, jak po
+    # podpięciu z generatora — plakietka na Tablicy nie czeka na okno QC.
+    from app.services.cv_auto_generate import qc_after_attach
+
+    background_tasks.add_task(qc_after_attach, stage_id, current_user.id)
     return _build_branded_response(csv)
 
 

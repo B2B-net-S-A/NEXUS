@@ -29,9 +29,25 @@ const POLICY = {
   effective_policy: { key: "x", version: 1, filename_pattern: "CV_{NAZWISKO}.docx", cv_language: null, requires_en_copy: false, require_recommendation_note: false, requires_rodo_consent_block: false, require_project_ref: false },
 };
 
+const AI_SOURCES = {
+  original_cv: { document_id: 31, filename: "glowne.pdf", uploaded_at: "2026-09-01T00:00:00Z" },
+  champion: true,
+  answers: { count: 4, excluded: 0 },
+  notes: { count: 2, excluded: 0 },
+  transcripts: { count: 1, excluded: 0 },
+  prep: { count: 0, excluded: 0 },
+  rate_notes: { count: 1, excluded: 0 },
+  defaults: { answers: true, notes: true, transcripts: false, prep: false },
+  last_used: null,
+};
 let recruitments: unknown[] = [PKO];
+let aiSourcesFail = false;
 const getMock = vi.fn(async (url: string, _config?: unknown): Promise<{ data: unknown }> => {
   if (url.endsWith("/recruitments")) return { data: recruitments };
+  if (url.endsWith("/cv/ai-sources")) {
+    if (aiSourcesFail) throw Object.assign(new Error("500"), { response: { status: 500 } });
+    return { data: AI_SOURCES };
+  }
   if (url.endsWith("/cv-sources")) return { data: SOURCES };
   if (url === "/api/cv-generator/policy") return { data: POLICY };
   if (url.includes("rule-for-generation")) return { data: { is_active: false } };
@@ -117,6 +133,7 @@ async function waitForGenerateEnabled() {
 
 beforeEach(() => {
   recruitments = [PKO];
+  aiSourcesFail = false;
   setUser();
   getMock.mockClear();
   postMock.mockReset();
@@ -148,6 +165,35 @@ describe("generacja w rekrutacji", () => {
     });
     expect(config.headers["Idempotency-Key"]).toBeTruthy();
     expect(await screen.findByRole("region", { name: "Wynik generacji" })).toHaveTextContent(/jako CV do klienta/);
+  });
+
+  it("„Co jeszcze przeczyta AI”: te same przełączniki co w karcie, wybór idzie jako `sources`", async () => {
+    renderGenerator();
+    const transcripts = await screen.findByRole("switch", { name: "Transkrypty rozmów" });
+    expect(transcripts).not.toBeChecked();
+    expect(screen.getByRole("switch", { name: "Odpowiedzi ze screeningu" })).toBeChecked();
+    expect(screen.getByRole("switch", { name: "Notatki ze stawką — zawsze wycinane" })).toBeDisabled();
+    // Prep bez materiału — przełącznik nic by nie zmienił.
+    expect(screen.getByRole("switch", { name: "Podsumowania prepu" })).toBeDisabled();
+    fireEvent.click(transcripts);
+    await waitForGenerateEnabled();
+    fireEvent.click(screen.getByRole("button", { name: /Generuj CV/ }));
+    await waitFor(() => expect(generatePosts("/api/cv-generator/generate")).toHaveLength(1), { timeout: 10000 });
+    expect(generatePosts("/api/cv-generator/generate")[0][1]).toMatchObject({
+      stage_id: 11,
+      sources: { answers: true, notes: true, transcripts: true, prep: false },
+    });
+  });
+
+  it("awaria odczytu źródeł mówi o ustawieniach domyślnych i nie blokuje generacji", async () => {
+    aiSourcesFail = true;
+    renderGenerator();
+    expect(await screen.findByText(/Nie udało się wczytać źródeł\. CV powstanie z ustawień domyślnych/)).toBeInTheDocument();
+    await waitForGenerateEnabled();
+    fireEvent.click(screen.getByRole("button", { name: /Generuj CV/ }));
+    await waitFor(() => expect(generatePosts("/api/cv-generator/generate")).toHaveLength(1), { timeout: 10000 });
+    // Bez `sources` serwer bierze domyślne — te same, które obiecuje komunikat.
+    expect(generatePosts("/api/cv-generator/generate")[0][1]).not.toHaveProperty("sources");
   });
 
   it("„Obie” wysyła languages=both jednym kliknięciem", async () => {

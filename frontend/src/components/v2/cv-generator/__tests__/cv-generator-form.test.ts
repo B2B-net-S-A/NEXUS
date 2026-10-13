@@ -152,6 +152,10 @@ describe("braki do wygenerowania CV", () => {
   it("wczytywanie zasad klienta blokuje przycisk", () => {
     expect(missing({ policyPending: true })).toEqual(["Zasady CV klienta — wczytuję…"]);
   });
+  it("„Z czego powstało” w trakcie wczytywania blokuje przycisk (awaria — nie)", () => {
+    expect(missing({ aiSourcesLoading: true })).toEqual(["Źródła dla AI — wczytuję…"]);
+    expect(missing({ aiSourcesLoading: false })).toEqual([]);
+  });
 });
 
 describe("treść żądania", () => {
@@ -206,6 +210,26 @@ describe("treść żądania", () => {
       consent_screenshot_token: "tok",
     });
     expect(payload.screening_notes).toBeUndefined();
+    // Bez wczytanych przełączników serwer bierze domyślne — pola nie ma.
+    expect(payload).not.toHaveProperty("sources");
+  });
+  it("przełączniki „Z czego powstało” jadą jako `sources`", () => {
+    const sources = { answers: false, notes: true, transcripts: true, prep: false };
+    const payload = buildGeneratePayload({
+      candidateId: 2,
+      recruitment: recruitment(),
+      cvDocumentId: 9,
+      projectRef: "",
+      language: "pl",
+      blind: false,
+      contentMode: "tailored",
+      position: "",
+      championProfile: null,
+      consentToken: null,
+      sources,
+    });
+    expect(payload.sources).toEqual(sources);
+    expect(payload.sources).not.toBe(sources);
   });
 });
 

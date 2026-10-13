@@ -185,3 +185,73 @@ async def test_worker_excludes_ai_only_notes_and_explains_omission(
         # Od 13.10.2026 rozmowy są domyślnie poza materiałem generatora (PR 4
         # doda przełącznik w karcie CV), więc o podsumowaniach nie ma uwagi.
         assert not any("podsumowań rozmów" in w for w in result.warnings)
+
+
+_QUESTIONS = {"screening_questions": [{"id": "q1", "question": "Stack?"}]}
+_ANSWERS = {"answers": [{"question_id": "q1", "response": "Kafka i Java w Acme Bank."}]}
+
+
+@pytest.mark.asyncio
+async def test_answers_can_be_left_out_of_the_material():
+    # D4 (13.10.2026): przełączniki „Z czego powstało” w karcie CV do klienta.
+    db = AsyncMock()
+    db.scalar.return_value = None
+    db.scalars.side_effect = [SimpleNamespace(all=lambda: []) for _ in range(2)]
+    text = await svc.collect_screening_notes_text(
+        db,
+        candidate_id=1,
+        stage=SimpleNamespace(screening_answers=_ANSWERS, notes="Zna Grafanę."),
+        job=SimpleNamespace(id=2, champion_profile=_QUESTIONS),
+        sources={"answers": False},
+    )
+    assert "Kafka" not in text
+    assert "Zna Grafanę." in text
+
+
+@pytest.mark.asyncio
+async def test_notes_can_be_left_out_without_reading_them():
+    db = AsyncMock()
+    db.scalar.return_value = None
+    text = await svc.collect_screening_notes_text(
+        db,
+        candidate_id=1,
+        stage=SimpleNamespace(screening_answers=_ANSWERS, notes="Zna Grafanę."),
+        job=SimpleNamespace(id=2, champion_profile=_QUESTIONS),
+        sources={"notes": False},
+    )
+    assert "Kafka i Java w Acme Bank." in text
+    assert "Grafan" not in text
+    # Bez notatek i bez prepu nie ma zapytań o notatki ani arkusze.
+    assert db.scalars.call_count == 0
+
+
+def test_chosen_sources_fills_defaults_and_drops_unknown_keys():
+    assert svc.chosen_sources(None) == svc.AI_SOURCE_DEFAULTS
+    assert svc.chosen_sources({"transcripts": True, "hack": True}) == {
+        **svc.AI_SOURCE_DEFAULTS,
+        "transcripts": True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_min_notes_gate_measures_the_chosen_sources(monkeypatch):
+    # Przegląd PR 4: wstępna bramka minimum notatek liczyła domyślne źródła,
+    # więc włączone transkrypty nie ratowały CV z krótkimi notatkami.
+    seen: list = []
+
+    async def collect(db, *, candidate_id, stage, job, sources=None, **_):
+        seen.append(sources)
+        return "x" * (700 if (sources or {}).get("transcripts") else 30)
+
+    stage = SimpleNamespace(candidate_id=1, job=SimpleNamespace(id=2))
+    db = AsyncMock()
+    db.scalars.return_value = SimpleNamespace(first=lambda: stage)
+    monkeypatch.setattr(svc, "collect_screening_notes_text", collect)
+    assert await svc.screening_notes_char_count(db, candidate_id=1, stage_id=3) == 30
+    assert (
+        await svc.screening_notes_char_count(
+            db, candidate_id=1, stage_id=3, sources={"transcripts": True}
+        )
+        == 700
+    )
+    assert seen == [None, {"transcripts": True}]

@@ -141,7 +141,10 @@ import { CVBrandedEditModal } from "../CVBrandedEditModal";
 
 type Target = { stageId: number } | { generatedId: number };
 
-async function open(target: Target = { stageId: 5 }, extra: { generatorWarnings?: string[] } = {}) {
+async function open(
+  target: Target = { stageId: 5 },
+  extra: { generatorWarnings?: string[]; initialPanel?: "issues" } = {},
+) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
@@ -215,6 +218,21 @@ it("QC jeszcze się liczy: przycisk bez liczby, źródła zostają", async () =>
   await open();
   expect(await screen.findByRole("button", { name: "Do poprawy" })).toHaveAttribute("aria-pressed", "false");
   expect(sourcesShown()).toBe(true);
+});
+
+it("„Sprawdź i popraw” z karty: „Do poprawy” od razu, także bez uwag i zanim QC się policzy", async () => {
+  state.count = { total: 0, blocking: 0, state: "loading" };
+  await open({ stageId: 5 }, { initialPanel: "issues" });
+  expect(panel()).not.toHaveAttribute("hidden");
+  expect(sourcesShown()).toBe(false);
+  expect(screen.getByRole("button", { name: "Do poprawy" })).toHaveAttribute("aria-pressed", "true");
+});
+
+it("wąski ekran z „Sprawdź i popraw”: kolumna „Do poprawy” zamiast kartki", async () => {
+  state.width = 768;
+  await open({ stageId: 5 }, { initialPanel: "issues" });
+  expect(panel()).not.toHaveAttribute("hidden");
+  expect(screen.getByTestId("paper").closest(".cv-paper")).toHaveAttribute("hidden");
 });
 
 it("szeroki ekran (1540+) mieści oba panele naraz", async () => {

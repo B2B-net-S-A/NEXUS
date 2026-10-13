@@ -370,6 +370,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
 //   `/preview/recruitment-v3`, `/preview/pipeline-v4`, `/preview/job-detail`,
 //   `/preview/cv-generator`,
 //   `/preview/jobs-list-v3`, `/preview/calendar-cycle`, `/preview/cv-qc`, `/preview/cv-editor`,
+//   `/preview/cv-to-client`,
 //   `/preview/cpro-queue`, `/preview/candidate-followup`,
 //   `/preview/kpi-targets`, `/preview/kpi-topbar`, `/preview/plain-brief`, `/preview/permissions`,
 //   `/preview/b2b-documents`, `/preview/b2b-generator`, `/preview/similar-reassign`,
@@ -459,6 +460,9 @@ const PUBLIC_PATHS = [
   "/preview/calendar-cycle",
   "/preview/cv-qc",
   "/preview/cv-editor",
+  // Karta „CV do klienta” — panel „Z czego powstało” i liczba do sprawdzenia
+  // (13.10.2026); zasiany cache, sieć odcięta.
+  "/preview/cv-to-client",
   "/preview/cpro-queue",
   "/preview/candidate-followup",
   "/preview/kpi-targets",

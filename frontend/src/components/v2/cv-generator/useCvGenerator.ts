@@ -15,6 +15,13 @@ import { useToast } from "@/components/Toast";
 import api, { type ChampionProfile, type CvGenerateEnqueued } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { invalidateChampionDependents } from "@/lib/champion-cache";
+import {
+  cvAiSourcesQueryKey,
+  fetchCvAiSources,
+  initialAiSources,
+  type CvAiSourceKey,
+  type CvAiSourceToggles,
+} from "@/lib/cv-ai-sources";
 import { withCvGenerationRequest } from "@/lib/cv-generation-request";
 import {
   extractErrorDetail,
@@ -105,6 +112,9 @@ export function useCvGenerator({
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [consentToken, setConsentToken] = useState<string | null>(null);
   const [result, setResult] = useState<CvGenerationResult | null>(null);
+  // Ostatnia odmowa serwera (np. 422 reguły klienta) — okno pokazuje ją w toaście,
+  // karta „CV do klienta” także pod przyciskiem.
+  const [lastError, setLastError] = useState<string | null>(null);
 
   // ── Procesy i pliki osoby ────────────────────────────────────────────────
   const candidateId = candidate.id;
@@ -145,6 +155,32 @@ export function useCvGenerator({
     appliedProcessFor.current = key;
     setProcessChoice(autoProcessChoice(recruitments, prefillJobId));
   }, [candidateId, prefillJobId, recruitments, recruitmentsQuery.isSuccess, recruitmentsQuery.isPlaceholderData]);
+
+  // ── „Z czego powstało” (D4): przełączniki źródeł dla AI ──────────────────
+  // Stan startowy = wybór bieżącej wersji CV etapu (`last_used`) albo domyślne.
+  // Wybór rekrutera trzymamy per etap — zmiana procesu zaczyna od nowa.
+  const aiStageId = recruitment?.stage_id ?? null;
+  const aiSourcesQuery = useQuery({
+    queryKey: cvAiSourcesQueryKey(aiStageId ?? 0),
+    queryFn: () => fetchCvAiSources(aiStageId ?? 0),
+    enabled: aiStageId != null,
+    // Wczytywanie blokuje „Generuj”, awaria — nie. Ponawia tylko axios (jeden
+    // właściciel ponowień, `QueryProvider.test`), więc awaria widać od razu.
+    retry: false,
+  });
+  const [aiChoice, setAiChoice] = useState<{ stageId: number; value: CvAiSourceToggles } | null>(null);
+  const aiSources: CvAiSourceToggles | null =
+    aiStageId == null
+      ? null
+      : aiChoice?.stageId === aiStageId
+        ? aiChoice.value
+        : aiSourcesQuery.data
+          ? initialAiSources(aiSourcesQuery.data)
+          : null;
+  function setAiSource(key: CvAiSourceKey, on: boolean) {
+    if (aiStageId == null || !aiSources) return;
+    setAiChoice({ stageId: aiStageId, value: { ...aiSources, [key]: on } });
+  }
 
   // ── Klient, reguły, polityka centralna ───────────────────────────────────
   const clientId = recruitment?.client_id ?? null;
@@ -227,6 +263,7 @@ export function useCvGenerator({
     projectRef,
     consentBlocksGeneration,
     consentToken,
+    aiSourcesLoading: aiStageId != null && aiSourcesQuery.isPending,
   });
 
   // ── Wybór procesu ────────────────────────────────────────────────────────
@@ -319,6 +356,7 @@ export function useCvGenerator({
         position,
         championProfile: championOverride?.profile ?? null,
         consentToken,
+        sources: aiSources,
       });
       return (await withCvGenerationRequest("/api/cv-generator/generate", payload, (key) =>
         api.post<CvGenerateEnqueued>("/api/cv-generator/generate", payload, {
@@ -340,13 +378,15 @@ export function useCvGenerator({
       onEnqueued?.(data.id);
     },
     onError: async (error: unknown) => {
-      const detail = await extractErrorDetail(error);
-      toast.showError(detail || "Nie udało się uruchomić generacji.");
+      const detail = (await extractErrorDetail(error)) || apiErrorMessage(error, "Nie udało się uruchomić generacji.");
+      setLastError(detail);
+      toast.showError(detail);
     },
   });
 
   function submit() {
     if (missing.length > 0 || generateMut.isPending) return;
+    setLastError(null);
     generateMut.mutate();
   }
 
@@ -368,6 +408,9 @@ export function useCvGenerator({
     sourcesQuery,
     cvDocumentId,
     setSourceChoice,
+    aiSourcesQuery,
+    aiSources,
+    setAiSource,
     noteDraft,
     setNoteDraft,
     championOverride,
@@ -413,6 +456,7 @@ export function useCvGenerator({
     missing,
     submit,
     generating: generateMut.isPending,
+    lastError,
     result,
     backToForm,
   };

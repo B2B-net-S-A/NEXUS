@@ -10,9 +10,19 @@
  *    Pobierz DOCX, uwagi kontroli AI, zgoda RODO, „Wygeneruj ponownie”
  *    i „Użyj nowej wersji”, gdy obok leży nowsza, niepodpięta generacja;
  *  - generuje się — ręczna generacja z tej karty albo auto-CV po weryfikacji;
- *  - brak — „Generuj CV” otwiera to samo okno co na profilu, z osobą
- *    i rekrutacją już ustawionymi; serwer sam podpina gotowe CV do etapu;
+ *  - brak — „Generuj CV” rozwija w karcie panel „Z czego powstało”
+ *    (`CvGeneratePanel`); serwer sam podpina gotowe CV do etapu;
  *  - stary szablon — szkic HTML sprzed generatora: tylko podgląd.
+ *
+ * 13.10.2026 (PR 4 „CV w procesie”, decyzja D4): CV powstaje w procesie, więc
+ * karta nie otwiera już okna generatora. „Generuj CV”, „Wygeneruj ponownie”
+ * i „Spróbuj ponownie” rozwijają panel ze źródłami dla AI, obróbką i językiem.
+ * Ponowna generacja przy istniejącym szkicu kończy się tą samą operacją co
+ * „Użyj nowej wersji” (zastąpienie szkicu, zatwierdzone wersje zostają) —
+ * rekruter o nią prosił, więc karta robi to sama, gdy CV jest gotowe. Zamiast
+ * licznika kontroli AI karta pokazuje jedną liczbę „N rzeczy do sprawdzenia
+ * przed wysłaniem” (`CvToClientChecks`) z „Sprawdź i popraw” → edytor na
+ * panelu „Do poprawy”.
  *
  * 12.10.2026 — „Użyj innego CV”: pomiar na produkcji pokazał, że 16 z 22
  * auto-CV z dwóch tygodni powstało dla osób, które miały już gotowe CV,
@@ -27,11 +37,10 @@
  * wyłącza wyłącznie pobranie pliku — serwer i tak odpowiada wtedy 409.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  AlertTriangle,
   Download,
   Eye,
   FileText,
@@ -55,7 +64,10 @@ import {
 } from "@/lib/authenticated-files";
 import { withDownloadIntent } from "@/lib/cv-download-intent";
 import { CV_CONTENT_MODES } from "@/lib/cv-generator";
+import { cvAiSourcesQueryKey } from "@/lib/cv-ai-sources";
 import {
+  cvToClientIssuesQueryKey,
+  cvToClientQcQueryKey,
   cvToClientRowsQueryKey,
   cvToClientShouldPoll,
   resolveCvToClient,
@@ -76,10 +88,11 @@ import { useStageBrandedCv } from "@/hooks/useStageBrandedCv";
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { CvGeneratorDialog } from "@/components/v2/cv-generator/CvGeneratorDialog";
 import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachButton";
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
+import { CvGeneratePanel } from "@/components/v2/recruitment/CvGeneratePanel";
 import { CvHtmlPreviewDialog } from "@/components/v2/recruitment/CvHtmlPreviewDialog";
+import { CvToClientChecks } from "@/components/v2/recruitment/CvToClientChecks";
 import { UseOtherCvDialog } from "@/components/v2/recruitment/UseOtherCvDialog";
 import { useReadyCvChoice } from "@/components/v2/recruitment/useReadyCvChoice";
 
@@ -182,6 +195,8 @@ export interface CvToClientCardProps {
   jobId: number;
   jobTitle?: string;
   readOnly: boolean;
+  /** Harness `/preview/cv-to-client`: panel „Z czego powstało” otwarty od razu. */
+  initialGenerateOpen?: boolean;
 }
 
 export function CvToClientCard({
@@ -191,19 +206,33 @@ export function CvToClientCard({
   jobId,
   jobTitle,
   readOnly,
+  initialGenerateOpen = false,
 }: CvToClientCardProps) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
   const jobLabel = jobTitle?.trim() || `Rekrutacja #${jobId}`;
 
-  const [generatorOpen, setGeneratorOpen] = useState(false);
+  // Panel „Z czego powstało” (generacja w karcie, bez okna generatora).
+  const [generateOpen, setGenerateOpen] = useState(initialGenerateOpen);
   const [editorOpen, setEditorOpen] = useState(false);
+  // „Sprawdź i popraw” otwiera edytor od razu na panelu „Do poprawy”.
+  const [editorPanel, setEditorPanel] = useState<"issues" | undefined>(undefined);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [originalOpen, setOriginalOpen] = useState(false);
   const [otherOpen, setOtherOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  // Generacja zlecona z TEJ karty — czekamy, aż serwer ją podepnie do etapu.
-  const [pending, setPending] = useState<{ id: number; expired: boolean } | null>(null);
+  // Generacja zlecona z TEJ karty — czekamy, aż serwer ją podepnie do etapu
+  // (`replace` = etap miał już CV: gotową wersję podpinamy sami, jak „Użyj
+  // nowej wersji”, bo serwer podpina tylko do etapu bez szkicu). Wiersz etapu
+  // i wersję szkicu zapamiętujemy w chwili zlecenia: edycja szkicu w trakcie
+  // generacji ma dać 409 przy podmianie, a nie zostać nadpisana.
+  const [pending, setPending] = useState<{
+    id: number;
+    expired: boolean;
+    replace: boolean;
+    stageId: number;
+    revision: number;
+  } | null>(null);
   const pendingId = pending?.id ?? null;
   useEffect(() => {
     if (pendingId == null) return;
@@ -295,7 +324,7 @@ export function CvToClientCard({
 
   // Koniec czekania: serwer podpiął CV (etap ma treść) albo generacja padła.
   useEffect(() => {
-    if (!pending) return;
+    if (!pending || pending.replace) return;
     if (state.kind === "ready" || state.kind === "failed") setPending(null);
   }, [pending, state.kind]);
 
@@ -305,17 +334,17 @@ export function CvToClientCard({
     if (pairStageId != null) {
       void queryClient.invalidateQueries({ queryKey: stageBrandedQueryKey(pairStageId) });
     }
+    // Liczba rzeczy do sprawdzenia i „Z czego powstało” po edycji albo nowym CV.
+    void queryClient.invalidateQueries({ queryKey: cvToClientQcQueryKey(cvStageId).slice(0, 3) });
+    void queryClient.invalidateQueries({ queryKey: cvToClientIssuesQueryKey(cvStageId).slice(0, 3) });
+    void queryClient.invalidateQueries({ queryKey: cvAiSourcesQueryKey(cvStageId).slice(0, 1) });
   };
 
   const attachVersionMut = useMutation({
-    mutationFn: (generatedId: number) =>
-      candidateStageCvApi.branded.selectGenerated(
-        cvStageId,
-        generatedId,
-        branded?.edit_revision ?? 0,
-      ),
-    onSuccess: (response) => {
-      queryClient.setQueryData(stageBrandedQueryKey(cvStageId), response.data);
+    mutationFn: (target: { stageId: number; generatedId: number; revision: number }) =>
+      candidateStageCvApi.branded.selectGenerated(target.stageId, target.generatedId, target.revision),
+    onSuccess: (response, target) => {
+      queryClient.setQueryData(stageBrandedQueryKey(target.stageId), response.data);
       void queryClient.invalidateQueries({ queryKey: cvToClientRowsQueryKey(candidateId, jobId) });
       showSuccess("CV podpięte do tej rekrutacji.");
     },
@@ -327,6 +356,10 @@ export function CvToClientCard({
         ),
       ),
   });
+
+  /** „Użyj nowej wersji” — wersja szkicu z chwili kliknięcia. */
+  const attachNewVersion = (generatedId: number) =>
+    attachVersionMut.mutate({ stageId: cvStageId, generatedId, revision: branded?.edit_revision ?? 0 });
 
   const download = async () => {
     if (!branded) return;
@@ -355,12 +388,65 @@ export function CvToClientCard({
     }
   };
 
-  const openGenerator = () => setGeneratorOpen(true);
+  // Ponowna generacja przy istniejącym CV: gotową wersję podpinamy sami
+  // (ta sama operacja co „Użyj nowej wersji”). Raz na generację; odmowa
+  // (szkic zmienił się w innym oknie) zostawia przycisk „Użyj nowej wersji”.
+  const pendingRow =
+    pending != null ? ((rowsQuery.data ?? []).find((row) => row.id === pending.id) ?? null) : null;
+  const replaceTried = useRef<number | null>(null);
+  const attachVersion = attachVersionMut.mutate;
+  const attachedId = branded?.generated_document_id ?? null;
+  const pendingStatus = pendingRow?.status ?? null;
+  useEffect(() => {
+    if (!pending?.replace) return;
+    if (attachedId === pending.id) {
+      setPending(null);
+      return;
+    }
+    if (pendingStatus !== "ready" || replaceTried.current === pending.id) return;
+    replaceTried.current = pending.id;
+    attachVersion(
+      { stageId: pending.stageId, generatedId: pending.id, revision: pending.revision },
+      { onSettled: () => setPending(null) },
+    );
+  }, [pending, attachedId, pendingStatus, attachVersion]);
+  const replacing = pending?.replace === true && pendingStatus === "ready";
+  const replaceFailed = pending?.replace === true && pendingStatus === "failed" ? pendingRow : null;
+
+  const openGenerator = () => {
+    setEditorOpen(false);
+    setGenerateOpen(true);
+  };
+  const openEditor = (panel?: "issues") => {
+    setEditorPanel(panel);
+    setEditorOpen(true);
+  };
+  // CV pary z innego wiersza etapu (runda 11): bieżący wiersz jest pusty, więc
+  // serwer podepnie nową wersję do niego sam — szkicu tamtego wiersza nie ruszamy.
+  const replacesDraft = hasCv && pairStageId == null;
   const onEnqueued = (generatedId: number) => {
-    setPending({ id: generatedId, expired: false });
-    setGeneratorOpen(false);
+    setPending({
+      id: generatedId,
+      expired: false,
+      replace: replacesDraft,
+      stageId: cvStageId,
+      revision: branded?.edit_revision ?? 0,
+    });
+    setGenerateOpen(false);
     void queryClient.invalidateQueries({ queryKey: cvToClientRowsQueryKey(candidateId, jobId) });
   };
+  /** Przycisk otwierający panel generacji — znika, gdy panel jest otwarty. */
+  const generateButton = (label: string, primary: boolean, icon: "sparkles" | "refresh") =>
+    generateOpen ? null : (
+      <Button size="sm" variant={primary ? "primary" : "ghost"} onClick={openGenerator}>
+        {icon === "sparkles" ? (
+          <Sparkles className="h-3.5 w-3.5" aria-hidden />
+        ) : (
+          <RefreshCcw className="h-3.5 w-3.5" aria-hidden />
+        )}{" "}
+        {label}
+      </Button>
+    );
 
   const loading = brandedQuery.isLoading || rowsQuery.isLoading;
   const loadFailed = brandedQuery.isError || rowsQuery.isError;
@@ -427,24 +513,18 @@ export function CvToClientCard({
         ) : null}
         {origin ? <p className="text-[11px] text-muted-foreground">{origin.sentence}</p> : null}
         {readyHint}
-        {state.findings > 0 ? (
-          <p
-            role="note"
-            className="flex items-start gap-1.5 rounded-md border border-warning/30 bg-warning-muted px-2.5 py-1.5 text-xs text-warning-muted-foreground"
-          >
-            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-            {state.findings === 1
-              ? "1 rzecz do sprawdzenia"
-              : `${state.findings} rzeczy do sprawdzenia`}{" "}
-            — kontrola AI nie znalazła pokrycia w źródłach. Porównaj z oryginałem w edytorze.
-          </p>
-        ) : null}
+        <CvToClientChecks
+          stageId={cvStageId}
+          revision={branded.edit_revision ?? null}
+          readOnly={readOnly}
+          onReview={() => openEditor("issues")}
+        />
         <div className="flex flex-wrap gap-1.5">
           <Button size="sm" variant="outline" onClick={() => setPreviewOpen(true)}>
             <Eye className="h-3.5 w-3.5" aria-hidden /> Podgląd
           </Button>
           {!readOnly ? (
-            <Button size="sm" variant="outline" onClick={() => setEditorOpen(true)}>
+            <Button size="sm" variant="outline" onClick={() => openEditor()}>
               <Pencil className="h-3.5 w-3.5" aria-hidden /> Edytuj
             </Button>
           ) : null}
@@ -493,9 +573,24 @@ export function CvToClientCard({
         {state.generating ? (
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Loader2 className="size-3 animate-spin" aria-hidden /> Generuje się nowa wersja…
+            {pending?.replace && pending.id === state.generating.id
+              ? " Zastąpi bieżący szkic, gdy będzie gotowa."
+              : ""}
           </p>
         ) : null}
-        {state.candidate && !readOnly ? (
+        {replacing ? (
+          <p role="status" className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Loader2 className="size-3 animate-spin" aria-hidden /> Nowa wersja gotowa — podpinam ją jako
+            szkic…
+          </p>
+        ) : null}
+        {replaceFailed ? (
+          <p role="alert" className="text-xs text-destructive-muted-foreground">
+            Nowa wersja nie powstała
+            {replaceFailed.error_message ? `: ${replaceFailed.error_message}` : "."} Bieżące CV zostaje.
+          </p>
+        ) : null}
+        {state.candidate && !readOnly && !replacing ? (
           <div className="flex flex-wrap items-center gap-2 rounded-md border border-info/25 bg-info-muted px-2.5 py-1.5 text-xs text-info-muted-foreground">
             <span className="min-w-0 flex-1">
               Jest nowsza wersja z generatora
@@ -507,7 +602,7 @@ export function CvToClientCard({
               variant="outline"
               loading={attachVersionMut.isPending}
               disabled={attachVersionMut.isPending}
-              onClick={() => attachVersionMut.mutate(state.candidate!.id)}
+              onClick={() => attachNewVersion(state.candidate!.id)}
             >
               Użyj nowej wersji
             </Button>
@@ -516,9 +611,7 @@ export function CvToClientCard({
         {!readOnly ? (
           <div className="flex flex-wrap gap-1.5">
             {useOtherButton}
-            <Button size="sm" variant="ghost" onClick={openGenerator}>
-              <RefreshCcw className="h-3.5 w-3.5" aria-hidden /> Wygeneruj ponownie
-            </Button>
+            {generateButton(replaceFailed ? "Spróbuj ponownie" : "Wygeneruj ponownie", false, "refresh")}
           </div>
         ) : null}
       </div>
@@ -532,7 +625,7 @@ export function CvToClientCard({
           {auto ? "Automat generuje CV…" : "Generuje się…"}
         </p>
         <p className="text-xs text-muted-foreground">
-          Możesz zamknąć panel. CV pojawi się tutaj i w „Moich CV”.
+          Możesz zamknąć panel. CV pojawi się tutaj i w plikach kandydata.
         </p>
       </div>
     );
@@ -556,14 +649,12 @@ export function CvToClientCard({
               size="sm"
               loading={attachVersionMut.isPending}
               disabled={attachVersionMut.isPending}
-              onClick={() => attachVersionMut.mutate(state.candidate!.id)}
+              onClick={() => attachNewVersion(state.candidate!.id)}
             >
               Użyj tej wersji
             </Button>
             {useOtherButton}
-            <Button size="sm" variant="ghost" onClick={openGenerator}>
-              <RefreshCcw className="h-3.5 w-3.5" aria-hidden /> Wygeneruj ponownie
-            </Button>
+            {generateButton("Wygeneruj ponownie", false, "refresh")}
           </div>
         ) : null}
       </div>
@@ -577,9 +668,7 @@ export function CvToClientCard({
         </p>
         {!readOnly ? (
           <div className="flex flex-wrap gap-1.5">
-            <Button size="sm" onClick={openGenerator}>
-              <Sparkles className="h-3.5 w-3.5" aria-hidden /> Spróbuj ponownie
-            </Button>
+            {generateButton("Spróbuj ponownie", true, "sparkles")}
             {useOtherButton}
           </div>
         ) : null}
@@ -605,16 +694,12 @@ export function CvToClientCard({
               variant="outline"
               loading={attachVersionMut.isPending}
               disabled={attachVersionMut.isPending}
-              onClick={() => attachVersionMut.mutate(state.candidate!.id)}
+              onClick={() => attachNewVersion(state.candidate!.id)}
             >
               Użyj wygenerowanego CV
             </Button>
           ) : null}
-          {!readOnly ? (
-            <Button size="sm" onClick={openGenerator}>
-              <Sparkles className="h-3.5 w-3.5" aria-hidden /> Wygeneruj CV
-            </Button>
-          ) : null}
+          {!readOnly ? generateButton("Wygeneruj CV", true, "sparkles") : null}
           {useOtherButton}
         </div>
       </div>
@@ -628,14 +713,16 @@ export function CvToClientCard({
         {!readOnly ? (
           <div className="space-y-1">
             <div className="flex flex-wrap gap-1.5">
-              <Button size="sm" variant={readyHint ? "outline" : "primary"} onClick={openGenerator}>
-                <Sparkles className="h-3.5 w-3.5" aria-hidden /> Generuj CV
-              </Button>
+              {generateOpen ? null : (
+                <Button size="sm" variant={readyHint ? "outline" : "primary"} onClick={openGenerator}>
+                  <Sparkles className="h-3.5 w-3.5" aria-hidden /> Generuj CV
+                </Button>
+              )}
               {/* Pasek ma już wejście do okna wyboru — bez drugiego obok. */}
               {readyHint ? null : useOtherButton}
             </div>
             <p className="text-[11px] text-muted-foreground">
-              Otworzy okno generatora z tą osobą i tą rekrutacją. CV wybrane albo wgrane tutaj
+              Pokaże, z czego powstanie CV tej osoby w tej rekrutacji. CV wybrane albo wgrane tutaj
               nie zostanie nadpisane przez automat po ruchu na „Zweryfikowany”.
             </p>
           </div>
@@ -657,6 +744,16 @@ export function CvToClientCard({
     >
       <h3 className="text-sm font-semibold text-foreground">CV do klienta</h3>
       {body}
+      {generateOpen && !readOnly ? (
+        <CvGeneratePanel
+          candidateId={candidateId}
+          candidateName={candidateName}
+          jobId={jobId}
+          replaces={replacesDraft}
+          onEnqueued={onEnqueued}
+          onCancel={() => setGenerateOpen(false)}
+        />
+      ) : null}
       <div className="flex flex-wrap items-center gap-2 border-t border-border pt-2 text-[11px] text-muted-foreground">
         <FileText className="h-3 w-3 shrink-0" aria-hidden />
         {originalQuery.isLoading ? (
@@ -682,16 +779,6 @@ export function CvToClientCard({
         )}
       </div>
 
-      {generatorOpen ? (
-        <CvGeneratorDialog
-          open
-          onOpenChange={setGeneratorOpen}
-          candidateId={candidateId}
-          candidateName={candidateName}
-          jobId={jobId}
-          onEnqueued={onEnqueued}
-        />
-      ) : null}
       {editorOpen && !readOnly ? (
         <CVBrandedEditModal
           open
@@ -700,6 +787,7 @@ export function CvToClientCard({
             if (!open) refresh();
           }}
           onRegenerate={openGenerator}
+          initialPanel={editorPanel}
           stageId={cvStageId}
           jobTitle={jobLabel}
           candidateName={candidateName}

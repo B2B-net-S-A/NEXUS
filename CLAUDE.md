@@ -197,7 +197,7 @@ Lista `/jobs`, Tablica, ruch kart i bramki, panel osoby, QC CV i Cpro, przegląd
 - `prostszy-ekran-rekrutacji-fakty-kafle-kandydaci-do.md` — Prostszy ekran rekrutacji — fakty, kafle „Kandydaci do dodania”, kolumna „Zamknięci” (02.10.2026)
 - `przeglad-delivery-leada-v2.md` — Przegląd Delivery Leada v2 (D6, D9, D10, 08.10.2026)
 - `przydzial-ludzi-do-requestow-stany-requestu-i.md` — Przydział ludzi do requestów, stany requestu i pulpit „Requesty i obłożenie” (0371, 24.09.2026)
-- `qc-cv-tryb-doradczy-role-z-odczytu-potwierdzenie.md` — QC CV: tryb doradczy, role z odczytu CV, „Potwierdzone z kandydatem” (12.10.2026) · QC doradza zamiast blokować (wyłącznik `CV_QC_ADVISORY`), skąd QC wie, w której roli kandydat czego używał, potwierdzenie z kandydatem jako notatka, przeliczenie przebiegów po zmianie reguł
+- `qc-cv-tryb-doradczy-role-z-odczytu-potwierdzenie.md` — QC CV: tryb doradczy, role z odczytu CV, „Potwierdzone z kandydatem” (12.10.2026) · QC doradza (`CV_QC_ADVISORY`), rola technologii z odczytu CV, potwierdzenie z kandydatem jako notatka, przeliczenie po zmianie reguł
 - `qc-mowi-prawde.md` — QC CV mówi prawdę (13.10.2026) · `found_in`, odpowiedzi jako źródło, zdanie w roli tylko przy opisie, „Szukałem w”
 - `qc-to-nieprawda-i-jakosc-qc.md` — „To nieprawda” i „Jakość QC” (13.10.2026, D5–D6) · pominięcie uwagi per para, blokada = obejście, trafność < 70% → informacja
 - `rekrutacja-drobne-usprawnienia-ux.md` — Rekrutacja — drobne usprawnienia UX (24.09.2026)
@@ -259,13 +259,14 @@ Generator CV, reguły CV klienta, zgoda RODO, interaktywne CV, automaty rekrutac
 
 - `automaty-rekrutacji-v3.md` — Automaty rekrutacji v3 (21.09.2026, migracja 0335)
 - `autonomiczny-przeplyw-cv.md` — Autonomiczny przepływ CV (17.09.2026)
+- `cv-w-procesie.md` — CV w procesie (13.10.2026, D4) · źródła AI w karcie, jedna lista „Do poprawy”
 - `edytor-cv-pelny-ekran.md` — Edytor CV na cały ekran — kartka, bloki, źródła, stała klauzula RODO (12.10.2026) · kontrakt HTML edytor ↔ Word, bloki i etykiety szablonu, blokada klauzuli (przeglądarka + serwer), pola w nawiasach, wpis `cv_file_downloaded`, panel „Do poprawy” (QC, uwagi generatora, kontrola AI, „Popraw wszystko”, `qc/transform`), AI na zaznaczeniu (`cv-ai/selection`, kontrola „bez nowych faktów”, klucz `cv_selection_edit`), polecenie dla całego CV (`cv-ai/command`, plan zmian sprawdzany przez kod, klucz `cv_editor_command`), historia wersji i powrót pliku Word (`…/versions`, `…/import-preview` bez zapisu, treść nakłada edytor), harness `/preview/cv-editor`
 - `generator-cv-domyslnie-sciezka-sprzed-przebudowy.md` — Generator CV — domyślnie ścieżka sprzed przebudowy (`legacy_v7`, 10.09.2026)
 - `generator-cv-tylko-w-rekrutacji.md` — Generator CV tylko w rekrutacji (13.10.2026)
 - `generator-cv-v3-jeden-ekran-od-osoby.md` — Generator CV v3 — jeden ekran od osoby (23.09.2026)
 - `interaktywne-cv-publiczny-link-do-wygenerowanego-cv.md` — Interaktywne CV (publiczny link do wygenerowanego CV)
 - `reguly-cv-per-klient-pelna-recepta-delivery-leada.md` — Reguły CV per klient — pełna recepta Delivery Leada
-- `silnik-cv-bez-wypelniacza.md` — Silnik CV bez wypełniacza (13.10.2026, D1–D3) · bez punktu MUST, pytanie ≠ fakt, strażnik terminów, branża ze źródła, nagłówek `cv_role_title`, lata, notatki bez stawek i transkryptów
+- `silnik-cv-bez-wypelniacza.md` — Silnik CV bez wypełniacza (13.10.2026, D1–D3) · bez punktu MUST, pytanie ≠ fakt, branża ze źródła, nagłówek `cv_role_title`, lata, notatki bez stawek
 - `zrzut-zgody-rodo-na-koncu-cv-wymog-pko-bp.md` — Zrzut zgody RODO na końcu CV (wymóg PKO BP)
 
 ### AI i Jarvis — `docs/claude/ai-jarvis/`

@@ -7,15 +7,25 @@
  * pochodzenia kopii i zgoda RODO dołączana do CV etapu bez dokumentu generatora.
  *
  * Karta niczego nie blokuje w procesie — brak zgody wyłącza tylko pobranie.
+ *
+ * 13.10.2026 (PR 4 „CV w procesie”): „Generuj CV” / „Wygeneruj ponownie”
+ * rozwijają w karcie panel „Z czego powstało” zamiast okna generatora,
+ * a karta pokazuje jedną liczbę rzeczy do sprawdzenia przed wysłaniem.
  */
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { configure, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { useAuthStore } from "@/store/auth";
+
+// Panel generacji pyta o kilka rzeczy naraz — pod obciążeniem sekunda to za mało.
+configure({ asyncUtilTimeout: 5000 });
+
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
+  apiPost: vi.fn(),
   brandedGet: vi.fn(),
   originalGet: vi.fn(),
   selectGenerated: vi.fn(),
@@ -28,13 +38,13 @@ const mocks = vi.hoisted(() => ({
   downloadBlob: vi.fn(),
   showSuccess: vi.fn(),
   showError: vi.fn(),
-  dialogProps: null as null | Record<string, unknown>,
+  editorProps: null as null | Record<string, unknown>,
   consentProps: null as null | Record<string, unknown>,
 }));
 
 vi.mock("@/lib/api", () => ({
   __esModule: true,
-  default: { get: mocks.apiGet },
+  default: { get: mocks.apiGet, post: mocks.apiPost },
   candidateStageCvApi: {
     branded: {
       get: (...a: unknown[]) => mocks.brandedGet(...a),
@@ -57,21 +67,14 @@ vi.mock("@/components/Toast", () => ({
 // Edytor (TipTap) za `dynamic()` — atrapa zaznacza, że się otworzył.
 vi.mock("next/dynamic", () => ({
   default: () =>
-    function EditorStub(props: { stageId?: number }) {
+    function EditorStub(props: { stageId?: number; initialPanel?: string }) {
+      mocks.editorProps = props;
       return <div data-testid="editor-stub">{`editor:${props.stageId}`}</div>;
     },
 }));
+// Okno generatora nie może się już otworzyć z karty — atrapa to wykryje.
 vi.mock("@/components/v2/cv-generator/CvGeneratorDialog", () => ({
-  CvGeneratorDialog: (props: Record<string, unknown> & { onEnqueued?: (id: number) => void }) => {
-    mocks.dialogProps = props;
-    return (
-      <div data-testid="generator-dialog">
-        <button type="button" onClick={() => props.onEnqueued?.(77)}>
-          Zleć generację
-        </button>
-      </div>
-    );
-  },
+  CvGeneratorDialog: () => <div data-testid="generator-dialog" />,
 }));
 vi.mock("@/components/v2/cv-generator/ConsentAttachButton", () => ({
   ConsentAttachButton: (props: Record<string, unknown>) => {
@@ -91,10 +94,38 @@ vi.mock("@/components/v2/modals/CVOriginalPreviewModal", () => ({
 }));
 
 import { CvToClientCard } from "@/components/v2/recruitment/CvToClientCard";
+import { cvToClientRowsQueryKey, stageBrandedQueryKey } from "@/lib/cv-to-client";
 
 type Row = Record<string, unknown> & { id: number };
 let rows: Row[] = [];
 let events: unknown[] = [];
+// Generacja w karcie: proces osoby, pliki CV, „Z czego powstało”.
+const RECRUITMENT = {
+  stage_id: 21, job_id: 42, job_title: "Senior Java Developer", stage: "verified",
+  has_champion: true, has_notes: true, has_cv: true, notes_chars: 900, ready: true,
+  client_id: 7, client_name: "Bank Przykładowy", required_champion: false, required_notes_min_chars: 0, missing_inputs: [],
+};
+let recruitments: unknown[] = [RECRUITMENT];
+const CV_SOURCES = [
+  { id: 30, filename: "stare.docx", is_primary: false, uploaded_at: "2025-01-01T00:00:00Z" },
+  { id: 31, filename: "Jan_Kowalski_CV.pdf", is_primary: true, uploaded_at: "2026-09-12T10:00:00Z" },
+];
+const AI_SOURCES = {
+  original_cv: { document_id: 31, filename: "Jan_Kowalski_CV.pdf", uploaded_at: "2026-09-12T10:00:00Z" },
+  champion: true,
+  answers: { count: 5, excluded: 1 },
+  notes: { count: 3, excluded: 0 },
+  transcripts: { count: 2, excluded: 1 },
+  prep: { count: 1, excluded: 0 },
+  rate_notes: { count: 2, excluded: 0 },
+  defaults: { answers: true, notes: true, transcripts: false, prep: false },
+  last_used: null as null | Record<string, boolean>,
+};
+let aiSources = AI_SOURCES;
+// Liczba rzeczy do sprawdzenia: QC karty (bez zapisu przebiegu) i uwagi edytora.
+let qcChecks: unknown[] = [];
+let qcError: unknown = null;
+let issues = { generator_warnings: [] as string[], content_review: { status: null, version: null, findings: [] as unknown[] } };
 // Źródła „Użyj innego CV”: wszystkie generacje osoby i pliki CV z profilu.
 let personGenerated: Row[] = [];
 let documents: Row[] = [];
@@ -116,16 +147,55 @@ function renderCard(overrides: Partial<React.ComponentProps<typeof CvToClientCar
   );
 }
 
+function setUser(access: "read" | "write" = "write") {
+  useAuthStore.setState({
+    user: {
+      id: 12, email: "r@example.com", name: "Rekruter", role: "recruiter", roles: ["recruiter"],
+      profile_completed: true, profile_completed_at: null, force_password_change: false,
+      effective_section_access: { sourcing: access },
+    } as never,
+    realUser: null,
+    hydrated: true,
+  });
+}
+
+function generatePosts(): Array<[string, Record<string, unknown>]> {
+  return mocks.apiPost.mock.calls.filter(([url]) => url === "/api/cv-generator/generate") as Array<
+    [string, Record<string, unknown>]
+  >;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.dialogProps = null;
+  setUser();
+  sessionStorage.clear();
+  mocks.editorProps = null;
   mocks.consentProps = null;
   mocks.otherDialogProps = null;
   rows = [];
   events = [];
   personGenerated = [];
   documents = [];
+  recruitments = [RECRUITMENT];
+  aiSources = AI_SOURCES;
+  qcChecks = [];
+  qcError = null;
+  issues = { generator_warnings: [], content_review: { status: null, version: null, findings: [] } };
+  mocks.apiPost.mockImplementation(async (url: string) => {
+    if (url === "/api/cv-generator/generate") return { data: { id: 77, status: "processing", candidate_name: "Jan Kowalski" } };
+    throw new Error(`unexpected POST ${url}`);
+  });
   mocks.apiGet.mockImplementation((url: string, config?: { params?: Record<string, unknown> }) => {
+    if (url === "/api/cv-generator/candidates/121/recruitments") return Promise.resolve({ data: recruitments });
+    if (url === "/api/cv-generator/candidates/121/cv-sources") return Promise.resolve({ data: CV_SOURCES });
+    if (url.endsWith("/rule-for-generation")) return Promise.resolve({ data: { is_active: false } });
+    if (/^\/api\/candidates\/stages\/\d+\/cv\/ai-sources$/.test(url)) return Promise.resolve({ data: aiSources });
+    if (/^\/api\/pipeline\/stages\/\d+\/qc$/.test(url)) {
+      if (qcError) return Promise.reject(qcError);
+      const stageId = Number(url.split("/")[4]);
+      return Promise.resolve({ data: { stage_id: stageId, cv: { stage_id: stageId }, checks: qcChecks } });
+    }
+    if (/^\/api\/candidates\/stages\/\d+\/cv\/branded\/issues$/.test(url)) return Promise.resolve({ data: issues });
     if (url === "/api/cv-generator/generated") {
       // Karta pyta o parę (z `job_id`), lista wyboru — o całą osobę.
       return Promise.resolve({ data: config?.params?.job_id != null ? rows : personGenerated });
@@ -142,25 +212,107 @@ beforeEach(() => {
 });
 
 describe("CvToClientCard — brak CV", () => {
-  it("„Generuj CV” otwiera okno generatora z osobą i tą rekrutacją", async () => {
+  it("„Generuj CV” rozwija w karcie „Z czego powstało” — bez okna generatora", async () => {
     renderCard();
     expect(await screen.findByText(/Jeszcze nie ma CV do klienta/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /Generuj CV/ }));
-    expect(screen.getByTestId("generator-dialog")).toBeInTheDocument();
-    expect(mocks.dialogProps).toMatchObject({ candidateId: 121, jobId: 42, candidateName: "Jan Kowalski" });
-    expect(mocks.apiGet).toHaveBeenCalledWith("/api/cv-generator/generated", {
-      params: { candidate_id: 121, job_id: 42, limit: 20 },
-    });
+    const panel = await screen.findByTestId("cv-generate-panel");
+    expect(screen.queryByTestId("generator-dialog")).toBeNull();
+    // Przycisk, który otworzył panel, znika — w panelu jest „Generuj”.
+    expect(screen.queryByRole("button", { name: /Generuj CV/ })).toBeNull();
+
+    const sources = within(panel).getByRole("region", { name: "Z czego powstało" });
+    // Wiersze pojawiają się po odczycie `…/ai-sources` („Wczytuję źródła…”).
+    expect(await within(sources).findByTestId("ai-source-original")).toHaveTextContent("Jan_Kowalski_CV.pdf");
+    expect(within(sources).getByTestId("ai-source-original")).toHaveTextContent("zawsze");
+    expect(within(sources).getByTestId("ai-source-champion")).toHaveTextContent("zawsze");
+    expect(within(sources).getByTestId("ai-source-answers")).toHaveTextContent(
+      "5 odpowiedzi, 1 przeczy pytaniu — nie jest dowodem",
+    );
+    expect(within(sources).getByTestId("ai-source-transcripts")).toHaveTextContent(
+      "2 rozmowy, 1 spoza tej rekrutacji nie wchodzi",
+    );
+    // Domyślne: odpowiedzi i notatki tak, transkrypty i prep nie; stawka zawsze wycinana.
+    expect(await within(sources).findByRole("switch", { name: "Odpowiedzi ze screeningu" })).toBeChecked();
+    expect(within(sources).getByRole("switch", { name: "Notatki tej rekrutacji" })).toBeChecked();
+    expect(within(sources).getByRole("switch", { name: "Transkrypty rozmów" })).not.toBeChecked();
+    expect(within(sources).getByRole("switch", { name: "Podsumowania prepu" })).not.toBeChecked();
+    const rate = within(sources).getByRole("switch", { name: "Notatki ze stawką — zawsze wycinane" });
+    expect(rate).not.toBeChecked();
+    expect(rate).toBeDisabled();
+    // Obróbka i język — te same przełączniki co w oknie generatora.
+    expect(within(panel).getByRole("group", { name: "Obróbka treści" })).toBeInTheDocument();
+    expect(within(panel).getByRole("group", { name: "Język CV" })).toBeInTheDocument();
+    expect(mocks.apiGet).toHaveBeenCalledWith("/api/candidates/stages/21/cv/ai-sources");
   });
 
-  it("po zleceniu generacji karta mówi „Generuje się…”, a nie „brak CV”", async () => {
+  it("„Generuj” wysyła oryginał i przełączniki źródeł; karta mówi „Generuje się…”", async () => {
     renderCard();
     await userEvent.click(await screen.findByRole("button", { name: /Generuj CV/ }));
+    const panel = await screen.findByTestId("cv-generate-panel");
+    await userEvent.click(await within(panel).findByRole("switch", { name: "Transkrypty rozmów" }));
+    await userEvent.click(within(panel).getByRole("switch", { name: "Odpowiedzi ze screeningu" }));
+    const generate = within(panel).getByRole("button", { name: /^Generuj$/ });
+    await waitFor(() => expect(generate).toBeEnabled());
     rows = [{ id: 77, status: "processing", origin: "manual" }];
-    await userEvent.click(screen.getByRole("button", { name: "Zleć generację" }));
+    await userEvent.click(generate);
+
+    await waitFor(() => expect(generatePosts()).toHaveLength(1));
+    expect(generatePosts()[0][1]).toMatchObject({
+      candidate_id: 121,
+      stage_id: 21,
+      cv_document_id: 31,
+      content_mode: "tailored",
+      sources: { answers: false, notes: true, transcripts: true, prep: false },
+    });
     expect(await screen.findByText("Generuje się…")).toBeInTheDocument();
     expect(screen.getByText(/Możesz zamknąć panel/)).toBeInTheDocument();
+    expect(screen.queryByText(/Moich CV/)).toBeNull();
+    expect(screen.queryByTestId("cv-generate-panel")).toBeNull();
     expect(screen.queryByText(/Jeszcze nie ma CV do klienta/)).toBeNull();
+  });
+
+  it("przełączniki startują od wyboru, z którego powstała bieżąca wersja", async () => {
+    aiSources = { ...AI_SOURCES, last_used: { answers: false, notes: true, transcripts: true, prep: true } };
+    renderCard();
+    await userEvent.click(await screen.findByRole("button", { name: /Generuj CV/ }));
+    const panel = await screen.findByTestId("cv-generate-panel");
+    expect(await within(panel).findByRole("switch", { name: "Odpowiedzi ze screeningu" })).not.toBeChecked();
+    expect(within(panel).getByRole("switch", { name: "Transkrypty rozmów" })).toBeChecked();
+    expect(within(panel).getByRole("switch", { name: "Podsumowania prepu" })).toBeChecked();
+  });
+
+  it("odmowa serwera (reguła klienta, 422) stoi w panelu, a panel zostaje otwarty", async () => {
+    mocks.apiPost.mockRejectedValue({
+      response: { status: 422, data: { detail: "Ten klient wymaga numeru projektu w CV." } },
+    });
+    renderCard();
+    await userEvent.click(await screen.findByRole("button", { name: /Generuj CV/ }));
+    const panel = await screen.findByTestId("cv-generate-panel");
+    const generate = within(panel).getByRole("button", { name: /^Generuj$/ });
+    await waitFor(() => expect(generate).toBeEnabled());
+    await userEvent.click(generate);
+    expect(await within(panel).findByRole("alert")).toHaveTextContent("Ten klient wymaga numeru projektu w CV.");
+    expect(mocks.showError).toHaveBeenCalledWith("Ten klient wymaga numeru projektu w CV.");
+  });
+
+  it("tej rekrutacji nie ma na liście procesów osoby — CV nie powstanie dla innego procesu", async () => {
+    recruitments = [{ ...RECRUITMENT, stage_id: 99, job_id: 900 }];
+    renderCard();
+    await userEvent.click(await screen.findByRole("button", { name: /Generuj CV/ }));
+    const panel = await screen.findByTestId("cv-generate-panel");
+    expect(await within(panel).findByTestId("cvgen-missing")).toHaveTextContent(/tej rekrutacji nie ma na liście procesów/);
+    expect(within(panel).getByRole("button", { name: /^Generuj$/ })).toBeDisabled();
+  });
+
+  it("bez prawa zapisu w Sourcing panel mówi o uprawnieniu zamiast formularza", async () => {
+    setUser("read");
+    renderCard();
+    await userEvent.click(await screen.findByRole("button", { name: /Generuj CV/ }));
+    expect(await screen.findByTestId("cv-generate-panel")).toHaveTextContent(
+      "Generowanie CV wymaga prawa zapisu w Sourcing.",
+    );
+    expect(screen.queryByRole("button", { name: /^Generuj$/ })).toBeNull();
   });
 
   it("pokazuje, dlaczego automat nie przygotował CV — z „Pracy w tle”", async () => {
@@ -213,12 +365,23 @@ describe("CvToClientCard — CV gotowe", () => {
         factual_review: { status: "advisory", findings: 2 },
       },
     ];
+    issues = {
+      generator_warnings: [],
+      content_review: {
+        status: null,
+        version: null,
+        findings: [
+          { text: "Przeglądy kodu.", status: "unsupported" },
+          { text: "Mentoring.", status: "contradicted" },
+        ],
+      },
+    };
     renderCard();
     expect(await screen.findByText("CV gotowe · szkic")).toBeInTheDocument();
     expect(screen.getByText("Pod rekrutację")).toBeInTheDocument();
     expect(screen.getByText("EN")).toBeInTheDocument();
     expect(screen.getByText("wygenerowane automatycznie — sprawdź przed wysyłką")).toBeInTheDocument();
-    expect(screen.getByText(/2 rzeczy do sprawdzenia/)).toBeInTheDocument();
+    expect(await screen.findByTestId("cv-checks-count")).toHaveTextContent("2 rzeczy do sprawdzenia przed wysłaniem");
     expect(screen.getByRole("button", { name: /Pobierz DOCX/ })).toBeDisabled();
     // Podgląd i edycja działają bez zgody.
     expect(screen.getByRole("button", { name: /Podgląd/ })).toBeEnabled();
@@ -277,14 +440,157 @@ describe("CvToClientCard — CV gotowe", () => {
     expect(mocks.showSuccess).toHaveBeenCalledWith("CV podpięte do tej rekrutacji.");
   });
 
-  it("„Wygeneruj ponownie” otwiera to samo okno generatora", async () => {
+  it("podmiana szkicu niesie wersję z chwili zlecenia — edycja w trakcie generacji daje 409, nie nadpisanie", async () => {
+    // Przegląd PR 4: wersja szkicu czytana przy podpięciu zawsze przechodziła
+    // `check_revision`, więc autozapis z edytora w trakcie generacji ginął.
     mocks.brandedGet.mockResolvedValue({
-      data: { status: "finalized", from_generator: true, generated_document_id: 5, edit_revision: 4, version: 2 },
+      data: { status: "draft", from_generator: true, generated_document_id: 5, edit_revision: 4, version: 1 },
     });
-    rows = [{ id: 5, status: "ready" }];
+    mocks.selectGenerated.mockRejectedValue({ response: { status: 409, data: { detail: "Szkic zmienił się." } } });
+    rows = [{ id: 5, status: "ready", package_id: 5 }];
+    mocks.apiPost.mockImplementation(async () => {
+      rows = [{ id: 5, status: "ready", package_id: 5 }, { id: 77, status: "processing", package_id: 77 }];
+      return { data: { id: 77, status: "processing", candidate_name: "Jan Kowalski" } };
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <CvToClientCard
+          stageId={21}
+          candidateId={121}
+          candidateName="Jan Kowalski"
+          jobId={42}
+          jobTitle="Senior Java Developer"
+          readOnly={false}
+        />
+      </QueryClientProvider>,
+    );
+    await userEvent.click(await screen.findByRole("button", { name: /Wygeneruj ponownie/ }));
+    const panel = await screen.findByTestId("cv-generate-panel");
+    const generate = within(panel).getByRole("button", { name: /^Generuj$/ });
+    await waitFor(() => expect(generate).toBeEnabled());
+    await userEvent.click(generate);
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalled());
+
+    // Autozapis edytora w trakcie generacji: szkic ma już wersję 5.
+    mocks.brandedGet.mockResolvedValue({
+      data: { status: "draft", from_generator: true, generated_document_id: 5, edit_revision: 5, version: 1 },
+    });
+    await client.invalidateQueries({ queryKey: stageBrandedQueryKey(21) });
+    rows = [{ id: 5, status: "ready", package_id: 5 }, { id: 77, status: "ready", package_id: 77 }];
+    await client.invalidateQueries({ queryKey: cvToClientRowsQueryKey(121, 42) });
+
+    await waitFor(() => expect(mocks.selectGenerated).toHaveBeenCalledWith(21, 77, 4));
+    expect(mocks.selectGenerated).toHaveBeenCalledTimes(1);
+    expect(mocks.showError).toHaveBeenCalledWith("Szkic zmienił się.");
+  }, 20000);
+
+  it("„Wygeneruj ponownie”: panel w karcie, a gotowa wersja sama zastępuje szkic", async () => {
+    mocks.brandedGet.mockResolvedValue({
+      data: { status: "draft", from_generator: true, generated_document_id: 5, edit_revision: 4, version: 1 },
+    });
+    mocks.selectGenerated.mockResolvedValue({
+      data: { status: "draft", from_generator: true, generated_document_id: 77, edit_revision: 5, version: 1 },
+    });
+    rows = [{ id: 5, status: "ready", package_id: 5 }];
+    mocks.apiPost.mockImplementation(async () => {
+      // Serwer nie podpina CV do etapu, który ma już szkic — wersja leży obok.
+      rows = [{ id: 5, status: "ready", package_id: 5 }, { id: 77, status: "ready", package_id: 77 }];
+      return { data: { id: 77, status: "processing", candidate_name: "Jan Kowalski" } };
+    });
     renderCard();
     await userEvent.click(await screen.findByRole("button", { name: /Wygeneruj ponownie/ }));
-    expect(mocks.dialogProps).toMatchObject({ candidateId: 121, jobId: 42 });
+    const panel = await screen.findByTestId("cv-generate-panel");
+    expect(screen.queryByTestId("generator-dialog")).toBeNull();
+    expect(panel).toHaveTextContent("Nowa wersja zastąpi bieżący szkic, gdy będzie gotowa");
+    const generate = within(panel).getByRole("button", { name: /^Generuj$/ });
+    await waitFor(() => expect(generate).toBeEnabled());
+    await userEvent.click(generate);
+
+    // Ta sama operacja co „Użyj nowej wersji” — z rewizją szkicu, raz.
+    await waitFor(() => expect(mocks.selectGenerated).toHaveBeenCalledWith(21, 77, 4));
+    expect(mocks.selectGenerated).toHaveBeenCalledTimes(1);
+    expect(mocks.showSuccess).toHaveBeenCalledWith("CV podpięte do tej rekrutacji.");
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Użyj nowej wersji" })).toBeNull());
+  });
+
+  it("nieudana ponowna generacja nie rusza bieżącego CV i mówi dlaczego", async () => {
+    mocks.brandedGet.mockResolvedValue({
+      data: { status: "draft", from_generator: true, generated_document_id: 5, edit_revision: 4, version: 1 },
+    });
+    rows = [{ id: 5, status: "ready" }];
+    mocks.apiPost.mockImplementation(async () => {
+      rows = [{ id: 5, status: "ready" }, { id: 77, status: "failed", error_message: "Model nie odpowiedział" }];
+      return { data: { id: 77, status: "processing", candidate_name: "Jan Kowalski" } };
+    });
+    renderCard();
+    await userEvent.click(await screen.findByRole("button", { name: /Wygeneruj ponownie/ }));
+    const generate = within(await screen.findByTestId("cv-generate-panel")).getByRole("button", { name: /^Generuj$/ });
+    await waitFor(() => expect(generate).toBeEnabled());
+    await userEvent.click(generate);
+    expect(await screen.findByText(/Nowa wersja nie powstała: Model nie odpowiedział/)).toBeInTheDocument();
+    expect(screen.getByText("CV gotowe · szkic")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Spróbuj ponownie/ })).toBeInTheDocument();
+    expect(mocks.selectGenerated).not.toHaveBeenCalled();
+  });
+});
+
+describe("CvToClientCard — jedna liczba rzeczy do sprawdzenia (13.10.2026)", () => {
+  const READY = { status: "draft", from_generator: true, generated_document_id: 5, edit_revision: 3, version: 1 };
+
+  it("QC, generator i kontrola AI razem; „MUST-HAVE: X” nie dubluje pozycji QC; „Sprawdź i popraw” → „Do poprawy”", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: READY });
+    rows = [{ id: 5, status: "ready", factual_review: { status: "advisory", findings: 7 } }];
+    qcChecks = [
+      { key: "no_unsupported", label: "Zgodność", severity: "blocking", status: "fail", summary: null, items: [{ term: "AWS" }] },
+      { key: "must_in_cv", label: "Wymagania", severity: "warning", status: "fail", summary: null, items: [{ requirement: "Kafka" }] },
+      { key: "dates", label: "Daty", severity: "warning", status: "fail", summary: null, muted: true, items: [{ detail: "x" }] },
+    ];
+    issues = {
+      generator_warnings: ["MUST-HAVE: Kafka", "WERYFIKUJ: usunięto „OpenTelemetry”", "Wyróżnienia: pogrubiono 3 terminy."],
+      content_review: { status: null, version: null, findings: [{ text: "Przeglądy kodu.", status: "unsupported" }] },
+    };
+    renderCard();
+    // 1 blokada + 1 uwaga QC + 1 uwaga generatora + 1 kontrola AI; wyciszona, informacja i dubel nie.
+    expect(await screen.findByTestId("cv-checks-count")).toHaveTextContent("4 rzeczy do sprawdzenia przed wysłaniem");
+    // Stary licznik kontroli AI z listy wygenerowanych CV zniknął.
+    expect(screen.queryByText(/kontrola AI nie znalazła pokrycia/)).toBeNull();
+    expect(mocks.apiGet).toHaveBeenCalledWith("/api/pipeline/stages/21/qc", { params: { transient: true } });
+
+    await userEvent.click(screen.getByRole("button", { name: /Sprawdź i popraw/ }));
+    expect(screen.getByTestId("editor-stub")).toHaveTextContent("editor:21");
+    expect(mocks.editorProps).toMatchObject({ stageId: 21, initialPanel: "issues" });
+  });
+
+  it("zero znaczy zero — tylko gdy oba odczyty się udały", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: READY });
+    rows = [{ id: 5, status: "ready" }];
+    renderCard();
+    expect(await screen.findByTestId("cv-checks-count")).toHaveTextContent("Nic do sprawdzenia przed wysłaniem");
+    // „Edytuj” otwiera edytor bez wymuszania panelu.
+    await userEvent.click(screen.getByRole("button", { name: /Edytuj/ }));
+    expect(mocks.editorProps?.initialPanel).toBeUndefined();
+  });
+
+  it("awaria QC nie wygląda jak „nic do sprawdzenia”", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: READY });
+    rows = [{ id: 5, status: "ready" }];
+    qcError = { response: { status: 500 } };
+    renderCard();
+    expect(await screen.findByText(/Nie udało się policzyć rzeczy do sprawdzenia/)).toBeInTheDocument();
+    expect(screen.queryByText("Nic do sprawdzenia przed wysłaniem")).toBeNull();
+    qcError = null;
+    await userEvent.click(screen.getByRole("button", { name: "Ponów" }));
+    expect(await screen.findByText("Nic do sprawdzenia przed wysłaniem")).toBeInTheDocument();
+  });
+
+  it("tylko do odczytu: liczba bez „Sprawdź i popraw”", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: READY });
+    rows = [{ id: 5, status: "ready" }];
+    issues = { generator_warnings: ["WERYFIKUJ: daty"], content_review: { status: null, version: null, findings: [] } };
+    renderCard({ readOnly: true });
+    expect(await screen.findByTestId("cv-checks-count")).toHaveTextContent("1 rzecz do sprawdzenia przed wysłaniem");
+    expect(screen.queryByRole("button", { name: /Sprawdź i popraw/ })).toBeNull();
   });
 });
 

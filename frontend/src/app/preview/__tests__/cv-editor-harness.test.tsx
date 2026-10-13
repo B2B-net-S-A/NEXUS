@@ -125,10 +125,15 @@ it("wynik generatora bez rekrutacji mówi panelowi źródeł, że nie ma czego p
 it("panel „Do poprawy” bierze QC, uwagi i poprawki z pamięci — pełny obieg bez sieci", async () => {
   const dialog = await openEditor();
   // jsdom nie liczy szerokości: układ wąski, panel pod przełącznikiem kolumny.
-  fireEvent.click(await within(dialog).findByRole("button", { name: "Do poprawy (7)" }));
+  // Jedna lista: 4 z QC + 1 uwaga generatora + 1 linia kontroli AI. „MUST-HAVE: … Kafka …”
+  // generatora stoi przy pozycji QC o Kafce — nie liczy się drugi raz.
+  fireEvent.click(await within(dialog).findByRole("button", { name: "Do poprawy (6)" }));
   expect(within(dialog).getByText("Blokuje wysyłkę: 2")).toBeInTheDocument();
-  expect(within(dialog).getByRole("region", { name: "Uwagi generatora" })).toHaveTextContent("MUST-HAVE");
-  expect(within(dialog).getByRole("region", { name: "Kontrola AI" })).toHaveTextContent("Przeglądy kodu");
+  expect(within(dialog).getByRole("region", { name: "Całe CV" })).toHaveTextContent("WERYFIKUJ");
+  expect(within(dialog).getByRole("region", { name: "Doświadczenie" })).toHaveTextContent("Przeglądy kodu");
+  expect(within(dialog).getByRole("region", { name: "Informacje" })).toHaveTextContent(
+    "1 uwaga generatora o brakującym wymaganiu stoi przy pozycji QC o tym samym wymaganiu.",
+  );
   // Miejsca uwag są zaznaczone na kartce, ale nie w zapisywanej treści.
   const paper = dialog.querySelector(".cv-paper .ProseMirror") as HTMLElement;
   expect(paper.querySelector(".cv-issue-term.cv-issue--blocking")).toHaveTextContent("Jenkins");

@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 import pytest
 from pydantic import ValidationError
 
@@ -181,6 +181,7 @@ async def test_selection_rejects_foreign_or_incomplete_document(
             2,
             CVBrandedSelectGenerated(expected_revision=5, generated_document_id=42),
             user,
+            BackgroundTasks(),
             db,
         )
     assert exc.value.status_code == code
@@ -243,6 +244,7 @@ async def test_selection_archives_old_approval_and_uses_exact_generated_content(
     monkeypatch.setattr(
         cv_generated_approval, "approved_version_for_generation", resolver
     )
+    tasks = BackgroundTasks()
     result = await api.select_generated_cv(
         2,
         CVBrandedSelectGenerated(
@@ -251,9 +253,12 @@ async def test_selection_archives_old_approval_and_uses_exact_generated_content(
             document_version_id=approved_id,
         ),
         user,
+        tasks,
         db,
     )
     assert result.generated_document_id == 42 and result.from_generator
+    # CV w procesie: QC nowej wersji liczy się w tle po zapisie.
+    assert [t.func.__name__ for t in tasks.tasks] == ["qc_after_attach"]
     assert (
         result.version == 2 and result.edit_revision == 6 and result.status == "draft"
     )
@@ -281,6 +286,7 @@ async def test_selection_archives_old_approval_and_uses_exact_generated_content(
             2,
             CVBrandedSelectGenerated(expected_revision=5, generated_document_id=42),
             user,
+            BackgroundTasks(),
             db,
         )
     assert exc.value.status_code == 409

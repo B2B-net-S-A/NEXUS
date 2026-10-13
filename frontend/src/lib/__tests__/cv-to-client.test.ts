@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import type { QcCheck } from "@/lib/api/cvQc";
 import {
+  cvChecksBeforeSending,
   cvToClientShouldPoll,
   pairSourceStageId,
   resolveCvToClient,
@@ -39,7 +41,7 @@ describe("stageCvStatus / stageCvBadge", () => {
 });
 
 describe("resolveCvToClient", () => {
-  it("gotowe CV niesie uwagi kontroli AI, brak zgody RODO i auto-CV do przejrzenia", () => {
+  it("gotowe CV niesie brak zgody RODO i auto-CV do przejrzenia (bez osobnego licznika kontroli AI)", () => {
     const state = resolveCvToClient({
       branded: { status: "draft", from_generator: true, generated_document_id: 5 },
       rows: [
@@ -53,7 +55,8 @@ describe("resolveCvToClient", () => {
       ],
     });
     expect(state.kind).toBe("ready");
-    expect(state.findings).toBe(2);
+    // Od 13.10.2026 liczba rzeczy do sprawdzenia jest jedna (`cvChecksBeforeSending`).
+    expect(state).not.toHaveProperty("findings");
     expect(state.consentMissing).toBe(true);
     expect(state.needsReview).toBe(true);
     expect(state.candidate).toBeNull();
@@ -226,5 +229,54 @@ describe("CV wybrane zamiast generacji (12.10.2026)", () => {
     expect(stageCvOrigin({ status: "draft", from_generator: true, generated_document_id: 7 })).toBeNull();
     expect(stageCvOrigin({ status: "none" })).toBeNull();
     expect(stageCvOrigin({ status: "draft", from_generator: false })).toBeNull();
+  });
+});
+
+describe("cvChecksBeforeSending — jedna liczba na karcie (13.10.2026)", () => {
+  const check = (partial: Partial<QcCheck> & Pick<QcCheck, "key">): QcCheck => ({
+    label: partial.key,
+    severity: "warning",
+    status: "fail",
+    summary: null,
+    items: [],
+    ...partial,
+  });
+
+  it("QC (blokujące pozycje + niewyciszone uwagi), generator i kontrola AI razem", () => {
+    const checks = [
+      check({
+        key: "critical_skills",
+        severity: "blocking",
+        items: [
+          { requirement: "Kafka", role: "Bank — Dev", role_index: 0 },
+          { requirement: "Kafka", role: "Sklep — Dev", role_index: 1 },
+          { requirement: "Docker" },
+        ],
+      }),
+      check({ key: "must_bolded", items: [{ requirement: "Java", term: "Java", fix: "bold_all" }] }),
+      check({ key: "dates", muted: true, items: [{ detail: "Brak dat" }] }),
+      check({ key: "spelling", status: "pass" }),
+    ];
+    expect(
+      cvChecksBeforeSending({
+        checks,
+        warnings: ["WERYFIKUJ: usunięto „OpenTelemetry” z umiejętności", "Wyróżnienia: pogrubiono 4 terminy."],
+        findings: [{ text: "Przeglądy kodu.", status: "unsupported" }],
+      }),
+      // 2 wymagania krytyczne + 1 uwaga QC + 1 uwaga generatora + 1 kontrola AI; wyciszona i informacja nie.
+    ).toBe(5);
+  });
+
+  it("„MUST-HAVE: X” od generatora nie liczy się drugi raz, gdy QC ma pozycję X", () => {
+    const checks = [
+      check({ key: "must_in_cv", items: [{ requirement: "Apache Kafka", detail: "Brak w CV" }] }),
+    ];
+    expect(
+      cvChecksBeforeSending({ checks, warnings: ["MUST-HAVE: Kafka", "MUST-HAVE: Kubernetes"], findings: [] }),
+    ).toBe(2);
+  });
+
+  it("bez uwag to zero", () => {
+    expect(cvChecksBeforeSending({ checks: [check({ key: "dates", status: "pass" })], warnings: [], findings: [] })).toBe(0);
   });
 });

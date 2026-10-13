@@ -167,6 +167,12 @@ describe("/preview/recruitment-v3 zasiewa każdy stały klucz i nie ma sieci", (
     expect(harness).toContain("setQueryData(candidateQueryKeys.cvDocuments(item.candidate_id)");
     expect(harness).toContain('setQueryData(["candidate-generated-cvs", item.candidate_id]');
     expect(harness).toContain('setQueryData(["central-cv-policy", null, item.id, false]');
+    // Jedna liczba rzeczy do sprawdzenia (13.10.2026): QC karty i uwagi edytora.
+    const checks = withoutComments(read("components/v2/recruitment/CvToClientChecks.tsx"));
+    for (const fn of ["cvToClientQcQueryKey", "cvToClientIssuesQueryKey"]) {
+      expect(checks).toMatch(new RegExp(`queryKey: ${fn}\\(`));
+      expect(harness).toMatch(new RegExp(`setQueryData\\(\\s*${fn}\\(`));
+    }
   });
 
   it("odcina sieć na czas życia harnessu (warsztaty panelu pytają o klucze nie do zasiania)", () => {
@@ -1058,5 +1064,42 @@ describe("/preview/notification-settings zasiewa cztery zakładki Powiadomień i
     expect(harness).toContain("api.interceptors.request.use(");
     expect(harness).toContain("api.interceptors.request.eject(");
     expect(harness).toContain("<NotificationsSettings defaultTab={defaultTab} />");
+  });
+});
+
+describe("/preview/cv-to-client zasiewa kartę, „Z czego powstało” i liczbę rzeczy do sprawdzenia", () => {
+  const harness = withoutComments(read("app/preview/cv-to-client/page.tsx"));
+  const checks = withoutComments(read("components/v2/recruitment/CvToClientChecks.tsx"));
+  const generator = withoutComments(read("components/v2/cv-generator/useCvGenerator.ts"));
+  const choice = withoutComments(read("components/v2/recruitment/useReadyCvChoice.tsx"));
+
+  it("klucze pochodzą z funkcji komponentów, nie z kopii", () => {
+    for (const fn of ["cvToClientQcQueryKey", "cvToClientIssuesQueryKey"]) {
+      expect(checks).toMatch(new RegExp(`queryKey: ${fn}\\(`));
+      expect(harness).toMatch(new RegExp(`setQueryData\\(\\s*${fn}\\(`));
+    }
+    expect(generator).toMatch(/queryKey: cvAiSourcesQueryKey\(/);
+    expect(harness).toMatch(/setQueryData\(\s*cvAiSourcesQueryKey\(/);
+    for (const fn of ["cvToClientRowsQueryKey", "stageBrandedQueryKey", "stageCvSourcesQueryKey"]) {
+      expect(harness).toMatch(new RegExp(`setQueryData\\(\\s*${fn}\\(`));
+    }
+    expect(choice).toContain("queryKey: candidateQueryKeys.cvDocuments(candidateId)");
+    expect(harness).toContain("setQueryData(candidateQueryKeys.cvDocuments(person.candidateId)");
+  });
+
+  it("zasiewa klucze generatora z parametrem (proces, pliki, reguły klienta)", () => {
+    // Zmiana trybu obróbki zmienia klucz procesów — oba tryby muszą być zasiane.
+    expect(generator).toContain('queryKey: ["cv-gen-recruitments", candidateId, contentMode]');
+    expect(harness).toContain('["cv-gen-recruitments", person.candidateId, mode]');
+    expect(harness).toContain('for (const mode of ["polished", "tailored"])');
+    expect(generator).toContain('queryKey: ["cv-gen-sources", candidateId]');
+    expect(harness.replace(/\s+/g, " ")).toContain('setQueryData( ["cv-gen-sources", person.candidateId]');
+    expect(harness).toContain('setQueryData(["central-cv-policy", CLIENT_ID, person.stageId, false]');
+    expect(harness).toContain('setQueryData(["client-cv-rule", CLIENT_ID]');
+  });
+
+  it("odcina sieć na czas życia harnessu", () => {
+    expect(harness).toContain("api.interceptors.request.use(");
+    expect(harness).toContain("api.interceptors.request.eject(");
   });
 });

@@ -318,6 +318,77 @@ export function blockingTasks(checks: QcCheck[]): QcTask[] {
   return splitChecks(checks).tasks;
 }
 
+// ── Uwagi generatora, które QC już pokazuje (13.10.2026) ─────────────────────
+//
+// Generator zapisuje brakujące wymaganie jako „MUST-HAVE: X”, a QC ma dla
+// tego samego wymagania pozycję z miejscem w CV i przyciskiem naprawy. Jedna
+// rzecz nie może liczyć się dwa razy — ani w karcie „CV do klienta”, ani
+// w liście „Do poprawy” edytora.
+
+/** Sprawdzenia QC z pozycją na wymaganie must-have (krytyczne i pozostałe). */
+const MUST_REQUIREMENT_CHECKS: ReadonlySet<string> = new Set(["must_in_cv", "critical_skills"]);
+
+/**
+ * Wymaganie z uwagi generatora „MUST-HAVE: X” — bez dopisku po myślniku,
+ * w nawiasie albo po średniku. `null` dla innych uwag.
+ */
+export function mustHaveWarningName(text: string): string | null {
+  const match = /^\s*MUST-HAVE\s*:\s*(.+)$/i.exec(text);
+  if (!match) return null;
+  const name = match[1]
+    .split(/\s+[—–-]\s+|\s*[(;]/)[0]
+    .replace(/[.,:]+$/, "")
+    .trim();
+  return name || null;
+}
+
+function containsTerm(haystack: string, term: string): boolean {
+  const pattern = termRegExp(term);
+  return pattern != null && new RegExp(pattern.source, "iu").test(haystack);
+}
+
+/** To samo wymaganie: równe po normalizacji albo jedno stoi w drugim jako całe słowo („Kafka” ↔ „Apache Kafka”). */
+export function sameRequirement(name: string, requirement: string): boolean {
+  const left = normalizeQcText(name);
+  if (!left) return false;
+  return requirementAlternatives(requirement).some((alternative) => {
+    const right = normalizeQcText(alternative);
+    if (!right) return false;
+    return left === right || containsTerm(left, right) || containsTerm(right, left);
+  });
+}
+
+/**
+ * Czy QC ma pozycję o tym wymaganiu w `must_in_cv` albo `critical_skills` —
+ * do poprawy, jako informację albo pominiętą („To nieprawda”). Zaliczone
+ * sprawdzenie bez pozycji nie zdejmuje uwagi generatora.
+ */
+export function qcCoversRequirement(checks: readonly QcCheck[], name: string): boolean {
+  return checks.some(
+    (check) =>
+      MUST_REQUIREMENT_CHECKS.has(check.key) &&
+      [...check.items, ...(check.info ?? []), ...(check.dismissed_items ?? [])].some((item) => {
+        const requirement = (item.requirement ?? item.term ?? "").trim();
+        return requirement !== "" && sameRequirement(name, requirement);
+      }),
+  );
+}
+
+/** Uwagi generatora bez „MUST-HAVE: X”, gdy QC ma już pozycję tego wymagania. */
+export function warningsBeyondQc<T extends { text: string }>(
+  warnings: readonly T[],
+  checks: readonly QcCheck[],
+): { kept: T[]; covered: T[] } {
+  const kept: T[] = [];
+  const covered: T[] = [];
+  for (const warning of warnings) {
+    const name = mustHaveWarningName(warning.text);
+    if (name && qcCoversRequirement(checks, name)) covered.push(warning);
+    else kept.push(warning);
+  }
+  return { kept, covered };
+}
+
 /** „1 rzecz", „2 rzeczy", „5 rzeczy". */
 export function thingsLabel(count: number): string {
   return count === 1 ? "1 rzecz" : `${count} rzeczy`;

@@ -8,6 +8,7 @@
  */
 
 import type { ChampionProfile, CvGeneratePayload } from "@/lib/api";
+import type { CvAiSourceToggles } from "@/lib/cv-ai-sources";
 import {
   clientRuleRequirementProblems,
   stageLabel,
@@ -112,6 +113,8 @@ export interface MissingInput {
   /** Zrzut zgody blokuje generację (reguła klienta spoza polityki centralnej). */
   consentBlocksGeneration: boolean;
   consentToken: string | null;
+  /** „Z czego powstało” wczytuje się — przełączniki jeszcze nie znają stanu wersji. */
+  aiSourcesLoading?: boolean;
 }
 
 /**
@@ -160,6 +163,8 @@ export function missingInputs(input: MissingInput): string[] {
   });
   for (const problem of ruleProblems) if (!items.includes(problem)) items.push(problem);
   if (input.consentBlocksGeneration && !input.consentToken) items.push("Zrzut zgody kandydata (RODO)");
+  // Awaria odczytu źródeł nie blokuje: serwer bierze wtedy ustawienia domyślne.
+  if (input.aiSourcesLoading) items.push("Źródła dla AI — wczytuję…");
   return items;
 }
 
@@ -189,6 +194,8 @@ export interface GeneratePayloadInput {
   position: string;
   championProfile: ChampionProfile | null;
   consentToken: string | null;
+  /** Przełączniki „Z czego powstało”; `null` = serwer bierze domyślne. */
+  sources?: CvAiSourceToggles | null;
 }
 
 /**
@@ -210,6 +217,7 @@ export function buildGeneratePayload(input: GeneratePayloadInput): CvGeneratePay
   if (input.position.trim()) payload.position = input.position.trim();
   if (input.championProfile) payload.champion_profile = input.championProfile;
   if (input.consentToken) payload.consent_screenshot_token = input.consentToken;
+  if (input.sources) payload.sources = { ...input.sources };
   return payload;
 }
 
