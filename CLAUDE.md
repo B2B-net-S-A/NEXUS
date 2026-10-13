@@ -185,6 +185,7 @@ Lista `/jobs`, Tablica, ruch kart i bramki, panel osoby, QC CV i Cpro, przegląd
 - `konflikty-z-klientem-blacklist-nda-konkurent-sa.md` — Konflikty z klientem (blacklist / NDA / konkurent) są OSTRZEŻENIEM, nie blokadą (decyzja Artura, 17.09.2026)
 - `lista-rekrutacji-pamieta-ostatnie-filtry.md` — Lista rekrutacji pamięta ostatnie filtry (13.10.2026) · goły `/jobs` otwiera ostatni widok osoby, link z parametrami wygrywa i nie nadpisuje pamięci, „Rekrutacje” w menu nie resetuje, wpis per osoba przeżywa wylogowanie, `keepScope`, zapisy adresu niewidoczne dla routera
 - `narzedzia-rekrutera-reguly-po-audycie-17-09-2026.md` — Narzędzia rekrutera — reguły po audycie 17.09.2026 · HoR = parytet z rekruterem, stawka do klienta, werdykt HM, kalendarz, powiadomienia z triggerów
+- `nastepna-osoba-po-odrzuceniu.md` — Po odrzuceniu z panelu osoby — od razu następna osoba (13.10.2026) · które przyciski przenoszą, kolejność „›”, przejście dopiero po odpowiedzi serwera, pasek „Odrzucono … · Pokaż”, „Wróć do kolejki”, ostatnia osoba, okno mówi kogo zamykasz i kto dalej, czego to nie obejmuje
 - `pipeline-rekrutacji-bramka-ruchu-przekazanie-cv.md` — Pipeline rekrutacji — bramka ruchu, przekazanie CV, spójność ekranów (11.09.2026)
 - `pipeline-v4-6-kolumn-blokada-12-h-przeglad-dl.md` — Pipeline v4 — 6 kolumn, blokada 12 h, przegląd DL (0352, 23.09.2026)
 - `podobne-rekrutacje-przepiecia-i-status-requestu.md` — Podobne rekrutacje, przepięcia i status requestu (0341, 22.09.2026)

@@ -301,6 +301,34 @@ describe("PipelineCandidateDock", () => {
     expect(screen.queryByRole("button", { name: "Zrezygnował" })).toBeNull();
   });
 
+  it("pasek po zamknięciu poprzedniej osoby: kto i dlaczego, „Pokaż” wraca do niej (13.10.2026)", async () => {
+    const user = userEvent.setup();
+    const onShow = vi.fn();
+    renderDock({
+      position: 1,
+      total: 2,
+      closedNotice: { verb: "Odrzucono", name: "Michał Zieliński", reason: "Brak Azure", onShow },
+    });
+    const notice = screen.getByRole("status", { name: "Poprzednia osoba" });
+    expect(notice).toHaveTextContent("Odrzucono: Michał Zieliński · Brak Azure");
+    await user.click(within(notice).getByRole("button", { name: "Pokaż" }));
+    expect(onShow).toHaveBeenCalledTimes(1);
+  });
+
+  it("bez paska nie ma statusu poprzedniej osoby", () => {
+    renderDock({ position: 1, total: 2 });
+    expect(screen.queryByRole("status", { name: "Poprzednia osoba" })).toBeNull();
+  });
+
+  it("osoba spoza kolejności z „Wróć do kolejki” zamiast napisu „Panel osoby”", async () => {
+    const user = userEvent.setup();
+    const onReturnToQueue = vi.fn();
+    renderDock({ position: null, total: 2, onReturnToQueue });
+    await user.click(screen.getByRole("button", { name: "Wróć do kolejki" }));
+    expect(onReturnToQueue).toHaveBeenCalledTimes(1);
+    expect(within(screen.getByTestId("dock-person-bar")).queryByText("Panel osoby")).toBeNull();
+  });
+
   it("chowa „Odrzuć z powodem”, gdy canReject=false (np. kandydat już terminalny)", () => {
     renderDock({ canReject: false });
     expect(screen.queryByRole("button", { name: /Odrzuć z powodem/ })).toBeNull();

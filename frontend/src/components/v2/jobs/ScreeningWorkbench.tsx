@@ -51,6 +51,7 @@ import { terminalOf } from "@/lib/kanban-terminal";
 import { VERIFIED_STAGE, findStageColumn, isNewColumn, itemFullName } from "@/lib/pipeline-flow";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 import { AFTER_CV_SENT_COLUMNS, hasSheetContent } from "@/lib/screening-form";
+import type { RejectFollowUp } from "@/lib/reject-follow-up";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
@@ -89,6 +90,8 @@ export interface ScreeningWorkbenchProps extends Omit<WorkbenchPanelProps, "layo
   onTabChange: (tab: JobDetailTab) => void;
   /** „Biorę — 12 h” z profilu przed telefonem — ta sama blokada co karta. */
   onTake?: (item: KanbanItem) => void;
+  /** Panel osoby: dokąd przejść po „Odrzuć” w formularzu (13.10.2026). */
+  rejectFollowUp?: (candidateId: number) => RejectFollowUp | undefined;
   /** Harness `/preview/screening-form`: bajty CV z plików statycznych, bez API. */
   previewLoaders?: Pick<PreviewProps, "loadDocumentBlob" | "loadOriginalBlob" | "loadStageCvFile">;
 }
@@ -106,6 +109,7 @@ export function ScreeningWorkbench({
   readOnly,
   onTabChange,
   onTake,
+  rejectFollowUp,
   previewLoaders,
   focusCandidateId = null,
   panelFallback,
@@ -290,6 +294,7 @@ export function ScreeningWorkbench({
               jobBudgetHourly={jobBudgetHourly}
               forward={forward}
               reject={reject}
+              rejectFollowUp={rejectFollowUp ? () => rejectFollowUp(item.candidate_id) : undefined}
               readOnly={readOnly}
               onMoved={onMoved}
               onOpenChampion={() => onTabChange("champion")}

@@ -33,6 +33,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  CircleCheck,
   Clock,
   ExternalLink,
   FileText,
@@ -347,6 +348,17 @@ export interface PipelineCandidateDockProps {
   total?: number;
   onSelectPrevious?: () => void;
   onSelectNext?: () => void;
+  /** Pasek po odrzuceniu albo rezygnacji poprzedniej osoby z panelu — panel
+   *  przeszedł do tej osoby sam (13.10.2026). „Pokaż” wraca do poprzedniej. */
+  closedNotice?: {
+    verb: "Odrzucono" | "Rezygnacja";
+    name: string;
+    reason: string | null;
+    onShow: () => void;
+  } | null;
+  /** Osoba właśnie zamknięta z panelu (poza kolejnością Tablicy): zamiast
+   *  napisu „Panel osoby” — „Wróć do kolejki” do osoby, która była następna. */
+  onReturnToQueue?: () => void;
   /** Wiersz „co dalej" policzony przez tablicę (`nextActionFor`). */
   nextAction?: NextAction | null;
   /** Pierwszy DOZWOLONY etap po bieżącym — główna akcja doku. */
@@ -685,6 +697,8 @@ export function PipelineCandidateDock({
   total,
   onSelectPrevious,
   onSelectNext,
+  closedNotice = null,
+  onReturnToQueue,
   nextAction,
   primaryTarget,
   primaryBlocked = null,
@@ -1289,6 +1303,15 @@ export function PipelineCandidateDock({
                 <ChevronRight className="h-3.5 w-3.5" />
               </button>
             </>
+          ) : onReturnToQueue ? (
+            <button
+              type="button"
+              onClick={onReturnToQueue}
+              className="inline-flex items-center gap-0.5 rounded-md px-1 py-0.5 font-semibold text-primary hover:bg-accent pointer-coarse:p-2"
+            >
+              Wróć do kolejki
+              <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
           ) : (
             <span className="text-[10px] font-semibold uppercase tracking-wide text-primary">
               Panel osoby
@@ -1322,6 +1345,28 @@ export function PipelineCandidateDock({
             <X className="h-4 w-4" />
           </button>
         </div>
+
+        {closedNotice ? (
+          <div
+            role="status"
+            aria-label="Poprzednia osoba"
+            className="flex items-center gap-2 rounded-lg bg-success-muted px-2.5 py-1.5 text-[11.5px] leading-snug text-success-muted-foreground"
+          >
+            <CircleCheck className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span className="min-w-0 flex-1">
+              {closedNotice.verb}:{" "}
+              <span className="font-semibold text-foreground">{closedNotice.name}</span>
+              {closedNotice.reason ? ` · ${closedNotice.reason}` : ""}
+            </span>
+            <button
+              type="button"
+              onClick={closedNotice.onShow}
+              className="shrink-0 rounded-md px-1.5 py-0.5 font-semibold underline underline-offset-2 hover:bg-background/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:p-2"
+            >
+              Pokaż
+            </button>
+          </div>
+        ) : null}
 
         <div className="flex min-w-0 items-center gap-2.5">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">

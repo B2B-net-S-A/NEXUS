@@ -882,6 +882,14 @@
    "v3_home": "Tablica → panel osoby → pole notatki"
   },
   {
+   "id": "dock.next-after-close",
+   "area": "panel osoby",
+   "opis": "Po „Odrzuć z powodem”, „Zrezygnował” i „Odrzuć” w formularzu screeningu z panelu osoby panel sam pokazuje następną osobę z kolejności „›”, z paskiem „Odrzucono … · Pokaż”; okno odrzucenia mówi, kogo zamykasz i kto będzie dalej; po ostatniej osobie panel się zamyka z komunikatem (13.10.2026)",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "advanceAfterCloseRef",
+   "v3_home": "Tablica → panel osoby"
+  },
+  {
    "id": "order.blocks",
    "area": "zlecenie",
    "opis": "Skrót zlecenia (29.09.2026): braki z szybką poprawką, fakty i wymagania; zespół, ogłoszenie i priorytet otwierają panel obok Profilu Championa",

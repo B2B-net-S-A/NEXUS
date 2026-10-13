@@ -46,6 +46,7 @@ import type { PersonPanelSection, ProcessPersonRow } from "@/components/v2/recru
 import api from "@/lib/api";
 import { humanNoteCount } from "@/lib/candidate-notes-view";
 import { countHired, findStageColumn, isNewColumn, VERIFIED_STAGE } from "@/lib/pipeline-flow";
+import type { RejectFollowUp } from "@/lib/reject-follow-up";
 import { formatDate } from "@/lib/utils";
 
 /** Stan zapytania tablicy — warsztaty renderują z niego własne ładowanie/błąd. */
@@ -84,12 +85,15 @@ export interface WorkbenchContext {
   onRequestCloseJob?: () => void;
   /** „Biorę — 12 h” z profilu przed telefonem (sekcja „Screening”, 0424). */
   onTake?: (item: KanbanItem) => void;
+  /** „Odrzuć” w formularzu screeningu: kogo panel pokaże potem (13.10.2026).
+   *  Woła się w chwili kliknięcia — migawka kolejności Tablicy. */
+  rejectFollowUp?: (candidateId: number) => RejectFollowUp | undefined;
 }
 
 /** Kontekst, który podaje strona rekrutacji (bez stanu tablicy i budżetu). */
 export type BoardWorkbenchContext = Omit<
   WorkbenchContext,
-  "kanbanQueryState" | "budgetHourly" | "jobTitle" | "onTake"
+  "kanbanQueryState" | "budgetHourly" | "jobTitle" | "onTake" | "rejectFollowUp"
 >;
 
 export const PERSON_PANEL_SECTIONS: ReadonlyArray<{
@@ -381,6 +385,7 @@ export function PersonWorkbenchTabs({
             readOnly={readOnly}
             onTabChange={ctx.onTabChange ?? (() => undefined)}
             onTake={ctx.onTake}
+            rejectFollowUp={ctx.rejectFollowUp}
             panelFallback={<ScreeningSummarySection candidateId={candidateId} jobId={jobId} showLockNote />}
           />
         );
