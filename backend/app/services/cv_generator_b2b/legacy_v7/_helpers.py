@@ -627,8 +627,36 @@ _NEGATED_SKILL_RE = re.compile(
     r"|no\s+(?:practical|hands-on|commercial)\s+experience|no\s+experience",
     re.IGNORECASE,
 )
+# Dopisek o braku doświadczenia W CZYMŚ innym („Python (bez praktycznego
+# doświadczenia w ML)”) dotyczy tej drugiej rzeczy — pozycja zostaje bez dopisku.
+_SCOPED_NEGATION_RE = re.compile(
+    r"(?:\s+(?:doświadcz\w*|experience))?\s+(?:w|we|z|ze|przy|in|with|for)\s+\w",
+    re.I,
+)
 _QUESTION_LINE_RE = re.compile(r"^\s*P:\s?(.*)$")
 _TERM_TOKEN_RE = re.compile(r"[a-z0-9+#]+")
+
+# Słowa, które nie rozstrzygają, czy kandydat zna termin: dostawca („Apache
+# Kafka” = „Kafka”), przyrostek („Vue.js” = „Vue”) i człon ogólny („GitLab
+# CI/CD” = „GitLab”). Gdy termin składa się tylko z nich („CI/CD”), liczą się.
+_GENERIC_TERM_TOKENS = frozenset(
+    {"apache", "microsoft", "ms", "js", "ci", "cd", "core", "server", "framework"}
+)
+# Ta sama technologia innym zapisem; model normalizuje pisownię do lewej strony.
+_TERM_ALIASES = {
+    "k8s": "kubernetes",
+    "js": "javascript",
+    "ts": "typescript",
+    "nodejs": "node",
+    "vuejs": "vue",
+    "reactjs": "react",
+    "nextjs": "next",
+    "angularjs": "angular",
+    "golang": "go",
+    "postgres": "postgresql",
+    "mssql": "sql",
+    "dotnet": "net",
+}
 
 
 def screening_text_without_questions(notes: str) -> str:
@@ -651,31 +679,79 @@ def _question_text(notes: str) -> str:
     )
 
 
+def _source_tokens(text: str) -> set[str]:
+    """Słowa tekstu razem z ich odpowiednikami („k8s” daje też „kubernetes”)."""
+    tokens = set(_TERM_TOKEN_RE.findall(_norm_for_guard(text)))
+    return tokens | {_TERM_ALIASES[t] for t in tokens if t in _TERM_ALIASES}
+
+
 def _term_tokens(term: str) -> list[str]:
-    return [t for t in _TERM_TOKEN_RE.findall(_norm_for_guard(term)) if len(t) >= 2]
+    raw = [t for t in _TERM_TOKEN_RE.findall(_norm_for_guard(term)) if len(t) >= 2]
+    significant = [t for t in raw if t not in _GENERIC_TERM_TOKENS] or raw
+    return [_TERM_ALIASES.get(t, t) for t in significant]
 
 
 def _stem(token: str) -> str:
-    """Rdzeń słowa na odmianę: „grafana” → „grafa” (łapie „Grafany”)."""
-    return token[: max(4, len(token) - 2)] if len(token) > 4 else token
+    """Rdzeń słowa na odmianę: „java” → „jav” („Javie”), „kafka” → „kaf”
+    („Kafce”). Krótkie skróty (SQL, API) bez zmian."""
+    return token[: max(3, len(token) - 2)] if len(token) >= 4 else token
+
+
+def _token_present(token: str, haystack_tokens: set[str]) -> bool:
+    # Prefiks, nie równość: „API” ↔ „APIs”. Luźniej = strażnik zostawia więcej,
+    # a termin bez pokrycia i tak pokaże QC.
+    stem = _stem(token)
+    return any(word.startswith(stem) for word in haystack_tokens)
 
 
 def _loosely_present(term: str, haystack_tokens: set[str]) -> bool:
-    """Każde słowo terminu (jego rdzeń) zaczyna jakieś słowo źródła („REST API" ↔
-    „RESTful APIs", „Grafana" ↔ „Grafany"). Alternatywa w nawiasie liczy się
-    osobno („Kubernetes (K8s)")."""
+    """Każde istotne słowo terminu (jego rdzeń) zaczyna jakieś słowo źródła
+    („REST API" ↔ „RESTful APIs", „Grafana" ↔ „Grafany", „Node.js" ↔
+    „NodeJS"). Alternatywa w nawiasie liczy się osobno („Kubernetes (K8s)")."""
     variants = [term]
     paren = re.search(r"\(([^)]*)\)", term)
     if paren:
         variants = [term[: paren.start()], paren.group(1)]
     for variant in variants:
         tokens = _term_tokens(variant)
-        if tokens and all(
-            any(word.startswith(_stem(tok)) for word in haystack_tokens)
-            for tok in tokens
-        ):
+        if tokens and all(_token_present(tok, haystack_tokens) for tok in tokens):
             return True
     return False
+
+
+def _split_skills(content: str) -> list[str]:
+    """Pozycje umiejętności po przecinkach poza nawiasami: „AWS (EC2, S3)”
+    to jedna pozycja."""
+    items: list[str] = []
+    depth = 0
+    current: list[str] = []
+    for ch in content:
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth = max(0, depth - 1)
+        if ch == "," and depth == 0:
+            items.append("".join(current).strip())
+            current = []
+        else:
+            current.append(ch)
+    items.append("".join(current).strip())
+    return [item for item in items if item]
+
+
+def _without_negated_note(item: str) -> str | None:
+    """Pozycja bez dopisku o braku doświadczenia; ``None``, gdy dopisek
+    przeczy samej pozycji („Iceberg (brak praktycznego doświadczenia)”)."""
+    match = _NEGATED_SKILL_RE.search(item)
+    if not match:
+        return item
+    if not _SCOPED_NEGATION_RE.match(item, match.end()):
+        return None
+    for group in re.finditer(r"\([^()]*\)", item):
+        if group.start() <= match.start() and match.end() <= group.end():
+            return (item[: group.start()] + item[group.end() :]).strip() or None
+    head = re.split(r"\s+[-–—]\s+", item[: match.start()])[0]
+    return head.strip(" ,;-–—(") or None
 
 
 def strip_unsupported_terms(
@@ -695,19 +771,11 @@ def strip_unsupported_terms(
     nice-to-have). Znika też pozycja umiejętności, która sama sobie przeczy
     („… – brak praktycznego doświadczenia"). Zwraca uwagi do listy ostrzeżeń.
     """
-    evidence = set(
-        _TERM_TOKEN_RE.findall(
-            _norm_for_guard(
-                f"{cv_text}\n{screening_text_without_questions(screening_notes_text)}"
-            )
-        )
+    evidence = _source_tokens(
+        f"{cv_text}\n{screening_text_without_questions(screening_notes_text)}"
     )
-    asked = set(
-        _TERM_TOKEN_RE.findall(
-            _norm_for_guard(
-                _question_text(screening_notes_text) + "\n" + "\n".join(requirements)
-            )
-        )
+    asked = _source_tokens(
+        _question_text(screening_notes_text) + "\n" + "\n".join(requirements)
     )
     removed: list[str] = []
     negated: list[str] = []
@@ -727,15 +795,13 @@ def strip_unsupported_terms(
 
     skills: list[dict[str, str]] = []
     for cat in candidate_data.get("skills") or []:
-        items = [
-            i.strip() for i in str(cat.get("content") or "").split(",") if i.strip()
-        ]
         kept: list[str] = []
-        for item in items:
-            if _NEGATED_SKILL_RE.search(item):
+        for item in _split_skills(str(cat.get("content") or "")):
+            cleaned = _without_negated_note(item)
+            if cleaned is None:
                 negated.append(item)
-            elif not from_ad(item):
-                kept.append(item)
+            elif not from_ad(cleaned):
+                kept.append(cleaned)
         if kept:
             skills.append({**cat, "content": ", ".join(kept)})
     candidate_data["skills"] = skills

@@ -162,9 +162,10 @@ def _strip_reference(title: str, reference: Optional[str]) -> str:
 # zmierzone na tytułach produkcji. Każdy wzorzec zdejmuje kawałek z brzegu
 # tytułu albo kod; rdzeń roli zostaje bez tłumaczenia.
 _CV_TITLE_TRAILING = (
-    # „… (51234)”, „… (ZOB-2949)”, „… (ITVM-5894)”: kod z co najmniej trzema
-    # cyframi. „(K8s)” i „(Senior)” zostają — to część roli.
-    re.compile(r"\s*[\(\[]\s*(?:[A-Z]{1,6}[-_ ]?)?\d{3,}\s*[\)\]]\s*$"),
+    # „… (51234)”, „… (ZOB-2949)”, „… (ITVM-5894)”: sam numer albo kod z 3–6
+    # liter i co najmniej 4 cyframi. „(K8s)”, „(Senior)”, certyfikaty
+    # „(PL-300)”, „(AZ-305)”, „(ISO 27001)” i „(SQL 2019)” zostają.
+    re.compile(r"\s*[\(\[]\s*(?:\d{3,}|(?!ISO\b)[A-Z]{3,6}[-_]\d{4,})\s*[\)\]]\s*$"),
     # „… RITM0864052”, „…, Pep: 1234”
     re.compile(r"[\s,;:\-–—|/]*\b(?:RITM|REQ)\d+\s*$", re.I),
     re.compile(r"[\s,;]*\bPep\s*:?\s*\d+\s*$", re.I),
@@ -182,20 +183,29 @@ _CV_TITLE_TRAILING = (
         r"\s*\((?:dodatkowy profil|additional profile|pilne|urgent)\)\s*$", re.I
     ),
 )
+_PL_CITY = (
+    r"(?:Warsaw|Warszawa|Gdansk|Gdańsk|Gdynia|Sopot|Krakow|Kraków|Cracow|Wroclaw"
+    r"|Wrocław|Poznan|Poznań|Lodz|Łódź|Katowice|Szczecin|Lublin|Bydgoszcz|Torun"
+    r"|Toruń|Rzeszow|Rzeszów|Bialystok|Białystok|Olsztyn|Kielce|Opole|Remote"
+    r"|Zdalnie|Hybrid|Hybrydowo)"
+)
 _CV_TITLE_LEADING = (
-    # „Poland - Warsaw/Gdansk/Gdynia IT Analyst”
+    # „Poland - Warsaw/Gdansk/Gdynia IT Analyst”, „Polska - Java Developer”:
+    # tylko kraj i znane miasta, żeby pierwsze słowo roli nie wzięło się za miasto.
     re.compile(
-        r"^(?:Poland|Polska)\s*[-–—]\s*[\wąćęłńóśźżĄĆĘŁŃÓŚŹŻ]+"
-        r"(?:\s*/\s*[\wąćęłńóśźżĄĆĘŁŃÓŚŹŻ]+)*\s+"
+        rf"^(?:Poland|Polska)\s*[-–—]\s*(?:{_PL_CITY}(?:\s*/\s*{_PL_CITY})*"
+        r"\s*[-–—]?\s*)?",
+        re.I,
     ),
-    # „SP1 …” (cyfry przyklejone) albo „PRJ 4412 - …”, „PEP 4986/ 4987 - …”
-    # (cyfry po spacji tylko z separatorem — „ISO 27001 Auditor” zostaje).
+    # „PRJ 4412 - …”, „PEP 4986/ 4987 - …”, „SP1 - …”: kod z separatorem.
+    # Bez separatora to technologia roli („MS365 Administrator”, „DB2 …”).
     re.compile(
-        r"^(?:[A-Z]{2,}\d+\b\s*(?:[-–—:]\s*)?"
+        r"^(?:[A-Z]{2,}\d+\b\s*[-–—:]\s*"
         r"|[A-Z]{2,}\s\d+(?:\s*/\s*\d+)*\s*[-–—:]\s*)"
     ),
-    # „BCCM RRP: …” — skrót projektu wielkimi literami z dwukropkiem
-    re.compile(r"^(?:[A-Z0-9]{2,}\s+)*[A-Z0-9]{2,}:\s*"),
+    # „BCCM RRP: SP1 …” — co najmniej dwa skróty projektu z dwukropkiem, razem
+    # z kodem tuż po nich. Jeden skrót („SQL: …”, „AWS: …”) zostaje.
+    re.compile(r"^(?:[A-Z0-9]{2,}\s+)+[A-Z0-9]{2,}:\s*(?:[A-Z]{2,}\d+\s+)?"),
     # „PL-EBSD-IT Analyst” (co najmniej dwa kody), „RFX-wsparcie…” (kod przed
     # małą literą). „UI-UX Designer” i „SAP-ABAP Developer” zostają.
     re.compile(r"^(?:(?:[A-Z]{2,5}-){2,}(?=[A-Z])|[A-Z]{2,5}-(?=[a-ząćęłńóśźż]))"),
@@ -237,7 +247,9 @@ def cv_role_title(
         if text == before:
             break
     text = _clean(text)
-    if text and text[0].islower():
+    # „RFX-wsparcie…” → „Wsparcie…”; nazwa bez zmian („iOS Developer”, „dbt
+    # Engineer”) zostaje z małej litery.
+    if text and text != base and text.split()[0].islower():
         text = text[0].upper() + text[1:]
     return text or base
 

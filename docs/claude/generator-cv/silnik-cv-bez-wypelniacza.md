@@ -29,9 +29,19 @@ Dotyczy ścieżki produkcyjnej `legacy_v7` (domyślnej). Kod v10 bez zmian.
   lat, przed bezpiecznikami, kontrolą AI i migawką). Usuwa z technologii ról
   i umiejętności termin, którego nie ma w CV ani w odpowiedziach (dopasowanie
   luźne: rdzeń słowa, „REST API” ↔ „RESTful APIs”, „Grafana” ↔ „Grafany”,
-  alternatywa w nawiasie), a którego wszystkie słowa stoją w pytaniach
-  albo w must/nice Championa. Usuwa też pozycję umiejętności z dopiskiem
-  o braku doświadczenia. Każde usunięcie = uwaga „WERYFIKUJ: usunięto…”.
+  „Java” ↔ „Javie”, alternatywa w nawiasie), a którego wszystkie słowa stoją
+  w pytaniach albo w must/nice Championa. Słowa dostawcy i przyrostki nie
+  rozstrzygają („Apache Kafka” = „Kafka”, „Vue.js” = „Vue”, „GitLab CI/CD”
+  = „GitLab”, `_GENERIC_TERM_TOKENS`), a inny zapis tej samej technologii
+  się liczy („k8s”, „JS”, „NodeJS”, „MS SQL”, „dotnet”, `_TERM_ALIASES`) —
+  kandydat zwykle ma dokładnie technologie z wymagań, a model normalizuje
+  pisownię. Wątpliwość = termin zostaje; braki pokazuje potem QC.
+  Umiejętności dzielone po przecinkach poza nawiasami („AWS (EC2, S3)” to
+  jedna pozycja). Pozycja z dopiskiem o braku doświadczenia znika; dopisek
+  o braku doświadczenia w czymś innym („Python (bez praktycznego
+  doświadczenia w ML)”) znika sam, pozycja zostaje. Każde usunięcie = uwaga
+  „WERYFIKUJ: usunięto…”. Pytanie z listą w kilku liniach jest jedną linią
+  `P:`, żeby „- OpenTelemetry” z pytania nie wyglądało na odpowiedź.
   Bezpieczniki (`_fabrication_warnings`) i kontrola AI dostają notatki BEZ
   linii pytań (`screening_text_without_questions`).
 - **Branża tylko ze źródła (D1).** Schemat promptu: branża tylko, gdy CV ją
@@ -40,11 +50,17 @@ Dotyczy ścieżki produkcyjnej `legacy_v7` (domyślnej). Kod v10 bez zmian.
 - **Nagłówek = nazwa roli od klienta (D2).**
   `job_working_title.cv_role_title(title, client_reference, client_names)`
   zdejmuje prefiks klienta (`job_public_profile._strip_client_prefix`), numer
-  zapytania (`_strip_reference`), kody w nawiasie z co najmniej 3 cyframi,
+  zapytania (`_strip_reference`), numery w nawiasie („(51234)”, „(ITVM-5894)”),
   RITM/REQ/Pep, końcówki `_PKN…`, „x1 … Zamówienie 18”, „- 3.iteracja”,
-  „(dodatkowy profil)”, „- … project”, lokalizacje na początku i kody
-  projektu („PRJ 4412 -”, „BCCM RRP:”, „SP1”, „PL-EBSD-”). Nie tłumaczy i nie
-  rusza seniority; „(K8s)”, „ISO 27001 Auditor”, „UI-UX Designer” zostają.
+  „(dodatkowy profil)”, „- … project”, kraj i znane miasta na początku
+  („Poland - Warsaw/Gdansk”) i kody projektu z separatorem („PRJ 4412 -”,
+  „BCCM RRP: SP1”, „PL-EBSD-”). Nie tłumaczy i nie rusza seniority ani
+  wielkości liter nazwy. Zostają: „(K8s)”, certyfikaty „(PL-300)”,
+  „(ISO 27001)”, „ISO 27001 Auditor”, „UI-UX Designer”, technologia z cyfrą
+  bez separatora („MS365 Administrator”, „DB2 Administrator”), jeden skrót
+  z dwukropkiem („SQL: Administrator”), „iOS Developer”, „dbt Engineer”.
+  Gdy rekruter zostawi w polu „Stanowisko” tytuł rekrutacji, nagłówek bierze
+  `cv_role_title`, nie surowy tytuł.
   Wołają ją `standalone_service.load_candidate_generation_source` (z nazwami
   klienta) i `legacy_v7.pipeline` (wzorce bez bazy, dla uploadu). Przy
   polityce centralnej nagłówek i nazwa pliku to: stanowisko wpisane przez
@@ -67,10 +83,21 @@ Dotyczy ścieżki produkcyjnej `legacy_v7` (domyślnej). Kod v10 bez zmian.
     niesie ocenę rekrutera i tematy na następny prep; parametr `sources`
     dostanie przełączniki w karcie „CV do klienta” (PR 4);
   - `money_text.strip_rates_and_availability` wycina z notatek, notatki
-    procesu, rekomendacji i transkryptów fragmenty o stawce („150 PLN/h +
-    VAT”, „Stawka 140 zł”) i dostępności kandydata („dostępny 06.03.2023”,
-    „Dostępność: …”, „okres wypowiedzenia”); „dostępność systemu 99,9%”
-    i budżet projektu zostają. Ten sam wzorzec kwoty (`MONEY_RE`) czyta QC.
+    procesu, rekomendacji, transkryptów i notatek bez procesu
+    (`collect_candidate_notes_text`) fragmenty o pieniądzach kandydata
+    (każda kwota: „150 PLN/h + VAT”, „Oczekiwania: 20 000 PLN netto”,
+    „Oczekuje 22k netto”, „Ma ofertę za 200 PLN dziennie”) i jego
+    dostępności („Kandydat dostępny od 1.11”, „dostępna 06.03.2023”, „od
+    zaraz”, „1 miesiąc wypowiedzenia”). Zostają: budżet projektu
+    („Zarządzał budżetem 2 mln PLN”), „dostępność systemu 99,9%”, „API
+    dostępne w chmurze”. QC czyta tylko wspólny wzorzec kwoty (`MONEY_RE`,
+    `is_rate_text`); lista słów kandydata (oczekiwania, netto) jest tylko
+    dla generatora;
+  - minimum notatek z reguły klienta (`require_screening_notes_min_chars`)
+    liczy ten sam tekst — bez transkryptów i prepów. 13.10.2026 żadna z 15
+    reguł klientów nie miała minimum; kto je ustawia, musi wiedzieć, że
+    rozmowa nagrana w Teams nie wlicza się, dopóki rekruter nie włączy
+    transkryptów (PR 4).
 - **Kontrola AI nie chowa zastrzeżeń** (`factual_verification.verify_final_cv`):
   odrzucone twierdzenia i twierdzenia z błędnym cytatem idą razem; błędny
   cytat w liście uwag ma prefiks „WERYFIKUJ (kontrola AI)”, nie „BRAK

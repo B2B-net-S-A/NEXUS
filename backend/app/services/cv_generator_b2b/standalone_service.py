@@ -532,7 +532,9 @@ def _format_candidate_answers(screening_answers: Any, screening_questions: Any) 
                 continue
             qid = str(q.get("id") or "").strip()
             if qid:
-                q_by_id[qid] = str(q.get("question") or "").strip()
+                # Jedna linia „P:” — pytanie z listą w kilku liniach zostawiało
+                # „- OpenTelemetry” jako osobną linię, czytaną jak fakt.
+                q_by_id[qid] = " ".join(str(q.get("question") or "").split())
 
     lines: list[str] = []
     for a in screening_answers.get("answers") or []:
@@ -2407,7 +2409,10 @@ async def collect_candidate_notes_text(db: AsyncSession, *, candidate_id: int) -
         )
     ).all()
     bodies = (
-        redact_card_text(note.content, CV_HIDDEN_FIELDS).strip() for note in notes
+        strip_rates_and_availability(
+            redact_card_text(note.content, CV_HIDDEN_FIELDS)
+        ).strip()
+        for note in notes
     )
     return "\n\n".join(f"[Notatka kandydata]\n{body}" for body in bodies if body)
 
@@ -2712,7 +2717,7 @@ async def load_candidate_generation_source(
         source_warnings=tuple(source_warnings),
         fallback_name=f"{candidate.name} {candidate.lastname}".strip() or None,
         job_id=job.id if job is not None else None,
-        job_title=position or header_title,
+        job_title=position_override or header_title,
         client_content_mode_cap=getattr(client, "cv_content_mode_cap", None),
         candidate_id=candidate_id,
         stage_id=stage_id,

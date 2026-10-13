@@ -840,6 +840,86 @@ def test_term_confirmed_by_an_answer_stays_even_when_asked_about():
     assert warnings == []
 
 
+@pytest.mark.parametrize(
+    "cv_text,term",
+    [
+        ("Backend w NodeJS", "Node.js"),
+        ("Frontend: Vue, Nuxt", "Vue.js"),
+        ("Wdrożenia na k8s", "Kubernetes"),
+        ("Pipelines gitlab ci", "GitLab CI/CD"),
+        ("Skills: JS", "JavaScript"),
+        ("Skills: MS SQL", "Microsoft SQL Server"),
+        ("Kandydat: Kafka oraz RabbitMQ", "Apache Kafka"),
+        ("Programowanie w Javie", "Java"),
+        ("Integracje oparte na Kafce", "Kafka"),
+        ("dotnet core", ".NET"),
+    ],
+)
+def test_requirement_the_candidate_has_under_another_spelling_stays(cv_text, term):
+    # Przegląd PR 1: model normalizuje pisownię („k8s” → „Kubernetes”), a
+    # kandydat zwykle ma dokładnie technologie z wymagań — strażnik nie może
+    # ich wyciąć tylko dlatego, że CV zapisuje je inaczej.
+    from app.services.cv_generator_b2b.legacy_v7._helpers import strip_unsupported_terms
+
+    data = {"experience": [{"technologies": [term]}], "skills": []}
+    warnings = strip_unsupported_terms(
+        data,
+        cv_text=cv_text,
+        screening_notes_text="",
+        requirements=[term],
+        language="pl",
+    )
+    assert data["experience"][0]["technologies"] == [term]
+    assert warnings == []
+
+
+def test_skill_list_is_split_outside_brackets_only():
+    from app.services.cv_generator_b2b.legacy_v7._helpers import strip_unsupported_terms
+
+    data = {
+        "experience": [],
+        "skills": [
+            {"label": "Chmura:", "content": "AWS (EC2, S3, Lambda), Docker"},
+            {
+                "label": "Dane:",
+                "content": "Iceberg (podstawowa znajomość, brak praktycznego "
+                "doświadczenia), dbt",
+            },
+            {
+                "label": "Języki:",
+                "content": "Python (bez praktycznego doświadczenia w ML), SQL",
+            },
+        ],
+    }
+    warnings = strip_unsupported_terms(
+        data,
+        cv_text="AWS EC2 S3 Lambda Docker dbt Python SQL",
+        screening_notes_text="",
+        requirements=["Lambda"],
+        language="pl",
+    )
+    assert data["skills"] == [
+        {"label": "Chmura:", "content": "AWS (EC2, S3, Lambda), Docker"},
+        {"label": "Dane:", "content": "dbt"},
+        {"label": "Języki:", "content": "Python, SQL"},
+    ]
+    joined = " ".join(warnings)
+    assert "Iceberg" in joined and "Python" not in joined
+
+
+def test_multiline_question_is_one_question_line():
+    from app.services.cv_generator_b2b.legacy_v7._helpers import (
+        screening_text_without_questions,
+    )
+
+    text = svc._format_candidate_answers(
+        {"answers": [{"question_id": "q1", "response": "Używałem Grafany."}]},
+        [{"id": "q1", "question": "Czy pracował Pan z:\n- OpenTelemetry\n- Grafana?"}],
+    )
+    assert "OpenTelemetry" not in screening_text_without_questions(text)
+    assert "Używałem Grafany." in text
+
+
 def test_question_lines_are_not_evidence_for_the_guards():
     from app.services.cv_generator_b2b.legacy_v7._helpers import (
         screening_text_without_questions,

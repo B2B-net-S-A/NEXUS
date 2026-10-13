@@ -1,5 +1,7 @@
 """Stawki i dostępność nie idą z notatek do modelu generatora CV (13.10.2026)."""
 
+import pytest
+
 from app.services.money_text import is_rate_text, strip_rates_and_availability
 
 
@@ -29,3 +31,35 @@ def test_system_availability_and_decimal_commas_survive():
 def test_empty_input():
     assert strip_rates_and_availability(None) == ""
     assert strip_rates_and_availability("") == ""
+
+
+@pytest.mark.parametrize(
+    "note",
+    [
+        "Oczekiwania: 20 000 PLN netto B2B",
+        "Oczekuje 22k netto",
+        "Chce 160 zł netto",
+        "Budżet kandydata: 18 000 PLN",
+        "Ma ofertę za 200 PLN dziennie",
+        "Wypowiedzenie 1 miesiąc",
+        "1 miesiąc wypowiedzenia",
+        "Kandydat dostępny od 1 listopada.",
+        "Dostępna od zaraz",
+    ],
+)
+def test_candidate_money_and_notice_leave_the_note(note):
+    # Przegląd PR 1: oczekiwania i oferty bez słowa „stawka” szły do modelu.
+    assert strip_rates_and_availability(note) == ""
+
+
+@pytest.mark.parametrize(
+    "fact",
+    [
+        "Wdrożył API dostępne w chmurze Azure, użył Kafki.",
+        "Aplikacja dostępna na iOS i Androida.",
+        "Zarządzał budżetem 2 mln PLN.",
+        "Programuje w .NET 8 od 2019 roku.",
+    ],
+)
+def test_facts_about_systems_and_projects_stay(fact):
+    assert strip_rates_and_availability(fact) == fact

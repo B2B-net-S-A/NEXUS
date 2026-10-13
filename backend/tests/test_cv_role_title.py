@@ -63,6 +63,8 @@ from app.services.job_working_title import cv_role_title
             "Senior Software Developer",
         ),
         ("LowCode Developer (ITVM-5894)", None, [], "LowCode Developer"),
+        ("Polska - Java Developer", None, [], "Java Developer"),
+        ("Poland - Remote - Data Engineer", None, [], "Data Engineer"),
     ],
 )
 def test_client_codes_and_process_notes_leave_the_header(
@@ -73,7 +75,25 @@ def test_client_codes_and_process_notes_leave_the_header(
 
 @pytest.mark.parametrize(
     "title",
-    ["ISO 27001 Auditor", "UI-UX Designer", "SAP-ABAP Developer", "Java Developer"],
+    [
+        "ISO 27001 Auditor",
+        "UI-UX Designer",
+        "SAP-ABAP Developer",
+        "Java Developer",
+        # Przegląd PR 1: technologia z cyfrą na początku i małe litery marki.
+        "iOS Developer",
+        "macOS Administrator",
+        "dbt Engineer",
+        "MS365 Administrator",
+        "DB2 Administrator",
+        "TM1 Specialist",
+        "ES6 Developer",
+        "SQL: Administrator",
+        "AWS: DevOps Engineer",
+        "Security Engineer (ISO 27001)",
+        "Data Analyst (PL-300)",
+        "Azure Architect (AZ-305)",
+    ],
 )
 def test_real_role_names_are_not_cut(title):
     assert cv_role_title(title) == title
