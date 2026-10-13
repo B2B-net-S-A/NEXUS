@@ -470,6 +470,8 @@ const PUBLIC_PATHS = [
   "/preview/kariera",
   "/preview/career-share",
   "/preview/candidate-merge",
+  // Okno „Dodaj kandydatów do pipeline”: imiennicy, telefon, „Już w tej rekrutacji”.
+  "/preview/add-candidates",
   "/preview/job-ad",
   "/preview/job-portals",
   "/preview/academy",

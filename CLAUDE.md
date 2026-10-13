@@ -180,6 +180,7 @@ Lista `/jobs`, Tablica, ruch kart i bramki, panel osoby, QC CV i Cpro, przegląd
 - `duzy-podglad-po-lewej-stronie-panelu-osoby.md` — Duży podgląd po lewej stronie panelu osoby (D1–D6, 09.10.2026)
 - `dzwonek-przy-przekazaniu-karty-qc-dl-cv-wyslane.md` — Dzwonek przy przekazaniu karty: QC → DL, CV wysłane → rekruter (02.10.2026)
 - `follow-up-z-kandydatem-gdy-klient-milczy.md` — Follow-up z kandydatem, gdy klient milczy (0372, 24.09.2026)
+- `imiennicy-w-oknie-dodawania.md` — Imiennicy w oknie „Dodaj kandydatów do pipeline” (13.10.2026) · telefon, e-mail i miasto w wierszu, pasek imienników, szukanie po numerze, sekcja „Już w tej rekrutacji” z „Przywróć”, ostatnia rekrutacja w trzeciej linii, plakietka „Ten sam telefon” i „Scal…”, porównanie numerów po 9 cyfrach
 - `kanban-bez-bramek.md` — Kanban bez bramek (decyzja Artura, 17.09.2026)
 - `konflikty-z-klientem-blacklist-nda-konkurent-sa.md` — Konflikty z klientem (blacklist / NDA / konkurent) są OSTRZEŻENIEM, nie blokadą (decyzja Artura, 17.09.2026)
 - `lista-rekrutacji-pamieta-ostatnie-filtry.md` — Lista rekrutacji pamięta ostatnie filtry (13.10.2026) · goły `/jobs` otwiera ostatni widok osoby, link z parametrami wygrywa i nie nadpisuje pamięci, „Rekrutacje” w menu nie resetuje, wpis per osoba przeżywa wylogowanie, `keepScope`, zapisy adresu niewidoczne dla routera
