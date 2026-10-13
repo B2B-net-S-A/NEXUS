@@ -973,6 +973,22 @@
    "v3_home": "Pulpit → „Czeka na Ciebie” → Wrzucaj po kolei"
   },
   {
+   "id": "dl-review.cpro-accept",
+   "area": "przegląd DL",
+   "opis": "Nordea (13.10.2026): przegląd Delivery Leada kończy akceptacja do kolejki Cpro zamiast wysyłki do klienta — „Stawka do Cpro” (wymagana), „Akceptuj — do Cpro za …”, uwaga dla osoby od Cpro; dopiero po akceptacji osoba od Cpro dostaje dzwonek i mail",
+   "file": "components/v2/recruitment/dl-review/DecisionPanel.tsx",
+   "marker": "Akceptuj — do Cpro za",
+   "v3_home": "Tablica Nordei → karta w „QC CV” → Przejrzyj i wyślij / Pulpit → Do wysłania do klienta"
+  },
+  {
+   "id": "board.cpro-queue.acceptance",
+   "area": "pipeline",
+   "opis": "Kolejka Cpro: przy każdej osobie kto i kiedy zaakceptował ją do kolejki (Delivery Lead) i uwaga DL-a; karta włożona przez rekrutera przed 13.10.2026 ma ostrzeżenie „Bez akceptacji DL”",
+   "file": "components/v2/dashboard/CproQueueDialog.tsx",
+   "marker": "CproAcceptance",
+   "v3_home": "Pulpit → „Czeka na Ciebie” → Wrzucaj po kolei"
+  },
+  {
    "id": "board.move-next",
    "area": "pipeline",
    "opis": "„Przesuń dalej” (strzałka → na karcie): wymagania następnego etapu z serwera (`move-requirements`), każdy brak z akcją, która go usuwa, przekazanie do DL / do Cpro",

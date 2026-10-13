@@ -254,6 +254,17 @@ describe("DlSendQueueBand — „Do wysłania do klienta” nad pulpitem", () =>
     expect(within(region).queryByRole("button", { name: /Przejrzyj po kolei/ })).toBeNull();
   });
 
+  it("Nordea (13.10.2026): wiersz akceptacji do kolejki Cpro ma dopisek „→ Cpro”", async () => {
+    mockQueue({
+      dl_review: [
+        row({ client_name: "Nordea Przykładowa", cpro: true, target_stage_def_id: 404 }),
+      ],
+    });
+    renderBand();
+    const region = await band();
+    expect(within(region).getByText("Java Developer · Nordea Przykładowa · → Cpro")).toBeTruthy();
+  });
+
   it("sami „u rekrutera”: „0 gotowych”, bez tabeli gotowych", async () => {
     mockQueue({ dl_review: [row({ ready: false, qc_status: "failed" })] });
     renderBand();

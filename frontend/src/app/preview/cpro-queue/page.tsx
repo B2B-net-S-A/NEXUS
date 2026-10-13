@@ -54,6 +54,11 @@ const item = (over: Partial<CproQueueItem>): CproQueueItem => ({
   availability: null,
   qc_status: "passed",
   cv: { generated_document_id: 5, document_id: null },
+  // 13.10.2026: do kolejki wkłada Delivery Lead po akceptacji.
+  accepted: true,
+  accepted_by_name: "Marek Przykładowy",
+  accepted_at: daysAgo(1),
+  dl_note: null,
   ...over,
 });
 
@@ -67,10 +72,11 @@ const QUEUE: CproQueueResponse = {
       client_name: "Bank Północny",
       oldest_since: daysAgo(2),
       items: [
-        item({ stage_id: 11, candidate_id: 21, candidate_name: "Robert Przykładowy", since: daysAgo(2), client_rate_value: 158, availability: "2026-11-01" }),
+        item({ stage_id: 11, candidate_id: 21, candidate_name: "Robert Przykładowy", since: daysAgo(2), client_rate_value: 158, availability: "2026-11-01", dl_note: "Dostępny od listopada, tylko zdalnie" }),
         item({ stage_id: 12, candidate_id: 22, candidate_name: "Magdalena Testowa", since: daysAgo(1), client_rate_value: 149 }),
         item({ stage_id: 13, candidate_id: 23, candidate_name: "Jan Wzorcowy", since: daysAgo(1), client_rate_value: 162, qc_status: "overridden" }),
-        item({ stage_id: 14, candidate_id: 24, candidate_name: "Ewa Fikcyjna", since: daysAgo(0), client_rate_value: 140, cv: { generated_document_id: null, document_id: 9 } }),
+        // Karta sprzed 13.10.2026: do kolejki przesunął ją rekruter, bez stawki.
+        item({ stage_id: 14, candidate_id: 24, candidate_name: "Ewa Fikcyjna", since: daysAgo(0), client_rate_value: null, cv: { generated_document_id: null, document_id: 9 }, accepted: false, accepted_by_name: "Anna Rekruterska" }),
       ],
     },
     {

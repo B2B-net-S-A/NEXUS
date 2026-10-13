@@ -938,7 +938,8 @@ async def _assert_cv_qc_gate(
         return
     # U Nordei „CV wysłane" = „Wysłane do Cpro": wrzuca osoba od Cpro
     # wyznaczona dla całej firmy (albo admin / DL / HoR). Rekruter po QC
-    # przekazuje kartę do kolejki Cpro, nie wysyła jej sam.
+    # przekazuje kartę Delivery Leadowi, który akceptuje ją do kolejki Cpro
+    # (13.10.2026, `pipeline_move_rules.requires_dl_client_rate`).
     from app.services.board_stage_badges import cpro_enabled_for_client
 
     if target_column == "cv_sent" and cpro_enabled_for_client(client_id):
@@ -963,8 +964,8 @@ async def _assert_cv_qc_gate(
             raise HTTPException(
                 status_code=403,
                 detail=(
-                    f"Do Cpro wrzuca {who}. Po QC użyj „Przekaż do Cpro” — "
-                    "osoba trafi do kolejki na pulpicie."
+                    f"Do Cpro wrzuca {who}, z kolejki Cpro po akceptacji "
+                    "Delivery Leada. Po QC użyj „Przekaż Delivery Leadowi”."
                 ),
             )
     # Runda 8 (R8-N8-3): wyłącznik QC dotyczy wyłącznie kontroli CV — reguła
@@ -1358,9 +1359,7 @@ async def move_candidate(
     client_rate_value = data.client_rate_value
     client_rate_unit = data.client_rate_unit
     client_rate_currency = (data.client_rate_currency or "PLN")[:3].upper()
-    to_cpro_queue = cpro_enabled_for_client(job.client_id) and is_cpro_stage(
-        stage_def.name if stage_def else None
-    )
+    to_cpro_queue = cpro_enabled_for_client(job.client_id)
     if pipeline_move_rules.requires_dl_client_rate(
         legacy_enum,
         job.client_id,
@@ -3928,8 +3927,7 @@ async def bulk_move_candidates(
         pipeline_move_rules.assert_client_send_allowed(
             current_user,
             data.client_rate_value,
-            cpro=cpro_enabled_for_client(job.client_id)
-            and is_cpro_stage(bulk_stage_name),
+            cpro=cpro_enabled_for_client(job.client_id),
         )
     elif data.client_rate_value is not None and not await resolve_client_rate_write(
         db, current_user, job

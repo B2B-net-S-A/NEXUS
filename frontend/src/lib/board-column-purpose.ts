@@ -45,7 +45,8 @@ export function boardColumnPurpose(
     return "CV w Cpro — czekamy na klienta";
   }
   if (key === "cv_qc" && ctx.cproEnabled) {
-    return "Popraw CV, potem przekaż do Cpro";
+    // Od 13.10.2026 do kolejki Cpro wkłada Delivery Lead po akceptacji.
+    return "Popraw CV, potem przekaż DL-owi";
   }
   return PURPOSE[key] ?? null;
 }

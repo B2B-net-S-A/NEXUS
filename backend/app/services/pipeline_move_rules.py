@@ -282,13 +282,16 @@ def requires_dl_client_rate(
     """Ruch, który wymaga uprawnienia wysyłki i stawki do klienta.
 
     Poza Nordeą — „CV wysłane”. U Nordei — etap „Wysłać do Cpro”
-    (akceptacja Delivery Leada, 13.10.2026): do 12.10 do kolejki wkładał też
-    rekruter i osoba od Cpro dostawała zadanie bez akceptacji DL i bez
-    stawki. Etap Cpro poznajemy po nazwie (kod etapu bywa pusty albo „new”).
+    (akceptacja Delivery Leada, 13.10.2026) i „CV wysłane” (= „Wysłane do
+    Cpro”) z pominięciem kolejki: do 12.10 do kolejki wkładał też rekruter,
+    a osoba od Cpro wysyłała z „QC CV” od razu — bez akceptacji DL i bez
+    stawki. „✓ Wrzucone” z kolejki tej bramki nie przechodzi
+    (`arrives_from_before_client_send`). Etap Cpro poznajemy po nazwie (kod
+    etapu bywa pusty albo „new”).
     """
 
     if cpro_enabled_for_client(client_id):
-        return is_cpro_stage(stage_name)
+        return is_cpro_stage(stage_name) or target == PipelineStage.cv_sent
     return target == PipelineStage.cv_sent
 
 

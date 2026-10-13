@@ -400,19 +400,25 @@ async def test_cv_sent_requires_delivery_lead_and_client_rate(api_client):
         await _cleanup([cand_id], job_id)
 
 
-async def test_cv_sent_at_nordea_keeps_the_cpro_path(api_client, monkeypatch):
-    """U Nordei „CV wysłane” = Cpro: bez stawki DL, ale wrzuca osoba od Cpro.
-    Runda 8 (R8-N8-3): także przy wyłączonej bramce QC (autouse w conftest)."""
+async def test_cv_sent_at_nordea_needs_the_delivery_lead_acceptance(
+    api_client, monkeypatch
+):
+    """U Nordei „CV wysłane” = Cpro. Z pominięciem kolejki to akceptacja
+    (13.10.2026): osoba od Cpro i inny rekruter dostają 403, Delivery Lead
+    przechodzi ze stawką do Cpro. Runda 8 (R8-N8-3): także przy wyłączonej
+    bramce QC (autouse w conftest)."""
     from app.services import cpro_sender
-    from tests.test_board_tasks import restore_cpro_sender
+    from tests.test_board_tasks import CPRO_RATE, restore_cpro_sender
 
     rec_id, rec_email, rec_pw = await _seed_user(UserRole.recruiter)
     other_id, other_email, other_pw = await _seed_user(UserRole.recruiter)
+    dl_id, dl_email, dl_pw = await _seed_user(UserRole.delivery_lead)
     job_id, client_id = await _seed_job(rec_id)
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", str(client_id))
     cand_id = await _seed_candidate()
     rec_h = await _login(api_client, rec_email, rec_pw)
     other_h = await _login(api_client, other_email, other_pw)
+    dl_h = await _login(api_client, dl_email, dl_pw)
     try:
         async with restore_cpro_sender():
             async with AsyncSessionLocal() as db:
@@ -427,7 +433,22 @@ async def test_cv_sent_at_nordea_keeps_the_cpro_path(api_client, monkeypatch):
                 "/api/pipeline/move", headers=other_h, json=move
             )
             assert refused.status_code == 403, refused.text
-            sent = await api_client.post("/api/pipeline/move", headers=rec_h, json=move)
+            # Osoba od Cpro wrzuca z kolejki, po akceptacji DL-a — nie wprost.
+            by_sender = await api_client.post(
+                "/api/pipeline/move", headers=rec_h, json=move
+            )
+            assert by_sender.status_code == 403, by_sender.text
+            assert (
+                by_sender.json()["detail"]["message"]
+                == rules.CPRO_ACCEPT_DENIED_MESSAGE
+            )
+            no_rate = await api_client.post(
+                "/api/pipeline/move", headers=dl_h, json=move
+            )
+            assert no_rate.status_code == 422, no_rate.text
+            sent = await api_client.post(
+                "/api/pipeline/move", headers=dl_h, json={**move, **CPRO_RATE}
+            )
             assert sent.status_code == 200, sent.text
     finally:
         await _cleanup([cand_id], job_id)
@@ -497,10 +518,13 @@ def test_withdrawal_is_always_the_candidate() -> None:
     assert err.value.status_code == 422
 
 
-def test_cv_sent_rule_ignores_other_stages_and_nordea(monkeypatch) -> None:
+def test_cv_sent_rule_ignores_other_stages(monkeypatch) -> None:
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "77")
     assert rules.requires_dl_client_rate(PipelineStage.cv_sent, 15) is True
-    assert rules.requires_dl_client_rate(PipelineStage.cv_sent, 77) is False
+    # U Nordei „CV wysłane” = „Wysłane do Cpro” z pominięciem kolejki — też
+    # akceptacja (13.10.2026); „✓ Wrzucone” z kolejki odsiewa
+    # `arrives_from_before_client_send`.
+    assert rules.requires_dl_client_rate(PipelineStage.cv_sent, 77) is True
     assert rules.requires_dl_client_rate(PipelineStage.verified, 15) is False
 
 
