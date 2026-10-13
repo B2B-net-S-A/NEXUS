@@ -7,7 +7,8 @@
  * - `split` (cała szerokość okna, 09.10.2026) — rozwinięte narzędzia osoby:
  *   po LEWEJ duża strefa podglądu (CV, wymagania, „po ludzku”) na całą
  *   wysokość, po prawej stała kolumna z dokiem: 460 px, od 1536 px szerokości
- *   okna 520 px. Poniżej 1024 px strefy nie ma — warsztat pokazuje podgląd
+ *   okna 520 px (po zwinięciu CV połowa ekranu — `PersonPanelColumn`,
+ *   13.10.2026). Poniżej 1024 px strefy nie ma — warsztat pokazuje podgląd
  *   w miejscu. Do 09.10.2026 zakładki bez podglądu (umowa, dopasowanie,
  *   notatki) miały osobny rozmiar 760 px; pasek zakładek przesuwał się przez
  *   to w bok, więc podgląd jest teraz w każdej zakładce,
@@ -28,7 +29,11 @@
 
 import type { CSSProperties, ReactNode } from "react";
 
-import { PersonPanelSideProvider, PersonPanelSideZone } from "@/components/v2/person/PersonPanelSide";
+import {
+  PersonPanelColumn,
+  PersonPanelSideProvider,
+  PersonPanelSideZone,
+} from "@/components/v2/person/PersonPanelSide";
 import { cn } from "@/lib/utils";
 
 export type PersonPanelSize = "dock" | "split" | "review";
@@ -92,15 +97,7 @@ export function PersonPanelShell({
         style={top}
       >
         <PersonPanelSideZone hidden={!split} />
-        <div
-          data-testid="person-panel-column"
-          className={cn(
-            "flex min-h-0 min-w-0 flex-1 flex-col",
-            split && "lg:w-[460px] lg:flex-none 2xl:w-[520px]",
-          )}
-        >
-          {children}
-        </div>
+        <PersonPanelColumn split={split}>{children}</PersonPanelColumn>
       </aside>
     </PersonPanelSideProvider>
   );

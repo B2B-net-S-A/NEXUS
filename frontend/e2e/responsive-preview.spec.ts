@@ -362,7 +362,7 @@ test.describe("panel osoby — duży podgląd po lewej na laptopie", () => {
     });
     expect(covered, "panel osoby jest nad menu bocznym").toBe(true);
     // „Zwiń” oddaje menu i Tablicę.
-    await panel.getByRole("button", { name: "Zwiń" }).click();
+    await panel.getByRole("button", { name: "Zwiń", exact: true }).click();
     await expect(page.locator("aside[data-person-panel][data-size='dock']")).toBeVisible();
     await expect(page.getByTestId("harness-sidebar")).toHaveCSS("z-index", "40");
   });
@@ -408,6 +408,75 @@ test.describe("panel osoby — duży podgląd po lewej na laptopie", () => {
     );
   });
 
+  // 13.10.2026 (zgłoszenie rekrutera, D1–D4): CV i wymagania da się zwinąć.
+  // Na laptopie pasek krytycznych wymagań stoi nad CV, zwinięte CV oddaje
+  // miejsce wymaganiom i panelowi po połowie, układ wraca po przeładowaniu,
+  // a pasek zakładek panelu dalej stoi w miejscu.
+  test("/preview/job-detail: zwinięte CV dzieli ekran po połowie i zostaje zapamiętane", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto("/preview/job-detail");
+    await page.getByRole("link", { name: "Anna Przykładowa" }).first().click();
+    const panel = page.locator("aside[data-person-panel][data-size='split']");
+    const pane = page.locator("[data-person-side-content]:not([hidden]) [data-testid='candidate-preview-pane']");
+    const column = page.getByTestId("person-panel-column");
+    await expect(pane.getByTestId("requirements-strip")).toBeVisible();
+    expect(Math.round((await column.boundingBox())?.width ?? 0), "kolumna panelu przed zwinięciem").toBe(460);
+
+    await pane.getByRole("button", { name: "Zwiń CV", exact: true }).click();
+    await expect(pane.getByRole("button", { name: "Rozwiń CV", exact: true })).toBeVisible();
+    await expect(pane.getByRole("region", { name: "Wymagania", exact: true })).toBeVisible();
+    await expect(pane.getByRole("region", { name: "Po ludzku", exact: true })).toBeVisible();
+    const half = (1280 - 44) / 2;
+    await expect
+      .poll(async () => (await column.boundingBox())?.width ?? 0, { message: "kolumna panelu po zwinięciu CV" })
+      .toBeGreaterThan(half - 2);
+    expect((await column.boundingBox())?.width ?? 0).toBeLessThan(half + 2);
+    expect(await pageOverflowPx(page)).toBeLessThanOrEqual(1);
+
+    // Zmiana zakładki nie zmienia układu: pasek zakładek stoi w miejscu.
+    const tabs = panel.getByRole("tablist", { name: "Narzędzia osoby" });
+    const lefts = new Set<number>();
+    for (const name of ["Screening", "Rozmowy", "Umowa", "Notatki", "CV"]) {
+      const tab = tabs.getByRole("tab", { name });
+      await tab.click();
+      await expect(tab).toHaveAttribute("aria-selected", "true");
+      await expect(panel.locator("[data-person-side-content]:not([hidden])")).toHaveCount(1);
+      lefts.add(Math.round((await tabs.boundingBox())?.x ?? -1));
+    }
+    expect([...lefts], "lewa krawędź paska zakładek").toHaveLength(1);
+
+    // Układ jest pamiętany dla osoby — po przeładowaniu CV dalej zwinięte.
+    await page.reload();
+    await page.getByRole("link", { name: "Anna Przykładowa" }).first().click();
+    await expect(pane.getByRole("button", { name: "Rozwiń CV", exact: true })).toBeVisible();
+    await pane.getByRole("button", { name: "Rozwiń CV", exact: true }).click();
+    await expect.poll(async () => Math.round((await column.boundingBox())?.width ?? 0)).toBe(460);
+    await expect(pane.getByTestId("requirements-strip")).toBeVisible();
+  });
+
+  test("/preview/job-detail: zwinięte wymagania dają CV całą strefę na monitorze ok. 1730 px", async ({ page }) => {
+    await page.setViewportSize({ width: 1730, height: 815 });
+    await page.goto("/preview/job-detail");
+    await page.getByRole("link", { name: "Anna Przykładowa" }).first().click();
+    const pane = page.locator("[data-person-side-content]:not([hidden]) [data-testid='candidate-preview-pane']");
+    await expect(pane).toHaveAttribute("data-dual", "true");
+    const cv = pane.getByRole("region", { name: "CV", exact: true });
+    await expect(cv).toBeVisible();
+    // Dwa podglądy naraz: wymagania obok CV, bez paska.
+    await expect(pane.getByTestId("requirements-strip")).toHaveCount(0);
+    const before = (await cv.boundingBox())?.width ?? 0;
+
+    await pane.getByRole("button", { name: "Zwiń wymagania", exact: true }).click();
+    await expect(pane.getByTestId("requirements-strip")).toBeVisible();
+    await expect.poll(async () => (await cv.boundingBox())?.width ?? 0).toBeGreaterThan(before + 400);
+    expect(Math.round((await page.getByTestId("person-panel-column").boundingBox())?.width ?? 0)).toBe(520);
+
+    await pane.getByRole("button", { name: "Wszystkie wymagania", exact: true }).click();
+    await expect(pane.getByRole("region", { name: "Wymagania", exact: true })).toBeVisible();
+    await expect(pane.getByTestId("requirements-strip")).toHaveCount(0);
+    expect(await pageOverflowPx(page)).toBeLessThanOrEqual(1);
+  });
+
   // 12.10.2026: panel pokazywał wyłącznie notatki bieżącej rekrutacji, więc
   // osoba z historią wyglądała jak nieznana (1 417 z 3 433 otwartych kart).
   // Zakładka ma „Wcześniej u nas”, a licznik notatek nie może zrzucić jej do
@@ -432,7 +501,7 @@ test.describe("panel osoby — duży podgląd po lewej na laptopie", () => {
     expect(await pageOverflowPx(page)).toBeLessThanOrEqual(1);
 
     // Wąski dok: podpis zwiniętej sekcji mówi o historii, „Cała historia” wraca do zakładki.
-    await panel.getByRole("button", { name: "Zwiń" }).click();
+    await panel.getByRole("button", { name: "Zwiń", exact: true }).click();
     await expect(panel).toHaveAttribute("data-size", "dock");
     const section = panel.getByRole("button", { name: /^Notatki/ });
     await expect(section).toContainText("0 tu · 8 wcześniej");
@@ -521,7 +590,7 @@ test.describe("panel osoby — duży podgląd po lewej na laptopie", () => {
     // „Rozwiń” na nowo i działa jako DRUGI — jedno naciśnięcie zamykało wtedy
     // i duże okno, i rozwinięcie (przegląd kodu 12.10.2026; jsdom tego nie pokaże).
     await panel.getByRole("button", { name: "Powiększ pole notatki" }).click();
-    await panel.getByRole("button", { name: "Rozwiń" }).click();
+    await panel.getByRole("button", { name: "Rozwiń", exact: true }).click();
     await expect(panel).toHaveAttribute("data-size", "split");
     await page.keyboard.press("Escape");
     await expect(panel.getByTestId("dock-body")).toBeVisible();
