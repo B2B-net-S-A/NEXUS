@@ -3,11 +3,11 @@ Notifications API
 User notification system with unread badge support.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import and_, func, or_, select, true, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -135,6 +135,24 @@ _DEFAULT_LIMIT = 50
 _CHAT_THREADS_DEFAULT_LIMIT = 30
 _CHAT_THREADS_MAX_LIMIT = 100
 
+# Okienko „Rozmowy” (13.10.2026): cała kategoria „Rozmowy” — rozmowy u klienta,
+# prepy, terminy, telefon po rozmowie i przypomnienia kalendarza.
+_INTERVIEW_TYPES = tuple(sorted(types_in(NotificationCategory.interviews), key=str))
+# Starszej sprawy nikt już nie załatwia z powiadomienia — zostaje na ekranie
+# „Rozmowy u klienta”.
+_INTERVIEW_WINDOW_DAYS = 7
+_INTERVIEW_WINDOW_LIMIT = 50
+_INTERVIEW_READ_MAX_IDS = 100
+
+
+class InterviewNotificationListResponse(BaseModel):
+    items: List[NotificationResponse]
+
+
+class InterviewNotificationsReadRequest(BaseModel):
+    ids: List[int] = Field(min_length=1, max_length=_INTERVIEW_READ_MAX_IDS)
+
+
 # Historyczna lista „finance-safe" — od 19.08 nieużywana w predykacie
 # widoczności (finance widzi feed jak role operacyjne), zostaje wyłącznie
 # jako dokumentacja dawnego kontraktu na wypadek powrotu do zawężenia.
@@ -185,6 +203,40 @@ def _notification_owner(current_user: User):
     )
 
 
+async def _list_items(
+    db: AsyncSession, notifications, current_user: User
+) -> List[NotificationResponse]:
+    """Wiersze listy z podpisem „w zastępstwie za …” przy cudzych przypomnieniach."""
+    foreign_owner_ids = {
+        n.user_id for n in notifications if n.user_id != current_user.id
+    }
+    owner_names: dict[int, str] = {}
+    if foreign_owner_ids:
+        owner_rows = await db.execute(
+            select(User.id, User.name).where(User.id.in_(foreign_owner_ids))
+        )
+        owner_names = {row.id: row.name for row in owner_rows}
+    return [
+        NotificationResponse(
+            id=n.id,
+            user_id=n.user_id,
+            title=n.title,
+            message=n.message,
+            link=n.link,
+            notification_type=n.notification_type.value,
+            is_read=n.is_read,
+            created_at=n.created_at.isoformat() if n.created_at else None,
+            on_behalf_of_name=(
+                (owner_names.get(n.user_id) or "nieobecną osobę")
+                if n.user_id != current_user.id
+                else None
+            ),
+            **_category_fields(n.notification_type),
+        )
+        for n in notifications
+    ]
+
+
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
 
@@ -196,11 +248,15 @@ async def list_notifications(
     offset: int = Query(0, ge=0),
     exclude_section: List[str] = Query(default=[]),
     exclude_chat: bool = Query(False),
+    exclude_interviews: bool = Query(False),
 ):
     """List notifications for current user — unread first.
 
     ``exclude_chat``: dzwonek nie pokazuje ani nie liczy powiadomień czatów —
     od 09.10.2026 mają własne okienko (``GET /notifications/chats``).
+
+    ``exclude_interviews``: to samo dla kategorii „Rozmowy” u osób, które mają
+    okienko „Rozmowy” (``GET /notifications/interviews``, 13.10.2026).
 
     ``exclude_section`` (powtarzalny, np. ``delivery``): widget „Moje zadania"
     pokazuje wyłącznie zdarzenia rekrutacyjne, a sprawy klientów mają osobny
@@ -224,6 +280,8 @@ async def list_notifications(
     excluded_types = set(notification_types_for_sections(excluded_sections))
     if exclude_chat:
         excluded_types.update(CHAT_NOTIFICATION_TYPES)
+    if exclude_interviews:
+        excluded_types.update(_INTERVIEW_TYPES)
     type_filter = (
         Notification.notification_type.not_in(sorted(excluded_types, key=str))
         if excluded_types
@@ -245,16 +303,6 @@ async def list_notifications(
         .limit(limit)
     )
     notifications = result.scalars().all()
-
-    foreign_owner_ids = {
-        n.user_id for n in notifications if n.user_id != current_user.id
-    }
-    owner_names: dict[int, str] = {}
-    if foreign_owner_ids:
-        owner_rows = await db.execute(
-            select(User.id, User.name).where(User.id.in_(foreign_owner_ids))
-        )
-        owner_names = {row.id: row.name for row in owner_rows}
 
     unread_result = await db.execute(
         select(func.count())
@@ -281,28 +329,10 @@ async def list_notifications(
         or 0
     )
 
-    items = [
-        NotificationResponse(
-            id=n.id,
-            user_id=n.user_id,
-            title=n.title,
-            message=n.message,
-            link=n.link,
-            notification_type=n.notification_type.value,
-            is_read=n.is_read,
-            created_at=n.created_at.isoformat() if n.created_at else None,
-            on_behalf_of_name=(
-                (owner_names.get(n.user_id) or "nieobecną osobę")
-                if n.user_id != current_user.id
-                else None
-            ),
-            **_category_fields(n.notification_type),
-        )
-        for n in notifications
-    ]
-
     return NotificationListResponse(
-        items=items, unread_count=unread_count, own_unread_count=own_unread_count
+        items=await _list_items(db, notifications, current_user),
+        unread_count=unread_count,
+        own_unread_count=own_unread_count,
     )
 
 
@@ -385,6 +415,77 @@ async def mark_chat_threads_read(
     )
 
 
+# ── Okienko „Rozmowy”: rozmowy u klienta, prepy, przypomnienia kalendarza ────
+
+
+@router.get(
+    "/notifications/interviews", response_model=InterviewNotificationListResponse
+)
+async def list_interview_notifications(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Nieprzeczytane powiadomienia kategorii „Rozmowy” z ostatnich 7 dni.
+
+    Okienko „Rozmowy” w górnym pasku: zadania bierze z ``GET /interview-cycle``,
+    stąd — to, co przyszło i czego nikt jeszcze nie otworzył. Własne wiersze
+    i przypomnienia w zastępstwie, jak w dzwonku.
+    """
+    since = datetime.now(timezone.utc) - timedelta(days=_INTERVIEW_WINDOW_DAYS)
+    result = await db.execute(
+        select(Notification)
+        .where(
+            _notification_owner(current_user),
+            _notification_visibility(current_user),
+            Notification.notification_type.in_(_INTERVIEW_TYPES),
+            Notification.is_read.is_(False),
+            Notification.created_at >= since,
+        )
+        .order_by(Notification.created_at.desc(), Notification.id.desc())
+        .limit(_INTERVIEW_WINDOW_LIMIT)
+    )
+    return InterviewNotificationListResponse(
+        items=await _list_items(db, result.scalars().all(), current_user)
+    )
+
+
+@router.put("/notifications/interviews/read", response_model=MarkAllReadResponse)
+async def mark_interview_notifications_read(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    body: Optional[InterviewNotificationsReadRequest] = None,
+):
+    """Oznacz powiadomienia kategorii „Rozmowy” jako przeczytane.
+
+    Z ``ids`` — wskazane wiersze (klik w pozycję okienka), także przypomnienie
+    w zastępstwie, jak pojedyncze kliknięcie w dzwonku. Bez ciała — wszystkie
+    WŁASNE, jak ``read-all``. Osobna trasa, nie parametr ``read-all``: backend
+    sprzed tej zmiany zignorowałby nieznany parametr i zgasił cały dzwonek.
+    """
+    owner = (
+        and_(_notification_owner(current_user), Notification.id.in_(body.ids))
+        if body
+        else Notification.user_id == current_user.id
+    )
+    result = await db.execute(
+        update(Notification)
+        .where(
+            owner,
+            Notification.is_read.is_(False),
+            Notification.notification_type.in_(_INTERVIEW_TYPES),
+            _notification_visibility(current_user),
+        )
+        .values(is_read=True)
+        .execution_options(synchronize_session=False)
+    )
+    await db.commit()
+    return MarkAllReadResponse(
+        success=True,
+        updated=result.rowcount or 0,
+        message="Powiadomienia o rozmowach oznaczone jako przeczytane",
+    )
+
+
 @router.put(
     "/notifications/{notification_id}/read", response_model=NotificationResponse
 )
@@ -431,17 +532,23 @@ async def mark_all_read(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
     exclude_chat: bool = Query(False),
+    exclude_interviews: bool = Query(False),
 ):
     """Mark all notifications as read for current user (supports both PUT and PATCH).
 
     ``exclude_chat``: „Oznacz wszystko” w dzwonku nie gasi czatów, których
     dzwonek nie pokazuje — te gasi okienko „Czaty” albo wejście do czatu.
+    ``exclude_interviews``: to samo dla kategorii „Rozmowy” i okienka „Rozmowy”.
 
     Tylko WŁASNE wiersze: przypomnienia nieobecnego kolegi widoczne
     w zastępstwie zostają nieprzeczytane — „Oznacz wszystko" zastępcy nie może
     zamknąć spraw, które właściciel zobaczy po powrocie. Pojedyncze
     przypomnienie zastępca nadal gasi świadomie kliknięciem.
     """
+    excluded_types = [
+        *(CHAT_NOTIFICATION_TYPES if exclude_chat else ()),
+        *(_INTERVIEW_TYPES if exclude_interviews else ()),
+    ]
     result = await db.execute(
         update(Notification)
         .where(
@@ -449,8 +556,8 @@ async def mark_all_read(
             Notification.is_read.is_(False),
             _notification_visibility(current_user),
             (
-                Notification.notification_type.not_in(CHAT_NOTIFICATION_TYPES)
-                if exclude_chat
+                Notification.notification_type.not_in(excluded_types)
+                if excluded_types
                 else true()
             ),
         )
