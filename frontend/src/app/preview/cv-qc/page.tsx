@@ -16,8 +16,11 @@
 // ról — krytyczne do sprawdzenia ręcznie), `confirmed` (lista „Potwierdzone
 // z kandydatem”), `truth` (QC mówi prawdę, 13.10.2026: „Szukałem w: …” przy
 // treści spoza oryginału i krytyczna tylko na liście technologii jako
-// informacja). `?as=recruiter` — bez „Przepuść mimo QC”; w `advisory`
-// o przycisku decyduje `can_override` z wyniku.
+// informacja), `dismissed` („To nieprawda”, 13.10.2026: pozycje z kluczami
+// i przyciskiem „To nieprawda”, zwinięte „Pominięte (2)” z „Przywróć” oraz
+// uwaga wyciszona w „Jakość QC” jako informacja). `?as=recruiter` — bez
+// „Przepuść mimo QC”; w `advisory` i `dismissed` o przycisku decyduje
+// `can_override` z wyniku.
 
 import { useEffect, useState } from "react";
 import { AxiosError } from "axios";
@@ -469,6 +472,68 @@ const TRUTH: QcResult = {
   }),
 };
 
+/** Klucz pozycji jak z serwera (`cv_qc._assign_keys`) — fikcyjny, do „To nieprawda”. */
+const keyed = (check: QcCheck): QcCheck => ({
+  ...check,
+  items: check.items.map((item) => ({
+    ...item,
+    key:
+      item.key ??
+      `${check.key}|${(item.requirement ?? item.term ?? "").toLowerCase()}|${item.role?.toLowerCase() ?? "cv"}`,
+  })),
+});
+
+// „To nieprawda”: treść spoza oryginału i pogrubienie nice-to-have pominięte,
+// „Pozostałe wymagania” wyciszone w „Jakość QC” — zostaje jedna rzecz do poprawy.
+const DISMISSED: QcResult = {
+  ...FAILING,
+  blocking_failed: 1,
+  warnings_count: 2,
+  can_override: true,
+  checks: FAILING.checks.map((c) => {
+    if (c.key === "no_unsupported") {
+      return {
+        ...c,
+        status: "pass",
+        summary: "OK · pominięte: 1",
+        items: [],
+        dismissed_items: keyed(c).items.map((item) => ({
+          ...item,
+          dismissal: {
+            id: 41,
+            reason: "other_name",
+            reason_label: "Jest w źródłach pod inną nazwą",
+            note: "W oryginale jako „Apollo / GQL” w projekcie raportowym",
+            by_name: "Marta Przykładowa",
+            at: "2026-10-13T08:30:00Z",
+          },
+        })),
+      };
+    }
+    if (c.key === "nice_bolded") {
+      return {
+        ...c,
+        status: "pass",
+        summary: "OK · pominięte: 1",
+        items: [],
+        dismissed_items: keyed(c).items.map((item) => ({
+          ...item,
+          dismissal: {
+            id: 42,
+            reason: "not_needed",
+            reason_label: "Nie dotyczy tej rekrutacji",
+            note: null,
+            by_name: "Piotr Przykładowy",
+            at: "2026-10-13T09:05:00Z",
+          },
+        })),
+      };
+    }
+    if (c.key === "must_in_cv") return { ...keyed(c), muted: true };
+    return keyed(c);
+  }),
+};
+
 const FIXES: QcFixesResponse = {
   status: "ok",
   cached: false,
@@ -511,6 +576,7 @@ const STATES = {
   unverified: { label: "Role do sprawdzenia", data: UNVERIFIED },
   confirmed: { label: "Potwierdzone z kandydatem", data: CONFIRMED },
   truth: { label: "Gdzie szukało", data: TRUTH },
+  dismissed: { label: "To nieprawda", data: DISMISSED },
 } as const;
 type HarnessState = keyof typeof STATES;
 

@@ -1,5 +1,5 @@
 # Silnik CV bez wypełniacza (13.10.2026, D1–D3)
-<!-- indeks: punkt „Posiada kluczowe technologie…” usunięty, pytanie screeningu ≠ fakt, strażnik terminów z pytań i wymagań, branża tylko ze źródła, nagłówek = nazwa roli od klienta bez tłumaczenia (`cv_role_title`), lata bez nadpisywania stażem całej kariery, notatki bez stawek, dostępności, transkryptów i prepów, kontrola AI nie chowa zastrzeżeń -->
+<!-- indeks: bez punktu MUST, pytanie ≠ fakt, strażnik terminów, branża ze źródła, nagłówek `cv_role_title`, lata, notatki bez stawek i transkryptów -->
 
 Zespół zgłaszał, że generator „wpisuje głupoty”. Pomiar produkcji z 13.10.2026
 (30 dni, 759 CV) pokazał przyczyny w prompcie i w kodzie, nie w modelu:

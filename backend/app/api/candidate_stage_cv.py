@@ -64,6 +64,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Path,
     Query,
     Response,
     UploadFile,
@@ -120,6 +121,7 @@ from app.schemas.candidate_stage_cv import (
     CVBrandedResponse,
     CVBrandedUpdate,
     CVBrandedSelectDocument,
+    CVEditorDismissRequest,
     CVEditorIssues,
     CVBrandedSelectGenerated,
     CVBrandedSelectStageCv,
@@ -699,9 +701,21 @@ async def get_branded_cv_issues(
     odczyt CV etapu; etap bez CV to pusta lista, nie błąd. QC ma własną trasę
     (``/api/pipeline/stages/{id}/qc``).
     """
+    candidate_id, job_id, csv = await _issues_stage(db, stage_id)
+    await ensure_job_read_access(db, current_user, job_id)
+    if csv is None:
+        return CVEditorIssues()
+    return CVEditorIssues(
+        **await cv_editor_issues.stage_issues(db, csv, (candidate_id, job_id))
+    )
+
+
+async def _issues_stage(
+    db: AsyncSession, stage_id: int
+) -> tuple[int, int, Optional[CandidateStageCV]]:
     row = (
         await db.execute(
-            select(CandidateStage.job_id, CandidateStageCV)
+            select(CandidateStage.candidate_id, CandidateStage.job_id, CandidateStageCV)
             .select_from(CandidateStage)
             .outerjoin(
                 CandidateStageCV,
@@ -712,11 +726,84 @@ async def get_branded_cv_issues(
     ).first()
     if row is None:
         raise HTTPException(status_code=404, detail="Stage nie znaleziony")
-    job_id, csv = row
-    await ensure_job_read_access(db, current_user, job_id)
+    return row[0], row[1], row[2]
+
+
+@router.post(
+    "/candidates/stages/{stage_id}/cv/branded/issues/dismiss",
+    response_model=CVEditorIssues,
+)
+async def dismiss_branded_cv_issue(
+    stage_id: int,
+    payload: CVEditorDismissRequest,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> CVEditorIssues:
+    """„To nieprawda” przy uwadze generatora albo kontroli AI w edytorze (D5).
+
+    Pominięcie dotyczy pary (kandydat, rekrutacja); 422, gdy tej uwagi już
+    nie ma na liście.
+    """
+    from app.services.cv_finding_dismissals import DismissError
+
+    candidate_id, job_id, csv = await _issues_stage(db, stage_id)
+    await ensure_job_membership(db, current_user, job_id)
     if csv is None:
-        return CVEditorIssues()
-    return CVEditorIssues(**await cv_editor_issues.stage_issues(db, csv))
+        raise HTTPException(status_code=404, detail="Etap nie ma CV firmowego")
+    try:
+        issues = await cv_editor_issues.dismiss(
+            db,
+            csv,
+            pair=(candidate_id, job_id),
+            stage_id=stage_id,
+            source=payload.source,
+            text=payload.text,
+            status=payload.status,
+            reason=payload.reason,
+            note=payload.note,
+            user_id=current_user.id,
+        )
+    except DismissError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "CV_ISSUE_DISMISS_FAILED", "message": str(exc)},
+        ) from exc
+    await db.commit()
+    return CVEditorIssues(**issues)
+
+
+@router.post(
+    "/candidates/stages/{stage_id}/cv/branded/issues/dismissals/{dismissal_id}/restore",
+    response_model=CVEditorIssues,
+)
+async def restore_branded_cv_issue(
+    stage_id: int,
+    current_user: CandidateWriteAccess,
+    dismissal_id: int = Path(ge=1, le=9_223_372_036_854_775_807),
+    db: AsyncSession = Depends(get_db),
+) -> CVEditorIssues:
+    """Przywróć uwagę generatora albo kontroli AI oznaczoną „To nieprawda”."""
+    from app.services.cv_finding_dismissals import DismissError
+
+    candidate_id, job_id, csv = await _issues_stage(db, stage_id)
+    await ensure_job_membership(db, current_user, job_id)
+    if csv is None:
+        raise HTTPException(status_code=404, detail="Etap nie ma CV firmowego")
+    try:
+        issues = await cv_editor_issues.restore(
+            db,
+            csv,
+            pair=(candidate_id, job_id),
+            dismissal_id=dismissal_id,
+            user_id=current_user.id,
+        )
+    except DismissError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "CV_ISSUE_RESTORE_FAILED", "message": str(exc)},
+        ) from exc
+    await db.commit()
+    return CVEditorIssues(**issues)
 
 
 async def apply_generated_to_stage_cv(

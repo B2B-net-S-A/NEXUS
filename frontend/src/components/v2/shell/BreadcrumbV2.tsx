@@ -63,6 +63,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   "client-portfolio-preview": "Podgląd importu klientów",
   "clients-overview": "Przegląd klientów",
   "cv-rules": "Reguły CV",
+  "qc-quality": "Jakość QC",
   dictionaries: "Słowniki",
   "entity-fields": "Konfiguracja pól",
   "hiring-managers": "Top hiring managers",

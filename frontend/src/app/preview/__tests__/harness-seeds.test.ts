@@ -534,6 +534,12 @@ describe("/preview/cv-qc — okno QC CV bez sieci", () => {
     expect(harness).toContain("api.interceptors.request.use(");
     expect(harness).toContain("api.interceptors.request.eject(");
   });
+
+  it("stan „To nieprawda” ma pominięte pozycje i uwagę wyciszoną w „Jakość QC”", () => {
+    expect(harness).toContain('dismissed: { label: "To nieprawda", data: DISMISSED }');
+    expect(harness).toContain("dismissed_items:");
+    expect(harness).toContain("muted: true");
+  });
 });
 
 describe("/preview/cv-editor (Edytor CV 2) — edytor z pamięci, źródła z zasiewu, bez sieci", () => {

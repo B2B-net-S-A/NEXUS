@@ -210,3 +210,28 @@ describe("settings-registry — portale ogłoszeniowe (RocketJobs / JustJoin.IT)
     expect(searchSettingsItems(admin as never, "rocketjobs").map((i) => i.id)).toEqual(["job-boards"]);
   });
 });
+
+describe("settings-registry — „Jakość QC” (D6, 13.10.2026)", () => {
+  it("widzi ją wyłącznie admin z dostępem do Systemu, obok kosztów AI", () => {
+    expect(can(user("admin", { system_admin: "write" }), "qc-quality")).toBe(true);
+    expect(can(user("admin", { system_admin: "none" }), "qc-quality")).toBe(false);
+    for (const role of ["head_of_recruitment", "delivery_lead", "recruiter", "finance"]) {
+      expect(can(user(role, { system_admin: "write" }), "qc-quality")).toBe(false);
+    }
+    expect(item("qc-quality").area).toBe("sys");
+    const ids = SETTINGS_ITEMS.map((i) => i.id);
+    expect(ids.indexOf("qc-quality")).toBe(ids.indexOf("ai") + 1);
+  });
+
+  it("podstrona `/settings/ai/…` należy do najdłuższej pasującej trasy", () => {
+    expect(findSettingsItemByRoute("/settings/ai/qc-quality")?.id).toBe("qc-quality");
+    expect(findSettingsItemByRoute("/settings/ai")?.id).toBe("ai");
+    expect(findSettingsItemByRoute("/settings/ai/inne")?.id).toBe("ai");
+  });
+
+  it("znajduje się po „trafność” i „nieprawda”", () => {
+    const admin = user("admin", { system_admin: "write" });
+    expect(searchSettingsItems(admin as never, "trafność").map((i) => i.id)).toEqual(["qc-quality"]);
+    expect(searchSettingsItems(admin as never, "nieprawda").map((i) => i.id)).toEqual(["qc-quality"]);
+  });
+});

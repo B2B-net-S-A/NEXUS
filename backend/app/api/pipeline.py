@@ -1012,9 +1012,13 @@ async def _spend_advisory_qc_override_on_return(
     w transakcji ruchu — odmowa ruchu cofa także ten zapis.
     """
 
-    from app.services import cv_qc
+    from app.services import cv_finding_dismissals, cv_qc
 
-    if not await cv_qc.has_live_advisory_override(db, candidate_id, job_id):
+    has_override = await cv_qc.has_live_advisory_override(db, candidate_id, job_id)
+    # Pominięte uwagi blokujące („To nieprawda”, D5) działają jak obejście
+    # doradcze: zwrot karty przywraca te, które pominęła osoba bez prawa wysyłki.
+    has_dismissals = await cv_finding_dismissals.has_blocking(db, candidate_id, job_id)
+    if not (has_override or has_dismissals):
         return
     target_column = board_column_for(
         stage_def.name if stage_def else None,
@@ -1046,7 +1050,10 @@ async def _spend_advisory_qc_override_on_return(
         )
     )
     if not forward:
-        await cv_qc.spend_advisory_overrides(db, candidate_id, job_id)
+        if has_override:
+            await cv_qc.spend_advisory_overrides(db, candidate_id, job_id)
+        if has_dismissals:
+            await cv_finding_dismissals.restore_on_card_return(db, candidate_id, job_id)
 
 
 @router.post("/move", response_model=CandidateStageResponse)

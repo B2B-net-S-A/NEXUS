@@ -5693,6 +5693,33 @@ END $$""",
 )""",
     "CREATE INDEX IF NOT EXISTS ix_cv_qc_runs_pair_created "
     "ON cv_qc_runs (candidate_id, job_id, created_at DESC)",
+    # 0439: pominięte uwagi QC i edytora („To nieprawda”, 13.10.2026).
+    # Lustro 1:1 z migracją — pilnuje `test_cv_finding_dismissals.py`.
+    """CREATE TABLE IF NOT EXISTS cv_finding_dismissals (
+    id BIGSERIAL PRIMARY KEY,
+    candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+    job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    candidate_stage_id INTEGER NULL
+        REFERENCES candidate_stages(id) ON DELETE SET NULL,
+    source VARCHAR(16) NOT NULL,
+    check_key VARCHAR(40) NOT NULL,
+    finding_key VARCHAR(400) NOT NULL,
+    label TEXT NOT NULL,
+    reason VARCHAR(32) NOT NULL,
+    note TEXT NULL,
+    evidence_quote TEXT NULL,
+    blocking BOOLEAN NOT NULL DEFAULT false,
+    dismissed_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    restored_at TIMESTAMPTZ NULL,
+    restored_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    restored_reason VARCHAR(16) NULL
+)""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_cv_finding_dismissals_active "
+    "ON cv_finding_dismissals (candidate_id, job_id, source, finding_key) "
+    "WHERE restored_at IS NULL",
+    "CREATE INDEX IF NOT EXISTS ix_cv_finding_dismissals_created "
+    "ON cv_finding_dismissals (created_at)",
     # 0370: prepy w Teams — spotkanie, transkrypt i ocena. Lustro 1:1 z
     # migracją — pilnuje `test_prep_meetings_schema.py`.
     """CREATE TABLE IF NOT EXISTS prep_meetings (

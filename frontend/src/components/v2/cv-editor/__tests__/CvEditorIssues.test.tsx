@@ -4,7 +4,7 @@ import { QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-qu
 import { Editor } from "@tiptap/core";
 
 import type { CvEditorIssuesApi, CvEditorIssuesData } from "@/lib/api/cvEditorIssues";
-import type { QcCheck, QcResult, QcTransformBody, QcTransformResult } from "@/lib/api/cvQc";
+import { cvQcQueryKey, type QcCheck, type QcResult, type QcTransformBody, type QcTransformResult } from "@/lib/api/cvQc";
 import { cvEditorExtensions, loadCvHtml } from "@/lib/cv-editor-structure";
 
 const toast = vi.hoisted(() => ({ showSuccess: vi.fn(), showError: vi.fn() }));
@@ -105,6 +105,10 @@ function memoryApi(overrides: Partial<CvEditorIssuesApi> = {}): CvEditorIssuesAp
       skipped: [],
     })),
     confirm: vi.fn(async () => qcResult({ blocking_failed: 0 })),
+    dismiss: vi.fn(async () => qcResult()),
+    restore: vi.fn(async () => qcResult()),
+    dismissIssue: vi.fn(async () => ISSUES),
+    restoreIssue: vi.fn(async () => ISSUES),
     ...overrides,
   };
 }
@@ -511,5 +515,182 @@ describe("panel „Do poprawy” w edytorze CV", () => {
     await waitFor(() => expect(editor.view.dom.querySelector(".cv-issue-term")).not.toBeNull());
     view.unmount();
     expect(editor.view.dom.querySelector("[class*=cv-issue]")).toBeNull();
+  });
+});
+
+describe("„To nieprawda” w panelu „Do poprawy” (D5, 13.10.2026)", () => {
+  const SUBMIT = "Oznacz jako nieprawdę";
+  const DISMISSAL = {
+    id: 41,
+    reason: "in_cv",
+    reason_label: "Jest w CV — QC tego nie znalazło",
+    note: null,
+    by_name: "Marta Przykładowa",
+    at: "2026-10-13T08:30:00Z",
+  };
+  /** Pozycje z kluczami — jak z serwera od 13.10.2026. */
+  const KEYED: QcCheck[] = CHECKS.map((c) => ({
+    ...c,
+    items: c.items.map((item) => ({ ...item, key: `${c.key}|${(item.term ?? "").toLowerCase()}|cv` })),
+  }));
+
+  it("uwaga generatora: powód bez fragmentu źródła, świeża lista z serwera, wpis w „Pominięte”", async () => {
+    const after: CvEditorIssuesData = {
+      ...ISSUES,
+      generator_warnings: ["Wyróżnienia: pogrubiono 4 terminy."],
+      dismissed: [{ source: "generator", text: "MUST-HAVE: brak Kafka w źródłach.", status: null, dismissal: { ...DISMISSAL, id: 52 } }],
+    };
+    const api = memoryApi({ dismissIssue: vi.fn(async () => after) });
+    const { counts } = setup({ api });
+    const generator = await screen.findByRole("region", { name: "Uwagi generatora" });
+    fireEvent.click(within(generator).getByRole("button", { name: "To nieprawda" }));
+    const form = within(generator).getByRole("form", { name: "To nieprawda: MUST-HAVE: brak Kafka w źródłach." });
+    fireEvent.click(within(form).getByRole("radio", { name: "Jest w źródłach pod inną nazwą" }));
+    // Fragment źródła dotyczy tylko QC — uwaga generatora go nie potrzebuje.
+    expect(within(form).queryByLabelText("Fragment źródła")).toBeNull();
+    fireEvent.change(within(form).getByLabelText("Opis (opcjonalnie)"), {
+      target: { value: " w notatce jako Apache Kafka " },
+    });
+    fireEvent.click(within(form).getByRole("button", { name: SUBMIT }));
+    await waitFor(() =>
+      expect(api.dismissIssue).toHaveBeenCalledWith(STAGE, {
+        source: "generator",
+        text: "MUST-HAVE: brak Kafka w źródłach.",
+        status: null,
+        reason: "other_name",
+        note: "w notatce jako Apache Kafka",
+      }),
+    );
+    expect(toast.showSuccess).toHaveBeenCalledWith("Oznaczono jako nieprawdę.");
+    await waitFor(() => expect(generator).not.toHaveTextContent("MUST-HAVE: brak Kafka w źródłach."));
+    expect(screen.getByRole("region", { name: "Pominięte" })).toHaveTextContent("Pominięte (1)");
+    // Pominięta uwaga nie liczy się do paska: 1 blokująca + 1 uwaga QC + 1 linia kontroli AI.
+    await waitFor(() => expect(counts.at(-1)).toEqual({ total: 3, blocking: 1, state: "ready" }));
+  });
+
+  it("uwaga kontroli AI: tekst linii i status idą do serwera; „Inny powód” wymaga opisu", async () => {
+    const api = memoryApi();
+    setup({ api });
+    const review = await screen.findByRole("region", { name: "Kontrola AI" });
+    fireEvent.click(within(review).getByRole("button", { name: "To nieprawda" }));
+    const form = within(review).getByRole("form", { name: "To nieprawda: „Przeglądy kodu.”" });
+    fireEvent.click(within(form).getByRole("radio", { name: "Inny powód" }));
+    fireEvent.click(within(form).getByRole("button", { name: SUBMIT }));
+    expect(within(form).getByRole("alert")).toHaveTextContent("Przy „Inny powód” opisz");
+    expect(api.dismissIssue).not.toHaveBeenCalled();
+    fireEvent.change(within(form).getByLabelText("Opis (wymagany)"), { target: { value: "Robił to w Banku Przykładowym" } });
+    fireEvent.click(within(form).getByRole("button", { name: SUBMIT }));
+    await waitFor(() =>
+      expect(api.dismissIssue).toHaveBeenCalledWith(STAGE, {
+        source: "review",
+        text: "Przeglądy kodu.",
+        status: "unsupported",
+        reason: "other",
+        note: "Robił to w Banku Przykładowym",
+      }),
+    );
+  });
+
+  it("odmowa serwera przy uwadze — komunikat serwera, formularz zostaje", async () => {
+    const api = memoryApi({
+      dismissIssue: vi.fn(async () =>
+        Promise.reject({
+          response: { status: 422, data: { detail: { code: "CV_ISSUE_DISMISS_FAILED", message: "Tej uwagi już nie ma — odśwież panel." } } },
+        }),
+      ),
+    });
+    setup({ api });
+    const generator = await screen.findByRole("region", { name: "Uwagi generatora" });
+    fireEvent.click(within(generator).getByRole("button", { name: "To nieprawda" }));
+    const form = within(generator).getByRole("form", { name: /^To nieprawda:/ });
+    fireEvent.click(within(form).getByRole("radio", { name: "Nie dotyczy tej rekrutacji" }));
+    fireEvent.click(within(form).getByRole("button", { name: SUBMIT }));
+    await waitFor(() => expect(toast.showError).toHaveBeenCalledWith("Tej uwagi już nie ma — odśwież panel."));
+    expect(within(generator).getByRole("form", { name: /^To nieprawda:/ })).toBeInTheDocument();
+  });
+
+  it("pozycja QC: te same karty co w oknie QC — wynik trafia do panelu i do okna QC", async () => {
+    const afterChecks: QcCheck[] = [
+      { ...KEYED[0], status: "pass", items: [], dismissed_items: [{ ...KEYED[0].items[0], dismissal: DISMISSAL }] },
+      KEYED[1],
+      KEYED[2],
+    ];
+    const api = memoryApi({
+      qc: vi.fn(async () => qcResult({ checks: KEYED })),
+      dismiss: vi.fn(async () => qcResult({ blocking_failed: 0, checks: afterChecks })),
+      restore: vi.fn(async () => qcResult({ checks: KEYED })),
+    });
+    const { client } = setup({ api });
+    const tasks = await screen.findByRole("region", { name: "Zalecane poprawki przed wysłaniem" });
+    fireEvent.click(within(tasks).getByRole("button", { name: "To nieprawda" }));
+    const form = within(tasks).getByRole("form", { name: "To nieprawda: AWS" });
+    fireEvent.click(within(form).getByRole("radio", { name: "Jest w CV — QC tego nie znalazło" }));
+    fireEvent.click(within(form).getByRole("button", { name: SUBMIT }));
+    await waitFor(() =>
+      expect(api.dismiss).toHaveBeenCalledWith(STAGE, { check_key: "no_unsupported", key: "no_unsupported|aws|cv", reason: "in_cv" }),
+    );
+    expect(await screen.findByText("Nic nie blokuje wysyłki")).toBeInTheDocument();
+    expect(client.getQueryData<QcResult>(cvQcQueryKey(STAGE))?.blocking_failed).toBe(0);
+
+    const dismissed = screen.getByRole("region", { name: "Pominięte" });
+    fireEvent.click(within(dismissed).getByRole("button", { name: /Pominięte \(1\)/ }));
+    const entry = within(dismissed).getByRole("listitem");
+    expect(entry).toHaveTextContent("AWS");
+    expect(entry).toHaveTextContent("Zgodność z oryginałem");
+    fireEvent.click(within(entry).getByRole("button", { name: "Przywróć" }));
+    await waitFor(() => expect(api.restore).toHaveBeenCalledWith(STAGE, 41));
+    expect(await screen.findByText("Blokuje wysyłkę: 1")).toBeInTheDocument();
+  });
+
+  it("bez prawa obejścia blokady nie da się pominąć — uwagę tak", async () => {
+    setup({ api: memoryApi({ qc: vi.fn(async () => qcResult({ can_override: false, checks: KEYED })) }) });
+    const tasks = await screen.findByRole("region", { name: "Zalecane poprawki przed wysłaniem" });
+    expect(within(tasks).queryByRole("button", { name: "To nieprawda" })).not.toBeInTheDocument();
+    const notes = screen.getByRole("region", { name: "Warto poprawić — nie blokuje" });
+    fireEvent.click(within(notes).getByRole("button", { name: /Must-have pogrubione/ }));
+    expect(within(notes).getByRole("button", { name: "To nieprawda" })).toBeInTheDocument();
+  });
+
+  it("„Przywróć” przy uwadze generatora woła trasę edytora z id pominięcia", async () => {
+    const api = memoryApi({
+      issues: vi.fn(async () => ({
+        ...ISSUES,
+        dismissed: [
+          {
+            source: "review" as const,
+            text: "Mentoring zespołu.",
+            status: "contradicted",
+            dismissal: { ...DISMISSAL, id: 52, reason: "other", reason_label: "Inny powód", note: "potwierdzone w rozmowie" },
+          },
+        ],
+      })),
+    });
+    setup({ api });
+    const dismissed = await screen.findByRole("region", { name: "Pominięte" });
+    fireEvent.click(within(dismissed).getByRole("button", { name: /Pominięte \(1\)/ }));
+    const entry = within(dismissed).getByRole("listitem");
+    expect(entry).toHaveTextContent("Mentoring zespołu.");
+    expect(entry).toHaveTextContent("Kontrola AI");
+    expect(entry).toHaveTextContent("Inny powód — „potwierdzone w rozmowie”");
+    fireEvent.click(within(entry).getByRole("button", { name: "Przywróć" }));
+    await waitFor(() => expect(api.restoreIssue).toHaveBeenCalledWith(STAGE, 52));
+    await waitFor(() => expect(toast.showSuccess).toHaveBeenCalledWith("Uwaga przywrócona."));
+  });
+
+  it("uwaga wyciszona w „Jakość QC” nie liczy się do paska i stoi jako informacja", async () => {
+    const muted = KEYED.map((c) => (c.key === "must_bolded" ? { ...c, muted: true } : c));
+    const { counts } = setup({ api: memoryApi({ qc: vi.fn(async () => qcResult({ checks: muted })) }) });
+    expect(await screen.findByRole("region", { name: "Informacje — wyciszone w „Jakość QC”" })).toHaveTextContent(
+      "Must-have pogrubione",
+    );
+    expect(screen.queryByRole("region", { name: "Warto poprawić — nie blokuje" })).not.toBeInTheDocument();
+    // 1 blokująca + 1 uwaga generatora + 1 linia kontroli AI — bez wyciszonej.
+    await waitFor(() => expect(counts.at(-1)).toEqual({ total: 3, blocking: 1, state: "ready" }));
+  });
+
+  it("edytor wyniku generatora (bez rekrutacji) nie ma „To nieprawda” — nie ma pary", async () => {
+    setup({ props: { stageId: undefined, generatorWarnings: ["MUST-HAVE: brak Kafka w źródłach."] } });
+    expect(screen.getByRole("region", { name: "Uwagi generatora" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "To nieprawda" })).not.toBeInTheDocument();
   });
 });

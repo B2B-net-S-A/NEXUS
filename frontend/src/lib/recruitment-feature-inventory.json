@@ -2329,6 +2329,30 @@
    "file": "components/v2/modals/AddCandidateFromCVModal.tsx",
    "marker": "Dodaj do rekrutacji z tym CV",
    "v3_home": "menu „⋯” → Dodaj z pliku CV"
+  },
+  {
+   "id": "board.cv-qc-dismiss",
+   "area": "pipeline",
+   "opis": "„To nieprawda” przy pozycji QC (okno QC i panel „Do poprawy” w edytorze): pięć powodów, opis wymagany przy „Inny powód”, fragment źródła przy „pod inną nazwą” w treści spoza oryginału; uwagę blokującą pomija tylko osoba z prawem obejścia, brak CV i reguł klienta — nikt",
+   "file": "components/v2/recruitment/cv-qc-cards.tsx",
+   "marker": "Oznacz jako nieprawdę",
+   "v3_home": "Okno QC CV → pozycja → „To nieprawda”"
+  },
+  {
+   "id": "board.cv-qc-dismissed",
+   "area": "pipeline",
+   "opis": "„Pominięte (n)” w oknie QC i w edytorze CV: co, dlaczego, kto i kiedy oznaczył jako nieprawdę, z „Przywróć”; uwagi wyciszone w „Jakość QC” stoją osobno jako informacja i nie liczą się do „Warto poprawić”",
+   "file": "components/v2/recruitment/cv-qc-cards.tsx",
+   "marker": "Przywróć",
+   "v3_home": "Okno QC CV → „Pominięte”"
+  },
+  {
+   "id": "cv.editor-issue-dismiss",
+   "area": "cv",
+   "opis": "„To nieprawda” przy uwadze generatora i kontroli AI w panelu „Do poprawy” edytora CV — pominięcie dla pary (kandydat, rekrutacja), z „Przywróć” w „Pominięte”",
+   "file": "components/v2/cv-editor/CvEditorIssues.tsx",
+   "marker": "dismissIssue",
+   "v3_home": "karta „CV do klienta” → Edytuj → Do poprawy"
   }
  ]
 }

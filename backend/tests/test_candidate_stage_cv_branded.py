@@ -345,6 +345,7 @@ async def test_issues_route_serves_generator_warnings_and_review_findings(
         "generated_document_id": None,
         "generator_warnings": [],
         "content_review": {"status": None, "version": None, "findings": []},
+        "dismissed": [],
     }
 
     await _seed_draft(sid, html)
@@ -402,6 +403,7 @@ async def test_issues_route_serves_generator_warnings_and_review_findings(
             "version": 1,
             "findings": [{"text": "Zna Kafkę od 5 lat.", "status": "unsupported"}],
         },
+        "dismissed": [],
     }
     assert (await app_client.get(url)).status_code in (401, 403)
     missing = await app_client.get(

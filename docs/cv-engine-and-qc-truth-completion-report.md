@@ -95,3 +95,36 @@ Pozostałe uwagi przejrzane ręcznie:
 - tytuł: model zmienił rolę od klienta albo plik z dysku jest o innej roli;
 - spoza oryginału: tej rzeczy nie ma w żadnym źródle;
 - must-have nie w CV: w 188 ze 226 przypadków nie ma ich ani w CV, ani w oryginale, ani w rozmowie (pytanie do kandydata).
+
+## PR 2 na produkcji
+
+`a3992e45f` (B2B-net-S-A/NEXUS#2193), `/api/health` potwierdzony 13.10.2026.
+
+Ten sam skrypt na wdrożonym kodzie: 123 pary, 3,2 uwagi na CV, 74 zaliczone. Po starcie przeliczyły się 22 pary sprzed wysyłki z nieudanym przebiegiem (3 z nich są teraz zaliczone). Pary po wysyłce mają przebiegi starszych wersji, zgodnie z regułą.
+
+## PR 3 — „To nieprawda” i „Jakość QC” (gałąź `feat/qc-dismiss-quality`)
+
+- **Pominięcie uwagi** (D5): per para kandydat × rekrutacja, z powodem; klucz pozycji liczy serwer. Nakładane w jednym miejscu (`cv_qc.evaluate`), więc okno, Tablica, bramka ruchu, obejście i propozycje AI widzą to samo.
+- **Uwaga blokująca** działa jak obejście:
+  - może ją pominąć tylko osoba z prawem obejścia;
+  - Delivery Lead dostaje dzwonek, a w przeglądzie widzi ryzyko „Pominięte uwagi blokujące QC”;
+  - zwrot karty przywraca pominięcia osób bez prawa wysyłki.
+- **Ograniczenia pominięć:**
+  - brak CV i reguły klienta (stawka, kontakt, zgoda RODO) nie dają się pominąć;
+  - pominięcie roli krytycznej nie ukrywa braku w całym CV;
+  - „Pogrub wszystkie” nie pogrubia pominiętego terminu.
+- **Edytor CV:** „To nieprawda” przy uwagach generatora i kontroli AI.
+- **„Jakość QC”** (D6):
+  - trafność każdego sprawdzenia z 30 dni;
+  - uwaga z trafnością poniżej 70% przy co najmniej 30 pokazanych pozycjach sama staje się informacją;
+  - blokada nigdy nie przechodzi w informację sama — poniżej 90% admini dostają powiadomienie;
+  - ręczny stan uwag, panel Ustawienia → „Jakość QC”.
+- **Przeglądy:**
+  - python-reviewer znalazł 3 problemy, w tym 2 blokery. Wszystkie poprawione z testami: data w widoku pominięcia psuła zapis przebiegu (każde pominięcie kończyło się 500), brakowało decyzji heartbeat dla nowej pętli, a dwa równoczesne pominięcia dawały 500.
+  - typescript-reviewer — wynik w opisie PR-a.
+- **Okno QC** przeklikane na harnessie `/preview/cv-qc?state=dismissed` w 1280×720:
+  - przyciski „To nieprawda” przy rolach;
+  - formularz z pięcioma powodami i ostrzeżeniem przy blokadzie;
+  - „Informacje — nie liczą się do uwag”;
+  - „Pominięte (2)” z przywróceniem;
+  - okno 32–1248 px, nic nie wychodzi poza ekran.

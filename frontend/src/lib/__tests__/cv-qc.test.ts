@@ -3,20 +3,26 @@ import { describe, expect, it } from "vitest";
 import { groupCproByJob, type BoardTaskRow } from "@/lib/api/boardTasks";
 import type { QcCheck, QcCvBlock } from "@/lib/api/cvQc";
 import {
+  QC_DISMISS_REASONS,
+  QC_NOT_DISMISSABLE,
   QC_OVERRIDE_REASONS,
   QC_ROLE_STATE_LABEL,
   apiErrorCode,
   blockingTasks,
+  canDismissItem,
   candidateQuestion,
   checkLevelFixes,
   checkTasks,
   companyCvRoleState,
   countForm,
+  dismissNeedsQuote,
+  dismissedQcItems,
   groupRoleStates,
   highlightTerms,
   notePreview,
   originalDescribesSkill,
   parseBoldMarkup,
+  qcDismissError,
   qcFailedStageId,
   qcOverrideError,
   requirementAlternatives,
@@ -423,5 +429,91 @@ describe("groupCproByJob — jedna linia na rekrutację", () => {
       [10, [1, 3]],
       [20, [2]],
     ]);
+  });
+});
+
+describe("„To nieprawda” i „Jakość QC” (D5–D6, 13.10.2026)", () => {
+  const dismissal = {
+    id: 7,
+    reason: "in_cv",
+    reason_label: "Jest w CV — QC tego nie znalazło",
+    note: null,
+    by_name: "Marta Przykładowa",
+    at: "2026-10-13T08:00:00Z",
+  };
+
+  it("pięć powodów w kolejności serwera; trzy pierwsze to „QC się myli”, ostatni to „Inny powód”", () => {
+    expect(QC_DISMISS_REASONS.map((r) => r.code)).toEqual(["in_cv", "other_name", "wrong_place", "not_needed", "other"]);
+    expect(QC_DISMISS_REASONS.at(-1)?.label).toBe("Inny powód");
+  });
+
+  it("brak CV i reguł klienta nie da się pominąć — nikomu", () => {
+    expect([...QC_NOT_DISMISSABLE].sort()).toEqual(["client_rules", "cv_present"]);
+    for (const key of QC_NOT_DISMISSABLE) {
+      const blocking = check({ key, status: "fail", items: [{ key: `${key}|x|cv`, detail: "x" }] });
+      expect(canDismissItem(blocking, blocking.items[0], true)).toBe(false);
+    }
+  });
+
+  it("uwagę blokującą pomija tylko osoba z prawem obejścia; uwagę — każdy; pozycji bez klucza — nikt", () => {
+    const blocking = check({ key: "no_unsupported", status: "fail", items: [{ key: "no_unsupported|aws|cv", term: "AWS" }] });
+    expect(canDismissItem(blocking, blocking.items[0], false)).toBe(false);
+    expect(canDismissItem(blocking, blocking.items[0], true)).toBe(true);
+    const warning = check({ key: "must_bolded", severity: "warning", status: "fail", items: [{ key: "must_bolded|java|cv" }] });
+    expect(canDismissItem(warning, warning.items[0], false)).toBe(true);
+    // Przebieg sprzed 13.10.2026 nie ma klucza — serwer nie wiedziałby, co pominąć.
+    expect(canDismissItem(warning, { requirement: "Java" }, true)).toBe(false);
+  });
+
+  it("fragment źródła tylko przy „pod inną nazwą” w treści spoza oryginału", () => {
+    expect(dismissNeedsQuote("no_unsupported", "other_name")).toBe(true);
+    expect(dismissNeedsQuote("no_unsupported", "in_cv")).toBe(false);
+    expect(dismissNeedsQuote("critical_skills", "other_name")).toBe(false);
+    expect(dismissNeedsQuote("no_unsupported", null)).toBe(false);
+  });
+
+  it("walidacja formularza: powód, opis przy „Inny powód”, fragment i długości", () => {
+    expect(qcDismissError(null, "", null)).toBe("Wybierz powód.");
+    expect(qcDismissError("other", "   ", null)).toBe("Przy „Inny powód” opisz, dlaczego uwaga jest nieprawdziwa.");
+    expect(qcDismissError("other", "klient tego nie wymaga", null)).toBeNull();
+    expect(qcDismissError("in_cv", "", null)).toBeNull();
+    expect(qcDismissError("in_cv", "x".repeat(501), null)).toBe("Opis może mieć najwyżej 500 znaków.");
+    expect(qcDismissError("other_name", "", "  ")).toBe(
+      "Wklej fragment oryginału, notatki albo odpowiedzi, w którym to stoi.",
+    );
+    expect(qcDismissError("other_name", "", "x".repeat(301))).toBe("Fragment może mieć najwyżej 300 znaków.");
+    expect(qcDismissError("other_name", "", "Apollo / GQL")).toBeNull();
+  });
+
+  it("pominięte zbiera ze wszystkich sprawdzeń — także z tych, które po pominięciu przechodzą", () => {
+    const passed = check({
+      key: "no_unsupported",
+      status: "pass",
+      dismissed_items: [{ key: "no_unsupported|aws|cv", term: "AWS", dismissal }],
+    });
+    const failing = check({
+      key: "must_bolded",
+      severity: "warning",
+      status: "fail",
+      items: [{ key: "must_bolded|java|cv" }],
+      dismissed_items: [{ key: "must_bolded|kafka|cv", term: "Kafka", dismissal: { ...dismissal, id: 8 } }],
+    });
+    expect(dismissedQcItems([passed, failing, check({ key: "dates" })]).map(({ check: c, item }) => [c.key, item.term])).toEqual([
+      ["no_unsupported", "AWS"],
+      ["must_bolded", "Kafka"],
+    ]);
+  });
+
+  it("uwaga wyciszona w „Jakość QC” nie jest w „Warto poprawić”, a blokady nie wycisza nic", () => {
+    const split = splitChecks([
+      check({ key: "must_bolded", severity: "warning", status: "fail", muted: true, items: [{ requirement: "Java" }] }),
+      check({ key: "spelling", severity: "warning", status: "fail", items: [{ term: "Postgres" }] }),
+      check({ key: "no_unsupported", status: "fail", muted: true, items: [{ term: "AWS" }] }),
+      check({ key: "dates", severity: "warning", status: "pass", muted: true }),
+    ]);
+    expect(split.notes.map((c) => c.key)).toEqual(["spelling"]);
+    expect(split.muted.map((c) => c.key)).toEqual(["must_bolded"]);
+    expect(split.tasks.map((t) => t.check.key)).toEqual(["no_unsupported"]);
+    expect(split.passed.map((c) => c.key)).toEqual(["dates"]);
   });
 });

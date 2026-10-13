@@ -1339,6 +1339,11 @@ def compute_checks(data: QcInput) -> list[dict]:
                     "searched": searched(req),
                 }
             )
+        # Pozycja roli krytycznej nieobecnej w całym CV — jej pominięcie
+        # przywraca brak w całym CV (`cv_finding_dismissals.apply_dismissals`).
+        for item in critical_items:
+            if item.get("role") and not in_cv.get(item["requirement"], True):
+                item["absent_in_cv"] = True
         failing = {item["requirement"] for item in critical_items}
         # Role nierozpoznane (CV wklejone ręcznie, PDF): obecność w CV da się
         # potwierdzić, opisu w rolach — nie.
@@ -1801,10 +1806,22 @@ def summarize(checks: list[dict]) -> tuple[bool, int, int]:
         for c in checks
         if c["severity"] == "blocking" and c["status"] == "fail"
     )
+    # Uwaga wyciszona w „Jakość QC” (`muted`, D6) jest informacją.
     warnings = sum(
-        1 for c in checks if c["severity"] == "warning" and c["status"] == "fail"
+        1
+        for c in checks
+        if c["severity"] == "warning" and c["status"] == "fail" and not c.get("muted")
     )
     return blocking == 0, blocking, warnings
+
+
+def dismissed_blocking(checks: list[dict]) -> int:
+    """Ile pozycji blokujących pominięto jako „To nieprawda” (D5)."""
+    return sum(
+        len(c.get("dismissed_items") or [])
+        for c in checks
+        if c["severity"] == "blocking"
+    )
 
 
 def fingerprint(blocks: list[Block]) -> str:
@@ -2221,7 +2238,20 @@ async def evaluate(
         bold=bold_expected(src, payload),
         notes_quote=notes_text(rows, CV_HIDDEN_FIELDS),
     )
-    return src, compute_checks(data), notes
+    checks = compute_checks(data)
+    # Jedyne miejsce, w którym stan sprawdzeń (D6) i pominięcia „To
+    # nieprawda” (D5) wchodzą do wyniku: okno, zapisany przebieg, bramka ruchu,
+    # obejście i propozycje AI widzą to samo.
+    from app.services import cv_finding_dismissals, qc_quality
+
+    qc_quality.apply_check_states(
+        checks, qc_quality.effective_states(await qc_quality.load_states(db))
+    )
+    cv_finding_dismissals.apply_dismissals(
+        checks,
+        await cv_finding_dismissals.active(db, src.candidate.id, src.job.id, ("qc",)),
+    )
+    return src, checks, notes
 
 
 async def _store_run(
@@ -2265,6 +2295,7 @@ async def _store_run(
             "checks_hash": digest,
             "cv_source": cv_source,
             "qc_version": QC_VERSION,
+            "dismissed_blocking": dismissed_blocking(checks),
         },
         created_by_user_id=user_id,
         created_at=now,
@@ -2399,6 +2430,7 @@ async def record_override(
                 "checks_hash": _checks_hash(checks),
                 "cv_source": (src.generated or {}).get("source"),
                 "qc_version": QC_VERSION,
+                "dismissed_blocking": dismissed_blocking(checks),
                 "override_reason_code": reason_code,
                 # Obejście doradcze działa do zwrotu karty
                 # (`spend_advisory_overrides`).
@@ -2546,6 +2578,214 @@ async def confirm_with_candidate(
     return await run_qc(db, stage, user_id=user_id, persist=True)
 
 
+class DismissForbidden(Exception):
+    """Pominięcie uwagi blokującej wymaga prawa obejścia QC (403)."""
+
+
+async def dismiss_finding(
+    db: AsyncSession,
+    stage: CandidateStage,
+    *,
+    check_key: str,
+    key: str,
+    reason: str,
+    note: Optional[str],
+    quote: Optional[str],
+    user_id: int,
+    may_dismiss_blocking: bool,
+) -> dict:
+    """„To nieprawda”: pomiń uwagę QC dla pary i policz QC od nowa (D5).
+
+    Uwagę i jej etykietę bierzemy ze świeżego przebiegu — nigdy od klienta.
+    Pominięcie uwagi blokującej działa jak obejście: wymaga prawa obejścia
+    (`may_dismiss_blocking`, ta sama reguła co „Przesuń mimo uwag”) i daje
+    dzwonek Delivery Leadowi. „Jest w źródłach pod inną nazwą” przy treści
+    spoza oryginału wymaga fragmentu, który serwer znajdzie w oryginale,
+    notatkach albo odpowiedziach. Rzuca `DismissError` (422) i
+    `DismissForbidden` (403).
+    """
+
+    from app.models.activity import Activity
+    from app.services import cv_finding_dismissals as dismissals
+
+    reason, note = dismissals.validate_reason(reason, note)
+    if check_key in dismissals.NOT_DISMISSABLE:
+        raise dismissals.DismissError(
+            "Tej uwagi nie da się pominąć — chroni przed wysłaniem stawki, "
+            "kontaktu albo CV bez zgody RODO."
+        )
+    src, checks, notes = await evaluate(db, stage)
+    check = next((c for c in checks if c["key"] == check_key), None)
+    item = next(
+        (i for i in (check or {}).get("items") or [] if i.get("key") == key), None
+    )
+    if check is None or item is None:
+        raise dismissals.DismissError("QC nie zgłasza już tej uwagi — odśwież okno.")
+    blocking = check["severity"] == "blocking"
+    if blocking and not may_dismiss_blocking:
+        raise DismissForbidden()
+    clean_quote = " ".join((quote or "").split())[: dismissals.QUOTE_MAX] or None
+    if check_key == "no_unsupported" and reason == "other_name":
+        sources = "\n".join(
+            (src.original.get("text") or "", notes, answers_text(stage, src.job))
+        )
+        if not clean_quote or _norm(clean_quote) not in _norm(sources):
+            raise dismissals.DismissError(
+                "Wklej fragment oryginału, notatki albo odpowiedzi, w którym to stoi "
+                "— nie znalazłem go w źródłach."
+            )
+    label = " · ".join(
+        str(part)
+        for part in (
+            item.get("requirement") or item.get("term") or item.get("detail"),
+            item.get("role"),
+        )
+        if part
+    )
+    created = await dismissals.insert_once(
+        db,
+        dismissals.new_row(
+            candidate_id=src.candidate.id,
+            job_id=src.job.id,
+            stage_id=stage.id,
+            source="qc",
+            check_key=check_key,
+            key=key,
+            label=label,
+            reason=reason,
+            note=note,
+            quote=clean_quote,
+            blocking=blocking,
+            user_id=user_id,
+        ),
+    )
+    if not created:
+        # Ktoś pominął tę uwagę chwilę wcześniej — bez drugiego wpisu i dzwonka.
+        return await run_qc(db, stage, user_id=user_id, persist=True)
+    db.add(
+        Activity(
+            entity_type="candidate_stage",
+            entity_id=stage.id,
+            action="cv_qc_dismissed",
+            user_id=user_id,
+            details={
+                "candidate_id": src.candidate.id,
+                "job_id": src.job.id,
+                "check_key": check_key,
+                "label": label[:200],
+                "reason": reason,
+                "blocking": blocking,
+            },
+        )
+    )
+    if blocking:
+        reason_label, _ = dismissals.REASONS[reason]
+        await _notify_reviewers_of_dismissal(
+            db, src, stage, actor_id=user_id, label=label, reason=reason_label
+        )
+    await db.flush()
+    return await run_qc(db, stage, user_id=user_id, persist=True)
+
+
+async def restore_finding(
+    db: AsyncSession, stage: CandidateStage, *, dismissal_id: int, user_id: int
+) -> dict:
+    """Przywróć pominiętą uwagę i policz QC od nowa. Rzuca `DismissError`."""
+
+    from app.models.activity import Activity
+    from app.services import cv_finding_dismissals as dismissals
+
+    row = await dismissals.restore(
+        db,
+        dismissal_id=dismissal_id,
+        candidate_id=stage.candidate_id,
+        job_id=stage.job_id,
+        user_id=user_id,
+    )
+    db.add(
+        Activity(
+            entity_type="candidate_stage",
+            entity_id=stage.id,
+            action="cv_qc_dismissal_restored",
+            user_id=user_id,
+            details={
+                "candidate_id": stage.candidate_id,
+                "job_id": stage.job_id,
+                "check_key": row.check_key,
+                "label": row.label[:200],
+            },
+        )
+    )
+    await db.flush()
+    return await run_qc(db, stage, user_id=user_id, persist=True)
+
+
+async def _notify_reviewers_of_dismissal(
+    db: AsyncSession,
+    src: dz.ReviewSources,
+    stage: CandidateStage,
+    *,
+    actor_id: int,
+    label: str,
+    reason: str,
+) -> None:
+    """Dzwonek do Delivery Leada: ktoś pominął uwagę blokującą QC (D5).
+
+    Odbiorcy jak przy obejściu (`_notify_reviewers_of_override`); jeden dzwonek
+    na parę wraca na górę przy kolejnym pominięciu (`dedupe_resurface`).
+    """
+
+    from app.api.notifications import create_notification
+    from app.models.notification import NotificationType
+    from app.services.stage_handoff_recipients import _dl_reviewers
+
+    name = (
+        " ".join(p for p in (src.candidate.name, src.candidate.lastname) if p)
+        or "Kandydat"
+    )
+    message = f"{src.job.title} · pominięte: {label} · {reason}"
+    for reviewer_id in await _dl_reviewers(db, src.job):
+        if reviewer_id == actor_id:
+            continue
+        await create_notification(
+            db,
+            reviewer_id,
+            title=f"Pominięta uwaga blokująca QC: {name}",
+            message=message[:500],
+            notification_type=NotificationType.stage_changed,
+            link=f"/jobs/{src.job.id}?candidate={src.candidate.id}&panel=cv",
+            related_entity_type="candidate_stage",
+            related_entity_id=stage.id,
+            dedupe_resurface=True,
+        )
+
+
+async def dismissed_bold_requirements(
+    db: AsyncSession, candidate_id: int, job_id: int
+) -> set[str]:
+    """Klucze pominiętych uwag „nie jest pogrubione” — „Pogrub wszystkie” nie
+    może pogrubić terminu, który ktoś oznaczył jako nieprawdziwą uwagę."""
+
+    from app.services import cv_finding_dismissals as dismissals
+
+    return {
+        d["key"]
+        for d in await dismissals.active(db, candidate_id, job_id, ("qc",))
+        if d["check_key"] in ("must_bolded", "nice_bolded")
+    }
+
+
+def without_dismissed_bold(
+    requirements: list[Requirement], scope: str, dismissed: set[str]
+) -> list[Requirement]:
+    check_key = "nice_bolded" if scope == "nice" else "must_bolded"
+    return [
+        req
+        for req in requirements
+        if f"{check_key}|{dz._fold(' '.join(req.label.split()))}|cv" not in dismissed
+    ]
+
+
 async def recompute_outdated(db: AsyncSession, *, limit: int = 300) -> int:
     """Przelicz nieudane przebiegi policzone starszymi regułami QC.
 
@@ -2628,6 +2868,10 @@ async def pair_statuses(
     — pary nikt jeszcze nie sprawdzał. Obejście doradcze sprzed zwrotu karty
     się nie liczy (`_override_applies`).
 
+    Przebieg zaliczony dzięki pominięciu uwag blokujących („To nieprawda”,
+    D5) to też ``overridden`` z ``dismissed_blocking`` > 0 — Delivery Lead
+    widzi, że ktoś przepuścił parę, a kolejka liczy ją jako gotową.
+
     ``ok_at`` — od kiedy para jest gotowa: czas najnowszego zaliczonego
     przebiegu albo najwcześniejszego obowiązującego obejścia; ``None`` przy
     ``failed`` i ``unchecked``. Od tej chwili Delivery Lead „czeka” z wysyłką
@@ -2636,7 +2880,12 @@ async def pair_statuses(
 
     wanted = {(int(c), int(j)) for c, j in pairs}
     out: dict[tuple[int, int], dict] = {
-        pair: {"status": "unchecked", "blocking_failed": 0, "ok_at": None}
+        pair: {
+            "status": "unchecked",
+            "blocking_failed": 0,
+            "ok_at": None,
+            "dismissed_blocking": 0,
+        }
         for pair in wanted
     }
     if not wanted:
@@ -2659,6 +2908,7 @@ async def pair_statuses(
             CvQcRun.passed,
             CvQcRun.blocking_failed,
             CvQcRun.created_at,
+            CvQcRun.result["dismissed_blocking"].astext.label("dismissed"),
             has_override,
             override_at,
         )
@@ -2678,7 +2928,10 @@ async def pair_statuses(
         pair = (row.candidate_id, row.job_id)
         if pair not in wanted:
             continue
-        if row.passed:
+        dismissed = int(row.dismissed or 0) if row.passed else 0
+        if row.passed and dismissed:
+            status, ok_at = "overridden", row.created_at
+        elif row.passed:
             status, ok_at = "passed", row.created_at
         elif row.has_override:
             status, ok_at = "overridden", row.override_at
@@ -2688,6 +2941,7 @@ async def pair_statuses(
             "status": status,
             "blocking_failed": 0 if row.passed else int(row.blocking_failed or 0),
             "ok_at": ok_at,
+            "dismissed_blocking": dismissed,
         }
     return out
 
@@ -3955,13 +4209,16 @@ async def transform_for_editor(
         if fix is not None:
             fixes[fix["id"]] = fix
     experience = dz.role_entries(src.candidate, src.original.get("text") or "")
+    dismissed = await dismissed_bold_requirements(db, src.candidate.id, src.job.id)
+    must = without_dismissed_bold(src.must, "must", dismissed)
+    nice = without_dismissed_bold(src.nice, "nice", dismissed)
 
     def compute() -> tuple[str, list[dict], list[dict]]:
         return transform_html(
             sanitize_cv_html(content_html),
             actions,
-            must=src.must,
-            nice=src.nice,
+            must=must,
+            nice=nice,
             fixes=fixes,
             experience=experience,
             bulk=bulk,
@@ -4161,7 +4418,11 @@ async def apply_action(
         )
     elif action == "bold_all":
         scope = payload.get("scope") or "must"
-        reqs = src.nice if scope == "nice" else src.must
+        reqs = without_dismissed_bold(
+            src.nice if scope == "nice" else src.must,
+            scope,
+            await dismissed_bold_requirements(db, src.candidate.id, src.job.id),
+        )
         new_html, count = bold_all(html, reqs)
         if not count:
             raise ApplyError("Nie ma nic do pogrubienia — wymagania są już pogrubione.")

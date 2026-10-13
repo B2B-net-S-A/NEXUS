@@ -25,6 +25,11 @@
  * doradczym (`advisory`, 12.10.2026) QC nie blokuje: kto może, mówi serwer
  * (`can_override`), przycisk nazywa się „Przesuń mimo uwag…”, a po zapisaniu
  * powodu karta od razu idzie dalej.
+ *
+ * „To nieprawda” (D5, 13.10.2026) pomija pozycję dla pary — uwagę blokującą
+ * tylko ta sama osoba, która może przesunąć kartę mimo uwag (`can_override`).
+ * Pominięte stoją zwinięte w „Pominięte” z „Przywróć”; uwagi wyciszone
+ * w „Jakość QC” (D6) — osobno, jako informacja.
  */
 
 import dynamic from "next/dynamic";
@@ -42,9 +47,12 @@ import {
   AiFixesView,
   CheckRow,
   Confirmations,
+  DismissedSection,
+  MutedChecks,
   PassedChecks,
   SECTION_TITLE,
   TaskCard,
+  qcDismissedEntries,
   type ActionContext,
 } from "@/components/v2/recruitment/cv-qc-cards";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -54,6 +62,8 @@ import {
   useCvQcFixes,
   useQcApply,
   useQcConfirm,
+  useQcDismiss,
+  useQcRestore,
   cvQcFixesQueryKey,
   type QcApplyBody,
   type QcCvRun,
@@ -401,6 +411,10 @@ export function CvQcBody({
   const { showSuccess, showError } = useToast();
   const apply = useQcApply(stageId, onChanged);
   const confirm = useQcConfirm(stageId, onChanged);
+  const dismiss = useQcDismiss(stageId, onChanged);
+  const restore = useQcRestore(stageId, onChanged);
+  // Jak „Przepuść mimo QC”: w podglądzie jako inny użytkownik — nikomu.
+  const impersonating = useAuthStore((s) => s.realUser !== null);
   const [notEditable, setNotEditable] = useState(false);
   const [aiRequested, setAiRequested] = useState(false);
   const editable = !notEditable && data.cv?.editable !== false && data.cv != null;
@@ -449,9 +463,26 @@ export function CvQcBody({
       );
     },
     openEditor: editable && onOpenEditor ? onOpenEditor : null,
+    dismiss: (body, onSaved) =>
+      dismiss.mutate(body, {
+        onSuccess: () => {
+          showSuccess("Oznaczono jako nieprawdę — QC przeliczone.");
+          onSaved?.();
+        },
+        onError: (error) =>
+          showError(apiErrorMessage(error, "Nie udało się zapisać pominięcia. Spróbuj ponownie.")),
+      }),
+    dismissing: dismiss.isPending,
+    canDismissBlocking: !impersonating && data.can_override === true,
+    restore: (dismissalId) =>
+      restore.mutate(dismissalId, {
+        onSuccess: () => showSuccess("Uwaga przywrócona — QC przeliczone."),
+        onError: (error) => showError(apiErrorMessage(error, "Nie udało się przywrócić uwagi. Spróbuj ponownie.")),
+      }),
+    restoring: restore.isPending,
   };
 
-  const { tasks, notes, passed, skipped } = useMemo(() => splitChecks(data.checks), [data.checks]);
+  const { tasks, notes, muted, passed, skipped } = useMemo(() => splitChecks(data.checks), [data.checks]);
   // Zdania AI dopisuje do ról — także wtedy, gdy QC już przechodzi, a brak
   // opisu jest tylko uwagą.
   const hasAiGaps = data.checks.some((c) => c.status === "fail" && c.items.some((i) => i.fix === "ai"));
@@ -514,6 +545,8 @@ export function CvQcBody({
             </ul>
           </section>
         ) : null}
+        <MutedChecks checks={muted} ctx={ctx} />
+        <DismissedSection entries={qcDismissedEntries(data.checks, ctx)} restoring={ctx.restoring} />
         <PassedChecks passed={passed} skipped={skipped} ctx={ctx} />
       </div>
     </div>

@@ -39,6 +39,8 @@
   "PATCH /api/candidates/stages/{stage_id}/cv/branded": "PPPPPPDDPPPPPPPPPPP",
   "POST /api/candidates/stages/{stage_id}/cv/branded/consent": "PPPPPPDDPPPPPPPPPPP",
   "POST /api/candidates/stages/{stage_id}/cv/branded/finalize": "PPPPPPDDPPPPPPPPPPP",
+  "POST /api/candidates/stages/{stage_id}/cv/branded/issues/dismiss": "PPPPPPDDPPPPPPPPPPP",
+  "POST /api/candidates/stages/{stage_id}/cv/branded/issues/dismissals/{dismissal_id}/restore": "PPPPPPDDPPPPPPPPPPP",
   "POST /api/candidates/stages/{stage_id}/cv/branded/new-draft": "PPPPPPDDPPPPPPPPPPP",
   "POST /api/candidates/stages/{stage_id}/cv/branded/preview-docx": "PPPPPPDDPPPPPPPPPPP",
   "POST /api/candidates/stages/{stage_id}/cv/branded/review": "PPPPPPDDPPPPPPPPPPP",

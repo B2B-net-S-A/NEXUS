@@ -77,12 +77,137 @@ def review_findings(receipt: Any, content_html: Optional[str]) -> dict:
     return result
 
 
-async def stage_issues(db: AsyncSession, csv: CandidateStageCV) -> dict:
+async def stage_issues(
+    db: AsyncSession,
+    csv: CandidateStageCV,
+    pair: Optional[tuple[int, int]] = None,
+) -> dict:
     """Uwagi generatora i kontroli AI dla CV etapu otwartego w edytorze.
 
     Kontrola AI dotyczy ostatniej ZATWIERDZONEJ wersji (biegnie po „Zapisz”);
     front sam sprawdza, które uwagi nadal mają swoje miejsce w bieżącej treści.
+    ``pair`` (kandydat, rekrutacja) — uwagi oznaczone „To nieprawda” (D5)
+    trafiają do ``dismissed`` zamiast na listę.
     """
+    issues = await _raw_issues(db, csv)
+    if pair is not None:
+        await _split_dismissed(db, issues, pair)
+    return issues
+
+
+async def _split_dismissed(
+    db: AsyncSession, issues: dict, pair: tuple[int, int]
+) -> None:
+    from app.services import cv_finding_dismissals as dismissals
+
+    active = {
+        d["key"]: d for d in await dismissals.active(db, *pair, ("generator", "review"))
+    }
+    dismissed: list[dict] = []
+    if not active:
+        issues["dismissed"] = dismissed
+        return
+    kept: list[str] = []
+    for text in issues["generator_warnings"]:
+        hit = active.get(dismissals.text_key(text))
+        if hit is not None and hit["source"] == "generator":
+            dismissed.append(
+                {
+                    "source": "generator",
+                    "text": text,
+                    "status": None,
+                    "dismissal": hit["view"],
+                }
+            )
+        else:
+            kept.append(text)
+    issues["generator_warnings"] = kept
+    review = issues["content_review"]
+    still: list[dict] = []
+    for finding in review["findings"]:
+        hit = active.get(dismissals.text_key(finding["text"], finding["status"]))
+        if hit is not None and hit["source"] == "review":
+            dismissed.append({"source": "review", **finding, "dismissal": hit["view"]})
+        else:
+            still.append(finding)
+    review["findings"] = still
+    issues["dismissed"] = dismissed
+
+
+async def dismiss(
+    db: AsyncSession,
+    csv: CandidateStageCV,
+    *,
+    pair: tuple[int, int],
+    stage_id: int,
+    source: str,
+    text: str,
+    status: Optional[str],
+    reason: str,
+    note: Optional[str],
+    user_id: int,
+) -> dict:
+    """„To nieprawda” przy uwadze generatora albo kontroli AI. Uwagę bierzemy
+    z bieżącej listy — tekst od klienta musi się z nią zgadzać. Bez commitu."""
+    from app.services import cv_finding_dismissals as dismissals
+
+    reason, note = dismissals.validate_reason(reason, note)
+    issues = await _raw_issues(db, csv)
+    wanted = " ".join((text or "").split())
+    if source == "generator":
+        present = any(
+            " ".join(w.split()) == wanted for w in issues["generator_warnings"]
+        )
+        status = None
+    else:
+        present = any(
+            " ".join(f["text"].split()) == wanted and f["status"] == status
+            for f in issues["content_review"]["findings"]
+        )
+    if not wanted or not present:
+        raise dismissals.DismissError("Tej uwagi już nie ma — odśwież panel.")
+    await dismissals.insert_once(
+        db,
+        dismissals.new_row(
+            candidate_id=pair[0],
+            job_id=pair[1],
+            stage_id=stage_id,
+            source=source,
+            check_key=source,
+            key=dismissals.text_key(wanted, status),
+            label=wanted,
+            reason=reason,
+            note=note,
+            quote=None,
+            blocking=False,
+            user_id=user_id,
+        ),
+    )
+    return await stage_issues(db, csv, pair)
+
+
+async def restore(
+    db: AsyncSession,
+    csv: CandidateStageCV,
+    *,
+    pair: tuple[int, int],
+    dismissal_id: int,
+    user_id: int,
+) -> dict:
+    from app.services import cv_finding_dismissals as dismissals
+
+    await dismissals.restore(
+        db,
+        dismissal_id=dismissal_id,
+        candidate_id=pair[0],
+        job_id=pair[1],
+        user_id=user_id,
+    )
+    await db.flush()
+    return await stage_issues(db, csv, pair)
+
+
+async def _raw_issues(db: AsyncSession, csv: CandidateStageCV) -> dict:
     warnings: Any = None
     if csv.generated_document_id is not None:
         # Sama kolumna: wiersz generatora niesie pliki binarne.
@@ -120,4 +245,5 @@ async def stage_issues(db: AsyncSession, csv: CandidateStageCV) -> dict:
         "generated_document_id": csv.generated_document_id,
         "generator_warnings": generator_warnings(warnings),
         "content_review": {**review_findings(receipt, html), "version": version},
+        "dismissed": [],
     }

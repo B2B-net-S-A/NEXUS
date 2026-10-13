@@ -17,6 +17,10 @@
  * Panel nie ma obejścia QC ani ruchu karty — to zostaje w oknie QC. Edytor
  * wyniku generatora (bez etapu) pokazuje tylko uwagi generatora: QC nie widzi
  * jego edycji.
+ *
+ * „To nieprawda” (D5, 13.10.2026) jest przy pozycjach QC (te same karty co
+ * w oknie QC), uwagach generatora i kontroli AI; pominięte stoją zwinięte
+ * w „Pominięte” z „Przywróć”. Bez etapu nie ma pary, więc nie ma pominięć.
  */
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
@@ -31,10 +35,17 @@ import {
   AiFixesView,
   CheckRow,
   Confirmations,
+  DismissButton,
+  DismissForm,
+  DismissedSection,
+  MutedChecks,
   PassedChecks,
   SECTION_TITLE,
   TaskCard,
+  qcDismissedEntries,
   type ActionContext,
+  type DismissFormValue,
+  type DismissedEntry,
 } from "@/components/v2/recruitment/cv-qc-cards";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
@@ -43,12 +54,14 @@ import {
   networkIssuesApi,
   type CvEditorIssuesApi,
   type CvEditorIssuesData,
+  type CvIssueDismissBody,
   type CvReviewFinding,
 } from "@/lib/api/cvEditorIssues";
 import {
   cvQcFixesQueryKey,
   cvQcQueryKey,
   invalidateAfterQcChange,
+  type QcDismissBody,
   type QcFix,
   type QcFixAction,
   type QcFixesResponse,
@@ -123,9 +136,16 @@ interface BulkOutcome {
   skipped: QcTransformSkipped[];
 }
 
-function GeneratorWarnings({ warnings }: { warnings: readonly string[] }) {
+/** „To nieprawda” przy uwadze generatora albo kontroli AI (tylko edytor CV etapu). */
+interface IssueDismiss {
+  submit: (issue: Pick<CvIssueDismissBody, "source" | "text" | "status">, value: DismissFormValue, onSaved: () => void) => void;
+  pending: boolean;
+}
+
+function GeneratorWarnings({ warnings, dismiss }: { warnings: readonly string[]; dismiss?: IssueDismiss }) {
   const infoId = useId();
   const [infoOpen, setInfoOpen] = useState(false);
+  const [dismissText, setDismissText] = useState<string | null>(null);
   const { review, info } = useMemo(() => classifyCvWarnings(warnings), [warnings]);
   if (review.length + info.length === 0) return null;
   return (
@@ -137,6 +157,22 @@ function GeneratorWarnings({ warnings }: { warnings: readonly string[] }) {
             <li key={item.text} className="space-y-0.5 rounded-lg border border-warning/30 px-3 py-2 text-sm">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-warning-muted-foreground">{item.kind}</p>
               <p className="[overflow-wrap:anywhere]">{item.text}</p>
+              {dismiss ? (
+                dismissText === item.text ? (
+                  <DismissForm
+                    subject={item.text}
+                    pending={dismiss.pending}
+                    onSubmit={(value) =>
+                      dismiss.submit({ source: "generator", text: item.text, status: null }, value, () =>
+                        setDismissText(null),
+                      )
+                    }
+                    onClose={() => setDismissText(null)}
+                  />
+                ) : (
+                  <DismissButton onClick={() => setDismissText(item.text)} disabled={dismiss.pending} />
+                )
+              ) : null}
             </li>
           ))}
         </ul>
@@ -175,12 +211,16 @@ function ReviewFindings({
   review,
   present,
   onLocate,
+  dismiss,
 }: {
   review: CvEditorIssuesData["content_review"];
   /** Uwagi, których linia nadal stoi w CV. */
   present: CvReviewFinding[];
   onLocate: (target: IssueTarget) => void;
+  dismiss?: IssueDismiss;
 }) {
+  // Uwaga kontroli AI to linia + status — ten sam tekst może mieć dwie uwagi.
+  const [dismissId, setDismissId] = useState<string | null>(null);
   if (review.status == null) return null;
   const version = review.version != null ? ` v${review.version}` : "";
   const gone = review.findings.length - present.length;
@@ -201,18 +241,39 @@ function ReviewFindings({
         </p>
       ) : (
         <ul className="space-y-1.5">
-          {present.map((finding, index) => (
-            <li key={`${index}:${finding.text}`} className="space-y-1 rounded-lg border border-warning/30 px-3 py-2 text-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-warning-muted-foreground">
-                {REVIEW_FINDING_LABEL[finding.status] ?? "do sprawdzenia"}
-              </p>
-              <p className="italic [overflow-wrap:anywhere]">„{finding.text}”</p>
-              <Button size="sm" variant="ghost" onClick={() => onLocate({ kind: "line", text: finding.text })}>
-                <LocateFixed className="size-3.5" aria-hidden />
-                Pokaż w CV
-              </Button>
-            </li>
-          ))}
+          {present.map((finding, index) => {
+            const id = `${finding.status}:${finding.text}`;
+            const formOpen = dismiss != null && dismissId === id;
+            return (
+              <li key={`${index}:${finding.text}`} className="space-y-1 rounded-lg border border-warning/30 px-3 py-2 text-sm">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-warning-muted-foreground">
+                  {REVIEW_FINDING_LABEL[finding.status] ?? "do sprawdzenia"}
+                </p>
+                <p className="italic [overflow-wrap:anywhere]">„{finding.text}”</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => onLocate({ kind: "line", text: finding.text })}>
+                    <LocateFixed className="size-3.5" aria-hidden />
+                    Pokaż w CV
+                  </Button>
+                  {dismiss && !formOpen ? (
+                    <DismissButton onClick={() => setDismissId(id)} disabled={dismiss.pending} />
+                  ) : null}
+                </div>
+                {dismiss && formOpen ? (
+                  <DismissForm
+                    subject={`„${finding.text}”`}
+                    pending={dismiss.pending}
+                    onSubmit={(value) =>
+                      dismiss.submit({ source: "review", text: finding.text, status: finding.status }, value, () =>
+                        setDismissId(null),
+                      )
+                    }
+                    onClose={() => setDismissId(null)}
+                  />
+                ) : null}
+              </li>
+            );
+          })}
         </ul>
       )}
       {gone > 0 && present.length > 0 ? (
@@ -416,14 +477,51 @@ export function CvEditorIssues({
     }
   };
 
+  // Świeży wynik QC z zapisu zastępuje listę panelu i okna QC, Tablica się odświeża.
+  const storeQc = (result: QcResult) => {
+    queryClient.setQueryData(cvEditorQcQueryKey(stageKey), result);
+    queryClient.setQueryData(cvQcQueryKey(stageKey), result);
+    invalidateAfterQcChange(queryClient, result.job_id);
+  };
+  const storeIssues = (data: CvEditorIssuesData) => queryClient.setQueryData(cvEditorIssuesQueryKey(stageKey), data);
   const confirm = useMutation({
     mutationFn: (body: { term: string; text?: string }) => api.confirm(stageKey, body),
-    onSuccess: (result) => {
-      queryClient.setQueryData(cvEditorQcQueryKey(stageKey), result);
-      queryClient.setQueryData(cvQcQueryKey(stageKey), result);
-      invalidateAfterQcChange(queryClient, result.job_id);
-    },
+    onSuccess: storeQc,
   });
+  const dismissQc = useMutation({
+    mutationFn: (body: QcDismissBody) => api.dismiss(stageKey, body),
+    onSuccess: storeQc,
+  });
+  const restoreQc = useMutation({
+    mutationFn: (dismissalId: number) => api.restore(stageKey, dismissalId),
+    onSuccess: storeQc,
+  });
+  const dismissIssue = useMutation({
+    mutationFn: (body: CvIssueDismissBody) => api.dismissIssue(stageKey, body),
+    onSuccess: storeIssues,
+  });
+  const restoreIssue = useMutation({
+    mutationFn: (dismissalId: number) => api.restoreIssue(stageKey, dismissalId),
+    onSuccess: storeIssues,
+  });
+  const dismissFailed = (error: unknown) =>
+    showError(apiErrorMessage(error, "Nie udało się zapisać pominięcia. Spróbuj ponownie."));
+  const restoreFailed = (error: unknown) =>
+    showError(apiErrorMessage(error, "Nie udało się przywrócić uwagi. Spróbuj ponownie."));
+  const issueDismiss: IssueDismiss = {
+    submit: (issue, value, onSaved) =>
+      dismissIssue.mutate(
+        { ...issue, reason: value.reason, ...(value.note ? { note: value.note } : {}) },
+        {
+          onSuccess: () => {
+            showSuccess("Oznaczono jako nieprawdę.");
+            onSaved();
+          },
+          onError: dismissFailed,
+        },
+      ),
+    pending: dismissIssue.isPending,
+  };
 
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const fixes = fixesQuery.data;
@@ -471,8 +569,42 @@ export function CvEditorIssues({
           openEditor: null,
           locate,
           linksInNewTab: true,
+          dismiss: (body, onSaved) =>
+            dismissQc.mutate(body, {
+              onSuccess: () => {
+                showSuccess("Oznaczono jako nieprawdę — QC przeliczone.");
+                onSaved?.();
+              },
+              onError: dismissFailed,
+            }),
+          dismissing: dismissQc.isPending,
+          canDismissBlocking: qc.can_override === true,
+          restore: (dismissalId) =>
+            restoreQc.mutate(dismissalId, {
+              onSuccess: () => showSuccess("Uwaga przywrócona — QC przeliczone."),
+              onError: restoreFailed,
+            }),
+          restoring: restoreQc.isPending,
         }
       : null;
+
+  const dismissedEntries: DismissedEntry[] = [
+    ...(ctx ? qcDismissedEntries(checks, ctx) : []),
+    ...(issuesQuery.data?.dismissed ?? []).map((issue) => ({
+      id: `${issue.source}:${issue.dismissal.id}`,
+      title: issue.text,
+      context:
+        issue.source === "generator"
+          ? "Uwaga generatora"
+          : `Kontrola AI · ${REVIEW_FINDING_LABEL[issue.status ?? ""] ?? "do sprawdzenia"}`,
+      dismissal: issue.dismissal,
+      onRestore: () =>
+        restoreIssue.mutate(issue.dismissal.id, {
+          onSuccess: () => showSuccess("Uwaga przywrócona."),
+          onError: restoreFailed,
+        }),
+    })),
+  ];
 
   const split = useMemo(() => splitChecks(checks), [checks]);
   const plan = useMemo(() => bulkPlan(checks, visibleFixes), [checks, visibleFixes]);
@@ -683,6 +815,7 @@ export function CvEditorIssues({
             </ul>
           </section>
         ) : null}
+        {ctx ? <MutedChecks checks={split.muted} ctx={ctx} /> : null}
 
         {issuesQuery.isError ? (
           <p role="alert" className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground">
@@ -692,8 +825,11 @@ export function CvEditorIssues({
             </button>
           </p>
         ) : null}
-        <GeneratorWarnings warnings={warnings} />
-        {review ? <ReviewFindings review={review} present={presentFindings} onLocate={locate} /> : null}
+        <GeneratorWarnings warnings={warnings} dismiss={issueDismiss} />
+        {review ? (
+          <ReviewFindings review={review} present={presentFindings} onLocate={locate} dismiss={issueDismiss} />
+        ) : null}
+        <DismissedSection entries={dismissedEntries} restoring={restoreQc.isPending || restoreIssue.isPending} />
 
         {ctx ? <Confirmations items={qc?.confirmations ?? []} /> : null}
         {ctx ? <PassedChecks passed={split.passed} skipped={split.skipped} ctx={ctx} /> : null}
