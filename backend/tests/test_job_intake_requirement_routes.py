@@ -130,3 +130,36 @@ async def test_any_position_may_be_marked_critical(app_client) -> None:
     assert body["eligible"] == ["Java"]
     assert body["selectable"] == ["Java", "Temenos T24", "English B2"]
     assert body["blocked"] == {}
+
+
+@pytest.mark.asyncio
+async def test_rows_come_back_with_readings_per_word(app_client) -> None:
+    """13.10.2026 (wariant A): edytor dostaje odczyt każdego słowa wiersza."""
+    _, headers = await make_user(UserRole.delivery_lead)
+
+    with hydrated_taxonomy():
+        resp = await app_client.post(
+            CRITICAL_URL,
+            json={
+                "rows": [
+                    ["Java"],
+                    ["doświadczenie w przetargach"],
+                    ["angielski B2"],
+                    [],
+                ]
+            },
+            headers=headers,
+        )
+
+    assert resp.status_code == 200, resp.text
+    readings = resp.json()["readings"]
+    assert [len(row) for row in readings] == [1, 1, 1, 0]
+    java, tender, english = readings[0][0], readings[1][0], readings[2][0]
+    assert (java["kind"], java["needs_decision"], java["keyword"]) == (
+        "technology",
+        False,
+        "Java",
+    )
+    assert tender["kind"] == "prose" and tender["needs_decision"] is True
+    assert tender["talk"] == "skills" and "przetarg*" in tender["suggestions"]
+    assert english["talk"] == "language" and english["needs_decision"] is True

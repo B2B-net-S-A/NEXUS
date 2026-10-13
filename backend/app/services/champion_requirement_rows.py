@@ -272,6 +272,165 @@ def expand_patch(patch: Any, *, previous_notes: Optional[str] = None) -> Any:
     }
 
 
+def _row_key(words: Any) -> frozenset[str]:
+    return frozenset(
+        w.strip().casefold() for w in words or () if isinstance(w, str) and w.strip()
+    )
+
+
+def _merge_talk(items: list[dict], name: str, level: str) -> bool:
+    """Dopisuje pozycję do listy sekcji 4 (bez powtórek, w limicie)."""
+    from app.schemas.champion import EXPERIENCE_ITEMS_MAX
+
+    key = name.casefold()
+    if any(str(i.get("name", "")).casefold() == key for i in items):
+        return True
+    if len(items) >= EXPERIENCE_ITEMS_MAX:
+        return False
+    items.append({"name": name, "level": level, "min_years": None, "note": ""})
+    return True
+
+
+def separate_talk_items(
+    patch: Any,
+    *,
+    previous_rows: Any = None,
+    previous_experience: Any = None,
+    previous_language: Optional[str] = None,
+    keep_required: bool = False,
+) -> tuple[Any, list[str]]:
+    """Zdanie nie zostaje słowem do szukania (wariant A, 13.10.2026).
+
+    Słowa NOWYCH albo ZMIENIONYCH wierszy (względem ``previous_rows``) czyta
+    ``requirement_phrase.read_phrase``:
+
+    * zdanie, umiejętność miękka, branża opisana zdaniem → „Rekruter sprawdza
+      w rozmowie” (``experience.skills`` / ``experience.domains``),
+    * język z poziomem → pole „Język” (``basics.language`` — jedno źródło),
+    * technologia z komentarzem („SQL (bardzo dobra znajomość)”) → słowo
+      „SQL”, a poziom do rozmowy.
+
+    Wiersz bez słów znika; jego krytyczne idzie za wierszem albo znika.
+    ``keep_required`` (rekrutacja już przekazana): gdy przeniesienie zostawiłoby
+    zero wierszy obowiązkowych, wiersze zostają — inaczej zapis kończyłby się
+    422 ``handoff_regression``; odpowiedź mówi to uwagą. Zwraca (ładunek,
+    uwagi po polsku). Ładunek bez ``stack.rows`` wraca nietknięty.
+    """
+    from app.services.requirement_phrase import read_phrase
+
+    if not isinstance(patch, Mapping):
+        return patch, []
+    stack = patch.get("stack")
+    if not isinstance(stack, Mapping) or not isinstance(stack.get("rows"), list):
+        return patch, []
+    known = {
+        _row_key(r.get("words"))
+        for r in (previous_rows if isinstance(previous_rows, list) else [])
+        if isinstance(r, Mapping)
+    }
+    patch_exp = patch.get("experience")
+    base_exp = patch_exp if isinstance(patch_exp, Mapping) else previous_experience
+    experience = {
+        key: [dict(i) for i in value if isinstance(i, Mapping)]
+        if isinstance(value, list)
+        else value
+        for key, value in (base_exp.items() if isinstance(base_exp, Mapping) else ())
+    }
+    basics = patch.get("basics")
+    language = (
+        basics.get("language")
+        if isinstance(basics, Mapping) and "language" in basics
+        else previous_language
+    )
+    languages: list[str] = []
+    notices: list[str] = []
+    renamed: dict[str, str] = {}
+    rows: list[dict[str, Any]] = []
+    for raw in stack["rows"]:
+        data = raw.model_dump() if hasattr(raw, "model_dump") else raw
+        if not isinstance(data, Mapping):
+            continue
+        words = [w for w in data.get("words") or [] if isinstance(w, str)]
+        level = data.get("level")
+        if _row_key(words) in known:
+            rows.append(dict(data))
+            continue
+        kept: list[str] = []
+        for word in words:
+            reading = read_phrase(word)
+            talk_level = "nice" if level == "nice" else "must"
+            if reading.needs_decision and reading.talk == "language":
+                languages.append(reading.text)
+                notices.append(f"„{reading.text}” przeniesione do pola „Język”.")
+                continue
+            if reading.needs_decision and reading.talk in ("skills", "domains"):
+                items = experience.setdefault(reading.talk, [])
+                if _merge_talk(items, reading.talk_text or reading.text, talk_level):
+                    notices.append(
+                        f"„{reading.text}” przeniesione do „Rekruter sprawdza "
+                        "w rozmowie” — wyszukiwanie go nie czyta."
+                    )
+                    continue
+            if reading.keyword and reading.comment and reading.keyword != word:
+                kept.append(reading.keyword)
+                if reading.talk_text:
+                    _merge_talk(
+                        experience.setdefault("skills", []),
+                        reading.talk_text,
+                        talk_level,
+                    )
+                    notices.append(
+                        f"„{word}”: szukamy „{reading.keyword}”, poziom przeszedł "
+                        "do „Rekruter sprawdza w rozmowie”."
+                    )
+                else:
+                    notices.append(
+                        f"„{word}”: szukamy „{reading.keyword}”, komentarz "
+                        f"„{reading.comment}” pominięty."
+                    )
+                continue
+            kept.append(word)
+        if words and kept != words:
+            renamed[_head(words).casefold()] = _head(kept) if kept else ""
+        if kept:
+            rows.append({**data, "words": kept})
+    required_before = [r for r in stack["rows"] if _level_of(r) != "nice"]
+    required_after = [r for r in rows if _level_of(r) != "nice"]
+    if keep_required and required_before and not required_after:
+        return patch, [
+            "Wymagania zostały bez zmian: rekrutacja w searchu musi mieć co "
+            "najmniej jedno słowo do szukania. Dodaj słowo, a zdania przenieś "
+            "do „Rekruter sprawdza w rozmowie”."
+        ]
+    if not renamed and not languages:
+        return patch, []
+    out_stack: dict[str, Any] = {**stack, "rows": rows}
+    critical = stack.get("critical")
+    if isinstance(critical, list):
+        out_stack["critical"] = [
+            renamed.get(name.split(ALTERNATIVE_JOINER)[0].strip().casefold(), name)
+            for name in critical
+            if isinstance(name, str)
+            and renamed.get(name.split(ALTERNATIVE_JOINER)[0].strip().casefold(), name)
+        ]
+    out: dict[str, Any] = {**patch, "stack": out_stack, "experience": experience}
+    if languages:
+        parts = [p for p in [str(language or "").strip()] if p]
+        for text in languages:
+            if text.casefold() not in " ".join(parts).casefold():
+                parts.append(text)
+        out["basics"] = {
+            **(basics if isinstance(basics, Mapping) else {}),
+            "language": ", ".join(parts),
+        }
+    return out, notices
+
+
+def _level_of(row: Any) -> Optional[str]:
+    data = row.model_dump() if hasattr(row, "model_dump") else row
+    return data.get("level") if isinstance(data, Mapping) else None
+
+
 ROWS_OWN_COLUMNS_DETAIL = (
     "Wymagania tej rekrutacji są prowadzone wierszami w Profilu Championa — "
     "edytuj je tam (zakładka „Profil Championa”), a kolumny must/nice "

@@ -305,7 +305,17 @@ async def critical_suggestion(
         stat = stat_for(label)
         if stat is not None:
             stats[label] = {"rate": stat.rate, "jobs": stat.jobs}
+    # 13.10.2026 (wariant A): jak system przeczyta każde słowo wiersza — edytor
+    # pokazuje pod zdaniem „zamień na słowa” albo „do rozmowy”.
+    readings: list[list[dict]] = []
+    if body.rows is not None:
+        from app.services.requirement_phrase import read_row
+
+        readings = [
+            [reading.as_dict() for reading in read_row(row[:20])] for row in body.rows
+        ]
     return {
+        "readings": readings,
         "suggested": list(suggest_from_must(must, body.title or "")),
         "eligible": eligible,
         # Od 09.10.2026 krytyczną może być każda pozycja — decyduje Delivery
