@@ -5,7 +5,7 @@
 14. Wypowiedziana umowa z linią MD z budżetem i umowa po końcu ostatniego
     zamówienia wyglądały na „pracuje, zamówienie bez daty końca”.
 
-Zapytania i odpowiedzi API: ``test_fix48_ws07_marker_db.py`` (wymaga bazy).
+Testy z bazą (zapytania i trasy) są w ``test_fix48_ws07_marker_db.py``.
 """
 
 from __future__ import annotations
