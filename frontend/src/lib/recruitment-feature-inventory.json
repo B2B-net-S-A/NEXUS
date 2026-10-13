@@ -1819,6 +1819,30 @@
    "v3_home": "karta „CV do klienta” → Edytuj → Do poprawy"
   },
   {
+   "id": "cv.editor-ai-selection",
+   "area": "cv",
+   "opis": "AI na zaznaczonym fragmencie CV: dymek nad zaznaczeniem (pogrubienie, Skróć, Rozwiń z oryginału, Przeredaguj, Popraw język, Na angielski) i menu „AI” w pasku narzędzi",
+   "file": "components/v2/cv-editor/CvEditorSelectionAi.tsx",
+   "marker": "Zaznaczony tekst",
+   "v3_home": "karta „CV do klienta” → Edytuj → zaznacz tekst"
+  },
+  {
+   "id": "cv.editor-ai-proposal",
+   "area": "cv",
+   "opis": "Propozycja AI zawsze do decyzji: karta „było / będzie” z „Przyjmij”, „Doprecyzuj”, „Jeszcze raz”, „Odrzuć”; przyjęcie to jedna cofalna zmiana, szkic na zatwierdzonej wersji powstaje dopiero wtedy",
+   "file": "components/v2/cv-editor/CvAiProposalCard.tsx",
+   "marker": "Doprecyzuj",
+   "v3_home": "karta „CV do klienta” → Edytuj → zaznacz tekst"
+  },
+  {
+   "id": "cv.editor-ai-source",
+   "area": "cv",
+   "opis": "„Rozwiń z oryginału” tylko z cytatem sprawdzonym przez serwer: plakietka „Zgodne ze źródłem”, cytat w karcie i „Pokaż w oryginale” (wyszukanie w oryginalnym CV obok)",
+   "file": "components/v2/cv-editor/CvAiProposalCard.tsx",
+   "marker": "Pokaż w oryginale",
+   "v3_home": "karta „CV do klienta” → Edytuj → zaznacz tekst"
+  },
+  {
    "id": "cv.download-intent",
    "area": "cv",
    "opis": "Przycisk „Pobierz” CV (edytor, karta, podgląd etapu, kolejka Cpro, wynik generatora, pliki) zostawia wpis o pobraniu; podgląd nie",

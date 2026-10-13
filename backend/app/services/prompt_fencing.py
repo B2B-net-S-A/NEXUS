@@ -23,6 +23,7 @@ _TAG_RE = re.compile(
     r"<(?=\s*/?\s*(?:cv|screening_notes|champion_profile|source_facts|"
     r"previous_screening|candidate_notes|new_questions|interview_note|"
     r"card_fields|screening_questions|keywords|question_text|"
+    r"cv_[a-z_]+|original_[a-z_]+|recruiter_hint|previous_proposals|"
     r"client_[a-z_]+|system|assistant|user|developer|instructions?)\b)",
     re.IGNORECASE,
 )

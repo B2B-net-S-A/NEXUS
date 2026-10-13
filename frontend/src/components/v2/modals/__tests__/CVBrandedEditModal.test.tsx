@@ -41,6 +41,10 @@ vi.mock("@/lib/cv-editor-structure", () => ({
 vi.mock("@/components/v2/cv-editor/CvEditorToolbar", () => ({ CvEditorToolbar: () => null }));
 vi.mock("@/components/v2/cv-editor/CvEditorSources", () => ({ CvEditorSources: () => null }));
 vi.mock("@/components/v2/cv-editor/CvEditorIssues", () => ({ CvEditorIssues: () => null }));
+vi.mock("@/components/v2/cv-editor/CvEditorSelectionAi", () => ({ CvEditorSelectionAi: () => null }));
+vi.mock("@/components/v2/cv-editor/useCvSelectionAi", () => ({
+  useCvSelectionAi: () => ({ enabled: false, selection: { ok: false, reason: null, hidden: true }, phase: "idle" }),
+}));
 vi.mock("@/components/v2/cv-editor/CvEditorWordPreview", () => ({
   CvEditorWordPreview: ({ load }: { load: () => Promise<Blob> }) => (
     <button onClick={() => void load()}>wczytaj podgląd Word</button>

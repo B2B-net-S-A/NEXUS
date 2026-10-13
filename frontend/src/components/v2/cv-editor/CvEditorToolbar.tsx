@@ -16,6 +16,7 @@ import {
   List,
   Plus,
   Redo2,
+  Sparkles,
   Trash2,
   Undo2,
 } from "lucide-react";
@@ -31,7 +32,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import type { CvSelectionAiController } from "@/components/v2/cv-editor/useCvSelectionAi";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
+import { CV_AI_ACTIONS } from "@/lib/api/cvEditorAi";
 import {
   CV_BLOCK_MARKERS,
   CV_SECTION_KEYS,
@@ -74,9 +77,14 @@ export interface CvEditorToolbarProps {
   /** Język CV — etykiety szablonu we wstawianych blokach. */
   language: CvLang;
   disabled?: boolean;
+  /**
+   * „AI na zaznaczeniu”: drugie wejście obok dymka nad tekstem — dla klawiatury
+   * i telefonu, gdzie dymek bywa niewygodny. Brak = edytor bez AI.
+   */
+  ai?: CvSelectionAiController;
 }
 
-export function CvEditorToolbar({ editor, language, disabled = false }: CvEditorToolbarProps) {
+export function CvEditorToolbar({ editor, language, disabled = false, ai }: CvEditorToolbarProps) {
   const { askConfirm, confirmDialog } = useConfirmV2();
   const view = useEditorState({
     editor,
@@ -237,6 +245,42 @@ export function CvEditorToolbar({ editor, language, disabled = false }: CvEditor
           <DropdownMenuItem onSelect={() => run(insertRow("languages", language))}>Język</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      {ai?.enabled ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="flex-none gap-1 px-2"
+              disabled={disabled || ai.phase !== "idle"}
+              aria-label="AI na zaznaczonym tekście"
+            >
+              <Sparkles aria-hidden className="h-4 w-4 text-primary" />
+              AI
+              <ChevronDown aria-hidden className="h-3.5 w-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="max-w-72">
+            <DropdownMenuLabel className="font-normal text-muted-foreground">
+              {ai.selection.ok
+                ? "Propozycja dla zaznaczonego tekstu"
+                : (ai.selection.reason ?? "Zaznacz fragment w akapicie albo punkcie.")}
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {CV_AI_ACTIONS.map((item) => (
+              <DropdownMenuItem
+                key={item.action}
+                disabled={!ai.selection.ok}
+                onSelect={() => ai.start(item.action)}
+              >
+                {item.label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
 
       {view.role ? (
         <>

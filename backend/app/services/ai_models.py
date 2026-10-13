@@ -50,6 +50,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F27 | application_screening            | gpt-6-luna (z Sonnet 5)  |
 | F28 | recommendation_card_note_read    | gpt-6-luna (z Sonnet 5)  |
 | F29 | screening_answer_phrasing        | gpt-6-luna (z Sonnet 5)  |
+| F30 | cv_selection_edit                | claude-sonnet-5 (z Haiku)|
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -360,6 +361,16 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         rationale="F29 (decyzja Artura 06.10.2026, POZA badaniem 16.09). Przeformułowanie "
         "haseł w zdanie bez nowych faktów — liczby, daty, nazwy własne i technologie "
         "spoza haseł odrzuca kod. Zdanie wstawia rekruter („Użyj zdania”).",
+    ),
+    AIFeatureKey.cv_selection_edit: ModelChoice(
+        default=SONNET_5,
+        env_vars=("CV_SELECTION_EDIT_MODEL",),
+        fallbacks=("claude-haiku-4-5",),
+        rationale="F30 (decyzja 12.10.2026, POZA badaniem 16.09). Redakcja fragmentu CV, "
+        "które pisał generator (F4, Sonnet 5) i które czyta klient — jak F20: proza "
+        "z deterministyczną kontrolą (nowy fakt bez cytatu ze źródła odrzuca kod) "
+        "i zatwierdzeniem człowieka. Recenzent przy „Zapisz” (F18) to Luna, więc autor "
+        "zostaje innym modelem. Przejście na Lunę wymaga pomiaru na fragmentach z produkcji.",
     ),
     AIFeatureKey.cv_name_backfill: ModelChoice(
         default=GPT_LUNA,

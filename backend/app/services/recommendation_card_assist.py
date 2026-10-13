@@ -31,7 +31,7 @@ import json
 import logging
 import re
 import unicodedata
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, Iterator, Mapping, Optional, Sequence
 
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -217,12 +217,13 @@ def _has_counterpart(word: str, source: _SourceWords) -> bool:
     return False
 
 
-def phrase_guard(sentence: str, *sources: str) -> Optional[str]:
-    """Pierwszy fakt zdania, którego nie ma w źródłach — albo ``None``.
+def unsupported_facts(sentence: str, *sources: str) -> Iterator[tuple[str, str]]:
+    """Fakty zdania, których nie ma w źródłach, jako ``(rodzaj, zapis)``.
 
-    Sprawdzane: liczby (także w datach), nazwy miesięcy, słowa pisane wielką
-    literą poza początkiem zdania (nazwy firm, technologii, miast) i słowa
-    z cyfrą albo znakiem ``+``/``#`` (C++, C#, Java 17). Odmiana jest
+    Rodzaje, w tej kolejności: ``number`` (liczby, także w datach), ``month``
+    (nazwy miesięcy), a potem słowa w kolejności zdania — ``special`` (z cyfrą
+    albo znakiem ``+``/``#``: C++, C#, Java17) i ``capital`` (pisane wielką
+    literą poza początkiem zdania: firmy, technologie, miasta). Odmiana jest
     tolerowana (wspólny rdzeń), więc „Javie” pasuje do „java”.
     """
     source = " ".join(s for s in sources if s)
@@ -230,14 +231,14 @@ def phrase_guard(sentence: str, *sources: str) -> Optional[str]:
     source_numbers = _numbers(source)
     for number in _numbers(sentence):
         if number not in source_numbers:
-            return number
+            yield "number", number
     folded_sentence = _fold(sentence)
     for stem in _MONTH_STEMS:
         if re.search(rf"\b{stem}", folded_sentence) and not re.search(
             rf"\b{stem}", folded_source
         ):
             match = re.search(rf"\b{stem}\w*", folded_sentence)
-            return match.group(0) if match else stem
+            yield "month", match.group(0) if match else stem
     words = _SourceWords(folded_source)
     for match in _WORD_RE.finditer(sentence or ""):
         word = match.group(0).rstrip(".-")
@@ -250,8 +251,18 @@ def phrase_guard(sentence: str, *sources: str) -> Optional[str]:
         if _fold(word) in _CAPITAL_STOPWORDS:
             continue
         if not _has_counterpart(word, words):
-            return word
-    return None
+            yield ("special" if special else "capital"), word
+
+
+def phrase_guard(sentence: str, *sources: str) -> Optional[str]:
+    """Pierwszy fakt zdania, którego nie ma w źródłach — albo ``None``.
+
+    Sprawdzane: liczby (także w datach), nazwy miesięcy, słowa pisane wielką
+    literą poza początkiem zdania (nazwy firm, technologii, miast) i słowa
+    z cyfrą albo znakiem ``+``/``#`` (C++, C#, Java 17). Odmiana jest
+    tolerowana (wspólny rdzeń), więc „Javie” pasuje do „java”.
+    """
+    return next((fact for _, fact in unsupported_facts(sentence, *sources)), None)
 
 
 def _parse_json(raw: str) -> Any:

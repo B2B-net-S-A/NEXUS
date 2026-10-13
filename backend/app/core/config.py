@@ -588,6 +588,9 @@ class Settings(BaseSettings):
     # Lead dostaje dzwonek i może cofnąć kartę do poprawy. False = obejście
     # wraca wyłącznie do osoby z uprawnieniem `recruitment_manage`.
     CV_QC_ADVISORY: bool = True
+    # AI na zaznaczonym fragmencie w edytorze CV (Edytor CV 2, PR 3). False =
+    # trasa odpowiada „chwilowo niedostępne”, edytor działa dalej bez AI.
+    CV_SELECTION_AI_ENABLED: bool = True
 
     # ── Bramka „Zweryfikowany” (decyzja Artura 04.10.2026, D1) ──────────────
     # Wejście na „Zweryfikowany” z kolumn Nowi/Screening wymaga arkusza

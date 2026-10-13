@@ -31,6 +31,11 @@
  * gdy go nie widać: liczy znaczniki na kartce i licznik w pasku. Przy
  * szerokości 1180–1539 px (laptop 1280) obok kartki mieści się JEDEN panel —
  * źródła albo „Do poprawy”; od 1540 px oba.
+ *
+ * PR 3: „AI na zaznaczeniu” — dymek nad zaznaczonym tekstem i menu „AI” w pasku
+ * (`cv-editor/useCvSelectionAi`, `CvEditorSelectionAi`). Tylko dla CV etapu
+ * (potrzebne źródła i wymagania rekrutacji); propozycja trafia do CV dopiero po
+ * „Przyjmij”.
  */
 
 import { useState, useEffect, useRef, type ReactNode } from "react";
@@ -58,9 +63,12 @@ import {
   type CvEditorSourceContext,
   type CvEditorSourcesProps,
 } from "@/components/v2/cv-editor/CvEditorSources";
+import { CV_AI_CARD_ATTR } from "@/components/v2/cv-editor/CvAiProposalCard";
 import { CvEditorIssues, type CvIssueCount } from "@/components/v2/cv-editor/CvEditorIssues";
+import { CvEditorSelectionAi } from "@/components/v2/cv-editor/CvEditorSelectionAi";
 import { CvEditorToolbar } from "@/components/v2/cv-editor/CvEditorToolbar";
 import { CvEditorWordPreview } from "@/components/v2/cv-editor/CvEditorWordPreview";
+import { useCvSelectionAi } from "@/components/v2/cv-editor/useCvSelectionAi";
 import { keepDialogOpenOnDocumentSearchEscape } from "@/components/v2/files/DocumentSearchBar";
 import {
   openAuthenticatedFile,
@@ -75,6 +83,7 @@ import {
   cvGeneratedEditorApi,
   type CVBrandedState,
 } from "@/lib/api";
+import type { CvEditorAiApi } from "@/lib/api/cvEditorAi";
 import type { CvEditorIssuesApi } from "@/lib/api/cvEditorIssues";
 import {
   generatedApprovalKey,
@@ -158,6 +167,8 @@ type Props = {
   generatorWarnings?: readonly string[];
   /** Harness: QC, uwagi i poprawki z pamięci zamiast sieci. */
   issuesApi?: CvEditorIssuesApi;
+  /** Harness: propozycje AI dla zaznaczenia z pamięci zamiast sieci. */
+  aiApi?: CvEditorAiApi;
 } & ({ stageId: number; generatedId?: never } | { generatedId: number; stageId?: never });
 
 function getErrorMessage(e: unknown): string {
@@ -211,6 +222,7 @@ function CVBrandedEditContent({
   sourceLoaders,
   generatorWarnings,
   issuesApi,
+  aiApi,
 }: Props) {
   const stageId = (generatedId ?? pipelineStageId)!;
   const isGenerated = generatedId !== undefined;
@@ -240,6 +252,10 @@ function CVBrandedEditContent({
   const [issueCount, setIssueCount] = useState<CvIssueCount>(NO_ISSUES);
   const [narrowPane, setNarrowPane] = useState<"cv" | "sources" | "issues">("cv");
   const [body, setBody] = useState<HTMLElement | null>(null);
+  // Kolumna kartki: w niej stoją dymek nad zaznaczeniem i karta propozycji AI.
+  const [paper, setPaper] = useState<HTMLElement | null>(null);
+  // „Pokaż w oryginale” z karty propozycji → „Szukaj w CV” w panelu źródeł.
+  const [sourceSearch, setSourceSearch] = useState<{ text: string; nonce: number } | null>(null);
   const bodyWidth = useElementWidth(body);
   const sideBySide = bodyWidth >= SIDE_BY_SIDE_MIN_WIDTH;
   const bothPanels = bodyWidth >= BOTH_PANELS_MIN_WIDTH;
@@ -535,6 +551,15 @@ function CVBrandedEditContent({
 
   const language: CvLang = data?.language === "en" ? "en" : "pl";
   const hasCv = !!data && !noCv;
+  const ai = useCvSelectionAi({
+    editor,
+    stageId: isGenerated ? undefined : stageId,
+    // Bez `creatingDraft`: szkic na zatwierdzonej wersji zakłada samo „Przyjmij”,
+    // a zakres czekający na propozycję przeżywa wczytanie tej samej treści.
+    disabled: !hasCv || mode === "word" || submitting,
+    ensureDraft,
+    api: aiApi,
+  });
   const hasIssuesPanel = hasCv && (!isGenerated || generatorWarnings !== undefined);
   const issuesSide = hasIssuesPanel && issuesOpen && (bothPanels || !sourcesOpen || lastSide === "issues");
   const sourcesSide = sourcesOpen && (bothPanels || !issuesSide);
@@ -542,6 +567,11 @@ function CVBrandedEditContent({
   const showSources = hasCv && (sideBySide ? sourcesSide : pane === "sources");
   const showIssues = hasIssuesPanel && (sideBySide ? issuesSide : pane === "issues");
   const showCv = sideBySide || pane === "cv" || !hasCv;
+  // Zlecone wyszukanie cytatu dotyczy tego pokazania źródeł: po ich schowaniu
+  // wygasa, żeby ponowne otwarcie nie szukało starego cytatu od nowa.
+  useEffect(() => {
+    if (!showSources) setSourceSearch(null);
+  }, [showSources]);
   const toggleSources = () => {
     sideTouched.current = true;
     setSourcesOpen(!sourcesSide);
@@ -553,6 +583,15 @@ function CVBrandedEditContent({
     if (!issuesSide) setLastSide("issues");
   };
   // Bez liczby, dopóki QC się liczy; „?” gdy nie odpowiada — zero znaczy zero.
+  const showSourceQuote = (quote: string) => {
+    // Wyszukiwarka PDF-a gubi się na łamaniu wierszy — wystarczy początek cytatu.
+    const text = quote.split(/\s+/).slice(0, 8).join(" ").slice(0, 60);
+    setSourceSearch({ text, nonce: Date.now() });
+    sideTouched.current = true;
+    setSourcesOpen(true);
+    setLastSide("sources");
+    setNarrowPane("sources");
+  };
   const issuesLabel =
     issueCount.state === "ready"
       ? `Do poprawy (${issueCount.total})`
@@ -562,7 +601,12 @@ function CVBrandedEditContent({
   const sources = isGenerated ? (
     <CvEditorSources context={sourceContext ?? null} loaders={sourceLoaders} />
   ) : (
-    <CvEditorSources stageId={stageId} context={sourceContext ?? undefined} loaders={sourceLoaders} />
+    <CvEditorSources
+      stageId={stageId}
+      context={sourceContext ?? undefined}
+      loaders={sourceLoaders}
+      search={sourceSearch}
+    />
   );
 
   return (
@@ -579,7 +623,9 @@ function CVBrandedEditContent({
           onEscapeKeyDown={(event) => {
             keepDialogOpenOnDocumentSearchEscape(event);
             const target = event.target;
-            if (target instanceof HTMLElement && target.closest(".ProseMirror")) event.preventDefault();
+            if (!(target instanceof HTMLElement)) return;
+            // Escape w karcie propozycji AI odrzuca propozycję (robi to sama karta).
+            if (target.closest(".ProseMirror") || target.closest(`[${CV_AI_CARD_ATTR}]`)) event.preventDefault();
           }}
           // Okno zajmuje cały ekran; klik w toast (poza drzewem okna) nie może go zamknąć.
           onInteractOutside={(event) => event.preventDefault()}
@@ -672,7 +718,7 @@ function CVBrandedEditContent({
           </p>}
           {hasCv && editor ? (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-background px-3 py-1.5">
-              <CvEditorToolbar editor={editor} language={language} disabled={mode === "word" || submitting} />
+              <CvEditorToolbar editor={editor} language={language} disabled={mode === "word" || submitting} ai={ai} />
               {/* Wąski ekran: przełączniki w osobnym wierszu — pasek narzędzi nie traci na nie miejsca. */}
               <div className={cn("flex flex-wrap items-center gap-x-3 gap-y-1", sideBySide ? "flex-none" : "basis-full")}>
               <div className="flex flex-none items-center gap-1" role="group" aria-label="Widok CV">
@@ -724,6 +770,7 @@ function CVBrandedEditContent({
               </aside>
             ) : null}
             <div
+              ref={setPaper}
               hidden={!showCv}
               data-cv-lang={language}
               className="cv-paper relative min-h-0 min-w-0 flex-1 overflow-auto bg-muted/40 p-4"
@@ -762,6 +809,15 @@ function CVBrandedEditContent({
                     <EditorContent editor={editor} />
                   </div>
                   {mode === "word" ? <CvEditorWordPreview load={loadWordPreview} /> : null}
+                  {editor && mode === "edit" ? (
+                    <CvEditorSelectionAi
+                      editor={editor}
+                      controller={ai}
+                      container={paper}
+                      cvLanguage={language}
+                      onShowSource={showSourceQuote}
+                    />
+                  ) : null}
                 </>
               ) : null}
             </div>

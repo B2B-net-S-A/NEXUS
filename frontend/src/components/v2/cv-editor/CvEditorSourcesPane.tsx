@@ -35,9 +35,11 @@ export interface CvEditorSourcesPaneProps {
   stageId: number | null;
   /** Harness: bajty plików bez sieci. */
   loaders?: Pick<CandidatePreviewPaneProps, "loadDocumentBlob" | "loadOriginalBlob">;
+  /** „Pokaż w oryginale” z karty propozycji AI — wyszukanie cytatu w oryginalnym CV. */
+  search?: CandidatePreviewPaneProps["searchRequest"];
 }
 
-export function CvEditorSourcesPane({ candidateId, jobId, stageId, loaders }: CvEditorSourcesPaneProps) {
+export function CvEditorSourcesPane({ candidateId, jobId, stageId, loaders, search }: CvEditorSourcesPaneProps) {
   return (
     <CandidatePreviewPane
       candidateId={candidateId}
@@ -49,6 +51,7 @@ export function CvEditorSourcesPane({ candidateId, jobId, stageId, loaders }: Cv
       extraTab={{ label: "Notatki", content: <Notes candidateId={candidateId} jobId={jobId} /> }}
       loadDocumentBlob={loaders?.loadDocumentBlob}
       loadOriginalBlob={loaders?.loadOriginalBlob}
+      searchRequest={search}
       className="h-full"
     />
   );

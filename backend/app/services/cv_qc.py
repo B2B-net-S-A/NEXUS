@@ -1483,8 +1483,8 @@ def _checks_hash(checks: list[dict]) -> str:
 # ── Wczytanie kontekstu ─────────────────────────────────────────────────────
 
 
-async def _notes_text(db: AsyncSession, candidate_id: int) -> str:
-    """Notatki kandydata (wszystkie rekrutacje) — źródło faktów obok oryginału."""
+async def _note_rows(db: AsyncSession, candidate_id: int) -> list[str]:
+    """Treści notatek kandydata (wszystkie rekrutacje), najnowsze pierwsze."""
 
     from app.models.note import Note
     from app.services.cv_generator_b2b.standalone_service import _not_followup_note
@@ -1504,11 +1504,26 @@ async def _notes_text(db: AsyncSession, candidate_id: int) -> str:
             .limit(NOTES_MAX_ROWS)
         )
     ).scalars()
-    # 0413: narodowość z karty rekomendacji nie trafia do podpowiedzi modelu.
-    text = "\n".join(
-        dz._strip_html(redact_card_text(c, AI_HIDDEN_FIELDS)) for c in rows if c
-    )
+    return [content for content in rows if content]
+
+
+def notes_text(rows: Iterable[str], hidden: frozenset[str] = AI_HIDDEN_FIELDS) -> str:
+    """Notatki jako jeden tekst, każda bez wskazanych pól karty rekomendacji."""
+    text = "\n".join(dz._strip_html(redact_card_text(c, hidden)) for c in rows if c)
     return text[:NOTES_TEXT_MAX]
+
+
+async def _notes_text(
+    db: AsyncSession, candidate_id: int, hidden: frozenset[str] = AI_HIDDEN_FIELDS
+) -> str:
+    """Notatki kandydata — źródło faktów obok oryginału.
+
+    Domyślnie bez narodowości (0413: nie czyta jej żaden model). Wołający,
+    którego wynik może trafić do CV dla klienta, podaje ``CV_HIDDEN_FIELDS``:
+    stawka, red flags i motywacja to ustalenia handlowe, nie treść CV.
+    """
+
+    return notes_text(await _note_rows(db, candidate_id), hidden)
 
 
 async def _consent_state(db: AsyncSession, src: dz.ReviewSources) -> Optional[str]:

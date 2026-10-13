@@ -44,6 +44,10 @@ vi.mock("@/components/v2/cv-editor/CvEditorToolbar", () => ({ CvEditorToolbar: (
 vi.mock("@/components/v2/cv-editor/CvEditorSources", () => ({
   CvEditorSources: () => <div data-testid="sources" />,
 }));
+vi.mock("@/components/v2/cv-editor/CvEditorSelectionAi", () => ({ CvEditorSelectionAi: () => null }));
+vi.mock("@/components/v2/cv-editor/useCvSelectionAi", () => ({
+  useCvSelectionAi: () => ({ enabled: false, selection: { ok: false, reason: null, hidden: true }, phase: "idle" }),
+}));
 vi.mock("@/components/v2/cv-editor/CvEditorWordPreview", () => ({ CvEditorWordPreview: () => null }));
 vi.mock("@/components/v2/cv-editor/CvEditorIssues", async () => {
   const { useEffect } = await import("react");

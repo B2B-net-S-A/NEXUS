@@ -24,6 +24,7 @@ import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import StarterKit from "@tiptap/starter-kit";
 
 import { CV_TEMPLATE_LABELS, cvContext, cvOutline, isRodoNode } from "./cv-editor-blocks";
+import { CvEditorAiPending } from "./cv-editor-ai";
 import { CvEditorIssueMarks } from "./cv-editor-issue-marks";
 import { CvEditorSection } from "./cv-editor-section";
 
@@ -189,7 +190,7 @@ export const CvEditorStructure = Extension.create({
 
 /** Rozszerzenia edytora CV — jedna lista dla okna, harnessu i testów. */
 export function cvEditorExtensions(): Extensions {
-  return [StarterKit, CvEditorSection, CvEditorStructure, CvEditorIssueMarks];
+  return [StarterKit, CvEditorSection, CvEditorStructure, CvEditorIssueMarks, CvEditorAiPending];
 }
 
 /**
