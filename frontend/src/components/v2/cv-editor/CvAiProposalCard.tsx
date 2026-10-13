@@ -41,7 +41,8 @@ const INSTRUCTION_MAX = 300;
 /** Znacznik korzenia karty: Escape w jej wnętrzu odrzuca propozycję, nie zamyka edytora. */
 export const CV_AI_CARD_ATTR = "data-cv-ai-card";
 
-function Marked({ text }: { text: string }) {
+/** Tekst z pogrubieniem `**x**` jako zwykłe węzły tekstu — nigdy jako HTML. */
+export function Marked({ text }: { text: string }) {
   return (
     <>
       {parseBoldMarkup(text).map((run, index) =>

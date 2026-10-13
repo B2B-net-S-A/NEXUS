@@ -158,6 +158,10 @@ class AIFeatureKey(str, enum.Enum):
     # rozwiń z oryginału, przeredaguj, popraw język, na angielski. Wynik to
     # zawsze propozycja; nowy fakt bez cytatu ze źródła odrzuca kod.
     cv_selection_edit = "cv_selection_edit"
+    # Edytor CV 2, PR 4 (0434): polecenie własnymi słowami dla całego CV. Model
+    # zwraca plan operacji na wierszach; kod sprawdza każdą (bez nowych faktów,
+    # bez ruszania układu szablonu), a rekruter wybiera, które zastosować.
+    cv_editor_command = "cv_editor_command"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -193,6 +197,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.recommendation_card_note_read: "Screening — wypełnienie z notatki rekrutera",
     AIFeatureKey.screening_answer_phrasing: "„Ułóż w zdanie” — odpowiedzi i pola opisowe screeningu",
     AIFeatureKey.cv_selection_edit: "Edytor CV — AI na zaznaczonym fragmencie",
+    AIFeatureKey.cv_editor_command: "Edytor CV — polecenie dla całego CV (plan zmian)",
 }
 
 
@@ -339,6 +344,10 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Przy „Rozwiń z oryginału”: tekst oryginalnego CV kandydata w całości "
         "(z danymi, które kandydat w nim podał) i notatki rekruterów czytelne dla AI",
         "(z notatek wycinane: stawka, narodowość, red flags i motywacja z karty rekomendacji)",
+    ],
+    AIFeatureKey.cv_editor_command: [
+        "Treść CV dla klienta wiersz po wierszu (bez klauzuli zgody) i polecenie rekrutera",
+        "Nazwy wymagań rekrutacji (bez nazwy klienta, stawek i notatek)",
     ],
 }
 

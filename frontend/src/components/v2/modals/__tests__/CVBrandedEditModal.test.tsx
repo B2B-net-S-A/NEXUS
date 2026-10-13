@@ -42,6 +42,11 @@ vi.mock("@/components/v2/cv-editor/CvEditorToolbar", () => ({ CvEditorToolbar: (
 vi.mock("@/components/v2/cv-editor/CvEditorSources", () => ({ CvEditorSources: () => null }));
 vi.mock("@/components/v2/cv-editor/CvEditorIssues", () => ({ CvEditorIssues: () => null }));
 vi.mock("@/components/v2/cv-editor/CvEditorSelectionAi", () => ({ CvEditorSelectionAi: () => null }));
+// Polecenie dla całego CV pracuje na prawdziwym edytorze (jak AI na zaznaczeniu) —
+// ma własne testy; atrapa edytora tego okna nie ma widoku ProseMirror.
+vi.mock("@/components/v2/cv-editor/useCvCommandPlan", () => ({
+  useCvCommandPlan: () => ({ enabled: false, phase: "idle", locked: false, discard: () => undefined }),
+}));
 vi.mock("@/components/v2/cv-editor/useCvSelectionAi", () => ({
   useCvSelectionAi: () => ({ enabled: false, selection: { ok: false, reason: null, hidden: true }, phase: "idle" }),
 }));

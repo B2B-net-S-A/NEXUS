@@ -46,6 +46,7 @@ import { stageBrandedQueryKey } from "@/lib/cv-to-client";
 import { useAuthStore } from "@/store/auth";
 
 import { memoryAiApi } from "./ai-fixture";
+import { memoryCommandApi } from "./command-fixture";
 import { GENERATOR_ONLY_WARNINGS, memoryIssuesApi, withoutIssues } from "./issues-fixture";
 
 const JOB_ID = 201;
@@ -331,6 +332,7 @@ export default function CvEditorPreviewPage() {
       editorApi: editor.api,
       issuesApi: memoryIssuesApi(editor.savedHtml, variant),
       aiApi: memoryAiApi(state === "aidown"),
+      commandApi: memoryCommandApi(state === "aidown"),
     };
   }, [state]);
 
@@ -394,6 +396,7 @@ export default function CvEditorPreviewPage() {
           editorApi={backend.editorApi}
           issuesApi={backend.issuesApi}
           aiApi={backend.aiApi}
+          commandApi={backend.commandApi}
           generatorWarnings={state === "nosources" ? GENERATOR_ONLY_WARNINGS : undefined}
           editorFiles={MEMORY_FILES}
           sourceLoaders={SOURCE_LOADERS}

@@ -591,6 +591,9 @@ class Settings(BaseSettings):
     # AI na zaznaczonym fragmencie w edytorze CV (Edytor CV 2, PR 3). False =
     # trasa odpowiada „chwilowo niedostępne”, edytor działa dalej bez AI.
     CV_SELECTION_AI_ENABLED: bool = True
+    # Polecenie własnymi słowami dla całego CV (Edytor CV 2, PR 4). False =
+    # trasa odpowiada „chwilowo niedostępne”, edytor działa dalej.
+    CV_EDITOR_COMMAND_ENABLED: bool = True
 
     # ── Bramka „Zweryfikowany” (decyzja Artura 04.10.2026, D1) ──────────────
     # Wejście na „Zweryfikowany” z kolumn Nowi/Screening wymaga arkusza

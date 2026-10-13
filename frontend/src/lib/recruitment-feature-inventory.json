@@ -1843,6 +1843,22 @@
    "v3_home": "karta „CV do klienta” → Edytuj → zaznacz tekst"
   },
   {
+   "id": "cv.editor-command",
+   "area": "cv",
+   "opis": "Polecenie własnymi słowami dla całego CV: pasek z polem i gotowymi poleceniami (skróć, usuń najstarsze role, ułóż punkty według wymagań, ujednolić formę zdań) → „Przygotuj zmiany”",
+   "file": "components/v2/cv-editor/CvEditorCommandBar.tsx",
+   "marker": "Przygotuj zmiany",
+   "v3_home": "karta „CV do klienta” → Edytuj → Polecenie"
+  },
+  {
+   "id": "cv.editor-plan",
+   "area": "cv",
+   "opis": "Plan zmian: operacje sprawdzone przez serwer z polami wyboru, podgląd na kartce (co znika, co się zmienia), ostrzeżenie o znikającym wymaganiu klienta, „Zastosuj zaznaczone” jedną cofalną zmianą i „Odrzuć plan”",
+   "file": "components/v2/cv-editor/CvEditorPlan.tsx",
+   "marker": "Zastosuj zaznaczone",
+   "v3_home": "karta „CV do klienta” → Edytuj → Polecenie"
+  },
+  {
    "id": "cv.download-intent",
    "area": "cv",
    "opis": "Przycisk „Pobierz” CV (edytor, karta, podgląd etapu, kolejka Cpro, wynik generatora, pliki) zostawia wpis o pobraniu; podgląd nie",

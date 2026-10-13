@@ -1,6 +1,6 @@
 # Edytor CV na cały ekran — kartka, bloki, źródła, stała klauzula RODO (12.10.2026)
 
-<!-- indeks: kontrakt HTML edytor ↔ Word, bloki i etykiety szablonu, blokada klauzuli (przeglądarka + serwer), pola w nawiasach, wpis `cv_file_downloaded`, panel „Do poprawy” (QC, uwagi generatora, kontrola AI, „Popraw wszystko”, `qc/transform`), AI na zaznaczeniu (`cv-ai/selection`, kontrola „bez nowych faktów”, klucz `cv_selection_edit`), harness `/preview/cv-editor` -->
+<!-- indeks: kontrakt HTML edytor ↔ Word, bloki i etykiety szablonu, blokada klauzuli (przeglądarka + serwer), pola w nawiasach, wpis `cv_file_downloaded`, panel „Do poprawy” (QC, uwagi generatora, kontrola AI, „Popraw wszystko”, `qc/transform`), AI na zaznaczeniu (`cv-ai/selection`, kontrola „bez nowych faktów”, klucz `cv_selection_edit`), polecenie dla całego CV (`cv-ai/command`, plan zmian sprawdzany przez kod, klucz `cv_editor_command`), harness `/preview/cv-editor` -->
 
 Pomiar na produkcji (30 dni do 12.10.2026, tylko odczyt, same liczby): 686 CV
 z generatora, w edytorze poprawiono 17 (2,5%), mediana 2 zapisy i 1,5 minuty.
@@ -357,13 +357,92 @@ trafia dopiero po „Przyjmij”.
 - **Ślad użycia:** `Activity(action="cv_selection_ai")` z akcją, statusem
   i powodem odmowy — bez tekstu CV i propozycji.
 
+## Polecenie dla całego CV (PR 4, 13.10.2026)
+
+Przycisk „Polecenie” w pasku otwiera pole: własne słowa („skróć do dwóch stron,
+zostaw wszystko o Kafce”) albo gotowe polecenie. Wynik to **plan zmian** —
+lista operacji z polami wyboru w panelu obok i podgląd na kartce. Do CV trafia
+dopiero to, co rekruter zostawi zaznaczone i zatwierdzi „Zastosuj zaznaczone”.
+
+- **Model zwraca plan, nie tekst CV.** Edytor wysyła CV wiersz po wierszu
+  (`lib/cv-editor-command.cvLines`: każdy blok dokumentu i każdy punkt listy,
+  tekst z `**pogrubieniem**`, rodzaj, sekcja, numer stanowiska; klauzuli zgody
+  nie wysyła wcale). Model odpowiada operacjami na numerach wierszy: `remove`,
+  `replace`, `merge`, `reorder`, `remove_role`, `remove_section`.
+- **Kod sprawdza każdą operację osobno** (`services/cv_command_ai.verify_plan`)
+  i wypuszcza tylko te, które przeszły; odrzucone wracają z powodem (panel mówi
+  ile). Reguły, których nie wolno poluzować „przy okazji”:
+  - pojedynczo wolno ruszać tylko wiersze `bullet` i `text`; tytuł, nagłówki,
+    stanowisko, firma, etykieta obowiązków i lista technologii mają zapis,
+    z którego serwer składa Word — znikają wyłącznie z całą rolą albo sekcją;
+  - sekcja doświadczenia i ostatnie stanowisko nie znikają; `remove` nie
+    zostawia roli ani sekcji bez treści (od tego jest `remove_role` /
+    `remove_section`);
+  - nowy tekst (`replace`, `merge`) przechodzi tę samą kontrolę „bez nowych
+    faktów” co AI na zaznaczeniu (`cv_selection_ai.check`), a ta łapie liczby,
+    daty, nazwy własne i wymagania — NIE zwykłe słowa pisane małą literą
+    („prowadził zespół”, „magister informatyki”). Dlatego operacja niesie
+    `new_words`: słowa nowej treści, których nie było w zastępowanych wierszach
+    (z tolerancją odmiany). Taka operacja przychodzi NIEZAZNACZONA, a panel
+    pokazuje te słowa. Panel nie może obiecywać więcej, niż kontrola sprawdza
+    — zdanie „żadna zmiana nie dopisuje faktów” było nieprawdą;
+  - CV bez znaczników stanowisk (starsze, wklejone): wiersz sekcji
+    doświadczenia bez numeru stanowiska nie jest ruszany wcale — stanowisko,
+    firma i etykieta wyglądają tam jak zwykły tekst;
+  - pusty punkt nie jest treścią (nie „trzyma” roli przy życiu); klauzula zgody
+    nie jest ruszana ani wpisywana, nawet gdyby edytor ją przysłał; CV bez
+    stanowisk zachowuje co najmniej jedną sekcję;
+  - jeden wiersz należy do jednej operacji — dlatego rekruter może odznaczyć
+    dowolną bez psucia pozostałych;
+  - `reorder` to permutacja WSZYSTKICH punktów jednego stanowiska albo sekcji.
+- **Wymaganie klienta, które by zniknęło.** Przy operacji stoi lista wymagań
+  rekrutacji, które po niej nie występują już nigdzie w CV (`loses`). Taka
+  operacja przychodzi NIEZAZNACZONA i z ostrzeżeniem — usunięcie jedynego
+  miejsca z wymaganiem ma być świadomą decyzją. `loses` liczy się NARASTAJĄCO
+  w kolejności planu (wymaganie w dwóch miejscach, usuwane dwiema operacjami,
+  gubi ta druga) i bez znaczników `**` („Spring **Boot**” to „Spring Boot”).
+- **Gotowe polecenia** (`PRESETS`) mają treść w kodzie serwera i idą do promptu
+  bez ogrodzenia; własne słowa rekrutera to dane w znaczniku
+  `recruiter_command`. Polecenie mówi, CO zmienić, i nie jest źródłem faktów.
+  „Wersja anonimowa” z makiety nie weszła: zamiana nazwy firmy na opis branży
+  dopisuje treść, a generator ma do tego tryb „blind”.
+- **Kartka czeka na decyzję.** Od zamówienia planu do „Zastosuj” / „Odrzuć”
+  edytor jest tylko do odczytu (`command.locked` → `setEditable(false)`): plan
+  odnosi się do wierszy z chwili zamówienia. `applyPlan` i tak sprawdza, że
+  wiersze się nie zmieniły, i wtedy niczego nie nakłada.
+- **Edytor nie pomija operacji po cichu.** Zmiany kolejności punktów, które
+  stoją w dwóch listach, edytor nie umie nałożyć (`canApply`) — taka operacja
+  nie trafia do planu i liczy się do odrzuconych. Escape w trakcie liczenia
+  planu nie zamyka edytora (pole jest wtedy wyłączone, klawisz trafia w `body`).
+- **„Zastosuj zaznaczone” = jedna transakcja** (`applyPlan`: poprawki od końca
+  dokumentu, lista bez punktów znika cała), jeden krok „Cofnij”. Szkic na
+  zatwierdzonej wersji powstaje dopiero wtedy — zamówienie i odrzucenie planu
+  niczego w CV nie zmieniają. Utrwala zwykły autozapis.
+- **Podgląd to dekoracje widoku** (`CvEditorPlanPreview`): przekreślone wiersze,
+  nowa treść pod zmienianym wierszem, numer nowego miejsca przy przestawianych.
+  Nie trafiają do `getHTML()`. Panel „Plan zmian” zajmuje miejsce „Do poprawy”
+  (przy jednym panelu naraz także źródeł); na wąskim ekranie to osobna kolumna.
+- **Trasa** `POST /api/pipeline/stages/{id}/cv-ai/command` (`api/cv_editor_ai.py`):
+  bezstanowa, te same bramki co `cv-ai/selection`, 6/min, limit 400 wierszy
+  i 60 tys. znaków, zawsze 200 ze statusem (`ok`, `empty`, `unavailable`).
+  Klucz AI `cv_editor_command` (F31, migracja 0434 + lustro w `entrypoint.sh`),
+  wyłącznik `CV_EDITOR_COMMAND_ENABLED`. Ślad: `Activity(action="cv_command_ai")`
+  z nazwą gotowego polecenia i liczbami — bez treści CV i bez własnych słów.
+- **Edytor wyniku generatora** (bez etapu) nie ma polecenia: nie ma rekrutacji,
+  czyli wymagań do sprawdzenia `loses`, ani uprawnień etapu.
+- **Bez miniatur stron z makiety** („Teraz · 3 strony”): edytor nie zna podziału
+  na strony. Panel podaje, o ile procent krótsza będzie treść.
+- **PL→EN nie weszło** — patrz raport `docs/cv-editor-pr4-completion-report.md`:
+  etap trzyma jedno CV w jednym języku, a druga wersja to osobny dokument
+  generatora (ok. 3% CV etapów). Do decyzji Artura.
+
 ## Harness
 
 `/preview/cv-editor?state=draft|finalized|conflict|nosources|clean|qcdown|aidown` —
-prawdziwy edytor na stanie z pamięci (`editorApi`, `issuesApi`, `aiApi`,
+prawdziwy edytor na stanie z pamięci (`editorApi`, `issuesApi`, `aiApi`, `commandApi`,
 `editorFiles`, `sourceLoaders` jako propsy okna), źródła z zasiewu, sieć odcięta.
 „AI na zaznaczeniu” dostaje propozycje z `ai-fixture.ts` (proste przekształcenia
-tekstu, bez modelu). Panel
+tekstu, bez modelu), a „Polecenie” plan z `command-fixture.ts` (`commandApi`). Panel
 „Do poprawy” dostaje dane z `issues-fixture.ts`: „QC” liczy się tam z ostatnio
 zapisanej treści, więc widać obieg poprawka → autozapis → świeża lista. Test
 `app/preview/__tests__/cv-editor-harness.test.tsx` montuje całą stronę bez atrapy
