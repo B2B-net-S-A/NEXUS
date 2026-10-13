@@ -433,13 +433,15 @@ async def read_status(db: AsyncSession) -> dict[str, Any]:
 
 def spawn_running_guard() -> Optional[str]:
     """Powód odmowy startu (409) albo ``None``."""
-    from app.services import traffit_notes_repair
+    from app.services import traffit_added_dates_repair, traffit_notes_repair
     from app.tasks.traffit_sync import sync_is_running
 
     if sync_is_running():
         return "Trwa synchronizacja z Traffitem — spróbuj po jej zakończeniu."
     if traffit_notes_repair.is_running():
         return "Trwa naprawa notatek z Traffita — spróbuj po jej zakończeniu."
+    if traffit_added_dates_repair.is_running():
+        return "Trwa naprawa dat dodania z Traffita — spróbuj po jej zakończeniu."
     if is_running():
         return "Naprawa dat plików z Traffita już trwa."
     return None

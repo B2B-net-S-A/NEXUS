@@ -9,9 +9,9 @@
  * wziąć obrazu. To pole zamyka tę lukę.
  *
  * Plik idzie do magazynu obiektów OSOBNYM żądaniem, a do generacji trafia sam
- * podpisane przypisanie załącznika. Dzięki temu obie ścieżki generacji — JSON-owa `/generate` i multipart
- * `/generate-upload` — mają jeden mechanizm, a obraz nie puchnie w base64
- * w ciele requestu ani w logach.
+ * podpisane przypisanie załącznika. Dzięki temu `/generate` i dołączenie zgody
+ * do gotowego CV mają jeden mechanizm, a obraz nie puchnie w base64 w ciele
+ * requestu ani w logach.
  */
 
 import { useEffect, useId, useRef, useState } from "react";
@@ -28,14 +28,13 @@ export interface ConsentContext {
   candidateId?: number;
   stageId?: number;
   clientId?: number | null;
-  cvFile?: File | null;
   projectRef?: string;
   bindingStageId?: number;
 }
 
 function sameContext(a: ConsentContext, b: ConsentContext) {
   return a.candidateId === b.candidateId && a.stageId === b.stageId &&
-    a.clientId === b.clientId && a.cvFile === b.cvFile && a.projectRef === b.projectRef && a.bindingStageId === b.bindingStageId;
+    a.clientId === b.clientId && a.projectRef === b.projectRef && a.bindingStageId === b.bindingStageId;
 }
 
 interface Props {
@@ -70,10 +69,9 @@ export function ConsentScreenshotField({
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const requestVersion = useRef(0);
-  // Źródło przypisania: plik z dysku, proces (osoba + etap) albo — generator
-  // v3 — osoba bez procesu z jawnie wybranym klientem.
-  const hasSubject =
-    !!context.cvFile || !!(context.candidateId && (context.stageId || context.clientId));
+  // Źródło przypisania: osoba + etap albo osoba + klient. Od 13.10.2026 bez
+  // pliku z dysku — generator nie ma już ścieżki osoby spoza bazy.
+  const hasSubject = !!(context.candidateId && (context.stageId || context.clientId));
 
   useEffect(() => {
     requestVersion.current += 1;
@@ -82,7 +80,7 @@ export function ConsentScreenshotField({
     setBusy(false);
     onChangeRef.current(null, null);
     return () => { requestVersion.current += 1; };
-  }, [context.candidateId, context.stageId, context.clientId, context.cvFile, context.projectRef, context.bindingStageId]);
+  }, [context.candidateId, context.stageId, context.clientId, context.projectRef, context.bindingStageId]);
 
   // Wyczyszczenie klucza przez rodzica (np. reset formularza) musi zabrać także
   // nazwę pliku — inaczej pole twierdzi, że coś jest wgrane, choć klucza nie ma.
@@ -104,13 +102,8 @@ export function ConsentScreenshotField({
     try {
       const fd = new FormData();
       fd.append("file", file);
-      if (context.cvFile) {
-        const digest = await crypto.subtle.digest("SHA-256", await context.cvFile.arrayBuffer());
-        fd.append("cv_sha256", Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join(""));
-      } else {
-        fd.append("candidate_id", String(context.candidateId));
-        if (context.stageId) fd.append("stage_id", String(context.stageId));
-      }
+      fd.append("candidate_id", String(context.candidateId));
+      if (context.stageId) fd.append("stage_id", String(context.stageId));
       if (context.projectRef !== undefined) fd.append("project_ref", context.projectRef);
       if (context.bindingStageId) fd.append("binding_stage_id", String(context.bindingStageId));
       if (context.clientId != null) fd.append("client_id", String(context.clientId));

@@ -26,7 +26,6 @@ import {
   Radar,
   Search,
   Settings,
-  Sparkles,
   Star,
   Store,
   Users,
@@ -255,24 +254,6 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     placement: "more",
     moreGroup: "daily",
     inPalette: true,
-  },
-  {
-    id: "cv-generator",
-    moreHint: "CV firmowe kandydata pod rekrutację",
-    href: "/cv-generator",
-    label: "Generator CV",
-    icon: Sparkles,
-    section: "sourcing",
-    // Generacja = CandidateWriteAccess — viewer `user` dostałby 403.
-    roles: [...CAPABILITY_ROLES["candidate.write"]],
-    placement: "more",
-    moreGroup: "documents",
-    // Zdjęte z menu i palety 13.10.2026 (decyzja Artura): zespół pracuje
-    // w NEXUSIE i generuje CV w ścieżce rekrutacji — karta „CV do klienta”
-    // w panelu osoby, profil kandydata, dok kanbanu, okno QC. Strona zostaje
-    // dla starych linków z powiadomień i zakładek.
-    inSidebar: false,
-    inPalette: false,
   },
   // Dostęp do Generatora Umów B2B jest konfigurowany osobno od sekcji
   // Sourcing. Edycja katalogu ról umownych nadal pozostaje admin-only.

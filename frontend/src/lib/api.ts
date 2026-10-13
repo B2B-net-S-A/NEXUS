@@ -6410,34 +6410,6 @@ export const candidateStageCvApi = {
   },
 };
 
-// ── Generator CV B2B — publiczny link (interaktywne CV) ─────────────────────
-
-export interface CvGeneratedShareCreateResp {
-  document_version_id?: number | null;
-  token: string;
-  expires_at: string;
-  share_url_suffix: string;
-  generated_id: number;
-  revoke_key: string;
-  max_views?: number | null;
-  interactive_available: boolean;
-}
-
-export interface CvGeneratedShareListItem {
-  document_version_id?: number | null;
-  revoke_key: string;
-  token_preview: string;
-  created_at?: string | null;
-  created_by_name?: string | null;
-  expires_at?: string | null;
-  revoked: boolean;
-  revoked_at?: string | null;
-  revoke_reason?: string | null;
-  view_count: number;
-  max_views?: number | null;
-  last_viewed_at?: string | null;
-}
-
 export const cvGeneratedEditorApi = {
   get: (id: number) => api.get<CVBrandedState>(`/api/cv-generator/generated/${id}/editor`),
   update: (id: number, payload: { content_html: string; expected_revision: number } | { template?: CVTemplate; language?: CVLanguage; expected_revision: number }) =>
@@ -6450,43 +6422,7 @@ export const cvGeneratedEditorApi = {
     cancelReviewedCv(`/api/cv-generator/generated/${id}/editor`, reviewId, payload),
 };
 
-export interface CvGeneratedApprovedVersion {
-  id: number;
-  version: number;
-  approved_at: string;
-  language: string | null;
-  job_title: string | null;
-}
-
-export const cvGeneratedShareApi = {
-  approve: (generatedId: number) => api.post<{ document_version_id: number; version: number }>(`/api/cv-generator/generated/${generatedId}/approve`),
-  approvedVersions: (generatedId: number) =>
-    api.get<CvGeneratedApprovedVersion[]>(`/api/cv-generator/generated/${generatedId}/approved-versions`),
-  // Token v2-only: sekret zwracany raz, w DB tylko SHA-256.
-  create: (generatedId: number, expiresInDays = 14, maxViews?: number, documentVersionId?: number) =>
-    api.post<CvGeneratedShareCreateResp>(
-      `/api/cv-generator/generated/${generatedId}/share-token`,
-      null,
-      {
-        params: {
-          expires_in_days: expiresInDays,
-          ...(documentVersionId ? { document_version_id: documentVersionId } : {}),
-          ...(maxViews ? { max_views: maxViews } : {}),
-        },
-      },
-    ),
-  list: (generatedId: number) =>
-    api.get<CvGeneratedShareListItem[]>(
-      `/api/cv-generator/generated/${generatedId}/share-tokens`,
-    ),
-  revoke: (tokenOrKey: string, reason?: string) =>
-    api.delete<{ ok: boolean; already_revoked: boolean }>(
-      `/api/cv-generator/generated/share-token/${tokenOrKey}`,
-      reason ? { params: { reason } } : undefined,
-    ),
-};
-
-// ── Generator CV v3 (lista „Moje CV”, osoba spoza bazy, zgoda po generacji) ──
+// ── Generator CV v3 (wygenerowane CV, zgoda po generacji) ──────────────────
 
 /** Wynik niezależnej kontroli AI treści (0327) — same liczby, bez cytatów. */
 export interface CvFactualReviewSummary {
@@ -6496,7 +6432,7 @@ export interface CvFactualReviewSummary {
   reason?: string | null;
 }
 
-/** Wiersz `GET /api/cv-generator/generated` — lista „Moje CV” i widok wyniku. */
+/** Wiersz `GET /api/cv-generator/generated` — pliki kandydata i widok wyniku. */
 export interface GeneratedCvItem {
   id: number;
   approved_version_id?: number | null;
@@ -6545,14 +6481,6 @@ export interface CvGeneratedListParams {
   limit?: number;
 }
 
-/** Podobna osoba w bazie dla wgranego pliku CV (`POST /identify-upload`). */
-export interface CvIdentifyMatch {
-  candidate_id: number;
-  full_name: string;
-  /** Kody: `identical_file`, `email_exact`, `phone_exact` (bez wywołania modelu). */
-  match_reasons: string[];
-}
-
 /** Wynik dołączenia / wymiany zrzutu zgody w gotowym CV (cały pakiet). */
 export interface CvConsentAttachResult {
   package_id: number;
@@ -6588,15 +6516,6 @@ export interface CvGeneratePayload {
 export const cvGeneratorApi = {
   listGenerated: (params: CvGeneratedListParams) =>
     api.get<GeneratedCvItem[]>("/api/cv-generator/generated", { params }),
-  identifyUpload: (file: File) => {
-    const fd = new FormData();
-    fd.append("cv_file", file);
-    return api.post<{ matches: CvIdentifyMatch[] }>(
-      "/api/cv-generator/identify-upload",
-      fd,
-      { headers: { "Content-Type": "multipart/form-data" }, timeout: 60_000 },
-    );
-  },
   /** Zrzut zgody dla JUŻ wygenerowanego CV — podpis przypisania do wiersza. */
   uploadConsentForGenerated: (generatedId: number, file: File) => {
     const fd = new FormData();

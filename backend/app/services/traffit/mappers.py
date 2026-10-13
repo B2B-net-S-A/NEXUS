@@ -526,6 +526,9 @@ def traffit_employee_to_candidate(
         raw_location=payload.get("candidate_location")
     )
     source_updated_at = _parse_traffit_datetime(payload.get("updated_at"))
+    # „W bazie od” (0437): kiedy osoba trafiła do Traffita. `candidates.created_at`
+    # to chwila importu, więc bez tego pola cała baza z Traffita ma dzień importu.
+    source_created_at = _parse_traffit_datetime(payload.get("created_at"))
 
     return {
         "external_id": str(traffit_id),
@@ -540,6 +543,9 @@ def traffit_employee_to_candidate(
         "traffit_raw_lastname": raw_lastname[:100],
         "traffit_source_updated_at": (
             source_updated_at.isoformat() if source_updated_at else None
+        ),
+        "source_created_at": (
+            source_created_at.isoformat() if source_created_at else None
         ),
         "email": _trunc(_pick_nonempty(payload.get("email")), 255),
         "phone": _trunc(

@@ -1542,6 +1542,44 @@ describe("PipelineCandidateDock — rozwinięty panel i dane kontaktowe (09.10.2
     expect(toastSuccess).toHaveBeenCalledWith("Skopiowano adres e-mail");
   });
 
+  it("„Nowy w bazie · N dni” w głowie panelu — tylko osoba dodana w ostatnich 14 dniach", async () => {
+    candidatesGet.mockResolvedValue({
+      data: {
+        city: "Lublin",
+        added_to_base_at: new Date(Date.now() - 3 * 24 * 3_600_000).toISOString(),
+        added_to_base_exact: true,
+        added_via: "CV upload",
+        created_by_user: { id: 7, name: "Marta Nowak" },
+      },
+    });
+    renderDock({ item: baseItem({ stage: "new" }) });
+
+    const pill = await within(screen.getByTestId("dock-person-bar")).findByTestId("new-in-base-pill");
+    expect(pill).toHaveTextContent(/^Nowy w bazie · \d+ dni$/);
+    expect(pill.getAttribute("title")).toMatch(/^W bazie od \d{2}\.\d{2}\.\d{4} · dodał\(a\) Marta Nowak · CV upload$/);
+  });
+
+  it("bez pigułki dla osoby dawno w bazie i dla daty niedokładnej z importu", async () => {
+    candidatesGet.mockResolvedValue({
+      data: { city: "Lublin", added_to_base_at: "2019-05-11T22:00:00Z", added_to_base_exact: true },
+    });
+    renderDock({ item: baseItem({ stage: "new" }) });
+    expect(await screen.findByText(/Lublin/)).toBeTruthy();
+    expect(screen.queryByTestId("new-in-base-pill")).toBeNull();
+
+    cleanup();
+    candidatesGet.mockResolvedValue({
+      data: {
+        city: "Lublin",
+        added_to_base_at: new Date(Date.now() - 24 * 3_600_000).toISOString(),
+        added_to_base_exact: false,
+      },
+    });
+    renderDock({ item: baseItem({ stage: "new" }) });
+    expect(await screen.findByText(/Lublin/)).toBeTruthy();
+    expect(screen.queryByTestId("new-in-base-pill")).toBeNull();
+  });
+
   it("profil bez telefonu i adresu nie pokazuje pustej linii kontaktu", async () => {
     candidatesGet.mockResolvedValue({ data: { city: "Lublin" } });
     renderDock({ item: baseItem({ stage: "new" }) });

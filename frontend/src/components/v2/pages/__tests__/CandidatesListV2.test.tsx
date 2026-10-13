@@ -636,6 +636,42 @@ describe("CandidatesListV2", () => {
       }
     });
 
+    it("kolumna „Dodano” to „w bazie od”; import bez daty u źródła — „przed …” (13.10.2026)", async () => {
+      const { useUiStore } = await import("@/store/ui");
+      useUiStore.getState().setColumnPreference("candidates-table-v2", ["phone", "cv"]);
+      listItems = [
+        {
+          id: 1,
+          name: "Marta",
+          lastname: "Kowalczyk",
+          created_at: "2026-04-16T10:00:00Z",
+          added_to_base_at: "2019-05-11T22:00:00Z",
+          added_to_base_exact: true,
+        },
+        {
+          id: 2,
+          name: "Tomasz",
+          lastname: "Nowicki",
+          created_at: "2026-05-04T10:00:00Z",
+          added_to_base_at: "2026-05-04T10:00:00Z",
+          added_to_base_exact: false,
+        },
+      ];
+      listTotal = 2;
+      try {
+        renderList();
+        const known = await screen.findByTestId("candidate-row-1");
+        expect(within(known).getByText("12.05.2019")).toBeTruthy();
+        const imported = screen.getByTestId("candidate-row-2");
+        expect(within(imported).getByText("przed 04.05.2026")).toBeTruthy();
+        expect(
+          within(imported).getByTitle("Import z Traffita — w bazie przed 04.05.2026, dokładnej daty nie znamy"),
+        ).toBeTruthy();
+      } finally {
+        useUiStore.getState().clearColumnPreference("candidates-table-v2");
+      }
+    });
+
     it("dostępność łączy dostępność i zatrudnienie jedną odpowiedzią", async () => {
       renderList();
       const popover = await openFilter(/^Dostępność/);

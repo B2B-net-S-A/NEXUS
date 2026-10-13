@@ -24,7 +24,6 @@ vi.mock("@/lib/api", async (importOriginal) => {
     ...actual,
     cvGeneratorApi: {
       listGenerated: vi.fn(),
-      identifyUpload: vi.fn(),
       uploadConsentForGenerated: (id: number, file: File) => uploadMock(id, file),
       uploadConsentForStage: (candidateId: number, stageId: number, file: File) =>
         stageUploadMock(candidateId, stageId, file),

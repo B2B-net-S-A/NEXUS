@@ -125,8 +125,9 @@ nierównomiernie, więc każda taka bramka to losowe „generator nie działa”
   (`championPreviewNotice`, osobny stan od `championError`), a generacja czyta
   plik sama, deterministycznie (`parse_champion_from_docx_bytes`).
   W `generate-upload` 422/503 z `read_preview` = „brak zrecenzowanego profilu”,
-  nie błąd. Regresja: `CVGeneratorStandaloneV2.test.tsx` („the AI champion
-  preview is an aid, not a gate”).
+  nie błąd. Regresja: `cv-generator/__tests__/CvGenerator.test.tsx` („the AI
+  champion preview is an aid, not a gate”) — od 13.10.2026 na podglądzie
+  Championa w rekrutacji, bo ścieżki pliku spoza bazy już nie ma.
 - **Dokładając wywołanie AI do generatora, zaprojektuj jego awarię:** wynik
   modelu może wzbogacić dokument, podgląd albo audyt — ale ścieżka bez tego
   wyniku musi nadal oddać CV. Jeśli musi blokować (RODO, pieniądze), stoi za

@@ -19,6 +19,7 @@ import { WHY_CANDIDATE_LABEL } from "@/lib/pipeline-next-action";
 import { autoMatchBadgeLabel, autoMatchBadgeTitle } from "@/lib/candidate-notes-view";
 import { rateArrowLine, rateChangeBadgeText } from "@/lib/rate-change";
 import { warsawToday } from "@/lib/warsaw-date";
+import { addedToBaseTitle, addedToBaseView, newInBaseDaysText } from "@/lib/added-to-base";
 
 export type CardBadgeTone =
   | "own"
@@ -263,6 +264,25 @@ export function cardStageBadge(
   return badge;
 }
 
+/**
+ * „W bazie od” (13.10.2026): osoba dodana do bazy w ostatnich 14 dniach —
+ * rekruter wybiera w „Nowych” najpierw świeże osoby. Źródło i blokada są na
+ * karcie ikonami, więc to krótki napis; pełna data i autor w dymku.
+ */
+function newInBaseBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadge | null {
+  const view = addedToBaseView(
+    { at: item.candidate_added_at, exact: item.candidate_added_exact },
+    ctx.now,
+  );
+  if (!view?.isNew || view.days == null) return null;
+  return {
+    key: "new_in_base",
+    label: `Nowy · ${newInBaseDaysText(view.days)}`,
+    tone: "info",
+    title: addedToBaseTitle(view, item.candidate_added_by_name),
+  };
+}
+
 function claimBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadge {
   if (item.claim_user_id != null && item.claim_until) {
     const left = hoursLeft(item.claim_until, ctx.now);
@@ -313,6 +333,8 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
     const duplicatesStage = ctx.stageBadge === "posting" && item.entry_source === "application";
     if (source && !duplicatesStage) out.push(source);
     out.push(claimBadge(item, ctx));
+    const fresh = newInBaseBadge(item, ctx);
+    if (fresh) out.push(fresh);
   }
   // Przegląd DL (Rekrutacja v5): osoby w „QC CV" poza Nordeą — Delivery Lead
   // sprawdza CV, wpisuje stawkę do klienta i wysyła.

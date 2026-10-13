@@ -254,6 +254,12 @@ class CandidateStageResponse(BaseModel):
     # wyszukiwania (`availability_status` / `availability_date`).
     availability_status: Optional[str] = None
     availability_date: Optional[date] = None
+    # „W bazie od” (0437): kiedy osoba weszła do bazy (`candidate_added_date`),
+    # czy data jest dokładna (import z Traffita bez daty u źródła = nie) i kto
+    # ją dodał. Tylko na Tablicy (`build_kanban_view`); ruch i historia — None.
+    candidate_added_at: Optional[datetime] = None
+    candidate_added_exact: bool = False
+    candidate_added_by_name: Optional[str] = None
     # Kody ostrzeżeń karty: `hm_veto`, `budget_exceeded` + miękkie ostrzeżenia
     # polityki dopuszczalności (`client_nda`, `client_blacklist`,
     # `client_competitor`, `client_current_employment`,

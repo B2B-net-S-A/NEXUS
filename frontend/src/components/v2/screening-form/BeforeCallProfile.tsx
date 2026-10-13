@@ -34,6 +34,7 @@ import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { notesCountLabel, splitPersonNotes } from "@/components/v2/person/notes-by-recruitment";
 import { PersonFacts } from "@/components/v2/person/PersonFacts";
+import { inBaseSourceText, inBaseView, type CandidateInBase } from "@/components/v2/person/PersonInBase";
 import { useNoAnswerNote } from "@/hooks/useNoAnswerNote";
 import api, { candidatesApi } from "@/lib/api";
 import { useRateOverview } from "@/lib/api/candidateRates";
@@ -69,7 +70,7 @@ export interface BeforeCallQuickView {
 }
 
 /** Wycinek profilu kandydata (`GET /api/candidates/{id}`) — warunki, które już znamy. */
-interface CandidateConditions {
+interface CandidateConditions extends CandidateInBase {
   availability_date?: string | null;
   availability_status?: string | null;
   notice_period?: number | null;
@@ -156,6 +157,10 @@ export function BeforeCallProfile({
     staleTime: 60_000,
   });
   const detail = detailQuery.data ?? null;
+  const inBase = inBaseView(detail);
+  const inBaseText = inBase
+    ? [inBase.dateLabel, inBase.ageLabel, inBaseSourceText(detail)].filter(Boolean).join(" · ")
+    : null;
   const rateQuery = useRateOverview(candidateId, candidateId > 0);
   const latestRate = hourlyText(rateQuery.data?.latest_amount);
   const latestRateWhen = monthYear(rateQuery.data?.latest_at ?? null);
@@ -238,6 +243,8 @@ export function BeforeCallProfile({
             wide: true,
             value: position ? `${position}${since ? ` · od ${since}` : ""}` : null,
           },
+          // „W bazie od” (13.10.2026): przed telefonem widać, czy to świeża osoba.
+          { label: "W bazie od", wide: true, value: inBaseText },
           { label: "Doświadczenie", value: yearsText(data?.cv_highlights?.years_experience) },
           { label: "Lokalizacja", value: data?.candidate.city?.trim() || data?.candidate.location?.trim() || null },
           { label: "Źródło", value: source },

@@ -21,11 +21,13 @@
   "recruiter+amounts_edit"
  ],
  "routes": {
+  "GET /api/admin/traffit/added-dates-repair/status": "UUUUUUUUUUUUUUUUUUU",
   "GET /api/admin/traffit/file-dates-repair/status": "UUUUUUUUUUUUUUUUUUU",
   "GET /api/admin/traffit/notes-repair/status": "UUUUUUUUUUUUUUUUUUU",
   "GET /api/admin/traffit/sync/status": "UUUUUUUUUUUUUUUUUUU",
   "GET /api/admin/traffit/transfer/status": "UUUUUUUUUUUUUUUUUUU",
   "GET /api/admin/traffit/twins-merge/status": "UUUUUUUUUUUUUUUUUUU",
+  "POST /api/admin/traffit/added-dates-repair": "UUUUUUUUUUUUUUUUUUU",
   "POST /api/admin/traffit/file-dates-repair": "UUUUUUUUUUUUUUUUUUU",
   "POST /api/admin/traffit/notes-repair": "UUUUUUUUUUUUUUUUUUU",
   "POST /api/admin/traffit/notes-repair/recruitments": "UUUUUUUUUUUUUUUUUUU",

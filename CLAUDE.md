@@ -225,6 +225,7 @@ Formularz i widok screeningu, karta rekomendacji, rodzaje notatek, wzmianki, „
 - `screening-wybor-gotowego-cv-z-profilu-i-edycja.md` — Screening: wybór gotowego CV z profilu i edycja (09.10.2026)
 - `stawka-od-i-historia-stawek-kandydata.md` — „Stawka od” i historia stawek kandydata (0414, 04.10.2026)
 - `stawki-pary-z-notatek-gdy-etap-ich-nie-ma.md` — Stawki pary z notatek, gdy etap ich nie ma (12.10.2026) · para z czasów Traffita ma etapy bez kwot; stawka kandydata z karty rekomendacji i notatka z wysyłki jako podpowiedzi w profilu → Rekrutacje i w panelu osoby; nic nie jest zapisywane ani zgadywane
+- `w-bazie-od-data-wejscia-do-bazy.md` — „W bazie od” — kiedy osoba trafiła do bazy (13.10.2026) · data wejścia do bazy w panelu osoby, na Tablicy, w profilu przed telefonem i na liście; source_created_at z Traffita (0437) i naprawa dat; „Nowy w bazie” do 14 dni; data niedokładna = „przed …”
 - `wzmianki-w-notatkach-i-czatach.md` — Wzmianki „@” w notatkach i czatach (08.10.2026)
 - `zmiana-stawki-kandydata-w-trakcie-procesu.md` — Zmiana stawki kandydata w trakcie procesu (0418, 04.10.2026)
 
@@ -256,8 +257,8 @@ Generator CV, reguły CV klienta, zgoda RODO, interaktywne CV, automaty rekrutac
 - `automaty-rekrutacji-v3.md` — Automaty rekrutacji v3 (21.09.2026, migracja 0335)
 - `autonomiczny-przeplyw-cv.md` — Autonomiczny przepływ CV (17.09.2026)
 - `edytor-cv-pelny-ekran.md` — Edytor CV na cały ekran — kartka, bloki, źródła, stała klauzula RODO (12.10.2026) · kontrakt HTML edytor ↔ Word, bloki i etykiety szablonu, blokada klauzuli (przeglądarka + serwer), pola w nawiasach, wpis `cv_file_downloaded`, panel „Do poprawy” (QC, uwagi generatora, kontrola AI, „Popraw wszystko”, `qc/transform`), AI na zaznaczeniu (`cv-ai/selection`, kontrola „bez nowych faktów”, klucz `cv_selection_edit`), polecenie dla całego CV (`cv-ai/command`, plan zmian sprawdzany przez kod, klucz `cv_editor_command`), historia wersji i powrót pliku Word (`…/versions`, `…/import-preview` bez zapisu, treść nakłada edytor), harness `/preview/cv-editor`
-- `generator-cv-bez-wejscia-w-menu.md` — Generator CV bez wejścia w menu (13.10.2026)
 - `generator-cv-domyslnie-sciezka-sprzed-przebudowy.md` — Generator CV — domyślnie ścieżka sprzed przebudowy (`legacy_v7`, 10.09.2026)
+- `generator-cv-tylko-w-rekrutacji.md` — Generator CV tylko w rekrutacji (13.10.2026)
 - `generator-cv-v3-jeden-ekran-od-osoby.md` — Generator CV v3 — jeden ekran od osoby (23.09.2026)
 - `interaktywne-cv-publiczny-link-do-wygenerowanego-cv.md` — Interaktywne CV (publiczny link do wygenerowanego CV)
 - `reguly-cv-per-klient-pelna-recepta-delivery-leada.md` — Reguły CV per klient — pełna recepta Delivery Leada

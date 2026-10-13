@@ -5,7 +5,7 @@
  *
  * Dwa miejsca, jeden edytor: CV etapu rekrutacji (`stageId`, karta „CV do
  * klienta”, dok kanbana, profil kandydata) i wynik generatora (`generatedId`,
- * „Moje CV”).
+ * okno generatora).
  *
  * Od generatora CV v3 edytor ma JEDEN przycisk „Zapisz”: zapisuje szkic,
  * zamyka okno, a zatwierdzenie (kontrola AI treści + nowa wersja) idzie

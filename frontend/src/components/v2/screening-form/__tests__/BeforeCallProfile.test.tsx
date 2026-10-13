@@ -136,6 +136,35 @@ beforeEach(() => {
 });
 
 describe("BeforeCallProfile — co już wiemy przed telefonem", () => {
+  it("„W bazie od” w bloku „Kandydat”: data, wiek i skąd (13.10.2026)", async () => {
+    respond({
+      detail: {
+        ...DETAIL,
+        added_to_base_at: "2019-05-11T22:00:00Z",
+        added_to_base_exact: true,
+        added_via: "Traffit · Aktywny Search",
+        created_by_user: null,
+      },
+    });
+    renderProfile();
+
+    const facts = await screen.findByTestId("before-call-facts");
+    expect(within(facts).getByText("W bazie od")).toBeInTheDocument();
+    expect(
+      await within(facts).findByText(/^12\.05\.2019 · \d+ lat temu · Traffit · Aktywny Search$/),
+    ).toBeInTheDocument();
+  });
+
+  it("„W bazie od” z importu bez daty u źródła mówi „przed …”", async () => {
+    respond({
+      detail: { ...DETAIL, added_to_base_at: "2026-04-16T10:00:00Z", added_to_base_exact: false },
+    });
+    renderProfile();
+
+    const facts = await screen.findByTestId("before-call-facts");
+    expect(await within(facts).findByText("przed 16.04.2026 · dokładnej daty nie znamy")).toBeInTheDocument();
+  });
+
   it("pokazuje ostatnio podaną stawkę z datą, dostępność i tryb pracy z profilu", async () => {
     respond();
     renderProfile();

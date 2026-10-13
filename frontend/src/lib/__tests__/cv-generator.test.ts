@@ -10,6 +10,7 @@ import {
   extractErrorDetail,
   fileValidationError,
   isCertainWarning,
+  legacyCvGeneratorHref,
   parseDispositionFilename,
 } from "@/lib/cv-generator";
 
@@ -234,5 +235,25 @@ describe("classifyCvWarnings — prawdziwe teksty backendu", () => {
       { kind: "nakładające się okresy", count: 2 },
       { kind: "brakujące NICE-TO-HAVE", count: 1 },
     ]);
+  });
+});
+
+describe("legacyCvGeneratorHref — stary adres /cv-generator (13.10.2026)", () => {
+  it("link z osobą i rekrutacją otwiera tę osobę w rekrutacji", () => {
+    expect(legacyCvGeneratorHref({ candidate_id: "21", job_id: "31" })).toBe("/jobs/31?candidate=21");
+  });
+  it("sama osoba → jej profil (tam jest „Generuj CV”)", () => {
+    expect(legacyCvGeneratorHref({ candidate_id: "21" })).toBe("/candidates/21");
+  });
+  it("bez osoby albo ze śmieciami w adresie → lista rekrutacji", () => {
+    expect(legacyCvGeneratorHref({})).toBe("/jobs");
+    expect(legacyCvGeneratorHref({ job_id: "31" })).toBe("/jobs");
+    expect(legacyCvGeneratorHref({ candidate_id: "0", job_id: "31" })).toBe("/jobs");
+    expect(legacyCvGeneratorHref({ candidate_id: "1e3" })).toBe("/jobs");
+    expect(legacyCvGeneratorHref({ candidate_id: "99999999999999999999" })).toBe("/jobs");
+    expect(legacyCvGeneratorHref({ candidate_id: "21", job_id: "../admin" })).toBe("/candidates/21");
+  });
+  it("powtórzony parametr bierze pierwszą wartość", () => {
+    expect(legacyCvGeneratorHref({ candidate_id: ["21", "22"], job_id: "31" })).toBe("/jobs/31?candidate=21");
   });
 });

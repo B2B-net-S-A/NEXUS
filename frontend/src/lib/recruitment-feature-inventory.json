@@ -2259,6 +2259,38 @@
    "v3_home": "Tablica → panel osoby → Screening („Nowi”, przed „Zacznij screening”)"
   },
   {
+   "id": "panel.in-base",
+   "area": "panel",
+   "opis": "„Osoba w bazie” na górze „Notatek i historii”: od kiedy osoba jest w bazie (data i wiek; z importu bez daty u źródła — „przed …”), skąd i kto ją dodał, od kiedy jest w tej rekrutacji; na końcu historii wiersz „Dodany do bazy”",
+   "file": "components/v2/person/PersonInBase.tsx",
+   "marker": "Osoba w bazie",
+   "v3_home": "Tablica → panel osoby → Rozwiń → Notatki i historia"
+  },
+  {
+   "id": "panel.new-in-base-pill",
+   "area": "panel",
+   "opis": "Pigułka „Nowy w bazie · N dni” w głowie panelu osoby — osoba dodana do bazy w ostatnich 14 dniach, data i autor w dymku",
+   "file": "components/v2/person/PersonInBase.tsx",
+   "marker": "Nowy w bazie",
+   "v3_home": "Tablica → panel osoby (głowa, każda zakładka)"
+  },
+  {
+   "id": "screening.before-call-in-base",
+   "area": "panel",
+   "opis": "Profil przed telefonem: wiersz „W bazie od” (data, wiek, skąd) w bloku „Kandydat”",
+   "file": "components/v2/screening-form/BeforeCallProfile.tsx",
+   "marker": "W bazie od",
+   "v3_home": "Tablica → panel osoby → Screening („Nowi”, przed „Zacznij screening”)"
+  },
+  {
+   "id": "card.new-in-base",
+   "area": "tablica",
+   "opis": "Plakietka „Nowy · N dni” na karcie w „Nowych” i „Screeningu” — osoba dodana do bazy w ostatnich 14 dniach",
+   "file": "lib/board-card-badges.ts",
+   "marker": "new_in_base",
+   "v3_home": "Tablica"
+  },
+  {
    "id": "dock.cv-upload",
    "area": "panel",
    "opis": "„Wgraj nowe CV” w sekcji CV panelu osoby i upuszczenie pliku na panel: plik staje się głównym CV profilu i CV tej rekrutacji (13.10.2026)",

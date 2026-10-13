@@ -32,7 +32,7 @@ from typing import Any, Optional
 
 import httpx
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import select, text
+from sqlalchemy import bindparam, select, text
 from sqlalchemy.exc import IntegrityError, PendingRollbackError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -705,9 +705,21 @@ _CANDIDATE_TOMBSTONE_GUARD = """
 _CANDIDATE_PAYLOAD_SHA_VERSION = "r10-1"
 
 
+# Klucze payloadu poza skrótem. `source_created_at` (0437, „W bazie od”) doszedł
+# do mappera po fakcie: w skrócie zmieniłby go wszystkim ~57 tys. kartotekom
+# i najbliższy pełny bieg przepisałby każdą z nich. Istniejące wiersze uzupełnia
+# jednorazowa naprawa `traffit_added_dates_repair`, nowe dostają datę w INSERT.
+_CANDIDATE_PAYLOAD_SHA_EXCLUDED = frozenset({"source_created_at"})
+
+
 def candidate_payload_sha(payload: dict[str, Any]) -> str:
     """Skrót zmapowanego rekordu `/employees/` — „czy u źródła coś się zmieniło”."""
-    blob = json.dumps(payload, sort_keys=True, default=str, ensure_ascii=False)
+    hashed = {
+        key: value
+        for key, value in payload.items()
+        if key not in _CANDIDATE_PAYLOAD_SHA_EXCLUDED
+    }
+    blob = json.dumps(hashed, sort_keys=True, default=str, ensure_ascii=False)
     return hashlib.sha256(
         f"{_CANDIDATE_PAYLOAD_SHA_VERSION}\n{blob}".encode("utf-8")
     ).hexdigest()[:32]
@@ -761,6 +773,7 @@ _UPSERT_CANDIDATE_SQL = _with_manual_locks(
         cv_extracted_data, custom_fields, source, created_by,
         notes_count, champion, availability_status,
         linkedin_sync_status,
+        source_created_at,
         created_at, updated_at
     )
     SELECT
@@ -786,6 +799,7 @@ _UPSERT_CANDIDATE_SQL = _with_manual_locks(
         0, false,
         CAST('unknown' AS availabilitystatus),
         CAST('disabled' AS linkedinsyncstatus),
+        CAST(CAST(:source_created_at AS text) AS timestamptz),
         NOW(), NOW()
     {tombstone_guard}
     ON CONFLICT (external_source, external_id) WHERE external_id IS NOT NULL
@@ -959,6 +973,14 @@ _UPSERT_CANDIDATE_SQL = _with_manual_locks(
                                  END,
                               true
                             ),
+        -- 0437: data dodania u źródła się nie zmienia; brak w payloadzie
+        -- (stary mapper, ręczny payload) nie kasuje zapisanej. Parametr idzie
+        -- jako tekst ISO (jak `traffit_source_updated_at`) — asyncpg przy
+        -- CAST(… AS timestamptz) wymagałby obiektu datetime.
+        source_created_at = COALESCE(
+                              EXCLUDED.source_created_at,
+                              candidates.source_created_at
+                            ),
         updated_at        = NOW(),
         -- Kandydat jest w żywym feedzie `/employees/`, więc ewentualny
         -- nagrobek jest nieaktualny. Bez tego czyszczenia pojedyncze 404
@@ -977,14 +999,19 @@ _UPSERT_CANDIDATE_SQL = _with_manual_locks(
     """
 )
 
+# 0437: data dodania w Traffit jest opcjonalna — brak klucza w parametrach
+# (payload sprzed „W bazie od”, ręczny słownik) znaczy „nie znamy”, a COALESCE
+# w SQL-u zostawia wtedy zapisaną wartość.
+_SOURCE_CREATED_AT_DEFAULT = bindparam("source_created_at", value=None)
+
 _UPSERT_CANDIDATE = text(
     _UPSERT_CANDIDATE_SQL.replace("{tombstone_guard}", _CANDIDATE_TOMBSTONE_GUARD)
-)
+).bindparams(_SOURCE_CREATED_AT_DEFAULT)
 # Baza bez tabeli `purged_candidates` (sprzed 0388) — wybierane w fazie po
 # `to_regclass`, patrz `_candidate_tombstones`.
 _UPSERT_CANDIDATE_NO_TOMBSTONES = text(
     _UPSERT_CANDIDATE_SQL.replace("{tombstone_guard}", "WHERE true")
-)
+).bindparams(_SOURCE_CREATED_AT_DEFAULT)
 
 
 _CANDIDATE_EMAIL_UNIQUE = ("ix_candidates_email", "candidates_email_key")
@@ -1171,6 +1198,12 @@ _UPDATE_CANDIDATE_ADOPT = text(
                                END,
                             true
                           ),
+        -- 0437: data dodania w Traffit; „w bazie od” bierze wcześniejszą
+        -- z niej i z `created_at` adoptowanego wiersza.
+        source_created_at = COALESCE(
+                              CAST(CAST(:source_created_at AS text) AS timestamptz),
+                              candidates.source_created_at
+                            ),
         updated_at      = NOW(),
         -- Kandydat jest w żywym feedzie `/employees/`, więc nagrobek jest
         -- nieaktualny — lustro gałęzi upsertu wyżej. To NIE jest kosmetyka:
@@ -1199,7 +1232,7 @@ _UPDATE_CANDIDATE_ADOPT = text(
     RETURNING id
     """
     )
-)
+).bindparams(_SOURCE_CREATED_AT_DEFAULT)
 
 
 # Lista `DO UPDATE SET` niżej MUSI równać się sumie `SYNC_WRITABLE`
@@ -2964,6 +2997,7 @@ class TraffitImporter:
                                 "traffit_source_updated_at": payload.get(
                                     "traffit_source_updated_at"
                                 ),
+                                "source_created_at": payload.get("source_created_at"),
                                 "phone": payload.get("phone"),
                                 "linkedin": payload.get("linkedin"),
                                 "status": payload["status"],

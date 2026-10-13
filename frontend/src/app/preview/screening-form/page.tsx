@@ -696,6 +696,11 @@ const CANDIDATE_CONDITIONS = {
   notice_period: 1,
   notice_period_unit: "months",
   max_onsite_days_per_week: 2,
+  // „W bazie od” (13.10.2026): świeża osoba — wiersz w „Kandydat” i pigułka w głowie.
+  added_to_base_at: new Date(Date.now() - 2 * 24 * 3_600_000).toISOString(),
+  added_to_base_exact: true,
+  added_via: "E-mail",
+  created_by_user: { id: 7, name: "Marta Nowak" },
 };
 
 /** Ostatnio podana stawka z historii stawek („Stawka od” w stanie formularza to 140 zł/h). */

@@ -94,6 +94,39 @@ import {
 
 const JOB_ID = 4344;
 const HOUR = 3_600_000;
+const DAY = 24 * HOUR;
+
+/**
+ * „W bazie od” (13.10.2026): Anna z Traffita od 2019, Jan z importu bez daty
+ * u źródła („przed 16.04.2026”), Piotr i Marek świeżo w bazie (pigułka „Nowy
+ * w bazie”), reszta sprzed pół roku. Anna i Jan bez pigułki — ich panel mierzy
+ * test wysokości doku. Dane fikcyjne.
+ */
+function previewInBase(candidateId: number) {
+  const ago = (days: number) => new Date(Date.now() - days * DAY).toISOString();
+  const marta = { id: 7, name: "Marta Nowak" };
+  switch (candidateId) {
+    case 9101:
+      return { added_to_base_at: "2019-05-11T22:00:00Z", added_to_base_exact: true, added_via: "Traffit · Aktywny Search", created_by_user: null };
+    case 9102:
+      return { added_to_base_at: "2026-04-16T10:00:00Z", added_to_base_exact: false, added_via: "Traffit", created_by_user: null };
+    case 9104:
+      return { added_to_base_at: ago(3), added_to_base_exact: true, added_via: "CV upload", created_by_user: marta };
+    case 9105:
+      return { added_to_base_at: ago(10), added_to_base_exact: true, added_via: "E-mail", created_by_user: marta };
+    default:
+      return { added_to_base_at: ago(200), added_to_base_exact: true, added_via: "CV upload", created_by_user: marta };
+  }
+}
+
+function previewInBaseCard(candidateId: number): Partial<KanbanItem> {
+  const inBase = previewInBase(candidateId);
+  return {
+    candidate_added_at: inBase.added_to_base_at,
+    candidate_added_exact: inBase.added_to_base_exact,
+    candidate_added_by_name: inBase.created_by_user?.name ?? null,
+  };
+}
 // Wymaganie wpisane zdaniem — po nim nie szukamy (pokazuje to zakładka „Szukaj w bazie”).
 const PROSE_MUST = "Minimum 5 lat doświadczenia w projektach dla sektora finansowego";
 
@@ -175,6 +208,7 @@ function card(first: string, last: string, extra: Partial<KanbanItem> = {}): Kan
     claim_user_id: 7,
     claim_user_name: "Marta Nowak",
     claim_until: new Date(Date.now() + 11 * HOUR).toISOString(),
+    ...previewInBaseCard(9100 + id),
     ...extra,
   } as KanbanItem;
 }
@@ -769,6 +803,7 @@ function seedCardPanel(qc: QueryClient, item: KanbanItem, columnName: string): v
     notice_period: 1,
     notice_period_unit: "months",
     max_onsite_days_per_week: 2,
+    ...previewInBase(candidateId),
   });
   seedFresh(qc, candidateQueryKeys.rateOverview(candidateId), {
     candidate_id: candidateId,

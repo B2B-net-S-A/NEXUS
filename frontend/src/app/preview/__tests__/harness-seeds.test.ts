@@ -448,9 +448,7 @@ describe("/preview/cv-generator renderuje z propsów i nie ma sieci", () => {
     "components/v2/cv-generator/LanguageChoice.tsx",
     "components/v2/cv-generator/AdvancedOptions.tsx",
     "components/v2/cv-generator/GenerateBar.tsx",
-    "components/v2/cv-generator/UploadIdentityStep.tsx",
     "components/v2/cv-generator/CvResult.tsx",
-    "components/v2/cv-generator/MyCvList.tsx",
   ];
 
   it("nie zostawia stałego klucza bez zasiewu", () => {
@@ -463,18 +461,9 @@ describe("/preview/cv-generator renderuje z propsów i nie ma sieci", () => {
     expect(missing).toEqual([]);
   });
 
-  it("zasiewa listę klientów tym samym kluczem, którego używa picker kroku 2", () => {
-    expect(read("components/v2/cv-generator/ProcessStep.tsx")).toContain(
-      'CV_GENERATOR_CLIENTS_QUERY_KEY = "clients-lookup-cv-generator"',
-    );
-    expect(harness).toContain("qc.setQueryData([CV_GENERATOR_CLIENTS_QUERY_KEY]");
-  });
-
   it("montuje widoki, nie kontenery z zapytaniami", () => {
-    // `MyCvList`/`CvResultLive`/`CvGenerator` pobierają dane — harness bierze ich widoki.
-    expect(harness).toContain("<MyCvListView");
+    // `CvResultLive`/`CvGenerator` pobierają dane — harness bierze ich widoki.
     expect(harness).toContain("<CvResultView");
-    expect(harness).not.toMatch(/<MyCvList[\s>]/);
     expect(harness).not.toMatch(/<CvResultLive[\s>]/);
     expect(harness).not.toMatch(/<CvGenerator[\s>]/);
   });

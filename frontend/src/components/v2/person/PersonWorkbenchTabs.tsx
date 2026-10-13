@@ -26,6 +26,7 @@ import type { JobDetailTab } from "@/components/v2/jobs/JobDetailCompactHeader";
 import { JobInterviewsTab } from "@/components/v2/jobs/JobInterviewsTab";
 import { DockLoadError } from "@/components/v2/jobs/workbench-chrome";
 import { candidateNoteItems, useCandidateNotes } from "@/components/v2/pages/candidate-notes-query";
+import { AddedToBaseHistoryRow, PersonInBase } from "@/components/v2/person/PersonInBase";
 import { PersonNotesHistory } from "@/components/v2/person/PersonNotesHistory";
 import { PersonPanelSideSection } from "@/components/v2/person/PersonPanelSide";
 import { PersonSidePreview } from "@/components/v2/person/PersonSidePreview";
@@ -269,11 +270,13 @@ function PairMoves({
 /**
  * Notatki osoby (ta rekrutacja + „Wcześniej u nas”) i historia ruchów w tej
  * rekrutacji. Pole nowej notatki stoi zawsze na dole panelu — tu go nie dublujemy.
+ * Na górze „Osoba w bazie”, na końcu historii „Dodany do bazy” (13.10.2026).
  */
 function NotesTab({ row, jobId, readOnly }: { row: ProcessPersonRow; jobId: number; readOnly: boolean }) {
   const { item } = row;
   return (
     <div className="space-y-4 text-[13px]">
+      <PersonInBase candidateId={row.candidateId} item={item} />
       <PersonNotesHistory candidateId={row.candidateId} jobId={jobId} readOnly={readOnly} />
       <section aria-label="Historia w rekrutacji" className="space-y-2">
         <h3 className="text-xs font-semibold text-muted-foreground">Historia w tej rekrutacji</h3>
@@ -316,6 +319,7 @@ function NotesTab({ row, jobId, readOnly }: { row: ProcessPersonRow; jobId: numb
             </ul>
           }
         />
+        <AddedToBaseHistoryRow candidateId={row.candidateId} />
       </section>
     </div>
   );

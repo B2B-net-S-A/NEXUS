@@ -2959,8 +2959,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  suspendMoveNext();
  openWorkbench(item.candidate_id, "cv");
  } else {
+ // Osobnego ekranu generatora nie ma od 13.10.2026 — panel osoby
+ // ma kartę „CV do klienta” z „Generuj CV”.
  window.open(
- `/cv-generator?candidate_id=${item.candidate_id}&job_id=${jobId}`,
+ `/jobs/${jobId}?candidate=${item.candidate_id}`,
  "_blank",
  "noopener"
  );
