@@ -554,6 +554,8 @@ describe("/preview/cv-editor (Edytor CV 2) — edytor z pamięci, źródła z za
     expect(harness).toContain("issuesApi={backend.issuesApi}");
     // „AI na zaznaczeniu”: propozycje z pamięci, bez modelu.
     expect(harness).toContain("aiApi={backend.aiApi}");
+    // „Historia”: wersje i treść pliku Word z pamięci.
+    expect(harness).toContain("historyApi={backend.historyApi}");
     expect(harness).toContain("editorFiles={MEMORY_FILES}");
     expect(harness).toContain("sourceLoaders={SOURCE_LOADERS}");
   });

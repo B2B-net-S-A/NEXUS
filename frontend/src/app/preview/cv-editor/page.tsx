@@ -19,6 +19,9 @@
 // Panel „Do poprawy” dostaje QC, uwagi i poprawki z `issues-fixture.ts`:
 // lista liczy się z ostatnio zapisanej treści, więc widać cały obieg
 // poprawka → autozapis → świeża lista.
+//
+// „Historia” dostaje dwie zatwierdzone wersje i treść „z pliku Word”
+// z `history-fixture.ts` (dowolny plik .docx; `uszkodzony.docx` pokazuje błąd).
 
 import { useEffect, useMemo, useState } from "react";
 import { AxiosError, type AxiosResponse } from "axios";
@@ -47,6 +50,7 @@ import { useAuthStore } from "@/store/auth";
 
 import { memoryAiApi } from "./ai-fixture";
 import { memoryCommandApi } from "./command-fixture";
+import { memoryHistoryApi } from "./history-fixture";
 import { GENERATOR_ONLY_WARNINGS, memoryIssuesApi, withoutIssues } from "./issues-fixture";
 
 const JOB_ID = 201;
@@ -326,13 +330,15 @@ export default function CvEditorPreviewPage() {
   const [state, setState] = useState<HarnessState>("draft");
   const queryClient = useMemo(() => seededClient(state), [state]);
   const backend = useMemo(() => {
-    const editor = memoryApi(brandedState(state));
+    const initial = brandedState(state);
+    const editor = memoryApi(initial);
     const variant = state === "qcdown" ? "down" : state === "clean" ? "clean" : "issues";
     return {
       editorApi: editor.api,
       issuesApi: memoryIssuesApi(editor.savedHtml, variant),
       aiApi: memoryAiApi(state === "aidown"),
       commandApi: memoryCommandApi(state === "aidown"),
+      historyApi: memoryHistoryApi(initial.content_html ?? ""),
     };
   }, [state]);
 
@@ -397,6 +403,7 @@ export default function CvEditorPreviewPage() {
           issuesApi={backend.issuesApi}
           aiApi={backend.aiApi}
           commandApi={backend.commandApi}
+          historyApi={backend.historyApi}
           generatorWarnings={state === "nosources" ? GENERATOR_ONLY_WARNINGS : undefined}
           editorFiles={MEMORY_FILES}
           sourceLoaders={SOURCE_LOADERS}

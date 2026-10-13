@@ -1859,6 +1859,22 @@
    "v3_home": "karta „CV do klienta” → Edytuj → Polecenie"
   },
   {
+   "id": "cv.editor-history",
+   "area": "cv",
+   "opis": "Historia wersji w edytorze CV: zatwierdzone wersje (kiedy, kto), „Pobierz DOCX”, „Porównaj” z bieżącą treścią — lista różnic — i „Przywróć treść wersji N” jedną cofalną zmianą; klauzula zgody zostaje z bieżącej wersji",
+   "file": "components/v2/cv-editor/CvEditorHistory.tsx",
+   "marker": "Przywróć treść wersji",
+   "v3_home": "karta „CV do klienta” → Edytuj → Historia"
+  },
+  {
+   "id": "cv.editor-word-import",
+   "area": "cv",
+   "opis": "Powrót pliku Word: „Wgraj poprawiony plik Word” w panelu historii pokazuje różnice z bieżącą treścią, zanim cokolwiek się zmieni; „Wstaw treść z pliku Word” przyjmuje ją jedną cofalną zmianą",
+   "file": "components/v2/cv-editor/CvEditorHistory.tsx",
+   "marker": "Wgraj poprawiony plik Word",
+   "v3_home": "karta „CV do klienta” → Edytuj → Historia"
+  },
+  {
    "id": "cv.download-intent",
    "area": "cv",
    "opis": "Przycisk „Pobierz” CV (edytor, karta, podgląd etapu, kolejka Cpro, wynik generatora, pliki) zostawia wpis o pobraniu; podgląd nie",

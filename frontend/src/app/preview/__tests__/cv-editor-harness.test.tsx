@@ -327,3 +327,149 @@ it("Escape w karcie propozycji odrzuca propozycję, a edytor zostaje otwarty", a
   expect(screen.getByRole("dialog", { name: "Edytor CV do klienta" })).toBeInTheDocument();
   noNetwork();
 });
+
+// ── Historia wersji i powrót pliku Word (PR 5) ───────────────────────────────
+
+async function openHistory(dialog: HTMLElement): Promise<HTMLElement> {
+  fireEvent.click(within(dialog).getByRole("button", { name: "Historia" }));
+  const panel = await within(dialog).findByRole("region", { name: "Historia wersji" });
+  await within(panel).findByTestId("history-version-1");
+  return panel;
+}
+
+function chooseWordFile(dialog: HTMLElement, name: string): void {
+  fireEvent.change(within(dialog).getByTestId("history-word-file"), {
+    target: { files: [new File(["docx"], name)] },
+  });
+}
+
+it("historia: różnice z wersją 1, „Przywróć treść wersji” to jedna cofalna zmiana — bez sieci", async () => {
+  const dialog = await openEditor();
+  const editor = liveEditor(dialog);
+  const before = editor.getHTML();
+  const panel = await openHistory(dialog);
+  expect(within(panel).getByTestId("history-version-2")).toHaveTextContent("bieżąca");
+  expect(within(panel).getByTestId("history-version-2")).toHaveTextContent(/zatwierdzona 10\.10\.2026,? 11:00 · Marta Testowa/);
+  // Plik Word ma tylko wersja, która go zamroziła.
+  expect(within(panel).getAllByRole("button", { name: "Pobierz DOCX" })).toHaveLength(1);
+
+  fireEvent.click(within(within(panel).getByTestId("history-version-1")).getByRole("button", { name: "Porównaj" }));
+  await within(panel).findByRole("heading", { name: "Wersja 1 a bieżąca treść" });
+  expect(within(panel).getByRole("status")).toHaveTextContent("3 różnice");
+  expect([...panel.querySelectorAll("[data-diff-kind]")].map((item) => item.getAttribute("data-diff-kind"))).toEqual([
+    "removed",
+    "changed",
+    "added",
+  ]);
+  expect(panel).toHaveTextContent("W wersji 1: Strojenie zapytań i indeksów w PostgreSQL.");
+  expect(panel).toHaveTextContent("Tylko w wersji 1 — dojdzie do CV");
+  // Porównanie niczego nie zmienia; kartka zostaje do edycji.
+  expect(editor.getHTML()).toBe(before);
+  expect(editor.isEditable).toBe(true);
+
+  fireEvent.click(within(panel).getByRole("button", { name: "Przywróć treść wersji 1" }));
+  await waitFor(() => expect(editor.getHTML()).toContain("<li><p>Strojenie zapytań i indeksów w PostgreSQL.</p></li>"));
+  const html = editor.getHTML();
+  expect(html).toContain("<li><p>Dyżury wsparcia produkcyjnego raz w miesiącu.</p></li>");
+  expect(html).not.toContain("Projektowała mikroserwisy płatności");
+  expect(dialog.querySelector(".cv-rodo-locked")).not.toBeNull();
+  // Wąski układ (jsdom): po nałożeniu treści wraca kartka.
+  expect(dialog.querySelector(".cv-paper")).not.toHaveAttribute("hidden");
+  act(() => {
+    editor.commands.undo();
+  });
+  expect(editor.getHTML()).toBe(before);
+  noNetwork();
+});
+
+it("historia na zatwierdzonej wersji: bieżąca ma tę samą treść, a szkic powstaje dopiero przy „Przywróć”", async () => {
+  const dialog = await openEditor("finalized");
+  const editor = liveEditor(dialog);
+  const panel = await openHistory(dialog);
+  fireEvent.click(within(within(panel).getByTestId("history-version-2")).getByRole("button", { name: "Porównaj" }));
+  await within(panel).findByRole("heading", { name: "Wersja 2 a bieżąca treść" });
+  expect(within(panel).getByRole("status")).toHaveTextContent("Treść jest taka sama.");
+  expect(within(panel).queryByRole("button", { name: /Przywróć/ })).toBeNull();
+  fireEvent.click(within(panel).getByRole("button", { name: "Wróć do listy" }));
+
+  fireEvent.click(within(within(panel).getByTestId("history-version-1")).getByRole("button", { name: "Porównaj" }));
+  const restore = await within(panel).findByRole("button", { name: "Przywróć treść wersji 1" });
+  // Otwarcie panelu i porównanie nie ruszyły zatwierdzonej wersji.
+  expect(within(dialog).getByRole("button", { name: /Pobierz zatwierdzony DOCX/ })).toBeInTheDocument();
+  fireEvent.click(restore);
+  await waitFor(() => expect(editor.getHTML()).toContain("Strojenie zapytań i indeksów w PostgreSQL."));
+  expect(await within(dialog).findByRole("button", { name: "Pobierz szkic DOCX" })).toBeInTheDocument();
+  noNetwork();
+});
+
+it("plik Word: uszkodzony to komunikat, poprawny — różnice i wstawienie z klauzulą bieżącego CV", async () => {
+  const dialog = await openEditor();
+  const editor = liveEditor(dialog);
+  const before = editor.getHTML();
+  const panel = await openHistory(dialog);
+
+  chooseWordFile(dialog, "uszkodzony.docx");
+  expect(await within(panel).findByRole("alert")).toHaveTextContent(
+    "Nie udało się odczytać pliku Word — jest uszkodzony albo zabezpieczony hasłem.",
+  );
+  expect(editor.getHTML()).toBe(before);
+
+  chooseWordFile(dialog, "CV_Anna_P_poprawione.docx");
+  await within(panel).findByRole("heading", { name: "Plik Word: CV_Anna_P_poprawione.docx a bieżąca treść" });
+  expect(within(panel).getByRole("status")).toHaveTextContent("3 różnice");
+  expect(panel).toHaveTextContent("Tylko w pliku Word — dojdzie do CV");
+  expect(panel).toHaveTextContent("Tylko w bieżącej treści — zniknie z CV");
+
+  fireEvent.click(within(panel).getByRole("button", { name: "Wstaw treść z pliku Word" }));
+  await waitFor(() =>
+    expect(editor.getHTML()).toContain("<li><p>Przeglądy kodu oraz wdrażanie i mentoring młodszych programistów.</p></li>"),
+  );
+  const html = editor.getHTML();
+  expect(html).toContain("<li><p>Prowadziła warsztaty z testów kontraktowych dla zespołu.</p></li>");
+  expect(html).not.toContain("kolejki komunikatów");
+  // Klauzula z pliku nie wchodzi — zostaje ta z edytora, jedna, na końcu.
+  expect(html).not.toContain("dla potrzeb przyszłych rekrutacji");
+  expect(html.match(/Wyrażam zgodę/g)).toHaveLength(1);
+  expect(html).toContain("przez Firmę Przykładową S.A.");
+  expect(dialog.querySelector(".cv-rodo-locked")).not.toBeNull();
+  act(() => {
+    editor.commands.undo();
+  });
+  expect(editor.getHTML()).toBe(before);
+  noNetwork();
+});
+
+it("historia i polecenie wykluczają się; w trakcie planu zmian „Historia” jest wyłączona", async () => {
+  const dialog = await openEditor();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Polecenie" }));
+  expect(within(dialog).getByRole("form", { name: "Polecenie dla całego CV" })).toBeInTheDocument();
+  await openHistory(dialog);
+  expect(within(dialog).queryByRole("form", { name: "Polecenie dla całego CV" })).toBeNull();
+
+  fireEvent.click(within(dialog).getByRole("button", { name: "Polecenie" }));
+  expect(within(dialog).queryByRole("region", { name: "Historia wersji" })).toBeNull();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Skróć do 2 stron" }));
+  const history = within(dialog).getByRole("button", { name: "Historia" });
+  expect(history).toBeDisabled();
+  const plan = await within(dialog).findByRole("region", { name: "Plan zmian" });
+  await within(plan).findByRole("button", { name: /Zastosuj zaznaczone/ });
+  expect(history).toBeDisabled();
+  fireEvent.click(within(plan).getByRole("button", { name: "Odrzuć plan" }));
+  expect(history).toBeEnabled();
+  noNetwork();
+});
+
+it("Escape w panelu historii nie zamyka edytora", async () => {
+  const dialog = await openEditor();
+  const panel = await openHistory(dialog);
+  fireEvent.keyDown(within(panel).getByRole("button", { name: "Wgraj poprawiony plik Word" }), { key: "Escape" });
+  expect(dialog.isConnected).toBe(true);
+  expect(screen.getByRole("dialog", { name: "Edytor CV do klienta" })).toBeInTheDocument();
+  noNetwork();
+});
+
+it("wynik generatora bez rekrutacji nie ma historii wersji", async () => {
+  const dialog = await openEditor("nosources");
+  expect(within(dialog).queryByRole("button", { name: "Historia" })).toBeNull();
+  noNetwork();
+});

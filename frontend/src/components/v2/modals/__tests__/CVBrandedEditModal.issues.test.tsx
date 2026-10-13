@@ -3,10 +3,13 @@
  * obok kartki przy danej szerokości, licznik w pasku i szkic zakładany przed
  * poprawką na zatwierdzonej wersji. Sam panel ma własny test
  * (`cv-editor/__tests__/CvEditorIssues.test.tsx`).
+ *
+ * PR 5: to samo dla panelu „Historia” — gdzie staje, czemu ustępuje i jak
+ * wyklucza się z poleceniem. Sam panel: `cv-editor/__tests__/CvEditorHistory.test.tsx`.
  */
 
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const state = vi.hoisted(() => ({
@@ -20,6 +23,7 @@ const state = vi.hoisted(() => ({
   count: { total: 3, blocking: 1, state: "ready" } as { total: number; blocking: number; state: "loading" | "ready" | "failed" },
   drafted: [] as boolean[],
   issuesProps: [] as Array<Record<string, unknown>>,
+  historyOptions: null as null | { stageId?: number; disabled: boolean; downloadVersion: (version: number) => Promise<void> },
 }));
 
 vi.mock("@/lib/use-element-width", () => ({ useElementWidth: () => state.width }));
@@ -52,6 +56,27 @@ vi.mock("@/components/v2/cv-editor/useCvCommandPlan", () => ({
 }));
 vi.mock("@/components/v2/cv-editor/useCvSelectionAi", () => ({
   useCvSelectionAi: () => ({ enabled: false, selection: { ok: false, reason: null, hidden: true }, phase: "idle" }),
+}));
+// Historia wersji porównuje dokument prawdziwego edytora — ma własne testy.
+// Tutaj atrapa trzyma samo „otwarte / zamknięte”, żeby sprawdzić układ okna.
+vi.mock("@/components/v2/cv-editor/useCvHistory", async () => {
+  const { useState } = await import("react");
+  return {
+    useCvHistory: (options: NonNullable<typeof state.historyOptions>) => {
+      const [open, setOpen] = useState(false);
+      state.historyOptions = options;
+      return {
+        enabled: options.stageId != null && !options.disabled,
+        open,
+        busy: false,
+        show: () => setOpen(true),
+        close: () => setOpen(false),
+      };
+    },
+  };
+});
+vi.mock("@/components/v2/cv-editor/CvEditorHistory", () => ({
+  CvEditorHistory: () => <div data-testid="history" />,
 }));
 vi.mock("@/components/v2/cv-editor/CvEditorWordPreview", () => ({ CvEditorWordPreview: () => null }));
 vi.mock("@/components/v2/cv-editor/CvEditorIssues", async () => {
@@ -141,6 +166,7 @@ beforeEach(() => {
     count: { total: 3, blocking: 1, state: "ready" },
     drafted: [],
     issuesProps: [],
+    historyOptions: null,
   });
   toast.showError.mockClear();
 });
@@ -252,4 +278,93 @@ it("nie udało się założyć szkicu — poprawka nie rusza zatwierdzonej treś
   fireEvent.click(await screen.findByRole("button", { name: "załóż szkic" }));
   await waitFor(() => expect(state.drafted).toEqual([false]));
   expect(toast.showError).toHaveBeenCalledWith(expect.stringContaining("Nie udało się utworzyć nowej wersji"));
+});
+
+// ── Panel „Historia” (PR 5) ──────────────────────────────────────────────────
+
+const historyButton = () => screen.getByRole("button", { name: "Historia", pressed: false });
+const historyShown = () => screen.queryByTestId("history") != null;
+
+it("laptop 1280: „Historia” staje po prawej zamiast „Do poprawy” i źródeł; zamknięcie przywraca układ", async () => {
+  await open();
+  await waitFor(() => expect(panel()).not.toHaveAttribute("hidden"));
+  fireEvent.click(historyButton());
+  expect(historyShown()).toBe(true);
+  // Jeden panel naraz: „Do poprawy” zostaje zamontowany, ale ukryty; źródła ustępują.
+  expect(panel()).toHaveAttribute("hidden");
+  expect(screen.getByTestId("issues")).toBeInTheDocument();
+  expect(sourcesShown()).toBe(false);
+  expect(screen.getByTestId("paper").closest(".cv-paper")).not.toHaveAttribute("hidden");
+
+  fireEvent.click(screen.getByRole("button", { name: "Historia", pressed: true }));
+  expect(historyShown()).toBe(false);
+  expect(panel()).not.toHaveAttribute("hidden");
+});
+
+it("szeroki ekran (1540+): źródła zostają obok historii", async () => {
+  state.width = 1600;
+  await open();
+  fireEvent.click(await screen.findByRole("button", { name: "Historia" }));
+  expect(historyShown()).toBe(true);
+  expect(sourcesShown()).toBe(true);
+  expect(panel()).toHaveAttribute("hidden");
+});
+
+it("wąski ekran: kolumna „Historia” wybiera się sama, a po zamknięciu wraca kartka", async () => {
+  state.width = 768;
+  await open();
+  fireEvent.click(await screen.findByRole("button", { name: "Historia" }));
+  const columns = screen.getByRole("group", { name: "Kolumna" });
+  expect(within(columns).getByRole("button", { name: "Historia" })).toHaveAttribute("aria-pressed", "true");
+  expect(historyShown()).toBe(true);
+  expect(screen.getByTestId("paper").closest(".cv-paper")).toHaveAttribute("hidden");
+  // „Do poprawy” nie ma wtedy własnej kolumny — jak przy planie zmian.
+  expect(within(columns).queryByRole("button", { name: /Do poprawy/ })).toBeNull();
+
+  // Kartkę można obejrzeć bez zamykania historii.
+  fireEvent.click(within(columns).getByRole("button", { name: "CV" }));
+  expect(historyShown()).toBe(false);
+  expect(within(columns).getByRole("button", { name: "Historia" })).toHaveAttribute("aria-pressed", "false");
+  fireEvent.click(within(columns).getByRole("button", { name: "Historia" }));
+  expect(historyShown()).toBe(true);
+
+  fireEvent.click(screen.getAllByRole("button", { name: "Historia", pressed: true })[0]);
+  expect(historyShown()).toBe(false);
+  expect(within(columns).queryByRole("button", { name: "Historia" })).toBeNull();
+  expect(screen.getByTestId("paper").closest(".cv-paper")).not.toHaveAttribute("hidden");
+});
+
+it("historia i polecenie wykluczają się: otwarcie jednego zamyka drugie", async () => {
+  await open();
+  fireEvent.click(await screen.findByRole("button", { name: "Polecenie" }));
+  expect(screen.getByRole("form", { name: "Polecenie dla całego CV" })).toBeInTheDocument();
+
+  fireEvent.click(historyButton());
+  expect(historyShown()).toBe(true);
+  expect(screen.queryByRole("form", { name: "Polecenie dla całego CV" })).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "Polecenie" }));
+  expect(screen.getByRole("form", { name: "Polecenie dla całego CV" })).toBeInTheDocument();
+  expect(historyShown()).toBe(false);
+});
+
+it("historia jest tylko dla CV etapu; pobranie starszej wersji niesie jej numer w nazwie pliku", async () => {
+  const { downloadAuthenticatedFile } = await import("@/lib/authenticated-files");
+  await open();
+  await screen.findByRole("button", { name: "Historia" });
+  expect(state.historyOptions).toMatchObject({ stageId: 5, disabled: false });
+  // Wersja, którą etap pokazuje teraz (2), ma nazwę jak przycisk w nagłówku.
+  await state.historyOptions!.downloadVersion(2);
+  await state.historyOptions!.downloadVersion(1);
+  expect(vi.mocked(downloadAuthenticatedFile).mock.calls.map(([path, name]) => [path.split("?")[0], name])).toEqual([
+    ["/api/candidates/stages/5/cv/branded/versions/2/docx", "CV.docx"],
+    ["/api/candidates/stages/5/cv/branded/versions/1/docx", "CV_v1.docx"],
+  ]);
+});
+
+it("wynik generatora nie ma przycisku „Historia”", async () => {
+  await open({ generatedId: 9 }, { generatorWarnings: ["MUST-HAVE: brak."] });
+  await waitFor(() => expect(state.issuesProps.length).toBeGreaterThan(0));
+  expect(screen.queryByRole("button", { name: "Historia" })).toBeNull();
+  expect(state.historyOptions).toMatchObject({ stageId: undefined });
 });

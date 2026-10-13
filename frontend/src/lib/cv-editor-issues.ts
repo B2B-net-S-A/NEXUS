@@ -329,7 +329,11 @@ export interface FixStep {
  * poprawkę, a nie poprawkę razem z tym, co rekruter wpisał chwilę wcześniej.
  */
 export function fixStep(state: EditorState, html: string): FixStep | null {
-  const next = createDocument(html, state.schema);
+  return docStep(state, createDocument(html, state.schema));
+}
+
+/** To samo dla gotowego dokumentu — bez przejścia przez HTML (`lib/cv-editor-diff.ts`). */
+export function docStep(state: EditorState, next: PMNode): FixStep | null {
   const changes: Change[] = [];
   collectChanges(state.doc, next, 0, 0, changes);
   if (changes.length === 0) return null;
