@@ -72,9 +72,6 @@ SkipReason = Literal[
     "candidate_not_found",
     "rejected_by_hiring_manager",
 ]
-# Oba znaczą „ta osoba ma już kartę w tej rekrutacji” — wołający, który
-# pyta tylko o to (przypisanie z profilu), czyta je razem.
-IN_JOB_SKIP_REASONS: frozenset[str] = frozenset({"already_in_job", "closed_in_job"})
 # Client conflicts (blacklist / NDA / competitor) are soft warnings since
 # 17.09.2026: the candidate IS added and the reason rides in ``warnings``.
 WarningReason = Literal[
@@ -564,6 +561,46 @@ async def _closed_cards(
     return cards
 
 
+def _closed_skip_row(
+    candidate: Candidate,
+    card: _ClosedCard,
+    stage_def: Optional[PipelineStageDef],
+    legacy_enum: PipelineStage,
+) -> BulkSkippedRow:
+    return BulkSkippedRow(
+        candidate_id=candidate.id,
+        reason="closed_in_job",
+        reason_label=card.label,
+        closed=ClosedCardInfo(
+            candidate_name=f"{candidate.name} {candidate.lastname}".strip(),
+            state_version=card.state_version,
+            restore_stage=legacy_enum.value,
+            restore_stage_def_id=stage_def.id if stage_def else None,
+        ),
+    )
+
+
+async def closed_card_skip(
+    db: AsyncSession, *, job: Job, candidate: Candidate
+) -> Optional[BulkSkippedRow]:
+    """Wiersz ``closed_in_job`` jednej pary albo ``None``, gdy karta nie jest zamknięta.
+
+    Dla wejść, które dodają jedną osobę poza bulk-addem („Przypisz do
+    rekrutacji”): ten sam powód, etykieta i cel ruchu co w oknie dodawania.
+    Cel to etap, na który trafiłoby zwykłe dodanie.
+    """
+    card = (await _closed_cards(db, job_id=job.id, candidate_ids=[candidate.id])).get(
+        candidate.id
+    )
+    if card is None:
+        return None
+    stage_def = await _resolve_initial_stage(db, job, None)
+    legacy_enum = _legacy_enum_for(
+        stage_def, None, has_template=job.pipeline_template_id is not None
+    )
+    return _closed_skip_row(candidate, card, stage_def, legacy_enum)
+
+
 @dataclass
 class IntakeResult:
     added: list[int]
@@ -713,19 +750,7 @@ async def add_candidates_to_job(
                 # Karta w „Zamkniętych” to nie „już w rekrutacji”: mówimy,
                 # skąd i od kiedy, i podajemy cel ruchu, który ją przywraca.
                 skipped.append(
-                    BulkSkippedRow(
-                        candidate_id=candidate_id,
-                        reason="closed_in_job",
-                        reason_label=closed_card.label,
-                        closed=ClosedCardInfo(
-                            candidate_name=(
-                                f"{candidate.name} {candidate.lastname}".strip()
-                            ),
-                            state_version=closed_card.state_version,
-                            restore_stage=legacy_enum.value,
-                            restore_stage_def_id=(stage_def.id if stage_def else None),
-                        ),
-                    )
+                    _closed_skip_row(candidate, closed_card, stage_def, legacy_enum)
                 )
                 continue
             if not decision.assignment_allowed:

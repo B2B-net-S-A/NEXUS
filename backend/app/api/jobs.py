@@ -2985,6 +2985,14 @@ async def close_job(
                 "message": "Rekrutacja jest już zamknięta.",
             },
         )
+    if not data.acknowledge_active_cards:
+        # Zamknięcie nie rusza kart: osoby w toku zostają w zamkniętej
+        # rekrutacji. Ostrzeżenie do potwierdzenia, nie blokada.
+        from app.services.job_active_cards import load_active_cards
+
+        active = await load_active_cards(db, job.id)
+        if active.total:
+            raise HTTPException(status_code=409, detail=active.warning_detail())
 
     effects = job_lifecycle.PostCommit()
     await job_lifecycle.close_job_core(

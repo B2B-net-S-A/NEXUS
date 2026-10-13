@@ -1625,10 +1625,17 @@ export const jobsApi = {
    * jest „Zamknij jako przegraną" w profilu klienta; ten helper istnieje, żeby
    * krok 08 nie wołał surowego `api.post` obok niego.
    */
-  close: (id: number, reason: string, notes?: string | null) =>
+  close: (
+    id: number,
+    reason: string,
+    notes?: string | null,
+    /** Potwierdzenie ostrzeżenia o osobach w toku (409 `active_cards_warning`). */
+    acknowledgeActiveCards = false,
+  ) =>
     api.post(`/api/jobs/${id}/close`, {
       reason,
       notes: notes?.trim() || null,
+      ...(acknowledgeActiveCards ? { acknowledge_active_cards: true } : {}),
     }),
   /**
    * „Otwórz ponownie” zamkniętą rekrutację albo „Dokończ i opublikuj” stary
