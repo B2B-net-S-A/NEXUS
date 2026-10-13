@@ -107,6 +107,13 @@ def job_terms(job: Any) -> list[dict[str, Any]]:
             if item.get("level") == "nice":
                 label = "mile widziane"
             add(item["name"], "experience", label)
+    # „Rekruter sprawdza w rozmowie” (13.10.2026) — tylko gdy lista jest, więc
+    # wejście briefu rekrutacji bez niej nie zmienia się ani o bajt.
+    for item in exp.get("skills") or []:
+        label = "sprawdź w rozmowie" + (
+            " · mile widziane" if item.get("level") == "nice" else ""
+        )
+        add(item["name"], "experience", label)
     return out
 
 

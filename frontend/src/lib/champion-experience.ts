@@ -21,18 +21,29 @@ export const EXPERIENCE_KINDS: readonly ExperienceKind[] = [
   "domains",
   "certifications",
   "regulations",
+  "skills",
+];
+
+/** Rodzaje, dla których szukamy śladu w CV (plakietki w wynikach). */
+export const EXPERIENCE_EVIDENCE_KINDS: readonly ExperienceKind[] = [
+  "domains",
+  "certifications",
+  "regulations",
 ];
 
 export const EXPERIENCE_KIND_LABEL: Record<ExperienceKind, string> = {
   domains: "Dziedzina",
   certifications: "Certyfikaty",
   regulations: "Regulacje i standardy",
+  skills: "Doświadczenie i umiejętności",
 };
 
 export const EXPERIENCE_KIND_HINT: Record<ExperienceKind, string> = {
   domains: "W czym kandydat pracował — np. płatności, ubezpieczenia. Nie technologia.",
   certifications: "Np. ISTQB Foundation, AWS Solutions Architect, PSM I.",
   regulations: "Np. PSD2, PCI DSS, RODO, KNF, ISO 27001.",
+  skills:
+    "Czego nie znajdziemy w CV słowem — np. doświadczenie w przetargach, poziom znajomości SQL, komunikacja z klientem.",
 };
 
 export const EXPERIENCE_LEVEL_LABEL: Record<ExperienceLevel, string> = {
@@ -70,6 +81,7 @@ export const EXPERIENCE_SUGGESTIONS: Record<ExperienceKind, readonly string[]> =
     "CISSP",
   ],
   regulations: ["PSD2", "PCI DSS", "RODO", "KNF", "ISO 27001", "DORA", "SWIFT", "SEPA"],
+  skills: [],
 };
 
 export function experienceItemLabel(kind: ExperienceKind, item: ExperienceItem): string {

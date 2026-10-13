@@ -15,6 +15,7 @@
 
 import { AlertTriangle } from "lucide-react";
 
+import type { ExperienceKind } from "@/lib/api";
 import { EXPERIENCE_KIND_LABEL } from "@/lib/champion-experience";
 import { answerOriginBadge } from "@/lib/recommendation-card";
 import { cn } from "@/lib/utils";
@@ -41,7 +42,7 @@ export interface ScreeningAnswerRow {
 }
 
 export interface ScreeningCheckRow {
-  kind: "domains" | "certifications" | "regulations";
+  kind: ExperienceKind;
   name: string;
   status: "confirmed" | "not_confirmed" | "unknown";
   note?: string | null;

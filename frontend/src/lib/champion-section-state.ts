@@ -152,6 +152,7 @@ function isSectionFilled(id: ChampionSectionId, profile: ChampionProfile): boole
           (hasItems(e.domains) ||
             hasItems(e.certifications) ||
             hasItems(e.regulations) ||
+            hasItems(e.skills) ||
             hasText(e.notes)),
       );
     }

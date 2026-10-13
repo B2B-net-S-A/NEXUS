@@ -133,6 +133,20 @@ class ChampionProfileForPrompt:
         )
 
 
+def _with_talk_items(names: list[str], items, level: str) -> list[str]:
+    """Lista wymagań + pozycje „do rozmowy” danego poziomu, bez powtórek."""
+    out = list(names)
+    seen = {n.casefold() for n in out}
+    for item in items or []:
+        if not isinstance(item, dict) or item.get("level", "must") != level:
+            continue
+        name = str(item.get("name") or "").strip()
+        if name and name.casefold() not in seen:
+            seen.add(name.casefold())
+            out.append(name)
+    return out
+
+
 def from_nexus_job(
     must_skills: list[dict] | None,
     nice_skills: list[dict] | None,
@@ -215,6 +229,12 @@ def from_nexus_job(
                 label += " (mile widziane)"
             out.append(label)
         return out
+
+    # „Rekruter sprawdza w rozmowie” (13.10.2026): zdania, które do tej daty
+    # stały w must/nice („doświadczenie w przetargach”). Generator dalej je
+    # widzi — CV ma je pokazać, choć wyszukiwanie po nich nie szuka.
+    must = _with_talk_items(must, experience.get("skills"), "must")
+    nice = _with_talk_items(nice, experience.get("skills"), "nice")
 
     return ChampionProfileForPrompt(
         must_have=must,

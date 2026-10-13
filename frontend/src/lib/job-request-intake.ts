@@ -14,6 +14,7 @@ import {
   hiringManagerRequestBody,
   type HiringManagerChoice,
 } from "@/lib/hiring-manager";
+import { EXPERIENCE_KINDS } from "@/lib/champion-experience";
 import { composeWorkingTitle } from "@/lib/job-names";
 import { sanitizeKeyword } from "@/lib/keyword-requirements";
 import {
@@ -294,6 +295,7 @@ export const EMPTY_EXPERIENCE_FORM: ChampionExperience = {
   domains: [],
   certifications: [],
   regulations: [],
+  skills: [],
   notes: "",
 };
 
@@ -1409,8 +1411,8 @@ export function applyTemplate(
     next.seniorityYears = basics.seniority_min_years;
   }
   const experience = championSection(src.champion_profile, "experience");
-  const kinds: ExperienceKind[] = ["domains", "certifications", "regulations"];
-  if (kinds.every((kind) => next.experience[kind].length === 0)) {
+  const kinds = EXPERIENCE_KINDS;
+  if (kinds.every((kind) => (next.experience[kind] ?? []).length === 0)) {
     next.experience = {
       ...next.experience,
       ...Object.fromEntries(

@@ -393,10 +393,19 @@ class ChampionClient(_NullTolerantSection):
 # technologiami, a do 09.2026 lądowały w stacku, gdzie scoring i filtry czytały
 # je jak skille. Osobna sekcja mówi, CZYM są. Świadomie NIE jest bramką:
 # branża w CV bywa pusta, więc brak śladu to „nie wiemy", nie „nie ma".
+#
+# Od 13.10.2026 sekcja jest listą „Rekruter sprawdza w rozmowie”: `skills`
+# zbiera zdania, poziom i umiejętności miękkie, których nie da się wyszukać
+# w CV („doświadczenie w przetargach”, „SQL — bardzo dobra znajomość”).
+# `skills` nie ma plakietki „ślad w CV” — to wyłącznie punkt do rozmowy.
 
 
 EXPERIENCE_ITEM_MAX_CHARS = 160
 EXPERIENCE_ITEMS_MAX = 20
+# Wszystkie listy sekcji 4 i te, dla których szukamy śladu w CV.
+EXPERIENCE_KINDS = ("domains", "certifications", "regulations", "skills")
+EXPERIENCE_EVIDENCE_KINDS = ("domains", "certifications", "regulations")
+ExperienceKind = Literal["domains", "certifications", "regulations", "skills"]
 
 
 class ExperienceItem(_NullTolerantSection):
@@ -412,6 +421,7 @@ class ChampionExperience(_NullTolerantSection):
     domains: List[ExperienceItem] = Field(default_factory=list)
     certifications: List[ExperienceItem] = Field(default_factory=list)
     regulations: List[ExperienceItem] = Field(default_factory=list)
+    skills: List[ExperienceItem] = Field(default_factory=list)
     notes: str = ""
 
     def is_empty(self) -> bool:
@@ -419,6 +429,7 @@ class ChampionExperience(_NullTolerantSection):
             self.domains
             or self.certifications
             or self.regulations
+            or self.skills
             or self.notes.strip()
         )
 
@@ -900,7 +911,7 @@ class ExperienceCheck(BaseModel):
     (te mówią o śladzie w CV, a to o tym, co kandydat powiedział).
     """
 
-    kind: Literal["domains", "certifications", "regulations"] = "domains"
+    kind: ExperienceKind = "domains"
     name: str = Field(min_length=1, max_length=EXPERIENCE_ITEM_MAX_CHARS)
     status: Literal["confirmed", "not_confirmed", "unknown"] = "unknown"
     note: str = Field(default="", max_length=500)
@@ -913,7 +924,7 @@ class ScreeningAnswers(BaseModel):
         default_factory=list, max_length=SCREENING_ANSWERS_MAX
     )
     experience_checks: List[ExperienceCheck] = Field(
-        default_factory=list, max_length=EXPERIENCE_ITEMS_MAX * 3
+        default_factory=list, max_length=EXPERIENCE_ITEMS_MAX * len(EXPERIENCE_KINDS)
     )
     overall_fit: Literal["fit", "uncertain", "miss"] = "uncertain"
     notes: str = Field(default="", max_length=SCREENING_TEXT_MAX_CHARS)
