@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { Editor } from "@tiptap/core";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { CvCommandResponse, CvEditorCommandApi, CvPlanOperation } from "@/lib/api/cvEditorCommand";
 import { cvLines } from "@/lib/cv-editor-command";
@@ -28,7 +28,7 @@ const CV =
   `<p data-cv-section="rodo">${CLAUSE}</p>`;
 
 function op(id: number, type: CvPlanOperation["type"], lines: number[], extra: Partial<CvPlanOperation> = {}): CvPlanOperation {
-  return { id, type, lines, text: null, why: "", loses: [], ...extra };
+  return { id, type, lines, text: null, why: "", loses: [], new_words: [], ...extra };
 }
 
 const OPERATIONS = [
@@ -63,6 +63,10 @@ interface HostProps {
 function Host({ editor, api, ensureDraft, disabled = false, noStage = false }: HostProps) {
   const [open, setOpen] = useState(true);
   const command = useCvCommandPlan({ editor, stageId: noStage ? undefined : 5, disabled, ensureDraft, api });
+  // Jak okno edytora: do decyzji o planie kartka jest tylko do odczytu.
+  useEffect(() => {
+    editor.setEditable(!command.locked, false);
+  }, [editor, command.locked]);
   return (
     <div data-locked={command.locked}>
       {open ? <CvEditorCommandBar controller={command} onClose={() => setOpen(false)} /> : null}
@@ -185,6 +189,65 @@ describe("polecenie dla całego CV", () => {
       editor.commands.undo();
     });
     expect(editor.getHTML()).toBe(before);
+  });
+
+  it("po „Zastosuj” klawiatura wraca do kartki, która jest już do edycji", async () => {
+    const { editor } = setup();
+    let editableAtFocus: boolean | null = null;
+    vi.spyOn(editor.view.dom, "focus").mockImplementation(() => {
+      editableAtFocus = editor.isEditable;
+    });
+    await order();
+    expect(editor.isEditable).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Zastosuj zaznaczone (3)" }));
+    await waitFor(() => expect(editableAtFocus).not.toBeNull());
+    // Fokus na kartce tylko do odczytu nic nie daje — Ctrl+Z nie cofnąłby planu.
+    expect(editableAtFocus).toBe(true);
+  });
+
+  it("przeredagowanie z nowymi słowami nie jest zaznaczone i mówi, co przeczytać", async () => {
+    const plan = vi.fn<CvEditorCommandApi["plan"]>(async () =>
+      reply({
+        operations: [
+          op(0, "replace", [4], { text: "Prowadziła rozwój usług w **Java 17**.", new_words: ["prowadziła"] }),
+          op(1, "remove", [6]),
+        ],
+      }),
+    );
+    setup({ api: { plan } });
+    await order();
+    expect(within(operation(0)).getByRole("checkbox")).not.toBeChecked();
+    expect(operation(0)).toHaveTextContent("Nowe słowa, których nie było w tym miejscu: prowadziła.");
+    expect(within(operation(1)).getByRole("checkbox")).toBeChecked();
+    expect(screen.getByRole("button", { name: "Zastosuj zaznaczone (1)" })).toBeEnabled();
+    // Panel nie obiecuje więcej, niż kontrola sprawdza.
+    expect(panel()).toHaveTextContent("Kontrola sprawdziła liczby, daty, nazwy i wymagania klienta");
+    expect(panel()).not.toHaveTextContent("Żadna zmiana nie dopisuje faktów");
+  });
+
+  it("operacja, której edytor nie umie nałożyć, nie trafia do planu", async () => {
+    const editor = openEditor();
+    act(() => {
+      loadCvHtml(
+        editor,
+        "<h1>CV</h1>" +
+          '<h2 data-cv-section="experience">DOŚWIADCZENIE</h2>' +
+          '<p data-cv-section="role"><strong>Developer</strong> 2021 – 2024</p>' +
+          "<ul><li><p>Punkt A.</p></li><li><p>Punkt B.</p></li></ul><p>Projekty:</p><ul><li><p>Punkt C.</p></li></ul>",
+      );
+    });
+    const bullets = cvLines(editor.state.doc)
+      .filter((line) => line.kind === "bullet")
+      .map((line) => line.id);
+    const plan = vi.fn<CvEditorCommandApi["plan"]>(async () =>
+      reply({ operations: [op(0, "reorder", [bullets[2], bullets[0], bullets[1]]), op(1, "remove", [bullets[1]])] }),
+    );
+    setup({ editor, api: { plan } });
+    await order();
+    expect(screen.queryByTestId("plan-operation-0")).toBeNull();
+    expect(operation(1)).toHaveTextContent("Usuń punkt");
+    expect(panel()).toHaveTextContent("1 zmiana");
+    expect(panel()).toHaveTextContent("Odrzuciła 1 propozycję asystenta");
   });
 
   it("„Odrzuć plan” niczego nie zmienia i nie zakłada szkicu", async () => {

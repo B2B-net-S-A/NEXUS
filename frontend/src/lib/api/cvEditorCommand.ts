@@ -48,6 +48,12 @@ export interface CvPlanOperation {
   why: string;
   /** Wymagania rekrutacji, które po tej operacji znikają z CV. */
   loses: string[];
+  /**
+   * Słowa nowej treści, których nie było w zastępowanych wierszach. Kontrola
+   * serwera sprawdza liczby, daty, nazwy i wymagania — nie zwykłe słowa — więc
+   * taka operacja nie jest zaznaczona z góry.
+   */
+  new_words: string[];
 }
 
 export interface CvPlanDropped {

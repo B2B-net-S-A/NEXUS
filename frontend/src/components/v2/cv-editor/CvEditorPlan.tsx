@@ -117,6 +117,15 @@ function Operation({ operation, controller }: { operation: CvPlanOperation; cont
             </p>
           ) : null}
           {operation.why ? <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">Asystent: {operation.why}</p> : null}
+          {operation.new_words.length > 0 ? (
+            <p className="flex items-start gap-1.5 text-xs text-warning-muted-foreground">
+              <AlertTriangle className="mt-0.5 size-3.5 flex-none" aria-hidden />
+              <span>
+                Nowe słowa, których nie było w tym miejscu: {operation.new_words.join(", ")}. Przeczytaj nową treść, zanim
+                zaznaczysz.
+              </span>
+            </p>
+          ) : null}
           {operation.loses.length > 0 ? (
             <p className="flex items-start gap-1.5 text-xs text-destructive">
               <AlertTriangle className="mt-0.5 size-3.5 flex-none" aria-hidden />
@@ -157,7 +166,8 @@ export function CvEditorPlan({ controller, onShowCv }: CvEditorPlanProps) {
         ...controller,
         show: (id) => {
           onShowCv();
-          controller.show(id);
+          // Kartka jest jeszcze ukryta — przewijamy po jej pokazaniu.
+          setTimeout(() => controller.show(id), 50);
         },
       }
     : controller;
@@ -211,7 +221,8 @@ export function CvEditorPlan({ controller, onShowCv }: CvEditorPlanProps) {
               </p>
             ) : null}
             <p className="text-xs text-muted-foreground">
-              Żadna zmiana nie dopisuje faktów — każdą sprawdziła kontrola.
+              Kontrola sprawdziła liczby, daty, nazwy i wymagania klienta. Przeredagowania z nowymi słowami nie są zaznaczone
+              — przeczytaj je przed zastosowaniem.
               {dropped > 0
                 ? ` Odrzuciła ${dropped} ${plural(dropped, "propozycję", "propozycje", "propozycji")} asystenta (dopisywały fakty albo ruszały układ szablonu).`
                 : ""}

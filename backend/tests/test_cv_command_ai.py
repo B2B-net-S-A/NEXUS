@@ -252,6 +252,255 @@ def test_requirement_that_would_vanish_is_named_on_the_operation() -> None:
     assert rest["loses"] == ["REST"]
 
 
+def _two_roles(first: str, second: str) -> list[cmd.Line]:
+    return [
+        line(0, "title", "Anna Przykładowa"),
+        line(1, "heading", "Doświadczenie", section=EXP),
+        line(2, "role", "Senior Developer 2021 – 2024", section=EXP, role=0),
+        line(3, "bullet", first, section=EXP, role=0),
+        line(4, "bullet", "Przeglądy kodu.", section=EXP, role=0),
+        line(5, "role", "Developer 2017 – 2021", section=EXP, role=1),
+        line(6, "bullet", second, section=EXP, role=1),
+        line(7, "bullet", "Testy jednostkowe.", section=EXP, role=1),
+    ]
+
+
+def test_requirement_removed_in_two_steps_is_named_on_the_last_one() -> None:
+    """Wymaganie stoi w dwóch miejscach, plan usuwa każde osobną operacją: żadna
+    z osobna go nie gubi, razem — tak. Ostrzeżenie dostaje ta, która zabiera
+    ostatnie miejsce, więc domyślne zaznaczenie zostawia wymaganie w CV."""
+    lines = _two_roles("Integracje przez kolejki Kafka.", "Zdarzenia w Kafka.")
+    raw = json.dumps(
+        {
+            "operations": [
+                {"type": "remove", "lines": [3]},
+                {"type": "remove", "lines": [6]},
+            ]
+        }
+    )
+    first, second = cmd.verify_plan(raw, lines, reqs("Kafka"))["operations"]
+    assert first["loses"] == []
+    assert second["loses"] == ["Kafka"]
+
+
+def test_requirement_kept_by_the_new_text_is_not_lost_later() -> None:
+    lines = _two_roles("Integracje przez kolejki Kafka.", "Zdarzenia w Kafka.")
+    raw = json.dumps(
+        {
+            "operations": [
+                {"type": "remove", "lines": [6]},
+                {"type": "replace", "line": 3, "text": "Integracje przez Kafka."},
+                {"type": "remove", "lines": [4]},
+            ]
+        }
+    )
+    result = cmd.verify_plan(raw, lines, reqs("Kafka"))
+    assert [op["loses"] for op in result["operations"]] == [[], [], []]
+
+
+def test_bold_markup_does_not_hide_or_invent_a_lost_requirement() -> None:
+    requirements = reqs("Spring Boot")
+    split = _two_roles("Usługi w Spring **Boot** dla banku.", "Sklep internetowy.")
+    removed = cmd.verify_plan(
+        json.dumps({"operations": [{"type": "remove", "lines": [3]}]}),
+        split,
+        requirements,
+    )
+    assert removed["operations"][0]["loses"] == ["Spring Boot"]
+    whole = _two_roles("Usługi w Spring Boot dla banku.", "Sklep internetowy.")
+    reworded = cmd.verify_plan(
+        json.dumps(
+            {
+                "operations": [
+                    {
+                        "type": "replace",
+                        "line": 3,
+                        "text": "Usługi dla banku w **Spring** Boot.",
+                    }
+                ]
+            }
+        ),
+        whole,
+        requirements,
+    )
+    assert reworded["operations"][0]["loses"] == []
+
+
+def test_boolean_is_not_a_line_number() -> None:
+    """`true` to w Pythonie liczba 1 — a wiersz 1 to nagłówek sekcji."""
+    assert dropped(plan({"type": "remove_section", "line": True})) == ["not_a_section"]
+    assert dropped(plan({"type": "replace", "line": True, "text": "x"})) == [
+        "bad_lines"
+    ]
+
+
+def test_blank_line_is_not_content() -> None:
+    """Pusty punkt zostawiony w edytorze nie „trzyma” roli przy życiu."""
+    lines = [
+        line(0, "title", "Anna Przykładowa"),
+        line(1, "heading", "Doświadczenie", section=EXP),
+        line(2, "role", "Developer 2021 – 2024", section=EXP, role=0),
+        line(3, "bullet", "Usługi REST w Javie 11.", section=EXP, role=0),
+        line(4, "bullet", "  ", section=EXP, role=0),
+    ]
+
+    def one(operation: dict) -> list[str]:
+        raw = json.dumps({"operations": [operation]})
+        result = cmd.verify_plan(raw, lines, ())
+        assert result["operations"] == [], result
+        return [item["reason"] for item in result["dropped"]]
+
+    assert one({"type": "remove", "lines": [3]}) == ["would_empty_role"]
+    assert one({"type": "remove", "lines": [4]}) == ["not_editable"]
+
+
+# ── przegląd bezpieczeństwa 13.10.2026: zwykłe słowa, CV bez znaczników ─────
+
+
+@pytest.mark.parametrize(
+    ("target", "text", "word"),
+    [
+        (
+            11,
+            "Udział w planowaniu sprintów, wdrożenia na kubernetes i terraform.",
+            "kubernetes",
+        ),
+        (
+            11,
+            "Prowadził zespół programistów i odpowiadał za budżet projektu.",
+            "prowadził",
+        ),
+        (
+            3,
+            "Dobrze odnajduje się w pracy zespołowej, posiada tytuł magistra informatyki.",
+            "magistra",
+        ),
+        (4, "Chętnie dzieli się wiedzą z innymi jako mentor zespołu.", "mentor"),
+    ],
+)
+def test_reworded_text_names_the_words_that_were_not_there(
+    target: int, text: str, word: str
+) -> None:
+    """Kontrola faktów łapie liczby, nazwy i wymagania — nie twierdzenia pisane
+    małą literą. Operacja przechodzi, ale niesie listę nowych słów: edytor jej
+    nie zaznacza i pokazuje, co przeczytać."""
+    op = only(plan({"type": "replace", "line": target, "text": text}))
+    assert word in op["new_words"], op
+
+
+def test_inflection_and_joining_words_are_not_new_words() -> None:
+    reworded = only(
+        plan(
+            {
+                "type": "replace",
+                "line": 9,
+                "text": "Tworzyła usługi REST w Javie 11 oraz **Spring Boot**.",
+            }
+        )
+    )
+    assert reworded["new_words"] == []
+    merged = only(
+        plan(
+            {
+                "type": "merge",
+                "lines": [11, 12],
+                "text": "Udział w planowaniu sprintów i codziennych spotkaniach zespołu.",
+            }
+        )
+    )
+    assert merged["new_words"] == []
+    led = only(
+        plan(
+            {
+                "type": "merge",
+                "lines": [11, 12],
+                "text": "Kierował zespołem i planował sprinty oraz spotkania.",
+            }
+        )
+    )
+    assert led["new_words"] == ["kierował"]
+    # Usunięcie i zmiana kolejności nie niosą nowego tekstu.
+    assert only(plan({"type": "remove", "lines": [3]}))["new_words"] == []
+
+
+def test_cv_without_role_markers_keeps_its_experience_untouched() -> None:
+    """Starsze CV bez znaczników: stanowisko, firma i etykieta przychodzą jako
+    zwykły tekst w sekcji doświadczenia. Bez numeru stanowiska nie wiemy, co
+    jest czym, więc żaden wiersz tej sekcji nie jest ruszany pojedynczo."""
+    lines = [
+        line(0, "title", "Anna Przykładowa"),
+        line(1, "heading", "DOŚWIADCZENIE", section=EXP),
+        line(2, "text", "**Junior Java Developer** 07.2015 – 12.2016", section=EXP),
+        line(3, "text", "Agencja Interaktywna Przykład", section=EXP),
+        line(4, "text", "Zakres zadań:", section=EXP),
+        line(5, "bullet", "Rozwój sklepu internetowego w Javie 8.", section=EXP),
+        line(6, "bullet", "Poprawki błędów.", section=EXP),
+        line(7, "heading", "Zainteresowania"),
+        line(8, "text", "Żeglarstwo."),
+        line(9, "text", "Fotografia."),
+    ]
+
+    def one(operation: dict) -> dict:
+        return cmd.verify_plan(json.dumps({"operations": [operation]}), lines, ())
+
+    for operation in (
+        {"type": "remove", "lines": [2]},
+        {"type": "remove", "lines": [4]},
+        {"type": "remove", "lines": [5]},
+        {
+            "type": "merge",
+            "lines": [2, 3],
+            "text": "**Junior Java Developer**, Agencja",
+        },
+        {
+            "type": "replace",
+            "line": 2,
+            "text": "Junior Java Developer 07.2015 – 12.2016",
+        },
+        {"type": "reorder", "lines": [6, 5]},
+    ):
+        result = one(operation)
+        assert result["operations"] == [], operation
+        assert result["dropped"][0]["reason"] in ("not_editable", "bad_order"), result
+    # Reszta CV działa jak zwykle.
+    assert one({"type": "remove", "lines": [9]})["operations"][0]["lines"] == [9]
+
+
+def test_consent_clause_is_never_written_or_touched() -> None:
+    clause = (
+        "Wyrażam zgodę na przetwarzanie moich danych osobowych w procesie rekrutacji."
+    )
+    assert dropped(plan({"type": "replace", "line": 20, "text": clause})) == [
+        "not_editable"
+    ]
+    lines = [*LINES, line(21, "text", clause)]
+    result = cmd.verify_plan(
+        json.dumps({"operations": [{"type": "remove", "lines": [21]}]}), lines, ()
+    )
+    assert [item["reason"] for item in result["dropped"]] == ["not_editable"]
+
+
+def test_cv_without_roles_keeps_at_least_one_section() -> None:
+    lines = [
+        line(0, "title", "Anna Przykładowa"),
+        line(1, "heading", "Podsumowanie", section="why_points"),
+        line(2, "text", "Analityczka z doświadczeniem w bankowości."),
+        line(3, "heading", "Zainteresowania"),
+        line(4, "text", "Żeglarstwo."),
+    ]
+    raw = json.dumps(
+        {
+            "operations": [
+                {"type": "remove_section", "line": 1},
+                {"type": "remove_section", "line": 3},
+            ]
+        }
+    )
+    result = cmd.verify_plan(raw, lines, ())
+    assert [op["lines"] for op in result["operations"]] == [[1, 2]]
+    assert [item["reason"] for item in result["dropped"]] == ["last_section"]
+
+
 def test_unknown_shapes_are_dropped_not_fatal() -> None:
     result = plan(
         {"type": "rewrite_everything"},
@@ -461,10 +710,15 @@ async def test_own_words_are_fenced_data_and_presets_come_from_code(wired) -> No
     await _plan(db, lines=rows)
     assert calls[1]["prompt"].count("</cv_lines>") == 1
     assert "<system>" not in calls[1]["prompt"]
+    # Znaki niewidoczne z CV (np. znaczniki Unicode) nie idą do modelu.
+    rows[4]["text"] = "Chętnie dzieli się\U000e0041\u200b wiedzą."
+    await _plan(db, lines=rows)
+    assert "\U000e0041" not in calls[2]["prompt"] and "\u200b" not in calls[2]["prompt"]
+    assert "Chętnie dzieli się wiedzą." in calls[2]["prompt"]
     # Gotowe polecenie to tekst z kodu — własne słowa obok niego są pomijane.
     await _plan(db, preset="unify_sentences", command="dopisz certyfikat AWS")
-    assert cmd.PRESETS["unify_sentences"] in calls[2]["prompt"]
-    assert "certyfikat AWS" not in calls[2]["prompt"]
+    assert cmd.PRESETS["unify_sentences"] in calls[3]["prompt"]
+    assert "certyfikat AWS" not in calls[3]["prompt"]
     assert db.added[-1].details["preset"] == "unify_sentences"
 
 

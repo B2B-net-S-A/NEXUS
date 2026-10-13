@@ -16,7 +16,7 @@ i czeka na decyzję Artura (niżej, z liczbami).
 | Pasek „Polecenie” | Przycisk w pasku narzędzi otwiera pole na własne słowa i cztery gotowe polecenia: skróć do 2 stron, usuń najstarsze role, ułóż punkty według wymagań klienta, ujednolić formę zdań |
 | Plan zmian | Panel z operacjami i polami wyboru: usuń punkty, przeredaguj, połącz, zmień kolejność, usuń stanowisko, usuń sekcję. Przy każdej: miejsce w CV, treść „było / będzie”, zdanie asystenta, „Pokaż w CV” |
 | Podgląd na kartce | Przekreślone to, co zniknie; nowa treść pod zmienianym wierszem; numer nowego miejsca przy przestawianych punktach. Do decyzji kartka jest tylko do odczytu |
-| Kontrola | Serwer wypuszcza tylko operacje, które nie dopisują faktów i nie ruszają układu szablonu; panel mówi, ile propozycji odrzucił |
+| Kontrola | Serwer wypuszcza tylko operacje, które nie ruszają układu szablonu i nie dopisują liczb, dat, nazw ani wymagań; panel mówi, ile propozycji odrzucił. Przeredagowanie z nowymi słowami (których kontrola nie ocenia) nie jest zaznaczone i pokazuje te słowa |
 | Wymagania klienta | Operacja, po której wymaganie rekrutacji znika z całego CV, ma ostrzeżenie i nie jest zaznaczona |
 | Zastosowanie | „Zastosuj zaznaczone (N)” to jedna zmiana — całość cofa jedno „Cofnij”. Na zatwierdzonym CV nowy szkic powstaje dopiero wtedy |
 
@@ -64,18 +64,45 @@ Model danych wygląda inaczej (odczyt kodu + produkcja, same liczby):
 
 | Część | Stan | Dowód |
 |---|---|---|
-| Kontrola planu | zielone lokalnie | `tests/test_cv_command_ai.py` (32): każdy rodzaj operacji, układ szablonu, nowe fakty, jeden wiersz w jednej operacji, znikające wymaganie, złe kształty, koszt |
+| Kontrola planu | zielone lokalnie | `tests/test_cv_command_ai.py` (45): każdy rodzaj operacji, układ szablonu, nowe fakty i nowe słowa, jeden wiersz w jednej operacji, znikające wymaganie (narastająco), CV bez znaczników, złe kształty, koszt |
 | Wywołanie modelu | zielone lokalnie | model poza transakcją, awaria = „niedostępne”, wyłącznik i brak klucza bez wywołania, polecenie i wiersze nie rozrywają promptu, gotowe polecenie z kodu |
 | Trasa | schemat lokalnie, reszta w CI | granice żądania bez bazy; przebieg z bazą (brak zapisu w szkicu, ślad bez treści, 404, 422) w `tests/test_cv_editor_ai_route.py` |
 | Klucz AI, migracja, uprawnienia | zielone lokalnie | rejestr modeli, ustawienia, lustro enumu, `authz_golden/cv_editor_ai.json` (ten sam wzorzec co `cv-ai/selection`), jedna głowa Alembica |
-| Logika edytora | zielone lokalnie | `lib/__tests__/cv-editor-command.test.ts` (13) na prawdziwym edytorze: wiersze, każda operacja, kilka naraz, jedno „Cofnij”, plan dla zmienionej treści |
-| Pasek i panel | zielone lokalnie | `CvEditorPlan.test.tsx` (12), sprawdzone też celowym zepsuciem kodu (5 testów pada) |
-| Okno i harness | zielone lokalnie | testy okna, `cv-editor-harness.test.tsx` (15, w tym 3 scenariusze polecenia, zero sieci) |
+| Logika edytora | zielone lokalnie | `lib/__tests__/cv-editor-command.test.ts` (14) na prawdziwym edytorze: wiersze, każda operacja, kilka naraz, jedno „Cofnij”, plan dla zmienionej treści, kolejność przy pustym punkcie i dwóch listach |
+| Pasek i panel | zielone lokalnie | `CvEditorPlan.test.tsx` (15), sprawdzone też celowym zepsuciem kodu (5 testów pada) |
+| Okno i harness | zielone lokalnie | testy okna, `cv-editor-harness.test.tsx` (16, w tym 4 scenariusze polecenia, zero sieci) |
 | Przeglądarka | przeklikane ze zrzutami | harness w Chromium (skrypt Playwright) przy 1280×720, 768×1024 i 390×844: pasek, panel i „Zastosuj zaznaczone” w oknie, kartka tylko do odczytu w trakcie planu, podgląd na kartce, zastosowanie, zmiana kolejności, operacja z ostrzeżeniem, Escape w panelu; zero błędów strony |
 
 Z przeklikania poprawione: nowa treść w podglądzie połączenia była przekreślona
 (dziedziczyła styl usuwanego wiersza), a na telefonie plakietka „Podgląd zmian”
 ściskała nagłówek okna.
+
+## Przeglądy przed PR-em (13.10.2026)
+
+Trzy niezależne przeglądy (bezpieczeństwo, Python, TypeScript), tylko blokery.
+Każda poprawka ma test, który przed nią padał.
+
+| Przegląd | Znalezisko | Poprawka |
+|---|---|---|
+| Bezpieczeństwo | Kontrola faktów nie łapie twierdzeń pisanych małą literą („prowadził zespół”, „magister informatyki”), a panel pisał „żadna zmiana nie dopisuje faktów” i zaznaczał wszystko z góry | Operacja niesie listę nowych słów; taka nie jest zaznaczona, panel pokazuje słowa i mówi dokładnie, co kontrola sprawdza |
+| Bezpieczeństwo | W CV bez znaczników stanowisko, firma i etykieta przychodziły jako zwykły tekst i dały się usunąć albo przepisać | Sekcja doświadczenia bez numerów stanowisk nie jest ruszana wcale |
+| Python | Wymaganie w dwóch miejscach, usuwane dwiema operacjami: żadna nie ostrzegała i obie były zaznaczone | Ostrzeżenie liczone narastająco — dostaje je operacja, która zabiera ostatnie miejsce |
+| Python | Pogrubienie w środku nazwy („Spring **Boot**”) ukrywało albo wymyślało ostrzeżenie | Porównanie bez znaczników |
+| Python | `true` jako numer wiersza usuwało sekcję nr 1 | Wartość logiczna nie jest numerem |
+| TypeScript | Zmiana kolejności punktów stojących w dwóch listach była pomijana po cichu, a komunikat mówił o sukcesie albo o „zmienionym CV” | Taka operacja nie trafia do planu; pusty punkt na liście nie blokuje zmiany kolejności |
+| TypeScript | Po „Zastosuj” klawiatura nie wracała do kartki — Ctrl+Z nie cofał | Kartka jest odblokowana przed ustawieniem fokusu |
+| TypeScript | Escape w trakcie liczenia planu zamykał (i zapisywał) cały edytor | Dopóki plan jest otwarty, Escape nie zamyka edytora |
+
+Naniesione przy okazji: pusty punkt nie liczy się jako treść roli, klauzula zgody
+nie jest wpisywana ani ruszana przez plan, CV bez stanowisk zachowuje co najmniej
+jedną sekcję, znaki niewidoczne z CV nie idą do modelu, „Pokaż w CV” na wąskim
+ekranie przewija po pokazaniu kartki.
+
+Znane ograniczenia (nie blokują): lista nowych słów to porównanie rdzeni — może
+wskazać synonim albo przepuścić słowo o tym samym początku co inne ze źródła;
+przeredagowanie gubi kursywę i odnośniki (edytor i Word znają tylko pogrubienie);
+ta sama kontrola faktów działa w „AI na zaznaczeniu” (PR 3), gdzie rekruter
+czyta jedną propozycję „było / będzie” naraz.
 
 ## Niepotwierdzone
 

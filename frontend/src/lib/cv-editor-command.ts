@@ -290,6 +290,18 @@ function inlineNodes(state: EditorState, markup: string): Fragment {
   return Fragment.fromArray(nodes);
 }
 
+/**
+ * Czy edytor umie nałożyć operację na te wiersze. Jedyny przypadek „nie”:
+ * zmiana kolejności punktów, które stoją w więcej niż jednej liście (serwer
+ * widzi punkty stanowiska, nie listy dokumentu).
+ */
+export function canApply(operation: CvPlanOperation, lines: readonly CvLine[]): boolean {
+  const rows = operation.lines.map((id) => lines[id]);
+  if (rows.length === 0 || rows.some((row) => row == null)) return false;
+  if (operation.type !== "reorder") return true;
+  return rows.every((row) => row.kind === "bullet" && row.blockFrom === rows[0].blockFrom);
+}
+
 function sameLine(a: CvLine | undefined, b: CvLine): boolean {
   return a != null && a.kind === b.kind && a.text === b.text && a.from === b.from && a.to === b.to;
 }
@@ -303,6 +315,8 @@ export function applyPlan(state: EditorState, lines: readonly CvLine[], operatio
   const byId = new Map(lines.map((line) => [line.id, line]));
   const touched = operations.flatMap((operation) => operation.lines);
   if (touched.some((id) => !byId.has(id) || !sameLine(current[id], byId.get(id)!))) return null;
+  // Operacji, której nie umiemy nałożyć, nie pomijamy po cichu — plan jest wtedy nieważny.
+  if (operations.some((operation) => !canApply(operation, lines))) return null;
 
   const edits: Edit[] = [];
   const removals: CvLine[] = [];
@@ -317,11 +331,18 @@ export function applyPlan(state: EditorState, lines: readonly CvLine[], operatio
       edits.push({ from: rows[0].innerFrom, to: rows[0].innerTo, content });
       removals.push(...rows.slice(1));
     } else if (operation.type === "reorder") {
-      // Punkty jednego stanowiska stoją zwykle w jednej liście; rozbitych nie ruszamy.
+      // Nowa kolejność dotyczy punktów z planu; pusty albo złożony punkt tej
+      // samej listy (serwer go nie liczy) zostaje na swoim miejscu.
       const list = rows[0];
-      if (rows.some((row) => row.blockFrom !== list.blockFrom) || rows.length !== list.siblings) continue;
-      const items = rows.map((row) => state.doc.nodeAt(row.from)).filter((node): node is PMNode => node != null);
-      if (items.length !== rows.length) continue;
+      const listNode = state.doc.nodeAt(list.blockFrom);
+      const ordered = rows.map((row) => state.doc.nodeAt(row.from));
+      if (!listNode || ordered.some((node) => node == null)) return null;
+      const moved = new Set(rows.map((row) => row.from));
+      const items: PMNode[] = [];
+      let next = 0;
+      listNode.forEach((child, offset) => {
+        items.push(moved.has(list.blockFrom + 1 + offset) ? ordered[next++]! : child);
+      });
       edits.push({ from: list.blockFrom + 1, to: list.blockTo - 1, content: Fragment.fromArray(items) });
     } else {
       // Stanowisko albo sekcja: ciągły zakres bloków dokumentu.

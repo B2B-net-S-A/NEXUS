@@ -25,6 +25,7 @@ import {
 } from "@/lib/api/cvEditorCommand";
 import {
   applyPlan,
+  canApply,
   commandBlocker,
   commandLines,
   cvLines,
@@ -78,6 +79,7 @@ interface Options {
 
 const MSG_FAILED = "Nie udało się przygotować planu zmian. Spróbuj jeszcze raz.";
 const MSG_CHANGED = "CV zmieniło się od przygotowania planu — przygotuj zmiany jeszcze raz.";
+const MSG_NOTHING = "Asystent nie znalazł zmian, które da się zastosować w tym CV.";
 const NO_LINES: readonly CvLine[] = [];
 const NO_OPERATIONS: readonly CvPlanOperation[] = [];
 
@@ -159,11 +161,23 @@ export function useCvCommandPlan({ editor, stageId, disabled, ensureDraft, api =
       .plan(stageId, { ...(input.preset ? { preset: input.preset } : { command }), lines: commandLines(snapshot) })
       .then((result) => {
         if (ticket.current !== mine) return;
-        if (result.status !== "ok" || result.operations.length === 0) return fail(result.message ?? MSG_FAILED);
-        setOperations(result.operations);
-        setDropped(result.dropped.length);
-        // Operacja, po której z CV znika wymaganie klienta, czeka na świadome zaznaczenie.
-        setSelected(new Set(result.operations.filter((operation) => operation.loses.length === 0).map((operation) => operation.id)));
+        if (result.status !== "ok") return fail(result.message ?? MSG_FAILED);
+        // Operacja, której edytor nie umie nałożyć (punkty jednego stanowiska
+        // w dwóch listach), nie trafia do planu — inaczej „Zastosuj” by ją pominęło.
+        const usable = result.operations.filter((operation) => canApply(operation, snapshot));
+        if (usable.length === 0) return fail(result.message ?? MSG_NOTHING);
+        setOperations(usable);
+        setDropped(result.dropped.length + result.operations.length - usable.length);
+        // Z góry zaznaczone jest tylko to, co kontrola sprawdza w całości. Operacja,
+        // po której z CV znika wymaganie klienta, i przeredagowanie z nowymi słowami
+        // czekają na świadome zaznaczenie.
+        setSelected(
+          new Set(
+            usable
+              .filter((operation) => operation.loses.length === 0 && operation.new_words.length === 0)
+              .map((operation) => operation.id),
+          ),
+        );
         setPhase("plan");
       })
       .catch((error: unknown) => {
@@ -208,6 +222,9 @@ export function useCvCommandPlan({ editor, stageId, disabled, ensureDraft, api =
       showSuccess(`Zastosowano ${changesLabel(chosen.length)}. Wszystko cofniesz jednym „Cofnij”.`);
       reset();
       // Klawiatura wraca do tekstu (Ctrl+Z cofa od razu); nie na ekranie dotykowym.
+      // Kartka była tylko do odczytu na czas planu — fokus na niej nic by nie dał,
+      // a okno odblokowuje ją dopiero po przerysowaniu.
+      editor.setEditable(true, false);
       if (!window.matchMedia?.("(pointer: coarse)").matches) editor.view.dom.focus({ preventScroll: true });
     } finally {
       setBusy(false);

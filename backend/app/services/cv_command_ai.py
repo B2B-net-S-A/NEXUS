@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -40,10 +42,12 @@ from app.services import dz_review as dz
 from app.services.ai_models import model_chain_for
 from app.services.ai_quota import ai_feature
 from app.services.cv_qc import _json_object
+from app.services.cv_rodo_clause import is_rodo_text
 from app.services.dz_review import Requirement
 from app.services.llm_prompts import CV_EDITOR_COMMAND
 from app.services.llm_providers import api_key_configured
 from app.services.prompt_fencing import fence, json_for_prompt
+from app.services.recommendation_card_assist import _fold
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +124,67 @@ class Line:
     role: Optional[int] = None
 
 
+# ── Nowe słowa w przeredagowanym tekście ─────────────────────────────────────
+#
+# Kontrola faktów (`cv_selection_ai.check`) łapie liczby, daty, nazwy własne,
+# tokeny z cyfrą i wymagania rekrutacji. Twierdzenie pisane małą literą
+# („prowadził zespół”, „magister informatyki”, „kubernetes”) przechodzi. Przy
+# jednej propozycji na zaznaczeniu rekruter czyta „było / będzie”; plan niesie
+# do 40 operacji naraz, więc każda przeredagowana operacja dostaje listę słów,
+# których nie było w zastępowanych wierszach. Edytor takiej operacji nie
+# zaznacza i pokazuje te słowa (przegląd bezpieczeństwa 13.10.2026).
+
+_PLAIN_WORD = re.compile(r"[^\W\d_]{3,}", re.UNICODE)
+NEW_WORDS_MAX = 6
+# Słowa łączące, które nie niosą treści (po złożeniu znaków). „nie” celowo
+# poza listą: dopisane zaprzeczenie zmienia sens zdania.
+_JOINING_WORDS = frozenset(
+    """
+    oraz lub albo dla przez przy pod nad bez ich jej jego tym tych tego tej ten
+    jak jako czy sie takze rowniez wraz miedzy ktore ktory ktora ktorych celu
+    ramach zakresie min itp itd tzw
+    and the for with from into using including within also that which was were
+    has have been its their this these via per such both while through across
+    """.split()
+)
+
+
+def _same_stem(a: str, b: str) -> bool:
+    """Ta sama rodzina wyrazów z dokładnością do odmiany („tworzyła” ~ „tworzenie”)."""
+    common = 0
+    for x, y in zip(a, b):
+        if x != y:
+            break
+        common += 1
+    return common >= 4 or (common >= 3 and min(len(a), len(b)) <= 4)
+
+
+def new_words(text: str, source: str) -> list[str]:
+    """Słowa nowego tekstu, których nie ma w zastępowanych wierszach."""
+    by_prefix: dict[str, list[str]] = {}
+    for word in _PLAIN_WORD.findall(_fold(cv_selection_ai.plain(source))):
+        by_prefix.setdefault(word[:3], []).append(word)
+    found: list[str] = []
+    for word in _PLAIN_WORD.findall(cv_selection_ai.plain(text)):
+        folded = _fold(word)
+        if folded in _JOINING_WORDS or len(folded) < 3:
+            continue
+        if any(_same_stem(folded, other) for other in by_prefix.get(folded[:3], ())):
+            continue
+        if word.lower() not in found:
+            found.append(word.lower())
+        if len(found) >= NEW_WORDS_MAX:
+            break
+    return found
+
+
+def _visible(text: str) -> str:
+    """Tekst bez znaków sterujących i niewidocznych (zostają odstępy)."""
+    return "".join(
+        ch for ch in text if ch.isspace() or unicodedata.category(ch)[0] != "C"
+    )
+
+
 class _Dropped(Exception):
     """Operacja nie przeszła kontroli (powód i ewentualny zapis, o który poszło)."""
 
@@ -163,7 +228,19 @@ class _Plan:
                 self.section_lines.setdefault(heading, []).append(item.id)
             if item.role is not None:
                 self.role_lines.setdefault(item.role, []).append(item.id)
-            if item.kind in EDITABLE:
+            # Pusty punkt albo akapit zostawiony w edytorze nie jest treścią: nie
+            # „trzyma” roli ani sekcji przy życiu i nie da się go ruszyć operacją.
+            # Wiersz sekcji doświadczenia bez numeru stanowiska to CV bez
+            # znaczników (starsze albo wklejone): stanowisko, firma i etykieta
+            # wyglądają tam jak zwykły tekst, więc tej sekcji nie ruszamy wcale.
+            # Klauzula zgody jest stała, nawet gdyby edytor ją przysłał.
+            unmarked = item.section == "experience" and item.role is None
+            if (
+                item.kind in EDITABLE
+                and item.text.strip()
+                and not unmarked
+                and not is_rodo_text(cv_selection_ai.plain(item.text))
+            ):
                 place = (
                     ("role", item.role)
                     if item.role is not None
@@ -172,27 +249,35 @@ class _Plan:
                 self.place[item.id] = place
                 self.members.setdefault(place, []).append(item.id)
         # Gdzie stoi każde wymaganie — raz, zamiast szukać przy każdej operacji.
-        self.found: list[tuple[str, frozenset[int]]] = []
+        # Zbiór maleje z kolejnymi przyjętymi operacjami (`_loses`). Bez `**`:
+        # „Spring **Boot**” to nadal „Spring Boot”.
+        self.alive: list[tuple[Requirement, set[int]]] = []
         for requirement in requirements:
-            where = frozenset(
-                item.id for item in lines if dz._found(item.text, requirement)
-            )
+            where = {
+                item.id
+                for item in lines
+                if dz._found(cv_selection_ai.plain(item.text), requirement)
+            }
             if where:
-                self.found.append((requirement.label, where))
-        self.by_label = {r.label: r for r in requirements}
+                self.alive.append((requirement, where))
         self.used: set[int] = set()
         self.removed: set[int] = set()
         self.removed_roles: set[int] = set()
+        self.removed_sections: set[int] = set()
 
     # ── pojedyncze operacje ──
 
     def _editable(self, ids: list[int]) -> None:
-        if any(self.lines[i].kind not in EDITABLE for i in ids):
+        if any(i not in self.place for i in ids):
             raise _Dropped("not_editable")
 
     def _new_text(self, source: str, text: Any) -> str:
         if text is not None and not isinstance(text, str):
             raise _Dropped("empty")
+        # Akapit zaczynający się jak klauzula zgody edytor uznałby za klauzulę
+        # i usunął przy zapisie — razem z treścią, którą miał zastąpić.
+        if text and is_rodo_text(cv_selection_ai.plain(text)):
+            raise _Dropped("not_editable")
         raw = json.dumps({"text": text or ""}, ensure_ascii=False)
         checked = cv_selection_ai.check("rephrase", source, raw, self.grounds)
         if checked["status"] != "ok":
@@ -230,7 +315,7 @@ class _Plan:
 
     def reorder(self, op: dict) -> tuple[list[int], Optional[str]]:
         ids = _ids(op.get("lines"), self.lines)
-        if any(self.lines[i].kind != "bullet" for i in ids):
+        if any(self.lines[i].kind != "bullet" or i not in self.place for i in ids):
             raise _Dropped("bad_order")
         current = [
             i
@@ -255,27 +340,46 @@ class _Plan:
 
     def remove_section(self, op: dict) -> tuple[list[int], Optional[str]]:
         target = op.get("line")
-        line = self.lines.get(target) if isinstance(target, int) else None
+        # `True` to w Pythonie liczba 1 — a wiersz 1 bywa nagłówkiem sekcji.
+        numbered = isinstance(target, int) and not isinstance(target, bool)
+        line = self.lines.get(target) if numbered else None
         if line is None or line.kind != "heading":
             raise _Dropped("not_a_section")
         if line.section == "experience" or any(
             self.lines[i].role is not None for i in self.section_lines[line.id]
         ):
             raise _Dropped("protected_section")
+        # CV bez stanowisk: przynajmniej jedna sekcja zostaje.
+        if len(self.removed_sections | {line.id}) >= len(self.section_lines):
+            raise _Dropped("last_section")
         return list(self.section_lines[line.id]), None
 
     # ── plan ──
 
     def _loses(self, kind: str, ids: list[int], text: Optional[str]) -> list[str]:
-        """Wymagania rekrutacji, które po tej jednej operacji znikają z CV."""
+        """Wymagania rekrutacji, które po tej operacji znikają z CV.
+
+        Liczone narastająco, w kolejności planu: wymaganie stojące w dwóch
+        miejscach, usuwane dwiema operacjami, gubi ta, która zabiera ostatnie
+        miejsce. Liczone osobno dla każdej operacji żadna by go nie „gubiła”,
+        a obie przychodziłyby zaznaczone. Odznaczenie wcześniejszej operacji
+        zostawia ostrzeżenie przy późniejszej — na wyrost, czyli bezpiecznie.
+        """
         if kind == "reorder":
             return []
         touched = set(ids)
-        return [
-            label
-            for label, where in self.found
-            if where <= touched and not (text and dz._found(text, self.by_label[label]))
-        ]
+        new = cv_selection_ai.plain(text or "")
+        lost: list[str] = []
+        for requirement, where in self.alive:
+            if not where & touched:
+                continue
+            where -= touched
+            if new and dz._found(new, requirement):
+                # Nowa treść trafia do pierwszego wiersza operacji.
+                where.add(ids[0])
+            elif not where:
+                lost.append(requirement.label)
+        return lost
 
     def accept(self, raw: Any) -> dict:
         if not isinstance(raw, dict) or raw.get("type") not in OPERATION_TYPES:
@@ -287,6 +391,8 @@ class _Plan:
         self.used.update(ids)
         if kind in ("remove", "remove_section"):
             self.removed.update(ids)
+            if kind == "remove_section":
+                self.removed_sections.add(ids[0])
         elif kind == "merge":
             self.removed.update(ids[1:])
         elif kind == "remove_role":
@@ -298,6 +404,12 @@ class _Plan:
             "lines": ids,
             "text": text,
             "why": " ".join(why.split())[:WHY_MAX],
+            # Słowa nowej treści, których nie było w zastępowanych wierszach.
+            "new_words": (
+                new_words(text, " ".join(self.lines[i].text for i in ids))
+                if text
+                else []
+            ),
             "loses": self._loses(kind, ids, text),
         }
 
@@ -355,7 +467,8 @@ def build_prompt(payload: dict, lines: list[Line], requirements: tuple) -> str:
             "id": item.id,
             "rodzaj": item.kind,
             **({"stanowisko": item.role} if item.role is not None else {}),
-            "tekst": item.text[:LINE_TEXT_MAX],
+            # Znaki niewidoczne z CV kandydata nie idą do modelu.
+            "tekst": _visible(item.text)[:LINE_TEXT_MAX],
         }
         for item in lines
     ]

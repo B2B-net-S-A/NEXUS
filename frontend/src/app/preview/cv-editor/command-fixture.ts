@@ -36,6 +36,7 @@ function plan(body: CvCommandRequest): Draft[] {
         text: null,
         why: "Punkty najbliższe wymaganiom klienta idą na początek.",
         loses: [],
+        new_words: [],
       });
     }
     return operations;
@@ -53,6 +54,7 @@ function plan(body: CvCommandRequest): Draft[] {
           .replace(/^Optymalizacja /, "Optymalizowała "),
         why: "Ta sama forma we wszystkich punktach.",
         loses: [],
+        new_words: [],
       });
     }
     return operations;
@@ -67,6 +69,7 @@ function plan(body: CvCommandRequest): Draft[] {
         text: null,
         why: "Najstarsze stanowisko, najdalej od wymagań klienta.",
         loses: ["JUnit"],
+        new_words: [],
       });
     }
     return operations;
@@ -75,7 +78,14 @@ function plan(body: CvCommandRequest): Draft[] {
   // „Skróć”: ogólnik z podsumowania, połączenie dwóch punktów, sekcja języków.
   const general = lines.find((line) => line.kind === "bullet" && line.role == null && line.text.includes("lat doświadczenia"));
   if (general) {
-    operations.push({ type: "remove", lines: [general.id], text: null, why: "Ogólne zdanie, powtarza nagłówek CV.", loses: [] });
+    operations.push({
+      type: "remove",
+      lines: [general.id],
+      text: null,
+      why: "Ogólne zdanie, powtarza nagłówek CV.",
+      loses: [],
+      new_words: [],
+    });
   }
   const first = roles[0];
   const bullets = first != null ? bulletsOfRole(lines, first) : [];
@@ -86,6 +96,7 @@ function plan(body: CvCommandRequest): Draft[] {
       text: `${bullets[1].text.replace(/\.$/, "")}; ${bullets[2].text.charAt(0).toLowerCase()}${bullets[2].text.slice(1)}`,
       why: "Dwa krótkie punkty o pracy w zespole w jednym.",
       loses: [],
+        new_words: [],
     });
   }
   const languages = lines.find((line) => line.kind === "heading" && line.section === "languages");
@@ -98,6 +109,7 @@ function plan(body: CvCommandRequest): Draft[] {
       text: null,
       why: "Języki są w wymaganiach rekrutacji — sekcja zostaje tylko, gdy klient o nią prosi.",
       loses: [],
+        new_words: [],
     });
   }
   return operations;

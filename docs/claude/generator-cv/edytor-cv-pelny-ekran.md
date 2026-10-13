@@ -379,14 +379,28 @@ dopiero to, co rekruter zostawi zaznaczone i zatwierdzi „Zastosuj zaznaczone�
     zostawia roli ani sekcji bez treści (od tego jest `remove_role` /
     `remove_section`);
   - nowy tekst (`replace`, `merge`) przechodzi tę samą kontrolę „bez nowych
-    faktów” co AI na zaznaczeniu (`cv_selection_ai.check`);
+    faktów” co AI na zaznaczeniu (`cv_selection_ai.check`), a ta łapie liczby,
+    daty, nazwy własne i wymagania — NIE zwykłe słowa pisane małą literą
+    („prowadził zespół”, „magister informatyki”). Dlatego operacja niesie
+    `new_words`: słowa nowej treści, których nie było w zastępowanych wierszach
+    (z tolerancją odmiany). Taka operacja przychodzi NIEZAZNACZONA, a panel
+    pokazuje te słowa. Panel nie może obiecywać więcej, niż kontrola sprawdza
+    — zdanie „żadna zmiana nie dopisuje faktów” było nieprawdą;
+  - CV bez znaczników stanowisk (starsze, wklejone): wiersz sekcji
+    doświadczenia bez numeru stanowiska nie jest ruszany wcale — stanowisko,
+    firma i etykieta wyglądają tam jak zwykły tekst;
+  - pusty punkt nie jest treścią (nie „trzyma” roli przy życiu); klauzula zgody
+    nie jest ruszana ani wpisywana, nawet gdyby edytor ją przysłał; CV bez
+    stanowisk zachowuje co najmniej jedną sekcję;
   - jeden wiersz należy do jednej operacji — dlatego rekruter może odznaczyć
     dowolną bez psucia pozostałych;
   - `reorder` to permutacja WSZYSTKICH punktów jednego stanowiska albo sekcji.
 - **Wymaganie klienta, które by zniknęło.** Przy operacji stoi lista wymagań
   rekrutacji, które po niej nie występują już nigdzie w CV (`loses`). Taka
   operacja przychodzi NIEZAZNACZONA i z ostrzeżeniem — usunięcie jedynego
-  miejsca z wymaganiem ma być świadomą decyzją.
+  miejsca z wymaganiem ma być świadomą decyzją. `loses` liczy się NARASTAJĄCO
+  w kolejności planu (wymaganie w dwóch miejscach, usuwane dwiema operacjami,
+  gubi ta druga) i bez znaczników `**` („Spring **Boot**” to „Spring Boot”).
 - **Gotowe polecenia** (`PRESETS`) mają treść w kodzie serwera i idą do promptu
   bez ogrodzenia; własne słowa rekrutera to dane w znaczniku
   `recruiter_command`. Polecenie mówi, CO zmienić, i nie jest źródłem faktów.
@@ -396,6 +410,10 @@ dopiero to, co rekruter zostawi zaznaczone i zatwierdzi „Zastosuj zaznaczone�
   edytor jest tylko do odczytu (`command.locked` → `setEditable(false)`): plan
   odnosi się do wierszy z chwili zamówienia. `applyPlan` i tak sprawdza, że
   wiersze się nie zmieniły, i wtedy niczego nie nakłada.
+- **Edytor nie pomija operacji po cichu.** Zmiany kolejności punktów, które
+  stoją w dwóch listach, edytor nie umie nałożyć (`canApply`) — taka operacja
+  nie trafia do planu i liczy się do odrzuconych. Escape w trakcie liczenia
+  planu nie zamyka edytora (pole jest wtedy wyłączone, klawisz trafia w `body`).
 - **„Zastosuj zaznaczone” = jedna transakcja** (`applyPlan`: poprawki od końca
   dokumentu, lista bez punktów znika cała), jeden krok „Cofnij”. Szkic na
   zatwierdzonej wersji powstaje dopiero wtedy — zamówienie i odrzucenie planu

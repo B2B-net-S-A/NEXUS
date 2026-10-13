@@ -4,6 +4,7 @@ import { Editor } from "@tiptap/core";
 import type { CvPlanOperation } from "../api/cvEditorCommand";
 import {
   applyPlan,
+  canApply,
   commandBlocker,
   commandLines,
   cvLines,
@@ -46,7 +47,7 @@ function open(html = CV): Editor {
 }
 
 function op(id: number, type: CvPlanOperation["type"], lines: number[], text: string | null = null): CvPlanOperation {
-  return { id, type, lines, text, why: "", loses: [] };
+  return { id, type, lines, text, why: "", loses: [], new_words: [] };
 }
 
 function apply(editor: Editor, lines: CvLine[], ...operations: CvPlanOperation[]): boolean {
@@ -193,6 +194,39 @@ describe("zastosowanie planu", () => {
     expect(html).toContain(CLAUSE);
     editor.commands.undo();
     expect(editor.getHTML()).toBe(before);
+  });
+
+  it("nowa kolejność omija pusty punkt i nie znika po cichu, gdy punkty stoją w dwóch listach", () => {
+    // Serwer liczy tylko punkty z treścią; pusty zostaje na swoim miejscu.
+    const blank = open(
+      "<h1>CV</h1>" +
+        '<h2 data-cv-section="experience">DOŚWIADCZENIE</h2>' +
+        '<p data-cv-section="role"><strong>Developer</strong> 2021 – 2024</p>' +
+        "<ul><li><p>Pierwszy punkt.</p></li><li><p></p></li><li><p>Drugi punkt.</p></li></ul>",
+    );
+    const rows = cvLines(blank.state.doc);
+    const [first, second] = rows.filter((line) => line.kind === "bullet" && line.text !== "");
+    const reorder = op(0, "reorder", [second.id, first.id]);
+    expect(canApply(reorder, rows)).toBe(true);
+    expect(apply(blank, rows, reorder)).toBe(true);
+    expect(blank.getHTML()).toContain("<ul><li><p>Drugi punkt.</p></li><li><p></p></li><li><p>Pierwszy punkt.</p></li></ul>");
+
+    // Punkty jednego stanowiska w dwóch listach: tej operacji edytor nie umie
+    // nałożyć — mówi o tym, zamiast pominąć ją przy „Zastosuj”.
+    const split = open(
+      "<h1>CV</h1>" +
+        '<h2 data-cv-section="experience">DOŚWIADCZENIE</h2>' +
+        '<p data-cv-section="role"><strong>Developer</strong> 2021 – 2024</p>' +
+        "<ul><li><p>Punkt A.</p></li><li><p>Punkt B.</p></li></ul><p>Projekty:</p><ul><li><p>Punkt C.</p></li></ul>",
+    );
+    const lines = cvLines(split.state.doc);
+    const bullets = lines.filter((line) => line.kind === "bullet").map((line) => line.id);
+    const across = op(0, "reorder", [bullets[2], bullets[0], bullets[1]]);
+    const before = split.getHTML();
+    expect(canApply(across, lines)).toBe(false);
+    expect(applyPlan(split.state, lines, [across, op(1, "replace", [bullets[0]], "Punkt A zmieniony.")])).toBeNull();
+    expect(split.getHTML()).toBe(before);
+    expect(canApply(op(1, "replace", [bullets[0]], "Punkt A zmieniony."), lines)).toBe(true);
   });
 
   it("plan zamówiony dla innej treści niczego nie zmienia", () => {

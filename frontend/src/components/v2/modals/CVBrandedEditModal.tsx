@@ -655,8 +655,11 @@ function CVBrandedEditContent({
             const target = event.target;
             if (!(target instanceof HTMLElement)) return;
             // Escape w karcie propozycji AI odrzuca propozycję (robi to sama karta).
-            // W pasku polecenia i w planie zmian Escape też nie zamyka edytora.
+            // W pasku polecenia i w planie zmian Escape też nie zamyka edytora —
+            // także gdy plan się liczy: pole polecenia jest wtedy wyłączone,
+            // więc klawisz trafia w `body`, nie w pasek.
             if (
+              planOpen ||
               target.closest(".ProseMirror") ||
               target.closest(`[${CV_AI_CARD_ATTR}]`) ||
               target.closest(`[${CV_COMMAND_ATTR}]`)
@@ -913,7 +916,6 @@ function CVBrandedEditContent({
             ) : null}
             {showPlan ? (
               <aside
-                aria-label="Plan zmian"
                 className={cn(
                   "min-h-0 min-w-0 bg-card",
                   sideBySide ? "w-[360px] flex-none border-l border-border" : "flex-1",

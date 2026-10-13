@@ -251,6 +251,18 @@ it("polecenie dla całego CV: plan z pamięci, kartka czeka na decyzję, „Zast
   noNetwork();
 });
 
+it("polecenie: Escape w trakcie liczenia planu nie zamyka edytora", async () => {
+  const dialog = await openEditor();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Polecenie" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Skróć do 2 stron" }));
+  expect(await within(dialog).findByText("Asystent przygotowuje plan zmian…")).toBeInTheDocument();
+  // Pole polecenia jest wtedy wyłączone, więc klawisz trafia w `body`, nie w pasek.
+  fireEvent.keyDown(document.body, { key: "Escape" });
+  expect(dialog.isConnected).toBe(true);
+  expect(await within(dialog).findByRole("button", { name: /Zastosuj zaznaczone/ })).toBeInTheDocument();
+  noNetwork();
+});
+
 it("polecenie: operacja, po której znika wymaganie, nie jest zaznaczona; „Odrzuć plan” niczego nie zmienia", async () => {
   const dialog = await openEditor();
   const editor = liveEditor(dialog);

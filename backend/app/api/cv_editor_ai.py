@@ -200,6 +200,9 @@ class CommandOperation(BaseModel):
     why: str = ""
     # Wymagania rekrutacji, które po tej operacji znikają z CV.
     loses: list[str] = []
+    # Słowa nowej treści, których nie było w zastępowanych wierszach — kontrola
+    # faktów ich nie ocenia, więc edytor takiej operacji nie zaznacza z góry.
+    new_words: list[str] = []
 
 
 class CommandDropped(BaseModel):
