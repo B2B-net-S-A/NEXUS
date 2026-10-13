@@ -5,9 +5,18 @@
  * nie traci treści.
  */
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { PersonPanelShell } from "@/components/v2/person/PersonPanelShell";
+import { useAuthStore } from "@/store/auth";
+
+const originalMatchMedia = window.matchMedia;
+
+afterEach(() => {
+  window.matchMedia = originalMatchMedia;
+  window.localStorage.clear();
+  useAuthStore.setState({ user: null });
+});
 
 describe("PersonPanelShell", () => {
   it("wąski: 380 px, podkład tylko na tablecie", () => {
@@ -97,5 +106,35 @@ describe("PersonPanelShell", () => {
     expect(screen.queryByTestId("pipeline-dock-backdrop")).toBeNull();
     expect(screen.getByLabelText("notatka", { selector: "textarea" })).toHaveValue("niewysłana notatka");
     expect(screen.getByLabelText("notatka", { selector: "textarea" })).not.toBeVisible();
+  });
+
+  it("zapamiętane zwinięte CV (13.10.2026): w trybie dzielonym panel ma połowę ekranu, w przeglądzie DL nic się nie zmienia", () => {
+    window.matchMedia = ((query: string) => ({
+      matches: true,
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })) as unknown as typeof window.matchMedia;
+    useAuthStore.setState({ user: { id: 7 } as never, hydrated: true });
+    window.localStorage.setItem(
+      "nexus:person-preview-layout:7",
+      JSON.stringify({ cvCollapsed: true, infoCollapsed: false }),
+    );
+    const { rerender } = render(
+      <PersonPanelShell size="split" chromeTop={null} onBackdropClick={vi.fn()}>
+        <p>treść</p>
+      </PersonPanelShell>,
+    );
+    const column = screen.getByTestId("person-panel-column");
+    expect(column.className).toContain("lg:w-[calc((100%-2.75rem)/2)]");
+    expect(column.className).not.toContain("lg:w-[460px]");
+
+    rerender(
+      <PersonPanelShell size="review" chromeTop={null} onBackdropClick={vi.fn()}>
+        <p>treść</p>
+      </PersonPanelShell>,
+    );
+    expect(screen.getByTestId("person-panel-column")).toBe(column);
+    expect(column.className).not.toContain("lg:w-");
   });
 });

@@ -1749,7 +1749,7 @@
   {
    "id": "screening-form.preview",
    "area": "formularz screeningu",
-   "opis": "Podgląd przy formularzu: CV oryginalne / CV firmowe / inne pliki, wymagania ze zdaniem ze słowniczka i wyszukiwaniem w CV, „Po ludzku” ze ściągą; od ok. 1700 px okna CV i wymagania naraz",
+   "opis": "Podgląd przy formularzu: CV oryginalne / CV firmowe / inne pliki, wymagania ze zdaniem ze słowniczka i wyszukiwaniem w CV, „Po ludzku” ze ściągą; od ok. 1700 px okna CV i wymagania naraz; CV i wymagania da się zwinąć (13.10.2026)",
    "file": "components/v2/screening-form/CandidatePreviewPane.tsx",
    "marker": "Które CV pokazać",
    "v3_home": "panel osoby → lewa strefa (wąskie okno: przycisk „Pokaż CV i wymagania”)"
@@ -2113,6 +2113,38 @@
    "file": "components/v2/screening-form/CandidatePreviewPane.tsx",
    "marker": "Historia osoby",
    "v3_home": "Tablica → panel osoby → Rozwiń → podgląd po lewej (każda zakładka)"
+  },
+  {
+   "id": "preview.collapse-cv",
+   "area": "panel",
+   "opis": "„Zwiń CV” w dużym podglądzie: CV zostaje listwą przy lewej krawędzi, wymagania i panel dzielą ekran po połowie; „Szukaj w CV” i „Historia osoby” rozwijają CV z powrotem",
+   "file": "components/v2/screening-form/CandidatePreviewPane.tsx",
+   "marker": "Zwiń CV",
+   "v3_home": "Tablica → panel osoby → Rozwiń → podgląd po lewej (pasek źródeł CV)"
+  },
+  {
+   "id": "preview.collapse-requirements",
+   "area": "panel",
+   "opis": "„Zwiń wymagania”: kolumna z wymaganiami, warunkami i „Po ludzku” zamienia się w pasek nad CV, a CV bierze jej miejsce; zwinięte CV i wymagania naraz = dwie listwy i szeroki panel",
+   "file": "components/v2/screening-form/CandidatePreviewPane.tsx",
+   "marker": "Zwiń wymagania",
+   "v3_home": "Tablica → panel osoby → Rozwiń → podgląd po lewej (nagłówek „Wymagania”)"
+  },
+  {
+   "id": "preview.requirements-strip",
+   "area": "panel",
+   "opis": "Pasek wymagań nad CV: krytyczne (albo pierwsze cztery „Musi mieć”) z „Szukaj w CV”, warunki rekrutacji w jednej linii, „Wszystkie wymagania”; na laptopie stoi nad CV także przy otwartych wymaganiach",
+   "file": "components/champion/JobRequirementsStrip.tsx",
+   "marker": "requirements-strip",
+   "v3_home": "Tablica → panel osoby → Rozwiń → podgląd po lewej → CV"
+  },
+  {
+   "id": "preview.layout-memory",
+   "area": "panel",
+   "opis": "Układ podglądu (zwinięte CV / wymagania) pamiętany per osoba w przeglądarce — ten sam przy następnym kandydacie i w każdej zakładce panelu",
+   "file": "lib/person-preview-layout.ts",
+   "marker": "nexus:person-preview-layout:",
+   "v3_home": "Tablica → panel osoby → Rozwiń"
   },
   {
    "id": "screening.before-call-earlier",

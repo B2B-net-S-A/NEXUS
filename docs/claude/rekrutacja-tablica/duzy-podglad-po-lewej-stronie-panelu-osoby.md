@@ -61,6 +61,35 @@ Tylko front, bez API i migracji.
   `tel:`, ikony kopiują; czego profil nie ma, tego nie pokazujemy. Dane z zapytania o profil, które dok i tak robi.
 - **Formularz screeningu zaczyna się od „Warunków”** (stawka, dostępność, tryb), potem pytania z Profilu
   Championa i „Ocena” — także w widoku tylko do odczytu. Prośba rekruterów 09.10.2026; nie odwracaj kolejności.
+- **Zwijanie CV i wymagań (13.10.2026, zgłoszenie rekrutera, D1–D4; makiety
+  https://claude.ai/artifact/3DY3nu6cNPP2d93Bx8wL6k, raport `docs/preview-collapse-completion-report.md`).**
+  Dwa przełączniki: „Zwiń CV” (koniec paska źródeł CV) i „Zwiń wymagania” (nad kolumną „Wymagania” / w zakładkach
+  na górze kolumny). „Wymagania” to cała kolumna o rekrutacji: wymagania, warunki, „Po ludzku” ze ściągą i zakładka
+  sekcji („Pytania klienta”).
+  - Zwinięte CV = listwa `w-11` (2,75rem) przy lewej krawędzi z „Rozwiń CV” i „Historią osoby”; informacje stoją
+    wtedy naraz w jednej przewijanej kolumnie (także na laptopie — bez zakładek), a **wymagania i panel dzielą
+    ekran po połowie** (D2: kolumna panelu `lg:w-[calc((100%-2.75rem)/2)]`). Oba zwinięte: dwie listwy (strefa
+    `lg:w-[5.5rem]`), panel na resztę. Zwinięte same wymagania nie ruszają kolumny panelu (460/520 px).
+  - Zwinięte wymagania = **pasek nad CV** (`champion/JobRequirementsStrip.tsx`): krytyczne (★), a bez nich pierwsze
+    cztery „Musi mieć”, nadmiar „+N”; klik = „Szukaj w CV”; warunki w jednej linii bez pustych; „Wszystkie
+    wymagania” rozwija kolumnę i przełącza zakładkę. Ten sam pasek stoi nad CV w zakładkach (laptop) także przy
+    otwartych wymaganiach (D3) — tam inaczej wymagań przy CV nie widać. W trybie dwóch podglądów przy otwartych
+    wymaganiach paska nie ma. Dane z `champion/use-job-requirements.ts` — wspólnego z listą „Wymagania”, te same
+    klucze zapytań, bez nowego żądania.
+  - **Stan układu siedzi w dostawcy strefy** (`PersonPanelSideProvider`), nie w podglądzie, bo od niego zależy
+    szerokość prawej kolumny (`PersonPanelColumn`, używana przez powłokę i harness `/preview/screening-form`).
+    Pamięć per osoba w przeglądarce (D4, `lib/person-preview-layout.ts`, klucz `nexus:person-preview-layout:<id>`,
+    odczyt w efekcie — pierwszy render jak na serwerze). Zmiana zakładki panelu nie zmienia szerokości, więc pasek
+    zakładek dalej stoi w miejscu.
+  - **Zwijanie tylko z propem `collapsible`** (wspólny podgląd i Rozmowy w `PersonSidePreview`, Screening
+    w `ScreeningWorkbench`). Edytor CV i przegląd DL go nie mają — także otwarte z wnętrza panelu, gdzie kontekst
+    strefy sięga przez portal okna. Nowy podgląd w strefie = `collapsible`, inaczej układ z pamięci rozjedzie się
+    z tym, co widać.
+  - Zwinięcie chowa (`hidden`), nie odmontowuje: rozwinięcie nie pobiera CV drugi raz. Zbiór „raz pokazanych”
+    części zastąpił `visited` + `everDual`; CV zwinięte od startu nie pobiera pliku wcale, dopóki ktoś go nie
+    rozwinie. „Szukaj w CV”, „Historia osoby” z listwy i historia otwarta z zewnątrz najpierw rozwijają CV.
+  - Playwright dopasowuje nazwę przycisku po fragmencie: „Zwiń” panelu w e2e tylko z `exact: true`, bo „Zwiń CV”
+    i „Zwiń wymagania” też go zawierają.
 - Harnessy: `/preview/screening-form` (ramka z prawdziwą strefą), `/preview/job-detail` (replika menu `z-40`
   i `animate-fadeIn`), `/preview/dl-review?layout=panel`. Każdą zmianę panelu sprawdź przy 1280 × 720: strona CV
   ma tam ok. 700–750 px szerokości.

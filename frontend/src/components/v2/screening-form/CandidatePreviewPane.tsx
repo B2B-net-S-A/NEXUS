@@ -21,20 +21,42 @@
  * rekruter widzi wszystko naraz. CV zostaje w tym samym miejscu drzewa
  * w obu układach, więc zmiana szerokości nie pobiera pliku drugi raz.
  *
+ * W powłoce panelu (`collapsible`, 13.10.2026, zgłoszenie rekrutera) CV
+ * i kolumnę z wymaganiami da się zwinąć — stan i szerokości kolumn trzyma
+ * strefa (`usePersonPreviewCollapse`), pamięć jest per osoba:
+ * - zwinięte CV = listwa przy lewej krawędzi; wymagania, „Po ludzku”
+ *   i zakładka sekcji stoją wtedy naraz w jednej przewijanej kolumnie,
+ * - zwinięte wymagania = pasek nad CV (`JobRequirementsStrip`); ten sam pasek
+ *   stoi nad CV w zakładkach (laptop), bo tam wymagań przy CV nie widać,
+ * - „Szukaj w CV” i „Historia osoby” przy zwiniętym CV najpierw je rozwijają.
+ *
  * Ładowany za `next/dynamic` (pdf.js i `docx-preview` nie mogą wejść do
- * chunku Tablicy). Odwiedzone zakładki zostają zamontowane (`hidden`): powrót
- * do CV nie pobiera pliku drugi raz, a przeglądarka PDF dopasowuje szerokość
- * sama, gdy zakładka znów się pokaże.
+ * chunku Tablicy). Raz pokazane części zostają zamontowane (`hidden`): powrót
+ * do CV i rozwinięcie nie pobierają pliku drugi raz, a przeglądarka PDF
+ * dopasowuje szerokość sama, gdy CV znów się pokaże. CV zwinięte od początku
+ * nie pobiera pliku wcale, dopóki ktoś go nie rozwinie.
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Loader2, Pencil, Replace } from "lucide-react";
+import {
+  ArrowLeft,
+  History,
+  Loader2,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
+  Pencil,
+  Replace,
+  type LucideIcon,
+} from "lucide-react";
 
 import { TabbedNav } from "@/components/ds";
 import { Button } from "@/components/ui/button";
+import { JobRequirementsStrip } from "@/components/champion/JobRequirementsStrip";
 import { JobRequirementsSummary } from "@/components/champion/JobRequirementsSummary";
 import { PlainBriefBlock } from "@/components/champion/plain/PlainBriefBlock";
 import { useToast } from "@/components/Toast";
@@ -49,6 +71,7 @@ import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { candidateNoteItems, useCandidateNotes } from "@/components/v2/pages/candidate-notes-query";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { PersonNotesHistory } from "@/components/v2/person/PersonNotesHistory";
+import { usePersonPreviewCollapse } from "@/components/v2/person/PersonPanelSide";
 import { StageCvPreview } from "@/components/v2/person/StageCvPreview";
 import {
   StageCvPicker,
@@ -67,6 +90,7 @@ import { useElementWidth } from "@/lib/use-element-width";
 import { cn, formatDate } from "@/lib/utils";
 
 export type PreviewTab = "cv" | "requirements" | "plain" | "extra";
+const PREVIEW_TABS: ReadonlyArray<PreviewTab> = ["cv", "requirements", "plain", "extra"];
 export type PreviewCvSource = "original" | "company" | "files";
 
 const TABS: ReadonlyArray<{ value: PreviewTab; label: string }> = [
@@ -148,6 +172,8 @@ interface CvTabProps {
    * zamontowane pod spodem, żeby powrót nie pobierał pliku drugi raz.
    */
   history?: PreviewHistory;
+  /** „Zwiń CV” na końcu paska źródeł (tylko w powłoce panelu). */
+  onCollapse?: () => void;
 }
 
 interface PreviewHistory {
@@ -171,6 +197,7 @@ function CvTab({
   cvActions,
   loadStageCvFile,
   history,
+  onCollapse,
 }: CvTabProps) {
   // Treść historii montuje się przy pierwszym otwarciu i potem zostaje
   // (wybrany filtr), tak jak odwiedzone zakładki podglądu.
@@ -519,6 +546,12 @@ function CvTab({
             Historia osoby{history.count > 0 ? ` (${history.count})` : ""}
           </button>
         ) : null}
+        {onCollapse ? (
+          <Button type="button" size="sm" variant="ghost" className="ml-auto" onClick={onCollapse}>
+            <PanelLeftClose className="h-3.5 w-3.5" aria-hidden />
+            Zwiń CV
+          </Button>
+        ) : null}
       </div>
       {/* Stałe opakowanie: `contents` nie zmienia układu, a `hidden` chowa CV
           bez odmontowania — plik nie pobiera się drugi raz po powrocie. */}
@@ -632,6 +665,11 @@ export interface CandidatePreviewPaneProps {
    * cytacie źródła). Nowy `nonce` = nowe wyszukanie, także tego samego tekstu.
    */
   searchRequest?: { text: string; nonce: number } | null;
+  /**
+   * Zwijanie CV i wymagań — podglądy w lewej strefie panelu osoby. Edytor CV
+   * i przegląd DL go nie mają, także gdy otwierają się z wnętrza panelu.
+   */
+  collapsible?: boolean;
   /** Harness: bajty plików bez sieci. */
   loadDocumentBlob?: typeof fetchDocumentBlob;
   loadOriginalBlob?: OriginalBlobLoader;
@@ -641,6 +679,40 @@ export interface CandidatePreviewPaneProps {
 
 function PaneHeading({ children }: { children: string }) {
   return <h3 className="text-sm font-semibold text-foreground">{children}</h3>;
+}
+
+/** Zwinięta część podglądu: przycisk rozwijania i pionowy podpis. */
+function PreviewRail({
+  label,
+  detail,
+  expandLabel,
+  icon: Icon,
+  onExpand,
+  children,
+}: {
+  label: string;
+  detail?: string;
+  expandLabel: string;
+  icon: LucideIcon;
+  onExpand: () => void;
+  children?: ReactNode;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label={`${label} — zwinięte`}
+      className="flex w-11 flex-none flex-col items-center gap-3 border-r border-border bg-muted/30 py-3"
+    >
+      <Button type="button" size="icon" variant="outline" className="h-8 w-8" aria-label={expandLabel} title={expandLabel} onClick={onExpand}>
+        <Icon className="h-4 w-4" aria-hidden />
+      </Button>
+      <span aria-hidden className="rotate-180 whitespace-nowrap text-xs font-semibold text-foreground [writing-mode:vertical-rl]">
+        {label}
+        {detail ? <span className="font-normal text-muted-foreground"> · {detail}</span> : null}
+      </span>
+      {children}
+    </div>
+  );
 }
 
 export function CandidatePreviewPane({
@@ -662,6 +734,7 @@ export function CandidatePreviewPane({
   loadDocumentBlob = fetchDocumentBlob,
   loadOriginalBlob = defaultOriginalLoader,
   loadStageCvFile,
+  collapsible = false,
   className,
 }: CandidatePreviewPaneProps) {
   const [ownTab, setOwnTab] = useState<PreviewTab>(defaultTab);
@@ -699,20 +772,46 @@ export function CandidatePreviewPane({
       : undefined;
 
   const [searchRequest, setSearchRequest] = useState<{ text: string; nonce: number } | null>(null);
-  const [visited, setVisited] = useState<ReadonlySet<PreviewTab>>(() => new Set([tab]));
-  if (!visited.has(tab)) setVisited(new Set([...visited, tab]));
 
   const [root, setRoot] = useState<HTMLElement | null>(null);
   const dual = useElementWidth(root) >= DUAL_MIN_WIDTH;
-  // Dwa podglądy naraz zamontowały już wszystko; po zwężeniu okna do zakładek
-  // nic nie odmontowujemy, żeby CV nie pobierało się drugi raz.
-  const [everDual, setEverDual] = useState(false);
-  if (dual && !everDual) setEverDual(true);
-  const shown = (value: PreviewTab) => dual || everDual || visited.has(value);
-  const panelHidden = (value: PreviewTab) => !dual && tab !== value;
+
+  // Zwijanie tylko w powłoce panelu; bez niej układ jak dotąd.
+  const collapse = usePersonPreviewCollapse();
+  const canCollapse = collapsible && collapse != null;
+  const setLayout = collapse?.setLayout;
+  const cvCollapsed = canCollapse && collapse.layout.cvCollapsed;
+  const infoCollapsed = canCollapse && collapse.layout.infoCollapsed;
+  // Wszystkie sekcje informacji naraz: obok CV w szerokiej strefie albo
+  // w miejscu zwiniętego CV. Zakładki tylko, gdy nic nie jest zwinięte.
+  const stacked = !infoCollapsed && (dual || cvCollapsed);
+  const tabbed = !dual && !cvCollapsed && !infoCollapsed;
+  const cvVisible = !cvCollapsed && (infoCollapsed || dual || tab === "cv");
+  const infoVisible = !infoCollapsed && (stacked || tab !== "cv");
+  const sectionVisible = (value: PreviewTab) => !infoCollapsed && (stacked || tab === value);
+  const visibleNow: Record<PreviewTab, boolean> = {
+    cv: cvVisible,
+    requirements: sectionVisible("requirements"),
+    plain: sectionVisible("plain"),
+    extra: extraTab != null && sectionVisible("extra"),
+  };
+  // Raz pokazana część zostaje zamontowana (`hidden`): powrót, rozwinięcie
+  // i zwężenie okna nie pobierają CV drugi raz.
+  const [seen, setSeen] = useState<ReadonlySet<PreviewTab>>(() => new Set());
+  const newlySeen = PREVIEW_TABS.filter((value) => visibleNow[value] && !seen.has(value));
+  if (newlySeen.length > 0) setSeen(new Set([...seen, ...newlySeen]));
+  const shown = (value: PreviewTab) => seen.has(value) || visibleNow[value];
+  // Pasek wymagań: zamiast zwiniętej kolumny, a w zakładkach nad CV (D3).
+  const stripVisible = canCollapse && cvVisible && (infoCollapsed || !dual);
+
+  const expandCv = useCallback(() => {
+    if (cvCollapsed) setLayout?.({ cvCollapsed: false });
+    changeTab("cv");
+  }, [changeTab, cvCollapsed, setLayout]);
 
   // „Szukaj w CV” przy wymaganiu. CV firmowe nie ma paska wyszukiwania, więc
-  // przełączamy na oryginał; otwarta historia osoby ustępuje CV.
+  // przełączamy na oryginał; otwarta historia osoby ustępuje CV, a zwinięte
+  // CV się rozwija.
   const pickRequirement = useCallback(
     (name: string) => {
       setPickedSource((current) => {
@@ -721,10 +820,23 @@ export function CandidatePreviewPane({
       });
       setSearchRequest({ text: name, nonce: Date.now() });
       changeHistoryOpen(false);
-      changeTab("cv");
+      expandCv();
     },
-    [changeHistoryOpen, changeTab, companyReady],
+    [changeHistoryOpen, companyReady, expandCv],
   );
+
+  const showAllRequirements = useCallback(() => {
+    if (infoCollapsed) setLayout?.({ infoCollapsed: false });
+    changeTab("requirements");
+  }, [changeTab, infoCollapsed, setLayout]);
+
+  // Historia osoby żyje w części CV — otwarta z zewnątrz („Pokaż” przed
+  // telefonem) przy zwiniętym CV najpierw je rozwija.
+  useEffect(() => {
+    if (historyOpen && cvCollapsed) expandCv();
+    // Reaguje na otwarcie historii, nie na zwinięcie CV przy otwartej historii.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historyOpen]);
 
   // Wyszukanie zlecone z zewnątrz idzie tą samą drogą co klik w wymaganie:
   // zakładka CV, oryginał zamiast CV firmowego, historia osoby ustępuje.
@@ -737,7 +849,7 @@ export function CandidatePreviewPane({
   }, [requestedNonce]);
 
   const tabs = extraTab ? [...TABS, { value: "extra" as const, label: extraTab.label }] : TABS;
-  const panelRole = dual ? "region" : "tabpanel";
+  const panelRole = tabbed ? "tabpanel" : "region";
 
   return (
     <section
@@ -745,9 +857,11 @@ export function CandidatePreviewPane({
       aria-label="Podgląd kandydata"
       data-testid="candidate-preview-pane"
       data-dual={dual || undefined}
+      data-cv-collapsed={cvCollapsed || undefined}
+      data-info-collapsed={infoCollapsed || undefined}
       className={cn("flex min-h-0 flex-col", className)}
     >
-      <div hidden={dual} className="flex-none border-b border-border bg-background px-3 pt-2">
+      <div hidden={!tabbed} className="flex-none border-b border-border bg-background px-3 pt-2">
         <TabbedNav
           ariaLabel="Podgląd: CV, wymagania, po ludzku"
           tabs={tabs.map(({ value, label }) => ({ value, label }))}
@@ -757,13 +871,55 @@ export function CandidatePreviewPane({
         />
       </div>
       <div className="flex min-h-0 flex-1">
+        {cvCollapsed ? (
+          <PreviewRail
+            label="CV"
+            detail={SOURCES.find((option) => option.value === source)?.label}
+            expandLabel="Rozwiń CV"
+            icon={PanelLeftOpen}
+            onExpand={expandCv}
+          >
+            {history ? (
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8"
+                aria-label="Pokaż historię osoby"
+                title="Pokaż historię osoby"
+                onClick={() => {
+                  expandCv();
+                  changeHistoryOpen(true);
+                }}
+              >
+                <History className="h-4 w-4" aria-hidden />
+              </Button>
+            ) : null}
+          </PreviewRail>
+        ) : null}
+        {cvCollapsed && infoCollapsed ? (
+          <PreviewRail
+            label="Wymagania"
+            expandLabel="Rozwiń wymagania"
+            icon={PanelRightOpen}
+            onExpand={() => setLayout?.({ infoCollapsed: false })}
+          />
+        ) : null}
         {shown("cv") ? (
           <div
             role={panelRole}
             aria-label="CV"
-            hidden={panelHidden("cv")}
-            className="flex min-h-0 min-w-0 flex-1 flex-col p-3"
+            hidden={!cvVisible}
+            className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 p-3"
           >
+            {stripVisible ? (
+              <JobRequirementsStrip
+                jobId={jobId}
+                budgetHourly={budgetHourly}
+                onPickRequirement={pickRequirement}
+                onShowAll={showAllRequirements}
+              />
+            ) : null}
             <CvTab
               candidateId={candidateId}
               jobId={jobId}
@@ -777,25 +933,36 @@ export function CandidatePreviewPane({
               cvActions={cvActions}
               loadStageCvFile={loadStageCvFile}
               history={history}
+              onCollapse={canCollapse ? () => setLayout?.({ cvCollapsed: true }) : undefined}
             />
           </div>
         ) : null}
         <div
-          hidden={!dual && tab === "cv"}
+          hidden={!infoVisible}
           data-testid="candidate-preview-info"
           className={cn(
             "min-h-0 overflow-y-auto bg-background p-4",
-            dual ? "w-[440px] flex-none space-y-6 border-l border-border" : "min-w-0 flex-1",
+            stacked ? "space-y-6" : "space-y-3",
+            stacked && !cvCollapsed ? "w-[440px] flex-none border-l border-border" : "min-w-0 flex-1",
           )}
         >
+          {canCollapse ? (
+            <div className={cn("flex items-center justify-between gap-2", stacked && "mx-auto w-full max-w-4xl")}>
+              {stacked ? <PaneHeading>Wymagania</PaneHeading> : <span />}
+              <Button type="button" size="sm" variant="ghost" onClick={() => setLayout?.({ infoCollapsed: true })}>
+                <PanelRightClose className="h-3.5 w-3.5" aria-hidden />
+                Zwiń wymagania
+              </Button>
+            </div>
+          ) : null}
           {shown("requirements") ? (
             <div
               role={panelRole}
               aria-label="Wymagania"
-              hidden={panelHidden("requirements")}
+              hidden={!sectionVisible("requirements")}
               className="mx-auto max-w-4xl space-y-3"
             >
-              {dual ? <PaneHeading>Wymagania</PaneHeading> : null}
+              {stacked && !canCollapse ? <PaneHeading>Wymagania</PaneHeading> : null}
               <JobRequirementsSummary jobId={jobId} budgetHourly={budgetHourly} onPickRequirement={pickRequirement} />
             </div>
           ) : null}
@@ -803,22 +970,22 @@ export function CandidatePreviewPane({
             <div
               role={panelRole}
               aria-label="Po ludzku"
-              hidden={panelHidden("plain")}
+              hidden={!sectionVisible("plain")}
               className="mx-auto max-w-3xl space-y-4"
             >
-              {dual ? <PaneHeading>Po ludzku</PaneHeading> : null}
-              <PlainBriefBlock jobId={jobId} parts="summary" compact={dual} />
-              <DockCallCheatsheet jobId={jobId} roomy={!dual} />
+              {stacked ? <PaneHeading>Po ludzku</PaneHeading> : null}
+              <PlainBriefBlock jobId={jobId} parts="summary" compact={dual && !cvCollapsed} />
+              <DockCallCheatsheet jobId={jobId} roomy={!dual || cvCollapsed} />
             </div>
           ) : null}
           {extraTab && shown("extra") ? (
             <div
               role={panelRole}
               aria-label={extraTab.label}
-              hidden={panelHidden("extra")}
+              hidden={!sectionVisible("extra")}
               className="mx-auto max-w-3xl space-y-3"
             >
-              {dual ? <PaneHeading>{extraTab.label}</PaneHeading> : null}
+              {stacked ? <PaneHeading>{extraTab.label}</PaneHeading> : null}
               {extraTab.content}
             </div>
           ) : null}

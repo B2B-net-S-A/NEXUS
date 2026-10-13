@@ -17,11 +17,20 @@
  * Poniżej 1024 px szerokości okna (i bez dostawcy: testy, zwykłe strony)
  * `PersonPanelSide` renderuje treść w miejscu — warsztat pokazuje ją wtedy
  * pod przyciskiem „Pokaż CV i wymagania”, jak dotąd.
+ *
+ * Układ podglądu (13.10.2026, zgłoszenie rekrutera): CV i kolumnę z wymaganiami
+ * da się zwinąć. Stan siedzi tutaj, a nie w podglądzie, bo od niego zależy też
+ * szerokość prawej kolumny panelu (`PersonPanelColumn`) — po zwinięciu CV
+ * wymagania i panel dzielą ekran po połowie (D2), po zwinięciu obu panel bierze
+ * resztę obok dwóch listew. Układ jest pamiętany per osoba (D4,
+ * `lib/person-preview-layout.ts`).
  */
 
 import {
   createContext,
+  useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   useSyncExternalStore,
@@ -29,7 +38,15 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
+import {
+  DEFAULT_PERSON_PREVIEW_LAYOUT,
+  personPreviewLayoutKey,
+  readPersonPreviewLayout,
+  writePersonPreviewLayout,
+  type PersonPreviewLayout,
+} from "@/lib/person-preview-layout";
 import { cn } from "@/lib/utils";
+import { useAuthStore } from "@/store/auth";
 
 /** Tailwind `lg` — od tej szerokości okna panel ma strefę podglądu. */
 const SIDE_VIEWPORT_QUERY = "(min-width: 64rem)";
@@ -54,6 +71,8 @@ interface SideContextValue {
   setNode: (node: HTMLElement | null) => void;
   /** Okno ma co najmniej 1024 px — treść idzie do strefy. */
   wide: boolean;
+  layout: PersonPreviewLayout;
+  setLayout: (patch: Partial<PersonPreviewLayout>) => void;
 }
 
 const SideContext = createContext<SideContextValue | null>(null);
@@ -65,8 +84,50 @@ export function PersonPanelSideProvider({ children }: { children: ReactNode }) {
   // Odczyt synchroniczny: efekt po malowaniu zamontowałby podgląd najpierw
   // w miejscu, a potem drugi raz w strefie (drugie pobranie pliku CV).
   const wide = useSyncExternalStore(subscribeViewport, viewportSnapshot, () => false);
-  const value = useMemo(() => ({ node, setNode, wide }), [node, wide]);
+
+  // Pamięć czytana w efekcie (jak `kanban-view-preferences.ts`): pierwszy
+  // render jest taki sam na serwerze i w przeglądarce. Podgląd ładuje się
+  // za `next/dynamic`, więc montuje się już w zapamiętanym układzie.
+  const userId = useAuthStore((s) => s.user?.id);
+  const layoutKey = personPreviewLayoutKey(userId);
+  const [layout, setLayoutState] = useState<PersonPreviewLayout>(DEFAULT_PERSON_PREVIEW_LAYOUT);
+  useEffect(() => {
+    setLayoutState(readPersonPreviewLayout(layoutKey));
+  }, [layoutKey]);
+  const setLayout = useCallback(
+    (patch: Partial<PersonPreviewLayout>) => {
+      const next = { ...layout, ...patch };
+      setLayoutState(next);
+      writePersonPreviewLayout(layoutKey, next);
+    },
+    [layout, layoutKey],
+  );
+
+  const value = useMemo(() => ({ node, setNode, wide, layout, setLayout }), [node, wide, layout, setLayout]);
   return <SideContext.Provider value={value}>{children}</SideContext.Provider>;
+}
+
+export interface PersonPreviewCollapse {
+  layout: PersonPreviewLayout;
+  setLayout: (patch: Partial<PersonPreviewLayout>) => void;
+}
+
+/**
+ * Zwijanie CV i wymagań — tylko w powłoce panelu i od 1024 px okna (tam
+ * podgląd stoi w strefie). Bez powłoki albo w wąskim oknie `null`: podgląd
+ * wygląda jak dotąd.
+ */
+export function usePersonPreviewCollapse(): PersonPreviewCollapse | null {
+  const ctx = useContext(SideContext);
+  return useMemo(
+    () => (ctx?.wide ? { layout: ctx.layout, setLayout: ctx.setLayout } : null),
+    [ctx?.wide, ctx?.layout, ctx?.setLayout],
+  );
+}
+
+/** Oba elementy podglądu zwinięte — w strefie stoją same listwy. */
+function bothCollapsed(layout: PersonPreviewLayout | undefined): boolean {
+  return layout?.cvCollapsed === true && layout.infoCollapsed === true;
 }
 
 /** Sekcje warsztatu zostają zamontowane — niewidoczna chowa swój podgląd. */
@@ -88,12 +149,45 @@ export function PersonPanelSideZone({ hidden = false, className }: PersonPanelSi
       data-person-side=""
       data-testid="person-panel-side"
       hidden={hidden}
-      className={cn("relative hidden min-w-0 flex-1 border-r border-border bg-muted/30 lg:block", className)}
+      className={cn(
+        "relative hidden min-w-0 flex-1 border-r border-border bg-muted/30 lg:block",
+        // Dwie listwy podglądu po 2,75rem (`w-11` w `CandidatePreviewPane`).
+        bothCollapsed(ctx?.layout) && "lg:w-[5.5rem] lg:flex-none",
+        className,
+      )}
     >
       <p className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-muted-foreground">
         Podgląd CV i wymagań pojawi się tutaj po wczytaniu karty osoby.
       </p>
       <div ref={ctx?.setNode} className="absolute inset-0" />
+    </div>
+  );
+}
+
+export interface PersonPanelColumnProps {
+  /** Panel w trybie dzielonym — tylko wtedy kolumna ma stałą szerokość obok strefy. */
+  split: boolean;
+  testId?: string;
+  children: ReactNode;
+}
+
+/**
+ * Prawa kolumna panelu obok strefy podglądu: 460 px, od 1536 px okna 520 px.
+ * Po zwinięciu CV połowa szerokości bez listwy (2,75rem), po zwinięciu obu —
+ * reszta obok dwóch listew. Szerokości tylko od `lg`: poniżej strefy nie ma.
+ */
+export function PersonPanelColumn({ split, testId = "person-panel-column", children }: PersonPanelColumnProps) {
+  const ctx = useContext(SideContext);
+  const layout = ctx?.layout ?? DEFAULT_PERSON_PREVIEW_LAYOUT;
+  let width: string | false = false;
+  if (split) {
+    if (bothCollapsed(layout)) width = "lg:flex-1";
+    else if (layout.cvCollapsed) width = "lg:w-[calc((100%-2.75rem)/2)] lg:flex-none";
+    else width = "lg:w-[460px] lg:flex-none 2xl:w-[520px]";
+  }
+  return (
+    <div data-testid={testId} className={cn("flex min-h-0 min-w-0 flex-1 flex-col", width)}>
+      {children}
     </div>
   );
 }

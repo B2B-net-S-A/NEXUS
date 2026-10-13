@@ -33,6 +33,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@/components/Toast";
 import { ScreeningWorkbench } from "@/components/v2/jobs/ScreeningWorkbench";
 import {
+  PersonPanelColumn,
   PersonPanelSide,
   PersonPanelSideProvider,
   PersonPanelSideZone,
@@ -835,14 +836,12 @@ function PanelFrame({ children }: { children: ReactNode }) {
         data-testid="harness-panel"
       >
         <PersonPanelSideZone />
-        <div
-          className="flex min-h-0 min-w-0 flex-1 flex-col lg:w-[460px] lg:flex-none 2xl:w-[520px]"
-          data-testid="harness-panel-column"
-        >
+        {/* Ta sama kolumna co w powłoce — po zwinięciu CV rośnie do połowy. */}
+        <PersonPanelColumn split testId="harness-panel-column">
           <div className="flex-1 overflow-y-auto p-4" data-person-scroll="">
             {children}
           </div>
-        </div>
+        </PersonPanelColumn>
       </div>
     </PersonPanelSideProvider>
   );
@@ -877,6 +876,7 @@ function PresentationalForm({ state, withHistory }: { state: HarnessState; withH
           budgetHourly={150}
           loadDocumentBlob={loadStaticBlob}
           loadOriginalBlob={loadStaticOriginal}
+          collapsible
           className="flex-1"
         />
       </PersonPanelSide>

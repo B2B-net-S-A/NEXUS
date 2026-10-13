@@ -368,6 +368,7 @@ export function ScreeningWorkbench({
           onHistoryOpenChange={setHistoryOpen}
           budgetHourly={jobBudgetHourly}
           cvActions={readOnly || ended ? undefined : { candidateName: name }}
+          collapsible
           className="flex-1"
           {...previewLoaders}
         />

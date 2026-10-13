@@ -47,6 +47,7 @@ export function PersonSidePreview({ candidateId, jobId, stageId, budgetHourly = 
         preferCompanyCv
         extraTab={extraTab}
         budgetHourly={budgetHourly}
+        collapsible
         className="flex-1"
       />
     </PersonPanelSide>

@@ -95,12 +95,39 @@ vi.mock("@/components/v2/person/PersonNotesHistory", () => ({
   ),
 }));
 
+vi.mock("@/components/champion/JobRequirementsStrip", () => ({
+  JobRequirementsStrip: ({
+    onPickRequirement,
+    onShowAll,
+  }: {
+    onPickRequirement: (name: string) => void;
+    onShowAll: () => void;
+  }) => (
+    <div data-testid="requirements-strip">
+      <button type="button" onClick={() => onPickRequirement("UML")}>
+        UML z paska
+      </button>
+      <button type="button" onClick={onShowAll}>
+        Wszystkie wymagania
+      </button>
+    </div>
+  ),
+}));
+
 vi.mock("@/components/champion/plain/PlainBriefBlock", () => ({
   PlainBriefBlock: () => <p>Jednym zdaniem o roli</p>,
 }));
 vi.mock("@/components/v2/jobs/DockCallCheatsheet", () => ({
   DockCallCheatsheet: () => <p>Ściąga do rozmowy</p>,
 }));
+
+import {
+  PersonPanelColumn,
+  PersonPanelSide,
+  PersonPanelSideProvider,
+  PersonPanelSideZone,
+} from "@/components/v2/person/PersonPanelSide";
+import { useAuthStore } from "@/store/auth";
 
 import { CandidatePreviewPane, type PreviewTab } from "../CandidatePreviewPane";
 
@@ -640,5 +667,233 @@ describe("CandidatePreviewPane — „Historia osoby” obok źródeł CV (12.10
     // Wybór źródła CV oddaje stan wołającemu.
     await user.click(screen.getByRole("button", { name: "CV oryginalne" }));
     expect(screen.getByTestId("person-history")).not.toBeVisible();
+  });
+});
+
+/**
+ * Zwijanie CV i wymagań w powłoce panelu (13.10.2026, D1–D4). jsdom ma
+ * szerokość 0, więc bez atrapy szerokości podgląd jest w zakładkach — jak na
+ * laptopie 1280 × 720.
+ */
+describe("CandidatePreviewPane — zwijanie CV i wymagań", () => {
+  const originalMatchMedia = window.matchMedia;
+
+  beforeEach(() => {
+    window.localStorage.clear();
+    useAuthStore.setState({ user: { id: 7 } as never, hydrated: true });
+    window.matchMedia = ((query: string) => ({
+      matches: true,
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })) as unknown as typeof window.matchMedia;
+  });
+
+  afterEach(() => {
+    window.matchMedia = originalMatchMedia;
+    useAuthStore.setState({ user: null });
+  });
+
+  function mountInPanel({ initialTab = "cv", collapsible = true }: { initialTab?: PreviewTab; collapsible?: boolean } = {}) {
+    function PanelHost() {
+      const [tab, setTab] = useState<PreviewTab>(initialTab);
+      return (
+        <PersonPanelSideProvider>
+          <PersonPanelSideZone />
+          <PersonPanelColumn split>
+            <p>panel osoby</p>
+          </PersonPanelColumn>
+          <PersonPanelSide>
+            <CandidatePreviewPane
+              candidateId={101}
+              jobId={201}
+              stageId={901}
+              tab={tab}
+              onTabChange={setTab}
+              collapsible={collapsible}
+            />
+          </PersonPanelSide>
+        </PersonPanelSideProvider>
+      );
+    }
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <PanelHost />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("bez `collapsible` (edytor CV, przegląd DL) nie ma zwijania ani paska wymagań", async () => {
+    mountInPanel({ collapsible: false });
+    await screen.findByTestId("file-preview");
+    expect(screen.queryByRole("button", { name: "Zwiń CV" })).toBeNull();
+    expect(screen.queryByTestId("requirements-strip")).toBeNull();
+    await userEvent.setup().click(screen.getByRole("tab", { name: "Wymagania" }));
+    expect(screen.queryByRole("button", { name: "Zwiń wymagania" })).toBeNull();
+  });
+
+  it("w zakładkach (laptop) pasek wymagań stoi nad CV, a „Wszystkie wymagania” przełącza zakładkę (D3)", async () => {
+    const user = userEvent.setup();
+    mountInPanel();
+    await screen.findByTestId("file-preview");
+    expect(screen.getByTestId("requirements-strip")).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Wszystkie wymagania" }));
+    expect(screen.getByRole("tab", { name: "Wymagania" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByTestId("requirements-strip")).toBeNull();
+  });
+
+  it("zwinięte CV: listwa, wymagania i „Po ludzku” naraz bez zakładek, panel na pół; rozwinięcie nie pobiera CV drugi raz", async () => {
+    const user = userEvent.setup();
+    mountInPanel();
+    await screen.findByTestId("file-preview");
+    expect(mocks.previewMounted).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: "Zwiń CV" }));
+    expect(screen.getByTestId("file-preview")).not.toBeVisible();
+    expect(screen.getByRole("button", { name: "Rozwiń CV" })).toBeVisible();
+    expect(screen.queryByRole("tab")).toBeNull();
+    expect(screen.getByRole("region", { name: "Wymagania" })).toBeVisible();
+    expect(screen.getByRole("region", { name: "Po ludzku" })).toBeVisible();
+    expect(screen.getByTestId("candidate-preview-pane")).toHaveAttribute("data-cv-collapsed", "true");
+    expect(screen.getByTestId("person-panel-column").className).toContain("lg:w-[calc((100%-2.75rem)/2)]");
+
+    await user.click(screen.getByRole("button", { name: "Rozwiń CV" }));
+    expect(screen.getByTestId("file-preview")).toBeVisible();
+    expect(screen.getByRole("tab", { name: "CV" })).toHaveAttribute("aria-selected", "true");
+    expect(mocks.previewMounted).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("person-panel-column").className).toContain("lg:w-[460px]");
+  });
+
+  it("„Szukaj w CV” przy zwiniętym CV rozwija je i szuka", async () => {
+    const user = userEvent.setup();
+    mountInPanel();
+    await screen.findByTestId("file-preview");
+    await user.click(screen.getByRole("button", { name: "Zwiń CV" }));
+
+    await user.click(screen.getByRole("button", { name: "Kafka" }));
+    expect(screen.getByTestId("file-preview")).toBeVisible();
+    expect(screen.getByTestId("file-preview")).toHaveTextContent("szukam: Kafka");
+    expect(screen.queryByRole("button", { name: "Rozwiń CV" })).toBeNull();
+  });
+
+  it("zwinięte wymagania: CV z paskiem, bez zakładek; „Wszystkie wymagania” je przywraca", async () => {
+    const user = userEvent.setup();
+    mountInPanel({ initialTab: "requirements" });
+    await user.click(await screen.findByRole("button", { name: "Zwiń wymagania" }));
+
+    expect(screen.queryByRole("tab")).toBeNull();
+    expect(await screen.findByTestId("file-preview")).toBeVisible();
+    expect(screen.getByTestId("requirements-strip")).toBeVisible();
+    // Ukryta sekcja nie ma nazwy dostępnej — sprawdzamy jej treść.
+    expect(screen.getByText("Kafka")).not.toBeVisible();
+    expect(screen.getByTestId("candidate-preview-pane")).toHaveAttribute("data-info-collapsed", "true");
+
+    // Klik w wymaganie z paska szuka w CV.
+    await user.click(screen.getByRole("button", { name: "UML z paska" }));
+    expect(screen.getByTestId("file-preview")).toHaveTextContent("szukam: UML");
+
+    await user.click(screen.getByRole("button", { name: "Wszystkie wymagania" }));
+    expect(screen.getByRole("tab", { name: "Wymagania" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("candidate-preview-pane")).not.toHaveAttribute("data-info-collapsed");
+  });
+
+  it("oba zwinięte: dwie listwy, strefa wąska, panel na resztę", async () => {
+    const user = userEvent.setup();
+    mountInPanel();
+    await screen.findByTestId("file-preview");
+    await user.click(screen.getByRole("button", { name: "Zwiń CV" }));
+    await user.click(screen.getByRole("button", { name: "Zwiń wymagania" }));
+
+    expect(screen.getByRole("button", { name: "Rozwiń CV" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Rozwiń wymagania" })).toBeVisible();
+    // Ukryta sekcja nie ma nazwy dostępnej — sprawdzamy jej treść.
+    expect(screen.getByText("Kafka")).not.toBeVisible();
+    expect(screen.getByTestId("person-panel-side").className).toContain("lg:w-[5.5rem]");
+    expect(screen.getByTestId("person-panel-column").className).toContain("lg:flex-1");
+
+    await user.click(screen.getByRole("button", { name: "Rozwiń wymagania" }));
+    expect(screen.getByRole("region", { name: "Wymagania" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Rozwiń wymagania" })).toBeNull();
+  });
+
+  it("zapamiętane zwinięte CV nie pobiera pliku, dopóki ktoś go nie rozwinie (D4)", async () => {
+    window.localStorage.setItem(
+      "nexus:person-preview-layout:7",
+      JSON.stringify({ cvCollapsed: true, infoCollapsed: false }),
+    );
+    const user = userEvent.setup();
+    mountInPanel();
+    await user.click(await screen.findByRole("button", { name: "Rozwiń CV" }));
+    expect(await screen.findByTestId("file-preview")).toBeVisible();
+    expect(mocks.previewMounted).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(window.localStorage.getItem("nexus:person-preview-layout:7") ?? "null")).toEqual({
+      cvCollapsed: false,
+      infoCollapsed: false,
+    });
+  });
+
+  it("zapamiętane zwinięte CV: przed rozwinięciem podgląd pliku nie powstaje", async () => {
+    window.localStorage.setItem(
+      "nexus:person-preview-layout:7",
+      JSON.stringify({ cvCollapsed: true, infoCollapsed: false }),
+    );
+    mountInPanel();
+    await screen.findByRole("button", { name: "Rozwiń CV" });
+    await act(async () => {});
+    expect(screen.queryByTestId("file-preview")).toBeNull();
+    expect(mocks.previewMounted).not.toHaveBeenCalled();
+    expect(mocks.original).not.toHaveBeenCalled();
+  });
+
+  it("w szerokiej strefie (monitor) pasek stoi tylko przy zwiniętych wymaganiach", async () => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    vi.spyOn(Element.prototype, "clientWidth", "get").mockImplementation(() => 1200);
+    try {
+      const user = userEvent.setup();
+      mountInPanel({ initialTab: "requirements" });
+      expect(await screen.findByTestId("file-preview")).toBeVisible();
+      expect(screen.getByTestId("candidate-preview-pane")).toHaveAttribute("data-dual", "true");
+      expect(screen.getByRole("region", { name: "Wymagania" })).toBeVisible();
+      expect(screen.queryByTestId("requirements-strip")).toBeNull();
+
+      await user.click(screen.getByRole("button", { name: "Zwiń wymagania" }));
+      expect(screen.getByTestId("requirements-strip")).toBeVisible();
+      expect(screen.getByTestId("file-preview")).toBeVisible();
+
+      await user.click(screen.getByRole("button", { name: "Wszystkie wymagania" }));
+      expect(screen.queryByTestId("requirements-strip")).toBeNull();
+      expect(screen.getByRole("region", { name: "Wymagania" })).toBeVisible();
+      expect(mocks.previewMounted).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("„Historia osoby” na listwie rozwija CV z historią", async () => {
+    mocks.get.mockImplementation((url: string) =>
+      Promise.resolve({
+        data: String(url).startsWith("/api/notes")
+          ? { items: [{ id: 1, job_id: 201, content: "Umówiony telefon.", created_at: "2026-10-12T08:00:00Z", group: "talks" }] }
+          : PROFILE_DOCS,
+      }),
+    );
+    const user = userEvent.setup();
+    mountInPanel();
+    await screen.findByRole("button", { name: "Historia osoby (1)" });
+    await user.click(screen.getByRole("button", { name: "Zwiń CV" }));
+
+    await user.click(screen.getByRole("button", { name: "Pokaż historię osoby" }));
+    expect(screen.getByRole("region", { name: "Historia osoby" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Rozwiń CV" })).toBeNull();
   });
 });
