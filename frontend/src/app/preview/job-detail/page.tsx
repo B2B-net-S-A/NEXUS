@@ -21,7 +21,9 @@
  * `?closed=1` — rekrutacja zamknięta („Otwórz ponownie…” w menu „⋯”),
  * `?reopen=1` — zamknięta z otwartym oknem „Otwórz ponownie” i fikcyjnymi
  * brakami (04.10.2026),
- * `?files=1` — otwarte okno „Pliki” z menu „⋯” (0428, 09.10.2026).
+ * `?files=1` — otwarte okno „Pliki” z menu „⋯” (0428, 09.10.2026),
+ * `?close=1` — otwarte okno „Zamknij rekrutację z powodem”; pierwsze
+ * zamknięcie dostaje fikcyjne ostrzeżenie o osobach w toku (13.10.2026).
  */
 
 import { Suspense, useEffect, useState } from "react";
@@ -43,6 +45,7 @@ import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { rateChangesQueryKey } from "@/lib/rate-change";
 import { AddCandidatesPanel } from "@/components/v2/recruitment/AddCandidatesPanel";
+import { JobCloseWithReasonDialog } from "@/components/v2/jobs/JobCloseWithReasonDialog";
 import { JobReopenDialog } from "@/components/v2/jobs/JobReopenDialog";
 import { JobFilesSlideOver } from "@/components/v2/recruitment/slideovers/JobFilesSlideOver";
 import type { JobFilesResponse } from "@/lib/api/jobFiles";
@@ -1057,6 +1060,15 @@ const PREVIEW_FILES: JobFilesResponse = {
   ],
 };
 
+// Fikcyjna odpowiedź `POST /api/jobs/{id}/close` bez potwierdzenia.
+const CLOSE_WARNING = {
+  code: "active_cards_warning",
+  message:
+    "W tej rekrutacji jest 5 osób w toku (ostatni ruch karty 12.10.2026). Zamknięcie nie zamyka kart — zostaną w zamkniętej rekrutacji.",
+  active_cards: 5,
+  columns: { new: 3, screening: 2 },
+};
+
 function JobDetailHarness() {
   const params = useSearchParams();
   const showEmpty = params.get("empty") === "1";
@@ -1066,6 +1078,7 @@ function JobDetailHarness() {
   const closed = reopenOnStart || params.get("closed") === "1";
   const [reopenOpen, setReopenOpen] = useState(reopenOnStart);
   const [filesOpen, setFilesOpen] = useState(params.get("files") === "1");
+  const [closeOpen, setCloseOpen] = useState(params.get("close") === "1");
   const [client] = useState(seededClient);
   const [sourceTab, setSourceTab] = useState<CandidateSourceTab | null>(
     CANDIDATE_SOURCE_TABS.includes(initialSources as CandidateSourceTab)
@@ -1084,6 +1097,27 @@ function JobDetailHarness() {
           headers: {},
           config,
         });
+        return config;
+      }
+      if (config.url === `/api/jobs/${JOB_ID}/close`) {
+        // Adapter per żądanie: nic nie wychodzi do sieci, a okno dostaje
+        // ostrzeżenie przy pierwszym zamknięciu i zgodę po potwierdzeniu.
+        const acknowledged = Boolean(
+          (config.data as { acknowledge_active_cards?: boolean } | undefined)
+            ?.acknowledge_active_cards,
+        );
+        config.adapter = async () => {
+          if (acknowledged) {
+            return { data: {}, status: 200, statusText: "OK", headers: {}, config };
+          }
+          throw new AxiosError("HTTP 409", "ERR_BAD_REQUEST", config, null, {
+            data: { detail: CLOSE_WARNING },
+            status: 409,
+            statusText: "Conflict",
+            headers: {},
+            config,
+          });
+        };
         return config;
       }
       return Promise.reject(new AxiosError("preview: sieć wyłączona", "ECONNABORTED", config));
@@ -1183,9 +1217,18 @@ function JobDetailHarness() {
                           useUiStore.setState({ hideEmptyKanbanColumns: !hideEmptyColumns })
                         }
                         onCopyLink={noop}
-                        onCloseJob={closed ? undefined : noop}
+                        onCloseJob={closed ? undefined : () => setCloseOpen(true)}
                         onReopenJob={closed ? () => setReopenOpen(true) : undefined}
                       />
+                      {closed ? null : (
+                        <JobCloseWithReasonDialog
+                          open={closeOpen}
+                          onOpenChange={setCloseOpen}
+                          jobId={JOB_ID}
+                          jobTitle="Senior Java Developer"
+                          defaultReason="other"
+                        />
+                      )}
                       {closed ? (
                         <JobReopenDialog
                           jobId={JOB_ID}

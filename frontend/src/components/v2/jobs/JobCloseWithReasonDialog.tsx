@@ -21,6 +21,7 @@ import { AppModal } from "@/components/ds";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/Toast";
 import { extractErrorMsg, jobsApi } from "@/lib/api";
+import { activeCardsWarningFrom, type ActiveCardsWarning } from "@/lib/job-close";
 import { JOB_CLOSE_REASONS, type JobCloseReason } from "@/types/client-profile";
 
 export interface JobCloseWithReasonDialogProps {
@@ -53,14 +54,23 @@ export function JobCloseWithReasonDialog({
   // `defaultReason` („obsadzone przez nas" przy zatrudnionych) zależy od
   // kanbana, który przy wejściu deep-linkiem `?tab=contract` jeszcze się
   // ładuje. Podpowiedź wchodzi więc przy KAŻDYM otwarciu dialogu.
+  // Osoby w toku (13.10.2026): serwer zatrzymuje pierwsze zamknięcie
+  // ostrzeżeniem, drugie idzie z potwierdzeniem.
+  const [activeCards, setActiveCards] = useState<ActiveCardsWarning | null>(null);
   useEffect(() => {
-    if (open) setReason(defaultReason);
+    if (open) {
+      setReason(defaultReason);
+      setActiveCards(null);
+    }
   }, [open, defaultReason]);
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
 
   const mutation = useMutation({
-    mutationFn: () => jobsApi.close(jobId, reason, notes),
+    mutationFn: () =>
+      activeCards
+        ? jobsApi.close(jobId, reason, notes, true)
+        : jobsApi.close(jobId, reason, notes),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["job", String(jobId)] });
       queryClient.invalidateQueries({ queryKey: ["job", jobId] });
@@ -72,8 +82,14 @@ export function JobCloseWithReasonDialog({
       onOpenChange(false);
       onClosed?.();
     },
-    onError: (e) =>
-      showError(extractErrorMsg(e) || "Nie udało się zamknąć rekrutacji"),
+    onError: (e) => {
+      const warning = activeCardsWarningFrom(e);
+      if (warning) {
+        setActiveCards(warning);
+        return;
+      }
+      showError(extractErrorMsg(e) || "Nie udało się zamknąć rekrutacji");
+    },
   });
 
   return (
@@ -96,12 +112,13 @@ export function JobCloseWithReasonDialog({
             onClick={() => mutation.mutate()}
             loading={mutation.isPending}
           >
-            Zamknij rekrutację
+            {activeCards ? "Zamknij mimo to" : "Zamknij rekrutację"}
           </Button>
         </>
       }
     >
       <div className="space-y-3">
+        {activeCards ? <ActiveCardsNotice warning={activeCards} /> : null}
         <div className="space-y-1">
           <label
             htmlFor="job-close-reason"
@@ -150,5 +167,19 @@ export function JobCloseWithReasonDialog({
         </p>
       </div>
     </AppModal>
+  );
+}
+
+/** Osoby w toku przed zamknięciem — wspólne dla obu okien zamykania. */
+export function ActiveCardsNotice({ warning }: { warning: ActiveCardsWarning }) {
+  return (
+    <div
+      role="alert"
+      className="space-y-1 rounded-lg border border-warning/40 bg-warning-muted p-3 text-sm text-warning-muted-foreground"
+    >
+      <p>{warning.message}</p>
+      {warning.breakdown ? <p className="font-medium">{warning.breakdown}</p> : null}
+      <p>Odrzuć albo przenieś te osoby przed zamknięciem, albo zamknij mimo to.</p>
+    </div>
   );
 }

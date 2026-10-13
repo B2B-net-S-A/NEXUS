@@ -1320,6 +1320,10 @@ async def assign_candidate_to_job(
     # uniform 403 for non-members (admin / head_of_recruitment bypass).
     await ensure_job_membership(db, current_user, job_id)
 
+    from app.services import candidate_claim
+
+    from_integration = candidate_claim.is_integration_request(request)
+
     # Skip if already in pipeline
     existing = await db.scalar(
         select(func.count(CandidateStage.id)).where(
@@ -1328,6 +1332,16 @@ async def assign_candidate_to_job(
         )
     )
     if existing:
+        # 13.10.2026: karta w „Zamkniętych” to nie „już w rekrutacji”. Do tej
+        # daty odpowiedź 200 czytała się na ekranach jako „Przypisano”, choć
+        # osoba stała odrzucona. Człowiek dostaje odmowę z etapem, dniem
+        # i celem ruchu, który kartę przywraca; integracja jak dotąd.
+        if not from_integration:
+            from app.api.proposals_bulk import closed_card_skip
+
+            closed = await closed_card_skip(db, job=job, candidate=candidate)
+            if closed is not None:
+                raise _closed_card_conflict(closed)
         return {"status": "already_in_pipeline", "count": existing}
 
     # Eligibility gate (SEARCH-P0-04) — the shared pipeline gate, same policy
@@ -1343,9 +1357,6 @@ async def assign_candidate_to_job(
         now=datetime.now(timezone.utc),
     )
 
-    from app.services import candidate_claim
-
-    from_integration = candidate_claim.is_integration_request(request)
     if not from_integration:
         # Audyt 06.10.2026 (U1): człowiek dodaje tą samą drogą co z okna
         # rekrutacji (`add_candidates_to_job`) — etap „Nowi” (nie „Ogłoszenia”
@@ -1447,6 +1458,18 @@ async def assign_candidate_to_job(
     }
 
 
+def _closed_card_conflict(row) -> HTTPException:
+    """409 dla zamkniętej karty: zdanie dla człowieka i cel ruchu dla okna."""
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": "closed_in_job",
+            "message": row.reason_label,
+            "closed": row.closed.model_dump() if row.closed is not None else None,
+        },
+    )
+
+
 async def _assign_by_human(
     db: AsyncSession, *, job: Job, candidate_id: int, user: User
 ) -> dict:
@@ -1457,7 +1480,7 @@ async def _assign_by_human(
     ``skipped`` z ``add_candidates_to_job`` to wyścig po tym sprawdzeniu —
     mapowany na te same odpowiedzi.
     """
-    from app.api.proposals_bulk import IN_JOB_SKIP_REASONS, add_candidates_to_job
+    from app.api.proposals_bulk import add_candidates_to_job
     from app.services import candidate_claim
     from app.services.match_telemetry_service import (
         emit_pipeline_additions,
@@ -1477,7 +1500,9 @@ async def _assign_by_human(
     if not result.added:
         skipped = result.skipped[0] if result.skipped else None
         await db.rollback()
-        if skipped is not None and skipped.reason in IN_JOB_SKIP_REASONS:
+        if skipped is not None and skipped.reason == "closed_in_job":
+            raise _closed_card_conflict(skipped)
+        if skipped is not None and skipped.reason == "already_in_job":
             return {"status": "already_in_pipeline", "count": 1}
         raise HTTPException(
             status_code=409,

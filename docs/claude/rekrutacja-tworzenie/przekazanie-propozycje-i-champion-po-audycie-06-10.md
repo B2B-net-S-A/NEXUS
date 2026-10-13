@@ -54,7 +54,9 @@ z #2058 — „Propozycje z bazy” bez limitu 60).
   przez `proposals_bulk.add_candidates_to_job`: etap „Nowi”, blokada 12 h,
   `entry_source = added_manual`, `mark_proposals=True`, telemetria
   `candidate_list`. Kształty odpowiedzi
-  (200 `assigned` / `already_in_pipeline`, 409) bez zmian. Integracja zostaje
+  (200 `assigned` / `already_in_pipeline`, 409) bez zmian — od 13.10.2026
+  z jednym wyjątkiem: karta w „Zamkniętych” to 409 `closed_in_job`
+  (`rekrutacja-tablica/dodaj-do-rekrutacji-zamknieta-karta.md`). Integracja zostaje
   przy starej ścieżce. Telemetria dodań niesie id procesu w `event_id`
   (`latest_process_ids`), integracja ma źródło `integration`.
 - **Zapis Championa ma ochronę przed nadpisaniem:** `PUT …/champion-profile`
