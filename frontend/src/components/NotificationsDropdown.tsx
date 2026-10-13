@@ -55,6 +55,8 @@ import {
   UserCheck,
 } from "lucide-react";
 import { notificationsApi } from "@/lib/api";
+import { useHasInterviewsWindow } from "@/hooks/useHasInterviewsWindow";
+import { OPEN_INTERVIEWS_WINDOW_EVENT } from "@/lib/interview-notifications";
 import {
   NOTIFICATIONS_FALLBACK_POLL_MS,
   WS_BACKED_SAFETY_POLL_MS,
@@ -512,6 +514,9 @@ const FALLBACK_TYPE_CONFIG = {
   bgColor: "bg-muted",
 };
 
+/** Podpowiedź „rozmowy mają własne okienko” została zamknięta w tej przeglądarce. */
+const INTERVIEWS_HINT_KEY = "nexus:interviews-window-hint-seen";
+
 const POST_INTERVIEW_TYPES = new Set([
   "post_interview_t15",
   "post_interview_t45",
@@ -558,6 +563,27 @@ export function NotificationsDropdown() {
   // patrz `lib/notifications-paging.ts`.
   const [limit, setLimit] = useState<number>(NOTIFICATIONS_INITIAL_LIMIT);
   const [toastNotif, setToastNotif] = useState<WsNotification | null>(null);
+  // Rozmowy u klienta i prepy mają własne okienko (13.10.2026) — u osób, które
+  // je mają, dzwonek tej kategorii nie pokazuje, nie liczy i nie gasi.
+  const hasInterviewsWindow = useHasInterviewsWindow();
+  // Jednorazowa podpowiedź, gdzie się podziały. Stan czytany po zamontowaniu:
+  // serwer nie zna pamięci przeglądarki.
+  const [interviewsHintSeen, setInterviewsHintSeen] = useState(true);
+  useEffect(() => {
+    try {
+      setInterviewsHintSeen(window.localStorage.getItem(INTERVIEWS_HINT_KEY) === "1");
+    } catch {
+      // Bez pamięci przeglądarki podpowiedzi nie pokazujemy wcale — wracałaby co stronę.
+    }
+  }, []);
+  const dismissInterviewsHint = () => {
+    setInterviewsHintSeen(true);
+    try {
+      window.localStorage.setItem(INTERVIEWS_HINT_KEY, "1");
+    } catch {
+      // Zamknięta zostaje do końca tej wizyty.
+    }
+  };
   const [feedbackModal, setFeedbackModal] = useState<{
     eventId: number;
   } | null>(null);
@@ -589,13 +615,18 @@ export function NotificationsDropdown() {
     wsConnected,
   } = useNotifications({
     onNotification: handleWsNotification,
+    interviewsInWindow: hasInterviewsWindow,
   });
 
   const { data, isFetching, isPlaceholderData, dataUpdatedAt } = useQuery({
     // Człon „bell”: „Moje zadania” na pulpicie pytają o tę samą stronę RAZEM
     // z czatami — wspólny klucz podmieniał dzwonkowi listę i licznik.
     queryKey: ["notifications", scopeCacheKey, limit, "bell"],
-    queryFn: () => notificationsApi.listForBell(limit).then((r) => r.data),
+    queryFn: () =>
+      (hasInterviewsWindow
+        ? notificationsApi.listForBell(limit, { excludeInterviews: true })
+        : notificationsApi.listForBell(limit)
+      ).then((r) => r.data),
     // Przy podniesieniu limitu lista nie znika na czas doładowania.
     placeholderData: keepPreviousData,
     // WS inwaliduje ten klucz na każdym zdarzeniu, więc przy zdrowym gnieździe
@@ -656,7 +687,10 @@ export function NotificationsDropdown() {
   };
 
   const markAllMutation = useMutation({
-    mutationFn: () => notificationsApi.markAllReadForBell(),
+    mutationFn: () =>
+      hasInterviewsWindow
+        ? notificationsApi.markAllReadForBell({ excludeInterviews: true })
+        : notificationsApi.markAllReadForBell(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
       clearUnread();
@@ -751,6 +785,37 @@ export function NotificationsDropdown() {
                 </button>
               </div>
             </div>
+
+            {hasInterviewsWindow && !interviewsHintSeen && (
+              <div
+                role="status"
+                className="flex items-center gap-2 px-4 py-2 border-b border-border bg-info-muted text-xs text-info-muted-foreground"
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="font-semibold">Rozmowy u klienta i prepy</span> mają teraz
+                  własne okienko — ikona kalendarza obok dzwonka.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    dismissInterviewsHint();
+                    setOpen(false);
+                    window.dispatchEvent(new CustomEvent(OPEN_INTERVIEWS_WINDOW_EVENT));
+                  }}
+                  className="shrink-0 rounded-md border border-info/30 bg-card px-2 py-1 font-semibold hover:bg-muted"
+                >
+                  Pokaż
+                </button>
+                <button
+                  type="button"
+                  onClick={dismissInterviewsHint}
+                  aria-label="Zamknij podpowiedź"
+                  className="shrink-0 p-1 pointer-coarse:p-2 rounded-md hover:bg-card"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
 
             {lastMuted && (
               <div

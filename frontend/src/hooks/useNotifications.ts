@@ -15,6 +15,11 @@ import { MY_PEOPLE_MATCH_EVENT, type MyPeopleMatchEventDetail } from "@/lib/my-p
 import { BOARD_TASKS_QUERY_KEY } from "@/lib/api/boardTasks";
 import { REQUEST_BOARD_QUERY_KEY } from "@/lib/api/requestAllocation";
 import { invalidateJobTeam } from "@/lib/job-team-cache";
+import { interviewCycleQueryKey } from "@/lib/api/interviewCycle";
+import {
+  INTERVIEW_NOTIFY_EVENT,
+  isInterviewNotificationType,
+} from "@/lib/interview-notifications";
 
 const WS_BASE =
   (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000")
@@ -75,6 +80,12 @@ export function reconnectDelayMs(attempt: number, random: () => number = Math.ra
 
 interface UseNotificationsOptions {
   onNotification?: (notif: WsNotification) => void;
+  /**
+   * Użytkownik ma okienko „Rozmowy”: powiadomienia kategorii „Rozmowy” nie
+   * podbijają licznika dzwonka ani nie wołają `onNotification`, tylko idą do
+   * okienka jako zdarzenie okna (`INTERVIEW_NOTIFY_EVENT`).
+   */
+  interviewsInWindow?: boolean;
 }
 
 /** Okno zlewania odświeżeń dzwonka po wiadomościach czatu. */
@@ -88,9 +99,15 @@ export function jobIdFromLink(link: string | null | undefined): number | null {
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
-export function useNotifications({ onNotification }: UseNotificationsOptions = {}) {
+export function useNotifications({
+  onNotification,
+  interviewsInWindow = false,
+}: UseNotificationsOptions = {}) {
   const { token } = useAuthStore();
   const queryClient = useQueryClient();
+  // Czytane z refa: zmiana opcji nie może przebudować `connect` i rozłączyć gniazda.
+  const interviewsInWindowRef = useRef(interviewsInWindow);
+  interviewsInWindowRef.current = interviewsInWindow;
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptsRef = useRef(0);
@@ -281,6 +298,28 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
             // poranny zbiorczy wpis prowadzi na pulpit, więc odświeża każdą
             // wczytaną rekrutację.
             invalidateJobTeam(queryClient, jobIdFromLink(notif.link));
+          }
+          if (
+            interviewsInWindowRef.current &&
+            isInterviewNotificationType(notif.notification_type)
+          ) {
+            // Rozmowy u klienta i prepy mają własne okienko: dzwonek ich nie
+            // liczy i nie pokazuje dymka. Powiadomienie przychodzi dokładnie
+            // wtedy, gdy zmienia się stan cyklu, więc odświeżamy jego przegląd
+            // (same zakresy — bez pytań klienta, debriefów i transkryptów
+            // otwartych okien), a dymek pokazuje okienko „Rozmowy”.
+            for (const scope of ["mine", "jobs", "all"] as const) {
+              queryClient.invalidateQueries({
+                queryKey: interviewCycleQueryKey(scope),
+                exact: true,
+              });
+            }
+            if (typeof window !== "undefined") {
+              window.dispatchEvent(
+                new CustomEvent<WsNotification>(INTERVIEW_NOTIFY_EVENT, { detail: notif }),
+              );
+            }
+            return;
           }
           setUnreadCount((c) => c + 1);
           // Call external handler (for toast)

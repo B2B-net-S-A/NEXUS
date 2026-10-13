@@ -19,6 +19,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useHasInterviewsWindow } from "@/hooks/useHasInterviewsWindow";
 import type { WsNotification } from "@/hooks/useNotifications";
 import type { NotificationResponse } from "@/lib/api";
 import { useInterviewCycle } from "@/lib/api/interviewCycle";
@@ -47,7 +48,6 @@ import {
   type WindowIcon,
   type WindowTone,
 } from "@/lib/interview-window";
-import { visibleNavEntries } from "@/lib/nav-registry";
 import { formatNotificationText, notificationTimeAgo } from "@/lib/notification-format";
 import { WS_BACKED_SAFETY_POLL_MS } from "@/lib/polling";
 import { hasSectionAccess } from "@/lib/section-access";
@@ -424,15 +424,7 @@ export function InterviewsTopbarButton({
  * powiadomień już nie pokazuje. Ikonę widzi ten, kto widzi „Kalendarz” w menu.
  */
 export function InterviewNotificationsDropdown() {
-  const user = useAuthStore((state) => state.user);
-  const visible = useMemo(
-    () =>
-      visibleNavEntries(user, { contactQueueEnabled: false }).some(
-        (entry) => entry.id === "calendar",
-      ),
-    [user],
-  );
-  return visible ? <InterviewNotificationsWindow /> : null;
+  return useHasInterviewsWindow() ? <InterviewNotificationsWindow /> : null;
 }
 
 function InterviewNotificationsWindow() {
