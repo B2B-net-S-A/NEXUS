@@ -8,24 +8,24 @@ Sprawdzane jest WSZYSTKO, co może trafić do schowka — nie tylko pola, które
 rekruter edytuje: także warunki składane z rekrutacji (miasto), stałe bloki
 z Ustawień i na końcu komplet napisów z ``render.rendered_texts``.
 
-* **Blokują** — reguły strony kariery (``public_profile_lint``): nazwa
-  klienta, dane kontaktowe, nazwisko oraz kwota z walutą albo stawką —
-  i dopiski tego modułu (``_EXTRA_BLOCKS``): kwota słownie („200 złotych”,
-  „30 tys. netto”), link, telefon stacjonarny i z numerem kierunkowym,
-  e-mail zapisany jako „jan [at] firma”.
-* **Doradzają** — liczba przy słowie „stawka”/„rate” bez waluty (bywa
-  „rate limiting … Java 17”), adres strony bez „www” i wzorce z pomiaru
-  naszych ogłoszeń 12.10.2026: nagłówki wewnętrznego formularza requestu
-  („Stawka kandydata”), liczby MD, numer zlecenia, wymaganie w jednym–dwóch
-  słowach, pusty start, długość albo sekcja.
+* **Blokują** — reguły strony kariery (``public_profile_lint``, jedno
+  źródło dla obu miejsc): nazwa klienta, nazwisko, dane kontaktowe (e-mail,
+  także zapisany jako „jan [at] firma”, telefon, link) oraz kwota z walutą
+  albo stawką, także słownie („200 złotych”, „30 tys. netto”).
+* **Doradzają** — tylko tutaj, bo strona kariery nie ma poziomu „uwaga”:
+  liczba przy słowie „stawka”/„rate” bez waluty (bywa „rate limiting …
+  Java 17”), adres strony bez „www” i wzorce z pomiaru naszych ogłoszeń
+  12.10.2026: nagłówki wewnętrznego formularza requestu („Stawka
+  kandydata”), liczby MD, numer zlecenia, wymaganie w jednym–dwóch słowach,
+  pusty start, długość albo sekcja.
 
 O tym, czy kwota blokuje, decydują TE SAME wzorce, którymi znalazła ją
 strona kariery (``CERTAIN_MONEY_PATTERNS``) — własna, węższa kopia
 przepuszczała „15 tysięcy zł” i „180/godzinę” jako uwagę.
 
 Każdy tekst jest przed porównaniem sprowadzany do postaci bez znaków
-niewidocznych (``text.for_lint``): „Acme” z miękkim łącznikiem w środku to nadal
-nazwa klienta.
+niewidocznych (``public_profile_lint.for_lint``): nazwa klienta z miękkim
+łącznikiem w środku to nadal nazwa klienta.
 
 Czysta funkcja: nazwy klienta i osób podaje wołający.
 """
@@ -36,13 +36,13 @@ import re
 from dataclasses import asdict, dataclass
 from typing import Any, Iterable, Optional, Sequence
 
-from app.services.job_ad.text import for_lint
 from app.services.public_profile_lint import (
     CERTAIN_MONEY_PATTERNS,
     CODE_CLIENT,
     CODE_CONTACT,
     CODE_MONEY,
     CODE_PERSON,
+    for_lint,
     lint_public_texts,
 )
 
@@ -89,41 +89,6 @@ _WHERE_TO_FIX = {
     ),
 }
 
-# Kwantyfikator zaborczy jak w ``public_profile_lint._NUMBER`` (liniowo).
-_AMOUNT = r"\d[\d\s.,]*+"
-_MULTIPLIER = r"(?:k|tys\.?|tysi[ęe]cy|mln|mld)"
-# Kwoty, których wzorce strony kariery nie znają.
-_EXTRA_MONEY = (
-    # „200 złotych”, „20 tysięcy złotych”, „150 dolarów”, „3000 CZK”
-    re.compile(
-        rf"{_AMOUNT}{_MULTIPLIER}?\s*(?:złot\w*|dolar\w*|funt\w*|czk|nok|dkk|huf|uah)"
-        r"(?![a-ząćęłńóśźż])",
-        re.IGNORECASE,
-    ),
-    # „2 mln PLN”
-    re.compile(
-        rf"{_AMOUNT}(?:mln|mld)\s*(?:zł|zl|pln|eur|euro|€|usd|\$|gbp|£|chf)"
-        r"(?![a-ząćęłńóśźż])",
-        re.IGNORECASE,
-    ),
-    # „30 tys. netto”, „25k brutto”, „180 netto/h”
-    re.compile(rf"{_AMOUNT}{_MULTIPLIER}?\s*(?:netto|brutto)\b", re.IGNORECASE),
-)
-# Kontakt, którego wzorce strony kariery nie znają. Link do zgłoszeń w treści
-# z maila klienta to najprostszy sposób, żeby kandydaci trafili poza portal.
-_EXTRA_CONTACT = (
-    re.compile(r"\bhttps?://\S+|\bwww\.\S+", re.IGNORECASE),
-    # „jan [at] firma”, „jan(at)firma(dot)pl”
-    re.compile(r"[\w.+-]+\s*[\[(]\s*(?:at|ma[łl]pa)\s*[\])]\s*[\w-]+", re.IGNORECASE),
-    # „+48 22 555 12 34”, „+49 170 1234567”
-    re.compile(r"\+\d{1,3}[\s-]?\d(?:[\s-]?\d){7,11}(?!\d)"),
-    # „22 555 12 34”, „(22) 555-12-34”
-    re.compile(r"(?<![\d-])\(?\d{2}\)?[\s-]\d{3}[\s-]\d{2}[\s-]\d{2}(?!\d)"),
-)
-_EXTRA_BLOCKS = (
-    *((pattern, CODE_MONEY) for pattern in _EXTRA_MONEY),
-    *((pattern, CODE_CONTACT) for pattern in _EXTRA_CONTACT),
-)
 # Adres bez „www”: zwykle strona klienta. Bez końcówek „.net”, „.io”, „.js” —
 # to nazwy technologii (ASP.NET, socket.io, Node.js).
 _BARE_DOMAIN = re.compile(
@@ -258,45 +223,7 @@ def _certain_money(excerpt: str) -> bool:
     """Wycinek znaleziska zawiera całe dopasowanie, a wzorce pewne idą
     w ``lint_public_texts`` przed wzorcem „stawka N” — więc pewna kwota
     w zdaniu zawsze jest w wycinku."""
-    return any(
-        pattern.search(excerpt) for pattern in (*CERTAIN_MONEY_PATTERNS, *_EXTRA_MONEY)
-    )
-
-
-def _extra_blocks(field: Optional[str], texts: list[str]) -> list[AdFinding]:
-    out: list[AdFinding] = []
-    where = _WHERE_TO_FIX.get(field or "", "")
-    for text in texts:
-        for pattern, code in _EXTRA_BLOCKS:
-            match = pattern.search(text)
-            if match:
-                excerpt = _excerpt(text, match)
-                out.append(
-                    AdFinding(
-                        code=code,
-                        severity=SEVERITY_BLOCK,
-                        message=_BLOCK_MESSAGES[code].format(excerpt=excerpt) + where,
-                        excerpt=excerpt,
-                        field=field,
-                    )
-                )
-    return out
-
-
-def _blocks(
-    field: Optional[str],
-    texts: list[str],
-    *,
-    client_names: list[str | None],
-    person_names: list[str | None],
-) -> list[AdFinding]:
-    """Reguły strony kariery i dopiski tego modułu dla jednego miejsca."""
-    return [
-        *_from_public_lint(
-            field, texts, client_names=client_names, person_names=person_names
-        ),
-        *_extra_blocks(field, texts),
-    ]
+    return any(pattern.search(excerpt) for pattern in CERTAIN_MONEY_PATTERNS)
 
 
 def _advice(field: str, texts: list[str]) -> list[AdFinding]:
@@ -396,11 +323,11 @@ def lint_ad(
                 found.append(item)
 
     for field, texts in _field_texts(content, tech):
-        add(_blocks(field, texts, **names))
+        add(_from_public_lint(field, texts, **names))
         add(_advice(field, texts))
-    add(_blocks(FIELD_TERMS, _strings(list(terms)), **names))
-    add(_blocks(FIELD_FIXED, _strings(list(fixed)), **names))
-    add(_blocks(None, _strings(list(rendered)), **names))
+    add(_from_public_lint(FIELD_TERMS, _strings(list(terms)), **names))
+    add(_from_public_lint(FIELD_FIXED, _strings(list(fixed)), **names))
+    add(_from_public_lint(None, _strings(list(rendered)), **names))
     short = _short_requirements(_strings(content.get("requirements")))
     if short is not None:
         found.append(short)
@@ -415,7 +342,7 @@ def lint_fixed_blocks(texts: Iterable[str]) -> list[AdFinding]:
     """
     return [
         finding
-        for finding in _blocks(
+        for finding in _from_public_lint(
             None, _strings(list(texts)), client_names=[], person_names=[]
         )
         if finding.severity == SEVERITY_BLOCK

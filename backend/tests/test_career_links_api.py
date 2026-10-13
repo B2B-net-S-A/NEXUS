@@ -365,6 +365,56 @@ async def test_approve_refuses_client_name_and_money(api):
     assert {f["code"] for f in profile.json()["findings"]} == codes
 
 
+async def test_approval_keeps_a_link_whose_random_suffix_looks_like_money(api):
+    """Losowa końcówka sluga („…-zl1v”) trafiała we wzorzec kwoty i każde
+    zatwierdzenie opisu wymieniało rozesłany adres — stary dawał 404."""
+    _, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    slug = f"{link['slug'].rsplit('-', 1)[0]}-zl1v"
+    async with AsyncSessionLocal() as db:
+        row = await db.scalar(
+            select(CandidateInviteLink).where(CandidateInviteLink.slug == link["slug"])
+        )
+        row.slug = slug
+        await db.commit()
+
+    resp = await _approve(api, headers, job_id)
+    assert resp.status_code == 200, resp.text
+    assert (await api.get(f"/api/public/career/r/{slug}")).status_code == 200
+
+
+async def test_approval_still_replaces_a_link_whose_slug_names_the_client(api):
+    """Kontrola czyta część sluga z tytułu — nazwa klienta w niej nadal
+    wymienia adres przy zatwierdzeniu opisu."""
+    from app.models.client import Client
+    from app.services.career_slugs import slugify
+
+    _, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        client_slug = slugify((await db.get(Client, job.client_id)).name)
+        row = await db.scalar(
+            select(CandidateInviteLink).where(CandidateInviteLink.slug == link["slug"])
+        )
+        row.slug = f"java-developer-{client_slug}-ab12"
+        old_slug = row.slug
+        await db.commit()
+
+    resp = await _approve(api, headers, job_id)
+    assert resp.status_code == 200, resp.text
+    assert (await api.get(f"/api/public/career/r/{old_slug}")).status_code == 404
+    async with AsyncSessionLocal() as db:
+        new_slug = await db.scalar(
+            select(CandidateInviteLink.slug).where(
+                CandidateInviteLink.job_id == job_id,
+                CandidateInviteLink.kind == "job",
+            )
+        )
+    assert new_slug and new_slug != old_slug and client_slug not in new_slug
+    assert (await api.get(f"/api/public/career/r/{new_slug}")).status_code == 200
+
+
 async def test_edit_after_approval_returns_to_draft_and_visibility_does_not(api):
     _, headers, job_id = await _owner_with_job(api)
     assert (await _approve(api, headers, job_id)).status_code == 200

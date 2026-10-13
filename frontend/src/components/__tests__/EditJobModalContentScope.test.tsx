@@ -292,5 +292,62 @@ describe("EditJobModal — status bez szkiców (04.10.2026)", () => {
       await screen.findByText("Rekrutacja w pracy straciłaby wymagane pole. Podaj termin."),
     ).toBeInTheDocument();
   });
+
+  it("zamknięcie statusem przy osobach w toku: ostrzeżenie, a drugi zapis idzie z potwierdzeniem", async () => {
+    // 13.10.2026: okno edycji zamyka rekrutację tak samo jak okno z powodem,
+    // więc tak samo ostrzega — inaczej zostałaby cicha droga zamknięcia.
+    vi.mocked(api.patch).mockRejectedValueOnce({
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            code: "active_cards_warning",
+            message:
+              "W tej rekrutacji jest 5 osób w toku (ostatni ruch karty 12.10.2026). Zamknięcie nie zamyka kart — zostaną w zamkniętej rekrutacji.",
+            active_cards: 5,
+            columns: { screening: 2, new: 3 },
+          },
+        },
+      },
+    });
+    const user = userEvent.setup();
+    renderWithJob({});
+    await user.selectOptions(screen.getByLabelText("Status"), "closed");
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("W tej rekrutacji jest 5 osób w toku");
+    expect(alert).toHaveTextContent("Nowi 3 · Screening 2");
+    // Pierwszy zapis bez potwierdzenia — dwa argumenty, jak dotąd.
+    expect(vi.mocked(api.patch).mock.calls[0]).toHaveLength(2);
+
+    await user.click(screen.getByRole("button", { name: "Zapisz i zamknij mimo to" }));
+    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(2));
+    const [url, body, config] = vi.mocked(api.patch).mock.calls[1];
+    expect(url).toBe("/api/jobs/7");
+    expect(body).toMatchObject({ status: "closed" });
+    expect(config).toEqual({ params: { acknowledge_active_cards: true } });
+  });
+
+  it("cofnięcie statusu chowa ostrzeżenie i wraca do zwykłego zapisu", async () => {
+    vi.mocked(api.patch).mockRejectedValueOnce({
+      response: {
+        status: 409,
+        data: { detail: { code: "active_cards_warning", message: "W tej rekrutacji jest 1 osoba w toku.", active_cards: 1, columns: { new: 1 } } },
+      },
+    });
+    const user = userEvent.setup();
+    renderWithJob({});
+    await user.selectOptions(screen.getByLabelText("Status"), "closed");
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+    await screen.findByRole("alert");
+
+    await user.selectOptions(screen.getByLabelText("Status"), "published");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(2));
+    const call = vi.mocked(api.patch).mock.calls[1];
+    expect(call).toHaveLength(2);
+    expect(call[1]).not.toHaveProperty("status");
+  });
 });
 

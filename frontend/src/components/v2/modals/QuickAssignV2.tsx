@@ -25,7 +25,9 @@ import { Badge } from"@/components/ui/badge";
 import { Input } from"@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from"@/components/ui/tabs";
 import { RiskBadge } from"@/components/v2/RiskBadge";
-import { assignErrorMessage } from"@/lib/assign-error";
+import { assignErrorMessage, closedCardFromAssignError } from"@/lib/assign-error";
+import { ClosedCardRestore } from "@/components/v2/recruitment/ClosedCardRestore";
+import type { ClosedRow } from "@/components/v2/recruitment/AddToRecruitmentDialog";
 import type { CandidateRiskProfile } from"@/types/candidate-risk";
 import { useTabsStore } from "@/store/tabs";
 import { ADD_ANYWAY_HINT, EmploymentNotice } from "@/components/v2/employment/EmploymentNotice";
@@ -75,6 +77,13 @@ export function QuickAssignV2({
  const [assigning, setAssigning] = useState<number | null>(null);
  const [assignError, setAssignError] = useState<string | null>(null);
  const [assignedIds, setAssignedIds] = useState<Set<number>>(new Set());
+ // 13.10.2026: osoba ma w wybranej rekrutacji kartę w „Zamkniętych” — okno
+ // mówi skąd i od kiedy i daje „Przywróć”, zamiast zielonego „Przypisano”.
+ const [closedCard, setClosedCard] = useState<{
+ job: { id: number; title: string };
+ row: ClosedRow;
+ } | null>(null);
+ const [restoredIds, setRestoredIds] = useState<Set<number>>(new Set());
  // Phase 17 (migracja 0068): risk profile dla ostrzeżenia przy assign'ie.
  const [risk, setRisk] = useState<CandidateRiskProfile | null>(null);
  // "Wszystkie" (domyślny) vs "AI sugestie". Rekruter najczęściej wie, do
@@ -128,6 +137,8 @@ export function QuickAssignV2({
  setAllJobs([]);
  setAllError(null);
  setAssignedIds(new Set());
+ setClosedCard(null);
+ setRestoredIds(new Set());
  }
  }, [open]);
 
@@ -188,14 +199,28 @@ export function QuickAssignV2({
  );
  const showShortcuts = !searchQuery.trim();
 
- const handleAssign = async (jobId: number) => {
+ const handleAssign = async (jobId: number, title: string) => {
  setAssigning(jobId);
  setAssignError(null);
+ setClosedCard(null);
  try {
  await recommendationsApi.assignToJob(candidateId, jobId);
  setAssignedIds((prev) => new Set(prev).add(jobId));
  onAssigned?.(jobId);
  } catch (e: unknown) {
+ const closed = closedCardFromAssignError(e);
+ if (closed) {
+ setClosedCard({
+ job: { id: jobId, title },
+ row: {
+ candidate_id: candidateId,
+ reason: "closed_in_job",
+ reason_label: closed.label,
+ closed: closed.closed,
+ },
+ });
+ return;
+ }
  // 409 = eligibility block (blacklist / konflikt klienta) — pokaż powód
  // zamiast cicho połykać błąd (wcześniej wyglądało jak "nic się nie stało").
  setAssignError(assignErrorMessage(e));
@@ -251,13 +276,14 @@ export function QuickAssignV2({
  </div>
  {assigned ? (
  <span className="inline-flex items-center gap-1 text-xs font-medium text-[#1d5e31] shrink-0">
- <CheckCircle2 className="h-3.5 w-3.5" /> Przypisano
+ <CheckCircle2 className="h-3.5 w-3.5" />{" "}
+ {restoredIds.has(jobId) ? "Przywrócono" : "Przypisano"}
  </span>
  ) : (
  <Button
  size="sm"
  variant="outline"
- onClick={() => handleAssign(jobId)}
+ onClick={() => handleAssign(jobId, job.title ?? `Rekrutacja #${jobId}`)}
  loading={isAssigning}
  >
  Przypisz
@@ -298,6 +324,22 @@ export function QuickAssignV2({
  `, w tym ${risk.breakdown.post_accept}× po akceptacji oferty`}
  . Decyzja należy do Ciebie — system tylko ostrzega.
  </div>
+ </div>
+ )}
+
+ {closedCard && (
+ <div className="mb-3">
+ <ClosedCardRestore
+ job={closedCard.job}
+ row={closedCard.row}
+ onRestored={() => {
+ const jobId = closedCard.job.id;
+ setAssignedIds((prev) => new Set(prev).add(jobId));
+ setRestoredIds((prev) => new Set(prev).add(jobId));
+ setClosedCard(null);
+ onAssigned?.(jobId);
+ }}
+ />
  </div>
  )}
 

@@ -1625,10 +1625,17 @@ export const jobsApi = {
    * jest „Zamknij jako przegraną" w profilu klienta; ten helper istnieje, żeby
    * krok 08 nie wołał surowego `api.post` obok niego.
    */
-  close: (id: number, reason: string, notes?: string | null) =>
+  close: (
+    id: number,
+    reason: string,
+    notes?: string | null,
+    /** Potwierdzenie ostrzeżenia o osobach w toku (409 `active_cards_warning`). */
+    acknowledgeActiveCards = false,
+  ) =>
     api.post(`/api/jobs/${id}/close`, {
       reason,
       notes: notes?.trim() || null,
+      ...(acknowledgeActiveCards ? { acknowledge_active_cards: true } : {}),
     }),
   /**
    * „Otwórz ponownie” zamkniętą rekrutację albo „Dokończ i opublikuj” stary
@@ -1842,9 +1849,15 @@ export const notificationsApi = {
     }),
   // Dzwonek: czaty mają własne okienko („Czaty” w górnym pasku), więc lista
   // i licznik dzwonka ich nie niosą — filtr po stronie serwera, jak wyżej.
-  listForBell: (limit: number) =>
+  // `excludeInterviews`: osoba z okienkiem „Rozmowy” nie widzi w dzwonku
+  // kategorii „Rozmowy” (rozmowy u klienta, prepy, przypomnienia kalendarza).
+  listForBell: (limit: number, opts?: { excludeInterviews?: boolean }) =>
     api.get<NotificationListResponse>("/api/notifications", {
-      params: { limit, exclude_chat: true },
+      params: {
+        limit,
+        exclude_chat: true,
+        ...(opts?.excludeInterviews ? { exclude_interviews: true } : {}),
+      },
     }),
   // Widget „Moje zadania": wyłącznie zdarzenia rekrutacyjne. Sprawy klientów
   // (zamówienia, kontrakty, umowy) mają osobny panel „Moi klienci". Filtr idzie
@@ -1857,9 +1870,12 @@ export const notificationsApi = {
   markRead: (id: number) => api.patch(`/api/notifications/${id}/read`),
   markAllRead: () => api.patch("/api/notifications/read-all"),
   // „Oznacz wszystko” w dzwonku nie gasi czatów, których dzwonek nie pokazuje.
-  markAllReadForBell: () =>
+  markAllReadForBell: (opts?: { excludeInterviews?: boolean }) =>
     api.patch("/api/notifications/read-all", undefined, {
-      params: { exclude_chat: true },
+      params: {
+        exclude_chat: true,
+        ...(opts?.excludeInterviews ? { exclude_interviews: true } : {}),
+      },
     }),
 };
 

@@ -675,8 +675,12 @@ async def test_delivery_lead_without_the_permission_edits_content_only(
         assert tasks.json()["can_send_to_client"] is True
         sent = await app_client.post("/api/pipeline/move", headers=headers, json=send)
         assert sent.status_code == 200, sent.text
+        # Karta stoi na „CV wysłane”, więc zamknięcie wymaga potwierdzenia
+        # ostrzeżenia o osobach w toku (13.10.2026).
         closed = await app_client.post(
-            f"/api/jobs/{job_id}/close", headers=headers, json={"reason": "budget"}
+            f"/api/jobs/{job_id}/close",
+            headers=headers,
+            json={"reason": "budget", "acknowledge_active_cards": True},
         )
         assert closed.status_code == 200, closed.text
     finally:

@@ -139,6 +139,8 @@ def test_list_count_and_read_mutations_share_one_visibility_predicate() -> None:
         notifications.mark_as_read,
         notifications.mark_all_read,
         notifications.mark_chat_threads_read,
+        notifications.list_interview_notifications,
+        notifications.mark_interview_notifications_read,
     ):
         assert "_notification_visibility(current_user)" in inspect.getsource(endpoint)
 
