@@ -199,7 +199,7 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
     const groups = visibleMoreGroups(userOf("recruiter"), opts);
     expect(groups.map((group) => [group.title, group.items.map((i) => i.label)])).toEqual([
       ["Codzienna praca", ["Do przedzwonienia", "Akademia"]],
-      ["Dokumenty", ["Generator CV", "Generator Umów B2B"]],
+      ["Dokumenty", ["Generator Umów B2B"]],
       ["System", ["Pomoc", "Ustawienia"]],
     ]);
     const admin = visibleMoreGroups(userOf("admin"), opts);
@@ -370,9 +370,9 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
   const SOURCING_OPERATIONAL = [
     "/dashboard",
     "/candidates",
-    "/cv-generator",
     "/contracts/b2b-generator",
-    // „/talents" i „/sourcing/marketplace" zdjęte z menu 21.09.2026.
+    // „/talents" i „/sourcing/marketplace" zdjęte z menu 21.09.2026,
+    // „/cv-generator" 13.10.2026.
   ];
   // Akademia (0369) — w „Więcej”, ta sama bramka co Kalendarz.
   const PIPELINE = ["/jobs", "/calendar", "/academy"];
@@ -566,6 +566,20 @@ describe("paleta ⌘K ⊆ sidebar", () => {
     const href = resolveNavHref(dashboard!, userOf("recruiter") as never);
     expect(href).not.toBe("/");
     expect(href.startsWith("/dashboard")).toBe(true);
+  });
+});
+
+describe("Generator CV zdjęty z nawigacji (13.10.2026)", () => {
+  const opts = { contactQueueEnabled: true };
+  it("nie ma go w menu ani w palecie dla żadnej roli — CV powstaje w ścieżce rekrutacji", () => {
+    for (const role of ALL_ROLES) {
+      const user = userOf(role);
+      const hrefs = [
+        ...visibleNavHrefs(user, opts),
+        ...visiblePaletteEntries(user, opts, () => true).map((e) => e.href),
+      ];
+      expect(hrefs).not.toContain("/cv-generator");
+    }
   });
 });
 

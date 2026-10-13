@@ -165,7 +165,6 @@ describe("CommandPaletteV2 — nawigacja po wpisaniu zapytania (UAT M00-B03)", (
     for (const label of [
       "Wyszukiwarka kandydatów",
       "Szukaj z treści requestu (Talent Radar)",
-      "Generator CV",
       "Generator Umów B2B",
       "Pomoc",
     ]) {
@@ -178,6 +177,8 @@ describe("CommandPaletteV2 — nawigacja po wpisaniu zapytania (UAT M00-B03)", (
     // Talenty i Targ zdjęte z nawigacji 21.09.2026.
     expect(queryByText("Targ / Dostępni")).toBeNull();
     expect(queryByText("Talenty")).toBeNull();
+    // Generator CV zdjęty 13.10.2026 — CV powstaje w ścieżce rekrutacji.
+    expect(queryByText("Generator CV")).toBeNull();
   });
 
   it("dopasowanie ignoruje polskie znaki i wielkość liter", async () => {
