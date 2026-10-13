@@ -134,6 +134,15 @@ export interface DlReviewContext {
     redacted: boolean;
   } | null;
   fix_options: DlReviewFixOption[];
+  /** Uwaga rekrutera przy przekazaniu na „QC CV” (14.10.2026) — notatka etapu
+   *  `stage_remark` wiersza `stage_id`. Brak = rekruter nic nie dopisał. */
+  recruiter_handoff_remark?: DlReviewHandoffRemark | null;
+}
+
+export interface DlReviewHandoffRemark {
+  text: string;
+  author_name: string | null;
+  created_at: string;
 }
 
 export interface DlReviewQueueItem {

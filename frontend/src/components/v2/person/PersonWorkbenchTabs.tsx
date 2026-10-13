@@ -48,6 +48,8 @@ import type { PersonPanelSection, ProcessPersonRow } from "@/components/v2/recru
 import api from "@/lib/api";
 import { humanNoteCount } from "@/lib/candidate-notes-view";
 import { countHired, findStageColumn, isNewColumn, VERIFIED_STAGE } from "@/lib/pipeline-flow";
+import type { BoardColumnKey } from "@/lib/board-stages";
+import type { NoteFillChannel } from "@/lib/note-fill-channel";
 import type { RejectFollowUp } from "@/lib/reject-follow-up";
 import { formatDate } from "@/lib/utils";
 
@@ -90,12 +92,41 @@ export interface WorkbenchContext {
   /** „Odrzuć” w formularzu screeningu: kogo panel pokaże potem (13.10.2026).
    *  Woła się w chwili kliknięcia — migawka kolejności Tablicy. */
   rejectFollowUp?: (candidateId: number) => RejectFollowUp | undefined;
+  /** „Zapisz i przekaż dalej” przeszło (14.10.2026) — panel przechodzi na „CV”.
+   *  Tylko po sukcesie ruchu, nie po konflikcie wersji ani odrzuceniu. */
+  onForwarded?: (candidateId: number) => void;
+  /** Osoba, którą przed chwilą przekazano dalej z formularza — karta CV
+   *  pokazuje blok postępu (CV → QC) zamiast samego stanu. */
+  forwardedCandidateId?: number | null;
+  /** Następna osoba w kolumnie w kolejności „›” (np. „Następna w Screeningu”). */
+  nextInColumn?: (candidateId: number, column: BoardColumnKey) => NextInColumn | null;
+  /** Otwiera wskazaną osobę w panelu tak jak „›”. */
+  openPerson?: (candidateId: number) => void;
+  /** D3: pole notatki w doku przekazuje zapisaną notatkę do formularza. */
+  noteFill?: NoteFillChannel;
+}
+
+/** Następna osoba w kolumnie Tablicy. */
+export interface NextInColumn {
+  candidateId: number;
+  name: string;
+  /** Np. „czeka 2 dni” — może nie być. */
+  detail?: string | null;
 }
 
 /** Kontekst, który podaje strona rekrutacji (bez stanu tablicy i budżetu). */
 export type BoardWorkbenchContext = Omit<
   WorkbenchContext,
-  "kanbanQueryState" | "budgetHourly" | "jobTitle" | "onTake" | "rejectFollowUp"
+  | "kanbanQueryState"
+  | "budgetHourly"
+  | "jobTitle"
+  | "onTake"
+  | "rejectFollowUp"
+  | "onForwarded"
+  | "forwardedCandidateId"
+  | "nextInColumn"
+  | "openPerson"
+  | "noteFill"
 >;
 
 export const PERSON_PANEL_SECTIONS: ReadonlyArray<{
