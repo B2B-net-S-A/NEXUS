@@ -35,8 +35,18 @@ import { countPl } from "@/lib/plural-pl";
 export const STARTING_SOON_MS = 15 * 60_000;
 /** Wydarzenie bez końca liczymy jako godzinne. */
 const DEFAULT_EVENT_MS = 60 * 60_000;
-/** Przypomnienie starsze niż doba jest na pewno po wydarzeniu. */
+/** Przypomnienie starsze niż doba jest na pewno po wydarzeniu (sufit wyprzedzenia). */
 const REMINDER_STALE_MS = 24 * 60 * 60_000;
+
+/**
+ * Początek wydarzenia z treści przypomnienia: serwer pisze „Za 15 minut: …”
+ * z realną liczbą minut do startu (`calendar._minutes_pl`: minutę / minuty /
+ * minut). Bez liczby w treści — `null`, a przypomnienie żyje najwyżej dobę.
+ */
+function reminderStartMs(message: string | null | undefined, createdMs: number): number | null {
+  const lead = /^Za (\d+) minut/.exec(message ?? "");
+  return lead ? createdMs + Number(lead[1]) * 60_000 : null;
+}
 
 const TZ = "Europe/Warsaw";
 
@@ -423,7 +433,13 @@ export function buildInterviewWindow({
         icon = "alert";
         break;
       case "interview_scheduled": {
-        if (event ? new Date(event.start).getTime() <= nowMs : nowMs - createdMs > REMINDER_STALE_MS) continue;
+        // Po starcie wydarzenia przypomnienie nic już nie mówi. Wydarzenie
+        // spoza agendy cyklu (screening, zwykła rozmowa, termin) nie ma tu
+        // daty — bierzemy ją z treści; do 13.10.2026 takie wiersze wisiały dobę.
+        const startsAt = event
+          ? new Date(event.start).getTime()
+          : (reminderStartMs(notif.message, createdMs) ?? createdMs + REMINDER_STALE_MS);
+        if (startsAt <= nowMs) continue;
         if (pairRow && pairRow.eventId != null && pairRow.eventId === target.eventId) {
           fold();
           continue;
