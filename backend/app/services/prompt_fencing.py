@@ -38,6 +38,23 @@ def neutralize_tags(text: str | None) -> str:
     return _TAG_RE.sub(_LOOKALIKE, text)
 
 
+# Odwrotność `neutralize_tags`: podmieniony znak tylko tam, gdzie stoi przed
+# nazwą znacznika (wzorzec budowany z `_TAG_RE`, żeby lista nazw była jedna).
+_NEUTRALIZED_RE = re.compile(_LOOKALIKE + _TAG_RE.pattern[1:], re.IGNORECASE)
+
+
+def restore_tags(text: str | None) -> str:
+    """Tekst skopiowany przez model z ogrodzonych danych — w pierwotnej postaci.
+
+    Ogrodzenie podmienia `<` także w zwykłej treści, która wygląda jak znacznik
+    (`Flux<User>` w CV programisty). Model cytuje to, co widzi; kontrola „cytat
+    stoi w źródle” porównuje z prawdziwym tekstem, więc cytat trzeba odwrócić.
+    """
+    if not text:
+        return ""
+    return _NEUTRALIZED_RE.sub("<", text)
+
+
 def fence(tag: str, text: str | None) -> str:
     """Opakowuje dane w znacznik tak, żeby nie dało się go zamknąć od środka."""
     return f"<{tag}>\n{neutralize_tags(text).strip()}\n</{tag}>"
