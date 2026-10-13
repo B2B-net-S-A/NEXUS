@@ -86,7 +86,9 @@ Poprawka bez cytatu obecnego w oryginale/notatkach jest odrzucana przez serwer.
 
 `POST /api/pipeline/stages/{stage_id}/qc/confirm` body `{"term": "testing", "text": "opcjonalny opis"}` — „Potwierdzone z kandydatem” dla pozycji `no_unsupported`: zapisuje notatkę pary (pochodzenie `qc_confirmation`, rodzaj `human`) i zwraca świeży wynik QC. `422 CV_QC_CONFIRM_FAILED`, gdy QC tej pozycji już nie zgłasza.
 
-Od 12.10.2026 wynik QC niesie też: `advisory` (tryb doradczy), `can_override` (czy ta osoba może przepuścić parę), `confirmations` (`[{text, by_name, at}]`), w pozycjach `evidence` i `evidence_kind` (`description|technologies|title` — fragment odczytu oryginału, na którym stoi „oryginał ma to w tej roli”), a w sprawdzeniach `roles` (`[{requirement, role, state}]`, `state`: `described|missing|not_in_original|unverified`). Sprawdzenie `critical_skills` ma `status: "manual"`, gdy odczyt CV nie ma opisów ról.
+Od 12.10.2026 wynik QC niesie też: `advisory` (tryb doradczy), `can_override` (czy ta osoba może przepuścić parę), `confirmations` (`[{text, by_name, at}]`), w pozycjach `evidence` i `evidence_kind` (`description|technologies|title` — fragment odczytu oryginału, na którym stoi „oryginał ma to w tej roli”), a w sprawdzeniach `roles` (`[{requirement, role, state}]`, `state`: `described|missing|listed_only|not_in_original|unverified`). Sprawdzenie `critical_skills` ma `status: "manual"`, gdy odczyt CV nie ma opisów ról.
+
+Od 13.10.2026 (QC mówi prawdę): pozycja ma `key` (stały klucz `sprawdzenie|wymaganie|rola`) i `searched` (`[{source: "cv"|"original"|"answers"|"notes", found, quote?}]`), sprawdzenie ma `info` (pozycje informacyjne — nie liczą się do uwag ani bramki), a propozycja AI może mieć `source: "answers"` (odpowiedź kandydata ze screeningu).
 
 Bramka: `POST /api/pipeline/move` i `/bulk-move` na etap z kolumny `cv_sent` albo na etap Cpro (znacznik `cpro`), gdy para stoi dziś w kolumnie przed `cv_sent`, liczy QC i odmawia:
 `409 {"detail": {"code": "CV_QC_FAILED", "message": "CV nie przeszło QC — do poprawy: 2.", "blocking_failed": 2, "stage_id": <etap do otwarcia QC>}}`

@@ -24,7 +24,18 @@ export type QcFixKind =
 /** Na czym w odczycie oryginału stoi „oryginał ma tę umiejętność w tej roli”. */
 export type QcEvidenceKind = "description" | "technologies" | "title";
 
+export type QcSearchSource = "cv" | "original" | "answers" | "notes";
+
+/** Gdzie QC szukało pozycji i czy znalazło (od 13.10.2026). */
+export interface QcSearch {
+  source: QcSearchSource;
+  found: boolean;
+  quote?: string | null;
+}
+
 export interface QcItem {
+  /** Stały klucz pozycji (sprawdzenie | wymaganie | rola) — od 13.10.2026. */
+  key?: string | null;
   requirement?: string | null;
   role?: string | null;
   detail?: string | null;
@@ -35,9 +46,10 @@ export interface QcItem {
   /** Fragment odczytu oryginalnego CV — przebiegi sprzed 12.10.2026 go nie mają. */
   evidence?: string | null;
   evidence_kind?: QcEvidenceKind | null;
+  searched?: QcSearch[];
 }
 
-export type QcRoleStateKind = "described" | "missing" | "not_in_original" | "unverified";
+export type QcRoleStateKind = "described" | "missing" | "listed_only" | "not_in_original" | "unverified";
 
 /** „Rola po roli”: stan jednego wymagania w jednej roli z oryginału. */
 export interface QcRoleState {
@@ -54,6 +66,8 @@ export interface QcCheck {
   summary: string | null;
   items: QcItem[];
   roles?: QcRoleState[];
+  /** Informacje bez zadania — nie liczą się do uwag ani bramki (od 13.10.2026). */
+  info?: QcItem[];
 }
 
 export interface QcCvRun {
@@ -143,7 +157,7 @@ export interface QcFix {
   current_text: string | null;
   /** `**x**` = pogrubienie — renderowane jako tekst, nigdy HTML. */
   proposed_text: string;
-  source: "original" | "notes";
+  source: "original" | "answers" | "notes";
   source_quote: string | null;
 }
 

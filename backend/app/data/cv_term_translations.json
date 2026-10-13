@@ -1,0 +1,41 @@
+{
+  "_comment": [
+    "Odpowiedniki terminów dla QC CV (services/dz_review.found_in), PL ↔ EN i różne zapisy tej samej rzeczy.",
+    "Grupy z pomiaru 13.10.2026: QC mówiło „brak w CV i w oryginale” albo „nie ma w oryginale”, choć ta sama rzecz stała w drugim języku albo innym zapisem (49% par ma CV w innym języku niż oryginał).",
+    "Tylko dokładne odpowiedniki — bez gwiazdek i rdzeni: ta lista czyta też blokada „CV nie twierdzi niczego spoza oryginału”, więc luźny wpis przepuszczałby zmyślenia.",
+    "Listę prowadzi człowiek. Każde słowo musi przejść app.services.keyword_terms.parse_keyword (pilnuje test w tests/test_qc_term_matching.py).",
+    "Słowa nazw ról (inżynier/engineer, badacz/researcher…) — porównanie nagłówka CV z nazwą roli od klienta, gdy CV sprzed 13.10.2026 ma rolę przetłumaczoną."
+  ],
+  "groups": [
+    ["warsztaty", "warsztatów", "workshops", "workshop"],
+    ["badania jakościowe", "badań jakościowych", "qualitative research"],
+    ["badania ilościowe", "badań ilościowych", "quantitative research"],
+    ["testy użyteczności", "badania użyteczności", "usability testing"],
+    ["mikroserwisy", "mikroserwisach", "mikroserwisów", "mikrousługi", "microservices"],
+    ["hurtownia danych", "hurtowni danych", "hurtownie danych", "data warehouse", "data warehousing"],
+    ["raportowanie", "raportowania", "reporting"],
+    ["analiza wymagań", "analizy wymagań", "requirements analysis", "requirements engineering"],
+    ["zarządzanie projektami", "project management"],
+    ["architektura chmury", "architektury chmury", "architektura chmurowa", "cloud architecture"],
+    ["dokumentacja techniczna", "technical documentation"],
+    ["aplikacje mobilne", "aplikacji mobilnych", "mobile applications", "mobile apps"],
+    ["mobile", "mobilne", "mobilnych", "mobilna", "mobilny"],
+    ["aplikacje backendowe", "backend applications", "backend development", "backend"],
+    ["MS Office", "Microsoft Office", "Office 365", "Microsoft 365"],
+    ["Entra ID", "Azure AD", "Azure Active Directory"],
+    ["bankowość", "bankowości", "bankowym", "bankowej", "bankowe", "banking"],
+    ["ubezpieczenia", "ubezpieczeń", "insurance"],
+    ["kontrola wersji", "version control"],
+    ["automatyzacja testów", "automatyzacji testów", "test automation"],
+    ["testowanie", "testowania", "testing"],
+    ["test", "testy", "testów"],
+    ["inżynier", "inżyniera", "engineer"],
+    ["automatyzacja", "automatyzacji", "automation"],
+    ["badacz", "badaczka", "researcher"],
+    ["analityk", "analityczka", "analyst"],
+    ["programista", "programistka", "developer"],
+    ["systemowy", "systemowa", "system"],
+    ["biznesowy", "biznesowa", "business"],
+    ["kierownik projektu", "project manager"]
+  ]
+}

@@ -251,6 +251,32 @@ def is_negative_answer(answer: Optional[str]) -> bool:
     return bool(answer and _NEGATIVE_ANSWER_RE.search(answer))
 
 
+# Granica zdania: znak końca i odstęp albo nowa linia. Kropka w „.NET 8”,
+# „Node.js” i „3.5” nie dzieli zdania (przegląd PR 2, 13.10.2026).
+_SENTENCE_BREAK_RE = re.compile(r"(?<=[.!?;])\s+|\n+")
+
+
+def drop_negative_sentences(text: Optional[str]) -> str:
+    """Tekst bez ZDAŃ, które przeczą („Nie zna Apache Iceberg.”).
+
+    Całą odpowiedź ocenia ``is_negative_answer``; tu oceniamy zdania osobno,
+    bo jedna odpowiedź niesie i fakt, i przeczenie: „Używała Grafany
+    i Prometheusa. Nie zna Apache Iceberg.” ma zostać dowodem Grafany
+    (QC CV, 13.10.2026). Zdania zostają w oryginalnym zapisie, linie — w
+    osobnych liniach.
+    """
+    lines: list[str] = []
+    for line in (text or "").splitlines():
+        kept = [
+            sentence.strip()
+            for sentence in _SENTENCE_BREAK_RE.split(line)
+            if sentence.strip() and not is_negative_answer(sentence)
+        ]
+        if kept:
+            lines.append(" ".join(kept))
+    return "\n".join(lines)
+
+
 def _drop_fragment(text: str, fragment: str) -> str:
     if not fragment:
         return text
