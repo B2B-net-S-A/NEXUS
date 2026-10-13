@@ -14,7 +14,9 @@
 // z dowodem z oryginału: w jednej roli zdanie z opisu, w drugiej tylko lista
 // technologii; w uwagach „Rola po roli”), `unverified` (odczyt CV bez opisów
 // ról — krytyczne do sprawdzenia ręcznie), `confirmed` (lista „Potwierdzone
-// z kandydatem”). `?as=recruiter` — bez „Przepuść mimo QC”; w `advisory`
+// z kandydatem”), `truth` (QC mówi prawdę, 13.10.2026: „Szukałem w: …” przy
+// treści spoza oryginału i krytyczna tylko na liście technologii jako
+// informacja). `?as=recruiter` — bez „Przepuść mimo QC”; w `advisory`
 // o przycisku decyduje `can_override` z wyniku.
 
 import { useEffect, useState } from "react";
@@ -420,6 +422,53 @@ const CONFIRMED: QcResult = {
   ),
 };
 
+// QC mówi prawdę: gdzie szukało i co jest tylko informacją.
+const TRUTH: QcResult = {
+  ...FAILING,
+  blocking_failed: 1,
+  checks: FAILING.checks.map((c) => {
+    if (c.key === "critical_skills") {
+      return {
+        ...c,
+        status: "pass",
+        summary: "OK",
+        items: [],
+        roles: [
+          { requirement: "Hibernate", role: ROLE_ALFA, state: "described" },
+          { requirement: "Hibernate", role: ROLE_BETA, state: "listed_only" },
+          { requirement: "Hibernate", role: ROLE_GAMMA, state: "not_in_original" },
+        ],
+        info: [
+          {
+            key: "critical_skills|hibernate|java developer firma beta",
+            requirement: "Hibernate",
+            role: ROLE_BETA,
+            detail: "W oryginale tylko na liście technologii tej roli — zdanie nie jest wymagane.",
+            evidence: "Java 11, Hibernate, Spring MVC, Oracle",
+            evidence_kind: "technologies",
+          },
+        ],
+      };
+    }
+    if (c.key === "no_unsupported") {
+      return {
+        ...c,
+        items: c.items.map((item) => ({
+          ...item,
+          key: "no_unsupported|graphql|cv",
+          searched: [
+            { source: "cv", found: true, quote: "zna też GraphQL i Postgres" },
+            { source: "original", found: false },
+            { source: "answers", found: false },
+            { source: "notes", found: false },
+          ],
+        })),
+      };
+    }
+    return c;
+  }),
+};
+
 const FIXES: QcFixesResponse = {
   status: "ok",
   cached: false,
@@ -461,6 +510,7 @@ const STATES = {
   evidence: { label: "Dowód z oryginału", data: EVIDENCE },
   unverified: { label: "Role do sprawdzenia", data: UNVERIFIED },
   confirmed: { label: "Potwierdzone z kandydatem", data: CONFIRMED },
+  truth: { label: "Gdzie szukało", data: TRUTH },
 } as const;
 type HarnessState = keyof typeof STATES;
 

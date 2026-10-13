@@ -228,7 +228,7 @@ describe("CvQcDialog — QC CV", () => {
       "/jobs/31?tab=champion",
     );
     expect(explainer).toHaveTextContent(
-      "Opis jest wymagany tylko w tych rolach, w których oryginalne CV pokazuje tę umiejętność.",
+      "Opis jest wymagany tylko w tych rolach, w których oryginalne CV opisuje tę umiejętność w opisie roli — sama lista technologii to informacja.",
     );
     // Poza trybem doradczym QC nie mówi, że doradza.
     expect(explainer).not.toHaveTextContent("QC doradza");
