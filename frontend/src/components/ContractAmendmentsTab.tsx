@@ -1,12 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { apiErrorMessage } from "@/lib/api-error";
-import { documentsHref } from "@/lib/b2b-documents";
+import type { AnnexChange, AnnexState } from "@/lib/api/b2bDocuments";
+import {
+  annexChangeText,
+  annexRegisterHref,
+  annexStateLabel,
+  annexTitle,
+  documentsHref,
+} from "@/lib/b2b-documents";
+import { CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
+import { openContractDocument } from "@/lib/contract-documents";
+import { StatusDot } from "@/components/ds/StatusDot";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
-import { formatDateTimePl, formatIsoDatePl as formatDate } from "@/lib/date-pl";
+import { formatIsoDatePl as formatDate } from "@/lib/date-pl";
 import {
   contractDetailLabel,
   contractDetailValue,
@@ -19,16 +29,12 @@ import { resolveViewState } from "@/lib/view-state";
 import { canViewClientFinance, useAuthStore } from "@/store/auth";
 import {
   CalendarPlus,
-  CalendarClock,
   Banknote,
-  Building2,
   LayoutGrid,
   X as StopIcon,
   Loader2,
   AlertCircle,
   FilePlus2,
-  FileText,
-  UserPlus,
 } from "lucide-react";
 
 const TYPE_LABELS: Record<string, string> = {
@@ -47,17 +53,6 @@ const TYPE_LABELS: Record<string, string> = {
 export function amendmentTypeLabel(type: string): string {
   return TYPE_LABELS[type] ?? "Aneks";
 }
-
-const TYPE_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
-  extension: CalendarPlus,
-  rate_change: Banknote,
-  scope_change: LayoutGrid,
-  early_termination: StopIcon,
-  start_date_change: CalendarClock,
-  party_data_change: Building2,
-  subcontractor_consent: UserPlus,
-  mandate_change: FileText,
-};
 
 /** Typy, które zakłada formularz tej zakładki. */
 type ManualAmendmentType =
@@ -83,6 +78,47 @@ interface Amendment {
   created_by: number | null;
   created_by_email: string | null;
   created_at: string;
+  // Zakładka jako tabela (13.10.2026). Opcjonalne: odpowiedź starszego
+  // backendu ich nie ma, a aneks nadal ma się wyświetlić.
+  created_by_name?: string | null;
+  /** `generator` = podpisany w Generatorze aneksów, `manual` = dodany tutaj. */
+  source?: "generator" | "manual";
+  b2b_document_id?: number | null;
+  state?: AnnexState;
+  document?: { id: number; filename: string; is_signed_scan: boolean } | null;
+}
+
+/**
+ * Aneks z Generatora aneksów bez wpisu w historii kontraktu: czeka na podpis,
+ * anulowany albo podpisany bez zmiany w kontrakcie. Rzut dokumentu z generatora.
+ */
+interface AnnexDocumentRow {
+  document_id: number;
+  document_type: string;
+  type_label: string;
+  state: AnnexState;
+  effective_date: string | null;
+  change: AnnexChange | null;
+  cancelled_reason: string | null;
+  created_at: string | null;
+  created_by_name: string | null;
+}
+
+/** Co zmieni się w kontrakcie po podpisie — zdanie do komunikatu nad tabelą. */
+function pendingEffect(row: AnnexDocumentRow): string {
+  const change = annexChangeText(row.change);
+  const since = row.effective_date ? ` od ${formatDate(row.effective_date)}` : "";
+  if (!change) return "Po oznaczeniu jako podpisany zmiana wejdzie do kontraktu.";
+  if (row.change?.kind === "rate") {
+    return `Po oznaczeniu jako podpisany stawka kosztowa zmieni się na ${change.after}${since}.`;
+  }
+  if (row.change?.kind === "start_date") {
+    return `Po oznaczeniu jako podpisany data rozpoczęcia kontraktu zmieni się na ${change.after}.`;
+  }
+  if (row.change?.kind === "party") {
+    return `Po oznaczeniu jako podpisany Partnerem będzie ${change.after}${since}.`;
+  }
+  return `Po oznaczeniu jako podpisany do kontraktu wejdzie: ${change.after}${since}.`;
 }
 
 type AmendmentType = ManualAmendmentType;
@@ -127,10 +163,13 @@ export function ContractAmendmentsTab({
   readOnly = false,
   extensionLocked = false,
   onRequestTermination,
+  personName = null,
 }: {
   contractId: number;
   clientId: number;
   readOnly?: boolean;
+  /** Osoba z kontraktu — fraza linku „Otwórz w rejestrze aneksów”. */
+  personName?: string | null;
   /** Umowa B2B bez ręcznego zakończenia — aneks przedłużający jest odrzucany
    *  przez backend, więc przycisk go nie oferuje (`b2bExtensionLocked`). */
   extensionLocked?: boolean;
@@ -154,6 +193,43 @@ export function ContractAmendmentsTab({
     queryKey: ["contract-amendments", contractId],
     queryFn: () =>
       api.get(`/api/contracts/${contractId}/amendments`).then((r) => r.data),
+  });
+
+  const annexDocumentsQuery = useQuery<AnnexDocumentRow[]>({
+    queryKey: ["contract-annex-documents", contractId],
+    queryFn: () =>
+      api.get(`/api/contracts/${contractId}/annex-documents`).then((r) => r.data),
+  });
+
+  // „Dołącz skan” przy aneksie z generatora: plik trafia do Dokumentów
+  // kontraktu i zastępuje wygenerowany DOCX jako plik aneksu.
+  const scanInput = useRef<HTMLInputElement>(null);
+  const [scanTarget, setScanTarget] = useState<number | null>(null);
+  const [scanError, setScanError] = useState<{ id: number; message: string } | null>(
+    null,
+  );
+  const scanMutation = useMutation({
+    mutationFn: ({ amendmentId, file }: { amendmentId: number; file: File }) => {
+      const form = new FormData();
+      form.append("file", file);
+      return api.post(
+        `/api/contracts/${contractId}/amendments/${amendmentId}/document`,
+        form,
+        { headers: { "Content-Type": "multipart/form-data" } },
+      );
+    },
+    onSuccess: () => {
+      setScanError(null);
+      queryClient.invalidateQueries({ queryKey: ["contract-amendments", contractId] });
+      queryClient.invalidateQueries({ queryKey: ["contract-documents", contractId] });
+      queryClient.invalidateQueries({ queryKey: ["contract-activities", contractId] });
+    },
+    onError: (err: unknown, variables) => {
+      setScanError({
+        id: variables.amendmentId,
+        message: apiErrorMessage(err, "Nie udało się zapisać skanu."),
+      });
+    },
   });
 
   const createMutation = useMutation({
@@ -210,13 +286,35 @@ export function ContractAmendmentsTab({
     (amendment) =>
       canViewFinance || amendment.amendment_type !== "rate_change",
   );
+  // Aneksy z Generatora aneksów widać od wygenerowania („czeka na podpis”),
+  // nie dopiero po podpisie. Wiersze bez `document_id` odrzucamy: to nie jest
+  // odpowiedź tej trasy (starszy backend, pomyłka w zaślepce testu).
+  const annexDocuments = (
+    Array.isArray(annexDocumentsQuery.data) ? annexDocumentsQuery.data : []
+  ).filter(
+    (row) =>
+      typeof row?.document_id === "number" &&
+      (canViewFinance || row.document_type !== "annex_rate_change"),
+  );
+  const waiting = annexDocuments.filter((row) => row.state === "waiting");
+  const otherDocuments = annexDocuments.filter((row) => row.state !== "waiting");
+  const waitingRateAnnex = waiting.some(
+    (row) => row.document_type === "annex_rate_change",
+  );
 
-  const viewState = resolveViewState({
-    isLoading: amendmentsQuery.isLoading,
+  const hasRows = amendments.length > 0 || annexDocuments.length > 0;
+  const historyState = resolveViewState({
+    isLoading: amendmentsQuery.isLoading || annexDocumentsQuery.isLoading,
     error: amendmentsQuery.error,
     isSuccess: amendmentsQuery.isSuccess,
-    isEmpty: amendments.length === 0,
+    isEmpty: !hasRows,
   });
+  // „Brak aneksów” dopiero, gdy OBA odczyty się udały i oba są puste: awaria
+  // listy czekających aneksów przy pustej historii to nie pustka.
+  const viewState =
+    historyState === "empty" && !annexDocumentsQuery.isSuccess
+      ? "ready"
+      : historyState;
 
   return (
     <div className="space-y-4">
@@ -329,6 +427,13 @@ export function ContractAmendmentsTab({
             )}
           </div>
 
+          {form.amendment_type === "rate_change" && waitingRateAnnex && (
+            <p className="rounded-lg bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground">
+              Aneks zmiany stawki z Generatora aneksów czeka na podpis — po jego
+              podpisaniu stawka zmieni się jeszcze raz. Jeśli to ta sama zmiana,
+              oznacz tamten aneks jako podpisany zamiast zapisywać stawkę tutaj.
+            </p>
+          )}
           {form.amendment_type === "rate_change" && canAmendRates && (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <label className="block">
@@ -439,7 +544,7 @@ export function ContractAmendmentsTab({
           state={viewState}
           onRetry={() => void amendmentsQuery.refetch()}
         />
-      ) : amendments.length === 0 ? (
+      ) : viewState === "empty" ? (
         <div className="text-sm text-muted-foreground italic bg-card dark:bg-muted rounded-2xl p-8 text-center shadow-xs">
           {readOnly ? (
             "Brak aneksów."
@@ -452,48 +557,241 @@ export function ContractAmendmentsTab({
           )}
         </div>
       ) : (
-        <ol className="space-y-3">
-          {amendments.map((a) => {
-            const Icon = TYPE_ICON[a.amendment_type] ?? CalendarPlus;
-            return (
-              <li
-                key={a.id}
-                className="bg-card dark:bg-muted rounded-2xl shadow-xs p-4"
+        <>
+          {annexDocumentsQuery.isError ? (
+            <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              Nie udało się wczytać aneksów czekających na podpis — tabela
+              pokazuje tylko zmiany już zapisane w kontrakcie.{" "}
+              <button
+                type="button"
+                className="font-medium underline"
+                onClick={() => void annexDocumentsQuery.refetch()}
               >
-                <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-full bg-primary/10 dark:bg-primary/10 flex items-center justify-center text-primary shrink-0">
-                    <Icon className="w-4 h-4" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-baseline gap-2">
-                      <span className="font-medium">
-                        {amendmentTypeLabel(a.amendment_type)}
-                      </span>
-                      <span className="text-xs text-muted-foreground dark:text-muted-foreground">
-                        Wchodzi w życie {formatDate(a.effective_date)}
-                      </span>
-                    </div>
-                    {a.reason && (
-                      <p className="text-sm text-muted-foreground dark:text-muted-foreground mt-1">
-                        {a.reason}
-                      </p>
-                    )}
-                    {/* Czytelna lista pól zamiast surowego JSON-a (audyt
-                        24.09, N9): klucz → etykieta PL, wartość → data,
-                        status, jednostka po polsku. */}
-                    <AmendmentValues old={a.old_values} next={a.new_values} />
-                    <div className="text-xs text-muted-foreground mt-2">
-                      {formatDateTimePl(a.created_at)}
-                      {a.created_by_email && ` · ${a.created_by_email}`}
-                    </div>
-                  </div>
+                Ponów
+              </button>
+            </p>
+          ) : null}
+          {waiting.map((row) => (
+            <div
+              key={row.document_id}
+              role="status"
+              className="flex flex-wrap items-start justify-between gap-3 rounded-lg bg-warning-muted px-4 py-3 text-warning-muted-foreground"
+            >
+              <div className="min-w-0 flex-1 basis-80">
+                <div className="text-sm font-semibold">
+                  Aneks „{annexTitle(row.document_type)}” czeka na podpis
                 </div>
-              </li>
-            );
-          })}
-        </ol>
+                <div className="text-sm">{pendingEffect(row)}</div>
+              </div>
+              <Link
+                href={annexRegisterHref(personName)}
+                className="shrink-0 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted"
+              >
+                Otwórz w rejestrze aneksów
+              </Link>
+            </div>
+          ))}
+          {hasRows ? (
+          <div className="relative overflow-x-auto rounded-2xl bg-card px-4 py-2 shadow-xs dark:bg-muted">
+            <input
+              ref={scanInput}
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png"
+              className="hidden"
+              aria-label="Skan podpisanego aneksu"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file && scanTarget !== null) {
+                  scanMutation.mutate({ amendmentId: scanTarget, file });
+                }
+              }}
+            />
+            <table className="w-full min-w-[900px] table-fixed text-sm">
+              <colgroup>
+                <col className="w-[11%]" />
+                <col className="w-[17%]" />
+                <col className="w-[23%]" />
+                <col className="w-[14%]" />
+                <col className="w-[10%]" />
+                <col className="w-[14%]" />
+                <col className="w-[11%]" />
+              </colgroup>
+              <thead>
+                <tr className="border-b border-border text-left">
+                  <th scope="col" className={`py-2 pr-3 ${CALM_HEAD}`}>Wchodzi w życie</th>
+                  <th scope="col" className={`py-2 pr-3 ${CALM_HEAD}`}>Typ aneksu</th>
+                  <th scope="col" className={`py-2 pr-3 ${CALM_HEAD}`}>Zmiana</th>
+                  <th scope="col" className={`py-2 pr-3 ${CALM_HEAD}`}>Status</th>
+                  <th scope="col" className={`py-2 pr-3 ${CALM_HEAD}`}>Źródło</th>
+                  <th scope="col" className={`py-2 pr-3 ${CALM_HEAD}`}>Dokument</th>
+                  <th scope="col" className={`py-2 ${CALM_HEAD}`}>Dodał</th>
+                </tr>
+              </thead>
+              <tbody>
+                {waiting.map((row) => (
+                  <AnnexDocumentTableRow key={`d-${row.document_id}`} row={row} />
+                ))}
+                {amendments.map((a) => {
+                  const state = annexStateLabel(a.state ?? "in_force");
+                  const fromGenerator = a.source === "generator";
+                  return (
+                    <tr key={`a-${a.id}`} className={`${CALM_ROW} align-top`}>
+                      <td className="whitespace-nowrap py-2.5 pr-3 tabular-nums">
+                        {formatDate(a.effective_date)}
+                      </td>
+                      <td className="py-2.5 pr-3 font-medium text-foreground">
+                        {amendmentTypeLabel(a.amendment_type)}
+                      </td>
+                      <td className="py-2.5 pr-3">
+                        {/* Czytelna lista pól zamiast surowego JSON-a (audyt
+                            24.09, N9): klucz → etykieta PL, wartość → data,
+                            status, jednostka po polsku. */}
+                        <AmendmentValues old={a.old_values} next={a.new_values} />
+                        {a.reason && !fromGenerator ? (
+                          <span className={CALM_SUBLINE}>{a.reason}</span>
+                        ) : null}
+                      </td>
+                      <td className="py-2.5 pr-3">
+                        <StatusDot
+                          tone={state.tone}
+                          note={
+                            a.state === "signed_pending"
+                              ? `wejdzie w życie ${formatDate(a.effective_date)}`
+                              : null
+                          }
+                        >
+                          {state.label}
+                        </StatusDot>
+                      </td>
+                      <td className="py-2.5 pr-3">
+                        {fromGenerator ? "Generator aneksów" : "Ręcznie"}
+                      </td>
+                      <td className="py-2.5 pr-3">
+                        {a.document ? (
+                          <button
+                            type="button"
+                            className="break-all text-left font-medium text-primary hover:underline"
+                            onClick={() => {
+                              if (a.document) void openContractDocument(contractId, a.document);
+                            }}
+                          >
+                            {a.document.filename}
+                          </button>
+                        ) : (
+                          <span className={CALM_EMPTY}>brak</span>
+                        )}
+                        {a.document && fromGenerator ? (
+                          <span className={CALM_SUBLINE}>
+                            {a.document.is_signed_scan
+                              ? "skan podpisany"
+                              : "wygenerowany, bez podpisów"}
+                          </span>
+                        ) : null}
+                        {fromGenerator && !readOnly && !a.document?.is_signed_scan ? (
+                          <button
+                            type="button"
+                            className="mt-0.5 block text-xs font-medium text-primary hover:underline disabled:opacity-60"
+                            disabled={scanMutation.isPending}
+                            onClick={() => {
+                              setScanTarget(a.id);
+                              scanInput.current?.click();
+                            }}
+                          >
+                            Dołącz skan
+                          </button>
+                        ) : null}
+                        {scanError?.id === a.id ? (
+                          <span role="alert" className="mt-0.5 block text-xs text-destructive">
+                            {scanError.message}
+                          </span>
+                        ) : null}
+                      </td>
+                      <td className="py-2.5">
+                        <span className="whitespace-nowrap text-xs tabular-nums text-foreground">
+                          {formatDate(a.created_at)}
+                        </span>
+                        <span className={CALM_SUBLINE}>
+                          {a.created_by_name || a.created_by_email || "—"}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {otherDocuments.map((row) => (
+                  <AnnexDocumentTableRow key={`d-${row.document_id}`} row={row} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+          ) : null}
+          <p className="text-xs text-muted-foreground">
+            Aneks z Generatora aneksów zmienia kontrakt dopiero po podpisie.
+            Aneks dodany przyciskami powyżej działa od razu i nie ma dokumentu
+            do podpisu.
+          </p>
+        </>
       )}
     </div>
+  );
+}
+
+/** Wiersz aneksu z Generatora aneksów bez wpisu w historii kontraktu. */
+function AnnexDocumentTableRow({ row }: { row: AnnexDocumentRow }) {
+  const state = annexStateLabel(row.state);
+  const change = annexChangeText(row.change);
+  const muted = row.state === "cancelled" ? "text-muted-foreground" : "";
+  return (
+    <tr className={`${CALM_ROW} align-top ${muted}`}>
+      <td className="whitespace-nowrap py-2.5 pr-3 tabular-nums">
+        {row.effective_date ? (
+          formatDate(row.effective_date)
+        ) : (
+          <span className={CALM_EMPTY}>—</span>
+        )}
+      </td>
+      <td className="py-2.5 pr-3 font-medium">{annexTitle(row.document_type)}</td>
+      <td className="py-2.5 pr-3 tabular-nums">
+        {change ? (
+          <>
+            {change.before ? (
+              <>
+                <span className="text-muted-foreground line-through">
+                  {change.before}
+                </span>
+                {" → "}
+              </>
+            ) : null}
+            {change.after}
+          </>
+        ) : (
+          <span className={CALM_EMPTY}>—</span>
+        )}
+        {row.state === "cancelled" ? (
+          <span className={CALM_SUBLINE}>nie weszła w życie</span>
+        ) : null}
+      </td>
+      <td className="py-2.5 pr-3">
+        <StatusDot
+          tone={state.tone}
+          note={row.state === "cancelled" ? row.cancelled_reason : null}
+        >
+          {state.label}
+        </StatusDot>
+      </td>
+      <td className="py-2.5 pr-3">Generator aneksów</td>
+      <td className="py-2.5 pr-3">
+        <span className={CALM_EMPTY}>
+          {row.state === "waiting" ? "po podpisie" : "brak"}
+        </span>
+      </td>
+      <td className="py-2.5">
+        <span className="whitespace-nowrap text-xs tabular-nums text-foreground">
+          {row.created_at ? formatDate(row.created_at) : "—"}
+        </span>
+        <span className={CALM_SUBLINE}>{row.created_by_name || "—"}</span>
+      </td>
+    </tr>
   );
 }
 

@@ -21,6 +21,7 @@ import {
   type InfiniteData,
 } from "@tanstack/react-query";
 
+import { ContractAmendmentsTab } from "@/components/ContractAmendmentsTab";
 import { ToastProvider } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import {
@@ -640,6 +641,93 @@ const ANNEX_ROWS: DocumentItem[] = [
   }),
 ];
 
+// Zakładka „Aneksy” kontraktu: aneks czekający na podpis, zmiany zapisane
+// (z generatora i ręczna) oraz aneks anulowany. Bez aneksu stawki — harness
+// nie ma zalogowanej osoby, więc wierszy z kwotami zakładka by nie pokazała.
+const CONTRACT_ID = 651;
+
+const CONTRACT_ANNEX_DOCUMENTS = [
+  {
+    document_id: 31,
+    document_type: "annex_start_date",
+    type_label: "Aneks — zmiana daty startu",
+    state: "waiting",
+    effective_date: "2026-11-16",
+    change: { kind: "start_date", before: "2026-11-02", after: "2026-11-16" },
+    cancelled_reason: null,
+    created_at: "2026-10-10T09:40:00Z",
+    created_by_name: "Jan Delivery",
+  },
+  {
+    document_id: 32,
+    document_type: "annex_subcontractor",
+    type_label: "Aneks — osoba skierowana (oddelegowanie)",
+    state: "cancelled",
+    effective_date: "2026-06-15",
+    change: { kind: "delegate", name: "Paweł Przykładowy" },
+    cancelled_reason: "Partner nie podpisał",
+    created_at: "2026-06-02T08:00:00Z",
+    created_by_name: "Jan Delivery",
+  },
+];
+
+const CONTRACT_AMENDMENTS = [
+  {
+    id: 41,
+    contract_id: CONTRACT_ID,
+    amendment_type: "party_data_change",
+    old_values: {},
+    new_values: { legal_name: "TESTOWY IT Piotr Testowy", nip: "0000000011" },
+    effective_date: "2026-09-01",
+    reason: null,
+    document_id: 900,
+    created_by: 1,
+    created_by_email: null,
+    created_by_name: "Joanna Delivery",
+    created_at: "2026-08-20T10:00:00Z",
+    source: "generator",
+    b2b_document_id: 24,
+    state: "in_force",
+    document: { id: 900, filename: "Aneks dane firmy.pdf", is_signed_scan: true },
+  },
+  {
+    id: 42,
+    contract_id: CONTRACT_ID,
+    amendment_type: "scope_change",
+    old_values: { project_name: "Migracja" },
+    new_values: { project_name: "Hurtownia danych" },
+    effective_date: "2026-08-01",
+    reason: "Zmiana projektu u klienta",
+    document_id: null,
+    created_by: 1,
+    created_by_email: null,
+    created_by_name: "Jan Delivery",
+    created_at: "2026-07-28T10:00:00Z",
+    source: "manual",
+    b2b_document_id: null,
+    state: "in_force",
+    document: null,
+  },
+  {
+    id: 43,
+    contract_id: CONTRACT_ID,
+    amendment_type: "start_date_change",
+    old_values: { start_date: "2026-07-01" },
+    new_values: { start_date: "2026-07-06" },
+    effective_date: "2026-07-06",
+    reason: null,
+    document_id: 901,
+    created_by: 1,
+    created_by_email: null,
+    created_by_name: "Joanna Delivery",
+    created_at: "2026-06-28T10:00:00Z",
+    source: "generator",
+    b2b_document_id: 12,
+    state: "in_force",
+    document: { id: 901, filename: "Aneks start.docx", is_signed_scan: false },
+  },
+];
+
 const SUBJECT_QUERY = "Testowy";
 
 const SUBJECTS: DocumentSubject[] = [
@@ -778,6 +866,12 @@ function seededClient(): QueryClient {
     opts,
   );
   qc.setQueryData(["b2b-annex-subject-clients"], CLIENTS, opts);
+  qc.setQueryData(["contract-amendments", CONTRACT_ID], CONTRACT_AMENDMENTS, opts);
+  qc.setQueryData(
+    ["contract-annex-documents", CONTRACT_ID],
+    CONTRACT_ANNEX_DOCUMENTS,
+    opts,
+  );
   qc.setQueryData(b2bDocumentsKeys.effects(21), EFFECTS_ANNEX, opts);
   qc.setQueryData(
     b2bDocumentsKeys.prefill("termination_agreement", PARENT_ID, null),
@@ -934,6 +1028,14 @@ function Harness() {
             initialQuery={SUBJECT_QUERY}
           />
         </div>
+      </Section>
+
+      <Section title="Kontrakt → zakładka Aneksy (aneks czeka na podpis, zmiany zapisane, anulowany)">
+        <ContractAmendmentsTab
+          contractId={CONTRACT_ID}
+          clientId={2}
+          personName="Piotr Testowy"
+        />
       </Section>
 
       <Section title="Generator aneksów — wybór typu aneksu">

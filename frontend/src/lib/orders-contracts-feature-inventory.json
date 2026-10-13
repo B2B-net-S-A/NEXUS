@@ -226,6 +226,13 @@
    "b_home": "Generator umów: zakładka „Umowy bieżące”"
   },
   {
+   "id": "k.annex.contract-tab",
+   "opis": "Zakładka Aneksy: aneks z generatora od wygenerowania, źródło, plik aneksu i „Dołącz skan”",
+   "file": "components/ContractAmendmentsTab.tsx",
+   "marker": "contract-annex-documents",
+   "b_home": "Strona kontraktu: zakładka „Aneksy”"
+  },
+  {
    "id": "k.p.more",
    "opis": "Edytuj, Dodaj projekt, Generuj z szablonu, Przepnij, Usuń",
    "file": "components/contracts/ContractSidePanel.tsx",
