@@ -5,6 +5,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const get = vi.fn();
 const post = vi.fn();
+// Propozycje AI ładują się same (D5, 14.10.2026) — osobna atrapa, żeby
+// asercje o zapisach (`post`) nie liczyły odczytu propozycji.
+const fixesPost = vi.fn();
 const showSuccess = vi.fn();
 const showError = vi.fn();
 const copyTextToClipboard = vi.fn();
@@ -13,7 +16,8 @@ vi.mock("@/lib/api", () => ({
   __esModule: true,
   default: {
     get: (...a: unknown[]) => get(...a),
-    post: (...a: unknown[]) => post(...a),
+    post: (url: string, ...rest: unknown[]) =>
+      String(url).endsWith("/qc/fixes") ? fixesPost(url, ...rest) : post(url, ...rest),
   },
 }));
 vi.mock("@/components/Toast", () => ({
@@ -214,6 +218,7 @@ describe("CvQcDialog — QC CV", () => {
     vi.clearAllMocks();
     signIn("recruiter");
     serve(result());
+    fixesPost.mockResolvedValue({ data: { status: "ok", cached: true, fixes: [] } });
   });
 
   it("mówi, co sprawdza, i dzieli wynik na: do poprawy, warto poprawić, w porządku", async () => {
@@ -460,34 +465,36 @@ describe("CvQcDialog — QC CV", () => {
     expect(keys()).toEqual(expect.arrayContaining(['["kanban","31"]', '["kanban",31]', '["board-tasks"]']));
   });
 
-  it("propozycje AI: przycisk z karty, pogrubienie z `**`, źródło, zastosowanie po edycji", async () => {
-    post.mockImplementation((url: string) =>
-      url.endsWith("/qc/fixes")
-        ? Promise.resolve({
-            data: {
-              status: "ok",
-              cached: false,
-              fixes: [
-                {
-                  id: "f1",
-                  check_key: "critical_skills",
-                  requirement: "Java",
-                  role: "Firma Alfa — Java Developer",
-                  current_text: "Moduł przelewów SEPA.",
-                  proposed_text: "Moduł przelewów SEPA w **Java 11**.",
-                  source: "original",
-                  source_quote: "SEPA transfers module (Java 11)",
-                },
-              ],
-            },
-          })
-        : Promise.resolve({ data: result() }),
-    );
+  it("propozycje AI ładują się same (D5): pogrubienie z `**`, źródło, zastosowanie po edycji", async () => {
+    fixesPost.mockResolvedValue({
+      data: {
+        status: "ok",
+        cached: true,
+        fixes: [
+          {
+            id: "f1",
+            check_key: "critical_skills",
+            requirement: "Java",
+            role: "Firma Alfa — Java Developer",
+            current_text: "Moduł przelewów SEPA.",
+            proposed_text: "Moduł przelewów SEPA w **Java 11**.",
+            source: "original",
+            source_quote: "SEPA transfers module (Java 11)",
+          },
+        ],
+      },
+    });
+    post.mockResolvedValue({ data: result() });
     renderDialog();
     const dialog = await screen.findByRole("dialog");
-    await userEvent.click(await within(dialog).findByRole("button", { name: /Dopisz zdania z oryginału \(AI\)/ }));
-    const ai = within(dialog).getByRole("region", { name: "Propozycje AI" });
+    // Bez klikania: serwer liczy propozycje po automacie, okno je od razu pokazuje.
+    const ai = await within(dialog).findByRole("region", { name: "Propozycje AI" });
     const proposal = await within(ai).findByRole("listitem", { name: "Propozycja: Java" });
+    expect(fixesPost).toHaveBeenCalledWith(`${QC_URL}/fixes`);
+    expect(within(dialog).queryByRole("button", { name: /Zaproponuj poprawki/ })).toBeNull();
+    // „Dopisz zdania z oryginału (AI)” tylko przewija do gotowych propozycji.
+    await userEvent.click(within(dialog).getByRole("button", { name: /Dopisz zdania z oryginału \(AI\)/ }));
+    expect(fixesPost).toHaveBeenCalledTimes(1);
     expect(within(proposal).getByText("Java 11").tagName).toBe("STRONG");
     expect(proposal).toHaveTextContent("Źródło: oryginalne CV — SEPA transfers module (Java 11)");
 

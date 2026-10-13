@@ -3,7 +3,8 @@
 // Publiczny harness okna QC CV (Rekrutacja v5). Dane fikcyjne, ZERO zapytań:
 // wynik QC idzie do okna propsem (`CvQcDialogView`), propozycje AI są
 // zasiane w cache pod tym samym kluczem, którego używa komponent
-// (`cvQcFixesQueryKey`), a interceptor odcina sieć — przyciski poprawek
+// (`cvQcFixesQueryKey`; od 14.10.2026 okno ładuje je samo, bez przycisku
+// „Zaproponuj poprawki (AI)”), a interceptor odcina sieć — przyciski poprawek
 // kończą się komunikatem o błędzie, nic nie trafia do API (pilnuje
 // `harness-seeds.test.ts`).
 //

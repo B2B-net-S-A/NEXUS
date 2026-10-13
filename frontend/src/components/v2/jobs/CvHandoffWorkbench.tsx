@@ -14,6 +14,12 @@
  * Karta niczego nie blokuje („Kanban bez bramek”): brak CV czy zgody RODO nie
  * wyłącza „Oznacz CV Wysłane”. Ruch idzie przez `pipeline/move` ze stawką
  * (Pipeline v4), link — na etap SPRZED ruchu, gdzie leży CV.
+ *
+ * 14.10.2026 („Droga rekrutera do DL”, D6): na „Zweryfikowany” edytor CV
+ * otwarty z karty ma w stopce „Zapisz i przekaż do DL” — warsztat podaje mu
+ * ruch na etap „QC CV” szablonu (ten sam rdzeń ruchu, z uwagą rekrutera jako
+ * `recruiter_remark`). Po „Zapisz i przekaż dalej” z formularza (`forwarded`)
+ * karta pokazuje postęp CV → QC i „Następna w Screeningu”.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -82,6 +88,8 @@ import {
   type CvHandoffPlan,
 } from "@/lib/cv-handoff";
 import { expectedStateVersionOf } from "@/lib/pipeline-version-conflict";
+import { placeStage } from "@/lib/board-stages";
+import type { CvEditorHandoff } from "@/lib/cv-editor-handoff";
 import { MoveRefusedError } from "@/lib/pipeline-move-core";
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
 import { resolveViewState } from "@/lib/view-state";
@@ -182,6 +190,9 @@ export function CvHandoffWorkbench({
   budgetHourly = null,
   focusCandidateId = null,
   panelFallback,
+  forwarded = false,
+  nextInColumn,
+  openPerson,
 }: CvHandoffWorkbenchProps) {
   const { showSuccess, showError } = useToast();
 
@@ -350,6 +361,44 @@ export function CvHandoffWorkbench({
   // Ruch idzie rdzeniem (`usePipelineMoveCore`): ostrzeżenie „Przenieś mimo
   // to”, bramka QC CV i konflikt wersji mają te same okna co na Tablicy.
   const moveCore = usePipelineMoveCore({ jobId });
+
+  // D6 (14.10.2026): „Zapisz i przekaż do DL” ze stopki edytora — tylko gdy
+  // karta stoi na „Zweryfikowany”. Cel to etap „QC CV” szablonu (u Nordei ten
+  // sam: tam jest przegląd DL przed kolejką Cpro), nie etap kolejki Cpro.
+  const qcColumn = useMemo(
+    () =>
+      columns.find((col) => {
+        if (col.category === "terminal") return false;
+        const place = placeStage(col);
+        return place.column === "cv_qc" && place.badge === null;
+      }) ?? null,
+    [columns],
+  );
+  const inVerified = selected != null && placeStage(selected.col).column === "verified";
+  const handoff: CvEditorHandoff | undefined =
+    selected && inVerified && !readOnly && qcColumn
+      ? {
+          onSaveAndHandOff: async (remark) => {
+            const outcome = await moveCore.send(
+              {
+                candidate_id: selected.item.candidate_id,
+                job_id: jobId,
+                ...(qcColumn.stage_def_id ? { stage_def_id: qcColumn.stage_def_id } : { stage: qcColumn.stage }),
+                expected_state_version: expectedStateVersionOf(selected.item),
+                recruiter_remark: remark || undefined,
+              },
+              { candidateName: fullName },
+            );
+            // Konflikt wersji: Tablica jest nieaktualna — odświeżamy ją, edytor zostaje.
+            if (outcome.ok || outcome.refusal.kind === "version_conflict") onMoved();
+            return outcome.ok;
+          },
+        }
+      : undefined;
+  // „Następna w Screeningu” w bloku postępu — migawka kolejności Tablicy.
+  const nextInScreening =
+    forwarded && focusCandidateId != null ? (nextInColumn?.(focusCandidateId, "screening") ?? null) : null;
+  const progressProps = { forwarded, nextInScreening, onOpenPerson: openPerson };
   const sendMut = useMutation({
     mutationFn: async () => {
       if (!selected || !cvSentCol || stageId == null) {
@@ -961,6 +1010,7 @@ export function CvHandoffWorkbench({
             jobId={jobId}
             jobTitle={jobTitle}
             readOnly={readOnly}
+            {...progressProps}
           />
           <p
             data-testid="cv-send-later-note"
@@ -1001,6 +1051,8 @@ export function CvHandoffWorkbench({
             jobId={jobId}
             jobTitle={jobTitle}
             readOnly={readOnly}
+            handoff={handoff}
+            {...progressProps}
           />
 
           <section

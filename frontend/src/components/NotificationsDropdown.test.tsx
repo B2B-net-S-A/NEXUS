@@ -270,7 +270,7 @@ describe("NotificationsDropdown — dostępność, licznik i ładowanie", () => 
     expect(await screen.findByText("w zastępstwie za Anna Nowak")).toBeInTheDocument();
   });
 
-  it("powiadomienia o przydziale requestów mają własne ikony, nie zapasowy dzwonek", async () => {
+  it("powiadomienia o przydziale requestów i „CV gotowe” mają własne ikony, nie zapasowy dzwonek", async () => {
     listNotifications.mockResolvedValue({
       data: {
         items: [
@@ -289,8 +289,15 @@ describe("NotificationsDropdown — dostępność, licznik i ładowanie", () => 
             link: "/jobs/42",
           },
           { ...makeItems(1)[0], id: 13, title: "Typ z przyszłości", notification_type: "not_a_known_type" },
+          {
+            ...makeItems(1)[0],
+            id: 14,
+            title: "CV gotowe do sprawdzenia: Anna Nowak",
+            notification_type: "cv_ready",
+            link: "/jobs/42?candidate=7&panel=cv",
+          },
         ],
-        unread_count: 3,
+        unread_count: 4,
       },
     } as unknown as Awaited<ReturnType<typeof notificationsApi.listForBell>>);
     const user = userEvent.setup();
@@ -302,6 +309,8 @@ describe("NotificationsDropdown — dostępność, licznik i ładowanie", () => 
     expect(await iconOf("Nowy request do pracy")).toContain("lucide-list-checks");
     // Nieznany typ dostaje neutralny dzwonek — tak wyglądały oba typy bez wpisu.
     expect(await iconOf("Typ z przyszłości")).toContain("lucide-bell-ring");
+    // 14.10.2026: automat CV skończył — ikona dokumentu, nie zapasowy dzwonek.
+    expect(await iconOf("CV gotowe do sprawdzenia: Anna Nowak")).toContain("lucide-file-check");
   });
 
   it("po odświeżeniu listy zeruje deltę z gniazda (bez widmowego licznika)", async () => {

@@ -126,6 +126,13 @@ const TYPE_CONFIG: Record<
     color: "text-cyan-600",
     bgColor: "bg-cyan-100",
   },
+  // 14.10.2026: automat CV skończył po „Zweryfikowany” — „CV gotowe do
+  // sprawdzenia” albo „Automat nie zrobił CV” (jeden typ, tytuł mówi który).
+  cv_ready: {
+    icon: <FileCheck2 className="w-3.5 h-3.5" />,
+    color: "text-primary",
+    bgColor: "bg-primary/15",
+  },
   // 0404: poranny skrót zgłoszeń odrzuconych przez AI (lista w „Nowi”).
   application_screening_digest: {
     icon: <Inbox className="w-3.5 h-3.5" />,

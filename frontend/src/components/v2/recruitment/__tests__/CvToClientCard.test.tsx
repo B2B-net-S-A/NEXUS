@@ -13,7 +13,7 @@
  * a karta pokazuje jedną liczbę rzeczy do sprawdzenia przed wysłaniem.
  */
 
-import { configure, render, screen, waitFor, within } from "@testing-library/react";
+import { act, configure, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -753,5 +753,137 @@ describe("CvToClientCard — „Użyj innego CV” (12.10.2026)", () => {
     expect(screen.queryByTestId("ready-cv-hint")).toBeNull();
     expect(screen.queryByRole("button", { name: /Użyj gotowego CV/ })).toBeNull();
     expect(mocks.sources).not.toHaveBeenCalled();
+  });
+});
+
+describe("CvToClientCard — po „Zapisz i przekaż dalej” (14.10.2026)", () => {
+  const READY = { status: "draft", from_generator: true, generated_document_id: 5, edit_revision: 3, version: 1 };
+  const progress = () => screen.getByTestId("cv-forward-progress");
+  const generatedCalls = () =>
+    mocks.apiGet.mock.calls.filter(([url, config]) => url === "/api/cv-generator/generated" && config?.params?.job_id != null)
+      .length;
+
+  it("bez `forwarded` nie ma bloku postępu", async () => {
+    renderCard();
+    expect(await screen.findByText(/Jeszcze nie ma CV do klienta/)).toBeInTheDocument();
+    expect(screen.queryByTestId("cv-forward-progress")).toBeNull();
+  });
+
+  it("automat jeszcze nie ruszył: „generuje się”, dzwonek, karta pyta co 4 s aż do wiersza CV", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      renderCard({ forwarded: true });
+      expect(await screen.findByTestId("cv-forward-progress")).toBeInTheDocument();
+      expect(within(progress()).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+        "Screening zapisany",
+        "CV generuje się (ok. 40 s)",
+        "QC — po CV",
+      ]);
+      expect(progress()).toHaveTextContent("Dam znać dzwonkiem, gdy CV będzie gotowe.");
+      const before = generatedCalls();
+      rows = [{ id: 77, status: "processing", origin: "auto" }];
+      await act(async () => {
+        vi.advanceTimersByTime(4100);
+      });
+      await waitFor(() => expect(generatedCalls()).toBeGreaterThan(before));
+      expect(await screen.findByText("Automat generuje CV…")).toBeInTheDocument();
+
+      // Automat podpiął CV — krok CV gotowy, QC policzone.
+      rows = [{ id: 77, status: "ready", origin: "auto" }];
+      mocks.brandedGet.mockResolvedValue({ data: { ...READY, generated_document_id: 77 } });
+      issues = { generator_warnings: ["WERYFIKUJ: daty"], content_review: { status: null, version: null, findings: [] } };
+      await act(async () => {
+        vi.advanceTimersByTime(4100);
+      });
+      await waitFor(() => expect(progress()).toHaveTextContent("CV gotowe"));
+      await waitFor(() => expect(progress()).toHaveTextContent("QC: 1 do poprawy"));
+      expect(progress()).not.toHaveTextContent("Dam znać dzwonkiem");
+      // Gotowe CV kończy odpytywanie.
+      const settled = generatedCalls();
+      await act(async () => {
+        vi.advanceTimersByTime(8200);
+      });
+      expect(generatedCalls()).toBe(settled);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("automat pominął osobę: krok CV mówi dlaczego, bez „Dam znać”", async () => {
+    events = [
+      {
+        id: 9,
+        kind: "cv_auto_generate_skipped",
+        created_at: new Date().toISOString(),
+        reason: "consent_screenshot_required",
+        candidate: { id: 121, name: "Jan Kowalski" },
+      },
+    ];
+    renderCard({ forwarded: true });
+    await waitFor(() =>
+      expect(progress()).toHaveTextContent(
+        "CV nie powstało automatycznie: reguła klienta wymaga zrzutu zgody RODO",
+      ),
+    );
+    expect(progress()).not.toHaveTextContent("Dam znać dzwonkiem");
+  });
+
+  it("stare pominięcie (sprzed przekazania) nie jest odpowiedzią — dalej czekamy na automat", async () => {
+    events = [
+      {
+        id: 9,
+        kind: "cv_auto_generate_skipped",
+        created_at: "2026-09-01T08:00:00Z",
+        reason: "consent_screenshot_required",
+        candidate: { id: 121, name: "Jan Kowalski" },
+      },
+    ];
+    renderCard({ forwarded: true });
+    expect(await screen.findByTestId("auto-cv-skip-notice")).toBeInTheDocument();
+    expect(progress()).toHaveTextContent("CV generuje się (ok. 40 s)");
+  });
+
+  it("para miała już CV (plik Word): „CV firmowe: z pliku Word”, QC z liczbą", async () => {
+    mocks.brandedGet.mockResolvedValue({
+      data: { ...READY, generated_document_id: null, source: "document", origin: { kind: "upload", label: "Anna_B2B.docx" } },
+    });
+    qcChecks = [
+      { key: "no_unsupported", label: "Zgodność", severity: "blocking", status: "fail", summary: null, items: [{ term: "AWS" }] },
+    ];
+    renderCard({ forwarded: true });
+    await waitFor(() => expect(progress()).toHaveTextContent("CV firmowe: z pliku Word"));
+    await waitFor(() => expect(progress()).toHaveTextContent("QC: 1 do poprawy"));
+  });
+
+  it("„Następna w Screeningu” otwiera osobę dopiero po kliknięciu", async () => {
+    const onOpenPerson = vi.fn();
+    renderCard({
+      forwarded: true,
+      nextInScreening: { candidateId: 55, name: "Ewa Nowak", detail: "czeka 2 dni" },
+      onOpenPerson,
+    });
+    const next = await screen.findByRole("button", { name: /Następna w Screeningu: Ewa Nowak/ });
+    expect(next).toHaveTextContent("(czeka 2 dni) · Otwórz");
+    expect(onOpenPerson).not.toHaveBeenCalled();
+    await userEvent.click(next);
+    expect(onOpenPerson).toHaveBeenCalledWith(55);
+  });
+
+  it("`handoff` idzie do edytora z „Edytuj” i „Sprawdź i popraw”", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: READY });
+    rows = [{ id: 5, status: "ready" }];
+    issues = { generator_warnings: ["WERYFIKUJ: daty"], content_review: { status: null, version: null, findings: [] } };
+    const handoff = { onSaveAndHandOff: vi.fn(async () => true) };
+    renderCard({ handoff });
+    await userEvent.click(await screen.findByRole("button", { name: /Sprawdź i popraw/ }));
+    expect(mocks.editorProps).toMatchObject({ stageId: 21, initialPanel: "issues", handoff });
+  });
+
+  it("bez `handoff` edytor nie dostaje przekazania", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: READY });
+    rows = [{ id: 5, status: "ready" }];
+    renderCard();
+    await userEvent.click(await screen.findByRole("button", { name: /Edytuj/ }));
+    expect(mocks.editorProps?.handoff).toBeUndefined();
   });
 });

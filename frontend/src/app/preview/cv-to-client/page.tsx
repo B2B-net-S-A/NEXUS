@@ -10,10 +10,17 @@
 //  - „Wygeneruj ponownie” przy gotowym CV — przełączniki z ostatniej wersji,
 //  - gotowe CV z jedną liczbą rzeczy do sprawdzenia i „Sprawdź i popraw”,
 //  - gotowe CV bez uwag („Nic do sprawdzenia”),
-//  - QC nie odpowiada (klucz QC celowo niezasiany — karta nie udaje zera).
+//  - QC nie odpowiada (klucz QC celowo niezasiany — karta nie udaje zera),
+//  - po „Zapisz i przekaż dalej” (14.10.2026): blok postępu screening → CV →
+//    QC; automat „generuje” CV, po 12 s karta dostaje gotowe CV z liczbą QC,
+//    a „Następna w Screeningu” tylko pisze na stronie, kogo by otworzyła,
+//  - po przekazaniu, gdy automat pominął osobę (powód z „Pracy w tle”).
+//
+// Karta po przekazaniu pyta serwer co 4 s. Te odczyty (lista generacji, CV
+// etapu, „Praca w tle”) odpowiada pamięć harnessu — dane z cache, bez sieci.
 
 import { useEffect, useState } from "react";
-import { AxiosError } from "axios";
+import { AxiosError, type InternalAxiosRequestConfig } from "axios";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ToastProvider } from "@/components/Toast";
@@ -40,7 +47,7 @@ const CLIENT_ID = 7;
 const REVISION = 2;
 const FRESH = { updatedAt: Date.now() + 86_400_000 };
 
-type Variant = "sources" | "regenerate" | "counter" | "clean" | "qcdown";
+type Variant = "sources" | "regenerate" | "counter" | "clean" | "qcdown" | "forwarded" | "skipped";
 
 interface Person {
   stageId: number;
@@ -56,7 +63,16 @@ const PEOPLE: readonly Person[] = [
   { stageId: 703, candidateId: 33, name: "Marta Zielińska", label: "Jedna liczba rzeczy do sprawdzenia", variant: "counter" },
   { stageId: 704, candidateId: 34, name: "Piotr Wiśniewski", label: "Gotowe, nic do sprawdzenia", variant: "clean" },
   { stageId: 705, candidateId: 35, name: "Tomasz Wzorcowy", label: "QC nie odpowiada", variant: "qcdown" },
+  { stageId: 706, candidateId: 36, name: "Ewa Testowa", label: "Po przekazaniu — CV się generuje", variant: "forwarded" },
+  { stageId: 707, candidateId: 37, name: "Olga Wzorcowa", label: "Po przekazaniu — automat pominął osobę", variant: "skipped" },
 ];
+
+/** Bez gotowego CV na starcie: brak, przekazanie w toku, pominięcie automatu. */
+const NO_CV_AT_START: ReadonlySet<Variant> = new Set(["sources", "forwarded", "skipped"]);
+const FORWARDED: ReadonlySet<Variant> = new Set(["forwarded", "skipped"]);
+/** Po tylu ms automat „kończy” CV osoby po przekazaniu. */
+const AUTO_CV_READY_MS = 12_000;
+const NEXT_IN_SCREENING = { candidateId: 38, name: "Kamil Przykładowy", detail: "czeka 2 dni" };
 
 function recruitment(person: Person): RecruitmentOption {
   return {
@@ -105,6 +121,12 @@ const failing = (partial: Partial<QcCheck> & Pick<QcCheck, "key" | "label">): Qc
 
 /** QC karty: blokada, uwaga i wyciszona uwaga (ta się nie liczy). */
 function qcChecks(person: Person): QcCheck[] {
+  if (person.variant === "forwarded") {
+    return [
+      failing({ key: "must_bolded", label: "Must-have pogrubione", items: [{ requirement: "Kafka", term: "Kafka", fix: "bold_all" }] }),
+      failing({ key: "spelling", label: "Pisownia technologii", items: [{ term: "Github", fix: "spelling" }] }),
+    ];
+  }
   if (person.variant !== "counter") return [];
   return [
     failing({
@@ -138,40 +160,63 @@ function issues(person: Person): CvEditorIssuesData {
   };
 }
 
+/** CV etapu: szkic z generatora albo brak. */
+function branded(person: Person, hasCv: boolean) {
+  const generatedId = 9000 + person.stageId;
+  return {
+    status: hasCv ? "draft" : "none",
+    from_generator: hasCv,
+    generated_document_id: hasCv ? generatedId : null,
+    source: hasCv ? "generator" : null,
+    origin: null,
+    edit_revision: hasCv ? REVISION : 0,
+    version: 1,
+    candidate_stage_id: person.stageId,
+    content_html: hasCv ? "<h2>Podsumowanie</h2><p>Java Developer z 8-letnim doświadczeniem w bankowości.</p>" : null,
+    template: null,
+    language: "pl",
+    updated_at: null,
+    updated_by: null,
+    updated_by_name: null,
+    finalized_at: null,
+    finalized_by: null,
+    finalized_by_name: null,
+    snapshot_filename: null,
+    rendered_from_default: false,
+  };
+}
+
+function readyRow(person: Person, origin: "manual" | "auto"): StageGeneratedCvRow {
+  return {
+    id: 9000 + person.stageId,
+    status: "ready",
+    origin,
+    content_mode: "tailored",
+    language: "pl",
+    created_at: "2026-10-13T09:40:00Z",
+  };
+}
+
+/** Automat skończył CV osoby po przekazaniu — karta zobaczy je przy następnym odczycie. */
+function finishAutoCv(qc: QueryClient) {
+  for (const person of PEOPLE) {
+    if (person.variant !== "forwarded") continue;
+    qc.setQueryData(cvToClientRowsQueryKey(person.candidateId, JOB_ID), [readyRow(person, "auto")]);
+    qc.setQueryData(stageBrandedQueryKey(person.stageId), branded(person, true));
+  }
+}
+
 function seed(qc: QueryClient) {
   for (const person of PEOPLE) {
-    const hasCv = person.variant !== "sources";
-    const generatedId = 9000 + person.stageId;
+    const hasCv = !NO_CV_AT_START.has(person.variant);
     // Karta: CV etapu, generacje pary, oryginał, „Praca w tle”.
     const rows: StageGeneratedCvRow[] = hasCv
-      ? [{ id: generatedId, status: "ready", origin: "manual", content_mode: "tailored", language: "pl", created_at: "2026-10-13T09:40:00Z" }]
-      : [];
+      ? [readyRow(person, "manual")]
+      : person.variant === "forwarded"
+        ? [{ id: 9000 + person.stageId, status: "processing", origin: "auto", created_at: new Date().toISOString() }]
+        : [];
     qc.setQueryData(cvToClientRowsQueryKey(person.candidateId, JOB_ID), rows, FRESH);
-    qc.setQueryData(
-      stageBrandedQueryKey(person.stageId),
-      {
-        status: hasCv ? "draft" : "none",
-        from_generator: hasCv,
-        generated_document_id: hasCv ? generatedId : null,
-        source: hasCv ? "generator" : null,
-        origin: null,
-        edit_revision: hasCv ? REVISION : 0,
-        version: 1,
-        candidate_stage_id: person.stageId,
-        content_html: hasCv ? "<h2>Podsumowanie</h2><p>Java Developer z 8-letnim doświadczeniem w bankowości.</p>" : null,
-        template: null,
-        language: "pl",
-        updated_at: null,
-        updated_by: null,
-        updated_by_name: null,
-        finalized_at: null,
-        finalized_by: null,
-        finalized_by_name: null,
-        snapshot_filename: null,
-        rendered_from_default: false,
-      },
-      FRESH,
-    );
+    qc.setQueryData(stageBrandedQueryKey(person.stageId), branded(person, hasCv), FRESH);
     qc.setQueryData(
       ["cv-original", person.stageId],
       {
@@ -208,31 +253,69 @@ function seed(qc: QueryClient) {
     qc.setQueryData(["client-cv-rule", CLIENT_ID], { is_active: false }, FRESH);
 
     // Jedna liczba rzeczy do sprawdzenia. „QC nie odpowiada” — klucz QC niezasiany.
-    if (hasCv && person.variant !== "qcdown") {
+    // Osoba po przekazaniu ma zasiane QC wersji, którą „dostanie” od automatu.
+    const willHaveCv = hasCv || person.variant === "forwarded";
+    if (willHaveCv && person.variant !== "qcdown") {
       qc.setQueryData(
         cvToClientQcQueryKey(person.stageId, REVISION),
         { stage_id: person.stageId, cv: { stage_id: person.stageId }, checks: qcChecks(person) },
         FRESH,
       );
     }
-    if (hasCv) qc.setQueryData(cvToClientIssuesQueryKey(person.stageId, REVISION), issues(person), FRESH);
+    if (willHaveCv) qc.setQueryData(cvToClientIssuesQueryKey(person.stageId, REVISION), issues(person), FRESH);
   }
   qc.setQueryData(
     jobBackgroundEventsQueryKey(JOB_ID, BACKGROUND_EVENTS_STEP),
-    { job_id: JOB_ID, items: [], limit: BACKGROUND_EVENTS_STEP },
+    {
+      job_id: JOB_ID,
+      // Automat pominął osobę po przekazaniu — powód stoi w karcie.
+      items: PEOPLE.filter((person) => person.variant === "skipped").map((person) => ({
+        id: person.stageId,
+        kind: "cv_auto_generate_skipped",
+        created_at: new Date().toISOString(),
+        reason: "consent_screenshot_required",
+        candidate: { id: person.candidateId, name: person.name },
+      })),
+      limit: BACKGROUND_EVENTS_STEP,
+    },
     FRESH,
   );
 }
 
+/**
+ * Odczyty, o które karta pyta sama po przekazaniu (co 4 s) — odpowiedź z cache
+ * harnessu, bez sieci. `undefined` = to nie jest odczyt z pamięci.
+ */
+function memoryAnswer(qc: QueryClient, config: InternalAxiosRequestConfig): unknown {
+  if ((config.method ?? "get").toLowerCase() !== "get") return undefined;
+  const url = config.url ?? "";
+  if (url === "/api/cv-generator/generated" && config.params?.job_id === JOB_ID) {
+    return qc.getQueryData(cvToClientRowsQueryKey(Number(config.params.candidate_id), JOB_ID));
+  }
+  const brandedMatch = /^\/api\/candidates\/stages\/(\d+)\/cv\/branded$/.exec(url);
+  if (brandedMatch) return qc.getQueryData(stageBrandedQueryKey(Number(brandedMatch[1])));
+  if (url === `/api/jobs/${JOB_ID}/background-events`) {
+    return qc.getQueryData(jobBackgroundEventsQueryKey(JOB_ID, BACKGROUND_EVENTS_STEP));
+  }
+  return undefined;
+}
+
 function Harness() {
+  const [opened, setOpened] = useState<string | null>(null);
   return (
     <main className="mx-auto w-full max-w-6xl space-y-6 px-4 py-6">
       <header className="space-y-1">
         <h1 className="text-2xl font-bold text-foreground">CV do klienta — w procesie</h1>
         <p className="text-sm text-muted-foreground">
           Karta z panelu osoby: „Generuj CV” rozwija „Z czego powstało” w karcie (bez okna generatora), a gotowe CV
-          ma jedną liczbę rzeczy do sprawdzenia przed wysłaniem.
+          ma jedną liczbę rzeczy do sprawdzenia przed wysłaniem. Po „Zapisz i przekaż dalej” karta pokazuje postęp
+          CV → QC i „Następna w Screeningu”.
         </p>
+        {opened ? (
+          <p role="status" data-testid="harness-opened" className="text-sm text-muted-foreground">
+            Panel otworzyłby teraz: {opened}.
+          </p>
+        ) : null}
       </header>
       <div className="grid items-start gap-4 md:grid-cols-2 xl:grid-cols-3">
         {PEOPLE.map((person) => (
@@ -246,6 +329,9 @@ function Harness() {
               jobTitle="Senior Java Developer"
               readOnly={false}
               initialGenerateOpen={person.variant === "sources" || person.variant === "regenerate"}
+              forwarded={FORWARDED.has(person.variant)}
+              nextInScreening={person.variant === "forwarded" ? NEXT_IN_SCREENING : null}
+              onOpenPerson={() => setOpened(NEXT_IN_SCREENING.name)}
             />
           </section>
         ))}
@@ -265,9 +351,15 @@ export default function CvToClientPreviewPage() {
   });
 
   useEffect(() => {
-    const blocker = api.interceptors.request.use((config) =>
-      Promise.reject(new AxiosError("preview: sieć wyłączona", "ECONNABORTED", config)),
-    );
+    const blocker = api.interceptors.request.use((config) => {
+      const data = memoryAnswer(queryClient, config);
+      if (data !== undefined) {
+        config.adapter = async () => ({ data, status: 200, statusText: "OK", headers: {}, config });
+        return config;
+      }
+      return Promise.reject(new AxiosError("preview: sieć wyłączona", "ECONNABORTED", config));
+    });
+    const autoCv = setTimeout(() => finishAutoCv(queryClient), AUTO_CV_READY_MS);
     // Panel generacji jest dla osób z prawem zapisu w Sourcing — fikcyjny rekruter.
     useAuthStore.setState({
       user: {
@@ -284,8 +376,11 @@ export default function CvToClientPreviewPage() {
       realUser: null,
     } as never);
     setReady(true);
-    return () => api.interceptors.request.eject(blocker);
-  }, []);
+    return () => {
+      clearTimeout(autoCv);
+      api.interceptors.request.eject(blocker);
+    };
+  }, [queryClient]);
 
   if (!ready) return <div className="p-8 text-sm text-muted-foreground">Ładowanie…</div>;
   return (

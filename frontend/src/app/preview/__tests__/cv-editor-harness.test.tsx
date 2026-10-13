@@ -139,17 +139,24 @@ it("panel „Do poprawy” bierze QC, uwagi i poprawki z pamięci — pełny obi
   expect(paper.querySelector(".cv-issue-term.cv-issue--blocking")).toHaveTextContent("Jenkins");
   expect(paper.querySelector(".cv-issue-block.cv-issue--blocking")).toHaveTextContent("Java Developer 01.2017");
 
-  fireEvent.click(within(dialog).getByRole("button", { name: "Popraw wszystko (2)" }));
+  // D5 (14.10.2026): propozycja AI ładuje się sama — bez „Zaproponuj poprawki (AI)” —
+  // i od razu wchodzi do „Popraw wszystko” obok pogrubienia i pisowni.
+  const ai = within(dialog).getByRole("region", { name: "Propozycje AI" });
+  expect(await within(ai).findByRole("listitem", { name: "Propozycja: Kafka" })).toBeInTheDocument();
+  expect(within(dialog).queryByRole("button", { name: /Zaproponuj poprawki/ })).not.toBeInTheDocument();
+  fireEvent.click(await within(dialog).findByRole("button", { name: "Popraw wszystko (3)" }));
   await waitFor(() => expect(paper).toHaveTextContent("Docker, Jenkins, GitHub"));
   expect(paper.querySelectorAll("strong")).toContainEqual(expect.objectContaining({ textContent: "PostgreSQL" }));
+  expect(paper).toHaveTextContent("przez kolejki Kafka (zdarzenia płatności)");
   // Usunięcie „Jenkins” (treść) nie wchodzi do hurtu.
   expect(paper).toHaveTextContent("Jenkins");
   // Poprawka przełącza na kartkę; wynik z „Cofnij” czeka w panelu.
   fireEvent.click(within(dialog).getByRole("button", { name: /^Do poprawy \(/ }));
   const outcome = within(dialog).getByRole("region", { name: "Wynik poprawek" });
-  expect(outcome).toHaveTextContent("Nałożono: 2 poprawki.");
+  expect(outcome).toHaveTextContent("Nałożono: 3 poprawki.");
   fireEvent.click(within(outcome).getByRole("button", { name: "Cofnij" }));
   expect(paper).toHaveTextContent("Docker, Jenkins, Github");
+  expect(paper).not.toHaveTextContent("przez kolejki Kafka");
   noNetwork();
 });
 
@@ -476,5 +483,35 @@ it("Escape w panelu historii nie zamyka edytora", async () => {
 it("wynik generatora bez rekrutacji nie ma historii wersji", async () => {
   const dialog = await openEditor("nosources");
   expect(within(dialog).queryByRole("button", { name: "Historia" })).toBeNull();
+  noNetwork();
+});
+
+it("`?state=handoff`: stopka z uwagą dla DL, „Zapisz i przekaż do DL” zamyka edytor bez sieci", async () => {
+  const dialog = await openEditor("handoff");
+  const bar = within(dialog).getByRole("group", { name: "Przekazanie Delivery Leadowi" });
+  await waitFor(() =>
+    expect(within(bar).getByRole("status")).toHaveTextContent(/rzeczy do decyzji · nic nie blokuje wysyłki/),
+  );
+  fireEvent.change(within(bar).getByRole("textbox", { name: "Uwaga dla Delivery Leada (opcjonalnie)" }), {
+    target: { value: "Dostępna od listopada." },
+  });
+  fireEvent.click(within(bar).getByRole("button", { name: /Zapisz i przekaż do DL/ }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edytor CV do klienta" })).toBeNull(), {
+    timeout: 4000,
+  });
+  expect(screen.getByTestId("harness-handed-off")).toHaveTextContent(
+    "Karta przeszła do „QC CV” z uwagą: „Dostępna od listopada.”.",
+  );
+  noNetwork();
+});
+
+it("`?state=handoff-blocking`: blokady QC → „Przekaż mimo uwag…” otwiera okno obejścia", async () => {
+  const dialog = await openEditor("handoff-blocking");
+  const bar = within(dialog).getByRole("group", { name: "Przekazanie Delivery Leadowi" });
+  await waitFor(() => expect(within(bar).getByRole("status")).toHaveTextContent(/2 blokują wysyłkę/));
+  expect(within(bar).queryByRole("button", { name: /Zapisz i przekaż do DL/ })).not.toBeInTheDocument();
+  fireEvent.click(within(bar).getByRole("button", { name: "Przekaż mimo uwag…" }));
+  const form = await screen.findByRole("dialog", { name: "Przesuń mimo uwag QC" });
+  expect(form).toHaveTextContent("CV pójdzie dalej z 2 niepoprawionymi rzeczami");
   noNetwork();
 });

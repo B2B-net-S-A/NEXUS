@@ -14,9 +14,15 @@
  * ostatnio ZAPISANEJ treści i odświeża się po autozapisie; przebieg QC dla
  * Tablicy zapisuje się raz, przy zamknięciu edytora.
  *
- * Panel nie ma obejścia QC ani ruchu karty — to zostaje w oknie QC. Edytor
- * wyniku generatora (bez etapu) pokazuje tylko uwagi generatora: QC nie widzi
- * jego edycji.
+ * Panel nie ma obejścia QC ani ruchu karty — przekazanie Delivery Leadowi
+ * (z obejściem przez „Przekaż mimo uwag…”) stoi w stopce edytora (D6,
+ * 14.10.2026), a panel podaje mu wynik QC przez `onCount`. Edytor wyniku
+ * generatora (bez etapu) pokazuje tylko uwagi generatora: QC nie widzi jego
+ * edycji.
+ *
+ * Propozycje AI (D5, 14.10.2026) ładują się same, gdy QC ma pozycję
+ * z poprawką AI — serwer liczy je zaraz po automacie, więc zwykle to odczyt
+ * z pamięci. „Popraw wszystko” od razu bierze zdania AI.
  *
  * „To nieprawda” (D5, 13.10.2026) jest przy pozycjach QC (te same karty co
  * w oknie QC), uwagach generatora i kontroli AI; pominięte stoją zwinięte
@@ -104,6 +110,11 @@ export interface CvIssueCount {
   total: number;
   blocking: number;
   state: "loading" | "ready" | "failed";
+  /**
+   * Wynik QC tej treści (`null`: bez etapu, QC jeszcze się liczy albo opisuje
+   * inne CV pary) — stopka przekazania czyta z niego obejście i tryb doradczy.
+   */
+  qc?: QcResult | null;
 }
 
 export interface CvEditorIssuesProps {
@@ -383,14 +394,6 @@ export function CvEditorIssues({
     gcTime: 0,
     retry: false,
   });
-  const [aiRequested, setAiRequested] = useState(false);
-  const fixesQuery = useQuery<QcFixesResponse>({
-    queryKey: cvQcFixesQueryKey(stageKey),
-    queryFn: () => api.fixes(stageKey),
-    enabled: hasStage && aiRequested,
-    staleTime: Infinity,
-    retry: false,
-  });
 
   // ── QC po autozapisie i przebieg dla Tablicy przy zamknięciu ───────────────
   const seenRevision = useRef(savedRevision);
@@ -449,6 +452,18 @@ export function CvEditorIssues({
   // Para ma kilka wierszy etapu, a QC bierze zatwierdzone CV pary — bywa, że inne niż otwarte.
   const otherDocument = !!qc && (qc.cv == null || qc.cv.stage_id !== stageId);
   const checks = useMemo(() => (qc && !otherDocument ? qc.checks : []), [qc, otherDocument]);
+  // Zdania AI dopisuje do ról — także wtedy, gdy QC już przechodzi, a brak
+  // opisu jest tylko uwagą.
+  const hasAiGaps = checks.some((check) => check.status === "fail" && check.items.some((item) => item.fix === "ai"));
+  // D5 (14.10.2026): propozycje ładują się same, gdy jest pozycja z poprawką AI.
+  // Serwer liczy je zaraz po automacie i pamięta per treść — zwykle to odczyt.
+  const fixesQuery = useQuery<QcFixesResponse>({
+    queryKey: cvQcFixesQueryKey(stageKey),
+    queryFn: () => api.fixes(stageKey),
+    enabled: hasStage && hasAiGaps,
+    staleTime: Infinity,
+    retry: false,
+  });
   const review = issuesQuery.data?.content_review ?? null;
   const allFindings = review?.findings ?? NO_FINDINGS;
   const warnings = hasStage ? (issuesQuery.data?.generator_warnings ?? NO_WARNINGS) : (generatorWarnings ?? NO_WARNINGS);
@@ -612,7 +627,6 @@ export function CvEditorIssues({
             }),
           confirming: confirm.isPending,
           requestAiFixes: () => {
-            setAiRequested(true);
             if (typeof document !== "undefined") {
               document.getElementById(aiSectionId)?.scrollIntoView?.({ block: "nearest" });
             }
@@ -666,7 +680,6 @@ export function CvEditorIssues({
   ];
 
   const plan = useMemo(() => bulkPlan(checks, visibleFixes), [checks, visibleFixes]);
-  const hasAiGaps = checks.some((check) => check.status === "fail" && check.items.some((item) => item.fix === "ai"));
   const classified = useMemo(() => classifyCvWarnings(warnings), [warnings]);
   // Jedna lista: QC, generator i kontrola AI po sekcjach CV (miejsca liczone na bieżącej treści).
   const list = useMemo(
@@ -685,9 +698,10 @@ export function CvEditorIssues({
   const anyBlocking = checks.some((check) => check.status === "fail" && check.severity === "blocking");
   const blocking = qc && !otherDocument ? qc.blocking_failed : 0;
   const countState: CvIssueCount["state"] = !hasStage || qc ? "ready" : qcQuery.isError ? "failed" : "loading";
+  const countQc = qc && !otherDocument ? qc : null;
   useEffect(() => {
-    onCount?.({ total, blocking, state: countState });
-  }, [onCount, total, blocking, countState]);
+    onCount?.({ total, blocking, state: countState, qc: countQc });
+  }, [onCount, total, blocking, countState, countQc]);
 
   // „Cofnij” przy wyniku „Popraw wszystko” — dopóki nic nie zmieniono po poprawce.
   const canUndoBulk = bulkOutcome != null && !editor.isDestroyed && editor.state.doc === bulkDoc.current;
@@ -886,7 +900,6 @@ export function CvEditorIssues({
             loading={fixesQuery.isFetching && !fixes}
             failed={fixesQuery.isError}
             visible={visibleFixes}
-            onRequest={() => setAiRequested(true)}
             onRetry={() => void fixesQuery.refetch()}
             onApply={(fix, text) =>
               ctx.apply(

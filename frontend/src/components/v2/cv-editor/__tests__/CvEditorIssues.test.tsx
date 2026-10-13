@@ -4,7 +4,7 @@ import { QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-qu
 import { Editor } from "@tiptap/core";
 
 import type { CvEditorIssuesApi, CvEditorIssuesData } from "@/lib/api/cvEditorIssues";
-import { cvQcQueryKey, type QcCheck, type QcResult, type QcTransformBody, type QcTransformResult } from "@/lib/api/cvQc";
+import { cvQcQueryKey, type QcCheck, type QcFixesResponse, type QcResult, type QcTransformBody, type QcTransformResult } from "@/lib/api/cvQc";
 import { cvEditorExtensions, loadCvHtml } from "@/lib/cv-editor-structure";
 
 const toast = vi.hoisted(() => ({ showSuccess: vi.fn(), showError: vi.fn() }));
@@ -241,7 +241,7 @@ describe("panel „Do poprawy” w edytorze CV", () => {
     ]);
 
     // 1 blokująca + 1 uwaga QC + 1 uwaga generatora + 1 linia kontroli AI.
-    await waitFor(() => expect(counts.at(-1)).toEqual({ total: 4, blocking: 1, state: "ready" }));
+    await waitFor(() => expect(counts.at(-1)).toMatchObject({ total: 4, blocking: 1, state: "ready" }));
     // Miejsca uwag są zaznaczone na kartce.
     await waitFor(() => expect(editor.view.dom.querySelector(".cv-issue-term.cv-issue--blocking")?.textContent).toBe("AWS"));
     // Panel nie ma obejścia QC ani ruchu karty.
@@ -510,11 +510,11 @@ describe("panel „Do poprawy” w edytorze CV", () => {
     });
     expect(down.counts[0]).toMatchObject({ state: "loading" });
     await screen.findByText(/Nie udało się policzyć QC/);
-    await waitFor(() => expect(down.counts.at(-1)).toEqual({ total: 0, blocking: 0, state: "failed" }));
+    await waitFor(() => expect(down.counts.at(-1)).toMatchObject({ total: 0, blocking: 0, state: "failed" }));
     down.view.unmount();
 
     const fine = setup();
-    await waitFor(() => expect(fine.counts.at(-1)).toEqual({ total: 4, blocking: 1, state: "ready" }));
+    await waitFor(() => expect(fine.counts.at(-1)).toMatchObject({ total: 4, blocking: 1, state: "ready" }));
   });
 
   it("nieudany zapis przebiegu QC przy zamknięciu trafia do zgłaszania błędów zapytań", async () => {
@@ -537,7 +537,7 @@ describe("panel „Do poprawy” w edytorze CV", () => {
     });
     expect(screen.getByText(/nie jest jeszcze na etapie rekrutacji/)).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Uwagi generatora" })).toHaveTextContent("MUST-HAVE: brak Kafka");
-    await waitFor(() => expect(counts.at(-1)).toEqual({ total: 1, blocking: 0, state: "ready" }));
+    await waitFor(() => expect(counts.at(-1)).toMatchObject({ total: 1, blocking: 0, state: "ready" }));
     expect(api.qc).not.toHaveBeenCalled();
     expect(api.issues).not.toHaveBeenCalled();
   });
@@ -599,7 +599,7 @@ describe("„To nieprawda” w panelu „Do poprawy” (D5, 13.10.2026)", () => 
     expect(screen.queryByText("MUST-HAVE: brak Kafka w źródłach.")).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Pominięte" })).toHaveTextContent("Pominięte (1)");
     // Pominięta uwaga nie liczy się do paska: 1 blokująca + 1 uwaga QC + 1 linia kontroli AI.
-    await waitFor(() => expect(counts.at(-1)).toEqual({ total: 3, blocking: 1, state: "ready" }));
+    await waitFor(() => expect(counts.at(-1)).toMatchObject({ total: 3, blocking: 1, state: "ready" }));
   });
 
   it("uwaga kontroli AI: tekst linii i status idą do serwera; „Inny powód” wymaga opisu", async () => {
@@ -723,12 +723,96 @@ describe("„To nieprawda” w panelu „Do poprawy” (D5, 13.10.2026)", () => 
     expect(screen.getByRole("region", { name: "Informacje" })).toHaveTextContent("Must-have pogrubione");
     expect(screen.getByRole("region", { name: "Doświadczenie" })).not.toHaveTextContent("Must-have pogrubione");
     // 1 blokująca + 1 uwaga generatora + 1 linia kontroli AI — bez wyciszonej.
-    await waitFor(() => expect(counts.at(-1)).toEqual({ total: 3, blocking: 1, state: "ready" }));
+    await waitFor(() => expect(counts.at(-1)).toMatchObject({ total: 3, blocking: 1, state: "ready" }));
   });
 
   it("edytor wyniku generatora (bez rekrutacji) nie ma „To nieprawda” — nie ma pary", async () => {
     setup({ props: { stageId: undefined, generatorWarnings: ["MUST-HAVE: brak Kafka w źródłach."] } });
     expect(screen.getByRole("region", { name: "Uwagi generatora" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "To nieprawda" })).not.toBeInTheDocument();
+  });
+});
+
+describe("propozycje AI ładują się same (D5, 14.10.2026)", () => {
+  const AI_CHECKS: QcCheck[] = [
+    ...CHECKS,
+    check({
+      key: "must_in_roles",
+      label: "Wymagania opisane w rolach",
+      items: [{ requirement: "Kafka", role: "Bank Przykładowy — Senior Developer", fix: "ai", role_index: 0 }],
+    }),
+  ];
+  const KAFKA_FIX = {
+    id: "f-kafka",
+    check_key: "must_in_roles",
+    requirement: "Kafka",
+    role: "Bank Przykładowy — Senior Developer",
+    current_text: "Przeglądy kodu.",
+    proposed_text: "Przeglądy kodu i integracje przez **Kafka**.",
+    source: "original" as const,
+    source_quote: "Integracje przez Kafkę w banku",
+  };
+
+  it("bez klikania: propozycja stoi w panelu i od razu wchodzi do „Popraw wszystko”", async () => {
+    const api = memoryApi({
+      qc: vi.fn(async () => qcResult({ checks: AI_CHECKS })),
+      fixes: vi.fn(async () => ({ status: "ok" as const, cached: true, fixes: [KAFKA_FIX] })),
+    });
+    const { editor } = setup({ api });
+    const ai = await screen.findByRole("region", { name: "Propozycje AI" });
+    expect(await within(ai).findByRole("listitem", { name: "Propozycja: Kafka" })).toBeInTheDocument();
+    expect(api.fixes).toHaveBeenCalledWith(STAGE);
+    expect(screen.queryByRole("button", { name: /Zaproponuj poprawki/ })).not.toBeInTheDocument();
+
+    const bulk = screen.getByRole("region", { name: "Popraw wszystko" });
+    expect(bulk).toHaveTextContent("1 zdanie AI z cytatem ze źródła");
+    fireEvent.click(within(bulk).getByRole("button", { name: "Popraw wszystko (2)" }));
+    await waitFor(() =>
+      expect(api.transform).toHaveBeenCalledWith(STAGE, {
+        content_html: editor.getHTML(),
+        actions: [{ action: "ai_fix", fix_id: "f-kafka" }, { action: "bold_all", scope: "must" }],
+        bulk: true,
+      }),
+    );
+  });
+
+  it("bez pozycji z poprawką AI nic nie pobiera", async () => {
+    const api = memoryApi();
+    setup({ api });
+    expect(await screen.findByText("Blokuje wysyłkę: 1")).toBeInTheDocument();
+    await screen.findByRole("region", { name: "Popraw wszystko" });
+    expect(api.fixes).not.toHaveBeenCalled();
+    expect(screen.queryByRole("region", { name: "Propozycje AI" })).not.toBeInTheDocument();
+  });
+
+  it("w trakcie mówi „Przygotowuję poprawki AI…”, po awarii daje „Ponów”", async () => {
+    let fail = true;
+    let release: () => void = () => undefined;
+    const api = memoryApi({
+      qc: vi.fn(async () => qcResult({ checks: AI_CHECKS })),
+      fixes: vi.fn(
+        () =>
+          new Promise<QcFixesResponse>((resolve, reject) => {
+            release = () => (fail ? reject(new Error("model niedostępny")) : resolve({ status: "ok", cached: false, fixes: [KAFKA_FIX] }));
+          }),
+      ),
+    });
+    setup({ api });
+    const ai = await screen.findByRole("region", { name: "Propozycje AI" });
+    expect(ai).toHaveTextContent("Przygotowuję poprawki AI…");
+    await act(async () => release());
+    expect(await within(ai).findByText(/Propozycje AI są chwilowo niedostępne/)).toBeInTheDocument();
+    fail = false;
+    fireEvent.click(within(ai).getByRole("button", { name: "Ponów" }));
+    await waitFor(() => expect(api.fixes).toHaveBeenCalledTimes(2));
+    await act(async () => release());
+    expect(await within(ai).findByRole("listitem", { name: "Propozycja: Kafka" })).toBeInTheDocument();
+  });
+
+  it("licznik do paska niesie wynik QC tej treści (stopka przekazania czyta z niego obejście)", async () => {
+    const { counts } = setup();
+    await waitFor(() =>
+      expect(counts.at(-1)).toMatchObject({ state: "ready", qc: expect.objectContaining({ blocking_failed: 1, advisory: true }) }),
+    );
   });
 });

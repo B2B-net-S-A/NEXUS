@@ -19,6 +19,8 @@
 // `?client=cpro` — klient z kolejką Cpro: akceptacja do kolejki zamiast
 // wysyłki (13.10.2026) — „Stawka do Cpro”, „Akceptuj — do Cpro za …”, uwaga
 // dla osoby od Cpro.
+// Uwaga rekrutera z „Zapisz i przekaż do DL” (14.10.2026) stoi na górze
+// kolumny decyzji, nad „Warunkami” (`recruiter_handoff_remark` w kontekście).
 
 import { useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -329,6 +331,11 @@ const CONTEXT: DlReviewContext = {
     redacted: false,
   },
   fix_options: FIX_OPTIONS,
+  recruiter_handoff_remark: {
+    text: "Kandydat dostępny od 1 listopada, woli pracę hybrydową. Na rozmowie mówił o Kafce więcej, niż jest w CV.",
+    author_name: "Marta Testowa",
+    created_at: "2026-10-14T09:10:00Z",
+  },
 };
 
 const QUEUE: DlReviewQueue = {
