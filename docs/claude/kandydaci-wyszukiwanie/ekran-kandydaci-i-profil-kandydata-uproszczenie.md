@@ -164,64 +164,115 @@ trzy tryby z 21.09 (Baza / Wyszukiwanie / Z treści requestu).
   kontakt, „W procesie”, ostatnia notatka, „Przypisz” i „Otwórz profil”.
   „Oznacz jako zatrudnionego” żyje wyłącznie w jego menu „⋯”.
 
-**Profil `/candidates/[id]` — karta osoby po lewej, 5 zakładek po prawej
-(wariant B, wersja 5, 04.10.2026; makieta https://claude.ai/artifact/12sBoFm4VngFkyGXmCn1Ti).**
-`?tab=summary|recruitments|screening|activity|documents` = Przegląd · Rekrutacje
-· Odpowiedzi ze screeningu · Notatki i historia · CV i dokumenty. Treść
-w `components/v2/candidate-profile/*`; `CandidateDetailV2.tsx` jest
-orkiestratorem. Decyzje Artura D1–D5 z 04.10.2026. Zasady, których łatwo nie
-zauważyć:
-- **Układ:** od 1100 px szerokości okna dwie kolumny — lewa (przyklejona)
-  to karta osoby (`ProfileHeader`: kontakt, „Pracuje u nas” w wersji zwartej,
-  „Przypisz do rekrutacji”, pod nim „Dodaj notatkę” i „Nie odebrał”, menu
-  „⋯” w grupach Kontakt · Dokumenty · Dane · Inne) i karta „Podsumowanie”;
-  węziej lewa kolumna stoi nad zakładkami. Tagów, pul, konfliktów i wet nie ma
-  na widoku — są oknami z menu „⋯” (`ProfileMenuDialogs.tsx`).
-- **Każdy fakt pokazany RAZ:** dostępność, stawka, tryb pracy, miasto, języki
-  i narodowość żyją wyłącznie w karcie „Podsumowanie”
-  (`CandidateProfileFactsBar layout="column"`); ołówki pokazuje dopiero
-  „Edytuj” (`candidate.profile_fact.manage`). Dostępność zapisuje PATCH
-  kandydata tylko ze zmienionymi polami (`lib/candidate-availability-edit.ts`),
-  lokalizacja też (z regionem i hubem). Pod faktami „W skrócie”
-  (`CandidateActivitySummaryCard variant="compact"`, jedyna karta AI) i link
-  „Ustalenia z notatek” (okno z `CandidateNotesFactsCard`).
-- **Przegląd** = „Teraz” (zaległy telefon po ciszy klienta, procesy w toku:
-  etap, kto ma ruch, od ilu dni, link do Tablicy) i „Ostatnia rozmowa”.
-  Kto ma ruch liczy SERWER: `/history` niesie `next_action_owner` (ta sama
-  reguła co karta na Tablicy, `pipeline_next_action`), `null` dla zakończonych.
-  Zatrudnienie też kończy proces (`isRecruitmentEnded`).
-- **Rekrutacje:** „W toku” (karty), „Pasujące otwarte rekrutacje”,
-  „Zakończone” jako tabela tylko do odczytu (rozwinięcie pokazuje kartę bez
-  edycji; „Usuń z rekrutacji” tylko admin), feedback tylko gdy są wpisy.
-  „Odśwież CV oryginalne” i „Usuń z rekrutacji” w „⋯” karty.
-- **Odpowiedzi ze screeningu** to zakładka (`CandidateScreeningAnswersCard
-  variant="tab"`, aliasy `?tab=odpowiedzi|screeningi`): jedna rozmowa na
-  rekrutację z pytaniami i odpowiedziami arkusza Championa
-  (`GET /api/candidates/{id}/screening-answers`, tylko rekrutacje widoczne dla
-  patrzącego), pod nimi odpowiedzi z kart rekomendacji; szukanie od jednej
-  rozmowy, bez rozmów — zdanie. Odpowiedzi renderuje JEDEN komponent
-  `screening/ScreeningAnswersList` (profil, dok osoby, panel osoby) — nie
-  dokładaj drugiego.
-- **Notatki i historia:** pole notatki zwinięte do jednej linii; filtry rodzajów
-  bez notatek schowane (poza „Rozmowami” i wybranym, D1); „Wszystko” bez
-  liczby, oś czasu ładuje się dopiero w tym filtrze, „Pokaż więcej” do 200.
-- **CV i dokumenty:** „CV i umiejętności” (`CvSkillsSection` — warianty nazw
-  łączone WYŁĄCZNIE w widoku przez słownik `GET /api/skills`,
-  `lib/skill-display.ts`, D3), umowy, zwinięte „Dane do umowy (JDG / firma)”,
-  pliki kandydata z akcjami w „⋯” wiersza i grupa „CV dla klientów” (pliki
-  „…B2B…” i CV z generatora, D4, `isClientCvFilename`).
-- **Mail = jedno okno** (`SendEmailV2`, D5): bez podłączonej skrzynki M365 okno
+**Profil `/candidates/[id]` — pasek osoby, „Do propozycji” po lewej, 6 zakładek
+(E1–E6 i D1–D8, decyzje Artura 13.10.2026; makiety
+https://claude.ai/artifact/LPzm9GQGPQCrnWjdtg2WG9 i
+https://claude.ai/artifact/K45m9WCNz9ypfKBE87B9dv). Zastępuje wariant B z 04.10.2026.**
+`?tab=summary|recruitments|screening|activity|cv|documents` = Przegląd · Rekrutacje
+· Screening · Notatki · CV · Dokumenty. Treść w `components/v2/candidate-profile/*`;
+`CandidateDetailV2.tsx` jest orkiestratorem. Zasady, których łatwo nie zauważyć:
+- **Układ (E1):** nad siatką pasek osoby na całą szerokość (`ProfilePersonBar`
+  w `candidate-profile/ProfileHeader.tsx`): awatar (inicjały tylko z liter —
+  `getCandidateInitials`), imię, nagłówek, pigułki, kontakt, obecni na profilu
+  i akcje w jednym rzędzie „Przypisz do rekrutacji” · „Dodaj notatkę” · „Nie
+  odebrał” · „⋯”. Menu „⋯”: Kontakt (Napisz maila, Zaplanuj rozmowę, Zaproś na
+  prep, follow-up) · Dane (Edytuj dane, Tagi i pule, Konflikty i weta, Scal z…)
+  · Usuń profil. Adres e-mail w pasku otwiera okno M365 (`SendEmailV2`), obok
+  kopiowanie adresu i numeru. Aktywny konflikt z klientem to czerwony chip
+  otwierający „Konflikty i weta”. Od 1100 px lewa kolumna (przyklejona) =
+  „Do propozycji” (`CandidateProfileFactsBar layout="proposal"`): na górze
+  ramka zatrudnienia (`AtOurClientBanner compact`), fakt w jednej linii,
+  źródło wartości jako kropka-przycisk z okienkiem (działa też na dotyk), bez
+  edycji „Praca” = tryb + miasto w jednym wierszu. Pod kartą linia „N rzeczy
+  do sprawdzenia z rozmowy · Sprawdź” — liczba pozycji `can_apply`
+  z `GET /notes-facts`, tylko z `candidate.profile_fact.manage`.
+- **Pigułka dostępności zamiast „Aktywny/Pasywny” (D4):** `ds/AvailabilityPill`
+  („Szuka aktywnie” / „Otwarty na oferty” / „Nie szuka”; `unknown` = brak
+  pigułki), etykiety z `lib/candidate-availability-label.ts`. Ta sama pigułka
+  (`appearance="text"`) stoi w drugiej linii wiersza listy. Czarna lista
+  zostaje jedynym ostrzeżeniem statusu. Szybki podgląd jeszcze pokazuje
+  „Aktywny/Pasywny” (poza zakresem 13.10).
+- **Martwe funkcje zdjęte z profilu (D1–D3, liczby z produkcji 13.10.2026):**
+  „Obserwuj” i pasek przypiętych na liście, „Wrzuć na targ”, „Korekta imienia
+  i nazwiska” (czyszczenie e-maila i telefonu oraz przycinanie imienia przejęło
+  „Edytuj dane”), „Generuj CV” z menu (zostaje w CV i w karcie rekrutacji),
+  przycisk CloudTalk, status kontaktu i „Zaloguj wynik”, pasek „Ocena ryzyka
+  chwilowo niedostępna”, „Zaangażowanie”, synchronizacja z LinkedIn, filtr
+  „Telefony”. Trasy backendu tych funkcji zostały — powrót na profil tylko
+  decyzją Artura.
+- **Każdy fakt pokazany RAZ:** stan dostępności żyje w pigułce paska osoby,
+  a w „Do propozycji” tylko termin („od 10.09”, „za 1 mies.”, „nie ustalono”);
+  stawka, praca, języki i narodowość wyłącznie w „Do propozycji”. Ołówki
+  pokazuje dopiero „Edytuj” (`candidate.profile_fact.manage`). Dostępność
+  zapisuje PATCH kandydata tylko ze zmienionymi polami
+  (`lib/candidate-availability-edit.ts`), lokalizacja też (z regionem i hubem).
+  Kontrakt źródła `CandidateDetailRecruiterUx.test.ts` pilnuje, że
+  `availability_status` w orkiestratorze trafia tylko do pigułki.
+- **Przegląd (E2):** „W skrócie” (`CandidateActivitySummaryCard
+  variant="compact"`, jedyna karta AI) obok „Ostatnio” (trzy ostatnie
+  stanowiska) → 8 umiejętności z „+N w zakładce CV” → „Do zrobienia” (zaległy
+  telefon po ciszy klienta i procesy z ruchem po naszej stronie —
+  `next_action_owner` ∈ rekruter / do przejrzenia / Delivery,
+  `recruitmentsAwaitingUs`, najwyżej 3) → pasek „Z nami” (w toku, zakończone,
+  ostatnia rozmowa, próby kontaktu, w bazie od) → „Ostatnia rozmowa”. Bez
+  procesu w toku: „Nie jest teraz w żadnej rekrutacji. Ostatnio: …”. Kto ma
+  ruch liczy SERWER (`/history` → `next_action_owner`, reguła karty na
+  Tablicy, `null` dla zakończonych; zatrudnienie też kończy proces).
+- **Rekrutacje (E3, D5):** „W toku · N” jako tabela (`ActiveRecruitmentsTable`:
+  rekrutacja z klientem, etap, ruch, dni, stawka, do klienta przy prawie
+  wglądu), od najdłużej bez ruchu. Klik rozwija wiersz: `RecruitmentCard`
+  (stawki, CV, akcje), feedback po rozmowach tej rekrutacji i „Ocena
+  dopasowania · Pokaż” (`DopasowanieTab jobId`, bez wyboru rekrutacji). Menu
+  wiersza: Tablica, Usuń z rekrutacji. Wiersz z fokusem (wejście z rekrutacji,
+  `?recruitments=matching`) rozwinięty od pierwszego renderu. „Zakończone”
+  otwarte, 5 ostatnich + „Pokaż wszystkie”. „Pasujące rekrutacje” zwinięte
+  na dole — `SuggestedJobsWidget` montuje się i pyta serwer dopiero po
+  „Pokaż”. Licznik zakładki = procesy w toku (`splitRecruitments`).
+- **Screening** (`CandidateScreeningAnswersCard variant="tab"`, aliasy
+  `?tab=odpowiedzi|screeningi`): jedna rozmowa na rekrutację z pytaniami
+  i odpowiedziami arkusza Championa (`GET /api/candidates/{id}/screening-answers`,
+  tylko rekrutacje widoczne dla patrzącego), pod nimi odpowiedzi z kart
+  rekomendacji. Odpowiedzi renderuje JEDEN komponent
+  `screening/ScreeningAnswersList` (profil, dok osoby, panel osoby).
+- **Notatki (E4):** filtry w dwóch grupach (Rozmowy · Delivery Lead · Próby
+  kontaktu · Automat, gdy są | Maile · Czat), przełącznik „Zmiany etapów
+  i automaty” = oś czasu (pobrania plików z jednego dnia zwinięte do „Pobrano
+  pliki · N”), „CV obok”. Lista z nagłówkami miesięcy, przypięte na górze,
+  10 najnowszych + „Pokaż starsze (N)” po stronie przeglądarki (`?note=`
+  starszej notatki rozwija listę). Ikony akcji notatki po najechaniu i fokusie,
+  na dotyku zawsze. `NotesList` jest wspólny z notatkami rekrutacji — grupy
+  miesięczne i stronicowanie to opcje (`groupByMonth`, `initialVisible`).
+- **CV (E5):** `CvSkillsSection` — umiejętności (warianty nazw łączone
+  WYŁĄCZNIE w widoku przez słownik `GET /api/skills`, `lib/skill-display.ts`),
+  doświadczenie jako oś „daty · stanowisko · firma” (4 pierwsze + „N
+  wcześniejsze”), wykształcenie.
+- **Dokumenty (E5, D7):** umowy, pliki, zwinięte „Dane do umowy (JDG / firma)”.
+  Pliki w grupach (`groupCandidateFiles`, `lib/candidate-files.ts`): „CV
+  kandydata” · „CV wysłane klientom” (nazwa z „B2B” albo z kodem rekrutacji
+  osoby — „ZOB-2962”, numer Traffita „(42700)” — z tytułów `/history`, plus CV
+  z generatora) · „Załączniki i formularze”; „Dodaj plik” rozwija formularz
+  (pusty profil — formularz od razu). Umowy: `GET /api/contracts` tylko
+  z `delivery_view`; bez niego klient, daty i status z `contracts[]` w `/history`
+  (front kopiuje jawnie pola bez kwot) i zdanie „Umowy prowadzi Delivery”
+  z Delivery Leadem ze znacznika zatrudnienia. Załączniki umowy, Autenti
+  i szkic za `contractAccess()` (jak karta kontraktu, 403 chowa sekcję),
+  kafle stawek tylko z wglądem w finanse.
+- **Imię bez dopisków (D6):** osobna reguła `imie-bez-dopiskow.md`.
+- **Mail = jedno okno** (`SendEmailV2`): bez podłączonej skrzynki M365 okno
   mówi to i prowadzi do Ustawień zamiast kończyć się 412.
 - **Nic nie znika:** `lib/candidate-profile-feature-inventory.json` + test
-  `candidate-profile-feature-parity.test.ts` (plik + marker każdej funkcji).
+  `candidate-profile-feature-parity.test.ts` (plik + marker każdej funkcji;
+  zdjęte mają `removed_reason`).
 - **Stare klucze `?tab=` i podparametry żyją jako aliasy**
-  (`candidate-profile-navigation.ts`): `matching` → Rekrutacje z otwartym
-  „Dopasowaniem”, `emails`/`notes`/`calls`/`chat` → Notatki i historia
-  z filtrem, `documents=files|contracts` → CV i dokumenty. Linki zapisane
-  w powiadomieniach prowadzą w te miejsca — nie usuwaj aliasów.
+  (`candidate-profile-navigation.ts`): `matching` → Rekrutacje z otwartą oceną
+  dopasowania, `emails`/`notes`/`calls`/`chat` → Notatki z filtrem
+  (`activity=calls` → oś czasu; wartość zostaje dozwolona w adresie, bo niosą
+  ją linki — `test_client_tab_links.py`), `documents=files|contracts` →
+  Dokumenty. Linki zapisane w powiadomieniach prowadzą w te miejsca — nie
+  usuwaj aliasów.
 - Harnessy wizualne (publiczne, zero zapytań): `/preview/candidates-list`
   (`?dialog=1` otwiera okno requestu) i `/preview/candidate-profile` (`?tab=`,
-  `?employed=1`).
+  `?employed=1`, `?role=recruiter` — konto bez `delivery_view` i `amounts_view`).
 
 **Pliki, języki i „Dodaj kandydata” od CV (0400, 29.09.2026):**
 - **„Nieaktualne” to tylko plakietka** (`candidate_documents.outdated_at/

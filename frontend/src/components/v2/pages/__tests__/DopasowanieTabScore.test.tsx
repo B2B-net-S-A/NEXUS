@@ -116,3 +116,60 @@ describe("DopasowanieTab score ring", () => {
     expect(screen.getByRole("button", { name: "ponów" })).toBeInTheDocument();
   });
 });
+
+describe("DopasowanieTab — ocena jednej rekrutacji (wiersz w zakładce „Rekrutacje”)", () => {
+  beforeEach(() => {
+    get.mockReset();
+    matchScores.mockReset();
+    get.mockResolvedValue({ data: { ...justification, job_id: 12 } });
+    matchScores.mockResolvedValue({
+      scores: { "3": 58 },
+      breakdowns: { "3": { total: 58, measurement: "measured" } },
+    });
+  });
+
+  it("z `jobId` liczy tylko tę rekrutację i nie pokazuje wyboru rekrutacji", async () => {
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <DopasowanieTab
+          candidateId={3}
+          recruitments={[
+            { job_id: 9, job_title: "Java" },
+            { job_id: 12, job_title: "DevOps" },
+          ]}
+          defaultJobId={9}
+          jobId={12}
+        />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByLabelText("Dopasowanie 58 na 100")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.queryByText("Rekrutacja:")).toBeNull();
+    expect(matchScores).toHaveBeenCalledTimes(1);
+    expect(matchScores).toHaveBeenCalledWith(12, [3], expect.anything());
+    expect(get).toHaveBeenCalledWith(3, 12);
+    expect(screen.getByRole("button", { name: /Odśwież/ })).toBeInTheDocument();
+  });
+
+  it("z `jobId` nie pokazuje pustego stanu, nawet gdy lista rekrutacji jest pusta", async () => {
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <DopasowanieTab candidateId={3} recruitments={[]} jobId={12} readOnly />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByLabelText("Dopasowanie 58 na 100")).toBeInTheDocument();
+    expect(screen.queryByText("Brak rekrutacji do oceny")).toBeNull();
+    // Tylko do odczytu i bez wyboru — pasek nad oceną znika w całości.
+    expect(screen.queryByRole("button", { name: /Odśwież/ })).toBeNull();
+  });
+
+  it("bez `jobId` wybór rekrutacji zostaje", async () => {
+    renderTab();
+    expect(await screen.findByRole("combobox")).toHaveValue("9");
+  });
+});
+

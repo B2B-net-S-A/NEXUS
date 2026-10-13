@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type React from "react";
 import type { ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -124,7 +125,8 @@ let lastClient: QueryClient | null = null;
 
 function renderBar(
   candidateOverrides: Partial<FactsCandidate> = {},
-  layout: "grid" | "column" = "grid",
+  layout: "grid" | "column" | "proposal" = "grid",
+  lead?: React.ReactNode,
 ) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -142,6 +144,7 @@ function renderBar(
           ...candidateOverrides,
         }}
         layout={layout}
+        lead={lead}
       />
     </QueryClientProvider>,
   );
@@ -883,6 +886,64 @@ describe("CandidateProfileFactsBar", () => {
       auth.role = "user";
       renderBar({}, "column");
       expect(screen.queryByRole("button", { name: "Edytuj" })).toBeNull();
+    });
+  });
+
+  describe("karta „Do propozycji” (13.10.2026, decyzja E1)", () => {
+    it("jedna linia na fakt: termin dostępności bez statusu, tryb i miasto w wierszu „Praca”", async () => {
+      renderBar(
+        { preferences: { remote_modes: ["remote"] } } as Partial<FactsCandidate>,
+        "proposal",
+        <p>Ramka zatrudnienia</p>,
+      );
+      expect(screen.getByRole("heading", { name: "Do propozycji" })).toBeInTheDocument();
+      expect(screen.getByText("Ramka zatrudnienia")).toBeInTheDocument();
+      // Status („Otwarty/a na oferty”) stoi w pigułce paska osoby — tu tylko termin.
+      expect(screen.getByText("od 15.08.2026")).toBeInTheDocument();
+      expect(screen.queryByText(/Otwarty\/a na oferty/)).toBeNull();
+      expect(screen.getByText("Praca")).toBeInTheDocument();
+      expect(screen.getByText(/Warszawa, PL/)).toBeInTheDocument();
+      expect(screen.queryByText("Miasto")).toBeNull();
+      // Bez edycji nie ma ołówków.
+      expect(screen.queryByRole("button", { name: "Edytuj lokalizację" })).toBeNull();
+    });
+
+    it("źródło faktu to kropka z okienkiem, nie osobna linia", async () => {
+      cardOverview.data = {
+        candidate_id: 7,
+        conversations: [],
+        note_links: [],
+        facts: [
+          {
+            key: "availability",
+            label: "Dostępność",
+            raw: "ASAP",
+            value: null,
+            level: null,
+            at: "2026-09-30T12:00:00+00:00",
+            source: "note",
+            author_name: "Marta Testowa",
+            job_id: 10,
+            job_title: "Senior Java Developer",
+          },
+        ],
+      };
+      const user = userEvent.setup();
+      renderBar({}, "proposal");
+      const dot = screen.getByRole("button", { name: /^Źródło:/ });
+      expect(document.querySelector("[data-fact-origin]")).toBeNull();
+      await user.click(dot);
+      expect(await screen.findByText("rozmowa 30.09.2026: ASAP")).toHaveAttribute("data-fact-origin");
+    });
+
+    it("po „Edytuj” tryb pracy i miasto rozdzielają się na wiersze z ołówkami", async () => {
+      const user = userEvent.setup();
+      renderBar({}, "proposal");
+      await user.click(screen.getByRole("button", { name: "Edytuj" }));
+      expect(await screen.findByRole("button", { name: "Edytuj lokalizację" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Edytuj tryb pracy" })).toBeInTheDocument();
+      expect(screen.getByText("Miasto")).toBeInTheDocument();
+      expect(screen.queryByText("Praca")).toBeNull();
     });
   });
 });

@@ -83,7 +83,8 @@ test.describe("Candidates flow", () => {
     await expect(lastRow).toBeFocused();
   });
 
-  test("pełny profil ma pięć sekcji i obsługuje legacy chat link", async ({ page }) => {
+  // Od 13.10.2026 (E5) sześć zakładek: CV osobno od Dokumentów.
+  test("pełny profil ma sześć sekcji i obsługuje legacy chat link", async ({ page }) => {
     await login(page);
     await page.goto("/candidates?view=list");
 
@@ -93,21 +94,15 @@ test.describe("Candidates flow", () => {
     await page.getByTestId("candidate-quick-view").getByRole("button", { name: "Otwórz profil" }).click();
     await expect(page).toHaveURL(/\/candidates\/\d+\?tab=summary/);
 
-    for (const section of [
-      "Przegląd",
-      "Rekrutacje",
-      "Odpowiedzi ze screeningu",
-      "Notatki i historia",
-      "CV i dokumenty",
-    ]) {
-      await expect(page.getByRole("tab", { name: new RegExp(section) })).toBeVisible();
+    for (const section of [/^Przegląd/, /^Rekrutacje/, /^Screening/, /^Notatki/, /^CV/, /^Dokumenty/]) {
+      await expect(page.getByRole("tab", { name: section })).toBeVisible();
     }
 
     const candidateId = page.url().match(/\/candidates\/(\d+)/)?.[1];
     expect(candidateId).toBeTruthy();
     await page.goto(`/candidates/${candidateId}?tab=chat&msg=123`);
     await expect(page).toHaveURL(/tab=activity.*activity=chat|activity=chat.*tab=activity/);
-    await expect(page.getByRole("tab", { name: /Notatki i historia/ })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("tab", { name: /^Notatki/ })).toHaveAttribute("aria-selected", "true");
   });
 
   test("eksportuje dokładnie zaznaczonego kandydata", async ({ page }) => {

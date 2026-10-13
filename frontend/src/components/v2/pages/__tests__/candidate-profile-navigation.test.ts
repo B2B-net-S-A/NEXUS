@@ -18,14 +18,14 @@ afterEach(() => {
 });
 
 describe("candidate profile navigation", () => {
-  it("reads the four canonical sections and their subviews", () => {
+  it("reads the canonical sections and their subviews", () => {
     expect(
       parseCandidateProfileView(
-        new URLSearchParams("tab=activity&activity=calls"),
+        new URLSearchParams("tab=activity&activity=delivery"),
       ),
     ).toMatchObject({
       section: "activity",
-      activity: "calls",
+      activity: "delivery",
       isLegacy: false,
     });
     expect(
@@ -33,6 +33,28 @@ describe("candidate profile navigation", () => {
         new URLSearchParams("tab=documents&documents=contracts"),
       ),
     ).toMatchObject({ section: "documents", documents: "contracts" });
+    // 13.10.2026: CV wydzielone z dawnego „CV i dokumenty”.
+    expect(parseCandidateProfileView(new URLSearchParams("tab=cv"))).toMatchObject({
+      section: "cv",
+      isLegacy: false,
+    });
+    const written = withCandidateProfileView(new URLSearchParams("documents=files"), {
+      section: "cv",
+      activity: "notes",
+      documents: "files",
+    });
+    expect(written.get("tab")).toBe("cv");
+    expect(written.get("documents")).toBeNull();
+  });
+
+  it("maps the retired „Telefony” filter onto the timeline and rewrites the address (13.10.2026)", () => {
+    for (const query of ["tab=activity&activity=calls", "tab=calls"]) {
+      expect(parseCandidateProfileView(new URLSearchParams(query)), query).toMatchObject({
+        section: "activity",
+        activity: "timeline",
+        isLegacy: true,
+      });
+    }
   });
 
   it("opens the screening answers tab, also from its Polish aliases (04.10.2026)", () => {
@@ -104,7 +126,7 @@ describe("candidate profile navigation", () => {
       ["tab=notes", { section: "activity", activity: "notes" }],
       ["tab=activity&activity=notes&note=42", { section: "activity", activity: "notes" }],
       ["tab=activity&activity=timeline", { section: "activity", activity: "timeline" }],
-      ["tab=activity&activity=calls", { section: "activity", activity: "calls" }],
+      ["tab=activity&activity=calls", { section: "activity", activity: "timeline" }],
       ["tab=activity&activity=chat", { section: "activity", activity: "chat" }],
       // 03.10.2026: zakładki notatek po rodzaju.
       ["tab=activity&activity=contact", { section: "activity", activity: "contact" }],
@@ -312,7 +334,6 @@ describe("candidate query keys", () => {
       42,
       { limit: 3 },
     ]);
-    expect(candidateQueryKeys.calls("42")).toEqual(["candidate-calls", 42]);
     expect(candidateQueryKeys.risk("42")).toEqual(["candidate-risk", 42]);
     expect(candidateQueryKeys.history("42", "viewer:17")).toEqual([
       "candidate-history",

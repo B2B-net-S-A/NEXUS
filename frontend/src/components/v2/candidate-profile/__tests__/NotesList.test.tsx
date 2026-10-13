@@ -198,4 +198,98 @@ describe("NotesList (0399)", () => {
     expect(screen.queryByRole("button", { name: /Przypnij|Odepnij/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Odpowiedz na notatkę" })).toBeNull();
   });
+
+  it("ikony akcji są w DOM, ale widać je po najechaniu albo fokusie (na dotyku zawsze)", () => {
+    renderList();
+    const plain = screen.getAllByRole("article", { name: "Notatka" })[0];
+    expect(plain.className).toContain("group/note");
+    const pin = within(plain).getByRole("button", { name: "Przypnij notatkę" });
+    const actions = pin.parentElement as HTMLElement;
+    expect(actions.className).toContain("pointer-fine:opacity-0");
+    expect(actions.className).toContain("pointer-fine:group-hover/note:opacity-100");
+    expect(actions.className).toContain("pointer-fine:group-focus-within/note:opacity-100");
+    expect(actions.className).toContain("focus-within:opacity-100");
+    // Odpowiedź ma własną grupę — najechanie na wątek nie odsłania jej ikon.
+    const replyEdit = within(plain).getByRole("button", { name: "Edytuj odpowiedź" });
+    expect((replyEdit.parentElement as HTMLElement).className).toContain(
+      "pointer-fine:group-hover/reply:opacity-100",
+    );
+    // Klawiatura: przyciski zostają w kolejności Tab (bez tabIndex=-1).
+    expect(pin.getAttribute("tabindex")).toBeNull();
+  });
+
+  it("bez opcji lista zostaje płaska — bez nagłówków miesięcy i „Pokaż starsze” (dok osoby)", () => {
+    renderList();
+    expect(screen.queryByRole("heading")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Pokaż starsze/ })).toBeNull();
+  });
+});
+
+const monthNote = (id: number, created: Date, extra: object = {}) => ({
+  id,
+  type: "note",
+  author_id: 6,
+  author_name: "Kamil W.",
+  created_at: created.toISOString(),
+  content: `Notatka ${id}.`,
+  job_id: null,
+  replies: [],
+  ...extra,
+});
+
+describe("NotesList — grupy miesięczne i „Pokaż starsze” (E4, 13.10.2026)", () => {
+  // 1 przypięta (lipiec), 4 z września, 3 z sierpnia.
+  const notes = [
+    monthNote(50, new Date(2026, 6, 3, 9), { pinned_at: new Date(2026, 8, 1).toISOString() }),
+    monthNote(51, new Date(2026, 8, 28, 9)),
+    monthNote(52, new Date(2026, 8, 20, 9)),
+    monthNote(53, new Date(2026, 8, 10, 9)),
+    monthNote(54, new Date(2026, 8, 1, 9)),
+    monthNote(55, new Date(2026, 7, 30, 9)),
+    monthNote(56, new Date(2026, 7, 15, 9)),
+    monthNote(57, new Date(2026, 7, 2, 9)),
+  ];
+
+  it("przypięte na górze, potem miesiące od najnowszego z liczbą notatek", () => {
+    renderList({ notes, groupByMonth: true });
+    const headings = screen.getAllByRole("heading").map((h) => h.textContent);
+    expect(headings).toEqual(["Przypięte · 1", "Wrzesień 2026 · 4", "Sierpień 2026 · 3"]);
+    const pinned = screen.getByRole("region", { name: "Przypięte notatki" });
+    expect(within(pinned).getByText("Notatka 50.")).toBeTruthy();
+    const august = screen.getByRole("region", { name: "Sierpień 2026" });
+    expect(within(august).getAllByRole("article")).toHaveLength(3);
+  });
+
+  it("pokazuje N najnowszych bez przypiętych, reszta po „Pokaż starsze (M)”", () => {
+    renderList({ notes, groupByMonth: true, initialVisible: 3 });
+    expect(screen.getByText("Notatka 50.")).toBeTruthy();
+    expect(screen.getByText("Notatka 53.")).toBeTruthy();
+    expect(screen.queryByText("Notatka 54.")).toBeNull();
+    // Nagłówek mówi o całym miesiącu, także o schowanych.
+    expect(screen.getByRole("heading", { name: "Wrzesień 2026 · 4" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: /Sierpień/ })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Pokaż starsze (4)" }));
+    expect(screen.getByText("Notatka 57.")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Sierpień 2026 · 3" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Pokaż starsze/ })).toBeNull();
+  });
+
+  it("notatka z adresu (`?note=`) leżąca w starszych rozwija listę do niej", () => {
+    renderList({ notes, groupByMonth: true, initialVisible: 3, focusedNoteId: 56 });
+    expect(screen.getByText("Notatka 56.")).toBeTruthy();
+    expect(screen.queryByText("Notatka 57.")).toBeNull();
+    expect(screen.getByRole("button", { name: "Pokaż starsze (1)" })).toBeTruthy();
+  });
+
+  it("odpowiedź w starszym wątku też rozwija listę do jej notatki", () => {
+    const withReply = notes.map((n) =>
+      n.id === 57
+        ? { ...n, replies: [{ id: 99, author_id: 5, content: "Odpowiedź.", parent_note_id: 57 }] }
+        : n,
+    );
+    renderList({ notes: withReply, groupByMonth: true, initialVisible: 3, focusedNoteId: 99 });
+    expect(screen.getByText("Odpowiedź.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Pokaż starsze/ })).toBeNull();
+  });
 });

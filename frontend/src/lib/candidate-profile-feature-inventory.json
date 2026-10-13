@@ -1,124 +1,128 @@
 {
- "_comment": "Spis funkcji pełnego profilu kandydata (wariant B, wersja 5, 04.10.2026, makieta https://claude.ai/artifact/12sBoFm4VngFkyGXmCn1Ti). `file` + `marker` wskazują, gdzie funkcja żyje DZIŚ; przy przenosinach zmienia się `file`, wpis zostaje. Usunięcie wpisu wymaga `removed_reason` i decyzji Artura. Pilnuje tego lib/__tests__/candidate-profile-feature-parity.test.ts.",
+ "_comment": "Spis funkcji pełnego profilu kandydata (od 13.10.2026 układ E1–E6, makieta https://claude.ai/artifact/LPzm9GQGPQCrnWjdtg2WG9; wcześniej wariant B v5 z 04.10.2026). `file` + `marker` wskazują, gdzie funkcja żyje DZIŚ; przy przenosinach zmienia się `file`, wpis zostaje. Usunięcie wpisu wymaga `removed_reason` i decyzji Artura. Pilnuje tego lib/__tests__/candidate-profile-feature-parity.test.ts.",
  "features": [
   {
    "id": "c.back",
    "opis": "Powrót do listy kandydatów / do rekrutacji",
    "file": "components/v2/candidate-profile/ProfileHeader.tsx",
    "marker": "Wróć do",
-   "home": "Pasek nad kartą"
+   "home": "Pasek nad profilem"
   },
   {
    "id": "c.prevnext",
    "opis": "Poprzedni i następny kandydat z listy",
    "file": "components/v2/CandidateNav.tsx",
    "marker": "Poprzedni kandydat",
-   "home": "Pasek nad kartą"
+   "home": "Pasek nad profilem"
   },
   {
    "id": "c.status",
-   "opis": "Status kandydata (Aktywny / Pasywny)",
+   "opis": "„Szuka aktywnie / Otwarty na oferty / Nie szuka” zamiast statusu Aktywny/Pasywny (D4, 13.10.2026)",
    "file": "components/v2/candidate-profile/ProfileHeader.tsx",
-   "marker": "STATUS_LABELS",
-   "home": "Karta osoby"
+   "marker": "<AvailabilityPill",
+   "home": "Pasek osoby"
   },
   {
    "id": "c.category",
    "opis": "Kategoria kompetencji",
    "file": "components/v2/candidate-profile/ProfileHeader.tsx",
    "marker": "<CompetenceCategoryBadge",
-   "home": "Karta osoby"
+   "home": "Pasek osoby"
   },
   {
    "id": "c.blacklist",
    "opis": "Ostrzeżenie: czarna lista",
    "file": "components/v2/candidate-profile/ProfileHeader.tsx",
    "marker": "Czarna lista",
-   "home": "Karta osoby"
+   "home": "Pasek osoby"
   },
   {
    "id": "c.risk",
    "opis": "Ryzyko rezygnacji",
    "file": "components/v2/candidate-profile/ProfileHeader.tsx",
    "marker": "<RiskBadge",
-   "home": "Karta osoby"
+   "home": "Pasek osoby"
   },
   {
    "id": "c.risk_retry",
    "opis": "Ocena ryzyka niedostępna + „Ponów”",
    "file": "components/v2/pages/CandidateDetailV2.tsx",
    "marker": "Ocena ryzyka jest chwilowo niedostępna",
-   "home": "Nad układem profilu"
+   "home": "Nad układem profilu",
+   "removed_reason": "Pasek „Ocena ryzyka jest chwilowo niedostępna · Ponów” zdjęty 13.10.2026 (D3): trasa ryzyka nie zwraca 5xx, więc pasek w praktyce się nie pokazywał; odznaka ryzyka zostaje w pasku osoby."
   },
   {
    "id": "c.viewers",
    "opis": "Kto teraz ogląda profil",
    "file": "components/v2/candidate-profile/ProfileHeader.tsx",
    "marker": "<ActiveViewers",
-   "home": "Karta osoby"
+   "home": "Pasek osoby"
   },
   {
    "id": "c.email",
-   "opis": "Adres e-mail (link)",
+   "opis": "Adres e-mail: klik = mail z Microsoft 365, obok kopiowanie (dawny mailto: zdjęty)",
    "file": "components/v2/candidate-profile/ProfileHeader.tsx",
-   "marker": "mailto:",
-   "home": "Karta osoby, kontakt"
+   "marker": "Kopiuj adres e-mail",
+   "home": "Pasek osoby, kontakt"
   },
   {
    "id": "c.call",
    "opis": "Zadzwoń (CloudTalk)",
    "file": "components/v2/candidate-profile/ProfileHeader.tsx",
    "marker": "<CallButton",
-   "home": "Karta osoby, kontakt"
+   "home": "Karta osoby, kontakt",
+   "removed_reason": "Przycisk CloudTalk zdjęty z profilu 13.10.2026 (D3): 10 połączeń w całej historii, ostatnie 14.04.2026, CloudTalk wyłączony decyzją z 28.07.2026; numer zostaje z kopiowaniem, przycisk żyje w szybkim podglądzie."
   },
   {
    "id": "c.linkedin",
    "opis": "LinkedIn",
    "file": "components/v2/candidate-profile/ProfileHeader.tsx",
    "marker": "LinkedIn",
-   "home": "Karta osoby, kontakt"
+   "home": "Pasek osoby, kontakt"
   },
   {
    "id": "c.contact_status",
    "opis": "Status sprawy kontaktu",
    "file": "components/v2/candidate-profile/ProfileHeader.tsx",
    "marker": "<ContactStatusBadge",
-   "home": "Karta osoby"
+   "home": "Karta osoby",
+   "removed_reason": "Status sprawy kontaktu zdjęty z profilu 13.10.2026 (D3): 0 spraw kontaktu na produkcji przez całą historię; plakietka zostaje na liście, Tablicy i w kolejce kontaktu."
   },
   {
    "id": "c.contact_outcome",
    "opis": "„Zaloguj wynik” sprawy kontaktu",
    "file": "components/v2/candidate-profile/ProfileHeader.tsx",
    "marker": "Zaloguj wynik",
-   "home": "Karta osoby"
+   "home": "Karta osoby",
+   "removed_reason": "„Zaloguj wynik” zdjęte z profilu 13.10.2026 (D3): 0 spraw kontaktu na produkcji; zapis wyniku zostaje w kolejce kontaktu i w szybkim podglądzie."
   },
   {
    "id": "c.employed",
-   "opis": "Pracuje u naszego klienta + link do kontraktu",
-   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "opis": "Pracuje u nas: ramka na górze karty „Do propozycji” (klient, koniec zamówienia, DL, Kontrakt)",
+   "file": "components/v2/pages/CandidateDetailV2.tsx",
    "marker": "<AtOurClientBanner",
-   "home": "Karta osoby (wersja zwarta)"
+   "home": "Karta „Do propozycji”, na górze"
   },
   {
    "id": "c.assign",
    "opis": "Przypisz do rekrutacji",
    "file": "components/v2/candidate-profile/ProfileHeader.tsx",
    "marker": "Przypisz do rekrutacji",
-   "home": "Karta osoby, główny przycisk"
+   "home": "Pasek osoby, akcje"
   },
   {
    "id": "c.note",
    "opis": "Dodaj notatkę",
    "file": "components/v2/candidate-profile/ProfileHeader.tsx",
    "marker": "Dodaj notatkę",
-   "home": "Karta osoby, pod „Przypisz”"
+   "home": "Pasek osoby, akcje"
   },
   {
    "id": "c.no_answer",
    "opis": "Nie odebrał (próba kontaktu)",
    "file": "components/v2/candidate-profile/ProfileHeader.tsx",
    "marker": "Nie odebrał",
-   "home": "Karta osoby, pod „Przypisz”"
+   "home": "Pasek osoby, akcje"
   },
   {
    "id": "m.email",
@@ -150,14 +154,14 @@
   },
   {
    "id": "m.cv",
-   "opis": "Generuj CV",
-   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "opis": "Generuj CV (z menu zdjęte 13.10.2026 — jest w zakładce CV i w karcie rekrutacji)",
+   "file": "components/v2/candidate-profile/CvSkillsSection.tsx",
    "marker": "Generuj CV",
-   "home": "Menu „⋯” → Dokumenty"
+   "home": "CV → wiersz CV (i karta rekrutacji)"
   },
   {
    "id": "m.edit",
-   "opis": "Edytuj dane",
+   "opis": "Edytuj dane (z imieniem i nazwiskiem, czyszczenie e-maila i telefonu)",
    "file": "components/v2/candidate-profile/ProfileHeader.tsx",
    "marker": "Edytuj dane",
    "home": "Menu „⋯” → Dane"
@@ -167,7 +171,8 @@
    "opis": "Korekta imienia i nazwiska",
    "file": "components/v2/candidate-profile/ProfileHeader.tsx",
    "marker": "Korekta imienia i nazwiska",
-   "home": "Menu „⋯” → Dane"
+   "home": "Menu „⋯” → Dane",
+   "removed_reason": "„Korekta imienia i nazwiska” weszła do „Edytuj dane” 13.10.2026 (D2): synchronizacja z Traffitem wyłączona 12.10, więc blokada przed importem nie ma przed czym chronić; czyszczenie e-maila i telefonu oraz przycinanie imienia przejęło okno „Edytuj dane”."
   },
   {
    "id": "m.tags",
@@ -195,14 +200,16 @@
    "opis": "Obserwuj kandydata",
    "file": "components/v2/candidate-profile/ProfileHeader.tsx",
    "marker": "Obserwuj",
-   "home": "Menu „⋯” → Inne"
+   "home": "Menu „⋯” → Inne",
+   "removed_reason": "„Obserwuj” zdjęte 13.10.2026 (D1): 0 przypięć na produkcji przez całą historię; razem z nim pasek obserwowanych nad listą kandydatów."
   },
   {
    "id": "m.market",
    "opis": "Wrzuć na targ",
    "file": "components/v2/candidate-profile/ProfileHeader.tsx",
    "marker": "Wrzuć na targ",
-   "home": "Menu „⋯” → Inne"
+   "home": "Menu „⋯” → Inne",
+   "removed_reason": "„Wrzuć na targ” zdjęte 13.10.2026 (D1): strona targu zdjęta z menu 21.09.2026, przyciskiem dodano ręcznie 2 osoby (29.07 i 12.10), 4424 wpisy dodaje automat dostępności."
   },
   {
    "id": "m.conflicts",
@@ -227,80 +234,80 @@
   },
   {
    "id": "f.availability",
-   "opis": "Dostępność (z edycją)",
+   "opis": "Dostępność: termin w karcie, status w pigułce paska osoby (z edycją)",
    "file": "components/v2/pages/CandidateProfileFactsBar.tsx",
    "marker": "Edytuj dostępność",
-   "home": "Karta „Podsumowanie”"
+   "home": "Karta „Do propozycji”"
   },
   {
    "id": "f.rate",
    "opis": "Stawka od + historia stawek",
    "file": "components/v2/pages/CandidateProfileFactsBar.tsx",
    "marker": "Historia stawek",
-   "home": "Karta „Podsumowanie”"
+   "home": "Karta „Do propozycji”"
   },
   {
    "id": "f.workmode",
-   "opis": "Tryb pracy i dni w biurze",
+   "opis": "Tryb pracy i dni w biurze (bez edycji razem z miastem w wierszu „Praca”)",
    "file": "components/v2/pages/CandidateProfileFactsBar.tsx",
    "marker": "Edytuj tryb pracy",
-   "home": "Karta „Podsumowanie”"
+   "home": "Karta „Do propozycji”"
   },
   {
    "id": "f.location",
    "opis": "Miasto, kraj, region, hub",
    "file": "components/v2/pages/CandidateProfileFactsBar.tsx",
    "marker": "Edytuj lokalizację",
-   "home": "Karta „Podsumowanie”"
+   "home": "Karta „Do propozycji”"
   },
   {
    "id": "f.languages",
    "opis": "Języki",
    "file": "components/v2/pages/CandidateProfileFactsBar.tsx",
    "marker": "label=\"Języki\"",
-   "home": "Karta „Podsumowanie”"
+   "home": "Karta „Do propozycji”"
   },
   {
    "id": "f.nationality",
    "opis": "Narodowość ze screeningu",
    "file": "components/v2/pages/CandidateProfileFactsBar.tsx",
    "marker": "Narodowość",
-   "home": "Karta „Podsumowanie”"
+   "home": "Karta „Do propozycji”"
   },
   {
    "id": "f.call_facts",
    "opis": "Fakty z rozmowy (poprawa)",
    "file": "components/v2/pages/CandidateProfileFactsBar.tsx",
    "marker": "Popraw fakty z rozmowy",
-   "home": "Karta „Podsumowanie”"
+   "home": "Karta „Do propozycji”"
   },
   {
    "id": "f.summary",
    "opis": "W skrócie (AI albo z CV)",
    "file": "components/v2/pages/CandidateActivitySummaryCard.tsx",
    "marker": "W skrócie",
-   "home": "Karta „Podsumowanie”"
+   "home": "Przegląd → W skrócie"
   },
   {
    "id": "f.notes_facts",
-   "opis": "Ustalenia z notatek (Zapisz w profilu)",
+   "opis": "Ustalenia z notatek: „N rzeczy do sprawdzenia z rozmowy” albo link (Zapisz w profilu w oknie)",
    "file": "components/v2/pages/CandidateDetailV2.tsx",
    "marker": "Ustalenia z notatek",
-   "home": "Link pod „Podsumowaniem” → okno"
+   "home": "Karta „Do propozycji” → linia → okno"
   },
   {
    "id": "t.now_followup",
    "opis": "Zaległy telefon po ciszy klienta",
    "file": "components/v2/candidate-profile/ProfileTab.tsx",
    "marker": "Telefon po ciszy klienta",
-   "home": "Przegląd → Teraz"
+   "home": "Przegląd → Do zrobienia"
   },
   {
    "id": "t.now_processes",
-   "opis": "Procesy w toku: etap, kto ma ruch, dni",
+   "opis": "Procesy w toku z ruchem po naszej stronie: etap, kto ma ruch, dni (pełna lista w Rekrutacjach)",
    "file": "components/v2/candidate-profile/ProfileTab.tsx",
    "marker": "ruch:",
-   "home": "Przegląd → Teraz"
+   "home": "Przegląd → Do zrobienia"
   },
   {
    "id": "t.last_talk",
@@ -311,66 +318,66 @@
   },
   {
    "id": "r.active",
-   "opis": "Karty rekrutacji w toku",
+   "opis": "Rekrutacje w toku jako tabela z rozwijanym wierszem (karta rekrutacji)",
    "file": "components/v2/candidate-profile/RecruitmentsTab.tsx",
-   "marker": "W toku",
-   "home": "Rekrutacje"
+   "marker": "<ActiveRecruitmentsTable",
+   "home": "Rekrutacje → W toku"
   },
   {
    "id": "r.board",
    "opis": "Link do Tablicy z otwartą osobą",
    "file": "components/v2/candidate-profile/RecruitmentsTab.tsx",
-   "marker": "Tablica ›",
-   "home": "Rekrutacje → karta"
+   "marker": "?candidate=${candidateId}",
+   "home": "Rekrutacje → wiersz → „⋯”"
   },
   {
    "id": "r.path",
    "opis": "Ścieżka etapów",
    "file": "components/v2/candidate-profile/RecruitmentsTab.tsx",
    "marker": "Ścieżka etapów",
-   "home": "Rekrutacje → karta"
+   "home": "Rekrutacje → wiersz → karta"
   },
   {
    "id": "r.rates",
    "opis": "Stawka kandydata i stawka do klienta",
    "file": "components/v2/candidate-profile/RecruitmentsTab.tsx",
    "marker": "Stawka do klienta",
-   "home": "Rekrutacje → karta"
+   "home": "Rekrutacje → wiersz → karta"
   },
   {
    "id": "r.rate_hints",
    "opis": "Stawki z notatek, gdy etap ich nie ma (karta rekomendacji, notatka z wysyłki)",
    "file": "components/v2/candidate-profile/RecruitmentsTab.tsx",
    "marker": "clientRateNoteCaption",
-   "home": "Rekrutacje → karta"
+   "home": "Rekrutacje → wiersz → karta"
   },
   {
    "id": "r.original_cv",
    "opis": "Pokaż CV oryginalne",
    "file": "components/v2/candidate-profile/RecruitmentsTab.tsx",
    "marker": "Pokaż CV oryginalne",
-   "home": "Rekrutacje → karta"
+   "home": "Rekrutacje → wiersz → karta"
   },
   {
    "id": "r.refresh_cv",
    "opis": "Odśwież CV oryginalne",
    "file": "components/v2/candidate-profile/RecruitmentsTab.tsx",
    "marker": "Odśwież CV oryginalne",
-   "home": "Rekrutacje → karta → „⋯”"
+   "home": "Rekrutacje → wiersz → karta → „⋯”"
   },
   {
    "id": "r.remove",
    "opis": "Usuń z rekrutacji",
    "file": "components/v2/candidate-profile/RecruitmentsTab.tsx",
    "marker": "Usuń z rekrutacji",
-   "home": "Rekrutacje → karta → „⋯”"
+   "home": "Rekrutacje → wiersz → „⋯”"
   },
   {
    "id": "r.suggested",
-   "opis": "Pasujące otwarte rekrutacje",
+   "opis": "Pasujące rekrutacje (liczone po „Pokaż”)",
    "file": "components/v2/candidate-profile/RecruitmentsTab.tsx",
    "marker": "<SuggestedJobsWidget",
-   "home": "Rekrutacje"
+   "home": "Rekrutacje → „Pasujące rekrutacje” (zwinięte)"
   },
   {
    "id": "r.closed",
@@ -384,14 +391,14 @@
    "opis": "Feedback po rozmowach",
    "file": "components/v2/candidate-profile/RecruitmentsTab.tsx",
    "marker": "<CandidateInterviewFeedbackPanel",
-   "home": "Rekrutacje"
+   "home": "Rekrutacje → wiersz; rozmowy bez rekrutacji na dole"
   },
   {
    "id": "r.matching",
-   "opis": "Dopasowanie do rekrutacji",
+   "opis": "Ocena dopasowania do tej rekrutacji",
    "file": "components/v2/candidate-profile/RecruitmentsTab.tsx",
-   "marker": "Dopasowanie",
-   "home": "Rekrutacje (zwinięte)"
+   "marker": "Ocena dopasowania",
+   "home": "Rekrutacje → wiersz (zwinięte)"
   },
   {
    "id": "s.answers",
@@ -419,147 +426,150 @@
    "opis": "Nowa notatka (z rekrutacją, wzmianki)",
    "file": "components/v2/candidate-profile/Notes.tsx",
    "marker": "Notatka ogólna (bez rekrutacji)",
-   "home": "Notatki i historia"
+   "home": "Notatki"
   },
   {
    "id": "h.groups",
-   "opis": "Filtry: Rozmowy, Próby kontaktu, Delivery Lead, Maile, Automat",
+   "opis": "Filtry: Rozmowy, Delivery Lead, Próby kontaktu, Automat | Maile, Czat zespołu",
    "file": "components/v2/candidate-profile/HistoryTab.tsx",
    "marker": "Próby kontaktu",
-   "home": "Notatki i historia"
+   "home": "Notatki"
   },
   {
    "id": "h.timeline",
-   "opis": "Wszystko (oś czasu) + Pokaż więcej",
+   "opis": "Oś czasu (zmiany etapów, automaty, pobrania) pod przełącznikiem + Pokaż więcej",
    "file": "components/v2/candidate-profile/HistoryTab.tsx",
-   "marker": "Pokaż więcej",
-   "home": "Notatki i historia"
+   "marker": "Zmiany etapów i automaty",
+   "home": "Notatki → przełącznik"
   },
   {
    "id": "h.cv_side",
    "opis": "Pokaż CV obok osi czasu",
    "file": "components/v2/candidate-profile/HistoryTab.tsx",
    "marker": "Pokaż CV obok",
-   "home": "Notatki i historia → Wszystko"
+   "home": "Notatki → Zmiany etapów i automaty"
   },
   {
    "id": "h.calls",
    "opis": "Telefony",
    "file": "components/v2/candidate-profile/HistoryTab.tsx",
    "marker": "Telefony",
-   "home": "Notatki i historia"
+   "home": "Notatki i historia",
+   "removed_reason": "Filtr „Telefony” zdjęty 13.10.2026 (D3): na produkcji 10 połączeń w całej historii, ostatnie 14.04.2026, CloudTalk wyłączony decyzją z 28.07.2026; stary adres activity=calls otwiera oś czasu."
   },
   {
    "id": "h.chat",
    "opis": "Czat zespołu",
    "file": "components/v2/candidate-profile/HistoryTab.tsx",
    "marker": "Czat zespołu",
-   "home": "Notatki i historia"
+   "home": "Notatki"
   },
   {
    "id": "h.emails",
    "opis": "Skrzynka maili M365",
    "file": "components/v2/candidate-profile/HistoryTab.tsx",
    "marker": "<EmailThreadList",
-   "home": "Notatki i historia → Maile"
+   "home": "Notatki → Maile"
   },
   {
    "id": "h.pin",
    "opis": "Przypnij notatkę",
    "file": "components/v2/candidate-profile/Notes.tsx",
    "marker": "Przypnij notatkę",
-   "home": "Notatki i historia → notatka"
+   "home": "Notatki → notatka"
   },
   {
    "id": "h.system",
    "opis": "Pokaż systemowe",
    "file": "components/v2/candidate-profile/Notes.tsx",
    "marker": "Pokaż systemowe",
-   "home": "Notatki i historia"
+   "home": "Notatki"
   },
   {
    "id": "h.card",
    "opis": "Screening rekrutacji, której dotyczy notatka (okno tylko do odczytu; do 09.10.2026 „Karta rekomendacji z tej rozmowy”)",
    "file": "components/v2/candidate-profile/HistoryTab.tsx",
    "marker": "<ScreeningSummaryDialog",
-   "home": "Notatki i historia → notatka"
+   "home": "Notatki → notatka"
   },
   {
    "id": "d.cv",
    "opis": "Główne CV: podgląd i odczyt",
    "file": "components/v2/candidate-profile/CvSkillsSection.tsx",
    "marker": "Podgląd",
-   "home": "CV i dokumenty → CV i umiejętności"
+   "home": "CV → wiersz CV"
   },
   {
    "id": "d.reparse",
    "opis": "Odczytaj CV ponownie",
    "file": "components/v2/candidate-profile/CvSkillsSection.tsx",
    "marker": "<CvReparseAction",
-   "home": "CV i dokumenty → CV i umiejętności"
+   "home": "CV → wiersz CV"
   },
   {
    "id": "d.skills",
    "opis": "Umiejętności (warianty złączone, Pokaż wszystkie)",
    "file": "components/v2/candidate-profile/CvSkillsSection.tsx",
    "marker": "Pokaż wszystkie",
-   "home": "CV i dokumenty → CV i umiejętności"
+   "home": "CV → Umiejętności"
   },
   {
    "id": "d.experience",
-   "opis": "Doświadczenie",
+   "opis": "Doświadczenie jako oś: daty · stanowisko · firma, opis po rozwinięciu",
    "file": "components/v2/candidate-profile/CvSkillsSection.tsx",
-   "marker": "Doświadczenie",
-   "home": "CV i dokumenty → CV i umiejętności"
+   "marker": "<ExperienceRow",
+   "home": "CV → Doświadczenie"
   },
   {
    "id": "d.details",
    "opis": "Wykształcenie, certyfikaty i szczegóły",
    "file": "components/v2/candidate-profile/CvSkillsSection.tsx",
    "marker": "Wykształcenie, certyfikaty i szczegóły",
-   "home": "CV i dokumenty"
+   "home": "CV"
   },
   {
    "id": "d.engagement",
    "opis": "Zaangażowanie (otwartość na projekty)",
    "file": "components/v2/candidate-profile/CvSkillsSection.tsx",
    "marker": "<CandidateEngagementPanel",
-   "home": "CV i dokumenty → szczegóły"
+   "home": "CV i dokumenty → szczegóły",
+   "removed_reason": "Usunięte 13.10.2026 (D3, decyzja Artura): na produkcji flagi ustawione u 1 kandydata, ostatnia zmiana 27.04.2026. Panel był jedynym miejscem edycji flag ambasadora i „otwarty na…” oraz wysyłki linku samodeklaracji — filtr „Ambasador”, eksport i strona publiczna dalej je czytają; backend zostaje."
   },
   {
    "id": "d.sources",
    "opis": "Źródła kandydata",
    "file": "components/v2/candidate-profile/CvSkillsSection.tsx",
    "marker": "<CandidateSourcesPanel",
-   "home": "CV i dokumenty → szczegóły"
+   "home": "CV → szczegóły"
   },
   {
    "id": "d.linkedin_sync",
    "opis": "Synchronizacja LinkedIn",
    "file": "components/v2/candidate-profile/CvSkillsSection.tsx",
    "marker": "<LinkedinSyncPanel",
-   "home": "CV i dokumenty → szczegóły"
+   "home": "CV i dokumenty → szczegóły",
+   "removed_reason": "Usunięte 13.10.2026 (D3, decyzja Artura): 0 profili zsynchronizowanych z LinkedIn na produkcji, klucz dostawcy pusty, więc każda synchronizacja kończyła się 503. Backend synchronizacji zostaje bez zmian."
   },
   {
    "id": "d.jdg",
    "opis": "Dane do umowy (JDG / firma)",
    "file": "components/v2/candidate-profile/FilesContractsTab.tsx",
    "marker": "Dane do umowy (JDG / firma)",
-   "home": "CV i dokumenty (zwinięte)"
+   "home": "Dokumenty, zwinięte na dole"
   },
   {
    "id": "d.contracts",
    "opis": "Umowy: aktualne, draft, historia",
    "file": "components/v2/candidate-profile/FilesContractsTab.tsx",
    "marker": "Brak umowy z tym kandydatem",
-   "home": "CV i dokumenty → Umowy"
+   "home": "Dokumenty → Umowy (z podglądem Delivery)"
   },
   {
    "id": "d.upload",
    "opis": "Dodaj plik z rodzajem",
    "file": "components/v2/files/CandidateFilesTab.tsx",
    "marker": "Dodaj plik",
-   "home": "CV i dokumenty → Pliki kandydata"
+   "home": "Dokumenty → Pliki kandydata"
   },
   {
    "id": "d.primary",
@@ -584,17 +594,17 @@
   },
   {
    "id": "d.client_cv",
-   "opis": "CV dla klientów (B2B i z generatora)",
+   "opis": "CV wysłane klientom (B2B, z kodem rekrutacji w nazwie, z generatora)",
    "file": "components/v2/files/CandidateFilesTab.tsx",
-   "marker": "CV dla klientów",
-   "home": "CV i dokumenty → Pliki kandydata"
+   "marker": "CV wysłane klientom",
+   "home": "Dokumenty → Pliki → CV wysłane klientom"
   },
   {
    "id": "d.orders",
    "opis": "Dokumenty zamówień",
    "file": "components/v2/files/CandidateFilesTab.tsx",
    "marker": "<OrderDocumentsSection",
-   "home": "CV i dokumenty → Pliki kandydata"
+   "home": "Dokumenty → Pliki kandydata"
   },
   {
    "id": "e.no_mailbox",
@@ -602,6 +612,83 @@
    "file": "components/v2/modals/SendEmailV2.tsx",
    "marker": "Podłącz w Ustawieniach",
    "home": "Okno maila"
+  },
+  {
+   "id": "c.employed_pill",
+   "opis": "Pigułka „Pracuje u nas / Kończy u nas” przy nazwisku",
+   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "marker": "<EmploymentPill",
+   "home": "Pasek osoby"
+  },
+  {
+   "id": "c.conflict_chip",
+   "opis": "Chip aktywnego konfliktu z klientem (otwiera „Konflikty i weta”)",
+   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "marker": "Konflikty z klientami:",
+   "home": "Pasek osoby"
+  },
+  {
+   "id": "c.copy_phone",
+   "opis": "Telefon z kopiowaniem",
+   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "marker": "Kopiuj numer telefonu",
+   "home": "Pasek osoby, kontakt"
+  },
+  {
+   "id": "t.recent_roles",
+   "opis": "Ostatnio: 3 ostatnie stanowiska z linkiem do CV",
+   "file": "components/v2/candidate-profile/ProfileTab.tsx",
+   "marker": "candidate-recent-roles-heading",
+   "home": "Przegląd"
+  },
+  {
+   "id": "t.top_skills",
+   "opis": "8 głównych umiejętności z linkiem do zakładki CV",
+   "file": "components/v2/candidate-profile/ProfileTab.tsx",
+   "marker": "w zakładce CV",
+   "home": "Przegląd"
+  },
+  {
+   "id": "t.with_us",
+   "opis": "Pasek „Z nami”: w toku, zakończone, ostatnia rozmowa, próby kontaktu, w bazie od",
+   "file": "components/v2/candidate-profile/ProfileTab.tsx",
+   "marker": "W bazie od",
+   "home": "Przegląd"
+  },
+  {
+   "id": "t.nothing_on_us",
+   "opis": "Gdy ruch wszędzie po stronie klienta albo kandydata — zdanie z linkiem do Rekrutacji",
+   "file": "components/v2/candidate-profile/ProfileTab.tsx",
+   "marker": "po stronie klienta albo kandydata",
+   "home": "Przegląd → Do zrobienia"
+  },
+  {
+   "id": "h.older",
+   "opis": "10 najnowszych notatek w grupach miesięcznych + „Pokaż starsze”",
+   "file": "components/v2/candidate-profile/Notes.tsx",
+   "marker": "Pokaż starsze (",
+   "home": "Notatki"
+  },
+  {
+   "id": "h.downloads",
+   "opis": "Pobrania plików z jednego dnia zwinięte w jedną linię na osi czasu",
+   "file": "components/v2/candidate-profile/Timeline.tsx",
+   "marker": "Pobrano pliki · ",
+   "home": "Notatki → Zmiany etapów i automaty"
+  },
+  {
+   "id": "d.delivery_line",
+   "opis": "Bez podglądu Delivery: „Umowy prowadzi Delivery” + umowy z historii (bez kwot) i Delivery Lead",
+   "file": "components/v2/candidate-profile/FilesContractsTab.tsx",
+   "marker": "Umowy prowadzi Delivery",
+   "home": "Dokumenty → Umowy"
+  },
+  {
+   "id": "d.attachments",
+   "opis": "Grupa „Załączniki i formularze”",
+   "file": "components/v2/files/CandidateFilesTab.tsx",
+   "marker": "Załączniki i formularze",
+   "home": "Dokumenty → Pliki"
   }
  ]
 }

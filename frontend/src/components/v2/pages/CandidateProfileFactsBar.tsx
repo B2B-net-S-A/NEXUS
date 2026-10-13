@@ -264,8 +264,16 @@ interface CandidateProfileFactsBarProps {
    * z `children` („W skrócie”, „Ustalenia z notatek”). `grid` = dawny pasek
    * kafelków (zostaje dla wąskich wariantów i testów).
    */
-  layout?: "grid" | "column";
+  layout?: "grid" | "column" | "proposal";
   children?: React.ReactNode;
+  /**
+   * `proposal` (od 13.10.2026, decyzja E1) = karta „Do propozycji”: jedna
+   * linia na fakt, źródło jako kropka z okienkiem; po „Edytuj” wiersze jak
+   * w `column` (z ołówkami). Status dostępności („szuka aktywnie”) stoi wtedy
+   * w pigułce paska osoby, więc wiersz „Dostępność” pokazuje tylko termin.
+   * `lead` = treść na górze karty (ramka „Pracuje u nas”).
+   */
+  lead?: React.ReactNode;
   candidate: {
     id: number;
     city?: string | null;
@@ -320,6 +328,28 @@ function availabilityValue(
   return status;
 }
 
+/**
+ * Sam termin dostępności — w karcie „Do propozycji” status („szuka aktywnie”)
+ * pokazuje pigułka przy nazwisku, więc tu go nie powtarzamy (każdy fakt raz).
+ */
+function availabilityTerm(
+  candidate: CandidateProfileFactsBarProps["candidate"],
+): string | null {
+  if (candidate.availability_date) {
+    return `od ${formatDate(candidate.availability_date)}`;
+  }
+  if (candidate.notice_period != null) {
+    const unit =
+      candidate.notice_period_unit === "months"
+        ? "mies."
+        : candidate.notice_period_unit === "weeks"
+          ? "tyg."
+          : "dni";
+    return `za ${candidate.notice_period} ${unit}`;
+  }
+  return null;
+}
+
 function formatRate(amount: string | null): string {
   if (amount == null) return "Nie uzupełniono";
   const parsed = Number(amount);
@@ -354,10 +384,42 @@ function cardOrigin(
  * Układ faktów: `column` = wiersze karty „Podsumowanie” (ołówki tylko w trybie
  * edycji), inaczej kafelki paska.
  */
-const FactsLayoutContext = React.createContext<{ column: boolean; editing: boolean }>({
+const FactsLayoutContext = React.createContext<{
+  column: boolean;
+  editing: boolean;
+  /** Karta „Do propozycji” poza trybem edycji: jedna linia na fakt. */
+  compact?: boolean;
+}>({
   column: false,
   editing: true,
 });
+
+/**
+ * Źródło faktu w karcie „Do propozycji”: kropka-przycisk z okienkiem (klik
+ * albo Enter — działa też na dotyk, tooltip by nie zadziałał). Treść niesie
+ * `data-fact-origin`, jak linia źródła w pozostałych układach.
+ */
+function FactOriginDot({ origin }: { origin: { text: string; title: string } }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Źródło: ${origin.text}`}
+          title={origin.title}
+          className="ml-1 inline-flex size-5 shrink-0 items-center justify-center rounded-full align-middle hover:bg-accent"
+        >
+          <span aria-hidden className="size-1.5 rounded-full bg-primary" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-64 p-3 text-xs">
+        <p data-fact-origin title={origin.title} className="break-words text-muted-foreground">
+          {origin.text}
+        </p>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 function FactShell({
   icon,
@@ -382,6 +444,24 @@ function FactShell({
   footer?: React.ReactNode;
 }) {
   const layout = React.useContext(FactsLayoutContext);
+  if (layout.compact) {
+    return (
+      <div className="grid min-w-0 grid-cols-[5.5rem_minmax(0,1fr)_auto] items-baseline gap-x-2 py-1.5">
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <div
+          className={cn(
+            "min-w-0 break-words text-sm font-semibold leading-5 text-foreground",
+            muted && "font-normal text-muted-foreground",
+          )}
+        >
+          {children}
+          {origin ? <FactOriginDot origin={origin} /> : null}
+          {footer}
+        </div>
+        {actionAlways ? action : <span />}
+      </div>
+    );
+  }
   if (layout.column) {
     const showAction = actionAlways || layout.editing;
     return (
@@ -1781,6 +1861,7 @@ export function CandidateProfileFactsBar({
   candidate,
   layout = "grid",
   children,
+  lead,
 }: CandidateProfileFactsBarProps) {
   // GET/PATCH /api/candidates/{id}/profile-rate stoi na
   // CandidateProfileFacts{Read,Write}Access = _INTERNAL_OPERATIONAL_ROLES —
@@ -1798,10 +1879,14 @@ export function CandidateProfileFactsBar({
   // potrzebuje też prawa zapisu kandydata.
   const canWriteCandidate = useCapability("candidate.write");
   const canEditAvailability = canEditFacts && canWriteCandidate;
-  const column = layout === "column";
+  const column = layout === "column" || layout === "proposal";
+  const proposal = layout === "proposal";
   // Karta „Podsumowanie”: ołówki dopiero po „Edytuj” (jedno wejście w edycję
   // zamiast sześciu ikon stale na widoku). Pasek kafelków pokazuje je zawsze.
   const [editing, setEditing] = React.useState(false);
+  // Karta „Do propozycji” bez edycji: jedna linia na fakt (wiersze z ołówkami
+  // wracają po „Edytuj”).
+  const compact = proposal && !editing;
   const [languagesOpen, setLanguagesOpen] = React.useState(false);
   const [locationOpen, setLocationOpen] = React.useState(false);
   const [availabilityOpen, setAvailabilityOpen] = React.useState(false);
@@ -1885,7 +1970,7 @@ export function CandidateProfileFactsBar({
       <FactShell
         icon={<CalendarClock className="size-4" />}
         label="Dostępność"
-        muted={!candidate.availability_status}
+        muted={proposal ? !availabilityTerm(candidate) : !candidate.availability_status}
         origin={
           cardOrigin(cardFacts.availability) ??
           notesAvailabilityOrigin(candidate)
@@ -1899,7 +1984,9 @@ export function CandidateProfileFactsBar({
           ) : null
         }
       >
-        {availabilityValue(candidate)}
+        {proposal
+          ? (availabilityTerm(candidate) ?? "Nie ustalono")
+          : availabilityValue(candidate)}
       </FactShell>
 
       {canViewAndEditRate && !rateForbidden ? (
@@ -1950,7 +2037,11 @@ export function CandidateProfileFactsBar({
             footer={
               <button
                 type="button"
-                className="mt-1 block min-h-6 text-xs font-medium text-primary hover:underline"
+                className={
+                  compact
+                    ? "ml-1 inline text-xs font-medium text-primary hover:underline"
+                    : "mt-1 block min-h-6 text-xs font-medium text-primary hover:underline"
+                }
                 onClick={() => setRateHistoryOpen(true)}
               >
                 Historia stawek
@@ -1965,6 +2056,19 @@ export function CandidateProfileFactsBar({
         ) : null
       ) : null}
 
+      {compact ? (
+        // „Do propozycji” bez edycji: tryb pracy i miasto w jednym wierszu
+        // „Praca”; po „Edytuj” rozdzielają się na dwa wiersze z ołówkami.
+        <FactShell
+          icon={<Briefcase className="size-4" />}
+          label="Praca"
+          muted={!workModeLabel && !location}
+          origin={cardOrigin(cardFacts.work_mode)}
+        >
+          {[workModeLabel, location].filter(Boolean).join(" · ") || "Nie uzupełniono"}
+        </FactShell>
+      ) : (
+      <>
       <FactShell
         icon={<Briefcase className="size-4" />}
         label="Tryb pracy"
@@ -1997,6 +2101,8 @@ export function CandidateProfileFactsBar({
       >
         {location || "Nie uzupełniono"}
       </FactShell>
+      </>
+      )}
 
       {languagesQuery.isPending ? (
         <FactLoading label="Języki" />
@@ -2197,18 +2303,19 @@ export function CandidateProfileFactsBar({
 
   if (column) {
     return (
-      <FactsLayoutContext.Provider value={{ column: true, editing }}>
+      <FactsLayoutContext.Provider value={{ column: true, editing, compact }}>
         <section
           aria-labelledby="candidate-summary-heading"
           data-help="candidate.profile.facts"
           className="rounded-xl border border-border bg-card px-4 py-3 md:max-2xl:px-3"
         >
+          {lead ? <div className="mb-2">{lead}</div> : null}
           <div className="flex min-h-9 items-center justify-between gap-2">
             <h2
               id="candidate-summary-heading"
               className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
             >
-              Podsumowanie
+              {proposal ? "Do propozycji" : "Podsumowanie"}
             </h2>
             {canEditFacts ? (
               <Button
@@ -2225,7 +2332,7 @@ export function CandidateProfileFactsBar({
           </div>
           <div
             aria-label="Najważniejsze fakty o kandydacie"
-            className="divide-y divide-border"
+            className={compact ? "" : "divide-y divide-border"}
           >
             {facts}
           </div>

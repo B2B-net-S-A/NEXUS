@@ -1,9 +1,13 @@
 /**
- * Historia profilu: zakładka na każdy rodzaj notatki (03.10.2026).
+ * Zakładka „Notatki” profilu: filtr na każdy rodzaj notatki (03.10.2026).
  *
  * Decyzja: nic nie znika — „nie odbiera”, wpisy Delivery Leada, maile
- * i automat mają własne zakładki z licznikami z serwera, a „Rozmowy”
+ * i automat mają własne filtry z licznikami z serwera, a „Rozmowy”
  * zostają czyste. „Nie odebrał” zapisuje próbę kontaktu jednym kliknięciem.
+ *
+ * 13.10.2026 (E4): filtry w dwóch grupach (notatki | Maile · Czat zespołu),
+ * oś czasu za przełącznikiem „Zmiany etapów i automaty”, bez „Telefonów”,
+ * lista notatek w grupach miesięcznych z „Pokaż starsze”.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -20,7 +24,6 @@ const showError = vi.fn();
 vi.mock("@/lib/api", () => ({
   __esModule: true,
   default: { get: (...a: unknown[]) => apiGet(...a), post: (...a: unknown[]) => apiPost(...a) },
-  callsApi: { getForCandidate: vi.fn(async () => []) },
   extractErrorMsg: () => "Błąd serwera",
 }));
 vi.mock("@/components/Toast", () => ({
@@ -53,7 +56,6 @@ vi.mock("@/components/v2/forms/MentionTextarea", () => ({
 vi.mock("@/components/emails/EmailThreadList", () => ({
   default: () => <div>skrzynka M365</div>,
 }));
-vi.mock("@/components/calls/CallsTimeline", () => ({ default: () => <div>połączenia</div> }));
 vi.mock("@/components/v2/pages/CandidateChatTab", () => ({ default: () => <div>czat</div> }));
 vi.mock("@/components/v2/files/FilePreviewModal", () => ({
   FilePreviewContent: () => null,
@@ -92,10 +94,23 @@ const NOTES = [
   note(6, "automat", "Auto-match 71/100", { is_system: true, author_name: null }),
 ];
 
-function respond(groupCounts: Record<string, number>) {
+const TIMELINE = [
+  {
+    type: "stage_change",
+    id: 501,
+    stage: "screening",
+    job_title: "Java Dev",
+    moved_by_name: "Marta Testowa",
+    timestamp: "2026-09-28T10:00:00Z",
+  },
+];
+
+function respond(groupCounts: Record<string, number>, items: object[] = NOTES) {
   apiGet.mockImplementation((url: string) =>
     Promise.resolve(
-      url.includes("/recommendation-cards")
+      url.includes("/timeline")
+        ? { data: { timeline: TIMELINE } }
+        : url.includes("/recommendation-cards")
         ? {
             data: {
               candidate_id: 42,
@@ -113,7 +128,7 @@ function respond(groupCounts: Record<string, number>) {
               ],
             },
           }
-        : { data: { items: NOTES, total: NOTES.length, group_counts: groupCounts } },
+        : { data: { items, total: items.length, group_counts: groupCounts } },
     ),
   );
 }
@@ -160,11 +175,11 @@ beforeEach(() => {
   apiPost.mockResolvedValue({ data: { id: 99 } });
 });
 
-describe("Historia — zakładki notatek po rodzaju", () => {
+describe("Notatki — filtry po rodzaju", () => {
   it("zakładki niosą liczniki z serwera, a „Rozmowy” pokazują tylko notatki z rozmów", async () => {
     renderTab();
 
-    const tabs = screen.getByRole("tablist", { name: "Filtr historii" });
+    const tabs = screen.getByRole("tablist", { name: "Filtr notatek" });
     // Licznik z serwera (40), nie z pobranej listy (2).
     expect(await within(tabs).findByRole("tab", { name: "Rozmowy · 40" })).toHaveAttribute(
       "aria-selected",
@@ -175,8 +190,18 @@ describe("Historia — zakładki notatek po rodzaju", () => {
     // „Maile” łączą skrzynkę M365 z notatkami — bez liczby samych notatek.
     expect(within(tabs).getByRole("tab", { name: "Maile" })).toBeTruthy();
     expect(within(tabs).getByRole("tab", { name: "Automat · 9" })).toBeTruthy();
-    // Rejestr połączeń nie nazywa się już „Rozmowy”.
-    expect(within(tabs).getByRole("tab", { name: /^Telefony/ })).toBeTruthy();
+    expect(within(tabs).getByRole("tab", { name: "Czat zespołu" })).toBeTruthy();
+    // „Telefony” (rejestr połączeń CloudTalk) zdjęte 13.10.2026.
+    expect(within(tabs).queryByRole("tab", { name: /Telefony/ })).toBeNull();
+    // Kolejność z makiety: grupa notatek, potem inne źródła.
+    expect(within(tabs).getAllByRole("tab").map((tab) => tab.dataset.filter)).toEqual([
+      "notes",
+      "delivery",
+      "contact",
+      "automat",
+      "emails",
+      "chat",
+    ]);
 
     expect(screen.getByText("Szuka projektu z Javą 21.")).toBeTruthy();
     expect(screen.queryByText("nie odbiera")).toBeNull();
@@ -187,7 +212,7 @@ describe("Historia — zakładki notatek po rodzaju", () => {
   it("nic nie znika: każdy rodzaj wpisu jest w swojej zakładce", async () => {
     const user = userEvent.setup();
     renderTab();
-    const tabs = screen.getByRole("tablist", { name: "Filtr historii" });
+    const tabs = screen.getByRole("tablist", { name: "Filtr notatek" });
     await within(tabs).findByRole("tab", { name: "Rozmowy · 40" });
 
     await user.click(within(tabs).getByRole("tab", { name: "Próby kontaktu · 3" }));
@@ -272,30 +297,116 @@ describe("Historia — zakładki notatek po rodzaju", () => {
   it("rodzaje bez notatek znikają z filtrów, „Rozmowy” zostają zawsze (04.10.2026)", async () => {
     respond({ talks: 0, contact: 0, delivery: 2, email: 0, automat: 0 });
     renderTab();
-    const tabs = screen.getByRole("tablist", { name: "Filtr historii" });
+    const tabs = screen.getByRole("tablist", { name: "Filtr notatek" });
     expect(await within(tabs).findByRole("tab", { name: "Rozmowy · 0" })).toBeTruthy();
     expect(within(tabs).getByRole("tab", { name: "Delivery Lead · 2" })).toBeTruthy();
     expect(within(tabs).queryByRole("tab", { name: /Próby kontaktu/ })).toBeNull();
     expect(within(tabs).queryByRole("tab", { name: /Automat/ })).toBeNull();
-    // Maile, oś czasu, telefony i czat — liczby nie znamy z góry, zostają.
+    // Maile i czat — liczby nie znamy z góry, zostają; oś czasu to przełącznik.
     expect(within(tabs).getByRole("tab", { name: "Maile" })).toBeTruthy();
-    expect(within(tabs).getByRole("tab", { name: "Wszystko" })).toBeTruthy();
+    expect(within(tabs).getByRole("tab", { name: "Czat zespołu" })).toBeTruthy();
+    expect(screen.getByRole("switch", { name: "Zmiany etapów i automaty" })).toBeTruthy();
   });
 
-  it("„Wszystko” nie ma liczby, a oś czasu pobiera się dopiero po wejściu w filtr", async () => {
+  it("przełącznik „Zmiany etapów i automaty” otwiera oś czasu i wraca do „Rozmów”", async () => {
     const user = userEvent.setup();
     renderTab();
-    const tabs = screen.getByRole("tablist", { name: "Filtr historii" });
+    const tabs = screen.getByRole("tablist", { name: "Filtr notatek" });
     await within(tabs).findByRole("tab", { name: "Rozmowy · 40" });
     expect(apiGet.mock.calls.some(([url]) => String(url).includes("/timeline"))).toBe(false);
+    const toggle = screen.getByRole("switch", { name: "Zmiany etapów i automaty" });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
 
-    await user.click(within(tabs).getByRole("tab", { name: "Wszystko" }));
+    await user.click(toggle);
     await waitFor(() =>
       expect(apiGet).toHaveBeenCalledWith(
         "/api/candidates/42/timeline?limit=50",
         expect.anything(),
       ),
     );
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    // Oś czasu zamiast listy notatek, żaden filtr notatek nie jest wybrany.
+    expect(await screen.findByText(/przypisanie do etapu/)).toBeTruthy();
+    expect(screen.queryByText("Szuka projektu z Javą 21.")).toBeNull();
+    expect(
+      within(tabs)
+        .getAllByRole("tab")
+        .some((tab) => tab.getAttribute("aria-selected") === "true"),
+    ).toBe(false);
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    expect(within(tabs).getByRole("tab", { name: "Rozmowy · 40" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByText("Szuka projektu z Javą 21.")).toBeTruthy();
+  });
+
+  it("klik w filtr przy włączonej osi czasu wyłącza przełącznik", async () => {
+    const user = userEvent.setup();
+    renderTab({ initial: "timeline" });
+    const toggle = screen.getByRole("switch", { name: "Zmiany etapów i automaty" });
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    const tabs = screen.getByRole("tablist", { name: "Filtr notatek" });
+    await user.click(await within(tabs).findByRole("tab", { name: "Delivery Lead · 1" }));
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByText("Dopisz do CV projekt bankowy.")).toBeTruthy();
+  });
+
+  it("stary klucz `calls` („Telefony”) otwiera oś czasu", async () => {
+    renderTab({ initial: "calls" });
+    expect(screen.getByRole("switch", { name: "Zmiany etapów i automaty" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await waitFor(() =>
+      expect(apiGet).toHaveBeenCalledWith(
+        "/api/candidates/42/timeline?limit=50",
+        expect.anything(),
+      ),
+    );
+    expect(apiGet.mock.calls.some(([url]) => String(url).includes("/calls"))).toBe(false);
+  });
+
+  it("notatki idą w grupach miesięcznych: 10 najnowszych, reszta za „Pokaż starsze”", async () => {
+    const user = userEvent.setup();
+    // 12 rozmów z dwóch miesięcy: 9 we wrześniu, 3 w sierpniu.
+    const many = Array.from({ length: 12 }, (_, i) =>
+      note(100 + i, "talks", `Rozmowa numer ${i + 1}.`, {
+        created_at:
+          i < 9
+            ? `2026-09-${String(20 - i).padStart(2, "0")}T10:00:00Z`
+            : `2026-08-${String(20 - i).padStart(2, "0")}T10:00:00Z`,
+      }),
+    );
+    respond({ talks: 12, contact: 0, delivery: 0, email: 0, automat: 0 }, many);
+    renderTab();
+
+    expect(await screen.findByRole("heading", { name: "Wrzesień 2026 · 9" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Sierpień 2026 · 3" })).toBeTruthy();
+    expect(screen.getAllByRole("article", { name: "Notatka" })).toHaveLength(10);
+    expect(screen.queryByText("Rozmowa numer 12.")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Pokaż starsze (2)" }));
+    expect(screen.getAllByRole("article", { name: "Notatka" })).toHaveLength(12);
+    expect(screen.getByText("Rozmowa numer 12.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Pokaż starsze/ })).toBeNull();
+  });
+
+  it("link z powiadomienia do starszej notatki rozwija listę aż do niej", async () => {
+    const many = Array.from({ length: 14 }, (_, i) =>
+      note(200 + i, "talks", `Wpis ${i + 1}.`, {
+        created_at: `2026-09-${String(28 - i).padStart(2, "0")}T10:00:00Z`,
+      }),
+    );
+    respond({ talks: 14, contact: 0, delivery: 0, email: 0, automat: 0 }, many);
+    // Notatka 212 = 13. od najnowszej.
+    renderTab({ focusedNoteId: 212 });
+
+    expect(await screen.findByText("Wpis 13.")).toBeTruthy();
+    expect(screen.getAllByRole("article", { name: "Notatka" })).toHaveLength(13);
+    expect(screen.getByRole("button", { name: "Pokaż starsze (1)" })).toBeTruthy();
   });
 
   it("pole notatki jest zwinięte, dopóki ktoś do niego nie wejdzie", async () => {

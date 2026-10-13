@@ -102,6 +102,7 @@ import { Badge } from "@/components/ui/badge";
 import { CandidateCvCell } from "@/components/v2/candidates/CandidateCvCell";
 import { CandidatePhoneCell } from "@/components/v2/candidates/CandidatePhoneCell";
 import { CandidateProcessCell } from "@/components/v2/candidates/CandidateProcessCell";
+import { AvailabilityPill } from "@/components/ds/AvailabilityPill";
 import { EmploymentPill } from "@/components/ds/EmploymentMarker";
 import type { EmploymentMarker } from "@/lib/employment-marker";
 import type { EmployedPerson } from "@/components/v2/employment/EmploymentNotice";
@@ -185,7 +186,6 @@ import {
   isRowActivationKey,
 } from "@/components/v2/pages/candidate-list-helpers";
 import { invalidateCandidateMutation } from "@/components/v2/pages/candidate-cache";
-import { PinnedCandidatesBar } from "@/components/v2/filters/PinnedCandidatesBar";
 import { SavedSearchesMenu } from "@/components/v2/filters/SavedSearchesMenu";
 import type { SearchTextInterpretation } from "@/lib/candidate-search-api";
 import { CandidateFilterBar } from "@/components/v2/candidates/CandidateFilterBar";
@@ -2306,17 +2306,8 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
             </div>
           </div>
 
-          {!embed && (
-          <PinnedCandidatesBar
-            onOpenCandidate={(id) => {
-              setDetailId(id);
-              const idx = items.findIndex((c) => c.id === id);
-              // Przypięty spoza bieżącej strony nie ma pozycji na liście —
-              // podgląd bez „poprzedni/następny".
-              setDetailPosition(idx >= 0 ? (resultsPage - 1) * pageSize + idx + 1 : 0);
-            }}
-          />
-          )}
+          {/* Pasek „obserwowanych” zdjęty 13.10.2026 (D1): bez „Obserwuj” na
+              profilu nic nie tworzy przypięć — przez całą historię 0. */}
 
           {listViewState === "refresh-error" && (
             <div
@@ -2518,10 +2509,12 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                                   <ContactStatusBadge contactCase={candidate.contact_case} className="shrink-0" />
                                 ) : null}
                               </div>
-                              {/* Jedna linia (wiersz ma stałą wysokość): znacznik
-                                  zatrudnienia ma pierwszeństwo, lokalizacja
-                                  ustępuje mu miejsca; pełna treść w dymku. */}
+                              {/* Jedna linia (wiersz ma stałą wysokość): „szuka
+                                  aktywnie” (D4, 13.10.2026) i znacznik
+                                  zatrudnienia mają pierwszeństwo, lokalizacja
+                                  ustępuje im miejsca; pełna treść w dymku. */}
                               <p className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                                <AvailabilityPill status={candidate.availability_status} appearance="text" />
                                 {candidate.employment_marker ? (
                                   <EmploymentPill marker={candidate.employment_marker} appearance="text" />
                                 ) : null}

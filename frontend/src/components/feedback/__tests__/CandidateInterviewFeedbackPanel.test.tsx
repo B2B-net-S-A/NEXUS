@@ -1,6 +1,6 @@
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ list: vi.fn() }));
@@ -11,6 +11,7 @@ vi.mock("@/lib/api", () => ({
 
 import {
   CandidateInterviewFeedbackPanel,
+  filterFeedbackRows,
   groupFeedbackByJob,
 } from "@/components/feedback/CandidateInterviewFeedbackPanel";
 import type { InterviewFeedbackRow } from "@/lib/api";
@@ -138,3 +139,73 @@ describe("CandidateInterviewFeedbackPanel — debrief", () => {
     expect(screen.queryByText("Brak zapisanego feedbacku.")).not.toBeInTheDocument();
   });
 });
+
+describe("CandidateInterviewFeedbackPanel — feedback w wierszu rekrutacji (E3, 13.10.2026)", () => {
+  const rows = [
+    row({ id: 1, job_id: 9, feedback_summary: "Java: klient chce iść dalej." }),
+    row({ id: 2, job_id: 7, feedback_summary: "QA: klient odrzuca.", decision: "reject" }),
+    row({ id: 3, job_id: null, feedback_summary: "Rozmowa bez rekrutacji." }),
+    row({ id: 4, job_id: 40, feedback_summary: "Rekrutacja spoza listy." }),
+  ];
+
+  it("filtr po rekrutacji i blok reszty dzielą wiersze bez zgubienia żadnego", () => {
+    expect(filterFeedbackRows(rows, { jobId: 9 }).map((r) => r.id)).toEqual([1]);
+    expect(filterFeedbackRows(rows, { excludeJobIds: new Set([9, 7]) }).map((r) => r.id)).toEqual([
+      3, 4,
+    ]);
+    expect(filterFeedbackRows(rows, {}).map((r) => r.id)).toEqual([1, 2, 3, 4]);
+  });
+
+  it("wiersz rekrutacji i blok na dole czytają jedną kwerendę — jedno pobranie", async () => {
+    mocks.list.mockResolvedValue({ data: rows });
+    const titles = new Map([[9, "Java Dev"], [7, "QA Lead"], [40, "Stara rekrutacja"]]);
+    wrap(
+      <>
+        <div data-testid="row-9">
+          <CandidateInterviewFeedbackPanel candidateId={5} jobTitles={titles} jobId={9} hideWhenEmpty />
+        </div>
+        <div data-testid="row-7">
+          <CandidateInterviewFeedbackPanel candidateId={5} jobTitles={titles} jobId={7} hideWhenEmpty />
+        </div>
+        <div data-testid="bottom">
+          <CandidateInterviewFeedbackPanel
+            candidateId={5}
+            jobTitles={titles}
+            excludeJobIds={new Set([9, 7])}
+            hideWhenEmpty
+          />
+        </div>
+      </>,
+    );
+    const row9 = screen.getByTestId("row-9");
+    expect(await within(row9).findByText("Java: klient chce iść dalej.")).toBeInTheDocument();
+    // Wiersz nazywa rekrutację sam — bez podpisu grupy.
+    expect(within(row9).queryByText("Java Dev")).toBeNull();
+    expect(within(row9).queryByText("QA: klient odrzuca.")).toBeNull();
+    expect(within(screen.getByTestId("row-7")).getByText("QA: klient odrzuca.")).toBeInTheDocument();
+
+    const bottom = screen.getByTestId("bottom");
+    expect(within(bottom).getByText("Rozmowa bez przypisanej rekrutacji")).toBeInTheDocument();
+    expect(within(bottom).getByText("Rozmowa bez rekrutacji.")).toBeInTheDocument();
+    expect(within(bottom).getByText("Stara rekrutacja")).toBeInTheDocument();
+    expect(within(bottom).queryByText("Java: klient chce iść dalej.")).toBeNull();
+
+    expect(mocks.list).toHaveBeenCalledTimes(1);
+  });
+
+  it("wiersz bez feedbacku nic nie pokazuje, a awaria w wierszu nie udaje pustki", async () => {
+    mocks.list.mockResolvedValue({ data: rows });
+    const { container } = wrap(
+      <CandidateInterviewFeedbackPanel candidateId={5} jobTitles={new Map()} jobId={77} hideWhenEmpty />,
+    );
+    await waitFor(() => expect(mocks.list).toHaveBeenCalled());
+    await waitFor(() => expect(container).toBeEmptyDOMElement());
+
+    mocks.list.mockRejectedValue(
+      Object.assign(new Error("x"), { response: { status: 500, data: { detail: "Serwer leży" } } }),
+    );
+    wrap(<CandidateInterviewFeedbackPanel candidateId={6} jobTitles={new Map()} jobId={77} hideWhenEmpty />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Serwer leży");
+  });
+});
+
