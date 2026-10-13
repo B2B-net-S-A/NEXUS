@@ -216,7 +216,7 @@ export function RejectionEmailField({
                     id="rejection-email-subject"
                     className="h-9"
                     value={editDraft.subject}
-                    maxLength={200}
+                    maxLength={998}
                     invalid={subjectEmpty}
                     onChange={(e) => setDraft({ ...editDraft, subject: e.target.value })}
                   />

@@ -369,10 +369,31 @@ def test_edited_subject_becomes_one_line_and_blank_text_is_refused() -> None:
     for field, value in (
         ("rejection_email_subject", " \n "),
         ("rejection_email_body", "  \n\n "),
-        ("rejection_email_subject", "x" * 201),
+        ("rejection_email_subject", "x" * 999),
         ("rejection_email_body", "x" * 5001),
     ):
         with pytest.raises(ValidationError):
             StageMove(
                 candidate_id=1, job_id=2, stage=PipelineStage.rejected, **{field: value}
             )
+
+
+def test_default_subject_of_a_long_recruitment_title_can_be_sent_back() -> None:
+    """Przegląd PR #2185: tytuł rekrutacji ma do 255 znaków, więc domyślny temat
+    do ~276. Okno odsyła go razem z poprawioną treścią — limit 200 dawał 422
+    i odrzucenie nie przechodziło."""
+    from app.schemas.pipeline import StageMove
+
+    subject, body = default_text(
+        candidate=_mk_candidate(),
+        job=_mk_job(title="T" * 255),
+        recruiter=_mk_recruiter(),
+    )
+    move = StageMove(
+        candidate_id=1,
+        job_id=2,
+        stage=PipelineStage.rejected,
+        rejection_email_subject=subject,
+        rejection_email_body=body + "\n\nDopisek rekrutera.",
+    )
+    assert move.rejection_email_subject == subject

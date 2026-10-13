@@ -59,7 +59,8 @@ i podpisem Outlooka, który `m365/sender.py` dokleja po „--” do każdego mai
 - `onConfirm` okna dostaje 8. argument `emailText` (`{subject, body}` tylko
   przy jednej osobie i tylko po zmianie, inaczej `null`). Wołający:
   `usePipelineMove`, `ScreeningFullForm`, `JobInterviewsTab`.
-- `StageMove.rejection_email_subject` (≤ 200, jedna linia, pusty = 422)
+- `StageMove.rejection_email_subject` (≤ 998 jak kolumna — domyślny temat
+  z tytułem rekrutacji do 255 znaków ma ~276; jedna linia, pusty = 422)
   i `rejection_email_body` (≤ 5000, pusty = 422). `maybe_schedule` robi
   z treści HTML przez `plain_text_to_html` — zawsze escape. Nigdy przez
   `body_to_html`: ten przepuszcza tekst ze znacznikami HTML bez zmian.

@@ -52,7 +52,9 @@ class StageMove(BaseModel):
     rejection_email_template_id: Optional[int] = None
     # Temat i treść poprawione w podglądzie okna odrzucenia (13.10.2026) —
     # zwykły tekst, tylko przy jednej osobie. Brak pól = treść domyślna.
-    rejection_email_subject: Optional[str] = Field(None, max_length=200)
+    # Temat do 998 znaków jak kolumna: domyślny „Informacja zwrotna — {tytuł}”
+    # przy tytule rekrutacji do 255 znaków ma ~276 (przegląd PR #2185).
+    rejection_email_subject: Optional[str] = Field(None, max_length=998)
     rejection_email_body: Optional[str] = Field(None, max_length=5000)
 
     # ── Stawka kandydata przy ruchu na `verified` (0056, zmiana 17.09.2026) ─
