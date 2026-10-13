@@ -54,7 +54,10 @@ import { cn, formatDate } from "@/lib/utils";
 import { countPl } from "@/lib/plural-pl";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { terminalOf } from "@/lib/kanban-terminal";
-import { rejectionEmailAvailableFrom } from "@/lib/rejection-email";
+import {
+  rejectionEmailAvailableFrom,
+  type RejectionEmailText,
+} from "@/lib/rejection-email";
 import { isInterviewStage } from "@/lib/job-flow-stages";
 import {
   loadJobRejectionReasons,
@@ -295,6 +298,7 @@ export function JobInterviewsTab({
       sendRejectionEmail: boolean | null;
       offerResponse: CandidateOfferResponse | null;
       freeReason?: string;
+      emailText?: RejectionEmailText | null;
     }) =>
       moveCore.send(
         {
@@ -306,6 +310,8 @@ export function JobInterviewsTab({
           rejection_reason: vars.freeReason || undefined,
           notes: vars.notes,
           send_rejection_email: vars.sendRejectionEmail ?? undefined,
+          rejection_email_subject: vars.emailText?.subject,
+          rejection_email_body: vars.emailText?.body,
           candidate_offer_response: vars.offerResponse ?? undefined,
           expected_state_version: expectedStateVersionOf(vars.item),
         },
@@ -457,12 +463,24 @@ export function JobInterviewsTab({
           // Runda 10 (R10-V2-1): ta sama reguła dostępności maila co na
           // Tablicy (kod etapu albo kolumna), nie sama kategoria kolumny.
           emailAvailable={rejectionEmailAvailableFrom(pendingTerminal.entry.col)}
+          emailPreview={{
+            jobId,
+            people: [
+              {
+                candidateId: pendingTerminal.entry.item.candidate_id,
+                name: itemFullName(pendingTerminal.entry.item),
+              },
+            ],
+          }}
           onConfirm={(
             reasonId,
             notes,
             sendRejectionEmail,
             offerResponse,
             freeReason,
+            _endedBy,
+            _cancelAgreementId,
+            emailText,
           ) =>
             terminalMutation.mutate({
               item: pendingTerminal.entry.item,
@@ -472,6 +490,7 @@ export function JobInterviewsTab({
               sendRejectionEmail,
               offerResponse: offerResponse ?? null,
               freeReason,
+              emailText,
             })
           }
         />

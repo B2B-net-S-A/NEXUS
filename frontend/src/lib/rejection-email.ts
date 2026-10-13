@@ -105,6 +105,59 @@ export function rejectionEmailBulkSkipMessage(
   );
 }
 
+/**
+ * 13.10.2026: okno odrzucenia mówi PRZED potwierdzeniem, że mail nie wyjdzie
+ * (`POST /api/rejection-emails/preview` → `skip_reason`), zamiast toastu po
+ * fakcie. Te same powody co `rejection_email_status` z ruchu.
+ */
+const BLOCKED_MESSAGE: Record<Exclude<RejectionEmailStatus, "scheduled">, string> = {
+  no_mailbox:
+    "Mail nie wyjdzie — nie masz podłączonej skrzynki Microsoft 365. " +
+    "Podłączysz ją w Ustawieniach → Integracje.",
+  not_client_visible:
+    "Mail nie wyjdzie — wysyłamy go tylko osobom, których CV trafiło do klienta.",
+  no_candidate_email: "Mail nie wyjdzie — kandydat nie ma adresu e-mail.",
+  no_permission: "Mail nie wyjdzie — nie masz uprawnień do wysyłki.",
+};
+
+export function rejectionEmailBlockedMessage(status: string): string {
+  return (
+    BLOCKED_MESSAGE[status as Exclude<RejectionEmailStatus, "scheduled">] ??
+    "Mail nie wyjdzie."
+  );
+}
+
+/** Krótki powód przy osobie na liście „Mail dostaną N z M osób”. */
+export function rejectionEmailSkipShort(status: string): string {
+  return (
+    SKIP_SHORT[status as Exclude<RejectionEmailStatus, "scheduled">] ?? "inny powód"
+  );
+}
+
+/** Lustro `RejectionEmailPreviewResponse` (`api/rejection_emails.py`). */
+export interface RejectionEmailPreview {
+  subject: string | null;
+  body: string | null;
+  people: {
+    candidate_id: number;
+    to_email: string | null;
+    skip_reason: string | null;
+  }[];
+}
+
+/** Temat i treść poprawione w oknie odrzucenia (tylko jedna osoba). */
+export interface RejectionEmailText {
+  subject: string;
+  body: string;
+}
+
+export function rejectionEmailPreviewKey(
+  jobId: number,
+  candidateIds: readonly number[]
+): readonly unknown[] {
+  return ["rejection-email-preview", jobId, candidateIds.join(",")];
+}
+
 /** Wynik `POST /api/pipeline/move` potrzebny do komunikatu o mailu. */
 export interface RejectionEmailMoveResult {
   scheduled_rejection_email_id?: number | null;

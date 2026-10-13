@@ -2,7 +2,7 @@
 
 import * as React from"react";
 import { useState, useEffect } from"react";
-import { AlertTriangle, Mail } from"lucide-react";
+import { AlertTriangle } from"lucide-react";
 import {
  Dialog,
  DialogBody,
@@ -21,6 +21,12 @@ import {
  signedAgreementWithContract,
  type CardAgreement,
 } from "@/lib/b2b-agreement";
+import type { RejectionEmailText } from "@/lib/rejection-email";
+import {
+ RejectionEmailField,
+ type RejectionEmailFieldState,
+ type RejectionEmailPeople,
+} from "@/components/v2/modals/RejectionEmailField";
 
 interface RejectionReason {
  id: string;
@@ -71,7 +77,10 @@ interface Props {
  freeReason?: string,
  endedBy?: EndedBy,
  /** Id niepodpisanej umowy z Generatora do anulowania po ruchu (04.10.2026). */
- cancelAgreementId?: number | null
+ cancelAgreementId?: number | null,
+ /** Temat i treść maila poprawione w podglądzie (jedna osoba, 13.10.2026);
+  *  `null` — treść domyślna. */
+ emailText?: RejectionEmailText | null
  ) => void;
  /** Wstępny wybór „kto kończy" (np. upuszczenie na „Odrzucony przez klienta"). */
  initialEndedBy?: Exclude<EndedBy, "candidate"> | null;
@@ -97,7 +106,16 @@ interface Props {
   *  `null` — to ostatnia osoba, panel się zamknie. Bez propu (kilka osób,
   *  karta, przeciągnięcie) okno niczego nie zapowiada. */
  nextPerson?: { name: string; stageLabel: string } | null;
+ /** Rekrutacja i odrzucane osoby — podgląd maila odrzucenia przed wysyłką
+  *  (13.10.2026). Bez propu okno pokazuje sam checkbox. */
+ emailPreview?: RejectionEmailPeople | null;
 }
+
+const EMAIL_STATE_IDLE: RejectionEmailFieldState = {
+ blocked: false,
+ invalid: false,
+ text: null,
+};
 
 const TYPE_LABEL: Record<string, string> = {
  rejected: "Zamknij proces — odrzucenie",
@@ -119,6 +137,7 @@ export function RejectionV2({
  agreement = null,
  subject = null,
  nextPerson,
+ emailPreview = null,
 }: Props) {
  // Notatkę startową czytamy tylko przy otwarciu (efekt resetu niżej) —
  // zmiana propa przy otwartym oknie nie kasuje tego, co ktoś już wpisał.
@@ -142,6 +161,8 @@ export function RejectionV2({
  terminalType === "rejected" &&
  (emailAvailableProp ?? previousStageCategory === "external");
  const [sendEmail, setSendEmail] = useState<boolean>(false);
+ const [emailState, setEmailState] =
+ useState<RejectionEmailFieldState>(EMAIL_STATE_IDLE);
 
  // Phase 17 — show offer response radio only for withdrawn FROM post-accept.
  const offerResponseRequired =
@@ -163,6 +184,7 @@ export function RejectionV2({
  setReasonId("");
  setNotes(initialNotesRef.current ?? "");
  setSendEmail(false);
+ setEmailState(EMAIL_STATE_IDLE);
  setOfferResponse("");
  setFreeReason("");
  setEndedBy(initialEndedBy ?? "recruiter");
@@ -179,7 +201,8 @@ export function RejectionV2({
 
  const handleConfirm = () => {
  // Zawsze jawny boolean — serwer planuje mail WYŁĄCZNIE przy `true`.
- const emailFlag: boolean = emailAvailable && sendEmail;
+ const emailFlag: boolean = emailAvailable && sendEmail && !emailState.blocked;
+ const emailText = emailFlag ? emailState.text : null;
  const cancelAgreementId =
  unsignedAgreement && cancelAgreement ? unsignedAgreement.id : null;
  const offerResponseValue: CandidateOfferResponse | null =
@@ -192,7 +215,8 @@ export function RejectionV2({
  offerResponseValue,
  undefined,
  endedByValue,
- cancelAgreementId
+ cancelAgreementId,
+ emailText
  );
  return;
  }
@@ -211,13 +235,15 @@ export function RejectionV2({
  offerResponseValue,
  reasonText,
  endedByValue,
- cancelAgreementId
+ cancelAgreementId,
+ emailText
  );
  };
 
  const submitDisabled =
  (hasReasons ? !reasonId : !freeReason.trim()) ||
- (offerResponseRequired && !offerResponse);
+ (offerResponseRequired && !offerResponse) ||
+ (emailAvailable && sendEmail && emailState.invalid);
 
  return (
  <Dialog open={open} onOpenChange={onOpenChange}>
@@ -372,23 +398,12 @@ export function RejectionV2({
  )}
 
  {emailAvailable && (
- <FormField label="Powiadomienie e-mail do kandydata">
- <label className="flex items-start gap-2 text-sm cursor-pointer rounded-md p-1.5 hover:bg-primary/10">
- <input
- type="checkbox"
- className="mt-0.5 h-4 w-4 rounded border-[hsl(var(--border))] text-primary focus:ring-primary"
+ <RejectionEmailField
+ preview={emailPreview}
  checked={sendEmail}
- onChange={(e) => setSendEmail(e.target.checked)}
+ onCheckedChange={setSendEmail}
+ onStateChange={setEmailState}
  />
- <span className="flex items-start gap-1.5">
- <Mail className="mt-0.5 h-3.5 w-3.5 text-[hsl(var(--muted-foreground))] shrink-0" />
- <span>
- Wyślij e-mail z informacją zwrotną do kandydata — za 15
- minut. Do tego czasu można anulować wysyłkę.
- </span>
- </span>
- </label>
- </FormField>
  )}
  </div>
  </DialogBody>

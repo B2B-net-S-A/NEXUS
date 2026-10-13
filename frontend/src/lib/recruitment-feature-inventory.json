@@ -471,6 +471,14 @@
    "v3_home": "usePipelineMove"
   },
   {
+   "id": "move.rejection-email-preview",
+   "area": "ruch",
+   "opis": "Podgląd maila odrzucenia w oknie odrzucenia: adresat, temat i treść; przy jednej osobie poprawka i „Przywróć treść domyślną”, przy kilku tylko do odczytu z listą, kto dostanie mail; brak skrzynki lub adresu widać przed potwierdzeniem (13.10.2026)",
+   "file": "components/v2/modals/RejectionEmailField.tsx",
+   "marker": "/api/rejection-emails/preview",
+   "v3_home": "RejectionV2"
+  },
+  {
    "id": "move.verified-rate",
    "area": "ruch",
    "opis": "Stawka przy „Zweryfikowany” + Pomiń",

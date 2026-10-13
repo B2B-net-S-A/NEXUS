@@ -40,6 +40,9 @@ export interface PipelineMovePayload {
   rejection_reason_id?: number | string;
   rejection_reason?: string;
   send_rejection_email?: boolean;
+  /** Temat i treść maila poprawione w oknie odrzucenia (13.10.2026). */
+  rejection_email_subject?: string;
+  rejection_email_body?: string;
   candidate_offer_response?: "pending" | "accepted" | "declined";
   ended_by?: string;
   expected_rate_value?: number | string;

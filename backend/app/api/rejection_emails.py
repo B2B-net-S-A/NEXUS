@@ -1,6 +1,7 @@
 """HTTP surface for ScheduledRejectionEmail lifecycle management.
 
-Three endpoints:
+Endpoints:
+  POST /api/rejection-emails/preview           — co wyjdzie, zanim ktoś odrzuci
   GET  /api/rejection-emails/{id}              — status + preview
   POST /api/rejection-emails/{id}/cancel       — cancel (pending only)
   GET  /api/candidates/{id}/rejection-emails   — timeline for a candidate
@@ -18,13 +19,14 @@ nie tylko jedna osoba (runda 9, R9-N11-1).
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Annotated, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import RecruiterPlus
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.api.recruitment_access import (
     RECRUITMENT_TRANSITION_ROLES,
@@ -34,12 +36,14 @@ from app.api.recruitment_access import (
 )
 from app.core.database import get_db
 from app.models.activity import Activity
+from app.models.job import Job
 from app.models.notification import Notification, NotificationType
 from app.models.rejection_email import (
     RejectionEmailStatus,
     ScheduledRejectionEmail,
 )
 from app.models.user import User
+from app.services import rejection_email_scheduler
 from app.services.rejection_email_scheduler import send_in_progress
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
@@ -105,7 +109,63 @@ def _to_response(row: ScheduledRejectionEmail) -> RejectionEmailResponse:
     )
 
 
+_DbId = Annotated[int, Field(gt=0, le=2_147_483_647)]
+
+
+class RejectionEmailPreviewRequest(BaseModel):
+    job_id: _DbId
+    candidate_ids: List[_DbId] = Field(min_length=1, max_length=200)
+
+
+class RejectionEmailPreviewPerson(BaseModel):
+    candidate_id: int
+    to_email: Optional[str]
+    # Ten sam słownik co `rejection_email_status` z `POST /api/pipeline/move`.
+    skip_reason: Optional[str]
+
+
+class RejectionEmailPreviewResponse(BaseModel):
+    subject: Optional[str]
+    body: Optional[str]
+    people: List[RejectionEmailPreviewPerson]
+
+
 # ── Endpoints ───────────────────────────────────────────────────────────────
+
+
+@router.post("/preview", response_model=RejectionEmailPreviewResponse)
+async def preview_rejection_email(
+    data: RejectionEmailPreviewRequest,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> RejectionEmailPreviewResponse:
+    """Podgląd maila odrzucenia w oknie odrzucenia (13.10.2026).
+
+    Ten sam dostęp co `POST /api/pipeline/move` (rola + członkostwo w
+    rekrutacji) i ta sama reguła kwalifikacji co planowanie wysyłki. Nic nie
+    zapisuje; POST, bo lista osób przy odrzuceniu kilku naraz.
+    """
+    job = await db.get(Job, data.job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Job not found"
+        )
+    await ensure_job_membership(db, current_user, job.id)
+    result = await rejection_email_scheduler.preview(
+        db, job=job, candidate_ids=data.candidate_ids, sender=current_user
+    )
+    return RejectionEmailPreviewResponse(
+        subject=result.subject,
+        body=result.body,
+        people=[
+            RejectionEmailPreviewPerson(
+                candidate_id=p.candidate_id,
+                to_email=p.to_email,
+                skip_reason=p.skip_reason,
+            )
+            for p in result.people
+        ],
+    )
 
 
 @router.get("/{rejection_email_id}", response_model=RejectionEmailResponse)

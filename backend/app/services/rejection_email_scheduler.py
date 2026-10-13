@@ -23,15 +23,22 @@ this module; no Jinja dependency). Placeholders are double-braced:
 `{{candidate_name}}`, `{{job_title}}`, `{{recruiter_name}}`,
 `{{other_processes_count}}`, `{{other_processes_list}}`, plus a conditional
 block `{{#if other_processes}}...{{/if}}` stripped when there are none.
+
+Od 13.10.2026 (decyzje Artura D1–D6) treść domyślna żyje w kodzie
+(`_DEFAULT_SUBJECT`/`_DEFAULT_BODY`, bez pożegnania — podpis dokleja Outlook),
+okno odrzucenia pokazuje ją przed wysyłką (`preview`), a rekruter może ją
+poprawić przy jednej osobie (`maybe_schedule(edited_subject=…, edited_body=…)`).
+Szablony odrzucenia z Ustawień nie są czytane — tylko jawny `override_id`.
 """
 
 from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass
 from html import escape as html_escape
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Optional, Sequence
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
@@ -205,12 +212,133 @@ async def skip_reason(
     candidate = await db.get(Candidate, stage.candidate_id)
     if candidate is None or not candidate.email:
         return EMAIL_SKIP_NO_CANDIDATE_EMAIL
+    return await _sender_skip_reason(db, sender)
+
+
+async def _sender_skip_reason(db: AsyncSession, sender: User) -> Optional[str]:
+    """Powód po stronie nadawcy — ten sam dla każdej odrzucanej osoby."""
     await resolve_effective_section_access(db, sender)
     if not _can_send_rejection_email(sender):
         return EMAIL_SKIP_NO_PERMISSION
     if not await sender_has_mailbox(db, sender.id):
         return EMAIL_SKIP_NO_MAILBOX
     return None
+
+
+@dataclass(frozen=True)
+class PreviewPerson:
+    candidate_id: int
+    to_email: Optional[str]
+    skip_reason: Optional[str]
+
+
+@dataclass(frozen=True)
+class RejectionEmailPreview:
+    """Podgląd maila w oknie odrzucenia (13.10.2026).
+
+    ``subject``/``body`` — zwykły tekst dla pierwszej osoby, do której mail
+    wyjdzie (``None``, gdy do nikogo). Przy kilku osobach okno pokazuje go
+    tylko do odczytu; każda osoba dostaje swoje imię przy wysyłce.
+    """
+
+    subject: Optional[str]
+    body: Optional[str]
+    people: list[PreviewPerson]
+
+
+async def preview(
+    db: AsyncSession,
+    *,
+    job: Job,
+    candidate_ids: Sequence[int],
+    sender: User,
+) -> RejectionEmailPreview:
+    """Co wyjdzie po odrzuceniu tych osób — przed potwierdzeniem.
+
+    Te same reguły i ta sama kolejność powodów co ``skip_reason`` przy ruchu,
+    tylko o BIEŻĄCYM wierszu pary (osoba jeszcze nie jest odrzucona).
+    Osoba bez wiersza w tej rekrutacji albo już zamknięta = ``not_client_visible``.
+    """
+    from app.models.pipeline_template import PipelineStageDef
+
+    ids = list(dict.fromkeys(candidate_ids))
+    latest = (
+        select(
+            CandidateStage.candidate_id.label("candidate_id"),
+            CandidateStage.stage.label("stage"),
+            CandidateStage.stage_def_id.label("stage_def_id"),
+            func.row_number()
+            .over(
+                partition_by=CandidateStage.candidate_id,
+                order_by=(CandidateStage.moved_at.desc(), CandidateStage.id.desc()),
+            )
+            .label("rn"),
+        )
+        .where(
+            CandidateStage.job_id == job.id,
+            CandidateStage.candidate_id.in_(ids),
+        )
+        .subquery()
+    )
+    rows = (
+        await db.execute(
+            select(
+                latest.c.candidate_id,
+                latest.c.stage,
+                PipelineStageDef.name,
+                PipelineStageDef.category,
+                PipelineStageDef.terminal_type,
+            )
+            .outerjoin(PipelineStageDef, PipelineStageDef.id == latest.c.stage_def_id)
+            .where(latest.c.rn == 1)
+        )
+    ).all()
+    visible = {
+        candidate_id
+        for candidate_id, stage, name, category, terminal_type in rows
+        if previous_is_client_visible(
+            getattr(stage, "value", stage),
+            name=name,
+            category=getattr(category, "value", category),
+            terminal_type=getattr(terminal_type, "value", terminal_type),
+        )
+    }
+    candidates = {
+        c.id: c
+        for c in (
+            await db.scalars(select(Candidate).where(Candidate.id.in_(ids)))
+        ).all()
+    }
+    sender_reason = await _sender_skip_reason(db, sender)
+
+    people: list[PreviewPerson] = []
+    first_ok: Optional[Candidate] = None
+    for candidate_id in ids:
+        candidate = candidates.get(candidate_id)
+        # Adres tylko osoby, która w TEJ rekrutacji była u klienta — id spoza
+        # rekrutacji nie może posłużyć do odczytu cudzego e-maila.
+        email = (
+            (candidate.email or None)
+            if candidate is not None and candidate_id in visible
+            else None
+        )
+        if candidate_id not in visible:
+            reason: Optional[str] = EMAIL_SKIP_NOT_CLIENT_VISIBLE
+        elif not email:
+            reason = EMAIL_SKIP_NO_CANDIDATE_EMAIL
+        else:
+            reason = sender_reason
+        if reason is None and first_ok is None:
+            first_ok = candidate
+        people.append(
+            PreviewPerson(candidate_id=candidate_id, to_email=email, skip_reason=reason)
+        )
+
+    subject: Optional[str] = None
+    body: Optional[str] = None
+    if first_ok is not None:
+        subject, body = default_text(candidate=first_ok, job=job, recruiter=sender)
+    return RejectionEmailPreview(subject=subject, body=body, people=people)
 
 
 async def maybe_schedule(
@@ -220,6 +348,8 @@ async def maybe_schedule(
     job: Job,
     recruiter_id: Optional[int],
     template_override_id: Optional[int] = None,
+    edited_subject: Optional[str] = None,
+    edited_body: Optional[str] = None,
 ) -> Optional[ScheduledRejectionEmail]:
     """Maybe schedule a rejection email for a freshly-created rejected stage.
 
@@ -231,6 +361,10 @@ async def maybe_schedule(
     Any exception is allowed to propagate — rejection_email scheduling is
     not critical path for the pipeline move, but we want transactional
     consistency: if scheduling fails mid-way we let the whole move roll back.
+
+    ``edited_subject``/``edited_body`` — temat i treść poprawione w oknie
+    odrzucenia (zwykły tekst, sprawdzony przez ``StageMove``). Wysyłamy je
+    dokładnie tak, treść zawsze z escape (``plain_text_to_html``).
     """
     if stage.stage != PipelineStage.rejected:
         return None
@@ -255,7 +389,8 @@ async def maybe_schedule(
         db, candidate_id=stage.candidate_id, current_job_id=stage.job_id
     )
 
-    template = await _resolve_template(db, template_override_id)
+    edited = bool(edited_subject or edited_body)
+    template = None if edited else await _resolve_template(db, template_override_id)
     subject, body_html = _render(
         template=template,
         candidate=candidate,
@@ -263,6 +398,12 @@ async def maybe_schedule(
         recruiter=recruiter,
         other_processes=other_processes,
     )
+    if edited_subject:
+        subject = edited_subject
+    if edited_body:
+        from app.services.email_template_variables import plain_text_to_html
+
+        body_html = plain_text_to_html(edited_body)
 
     scheduled = ScheduledRejectionEmail(
         candidate_stage_id=stage.id,
@@ -293,6 +434,7 @@ async def maybe_schedule(
                 "to_email": candidate.email,
                 "scheduled_at": scheduled.scheduled_at.isoformat(),
                 "other_processes_count": len(other_processes),
+                "edited": edited,
             },
         )
     )
@@ -834,90 +976,41 @@ async def _load_other_active_processes(
 async def _resolve_template(
     db: AsyncSession, override_id: Optional[int]
 ) -> Optional[EmailTemplate]:
-    """Return the template to use.
+    """Szablon wskazany jawnie (``override_id``) albo ``None`` → treść z kodu.
 
-    Priority:
-      1. explicit override_id (user's choice from the UI),
-      2. our named auto-rejection template (supports `{{#if other_processes}}`),
-      3. any default rejection template (may not have the conditional block —
-         renderer treats it as non-conditional),
-      4. any rejection template,
-      5. None — renderer falls back to the hard-coded Polish body.
+    D6 (13.10.2026): mail automatyczny nie sięga już po szablony odrzucenia
+    z Ustawień (nazwany „Auto-odrzucenie…”, domyślny, dowolny). Na produkcji
+    żaden nie był używany, a poprawka jednego z nich podmieniłaby po cichu
+    treść, którą okno odrzucenia pokazuje rekruterowi.
 
     Runda 9 (R9-N10-5): szablon ze zmienną, której `_render` nie wypełnia
     (np. `{{company_name}}` z dawnego zasiewu), jest pomijany — kandydat
-    dostałby dosłowne `{{company_name}}`. Zapis takiego szablonu odrzucenia
-    blokuje API; to osłona wierszy zapisanych wcześniej.
+    dostałby dosłowne `{{company_name}}`.
     """
     from app.services.email_template_variables import unsupported_variables
 
-    def _usable(template: Optional[EmailTemplate]) -> bool:
-        if template is None:
-            return False
-        missing = unsupported_variables(template.subject, template.body)
-        if missing:
-            logger.warning(
-                "rejection template %s pominięty — zmienne bez wartości: %s",
-                template.id,
-                ", ".join(missing),
-            )
-            return False
-        return True
-
-    if override_id:
-        override = await db.get(EmailTemplate, override_id)
-        # M4 PR-04 (audyt P1.14): override MUSI być templatem kategorii
-        # rejection — dotąd dało się podstawić dowolny template (offer,
-        # follow-up...) jako "mail odrzucenia". Zły override → fallback na
-        # standardową ścieżkę wyboru + warning, nie cichy send.
-        if (
-            override is not None
-            and override.category == EmailCategory.rejection
-            and _usable(override)
-        ):
+    if not override_id:
+        return None
+    override = await db.get(EmailTemplate, override_id)
+    # M4 PR-04 (audyt P1.14): override MUSI być templatem kategorii
+    # rejection — dotąd dało się podstawić dowolny template (offer,
+    # follow-up...) jako "mail odrzucenia". Zły override → treść z kodu
+    # + warning, nie cichy send.
+    if override is not None and override.category == EmailCategory.rejection:
+        missing = unsupported_variables(override.subject, override.body)
+        if not missing:
             return override
         logger.warning(
-            "rejection template override %s odrzucony (brak/kategoria %s) — fallback",
-            override_id,
-            getattr(override, "category", None),
+            "rejection template %s pominięty — zmienne bez wartości: %s",
+            override.id,
+            ", ".join(missing),
         )
-
-    # Deferred import: emails.py pulls fastapi + auth deps; keeps the
-    # scheduler importable in lean test contexts.
-    from app.api.emails import REJECTION_EXTERNAL_TEMPLATE_NAME
-
-    named = await db.scalar(
-        select(EmailTemplate)
-        .where(EmailTemplate.name == REJECTION_EXTERNAL_TEMPLATE_NAME)
-        .limit(1)
+        return None
+    logger.warning(
+        "rejection template override %s odrzucony (brak/kategoria %s) — treść z kodu",
+        override_id,
+        getattr(override, "category", None),
     )
-    if _usable(named):
-        return named
-
-    defaults = (
-        await db.scalars(
-            select(EmailTemplate)
-            .where(
-                EmailTemplate.category == EmailCategory.rejection,
-                EmailTemplate.is_default.is_(True),
-            )
-            .order_by(EmailTemplate.id.asc())
-        )
-    ).all()
-    for candidate_template in defaults:
-        if _usable(candidate_template):
-            return candidate_template
-
-    others = (
-        await db.scalars(
-            select(EmailTemplate)
-            .where(EmailTemplate.category == EmailCategory.rejection)
-            .order_by(EmailTemplate.id.asc())
-        )
-    ).all()
-    for candidate_template in others:
-        if _usable(candidate_template):
-            return candidate_template
     return None
 
 
@@ -946,7 +1039,45 @@ def _render(
     # wcześniej akapity sklejały się w jedną linię, a `&` szło surowo.
     body_tmpl = body_to_html(template.body if template else _DEFAULT_BODY)
 
-    ctx = {
+    ctx = _context(
+        candidate=candidate,
+        job=job,
+        recruiter=recruiter,
+        other_processes=other_processes,
+    )
+    # M4 PR-04 (audyt P1.14): body jest HTML-em — wartości placeholderów są
+    # escapowane (nazwisko kandydata z "<script>" nie może stać się kodem).
+    # Subject to plain text (RFC nagłówek) — encje HTML byłyby tam widoczne.
+    body_ctx = {k: html_escape(v) for k, v in ctx.items()}
+
+    return _apply(subject_tmpl, ctx, has_others=bool(other_processes)), _apply(
+        body_tmpl, body_ctx, has_others=bool(other_processes)
+    )
+
+
+def default_text(*, candidate: Candidate, job: Job, recruiter: User) -> tuple[str, str]:
+    """Temat i treść domyślna jako ZWYKŁY tekst — do pola w oknie odrzucenia.
+
+    Bez escape: pole tekstowe pokazuje `R&D` jako `R&D`. Przy wysyłce tekst
+    (poprawiony albo nie) i tak przechodzi przez escape.
+    """
+    ctx = _context(
+        candidate=candidate, job=job, recruiter=recruiter, other_processes=[]
+    )
+    return (
+        _apply(_DEFAULT_SUBJECT, ctx, has_others=False),
+        _apply(_DEFAULT_BODY, ctx, has_others=False),
+    )
+
+
+def _context(
+    *,
+    candidate: Candidate,
+    job: Job,
+    recruiter: User,
+    other_processes: list[dict],
+) -> dict[str, str]:
+    return {
         "candidate_name": (candidate.name or "").strip(),
         "candidate_lastname": (candidate.lastname or "").strip(),
         "candidate_full_name": f"{candidate.name} {candidate.lastname}".strip(),
@@ -957,14 +1088,6 @@ def _render(
             p["title"] for p in other_processes if p.get("title")
         ),
     }
-    # M4 PR-04 (audyt P1.14): body jest HTML-em — wartości placeholderów są
-    # escapowane (nazwisko kandydata z "<script>" nie może stać się kodem).
-    # Subject to plain text (RFC nagłówek) — encje HTML byłyby tam widoczne.
-    body_ctx = {k: html_escape(v) for k, v in ctx.items()}
-
-    return _apply(subject_tmpl, ctx, has_others=bool(other_processes)), _apply(
-        body_tmpl, body_ctx, has_others=bool(other_processes)
-    )
 
 
 _IF_BLOCK_RE = re.compile(
@@ -985,13 +1108,16 @@ def _apply(template: str, ctx: dict[str, str], *, has_others: bool) -> str:
     return rendered
 
 
+# Treść Artura z 13.10.2026 (D2: „Życzymy”). Zwykły tekst — pusta linia to
+# akapit. Bez „Pozdrawiam”: `m365/sender.py` dokleja podpis z Outlooka, więc
+# kandydat dostawał dwa pożegnania. Bez bloku „inne procesy” (D4).
 _DEFAULT_SUBJECT = "Informacja zwrotna — {{job_title}}"
-_DEFAULT_BODY = """<p>Cześć {{candidate_name}},</p>
-<p>Dziękujemy za zaangażowanie w proces rekrutacyjny na stanowisko <strong>{{job_title}}</strong>.
-Po analizie zebranych informacji zwrotnych podjęliśmy decyzję o zakończeniu współpracy
-przy tym konkretnym procesie.</p>
-{{#if other_processes}}<p>Nadal rozważamy Cię w <strong>{{other_processes_count}}</strong>
-innych otwartych procesach: {{other_processes_list}}. Jeśli pojawią się nowe informacje,
-dam znać.</p>{{/if}}
-<p>Bardzo dziękuję za poświęcony czas i życzę powodzenia w dalszych poszukiwaniach.</p>
-<p>Pozdrawiam,<br>{{recruiter_name}}</p>"""
+_DEFAULT_BODY = (
+    "Cześć {{candidate_name}},\n"
+    "\n"
+    "dziękujemy za udział w rekrutacji na stanowisko {{job_title}}. "
+    "Niestety został wybrany inny kandydat.\n"
+    "\n"
+    "Życzymy powodzenia i zachęcamy do udziału w przyszłych procesach "
+    "rekrutacyjnych!"
+)

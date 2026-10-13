@@ -61,12 +61,21 @@ def body_to_html(body: str | None) -> str:
     HTML, więc akapity i podpis sklejały się w jedną linię, a ``&`` / ``<`` z
     treści były interpretowane jako HTML. Tekst zwykły: escape, pusta linia =
     nowy akapit, pojedynczy enter = ``<br>``. Treść ze znacznikami HTML zostaje
-    bez zmian (tak jest napisany szablon auto-odrzucenia).
+    bez zmian (szablony z Ustawień bywają pisane w HTML).
     """
     text = body or ""
     if _HTML_TAG_RE.search(text):
         return text
-    normalized = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    return plain_text_to_html(text)
+
+
+def plain_text_to_html(text: str | None) -> str:
+    """Zwykły tekst → akapity HTML, ZAWSZE z escape.
+
+    Dla treści wpisanej przez osobę (podgląd maila odrzucenia, 13.10.2026):
+    ``body_to_html`` przepuściłby tekst z ``<b>`` czy ``<script>`` jako HTML.
+    """
+    normalized = (text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
     if not normalized:
         return ""
     paragraphs = [p.strip() for p in _PARAGRAPH_BREAK_RE.split(normalized) if p.strip()]
