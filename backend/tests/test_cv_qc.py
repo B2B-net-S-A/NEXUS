@@ -2440,6 +2440,7 @@ async def test_gate_blocks_cv_sent_until_qc_passes_or_dl_overrides(
             "status": "failed",
             "blocking_failed": 2,
             "ok_at": None,
+            "dismissed_blocking": 0,
         }
 
         denied = await api_client.post(
