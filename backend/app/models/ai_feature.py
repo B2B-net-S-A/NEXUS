@@ -154,7 +154,7 @@ class AIFeatureKey(str, enum.Enum):
     # „Ułóż w zdanie” (0421): hasła rekrutera w odpowiedzi screeningowej albo
     # polu opisowym karty → pełne zdanie. Kod odrzuca zdanie z nowym faktem.
     screening_answer_phrasing = "screening_answer_phrasing"
-    # Edytor CV 2, PR 3 (0431): AI na zaznaczonym fragmencie CV — skróć,
+    # Edytor CV 2, PR 3 (0432): AI na zaznaczonym fragmencie CV — skróć,
     # rozwiń z oryginału, przeredaguj, popraw język, na angielski. Wynik to
     # zawsze propozycja; nowy fakt bez cytatu ze źródła odrzuca kod.
     cv_selection_edit = "cv_selection_edit"

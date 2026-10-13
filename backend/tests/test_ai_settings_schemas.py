@@ -94,7 +94,7 @@ class TestFeatureKeyEnum:
             # 0421: karta rekomendacji z notatki i „Ułóż w zdanie”.
             "recommendation_card_note_read",
             "screening_answer_phrasing",
-            # 0431: AI na zaznaczonym fragmencie w edytorze CV.
+            # 0432: AI na zaznaczonym fragmencie w edytorze CV.
             "cv_selection_edit",
         }
 

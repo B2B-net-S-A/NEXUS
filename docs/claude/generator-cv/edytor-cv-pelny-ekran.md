@@ -316,7 +316,7 @@ trafia dopiero po „Przyjmij”.
   Wynik biznesowy to zawsze 200 ze statusem (`ok`, `rejected`, `no_source`,
   `not_supported`, `unavailable`); awaria modelu nigdy nie jest 5xx. Tokeny
   integracji dostają 403 (płatne wywołanie zamawia osoba). Limit 20/min.
-- **AI:** klucz `cv_selection_edit` (F30, migracja 0431 + lustro w
+- **AI:** klucz `cv_selection_edit` (F30, migracja 0432 + lustro w
   `entrypoint.sh`), Sonnet 5 z zapasem Haiku — recenzent przy „Zapisz” to Luna,
   autor ma być innym modelem. Wywołanie w `ai_feature()` z commitem PRZED
   modelem, limit czasu 30 s łącznie, prompt przez `prompt_fencing` (znaczniki
