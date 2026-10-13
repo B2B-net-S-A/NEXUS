@@ -1285,6 +1285,23 @@ describe("BoardTasksPanel — przepływ rekrutacji i Finanse (04.10.2026)", () =
     ).toHaveTextContent("Ewa Dąb");
   });
 
+  it("screening w rekrutacji bez pytań: brakuje „Dlaczego ten kandydat”, nie arkusza (13.10.2026)", async () => {
+    mockQueue({
+      flow: emptyFlow({
+        screening: [
+          flowPair({ candidate_id: 24, candidate_name: "Ola Bez Pytań", missing: ["why_candidate", "rate"] }),
+          flowPair({ candidate_id: 25, candidate_name: "Jan Z Oceną", missing: ["rate"] }),
+        ],
+      }),
+    });
+    renderPanel();
+    const panel = await screen.findByRole("region", { name: "Czeka na Ciebie" });
+    const screening = within(panel).getByRole("region", { name: "Screening — brakuje danych" });
+    expect(within(screening).getByText("„Dlaczego ten kandydat”")).toBeTruthy();
+    expect(within(screening).queryByText("arkusz")).toBeNull();
+    expect(within(screening).getAllByText("stawka")).toHaveLength(2);
+  });
+
   it("„Nowe requesty dla Ciebie”: tytuł roboczy, klient, data i kto przypisał (albo automat)", async () => {
     mockQueue({
       flow: emptyFlow({

@@ -70,7 +70,13 @@ def _count_section(title: str, count: int, path: str) -> Optional[Section]:
     return Section(title=title, total=count, path=path) if count > 0 else None
 
 
-_MISSING = {"sheet": "brak arkusza", "rate": "brak stawki"}
+# Te same klucze co `board_flow.MISSING_*` — nowy klucz bez wpisu trafiłby do
+# maila surowy (13.10.2026: `why_candidate` w rekrutacji bez pytań).
+_MISSING = {
+    "sheet": "brak arkusza",
+    "why_candidate": "brak „Dlaczego ten kandydat”",
+    "rate": "brak stawki",
+}
 _PREP_REASON = {
     "missing": "brak prepu",
     "late": "prep po terminie rozmowy",

@@ -15,6 +15,7 @@ import { agreementBadge } from "@/lib/b2b-agreement";
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
 import type { BoardColumnKey, StageBadgeKey } from "@/lib/board-stages";
 import { cardBadgeLabel } from "@/lib/candidate-followup";
+import { WHY_CANDIDATE_LABEL } from "@/lib/pipeline-next-action";
 import { autoMatchBadgeLabel, autoMatchBadgeTitle } from "@/lib/candidate-notes-view";
 import { rateArrowLine, rateChangeBadgeText } from "@/lib/rate-change";
 
@@ -450,7 +451,9 @@ export function knownForwardGap(
   from: BoardColumnKey | null,
 ): string | null {
   if (from === "screening" && item.screening_done === false) {
-    return "Brak arkusza screeningu";
+    return item.screening_requirement === "why_candidate"
+      ? "Brak „Dlaczego ten kandydat”"
+      : "Brak arkusza screeningu";
   }
   if (from === "cv_qc" && item.qc?.status === "failed") {
     return `QC: ${item.qc.blocking_failed} do poprawy`;
@@ -501,6 +504,9 @@ const SHORT_STEP_LABEL: Record<string, string> = {
   "Umów interview / feedback klienta": "Umów rozmowę",
   "Przegląd CV i wysłanie do klienta": "Przegląd i wysyłka",
   "Uzupełnij arkusz screeningu": "Arkusz screeningu",
+  // „Dlaczego ten kandydat” nie mieści się w wierszu karty przy 1280 px
+  // (ucinało do „Dlacze… ten…”) — pole stoi w sekcji „Ocena” formularza.
+  [WHY_CANDIDATE_LABEL]: "Wpisz ocenę",
   "Zweryfikuj i przenieś dalej": "Zweryfikuj",
   "Reakcja kandydata na ofertę": "Reakcja na ofertę",
   // Cykl rozmowy u klienta (05.10.2026).

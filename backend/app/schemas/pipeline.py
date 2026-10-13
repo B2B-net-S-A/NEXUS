@@ -189,6 +189,10 @@ class CandidateStageResponse(BaseModel):
     # wierszu zapisano arkusz screeningu / scorecard. Zamiast otwierać
     # formularz po ruchu karta pokazuje „do uzupełnienia". Wypełnia tablica.
     screening_done: bool = False
+    # Rekrutacja bez pytań screeningowych (13.10.2026): zamiast arkusza
+    # wymagane jest „Dlaczego ten kandydat” — `screening_done` znaczy wtedy
+    # „ocena wpisana”, a karta nie prosi o arkusz. `None` = zwykły arkusz.
+    screening_requirement: Optional[str] = None
     scorecard_done: bool = False
     # Auto-CV (21.09.2026): na TYM wierszu etapu leży gotowe CV zakolejkowane
     # przez system i nikt go jeszcze nie zatwierdził — „CV gotowe w tle —

@@ -772,6 +772,63 @@ async def test_kanban_carries_sheet_badges_and_profile_rate(
     assert items[empty_sheet_cand]["screening_done"] is False
 
 
+async def test_kanban_in_a_job_without_questions_asks_for_the_assessment(
+    app_client: AsyncClient, app_auth_headers
+):
+    """Zgłoszenie 13.10.2026: rekrutacja bez pytań screeningowych nie ma
+    arkusza, a karta w „Screeningu” dalej prosiła o jego uzupełnienie. Karta
+    niesie teraz wymaganie „Dlaczego ten kandydat” i wie, czy jest wpisane."""
+    from app.models.job import Job
+    from app.models.recommendation_card import RecommendationCard
+
+    assessed, bare = await _seed_candidate(), await _seed_candidate()
+    job, _ = await _seed_job()
+    with_questions, _ = await _seed_job()
+    asked = await _seed_candidate()
+    for cand in (assessed, bare):
+        await _seed_stage(cand, job, "screening")
+    await _seed_stage(asked, with_questions, "screening")
+    async with AsyncSessionLocal() as db:
+        (await db.get(Job, with_questions)).champion_profile = {
+            "screening_questions": [{"id": "q1", "question": "Ile lat z Javą?"}]
+        }
+        for cand, job_id in ((assessed, job), (asked, with_questions)):
+            db.add(
+                RecommendationCard(
+                    candidate_id=cand,
+                    job_id=job_id,
+                    fields_manual={
+                        "recommendation": {
+                            "raw": "Zna raportowanie podatkowe.",
+                            "at": datetime.now(timezone.utc).isoformat(),
+                        }
+                    },
+                )
+            )
+        await db.commit()
+
+    async def cards(job_id: int) -> dict[int, dict]:
+        r = await app_client.get(
+            f"/api/pipeline/kanban/{job_id}", headers=app_auth_headers
+        )
+        assert r.status_code == 200, r.text
+        return {
+            item["candidate_id"]: item
+            for col in r.json()["columns"]
+            for item in col["items"]
+        }
+
+    no_questions = await cards(job)
+    assert no_questions[assessed]["screening_requirement"] == "why_candidate"
+    assert no_questions[assessed]["screening_done"] is True
+    assert no_questions[bare]["screening_requirement"] == "why_candidate"
+    assert no_questions[bare]["screening_done"] is False
+    # Rekrutacja z pytaniami: ocena nie zastępuje arkusza, pole zostaje puste.
+    asked_card = (await cards(with_questions))[asked]
+    assert asked_card["screening_requirement"] is None
+    assert asked_card["screening_done"] is False
+
+
 async def test_move_from_legacy_pending_row_is_allowed(
     app_client: AsyncClient, app_auth_headers
 ):

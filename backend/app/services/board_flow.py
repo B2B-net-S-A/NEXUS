@@ -81,6 +81,9 @@ CV_SENT_COLUMN = "cv_sent"
 _QC_DONE = frozenset({"passed", "overridden"})
 
 MISSING_SHEET = "sheet"
+# Rekrutacja bez pytań screeningowych: zamiast arkusza brakuje „Dlaczego ten
+# kandydat” (13.10.2026) — klucz jak w bramce ruchu.
+MISSING_ASSESSMENT = "why_candidate"
 MISSING_RATE = "rate"
 
 T = TypeVar("T")
@@ -494,8 +497,12 @@ async def _mine(
 async def _screening(db: AsyncSession, mine: list[_Placed]) -> list[PairRow]:
     if not mine:
         return []
-    from app.services import recommendation_cards  # noqa: PLC0415
-    from app.services.move_requirements import sheet_filled  # noqa: PLC0415
+    from app.services import recommendation_cards, screening_sheets  # noqa: PLC0415
+    from app.services.move_requirements import (  # noqa: PLC0415
+        SCREENING_SHEET,
+        missing_screening_requirement,
+        sheet_filled,
+    )
 
     pairs = [(p.row.candidate_id, p.row.job_id) for p in mine]
     pair_key = tuple_(CandidateStage.candidate_id, CandidateStage.job_id)
@@ -516,6 +523,17 @@ async def _screening(db: AsyncSession, mine: list[_Placed]) -> list[PairRow]:
         if rate is not None:
             stage_rates.add((cid, jid))
     cards = await recommendation_cards.summaries_for_pairs(db, pairs)
+    with_questions = {
+        job_id
+        for job_id, profile in (
+            await db.execute(
+                select(Job.id, Job.champion_profile).where(
+                    Job.id.in_({jid for _, jid in pairs})
+                )
+            )
+        ).all()
+        if screening_sheets.question_texts(profile)
+    }
     profile_rates = set(
         (
             await db.scalars(
@@ -530,9 +548,17 @@ async def _screening(db: AsyncSession, mine: list[_Placed]) -> list[PairRow]:
     for p in mine:
         key = (p.row.candidate_id, p.row.job_id)
         missing: list[str] = []
-        card = cards.get(key) or {}
-        if key not in sheets and not int(card.get("answers") or 0):
-            missing.append(MISSING_SHEET)
+        # Ta sama reguła co bramka „Zweryfikowany”: w rekrutacji bez pytań
+        # brakuje oceny, nie arkusza, którego nie da się tam zapisać.
+        gap = missing_screening_requirement(
+            has_questions=key[1] in with_questions,
+            sheet=key in sheets,
+            card=cards.get(key),
+        )
+        if gap is not None:
+            missing.append(
+                MISSING_SHEET if gap == SCREENING_SHEET else MISSING_ASSESSMENT
+            )
         if key not in stage_rates and p.row.candidate_id not in profile_rates:
             missing.append(MISSING_RATE)
         out.append(_pair_row(p, missing=tuple(missing)))
@@ -911,6 +937,7 @@ __all__ = [
     "FinanceBlock",
     "FlowBlock",
     "JobProposalsRow",
+    "MISSING_ASSESSMENT",
     "MISSING_RATE",
     "MISSING_SHEET",
     "NewRequestRow",

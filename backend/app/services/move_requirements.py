@@ -23,7 +23,7 @@ klienta tylko z uprawnieniem) egzekwuje `POST /api/pipeline/move`.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Mapping, Optional
 
 from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -296,10 +296,60 @@ def screening_requirement(f: PairFacts) -> tuple[str, bool]:
     każdego), więc zapisem rozmowy jest „Dlaczego ten kandydat” (decyzja
     Artura 12.10.2026). Jedna reguła dla bramki ruchu i okna „Przesuń dalej”.
     """
-    answered = f.screening_done or f.card_answers
-    if f.has_screening_questions:
+    return _screening_requirement(
+        has_questions=f.has_screening_questions,
+        sheet=f.screening_done,
+        note_answers=f.card_answers,
+        recommendation=f.card_recommendation,
+    )
+
+
+def _screening_requirement(
+    *, has_questions: bool, sheet: bool, note_answers: bool, recommendation: bool
+) -> tuple[str, bool]:
+    answered = sheet or note_answers
+    if has_questions:
         return SCREENING_SHEET, answered
-    return WHY_CANDIDATE, answered or f.card_recommendation
+    return WHY_CANDIDATE, answered or recommendation
+
+
+def _card_recommended(card: Optional[Mapping[str, Any]]) -> bool:
+    """Karta (``recommendation_cards.card_summary``) ma „Dlaczego ten kandydat”."""
+    return bool(card) and "recommendation" not in (card.get("missing") or ())
+
+
+def missing_screening_requirement(
+    *, has_questions: bool, sheet: bool, card: Optional[Mapping[str, Any]]
+) -> Optional[str]:
+    """Klucz niespełnionego wymagania rozmowy pary albo ``None``.
+
+    Ta sama reguła co bramka — dla list, które nie ładują pełnych faktów pary
+    („Czeka na Ciebie”): arkusz albo odpowiedzi w notatce, a w rekrutacji bez
+    pytań także „Dlaczego ten kandydat”.
+    """
+    key, met = _screening_requirement(
+        has_questions=has_questions,
+        sheet=sheet,
+        note_answers=bool(card and int(card.get("answers") or 0)),
+        recommendation=_card_recommended(card),
+    )
+    return None if met else key
+
+
+def card_screening_state(
+    *, has_questions: bool, sheet: bool, card: Optional[Mapping[str, Any]]
+) -> tuple[bool, Optional[str]]:
+    """``screening_done`` i ``screening_requirement`` karty Tablicy.
+
+    Rekrutacja z pytaniami: jak dotąd — „arkusz zapisany” i brak pola
+    wymagania. Rekrutacja bez pytań (13.10.2026): po poprawce bramki karta
+    w „Screeningu” dalej prosiła o arkusz, którego tam nie ma; teraz mówi
+    o „Dlaczego ten kandydat”, a „zrobione” znaczy to samo co w bramce.
+    """
+    if has_questions:
+        return sheet, None
+    missing = missing_screening_requirement(has_questions=False, sheet=sheet, card=card)
+    return missing is None, WHY_CANDIDATE
 
 
 def _screening_item(column: str, f: PairFacts) -> _Item:
@@ -1071,11 +1121,13 @@ __all__ = [
     "COLUMN_LABEL",
     "PairFacts",
     "build_requirements",
+    "card_screening_state",
     "column_label",
     "company_cv_refs",
     "deal_breaker_hits",
     "deal_breaker_text",
     "load_pair_facts",
+    "missing_screening_requirement",
     "qc_statuses",
     "screening_requirement",
     "sheet_filled",

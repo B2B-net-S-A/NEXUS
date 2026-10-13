@@ -77,6 +77,10 @@ export interface KanbanItem {
  // zapisany arkusz screeningu / scorecard. Karta pokazuje „do uzupełnienia"
  // zamiast otwierać formularz zaraz po ruchu.
  screening_done?: boolean;
+ // Rekrutacja bez pytań screeningowych (13.10.2026): zamiast arkusza wymagane
+ // jest „Dlaczego ten kandydat” — `screening_done` znaczy wtedy „ocena
+ // wpisana”. Brak pola albo `null` = zwykły arkusz.
+ screening_requirement?: "why_candidate" | null;
  scorecard_done?: boolean;
  // Automaty (21.09.2026): na TYM etapie leży gotowe auto-CV czekające na
  // przegląd człowieka. Brak pola (starsza odpowiedź) = brak odznaki.
