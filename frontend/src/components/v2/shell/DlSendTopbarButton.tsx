@@ -15,6 +15,7 @@
 
 import { forwardRef, useState, type ButtonHTMLAttributes } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { ArrowRight, Send } from "lucide-react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -100,10 +101,14 @@ export const DlSendPill = forwardRef<HTMLButtonElement, DlSendPillProps>(functio
 export interface DlSendPanelProps {
   queue: DlSendQueueResponse;
   onNavigate: () => void;
+  /** Patrzący jest już na liście rekrutacji. Lista czyta filtry z adresu tylko
+   *  przy wejściu, więc link „miękki” zmieniłby sam adres — wtedy idzie zwykłe
+   *  przejście z przeładowaniem. */
+  onJobsList?: boolean;
 }
 
 /** Treść okienka — bez zapytań, dane w propsach (także w harnessie). */
-export function DlSendPanel({ queue, onNavigate }: DlSendPanelProps) {
+export function DlSendPanel({ queue, onNavigate, onJobsList = false }: DlSendPanelProps) {
   const others = [
     queue.not_ready_total > 0 ? `${queue.not_ready_total} jeszcze u rekrutera` : null,
     queue.imported_total > 0 ? `${queue.imported_total} z Traffita` : null,
@@ -161,9 +166,15 @@ export function DlSendPanel({ queue, onNavigate }: DlSendPanelProps) {
         <Link href={DL_SEND_DASHBOARD_HREF} onClick={onNavigate} className="text-primary hover:underline">
           Cała lista na pulpicie
         </Link>
-        <Link href={DL_SEND_JOBS_HREF} onClick={onNavigate} className="text-primary hover:underline">
-          Pokaż rekrutacje
-        </Link>
+        {onJobsList ? (
+          <a href={DL_SEND_JOBS_HREF} className="text-primary hover:underline">
+            Pokaż rekrutacje
+          </a>
+        ) : (
+          <Link href={DL_SEND_JOBS_HREF} onClick={onNavigate} className="text-primary hover:underline">
+            Pokaż rekrutacje
+          </Link>
+        )}
       </div>
     </div>
   );
@@ -171,6 +182,7 @@ export function DlSendPanel({ queue, onNavigate }: DlSendPanelProps) {
 
 export function DlSendTopbarButton() {
   const user = useAuthStore((s) => s.user);
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const queue = useDlSendQueue(hasRole(user, "delivery_lead")).data;
   // Bez danych nie ma licznika — brak wiedzy to nie zero. Zero też go chowa:
@@ -182,7 +194,7 @@ export function DlSendTopbarButton() {
         <DlSendPill total={queue.ready_total} urgency={queue.worst_urgency} open={open} />
       </PopoverTrigger>
       <PopoverContent align="end" className="w-96 overflow-hidden p-0">
-        <DlSendPanel queue={queue} onNavigate={() => setOpen(false)} />
+        <DlSendPanel queue={queue} onNavigate={() => setOpen(false)} onJobsList={pathname === "/jobs"} />
       </PopoverContent>
     </Popover>
   );

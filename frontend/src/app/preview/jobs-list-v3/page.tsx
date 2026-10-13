@@ -18,6 +18,9 @@
  *
  * Wiersze pokazują kolumnę „Rekruter” w każdym stanie (jedna osoba, dwie
  * z „+1”, sama propozycja automatu, nikt) oraz priorytety P1 i „Przyjmujemy”.
+ * Dwa pierwsze mają osoby gotowe do wysłania do klienta (`dl_send_ready_count`
+ * — wypełniona komórka „QC”), a filtr „Do wysłania do klienta” z „Więcej
+ * filtrów” ma zasiane oba warianty (`?tosend=mine`, `?tosend=stale`).
  * Po lewej stoi szyna „Otwarte karty” — ta sama co w `app/jobs/layout.tsx`,
  * tylko z fikcyjnymi kartami podanymi wprost (prawdziwa czyta store zapisywany
  * w `localStorage`, którego harness nie może nadpisać oglądającemu).
@@ -160,6 +163,8 @@ const MINE = [
     needs_action_count: 7,
     review_count: 431,
     open_proposals_count: 3,
+    // Obie osoby z „QC CV” czekają na wysyłkę oglądającego Delivery Leada.
+    dl_send_ready_count: 2,
     stage_columns: pipeline([4, 1, 3, 2, 2, 3, 1, 1, 0, 6]),
   },
   {
@@ -203,7 +208,8 @@ const MINE = [
     candidate_count: 6,
     needs_action_count: 2,
     open_proposals_count: 1,
-    stage_columns: pipeline([2, 0, 1, 0, 1, 2, 0, 0, 0, 3]),
+    dl_send_ready_count: 1,
+    stage_columns: pipeline([2, 0, 1, 1, 1, 2, 0, 0, 0, 3]),
     priority_assignment: { id: 1, rank: "A", channel: "database" },
   },
   {
@@ -235,6 +241,8 @@ const MINE = [
     candidate_count: 4,
     needs_action_count: 0,
     open_proposals_count: 0,
+    // Zero = Delivery Lead, na którego w tej rekrutacji nikt nie czeka.
+    dl_send_ready_count: 0,
     stage_columns: pipeline([0, 0, 0, 0, 0, 3, 1, 0, 1, 0]),
   },
 ];
@@ -389,6 +397,22 @@ function seededClient(): QueryClient {
       ),
     ),
   );
+  // „Do wysłania do klienta”: „Czeka na mnie” = rekrutacje z gotową osobą,
+  // „Czeka 3+ dni robocze” = tylko pierwsza. W „Moich” (domyślny zakres) i w
+  // „Otwartych” — na ten zakres prowadzi licznik z górnego paska (`?open=1`).
+  for (const scope of [
+    { mine: true, openOnly: true, sort: "attention" },
+    { mine: false, openOnly: true, sort: "newest" },
+  ] as const) {
+    qc.setQueryData(
+      jobsListQueryKey({ ...BASE, ...scope, toSend: "mine" }),
+      page(MINE.filter((job) => job.dl_send_ready_count > 0)),
+    );
+    qc.setQueryData(
+      jobsListQueryKey({ ...BASE, ...scope, toSend: "stale" }),
+      page(MINE.slice(0, 1)),
+    );
+  }
   qc.setQueryData(
     jobsListQueryKey({ ...BASE, mine: false, myCategory: true, openOnly: false, sort: "newest" }),
     page(MY_CATEGORY),
@@ -494,9 +518,11 @@ export default function JobsListV3Preview() {
         email: "preview@example.com",
         name: "Preview Rekruter",
         // Wielorolowe: `admin` daje „Nowa rekrutacja", `recruiter` — domyślny
-        // zakres „Moje" (`defaultScopeForUser`).
+        // zakres „Moje" (`defaultScopeForUser`), `delivery_lead` — pozycję
+        // „Czeka na mnie” w „Więcej filtrów” (tylko ta rola dostaje z serwera
+        // `dl_send_ready_count`).
         role: "admin",
-        roles: ["admin", "recruiter"],
+        roles: ["admin", "recruiter", "delivery_lead"],
         profile_completed: true,
         profile_completed_at: null,
         force_password_change: false,

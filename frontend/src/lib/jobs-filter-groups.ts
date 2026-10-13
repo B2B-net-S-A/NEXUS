@@ -12,6 +12,7 @@ import {
   type JobDeadlineRange,
   type JobOpenedRange,
   type JobSentFilterValue,
+  type JobToSendFilterValue,
 } from "@/lib/jobs-url-filters";
 import {
   PRIORITY_LEVELS,
@@ -38,6 +39,19 @@ export const SENT_LABEL: Record<JobSentFilterValue, string> = {
   "3": "co najmniej 3 osoby",
   "5": "co najmniej 5 osób",
 };
+
+/** Opcje „Do wysłania do klienta” w „Więcej filtrów”. */
+export const TO_SEND_LABEL: Record<JobToSendFilterValue, string> = {
+  "": "Dowolnie",
+  mine: "Czeka na mnie",
+  stale: "Czeka 3+ dni robocze",
+};
+
+/** Wartość na przycisku „Więcej filtrów” — `null`, gdy filtr nie jest ustawiony. */
+export function toSendSummary(value: JobToSendFilterValue | undefined): string | null {
+  if (!value) return null;
+  return value === "mine" ? "czeka na mnie" : "3+ dni robocze";
+}
 
 function shortDate(iso: string): string {
   const [, m, d] = iso.split("-");
@@ -131,6 +145,8 @@ export interface JobsFilterBarState {
   ccIds: readonly number[];
   deadline: JobDeadlinePreset;
   sent: JobSentFilterValue;
+  /** „Do wysłania do klienta” — brak = dowolnie. */
+  toSend?: JobToSendFilterValue;
   priorityLevels: readonly PriorityLevel[];
   openedRange: JobOpenedRange;
 }
@@ -148,6 +164,7 @@ export function jobsActiveFilterCount(state: JobsFilterBarState): number {
     (state.ccIds.length > 0 ? 1 : 0) +
     (state.deadline !== "any" ? 1 : 0) +
     (state.sent !== "any" ? 1 : 0) +
+    (state.toSend ? 1 : 0) +
     (state.priorityLevels.length > 0 ? 1 : 0) +
     (openedRangeSet(state.openedRange) ? 1 : 0)
   );

@@ -1,7 +1,7 @@
 import enum
 import logging
 from datetime import date, datetime, timedelta, timezone
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, Literal, Optional
 
 import httpx
 
@@ -20,6 +20,7 @@ from sqlalchemy import (
     and_,
     case,
     delete as sql_delete,
+    false,
     func,
     not_,
     nulls_last,
@@ -178,8 +179,10 @@ from app.services.workforce_availability import (
     operational_job_owner_clause,
 )
 from app.services import champion_view
+from app.services import dl_send_queue
 from app.services import new_job_leads
 from app.services import job_lifecycle
+from app.services.board_tasks import dl_portfolio_client_ids
 from app.services.job_readiness import job_handoff_blockers as _compute_job_readiness
 from app.services.job_readiness import job_handoff_blocker_items
 from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
@@ -1237,6 +1240,16 @@ async def list_jobs(
             "NASTĘPNEGO dnia, więc cały ten dzień się liczy."
         ),
     ),
+    dl_send: Optional[Literal["mine", "stale"]] = Query(
+        None,
+        description=(
+            "„Do wysłania do klienta” (13.10.2026, `services/dl_send_queue`): "
+            "`mine` → tylko rekrutacje, w których na wysyłkę bieżącej osoby "
+            "czeka co najmniej jedna gotowa osoba (konto bez roli Delivery "
+            "Leada dostaje pustą listę); `stale` → cała firma: rekrutacje, "
+            "w których gotowa osoba czeka 3 dni robocze albo dłużej."
+        ),
+    ),
     include_stage_counts: bool = Query(
         False,
         description=(
@@ -1244,7 +1257,9 @@ async def list_jobs(
             "distinct candidates per pipeline stage. Opt-in (extra GROUP BY query). "
             "Also adds `needs_action_count` (candidates whose next move belongs "
             "to the recruiter) and `open_proposals_count` (team-wide: proposed "
-            "candidates nobody has added or dismissed yet)."
+            "candidates nobody has added or dismissed yet). For a Delivery Lead "
+            "also `dl_send_ready_count` (people ready for THEIR send to the "
+            "client); other viewers get no such key."
         ),
     ),
 ):
@@ -1326,6 +1341,35 @@ async def list_jobs(
         query = query.where(jobs_mine_list_clause(current_user))
     if my_category:
         query = query.where(jobs_my_category_clause(current_user))
+    # „Do wysłania do klienta”: kolejka patrzącego liczona RAZ na żądanie —
+    # zasila filtr `dl_send=mine` i pole `dl_send_ready_count` wierszy. Liczą
+    # ją wiersze `dl_send_queue` (ta sama reguła co pulpit i górny pasek), bez
+    # osobnej definicji „gotowe” w SQL. `None` = konto bez roli Delivery Leada.
+    dl_send_ready: Optional[dict[int, int]] = None
+    if current_user.has_role(UserRole.delivery_lead) and (
+        include_stage_counts or dl_send == "mine"
+    ):
+        dl_send_ready = dl_send_queue.ready_job_counts(
+            await dl_send_queue.load_for_viewer(
+                db,
+                current_user,
+                portfolio=await dl_portfolio_client_ids(db, current_user.id),
+            )
+        )
+    if dl_send == "mine":
+        # Bez roli Delivery Leada nikt nie czeka na wysyłkę tej osoby — pusty
+        # wynik, nie błąd (link z pulpitu bywa przekazywany dalej).
+        waiting_ids = sorted(dl_send_ready or {})
+        query = query.where(Job.id.in_(waiting_ids) if waiting_ids else false())
+    elif dl_send == "stale":
+        # Cała firma — cel sygnału dla Head of Recruitment.
+        stale_ids = sorted(
+            dl_send_queue.ready_job_counts(
+                await dl_send_queue.load_rows(db),
+                min_workdays=dl_send_queue.STALE_WORKDAYS,
+            )
+        )
+        query = query.where(Job.id.in_(stale_ids) if stale_ids else false())
     if priority_level:
         unknown = sorted(set(priority_level) - set(PRIORITY_LEVELS))
         if unknown:
@@ -1743,6 +1787,10 @@ async def list_jobs(
             d["needs_action_count"] = needs_n
             # Stos wejściowy (Ogłoszenia, Nowi) — osobno od „wymaga ruchu".
             d["review_count"] = review_n
+            # Tylko u Delivery Leada: ile gotowych osób czeka na JEGO wysyłkę.
+            # Brak klucza = „nie dotyczy” (front odróżnia to od zera).
+            if dl_send_ready is not None:
+                d["dl_send_ready_count"] = dl_send_ready.get(j.id, 0)
             d["open_proposals_count"] = open_proposals.get(j.id, 0)
             linked_ids = similar_linked.get(j.id, [])
             d["similar"] = {

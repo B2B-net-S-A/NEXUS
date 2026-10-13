@@ -24,6 +24,7 @@ import {
   initialOpenedRangeFromUrl,
   initialPriorityLevelsFromUrl,
   initialSentFromUrl,
+  initialToSendFromUrl,
   isFilterDate,
   openedQueryParams,
   openedRangeReversed,
@@ -32,6 +33,7 @@ import {
   scopeQueryFlags,
   sentQueryParams,
   sortOverrideFromUrl,
+  toSendQueryParams,
 } from "@/lib/jobs-url-filters";
 import { initialStagesFromUrl } from "@/lib/request-stage";
 
@@ -538,5 +540,38 @@ describe("„Wysłanych do klienta” → min_sent / max_sent", () => {
   it("nieznana wartość w adresie = dowolnie", () => {
     expect(initialSentFromUrl(new URLSearchParams("sent=100"))).toBe("any");
     expect(initialSentFromUrl(new URLSearchParams("sent=none"))).toBe("none");
+  });
+});
+
+describe("„Do wysłania do klienta”: `tosend` → `dl_send`", () => {
+  const base = { scope: "mine", defaultScope: "mine", deadline: "any", sort: "attention" } as const;
+
+  it("zapis → odczyt → parametr API dla obu wartości", () => {
+    for (const value of ["mine", "stale"] as const) {
+      const qs = encodeJobsListUrl({ ...base, toSend: value });
+      expect(qs).toBe(`tosend=${value}`);
+      expect(initialToSendFromUrl(new URLSearchParams(qs))).toBe(value);
+      expect(toSendQueryParams(value)).toEqual({ dl_send: value });
+    }
+  });
+
+  it("adresy z górnego paska i z sygnału dla Head of Recruitment ustawiają zakres i filtr", () => {
+    const mine = new URLSearchParams("open=1&tosend=mine");
+    expect(scopeOverrideFromUrl(mine)).toBe("open");
+    expect(initialToSendFromUrl(mine)).toBe("mine");
+    expect(initialToSendFromUrl(new URLSearchParams("open=1&tosend=stale"))).toBe("stale");
+    // Zakres inny niż domyślny roli zostaje w adresie razem z filtrem.
+    expect(encodeJobsListUrl({ ...base, scope: "open", sort: "newest", toSend: "mine" })).toBe(
+      "open=1&tosend=mine",
+    );
+  });
+
+  it("„dowolnie” nie zostawia klucza ani parametru; nieznana wartość = dowolnie", () => {
+    expect(encodeJobsListUrl({ ...base, toSend: "" }, new URLSearchParams("tosend=mine"))).toBe("");
+    expect(encodeJobsListUrl(base, new URLSearchParams("tosend=stale"))).toBe("");
+    expect(toSendQueryParams("")).toEqual({});
+    expect(toSendQueryParams(undefined)).toEqual({});
+    expect(initialToSendFromUrl(new URLSearchParams(""))).toBe("");
+    expect(initialToSendFromUrl(new URLSearchParams("tosend=everyone"))).toBe("");
   });
 });

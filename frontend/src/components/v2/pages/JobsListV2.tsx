@@ -84,12 +84,14 @@ import {
   initialPriorityLevelsFromUrl,
   initialSearchFromUrl,
   initialSentFromUrl,
+  initialToSendFromUrl,
   openedQueryParams,
   resolveScope,
   scopeOverrideFromUrl,
   scopeQueryFlags,
   sentQueryParams,
   sortOverrideFromUrl,
+  toSendQueryParams,
   type CategoryScopeState,
   type JobDeadlinePreset,
   type JobDeadlineRange,
@@ -97,6 +99,7 @@ import {
   type JobScope,
   type JobSentFilterValue,
   type JobSortFilterValue,
+  type JobToSendFilterValue,
 } from "@/lib/jobs-url-filters";
 import { jobDisplayTitle } from "@/lib/job-names";
 import { jobRowTitle, jobWorkModeParts } from "@/lib/job-row-summary";
@@ -192,6 +195,7 @@ const EMPTY_FILTERS: JobsFilterBarValue = {
   deadline: "any",
   deadlineRange: {},
   sent: "any",
+  toSend: "",
   priorityLevels: [],
   openedRange: {},
 };
@@ -225,6 +229,8 @@ export interface JobsListQueryState {
   deadlineRange?: JobDeadlineRange;
   /** „Wysłanych do klienta" — brak = dowolnie. */
   sent?: JobSentFilterValue;
+  /** „Do wysłania do klienta” (`dl_send`) — brak = dowolnie. */
+  toSend?: JobToSendFilterValue;
   /** „Priorytet” (`priority_level`, LUB) — pusty = dowolny. */
   priorityLevels?: readonly PriorityLevel[];
   /** „Data otwarcia” (`opened_from` / `opened_to`). */
@@ -255,6 +261,7 @@ export function jobsListQueryKey(state: JobsListQueryState): unknown[] {
     // Daty, które NAPRAWDĘ idą do serwera: odwrócony albo niedokończony
     // zakres nie zmienia klucza, więc lista nie migocze w trakcie wpisywania.
     openedKey(state.openedRange),
+    state.toSend ?? "",
   ];
 }
 
@@ -446,7 +453,12 @@ function JobsTable({
               </TableCell>
               <TableCell className="px-2">
                 {stageSummary ? (
-                  <JobStageCounts summary={stageSummary} />
+                  <JobStageCounts
+                    summary={stageSummary}
+                    // Tylko u Delivery Leada: gotowi do JEGO wysyłki → wypełniona
+                    // komórka „QC CV” (bez nowej kolumny i drugiej linii).
+                    dlReady={job.dl_send_ready_count}
+                  />
                 ) : (
                   <div className="flex items-center gap-2">
                     <div className="h-1.5 min-w-[48px] flex-1 overflow-hidden rounded-full bg-border/60">
@@ -592,6 +604,7 @@ export function JobsListV2() {
     deadline: initialDeadlineFromUrl(searchParams),
     deadlineRange: initialDeadlineRangeFromUrl(searchParams),
     sent: initialSentFromUrl(searchParams),
+    toSend: initialToSendFromUrl(searchParams),
     priorityLevels: initialPriorityLevelsFromUrl(searchParams),
     openedRange: initialOpenedRangeFromUrl(searchParams),
   }));
@@ -643,6 +656,7 @@ export function JobsListV2() {
         workedBy: filterValue.workedBy,
         nobodyWorking: filterValue.nobodyWorking,
         sent: filterValue.sent,
+        toSend: filterValue.toSend,
         priorityLevels: filterValue.priorityLevels,
         openedRange: filterValue.openedRange,
       },
@@ -708,6 +722,7 @@ export function JobsListV2() {
       deadline: filterValue.deadline,
       deadlineRange: filterValue.deadlineRange,
       sent: filterValue.sent,
+      toSend: filterValue.toSend,
       priorityLevels: filterValue.priorityLevels,
       openedRange: filterValue.openedRange,
     }),
@@ -734,6 +749,7 @@ export function JobsListV2() {
             sort,
             ...dl,
             ...sentQueryParams(filterValue.sent),
+            ...toSendQueryParams(filterValue.toSend),
             // Odwrócony zakres nie idzie wcale (serwer odpowiada 422).
             ...openedQueryParams(filterValue.openedRange),
             page,
