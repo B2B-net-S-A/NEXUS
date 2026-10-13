@@ -66,15 +66,20 @@ rekrutację); front `components/v2/job-ad/`, `lib/api/jobAd.ts`, karta
 - **O tym, czy kwota blokuje, decydują wzorce strony kariery**
   (`public_profile_lint.CERTAIN_MONEY_PATTERNS`), nie ich kopia. Własny,
   węższy wzorzec przepuszczał „15 tysięcy zł” i „180/godzinę” jako uwagę
-  (przegląd 12.10.2026). Dopiski tylko dla ogłoszenia (`lint._EXTRA_BLOCKS`):
-  kwota słownie („200 złotych”, „30 tys. netto”, „2 mln PLN”), link
-  (`http`, `www`), telefon stacjonarny i z numerem kierunkowym, e-mail
-  zapisany jako „jan [at] firma”. Końcówek „.net”, „.io”, „.js” kontrola nie
-  traktuje jak adresu — to nazwy technologii.
+  (przegląd 12.10.2026). Od 13.10.2026 reguły blokujące mają JEDNO źródło
+  ze stroną kariery: kwota słownie („200 złotych”, „30 tys. netto”,
+  „2 mln PLN”), link (`http`, `www`), telefon stacjonarny i z numerem
+  kierunkowym, e-mail zapisany jako „jan [at] firma” siedzą
+  w `public_profile_lint.py` i tam dopisuje się kolejne. W `job_ad/lint.py`
+  zostaje tylko to, czego strona kariery nie ma: poziom „uwaga” (liczba przy
+  słowie „stawka”, adres bez „www”, nagłówki formularza, MD, numer zlecenia,
+  braki). Końcówek „.net”, „.io”, „.js” kontrola nie traktuje jak adresu —
+  to nazwy technologii.
 - **Znaki niewidoczne nie chowają znaleziska.** Tekst z Worda i PDF-a niesie
   miękkie łączniki i spacje zerowej szerokości; kontrola porównuje tekst po
-  `text.for_lint` (NFKC, bez znaków formatujących), a zapis i render je
-  wycinają (`text.visible`; łącznik sklejający emoji zostaje).
+  `public_profile_lint.for_lint` (NFKC, bez znaków formatujących), a zapis
+  i render je wycinają (`job_ad/text.visible`; łącznik sklejający emoji
+  zostaje).
 - **Nazwa klienta jest dopasowywana po całych słowach**, jak na stronie
   kariery: odmienioną formę („w Kwarcowym Banku”) łapie dopiero alias klienta.
 - **Widełki wpisuje człowiek w formularzu portalu** (decyzja z 25.09.2026
@@ -158,7 +163,8 @@ rekrutację); front `components/v2/job-ad/`, `lib/api/jobAd.ts`, karta
   - Kolumna kosztuje szerokość: na laptopie 1280 px z rozwiniętym menu
     „Rekrutacja” ma 204 px zamiast 293 (pomiar 13.10.2026, bez poziomego
     przewijania, wysokość wierszy bez zmian). Nie poszerzaj jej plakietek.
-- **Strona kariery nie zmieniła kontroli.** Szersza lista nazw klienta działa
-  tylko w ogłoszeniu na portale; na stronie kariery obróciłaby adresy
-  `/r/<slug>` rozesłanych już linków i zaczęła odmawiać zatwierdzonym opisom —
-  to osobna decyzja.
+- **Lista nazw klienta jest tu szersza niż na stronie kariery.** Reguły
+  kwot, kontaktów i znaków niewidocznych są wspólne (13.10.2026), ale nazwa
+  wyświetlana i prawna klienta (`client_lint_names`) działa tylko
+  w ogłoszeniu: na stronie kariery obróciłaby adresy `/r/<slug>` rozesłanych
+  już linków i zaczęła odmawiać zatwierdzonym opisom — to osobna decyzja.

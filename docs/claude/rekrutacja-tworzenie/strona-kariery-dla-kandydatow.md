@@ -25,6 +25,34 @@ Reguły, które łatwo cofnąć:
   (`AIFeatureKey.job_public_description`, Sonnet 5) jest tylko podpowiedzią —
   nie zapisuje się sam i nie omija kontroli. Kontrola skanuje też tytuł
   rekrutacji: klient w tytule blokuje publikację.
+- **Kontrola ma jedno źródło ze sprawdzaniem ogłoszeń na portale**
+  (`services/job_ad/lint.py` woła `lint_public_texts`; 13.10.2026). Nową
+  regułę dopisuj w `public_profile_lint.py`, nie w kopii — kopia w ogłoszeniu
+  miała już raz węższy wzorzec kwoty niż oryginał. Od tej daty kontrola łapie
+  też:
+  - kwoty słownie i bez symbolu waluty: „200 złotych”, „150 dolarów”,
+    „3000 CZK”, „2 mln PLN”, „30 tys. netto”, „180 netto/h”;
+  - linki (`http://`, `https://`, `www.`), e-mail zapisany jako
+    „jan [at] firma” / „jan(at)firma(dot)pl”, telefon stacjonarny
+    („22 555 12 34”) i z numerem kierunkowym („+48 22 555 12 34”);
+  - tekst ze znakami niewidocznymi z Worda i PDF-a (miękki łącznik, spacja
+    zerowej szerokości) oraz znakami pełnej szerokości — porównanie idzie po
+    `for_lint` (NFKC, bez znaków formatujących), więc nazwa klienta z miękkim
+    łącznikiem w środku nadal jest nazwą klienta.
+  Adres bez „http” i „www” („firma.pl”) NIE jest regułą: końcówki „.net”,
+  „.io”, „.js” to nazwy technologii (ASP.NET, socket.io, Node.js), a strona
+  kariery nie ma poziomu „uwaga” — każde znalezisko odmawia zatwierdzenia.
+- **Nowa reguła nie może łapać slugów linków.** `slug_findings` puszcza przez
+  tę samą kontrolę adres `/r/<slug>`, a przy zatwierdzeniu opisu adres ze
+  znaleziskiem jest WYMIENIANY (stary daje 404, `rotate…` w
+  `job_public_profile.py`). Wzorzec, który pasuje do ciągu z łącznikami
+  („tester-22-555-12-34-ab12”), zerwałby rozesłane linki — dlatego numer
+  stacjonarny nie może stać po łączniku ani literze, a test
+  `test_job_link_slugs_do_not_trip_the_new_rules` trzyma przykłady.
+- **Zaostrzenie kontroli nie zdejmuje opublikowanych stron.** Kontrola biegnie
+  w podglądzie edytora i przy `approve`; opublikowany opis zostaje, dopóki
+  ktoś go nie zmieni — dopiero ponowne zatwierdzenie przejdzie przez nowe
+  reguły.
 - **Zgoda jest wymagana na OBU formularzach** (nowym i starym `/apply/{token}`),
   zapis w `candidate_consents` w tej samej transakcji (tekst + wersja + sha256,
   `services/career_consent.py`; administrator B2B.NET S.A.). Zmiana treści zgody

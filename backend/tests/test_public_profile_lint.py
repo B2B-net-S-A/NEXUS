@@ -88,6 +88,96 @@ def test_contact_and_person_names_are_found():
     assert "person_name" in _codes(findings)
 
 
+# ── Luki domknięte 13.10.2026 (wcześniej tylko w ogłoszeniu na portale) ─────
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "200 złotych za godzinę",
+        "20 tysięcy złotych",
+        "150 dolarów dziennie",
+        "3000 CZK",
+        "budżet projektu 2 mln PLN",
+        "do 30 tys. netto",
+        "180 netto/h + VAT",
+        "180 ＰＬＮ",
+    ],
+)
+def test_amounts_in_words_and_net_gross_are_found(text: str):
+    assert _codes(lint_public_texts([text])) == ["money"], text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "zadzwoń: 22 555 12 34",
+        "tel. (22) 555-12-34",
+        "+48 22 555 12 34",
+        "+49 170 1234567",
+        "jan [at] produkt-demo",
+        "jan(at)firma(dot)example",
+        "aplikuj: https://przyklad.example/apply",
+        "www.kariera.przyklad.example/oferta/17",
+        "jan＠example.com",
+    ],
+)
+def test_links_other_phone_formats_and_spelled_out_addresses_are_found(text: str):
+    """Kandydat aplikuje przez formularz na tej stronie — link albo numer
+    w opisie wysłałby go gdzie indziej (często: na stronę klienta)."""
+    assert _codes(lint_public_texts([f"Rola w zespole platformy. {text}"])) == [
+        "contact"
+    ], text
+
+
+@pytest.mark.parametrize(
+    "text,code",
+    [
+        ("Infrastruktura klienta Kwar\u00adcowy Bank.", "client_name"),
+        ("Infrastruktura klienta Kwar\u200bcowy Bank.", "client_name"),
+        ("stawka 180\u200b zł/h", "money"),
+        ("tel. 600\u200b100\u200b200", "contact"),
+        ("pisz: jan\u200b@example.com", "contact"),
+    ],
+)
+def test_invisible_characters_do_not_hide_a_finding(text: str, code: str):
+    """Miękki łącznik i spacja zerowej szerokości przychodzą z Worda i PDF-a."""
+    findings = lint_public_texts([text], client_names=["Kwarcowy Bank"])
+    assert code in _codes(findings), text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Praca z ASP.NET, Node.js i socket.io",
+        "Next.js/React, Vue.js, C++ 17 i CI/CD",
+        "2 dni w biurze na miesiąc, zespół 8 osób",
+        "System obsługuje 10 mln użytkowników",
+        "Start: listopad 2026, kontrakt na 12 miesięcy",
+        "Produkt opisuje strona produkt-demo.pl",
+        "ISO 27001, RODO, 3 lata w bankowości",
+    ],
+)
+def test_new_rules_leave_ordinary_text_alone(text: str):
+    assert lint_public_texts([text]) == [], text
+
+
+@pytest.mark.parametrize(
+    "slug",
+    [
+        "senior-java-developer-warszawa-ab12",
+        "tester-22-555-12-34-ab12",
+        "analityk-2-mln-uzytkownikow-x9k2",
+        "devops-180-netto-zespol-a1b2",
+    ],
+)
+def test_job_link_slugs_do_not_trip_the_new_rules(slug: str):
+    """Slug linku rekrutacji też przechodzi kontrolę, a nietrafiony adres jest
+    przy zatwierdzeniu WYMIENIANY (stary daje 404) — nowe reguły nie mogą
+    zacząć łapać rozesłanych już adresów."""
+    assert lint_public_texts([slug]) == [], slug
+
+
 def test_money_patterns_stay_linear_on_long_whitespace():
     """Liczba, po której idzie długi ciąg spacji bez waluty, liczyła się
     sześciennie: 800 spacji = kilkanaście sekund na pętli zdarzeń, a opis
@@ -96,6 +186,18 @@ def test_money_patterns_stay_linear_on_long_whitespace():
 
     started = time.perf_counter()
     assert lint_public_texts(["1" + " " * 4000 + "x", "1 " * 2000 + "x"]) == []
+    # Wzorce dopisane 13.10.2026: ciągi, które prawie pasują na całej długości.
+    assert (
+        lint_public_texts(
+            [
+                "ab.+-" * 800,  # adres bez „(at)”
+                "+1" + "  1" * 1300 + "x",  # „+” i cyfry rozdzielone dwiema spacjami
+                "12 345 67 8 " * 330,  # prawie numer stacjonarny
+                "1 " * 1990 + "nett",  # liczby bez „netto”
+            ]
+        )
+        == []
+    )
     assert time.perf_counter() - started < 1.0
 
 
