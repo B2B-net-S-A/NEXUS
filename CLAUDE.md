@@ -140,6 +140,7 @@ Design system i tokeny, responsywność, nazewnictwo w interfejsie, Ustawienia, 
 - `design-system-ui-zawsze-przy-pracy-nad-wygladem.md` — Design system & UI — ZAWSZE przy pracy nad wyglądem
 - `klienci-kontrakty-finanse-spokojne-tabele.md` — Klienci, Kontrakty, Finanse — spokojne tabele (02.10.2026)
 - `licznik-celow-w-gornym-pasku.md` — Licznik celów w górnym pasku (13.10.2026) · podpisane segmenty zamiast „znak + liczba”, panel po kliknięciu, ile segmentów mieści pasek, reguła „poniżej tempa”, cel Delivery Leada z 30% hit ratio, wycofany cel nowych kandydatów
+- `liga-w-gornym-pasku.md` — Liga Mistrzów w górnym pasku (13.10.2026) · przycisk ligi przed licznikiem celów (miejsce i punkty rekrutera, placementy DL, lider u osób, które nie grają), `/api/competitions/my-league` z cache paska 5 min, jedna forma przycisku, stany (bez miejsca, poza ligą, remis, awans), menu „Wygląd” zamiast trzech przełączników
 - `nazewnictwo-rekrutacja-nie-oferta-modul-jobs.md` — Nazewnictwo: „Rekrutacja", nie „Oferta" (moduł `/jobs`)
 - `parametry-adresu-natywna-historia-nie-router-replace.md` — Filtr albo zakładka w adresie: `useUrlWriter`, nie `router.replace(…, { scroll: false })` (12.10.2026) · zmiana samych parametrów adresu przez router Next przewija stronę na górę na produkcji
 - `responsywnosc-reguly-po-audycie-23-09-2026.md` — Responsywność — reguły po audycie 23.09.2026

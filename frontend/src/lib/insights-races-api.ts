@@ -322,6 +322,75 @@ export interface MyCompetitionPosition {
   total: number;
 }
 
+/** Wiersz rankingu Ligi widoczny w pasku — te same pola co na „Rywalizacji”. */
+export interface LeagueRow {
+  /** `null` = na liście, ale bez miejsca w klasyfikacji (próg niespełniony). */
+  rank: number | null;
+  user_id: number;
+  name: string;
+  /** Punkty (liga rekruterów) albo placementy (liga DL). */
+  metric_value: number;
+  prize_pln: number | null;
+  /** Remis na płatnym miejscu, którego regulamin nie rozstrzyga. */
+  tied: boolean;
+}
+
+/** Własny wiersz osoby — wiersz rankingu z rozbiciem wyniku. */
+export interface LeagueMe extends LeagueRow {
+  qualified?: boolean;
+  placements?: number;
+  interviews?: number;
+  recommendations?: number;
+  hit_ratio?: number | null;
+}
+
+export interface LeagueStanding {
+  /** `null` = osoby nie ma w rankingu (zero punktów albo DL poniżej progu). */
+  me: LeagueMe | null;
+  rank: number | null;
+  value: number;
+  /** Pozycja po samym wyniku, także bez miejsca w klasyfikacji. */
+  position_by_value: number | null;
+  gap_to_place_above: number | null;
+  lead_over_next: number | null;
+  /** Ile brakuje do wyniku 3. miejsca (miejsce ≥ 4 albo bez miejsca). */
+  gap_to_podium: number | null;
+  /** O które miejsce jest remis do decyzji admina (z grupy remisu, nie z flagi wiersza). */
+  tie_for?: number | null;
+  neighbours: LeagueRow[];
+}
+
+/** Liczby Delivery Leada w lidze DL — także poniżej progu. */
+export interface LeagueDlNumbers {
+  placements: number;
+  closed_requests: number;
+  /** `null` = brak zamkniętych rekrutacji w kwartale (hit ratio niepoliczone). */
+  hit_ratio: number | null;
+  hit_ratio_target: number;
+  min_placements: number;
+  missing_placements: number;
+  qualified: boolean;
+}
+
+/** `/api/competitions/my-league` — przycisk Ligi w górnym pasku. */
+export interface MyLeague {
+  kind: "recruiter" | "delivery_lead" | "spectator";
+  type: CompetitionTypeKey;
+  /** „Q4 2026”. */
+  period: string;
+  days_remaining: number;
+  prizes_pln: Record<string, number>;
+  total: number;
+  /** Rekruter i Delivery Lead. */
+  standing?: LeagueStanding;
+  /** Osoby, które nie grają: pierwsze miejsca ligi rekruterów. */
+  leaders?: LeagueRow[];
+  points_formula?: { placement: number; interview: number; recommendation: number };
+  required_placements?: number;
+  required_placements_by_month?: number[];
+  dl?: LeagueDlNumbers;
+}
+
 export const racesApi = {
   /** Oba wyścigi naraz. Bez `month` backend bierze bieżący miesiąc. */
   monthlyRaces: (month?: string | null) =>
@@ -351,6 +420,10 @@ export const racesApi = {
         params: { type },
       })
       .then((r) => r.data),
+
+  /** Liga zalogowanej osoby do przycisku w górnym pasku (serwer trzyma 5 min). */
+  myLeague: () =>
+    api.get<MyLeague>("/api/competitions/my-league").then((r) => r.data),
 
   /** Zamrożone podia z `competition_winners`. */
   history: (type: CompetitionTypeKey, limit = 6) =>

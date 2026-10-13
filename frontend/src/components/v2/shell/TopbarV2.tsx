@@ -9,9 +9,9 @@ import { QuickActionsV2, type QuickActionModal } from "./QuickActionsV2";
 import { CommandPaletteV2 } from "./CommandPaletteV2";
 import { NotificationsDropdown } from "@/components/NotificationsDropdown";
 import { MyKpiWidget } from "@/components/v2/kpi/MyKpiWidget";
-import { PaletteSwitcher } from "./PaletteSwitcher";
+import { MyLeagueWidget } from "@/components/v2/league/MyLeagueWidget";
+import { AppearanceMenu } from "./AppearanceMenu";
 import { MyPeopleTopbarButton } from "@/components/v2/my-people/MyPeopleLauncher";
-import { KidsModeToggleButton, ThemeToggleButton } from "./ThemeControls";
 import { ChatNotificationsDropdown } from "./ChatNotificationsDropdown";
 import { DlSendTopbarButton } from "./DlSendTopbarButton";
 import { InterviewNotificationsDropdown } from "./InterviewNotificationsDropdown";
@@ -71,12 +71,12 @@ export function TopbarV2({
       </button>
 
       <div className={TOPBAR_ACTIONS_CLASS}>
+        {/* Liga Mistrzów: miejsce i punkty kwartału — nie ściska się, cele oddają segmenty. */}
+        <MyLeagueWidget className="hidden md:block" />
         <MyKpiWidget variant="compact" className="hidden md:block" />
-        {/* Na telefonie przełączniki wyglądu są w szufladzie nawigacji. */}
-        <div className="hidden sm:flex items-center gap-2">
-          <PaletteSwitcher />
-          <KidsModeToggleButton />
-          <ThemeToggleButton />
+        {/* Motyw, tryb gry i tryb ciemny w jednym menu; na telefonie osobno w szufladzie nawigacji. */}
+        <div className="hidden sm:flex items-center">
+          <AppearanceMenu />
         </div>
         <MyPeopleTopbarButton />
         {/* Stan kolejki Delivery Leada, nie zdarzenia — nie ma go przy zerze. */}

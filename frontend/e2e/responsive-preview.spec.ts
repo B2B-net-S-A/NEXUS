@@ -713,7 +713,9 @@ test.describe("górny pasek — licznik celów", () => {
   test("/preview/kpi-topbar: licznik celów nie zgniata wyszukiwarki w oknach laptopów", async ({ page }) => {
     // 13.10.2026: trzy podpisane segmenty przy 1280 px z przypiętym menu
     // i długimi okruszkami zostawiały wyszukiwarce 109 px. Licznik ma chować
-    // całe segmenty, a wyszukiwarka trzymać 220 px.
+    // całe segmenty, a wyszukiwarka trzymać 220 px. Tego samego dnia przed
+    // licznikiem stanął przycisk Ligi Mistrzów, który się nie ściska, a trzy
+    // przełączniki wyglądu zastąpiło jedno menu „Wygląd”.
     for (const size of WINDOWS_LAPTOP_WINDOWS) {
       await page.setViewportSize(size);
       await page.goto("/preview/kpi-topbar");
@@ -740,6 +742,13 @@ test.describe("górny pasek — licznik celów", () => {
         // (bez tej reguły „Moi ludzie” kurczył się do 22 px).
         const neighbour = await strip.getByRole("button", { name: "Moi ludzie (atrapa)" }).boundingBox();
         expect(Math.round(neighbour?.width ?? 0), `sąsiedni przycisk: ${label}`).toBe(36);
+        const appearance = await strip.getByRole("button", { name: "Wygląd" }).boundingBox();
+        expect(Math.round(appearance?.width ?? 0), `menu „Wygląd”: ${label}`).toBe(36);
+        // Przycisk Ligi stoi w każdym pasku, cały: nie ściska się i nie ucina tekstu.
+        const league = strip.locator("[data-league-button]");
+        await expect(league, `przycisk ligi: ${label}`).toBeVisible();
+        const leagueClipped = await league.evaluate((el) => el.scrollWidth - el.clientWidth);
+        expect(leagueClipped, `przycisk ligi nieprzycięty: ${label}`).toBeLessThanOrEqual(0);
         // Tekst segmentu nie łamie się, a ukryty wiersz nie wystaje do widocznego.
         const glitches = await strip
           .getByRole("button", { name: /^(Twoje cele|Cele zespołu|Cel portfela)/ })
