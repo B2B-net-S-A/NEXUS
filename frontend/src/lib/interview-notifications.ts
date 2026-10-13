@@ -60,3 +60,55 @@ export function parseInterviewLink(link: string | null | undefined): InterviewLi
     eventId: Number.isSafeInteger(id) && id > 0 ? id : null,
   };
 }
+
+/**
+ * Tekst dymka po powiadomieniu z gniazda. Terminy od klienta i przypomnienie
+ * kalendarza mówią wszystko w treści („3 terminy…”, „Za 15 minut: …”),
+ * pozostałe — w tytule („Kandydat wybrał termin”).
+ */
+export function interviewToastText(notif: {
+  notification_type?: string | null;
+  title: string;
+  message: string;
+}): string {
+  const fromMessage =
+    notif.notification_type === "interview_slots_requested" ||
+    notif.notification_type === "interview_scheduled";
+  return (fromMessage ? notif.message : notif.title) || notif.title || notif.message;
+}
+
+const CALL_TOAST_KEY = "nexus:interview-call-toasted";
+const CALL_TOAST_KEEP_MS = 24 * 60 * 60_000;
+// Zapas, gdy pamięć przeglądarki jest niedostępna (tryb prywatny, blokada).
+const callToastsThisTab = new Set<number>();
+
+/**
+ * Czy pokazać dymek „rozmowa u klienta skończyła się” dla tego wydarzenia.
+ * Zapamiętuje odpowiedź w `localStorage`, wspólnym dla kart — ta sama rozmowa
+ * nie dymi w każdej otwartej karcie ani po odświeżeniu strony.
+ */
+export function claimCallToast(eventId: number, now: number = Date.now()): boolean {
+  if (callToastsThisTab.has(eventId)) return false;
+  callToastsThisTab.add(eventId);
+  try {
+    const raw = window.localStorage.getItem(CALL_TOAST_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : {};
+    const seen: Record<string, number> = {};
+    if (parsed && typeof parsed === "object") {
+      for (const [id, at] of Object.entries(parsed as Record<string, unknown>)) {
+        if (typeof at === "number" && now - at < CALL_TOAST_KEEP_MS) seen[id] = at;
+      }
+    }
+    if (seen[String(eventId)] != null) return false;
+    seen[String(eventId)] = now;
+    window.localStorage.setItem(CALL_TOAST_KEY, JSON.stringify(seen));
+  } catch {
+    // Bez pamięci przeglądarki dymek pokaże się raz na kartę.
+  }
+  return true;
+}
+
+/** Tylko do testów: zapomnij dymki pokazane w tej karcie. */
+export function resetCallToastsForTests(): void {
+  callToastsThisTab.clear();
+}

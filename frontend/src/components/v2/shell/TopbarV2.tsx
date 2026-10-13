@@ -14,6 +14,7 @@ import { PaletteSwitcher } from "./PaletteSwitcher";
 import { MyPeopleTopbarButton } from "@/components/v2/my-people/MyPeopleLauncher";
 import { KidsModeToggleButton, ThemeToggleButton } from "./ThemeControls";
 import { ChatNotificationsDropdown } from "./ChatNotificationsDropdown";
+import { InterviewNotificationsDropdown } from "./InterviewNotificationsDropdown";
 
 interface Props {
   onOpenMobileSidebar: () => void;
@@ -85,6 +86,7 @@ export function TopbarV2({
         </div>
         <MyPeopleTopbarButton />
         <ChatNotificationsDropdown />
+        <InterviewNotificationsDropdown />
         <NotificationsDropdown />
         <QuickActionsV2
           externalModal={pendingModal}
