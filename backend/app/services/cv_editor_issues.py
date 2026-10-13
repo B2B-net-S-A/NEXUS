@@ -166,7 +166,8 @@ async def dismiss(
         )
     if not wanted or not present:
         raise dismissals.DismissError("Tej uwagi już nie ma — odśwież panel.")
-    db.add(
+    await dismissals.insert_once(
+        db,
         dismissals.new_row(
             candidate_id=pair[0],
             job_id=pair[1],
@@ -180,9 +181,8 @@ async def dismiss(
             quote=None,
             blocking=False,
             user_id=user_id,
-        )
+        ),
     )
-    await db.flush()
     return await stage_issues(db, csv, pair)
 
 

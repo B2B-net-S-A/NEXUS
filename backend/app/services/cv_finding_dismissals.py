@@ -64,7 +64,9 @@ def _view(row: CvFindingDismissal, by_name: Optional[str]) -> dict[str, Any]:
         "reason_label": label,
         "note": row.note,
         "by_name": by_name,
-        "at": row.created_at,
+        # Napis ISO, nie datetime: widok trafia do `checks`, które QC skrótuje
+        # zwykłym `json.dumps` (`cv_qc._checks_hash`).
+        "at": row.created_at.isoformat() if row.created_at else None,
     }
 
 
@@ -207,6 +209,24 @@ def new_row(
         dismissed_by_user_id=user_id,
         created_at=datetime.now(timezone.utc),
     )
+
+
+async def insert_once(db: AsyncSession, row: CvFindingDismissal) -> bool:
+    """Zapisz pominięcie; ``False``, gdy ta uwaga pary jest już pominięta.
+
+    Podwójne kliknięcie albo dwie osoby naraz trafiają w indeks częściowy
+    `uq_cv_finding_dismissals_active` — drugi wiersz to nie błąd, tylko ta sama
+    decyzja. Zapis w savepoincie, żeby nie wycofać reszty transakcji.
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    try:
+        async with db.begin_nested():
+            db.add(row)
+            await db.flush()
+    except IntegrityError:
+        return False
+    return True
 
 
 async def restore(

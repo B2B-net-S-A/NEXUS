@@ -64,6 +64,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Path,
     Query,
     Response,
     UploadFile,
@@ -777,8 +778,8 @@ async def dismiss_branded_cv_issue(
 )
 async def restore_branded_cv_issue(
     stage_id: int,
-    dismissal_id: int,
     current_user: CandidateWriteAccess,
+    dismissal_id: int = Path(ge=1, le=9_223_372_036_854_775_807),
     db: AsyncSession = Depends(get_db),
 ) -> CVEditorIssues:
     """Przywróć uwagę generatora albo kontroli AI oznaczoną „To nieprawda”."""

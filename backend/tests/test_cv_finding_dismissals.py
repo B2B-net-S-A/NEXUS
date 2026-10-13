@@ -30,7 +30,7 @@ def _dismissal(key: str, check_key: str = "must_in_cv") -> dict:
             "reason_label": "Jest w CV — QC tego nie znalazło",
             "note": None,
             "by_name": "Anna Testowa",
-            "at": AT,
+            "at": AT.isoformat(),
         },
     }
 
@@ -259,7 +259,7 @@ async def test_editor_moves_untrue_generator_and_review_findings_aside(
             "reason_label": "Nie dotyczy tej rekrutacji",
             "note": None,
             "by_name": "Anna Testowa",
-            "at": AT,
+            "at": AT.isoformat(),
         }
         return [
             {
@@ -297,3 +297,64 @@ async def test_editor_moves_untrue_generator_and_review_findings_aside(
         ("generator", warning),
         ("review", finding["text"]),
     }
+
+
+def test_checks_with_dismissals_can_be_hashed_and_stored() -> None:
+    # Przegląd PR 3: datetime w widoku pominięcia wywracał `_checks_hash`
+    # (zapis przebiegu) — każde „To nieprawda” kończyło się 500.
+    checks = [
+        _check(
+            "must_bolded",
+            "warning",
+            [{"key": "must_bolded|kafka|cv", "requirement": "Kafka"}],
+        )
+    ]
+    dismissals.apply_dismissals(
+        checks, [_dismissal("must_bolded|kafka|cv", "must_bolded")]
+    )
+    assert isinstance(qc._checks_hash(checks), str)
+    assert checks[0]["dismissed_items"][0]["dismissal"]["at"] == AT.isoformat()
+
+
+@pytest.mark.asyncio
+async def test_a_second_identical_dismissal_is_idempotent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Podwójne kliknięcie albo dwie osoby naraz: indeks częściowy odrzuca drugi
+    # wiersz — to nie jest błąd, uwaga jest już pominięta.
+    from sqlalchemy.exc import IntegrityError
+
+    class _Nested:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    class _Db:
+        added: list = []
+
+        def begin_nested(self):
+            return _Nested()
+
+        def add(self, row):
+            self.added.append(row)
+
+        async def flush(self):
+            raise IntegrityError("insert", {}, Exception("duplicate key"))
+
+    row = dismissals.new_row(
+        candidate_id=1,
+        job_id=2,
+        stage_id=3,
+        source="qc",
+        check_key="must_bolded",
+        key="must_bolded|kafka|cv",
+        label="Kafka",
+        reason="in_cv",
+        note=None,
+        quote=None,
+        blocking=False,
+        user_id=4,
+    )
+    assert await dismissals.insert_once(_Db(), row) is False

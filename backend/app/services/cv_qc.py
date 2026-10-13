@@ -2642,7 +2642,8 @@ async def dismiss_finding(
         )
         if part
     )
-    db.add(
+    created = await dismissals.insert_once(
+        db,
         dismissals.new_row(
             candidate_id=src.candidate.id,
             job_id=src.job.id,
@@ -2656,8 +2657,11 @@ async def dismiss_finding(
             quote=clean_quote,
             blocking=blocking,
             user_id=user_id,
-        )
+        ),
     )
+    if not created:
+        # Ktoś pominął tę uwagę chwilę wcześniej — bez drugiego wpisu i dzwonka.
+        return await run_qc(db, stage, user_id=user_id, persist=True)
     db.add(
         Activity(
             entity_type="candidate_stage",

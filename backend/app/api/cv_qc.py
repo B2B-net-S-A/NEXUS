@@ -14,7 +14,7 @@ guardy `Annotated` w parametry QUERY).
 from datetime import datetime
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -579,8 +579,8 @@ async def dismiss_stage_qc_item(
 async def restore_stage_qc_item(
     request: Request,
     stage_id: int,
-    dismissal_id: int,
     current_user: RecruiterPlus,
+    dismissal_id: int = Path(ge=1, le=9_223_372_036_854_775_807),
     db: AsyncSession = Depends(get_db),
 ) -> QcResponse:
     """Przywróć pominiętą uwagę QC pary i zwróć świeże QC."""
