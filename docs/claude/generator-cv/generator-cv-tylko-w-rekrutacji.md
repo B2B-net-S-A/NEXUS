@@ -7,10 +7,12 @@ przejścia z Traffita (12.10) 40 z 44 ręcznych generacji szło z rekrutacji,
 0 bez procesu, 4 z pliku spoza bazy (wcześniej, 5–8.10, ok. 60% szło poza
 rekrutacją, bo zespół pracował jeszcze w Traffit).
 
-- **Gdzie się generuje CV:** wyłącznie `CvGeneratorDialog` z osobą ustaloną
-  z góry — karta „CV do klienta” w panelu osoby, profil kandydata („Generuj
-  CV” przy podglądzie CV i zakładka „Rekrutacje”), dok kanbanu, okno QC CV
-  („Wygeneruj CV”, „otwórz generator” przy braku zrzutu zgody RODO).
+- **Gdzie się generuje CV:** `CvGeneratorDialog` z osobą ustaloną z góry —
+  profil kandydata („Generuj CV” przy podglądzie CV i zakładka „Rekrutacje”),
+  dok kanbanu, okno QC CV („Wygeneruj CV”, „otwórz generator” przy braku
+  zrzutu zgody RODO). Karta „CV do klienta” w panelu osoby od 13.10.2026
+  generuje W KARCIE (panel „Z czego powstało”, ten sam `useCvGenerator`) —
+  patrz „CV w procesie” (`cv-w-procesie.md`).
 - **Stary adres `/cv-generator` przekierowuje** (`legacyCvGeneratorHref`
   w `lib/cv-generator.ts`): `?candidate_id&job_id` → `/jobs/{job}?candidate=…`
   (panel osoby), sam `candidate_id` → profil kandydata, reszta → `/jobs`.

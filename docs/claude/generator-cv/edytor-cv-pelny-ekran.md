@@ -237,6 +237,14 @@ i kontrola AI ostatniej zatwierdzonej wersji. Komponent
   bez zielonej plakietki. Brak dostępu mówi o dostępie. Licznik w pasku niesie
   stan (`CvIssueCount.state`): „Do poprawy” bez liczby, dopóki QC się liczy,
   „Do poprawy (?)” po awarii (panel otwiera się wtedy sam) — zero znaczy zero.
+- **Jedna lista od 13.10.2026 (PR 4, „CV w procesie”):** `buildIssueList`
+  w `lib/cv-editor-issues.ts` scala zadania QC, uwagi generatora i kontroli AI,
+  grupuje je po sekcjach CV (`cvOutline`: „Całe CV”, „Nagłówek”, sekcje
+  w kolejności CV, „Pozostałe sekcje”) z etykietą źródła (QC / generator /
+  kontrola AI), a uwaga generatora „MUST-HAVE: X” znika, gdy QC mówi o X
+  (zadanie, informacja albo pominięcie). Kolejność: „Popraw wszystko”, grupy
+  sekcji, propozycje AI, „Zapytaj kandydata”, „Pominięte”, „Informacje”,
+  „W porządku”. Edytor bez etapu ma dalej osobny blok uwag generatora.
 - **Panel nie ma obejścia QC ani ruchu karty** — to zostaje w oknie QC. Karty
   są wspólne (`recruitment/cv-qc-cards.tsx`); „Pokaż w CV” i odnośniki
   w nowej karcie włącza kontekst edytora (`locate`, `linksInNewTab`).
