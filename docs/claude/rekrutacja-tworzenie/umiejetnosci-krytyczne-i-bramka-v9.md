@@ -9,7 +9,7 @@ wysłał do klienta, budżet — 32%, dni w biurze — 8%. Decyzje Artura 30.09.
   `lib/critical-skills.ts`), z podpowiedzi z historii najwyżej dwie
   (`critical_skills.SUGGEST_MAX` — działa bez decyzji człowieka, więc trzecia
   automatyczna bramka wymaga pomiaru) (`services/critical_skills.py`,
-  `MUST_GATE_POLICY_VERSION`, dziś `critical-v11`). Pole Championa `stack.critical`:
+  `MUST_GATE_POLICY_VERSION`, dziś `critical-v12`). Pole Championa `stack.critical`:
   `None` = DL nie zdecydował (działa podpowiedź), `[]` = „Brak krytycznych”
   (bramka must nie ukrywa nikogo), lista = bramka. Serializer zdejmuje `None`
   (stare profile nie zmieniają kształtu). Wybór nie zmienia wymagań roli
