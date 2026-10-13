@@ -64,6 +64,13 @@ export const networkHistoryApi: CvEditorHistoryApi = {
   importPreview: (stageId, file) => {
     const form = new FormData();
     form.append("file", file);
-    return api.post<CvImportPreview>(`${base(stageId)}/import-preview`, form).then((r) => r.data);
+    return api
+      .post<CvImportPreview>(`${base(stageId)}/import-preview`, form, {
+        // Jawnie: instancja `api` ma domyślne `application/json`, a axios przy
+        // tym nagłówku serializuje `FormData` do JSON-a — plik nie opuściłby
+        // przeglądarki (strażnik `formdata-multipart.test.ts`).
+        headers: { "Content-Type": "multipart/form-data" },
+      })
+      .then((r) => r.data);
   },
 };
