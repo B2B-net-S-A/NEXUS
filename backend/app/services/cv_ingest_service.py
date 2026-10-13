@@ -95,6 +95,31 @@ async def _without_taken_email(
     return {k: v for k, v in parsed.items() if k != "email"}
 
 
+async def _fill_email_unless_taken(
+    db: AsyncSession, candidate: Candidate, email: str
+) -> None:
+    """Wpisz adres z CV; gdy w międzyczasie zajęła go inna osoba — pomiń.
+
+    Reszta profilu jest już zapisana (flush przed savepointem). Cofnięcie
+    savepointu wygasza wiersz kandydata, więc odświeżamy go z bazy — sesja
+    asynchroniczna nie doczyta wygaszonych pól sama.
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    try:
+        async with db.begin_nested():
+            candidate.email = email
+            await db.flush()
+    except IntegrityError as exc:
+        if "email" not in str(exc.orig):
+            raise
+        await db.refresh(candidate)
+        logger.info(
+            "[cv_ingest] candidate=%s: e-mail z CV zajęty równolegle — pominięty",
+            candidate.id,
+        )
+
+
 async def finish_cv_ingest(
     db: AsyncSession,
     *,
@@ -120,6 +145,7 @@ async def finish_cv_ingest(
     from app.services.profile_projection import replace_skill_usage
 
     parsed = await _without_taken_email(db, candidate, parsed)
+    email_before = getattr(candidate, "email", None)
     written = _apply_cv_enrichment(
         candidate,
         parsed,
@@ -127,6 +153,14 @@ async def finish_cv_ingest(
         source_hash=source_hash,
         policy=policy,
     )
+    # Adres uzupełniony z CV idzie osobnym zapisem w SAVEPOINCIE (niżej):
+    # sito wyżej nie widzi niezacommitowanego wiersza równoległej transakcji,
+    # a unikalny indeks wywracał wtedy cały zapis profilu (audyt 13.10.2026).
+    filled_email = getattr(candidate, "email", None)
+    if filled_email == email_before:
+        filled_email = None
+    else:
+        candidate.email = email_before
     if parsed.get("languages"):
         await sync_candidate_languages_from_source(
             db,
@@ -142,6 +176,8 @@ async def finish_cv_ingest(
             ),
         )
     await db.flush()
+    if filled_email:
+        await _fill_email_unless_taken(db, candidate, filled_email)
 
     usage_rows = 0
     try:

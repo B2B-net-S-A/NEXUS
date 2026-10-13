@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterable, Literal, Mapping
 
 from app.models.candidate import Candidate
+from app.services.candidate_name_rules import strip_name_markers
 
 IdentityField = Literal["name", "lastname"]
 
@@ -46,6 +47,17 @@ def _metadata(candidate: Candidate) -> tuple[dict[str, Any], dict[str, Any]]:
     custom_fields = _object(candidate.custom_fields)
     metadata = _object(custom_fields.get(IDENTITY_META_KEY))
     return custom_fields, metadata
+
+
+def _restorable(source_value: Any) -> str | None:
+    """Wartość z migawki Traffita, którą wolno wpisać w imię — bez dopisków.
+
+    Migawka sprzed reguły D6 bywa „[ACTIVE] Jan”; przywrócenie wkładało dopisek
+    z powrotem (audyt 13.10.2026). Sam dopisek („[ACTIVE]”) nie jest imieniem.
+    """
+    if not isinstance(source_value, str) or not source_value.strip():
+        return None
+    return strip_name_markers(source_value.strip())[0].strip() or None
 
 
 def lock_changed_traffit_identity_fields(
@@ -163,7 +175,7 @@ def identity_sync_state(candidate: Candidate) -> dict[str, Any] | None:
             "manual_lock": manual,
             "traffit_value": source_value,
             "can_restore": manual
-            and source_value is not None
+            and _restorable(source_value) is not None
             and override_token is not None,
             "overridden_at": override_token if manual else None,
             # Opaque round-trip token for optimistic concurrency.  Keep it
@@ -214,14 +226,16 @@ def restore_traffit_identity_fields(
         if expected_current_values[field] != getattr(candidate, field):
             raise ValueError(f"nexus_identity_value_changed:{field}")
         source_value = metadata.get(source_key)
-        if not isinstance(source_value, str) or not source_value.strip():
+        if _restorable(source_value) is None:
             raise ValueError(f"traffit_identity_value_unavailable:{field}")
         if expected_source_values[field] != source_value:
             raise ValueError(f"traffit_identity_value_changed:{field}")
 
     for field in requested:
         manual_key, source_key, at_key, by_key, reason_key = _FIELD_CONFIG[field]
-        setattr(candidate, field, metadata[source_key])
+        # Token wersji (`expected_traffit_values`) to surowa migawka; w imię
+        # idzie wartość po regule dopisków (D6).
+        setattr(candidate, field, _restorable(metadata[source_key]))
         metadata.pop(manual_key, None)
         metadata.pop(at_key, None)
         metadata.pop(by_key, None)

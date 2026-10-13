@@ -93,11 +93,22 @@ async def test_second_cv_goes_to_the_person_from_its_own_content(
     assert attachment.cv_parse_attempted_at is not None
 
 
+class _NoopSavepoint:
+    """`async with db.begin_nested()` na atrapie sesji (zapis w SAVEPOINT, 14.10.2026)."""
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
 async def test_second_cv_of_new_person_creates_candidate(monkeypatch, tmp_path) -> None:
     parse = _patch(monkeypatch, tmp_path, [])
     attachment, email = _inputs(tmp_path)
     db = AsyncMock()
     db.add = MagicMock()
+    db.begin_nested = MagicMock(return_value=_NoopSavepoint())
 
     async def _flush():
         created = db.add.call_args_list[0].args[0]

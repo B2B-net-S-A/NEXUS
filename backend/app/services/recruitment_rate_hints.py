@@ -40,6 +40,23 @@ from app.services.text_cleaning import clean_rich_text
 SEND_NOTE_WINDOW = timedelta(minutes=30)
 SEND_NOTE_MAX_CHARS = 300
 _AMOUNT_RE = re.compile(r"(?<!\d)\d{2,3}(?!\d)")
+# Godzina i numer telefonu to nie kwota (audyt 13.10.2026): „rozmowa o 14:50”
+# albo „+48 123 456 789” bliżej ruchu wypychały prawdziwą notatkę z wysyłki.
+# Godzina z kropką tylko po „o / od / do / godz.” — „85.50” to stawka.
+_CLOCK_RE = re.compile(
+    r"(?<!\d)(?:[01]?\d|2[0-3]):[0-5]\d(?!\d)"
+    r"|\b(?:o|od|do|godz\.?|godzin[aieę])\s*(?:[01]?\d|2[0-3])\.[0-5]\d(?!\d)",
+    re.IGNORECASE,
+)
+# 9 cyfr w grupach 3-3-3 albo 2-3-2-2, opcjonalnie z +48 — z JEDNYM rodzajem
+# separatora („512 345 678”, „512-345-678”), więc „150 100-110” zostaje parą
+# stawek. Ukośnik obok odcina „150/100-110”.
+_PHONE_RE = re.compile(
+    r"(?<![\d/])(?:\+\d{2}[\s-]?)?"
+    r"(?:\d{3}(?P<s3>[\s-]?)\d{3}(?P=s3)\d{3}"
+    r"|\d{2}(?P<s2>[\s-])\d{3}(?P=s2)\d{2}(?P=s2)\d{2})"
+    r"(?![\d/])"
+)
 
 
 @dataclass(frozen=True)
@@ -73,11 +90,39 @@ def shorten(plain: str) -> str:
 
 
 def has_amount(plain: str) -> bool:
-    """Czy tekst zawiera liczbę z zakresu stawek godzinowych (40–400)."""
+    """Czy tekst zawiera liczbę z zakresu stawek godzinowych (40–400).
+
+    Godziny i numery telefonów się nie liczą.
+    """
+    text_only = _PHONE_RE.sub(" ", _CLOCK_RE.sub(" ", plain))
     return any(
         client_rate_notes.RATE_MIN <= int(found) <= client_rate_notes.RATE_MAX
-        for found in _AMOUNT_RE.findall(plain)
+        for found in _AMOUNT_RE.findall(text_only)
     )
+
+
+def _belongs_to(note: SendNote, send: Send) -> bool:
+    """Notatka autora ruchu, do 30 min od niego, z tej rekrutacji albo bez."""
+    return (
+        note.author_id == send.moved_by
+        and note.job_id in (None, send.job_id)
+        and abs(_aware(note.at) - _aware(send.moved_at)) <= SEND_NOTE_WINDOW
+    )
+
+
+def send_note_ids_among(sends: Iterable[Send], notes: Iterable[SendNote]) -> set[int]:
+    """Id notatek z wysyłki jednego kandydata (czysta funkcja) — do zakrycia ceny.
+
+    Ta sama reguła co ``pick_send_notes`` (``_belongs_to``) i ``has_amount``, ale
+    bez wyboru jednej notatki na rekrutację: cenę dla klienta niesie każda
+    (decyzja C po audycie 13.10.2026).
+    """
+    sends = list(sends)
+    return {
+        note.id
+        for note in notes
+        if has_amount(note.text) and any(_belongs_to(note, send) for send in sends)
+    }
 
 
 def pick_send_notes(
@@ -101,9 +146,7 @@ def pick_send_notes(
         near = [
             (abs(_aware(note.at) - moved_at), note.id, note)
             for note in pool
-            if note.author_id == send.moved_by
-            and note.job_id in (None, send.job_id)
-            and abs(_aware(note.at) - moved_at) <= SEND_NOTE_WINDOW
+            if _belongs_to(note, send)
         ]
         if near:
             out[send.job_id] = min(near, key=lambda item: item[:2])[2]
@@ -245,3 +288,83 @@ async def send_notes(
         }
         for job_id, note in pick_send_notes(sends, notes).items()
     }
+
+
+# Notatki, które MOGĄ być notatką z wysyłki: zwykła (albo nieoznaczona) notatka
+# kandydata od Delivery Leada albo admina z liczbą — ta sama bramka autora co
+# w ``_NOTES_SQL``. Wpis `dl_rate` jest zakryty już przez rodzaj.
+_SEND_NOTE_SUSPECTS_SQL = text(
+    f"""
+    SELECT n.id, n.candidate_id, n.job_id, n.author_id, n.content,
+           COALESCE(n.source_created_at, n.created_at) AS at
+      FROM notes n
+      JOIN users u ON u.id = n.author_id
+     WHERE n.id = ANY(:ids)
+       AND n.candidate_id IS NOT NULL
+       AND (n.kind IS NULL OR n.kind = :human)
+       AND {client_rate_notes.DL_PAIR_AUTHOR_SQL}
+       AND n.content ~ '[0-9]{{2,3}}'
+    """
+)
+
+_CV_SENT_MOVES_SQL = text(
+    """
+    SELECT cs.candidate_id, cs.job_id, cs.moved_at, cs.moved_by
+      FROM candidate_stages cs
+     WHERE cs.candidate_id = ANY(:candidate_ids)
+       AND cs.moved_by = ANY(:author_ids)
+       AND cs.stage::text = 'cv_sent'
+       AND cs.moved_at BETWEEN :start AND :end
+    """
+)
+
+
+async def send_note_ids(db: AsyncSession, note_ids: Iterable[int]) -> frozenset[int]:
+    """Które z podanych notatek są notatką z wysyłki z ceną dla klienta.
+
+    Decyzja C (14.10.2026): „Wysłany 150/100-110” Delivery Leada to zwykła
+    notatka, więc rekruter czytał w niej cenę dla klienta. Rozpoznanie jak
+    w podpowiedzi stawki do klienta (``send_notes``), także dla pary, która
+    stawkę na etapie już ma — kwota w treści jest ta sama. Dwa zapytania na
+    całą listę, niezależnie od liczby notatek.
+    """
+    wanted = sorted({int(note_id) for note_id in note_ids})
+    if not wanted:
+        return frozenset()
+    notes_by_candidate: dict[int, list[SendNote]] = {}
+    for row in await db.execute(
+        _SEND_NOTE_SUSPECTS_SQL, {"ids": wanted, "human": note_kinds.HUMAN}
+    ):
+        plain = clean_rich_text(row.content)
+        if row.at is None or not has_amount(plain):
+            continue
+        notes_by_candidate.setdefault(row.candidate_id, []).append(
+            SendNote(
+                id=row.id,
+                job_id=row.job_id,
+                author_id=row.author_id,
+                at=row.at,
+                text=plain,
+            )
+        )
+    if not notes_by_candidate:
+        return frozenset()
+    suspects = [note for notes in notes_by_candidate.values() for note in notes]
+    moments = [_aware(note.at) for note in suspects]
+    sends_by_candidate: dict[int, list[Send]] = {}
+    for row in await db.execute(
+        _CV_SENT_MOVES_SQL,
+        {
+            "candidate_ids": sorted(notes_by_candidate),
+            "author_ids": sorted({note.author_id for note in suspects}),
+            "start": min(moments) - SEND_NOTE_WINDOW,
+            "end": max(moments) + SEND_NOTE_WINDOW,
+        },
+    ):
+        sends_by_candidate.setdefault(row.candidate_id, []).append(
+            Send(row.job_id, row.moved_at, row.moved_by)
+        )
+    hidden: set[int] = set()
+    for candidate_id, notes in notes_by_candidate.items():
+        hidden |= send_note_ids_among(sends_by_candidate.get(candidate_id, []), notes)
+    return frozenset(hidden)

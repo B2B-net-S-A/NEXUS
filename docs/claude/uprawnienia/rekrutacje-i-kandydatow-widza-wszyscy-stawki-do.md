@@ -50,6 +50,25 @@ stawki, za jaką osoby są wysyłane do klienta”.
   (`expected_rate`) widzą wszyscy** — do 23.09 profil chował ją każdemu bez
   `VIEW_FINANCE`. Kwoty KONTRAKTÓW w `/history` zostają przy dostępie
   finansowym. Nowa powierzchnia niosąca `client_rate_*` = `user_can_view_client_rate`.
+- **Notatka Delivery Leada z wysyłki to też stawka do klienta** (decyzja C Artura,
+  14.10.2026). „Wysłany 150/100-110” jest zwykłą notatką (`human`, nie `dl_rate`),
+  więc do 14.10 rekruter czytał cenę w Historii profilu, a od 13.10 także
+  w „Wcześniej u nas” panelu osoby (audyt 13.10.2026). Rozpoznanie jak w podpowiedzi
+  stawki do klienta (`recruitment_rate_hints.send_note_ids`): autor DL/admin
+  przesunął kartę tego kandydata na „CV wysłane” najwyżej 30 min przed albo po
+  notatce, notatka z tej rekrutacji albo bez rekrutacji, kwota 40–400 (bez godzin
+  i telefonów). `candidate_access.hidden_send_note_ids(db, user, ids)` — zero
+  zapytań dla roli ze stawką — i `note_content_hidden(..., send_note=)` /
+  `visible_note_content(..., send_note=)`. Zakrywa `GET /api/notes` (lista po
+  kandydacie, rekrutacji i typie, odpowiedzi, `GET /api/notes/{id}`, przypięcie)
+  i fragment w dzwonku wzmianki (`_mention_snippet`, jak dla `dl_rate`).
+  Notatki o stawce KANDYDATA (rekruter, karta, screening) zostają jawne; autor
+  widzi swoją notatkę. Nowa powierzchnia z treścią notatek = ta sama para wywołań.
+  Jeszcze bez zakrycia (pliki poza tą zmianą): podgląd kandydata i „Ostatnia
+  rozmowa” na liście (`api/candidates.py`), oś `/timeline`, wycinki wyszukiwania
+  (`note_rate_visibility_clause`), oś kontraktu (`api/contracts.py`). Notatka
+  napisana PRZED ruchem na „CV wysłane” dostaje fragment w dzwonku z treścią
+  (ruchu jeszcze nie ma) — lista i tak ją zakryje po ruchu.
 - **Rekruter prowadzi swoich kandydatów w cudzej rekrutacji** (decyzja Artura
   07.10.2026: ludzie przepinają swoich kandydatów poza oficjalnym przydziałem).
   Dodający zostaje właścicielem procesu (`recruitment_processes.owner_user_id`),

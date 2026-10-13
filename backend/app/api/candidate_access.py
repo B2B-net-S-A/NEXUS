@@ -127,30 +127,54 @@ def user_can_view_client_rate(user: Optional[User]) -> bool:
 
 
 def note_content_hidden(
-    user: Optional[User], *, kind: Optional[str], author_id: Optional[int]
+    user: Optional[User],
+    *,
+    kind: Optional[str],
+    author_id: Optional[int],
+    send_note: bool = False,
 ) -> bool:
     """Czy treść notatki jest dla `user` zakryta (0412).
 
     Krótki wpis Delivery Leada „Wyślijmy za 161 zł/h” niesie stawkę do
     klienta, a notatki czyta każdy — bez tego decyzja z 23.09.2026 (rekruter
     tej stawki nie widzi) nie działała. Autor zawsze widzi własną notatkę.
+
+    ``send_note`` — zwykła notatka DL-a z wysyłki („Wysłany 150/100-110”),
+    rozpoznana przez ``hidden_send_note_ids`` (decyzja C, 14.10.2026). Notatki
+    o stawce KANDYDATA zostają jawne.
     """
     from app.services import note_kinds
 
-    if not note_kinds.hides_client_rate(kind):
+    if not (note_kinds.hides_client_rate(kind) or send_note):
         return False
     if user is not None and author_id is not None and author_id == user.id:
         return False
     return not user_can_view_client_rate(user)
 
 
-def visible_note_content(user: Optional[User], note) -> str:
+def visible_note_content(user: Optional[User], note, *, send_note: bool = False) -> str:
     """Treść notatki albo zdanie zastępcze, gdy rola jej nie widzi."""
     from app.services import note_kinds
 
-    if note_content_hidden(user, kind=note.kind, author_id=note.author_id):
+    if note_content_hidden(
+        user, kind=note.kind, author_id=note.author_id, send_note=send_note
+    ):
         return note_kinds.CLIENT_RATE_PLACEHOLDER
     return note.content
+
+
+async def hidden_send_note_ids(db, user: Optional[User], note_ids) -> frozenset[int]:
+    """Notatki z wysyłki z ceną dla klienta, których `user` nie widzi (decyzja C).
+
+    Rola ze stawką do klienta nie płaci za zapytanie. Każda powierzchnia, która
+    pokazuje treść notatek osobie bez tej stawki, woła to przed
+    ``note_content_hidden`` / ``visible_note_content`` (``send_note=``).
+    """
+    if user_can_view_client_rate(user):
+        return frozenset()
+    from app.services import recruitment_rate_hints
+
+    return await recruitment_rate_hints.send_note_ids(db, note_ids)
 
 
 def note_rate_visibility_clause(user: Optional[User]):

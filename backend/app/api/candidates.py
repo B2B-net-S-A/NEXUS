@@ -7818,9 +7818,16 @@ async def create_candidate_from_cv(
     # 4 — insert and enrich
     first_name = (parsed.get("first_name") or "").strip() or _CV_PLACEHOLDER_NAME
     last_name = (parsed.get("last_name") or "").strip() or _CV_PLACEHOLDER_NAME
+    # E-mail w INSERT-cie, nie dopiero w uzupełnianiu z CV (ta sama postać co
+    # `_apply_cv_contact_fields`): dwa równoległe zapisy tego samego adresu
+    # mijały sprawdzenie wyżej, a drugi padał na unikalnym indeksie przy
+    # uzupełnianiu → 500 (audyt 13.10.2026). Teraz SAVEPOINT i 409 jak
+    # w `POST /api/candidates`, z profilem, który wygrał wyścig.
+    new_email = str(parsed.get("email") or "").strip().lower()[:255] or None
     candidate = Candidate(
         name=first_name[:100],
         lastname=last_name[:100],
+        email=new_email,
         raw_cv_text=raw_text,
         cv_filename=safe_name,
         source="cv_upload",
@@ -7830,8 +7837,19 @@ async def create_candidate_from_cv(
     # nie nadpisze tego, co rekruter ustawił.
     for field, value in extras.items():
         setattr(candidate, field, value)
-    db.add(candidate)
-    await db.flush()  # allocate id so the file can carry it in its name
+    try:
+        async with db.begin_nested():
+            db.add(candidate)
+            await db.flush()  # allocate id so the file can carry it in its name
+    except IntegrityError as exc:
+        if not (new_email and "email" in str(exc.orig)):
+            raise
+        winner_rows = await find_candidate_by_email(db, new_email)
+        if winner_rows and not force:
+            _raise_from_cv_duplicate_conflict(winner_rows)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_TAKEN_EMAIL_MESSAGE
+        ) from exc
 
     # Permanent, candidate-scoped copy written from the bytes we already hold
     # (legacy `/cv-download` path); no rename of a shared scratch file.
@@ -8529,12 +8547,23 @@ async def bulk_import_candidates(
 
     from pydantic import ValidationError
 
+    from app.services.candidate_name_rules import has_blacklist_marker
+
     created: list[int] = []
     item_results: list[dict[str, Any]] = []
     for index, raw_item in enumerate(data):
         raw = dict(raw_item)
         # Import zbiorczy nie odmawia przez dopisek w imieniu — zdejmuje go
-        # przed walidacją (D6, 13.10.2026).
+        # przed walidacją (D6, 13.10.2026). Czarna lista z surowego imienia
+        # idzie najpierw do statusu, także wbrew `status` z pliku — jak korekta
+        # 0436; do 14.10.2026 osoba wchodziła jako aktywna (audyt 13.10, pkt 22).
+        raw_names = [
+            raw[field]
+            for field in ("name", "lastname")
+            if isinstance(raw.get(field), str)
+        ]
+        if has_blacklist_marker(*raw_names):
+            raw["status"] = CandidateStatus.blacklisted.value
         for name_field in ("name", "lastname"):
             if isinstance(raw.get(name_field), str):
                 raw[name_field] = without_name_markers(raw[name_field])

@@ -37,6 +37,13 @@ Raport: `docs/person-history-notes-completion-report.md`.
 - **Licznik to notatki ludzi** (`humanNoteCount`): na zakładce „Notatki i historia” (tylko gdy > 0)
   i w podpisie zwiniętej sekcji doku („0 tu · 14 wcześniej”; bez historii zostaje „N w tej rekrutacji”).
   Zapytanie o notatki stoi w doku od otwarcia karty — podpis ma mówić o historii bez rozwijania sekcji.
+  Od 14.10.2026 „notatka człowieka” to `isHumanNote` = grupa serwera inna niż `automat` (bez pola `group`
+  zapasem jest `is_system`) — także dla „N wcześniej” i roku „od …”. Audyt 13.10 pokazał, że wpisy scrapera
+  i auto-matcha sprzed 03.10 nie mają `external_source = 'system'`, więc samo `is_system` liczyło je jak
+  rozmowy. Przełącznik „Pokaż systemowe” starej listy zostaje przy `is_system`.
+- **Notatka Delivery Leada z wysyłki z ceną dla klienta jest zakryta** (decyzja C, 14.10.2026) dla roli bez
+  stawki do klienta — serwer podmienia treść w `GET /api/notes` na zdanie zastępcze, więc „Wcześniej u nas”,
+  czytnik i zakładka nie potrzebują własnej reguły (`uprawnienia/rekrutacje-i-kandydatow-widza-wszyscy-stawki-do.md`).
 - **„Historia w tej rekrutacji” to prawdziwe ruchy pary**: `GET /api/pipeline/job/{job_id}/moves?candidate_id=`
   (filtr w CTE — okno jest partycjonowane po kandydacie, więc LAG widzi komplet ruchów pary). Wiersze rysuje
   wspólny `recruitment/JobMoveLog.tsx` (także okno „Historia i czat”). W kluczu zapytania jest id wiersza etapu
