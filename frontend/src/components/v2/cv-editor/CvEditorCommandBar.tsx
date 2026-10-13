@@ -62,7 +62,8 @@ export function CvEditorCommandBar({ controller, onClose }: CvEditorCommandBarPr
             autoFocus
             placeholder="Napisz, co zmienić w całym CV, np. „skróć do dwóch stron, zostaw wszystko o Kafce”"
             onChange={(event) => setCommand(event.target.value)}
-            className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:opacity-60"
+            // `w-0` obok `flex-1`: bez jawnej szerokości minimum pola liczy się z długiego placeholdera.
+            className="w-0 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:opacity-60"
           />
         </label>
         <Button type="submit" size="sm" disabled={!ready || blocked}>
