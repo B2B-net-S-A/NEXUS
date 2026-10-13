@@ -12,7 +12,8 @@ import logging
 import re
 import unicodedata
 from datetime import date, datetime, timedelta, timezone
-from typing import get_args
+from collections.abc import Callable
+from typing import Any, get_args
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.concurrency import run_in_threadpool
@@ -75,6 +76,8 @@ from app.services.access_scope import (
     is_delivery_lead_governed,
     resolve_delivery_lead_assigned_client_ids,
 )
+from app.services.b2b_documents import contract_annexes
+from app.services.b2b_documents import effects as document_effects
 from app.services.b2b_documents.contract_versions import version_for_variant
 from app.services.critical_events import audited_deletion
 from app.schemas.b2b_contract_generator import (
@@ -89,6 +92,7 @@ from app.schemas.b2b_contract_generator import (
     B2BConfirmFullySignedRequest,
     B2BConfirmFullySignedResponse,
     B2BGeneratedContractItem,
+    B2BRegisterAnnex,
     B2BGeneratedContractUpdate,
     B2BLinkContractRequest,
     B2BLinkContractResponse,
@@ -899,6 +903,43 @@ async def _validate_candidate_job_link(
     return candidate, job
 
 
+def _row_annex_fields(
+    row: B2BGeneratedContract,
+    annexes: list[B2BContractDocument],
+    state_of: Callable[[B2BContractDocument, int | None], str],
+) -> dict[str, Any]:
+    """Pola wiersza o aneksach: najnowszy aneks, ich liczba i data startu
+    sprzed aneksu zmiany daty (``annexes`` rosnąco po id, bez anulowanych)."""
+    if not annexes:
+        return {}
+    latest = annexes[-1]
+    fields: dict[str, Any] = {
+        "latest_annex": B2BRegisterAnnex(
+            document_id=latest.id,
+            document_type=latest.document_type,
+            state=state_of(latest, row.client_id),
+            effective_date=contract_annexes.effective_date_of(
+                latest, contract_client_id=row.client_id
+            ),
+        ),
+        "annex_count": len(annexes),
+    }
+    start_annexes = [a for a in annexes if a.document_type == "annex_start_date"]
+    if start_annexes:
+        last_start = start_annexes[-1]
+        before = (last_start.render_payload or {}).get("register_before")
+        raw = before.get("start_date") if isinstance(before, dict) else None
+        try:
+            previous = date.fromisoformat(str(raw)[:10]) if raw else None
+        except ValueError:
+            previous = None
+        # Wiersz pokazuje datę z aneksu; „przed” ma sens tylko, gdy się różni.
+        if previous is not None and previous != row.start_date:
+            fields["start_date_before"] = previous
+            fields["start_date_annex_state"] = state_of(last_start, row.client_id)
+    return fields
+
+
 async def _serialize_generated_contracts(
     db: AsyncSession,
     rows: list[B2BGeneratedContract],
@@ -990,6 +1031,37 @@ async def _serialize_generated_contracts(
             cid: (getattr(cstatus, "value", cstatus), end_date)
             for cid, cstatus, end_date in result.all()
         }
+
+    # Aneksy do umów tej strony listy — jeden odczyt na wszystkie wiersze.
+    # Anulowany aneks nie jest etykietą ani nie liczy się do „+N aneksów”:
+    # nie doszedł do skutku, a wiersz wrócił już do wartości sprzed niego.
+    annexes_by_row: dict[int, list[B2BContractDocument]] = {}
+    row_ids = {row.id for row in rows}
+    if row_ids:
+        annex_result = await db.scalars(
+            select(B2BContractDocument)
+            .where(
+                B2BContractDocument.parent_generated_contract_id.in_(row_ids),
+                B2BContractDocument.document_type.in_(contract_annexes.ANNEX_TYPE_KEYS),
+                B2BContractDocument.status != "cancelled",
+            )
+            .order_by(B2BContractDocument.id.asc())
+        )
+        for annex in annex_result.all():
+            annexes_by_row.setdefault(annex.parent_generated_contract_id, []).append(
+                annex
+            )
+    annex_today = business_today()
+
+    def annex_state_of(annex: B2BContractDocument, client_id: int | None) -> str:
+        return document_effects.annex_state(
+            status=annex.status,
+            signature_status=annex.signature_status,
+            effective=contract_annexes.effective_date_of(
+                annex, contract_client_id=client_id
+            ),
+            today=annex_today,
+        )
 
     rate_visibility = await _rate_visibility(db, current_user, set(job_ids))
     team_job_ids = await _jobs_led_by(db, current_user, set(job_ids))
@@ -1193,6 +1265,9 @@ async def _serialize_generated_contracts(
                 legacy_flags=list((row.legacy_data or {}).get("flags") or []),
                 needs_business_data_annex=bool(row.needs_business_data_annex),
                 business_data_annex_done_at=row.business_data_annex_done_at,
+                **_row_annex_fields(
+                    row, annexes_by_row.get(row.id, []), annex_state_of
+                ),
                 excel_missing_since=(
                     row.excel_missing_since.isoformat()
                     if row.excel_missing_since

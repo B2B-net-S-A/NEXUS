@@ -7,6 +7,7 @@ i nieczyszczona: asercje wyłącznie na własnych wierszach.
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import func, select
@@ -166,3 +167,82 @@ async def test_cancelled_annex_stays_visible_and_manual_amendment_says_manual(
     assert listed["b2b_document_id"] is None
     assert listed["document"] is None
     assert listed["created_by_name"]
+
+
+# ── „Umowy bieżące”: etykieta aneksu na wierszu umowy ────────────────────────
+
+
+async def _register_row(app_client, headers, rid: int) -> dict:
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+
+    async with AsyncSessionLocal() as db:
+        number = (await db.get(B2BGeneratedContract, rid)).contract_number
+    listed = await app_client.get(
+        f"{BASE}/generated", headers=headers, params={"q": number}
+    )
+    assert listed.status_code == 200, listed.text
+    [item] = [row for row in listed.json() if row["id"] == rid]
+    return item
+
+
+async def test_register_row_names_its_latest_annex_and_the_start_date_before_it(
+    app_client, app_auth_headers
+):
+    """Aneks zmieniał datę startu w wierszu po cichu — wiersz nie mówił, że
+    to data z niepodpisanego aneksu ani jaka była wcześniej."""
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+
+    rid, contract_id = await _signed_parent(app_client)
+    await _hourly(contract_id, "150")
+    async with AsyncSessionLocal() as db:
+        (await db.get(B2BGeneratedContract, rid)).start_date = date(2026, 11, 2)
+        await db.commit()
+
+    plain = await _register_row(app_client, app_auth_headers, rid)
+    assert plain["latest_annex"] is None
+    assert plain["annex_count"] == 0
+    assert plain["start_date_before"] is None
+
+    start_annex = await _create(
+        app_client,
+        app_auth_headers,
+        "annex_start_date",
+        rid,
+        new_start_date="2026-11-16",
+    )
+    row = await _register_row(app_client, app_auth_headers, rid)
+    assert row["start_date"] == "2026-11-16"
+    assert row["start_date_before"] == "2026-11-02"
+    assert row["start_date_annex_state"] == "waiting"
+    assert row["annex_count"] == 1
+    assert row["latest_annex"] == {
+        "document_id": start_annex,
+        "document_type": "annex_start_date",
+        "state": "waiting",
+        "effective_date": "2026-11-16",
+    }
+
+    rate_annex = await _create(
+        app_client,
+        app_auth_headers,
+        "annex_rate_change",
+        rid,
+        effective_date="2026-12-01",
+        rate_items=[{"rate": "165"}],
+    )
+    row = await _register_row(app_client, app_auth_headers, rid)
+    assert row["annex_count"] == 2
+    assert row["latest_annex"]["document_id"] == rate_annex
+    # Data startu nadal pochodzi z aneksu daty, choć nowszy jest aneks stawki.
+    assert row["start_date_before"] == "2026-11-02"
+
+    cancelled = await app_client.post(
+        f"{BASE}/documents/{rate_annex}/cancel",
+        headers=app_auth_headers,
+        json={"reason": "Zmiana ustaleń"},
+    )
+    assert cancelled.status_code == 200, cancelled.text
+    row = await _register_row(app_client, app_auth_headers, rid)
+    # Anulowany aneks nie jest etykietą i nie liczy się do „+N aneksów”.
+    assert row["annex_count"] == 1
+    assert row["latest_annex"]["document_id"] == start_annex
