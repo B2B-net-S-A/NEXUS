@@ -137,6 +137,7 @@ vi.mock("@/components/v2/recruitment/PersonPreview", () => ({
     position: { index: number; total: number };
     selection: { label: string; onToggle: () => void; checked: boolean };
     extra?: { title: string } | null;
+    talkChecks?: ReadonlyArray<{ label: string }>;
   }) => (
     <div data-testid="person-preview">
       <span data-testid="preview-name">{props.name}</span>
@@ -145,6 +146,7 @@ vi.mock("@/components/v2/recruitment/PersonPreview", () => ({
         {props.position.index + 1} z {props.position.total}
       </span>
       {props.extra ? <span data-testid="preview-extra">{props.extra.title}</span> : null}
+      <span data-testid="preview-talk">{(props.talkChecks ?? []).map((c) => c.label).join(" | ")}</span>
       <button type="button" onClick={props.selection.onToggle} aria-pressed={props.selection.checked}>
         {props.selection.label}
       </button>
@@ -676,15 +678,27 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
       renderPanel({ tab: "search" });
 
       const words = await screen.findByRole("list", { name: "Wymagania do wyszukiwania" }, SLOW);
-      expect(within(words).getByText("Musi mieć")).toBeTruthy();
       expect(screen.getByTestId("search-base-source")).toHaveTextContent(
         "wybrane przez Delivery Leada: KYC",
       );
-      expect(within(words).getByText("KYC")).toBeTruthy();
-      expect(within(words).getByText("AML")).toBeTruthy();
-      expect(within(words).getByText("Mile widziane")).toBeTruthy();
-      expect(within(words).getByText("bankow*")).toBeTruthy();
-      expect(within(words).getByText("junior")).toBeTruthy();
+      // Wariant A: każda linia mówi, co robi z listą.
+      const lineOf = (label: string) => within(words).getByText(label).closest("li") as HTMLElement;
+      const required = lineOf("Wymagane (krytyczne)");
+      expect(required).toHaveTextContent("bez tego słowa osoba nie pojawi się na liście");
+      expect(within(required).getByText("KYC")).toBeTruthy();
+      expect(within(required).getByText("AML")).toBeTruthy();
+      const must = lineOf("Musi mieć (Delivery Lead)");
+      expect(must).toHaveTextContent("podnosi w kolejności, nie wycina");
+      expect(within(must).getByText("bankow*")).toBeTruthy();
+      expect(within(words).queryByText("Mile widziane")).toBeNull();
+      expect(within(lineOf("Wyklucz")).getByText("junior")).toBeTruthy();
+      // Rekrutacja zdalna — bez linii lokalizacji.
+      expect(within(words).queryByText("Lokalizacja kandydata")).toBeNull();
+      // Starszy serwer bez `talk_checks`: w rozmowie zostają must-have zdaniem.
+      const talk = lineOf("Rekruter sprawdza w rozmowie");
+      expect(talk).toHaveTextContent("tego nie szukamy — zapytaj w rozmowie");
+      expect(within(talk).getByText("Minimum 5 lat doświadczenia w analizie biznesowej")).toBeTruthy();
+      expect(screen.queryByText(/Po tym nie szukamy/)).toBeNull();
 
       const results = await screen.findByRole("list", { name: "Wyniki wyszukiwania" }, SLOW);
       expect(within(results).getByText("Marta Wilczek")).toBeTruthy();
@@ -692,7 +706,6 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
       expect(within(results).getByText("KYC", { selector: "strong" })).toBeTruthy();
       await within(results).findByText("84%");
       expect(screen.getByTestId("search-base-summary")).toHaveTextContent("Znaleziono osób: 86");
-      expect(screen.getByText("Minimum 5 lat doświadczenia w analizie biznesowej")).toBeTruthy();
       expect(screen.getByRole("tab", { name: /Szukaj w bazie/ })).toHaveTextContent("86");
 
       // Zapytanie: wiersz technologii obowiązkowy, reszta tylko podnosi; bez osób z rekrutacji.
@@ -704,6 +717,75 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
       expect(params.recruitment_match).toBe("not_assigned");
       expect(params.sort).toBe("match");
       expect(params.page_size).toBe(20);
+    });
+
+    it("linie „Mile widziane”, „Lokalizacja kandydata” i rozmowa z `talk_checks`; filtry zapytania bez zmian", async () => {
+      championGet.mockResolvedValue({
+        data: {
+          champion_profile: {
+            search: { requirements: [["KYC"]] },
+            stack: { rows: [{ words: ["Scala"], level: "nice" }] },
+          },
+          critical_resolution: {
+            stored: [],
+            decided: true,
+            effective: [],
+            source: "dl",
+            suggested: [],
+            search_rows: [],
+          },
+        },
+      });
+      countsApi.mockResolvedValue({
+        job_id: 5, days: 7, postings_recent: 0, base: 0, screened_out: 0,
+        not_searchable_must: [],
+        talk_checks: [
+          { label: "bankowość", kind: "domains" },
+          { label: "angielski B2", kind: "language" },
+        ],
+      });
+      listPage.mockResolvedValue({
+        items: [{ id: 41, name: "Ola", lastname: "Przykładowa", match_snippets: [] }],
+        total: 1, page: 1, page_size: 20,
+      });
+      matchScores.mockResolvedValue({ scores: {}, breakdowns: {} });
+      renderPanel({ tab: "search", job: { ...JOB, remote_policy: "hybrid", location: "Warszawa" } });
+
+      const words = await screen.findByRole("list", { name: "Wymagania do wyszukiwania" }, SLOW);
+      const lineOf = (label: string) => within(words).getByText(label).closest("li") as HTMLElement;
+      expect(within(words).queryByText("Wymagane (krytyczne)")).toBeNull();
+      expect(within(lineOf("Musi mieć (Delivery Lead)")).getByText("KYC")).toBeTruthy();
+      expect(within(lineOf("Mile widziane")).getByText("Scala")).toBeTruthy();
+      expect(within(lineOf("Mile widziane")).queryByText("KYC")).toBeNull();
+      const place = lineOf("Lokalizacja kandydata");
+      expect(place).toHaveTextContent("miasto w profilu kandydata, nie słowo w CV · podnosi w kolejności");
+      expect(within(place).getByText("📍 Warszawa")).toBeTruthy();
+      const talk = await waitFor(() => lineOf("Rekruter sprawdza w rozmowie"));
+      expect(
+        within(within(talk).getByRole("list", { name: "Rekruter sprawdza w rozmowie" }))
+          .getAllByRole("listitem")
+          .map((li) => li.textContent),
+      ).toEqual(["bankowość", "Język: angielski B2"]);
+
+      // Linie są opisem — zapytanie zostaje takie jak dotąd.
+      await waitFor(() => expect(listPage).toHaveBeenCalled(), SLOW);
+      const params = listPage.mock.calls[0][0] as Record<string, unknown>;
+      expect(params.q_any_group ?? []).toEqual([]);
+      expect(params.q_preferred_group).toEqual(["KYC", "Scala"]);
+
+      // Podgląd osoby niesie tę samą listę do rozmowy.
+      const results = await screen.findByRole("list", { name: "Wyniki wyszukiwania" }, SLOW);
+      await userEvent.click(within(results).getByRole("button", { name: "Ola Przykładowa" }));
+      expect(await screen.findByTestId("preview-talk")).toHaveTextContent("bankowość | angielski B2");
+    });
+
+    it("awaria odczytu listy do rozmowy to komunikat, nie brak linii", async () => {
+      withRows();
+      countsApi.mockRejectedValue({ response: { status: 500, data: {} } });
+      renderPanel({ tab: "search" });
+      const words = await screen.findByRole("list", { name: "Wymagania do wyszukiwania" }, SLOW);
+      const alert = await within(words).findByRole("alert", undefined, SLOW);
+      expect(alert).toHaveTextContent("Nie wczytano listy do rozmowy");
     });
 
     it("dodanie idzie do „Nowych” ze źródłem wyszukiwania; podgląd pokazuje trafienia", async () => {

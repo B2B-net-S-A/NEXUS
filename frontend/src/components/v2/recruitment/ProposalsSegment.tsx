@@ -14,12 +14,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/button";
 import { FullCandidateSearchStatus } from "@/components/talent-radar/FullCandidateSearchStatus";
 import { useCanVerifyRequirements } from "@/components/talent-radar/RequirementVerificationDialog";
 import { apiErrorMessage } from "@/lib/api-error";
 import { searchFailed, searchIsRunning } from "@/lib/full-candidate-search-api";
+import { jobProposalsApi, jobProposalsKeys, talkChecksOf } from "@/lib/job-proposals-api";
 import { recordProposalInboxOpened } from "@/lib/proposal-inbox-opened";
 import {
   DEFAULT_PROPOSAL_FILTERS,
@@ -31,7 +33,7 @@ import { cn } from "@/lib/utils";
 
 import { useDismissReasonPrompt } from "./DismissReasonDialog";
 import { PeopleTable } from "./PeopleTable";
-import { ProposalPanel } from "./ProposalPanel";
+import { ProposalPanel, type ProposalTalkChecks } from "./ProposalPanel";
 import { PROPOSAL_SOURCE_LABEL, type PersonRow, type ProposalSource } from "./types";
 import { useCanAddToRecruitment } from "./useCanAddToRecruitment";
 import { useJobProposals, type JobProposalsState } from "./useJobProposals";
@@ -103,8 +105,30 @@ export function ProposalsSegment(props: ProposalsSegmentProps) {
   useEffect(() => {
     recordProposalInboxOpened(jobId);
   }, [jobId]);
+  // „Zapytaj w rozmowie” na karcie osoby — ten sam klucz co kafle i okno
+  // „Kandydaci do dodania”, więc odczyt dzieli z nimi cache.
+  const counts = useQuery({
+    queryKey: jobProposalsKeys.counts(jobId),
+    queryFn: ({ signal }) => jobProposalsApi.counts(jobId, signal),
+    staleTime: 30_000,
+    retry: false,
+  });
+  const talk = useMemo<ProposalTalkChecks | null>(
+    () =>
+      counts.data
+        ? { checks: talkChecksOf(counts.data), notSearchableMust: counts.data.not_searchable_must ?? [] }
+        : null,
+    [counts.data],
+  );
   return (
-    <ProposalsSegmentView {...props} proposals={proposals} filters={filters} onFiltersChange={setFilters} />
+    <ProposalsSegmentView
+      {...props}
+      proposals={proposals}
+      filters={filters}
+      onFiltersChange={setFilters}
+      talk={talk}
+      talkError={counts.isError ? apiErrorMessage(counts.error, "błąd serwera") : null}
+    />
   );
 }
 
@@ -112,6 +136,9 @@ export interface ProposalsSegmentViewProps extends ProposalsSegmentProps {
   proposals: JobProposalsState;
   filters: ProposalViewFilters;
   onFiltersChange: (next: ProposalViewFilters) => void;
+  /** „Zapytaj w rozmowie” dla karty osoby (`…/proposal-counts`). */
+  talk?: ProposalTalkChecks | null;
+  talkError?: string | null;
 }
 
 /**
@@ -136,6 +163,8 @@ export function ProposalsSegmentView({
   proposals,
   filters,
   onFiltersChange,
+  talk = null,
+  talkError = null,
 }: ProposalsSegmentViewProps) {
   const router = useRouter();
   const canAdd = useCanAddToRecruitment() && !readOnly;
@@ -472,6 +501,8 @@ export function ProposalsSegmentView({
               onVerified={() => { if (run.runId) void run.refresh(); }}
               adminTools={activeEntry && renderAdminTools ? renderAdminTools(activeEntry.row.candidateId) : undefined}
               matchDetails={activeEntry && renderMatchDetails ? renderMatchDetails(activeEntry.row.candidateId) : undefined}
+              talk={talk}
+              talkError={talkError}
             />
           </div>
         )}

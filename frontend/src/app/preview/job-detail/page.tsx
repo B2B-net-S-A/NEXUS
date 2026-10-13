@@ -921,6 +921,13 @@ function seededClient(): QueryClient {
     base: BASE.length,
     screened_out: 0,
     not_searchable_must: [PROSE_MUST],
+    // Wariant A (13.10.2026): „Rekruter sprawdza w rozmowie” — fikcyjne pozycje.
+    talk_checks: [
+      { label: "bankowość detaliczna", kind: "domains" },
+      { label: "ISTQB Foundation", kind: "certifications" },
+      { label: "angielski B2", kind: "language" },
+      { label: PROSE_MUST, kind: "must" },
+    ],
   });
   seedFresh(qc, jobProposalsKeys.facts(JOB_ID, POSTINGS.map((p) => p.id)), POSTINGS.map(factsOf));
   seedFresh(qc, jobProposalsKeys.facts(JOB_ID, BASE.map((p) => p.id)), BASE.map(factsOf));

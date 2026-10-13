@@ -38,6 +38,31 @@ describe("wiersze obowiązkowe czytają krytyczną jak bramka AI", () => {
     expect(split.preferred).toEqual([["Spring"]]);
   });
 
+  it("`must` = niekrytyczne wiersze Championa; `preferred` bez zmian (must + „mile widziane”)", () => {
+    const split = splitByCritical(
+      [["Java 17"], ["Spring"], ["SQL", "PL/SQL"]],
+      [["Scala"], ["spring"]],
+      critical({ effective: ["Java"], search_rows: [["Java"]] }),
+    );
+    expect(split.required).toEqual([["Java 17", "Java"]]);
+    expect(split.must).toEqual([["Spring"], ["SQL", "PL/SQL"]]);
+    // „spring” z „mile widzianych” to ten sam wiersz co must — nie dubluje się.
+    expect(split.preferred).toEqual([["Spring"], ["SQL", "PL/SQL"], ["Scala"]]);
+    expect(split.preferred.slice(0, split.must.length)).toEqual(split.must);
+    // Kopie, nie te same tablice: zmiana jednej listy nie rusza drugiej.
+    expect(split.preferred[0]).not.toBe(split.must[0]);
+  });
+
+  it("bez krytycznych wszystkie wiersze Championa są `must`, a filtry listy się nie zmieniają", () => {
+    const source = job({ search: { requirements: [["KYC"], ["AML"]] } });
+    const resolution = critical({ effective: [], search_rows: [] });
+    const plan = jobSearchPlan(source, resolution);
+    expect(plan.split.must).toEqual([["KYC"], ["AML"]]);
+    const filters = jobListFilters(source, null, resolution);
+    expect(filters.qAny).toEqual([]);
+    expect(filters.qPreferred).toEqual([["KYC"], ["AML"]]);
+  });
+
   it("odpowiedź bez `search_rows`: opcje bez wersji, „/”, „lub” i przykłady w nawiasie", () => {
     expect(
       criticalSearchRows(
