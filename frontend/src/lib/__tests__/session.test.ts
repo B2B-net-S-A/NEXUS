@@ -45,6 +45,16 @@ describe("clearSessionArtifacts", () => {
     expect(localStorage.getItem("nexus-full-job:7:42")).toBeNull();
   });
 
+  it("zostawia zapamiętany widok listy rekrutacji — to ustawienie osoby, nie dane sesji", () => {
+    // Decyzja 13.10.2026: ostatnie filtry przeżywają ponowne logowanie; wpis
+    // jest per osoba i niesie same klucze filtrów (`lib/jobs-list-memory.ts`).
+    localStorage.setItem("nexus:jobs-list-filters:7", "open=1&stage=searching");
+
+    clearSessionArtifacts();
+
+    expect(localStorage.getItem("nexus:jobs-list-filters:7")).toBe("open=1&stage=searching");
+  });
+
   it("usuwa szkice notatek z panelu osoby (sessionStorage)", () => {
     // Niewysłana notatka niesie dane kandydata — nie czeka na kolejną osobę.
     sessionStorage.setItem("nexus:note-draft:v1:7:10:42", "Oddzwonić po 15");

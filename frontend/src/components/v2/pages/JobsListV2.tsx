@@ -76,6 +76,7 @@ import {
   defaultSortForScope,
   effectiveScopeOverride,
   encodeJobsListUrl,
+  hasJobsListParams,
   initialDeadlineFromUrl,
   initialDeadlineRangeFromUrl,
   initialFlagFromUrl,
@@ -98,6 +99,11 @@ import {
   type JobSentFilterValue,
   type JobSortFilterValue,
 } from "@/lib/jobs-url-filters";
+import {
+  jobsListMemoryKey,
+  readJobsListMemory,
+  writeJobsListMemory,
+} from "@/lib/jobs-list-memory";
 import { jobDisplayTitle } from "@/lib/job-names";
 import { jobRowTitle, jobWorkModeParts } from "@/lib/job-row-summary";
 import { stageSummaryOf } from "@/lib/job-pipeline-funnel";
@@ -534,20 +540,75 @@ function JobsTable({
   );
 }
 
-export function JobsListV2() {
-  // Stan początkowy z URL-a, czytany raz przy montowaniu, a potem ZAPISYWANY
-  // z powrotem (efekt niżej) — F5 i „Wstecz" z profilu rekrutacji nie gubią
-  // zawężenia. Klucze kolumny filtrów sprzed 25.09.2026 (typ, status, osoba
-  // odpowiedzialna, „Szybkie”, Priority Work, `rs`/`ws`) nie są już filtrem:
-  // `rs`/`ws` mapują się na pigułki stanu, reszta znika z adresu.
+/** Wybory osoby odczytane z parametrów listy — z adresu albo z pamięci. */
+interface JobsListView {
+  search: string;
+  scopeChoice: JobScope | null;
+  stages: RequestStage[];
+  filters: JobsFilterBarValue;
+  sortOverride: JobSortValue | null;
+}
+
+function viewFromParams(params: URLSearchParams): JobsListView {
+  return {
+    search: initialSearchFromUrl(params),
+    scopeChoice: scopeOverrideFromUrl(params),
+    stages: initialStagesFromUrl(params),
+    filters: {
+      clientIds: initialIdsFromUrl(params, "client"),
+      deliveryLeadIds: initialIdsFromUrl(params, "lead"),
+      workedBy: initialIdsFromUrl(params, "who"),
+      nobodyWorking: initialFlagFromUrl(params, "nobody"),
+      ccIds: initialIdsFromUrl(params, "cc"),
+      deadline: initialDeadlineFromUrl(params),
+      deadlineRange: initialDeadlineRangeFromUrl(params),
+      sent: initialSentFromUrl(params),
+      priorityLevels: initialPriorityLevelsFromUrl(params),
+      openedRange: initialOpenedRangeFromUrl(params),
+    },
+    sortOverride: sortOverrideFromUrl(params),
+  };
+}
+
+/**
+ * Skąd jest widok na ekranie: `link` — z adresu z parametrami, nietknięty;
+ * `restored` — z gołego adresu (pamięć osoby albo domyślne roli), nietknięty;
+ * `user` — osoba coś zmieniła. Tylko `user` zapisuje pamięć: link z pulpitu
+ * nie może jej przykryć samym otwarciem.
+ */
+type ViewOrigin = "link" | "restored" | "user";
+
+export function JobsListV2({
+  memoryKey: memoryKeyProp,
+}: {
+  /** Klucz pamięci widoku; domyślnie wpis zalogowanej osoby, `null` = bez pamięci. */
+  memoryKey?: string | null;
+} = {}) {
   const searchParams = useSearchParams();
-  const [search, setSearch] = useState(() => initialSearchFromUrl(searchParams));
   // Zakres i sortowanie trzymamy jako NADPISANIA (`null` = „bez wyboru"):
   // zakres obowiązujący to jawny wybór albo domyślny roli, a sortowanie bez
   // wyboru idzie za zakresem. Dzięki temu lista reaguje na hydratację store'u
   // (rola znana dopiero po mount) bez gubienia jawnego `mine=0/1` z adresu.
   const authUser = useAuthStore((s) => s.user);
   const authHydrated = useAuthStore((s) => s.hydrated);
+  const memoryKey =
+    memoryKeyProp !== undefined ? memoryKeyProp : jobsListMemoryKey(authUser?.id);
+  // Stan początkowy czytany raz przy montowaniu, a potem ZAPISYWANY z powrotem
+  // do adresu (efekt niżej) — F5 i „Wstecz" z profilu rekrutacji nie gubią
+  // zawężenia. Adres z parametrami listy to link i wygrywa; goły adres (menu,
+  // okruszek, kafel pulpitu) otwiera ostatni widok osoby
+  // (`lib/jobs-list-memory.ts`). Klucze kolumny filtrów sprzed 25.09.2026
+  // (typ, status, osoba odpowiedzialna, „Szybkie”, Priority Work) nie są już
+  // filtrem i znikają z adresu; `rs`/`ws` mapują się na pigułki stanu.
+  const [entry] = useState(() => {
+    const route = new URLSearchParams(searchParams?.toString() ?? "");
+    const fromLink = hasJobsListParams(route);
+    const params = fromLink ? route : (readJobsListMemory(memoryKey) ?? route);
+    const origin: ViewOrigin = fromLink ? "link" : "restored";
+    return { view: viewFromParams(params), origin };
+  });
+  const [viewOrigin, setViewOrigin] = useState<ViewOrigin>(entry.origin);
+  const [search, setSearch] = useState(entry.view.search);
 
   // Liczniki zakresu, pigułek stanu i trzech przełączników — JEDNO zapytanie
   // (`/api/jobs/quick-counts`, marker parytetu „quick-counts”), niezależne od
@@ -570,9 +631,7 @@ export function JobsListV2() {
   // prowadzące startują w „Moich", nadzorujące (admin, HoR, Finanse, viewer) —
   // w „Otwartych", nie w całym rejestrze z tysiącami zamkniętych.
   const defaultScope = defaultScopeForUser(authUser);
-  const [scopeChoice, setScopeChoice] = useState<JobScope | null>(() =>
-    scopeOverrideFromUrl(searchParams),
-  );
+  const [scopeChoice, setScopeChoice] = useState(entry.view.scopeChoice);
   // `?mycat=1` u osoby bez kategorii = brak wyboru (zakres domyślny roli).
   const scopeOverride = effectiveScopeOverride(scopeChoice, categoryState);
   const scope = resolveScope(scopeOverride, authUser);
@@ -580,29 +639,15 @@ export function JobsListV2() {
   // ten zakres w ogóle obowiązuje — lista czeka, zamiast pytać dwa razy.
   const scopePending = scopeChoice === "category" && categoryState === "pending";
   const { mine, myCategory, openOnly } = scopeQueryFlags(scope);
-  const [stages, setStages] = useState<RequestStage[]>(() =>
-    initialStagesFromUrl(searchParams),
-  );
-  const [filterValue, setFilterValue] = useState<JobsFilterBarValue>(() => ({
-    clientIds: initialIdsFromUrl(searchParams, "client"),
-    deliveryLeadIds: initialIdsFromUrl(searchParams, "lead"),
-    workedBy: initialIdsFromUrl(searchParams, "who"),
-    nobodyWorking: initialFlagFromUrl(searchParams, "nobody"),
-    ccIds: initialIdsFromUrl(searchParams, "cc"),
-    deadline: initialDeadlineFromUrl(searchParams),
-    deadlineRange: initialDeadlineRangeFromUrl(searchParams),
-    sent: initialSentFromUrl(searchParams),
-    priorityLevels: initialPriorityLevelsFromUrl(searchParams),
-    openedRange: initialOpenedRangeFromUrl(searchParams),
-  }));
-  const [sortOverride, setSort] = useState<JobSortValue | null>(() =>
-    sortOverrideFromUrl(searchParams),
-  );
+  const [stages, setStages] = useState(entry.view.stages);
+  const [filterValue, setFilterValue] = useState(entry.view.filters);
+  const [sortOverride, setSort] = useState(entry.view.sortOverride);
   const sort: JobSortValue = sortOverride ?? defaultSortForScope(scope);
   const [page, setPage] = useState(1);
   const patchFilters = (patch: Partial<JobsFilterBarValue>) => {
     setFilterValue((prev) => ({ ...prev, ...patch }));
     setPage(1);
+    setViewOrigin("user");
   };
   const [similarForJob, setSimilarForJob] = useState<number | null>(null);
   const [inviteModalForJob, setInviteModalForJob] = useState<number | null>(null);
@@ -618,58 +663,102 @@ export function JobsListV2() {
   const changeScope = (nextScope: JobScope | null) => {
     setScopeChoice(nextScope);
     setPage(1);
+    setViewOrigin("user");
   };
 
   // Do zapytania idzie wartość zdebouncowana, do inputa surowa — inaczej każde
   // naciśnięcie klawisza wysyłało request i przerzucało tabelę w stan ładowania.
   const debouncedSearch = useDebouncedValue(search, 300);
 
+  const urlState = useMemo(
+    () => ({
+      scope,
+      defaultScope,
+      deadline: filterValue.deadline,
+      deadlineRange: filterValue.deadlineRange,
+      sort,
+      stages,
+      clientIds: filterValue.clientIds,
+      ccIds: filterValue.ccIds,
+      deliveryLeadIds: filterValue.deliveryLeadIds,
+      workedBy: filterValue.workedBy,
+      nobodyWorking: filterValue.nobodyWorking,
+      sent: filterValue.sent,
+      priorityLevels: filterValue.priorityLevels,
+      openedRange: filterValue.openedRange,
+    }),
+    [scope, defaultScope, sort, stages, filterValue],
+  );
+  // Nietknięty link z jawnym zakresem trzyma go w adresie, nawet gdy to zakres
+  // domyślny roli: inaczej `/jobs?mine=1` u rekrutera stawałby się gołym
+  // adresem, a „Wstecz” z rekrutacji otwierałby pamięć zamiast „Moich”.
+  const keepScope = viewOrigin === "link" && scopeOverride !== null;
+  const routeQuery = searchParams?.toString() ?? "";
+
   // Filtry → URL. `replaceState`, nie `router.replace`: zmiana filtra nie jest
   // nawigacją (nie ma zostawiać wpisu w historii ani przebudowywać drzewa),
-  // a stan i tak żyje w komponencie. Lustro `CandidatesListV2`.
+  // a stan i tak żyje w komponencie. Lustro `CandidatesListV2`. `routeQuery`
+  // w zależnościach: po nawigacji routera na goły `/jobs` przy zachowanych
+  // filtrach adres dostaje je z powrotem.
   useEffect(() => {
     const qs = encodeJobsListUrl(
-      {
-        scope,
-        defaultScope,
-        deadline: filterValue.deadline,
-        deadlineRange: filterValue.deadlineRange,
-        sort,
-        q: debouncedSearch,
-        stages,
-        clientIds: filterValue.clientIds,
-        ccIds: filterValue.ccIds,
-        deliveryLeadIds: filterValue.deliveryLeadIds,
-        workedBy: filterValue.workedBy,
-        nobodyWorking: filterValue.nobodyWorking,
-        sent: filterValue.sent,
-        priorityLevels: filterValue.priorityLevels,
-        openedRange: filterValue.openedRange,
-      },
+      { ...urlState, q: debouncedSearch, keepScope },
       new URLSearchParams(window.location.search),
     );
     const target = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
     if (target !== `${window.location.pathname}${window.location.search}`) {
       window.history.replaceState(window.history.state, "", target);
     }
-  }, [scope, defaultScope, sort, debouncedSearch, stages, filterValue]);
+  }, [urlState, debouncedSearch, keepScope, routeQuery]);
 
-  // Runda 10 (R10-N15-12): „Rekrutacje” z menu na przefiltrowanej liście to
-  // miękka nawigacja na goły `/jobs` — komponent zostaje, a stan filtrów
-  // czytany był tylko przy montowaniu. Goły adres = ta sama lista co po F5
-  // (lustro `CandidatesListV2`). Własne zapisy adresu dają goły adres tylko
-  // przy stanie domyślnym, więc reset jest wtedy bez skutku.
-  const routeQuery = searchParams?.toString() ?? "";
-  const [seenRouteQuery, setSeenRouteQuery] = useState(routeQuery);
-  if (routeQuery !== seenRouteQuery) {
-    setSeenRouteQuery(routeQuery);
-    if (routeQuery === "") {
-      setSearch("");
-      setScopeChoice(null);
-      setStages([]);
-      setFilterValue(EMPTY_FILTERS);
-      setSort(null);
-      setPage(1);
+  // Pamięć widoku osoby: to, co na ekranie, bez szukajki. Widok z samymi
+  // wartościami domyślnymi kasuje wpis, więc „Wyczyść” nie ma osobnej ścieżki.
+  const memoryQuery = useMemo(() => encodeJobsListUrl(urlState), [urlState]);
+  useEffect(() => {
+    if (viewOrigin === "user") writeJobsListMemory(memoryKey, memoryQuery);
+  }, [viewOrigin, memoryKey, memoryQuery]);
+
+  const applyView = (view: JobsListView, origin: ViewOrigin, keepSearch = false) => {
+    if (!keepSearch) setSearch(view.search);
+    setScopeChoice(view.scopeChoice);
+    setStages(view.stages);
+    setFilterValue(view.filters);
+    setSort(view.sortOverride);
+    setPage(1);
+    setViewOrigin(origin);
+  };
+
+  // Nawigacja routera przy otwartej liście. Własne zapisy adresu są dla Next
+  // niewidoczne (`history.state` niesie jego znacznik), więc każda zmiana
+  // `useSearchParams` to prawdziwa nawigacja: link z parametrami pokazuje swój
+  // widok, a goły `/jobs` („Rekrutacje” w menu) zostawia filtry osoby — reset
+  // robi wyłącznie „Wyczyść”. Tylko nietknięty widok z linku ustępuje wtedy
+  // ostatniemu widokowi osoby.
+  const [seen, setSeen] = useState({ routeQuery, memoryKey });
+  if (routeQuery !== seen.routeQuery || memoryKey !== seen.memoryKey) {
+    setSeen({ routeQuery, memoryKey });
+    const route = new URLSearchParams(routeQuery);
+    const routeChanged = routeQuery !== seen.routeQuery;
+    const personChanged = memoryKey !== seen.memoryKey && seen.memoryKey !== null;
+    if (routeChanged && hasJobsListParams(route)) {
+      applyView(viewFromParams(route), "link");
+    } else if (personChanged && viewOrigin !== "link") {
+      // Inna osoba przy otwartej liście („podgląd jako”, wylogowanie — tuż
+      // przed przeładowaniem strony): jej widok albo domyślne. Cudze filtry
+      // nie trafiają ani na ekran, ani do jej pamięci.
+      applyView(
+        viewFromParams(readJobsListMemory(memoryKey) ?? new URLSearchParams()),
+        "restored",
+      );
+    } else if (routeChanged) {
+      if (viewOrigin === "link") {
+        applyView(viewFromParams(readJobsListMemory(memoryKey) ?? route), "restored");
+      }
+    } else if (viewOrigin === "restored") {
+      // Store zhydratowany po montowaniu: pamięć wchodzi przed pierwszym
+      // zapytaniem (czeka na `authHydrated`); wpisanego tekstu nie rusza.
+      const saved = readJobsListMemory(memoryKey);
+      if (saved) applyView(viewFromParams(saved), "restored", true);
     }
   }
 
@@ -1025,6 +1114,7 @@ export function JobsListV2() {
               onValueChange={(v) => {
                 setSort(v as JobSortValue);
                 setPage(1);
+                setViewOrigin("user");
               }}
             >
               <SelectTrigger className="h-9 w-[170px] font-medium" data-help="jobs.list.sort">
@@ -1066,6 +1156,7 @@ export function JobsListV2() {
                       on ? prev.filter((s) => s !== value) : [...prev, value],
                     );
                     setPage(1);
+                    setViewOrigin("user");
                   }}
                   className={cn(
                     "inline-flex h-7 items-center gap-1.5 rounded-full border px-3 text-xs transition-colors",

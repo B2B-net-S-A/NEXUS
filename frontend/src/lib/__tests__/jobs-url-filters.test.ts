@@ -19,8 +19,10 @@ import {
   defaultSortForScope,
   effectiveScopeOverride,
   encodeJobsListUrl,
+  hasJobsListParams,
   initialDeadlineFromUrl,
   initialDeadlineRangeFromUrl,
+  initialIdsFromUrl,
   initialOpenedRangeFromUrl,
   initialPriorityLevelsFromUrl,
   initialSentFromUrl,
@@ -538,5 +540,70 @@ describe("„Wysłanych do klienta” → min_sent / max_sent", () => {
   it("nieznana wartość w adresie = dowolnie", () => {
     expect(initialSentFromUrl(new URLSearchParams("sent=100"))).toBe("any");
     expect(initialSentFromUrl(new URLSearchParams("sent=none"))).toBe("none");
+  });
+});
+
+describe("goły adres czy link z widokiem (pamięć listy, 13.10.2026)", () => {
+  it("adres z kluczem, który lista czyta, jest linkiem", () => {
+    for (const query of [
+      "mine=1",
+      "mine=0",
+      "open=1",
+      "mycat=1",
+      "stage=searching",
+      "q=java",
+      "client=5",
+      "who=7",
+      "prio=p1",
+      "sort=oldest",
+      "deadline=overdue",
+      "op_from=2026-10-01",
+      "rs=champion",
+      "ws=searching",
+    ]) {
+      expect(hasJobsListParams(new URLSearchParams(query)), query).toBe(true);
+    }
+  });
+
+  it("goły adres, obce parametry i martwe klucze sprzed 25.09.2026 to nie link", () => {
+    for (const query of [
+      "",
+      "utm_source=mail",
+      "status=published",
+      "type=sales&responsible=3",
+      "priority=1&sourcing=1&active_search=1&no_owner=1",
+    ]) {
+      expect(hasJobsListParams(new URLSearchParams(query)), query).toBe(false);
+    }
+  });
+
+  it("`keepScope` zostawia w adresie zakres równy domyślnemu roli", () => {
+    const state = {
+      scope: "mine" as const,
+      defaultScope: "mine" as const,
+      deadline: "any" as const,
+      sort: "attention" as const,
+    };
+    expect(encodeJobsListUrl(state)).toBe("");
+    expect(encodeJobsListUrl({ ...state, keepScope: true })).toBe("mine=1");
+    expect(
+      encodeJobsListUrl({ ...state, scope: "open", defaultScope: "open", sort: "newest", keepScope: true }),
+    ).toBe("open=1");
+  });
+
+  it("zapis widoku jest stabilny: odczyt i ponowny zapis dają ten sam napis", () => {
+    const query = "open=1&deadline=overdue&stage=champion&stage=searching&client=5&who=7&prio=p1";
+    const params = new URLSearchParams(query);
+    const again = encodeJobsListUrl({
+      scope: scopeOverrideFromUrl(params) ?? "mine",
+      defaultScope: "mine",
+      deadline: initialDeadlineFromUrl(params),
+      sort: sortOverrideFromUrl(params) ?? "newest",
+      stages: initialStagesFromUrl(params),
+      clientIds: initialIdsFromUrl(params, "client"),
+      workedBy: initialIdsFromUrl(params, "who"),
+      priorityLevels: initialPriorityLevelsFromUrl(params),
+    });
+    expect(again).toBe(query);
   });
 });

@@ -666,3 +666,66 @@ test.describe("zakładka zapisana w adresie nie przewija strony", () => {
     }
   });
 });
+
+/**
+ * Lista rekrutacji pamięta ostatni widok osoby (13.10.2026). Powroty, które
+ * zależą od prawdziwego routera i historii przeglądarki — jsdom ich nie
+ * pokaże: goły adres (menu „Rekrutacje”), „Wstecz” do linku z zakresem
+ * równym domyślnemu roli i „Rekrutacje” kliknięte na otwartej liście.
+ * Harness ma własny klucz pamięci i zasiane cztery zakresy, więc każdy krok
+ * pokazuje wiersze bez sieci.
+ */
+test.describe("lista rekrutacji — ostatnie filtry wracają po wyjściu", () => {
+  const LIST = "/preview/jobs-list-v3";
+  const scope = (page: Page, name: RegExp) =>
+    page.getByRole("group", { name: "Zakres rekrutacji" }).getByRole("button", { name });
+  /** Nawigacja routera aplikacji — to samo, co robi link w menu bocznym. */
+  const routerPush = (page: Page, href: string) =>
+    page.evaluate((to) => {
+      (window as unknown as { next: { router: { push: (url: string) => void } } }).next.router.push(to);
+    }, href);
+
+  test("goły adres otwiera ostatni widok, a link z zakresem wygrywa także po „Wstecz”", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto(LIST);
+    await expect(scope(page, /Moje/)).toHaveAttribute("aria-pressed", "true");
+    await scope(page, /Otwarte/).click();
+    await expect(page).toHaveURL(/open=1/);
+
+    await routerPush(page, "/login");
+    await expect(page).toHaveURL(/\/login/);
+    await routerPush(page, LIST);
+    await expect(scope(page, /Otwarte/)).toHaveAttribute("aria-pressed", "true");
+    await expect(page).toHaveURL(/open=1/);
+    await expect(page.locator("tbody tr").first()).toBeVisible();
+
+    // Link z zakresem domyślnym roli pokazuje „Moje” i trzyma zakres w adresie,
+    // więc „Wstecz” z innej strony wraca do „Moich”, nie do zapamiętanych „Otwartych”.
+    await routerPush(page, `${LIST}?mine=1`);
+    await expect(scope(page, /Moje/)).toHaveAttribute("aria-pressed", "true");
+    await expect(page).toHaveURL(/mine=1/);
+    await routerPush(page, "/login");
+    await expect(page).toHaveURL(/\/login/);
+    await page.goBack();
+    await expect(scope(page, /Moje/)).toHaveAttribute("aria-pressed", "true");
+  });
+
+  test("„Rekrutacje” kliknięte na otwartej liście nie gubi filtrów", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto(LIST);
+    await scope(page, /Wszystkie/).click();
+    await expect(page).toHaveURL(/mine=0/);
+
+    // Lista otwarta z gołego adresu: router widzi ten sam adres, komponent zostaje.
+    // Nowy wpis historii = router skończył tę nawigację, zanim pójdzie następna.
+    const entries = await page.evaluate(() => window.history.length);
+    await routerPush(page, LIST);
+    await expect.poll(() => page.evaluate(() => window.history.length)).toBe(entries + 1);
+    await expect(scope(page, /Wszystkie/)).toHaveAttribute("aria-pressed", "true");
+    await routerPush(page, "/login");
+    await expect(page).toHaveURL(/\/login/);
+    await page.goBack();
+    await expect(scope(page, /Wszystkie/)).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator("tbody tr").first()).toBeVisible();
+  });
+});

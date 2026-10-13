@@ -148,6 +148,8 @@ function setAddress(search: string) {
 }
 
 beforeEach(() => {
+  // Lista pamięta ostatni widok osoby (localStorage) — nie między testami.
+  window.localStorage.clear();
   signInAs("recruiter");
   getMock.mockReset();
   quickCountsMock.mockReset();

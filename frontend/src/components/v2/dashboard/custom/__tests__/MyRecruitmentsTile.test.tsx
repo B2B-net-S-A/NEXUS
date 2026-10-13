@@ -69,6 +69,8 @@ describe("MyRecruitmentsTile", () => {
     getMock.mockResolvedValue({ data: { items: [], total: 0 } })
     renderTile()
     expect(await screen.findByText("Nie masz otwartych rekrutacji.")).toBeInTheDocument()
+    // Jawny zakres: goły `/jobs` otwierałby ostatni widok osoby, nie „Moje”.
+    expect(screen.getByRole("link", { name: /Wszystkie/ })).toHaveAttribute("href", "/jobs?mine=1")
     expect(getMock).toHaveBeenCalledWith("/api/jobs", {
       params: expect.objectContaining({ mine: true, open_only: true, include_stage_counts: true }),
     })
@@ -85,6 +87,7 @@ describe("MyRecruitmentsTile", () => {
     getMock.mockResolvedValue({ data: { items: rows, total: 2 } })
     renderTile()
     expect(await screen.findByRole("link", { name: "Java Developer" })).toHaveAttribute("href", "/jobs/1")
+    expect(screen.getByRole("link", { name: /Wszystkie/ })).toHaveAttribute("href", "/jobs?mine=1")
     expect(screen.getAllByTestId("job-stage-counts")).toHaveLength(2)
     expect(screen.queryByRole("columnheader", { name: "Twoja rola" })).toBeNull()
     expect(screen.queryByRole("columnheader", { name: "Rekruter" })).toBeNull()
