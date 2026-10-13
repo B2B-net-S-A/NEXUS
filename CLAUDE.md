@@ -195,7 +195,7 @@ Lista `/jobs`, Tablica, ruch kart i bramki, panel osoby, QC CV i Cpro, przegląd
 - `role-przy-rekrutacji-delivery-lead-rekruter.md` — Role przy rekrutacji: Delivery Lead · Rekruter · Kategoria; propozycje automatu akceptuje Head of Recruitment (0409, 02.10.2026)
 - `sciezka-kandydata-przekazania-zweryfikowany-jeden.md` — Ścieżka kandydata: przekazania, „Zweryfikowany”, jeden panel osoby (04.10.2026)
 - `twoje-cv-w-drodze-na-pulpicie-domyslnie-u-kazdego-z.md` — „Twoje CV w drodze” na pulpicie — domyślnie u każdego, z „Usuń z pulpitu” (02.10.2026)
-- `zamkniecie-rekrutacji-osoby-w-toku.md` — Zamknięcie rekrutacji ostrzega o osobach w toku (13.10.2026) · 409 `active_cards_warning` z `POST /api/jobs/{id}/close`, potwierdzenie `acknowledge_active_cards`, oba okna zamykania, czego ostrzeżenie nie robi
+- `zamkniecie-rekrutacji-osoby-w-toku.md` — Zamknięcie rekrutacji ostrzega o osobach w toku (13.10.2026) · 409 `active_cards_warning` z `POST /api/jobs/{id}/close` i z `PATCH` statusem, potwierdzenie `acknowledge_active_cards`, trzy okna zamykania, czego ostrzeżenie nie robi
 
 ### Screening, notatki, stawki kandydata — `docs/claude/screening-notatki/`
 

@@ -20,10 +20,15 @@ pokazują zdanie z serwera jako błąd. Karta w toku i integracja — bez zmian.
 **Było:** zamknięcie zmienia status i nie rusza kart, a okno nic o nich nie
 mówiło. 12.10.2026 zamknięto tak duplikat requestu z pięcioma kartami w toku.
 
-**Jest:** `POST /api/jobs/{id}/close` bez potwierdzenia odpowiada 409
+**Jest:** `POST /api/jobs/{id}/close` i zamknięcie statusem z okna edycji
+(`PATCH /api/jobs/{id}`) bez potwierdzenia odpowiadają 409
 `active_cards_warning` z liczbą osób per kolumna Tablicy i dniem ostatniego
-ruchu. Oba okna zamykania pokazują ostrzeżenie i przycisk „Zamknij mimo to”.
+ruchu. Trzy okna zamykania („Zamknij rekrutację z powodem”, „Zamknij jako
+przegraną”, „Edytuj rekrutację”) pokazują ostrzeżenie i przycisk „…mimo to”.
 Ostrzeżenie niczego nie robi z kartami; automaty zamykają jak dotąd.
+
+Trzecią drogę (okno edycji) i panel zamkniętej karty poza widokiem w oknie
+„Przypisz do rekrutacji” wskazał przegląd kodu przed otwarciem PR-a.
 
 Reguły: `docs/claude/rekrutacja-tablica/dodaj-do-rekrutacji-zamknieta-karta.md`,
 `docs/claude/rekrutacja-tablica/zamkniecie-rekrutacji-osoby-w-toku.md`.
@@ -41,7 +46,9 @@ Reguły: `docs/claude/rekrutacja-tablica/dodaj-do-rekrutacji-zamknieta-karta.md`
 
 Niesprawdzone w przeglądarce: panel zamkniętej karty wewnątrz okna „Przypisz do
 rekrutacji” (ten sam komponent co w oknie dodawania, obejrzany 12.10; test okna
-zastępuje hak ruchu atrapą).
+zastępuje hak ruchu atrapą; panel przewija się do widoku przy pojawieniu)
+oraz ostrzeżenie w oknie „Edytuj rekrutację” (test komponentu, ta sama ramka
+co w oknie zamykania).
 
 ## Poza zakresem
 

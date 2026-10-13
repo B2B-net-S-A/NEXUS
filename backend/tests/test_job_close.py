@@ -250,3 +250,34 @@ async def test_close_with_only_closed_cards_needs_no_confirmation(
         headers=app_auth_headers,
     )
     assert closed.status_code == 200, closed.text
+
+
+async def test_closing_from_the_edit_window_warns_the_same_way(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    """Pole „Status” w oknie edycji to trzecia droga zamknięcia (lustro
+    ``close_job``) — bez tej samej odmowy ostrzeżenie dałoby się ominąć."""
+    job_id = await _create_draft_job(
+        app_client, app_auth_headers, "pytest-close-edit-window"
+    )
+    await _seed_candidate_in_job(job_id, "new")
+
+    warned = await app_client.patch(
+        f"/api/jobs/{job_id}", json={"status": "closed"}, headers=app_auth_headers
+    )
+    assert warned.status_code == 409, warned.text
+    detail = warned.json()["detail"]
+    assert detail["code"] == "active_cards_warning"
+    assert detail["columns"] == {"new": 1}
+
+    still_open = await app_client.get(f"/api/jobs/{job_id}", headers=app_auth_headers)
+    assert still_open.json()["status"] == "published"
+
+    closed = await app_client.patch(
+        f"/api/jobs/{job_id}",
+        params={"acknowledge_active_cards": "true"},
+        json={"status": "closed"},
+        headers=app_auth_headers,
+    )
+    assert closed.status_code == 200, closed.text
+    assert closed.json()["status"] == "closed"

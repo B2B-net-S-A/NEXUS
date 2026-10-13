@@ -10,7 +10,7 @@
  * dopiero wtedy, gdy serwer odpowie zamkniętą kartą.
  */
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
 import {
@@ -30,6 +30,12 @@ interface ClosedCardRestoreProps {
 export function ClosedCardRestore({ job, row, onRestored }: ClosedCardRestoreProps) {
   const move = usePipelineMoveCore({ jobId: job.id });
   const [restoring, setRestoring] = useState(false);
+  // Ekran pokazuje panel nad listą rekrutacji, a „Przypisz” bywa kliknięte
+  // daleko niżej — bez przewinięcia odmowa byłaby poza widokiem.
+  const panel = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    panel.current?.scrollIntoView?.({ block: "nearest" });
+  }, [job.id]);
 
   const restore = async () => {
     setRestoring(true);
@@ -48,7 +54,7 @@ export function ClosedCardRestore({ job, row, onRestored }: ClosedCardRestorePro
   };
 
   return (
-    <>
+    <div ref={panel}>
       <AddToRecruitmentOutcome
         headline={`Nie przypisano do „${job.title}”.`}
         closedRows={[row]}
@@ -58,6 +64,6 @@ export function ClosedCardRestore({ job, row, onRestored }: ClosedCardRestorePro
         onRestore={() => void restore()}
       />
       {move.dialogs}
-    </>
+    </div>
   );
 }

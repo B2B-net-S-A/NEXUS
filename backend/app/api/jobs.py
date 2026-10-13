@@ -2323,6 +2323,9 @@ async def update_job(
     current_user: JobEditUser,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    # Potwierdzenie ostrzeżenia o osobach w toku przy zamknięciu statusem —
+    # w adresie, nie w ciele: `JobUpdate` to wyłącznie pola rekrutacji.
+    acknowledge_active_cards: bool = Query(False),
 ):
     # Zmiana rekrutera rusza przypisania do requestu, a te chroni blokada
     # przydziału — bierzemy ją PRZED wierszem rekrutacji (kolejność z
@@ -2368,6 +2371,15 @@ async def update_job(
                     ),
                 },
             )
+        if data.status == JobStatus.closed and not acknowledge_active_cards:
+            # Lustro `close_job` (13.10.2026): okno edycji zamyka rekrutację
+            # tak samo jak okno z powodem, więc tak samo ostrzega o osobach
+            # w toku. Przed pierwszą zmianą — odmowa niczego nie zapisuje.
+            from app.services.job_active_cards import load_active_cards
+
+            active = await load_active_cards(db, job.id)
+            if active.total:
+                raise HTTPException(status_code=409, detail=active.warning_detail())
     # Ochrona rekrutacji w pracy: zapis odmawia tylko przy NOWYM braku bramki
     # przekazania (porównanie po kodach, przed i po zapisie).
     regression_baseline = job_lifecycle.regression_baseline(job)
