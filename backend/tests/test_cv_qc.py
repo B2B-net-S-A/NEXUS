@@ -1006,6 +1006,33 @@ def test_parse_fixes_drops_quotes_outside_sources() -> None:
     assert fixes[0]["current_text"] == "Rozwój usług w Java i Spring."
 
 
+def test_parse_fixes_keeps_a_quote_copied_from_fenced_text() -> None:
+    """Ogrodzenie podmienia `<` w zapisie typu `Flux<User>`; cytat skopiowany
+    przez model z takiego tekstu nadal stoi w źródle."""
+    from app.services.prompt_fencing import neutralize_tags
+
+    sentence = "Wdrażał usługi Flux<User> na Kubernetes w zespole platformy."
+    material = _material()
+    material["notes"] = sentence
+    raw = json.dumps(
+        {
+            "fixes": [
+                {
+                    "requirement": "Kubernetes",
+                    "role": "Senior Developer · Acme Bank",
+                    "current_text": None,
+                    "proposed_text": "Wdrażał usługi na **Kubernetes** w zespole platformy.",
+                    "source": "notes",
+                    "source_quote": neutralize_tags(sentence),
+                }
+            ]
+        }
+    )
+    assert neutralize_tags(sentence) != sentence
+    fixes = qc.parse_fixes(raw, material, "d" * 64)
+    assert len(fixes) == 1 and fixes[0]["source_quote"] == sentence
+
+
 def test_parse_fixes_quote_from_notes_and_unknown_current_text() -> None:
     raw = json.dumps(
         {

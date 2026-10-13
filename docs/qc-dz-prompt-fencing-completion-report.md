@@ -35,6 +35,19 @@ Kontrola wyniku w kodzie ogranicza skutki, ale nie zastępuje ogrodzenia.
 | Regresja | zielone lokalnie | pozostałe testy `test_cv_qc.py`, `test_dz_review.py`, `test_prompt_fencing.py` bez bazy; strażnicy czytający źródła; `ruff` |
 | Testy z bazą | w CI | pamięć podpowiedzi (`dz_review_hints`) i trasy QC wymagają Postgresa |
 
+## Przegląd bezpieczeństwa (13.10.2026)
+
+Nic blokującego: 15 552 warianty wrogiego tekstu we wszystkich polach naraz
+(znaczniki otwierające i zamykające, wielkość liter, 12 rodzajów odstępów)
+zostawiają dokładnie jeden znacznik otwierający i zamykający na blok; żadna
+niezaufana wartość nie stoi poza ogrodzeniem; podbicie wersji to tylko
+ponowne policzenie podpowiedzi.
+
+Jedna uwaga naniesiona: ogrodzenie podmienia `<` także w zwykłym zapisie typu
+`Flux<User>`, a model cytuje to, co widzi — cytat z podmienionym znakiem nie
+przechodził kontroli „stoi w źródle” i propozycja odpadała. Parsery odwracają
+teraz podmianę w cytacie (`prompt_fencing.restore_tags`), z testami.
+
 ## Niepotwierdzone
 
 - Jakość odpowiedzi modelu na nowym układzie promptu — testy podmieniają model.

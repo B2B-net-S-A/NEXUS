@@ -488,6 +488,32 @@ def test_hints_prompt_marks_missing_texts() -> None:
     assert "(brak tekstu oryginału)" in prompt and "(brak opisu)" in prompt
 
 
+def test_parse_hints_keeps_a_quote_copied_from_fenced_text() -> None:
+    """Ogrodzenie podmienia `<` w zapisie typu `Flux<User>`; cytat skopiowany
+    przez model z takiego tekstu nadal stoi w źródle."""
+    from app.services.prompt_fencing import neutralize_tags
+
+    original = "Mapowanie zdarzeń Kafka do Flux<User> w usłudze płatności."
+    material = {"generated": "Programista **Java**", "original": original}
+    raw = json.dumps(
+        {
+            "verdict": "fix",
+            "hints": [
+                {
+                    "kind": "missing_in_role",
+                    "severity": "medium",
+                    "must_have": "Kafka",
+                    "message": "Dopisz Kafka w roli.",
+                    "quote": neutralize_tags(original),
+                }
+            ],
+        }
+    )
+    assert neutralize_tags(original) != original
+    out = svc.parse_hints(raw, material)
+    assert out["hints"][0]["quote"] == original
+
+
 def test_parse_hints_drops_quotes_not_found_in_either_cv() -> None:
     material = {"generated": "Programista **Java**", "original": "Java Kubernetes"}
     raw = json.dumps(

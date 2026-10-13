@@ -14,6 +14,7 @@ Raport: `docs/audit-2026-09-22-round2-completion-report.md`. Migracja `0351_audi
   (`dz_review.hints_prompt`: `cv_checks`, `client_request`, `cv_for_client`, `original_cv`) — zapytanie klienta to też tekst z zewnątrz.
   Nazwa znacznika musi pasować do `_TAG_RE` (inaczej dane go zamkną), a zdanie o „DANYCH” w prompcie nie może wypisywać znaczników
   w nawiasach ostrych. Prompt z pamięcią wyników (`FIXES_PROMPT_VERSION`, `dz_review.PROMPT_VERSION` w skrócie wejścia): zmiana treści = podbicie wersji.
+  Cytat, który model kopiuje z ogrodzonych danych, przed porównaniem ze źródłem przechodzi przez `restore_tags` (ogrodzenie podmienia `<` także w `Flux<User>`).
 - **`SECRET_KEY` z historii gita** daje `logger.error` przy starcie (`log_if_secret_key_leaked`) — nigdy wyjątek. Log znika po rotacji.
 - **`seed.py` działa tylko przy `NEXUS_DEMO_SEED=true`** (dev, stos E2E); na produkcji w logu „seed skipped”.
 - **Mail:** klucz wysyłki = użytkownik + `client_request_id` + `content_fingerprint` (temat, odbiorcy, treść) — poprawiona treść to nowa wysyłka. Maile odrzucenia mają stały klucz `scheduled-rejection:{id}`; `EmailSendConflict` zamyka wiersz jako `failed` (`send_outcome_*`) z prośbą o sprawdzenie Wysłanych, nigdy nie ponawia. `@removed` z delty nie kasuje maila powiązanego z kandydatem ani wysłanego z NEXUSA; adopcja po `internetMessageId` i dedup zależą od kierunku. Start kontenera: `pending` starsze niż minuta → `uncertain` (plakietki w wątku). Zaproszenie kalendarza niesie `client_request_id` okna → `transactionId`.

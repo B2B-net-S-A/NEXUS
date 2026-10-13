@@ -54,7 +54,7 @@ from app.models.recruitment_pipeline import CandidateStage
 from app.services import dz_review as dz
 from app.services.recommendation_card_parser import AI_HIDDEN_FIELDS, redact_card_text
 from app.services.dz_review import Block, Requirement, Role
-from app.services.prompt_fencing import fence
+from app.services.prompt_fencing import fence, restore_tags
 from app.core.scheduling import business_today
 
 logger = logging.getLogger(__name__)
@@ -2513,7 +2513,8 @@ def parse_fixes(raw: str, material: dict, digest: str) -> list[dict]:
         if item is None or key in used:
             continue
         proposed = " ".join(str(entry.get("proposed_text") or "").split())
-        quote = " ".join(str(entry.get("source_quote") or "").split())
+        # Model cytuje ogrodzony tekst — z podmienionym `<` przed „znacznikiem”.
+        quote = " ".join(restore_tags(str(entry.get("source_quote") or "")).split())
         if not proposed or not quote or len(proposed) > PROPOSED_TEXT_MAX:
             continue
         if len(quote.split()) < SOURCE_QUOTE_MIN_WORDS or is_tech_list(quote):

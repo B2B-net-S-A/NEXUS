@@ -51,7 +51,7 @@ from app.models.recruitment_pipeline import CandidateStage
 from app.services.cv_enrichment import company_norm
 from app.services.cv_rodo_clause import is_rodo_text
 from app.services.keyword_terms import parse_keyword, py_regex
-from app.services.prompt_fencing import fence, json_for_prompt
+from app.services.prompt_fencing import fence, json_for_prompt, restore_tags
 
 logger = logging.getLogger(__name__)
 
@@ -1466,7 +1466,8 @@ def parse_hints(raw: str, material: dict) -> dict:
             item.get("severity") if item.get("severity") in _SEVERITIES else "medium"
         )
         quote = item.get("quote")
-        quote = str(quote).strip() if quote else None
+        # Model cytuje ogrodzony tekst — z podmienionym `<` przed „znacznikiem”.
+        quote = restore_tags(str(quote)).strip() if quote else None
         if quote and _norm(quote) not in haystack:
             quote = None
         must_have = item.get("must_have")
