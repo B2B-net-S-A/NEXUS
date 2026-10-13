@@ -18,6 +18,7 @@ import { cardBadgeLabel } from "@/lib/candidate-followup";
 import { WHY_CANDIDATE_LABEL } from "@/lib/pipeline-next-action";
 import { autoMatchBadgeLabel, autoMatchBadgeTitle } from "@/lib/candidate-notes-view";
 import { rateArrowLine, rateChangeBadgeText } from "@/lib/rate-change";
+import { warsawToday } from "@/lib/warsaw-date";
 
 export type CardBadgeTone =
   | "own"
@@ -54,6 +55,9 @@ export interface CardBadgeContext {
   now: Date;
   /** Odznaka etapu karty — „Z ogłoszenia" z etapu nie powtarza się ze źródła. */
   stageBadge?: string | null;
+  /** Przegląd przed wysłaniem do klienta w tej rekrutacji należy do patrzącego
+   *  (serwer: `viewer_owns_dl_review`) — „Czeka na Ciebie” zamiast „Czeka na DL”. */
+  viewerOwnsDlReview?: boolean;
 }
 
 export const CARD_BADGE_TONE_CLASS: Record<CardBadgeTone, string> = {
@@ -90,6 +94,66 @@ function daysLabel(days: number): string {
   if (days <= 0) return "dziś";
   if (days === 1) return "1 dzień";
   return `${days} dni`;
+}
+
+// ── „Do wysłania do klienta” (13.10.2026) ───────────────────────────────────
+
+const DAY_MS = 86_400_000;
+
+/**
+ * Karta czeka na wysłanie do klienta przez Delivery Leada: kolumna „QC CV”
+ * poza kolejką Cpro, a CV przeszło QC albo ktoś je przepuścił. Przy
+ * niesprawdzonym lub niezaliczonym QC ruch ma rekruter.
+ */
+export function isReadyForDlSend(
+  item: KanbanItem,
+  column: BoardColumnKey | null,
+  cproEnabled: boolean,
+): boolean {
+  if (column !== "cv_qc" || cproEnabled) return false;
+  return item.qc?.status === "passed" || item.qc?.status === "overridden";
+}
+
+function timeOf(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+/**
+ * Od kiedy karta jest gotowa do wysłania: późniejsze z wejścia do kolumny
+ * i zaliczenia QC — karta bywa w „QC CV” kilka dni, zanim QC przejdzie.
+ * `null` = tablica nie zna którejś z dat (starszy serwer).
+ */
+function dlReadySince(item: KanbanItem): number | null {
+  const moved = timeOf(item.moved_at);
+  const ok = timeOf(item.qc?.ok_at);
+  return moved == null || ok == null ? null : Math.max(moved, ok);
+}
+
+/** Dni KALENDARZOWE w Europe/Warsaw od gotowości — ta sama arytmetyka co
+ *  `waitingFor` (`lib/api/boardTasks.ts`); bez dat zostają dni na etapie. */
+function dlWaitingDays(item: KanbanItem, now: Date): number {
+  const since = dlReadySince(item);
+  if (since == null) return item.days_in_stage ?? 0;
+  const dayNumber = (d: Date) => Date.parse(`${warsawToday(d)}T00:00:00Z`) / DAY_MS;
+  return Math.max(0, Math.round(dayNumber(now) - dayNumber(new Date(since))));
+}
+
+/**
+ * Kolejka przeglądu „po kolei” z kart kolumny „QC CV”: tylko gotowe do
+ * wysłania, najdłużej czekające pierwsze.
+ */
+export function dlSendQueue(
+  qcColumnItems: readonly KanbanItem[],
+  cproEnabled: boolean,
+  now: Date,
+): KanbanItem[] {
+  const since = (item: KanbanItem) =>
+    dlReadySince(item) ?? now.getTime() - (item.days_in_stage ?? 0) * DAY_MS;
+  return qcColumnItems
+    .filter((item) => isReadyForDlSend(item, "cv_qc", cproEnabled))
+    .sort((a, b) => since(a) - since(b));
 }
 
 export function formatClientRate(item: KanbanItem): string | null {
@@ -249,15 +313,26 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
   // Przegląd DL (Rekrutacja v5): osoby w „QC CV" poza Nordeą — Delivery Lead
   // sprawdza CV, wpisuje stawkę do klienta i wysyła.
   // DL czeka dopiero na CV, które przeszło QC (albo przepuszczone) — przy
-  // niesprawdzonym lub niezaliczonym QC ruch ma rekruter.
-  const qcDone = item.qc?.status === "passed" || item.qc?.status === "overridden";
-  if (column === "cv_qc" && !ctx.cproEnabled && qcDone) {
-    out.push({
-      key: "dl_review",
-      label: `Czeka na DL · ${daysLabel(item.days_in_stage ?? 0)}`,
-      tone: "wait",
-      title: "Delivery Lead przegląda CV i wpisuje stawkę do klienta przed wysłaniem.",
-    });
+  // niesprawdzonym lub niezaliczonym QC ruch ma rekruter. Dni liczą się od
+  // gotowości, nie od wejścia do kolumny; Delivery Lead tej rekrutacji czyta
+  // „Czeka na Ciebie” (13.10.2026).
+  if (isReadyForDlSend(item, column, ctx.cproEnabled)) {
+    const waited = daysLabel(dlWaitingDays(item, ctx.now));
+    out.push(
+      ctx.viewerOwnsDlReview
+        ? {
+            key: "dl_review",
+            label: `Czeka na Ciebie · ${waited}`,
+            tone: "wait",
+            title: "Przejrzyj CV, wpisz stawkę do klienta i wyślij.",
+          }
+        : {
+            key: "dl_review",
+            label: `Czeka na DL · ${waited}`,
+            tone: "wait",
+            title: "Delivery Lead przegląda CV i wpisuje stawkę do klienta przed wysłaniem.",
+          },
+    );
   }
   // 0413: stan karty rekomendacji — braki są informacją, nic nie blokują.
   const cardBadge = boardCardBadge(item.card, item.contact_attempts ?? 0, column);
@@ -561,6 +636,8 @@ export function cardNextStep(
     stageBadge?: string | null;
     /** Patrzący — „Twój ruch" tylko wtedy, gdy karta jest jego (albo niczyja). */
     viewerId?: number | null;
+    /** Przegląd przed wysłaniem do klienta należy do patrzącego (serwer). */
+    viewerOwnsDlReview?: boolean;
   },
 ): CardNextStep | null {
   const recruiter = () => recruiterSideWho(item, "recruiter", ctx.viewerId);
@@ -575,6 +652,11 @@ export function cardNextStep(
       return ctx.stageBadge === "cpro"
         ? { who: "Osoba od Cpro", mine: false, label: "Wrzuć CV do Cpro" }
         : { ...recruiter(), label: "Przekaż do Cpro" };
+    }
+    // Delivery Lead tej rekrutacji widzi swój ruch jak rekruter swój; pozostali
+    // (także DL innej rekrutacji i admin) — „DL”.
+    if (ctx.viewerOwnsDlReview && isReadyForDlSend(item, ctx.column, ctx.cproEnabled)) {
+      return { who: MY_MOVE_LABEL, mine: true, label: "Przegląd CV i wysłanie do klienta" };
     }
     return { who: "DL", mine: false, label: "Przegląd CV i wysłanie do klienta" };
   }

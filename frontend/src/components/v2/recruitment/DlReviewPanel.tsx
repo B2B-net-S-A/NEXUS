@@ -149,6 +149,17 @@ export interface DlReviewPanelProps {
   canSendToClient?: boolean;
   /** Harness: bajty plików CV bez sieci. */
   previewLoaders?: CvPreviewLoaders;
+  onDecided?: DlReviewBodyProps["onDecided"];
+  sequence?: DlReviewSequence;
+}
+
+/** Przegląd „po kolei” (`hooks/useReviewSequence`): licznik i wyjścia w linii
+ *  nagłówka — bez dodatkowego wiersza, który na laptopie zabierałby CV. */
+export interface DlReviewSequence {
+  position: number;
+  total: number;
+  onSkip: () => void;
+  onFinish: () => void;
 }
 
 type PendingAction = DecisionAction;
@@ -229,7 +240,15 @@ function reveal(element: HTMLElement | null) {
  * Okno przeglądu — pulpit „Czeka na Ciebie” i harness. Na Tablicy przegląd
  * otwiera się w panelu osoby (`DlReviewBody layout="panel"`), nie w oknie.
  */
-export function DlReviewPanel({ task, open, onOpenChange, canSendToClient, previewLoaders }: DlReviewPanelProps) {
+export function DlReviewPanel({
+  task,
+  open,
+  onOpenChange,
+  canSendToClient,
+  previewLoaders,
+  onDecided,
+  sequence,
+}: DlReviewPanelProps) {
   return (
     <Sheet open={open && task !== null} onOpenChange={onOpenChange}>
       <SheetContent side="right" size="2xl" className="flex flex-col gap-0 p-0 sm:max-w-[min(100vw,2000px)]">
@@ -240,6 +259,8 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient, previ
             onClose={() => onOpenChange(false)}
             layout="sheet"
             previewLoaders={previewLoaders}
+            onDecided={onDecided}
+            sequence={sequence}
           />
         ) : null}
       </SheetContent>
@@ -257,6 +278,11 @@ export interface DlReviewBodyProps {
   layout: "sheet" | "panel";
   /** Harness: bajty plików CV bez sieci. */
   previewLoaders?: CvPreviewLoaders;
+  /** Po udanej decyzji (wysłane / odrzucone / do poprawy) ZAMIAST `onClose` —
+   *  wołający decyduje, czy zamknąć, czy pokazać następną osobę. Konflikt
+   *  wersji i ręczne zamknięcie dalej idą przez `onClose`. */
+  onDecided?: (action: DecisionAction, task: BoardTaskRow) => void;
+  sequence?: DlReviewSequence;
 }
 
 /** Tytuł przeglądu w panelu osoby — dostaje fokus przy otwarciu. */
@@ -271,7 +297,15 @@ const PanelTitle = forwardRef<HTMLHeadingElement, { children: ReactNode }>(funct
   );
 });
 
-export function DlReviewBody({ task, canSendToClient, onClose, layout, previewLoaders }: DlReviewBodyProps) {
+export function DlReviewBody({
+  task,
+  canSendToClient,
+  onClose,
+  layout,
+  previewLoaders,
+  onDecided,
+  sequence,
+}: DlReviewBodyProps) {
   const queryClient = useQueryClient();
   // Układ z szerokości samego przeglądu (panel na Tablicy i okno na pulpicie
   // mają różne szerokości przy tym samym oknie przeglądarki).
@@ -486,7 +520,8 @@ export function DlReviewBody({ task, canSendToClient, onClose, layout, previewLo
         showSuccess(`${task.candidate_name} — ${ACTION_TEXT[action].done}`);
         setReturnOpen(false);
         refresh();
-        onClose();
+        if (onDecided) onDecided(action, task);
+        else onClose();
         return;
       }
       const { refusal } = outcome;
@@ -553,7 +588,8 @@ export function DlReviewBody({ task, canSendToClient, onClose, layout, previewLo
         )}
         <p className="text-xs text-muted-foreground">
           {task.verified_by_name ? `Zweryfikował(a) ${task.verified_by_name}` : "Zweryfikowany"}
-          {task.verified_at ? ` · ${formatDate(task.verified_at)}` : ""} · czeka {waitingFor(task.since)}
+          {task.verified_at ? ` · ${formatDate(task.verified_at)}` : ""} · czeka{" "}
+          {waitingFor(task.ready_since ?? task.since)}
           {" · "}
           <Link
             href={`/jobs/${task.job_id}?candidate=${task.candidate_id}`}
@@ -562,6 +598,29 @@ export function DlReviewBody({ task, canSendToClient, onClose, layout, previewLo
             Otwórz na Tablicy
           </Link>
         </p>
+        {sequence ? (
+          <p className="flex items-baseline gap-2 text-xs" data-testid="dl-review-sequence">
+            <span className="font-semibold tabular-nums text-foreground">
+              {sequence.position} z {sequence.total}
+            </span>
+            {sequence.position < sequence.total ? (
+              <button
+                type="button"
+                onClick={sequence.onSkip}
+                className="font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                Pomiń
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={sequence.onFinish}
+              className="font-medium text-muted-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              Zakończ kolejkę
+            </button>
+          </p>
+        ) : null}
         {layout === "panel" ? (
           <button
             type="button"

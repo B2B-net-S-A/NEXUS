@@ -225,6 +225,8 @@ describe("/preview/custom-dashboard zasiewa każdy stały klucz", () => {
   );
   const components = [
     "components/v2/dashboard/custom/CustomDashboard.tsx",
+    // Pas „Do wysłania do klienta” stoi nad panelem i czyta jego zapytanie.
+    "components/v2/dashboard/DlSendQueueBand.tsx",
     "components/v2/dashboard/custom/MetricBuilderForm.tsx",
     "components/v2/dashboard/custom/SmallTiles.tsx",
     "components/v2/filters/CompetenceCategoryMultiSelect.tsx",
@@ -624,6 +626,82 @@ describe("/preview/cpro-queue zasiewa każdy stały klucz", () => {
   it("odcina sieć", () => {
     expect(harness).toContain("api.interceptors.request.use(");
     expect(harness).toContain("api.interceptors.request.eject(");
+  });
+});
+
+describe("/preview/dl-send zasiewa pas „Do wysłania do klienta” i przegląd każdej osoby", () => {
+  const harness = withoutComments(read("app/preview/dl-send/page.tsx")).replace(/\s+/g, " ");
+  const band = withoutComments(read("components/v2/dashboard/DlSendQueueBand.tsx"));
+  // Pas i wszystko, co z niego otwiera się w harnessie: przegląd osoby (CV,
+  // wymagania, screening, decyzja) i porównanie osób jednej rekrutacji.
+  const components = [
+    "components/v2/dashboard/DlSendQueueBand.tsx",
+    "components/v2/recruitment/DlReviewPanel.tsx",
+    "components/v2/recruitment/dl-review/DlReviewQueueDialog.tsx",
+    "components/v2/recruitment/dl-review/CvColumn.tsx",
+    "components/v2/recruitment/dl-review/DecisionPanel.tsx",
+    "components/v2/recruitment/dl-review/RequirementsColumn.tsx",
+    "components/v2/person/StageCvPreview.tsx",
+    "components/v2/screening-form/ScreeningSummaryView.tsx",
+    "components/v2/screening-form/CandidatePreviewPane.tsx",
+    "hooks/useReviewSequence.ts",
+  ];
+
+  it("nie zostawia stałego klucza bez zasiewu", () => {
+    const missing: string[] = [];
+    for (const file of components) {
+      for (const key of literalQueryKeys(read(file))) {
+        if (!harness.includes(key)) missing.push(`${file}: ${key}`);
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
+  it("pas czyta kolejkę pulpitu jej kluczem — bez własnego zapytania", () => {
+    // Pas i panel „Czeka na Ciebie” dzielą `useBoardTasks`; drugi klucz albo
+    // własne `useQuery` w pasie to drugie żądanie na każdym wejściu na pulpit.
+    expect(band).toContain("useBoardTasks()");
+    expect(band).not.toMatch(/useQuery\b/);
+    expect(withoutComments(read("lib/api/boardTasks.ts"))).toContain("queryKey: BOARD_TASKS_QUERY_KEY");
+    expect(harness).toMatch(/setQueryData<BoardTasksResponse>\( ?BOARD_TASKS_QUERY_KEY/);
+  });
+
+  it("zasiewa klucze z parametrem, o które pyta przegląd osoby i „porównaj”", () => {
+    const panel = withoutComments(read("components/v2/recruitment/DlReviewPanel.tsx"));
+    expect(panel).toContain("queryKey: candidateQueryKeys.quickView(candidateId)");
+    expect(panel).toContain('queryKey: ["job-rejection-reasons", jobId]');
+    expect(panel).toContain("useDlReviewContext(candidateId, jobId)");
+    expect(panel).toContain("useScreeningFormState(candidateId, jobId");
+    const reviewApi = withoutComments(read("lib/api/dlReview.ts"));
+    expect(reviewApi).toContain("queryKey: dlReviewContextQueryKey(jobId, candidateId)");
+    expect(reviewApi).toContain("queryKey: dlReviewQueueQueryKey(jobId ?? 0)");
+    const stagePreview = withoutComments(read("components/v2/person/StageCvPreview.tsx"));
+    expect(stagePreview).toContain('queryKey: ["cv-generated", "dl-review", candidateId, jobId]');
+    const original = withoutComments(read("components/v2/screening-form/CandidatePreviewPane.tsx"));
+    expect(original).toContain('queryKey: ["cv-original", stageId]');
+    expect(original).toContain("queryKey: candidateQueryKeys.cvDocuments(candidateId)");
+    // Zasiew idzie po wierszach kolejki — każda osoba pasa otwiera się bez sieci.
+    expect(harness).toContain("for (const row of rows) {");
+    for (const seed of [
+      /setQueryData\( ?candidateQueryKeys\.quickView\(row\.candidate_id\)/,
+      /setQueryData\( ?\["cv-generated", "dl-review", row\.candidate_id, row\.job_id\]/,
+      /setQueryData\( ?\["cv-original", row\.stage_id\]/,
+      /setQueryData\( ?candidateQueryKeys\.cvDocuments\(row\.candidate_id\)/,
+      /setQueryData\( ?stageBrandedQueryKey\(row\.stage_id\)/,
+      /setQueryData\( ?dlReviewContextQueryKey\(row\.job_id, row\.candidate_id\)/,
+      /setQueryData\( ?screeningFormQueryKey\(row\.job_id, row\.candidate_id\)/,
+      /setQueryData\( ?recommendationCardQueryKey\(row\.candidate_id, row\.job_id\)/,
+      /setQueryData\( ?\["job-rejection-reasons", row\.job_id\]/,
+      /setQueryData\( ?dlReviewQueueQueryKey\(row\.job_id\)/,
+    ]) {
+      expect(harness).toMatch(seed);
+    }
+  });
+
+  it("odcina sieć i montuje prawdziwy pas", () => {
+    expect(harness).toContain("api.interceptors.request.use(");
+    expect(harness).toContain("api.interceptors.request.eject(");
+    expect(harness).toContain("<DlSendQueueBand previewLoaders={PREVIEW_LOADERS} />");
   });
 });
 

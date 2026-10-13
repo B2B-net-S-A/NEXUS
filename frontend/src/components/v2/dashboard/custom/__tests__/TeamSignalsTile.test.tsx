@@ -71,4 +71,27 @@ describe("TeamSignalsTile", () => {
     expect(screen.getByText("4")).toHaveClass("text-destructive")
     expect(screen.getByText("2")).toHaveClass("text-warning")
   })
+
+  it("gotowe CV czekające na wysyłkę to sygnał czerwony z listą rekrutacji", async () => {
+    getMock.mockResolvedValue({
+      data: {
+        items: [
+          {
+            kind: "dl_send_stale",
+            count: 6,
+            label: "CV czeka na wysyłkę do klienta 3+ dni robocze",
+            report: null,
+            href: "/jobs?open=1&tosend=stale",
+          },
+        ],
+      },
+    })
+    renderTile()
+    const label = await screen.findByText("CV czeka na wysyłkę do klienta 3+ dni robocze")
+    const link = label.closest("a")
+    expect(link).toHaveAttribute("href", "/jobs?open=1&tosend=stale")
+    expect(link).toHaveClass("border-destructive")
+    expect(screen.getByText("6")).toHaveClass("text-destructive")
+    expect(link?.closest("li")).toHaveAttribute("data-kind", "dl_send_stale")
+  })
 })

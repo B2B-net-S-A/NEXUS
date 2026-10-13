@@ -90,15 +90,38 @@ export function JobStageCountsHeader() {
   );
 }
 
+/** „1 gotowa do wysłania — czeka na Ciebie” · 2 gotowe · 5 gotowych. */
+export function dlReadyLabel(count: number): string {
+  return `${countPl(count, "gotowa", "gotowe", "gotowych")} do wysłania — czeka na Ciebie`;
+}
+
 /**
  * Osiem liczb w kolejności kolumn Tablicy (te same co tablica: `placeStage`).
  * Zero jest wyszarzone (kolumna istnieje, nikt w niej nie stoi), zatrudnieni
  * mają ton sukcesu — to wynik, nie etap. Nazwy kolumn stoją w nagłówku.
+ *
+ * `dlReady` (pole wiersza `dl_send_ready_count`, tylko u Delivery Leada): ile
+ * osób z „QC CV” czeka na JEGO wysyłkę do klienta. Powyżej zera komórka „QC
+ * CV” jest wypełniona kolorem akcji — Delivery Lead widzi swoje rekrutacje
+ * bez nowej kolumny (tabela ledwo mieści się przy 1280 px).
  */
-export function JobStageCounts({ summary }: { summary: PipelineStageSummary }) {
+export function JobStageCounts({
+  summary,
+  dlReady,
+}: {
+  summary: PipelineStageSummary;
+  dlReady?: number | null;
+}) {
   const groups = buildStageFunnel(summary);
   const stages = funnelGroupStages(summary);
-  const spoken = groups.map((g) => `${g.label} ${g.count}`).join(", ");
+  const waiting = dlReady != null && dlReady > 0 ? dlReadyLabel(dlReady) : null;
+  const spoken = groups
+    .map((g) =>
+      waiting && g.key === "cv_qc"
+        ? `${g.label} ${g.count} (${waiting})`
+        : `${g.label} ${g.count}`,
+    )
+    .join(", ");
   return (
     <div
       role="group"
@@ -106,24 +129,31 @@ export function JobStageCounts({ summary }: { summary: PipelineStageSummary }) {
       className="flex items-center gap-1"
       data-testid="job-stage-counts"
     >
-      {groups.map((g) => (
-        <span
-          key={g.key}
-          data-group={g.key}
-          title={funnelGroupTitle(g, stages[g.key])}
-          className={cn(
-            STAGE_CELL,
-            "rounded-md py-0.5 text-xs font-semibold tabular-nums leading-none",
-            g.count === 0
-              ? "text-muted-foreground/50"
-              : g.key === "hired"
-                ? "bg-success/10 text-success"
-                : "bg-muted/60 text-foreground",
-          )}
-        >
-          {g.count}
-        </span>
-      ))}
+      {groups.map((g) => {
+        const highlighted = waiting != null && g.key === "cv_qc";
+        const title = funnelGroupTitle(g, stages[g.key]);
+        return (
+          <span
+            key={g.key}
+            data-group={g.key}
+            data-dl-ready={highlighted ? "true" : undefined}
+            title={highlighted ? `${waiting}\n${title}` : title}
+            className={cn(
+              STAGE_CELL,
+              "rounded-md py-0.5 text-xs font-semibold tabular-nums leading-none",
+              highlighted
+                ? "bg-primary text-primary-foreground"
+                : g.count === 0
+                  ? "text-muted-foreground/50"
+                  : g.key === "hired"
+                    ? "bg-success/10 text-success"
+                    : "bg-muted/60 text-foreground",
+            )}
+          >
+            {g.count}
+          </span>
+        );
+      })}
     </div>
   );
 }

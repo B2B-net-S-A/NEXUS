@@ -235,6 +235,23 @@ export function sentQueryParams(value: JobSentFilterValue): {
   return { min_sent: Number(value) };
 }
 
+// ── „Do wysłania do klienta” (kolejka Delivery Leada, 13.10.2026) ─────────
+
+/**
+ * `""` = dowolnie, `mine` = rekrutacje, w których gotowa osoba czeka na
+ * wysyłkę zalogowanego Delivery Leada, `stale` = cała firma: gotowa osoba
+ * czeka 3 dni robocze albo dłużej. Co znaczy „gotowa”, liczy serwer.
+ */
+export const JOB_TO_SEND_VALUES = ["", "mine", "stale"] as const;
+export type JobToSendFilterValue = (typeof JOB_TO_SEND_VALUES)[number];
+
+/** Filtr → `dl_send` backendu; „dowolnie” nie wysyła parametru. */
+export function toSendQueryParams(value: JobToSendFilterValue | undefined): {
+  dl_send?: Exclude<JobToSendFilterValue, "">;
+} {
+  return value ? { dl_send: value } : {};
+}
+
 export const JOB_SORT_VALUES = [
   "attention",
   "newest",
@@ -326,6 +343,15 @@ export function initialFlagFromUrl(params: URLSearchParams, key: "nobody"): bool
 /** `?sent=3` → `"3"`; brak/nieznana wartość → `"any"`. */
 export function initialSentFromUrl(params: URLSearchParams): JobSentFilterValue {
   return pickFromUrl(params, "sent", JOB_SENT_VALUES, "any");
+}
+
+/**
+ * `?tosend=mine` → `"mine"`; brak/nieznana wartość → `""`. Na te adresy
+ * prowadzą licznik „Do wysłania” w górnym pasku (`/jobs?open=1&tosend=mine`)
+ * i sygnał dla Head of Recruitment (`…&tosend=stale`).
+ */
+export function initialToSendFromUrl(params: URLSearchParams): JobToSendFilterValue {
+  return pickFromUrl(params, "tosend", JOB_TO_SEND_VALUES, "");
 }
 
 // ── Priorytet i data otwarcia (02.10.2026) ────────────────────────────────
@@ -425,6 +451,8 @@ export interface JobsListUrlState {
   /** „Bez rekrutera” (`nobody=1`). */
   nobodyWorking?: boolean;
   sent?: JobSentFilterValue;
+  /** „Do wysłania do klienta” (`tosend=mine` / `tosend=stale`). */
+  toSend?: JobToSendFilterValue;
   /** „Priorytet” (`prio=p1,accepting`). */
   priorityLevels?: readonly PriorityLevel[];
   /** „Data otwarcia” (`op_from` / `op_to`). */
@@ -462,6 +490,7 @@ const READ_KEYS = [
   "who",
   "nobody",
   "sent",
+  "tosend",
   "prio",
   "op_from",
   "op_to",
@@ -530,6 +559,7 @@ export function encodeJobsListUrl(
   for (const id of state.workedBy ?? []) next.append("who", String(id));
   if (state.nobodyWorking) next.set("nobody", "1");
   if (state.sent && state.sent !== "any") next.set("sent", state.sent);
+  if (state.toSend) next.set("tosend", state.toSend);
   const levels = orderedPriorityLevels(state.priorityLevels ?? []);
   if (levels.length > 0) next.set("prio", levels.join(","));
   const { from: openedFrom, to: openedTo } = state.openedRange ?? {};

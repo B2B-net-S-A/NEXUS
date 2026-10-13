@@ -8,19 +8,21 @@ kandydata albo osoby, która przekazała kartę dalej.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.core.database import AsyncSessionLocal
 from app.models.job import Job
 from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import CandidateStage
+from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import UserRole
 from app.services import cv_in_transit as svc
+from app.services import dl_send_queue
 from tests.test_board_tasks import (
     _cleanup,
     _login,
@@ -31,6 +33,7 @@ from tests.test_board_tasks import (
     restore_cpro_sender,
     seed_entry_row,
 )
+from tests.test_dl_send_queue import _add_qc_run, _put_in_qc
 
 # ── Jednostkowe: rodzaj wpisu z kolumn Tablicy ───────────────────────────────
 
@@ -101,6 +104,122 @@ def test_transit_row_carries_the_fix_list() -> None:
     from dataclasses import asdict
 
     assert CvTransitRow(**asdict(row)).fix_labels == ["CV firmowe"]
+
+
+# Środa; karta weszła do „QC CV” w poniedziałek tego samego tygodnia.
+_ENTERED = datetime(2026, 3, 2, 10, 0, tzinfo=timezone.utc)
+_WEDNESDAY = datetime(2026, 3, 4, 9, 0, tzinfo=timezone.utc)
+
+
+def _review(**over) -> svc.ReviewState:
+    args = dict(
+        since=_ENTERED,
+        status={"status": "passed", "blocking_failed": 0, "ok_at": _WEDNESDAY},
+        imported=False,
+        today=date(2026, 3, 6),
+    )
+    args.update(over)
+    return svc.review_state(**args)
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        ({"status": "failed", "blocking_failed": 2, "ok_at": None}, "failed"),
+        ({"status": "unchecked", "blocking_failed": 0, "ok_at": None}, "unchecked"),
+        # Para bez wpisu QC = nikt jeszcze nie sprawdzał.
+        (None, "unchecked"),
+    ],
+)
+def test_review_with_open_qc_is_the_recruiters_move(
+    status: dict | None, expected: str
+) -> None:
+    """13.10.2026: dopóki QC nie przeszło, karta w „QC CV” nie czeka na
+    Delivery Leada — nie ma czego przypominać, choćby stała tydzień."""
+    state = _review(status=status, today=date(2026, 3, 20))
+    assert state.qc_status == expected
+    assert state.ready_since is None
+    assert state.waiting_workdays == 0
+    assert state.can_nudge is False
+
+
+def test_review_can_be_nudged_after_two_workdays_from_readiness() -> None:
+    """Czas biegnie od zaliczenia QC (środa), nie od wejścia do kolumny
+    (poniedziałek) — poprawki rekrutera nie obciążają Delivery Leada."""
+    thursday = _review(today=date(2026, 3, 5))
+    assert thursday.ready_since == _WEDNESDAY
+    assert thursday.waiting_workdays == 1
+    assert thursday.can_nudge is False
+
+    friday = _review()
+    assert friday.qc_status == "passed"
+    assert friday.waiting_workdays == dl_send_queue.LATE_WORKDAYS
+    assert friday.can_nudge is True
+
+    # Obejście QC sprzed wejścia do kolumny: gotowe od wejścia.
+    overridden = _review(
+        status={
+            "status": "overridden",
+            "blocking_failed": 1,
+            "ok_at": _ENTERED - timedelta(days=3),
+        },
+        today=date(2026, 3, 4),
+    )
+    assert overridden.ready_since == _ENTERED
+    assert overridden.can_nudge is True
+
+
+def test_review_set_by_the_traffit_import_is_never_nudged() -> None:
+    """Etap z importu Traffita nie budzi Delivery Leada
+    (`dl_send_queue.counts_for_reviewer`) — przypomnienie też nie."""
+    state = _review(imported=True, today=date(2026, 3, 20))
+    assert state.ready_since == _WEDNESDAY
+    assert state.can_nudge is False
+
+
+def test_reviewers_label_names_one_person_and_counts_the_rest() -> None:
+    assert svc.reviewers_label(["Marta Kowalczyk"]) == "Marta Kowalczyk"
+    assert (
+        svc.reviewers_label(["Adam Wrona", "Marta Kowalczyk", "Jan Dąb"])
+        == "Adam Wrona +2"
+    )
+
+
+def test_transit_row_carries_the_review_state_to_the_api() -> None:
+    from dataclasses import asdict
+
+    from app.api.board_tasks import CvTransitRow
+
+    base = dict(
+        stage_id=1,
+        candidate_id=2,
+        candidate_name="Jan",
+        job_id=3,
+        job_title="Java",
+        job_working_title=None,
+        client_name=None,
+        since=_ENTERED,
+    )
+    review = CvTransitRow(
+        **asdict(
+            svc.TransitRow(
+                kind=svc.KIND_IN_REVIEW,
+                qc_status="passed",
+                ready_since=_WEDNESDAY,
+                waiting_workdays=2,
+                can_nudge=True,
+                **base,
+            )
+        )
+    )
+    assert review.qc_status == "passed"
+    assert review.ready_since == _WEDNESDAY
+    assert review.waiting_workdays == 2
+    assert review.can_nudge is True
+    # Pozostałe rodzaje wierszy zostają przy wartościach domyślnych.
+    sent = CvTransitRow(**asdict(svc.TransitRow(kind=svc.KIND_SENT, **base)))
+    assert sent.qc_status is None and sent.ready_since is None
+    assert sent.waiting_workdays == 0 and sent.can_nudge is False
 
 
 def test_rejection_reason_comes_from_the_dictionary_or_the_note() -> None:
@@ -435,3 +554,118 @@ async def test_removed_from_the_dashboard_means_no_list_until_restored(
         assert _mine(await _transit(api_client, rec), "in_review", cid)
     finally:
         await _cleanup(world, [rec_id, other_id, dl_id])
+
+
+@pytest.mark.asyncio
+async def test_review_row_with_failing_qc_cannot_be_nudged(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """13.10.2026: karta stoi w „QC CV” 12 dni, ale QC jest do poprawy — ruch
+    ma rekruter, więc lista nie daje mu „Przypomnij”."""
+    (
+        world,
+        (rec_id, rec_creds),
+        (other_id, _),
+        (dl_id, _),
+    ) = await _non_nordea_world(monkeypatch)
+    rec = await _login(api_client, rec_creds)
+    cid = world["candidate_id"]
+    now = datetime.now(timezone.utc)
+    try:
+        await _put_in_qc(world, moved_by=rec_id, moved_at=now - timedelta(days=12))
+        await _add_qc_run(world, passed=False, created_at=now - timedelta(days=11))
+
+        review = _mine(await _transit(api_client, rec), "in_review", cid)
+        assert [r["kind"] for r in review] == ["in_review"]
+        assert review[0]["qc_status"] == "failed"
+        assert review[0]["ready_since"] is None
+        assert review[0]["waiting_workdays"] == 0
+        assert review[0]["can_nudge"] is False
+    finally:
+        await _cleanup(world, [rec_id, other_id, dl_id])
+
+
+@pytest.mark.asyncio
+async def test_review_row_ready_for_ten_days_can_be_nudged(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Czas czekania biegnie od zaliczenia QC, nie od wejścia do kolumny."""
+    (
+        world,
+        (rec_id, rec_creds),
+        (other_id, _),
+        (dl_id, _),
+    ) = await _non_nordea_world(monkeypatch)
+    rec = await _login(api_client, rec_creds)
+    cid = world["candidate_id"]
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    passed_at = now - timedelta(days=10)
+    try:
+        await _put_in_qc(world, moved_by=rec_id, moved_at=now - timedelta(days=12))
+        await _add_qc_run(world, passed=False, created_at=now - timedelta(days=11))
+        await _add_qc_run(world, passed=True, created_at=passed_at)
+
+        review = _mine(await _transit(api_client, rec), "in_review", cid)
+        assert review[0]["qc_status"] == "passed"
+        assert datetime.fromisoformat(review[0]["ready_since"]) == passed_at
+        assert review[0]["waiting_workdays"] >= dl_send_queue.LATE_WORKDAYS
+        assert review[0]["can_nudge"] is True
+        assert review[0]["holder_name"].startswith("BT delivery_lead")
+    finally:
+        await _cleanup(world, [rec_id, other_id, dl_id])
+
+
+@pytest.mark.asyncio
+async def test_review_without_a_job_lead_names_the_client_portfolio(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Rekrutacja bez Delivery Leada: przegląd idzie do DL-i z portfelem
+    klienta (`stage_handoff_recipients._dl_reviewers`), a lista do 13.10.2026
+    pokazywała wtedy „Delivery Lead klienta” zamiast osoby."""
+    world = await _seed_world()
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    first_id, _ = await _seed_user(UserRole.delivery_lead)
+    second_id, _ = await _seed_user(UserRole.delivery_lead)
+    # Rekruter z klientem w portfelu nie jest Delivery Leadem — nie przegląda.
+    not_dl_id, _ = await _seed_user(UserRole.recruiter)
+    rec = await _login(api_client, rec_creds)
+    cid, client_id = world["candidate_id"], world["client_id"]
+
+    async def assign(user_id: int) -> None:
+        async with AsyncSessionLocal() as db:
+            db.add(
+                DeliveryLeadClientAssignment(
+                    delivery_lead_user_id=user_id, client_id=client_id
+                )
+            )
+            await db.commit()
+
+    try:
+        await _put_in_qc(
+            world,
+            moved_by=rec_id,
+            moved_at=datetime.now(timezone.utc) - timedelta(hours=3),
+        )
+        review = _mine(await _transit(api_client, rec), "in_review", cid)
+        assert review[0]["holder_name"] is None
+
+        await assign(first_id)
+        await assign(not_dl_id)
+        review = _mine(await _transit(api_client, rec), "in_review", cid)
+        holder = review[0]["holder_name"]
+        assert holder.startswith("BT delivery_lead") and "+" not in holder
+
+        await assign(second_id)
+        review = _mine(await _transit(api_client, rec), "in_review", cid)
+        holder = review[0]["holder_name"]
+        assert holder.startswith("BT delivery_lead") and holder.endswith(" +1")
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(DeliveryLeadClientAssignment).where(
+                    DeliveryLeadClientAssignment.client_id == client_id
+                )
+            )
+            await db.commit()
+        await _cleanup(world, [rec_id, first_id, second_id, not_dl_id])

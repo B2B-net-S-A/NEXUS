@@ -39,7 +39,7 @@ export const PANEL_LABELS: Record<DashboardPanelKey, string> = {
   followups: "Follow-up z kandydatami",
   agreements: "Umowy do potwierdzenia",
   rate_changes: "Zmiany stawek kandydatów",
-  dl_review: "Przegląd przed wysłaniem (DL)",
+  dl_review: "Do wysłania do klienta (DL)",
   cpro: "Cpro",
   prep_attention: "Prepy przed rozmową u klienta",
 }

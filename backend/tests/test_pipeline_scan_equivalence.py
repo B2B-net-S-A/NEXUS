@@ -297,9 +297,10 @@ async def test_run_all_triggers_scans_candidate_stages_once():
     """Cały tick triggerów = JEDEN skan `candidate_stages`, nie sześć.
 
     Przed zmianą 6 z 8 triggerów wołało własne `_latest_stage_per_pair`, a dwa
-    z nich (`dl_stage_stale_6h`, `stage_stuck_7d`) nie miały żadnej bramki —
-    skan był pierwszą instrukcją funkcji. Loop chodzi co 5 min w dni robocze,
-    więc było to ≥24 pełne skany 158k wierszy na godzinę przy zerowym ruchu.
+    z nich (`dl_stage_stale_6h` — usunięty 13.10.2026 — i `stage_stuck_7d`) nie
+    miały żadnej bramki — skan był pierwszą instrukcją funkcji. Loop chodzi co
+    5 min w dni robocze, więc było to ≥24 pełne skany 158k wierszy na godzinę
+    przy zerowym ruchu.
     """
     from zoneinfo import ZoneInfo
 

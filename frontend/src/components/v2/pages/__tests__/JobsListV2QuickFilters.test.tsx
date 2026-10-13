@@ -1014,3 +1014,104 @@ describe("JobsListV2 — lista v5: liczby statusów, termin, nowe filtry", () =>
     navState.search = "";
   });
 });
+
+describe("JobsListV2 — „Do wysłania do klienta” (kolejka Delivery Leada)", () => {
+  beforeEach(() => {
+    getMock.mockReset();
+    quickCountsMock.mockReset();
+    mockQuickCounts();
+    mockJobsResponse([jobRow()]);
+    window.history.replaceState(null, "", "/jobs");
+    navState.search = "";
+  });
+
+  it("`?open=1&tosend=mine` z górnego paska: zakres „Otwarte” i `dl_send: \"mine\"`", async () => {
+    signInAs("delivery_lead");
+    navState.search = "open=1&tosend=mine";
+    window.history.replaceState(null, "", `/jobs?${navState.search}`);
+    renderJobs();
+    await waitFor(() => expect(jobsCalls()).toHaveLength(1));
+    expect(latestParams()).toMatchObject({ dl_send: "mine", open_only: true });
+    expect(latestParams().mine).toBeUndefined();
+    // Ustawiony filtr widać na pasku i w liczbie „Wyczyść filtry (N)”.
+    expect(
+      screen.getByRole("button", { name: /Więcej filtrów: do wysłania: czeka na mnie/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Wyczyść filtry (1)" })).toBeInTheDocument();
+    // Adres z linku zostaje — F5 i „Wstecz” wracają do tej samej listy.
+    expect(window.location.search).toBe("?open=1&tosend=mine");
+    navState.search = "";
+  });
+
+  it("`?open=1&tosend=stale` (sygnał dla Head of Recruitment) wysyła `dl_send: \"stale\"`", async () => {
+    signInAs("head_of_recruitment");
+    navState.search = "open=1&tosend=stale";
+    window.history.replaceState(null, "", `/jobs?${navState.search}`);
+    renderJobs();
+    await waitFor(() => expect(jobsCalls()).toHaveLength(1));
+    expect(latestParams()).toMatchObject({ dl_send: "stale", open_only: true });
+    expect(
+      screen.getByRole("button", { name: /Więcej filtrów: do wysłania: 3\+ dni robocze/ }),
+    ).toBeInTheDocument();
+    navState.search = "";
+  });
+
+  it("bez filtra parametr `dl_send` nie idzie wcale", async () => {
+    renderJobs();
+    await waitFor(() => expect(jobsCalls()).toHaveLength(1));
+    expect(latestParams()).not.toHaveProperty("dl_send");
+  });
+
+  it("wybór w „Więcej filtrów” wysyła parametr, zapisuje adres, a „✕” go zdejmuje", async () => {
+    signInAs("delivery_lead");
+    const user = userEvent.setup();
+    renderJobs();
+    await waitFor(() => expect(jobsCalls()).toHaveLength(1));
+
+    await user.click(screen.getByRole("button", { name: /Więcej filtrów/ }));
+    await user.click(await screen.findByRole("radio", { name: "Czeka na mnie" }));
+    await waitFor(() => expect(latestParams()).toMatchObject({ dl_send: "mine" }));
+    await waitFor(() => expect(window.location.search).toBe("?tosend=mine"));
+    expect(await screen.findByRole("button", { name: "Wyczyść filtry (1)" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("radio", { name: "Czeka 3+ dni robocze" }));
+    await waitFor(() => expect(latestParams()).toMatchObject({ dl_send: "stale" }));
+    await waitFor(() => expect(window.location.search).toBe("?tosend=stale"));
+
+    await user.click(screen.getByRole("button", { name: "Wyczyść: Więcej filtrów" }));
+    await waitFor(() => expect(latestParams()).not.toHaveProperty("dl_send"));
+    await waitFor(() => expect(window.location.search).toBe(""));
+  });
+
+  it("komórka „QC CV” jest wypełniona tylko w wierszu z osobami gotowymi do wysłania — bez nowej kolumny", async () => {
+    signInAs("delivery_lead");
+    const qcColumn = (count: number) => [
+      { stage: "interview", name: "QC CV", count, category: "internal", order: 0 },
+    ];
+    mockJobsResponse([
+      jobRow({ id: 1, title: "Czeka dwóch", stage_columns: qcColumn(3), dl_send_ready_count: 2 }),
+      jobRow({ id: 2, title: "Nikt nie czeka", stage_columns: qcColumn(1), dl_send_ready_count: 0 }),
+      jobRow({ id: 3, title: "Bez pola", stage_columns: qcColumn(1) }),
+    ]);
+    renderJobs();
+    await screen.findByText("Czeka dwóch");
+    const qcCellOf = (title: string) =>
+      within(screen.getByText(title).closest("tr") as HTMLElement)
+        .getByTestId("job-stage-counts")
+        .querySelector('[data-group="cv_qc"]') as HTMLElement;
+
+    const waiting = qcCellOf("Czeka dwóch");
+    expect(waiting).toHaveAttribute("data-dl-ready", "true");
+    expect(waiting).toHaveClass("bg-primary", "text-primary-foreground");
+    expect(waiting).toHaveTextContent("3");
+    expect(waiting.getAttribute("title")).toBe(
+      "2 gotowe do wysłania — czeka na Ciebie\nQC CV: QC CV 3",
+    );
+    for (const title of ["Nikt nie czeka", "Bez pola"]) {
+      expect(qcCellOf(title)).not.toHaveAttribute("data-dl-ready");
+      expect(qcCellOf(title)).not.toHaveClass("bg-primary");
+    }
+    // Sygnał mieszka w istniejącej komórce: nagłówków jest tyle, ile było.
+    expect(screen.getAllByRole("columnheader")).toHaveLength(7);
+  });
+});

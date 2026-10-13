@@ -48,7 +48,9 @@ przez nas / przez DL / przez klienta). Reguły, które łatwo cofnąć:
   zapisana wcześniej w tej rekrutacji wystarcza). Nordea bez zmian (DZ → Cpro,
   „Wysłane do Cpro” wysyła osoba wytypowana). Kolejka „Czeka na Twój przegląd
   (DL)” (`board_tasks.KIND_DL_REVIEW`, 30 dni) + `DlReviewPanel`; „Czeka na
-  DZ” zostaje wyłącznie u Nordei.
+  DZ” zostaje wyłącznie u Nordei. *(Stan sprzed 13.10.2026: kolejka nie ma
+  już okna 30 dni, dzieli się na „gotowe” i „jeszcze u rekrutera” i stoi
+  w pasie „Do wysłania do klienta” — `rekrutacja-tablica/do-wyslania-do-klienta-kolejka-delivery-leada.md`.)*
 - **Terminy od klienta przesuwają kartę** na „Rozmowę u klienta”
   (`pipeline_auto_move.auto_advance` w `create_slot_request`); odznaka karty =
   `interview_badges_for_job`. Wyjście z Rozmowy dalej wymaga debriefu

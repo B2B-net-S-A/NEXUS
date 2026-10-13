@@ -10,7 +10,10 @@ stroną tych samych przekazań, liczoną przy odczycie z NAJNOWSZEGO wiersza par
   do wcześniejszej kolumny albo (Nordea) osoba od Cpro zwróciła ją z kolejki;
   znika po kolejnym ruchu karty albo po ``RETURNED_WINDOW_DAYS``;
 * **w przeglądzie** — karta stoi w „QC CV” u Delivery Leada (poza Nordeą) albo
-  w kolejce Cpro (Nordea);
+  w kolejce Cpro (Nordea). Od 13.10.2026 wiersz „QC CV” niesie stan QC
+  i gotowość z tej samej reguły co kolejka Delivery Leada
+  (`dl_send_queue.readiness_of`): dopóki QC nie przeszło, ruch ma rekruter,
+  a gotowe CV czekające ``LATE_WORKDAYS`` dni roboczych można przypomnieć;
 * **wysłane** — „CV wysłane” z ostatnich ``SENT_WINDOW_DAYS`` dni.
 
 „Moje” CV = para, w której jestem rekruterem kandydata
@@ -23,16 +26,22 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
-from sqlalchemy import select, text
+from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.pipeline_template import PipelineTemplate
+from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
 from app.models.user_dashboard import UserDashboard
-from app.services import cpro_sender, screening_fix_requests, stage_remarks
+from app.services import (
+    cpro_sender,
+    dl_send_queue,
+    screening_fix_requests,
+    stage_remarks,
+)
 from app.services.board_stage_badges import (
     BOARD_COLUMN_ORDER,
     CV_QC_COLUMN,
@@ -43,6 +52,7 @@ from app.services.board_stage_badges import (
 from app.services.board_tasks import _catalog, _Catalog
 from app.services.dashboard_tiles import PANEL_CV_IN_TRANSIT, hidden_panels
 from app.services.interview_slots import default_recruiter_ids
+from app.services.move_requirements import qc_statuses
 from app.services.rejection_reason_labels import rejection_reason_label
 
 logger = logging.getLogger(__name__)
@@ -94,6 +104,23 @@ class TransitRow:
     card_edited_fields: tuple[str, ...] = ()
     # D6 (08.10.2026): „Wróć do poprawy” z listą pól — co poprawić.
     fix_labels: tuple[str, ...] = ()
+    # 13.10.2026, tylko „QC CV” poza Nordeą (`KIND_IN_REVIEW`): stan QC pary,
+    # od kiedy CV jest gotowe i czeka na Delivery Leada, ile dni roboczych
+    # i czy rekruter może już przypomnieć (`ReviewState`).
+    qc_status: Optional[str] = None
+    ready_since: Optional[datetime] = None
+    waiting_workdays: int = 0
+    can_nudge: bool = False
+
+
+@dataclass(frozen=True)
+class ReviewState:
+    """Stan wiersza „w przeglądzie” po stronie rekrutera."""
+
+    qc_status: str
+    ready_since: Optional[datetime] = None
+    waiting_workdays: int = 0
+    can_nudge: bool = False
 
 
 @dataclass
@@ -116,7 +143,7 @@ _SQL = text(
         SELECT DISTINCT ON (cs.candidate_id, cs.job_id)
                cs.id, cs.candidate_id, cs.job_id, cs.stage, cs.stage_def_id,
                cs.moved_at, cs.moved_by, cs.ended_by, cs.rejection_reason_id,
-               cs.notes
+               cs.notes, cs.external_source
           FROM candidate_stages cs
           JOIN jobs j ON j.id = cs.job_id
          WHERE j.status = 'published'
@@ -124,7 +151,7 @@ _SQL = text(
          ORDER BY cs.candidate_id, cs.job_id, cs.moved_at DESC, cs.id DESC
     )
     SELECT l.id, l.candidate_id, l.job_id, l.stage, l.stage_def_id, l.moved_at,
-           l.moved_by, l.ended_by, l.notes,
+           l.moved_by, l.ended_by, l.notes, l.external_source,
            p.stage AS prev_stage, p.stage_def_id AS prev_stage_def_id,
            p.moved_by AS prev_moved_by, p.moved_at AS prev_moved_at,
            COALESCE(j.pipeline_template_id, :default_template_id) AS template_id,
@@ -254,6 +281,122 @@ def classify(
     return None
 
 
+def review_state(
+    *,
+    since: datetime,
+    status: Optional[dict],
+    imported: bool,
+    today: date,
+) -> ReviewState:
+    """Stan QC i gotowość wiersza „w przeglądzie” — reguła kolejki Delivery
+    Leada (`dl_send_queue.readiness_of`), żeby obie strony liczyły to samo.
+
+    ``status`` to wpis pary z `qc_statuses`. Przypomnieć można, gdy wiersz
+    budzi Delivery Leada (gotowy i nie z importu Traffita —
+    `dl_send_queue.counts_for_reviewer`) i czeka ``LATE_WORKDAYS`` dni
+    roboczych; tę samą regułę sprawdza trasa przypomnienia.
+    """
+
+    status = status or {}
+    qc_status = status.get("status") or "unchecked"
+    state = dl_send_queue.readiness_of(
+        since=since, qc_status=qc_status, ok_at=status.get("ok_at"), today=today
+    )
+    return ReviewState(
+        qc_status=qc_status,
+        ready_since=state.ready_since,
+        waiting_workdays=state.waiting_workdays,
+        can_nudge=(
+            state.ready
+            and not imported
+            and state.waiting_workdays >= dl_send_queue.LATE_WORKDAYS
+        ),
+    )
+
+
+def reviewers_label(names: list[str]) -> str:
+    """„Imię Nazwisko” albo „Imię Nazwisko +2”, gdy przegląda kilka osób."""
+
+    rest = len(names) - 1
+    return names[0] if rest == 0 else f"{names[0]} +{rest}"
+
+
+async def _review_states(
+    db: AsyncSession, rows: list[Any], *, now: datetime
+) -> dict[int, ReviewState]:
+    """``{stage_id: stan}`` — jedno zapytanie o QC wszystkich par."""
+
+    statuses = await qc_statuses(db, ((r.candidate_id, r.job_id) for r in rows))
+    today = dl_send_queue.local_date(now)
+    return {
+        r.id: review_state(
+            since=r.moved_at,
+            status=statuses.get((r.candidate_id, r.job_id)),
+            imported=r.external_source == dl_send_queue.TRAFFIT_SOURCE,
+            today=today,
+        )
+        for r in rows
+    }
+
+
+async def _portfolio_reviewers(db: AsyncSession, rows: list[Any]) -> dict[int, str]:
+    """``{klient: kto przegląda}`` dla rekrutacji bez aktywnego Delivery Leada.
+
+    Przegląd idzie wtedy do aktywnych kont z rolą Delivery Leada, które mają
+    klienta w portfelu — lustro `stage_handoff_recipients._dl_reviewers`, czyli
+    te same osoby, które dostały dzwonek. Jedno zapytanie na wszystkie wiersze.
+    """
+
+    client_ids = sorted(
+        {
+            r.client_id
+            for r in rows
+            if r.delivery_lead_id is None and r.client_id is not None
+        }
+    )
+    if not client_ids:
+        return {}
+    found = await db.execute(
+        select(DeliveryLeadClientAssignment.client_id, User.name, User.email)
+        .join(User, User.id == DeliveryLeadClientAssignment.delivery_lead_user_id)
+        .where(
+            DeliveryLeadClientAssignment.client_id.in_(client_ids),
+            User.is_active.is_(True),
+            or_(
+                User.role == UserRole.delivery_lead,
+                User.roles.contains([UserRole.delivery_lead.value]),
+            ),
+        )
+        .order_by(DeliveryLeadClientAssignment.client_id, User.name, User.id)
+    )
+    by_client: dict[int, list[str]] = {}
+    for client_id, name, email in found.all():
+        by_client.setdefault(client_id, []).append(name or email)
+    return {client_id: reviewers_label(names) for client_id, names in by_client.items()}
+
+
+async def _review_extras(
+    db: AsyncSession, rows: list[Any], *, now: datetime
+) -> tuple[dict[int, ReviewState], dict[int, str]]:
+    """Stan QC i przeglądający z portfela dla wierszy „QC CV”.
+
+    To dodatek do listy: awaria odczytu zostawia wiersze bez tych pól, zamiast
+    zabrać rekruterowi całą listę. Savepoint, bo sesja żądania jedzie dalej.
+    """
+
+    if not rows:
+        return {}, {}
+    try:
+        async with db.begin_nested():
+            return (
+                await _review_states(db, rows, now=now),
+                await _portfolio_reviewers(db, rows),
+            )
+    except Exception:  # noqa: BLE001
+        logger.exception("cv_in_transit: nie udało się odczytać stanu QC przeglądu")
+        return {}, {}
+
+
 async def is_hidden(db: AsyncSession, user_id: int) -> bool:
     """Czy osoba usunęła listę z pulpitu („Usuń z pulpitu”)."""
 
@@ -367,14 +510,22 @@ async def load_for_user(
         [r.id for r in sent_back],
         candidate_ids=[r.candidate_id for r in sent_back],
     )
+    review_states, portfolio_reviewers = await _review_extras(
+        db, [r for r, kind in kept if kind == KIND_IN_REVIEW], now=now
+    )
 
     out = CvInTransit()
     for r, kind in kept:
         actor = names.get(r.moved_by) if r.moved_by is not None else None
         holder: Optional[str] = None
         reason: Optional[str] = None
+        review: Optional[ReviewState] = None
         if kind == KIND_IN_REVIEW:
             holder, actor = names.get(r.delivery_lead_id), None
+            if r.delivery_lead_id is None:
+                # Rekrutacja bez aktywnego DL-a: przegląda portfel klienta.
+                holder = portfolio_reviewers.get(r.client_id)
+            review = review_states.get(r.id)
         elif kind == KIND_CPRO_QUEUE:
             holder, actor = names.get(firm_sender_id or r.cpro_sender_id), None
         elif kind == KIND_REJECTED_BY_DL:
@@ -399,6 +550,10 @@ async def load_for_user(
             card_edited_by=card_edits.get(r.id, (None, ()))[0],
             card_edited_fields=card_edits.get(r.id, (None, ()))[1],
             fix_labels=tuple(fix_labels.get(r.id, ())),
+            qc_status=review.qc_status if review else None,
+            ready_since=review.ready_since if review else None,
+            waiting_workdays=review.waiting_workdays if review else 0,
+            can_nudge=review.can_nudge if review else False,
         )
         if kind in (KIND_IN_REVIEW, KIND_CPRO_QUEUE):
             out.in_review.append(row)
@@ -525,10 +680,13 @@ async def load_safely(
 
 __all__ = [
     "CvInTransit",
+    "ReviewState",
     "TransitRow",
     "classify",
     "is_hidden",
     "load_for_user",
     "load_safely",
     "rejection_reason_text",
+    "review_state",
+    "reviewers_label",
 ]

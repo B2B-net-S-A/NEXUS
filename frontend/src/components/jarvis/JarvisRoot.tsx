@@ -59,6 +59,7 @@ import { useScreenGuides } from "@/lib/help/useScreenGuides";
 import { playPetSound } from "@/lib/kidsSound";
 import { hasSectionAccess } from "@/lib/section-access";
 import { hasCapability } from "@/lib/capabilities";
+import { countsForDlSend, type BoardTaskRow } from "@/lib/api/boardTasks";
 import type { MyPeopleSummary } from "@/lib/api/myPeople";
 import {
   MY_PEOPLE_MATCH_EVENT,
@@ -464,10 +465,12 @@ export function JarvisRoot() {
         // naprawdę wynika dzień pracy (telefon po rozmowie, debrief, DZ).
         try {
           const { data } = await api.get<Record<string, unknown>>("/api/board-tasks");
-          const waiting = ["dz", "cpro_to_send", "dl_review"].reduce(
-            (sum, key) => sum + (Array.isArray(data?.[key]) ? (data[key] as unknown[]).length : 0),
-            0,
-          );
+          const waiting = ["dz", "cpro_to_send", "dl_review"].reduce((sum, key) => {
+            const rows = Array.isArray(data?.[key]) ? (data[key] as BoardTaskRow[]) : [];
+            // 13.10.2026: z przeglądu DL liczą się tylko wiersze gotowe do
+            // wysłania do klienta — karta z QC do poprawy jest u rekrutera.
+            return sum + (key === "dl_review" ? rows.filter(countsForDlSend).length : rows.length);
+          }, 0);
           if (waiting > 0) parts.push(`${waiting} ${waiting === 1 ? "osoba czeka" : "osoby czekają"} na Twój przegląd`);
         } catch {
           /* jw. */

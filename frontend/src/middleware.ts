@@ -487,6 +487,7 @@ const PUBLIC_PATHS = [
   "/preview/screening-form",
   // Przegląd Delivery Leada: karta, uwagi dla rekrutera, „Wróć do poprawy”.
   "/preview/dl-review",
+  "/preview/dl-send",
   // Praktykanci (0374): `/preview/trainee` pokrywa też `/preview/trainees`.
   "/preview/trainee",
   // Strona kariery (kandydaci z LinkedIna) — publiczna z definicji. Na własnym

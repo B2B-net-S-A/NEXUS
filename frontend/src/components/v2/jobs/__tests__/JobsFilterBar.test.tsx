@@ -18,6 +18,7 @@ import {
   jobsFilterBarLayout,
   type JobsFilterBarValue,
 } from "@/components/v2/jobs/JobsFilterBar";
+import { useAuthStore } from "@/store/auth";
 
 vi.mock("@/lib/api", () => ({
   default: { get: () => Promise.resolve({ data: [] }) },
@@ -42,14 +43,24 @@ const EMPTY: JobsFilterBarValue = {
   deadline: "any",
   deadlineRange: {},
   sent: "any",
+  toSend: "",
   priorityLevels: [],
   openedRange: {},
 };
+
+// „Czeka na mnie” widzi tylko Delivery Lead — rola przychodzi ze store'u.
+function signInAs(...roles: string[]) {
+  useAuthStore.setState({
+    user: { id: 7, name: "Test", email: "t@example.com", role: roles[0], roles } as never,
+    hydrated: true,
+  });
+}
 
 let barWidth = 0;
 let resizeCallbacks: Array<() => void> = [];
 
 beforeEach(() => {
+  signInAs("recruiter");
   barWidth = 0;
   resizeCallbacks = [];
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
@@ -187,7 +198,7 @@ describe("JobsFilterBar — „Data otwarcia” w „Więcej filtrów” (wąski
 
     // „✕” przy „Więcej filtrów” czyści także schowany filtr.
     await user.click(within(bar).getByRole("button", { name: "Wyczyść: Więcej filtrów" }));
-    expect(onPatch).toHaveBeenCalledWith({ sent: "any", openedRange: {} });
+    expect(onPatch).toHaveBeenCalledWith({ sent: "any", toSend: "", openedRange: {} });
   });
 
   it("dwa schowane filtry naraz: licznik zamiast jednej wartości", () => {
@@ -208,7 +219,7 @@ describe("JobsFilterBar — „Data otwarcia” w „Więcej filtrów” (wąski
     expect(within(bar).getByRole("button", { name: /^Data otwarcia: od 01\.09$/ })).toBeInTheDocument();
 
     await user.click(within(bar).getByRole("button", { name: "Wyczyść: Więcej filtrów" }));
-    expect(onPatch).toHaveBeenCalledWith({ sent: "any" });
+    expect(onPatch).toHaveBeenCalledWith({ sent: "any", toSend: "" });
     await user.click(within(bar).getByRole("button", { name: "Wyczyść: Data otwarcia" }));
     expect(onPatch).toHaveBeenCalledWith({ openedRange: {} });
 
@@ -255,5 +266,83 @@ describe("JobsFilterBar — „Priorytet” i „Wyczyść”", () => {
   it("„Wyczyść filtry (N)” zachowuje pełną nazwę dostępną także na wąskim pasku", () => {
     const { bar } = renderBar({ priorityLevels: ["p1"] }, { canClear: true, activeCount: 1 });
     expect(within(bar).getByRole("button", { name: "Wyczyść filtry (1)" })).toBeInTheDocument();
+  });
+});
+
+describe("JobsFilterBar — „Do wysłania do klienta” w „Więcej filtrów”", () => {
+  async function openMore(bar: HTMLElement) {
+    const user = userEvent.setup();
+    await user.click(within(bar).getByRole("button", { name: /^Więcej filtrów/ }));
+    const group = within(await screen.findByRole("radiogroup", { name: "Do wysłania do klienta" }));
+    return { user, group };
+  }
+
+  /** Etykiety pozycji w kolejności ekranu — radia ma tylko ta grupa. */
+  function optionNames(): Array<string | null | undefined> {
+    return screen.getAllByRole("radio").map((radio) => radio.parentElement?.textContent);
+  }
+
+  it("to nie jest czwarty przełącznik paska — grupa stoi w okienku", () => {
+    const { bar } = renderBar();
+    expect(within(bar).queryByText(/Do wysłania|Czeka na mnie|Czeka 3\+/)).not.toBeInTheDocument();
+  });
+
+  it("Delivery Lead: Dowolnie · Czeka na mnie · Czeka 3+ dni robocze, wybór idzie łatką", async () => {
+    signInAs("delivery_lead");
+    const { bar, onPatch } = renderBar();
+    const { user, group } = await openMore(bar);
+
+    expect(optionNames()).toEqual(["Dowolnie", "Czeka na mnie", "Czeka 3+ dni robocze"]);
+    expect(group.getByRole("radio", { name: "Dowolnie" })).toBeChecked();
+
+    await user.click(group.getByRole("radio", { name: "Czeka na mnie" }));
+    expect(onPatch).toHaveBeenLastCalledWith({ toSend: "mine" });
+    await user.click(group.getByRole("radio", { name: "Czeka 3+ dni robocze" }));
+    expect(onPatch).toHaveBeenLastCalledWith({ toSend: "stale" });
+  });
+
+  it("konto wielorolowe z rolą Delivery Leada też widzi „Czeka na mnie”", async () => {
+    signInAs("admin", "delivery_lead");
+    const { bar } = renderBar();
+    const { group } = await openMore(bar);
+    expect(group.getByRole("radio", { name: "Czeka na mnie" })).toBeInTheDocument();
+  });
+
+  it("rekruter nie ma pozycji „Czeka na mnie” — zostaje filtr firmowy", async () => {
+    const { bar } = renderBar();
+    await openMore(bar);
+    expect(optionNames()).toEqual(["Dowolnie", "Czeka 3+ dni robocze"]);
+  });
+
+  it("rekruter z linku `tosend=mine` widzi zaznaczoną pozycję i może ją zdjąć", async () => {
+    const { bar, onPatch } = renderBar({ toSend: "mine" });
+    expect(
+      within(bar).getByRole("button", { name: /Więcej filtrów: do wysłania: czeka na mnie/ }),
+    ).toBeInTheDocument();
+    const { user, group } = await openMore(bar);
+    expect(group.getByRole("radio", { name: "Czeka na mnie" })).toBeChecked();
+    await user.click(group.getByRole("radio", { name: "Dowolnie" }));
+    expect(onPatch).toHaveBeenLastCalledWith({ toSend: "" });
+  });
+
+  it("przycisk „Więcej filtrów” niesie wartość, a z drugim filtrem — licznik", () => {
+    const { bar, unmount } = renderBar({ toSend: "stale" });
+    expect(
+      within(bar).getByRole("button", { name: /Więcej filtrów: do wysłania: 3\+ dni robocze/ }),
+    ).toBeInTheDocument();
+    unmount();
+
+    const both = renderBar({ toSend: "stale", sent: "3" });
+    const more = within(both.bar).getByRole("button", { name: /^Więcej filtrów/ });
+    expect(more).toHaveTextContent("2");
+    expect(more).not.toHaveTextContent("do wysłania");
+  });
+
+  it("„✕” przy „Więcej filtrów” zdejmuje także ten filtr", async () => {
+    barWidth = 1300;
+    const user = userEvent.setup();
+    const { bar, onPatch } = renderBar({ toSend: "mine" });
+    await user.click(within(bar).getByRole("button", { name: "Wyczyść: Więcej filtrów" }));
+    expect(onPatch).toHaveBeenCalledWith({ sent: "any", toSend: "" });
   });
 });

@@ -21,6 +21,7 @@ import { KpiTopbarButton } from "@/components/v2/kpi/KpiTopbarButton";
 import { KpiTopbarPopover } from "@/components/v2/kpi/MyKpiWidget";
 import { buildKpiTopbarModel, type KpiTopbarModel } from "@/components/v2/kpi/kpi-topbar-model";
 import { ChatTopbarButton } from "@/components/v2/shell/ChatNotificationsDropdown";
+import { DlSendPill } from "@/components/v2/shell/DlSendTopbarButton";
 import { InterviewsTopbarButton } from "@/components/v2/shell/InterviewNotificationsDropdown";
 import { PaletteSwitcher } from "@/components/v2/shell/PaletteSwitcher";
 import { KidsModeToggleButton, ThemeToggleButton } from "@/components/v2/shell/ThemeControls";
@@ -320,6 +321,9 @@ function ShellStrip({
             <Button variant="ghost" size="icon" aria-label="Moi ludzie (atrapa)">
               <Users className="h-4 w-4" aria-hidden />
             </Button>
+            {/* Licznik „Do wysłania” Delivery Leada — w replice zawsze, żeby pomiar
+                paska brał najszerszy układ (pigułka nie kurczy się, oddaje licznik celów). */}
+            <DlSendPill total={12} urgency="late" />
             <ChatTopbarButton unreadThreads={0} hasMention={false} open={false} />
             <InterviewsTopbarButton
               count={callPill ? 2 : 0}

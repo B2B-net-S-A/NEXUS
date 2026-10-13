@@ -12,7 +12,10 @@
  * Żadne zapytanie nie wychodzi z harnessu (interceptor żądania odrzuca je
  * lokalnie) — sekcje, które same pobierają dane (propozycje na górze Nowych),
  * pokazują wtedy swój stan błędu, a nie przerzucają na /login.
- * `?as=dl` — patrzy Delivery Lead (widzi „Przejmij” na cudzej blokadzie).
+ * `?as=dl` — patrzy Delivery Lead tej rekrutacji (widzi „Przejmij” na cudzej
+ * blokadzie). „Do wysłania do klienta” (13.10.2026): w „QC CV” czekają na
+ * niego dwie osoby — „Czeka na Ciebie”, „Przejrzyj i wyślij” na karcie
+ * i „Przejrzyj po kolei (2)” w nagłówku kolumny.
  * `?questions=none` — rekrutacja bez pytań screeningowych (13.10.2026): dwie
  * karty w „Screeningu”, bez oceny („Dlaczego ten kandydat”) i z oceną.
  *
@@ -93,7 +96,7 @@ function col(
   } as unknown as KanbanColumn;
 }
 
-function columns(viewerId: number, noQuestions = false): KanbanColumn[] {
+function columns(viewerId: number, noQuestions = false, dlQueue = false): KanbanColumn[] {
   nextId = 1;
   return [
     col("posting", "Ogłoszenia", "internal", 10, [
@@ -171,6 +174,20 @@ function columns(viewerId: number, noQuestions = false): KanbanColumn[] {
         expected_rate_unit: "hourly",
         qc: { status: "passed", blocking_failed: 0 },
       }),
+      // Druga gotowa osoba tylko w widoku Delivery Leada. W kolumnie od 4 dni,
+      // QC przepuszczone przedwczoraj — plakietka liczy dni od gotowości (2),
+      // nie od wejścia do kolumny.
+      ...(dlQueue
+        ? [
+            card("Adam", "Przykładowy", {
+              days_in_stage: 4,
+              moved_at: daysAgo(4),
+              expected_rate_value: 155,
+              expected_rate_unit: "hourly",
+              qc: { status: "overridden", blocking_failed: 1, ok_at: daysAgo(2) },
+            }),
+          ]
+        : []),
     ]),
     col("new", "Wysłać do Cpro", "internal", 15, []),
     col("cv_sent", "CV Wysłane", "internal", 16, [
@@ -521,7 +538,7 @@ function PipelineV4Harness() {
     setReady(true);
   }, [asDl, viewerId]);
   const noQuestions = params.get("questions") === "none";
-  const cols = useMemo(() => columns(viewerId, noQuestions), [viewerId, noQuestions]);
+  const cols = useMemo(() => columns(viewerId, noQuestions, asDl), [viewerId, noQuestions, asDl]);
   // 0404: „Odrzuceni przez AI” — pusta lista, bez zapytania.
   useMemo(() => {
     client.setQueryData(screenedOutQueryKey(JOB_ID), { job_id: JOB_ID, total: 0, items: [] });
@@ -585,7 +602,12 @@ function PipelineV4Harness() {
             <h1 className="mb-3 text-lg font-semibold">
               Tablica Pipeline v4 — harness ({asDl ? "Delivery Lead" : "rekruterka Marta"})
             </h1>
-            <KanbanBoardV2 columns={cols} jobId={JOB_ID} jobTitle="Senior Java Developer" />
+            <KanbanBoardV2
+              columns={cols}
+              jobId={JOB_ID}
+              jobTitle="Senior Java Developer"
+              viewerOwnsDlReview={asDl}
+            />
           </main>
         </TooltipProvider>
       </ToastProvider>

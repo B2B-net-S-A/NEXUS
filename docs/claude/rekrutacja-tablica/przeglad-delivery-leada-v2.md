@@ -43,5 +43,7 @@ porównania z innymi osobami; „Wróć do poprawy” niosło jedno zdanie, wię
   liczba zapytań, najwyżej 50, najdłużej czekające), u Nordei pusta lista z `cpro_client: true`. Wejścia:
   „Porównaj (N)” przy grupie rekrutacji w „Czeka na Twój przegląd” i w nagłówku kolumny „QC CV” na Tablicy (DL,
   2+ osoby, poza Nordeą). Wiersz niesie wiersz kolejki pulpitu, więc „Przejrzyj” nie robi drugiego żądania.
+  Od 13.10.2026 wejście z pulpitu to „porównaj” w pasie „Do wysłania do klienta” (sekcji „Czeka na Twój
+  przegląd” już nie ma), a przegląd umie iść „po kolei” — `rekrutacja-tablica/do-wyslania-do-klienta-kolejka-delivery-leada.md`.
 - Harness `/preview/dl-review` (`?state=queue`, `?state=returned`, `?as=recruiter`). Wzmianki w sekcjach 0352
   i 0413 o przeglądzie bez marży i o „Wróć do poprawy” z samą uwagą opisują stan sprzed 08.10.2026.

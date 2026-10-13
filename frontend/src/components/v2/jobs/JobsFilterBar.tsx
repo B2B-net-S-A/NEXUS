@@ -41,24 +41,29 @@ import { CompetenceCategoryMultiSelect } from "@/components/v2/filters/Competenc
 import {
   DEADLINE_LABEL,
   SENT_LABEL,
+  TO_SEND_LABEL,
   deadlineSummary,
   namesSummary,
   openedRangeSet,
   openedSummary,
   prioritySummary,
+  toSendSummary,
   whoSummary,
 } from "@/lib/jobs-filter-groups";
 import {
   JOB_DEADLINE_PRESETS,
   JOB_SENT_VALUES,
+  JOB_TO_SEND_VALUES,
   isFilterDate,
   openedRangeReversed,
   type JobDeadlinePreset,
   type JobDeadlineRange,
   type JobOpenedRange,
   type JobSentFilterValue,
+  type JobToSendFilterValue,
 } from "@/lib/jobs-url-filters";
 import { PRIORITY_LEVEL_OPTIONS, type PriorityLevel } from "@/lib/request-priority";
+import { hasRole, useAuthStore } from "@/store/auth";
 
 export interface JobsFilterBarValue {
   clientIds: number[];
@@ -71,6 +76,8 @@ export interface JobsFilterBarValue {
   deadline: JobDeadlinePreset;
   deadlineRange: JobDeadlineRange;
   sent: JobSentFilterValue;
+  /** „Do wysłania do klienta” — kolejka Delivery Leada (`""` = dowolnie). */
+  toSend: JobToSendFilterValue;
   priorityLevels: PriorityLevel[];
   openedRange: JobOpenedRange;
 }
@@ -297,13 +304,27 @@ export function JobsFilterBar({
   const openedSet = openedRangeSet(value.openedRange);
   const opened = openedSummary(value.openedRange);
   const sentSet = value.sent !== "any";
-  const moreCount = (sentSet ? 1 : 0) + (openedFolded && openedSet ? 1 : 0);
+  // „Do wysłania do klienta” mieszka w „Więcej filtrów”, nie na pasku: czwarty
+  // przełącznik nie mieści się w jednym rzędzie przy oknie 1280 px.
+  const toSend = toSendSummary(value.toSend);
+  const viewer = useAuthStore((s) => s.user);
+  // „Czeka na mnie” ma sens tylko u Delivery Leada. Zostaje widoczna także
+  // wtedy, gdy ktoś inny wszedł z linku `tosend=mine` — ustawiony filtr musi
+  // mieć zaznaczoną pozycję, inaczej pusta lista nie ma wyjaśnienia.
+  const toSendOptions = JOB_TO_SEND_VALUES.filter(
+    (option) =>
+      option !== "mine" || value.toSend === "mine" || hasRole(viewer, "delivery_lead"),
+  );
+  const moreCount =
+    (sentSet ? 1 : 0) + (toSend ? 1 : 0) + (openedFolded && openedSet ? 1 : 0);
   const moreSummary =
     moreCount !== 1
       ? null
       : sentSet
         ? `wysłanych: ${SENT_LABEL[value.sent]}`
-        : `otwarta: ${opened}`;
+        : toSend
+          ? `do wysłania: ${toSend}`
+          : `otwarta: ${opened}`;
   const openedFields = (
     <OpenedRangeFields
       value={value.openedRange}
@@ -529,7 +550,11 @@ export function JobsFilterBar({
         summary={moreSummary}
         count={moreCount}
         onClear={() =>
-          onPatch(openedFolded ? { sent: "any", openedRange: {} } : { sent: "any" })
+          onPatch(
+            openedFolded
+              ? { sent: "any", toSend: "", openedRange: {} }
+              : { sent: "any", toSend: "" },
+          )
         }
       >
         <div className="space-y-1">
@@ -549,6 +574,27 @@ export function JobsFilterBar({
           <p className="text-xs text-muted-foreground">
             Osoby, które w tej rekrutacji doszły do „CV wysłane” albo dalej.
           </p>
+        </div>
+        <div
+          className="space-y-1 border-t border-border pt-3"
+          role="radiogroup"
+          aria-label="Do wysłania do klienta"
+        >
+          <p className="text-xs font-medium text-foreground">Do wysłania do klienta</p>
+          {toSendOptions.map((option) => (
+            <label
+              key={option || "any"}
+              className="flex items-center gap-2 rounded-md px-1 py-1 text-sm"
+            >
+              <input
+                type="radio"
+                name="jobs-to-send"
+                checked={value.toSend === option}
+                onChange={() => onPatch({ toSend: option })}
+              />
+              {TO_SEND_LABEL[option]}
+            </label>
+          ))}
         </div>
         {openedFolded && (
           <div className="space-y-1 border-t border-border pt-3">

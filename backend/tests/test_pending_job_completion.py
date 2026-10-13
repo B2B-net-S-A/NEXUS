@@ -41,7 +41,7 @@ def test_digest_line_counts_pending_jobs() -> None:
     line = board_tasks.DigestLine(dl_review=1, pending_jobs=2)
     assert line.total == 3
     assert board_tasks.digest_message(line) == (
-        "1 osoba czeka na Twój przegląd · 2 rekrutacje czekają na dokończenie"
+        "1 osoba do wysłania do klienta · 2 rekrutacje czekają na dokończenie"
     )
 
 

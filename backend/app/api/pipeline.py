@@ -65,7 +65,7 @@ from app.models.pipeline_template import (
     RejectionReason,
     TerminalType,
 )
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.pipeline import (
     CandidateStageResponse,
     HiringManagerVetoBrief,
@@ -2371,6 +2371,44 @@ def _with_next_action_owner(payload: dict, column: StageColumn, group: str) -> d
     return payload
 
 
+async def _viewer_owns_dl_review(
+    db: AsyncSession, job: Job, viewer: Optional[User]
+) -> bool:
+    """Czy przegląd przed wysłaniem do klienta w ``job`` należy do patrzącego.
+
+    Ta sama reguła co „Czeka na Ciebie” na pulpicie (`board_tasks.reviews_as_dl`):
+    Delivery Lead wpisany w rekrutacji, a bez niego — Delivery Lead z portfelem
+    klienta. Nieaktywny DL rekrutacji liczy się jak brak DL-a (lustro
+    `_LATEST_SQL`). U klienta z kolejką Cpro przeglądu DL nie ma. Bez roli
+    Delivery Leada i u Nordei — bez zapytań.
+    """
+    if viewer is None or not viewer.has_role(UserRole.delivery_lead):
+        return False
+    from app.services.board_stage_badges import cpro_enabled_for_client
+
+    if cpro_enabled_for_client(job.client_id):
+        return False
+    delivery_lead_id = job.delivery_lead_id
+    if delivery_lead_id is not None and delivery_lead_id != viewer.id:
+        # Własne konto patrzącego jest aktywne (jest zalogowany) — pytamy tylko
+        # o cudze.
+        if not await db.scalar(
+            select(User.is_active).where(User.id == delivery_lead_id)
+        ):
+            delivery_lead_id = None
+    portfolio = (
+        await board_tasks_svc.dl_portfolio_client_ids(db, viewer.id)
+        if delivery_lead_id is None
+        else frozenset()
+    )
+    return board_tasks_svc.reviews_as_dl(
+        viewer,
+        delivery_lead_id=delivery_lead_id,
+        client_id=job.client_id,
+        portfolio=portfolio,
+    )
+
+
 async def build_kanban_view(
     db: AsyncSession,
     job: Job,
@@ -2425,6 +2463,8 @@ async def build_kanban_view(
         if s.client_rate_value is not None:
             carried_client_rate.setdefault(s.candidate_id, s)
     show_client_rate = user_can_view_client_rate(viewer)
+    # „Czeka na Ciebie” w kolumnie „QC CV”: raz na tablicę, dla obu gałęzi niżej.
+    viewer_owns_dl_review = await _viewer_owns_dl_review(db, job, viewer)
 
     # Bulk-load candidate names so cards render with real names (not "Kandydat" fallback)
     candidate_ids = list(seen.keys())
@@ -2872,6 +2912,7 @@ async def build_kanban_view(
                 entries=off_template_entries,
                 render=_stage_resp_with_name,
             ),
+            viewer_owns_dl_review=viewer_owns_dl_review,
         )
 
     # ── Legacy fallback (no template seeded yet) ──────────────────────────────
@@ -2924,6 +2965,7 @@ async def build_kanban_view(
             entries=off_template_entries,
             render=_stage_resp_with_name,
         ),
+        viewer_owns_dl_review=viewer_owns_dl_review,
     )
 
 

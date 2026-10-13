@@ -58,7 +58,8 @@ export type NavIcon = ComponentType<{ className?: string }>;
 
 export type NavBadgeKey =
   | "applicationSubmissions"
-  | "orderMail";
+  | "orderMail"
+  | "dlSend";
 
 export type NavFeatureFlag = "contactQueue";
 
@@ -369,6 +370,8 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     section: "pipeline",
     placement: "primary",
     inPalette: true,
+    // Tylko Delivery Lead z kimś gotowym do wysłania do klienta (13.10.2026).
+    badgeKey: "dlSend",
   },
   {
     // Stany requestów (0371): ustawia DL, nadzoruje HoR i admin — lustro

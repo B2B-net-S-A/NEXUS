@@ -35,6 +35,8 @@ export interface MyRecruitmentRow extends PipelineStageSummary {
   deadline_time?: string | null
   delivery_lead_id?: number | null
   recruiters?: JobRecruiter[] | null
+  /** Tylko u Delivery Leada: ile gotowych osób czeka na jego wysyłkę do klienta. */
+  dl_send_ready_count?: number | null
 }
 
 export const MY_RECRUITMENTS_PARAMS = {
@@ -147,7 +149,7 @@ export function MyRecruitmentsTile() {
                   </td>
                   <td className="px-2 py-1.5">
                     {summary ? (
-                      <JobStageCounts summary={summary} />
+                      <JobStageCounts summary={summary} dlReady={row.dl_send_ready_count} />
                     ) : (
                       <span className="text-xs text-muted-foreground">brak danych</span>
                     )}

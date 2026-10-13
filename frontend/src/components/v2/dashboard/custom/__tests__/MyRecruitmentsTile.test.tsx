@@ -109,4 +109,37 @@ describe("MyRecruitmentsTile", () => {
     expect(await screen.findByRole("columnheader", { name: "Rekruter" })).toBeInTheDocument()
     expect(screen.queryByRole("columnheader", { name: "Twoja rola" })).toBeNull()
   })
+
+  it("DL: osoby gotowe do wysłania wypełniają komórkę „QC CV” wiersza", async () => {
+    useAuthStore.setState({ user: userWith(["delivery_lead"]), hydrated: true })
+    const qcColumn = [{ stage: "interview", name: "QC CV", count: 2, category: "internal", order: 0 }]
+    getMock.mockResolvedValue({
+      data: {
+        items: [
+          { ...rows[0], stage_columns: qcColumn, dl_send_ready_count: 1 },
+          { ...rows[1], stage_columns: qcColumn, dl_send_ready_count: 0 },
+        ],
+        total: 2,
+      },
+    })
+    renderTile()
+    await screen.findByRole("link", { name: "Java Developer" })
+    const [waiting, quiet] = screen
+      .getAllByTestId("job-stage-counts")
+      .map((cell) => cell.querySelector('[data-group="cv_qc"]') as HTMLElement)
+    expect(waiting).toHaveAttribute("data-dl-ready", "true")
+    expect(waiting).toHaveClass("bg-primary", "text-primary-foreground")
+    expect(waiting.getAttribute("title")).toBe(
+      "1 gotowa do wysłania — czeka na Ciebie\nQC CV: QC CV 2",
+    )
+    expect(quiet).not.toHaveAttribute("data-dl-ready")
+    expect(quiet).not.toHaveClass("bg-primary")
+  })
+
+  it("wiersz bez pola (rekruter) nie wyróżnia komórki", async () => {
+    getMock.mockResolvedValue({ data: { items: rows, total: 2 } })
+    renderTile()
+    await screen.findByRole("link", { name: "Java Developer" })
+    expect(document.querySelector("[data-dl-ready]")).toBeNull()
+  })
 })

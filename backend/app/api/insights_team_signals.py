@@ -24,6 +24,7 @@ from app.services.section_permissions import (
     SectionAccess,
     section_access_for_user,
 )
+from app.services.dl_send_queue import STALE_WORKDAYS
 from app.services.insights_person_scope import outside_scope_user_ids
 from app.services.insights_team_signals import (
     LOW_PRECISION_PCT,
@@ -31,6 +32,7 @@ from app.services.insights_team_signals import (
     STALE_JOB_DAYS,
     STALE_POSTING_DAYS,
     current_team_panel,
+    dl_send_stale,
     flow_signals,
     people_payload,
     stale_jobs,
@@ -146,7 +148,8 @@ async def _attention_base(db: AsyncSession, *, today: date) -> list[dict]:
     zależy od osoby, więc klucz jest jeden na dzień.
     """
     # v3 (04.10.2026): sygnały „Gdzie stoi” z pulpitu Heada i admina.
-    cache_key = f"insights:team:attention:base:v3:{today}"
+    # v4 (13.10.2026): gotowe CV czekające na wysyłkę do klienta.
+    cache_key = f"insights:team:attention:base:v4:{today}"
     async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:
@@ -187,6 +190,28 @@ async def _attention_base(db: AsyncSession, *, today: date) -> list[dict]:
                     "label": "rekrutacji w pracy po terminie klienta",
                     "report": None,
                     "href": "/jobs?open=1&deadline=overdue",
+                }
+            )
+        # 13.10.2026: kolejka „Do wysłania do klienta” — gotowe CV, które
+        # czeka u Delivery Leada dzień dłużej, niż rekruter czeka z „Przypomnij”.
+        # Sygnał z innego modułu — jego awaria nie może zabrać Head of
+        # Recruitment całego „Gdzie stoi” (savepoint, sesja jedzie dalej).
+        try:
+            async with db.begin_nested():
+                send_stale = await dl_send_stale(db, now=now)
+        except Exception:  # noqa: BLE001
+            logger.exception("team attention: nie udało się policzyć dl_send_stale")
+            send_stale = 0
+        if send_stale:
+            items.append(
+                {
+                    "kind": "dl_send_stale",
+                    "count": send_stale,
+                    "label": (
+                        f"CV czeka na wysyłkę do klienta {STALE_WORKDAYS}+ dni robocze"
+                    ),
+                    "report": None,
+                    "href": "/jobs?open=1&tosend=stale",
                 }
             )
         if flow["stale_postings"]:

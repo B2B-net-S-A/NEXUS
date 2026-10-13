@@ -8,7 +8,7 @@
  * od. Klik w osobę otwiera jej przegląd (wiersz kolejki przychodzi z serwera,
  * bez drugiego żądania).
  *
- * Wejścia: pulpit („Czeka na Twój przegląd”, 2+ osoby w rekrutacji) i nagłówek
+ * Wejścia: pulpit (pas „Do wysłania do klienta” — „porównaj”, 2+ osoby w rekrutacji) i nagłówek
  * kolumny „QC CV” na Tablicy („Porównaj (N)”). U Nordei przeglądu DL nie ma
  * — serwer oddaje pustą listę, a przyciski się nie pokazują.
  */

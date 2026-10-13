@@ -43,7 +43,7 @@ from typing import Any, Optional
 
 from fastapi import HTTPException
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, case, func, select
 from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -2209,18 +2209,30 @@ async def pair_statuses(
     ale Delivery Lead/admin kiedyś przepuścił parę; ``failed``; ``unchecked``
     — pary nikt jeszcze nie sprawdzał. Obejście doradcze sprzed zwrotu karty
     się nie liczy (`_override_applies`).
+
+    ``ok_at`` — od kiedy para jest gotowa: czas najnowszego zaliczonego
+    przebiegu albo najwcześniejszego obowiązującego obejścia; ``None`` przy
+    ``failed`` i ``unchecked``. Od tej chwili Delivery Lead „czeka” z wysyłką
+    (`services/dl_send_queue.py`) — czas poprawek rekrutera się nie liczy.
     """
 
     wanted = {(int(c), int(j)) for c, j in pairs}
     out: dict[tuple[int, int], dict] = {
-        pair: {"status": "unchecked", "blocking_failed": 0} for pair in wanted
+        pair: {"status": "unchecked", "blocking_failed": 0, "ok_at": None}
+        for pair in wanted
     }
     if not wanted:
         return out
+    pair_window = (CvQcRun.candidate_id, CvQcRun.job_id)
     has_override = (
         func.bool_or(_override_applies())
-        .over(partition_by=(CvQcRun.candidate_id, CvQcRun.job_id))
+        .over(partition_by=pair_window)
         .label("has_override")
+    )
+    override_at = (
+        func.min(case((_override_applies(), CvQcRun.created_at)))
+        .over(partition_by=pair_window)
+        .label("override_at")
     )
     rows = await db.execute(
         select(
@@ -2228,7 +2240,9 @@ async def pair_statuses(
             CvQcRun.job_id,
             CvQcRun.passed,
             CvQcRun.blocking_failed,
+            CvQcRun.created_at,
             has_override,
+            override_at,
         )
         .where(
             CvQcRun.candidate_id.in_(sorted({c for c, _ in wanted})),
@@ -2247,14 +2261,15 @@ async def pair_statuses(
         if pair not in wanted:
             continue
         if row.passed:
-            status = "passed"
+            status, ok_at = "passed", row.created_at
         elif row.has_override:
-            status = "overridden"
+            status, ok_at = "overridden", row.override_at
         else:
-            status = "failed"
+            status, ok_at = "failed", None
         out[pair] = {
             "status": status,
             "blocking_failed": 0 if row.passed else int(row.blocking_failed or 0),
+            "ok_at": ok_at,
         }
     return out
 

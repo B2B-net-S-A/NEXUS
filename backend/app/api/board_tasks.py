@@ -23,6 +23,7 @@ szkice i opublikowane bez przekazania do searchu) oraz niedokończone
 formularze „Nowa rekrutacja” tej osoby.
 """
 
+import logging
 from dataclasses import asdict
 from datetime import date, datetime, timezone
 from typing import Literal, Optional
@@ -41,6 +42,9 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.candidate import Candidate
+from app.models.job import Job
+from app.models.notification import NotificationType
+from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User, UserRole
 from app.services import agreement_tasks, rate_change_tasks
 from app.services import board_tasks as svc
@@ -51,12 +55,17 @@ from app.services import (
     candidate_followups,
     cpro_sender,
     cv_in_transit,
+    dl_send_queue,
     move_requirements,
     new_job_leads,
     pending_job_completion,
     prep_attention,
     request_allocation_proposals,
+    stage_handoff_recipients,
 )
+from app.services.notification_triggers import emit
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
@@ -103,6 +112,49 @@ class BoardTaskRow(BaseModel):
     # (R7-X4-2): podgląd i „Pobierz DOCX" biorą CV etapu, nie surowy plik
     # z generatora — do klienta ma iść to, co przeszło QC.
     cv_stage_id: Optional[int] = None
+    # „Do wysłania do klienta” (13.10.2026, `services/dl_send_queue.py`) —
+    # tylko przegląd DL. ``ready`` = QC zdane albo przepuszczone; czas i pilność
+    # liczą się od ``ready_since``; ``imported`` = etap z importu Traffita,
+    # którego nikt nie ruszył w NEXUSIE (poza licznikami).
+    ready: bool = False
+    ready_since: Optional[datetime] = None
+    waiting_workdays: int = 0
+    urgency: Optional[Literal["fresh", "due", "late"]] = None
+    imported: bool = False
+    handed_over_by_name: Optional[str] = None
+    budget_min_hourly: Optional[float] = None
+    budget_max_hourly: Optional[float] = None
+    deadline: Optional[date] = None
+
+
+class DlSendRow(BaseModel):
+    """Wiersz okienka „Do wysłania” w górnym pasku.
+
+    Celowo węższy niż `BoardTaskRow`: przegląd otwiera się z pełnego wiersza
+    (`/dl-review-row`), nie z tego — brak tu wersji procesu i etapów ruchu.
+    """
+
+    stage_id: int
+    candidate_id: int
+    candidate_name: str
+    job_id: int
+    job_title: str
+    job_working_title: Optional[str] = None
+    client_name: Optional[str] = None
+    ready_since: datetime
+    waiting_workdays: int
+    urgency: Literal["fresh", "due", "late"]
+    handed_over_by_name: Optional[str] = None
+
+
+class DlSendQueueResponse(BaseModel):
+    ready: list[DlSendRow]
+    ready_total: int
+    # Kolumna „QC CV”, ale ruch ma jeszcze rekruter (QC do poprawy albo
+    # niesprawdzone) — sama liczba, żeby okienko mówiło „N jeszcze u rekrutera”.
+    not_ready_total: int
+    imported_total: int
+    worst_urgency: Optional[Literal["fresh", "due", "late"]] = None
 
 
 class PrepAttentionRow(BaseModel):
@@ -240,6 +292,13 @@ class CvTransitRow(BaseModel):
     card_edited_fields: list[str] = []
     # D6 (08.10.2026): pola, które Delivery Lead wskazał do poprawy.
     fix_labels: list[str] = []
+    # 13.10.2026, tylko „QC CV” poza Nordeą (`in_review`): stan QC pary, od
+    # kiedy CV jest gotowe i czeka na Delivery Leada (dni robocze) oraz czy
+    # rekruter może już przypomnieć (`POST /dl-send/{stage_id}/nudge`).
+    qc_status: Optional[Literal["passed", "failed", "overridden", "unchecked"]] = None
+    ready_since: Optional[datetime] = None
+    waiting_workdays: int = 0
+    can_nudge: bool = False
 
 
 class CvInTransitBlock(BaseModel):
@@ -790,6 +849,190 @@ async def get_dl_review_row(
         ),
         can_send_to_client=True,
     )
+
+
+# Okienko w górnym pasku — dłuższa lista jest na pulpicie.
+DL_SEND_ROWS = 30
+
+
+@router.get("/dl-send", response_model=DlSendQueueResponse)
+async def get_dl_send_queue(
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+) -> DlSendQueueResponse:
+    """„Do wysłania do klienta” patrzącego — licznik górnego paska i menu.
+
+    Lekkie (wiersze + stan QC, zakres w SQL): pasek pyta o to na każdej
+    stronie, a pełna kolejka z historią par zostaje w `GET /api/board-tasks`.
+    Liczy STAN, nie zdarzenia — wiersz znika po wysłaniu, odrzuceniu albo
+    cofnięciu karty, nie po przeczytaniu. Konto bez roli Delivery Leada
+    dostaje zera bez zapytań.
+    """
+    if not current_user.has_role(UserRole.delivery_lead):
+        return DlSendQueueResponse(
+            ready=[], ready_total=0, not_ready_total=0, imported_total=0
+        )
+    portfolio = await svc.dl_portfolio_client_ids(db, current_user.id)
+    rows = await dl_send_queue.load_for_viewer(db, current_user, portfolio=portfolio)
+    ready = sorted(
+        (t for t in rows if dl_send_queue.counts_for_reviewer(t)),
+        key=lambda t: t.ready_since,
+    )
+    shown = ready[:DL_SEND_ROWS]
+    await dl_send_queue.attach_handed_over_names(db, shown)
+    return DlSendQueueResponse(
+        ready=[
+            DlSendRow(
+                stage_id=t.stage_id,
+                candidate_id=t.candidate_id,
+                candidate_name=t.candidate_name,
+                job_id=t.job_id,
+                job_title=t.job_title,
+                job_working_title=t.job_working_title,
+                client_name=t.client_name,
+                ready_since=t.ready_since,
+                waiting_workdays=t.waiting_workdays,
+                urgency=t.urgency,
+                handed_over_by_name=t.handed_over_by_name,
+            )
+            for t in shown
+        ],
+        ready_total=len(ready),
+        not_ready_total=sum(1 for t in rows if not t.ready and not t.imported),
+        imported_total=sum(1 for t in rows if t.imported),
+        worst_urgency=dl_send_queue.worst_urgency(ready),
+    )
+
+
+class DlSendNudgeResponse(BaseModel):
+    sent: bool
+    # Ilu Delivery Leadów dostało dzwonek (tylko przy ``sent``).
+    recipients: Optional[int] = None
+    # Dlaczego nic nie poszło: dziś już ktoś o tej karcie przypomniał.
+    reason: Optional[Literal["already_today"]] = None
+
+
+@router.post(
+    "/dl-send/{stage_id}/nudge",
+    response_model=DlSendNudgeResponse,
+    response_model_exclude_none=True,
+)
+async def nudge_dl_send(
+    stage_id: int,
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+) -> DlSendNudgeResponse:
+    """„Przypomnij” w „Twoje CV w drodze”: rekruter przypomina Delivery
+    Leadowi o CV gotowym do wysłania (13.10.2026).
+
+    Przypomnieć może osoba, która przekazała kartę do „QC CV”, albo rekruter
+    kandydata — ta sama reguła „moje” co lista (`cv_in_transit`) — i dopiero,
+    gdy gotowe CV czeka ``LATE_WORKDAYS`` dni roboczych. Dzwonek jest zadaniem
+    (`board_task_waiting`) i prowadzi prosto do przeglądu; drugie
+    przypomnienie tego samego dnia nic nie wysyła (indeks dobowy dzwonka).
+    """
+
+    stage = await db.get(CandidateStage, stage_id)
+    task = None
+    if stage is not None:
+        rows = await dl_send_queue.load_rows(
+            db, scope=dl_send_queue.Scope(pair=(stage.candidate_id, stage.job_id))
+        )
+        task = next((t for t in rows if t.stage_id == stage_id), None)
+    if task is None:
+        # Karta poszła dalej, rekrutacja zamknięta albo klient z kolejką Cpro.
+        raise HTTPException(
+            status_code=404,
+            detail="Ta osoba nie czeka już na wysyłkę do klienta.",
+        )
+    recruiter_id = (
+        None
+        if task.moved_by == current_user.id
+        else await stage_handoff_recipients.pair_recruiter_id(
+            db, candidate_id=task.candidate_id, job_id=task.job_id
+        )
+    )
+    if current_user.id not in (task.moved_by, recruiter_id):
+        logger.info(
+            "dl_send_nudge: odmowa — user=%s nie przekazał etapu %s i nie "
+            "prowadzi kandydata",
+            current_user.id,
+            stage_id,
+        )
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Przypomnieć może osoba, która przekazała CV, albo rekruter kandydata."
+            ),
+        )
+    if not dl_send_queue.counts_for_reviewer(task):
+        raise HTTPException(
+            status_code=409,
+            detail="CV nie przeszło jeszcze QC — ruch jest po Twojej stronie.",
+        )
+    if task.waiting_workdays < dl_send_queue.LATE_WORKDAYS:
+        raise HTTPException(
+            status_code=409,
+            detail="Przypomnieć można po 2 dniach roboczych czekania.",
+        )
+    job = await db.get(Job, task.job_id)
+    recipients = [
+        uid
+        for uid in await stage_handoff_recipients._dl_reviewers(db, job)
+        if uid != current_user.id
+    ]
+    if not recipients:
+        logger.info(
+            "dl_send_nudge: etap %s, rekrutacja %s — brak Delivery Leada do "
+            "powiadomienia",
+            stage_id,
+            task.job_id,
+        )
+        raise HTTPException(
+            status_code=409,
+            detail="Ta rekrutacja nie ma Delivery Leada — nie ma komu przypomnieć.",
+        )
+    who = current_user.name or "Ktoś z zespołu"
+    job_title = task.job_working_title or task.job_title
+    notified: list[int] = []
+    for user_id in recipients:
+        notif = await emit(
+            db,
+            user_id=user_id,
+            title=f"{stage_handoff_recipients.TITLE_DL_NUDGE} {task.candidate_name}",
+            message=(
+                f"{who} przypomina: CV kandydata {task.candidate_name} "
+                f"w rekrutacji „{job_title}” czeka na wysyłkę do klienta od "
+                f"{task.waiting_workdays} dni roboczych."
+            ),
+            ntype=NotificationType.board_task_waiting,
+            related_entity_type="candidate_stage",
+            related_entity_id=stage_id,
+            link=f"/jobs/{task.job_id}?candidate={task.candidate_id}&review=1",
+        )
+        if notif is not None:
+            notified.append(user_id)
+    if not notified:
+        logger.info(
+            "dl_send_nudge: etap %s — dzwonek już dziś wysłany, nic nie zapisano",
+            stage_id,
+        )
+        return DlSendNudgeResponse(sent=False, reason="already_today")
+    db.add(
+        Activity(
+            entity_type="candidate_stage",
+            entity_id=stage_id,
+            action="dl_send_nudge",
+            user_id=current_user.id,
+            details={
+                "candidate_id": task.candidate_id,
+                "job_id": task.job_id,
+                "recipients": notified,
+            },
+        )
+    )
+    await db.commit()
+    return DlSendNudgeResponse(sent=True, recipients=len(notified))
 
 
 @router.get("/cpro/sender", response_model=CproSenderRead)

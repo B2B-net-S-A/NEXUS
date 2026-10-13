@@ -1171,6 +1171,9 @@ export default function JobDetailPage() {
               kanbanQueryState={kanbanQueryState}
               // „Gotowy do Cpro" — odznaka wyłącznie u Nordei (serwer).
               cproEnabled={job.cpro_enabled === true}
+              // Przegląd przed wysłaniem do klienta należy do patrzącego
+              // (Delivery Lead rekrutacji albo portfel klienta) — liczy serwer.
+              viewerOwnsDlReview={kanban?.viewer_owns_dl_review === true}
               // Kafle „Kandydaci do dodania” nad tablicą — cztery źródła, jedno okno.
               renderAbove={(viewControls) => (
                 <CandidateSourcesStrip

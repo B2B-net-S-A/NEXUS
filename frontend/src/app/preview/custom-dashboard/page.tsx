@@ -21,6 +21,11 @@
 // domyślny wariant „Układ roli” pokazuje pulpit konta bez zapisanego układu
 // (`uses_role_layout`) i „Czeka na Ciebie” z przepływem rekrutacji (rekruter,
 // TCM, DL) albo pracą Finansów. Propozycje i „kto prowadzi” — Head i admin.
+// `?as=dl` + „Pulpit z kafelkami” (13.10.2026): nad panelem stoi pas „Do
+// wysłania do klienta” — trzy gotowe osoby w trzech tonach pilności (dwie
+// z jednej rekrutacji, więc z „porównaj”; jedna ponad budżet), jedna jeszcze
+// u rekrutera (QC do poprawy) i jedna z importu Traffita. W wariantach bez
+// zadań pas mówi jednym zdaniem, że nikt nie czeka. Sam pas: `/preview/dl-send`.
 
 import { useEffect, useState } from "react";
 import { AxiosError } from "axios";
@@ -178,10 +183,14 @@ const BOARD_TASKS: BoardTasksResponse = {
   can_send_to_client: true,
   can_set_cpro_sender: true,
   dl_review_window_days: 30,
+  // „Do wysłania do klienta” (13.10.2026): gotowe (QC zdane albo przepuszczone)
+  // w trzech tonach pilności, karta jeszcze u rekrutera i etap z importu.
   dl_review: [
-    taskRow({ stage_id: 101, candidate_id: 201, candidate_name: "Joanna Wiśniewska", client_name: "Bank Kappa", since: daysAgo(4), qc_status: "passed", card_status: "complete", card_missing: 0 }),
-    taskRow({ stage_id: 102, candidate_id: 202, candidate_name: "Tomasz Lewandowski", job_title: "Data Engineer", client_name: "Bank Kappa", since: daysAgo(2), qc_status: "failed", qc_blocking_failed: 2, card_status: "partial", card_missing: 3 }),
-    taskRow({ stage_id: 103, candidate_id: 203, candidate_name: "Karolina Dąbrowska", job_title: "Tester Manualny", client_name: "Energetyka Wzorcowa", since: daysAgo(0), qc_status: "overridden" }),
+    taskRow({ stage_id: 101, candidate_id: 201, candidate_name: "Joanna Wiśniewska", job_id: 901, client_name: "Bank Kappa", since: daysAgo(6), ready: true, ready_since: daysAgo(4), waiting_workdays: 3, urgency: "late", handed_over_by_name: "Marta Kowalczyk", expected_rate_value: 150, expected_rate_unit: "hourly", expected_rate_currency: "PLN", budget_min_hourly: null, budget_max_hourly: 170, deadline: daysAgo(-11).slice(0, 10), qc_status: "passed", card_status: "complete", card_missing: 0 }),
+    taskRow({ stage_id: 104, candidate_id: 204, candidate_name: "Piotr Makietowy", job_id: 901, client_name: "Bank Kappa", since: daysAgo(2), ready: true, ready_since: daysAgo(1), waiting_workdays: 1, urgency: "due", handed_over_by_name: "Marta Kowalczyk", expected_rate_value: 175, expected_rate_unit: "hourly", expected_rate_currency: "PLN", budget_min_hourly: null, budget_max_hourly: 170, deadline: daysAgo(-11).slice(0, 10), qc_status: "passed", card_status: "partial", card_missing: 1 }),
+    taskRow({ stage_id: 103, candidate_id: 203, candidate_name: "Karolina Dąbrowska", job_id: 903, job_title: "Tester Manualny", client_name: "Energetyka Wzorcowa", since: daysAgo(0), ready: true, ready_since: daysAgo(0), waiting_workdays: 0, urgency: "fresh", handed_over_by_name: "Jan Dąb", expected_rate_value: 900, expected_rate_unit: "daily", expected_rate_currency: "PLN", budget_min_hourly: 110, budget_max_hourly: 130, deadline: null, qc_status: "overridden" }),
+    taskRow({ stage_id: 102, candidate_id: 202, candidate_name: "Tomasz Lewandowski", job_id: 902, job_title: "Data Engineer", client_name: "Bank Kappa", since: daysAgo(2), ready: false, ready_since: null, waiting_workdays: 0, urgency: null, handed_over_by_name: "Jan Dąb", expected_rate_value: 145, expected_rate_unit: "hourly", expected_rate_currency: "PLN", budget_min_hourly: null, budget_max_hourly: 160, qc_status: "failed", qc_blocking_failed: 2, card_status: "partial", card_missing: 3 }),
+    taskRow({ stage_id: 105, candidate_id: 205, candidate_name: "Ewa Przeniesiona", job_id: 902, job_title: "Data Engineer", client_name: "Bank Kappa", since: daysAgo(41), ready: false, ready_since: null, waiting_workdays: 0, urgency: null, imported: true, handed_over_by_name: null, qc_status: "unchecked", card_status: null }),
   ],
   cpro_to_send: [
     taskRow({ kind: "cpro_to_send", stage_id: 111, candidate_id: 211, candidate_name: "Michał Wójcik", assignee_id: 1, assignee_name: "Adam Wzorcowy", since: daysAgo(1) }),

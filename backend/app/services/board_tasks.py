@@ -20,22 +20,28 @@ Delivery Leada:
   klienta) albo odrzuci. Osoby w „Zweryfikowanym" nie są już w przeglądzie —
   ich CV nie przeszło jeszcze przez QC, więc DL nie ma czego oglądać.
 
-Okno: ruch z ostatnich ``WINDOW_DAYS`` dni (wysłane do Cpro), a praca do
-zrobienia (przegląd DL, do wysłania do Cpro) — ``DL_REVIEW_WINDOW_DAYS``.
-Import z Traffita zostawia na opublikowanych rekrutacjach setki osób sprzed
-roku — kolejka z nimi byłaby listą, której nikt nie przeczyta.
+Okno: ruch z ostatnich ``WINDOW_DAYS`` dni (wysłane do Cpro), a do wysłania
+do Cpro — ``DL_REVIEW_WINDOW_DAYS``. Import z Traffita zostawia na
+opublikowanych rekrutacjach setki osób sprzed roku — kolejka z nimi byłaby
+listą, której nikt nie przeczyta.
+
+Przegląd DL nie ma okna czasu (13.10.2026): wiersze liczy
+`services/dl_send_queue.py` — ta sama reguła dla pulpitu, górnego paska,
+porannego skrótu i listy rekrutacji. Karta stojąca w „QC CV” ponad 30 dni
+znikała stąd bez śladu, choć na Tablicy stała dalej.
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Iterable, Optional
 
 from sqlalchemy import or_, select, text, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.scheduling import business_today
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.pipeline_template import PipelineStageDef, PipelineTemplate
 from app.models.recruitment_pipeline import CandidateStage
@@ -145,6 +151,22 @@ class BoardTask:
     # ekrany wewnętrzne pokazują tytuł dla rekrutera, gdy jest.
     job_working_title: Optional[str] = None
     client_reference: Optional[str] = None
+    # „Do wysłania do klienta” (`services/dl_send_queue.py`, 13.10.2026).
+    # ``ready`` — QC zdane albo przepuszczone, ruch ma Delivery Lead; reszta
+    # kolumny „QC CV” jest jeszcze u rekrutera. ``ready_since`` — od kiedy
+    # (wejście do kolumny albo zaliczenie QC, co później); od niego liczą się
+    # dni robocze i pilność. ``imported`` — bieżący etap pochodzi z importu
+    # Traffita i nikt nie ruszył karty w NEXUSIE: nie budzi liczników ani
+    # przypomnień (decyzja Artura 11.10.2026).
+    ready: bool = False
+    ready_since: Optional[datetime] = None
+    waiting_workdays: int = 0
+    urgency: Optional[str] = None
+    imported: bool = False
+    handed_over_by_name: Optional[str] = None
+    budget_min_hourly: Optional[float] = None
+    budget_max_hourly: Optional[float] = None
+    deadline: Optional[date] = None
 
     def as_dict(self) -> dict:
         return {
@@ -178,6 +200,15 @@ class BoardTask:
             "qc_blocking_failed": self.qc_blocking_failed,
             "card_status": self.card_status,
             "card_missing": self.card_missing,
+            "ready": self.ready,
+            "ready_since": self.ready_since,
+            "waiting_workdays": self.waiting_workdays,
+            "urgency": self.urgency,
+            "imported": self.imported,
+            "handed_over_by_name": self.handed_over_by_name,
+            "budget_min_hourly": self.budget_min_hourly,
+            "budget_max_hourly": self.budget_max_hourly,
+            "deadline": self.deadline,
         }
 
 
@@ -412,19 +443,8 @@ async def load_snapshot(
             delivery_lead_id=r.delivery_lead_id,
             template_id=r.template_id,
         )
-        nordea = cpro_enabled_for_client(r.client_id)
-        in_qc = effective in stages.qc_ids
-        if not nordea:
-            if in_qc:
-                tasks.append(
-                    BoardTask(
-                        kind=KIND_DL_REVIEW,
-                        target_stage_def_id=stages.cv_sent_id,
-                        rejected_stage_def_id=stages.rejected_id,
-                        return_stage_def_id=stages.verified_id,
-                        **base,
-                    )
-                )
+        if not cpro_enabled_for_client(r.client_id):
+            # Przegląd DL liczy `dl_send_queue` (niżej) — bez okna czasu.
             continue
         if effective in stages.cpro_ids:
             tasks.append(
@@ -449,10 +469,23 @@ async def load_snapshot(
                 )
             )
 
+    from app.services import dl_send_queue  # noqa: PLC0415 — cykl importu
+
+    review = await dl_send_queue.load_rows(
+        db,
+        scope=dl_send_queue.Scope(pair=pair, job_id=job_id),
+        now=now,
+        catalog=catalog,
+        default_template_id=default_template_id,
+    )
+    tasks.extend(review)
+
     await _attach_dl_review_details(db, catalog, tasks)
     await _attach_qc_statuses(db, tasks)
     await _attach_card_states(db, tasks)
     await _attach_versions_and_names(db, tasks)
+    await dl_send_queue.attach_handed_over_names(db, review)
+    await dl_send_queue.attach_budget(db, review)
     tasks.sort(key=lambda t: t.since)
     return BoardTaskSnapshot(tasks=tasks, firm_sender_id=firm_sender_id)
 
@@ -528,7 +561,8 @@ async def _attach_card_states(db: AsyncSession, tasks: list[BoardTask]) -> None:
 
 
 async def _attach_qc_statuses(db: AsyncSession, tasks: list[BoardTask]) -> None:
-    wanted = [t for t in tasks if t.kind in (KIND_DL_REVIEW, KIND_CPRO_TO_SEND)]
+    # Wiersze przeglądu DL mają stan QC z `dl_send_queue.attach_readiness`.
+    wanted = [t for t in tasks if t.kind == KIND_CPRO_TO_SEND]
     if not wanted:
         return
     from app.services.move_requirements import qc_statuses  # noqa: PLC0415
@@ -621,20 +655,39 @@ def _sees_all(user: User) -> bool:
     return user.has_any_role(UserRole.admin, UserRole.head_of_recruitment)
 
 
-def _sees_dl_review(task: BoardTask, user: User, portfolio: frozenset[int]) -> bool:
-    """Przegląd DL należy wyłącznie do Delivery Leada rekrutacji.
+def reviews_as_dl(
+    user: User,
+    *,
+    delivery_lead_id: Optional[int],
+    client_id: Optional[int],
+    portfolio: frozenset[int],
+) -> bool:
+    """Czy przegląd przed wysłaniem do klienta w tej rekrutacji należy do ``user``.
 
-    Delivery Lead wpisany w rekrutacji (``jobs.delivery_lead_id``) wygrywa;
-    bez niego (zanim `job_delivery_lead_fill` uzupełni pole) — Delivery Lead
-    z portfelem klienta. Admin i Head of Recruitment go nie widzą (decyzja
-    Artura 24.09.2026), chyba że sami mają rolę Delivery Leada.
+    Delivery Lead wpisany w rekrutacji (``jobs.delivery_lead_id``, tylko
+    aktywne konto — nieaktywne podaj jako ``None``) wygrywa; bez niego (zanim
+    `job_delivery_lead_fill` uzupełni pole) — Delivery Lead z portfelem
+    klienta. Admin i Head of Recruitment go nie mają (decyzja Artura
+    24.09.2026), chyba że sami mają rolę Delivery Leada. Lustro w SQL:
+    `dl_send_queue.reviewer_scope_clause`.
     """
 
     if not user.has_role(UserRole.delivery_lead):
         return False
-    if task.delivery_lead_id is not None:
-        return task.delivery_lead_id == user.id
-    return task.client_id is not None and task.client_id in portfolio
+    if delivery_lead_id is not None:
+        return delivery_lead_id == user.id
+    return client_id is not None and client_id in portfolio
+
+
+def _sees_dl_review(task: BoardTask, user: User, portfolio: frozenset[int]) -> bool:
+    """Przegląd DL należy wyłącznie do Delivery Leada rekrutacji (`reviews_as_dl`)."""
+
+    return reviews_as_dl(
+        user,
+        delivery_lead_id=task.delivery_lead_id,
+        client_id=task.client_id,
+        portfolio=portfolio,
+    )
 
 
 def _sees_cpro(task: BoardTask, user: User, firm_sender_id: Optional[int]) -> bool:
@@ -690,7 +743,13 @@ def tasks_for_user(
 class DigestLine:
     cpro_mine: int = 0
     cpro_unassigned: int = 0
+    # 13.10.2026: tylko wiersze „Do wysłania do klienta”, które budzą Delivery
+    # Leada (`dl_send_queue.counts_for_reviewer`) — karta z QC do poprawy jest
+    # jeszcze u rekrutera, a etap z importu Traffita nie budzi nikogo.
     dl_review: int = 0
+    # Najwyżej dwie najdłużej czekające osoby: (krótkie imię, dni kalendarzowe
+    # od gotowości). Treść dzwonka, nie licznik — nie wchodzi do ``total``.
+    dl_review_people: tuple[tuple[str, int], ...] = ()
     # 0372: follow-upy z kandydatami na dziś (w tym zaległe).
     followups: int = 0
     followups_overdue: int = 0
@@ -715,6 +774,7 @@ async def digest_counts(
     *,
     followups: Optional[dict[int, "DigestCounts"]] = None,
     pending_jobs: Optional[dict[int, int]] = None,
+    today: Optional[date] = None,
 ) -> dict[int, DigestLine]:
     """Poranny skrót: kto ma co do zrobienia (tylko to, co wymaga ruchu).
 
@@ -722,10 +782,15 @@ async def digest_counts(
     liczy. Osoba od Cpro dostaje liczbę osób w kolejce; kolejka bez nikogo
     ustawionego NA FIRMĘ trafia do Head of Recruitment (także ta z osobą
     zapasową rekrutacji — lustro `_sees_cpro`). Przegląd DL — ta sama reguła co
-    panel (`_sees_dl_review`). Follow-upy (``followups`` — liczby telefonów
+    panel (`_sees_dl_review`), ale tylko wiersze gotowe do wysłania
+    (`dl_send_queue.counts_for_reviewer`, 13.10.2026): do tej daty skrót mówił
+    Delivery Leadowi „sprawdź” także o kartach z QC do poprawy, na których
+    ruch miał rekruter. Follow-upy (``followups`` — liczby telefonów
     per dzwoniący z ``candidate_followups.digest_counts``) dostaje każda rola,
     nie tylko DL i HoR. Rekrutacje do dokończenia (``pending_jobs`` — liczby
     per osoba z ``pending_job_completion.digest_counts``) dochodzą tak samo.
+    ``today`` — dzień w kalendarzu firmy, od którego liczą się dni czekania
+    (domyślnie `business_today()`).
     """
 
     followups = followups or {}
@@ -761,7 +826,11 @@ async def digest_counts(
         if u.has_role(UserRole.delivery_lead):
             portfolios[u.id] = await dl_portfolio_client_ids(db, u.id)
 
+    from app.services import dl_send_queue  # noqa: PLC0415 — cykl importu
+
     counts: dict[int, dict[str, int]] = {}
+    # Gotowe wiersze per osoba — z nich imiona najdłużej czekających.
+    ready: dict[int, list[BoardTask]] = {}
 
     def bump(uid: int, key: str) -> None:
         counts.setdefault(uid, {"cpro_mine": 0, "cpro_unassigned": 0, "dl_review": 0})[
@@ -781,9 +850,12 @@ async def digest_counts(
                 if u.has_role(UserRole.head_of_recruitment) and u.id != t.assignee_id:
                     bump(u.id, "cpro_unassigned")
         elif t.kind == KIND_DL_REVIEW:
+            if not dl_send_queue.counts_for_reviewer(t):
+                continue
             for u in users:
                 if _sees_dl_review(t, u, portfolios.get(u.id, frozenset())):
                     bump(u.id, "dl_review")
+                    ready.setdefault(u.id, []).append(t)
     for uid, c in followups.items():
         if c.due:
             line = counts.setdefault(
@@ -797,15 +869,68 @@ async def digest_counts(
                 uid, {"cpro_mine": 0, "cpro_unassigned": 0, "dl_review": 0}
             )
             line["pending_jobs"] = count
-    return {uid: DigestLine(**c) for uid, c in counts.items()}
+    today = today or business_today()
+    return {
+        uid: DigestLine(
+            **c, dl_review_people=_longest_waiting(ready.get(uid, []), today)
+        )
+        for uid, c in counts.items()
+    }
+
+
+# Ile osób dzwonek wymienia z imienia — reszta idzie liczbą („i 3 inne osoby”).
+_DIGEST_NAMED_PEOPLE = 2
+
+
+def _short_name(name: str) -> str:
+    """„Marta Zielińska” → „Marta Z.”; jedno słowo zostaje bez zmian."""
+
+    words = name.split()
+    if len(words) < 2:
+        return name.strip()
+    return f"{words[0]} {words[-1][0]}."
+
+
+def _longest_waiting(
+    tasks: list[BoardTask], today: date
+) -> tuple[tuple[str, int], ...]:
+    """Najdłużej czekające osoby: (krótkie imię, dni od gotowości).
+
+    Dni kalendarzowe w kalendarzu firmy, a nie doby od chwili gotowości —
+    karta gotowa wczoraj o 16:00 dziś rano „czeka 1 dzień”.
+    """
+
+    from app.services import dl_send_queue  # noqa: PLC0415 — cykl importu
+
+    ordered = sorted(tasks, key=lambda t: t.ready_since or t.since)
+    return tuple(
+        (
+            _short_name(t.candidate_name),
+            (today - dl_send_queue.local_date(t.ready_since or t.since)).days,
+        )
+        for t in ordered[:_DIGEST_NAMED_PEOPLE]
+    )
+
+
+def _dl_send_phrase(line: DigestLine) -> str:
+    """„Do wysłania do klienta: Marta Z. (6 dni), Tomasz W. i 3 inne osoby”."""
+
+    if not line.dl_review_people:
+        # Linia złożona bez imion (poza `digest_counts`) — sama liczba.
+        return f"{_people(line.dl_review)} do wysłania do klienta"
+    named = ", ".join(
+        f"{name} ({_days(days)})" if days >= 1 else name
+        for name, days in line.dl_review_people
+    )
+    rest = line.dl_review - len(line.dl_review_people)
+    tail = f" i {_other_people(rest)}" if rest > 0 else ""
+    return f"Do wysłania do klienta: {named}{tail}"
 
 
 def digest_message(line: DigestLine) -> str:
     parts: list[str] = []
     if line.dl_review:
-        parts.append(
-            f"{_people(line.dl_review)} {_waits(line.dl_review)} na Twój przegląd"
-        )
+        parts.append(_dl_send_phrase(line))
     if line.cpro_mine:
         parts.append(
             f"{_people(line.cpro_mine)} w kolejce Cpro do wysłania przez Ciebie"
@@ -833,8 +958,16 @@ def _few(n: int) -> bool:
     return 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14
 
 
-def _waits(n: int) -> str:
-    return "czekają" if _few(n) else "czeka"
+def _days(n: int) -> str:
+    return "1 dzień" if n == 1 else f"{n} dni"
+
+
+def _other_people(n: int) -> str:
+    if n == 1:
+        return "1 inna osoba"
+    if _few(n):
+        return f"{n} inne osoby"
+    return f"{n} innych osób"
 
 
 def _followups(n: int) -> str:

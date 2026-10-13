@@ -371,6 +371,10 @@ class KanbanView(BaseModel):
     # `None` na zdrowej tablicy — stale pusty kubełek na 2 941 rekrutacjach bez
     # sierot uczyłby go ignorować.
     off_template: Optional[OffTemplateColumn] = None
+    # Przegląd przed wysłaniem do klienta w tej rekrutacji należy do patrzącego
+    # (`board_tasks.reviews_as_dl`) — karta w „QC CV” mówi mu „Czeka na Ciebie”.
+    # To nie jest prawo wysyłki: to ma każdy z `recruitment_manage`.
+    viewer_owns_dl_review: bool = False
 
 
 class MyNextStepsJob(BaseModel):

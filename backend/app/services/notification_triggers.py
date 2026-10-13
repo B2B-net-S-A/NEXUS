@@ -6,7 +6,10 @@ co 5 min. Idempotentność zapewnia unique partial index `ix_notif_dedup_daily`
 (user, type, entity, lokalny dzień Warsaw) + `emit()` łapiący IntegrityError.
 
 Triggery:
-  1. check_dl_stage_stale_6h     — kandydat w `cv_sent` > 6h bez ruchu → alert do DL.
+  1. (usunięty 13.10.2026) alert do DL o karcie stojącej w `cv_sent` > 6h —
+     przypominał o CV już wysłanym do klienta (4 695 wpisów dzwonka w 30 dni).
+     Kolejkę Delivery Leada liczy `services/dl_send_queue.py`. Typ
+     `dl_stage_stale_6h` zostaje dla historycznych powiadomień.
   2. check_client_feedback_eobd  — o 16:30 dla rozmowy u klienta zakończonej dziś
                                    bez feedbacku (ScreeningNote, werdykt HM ani
                                    debrief po end_time).
@@ -270,8 +273,9 @@ async def _open_jobs_by_id(db: AsyncSession, job_ids: Iterable[int]) -> dict[int
 
     JEDEN helper, świadomie: do 09.2026 obok tego stała nieprzefiltrowana
     `_jobs_by_id`, a poprawka z 17.09 (#1593) objęła tylko jedną z dwóch
-    ścieżek — mimo że docstring `check_stage_stuck_7d` nazywa siebie „lustrem"
-    `check_dl_stage_stale_6h`. Zmierzone tego skutki na produkcji:
+    ścieżek — mimo że docstring `check_stage_stuck_7d` nazywał siebie „lustrem"
+    `check_dl_stage_stale_6h` (trigger usunięty 13.10.2026). Zmierzone tego
+    skutki na produkcji:
 
         dl_stage_stale_6h   52 263 powiadomień, 30 993 (59,3%) o rekrutacjach
                             ZAMKNIĘTYCH, przeczytane: 1
@@ -353,63 +357,6 @@ def _moved_at_utc(stage: LatestStage) -> datetime:
     if moved.tzinfo is None:
         return moved.replace(tzinfo=timezone.utc)
     return moved.astimezone(timezone.utc)
-
-
-# ── Trigger 1: DL_STAGE_STALE_6H ──────────────────────────────────────────────
-
-
-async def check_dl_stage_stale_6h(
-    db: AsyncSession, now: datetime, latest: Optional[LatestStageMap] = None
-) -> int:
-    """Kandydat w `cv_sent` od ≥6h (ale nie starszy niż MAX_DAYS) → alert do DL."""
-    latest = await _latest_stage_per_pair(db, latest)
-    now_utc = now.astimezone(timezone.utc)
-    cutoff = now_utc - timedelta(hours=settings.DL_STAGE_STALE_HOURS)
-    floor = now_utc - timedelta(days=settings.DL_STAGE_STALE_MAX_DAYS)
-    # Okno: zaległy ≥6h, ale ≤MAX_DAYS. Bez dolnej granicy historyczny backlog
-    # (kandydaci z importów wiszący w cv_sent miesiącami) odpalał alert codziennie
-    # — patrz incydent notifications 2026-05-22.
-    candidates = [
-        s
-        for s in latest.values()
-        if s.stage == PipelineStage.cv_sent
-        and _set_in_nexus(s)
-        and floor <= _moved_at_utc(s) <= cutoff
-    ]
-    if not candidates:
-        return 0
-
-    jobs = await _open_jobs_by_id(db, (s.job_id for s in candidates))
-    emitted = 0
-    for stage in candidates:
-        job = jobs.get(stage.job_id)
-        if not job:
-            continue
-        targets = await _delivery_lead_targets(db, job)
-        if not targets:
-            continue
-        hours = int(
-            (now.astimezone(timezone.utc) - _moved_at_utc(stage)).total_seconds()
-            // 3600
-        )
-        for dl_id in targets:
-            result = await emit(
-                db,
-                user_id=dl_id,
-                title="Kandydat czeka na decyzję DL",
-                message=(
-                    f"Kandydat #{stage.candidate_id} siedzi w etapie 'CV wysłane' "
-                    f"od {hours}h w ofercie '{display_title(job)}' (#{job.id}). "
-                    "Przepuść go dalej albo odrzuć."
-                ),
-                link=f"/jobs/{job.id}?candidate={stage.candidate_id}",
-                ntype=NotificationType.dl_stage_stale_6h,
-                related_entity_type="candidate_stage",
-                related_entity_id=stage.id,
-            )
-            if result is not None:
-                emitted += 1
-    return emitted
 
 
 # ── Trigger 2: CLIENT_FEEDBACK_EOBD ───────────────────────────────────────────
@@ -603,6 +550,7 @@ async def check_board_tasks_digest(db: AsyncSession, now: datetime) -> int:
                     oversight_ids=await candidate_followups.oversight_user_ids(db),
                 ),
                 pending_jobs=await pending_job_completion.digest_counts(db),
+                today=local.date(),
             )
     except Exception:  # noqa: BLE001
         logger.exception("board_tasks_digest: nie udało się policzyć kolejki")
@@ -742,9 +690,9 @@ async def check_stage_stuck_7d(
     rekrutacji, a dedup był dobowy: każdy kandydat zaległy od miesięcy
     (historyczny import, zamknięte rekrutacje) dostawał nowy wiersz każdego
     dnia — stąd „ponad tysiąc nieprzeczytanych" u rekruterów. Teraz:
-    okno ``[now - STAGE_STUCK_MAX_DAYS, now - STAGE_STUCK_DAYS]`` (lustro
-    ``check_dl_stage_stale_6h``), tylko rekrutacje niezamknięte i najwyżej
-    jedno przypomnienie na etap w tygodniu ISO (Europe/Warsaw).
+    okno ``[now - STAGE_STUCK_MAX_DAYS, now - STAGE_STUCK_DAYS]``, tylko
+    rekrutacje niezamknięte i najwyżej jedno przypomnienie na etap w tygodniu
+    ISO (Europe/Warsaw).
     """
     latest = await _latest_stage_per_pair(db, latest)
     now_utc = now.astimezone(timezone.utc)
@@ -1194,7 +1142,6 @@ async def run_all_triggers(db: AsyncSession, now: datetime) -> dict[str, int]:
     latest = await _latest_stage_per_pair(db)
 
     return {
-        "dl_stage_stale_6h": await check_dl_stage_stale_6h(db, now, latest),
         "stage_stuck_7d": await check_stage_stuck_7d(db, now, latest),
         "candidate_feedback_1h": await check_candidate_feedback_1h(db, now),
         "client_feedback_eobd": await check_client_feedback_eobd(db, now, latest),
@@ -1229,7 +1176,6 @@ __all__ = [
     "LatestStageMap",
     "check_candidate_feedback_1h",
     "check_client_feedback_eobd",
-    "check_dl_stage_stale_6h",
     "check_post_interview_t15",
     "check_post_interview_t45",
     "check_post_interview_t2h_escalation",

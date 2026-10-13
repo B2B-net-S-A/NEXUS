@@ -38,22 +38,6 @@ vi.mock("@/components/v2/pages/B2BContractGeneratorV2", () => ({
 vi.mock("@/components/Toast", () => ({
   useToast: () => ({ showSuccess, showError, showInfo }),
 }));
-vi.mock("@/components/v2/recruitment/DlReviewPanel", () => ({
-  DlReviewPanel: ({
-    task,
-    open,
-    canSendToClient,
-  }: {
-    task: { candidate_name: string } | null;
-    open: boolean;
-    canSendToClient?: boolean;
-  }) =>
-    open && task ? (
-      <div role="dialog" aria-label="Przegląd DL">
-        {task.candidate_name} · wysyłka {canSendToClient ? "tak" : "nie"}
-      </div>
-    ) : null,
-}));
 vi.mock("@/components/v2/dashboard/CproQueueDialog", () => ({
   CproQueueDialog: ({ open, initialJobId }: { open: boolean; initialJobId?: number | null }) =>
     open ? <div role="dialog" aria-label="Kolejka Cpro">rekrutacja {String(initialJobId)}</div> : null,
@@ -186,11 +170,11 @@ function agreementRow(over: Record<string, unknown> = {}) {
   };
 }
 
-function renderPanel() {
+function renderPanel(props: { dlSendBand?: boolean } = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <BoardTasksPanel />
+      <BoardTasksPanel {...props} />
     </QueryClientProvider>,
   );
 }
@@ -269,87 +253,30 @@ describe("BoardTasksPanel — „Czeka na Ciebie” na pulpicie", () => {
     expect(screen.queryByRole("button", { name: /DZ/ })).toBeNull();
   });
 
-  it("„Czeka na Twój przegląd (DL)” pokazuje wynik QC i otwiera panel przeglądu", async () => {
+  // 13.10.2026: przegląd DL stoi w pasie „Do wysłania do klienta” nad panelem
+  // (`DlSendQueueBand.test.tsx`) — panel jego wierszy nie rysuje ani nie liczy.
+  it("wiersze przeglądu DL nie tworzą sekcji ani panelu „Czeka na Ciebie”", async () => {
     mockQueue({
       can_send_to_client: true,
-      dl_review_window_days: 30,
-      dl_review: [
-        row("dl_review", {
-          candidate_name: "Ola Przegląd",
-          client_name: "PKO BP",
-          qc_status: "failed",
-          qc_blocking_failed: 2,
-          card_status: "partial",
-          card_missing: 3,
-        }),
-        row("dl_review", { stage_id: 18, candidate_id: 28, candidate_name: "Bez Karty", card_status: null }),
-      ],
+      dl_review: [row("dl_review", { candidate_name: "Ola Przegląd", qc_status: "passed" })],
     });
-    renderPanel();
-    const section = await screen.findByRole("region", { name: "Czeka na Twój przegląd (DL)" });
-    expect(within(section).getByText("Java Developer · PKO BP")).toBeTruthy();
-    expect(within(section).getByText("QC: 2 do poprawy")).toBeTruthy();
-    // Stan pól screeningu — ile pól brakuje, zanim DL otworzy przegląd.
-    expect(within(section).getByText("Screening: brakuje 3")).toBeTruthy();
-    expect(within(section).getByText("Screening: puste pola")).toBeTruthy();
-    await userEvent.click(within(section).getByRole("button", { name: "Przejrzyj: Ola Przegląd" }));
-    expect(screen.getByRole("dialog", { name: "Przegląd DL" })).toHaveTextContent("Ola Przegląd · wysyłka tak");
+    const { container } = renderPanel();
+    await waitFor(() => expect(get).toHaveBeenCalled());
+    await waitFor(() => expect(container).toBeEmptyDOMElement());
   });
 
-  it("D10: 2+ osoby z jednej rekrutacji — „Porównaj (N)” otwiera tabelę porównania", async () => {
+  it("wiersze przeglądu DL obok innych list: panel stoi bez nich i bez sekcji przeglądu", async () => {
     mockQueue({
-      can_send_to_client: true,
-      dl_review_window_days: 30,
-      dl_review: [
-        row("dl_review", { candidate_name: "Ola Przegląd" }),
-        row("dl_review", { stage_id: 18, candidate_id: 28, candidate_name: "Piotr Drugi" }),
-        row("dl_review", { stage_id: 19, candidate_id: 29, job_id: 32, job_title: "QA", candidate_name: "Solo" }),
-      ],
+      cpro_sent: [row("cpro_sent")],
+      dl_review: [row("dl_review", { stage_id: 18, candidate_id: 28, candidate_name: "Ola Przegląd" })],
     });
-    const base = get.getMockImplementation() as (url: string) => Promise<unknown>;
-    get.mockImplementation((url: string) =>
-      url === "/api/dl-review/jobs/31/queue"
-        ? Promise.resolve({
-            data: {
-              job_id: 31,
-              cpro_client: false,
-              total: 1,
-              limit: 50,
-              items: [
-                {
-                  candidate_id: 21,
-                  candidate_name: "Ola Przegląd",
-                  stage_id: 11,
-                  since,
-                  qc_status: "passed",
-                  overall_fit: "fit",
-                  overall_fit_label: "Pasuje",
-                  requirements_met: 3,
-                  requirements_total: 4,
-                  candidate_rate: { amount: 140, unit: "hourly", currency: "PLN", hourly_pln: 140 },
-                  start: "od zaraz",
-                  risks: [{ code: "qc_failed", label: "CV nie przeszło QC", severity: "high" }],
-                  fix_rounds: 1,
-                  task: row("dl_review", { candidate_name: "Ola Przegląd" }),
-                },
-              ],
-            },
-          })
-        : base(url),
-    );
     renderPanel();
-    const section = await screen.findByRole("region", { name: "Czeka na Twój przegląd (DL)" });
-    // Tylko rekrutacja z dwiema osobami ma przycisk porównania.
-    expect(within(section).getAllByRole("button", { name: /Porównaj/ })).toHaveLength(1);
-    await userEvent.click(within(section).getByRole("button", { name: "Porównaj (2)" }));
-    const dialog = await screen.findByRole("dialog", { name: /Porównaj kandydatów — Java Developer/ });
-    const table = await within(dialog).findByRole("table", { name: "Porównanie kandydatów w przeglądzie" });
-    expect(within(table).getByText("3/4")).toBeTruthy();
-    expect(within(table).getByText("140 zł/h")).toBeTruthy();
-    expect(within(table).getByText("CV nie przeszło QC")).toBeTruthy();
-    expect(within(table).getByText("poprawki: 1")).toBeTruthy();
-    await userEvent.click(within(table).getByRole("button", { name: "Przejrzyj: Ola Przegląd" }));
-    expect(await screen.findByRole("dialog", { name: "Przegląd DL" })).toHaveTextContent("Ola Przegląd");
+    const panel = await screen.findByRole("region", { name: "Czeka na Ciebie" });
+    expect(within(panel).getAllByRole("region").map((r) => r.getAttribute("aria-label"))).toEqual([
+      "Wysłane do Cpro",
+    ]);
+    expect(within(panel).queryByText("Ola Przegląd")).toBeNull();
+    expect(within(panel).queryByRole("button", { name: /Przejrzyj/ })).toBeNull();
   });
 
   it("Cpro: linia per rekrutacja, kto wrzuca i „Wrzucaj po kolei” otwiera kolejkę", async () => {
@@ -1251,6 +1178,39 @@ describe("BoardTasksPanel — przepływ rekrutacji i Finanse (04.10.2026)", () =
     mockQueue({ flow: emptyFlow() });
     renderPanel();
     expect(await screen.findByRole("status")).toHaveTextContent("Nic na Ciebie teraz nie czeka.");
+    expect(screen.queryByRole("region", { name: "Czeka na Ciebie" })).toBeNull();
+  });
+
+  it("przy pasie „Do wysłania do klienta” (`dlSendBand`) zdania „nic nie czeka” nie ma — nawet z osobami w przeglądzie", async () => {
+    useAuthStore.setState({ user: { id: 1, role: "delivery_lead" }, realUser: null } as never);
+    mockQueue({ flow: emptyFlow(), dl_review: [row("dl_review", { candidate_name: "Ola Przegląd" })] });
+    const { container } = renderPanel({ dlSendBand: true });
+    await waitFor(() => expect(get).toHaveBeenCalled());
+    await waitFor(() => expect(container).toBeEmptyDOMElement());
+    expect(screen.queryByText("Nic na Ciebie teraz nie czeka.")).toBeNull();
+  });
+
+  it("bez pasa Delivery Lead z pustym dniem nadal dostaje zdanie (lista przeglądu usunięta z pulpitu)", async () => {
+    useAuthStore.setState({ user: { id: 1, role: "delivery_lead" }, realUser: null } as never);
+    mockQueue({ flow: emptyFlow(), dl_review: [] });
+    renderPanel({ dlSendBand: false });
+    expect(await screen.findByRole("status")).toHaveTextContent("Nic na Ciebie teraz nie czeka.");
+  });
+
+  it("przy pasie reszta cichego widoku zostaje: osoba od Cpro, rekrutacje do dokończenia, CV w drodze", async () => {
+    useAuthStore.setState({ user: { id: 1, role: "delivery_lead" }, realUser: null } as never);
+    mockQueue({
+      flow: emptyFlow(),
+      can_set_cpro_sender: true,
+      pending_jobs: { autoclose_on: null, items: [pendingRow()] },
+      cv_in_transit: transit({ in_review: [transitRow("in_review", { holder_name: "Marta Kowalczyk" })] }),
+    });
+    renderPanel({ dlSendBand: true });
+    const bar = await screen.findByRole("region", { name: "Osoba od Cpro" });
+    expect(await within(bar).findByText("Do Cpro wrzuca: Kinga Sordyl")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Rekrutacje do dokończenia albo zamknięcia" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Twoje CV w drodze" })).toBeTruthy();
+    expect(screen.queryByText("Nic na Ciebie teraz nie czeka.")).toBeNull();
     expect(screen.queryByRole("region", { name: "Czeka na Ciebie" })).toBeNull();
   });
 

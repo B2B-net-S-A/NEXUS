@@ -13,6 +13,7 @@ import { PaletteSwitcher } from "./PaletteSwitcher";
 import { MyPeopleTopbarButton } from "@/components/v2/my-people/MyPeopleLauncher";
 import { KidsModeToggleButton, ThemeToggleButton } from "./ThemeControls";
 import { ChatNotificationsDropdown } from "./ChatNotificationsDropdown";
+import { DlSendTopbarButton } from "./DlSendTopbarButton";
 import { InterviewNotificationsDropdown } from "./InterviewNotificationsDropdown";
 import {
   TOPBAR_ACTIONS_CLASS,
@@ -78,6 +79,8 @@ export function TopbarV2({
           <ThemeToggleButton />
         </div>
         <MyPeopleTopbarButton />
+        {/* Stan kolejki Delivery Leada, nie zdarzenia — nie ma go przy zerze. */}
+        <DlSendTopbarButton />
         <ChatNotificationsDropdown />
         <InterviewNotificationsDropdown />
         <NotificationsDropdown />
