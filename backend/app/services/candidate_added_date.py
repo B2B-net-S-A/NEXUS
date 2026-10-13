@@ -4,7 +4,7 @@ Prośba rekrutera: przy osobie ma być widać, od kiedy jest w bazie, bo śwież
 zgłoszenia są najlepsze. `candidates.created_at` to czas wstawienia wiersza do
 NEXUSA — dla osób z Traffita dzień importu (16.04 i 04.05.2026 dla 43 tys.
 osób), więc sam w sobie kłamie. Datę dodania u źródła trzyma
-`source_created_at` (Traffit `created_at`, migracja 0436, naprawa
+`source_created_at` (Traffit `created_at`, migracja 0437, naprawa
 `traffit_added_dates_repair`).
 
 Reguła, jedna dla API, Tablicy, listy i praktykanta:

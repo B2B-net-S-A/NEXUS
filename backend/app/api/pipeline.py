@@ -2478,7 +2478,7 @@ async def build_kanban_view(
     # polityki dopuszczalności — TO SAMO zapytanie, bez ładowania całej encji.
     availability_by_id: dict[int, tuple[Optional[str], Optional[date]]] = {}
     eligibility_rows: dict[int, SimpleNamespace] = {}
-    # „W bazie od” (0436): data wejścia osoby do bazy i kto ją dodał — pigułka
+    # „W bazie od” (0437): data wejścia osoby do bazy i kto ją dodał — pigułka
     # „Nowy · N dni” na karcie w „Nowych” i „Screeningu”.
     added_to_base_by_id: dict[int, tuple[Optional[datetime], bool, Optional[int]]] = {}
     if candidate_ids:

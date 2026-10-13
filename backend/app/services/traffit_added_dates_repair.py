@@ -3,7 +3,7 @@
 „W bazie od” (prośba rekrutera, decyzja Artura 13.10.2026): import z Traffita
 stemplował ``candidates.created_at = NOW()``, więc 65 tys. osób miało w bazie
 dzień importu (16.04 i 04.05.2026). Prawdziwą datę dodania niesie lista
-``/employees/`` (``created_at``, czas Europe/Warsaw bez strefy). Import od 0436
+``/employees/`` (``created_at``, czas Europe/Warsaw bez strefy). Import od 0437
 zapisuje ją sam w ``candidates.source_created_at``; ta naprawa domyka historię.
 
 Zasady:

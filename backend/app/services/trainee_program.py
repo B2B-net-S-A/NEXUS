@@ -224,7 +224,7 @@ def item_row(item: TraineeCallItem, candidate: Candidate) -> dict[str, Any]:
         "company": first.get("company") or candidate.linkedin_current_company,
         "city": candidate.city or candidate.location,
         "phone": candidate.phone,
-        # „W bazie od” (0436): niedokładna data (import z Traffita bez daty
+        # „W bazie od” (0437): niedokładna data (import z Traffita bez daty
         # u źródła) to dzień importu — lepiej nic niż fałszywy rok.
         "in_base_since": (
             in_base.at.year if in_base.exact and in_base.at is not None else None

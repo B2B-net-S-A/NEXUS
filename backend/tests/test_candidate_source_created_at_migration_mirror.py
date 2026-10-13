@@ -1,4 +1,4 @@
-"""0436: `candidates.source_created_at` i indeks „w bazie od” mają lustro w entrypoincie.
+"""0437: `candidates.source_created_at` i indeks „w bazie od” mają lustro w entrypoincie.
 
 Alembic na produkcji bywa osierocony — wtedy wdrożeniem schematu jest
 `entrypoint.sh`. Indeks musi mieć TO SAMO wyrażenie co sortowanie listy
@@ -14,7 +14,7 @@ from pathlib import Path
 from sqlalchemy.dialects import postgresql
 
 BACKEND = Path(__file__).resolve().parents[1]
-MIGRATION = BACKEND / "alembic" / "versions" / "0436_candidate_source_created_at.py"
+MIGRATION = BACKEND / "alembic" / "versions" / "0437_candidate_source_created_at.py"
 
 COLUMN_DDL = "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS source_created_at TIMESTAMPTZ"
 INDEX_EXPR = "(LEAST(created_at, source_created_at)) DESC, id DESC"

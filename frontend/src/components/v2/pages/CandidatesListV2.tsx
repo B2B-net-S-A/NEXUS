@@ -302,7 +302,7 @@ interface Candidate {
   has_cv_document?: boolean | null;
   created_at?: string;
   updated_at?: string;
-  /** „W bazie od” (0436) — kolumna „Dodano” i kolejność „Najnowsi”. */
+  /** „W bazie od” (0437) — kolumna „Dodano” i kolejność „Najnowsi”. */
   added_to_base_at?: string | null;
   added_to_base_exact?: boolean;
   match_snippet?: string | null;

@@ -1,4 +1,4 @@
-"""Import z Traffita zapisuje datę dodania osoby (`source_created_at`, 0436) — prawdziwy Postgres.
+"""Import z Traffita zapisuje datę dodania osoby (`source_created_at`, 0437) — prawdziwy Postgres.
 
 „W bazie od”: `created_at` to chwila wstawienia do NEXUSA, więc data dodania
 w Traffit musi trafić do osobnej kolumny przy INSERT-cie, przy aktualizacji

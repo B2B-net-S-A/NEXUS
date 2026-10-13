@@ -526,7 +526,7 @@ def traffit_employee_to_candidate(
         raw_location=payload.get("candidate_location")
     )
     source_updated_at = _parse_traffit_datetime(payload.get("updated_at"))
-    # „W bazie od” (0436): kiedy osoba trafiła do Traffita. `candidates.created_at`
+    # „W bazie od” (0437): kiedy osoba trafiła do Traffita. `candidates.created_at`
     # to chwila importu, więc bez tego pola cała baza z Traffita ma dzień importu.
     source_created_at = _parse_traffit_datetime(payload.get("created_at"))
 

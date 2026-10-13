@@ -1,7 +1,7 @@
 """Kandydat: data dodania u źródła — „W bazie od” (13.10.2026).
 
-Revision ID: 0436_candidate_source_created_at
-Revises: 0435_candidate_document_removed
+Revision ID: 0437_candidate_source_created_at
+Revises: 0436_candidate_name_markers
 
 Import z Traffita stemplował `candidates.created_at = NOW()`, więc 65 tys.
 osób miało w bazie dzień importu (16.04 i 04.05.2026) zamiast dnia, w którym
@@ -17,8 +17,8 @@ Lustro DDL: `_COLUMN_STATEMENTS` i `_INDEX_STATEMENTS` w `entrypoint.sh`.
 
 from alembic import op
 
-revision = "0436_candidate_source_created_at"
-down_revision = "0435_candidate_document_removed"
+revision = "0437_candidate_source_created_at"
+down_revision = "0436_candidate_name_markers"
 branch_labels = None
 depends_on = None
 

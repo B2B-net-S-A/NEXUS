@@ -229,7 +229,7 @@ class CandidateStageResponse(BaseModel):
     # wyszukiwania (`availability_status` / `availability_date`).
     availability_status: Optional[str] = None
     availability_date: Optional[date] = None
-    # „W bazie od” (0436): kiedy osoba weszła do bazy (`candidate_added_date`),
+    # „W bazie od” (0437): kiedy osoba weszła do bazy (`candidate_added_date`),
     # czy data jest dokładna (import z Traffita bez daty u źródła = nie) i kto
     # ją dodał. Tylko na Tablicy (`build_kanban_view`); ruch i historia — None.
     candidate_added_at: Optional[datetime] = None

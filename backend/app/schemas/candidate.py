@@ -742,7 +742,7 @@ class CandidateResponse(BaseModel):
     )
     created_at: datetime
     updated_at: datetime
-    # „W bazie od” (0436): data dodania u źródła (Traffit) i wyliczona data
+    # „W bazie od” (0437): data dodania u źródła (Traffit) i wyliczona data
     # wejścia do bazy z flagą dokładności oraz „skąd”
     # (`app/services/candidate_added_date.py`). Liczone w walidatorze niżej,
     # więc lista, detal i odpowiedzi zapisu mają je bez pamiętania w trasach.

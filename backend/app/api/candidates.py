@@ -1715,7 +1715,7 @@ def _apply_requested_sort(
             ).asc(),
             Candidate.id.asc(),
         )
-    # „Najnowsi” / „Najstarsi” po „w bazie od” (0436), nie po chwili wstawienia
+    # „Najnowsi” / „Najstarsi” po „w bazie od” (0437), nie po chwili wstawienia
     # do NEXUSA — 43 tys. osób z Traffita ma tam dzień importu. Wyrażenie jest
     # dokładnie tym z indeksu `ix_candidates_added_to_base_id`.
     if filters.sort == "oldest":

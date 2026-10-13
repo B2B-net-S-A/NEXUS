@@ -43,7 +43,7 @@ export interface KanbanItem {
  // etapu pary kandydat/oferta) i kiedy — pokazywane w tooltipie karty.
  added_to_job_by_name?: string | null;
  added_to_job_at?: string | null;
- // „W bazie od” (0436): kiedy osoba weszła do bazy, czy data jest dokładna
+ // „W bazie od” (0437): kiedy osoba weszła do bazy, czy data jest dokładna
  // (import z Traffita bez daty u źródła = nie) i kto ją dodał. Tylko z Tablicy.
  candidate_added_at?: string | null;
  candidate_added_exact?: boolean;

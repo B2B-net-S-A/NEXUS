@@ -431,7 +431,7 @@ class Candidate(Base, TimestampMixin):
     external_deleted_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    # Data dodania osoby U ŹRÓDŁA (Traffit `created_at`, 0436). `created_at`
+    # Data dodania osoby U ŹRÓDŁA (Traffit `created_at`, 0437). `created_at`
     # zostaje czasem wstawienia do NEXUSA — dla 65 tys. osób z Traffita to dzień
     # importu. „W bazie od” liczy `app/services/candidate_added_date.py`.
     # Indeks wyrażeniowy na LEAST(created_at, source_created_at) jest tylko

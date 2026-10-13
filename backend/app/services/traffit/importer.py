@@ -705,7 +705,7 @@ _CANDIDATE_TOMBSTONE_GUARD = """
 _CANDIDATE_PAYLOAD_SHA_VERSION = "r10-1"
 
 
-# Klucze payloadu poza skrótem. `source_created_at` (0436, „W bazie od”) doszedł
+# Klucze payloadu poza skrótem. `source_created_at` (0437, „W bazie od”) doszedł
 # do mappera po fakcie: w skrócie zmieniłby go wszystkim ~57 tys. kartotekom
 # i najbliższy pełny bieg przepisałby każdą z nich. Istniejące wiersze uzupełnia
 # jednorazowa naprawa `traffit_added_dates_repair`, nowe dostają datę w INSERT.
@@ -973,7 +973,7 @@ _UPSERT_CANDIDATE_SQL = _with_manual_locks(
                                  END,
                               true
                             ),
-        -- 0436: data dodania u źródła się nie zmienia; brak w payloadzie
+        -- 0437: data dodania u źródła się nie zmienia; brak w payloadzie
         -- (stary mapper, ręczny payload) nie kasuje zapisanej. Parametr idzie
         -- jako tekst ISO (jak `traffit_source_updated_at`) — asyncpg przy
         -- CAST(… AS timestamptz) wymagałby obiektu datetime.
@@ -1193,7 +1193,7 @@ _UPDATE_CANDIDATE_ADOPT = text(
                                END,
                             true
                           ),
-        -- 0436: data dodania w Traffit; „w bazie od” bierze wcześniejszą
+        -- 0437: data dodania w Traffit; „w bazie od” bierze wcześniejszą
         -- z niej i z `created_at` adoptowanego wiersza.
         source_created_at = COALESCE(
                               CAST(CAST(:source_created_at AS text) AS timestamptz),

@@ -1,6 +1,6 @@
 # „W bazie od” — kiedy osoba trafiła do bazy (13.10.2026)
 
-<!-- indeks: data wejścia do bazy w panelu osoby, na Tablicy, w profilu przed telefonem i na liście; source_created_at z Traffita (0436) i naprawa dat; „Nowy w bazie” do 14 dni; data niedokładna = „przed …” -->
+<!-- indeks: data wejścia do bazy w panelu osoby, na Tablicy, w profilu przed telefonem i na liście; source_created_at z Traffita (0437) i naprawa dat; „Nowy w bazie” do 14 dni; data niedokładna = „przed …” -->
 
 Prośba rekrutera: świeże osoby są najlepsze, więc przy osobie ma być od razu widać, od kiedy jest w bazie
 (jak „Dodano” w Traffit). Makiety: https://claude.ai/artifact/8BSoHNnWMcWv6nJEK6aufP. Decyzje Artura 13.10.2026:
@@ -9,7 +9,7 @@ wariant A, próg 14 dni, zgoda na pobranie dat z Traffita.
 - **Jedna reguła daty** — `backend/app/services/candidate_added_date.py`: „w bazie od” =
   `LEAST(created_at, source_created_at)`. `created_at` to chwila wstawienia wiersza do NEXUSA; dla osób
   z Traffita był to dzień importu (33 824 osoby z 16.04.2026, 9 949 z 04.05.2026). `source_created_at`
-  (migracja 0436) to data dodania u źródła — Traffit `created_at` z listy `/employees/`.
+  (migracja 0437) to data dodania u źródła — Traffit `created_at` z listy `/employees/`.
 - **Nie nadpisuj `candidates.created_at` datą z Traffita.** Import liczy z niej ponowienia plików
   i CV („pending since”, `importer.py`), a podświetlenie „Nowy” zapisanego wyszukiwania, analityka
   i eksport zostają na surowym `created_at`.
