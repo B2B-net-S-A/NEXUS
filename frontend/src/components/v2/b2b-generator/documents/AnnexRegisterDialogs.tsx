@@ -132,7 +132,9 @@ export function LinkContractDialog({
   const queryClient = useQueryClient();
   const parentId = item.parent_generated_contract_id;
   // Aneks do umowy z rejestru: kontrakty tej umowy. Aneks bez umowy:
-  // wyszukiwanie osoby, jak przy tworzeniu aneksu.
+  // wyszukiwanie osoby, jak przy tworzeniu aneksu. Pole jest w obu
+  // przypadkach — numer umowy na start bywa pusty albo nie trafia
+  // (audyt 13.10.2026), a bez pola okno zostawało bez wyjścia.
   const [query, setQuery] = useState(
     parentId
       ? (item.parent_contract_number ?? "")
@@ -187,28 +189,26 @@ export function LinkContractDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-4">
-          {parentId ? null : (
-            <div className="space-y-1">
-              <Label htmlFor={`b2b-annex-link-${item.id}`}>
-                Osoba, firma albo NIP
-              </Label>
-              <div className="relative">
-                <Search
-                  className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground"
-                  aria-hidden="true"
-                />
-                <Input
-                  id={`b2b-annex-link-${item.id}`}
-                  className="w-full pl-8"
-                  value={query}
-                  onChange={(e) => {
-                    setQuery(e.target.value);
-                    setPicked(null);
-                  }}
-                />
-              </div>
+          <div className="space-y-1">
+            <Label htmlFor={`b2b-annex-link-${item.id}`}>
+              {parentId ? "Umowa, osoba, firma albo NIP" : "Osoba, firma albo NIP"}
+            </Label>
+            <div className="relative">
+              <Search
+                className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground"
+                aria-hidden="true"
+              />
+              <Input
+                id={`b2b-annex-link-${item.id}`}
+                className="w-full pl-8"
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setPicked(null);
+                }}
+              />
             </div>
-          )}
+          </div>
           {q.length < 2 ? (
             <p className="text-sm text-muted-foreground">
               Wpisz co najmniej dwa znaki.

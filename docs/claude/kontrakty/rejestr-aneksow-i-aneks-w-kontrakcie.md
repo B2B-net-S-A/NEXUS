@@ -41,6 +41,29 @@ spoza Nexusa — nie był zapisywany wcale. Raport:
   wskazany w żądaniu. Reguła i kolejność blokad (kontrakt, potem wiersz) jak
   w `contract_termination_sync` i wypowiedzeniu Partnera. Nie dokładaj
   drugiego, równoległego powiązania na dokumencie.
+- **Powiązanie aneksu nie zmienia osoby ani klienta (14.10.2026)**, bo audyt
+  13.10 (pkt 7) pokazał, że „Powiąż z kontraktem” przy aneksie „Bez
+  kontraktu” albo z unieważnionym kontraktem brało kontrakt dowolnej osoby
+  i nadpisywało nim osobę i klienta dokumentu — podpis zapisywał wtedy firmę,
+  NIP i stawkę osoby A w kontrakcie osoby B.
+  `_assert_annex_link_same_subject`: osoba jak przy „Powiąż z kontraktem”
+  w rejestrze umów (`_assert_link_same_person` — zdublowany rekord tej samej
+  osoby przechodzi), klient dokumentu = klient kontraktu (duplikat scalony
+  z klientem kontraktu przechodzi, bo scalenie nie przenosi dokumentów
+  generatora); inaczej 409. Aneks „Bez kontraktu” nie zna osoby, więc wiąże
+  się tylko z kontraktem u klienta, przy którym go zapisano — inny klient to
+  nowy aneks. Kontrakt z żywą umową w rejestrze
+  (`active`/`suspended`/`in_progress`) nie przyjmuje aneksu wprost: 422 przy
+  generowaniu i przy powiązaniu (`_reject_contract_with_own_agreement`), jak
+  w wyszukiwarce osoby. Sprawdzenie NIE siedzi w `_load_subject_contract`, bo
+  tę funkcję dzielą podgląd i prefill „Popraw”, a kontrakt mógł dostać umowę
+  już po aneksie. Dowiązanie wiersza rejestru przez aneks (przy generowaniu
+  i w `link-contract`) idzie rdzeniem `apply_contract_link`: numer umowy na
+  kontrakcie, wpis `linked_to_contract` na osi czasu umowy
+  i `generated_contract_linked` na kontrakcie — do 14.10.2026 ustawialiśmy
+  samo `contract_id`. Okno „Powiąż z kontraktem” ma pole wyszukiwania także
+  przy aneksie do umowy z rejestru (numer umowy na start bywał pusty i okno
+  zostawało bez wyjścia).
 - **Jeden stan zamiast pary „status aneksu” + „status podpisu”** (decyzja D1):
   `effects.annex_state` → `waiting` (czeka na podpis) · `signed_pending`
   (podpisany, dzień wejścia w życie dopiero nadejdzie) · `in_force`
@@ -97,7 +120,10 @@ spoza Nexusa — nie był zapisywany wcale. Raport:
   zapisuje się pod kluczem z treści, stary znika dopiero po commicie —
   `signed_scan.discard`; skan wysłany już do SharePointa wraca do wysyłki
   i podmienia tam ten sam plik — `dokumenty-kontraktow-z-sharepointa.md`);
-  wygenerowany DOCX zostaje obok. Okno
+  wygenerowany DOCX zostaje obok. `signed_scan_document_id` na liście
+  oddajemy tylko, gdy ten dokument kontraktu nadal istnieje
+  (`signed_scan.existing_scan_ids`, 14.10.2026) — skan usunięty z Dokumentów
+  albo z kontraktem dawał „Podmień skan” przy skanie, którego nie ma. Okno
   podpisu woła `confirm-signed` (bez zmian), POTEM wysyła skan — nieudany skan
   nie cofa podpisu. Dwie trasy na jednej funkcji: generator (bramki jak
   podpis + skutek w kontrakcie) i kontrakt
@@ -120,4 +146,7 @@ spoza Nexusa — nie był zapisywany wcale. Raport:
   `test_b2b_annex_rules.py`, `test_b2b_annex_generator.py`,
   `test_b2b_annex_signed_scan.py`, `test_contract_annex_tab.py`,
   `AnnexRegister.test.tsx`, `ContractAnnexTab.test.tsx`; kolejność blokad
-  pilnuje `test_b2b_documents_round6.py`.
+  pilnuje `test_b2b_documents_round6.py`. Po audycie 13.10: powiązanie,
+  skan i portfel Delivery Leada w czterech trasach aneksów —
+  `test_fix48_ws02_annex_link_rules.py` (bez bazy),
+  `test_fix48_ws02_annex_api.py`, `fix48-ws02-link-contract.test.tsx`.
