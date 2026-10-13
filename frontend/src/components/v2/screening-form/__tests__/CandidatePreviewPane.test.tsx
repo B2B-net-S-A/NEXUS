@@ -4,7 +4,7 @@
  * w technologię szuka jej w CV (CV firmowe → oryginał, bo tam jest szukanie).
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useEffect, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -18,13 +18,17 @@ const mocks = vi.hoisted(() => ({
   selectStageCv: vi.fn(),
   sources: vi.fn(),
   previewMounted: vi.fn(),
+  upload: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
   __esModule: true,
   default: { get: (...a: unknown[]) => mocks.get(...a) },
   candidateStageCvApi: {
-    original: { get: (...a: unknown[]) => mocks.original(...a) },
+    original: {
+      get: (...a: unknown[]) => mocks.original(...a),
+      upload: (...a: unknown[]) => mocks.upload(...a),
+    },
     branded: {
       get: (...a: unknown[]) => mocks.branded(...a),
       selectGenerated: (...a: unknown[]) => mocks.selectGenerated(...a),
@@ -988,5 +992,69 @@ describe("CandidatePreviewPane — zwijanie CV i wymagań", () => {
     await act(async () => {});
     expect(screen.getAllByTestId("file-preview")).toHaveLength(1);
     expect(mocks.previewMounted).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * „Wgraj CV” w podglądzie po „Rozwiń” (13.10.2026): plik staje się głównym CV
+ * i CV tej rekrutacji, podgląd przechodzi na „CV oryginalne”.
+ */
+describe("CandidatePreviewPane — Wgraj CV", () => {
+  function mountWithUpload() {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <CandidatePreviewPane
+          candidateId={101}
+          jobId={7}
+          stageId={901}
+          preferCompanyCv
+          cvUpload={{ candidateName: "Tomasz Wzorcowy", jobTitle: "Senior Java Developer" }}
+        />
+      </QueryClientProvider>,
+    );
+  }
+
+  beforeEach(() => {
+    mocks.upload.mockReset();
+    mocks.upload.mockResolvedValue({ data: { has_snapshot: true } });
+  });
+
+  it("przycisk w pasku źródeł wgrywa plik na CV tej rekrutacji", async () => {
+    mountWithUpload();
+    await screen.findByRole("group", { name: "Które CV pokazać" });
+    expect(screen.getByRole("button", { name: /Wgraj CV/ })).toBeInTheDocument();
+
+    const file = new File(["%PDF-1.4"], "Tomasz_CV_2026.pdf", { type: "application/pdf" });
+    await act(async () => {
+      fireEvent.change(screen.getByTestId("preview-cv-upload-input"), { target: { files: [file] } });
+    });
+
+    await waitFor(() => expect(mocks.upload).toHaveBeenCalledWith(901, file));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "CV oryginalne" })).toHaveAttribute("aria-pressed", "true"),
+    );
+  });
+
+  it("zły format z przycisku: bez wysyłki", async () => {
+    mountWithUpload();
+    await screen.findByRole("group", { name: "Które CV pokazać" });
+
+    fireEvent.change(screen.getByTestId("preview-cv-upload-input"), {
+      target: { files: [new File(["x"], "cv.odt")] },
+    });
+
+    expect(mocks.upload).not.toHaveBeenCalled();
+  });
+
+  it("brak CV: kafelek „Wgraj CV” zamiast linku do profilu", async () => {
+    mocks.original.mockResolvedValue({ data: { has_snapshot: false } });
+    mocks.get.mockResolvedValue({ data: [] });
+    mocks.branded.mockResolvedValue({ data: { status: "none" } });
+    mountWithUpload();
+
+    expect(await screen.findByText("Kandydat nie ma CV ani w zgłoszeniu, ani w profilu.")).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Wgraj CV/)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Dodaj CV w profilu kandydata/ })).toBeNull();
   });
 });

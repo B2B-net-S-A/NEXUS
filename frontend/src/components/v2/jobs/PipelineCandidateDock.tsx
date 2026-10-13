@@ -140,6 +140,10 @@ import { RateChangeBanner } from "@/components/v2/rate-change/RateChangeBanner";
 import { RateChangeDialog } from "@/components/v2/rate-change/RateChangeDialog";
 import { rateChangeStatusLabel } from "@/lib/rate-change";
 import { useNoAnswerNote } from "@/hooks/useNoAnswerNote";
+import { useCapability } from "@/hooks/useCapability";
+import { CvFileDropTarget, StageCvUploadTile, useStageCvUpload } from "@/components/v2/person/StageCvUpload";
+import { DockCvFreshness, profileReadPending } from "@/components/v2/jobs/DockCvFreshness";
+import { CompanyCvStaleNotice } from "@/components/v2/recruitment/CompanyCvStaleNotice";
 
 // Edytor brandowanego CV jest ciężki (rich text) — leniwy import jak w
 // CandidateDetailV2, żeby nie puchła zakładka Pipeline dla osób, które go
@@ -272,6 +276,8 @@ interface CandidateDetail {
   linkedin_current_title?: string | null;
   linkedin_current_company?: string | null;
   cv_filename?: string | null;
+  /** Odczyt AI głównego CV — linia „AI czyta nowe CV” po wgraniu z rekrutacji. */
+  cv_parsed_at?: string | null;
 }
 
 /** Etykiety statusu kandydata — lustro `CandidateStatus` z backendu. */
@@ -773,6 +779,11 @@ export function PipelineCandidateDock({
 
   const fullName = `${item.name ?? ""} ${item.lastname ?? ""}`.trim() || "Kandydat";
   const jobLabel = jobTitle?.trim() || `Rekrutacja #${jobId}`;
+  // „Wgraj nowe CV” (13.10.2026): zapis w rekrutacji i teczce kandydata —
+  // ta sama capability co wgrywanie w zakładce „CV i dokumenty”.
+  const canManageDocuments = useCapability("candidate.document.manage");
+  const canUploadCv = !readOnly && canManageDocuments;
+  const cvUpload = useStageCvUpload({ candidateId: item.candidate_id, stageId: item.id, jobId });
   const initials = fullName
     .split(/\s+/)
     .map((w) => w[0])
@@ -834,7 +845,9 @@ export function PipelineCandidateDock({
       api
         .get<CandidateDocument[]>(`/api/candidates/${item.candidate_id}/documents?kind=cv`)
         .then((r) => (Array.isArray(r.data) ? r.data : [])),
-    enabled: isOpen("cv") && (snapshotMissing || cvOriginalQuery.isError),
+    // Osoba, która może wgrać CV, widzi też „W profilu jest nowsze CV” —
+    // do tego lista plików jest potrzebna także obok kopii ze zgłoszenia.
+    enabled: isOpen("cv") && (snapshotMissing || cvOriginalQuery.isError || canUploadCv),
     staleTime: 30_000,
   });
 
@@ -906,6 +919,9 @@ export function PipelineCandidateDock({
     queryFn: () =>
       candidatesApi.get(item.candidate_id).then((r) => r.data as CandidateDetail),
     staleTime: 60_000,
+    // Po wgraniu CV z rekrutacji: dopytuj, aż AI odczyta plik (albo minie okno).
+    refetchInterval: (query) =>
+      profileReadPending(cvUpload.uploadedAt, query.state.data ?? null) ? 15_000 : false,
   });
   const candidate = candidateDetailQuery.data ?? null;
 
@@ -1259,7 +1275,12 @@ export function PipelineCandidateDock({
     ) : null;
 
   return (
-    <div className="flex h-full flex-col rounded-xl border border-border bg-card">
+    <CvFileDropTarget
+      enabled={canUploadCv}
+      upload={cvUpload}
+      title={`${fullName} · ${jobLabel}`}
+      className="flex h-full flex-col rounded-xl border border-border bg-card"
+    >
       {/* ── Pasek osoby (zawsze w miejscu) ────────────────────────────── */}
       {/* 09.10.2026: w wąskim doku w miejscu stoi tylko ten pasek i pole
           notatki; „Warunki”, „Następny etap” i przyciski etapów przewijają
@@ -1867,6 +1888,32 @@ export function PipelineCandidateDock({
                 </li>
               )}
             </ul>
+            {canUploadCv ? (
+              <>
+                <DockCvFreshness
+                  stageId={item.id}
+                  original={originalCv}
+                  profileDocs={profileCvQuery.data as DockProfileCvDoc[] | undefined}
+                  candidate={candidate}
+                  uploadedAt={cvUpload.uploadedAt}
+                  onShowProfileCv={setProfileCvPreviewId}
+                />
+                {stageCv === "ready" ? (
+                  <CompanyCvStaleNotice
+                    stageId={item.id}
+                    candidateId={item.candidate_id}
+                    candidateName={fullName}
+                    jobId={jobId}
+                    branded={cvBrandedQuery.data}
+                    original={originalCv}
+                  />
+                ) : null}
+                <StageCvUploadTile
+                  upload={cvUpload}
+                  label={originalCv.kind === "none" ? "Wgraj CV" : "Wgraj nowe CV"}
+                />
+              </>
+            ) : null}
             <div className="flex flex-col gap-1.5">
               {originalCv.kind === "snapshot" || originalCv.kind === "unknown" ? (
                 <Button
@@ -1886,7 +1933,7 @@ export function PipelineCandidateDock({
                 >
                   <FileText className="h-3.5 w-3.5" /> Pokaż CV z profilu
                 </Button>
-              ) : originalCv.kind === "none" ? (
+              ) : originalCv.kind === "none" && !canUploadCv ? (
                 <Link
                   href={`${profileHref}&tab=documents`}
                   target="_blank"
@@ -2121,6 +2168,6 @@ export function PipelineCandidateDock({
           requestId={jobId}
         />
       )}
-    </div>
+    </CvFileDropTarget>
   );
 }

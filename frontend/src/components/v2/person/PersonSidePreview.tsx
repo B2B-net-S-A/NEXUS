@@ -18,6 +18,7 @@ import type { ReactNode } from "react";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import { PersonPanelSide } from "@/components/v2/person/PersonPanelSide";
+import type { PreviewCvUpload } from "@/components/v2/person/StageCvUpload";
 
 const CandidatePreviewPane = dynamic(
   () =>
@@ -35,9 +36,18 @@ export interface PersonSidePreviewProps {
   budgetHourly?: number | null;
   /** Dodatkowa zakładka sekcji (np. „Pytania klienta” przy rozmowach). */
   extraTab?: { label: string; content: ReactNode };
+  /** „Wgraj CV” w podglądzie — tylko z prawem zapisu w rekrutacji i teczce kandydata. */
+  cvUpload?: PreviewCvUpload;
 }
 
-export function PersonSidePreview({ candidateId, jobId, stageId, budgetHourly = null, extraTab }: PersonSidePreviewProps) {
+export function PersonSidePreview({
+  candidateId,
+  jobId,
+  stageId,
+  budgetHourly = null,
+  extraTab,
+  cvUpload,
+}: PersonSidePreviewProps) {
   return (
     <PersonPanelSide inline={() => null}>
       <CandidatePreviewPane
@@ -47,6 +57,7 @@ export function PersonSidePreview({ candidateId, jobId, stageId, budgetHourly = 
         preferCompanyCv
         extraTab={extraTab}
         budgetHourly={budgetHourly}
+        cvUpload={cvUpload}
         collapsible
         className="flex-1"
       />

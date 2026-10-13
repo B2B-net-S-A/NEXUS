@@ -201,6 +201,25 @@ async def _hand_primary_back(
     candidate.cv_extracted_data = extracted
 
 
+async def _restore_stage_copies(
+    db: AsyncSession, *, candidate: Candidate, document: CandidateDocument
+) -> None:
+    """Kopie CV etapu z pliku w kwarantannie wracają do bieżącego CV osoby.
+
+    13.10.2026 („Nowe CV w rekrutacji”): CV wgrane z rekrutacji staje się od
+    razu kopią CV etapu, a bramka biegnie po zapisie. Bez tego kopia etapu
+    zostawała z CV innej osoby — w podglądzie, w pobraniu i w przeglądzie
+    zgodności, który czyta ją jako oryginał tej osoby.
+    """
+    from app.services.candidate_stage_cv_service import (
+        restore_stage_copies_after_quarantine,
+    )
+
+    await restore_stage_copies_after_quarantine(
+        db, candidate=candidate, quarantined_sha256=document.content_sha256
+    )
+
+
 async def _clear_quarantined_cv_projection(
     db: AsyncSession,
     *,
@@ -296,6 +315,8 @@ async def _clear_quarantined_cv_projection(
                 source_kind=source_kind,
                 source_id=source_id,
             )
+        if document is not None:
+            await _restore_stage_copies(db, candidate=candidate, document=document)
         return {"cleared_fields": 0, "tombstoned_languages": 0}
 
     cleared_fields: list[str] = []
@@ -482,6 +503,8 @@ async def _clear_quarantined_cv_projection(
             candidate_id,
             exc,
         )
+    if document is not None:
+        await _restore_stage_copies(db, candidate=candidate, document=document)
     return {
         "cleared_fields": len(set(cleared_fields)),
         "tombstoned_languages": len(language_rows),

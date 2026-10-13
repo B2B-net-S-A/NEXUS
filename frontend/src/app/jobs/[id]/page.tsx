@@ -1,6 +1,6 @@
 "use client";
 
-import { useUrlSyncedState, writeUrlParams } from "@/lib/url-selection";
+import { useUrlSyncedState, useUrlWriter, writeUrlParams } from "@/lib/url-selection";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -42,8 +42,7 @@ import {
   type JobOrderSection,
 } from "@/lib/job-detail-routing";
 import { jobProposalsApi, jobProposalsKeys } from "@/lib/job-proposals-api";
-import { proposalsBulkApi, shortlistApi } from "@/lib/candidate-search-api";
-import { formatReasonCounts, summarizeBulkResult } from "@/lib/bulk-result-summary";
+import { shortlistApi } from "@/lib/candidate-search-api";
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
 import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
 import { ChampionWorkspace } from "@/components/champion/ChampionWorkspace";
@@ -63,7 +62,6 @@ import { CandidateSourcesStrip } from "@/components/v2/jobs/CandidateSourcesStri
 import { AddCandidatesQuickModal } from "@/components/v2/modals/AddCandidatesQuickModal";
 import { AddCandidateFromCVModal } from "@/components/v2/modals/AddCandidateFromCVModal";
 import { AddCandidatesPanel } from "@/components/v2/recruitment/AddCandidatesPanel";
-import { assignErrorMessage } from "@/lib/assign-error";
 import {
   JobShortlist,
   jobShortlistQueryKey,
@@ -548,6 +546,20 @@ export default function JobDetailPage() {
     queryClient.invalidateQueries({ queryKey: ["pipeline-scores"] });
   }, [queryClient, id]);
 
+  // „Otwórz w panelu” z okna „Dodaj z CV”: ten sam jednorazowy `?candidate=`
+  // co powiadomienia — dok otwiera się na świeżej Tablicy, gdy karta już jest.
+  const urlWriter = useUrlWriter();
+  const openPersonPanel = useCallback(
+    (candidateId: number) => {
+      if (!showBoard) selectView("board");
+      invalidateKanban();
+      const next = new URLSearchParams(window.location.search);
+      next.set("candidate", String(candidateId));
+      urlWriter.replaceUrl(`?${next.toString()}`);
+    },
+    [showBoard, selectView, invalidateKanban, urlWriter],
+  );
+
   // Osoby już w rekrutacji (także odrzucone i „poza szablonem") — nie
   // pojawiają się w propozycjach. `undefined` dopóki tablica się nie wczyta:
   // segment propozycji pyta wtedy o nie sam.
@@ -895,27 +907,16 @@ export default function JobDetailPage() {
         fullReviewRequest={fullReviewRequest}
         onFullReviewHandled={() => setFullReviewRequest(null)}
       />
+      {/* Okno samo dodaje osobę do „Nowych” i pokazuje wynik (13.10.2026):
+          osoba z bazy dostaje CV na górę profilu, osoba w toku — nowe CV przy
+          zgłoszeniu, zamknięta karta — „Przywróć”. Pominięcie (czarna lista,
+          weto HM) zostaje w oknie zamiast zielonego dodania (audyt 05.10.2026). */}
       <AddCandidateFromCVModal
         open={canWritePipeline && showAddFromCv}
         onOpenChange={setShowAddFromCv}
-        onAdded={(candidateId) => {
-          // Nowy kandydat z CV od razu trafia do „Nowych" tej rekrutacji.
-          void proposalsBulkApi
-            .add(jobId, { candidate_ids: [candidateId], source: "quick_add" })
-            .then((response) => {
-              invalidateKanban();
-              // 200 z pominięciem (czarna lista, weto HM, już w rekrutacji)
-              // nie może wyglądać jak dodanie — w „Nowych” nikogo nie ma
-              // (audyt 05.10.2026).
-              const summary = summarizeBulkResult(response);
-              if (summary.added === 0 && summary.skipped.length > 0) {
-                showError(
-                  `Kandydat jest w bazie, ale nie trafił do tej rekrutacji: ${formatReasonCounts(summary.skipped)}.`,
-                );
-              }
-            })
-            .catch((error) => showError(assignErrorMessage(error)));
-        }}
+        job={{ id: jobId, title: jobDisplayTitle(job) }}
+        onChanged={invalidateKanban}
+        onOpenPerson={openPersonPanel}
       />
 
       {/* Quick search + bulk-add candidates to this job */}
