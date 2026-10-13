@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-html-link-for-pages -- testy klikają zwykły <a>: tak wygląda link na adres listy po zapisie natywnym, który router Nexta widzi jako „tę samą stronę” (audyt 13.10.2026). */
 /**
  * Lista rekrutacji pamięta ostatnie filtry osoby (13.10.2026): goły `/jobs`
  * (menu, okruszek, kafel pulpitu) wraca do ostatniego widoku, link
