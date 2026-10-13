@@ -51,6 +51,7 @@ from app.services import (
     candidate_followups,
     cpro_sender,
     cv_in_transit,
+    dl_send_queue,
     move_requirements,
     new_job_leads,
     pending_job_completion,
@@ -103,6 +104,49 @@ class BoardTaskRow(BaseModel):
     # (R7-X4-2): podgląd i „Pobierz DOCX" biorą CV etapu, nie surowy plik
     # z generatora — do klienta ma iść to, co przeszło QC.
     cv_stage_id: Optional[int] = None
+    # „Do wysłania do klienta” (13.10.2026, `services/dl_send_queue.py`) —
+    # tylko przegląd DL. ``ready`` = QC zdane albo przepuszczone; czas i pilność
+    # liczą się od ``ready_since``; ``imported`` = etap z importu Traffita,
+    # którego nikt nie ruszył w NEXUSIE (poza licznikami).
+    ready: bool = False
+    ready_since: Optional[datetime] = None
+    waiting_workdays: int = 0
+    urgency: Optional[Literal["fresh", "due", "late"]] = None
+    imported: bool = False
+    handed_over_by_name: Optional[str] = None
+    budget_min_hourly: Optional[float] = None
+    budget_max_hourly: Optional[float] = None
+    deadline: Optional[date] = None
+
+
+class DlSendRow(BaseModel):
+    """Wiersz okienka „Do wysłania” w górnym pasku.
+
+    Celowo węższy niż `BoardTaskRow`: przegląd otwiera się z pełnego wiersza
+    (`/dl-review-row`), nie z tego — brak tu wersji procesu i etapów ruchu.
+    """
+
+    stage_id: int
+    candidate_id: int
+    candidate_name: str
+    job_id: int
+    job_title: str
+    job_working_title: Optional[str] = None
+    client_name: Optional[str] = None
+    ready_since: datetime
+    waiting_workdays: int
+    urgency: Literal["fresh", "due", "late"]
+    handed_over_by_name: Optional[str] = None
+
+
+class DlSendQueueResponse(BaseModel):
+    ready: list[DlSendRow]
+    ready_total: int
+    # Kolumna „QC CV”, ale ruch ma jeszcze rekruter (QC do poprawy albo
+    # niesprawdzone) — sama liczba, żeby okienko mówiło „N jeszcze u rekrutera”.
+    not_ready_total: int
+    imported_total: int
+    worst_urgency: Optional[Literal["fresh", "due", "late"]] = None
 
 
 class PrepAttentionRow(BaseModel):
@@ -789,6 +833,59 @@ async def get_dl_review_row(
             cv_stage_id=(cvs.get((candidate_id, job_id)) or {}).get("stage_id"),
         ),
         can_send_to_client=True,
+    )
+
+
+# Okienko w górnym pasku — dłuższa lista jest na pulpicie.
+DL_SEND_ROWS = 30
+
+
+@router.get("/dl-send", response_model=DlSendQueueResponse)
+async def get_dl_send_queue(
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+) -> DlSendQueueResponse:
+    """„Do wysłania do klienta” patrzącego — licznik górnego paska i menu.
+
+    Lekkie (wiersze + stan QC, zakres w SQL): pasek pyta o to na każdej
+    stronie, a pełna kolejka z historią par zostaje w `GET /api/board-tasks`.
+    Liczy STAN, nie zdarzenia — wiersz znika po wysłaniu, odrzuceniu albo
+    cofnięciu karty, nie po przeczytaniu. Konto bez roli Delivery Leada
+    dostaje zera bez zapytań.
+    """
+    if not current_user.has_role(UserRole.delivery_lead):
+        return DlSendQueueResponse(
+            ready=[], ready_total=0, not_ready_total=0, imported_total=0
+        )
+    portfolio = await svc.dl_portfolio_client_ids(db, current_user.id)
+    rows = await dl_send_queue.load_for_viewer(db, current_user, portfolio=portfolio)
+    ready = sorted(
+        (t for t in rows if dl_send_queue.counts_for_reviewer(t)),
+        key=lambda t: t.ready_since,
+    )
+    shown = ready[:DL_SEND_ROWS]
+    await dl_send_queue.attach_handed_over_names(db, shown)
+    return DlSendQueueResponse(
+        ready=[
+            DlSendRow(
+                stage_id=t.stage_id,
+                candidate_id=t.candidate_id,
+                candidate_name=t.candidate_name,
+                job_id=t.job_id,
+                job_title=t.job_title,
+                job_working_title=t.job_working_title,
+                client_name=t.client_name,
+                ready_since=t.ready_since,
+                waiting_workdays=t.waiting_workdays,
+                urgency=t.urgency,
+                handed_over_by_name=t.handed_over_by_name,
+            )
+            for t in shown
+        ],
+        ready_total=len(ready),
+        not_ready_total=sum(1 for t in rows if not t.ready and not t.imported),
+        imported_total=sum(1 for t in rows if t.imported),
+        worst_urgency=dl_send_queue.worst_urgency(ready),
     )
 
 

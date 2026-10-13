@@ -20,17 +20,22 @@ Delivery Leada:
   klienta) albo odrzuci. Osoby w „Zweryfikowanym" nie są już w przeglądzie —
   ich CV nie przeszło jeszcze przez QC, więc DL nie ma czego oglądać.
 
-Okno: ruch z ostatnich ``WINDOW_DAYS`` dni (wysłane do Cpro), a praca do
-zrobienia (przegląd DL, do wysłania do Cpro) — ``DL_REVIEW_WINDOW_DAYS``.
-Import z Traffita zostawia na opublikowanych rekrutacjach setki osób sprzed
-roku — kolejka z nimi byłaby listą, której nikt nie przeczyta.
+Okno: ruch z ostatnich ``WINDOW_DAYS`` dni (wysłane do Cpro), a do wysłania
+do Cpro — ``DL_REVIEW_WINDOW_DAYS``. Import z Traffita zostawia na
+opublikowanych rekrutacjach setki osób sprzed roku — kolejka z nimi byłaby
+listą, której nikt nie przeczyta.
+
+Przegląd DL nie ma okna czasu (13.10.2026): wiersze liczy
+`services/dl_send_queue.py` — ta sama reguła dla pulpitu, górnego paska,
+porannego skrótu i listy rekrutacji. Karta stojąca w „QC CV” ponad 30 dni
+znikała stąd bez śladu, choć na Tablicy stała dalej.
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Iterable, Optional
 
 from sqlalchemy import or_, select, text, tuple_
@@ -145,6 +150,22 @@ class BoardTask:
     # ekrany wewnętrzne pokazują tytuł dla rekrutera, gdy jest.
     job_working_title: Optional[str] = None
     client_reference: Optional[str] = None
+    # „Do wysłania do klienta” (`services/dl_send_queue.py`, 13.10.2026).
+    # ``ready`` — QC zdane albo przepuszczone, ruch ma Delivery Lead; reszta
+    # kolumny „QC CV” jest jeszcze u rekrutera. ``ready_since`` — od kiedy
+    # (wejście do kolumny albo zaliczenie QC, co później); od niego liczą się
+    # dni robocze i pilność. ``imported`` — bieżący etap pochodzi z importu
+    # Traffita i nikt nie ruszył karty w NEXUSIE: nie budzi liczników ani
+    # przypomnień (decyzja Artura 11.10.2026).
+    ready: bool = False
+    ready_since: Optional[datetime] = None
+    waiting_workdays: int = 0
+    urgency: Optional[str] = None
+    imported: bool = False
+    handed_over_by_name: Optional[str] = None
+    budget_min_hourly: Optional[float] = None
+    budget_max_hourly: Optional[float] = None
+    deadline: Optional[date] = None
 
     def as_dict(self) -> dict:
         return {
@@ -178,6 +199,15 @@ class BoardTask:
             "qc_blocking_failed": self.qc_blocking_failed,
             "card_status": self.card_status,
             "card_missing": self.card_missing,
+            "ready": self.ready,
+            "ready_since": self.ready_since,
+            "waiting_workdays": self.waiting_workdays,
+            "urgency": self.urgency,
+            "imported": self.imported,
+            "handed_over_by_name": self.handed_over_by_name,
+            "budget_min_hourly": self.budget_min_hourly,
+            "budget_max_hourly": self.budget_max_hourly,
+            "deadline": self.deadline,
         }
 
 
@@ -412,19 +442,8 @@ async def load_snapshot(
             delivery_lead_id=r.delivery_lead_id,
             template_id=r.template_id,
         )
-        nordea = cpro_enabled_for_client(r.client_id)
-        in_qc = effective in stages.qc_ids
-        if not nordea:
-            if in_qc:
-                tasks.append(
-                    BoardTask(
-                        kind=KIND_DL_REVIEW,
-                        target_stage_def_id=stages.cv_sent_id,
-                        rejected_stage_def_id=stages.rejected_id,
-                        return_stage_def_id=stages.verified_id,
-                        **base,
-                    )
-                )
+        if not cpro_enabled_for_client(r.client_id):
+            # Przegląd DL liczy `dl_send_queue` (niżej) — bez okna czasu.
             continue
         if effective in stages.cpro_ids:
             tasks.append(
@@ -449,10 +468,23 @@ async def load_snapshot(
                 )
             )
 
+    from app.services import dl_send_queue  # noqa: PLC0415 — cykl importu
+
+    review = await dl_send_queue.load_rows(
+        db,
+        scope=dl_send_queue.Scope(pair=pair, job_id=job_id),
+        now=now,
+        catalog=catalog,
+        default_template_id=default_template_id,
+    )
+    tasks.extend(review)
+
     await _attach_dl_review_details(db, catalog, tasks)
     await _attach_qc_statuses(db, tasks)
     await _attach_card_states(db, tasks)
     await _attach_versions_and_names(db, tasks)
+    await dl_send_queue.attach_handed_over_names(db, review)
+    await dl_send_queue.attach_budget(db, review)
     tasks.sort(key=lambda t: t.since)
     return BoardTaskSnapshot(tasks=tasks, firm_sender_id=firm_sender_id)
 
@@ -528,7 +560,8 @@ async def _attach_card_states(db: AsyncSession, tasks: list[BoardTask]) -> None:
 
 
 async def _attach_qc_statuses(db: AsyncSession, tasks: list[BoardTask]) -> None:
-    wanted = [t for t in tasks if t.kind in (KIND_DL_REVIEW, KIND_CPRO_TO_SEND)]
+    # Wiersze przeglądu DL mają stan QC z `dl_send_queue.attach_readiness`.
+    wanted = [t for t in tasks if t.kind == KIND_CPRO_TO_SEND]
     if not wanted:
         return
     from app.services.move_requirements import qc_statuses  # noqa: PLC0415
@@ -621,20 +654,39 @@ def _sees_all(user: User) -> bool:
     return user.has_any_role(UserRole.admin, UserRole.head_of_recruitment)
 
 
-def _sees_dl_review(task: BoardTask, user: User, portfolio: frozenset[int]) -> bool:
-    """Przegląd DL należy wyłącznie do Delivery Leada rekrutacji.
+def reviews_as_dl(
+    user: User,
+    *,
+    delivery_lead_id: Optional[int],
+    client_id: Optional[int],
+    portfolio: frozenset[int],
+) -> bool:
+    """Czy przegląd przed wysłaniem do klienta w tej rekrutacji należy do ``user``.
 
-    Delivery Lead wpisany w rekrutacji (``jobs.delivery_lead_id``) wygrywa;
-    bez niego (zanim `job_delivery_lead_fill` uzupełni pole) — Delivery Lead
-    z portfelem klienta. Admin i Head of Recruitment go nie widzą (decyzja
-    Artura 24.09.2026), chyba że sami mają rolę Delivery Leada.
+    Delivery Lead wpisany w rekrutacji (``jobs.delivery_lead_id``, tylko
+    aktywne konto — nieaktywne podaj jako ``None``) wygrywa; bez niego (zanim
+    `job_delivery_lead_fill` uzupełni pole) — Delivery Lead z portfelem
+    klienta. Admin i Head of Recruitment go nie mają (decyzja Artura
+    24.09.2026), chyba że sami mają rolę Delivery Leada. Lustro w SQL:
+    `dl_send_queue.reviewer_scope_clause`.
     """
 
     if not user.has_role(UserRole.delivery_lead):
         return False
-    if task.delivery_lead_id is not None:
-        return task.delivery_lead_id == user.id
-    return task.client_id is not None and task.client_id in portfolio
+    if delivery_lead_id is not None:
+        return delivery_lead_id == user.id
+    return client_id is not None and client_id in portfolio
+
+
+def _sees_dl_review(task: BoardTask, user: User, portfolio: frozenset[int]) -> bool:
+    """Przegląd DL należy wyłącznie do Delivery Leada rekrutacji (`reviews_as_dl`)."""
+
+    return reviews_as_dl(
+        user,
+        delivery_lead_id=task.delivery_lead_id,
+        client_id=task.client_id,
+        portfolio=portfolio,
+    )
 
 
 def _sees_cpro(task: BoardTask, user: User, firm_sender_id: Optional[int]) -> bool:

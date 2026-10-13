@@ -2018,7 +2018,11 @@ async def test_gate_blocks_cv_sent_until_qc_passes_or_dl_overrides(
             for c in col["items"]
             if c["candidate_id"] == world["candidate_id"]
         ]
-        assert cards and cards[0]["qc"] == {"status": "failed", "blocking_failed": 2}
+        assert cards and cards[0]["qc"] == {
+            "status": "failed",
+            "blocking_failed": 2,
+            "ok_at": None,
+        }
 
         denied = await api_client.post(
             override_url, headers=rec, json={"reason_code": "client_short_cv"}
