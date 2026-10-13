@@ -55,6 +55,7 @@ ENTITY_TYPE_LABELS: dict[str, str] = {
 
 EVENT_TYPE_LABELS: dict[str, str] = {
     "client.delete": "Usunięcie klienta",
+    "client.merge": "Scalenie klientów",
     "candidate.delete": "Usunięcie kandydata / kontraktora",
     "order_line.delete": "Usunięcie konsultanta z zamówienia",
     "contract.delete": "Usunięcie kontraktu",
