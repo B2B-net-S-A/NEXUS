@@ -5581,6 +5581,74 @@ async def create_contract_amendment(
     )
 
 
+@router.post(
+    "/{contract_id}/amendments/{amendment_id}/document",
+    response_model=ContractAmendmentResponse,
+)
+async def attach_amendment_signed_scan(
+    contract_id: int,
+    amendment_id: int,
+    current_user: ContractsOrdersEditUser,
+    db: AsyncSession = Depends(get_db),
+    file: UploadFile = File(...),
+):
+    """Dołącz skan podpisanego aneksu z Generatora aneksów („Dołącz skan”).
+
+    Do 13.10.2026 aneks z generatora miał w kontrakcie wygenerowany DOCX —
+    plik bez podpisów — albo nic. Skan trafia do Dokumentów kontraktu i od tej
+    chwili wskazują na niego wszystkie aneksy kontraktu utworzone przez ten
+    sam dokument (stawka progresywna to kilka wpisów jednego aneksu).
+
+    Tylko aneksy z generatora: plik przedłużenia dodanego ręcznie zasila
+    Finanse → Zamówienia PDF i ma własną ścieżkę (zakładka Dokumenty)."""
+    # Import leniwy: `effects` (zależność tych modułów) woła ten router.
+    from app.models.b2b_contract_document import B2BContractDocument
+    from app.services.b2b_documents import contract_annexes, signed_scan
+
+    contract = await _assert_contract(db, contract_id, current_user)
+    await _assert_contract_document_client_access(contract, current_user, db)
+    # Kolejność blokad jak przy podpisie dokumentu: kontrakt, potem dokument.
+    await db.execute(
+        select(Contract.id).where(Contract.id == contract_id).with_for_update()
+    )
+    amendment = await db.scalar(
+        select(ContractAmendment).where(
+            ContractAmendment.id == amendment_id,
+            ContractAmendment.contract_id == contract_id,
+        )
+    )
+    if amendment is None:
+        raise HTTPException(status_code=404, detail="Aneks nie istnieje.")
+    source = await contract_annexes.document_for_amendment(db, amendment)
+    if source is None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Skan dołącza się do aneksu z Generatora aneksów. Plik do "
+                "innego aneksu dodaj w zakładce Dokumenty."
+            ),
+        )
+    document = await db.scalar(
+        select(B2BContractDocument)
+        .where(B2BContractDocument.id == source.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    name, content_type, data = await signed_scan.read_scan(file)
+    await signed_scan.attach(
+        db,
+        doc=document,
+        filename=name,
+        content_type=content_type,
+        data=data,
+        actor_id=current_user.id,
+    )
+    await db.commit()
+    await db.refresh(amendment)
+    finance_ok = await _can_read_contract_finance(contract, current_user, db)
+    return await _amendment_to_response(db, amendment, finance_ok=finance_ok)
+
+
 async def apply_contract_amendment(
     *,
     contract_id: int,

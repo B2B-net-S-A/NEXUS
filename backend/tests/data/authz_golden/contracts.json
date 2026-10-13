@@ -58,6 +58,7 @@
   "POST /api/contracts/bulk-mark-ended": "PDDPPDDDPPPDPPDDDDD",
   "POST /api/contracts/{contract_id}/activate": "PPDPDDDDPPPDDPDDDDD",
   "POST /api/contracts/{contract_id}/amendments": "PPDPDDDDPPPDDPDDDDD",
+  "POST /api/contracts/{contract_id}/amendments/{amendment_id}/document": "PPDPDDDDPPPDDPDDDDD",
   "POST /api/contracts/{contract_id}/documents": "PPDPDDDDPPPDDPDDDDD",
   "POST /api/contracts/{contract_id}/draft/finalize": "PPDPDDDDPPPDDPDDDDD",
   "POST /api/contracts/{contract_id}/equipment": "PPDPDDDDPPPDDPDDDDD",

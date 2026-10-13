@@ -16,7 +16,16 @@ import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, case, func, or_, select
@@ -64,7 +73,7 @@ from app.services.action_permissions import (
     has_permission,
 )
 from app.services import ezdrowie
-from app.services.b2b_documents import annex_register, effects
+from app.services.b2b_documents import annex_register, effects, signed_scan
 from app.services.b2b_documents.annex_summary import annex_change
 from app.services.b2b_documents.context import (
     BaseContractInfo,
@@ -209,6 +218,8 @@ class DocumentItem(BaseModel):
     change: Optional[dict] = None
     can_restore: bool = False
     can_link_contract: bool = False
+    #: Skan podpisanego aneksu w Dokumentach kontraktu (``signed_scan.attach``).
+    signed_scan_document_id: Optional[int] = None
 
 
 class LinkContractRequest(BaseModel):
@@ -894,6 +905,7 @@ async def _serialize(
                     )
                 ),
                 cancelled_reason=row.cancelled_reason,
+                signed_scan_document_id=signed_scan.signed_scan_id(row),
             )
         )
     return items
@@ -1888,6 +1900,100 @@ async def document_effects_preview(
     }
 
 
+def _confirmer_entry(user: User) -> bool:
+    """Bramka wejścia osoby potwierdzającej podpis dokumentu.
+
+    Zwraca ``True``, gdy wołający wchodzi WYŁĄCZNIE jako posiadacz „Stawki
+    i kwoty: zmiana”: aneks stawki potwierdza też on, bez uprawnienia „Umowy
+    B2B: oznaczanie jako podpisane” (domyślnie Finanse, decyzja Artura
+    27.09.2026). Typ i klienta dokumentu znamy dopiero po odczycie, więc
+    zawężenie do aneksu stawki robi ``_assert_confirmer_of``."""
+    amounts_only = not _has_signature_permission(user) and has_permission(
+        user, ProductAction.amounts_edit
+    )
+    if amounts_only:
+        assert_b2b_generator_action_access(user, ActionAccess.view)
+    else:
+        _require_signature_confirmation(user)
+    return amounts_only
+
+
+async def _assert_confirmer_of(
+    db: AsyncSession,
+    user: User,
+    doc: B2BContractDocument,
+    doc_type: DocumentType,
+    *,
+    amounts_only: bool,
+) -> None:
+    """Posiadacz samej zmiany kwot potwierdza wyłącznie aneks stawki u klienta,
+    u którego zmienia kwoty; resztę bramek i blokad liczy ``effects.describe``."""
+    if amounts_only and not (
+        doc_type.key == RATE_ANNEX_TYPE
+        and can_manage_finance_amounts(
+            user,
+            client_id=doc.client_id,
+            delivery_lead_finance_client_ids=(
+                await resolve_delivery_lead_finance_client_ids(user, db)
+            ),
+        )
+    ):
+        _require_signature_confirmation(user)
+
+
+@router.post("/documents/{doc_id}/signed-scan", response_model=DocumentItem)
+async def upload_signed_scan(
+    doc_id: int,
+    current_user: B2BGeneratorAccess,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Dołącz skan podpisanego aneksu — trafia do Dokumentów kontraktu.
+
+    Okno „Oznacz jako podpisany” woła najpierw podpis (JSON, bez zmian),
+    potem tę trasę. Wchodzi ten, kto mógłby ten aneks potwierdzić: plik ląduje
+    w kontrakcie, więc obowiązują te same bramki skutku w kontrakcie co przy
+    podpisie (router generatora stoi za sekcją Sourcing — bramka zapisu
+    Delivery sama tu nie działa)."""
+    amounts_only = _confirmer_entry(current_user)
+    locked_contract_id = await _lock_contract_first(db, doc_id=doc_id)
+    doc, doc_type, parent = await _load_document(db, current_user, doc_id, lock=True)
+    await _assert_confirmer_of(
+        db, current_user, doc, doc_type, amounts_only=amounts_only
+    )
+    _assert_same_locked_contract(
+        locked_contract_id, effects.current_contract_id(doc, parent)
+    )
+    await _assert_signature_client_access(db, current_user, doc.client_id)
+    if doc_type.family != "annex":
+        raise HTTPException(
+            status_code=422, detail="Skan dołącza się wyłącznie do aneksu."
+        )
+    required = effects.contract_effect_permission(doc_type)
+    if required is not None:
+        ensure_permission(current_user, required)
+    if not effects.can_write_delivery(current_user):
+        raise HTTPException(status_code=403, detail=effects.DELIVERY_WRITE_BLOCKER)
+    if doc_type.key == RATE_ANNEX_TYPE and not await effects.can_confirm_rate_annex(
+        db, current_user, doc.client_id
+    ):
+        raise HTTPException(
+            status_code=403, detail=effects.RATE_ANNEX_CONFIRMER_BLOCKER
+        )
+    name, content_type, data = await signed_scan.read_scan(file)
+    await signed_scan.attach(
+        db,
+        doc=doc,
+        filename=name,
+        content_type=content_type,
+        data=data,
+        actor_id=current_user.id,
+    )
+    await db.commit()
+    await db.refresh(doc)
+    return (await _serialize(db, [doc], current_user))[0]
+
+
 @router.post("/documents/{doc_id}/confirm-signed", response_model=DocumentItem)
 async def confirm_document_signed(
     doc_id: int,
@@ -1896,31 +2002,12 @@ async def confirm_document_signed(
     db: AsyncSession = Depends(get_db),
 ):
     """Oznacz jako podpisany obustronnie i zastosuj skutki (idempotentnie)."""
-    # Aneks stawki potwierdza też posiadacz „Stawki i kwoty: zmiana” bez
-    # uprawnienia „Umowy B2B: oznaczanie jako podpisane” (domyślnie Finanse,
-    # decyzja Artura 27.09.2026). Wpuszczamy go wyłącznie do aneksu stawki
-    # u klienta, u którego zmienia kwoty — typ i klienta znamy dopiero po
-    # odczycie dokumentu; resztę bramek i blokad liczy `effects.describe`.
-    amounts_only = not _has_signature_permission(current_user) and has_permission(
-        current_user, ProductAction.amounts_edit
-    )
-    if amounts_only:
-        assert_b2b_generator_action_access(current_user, ActionAccess.view)
-    else:
-        _require_signature_confirmation(current_user)
+    amounts_only = _confirmer_entry(current_user)
     locked_contract_id = await _lock_contract_first(db, doc_id=doc_id)
     doc, doc_type, parent = await _load_document(db, current_user, doc_id, lock=True)
-    if amounts_only and not (
-        doc_type.key == RATE_ANNEX_TYPE
-        and can_manage_finance_amounts(
-            current_user,
-            client_id=doc.client_id,
-            delivery_lead_finance_client_ids=(
-                await resolve_delivery_lead_finance_client_ids(current_user, db)
-            ),
-        )
-    ):
-        _require_signature_confirmation(current_user)
+    await _assert_confirmer_of(
+        db, current_user, doc, doc_type, amounts_only=amounts_only
+    )
     _assert_same_locked_contract(
         locked_contract_id, effects.current_contract_id(doc, parent)
     )
