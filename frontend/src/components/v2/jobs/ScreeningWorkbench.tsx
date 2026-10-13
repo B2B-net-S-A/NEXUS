@@ -11,9 +11,10 @@
  * podgląd stoi w dużej LEWEJ strefie panelu osoby (`PersonPanelSide`), a ta
  * sekcja zajmuje prawą kolumnę; w wąskim oknie podgląd zostaje w miejscu,
  * pod przyciskiem „Pokaż CV i wymagania”:
- * - „Nowi” i „Screening”: od razu formularz, nad nim zwijany blok „Co już
- *   wiemy” (`BeforeCallProfile`, P2 14.10.2026 — rozwinięty, dopóki formularz
- *   jest pusty); do tej daty „Nowi” dostawali najpierw sam profil
+ * - „Nowi” i „Screening”: od razu formularz, nad nim blok „Co już wiemy”
+ *   (`BeforeCallProfile`, P2 14.10.2026 — zwinięty do dwóch linii faktów, żeby
+ *   stawka formularza była widoczna bez przewijania przy 1280 × 720); do tej
+ *   daty „Nowi” dostawali najpierw sam profil
  *   z „Zacznij screening” i „Biorę — 12 h” (pierwszy zapis bierze teraz osobę
  *   na 12 h sam). Podgląd w „Nowych” zaczyna od CV, w „Screeningu” od wymagań,
  * - dalsze etapy: formularz i wymagania obok; od „CV wysłane” formularz dalej
@@ -54,7 +55,7 @@ import { placeStage } from "@/lib/board-stages";
 import { terminalOf } from "@/lib/kanban-terminal";
 import { VERIFIED_STAGE, findStageColumn, isNewColumn, itemFullName } from "@/lib/pipeline-flow";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
-import { AFTER_CV_SENT_COLUMNS, hasSheetContent } from "@/lib/screening-form";
+import { AFTER_CV_SENT_COLUMNS } from "@/lib/screening-form";
 import type { RejectFollowUp } from "@/lib/reject-follow-up";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { cn } from "@/lib/utils";
@@ -189,8 +190,6 @@ export function ScreeningWorkbench({
   const name = itemFullName(item);
   const entry = isNewColumn(col);
   const inNew = entry && placeStage(col).column === "new";
-  // Blok „Co już wiemy” jest rozwinięty, dopóki formularz jest pusty.
-  const formIsEmpty = state == null || (state.version === 0 && !hasSheetContent(state));
   const ended =
     state != null && !state.editable && state.read_only_reason != null && ENDED_REASONS.has(state.read_only_reason);
   // Przed telefonem („Nowi”) rekruter czyta CV, w trakcie rozmowy — wymagania.
@@ -275,7 +274,6 @@ export function ScreeningWorkbench({
             item={item}
             jobId={jobId}
             readOnly={readOnly}
-            defaultOpen={formIsEmpty}
             onOpenHistory={openHistory}
           />
         ) : null}

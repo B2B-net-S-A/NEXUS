@@ -7,12 +7,12 @@
  *
  * `?state=` (domyślnie `nowi`):
  * - `nowi` — osoba w „Nowych”: od razu formularz (P2, 14.10.2026), nad nim
- *   rozwinięty blok „Co już wiemy”, CV obok; stawka wpisana z cytatu
- *   z notatki z podpisem „z notatki … · zmień” (D2),
+ *   zwinięty blok „Co już wiemy” (dwie linie faktów, „Pokaż wszystko”), CV
+ *   obok; stawka wpisana z cytatu z notatki z podpisem „z notatki … · zmień”
+ *   (D2) — przy 1280 × 720 widoczna bez przewijania,
  * - `earlier` — „Screening” po wcześniejszych rozmowach: podpowiedzi pod
  *   pytaniami i „Użyj wszystkich odpowiedzi (N)” (14.10.2026),
- * - `filled` — „Screening”: wypełniony formularz („Co już wiemy” zwinięte)
- *   i wymagania obok,
+ * - `filled` — „Screening”: wypełniony formularz i wymagania obok,
  * - `note` — formularz wypełniony z notatki (plakietki „z notatki”,
  *   propozycje „Użyj”, „Ułóż w zdanie” z gotowej listy, bez modelu),
  * - `noquestions` — rekrutacja bez pytań screeningowych (12.10.2026): pusty

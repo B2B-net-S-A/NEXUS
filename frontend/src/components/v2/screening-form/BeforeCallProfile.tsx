@@ -7,9 +7,11 @@
  * Do 14.10.2026 osoba w „Nowych” dostawała najpierw sam profil, a formularz
  * dopiero po osobnym przycisku startu rozmowy; obok stała blokada na 12 h.
  * Teraz formularz stoi od razu (pierwszy zapis bierze osobę na 12 h,
- * `screening_form._claim_on_save`), a profil to zwijany blok nad nim:
- * rozwinięty, dopóki formularz jest pusty, po pierwszym zapisie zwinięty do
- * jednej linii skrótu.
+ * `screening_form._claim_on_save`), a profil to blok „Co już wiemy” nad nim —
+ * zawsze zwinięty na start do dwóch krótkich linii faktów (stawka, dostępność,
+ * tryb pracy; „W bazie od”, wcześniej u nas, inne rekrutacje). Rozwinięty
+ * zajmował przy 1280 × 720 całą prawą kolumnę i stawka formularza była pod
+ * zgięciem (przegląd 14.10.2026). „Pokaż wszystko” rozwija pełne fakty.
  *
  * W środku to, co trzeba wiedzieć przed wybraniem numeru: obecne stanowisko
  * i staż, „W bazie od”, skąd osoba przyszła i jak pasowała przy wejściu,
@@ -25,7 +27,7 @@
  * notatka nie ma tu osobnej sekcji — notatki są w panelu osoby.
  */
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, Loader2, PhoneOff } from "lucide-react";
 
@@ -49,7 +51,6 @@ import { notesAvailabilityOrigin } from "@/lib/notes-facts";
 import { availabilityText, onsiteText } from "@/lib/person-facts";
 import { contactAttemptsLabel } from "@/lib/recommendation-card";
 import { entrySourceLabel, recruitmentOutcome } from "@/lib/recruitment-stage-label";
-import { countPl } from "@/lib/plural-pl";
 import { cn, formatDate } from "@/lib/utils";
 
 /** Wycinek odpowiedzi `/api/candidates/{id}/quick-view`, którego używa profil. */
@@ -110,30 +111,13 @@ export interface BeforeCallProfileProps {
   item: KanbanItem;
   jobId: number;
   readOnly: boolean;
-  /**
-   * Rozwinięty na start — formularz jest jeszcze pusty. Zmiana na `false`
-   * (pierwszy zapis) zwija blok, chyba że rekruter sam go potem rozwinie.
-   */
-  defaultOpen?: boolean;
   /** „Pokaż” przy wcześniejszych notatkach — otwiera „Historię osoby” w podglądzie obok. */
   onOpenHistory?: () => void;
 }
 
-export function BeforeCallProfile({
-  item,
-  jobId,
-  readOnly,
-  defaultOpen = true,
-  onOpenHistory,
-}: BeforeCallProfileProps) {
-  const [explicitOpen, setExplicitOpen] = useState<boolean | null>(null);
-  const open = explicitOpen ?? defaultOpen;
-  const wasDefaultOpen = useRef(defaultOpen);
-  useEffect(() => {
-    // Pierwszy zapis formularza: blok wraca do domyślnego (zwiniętego) stanu.
-    if (wasDefaultOpen.current && !defaultOpen) setExplicitOpen(null);
-    wasDefaultOpen.current = defaultOpen;
-  }, [defaultOpen]);
+export function BeforeCallProfile({ item, jobId, readOnly, onOpenHistory }: BeforeCallProfileProps) {
+  // Zawsze zwinięty na start — formularz i stawka mają być widoczne bez przewijania.
+  const [open, setOpen] = useState(false);
   const bodyId = useId();
 
   const candidateId = item.candidate_id;
@@ -211,15 +195,27 @@ export function BeforeCallProfile({
       : null,
   );
   const failed = query.isError || detailQuery.isError || notesQuery.isError;
-  // Zwinięty blok: jedna linia skrótu zamiast faktów.
-  const summary = [
-    position,
-    rateValue,
+  const workMode = onsiteText(detail?.max_onsite_days_per_week);
+  // Zwinięty blok: dwie krótkie linie faktów — warunki, potem historia z nami.
+  const termsLine = [
+    latestRate
+      ? `Stawka ${latestRate}${latestRateWhen ? ` (${latestRateWhen})` : ""}`
+      : rateFrom
+        ? `Stawka od ${rateFrom}`
+        : null,
     availabilityValue,
-    others.length > 0
-      ? `w ${countPl(others.length, "innej rekrutacji", "innych rekrutacjach", "innych rekrutacjach")}`
+    workMode,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const historyLine = [
+    inBase ? (inBase.exact ? `W bazie od ${inBase.dateLabel}` : `W bazie ${inBase.dateLabel}`) : null,
+    lastEnded && lastEndedOutcome
+      ? `Wcześniej u nas: ${[lastEnded.job_title ?? `Rekrutacja #${lastEnded.job_id}`, lastEnded.client_name]
+          .filter(Boolean)
+          .join(", ")} — ${[lastEndedOutcome.label, monthYear(lastEnded.last_seen)].filter(Boolean).join(" · ")}`
       : null,
-    lastEndedOutcome ? `wcześniej: ${lastEndedOutcome.label}` : null,
+    others.length > 0 ? `W innych rekrutacjach: ${others.length}` : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -232,36 +228,47 @@ export function BeforeCallProfile({
       data-open={open ? "" : undefined}
     >
       <div className="flex items-start gap-2 px-3 py-2">
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-controls={bodyId}
-          onClick={() => setExplicitOpen(!open)}
-          className="flex min-w-0 flex-1 flex-col items-start gap-0.5 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+        <div className="min-w-0 flex-1 space-y-0.5">
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-controls={bodyId}
+            onClick={() => setOpen(!open)}
+            className="flex items-center gap-1.5 rounded text-left text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
             <ChevronRight
               className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")}
               aria-hidden
             />
-            Co już wiemy
-          </span>
-          {!open && summary ? (
-            <span
-              className="w-full truncate pl-5 text-xs text-muted-foreground"
-              title={summary}
-              data-testid="before-call-summary"
-            >
-              {summary}
-            </span>
+            <span className="font-semibold text-foreground">Co już wiemy</span>
+            <span className="font-medium text-primary">{open ? "Zwiń" : "Pokaż wszystko"}</span>
+          </button>
+          {!open ? (
+            <div className="space-y-0.5 pl-5 text-xs text-muted-foreground" data-testid="before-call-summary">
+              {termsLine ? (
+                <p className="truncate" title={termsLine}>
+                  {termsLine}
+                </p>
+              ) : null}
+              {historyLine ? (
+                <p className="truncate" title={historyLine}>
+                  {historyLine}
+                </p>
+              ) : null}
+              {!termsLine && !historyLine && !failed && query.isLoading ? (
+                <p className="flex items-center gap-1.5" role="status">
+                  <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> Wczytywanie…
+                </p>
+              ) : null}
+              {failed ? (
+                // Zwinięty blok nie może udawać kompletu, gdy część odczytu padła.
+                <p className="text-[11px] text-destructive-muted-foreground" role="alert">
+                  Część danych się nie wczytała — rozwiń, żeby ponowić.
+                </p>
+              ) : null}
+            </div>
           ) : null}
-          {!open && failed ? (
-            // Zwinięty blok nie może udawać kompletu, gdy część odczytu padła.
-            <span className="pl-5 text-[11px] text-destructive-muted-foreground" role="alert">
-              Część danych się nie wczytała — rozwiń, żeby ponowić.
-            </span>
-          ) : null}
-        </button>
+        </div>
         {!readOnly ? (
           <Button
             size="sm"
@@ -344,7 +351,7 @@ export function BeforeCallProfile({
               value: availabilityValue,
               hint: availabilityOrigin?.text,
             },
-            { label: "Tryb pracy", wide: true, value: onsiteText(detail?.max_onsite_days_per_week) },
+            { label: "Tryb pracy", wide: true, value: workMode },
           ]}
         />
         {detailQuery.isError ? (

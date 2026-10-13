@@ -55,9 +55,8 @@ vi.mock("@/components/v2/screening-form/ScreeningFullForm", () => ({
 }));
 
 vi.mock("@/components/v2/screening-form/BeforeCallProfile", () => ({
-  BeforeCallProfile: (props: { defaultOpen?: boolean; readOnly: boolean; onOpenHistory?: () => void }) => (
+  BeforeCallProfile: (props: { readOnly: boolean; onOpenHistory?: () => void }) => (
     <div data-testid="before-call">
-      <span>{props.defaultOpen ? "rozwinięty" : "zwinięty"}</span>
       <button type="button" onClick={props.onOpenHistory}>
         Pokaż wcześniejsze notatki
       </button>
@@ -196,13 +195,12 @@ beforeEach(() => {
 });
 
 describe("ScreeningWorkbench — co stoi po lewej", () => {
-  it("„Nowi” bez zapisanego formularza: od razu formularz, nad nim rozwinięte „Co już wiemy”, CV obok (P2, 14.10.2026)", async () => {
+  it("„Nowi” bez zapisanego formularza: od razu formularz, nad nim „Co już wiemy”, CV obok (P2, 14.10.2026)", async () => {
     renderWorkbench();
     const form = await screen.findByTestId("full-form");
     expect(form).toHaveTextContent("dalej: Zweryfikowany (4)");
     expect(form).toHaveTextContent("odrzuć: rejected z new");
     const known = screen.getByTestId("before-call");
-    expect(known).toHaveTextContent("rozwinięty");
     expect(Boolean(known.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     expect(await screen.findByTestId("preview-pane")).toHaveTextContent("podgląd: cv · etap 11");
     // Bez kroku „Zacznij screening” i bez „Biorę — 12 h” — pierwszy zapis bierze osobę sam.
@@ -245,19 +243,19 @@ describe("ScreeningWorkbench — co stoi po lewej", () => {
     expect(screen.getByTestId("preview-pane")).not.toHaveTextContent("historia osoby");
   });
 
-  it("„Screening”: formularz z wymaganiami obok, „Co już wiemy” zwinięte po zapisie", async () => {
+  it("„Screening”: formularz z wymaganiami obok, nad nim „Co już wiemy”", async () => {
     renderWorkbench({ focusCandidateId: 112 });
     expect(await screen.findByTestId("full-form")).toHaveTextContent("formularz kandydata 112");
     expect(screen.getByTestId("full-form")).toHaveTextContent("odrzuć: rejected z screening");
-    expect(screen.getByTestId("before-call")).toHaveTextContent("zwinięty");
+    expect(screen.getByTestId("before-call")).toBeInTheDocument();
     expect(await screen.findByTestId("preview-pane")).toHaveTextContent("podgląd: requirements · etap 12");
   });
 
-  it("„Nowi” z zapisanym formularzem: „Co już wiemy” zwinięte, podgląd dalej od CV", async () => {
+  it("„Nowi” z zapisanym formularzem: ten sam układ, podgląd dalej od CV", async () => {
     states.set(111, formState({ candidate_id: 111, job_id: 7, stage_id: 11, version: 1, versions_count: 1 }));
     renderWorkbench();
     expect(await screen.findByTestId("full-form")).toBeInTheDocument();
-    expect(screen.getByTestId("before-call")).toHaveTextContent("zwinięty");
+    expect(screen.getByTestId("before-call")).toBeInTheDocument();
     expect(await screen.findByTestId("preview-pane")).toHaveTextContent("podgląd: cv");
   });
 

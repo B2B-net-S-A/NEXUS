@@ -2,9 +2,10 @@
  * „Co już wiemy” nad formularzem screeningu (P2, 14.10.2026; wcześniej profil
  * przed telefonem, 12.10.2026): ostatnio podana stawka, dostępność, tryb pracy,
  * ostatnia zakończona rekrutacja z wynikiem i wcześniejsze notatki z „Pokaż”.
- * Blok rozwinięty, dopóki formularz jest pusty; po pierwszym zapisie zwinięty
- * do jednej linii skrótu. Od 09.10.2026 głowa rozwiniętego panelu nie pokazuje
- * faktów w „Nowych”, więc przed telefonem rekruter nie widział ich nigdzie.
+ * Blok jest zawsze zwinięty na start do dwóch linii faktów — rozwinięty
+ * zasłaniał przy 1280 × 720 stawkę formularza; „Pokaż wszystko” rozwija pełne
+ * fakty. Od 09.10.2026 głowa rozwiniętego panelu nie pokazuje faktów
+ * w „Nowych”, więc przed telefonem rekruter nie widział ich nigdzie.
  */
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -118,54 +119,95 @@ function respond({ notes = { items: [] }, history = { jobs: [] }, rates = RATES,
 
 function wrap(node: ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const view = render(<QueryClientProvider client={client}>{node}</QueryClientProvider>);
-  const rerenderWith = (next: ReactNode) =>
-    view.rerender(<QueryClientProvider client={client}>{next}</QueryClientProvider>);
-  return { ...view, rerenderWith };
+  render(<QueryClientProvider client={client}>{node}</QueryClientProvider>);
 }
 
-const renderProfile = (onOpenHistory?: () => void) =>
+const toggle = () => screen.getByRole("button", { name: /Co już wiemy/ });
+
+/** Pełne fakty — po „Pokaż wszystko”. */
+const renderProfile = (onOpenHistory?: () => void) => {
   wrap(<BeforeCallProfile item={ITEM} jobId={JOB} readOnly={false} onOpenHistory={onOpenHistory} />);
+  fireEvent.click(toggle());
+};
 
 beforeEach(() => {
   mocks.get.mockReset();
   mocks.candidate.mockReset();
 });
 
-describe("BeforeCallProfile — zwijany blok nad formularzem (P2, 14.10.2026)", () => {
-  const toggle = () => screen.getByRole("button", { name: /Co już wiemy/ });
+describe("BeforeCallProfile — zwinięty blok nad formularzem (P2, 14.10.2026)", () => {
+  const collapsed = () =>
+    wrap(<BeforeCallProfile item={ITEM} jobId={JOB} readOnly={false} onOpenHistory={vi.fn()} />);
 
-  it("pusty formularz: blok rozwinięty, w głowie „Nie odebrał”, bez „Zacznij screening” i „Biorę”", async () => {
-    respond();
-    renderProfile();
-    expect(toggle()).toHaveAttribute("aria-expanded", "true");
-    expect(await screen.findByTestId("before-call-conditions")).toBeVisible();
+  it("na start zwinięty do dwóch linii faktów, z „Nie odebrał” i bez „Zacznij screening” i „Biorę”", async () => {
+    respond({
+      history: HISTORY,
+      detail: { ...DETAIL, added_to_base_at: "2019-05-11T22:00:00Z", added_to_base_exact: true },
+    });
+    mocks.get.mockImplementation((url: string) => {
+      if (url.includes("/quick-view")) {
+        return Promise.resolve({
+          data: {
+            ...QUICK_VIEW,
+            current_recruitments: [
+              { job_id: 8, job_title: "Tester", client_name: null, stage_name: "Screening", moved_at: daysAgo(2) },
+            ],
+          },
+        });
+      }
+      if (url.includes("/history")) return Promise.resolve({ data: HISTORY });
+      if (url.includes("/rate-overview")) return Promise.resolve({ data: RATES });
+      return Promise.resolve({ data: { items: [] } });
+    });
+    collapsed();
+
+    expect(toggle()).toHaveAttribute("aria-expanded", "false");
+    expect(toggle()).toHaveTextContent("Pokaż wszystko");
+    const line = (index: number) => screen.getByTestId("before-call-summary").querySelectorAll("p")[index];
+    await waitFor(() =>
+      expect(line(0)).toHaveTextContent(
+        "Stawka 130 zł/h (03.2025) · Otwarty na oferty · wypowiedzenie 1 mies. · Do 2 dni w biurze",
+      ),
+    );
+    await waitFor(() =>
+      expect(line(1)).toHaveTextContent(
+        "W bazie od 12.05.2019 · Wcześniej u nas: Analityk systemowy, Bank Przykładowy — Odrzucony · 04.2025 · " +
+          "W innych rekrutacjach: 1",
+      ),
+    );
+    expect(screen.getByTestId("before-call-summary").querySelectorAll("p")).toHaveLength(2);
+    expect(screen.getByTestId("before-call-conditions")).not.toBeVisible();
     expect(screen.getByRole("button", { name: /Nie odebrał/ })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Zacznij screening/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Biorę/ })).toBeNull();
-    expect(screen.queryByTestId("before-call-summary")).toBeNull();
   });
 
-  it("po zapisie formularza zwija się do jednej linii skrótu; klik rozwija", async () => {
-    respond({ history: HISTORY });
-    const view = wrap(<BeforeCallProfile item={ITEM} jobId={JOB} readOnly={false} defaultOpen />);
-    await screen.findByText("130 zł/h");
-    view.rerenderWith(<BeforeCallProfile item={ITEM} jobId={JOB} readOnly={false} defaultOpen={false} />);
-
-    expect(toggle()).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getByTestId("before-call-conditions")).not.toBeVisible();
-    const summary = screen.getByTestId("before-call-summary");
-    expect(summary).toHaveTextContent("Analityk · 130 zł/h · Otwarty na oferty · wypowiedzenie 1 mies.");
-    await waitFor(() => expect(summary).toHaveTextContent("wcześniej: Odrzucony"));
-
-    await userEvent.setup().click(toggle());
-    expect(screen.getByTestId("before-call-conditions")).toBeVisible();
+  it("„Pokaż wszystko” rozwija pełne fakty, „Zwiń” wraca do dwóch linii", async () => {
+    respond();
+    collapsed();
+    const user = userEvent.setup();
+    await user.click(toggle());
+    expect(toggle()).toHaveAttribute("aria-expanded", "true");
+    expect(toggle()).toHaveTextContent("Zwiń");
+    expect(await screen.findByTestId("before-call-conditions")).toBeVisible();
     expect(screen.queryByTestId("before-call-summary")).toBeNull();
+
+    await user.click(toggle());
+    expect(screen.getByTestId("before-call-conditions")).not.toBeVisible();
+    expect(screen.getByTestId("before-call-summary")).toBeTruthy();
+  });
+
+  it("bez historii stawek pierwsza linia mówi „Stawka od” z karty", async () => {
+    respond({ rates: new Error("403") });
+    collapsed();
+    await waitFor(() =>
+      expect(screen.getByTestId("before-call-summary")).toHaveTextContent("Stawka od 120 zł/h"),
+    );
   });
 
   it("zwinięty blok mówi o awarii odczytu zamiast udawać komplet", async () => {
     respond({ detail: new Error("500") });
-    wrap(<BeforeCallProfile item={ITEM} jobId={JOB} readOnly={false} defaultOpen={false} />);
+    collapsed();
     expect(await screen.findByRole("alert")).toHaveTextContent("Część danych się nie wczytała — rozwiń, żeby ponowić.");
   });
 
