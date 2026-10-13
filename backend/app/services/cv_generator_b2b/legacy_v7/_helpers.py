@@ -257,8 +257,15 @@ def _total_experience_years(experience: list[dict[str, Any]]) -> int | None:
             cur_start, cur_end = start, end
     total_months += cur_end - cur_start + 1
 
-    years = round(total_months / 12)
+    # Połowa roku w górę: `round()` zaokrągla do parzystej i 54 miesiące
+    # dawały 4 lata (audyt 13.10.2026 — staż nie może być zaniżany).
+    years = (total_months + 6) // 12
     return years if years >= 1 else None
+
+
+def _whole_years(value: float) -> int:
+    """Liczba lat po zaokrągleniu połowy w górę (jak ``_total_experience_years``)."""
+    return int(value + 0.5)
 
 
 # A years-of-experience figure in a why_point ("Ponad 4 lata doświadczenia…").
@@ -383,7 +390,7 @@ def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None
             if not scoped:
                 continue
             years = min(total, max(figure, scoped))
-        if years == figure and figure != int(figure):
+        if figure != int(figure) and (years == figure or _whole_years(figure) == years):
             break  # ułamek modelu jest zgodny z datami — zostaje
         lead_space = match.group(0)[
             : len(match.group(0)) - len(match.group(0).lstrip())
@@ -391,7 +398,7 @@ def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None
         points[i] = (
             point[: match.start()]
             + lead_space
-            + _years_text(int(round(years)), language)
+            + _years_text(_whole_years(years), language)
             + point[match.end() :]
         )
         break
@@ -486,11 +493,14 @@ def _fix_scoped_years(candidate_data: dict[str, Any], language: str) -> None:
             continue
 
         def replace(match: re.Match[str]) -> str:
-            if _tenure_figure(match) is None:
+            figure = _tenure_figure(match)
+            if figure is None:
                 return match.group(0)
             years = _scoped_years(match.string[match.end() :], roles, companies)
             if not years:
                 return match.group(0)
+            if figure != int(figure) and _whole_years(figure) == years:
+                return match.group(0)  # „4,5 roku w Acme” zgodne z datami
             text = match.group(0)
             lead = text[: len(text) - len(text.lstrip())]
             return f"{lead}{_years_text(years, language)}"
@@ -657,6 +667,61 @@ _TERM_ALIASES = {
     "mssql": "sql",
     "dotnet": "net",
 }
+# Pełna nazwa = skrót (audyt 13.10.2026: „Amazon Web Services” w CV i „AWS”
+# w wymaganiach dawały usunięcie AWS; tak samo GCP, CI/CD, TDD, OOP, ML).
+# Wzorce na słowach terminu po normalizacji (bez ogonków i łączników).
+_PHRASE_ALIASES = tuple(
+    (re.compile(rf"\b(?:{pattern})\b"), alias)
+    for pattern, alias in (
+        (r"amazon web services", "aws"),
+        (r"google cloud(?: platform)?", "gcp"),
+        (r"continuous integration|ciagl\w* integracj\w*", "ci"),
+        (
+            r"continuous (?:integration (?:and )?)?(?:delivery|deployment)"
+            r"|ciagl\w* (?:integracj\w* (?:i |oraz )?)?(?:dostarcz|wdraz|wdroz)\w*",
+            "cd",
+        ),
+        (r"test driven development|\w+ sterowan\w* testami", "tdd"),
+        (r"object oriented(?: \w+)?|programowan\w* obiektow\w*", "oop"),
+        (r"machine learning|uczen\w* maszynow\w*", "ml"),
+        (r"artificial intelligence|sztuczn\w* inteligencj\w*", "ai"),
+        (r"infrastructure as code", "iac"),
+        (r"domain driven design", "ddd"),
+        (r"behaviou?r driven development", "bdd"),
+        (r"natural language processing", "nlp"),
+        (r"large language models?", "llm"),
+    )
+)
+
+# Zwykłe słowa (nie nazwa technologii): „Code review”, „Testy automatyczne”,
+# „Project management”. Taki termin ma tłumaczenia i synonimy, więc brak
+# dosłownego trafienia w CV innym językiem to wątpliwość, nie dowód.
+_PL_WORD_RE = re.compile(
+    r"(?:anie|enie|ania|enia|osc|osci|acja|acji|yczne|yczny|iczne|owe|owy|owa"
+    r"|ami|ych)$"
+)
+# „Spring” i „String” to nazwy, nie zwykłe słowa — przyrostek liczy się
+# dopiero przy dłuższym rdzeniu („testing”, „planning”, „automated”).
+_EN_WORD_RE = re.compile(
+    r"(?:\w{4,}(?:ing|ed)|\w{3,}(?:ment|tion|sion|ness|ance|ship))$"
+)
+_PL_WORDS = frozenset(
+    "kod kodu testy testow zespol praca dane danych jezyk klient projekt projekty"
+    " wymagania analiza architektura".split()
+)
+_EN_WORDS = frozenset(
+    "code review reviews project projects design team unit tests business process"
+    " quality support risk customer client problem skills analysis architecture"
+    " requirements language english polish agile lead report reports".split()
+)
+_PL_HINT_RE = re.compile(
+    r"[ąćęłńóśźż]|\b(?:w|z|na|oraz|jest|się|dla|przy|jako|nie|od|ze|lub)\b",
+    re.IGNORECASE,
+)
+_EN_HINT_RE = re.compile(
+    r"\b(?:the|and|of|in|with|for|as|at|is|by|from|was|were|or)\b",
+    re.IGNORECASE,
+)
 
 
 def screening_text_without_questions(notes: str) -> str:
@@ -680,15 +745,53 @@ def _question_text(notes: str) -> str:
 
 
 def _source_tokens(text: str) -> set[str]:
-    """Słowa tekstu razem z ich odpowiednikami („k8s” daje też „kubernetes”)."""
-    tokens = set(_TERM_TOKEN_RE.findall(_norm_for_guard(text)))
-    return tokens | {_TERM_ALIASES[t] for t in tokens if t in _TERM_ALIASES}
+    """Słowa tekstu razem z ich odpowiednikami („k8s” daje też „kubernetes”,
+    „Amazon Web Services” — „aws”)."""
+    words = _TERM_TOKEN_RE.findall(_norm_for_guard(text))
+    tokens = set(words)
+    joined = " ".join(words)
+    return (
+        tokens
+        | {_TERM_ALIASES[t] for t in tokens if t in _TERM_ALIASES}
+        | {alias for pattern, alias in _PHRASE_ALIASES if pattern.search(joined)}
+    )
 
 
 def _term_tokens(term: str) -> list[str]:
     raw = [t for t in _TERM_TOKEN_RE.findall(_norm_for_guard(term)) if len(t) >= 2]
     significant = [t for t in raw if t not in _GENERIC_TERM_TOKENS] or raw
     return [_TERM_ALIASES.get(t, t) for t in significant]
+
+
+def _abbreviated(term: str) -> str:
+    """Termin z pełną nazwą zamienioną na skrót: „Amazon Web Services” → „aws”."""
+    joined = " ".join(_TERM_TOKEN_RE.findall(_norm_for_guard(term)))
+    for pattern, alias in _PHRASE_ALIASES:
+        joined = pattern.sub(alias, joined)
+    return joined
+
+
+def _text_language(text: str) -> str | None:
+    """„pl”/„en” po ogonkach i słowach łączących; ``None``, gdy nie wiadomo
+    (sama lista technologii, tekst mieszany)."""
+    pl = len(_PL_HINT_RE.findall(text or ""))
+    en = len(_EN_HINT_RE.findall(text or ""))
+    if pl >= 2 and pl > 2 * en:
+        return "pl"
+    if en >= 2 and en > 2 * pl:
+        return "en"
+    return None
+
+
+def _plain_word_languages(term: str) -> set[str]:
+    """Języki zwykłych słów terminu; pusty zbiór = sama nazwa technologii."""
+    langs = {"pl"} if re.search(r"[ąćęłńóśźż]", term, re.IGNORECASE) else set()
+    for token in _TERM_TOKEN_RE.findall(_norm_for_guard(term)):
+        if token in _PL_WORDS or _PL_WORD_RE.search(token):
+            langs.add("pl")
+        elif token in _EN_WORDS or _EN_WORD_RE.search(token):
+            langs.add("en")
+    return langs
 
 
 def _stem(token: str) -> str:
@@ -712,6 +815,7 @@ def _loosely_present(term: str, haystack_tokens: set[str]) -> bool:
     paren = re.search(r"\(([^)]*)\)", term)
     if paren:
         variants = [term[: paren.start()], paren.group(1)]
+    variants += [_abbreviated(v) for v in variants]
     for variant in variants:
         tokens = _term_tokens(variant)
         if tokens and all(_token_present(tok, haystack_tokens) for tok in tokens):
@@ -770,6 +874,12 @@ def strip_unsupported_terms(
     (13.10.2026: „OpenTelemetry" tylko z pytania, „Kafka Connect SMT" z
     nice-to-have). Znika też pozycja umiejętności, która sama sobie przeczy
     („… – brak praktycznego doświadczenia"). Zwraca uwagi do listy ostrzeżeń.
+
+    Audyt 13.10.2026: termin ze zwykłych słów („Code review”, „Testy
+    automatyczne”) znika tylko wtedy, gdy CV, wynikowe CV i termin są w tym
+    samym języku. Inaczej brak dosłownego trafienia to wątpliwość — termin
+    zostaje z uwagą „sprawdź”. Nazwa technologii nie ma tłumaczenia, więc
+    dla niej język CV nic nie zmienia.
     """
     evidence = _source_tokens(
         f"{cv_text}\n{screening_text_without_questions(screening_notes_text)}"
@@ -777,17 +887,23 @@ def strip_unsupported_terms(
     asked = _source_tokens(
         _question_text(screening_notes_text) + "\n" + "\n".join(requirements)
     )
+    cv_language = _text_language(cv_text)
     removed: list[str] = []
+    doubtful: list[str] = []
     negated: list[str] = []
 
     def from_ad(term: str) -> bool:
         tokens = _term_tokens(term)
         if not tokens or _loosely_present(term, evidence):
             return False
-        if all(tok in asked for tok in tokens):
-            removed.append(term.strip())
-            return True
-        return False
+        if not all(tok in asked for tok in tokens):
+            return False
+        plain = _plain_word_languages(term)
+        if plain and not (cv_language == language and plain == {cv_language}):
+            doubtful.append(term.strip())
+            return False
+        removed.append(term.strip())
+        return True
 
     for job in candidate_data.get("experience") or []:
         techs = job.get("technologies") or []
@@ -816,6 +932,17 @@ def strip_unsupported_terms(
             if language == "en"
             else f"{prefix}: usunięto pozycje, które były tylko w pytaniach rekrutera "
             f"albo wymaganiach klienta, a nie w CV ani odpowiedziach: {names}"
+        )
+    if doubtful:
+        names = ", ".join(dict.fromkeys(doubtful))
+        notes.append(
+            f"{prefix}: not found verbatim in the CV or answers (the CV uses "
+            f"another language or other words) — check that the candidate has: "
+            f"{names}"
+            if language == "en"
+            else f"{prefix}: nie ma tego dosłownie w CV ani w odpowiedziach (CV "
+            f"w innym języku albo innymi słowami) — sprawdź, czy kandydat to ma: "
+            f"{names}"
         )
     if negated:
         names = ", ".join(dict.fromkeys(negated))
