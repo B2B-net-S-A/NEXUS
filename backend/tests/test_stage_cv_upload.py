@@ -204,13 +204,15 @@ async def test_same_file_already_in_profile_becomes_primary(
     assert [d.filename for d in docs if d.is_primary] == ["angielskie.pdf"]
 
 
-async def test_recruiter_outside_the_recruitment_is_refused(
+async def test_role_without_candidate_write_is_refused_before_any_write(
     app_client: AsyncClient,
 ) -> None:
+    # Bramka zespołu rekrutacji jest otwarta dla każdej roli wewnętrznej
+    # (decyzja z 23.09.2026), więc odmowa idzie z prawa zapisu kandydata.
     cid, sid = await _stage_with_snapshot()
-    _, recruiter_headers = await _user(UserRole.recruiter)
+    _, viewer_headers = await _user(UserRole.user)
 
-    res = await _upload(app_client, recruiter_headers, sid)
+    res = await _upload(app_client, viewer_headers, sid)
 
     assert res.status_code == 403, res.text
     async with AsyncSessionLocal() as db:
