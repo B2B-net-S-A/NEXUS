@@ -152,6 +152,22 @@ def test_worst_urgency_of_a_list() -> None:
     assert queue.worst_urgency([late, fresh, due]) == queue.URGENCY_LATE
 
 
+def test_ready_job_counts_skip_not_ready_and_imported_rows() -> None:
+    ready = dict(ready=True, urgency=queue.URGENCY_FRESH)
+    tasks = [
+        _task(job_id=1, waiting_workdays=0, **ready),
+        _task(job_id=1, waiting_workdays=4, **ready),
+        _task(job_id=2, waiting_workdays=3, **ready),
+        _task(job_id=2, waiting_workdays=5, imported=True, **ready),
+        _task(job_id=3, ready=False),
+    ]
+    assert queue.ready_job_counts(tasks) == {1: 2, 2: 1}
+    assert queue.ready_job_counts(tasks, min_workdays=queue.STALE_WORKDAYS) == {
+        1: 1,
+        2: 1,
+    }
+
+
 def test_review_belongs_to_the_job_lead_then_to_the_client_portfolio() -> None:
     lead = _user(5, UserRole.delivery_lead)
     other = _user(6, UserRole.delivery_lead)

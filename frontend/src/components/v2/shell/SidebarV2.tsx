@@ -33,6 +33,7 @@ import { KidsModeToggleButton, ThemeToggleButton } from "./ThemeControls";
 import { hasSectionAccess } from "@/lib/section-access";
 import { hasCapability } from "@/lib/capabilities";
 import { useOrderMailPendingCount } from "@/components/order-mail/useOrderMailPendingCount";
+import { useDlSendQueue } from "@/lib/api/boardTasks";
 import {
   resolveNavHref,
   visibleMoreGroups,
@@ -125,16 +126,21 @@ export function SidebarV2({
   const expanded = hovered || pinned || mobileOpen;
   const collapsed = !expanded;
 
-  // Rekrutacje i Kandydaci NIE mają licznika (22.09.2026): liczyły wszystkie
-  // opublikowane rekrutacje i kandydatów dodanych dziś (głównie nocny import
-  // Traffita), więc stale świeciły „99+" jak nieprzeczytane sprawy, choć nie
-  // wymagały żadnej akcji. Licznik w menu ma znaczyć „masz coś do zrobienia".
+  // Licznik w menu ma znaczyć „masz coś do zrobienia". Rekrutacje i Kandydaci
+  // nie liczą wszystkich opublikowanych rekrutacji ani kandydatów dodanych dziś
+  // (22.09.2026: głównie nocny import Traffita — stale świeciło „99+", choć
+  // nic nie wymagało akcji). Od 13.10.2026 „Rekrutacje” mają licznik u
+  // Delivery Leada: ile osób czeka na JEGO wysyłkę do klienta — ten sam stan
+  // co licznik w górnym pasku (jedno zapytanie, ten sam klucz).
   // Skrzynka zamówień jest trybem Kontraktów — jej licznik stoi przy nich.
   const orderMailPending = useOrderMailPendingCount(
     hasCapability(user, "nav.order_mail"),
   );
+  const dlSendReady = useDlSendQueue(hasRole(user, "delivery_lead")).data
+    ?.ready_total;
   const badgeCounts: BadgeCounts = {
     ...(orderMailPending ? { orderMail: orderMailPending } : {}),
+    ...(dlSendReady ? { dlSend: dlSendReady } : {}),
   };
   const isActive = (href: string) => isNavItemActive(pathname, href);
   const isEntryActive = (entry: NavEntry) =>

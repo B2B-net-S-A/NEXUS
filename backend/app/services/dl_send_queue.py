@@ -109,18 +109,46 @@ def counts_for_reviewer(task: BoardTask) -> bool:
     return task.ready and not task.imported
 
 
+@dataclass(frozen=True)
+class Readiness:
+    ready: bool
+    ready_since: Optional[datetime] = None
+    waiting_workdays: int = 0
+    urgency: Optional[str] = None
+
+
+def readiness_of(
+    *,
+    since: datetime,
+    qc_status: Optional[str],
+    ok_at: Optional[datetime],
+    today: date,
+) -> Readiness:
+    """Gotowość pary ze stanu QC — jedna reguła dla kolejki Delivery Leada
+    i dla „Twoje CV w drodze” rekrutera (`cv_in_transit`)."""
+
+    if qc_status not in QC_OK_STATUSES:
+        return Readiness(ready=False)
+    ready_since = max(since, ok_at) if ok_at is not None else since
+    workdays = waiting_workdays(ready_since, today)
+    return Readiness(
+        ready=True,
+        ready_since=ready_since,
+        waiting_workdays=workdays,
+        urgency=urgency_for(workdays),
+    )
+
+
 def apply_readiness(task: BoardTask, *, ok_at: Optional[datetime], today: date) -> None:
     """``ready`` / ``ready_since`` / dni robocze / pilność ze stanu QC wiersza."""
 
-    task.ready = task.qc_status in QC_OK_STATUSES
-    if not task.ready:
-        task.ready_since = None
-        task.waiting_workdays = 0
-        task.urgency = None
-        return
-    task.ready_since = max(task.since, ok_at) if ok_at is not None else task.since
-    task.waiting_workdays = waiting_workdays(task.ready_since, today)
-    task.urgency = urgency_for(task.waiting_workdays)
+    state = readiness_of(
+        since=task.since, qc_status=task.qc_status, ok_at=ok_at, today=today
+    )
+    task.ready = state.ready
+    task.ready_since = state.ready_since
+    task.waiting_workdays = state.waiting_workdays
+    task.urgency = state.urgency
 
 
 def _active_lead_id(lead):
@@ -349,6 +377,25 @@ async def load_for_viewer(
     )
 
 
+def ready_job_counts(
+    tasks: Iterable[BoardTask], *, min_workdays: int = 0
+) -> dict[int, int]:
+    """``{rekrutacja: ile osób gotowych czeka}`` — tylko wiersze, które budzą
+    licznik (`counts_for_reviewer`), opcjonalnie czekające co najmniej
+    ``min_workdays`` dni roboczych.
+
+    Lista rekrutacji i sygnał dla Head of Recruitment liczą z tych samych
+    wierszy co pas na pulpicie — bez osobnej definicji „gotowe” w SQL
+    (reguła obejścia QC ma mieć jednego czytelnika, `cv_qc._override_applies`).
+    """
+
+    out: dict[int, int] = {}
+    for t in tasks:
+        if counts_for_reviewer(t) and t.waiting_workdays >= min_workdays:
+            out[t.job_id] = out.get(t.job_id, 0) + 1
+    return out
+
+
 __all__ = [
     "DUE_WORKDAYS",
     "LATE_WORKDAYS",
@@ -365,6 +412,9 @@ __all__ = [
     "load_for_viewer",
     "load_rows",
     "local_date",
+    "Readiness",
+    "readiness_of",
+    "ready_job_counts",
     "reviewer_scope_clause",
     "urgency_for",
     "waiting_workdays",
