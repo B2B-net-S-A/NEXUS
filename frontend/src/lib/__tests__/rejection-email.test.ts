@@ -8,8 +8,11 @@ import { describe, expect, it, vi } from "vitest";
 import {
   announceRejectionEmail,
   rejectionEmailAvailableFrom,
+  rejectionEmailBlockedMessage,
   rejectionEmailBulkSkipMessage,
+  rejectionEmailPreviewKey,
   rejectionEmailSkipMessage,
+  rejectionEmailSkipShort,
 } from "@/lib/rejection-email";
 
 describe("rejectionEmailAvailableFrom", () => {
@@ -132,5 +135,27 @@ describe("announceRejectionEmail", () => {
     announceRejectionEmail(data, { requested: false, toast, cancel: vi.fn() });
     announceRejectionEmail(data, { requested: true, reportSkip: false, toast, cancel: vi.fn() });
     expect(toast.showError).not.toHaveBeenCalled();
+  });
+});
+
+describe("podgląd w oknie odrzucenia (13.10.2026)", () => {
+  it("powód przed potwierdzeniem mówi, że mail nie wyjdzie, i co zrobić", () => {
+    expect(rejectionEmailBlockedMessage("no_mailbox")).toBe(
+      "Mail nie wyjdzie — nie masz podłączonej skrzynki Microsoft 365. " +
+        "Podłączysz ją w Ustawieniach → Integracje."
+    );
+    expect(rejectionEmailBlockedMessage("no_candidate_email")).toBe(
+      "Mail nie wyjdzie — kandydat nie ma adresu e-mail."
+    );
+    expect(rejectionEmailBlockedMessage("coś_nowego")).toBe("Mail nie wyjdzie.");
+  });
+
+  it("krótki powód przy osobie na liście", () => {
+    expect(rejectionEmailSkipShort("not_client_visible")).toBe("CV nie trafiło do klienta");
+    expect(rejectionEmailSkipShort("coś_nowego")).toBe("inny powód");
+  });
+
+  it("klucz podglądu zależy od rekrutacji i listy osób", () => {
+    expect(rejectionEmailPreviewKey(3, [5, 6])).toEqual(["rejection-email-preview", 3, "5,6"]);
   });
 });

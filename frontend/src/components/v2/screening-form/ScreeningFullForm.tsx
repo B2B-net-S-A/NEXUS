@@ -35,6 +35,7 @@ import { Button } from "@/components/ui/button";
 import { FormField, TextField, TextareaField } from "@/components/v2/forms";
 import { ScreeningReassignSuggestions } from "@/components/v2/jobs/ScreeningReassignSuggestions";
 import { RejectionV2, type CandidateOfferResponse } from "@/components/v2/modals/RejectionV2";
+import type { RejectionEmailText } from "@/lib/rejection-email";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { PhraseAllBar } from "@/components/v2/screening/PhraseAllBar";
 import {
@@ -1122,6 +1123,7 @@ export function ScreeningFullForm({
       offerResponse: CandidateOfferResponse | null;
       freeReason?: string;
       followUp?: RejectFollowUp;
+      emailText?: RejectionEmailText | null;
     }) => {
       if (!reject || !state) throw new Error("Brak etapu docelowego.");
       return moveCore.send(
@@ -1134,6 +1136,8 @@ export function ScreeningFullForm({
           rejection_reason: vars.freeReason || undefined,
           notes: vars.notes,
           send_rejection_email: vars.sendRejectionEmail ?? undefined,
+          rejection_email_subject: vars.emailText?.subject,
+          rejection_email_body: vars.emailText?.body,
           candidate_offer_response: vars.offerResponse ?? undefined,
           expected_state_version: state.process_state_version,
         },
@@ -1360,7 +1364,17 @@ export function ScreeningFullForm({
           previousStage={reject.previousStage}
           subject={{ name: candidateName, stageLabel: rejectSnapshot?.stageLabel ?? null }}
           nextPerson={rejectSnapshot ? rejectSnapshot.next : undefined}
-          onConfirm={(reasonId, notes, sendRejectionEmail, offerResponse, freeReason) =>
+          emailPreview={{ jobId, people: [{ candidateId, name: candidateName }] }}
+          onConfirm={(
+            reasonId,
+            notes,
+            sendRejectionEmail,
+            offerResponse,
+            freeReason,
+            _endedBy,
+            _cancelAgreementId,
+            emailText,
+          ) =>
             rejectMut.mutate({
               reasonId,
               notes,
@@ -1368,6 +1382,7 @@ export function ScreeningFullForm({
               offerResponse: offerResponse ?? null,
               freeReason,
               followUp: rejectSnapshot,
+              emailText,
             })
           }
         />

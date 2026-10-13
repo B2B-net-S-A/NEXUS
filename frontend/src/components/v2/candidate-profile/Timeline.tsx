@@ -91,6 +91,9 @@ export function timelineItemLabel(item: any): string {
  return name ? `Plik "${name}" ${verb}` : `Plik ${verb}`;
  }
  const rejectionLabel = REJECTION_EMAIL_ACTION_LABELS[item.action];
+ // 13.10.2026: treść poprawiona w oknie odrzucenia (`details.edited`).
+ if (rejectionLabel && item.action === "rejection_email_scheduled" && item.details?.edited === true)
+ return `${rejectionLabel} · treść zmieniona ręcznie`;
  if (rejectionLabel) return rejectionLabel;
  return activityActionLabel(item.action);
  }

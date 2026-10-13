@@ -5,8 +5,15 @@
  */
 
 import type * as React from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const { mockPost } = vi.hoisted(() => ({ mockPost: vi.fn() }));
+vi.mock("@/lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api")>()),
+  default: { post: mockPost },
+}));
 
 import { RejectionV2 } from "@/components/v2/modals/RejectionV2";
 import type { RejectionReasonDef } from "@/lib/api";
@@ -16,8 +23,18 @@ const reasons = [
   { id: "7", label: "Za wysoka stawka", applies_to: ["rejected" as const] },
 ];
 
+/** Okno ma podgląd maila na react-query (13.10.2026) — klient w każdym teście. */
+function renderUi(ui: React.ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(ui, {
+    wrapper: ({ children }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    ),
+  });
+}
+
 function renderRejection(onConfirm = vi.fn()) {
-  render(
+  renderUi(
     <RejectionV2
       open
       onOpenChange={() => {}}
@@ -56,7 +73,7 @@ describe("RejectionV2 — mail odrzucenia opt-in", () => {
 
 describe("RejectionV2 — dostępność maila z reguły serwera (runda 9)", () => {
   it("`emailAvailable` wygrywa z kategorią kolumny", () => {
-    render(
+    renderUi(
       <RejectionV2
         open
         onOpenChange={() => {}}
@@ -72,7 +89,7 @@ describe("RejectionV2 — dostępność maila z reguły serwera (runda 9)", () =
   });
 
   it("bez możliwości maila checkboxa nie ma, nawet przy kategorii external", () => {
-    render(
+    renderUi(
       <RejectionV2
         open
         onOpenChange={() => {}}
@@ -101,7 +118,7 @@ describe("RejectionV2 — kto zakończył proces (Pipeline v4)", () => {
 
   it("upuszczenie na „Odrzucony przez DL” wstępnie wybiera DL; rezygnacja to zawsze kandydat", () => {
     const onConfirm = vi.fn();
-    const { rerender } = render(
+    const { rerender } = renderUi(
       <RejectionV2
         open
         onOpenChange={() => {}}
@@ -160,7 +177,7 @@ describe("RejectionV2 — powody po polsku (test na produkcji 23.09.2026)", () =
   }));
 
   it("okno „Kandydat zrezygnował” pokazuje etykiety, nigdy surowe kody", () => {
-    render(
+    renderUi(
       <RejectionV2
         open
         onOpenChange={() => {}}
@@ -186,7 +203,7 @@ describe("RejectionV2 — powody po polsku (test na produkcji 23.09.2026)", () =
 describe("RejectionV2 — notatka startowa", () => {
   function renderWithNotes(initialNotes: string | null, open = true) {
     const onConfirm = vi.fn();
-    const view = render(
+    const view = renderUi(
       <RejectionV2
         open={open}
         onOpenChange={() => {}}
@@ -218,7 +235,7 @@ describe("RejectionV2 — notatka startowa", () => {
       reasons,
       onConfirm,
     };
-    const { rerender } = render(<RejectionV2 {...props} initialNotes="Pierwsza" />);
+    const { rerender } = renderUi(<RejectionV2 {...props} initialNotes="Pierwsza" />);
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "Moja notatka" } });
     rerender(<RejectionV2 {...props} initialNotes="Druga" />);
     expect(screen.getByRole("textbox")).toHaveValue("Moja notatka");
@@ -244,7 +261,7 @@ describe("RejectionV2 — umowa z Generatora (04.10.2026)", () => {
 
   function renderWith(agreement: typeof unsigned | Record<string, unknown>) {
     const onConfirm = vi.fn();
-    render(
+    renderUi(
       <RejectionV2
         open
         onOpenChange={() => {}}
@@ -286,7 +303,7 @@ describe("RejectionV2 — umowa z Generatora (04.10.2026)", () => {
 // 13.10.2026: okno mówi, kogo zamykasz, a z panelu osoby — kto będzie następny.
 describe("RejectionV2 — kogo zamykasz i kto dalej", () => {
   function renderWith(extra: Partial<React.ComponentProps<typeof RejectionV2>>) {
-    render(
+    renderUi(
       <RejectionV2
         open
         onOpenChange={() => {}}
@@ -321,5 +338,165 @@ describe("RejectionV2 — kogo zamykasz i kto dalej", () => {
     renderWith({});
     expect(screen.queryByText(/^Dalej:/)).toBeNull();
     expect(screen.queryByText(/To ostatnia osoba/)).toBeNull();
+  });
+});
+
+describe("RejectionV2 — podgląd maila odrzucenia (13.10.2026)", () => {
+  const DEFAULT_BODY =
+    "Cześć Anna,\n\ndziękujemy za udział w rekrutacji na stanowisko Senior Dev. " +
+    "Niestety został wybrany inny kandydat.\n\n" +
+    "Życzymy powodzenia i zachęcamy do udziału w przyszłych procesach rekrutacyjnych!";
+  const ONE = { jobId: 3, people: [{ candidateId: 5, name: "Anna Przykładowa" }] };
+
+  beforeEach(() => {
+    mockPost.mockReset();
+  });
+
+  function previewResponse(
+    people: { candidate_id: number; to_email: string | null; skip_reason: string | null }[],
+    withText = true,
+  ) {
+    return {
+      data: {
+        subject: withText ? "Informacja zwrotna — Senior Dev" : null,
+        body: withText ? DEFAULT_BODY : null,
+        people,
+      },
+    };
+  }
+
+  function renderWithPreview(
+    emailPreview: { jobId: number; people: { candidateId: number; name: string }[] },
+  ) {
+    const onConfirm = vi.fn();
+    renderUi(
+      <RejectionV2
+        open
+        onOpenChange={() => {}}
+        terminalType="rejected"
+        reasons={reasons}
+        emailAvailable
+        emailPreview={emailPreview}
+        onConfirm={onConfirm}
+      />,
+    );
+    return onConfirm;
+  }
+
+  it("pokazuje adresata i treść domyślną; poprawka idzie w 8. argumencie", async () => {
+    mockPost.mockResolvedValue(
+      previewResponse([{ candidate_id: 5, to_email: "anna@example.com", skip_reason: null }]),
+    );
+    const onConfirm = renderWithPreview(ONE);
+    fireEvent.click(screen.getByRole("checkbox"));
+    const body = (await screen.findByLabelText("Treść")) as HTMLTextAreaElement;
+    expect(mockPost).toHaveBeenCalledWith("/api/rejection-emails/preview", {
+      job_id: 3,
+      candidate_ids: [5],
+    });
+    expect(body.value).toBe(DEFAULT_BODY);
+    expect(screen.getByText("anna@example.com")).toBeInTheDocument();
+    expect(screen.getByLabelText("Temat")).toHaveValue("Informacja zwrotna — Senior Dev");
+    expect(screen.getByText(/podpis z Outlooka/)).toBeInTheDocument();
+
+    fireEvent.change(body, { target: { value: "Cześć Anna,\n\nKlient wstrzymał projekt." } });
+    expect(screen.getByText("Zmieniona ręcznie")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Za wysoka stawka"));
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
+
+    expect(onConfirm.mock.calls[0][2]).toBe(true);
+    expect(onConfirm.mock.calls[0][7]).toEqual({
+      subject: "Informacja zwrotna — Senior Dev",
+      body: "Cześć Anna,\n\nKlient wstrzymał projekt.",
+    });
+  });
+
+  it("bez poprawek wysyłamy treść domyślną (null), „Przywróć” cofa zmianę", async () => {
+    mockPost.mockResolvedValue(
+      previewResponse([{ candidate_id: 5, to_email: "anna@example.com", skip_reason: null }]),
+    );
+    const onConfirm = renderWithPreview(ONE);
+    fireEvent.click(screen.getByRole("checkbox"));
+    const subject = await screen.findByLabelText("Temat");
+    fireEvent.change(subject, { target: { value: "Inny temat" } });
+    fireEvent.click(screen.getByRole("button", { name: "Przywróć treść domyślną" }));
+    expect(subject).toHaveValue("Informacja zwrotna — Senior Dev");
+    expect(screen.queryByText("Zmieniona ręcznie")).toBeNull();
+
+    fireEvent.click(screen.getByText("Za wysoka stawka"));
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
+    expect(onConfirm.mock.calls[0][2]).toBe(true);
+    expect(onConfirm.mock.calls[0][7]).toBeNull();
+  });
+
+  it("pusta treść blokuje „Potwierdź” i mówi dlaczego", async () => {
+    mockPost.mockResolvedValue(
+      previewResponse([{ candidate_id: 5, to_email: "anna@example.com", skip_reason: null }]),
+    );
+    renderWithPreview(ONE);
+    fireEvent.click(screen.getByText("Za wysoka stawka"));
+    fireEvent.click(screen.getByRole("checkbox"));
+    const body = await screen.findByLabelText("Treść");
+    fireEvent.change(body, { target: { value: "   " } });
+    expect(screen.getByText(/Treść maila nie może być pusta/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Potwierdź" })).toBeDisabled();
+  });
+
+  it("brak skrzynki: powód widać od razu, checkbox wyłączony, mail nie wychodzi", async () => {
+    mockPost.mockResolvedValue(
+      previewResponse(
+        [{ candidate_id: 5, to_email: "anna@example.com", skip_reason: "no_mailbox" }],
+        false,
+      ),
+    );
+    const onConfirm = renderWithPreview(ONE);
+    expect(
+      await screen.findByText(/nie masz podłączonej skrzynki Microsoft 365/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("checkbox")).toBeDisabled();
+    fireEvent.click(screen.getByText("Za wysoka stawka"));
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
+    expect(onConfirm.mock.calls[0][2]).toBe(false);
+  });
+
+  it("kilka osób: podgląd tylko do odczytu i lista, kto dostanie mail", async () => {
+    mockPost.mockResolvedValue(
+      previewResponse([
+        { candidate_id: 5, to_email: "anna@example.com", skip_reason: null },
+        { candidate_id: 6, to_email: "jan@example.com", skip_reason: "not_client_visible" },
+      ]),
+    );
+    const onConfirm = renderWithPreview({
+      jobId: 3,
+      people: [
+        { candidateId: 5, name: "Anna Przykładowa" },
+        { candidateId: 6, name: "Jan Testowy" },
+      ],
+    });
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect(await screen.findByText("tylko do odczytu")).toBeInTheDocument();
+    expect(screen.getByText("Podgląd maila · Anna Przykładowa")).toBeInTheDocument();
+    expect(screen.getByText("Mail wyjdzie do 1 z 2 osób")).toBeInTheDocument();
+    expect(screen.getByText("bez maila: CV nie trafiło do klienta")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Treść")).toBeNull();
+
+    fireEvent.click(screen.getByText("Za wysoka stawka"));
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
+    expect(onConfirm.mock.calls[0][2]).toBe(true);
+    expect(onConfirm.mock.calls[0][7]).toBeNull();
+  });
+
+  it("awaria podglądu nie blokuje wysyłki z treścią domyślną", async () => {
+    mockPost.mockRejectedValue(new Error("Network Error"));
+    const onConfirm = renderWithPreview(ONE);
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect(await screen.findByText(/Mail wyjdzie z treścią domyślną/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Za wysoka stawka"));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Potwierdź" })).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
+    expect(onConfirm.mock.calls[0][2]).toBe(true);
+    expect(onConfirm.mock.calls[0][7]).toBeNull();
   });
 });

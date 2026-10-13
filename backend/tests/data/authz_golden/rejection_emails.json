@@ -23,6 +23,7 @@
  "routes": {
   "GET /api/rejection-emails/by-candidate/{candidate_id}": "PPPPPPDDPPPPPPPPPPP",
   "GET /api/rejection-emails/{rejection_email_id}": "PPPPPPDDPPPPPPPPPPP",
+  "POST /api/rejection-emails/preview": "PPPPPPDDPPPPPPPPPPP",
   "POST /api/rejection-emails/{rejection_email_id}/cancel": "PPPPPPDDPPPPPPPPPPP"
  }
 }

@@ -22,6 +22,8 @@ from app.services.rejection_email_scheduler import (
     _apply,
     _can_send_rejection_email,
     _render,
+    _resolve_template,
+    default_text,
 )
 from app.services.section_permissions import ProductSection
 
@@ -181,6 +183,20 @@ def _mk_recruiter(
     return SimpleNamespace(name=name, email=email)
 
 
+# Szablon z blokiem „inne procesy” i podpisem rekrutera — od 13.10.2026 treść
+# domyślna nie ma ani jednego, ani drugiego (D4, podpis dokleja Outlook), ale
+# renderer nadal obsługuje je w szablonie wskazanym jawnie.
+_TEMPLATE_WITH_OTHERS = SimpleNamespace(
+    subject="Informacja zwrotna — {{job_title}}",
+    body=(
+        "<p>Cześć {{candidate_name}},</p>"
+        "{{#if other_processes}}<p>Nadal rozważamy Cię w {{other_processes_count}} "
+        "innych otwartych procesach: {{other_processes_list}}.</p>{{/if}}"
+        "<p>Pozdrawiam,<br>{{recruiter_name}}</p>"
+    ),
+)
+
+
 def test_render_uses_default_template_when_none_given() -> None:
     """Renderer falls back to the hard-coded Polish template if no row exists."""
     subject, body = _render(
@@ -202,7 +218,7 @@ def test_render_with_others_shows_titles_only() -> None:
         {"job_id": 11, "title": "Backend Architect"},
     ]
     _, body = _render(
-        template=None,
+        template=_TEMPLATE_WITH_OTHERS,
         candidate=_mk_candidate(),
         job=_mk_job(),
         recruiter=_mk_recruiter(),
@@ -231,7 +247,7 @@ def test_render_does_not_expose_client_fields() -> None:
         },
     ]
     _, body = _render(
-        template=None,
+        template=_TEMPLATE_WITH_OTHERS,
         candidate=_mk_candidate(),
         job=_mk_job(),
         recruiter=_mk_recruiter(),
@@ -246,7 +262,7 @@ def test_render_recruiter_fallback_to_email() -> None:
     """If a recruiter row is missing `name`, the renderer uses their email —
     at least the message isn't signed 'None'."""
     _, body = _render(
-        template=None,
+        template=_TEMPLATE_WITH_OTHERS,
         candidate=_mk_candidate(),
         job=_mk_job(),
         recruiter=SimpleNamespace(name=None, email="rec@co.pl"),
@@ -254,3 +270,130 @@ def test_render_recruiter_fallback_to_email() -> None:
     )
     assert "rec@co.pl" in body
     assert "None" not in body
+
+
+# ── Treść domyślna i okno odrzucenia (13.10.2026, D1–D6) ──────────────────
+
+
+def test_default_text_is_the_approved_text() -> None:
+    subject, body = default_text(
+        candidate=_mk_candidate(), job=_mk_job(), recruiter=_mk_recruiter()
+    )
+    assert subject == "Informacja zwrotna — Senior Python Developer"
+    assert body == (
+        "Cześć Jan,\n\n"
+        "dziękujemy za udział w rekrutacji na stanowisko Senior Python Developer. "
+        "Niestety został wybrany inny kandydat.\n\n"
+        "Życzymy powodzenia i zachęcamy do udziału w przyszłych procesach "
+        "rekrutacyjnych!"
+    )
+
+
+def test_default_mail_has_no_own_signoff_or_other_processes() -> None:
+    """Podpis dokleja Outlook — własne „Pozdrawiam” dawało dwa pożegnania."""
+    others = [{"job_id": 10, "title": "DevOps Lead"}]
+    _, body = _render(
+        template=None,
+        candidate=_mk_candidate(),
+        job=_mk_job(),
+        recruiter=_mk_recruiter(),
+        other_processes=others,
+    )
+    assert body == (
+        "<p>Cześć Jan,</p>\n"
+        "<p>dziękujemy za udział w rekrutacji na stanowisko Senior Python Developer. "
+        "Niestety został wybrany inny kandydat.</p>\n"
+        "<p>Życzymy powodzenia i zachęcamy do udziału w przyszłych procesach "
+        "rekrutacyjnych!</p>"
+    )
+    assert "Pozdrawiam" not in body
+    assert "Anna Nowak" not in body
+    assert "DevOps Lead" not in body
+
+
+def test_default_text_for_the_field_is_not_escaped_but_the_mail_is() -> None:
+    job = _mk_job(title="R&D <Lead>")
+    _, text = default_text(
+        candidate=_mk_candidate(), job=job, recruiter=_mk_recruiter()
+    )
+    assert "stanowisko R&D <Lead>." in text
+    _, html = _render(
+        template=None,
+        candidate=_mk_candidate(),
+        job=job,
+        recruiter=_mk_recruiter(),
+        other_processes=[],
+    )
+    assert "R&amp;D &lt;Lead&gt;" in html
+
+
+def test_text_from_the_window_is_always_escaped() -> None:
+    from app.services.email_template_variables import body_to_html, plain_text_to_html
+
+    text = "Cześć Jan,\n\n<b>Uwaga</b> & <script>x</script>\nDo zobaczenia"
+    assert plain_text_to_html(text) == (
+        "<p>Cześć Jan,</p>\n"
+        "<p>&lt;b&gt;Uwaga&lt;/b&gt; &amp; &lt;script&gt;x&lt;/script&gt;<br>\n"
+        "Do zobaczenia</p>"
+    )
+    # Dla porównania: szablon z HTML-em przechodzi przez body_to_html bez zmian,
+    # dlatego tekst z okna idzie wyłącznie przez plain_text_to_html.
+    assert body_to_html("<b>Uwaga</b>") == "<b>Uwaga</b>"
+
+
+async def test_without_override_settings_templates_are_not_read() -> None:
+    """D6: bez jawnego szablonu wysyłka nie zagląda do bazy — treść z kodu."""
+
+    class _NoDb:
+        def __getattr__(self, name: str):  # pragma: no cover - wywołanie = błąd
+            raise AssertionError(f"_resolve_template sięgnął do bazy: {name}")
+
+    assert await _resolve_template(_NoDb(), None) is None
+
+
+def test_edited_subject_becomes_one_line_and_blank_text_is_refused() -> None:
+    from pydantic import ValidationError
+
+    from app.schemas.pipeline import StageMove
+
+    move = StageMove(
+        candidate_id=1,
+        job_id=2,
+        stage=PipelineStage.rejected,
+        rejection_email_subject="  Rekrutacja\r\n Senior   Dev ",
+        rejection_email_body="Cześć,\n\nDziękujemy.",
+    )
+    assert move.rejection_email_subject == "Rekrutacja Senior Dev"
+    assert move.rejection_email_body == "Cześć,\n\nDziękujemy."
+
+    for field, value in (
+        ("rejection_email_subject", " \n "),
+        ("rejection_email_body", "  \n\n "),
+        ("rejection_email_subject", "x" * 999),
+        ("rejection_email_body", "x" * 5001),
+    ):
+        with pytest.raises(ValidationError):
+            StageMove(
+                candidate_id=1, job_id=2, stage=PipelineStage.rejected, **{field: value}
+            )
+
+
+def test_default_subject_of_a_long_recruitment_title_can_be_sent_back() -> None:
+    """Przegląd PR #2185: tytuł rekrutacji ma do 255 znaków, więc domyślny temat
+    do ~276. Okno odsyła go razem z poprawioną treścią — limit 200 dawał 422
+    i odrzucenie nie przechodziło."""
+    from app.schemas.pipeline import StageMove
+
+    subject, body = default_text(
+        candidate=_mk_candidate(),
+        job=_mk_job(title="T" * 255),
+        recruiter=_mk_recruiter(),
+    )
+    move = StageMove(
+        candidate_id=1,
+        job_id=2,
+        stage=PipelineStage.rejected,
+        rejection_email_subject=subject,
+        rejection_email_body=body + "\n\nDopisek rekrutera.",
+    )
+    assert move.rejection_email_subject == subject

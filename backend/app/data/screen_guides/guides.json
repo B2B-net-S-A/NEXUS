@@ -162,7 +162,7 @@
       },
       {
         "q": "Jak przesunąć albo odrzucić osobę?",
-        "a": "Ramka „Następny etap” pokazuje braki do kolejnej kolumny z przyciskiem przy każdym; zatrzymany ruch ma przycisk wyłączony z powodem. Inny etap — „Inny etap…”. Odrzucenie — „Odrzuć z powodem”, wycofanie kandydata — „Zrezygnował”. Potem panel sam pokazuje następną osobę z Tablicy; pasek u góry mówi, kogo zamknięto, a „Pokaż” do niej wraca.",
+        "a": "„Następny etap” pokazuje braki do kolejnej kolumny z przyciskiem przy każdym; zatrzymany ruch ma przycisk wyłączony z powodem. Inny etap — „Inny etap…”. Odrzucenie — „Odrzuć z powodem” (zaznaczony mail pokaże treść do poprawy), wycofanie — „Zrezygnował”. Potem panel pokazuje następną osobę; pasek u góry mówi, kogo zamknięto, a „Pokaż” wraca.",
         "anchor": "jobs.person.actions"
       },
       {

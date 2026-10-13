@@ -224,6 +224,7 @@ describe("linki publiczne działają bez tokenu", () => {
     "/preview/screening-form",
     "/preview/dl-review",
     "/preview/permissions",
+    "/preview/rejection-email",
     "/kariera",
     "/kariera/r/senior-java-developer-7kq2",
     "/kariera/p/marta-n",
