@@ -41,6 +41,7 @@ from typing import TYPE_CHECKING, Iterable, Optional
 from sqlalchemy import or_, select, text, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.scheduling import business_today
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.pipeline_template import PipelineStageDef, PipelineTemplate
 from app.models.recruitment_pipeline import CandidateStage
@@ -742,7 +743,13 @@ def tasks_for_user(
 class DigestLine:
     cpro_mine: int = 0
     cpro_unassigned: int = 0
+    # 13.10.2026: tylko wiersze „Do wysłania do klienta”, które budzą Delivery
+    # Leada (`dl_send_queue.counts_for_reviewer`) — karta z QC do poprawy jest
+    # jeszcze u rekrutera, a etap z importu Traffita nie budzi nikogo.
     dl_review: int = 0
+    # Najwyżej dwie najdłużej czekające osoby: (krótkie imię, dni kalendarzowe
+    # od gotowości). Treść dzwonka, nie licznik — nie wchodzi do ``total``.
+    dl_review_people: tuple[tuple[str, int], ...] = ()
     # 0372: follow-upy z kandydatami na dziś (w tym zaległe).
     followups: int = 0
     followups_overdue: int = 0
@@ -767,6 +774,7 @@ async def digest_counts(
     *,
     followups: Optional[dict[int, "DigestCounts"]] = None,
     pending_jobs: Optional[dict[int, int]] = None,
+    today: Optional[date] = None,
 ) -> dict[int, DigestLine]:
     """Poranny skrót: kto ma co do zrobienia (tylko to, co wymaga ruchu).
 
@@ -774,10 +782,15 @@ async def digest_counts(
     liczy. Osoba od Cpro dostaje liczbę osób w kolejce; kolejka bez nikogo
     ustawionego NA FIRMĘ trafia do Head of Recruitment (także ta z osobą
     zapasową rekrutacji — lustro `_sees_cpro`). Przegląd DL — ta sama reguła co
-    panel (`_sees_dl_review`). Follow-upy (``followups`` — liczby telefonów
+    panel (`_sees_dl_review`), ale tylko wiersze gotowe do wysłania
+    (`dl_send_queue.counts_for_reviewer`, 13.10.2026): do tej daty skrót mówił
+    Delivery Leadowi „sprawdź” także o kartach z QC do poprawy, na których
+    ruch miał rekruter. Follow-upy (``followups`` — liczby telefonów
     per dzwoniący z ``candidate_followups.digest_counts``) dostaje każda rola,
     nie tylko DL i HoR. Rekrutacje do dokończenia (``pending_jobs`` — liczby
     per osoba z ``pending_job_completion.digest_counts``) dochodzą tak samo.
+    ``today`` — dzień w kalendarzu firmy, od którego liczą się dni czekania
+    (domyślnie `business_today()`).
     """
 
     followups = followups or {}
@@ -813,7 +826,11 @@ async def digest_counts(
         if u.has_role(UserRole.delivery_lead):
             portfolios[u.id] = await dl_portfolio_client_ids(db, u.id)
 
+    from app.services import dl_send_queue  # noqa: PLC0415 — cykl importu
+
     counts: dict[int, dict[str, int]] = {}
+    # Gotowe wiersze per osoba — z nich imiona najdłużej czekających.
+    ready: dict[int, list[BoardTask]] = {}
 
     def bump(uid: int, key: str) -> None:
         counts.setdefault(uid, {"cpro_mine": 0, "cpro_unassigned": 0, "dl_review": 0})[
@@ -833,9 +850,12 @@ async def digest_counts(
                 if u.has_role(UserRole.head_of_recruitment) and u.id != t.assignee_id:
                     bump(u.id, "cpro_unassigned")
         elif t.kind == KIND_DL_REVIEW:
+            if not dl_send_queue.counts_for_reviewer(t):
+                continue
             for u in users:
                 if _sees_dl_review(t, u, portfolios.get(u.id, frozenset())):
                     bump(u.id, "dl_review")
+                    ready.setdefault(u.id, []).append(t)
     for uid, c in followups.items():
         if c.due:
             line = counts.setdefault(
@@ -849,15 +869,68 @@ async def digest_counts(
                 uid, {"cpro_mine": 0, "cpro_unassigned": 0, "dl_review": 0}
             )
             line["pending_jobs"] = count
-    return {uid: DigestLine(**c) for uid, c in counts.items()}
+    today = today or business_today()
+    return {
+        uid: DigestLine(
+            **c, dl_review_people=_longest_waiting(ready.get(uid, []), today)
+        )
+        for uid, c in counts.items()
+    }
+
+
+# Ile osób dzwonek wymienia z imienia — reszta idzie liczbą („i 3 inne osoby”).
+_DIGEST_NAMED_PEOPLE = 2
+
+
+def _short_name(name: str) -> str:
+    """„Marta Zielińska” → „Marta Z.”; jedno słowo zostaje bez zmian."""
+
+    words = name.split()
+    if len(words) < 2:
+        return name.strip()
+    return f"{words[0]} {words[-1][0]}."
+
+
+def _longest_waiting(
+    tasks: list[BoardTask], today: date
+) -> tuple[tuple[str, int], ...]:
+    """Najdłużej czekające osoby: (krótkie imię, dni od gotowości).
+
+    Dni kalendarzowe w kalendarzu firmy, a nie doby od chwili gotowości —
+    karta gotowa wczoraj o 16:00 dziś rano „czeka 1 dzień”.
+    """
+
+    from app.services import dl_send_queue  # noqa: PLC0415 — cykl importu
+
+    ordered = sorted(tasks, key=lambda t: t.ready_since or t.since)
+    return tuple(
+        (
+            _short_name(t.candidate_name),
+            (today - dl_send_queue.local_date(t.ready_since or t.since)).days,
+        )
+        for t in ordered[:_DIGEST_NAMED_PEOPLE]
+    )
+
+
+def _dl_send_phrase(line: DigestLine) -> str:
+    """„Do wysłania do klienta: Marta Z. (6 dni), Tomasz W. i 3 inne osoby”."""
+
+    if not line.dl_review_people:
+        # Linia złożona bez imion (poza `digest_counts`) — sama liczba.
+        return f"{_people(line.dl_review)} do wysłania do klienta"
+    named = ", ".join(
+        f"{name} ({_days(days)})" if days >= 1 else name
+        for name, days in line.dl_review_people
+    )
+    rest = line.dl_review - len(line.dl_review_people)
+    tail = f" i {_other_people(rest)}" if rest > 0 else ""
+    return f"Do wysłania do klienta: {named}{tail}"
 
 
 def digest_message(line: DigestLine) -> str:
     parts: list[str] = []
     if line.dl_review:
-        parts.append(
-            f"{_people(line.dl_review)} {_waits(line.dl_review)} na Twój przegląd"
-        )
+        parts.append(_dl_send_phrase(line))
     if line.cpro_mine:
         parts.append(
             f"{_people(line.cpro_mine)} w kolejce Cpro do wysłania przez Ciebie"
@@ -885,8 +958,16 @@ def _few(n: int) -> bool:
     return 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14
 
 
-def _waits(n: int) -> str:
-    return "czekają" if _few(n) else "czeka"
+def _days(n: int) -> str:
+    return "1 dzień" if n == 1 else f"{n} dni"
+
+
+def _other_people(n: int) -> str:
+    if n == 1:
+        return "1 inna osoba"
+    if _few(n):
+        return f"{n} inne osoby"
+    return f"{n} innych osób"
 
 
 def _followups(n: int) -> str:

@@ -21,7 +21,6 @@ from app.services import notification_triggers as nt
 
 def test_exports_the_core_triggers():
     names = {
-        "check_dl_stage_stale_6h",
         "check_client_feedback_eobd",
         "check_candidate_feedback_1h",
         "check_stage_stuck_7d",
@@ -29,6 +28,17 @@ def test_exports_the_core_triggers():
     for name in names:
         fn = getattr(nt, name)
         assert inspect.iscoroutinefunction(fn), f"{name} musi być async"
+
+
+def test_the_cv_sent_reminder_for_delivery_leads_is_gone():
+    """13.10.2026: przypomnienie o karcie stojącej w „CV wysłane” (CV już u
+    klienta) dało 4 695 wpisów dzwonka w 30 dni. Kolejkę Delivery Leada liczy
+    `dl_send_queue`; typ powiadomienia zostaje dla historycznych wierszy."""
+    from app.models.notification import NotificationType
+
+    assert not hasattr(nt, "check_dl_stage_stale_6h")
+    assert "check_dl_stage_stale_6h" not in nt.__all__
+    assert NotificationType.dl_stage_stale_6h.value == "dl_stage_stale_6h"
 
 
 def test_run_all_triggers_keys():
@@ -68,9 +78,8 @@ async def test_all_triggers_return_zero_when_no_data(empty_db):
     now = datetime(2026, 4, 21, 21, 0, tzinfo=ZoneInfo("Europe/Warsaw"))
     results = await nt.run_all_triggers(empty_db, now)
     # Nie zakładamy że baza jest pusta (test może lecieć na shared instance),
-    # ale zwrócony słownik musi mieć wszystkie 8 kluczy z int values.
+    # ale zwrócony słownik musi mieć komplet kluczy z int values.
     assert set(results.keys()) == {
-        "dl_stage_stale_6h",
         "stage_stuck_7d",
         "candidate_feedback_1h",
         "client_feedback_eobd",
@@ -281,37 +290,6 @@ class _Captured:
     async def emit(self, db, **kwargs):
         self.links.append(kwargs.get("link"))
         return object()
-
-
-@pytest.mark.asyncio
-async def test_dl_stage_stale_link_opens_the_candidate_on_the_board(monkeypatch):
-    from datetime import datetime, timedelta, timezone
-    from types import SimpleNamespace
-
-    from app.models.recruitment_pipeline import PipelineStage
-
-    now = datetime(2026, 9, 17, 12, 0, tzinfo=timezone.utc)
-    stage = nt.LatestStage(
-        id=5,
-        candidate_id=77,
-        job_id=12,
-        stage=PipelineStage.cv_sent,
-        moved_at=now - timedelta(hours=8),
-    )
-    captured = _Captured()
-
-    async def jobs_by_id(db, ids):  # lustro `_open_jobs_by_id` (#1593)
-        return {12: SimpleNamespace(id=12, title="Java")}
-
-    async def targets(db, job):
-        return [3]
-
-    monkeypatch.setattr(nt, "_open_jobs_by_id", jobs_by_id)
-    monkeypatch.setattr(nt, "_delivery_lead_targets", targets)
-    monkeypatch.setattr(nt, "emit", captured.emit)
-
-    assert await nt.check_dl_stage_stale_6h(None, now, {(77, 12): stage}) == 1
-    assert captured.links == ["/jobs/12?candidate=77"]
 
 
 @pytest.mark.asyncio
@@ -574,8 +552,8 @@ class _NoRemindersYet:
         # Otwarcie fali z Traffita (11.10.2026): jedna osoba dostałaby do 146
         # przypomnień o kartach, których w NEXUSIE nikt jeszcze nie dotknął.
         ("traffit", []),
-        ("manual", ["dl_stage_stale_6h", "stage_stuck_7d"]),
-        (None, ["dl_stage_stale_6h", "stage_stuck_7d"]),
+        ("manual", ["stage_stuck_7d"]),
+        (None, ["stage_stuck_7d"]),
     ],
 )
 async def test_stage_reminders_wait_for_the_first_move_made_in_nexus(
@@ -584,7 +562,7 @@ async def test_stage_reminders_wait_for_the_first_move_made_in_nexus(
     from app.models.recruitment_pipeline import PipelineStage
 
     now = datetime(2026, 10, 14, 12, 0, tzinfo=timezone.utc)
-    # „CV wysłane” od 10 dni: w oknie obu przypomnień (6 h–14 dni i 7–30 dni).
+    # „CV wysłane” od 10 dni: w oknie przypomnienia (7–30 dni).
     stage = nt.LatestStage(
         id=5,
         candidate_id=77,
@@ -596,7 +574,6 @@ async def test_stage_reminders_wait_for_the_first_move_made_in_nexus(
     sent: list[str] = []
     _stage_reminder_fakes(monkeypatch, sent)
 
-    await nt.check_dl_stage_stale_6h(None, now, {(77, 12): stage})
     await nt.check_stage_stuck_7d(_NoRemindersYet(), now, {(77, 12): stage})
 
     assert sent == expected

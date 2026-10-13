@@ -542,7 +542,10 @@ _BOARD_TASK_ROW = (
 _BOARD_TASK_LISTS = {
     "cpro_to_send": "do wysłania do Cpro",
     "cpro_sent": "wysłane do Cpro",
-    "dl_review": "czeka na przegląd Delivery Leada (kolumna QC CV)",
+    "dl_review": (
+        "do wysłania do klienta przez Delivery Leada "
+        "(kolumna QC CV, QC zdane albo przepuszczone)"
+    ),
 }
 
 
@@ -552,6 +555,11 @@ def _shape_board_tasks(data: Any, _args: dict[str, Any]) -> Any:
     out: dict[str, Any] = {}
     for key, label in _BOARD_TASK_LISTS.items():
         rows = [r for r in data.get(key) or [] if isinstance(r, dict)]
+        if key == "dl_review":
+            # 13.10.2026: karta z QC do poprawy jest jeszcze u rekrutera, a etap
+            # z importu Traffita nie budzi nikogo — Jarvis liczy jak górny
+            # pasek (lustro `dl_send_queue.counts_for_reviewer`).
+            rows = [r for r in rows if r.get("ready") and not r.get("imported")]
         out[key] = {
             "znaczenie": label,
             "count": len(rows),
@@ -1456,8 +1464,9 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
         label="Sprawdzam kolejkę „Czeka na Ciebie”",
         description=(
             "Kolejka „Czeka na Ciebie” z pulpitu: osoby do wysłania do Cpro (Nordea), "
-            "wysłane do Cpro i czekające na przegląd Delivery Leada w kolumnie "
-            "QC CV — policzone dla tej osoby. Wołaj przy „co mam dziś zrobić”."
+            "wysłane do Cpro i gotowe do wysłania do klienta przez Delivery Leada "
+            "(kolumna QC CV, QC zdane albo przepuszczone) — policzone dla tej "
+            "osoby. Wołaj przy „co mam dziś zrobić”."
         ),
         input_schema=_schema({}),
         tier="read",

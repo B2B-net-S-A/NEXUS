@@ -18,6 +18,8 @@ from datetime import date
 from typing import Any, Optional
 from urllib.parse import quote
 
+from app.core.scheduling import business_today
+from app.services.dl_send_queue import local_date
 from app.services.email import absolute_link, open_button_html
 
 MAX_ROWS = 5
@@ -52,6 +54,17 @@ def _pair_rows(rows: list, *, suffix: str = "") -> tuple[Row, ...]:
         )
         for r in rows
     )
+
+
+def _waiting_suffix(row: Any, today: date) -> str:
+    """„ · czeka 3 dni” — dni kalendarzowe (kalendarz firmy) od gotowości."""
+    since = getattr(row, "ready_since", None)
+    if since is None:
+        return ""
+    days = (today - local_date(since)).days
+    if days < 1:
+        return ""
+    return f" · czeka {'1 dzień' if days == 1 else f'{days} dni'}"
 
 
 def _section(
@@ -90,22 +103,31 @@ def build_sections(
     *,
     open_client_cases: int = 0,
     deadlines: tuple[tuple[int, str, date], ...] = (),
+    today: Optional[date] = None,
 ) -> list[Section]:
-    """Sekcje skrótu w kolejności pilności. Pusta lista = brak maila."""
+    """Sekcje skrótu w kolejności pilności. Pusta lista = brak maila.
+
+    ``today`` — dzień w kalendarzu firmy, od którego liczy się „czeka N dni”
+    (domyślnie `business_today()`).
+    """
     out: list[Optional[Section]] = []
     flow = tasks.flow
     transit = tasks.cv_in_transit
+    today = today or business_today()
 
-    # Na tę osobę czeka ktoś inny — najpierw.
+    # Na tę osobę czeka ktoś inny — najpierw. Tylko wiersze gotowe do wysłania
+    # (13.10.2026, lustro `dl_send_queue.counts_for_reviewer`): karta z QC do
+    # poprawy jest jeszcze u rekrutera, a etap z importu Traffita nie budzi.
     out.append(
         _section(
-            "CV czeka na Twój przegląd przed wysłaniem do klienta",
+            "Do wysłania do klienta",
             tuple(
                 Row(
-                    f"{t.candidate_name} — {_job(t)}",
+                    f"{t.candidate_name} — {_job(t)}{_waiting_suffix(t, today)}",
                     f"/jobs/{t.job_id}?candidate={t.candidate_id}&review=1",
                 )
                 for t in tasks.dl_review
+                if getattr(t, "ready", True) and not getattr(t, "imported", False)
             ),
         )
     )

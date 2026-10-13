@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -23,6 +23,7 @@ from app.models.activity import Activity
 from app.models.app_setting import AppSetting
 from app.models.candidate import Candidate
 from app.models.client import Client
+from app.models.cv_qc_run import CvQcRun
 from app.models.job import Job, JobStatus, RemotePolicy
 from app.models.job_collaborator import JobCollaborator
 from app.models.pipeline_template import (
@@ -205,6 +206,112 @@ async def test_digest_counts_fallback_tasks_for_hor_without_firm_sender() -> Non
     assert 60 not in with_firm and 61 not in with_firm
 
 
+@pytest.mark.asyncio
+async def test_digest_counts_only_cards_ready_to_send_and_names_who_waits_longest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """13.10.2026: do tej daty każda karta w „QC CV” liczyła się Delivery
+    Leadowi — także z QC do poprawy, gdzie ruch ma rekruter. Skrót liczy tylko
+    gotowe do wysłania i wymienia dwie osoby czekające najdłużej."""
+
+    async def no_portfolio(_db, _user_id: int) -> frozenset[int]:
+        return frozenset()
+
+    monkeypatch.setattr(svc, "dl_portfolio_client_ids", no_portfolio)
+    dl = _user(50, UserRole.delivery_lead)
+
+    def ready(stage_id: int, name: str, since: datetime, **kw) -> svc.BoardTask:
+        return _task(
+            svc.KIND_DL_REVIEW,
+            stage_id=stage_id,
+            candidate_name=name,
+            delivery_lead_id=50,
+            since=since - timedelta(days=2),
+            ready=True,
+            ready_since=since,
+            **kw,
+        )
+
+    tasks = [
+        ready(1, "Tomasz Wilk", datetime(2026, 10, 10, 9, 0, tzinfo=timezone.utc)),
+        ready(
+            2, "Marta Anna Zielińska", datetime(2026, 10, 7, 15, tzinfo=timezone.utc)
+        ),
+        ready(3, "Ola", datetime(2026, 10, 13, 6, 0, tzinfo=timezone.utc)),
+        # QC do poprawy albo niesprawdzone — karta jest jeszcze u rekrutera.
+        _task(svc.KIND_DL_REVIEW, stage_id=4, delivery_lead_id=50, ready=False),
+        # Etap z importu Traffita, którego nikt nie ruszył w NEXUSIE.
+        ready(
+            5,
+            "Jan Import",
+            datetime(2026, 9, 1, 9, 0, tzinfo=timezone.utc),
+            imported=True,
+        ),
+        # Gotowa karta innego Delivery Leada.
+        _task(
+            svc.KIND_DL_REVIEW,
+            stage_id=6,
+            delivery_lead_id=51,
+            ready=True,
+            ready_since=datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc),
+        ),
+    ]
+    counts = await svc.digest_counts(
+        _DigestDb([dl]),
+        svc.BoardTaskSnapshot(tasks=tasks),
+        today=date(2026, 10, 13),
+    )
+    assert set(counts) == {50}
+    line = counts[50]
+    assert line.dl_review == 3
+    assert line.dl_review_people == (("Marta Z.", 6), ("Tomasz W.", 3))
+    # Imiona są treścią dzwonka, nie licznikiem.
+    assert line.total == 3
+    assert svc.digest_message(line) == (
+        "Do wysłania do klienta: Marta Z. (6 dni), Tomasz W. (3 dni) i 1 inna osoba"
+    )
+
+    # Sama karta „jeszcze u rekrutera” nie daje Delivery Leadowi dzwonka.
+    not_ready = await svc.digest_counts(
+        _DigestDb([dl]),
+        svc.BoardTaskSnapshot(tasks=[tasks[3]]),
+        today=date(2026, 10, 13),
+    )
+    assert not_ready == {}
+
+
+@pytest.mark.asyncio
+async def test_digest_counts_waiting_days_in_the_company_calendar(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """22:30 UTC w październiku to już następny dzień w Warszawie — karta
+    gotowa „dziś” nie może czekać „1 dzień”."""
+
+    async def no_portfolio(_db, _user_id: int) -> frozenset[int]:
+        return frozenset()
+
+    monkeypatch.setattr(svc, "dl_portfolio_client_ids", no_portfolio)
+    task = _task(
+        svc.KIND_DL_REVIEW,
+        candidate_name="Ewa Kowalska",
+        delivery_lead_id=50,
+        ready=True,
+        ready_since=datetime(2026, 10, 12, 22, 30, tzinfo=timezone.utc),
+    )
+    snapshot = svc.BoardTaskSnapshot(tasks=[task])
+    db = _DigestDb([_user(50, UserRole.delivery_lead)])
+
+    same_day = await svc.digest_counts(db, snapshot, today=date(2026, 10, 13))
+    assert same_day[50].dl_review_people == (("Ewa K.", 0),)
+    assert svc.digest_message(same_day[50]) == "Do wysłania do klienta: Ewa K."
+
+    next_day = await svc.digest_counts(db, snapshot, today=date(2026, 10, 14))
+    assert next_day[50].dl_review_people == (("Ewa K.", 1),)
+    assert svc.digest_message(next_day[50]) == (
+        "Do wysłania do klienta: Ewa K. (1 dzień)"
+    )
+
+
 def test_delivery_lead_never_sees_the_cpro_queue() -> None:
     snap = svc.BoardTaskSnapshot(
         tasks=[
@@ -281,12 +388,61 @@ def test_task_dict_carries_qc_and_return_stage() -> None:
 @pytest.mark.parametrize(
     ("line", "text"),
     [
-        (svc.DigestLine(dl_review=1), "1 osoba czeka na Twój przegląd"),
-        (svc.DigestLine(dl_review=3), "3 osoby czekają na Twój przegląd"),
+        # Linia bez imion (złożona poza `digest_counts`) — sama liczba.
+        (svc.DigestLine(dl_review=1), "1 osoba do wysłania do klienta"),
+        (svc.DigestLine(dl_review=3), "3 osoby do wysłania do klienta"),
         (
             svc.DigestLine(dl_review=5, cpro_mine=2),
-            "5 osób czeka na Twój przegląd · "
+            "5 osób do wysłania do klienta · "
             "2 osoby w kolejce Cpro do wysłania przez Ciebie",
+        ),
+        # Imiona: dni tylko od 1, „i N innych” tylko ponad wymienione osoby.
+        (
+            svc.DigestLine(dl_review=1, dl_review_people=(("Marta Z.", 0),)),
+            "Do wysłania do klienta: Marta Z.",
+        ),
+        (
+            svc.DigestLine(
+                dl_review=2, dl_review_people=(("Marta Z.", 1), ("Tomasz W.", 0))
+            ),
+            "Do wysłania do klienta: Marta Z. (1 dzień), Tomasz W.",
+        ),
+        (
+            svc.DigestLine(
+                dl_review=3, dl_review_people=(("Marta Z.", 2), ("Tomasz W.", 2))
+            ),
+            "Do wysłania do klienta: Marta Z. (2 dni), Tomasz W. (2 dni) "
+            "i 1 inna osoba",
+        ),
+        (
+            svc.DigestLine(
+                dl_review=5, dl_review_people=(("Marta Z.", 6), ("Tomasz W.", 3))
+            ),
+            "Do wysłania do klienta: Marta Z. (6 dni), Tomasz W. (3 dni) "
+            "i 3 inne osoby",
+        ),
+        (
+            svc.DigestLine(
+                dl_review=7,
+                cpro_mine=1,
+                dl_review_people=(("Marta Z.", 22), ("Tomasz W.", 5)),
+            ),
+            "Do wysłania do klienta: Marta Z. (22 dni), Tomasz W. (5 dni) "
+            "i 5 innych osób · 1 osoba w kolejce Cpro do wysłania przez Ciebie",
+        ),
+        (
+            svc.DigestLine(
+                dl_review=14, dl_review_people=(("Marta Z.", 6), ("Tomasz W.", 3))
+            ),
+            "Do wysłania do klienta: Marta Z. (6 dni), Tomasz W. (3 dni) "
+            "i 12 innych osób",
+        ),
+        (
+            svc.DigestLine(
+                dl_review=24, dl_review_people=(("Marta Z.", 6), ("Tomasz W.", 3))
+            ),
+            "Do wysłania do klienta: Marta Z. (6 dni), Tomasz W. (3 dni) "
+            "i 22 inne osoby",
         ),
         (
             svc.DigestLine(cpro_mine=1),
@@ -301,6 +457,22 @@ def test_task_dict_carries_qc_and_return_stage() -> None:
 def test_digest_message_is_one_polish_sentence(line: svc.DigestLine, text: str) -> None:
     assert svc.digest_message(line) == text
     assert "DZ" not in svc.digest_message(line)
+
+
+@pytest.mark.parametrize(
+    ("name", "short"),
+    [
+        ("Marta Zielińska", "Marta Z."),
+        ("Jan Maria Rokita", "Jan R."),
+        ("  Anna   Nowak-Kowalska ", "Anna N."),
+        ("Ola", "Ola"),
+        ("Kandydat", "Kandydat"),
+    ],
+)
+def test_digest_short_name_is_first_name_and_last_initial(
+    name: str, short: str
+) -> None:
+    assert svc._short_name(name) == short
 
 
 # ── Integracyjne: ruch, typowanie, lista ─────────────────────────────────────
@@ -755,11 +927,34 @@ async def test_dl_review_lists_people_in_the_qc_column_not_in_verified(
         assert len(_rows(dl_queue, "dl_review", cid)) == 1
         assert dl_queue["can_send_to_client"] is True
 
-        # Poranny skrót liczy przegląd DL.
+        # Poranny skrót: QC niesprawdzone, więc karta jest jeszcze u rekrutera
+        # — Delivery Leadowi nie liczy się nic (13.10.2026).
         async with AsyncSessionLocal() as db:
             snapshot = await svc.load_snapshot(db)
             counts = await svc.digest_counts(db, snapshot)
-        assert counts[dl_in_id].dl_review >= 1
+        assert dl_in_id not in counts
+        assert dl_out_id not in counts
+
+        # QC zdane — ruch ma Delivery Lead: skrót liczy kartę i mówi, o kogo chodzi.
+        async with AsyncSessionLocal() as db:
+            db.add(
+                CvQcRun(
+                    candidate_id=cid,
+                    job_id=jid,
+                    passed=True,
+                    blocking_failed=0,
+                    warnings_count=0,
+                    result={},
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
+            await db.commit()
+        async with AsyncSessionLocal() as db:
+            snapshot = await svc.load_snapshot(db)
+            counts = await svc.digest_counts(db, snapshot)
+        assert counts[dl_in_id].dl_review == 1
+        # Kandydat z `_seed_world`: „Ewa BT…”.
+        assert [name for name, _days in counts[dl_in_id].dl_review_people] == ["Ewa B."]
         assert dl_out_id not in counts
     finally:
         await _cleanup(world, [hor_id, rec_id, dl_in_id, dl_out_id])

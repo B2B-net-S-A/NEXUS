@@ -145,8 +145,8 @@ def _empty_tasks(**overrides) -> BoardTasksResponse:
     return BoardTasksResponse(**base)
 
 
-def _dl_row(i: int, name: str = "Jan Nowak") -> dict:
-    return dict(
+def _dl_row(i: int, name: str = "Jan Nowak", **overrides) -> dict:
+    row = dict(
         kind="dl_review",
         stage_id=i,
         candidate_id=100 + i,
@@ -156,7 +156,13 @@ def _dl_row(i: int, name: str = "Jan Nowak") -> dict:
         client_name="Klient",
         since=datetime(2026, 10, 6, tzinfo=timezone.utc),
         process_state_version=1,
+        # „Do wysłania do klienta”: QC zdane, karta gotowa od 6.10.
+        qc_status="passed",
+        ready=True,
+        ready_since=datetime(2026, 10, 6, 10, 0, tzinfo=timezone.utc),
     )
+    row.update(overrides)
+    return row
 
 
 def test_empty_queue_gives_no_sections():
@@ -169,15 +175,59 @@ def test_information_only_lists_do_not_make_a_digest():
     assert daily_digest.build_sections(tasks) == []
 
 
-def test_dl_review_section_links_to_review_and_caps_rows():
+def test_dl_send_section_links_to_review_and_caps_rows():
     tasks = _empty_tasks(dl_review=[_dl_row(i) for i in range(7)])
-    sections = daily_digest.build_sections(tasks)
-    assert sections[0].title.startswith("CV czeka na Twój przegląd")
+    sections = daily_digest.build_sections(tasks, today=date(2026, 10, 8))
+    assert sections[0].title == "Do wysłania do klienta"
     assert sections[0].total == 7
     assert len(sections[0].rows) == daily_digest.MAX_ROWS
     assert sections[0].rows[0].path == "/jobs/5?candidate=100&review=1"
+    assert sections[0].rows[0].text == (
+        "Jan Nowak — Java Developer (Klient) · czeka 2 dni"
+    )
     _subject, text, html = daily_digest.render("Ola", sections, date(2026, 10, 8))
     assert "i jeszcze 2" in text and "i jeszcze 2" in html
+
+
+def test_dl_send_section_lists_only_cards_ready_to_send():
+    """13.10.2026: karta z QC do poprawy jest jeszcze u rekrutera, a etap
+    z importu Traffita nie budzi nikogo — żadna nie trafia do maila
+    Delivery Leada ani do licznika sekcji."""
+    not_ready = _dl_row(
+        2, "Piotr Poprawka", qc_status="failed", ready=False, ready_since=None
+    )
+    tasks = _empty_tasks(
+        dl_review=[
+            _dl_row(1, "Anna Gotowa"),
+            not_ready,
+            _dl_row(3, "Zofia Import", imported=True),
+        ]
+    )
+    (section,) = daily_digest.build_sections(tasks, today=date(2026, 10, 8))
+    assert section.total == 1
+    assert [r.text for r in section.rows] == [
+        "Anna Gotowa — Java Developer (Klient) · czeka 2 dni"
+    ]
+    # Same karty „jeszcze u rekrutera” nie dają maila.
+    assert daily_digest.build_sections(_empty_tasks(dl_review=[not_ready])) == []
+
+
+@pytest.mark.parametrize(
+    ("ready_since", "suffix"),
+    [
+        # Gotowe dziś — bez dopisku.
+        (datetime(2026, 10, 8, 6, 0, tzinfo=timezone.utc), ""),
+        # 22:30 UTC 7.10 to w Warszawie już 8.10.
+        (datetime(2026, 10, 7, 22, 30, tzinfo=timezone.utc), ""),
+        (datetime(2026, 10, 7, 12, 0, tzinfo=timezone.utc), " · czeka 1 dzień"),
+        (datetime(2026, 10, 6, 12, 0, tzinfo=timezone.utc), " · czeka 2 dni"),
+        (datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc), " · czeka 7 dni"),
+    ],
+)
+def test_dl_send_row_says_how_many_days_the_card_waits(ready_since, suffix):
+    tasks = _empty_tasks(dl_review=[_dl_row(1, ready_since=ready_since)])
+    (section,) = daily_digest.build_sections(tasks, today=date(2026, 10, 8))
+    assert section.rows[0].text == f"Jan Nowak — Java Developer (Klient){suffix}"
 
 
 def test_counts_and_deadlines_make_sections():
