@@ -188,6 +188,8 @@ export interface LegacyRowsResult {
   rows: StoredRequirementRow[];
   /** Zdania klienta, które nie są słowami kluczowymi — nie filtrują kandydatów. */
   descriptive: string[];
+  /** Te ze zdań, które klient dał jako „mile widziane” (podzbiór `descriptive`). */
+  descriptive_nice?: string[];
   /** Delivery Lead wybrał wcześniej „Brak krytycznych”. */
   no_critical: boolean;
 }

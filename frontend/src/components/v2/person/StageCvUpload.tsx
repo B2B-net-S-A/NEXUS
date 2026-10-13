@@ -156,6 +156,8 @@ function inNestedDropZone(event: DragEvent): boolean {
  *   egzemplarz w podglądzie wgrałyby się jako CV;
  * - pole pliku w środku (kafelek CV, „Wgraj plik” notatki w Screeningu)
  *   dostaje plik samo: nakładka znika nad nim i nie przechwytuje upuszczenia.
+ *   Tak samo wewnętrzny obszar (podgląd CV w panelu poniżej 1024 px) —
+ *   zewnętrzny nie wgrywa upuszczenia, które tamten już obsłużył.
  */
 export function CvFileDropTarget({
   enabled,
@@ -210,8 +212,11 @@ export function CvFileDropTarget({
       onDrop={(event) => {
         if (!ours(event)) return;
         reset();
-        // Pole pliku w środku obsłużyło upuszczenie samo.
-        if (inNestedDropZone(event)) return;
+        // Pole pliku w środku obsłużyło upuszczenie samo. `defaultPrevented`:
+        // obsłużył je wewnętrzny obszar — poniżej 1024 px podgląd CV z własnym
+        // `CvFileDropTarget` stoi w DOM-ie panelu osoby i to samo upuszczenie
+        // wgrywało CV dwa razy (audyt 13.10.2026).
+        if (event.defaultPrevented || inNestedDropZone(event)) return;
         event.preventDefault();
         const file = event.dataTransfer.files?.[0];
         if (!file || upload.isPending) return;

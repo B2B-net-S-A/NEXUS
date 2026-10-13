@@ -19,8 +19,12 @@ import json
 import re
 from typing import Any
 
+# Między `<`, `/` i nazwą model nie widzi różnicy dla odstępów, znaków zerowej
+# szerokości ani ukośnika wstecznego: `<\/` daje `json_for_prompt`, a `<`,
+# U+200B i `/cv>` wygląda jak zwykłe zamknięcie (audyt 48 h, 13.10.2026).
+_GAP = r"[\s\u00ad\u180e\u200b-\u200f\u2060-\u2064\ufeff]*"
 _TAG_RE = re.compile(
-    r"<(?=\s*/?\s*(?:cv|screening_notes|champion_profile|source_facts|"
+    rf"<(?={_GAP}\\*{_GAP}/?{_GAP}(?:cv|screening_notes|champion_profile|source_facts|"
     r"previous_screening|candidate_[a-z_]+|new_questions|interview_note|"
     r"card_fields|screening_questions|keywords|question_text|"
     r"cv_[a-z_]+|original_[a-z_]+|recruiter_hint|recruiter_command|previous_proposals|"

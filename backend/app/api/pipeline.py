@@ -5,7 +5,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 from pydantic import BaseModel, Field
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
-from typing import Annotated, List, Literal, Optional
+from typing import Annotated, Any, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import JSONResponse
@@ -48,6 +48,7 @@ from app.services.board_stage_badges import (
 )
 from app.services import (
     champion_view,
+    move_requirements,
     screening_fix_requests,
     stage_handoff_recipients,
     stage_remarks,
@@ -701,7 +702,8 @@ def _stage_response(
         "added_to_job_by_name": added_to_job_by_name,
         "added_to_job_at": added_to_job_at,
         # Odznaki karty (17.09.2026) — patrz `CandidateStageResponse`.
-        "screening_done": _sheet_filled(stage.screening_answers),
+        # Arkusz z odpowiedzią — jak bramka „Zweryfikowany” (14.10.2026).
+        "screening_done": move_requirements.sheet_answered(stage.screening_answers),
         "scorecard_done": _sheet_filled(stage.scorecard_answers),
         "candidate_expected_rate_hourly": candidate_expected_rate_hourly,
         "task_assignee_id": stage.task_assignee_id,
@@ -2400,7 +2402,11 @@ def _with_next_action_owner(payload: dict, column: StageColumn, group: str) -> d
 
 
 async def _viewer_owns_dl_review(
-    db: AsyncSession, job: Job, viewer: Optional[User]
+    db: AsyncSession,
+    job: Job,
+    viewer: Optional[User],
+    *,
+    memo: Optional[dict[Any, Any]] = None,
 ) -> bool:
     """Czy przegląd przed wysłaniem do klienta w ``job`` należy do patrzącego.
 
@@ -2409,22 +2415,35 @@ async def _viewer_owns_dl_review(
     klienta. Nieaktywny DL rekrutacji liczy się jak brak DL-a (lustro
     `_LATEST_SQL`). U Nordei to akceptacja do kolejki Cpro (13.10.2026) —
     ta sama reguła. Bez roli Delivery Leada — bez zapytań.
+
+    ``memo`` — pamięć jednego żądania tego samego patrzącego: „Moje następne
+    kroki” składają do kilkudziesięciu tablic, a portfel i aktywność DL-a
+    rekrutacji pytały bazę osobno dla każdej (audyt 13.10.2026).
     """
     if viewer is None or not viewer.has_role(UserRole.delivery_lead):
         return False
+    memo = {} if memo is None else memo
     delivery_lead_id = job.delivery_lead_id
     if delivery_lead_id is not None and delivery_lead_id != viewer.id:
         # Własne konto patrzącego jest aktywne (jest zalogowany) — pytamy tylko
         # o cudze.
-        if not await db.scalar(
-            select(User.is_active).where(User.id == delivery_lead_id)
-        ):
+        key = ("active", delivery_lead_id)
+        if key not in memo:
+            memo[key] = bool(
+                await db.scalar(
+                    select(User.is_active).where(User.id == delivery_lead_id)
+                )
+            )
+        if not memo[key]:
             delivery_lead_id = None
-    portfolio = (
-        await board_tasks_svc.dl_portfolio_client_ids(db, viewer.id)
-        if delivery_lead_id is None
-        else frozenset()
-    )
+    if delivery_lead_id is None:
+        if "portfolio" not in memo:
+            memo["portfolio"] = await board_tasks_svc.dl_portfolio_client_ids(
+                db, viewer.id
+            )
+        portfolio = memo["portfolio"]
+    else:
+        portfolio = frozenset()
     return board_tasks_svc.reviews_as_dl(
         viewer,
         delivery_lead_id=delivery_lead_id,
@@ -2440,6 +2459,7 @@ async def build_kanban_view(
     viewer: Optional[User] = None,
     with_followups: bool = True,
     with_employment: bool = True,
+    dl_review_memo: Optional[dict[Any, Any]] = None,
 ) -> KanbanView:
     """The board of ``job`` — shared by ``/kanban/{job_id}`` and ``/my-next-steps``.
 
@@ -2480,7 +2500,9 @@ async def build_kanban_view(
         if s.candidate_id not in seen:
             seen[s.candidate_id] = s
         earliest[s.candidate_id] = s  # overwritten; last write wins (oldest row)
-        if _sheet_filled(s.screening_answers):
+        # Ta sama reguła co bramka „Zweryfikowany”: arkusz z odpowiedzią, nie
+        # sam zapisany arkusz (audyt 13.10.2026, pkt 5).
+        if move_requirements.sheet_answered(s.screening_answers):
             screened_pairs.add(s.candidate_id)
         if s.expected_rate_value is not None:
             carried_expected_rate.setdefault(s.candidate_id, s)
@@ -2488,7 +2510,9 @@ async def build_kanban_view(
             carried_client_rate.setdefault(s.candidate_id, s)
     show_client_rate = user_can_view_client_rate(viewer)
     # „Czeka na Ciebie” w kolumnie „QC CV”: raz na tablicę, dla obu gałęzi niżej.
-    viewer_owns_dl_review = await _viewer_owns_dl_review(db, job, viewer)
+    viewer_owns_dl_review = await _viewer_owns_dl_review(
+        db, job, viewer, memo=dl_review_memo
+    )
 
     # Bulk-load candidate names so cards render with real names (not "Kandydat" fallback)
     candidate_ids = list(seen.keys())
@@ -2687,7 +2711,6 @@ async def build_kanban_view(
 
     from app.models.note import Note as _Note
     from app.services import (
-        move_requirements,
         note_kinds,
         recommendation_cards,
         screening_sheets,
@@ -2696,6 +2719,12 @@ async def build_kanban_view(
     from app.services import candidate_rate_change as _rate_change
 
     job_has_questions = bool(screening_sheets.question_texts(job.champion_profile))
+    # „Do wysłania do klienta” (`dl_send_queue`): kolejka Delivery Leada bierze
+    # tylko opublikowane rekrutacje, a etap z importu Traffita nie liczy się do
+    # „Czeka na Ciebie” — karta mówi to samo co pas na pulpicie (audyt 13.10.2026).
+    from app.services.dl_send_queue import TRAFFIT_SOURCE
+
+    dl_send_job = job.status == JobStatus.published
 
     # 0418: otwarta sprawa zmiany stawki pary — plakietka na karcie.
     rate_change_by_candidate = await _rate_change.open_badges_for_job(db, job_id=job_id)
@@ -2801,6 +2830,7 @@ async def build_kanban_view(
         payload["process_state_version"] = process_versions.get(e.candidate_id, 0)
         payload["auto_cv_ready"] = e.id in auto_cv_stage_ids
         payload["qc"] = qc_by_pair.get((e.candidate_id, job_id))
+        payload["dl_send_counts"] = dl_send_job and e.external_source != TRAFFIT_SOURCE
         card = card_by_candidate.get(e.candidate_id)
         payload["card"] = (
             {
@@ -3065,6 +3095,8 @@ async def my_next_steps(
         else set()
     )
     out: list[MyNextStepsJob] = []
+    # „Czyj przegląd” raz na żądanie, nie raz na tablicę (audyt 13.10.2026).
+    dl_review_memo: dict[Any, Any] = {}
     for job in jobs:
         try:
             # The board read guard is the one that decides (`jobs_mine_clause`
@@ -3090,6 +3122,7 @@ async def my_next_steps(
                     viewer=current_user,
                     with_followups=False,
                     with_employment=False,
+                    dl_review_memo=dl_review_memo,
                 ),
             )
         )
@@ -3362,6 +3395,18 @@ async def submit_stage_screening(
         previous, _ = await screening_sheets.latest_filled_sheet(
             db, stage, for_write=True
         )
+    # „Pomiń brakujące” tylko z powodem — ta sama bramka co formularz
+    # (`PUT /screening-form`, audyt 13.10.2026, pkt 6).
+    from app.services.screening_reassign import assert_skip_allowed
+
+    await assert_skip_allowed(
+        db,
+        answers=answers.answers,
+        previous=previous,
+        candidate_id=stage.candidate_id,
+        job_id=stage.job_id,
+        user=current_user,
+    )
     job = await db.scalar(select(Job).where(Job.id == stage.job_id))
     # Zapis człowieka przejmuje arkusz z notatki (07.10.2026): odpowiedzi
     # `note_sync` stają się `note_import`, więc automat już ich nie poprawi.

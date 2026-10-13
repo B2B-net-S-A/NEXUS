@@ -24,6 +24,10 @@ from sqlalchemy.orm import undefer
 from app.models.candidate import Candidate
 from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
 from app.services import object_storage
+from app.services.candidate_identity_quarantine import (
+    source_is_eligible_clause,
+    source_is_quarantined_clause,
+)
 from app.core.log_safety import safe_storage_key
 
 logger = logging.getLogger(__name__)
@@ -40,10 +44,41 @@ def current_cv_filters() -> tuple:
     """Warunki „ten dokument może być bieżącym CV" (bez filtra rozszerzeń).
 
     Plik usunięty z profilu (`source_deleted_at`, 0435) nie jest niczyim CV.
+
+    Audyt 48 h (13.10.2026):
+    * plik z kwarantanny tożsamości (CV innej osoby, bez zwolnienia przez
+      admina/HoR) też nie. Kwarantanna zdejmuje z pliku tylko `is_primary`,
+      więc jako najnowszy wracał do każdej następnej kopii CV etapu;
+    * „nieaktualne” (0400) nie może zostać głównym CV, więc nie jest też
+      bieżącym — po usunięciu głównego CV z profilu nie wraca jako następca
+      (`usun-plik-z-profilu-kandydata.md`). Plików „…B2B…” nie odsiewamy po
+      nazwie: u osób bez wskazanego głównego CV (stare importy) bywa to jedyne
+      CV, a bez pomiaru na produkcji heurystyka odcięłaby generator.
     """
     return (
         CandidateDocument.document_kind.notin_(_NOT_CV_KINDS),
         CandidateDocument.source_deleted_at.is_(None),
+        CandidateDocument.outdated_at.is_(None),
+        source_is_eligible_clause(
+            candidate_id_column=CandidateDocument.candidate_id,
+            source_id_column=CandidateDocument.id,
+            source_kind="document",
+        ),
+    )
+
+
+async def _legacy_cv_quarantined(db: AsyncSession, candidate_id: int) -> bool:
+    """Czy CV ze wskaźnika kandydata (`legacy_cv`) jest w kwarantannie tożsamości."""
+    return bool(
+        await db.scalar(
+            select(
+                source_is_quarantined_clause(
+                    candidate_id_column=candidate_id,
+                    source_id_column=candidate_id,
+                    source_kind="legacy_cv",
+                )
+            )
+        )
     )
 
 
@@ -131,6 +166,14 @@ async def get_current_cv(db: AsyncSession, candidate: Candidate) -> CurrentCV | 
                 language=candidate.cv_language,
                 source="document_bytea",
             )
+
+    # Wskaźnik CV na kandydacie uznany za CV innej osoby (kwarantanna
+    # `legacy_cv`) nie jest bieżącym CV — jak plik z listy (audyt 13.10.2026).
+    has_pointer = (
+        bool(candidate.cv_storage_key) or candidate.cv_file_content is not None
+    )
+    if has_pointer and await _legacy_cv_quarantined(db, candidate.id):
+        return None
 
     if candidate.cv_storage_key:
         try:

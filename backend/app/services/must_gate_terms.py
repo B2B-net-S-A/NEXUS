@@ -52,8 +52,12 @@ _PAREN_EXAMPLES = re.compile(
     r"m\.\s?in\.?|takie\s+jak|typu)\s+",
     re.I,
 )
+# „(lub inny broker)”, „(or any CI tool)” to nie opcja — do 14.10.2026 „inny
+# broker” stawał się drugą „technologią” wiersza (audyt 13.10).
 _PAREN_VAGUE = re.compile(
-    r"\b(?:podobn\w*|similar|equivalent|odpowiednik\w*|inne|other|itp|etc)\b", re.I
+    r"\b(?:podobn\w*|similar|equivalent|odpowiednik\w*|"
+    r"inn(?:y|a|e|ą|ego|ej|ym|ych|ymi|i)|dowoln\w*|other|another|any|itp|etc)\b",
+    re.I,
 )
 # Alternatywa w samej etykiecie: „Kafka lub RabbitMQ”, „Docker/Kubernetes”.
 # „i”, „and”, „oraz” i przecinek to KONIUNKCJA („python i bash” = oba), więc

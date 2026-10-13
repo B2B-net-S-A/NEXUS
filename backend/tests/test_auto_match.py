@@ -504,9 +504,20 @@ async def test_unknown_sender_cv_with_strong_identity_links_existing(
     parse.assert_awaited_once()
 
 
+class _NoopSavepoint:
+    """`async with db.begin_nested()` na atrapie sesji (zapis w SAVEPOINT, 14.10.2026)."""
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
 def _db_that_assigns_id(candidate_id: int):
     db = AsyncMock()
     db.add = MagicMock()
+    db.begin_nested = MagicMock(return_value=_NoopSavepoint())
 
     async def _flush():
         db.add.call_args_list[0].args[0].id = candidate_id
@@ -559,7 +570,11 @@ async def test_unknown_sender_cv_resent_file_goes_to_the_profile_that_has_it(
         {"first_name": "Jan", "last_name": "Kowalski", "phone": "600100200"},
         [],
         same_file=[
-            {"candidate_id": 77, "match_score": 1.0, "match_reasons": ["identical_file"]}
+            {
+                "candidate_id": 77,
+                "match_score": 1.0,
+                "match_reasons": ["identical_file"],
+            }
         ],
     )
     attachment, email = _m365_inputs(tmp_path)

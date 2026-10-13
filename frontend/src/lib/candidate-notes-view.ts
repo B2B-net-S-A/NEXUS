@@ -9,11 +9,15 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- notatki z luźno typowanego endpointu */
 
+import { noteGroup } from "@/lib/candidate-note-groups";
+
 export interface CandidateNoteLike {
   id: number;
   job_id?: number | null;
   job_title?: string | null;
   is_system?: boolean | null;
+  /** Zakładka Historii nadana przez serwer (`note_kinds.group_of`). */
+  group?: string | null;
   pinned_at?: string | null;
   replies?: CandidateNoteLike[] | null;
 }
@@ -113,9 +117,19 @@ export function systemNoteCount(notes: readonly CandidateNoteLike[]): number {
   return notes.filter((n) => Boolean(n.is_system)).length;
 }
 
-/** Notatki widoczne na liście — bez odpowiedzi (te jadą pod notatką). */
+/**
+ * Notatka człowieka = nie wpis automatu. Grupę nadaje serwer z rodzaju notatki
+ * (`automat`), bo wpisy scrapera i auto-matcha sprzed 03.10.2026 nie mają
+ * `external_source = 'system'` — samo `is_system` liczyło je jak rozmowy
+ * (audyt 13.10.2026). Bez pola `group` zostaje `is_system`.
+ */
+export function isHumanNote(note: Pick<CandidateNoteLike, "group" | "is_system">): boolean {
+  return noteGroup(note) !== "automat";
+}
+
+/** Notatki ludzi na liście — bez odpowiedzi (te jadą pod notatką). */
 export function humanNoteCount(notes: readonly CandidateNoteLike[]): number {
-  return notes.length - systemNoteCount(notes);
+  return notes.filter(isHumanNote).length;
 }
 
 /**

@@ -100,6 +100,11 @@ regexes = [
   # w historii gałęzi PR #1874, a skan PR-a obejmuje cały zakres commitów.
   # Zakotwiczone, dokładnie trzy wartości.
   '''^(dobre-haslo-123|nowe-haslo-456|zle-haslo-xxx|stare-haslo-123)$''',
+  # Nazwa pliku testu w docstringu („…API: ``test_fix48_ws07_marker_db.py``”)
+  # — generic-api-key wziął ją za klucz po słowie „API:”. Docstring poprawiony
+  # w 7aff356fa, ale zostaje w historii gałęzi PR #2200, a skan PR-a obejmuje
+  # cały zakres commitów. Zakotwiczona, dokładnie ta jedna wartość.
+  '''^test_fix48_ws07_marker_db\.py$''',
 ]
 
 [[rules]]

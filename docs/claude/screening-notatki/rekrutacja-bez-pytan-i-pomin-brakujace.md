@@ -52,6 +52,20 @@ Decyzje Artura 12.10.2026:
   inaczej mail wypisze go surowego. Rekrutacja z pytaniami nie zmienia się w żadnym z tych
   miejsc: karta dalej liczy sam arkusz.
 
+- **Bramka liczy odpowiedzi, a „Pomiń brakujące” pilnuje serwer (14.10.2026).** Audyt z 13.10
+  pokazał, że oba warunki trzymał tylko ekran. Formularz wysyła każde pytanie, także puste, a
+  bramka liczyła pozycje listy (`sheet_filled`). Dlatego arkusz z samym sprawdzeniem
+  doświadczenia albo z samymi `skipped` wysłanymi z pominięciem ekranu przepuszczał na
+  „Zweryfikowany”. Teraz bramka, karta Tablicy (`screening_done`) i okno „Przesuń dalej” czytają
+  `move_requirements.sheet_answered`: co najmniej jedna odpowiedź z treścią, pominięciem albo
+  trafieniem deal-breakera (ta sama `answer_has_content` co zapis formularza). Kompletu odpowiedzi
+  reguła nie wymaga i dalej go nie wymagamy. `sheet_filled` zostaje dla pytania „czy arkusz jest
+  zapisany”. Zapis `skipped` bez `skip_missing_reason` kończy się 422 `SCREENING_FORM_INVALID`
+  (`screening_form.assert_skip_allowed`), zarówno w `PUT /screening-form`, jak i w starej
+  `POST /pipeline/stages/{id}/screening`. Arkusz pary, który ma już pominięte pytania, zapisuje
+  się dalej bez sprawdzania powodu: formularz przywraca zaznaczenie, a przepięcie mogło od tamtej
+  pory zniknąć. Lustro na froncie: `assessmentMissingForForward` liczy arkusz tą samą regułą.
+
 Świadomie poza zakresem: opis kolumny „Screening” na Tablicy („Arkusz pytań z…”) jest stały dla
 każdej rekrutacji. Arkusz z samymi sprawdzeniami doświadczenia zapisuje się, ale bramki nie
 spełnia. Odpowiedzi z notatki (`card_answers`) nie mają okna próby zamkniętej dawno temu — stan

@@ -117,6 +117,21 @@ export function isReadyForDlSend(
   return item.qc?.status === "passed" || item.qc?.status === "overridden";
 }
 
+/**
+ * Gotowa karta liczy się do „Czeka na Ciebie”, „Twój ruch” i „Przejrzyj po
+ * kolei” — lustro `dl_send_queue.counts_for_reviewer`. Karta z importu Traffita
+ * i karta nieopublikowanej rekrutacji stoją poza licznikami pasa „Do wysłania
+ * do klienta” (serwer: `dl_send_counts: false`, audyt 13.10.2026); przegląd
+ * dalej da się otworzyć. Starszy serwer bez pola — jak dotąd.
+ */
+export function countsForDlReview(
+  item: KanbanItem,
+  column: BoardColumnKey | null,
+  inCproQueue: boolean,
+): boolean {
+  return isReadyForDlSend(item, column, inCproQueue) && item.dl_send_counts !== false;
+}
+
 function timeOf(value: string | null | undefined): number | null {
   if (!value) return null;
   const ms = Date.parse(value);
@@ -147,7 +162,8 @@ function dlWaitingDays(item: KanbanItem, now: Date): number {
  * Kolejka przeglądu „po kolei” z kart kolumny „QC CV”: tylko gotowe do
  * wysłania (u Nordei — do akceptacji), najdłużej czekające pierwsze. Karty
  * w kolejce Cpro (ta sama kolumna, znacznik „W kolejce Cpro”) czekają już
- * na osobę od Cpro.
+ * na osobę od Cpro; karty z importu Traffita — poza kolejką, jak w pasie
+ * na pulpicie (`countsForDlReview`).
  */
 export function dlSendQueue(
   qcColumnItems: readonly KanbanItem[],
@@ -157,7 +173,7 @@ export function dlSendQueue(
   const since = (item: KanbanItem) =>
     dlReadySince(item) ?? now.getTime() - (item.days_in_stage ?? 0) * DAY_MS;
   return qcColumnItems
-    .filter((item) => isReadyForDlSend(item, "cv_qc", inCproQueue(item)))
+    .filter((item) => countsForDlReview(item, "cv_qc", inCproQueue(item)))
     .sort((a, b) => since(a) - since(b));
 }
 
@@ -342,7 +358,7 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
   // niesprawdzonym lub niezaliczonym QC ruch ma rekruter. Dni liczą się od
   // gotowości, nie od wejścia do kolumny; Delivery Lead tej rekrutacji czyta
   // „Czeka na Ciebie” (13.10.2026).
-  if (isReadyForDlSend(item, column, ctx.stageBadge === "cpro")) {
+  if (countsForDlReview(item, column, ctx.stageBadge === "cpro")) {
     const waited = daysLabel(dlWaitingDays(item, ctx.now));
     out.push(
       ctx.viewerOwnsDlReview
@@ -687,7 +703,7 @@ export function cardNextStep(
       : "Przegląd CV i wysłanie do klienta";
     // Delivery Lead tej rekrutacji widzi swój ruch jak rekruter swój; pozostali
     // (także DL innej rekrutacji i admin) — „DL”.
-    if (ctx.viewerOwnsDlReview && isReadyForDlSend(item, ctx.column, false)) {
+    if (ctx.viewerOwnsDlReview && countsForDlReview(item, ctx.column, false)) {
       return { who: MY_MOVE_LABEL, mine: true, label };
     }
     return { who: "DL", mine: false, label };

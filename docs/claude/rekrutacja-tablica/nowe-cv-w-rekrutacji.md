@@ -117,6 +117,36 @@ przechodzi na „CV oryginalne”. Przegląd DL i edytor CV go nie dostają.
 - Spacja na polu pliku otwiera wybór pliku (do tej daty porównanie z pustym
   napisem).
 
+## Poprawki po audycie 13.10.2026 (14.10.2026)
+
+- **Plik z kwarantanny nie jest bieżącym CV.** `cv_source.current_cv_filters`
+  wyklucza dokument z żywą kwarantanną tożsamości (`confirmed_mismatch` bez
+  zwolnienia admina/HoR, `source_is_eligible_clause`), a `get_current_cv`
+  nie schodzi do wskaźnika kandydata z kwarantanną `legacy_cv`. Kwarantanna
+  zdejmuje z pliku tylko `is_primary`, więc osoba bez innego CV dostawała
+  cudzy plik w każdej następnej kopii etapu i w generatorze.
+  `restore_stage_copies_after_quarantine` robi `flush` przed wyborem
+  następcy (sesje mają `autoflush=False`) — kopia dostaje poprzednie CV
+  osoby, a nie pustkę. Panel osoby nie bierze pliku wskazanego przez
+  `_identity_quarantine_source` jako „Oryginał CV: z profilu” ani do ramki
+  „W profilu jest nowsze CV” (`withoutQuarantinedCv` w doku), chyba że ktoś
+  ustawił go ponownie jako główne CV.
+- **Kopia z wgrania powstaje z bajtów żądania** (`refresh_original_cv_snapshot(current=…)`),
+  bez ponownego odczytu głównego CV. Przy awarii magazynu odczyt schodził do
+  wskaźnika kandydata i kopia dostawała starsze CV pod nazwą nowego pliku.
+- **Ramka „CV firmowe powstało z poprzedniego CV” po ruchu karty.** Ruch
+  zakłada nowy wiersz etapu bez CV, a szkic zostaje na poprzednim. Dok
+  pokazuje ramkę także przy szkicu pary na innym wierszu (`pairCvElsewhere`,
+  prop `cvStageId`): ramka czyta szkic i kopię CV tamtego wiersza, liczy
+  najpóźniej podmienioną ręcznie kopię z obu wierszy (`replacedCopy`),
+  „Użyj nowej wersji” i „Zostaw obecne” idą na wiersz ze szkicem. Wcześniej
+  znikała po ruchu i CV ze starego pliku szło do klienta bez ostrzeżenia.
+  „Użyj w tej rekrutacji” dalej podmienia kopię bieżącego wiersza.
+- **Upuszczenie pliku na podgląd CV poniżej 1024 px wgrywa raz.** Lewa strefa
+  jest wtedy ukryta, podgląd z własnym `CvFileDropTarget` stoi w DOM-ie
+  panelu i oba obszary wgrywały ten sam plik. Zewnętrzny pomija upuszczenie
+  z `defaultPrevented`.
+
 ## Czego nie robimy
 
 - Nie generujemy CV firmowego automatycznie po nowym CV.

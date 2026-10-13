@@ -107,7 +107,9 @@ długość współpracy: {duration}
 język pracy: {language}
 """
 
-_BULLET = re.compile(r"^\s*(?:[-–—•*]+|\d+[.)])\s*")
+# Numer punktu („1.”, „2)”) nie stoi przed cyfrą: „3.5 roku”, „2.5+ years”
+# i „10.000” to liczby, a zdjęcie „3.” robiło z nich „5 roku” (audyt 13.10.2026).
+_BULLET = re.compile(r"^\s*(?:[-–—•*]+|\d+[.)](?!\d))\s*")
 
 
 class AdGenerationFailed(RuntimeError):

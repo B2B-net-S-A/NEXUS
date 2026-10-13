@@ -307,6 +307,9 @@ async def arrives_from_before_client_send(
     w „Zamkniętych” liczy się kolumną sprzed zamknięcia, bez wierszy — „Nowi”).
     Runda 9 (R9-N11-6). Karta, która już stoi w kolejce Cpro (ponowny ruch
     na ten sam etap, np. z osobą zapasową), została zaakceptowana wcześniej.
+    Para zamknięta z kolejki Cpro w niej nie stoi — wraca przez akceptację
+    Delivery Leada jak każda inna (audyt 13.10.2026: „Przywróć” wkładał ją do
+    kolejki bez DL-a).
     """
     row, column = await gate_stage_row(db, candidate_id=candidate_id, job_id=job_id)
     if column not in BOARD_COLUMN_ORDER:
@@ -315,9 +318,27 @@ async def arrives_from_before_client_send(
         name = await db.scalar(
             select(PipelineStageDef.name).where(PipelineStageDef.id == row.stage_def_id)
         )
-        if is_cpro_stage(name):
+        if is_cpro_stage(name) and await _is_newest_row(
+            db, row, candidate_id=candidate_id, job_id=job_id
+        ):
             return False
     return BOARD_COLUMN_ORDER.index(column) < BOARD_COLUMN_ORDER.index("cv_sent")
+
+
+async def _is_newest_row(
+    db: AsyncSession, row: CandidateStage, *, candidate_id: int, job_id: int
+) -> bool:
+    """Czy ``row`` jest najnowszym wierszem pary (karta na nim stoi)."""
+    newest_id = await db.scalar(
+        select(CandidateStage.id)
+        .where(
+            CandidateStage.candidate_id == candidate_id,
+            CandidateStage.job_id == job_id,
+        )
+        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+        .limit(1)
+    )
+    return newest_id == row.id
 
 
 CPRO_ACCEPT_DENIED_MESSAGE = (

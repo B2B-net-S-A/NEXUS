@@ -33,6 +33,7 @@ from app.api.body_validation import validated_body
 from app.api.candidate_access import (
     CandidatePIIAccess,
     CandidateWriteAccess,
+    hidden_send_note_ids,
     note_content_hidden,
 )
 from app.api.deps import DeliveryLeadPlus
@@ -44,6 +45,7 @@ from app.services import (
     client_rate_notes,
     note_kinds,
     recommendation_card_import,
+    recruitment_rate_hints,
     screening_note_sync,
 )
 from app.services.recommendation_cards import CARD_KINDS
@@ -111,16 +113,34 @@ async def _mention_snippet(db: AsyncSession, note: Note) -> str:
         )
     if note_kinds.hides_client_rate(kind):
         return note_kinds.CLIENT_RATE_SNIPPET
+    # Decyzja C (14.10.2026): „Wysłany 150/100-110 @rekruter” to zwykła notatka,
+    # ale niesie cenę dla klienta — fragment w dzwonku jej nie powtarza.
+    if (
+        kind == note_kinds.HUMAN
+        and note.id is not None
+        and note.candidate_id is not None
+        and recruitment_rate_hints.has_amount(note_kinds.plain_text(note.content))
+        and note.id in await recruitment_rate_hints.send_note_ids(db, [note.id])
+    ):
+        return note_kinds.CLIENT_RATE_SNIPPET
     return trim_snippet(note.content or "")
 
 
-def _plain(note: Note, viewer: User) -> NoteResponse:
+def _plain(note: Note, viewer: User, *, send_note: bool = False) -> NoteResponse:
     """Odpowiedź bez pól listy — z zakrytą treścią, gdy rola jej nie widzi."""
     response = NoteResponse.model_validate(note)
-    if note_content_hidden(viewer, kind=note.kind, author_id=note.author_id):
+    if note_content_hidden(
+        viewer, kind=note.kind, author_id=note.author_id, send_note=send_note
+    ):
         response.content = note_kinds.CLIENT_RATE_PLACEHOLDER
         response.content_hidden = True
     return response
+
+
+async def _plain_for(db: AsyncSession, note: Note, viewer: User) -> NoteResponse:
+    """``_plain`` z rozpoznaniem notatki DL-a z wysyłki (decyzja C, 14.10.2026)."""
+    send_ids = await hidden_send_note_ids(db, viewer, [note.id])
+    return _plain(note, viewer, send_note=note.id in send_ids)
 
 
 def _enriched(
@@ -131,8 +151,11 @@ def _enriched(
     job_title: Optional[str],
     pinned_by_name: Optional[str],
     mention_label_map: dict,
+    send_note: bool = False,
 ) -> EnrichedNoteResponse:
-    hidden = note_content_hidden(viewer, kind=note.kind, author_id=note.author_id)
+    hidden = note_content_hidden(
+        viewer, kind=note.kind, author_id=note.author_id, send_note=send_note
+    )
     content = note_kinds.CLIENT_RATE_PLACEHOLDER if hidden else note.content
     return EnrichedNoteResponse(
         id=note.id,
@@ -267,6 +290,12 @@ async def list_notes(
         db,
         collect_traffit_user_ids(note.content for note, *_ in [*rows, *reply_rows]),
     )
+    # Decyzja C (14.10.2026): notatka DL-a z wysyłki („Wysłany 150/100-110”)
+    # niesie cenę dla klienta — zakryta jak `dl_rate` dla roli bez tej stawki.
+    # Z tej listy czytają Historia profilu, panel osoby i „Wcześniej u nas”.
+    send_ids = await hidden_send_note_ids(
+        db, current_user, [note.id for note, *_ in [*rows, *reply_rows]]
+    )
     replies_by_parent: dict[int, list[EnrichedNoteResponse]] = {}
     for note, author_name, job_title, pinned_by_name in reply_rows:
         replies_by_parent.setdefault(note.parent_note_id, []).append(
@@ -277,6 +306,7 @@ async def list_notes(
                 job_title=job_title,
                 pinned_by_name=pinned_by_name,
                 mention_label_map=mention_label_map,
+                send_note=note.id in send_ids,
             )
         )
     items = []
@@ -288,6 +318,7 @@ async def list_notes(
             job_title=job_title,
             pinned_by_name=pinned_by_name,
             mention_label_map=mention_label_map,
+            send_note=note.id in send_ids,
         )
         item.replies = replies_by_parent.get(note.id, [])
         items.append(item)
@@ -500,7 +531,7 @@ async def _set_pinned(
             detail="Odpowiedzi nie da się przypiąć — przypnij notatkę główną.",
         )
     if (note.pinned_at is not None) == pinned:
-        return _plain(note, current_user)
+        return await _plain_for(db, note, current_user)
     note.pinned_at = datetime.now(timezone.utc) if pinned else None
     note.pinned_by = current_user.id if pinned else None
     db.add(
@@ -514,7 +545,7 @@ async def _set_pinned(
     )
     await db.commit()
     await db.refresh(note)
-    return _plain(note, current_user)
+    return await _plain_for(db, note, current_user)
 
 
 @router.post("/{note_id}/pin", response_model=NoteResponse)
@@ -551,7 +582,7 @@ async def get_note(
     note = result.scalar_one_or_none()
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
-    return _plain(note, current_user)
+    return await _plain_for(db, note, current_user)
 
 
 @router.patch("/{note_id}", response_model=NoteResponse)

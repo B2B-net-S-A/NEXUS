@@ -6,6 +6,11 @@ This poller is intentionally separate from the daily importer:
 * it never writes a Traffit stage, webhook, outbox or remote contact status;
 * HTTP 400 for ``X-Request-Filter`` is terminal for the tick (no full scan);
 * a durable tuple cursor plus event ledger makes overlap/restarts idempotent.
+
+Od 14.10.2026 Traffit jest wyłączony na stałe (decyzja Artura,
+``app/services/traffit_retired.py``): pętla nie startuje bez względu na
+``CANDIDATE_CONTACT_TRAFFIT_INTAKE_ENABLED``. Kolejka kontaktów działa dalej na
+danych NEXUSA; ten poller zostaje jako historia.
 """
 
 from __future__ import annotations
@@ -38,6 +43,7 @@ from app.services.candidate_contact_coordination import (
     _traffit_ledger_action as _ledger_contact_action,
 )
 from app.services.traffit.client import TraffitClient, TraffitConfig
+from app.services.traffit_retired import TraffitRetiredError, refuse_traffit
 
 logger = logging.getLogger(__name__)
 
@@ -754,6 +760,11 @@ def _poll_traffit_config() -> TraffitConfig:
 async def traffit_contact_intake_loop() -> None:
     """Run the strict read-only poll at a clamped cadence."""
 
+    try:
+        refuse_traffit("candidate_contact_traffit")
+    except TraffitRetiredError as exc:
+        logger.info("Candidate contact Traffit intake nie startuje: %s", exc)
+        return
     if not (
         settings.CANDIDATE_CONTACT_ENABLED
         and settings.CANDIDATE_CONTACT_TRAFFIT_INTAKE_ENABLED

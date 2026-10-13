@@ -17,13 +17,53 @@ interface Person {
 }
 
 /**
+ * Zaślepka zamiast numeru („000 000 000”, „111 111 111”) — wpisywana, gdy
+ * numeru nie było. U dwóch osób to nie jest „ten sam telefon” (audyt
+ * 13.10.2026). Ta sama reguła: `dedup_service._is_placeholder_phone`.
+ */
+function isPlaceholderPhone(key: string): boolean {
+  return /^(\d)\1*$/.test(key);
+}
+
+/**
  * Numer do porównań: ostatnie 9 cyfr — ta sama reguła co wyszukiwanie po
  * telefonie w backendzie (`phone_digits_clause`), więc „+48 601 204 118”
- * i „601-204-118” to ten sam numer. Krótszy zapis nie jest numerem.
+ * i „601-204-118” to ten sam numer. Krótszy zapis i zaślepka nie są numerem.
  */
 export function phoneKey(phone: string | null | undefined): string | null {
   const digits = (phone ?? "").replace(/\D/g, "");
-  return digits.length >= 9 ? digits.slice(-9) : null;
+  if (digits.length < 9) return null;
+  const key = digits.slice(-9);
+  return isPlaceholderPhone(key) ? null : key;
+}
+
+/** Wszystko poza cyframi, spacją, „+”, „-”, „.” i nawiasami rozdziela numery w polu. */
+const PHONE_SEPARATOR = /[^\d\s+\-.()]+/;
+
+/**
+ * Każdy numer z pola osobno („601 204 118 / 502 333 444”, „… lub …”) — sklejone
+ * cyfry porównywały tylko ostatni numer. Lustro `dedup_service._phone_keys`.
+ */
+export function phoneKeys(phone: string | null | undefined): string[] {
+  const keys: string[] = [];
+  for (const part of (phone ?? "").split(PHONE_SEPARATOR)) {
+    const key = phoneKey(part);
+    if (key && !keys.includes(key)) keys.push(key);
+  }
+  return keys;
+}
+
+/**
+ * Czy numer pasuje do szukanych cyfr (`meta.interpretation.phone`: 6–9 cyfr)
+ * — podciąg cyfr pola, jak `phone_digits_clause` w wyszukiwarce. Bez tego
+ * numer znaleziony po 6–8 cyfrach nie był podświetlony.
+ */
+export function phoneMatchesQuery(
+  phone: string | null | undefined,
+  queryDigits: string | null | undefined,
+): boolean {
+  if (!queryDigits) return false;
+  return (phone ?? "").replace(/\D/g, "").includes(queryDigits);
 }
 
 /** Imię i nazwisko do porównań: bez wielkości liter i nadmiarowych spacji. */
@@ -75,21 +115,23 @@ export function samePhoneRefs(
   const refs = new Map<number, SamePhoneRef>();
   const inJobByPhone = new Map<string, number>();
   for (const person of inJob) {
-    const key = phoneKey(person.phone);
-    if (key && !inJobByPhone.has(key)) inJobByPhone.set(key, person.id);
+    for (const key of phoneKeys(person.phone)) {
+      if (!inJobByPhone.has(key)) inJobByPhone.set(key, person.id);
+    }
   }
   const firstRow = new Map<string, { id: number; row: number }>();
   items.forEach((person, index) => {
-    const key = phoneKey(person.phone);
-    if (!key) return;
-    const inJobId = inJobByPhone.get(key);
-    if (inJobId !== undefined && inJobId !== person.id) {
+    const keys = phoneKeys(person.phone);
+    const inJobId = keys
+      .map((key) => inJobByPhone.get(key))
+      .find((id) => id !== undefined && id !== person.id);
+    if (inJobId !== undefined) {
       refs.set(person.id, { kind: "in_job", id: inJobId });
       return;
     }
-    const earlier = firstRow.get(key);
+    const earlier = keys.map((key) => firstRow.get(key)).find((row) => row !== undefined);
     if (earlier) refs.set(person.id, { kind: "row", ...earlier });
-    else firstRow.set(key, { id: person.id, row: index + 1 });
+    else for (const key of keys) firstRow.set(key, { id: person.id, row: index + 1 });
   });
   return refs;
 }

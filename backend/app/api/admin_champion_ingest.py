@@ -14,6 +14,12 @@ POST-ować cross-origin, ``https://b2bnetwork.traffit.com`` MUSI być w env
 klientów nie-przeglądarkowych z tokenem (np. curl). Auth zawsze przez Bearer,
 więc poszerzenie CORS o traffit samo w sobie niczego nie autoryzuje —
 NEXUS nie używa cookie, a traffit origin nie ma tokenu użytkownika NEXUS.
+
+Od 14.10.2026 Traffit jest wyłączony na stałe (decyzja Artura,
+``app/services/traffit_retired.py``): ``POST /ingest`` odpowiada 410
+z komunikatem po polsku zaraz po bramce admina — bez odczytu pliku, bez
+bazy i bez modelu, bo collector czyta pliki z karty Traffita, czyli jest
+importem z Traffita. ``GET /coverage`` zostaje: czyta historię z bazy NEXUSA.
 """
 
 import logging
@@ -35,6 +41,7 @@ from app.services.champion_profile_ingest import (
     oversize_precheck,
     validate_upload,
 )
+from app.services.traffit_retired import TraffitRetiredError, refuse_traffit
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +105,14 @@ async def champion_ingest(
     Idempotentny: oferta z niepustym profilem wraca jako
     ``champion_skipped_nonempty`` bez wywołania AI — ponowny bieg collectora
     na pokrytych rekrutacjach jest darmowy.
+
+    Od 14.10.2026 zawsze 410 (Traffit wyłączony) — reszta ciała zostaje jako
+    historia, jak trasy ``/api/admin/traffit/*``.
     """
+    try:
+        refuse_traffit("POST /api/admin/champion-profiles/ingest")
+    except TraffitRetiredError as exc:
+        return _json({"detail": str(exc)}, status_code=410)
     too_big = oversize_precheck(getattr(file, "size", None))
     if too_big:
         return _json({"detail": too_big}, status_code=413)

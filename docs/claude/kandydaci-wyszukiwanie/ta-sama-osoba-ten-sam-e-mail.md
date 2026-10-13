@@ -42,6 +42,22 @@ więc ostrzeżenie „podobny kandydat” trafiało bardzo często i nic nie zna
   wtedy CV do tego profilu), z `force` zostaje zdanie „Kandydat z tym adresem
   e-mail już istnieje.” Adres z formularza wygrywa z nagłówkiem pliku także
   w sicie (`form_email`; wyczyszczone pole = brak kroku e-mail).
+- **Dwa zapisy tego samego e-maila naraz** (14.10.2026, audyt 13.10):
+  `/from-cv` i poczta M365 (albo dwa przebiegi synchronizacji) mijały
+  sprawdzenie `find_candidate_by_email`, bo nie widzi ono niezatwierdzonego
+  wiersza równoległej transakcji; drugi zapis padał na unikalnym indeksie
+  `email` i kończył się 500 (a w poczcie wywracał całą sesję
+  synchronizacji). Teraz zapis idzie w SAVEPOINCIE (`db.begin_nested()`):
+  `/from-cv` wpisuje e-mail już w INSERT-cie i przy kolizji odpowiada 409 jak
+  przy zwykłym duplikacie (bez `force` z `existing_candidate_id` profilu,
+  który wygrał — `_raise_from_cv_duplicate_conflict`; z `force` „Kandydat
+  z tym adresem e-mail już istnieje.”); poczta M365
+  (`try_create_candidate_from_cv`) przy kolizji podpina CV do profilu
+  z tym adresem (`_parse_into_existing`), a gdy adres ma kilka profili —
+  `parse_error = "conflicting_identity"`; uzupełnienie adresu z CV
+  w `finish_cv_ingest` (`_fill_email_unless_taken`) pomija adres zajęty
+  w międzyczasie i zapisuje resztę profilu. Testy:
+  `test_fix48_ws10_email_race.py`, `test_fix48_ws10_email_race_db.py`.
 - Okna: `ExistingCandidateNotice` w „Dodaj kandydata” (`AppShell.tsx`).
   Okno pyta `/check-duplicates` tylko o e-mail. „Dodaj z CV” w rekrutacji ma
   od 13.10.2026 własny widok osoby z bazy: „Dodaj do rekrutacji z tym CV”

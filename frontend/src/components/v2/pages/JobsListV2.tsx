@@ -1,7 +1,7 @@
 "use client";
 
 import { pluralPl } from "@/lib/plural-pl";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   REQUEST_STAGE_CHIPS,
   REQUEST_STAGE_META,
@@ -775,6 +775,29 @@ export function JobsListV2({
       if (saved) applyView(viewFromParams(saved), "restored", true);
     }
   }
+
+  // Link na adres, który router już zna (sprzed naszych zapisów adresu — te są
+  // dla niego niewidoczne), nie zmienia `useSearchParams`: router uznaje go za
+  // tę samą stronę i lista zostawała przy starym widoku (audyt 13.10.2026).
+  // Taki klik obsługujemy sami, żeby link wygrywał także wtedy. Pozostałe linki
+  // idą zwykłą drogą (blok wyżej); goły `/jobs` filtrów nie rusza.
+  const linkClick = useRef({ routeQuery, applyView });
+  linkClick.current = { routeQuery, applyView };
+  useEffect(() => {
+    const onClick = (event: MouseEvent) => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const anchor = event.target instanceof Element ? event.target.closest("a[href]") : null;
+      if (!(anchor instanceof HTMLAnchorElement)) return;
+      if ((anchor.target && anchor.target !== "_self") || anchor.hasAttribute("download")) return;
+      const url = new URL(anchor.href, window.location.href);
+      if (url.origin !== window.location.origin || url.pathname !== window.location.pathname) return;
+      if (!hasJobsListParams(url.searchParams)) return;
+      if (url.searchParams.toString() !== linkClick.current.routeQuery) return;
+      linkClick.current.applyView(viewFromParams(url.searchParams), "link");
+    };
+    document.addEventListener("click", onClick);
+    return () => document.removeEventListener("click", onClick);
+  }, []);
 
   const dl =deadlineQueryParams(filterValue.deadline, filterValue.deadlineRange);
 

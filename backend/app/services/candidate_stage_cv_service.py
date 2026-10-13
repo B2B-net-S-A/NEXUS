@@ -30,7 +30,7 @@ from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.recruitment_pipeline import CandidateStage
-from app.services.cv_source import get_current_cv
+from app.services.cv_source import CurrentCV, get_current_cv
 from app.core.log_safety import safe_filename
 
 logger = logging.getLogger(__name__)
@@ -243,6 +243,7 @@ async def refresh_original_cv_snapshot(
     *,
     user_id: Optional[int],
     source: str = "manual_refresh",
+    current: Optional[CurrentCV] = None,
 ) -> CandidateStageCV:
     """Manual refresh przez rekrutera (button "Aktualizuj snapshot z bieżącego").
 
@@ -254,6 +255,11 @@ async def refresh_original_cv_snapshot(
     głównego CV z profilu („Użyj w tej rekrutacji”), `manual_upload` — plik
     wgrany z rekrutacji (`POST …/cv/original/upload`), który chwilę wcześniej
     został głównym CV.
+
+    ``current`` podaje trasa wgrania, która ma bajty pliku w pamięci — kopia
+    powstaje z nich bez ponownego odczytu. Audyt 13.10.2026: przy awarii
+    magazynu `get_current_cv` schodził do wskaźnika kandydata i kopia etapu
+    dostawała starsze CV pod nazwą nowego pliku.
 
     Raises:
       LookupError — gdy CandidateStageCV dla stage_id nie istnieje.
@@ -268,10 +274,11 @@ async def refresh_original_cv_snapshot(
             "create_original_cv_snapshot() should have run when stage was created."
         )
 
-    candidate = await db.scalar(
-        select(Candidate).where(Candidate.id == csv_row.candidate_id)
-    )
-    current = await get_current_cv(db, candidate) if candidate is not None else None
+    if current is None:
+        candidate = await db.scalar(
+            select(Candidate).where(Candidate.id == csv_row.candidate_id)
+        )
+        current = await get_current_cv(db, candidate) if candidate is not None else None
     if current is None:
         raise ValueError(
             f"Candidate {csv_row.candidate_id} has no current CV to copy — "
@@ -336,6 +343,11 @@ async def restore_stage_copies_after_quarantine(
     """
     if not quarantined_sha256:
         return 0
+    # Sesje mają `autoflush=False`: decyzja kwarantanny i oddane główne CV
+    # z tej transakcji muszą być w bazie, zanim `get_current_cv` wybierze
+    # następcę — inaczej wybierał znowu plik z kwarantanny i kopia zostawała
+    # pusta mimo poprzedniego CV osoby (audyt 13.10.2026).
+    await db.flush()
     rows = list(
         (
             await db.scalars(

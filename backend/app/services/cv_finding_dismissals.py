@@ -273,9 +273,13 @@ async def restore_on_card_return(
 ) -> int:
     """Zwrot karty przywraca pominięcia uwag blokujących osób bez prawa
     wysyłki — jak obejście doradcze (`cv_qc.spend_advisory_overrides`): po
-    cofnięciu przez Delivery Leada QC znów pyta. Bez commitu."""
+    cofnięciu przez Delivery Leada QC znów pyta. Bez commitu.
+
+    Prawo wysyłki autora to uprawnienie z bazy (panel „Osoby i role”), nie
+    domyślny zestaw roli — stąd `resolve_effective_access` (audyt 48 h)."""
     from app.models.user import User
     from app.services.action_permissions import ProductAction, has_permission
+    from app.services.effective_access import resolve_effective_access
 
     rows = (
         await db.scalars(
@@ -294,6 +298,7 @@ async def restore_on_card_return(
         u.id: u
         for u in (await db.scalars(select(User).where(User.id.in_(authors)))).all()
     }
+    await resolve_effective_access(db, users.values())
     spent = [
         r.id
         for r in rows

@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import unicodedata
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -47,7 +46,6 @@ from app.services.dz_review import Requirement
 from app.services.llm_prompts import CV_EDITOR_COMMAND
 from app.services.llm_providers import api_key_configured
 from app.services.prompt_fencing import fence, json_for_prompt
-from app.services.recommendation_card_assist import _fold
 
 logger = logging.getLogger(__name__)
 
@@ -132,50 +130,10 @@ class Line:
 # jednej propozycji na zaznaczeniu rekruter czyta „było / będzie”; plan niesie
 # do 40 operacji naraz, więc każda przeredagowana operacja dostaje listę słów,
 # których nie było w zastępowanych wierszach. Edytor takiej operacji nie
-# zaznacza i pokazuje te słowa (przegląd bezpieczeństwa 13.10.2026).
-
-_PLAIN_WORD = re.compile(r"[^\W\d_]{3,}", re.UNICODE)
-NEW_WORDS_MAX = 6
-# Słowa łączące, które nie niosą treści (po złożeniu znaków). „nie” celowo
-# poza listą: dopisane zaprzeczenie zmienia sens zdania.
-_JOINING_WORDS = frozenset(
-    """
-    oraz lub albo dla przez przy pod nad bez ich jej jego tym tych tego tej ten
-    jak jako czy sie takze rowniez wraz miedzy ktore ktory ktora ktorych celu
-    ramach zakresie min itp itd tzw
-    and the for with from into using including within also that which was were
-    has have been its their this these via per such both while through across
-    """.split()
-)
-
-
-def _same_stem(a: str, b: str) -> bool:
-    """Ta sama rodzina wyrazów z dokładnością do odmiany („tworzyła” ~ „tworzenie”)."""
-    common = 0
-    for x, y in zip(a, b):
-        if x != y:
-            break
-        common += 1
-    return common >= 4 or (common >= 3 and min(len(a), len(b)) <= 4)
-
-
-def new_words(text: str, source: str) -> list[str]:
-    """Słowa nowego tekstu, których nie ma w zastępowanych wierszach."""
-    by_prefix: dict[str, list[str]] = {}
-    for word in _PLAIN_WORD.findall(_fold(cv_selection_ai.plain(source))):
-        by_prefix.setdefault(word[:3], []).append(word)
-    found: list[str] = []
-    for word in _PLAIN_WORD.findall(cv_selection_ai.plain(text)):
-        folded = _fold(word)
-        if folded in _JOINING_WORDS or len(folded) < 3:
-            continue
-        if any(_same_stem(folded, other) for other in by_prefix.get(folded[:3], ())):
-            continue
-        if word.lower() not in found:
-            found.append(word.lower())
-        if len(found) >= NEW_WORDS_MAX:
-            break
-    return found
+# zaznacza i pokazuje te słowa (przegląd bezpieczeństwa 13.10.2026). Od
+# 14.10.2026 `new_words` mieszka w `cv_selection_ai` — liczy też plakietkę
+# „Zgodne ze źródłem” rozwinięcia.
+new_words = cv_selection_ai.new_words
 
 
 def _visible(text: str) -> str:

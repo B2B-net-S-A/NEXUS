@@ -149,7 +149,9 @@ async def test_verified_needs_screening_sheet_and_candidate_rate(
             stage="screening",
             minutes_ago=1,
             moved_by=rec_id,
-            screening_answers={"answers": [{"id": "q1", "answer": "3 lata"}]},
+            screening_answers={
+                "answers": [{"question_id": "q1", "response": "3 lata"}]
+            },
         )
         ok = await _post_move(
             api_client,

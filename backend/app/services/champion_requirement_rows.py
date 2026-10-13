@@ -426,6 +426,15 @@ def separate_talk_items(
             if isinstance(name, str)
             and renamed.get(name.split(ALTERNATIVE_JOINER)[0].strip().casefold(), name)
         ]
+    elif any(_level_of(r) == "critical" for r in stack["rows"]) and not any(
+        _level_of(r) == "critical" for r in rows
+    ):
+        # Edytor niesie krytyczne poziomem wiersza i `critical: null`. Gdy
+        # ostatnia krytyczna poszła do rozmowy, decyzja DL zostaje „Brak
+        # krytycznych” (`[]`) jak w „Wymaganiach do poprawy” — `None` dokładał
+        # blokadę `critical` i kończył zapis 422 `handoff_regression` (audyt
+        # 13.10.2026).
+        out_stack["critical"] = []
     out: dict[str, Any] = {**patch, "stack": out_stack, "experience": experience}
     if languages:
         parts = [p for p in [str(language or "").strip()] if p]
@@ -525,7 +534,9 @@ def rows_from_legacy(
     Wiersze wyszukiwania zostają, jakie były. Must będące technologią dochodzi
     jako wiersz (bez wersji — tę niesie zdanie opisowe), krótka pozycja bez
     technologii zostaje słowem kluczowym, a zdanie klienta wraca jako
-    `descriptive` — nie filtruje kandydatów. `no_critical` mówi, że DL wybrał
+    `descriptive` — nie filtruje kandydatów. `descriptive_nice` to te z nich,
+    które przyszły z „mile widziane” (14.10.2026: „Zatwierdź” i „Uprość”
+    robiły z nich „musi” w rozmowie). `no_critical` mówi, że DL wybrał
     wcześniej „Brak krytycznych”.
     """
     from app.services.must_gate_terms import gate_requirement
@@ -535,6 +546,7 @@ def rows_from_legacy(
         {"words": list(row), "level": "must"} for row in requirements if row
     ]
     descriptive: list[str] = []
+    descriptive_nice: list[str] = []
 
     def keys(words: list[str]) -> set[str]:
         # „Java 17+” w starym wierszu wyszukiwania to ta sama technologia.
@@ -544,6 +556,11 @@ def rows_from_legacy(
         wanted = keys(words)
         return next((row for row in rows if keys(row["words"]) & wanted), None)
 
+    def describe(text: str, level: str) -> None:
+        descriptive.append(text)
+        if level == "nice":
+            descriptive_nice.append(text)
+
     def add(label: str, level: str) -> None:
         text = " ".join(str(label or "").split())
         if not text:
@@ -552,11 +569,11 @@ def rows_from_legacy(
         if requirement is not None:
             words = list(requirement.options)
             if ALTERNATIVE_JOINER.join(words).casefold() != text.casefold():
-                descriptive.append(text)
+                describe(text, level)
         elif _is_keyword(text):
             words = [text]
         else:
-            descriptive.append(text)
+            describe(text, level)
             return
         if find(words) is None:
             rows.append({"words": words, "level": level})
@@ -573,5 +590,6 @@ def rows_from_legacy(
     return {
         "rows": clean_rows(rows) if clip else rows,
         "descriptive": descriptive,
+        "descriptive_nice": descriptive_nice,
         "no_critical": critical == [],
     }

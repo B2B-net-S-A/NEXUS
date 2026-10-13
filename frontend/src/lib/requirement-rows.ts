@@ -13,6 +13,8 @@
  * oznaczyć jako krytyczne, liczy serwer (`lib/requirement-rows-api.ts`).
  */
 
+import type { ExperienceItem } from "@/lib/api";
+import { addTalkItem } from "@/lib/champion-experience";
 import {
   CRITICAL_MAX,
   CRITICAL_SUGGESTION_MAX,
@@ -642,9 +644,34 @@ export interface TalkItem {
   level: "must" | "nice";
 }
 
+/** Najdłuższe słowo wiersza na serwerze (`SEARCH_WORD_MAX_CHARS`). */
+const SERVER_WORD_MAX_CHARS = 100;
+
+/**
+ * Słowo tak, jak czyta je serwer: sito wiersza (`_search_words` — przycięcie
+ * do 100 znaków na granicy wyrazu) i `_clean` z `read_phrase` (NFC, bez kropki
+ * na końcu). Tekst odczytu (`PhraseReading.text`) jest już w tej postaci.
+ */
+function serverWord(word: string): string {
+  let text = sanitizeKeyword(word);
+  if (text.length > SERVER_WORD_MAX_CHARS) {
+    const head = text.slice(0, SERVER_WORD_MAX_CHARS + 1);
+    const cut = head.lastIndexOf(" ");
+    text = (cut > 0 ? head.slice(0, cut) : text.slice(0, SERVER_WORD_MAX_CHARS)).trimEnd();
+  }
+  return text.normalize("NFC").replace(/[ .]+$/, "");
+}
+
+/** Słowo wiersza, które serwer przeczytał jako `text` (audyt 13.10.2026, pkt 19). */
+const isReadAs = (word: string, text: string) =>
+  fold(serverWord(word)) === fold(serverWord(text));
+
 /**
  * Słowo `word` wiersza `key` zastąpione słowami `replacement` (pusta lista =
- * słowo wypada). Wiersz bez słów znika z listy.
+ * słowo wypada). Wiersz bez słów znika z listy. `word` może być tekstem
+ * odczytu z serwera — „Doświadczenie w przetargach.” w wierszu to ten sam
+ * wpis co odczyt „Doświadczenie w przetargach” (do 14.10.2026 „Do rozmowy”
+ * nic nie zmieniało, a „Zapisz” zostawało zablokowane).
  */
 export function replaceRowWord(
   rows: readonly RequirementRowForm[],
@@ -660,7 +687,7 @@ export function replaceRowWord(
     }
     const words: string[] = [];
     for (const current of row.words) {
-      const next = fold(current) === fold(word) ? replacement : [current];
+      const next = isReadAs(current, word) ? replacement : [current];
       for (const candidate of next) {
         if (!words.some((w) => fold(w) === fold(candidate))) words.push(candidate);
       }
@@ -668,6 +695,57 @@ export function replaceRowWord(
     if (words.length > 0) out.push({ ...row, words });
   }
   return out;
+}
+
+/**
+ * Tekst do „Rekruter sprawdza w rozmowie” dla zdania z wiersza `words`.
+ * Serwer czyta słowo przycięte do 100 znaków — wtedy do rozmowy idzie całe
+ * wpisane zdanie, a nie jego początek.
+ */
+export function talkTextFor(reading: PhraseReading, words: readonly string[]): string {
+  const fallback = reading.talk_text ?? reading.text;
+  const typed = words.find((word) => isReadAs(word, reading.text));
+  if (typed == null) return fallback;
+  const full = sanitizeKeyword(typed).normalize("NFC").replace(/[ .]+$/, "");
+  return full.length > reading.text.length ? full : fallback;
+}
+
+/** Limity listy „Rekruter sprawdza w rozmowie” (`EXPERIENCE_ITEMS_MAX`, `…_MAX_CHARS`). */
+const TALK_ITEMS_MAX = 20;
+const TALK_ITEM_MAX_CHARS = 160;
+
+/**
+ * „Uprość do słów kluczowych”: zdania klienta (`descriptive` z
+ * `POST /api/job-intake/requirement-rows`) do „Rekruter sprawdza w rozmowie”,
+ * z poziomem z „mile widziane” (`nice`). Co się nie mieści — ponad 20 pozycji
+ * albo zdanie dłuższe niż 160 znaków (na liście zostaje jego skrót) — idzie
+ * w całości do opisu wymagań, jak w „Wymaganiach do poprawy”. Do 14.10.2026
+ * zapis zostawiał 20 zdań, resztę gubił, a długie ucinał (audyt 13.10, pkt 21).
+ */
+export function talkFromDescriptive(
+  skills: readonly ExperienceItem[],
+  notes: string,
+  descriptive: readonly string[],
+  nice: readonly string[],
+): { skills: ExperienceItem[]; notes: string } {
+  let items = [...skills];
+  const overflow: string[] = [];
+  for (const raw of descriptive) {
+    const sentence = raw.trim().replace(/\s+/g, " ");
+    if (!sentence) continue;
+    const level = nice.includes(raw) ? "nice" : "must";
+    const name = sentence.slice(0, TALK_ITEM_MAX_CHARS).toLowerCase();
+    const known = items.some((i) => i.name.toLowerCase() === name);
+    if (!known && items.length >= TALK_ITEMS_MAX) {
+      overflow.push(sentence);
+      continue;
+    }
+    items = addTalkItem(items, sentence, level);
+    if (sentence.length > TALK_ITEM_MAX_CHARS) overflow.push(sentence);
+  }
+  if (overflow.length === 0) return { skills: items, notes };
+  const note = `Do sprawdzenia w rozmowie: ${overflow.join("; ")}.`;
+  return { skills: items, notes: [notes.trim(), note].filter(Boolean).join("\n") };
 }
 
 /** Ile osób zostawiają krytyczne razem — poniżej tej liczby pytamy (D2). */

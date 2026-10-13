@@ -49,7 +49,10 @@ class EditorReviewInputError(ValueError):
 # linie szły jako `why_points`, a recenzent v4 nie traktuje tej sekcji jako
 # twierdzeń — kontrola po edycji kończyła się błędem protokołu bez wywołania
 # modelu (produkcja 27.09–12.10.2026: 12 z 12 zatwierdzeń).
-EDITOR_REVIEW_VERSION = 2
+# 3 (14.10.2026): recenzent nie dostaje linii „P:” z pytaniami rekrutera
+# (`cv_review_sources`, audyt 13.10.2026) — wynik sprzed tej zmiany nie może
+# wrócić przy ponownym zatwierdzeniu tej samej treści.
+EDITOR_REVIEW_VERSION = 3
 
 # Znaczniki sekcji narracyjnej („dlaczego ten kandydat”) na nagłówku h2.
 _NARRATIVE_MARKERS = {"why_points", "summary"}

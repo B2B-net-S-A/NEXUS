@@ -21,8 +21,9 @@ z tych informacji ma swoje pole.
   akcept*, eks-/ex-pracownik, były pracownik.
 - **Ręczny wpis → 422 przy polu** (`loc: ["body","name"|"lastname"]`, typ
   `candidate_name_marker`, zdanie: „Imię i nazwisko bez dopisków w nawiasie.
-  „Szuka aktywnie” ustaw w polu Dostępność, czarną listę w polu Status —
-  zatrudnienie widać samo z umowy.”): `POST /api/candidates` (w handlerze, nie
+  „Szuka aktywnie” ustaw w polu Dyspozycyjność („Aktywnie szuka pracy”),
+  czarną listę — w polu Status („Zablokowany”); zatrudnienie widać samo
+  z umowy.”): `POST /api/candidates` (w handlerze, nie
   w `CandidateCreate`), pola formularza `/from-cv` (przed płatnym odczytem CV),
   `PATCH /api/candidates/{id}` tylko dla pola, które się ZMIENIA — stary
   dopisek nie blokuje edycji telefonu. Front pokazuje zdanie pod polem
@@ -40,6 +41,24 @@ z tych informacji ma swoje pole.
 - **Mapper Traffita używa tej samej funkcji** — import nie przywróci tego, co
   zdjęła korekta. Zdjęty dopisek idzie do `cv_extracted_data.traffit_name_marker`
   (napis z dopiskami po spacji).
+
+## Poprawki po audycie 13.10.2026 (14.10.2026)
+
+- **Import z pliku nie gubi czarnej listy.** Import CSV (`/api/import/candidates`)
+  i `/bulk-import` czytają `has_blacklist_marker` na SUROWYM imieniu i nazwisku,
+  zanim zdejmą dopisek — „Kowalski (czarna lista)” wchodzi jako „Kowalski”
+  ze statusem `blacklisted` (w `/bulk-import` także wbrew `status` z pliku).
+  Do 14.10 osoba wchodziła jako aktywna i trafiała do propozycji.
+- **Wielowyrazowy nawias z „czarną listą”** („(dodany do czarnej listy przez
+  klienta)”) ustawia status — `has_blacklist_marker` sprawdza też zdjęte
+  dopiski, nie tylko słowo przy samym nawiasie. Nazwisko „Blacklista” nadal nie.
+- **Zaprzeczenie to nie „szuka aktywnie”:** „(nie aktywny)”, „[not active]”,
+  „(non-active)” zdejmujemy, ale `has_active_marker` ich nie liczy.
+- **„Przywróć z Traffita”** (`restore-from-traffit`) wpisuje migawkę po tej samej
+  regule — „[ACTIVE] Jan” wraca jako „Jan”. Migawka będąca samym dopiskiem nie
+  daje się przywrócić (`can_restore: false`, 409 `traffit_identity_value_unavailable`).
+  Token wersji (`expected_traffit_values`) zostaje surową migawką.
+- **Zdanie 422** wskazuje pola okna (AppShell): „Dostępność” jest tam datą.
 
 ## Korekta danych 0436
 

@@ -31,5 +31,11 @@ Kontrakt: `docs/screening-form-contract.md`, raport: `docs/screening-form-comple
   z „Przenieś do Dlaczego ten kandydat”.
 - **Nic do klienta (D2):** udostępnianie karty Championa usunięte — `POST …/share-token` i publiczny GET = 410,
   tokeny odwołane w 0424; `notes` zdjęte z `client_safe_screening`. Odpowiedzi nadal są źródłem treści CV firmowego.
+- **Pominięcie pytań sprawdza zapis (14.10.2026).** `PUT /screening-form` (i stara trasa arkusza)
+  odrzuca `answers[*].skipped` bez powodu „Pomiń brakujące” (`screening_reassign.skip_missing_reason`)
+  kodem 422 `SCREENING_FORM_INVALID`. Pominięcie zapisane wcześniej w arkuszu pary przechodzi przy
+  ponownym zapisie. Powód: audyt 13.10 pokazał zapis samych `skipped` z pominięciem ekranu, który
+  spełniał bramkę „Zweryfikowany”. Bramka liczy teraz tylko odpowiedzi
+  (`move_requirements.sheet_answered`), szczegóły w „Rekrutacja bez pytań…”.
 - Wzmianki w sekcjach 0413 i 0421 o edycji karty w jej oknie, kafelkach importu notatki i `/note/apply` opisują
   stan sprzed 0424.

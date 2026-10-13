@@ -58,8 +58,10 @@ rekrutację); front `components/v2/job-ad/`, `lib/api/jobAd.ts`, karta
   komplet napisów z `render.rendered_texts`. Nowe wejście renderu = nowy
   przypadek w teście z wartownikiem (`test_job_ad_lint.py`).
   **Blokują:** nazwa klienta (także nazwa wyświetlana i prawna —
-  `job_public_profile.client_lint_names`), dane kontaktowe, nazwisko oraz
-  kwota z walutą albo stawką za jednostkę czasu. **Doradzają:** liczba przy
+  `job_public_profile.client_lint_names`), dane kontaktowe, nazwisko,
+  kwota z walutą albo stawką za jednostkę czasu oraz liczba przy słowie
+  „budżet”, „widełki”, „wynagrodzenie”, „salary”, „pensja”, „zarobki”
+  (od 14.10.2026, niżej). **Doradzają:** liczba przy
   słowie „stawka”/„rate” bez waluty („rate limiting … Java 17”), adres strony
   bez „www”, nagłówki wewnętrznego formularza, liczby MD, numer zlecenia,
   wymaganie w jednym–dwóch słowach, brak startu, długości albo sekcji.
@@ -168,3 +170,34 @@ rekrutację); front `components/v2/job-ad/`, `lib/api/jobAd.ts`, karta
   wyświetlana i prawna klienta (`client_lint_names`) działa tylko
   w ogłoszeniu: na stronie kariery obróciłaby adresy `/r/<slug>` rozesłanych
   już linków i zaczęła odmawiać zatwierdzonym opisom — to osobna decyzja.
+
+## Poprawki po audycie 13.10.2026 (14.10.2026)
+
+- **Liczba przy słowie o wynagrodzeniu blokuje kopiowanie** (decyzja Artura
+  „A”). „Budżet klienta: 25 000”, „Widełki 20–25k”, „Wynagrodzenie do
+  18000”, „Salary up to 25k” bez waluty dawały tylko uwagę, a strona kariery
+  to samo zdanie blokowała. Wzorzec jest jeden:
+  `public_profile_lint.PAY_WORD_MONEY_PATTERN` (te słowa plus „pensja”
+  i „zarobki”, liczba z co najmniej dwiema cyframi do pięciu słów dalej),
+  a `job_ad/lint.py` traktuje jego trafienie jak pewną kwotę. Liczba przy
+  „stawka”/„rate” zostaje uwagą. Koszt świadomy: „moduł wynagrodzeń dla
+  10 tys. pracowników” też blokuje — komunikat dopowiada wtedy „Jeśli to nie
+  kwota, napisz zdanie bez liczby przy tym słowie”. Angielskie „budget”,
+  „pay” i „compensation” nie są na liście.
+- **Numer punktu nie zjada liczby.** `generate._BULLET` zdejmuje „1.” i „2)”
+  tylko wtedy, gdy nie stoi za nimi cyfra. Wcześniej „3.5 roku” zapisywało
+  się jako „5 roku”, „2.5+ years” jako „5+ years”, „10.000” jako „000” —
+  także przy ręcznej poprawce, bo `PUT` czyści treść tą samą funkcją.
+- **Istniejące ogłoszenie zastępuje się tylko z wersją z ekranu.**
+  `POST …/generate` bez `expected_updated_at` przy istniejącym ogłoszeniu =
+  409 `job_ad_changed` („Ktoś w międzyczasie przygotował to ogłoszenie…”),
+  zanim zawoła model. Okno, które nie widziało ogłoszenia, wysyła przy
+  pierwszym „Przygotuj” pustą wersję; serwer nadpisywał wtedy treść
+  poprawioną przez drugą osobę. Okno po 409 wczytuje ogłoszenie (test
+  `fix48-ws09-first-prepare-conflict`). `PUT` bez wersji nadal przechodzi —
+  edytować da się tylko ogłoszenie, które okno ma na ekranie.
+- **Rekrutacji z ogłoszeniem oznaczonym jako wiszące nie da się usunąć.**
+  `DELETE /api/jobs/{id}` przy aktywnym wierszu `job_ad_publications`
+  (`removed_at IS NULL`) = 409 `job_has_ad_on_portal` z listą `portals`.
+  Kaskada kasowała jedyny ślad, gdzie wisi ogłoszenie, którego NEXUS nie
+  zdejmie. Po „Zdjęte z portalu” rekrutację da się usunąć.

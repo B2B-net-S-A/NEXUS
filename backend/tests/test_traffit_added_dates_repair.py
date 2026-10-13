@@ -168,7 +168,10 @@ async def _fixture(db) -> SimpleNamespace:
     await _reset(db)
     traffit = _FakeTraffit(
         [
-            [{"id": int(e1), "created_at": SUMMER}, {"id": int(e3), "created_at": WINTER}],
+            [
+                {"id": int(e1), "created_at": SUMMER},
+                {"id": int(e3), "created_at": WINTER},
+            ],
             [{"id": int(e2), "created_at": WINTER}],
         ]
     )
@@ -194,7 +197,10 @@ async def test_dry_run_writes_nothing_and_reports(db) -> None:
         "before": None,
         "after": SUMMER_UTC.isoformat(),
     }
-    assert report["dates"] == {"min": SUMMER_UTC.isoformat(), "max": WINTER_UTC.isoformat()}
+    assert report["dates"] == {
+        "min": SUMMER_UTC.isoformat(),
+        "max": WINTER_UTC.isoformat(),
+    }
     # Próba nie przesuwa kursora zapisu.
     state = await repair._read_setting(db, repair.STATE_KEY)
     assert state["after_page"] == 0
@@ -279,6 +285,8 @@ async def test_dry_run_freshness_expires(db) -> None:
 async def test_apply_without_a_dry_run_is_refused(
     app_client, app_auth_headers, monkeypatch
 ) -> None:
+    """Od 14.10.2026 Traffit jest wyłączony na stałe — trasa odmawia 410,
+    zanim sprawdzi przebieg próbny (`services/traffit_retired.py`)."""
     from app.core.database import AsyncSessionLocal
 
     monkeypatch.setenv("TRAFFIT_TENANT", "test")
@@ -293,5 +301,7 @@ async def test_apply_without_a_dry_run_is_refused(
     resp = await app_client.post(
         "/api/admin/traffit/added-dates-repair?dry_run=false", headers=app_auth_headers
     )
-    assert resp.status_code == 409, resp.text
-    assert "przebieg próbny" in resp.json()["detail"]
+    assert resp.status_code == 410, resp.text
+    assert resp.json()["detail"] == (
+        "Traffit jest wyłączony od 14.10.2026 — NEXUS nie importuje już danych z Traffita."
+    )

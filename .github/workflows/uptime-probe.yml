@@ -288,7 +288,9 @@ jobs:
           # `configured` to zdrowa wartość checku `anthropic` (mapa
           # {"ok": "configured"} w app/main.py) — bez tego wyjątku ostrzeżenie
           # wisiałoby stale przy poprawnie skonfigurowanym kluczu.
-          ALLOWLIST='{"autenti":["unconfigured"],"priority_work":["disabled"],"notification_email_policy":["disabled"]}'
+          # `traffit=disabled` od 14.10.2026: Traffit wyłączony na stałe w kodzie
+          # (`app/services/traffit_retired.py`), stan oczekiwany, nie awaria.
+          ALLOWLIST='{"autenti":["unconfigured"],"priority_work":["disabled"],"notification_email_policy":["disabled"],"traffit":["disabled"]}'
           classified=$(printf '%s' "$body" | jq -r --argjson allow "$ALLOWLIST" '
             .checks
             | to_entries

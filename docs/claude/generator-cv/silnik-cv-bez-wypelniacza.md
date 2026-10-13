@@ -105,4 +105,60 @@ Dotyczy ścieżki produkcyjnej `legacy_v7` (domyślnej). Kod v10 bez zmian.
 - `PROMPT_VERSION = 8` w `legacy_v7/pipeline.py` (`editorial_provenance`).
 - Testy: `test_cv_generator_legacy_v7.py` (sekcja „Silnik bez wypełniacza”),
   `test_cv_role_title.py`, `test_money_text.py`,
-  `test_cv_screening_source_integrity.py`, `test_cv_factual_verification.py`.
+  `test_cv_screening_source_integrity.py`, `test_cv_factual_verification.py`,
+  `test_fix48_ws04_*.py` (poprawki z 14.10.2026).
+
+## Poprawki po audycie 13.10.2026 (14.10.2026)
+
+Audyt pokazał, że stawki dalej docierały do modelu, strażnik wycinał
+prawdziwe umiejętności, a kontrola po edycji czytała pytania jak fakty.
+Obowiązuje:
+
+- **Kwota bez waluty to też stawka** (`money_text`): liczba zaraz po słowie
+  o pieniądzach („stawka 150 B2B”, „o stawce 150-160”, „rate 140”,
+  „Wynagrodzenie: 18 000”, „zarabia 18k”, „Widełki 20-25k”), kwota, której
+  kandydat chce („chce 22k”, „chce 150 na B2B”), i liczba przy formie umowy
+  („150 B2B”). `is_rate_text` liczy je jako stawkę (licznik w karcie „CV do
+  klienta”). `MONEY_RE` i `RATE_WORD_RE` dla QC bez zmian. Zostają: „success
+  rate 95%”, „rate limiting 1000 req/s”, „Pracuje od 3 lat na B2B”.
+- **Dostępność tylko z czasem albo z kandydatem jako podmiotem**: „dostępny
+  od zaraz / od 1.11 / za 2 tygodnie / 06.03.2023”, „Kandydat jest dostępny”,
+  „Notice: 1 month”, „1 month notice”, „Can start in 2 weeks”, „Start: od
+  1.11”, „start ASAP”, „Gotowy do startu od listopada”, „Może zacząć…”.
+  Gołe „jest dostępny” i liczba bez daty już nie wystarczają, więc zostają
+  fakty o systemach: „dostępność 99,95%”, „System jest dostępny 24/7”,
+  „API … jest dostępne publicznie”. „Prowadził projekt wart 5 mln PLN” to
+  wartość projektu, jak budżet.
+- **Filtr stoi na każdej drodze do modelu**: odpowiedzi ze screeningu
+  (`_format_candidate_answers` — odpowiedź pusta po filtrze znika razem
+  z pytaniem), notatka ze screeningu (`_format_screening_note`, pole po
+  polu, więc „Kafka (senior)” zostaje bez „rate 140”), a w
+  `legacy_v7.pipeline` jeszcze raz cały tekst notatek — notatki wpisane
+  w formularzu generacji (upload, CV bez procesu) nie przechodzą przez
+  kolektor. Hash notatek w migawce i `editorial_provenance` liczy się
+  z wejścia.
+- **Pytanie z zapisanej treści**: `P:` przy odpowiedzi bierze
+  `question_text` zapisane przy odpowiedzi (jak przegląd DL), bo `q1…qN` są
+  pozycyjne i po edycji profilu Championa wskazują inne pytanie. Bieżący
+  profil tylko dla arkuszy sprzed 02.10.2026, które tej treści nie mają.
+- **Strażnik terminów — skrót = pełna nazwa** (`_PHRASE_ALIASES`): AWS ↔
+  Amazon Web Services, GCP ↔ Google Cloud (Platform), CI/CD ↔ continuous
+  integration/delivery i „ciągła integracja/wdrażanie”, TDD, OOP
+  („programowanie obiektowe”), ML („uczenie maszynowe”), AI, IaC, DDD, BDD,
+  NLP, LLM — w obie strony.
+- **Strażnik terminów — zwykłe słowa a język CV**: termin ze zwykłych słów
+  („Code review”, „Testy automatyczne”, „Project management”; rozpoznany po
+  ogonkach, końcówkach i krótkiej liście słów) znika tylko wtedy, gdy CV
+  źródłowe, wynikowe CV i termin są w tym samym języku. Inaczej (albo gdy
+  języka CV nie da się ustalić) termin zostaje z uwagą „WERYFIKUJ: nie ma
+  tego dosłownie w CV… sprawdź, czy kandydat to ma”. Nazwa technologii
+  („OpenTelemetry”, „Spring Boot”, „Kafka Connect SMT”) nie ma tłumaczenia,
+  więc znika jak dotąd, w każdym języku. Synonimy w tym samym języku
+  („automated testing” ↔ „Test automation”) strażnik nadal może usunąć —
+  uwaga „usunięto…” to pokazuje.
+- **Kontrola po ręcznej edycji bez pytań**: `cv_review_sources` podaje
+  recenzentowi zamrożone notatki bez linii `P:` (`screening_text_without_questions`),
+  tak samo jak kontrola przy generacji.
+- **Lata**: połowa roku w górę (54 miesiące = 5 lat; `round()` dawał 4),
+  a ułamek modelu zgodny z datami po zaokrągleniu zostaje („4,5 roku
+  doświadczenia”, „4,5 roku w Acme”).

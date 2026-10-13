@@ -75,7 +75,9 @@ class EmploymentMarkerClient(BaseModel):
     client_name: Optional[str] = None
     contract_id: Optional[int] = None
     phase: EmploymentPhase
-    # Koniec łańcucha zamówień bez kontynuacji; None = bez daty końca.
+    # Koniec pracy u klienta: koniec łańcucha zamówień bez kontynuacji albo
+    # wcześniejsza data końca umowy (14.10.2026); może być w przeszłości;
+    # None = bez daty końca.
     order_end_date: Optional[date] = None
     # Tylko faza `starting`: umowa podpisana, start w przyszłości.
     starts_on: Optional[date] = None

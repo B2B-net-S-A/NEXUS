@@ -42,6 +42,9 @@ _SCOPED_MODULES = {
     "app.api.candidate_stage_cv",  # CV snapshot + branded CV + share tokens
     # Podgląd importu Worda w edytorze CV etapu (trasa z limitem → osobny moduł).
     "app.api.cv_editor_import",
+    # AI w edytorze CV etapu (zaznaczenie, polecenie): CV pary i płatny model.
+    # Poza listą do 14.10.2026 — trasy miały bramkę, ale nowa przeszłaby bez niej.
+    "app.api.cv_editor_ai",
     "app.api.interview_feedback",  # candidate assessments per job
     "app.api.hiring_manager_feedback",  # werdykty HM per job (te same dane co wyżej)
     "app.api.application_submissions",  # parked applications w/ candidate PII

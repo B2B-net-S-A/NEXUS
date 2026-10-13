@@ -486,13 +486,21 @@ async def my_league(
         else CompetitionType.quarterly_champions_recruiter
     )
     today = business_today()
+    quarter = comp_service.current_quarter_period(today)
+
+    async def ranking() -> dict:
+        # Wpis `/current` bez okresu żyje 60 s, więc tuż po starcie kwartału
+        # niesie jeszcze stary — pod kluczem nowego kwartału zostałby 5 minut.
+        # Wtedy liczymy okres z klucza (audyt 48 h, 13.10.2026).
+        current = await _cached_current(db, ctype, None)
+        if current.get("period") != quarter:
+            current = await _cached_current(db, ctype, quarter)
+        return current
+
     # Okres w kluczu: po starcie kwartału wpis paska nie podaje starego kwartału
     # obok dni nowego.
     current = await _topbar_cached(
-        f"{_CACHE_PREFIX}topbar:{ctype.value}:"
-        f"{comp_service.current_quarter_period(today)}",
-        lambda: _cached_current(db, ctype, None),
-        db,
+        f"{_CACHE_PREFIX}topbar:{ctype.value}:{quarter}", ranking, db
     )
     period = current["period"]
     rows = current["full_ranking"]

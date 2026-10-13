@@ -33,6 +33,7 @@ from app.services.candidate_rate_change import (
     NOTIFY_COLUMNS,
     format_rate,
 )
+from app.services.move_requirements import answer_has_content
 from app.services.recommendation_card_rules import (
     CARD_ORIGINS,
     DISPLAY_LABELS,
@@ -139,12 +140,26 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
-def answer_has_content(item: Mapping[str, Any]) -> bool:
-    return (
-        bool(_text(item.get("response")))
-        or bool(item.get("skipped"))
-        or bool(item.get("deal_breaker_hit"))
-    )
+def skips_need_reason(answers: Sequence[Any], previous: Any) -> bool:
+    """Czy zapis pomija pytania („Pomiń brakujące”) bez wcześniejszej zgody.
+
+    Pominięcie wymaga powodu (`screening_reassign.skip_missing_reason`) —
+    do 14.10.2026 pilnował tego tylko ekran (audyt 13.10.2026, pkt 6).
+    Arkusz pary, który ma już pominięte pytania, przechodzi bez ponownego
+    sprawdzenia: formularz przywraca zaznaczenie z zapisu, a powód (np.
+    przepięcie) mógł od tamtej pory zniknąć. Przyjmuje odpowiedzi
+    z formularza (model) i ze starej trasy arkusza (słownik).
+    """
+
+    def skipped(item: Any) -> bool:
+        if isinstance(item, Mapping):
+            return bool(item.get("skipped"))
+        return bool(getattr(item, "skipped", False))
+
+    if not any(skipped(item) for item in answers):
+        return False
+    earlier = (_as_dict(previous) or {}).get("answers")
+    return not (isinstance(earlier, list) and any(skipped(item) for item in earlier))
 
 
 def _check_has_content(item: Mapping[str, Any]) -> bool:
@@ -157,8 +172,10 @@ def sheet_has_content(sheet: Any) -> bool:
     """Czy arkusz niesie cokolwiek z rozmowy — odpowiedź albo sprawdzenie.
 
     Pusty arkusz (same puste odpowiedzi) nie jest zapisywany: ``sheet_filled``
-    liczy każdą pozycję odpowiedzi, więc spełniłby bramkę „Zweryfikowany”.
-    Sama ocena i stara notatka z arkusza to nie rozmowa.
+    liczy każdą pozycję odpowiedzi. Sama ocena i stara notatka z arkusza to
+    nie rozmowa. Arkusz z samym sprawdzeniem doświadczenia zapisuje się, ale
+    bramka „Zweryfikowany” liczy tylko odpowiedzi
+    (``move_requirements.sheet_answered``, od 14.10.2026).
     """
     data = _as_dict(sheet)
     if not data:

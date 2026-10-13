@@ -1306,13 +1306,16 @@ async def preview_document(data, filename, *, db=None, model=None, max_text=None
 
 def _without_search_rows(section, value):
     """Sekcja bez pól, które nie zmieniają profilu roli: wiersze wyszukiwania
-    (sekcja 2) i umiejętności krytyczne (sekcja 3, 30.09.2026)."""
+    (sekcja 2), umiejętności krytyczne (sekcja 3, 30.09.2026) i lista
+    „Rekruter sprawdza w rozmowie” (`experience.skills`, 14.10.2026)."""
     from app.services.champion_view import without_critical, without_search_rows
 
     if section == "search":
         return without_search_rows(value)
     if section == "stack":
         return without_critical(value)
+    if section == "experience" and isinstance(value, dict) and "skills" in value:
+        return {k: v for k, v in value.items() if k != "skills"}
     return value
 
 
@@ -1378,6 +1381,9 @@ def user_edit(old, patch, actor_id, *, imported=False, actor_name=None):
     # unieważniałoby pełny przegląd bazy (409) — a żadne z nich nie zmienia
     # tego, kogo szukają automaty. Walidacja normalizuje wiersze, więc pusty
     # wiersz z edytora daje profil równy zapisanemu (bez zmiany).
+    # Tak samo lista „Rekruter sprawdza w rozmowie” (reguła „Dwie listy
+    # wymagań”: jej edycja nie odpala przeliczeń) — audyt 13.10.2026 pokazał,
+    # że przestemplowany `intake` odpalał przeliczenie i auto-match.
     if (
         not imported
         and old
@@ -1387,6 +1393,17 @@ def user_edit(old, patch, actor_id, *, imported=False, actor_name=None):
             if k != "insights"
         )
     ):
+        experience = merged.get("experience")
+        if isinstance(experience, dict) and experience.get("skills") != (
+            normalized.get("experience") or {}
+        ).get("skills"):
+            # Ta sama normalizacja co w `prepare_profile` (limit 20, 160 znaków).
+            merged["experience"] = {
+                **experience,
+                "skills": normalize_experience_items(
+                    experience.get("skills"), with_years=False
+                ),
+            }
         edited = ChampionProfile.model_validate(merged).model_dump(mode="json")
         return normalized if edited == normalized else edited
     if imported:

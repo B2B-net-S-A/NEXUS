@@ -11,7 +11,9 @@ z Ustawień i na końcu komplet napisów z ``render.rendered_texts``.
 * **Blokują** — reguły strony kariery (``public_profile_lint``, jedno
   źródło dla obu miejsc): nazwa klienta, nazwisko, dane kontaktowe (e-mail,
   także zapisany jako „jan [at] firma”, telefon, link) oraz kwota z walutą
-  albo stawką, także słownie („200 złotych”, „30 tys. netto”).
+  albo stawką, także słownie („200 złotych”, „30 tys. netto”), i liczba przy
+  słowie o wynagrodzeniu („widełki 20–25k”, „budżet: 25 000”; decyzja Artura
+  14.10.2026).
 * **Doradzają** — tylko tutaj, bo strona kariery nie ma poziomu „uwaga”:
   liczba przy słowie „stawka”/„rate” bez waluty (bywa „rate limiting …
   Java 17”), adres strony bez „www” i wzorce z pomiaru naszych ogłoszeń
@@ -20,8 +22,8 @@ z Ustawień i na końcu komplet napisów z ``render.rendered_texts``.
   pusty start, długość albo sekcja.
 
 O tym, czy kwota blokuje, decydują TE SAME wzorce, którymi znalazła ją
-strona kariery (``CERTAIN_MONEY_PATTERNS``) — własna, węższa kopia
-przepuszczała „15 tysięcy zł” i „180/godzinę” jako uwagę.
+strona kariery (``CERTAIN_MONEY_PATTERNS`` i ``PAY_WORD_MONEY_PATTERN``) —
+własna, węższa kopia przepuszczała „15 tysięcy zł” i „180/godzinę” jako uwagę.
 
 Każdy tekst jest przed porównaniem sprowadzany do postaci bez znaków
 niewidocznych (``public_profile_lint.for_lint``): nazwa klienta z miękkim
@@ -42,6 +44,7 @@ from app.services.public_profile_lint import (
     CODE_CONTACT,
     CODE_MONEY,
     CODE_PERSON,
+    PAY_WORD_MONEY_PATTERN,
     for_lint,
     lint_public_texts,
 )
@@ -81,6 +84,9 @@ _POSSIBLE_MONEY_MESSAGE = (
     "Sprawdź, czy to nie kwota: „{excerpt}”. Widełki podajesz tylko w polu "
     "wynagrodzenia portalu."
 )
+# Liczba przy słowie o wynagrodzeniu bez waluty bywa czym innym („moduł
+# wynagrodzeń dla 10 tys. pracowników”) — rekruter musi wiedzieć, jak wyjść.
+_PAY_WORD_HINT = " Jeśli to nie kwota, napisz zdanie bez liczby przy tym słowie."
 _WHERE_TO_FIX = {
     FIELD_TERMS: " To pole idzie z rekrutacji — popraw miasto w Profilu Championa.",
     FIELD_FIXED: (
@@ -194,7 +200,10 @@ def _from_public_lint(
         texts, client_names=client_names, person_names=person_names
     ):
         where = _WHERE_TO_FIX.get(field or "", "")
-        if found.code == CODE_MONEY and not _certain_money(found.excerpt):
+        money = found.code == CODE_MONEY
+        certain = money and _certain_money(found.excerpt)
+        pay_word = money and not certain and _pay_word(found.excerpt)
+        if money and not (certain or pay_word):
             out.append(
                 AdFinding(
                     code=CODE_POSSIBLE_MONEY,
@@ -211,6 +220,7 @@ def _from_public_lint(
                 code=found.code,
                 severity=SEVERITY_BLOCK,
                 message=_BLOCK_MESSAGES[found.code].format(excerpt=found.excerpt)
+                + (_PAY_WORD_HINT if pay_word else "")
                 + where,
                 excerpt=found.excerpt,
                 field=field,
@@ -224,6 +234,13 @@ def _certain_money(excerpt: str) -> bool:
     w ``lint_public_texts`` przed wzorcem „stawka N” — więc pewna kwota
     w zdaniu zawsze jest w wycinku."""
     return any(pattern.search(excerpt) for pattern in CERTAIN_MONEY_PATTERNS)
+
+
+def _pay_word(excerpt: str) -> bool:
+    """Liczba przy „budżet / widełki / wynagrodzenie / salary / pensja /
+    zarobki” blokuje jak na stronie kariery (decyzja Artura 14.10.2026).
+    Ten wzorzec też idzie przed „stawka N”, więc trafienie jest w wycinku."""
+    return PAY_WORD_MONEY_PATTERN.search(excerpt) is not None
 
 
 def _advice(field: str, texts: list[str]) -> list[AdFinding]:

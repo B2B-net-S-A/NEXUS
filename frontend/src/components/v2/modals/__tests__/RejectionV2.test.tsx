@@ -500,3 +500,27 @@ describe("RejectionV2 — podgląd maila odrzucenia (13.10.2026)", () => {
     expect(onConfirm.mock.calls[0][7]).toBeNull();
   });
 });
+
+// Audyt 13.10.2026: w formularzu screeningu „Potwierdź” dawało się kliknąć
+// drugi raz w trakcie zapisu — drugi ruch szedł już przy następnej osobie.
+describe("RejectionV2 — zapis w toku", () => {
+  it("„Potwierdź” jest zablokowany, dopóki trwa zapis, i drugi klik nic nie wysyła", () => {
+    const onConfirm = vi.fn();
+    renderUi(
+      <RejectionV2
+        open
+        onOpenChange={() => {}}
+        terminalType="rejected"
+        reasons={reasons}
+        previousStageCategory="internal"
+        onConfirm={onConfirm}
+        pending
+      />,
+    );
+    fireEvent.click(screen.getByText("Za wysoka stawka"));
+    const confirm = screen.getByRole("button", { name: "Potwierdź" });
+    expect(confirm).toBeDisabled();
+    fireEvent.click(confirm);
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+});

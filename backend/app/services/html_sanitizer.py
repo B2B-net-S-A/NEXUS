@@ -123,6 +123,20 @@ def _fetches(tokens) -> bool:
     return False
 
 
+def _broken(tokens) -> bool:
+    """Wartość z błędem parsera w środku (urwany napis, ``f('abc``)."""
+    for token in tokens:
+        if token.type == "error":
+            return True
+        if token.type == "function" and _broken(token.arguments):
+            return True
+        if token.type in ("() block", "[] block", "{} block") and _broken(
+            token.content
+        ):
+            return True
+    return False
+
+
 class _NoFetchCSSSanitizer(CSSSanitizer):
     """Allowlista własności + odrzucenie deklaracji, które pobierają zasób.
 
@@ -133,13 +147,18 @@ class _NoFetchCSSSanitizer(CSSSanitizer):
     def sanitize_css(self, style):
         # Token błędu (urwane ``font-size``, zbłąkany nawias) nie daje się
         # zserializować — do 12.10.2026 kończył zapis CV wyjątkiem. Zła
-        # deklaracja znika, reszta stylu zostaje.
+        # deklaracja znika, reszta stylu zostaje. Błąd W wartości (urwany
+        # napis ``font-size: 'abc``) wracał bez cudzysłowu i rósł o średniki
+        # przy każdym zapisie (audyt 13.10.2026) — taka deklaracja też znika.
         try:
             kept = [
                 token
                 for token in tinycss2.parse_declaration_list(style)
                 if token.type != "error"
-                and not (token.type == "declaration" and _fetches(token.value))
+                and not (
+                    token.type == "declaration"
+                    and (_fetches(token.value) or _broken(token.value))
+                )
             ]
             return super().sanitize_css(tinycss2.serialize(kept))
         except RecursionError:

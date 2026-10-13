@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import date
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -220,11 +221,66 @@ async def test_topbar_keeps_the_ranking_longer_than_current(
     assert competitions.compute_live.await_count == 1
 
 
-async def test_freeze_clears_the_topbar_entries(league) -> None:
-    await competitions_api.my_league(_user(14, UserRole.recruiter), None)
-    assert any(k.startswith("competitions:topbar:") for k in cache_module._cache)
-    await cache_module.cache_invalidate(competitions_api._CACHE_PREFIX)
+async def test_freeze_clears_the_topbar_entries(league, monkeypatch) -> None:
+    # Trasy zamrożenia i remisu same czyszczą wpisy paska — test woła trasę,
+    # nie `cache_invalidate` (audyt 48 h: dawny test nie sprawdzał trasy).
+    monkeypatch.setattr(
+        competitions,
+        "freeze_competition",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                saved_count=3, already_frozen=False, closure_status="frozen"
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        competitions, "resolve_competition_tie", AsyncMock(return_value={"ok": True})
+    )
+    admin = _user(1, UserRole.admin)
+    recruiters = CompetitionType.quarterly_champions_recruiter.value
+
+    async def topbar_entries() -> list[str]:
+        await competitions_api.my_league(_user(14, UserRole.recruiter), None)
+        await competitions_api.my_league(_user(21, UserRole.delivery_lead), None)
+        return [k for k in cache_module._cache if k.startswith("competitions:")]
+
+    assert any(k.startswith("competitions:topbar:") for k in await topbar_entries())
+    assert any(k.startswith("competitions:dl-counts:") for k in cache_module._cache)
+    await competitions_api.freeze(admin, None, type=recruiters, period="Q3 2026")
     assert not any(k.startswith("competitions:") for k in cache_module._cache)
+
+    assert await topbar_entries()
+    await competitions_api.resolve_tie(
+        recruiters,
+        "Q3 2026",
+        competitions_api.ResolveTieRequest(user_ids=[11, 12]),
+        admin,
+        None,
+    )
+    assert not any(k.startswith("competitions:") for k in cache_module._cache)
+
+
+async def test_topbar_does_not_take_last_quarter_from_current_after_the_turn(
+    league, monkeypatch
+) -> None:
+    # Wpis `/current` bez okresu (60 s) policzony przed północą 30.09 niesie
+    # ranking Q3. Pierwszy pasek w Q4 nie może go zapisać pod kluczem Q4 na
+    # 5 minut (audyt 48 h, 13.10.2026).
+    stale = {
+        "period": "Q3 2026",
+        "full_ranking": [],
+        "ties": None,
+    }
+    await cache_module.cache_set(
+        "competitions:current:quarterly_champions_recruiter:", stale, ttl_seconds=60
+    )
+    data = await competitions_api.my_league(_user(14, UserRole.recruiter), None)
+    assert data["period"] == PERIOD
+    assert data["standing"]["rank"] == 4
+    topbar = await cache_module.cache_get(
+        f"competitions:topbar:quarterly_champions_recruiter:{PERIOD}"
+    )
+    assert topbar["period"] == PERIOD
 
 
 async def test_tie_on_the_podium_reaches_both_people(league, monkeypatch) -> None:

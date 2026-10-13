@@ -793,7 +793,10 @@ async def save_champion_core(
         previous_rows=old_stack.get("rows") if isinstance(old_stack, dict) else None,
         previous_experience=old_profile.get("experience"),
         previous_language=(old_profile.get("basics") or {}).get("language"),
-        keep_required=bool(getattr(job, "is_open", False)),
+        # Ten sam warunek co ochrona przed nowym brakiem (`published`, nie
+        # `is_open`): rekrutacja z Traffita bez przekazania traciła ostatni
+        # wiersz i dostawała 422 `handoff_regression` (audyt 13.10.2026).
+        keep_required=baseline is not None,
     )
     if talk_notices:
         effects.results["notices"] = [

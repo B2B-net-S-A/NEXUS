@@ -9,7 +9,10 @@ chwilach, w których sprawa przestaje być wewnętrzna:
   (raz na parę osoba–rekrutacja, żeby cofnięcie i ponowne wysłanie nie
   dzwoniło drugi raz),
 * osoba zostaje **zatrudniona** w rekrutacji u innego klienta — z odpowiedzią
-  rekrutera na pytanie „Co z obecną współpracą?" z okna zatrudnienia.
+  rekrutera na pytanie „Co z obecną współpracą?" z okna zatrudnienia. Też raz
+  na parę (od 14.10.2026, audyt 13.10): cofnięcie z „Zatrudniony” i ponowne
+  zatrudnienie dzwoniło drugi raz. Wcześniejszy dzwonek o „CV wysłane” go
+  nie zastępuje.
 
 Samo dodanie do rekrutacji nie dzwoni. Dzwonek niczego nie zmienia w umowach
 ani zamówieniach — zakończenie współpracy dalej zaczyna się w oknie
@@ -32,7 +35,7 @@ import logging
 from collections import defaultdict
 from typing import Literal, Optional
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import business_today
@@ -40,8 +43,8 @@ from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.job import Job
 from app.models.notification import Notification, NotificationType
-from app.models.pipeline_template import PipelineStageDef
-from app.models.recruitment_pipeline import CandidateStage
+from app.models.pipeline_template import PipelineStageDef, TerminalType
+from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User
 from app.schemas.candidate import EmploymentMarker, EmploymentMarkerClient
 from app.services.board_stage_badges import board_column_for
@@ -202,10 +205,15 @@ async def _stage_event_for(
 
 
 async def _already_rang_for_pair(
-    db: AsyncSession, *, candidate_id: int, job_id: int
+    db: AsyncSession, *, candidate_id: int, job_id: int, event: StageEvent
 ) -> set[int]:
-    """Odbiorcy, którzy dostali już ten dzwonek dla tej pary osoba–rekrutacja."""
-    rows = await db.execute(
+    """Odbiorcy, którzy dostali już ten dzwonek dla tej pary osoba–rekrutacja.
+
+    Przy zatrudnieniu liczy się tylko dzwonek o zatrudnieniu (wiersz etapu
+    „Zatrudniony”, ta sama definicja co w :func:`stage_event`) — dzwonek
+    o „CV wysłane” nie niesie odpowiedzi „Co z obecną współpracą?”.
+    """
+    stmt = (
         select(Notification.user_id)
         .join(CandidateStage, CandidateStage.id == Notification.related_entity_id)
         .where(
@@ -215,6 +223,16 @@ async def _already_rang_for_pair(
             CandidateStage.job_id == job_id,
         )
     )
+    if event == EVENT_HIRED:
+        stmt = stmt.outerjoin(
+            PipelineStageDef, PipelineStageDef.id == CandidateStage.stage_def_id
+        ).where(
+            or_(
+                CandidateStage.stage == PipelineStage.hired,
+                PipelineStageDef.terminal_type == TerminalType.hired,
+            )
+        )
+    rows = await db.execute(stmt)
     return set(rows.scalars().all())
 
 
@@ -309,9 +327,9 @@ async def _notify(
             by_recipient[user_id].append(client)
     if mover is not None:
         by_recipient.pop(mover.id, None)
-    if event == EVENT_CV_SENT and by_recipient:
+    if by_recipient:
         for user_id in await _already_rang_for_pair(
-            db, candidate_id=candidate.id, job_id=job.id
+            db, candidate_id=candidate.id, job_id=job.id, event=event
         ):
             by_recipient.pop(user_id, None)
     if not by_recipient:

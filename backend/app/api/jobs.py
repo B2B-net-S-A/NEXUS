@@ -2890,6 +2890,31 @@ async def delete_job(
                     "jest opublikowana na zewnątrz.",
                 },
             )
+        # 0432: ogłoszenie wklejone ręcznie też wisi na portalu, a NEXUS go nie
+        # zdejmie. Kaskada kasowała jedyny ślad, gdzie wisi (audyt 13.10.2026).
+        from app.models.job_ad_publication import JobAdPublication  # noqa: PLC0415
+
+        ad_portals = sorted(
+            (
+                await db.scalars(
+                    select(JobAdPublication.portal).where(
+                        JobAdPublication.job_id == job_id,
+                        JobAdPublication.removed_at.is_(None),
+                    )
+                )
+            ).all()
+        )
+        if ad_portals:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "job_has_ad_on_portal",
+                    "portals": ad_portals,
+                    "message": "Ogłoszenie tej rekrutacji wisi na portalu. Zdejmij "
+                    "je z portalu i oznacz „Zdjęte z portalu” w oknie „Ogłoszenie "
+                    "na portale” — dopiero wtedy usuń rekrutację.",
+                },
+            )
         process_rows = int(
             await db.scalar(
                 select(func.count(RecruitmentProcess.id)).where(
@@ -3108,9 +3133,11 @@ async def set_job_managed_in_nexus(
     z poprzednią wartością, a formularz edycji nie może przełączyć „przy okazji".
     Idempotentna. Włącza każdy członek zespołu rekrutacji (``RecruiterPlus``
     + ``ensure_job_membership``; od 23.09.2026 bez wymogu roli TAC).
-    Wyłączenie tylko z uprawnieniem „Rekrutacje: zakładanie, zamykanie,
-    wysyłka CV do klienta” (domyślnie admin i Delivery Lead) — powrót do
-    Traffita oznacza, że najbliższy import nadpisze ruchy zrobione w NEXUSIE.
+    Wyłączenie („Wróć do Traffita”) od 14.10.2026 odpowiada 410: Traffit jest
+    wyłączony na stałe (``services/traffit_retired.py``), więc nie ma importu,
+    któremu można oddać rekrutację. Bramka uprawnienia „Rekrutacje: zakładanie,
+    zamykanie, wysyłka CV do klienta” zostaje przed 410 — kto go nie ma,
+    dostaje odmowę, która je nazywa.
 
     Członkostwo sprawdzane PO odczycie oferty: `ensure_job_membership` na
     nieistniejącej ofercie daje osobie spoza ról nadzoru 403, a nie 404.
@@ -3134,6 +3161,15 @@ async def set_job_managed_in_nexus(
         # Powrót do Traffita to decyzja o cyklu życia rekrutacji — to samo
         # uprawnienie co jej zamknięcie (odmowa nazywa je).
         ensure_permission(current_user, ProductAction.recruitment_manage)
+        # Od 14.10.2026 Traffit jest wyłączony (decyzja Artura) — przed
+        # jakimkolwiek zapisem, także gdy przełącznik już był wyłączony.
+        raise HTTPException(
+            status_code=410,
+            detail=(
+                "Traffit jest wyłączony od 14.10.2026 — rekrutacja zostaje "
+                "prowadzona w NEXUSIE."
+            ),
+        )
     previous = bool(job.managed_in_nexus)
     if previous != data.enabled:
         job.managed_in_nexus = data.enabled

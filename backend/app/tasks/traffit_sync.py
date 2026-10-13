@@ -19,6 +19,11 @@ a multi-hour import on each deploy.
 
 Kill-switch: ``settings.TRAFFIT_SYNC_ENABLED`` (default False). The loop exits
 immediately when off; secrets missing → loop idles and re-checks.
+
+Od 14.10.2026 Traffit jest wyłączony na stałe (decyzja Artura,
+``app/services/traffit_retired.py``): pętla kończy się przed pierwszym
+odczekaniem bez względu na flagę, a trasa admina odpowiada 410. Reszta modułu
+zostaje jako historia importu i dla testów jego zachowania.
 """
 
 from __future__ import annotations
@@ -41,6 +46,7 @@ from app.services.traffit.importer import (
     safe_db_error,
 )
 from app.services import loop_heartbeat
+from app.services.traffit_retired import TraffitRetiredError, refuse_traffit
 
 logger = logging.getLogger(__name__)
 
@@ -1669,6 +1675,11 @@ async def run_traffit_sync(
 
 async def traffit_daily_sync_loop() -> None:
     """Periodic Traffit sync scheduler. Cancellation-aware."""
+    try:
+        refuse_traffit("traffit_daily_sync_loop")
+    except TraffitRetiredError as exc:
+        logger.info("traffit_daily_sync_loop nie startuje: %s", exc)
+        return
     if not settings.TRAFFIT_SYNC_ENABLED:
         logger.info("traffit_daily_sync_loop disabled (TRAFFIT_SYNC_ENABLED=false)")
         return

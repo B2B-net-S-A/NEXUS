@@ -631,17 +631,9 @@ async def try_create_candidate_from_cv(
         attachment.parse_error = "conflicting_identity"
         return None
     if matches:
-        candidate_id = int(matches[0]["candidate_id"])
-        if link_email:
-            _link_email(email_row, candidate_id, float(matches[0]["match_score"]), now)
-        await try_parse_cv(
-            db,
-            attachment,
-            email_row,
-            preparsed=(text, parsed),
-            candidate_id=candidate_id,
+        return await _parse_into_existing(
+            db, attachment, email_row, matches[0], (text, parsed), link_email, now
         )
-        return candidate_id
 
     from app.models.activity import Activity
 
@@ -653,8 +645,28 @@ async def try_create_candidate_from_cv(
         source="email",
         created_by=email_row.user_id,
     )
-    db.add(candidate)
-    await db.flush()
+    try:
+        # SAVEPOINT (audyt 13.10.2026): równoległy zapis tego samego adresu
+        # (`/from-cv`, drugi przebieg synchronizacji) mija sprawdzenie wyżej,
+        # a unikalny indeks wywracał wtedy całą sesję synchronizacji.
+        async with db.begin_nested():
+            db.add(candidate)
+            await db.flush()
+    except IntegrityError as exc:
+        if not (email and "email" in str(exc.orig)):
+            raise
+        matches = await find_candidate_by_email(db, email)
+        if len({int(m["candidate_id"]) for m in matches}) != 1:
+            attachment.parse_error = "conflicting_identity"
+            return None
+        logger.info(
+            "m365 attachment %s: kandydat z tym adresem zapisany równolegle — "
+            "CV idzie do jego profilu",
+            attachment.id,
+        )
+        return await _parse_into_existing(
+            db, attachment, email_row, matches[0], (text, parsed), link_email, now
+        )
     db.add(
         Activity(
             entity_type="candidate",
@@ -682,6 +694,29 @@ async def try_create_candidate_from_cv(
 
         await schedule_or_embed_candidate(candidate.id, db)
     return candidate.id
+
+
+async def _parse_into_existing(
+    db: AsyncSession,
+    attachment: EmailAttachment,
+    email_row: Email,
+    match: dict,
+    preparsed: tuple,
+    link_email: bool,
+    now,
+) -> int:
+    """CV z maila do profilu, który już ma ten adres albo ten plik."""
+    candidate_id = int(match["candidate_id"])
+    if link_email:
+        _link_email(email_row, candidate_id, float(match["match_score"]), now)
+    await try_parse_cv(
+        db,
+        attachment,
+        email_row,
+        preparsed=preparsed,
+        candidate_id=candidate_id,
+    )
+    return candidate_id
 
 
 async def try_parse_cv_by_identity(
