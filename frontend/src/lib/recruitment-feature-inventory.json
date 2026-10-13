@@ -1995,6 +1995,62 @@
    "v3_home": "„Dodaj po nazwisku”, „Kandydaci do dodania”, „Przypisz do rekrutacji”"
   },
   {
+   "id": "add.homonym-contact-line",
+   "area": "pozyskiwanie",
+   "opis": "Okno „Dodaj kandydatów do pipeline”: druga linia wiersza z telefonem, e-mailem i miastem („brak telefonu”, gdy go nie ma), żeby odróżnić imienników",
+   "file": "components/v2/modals/AddCandidatesQuickModal.tsx",
+   "marker": "brak telefonu",
+   "v3_home": "„Dodaj po nazwisku” (Dodaj kandydatów do pipeline)"
+  },
+  {
+   "id": "add.homonym-banner",
+   "area": "pozyskiwanie",
+   "opis": "Pasek „N osób o imieniu i nazwisku …”, gdy wśród wyników i osób już w rekrutacji są imiennicy",
+   "file": "components/v2/modals/AddCandidatesQuickModal.tsx",
+   "marker": "Porównaj telefon i e-mail, zanim zaznaczysz.",
+   "v3_home": "„Dodaj po nazwisku” (Dodaj kandydatów do pipeline)"
+  },
+  {
+   "id": "add.search-by-phone",
+   "area": "pozyskiwanie",
+   "opis": "Pole szuka po imieniu i nazwisku, telefonie albo e-mailu; linia „Szukam po numerze telefonu” / „po adresie e-mail” i podświetlony pasujący numer",
+   "file": "components/v2/modals/AddCandidatesQuickModal.tsx",
+   "marker": "Imię i nazwisko, telefon albo e-mail…",
+   "v3_home": "„Dodaj po nazwisku” (Dodaj kandydatów do pipeline)"
+  },
+  {
+   "id": "add.in-job-section",
+   "area": "pozyskiwanie",
+   "opis": "Sekcja „Już w tej rekrutacji” z etapem karty; przy zamkniętej karcie „Przywróć” (ruch karty, nie drugie dodanie)",
+   "file": "components/v2/modals/AddCandidatesQuickModal.tsx",
+   "marker": "Już w tej rekrutacji",
+   "v3_home": "„Dodaj po nazwisku” (Dodaj kandydatów do pipeline)"
+  },
+  {
+   "id": "add.last-recruitment",
+   "area": "pozyskiwanie",
+   "opis": "Trzecia linia wiersza: ostatnia rekrutacja osoby u nas, jej wynik i miesiąc („ostatnio 03.2026: …”) albo „jeszcze w żadnej rekrutacji”",
+   "file": "components/v2/modals/AddCandidatesQuickModal.tsx",
+   "marker": "jeszcze w żadnej rekrutacji",
+   "v3_home": "„Dodaj po nazwisku” (Dodaj kandydatów do pipeline)"
+  },
+  {
+   "id": "add.same-phone-merge",
+   "area": "pozyskiwanie",
+   "opis": "Plakietka „Ten sam telefon co …” przy możliwym duplikacie; admin i Head of Recruitment mają „Scal…” (okno scalania z profilu)",
+   "file": "components/v2/modals/AddCandidatesQuickModal.tsx",
+   "marker": "Scal…",
+   "v3_home": "„Dodaj po nazwisku” (Dodaj kandydatów do pipeline)"
+  },
+  {
+   "id": "add.profile-link",
+   "area": "pozyskiwanie",
+   "opis": "Link „Profil” przy każdej osobie w oknie dodawania — profil w nowej karcie, okno i zaznaczenie zostają",
+   "file": "components/v2/modals/AddCandidatesQuickModal.tsx",
+   "marker": "?from=job&jobId=",
+   "v3_home": "„Dodaj po nazwisku” (Dodaj kandydatów do pipeline)"
+  },
+  {
    "id": "add.bulk-skip-employed",
    "area": "pozyskiwanie",
    "opis": "„Dodaj do rekrutacji” dla kilku osób: „N z M osób pracują u nas” i przycisk dodania reszty bez nich; po dodaniu ostrzeżenia z odpowiedzi serwera",

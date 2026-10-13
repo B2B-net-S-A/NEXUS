@@ -132,7 +132,7 @@ export function restoreMovePayload(
 }
 
 /** Kolumna, do której wraca karta — etap, na który trafiłoby to dodanie. */
-function restoreLabel(closed: BulkClosedCard): string {
+export function restoreLabel(closed: BulkClosedCard): string {
   if (closed.restore_stage === "new") return "Przywróć do „Nowych”";
   if (closed.restore_stage === "screening") return "Przywróć do „Screeningu”";
   return "Przywróć do rekrutacji";

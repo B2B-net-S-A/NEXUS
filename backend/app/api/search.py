@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.recruitment_access import ensure_job_read_access
+from app.api.recruitment_access import ensure_job_read_access, job_read_scope_clause
 from app.api.candidate_access import CandidateSearchAccess, user_has_candidate_read
 from app.api.deps import CurrentUser
 from app.core.database import get_db
@@ -30,6 +30,8 @@ from app.schemas.candidate_search import (
     CandidateSearchRequest,
     CandidateSearchResponse,
     CompetenceCategoryFacet,
+    InJobMatch,
+    LastRecruitment,
     MatchScoresRequest,
     MatchScoresResponse,
     SearchDiagnosticsResponse,
@@ -42,6 +44,7 @@ from app.services.keyword_terms import KeywordTooShort
 from app.services.ai_health import ai_status
 from app.services.eligibility_annotation import eligibility_annotation
 from app.services.employment_marker import load_employment_markers
+from app.services.candidate_job_cards import business_day, latest_cards
 from app.services.candidate_text_retrieval import (
     HYBRID_POOL_DEFAULT,
     hybrid_pool_size,
@@ -272,6 +275,7 @@ def _candidate_to_item(
     eligibility: Optional[dict[str, Any]] = None,
     unknown_fields: Optional[list[str]] = None,
     employment_marker: Optional[EmploymentMarker] = None,
+    last_recruitment: Optional[LastRecruitment] = None,
 ) -> CandidateSearchItem:
     profile_rate = rate_summary(c)["rate_from_hourly"]
     return CandidateSearchItem(
@@ -307,7 +311,93 @@ def _candidate_to_item(
         eligibility=eligibility,
         employment_marker=employment_marker,
         unknown_fields=unknown_fields or [],
+        last_recruitment=last_recruitment,
     )
+
+
+# Okno „Dodaj kandydatów do pipeline” pokazuje imienników z kartą w tej
+# rekrutacji w osobnej sekcji — kilka osób wystarcza, żeby rozpoznać właściwą.
+_IN_JOB_MATCHES_LIMIT = 5
+
+
+async def _in_job_matches(
+    db: AsyncSession, job_id: int, text_clauses: list[Any], q_text: Optional[str]
+) -> list[InJobMatch]:
+    """Osoby pasujące do tej samej frazy i filtrów, które JUŻ są w rekrutacji.
+
+    Wynik okna je pomija (``exclude_in_job_id``), więc imiennik z kartą —
+    także odrzuconą — znikał bez śladu i rekruter dodawał drugą osobę
+    o tym samym imieniu i nazwisku. Reguła:
+    ``docs/claude/rekrutacja-tablica/imiennicy-w-oknie-dodawania.md``.
+    """
+    from app.api.proposals_bulk import in_job_cards  # noqa: PLC0415
+
+    job = await db.get(Job, job_id)
+    if job is None:
+        return []
+    in_job = (
+        select(CandidateStage.candidate_id)
+        .where(CandidateStage.job_id == job_id)
+        .distinct()
+    )
+    stmt = (
+        select(Candidate)
+        .where(*text_clauses, Candidate.id.in_(in_job))
+        .order_by(Candidate.lastname.asc(), Candidate.name.asc(), Candidate.id.asc())
+        .limit(_IN_JOB_MATCHES_LIMIT)
+    )
+    if q_text:
+        stmt = stmt.params(q=q_text)
+    candidates = list((await db.execute(stmt)).scalars().all())
+    if not candidates:
+        return []
+    cards = await in_job_cards(db, job=job, candidates=candidates)
+    matches: list[InJobMatch] = []
+    for c in candidates:
+        card = cards.get(c.id)
+        if card is None:
+            continue
+        matches.append(
+            InJobMatch(
+                id=c.id,
+                name=c.name,
+                lastname=c.lastname,
+                email=c.email,
+                phone=c.phone,
+                location=c.location,
+                card_label=card.label,
+                card_column=card.column,
+                closed=card.closed.model_dump() if card.closed else None,
+            )
+        )
+    return matches
+
+
+async def _last_recruitments(
+    db: AsyncSession, user: Any, job_id: int, candidates: list[Candidate]
+) -> dict[int, LastRecruitment]:
+    """Ostatnia rekrutacja każdej osoby poza bieżącą — jedno zapytanie na stronę.
+
+    Zakres jak lista rekrutacji użytkownika (``job_read_scope_clause``):
+    nazwa rekrutacji, której ktoś nie widzi, nie wychodzi przez wyszukiwarkę.
+    """
+    cards = await latest_cards(
+        db,
+        candidate_ids=[c.id for c in candidates],
+        exclude_job_id=job_id,
+        scope_clause=job_read_scope_clause(user, CandidateStage.job_id),
+    )
+    return {
+        candidate_id: LastRecruitment(
+            job_id=card.job_id,
+            job_title=card.job_title or f"Rekrutacja #{card.job_id}",
+            stage_label=card.stage_label
+            or ("Zamknięty" if card.column == "closed" else "W toku"),
+            column=card.column,
+            moved_on=business_day(card.moved_at),
+        )
+        for candidate_id, card in cards.items()
+    }
 
 
 def _unknown_fields(body: CandidateSearchRequest, c: Candidate) -> list[str]:
@@ -797,6 +887,9 @@ async def advanced_candidate_search(
     elif q_text:
         clauses.append(_fts_clause(q_text))
 
+    # Fraza i filtry bez wykluczenia — do sekcji „Już w tej rekrutacji”.
+    pre_exclusion_clauses = list(clauses)
+
     # === Job-context exclusion — subquery on candidate_stages ================
     if body.exclude_in_job_id is not None:
         already_in_job = (
@@ -913,6 +1006,8 @@ async def advanced_candidate_search(
     # rows in score-descending order.
     eligibility_by_id: dict[int, dict[str, Any]] = {}
     job_client_id: Optional[int] = None
+    in_job_matches: list[InJobMatch] = []
+    last_recruitment_by_id: dict[int, LastRecruitment] = {}
     if body.exclude_in_job_id is not None:
         # Plakietki niosą werdykt hiring managera tej rekrutacji — dane, które
         # gdzie indziej stoją za `ensure_job_read_access`. Bez dostępu do
@@ -928,6 +1023,15 @@ async def advanced_candidate_search(
             job_client_id = await db.scalar(
                 select(Job.client_id).where(Job.id == body.exclude_in_job_id)
             )
+            # Tylko osoba (imię i nazwisko, telefon, e-mail): przy frazie
+            # „po znaczeniu” sekcja imienników nie ma sensu.
+            if text_applied == "literal":
+                in_job_matches = await _in_job_matches(
+                    db, body.exclude_in_job_id, pre_exclusion_clauses, q_text
+                )
+        last_recruitment_by_id = await _last_recruitments(
+            db, current_user, body.exclude_in_job_id, list(candidates)
+        )
     employment_markers = await load_employment_markers(
         db,
         [c.id for c in candidates],
@@ -941,6 +1045,7 @@ async def advanced_candidate_search(
             eligibility_by_id.get(c.id),
             _unknown_fields(body, c),
             employment_markers.get(c.id),
+            last_recruitment_by_id.get(c.id),
         )
         for c in candidates
     ]
@@ -972,6 +1077,7 @@ async def advanced_candidate_search(
             interpretation=interpretation,
             text_match=person_match if text_applied == "literal" else None,
         ),
+        in_job_matches=in_job_matches,
     )
 
 

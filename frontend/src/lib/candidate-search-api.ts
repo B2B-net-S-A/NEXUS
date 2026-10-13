@@ -152,6 +152,37 @@ export interface CandidateSearchItem {
    * `experience`, `rate`. UI pokazuje je jako plakietki „brak …".
    */
   unknown_fields?: string[];
+  /**
+   * Tylko przy `exclude_in_job_id`: ostatnia rekrutacja osoby gdzie indziej
+   * (w zakresie rekrutacji widocznych dla pytającego). `null` = bez historii.
+   */
+  last_recruitment?: LastRecruitment | null;
+}
+
+/** Lustro `LastRecruitment` — ostatni ruch karty w innej rekrutacji. */
+export interface LastRecruitment {
+  job_id: number;
+  job_title: string;
+  stage_label: string;
+  column: string;
+  /** Dzień ruchu w kalendarzu firmy, `YYYY-MM-DD`. */
+  moved_on: string;
+}
+
+/**
+ * Osoba pasująca do frazy, która JUŻ ma kartę w tej rekrutacji (lustro
+ * `InJobMatch`). `closed` tylko przy karcie w „Zamkniętych” — cel „Przywróć”.
+ */
+export interface InJobMatch {
+  id: number;
+  name: string;
+  lastname: string;
+  email: string | null;
+  phone: string | null;
+  location: string | null;
+  card_label: string;
+  card_column: string;
+  closed?: BulkClosedCard | null;
 }
 
 export interface CompetenceCategoryFacet {
@@ -217,6 +248,11 @@ export interface CandidateSearchResponse {
   items: CandidateSearchItem[];
   facets: SearchFacets;
   meta: SearchMeta;
+  /**
+   * Tylko przy `exclude_in_job_id`, dosłownej frazie (osoba, telefon, e-mail)
+   * i dostępie do rekrutacji; najwyżej 5 osób.
+   */
+  in_job_matches?: InJobMatch[];
 }
 
 export interface WaterfallStage {
