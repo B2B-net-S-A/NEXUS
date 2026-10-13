@@ -33,12 +33,27 @@ nieaktualne”.
 - `DELETE /api/candidates/{id}/documents/{doc_id}` (`api/candidates.py`) →
   `services/candidate_document_removal.remove_candidate_document`.
 - **Wskaźnik CV na kandydacie.** `candidates.cv_filename`, `cv_storage_key`
-  i `cv_file_content` to wskaźnik sprzed listy plików, a `get_current_cv`
-  wraca do niego, gdy nie znajdzie dokumentu (CV z formularza kariery leży
-  w obu miejscach). Jeśli pokazuje na usuwany plik, usunięcie go odpina —
-  inaczej generator i migawka CV etapu dalej brałyby „usunięte” CV. Kopię
-  bajtów z wiersza kandydata zdejmujemy tylko wtedy, gdy ten sam plik zostaje
-  przy dokumencie.
+  i `cv_file_content` to wskaźnik sprzed listy plików. `get_current_cv` wraca
+  do niego, gdy nie znajdzie dokumentu (migawka CV etapu, paczka ZIP),
+  a `entrypoint.sh` przy każdym wdrożeniu odtwarza z niego wiersz dokumentu,
+  jeśli w profilu nie ma głównego CV ani pliku o tej nazwie. Usunięcie pliku
+  odpina więc wskaźnik, gdy pokazuje on na ten plik
+  (`_pointer_is_removed_file`): ten sam klucz, te same bajty albo ta sama
+  nazwa bez względu na wielkość liter.
+- **Ta sama nazwa, inny klucz to ten sam plik.** Import z Traffita wgrywał CV
+  dwa razy: raz pod klucz wskaźnika, raz pod klucz dokumentu. Pomiar
+  13.10.2026 (tylko odczyt): 62 216 wskaźników z kluczem, 55 017 z nich ma
+  główne CV o tej samej nazwie i innym kluczu, 0 kandydatów z bajtami CV
+  w wierszu. Porównanie samych kluczy zostawiłoby „usunięte” CV w użyciu u 88%
+  osób z bazy. Drugą kopię zapisujemy jako osobny usunięty wiersz
+  (`external_source = 'legacy_pointer'`), żeby klucz w magazynie nie stracił
+  jedynego wskaźnika.
+- **Wskaźnik innego pliku zostaje.** Gdy wskaźnik nazywa starsze CV, które
+  dalej leży w profilu (6 748 osób), usunięcie głównego CV go nie rusza;
+  odpina go dopiero usunięcie tamtego pliku. Po odpięciu wskaźnik przechodzi
+  na główne CV, które zostało, albo jest pusty.
+- Bajtów z wiersza kandydata nie zdejmujemy, jeśli tego samego pliku nie ma
+  przy dokumencie — wtedy wskaźnik zostaje nietknięty.
 - **Odczyty.** Każde zapytanie o pliki kandydata filtruje
   `source_deleted_at IS NULL`. Przy tej zmianie filtr dostały miejsca, które go
   nie miały: `cv_source.current_cv_filters`, źródła CV w generatorze
@@ -46,9 +61,10 @@ nieaktualne”.
   w propozycjach (`proposal_facts.main_cv_uploaded_on`). Nowy odczyt
   `candidate_documents` bez tego filtra pokaże usunięte pliki.
 - **Poczta M365.** `attachment_handler.try_parse_cv` wskrzesza miękko usunięty
-  dokument, gdy załącznik wraca w synchronizacji. Plik z `removed_at` u tej
-  samej osoby zostaje usunięty; przypisanie załącznika innej osobie (rematch)
-  przywraca go u niej normalnie.
+  dokument, gdy TEN SAM załącznik wraca w synchronizacji. Plik z `removed_at`
+  u tej samej osoby zostaje usunięty; przypisanie załącznika innej osobie
+  (rematch) przywraca go u niej normalnie. Ten sam plik przysłany w nowym
+  mailu to nowy załącznik i nowy dokument — jak ponowne wgranie.
 - Ślad: wpis `candidate_document_removed` w historii profilu („Usunięto plik
   z profilu”), w `details` tylko id pliku, rodzaj i `was_primary` — bez nazwy
   pliku, bo nazwa CV to zwykle imię i nazwisko.
@@ -61,6 +77,10 @@ nieaktualne”.
   `removed_at`, `removed_by`.
 - Nie czyści danych profilu odczytanych z CV. CV innej osoby w profilu
   rozwiązuje kwarantanna tożsamości, nie usunięcie pliku.
+- Nie usuwa CV, które istnieje tylko we wskaźniku pod inną nazwą niż
+  jakikolwiek plik z listy. Po usunięciu głównego CV takie CV wraca na listę
+  przy najbliższym wdrożeniu (zasilanie w `entrypoint.sh`) i wtedy da się je
+  usunąć jak każde inne.
 - Usunięcie całego profilu (`DELETE /api/candidates/{id}`, tylko admin) działa
   jak dotąd — patrz `uprawnienia/integralnosc-i-uprawnienia-reguly-po-audytach.md`.
 

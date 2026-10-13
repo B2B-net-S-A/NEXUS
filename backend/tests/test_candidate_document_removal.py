@@ -7,7 +7,8 @@ Kontrakt, który łatwo cicho złamać:
   wiersz i klucz w magazynie zostają (CV nie kasujemy nigdy) razem z tym,
   kto i kiedy usunął,
 - główne CV też wolno usunąć: następcy nie wybieramy sami, a wskaźnik CV na
-  kandydacie przestaje pokazywać na usunięty plik,
+  kandydacie przestaje pokazywać na usunięty plik — także wtedy, gdy trzyma
+  własną kopię pod innym kluczem (import z Traffita wgrywał CV dwa razy),
 - ten sam plik da się potem wgrać ponownie jako nowy wiersz.
 """
 
@@ -24,7 +25,7 @@ from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.activity import Activity
 from app.models.candidate import Candidate
-from app.models.candidate_document import CandidateDocument
+from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
 from app.models.user import User, UserRole
 
 pytestmark = pytest.mark.asyncio
@@ -261,6 +262,158 @@ async def test_removing_the_only_cv_detaches_the_candidate_cv_pointer(
     )
     assert sources.status_code == 200, sources.text
     assert sources.json() == []
+
+
+async def _seed_stored_cv(
+    candidate_id: int, *, filename: str, storage_key: str, is_primary: bool
+) -> int:
+    """Wiersz dokumentu jak po imporcie: plik w magazynie, bez bajtów w bazie."""
+    async with AsyncSessionLocal() as db:
+        document = CandidateDocument(
+            candidate_id=candidate_id,
+            filename=filename,
+            storage_key=storage_key,
+            content_type="application/pdf",
+            document_kind=CandidateDocumentKind.cv,
+            is_primary=is_primary,
+            external_source="traffit",
+        )
+        db.add(document)
+        await db.flush()
+        document_id = document.id
+        await db.commit()
+        return document_id
+
+
+async def _set_pointer(candidate_id: int, *, filename: str, storage_key: str) -> None:
+    async with AsyncSessionLocal() as db:
+        candidate = await db.get(Candidate, candidate_id)
+        assert candidate is not None
+        candidate.cv_filename = filename
+        candidate.cv_storage_key = storage_key
+        await db.commit()
+
+
+async def _pointer(candidate_id: int) -> tuple[str | None, str | None]:
+    async with AsyncSessionLocal() as db:
+        candidate = await db.get(Candidate, candidate_id)
+        assert candidate is not None
+        return candidate.cv_filename, candidate.cv_storage_key
+
+
+async def _pointer_copies(candidate_id: int) -> list[CandidateDocument]:
+    async with AsyncSessionLocal() as db:
+        return list(
+            await db.scalars(
+                select(CandidateDocument).where(
+                    CandidateDocument.candidate_id == candidate_id,
+                    CandidateDocument.external_source == "legacy_pointer",
+                )
+            )
+        )
+
+
+async def test_pointer_holding_its_own_copy_of_the_file_is_detached(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    """Import z Traffita: to samo CV pod dwoma kluczami (wskaźnik i dokument).
+
+    Bez odpięcia `get_current_cv` wracałby do klucza wskaźnika (migawka CV
+    etapu, paczka ZIP), a `entrypoint.sh` po wdrożeniu odtworzyłby dokument.
+    """
+    from app.services.cv_source import get_current_cv
+
+    candidate_id = await _candidate(app_client, app_auth_headers)
+    unique = uuid.uuid4().hex[:8]
+    doc_key, pointer_key = f"cv/doc-{unique}.pdf", f"cv/pointer-{unique}.pdf"
+    doc_id = await _seed_stored_cv(
+        candidate_id, filename="CV_Import.pdf", storage_key=doc_key, is_primary=True
+    )
+    # Ta sama nazwa bez względu na wielkość liter — tak porównuje entrypoint.
+    await _set_pointer(candidate_id, filename="cv_import.PDF", storage_key=pointer_key)
+
+    removed = await app_client.delete(
+        f"/api/candidates/{candidate_id}/documents/{doc_id}",
+        headers=app_auth_headers,
+    )
+    assert removed.status_code == 204, removed.text
+
+    assert await _pointer(candidate_id) == (None, None)
+    async with AsyncSessionLocal() as db:
+        candidate = await db.get(Candidate, candidate_id)
+        assert candidate is not None
+        assert await get_current_cv(db, candidate) is None
+
+    # Druga kopia zostaje w magazynie i ma wiersz — klucz nie traci wskaźnika.
+    copies = await _pointer_copies(candidate_id)
+    assert [copy.storage_key for copy in copies] == [pointer_key]
+    assert copies[0].source_deleted_at is not None
+    assert copies[0].removed_at is not None
+    assert copies[0].is_primary is False
+    assert await _listed_ids(app_client, app_auth_headers, candidate_id) == []
+
+
+async def test_pointer_of_another_file_in_the_profile_is_left_alone(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    candidate_id = await _candidate(app_client, app_auth_headers)
+    unique = uuid.uuid4().hex[:8]
+    new_key, old_key = f"cv/new-{unique}.pdf", f"cv/old-{unique}.pdf"
+    new_id = await _seed_stored_cv(
+        candidate_id, filename="cv-nowe.pdf", storage_key=new_key, is_primary=True
+    )
+    old_id = await _seed_stored_cv(
+        candidate_id, filename="cv-stare.pdf", storage_key=old_key, is_primary=False
+    )
+    # Wskaźnik został przy starszym CV, które dalej leży w profilu.
+    await _set_pointer(candidate_id, filename="cv-stare.pdf", storage_key=old_key)
+
+    removed = await app_client.delete(
+        f"/api/candidates/{candidate_id}/documents/{new_id}",
+        headers=app_auth_headers,
+    )
+    assert removed.status_code == 204, removed.text
+    assert await _pointer(candidate_id) == ("cv-stare.pdf", old_key)
+    assert await _pointer_copies(candidate_id) == []
+
+    # Dopiero usunięcie pliku, na który pokazuje, odpina wskaźnik.
+    removed = await app_client.delete(
+        f"/api/candidates/{candidate_id}/documents/{old_id}",
+        headers=app_auth_headers,
+    )
+    assert removed.status_code == 204, removed.text
+    assert await _pointer(candidate_id) == (None, None)
+    # Ten sam klucz co w usuniętym wierszu — drugiego wiersza nie trzeba.
+    assert await _pointer_copies(candidate_id) == []
+
+
+async def test_pointer_moves_to_the_primary_cv_that_stays(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    candidate_id = await _candidate(app_client, app_auth_headers)
+    unique = uuid.uuid4().hex[:8]
+    primary_key = f"cv/primary-{unique}.pdf"
+    await _seed_stored_cv(
+        candidate_id, filename="cv-glowne.pdf", storage_key=primary_key, is_primary=True
+    )
+    old_id = await _seed_stored_cv(
+        candidate_id,
+        filename="cv-stare.pdf",
+        storage_key=f"cv/old-{unique}.pdf",
+        is_primary=False,
+    )
+    pointer_key = f"cv/pointer-{unique}.pdf"
+    await _set_pointer(candidate_id, filename="cv-stare.pdf", storage_key=pointer_key)
+
+    removed = await app_client.delete(
+        f"/api/candidates/{candidate_id}/documents/{old_id}",
+        headers=app_auth_headers,
+    )
+    assert removed.status_code == 204, removed.text
+    assert await _pointer(candidate_id) == ("cv-glowne.pdf", primary_key)
+    assert [copy.storage_key for copy in await _pointer_copies(candidate_id)] == [
+        pointer_key
+    ]
 
 
 async def test_removed_file_can_be_uploaded_again(
