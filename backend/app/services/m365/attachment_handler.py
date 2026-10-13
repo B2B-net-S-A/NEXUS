@@ -26,6 +26,7 @@ from app.core.config import settings
 from app.models.candidate import Candidate
 from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
 from app.models.m365 import Email, EmailAttachment, EmailDirection
+from app.services.candidate_name_rules import strip_name_markers
 from app.services.m365.graph_client import GraphClient
 from app.services.storage_service import _sanitize_filename
 
@@ -589,8 +590,20 @@ async def try_create_candidate_from_cv(
         return None
     text, parsed = parsed_pair
 
-    first_name = str(parsed.get("first_name") or "").strip()
-    last_name = str(parsed.get("last_name") or "").strip()
+    # Dopisek w imieniu z CV znika po cichu (D6, 13.10.2026) — także w odczycie
+    # przekazywanym dalej, żeby bramka tożsamości porównała to samo imię.
+    first_name, first_markers = strip_name_markers(
+        str(parsed.get("first_name") or "").strip()
+    )
+    last_name, last_markers = strip_name_markers(
+        str(parsed.get("last_name") or "").strip()
+    )
+    if first_markers or last_markers:
+        parsed = {
+            **parsed,
+            "first_name": first_name or None,
+            "last_name": last_name or None,
+        }
     email = str(parsed.get("email") or "").strip().lower() or None
     phone = str(parsed.get("phone") or "").strip() or None
     linkedin = str(parsed.get("linkedin_url") or "").strip() or None

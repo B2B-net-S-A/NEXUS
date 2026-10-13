@@ -35,6 +35,7 @@ from app.services.candidate_quick_view import format_cv_highlight_bullets
 from app.services.candidate_location_writer import (
     apply_candidate_location_from_source,
 )
+from app.services.candidate_name_rules import strip_name_markers
 
 logger = logging.getLogger(__name__)
 
@@ -275,13 +276,15 @@ def _apply_cv_contact_fields(
     def _locked(field: str) -> bool:
         return bool(existing_extracted.get(f"_manual_override_{field}"))
 
-    first_name = parsed.get("first_name")
+    # Dopisek w imieniu odczytanym z CV („Jan (CIPP/E)”) znika po cichu
+    # (D6, 13.10.2026); pole, które było samym dopiskiem, zostaje puste.
+    first_name = strip_name_markers(str(parsed.get("first_name") or "").strip())[0]
     if first_name and _is_blank_name(candidate.name) and not _locked("first_name"):
-        candidate.name = str(first_name).strip()[:100]
+        candidate.name = first_name[:100]
 
-    last_name = parsed.get("last_name")
+    last_name = strip_name_markers(str(parsed.get("last_name") or "").strip())[0]
     if last_name and _is_blank_name(candidate.lastname) and not _locked("last_name"):
-        candidate.lastname = str(last_name).strip()[:100]
+        candidate.lastname = last_name[:100]
 
     email = parsed.get("email")
     if email and _is_blank_name(candidate.email) and not _locked("email"):

@@ -41,7 +41,12 @@ stawki, za jaką osoby są wysyłane do klienta”.
   wartości domyślnej, każdy wołający liczy go `user_can_view_client_rate`
   (tablica, „moje następne kroki”, historia etapów, odpowiedź `/move`) — oraz
   `_candidate_history_response_for_user` (profil → Rekrutacje), który niesie
-  `can_view_client_rate`/`can_write_client_rate`. **Stawkę KANDYDATA
+  `can_view_client_rate`/`can_write_client_rate`. **Head of Recruitment widzi
+  stawkę do klienta w kartach rekrutacji** (profil kandydata → Rekrutacje,
+  Tablica) — decyzja Artura 13.10.2026. Reguła „HoR nie widzi pieniędzy”
+  (24.09.2026, `BoardReader` w `api/deps.py`) dotyczy wyłącznie widoku „Firma”
+  w Insights (marża, przychód, kwoty per klient), nie stawek w rekrutacji.
+  **Stawkę KANDYDATA
   (`expected_rate`) widzą wszyscy** — do 23.09 profil chował ją każdemu bez
   `VIEW_FINANCE`. Kwoty KONTRAKTÓW w `/history` zostają przy dostępie
   finansowym. Nowa powierzchnia niosąca `client_rate_*` = `user_can_view_client_rate`.
