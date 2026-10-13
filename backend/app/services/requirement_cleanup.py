@@ -56,7 +56,9 @@ class CleanupProposal:
             ],
             "before": self.before,
             "after": {
-                k: v for k, v in self.after.items() if k not in ("experience", "basics")
+                k: v
+                for k, v in self.after.items()
+                if k not in ("experience", "basics", "notes")
             },
             "profile_hash": self.profile_hash,
             "contract_reviewed": self.contract_reviewed,
@@ -83,12 +85,16 @@ def build_proposal(job: Any) -> Optional[CleanupProposal]:
     from app.services.champion_intake import profile_hash
     from app.services.champion_requirement_rows import (
         _merge_talk,
+        _row_words,
         clean_rows,
+        overflow_note,
         profile_has_rows,
         row_label,
         rows_from_legacy,
         separate_talk_items,
+        split_rows,
     )
+    from app.services.skill_normalize import canonical_of, strip_version
     from app.services.critical_skills import effective_critical
     from app.services.must_gate_terms import gate_requirement
     from app.services.requirement_phrase import read_phrase
@@ -141,6 +147,7 @@ def build_proposal(job: Any) -> Optional[CleanupProposal]:
                 if isinstance(row, list)
             ],
             critical=stored_critical if isinstance(stored_critical, list) else None,
+            clip=False,
         )
         rows = legacy["rows"]
         descriptive = list(legacy["descriptive"])
@@ -160,7 +167,23 @@ def build_proposal(job: Any) -> Optional[CleanupProposal]:
         previous_experience=experience,
         previous_language=language,
     )
-    rows = [dict(r) for r in patch["stack"]["rows"]]
+    # Limity wierszy liczone PO przeniesieniu zdań do rozmowy; co i tak się
+    # nie mieści, idzie do opisu wymagań jak przy zapisie (`expand_patch`).
+    clipped, overflow = split_rows(patch["stack"]["rows"])
+    rows = [dict(r) for r in clipped]
+    talk_overflow: list[str] = []
+
+    def _keys(words: list[str]) -> set[str]:
+        return {canonical_of(strip_version(w.rstrip("*"))[0]) for w in words}
+
+    row_keys = set().union(*(_keys(r["words"]) for r in rows)) if rows else set()
+    overflow_keys = _keys(overflow)
+
+    def _in_rows(text: str) -> bool:
+        requirement = gate_requirement(text)
+        words = list(requirement.options) if requirement else _row_words([text])
+        return bool(_keys(words) & (row_keys | overflow_keys))
+
     new_experience = {
         key: [dict(i) for i in value] if isinstance(value, list) else value
         for key, value in (patch.get("experience") or experience).items()
@@ -170,13 +193,13 @@ def build_proposal(job: Any) -> Optional[CleanupProposal]:
     # do sekcji 4 (tak samo jak przy zapisie wiersza).
     for sentence in descriptive:
         reading = read_phrase(sentence)
-        if reading.keyword and not reading.needs_decision:
+        if reading.keyword and not reading.needs_decision and _in_rows(reading.keyword):
             # Technologia w innej pisowni („ETL/ELT”, „Java 17+”) — jej słowa są
             # już wierszem; do rozmowy idzie tylko poziom z komentarza.
-            if reading.talk_text:
-                _merge_talk(
-                    new_experience.setdefault("skills", []), reading.talk_text, "must"
-                )
+            if reading.talk_text and not _merge_talk(
+                new_experience.setdefault("skills", []), reading.talk_text, "must"
+            ):
+                talk_overflow.append(reading.talk_text)
             continue
         if reading.talk == "language":
             parts = [p for p in [str(new_language or "").strip()] if p]
@@ -184,11 +207,20 @@ def build_proposal(job: Any) -> Optional[CleanupProposal]:
                 new_language = ", ".join([*parts, sentence])
             continue
         kind = reading.talk if reading.talk in ("skills", "domains") else "skills"
-        _merge_talk(
-            new_experience.setdefault(kind, []),
-            reading.talk_text or sentence[:160].rstrip(),
-            "must",
-        )
+        talk_text = reading.talk_text or sentence[:160].rstrip()
+        if not _merge_talk(new_experience.setdefault(kind, []), talk_text, "must"):
+            talk_overflow.append(talk_text)
+
+    # Co nie zmieściło się w wierszach ani na liście do rozmowy, zostaje
+    # w opisie wymagań — czyta go rekruter i generator CV; nic nie znika.
+    notes: Optional[str] = None
+    if overflow or talk_overflow:
+        parts = [str(stack.get("notes") or "").strip()]
+        if overflow:
+            parts.append(overflow_note(overflow))
+        if talk_overflow:
+            parts.append("Do sprawdzenia w rozmowie: " + "; ".join(talk_overflow) + ".")
+        notes = "\n".join(part for part in parts if part)
 
     # Krytyczne spoza bramki („architektura chmury”) schodzą do „musi mieć”.
     for row in rows:
@@ -217,8 +249,13 @@ def build_proposal(job: Any) -> Optional[CleanupProposal]:
     critical_rows = [
         row_label(r["words"]) for r in rows if r.get("level") == "critical"
     ]
+    # Lista zapisana przez DL to decyzja: gdy żadna krytyczna nie zostaje,
+    # zostaje „Brak krytycznych” (`[]`), nie „brak decyzji” (`None`) — inaczej
+    # zapis dokłada blokadę `critical` i kończy się 422 `handoff_regression`.
     critical: Optional[list[str]] = (
-        critical_rows if critical_rows else ([] if stored_critical == [] else None)
+        critical_rows
+        if critical_rows
+        else ([] if isinstance(stored_critical, list) else None)
     )
     resolution = effective_critical(job)
     contract = getattr(job, "matching_requirements", None)
@@ -240,6 +277,8 @@ def build_proposal(job: Any) -> Optional[CleanupProposal]:
             "critical": critical,
             "talk": added_talk,
             "language": new_language or None,
+            "overflow": list(overflow),
+            "notes": notes,
             "experience": new_experience,
         },
         profile_hash=profile_hash(job),
@@ -254,6 +293,8 @@ def apply_payload(proposal: CleanupProposal) -> dict:
         "stack": {"rows": after["rows"], "critical": after["critical"]},
         "experience": after["experience"],
     }
+    if after.get("notes") is not None:
+        payload["stack"]["notes"] = after["notes"]
     if after["language"] != proposal.before["language"]:
         payload["basics"] = {"language": after["language"]}
     return payload

@@ -163,6 +163,11 @@ function AfterColumn({ proposal, languageChanged }: { proposal: RequirementPropo
       {languageChanged ? (
         <p className="text-xs text-foreground">Język: {after.language ?? "brak"}</p>
       ) : null}
+      {after.overflow && after.overflow.length > 0 ? (
+        <p className="text-xs text-muted-foreground" data-testid="proposal-overflow">
+          Nie mieści się w wierszach, trafi do opisu wymagań: {after.overflow.join(", ")}
+        </p>
+      ) : null}
     </section>
   );
 }

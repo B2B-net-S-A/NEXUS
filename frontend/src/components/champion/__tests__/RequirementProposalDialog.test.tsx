@@ -103,6 +103,26 @@ describe("RequirementProposalDialog", () => {
     );
   });
 
+  it("słowa ponad limit wierszy są wymienione jako idące do opisu wymagań", async () => {
+    respond({
+      proposal: proposal({
+        after: {
+          rows: [{ words: ["Java"], level: "must" }],
+          critical: [],
+          talk: [],
+          language: null,
+          overflow: ["Oracle", "DB2"],
+        },
+      }),
+      can_decide: true,
+    });
+    renderDialog();
+    const after = await screen.findByRole("region", { name: "Po zmianie" });
+    expect(within(after).getByTestId("proposal-overflow")).toHaveTextContent(
+      "Nie mieści się w wierszach, trafi do opisu wymagań: Oracle, DB2",
+    );
+  });
+
   it("bez słów do szukania „Zatwierdź” jest wyłączone i prowadzi do Profilu Championa", async () => {
     respond({
       proposal: proposal({

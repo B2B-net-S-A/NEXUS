@@ -40,6 +40,8 @@ export interface RequirementProposal {
     critical: string[] | null;
     talk: RequirementProposalTalkItem[];
     language: string | null;
+    /** Słowa ponad limit wierszy — trafią do opisu wymagań (jak przy zapisie). */
+    overflow?: string[];
   };
   profile_hash: string;
   /** Wymagania sprawdził wcześniej człowiek — zatwierdzenie je zastąpi. */

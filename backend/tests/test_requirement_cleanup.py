@@ -176,3 +176,106 @@ def test_migration_chains_and_entrypoint_imports_the_single_ddl_source():
     for statement in TABLE_DDL:
         assert "IF NOT EXISTS" in re.sub(r"\s+", " ", statement)
     assert "'applied','dismissed'" in TABLE_DDL[0]
+
+
+def _kept(proposal, texts):
+    """Pozycje, których nie ma ani w wierszach, ani w rozmowie, ani w języku,
+    ani w opisie wymagań po zatwierdzeniu."""
+    from app.services.champion_requirement_rows import expand_patch
+
+    stack = expand_patch(apply_payload(proposal))["stack"]
+    words = {w.casefold() for r in proposal.after["rows"] for w in r["words"]}
+    talk = " | ".join(
+        i["name"]
+        for kind in ("skills", "domains")
+        for i in proposal.after["experience"].get(kind) or []
+    ).casefold()
+    notes = str(stack.get("notes") or "").casefold()
+    language = str(proposal.after["language"] or "").casefold()
+    return [
+        t
+        for t in texts
+        if t.casefold() not in words
+        and t.casefold() not in talk
+        and t.casefold() not in notes
+        and t.casefold() not in language
+    ]
+
+
+def test_sentence_read_as_category_goes_to_talk_not_nowhere():
+    """Przegląd 13.10.2026, bloker 1: zdanie czytane jako kategoria albo rola
+    („… management”, „… business analysis”) znikało po „Zatwierdź”."""
+    sentences = [
+        "Knowledge of card lifecycle management",
+        "Flexible approach to switch between technical development and business analysis",
+    ]
+    job = _job(
+        {"stack": {"must": [{"name": "Java"}, *({"name": s} for s in sentences)]}}
+    )
+    proposal = _build(job)
+    assert proposal is not None
+    assert [r["words"] for r in proposal.after["rows"]] == [["Java"]]
+    assert _kept(proposal, sentences) == []
+
+
+def test_rows_over_the_limits_land_in_the_requirement_notes():
+    """Przegląd 13.10.2026, bloker 2: ponad 10 „musi mieć” + 20 „mile widziane”
+    znikało bez notki „Nie zmieściło się w wymaganiach”."""
+    words = [f"system{i:02d}" for i in range(35)]
+    job = _job(
+        {
+            "stack": {
+                "must": [{"name": w} for w in words]
+                + [{"name": "doświadczenie w przetargach"}],
+                "notes": "Projekt dla banku.",
+            }
+        }
+    )
+    proposal = _build(job)
+    assert proposal is not None
+    assert len(proposal.after["rows"]) == 30
+    assert _kept(proposal, [*words, "doświadczenie w przetargach"]) == []
+    notes = apply_payload(proposal)["stack"]["notes"]
+    assert notes.startswith("Projekt dla banku.")
+    assert "Nie zmieściło się w wymaganiach" in notes
+
+
+def test_all_criticals_demoted_keep_the_decision_as_none_chosen():
+    """Przegląd 13.10.2026, bloker 3: gdy każda krytyczna schodzi do „musi mieć”,
+    decyzja DL stawała się „brak decyzji” → 422 `handoff_regression`."""
+    from app.services.champion_requirement_rows import expand_patch
+
+    job = _job(
+        {
+            "stack": {
+                "rows": [
+                    {"words": ["Java"], "level": "must"},
+                    {"words": ["architektura chmury"], "level": "must"},
+                ],
+                "must": [{"name": "Java"}, {"name": "architektura chmury"}],
+                "nice": [],
+                "critical": ["architektura chmury"],
+            },
+            "search": {"requirements": [["Java"], ["architektura chmury"]]},
+        }
+    )
+    proposal = _build(job)
+    assert proposal is not None
+    assert "critical_not_searchable" in proposal.reasons
+    assert proposal.after["critical"] == []
+    with hydrated_taxonomy(SKILLS):
+        assert expand_patch(apply_payload(proposal))["stack"]["critical"] == []
+
+
+def test_talk_items_over_the_section_limit_stay_in_the_notes():
+    """Zrzut produkcji 13.10.2026 (324353, 404749): lista „Rekruter sprawdza
+    w rozmowie” ma limit 20 — kolejne zdania trafiają do opisu wymagań."""
+    sentences = [f"Doświadczenie w projekcie numer {i} dla klienta" for i in range(25)]
+    job = _job(
+        {"stack": {"must": [{"name": "Java"}, *({"name": s} for s in sentences)]}}
+    )
+    proposal = _build(job)
+    assert proposal is not None
+    assert len(proposal.after["experience"]["skills"]) == 20
+    assert _kept(proposal, sentences) == []
+    assert "Do sprawdzenia w rozmowie:" in apply_payload(proposal)["stack"]["notes"]

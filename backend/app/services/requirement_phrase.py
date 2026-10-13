@@ -220,6 +220,12 @@ def suggestions_for(text: str) -> tuple[str, ...]:
     return tuple(out)
 
 
+def _short(text: str) -> bool:
+    from app.services.champion_requirement_rows import _is_keyword
+
+    return _is_keyword(text)
+
+
 def _city(text: str) -> bool:
     from app.services import pl_places
 
@@ -264,6 +270,10 @@ def read_phrase(text: str) -> PhraseReading:
             False,
         )
     reason = ignored_reason(clean) or "prose"
+    if reason in ("category", "role") and not _short(clean):
+        # Zdanie ze słowem kategorii („Knowledge of card lifecycle management”)
+        # to nie słowo do szukania — ta sama granica co `rows_from_legacy`.
+        reason = "prose"
     if reason == "language":
         return PhraseReading(clean, "language", None, None, "language", clean, (), True)
     if reason == "soft":

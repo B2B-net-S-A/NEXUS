@@ -97,6 +97,26 @@ def test_categories_stay_keywords_without_decision(text):
     assert reading.keyword == text
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Knowledge of card lifecycle management",
+        "Flexible approach to switch between technical development and business analysis",
+    ],
+)
+def test_long_sentence_with_a_category_word_is_prose(text):
+    """Przegląd 13.10.2026: zdanie ze słowem kategorii („management”,
+    „analysis”) było słowem do szukania bez decyzji — tak jak w zapisie
+    (`rows_from_legacy`), słowem jest tylko pozycja do 3 słów i 40 znaków."""
+    reading = _read(text)
+    assert (reading.kind, reading.needs_decision, reading.keyword) == (
+        "prose",
+        True,
+        None,
+    )
+    assert reading.talk == "skills"
+
+
 def test_talk_item_is_capped_at_section_limit():
     long_text = "Doświadczenie " + "bardzo długie zdanie klienta " * 12
     reading = _read(long_text)

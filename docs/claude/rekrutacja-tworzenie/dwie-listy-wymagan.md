@@ -26,7 +26,9 @@ prawie wszystkich (789128: „architektura chmury” → 0 osób w „Szukaj w b
   szukania (`keyword`), komentarz z nawiasu, dokąd idzie do rozmowy i podpowiedzi słów (technologie
   ze zdania, rdzeń z gwiazdką, odpowiedniki z `keyword_equivalents.json` — grupa przetargów:
   przetarg*, PZP, SIWZ, SWZ, OPZ, tender*). Decyzji wymagają `prose`, `soft`, `language`
-  i branża opisana zdaniem; miasto to podpowiedź („Usuń wiersz” / „Zostaw”). Odczyt oddaje
+  i branża opisana zdaniem; miasto to podpowiedź („Usuń wiersz” / „Zostaw”). Kategoria
+  i rola są słowem tylko do 3 słów i 40 znaków (granica `rows_from_legacy`) — dłuższe
+  („Knowledge of card lifecycle management”) to zdanie. Odczyt oddaje
   `POST /api/job-intake/critical-suggestion` w polu `readings` (bez nowej trasy).
 - **Zdanie nie zostaje słowem bez decyzji (D3).** Edytor wierszy pod zdaniem pokazuje słowa
   z podpowiedzi z liczbą osób i „Do rozmowy”; „Utwórz i opublikuj” (brak `decision`) i zapis
@@ -63,6 +65,11 @@ prawie wszystkich (789128: „architektura chmury” → 0 osób w „Szukaj w b
   `critical_not_searchable`, `no_search_words`). Propozycji nie zapisujemy; tabela
   `requirement_cleanup_decisions` (0438, lustro DDL w entrypoincie, sonda w `/api/health/deep`)
   trzyma ostatnią decyzję i odcisk profilu — odrzucona wraca dopiero po zmianie profilu.
+  Nic nie znika po „Zatwierdź”: limity wierszy (10 + 20) liczone są PO przeniesieniu zdań
+  do rozmowy, a nadmiar wierszy i listy rozmowy (20) idzie do opisu wymagań
+  (`stack.notes`, „Nie zmieściło się…”, „Do sprawdzenia w rozmowie: …”); okno pokazuje
+  nadmiar wierszy. Gdy wszystkie krytyczne DL schodzą do „musi mieć”, decyzja zostaje
+  „Brak krytycznych” (`[]`), nie `None` — inaczej zapis dokłada blokadę i kończy się 422.
   `GET/POST /api/jobs/{id}/requirement-proposal[/apply|/dismiss]`; decyduje Delivery Lead tej
   rekrutacji (albo twórca), Head of Recruitment i admin (`can_decide`), zatwierdzenie to zwykły
   zapis Championa z `expected_profile_hash` (rozjazd = 409 z nową propozycją). Lista w

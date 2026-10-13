@@ -514,9 +514,13 @@ def rows_from_legacy(
     nice: list[str],
     requirements: list[list[str]],
     critical: Optional[list[str]] = None,
+    clip: bool = True,
 ) -> dict[str, Any]:
     """Stare pola → wiersze (przycisk „Uprość do słów kluczowych”, kopia
     rekrutacji z szablonu).
+
+    ``clip=False`` oddaje wiersze bez limitów zapisu — „Wymagania do poprawy”
+    najpierw przenoszą zdania do rozmowy, a dopiero potem liczą nadmiar.
 
     Wiersze wyszukiwania zostają, jakie były. Must będące technologią dochodzi
     jako wiersz (bez wersji — tę niesie zdanie opisowe), krótka pozycja bez
@@ -567,7 +571,7 @@ def rows_from_legacy(
         if row is not None and row["level"] != "nice":
             row["level"] = "critical"
     return {
-        "rows": clean_rows(rows),
+        "rows": clean_rows(rows) if clip else rows,
         "descriptive": descriptive,
         "no_critical": critical == [],
     }
