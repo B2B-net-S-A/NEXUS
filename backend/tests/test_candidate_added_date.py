@@ -16,7 +16,14 @@ from app.services.candidate_added_date import (
     added_via_label,
 )
 from app.services.candidate_quick_view import resolve_source
-from app.services.traffit.importer import candidate_payload_sha
+from sqlalchemy.dialects import postgresql
+
+from app.services.traffit.importer import (
+    _UPDATE_CANDIDATE_ADOPT,
+    _UPSERT_CANDIDATE,
+    _UPSERT_CANDIDATE_NO_TOMBSTONES,
+    candidate_payload_sha,
+)
 from app.services.traffit.mappers import traffit_employee_to_candidate
 
 UTC = timezone.utc
@@ -139,3 +146,13 @@ def test_payload_hash_ignores_the_added_date() -> None:
     assert candidate_payload_sha(payload) == candidate_payload_sha(without)
     other_date = {**payload, "source_created_at": "2020-01-01T00:00:00+00:00"}
     assert candidate_payload_sha(other_date) == candidate_payload_sha(payload)
+
+
+def test_import_statements_accept_a_missing_added_date() -> None:
+    """Ręczny słownik parametrów (testy, stary payload) bez daty = „nie znamy”, nie błąd."""
+    for statement in (_UPSERT_CANDIDATE, _UPSERT_CANDIDATE_NO_TOMBSTONES, _UPDATE_CANDIDATE_ADOPT):
+        compiled = statement.compile(dialect=postgresql.asyncpg.dialect())
+        others = {name: None for name in compiled.binds if name != "source_created_at"}
+        assert compiled.construct_params(others)["source_created_at"] is None
+        given = compiled.construct_params({**others, "source_created_at": IN_TRAFFIT.isoformat()})
+        assert given["source_created_at"] == IN_TRAFFIT.isoformat()

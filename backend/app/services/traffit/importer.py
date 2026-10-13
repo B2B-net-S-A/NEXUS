@@ -32,7 +32,7 @@ from typing import Any, Optional
 
 import httpx
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import select, text
+from sqlalchemy import bindparam, select, text
 from sqlalchemy.exc import IntegrityError, PendingRollbackError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -999,14 +999,19 @@ _UPSERT_CANDIDATE_SQL = _with_manual_locks(
     """
 )
 
+# 0437: data dodania w Traffit jest opcjonalna — brak klucza w parametrach
+# (payload sprzed „W bazie od”, ręczny słownik) znaczy „nie znamy”, a COALESCE
+# w SQL-u zostawia wtedy zapisaną wartość.
+_SOURCE_CREATED_AT_DEFAULT = bindparam("source_created_at", value=None)
+
 _UPSERT_CANDIDATE = text(
     _UPSERT_CANDIDATE_SQL.replace("{tombstone_guard}", _CANDIDATE_TOMBSTONE_GUARD)
-)
+).bindparams(_SOURCE_CREATED_AT_DEFAULT)
 # Baza bez tabeli `purged_candidates` (sprzed 0388) — wybierane w fazie po
 # `to_regclass`, patrz `_candidate_tombstones`.
 _UPSERT_CANDIDATE_NO_TOMBSTONES = text(
     _UPSERT_CANDIDATE_SQL.replace("{tombstone_guard}", "WHERE true")
-)
+).bindparams(_SOURCE_CREATED_AT_DEFAULT)
 
 
 _CANDIDATE_EMAIL_UNIQUE = ("ix_candidates_email", "candidates_email_key")
@@ -1227,7 +1232,7 @@ _UPDATE_CANDIDATE_ADOPT = text(
     RETURNING id
     """
     )
-)
+).bindparams(_SOURCE_CREATED_AT_DEFAULT)
 
 
 # Lista `DO UPDATE SET` niżej MUSI równać się sumie `SYNC_WRITABLE`
@@ -2960,7 +2965,6 @@ class TraffitImporter:
                             params["tombstone_legacy_hash"] = legacy_hash
                             params["tombstone_email_hash"] = email_hash
                             params["traffit_payload_sha"] = payload_sha
-                            params.setdefault("source_created_at", None)
                             try:
                                 async with self.db.begin_nested():
                                     result = await self.db.execute(upsert_sql, params)
