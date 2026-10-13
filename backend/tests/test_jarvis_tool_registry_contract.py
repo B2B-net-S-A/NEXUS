@@ -182,6 +182,15 @@ def test_open_screen_targets_existing_frontend_pages(screen):
     assert directory.is_dir(), f"{screen}: brak katalogu {directory}"
 
 
+def test_open_screen_does_not_send_to_standalone_cv_generator():
+    # Generator CV zdjęty z menu 13.10.2026 (decyzja Artura): CV powstaje
+    # w ścieżce rekrutacji, więc Jarvis odsyła do kandydata albo rekrutacji,
+    # nie na osobny ekran `/cv-generator`.
+    assert all(
+        not template.startswith("/cv-generator") for template, _ in SCREENS.values()
+    )
+
+
 def test_open_screen_rejects_unknown_screens_and_requires_ids():
     with pytest.raises(ValueError):
         jarvis_tools.build_screen_link({"screen": "admin_panel", "reason": "x"})

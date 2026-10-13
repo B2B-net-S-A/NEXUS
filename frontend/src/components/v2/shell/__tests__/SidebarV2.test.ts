@@ -217,7 +217,6 @@ describe("szyna vs „Więcej”", () => {
 
   it("rzadziej używane moduły NIE stoją na szynie, ale nadal są w menu", () => {
     for (const href of [
-      "/cv-generator",
       "/contracts/b2b-generator",
       "/help",
       "/settings",
