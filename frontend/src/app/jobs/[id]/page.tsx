@@ -858,6 +858,7 @@ export default function JobDetailPage() {
         <JobAdWindow
           jobId={jobId}
           jobTitle={jobDisplayTitle(job)}
+          jobClosed={job.status === "closed"}
           open
           onClose={() => setShowJobAd(false)}
         />

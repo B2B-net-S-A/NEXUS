@@ -5627,6 +5627,10 @@ END $$""",
     # JustJoin.IT). Lustro 1:1 z `app/services/job_ad_schema.py` (pilnuje
     # test_job_ads_migration_mirror).
     "CREATE TABLE IF NOT EXISTS job_ads (job_id INTEGER PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE, lang VARCHAR(2) NOT NULL DEFAULT 'pl', content JSONB NOT NULL, tech JSONB NOT NULL, source VARCHAR(16) NOT NULL DEFAULT 'ai', material_hash VARCHAR(64) NULL, generated_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, generated_at TIMESTAMPTZ NULL, updated_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), CONSTRAINT ck_job_ads_lang CHECK (lang IN ('pl', 'en')), CONSTRAINT ck_job_ads_source CHECK (source IN ('ai', 'template')))",
+    # 0432: oznaczenie „ogłoszenie opublikowane” na portalu (wklejone ręcznie).
+    # Lustro 1:1 z `app/services/job_ad_publication_schema.py` (pilnuje
+    # test_job_ad_publications_migration_mirror).
+    "CREATE TABLE IF NOT EXISTS job_ad_publications (job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE, portal VARCHAR(16) NOT NULL, url VARCHAR(500) NULL, content_hash VARCHAR(64) NOT NULL, published_at TIMESTAMPTZ NOT NULL, published_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, removed_at TIMESTAMPTZ NULL, removed_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), CONSTRAINT pk_job_ad_publications PRIMARY KEY (job_id, portal), CONSTRAINT ck_job_ad_publications_portal CHECK (portal IN ('pracuj', 'jjit')))",
     # 0352: debrief z jawnym „klient nie zadawał pytań” (bramka przed „Umową”).
     "ALTER TABLE interview_feedback ADD COLUMN IF NOT EXISTS "
     "no_client_questions BOOLEAN NOT NULL DEFAULT false",

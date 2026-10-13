@@ -28,7 +28,15 @@ vi.mock("@/lib/clipboard", () => clipboard);
 import { jobAdQueryKey, type JobAdState } from "@/lib/api/jobAd";
 
 import { JobAdWindow, type JobAdWindowApi } from "../JobAdWindow";
-import { adState, CLIENT_FINDING, CONTENT, EMPTY_STATE, TECH } from "./job-ad-fixtures";
+import {
+  adState,
+  CLIENT_FINDING,
+  CONTENT,
+  EMPTY_STATE,
+  PRACUJ_URL,
+  publication,
+  TECH,
+} from "./job-ad-fixtures";
 
 type SaveInput = Parameters<JobAdWindowApi["save"]>[1];
 type SaveImpl = (jobId: number, input: SaveInput) => Promise<JobAdState>;
@@ -55,6 +63,10 @@ function setup(initial: Loaded, saveImpl?: SaveImpl, generateImpl?: GenerateImpl
     save: vi.fn<SaveImpl>(
       saveImpl ?? (async (_jobId, input) => adState({ content: input.content })),
     ),
+    markPublished: vi.fn<JobAdWindowApi["markPublished"]>(async (_jobId, portal, url) =>
+      adState({ publications: [publication({ portal, url })] }),
+    ),
+    markRemoved: vi.fn<JobAdWindowApi["markRemoved"]>(async () => adState()),
   };
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -419,5 +431,52 @@ describe("JobAdWindow — niezapisany tekst", () => {
       content: { about: "Nowy opis.", requirements: ["Java 21"] },
       expected_updated_at: "2026-10-12T10:01:00Z",
     });
+  });
+});
+
+describe("JobAdWindow — oznaczenie publikacji", () => {
+  it("po wklejeniu na portalu rekruter oznacza publikację z linkiem", async () => {
+    const api = setup(adState());
+    const row = await screen.findByRole("listitem", { name: "Publikacja: Pracuj.pl" });
+    expect(row).toHaveTextContent("Nieoznaczone jako opublikowane");
+
+    fireEvent.click(within(row).getByRole("button", { name: "Oznacz jako opublikowane" }));
+    fireEvent.change(within(row).getByRole("textbox"), { target: { value: ` ${PRACUJ_URL} ` } });
+    fireEvent.click(within(row).getByRole("button", { name: "Oznacz" }));
+
+    await waitFor(() =>
+      expect(api.markPublished).toHaveBeenCalledWith(7, "pracuj", PRACUJ_URL, false),
+    );
+    const published = await screen.findByRole("listitem", { name: "Publikacja: Pracuj.pl" });
+    expect(published).toHaveTextContent("Opublikowane");
+    expect(within(published).getByRole("link", { name: /Otwórz ogłoszenie/ })).toHaveAttribute(
+      "href",
+      PRACUJ_URL,
+    );
+  });
+
+  it("zakładka pokazuje stan swojego portalu", async () => {
+    setup(adState({ publications: [publication()] }));
+    expect(
+      await screen.findByRole("listitem", { name: "Publikacja: Pracuj.pl" }),
+    ).toHaveTextContent("Opublikowane");
+    openTab("JustJoin.IT");
+    expect(
+      await screen.findByRole("listitem", { name: "Publikacja: JustJoin.IT" }),
+    ).toHaveTextContent("Nieoznaczone jako opublikowane");
+    expect(
+      screen.queryByRole("listitem", { name: "Publikacja: Pracuj.pl" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("treści z fragmentem blokującym nie da się oznaczyć jako opublikowanej", async () => {
+    setup(
+      adState({
+        content: { ...CONTENT, about: "Platforma płatności dla klienta Bank Przykładowy." },
+        findings: [CLIENT_FINDING],
+      }),
+    );
+    const row = await screen.findByRole("listitem", { name: "Publikacja: Pracuj.pl" });
+    expect(within(row).getByRole("button", { name: "Oznacz jako opublikowane" })).toBeDisabled();
   });
 });

@@ -58,6 +58,7 @@ const PAGES = [
   "/preview/cv-editor",
   "/preview/job-ad",
   "/preview/job-ad?tab=jjit",
+  "/preview/job-ad?state=published",
   "/preview/custom-dashboard",
   "/preview/cv-search",
   "/preview/daily",

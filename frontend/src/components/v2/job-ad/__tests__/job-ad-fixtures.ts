@@ -1,6 +1,6 @@
 // Stan okna „Ogłoszenie na portale” do testów — dane fikcyjne.
 
-import type { AdContent, AdFinding, AdTechItem, JobAdState } from "@/lib/api/jobAd";
+import type { AdContent, AdFinding, AdPublication, AdTechItem, JobAdState } from "@/lib/api/jobAd";
 
 export const CONTENT: AdContent = {
   title: "Senior Java Developer",
@@ -33,13 +33,16 @@ const list = (key: string, label: string, items: string[], extra = {}) => ({
   ...extra,
 });
 
-export function adState(patch: {
-  content?: AdContent;
-  findings?: AdFinding[];
-  source?: "ai" | "template";
-  stale?: boolean;
-  lang?: "pl" | "en";
-} = {}): JobAdState {
+export function adState(
+  patch: {
+    content?: AdContent;
+    findings?: AdFinding[];
+    source?: "ai" | "template";
+    stale?: boolean;
+    lang?: "pl" | "en";
+    publications?: AdPublication[];
+  } = {},
+): JobAdState {
   const content = patch.content ?? CONTENT;
   const findings = patch.findings ?? [];
   return {
@@ -59,6 +62,7 @@ export function adState(patch: {
     ],
     findings,
     can_copy: !findings.some((f) => f.severity === "block"),
+    publications: patch.publications ?? [],
     rendered: {
       title: `${content.title} (k/m/x)`,
       pracuj: {
@@ -107,7 +111,14 @@ export function adState(patch: {
         ],
         tech_overflow: 0,
         sections: [
-          { key: "lead", heading: null, kind: "text", text: content.lead, items: [], fixed_count: 0 },
+          {
+            key: "lead",
+            heading: null,
+            kind: "text",
+            text: content.lead,
+            items: [],
+            fixed_count: 0,
+          },
           {
             key: "requirements",
             heading: "Wymagania",
@@ -131,7 +142,22 @@ export const EMPTY_STATE: JobAdState = {
   findings: [],
   rendered: null,
   can_copy: false,
+  publications: [],
 };
+
+export const PRACUJ_URL = "https://www.pracuj.pl/praca/przyklad,oferta,1000000001";
+
+export function publication(patch: Partial<AdPublication> = {}): AdPublication {
+  return {
+    portal: "pracuj",
+    url: PRACUJ_URL,
+    outdated: false,
+    published_at: "2026-10-12T10:00:00Z",
+    published_by_name: "Marta Przykładowa",
+    removed_at: null,
+    ...patch,
+  };
+}
 
 export const CLIENT_FINDING: AdFinding = {
   code: "client_name",
