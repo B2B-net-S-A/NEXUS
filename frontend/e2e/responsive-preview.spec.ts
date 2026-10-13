@@ -92,6 +92,10 @@ const PAGES = [
   "/preview/dl-review?state=queue",
   "/preview/dl-review?state=returned",
   "/preview/dl-review?layout=panel",
+  // Pas „Do wysłania do klienta” (13.10.2026): kolejka, pusta kolejka i przegląd po kolei.
+  "/preview/dl-send",
+  "/preview/dl-send?state=empty",
+  "/preview/dl-send?state=sequence",
   "/preview/champion-workspace",
   "/preview/champion-workspace?ptab=tech",
   "/preview/champion-workspace?ptab=client",

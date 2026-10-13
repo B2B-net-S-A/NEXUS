@@ -65,6 +65,7 @@ import {
 import { DashboardGrid, type DashboardGridMode } from "./DashboardGrid"
 import { EmptyDashboard } from "./EmptyDashboard"
 import { BoardTasksPanel } from "../BoardTasksPanel"
+import { DlSendQueueBand, showsDlSendBand } from "../DlSendQueueBand"
 import { BoardPanelsMenu } from "./BoardPanelsMenu"
 import { TileCatalogSheet } from "./TileCatalogSheet"
 import { TileSettingsDialog } from "./TileSettingsDialog"
@@ -164,6 +165,8 @@ export function CustomDashboard() {
     [user, storedHiddenPanels],
   )
   const canCustomizePanels = canCustomizeBoardPanel(user)
+  // Pas „Do wysłania do klienta” — panel pod nim musi wiedzieć, że stoi.
+  const dlSendBand = showsDlSendBand(user, hiddenPanels)
   const togglePanel = (panel: DashboardPanelKey, hidden: boolean) =>
     setPanelHidden.mutate(
       { panel, hidden },
@@ -460,9 +463,12 @@ export function CustomDashboard() {
         }
       />
 
-      {/* Kolejka „Czeka na Ciebie" (przegląd DL, Cpro) stoi nad układem, a nie jako
-          kafelek: zadanie ma dotrzeć do osoby, która pulpitu nie układała. */}
-      {editing ? null : <BoardTasksPanel hiddenPanels={hiddenPanels} />}
+      {/* „Do wysłania do klienta” (Delivery Lead) i kolejka „Czeka na Ciebie” stoją
+          nad układem, a nie jako kafelki: zadanie ma dotrzeć do osoby, która
+          pulpitu nie układała. Pas pierwszy i na całą szerokość — w kolumnie
+          panelu gotowi do wysyłki ginęli między innymi listami. */}
+      {editing ? null : <DlSendQueueBand hiddenPanels={hiddenPanels} />}
+      {editing ? null : <BoardTasksPanel hiddenPanels={hiddenPanels} dlSendBand={dlSendBand} />}
 
       {editing ? (
         <div

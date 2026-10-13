@@ -917,7 +917,7 @@
   {
    "id": "board.cpro-assignee-queue",
    "area": "pipeline",
-   "opis": "Kolejka „Czeka na Ciebie” na pulpicie: przegląd DL (osoby w kolumnie „QC CV” z wynikiem QC), do wrzucenia do Cpro — jedna linia per rekrutacja i „Wrzucaj po kolei”, kto wrzuca (cała firma) z „Zmień”, wysłane do Cpro (Nordea); rano zbiorczy dzwonek. Kolejka „Czeka na DZ” usunięta (v5: QC CV).",
+   "opis": "Kolejka „Czeka na Ciebie” na pulpicie: do wrzucenia do Cpro — jedna linia per rekrutacja i „Wrzucaj po kolei”, kto wrzuca (cała firma) z „Zmień”, wysłane do Cpro (Nordea); rano zbiorczy dzwonek. Przegląd DL (osoby w kolumnie „QC CV”) stoi od 13.10.2026 w pasie „Do wysłania do klienta” nad panelem (`dl-send.band`). Kolejka „Czeka na DZ” usunięta (v5: QC CV).",
    "file": "components/v2/dashboard/BoardTasksPanel.tsx",
    "marker": "BoardTasksPanel",
    "v3_home": "Pulpit → „Czeka na Ciebie”"
@@ -1517,10 +1517,10 @@
   {
    "id": "dl-review.card-state",
    "area": "pulpit",
-   "opis": "Stan pól screeningu („Screening: komplet” / „brakuje N” / „puste pola”) w wierszu kolejki przeglądu DL",
-   "file": "components/v2/dashboard/BoardTasksPanel.tsx",
+   "opis": "Stan pól screeningu („Screening: komplet” / „brakuje N” / „puste pola”) w wierszu pasa „Do wysłania do klienta” (do 13.10.2026 w kolejce przeglądu DL w „Czeka na Ciebie”)",
+   "file": "components/v2/dashboard/DlSendQueueBand.tsx",
    "marker": "ReviewCardBadge",
-   "v3_home": "Pulpit → Czeka na Ciebie → przegląd DL"
+   "v3_home": "Pulpit → Do wysłania do klienta"
   },
   {
    "id": "dl-review.requirements",
@@ -1560,7 +1560,79 @@
    "opis": "Porównanie osób czekających na przegląd DL w jednej rekrutacji: ocena, wymagania X/Y, koszt, start, ryzyka (D10)",
    "file": "components/v2/recruitment/dl-review/DlReviewQueueDialog.tsx",
    "marker": "Porównanie kandydatów w przeglądzie",
-   "v3_home": "Pulpit → Czeka na Ciebie → Porównaj (N) / Tablica → nagłówek „QC CV” → Porównaj (N)"
+   "v3_home": "Pulpit → Do wysłania do klienta → porównaj / Tablica → nagłówek „QC CV” → Porównaj (N)"
+  },
+  {
+   "id": "dl-send.band",
+   "area": "pulpit",
+   "opis": "Pas „Do wysłania do klienta” nad pulpitem Delivery Leada: gotowi po QC CV w tabeli (rekrutacja z terminem, kto przekazał, stawka kandydata wobec budżetu, QC i screening, czas czekania w kolorze pilności, „Przejrzyj i wyślij”); „Jeszcze u rekrutera” i „Z Traffita” zwinięte do jednej linii z „Pokaż”; pusta kolejka = jedno zdanie",
+   "file": "components/v2/dashboard/DlSendQueueBand.tsx",
+   "marker": "DlSendQueueBand",
+   "v3_home": "Pulpit → Do wysłania do klienta"
+  },
+  {
+   "id": "dl-send.sequence",
+   "area": "pulpit",
+   "opis": "„Przejrzyj po kolei (N)”: przegląd gotowych osób jedna po drugiej z licznikiem „2 z 5”, „Pomiń” i „Zakończ kolejkę”; to samo uruchamia link `?wysylka=po-kolei` z górnego paska",
+   "file": "hooks/useReviewSequence.ts",
+   "marker": "useReviewSequence",
+   "v3_home": "Pulpit → Do wysłania do klienta → Przejrzyj po kolei"
+  },
+  {
+   "id": "dl-send.topbar",
+   "area": "powłoka",
+   "opis": "Licznik „Do wysłania · N” w górnym pasku i przy „Rekrutacjach” w menu — stan kolejki Delivery Leada (nie zdarzenia): okienko z osobami gotowymi do wysłania, wiersz prowadzi do przeglądu na Tablicy, stopka do „po kolei” na pulpicie i do listy rekrutacji; przy zerze i bez roli DL licznika nie ma",
+   "file": "components/v2/shell/DlSendTopbarButton.tsx",
+   "marker": "DlSendTopbarButton",
+   "v3_home": "Górny pasek → Do wysłania / Menu → Rekrutacje (licznik)"
+  },
+  {
+   "id": "dl-send.board-card",
+   "area": "tablica",
+   "opis": "Karta gotowa do wysyłki w „QC CV”: przycisk „Przejrzyj i wyślij” zamiast strzałki (każdy z prawem wysyłki); u Delivery Leada tej rekrutacji „Twój ruch” i plakietka „Czeka na Ciebie · N dni” liczona od zaliczenia QC",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "card-review-send",
+   "v3_home": "Tablica → kolumna „QC CV” → karta"
+  },
+  {
+   "id": "dl-send.board-sequence",
+   "area": "tablica",
+   "opis": "„Przejrzyj po kolei (N)” w drugiej linii nagłówka kolumny „QC CV” (Delivery Lead tej rekrutacji, od 2 gotowych osób) — przegląd jedna osoba po drugiej bez zamykania",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "dl-review-sequence-start",
+   "v3_home": "Tablica → nagłówek „QC CV” → Przejrzyj po kolei"
+  },
+  {
+   "id": "dl-send.list-highlight",
+   "area": "lista",
+   "opis": "Komórka „QC” w kolumnie „Etapy” wypełniona kolorem akcji, gdy ktoś czeka na wysyłkę patrzącego Delivery Leada (podpowiedź z liczbą osób); to samo w kafelku „Moje rekrutacje”",
+   "file": "components/v2/jobs/JobListCells.tsx",
+   "marker": "dlReadyLabel",
+   "v3_home": "Rekrutacje → kolumna „Etapy” → QC / Pulpit → Moje rekrutacje"
+  },
+  {
+   "id": "dl-send.list-filter",
+   "area": "lista",
+   "opis": "Filtr „Do wysłania do klienta” w „Więcej filtrów”: czeka na mnie (Delivery Lead) / czeka 3+ dni robocze; w adresie `tosend=`",
+   "file": "components/v2/jobs/JobsFilterBar.tsx",
+   "marker": "Do wysłania do klienta",
+   "v3_home": "Rekrutacje → Więcej filtrów → Do wysłania do klienta"
+  },
+  {
+   "id": "dl-send.nudge",
+   "area": "pulpit",
+   "opis": "„Twoje CV w drodze” → „W przeglądzie”: stan QC („… — Twój ruch” przy QC do poprawy), czas od gotowości i „Przypomnij” Delivery Leadowi od 2 dni roboczych (raz dziennie)",
+   "file": "components/v2/dashboard/CvInTransitSection.tsx",
+   "marker": "Przypomnij",
+   "v3_home": "Pulpit → Twoje CV w drodze → W przeglądzie → Przypomnij"
+  },
+  {
+   "id": "dl-send.stale-signal",
+   "area": "pulpit",
+   "opis": "Sygnał „CV czeka na wysyłkę do klienta 3+ dni robocze” w kafelku „Gdzie stoi” i w panelu uwagi Insights, z linkiem do listy rekrutacji z filtrem",
+   "file": "components/v2/dashboard/custom/TeamSignalsTile.tsx",
+   "marker": "dl_send_stale",
+   "v3_home": "Pulpit → Gdzie stoi / Insights → Zespół"
   },
   {
    "id": "screening-form.fix-request",

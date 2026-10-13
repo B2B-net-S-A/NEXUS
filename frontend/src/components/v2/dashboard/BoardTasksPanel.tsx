@@ -17,10 +17,6 @@
  *  - „Obłożenie" (09.10.2026) — ile requestów ma każda osoba; stoi pod dwiema
  *    listami wyżej, gdy któraś ma wiersze, bo to przy nich przydziela się
  *    ludzi (`TeamLoadSection`). Informacja jak lista prowadzących,
-  *  - „Czeka na Twój przegląd (DL)" (klienci spoza Nordei) — osoby w kolumnie
- *    „QC CV", które Delivery Lead wysyła do klienta ze stawką albo odrzuca;
- *    wiersz otwiera `DlReviewPanel` (CV, QC, screening, stawka),
- *    Widzi go wyłącznie Delivery Lead rekrutacji (admin i HoR nie),
  *  - „Do wrzucenia do Cpro" (Nordea) — jedna linia na rekrutację; „Wrzucaj po
  *    kolei" otwiera `CproQueueDialog`. Do Cpro wrzuca JEDNA osoba na całą
  *    firmę (decyzja Artura 23.09.2026) i tylko ona widzi obie listy Cpro
@@ -46,6 +42,13 @@
  *    w przeglądzie i co poszło do klienta (`CvInTransitSection`). Każdy ma ją
  *    domyślnie i może usunąć z pulpitu; bez innych list jest wąskim paskiem.
  *
+ * Przegląd Delivery Leada („Czeka na Twój przegląd (DL)") wyszedł stąd
+ * 13.10.2026 do pasa „Do wysłania do klienta" nad panelem (`DlSendQueueBand`):
+ * w wąskiej kolumnie gotowi do wysyłki ginęli między innymi listami. Wiersze
+ * `dl_review` nie liczą się tu do tego, czy coś „czeka", a przy pasie
+ * (`dlSendBand`) panel nie mówi „Nic na Ciebie teraz nie czeka." — pustą
+ * kolejkę wysyłki ogłasza pas.
+ *
  * Kolejka „Czeka na DZ" i przegląd DZ (0353) zniknęły — zastąpiło je QC CV.
  * Panel „Czeka na Ciebie" nie renderuje się, gdy nic nie czeka — pusta ramka
  * uczyłaby go ignorować (zostają wtedy najwyżej listy informacyjne: „Nowe
@@ -54,17 +57,13 @@
  */
 
 import Link from "next/link";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Clock, Eye, ListOrdered } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, Clock, ListOrdered } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AllocationProposalsSection } from "@/components/v2/dashboard/AllocationProposalsSection";
 import { WidgetErrorBlock } from "@/components/v2/dashboard/WidgetState";
 import { FollowupSection } from "@/components/v2/followups/FollowupSection";
-import { DlReviewPanel } from "@/components/v2/recruitment/DlReviewPanel";
-import { DlReviewQueueDialog } from "@/components/v2/recruitment/dl-review/DlReviewQueueDialog";
-import { QcStatusBadge } from "@/components/v2/recruitment/QcStatusBadge";
 import {
   PREP_ATTENTION_REASON_LABEL,
   groupCproByJob,
@@ -78,7 +77,6 @@ import {
 import { formatDayLabel, formatTime } from "@/lib/interview-cycle";
 import { countPl } from "@/lib/plural-pl";
 import { withoutHiddenPanels, type DashboardPanelKey } from "@/lib/dashboard-panels";
-import { boardCardBadge } from "@/lib/recommendation-card";
 
 import {
   AgreementTasksSection,
@@ -111,25 +109,6 @@ function prepReasonClass(row: PrepAttentionRow): string {
     : "bg-warning-muted text-warning-muted-foreground";
 }
 
-const CARD_BADGE_VARIANT = { ok: "success", wait: "warning", neutral: "outline" } as const;
-
-/** Stan pól screeningu w wierszu przeglądu DL. Pole nieobecne w odpowiedzi
- *  (starszy serwer) = bez plakietki; `null` = nikt nie wpisał żadnego pola. */
-function ReviewCardBadge({ row }: { row: BoardTaskRow }) {
-  if (row.card_status === undefined) return null;
-  const badge = boardCardBadge(
-    row.card_status ? { status: row.card_status, missing: row.card_missing ?? 0, answers: 0 } : null,
-    0,
-    "cv_qc",
-  );
-  if (!badge) return null;
-  return (
-    <Badge size="sm" variant={CARD_BADGE_VARIANT[badge.tone]} title={badge.title}>
-      {badge.label}
-    </Badge>
-  );
-}
-
 function RowMeta({ row }: { row: BoardTaskRow }) {
   return (
     <p className="truncate text-xs text-muted-foreground">
@@ -145,33 +124,20 @@ interface BoardTasksPanelProps {
   /** Listy usunięte z pulpitu (Head of Recruitment — `lib/dashboard-panels.ts`).
    *  Ukryta lista wygląda dla panelu jak pusta. */
   hiddenPanels?: ReadonlySet<DashboardPanelKey>;
+  /** Nad panelem stoi pas „Do wysłania do klienta” (`DlSendQueueBand`) — pustą
+   *  kolejkę ogłasza on, a „Nic na Ciebie teraz nie czeka.” tuż pod osobami
+   *  gotowymi do wysyłki byłoby nieprawdą. */
+  dlSendBand?: boolean;
 }
 
 const NO_HIDDEN_PANELS: ReadonlySet<DashboardPanelKey> = new Set();
 
-/** Wiersze przeglądu DL pogrupowane po rekrutacji — kolejność pierwszego wystąpienia. */
-export function groupByJob(
-  rows: BoardTaskRow[],
-): Array<{ jobId: number; title: string; rows: BoardTaskRow[] }> {
-  const out: Array<{ jobId: number; title: string; rows: BoardTaskRow[] }> = [];
-  const byId = new Map<number, (typeof out)[number]>();
-  for (const row of rows) {
-    let group = byId.get(row.job_id);
-    if (!group) {
-      group = { jobId: row.job_id, title: row.job_working_title || row.job_title, rows: [] };
-      byId.set(row.job_id, group);
-      out.push(group);
-    }
-    group.rows.push(row);
-  }
-  return out;
-}
-
-export function BoardTasksPanel({ hiddenPanels = NO_HIDDEN_PANELS }: BoardTasksPanelProps = {}) {
+export function BoardTasksPanel({
+  hiddenPanels = NO_HIDDEN_PANELS,
+  dlSendBand = false,
+}: BoardTasksPanelProps = {}) {
   const query = useBoardTasks();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [reviewing, setReviewing] = useState<BoardTaskRow | null>(null);
-  const [queueJob, setQueueJob] = useState<{ id: number; title: string } | null>(null);
   const [cproJob, setCproJob] = useState<number | null>(null);
   const [cproOpen, setCproOpen] = useState(false);
   const toggle = (kind: string) => setExpanded((prev) => ({ ...prev, [kind]: !prev[kind] }));
@@ -216,11 +182,6 @@ export function BoardTasksPanel({ hiddenPanels = NO_HIDDEN_PANELS }: BoardTasksP
       </div>
     );
   }
-  const dlReview = data.dl_review ?? [];
-  const dlReviewCountByJob = new Map<number, number>();
-  for (const row of dlReview) {
-    dlReviewCountByJob.set(row.job_id, (dlReviewCountByJob.get(row.job_id) ?? 0) + 1);
-  }
   const preps = data.prep_attention ?? [];
   const followups = data.followups ?? [];
   // Serwer wysyła propozycje tylko osobie decydującej; flaga jest drugim
@@ -229,7 +190,6 @@ export function BoardTasksPanel({ hiddenPanels = NO_HIDDEN_PANELS }: BoardTasksP
     data.can_decide_proposals === true ? (data.allocation_proposals ?? []) : [];
   const total =
     proposals.length +
-    dlReview.length +
     data.cpro_to_send.length +
     data.cpro_sent.length +
     preps.length +
@@ -269,8 +229,9 @@ export function BoardTasksPanel({ hiddenPanels = NO_HIDDEN_PANELS }: BoardTasksP
   ) {
     // Rola z sekcjami przepływu (rekruter, TCM, DL) dostaje jedno zdanie
     // zamiast znikającego panelu — inaczej „nic” i „nie wczytało się” wyglądają
-    // tak samo. Pozostałe role: bez pustej ramki, jak dotąd.
-    const quiet = data.flow?.applies === true;
+    // tak samo. Pozostałe role: bez pustej ramki, jak dotąd. Przy pasie „Do
+    // wysłania do klienta” zdania nie ma — o pustej kolejce mówi pas.
+    const quiet = data.flow?.applies === true && !dlSendBand;
     if (!quiet && !canSetSender && !transit && leads.length === 0 && !hasPendingJobs) return null;
     return (
       <div className="flex flex-col gap-3">
@@ -359,76 +320,6 @@ export function BoardTasksPanel({ hiddenPanels = NO_HIDDEN_PANELS }: BoardTasksP
         <AgreementTasksSection tasks={data.agreements} />
         <RateChangesSection rows={data.rate_changes} />
         {transit && transitIsMine ? <CvInTransitSection transit={transit} /> : null}
-        {dlReview.length > 0 && (
-          <Section
-            title="Czeka na Twój przegląd (DL)"
-            hint={`Po QC CV — wyślij do klienta ze stawką albo odrzuć (ostatnie ${data.dl_review_window_days ?? 30} dni).`}
-            count={dlReview.length}
-            expanded={expanded["dl_review"] === true}
-            onToggle={() => toggle("dl_review")}
-          >
-            {/* D10 (08.10.2026): osoby z jednej rekrutacji obok siebie — przy
-                2+ osobach nagłówek rekrutacji z „Porównaj (N)”. */}
-            {groupByJob(shown("dl_review", dlReview)).map((group) => (
-              <Fragment key={group.jobId}>
-                {(dlReviewCountByJob.get(group.jobId) ?? 0) > 1 ? (
-                  <li className="flex flex-wrap items-center gap-2 bg-muted/30 px-3 py-1.5 text-xs">
-                    <span className="min-w-0 flex-1 truncate font-medium text-foreground" title={group.title}>
-                      {group.title}
-                    </span>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="shrink-0"
-                      onClick={() => setQueueJob({ id: group.jobId, title: group.title })}
-                    >
-                      Porównaj ({dlReviewCountByJob.get(group.jobId)})
-                    </Button>
-                  </li>
-                ) : null}
-                {group.rows.map((row) => (
-                  // Kolumna panelu ma na laptopie ~300 px: plakietka QC, czas
-                  // i przycisk w jednej linii zostawiały nazwisku 60–90 px.
-                  // Gdy nazwisko nie ma 12rem, akcje schodzą pod nie.
-                  <li
-                    key={row.stage_id}
-                    className="flex flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2"
-                  >
-                    <div className="min-w-[12rem] flex-1">
-                      <button
-                        type="button"
-                        onClick={() => setReviewing(row)}
-                        title={row.candidate_name}
-                        className="block max-w-full truncate text-left text-sm font-medium hover:underline"
-                      >
-                        {row.candidate_name}
-                      </button>
-                      <RowMeta row={row} />
-                    </div>
-                    <div className="ml-auto flex shrink-0 items-center gap-2">
-                      <QcStatusBadge row={row} />
-                      <ReviewCardBadge row={row} />
-                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                        {waitingFor(row.since)}
-                      </span>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="shrink-0"
-                        onClick={() => setReviewing(row)}
-                        aria-label={`Przejrzyj: ${row.candidate_name}`}
-                      >
-                        <Eye className="h-3.5 w-3.5" />
-                        Przejrzyj
-                      </Button>
-                    </div>
-                  </li>
-                ))}
-              </Fragment>
-            ))}
-          </Section>
-        )}
-
         {data.cpro_to_send.length > 0 && (
           <Section
             title="Do wrzucenia do Cpro"
@@ -541,23 +432,6 @@ export function BoardTasksPanel({ hiddenPanels = NO_HIDDEN_PANELS }: BoardTasksP
           </div>
         </div>
       ) : null}
-      <DlReviewPanel
-        task={reviewing}
-        open={reviewing !== null}
-        onOpenChange={(open) => {
-          if (!open) setReviewing(null);
-        }}
-        canSendToClient={data.can_send_to_client}
-      />
-      <DlReviewQueueDialog
-        jobId={queueJob?.id ?? null}
-        jobTitle={queueJob?.title ?? null}
-        open={queueJob !== null}
-        onOpenChange={(open) => {
-          if (!open) setQueueJob(null);
-        }}
-        onReview={setReviewing}
-      />
       <CproQueueDialog open={cproOpen} onClose={() => setCproOpen(false)} initialJobId={cproJob} />
     </div>
   );
