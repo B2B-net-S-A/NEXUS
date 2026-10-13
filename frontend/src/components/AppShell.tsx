@@ -78,6 +78,8 @@ import {
 } from "@/components/calendar/CandidateCombobox";
 import { HiringManagerCombobox } from "@/components/jobs/HiringManagerCombobox";
 import { jobGateErrorText, jobGateRefusal } from "@/lib/job-gate-errors";
+import { activeCardsWarningFrom, type ActiveCardsWarning } from "@/lib/job-close";
+import { ActiveCardsNotice } from "@/components/v2/jobs/JobCloseWithReasonDialog";
 import { OfficeDaysField } from "@/components/jobs/OfficeDaysField";
 import {
   officeDaysFields,
@@ -1925,6 +1927,9 @@ export function EditJobModal({
   onRequestPublish?: () => void;
 }) {
   const [form, setForm] = useState<JobFormData>(() => jobToForm(job));
+  // Zamknięcie statusem przy osobach w toku (13.10.2026): serwer zatrzymuje
+  // pierwszy zapis ostrzeżeniem, drugi idzie z potwierdzeniem.
+  const [activeCards, setActiveCards] = useState<ActiveCardsWarning | null>(null);
   const [hiringManager, setHiringManager] = useState<HiringManagerChoice | null>(
     () => jobHiringManager(job),
   );
@@ -2003,6 +2008,10 @@ export function EditJobModal({
     return saveCollaboratorChanges(job.id, changes);
   };
 
+  // Ostrzeżenie dotyczy tylko zapisu, który zamyka — cofnięcie statusu je chowa.
+  const closingWarning =
+    form.status === "closed" && job.status !== "closed" ? activeCards : null;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.title) { setError("Tytuł jest wymagany"); return; }
@@ -2023,7 +2032,7 @@ export function EditJobModal({
         onClose();
         return;
       }
-      await api.patch(`/api/jobs/${job.id}`, {
+      const payload = {
         title: form.title,
         client_id: form.client_id ? Number(form.client_id) : undefined,
         // Status jedzie TYLKO przy zamknięciu (04.10.2026): szkic nie istnieje
@@ -2055,7 +2064,14 @@ export function EditJobModal({
         // `model_fields_set`, więc wartości w bazie zostają nietknięte.
         delivery_lead_id: form.delivery_lead_id ? Number(form.delivery_lead_id) : null,
         ...jobNamesPatch(job, names),
-      });
+      };
+      if (closingWarning) {
+        await api.patch(`/api/jobs/${job.id}`, payload, {
+          params: { acknowledge_active_cards: true },
+        });
+      } else {
+        await api.patch(`/api/jobs/${job.id}`, payload);
+      }
       // Hiring manager i kolejne osoby to dwa niezależne zapisy po
       // rekrutacji — błąd jednego nie może pominąć drugiego.
       const failures: string[] = [];
@@ -2079,6 +2095,11 @@ export function EditJobModal({
       onSuccess("Rekrutacja zaktualizowana");
       onClose();
     } catch (err: any) {
+      const warning = activeCardsWarningFrom(err);
+      if (warning) {
+        setActiveCards(warning);
+        return;
+      }
       // Odmowy bramki (`handoff_regression`, `draft_not_allowed`,
       // `reopen_required`) niosą braki — pokazujemy je razem ze zdaniem.
       setError(
@@ -2093,6 +2114,7 @@ export function EditJobModal({
     <Modal title={`Edytuj: ${job.title}`} onClose={onClose} wide>
       <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80dvh] overflow-y-auto">
         {error && <ErrorBanner error={error} />}
+        {closingWarning ? <ActiveCardsNotice warning={closingWarning} /> : null}
         {contentOnly ? (
           <>
             <JobNamesFields job={job} names={names} onChange={setNames} />
@@ -2144,7 +2166,7 @@ export function EditJobModal({
         )}
         <div className="flex justify-end gap-3 pt-1">
           <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
-          <SaveButton saving={saving} label="Zapisz zmiany" />
+          <SaveButton saving={saving} label={closingWarning ? "Zapisz i zamknij mimo to" : "Zapisz zmiany"} />
         </div>
       </form>
     </Modal>

@@ -196,6 +196,7 @@ Lista `/jobs`, Tablica, ruch kart i bramki, panel osoby, QC CV i Cpro, przegląd
 - `role-przy-rekrutacji-delivery-lead-rekruter.md` — Role przy rekrutacji: Delivery Lead · Rekruter · Kategoria; propozycje automatu akceptuje Head of Recruitment (0409, 02.10.2026)
 - `sciezka-kandydata-przekazania-zweryfikowany-jeden.md` — Ścieżka kandydata: przekazania, „Zweryfikowany”, jeden panel osoby (04.10.2026)
 - `twoje-cv-w-drodze-na-pulpicie-domyslnie-u-kazdego-z.md` — „Twoje CV w drodze” na pulpicie — domyślnie u każdego, z „Usuń z pulpitu” (02.10.2026)
+- `zamkniecie-rekrutacji-osoby-w-toku.md` — Zamknięcie rekrutacji ostrzega o osobach w toku (13.10.2026) · 409 `active_cards_warning` z `POST /api/jobs/{id}/close` i z `PATCH` statusem, potwierdzenie `acknowledge_active_cards`, trzy okna zamykania, czego ostrzeżenie nie robi
 
 ### Screening, notatki, stawki kandydata — `docs/claude/screening-notatki/`
 
@@ -270,6 +271,7 @@ Profil i karta klienta, scalanie i usuwanie klientów, Historia zdarzeń, Centru
 - `jednorazowe-czyszczenie-nieaktywnych-klientow.md` — Jednorazowe czyszczenie „Nieaktywnych klientów" (migracja 0303)
 - `karta-klienta-client-playbooks.md` — Karta klienta (`client_playbooks`)
 - `klienci-profil-tabela-konsultantow-stawki-z.md` — Klienci → Profil: tabela konsultantów + stawki z harmonogramu
+- `scalenie-cardif-pelne-przeniesienie-danych.md` — Pełne scalenie klienta-duplikatu: BNP Paribas Cardif (52) → Cardif Assurances (38335) (13.10.2026) · jednorazowa korekta `cardif_client_merge_repair`, kolejność „najpierw dane, potem flaga scalenia”, co zostaje na duplikacie, umowa 1520/2026 powiązana z kontraktem bez zmiany treści dokumentu, wzór na kolejne duplikaty z Traffita
 - `usuwanie-klienta-z-profilu-historia-zdarzen.md` — Usuwanie klienta z profilu + Historia zdarzeń (migracja 0307)
 
 ### Kontrakty i umowy B2B — `docs/claude/kontrakty/`
@@ -331,6 +333,7 @@ Dzwonek, kategorie i wyciszenia, powiadomienia dla ról, okienko „Czaty”, ma
 - `maile-do-zespolu-poranny-skrot-kilka-maili-od-razu.md` — Maile do zespołu: poranny skrót + kilka maili od razu (07.10.2026)
 - `moje-powiadomienia-kategorie-i-wyciszenia-per-osoba.md` — Moje powiadomienia — kategorie i wyciszenia per osoba (0349, 22.09.2026)
 - `okienko-czaty-w-gornym-pasku.md` — Okienko „Czaty” w górnym pasku (09.10.2026)
+- `okienko-rozmowy-w-gornym-pasku.md` — Okienko „Rozmowy” w górnym pasku (13.10.2026) · rozmowy u klienta i prepy poza dzwonkiem, zadania z cyklu z flagą `mine`, czas liczony z agendy, zwijanie i chowanie sygnałów, gaszenie osobną trasą, dymki, pigułka telefonu
 - `powiadomienia-dla-rol-i-jeden-ekran-powiadomienia.md` — Powiadomienia dla ról i jeden ekran „Powiadomienia” (0425, 09.10.2026)
 
 ### Integracje — `docs/claude/integracje/`

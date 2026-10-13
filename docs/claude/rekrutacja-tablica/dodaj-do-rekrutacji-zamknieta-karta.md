@@ -35,14 +35,22 @@ rekrutacjach było wtedy 6 596 par osoba–rekrutacja z samą zamkniętą histor
 - **Nowy powód dostaje tylko człowiek** (`claim=True` w `add_candidates_to_job`).
   Integracja i automat dopasowań dalej widzą `already_in_job`: nie mają jak
   przywrócić karty, a etykieta z imieniem osoby, która ją zamknęła, nie trafia
-  do ich odpowiedzi ani do dziennika decyzji automatu. „Przypisz do
-  rekrutacji” z profilu czyta oba powody razem (`IN_JOB_SKIP_REASONS`)
-  i odpowiada jak dotąd `already_in_pipeline`.
+  do ich odpowiedzi ani do dziennika decyzji automatu.
+- **„Przypisz do rekrutacji” odmawia przy zamkniętej karcie (13.10.2026).**
+  `POST /api/candidates/{id}/assign-to-job/{job_id}` odpowiadał 200
+  `already_in_pipeline` dla każdej osoby z jakimkolwiek wierszem etapu,
+  a trzy ekrany czytały to jako sukces („Przypisano”). Człowiek dostaje teraz
+  409 `{code: "closed_in_job", message, closed}` — to samo zdanie i ten sam cel
+  ruchu co w oknie dodawania (`proposals_bulk.closed_card_skip`). Okno
+  „Przypisz do rekrutacji” (`QuickAssignV2`) pokazuje je i przywraca kartę
+  przez `recruitment/ClosedCardRestore`; widżet dopasowań i karta
+  kontraktora pokazują zdanie z serwera jako błąd. Karta w toku i integracja
+  dostają jak dotąd 200 `already_in_pipeline`.
 - **Ekrany, które po `already_in_job` chowają wiersz** („Szukaj ręcznie”
   w rekrutacji, propozycje, kafel propozycji na pulpicie), przy `closed_in_job`
   zostawiają osobę na liście z komunikatem — badge „Dodano do „Nowych”” przy
   odrzuconej osobie był nieprawdą.
 
 Czego ta zmiana nie rusza: pozostałe wejścia z regułą „jakikolwiek wiersz”
-(„Przypisz do rekrutacji”, promocja z shortlisty, „Dodaj championa”, wtyczka
-LinkedIn) i filtry, które chowają takie osoby w wyszukiwaniu w rekrutacji.
+(promocja z shortlisty, „Dodaj championa”, wtyczka LinkedIn) i filtry, które
+chowają takie osoby w wyszukiwaniu w rekrutacji.

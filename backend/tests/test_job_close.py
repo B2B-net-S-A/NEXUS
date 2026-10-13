@@ -113,3 +113,171 @@ async def test_close_job_reason_optional_notes(
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["close_notes"] is None
+
+
+# ── Osoby w toku przy zamykaniu (13.10.2026) ─────────────────────────────────
+
+
+async def test_active_cards_summary_counts_only_people_in_progress() -> None:
+    from datetime import datetime, timezone
+
+    from app.services.job_active_cards import summarize
+
+    older = datetime(2026, 10, 10, 9, 0, tzinfo=timezone.utc)
+    # 22:30 UTC to w kalendarzu firmy już następny dzień.
+    newest = datetime(2026, 10, 12, 22, 30, tzinfo=timezone.utc)
+    active = summarize(
+        [
+            ("screening", older),
+            ("new", newest),
+            ("new", older),
+            ("closed", newest),
+            ("hired", newest),
+        ]
+    )
+    assert active.total == 3
+    # Kolejność kolumn Tablicy, nie kolejność wierszy.
+    assert list(active.columns.items()) == [("new", 2), ("screening", 1)]
+    assert active.last_moved_at == newest
+    assert active.message() == (
+        "W tej rekrutacji są 3 osoby w toku (ostatni ruch karty 13.10.2026). "
+        "Zamknięcie nie zamyka kart — zostaną w zamkniętej rekrutacji."
+    )
+    detail = active.warning_detail()
+    assert detail["code"] == "active_cards_warning"
+    assert detail["active_cards"] == 3
+    assert detail["columns"] == {"new": 2, "screening": 1}
+
+    assert summarize([("closed", older), ("hired", older)]).total == 0
+
+
+async def test_active_cards_message_declines_the_count() -> None:
+    from datetime import datetime, timezone
+
+    from app.services.job_active_cards import summarize
+
+    moved = datetime(2026, 10, 12, 10, 0, tzinfo=timezone.utc)
+    for total, words in (
+        (1, "jest 1 osoba"),
+        (2, "są 2 osoby"),
+        (5, "jest 5 osób"),
+        (12, "jest 12 osób"),
+        (22, "są 22 osoby"),
+    ):
+        message = summarize([("new", moved)] * total).message()
+        assert message.startswith(f"W tej rekrutacji {words} w toku"), message
+
+
+async def _seed_candidate_in_job(job_id: int, *stages: str) -> int:
+    """Osoba z kartą w rekrutacji — kolejne etapy przez komendę procesu."""
+    import uuid
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.recruitment_pipeline import PipelineStage
+    from app.services.recruitment_process_commands import transition_process
+
+    unique = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        candidate = Candidate(
+            name="Zamknij",
+            lastname=f"Osoba{unique}",
+            email=f"close-active-{unique}@example.com",
+        )
+        db.add(candidate)
+        await db.flush()
+        for stage in stages:
+            await transition_process(
+                db,
+                candidate_id=candidate.id,
+                job_id=job_id,
+                stage=PipelineStage(stage),
+                actor_user_id=None,
+                # Etap końcowy niesie stronę, która zamknęła kartę.
+                **({"ended_by": "recruiter"} if stage == "rejected" else {}),
+            )
+        await db.commit()
+        return candidate.id
+
+
+async def test_close_with_people_in_progress_asks_for_confirmation(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    """Zgłoszenie 12.10.2026: duplikat requestu zamknięto z pięcioma kartami
+    w toku i nikt tego nie zauważył."""
+    job_id = await _create_draft_job(
+        app_client, app_auth_headers, "pytest-close-active-cards"
+    )
+    await _seed_candidate_in_job(job_id, "new")
+    await _seed_candidate_in_job(job_id, "new", "screening")
+    await _seed_candidate_in_job(job_id, "new", "rejected")
+
+    warned = await app_client.post(
+        f"/api/jobs/{job_id}/close",
+        json={"reason": "other"},
+        headers=app_auth_headers,
+    )
+    assert warned.status_code == 409, warned.text
+    detail = warned.json()["detail"]
+    assert detail["code"] == "active_cards_warning"
+    assert detail["active_cards"] == 2
+    assert detail["columns"] == {"new": 1, "screening": 1}
+    assert detail["message"].startswith("W tej rekrutacji są 2 osoby w toku")
+
+    still_open = await app_client.get(f"/api/jobs/{job_id}", headers=app_auth_headers)
+    assert still_open.json()["status"] == "published"
+
+    closed = await app_client.post(
+        f"/api/jobs/{job_id}/close",
+        json={"reason": "other", "acknowledge_active_cards": True},
+        headers=app_auth_headers,
+    )
+    assert closed.status_code == 200, closed.text
+    assert closed.json()["status"] == "closed"
+
+
+async def test_close_with_only_closed_cards_needs_no_confirmation(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    job_id = await _create_draft_job(
+        app_client, app_auth_headers, "pytest-close-closed-cards"
+    )
+    await _seed_candidate_in_job(job_id, "new", "rejected")
+
+    closed = await app_client.post(
+        f"/api/jobs/{job_id}/close",
+        json={"reason": "budget"},
+        headers=app_auth_headers,
+    )
+    assert closed.status_code == 200, closed.text
+
+
+async def test_closing_from_the_edit_window_warns_the_same_way(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    """Pole „Status” w oknie edycji to trzecia droga zamknięcia (lustro
+    ``close_job``) — bez tej samej odmowy ostrzeżenie dałoby się ominąć."""
+    job_id = await _create_draft_job(
+        app_client, app_auth_headers, "pytest-close-edit-window"
+    )
+    await _seed_candidate_in_job(job_id, "new")
+
+    warned = await app_client.patch(
+        f"/api/jobs/{job_id}", json={"status": "closed"}, headers=app_auth_headers
+    )
+    assert warned.status_code == 409, warned.text
+    detail = warned.json()["detail"]
+    assert detail["code"] == "active_cards_warning"
+    assert detail["columns"] == {"new": 1}
+
+    still_open = await app_client.get(f"/api/jobs/{job_id}", headers=app_auth_headers)
+    assert still_open.json()["status"] == "published"
+
+    closed = await app_client.patch(
+        f"/api/jobs/{job_id}",
+        params={"acknowledge_active_cards": "true"},
+        json={"status": "closed"},
+        headers=app_auth_headers,
+    )
+    assert closed.status_code == 200, closed.text
+    assert closed.json()["status"] == "closed"

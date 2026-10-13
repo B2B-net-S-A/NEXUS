@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   jobsList: vi.fn(),
   forCandidate: vi.fn(),
   assignToJob: vi.fn(),
+  send: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -19,6 +20,14 @@ vi.mock("@/lib/api", () => ({
 }));
 
 vi.mock("@/components/v2/RiskBadge", () => ({ RiskBadge: () => null }));
+
+// Ruch karty ma własne testy; tu liczy się ładunek, z którym okno go woła.
+vi.mock("@/hooks/usePipelineMoveCore", () => ({
+  usePipelineMoveCore: () => ({
+    send: (...args: unknown[]) => mocks.send(...args),
+    dialogs: null,
+  }),
+}));
 
 import { QuickAssignV2 } from "@/components/v2/modals/QuickAssignV2";
 import { useTabsStore } from "@/store/tabs";
@@ -106,6 +115,49 @@ describe("QuickAssignV2 (C5)", () => {
     expect(within(mine).getAllByText("Ten sam klient, u którego pracuje")).toHaveLength(1);
     // Znacznik nie blokuje: przypisanie do obu rekrutacji działa jak dotąd.
     expect(within(mine).getAllByRole("button", { name: "Przypisz" })).toHaveLength(2);
+  });
+
+  it("zamknięta karta: zamiast „Przypisano” okno mówi skąd i od kiedy i przywraca kartę", async () => {
+    // Do 13.10.2026 serwer odpowiadał 200 „już w procesie” także przy
+    // odrzuconej osobie, a wiersz pokazywał zielone „Przypisano”.
+    mocks.assignToJob.mockRejectedValue(
+      Object.assign(new Error("HTTP 409"), {
+        response: {
+          status: 409,
+          data: {
+            detail: {
+              code: "closed_in_job",
+              message: "Zamknięta karta w tej rekrutacji: Odrzucony 08.10.2026 (Jan Testowy)",
+              closed: { candidate_name: "Anna Nowak", state_version: 2, restore_stage: "new", restore_stage_def_id: null },
+            },
+          },
+        },
+      }),
+    );
+    mocks.send.mockResolvedValue({ ok: true, data: {} });
+    const onAssigned = vi.fn();
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <QuickAssignV2 open onOpenChange={vi.fn()} candidateId={5} candidateName="Anna Nowak" onAssigned={onAssigned} />
+      </QueryClientProvider>,
+    );
+    const mine = await screen.findByRole("region", { name: "Moje otwarte" });
+    fireEvent.click(await within(mine).findByRole("button", { name: "Przypisz" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Nie przypisano do „Moja rekrutacja”.");
+    expect(alert).toHaveTextContent("Odrzucony 08.10.2026 (Jan Testowy)");
+    expect(within(mine).queryByText("Przypisano")).not.toBeInTheDocument();
+    expect(onAssigned).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Przywróć do „Nowych”" }));
+    await waitFor(() => expect(onAssigned).toHaveBeenCalledWith(1));
+    expect(mocks.send).toHaveBeenCalledWith(
+      { candidate_id: 5, job_id: 1, stage: "new", expected_state_version: 2 },
+      expect.objectContaining({ candidateName: "Anna Nowak" }),
+    );
+    expect(within(mine).getByText("Przywrócono")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("bez znacznika okno nie rysuje ramki", async () => {

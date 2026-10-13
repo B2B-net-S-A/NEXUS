@@ -15,6 +15,7 @@ import { MyPeopleTopbarButton } from "@/components/v2/my-people/MyPeopleLauncher
 import { KidsModeToggleButton, ThemeToggleButton } from "./ThemeControls";
 import { ChatNotificationsDropdown } from "./ChatNotificationsDropdown";
 import { DlSendTopbarButton } from "./DlSendTopbarButton";
+import { InterviewNotificationsDropdown } from "./InterviewNotificationsDropdown";
 
 interface Props {
   onOpenMobileSidebar: () => void;
@@ -88,6 +89,7 @@ export function TopbarV2({
         {/* Stan kolejki Delivery Leada, nie zdarzenia — nie ma go przy zerze. */}
         <DlSendTopbarButton />
         <ChatNotificationsDropdown />
+        <InterviewNotificationsDropdown />
         <NotificationsDropdown />
         <QuickActionsV2
           externalModal={pendingModal}

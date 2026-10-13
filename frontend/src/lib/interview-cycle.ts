@@ -191,6 +191,8 @@ export interface AgendaEntry extends PairInfo {
   prep_meta?: string | null;
   /** Prep zaplanowany po rozmowie u klienta, do której miał przygotować. */
   late?: boolean;
+  /** Wydarzenie moje albo osoby, którą zastępuję — z tego okienko „Rozmowy” liczy „Teraz”. */
+  mine?: boolean;
 }
 
 export type TodoKind =
@@ -213,6 +215,8 @@ export interface TodoEntry extends PairInfo {
   slot_request_id: number | null;
   /** Brak prepu na dobę przed rozmową u klienta. */
   urgent?: boolean;
+  /** Zadanie czeka na mnie; ekran pokazuje wszystkie z zakresu, okienko „Rozmowy” tylko te. */
+  mine?: boolean;
 }
 
 export interface CycleOverview {

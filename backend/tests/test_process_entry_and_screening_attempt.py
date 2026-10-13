@@ -545,3 +545,51 @@ async def test_recruitment_without_its_own_template_restores_by_stage_code(
         assert proc.attempt_no == 2 and proc.status == ProcessStatus.open
     finally:
         await _cleanup(world, [rec_id])
+
+
+@pytest.mark.asyncio
+async def test_assign_from_profile_refuses_a_closed_card_with_the_restore_target(
+    api_client: AsyncClient,
+) -> None:
+    """„Przypisz do rekrutacji” odpowiadało 200 „już w procesie” także przy
+    odrzuconej osobie, a ekrany pokazywały „Przypisano” (13.10.2026)."""
+    world = await _seed_world()
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    rec = await _login(api_client, rec_creds)
+    url = f"/api/candidates/{world['candidate_id']}/assign-to-job/{world['job_id']}"
+    try:
+        await _closed_attempt_with_sheet(world, rec_id, closed_days=4)
+        before = await _stage_rows(world)
+
+        refused = await api_client.post(url, headers=rec)
+        assert refused.status_code == 409, refused.text
+        detail = refused.json()["detail"]
+        assert detail["code"] == "closed_in_job"
+        assert detail["message"].startswith(
+            "Zamknięta karta w tej rekrutacji: Odrzucony "
+        )
+        closed = detail["closed"]
+        assert closed["restore_stage"] == "screening"
+        assert closed["restore_stage_def_id"] == world["defs"]["screening"]
+        assert closed["state_version"] == (await _latest_process(world)).state_version
+        assert await _stage_rows(world) == before
+
+        moved = await api_client.post(
+            "/api/pipeline/move",
+            headers=rec,
+            json={
+                "candidate_id": world["candidate_id"],
+                "job_id": world["job_id"],
+                "stage": closed["restore_stage"],
+                "stage_def_id": closed["restore_stage_def_id"],
+                "expected_state_version": closed["state_version"],
+            },
+        )
+        assert moved.status_code == 200, moved.text
+
+        # Karta w toku: odpowiedź jak dotąd.
+        again = await api_client.post(url, headers=rec)
+        assert again.status_code == 200, again.text
+        assert again.json()["status"] == "already_in_pipeline"
+    finally:
+        await _cleanup(world, [rec_id])

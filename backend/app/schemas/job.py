@@ -508,6 +508,9 @@ class JobCloseRequest(BaseModel):
 
     reason: JobCloseReason
     notes: Optional[str] = None
+    # 13.10.2026: zamknięcie przy osobach w toku wymaga potwierdzenia —
+    # bez niego trasa odpowiada 409 `active_cards_warning` z liczbami.
+    acknowledge_active_cards: bool = False
 
 
 class JobManageInNexusRequest(BaseModel):

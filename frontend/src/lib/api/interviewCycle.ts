@@ -134,14 +134,20 @@ export interface ArchiveQuestion {
 
 export function useInterviewCycle(
   scope: CycleScope,
-  { enabled = true }: { enabled?: boolean } = {},
+  {
+    enabled = true,
+    // Okienko „Rozmowy” w pasku stoi na każdej stronie: odświeża je gniazdo,
+    // a odpytywanie jest tylko siatką bezpieczeństwa (`lib/polling.ts`).
+    refetchInterval = CYCLE_REFETCH_MS,
+    staleTime = 30_000,
+  }: { enabled?: boolean; refetchInterval?: number; staleTime?: number } = {},
 ) {
   return useQuery({
     queryKey: interviewCycleQueryKey(scope),
     queryFn: () => interviewCycleApi.overview(scope),
     enabled,
-    refetchInterval: CYCLE_REFETCH_MS,
-    staleTime: 30_000,
+    refetchInterval,
+    staleTime,
   });
 }
 
