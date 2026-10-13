@@ -73,13 +73,18 @@ export function takesContract(
   return type.allows_external || type.parent === "mandate";
 }
 
-function contractLine(contract: DocumentSubjectContract | DocumentSubject): string {
+/** „Kontrakt #651 · aktywny · od 06.07.2026”; `named: false` pomija numer,
+ *  gdy pozycja ma go już w tytule. */
+function contractLine(
+  contract: DocumentSubjectContract | DocumentSubject,
+  named = true,
+): string {
   const status =
     "status" in contract ? contract.status : (contract.contract_status ?? "");
   const start =
     "start_date" in contract ? contract.start_date : contract.contract_start_date;
   return [
-    `Kontrakt #${contract.contract_id}`,
+    named ? `Kontrakt #${contract.contract_id}` : "",
     contractStatusLabel(status).toLocaleLowerCase("pl"),
     start ? `od ${formatIsoDatePl(start)}` : "",
   ]
@@ -299,7 +304,7 @@ function SubjectOption({
         <span className="text-xs text-muted-foreground">{who || "—"}</span>
         <span className="text-xs text-muted-foreground">
           {subject.contract_id !== null
-            ? contractLine(subject)
+            ? contractLine(subject, agreement)
             : options.length === 1
               ? `${contractLine(options[0])} — zostanie powiązany z umową`
               : options.length > 1

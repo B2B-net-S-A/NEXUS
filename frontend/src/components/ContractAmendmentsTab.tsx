@@ -671,7 +671,7 @@ export function ContractAmendmentsTab({
                         {a.document ? (
                           <button
                             type="button"
-                            className="break-all text-left font-medium text-primary hover:underline"
+                            className="break-words text-left font-medium text-primary hover:underline"
                             onClick={() => {
                               if (a.document) void openContractDocument(contractId, a.document);
                             }}
