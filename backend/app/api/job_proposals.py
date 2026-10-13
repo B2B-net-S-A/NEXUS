@@ -27,7 +27,7 @@ telemetrii ``reject`` i raportu „Propozycje AI" w Insights.
 
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -448,7 +448,10 @@ async def job_proposal_counts(
     = pozycje must rekrutacji, których nie da się szukać w CV (zdanie, branża,
     język, rola) — ta sama reguła co ``non_technology_must`` w ``/scores``.
     """
-    from app.api.search import _non_technology_must  # noqa: PLC0415
+    from app.api.search import (  # noqa: PLC0415
+        _critical_options,
+        _non_technology_must,
+    )
     from app.models.application_screening import (  # noqa: PLC0415
         ApplicationScreening,
     )
@@ -469,14 +472,44 @@ async def job_proposal_counts(
     # Te same etykiety must, które punktuje `/scores` (`matching_must` +
     # `gap_must` każdej osoby to razem wymagania must rekrutacji).
     must = job_skill_requirements(job).get("must") or []
+    not_searchable = _non_technology_must(
+        {"job": {"matching_must": must}}, _critical_options(job)
+    )
     return {
         "job_id": job_id,
         "days": days,
         "postings_recent": split["postings_recent"],
         "base": split["base"],
         "screened_out": screened_out,
-        "not_searchable_must": _non_technology_must({"job": {"matching_must": must}}),
+        "not_searchable_must": not_searchable,
+        # D5 (13.10.2026): „Zapytaj w rozmowie” na karcie propozycji —
+        # sekcja 4 Championa, język i must, których wyszukiwanie nie czyta.
+        "talk_checks": _talk_checks(job, not_searchable),
     }
+
+
+def _talk_checks(job: Any, not_searchable: list[str]) -> list[dict[str, str]]:
+    from app.services import champion_view  # noqa: PLC0415
+    from app.schemas.champion import EXPERIENCE_KINDS  # noqa: PLC0415
+
+    profile = getattr(job, "champion_profile", None)
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    def add(label: Any, kind: str) -> None:
+        text = " ".join(str(label or "").split())
+        if text and text.casefold() not in seen:
+            seen.add(text.casefold())
+            out.append({"label": text, "kind": kind})
+
+    experience = champion_view.experience(profile)
+    for kind in EXPERIENCE_KINDS:
+        for item in experience.get(kind) or []:
+            add(item.get("name"), kind)
+    add(champion_view.basics(profile).get("language"), "language")
+    for label in not_searchable:
+        add(label, "must")
+    return out
 
 
 @router.get("/jobs/{job_id}/proposal-facts")
