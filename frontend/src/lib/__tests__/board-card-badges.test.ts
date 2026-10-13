@@ -502,3 +502,48 @@ describe("karta na laptopie (04.10.2026)", () => {
     expect(step).toEqual({ who: MY_MOVE_LABEL, mine: true, label: "Wybierz termin rozmowy" });
   });
 });
+
+describe("„Nowy · N dni” — osoba świeżo w bazie (13.10.2026)", () => {
+  const fresh = (extra: Partial<KanbanItem> = {}) =>
+    item({
+      entry_source: "application",
+      can_take: true,
+      candidate_added_at: "2026-09-20T08:00:00Z",
+      candidate_added_exact: true,
+      candidate_added_by_name: "Marta Nowak",
+      ...extra,
+    });
+
+  it("w „Nowych” i „Screeningu” po źródle i blokadzie, z datą i autorem w dymku", () => {
+    expect(labels(fresh(), ctx())).toEqual(["Z ogłoszenia", "Wolny", "Nowy · 3 dni"]);
+    expect(labels(fresh(), ctx({ column: "screening" }))).toEqual([
+      "Z ogłoszenia",
+      "Wolny",
+      "Nowy · 3 dni",
+    ]);
+    const badge = cardBadges(fresh(), ctx()).find((b) => b.key === "new_in_base");
+    expect(badge).toMatchObject({ tone: "info", title: "W bazie od 20.09.2026 · dodał(a) Marta Nowak" });
+    // Krótki napis — nie ikona jak źródło i blokada.
+    expect(compactCardBadge(badge!)).toBeNull();
+  });
+
+  it("dalsze kolumny jej nie pokazują", () => {
+    expect(labels(fresh(), ctx({ column: "verified" }))).not.toContain("Nowy · 3 dni");
+  });
+
+  it("15 dni i więcej — bez pigułki; 14 dni — jeszcze z pigułką", () => {
+    expect(labels(fresh({ candidate_added_at: "2026-09-08T10:00:00Z" }), ctx())).toEqual([
+      "Z ogłoszenia",
+      "Wolny",
+    ]);
+    expect(labels(fresh({ candidate_added_at: "2026-09-09T10:00:00Z" }), ctx())).toContain("Nowy · 14 dni");
+  });
+
+  it("data niedokładna (import z Traffita bez daty u źródła) — bez pigułki", () => {
+    expect(labels(fresh({ candidate_added_exact: false }), ctx())).toEqual(["Z ogłoszenia", "Wolny"]);
+  });
+
+  it("dodana dziś", () => {
+    expect(labels(fresh({ candidate_added_at: "2026-09-23T06:00:00Z" }), ctx())).toContain("Nowy · dziś");
+  });
+});

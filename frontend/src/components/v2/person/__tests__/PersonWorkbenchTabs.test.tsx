@@ -14,11 +14,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
+  candidateGet: vi.fn(),
   workbenchProps: {} as Record<string, Record<string, unknown>>,
 }));
 
 vi.mock("@/lib/api", () => ({
   default: { get: mocks.apiGet, post: vi.fn() },
+  candidatesApi: { get: mocks.candidateGet },
   extractErrorMsg: () => "",
 }));
 vi.mock("@/components/Toast", () => ({
@@ -66,6 +68,7 @@ import { buildProcessRows } from "@/components/v2/recruitment/person-rows";
 import type { PersonPanelSection } from "@/components/v2/recruitment/types";
 import { WorkbenchBelowTabsContext } from "@/components/v2/person/WorkbenchBelowTabs";
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
+import { formatWarsawDay } from "@/lib/added-to-base";
 
 import { item, template } from "../../recruitment/__tests__/recruitment-fixtures";
 
@@ -132,6 +135,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.workbenchProps = {};
   mocks.apiGet.mockResolvedValue({ data: { items: [] } });
+  mocks.candidateGet.mockResolvedValue({ data: {} });
 });
 
 describe("PersonWorkbenchTabs — zakładka z etapu i kontekst warsztatów", () => {
@@ -235,6 +239,41 @@ describe("PersonWorkbenchTabs — zakładka z etapu i kontekst warsztatów", () 
       "/api/pipeline/job/42/moves",
       expect.objectContaining({ params: { candidate_id: 6, limit: 200 } }),
     );
+  });
+
+  it("„Osoba w bazie” na górze zakładki i „Dodany do bazy” na końcu historii (13.10.2026)", async () => {
+    const addedAt = new Date(Date.now() - 3 * 24 * 3_600_000).toISOString();
+    mocks.candidateGet.mockResolvedValue({
+      data: {
+        added_to_base_at: addedAt,
+        added_to_base_exact: true,
+        added_via: "CV upload",
+        created_by_user: { id: 7, name: "Marta Nowak" },
+      },
+    });
+    renderTabs({ candidateId: 6 });
+
+    const block = await screen.findByTestId("person-in-base");
+    expect(within(block).getByText("Osoba w bazie")).toBeInTheDocument();
+    expect(await within(block).findByText(formatWarsawDay(addedAt)!)).toBeInTheDocument();
+    expect(within(block).getByText("CV upload · dodał(a) Marta Nowak")).toBeInTheDocument();
+    expect(mocks.candidateGet).toHaveBeenCalledWith(6);
+
+    const history = screen.getByRole("region", { name: "Historia w rekrutacji" });
+    const row = await within(history).findByTestId("history-added-to-base");
+    expect(within(row).getByText("Dodany do bazy")).toBeInTheDocument();
+    expect(within(row).getByText("przed tą rekrutacją")).toBeInTheDocument();
+  });
+
+  it("osoba z importu bez daty u źródła: „przed …”, bez udawanej daty", async () => {
+    mocks.candidateGet.mockResolvedValue({
+      data: { added_to_base_at: "2026-04-16T10:00:00Z", added_to_base_exact: false, added_via: "Traffit" },
+    });
+    renderTabs({ candidateId: 6 });
+
+    const block = await screen.findByTestId("person-in-base");
+    expect(await within(block).findByText("przed 16.04.2026")).toBeInTheDocument();
+    expect(within(block).getByText(/dokładnej daty nie znamy/)).toBeInTheDocument();
   });
 
   it("bez notatek zakładka nie dostaje licznika, a bez ruchów zostają fakty z karty", async () => {

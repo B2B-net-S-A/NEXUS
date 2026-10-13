@@ -39,6 +39,7 @@ from app.tasks.traffit_sync import (
 )
 
 from app.services import job_twin_merge as twin_merge
+from app.services import traffit_added_dates_repair as added_dates_repair
 from app.services import traffit_file_dates_repair as file_dates_repair
 from app.services import traffit_notes_repair as notes_repair
 from app.services import traffit_transfer as transfer
@@ -267,6 +268,55 @@ async def traffit_file_dates_repair_status(
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     return await file_dates_repair.read_status(db)
+
+
+# ── Naprawa dat dodania kandydatów z Traffita (13.10.2026) ──────────────────
+#
+# „W bazie od”: jednorazowa, WYŁĄCZNIE ręczna. Najpierw przebieg próbny
+# (`dry_run=true`, zero zapisów w kandydatach, raport z liczbami, zakresem dat
+# i do 20 przykładami w statusie), potem zapis (`dry_run=false`) stronami listy
+# `/employees/`, wznawialny kursorem. Zmienia tylko
+# `candidates.source_created_at`. Szczegóły:
+# `app/services/traffit_added_dates_repair.py`.
+
+
+@router.post("/added-dates-repair")
+@limiter.limit(_service_rate_limit)
+async def trigger_traffit_added_dates_repair(
+    request: Request,
+    _caller: TraffitSyncCaller,
+    dry_run: bool = Query(True),
+    pages: int = Query(1000, ge=1, le=5000),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Daty dodania kandydatów z Traffita (w tle, z kursorem po stronach)."""
+    _traffit_configured_or_503()
+    reason = added_dates_repair.spawn_running_guard()
+    if reason:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=reason)
+    if not dry_run and not await added_dates_repair.fresh_dry_run_exists(db):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Najpierw przebieg próbny (dry_run=true) — zapis wymaga raportu "
+                "próbnego z ostatnich 7 dni."
+            ),
+        )
+    spawn(
+        added_dates_repair.run_added_dates_repair(dry_run_mode=dry_run, pages=pages),
+        f"traffit_added_dates_repair(dry_run={dry_run}, pages={pages})",
+    )
+    return {"status": "started", "dry_run": dry_run, "pages": pages}
+
+
+@router.get("/added-dates-repair/status")
+@limiter.limit(_service_rate_limit)
+async def traffit_added_dates_repair_status(
+    request: Request,
+    _caller: TraffitReadCaller,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    return await added_dates_repair.read_status(db)
 
 
 # ── Przeniesienie otwartych rekrutacji z Traffita (11.10.2026) ──────────────

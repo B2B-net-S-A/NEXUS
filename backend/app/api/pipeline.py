@@ -46,6 +46,7 @@ from app.services.board_stage_badges import (
     stage_badge_kind,
 )
 from app.services import champion_view, screening_fix_requests, stage_remarks
+from app.services.candidate_added_date import added_to_base
 from app.services.candidate_stage_cv_service import (
     create_original_cv_snapshot,
 )
@@ -2477,6 +2478,9 @@ async def build_kanban_view(
     # polityki dopuszczalności — TO SAMO zapytanie, bez ładowania całej encji.
     availability_by_id: dict[int, tuple[Optional[str], Optional[date]]] = {}
     eligibility_rows: dict[int, SimpleNamespace] = {}
+    # „W bazie od” (0436): data wejścia osoby do bazy i kto ją dodał — pigułka
+    # „Nowy · N dni” na karcie w „Nowych” i „Screeningu”.
+    added_to_base_by_id: dict[int, tuple[Optional[datetime], bool, Optional[int]]] = {}
     if candidate_ids:
         rows = await db.execute(
             select(
@@ -2490,6 +2494,10 @@ async def build_kanban_view(
                 Candidate.availability_date,
                 Candidate.status,
                 Candidate.preferences,
+                Candidate.created_at,
+                Candidate.source_created_at,
+                Candidate.external_source,
+                Candidate.created_by,
             ).where(Candidate.id.in_(candidate_ids))
         )
         for (
@@ -2503,7 +2511,13 @@ async def build_kanban_view(
             availability_date,
             candidate_status,
             preferences,
+            created_at,
+            source_created_at,
+            external_source,
+            created_by,
         ) in rows.all():
+            added = added_to_base(created_at, source_created_at, external_source)
+            added_to_base_by_id[cid] = (added.at, added.exact, created_by)
             name_by_id[cid] = (cname, clastname)
             profile_rate_by_id[cid] = rate_hourly
             # „Stawka od” (0414) — porównywalna tylko w PLN.
@@ -2524,6 +2538,8 @@ async def build_kanban_view(
     # job (mover on the earliest stage). One query, no per-card N+1.
     added_by_user_ids = {
         e.moved_by for e in earliest.values() if e.moved_by is not None
+    } | {
+        creator for _, _, creator in added_to_base_by_id.values() if creator is not None
     }
     user_name_by_id: dict[int, Optional[str]] = {}
     if added_by_user_ids:
@@ -2822,6 +2838,14 @@ async def build_kanban_view(
         availability = availability_by_id.get(e.candidate_id, (None, None))
         payload["availability_status"] = availability[0]
         payload["availability_date"] = availability[1]
+        in_base_at, in_base_exact, in_base_by = added_to_base_by_id.get(
+            e.candidate_id, (None, False, None)
+        )
+        payload["candidate_added_at"] = in_base_at
+        payload["candidate_added_exact"] = in_base_exact
+        payload["candidate_added_by_name"] = (
+            user_name_by_id.get(in_base_by) if in_base_by is not None else None
+        )
         payload["warnings"] = _card_warnings(
             e,
             decision=eligibility_decisions.get(e.candidate_id),

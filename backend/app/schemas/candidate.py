@@ -742,6 +742,14 @@ class CandidateResponse(BaseModel):
     )
     created_at: datetime
     updated_at: datetime
+    # „W bazie od” (0436): data dodania u źródła (Traffit) i wyliczona data
+    # wejścia do bazy z flagą dokładności oraz „skąd”
+    # (`app/services/candidate_added_date.py`). Liczone w walidatorze niżej,
+    # więc lista, detal i odpowiedzi zapisu mają je bez pamiętania w trasach.
+    source_created_at: Optional[datetime] = None
+    added_to_base_at: Optional[datetime] = None
+    added_to_base_exact: bool = False
+    added_via: Optional[str] = None
     # Phase A1: populated only when list endpoint is called with include_match_stats=true
     match_stats: Optional[MatchStats] = None
     # Phase: Snippet highlights (Traffit parity follow-up). Populated when
@@ -786,6 +794,18 @@ class CandidateResponse(BaseModel):
     contact_case: Optional[ContactCaseSummaryResponse] = None
 
     model_config = {"from_attributes": True, "populate_by_name": True}
+
+    @model_validator(mode="after")
+    def _fill_added_to_base(self) -> "CandidateResponse":
+        from app.services.candidate_added_date import added_to_base, added_via_label
+
+        added = added_to_base(
+            self.created_at, self.source_created_at, self.external_source
+        )
+        self.added_to_base_at = added.at
+        self.added_to_base_exact = added.exact
+        self.added_via = added_via_label(self.tags, self.source, self.external_source)
+        return self
 
 
 class CandidateQuickViewPosition(BaseModel):

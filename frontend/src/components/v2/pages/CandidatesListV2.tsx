@@ -44,6 +44,7 @@ import {
 } from "@/lib/candidate-export";
 import { filtersFromCandidateSavedSearch } from "@/lib/candidate-saved-search";
 import { cn } from "@/lib/utils";
+import { addedToBaseView } from "@/lib/added-to-base";
 import { lastTalkCell } from "@/lib/candidate-last-talk";
 import { AddCandidateModal } from "@/components/AppShell";
 import { ImportCandidatesV2 } from "@/components/v2/modals/ImportCandidatesV2";
@@ -301,6 +302,9 @@ interface Candidate {
   has_cv_document?: boolean | null;
   created_at?: string;
   updated_at?: string;
+  /** „W bazie od” (0436) — kolumna „Dodano” i kolejność „Najnowsi”. */
+  added_to_base_at?: string | null;
+  added_to_base_exact?: boolean;
   match_snippet?: string | null;
   /** v2: każde pole z trafieniem słowa kluczowego (z zakresami pogrubień). */
   match_snippets?: FieldSnippet[] | null;
@@ -376,6 +380,31 @@ export const CANDIDATES_BASE_TOTAL_QUERY_KEY = ["candidates-v2", "base-total"] a
 const CANDIDATES_BASE_TOTAL_PARAMS = { page: 1, page_size: 1, semantics_version: 2 };
 
 /** „22.09.2026” albo `null` dla braku / nieczytelnej daty. */
+/**
+ * Kolumna „Dodano” = „w bazie od” (13.10.2026). Osoba z Traffita bez daty
+ * u źródła ma w `created_at` dzień importu — wtedy „przed …” z dymkiem.
+ * Odpowiedź bez nowych pól (stary serwer) pokazuje `created_at` jak dotąd.
+ */
+function AddedToBaseCell({
+  candidate,
+}: {
+  candidate: Pick<Candidate, "created_at" | "added_to_base_at" | "added_to_base_exact">;
+}) {
+  const view =
+    candidate.added_to_base_at !== undefined
+      ? addedToBaseView({ at: candidate.added_to_base_at, exact: candidate.added_to_base_exact })
+      : null;
+  const text = view ? view.dateLabel : formatShortDate(candidate.created_at);
+  return (
+    <div
+      className={cn("min-w-0 truncate text-sm", view && !view.exact ? "text-muted-foreground" : "text-foreground")}
+      title={view && !view.exact ? `Import z Traffita — w bazie ${view.dateLabel}, dokładnej daty nie znamy` : undefined}
+    >
+      {text ?? <Missing />}
+    </div>
+  );
+}
+
 function formatShortDate(value: string | null | undefined): string | null {
   if (!value) return null;
   const ts = Date.parse(value);
@@ -2672,9 +2701,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                                   );
                                 case "added":
                                   return (
-<div className="min-w-0 truncate text-sm text-foreground">
-                            {formatShortDate(candidate.created_at) ?? <Missing />}
-                          </div>
+<AddedToBaseCell candidate={candidate} />
                                   );
                               }
                             })();
