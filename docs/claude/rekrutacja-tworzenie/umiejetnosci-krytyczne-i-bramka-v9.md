@@ -17,6 +17,12 @@ wysłał do klienta, budżet — 32%, dni w biurze — 8%. Decyzje Artura 30.09.
   nie kasuje kontraktu wymagań i nie odpala przeliczeń. Idzie za listą MUST
   (`_prune_critical`; stracone wszystkie = z powrotem `None`), kopia
   rekrutacji ma `None`, zły wybór = 422 po polsku (`critical_errors`).
+- **13.10.2026 (wariant A, `critical-v12`) — zdanie nie może być krytyczne.**
+  Edytor wyłącza „Krytyczne” przy zdaniu, języku i umiejętności miękkiej do
+  decyzji „słowa / do rozmowy”, a serwer przenosi je przy zapisie do „Rekruter
+  sprawdza w rozmowie”; krytyczne zostawiające razem < 20 osób wymagają
+  potwierdzenia. Reguły: `dwie-listy-wymagan-slowa-i-rozmowa.md`. Poniższy
+  akapit z 09.10 dotyczy fraz-słów (kategoria, rola, nazwa spoza słownika).
 - **Krytyczną może być KAŻDA fraza — decyduje Delivery Lead (decyzja Artura
   09.10.2026, `critical-v11`).** System nie odrzuca już branży, języka,
   umiejętności miękkiej, kategorii, roli ani zdania (`critical_selectable`

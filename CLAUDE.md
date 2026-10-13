@@ -154,6 +154,7 @@ Design system i tokeny, responsywność, nazewnictwo w interfejsie, Ustawienia, 
 - `bez-typow-rekrutacji.md` — Bez typów rekrutacji (decyzja Artura 25.09.2026)
 - `budzet-rekrutacji-od-do.md` — Budżet rekrutacji „od–do” (0420, 06.10.2026)
 - `champion-po-ludzku-i-sciaga-do-rozmowy.md` — „Champion po ludzku” i ściąga do rozmowy (0403, 29.09.2026)
+- `dwie-listy-wymagan-slowa-i-rozmowa.md` — Dwie listy wymagań: słowa do szukania i „Rekruter sprawdza w rozmowie” (wariant A, 13.10.2026)
 - `hiring-manager-rekrutacji-lista-albo-nowa-osoba.md` — Hiring manager rekrutacji: lista albo nowa osoba (25.09.2026)
 - `jobs-new-jeden-ekran-i-odczyt-pustych-pol.md` — `/jobs/new`: jeden ekran, „Wypełnij z…” i odczyt tylko pustych pól (D1–D4, 10.10.2026)
 - `jobs-new-w-szesciu-sekcjach-wiersze-wymagan-deal.md` — `/jobs/new` w sześciu sekcjach: wiersze wymagań, deal breaker, kategoria i prowadzący (02.10.2026)
