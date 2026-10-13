@@ -203,6 +203,7 @@ async def test_merge_moves_everything_links_agreement_and_marks_duplicate():
             link=f"/clients/{source}?tab=zamowienia",
             dedupe_key=f"scal-test:{uuid.uuid4().hex}",
             status=DL_ALERT_STATUS_RESOLVED,
+            handled_at=datetime.now(timezone.utc),
         )
         db.add_all(
             [
