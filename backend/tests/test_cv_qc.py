@@ -3839,3 +3839,188 @@ async def test_recompute_outdated_refreshes_failed_runs_of_older_rules(
     finally:
         await _cleanup_qc(world, stage_id)
         await _cleanup(world, [hor_id])
+
+
+# ── „To nieprawda” i „Jakość QC” (D5, D6, 13.10.2026) ───────────────────────
+
+
+def _first_item(body: dict, severity: str) -> tuple[str, dict]:
+    for check in body["checks"]:
+        if (
+            check["severity"] == severity
+            and check["status"] == "fail"
+            and check["key"] not in ("cv_present", "client_rules")
+            and check["items"]
+        ):
+            return check["key"], check["items"][0]
+    raise AssertionError(f"brak uwagi {severity} w wyniku QC: {body['checks']}")
+
+
+@pytest.mark.asyncio
+async def test_untrue_finding_is_dismissed_for_the_pair_and_can_be_restored(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.models.cv_finding_dismissal import CvFindingDismissal
+    from app.models.notification import Notification
+
+    monkeypatch.setattr(settings, "CV_QC_ADVISORY", False)
+    world = await _seed_world()
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    hor = await _login(api_client, hor_creds)
+    dl = await _login(api_client, dl_creds)
+    rec = await _login(api_client, rec_creds)
+    stage_id = await _seed_review(world, hor, api_client)
+    await _mark_critical(world, "Java", "Kubernetes")
+    await _assign_job(world, recruiter_id=rec_id, delivery_lead_id=dl_id)
+    qc_url = f"/api/pipeline/stages/{stage_id}/qc"
+    try:
+        with hydrated_taxonomy():
+            first = (await api_client.get(qc_url, headers=rec)).json()
+        warning_key, warning = _first_item(first, "warning")
+        blocking_key, blocking = _first_item(first, "blocking")
+
+        # Uwaga (nie blokada): pomija każdy członek rekrutacji.
+        with hydrated_taxonomy():
+            ok = await api_client.post(
+                f"{qc_url}/dismiss",
+                headers=rec,
+                json={
+                    "check_key": warning_key,
+                    "key": warning["key"],
+                    "reason": "in_cv",
+                },
+            )
+        assert ok.status_code == 200, ok.text
+        check = next(c for c in ok.json()["checks"] if c["key"] == warning_key)
+        assert warning["key"] not in {i["key"] for i in check["items"]}
+        (gone,) = [i for i in check["dismissed_items"] if i["key"] == warning["key"]]
+        assert gone["dismissal"]["reason"] == "in_cv"
+
+        # Przeliczenie (nowe otwarcie okna) nie wskrzesza pominiętej uwagi.
+        with hydrated_taxonomy():
+            again = (await api_client.get(qc_url, headers=rec)).json()
+        check = next(c for c in again["checks"] if c["key"] == warning_key)
+        assert warning["key"] not in {i["key"] for i in check["items"]}
+
+        # Blokadę poza trybem doradczym pomija tylko osoba od wysyłki.
+        refused = await api_client.post(
+            f"{qc_url}/dismiss",
+            headers=rec,
+            json={"check_key": blocking_key, "key": blocking["key"], "reason": "in_cv"},
+        )
+        assert refused.status_code == 403, refused.text
+        not_allowed = await api_client.post(
+            f"{qc_url}/dismiss",
+            headers=dl,
+            json={
+                "check_key": "client_rules",
+                "key": "client_rules|x|cv",
+                "reason": "in_cv",
+            },
+        )
+        assert not_allowed.status_code == 422, not_allowed.text
+
+        # Przywrócenie oddaje uwagę.
+        with hydrated_taxonomy():
+            restored = await api_client.post(
+                f"{qc_url}/dismissals/{gone['dismissal']['id']}/restore", headers=rec
+            )
+        assert restored.status_code == 200, restored.text
+        check = next(c for c in restored.json()["checks"] if c["key"] == warning_key)
+        assert warning["key"] in {i["key"] for i in check["items"]}
+
+        # Tryb doradczy: rekruter pomija blokadę, Delivery Lead dostaje dzwonek
+        # i widzi ryzyko w przeglądzie.
+        monkeypatch.setattr(settings, "CV_QC_ADVISORY", True)
+        with hydrated_taxonomy():
+            dismissed = await api_client.post(
+                f"{qc_url}/dismiss",
+                headers=rec,
+                json={
+                    "check_key": blocking_key,
+                    "key": blocking["key"],
+                    "reason": "other",
+                    "note": "Kandydat pokazał to w portfolio",
+                },
+            )
+        assert dismissed.status_code == 200, dismissed.text
+        async with AsyncSessionLocal() as db:
+            titles = list(
+                await db.scalars(
+                    select(Notification.title).where(
+                        Notification.user_id == dl_id,
+                        Notification.related_entity_id == stage_id,
+                    )
+                )
+            )
+            row = await db.scalar(
+                select(CvFindingDismissal).where(
+                    CvFindingDismissal.candidate_id == world["candidate_id"],
+                    CvFindingDismissal.finding_key == blocking["key"],
+                    CvFindingDismissal.restored_at.is_(None),
+                )
+            )
+        assert any(t.startswith("Pominięta uwaga blokująca QC") for t in titles)
+        assert row is not None and row.blocking is True and row.note
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(CvFindingDismissal).where(
+                    CvFindingDismissal.candidate_id == world["candidate_id"]
+                )
+            )
+            await db.execute(
+                delete(Activity).where(
+                    Activity.entity_type == "candidate_stage",
+                    Activity.entity_id == stage_id,
+                    Activity.action.in_(
+                        ("cv_qc_dismissed", "cv_qc_dismissal_restored")
+                    ),
+                )
+            )
+            await db.commit()
+        await _cleanup_advisory(world, stage_id, [hor_id, dl_id, rec_id])
+
+
+@pytest.mark.asyncio
+async def test_qc_quality_panel_is_for_admins_and_mutes_a_warning(
+    api_client: AsyncClient,
+) -> None:
+    from app.models.app_setting import AppSetting
+    from app.services import qc_quality
+
+    _, admin_creds = await _seed_user(UserRole.admin)
+    _, rec_creds = await _seed_user(UserRole.recruiter)
+    admin = await _login(api_client, admin_creds)
+    rec = await _login(api_client, rec_creds)
+    try:
+        denied = await api_client.get("/api/settings/ai/qc-quality", headers=rec)
+        assert denied.status_code == 403
+        panel = await api_client.get("/api/settings/ai/qc-quality", headers=admin)
+        assert panel.status_code == 200, panel.text
+        keys = {c["key"] for c in panel.json()["checks"]}
+        assert {"critical_skills", "title_matches_role"} <= keys
+        blocked = await api_client.patch(
+            "/api/settings/ai/qc-quality/no_unsupported",
+            headers=admin,
+            json={"state": "info"},
+        )
+        assert blocked.status_code == 422
+        muted = await api_client.patch(
+            "/api/settings/ai/qc-quality/title_matches_role",
+            headers=admin,
+            json={"state": "info"},
+        )
+        assert muted.status_code == 200, muted.text
+        state = next(
+            c for c in muted.json()["checks"] if c["key"] == "title_matches_role"
+        )
+        assert state["state"] == "info" and state["manual"] == "info"
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(AppSetting).where(AppSetting.key == qc_quality.SETTING_KEY)
+            )
+            await db.commit()

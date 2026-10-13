@@ -1,5 +1,5 @@
 # QC CV mówi prawdę (13.10.2026)
-<!-- indeks: zapis i tłumaczenia (`found_in`), odpowiedzi jako źródło, zdanie w roli tylko przy opisie, „Szukałem w” -->
+<!-- indeks: `found_in`, odpowiedzi jako źródło, zdanie w roli tylko przy opisie, „Szukałem w” -->
 
 Zespół mówił, że QC „proponuje głupoty”. Pomiar z 13.10.2026 (121 par
 z 3 dni, tylko odczyt): średnio 8–9 uwag na CV, około połowa fałszywa albo

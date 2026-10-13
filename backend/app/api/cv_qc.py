@@ -40,6 +40,17 @@ class QcSearch(BaseModel):
     quote: Optional[str] = None
 
 
+class QcDismissalInfo(BaseModel):
+    """Kto, kiedy i dlaczego oznaczył uwagę jako nieprawdziwą (D5)."""
+
+    id: int
+    reason: str
+    reason_label: str
+    note: Optional[str] = None
+    by_name: Optional[str] = None
+    at: datetime
+
+
 class QcItem(BaseModel):
     # Stały klucz pozycji (sprawdzenie | wymaganie | rola) — dla pominięć.
     key: Optional[str] = None
@@ -53,6 +64,8 @@ class QcItem(BaseModel):
     evidence: Optional[str] = None
     evidence_kind: Optional[Literal["description", "technologies", "title"]] = None
     searched: list[QcSearch] = []
+    # Tylko w `QcCheck.dismissed_items`: pominięcie „To nieprawda”.
+    dismissal: Optional[QcDismissalInfo] = None
 
 
 class QcRoleState(BaseModel):
@@ -75,6 +88,10 @@ class QcCheck(BaseModel):
     # Informacje bez zadania (np. technologia tylko na liście roli) — nie
     # liczą się do uwag ani do bramki (13.10.2026).
     info: list[QcItem] = []
+    # Pozycje oznaczone „To nieprawda” (D5) — z przywróceniem w oknie.
+    dismissed_items: list[QcItem] = []
+    # Uwaga wyciszona w „Jakość QC” (D6): widać ją, nie liczy się do uwag.
+    muted: bool = False
 
 
 class QcRun(BaseModel):
@@ -229,6 +246,16 @@ class QcConfirmRequest(BaseModel):
 
     term: str = Field(min_length=1, max_length=120)
     text: Optional[str] = Field(default=None, max_length=1000)
+
+
+class QcDismissRequest(BaseModel):
+    """„To nieprawda”: która uwaga (klucz z odpowiedzi QC) i dlaczego."""
+
+    check_key: str = Field(min_length=1, max_length=40)
+    key: str = Field(min_length=1, max_length=400)
+    reason: Literal["in_cv", "other_name", "wrong_place", "not_needed", "other"]
+    note: Optional[str] = Field(default=None, max_length=500)
+    quote: Optional[str] = Field(default=None, max_length=300)
 
 
 class QcOverrideRequest(BaseModel):
@@ -490,6 +517,87 @@ async def confirm_stage_qc_item(
         raise HTTPException(
             status_code=422,
             detail={"code": "CV_QC_CONFIRM_FAILED", "message": str(exc)},
+        ) from exc
+    await db.commit()
+    return await _response(db, request, current_user, result)
+
+
+@router.post("/stages/{stage_id}/qc/dismiss", response_model=QcResponse)
+@limiter.limit("30/minute", key_func=user_or_ip_key)
+async def dismiss_stage_qc_item(
+    request: Request,
+    stage_id: int,
+    payload: QcDismissRequest,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> QcResponse:
+    """„To nieprawda” — pomiń uwagę QC dla pary i zwróć świeże QC (D5).
+
+    Uwagę blokującą pomija ten, kto może przesunąć kartę mimo uwag
+    (`_can_override`); Delivery Lead dostaje dzwonek. Brak CV i reguł klienta
+    nie da się pominąć (422). Integracje — 403.
+    """
+
+    from app.services.cv_finding_dismissals import DismissError
+
+    _ensure_person(request)
+    stage = await _stage(db, stage_id)
+    await ensure_job_membership(db, current_user, stage.job_id)
+    try:
+        result = await cv_qc.dismiss_finding(
+            db,
+            stage,
+            check_key=payload.check_key,
+            key=payload.key,
+            reason=payload.reason,
+            note=payload.note,
+            quote=payload.quote,
+            user_id=current_user.id,
+            may_dismiss_blocking=await _can_override(
+                db, request, current_user, stage.job_id
+            ),
+        )
+    except cv_qc.DismissForbidden as exc:
+        raise HTTPException(
+            status_code=403,
+            detail="Uwagę blokującą pomija osoba, która może przepuścić CV mimo QC.",
+        ) from exc
+    except DismissError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "CV_QC_DISMISS_FAILED", "message": str(exc)},
+        ) from exc
+    await db.commit()
+    return await _response(db, request, current_user, result)
+
+
+@router.post(
+    "/stages/{stage_id}/qc/dismissals/{dismissal_id}/restore",
+    response_model=QcResponse,
+)
+@limiter.limit("30/minute", key_func=user_or_ip_key)
+async def restore_stage_qc_item(
+    request: Request,
+    stage_id: int,
+    dismissal_id: int,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> QcResponse:
+    """Przywróć pominiętą uwagę QC pary i zwróć świeże QC."""
+
+    from app.services.cv_finding_dismissals import DismissError
+
+    _ensure_person(request)
+    stage = await _stage(db, stage_id)
+    await ensure_job_membership(db, current_user, stage.job_id)
+    try:
+        result = await cv_qc.restore_finding(
+            db, stage, dismissal_id=dismissal_id, user_id=current_user.id
+        )
+    except DismissError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "CV_QC_RESTORE_FAILED", "message": str(exc)},
         ) from exc
     await db.commit()
     return await _response(db, request, current_user, result)

@@ -114,12 +114,40 @@ class CVContentReviewIssues(BaseModel):
     findings: list[CVReviewFinding] = []
 
 
+class CVEditorDismissal(BaseModel):
+    """Kto, kiedy i dlaczego oznaczył uwagę jako nieprawdziwą (D5)."""
+
+    id: int
+    reason: str
+    reason_label: str
+    note: str | None = None
+    by_name: str | None = None
+    at: datetime
+
+
+class CVEditorDismissed(BaseModel):
+    source: Literal["generator", "review"]
+    text: str
+    status: str | None = None
+    dismissal: CVEditorDismissal
+
+
 class CVEditorIssues(BaseModel):
     """Dane panelu „Do poprawy” w edytorze CV: uwagi generatora i kontroli AI."""
 
     generated_document_id: int | None = None
     generator_warnings: list[str] = []
     content_review: CVContentReviewIssues = CVContentReviewIssues()
+    # Uwagi oznaczone „To nieprawda” (D5) — poza listą, z przywróceniem.
+    dismissed: list[CVEditorDismissed] = []
+
+
+class CVEditorDismissRequest(BaseModel):
+    source: Literal["generator", "review"]
+    text: str = Field(min_length=1, max_length=1000)
+    status: str | None = Field(default=None, max_length=40)
+    reason: Literal["in_cv", "other_name", "wrong_place", "not_needed", "other"]
+    note: str | None = Field(default=None, max_length=500)
 
 
 class CVBrandedResponse(BaseModel):

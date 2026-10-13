@@ -23,6 +23,8 @@
  "routes": {
   "GET /api/settings/ai": "PDDDDDDDDDDDDDDDDDD",
   "GET /api/settings/ai/auto-match": "PDDDDDDDDDDDDDDDDDD",
+  "GET /api/settings/ai/qc-quality": "PDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/settings/ai/qc-quality/{key}": "PDDDDDDDDDDDDDDDDDD",
   "POST /api/settings/ai/alerts/test": "PDDDDDDDDDDDDDDDDDD"
  }
 }

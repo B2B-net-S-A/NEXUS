@@ -341,6 +341,7 @@ def risks_for(
     sent_to_client_before: Sequence[Mapping[str, Any]],
     red_flags: Optional[str],
     qc_status: Optional[str],
+    qc_dismissed: int = 0,
 ) -> list[dict[str, str]]:
     out: list[dict[str, str]] = []
     if eligibility_code and eligibility_code != "eligible" and eligibility_reason:
@@ -360,7 +361,18 @@ def risks_for(
         out.append(
             {"code": "qc_failed", "label": "CV nie przeszło QC", "severity": "high"}
         )
-    if qc_status == "overridden":
+    if qc_status == "overridden" and qc_dismissed:
+        # „To nieprawda” (D5, 13.10.2026): ktoś pominął uwagi blokujące QC —
+        # Delivery Lead widzi to przed wysyłką i może je przywrócić w oknie QC.
+        out.append(
+            {
+                "code": "qc_dismissed",
+                "label": f"Pominięte uwagi blokujące QC ({qc_dismissed}) — sprawdź, "
+                "czy słusznie",
+                "severity": "medium",
+            }
+        )
+    elif qc_status == "overridden":
         # Tryb doradczy QC (12.10.2026): rekruter przesunął kartę mimo uwag —
         # Delivery Lead ma to zobaczyć przed wysyłką, nie po niej.
         out.append(
@@ -794,6 +806,7 @@ def _person(
     access: Access,
     budget_max: Optional[float],
     qc_status: Optional[str],
+    qc_dismissed: int = 0,
 ) -> dict[str, Any]:
     facts = batch.facts[candidate_id]
     assessment = _assessment(facts)
@@ -834,6 +847,7 @@ def _person(
         sent_to_client_before=before,
         red_flags=assessment["fields"].get("red_flags"),
         qc_status=qc_status,
+        qc_dismissed=qc_dismissed,
     )
     availability = assessment["fields"].get("availability")
     if not availability and facts.candidate.availability_date:
@@ -938,6 +952,7 @@ async def build_context(
         access=access,
         budget_max=budget["max_hourly"],
         qc_status=qc_status,
+        qc_dismissed=int(qc.get("dismissed_blocking") or 0),
     )
     facts = batch.facts[candidate_id]
     before = person.pop("_before")
