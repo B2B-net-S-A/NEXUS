@@ -850,8 +850,24 @@ async def test_subjects_offer_a_contract_without_a_register_agreement(
     assert subject["parent_generated_contract_id"] is None
     assert subject["client_id"] == client_id
     assert subject["person_name"].endswith(lastname)
-    # Wybór podmiotu nie jest wglądem w stawki.
-    assert not {k for k in subject if "rate" in k or "amount" in k}
+    # Wybór podmiotu nie jest wglądem w stawki: odpowiedź ma stały zestaw pól.
+    assert set(subject) == {
+        "kind",
+        "parent_generated_contract_id",
+        "contract_number",
+        "source",
+        "agreement_status",
+        "contract_id",
+        "contract_status",
+        "contract_start_date",
+        "contract_options",
+        "candidate_id",
+        "person_name",
+        "partner_name",
+        "partner_nip",
+        "client_id",
+        "client_name",
+    }
 
     # Typ bez ścieżki „umowa spoza NEXUSA” dostaje wyłącznie umowy z rejestru.
     only_agreements = await _subjects(

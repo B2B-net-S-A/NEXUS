@@ -99,8 +99,10 @@ from app.schemas.contract import (
     RegisterSubcategoriesResponse,
 )
 from app.schemas.contract_amendment import (
+    AmendmentDocument,
     ContractAmendmentCreate,
     ContractAmendmentResponse,
+    ContractAnnexDocument,
 )
 from app.schemas.contract_document import (
     ContractDocumentResponse,
@@ -5515,32 +5517,94 @@ async def _amendment_to_response(
     *,
     finance_ok: bool,
 ) -> ContractAmendmentResponse:
-    user_email: Optional[str] = None
-    if amendment.created_by:
-        user_email = await db.scalar(
-            select(User.email).where(User.id == amendment.created_by)
+    return (await _amendments_to_responses(db, [amendment], finance_ok=finance_ok))[0]
+
+
+async def _amendments_to_responses(
+    db: AsyncSession,
+    amendments: list[ContractAmendment],
+    *,
+    finance_ok: bool,
+) -> list[ContractAmendmentResponse]:
+    """Aneksy jednego kontraktu w kształcie zakładki „Aneksy”.
+
+    Autorzy, pliki i dokumenty generatora jednym zapytaniem na rodzaj danych
+    (do 13.10.2026 e-mail autora szedł osobnym zapytaniem na wiersz). Plik
+    aneksu tylko dla osób z wglądem w stawki klienta — ta sama reguła co
+    dokumenty kontraktu (``_assert_contract_document_client_access``)."""
+    # Import leniwy: `effects` (zależność tego modułu) woła ten router.
+    from app.services.b2b_documents import contract_annexes, effects, signed_scan
+
+    if not amendments:
+        return []
+    authors: dict[int, tuple[str | None, str | None]] = {}
+    author_ids = {a.created_by for a in amendments if a.created_by}
+    if author_ids:
+        found = await db.execute(
+            select(User.id, User.email, User.name).where(User.id.in_(author_ids))
         )
-    return ContractAmendmentResponse(
-        id=amendment.id,
-        contract_id=amendment.contract_id,
-        amendment_type=amendment.amendment_type,
-        old_values=(
-            amendment.old_values
-            if finance_ok
-            else redact_financial_fields(amendment.old_values)
-        ),
-        new_values=(
-            amendment.new_values
-            if finance_ok
-            else redact_financial_fields(amendment.new_values)
-        ),
-        effective_date=amendment.effective_date,
-        reason=amendment.reason,
-        document_id=amendment.document_id,
-        created_by=amendment.created_by,
-        created_by_email=user_email,
-        created_at=amendment.created_at,
+        authors = {uid: (email, name) for uid, email, name in found.all()}
+    files: dict[int, ContractDocument] = {}
+    file_ids = {a.document_id for a in amendments if a.document_id}
+    if finance_ok and file_ids:
+        found_files = await db.scalars(
+            select(ContractDocument).where(ContractDocument.id.in_(file_ids))
+        )
+        files = {f.id: f for f in found_files.all()}
+    sources = contract_annexes.documents_by_amendment(
+        await contract_annexes.annex_documents_for_contract(
+            db, amendments[0].contract_id
+        )
     )
+    today = business_today()
+    responses: list[ContractAmendmentResponse] = []
+    for amendment in amendments:
+        email, name = authors.get(amendment.created_by or -1, (None, None))
+        source = sources.get(amendment.id)
+        file = files.get(amendment.document_id or -1)
+        responses.append(
+            ContractAmendmentResponse(
+                id=amendment.id,
+                contract_id=amendment.contract_id,
+                amendment_type=amendment.amendment_type,
+                old_values=(
+                    amendment.old_values
+                    if finance_ok
+                    else redact_financial_fields(amendment.old_values)
+                ),
+                new_values=(
+                    amendment.new_values
+                    if finance_ok
+                    else redact_financial_fields(amendment.new_values)
+                ),
+                effective_date=amendment.effective_date,
+                reason=amendment.reason,
+                document_id=amendment.document_id,
+                created_by=amendment.created_by,
+                created_by_email=email,
+                created_at=amendment.created_at,
+                created_by_name=name,
+                source="generator" if source is not None else "manual",
+                b2b_document_id=source.id if source is not None else None,
+                state=effects.annex_state(
+                    status="signed",
+                    signature_status="signed_both",
+                    effective=amendment.effective_date,
+                    today=today,
+                ),
+                document=(
+                    AmendmentDocument(
+                        id=file.id,
+                        filename=file.filename,
+                        is_signed_scan=source is not None
+                        and signed_scan.signed_scan_id(source) == file.id,
+                    )
+                    if file is not None
+                    else None
+                ),
+            )
+        )
+    return responses
 
 
 @router.get(
@@ -5560,9 +5624,94 @@ async def list_contract_amendments(
     )
     amendments = list(result.scalars().all())
     finance_ok = await _can_read_contract_finance(contract, current_user, db)
-    return [
-        await _amendment_to_response(db, a, finance_ok=finance_ok) for a in amendments
-    ]
+    return await _amendments_to_responses(db, amendments, finance_ok=finance_ok)
+
+
+@router.get(
+    "/{contract_id}/annex-documents",
+    response_model=List[ContractAnnexDocument],
+)
+async def list_contract_annex_documents(
+    contract_id: int,
+    current_user: DeliveryViewUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Aneksy z Generatora aneksów, których nie ma jeszcze w historii kontraktu.
+
+    Kontrakt pokazywał aneks dopiero po podpisie. Aneks czekający na podpis
+    (i anulowany) jest tu RZUTEM dokumentu z generatora — nie wierszem
+    ``contract_amendments``, bo tamtą tabelę czytają jako zmiany już
+    zastosowane analityka, fakty zamówień i Finanse."""
+    # Import leniwy: `effects` (zależność tych modułów) woła ten router.
+    from app.services.b2b_documents import annex_register, contract_annexes, effects
+    from app.services.b2b_documents.annex_summary import annex_change
+    from app.services.b2b_documents.registry import TYPES
+
+    contract = await _assert_contract(db, contract_id, current_user)
+    finance_ok = await _can_read_contract_finance(contract, current_user, db)
+    recorded = set(
+        (
+            await db.scalars(
+                select(ContractAmendment.id).where(
+                    ContractAmendment.contract_id == contract_id
+                )
+            )
+        ).all()
+    )
+    documents = contract_annexes.without_amendment(
+        await contract_annexes.annex_documents_for_contract(db, contract_id), recorded
+    )
+    authors: dict[int, str | None] = {}
+    author_ids = {doc.created_by for doc, _parent in documents if doc.created_by}
+    if author_ids:
+        found = await db.execute(
+            select(User.id, User.name).where(User.id.in_(author_ids))
+        )
+        authors = dict(found.all())
+    today = business_today()
+    rows: list[ContractAnnexDocument] = []
+    for doc, parent in documents:
+        doc_type = TYPES[doc.document_type]
+        effective = contract_annexes.effective_date_of(
+            doc, contract_client_id=contract.client_id
+        )
+        rates_before: list[dict] | None = None
+        if finance_ok and doc.document_type == "annex_rate_change":
+            rates_before = annex_register.rates_before(doc, parent)
+            if (
+                not rates_before
+                and doc.effect_applied_at is None
+                and contract.rate_candidate is not None
+            ):
+                # Aneks do umowy spoza NEXUSA: „przed” to bieżąca stawka
+                # kontraktu — tu widzi ją tylko osoba z wglądem w stawki klienta.
+                rates_before = [
+                    {"rate": float(contract.rate_candidate), "from": None, "to": None}
+                ]
+        rows.append(
+            ContractAnnexDocument(
+                document_id=doc.id,
+                document_type=doc.document_type,
+                type_label=doc_type.label,
+                state=effects.annex_state(
+                    status=doc.status,
+                    signature_status=doc.signature_status,
+                    effective=effective,
+                    today=today,
+                ),
+                effective_date=effective,
+                change=annex_change(
+                    doc.document_type,
+                    contract_annexes.values_of(doc),
+                    rates_visible=finance_ok,
+                    rates_before=rates_before,
+                ),
+                cancelled_reason=doc.cancelled_reason,
+                created_at=doc.created_at,
+                created_by_name=authors.get(doc.created_by or -1),
+            )
+        )
+    return rows
 
 
 @router.post(

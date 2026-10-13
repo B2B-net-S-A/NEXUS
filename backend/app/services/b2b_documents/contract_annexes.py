@@ -10,6 +10,7 @@ obowiązujący.
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 from sqlalchemy import and_, or_, select
@@ -109,3 +110,22 @@ async def document_for_amendment(
 
 def values_of(doc: B2BContractDocument) -> dict[str, Any]:
     return dict((doc.render_payload or {}).get("values") or {})
+
+
+def effective_date_of(
+    doc: B2BContractDocument, *, contract_client_id: int | None
+) -> date | None:
+    """Dzień wejścia aneksu w życie: zapisany przy podpisie, a wcześniej —
+    ta sama reguła, którą podpis zastosuje (``effects.annex_effective_date``)."""
+    stored = (doc.effect_summary or {}).get("effective_date")
+    if isinstance(stored, str):
+        try:
+            return date.fromisoformat(stored[:10])
+        except ValueError:
+            pass
+    return effects.annex_effective_date(
+        doc.document_type,
+        values_of(doc),
+        doc.document_date,
+        contract_client_id=contract_client_id,
+    )

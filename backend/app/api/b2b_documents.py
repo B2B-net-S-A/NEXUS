@@ -73,7 +73,12 @@ from app.services.action_permissions import (
     has_permission,
 )
 from app.services import ezdrowie
-from app.services.b2b_documents import annex_register, effects, signed_scan
+from app.services.b2b_documents import (
+    annex_register,
+    contract_annexes,
+    effects,
+    signed_scan,
+)
 from app.services.b2b_documents.annex_summary import annex_change
 from app.services.b2b_documents.context import (
     BaseContractInfo,
@@ -796,11 +801,9 @@ async def _serialize(
         is_annex = doc_type.family == "annex"
         # Podpisany aneks: dzień zapisany przy podpisie; wcześniej — ta sama
         # reguła, którą podpis zastosuje.
-        effective = _date((row.effect_summary or {}).get("effective_date")) or (
-            effects.annex_effective_date(
-                row.document_type,
-                values,
-                row.document_date,
+        effective = (
+            contract_annexes.effective_date_of(
+                row,
                 contract_client_id=row.client_id if contract_id is not None else None,
             )
             if is_annex
