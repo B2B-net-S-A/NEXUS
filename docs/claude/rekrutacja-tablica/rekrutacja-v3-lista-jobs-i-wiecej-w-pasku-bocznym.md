@@ -34,7 +34,9 @@ miejsce, nie zbiór funkcji.
   `mine=0` =
   Wszystkie (stare linki z pulpitu działają). Do adresu trafia tylko zakres
   INNY niż domyślny roli (czyste `/jobs` znaczy co innego u rekrutera
-  i u admina — link „dla kolegi” wysyłaj z jawnym zakresem). Stan to
+  i u admina — link „dla kolegi” wysyłaj z jawnym zakresem). Od 13.10.2026
+  goły `/jobs` otwiera ostatni widok osoby, a nietknięty link z jawnym
+  zakresem trzyma go w adresie — `lista-rekrutacji-pamieta-ostatnie-filtry.md`. Stan to
   NADPISANIA (`null` = bez wyboru), bo rolę znamy dopiero po hydratacji;
   zapytanie listy ma `enabled: hydrated`. Szybkie filtry „Niezamknięte”
   i „Moje rekrutacje” usunięte — dublowały przełącznik. Zakres NIE liczy się
