@@ -222,3 +222,30 @@ it("wynik generatora bez rekrutacji nie ma AI na zaznaczeniu", async () => {
   expect(within(dialog).queryByRole("button", { name: "AI na zaznaczonym tekście" })).toBeNull();
   noNetwork();
 });
+
+it("zatwierdzona wersja: „Przyjmij” zakłada szkic i nakłada propozycję", async () => {
+  const dialog = await openEditor("finalized");
+  const editor = liveEditor(dialog);
+  selectText(editor, "Optymalizacja zapytań w PostgreSQL.");
+  fireEvent.click(within(await within(dialog).findByRole("toolbar", { name: "Zaznaczony tekst" })).getByRole("button", { name: "Przeredaguj" }));
+  const card = await within(dialog).findByRole("dialog", { name: "Propozycja AI" });
+  // Samo zamówienie propozycji nie rusza zatwierdzonej wersji.
+  expect(within(dialog).getByRole("button", { name: /Pobierz zatwierdzony DOCX/ })).toBeInTheDocument();
+  fireEvent.click(await within(card).findByRole("button", { name: "Przyjmij" }));
+  await waitFor(() => expect(editor.getHTML()).toContain("<li><p>Optymalizowała zapytań w PostgreSQL.</p></li>"));
+  expect(await within(dialog).findByRole("button", { name: "Pobierz szkic DOCX" })).toBeInTheDocument();
+  expect(within(dialog).queryByText(/Zaznaczony tekst zmienił się/)).toBeNull();
+  noNetwork();
+});
+
+it("Escape w karcie propozycji odrzuca propozycję, a edytor zostaje otwarty", async () => {
+  const dialog = await openEditor();
+  const editor = liveEditor(dialog);
+  selectText(editor, "Optymalizacja zapytań w PostgreSQL.");
+  fireEvent.click(within(await within(dialog).findByRole("toolbar", { name: "Zaznaczony tekst" })).getByRole("button", { name: "Skróć" }));
+  const card = await within(dialog).findByRole("dialog", { name: "Propozycja AI" });
+  fireEvent.keyDown(await within(card).findByRole("button", { name: "Przyjmij" }), { key: "Escape" });
+  await waitFor(() => expect(within(dialog).queryByRole("dialog", { name: "Propozycja AI" })).toBeNull());
+  expect(screen.getByRole("dialog", { name: "Edytor CV do klienta" })).toBeInTheDocument();
+  noNetwork();
+});

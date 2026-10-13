@@ -67,12 +67,31 @@ interface HostProps {
   /** Edytor wyniku generatora: bez etapu rekrutacji. */
   noStage?: boolean;
   disabled?: boolean;
+  /** Jak okno edytora: zakładanie szkicu na zatwierdzonej wersji chwilowo wyłącza edycję. */
+  draftLocksEditing?: boolean;
   onShowSource?: (quote: string) => void;
 }
 
-function Host({ editor, api, ensureDraft, noStage = false, disabled = false, onShowSource }: HostProps) {
+function Host({ editor, api, ensureDraft, noStage = false, disabled = false, draftLocksEditing = false, onShowSource }: HostProps) {
   const [container, setContainer] = useState<HTMLElement | null>(null);
-  const ai = useCvSelectionAi({ editor, stageId: noStage ? undefined : 5, disabled, ensureDraft, api });
+  const [creatingDraft, setCreatingDraft] = useState(false);
+  const draft = async () => {
+    if (!draftLocksEditing) return ensureDraft();
+    setCreatingDraft(true);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return await ensureDraft();
+    } finally {
+      setCreatingDraft(false);
+    }
+  };
+  const ai = useCvSelectionAi({
+    editor,
+    stageId: noStage ? undefined : 5,
+    disabled: disabled || creatingDraft,
+    ensureDraft: draft,
+    api,
+  });
   return (
     <div>
       <CvEditorToolbar editor={editor} language="pl" ai={ai} />
@@ -164,6 +183,34 @@ describe("AI na zaznaczonym fragmencie", () => {
       editor.commands.undo();
     });
     expect(editor.getHTML()).toBe(before);
+  });
+
+  it("zatwierdzona wersja: zakładanie szkicu przy „Przyjmij” nie gubi propozycji", async () => {
+    // Okno na czas zakładania szkicu wyłącza edycję. Kontroler brał to za
+    // „edytor zamknięty”, czyścił propozycję i mówił, że tekst się zmienił —
+    // a szkic powstawał bez poprawki.
+    const { editor } = setup({ draftLocksEditing: true });
+    select(editor, "Przeglądy kodu");
+    fireEvent.click(within(bubble()!).getByRole("button", { name: "Przeredaguj" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Przyjmij" }));
+    await waitFor(() => expect(editor.getHTML()).toContain("<li><p>Usługi w <strong>Java 17</strong>.</p></li>"));
+    expect(screen.queryByText(/Zaznaczony tekst zmienił się/)).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Propozycja AI" })).toBeNull();
+  });
+
+  it("w trakcie przyjmowania „Zamknij” i Escape nie przerywają — propozycja nie trafi w inne miejsce", async () => {
+    let release: (ok: boolean) => void = () => undefined;
+    const ensureDraft = vi.fn(() => new Promise<boolean>((resolve) => (release = resolve)));
+    const { editor } = setup({ ensureDraft });
+    select(editor, "Przeglądy kodu");
+    fireEvent.click(within(bubble()!).getByRole("button", { name: "Przeredaguj" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Przyjmij" }));
+    await waitFor(() => expect(ensureDraft).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Zamknij propozycję" }));
+    fireEvent.keyDown(card(), { key: "Escape" });
+    expect(card()).toBeInTheDocument();
+    await act(async () => release(true));
+    await waitFor(() => expect(editor.getHTML()).toContain("<li><p>Usługi w <strong>Java 17</strong>.</p></li>"));
   });
 
   it("nie udało się założyć szkicu — treść zostaje, propozycja też", async () => {

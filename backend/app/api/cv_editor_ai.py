@@ -33,7 +33,8 @@ from app.services.candidate_claim import is_integration_request
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
 _Point = Annotated[str, StringConstraints(max_length=400)]
-_Previous = Annotated[str, StringConstraints(max_length=cv_selection_ai.FRAGMENT_MAX)]
+# Propozycja bywa dłuższa niż fragment (rozwinięcie, tłumaczenie) — limit jak dla odpowiedzi.
+_Previous = Annotated[str, StringConstraints(max_length=cv_selection_ai.PROPOSED_MAX)]
 
 
 class SelectionRole(BaseModel):

@@ -64,6 +64,7 @@ export const CV_AI_REASON = {
   heading: "Nagłówków AI nie zmienia — zaznacz tekst w akapicie albo punkcie.",
   structure: "Stanowisko, firmę i listę technologii popraw ręcznie — AI zmienia opisy.",
   lineBreak: "Zaznaczenie obejmuje łamanie wiersza — zaznacz jedną linię.",
+  asterisks: "Ten akapit zawiera znaki „**” — usuń je, zanim poprosisz AI.",
   tooShort: "Zaznacz co najmniej kilka znaków.",
   tooLong: `Zaznaczenie jest za długie (najwyżej ${CV_AI_FRAGMENT_MAX} znaków).`,
 } as const;
@@ -146,6 +147,8 @@ export function selectionTarget(state: EditorState): CvAiSelection {
   const from = selection.from + lead;
   const to = selection.to - trail;
   if (to - from < CV_AI_FRAGMENT_MIN) return { ok: false, reason: CV_AI_REASON.tooShort };
+  // `**` to zapis pogrubienia w żądaniu — dosłowne gwiazdki w tekście byłyby dwuznaczne.
+  if ($from.parent.textContent.includes("**")) return { ok: false, reason: CV_AI_REASON.asterisks };
   if (hasInlineLeaf(doc, from, to)) return { ok: false, reason: CV_AI_REASON.lineBreak };
   const fragment = rangeMarkup(doc, from, to);
   if (fragment.length > CV_AI_FRAGMENT_MAX) return { ok: false, reason: CV_AI_REASON.tooLong };

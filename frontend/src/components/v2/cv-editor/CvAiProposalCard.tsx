@@ -38,6 +38,9 @@ export interface CvAiProposalCardProps {
 
 const INSTRUCTION_MAX = 300;
 
+/** Znacznik korzenia karty: Escape w jej wnętrzu odrzuca propozycję, nie zamyka edytora. */
+export const CV_AI_CARD_ATTR = "data-cv-ai-card";
+
 function Marked({ text }: { text: string }) {
   return (
     <>
@@ -78,10 +81,12 @@ export function CvAiProposalCard({
     <section
       role="dialog"
       aria-label="Propozycja AI"
+      // Po tym znaczniku okno edytora poznaje, że Escape należy do karty
+      // (Radix słucha na `document`, więc samo `stopPropagation` nie wystarcza).
+      {...{ [CV_AI_CARD_ATTR]: "" }}
       className="space-y-2 rounded-lg border border-primary/40 bg-card p-3 text-sm shadow-lg"
       onKeyDown={(event) => {
         if (event.key !== "Escape") return;
-        // Escape zamyka kartę, nie cały edytor.
         event.stopPropagation();
         event.preventDefault();
         onReject();
@@ -96,7 +101,7 @@ export function CvAiProposalCard({
             Zgodne ze źródłem
           </Badge>
         ) : null}
-        <Button size="icon-sm" variant="ghost" aria-label="Zamknij propozycję" onClick={onReject}>
+        <Button size="icon-sm" variant="ghost" aria-label="Zamknij propozycję" disabled={busy} onClick={onReject}>
           <X className="size-4" aria-hidden />
         </Button>
       </header>

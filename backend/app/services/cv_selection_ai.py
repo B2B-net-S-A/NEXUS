@@ -52,6 +52,7 @@ from app.services.dz_review import Requirement
 from app.services.llm_prompts import CV_SELECTION_EDIT
 from app.services.llm_providers import api_key_configured
 from app.services.prompt_fencing import fence, json_for_prompt
+from app.services.recommendation_card_parser import CV_HIDDEN_FIELDS
 from app.services.recommendation_card_assist import _fold, unsupported_facts
 
 logger = logging.getLogger(__name__)
@@ -91,6 +92,14 @@ _MONTHS_PL_EN = (
     ("pazdz", "october"),
     ("listop", "november"),
     ("grud", "december"),
+)
+
+# Odnośnik, adres e-mail albo domena. Pisane małą literą przechodzą kontrolę
+# nazw własnych, a to typowa treść wstrzyknięta w tekst CV kandydata.
+_ADDRESS = re.compile(
+    r"(?:https?://|www\.)[^\s<>()]+|[\w.+-]+@[\w-]+(?:\.[\w-]+)+"
+    r"|\b[\w-]+\.(?:pl|com|io|net|org|eu|dev|example)\b",
+    re.IGNORECASE,
 )
 
 _MESSAGES = {
@@ -161,6 +170,16 @@ def _rejected(
         "problem": problem,
         "message": message,
     }
+
+
+def _new_address(text: str, *sources: str) -> Optional[str]:
+    """Odnośnik albo adres obecny w propozycji, a nieobecny w źródłach."""
+    known = " ".join(sources).casefold()
+    for match in _ADDRESS.finditer(text):
+        address = match.group(0).rstrip(".,;:")
+        if address and address.casefold() not in known:
+            return address
+    return None
 
 
 def _new_requirement(text: str, grounds: Grounds, *sources: str) -> Optional[str]:
@@ -251,14 +270,20 @@ def check(action: str, fragment: str, raw: str, grounds: Grounds) -> dict:
         if not sources:
             return _rejected("quote_other_role" if other_role else "no_quote")
         quotes = [item["quote"] for item in sources]
-        problem = next(
-            (fact for _, fact in unsupported_facts(text, source, *quotes)), None
+        problem = (
+            _new_address(text, source, *quotes)
+            or next(
+                (fact for _, fact in unsupported_facts(text, source, *quotes)), None
+            )
+            or _new_requirement(text, grounds, source, *quotes)
         )
-        problem = problem or _new_requirement(text, grounds, source, *quotes)
         if problem:
             return _rejected("new_fact", problem, expand=True)
     elif action == "translate":
         known = _translation_source(source)
+        address = _new_address(text, source)
+        if address:
+            return _rejected("new_fact", address)
         for kind, fact in unsupported_facts(text, known):
             if kind != "capital":
                 return _rejected("new_fact", fact)
@@ -270,8 +295,11 @@ def check(action: str, fragment: str, raw: str, grounds: Grounds) -> dict:
         if problem:
             return _rejected("new_fact", problem)
     else:
-        problem = next((fact for _, fact in unsupported_facts(text, source)), None)
-        problem = problem or _new_requirement(text, grounds, source)
+        problem = (
+            _new_address(text, source)
+            or next((fact for _, fact in unsupported_facts(text, source)), None)
+            or _new_requirement(text, grounds, source)
+        )
         if problem:
             return _rejected("new_fact", problem)
     return {
@@ -402,7 +430,7 @@ def build_prompt(payload: dict, grounds: Grounds) -> str:
             + fence("recruiter_hint", instruction)
         )
     previous = [
-        str(p)[:FRAGMENT_MAX] for p in (payload.get("previous") or [])[:PREVIOUS_MAX]
+        str(p)[:PROPOSED_MAX] for p in (payload.get("previous") or [])[:PREVIOUS_MAX]
     ]
     if previous:
         context.append(
@@ -500,7 +528,10 @@ async def propose(
         if action == "expand":
             src = await cv_qc._load_sources(db, stage)
             original = src.original.get("text") or ""
-            notes = await cv_qc._notes_text(db, src.candidate.id)
+            # Jak generator CV: stawka, red flags i motywacja z karty rekomendacji
+            # to ustalenia handlowe — nie idą do modelu i nie mogą być cytatem,
+            # na którym oprze się treść CV dla klienta.
+            notes = await cv_qc._notes_text(db, src.candidate.id, CV_HIDDEN_FIELDS)
             if not original.strip() and not notes.strip():
                 result = _unavailable(action, MSG_NO_SOURCE, "no_source")
                 await _log(db, stage, user_id, payload, result)

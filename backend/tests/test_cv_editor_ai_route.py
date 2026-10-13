@@ -63,7 +63,7 @@ def test_request_accepts_the_shape_the_editor_sends() -> None:
         {"fragment": "Zupełnie inny tekst"},
         {"instruction": "z" * (ai.INSTRUCTION_MAX + 1)},
         {"previous": ["a", "b", "c", "d"]},
-        {"previous": ["p" * (ai.FRAGMENT_MAX + 1)]},
+        {"previous": ["p" * (ai.PROPOSED_MAX + 1)]},
         {"role": {"points": ["punkt"] * 13}},
         {"role": {"title": "t" * 201}},
         {"block_kind": "h2"},
@@ -73,6 +73,13 @@ def test_request_accepts_the_shape_the_editor_sends() -> None:
 def test_request_bounds(change: dict) -> None:
     with pytest.raises(ValidationError):
         SelectionRequest(**{**BASE, **change})
+
+
+def test_previous_proposal_may_be_as_long_as_a_proposal() -> None:
+    """„Jeszcze raz” odsyła pokazaną propozycję — rozwinięcie bywa dłuższe niż
+    zaznaczony fragment, więc limit fragmentu dawał 422 przy każdej próbie."""
+    body = SelectionRequest(**BASE, previous=["p" * ai.PROPOSED_MAX])
+    assert len(body.previous[0]) == ai.PROPOSED_MAX
 
 
 def test_fragment_may_differ_from_the_block_in_spacing_and_bold_only() -> None:

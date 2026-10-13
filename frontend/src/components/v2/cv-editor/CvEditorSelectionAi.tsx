@@ -63,15 +63,21 @@ function Positioned({
   container,
   spot,
   width,
+  reveal = false,
   children,
 }: {
   container: HTMLElement;
   spot: Spot;
   width?: number;
+  /** Przewiń kolumnę tak, żeby element był widoczny w całości (karta pod zaznaczeniem na dole ekranu). */
+  reveal?: boolean;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [left, setLeft] = useState(spot.left);
+  useEffect(() => {
+    if (reveal) ref.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+  }, [reveal, spot.top]);
   // Po narysowaniu znamy szerokość — nie wypuszczamy elementu poza kolumnę.
   useLayoutEffect(() => {
     const own = ref.current?.offsetWidth ?? 0;
@@ -82,7 +88,8 @@ function Positioned({
     <div
       ref={ref}
       style={{ top: spot.top, left, width, maxWidth: `calc(100% - ${2 * GAP}px)` }}
-      className={cn("absolute z-20", spot.above && "-translate-y-full")}
+      // `w-max`: szerokość z treści, nie z miejsca do prawej krawędzi kolumny.
+      className={cn("absolute z-20", width == null && "w-max", spot.above && "-translate-y-full")}
     >
       {children}
     </div>,
@@ -107,12 +114,14 @@ export function CvEditorSelectionAi({
     const moved = () => setTick((tick) => tick + 1);
     dom.addEventListener("pointerdown", down);
     window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
     window.addEventListener("resize", moved);
     editor.on("selectionUpdate", moved);
     editor.on("transaction", moved);
     return () => {
       dom.removeEventListener("pointerdown", down);
       window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
       window.removeEventListener("resize", moved);
       editor.off("selectionUpdate", moved);
       editor.off("transaction", moved);
@@ -133,6 +142,7 @@ export function CvEditorSelectionAi({
         container={container}
         spot={{ top: (box?.bottom ?? 0) + GAP, left: box?.left ?? GAP, above: false }}
         width={width > 0 ? width : undefined}
+        reveal
       >
         <CvAiProposalCard
           title={title}

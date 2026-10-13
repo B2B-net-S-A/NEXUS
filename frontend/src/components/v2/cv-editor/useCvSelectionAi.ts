@@ -122,10 +122,12 @@ export function useCvSelectionAi({
     setBusy(false);
   }, [editor]);
 
-  // Podgląd Word, zapis albo zamknięcie edytora w trakcie — propozycja nie ma już dokąd trafić.
+  // Podgląd Word, zapis albo zamknięcie edytora w trakcie — propozycja nie ma już
+  // dokąd trafić. Nie w trakcie „Przyjmij”: okno na chwilę wyłącza edycję, gdy
+  // zakłada szkic na zatwierdzonej wersji, a to właśnie krok przyjmowania.
   useEffect(() => {
-    if (!enabled && phase !== "idle") reset();
-  }, [enabled, phase, reset]);
+    if (!enabled && phase !== "idle" && !busy) reset();
+  }, [enabled, phase, busy, reset]);
 
   const fail = (text: string, retry: boolean) => {
     setResponse(null);
@@ -183,7 +185,7 @@ export function useCvSelectionAi({
 
   const again = () => {
     const last = request.current;
-    if (!last || !editor) return;
+    if (!last || !editor || busy) return;
     if (!pendingTarget(editor.state)) return fail(MSG_CHANGED, false);
     const { instruction: _dropped, ...rest } = last;
     void send({ ...rest, ...(shown.current.length ? { previous: shown.current } : {}) });
@@ -192,7 +194,7 @@ export function useCvSelectionAi({
   const refine = (instruction: string) => {
     const last = request.current;
     const hint = instruction.trim();
-    if (!last || !editor || !hint) return;
+    if (!last || !editor || !hint || busy) return;
     if (!pendingTarget(editor.state)) return fail(MSG_CHANGED, false);
     const current = response?.proposed_text;
     void send({ ...last, instruction: hint, ...(current ? { previous: [current] } : {}) });
@@ -202,10 +204,13 @@ export function useCvSelectionAi({
     const proposed = response?.proposed_text;
     if (!editor || !proposed || busy) return;
     if (!acceptStep(editor.state, proposed)) return fail(MSG_CHANGED, false);
+    const mine = ticket.current;
     setBusy(true);
     try {
       // Szkic dopiero teraz: nowy szkic zdejmuje z CV stan „zatwierdzone”.
       if (!(await ensureDraft()) || editor.isDestroyed) return;
+      // Propozycja mogła zostać zastąpiona, zanim szkic powstał — ta już nie obowiązuje.
+      if (ticket.current !== mine) return;
       const step = acceptStep(editor.state, proposed);
       if (!step) return fail(MSG_CHANGED, false);
       editor.view.dispatch(step.transaction);
@@ -234,6 +239,9 @@ export function useCvSelectionAi({
     accept: () => void accept(),
     again,
     refine,
-    reject: reset,
+    // W trakcie przyjmowania nie ma czego odrzucać — zmiana jest w drodze do CV.
+    reject: () => {
+      if (!busy) reset();
+    },
   };
 }

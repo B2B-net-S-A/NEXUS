@@ -336,8 +336,9 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     ],
     AIFeatureKey.cv_selection_edit: [
         "Zaznaczony fragment CV dla klienta, jego akapit albo punkt i nagłówek roli",
-        "Przy „Rozwiń z oryginału”: tekst oryginalnego CV i notatki rekruterów czytelne dla AI",
-        "(bez stawek, narodowości, danych kontaktowych i nazwy klienta)",
+        "Przy „Rozwiń z oryginału”: tekst oryginalnego CV kandydata w całości "
+        "(z danymi, które kandydat w nim podał) i notatki rekruterów czytelne dla AI",
+        "(z notatek wycinane: stawka, narodowość, red flags i motywacja z karty rekomendacji)",
     ],
 }
 

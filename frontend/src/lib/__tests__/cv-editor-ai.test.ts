@@ -117,6 +117,16 @@ describe("zaznaczenie → żądanie do AI", () => {
     expect(all.ok).toBe(false);
   });
 
+  it("akapit z dosłownymi gwiazdkami nie idzie do AI — „**” to zapis pogrubienia", () => {
+    const editor = new Editor({ extensions: cvEditorExtensions(), content: "" });
+    editors.push(editor);
+    loadCvHtml(editor, "<p>Ocena **bardzo dobra** z egzaminu końcowego.</p>");
+    select(editor, "bardzo dobra");
+    const found = selectionTarget(editor.state);
+    expect(found.ok).toBe(false);
+    if (!found.ok) expect(found.reason).toMatch(/\*\*/);
+  });
+
   it("zaznaczenie dłuższe niż limit mówi, ile wolno", () => {
     const editor = new Editor({ extensions: cvEditorExtensions(), content: "" });
     editors.push(editor);

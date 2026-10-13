@@ -63,6 +63,7 @@ import {
   type CvEditorSourceContext,
   type CvEditorSourcesProps,
 } from "@/components/v2/cv-editor/CvEditorSources";
+import { CV_AI_CARD_ATTR } from "@/components/v2/cv-editor/CvAiProposalCard";
 import { CvEditorIssues, type CvIssueCount } from "@/components/v2/cv-editor/CvEditorIssues";
 import { CvEditorSelectionAi } from "@/components/v2/cv-editor/CvEditorSelectionAi";
 import { CvEditorToolbar } from "@/components/v2/cv-editor/CvEditorToolbar";
@@ -553,7 +554,9 @@ function CVBrandedEditContent({
   const ai = useCvSelectionAi({
     editor,
     stageId: isGenerated ? undefined : stageId,
-    disabled: !hasCv || mode === "word" || submitting || creatingDraft,
+    // Bez `creatingDraft`: szkic na zatwierdzonej wersji zakłada samo „Przyjmij”,
+    // a zakres czekający na propozycję przeżywa wczytanie tej samej treści.
+    disabled: !hasCv || mode === "word" || submitting,
     ensureDraft,
     api: aiApi,
   });
@@ -564,6 +567,11 @@ function CVBrandedEditContent({
   const showSources = hasCv && (sideBySide ? sourcesSide : pane === "sources");
   const showIssues = hasIssuesPanel && (sideBySide ? issuesSide : pane === "issues");
   const showCv = sideBySide || pane === "cv" || !hasCv;
+  // Zlecone wyszukanie cytatu dotyczy tego pokazania źródeł: po ich schowaniu
+  // wygasa, żeby ponowne otwarcie nie szukało starego cytatu od nowa.
+  useEffect(() => {
+    if (!showSources) setSourceSearch(null);
+  }, [showSources]);
   const toggleSources = () => {
     sideTouched.current = true;
     setSourcesOpen(!sourcesSide);
@@ -615,7 +623,9 @@ function CVBrandedEditContent({
           onEscapeKeyDown={(event) => {
             keepDialogOpenOnDocumentSearchEscape(event);
             const target = event.target;
-            if (target instanceof HTMLElement && target.closest(".ProseMirror")) event.preventDefault();
+            if (!(target instanceof HTMLElement)) return;
+            // Escape w karcie propozycji AI odrzuca propozycję (robi to sama karta).
+            if (target.closest(".ProseMirror") || target.closest(`[${CV_AI_CARD_ATTR}]`)) event.preventDefault();
           }}
           // Okno zajmuje cały ekran; klik w toast (poza drzewem okna) nie może go zamknąć.
           onInteractOutside={(event) => event.preventDefault()}

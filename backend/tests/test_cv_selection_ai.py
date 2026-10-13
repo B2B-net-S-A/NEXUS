@@ -364,6 +364,7 @@ def wired(monkeypatch: pytest.MonkeyPatch):
     state = {
         "answer": answer("Mikroserwisy płatności w **Java 17** i **Spring Boot**."),
         "error": None,
+        "real_notes_text": ai.cv_qc._notes_text,
     }
 
     class _Feature:
@@ -530,7 +531,7 @@ async def test_expand_reads_sources_and_checks_the_quote(
             "Src", (), {"candidate": candidate, "original": {"text": ORIGINAL}}
         )()
 
-    async def notes(_db, _candidate_id):
+    async def notes(_db, _candidate_id, *_hidden):
         return NOTES
 
     monkeypatch.setattr(ai.cv_qc, "_load_sources", sources)
@@ -567,7 +568,7 @@ async def test_expand_without_any_source_does_not_call_the_model(
             },
         )()
 
-    async def notes(_db, _candidate_id):
+    async def notes(_db, _candidate_id, *_hidden):
         return ""
 
     monkeypatch.setattr(ai.cv_qc, "_load_sources", sources)
@@ -575,3 +576,80 @@ async def test_expand_without_any_source_does_not_call_the_model(
     out = await _propose(db, action="expand")
     assert out["status"] == "no_source" and out["message"]
     assert calls == []
+
+
+CARD_NOTE = (
+    "Stawka: 130 zł/h netto\n"
+    "Red flags: zwolniony dyscyplinarnie z poprzedniej firmy za spóźnienia\n"
+    "Motywacja: odchodzi przez konflikt z przełożonym w obecnym zespole\n"
+    "Notatka: w projekcie płatności prowadził migrację usług do chmury przez dwa lata"
+)
+
+
+@pytest.mark.asyncio
+async def test_commercial_card_fields_never_reach_the_model_or_the_cv(
+    wired, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Stawka, red flags i motywacja z karty rekomendacji to ustalenia handlowe,
+    nie treść CV dla klienta — generator CV ich nie czyta, więc „Rozwiń
+    z oryginału” też nie może (przegląd bezpieczeństwa 13.10.2026)."""
+    db, calls, state = wired
+    candidate = type("C", (), {"id": 3, "experience": [], "cv_extracted_data": None})()
+
+    async def sources(_db, _stage):
+        return type(
+            "Src", (), {"candidate": candidate, "original": {"text": ORIGINAL}}
+        )()
+
+    async def rows(_db, _candidate_id):
+        return [CARD_NOTE]
+
+    monkeypatch.setattr(ai.cv_qc, "_load_sources", sources)
+    monkeypatch.setattr(ai.cv_qc, "_note_rows", rows, raising=False)
+    monkeypatch.setattr(ai.cv_qc, "_notes_text", state["real_notes_text"])
+
+    # Model (np. po wstrzyknięciu polecenia) cytuje red flag jako „źródło”.
+    state["answer"] = answer(
+        FRAGMENT.rstrip(".")
+        + ", zwolniony dyscyplinarnie z poprzedniej firmy za spóźnienia.",
+        "zwolniony dyscyplinarnie z poprzedniej firmy za spóźnienia",
+    )
+    out = await _propose(db, action="expand")
+    assert (out["status"], out["reason"]) == ("rejected", "no_quote")
+    prompt = calls[0]["prompt"]
+    for hidden in ("130 zł", "dyscyplinarnie", "konflikt z przełożonym"):
+        assert hidden not in prompt
+    # Zwykła treść notatki zostaje źródłem.
+    assert "prowadził migrację usług do chmury" in prompt
+    state["answer"] = answer(
+        FRAGMENT.rstrip(".") + "; prowadził migrację usług do chmury przez dwa lata.",
+        "w projekcie płatności prowadził migrację usług do chmury przez dwa lata",
+    )
+    assert (await _propose(db, action="expand"))["status"] == "ok"
+
+
+@pytest.mark.parametrize(
+    "added",
+    [
+        "więcej na https://przyklad.example/cv",
+        "zobacz www.przyklad.example",
+        "kontakt: anna@przyklad.example",
+        "strona przyklad.com",
+    ],
+)
+def test_links_and_addresses_cannot_be_added(added: str) -> None:
+    """Adres albo odnośnik pisany małą literą przechodził kontrolę nazw
+    własnych — a to typowa treść wstrzyknięta w CV kandydata."""
+    out = check("rephrase", FRAGMENT.rstrip(".") + f", {added}.")
+    assert (out["status"], out["reason"]) == ("rejected", "new_fact")
+    assert out["problem"] in added
+
+
+def test_link_already_in_the_fragment_may_stay() -> None:
+    fragment = (
+        "Projekt opisany na https://przyklad.example/cv i w dokumentacji zespołu."
+    )
+    out = check(
+        "shorten", "Projekt opisany na https://przyklad.example/cv.", fragment=fragment
+    )
+    assert out["status"] == "ok", out
