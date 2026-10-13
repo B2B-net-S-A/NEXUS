@@ -407,10 +407,11 @@ async def test_approval_still_replaces_a_link_whose_slug_names_the_client(api):
     async with AsyncSessionLocal() as db:
         new_slug = await db.scalar(
             select(CandidateInviteLink.slug).where(
-                CandidateInviteLink.token == link["token"]
+                CandidateInviteLink.job_id == job_id,
+                CandidateInviteLink.kind == "job",
             )
         )
-    assert new_slug != old_slug and client_slug not in new_slug
+    assert new_slug and new_slug != old_slug and client_slug not in new_slug
     assert (await api.get(f"/api/public/career/r/{new_slug}")).status_code == 200
 
 
