@@ -935,6 +935,113 @@ async def test_rejection_email_without_mailbox_is_refused_out_loud(
     assert rows == []
 
 
+async def test_move_sends_the_text_edited_in_the_rejection_window(
+    app_client: AsyncClient, app_auth_headers, monkeypatch
+):
+    """13.10.2026: temat i treść z podglądu w oknie odrzucenia idą do wiersza
+    harmonogramu — treść jako zwykły tekst z escape."""
+    from unittest.mock import AsyncMock
+
+    from sqlalchemy import select
+
+    import app.services.rejection_email_scheduler as scheduler
+    from app.models.rejection_email import ScheduledRejectionEmail
+
+    monkeypatch.setattr(scheduler, "sender_has_mailbox", AsyncMock(return_value=True))
+    cand, (job, _) = await _seed_candidate(), await _seed_job()
+    await _seed_stage(cand, job, "cv_sent")
+    r = await app_client.post(
+        MOVE,
+        json={
+            "candidate_id": cand,
+            "job_id": job,
+            "stage": "rejected",
+            "rejection_reason": "Klient wybrał innego kandydata",
+            "send_rejection_email": True,
+            "rejection_email_subject": "Twoja rekrutacja\nw B2B",
+            "rejection_email_body": "Cześć,\n\n<script>x</script> dziękujemy.",
+        },
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["rejection_email_status"] == "scheduled"
+    async with AsyncSessionLocal() as db:
+        row = await db.scalar(
+            select(ScheduledRejectionEmail).where(
+                ScheduledRejectionEmail.candidate_id == cand
+            )
+        )
+    assert row is not None
+    assert row.subject == "Twoja rekrutacja w B2B"
+    assert row.body_html == (
+        "<p>Cześć,</p>\n<p>&lt;script&gt;x&lt;/script&gt; dziękujemy.</p>"
+    )
+
+
+async def test_move_refuses_a_blank_rejection_mail(
+    app_client: AsyncClient, app_auth_headers
+):
+    cand, (job, _) = await _seed_candidate(), await _seed_job()
+    await _seed_stage(cand, job, "cv_sent")
+    r = await app_client.post(
+        MOVE,
+        json={
+            "candidate_id": cand,
+            "job_id": job,
+            "stage": "rejected",
+            "rejection_reason": "Klient wybrał innego kandydata",
+            "send_rejection_email": True,
+            "rejection_email_body": "   \n ",
+        },
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 422, r.text
+
+
+async def test_rejection_mail_preview_route(
+    app_client: AsyncClient, app_auth_headers, monkeypatch
+):
+    """Podgląd w oknie odrzucenia: kto dostanie mail i z jaką treścią."""
+    from unittest.mock import AsyncMock
+
+    import app.services.rejection_email_scheduler as scheduler
+
+    monkeypatch.setattr(scheduler, "sender_has_mailbox", AsyncMock(return_value=True))
+    job, _ = await _seed_job()
+    at_client, early = await _seed_candidate(), await _seed_candidate()
+    await _seed_stage(at_client, job, "client_interview")
+    await _seed_stage(early, job, "screening")
+
+    r = await app_client.post(
+        "/api/rejection-emails/preview",
+        json={"job_id": job, "candidate_ids": [at_client, early]},
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert [(p["candidate_id"], p["skip_reason"]) for p in body["people"]] == [
+        (at_client, None),
+        (early, "not_client_visible"),
+    ]
+    assert body["people"][0]["to_email"].endswith("@example.com")
+    assert body["subject"].startswith("Informacja zwrotna — Int-Job-")
+    assert body["body"].startswith("Cześć Int,")
+
+    missing = await app_client.post(
+        "/api/rejection-emails/preview",
+        json={"job_id": 2_000_000_000, "candidate_ids": [at_client]},
+        headers=app_auth_headers,
+    )
+    assert missing.status_code == 404, missing.text
+
+    too_big = await app_client.post(
+        "/api/rejection-emails/preview",
+        json={"job_id": job, "candidate_ids": [3_000_000_000]},
+        headers=app_auth_headers,
+    )
+    assert too_big.status_code == 422, too_big.text
+
+
 async def test_failed_post_commit_side_effect_does_not_turn_the_move_into_500(
     app_client: AsyncClient, app_auth_headers, monkeypatch
 ):

@@ -2,7 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.models.candidate_risk import CandidateOfferResponse
 from app.models.contract import RateUnit
@@ -50,6 +50,10 @@ class StageMove(BaseModel):
     # Optional override — use a specific EmailTemplate.id instead of the
     # default rejection template.
     rejection_email_template_id: Optional[int] = None
+    # Temat i treść poprawione w podglądzie okna odrzucenia (13.10.2026) —
+    # zwykły tekst, tylko przy jednej osobie. Brak pól = treść domyślna.
+    rejection_email_subject: Optional[str] = Field(None, max_length=200)
+    rejection_email_body: Optional[str] = Field(None, max_length=5000)
 
     # ── Stawka kandydata przy ruchu na `verified` (0056, zmiana 17.09.2026) ─
     # OPCJONALNA. Do 17.09.2026 brak stawki dawał 422, a stawka ponad
@@ -117,6 +121,25 @@ class StageMove(BaseModel):
     ended_by: Optional[Literal["candidate", "recruiter", "delivery_lead", "client"]] = (
         None
     )
+
+    @field_validator("rejection_email_subject")
+    @classmethod
+    def _subject_one_line(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        one_line = " ".join(value.split())
+        if not one_line:
+            raise ValueError("Temat maila nie może być pusty.")
+        return one_line
+
+    @field_validator("rejection_email_body")
+    @classmethod
+    def _body_not_blank(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("Treść maila nie może być pusta.")
+        return value
 
 
 class ClientRateUpdate(BaseModel):

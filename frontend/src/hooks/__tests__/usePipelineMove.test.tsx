@@ -10,6 +10,21 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const post = vi.fn();
+// Podgląd maila w oknie odrzucenia (13.10.2026) ma własny mock — `post` liczy
+// tylko ruchy i inne zapisy. Domyślnie mail może wyjść do każdej osoby.
+const previewPost = vi.fn((_url: string, body: { candidate_ids: number[] }) =>
+  Promise.resolve({
+    data: {
+      subject: "Informacja zwrotna — Rola",
+      body: "Cześć,\n\ndziękujemy.",
+      people: body.candidate_ids.map((id) => ({
+        candidate_id: id,
+        to_email: `c${id}@example.com`,
+        skip_reason: null,
+      })),
+    },
+  }),
+);
 const move = vi.fn();
 const showError = vi.fn();
 const showSuccess = vi.fn();
@@ -22,7 +37,10 @@ vi.mock("@/lib/api", () => ({
   __esModule: true,
   default: {
     get: vi.fn(),
-    post: (...a: unknown[]) => post(...a),
+    post: (...a: unknown[]) =>
+      a[0] === "/api/rejection-emails/preview"
+        ? previewPost(a[0] as string, a[1] as { candidate_ids: number[] })
+        : post(...a),
   },
   candidatesApi: { setRecruitmentClientRate: vi.fn() },
   pipelineApi: { move: (...a: unknown[]) => move(...a) },
@@ -654,6 +672,32 @@ describe("usePipelineMove — odrzucenie", () => {
     post.mockResolvedValueOnce({ data: {} });
     await options.onAction();
     expect(post).toHaveBeenLastCalledWith("/api/rejection-emails/77/cancel");
+  });
+
+  it("treść poprawiona w podglądzie idzie z ruchem jednej osoby (13.10.2026)", async () => {
+    const item = card({ id: 21, candidate_id: 201, stage: "client_interview" });
+    const b = board({ client: [item] });
+    post.mockResolvedValue({ data: { id: 601, scheduled_rejection_email_id: 78 } });
+    previewPost.mockClear();
+    mount(b.all);
+
+    React.act(() => controls.requestReject(item));
+    const reason = await screen.findByPlaceholderText(/brak wymaganych kompetencji/);
+    fireEvent.change(reason, { target: { value: "Za wysoka stawka" } });
+    fireEvent.click(screen.getByRole("checkbox"));
+    const body = await screen.findByLabelText("Treść");
+    expect(previewPost).toHaveBeenCalledWith("/api/rejection-emails/preview", {
+      job_id: JOB_ID,
+      candidate_ids: [201],
+    });
+    fireEvent.change(body, { target: { value: "Cześć,\n\nKlient wstrzymał projekt." } });
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(post.mock.calls[0][1]).toMatchObject({
+      send_rejection_email: true,
+      rejection_email_subject: "Informacja zwrotna — Rola",
+      rejection_email_body: "Cześć,\n\nKlient wstrzymał projekt.",
+    });
   });
 
   it("mail zaznaczony, a serwer go nie zaplanował — okno mówi dlaczego (runda 9)", async () => {

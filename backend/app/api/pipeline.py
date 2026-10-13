@@ -1935,6 +1935,8 @@ async def move_candidate(
                 job=job,
                 recruiter_id=current_user.id,
                 template_override_id=data.rejection_email_template_id,
+                edited_subject=data.rejection_email_subject,
+                edited_body=data.rejection_email_body,
             )
             if scheduled is not None:
                 scheduled_rejection_email_id = scheduled.id

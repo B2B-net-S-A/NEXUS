@@ -41,6 +41,7 @@ from app.services.rejection_email_scheduler import (
     _load_other_active_processes,
     dispatch,
     maybe_schedule,
+    preview,
 )
 
 
@@ -858,3 +859,172 @@ async def test_dispatch_with_unknown_send_outcome_never_sends_twice(
             await db.execute(delete(Email).where(Email.user_id == ids["recruiter_id"]))
             await db.execute(delete(M365Connection).where(M365Connection.id == conn_id))
             await db.commit()
+
+
+# ── Okno odrzucenia: podgląd i poprawiona treść (13.10.2026) ───────────────
+
+
+async def _scheduled_activity_details(db, scheduled_id: int) -> dict:
+    from app.models.activity import Activity
+
+    row = await db.scalar(
+        select(Activity).where(
+            Activity.action == "rejection_email_scheduled",
+            Activity.details["scheduled_rejection_email_id"].as_integer()
+            == scheduled_id,
+        )
+    )
+    assert row is not None
+    return row.details
+
+
+@pytest.mark.asyncio
+async def test_default_mail_is_the_approved_text(seeded_entities):
+    ids = seeded_entities
+    async with AsyncSessionLocal() as db:
+        await _add_stage(
+            db,
+            candidate_id=ids["candidate_id"],
+            job_id=ids["job_primary_id"],
+            stage=PipelineStage.cv_sent,
+            moved_by=ids["recruiter_id"],
+        )
+        rejected_stage = await _add_stage(
+            db,
+            candidate_id=ids["candidate_id"],
+            job_id=ids["job_primary_id"],
+            stage=PipelineStage.rejected,
+            moved_by=ids["recruiter_id"],
+        )
+        job = await db.get(Job, ids["job_primary_id"])
+        scheduled = await maybe_schedule(
+            db, stage=rejected_stage, job=job, recruiter_id=ids["recruiter_id"]
+        )
+        assert scheduled is not None
+        assert scheduled.body_html.startswith("<p>Cześć Jan,</p>")
+        assert "Niestety został wybrany inny kandydat." in scheduled.body_html
+        assert "Pozdrawiam" not in scheduled.body_html
+        assert scheduled.template_id is None
+        details = await _scheduled_activity_details(db, scheduled.id)
+        assert details["edited"] is False
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_text_edited_in_the_window_is_sent_escaped(seeded_entities):
+    ids = seeded_entities
+    async with AsyncSessionLocal() as db:
+        await _add_stage(
+            db,
+            candidate_id=ids["candidate_id"],
+            job_id=ids["job_primary_id"],
+            stage=PipelineStage.client_interview,
+            moved_by=ids["recruiter_id"],
+        )
+        rejected_stage = await _add_stage(
+            db,
+            candidate_id=ids["candidate_id"],
+            job_id=ids["job_primary_id"],
+            stage=PipelineStage.rejected,
+            moved_by=ids["recruiter_id"],
+        )
+        job = await db.get(Job, ids["job_primary_id"])
+        scheduled = await maybe_schedule(
+            db,
+            stage=rejected_stage,
+            job=job,
+            recruiter_id=ids["recruiter_id"],
+            edited_subject="Rekrutacja <Senior> & co",
+            edited_body="Cześć Jan,\n\nKlient wstrzymał <b>projekt</b>.",
+        )
+        assert scheduled is not None
+        assert scheduled.subject == "Rekrutacja <Senior> & co"
+        assert scheduled.body_html == (
+            "<p>Cześć Jan,</p>\n<p>Klient wstrzymał &lt;b&gt;projekt&lt;/b&gt;.</p>"
+        )
+        assert scheduled.template_id is None
+        details = await _scheduled_activity_details(db, scheduled.id)
+        assert details["edited"] is True
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_preview_says_who_gets_the_mail_and_shows_the_text(
+    seeded_entities, monkeypatch
+):
+    from unittest.mock import AsyncMock
+
+    import app.services.rejection_email_scheduler as scheduler
+
+    monkeypatch.setattr(scheduler, "sender_has_mailbox", AsyncMock(return_value=True))
+    ids = seeded_entities
+    async with AsyncSessionLocal() as db:
+        await _add_stage(
+            db,
+            candidate_id=ids["candidate_id"],
+            job_id=ids["job_primary_id"],
+            stage=PipelineStage.screening,
+            moved_by=ids["recruiter_id"],
+        )
+        await _add_stage(
+            db,
+            candidate_id=ids["candidate_id"],
+            job_id=ids["job_primary_id"],
+            stage=PipelineStage.cv_sent,
+            moved_by=ids["recruiter_id"],
+        )
+        job = await db.get(Job, ids["job_primary_id"])
+        other_job = await db.get(Job, ids["job_other_id"])
+        sender = await db.get(User, ids["recruiter_id"])
+
+        result = await preview(
+            db, job=job, candidate_ids=[ids["candidate_id"]], sender=sender
+        )
+        assert [(p.candidate_id, p.skip_reason) for p in result.people] == [
+            (ids["candidate_id"], None)
+        ]
+        assert result.people[0].to_email
+        assert result.subject == f"Informacja zwrotna — {job.title}"
+        assert result.body.startswith("Cześć Jan,\n\ndziękujemy za udział")
+
+        # Osoby nie ma w tej rekrutacji → mail nie wyjdzie, treści brak.
+        none_here = await preview(
+            db, job=other_job, candidate_ids=[ids["candidate_id"]], sender=sender
+        )
+        assert none_here.people[0].skip_reason == "not_client_visible"
+        assert none_here.subject is None and none_here.body is None
+
+        candidate = await db.get(Candidate, ids["candidate_id"])
+        candidate.email = None
+        await db.flush()
+        no_email = await preview(
+            db, job=job, candidate_ids=[ids["candidate_id"]], sender=sender
+        )
+        assert no_email.people[0].skip_reason == "no_candidate_email"
+        await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_preview_without_mailbox_blocks_everyone(seeded_entities, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    import app.services.rejection_email_scheduler as scheduler
+
+    monkeypatch.setattr(scheduler, "sender_has_mailbox", AsyncMock(return_value=False))
+    ids = seeded_entities
+    async with AsyncSessionLocal() as db:
+        await _add_stage(
+            db,
+            candidate_id=ids["candidate_id"],
+            job_id=ids["job_primary_id"],
+            stage=PipelineStage.cv_sent,
+            moved_by=ids["recruiter_id"],
+        )
+        job = await db.get(Job, ids["job_primary_id"])
+        sender = await db.get(User, ids["recruiter_id"])
+        result = await preview(
+            db, job=job, candidate_ids=[ids["candidate_id"]], sender=sender
+        )
+        assert result.people[0].skip_reason == "no_mailbox"
+        assert result.subject is None
+        await db.commit()
