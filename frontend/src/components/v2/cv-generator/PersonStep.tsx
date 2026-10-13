@@ -22,14 +22,7 @@ export function PersonStep({ candidate }: PersonStepProps) {
         >
           {initials(candidate.full_name)}
         </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate font-semibold text-foreground">{candidate.full_name}</p>
-          {candidate.position || candidate.email ? (
-            <p className="truncate text-xs text-muted-foreground">
-              {[candidate.position, candidate.email].filter(Boolean).join(" · ")}
-            </p>
-          ) : null}
-        </div>
+        <p className="min-w-0 flex-1 truncate font-semibold text-foreground">{candidate.full_name}</p>
       </div>
     </StepCard>
   );

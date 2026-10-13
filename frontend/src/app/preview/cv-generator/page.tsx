@@ -155,9 +155,9 @@ function ProcessSourcesFixture(props: Partial<Parameters<typeof ProcessSources>[
   );
 }
 
-const JAN = { id: 1, name: "Jan", lastname: "Kowalski", full_name: "Jan Kowalski", position: "Senior Java Developer", email: "jan.kowalski@example.com" };
-const MARTA = { id: 2, name: "Marta", lastname: "Zielińska", full_name: "Marta Zielińska", position: "Java Developer", email: null };
-const TOMASZ = { id: 5, name: "Tomasz", lastname: "Dąbrowski", full_name: "Tomasz Dąbrowski", position: "DevOps Engineer", email: null };
+const JAN = { id: 1, name: "Jan", lastname: "Kowalski", full_name: "Jan Kowalski" };
+const MARTA = { id: 2, name: "Marta", lastname: "Zielińska", full_name: "Marta Zielińska" };
+const TOMASZ = { id: 5, name: "Tomasz", lastname: "Dąbrowski", full_name: "Tomasz Dąbrowski" };
 
 function renderState(state: HarnessState): ReactNode {
   const person = (candidate: CvCandidateOption) => <PersonStep candidate={candidate} />;

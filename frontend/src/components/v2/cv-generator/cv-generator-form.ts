@@ -100,6 +100,7 @@ export interface MissingInput {
   recruitmentsCount: number;
   cvDocumentId: number | null;
   sourcesLoading: boolean;
+  sourcesError: boolean;
   sourcesCount: number;
   /** Notatka dopisana w formularzu (zapisze się przed generacją). */
   noteDraft: string;
@@ -129,6 +130,7 @@ export function missingInputs(input: MissingInput): string[] {
     return items;
   } else if (!input.recruitment) items.push("Proces rekrutacyjny");
   if (input.sourcesLoading) items.push("Plik CV — wczytuję…");
+  else if (input.sourcesError) items.push("Pliki CV kandydata — nie udało się ich wczytać, odśwież stronę.");
   else if (input.sourcesCount === 0) items.push("Plik CV kandydata — dodaj go na profilu kandydata");
   else if (!input.cvDocumentId) items.push("Plik CV");
   const recruitment = input.recruitment;

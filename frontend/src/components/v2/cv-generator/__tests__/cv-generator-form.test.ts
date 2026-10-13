@@ -45,6 +45,7 @@ function missing(partial: Partial<MissingInput> = {}): string[] {
     recruitmentsCount: 1,
     cvDocumentId: 5,
     sourcesLoading: false,
+    sourcesError: false,
     sourcesCount: 1,
     noteDraft: "",
     championOverride: false,
@@ -116,6 +117,11 @@ describe("braki do wygenerowania CV", () => {
   it("awaria listy procesów nie udaje osoby bez rekrutacji", () => {
     const got = missing({ recruitment: null, recruitmentsCount: 0, recruitmentsError: true });
     expect(got).toEqual(["Procesy kandydata — nie udało się ich wczytać, odśwież stronę."]);
+  });
+  it("awaria listy plików CV nie każe dodawać pliku, którego może nie brakować", () => {
+    expect(missing({ sourcesError: true, sourcesCount: 0, cvDocumentId: null })).toEqual([
+      "Pliki CV kandydata — nie udało się ich wczytać, odśwież stronę.",
+    ]);
   });
   it("kandydat bez pliku CV dostaje wskazówkę, gdzie go dodać", () => {
     expect(missing({ sourcesCount: 0, cvDocumentId: null })).toEqual([

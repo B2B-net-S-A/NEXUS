@@ -41,8 +41,6 @@ export interface CvCandidateOption {
   name: string;
   lastname: string;
   full_name: string;
-  position?: string | null;
-  email?: string | null;
 }
 
 export interface CvSourceFile {
@@ -220,6 +218,7 @@ export function useCvGenerator({
     recruitmentsCount: recruitments.length,
     cvDocumentId,
     sourcesLoading: sourcesQuery.isPending,
+    sourcesError: sourcesQuery.isError,
     sourcesCount: sources.length,
     noteDraft,
     championOverride: !!championOverride,

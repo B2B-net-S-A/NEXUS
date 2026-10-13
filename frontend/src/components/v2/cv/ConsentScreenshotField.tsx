@@ -9,9 +9,9 @@
  * wziąć obrazu. To pole zamyka tę lukę.
  *
  * Plik idzie do magazynu obiektów OSOBNYM żądaniem, a do generacji trafia sam
- * podpisane przypisanie załącznika. Dzięki temu obie ścieżki generacji — JSON-owa `/generate` i multipart
- * `/generate-upload` — mają jeden mechanizm, a obraz nie puchnie w base64
- * w ciele requestu ani w logach.
+ * podpisane przypisanie załącznika. Dzięki temu `/generate` i dołączenie zgody
+ * do gotowego CV mają jeden mechanizm, a obraz nie puchnie w base64 w ciele
+ * requestu ani w logach.
  */
 
 import { useEffect, useId, useRef, useState } from "react";
