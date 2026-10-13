@@ -1851,6 +1851,54 @@
    "v3_home": "każde „Pobierz” pliku CV"
   },
   {
+   "id": "card.employment-marker",
+   "area": "tablica",
+   "opis": "Wiersz „Pracuje u nas · klient · do daty” na karcie tablicy (kończy / zaczyna u nas w innym kolorze) — znacznik z serwera, niczego nie blokuje",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "card-employment",
+   "v3_home": "Tablica → karta osoby"
+  },
+  {
+   "id": "card.eligibility-warnings",
+   "area": "tablica",
+   "opis": "Odznaki ostrzeżeń pary na karcie i w wierszu (NDA, czarna lista klienta, konkurent, wykluczył klienta, czarna lista) — do 12.10.2026 widoczne dopiero przy ruchu karty",
+   "file": "lib/eligibility-reason-labels.ts",
+   "marker": "eligibilityWarningBadges",
+   "v3_home": "Tablica → karta osoby"
+  },
+  {
+   "id": "dock.employment-pill",
+   "area": "panel osoby",
+   "opis": "Pigułka „Pracuje u nas” w głowie panelu osoby; po kliknięciu ramka z klientem, końcem zamówienia i Delivery Leadem",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "EmploymentPopoverPill",
+   "v3_home": "panel osoby → głowa"
+  },
+  {
+   "id": "add.employment-notice",
+   "area": "pozyskiwanie",
+   "opis": "Okna dodawania do rekrutacji: znacznik „Pracuje u nas” przy osobie i ramka po zaznaczeniu (klient, koniec zamówienia, Delivery Lead) — informacja, nie blokada",
+   "file": "components/v2/modals/AddCandidatesQuickModal.tsx",
+   "marker": "EmployedPeopleNotice",
+   "v3_home": "„Dodaj po nazwisku”, „Kandydaci do dodania”, „Przypisz do rekrutacji”"
+  },
+  {
+   "id": "add.bulk-skip-employed",
+   "area": "pozyskiwanie",
+   "opis": "„Dodaj do rekrutacji” dla kilku osób: „N z M osób pracują u nas” i przycisk dodania reszty bez nich; po dodaniu ostrzeżenia z odpowiedzi serwera",
+   "file": "components/v2/recruitment/AddToRecruitmentDialog.tsx",
+   "marker": "Dodaj bez tej osoby",
+   "v3_home": "lista kandydatów → pasek zaznaczenia; Talent Radar; Moi ludzie"
+  },
+  {
+   "id": "move.hired-current-engagement",
+   "area": "ruch",
+   "opis": "„Potwierdź zatrudnienie”: gdy osoba ma trwającą umowę u innego klienta, okno pyta „Co z obecną współpracą?”; odpowiedź dostaje Delivery Lead tamtego klienta",
+   "file": "hooks/usePipelineMove.tsx",
+   "marker": "Co z obecną współpracą?",
+   "v3_home": "Tablica → ruch na „Zatrudniony”"
+  },
+  {
    "id": "ad.pracuj-fields",
    "area": "zlecenie",
    "opis": "Zakładka Pracuj.pl: pola w kolejności formularza portalu, każde z własnym „Kopiuj”, wybory z list formularza jako podpowiedź",

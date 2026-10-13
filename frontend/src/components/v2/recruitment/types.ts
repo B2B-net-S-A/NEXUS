@@ -6,6 +6,7 @@
  * danych. Zmiana tutaj = zmiana we wszystkich czterech.
  */
 
+import type { EmploymentMarker } from "@/lib/employment-marker";
 import type { ReactNode } from "react";
 
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
@@ -124,6 +125,8 @@ export interface ProposalPersonRow extends PersonRowBase {
   previouslyDismissed: boolean;
   /** Identyfikator przeglądu bazy, z którego pochodzi wynik (telemetria). */
   runId: string | null;
+  /** Znacznik „Pracuje u nas” — pigułka przy nazwisku w tabeli propozycji. */
+  employment?: EmploymentMarker;
   /** Notatka praktykanta przy przekazaniu (0374) — tylko przy źródle `trainee`. */
   handoverNote?: string | null;
   /**

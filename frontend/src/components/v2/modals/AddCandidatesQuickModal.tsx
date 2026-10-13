@@ -18,6 +18,13 @@ import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-he
 import { assignErrorMessage } from "@/lib/assign-error";
 import { eligibilityBadgeClass } from "@/lib/conflicts";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { EmploymentPill } from "@/components/ds/EmploymentMarker";
+import {
+  ADD_ANYWAY_HINT,
+  EmployedPeopleNotice,
+  type EmployedPerson,
+} from "@/components/v2/employment/EmploymentNotice";
+import { markerCoversEligibility } from "@/lib/employment-marker";
 
 interface Props {
   open: boolean;
@@ -43,6 +50,9 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [addError, setAddError] = useState<string | null>(null);
+  // Zaznaczenie przeżywa zmianę frazy, a wyniki nie — osoby ze znacznikiem
+  // zapamiętujemy, żeby ramka nad stopką znała je także po nowym wyszukaniu.
+  const [seenEmployed, setSeenEmployed] = useState<Map<number, EmployedPerson>>(new Map());
   const debouncedQuery = useDebouncedValue(query.trim(), 300);
 
   useEffect(() => {
@@ -50,6 +60,7 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
       setQuery("");
       setSelected(new Set());
       setAddError(null);
+      setSeenEmployed(new Map());
     }
   }, [open]);
 
@@ -79,6 +90,29 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
 
   const items: CandidateSearchItem[] = useMemo(() => data?.items ?? [], [data]);
   const total = data?.total ?? 0;
+
+  useEffect(() => {
+    setSeenEmployed((prev) => {
+      let next = prev;
+      for (const c of items) {
+        if (!c.employment_marker || prev.has(c.id)) continue;
+        if (next === prev) next = new Map(prev);
+        next.set(c.id, {
+          id: c.id,
+          name: `${c.name} ${c.lastname}`.trim() || `Kandydat #${c.id}`,
+          marker: c.employment_marker,
+        });
+      }
+      return next;
+    });
+  }, [items]);
+  const employedSelected = useMemo(
+    () =>
+      Array.from(selected)
+        .map((id) => seenEmployed.get(id))
+        .filter((person): person is EmployedPerson => person !== undefined),
+    [selected, seenEmployed],
+  );
 
   const selectedCount = selected.size;
   // Weto hiring managera (`assignment_allowed: false`) blokuje dodanie — taki
@@ -306,7 +340,8 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
                         Champion
                       </span>
                     )}
-                    {elig && (
+                    {c.employment_marker && <EmploymentPill marker={c.employment_marker} />}
+                    {elig && !markerCoversEligibility(c.employment_marker, elig.reason_code) && (
                       <span
                         className={cn(
                           "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
@@ -339,6 +374,14 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
             );
           })}
         </div>
+
+        {/* Zaznaczona osoba u nas pracuje: informacja, nie blokada. */}
+        <EmployedPeopleNotice
+          people={employedSelected}
+          total={selectedCount}
+          hint={ADD_ANYWAY_HINT}
+          className="mx-3 mb-3"
+        />
 
         {/* Footer */}
         <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-border bg-muted/30 rounded-b-2xl">

@@ -13,6 +13,8 @@ import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { eligibilityBadgeClass } from "@/lib/conflicts";
 import type { CvYearBadge } from "@/lib/proposal-facts";
+import { EmploymentPill } from "@/components/ds/EmploymentMarker";
+import type { EmploymentMarker } from "@/lib/employment-marker";
 import { cn } from "@/lib/utils";
 
 /** Wiersz listy do zaznaczenia — wspólny dla wszystkich źródeł. */
@@ -28,6 +30,8 @@ export interface PickRow {
   /** „CV z 2023” — tylko przy znanej dacie wgrania głównego CV. */
   cvBadge?: CvYearBadge | null;
   sourceLabel: string | null;
+  /** Znacznik „Pracuje u nas” — pigułka w rzędzie plakietek. */
+  employment?: EmploymentMarker | null;
   warnings: Array<{ key: string; label: string; blocking: boolean }>;
   /** Dodatkowa treść pod wierszem (np. trafienia słów kluczowych w CV). */
   extra?: ReactNode;
@@ -155,8 +159,11 @@ export function PickList({
               ) : null}
               {row.note && <p className="line-clamp-2 text-xs text-muted-foreground">{row.note}</p>}
               {row.extra}
-              {(row.sourceLabel || row.cvBadge || row.warnings.length > 0) && (
-                <div className="mt-1 flex flex-wrap gap-1">
+              {(row.sourceLabel || row.cvBadge || row.employment || row.warnings.length > 0) && (
+                <div className="mt-1 flex flex-wrap items-center gap-1">
+                  {/* Poza przyciskiem nazwiska i linią faktów — ich treść
+                      jest nazwą dostępną wiersza i tekstem do skanowania. */}
+                  {row.employment ? <EmploymentPill marker={row.employment} /> : null}
                   {row.cvBadge ? <CvBadge badge={row.cvBadge} /> : null}
                   {row.sourceLabel && (
                     <span className="rounded bg-muted px-1.5 text-[10.5px] font-semibold text-muted-foreground">

@@ -93,6 +93,12 @@ class PairFacts:
     card_missing: tuple[str, ...] = ()
     card_exists: bool = False
     card_answers: bool = False
+    # 12.10.2026: rekrutacja bez pytań screeningowych (przeniesiona z Traffita,
+    # bez Profilu Championa) nie ma arkusza do wypełnienia — przed
+    # „Zweryfikowany” wystarcza wtedy „Dlaczego ten kandydat”
+    # (`screening_requirement`).
+    has_screening_questions: bool = True
+    card_recommendation: bool = False
     # Karta zna dostępność albo stawkę kandydata (PLN/h) — „Przesuń dalej”
     # nie może wtedy mówić, że tego nie wiemy.
     card_availability: bool = False
@@ -277,29 +283,65 @@ def _missing_rate_detail(f: PairFacts) -> str:
     return f"z notatki: {f.card_rate_hourly:g} zł/h — potwierdź w oknie stawki"
 
 
+SCREENING_SHEET = "screening_sheet"
+WHY_CANDIDATE = "why_candidate"
+
+
+def screening_requirement(f: PairFacts) -> tuple[str, bool]:
+    """Zapis rozmowy wymagany przed „Zweryfikowany”: (klucz, czy spełniony).
+
+    Rekrutacja z pytaniami: arkusz screeningu albo odpowiedzi w notatce.
+    Rekrutacja bez pytań nie ma czego zapisać w arkuszu (12.10.2026: 33 z 206
+    otwartych rekrutacji, wszystkie z Traffita — bramka zatrzymywała tam
+    każdego), więc zapisem rozmowy jest „Dlaczego ten kandydat” (decyzja
+    Artura 12.10.2026). Jedna reguła dla bramki ruchu i okna „Przesuń dalej”.
+    """
+    answered = f.screening_done or f.card_answers
+    if f.has_screening_questions:
+        return SCREENING_SHEET, answered
+    return WHY_CANDIDATE, answered or f.card_recommendation
+
+
+def _screening_item(column: str, f: PairFacts) -> _Item:
+    key, met = screening_requirement(f)
+    if key == WHY_CANDIDATE:
+        return _Item(
+            column,
+            WHY_CANDIDATE,
+            "Dlaczego ten kandydat",
+            OK if met else MISSING,
+            True,
+            None
+            if met
+            else "rekrutacja nie ma pytań screeningowych — wpisz ocenę w screeningu",
+            None if met else _action("open_card", "Uzupełnij w screeningu", f.stage_id),
+        )
+    return _Item(
+        column,
+        SCREENING_SHEET,
+        "Arkusz screeningu",
+        OK if met else MISSING,
+        True,
+        (
+            None
+            if f.screening_done
+            else "odpowiedzi są w notatce rekrutera"
+            if f.card_answers
+            else "odpowiedzi jeszcze nie zapisane"
+        ),
+        None
+        if met
+        else _action(
+            "open_screening", "Otwórz screening", f.screening_stage_id or f.stage_id
+        ),
+    )
+
+
 def _items_for(column: str, f: PairFacts) -> list[_Item]:
     sid = f.stage_id
     if column == "verified":
         return [
-            _Item(
-                column,
-                "screening_sheet",
-                "Arkusz screeningu",
-                OK if f.screening_done or f.card_answers else MISSING,
-                True,
-                (
-                    None
-                    if f.screening_done
-                    else "odpowiedzi są w notatce rekrutera"
-                    if f.card_answers
-                    else "odpowiedzi jeszcze nie zapisane"
-                ),
-                None
-                if f.screening_done or f.card_answers
-                else _action(
-                    "open_screening", "Otwórz screening", f.screening_stage_id or sid
-                ),
-            ),
+            _screening_item(column, f),
             _Item(
                 column,
                 "candidate_rate",
@@ -970,6 +1012,8 @@ async def load_pair_facts(
             started=recommendation_cards.attempt_started(process),
             stage_rate=stage_rate,
         )
+    # Import leniwy: arkusz screeningu importuje ten moduł (`sheet_filled`).
+    from app.services import screening_sheets  # noqa: PLC0415
 
     return PairFacts(
         from_column=from_column,
@@ -985,6 +1029,16 @@ async def load_pair_facts(
         card_missing=tuple(card["missing_labels"]) if card else (),
         card_exists=card is not None and card["status"] != "empty",
         card_answers=bool(card and card["answers"]),
+        # Te same pytania, na które formularz przyjmuje odpowiedź
+        # (`validate_save`): z identyfikatorem i treścią.
+        has_screening_questions=bool(
+            screening_sheets.question_texts(job.champion_profile)
+        ),
+        # Jak arkusz: ocena z próby zamkniętej dawno temu się nie liczy
+        # (`screening_window`) — `attempt_started` odcina tylko próby 2+.
+        card_recommendation=bool(
+            window.counts and card and "recommendation" not in card["missing"]
+        ),
         card_availability=bool(card and card["availability"]),
         card_rate_hourly=card["rate_hourly"] if card else None,
         company_cv=cv is not None,
@@ -1023,6 +1077,7 @@ __all__ = [
     "deal_breaker_text",
     "load_pair_facts",
     "qc_statuses",
+    "screening_requirement",
     "sheet_filled",
     "stage_def_column",
 ]

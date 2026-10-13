@@ -54,6 +54,14 @@ NOTES_FACT_APPLIED = "candidate_notes_fact_applied"
 # 0374: telefon praktykanta zapisał fakty w profilu / przekazał osobę rekruterowi.
 TRAINEE_CALL_SAVED = "candidate_trainee_call_saved"
 TRAINEE_HANDOVER = "candidate_trainee_handover"
+# 12.10.2026: osoba z trwającą umową u innego klienta została zatrudniona
+# w kolejnej rekrutacji — odpowiedź rekrutera „Co z obecną współpracą?”.
+# Osobna akcja na odpowiedź, bo oś czasu profilu nie czyta `details`.
+HIRED_ENGAGEMENT_ACTIONS: dict[str, str] = {
+    "switch": "candidate_hired_engagement_switch",
+    "parallel": "candidate_hired_engagement_parallel",
+    "ask_delivery_lead": "candidate_hired_engagement_ask_dl",
+}
 # Ręczna korekta faktów z telefonu praktykanta (audyt 24.09.2026): stare → nowe.
 CALL_FACTS_CORRECTED = "candidate_call_facts_corrected"
 IDENTITY_SOURCE_QUARANTINED = "candidate_identity_source_quarantined"

@@ -883,6 +883,7 @@ export function CandidateDetailV2({
             onOpenChange={setAssignOpen}
             candidateId={candidateNumericId}
             candidateName={fullName}
+            employment={candidate.employment_marker}
             onAssigned={() => invalidateCandidateMutation(queryClient, id, "assignment")}
           />
           {editOpen ? (

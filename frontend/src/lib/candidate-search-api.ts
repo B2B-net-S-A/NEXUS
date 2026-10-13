@@ -8,6 +8,7 @@
 
 import { api, type MatchEligibility } from "@/lib/api";
 import type { MatchBreakdown } from "@/lib/match-breakdown";
+import type { EmploymentMarker } from "@/lib/employment-marker";
 
 export type SortMode = "relevance" | "recent" | "name";
 export type AiStatus = "ok" | "degraded" | "down";
@@ -143,6 +144,8 @@ export interface CandidateSearchItem {
    * conflict is a warning (`assignment_allowed: true`); only a veto blocks.
    */
   eligibility?: MatchEligibility | null;
+  /** Znacznik „Pracuje u nas”; `elsewhere` tylko przy `exclude_in_job_id`. */
+  employment_marker?: EmploymentMarker | null;
   /**
    * Semantyka v2: aktywne filtry (lokalizacja / staż / stawka), które osoba
    * przeszła WYŁĄCZNIE dlatego, że nie mamy jej danych — `location`,

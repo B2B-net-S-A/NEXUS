@@ -14,6 +14,13 @@ describe("candidate timeline labels", () => {
     expect(activityActionLabel("document_downloaded")).toBe("Pobrano plik");
     expect(activityActionLabel("cv_uploaded")).toBe("Wgrano CV");
     expect(activityActionLabel("updated")).toBe("Zaktualizowano profil");
+    // Odpowiedź „Co z obecną współpracą?” — osobna akcja na każdą odpowiedź,
+    // bo oś czasu nie czyta szczegółów wpisu.
+    expect(activityActionLabel("candidate_hired_engagement_parallel")).toBe(
+      "Zatrudniono w kolejnej rekrutacji: będzie pracować równolegle u obu klientów",
+    );
+    expect(activityActionLabel("candidate_hired_engagement_ask_dl")).toContain("zdecyduje Delivery Lead");
+    expect(activityActionLabel("candidate_hired_engagement_switch")).toContain("obecna współpraca się kończy");
     expect(activityActionLabel("created")).toBe("Utworzono profil kandydata");
   });
 

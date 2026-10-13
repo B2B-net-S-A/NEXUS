@@ -40,12 +40,18 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { EmploymentPill } from "@/components/ds/EmploymentMarker";
+import type { EmploymentMarker } from "@/lib/employment-marker";
 import { cn } from "@/lib/utils";
 
 const GROUP_PREVIEW = 8;
 
 export interface RowActions {
-  onAdd?: (row: { candidate_id: number; full_name: string }) => void;
+  onAdd?: (row: {
+    candidate_id: number;
+    full_name: string;
+    employment_marker?: EmploymentMarker | null;
+  }) => void;
   onSnooze?: (candidateId: number, reason: SnoozeReason) => void;
   onUnsnooze?: (candidateId: number) => void;
   busyIds?: ReadonlySet<number>;
@@ -121,6 +127,7 @@ export function PersonRowView({ row, actions }: { row: MyPeopleRow; actions: Row
               w procesie: {row.active_processes}
             </Badge>
           ) : null}
+          {row.employment_marker ? <EmploymentPill marker={row.employment_marker} /> : null}
         </div>
         <p className="mt-0.5 text-xs text-muted-foreground">
           {[
@@ -154,7 +161,9 @@ export function PersonRowView({ row, actions }: { row: MyPeopleRow; actions: Row
           ) : null
         ) : (
           <>
-            {actions.onAdd && !row.working ? (
+            {/* Osobę, która u nas pracuje, też można dodać (12.10.2026) —
+                znacznik obok nazwiska mówi, u kogo i do kiedy. */}
+            {actions.onAdd ? (
               <Button
                 variant="ghost"
                 size="icon-sm"
@@ -257,7 +266,7 @@ export function PeopleListView({
       {working.length ? (
         <CollapsibleGroup
           group={{ key: "working", categoryId: null, label: "Pracują", rows: working }}
-          actions={{ ...actions, onAdd: undefined }}
+          actions={actions}
           defaultOpen={false}
         />
       ) : null}

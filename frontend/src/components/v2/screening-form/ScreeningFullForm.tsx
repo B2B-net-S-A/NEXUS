@@ -78,6 +78,7 @@ import { loadJobRejectionReasons, type RejectionReasonOption } from "@/lib/rejec
 import {
   answerOriginAfterEdit,
   applyNoteProposal,
+  assessmentMissingForForward,
   buildSavePayload,
   cardAssessmentKeys,
   cardOriginAfterEdit,
@@ -114,6 +115,7 @@ const EMPTY_VALUES: ScreeningFullFormValues = {
   overall_fit: "uncertain",
   notes: "",
   skip_missing: false,
+  skip_reason: null,
   internal_note: "",
   experience_checks: [],
   card: {},
@@ -876,6 +878,13 @@ export function ScreeningFullForm({
   const [handingBack, setHandingBack] = useState(false);
   const dirty = methods.formState.isDirty || model.note != null;
 
+  // Błąd „wpisz, dlaczego ten kandydat” (rekrutacja bez pytań) znika, gdy pole
+  // dostaje treść — formularz nie ma walidacji przy zmianie, więc sam by został.
+  const recommendation = methods.watch("card.recommendation");
+  useEffect(() => {
+    if ((recommendation ?? "").trim()) methods.clearErrors("card.recommendation");
+  }, [recommendation, methods]);
+
   const phraseController = usePhraseSuggestions({
     candidateId,
     jobId,
@@ -1017,6 +1026,17 @@ export function ScreeningFullForm({
       setError(null);
       showError(
         `Uzupełnij ${countPl(missing.length, "odpowiedź", "odpowiedzi", "odpowiedzi")} przed przekazaniem dalej.`,
+      );
+      return;
+    }
+    // Rekrutacja bez pytań: zapisem rozmowy jest „Dlaczego ten kandydat”
+    // (12.10.2026) — bez tego serwer i tak odmówi ruchu.
+    if (assessmentMissingForForward(state, model.questions, values)) {
+      methods.setError("card.recommendation", { type: "required", message: "Wpisz, dlaczego ten kandydat" });
+      methods.setFocus("card.recommendation");
+      setError(null);
+      showError(
+        "Ta rekrutacja nie ma pytań screeningowych — przed przekazaniem dalej wpisz „Dlaczego ten kandydat”.",
       );
       return;
     }

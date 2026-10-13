@@ -29,6 +29,7 @@ import { candidateSearchApi, proposalsBulkApi } from "@/lib/candidate-search-api
 import { jobProposalsKeys } from "@/lib/job-proposals-api";
 import { requirementLabel } from "@/lib/keyword-requirements";
 import { yearsLabel } from "@/lib/proposal-facts";
+import type { EmploymentMarker } from "@/lib/employment-marker";
 import { formatHourlyRate } from "@/lib/proposals-merge";
 import { filtersToApiParams } from "@/lib/url-filters";
 
@@ -45,6 +46,8 @@ interface SearchCandidate extends CandidateLite {
   expected_rate_hourly?: number | string | null;
   expected_rate_currency?: string | null;
   match_snippets?: FieldSnippet[] | null;
+  /** `GET /api/candidates` niesie znacznik „Pracuje u nas” przy każdej osobie. */
+  employment_marker?: EmploymentMarker | null;
 }
 
 interface SearchPage {
@@ -166,6 +169,7 @@ export function useSearchBaseTab(
         .filter(Boolean)
         .join(" · ") || null,
     sourceLabel: null,
+    employment: c.employment_marker ?? null,
     warnings: addedIds.has(c.id)
       ? [{ key: "added", label: "Dodano do „Nowych”", blocking: true }]
       : [],

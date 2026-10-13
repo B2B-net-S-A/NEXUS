@@ -16,7 +16,7 @@
  * więc z anulowaniem maila odmowy i oknem „Przenieś mimo to”.
  */
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -28,7 +28,13 @@ import {
 } from "@/lib/candidate-search-api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { formatReasonCounts, summarizeBulkResult } from "@/lib/bulk-result-summary";
+import { pluralPl } from "@/lib/plural-pl";
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
+import {
+  ADD_ANYWAY_HINT,
+  EmployedPeopleNotice,
+  type EmployedPerson,
+} from "@/components/v2/employment/EmploymentNotice";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -57,6 +63,11 @@ interface AddToRecruitmentDialogProps {
   runId?: string | null;
   /** Tekst w opisie okna, np. imię i nazwisko przy jednej osobie. */
   subject?: string;
+  /**
+   * Osoby z wyboru, które u nas pracują — podaje ekran, który otwiera okno
+   * (ma znacznik w wierszach). Okno informuje i pozwala dodać resztę bez nich.
+   */
+  employed?: EmployedPerson[];
   /** Wołane, gdy ktoś trafił do rekrutacji — dodany albo przywrócony. */
   onAdded?: (result: AddToRecruitmentResult) => void;
 }
@@ -84,10 +95,24 @@ function addedSentence(job: JobPickerJob, added: number): string {
 export function addToRecruitmentSummary(result: AddToRecruitmentResult): string {
   const { job, response, restored } = result;
   if (restored) return `Przywrócono ${restored} ${peopleAccusative(restored)} do „${job.title}”.`;
-  const head = addedSentence(job, response.total_added);
-  if (response.total_skipped === 0) return head;
-  const reasons = formatReasonCounts(summarizeBulkResult(response).skipped);
-  return `${head} Pominięto: ${reasons || response.total_skipped}.`;
+  const summary = summarizeBulkResult(response);
+  // Osoba z ostrzeżeniem JEST dodana (konflikt z klientem, praca u tego
+  // klienta) — do 12.10.2026 okno gubiło tę część odpowiedzi.
+  return [
+    addedSentence(job, response.total_added),
+    response.total_skipped > 0
+      ? `Pominięto: ${formatReasonCounts(summary.skipped) || response.total_skipped}.`
+      : null,
+    summary.warnings.length > 0 ? `Uwaga: ${formatReasonCounts(summary.warnings)}.` : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function withoutLabel(n: number): string {
+  return n === 1
+    ? "Dodaj bez tej osoby"
+    : `Dodaj bez tych ${n} ${pluralPl(n, "osoby", "osób", "osób")}`;
 }
 
 /** Kolumna, do której wraca karta — etap, na który trafiłoby to dodanie. */
@@ -174,6 +199,7 @@ export function AddToRecruitmentDialog({
   source,
   runId,
   subject,
+  employed,
   onAdded,
 }: AddToRecruitmentDialogProps) {
   const queryClient = useQueryClient();
@@ -183,13 +209,25 @@ export function AddToRecruitmentDialog({
   const [result, setResult] = useState<{ job: JobPickerJob; response: BulkProposalsResponse } | null>(null);
   const [restoredIds, setRestoredIds] = useState<ReadonlySet<number>>(new Set());
   const [restoringId, setRestoringId] = useState<number | null>(null);
+  const [skipEmployed, setSkipEmployed] = useState(false);
   const move = usePipelineMoveCore({ jobId: (result?.job ?? job)?.id ?? 0 });
+
+  const employedInSelection = useMemo(() => {
+    const selected = new Set(candidateIds);
+    return (employed ?? []).filter((person) => selected.has(person.id));
+  }, [candidateIds, employed]);
+  const idsToAdd = useMemo(() => {
+    if (!skipEmployed) return candidateIds;
+    const skipped = new Set(employedInSelection.map((person) => person.id));
+    return candidateIds.filter((id) => !skipped.has(id));
+  }, [candidateIds, employedInSelection, skipEmployed]);
 
   const reset = () => {
     setJob(null);
     setError(null);
     setResult(null);
     setRestoredIds(new Set());
+    setSkipEmployed(false);
   };
 
   const close = (next: boolean) => {
@@ -199,12 +237,12 @@ export function AddToRecruitmentDialog({
   };
 
   const submit = async () => {
-    if (!job || candidateIds.length === 0) return;
+    if (!job || idsToAdd.length === 0) return;
     setPending(true);
     setError(null);
     try {
       const response = await proposalsBulkApi.add(job.id, {
-        candidate_ids: candidateIds,
+        candidate_ids: idsToAdd,
         source,
         ...(runId ? { run_id: runId } : {}),
       });
@@ -220,6 +258,7 @@ export function AddToRecruitmentDialog({
       if (stay) setResult({ job, response });
       else {
         setJob(null);
+        setSkipEmployed(false);
         onOpenChange(false);
       }
       if (response.total_added > 0 || !stay) onAdded?.({ job, response });
@@ -274,7 +313,8 @@ export function AddToRecruitmentDialog({
     });
   };
 
-  const count = candidateIds.length;
+  const count = idsToAdd.length;
+  const employedCount = employedInSelection.length;
   // Po zapisie ekran-rodzic czyści zaznaczenie, więc opis wyniku nie może
   // liczyć osób z propsa („dla 0 osób”).
   const description = result
@@ -301,6 +341,34 @@ export function AddToRecruitmentDialog({
             />
           ) : (
             <>
+              {skipEmployed ? (
+                <p
+                  role="note"
+                  className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
+                >
+                  <span>
+                    Bez {employedCount} {pluralPl(employedCount, "osoby, która u nas pracuje", "osób, które u nas pracują", "osób, które u nas pracują")}.
+                  </span>
+                  <Button size="sm" variant="ghost" onClick={() => setSkipEmployed(false)}>
+                    Przywróć
+                  </Button>
+                </p>
+              ) : (
+                <EmployedPeopleNotice
+                  people={employedInSelection}
+                  total={candidateIds.length}
+                  hint={ADD_ANYWAY_HINT}
+                  className="mb-3"
+                  action={
+                    // Przycisk ma sens tylko, gdy po odjęciu ktoś zostaje.
+                    employedCount > 0 && employedCount < candidateIds.length ? (
+                      <Button size="sm" variant="outline" onClick={() => setSkipEmployed(true)}>
+                        {withoutLabel(employedCount)}
+                      </Button>
+                    ) : undefined
+                  }
+                />
+              )}
               <JobPicker value={job} onChange={setJob} />
               {error ? (
                 <p role="alert" className="mt-3 text-sm text-destructive">

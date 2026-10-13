@@ -65,6 +65,14 @@ const ACTIVITY_ACTION_LABELS: Record<string, string> = {
   candidate_identity_restored_from_traffit:
     "Przywrócono dane osobowe z Traffita",
   candidate_hard_deleted: "Trwale usunięto profil",
+  // 12.10.2026: zatrudnienie osoby, która ma już trwającą umowę u innego
+  // klienta — odpowiedź rekrutera z okna „Potwierdź zatrudnienie”.
+  candidate_hired_engagement_switch:
+    "Zatrudniono w kolejnej rekrutacji: przechodzi do nowego klienta, obecna współpraca się kończy",
+  candidate_hired_engagement_parallel:
+    "Zatrudniono w kolejnej rekrutacji: będzie pracować równolegle u obu klientów",
+  candidate_hired_engagement_ask_dl:
+    "Zatrudniono w kolejnej rekrutacji: o obecnej współpracy zdecyduje Delivery Lead",
   note_added: "Dodano notatkę",
 };
 

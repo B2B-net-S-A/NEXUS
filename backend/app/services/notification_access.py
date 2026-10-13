@@ -122,6 +122,7 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.request_allocation_proposals: ProductSection.pipeline,
     NotificationType.candidate_claim_taken: ProductSection.pipeline,
     NotificationType.hired_order_missing: ProductSection.finance,
+    NotificationType.consultant_in_other_recruitment: ProductSection.delivery,
 }
 
 CONTEXTUAL_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(

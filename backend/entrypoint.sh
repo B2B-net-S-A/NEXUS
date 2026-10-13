@@ -707,6 +707,8 @@ _ENUM_STATEMENTS = [
     # 0418: zmiana stawki kandydata w procesie — informacja i zadanie dla DL.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_rate_change'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_rate_change_task'",
+    # 0431: nasz konsultant w innej rekrutacji (do Delivery Leada obecnego klienta).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'consultant_in_other_recruitment'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",

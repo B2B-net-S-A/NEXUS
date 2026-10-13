@@ -364,6 +364,14 @@ async def search_results(
     decisions = await evaluate_candidates_for_job(
         db, job=job, candidate_ids=list(current), now=datetime.now(timezone.utc)
     )
+    # Znacznik „Pracuje u nas” jedzie OBOK plakietki — nie wchodzi do
+    # `annotation`, więc zmiana zamówienia nie oznacza rankingu jako zmienionego.
+    from app.core.scheduling import business_today
+    from app.services.employment_marker import load_employment_markers
+
+    employment_markers = await load_employment_markers(
+        db, list(current), today=business_today(), job_client_id=job.client_id
+    )
     from app.services.eligibility_annotation import eligibility_annotation
     from app.services.match_telemetry_service import (
         ImpressionEntry,
@@ -495,6 +503,7 @@ async def search_results(
             "breakdown": breakdown,
             "requirements": requirements,
             "eligibility": annotation,
+            "employment_marker": employment_markers.get(row.candidate_id),
             "fit": fit,
         }
         if not row_changed and "prior_screening" in (row.evidence or {}):

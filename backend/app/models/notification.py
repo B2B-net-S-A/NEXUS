@@ -220,6 +220,11 @@ class NotificationType(str, enum.Enum):
     # (user, id). Osoba z propozycji nie dostaje nic, dopóki ktoś jej nie
     # zaakceptuje (wtedy `request_assignment_changed`).
     request_allocation_proposals = "request_allocation_proposals"
+    # 0431: osoba, która u nas pracuje, została zatrudniona w innej rekrutacji
+    # albo jej CV poszło do innego klienta — do Delivery Leada klienta,
+    # u którego pracuje (admini jako zapas); related_entity=
+    # (candidate_stage, id wiersza etapu). Bez maila.
+    consultant_in_other_recruitment = "consultant_in_other_recruitment"
 
 
 class Notification(Base, TimestampMixin):

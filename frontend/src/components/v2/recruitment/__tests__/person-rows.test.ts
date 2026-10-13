@@ -57,6 +57,32 @@ describe("buildProcessRows", () => {
     expect(before[0].key).toBe(after[0].key);
   });
 
+  it("ostrzeżenia pary z serwera mają odznaki; weto i budżet się nie dublują", () => {
+    const atThisClient = {
+      phase: "working" as const,
+      source: "contract" as const,
+      elsewhere: false,
+      clients: [{ client_id: 1, client_name: "Bank Przykładowy", contract_id: 10, phase: "working" as const }],
+    };
+    const rows = buildProcessRows(
+      template({
+        3: [
+          item(1, { warnings: ["budget_exceeded", "client_nda"] }),
+          // „Pracuje u tego klienta” mówi już znacznik zatrudnienia na karcie.
+          item(2, { warnings: ["client_current_employment"], employment_marker: atThisClient }),
+          item(3, { warnings: ["client_current_employment"] }),
+        ],
+      }),
+      {},
+    );
+    expect(rowBadges(byId(rows, 1)).map((b) => [b.key, b.label, b.tone])).toEqual([
+      ["over-budget", "ponad budżet", "warning"],
+      ["warning:client_nda", "NDA z klientem", "warning"],
+    ]);
+    expect(rowBadges(byId(rows, 2))).toEqual([]);
+    expect(rowBadges(byId(rows, 3)).map((b) => b.label)).toEqual(["pracuje u tego klienta"]);
+  });
+
   it("odznaka „ponad budżet”: stempel serwera ALBO stawka ponad bieżący budżet", () => {
     const rows = buildProcessRows(
       template({

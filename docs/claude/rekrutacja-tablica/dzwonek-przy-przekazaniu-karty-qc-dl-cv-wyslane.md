@@ -46,6 +46,12 @@ znało tylko `jobs.recruiter_id` (osobę z automatu przydziału albo nikogo).
 - Nowy etap-przekazanie = gałąź w `handoff_kind` (po KOLUMNIE Tablicy, nie po
   id definicji), nie nowy wiersz reguły — reguły nie dochodzą do etapów
   dodanych po zasiewie ani do szablonów z Traffita.
+- **Osobny dzwonek, gdy karta należy do osoby, która u nas pracuje
+  (12.10.2026):** wejście na „CV wysłane” i zatrudnienie w rekrutacji u innego
+  klienta dzwonią też do Delivery Leada klienta, u którego osoba pracuje —
+  własny typ (`consultant_in_other_recruitment`) i własni odbiorcy, niezależnie
+  od reguł i przekazań z tego pliku. Wpięte w to samo `notify_stage_change`;
+  szczegóły w `kandydaci-wyszukiwanie/znacznik-pracuje-u-nas.md`.
 - **Kolejka Cpro prowadzona w Traffit też dzwoni (08.10.2026, decyzja Artura).**
   Pomiar: 122 wejścia na „NORDEA: Wysłać do Cpro” w 14 dni, wszystkie
   w Traffit — import pisze surowym SQL-em, więc osoba od Cpro nie dostała ani

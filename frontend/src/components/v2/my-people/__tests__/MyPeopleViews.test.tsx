@@ -123,7 +123,21 @@ describe("ForJobView", () => {
 });
 
 describe("PeopleListView", () => {
-  it("does not offer adding a working person", () => {
+  it("pozwala dodać osobę z grupy „Pracują” i mówi, u kogo pracuje", () => {
+    const onAdd = vi.fn();
+    const marker = {
+      phase: "working" as const,
+      source: "contract" as const,
+      clients: [
+        {
+          client_id: 3,
+          client_name: "Bank Przykładowy",
+          contract_id: 30,
+          phase: "working" as const,
+          order_end_date: "2026-12-31",
+        },
+      ],
+    };
     render(
       <PeopleListView
         active={[]}
@@ -133,16 +147,21 @@ describe("PeopleListView", () => {
             last_sent_at: null, last_sent_job_title: null, last_sent_client_name: null,
             sent_count: 1, days_since_last_send: null, expected_rate_hourly: null,
             availability_status: null, city: null, source: "auto", active_processes: 0,
-            working: true, snoozed: false, snooze_reason: null, snoozed_at: null, new_matches: 0,
+            working: true, employment_marker: marker,
+            snoozed: false, snooze_reason: null, snoozed_at: null, new_matches: 0,
           },
         ]}
         snoozed={[]}
         categories={[]}
-        actions={{ onAdd: vi.fn(), onSnooze: vi.fn() }}
+        actions={{ onAdd, onSnooze: vi.fn() }}
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: /Pracują/ }));
-    expect(screen.getByText("Pracuje Test")).toBeTruthy();
-    expect(screen.queryByLabelText("Dodaj do rekrutacji: Pracuje Test")).toBeNull();
+    expect(screen.getByText("Pracuje u nas · Bank Przykładowy · do 31.12.2026")).toBeTruthy();
+    // Do 12.10.2026 przycisku nie było — pracującej osoby nie dało się dodać.
+    fireEvent.click(screen.getByLabelText("Dodaj do rekrutacji: Pracuje Test"));
+    expect(onAdd).toHaveBeenCalledWith(
+      expect.objectContaining({ candidate_id: 9, employment_marker: marker }),
+    );
   });
 });

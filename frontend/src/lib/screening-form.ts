@@ -27,8 +27,8 @@ import {
   cardFieldLabel,
 } from "@/lib/recommendation-card";
 import {
-  DEFAULT_SKIP_NOTE,
   championScreeningQuestions,
+  defaultSkipNote,
   experienceCheckRows,
   type ScreeningFormAnswer,
   type ScreeningFormValues,
@@ -108,6 +108,7 @@ export function formDefaultsFromState(state: ScreeningFormState): ScreeningFullF
     // Stare pole „Notatki rekrutera” jest tylko do odczytu (`legacy_notes`).
     notes: "",
     skip_missing: saved.some((a) => a.skipped),
+    skip_reason: null,
     internal_note: sheet?.internal_note ?? "",
     experience_checks: experienceCheckRows(state.champion_profile, sheet?.experience_checks),
     card,
@@ -159,7 +160,7 @@ export function sheetFromValues(
       status: row.status,
     })),
     overall_fit: values.overall_fit,
-    internal_note: anySkipped ? (values.internal_note ?? "").trim() || DEFAULT_SKIP_NOTE : null,
+    internal_note: anySkipped ? (values.internal_note ?? "").trim() || defaultSkipNote(values.skip_reason) : null,
   };
 }
 
@@ -275,6 +276,31 @@ export function missingAnswersForForward(
   return questions
     .filter((q) => !(values.answers?.[q.id]?.response ?? "").trim())
     .map((q) => q.id);
+}
+
+/**
+ * Rekrutacja bez pytań screeningowych: przed „Zweryfikowany” serwer zamiast
+ * arkusza wymaga „Dlaczego ten kandydat” (12.10.2026, lustro
+ * `move_requirements.screening_requirement`). `true` = pole trzeba wpisać,
+ * zanim ruszy „Zapisz i przekaż dalej”. Formularz zatrzymuje tylko wtedy, gdy
+ * jest pewny — w pozostałych przypadkach rozstrzyga serwer.
+ */
+export function assessmentMissingForForward(
+  state: Pick<ScreeningFormState, "card" | "sheet" | "note_answers" | "questions">,
+  questions: readonly ScreeningQuestion[],
+  values: Pick<ScreeningFullFormValues, "card">,
+): boolean {
+  if (questions.length > 0) return false;
+  // Odpowiedzi w notatce i arkusz sprzed usunięcia pytań serwerowi wystarczają.
+  const answeredElsewhere =
+    (state.note_answers ?? []).length > 0 ||
+    (state.questions ?? []).some((q) => q.source === "note") ||
+    (state.sheet?.answers ?? []).length > 0;
+  if (answeredElsewhere) return false;
+  if (!editableCardKeys(state).includes("recommendation")) return false;
+  if ((values.card?.recommendation ?? "").trim()) return false;
+  // Puste pole nie kasuje wartości z notatki — ta dalej się liczy.
+  return state.card?.fields?.recommendation?.source !== "note";
 }
 
 // ── Wypełnienie z notatki ────────────────────────────────────────────────

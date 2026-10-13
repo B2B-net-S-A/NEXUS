@@ -44,15 +44,17 @@ from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.recruitment_access import job_read_scope_clause, user_can_edit_rates
+from app.core.scheduling import business_today
 from app.models.ai_feature import AIFeatureKey
 from app.models.job import Job
 from app.models.job_proposal import JobProposal
-from app.models.recruitment_pipeline import CandidateStage
+from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.recruitment_process import RecruitmentProcess
 from app.models.user import User
 from app.services import note_kinds, screening_sheets
 from app.services.ai_models import fallbacks_for, model_for
 from app.services.ai_quota import ai_feature
+from app.services.current_employment import current_employment_client_ids
 from app.services.llm_prompts import SCREENING_REASSIGN_SUGGEST
 from app.services.notes_insights_extractor import build_notes_blob
 from app.services.prompt_fencing import fence, json_for_prompt, neutralize_tags
@@ -460,6 +462,60 @@ async def suggestion_context(
         conversations=len(conversations),
         reassign=reassign,
     )
+
+
+# Dlaczego rekruter może zapisać pytania bez odpowiedzi jako pominięte.
+SKIP_REASSIGN = "reassign"
+SKIP_EARLIER_SCREENING = "earlier_screening"
+SKIP_EMPLOYED = "employed"
+
+
+async def _employed_with_us(
+    db: AsyncSession, *, candidate_id: int, job_id: int
+) -> bool:
+    """Osoba zatrudniona przez nas: „Zatrudniony” w innej rekrutacji albo
+    trwający kontrakt (konsultant sprzed NEXUSA nie ma wiersza rekrutacji)."""
+    hired = await db.scalar(
+        select(CandidateStage.id)
+        .where(
+            CandidateStage.candidate_id == candidate_id,
+            CandidateStage.job_id != job_id,
+            CandidateStage.stage == PipelineStage.hired,
+        )
+        .limit(1)
+    )
+    if hired is not None:
+        return True
+    employment = await current_employment_client_ids(
+        db, [candidate_id], today=business_today()
+    )
+    return bool(employment.get(candidate_id))
+
+
+async def skip_missing_reason(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    job_id: int,
+    ctx: Optional[SuggestionContext],
+) -> Optional[str]:
+    """Powód, dla którego arkusz przyjmuje „Pomiń brakujące” (albo ``None``).
+
+    Do 12.10.2026 tylko przepięcie z panelu „Podobne rekrutacje”. Zespół
+    przepina też ręcznie, a panel nie pozwala wybrać osoby zatrudnionej
+    w rekrutacji źródłowej — taki rekruter musiał odpowiedzieć na każde pytanie
+    od nowa (od 05.10: 152 ręczne dodania, 56 osób z arkuszem w innej
+    rekrutacji, 9 zatrudnionych gdzie indziej). Decyzja Artura 12.10.2026:
+    wystarcza wcześniejsza rozmowa screeningowa w innej rekrutacji albo
+    zatrudnienie przez nas. Pominięte odpowiedzi dalej nie idą do klienta.
+    """
+    if ctx is not None and ctx.reassign is not None:
+        return SKIP_REASSIGN
+    if ctx is not None and ctx.conversations > 0:
+        return SKIP_EARLIER_SCREENING
+    if await _employed_with_us(db, candidate_id=candidate_id, job_id=job_id):
+        return SKIP_EMPLOYED
+    return None
 
 
 def _answers_block(answers: Sequence[EarlierAnswer]) -> str:

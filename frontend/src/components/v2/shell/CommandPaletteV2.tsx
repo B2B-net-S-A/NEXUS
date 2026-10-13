@@ -34,6 +34,8 @@ import { useAuthStore } from "@/store/auth";
 import { openJarvis } from "@/lib/jarvis/events";
 import { listedSettingsItems, settingsItemHref } from "@/lib/settings-registry";
 import { jobClientLine, jobDisplayTitle } from "@/lib/job-names";
+import { EmploymentPill } from "@/components/ds/EmploymentMarker";
+import type { EmploymentMarker } from "@/lib/employment-marker";
 
 interface Props {
   /** `undefined` = user nie ma capability `candidate.create` (patrz AppShellV2). */
@@ -45,7 +47,14 @@ interface Props {
 }
 
 type QuickResult =
-  | { type: "candidate"; id: number; title: string; subtitle: string | null }
+  | {
+      type: "candidate";
+      id: number;
+      title: string;
+      subtitle: string | null;
+      /** Znacznik „Pracuje u nas” — osobny element, nie część podpisu. */
+      employment?: EmploymentMarker | null;
+    }
   | { type: "job"; id: number; title: string; subtitle: string | null }
   | { type: "client"; id: number; title: string; subtitle: string | null };
 
@@ -59,6 +68,7 @@ interface RawSearchItem {
   /** Kandydat: stanowisko z LinkedIna i miasto (pola `CandidateResponse`). */
   linkedin_current_title?: string | null;
   city?: string | null;
+  employment_marker?: EmploymentMarker | null;
   title?: string | null;
   working_title?: string | null;
   client_reference?: string | null;
@@ -153,6 +163,7 @@ export function CommandPaletteV2({
                 subtitle:
                   [c.linkedin_current_title, c.city].filter(Boolean).join(" · ") ||
                   null,
+                employment: c.employment_marker ?? null,
               }));
               flush();
             }),
@@ -348,6 +359,9 @@ export function CommandPaletteV2({
                     · {r.subtitle}
                   </span>
                 )}
+                {r.type === "candidate" && r.employment ? (
+                  <EmploymentPill marker={r.employment} className="ml-2 shrink-0" />
+                ) : null}
               </CommandItem>
             ))}
           </CommandGroup>

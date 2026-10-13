@@ -47,6 +47,12 @@ async def api_client():
         yield c
 
 
+# Rekrutacja z pytaniami screeningowymi — wtedy bramka pyta o arkusz.
+WITH_QUESTIONS = {
+    "screening_questions": [{"id": "q1", "question": "Ile lat komercyjnie z Javą?"}]
+}
+
+
 @pytest.fixture
 def gates_on(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "VERIFIED_GATE_ENABLED", True)
@@ -110,7 +116,7 @@ def test_hired_reason_switch_off_lets_the_move_through(monkeypatch) -> None:
 async def test_verified_needs_screening_sheet_and_candidate_rate(
     api_client: AsyncClient, gates_on
 ) -> None:
-    world = await _seed_world()
+    world = await _seed_world(champion_profile=WITH_QUESTIONS)
     rec_id, rec_creds = await _seed_user(UserRole.recruiter)
     rec = await _login(api_client, rec_creds)
     verified = world["defs"]["verified"]
@@ -154,6 +160,63 @@ async def test_verified_needs_screening_sheet_and_candidate_rate(
             expected_rate_unit="hourly",
             expected_rate_currency="PLN",
         )
+        assert ok.status_code == 200, ok.text
+    finally:
+        await _cleanup(world, [rec_id])
+
+
+@pytest.mark.asyncio
+async def test_job_without_questions_needs_the_assessment_not_the_sheet(
+    api_client: AsyncClient, gates_on
+) -> None:
+    """Zgłoszenie 12.10.2026: rekrutacja z Traffita bez Profilu Championa nie ma
+    pytań, więc arkusza nie da się zapisać — bramka zatrzymywała tam każdego
+    i kazała uzupełnić arkusz. Zapisem rozmowy jest „Dlaczego ten kandydat”."""
+    from app.models.recommendation_card import RecommendationCard
+
+    world = await _seed_world()
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    rec = await _login(api_client, rec_creds)
+    verified = world["defs"]["verified"]
+    rate = {
+        "expected_rate_value": "140",
+        "expected_rate_unit": "hourly",
+        "expected_rate_currency": "PLN",
+    }
+    try:
+        await seed_entry_row(world["candidate_id"], world["job_id"])
+
+        bare = await _post_move(api_client, rec, world, stage_def_id=verified)
+        assert bare.status_code == 409, bare.text
+        detail = bare.json()["detail"]
+        assert detail["code"] == "VERIFIED_REQUIREMENTS_MISSING"
+        assert detail["missing"] == ["why_candidate", "candidate_rate"]
+        assert "Dlaczego ten kandydat" in detail["message"]
+        assert "nie ma pytań screeningowych" in detail["message"]
+        assert "arkusz screeningu" not in detail["message"]
+
+        rate_only = await _post_move(
+            api_client, rec, world, stage_def_id=verified, **rate
+        )
+        assert rate_only.status_code == 409, rate_only.text
+        assert rate_only.json()["detail"]["missing"] == ["why_candidate"]
+
+        async with AsyncSessionLocal() as db:
+            db.add(
+                RecommendationCard(
+                    candidate_id=world["candidate_id"],
+                    job_id=world["job_id"],
+                    fields_manual={
+                        "recommendation": {
+                            "raw": "Pięć lat w raportowaniu podatkowym, zna SQL.",
+                            "by": rec_id,
+                            "at": datetime.now(timezone.utc).isoformat(),
+                        }
+                    },
+                )
+            )
+            await db.commit()
+        ok = await _post_move(api_client, rec, world, stage_def_id=verified, **rate)
         assert ok.status_code == 200, ok.text
     finally:
         await _cleanup(world, [rec_id])
@@ -218,7 +281,7 @@ async def test_from_closed_the_gate_counts_the_column_before_closing(
 ) -> None:
     """Odrzucony z „Nowych” nie wraca od razu na „Zweryfikowany” bez arkusza."""
 
-    world = await _seed_world()
+    world = await _seed_world(champion_profile=WITH_QUESTIONS)
     rec_id, rec_creds = await _seed_user(UserRole.recruiter)
     rec = await _login(api_client, rec_creds)
     try:

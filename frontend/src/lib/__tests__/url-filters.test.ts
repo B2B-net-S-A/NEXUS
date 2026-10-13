@@ -193,6 +193,12 @@ describe("url-filters", () => {
     expect(decoded.availability).toEqual(["actively_looking"]);
   });
 
+  it("employment=ending_soon przechodzi przez adres, nieznana wartość odpada", () => {
+    const decoded = decodeFilters(sp("employment=ending_soon,nieznane"));
+    expect(decoded.employment).toEqual(["ending_soon"]);
+    expect(encodeFilters(decoded).get("employment")).toBe("ending_soon");
+  });
+
   it("status filters out unknown values (forward-compat)", () => {
     const decoded = decodeFilters(sp("status=active,bogus,blacklisted"));
     expect(decoded.status).toEqual(["active", "blacklisted"]);

@@ -210,6 +210,7 @@ Formularz i widok screeningu, karta rekomendacji, rodzaje notatek, wzmianki, „
 - `notatki-przypiecie-odpowiedzi-automaty-bez-notatek.md` — Notatki: przypięcie, odpowiedzi, automaty bez notatek (0399, 29.09.2026)
 - `podsumowanie-aktywnosci-kandydata-ai.md` — Podsumowanie aktywności kandydata (AI)
 - `pole-notatki-rosnie-duze-okno-szkic.md` — Pole notatki: rośnie z tekstem, duże okno pisania, szkic (12.10.2026) · trzy stany pola na dole panelu osoby, klawisze (Enter w dużym oknie = nowa linia), szkic w sessionStorage i jego czyszczenie, lista „@” przy linii kursora, czaty bez rośnięcia
+- `rekrutacja-bez-pytan-i-pomin-brakujace.md` — Rekrutacja bez pytań screeningowych i „Pomiń brakujące” poza przepięciem (12.10.2026) · bramka „Zweryfikowany” w rekrutacji bez Profilu Championa (wystarcza „Dlaczego ten kandydat”), kto może pominąć pytania bez odpowiedzi: przepięcie, wcześniejszy screening, osoba zatrudniona przez nas
 - `rodzaj-notatki-co-czyta-ai-wyszukiwanie-i-rekruter.md` — Rodzaj notatki — co czyta AI, wyszukiwanie i rekruter (0412, 03.10.2026)
 - `screening-wybor-gotowego-cv-z-profilu-i-edycja.md` — Screening: wybór gotowego CV z profilu i edycja (09.10.2026)
 - `stawka-od-i-historia-stawek-kandydata.md` — „Stawka od” i historia stawek kandydata (0414, 04.10.2026)
@@ -234,6 +235,7 @@ Lista i profil kandydata, słowa kluczowe, kolejność „Dopasowanie”, Talent
 - `ta-sama-osoba-ten-sam-e-mail.md` — Ta sama osoba = ten sam e-mail; nowe CV czytane od razu (12.10.2026) · reguła duplikatów kandydata w oknach, /from-cv, poczcie M365 i imporcie; LinkedIn tylko z adresu profilu; główne CV = odczyt AI; blokady ręcznych poprawek
 - `talent-radar-wklejasz-request-ranking-bazy-bez.md` — Talent Radar (wklejasz request → ranking bazy, bez zakładania rekrutacji)
 - `wyszukiwanie-reczne-podpowiedzi-przycisk-szukaj.md` — Wyszukiwanie ręczne: podpowiedzi, przycisk „Szukaj”, pamięć (25.09.2026)
+- `znacznik-pracuje-u-nas.md` — Znacznik „Pracuje u nas” — jedna reguła na każdym ekranie (12.10.2026) · znacznik zatrudnienia przy osobie (pracuje / kończy / zaczyna u nas), koniec zamówienia i Delivery Lead, okna dodawania do rekrutacji, Tablica, „Potwierdź zatrudnienie”, dzwonek do Delivery Leada obecnego klienta
 
 ### Generator CV i automaty — `docs/claude/generator-cv/`
 
