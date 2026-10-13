@@ -1,15 +1,21 @@
 "use client";
 
 /**
- * Oś czasu kandydata (zakładka „Notatki i historia” → „Wszystko”). Wydzielone z
- * `CandidateDetailV2.tsx`.
+ * Oś czasu kandydata (zakładka „Notatki” → przełącznik „Zmiany etapów
+ * i automaty”). Wydzielone z `CandidateDetailV2.tsx`.
+ *
+ * 13.10.2026 (E4): kolejne pobrania plików z jednego dnia (każdy podgląd PDF
+ * zapisuje „Pobrano plik”) zwijają się do jednej linii „Pobrano pliki · N”
+ * z rozwinięciem — wcześniej potrafiły zająć cały ekran osi.
  */
 
 import * as React from "react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   ArrowRight,
   Calendar,
+  ChevronDown,
+  Download,
   FileText,
   Mail,
   MessageSquare,
@@ -385,6 +391,87 @@ function TimelineCard({ item, fromStage }: { item: any; fromStage?: string }) {
   );
 }
 
+/** Wpisy pobrania pliku (audyt `candidate_audit`), które zwijamy w jedną linię. */
+const DOWNLOAD_ACTIONS: ReadonlySet<string> = new Set([
+  "document_downloaded",
+  "cv_downloaded",
+  "bulk_cv_downloaded",
+]);
+
+function isDownloadItem(item: any): boolean {
+  return item?.type === "activity" && DOWNLOAD_ACTIONS.has(item.action);
+}
+
+export type TimelineRow =
+  | { kind: "item"; item: any }
+  | { kind: "downloads"; items: any[] };
+
+/**
+ * Wiersze jednego dnia osi: co najmniej dwa pobrania pod rząd to jeden
+ * wiersz `downloads`; pojedyncze pobranie zostaje zwykłą kartą.
+ */
+export function collapseDownloadRuns(items: readonly any[]): TimelineRow[] {
+  const rows: TimelineRow[] = [];
+  let run: any[] = [];
+  const flush = () => {
+    if (run.length >= 2) rows.push({ kind: "downloads", items: run });
+    else for (const item of run) rows.push({ kind: "item", item });
+    run = [];
+  };
+  for (const item of items) {
+    if (isDownloadItem(item)) {
+      run.push(item);
+      continue;
+    }
+    flush();
+    rows.push({ kind: "item", item });
+  }
+  flush();
+  return rows;
+}
+
+function TimelineDownloadRun({ items }: { items: any[] }) {
+  const [open, setOpen] = useState(false);
+  // Oś idzie od najnowszego, więc zakres godzin to ostatni–pierwszy wpis.
+  const first = timelineTime(items[items.length - 1]?.timestamp);
+  const last = timelineTime(items[0]?.timestamp);
+  const range = first && last && first !== last ? `${first}–${last}` : last || first;
+  return (
+    <div className="rounded-xl border border-border bg-card px-3.5 py-2 shadow-xs">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center gap-3 rounded-md text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+          <Download className="h-3.5 w-3.5" />
+        </span>
+        <span className="min-w-0 flex-1 text-sm font-medium text-foreground">
+          Pobrano pliki · {items.length}
+        </span>
+        {range ? (
+          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{range}</span>
+        ) : null}
+        <ChevronDown
+          className={cn(
+            "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+            open && "rotate-180",
+          )}
+          aria-hidden
+        />
+      </button>
+      {open ? (
+        <div className="mt-2 space-y-2">
+          {items.map((item: any, i: number) => (
+            <TimelineCard key={`${item.type}-${item.id}-${i}`} item={item} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function TimelineTab({ items }: { items: any[] }) {
   const { groups, fromMap } = useMemo(() => {
     const list = Array.isArray(items) ? items : [];
@@ -421,17 +508,24 @@ export function TimelineTab({ items }: { items: any[] }) {
             </h4>
             <div className="h-px flex-1 bg-border" />
           </div>
-          {group.items.map((item: any, i: number) => (
-            <TimelineCard
-              key={`${item.type}-${item.id}-${i}`}
-              item={item}
-              fromStage={
-                item.type === "stage_change" && item.id != null
-                  ? fromMap.get(item.id)
-                  : undefined
-              }
-            />
-          ))}
+          {collapseDownloadRuns(group.items).map((row, i: number) =>
+            row.kind === "downloads" ? (
+              <TimelineDownloadRun
+                key={`downloads-${row.items[0]?.id ?? i}-${i}`}
+                items={row.items}
+              />
+            ) : (
+              <TimelineCard
+                key={`${row.item.type}-${row.item.id}-${i}`}
+                item={row.item}
+                fromStage={
+                  row.item.type === "stage_change" && row.item.id != null
+                    ? fromMap.get(row.item.id)
+                    : undefined
+                }
+              />
+            ),
+          )}
         </section>
       ))}
     </div>

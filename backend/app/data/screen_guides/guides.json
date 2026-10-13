@@ -293,7 +293,7 @@
       }
     ],
     "pitfalls": [
-      "Filtr stawki porównuje „Stawkę od” — najniższą stawkę z ostatnich 18 miesięcy. Osoby bez stawki, lokalizacji albo stażu zostają na liście i są oznaczone — ukryjesz je w „Więcej filtrów”. Zielona linia „Pracuje u nas · klient · do daty” pod nazwiskiem znaczy trwającą umowę u nas (bursztynowa „Kończy u nas”, niebieska „Zaczyna u nas”): osobę da się dodać do rekrutacji, ale przed wysłaniem CV uzgodnij to z Delivery Leadem. W „Dostępność” wybierzesz „Pracuje u nas” albo „Kończy u nas w ciągu 60 dni”.",
+      "Filtr stawki porównuje „Stawkę od” — najniższą stawkę z ostatnich 18 miesięcy. Osoby bez stawki, lokalizacji albo stażu zostają na liście i są oznaczone — ukryjesz je w „Więcej filtrów”. Zielona linia „Pracuje u nas · klient · do daty” pod nazwiskiem znaczy trwającą umowę u nas (bursztynowa „Kończy u nas”, niebieska „Zaczyna u nas”): osobę da się dodać do rekrutacji, ale przed wysłaniem CV uzgodnij to z Delivery Leadem. Przed nią napis „Szuka aktywnie”, „Otwarty na oferty” albo „Nie szuka” to dostępność z profilu; brak napisu znaczy „nie ustalono”. W „Dostępność” wybierzesz „Pracuje u nas” albo „Kończy u nas w ciągu 60 dni”.",
       "Filtr „Kontakt z kandydatem” liczy rozmowy, maile i ustalone terminy — „nie odebrał” i wpisy automatu kontaktem nie są. Kolumna „Ostatnia rozmowa” (na laptopie włączysz ją w „Kolumny”) pokazuje datę i autora ostatniej rozmowy albo liczbę prób kontaktu. Historia kontaktów z Traffita ma datę importu (maj 2026), więc wcześniejszy okres nic nie znajdzie. W „Historia z nami” opcja „Nie brał udziału” bez wskazania rekrutacji znaczy: w żadnej; „Bez procesu w toku” pokazuje osoby, z którymi nikt teraz nie prowadzi procesu.",
       "Z wymaganiami lista układa osoby od najlepiej dopasowanych („Dopasowanie do wymagań”; „Najnowsi” wybierzesz w sortowaniu). Same nazwy technologii wpisane w górne pole stają się wymaganiami — „Szukaj … po znaczeniu” to cofa. Imię albo nazwisko w górnym polu pokazuje tylko osoby, które dokładnie tak się nazywają (bez polskich znaków też zadziała; „Nowak” nie pokaże „Nowakowskiego”). Podobne nazwiska pojawiają się tylko, gdy nikogo takiego nie ma — lista to mówi.",
       "Chipy „Mile widziane” (miasto, kategoria, wiersz słów) tylko podnoszą pasujące osoby wyżej, nikogo nie ukrywają; „Wymagaj” zamienia chip w filtr. Tak „Szukaj ręcznie” w rekrutacji ustawia jej miasto, kategorię i wiersze, które nie są technologiami."
@@ -342,26 +342,26 @@
     "title": "Profil kandydata",
     "section": "sourcing",
     "roles": ["recruiter", "delivery_lead"],
-    "what": "Po lewej karta osoby i „Podsumowanie” (dostępność, stawka, tryb pracy, miasto, języki, „W skrócie”). Po prawej zakładki: Przegląd, Rekrutacje, Odpowiedzi ze screeningu, Notatki i historia, CV i dokumenty.",
+    "what": "Na górze pasek osoby: imię, „Szuka aktywnie” albo „Pracuje u nas”, kontakt i akcje. Po lewej „Do propozycji”: stawka, dostępność, praca, języki. Zakładki: Przegląd, Rekrutacje, Screening, Notatki, CV, Dokumenty.",
     "tasks": [
       {
         "q": "Jak dodać kandydata do rekrutacji?",
-        "a": "Kliknij „Przypisz do rekrutacji” w karcie osoby po lewej i wybierz rekrutację. Osoba trafi do kolumny Nowi. Pod spodem są „Dodaj notatkę” i „Nie odebrał” — próba kontaktu jednym kliknięciem.",
+        "a": "Kliknij „Przypisz do rekrutacji” w pasku osoby na górze i wybierz rekrutację. Osoba trafi do kolumny Nowi. Obok są „Dodaj notatkę” i „Nie odebrał” — próba kontaktu jednym kliknięciem. Mail, rozmowę i zaproszenie na prep znajdziesz w menu „⋯”.",
         "anchor": "candidate.profile.assign"
       },
       {
         "q": "Jak poprawić stawkę albo dostępność?",
-        "a": "W karcie „Podsumowanie” kliknij „Edytuj” — przy faktach pojawią się ołówki (dostępność, stawka, tryb pracy, miasto, języki). Pod wartością widać, co ustalono w rozmowie. „Ustalenia z notatek” pod kartą pokazują fakty wyczytane z notatek — każdy zapisujesz sam.",
+        "a": "W karcie „Do propozycji” po lewej kliknij „Edytuj” — przy faktach pojawią się ołówki. Kropka przy wartości mówi, skąd ją wiemy. Linia „N rzeczy do sprawdzenia z rozmowy” pod kartą pokazuje, co notatki mówią inaczej niż profil — każdą rzecz zapisujesz sam.",
         "anchor": "candidate.profile.facts"
       },
       {
         "q": "Co kandydat już odpowiedział na screeningu?",
-        "a": "Zakładka „Odpowiedzi ze screeningu”: jedna rozmowa na rekrutację, najnowsza rozwinięta, z wyszukiwarką. Pod arkuszami są odpowiedzi odczytane z notatek rekruterów. Sprawdź je, zanim zapytasz o to samo.",
+        "a": "Zakładka „Screening”: jedna rozmowa na rekrutację, najnowsza rozwinięta, z wyszukiwarką. Pod arkuszami są odpowiedzi odczytane z notatek rekruterów. Sprawdź je, zanim zapytasz o to samo.",
         "anchor": "candidate.profile.screening_answers"
       },
       {
-        "q": "Gdzie są maile, notatki, CV i umowy?",
-        "a": "Notatki, maile, telefony i oś czasu są w „Notatki i historia”, CV, umiejętności, umowy i pliki w „CV i dokumenty”. Tagi, pule, konflikty, mail i scalanie profili są w menu „⋯” obok „Przypisz do rekrutacji”. Mail idzie z Twojej skrzynki Microsoft 365.",
+        "q": "Gdzie są notatki, CV, pliki i umowy?",
+        "a": "„Notatki”: rozmowy, próby kontaktu, Delivery Lead, maile i czat; przełącznik „Zmiany etapów i automaty” pokazuje oś czasu. „CV”: umiejętności, doświadczenie, wykształcenie. „Dokumenty”: umowy i pliki w grupach — CV kandydata, CV wysłane klientom, załączniki i formularze.",
         "anchor": "candidate.profile.tabs"
       },
       {
@@ -370,16 +370,16 @@
       }
     ],
     "pitfalls": [
-      "Stawka z notatek w innej jednostce niż zł/h jest pokazana z przeliczeniem (MD ÷ 8) — sprawdź ją przed zapisem. Ramka „Pracuje u nas” w karcie osoby pokazuje klienta, koniec zamówienia i Delivery Leada; „Zaczyna u nas” to podpisana umowa ze startem w przyszłości, „Kończy u nas” — zamówienie bez kontynuacji w ciągu 30 dni.",
+      "Stawka z notatek w innej jednostce niż zł/h jest pokazana z przeliczeniem (MD ÷ 8) — sprawdź ją przed zapisem. Ramka „Pracuje u nas” na górze „Do propozycji” pokazuje klienta, koniec zamówienia i Delivery Leada; „Zaczyna u nas” to podpisana umowa ze startem w przyszłości, „Kończy u nas” — zamówienie bez kontynuacji w ciągu 30 dni.",
       "Przy zmianie stawki okno pokazuje trwające procesy od „Zweryfikowany” — zaznaczone dostają wpis o zmianie stawki, a Delivery Lead i Head of Recruitment powiadomienie.",
-      "„Przegląd” mówi, co dzieje się teraz: zaległy telefon po ciszy klienta, procesy w toku (kto ma ruch i od ilu dni) i ostatnią rozmowę. Zakończone rekrutacje są w „Rekrutacje” jako tabela tylko do odczytu.",
-      "W „Notatkach i historii” filtry rodzajów bez notatek są schowane. Ważną notatkę przypnij pinezką: zobaczy ją cały zespół, także w karcie kandydata w rekrutacji."
+      "„Przegląd” pokazuje, co jest do zrobienia po naszej stronie: zaległy telefon po ciszy klienta i procesy, w których ruch ma rekruter albo Delivery. Wszystkie procesy są w „Rekrutacje”: w toku jako tabela (klik w wiersz rozwija stawki, CV i ocenę dopasowania), zakończone pod spodem. „Pasujące rekrutacje” liczą się dopiero po „Pokaż”.",
+      "W „Notatkach” widać 10 najnowszych, starsze są pod „Pokaż starsze”. Ważną notatkę przypnij pinezką — zobaczy ją cały zespół, także w karcie kandydata w rekrutacji. Imię i nazwisko zapisuj bez dopisków w nawiasie: „Szuka aktywnie” ustawisz w Dostępności, czarną listę w Statusie, a zatrudnienie widać samo z umowy."
     ],
     "anchors": [
       {
         "id": "candidate.profile.assign",
         "label": "Przypisz do rekrutacji",
-        "describe": "Dodanie kandydata do rekrutacji."
+        "describe": "Dodanie kandydata do rekrutacji z paska osoby."
       },
       {
         "id": "candidate.profile.note",
@@ -388,23 +388,23 @@
       },
       {
         "id": "candidate.profile.facts",
-        "label": "Podsumowanie",
-        "describe": "Karta faktów po lewej: dostępność, stawka, tryb pracy, miasto, języki, narodowość i „W skrócie”."
+        "label": "Do propozycji",
+        "describe": "Karta faktów po lewej: stawka, dostępność, praca (tryb i miasto), języki, narodowość — z kropką źródła przy wartości."
       },
       {
         "id": "candidate.profile.notes_facts",
-        "label": "Ustalenia z notatek",
-        "describe": "Fakty wyciągnięte z notatek do zatwierdzenia."
+        "label": "Do sprawdzenia z rozmowy",
+        "describe": "Linia pod kartą „Do propozycji”: ustalenia z notatek, które różnią się od profilu."
       },
       {
         "id": "candidate.profile.screening_answers",
-        "label": "Odpowiedzi ze screeningu",
+        "label": "Screening",
         "describe": "Pytania i odpowiedzi kandydata z każdej rekrutacji."
       },
       {
         "id": "candidate.profile.tabs",
         "label": "Zakładki profilu",
-        "describe": "Przegląd, Rekrutacje, Odpowiedzi ze screeningu, Notatki i historia, CV i dokumenty."
+        "describe": "Przegląd, Rekrutacje, Screening, Notatki, CV, Dokumenty."
       }
     ],
     "help_slug": null,

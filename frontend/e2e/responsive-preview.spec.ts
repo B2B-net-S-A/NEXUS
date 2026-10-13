@@ -29,7 +29,9 @@ const PAGES = [
   "/preview/candidate-profile?tab=screening",
   "/preview/candidate-profile?employed=1",
   "/preview/candidate-profile?tab=activity",
+  "/preview/candidate-profile?tab=cv",
   "/preview/candidate-profile?tab=documents",
+  "/preview/candidate-profile?tab=documents&role=recruiter",
   "/preview/career-share",
   "/preview/champion-profile",
   "/preview/chat-notifications",
@@ -208,8 +210,12 @@ const PRIMARY_CONTENT = [
   // Kandydaci: pierwszy wiersz listy (0,59 — panel słów kluczowych jest duży z założenia).
   { path: "/preview/candidates-list", selector: "[data-testid^='candidate-row-']", maxTop: 0.65, shell: false },
   // Profil (04.10.2026): karta osoby i „Podsumowanie” po lewej, zakładki po
-  // prawej, od góry (0,18 przy 1280 × 720; do 04.10.2026 0,76).
-  { path: "/preview/candidate-profile", selector: "[role='tablist']", maxTop: 0.3, shell: false },
+  // prawej, od góry (0,18 przy 1280 × 720; do 04.10.2026 0,76). Od 13.10.2026
+  // (E1) nad zakładkami stoi pasek osoby: imię, pigułki, kontakt i akcje
+  // w trzech rzędach (ok. 170 px), więc zakładki schodzą o tyle niżej.
+  // Próg z zapasem na łamanie pigułek na runnerze CI; pomiaru lokalnego
+  // brak (za mało miejsca na dysku na `next dev`).
+  { path: "/preview/candidate-profile", selector: "[role='tablist']", maxTop: 0.5, shell: false },
   // Zamówienia klienta (wersja B): pierwszy kafelek zamówienia. Od #1959 każde
   // zamówienie MD i kosztowe jest osobnym kafelkiem z numerem i okresem w
   // nagłówku — to on jest pierwszą treścią listy, a `tbody tr` (pierwsza osoba)
@@ -764,14 +770,16 @@ test.describe("górny pasek — licznik celów", () => {
  */
 test.describe("zakładka zapisana w adresie nie przewija strony", () => {
   test("/preview/candidate-profile: po zmianie zakładki profil zostaje w miejscu", async ({ page }) => {
-    // Niskie okno: lewa kolumna profilu jest wtedy wyższa od okna przy każdej
-    // zakładce, więc krótsza treść zakładki nie cofnie przewinięcia sama.
+    // Niskie okno i dwie wysokie zakładki (CV z pięcioma stanowiskami,
+    // Notatki z czternastoma wpisami): obie są wyższe od okna, więc krótsza
+    // treść nie cofnie przewinięcia sama. Do 13.10.2026 tę rolę grała lewa
+    // kolumna profilu — po E1 jest krótka („Do propozycji”).
     await page.setViewportSize({ width: 1280, height: 600 });
-    await page.goto("/preview/candidate-profile?tab=documents");
+    await page.goto("/preview/candidate-profile?tab=cv");
     const tabs = page.getByRole("tablist", { name: "Sekcje profilu kandydata" });
-    const documents = tabs.getByRole("tab", { name: /CV i dokumenty/ });
-    const recruitments = tabs.getByRole("tab", { name: /Rekrutacje/ });
-    await expect(documents).toHaveAttribute("aria-selected", "true");
+    const cv = tabs.getByRole("tab", { name: /^CV/ });
+    const notes = tabs.getByRole("tab", { name: /^Notatki/ });
+    await expect(cv).toHaveAttribute("aria-selected", "true");
     await expect
       .poll(() => page.evaluate(() => document.documentElement.scrollHeight))
       .toBeGreaterThan(700);
@@ -781,8 +789,8 @@ test.describe("zakładka zapisana w adresie nie przewija strony", () => {
     expect(await page.evaluate(() => window.scrollY), "profil daje się przewinąć").toBe(60);
 
     for (const [tab, address] of [
-      [recruitments, /tab=recruitments/],
-      [documents, /tab=documents/],
+      [notes, /tab=activity/],
+      [cv, /tab=cv/],
     ] as const) {
       await tab.click();
       await expect(tab).toHaveAttribute("aria-selected", "true");

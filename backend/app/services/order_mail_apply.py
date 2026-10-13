@@ -29,6 +29,7 @@ from app.models.activity import Activity
 from app.models.order_mail import OrderMailDocument
 from app.services import storage_service
 from app.services.advanced_candidate_search import fold_polish
+from app.services.candidate_name_rules import without_name_markers
 from app.services.contract_lifecycle import (
     lock_contract_then_orders,
     sync_contract_to_live_order,
@@ -202,7 +203,10 @@ async def _new_person_contract(db, doc, rp, actor_user_id=None):
         candidate = matches[0]
     else:
         given, surname = _split_person_name(tokens)
-        candidate = Candidate(name=given, lastname=surname)
+        # Dopisek z wiersza zamówienia nie trafia do imienia (D6, 13.10.2026).
+        candidate = Candidate(
+            name=without_name_markers(given), lastname=without_name_markers(surname)
+        )
         db.add(candidate)
         await db.flush()
         from app.services.index_outbox_service import CANDIDATE, record_bulk_reindex

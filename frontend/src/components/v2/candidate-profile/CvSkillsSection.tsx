@@ -1,10 +1,16 @@
 "use client";
 
 /**
- * „CV i umiejętności” — góra zakładki „CV i dokumenty” (od 04.10.2026;
- * wcześniej środek zakładki „Profil”): wiersz CV (podgląd, generator CV,
- * ponowny odczyt), umiejętności, doświadczenie i zwinięte „Wykształcenie,
- * certyfikaty i szczegóły”.
+ * Zakładka „CV” profilu kandydata (od 13.10.2026, E5; od 04.10.2026 góra
+ * zakładki „CV i dokumenty”, wcześniej środek „Profilu”): wiersz CV
+ * (podgląd, „Generuj CV”, ponowny odczyt), umiejętności, doświadczenie jako
+ * oś „daty · stanowisko · firma” z opisem po rozwinięciu i zwinięte
+ * „Wykształcenie, certyfikaty i szczegóły”. „Generuj CV” stoi tylko tutaj
+ * i w karcie rekrutacji.
+ *
+ * D3 (13.10.2026): bez „Zaangażowania” (flagi ambasadora i „otwarty na…”,
+ * link samodeklaracji — 1 osoba, ostatnio 27.04.2026) i bez synchronizacji
+ * LinkedIn (0 zsynchronizowanych profili, klucz dostawcy pusty → 503).
  */
 
 import { useMemo, useState } from "react";
@@ -13,6 +19,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   FileText,
   GraduationCap,
@@ -25,12 +32,10 @@ import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ExpandableText } from "@/components/v2/ExpandableText";
-import { LinkedinSyncPanel } from "@/components/v2/LinkedinSyncPanel";
 import {
   CvRichProfileSections,
   CvTechnologyChips,
 } from "@/components/candidates/CvRichProfileSections";
-import { CandidateEngagementPanel } from "@/components/candidates/CandidateEngagementPanel";
 import { CandidateSourcesPanel } from "@/components/candidates/CandidateSourcesPanel";
 import { CvReparseAction } from "@/components/candidates/CvReparseAction";
 import {
@@ -71,7 +76,7 @@ export function CvSkillsSection({
   readOnly: boolean;
   /** Otwiera okno generatora CV. Brak = brak prawa zapisu. */
   onGenerateCv?: () => void;
-  /** Profil bez CV: przewiń do listy plików poniżej. */
+  /** Profil bez CV: przejście do plików (zakładka „Dokumenty”). */
   onOpenFiles: () => void;
 }) {
   return (
@@ -301,9 +306,26 @@ function SkillsSection({ candidate }: { candidate: any }) {
   );
 }
 
+/** Tyle stanowisk widać od razu; reszta pod „+ N wcześniejsze”. */
+const EXPERIENCE_PREVIEW = 4;
+
+/** „03.2021 – obecnie”, „do 12.2019” albo pusto. */
+function experienceDates(start: unknown, end: unknown): string {
+  const from = formatExperienceDate(start);
+  const to = formatExperienceDate(end);
+  if (from) return `${from} – ${to || "obecnie"}`;
+  return to ? `do ${to}` : "";
+}
+
+/**
+ * Doświadczenie jako oś: jeden wiersz „daty · stanowisko · firma” na
+ * stanowisko, opis, klient, forma i technologie po rozwinięciu „opis”.
+ * Pierwsze 4 stanowiska, reszta pod „+ N wcześniejsze”.
+ */
 function ExperienceSection({ candidate }: { candidate: any }) {
+  const [showAll, setShowAll] = useState(false);
   // Backfill (maj 2026) wstawia pusty placeholder na experience[0] dla
-  // kandydatów z Traffita — bez pustej karty.
+  // kandydatów z Traffita — bez pustego wiersza.
   const experience: any[] = (
     Array.isArray(candidate.experience) ? candidate.experience : []
   ).filter((e: any) => {
@@ -316,6 +338,8 @@ function ExperienceSection({ candidate }: { candidate: any }) {
   if (experience.length === 0) return null;
   const aiSource: string = candidate.cv_extracted_data?._source ?? "";
   const aiBadge = aiSource.startsWith("claude") || aiSource.startsWith("ollama");
+  const hidden = experience.length - EXPERIENCE_PREVIEW;
+  const visible = showAll || hidden <= 0 ? experience : experience.slice(0, EXPERIENCE_PREVIEW);
 
   return (
     <section aria-labelledby="candidate-experience-heading">
@@ -331,50 +355,94 @@ function ExperienceSection({ candidate }: { candidate: any }) {
       >
         Doświadczenie
       </SectionHeading>
-      <div className="space-y-3">
-        {experience.map((exp: any, i: number) => {
-          const role = exp.role ?? exp.title ?? "";
-          const company = exp.company ?? "";
-          const start = exp.start ?? exp.start_date ?? "";
-          const end = exp.end ?? exp.end_date ?? "";
-          const desc = exp.desc ?? exp.description ?? "";
-          const expLoc = exp.location ?? "";
-          const details = getExperienceDetails(exp);
-          return (
-            <div key={i} className="rounded-lg border border-border bg-background/40 p-3">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className="min-w-0">
-                  {role ? <div className="font-medium text-foreground">{role}</div> : null}
-                  <div className="text-xs text-muted-foreground">
-                    {company}
-                    {details.client ? ` (dla: ${details.client})` : ""}
-                    {expLoc ? ` · ${expLoc}` : ""}
-                    {details.employmentType ? ` · ${details.employmentType}` : ""}
-                  </div>
-                </div>
-                {start || end ? (
-                  <div className="whitespace-nowrap text-xs text-muted-foreground">
-                    {formatExperienceDate(start)} —{" "}
-                    {formatExperienceDate(end) || "obecnie"}
-                  </div>
-                ) : null}
-              </div>
-              {desc ? <ExpandableText text={desc} maxLines={2} className="mt-2" /> : null}
-              <CvTechnologyChips items={details.technologies} />
-            </div>
-          );
-        })}
-      </div>
+      <ol className="ml-1.5 space-y-3 border-l border-border pl-4">
+        {visible.map((exp: any, i: number) => (
+          <ExperienceRow key={i} exp={exp} />
+        ))}
+      </ol>
+      {hidden > 0 ? (
+        <button
+          type="button"
+          aria-expanded={showAll}
+          onClick={() => setShowAll((value) => !value)}
+          className="mt-2 inline-flex min-h-9 items-center text-xs font-medium text-primary hover:underline"
+        >
+          {showAll ? "Pokaż mniej" : `+ ${hidden} wcześniejsze`}
+        </button>
+      ) : null}
     </section>
+  );
+}
+
+function ExperienceRow({ exp }: { exp: any }) {
+  const [open, setOpen] = useState(false);
+  const role: string = exp.role ?? exp.title ?? "";
+  const company: string = exp.company ?? "";
+  const desc: string = exp.desc ?? exp.description ?? "";
+  const location: string = exp.location ?? "";
+  const details = getExperienceDetails(exp);
+  const dates = experienceDates(exp.start ?? exp.start_date, exp.end ?? exp.end_date);
+  const meta = [
+    details.client ? `dla: ${details.client}` : null,
+    location || null,
+    details.employmentType,
+  ].filter(Boolean);
+  const hasMore = Boolean(desc) || meta.length > 0 || details.technologies.length > 0;
+
+  return (
+    <li className="relative" data-testid="candidate-experience-row">
+      <span
+        aria-hidden="true"
+        className="absolute -left-[21.5px] top-1.5 size-2.5 rounded-full border-2 border-card bg-muted-foreground/60"
+      />
+      <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-sm">
+        {dates ? (
+          <span className="whitespace-nowrap text-xs tabular-nums text-muted-foreground">
+            {dates}
+          </span>
+        ) : null}
+        {dates && (role || company) ? (
+          <span aria-hidden="true" className="text-muted-foreground">·</span>
+        ) : null}
+        {role ? <span className="font-medium text-foreground">{role}</span> : null}
+        {role && company ? (
+          <span aria-hidden="true" className="text-muted-foreground">·</span>
+        ) : null}
+        {company ? <span className="text-muted-foreground">{company}</span> : null}
+      </div>
+      {hasMore ? (
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+          className="mt-0.5 inline-flex min-h-7 items-center gap-1 text-xs text-muted-foreground hover:text-primary"
+        >
+          <ChevronRight
+            aria-hidden="true"
+            className={cn("size-3 transition-transform", open && "rotate-90")}
+          />
+          opis
+        </button>
+      ) : null}
+      {open ? (
+        <div className="mt-1 space-y-2">
+          {meta.length > 0 ? (
+            <p className="text-xs text-muted-foreground">{meta.join(" · ")}</p>
+          ) : null}
+          {desc ? <ExpandableText text={desc} maxLines={6} /> : null}
+          <CvTechnologyChips items={details.technologies} />
+        </div>
+      ) : null}
+    </li>
   );
 }
 
 /**
  * Zwinięte „Wykształcenie, certyfikaty i szczegóły”: edukacja, pełny profil
  * z odczytu CV v7, „O sobie”, źródło zaproszenia, a dla osób z prawem zapisu
- * zaangażowanie, źródła i synchronizacja LinkedIn. Lokalizacja szczegółowa
- * (region, hub) jest od 04.10.2026 w edycji „Miasta” w „Podsumowaniu”, a dane
- * do umowy (JDG) — nad umowami.
+ * źródła kandydata. Lokalizacja szczegółowa (region, hub) jest od 04.10.2026
+ * w edycji „Miasta” w karcie faktów, a dane do umowy (JDG) — w zakładce
+ * „Dokumenty”.
  */
 function DetailsSection({
   candidate,
@@ -386,33 +454,6 @@ function DetailsSection({
   const [open, setOpen] = useState(false);
   const education = getEducationList(candidate);
   const richCvProfile = getRichCvProfile(candidate);
-
-  // Stabilne referencje — nowy literał w każdym renderze resetował wpisywany
-  // tekst (panele synchronizują się z `initial`).
-  const engagementInitial = useMemo(
-    () => ({
-      is_ambassador: candidate.is_ambassador,
-      wants_to_verify_candidates: candidate.wants_to_verify_candidates,
-      open_to_side_projects: candidate.open_to_side_projects,
-      open_to_sales_support: candidate.open_to_sales_support,
-      open_to_expert_consult: candidate.open_to_expert_consult,
-      open_to_side_projects_updated_at: candidate.open_to_side_projects_updated_at,
-      open_to_sales_support_updated_at: candidate.open_to_sales_support_updated_at,
-      open_to_expert_consult_updated_at: candidate.open_to_expert_consult_updated_at,
-      engagement_notes: candidate.engagement_notes,
-    }),
-    [
-      candidate.is_ambassador,
-      candidate.wants_to_verify_candidates,
-      candidate.open_to_side_projects,
-      candidate.open_to_sales_support,
-      candidate.open_to_expert_consult,
-      candidate.open_to_side_projects_updated_at,
-      candidate.open_to_sales_support_updated_at,
-      candidate.open_to_expert_consult_updated_at,
-      candidate.engagement_notes,
-    ],
-  );
 
   const invite = candidate.invite_source;
   const hasContent =
@@ -487,12 +528,8 @@ function DetailsSection({
           ) : null}
 
           {!readOnly ? (
-            <div className="space-y-4">
-              <CandidateEngagementPanel candidateId={candidate.id} initial={engagementInitial} />
-              <div className="rounded-xl border border-border bg-card p-4">
-                <CandidateSourcesPanel candidateId={candidate.id} />
-              </div>
-              <LinkedinSyncPanel candidate={candidate} />
+            <div className="rounded-xl border border-border bg-card p-4">
+              <CandidateSourcesPanel candidateId={candidate.id} />
             </div>
           ) : null}
         </div>

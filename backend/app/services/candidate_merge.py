@@ -52,6 +52,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
 from app.models.candidate import Candidate
+from app.services.candidate_name_rules import without_name_markers
 
 logger = logging.getLogger(__name__)
 
@@ -1334,6 +1335,10 @@ async def execute_merge(
     if dup_external is not None and _external(survivor) is None:
         survivor.external_source, survivor.external_id = dup_external
 
+    # Imię przejęte z duplikatu nie przenosi dopisku (D6, 13.10.2026).
+    for identity_field in ("name", "lastname"):
+        if isinstance(updates.get(identity_field), str):
+            updates[identity_field] = without_name_markers(updates[identity_field])
     if updates:
         from app.services.candidate_identity_ownership import (
             lock_changed_traffit_identity_fields,

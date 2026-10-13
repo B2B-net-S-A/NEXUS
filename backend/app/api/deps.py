@@ -617,7 +617,9 @@ DeliveryLeadPlus = Annotated[
 # uprawnienie „Moduł Finanse" (domyślnie admin i Finanse). Decyzja Artura
 # 24.09.2026: Head of Recruitment zajmuje się rekrutacją i NIE widzi pieniędzy
 # (marża, przychód, kwoty per klient) — do tego dnia wchodził tu razem
-# z Finansami.
+# z Finansami. Ta decyzja dotyczy WYŁĄCZNIE widoku „Firma” w Insights: stawkę
+# do klienta w kartach rekrutacji (profil kandydata → Rekrutacje, Tablica) HoR
+# widzi dalej (`CLIENT_RATE_VIEW_ROLES`, decyzja Artura 13.10.2026).
 BoardReader = FinanceModuleUser
 
 

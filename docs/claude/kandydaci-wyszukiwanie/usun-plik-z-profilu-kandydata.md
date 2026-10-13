@@ -7,7 +7,7 @@ nieaktualne”.
 
 ## Reguła (decyzja Artura)
 
-- Zakładka „CV i dokumenty” → Pliki → „⋯” wiersza → **„Usuń z profilu”**.
+- Zakładka „Dokumenty” (do 13.10.2026 „CV i dokumenty”) → Pliki → „⋯” wiersza → **„Usuń z profilu”**.
   Widzą ją i mogą użyć wyłącznie **admin i Head of Recruitment**
   (`CandidateDocumentRemoveAccess` w `api/candidate_access.py`, na froncie
   capability `candidate.document.remove`). Rekruter, Delivery Lead, TCM

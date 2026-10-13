@@ -324,7 +324,6 @@ export default function ScheduleInterviewModal({
       }),
     onSuccess: (res) => {
       setClientRequestId(newClientRequestId());
-      queryClient.invalidateQueries({ queryKey: ["candidate-calls", candidateId] });
       queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
       queryClient.invalidateQueries({ queryKey: ["calendar-upcoming"] });
       queryClient.invalidateQueries({ queryKey: ["calendar-conflicts-summary"] });

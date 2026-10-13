@@ -1,17 +1,22 @@
 "use client";
 
-// Zakładka „Pliki" profilu kandydata — lista załączników + upload nowych.
+// Sekcja „Pliki” zakładki „Dokumenty” profilu kandydata — lista plików
+// i upload nowych.
 // 04.10.2026: klik w nazwę otwiera podgląd, reszta akcji (pobierz, rodzaj,
-// główne CV, nieaktualne) w menu „⋯” wiersza; CV dla klientów (pliki
-// „…B2B…” i CV z generatora) stoją osobno, zwinięte (decyzja D4).
+// główne CV, nieaktualne) w menu „⋯” wiersza.
 // 13.10.2026: „Usuń z profilu” w tym samym menu — admin i Head of Recruitment.
+// 13.10.2026 (E5): pliki w trzech grupach — „CV kandydata”, „CV wysłane
+// klientom” (pliki „…B2B…”, pliki z kodem rekrutacji osoby i CV
+// z generatora), „Załączniki i formularze” (`groupCandidateFiles`).
+// Formularz dodawania rozwija „Dodaj plik” w nagłówku; profil bez plików
+// pokazuje go od razu.
 // Wydzielona z `CandidateDetailV2.tsx` (plik ~4,7 tys. linii) przy dodawaniu
 // write-pathu, żeby dało się ją renderować i testować w izolacji.
 
 import * as React from "react";
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, Loader2, MoreHorizontal, Upload } from "lucide-react";
+import { Loader2, MoreHorizontal, Upload } from "lucide-react";
 
 import api, { extractErrorMsg } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -19,6 +24,7 @@ import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
 import { useCapability } from "@/hooks/useCapability";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
+import { SectionHeading } from "@/components/v2/candidate-profile/profile-shared";
 import {
   FilePreviewModal,
   previewKind,
@@ -32,8 +38,8 @@ import { OrderDocumentsSection } from "@/components/OrderDocumentsSection";
 import {
   fileAddedLabel,
   formatFileDate,
+  groupCandidateFiles,
   sortCandidateFiles,
-  splitClientCvFiles,
 } from "@/lib/candidate-files";
 import type { GeneratedCvItem } from "@/lib/api";
 import { downloadGeneratedCv } from "@/components/v2/cv-generator/cv-generated-files";
@@ -50,9 +56,18 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
-import { cn } from "@/lib/utils";
 
-export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
+/** Grupa z większą liczbą plików pokazuje tyle wierszy + „Pokaż wszystkie”. */
+const GROUP_PREVIEW = 3;
+
+export function CandidateFilesTab({
+ candidateId,
+ recruitmentCodes = [],
+}: {
+ candidateId: number;
+ /** Kody rekrutacji osoby (`recruitmentCodes()` z `lib/candidate-files`) — plik z kodem w nazwie to CV wysłane klientowi. */
+ recruitmentCodes?: readonly string[];
+}) {
  const { showError, showToast } = useToast();
  const queryClient = useQueryClient();
  // POST /api/candidates/{id}/documents + PATCH .../documents/{doc_id} stoją na
@@ -73,6 +88,8 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  // tylko leżał na liście. Odznaczone = sam plik, np. wersja angielska obok
  // polskiej.
  const [cvAsPrimary, setCvAsPrimary] = useState(true);
+ // `null` = domyślnie: formularz otwarty tylko na profilu bez plików.
+ const [uploaderToggle, setUploaderToggle] = useState<boolean | null>(null);
  const fileInputRef = useRef<HTMLInputElement>(null);
  const { data: documents, isLoading, error } = useQuery<CandidateDocument[]>({
  queryKey: candidateQueryKeys.documents(candidateId),
@@ -163,6 +180,9 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  }
  },
  onSuccess: ({ count, madePrimary }: { count: number; madePrimary: boolean }) => {
+ // Po udanym dodaniu formularz wraca do stanu domyślnego (zwinięty, gdy
+ // lista ma już pliki).
+ setUploaderToggle(null);
  const added = count === 1 ? "Plik dodany." : `Dodano pliki: ${count}.`;
  showToast(
  madePrimary
@@ -252,11 +272,38 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  // Główne CV pierwsze, potem najnowsze — także zaraz po zmianie, zanim
  // lista wróci z serwera.
  const docs = sortCandidateFiles(documents ?? []);
+ // Pusty profil to dokładnie ten moment, w którym trzeba dodać pierwszy plik —
+ // tam formularz stoi od razu. Przycisk w nagłówku działa w każdym stanie
+ // listy (ładowanie, błąd, pusto).
+ const uploaderOpen = uploaderToggle ?? (documents !== undefined && documents.length === 0);
 
- // Uploader renderuje się w każdym stanie listy (ładowanie, błąd, pusto) —
- // pusty profil to dokładnie ten moment, w którym trzeba dodać pierwszy plik.
- const uploader = canEditDocuments ? (
- <div className="flex flex-wrap items-center gap-3 rounded-lg border border-dashed border-border bg-background/30 p-3">
+ const header = (
+ <SectionHeading
+ id="candidate-files-heading"
+ action={
+ canEditDocuments ? (
+ <Button
+ size="sm"
+ variant="outline"
+ aria-expanded={uploaderOpen}
+ aria-controls="candidate-files-uploader"
+ onClick={() => setUploaderToggle(!uploaderOpen)}
+ >
+ <Upload className="size-3.5" />
+ Dodaj plik
+ </Button>
+ ) : null
+ }
+ >
+ Pliki
+ </SectionHeading>
+ );
+
+ const uploader = canEditDocuments && uploaderOpen ? (
+ <div
+ id="candidate-files-uploader"
+ className="flex flex-wrap items-center gap-3 rounded-lg border border-dashed border-border bg-background/30 p-3"
+ >
  <label
  htmlFor="candidate-document-kind"
  className="text-xs font-medium text-muted-foreground"
@@ -312,7 +359,7 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  ) : (
  <Upload className="h-3.5 w-3.5" />
  )}
- {uploadMutation.isPending ? "Wysyłanie…" : "Dodaj plik"}
+ {uploadMutation.isPending ? "Wysyłanie…" : "Wybierz pliki"}
  </button>
  <span className="text-xs text-muted-foreground">
  PDF, DOC(X), ODT, RTF, TXT, XLS(X), CSV, PPT(X), obrazy, ZIP
@@ -323,6 +370,7 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  if (isLoading) {
  return (
  <div className="space-y-3">
+ {header}
  {uploader}
  <div className="text-sm text-muted-foreground py-6 text-center">
  Ładowanie plików…
@@ -334,6 +382,7 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  if (error) {
  return (
  <div className="space-y-3">
+ {header}
  {uploader}
  <div className="text-sm text-[hsl(var(--accent-error))] py-6 text-center">
  Błąd ładowania plików.
@@ -345,6 +394,7 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  if (docs.length === 0) {
  return (
  <div className="space-y-3">
+ {header}
  {uploader}
  <div className="text-sm text-muted-foreground py-6 text-center">
  {canEditDocuments
@@ -357,7 +407,7 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  );
  }
 
- const { own: ownDocs, client: clientDocs } = splitClientCvFiles(docs);
+ const groups = groupCandidateFiles(docs, recruitmentCodes);
  const renderRow = (doc: CandidateDocument) => (
  <FileRow
  key={doc.id}
@@ -381,17 +431,24 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  return (
  <>
  <div className="space-y-3">
+ {header}
  {uploader}
- {ownDocs.length > 0 ? (
- <div className="divide-y divide-border rounded-lg border border-border">
- {ownDocs.map(renderRow)}
- </div>
- ) : (
- <p className="text-sm text-muted-foreground">
- Kandydat nie ma własnych plików — poniżej są tylko CV przygotowane dla klientów.
- </p>
- )}
- <ClientCvGroup candidateId={candidateId} files={clientDocs} renderRow={renderRow} />
+ {/* Główne CV zawsze tutaj — grupa bez skracania listy. */}
+ <FileGroup
+ id="candidate-files-own-heading"
+ title="CV kandydata"
+ rows={groups.own.map(renderRow)}
+ empty="Brak CV od kandydata."
+ />
+ <ClientCvGroup candidateId={candidateId} files={groups.client} renderRow={renderRow} />
+ {groups.attachments.length > 0 ? (
+ <FileGroup
+ id="candidate-files-attachments-heading"
+ title="Załączniki i formularze"
+ rows={groups.attachments.map(renderRow)}
+ limit={GROUP_PREVIEW}
+ />
+ ) : null}
  <OrderDocumentsSection candidateId={candidateId} />
  </div>
  <FilePreviewModal
@@ -571,10 +628,62 @@ function FileRow({
  );
 }
 
+
 /**
- * „CV dla klientów” (D4): pliki „…B2B…” z listy kandydata i CV wygenerowane
- * w NEXUSIE. Zwinięte z licznikiem — to dokumenty dla klienta, nie od
- * kandydata. Awaria listy z generatora nie chowa plików z teczki.
+ * Grupa plików z nagłówkiem i licznikiem. Z `limit` pokazuje tyle wierszy
+ * i „Pokaż wszystkie (N)”; bez niego całą listę.
+ */
+function FileGroup({
+ id,
+ title,
+ rows,
+ limit,
+ empty,
+ notice,
+}: {
+ id: string;
+ title: string;
+ rows: React.ReactNode[];
+ limit?: number;
+ empty?: React.ReactNode;
+ notice?: React.ReactNode;
+}) {
+ const [showAll, setShowAll] = useState(false);
+ const canCollapse = limit !== undefined && rows.length > limit;
+ const visible = canCollapse && !showAll ? rows.slice(0, limit) : rows;
+ return (
+ <section aria-labelledby={id} className="rounded-lg border border-border">
+ <h4
+ id={id}
+ className="border-b border-border px-3 py-2 text-sm font-medium text-foreground"
+ >
+ {title}{" "}
+ <span className="ml-0.5 tabular-nums text-muted-foreground">· {rows.length}</span>
+ </h4>
+ {rows.length > 0 ? (
+ <div className="divide-y divide-border">{visible}</div>
+ ) : empty ? (
+ <p className="px-3 py-2.5 text-sm text-muted-foreground">{empty}</p>
+ ) : null}
+ {notice}
+ {canCollapse ? (
+ <button
+ type="button"
+ aria-expanded={showAll}
+ onClick={() => setShowAll((value) => !value)}
+ className="flex min-h-9 w-full items-center border-t border-border px-3 text-xs font-medium text-primary hover:underline"
+ >
+ {showAll ? "Pokaż mniej" : `Pokaż wszystkie (${rows.length})`}
+ </button>
+ ) : null}
+ </section>
+ );
+}
+
+/**
+ * „CV wysłane klientom” (D4 z 04.10.2026, grupa od 13.10.2026): pliki
+ * „…B2B…” i pliki z kodem rekrutacji osoby z teczki oraz CV wygenerowane
+ * w NEXUSIE. Awaria listy z generatora nie chowa plików z teczki.
  */
 function ClientCvGroup({
  candidateId,
@@ -586,7 +695,6 @@ function ClientCvGroup({
  renderRow: (doc: CandidateDocument) => React.ReactNode;
 }) {
  const { showError } = useToast();
- const [open, setOpen] = useState(false);
  const generatedQuery = useQuery<GeneratedCvItem[]>({
  queryKey: ["candidate-generated-cvs", candidateId],
  queryFn: () =>
@@ -600,49 +708,11 @@ function ClientCvGroup({
  retry: false,
  });
  const generated = (generatedQuery.data ?? []).filter((item) => item.status === "ready");
- const total = files.length + generated.length;
  if (generatedQuery.isPending && files.length === 0) return null;
- if (total === 0 && !generatedQuery.isError) return null;
-
- return (
- <section aria-labelledby="candidate-client-cv-heading" className="rounded-lg border border-border">
- <button
- type="button"
- aria-expanded={open}
- aria-controls="candidate-client-cv-body"
- onClick={() => setOpen((value) => !value)}
- className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left"
- >
- <span id="candidate-client-cv-heading" className="text-sm font-medium text-foreground">
- CV dla klientów{" "}
- <span className="ml-0.5 tabular-nums text-muted-foreground">· {total}</span>
- </span>
- <ChevronDown
- className={cn("size-4 text-muted-foreground transition-transform", open && "rotate-180")}
- aria-hidden
- />
- </button>
- {open ? (
- <div id="candidate-client-cv-body" className="border-t border-border">
- {files.length > 0 ? (
- <div className="divide-y divide-border">{files.map(renderRow)}</div>
- ) : null}
- {generatedQuery.isError ? (
- <p role="alert" className="px-3 py-2.5 text-sm text-destructive">
- Nie udało się wczytać CV z generatora.{" "}
- <button
- type="button"
- className="font-medium underline"
- onClick={() => void generatedQuery.refetch()}
- >
- Ponów
- </button>
- </p>
- ) : null}
- {generated.length > 0 ? (
- <ul className="divide-y divide-border border-t border-border" aria-label="CV z generatora">
- {generated.map((item) => (
- <li key={item.id} className="flex items-center gap-3 px-3 py-2.5 text-sm">
+ const rows = [
+ ...files.map(renderRow),
+ ...generated.map((item) => (
+ <div key={`generated-${item.id}`} className="flex items-center gap-3 px-3 py-2.5 text-sm">
  <div className="min-w-0 flex-1">
  <p className="truncate font-medium text-foreground">{item.filename}</p>
  <p className="text-xs text-muted-foreground">
@@ -669,12 +739,31 @@ function ClientCvGroup({
  Pobierz
  </Button>
  ) : null}
- </li>
- ))}
- </ul>
- ) : null}
  </div>
- ) : null}
- </section>
+ )),
+ ];
+ if (rows.length === 0 && !generatedQuery.isError) return null;
+
+ return (
+ <FileGroup
+ id="candidate-client-cv-heading"
+ title="CV wysłane klientom"
+ rows={rows}
+ limit={GROUP_PREVIEW}
+ notice={
+ generatedQuery.isError ? (
+ <p role="alert" className="px-3 py-2.5 text-sm text-destructive">
+ Nie udało się wczytać CV z generatora.{" "}
+ <button
+ type="button"
+ className="font-medium underline"
+ onClick={() => void generatedQuery.refetch()}
+ >
+ Ponów
+ </button>
+ </p>
+ ) : null
+ }
+ />
  );
 }

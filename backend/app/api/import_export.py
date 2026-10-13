@@ -38,6 +38,7 @@ from app.services.candidate_language_writer import (
 )
 from app.services.candidate_profile_rate import canonical_profile_rate_amount
 from app.services.candidate_location_writer import normalize_candidate_location
+from app.services.candidate_name_rules import without_name_markers
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -144,8 +145,9 @@ async def import_candidates(
     for row_num, row in enumerate(reader, start=2):  # start=2 (header is row 1)
         try:
             email = get_col(row, "email").lower() or None
-            name = get_col(row, "name")
-            lastname = get_col(row, "lastname")
+            # Dopisek w imieniu z pliku znika bez odmowy (D6, 13.10.2026).
+            name = without_name_markers(get_col(row, "name"))
+            lastname = without_name_markers(get_col(row, "lastname"))
 
             if not name and not lastname:
                 errors += 1

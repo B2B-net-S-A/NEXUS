@@ -162,6 +162,10 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
   mapuje grupę na widok (`lib/candidate-note-groups.ts`, klucze adresu
   `activity=notes|contact|delivery|emails|automat` — `notes` zostaje, niosą go
   powiadomienia). „Maile” = skrzynka M365 i maile zapisane w notatkach.
+  Od 13.10.2026 (E4) zakładka nazywa się „Notatki”, filtry stoją w dwóch
+  grupach, „Telefony” zniknęły (`activity=calls` prowadzi na oś czasu),
+  a oś czasu jest za przełącznikiem „Zmiany etapów i automaty” —
+  `kandydaci-wyszukiwanie/ekran-kandydaci-i-profil-kandydata-uproszczenie.md`.
   Zakładki nie mają `title` (w Chrome przejmował nazwę dostępną). „Nie
   odebrał” to `POST /api/notes` z `kind: "contact_attempt"` — jedyny rodzaj,
   który przyjmuje żądanie (`NoteCreate.kind`; odpowiedź w wątku

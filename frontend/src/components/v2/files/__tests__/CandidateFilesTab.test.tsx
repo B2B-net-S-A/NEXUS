@@ -43,13 +43,13 @@ vi.mock("@/store/auth", () => ({
     user ? Array.from(new Set([user.role, ...(user.roles ?? [])])) : [],
 }));
 
-function renderTab() {
+function renderTab(recruitmentCodes?: string[]) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <CandidateFilesTab candidateId={42} />
+      <CandidateFilesTab candidateId={42} recruitmentCodes={recruitmentCodes} />
     </QueryClientProvider>,
   );
 }
@@ -60,6 +60,14 @@ function pickFile(file: File) {
   ) as HTMLInputElement;
   fireEvent.change(input, { target: { files: [file] } });
   return input;
+}
+
+/**
+ * Formularz dodawania na pustym profilu — stoi od razu po wczytaniu listy
+ * (przycisk „Dodaj plik” w nagłówku jest już w trakcie ładowania).
+ */
+async function waitForUploadForm() {
+  await screen.findByLabelText("Rodzaj");
 }
 
 describe("CandidateFilesTab upload", () => {
@@ -79,11 +87,18 @@ describe("CandidateFilesTab upload", () => {
     expect(
       await screen.findByText(/Brak plików\. Dodaj CV, certyfikat/),
     ).toBeInTheDocument();
+    // 13.10.2026: na profilu bez plików formularz stoi od razu, bez klikania
+    // „Dodaj plik” w nagłówku.
+    expect(screen.getByLabelText("Rodzaj")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Dodaj plik" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
   });
 
   it("defaults the upload kind to CV and lists CV first", async () => {
     renderTab();
-    await screen.findByRole("button", { name: /Dodaj plik/ });
+    await waitForUploadForm();
 
     const select = screen.getByLabelText("Rodzaj") as HTMLSelectElement;
     expect(select.value).toBe("cv");
@@ -97,7 +112,7 @@ describe("CandidateFilesTab upload", () => {
 
   it("posts the picked file as multipart with the selected kind", async () => {
     renderTab();
-    await screen.findByRole("button", { name: /Dodaj plik/ });
+    await waitForUploadForm();
 
     fireEvent.change(screen.getByLabelText("Rodzaj"), {
       target: { value: "certificate" },
@@ -122,7 +137,7 @@ describe("CandidateFilesTab upload", () => {
   // „Ustaw jako główne CV” — serwer czyta modelem wyłącznie główne CV.
   it("sends a new CV as the primary one by default so AI refreshes the profile", async () => {
     renderTab();
-    await screen.findByRole("button", { name: /Dodaj plik/ });
+    await waitForUploadForm();
     expect(
       screen.getByRole("checkbox", { name: /Ustaw jako główne CV \(AI odświeży profil\)/ }),
     ).toBeChecked();
@@ -141,7 +156,7 @@ describe("CandidateFilesTab upload", () => {
   it("keeps the CV as a plain file when the checkbox is cleared", async () => {
     const user = userEvent.setup();
     renderTab();
-    await screen.findByRole("button", { name: /Dodaj plik/ });
+    await waitForUploadForm();
 
     await user.click(screen.getByRole("checkbox", { name: /Ustaw jako główne CV/ }));
     pickFile(new File(["cv"], "cv-en.pdf", { type: "application/pdf" }));
@@ -154,7 +169,7 @@ describe("CandidateFilesTab upload", () => {
 
   it("never sends the primary flag for a non-CV kind (the server answers 422)", async () => {
     renderTab();
-    await screen.findByRole("button", { name: /Dodaj plik/ });
+    await waitForUploadForm();
 
     fireEvent.change(screen.getByLabelText("Rodzaj"), { target: { value: "certificate" } });
     expect(screen.queryByRole("checkbox", { name: /Ustaw jako główne CV/ })).toBeNull();
@@ -166,7 +181,7 @@ describe("CandidateFilesTab upload", () => {
 
   it("makes only the last of several CVs primary — one AI read, not one per file", async () => {
     renderTab();
-    await screen.findByRole("button", { name: /Dodaj plik/ });
+    await waitForUploadForm();
 
     fireEvent.change(screen.getByTestId("candidate-document-upload-input"), {
       target: {
@@ -185,7 +200,7 @@ describe("CandidateFilesTab upload", () => {
 
   it("uploads several files sequentially and refetches the list once done", async () => {
     renderTab();
-    await screen.findByRole("button", { name: /Dodaj plik/ });
+    await waitForUploadForm();
 
     const input = screen.getByTestId(
       "candidate-document-upload-input",
@@ -211,7 +226,7 @@ describe("CandidateFilesTab upload", () => {
   it("surfaces a failed upload instead of silently swallowing it", async () => {
     vi.mocked(api.post).mockRejectedValue(new Error("Plik za duży"));
     renderTab();
-    await screen.findByRole("button", { name: /Dodaj plik/ });
+    await waitForUploadForm();
 
     pickFile(new File(["x"], "duzy.pdf", { type: "application/pdf" }));
 
@@ -521,72 +536,160 @@ describe("CandidateFilesTab — „Usuń z profilu” (13.10.2026)", () => {
   });
 });
 
-describe("CandidateFilesTab — CV dla klientów (D4, 04.10.2026)", () => {
+describe("CandidateFilesTab — grupy plików (E5, 13.10.2026)", () => {
+  const file = (id: number, filename: string, overrides: Record<string, unknown> = {}) => ({
+    id,
+    filename,
+    content_type: "application/pdf",
+    size_bytes: 1024,
+    document_kind: "cv",
+    is_primary: false,
+    uploaded_at: `2026-09-${String(10 + id).padStart(2, "0")}T10:00:00Z`,
+    created_at: `2026-09-${String(10 + id).padStart(2, "0")}T10:00:00Z`,
+    external_source: null,
+    ...overrides,
+  });
+
+  function mockApi(documents: unknown[], generated: unknown[] = []) {
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url === "/api/candidates/42/documents") return { data: documents };
+      if (url === "/api/cv-generator/generated") return { data: generated };
+      return { data: [] };
+    });
+  }
+
+  function group(name: RegExp) {
+    return screen.getByRole("region", { name });
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
     currentRole = "recruiter";
   });
 
-  it("plik „…B2B…” i CV z generatora stoją osobno, zwinięte z licznikiem", async () => {
-    vi.mocked(api.get).mockImplementation(async (url: string) => {
-      if (url === "/api/candidates/42/documents") {
-        return {
-          data: [
-            {
-              id: 1,
-              filename: "cv.pdf",
-              content_type: "application/pdf",
-              size_bytes: 1024,
-              document_kind: "cv",
-              is_primary: true,
-              uploaded_at: null,
-              external_source: null,
-            },
-            {
-              id: 2,
-              filename: "Jan_Kowalski_B2B_PKO.docx",
-              content_type:
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-              size_bytes: 2048,
-              document_kind: "cv",
-              is_primary: false,
-              uploaded_at: null,
-              external_source: null,
-            },
-          ],
-        };
-      }
-      if (url === "/api/cv-generator/generated") {
-        return {
-          data: [
-            {
-              id: 70,
-              filename: "Kowalski_CV_PL.docx",
-              status: "ready",
-              candidate_name: "Jan Kowalski",
-              language: "pl",
-              blind: false,
-              mode: "polished",
-              job_title: "Java Developer",
-              can_download: true,
-              can_delete: false,
-            },
-          ],
-        };
-      }
-      return { data: [] };
-    });
+  it("CV kandydata, CV wysłane klientom (B2B, kod rekrutacji, generator) i załączniki — z licznikami", async () => {
+    mockApi(
+      [
+        file(1, "cv.pdf", { is_primary: true }),
+        file(2, "Jan_Kowalski_B2B_PKO.docx"),
+        file(3, "42700_Jan_Kowalski.docx", { document_kind: "other" }),
+        file(4, "Załącznik nr 2 — oświadczenie.pdf"),
+        file(5, "certyfikat.pdf", { document_kind: "certificate" }),
+        file(6, "cv-en.pdf"),
+      ],
+      [
+        {
+          id: 70,
+          filename: "Kowalski_CV_PL.docx",
+          status: "ready",
+          candidate_name: "Jan Kowalski",
+          language: "pl",
+          blind: false,
+          mode: "polished",
+          job_title: "Java Developer",
+          can_download: true,
+          can_delete: false,
+        },
+      ],
+    );
+    renderTab(["42700"]);
+
+    expect(await screen.findByRole("heading", { name: "CV wysłane klientom · 3" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "CV kandydata · 2" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Załączniki i formularze · 2" })).toBeInTheDocument();
+
+    const own = group(/CV kandydata/);
+    expect(within(own).getByText("cv.pdf")).toBeInTheDocument();
+    expect(within(own).getByText("cv-en.pdf")).toBeInTheDocument();
+    expect(within(own).getByText("główne CV")).toBeInTheDocument();
+
+    const client = group(/CV wysłane klientom/);
+    expect(within(client).getByText("Jan_Kowalski_B2B_PKO.docx")).toBeInTheDocument();
+    expect(within(client).getByText("42700_Jan_Kowalski.docx")).toBeInTheDocument();
+    expect(within(client).getByText("Kowalski_CV_PL.docx")).toBeInTheDocument();
+    expect(within(client).getByText(/z generatora · Java Developer · PL/)).toBeInTheDocument();
+
+    const attachments = group(/Załączniki i formularze/);
+    expect(within(attachments).getByText("Załącznik nr 2 — oświadczenie.pdf")).toBeInTheDocument();
+    expect(within(attachments).getByText("certyfikat.pdf")).toBeInTheDocument();
+  });
+
+  it("każda grupa zachowuje akcje wiersza „⋯”", async () => {
+    mockApi([file(1, "cv.pdf", { is_primary: true }), file(2, "ZOB-2962_cv.docx")]);
+    const user = userEvent.setup();
+    renderTab(["ZOB-2962"]);
+
+    const client = await screen.findByRole("region", { name: /CV wysłane klientom/ });
+    await user.click(within(client).getByRole("button", { name: "Akcje pliku ZOB-2962_cv.docx" }));
+    const menu = await screen.findByRole("menu");
+    for (const action of ["Podgląd", "Pobierz", "Ustaw jako główne CV", "Oznacz jako nieaktualne"]) {
+      expect(within(menu).getByRole("menuitem", { name: action })).toBeInTheDocument();
+    }
+  });
+
+  it("grupa z więcej niż 3 plikami pokazuje 3 i „Pokaż wszystkie (N)”; „CV kandydata” całe", async () => {
+    mockApi([
+      file(1, "cv.pdf", { is_primary: true }),
+      file(2, "cv-2.pdf"),
+      file(3, "cv-3.pdf"),
+      file(4, "cv-4.pdf"),
+      file(5, "cv-5.pdf"),
+      file(11, "Formularz_1.pdf"),
+      file(12, "Formularz_2.pdf"),
+      file(13, "Formularz_3.pdf"),
+      file(14, "Formularz_4.pdf"),
+      file(15, "Formularz_5.pdf"),
+    ]);
     const user = userEvent.setup();
     renderTab();
 
-    expect(await screen.findByText("cv.pdf")).toBeInTheDocument();
-    const toggle = await screen.findByRole("button", { name: /CV dla klientów · 2/ });
+    const own = await screen.findByRole("region", { name: /CV kandydata/ });
+    expect(within(own).getAllByTestId("candidate-file-row")).toHaveLength(5);
+    expect(within(own).queryByRole("button", { name: /Pokaż wszystkie/ })).toBeNull();
+
+    const attachments = group(/Załączniki i formularze/);
+    expect(within(attachments).getAllByTestId("candidate-file-row")).toHaveLength(3);
+    const more = within(attachments).getByRole("button", { name: "Pokaż wszystkie (5)" });
+    expect(more).toHaveAttribute("aria-expanded", "false");
+    await user.click(more);
+    expect(within(attachments).getAllByTestId("candidate-file-row")).toHaveLength(5);
+    expect(within(attachments).getByRole("button", { name: "Pokaż mniej" })).toBeInTheDocument();
+  });
+
+  it("„Dodaj plik” w nagłówku rozwija i zwija formularz, gdy profil ma pliki", async () => {
+    mockApi([file(1, "cv.pdf", { is_primary: true })]);
+    const user = userEvent.setup();
+    renderTab();
+
+    await screen.findByText("cv.pdf");
+    expect(screen.getByRole("heading", { name: "Pliki" })).toBeInTheDocument();
+    const toggle = screen.getByRole("button", { name: /Dodaj plik/ });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByText("Jan_Kowalski_B2B_PKO.docx")).toBeNull();
+    expect(screen.queryByLabelText("Rodzaj")).toBeNull();
+    expect(screen.queryByTestId("candidate-document-upload-input")).toBeNull();
 
     await user.click(toggle);
-    expect(screen.getByText("Jan_Kowalski_B2B_PKO.docx")).toBeInTheDocument();
-    expect(screen.getByText("Kowalski_CV_PL.docx")).toBeInTheDocument();
-    expect(screen.getByText(/z generatora · Java Developer · PL/)).toBeInTheDocument();
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByLabelText("Rodzaj")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /Ustaw jako główne CV/ })).toBeChecked();
+    expect(screen.getByRole("button", { name: /Wybierz pliki/ })).toBeInTheDocument();
+
+    await user.click(toggle);
+    expect(screen.queryByLabelText("Rodzaj")).toBeNull();
+  });
+
+  it("formularz zwija się po udanym dodaniu pliku do profilu z plikami", async () => {
+    vi.mocked(api.post).mockResolvedValue({ data: {} });
+    mockApi([file(1, "cv.pdf", { is_primary: true })]);
+    const user = userEvent.setup();
+    renderTab();
+
+    await screen.findByText("cv.pdf");
+    await user.click(screen.getByRole("button", { name: /Dodaj plik/ }));
+    fireEvent.change(screen.getByLabelText("Rodzaj"), { target: { value: "certificate" } });
+    pickFile(new File(["scan"], "certyfikat.pdf", { type: "application/pdf" }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByLabelText("Rodzaj")).toBeNull());
   });
 });
