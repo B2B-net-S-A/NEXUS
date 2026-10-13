@@ -16,6 +16,7 @@ się zmieni.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -30,7 +31,7 @@ REASON_TEXT = {
     "prose_column": "AI czyta wymagania z requestu zapisane zdaniami, a nie słowa z Championa",
     "paren": "komentarz w nawiasie wyłącza technologię z wyszukiwania",
     "prose_rows": "zdania w wymaganiach — wyszukiwanie ich nie znajdzie",
-    "critical_not_searchable": "krytyczne, których wyszukiwanie nie sprawdzi, ukrywają prawie wszystkich",
+    "critical_not_searchable": "krytyczne zapisane zdaniem — bramka szuka go w CV dosłownie i ukrywa prawie wszystkich",
     "no_search_words": "brak słów do szukania — propozycje AI się nie pojawią",
 }
 
@@ -79,6 +80,16 @@ def _fold(text: str) -> str:
     return " ".join(text.casefold().split())
 
 
+_NUMBER = re.compile(r"\d+")
+# Rodzaje frazy, które są zdaniem do rozmowy, a nie słowem do szukania —
+# lustro `DECISION_KINDS` edytora wierszy (`lib/requirement-rows.ts`).
+_SENTENCE_KINDS = frozenset({"prose", "soft", "language", "domain"})
+
+
+def _sentence(reading: Any) -> bool:
+    return bool(reading.needs_decision) and reading.kind in _SENTENCE_KINDS
+
+
 def build_proposal(job: Any) -> Optional[CleanupProposal]:
     """Propozycja dla rekrutacji albo ``None``, gdy nie ma czego porządkować."""
     from app.services import champion_view
@@ -96,8 +107,8 @@ def build_proposal(job: Any) -> Optional[CleanupProposal]:
     )
     from app.services.skill_normalize import canonical_of, strip_version
     from app.services.critical_skills import effective_critical
-    from app.services.must_gate_terms import gate_requirement
-    from app.services.requirement_phrase import read_phrase
+    from app.services.must_gate_terms import gate_requirement, requirement_with_options
+    from app.services.requirement_phrase import TALK_ITEM_MAX_CHARS, _cap, read_phrase
     from app.services.scoring_service import (
         canonical_skill_names,
         job_explicit_must_skills,
@@ -109,6 +120,7 @@ def build_proposal(job: Any) -> Optional[CleanupProposal]:
     stored_critical = stack.get("critical")
     reasons: list[str] = []
     descriptive: list[str] = []
+    descriptive_nice: set[str] = set()
     engine_must = list(job_explicit_must_skills(job))
 
     if profile_has_rows(profile):
@@ -151,6 +163,7 @@ def build_proposal(job: Any) -> Optional[CleanupProposal]:
         )
         rows = legacy["rows"]
         descriptive = list(legacy["descriptive"])
+        descriptive_nice = set(legacy["descriptive_nice"])
 
     # Komentarz w nawiasie i zdania w wierszach — ta sama reguła co zapis.
     for row in rows:
@@ -189,17 +202,35 @@ def build_proposal(job: Any) -> Optional[CleanupProposal]:
         for key, value in (patch.get("experience") or experience).items()
     }
     new_language = (patch.get("basics") or {}).get("language", language)
+    # Pozycje dopisane do rozmowy tylko po to, żeby wersja nie zginęła — same
+    # nie są powodem propozycji (silnik czyta „Java 17+” bez wersji).
+    version_only: set[str] = set()
+
+    def _to_talk(kind: str, text: str, level: str, sentence: str) -> bool:
+        """Pozycja do rozmowy; gdy się nie mieści (limit 20) albo została ucięta
+        do 160 znaków, całe zdanie idzie też do opisu wymagań (audyt 13.10)."""
+        merged = _merge_talk(new_experience.setdefault(kind, []), text, level)
+        if not merged or len(" ".join(sentence.split())) > TALK_ITEM_MAX_CHARS:
+            talk_overflow.append(sentence)
+        return merged
+
     # Zdania odłożone przez `rows_from_legacy` — język do pola „Język”, reszta
-    # do sekcji 4 (tak samo jak przy zapisie wiersza).
+    # do sekcji 4 (tak samo jak przy zapisie wiersza), z poziomem z must / nice.
     for sentence in descriptive:
         reading = read_phrase(sentence)
+        level = "nice" if sentence in descriptive_nice else "must"
         if reading.keyword and not reading.needs_decision and _in_rows(reading.keyword):
             # Technologia w innej pisowni („ETL/ELT”, „Java 17+”) — jej słowa są
-            # już wierszem; do rozmowy idzie tylko poziom z komentarza.
-            if reading.talk_text and not _merge_talk(
-                new_experience.setdefault("skills", []), reading.talk_text, "must"
-            ):
-                talk_overflow.append(reading.talk_text)
+            # już wierszem; do rozmowy idzie poziom z komentarza, a wersja
+            # („Java 17+”, „Java (min. 11)”) razem z całą pozycją — do 14.10.2026
+            # znikała po „Zatwierdź”. Wersję poznajemy po liczbie spoza słowa.
+            versioned = bool(
+                set(_NUMBER.findall(sentence)) - set(_NUMBER.findall(reading.keyword))
+            )
+            talk_text = _cap(sentence) if versioned else reading.talk_text
+            if talk_text and _to_talk("skills", talk_text, level, sentence):
+                if versioned and not reading.talk_text:
+                    version_only.add(_fold(talk_text))
             continue
         if reading.talk == "language":
             parts = [p for p in [str(new_language or "").strip()] if p]
@@ -207,9 +238,7 @@ def build_proposal(job: Any) -> Optional[CleanupProposal]:
                 new_language = ", ".join([*parts, sentence])
             continue
         kind = reading.talk if reading.talk in ("skills", "domains") else "skills"
-        talk_text = reading.talk_text or sentence[:160].rstrip()
-        if not _merge_talk(new_experience.setdefault(kind, []), talk_text, "must"):
-            talk_overflow.append(talk_text)
+        _to_talk(kind, reading.talk_text or _cap(sentence), level, sentence)
 
     # Co nie zmieściło się w wierszach ani na liście do rozmowy, zostaje
     # w opisie wymagań — czyta go rekruter i generator CV; nic nie znika.
@@ -222,11 +251,19 @@ def build_proposal(job: Any) -> Optional[CleanupProposal]:
             parts.append("Do sprawdzenia w rozmowie: " + "; ".join(talk_overflow) + ".")
         notes = "\n".join(part for part in parts if part)
 
-    # Krytyczne spoza bramki („architektura chmury”) schodzą do „musi mieć”.
+    # Decyzja Artura 14.10.2026 (B): krytyczną, którą bramka sprawdza słowami
+    # wiersza (kategoria, rola, branża słowem, nazwa spoza słownika — reguła
+    # z 09.10), zostawiamy; o tym decyduje DL, a edytor ostrzega, gdy zostaje
+    # < 20 osób. Do „musi mieć” schodzi tylko krytyczna zapisana samymi
+    # zdaniami (reguła z 13.10: zdanie nie może być krytyczne) — ten sam
+    # warunek co bramka (`requirement_with_options` ze słowami wiersza).
+    def _gate_can_check(words: list[str]) -> bool:
+        label = row_label(words)
+        search_words = tuple(w for w in words if not _sentence(read_phrase(w)))
+        return requirement_with_options(label, {label: search_words}) is not None
+
     for row in rows:
-        if row.get("level") == "critical" and (
-            gate_requirement(row_label(row["words"])) is None
-        ):
+        if row.get("level") == "critical" and not _gate_can_check(row["words"]):
             row["level"] = "must"
             if "critical_not_searchable" not in reasons:
                 reasons.append("critical_not_searchable")
@@ -238,7 +275,9 @@ def build_proposal(job: Any) -> Optional[CleanupProposal]:
         if _fold(item["name"])
         not in {_fold(i.get("name", "")) for i in experience.get(kind) or []}
     ]
-    if added_talk or (new_language or None) != (language or None):
+    if [t for t in added_talk if _fold(t["name"]) not in version_only] or (
+        new_language or None
+    ) != (language or None):
         reasons.append("prose_rows")
     required = [r for r in rows if r.get("level") != "nice"]
     if not required:
@@ -375,13 +414,16 @@ async def load_fixes(db: AsyncSession, user: Any) -> list[dict]:
     return out
 
 
-async def load_fixes_safely(db: AsyncSession, user: Any) -> list[dict]:
+async def load_fixes_safely(db: AsyncSession, user: Any) -> Optional[list[dict]]:
+    """Lista albo ``None``, gdy liczenie się nie powiodło — awaria nie może
+    wyglądać jak „nic do poprawy” (audyt 13.10.2026; jak sąsiednie bloki
+    pulpitu, np. ``agreements``)."""
     try:
         async with db.begin_nested():
             return await load_fixes(db, user)
     except Exception:  # noqa: BLE001 — pulpit działa bez tej listy
         logger.exception("requirement_cleanup: nie udało się policzyć listy")
-        return []
+        return None
 
 
 async def record_decision(

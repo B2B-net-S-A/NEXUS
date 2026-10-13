@@ -78,5 +78,35 @@ prawie wszystkich (789128: „architektura chmury” → 0 osób w „Szukaj w b
   zapis Championa z `expected_profile_hash` (rozjazd = 409 z nową propozycją). Lista w
   `GET /api/board-tasks` (`requirement_fixes`), sekcja „Wymagania do poprawy” na pulpicie
   i baner w Profilu Championa. Sonda 13.10.2026: 133 z 202 otwartych z propozycją.
+- **14.10.2026 — poprawki po audycie 13.10 (nic nie znika, nic nie blokuje).**
+  - „Do rozmowy”, „Zamień na słowa” i „Rozdziel teraz” szukają słowa wiersza tak,
+    jak czyta je serwer (`replaceRowWord`: sito 100 znaków na granicy wyrazu,
+    bez kropki na końcu, NFC). Do tej daty „Doświadczenie w przetargach.”
+    i zdanie ponad 100 znaków nie dawały się przenieść, a „Zapisz” zostawało
+    zablokowane. Przy słowie przyciętym przez serwer do rozmowy idzie całe
+    wpisane zdanie (`talkTextFor`).
+  - „Zatwierdź” i „Uprość” zachowują poziom: zdanie z „mile widziane” idzie
+    do rozmowy jako „Mile” (`rows_from_legacy` oddaje `descriptive_nice`).
+    Technologia z wersją („Java 17+”, „Java (min. 11)”) zostaje wierszem bez
+    wersji, a cała pozycja idzie do rozmowy — wcześniej wersja znikała. Sama
+    wersja nie jest powodem propozycji (silnik czyta „Java 17+” bez niej).
+  - „Uprość” liczy limit listy jak D4 (`talkFromDescriptive`): ponad 20 pozycji
+    i pełne brzmienie zdania dłuższego niż 160 znaków (na liście zostaje skrót)
+    idą do `stack.notes` („Do sprawdzenia w rozmowie: …”). Wcześniej zapis
+    zostawiał 20 zdań, resztę gubił bez ostrzeżenia. D4 tak samo zapisuje
+    całe zdanie dłuższe niż 160 znaków.
+  - Zapis: gdy ostatnia krytyczna (poziom wiersza, `critical: null`) idzie do
+    rozmowy, decyzja zostaje „Brak krytycznych” (`[]`) — `None` kończył się
+    422 `handoff_regression`. `keep_required` to ten sam warunek co ochrona
+    przed nowym brakiem (`status == published`), nie `is_open` — rekrutacja
+    z Traffita bez przekazania też nie traci ostatniego wiersza.
+  - Edycja samej listy `experience.skills` nie przestemplowuje `intake`
+    (`champion_intake.user_edit`, jak wiersze wyszukiwania i krytyczne), więc
+    nie odpala przeliczeń ani auto-matchu — wcześniej obietnica z D1 nie działała.
+  - Sama alternatywa („Docker/Kubernetes”) nie ma komentarza: słowo zostaje,
+    jak je wpisano, bez uwagi „komentarz pominięty” i bez powodu `paren`.
+  - `requirement_cleanup.load_fixes_safely` przy awarii oddaje `None`, nie
+    pustą listę — awaria nie może wyglądać jak „nic do poprawy”.
+  - `critical_not_searchable` — patrz decyzja B w `umiejetnosci-krytyczne-i-bramka-v9.md`.
 - Harness `/preview/new-job?state=readings`, karta propozycji `/preview/recruitment-v3`,
   „Szukaj w bazie” `/preview/job-detail?sources=search`, lista `/preview/custom-dashboard`.

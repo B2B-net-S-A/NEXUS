@@ -23,6 +23,18 @@ wysłał do klienta, budżet — 32%, dni w biurze — 8%. Decyzje Artura 30.09.
   sprawdza w rozmowie”; krytyczne zostawiające razem < 20 osób wymagają
   potwierdzenia. Reguły: `dwie-listy-wymagan.md`. Poniższy
   akapit z 09.10 dotyczy fraz-słów (kategoria, rola, nazwa spoza słownika).
+- **14.10.2026 — decyzja Artura B (audyt 13.10): wygrywa reguła z 09.10.**
+  „Wymagania do poprawy” nie proponują zdjęcia krytycznej, którą bramka
+  sprawdza słowami wiersza (kategoria, rola, branża słowem, nazwa spoza
+  słownika) — o tym decyduje DL, a edytor ostrzega przy < 20 osobach.
+  Do 14.10 propozycja zdejmowała np. „bankowość” z powodem „wyszukiwanie tego
+  nie sprawdzi”. Powód `critical_not_searchable` („krytyczne zapisane
+  zdaniem…”) dostaje tylko krytyczna, której wiersz ma same zdania (reguła
+  z 13.10) — ten sam warunek co bramka: `requirement_with_options` ze słowami
+  wiersza bez zdań (`requirement_cleanup.build_proposal`).
+  Nawias „(lub inny / inna / dowolny broker)”, „(or any / another …)” nie jest
+  opcją bramki (`_PAREN_VAGUE`): „Kafka (lub inny broker)” = Kafka, jak
+  „Kafka (lub podobne)”. Wcześniej „inny broker” był drugą „technologią”.
 - **Krytyczną może być KAŻDA fraza — decyduje Delivery Lead (decyzja Artura
   09.10.2026, `critical-v11`).** System nie odrzuca już branży, języka,
   umiejętności miękkiej, kategorii, roli ani zdania (`critical_selectable`

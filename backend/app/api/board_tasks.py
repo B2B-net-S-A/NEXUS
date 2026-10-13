@@ -513,7 +513,8 @@ class BoardTasksResponse(BaseModel):
     unfinished_forms: list[UnfinishedFormRow] = []
     # 13.10.2026 (D4): porządki wymagań otwartych rekrutacji — Delivery Lead
     # swoich, Head of Recruitment i admin wszystkich.
-    requirement_fixes: list[RequirementFixRow] = []
+    # `None` = liczenie się nie powiodło (awaria nie wygląda jak „nic do poprawy”).
+    requirement_fixes: Optional[list[RequirementFixRow]] = []
     # 04.10.2026: umowy z Generatora — prośby o podpis i rozjazdy z Tablicą.
     # `None` = liczenie się nie powiodło.
     agreements: Optional[AgreementTasksBlock] = None
@@ -706,7 +707,9 @@ async def build_board_tasks(db: AsyncSession, current_user: User) -> BoardTasksR
             else None
         ),
         unfinished_forms=[UnfinishedFormRow(**asdict(f)) for f in unfinished],
-        requirement_fixes=[RequirementFixRow(**row) for row in fixes],
+        requirement_fixes=(
+            None if fixes is None else [RequirementFixRow(**row) for row in fixes]
+        ),
         rate_changes=[
             RateChangeTaskRow(**asdict(t))
             for t in (rate_tasks.mine if rate_tasks else [])

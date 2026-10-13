@@ -112,6 +112,7 @@ import {
   rowsFromStored,
   rowsNeedingDecision,
   searchRows,
+  talkFromDescriptive,
   type RequirementRowForm,
   type TalkItem,
 } from "@/lib/requirement-rows";
@@ -119,7 +120,11 @@ import { addTalkItem, joinLanguage } from "@/lib/champion-experience";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { RequirementProposalDialog } from "@/components/champion/RequirementProposalDialog";
 import { useRequirementProposal } from "@/lib/requirement-proposal-api";
-import { fetchRowsFromLegacy, useRowCriticalInfo } from "@/lib/requirement-rows-api";
+import {
+  fetchRowsFromLegacy,
+  useRowCriticalInfo,
+  type LegacyRowsResult,
+} from "@/lib/requirement-rows-api";
 import { ChampionInsightsSection } from "@/components/champion/ChampionInsightsSection";
 import { syncLegacyInsight, type InsightChange } from "@/lib/champion-insights";
 import { ChampionProfileSourcesPanel } from "./ChampionProfileSourcesPanel";
@@ -651,37 +656,45 @@ export function ChampionProfileEditor({
     setSimplifying(true);
     setSimplifyError(null);
     try {
-      const result = await fetchRowsFromLegacy({
-        must: (draft.stack.must ?? []).map((item) => item.name),
-        nice: (draft.stack.nice ?? []).map((item) => item.name),
-        requirements: draft.search.requirements ?? [],
-        critical: draft.stack.critical ?? null,
-      });
+      // `descriptive_nice` (14.10.2026): zdania z „mile widziane”.
+      const result: LegacyRowsResult & { descriptive_nice?: string[] } =
+        await fetchRowsFromLegacy({
+          must: (draft.stack.must ?? []).map((item) => item.name),
+          nice: (draft.stack.nice ?? []).map((item) => item.name),
+          requirements: draft.search.requirements ?? [],
+          critical: draft.stack.critical ?? null,
+        });
       const rows = rowsFromStored(result.rows);
       if (rows.length === 0) {
         setSimplifyError("Nie ma czego uprościć — dodaj najpierw wymagania.");
         return;
       }
-      setDraft((d) => ({
-        ...d,
-        stack: {
-          ...d.stack,
-          rows,
-          must: mustHeads(rows).map((name) => ({ name })),
-          nice: niceHeads(rows).map((name) => ({ name })),
-          critical: criticalRows(rows).length === 0 && result.no_critical ? [] : null,
-        },
-        search: { ...d.search, requirements: searchRows(rows) },
+      setDraft((d) => {
+        const experience = d.experience ?? EMPTY_CHAMPION_EXPERIENCE;
         // Zdania klienta idą do „Rekruter sprawdza w rozmowie” (13.10.2026),
-        // nie do niuansów — w screeningu są punktem do sprawdzenia.
-        experience: result.descriptive.reduce(
-          (experience, sentence) => ({
-            ...experience,
-            skills: addTalkItem(experience.skills ?? [], sentence, "must"),
-          }),
-          d.experience ?? EMPTY_CHAMPION_EXPERIENCE,
-        ),
-      }));
+        // nie do niuansów — w screeningu są punktem do sprawdzenia. Poziom
+        // idzie za listą, a co się nie mieści (20 pozycji, 160 znaków), trafia
+        // do opisu wymagań — audyt 13.10.2026 (pkt 20–21).
+        const talk = talkFromDescriptive(
+          experience.skills ?? [],
+          d.stack.notes ?? "",
+          result.descriptive,
+          result.descriptive_nice ?? [],
+        );
+        return {
+          ...d,
+          stack: {
+            ...d.stack,
+            rows,
+            must: mustHeads(rows).map((name) => ({ name })),
+            nice: niceHeads(rows).map((name) => ({ name })),
+            critical: criticalRows(rows).length === 0 && result.no_critical ? [] : null,
+            notes: talk.notes,
+          },
+          search: { ...d.search, requirements: searchRows(rows) },
+          experience: { ...experience, skills: talk.skills },
+        };
+      });
     } catch (error) {
       setSimplifyError(
         apiErrorMessage(error, "Nie udało się uprościć wymagań — spróbuj ponownie."),

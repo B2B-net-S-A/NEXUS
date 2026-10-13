@@ -6,7 +6,7 @@
  * Serwer liczy propozycję na żywo z Profilu Championa: zdania z wierszy
  * słów kluczowych idą do „Rekruter sprawdza w rozmowie”, technologia traci
  * komentarz w nawiasie, kolumnę zdań z requestu zastępują słowa z Championa,
- * a krytyczne, których wyszukiwanie nie sprawdzi, spadają do „Musi mieć”.
+ * a krytyczne zapisane samymi zdaniami spadają do „Musi mieć”.
  * Decyzja (zatwierdź / odrzuć) niesie `profile_hash` — profil zmieniony od
  * odczytu = 409 z nową propozycją.
  */

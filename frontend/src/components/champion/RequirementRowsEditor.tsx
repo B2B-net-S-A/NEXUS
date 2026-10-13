@@ -62,6 +62,7 @@ import {
   rowHead,
   setRowLevel,
   suggestedRowKeys,
+  talkTextFor,
   type RequirementEntryResult,
   type RequirementLevel,
   type RequirementRowForm,
@@ -483,11 +484,11 @@ export function RequirementRowsEditor({
                   countEnabled={countEnabled && !disabled}
                   onUseWord={(word) => {
                     onRowsChange(replaceRowWord(shown, row.key, decision.text, [word]));
-                    toTalk(decision.talk_text ?? decision.text, decision.talk ?? "skills");
+                    toTalk(talkTextFor(decision, row.words), decision.talk ?? "skills");
                   }}
                   onTalk={() => {
                     onRowsChange(replaceRowWord(shown, row.key, decision.text, []));
-                    toTalk(decision.talk_text ?? decision.text, decision.talk ?? "skills");
+                    toTalk(talkTextFor(decision, row.words), decision.talk ?? "skills");
                   }}
                 />
               ) : null}

@@ -165,7 +165,7 @@ function AfterColumn({ proposal, languageChanged }: { proposal: RequirementPropo
       ) : null}
       {after.critical?.length === 0 && proposal.before.critical.length > 0 ? (
         <p className="text-xs text-foreground" data-testid="proposal-no-critical">
-          Krytyczne: brak — wyszukiwanie nie sprawdzi dotychczasowych.
+          Krytyczne: brak — dotychczasowe są zdaniami, a zdanie nie może być krytyczne.
         </p>
       ) : null}
       {after.overflow && after.overflow.length > 0 ? (

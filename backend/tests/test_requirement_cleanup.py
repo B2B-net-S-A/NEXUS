@@ -92,7 +92,10 @@ def test_parenthesis_in_rows_is_split():
     assert proposal.after["talk"][0]["name"] == "SQL — bardzo dobra znajomość"
 
 
-def test_critical_phrase_outside_the_gate_drops_to_must():
+def test_critical_keyword_row_the_gate_checks_is_not_demoted():
+    """Decyzja B (14.10.2026): krytyczna, którą bramka sprawdza słowami wiersza
+    („architektura chmury”), zostaje krytyczna — do 14.10 propozycja zdejmowała
+    ją z nieprawdziwym powodem „wyszukiwanie nie sprawdzi” (audyt 13.10.2026)."""
     job = _job(
         {
             "stack": {
@@ -107,15 +110,7 @@ def test_critical_phrase_outside_the_gate_drops_to_must():
             "search": {"requirements": [["Azure"], ["architektura chmury"]]},
         }
     )
-    proposal = _build(job)
-    assert proposal is not None
-    assert proposal.reasons == ("critical_not_searchable",)
-    assert proposal.after["critical"] == ["Azure"]
-    levels = {row["words"][0]: row["level"] for row in proposal.after["rows"]}
-    assert levels == {"Azure": "critical", "architektura chmury": "must"}
-    payload = apply_payload(proposal)
-    assert payload["stack"]["critical"] == ["Azure"]
-    assert "basics" not in payload
+    assert _build(job) is None
 
 
 def test_only_sentences_means_nothing_to_search_and_no_apply():
@@ -238,33 +233,6 @@ def test_rows_over_the_limits_land_in_the_requirement_notes():
     notes = apply_payload(proposal)["stack"]["notes"]
     assert notes.startswith("Projekt dla banku.")
     assert "Nie zmieściło się w wymaganiach" in notes
-
-
-def test_all_criticals_demoted_keep_the_decision_as_none_chosen():
-    """Przegląd 13.10.2026, bloker 3: gdy każda krytyczna schodzi do „musi mieć”,
-    decyzja DL stawała się „brak decyzji” → 422 `handoff_regression`."""
-    from app.services.champion_requirement_rows import expand_patch
-
-    job = _job(
-        {
-            "stack": {
-                "rows": [
-                    {"words": ["Java"], "level": "must"},
-                    {"words": ["architektura chmury"], "level": "must"},
-                ],
-                "must": [{"name": "Java"}, {"name": "architektura chmury"}],
-                "nice": [],
-                "critical": ["architektura chmury"],
-            },
-            "search": {"requirements": [["Java"], ["architektura chmury"]]},
-        }
-    )
-    proposal = _build(job)
-    assert proposal is not None
-    assert "critical_not_searchable" in proposal.reasons
-    assert proposal.after["critical"] == []
-    with hydrated_taxonomy(SKILLS):
-        assert expand_patch(apply_payload(proposal))["stack"]["critical"] == []
 
 
 def test_talk_items_over_the_section_limit_stay_in_the_notes():

@@ -267,8 +267,10 @@ def read_phrase(text: str) -> PhraseReading:
         paren = _PAREN_TAIL.match(base)
         if paren and len(requirement.options) == 1:
             comment = _clean(paren.group("body")) or None
-        elif fold_key(base) != fold_key(keyword) and not paren:
-            # Wstęp wokół nazwy („Bardzo dobra znajomość SQL”).
+        elif _content_words(base) != _content_words(keyword) and not paren:
+            # Wstęp wokół nazwy („Bardzo dobra znajomość SQL”). Sama alternatywa
+            # („Docker/Kubernetes”) nie ma komentarza — do 14.10.2026 dostawała
+            # uwagę „komentarz pominięty” i powód „paren” (audyt 13.10).
             comment = base
         talk_text: Optional[str] = None
         if comment and _LEVEL_WORDS.search(comment):
@@ -329,8 +331,13 @@ def read_phrase(text: str) -> PhraseReading:
     return PhraseReading(clean, reason, clean, None, None, None, (), False)
 
 
-def fold_key(text: str) -> str:
-    return " ".join(must_gate_terms._words(text))
+_ALTERNATIVE_WORDS = frozenset({"lub", "albo", "or"})
+
+
+def _content_words(text: str) -> list[str]:
+    """Słowa frazy bez spójników alternatywy („Docker/Kubernetes” = „Docker
+    lub Kubernetes”)."""
+    return [w for w in must_gate_terms._words(text) if w not in _ALTERNATIVE_WORDS]
 
 
 def read_row(words: list[str]) -> list[PhraseReading]:
