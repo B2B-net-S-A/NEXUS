@@ -10,8 +10,8 @@ import {
 } from "@/components/ui/dialog";
 
 /**
- * Generator CV w oknie — ten sam formularz co strona `/cv-generator`
- * (profil kandydata, panel osoby, dok kanbanu). Formularz ładowany dopiero
+ * Generator CV w oknie — jedyne miejsce generacji od 13.10.2026 (profil
+ * kandydata, panel osoby, dok kanbanu, okno QC). Formularz ładowany dopiero
  * przy otwarciu: to kilkaset linii z comboboxem i dropzone'em, których
  * powierzchnia rekrutacji nie potrzebuje przy starcie.
  */
@@ -56,7 +56,6 @@ export function CvGeneratorDialog({
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
           {open && (
             <CvGenerator
-              embedded
               prefillCandidateId={candidateId}
               prefillCandidateName={candidateName}
               prefillJobId={jobId ?? undefined}

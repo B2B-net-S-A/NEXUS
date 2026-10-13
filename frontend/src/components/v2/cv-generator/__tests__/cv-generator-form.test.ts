@@ -4,15 +4,13 @@ import type { ChampionProfile } from "@/lib/api";
 import type { RecruitmentOption } from "@/lib/cv-generator";
 
 import {
-  OTHER_CLIENT_CHOICE,
+  NO_RECRUITMENT_MISSING,
   advancedNeedsAttention,
   autoProcessChoice,
   buildGeneratePayload,
-  buildUploadFormData,
   championImportPayload,
   defaultLanguageChoice,
   defaultProcessingMode,
-  formatCvListDate,
   languageOptionEnabled,
   languagePayload,
   missingInputs,
@@ -39,24 +37,18 @@ function recruitment(partial: Partial<RecruitmentOption> = {}): RecruitmentOptio
 
 function missing(partial: Partial<MissingInput> = {}): string[] {
   return missingInputs({
-    flow: "person",
     policyPending: false,
     policyError: false,
-    candidateId: 1,
-    processChoice: "11",
     recruitment: recruitment(),
     recruitmentsLoading: false,
-    otherClient: null,
+    recruitmentsError: false,
+    recruitmentsCount: 1,
     cvDocumentId: 5,
     sourcesLoading: false,
+    sourcesError: false,
     sourcesCount: 1,
     noteDraft: "",
     championOverride: false,
-    uploadFile: null,
-    uploadDecisionPending: false,
-    uploadClient: null,
-    uploadChampion: false,
-    uploadNotes: "",
     rule: null,
     position: "",
     projectRef: "",
@@ -77,8 +69,8 @@ describe("proces wybierany sam", () => {
     expect(autoProcessChoice([a])).toBe("1");
     expect(autoProcessChoice([a, b])).toBe("");
   });
-  it("osoba bez procesów ląduje na „Inny klient”", () => {
-    expect(autoProcessChoice([])).toBe(OTHER_CLIENT_CHOICE);
+  it("osoba bez procesów nie ma czego wybrać — CV powstaje tylko w rekrutacji (13.10.2026)", () => {
+    expect(autoProcessChoice([])).toBe("");
   });
   it("prefill spoza listy procesów nie zgaduje innego", () => {
     expect(autoProcessChoice([a, b], 999)).toBe("");
@@ -115,12 +107,21 @@ describe("braki do wygenerowania CV", () => {
   it("komplet z procesu = pusta lista", () => {
     expect(missing()).toEqual([]);
   });
-  it("bez osoby prosi tylko o kandydata", () => {
-    expect(missing({ candidateId: null })).toEqual(["Kandydat"]);
+  it("przy kilku procesach trzeba wybrać jeden", () => {
+    expect(missing({ recruitment: null, recruitmentsCount: 2 })).toEqual(["Proces rekrutacyjny"]);
   });
-  it("„Inny klient” wymaga klienta — zawsze", () => {
-    expect(missing({ processChoice: OTHER_CLIENT_CHOICE, recruitment: null })).toEqual(["Klient"]);
-    expect(missing({ processChoice: OTHER_CLIENT_CHOICE, recruitment: null, otherClient: { id: 3, name: "X" } })).toEqual([]);
+  it("osoba bez rekrutacji: CV nie powstanie, dopóki nie trafi do rekrutacji (13.10.2026)", () => {
+    expect(missing({ recruitment: null, recruitmentsCount: 0 })).toEqual([NO_RECRUITMENT_MISSING]);
+    expect(NO_RECRUITMENT_MISSING).toMatch(/rekrutacj/);
+  });
+  it("awaria listy procesów nie udaje osoby bez rekrutacji", () => {
+    const got = missing({ recruitment: null, recruitmentsCount: 0, recruitmentsError: true });
+    expect(got).toEqual(["Procesy kandydata — nie udało się ich wczytać, odśwież stronę."]);
+  });
+  it("awaria listy plików CV nie każe dodawać pliku, którego może nie brakować", () => {
+    expect(missing({ sourcesError: true, sourcesCount: 0, cvDocumentId: null })).toEqual([
+      "Pliki CV kandydata — nie udało się ich wczytać, odśwież stronę.",
+    ]);
   });
   it("kandydat bez pliku CV dostaje wskazówkę, gdzie go dodać", () => {
     expect(missing({ sourcesCount: 0, cvDocumentId: null })).toEqual([
@@ -137,23 +138,12 @@ describe("braki do wygenerowania CV", () => {
     expect(missing({ recruitment: needsChampion })).toContain("Profil Championa — ten klient go wymaga");
     expect(missing({ recruitment: needsChampion, championOverride: true })).toEqual([]);
   });
-  it("osoba spoza bazy: plik → decyzja → klient", () => {
-    const file = new File(["x"], "cv.pdf");
-    const base = { flow: "upload" as const, candidateId: null };
-    expect(missing(base)).toEqual(["Plik CV"]);
-    expect(missing({ ...base, uploadFile: file, uploadDecisionPending: true })).toEqual([
-      "Decyzja: dodać osobę do bazy czy generować bez dodawania",
-    ]);
-    expect(missing({ ...base, uploadFile: file })).toEqual(["Klient"]);
-    expect(missing({ ...base, uploadFile: file, uploadClient: { id: 1, name: "A" } })).toEqual([]);
-  });
-  it("reguła klienta: numer projektu i stanowisko bez procesu", () => {
-    const rule = { require_project_ref: true, require_position: true };
-    const got = missing({ processChoice: OTHER_CLIENT_CHOICE, recruitment: null, otherClient: { id: 1, name: "A" }, rule });
-    expect(got).toEqual([
+  it("reguła klienta: numer projektu wymagany także przy procesie", () => {
+    const rule = { require_project_ref: true };
+    expect(missing({ rule })).toEqual([
       "Ten klient wymaga numeru projektu — uzupełnij pole „Numer / nazwa projektu”.",
-      "Ten klient wymaga stanowiska — uzupełnij pole „Stanowisko”.",
     ]);
+    expect(missing({ rule, projectRef: "ZOB/2026/114" })).toEqual([]);
   });
   it("zrzut zgody blokuje wyłącznie przy regule spoza polityki centralnej", () => {
     expect(missing({ consentBlocksGeneration: true })).toEqual(["Zrzut zgody kandydata (RODO)"]);
@@ -170,7 +160,6 @@ describe("treść żądania", () => {
       buildGeneratePayload({
         candidateId: 1,
         recruitment: recruitment(),
-        otherClient: null,
         cvDocumentId: 5,
         projectRef: " ZOB/2026/114 ",
         language: "both",
@@ -192,12 +181,11 @@ describe("treść żądania", () => {
       content_mode: "tailored",
     });
   });
-  it("bez procesu: stage_id null, jawny klient, stanowisko i Champion z pliku", () => {
+  it("stanowisko, Champion z pliku i zrzut zgody jadą w żądaniu, notatka nie (zapisuje się w rekrutacji)", () => {
     const profile = { basics: {} } as never;
     const payload = buildGeneratePayload({
       candidateId: 2,
-      recruitment: null,
-      otherClient: { id: 15, name: "Polkomtel" },
+      recruitment: recruitment(),
       cvDocumentId: 9,
       projectRef: "",
       language: "en",
@@ -208,8 +196,8 @@ describe("treść żądania", () => {
       consentToken: "tok",
     });
     expect(payload).toMatchObject({
-      stage_id: null,
-      client_id: 15,
+      stage_id: 11,
+      client_id: 7,
       language: "en",
       languages: "one",
       blind_cv: true,
@@ -217,50 +205,7 @@ describe("treść żądania", () => {
       champion_profile: profile,
       consent_screenshot_token: "tok",
     });
-  });
-  it("notatka bez procesu idzie w żądaniu, z procesem — nie (zapisuje się w rekrutacji)", () => {
-    const base = {
-      candidateId: 2,
-      cvDocumentId: 9,
-      projectRef: "",
-      language: "pl" as const,
-      blind: false,
-      contentMode: "polished" as const,
-      position: "",
-      championProfile: null,
-      consentToken: null,
-      notes: "  stawka 150, klient A  ",
-    };
-    const noProcess = buildGeneratePayload({
-      ...base,
-      recruitment: null,
-      otherClient: { id: 15, name: "Polkomtel" },
-    });
-    expect(noProcess.screening_notes).toBe("stawka 150, klient A");
-    const withProcess = buildGeneratePayload({ ...base, recruitment: recruitment(), otherClient: null });
-    expect(withProcess.screening_notes).toBeUndefined();
-  });
-  it("upload: klient wymagany w formularzu, profil tylko razem z plikiem Championa", () => {
-    const cv = new File(["x"], "cv.pdf");
-    const fd = buildUploadFormData({
-      file: cv,
-      client: { id: 3, name: "A" },
-      projectRef: "",
-      language: "both",
-      blind: false,
-      contentMode: "polished",
-      position: "",
-      notes: "  ",
-      championFile: null,
-      championProfile: { x: 1 } as never,
-      consentToken: null,
-    });
-    expect(fd.get("cv_file")).toBe(cv);
-    expect(fd.get("client_id")).toBe("3");
-    expect(fd.get("languages")).toBe("both");
-    expect(fd.get("screening_notes")).toBeNull();
-    expect(fd.get("champion_profile_json")).toBeNull();
-    expect(fd.get("must_requirements")).toBeNull();
+    expect(payload.screening_notes).toBeUndefined();
   });
 });
 
@@ -268,13 +213,6 @@ describe("pozostałe", () => {
   it("Zaawansowane rozwijają się same przy pustym wymaganym polu", () => {
     expect(advancedNeedsAttention({ positionRequired: true, position: "", projectRefRequired: false, projectRef: "" })).toBe(true);
     expect(advancedNeedsAttention({ positionRequired: true, position: "QA", projectRefRequired: false, projectRef: "" })).toBe(false);
-  });
-  it("data na liście: dziś / wczoraj / dd.mm", () => {
-    const now = new Date(2026, 8, 23, 14, 0);
-    expect(formatCvListDate(new Date(2026, 8, 23, 12, 40).toISOString(), now)).toMatch(/^dziś 12:40$/);
-    expect(formatCvListDate(new Date(2026, 8, 22, 16, 2).toISOString(), now)).toMatch(/^wczoraj 16:02$/);
-    expect(formatCvListDate(new Date(2026, 8, 19, 9, 0).toISOString(), now)).toBe("19.09");
-    expect(formatCvListDate(null, now)).toBe("");
   });
 });
 

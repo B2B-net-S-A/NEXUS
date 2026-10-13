@@ -1,5 +1,10 @@
 # Generator CV v3 — jeden ekran od osoby (23.09.2026)
 
+> Od 13.10.2026 generator żyje tylko w rekrutacji: bez strony `/cv-generator`
+> (przekierowanie), wyszukiwania osoby, „Inny klient (bez procesu)” i pliku
+> osoby spoza bazy — `generator-cv-tylko-w-rekrutacji.md`. Poniższe punkty
+> o tych ścieżkach są historią.
+
 Dane z produkcji (23.09): 99,7% generacji szło trybem „Mam tylko plik CV (bez
 procesu)”, a 94% tych osób było już w bazie (88% w procesie). Decyzje Artura
 (makiety: https://claude.ai/artifact/E8QeDEyEQdAec4TVbhjPMW):

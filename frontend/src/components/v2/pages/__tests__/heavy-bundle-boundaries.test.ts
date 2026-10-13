@@ -214,9 +214,6 @@ it("„CV do klienta” nie wciąga generatora CV do chunku /jobs/[id]", () => {
     "utf8",
   );
   expect(staticSpecifiers(workbench)).toContain("@/components/v2/recruitment/CvToClientCard");
-  expect(staticSpecifiers(workbench)).not.toContain(
-    "@/components/v2/pages/CVGeneratorStandaloneV2",
-  );
 });
 
 it("karta „CV do klienta” i okno generatora trzymają generator i edytor za dynamic()", () => {
@@ -224,7 +221,7 @@ it("karta „CV do klienta” i okno generatora trzymają generator i edytor za 
   // okno generatora jest montowane przy każdym otwarciu — żadna z nich nie
   // może wciągnąć formularza generatora ani TipTapa do chunku trasy.
   const heavy =
-    /^@tiptap\/|CVBrandedEditModal$|cv-generator\/CvGenerator$|CVGeneratorStandaloneV2$/;
+    /^@tiptap\/|CVBrandedEditModal$|cv-generator\/CvGenerator$/;
   const files = [
     "components/v2/recruitment/CvToClientCard.tsx",
     "components/v2/cv-generator/CvGeneratorDialog.tsx",

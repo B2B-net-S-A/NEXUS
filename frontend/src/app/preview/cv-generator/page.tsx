@@ -1,9 +1,9 @@
 "use client";
 
-// Publiczny harness generatora CV v3 (makiety „Generator CV — start od osoby”).
-// Stany z `?state=` renderowane z propsów komponentów prezentacyjnych, dane
-// fikcyjne, ZERO zapytań: lista klientów jest zasiana pod tym samym kluczem co
-// w `ProcessStep`, a interceptor odcina sieć (pilnuje `harness-seeds.test.ts`).
+// Publiczny harness generatora CV v3 — okno generatora z panelu osoby
+// i profilu kandydata (od 13.10.2026 jedyne miejsce generacji). Stany z
+// `?state=` renderowane z propsów komponentów prezentacyjnych, dane fikcyjne,
+// ZERO zapytań: interceptor odcina sieć (pilnuje `harness-seeds.test.ts`).
 
 import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
@@ -12,20 +12,22 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ToastProvider } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
-import { ClientSinglePicker } from "@/components/clients/ClientSinglePicker";
 import { AdvancedOptions } from "@/components/v2/cv-generator/AdvancedOptions";
 import { CvGeneratorLayout, languageSummary } from "@/components/v2/cv-generator/CvGenerator";
 import { CvResultView } from "@/components/v2/cv-generator/CvResult";
 import { ClientRulesCard, GenerateBar } from "@/components/v2/cv-generator/GenerateBar";
 import { StepCard } from "@/components/v2/cv-generator/GeneratorParts";
 import { LanguageChoice } from "@/components/v2/cv-generator/LanguageChoice";
-import { MyCvListView } from "@/components/v2/cv-generator/MyCvList";
 import { PersonStep } from "@/components/v2/cv-generator/PersonStep";
-import { CV_GENERATOR_CLIENTS_QUERY_KEY, ProcessStep } from "@/components/v2/cv-generator/ProcessStep";
+import { ProcessStep } from "@/components/v2/cv-generator/ProcessStep";
 import { ProcessingTiles } from "@/components/v2/cv-generator/ProcessingTiles";
-import { ProcessSources, UploadSources } from "@/components/v2/cv-generator/SourcesPanel";
-import { UploadIdentityStep } from "@/components/v2/cv-generator/UploadIdentityStep";
-import type { CvLanguageChoice, CvProcessingMode, LanguagePolicy } from "@/components/v2/cv-generator/cv-generator-form";
+import { ProcessSources } from "@/components/v2/cv-generator/SourcesPanel";
+import {
+  NO_RECRUITMENT_MISSING,
+  type CvLanguageChoice,
+  type CvProcessingMode,
+  type LanguagePolicy,
+} from "@/components/v2/cv-generator/cv-generator-form";
 import type { CvCandidateOption } from "@/components/v2/cv-generator/useCvGenerator";
 import { CvToClientCard } from "@/components/v2/recruitment/CvToClientCard";
 import { api, type GeneratedCvItem } from "@/lib/api";
@@ -39,18 +41,14 @@ import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { BACKGROUND_EVENTS_STEP, jobBackgroundEventsQueryKey } from "@/lib/job-background-events";
 import type { RecruitmentOption } from "@/lib/cv-generator";
 
-const NOW = new Date("2026-09-23T14:00:00+02:00");
 const noop = () => undefined;
+const HINT = "Ok. 40 s. Gotowe CV trafi do procesu jako „CV do klienta”.";
 
 const STATES = [
-  ["start", "Start"],
   ["process", "Proces z Championem (Bank Kappa)"],
   ["missing-sources", "Proces bez Championa"],
-  ["no-process", "Inny klient (bez procesu)"],
-  ["upload", "Osoba spoza bazy"],
-  ["upload-client", "Spoza bazy — bez dodawania"],
+  ["no-recruitment", "Osoba bez rekrutacji"],
   ["result", "Wynik"],
-  ["my-cv", "Moje CV"],
   ["card", "Rekrutacja — CV do klienta"],
 ] as const;
 type HarnessState = (typeof STATES)[number][0];
@@ -81,7 +79,6 @@ const SOURCES_JAN = [
   { id: 2, filename: "Jan_Kowalski_CV_EN.docx", is_primary: false, uploaded_at: "2025-03-04T09:00:00Z" },
 ];
 const SOURCES_MARTA = [{ id: 3, filename: "Marta_Zielinska_CV.pdf", is_primary: false, uploaded_at: "2026-09-19T09:00:00Z" }];
-const SOURCES_TOMASZ = [{ id: 4, filename: "Tomasz_Dabrowski_CV.pdf", is_primary: true, uploaded_at: "2026-08-02T09:00:00Z" }];
 
 function cvItem(partial: Partial<GeneratedCvItem> & Pick<GeneratedCvItem, "id" | "candidate_name">): GeneratedCvItem {
   return {
@@ -112,16 +109,6 @@ const RESULT_WARNINGS = [
 const RESULT_DOCS: GeneratedCvItem[] = [
   cvItem({ id: 900, candidate_name: "Jan Kowalski", candidate_id: 1, job_id: 501, client_name: "Bank Kappa", position: "Senior Java Developer", language: "en", filename: "CV_Kowalski_ZOB-2026-114_EN.docx", warnings: RESULT_WARNINGS, consent_required: true, consent_missing: true }),
   cvItem({ id: 901, package_id: 900, candidate_name: "Jan Kowalski", candidate_id: 1, job_id: 501, client_name: "Bank Kappa", position: "Senior Java Developer", language: "pl", filename: "CV_Kowalski_ZOB-2026-114_PL.docx", warnings: RESULT_WARNINGS, consent_required: true, consent_missing: true }),
-];
-
-const MY_CV: GeneratedCvItem[] = [
-  ...RESULT_DOCS,
-  cvItem({ id: 880, candidate_name: "Marta Zielińska", candidate_id: 2, job_id: 601, client_name: "Bank Sigma", position: "Java Developer", content_mode: "polished", status: "processing", job_status: "running", created_at: "2026-09-23T12:52:00+02:00" }),
-  cvItem({ id: 870, candidate_name: "Piotr Wiśniewski", candidate_id: 3, job_id: 502, client_name: "Bank Północny", position: "DevOps Engineer", language: "en", created_at: "2026-09-23T10:15:00+02:00" }),
-  cvItem({ id: 860, candidate_name: "Katarzyna Lewandowska", candidate_id: 4, job_id: 503, client_name: "Bank Lambda", position: "Analityk biznesowy", origin: "auto", needs_review: true, warnings: ["MUST-HAVE: BPMN"], created_at: "2026-09-22T16:02:00+02:00" }),
-  cvItem({ id: 850, candidate_name: "Tomasz Dąbrowski", candidate_id: 5, job_id: null, client_name: "Telekom Przykładowy", content_mode: "polished", created_at: "2026-09-22T11:30:00+02:00" }),
-  cvItem({ id: 840, candidate_name: "Agnieszka Mazur", candidate_id: 6, job_id: 504, client_name: "Biuro Gamma", position: "Scrum Master", warnings: ["MUST-HAVE: SAFe", "MUST-HAVE: Jira Align", "BRAK POKRYCIA: liczba '12 zespołów' (Biuro Gamma) nie występuje w CV ani notatkach — „prowadziła 12 zespołów”"], created_at: "2026-09-19T09:00:00+02:00" }),
-  cvItem({ id: 830, candidate_name: "Paweł Wójcik", candidate_id: 7, job_id: 505, client_name: "Bank Północny", position: "Frontend Developer", language: "en", content_mode: "polished", status: "failed", job_status: "failed", error_message: "Model przerwał odpowiedź.", created_at: "2026-09-18T09:00:00+02:00" }),
 ];
 
 const KAPPA_POLICY: LanguagePolicy = { forced: null, requiresBoth: false };
@@ -160,7 +147,7 @@ function Rules(props: Partial<Parameters<typeof ClientRulesCard>[0]>) {
 function ProcessSourcesFixture(props: Partial<Parameters<typeof ProcessSources>[0]>) {
   return (
     <ProcessSources
-      variant="process" jobId={501} hasChampion championOverride={null} championBusy={false} championMessage={null}
+      jobId={501} hasChampion championOverride={null} championBusy={false} championMessage={null}
       onChampionFile={noop} onChampionError={noop} hasNotes notesChars={1240} noteDraft="" onNoteDraftChange={noop}
       sources={SOURCES_JAN} sourcesLoading={false} sourcesError={false} cvDocumentId={1} onSourceChange={noop}
       {...props}
@@ -168,24 +155,19 @@ function ProcessSourcesFixture(props: Partial<Parameters<typeof ProcessSources>[
   );
 }
 
-const JAN = { id: 1, name: "Jan", lastname: "Kowalski", full_name: "Jan Kowalski", position: "Senior Java Developer", email: "jan.kowalski@example.com" };
-const MARTA = { id: 2, name: "Marta", lastname: "Zielińska", full_name: "Marta Zielińska", position: "Java Developer", email: null };
-const TOMASZ = { id: 5, name: "Tomasz", lastname: "Dąbrowski", full_name: "Tomasz Dąbrowski", position: "DevOps Engineer", email: null };
+const JAN = { id: 1, name: "Jan", lastname: "Kowalski", full_name: "Jan Kowalski" };
+const MARTA = { id: 2, name: "Marta", lastname: "Zielińska", full_name: "Marta Zielińska" };
+const TOMASZ = { id: 5, name: "Tomasz", lastname: "Dąbrowski", full_name: "Tomasz Dąbrowski" };
 
 function renderState(state: HarnessState): ReactNode {
-  const person = (candidate: CvCandidateOption | null) => (
-    <PersonStep
-      candidate={candidate} query="" onQueryChange={noop} results={[]} searching={false}
-      searchError={null} onChoose={noop} onStartUpload={noop}
-    />
-  );
+  const person = (candidate: CvCandidateOption) => <PersonStep candidate={candidate} />;
   switch (state) {
     case "process":
       return (
         <CvGeneratorLayout
           main={<>
             {person(JAN)}
-            <ProcessStep recruitments={[KAPPA, POLNOCNY]} loading={false} error={false} value="11" onChange={noop} otherClient={null} onOtherClientChange={noop}>
+            <ProcessStep recruitments={[KAPPA, POLNOCNY]} loading={false} error={false} value="11" onChange={noop}>
               <ProcessSourcesFixture />
             </ProcessStep>
             <Content mode="tailored" hasChampion language="en" policy={KAPPA_POLICY} clientName="Bank Kappa" position="Senior Java Developer" />
@@ -195,7 +177,7 @@ function renderState(state: HarnessState): ReactNode {
               filename="CV_Kowalski_ZOB-2026-114_EN.docx" projectRef="ZOB/2026/114" projectRefFromJob
               consentRequired consentSlot={<Button type="button" variant="outline" size="sm">Wgraj zrzut maila</Button>} />
             <GenerateBar missing={[]} pending={false} onGenerate={noop}
-              hint="Ok. 40 s. Gotowe CV trafi do procesu jako „CV do klienta” i na listę Moje CV." />
+              hint={HINT} />
           </>}
         />
       );
@@ -204,7 +186,7 @@ function renderState(state: HarnessState): ReactNode {
         <CvGeneratorLayout
           main={<>
             {person(MARTA)}
-            <ProcessStep recruitments={[BANK_SIGMA]} loading={false} error={false} value="21" onChange={noop} otherClient={null} onOtherClientChange={noop}>
+            <ProcessStep recruitments={[BANK_SIGMA]} loading={false} error={false} value="21" onChange={noop}>
               <ProcessSourcesFixture jobId={601} hasChampion={false} hasNotes={false} notesChars={0} sources={SOURCES_MARTA} cvDocumentId={3} />
             </ProcessStep>
             <Content mode="polished" hasChampion={false} language="pl" policy={PLAIN_POLICY} clientName="Bank Sigma" advancedOpen position="Java Developer" />
@@ -212,73 +194,28 @@ function renderState(state: HarnessState): ReactNode {
           aside={<>
             <Rules clientName="Bank Sigma" clientSource="process" languageLabel="PL" filename="Zielinska_Java_Developer.docx" />
             <GenerateBar missing={[]} pending={false} onGenerate={noop}
-              hint="Ok. 40 s. Gotowe CV trafi do procesu jako „CV do klienta” i na listę Moje CV. Champion i notatki nie są wymagane. Bez nich powstanie Redakcja." />
+              hint={`${HINT} Champion i notatki nie są wymagane. Bez nich powstanie Redakcja.`} />
           </>}
         />
       );
-    case "no-process":
+    case "no-recruitment":
       return (
         <CvGeneratorLayout
           main={<>
             {person(TOMASZ)}
-            <ProcessStep recruitments={[]} loading={false} error={false} value="other" onChange={noop}
-              otherClient={{ id: 15, name: "Telekom Przykładowy" }} onOtherClientChange={noop}>
-              <ProcessSourcesFixture variant="no-process" jobId={null} hasChampion={false} hasNotes={false} notesChars={0} sources={SOURCES_TOMASZ} cvDocumentId={4} />
-            </ProcessStep>
-            <Content mode="polished" hasChampion={false} language="pl" policy={PLAIN_POLICY} clientName="Telekom Przykładowy" position="" />
-          </>}
-          aside={<>
-            <Rules clientName="Telekom Przykładowy" clientSource="manual" languageLabel="PL" filename="Dabrowski_CV.docx" />
-            <GenerateBar missing={[]} pending={false} onGenerate={noop} hint="Ok. 40 s. Gotowe CV trafi na listę Moje CV." />
-          </>}
-        />
-      );
-    case "upload":
-    case "upload-client": {
-      const file = new File([new Uint8Array(212 * 1024)], "Anna_Nowak_CV.pdf", { type: "application/pdf" });
-      const withMatch = state === "upload";
-      return (
-        <CvGeneratorLayout
-          main={<>
-            <UploadIdentityStep
-              file={file} fileError={null} onPick={noop} onFileError={noop} onBack={noop} identifying={false}
-              matches={withMatch ? [{ candidate_id: 44, full_name: "Anna Nowak", match_reasons: ["phone_exact"] }] : []}
-              identifyError={null} onUseMatch={noop} canAddToBase onAddToBase={noop} addingToBase={false}
-              decision={withMatch ? "pending" : "without-adding"} onGenerateWithoutAdding={noop}
-            />
-            {!withMatch ? (
-              <>
-                <StepCard step={2} title="Klient i źródła">
-                  <p className="mb-2 text-sm font-semibold text-foreground">Klient <span className="text-destructive" aria-hidden>*</span></p>
-                  <ClientSinglePicker value={null} onChange={noop} queryKey={CV_GENERATOR_CLIENTS_QUERY_KEY} placeholder="Wybierz klienta…" />
-                  <p className="mt-2 text-xs text-muted-foreground">Wybierz klienta. Od niego zależą język, nazwa pliku i zgoda RODO.</p>
-                  <div className="mt-4 divide-y divide-border rounded-lg border border-border">
-                    <UploadSources championFile={null} championError={null} championNotice={null} onChampionFile={noop} onChampionError={noop} notes="" onNotesChange={noop} />
-                  </div>
-                </StepCard>
-                <Content mode="polished" hasChampion={false} language="pl" policy={PLAIN_POLICY} clientName={null} position="" />
-              </>
-            ) : null}
+            <ProcessStep recruitments={[]} loading={false} error={false} value="" onChange={noop} />
           </>}
           aside={<>
             <Rules />
-            <GenerateBar missing={withMatch ? ["Decyzja: dodać osobę do bazy czy generować bez dodawania"] : ["Klient"]} pending={false} onGenerate={noop} hint="Ok. 40 s. Gotowe CV trafi na listę Moje CV." />
+            <GenerateBar missing={[NO_RECRUITMENT_MISSING]} pending={false} onGenerate={noop} hint={HINT} />
           </>}
         />
       );
-    }
     case "result":
       return (
         <CvResultView
           mainId={900} documents={RESULT_DOCS} attachedStage="verified" jobHref="#" canWrite
           onPreview={noop} onEdit={noop} onDownload={noop} onRegenerate={noop} onNew={noop}
-        />
-      );
-    case "my-cv":
-      return (
-        <MyCvListView
-          items={MY_CV} loading={false} error={false} scope="mine" onScopeChange={noop} days={30} onDaysChange={noop}
-          query="" onQueryChange={noop} hasMore onLoadMore={noop} loadingMore={false} onOpen={noop} onRetry={noop} now={NOW}
         />
       );
     case "card":
@@ -297,17 +234,8 @@ function renderState(state: HarnessState): ReactNode {
           ))}
         </div>
       );
-    case "start":
     default:
-      return (
-        <CvGeneratorLayout
-          main={person(null)}
-          aside={<>
-            <Rules />
-            <GenerateBar missing={["Kandydat"]} pending={false} onGenerate={noop} hint="Ok. 40 s. Gotowe CV trafi do procesu jako „CV do klienta” i na listę Moje CV." />
-          </>}
-        />
-      );
+      return null;
   }
 }
 
@@ -470,7 +398,7 @@ function seedCardStates(qc: QueryClient) {
 function Harness() {
   const params = useSearchParams();
   const raw = params.get("state");
-  const state: HarnessState = STATES.some(([key]) => key === raw) ? (raw as HarnessState) : "start";
+  const state: HarnessState = STATES.some(([key]) => key === raw) ? (raw as HarnessState) : "process";
   return (
     <main className="mx-auto w-full max-w-6xl space-y-6 px-4 py-6">
       <nav aria-label="Stany harnessu" className="flex flex-wrap gap-2 text-xs">
@@ -486,13 +414,9 @@ function Harness() {
         ))}
       </nav>
       <header>
-        <h1 className="text-2xl font-bold text-foreground">{state === "my-cv" ? "Moje CV" : "Generator CV"}</h1>
+        <h1 className="text-2xl font-bold text-foreground">Generator CV</h1>
         <p className="text-sm text-muted-foreground">
-          {state === "my-cv"
-            ? "Wygenerowane przez Ciebie w ostatnich 30 dniach."
-            : state.startsWith("upload")
-              ? "Osoba spoza bazy: dodamy ją przy generacji, żeby CV miało właściciela w NEXUSIE."
-              : "Wybierz osobę i proces. Klienta, Championa, notatki i plik CV weźmiemy z NEXUSA."}
+          Okno generatora z panelu osoby i profilu kandydata. Osoba z góry, klient z procesu.
         </p>
       </header>
       {renderState(state)}
@@ -504,11 +428,6 @@ export default function CvGeneratorPreviewPage() {
   const [ready, setReady] = useState(false);
   const [queryClient] = useState(() => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
-    qc.setQueryData([CV_GENERATOR_CLIENTS_QUERY_KEY], [
-      { id: 7, name: "Bank Kappa" },
-      { id: 15, name: "Telekom Przykładowy" },
-      { id: 8, name: "Bank Północny" },
-    ]);
     seedCardStates(qc);
     return qc;
   });
