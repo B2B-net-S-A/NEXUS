@@ -18,8 +18,12 @@ w `entrypoint.sh`, sondy w `/api/health/deep`). Raport:
 - **Nazwa w UI to „Moi ludzie", nie „ławka"** — `EmploymentState.on_bench`
   znaczy już „konsultant bez projektu", a „shortlista" to `JobShortlist`.
 - **Grupy:** aktywni po primary CC (`candidate_competence_categories`, fallback
-  `competence_category_id`, reszta „Pozostałe"); **„Pracują"** = żywa umowa
-  (`current_employment`) — osoba nie znika, ale nie ma przycisku „Dodaj";
+  `competence_category_id`, reszta „Pozostałe"); **„Pracują"** = żywa umowa, która już ruszyła
+  (z wyniku `employment_marker` — ta sama reguła co znacznik „Pracuje u nas”).
+  Od 12.10.2026 osobę z tej grupy MOŻNA dodać do rekrutacji: wiersz ma pigułkę
+  z klientem i końcem zamówienia, a okno dodawania ramkę z Delivery Leadem
+  (`znacznik-pracuje-u-nas.md`). Automat dopasowań i narzędzia Jarvisa dalej
+  pomijają pracujących;
   **„Uśpieni"** (`my_people_overrides.kind='snoozed'`, powód obowiązkowy —
   CHECK). „Przypnij" (`kind='pinned'`) dokłada osobę spoza wyliczenia; jeden
   wiersz na (użytkownik, kandydat), nowsza decyzja nadpisuje. Globalna

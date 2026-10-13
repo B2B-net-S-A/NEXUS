@@ -36,6 +36,7 @@ import { useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 import { useCompetenceCategories } from "@/components/v2/CompetenceCategoryBadge";
 import { AddToRecruitmentDialog, addToRecruitmentSummary } from "@/components/v2/recruitment/AddToRecruitmentDialog";
+import type { EmploymentMarker } from "@/lib/employment-marker";
 import { TabbedNav } from "@/components/ds/TabbedNav";
 import { MatchScoreBadge } from "@/components/ds/MatchScoreBadge";
 import { Button } from "@/components/ui/button";
@@ -126,7 +127,11 @@ export function MyPeoplePanel() {
 
   const [tab, setTab] = useState<PanelTab>("all");
   const [query, setQuery] = useState("");
-  const [addFor, setAddFor] = useState<{ candidate_id: number; full_name: string } | null>(null);
+  const [addFor, setAddFor] = useState<{
+    candidate_id: number;
+    full_name: string;
+    employment_marker?: EmploymentMarker | null;
+  } | null>(null);
   const [busy, setBusy] = useState<Set<number>>(new Set());
   const buddyHidden = useUiStore((s) => s.hideMyPeopleBuddy);
   const setBuddyHidden = useUiStore((s) => s.setHideMyPeopleBuddy);
@@ -352,6 +357,11 @@ export function MyPeoplePanel() {
           candidateIds={[addFor.candidate_id]}
           source="my_people"
           subject={addFor.full_name}
+          employed={
+            addFor.employment_marker
+              ? [{ id: addFor.candidate_id, name: addFor.full_name, marker: addFor.employment_marker }]
+              : undefined
+          }
           onAdded={(result) => {
             showSuccess(addToRecruitmentSummary(result));
             setAddFor(null);

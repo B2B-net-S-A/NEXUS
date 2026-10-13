@@ -60,11 +60,14 @@ import { celebrate } from "@/lib/celebrate";
 import { generatorPrefillHref } from "@/lib/b2b-generator-register";
 import { pendingAgreement } from "@/lib/b2b-agreement";
 import { apiErrorMessage } from "@/lib/api-error";
+import { EmploymentNotice } from "@/components/v2/employment/EmploymentNotice";
 import dynamic from "next/dynamic";
 import {
   HIRED_SIGNED_VIA_OPTIONS,
   hiredReasonComplete,
   verifiedRequirementsOf,
+  HIRED_CURRENT_ENGAGEMENT_OPTIONS,
+  type HiredCurrentEngagement,
   type HiredSignedVia,
   type VerifiedRequirementsMissing,
 } from "@/lib/verified-gate";
@@ -232,6 +235,8 @@ interface SendMoveOptions {
   clientRate?: RatePayload;
   // D2 (04.10.2026): jak podpisano umowę przy ręcznym ruchu na „Zatrudniony”.
   hiredSignedVia?: { via: HiredSignedVia; note: string };
+  // 12.10.2026: „Co z obecną współpracą?” — osoba ma umowę u innego klienta.
+  hiredCurrentEngagement?: HiredCurrentEngagement;
   // Runda 10 (R10-V2-1): ruch zbiorczy zbiera statusy maila odrzucenia
   // i mówi o niezaplanowanych RAZ, po pętli.
   onRejectionEmailStatus?: (status: string | null) => void;
@@ -320,6 +325,8 @@ export function usePipelineMove({
   // Okno „Potwierdź zatrudnienie”: jak podpisano umowę (D2).
   const [hiredVia, setHiredVia] = useState<HiredSignedVia | null>(null);
   const [hiredNote, setHiredNote] = useState("");
+  // Osoba ma już trwającą umowę u innego klienta: co z obecną współpracą.
+  const [hiredEngagement, setHiredEngagement] = useState<HiredCurrentEngagement | null>(null);
   // 04.10.2026: para ma umowę „W trakcie” w Generatorze — pierwsza opcja to
   // potwierdzenie jej podpisu (ta sama automatyka co w rejestrze), a przy
   // „B2B poza Generatorem” umowa z rejestru zostaje anulowana.
@@ -402,6 +409,10 @@ export function usePipelineMove({
   );
 
   const hiredAgreement = pendingAgreement(hiredConfirm?.item.agreement ?? null);
+  // Znacznik „Pracuje u nas” z karty: pytanie o obecną współpracę pojawia się
+  // tylko, gdy osoba ma zatrudnienie u klienta innego niż klient rekrutacji.
+  const hiredMarker = hiredConfirm?.item.employment_marker ?? null;
+  const hiredElsewhere = hiredMarker?.elsewhere === true ? hiredMarker : null;
 
   const invalidateAgreementViews = useCallback(() => {
     syncKanbanCache();
@@ -413,6 +424,7 @@ export function usePipelineMove({
     setHiredConfirm(null);
     setHiredVia(null);
     setHiredNote("");
+    setHiredEngagement(null);
     setHiredFromGenerator(false);
     setCancelGeneratorAgreement(true);
   }, []);
@@ -527,6 +539,7 @@ export function usePipelineMove({
           client_rate_currency: opts?.clientRate?.currency ?? undefined,
           hired_signed_via: opts?.hiredSignedVia?.via ?? undefined,
           hired_signed_note: opts?.hiredSignedVia?.note.trim() || undefined,
+          hired_current_engagement: opts?.hiredCurrentEngagement ?? undefined,
         });
 
         // M4 PR-03 (audyt P1.3): backend tworzy NOWY CandidateStage — karta
@@ -1376,6 +1389,45 @@ export function usePipelineMove({
               </DialogDescription>
             </DialogHeader>
             <DialogBody className="space-y-3 text-sm">
+              {hiredElsewhere ? (
+                <div className="space-y-2 rounded-lg border border-warning/25 bg-warning-muted/50 p-3">
+                  <EmploymentNotice
+                    marker={hiredElsewhere}
+                    hint={null}
+                    tone="neutral"
+                    className="border-0 bg-transparent p-0"
+                  />
+                  {hiredFromGenerator ? (
+                    <p className="text-xs text-muted-foreground">
+                      Delivery Lead klienta, u którego osoba pracuje, dostanie
+                      powiadomienie po potwierdzeniu podpisu.
+                    </p>
+                  ) : (
+                    <>
+                      <fieldset className="space-y-1.5">
+                        <legend className="mb-1 font-medium">Co z obecną współpracą?</legend>
+                        {HIRED_CURRENT_ENGAGEMENT_OPTIONS.map((option) => (
+                          <label key={option.value} className="flex items-start gap-2">
+                            <input
+                              type="radio"
+                              name="hired-current-engagement"
+                              className="mt-1"
+                              value={option.value}
+                              checked={hiredEngagement === option.value}
+                              onChange={() => setHiredEngagement(option.value)}
+                            />
+                            {option.label}
+                          </label>
+                        ))}
+                      </fieldset>
+                      <p className="text-xs text-muted-foreground">
+                        Delivery Lead dostanie powiadomienie z Twoją odpowiedzią.
+                        Obecna umowa i zamówienie nie zmienią się same.
+                      </p>
+                    </>
+                  )}
+                </div>
+              ) : null}
               {hiredAgreement ? null : (
                 <p className="rounded-md bg-muted px-3 py-2 text-muted-foreground">
                   Umowa B2B z Generatora? Użyj „Oznacz jako podpisaną” —{" "}
@@ -1465,7 +1517,9 @@ export function usePipelineMove({
               <Button
                 disabled={
                   hiredBusy ||
-                  (!hiredFromGenerator && !hiredReasonComplete(hiredVia, hiredNote))
+                  (!hiredFromGenerator &&
+                    (!hiredReasonComplete(hiredVia, hiredNote) ||
+                      (hiredElsewhere !== null && hiredEngagement === null)))
                 }
                 onClick={() => {
                   const { item, destCol, srcColId } = hiredConfirm;
@@ -1476,11 +1530,15 @@ export function usePipelineMove({
                   }
                   if (hiredVia === null) return;
                   const signed = { via: hiredVia, note: hiredNote };
+                  const engagement = hiredElsewhere ? (hiredEngagement ?? undefined) : undefined;
                   const cancelId =
                     agreement && cancelGeneratorAgreement ? agreement.id : null;
                   closeHiredConfirm();
                   applyOptimistic(item, srcColId, destCol);
-                  void sendMove(item, destCol, undefined, { hiredSignedVia: signed }).then(
+                  void sendMove(item, destCol, undefined, {
+                    hiredSignedVia: signed,
+                    hiredCurrentEngagement: engagement,
+                  }).then(
                     (ok) => {
                       if (ok && cancelId !== null) void cancelAgreement(cancelId);
                     },

@@ -32,7 +32,9 @@ from app.api.deps import CurrentUser
 from app.api.deps import get_db
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 from app.core.rate_limit import limiter, user_or_ip_key
+from app.core.scheduling import business_today
 from app.schemas.matching_requirements import MatchingRequirements
+from app.services.employment_marker import load_employment_markers
 from app.services.talent_radar_search import (
     canonical_search,
     normalize_skill_names,
@@ -212,12 +214,20 @@ async def talent_radar_search(
         # `CanonicalFit` niesie id w `breakdown`, legacy `ScoreBreakdown` wprost.
         return getattr(item, "candidate_id", None) or item.breakdown.candidate_id
 
+    # Znacznik „Pracuje u nas” — obok plakietki dopuszczalności, nie zamiast.
+    employment_markers = await load_employment_markers(
+        db,
+        [_cid(breakdown) for breakdown in result.breakdowns],
+        today=business_today(),
+        job_client_id=payload.client_id,
+    )
     return {
         "results": [
             _shape_result(
                 breakdown,
                 result.candidates_by_id.get(_cid(breakdown)),
                 result.eligibility_by_id.get(_cid(breakdown)),
+                employment_markers.get(_cid(breakdown)),
             )
             for breakdown in result.breakdowns
         ],
@@ -226,7 +236,10 @@ async def talent_radar_search(
 
 
 def _shape_result(
-    breakdown: Any, candidate: Any, eligibility: Optional[dict[str, Any]] = None
+    breakdown: Any,
+    candidate: Any,
+    eligibility: Optional[dict[str, Any]] = None,
+    employment_marker: Any = None,
 ) -> dict[str, Any]:
     """A score plus who it belongs to, with the salary NUMBERS withheld.
 
@@ -266,6 +279,7 @@ def _shape_result(
     # Badge of a client conflict / current employment (17.09.2026: warnings,
     # not blocks). ``None`` = no contraindication.
     payload["eligibility"] = eligibility
+    payload["employment_marker"] = employment_marker
     return payload
 
 

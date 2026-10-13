@@ -101,7 +101,18 @@ describe("CommandPaletteV2 — podpis kandydata", () => {
             ? {
                 items: [
                   { id: 7, name: "Jan", lastname: "Kowalski", linkedin_current_title: "Java Developer", city: "Kraków" },
-                  { id: 8, name: "Jan", lastname: "Kowalski", linkedin_current_title: null, city: "Gdańsk" },
+                  {
+                    id: 8,
+                    name: "Jan",
+                    lastname: "Kowalski",
+                    linkedin_current_title: null,
+                    city: "Gdańsk",
+                    employment_marker: {
+                      phase: "working",
+                      source: "contract",
+                      clients: [{ client_id: 3, client_name: "Bank Przykładowy", contract_id: 30, phase: "working" }],
+                    },
+                  },
                 ],
                 total: 2,
               }
@@ -118,7 +129,9 @@ describe("CommandPaletteV2 — podpis kandydata", () => {
       vi.advanceTimersByTime(300);
     });
     expect(getByText("· Java Developer · Kraków")).toBeTruthy();
+    // Podpis zostaje bez zmian; znacznik zatrudnienia to osobny element obok.
     expect(getByText("· Gdańsk")).toBeTruthy();
+    expect(getByText("Pracuje u nas · Bank Przykładowy")).toBeTruthy();
   });
 });
 

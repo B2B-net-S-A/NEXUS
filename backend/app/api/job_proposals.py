@@ -37,8 +37,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser, RecruiterPlus, get_db
 from app.api.recruitment_access import ensure_job_membership
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
+from app.core.scheduling import business_today
 from app.models.candidate import Candidate
 from app.services import job_proposals as proposals
+from app.services.employment_marker import load_employment_markers
 from app.services.job_proposal_feedback_schema import DISMISS_NOTE_MAX
 from app.services.candidate_rate_from import rate_summary
 
@@ -321,6 +323,9 @@ async def list_job_proposals(
     reassign_from = await _reassign_sources(db, job_id, ids)
     trainee_handover = await _trainee_handovers(db, job_id, ids)
     history = await _history_sources(db, job_id, ids)
+    employment_markers = await load_employment_markers(
+        db, list(candidates), today=business_today(), job_client_id=job.client_id
+    )
     # „Z ogłoszeń w ostatnich dniach” — to samo okno co domyślny podział
     # licznika (`…/proposal-counts`), liczone zegarem serwera.
     posting_since = datetime.now(timezone.utc) - timedelta(
@@ -355,6 +360,7 @@ async def list_job_proposals(
                 "eligibility": (
                     eligibility_annotation(decision) if decision is not None else None
                 ),
+                "employment_marker": employment_markers.get(row.candidate_id),
                 "reassign_from": reassign_from.get(row.candidate_id),
                 "trainee_handover": trainee_handover.get(row.candidate_id),
                 "history": history.get(row.candidate_id),
@@ -482,8 +488,8 @@ async def job_proposal_facts(
 ):
     """Fakty o osobach z propozycji — hurtowo, bez kontaktu.
 
-    Dwa zapytania niezależnie od liczby osób (kandydaci + historia etapów
-    u klienta tej rekrutacji). Dostęp jak skrzynka propozycji
+    Stała liczba zapytań niezależnie od liczby osób (kandydaci, historia
+    etapów u klienta tej rekrutacji, znacznik „Pracuje u nas”). Dostęp jak skrzynka propozycji
     (``_authorized_job``); stawka kandydata jawna jak w wierszu skrzynki.
     """
     from app.models.job import Job  # noqa: PLC0415
@@ -532,11 +538,15 @@ async def job_proposal_facts(
     from app.services.candidate_rate_from import this_job_rates  # noqa: PLC0415
 
     this_job = await this_job_rates(db, job_id, list(by_id))
+    employment_markers = await load_employment_markers(
+        db, list(by_id), today=business_today(), job_client_id=job.client_id
+    )
     return {
         "job_id": job_id,
         "items": [
             {
                 **proposal_facts.candidate_facts(by_id[cid], history=history.get(cid)),
+                "employment_marker": employment_markers.get(cid),
                 "cv_uploaded_on": cv_dates.get(cid),
                 "rate_this_job_hourly": (
                     float(this_job[cid]["amount"]) if cid in this_job else None

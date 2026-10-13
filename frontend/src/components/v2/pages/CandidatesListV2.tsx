@@ -101,6 +101,9 @@ import { Badge } from "@/components/ui/badge";
 import { CandidateCvCell } from "@/components/v2/candidates/CandidateCvCell";
 import { CandidatePhoneCell } from "@/components/v2/candidates/CandidatePhoneCell";
 import { CandidateProcessCell } from "@/components/v2/candidates/CandidateProcessCell";
+import { EmploymentPill } from "@/components/ds/EmploymentMarker";
+import type { EmploymentMarker } from "@/lib/employment-marker";
+import type { EmployedPerson } from "@/components/v2/employment/EmploymentNotice";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -152,6 +155,7 @@ import {
   type AvailabilityFilter,
   type CandidateFilters,
   type CandidateStatusFilter,
+  EMPLOYMENT_FILTER_VALUES,
   type EmploymentFilter,
   type PipelineStageFilter,
   type RecruitmentMatch,
@@ -274,6 +278,8 @@ interface Candidate {
   notice_period?: number | null;
   notice_period_unit?: "days" | "weeks" | "months" | null;
   employment?: EmploymentInfo;
+  /** Znacznik „Pracuje u nas” — pod nazwiskiem i w oknach dodawania. */
+  employment_marker?: EmploymentMarker | null;
   location?: string;
   city?: string | null;
   competence_category?: string | null;
@@ -645,10 +651,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  [skillExpr],
  );
  const [employmentFilter, setEmploymentFilter] = useState<EmploymentFilter[]>(
- parseEnumCsv(
- searchParams.get("employment"),
- ["at_client","available"] as const,
- ),
+ parseEnumCsv(searchParams.get("employment"), EMPLOYMENT_FILTER_VALUES),
  );
  const [availabilityFilter, setAvailabilityFilter] = useState<AvailabilityFilter[]>(
  parseEnumCsv(
@@ -1243,6 +1246,27 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  });
 
  const items: Candidate[] = data?.items ?? [];
+ // Zaznaczenie przeżywa zmianę strony, a wiersze nie — osoby ze znacznikiem
+ // „Pracuje u nas” zapamiętujemy, żeby okno „Dodaj do rekrutacji” znało je
+ // także wtedy, gdy zaznaczono je na innej stronie listy.
+ const [employedSeen, setEmployedSeen] = useState<Map<number, EmployedPerson>>(new Map());
+ const pageItems = data?.items;
+ useEffect(() => {
+ if (!pageItems) return;
+ setEmployedSeen((prev) => {
+ let next = prev;
+ for (const c of pageItems as Candidate[]) {
+ if (!c.employment_marker || prev.has(c.id)) continue;
+ if (next === prev) next = new Map(prev);
+ next.set(c.id, {
+ id: c.id,
+ name: `${c.name ?? ""} ${c.lastname ?? ""}`.trim() || `Kandydat #${c.id}`,
+ marker: c.employment_marker,
+ });
+ }
+ return next;
+ });
+ }, [pageItems]);
  const listViewState = getCandidateListViewState({
  isLoading,
  isError,
@@ -1447,7 +1471,11 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  const [showBulkPool, setShowBulkPool] = useState(false);
  const [showBulkRecruitment, setShowBulkRecruitment] = useState(false);
  const [bulkPoolPending, setBulkPoolPending] = useState(false);
- const [assignFor, setAssignFor] = useState<{ id: number; name: string } | null>(null);
+ const [assignFor, setAssignFor] = useState<{
+ id: number;
+ name: string;
+ employment?: EmploymentMarker | null;
+ } | null>(null);
  const [detailId, setDetailId] = useState<number | null>(null);
  // Ostatnio oglądany kandydat — cel powrotu fokusu po zamknięciu podglądu
  // (UAT B22). Ref, bo przy zamykaniu `detailId` jest już `null`.
@@ -2461,8 +2489,16 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                                   <ContactStatusBadge contactCase={candidate.contact_case} className="shrink-0" />
                                 ) : null}
                               </div>
-                              <p className="truncate text-xs text-muted-foreground" title={location ?? undefined}>
-                                {location ?? "brak lokalizacji"}
+                              {/* Jedna linia (wiersz ma stałą wysokość): znacznik
+                                  zatrudnienia ma pierwszeństwo, lokalizacja
+                                  ustępuje mu miejsca; pełna treść w dymku. */}
+                              <p className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                                {candidate.employment_marker ? (
+                                  <EmploymentPill marker={candidate.employment_marker} appearance="text" />
+                                ) : null}
+                                <span className="min-w-0 shrink-[100] truncate" title={location ?? undefined}>
+                                  {location ?? "brak lokalizacji"}
+                                </span>
                               </p>
                             </div>
                           </div>
@@ -2528,7 +2564,6 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
 <div className="min-w-0" onClick={(e) => e.stopPropagation()}>
                             <CandidateProcessCell
                               candidateName={fullName}
-                              employment={candidate.employment}
                               recruitments={candidate.active_recruitments}
                             />
                           </div>
@@ -2599,7 +2634,11 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                               className="h-8 gap-1 border-primary/40 bg-primary/5 px-2 text-primary hover:bg-primary hover:text-primary-foreground"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setAssignFor({ id: candidate.id, name: fullName });
+                                setAssignFor({
+                                  id: candidate.id,
+                                  name: fullName,
+                                  employment: candidate.employment_marker,
+                                });
                               }}
                               aria-label={`Przypisz ${fullName} do rekrutacji`}
                               title="Przypisz do rekrutacji"
@@ -2774,6 +2813,9 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
         onOpenChange={setShowBulkRecruitment}
         candidateIds={Array.from(selectedIds)}
         source="candidate_list"
+        employed={Array.from(selectedIds)
+          .map((id) => employedSeen.get(id))
+          .filter((person): person is EmployedPerson => person !== undefined)}
         onAdded={(result) => {
           showSuccess(addToRecruitmentSummary(result));
           clearSelection();
@@ -2824,6 +2866,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
         onOpenChange={(v) => !v && setAssignFor(null)}
         candidateId={assignFor?.id ?? 0}
         candidateName={assignFor?.name ?? ""}
+        employment={assignFor?.employment}
         onAssigned={() => {
           toastOnSuccess("Kandydat przypisany.");
           // Runda 10 (R10-N15-5): kolumna „W procesie” — jak profil i podgląd.

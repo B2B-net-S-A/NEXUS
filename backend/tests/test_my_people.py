@@ -372,9 +372,10 @@ async def test_pin_adds_a_person_without_history_and_is_private(app_client):
 
 @needs_db
 @pytest.mark.asyncio
-async def test_blacklisted_is_excluded_and_working_goes_to_its_own_group(monkeypatch):
+async def test_blacklisted_is_excluded_and_working_goes_to_its_own_group():
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import CandidateStatus
+    from app.models.contract import Contract, ContractStatus
     from app.services import my_people as svc
 
     async with AsyncSessionLocal() as db:
@@ -392,22 +393,24 @@ async def test_blacklisted_is_excluded_and_working_goes_to_its_own_group(monkeyp
                 by=me,
                 at=T0 + timedelta(days=1),
             )
+        # Żywa umowa bez daty startu = osoba pracuje (`is_live_contract`).
+        db.add(
+            Contract(
+                candidate_id=working.id,
+                client_id=job.client_id,
+                status=ContractStatus.active,
+            )
+        )
         await db.commit()
 
-        real = svc.current_employment_client_ids
-
-        async def fake(db_, ids, **kw):
-            out = await real(db_, ids, **kw)
-            if working.id in out:
-                out[working.id] = {job.client_id}
-            return out
-
-        monkeypatch.setattr(svc, "current_employment_client_ids", fake)
         people = await svc.load_my_people(db, me.id)
 
     assert banned.id not in _ids(people)
     [row] = [r for r in people.rows if r.candidate_id == working.id]
     assert row.working is True
+    # Grupa „Pracują” i pigułka idą z jednego wyniku — wiersz wie, u kogo.
+    assert row.employment_marker is not None
+    assert row.employment_marker.clients[0].client_id == job.client_id
     assert working.id not in {r.candidate_id for r in people.active}
 
 

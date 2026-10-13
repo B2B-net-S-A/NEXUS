@@ -11,6 +11,7 @@ from app.models.recruitment_pipeline import (
     StageCategory,
     VerificationStatus,
 )
+from app.schemas.candidate import EmploymentMarker
 from app.schemas.candidate_contact import ContactCaseSummaryResponse
 
 
@@ -71,6 +72,14 @@ class StageMove(BaseModel):
         None
     )
     hired_signed_note: Optional[str] = Field(None, max_length=500)
+    # 12.10.2026 (D3): osoba ma już trwającą umowę u innego klienta — co
+    # z obecną współpracą. Serwer pola nie wymaga (okno zatrudnienia pyta, gdy
+    # karta niesie znacznik „Pracuje u nas” u innego klienta); odpowiedź
+    # trafia do dzwonka Delivery Leada obecnego klienta i do historii profilu.
+    # Umów ani zamówień nie zmienia.
+    hired_current_engagement: Optional[
+        Literal["switch", "parallel", "ask_delivery_lead"]
+    ] = None
 
     # ── Candidate offer response (migracja 0066 — Phase 17) ───────────────
     # Sensowne tylko gdy stage ∈ {acceptance, negotiation, onboarding}.
@@ -295,6 +304,10 @@ class CandidateStageResponse(BaseModel):
     # {id, number, contract_status, signature_status, created_at, signed_at,
     # signature_requested_at, contract_id}; brak = para bez umowy.
     agreement: Optional[dict] = None
+    # Znacznik „Pracuje u nas” (`services/employment_marker.py`); `elsewhere`
+    # liczone względem klienta tej rekrutacji. Pulpit „Moje następne kroki”
+    # go nie niesie (do 25 tablic w jednej odpowiedzi).
+    employment_marker: Optional[EmploymentMarker] = None
 
     model_config = {"from_attributes": True}
 

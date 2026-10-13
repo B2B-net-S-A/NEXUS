@@ -28,6 +28,7 @@ from app.core.database import get_db
 from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.candidate import Candidate
 from app.models.my_people import MyPeopleOverride
+from app.schemas.candidate import EmploymentMarker
 from app.services import my_people as svc
 
 router = APIRouter()
@@ -51,6 +52,7 @@ class MyPeopleRow(BaseModel):
     source: Literal["auto", "pinned"] = "auto"
     active_processes: int = 0
     working: bool = False
+    employment_marker: Optional[EmploymentMarker] = None
     snoozed: bool = False
     snooze_reason: Optional[str] = None
     snoozed_at: Optional[datetime] = None

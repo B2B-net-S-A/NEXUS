@@ -399,6 +399,66 @@ describe("KanbanBoardV2 — karta: odznaki zamiast bramek (17.09.2026)", () => {
     expect(within(cheap).queryByText("ponad budżet")).toBeNull();
   });
 
+  it("karta mówi, że osoba u nas pracuje, i rysuje ostrzeżenia pary z serwera", async () => {
+    useAuthStore.setState({
+      user: { role: "recruiter", roles: ["recruiter"] } as never,
+    });
+    get.mockResolvedValue({
+      data: { effective_budget_hourly: 200, pipeline_template_id: null },
+    });
+
+    renderBoard(
+      rateColumns([
+        {
+          id: 791,
+          candidate_id: 21,
+          name: "Anna",
+          lastname: "Przykładowa",
+          rate: 150,
+          extra: {
+            warnings: ["client_nda"],
+            employment_marker: {
+              phase: "working",
+              source: "contract",
+              elsewhere: true,
+              clients: [
+                {
+                  client_id: 4,
+                  client_name: "Bank Przykładowy",
+                  contract_id: 40,
+                  phase: "working",
+                  order_end_date: "2026-12-31",
+                },
+              ],
+            },
+          },
+        },
+        { id: 792, candidate_id: 22, name: "Jan", lastname: "Testowy", rate: 150 },
+      ]),
+    );
+
+    const employed = (
+      await screen.findByRole("link", { name: "Anna Przykładowa" })
+    ).closest("[data-kanban-card]") as HTMLElement;
+    // Data bez roku — karta ma ~176 px; pełna treść jest w dymku i w opisie.
+    expect(within(employed).getByTestId("card-employment")).toHaveTextContent(
+      "Pracuje u nas · Bank Przykładowy · do 31.12",
+    );
+    expect(within(employed).getByTestId("card-warning-client_nda")).toHaveTextContent("NDA z klientem");
+    const description = document.getElementById(
+      screen.getByRole("link", { name: "Anna Przykładowa" }).getAttribute("aria-describedby") ?? "",
+    );
+    expect(description).toHaveTextContent(
+      "Ostrzeżenie: NDA z klientem. Pracuje u nas · Bank Przykładowy · do 31.12.2026.",
+    );
+
+    const other = screen
+      .getByRole("link", { name: "Jan Testowy" })
+      .closest("[data-kanban-card]") as HTMLElement;
+    expect(within(other).queryByTestId("card-employment")).toBeNull();
+    expect(within(other).queryByTestId(/^card-warning-/)).toBeNull();
+  });
+
   it("stara karta „pending” renderuje się jak zwykła — bez „Pending” i bez akceptacji", async () => {
     useAuthStore.setState({
       user: { role: "admin", roles: ["admin"] } as never,

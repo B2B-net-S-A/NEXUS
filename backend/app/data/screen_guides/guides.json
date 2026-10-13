@@ -88,7 +88,7 @@
       "Wysłanie na „CV wysłane” poza Nordeą robi osoba z uprawnieniem do wysyłki CV do klienta (domyślnie Delivery Lead i admin) w przeglądzie: wymagania z dowodem, CV, budżet i marża na żywo, stawka do klienta. Cofnięcie karty z „Rozmowy u klienta” tego nie wymaga. „Wróć do poprawy…” zaznacza pola — rekruter widzi je w formularzu screeningu, a uwagę w powiadomieniu i notatkach kandydata. Stawka do klienta jest punktem odniesienia dla zamówienia klienta; do umowy idzie stawka kandydata.",
       "Wejście na „Zweryfikowany” wymaga odpowiedzi z formularza screeningu i stawki kandydata (w rekrutacji bez pytań screeningowych zamiast odpowiedzi wystarcza pole „Dlaczego ten kandydat”), wyjście z „Rozmowy u klienta” — debriefu (pytań klienta albo potwierdzenia, że ich nie było), a ręczny ruch na „Zatrudniony” — informacji, jak podpisano umowę.",
       "QC CV doradza: bez zielonego QC ruch na „CV wysłane” i do kolejki Cpro (u Nordei wrzuca osoba od Cpro, a gdy jej nie ma — osoba wskazana w rekrutacji) wymaga „Przesuń mimo uwag…” z powodem; Delivery Lead dostaje wtedy powiadomienie i może cofnąć kartę. QC zgłasza cztery rzeczy: brak CV firmowego, umiejętności krytyczne nieopisane w rolach, treść spoza oryginalnego CV (da się zapisać „Potwierdzone z kandydatem”) i reguły klienta — reszta to uwagi. Powrót z „Zamkniętych” tego nie omija.",
-      "Osobę dodaną ręcznie przez 12 godzin (w Nowych i Screeningu) prowadzi tylko osoba, która ją wzięła — przejąć mogą Delivery Lead, Head of Recruitment i admin."
+      "Osobę dodaną ręcznie przez 12 godzin (w Nowych i Screeningu) prowadzi tylko osoba, która ją wzięła — przejąć mogą Delivery Lead, Head of Recruitment i admin. Zielona linia „Pracuje u nas · klient” na karcie znaczy trwającą umowę u nas; plakietki konfliktu z klientem (NDA, czarna lista klienta, konkurent) ostrzegają, nie blokują. Gdy CV takiej osoby idzie do innego klienta albo zostaje u niego zatrudniona, Delivery Lead jej obecnego klienta dostaje powiadomienie, a okno zatrudnienia pyta „Co z obecną współpracą?”."
     ],
     "anchors": [
       {"id": "jobs.board.columns", "label": "Kolumny tablicy", "describe": "Osiem kolumn etapów — strzałka „→” na karcie albo przeciąganie."},
@@ -132,7 +132,7 @@
     ],
     "pitfalls": [
       "Wynik „nie policzono” to brak danych, nie słabe dopasowanie.",
-      "Osoby z ostrzeżeniem (np. konflikt z klientem) są widoczne i da się je dodać — sprawdź powód przed wysłaniem do klienta; weto hiring managera blokuje dodanie.",
+      "Osoby z ostrzeżeniem (np. konflikt z klientem) są widoczne i da się je dodać — sprawdź powód przed wysłaniem do klienta; weto hiring managera blokuje dodanie. Ramka „Pracuje u nas” w panelu osoby mówi, u którego klienta osoba ma trwającą umowę i kto jest jej Delivery Leadem — to informacja, nie blokada.",
     "Budżet i dni w biurze nikogo nie ukrywają — to plakietki: „oczekuje +X% ponad budżet”, „mniej dni w biurze”, „poniżej minimum — zgoda na telefon”, „preferuje pracę zdalną” (przy hybrydzie; przy pracy w biurze od 4 dni taka osoba jest ukryta).",
     "Plakietka „Szuka części etatu” albo „Tylko pełny etat” znaczy, że wymiar pracy z rozmowy nie pasuje do rekrutacji. Osoba zostaje na liście — sprawdź to z nią przed dodaniem."
     ],
@@ -181,7 +181,7 @@
       }
     ],
     "pitfalls": [
-      "Osoba zarezerwowana przez kogoś innego (12 h) nie da się przesunąć, dopóki rezerwacja nie wygaśnie albo ktoś uprawniony jej nie przejmie.",
+      "Osoba zarezerwowana przez kogoś innego (12 h) nie da się przesunąć, dopóki rezerwacja nie wygaśnie albo ktoś uprawniony jej nie przejmie. Pigułka „Pracuje u nas” pod danymi kontaktowymi znaczy trwającą umowę u nas — kliknij ją, żeby zobaczyć klienta, koniec zamówienia i Delivery Leada; przed wysłaniem CV uzgodnij to z nim.",
       "Odznaka „Follow-up: Anna K. · zaległy 2 dni” znaczy, że klient milczy od 14 dni i ta osoba zadzwoni do kandydata — jedna osoba, nawet gdy kandydat jest w kilku procesach. Nie dzwoń drugi raz: zapisz wynik albo kliknij „Zrobię to ja” w bloku „Kontakt z kandydatem”.",
       "Stawkę kandydata wpisz w „Warunkach” formularza albo przyciskiem „Zmień” przy „W tej rekrutacji”, nie w notatce. Po wysłaniu CV wyższa stawka czeka na Delivery Leada: w ramce pod faktami zleca on negocjację albo decyduje o stawce do klienta. Kwota z dopiskiem „Screening (z notatki)” przy „W tej rekrutacji” i „Notatka z wysyłki” pod „Do klienta” to podpowiedzi z notatek sprzed NEXUSA — stawką stają się dopiero po zapisaniu. Pytania bez odpowiedzi zapiszesz jako pominięte („Pomiń brakujące”), gdy osoba jest przepięta, miała już screening w innej rekrutacji albo jest zatrudniona przez nas; w rekrutacji bez pytań do „Zweryfikowany” wystarcza stawka i „Dlaczego ten kandydat”.",
       "Sekcja „Notatki” pokazuje notatki z tej rekrutacji i ostatnie rozmowy z wcześniejszych; podpis „0 tu · 14 wcześniej” znaczy, że osoba ma u nas historię. Całość jest po „Rozwiń” w „Notatki i historia”, w grupach „Wcześniej u nas” z wynikiem każdej rekrutacji. Przypięte notatki są na górze karty."
@@ -293,7 +293,7 @@
       }
     ],
     "pitfalls": [
-      "Filtr stawki porównuje „Stawkę od” — najniższą stawkę z ostatnich 18 miesięcy. Osoby bez stawki, lokalizacji albo stażu zostają na liście i są oznaczone — ukryjesz je w „Więcej filtrów”.",
+      "Filtr stawki porównuje „Stawkę od” — najniższą stawkę z ostatnich 18 miesięcy. Osoby bez stawki, lokalizacji albo stażu zostają na liście i są oznaczone — ukryjesz je w „Więcej filtrów”. Zielona linia „Pracuje u nas · klient · do daty” pod nazwiskiem znaczy trwającą umowę u nas (bursztynowa „Kończy u nas”, niebieska „Zaczyna u nas”): osobę da się dodać do rekrutacji, ale przed wysłaniem CV uzgodnij to z Delivery Leadem. W „Dostępność” wybierzesz „Pracuje u nas” albo „Kończy u nas w ciągu 60 dni”.",
       "Filtr „Kontakt z kandydatem” liczy rozmowy, maile i ustalone terminy — „nie odebrał” i wpisy automatu kontaktem nie są. Kolumna „Ostatnia rozmowa” (na laptopie włączysz ją w „Kolumny”) pokazuje datę i autora ostatniej rozmowy albo liczbę prób kontaktu. Historia kontaktów z Traffita ma datę importu (maj 2026), więc wcześniejszy okres nic nie znajdzie. W „Historia z nami” opcja „Nie brał udziału” bez wskazania rekrutacji znaczy: w żadnej; „Bez procesu w toku” pokazuje osoby, z którymi nikt teraz nie prowadzi procesu.",
       "Z wymaganiami lista układa osoby od najlepiej dopasowanych („Dopasowanie do wymagań”; „Najnowsi” wybierzesz w sortowaniu). Same nazwy technologii wpisane w górne pole stają się wymaganiami — „Szukaj … po znaczeniu” to cofa. Imię albo nazwisko w górnym polu pokazuje tylko osoby, które dokładnie tak się nazywają (bez polskich znaków też zadziała; „Nowak” nie pokaże „Nowakowskiego”). Podobne nazwiska pojawiają się tylko, gdy nikogo takiego nie ma — lista to mówi.",
       "Chipy „Mile widziane” (miasto, kategoria, wiersz słów) tylko podnoszą pasujące osoby wyżej, nikogo nie ukrywają; „Wymagaj” zamienia chip w filtr. Tak „Szukaj ręcznie” w rekrutacji ustawia jej miasto, kategorię i wiersze, które nie są technologiami."
@@ -370,7 +370,7 @@
       }
     ],
     "pitfalls": [
-      "Stawka z notatek w innej jednostce niż zł/h jest pokazana z przeliczeniem (MD ÷ 8) — sprawdź ją przed zapisem.",
+      "Stawka z notatek w innej jednostce niż zł/h jest pokazana z przeliczeniem (MD ÷ 8) — sprawdź ją przed zapisem. Ramka „Pracuje u nas” w karcie osoby pokazuje klienta, koniec zamówienia i Delivery Leada; „Zaczyna u nas” to podpisana umowa ze startem w przyszłości, „Kończy u nas” — zamówienie bez kontynuacji w ciągu 30 dni.",
       "Przy zmianie stawki okno pokazuje trwające procesy od „Zweryfikowany” — zaznaczone dostają wpis o zmianie stawki, a Delivery Lead i Head of Recruitment powiadomienie.",
       "„Przegląd” mówi, co dzieje się teraz: zaległy telefon po ciszy klienta, procesy w toku (kto ma ruch i od ilu dni) i ostatnią rozmowę. Zakończone rekrutacje są w „Rekrutacje” jako tabela tylko do odczytu.",
       "W „Notatkach i historii” filtry rodzajów bez notatek są schowane. Ważną notatkę przypnij pinezką: zobaczy ją cały zespół, także w karcie kandydata w rekrutacji."

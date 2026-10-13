@@ -15,6 +15,8 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { RequirementVerificationDialog } from "@/components/talent-radar/RequirementVerificationDialog";
 import { eligibilityBadgeClass } from "@/lib/conflicts";
+import { ADD_ANYWAY_HINT, EmploymentNotice } from "@/components/v2/employment/EmploymentNotice";
+import { markerCoversEligibility } from "@/lib/employment-marker";
 import { formatBudgetHourly } from "@/lib/job-budget";
 import {
   formatHourlyRate,
@@ -167,7 +169,8 @@ export function ProposalPanel({
 
       {/* Konflikt z klientem = bursztynowe ostrzeżenie (przypisanie dozwolone);
           czerwień wyłącznie dla weta hiring managera. */}
-      {detail.eligibility && (
+      {detail.employment && <EmploymentNotice marker={detail.employment} hint={ADD_ANYWAY_HINT} />}
+      {detail.eligibility && !markerCoversEligibility(detail.employment, detail.eligibility.reason_code) && (
         <p role={vetoed ? "alert" : "note"} className={`rounded-md px-3 py-2 text-xs ${eligibilityBadgeClass(detail.eligibility)}`}>
           {detail.eligibility.reason}
         </p>

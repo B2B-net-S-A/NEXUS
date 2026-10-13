@@ -37,6 +37,9 @@ from app.services.notification_delivery import (
     load_policy,
 )
 from app.services.notification_triggers import emit
+from app.services.consultant_elsewhere_notifications import (
+    notify_current_client_leads,
+)
 from app.services import screening_fix_requests, stage_remarks
 from app.services.stage_handoff_recipients import (
     REASON_CPRO_QUEUE,
@@ -288,6 +291,7 @@ async def notify_stage_change(
     candidate: Candidate,
     mover: Optional[User],
     stage_display_name: str,
+    hired_engagement: Optional[str] = None,
 ) -> int:
     """Emit notyfikacje (in-app + email) zgodnie z regułami.
 
@@ -296,6 +300,20 @@ async def notify_stage_change(
 
     Best-effort: nigdy nie rzuca. Wszystkie błędy są logowane.
     """
+    # 12.10.2026: Delivery Lead klienta, u którego osoba pracuje, gdy jej CV
+    # idzie do innego klienta albo zostaje tam zatrudniona. Własny typ
+    # dzwonka i własni odbiorcy — niezależnie od reguł etapu niżej. Tu, bo
+    # przez tę funkcję przechodzi każdy ruch (pojedynczy, zbiorczy, automat,
+    # podpis w Generatorze).
+    await notify_current_client_leads(
+        db,
+        new_stage=new_stage,
+        previous_stage=previous_stage,
+        job=job,
+        candidate=candidate,
+        mover=mover,
+        hired_engagement=hired_engagement,
+    )
     try:
         recipients: list[ResolvedRecipient] = await resolve_recipients(
             db,

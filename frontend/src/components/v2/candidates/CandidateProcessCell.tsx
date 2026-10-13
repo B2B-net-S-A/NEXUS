@@ -8,7 +8,6 @@ import {
   activeRecruitments,
   processCell,
   stageLabel,
-  type CandidateRowAvailabilitySource,
   type CandidateRowRecruitment,
 } from "@/components/v2/candidates/candidate-row-format";
 
@@ -23,11 +22,9 @@ const CLOSE_DELAY_MS = 150;
  */
 export function CandidateProcessCell({
   candidateName,
-  employment,
   recruitments,
 }: {
   candidateName: string;
-  employment: CandidateRowAvailabilitySource["employment"];
   recruitments: readonly CandidateRowRecruitment[] | null | undefined;
 }) {
   const [open, setOpen] = useState(false);
@@ -36,7 +33,7 @@ export function CandidateProcessCell({
     if (closeTimer.current) clearTimeout(closeTimer.current);
   }, []);
 
-  const cell = processCell(employment, recruitments);
+  const cell = processCell(recruitments);
   const active = activeRecruitments(recruitments);
   if (!cell) return <span className="text-muted-foreground">—</span>;
 
@@ -66,9 +63,8 @@ export function CandidateProcessCell({
             show();
           }}
           className={cn(
-            "max-w-full truncate rounded-sm text-left text-sm underline decoration-dotted decoration-muted-foreground/60 underline-offset-4",
+            "max-w-full truncate rounded-sm text-left text-sm text-foreground underline decoration-dotted decoration-muted-foreground/60 underline-offset-4",
             "hover:text-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
-            cell.tone === "employed" ? "font-medium text-warning-muted-foreground" : "text-foreground",
           )}
         >
           {cell.text}
@@ -83,34 +79,25 @@ export function CandidateProcessCell({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="border-b border-border px-3 py-2 text-xs font-semibold text-muted-foreground">
-          {active.length > 0
-            ? `Rekrutacje w toku (${active.length})`
-            : "Brak rekrutacji w toku"}
+          Rekrutacje w toku ({active.length})
         </div>
-        {cell.tone === "employed" && (
-          <p className="border-b border-border px-3 py-2 text-sm font-medium text-warning-muted-foreground">
-            {cell.text}
-          </p>
-        )}
-        {active.length > 0 && (
-          <ul className="max-h-72 overflow-y-auto py-1">
-            {active.map((r) => (
-              <li key={r.job_id}>
-                <Link
-                  href={`/jobs/${r.job_id}`}
-                  className="block px-3 py-2 hover:bg-muted focus-visible:bg-muted focus-visible:outline-hidden"
-                >
-                  <span className="block truncate text-sm font-medium text-foreground">{r.job_title}</span>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {[r.client_name, stageLabel(r.stage), r.moved_at ? formatRelativeTime(r.moved_at) : null]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
+        <ul className="max-h-72 overflow-y-auto py-1">
+          {active.map((r) => (
+            <li key={r.job_id}>
+              <Link
+                href={`/jobs/${r.job_id}`}
+                className="block px-3 py-2 hover:bg-muted focus-visible:bg-muted focus-visible:outline-hidden"
+              >
+                <span className="block truncate text-sm font-medium text-foreground">{r.job_title}</span>
+                <span className="block truncate text-xs text-muted-foreground">
+                  {[r.client_name, stageLabel(r.stage), r.moved_at ? formatRelativeTime(r.moved_at) : null]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
       </PopoverContent>
     </Popover>
   );

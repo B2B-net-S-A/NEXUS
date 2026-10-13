@@ -57,6 +57,23 @@ export const HIRED_SIGNED_VIA_OPTIONS: ReadonlyArray<{ value: HiredSignedVia; la
   { value: "other", label: "Inna umowa" },
 ];
 
+/**
+ * „Co z obecną współpracą?” — pytanie w oknie zatrudnienia, gdy osoba ma już
+ * trwającą umowę u innego klienta (12.10.2026). Odpowiedź dostaje Delivery
+ * Lead tamtego klienta; umów ani zamówień nie zmienia.
+ * Lustro `StageMove.hired_current_engagement`.
+ */
+export type HiredCurrentEngagement = "switch" | "parallel" | "ask_delivery_lead";
+
+export const HIRED_CURRENT_ENGAGEMENT_OPTIONS: ReadonlyArray<{
+  value: HiredCurrentEngagement;
+  label: string;
+}> = [
+  { value: "switch", label: "Przechodzi do nowego klienta, obecna współpraca się kończy" },
+  { value: "parallel", label: "Będzie pracować równolegle u obu klientów" },
+  { value: "ask_delivery_lead", label: "Nie wiem — niech zdecyduje Delivery Lead" },
+];
+
 /** Czy wybór w oknie „Potwierdź zatrudnienie” wystarcza serwerowi. */
 export function hiredReasonComplete(via: HiredSignedVia | null, note: string): boolean {
   if (via === null) return false;

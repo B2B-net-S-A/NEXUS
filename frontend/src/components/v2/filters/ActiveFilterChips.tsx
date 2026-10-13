@@ -50,8 +50,9 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const EMPLOYMENT_LABELS: Record<string, string> = {
- at_client: "U klienta",
+ at_client: "Pracuje u nas",
  available: "Dostępni",
+ ending_soon: "Kończy u nas w 60 dni",
 };
 
 const AVAILABILITY_LABELS: Record<string, string> = {

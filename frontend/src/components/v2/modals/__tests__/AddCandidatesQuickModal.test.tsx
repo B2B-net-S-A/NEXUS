@@ -132,6 +132,62 @@ describe("AddCandidatesQuickModal — eligibility", () => {
     expect([...payload.candidate_ids].sort()).toEqual([1, 3]);
   });
 
+  it("pokazuje znacznik „Pracuje u nas”, a po zaznaczeniu ramkę — bez blokady", async () => {
+    const working = {
+      phase: "working",
+      source: "contract",
+      elsewhere: true,
+      clients: [
+        {
+          client_id: 4,
+          client_name: "Bank Przykładowy",
+          contract_id: 40,
+          phase: "working",
+          order_end_date: "2026-12-31",
+          delivery_lead_name: "Karol Wzorcowy",
+        },
+      ],
+    };
+    const atThisClient = {
+      reason_code: "client_current_employment",
+      reason: "Kandydat obecnie pracuje u tego klienta",
+      assignment_allowed: true,
+      visibility: "warn",
+      severity: "warning",
+      secondary: [],
+    };
+    mocks.search.mockResolvedValue({
+      items: [
+        { ...item(1), employment_marker: working },
+        {
+          ...item(2, atThisClient),
+          employment_marker: { ...working, elsewhere: false },
+        },
+        item(3),
+      ],
+      total: 3,
+    });
+    renderModal();
+
+    const row = await screen.findByTestId("add-candidate-row-1");
+    expect(row).toHaveTextContent("Pracuje u nas · Bank Przykładowy · do 31.12.2026");
+    expect(row).toBeEnabled();
+    // Klient tej rekrutacji: jeden znacznik zamiast znacznika i plakietki.
+    expect(screen.getByTestId("add-candidate-row-2")).toHaveTextContent("Pracuje u tego klienta");
+    expect(screen.queryByTestId("add-candidate-eligibility-2")).toBeNull();
+    expect(screen.queryByRole("note")).toBeNull();
+
+    fireEvent.click(row);
+    const notice = screen.getByRole("note");
+    expect(notice).toHaveTextContent("Kandydat Nr1 pracuje u nas · Bank Przykładowy");
+    expect(notice).toHaveTextContent("Zamówienie do 31.12.2026 · Delivery Lead: Karol Wzorcowy");
+    expect(notice).toHaveTextContent("Dodanie jest możliwe.");
+    expect(screen.getByTestId("add-candidates-confirm")).toBeEnabled();
+
+    fireEvent.click(row);
+    expect(screen.queryByRole("note")).toBeNull();
+  });
+
   it("a failed search is an error, not 'no results'", async () => {
     mocks.search.mockRejectedValue(new Error("down"));
     renderModal();

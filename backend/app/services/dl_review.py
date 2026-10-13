@@ -40,6 +40,7 @@ from typing import Any, Iterable, Mapping, Optional, Sequence
 from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.scheduling import business_today
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.competence_category import CompetenceCategory
@@ -737,7 +738,7 @@ async def _load_batch(
         logger.warning("dl_review: eligibility failed", exc_info=True)
         eligibility = {}
     family = await client_family_ids(db, job.client_id)
-    employment = await current_employment_client_ids(db, ids, today=now.date())
+    employment = await current_employment_client_ids(db, ids, today=business_today())
     other_clients = sorted(
         {cid for owned in employment.values() for cid in owned if cid not in family}
     )

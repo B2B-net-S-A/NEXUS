@@ -1,6 +1,6 @@
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Annotated, Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional, Sequence
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 import asyncio
@@ -123,6 +123,7 @@ from app.schemas.candidate import (
     CandidateUpdate,
     EmploymentEngagement,
     EmploymentInfo,
+    EmploymentMarker,
     EmploymentState,
     InviteSourceBrief,
     LinkedinSnapshotSummary,
@@ -149,6 +150,13 @@ from app.services.scoring_service import (
     WeightProfile,
     resolve_active_profile,
     summarize_match_stats,
+)
+from app.services.employment_marker import (
+    ContractRow,
+    SignalRow,
+    ending_soon_exists,
+    markers_from_rows,
+    rows_from_candidate,
 )
 from app.services.dedup_service import (
     find_candidate_by_email,
@@ -671,6 +679,9 @@ def _candidate_list_options():
     )
 
 
+_EMPLOYMENT_FILTER_VALUES = frozenset({"at_client", "available", "ending_soon"})
+
+
 def _at_client_predicate():
     """
     Derived SQL predicate: candidate is currently employed at one of our
@@ -903,6 +914,24 @@ def _talent_pools_for(candidate: Candidate) -> list[TalentPoolBrief]:
         for m in (candidate.pool_memberships or [])
         if m.pool is not None
     ]
+
+
+async def _page_employment_markers(
+    db: AsyncSession, candidates: Sequence[Candidate]
+) -> dict[int, EmploymentMarker]:
+    """Znaczniki „Pracuje u nas” dla osób wczytanych z `_candidate_list_options`.
+
+    Źródła (umowy, konflikty, etapy) są już w pamięci, więc lista — gorąca
+    ścieżka — nie dokłada o nie zapytań; zamówienia i Delivery Leadzi
+    dochodzą tylko, gdy na stronie jest ktoś z sygnałem zatrudnienia.
+    """
+    contracts: list[ContractRow] = []
+    signals: list[SignalRow] = []
+    for candidate in candidates:
+        candidate_contracts, candidate_signals = rows_from_candidate(candidate)
+        contracts.extend(candidate_contracts)
+        signals.extend(candidate_signals)
+    return await markers_from_rows(db, contracts, signals, today=business_today())
 
 
 def _candidate_to_response(candidate: Candidate) -> CandidateResponse:
@@ -1170,20 +1199,26 @@ async def _build_candidate_filtered_query(
     if status_clause is not None:
         query = query.where(status_clause)
     if f.employment:
-        invalid = [e for e in f.employment if e not in {"at_client", "available"}]
+        invalid = [e for e in f.employment if e not in _EMPLOYMENT_FILTER_VALUES]
         if invalid:
             raise HTTPException(
                 status_code=422,
                 detail=(
                     f"Invalid employment values: {invalid}. "
-                    "Allowed: 'at_client', 'available'."
+                    "Allowed: 'at_client', 'available', 'ending_soon'."
                 ),
             )
+        # Filtr działa dla JEDNEJ wartości; każde połączenie = brak filtra
+        # (tak jak dotąd {at_client, available}).
         emp_set = set(f.employment)
         if emp_set == {"at_client"}:
             query = query.where(_at_client_predicate())
         elif emp_set == {"available"}:
             query = query.where(not_(_at_client_predicate()))
+        elif emp_set == {"ending_soon"}:
+            query = query.where(
+                ending_soon_exists(Candidate.id, today=business_today())
+            )
     availability_clause = predicates.availability_clause(f.availability)
     if availability_clause is not None:
         query = query.where(availability_clause)
@@ -2133,11 +2168,12 @@ async def list_candidates(
     employment: Optional[list[str]] = Query(
         None,
         description=(
-            "Derived employment filter — one or more of {'at_client', 'available'}. "
-            "Repeat the param for multi-select. 'at_client' = consultant is employed "
-            "at one of our clients (active contract OR active current_employment "
-            "conflict); 'available' = the inverse. Empty = no filter. Multiple "
-            "values OR-combined (effectively shows everyone if both selected)."
+            "Derived employment filter — one of {'at_client', 'available', "
+            "'ending_soon'}. 'at_client' = consultant is ours (live contract OR "
+            "active current_employment conflict OR current `hired` stage); "
+            "'available' = the inverse; 'ending_soon' = works for us and the "
+            "order ends within 60 days without continuation. Empty = no filter. "
+            "Only a single value filters; any combination shows everyone."
         ),
     ),
     availability: Optional[list[AvailabilityStatus]] = Query(
@@ -3015,6 +3051,7 @@ async def list_candidates(
             }
 
         field_snippets_by_candidate = await asyncio.to_thread(_page_field_snippets)
+    employment_markers = await _page_employment_markers(db, items)
     response_items: list[CandidateResponse] = []
     for cand in items:
         payload = _candidate_to_response(cand)
@@ -3032,6 +3069,7 @@ async def list_candidates(
                 "identity_sync": None,
                 "cv_extracted_data": None,
                 "has_cv_document": cand.id in candidates_with_cv,
+                "employment_marker": employment_markers.get(cand.id),
             }
         )
         stats = match_stats_by_candidate.get(cand.id)
@@ -4392,12 +4430,14 @@ async def get_candidate(
         if candidate.call_facts_verified_by_user_id is not None
         else None
     )
+    employment_markers = await _page_employment_markers(db, [candidate])
     return payload.model_copy(
         update={
             "invite_source": invite_source,
             "linkedin_snapshots": snapshots,
             "contact_case": contact_case,
             "call_facts_verified_by_name": verified_by_name,
+            "employment_marker": employment_markers.get(candidate.id),
         }
     )
 
@@ -4563,6 +4603,7 @@ async def get_candidate_quick_view(
     ).get(candidate_id)
     notes_origin = availability_origin(candidate)
     quick_notes_origin = AvailabilityFromNotes(**notes_origin) if notes_origin else None
+    employment_markers = await _page_employment_markers(db, [candidate])
     return CandidateQuickViewResponse(
         candidate=CandidateQuickViewCandidate(
             id=candidate.id,
@@ -4577,6 +4618,7 @@ async def get_candidate_quick_view(
             ),
             status=candidate.status,
             employment=_derive_employment(candidate),
+            employment_marker=employment_markers.get(candidate.id),
             competence_category_id=candidate.competence_category_id,
             competence_category=candidate.competence_category,
             skills=candidate.skills,

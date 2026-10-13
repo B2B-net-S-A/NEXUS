@@ -8,6 +8,8 @@ import { searchFailed, searchIsRunning, type CandidateSearchPage } from "@/lib/f
 import { RequirementVerificationDialog } from "./RequirementVerificationDialog";
 import { FullCandidateSearchStatus } from "./FullCandidateSearchStatus";
 import { fullSearchFitBadges } from "@/lib/fit-badges";
+import { EmploymentPill } from "@/components/ds/EmploymentMarker";
+import { markerCoversEligibility, type EmploymentMarker } from "@/lib/employment-marker";
 import type { BulkAddSource } from "@/lib/candidate-search-api";
 import {
   AddToRecruitmentDialog,
@@ -40,7 +42,7 @@ export function FullCandidateSearchResults({ data, error, loading, fetching, off
   /** Brak = brak przycisku (rola bez prawa dodawania do pipeline'u). */
   addToRecruitment?: ResultsAddToRecruitment;
 }) {
-  const [addTarget, setAddTarget] = useState<{ id: number; name: string } | null>(null);
+  const [addTarget, setAddTarget] = useState<{ id: number; name: string; marker?: EmploymentMarker | null } | null>(null);
   // A transient read error while the scan is still running must not hide the
   // progress: the scan keeps going on the server and polling resumes by itself.
   if (error && !needsNewRun && data && searchIsRunning(data.state)) return <div className="space-y-4">
@@ -68,6 +70,7 @@ export function FullCandidateSearchResults({ data, error, loading, fetching, off
         {data.results.map(row => <article key={row.candidate.id} className="space-y-3 rounded-lg border bg-card p-5">
           <h3 className="font-semibold">{[row.candidate.name, row.candidate.lastname].filter(Boolean).join(" ") || `Kandydat #${row.candidate.id}`}</h3>
           {row.candidate.location && <p className="text-sm text-muted-foreground">{row.candidate.location}</p>}
+          {row.employment_marker && <div className="flex min-w-0"><EmploymentPill marker={row.employment_marker} /></div>}
           <p className="font-medium">{row.fit_score === null ? "Ocena niepełna" : `Dopasowanie: ${row.fit_score.toFixed(1)}/100`}</p>
           {row.fit_score !== null && <progress className="w-full" aria-label="Dopasowanie" value={row.fit_score} max={100} />}
           <ul className="space-y-1 text-sm">
@@ -82,11 +85,11 @@ export function FullCandidateSearchResults({ data, error, loading, fetching, off
             {fullSearchFitBadges(row.fit).map(label => <li key={label} className="rounded-full border border-warning/40 bg-warning-muted px-2 py-0.5 text-xs text-warning-muted-foreground">{label}</li>)}
           </ul>}
           {/* Konflikt z klientem = ostrzeżenie (17.09.2026); czerwień tylko dla weta HM. */}
-          {row.eligibility && <p className={row.eligibility.assignment_allowed === false ? "text-sm text-destructive" : "text-sm text-warning-muted-foreground"}>{row.eligibility.reason}</p>}
+          {row.eligibility && !markerCoversEligibility(row.employment_marker, row.eligibility.reason_code) && <p className={row.eligibility.assignment_allowed === false ? "text-sm text-destructive" : "text-sm text-warning-muted-foreground"}>{row.eligibility.reason}</p>}
           {jobId && canVerify && onVerified && <RequirementVerificationDialog jobId={jobId} candidateId={row.candidate.id} candidateName={[row.candidate.name, row.candidate.lastname].filter(Boolean).join(" ")} onSaved={onVerified} />}
           <div className="flex flex-wrap gap-2">
             {canOpenProfile && <Link className={buttonVariants({ variant: "outline" })} href={`/candidates/${row.candidate.id}?from=talent-radar`}>Otwórz profil</Link>}
-            {addToRecruitment && <Button variant="outline" onClick={() => setAddTarget({ id: row.candidate.id, name: [row.candidate.name, row.candidate.lastname].filter(Boolean).join(" ") || `Kandydat #${row.candidate.id}` })}>Dodaj do rekrutacji</Button>}
+            {addToRecruitment && <Button variant="outline" onClick={() => setAddTarget({ id: row.candidate.id, name: [row.candidate.name, row.candidate.lastname].filter(Boolean).join(" ") || `Kandydat #${row.candidate.id}`, marker: row.employment_marker })}>Dodaj do rekrutacji</Button>}
           </div>
         </article>)}
       </div>
@@ -98,6 +101,7 @@ export function FullCandidateSearchResults({ data, error, loading, fetching, off
       source={addToRecruitment.source}
       runId={data.run_id}
       subject={`Wybierz rekrutację dla: ${addTarget.name}.`}
+      employed={addTarget.marker ? [{ id: addTarget.id, name: addTarget.name, marker: addTarget.marker }] : undefined}
       onAdded={addToRecruitment.onAdded}
     />}
   </div>;
