@@ -220,6 +220,21 @@ def suggestions_for(text: str) -> tuple[str, ...]:
     return tuple(out)
 
 
+_NAME_TOKEN = re.compile(r"[A-Za-z]\d|\d[A-Za-z]|[&+#]")
+
+
+def _looks_like_name(text: str) -> bool:
+    """Krótka nazwa narzędzia spoza słownika („MITRE ATT&CK”, „SailPoint
+    IdentityIQ (IIQ)”, „GitLab CI/CD”): PIERWSZE słowo ma dwie wielkie litery,
+    cyfrę przy literze albo „&+#”. „Zarządzanie projektami IT” i „Testowanie
+    systemów IT” to czynności — zostają zdaniem."""
+    tokens = [t.strip("()[],.;:") for t in text.split()]
+    if not tokens or any(t.casefold() in _HEAD_FILLER_WORDS for t in tokens):
+        return False
+    first = tokens[0]
+    return sum(c.isupper() for c in first) >= 2 or bool(_NAME_TOKEN.search(first))
+
+
 def _short(text: str) -> bool:
     from app.services.champion_requirement_rows import _is_keyword
 
@@ -270,6 +285,10 @@ def read_phrase(text: str) -> PhraseReading:
             False,
         )
     reason = ignored_reason(clean) or "prose"
+    if reason == "prose" and _short(clean) and _looks_like_name(clean):
+        # Bramka nie zna nazwy, ale wyszukiwanie znajdzie ją w CV dosłownie
+        # (13.10.2026: zapis przenosił „MITRE ATT&CK” do rozmowy).
+        return PhraseReading(clean, "keyword", clean, None, None, None, (), False)
     if reason in ("category", "role") and not _short(clean):
         # Zdanie ze słowem kategorii („Knowledge of card lifecycle management”)
         # to nie słowo do szukania — ta sama granica co `rows_from_legacy`.

@@ -28,7 +28,10 @@ prawie wszystkich (789128: „architektura chmury” → 0 osób w „Szukaj w b
   przetarg*, PZP, SIWZ, SWZ, OPZ, tender*). Decyzji wymagają `prose`, `soft`, `language`
   i branża opisana zdaniem; miasto to podpowiedź („Usuń wiersz” / „Zostaw”). Kategoria
   i rola są słowem tylko do 3 słów i 40 znaków (granica `rows_from_legacy`) — dłuższe
-  („Knowledge of card lifecycle management”) to zdanie. Odczyt oddaje
+  („Knowledge of card lifecycle management”) to zdanie. Krótka nazwa spoza słownika, której
+  PIERWSZE słowo ma dwie wielkie litery, cyfrę przy literze albo „&+#” („MITRE ATT&CK”,
+  „SailPoint IdentityIQ (IIQ)”, „GitLab CI/CD”), zostaje słowem do szukania — bramka jej
+  nie zna, ale wyszukiwanie znajdzie ją w CV; „Zarządzanie projektami IT” zostaje zdaniem. Odczyt oddaje
   `POST /api/job-intake/critical-suggestion` w polu `readings` (bez nowej trasy).
 - **Zdanie nie zostaje słowem bez decyzji (D3).** Edytor wierszy pod zdaniem pokazuje słowa
   z podpowiedzi z liczbą osób i „Do rozmowy”; „Utwórz i opublikuj” (brak `decision`) i zapis
