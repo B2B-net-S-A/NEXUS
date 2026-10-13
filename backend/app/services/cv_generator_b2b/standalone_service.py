@@ -2445,9 +2445,17 @@ async def collect_candidate_notes_text(db: AsyncSession, *, candidate_id: int) -
 
 
 async def screening_notes_char_count(
-    db: AsyncSession, *, candidate_id: int, stage_id: int
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    stage_id: int,
+    sources: dict[str, bool] | None = None,
 ) -> int | None:
-    """Długość notatek dla etapu; ``None``, gdy etap nie należy do kandydata."""
+    """Długość notatek dla etapu; ``None``, gdy etap nie należy do kandydata.
+
+    ``sources`` — te same źródła, z których powstanie CV (D4): minimum
+    notatek z reguły klienta liczy tekst, który model faktycznie dostanie.
+    """
     stage = (
         await db.scalars(
             select(CandidateStage)
@@ -2458,7 +2466,7 @@ async def screening_notes_char_count(
     if stage is None or stage.candidate_id != candidate_id or stage.job is None:
         return None
     text = await collect_screening_notes_text(
-        db, candidate_id=candidate_id, stage=stage, job=stage.job
+        db, candidate_id=candidate_id, stage=stage, job=stage.job, sources=sources
     )
     return len(text.strip())
 

@@ -2320,7 +2320,7 @@ async def enqueue_candidate_generation(
 
             enforce_operation(job, "cv")
         notes_chars = await screening_notes_char_count(
-            db, candidate_id=candidate.id, stage_id=stage.id
+            db, candidate_id=candidate.id, stage_id=stage.id, sources=sources
         )
         if effective_mode == "tailored" and not has_champion_input:
             _reject_missing_inputs(

@@ -231,3 +231,27 @@ def test_chosen_sources_fills_defaults_and_drops_unknown_keys():
         **svc.AI_SOURCE_DEFAULTS,
         "transcripts": True,
     }
+
+
+@pytest.mark.asyncio
+async def test_min_notes_gate_measures_the_chosen_sources(monkeypatch):
+    # Przegląd PR 4: wstępna bramka minimum notatek liczyła domyślne źródła,
+    # więc włączone transkrypty nie ratowały CV z krótkimi notatkami.
+    seen: list = []
+
+    async def collect(db, *, candidate_id, stage, job, sources=None, **_):
+        seen.append(sources)
+        return "x" * (700 if (sources or {}).get("transcripts") else 30)
+
+    stage = SimpleNamespace(candidate_id=1, job=SimpleNamespace(id=2))
+    db = AsyncMock()
+    db.scalars.return_value = SimpleNamespace(first=lambda: stage)
+    monkeypatch.setattr(svc, "collect_screening_notes_text", collect)
+    assert await svc.screening_notes_char_count(db, candidate_id=1, stage_id=3) == 30
+    assert (
+        await svc.screening_notes_char_count(
+            db, candidate_id=1, stage_id=3, sources={"transcripts": True}
+        )
+        == 700
+    )
+    assert seen == [None, {"transcripts": True}]

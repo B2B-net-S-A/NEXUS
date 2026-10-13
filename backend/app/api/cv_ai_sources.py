@@ -107,13 +107,17 @@ async def get_stage_cv_ai_sources(
         excluded=sum(1 for r in responses if is_negative_answer(r)),
     )
 
+    # Te same 20 najnowszych notatek, które czyta kolektor dla modelu.
     note_rows = (
         await db.execute(
-            select(Note.kind, Note.content).where(
+            select(Note.kind, Note.content)
+            .where(
                 Note.candidate_id == candidate_id,
                 or_(Note.job_id == stage.job_id, Note.job_id.is_(None)),
                 _not_followup_note(),
             )
+            .order_by(Note.created_at.desc())
+            .limit(20)
         )
     ).all()
     prep_count = sum(1 for kind, _ in note_rows if kind == note_kinds.PREP_SUMMARY)
