@@ -606,6 +606,32 @@ describe("OrdersTable — budżet i zużycie w wierszach", () => {
     expect(groupRow).not.toHaveTextContent(/2\s295\s200/);
   });
 
+  // 13.10.2026: dwa paski CeZ z „184 / 190 MD 97%” potrzebują ok. 300 px, a
+  // kolumna „Zostało MD” miała 208 — liczby wchodziły pod przycisk „Zużycie”.
+  const tileColumns = () =>
+    [...document.querySelectorAll("[data-orders-table] colgroup")].map((colgroup) =>
+      [...colgroup.querySelectorAll("col")].map((col) => col.className),
+    );
+
+  it("sekcja z paskami CeZ: szersza kolumna „Zostało MD” kosztem nazwiska, w nagłówku i w każdym zamówieniu", () => {
+    renderTable([scoped()]);
+    const columns = tileColumns();
+    // Ozdobny nagłówek sekcji + tabela zamówienia muszą mieć te same kolumny.
+    expect(columns).toHaveLength(2);
+    for (const cols of columns) {
+      expect(cols[0]).toBe("w-[20%]");
+      expect(cols[3]).toBe("w-[18rem]");
+    }
+  });
+
+  it("sekcja bez zakresów zostaje przy dawnych szerokościach kolumn", () => {
+    renderTable([group()]);
+    for (const cols of tileColumns()) {
+      expect(cols[0]).toBe("w-[26%]");
+      expect(cols[3]).toBe("w-[13rem]");
+    }
+  });
+
   it("BIK/Polkomtel bez umowy wykonawczej zostaje przy pasku „pozostało / całość”", () => {
     renderTable([
       group({
