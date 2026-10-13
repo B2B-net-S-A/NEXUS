@@ -103,6 +103,16 @@ describe("readJobDetailUrlState", () => {
     expect(read("win=order&wintab=search").sourceTab).toBeNull();
   });
 
+  it("„Szukaj ręcznie” to zakładka okna źródeł — także ze starego adresu (14.10.2026)", () => {
+    expect(read("win=add&wintab=manual")).toMatchObject({ slideOver: "add", sourceTab: "manual" });
+    expect(read("win=manual-search")).toMatchObject({ slideOver: "add", sourceTab: "manual" });
+    expect(read("tab=manual-search")).toMatchObject({
+      view: "people",
+      slideOver: "add",
+      sourceTab: "manual",
+    });
+  });
+
   it("stary adres daje ten sam stan co nowy", () => {
     expect(read("tab=chat")).toMatchObject({
       view: "people",
@@ -170,7 +180,9 @@ describe("rewriteLegacyJobParams", () => {
     expect(rewrite("tab=history")).toBe("tab=people&win=history-chat&wintab=request");
     expect(rewrite("tab=portals")).toBe("tab=people&win=order&wintab=portals");
     expect(rewrite("tab=questions")).toBe("tab=people&win=questions");
-    expect(rewrite("tab=manual-search")).toBe("tab=people&win=manual-search");
+    expect(rewrite("tab=manual-search")).toBe("tab=people&win=add&wintab=manual");
+    expect(rewrite("win=manual-search")).toBe("win=add&wintab=manual");
+    expect(rewrite("win=add&wintab=manual")).toBeNull();
     expect(rewrite("tab=similar")).toBe("tab=people&seg=proposals");
   });
 

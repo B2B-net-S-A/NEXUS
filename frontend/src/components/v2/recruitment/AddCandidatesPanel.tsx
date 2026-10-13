@@ -14,7 +14,15 @@
  *    przegląd bazy, rekomendacje, przepięcia z połączonych rekrutacji,
  *    przekazania od praktykantów),
  *  - „Szukaj w bazie” — wyszukiwanie po słowach z Championa
- *    (`useSearchBaseTab`); zastąpiło „Znajdź w bazie (AI)”.
+ *    (`useSearchBaseTab`); zastąpiło „Znajdź w bazie (AI)”,
+ *  - „Szukaj ręcznie” — pełna wyszukiwarka z filtrami (`ManualSearchPanel`,
+ *    okno szerokie); do 14.10.2026 osobne okno, które zamykało to i gubiło
+ *    zaznaczenia.
+ *
+ * 14.10.2026 (decyzja Artura, D1 + P1): dopasowanie liczy się samo dla
+ * wierszy na ekranie (bez „Policz dopasowanie dla N”), każdy wiersz ma
+ * „+ Dodaj” i do trzech chipów powodu, a dodana osoba zostaje na liście
+ * z „Cofnij” (usunięcie z rekrutacji; do 15 min serwer oddaje jej propozycję).
  *
  * Do 02.10.2026 okno nazywało się „Dodaj kandydatów” i miało zakładki
  * „Szukaj w bazie (AI)”, „Propozycje”, „Moi ludzie”, „Po nazwisku”. „Moi
@@ -37,7 +45,7 @@ import {
   type ReactNode,
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Sparkles, UserPlus } from "lucide-react";
+import { UserPlus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { FullCandidateSearchStatus } from "@/components/talent-radar/FullCandidateSearchStatus";
@@ -84,17 +92,19 @@ import { cn, formatRelativeTime } from "@/lib/utils";
 import { useVisibleMatchScores } from "@/hooks/useVisibleMatchScores";
 
 import { useDismissReasonPrompt } from "./DismissReasonDialog";
+import { ManualSearchPanel } from "./ManualSearchPanel";
 import { PersonPreview } from "./PersonPreview";
 import { PickList, ScoreBadge, type PickRow } from "./pick-list";
+import { proposalReasonChips, withKeptRows } from "./reason-chips";
 import { RecruitmentSheet } from "./slideovers/RecruitmentSheet";
-import { CANDIDATE_SOURCE_TABS, PROPOSAL_SOURCE_LABEL, type CandidateSourceTab } from "./types";
+import { CANDIDATE_WINDOW_TABS, PROPOSAL_SOURCE_LABEL, type CandidateWindowTab } from "./types";
 import { useJobProposals } from "./useJobProposals";
 import { useJobSearchSeed } from "./useJobSearchSeed";
 import { useSearchBaseTab } from "./useSearchBaseTab";
 
 export { CvBadge } from "./pick-list";
 
-export type AddCandidatesTab = CandidateSourceTab;
+export type AddCandidatesTab = CandidateWindowTab;
 
 export interface AddCandidatesPanelProps {
   open: boolean;
@@ -102,14 +112,19 @@ export interface AddCandidatesPanelProps {
   jobId: number;
   /** Rekrutacja — filtry startowe „Szukaj w bazie”. */
   job: ManualSearchJob;
-  tab: CandidateSourceTab;
-  onTabChange: (tab: CandidateSourceTab) => void;
+  tab: CandidateWindowTab;
+  onTabChange: (tab: CandidateWindowTab) => void;
   budgetHourly: number | null;
   /** Osoby już w rekrutacji (z tablicy) — nie pojawiają się w wynikach. */
   pipelineCandidateIds?: readonly number[];
   readOnly?: boolean;
-  /** „Zmień słowa i filtry” — pełne ręczne wyszukiwanie. */
-  onOpenManualSearch: () => void;
+  /** „Szukaj ręcznie” dodało osoby — strona odświeża Tablicę. */
+  onManualAdded?: () => void;
+  /**
+   * Osoby już dodane w tym oknie (harness `/preview/job-detail`) — wiersz
+   * w stanie „Dodano do „Nowych” · rezerwacja 12 h · Cofnij”.
+   */
+  initialAddedIds?: readonly number[];
   /** Sekcja 2 Championa (słowa do wyszukiwania wpisuje Delivery Lead). */
   onOpenChampionSearch?: () => void;
   /** Pełna lista „Do przejrzenia” z filtrami i shortlistą. */
@@ -161,6 +176,7 @@ function proposalRow(
   entry: ProposalEntry,
   facts?: ProposalFacts | null,
   budgetHourly: number | null = null,
+  askLabels: readonly string[] = [],
 ): PickRow {
   const { row, detail } = entry;
   const source = row.sources.includes("reassign") ? "reassign" : row.sources[0];
@@ -202,23 +218,43 @@ function proposalRow(
     sourceLabel: source ? PROPOSAL_SOURCE_LABEL[source] : null,
     employment,
     warnings,
+    chips: proposalReasonChips(detail.requirements, askLabels),
   };
 }
 
-const TAB_LABEL: Record<CandidateSourceTab, string> = {
+const TAB_LABEL: Record<CandidateWindowTab, string> = {
   similar: "Podobne rekrutacje",
   postings: "Nowi z ogłoszeń",
   base: "Propozycje z bazy",
   search: "Szukaj w bazie",
+  manual: "Szukaj ręcznie",
 };
 
-const TAB_DESCRIPTION: Record<CandidateSourceTab, string> = {
-  similar: SIMILAR_TAB_DESCRIPTION,
-  postings:
-    "Osoby z ogłoszeń z ostatnich 7 dni, które pasują do tej rekrutacji. Kliknij osobę, żeby ją podejrzeć.",
-  base: "Osoby wybrane przez nocny przegląd bazy i pozostałe propozycje. Kliknij osobę, żeby ją podejrzeć.",
-  search: "Wyniki wyszukiwania po słowach, które Delivery Lead wpisał w Championie.",
-};
+function tabDescription(tab: CandidateWindowTab, jobTitle: string | null | undefined): string {
+  switch (tab) {
+    case "similar":
+      return SIMILAR_TAB_DESCRIPTION;
+    case "postings":
+      return "Osoby z ogłoszeń z ostatnich 7 dni, które pasują do tej rekrutacji. Kliknij osobę, żeby ją podejrzeć.";
+    case "base":
+      return "Osoby wybrane przez nocny przegląd bazy i pozostałe propozycje. Kliknij osobę, żeby ją podejrzeć.";
+    case "search":
+      return "Wyniki wyszukiwania po słowach, które Delivery Lead wpisał w Championie.";
+    case "manual":
+      return jobTitle
+        ? `Filtry wypełnione z rekrutacji „${jobTitle}”. Osoby, które już w niej są, nie pojawią się w wynikach.`
+        : "Wyszukiwarka kandydatów z filtrami tej rekrutacji.";
+  }
+}
+
+type ListTab = "postings" | "base";
+
+/** Osoba dodana w tym oknie: wiersz z chwili dodania i jego miejsce na liście. */
+interface KeptEntry {
+  value: ProposalEntry;
+  index: number;
+  tab: ListTab;
+}
 
 /** „Z portalu (JJIT/RocketJobs) · 2 dni temu”. */
 function sourceLine(entry: ProposalEntry): string {
@@ -247,7 +283,8 @@ function AddCandidatesPanelOpen({
   budgetHourly,
   pipelineCandidateIds,
   readOnly = false,
-  onOpenManualSearch,
+  onManualAdded,
+  initialAddedIds,
   onOpenChampionSearch,
   onOpenFullList,
   fullReviewRequest = null,
@@ -256,16 +293,20 @@ function AddCandidatesPanelOpen({
   const canOpenProfile = useCapability("nav.candidates");
   // Zakładka pyta o swoje dane dopiero po pierwszym wejściu; stan (zaznaczenia,
   // wybrane rekrutacje) przeżywa przełączanie, bo hooki zostają zamontowane.
-  const [visited, setVisited] = useState<ReadonlySet<CandidateSourceTab>>(() => new Set([tab]));
+  const [visited, setVisited] = useState<ReadonlySet<CandidateWindowTab>>(() => new Set([tab]));
   useEffect(() => {
     setVisited((prev) => (prev.has(tab) ? prev : new Set([...prev, tab])));
   }, [tab]);
 
   // U7 (audyt 06.10.2026): każda lista propozycji ma swoje zaznaczenie —
   // wspólne „Dodaj N” dodawało osoby z niewidocznej zakładki.
-  const [selectedByTab, setSelectedByTab] = useState<
-    Partial<Record<"postings" | "base", ReadonlySet<number>>>
-  >({});
+  const [selectedByTab, setSelectedByTab] = useState<Partial<Record<ListTab, ReadonlySet<number>>>>({});
+  // „+ Dodaj” i „Dodaj N do Nowych” (14.10.2026): dodana osoba zostaje na
+  // liście z „Cofnij” — `kept` trzyma jej wiersz, bo źródła już jej nie zwracają.
+  const [addedIds, setAddedIds] = useState<ReadonlySet<number>>(() => new Set(initialAddedIds ?? []));
+  const [kept, setKept] = useState<ReadonlyMap<number, KeptEntry>>(() => new Map());
+  const [rowAdding, setRowAdding] = useState<ReadonlySet<number>>(() => new Set());
+  const [undoing, setUndoing] = useState<ReadonlySet<number>>(() => new Set());
   const [previewId, setPreviewId] = useState<number | null>(null);
   const previewTrigger = useRef<HTMLElement | null>(null);
 
@@ -283,10 +324,7 @@ function AddCandidatesPanelOpen({
     // Każda lista ma własne zaznaczenie (U7) — zdejmujemy pominiętych z obu.
     setSelectedByTab((prev) => {
       const next: typeof prev = {};
-      for (const [key, set] of Object.entries(prev) as [
-        "postings" | "base",
-        ReadonlySet<number> | undefined,
-      ][]) {
+      for (const [key, set] of Object.entries(prev) as [ListTab, ReadonlySet<number> | undefined][]) {
         next[key] = new Set([...(set ?? [])].filter((id) => !gone.has(id)));
       }
       return next;
@@ -301,6 +339,8 @@ function AddCandidatesPanelOpen({
   // „Zapytaj w rozmowie” (wariant A, 13.10.2026) — zakładka wyszukiwania
   // i podgląd osoby czytają tę samą listę.
   const talkChecks = useMemo(() => talkChecksOf(counts.data), [counts.data]);
+  // Must-have zdaniem — chip „? … — zapytaj” w wierszu (to samo dla każdej osoby).
+  const askLabels = useMemo(() => counts.data?.not_searchable_must ?? [], [counts.data]);
   const similarJobs = useSimilarJobs(jobId, !readOnly);
   const similarTab = useSimilarJobsTab(jobId, {
     enabled: visited.has("similar"),
@@ -312,12 +352,12 @@ function AddCandidatesPanelOpen({
     seed: searchSeed,
     talkChecks,
     talkChecksError: counts.isError ? apiErrorMessage(counts.error, "błąd serwera") : null,
+    askLabels,
+    initialAddedIds,
     readOnly,
     canOpenProfile,
-    onOpenManualSearch: () => {
-      onOpenChange(false);
-      onOpenManualSearch();
-    },
+    // „Zmień słowa i filtry” zostaje w tym oknie — zaznaczenia nie giną.
+    onOpenManualSearch: () => onTabChange("manual"),
     onOpenChampionSearch: onOpenChampionSearch
       ? () => {
           onOpenChange(false);
@@ -356,8 +396,17 @@ function AddCandidatesPanelOpen({
       .then(() => jobProposalsApi.opened(jobId))
       .catch(() => undefined);
   }, [tab, readOnly, jobId]);
-  const listTab: "postings" | "base" | null = tab === "postings" || tab === "base" ? tab : null;
-  const listEntries = listTab === "postings" ? split.postings : split.base;
+  const listTab: ListTab | null = tab === "postings" || tab === "base" ? tab : null;
+  const liveEntries = listTab === "postings" ? split.postings : split.base;
+  // Dodani w tym oknie stoją dalej w swoim miejscu, z „Cofnij”.
+  const keptHere = useMemo(
+    () => new Map([...kept].filter(([, row]) => row.tab === listTab)),
+    [kept, listTab],
+  );
+  const listEntries = useMemo(
+    () => withKeptRows(liveEntries, keptHere, (e) => e.row.candidateId),
+    [liveEntries, keptHere],
+  );
 
   // Klucz ze zbioru id — odświeżenie listy z tymi samymi osobami nie gubi
   // faktów ani policzonych dopasowań.
@@ -389,15 +438,26 @@ function AddCandidatesPanelOpen({
     [factsQuery.data],
   );
   const listRows = useMemo(() => {
-    const rows = listEntries.map((e) =>
-      proposalRow(e, factsById.get(e.row.candidateId) ?? null, budgetHourly),
-    );
+    const rows = listEntries.map((e): PickRow => {
+      const id = e.row.candidateId;
+      return {
+        ...proposalRow(e, factsById.get(id) ?? null, budgetHourly, askLabels),
+        addState: undoing.has(id)
+          ? "undoing"
+          : addedIds.has(id)
+            ? "added"
+            : rowAdding.has(id)
+              ? "adding"
+              : null,
+      };
+    });
     return sortMode === "client_first" ? sortByClientHistory(rows, factsById) : rows;
-  }, [listEntries, factsById, sortMode, budgetHourly]);
+  }, [listEntries, factsById, sortMode, budgetHourly, askLabels, undoing, addedIds, rowAdding]);
 
-  // Dopasowanie na żądanie — ta sama ścieżka co kolumna wyszukiwarki
-  // (`/api/search/candidates/scores`, paczki po 20, limit i ponowienia 429
-  // w `useVisibleMatchScores`). Liczymy tylko osoby bez wyniku.
+  // Dopasowanie bez klikania (D1, 14.10.2026) — wiersz na ekranie sam o nie
+  // prosi; ta sama ścieżka co kolumna wyszukiwarki (`/api/search/candidates/
+  // scores`, paczki po 20, limit i ponowienia 429 w `useVisibleMatchScores`).
+  // Liczymy tylko osoby bez wyniku.
   const unscoredKey = proposals.entries
     .filter((e) => e.row.fitScore == null)
     .map((e) => e.row.candidateId)
@@ -410,7 +470,7 @@ function AddCandidatesPanelOpen({
   // tożsamość listy jako nowy zestaw i czyści wyniki. Dodanie osoby do
   // rekrutacji zdejmuje ją z propozycji — bez tego pozostali traciliby
   // policzone dopasowanie i zostawali na „liczę…” bez przycisku „Policz”.
-  const [scoreIds, setScoreIds] = useState<readonly number[]>([]);
+  const [scoreIds, setScoreIds] = useState<readonly number[]>(() => [...unscoredNow]);
   useEffect(() => {
     setScoreIds((prev) => {
       const known = new Set(prev);
@@ -420,29 +480,15 @@ function AddCandidatesPanelOpen({
   }, [unscoredNow]);
   const scoreItems = useMemo(() => scoreIds.map((id) => ({ id })), [scoreIds]);
   const matchScores = useVisibleMatchScores(jobId, scoreItems);
-  const [scoreRequested, setScoreRequested] = useState<ReadonlySet<number>>(() => new Set());
-  // Nowa osoba na liście = nowy zestaw w hooku (wyniki wyzerowane), więc
-  // „liczę…” nie może zostać przy osobach, o które pytaliśmy wcześniej.
-  useEffect(() => {
-    setScoreRequested(new Set());
-  }, [scoreItems]);
-  // Do policzenia: osoby z TEJ zakładki, o które jeszcze nie pytaliśmy.
-  // Odpowiedź „ocena niepełna” i błąd mają własne stany wiersza (błąd — „ponów”).
-  const onThisTab = useMemo(() => new Set(listIds), [listIds]);
-  const scoreCandidates = scoreItems.filter(
-    ({ id }) =>
-      onThisTab.has(id) &&
-      unscoredNow.has(id) &&
-      !scoreRequested.has(id) &&
-      matchScores.scores[String(id)] == null &&
-      matchScores.breakdowns[String(id)] == null &&
-      matchScores.failures[String(id)] == null,
+  // Nowa osoba na liście = nowy zestaw w hooku (wyniki wyzerowane) i nowa
+  // tożsamość tej funkcji — wiersze na ekranie zgłaszają się ponownie.
+  const { onRowVisible: reportScoreRow } = matchScores;
+  const onRowVisible = useCallback(
+    (candidateId: number) => {
+      if (unscoredNow.has(candidateId)) reportScoreRow(candidateId);
+    },
+    [unscoredNow, reportScoreRow],
   );
-  const requestScores = () => {
-    const ids = scoreCandidates.map(({ id }) => id);
-    setScoreRequested((prev) => new Set([...prev, ...ids]));
-    for (const id of ids) matchScores.onRowVisible(id);
-  };
   const renderProposalScore = (row: PickRow): ReactNode => {
     if (row.fitScore != null) return <ScoreBadge score={row.fitScore} />;
     const key = String(row.candidateId);
@@ -475,10 +521,8 @@ function AddCandidatesPanelOpen({
         </span>
       );
     }
-    if (scoreRequested.has(row.candidateId)) {
-      return <span className="shrink-0 text-xs text-muted-foreground" role="status">liczę…</span>;
-    }
-    return <ScoreBadge score={null} />;
+    // Bez wyniku i bez błędu = liczy się, gdy wiersz jest na ekranie.
+    return <span className="shrink-0 text-xs text-muted-foreground" role="status">liczę…</span>;
   };
 
   const toggle = useCallback(
@@ -501,16 +545,62 @@ function AddCandidatesPanelOpen({
   );
   const selected = listTab != null ? selectedByTab[listTab] : undefined;
   const selectedIds = useMemo(
-    () => new Set([...(selected ?? [])].filter((id) => entryIds.has(id))),
-    [selected, entryIds],
+    () => new Set([...(selected ?? [])].filter((id) => entryIds.has(id) && !addedIds.has(id))),
+    [selected, entryIds, addedIds],
   );
   const count = selectedIds.size;
-  const addSelected = () => {
-    if (readOnly || count === 0 || listTab == null) return;
-    // Wspólna ścieżka z ekranem „Do przejrzenia” (źródło i przegląd
-    // z pochodzenia wiersza, własny komunikat wyniku).
-    proposals.addToJob([...selectedIds]);
-    setSelectedByTab((prev) => ({ ...prev, [listTab]: new Set<number>() }));
+  /**
+   * „+ Dodaj” w wierszu i „Dodaj N do Nowych” — wspólna ścieżka z ekranem
+   * „Do przejrzenia” (źródło i przegląd z pochodzenia wiersza, własny
+   * komunikat wyniku). Dodani zostają na liście z „Cofnij”; zamknięta karta
+   * i inne odmowy zostają jak dotąd z komunikatem.
+   */
+  const addIds = (ids: readonly number[], perRow: boolean) => {
+    if (readOnly || ids.length === 0 || listTab == null) return;
+    const tabNow = listTab;
+    const snapshot = new Map<number, KeptEntry>();
+    for (const id of ids) {
+      const index = listEntries.findIndex((e) => e.row.candidateId === id);
+      if (index >= 0) snapshot.set(id, { value: listEntries[index], index, tab: tabNow });
+    }
+    if (perRow) setRowAdding((prev) => new Set([...prev, ...ids]));
+    proposals.addToJob([...ids], {}, {
+      onSuccess: (response) => {
+        const added = response.added.filter((id) => snapshot.has(id));
+        setKept((prev) => {
+          const next = new Map(prev);
+          for (const id of added) {
+            const row = snapshot.get(id);
+            if (row) next.set(id, row);
+          }
+          return next;
+        });
+        setAddedIds((prev) => new Set([...prev, ...added]));
+      },
+      onSettled: () => {
+        if (perRow) setRowAdding((prev) => new Set([...prev].filter((id) => !ids.includes(id))));
+      },
+    });
+    setSelectedByTab((prev) => ({
+      ...prev,
+      [tabNow]: new Set([...(prev[tabNow] ?? [])].filter((id) => !ids.includes(id))),
+    }));
+  };
+  const addSelected = () => addIds([...selectedIds], false);
+  /** „Cofnij”: wiersz wraca do zwykłego stanu, gdy źródła już go znów mają. */
+  const undoAdd = (candidateId: number) => {
+    if (readOnly) return;
+    setUndoing((prev) => new Set([...prev, candidateId]));
+    void proposals.undoAdd(candidateId).then((undone) => {
+      setUndoing((prev) => new Set([...prev].filter((id) => id !== candidateId)));
+      if (!undone) return;
+      setAddedIds((prev) => new Set([...prev].filter((id) => id !== candidateId)));
+      setKept((prev) => {
+        const next = new Map(prev);
+        next.delete(candidateId);
+        return next;
+      });
+    });
   };
 
   // „Przeszukaj całą bazę (AI)” z menu „⋯” — jedno żądanie = jeden start.
@@ -563,19 +653,21 @@ function AddCandidatesPanelOpen({
   // czeka; bez niej wczytana część z „+”.
   const listCount = (loaded: number, server: number | undefined): string =>
     !inboxHasMore ? String(loaded) : server != null ? String(Math.max(loaded, server)) : `${loaded}+`;
-  const tabCount: Record<CandidateSourceTab, string | null> = {
+  const tabCount: Record<CandidateWindowTab, string | null> = {
     similar: similarTotal ? String(similarTotal.total) : null,
     postings: proposals.status.settled
       ? listCount(split.postings.length, counts.data?.postings_recent)
       : null,
     base: proposals.status.settled ? listCount(split.base.length, counts.data?.base) : null,
     search: searchTab.total != null ? String(searchTab.total) : null,
+    // Wyszukiwarka liczy dopiero po filtrach — liczby nie znamy.
+    manual: "—",
   };
 
   // U7: strzałki, Home i End chodzą po zakładkach (wzorzec ARIA „tabs”).
   const onTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
-    const index = CANDIDATE_SOURCE_TABS.indexOf(tab);
-    const last = CANDIDATE_SOURCE_TABS.length - 1;
+    const index = CANDIDATE_WINDOW_TABS.indexOf(tab);
+    const last = CANDIDATE_WINDOW_TABS.length - 1;
     const target =
       event.key === "ArrowRight"
         ? index >= last ? 0 : index + 1
@@ -588,14 +680,14 @@ function AddCandidatesPanelOpen({
               : null;
     if (target == null) return;
     event.preventDefault();
-    const next = CANDIDATE_SOURCE_TABS[target];
+    const next = CANDIDATE_WINDOW_TABS[target];
     onTabChange(next);
     document.getElementById(`add-candidates-tab-${next}`)?.focus();
   };
 
   const tablist = (
     <div role="tablist" aria-label="Źródło kandydatów" className="flex flex-wrap gap-1 pb-2">
-      {CANDIDATE_SOURCE_TABS.map((key) => (
+      {CANDIDATE_WINDOW_TABS.map((key) => (
         <button
           key={key}
           type="button"
@@ -666,14 +758,8 @@ function AddCandidatesPanelOpen({
       </p>
     ) : (
       <>
-        {listRows.length > 0 && (scoreCandidates.length > 0 || anyClientHistory) ? (
+        {listRows.length > 0 && anyClientHistory ? (
           <div className="flex flex-wrap items-center gap-2" data-testid="proposals-toolbar">
-            {scoreCandidates.length > 0 && (
-              <Button size="sm" variant="outline" onClick={requestScores}>
-                <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-                Policz dopasowanie dla {scoreCandidates.length}
-              </Button>
-            )}
             {anyClientHistory && (
               <div role="group" aria-label="Kolejność propozycji" className="ml-auto flex gap-1">
                 {(
@@ -724,6 +810,9 @@ function AddCandidatesPanelOpen({
           }}
           onClosePreview={closePreview}
           onDismiss={(row) => dismissPrompt.ask([row.candidateId])}
+          onAdd={(row) => addIds([row.candidateId], true)}
+          onUndo={(row) => undoAdd(row.candidateId)}
+          onRowVisible={onRowVisible}
         />
         {proposals.status.inbox.hasMore ? (
           <Button
@@ -817,20 +906,33 @@ function AddCandidatesPanelOpen({
         talkChecks={talkChecks}
         selection={{
           checked: selectedIds.has(previewRow.candidateId),
-          disabled: readOnly || previewRow.warnings.some((w) => w.blocking),
+          disabled:
+            readOnly ||
+            addedIds.has(previewRow.candidateId) ||
+            previewRow.warnings.some((w) => w.blocking),
           onToggle: () => toggle(previewRow.candidateId),
-          label:
-            previewRow.warnings.find((w) => w.blocking)?.label ?? "Dodaj tę osobę do „Nowych”",
+          label: addedIds.has(previewRow.candidateId)
+            ? "Dodano do „Nowych”"
+            : (previewRow.warnings.find((w) => w.blocking)?.label ?? "Dodaj tę osobę do „Nowych”"),
         }}
       />
     ) : undefined;
 
+  const manualSlots = {
+    toolbar: null,
+    body: null,
+    footer: null,
+    sidePane: undefined,
+    onEscapeKeyDown: () => undefined,
+  };
   const slots =
     tab === "similar"
       ? similarTab
       : tab === "search"
         ? searchTab
-        : {
+        : tab === "manual"
+          ? manualSlots
+          : {
             toolbar: null,
             body: tab === "postings" ? postingsBody : baseBody,
             footer: proposalsFooter,
@@ -842,12 +944,23 @@ function AddCandidatesPanelOpen({
             },
           };
 
+  // „Szukaj ręcznie” po pierwszym wejściu zostaje zamontowane (ukryte poza
+  // swoją zakładką) — filtry i zaznaczenia przeżywają przełączanie.
+  const manualBody = visited.has("manual") ? (
+    <div hidden={tab !== "manual"} data-testid="manual-search-tab">
+      <ManualSearchPanel jobId={jobId} job={job} onBulkAdded={onManualAdded} readOnly={readOnly} />
+    </div>
+  ) : null;
+
   return (
     <RecruitmentSheet
       open
       onOpenChange={onOpenChange}
       title="Kandydaci do dodania"
-      description={TAB_DESCRIPTION[tab]}
+      description={tabDescription(tab, job.title)}
+      // Wyszukiwarka niesie szynę filtrów i tabelę — 540 px jej nie pomieści.
+      width={tab === "manual" ? "wide" : "standard"}
+      bodyClassName={tab === "manual" ? "px-3 sm:px-4" : undefined}
       toolbar={
         <>
           {tablist}
@@ -866,6 +979,7 @@ function AddCandidatesPanelOpen({
         className="space-y-3"
       >
         {slots.body}
+        {manualBody}
         {dismissPrompt.dialog}
       </div>
     </RecruitmentSheet>

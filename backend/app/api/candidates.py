@@ -5647,6 +5647,8 @@ async def remove_candidate_from_recruitment(
 
     job_title = await db.scalar(select(Job.title).where(Job.id == job_id))
     removed_stages = [s.stage.value for s in stage_rows]
+    # Wejście osoby do rekrutacji — czytane PRZED skasowaniem wierszy etapu.
+    entered_at = min(s.created_at for s in stage_rows)
 
     # Zarchiwizuj PRZED skasowaniem. Korekta nadal usuwa kandydata z pipeline'u
     # — to jej cel i UX się nie zmienia — ale dowód przebiegu procesu zostaje.
@@ -5708,6 +5710,14 @@ async def remove_candidate_from_recruitment(
             actor_user_id=current_user.id,
             reason="removed_from_recruitment",
         )
+
+    # „Cofnij” zaraz po „+ Dodaj” w oknie „Kandydaci do dodania” (14.10.2026):
+    # do 15 min od wejścia osoba wraca na listę propozycji tej rekrutacji.
+    from app.services.job_proposals import reopen_after_quick_undo
+
+    await reopen_after_quick_undo(
+        db, job_id=job_id, candidate_id=candidate_id, entered_at=entered_at
+    )
 
     db.add(
         Activity(

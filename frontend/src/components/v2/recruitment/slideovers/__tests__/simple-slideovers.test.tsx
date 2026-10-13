@@ -1,7 +1,7 @@
 import { screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-const spies = vi.hoisted(() => ({ questionBank: vi.fn(), panel: vi.fn(), files: vi.fn() }));
+const spies = vi.hoisted(() => ({ questionBank: vi.fn(), files: vi.fn() }));
 
 vi.mock("@/components/prep/QuestionBankTab", () => ({
   QuestionBankTab: (props: unknown) => {
@@ -9,13 +9,6 @@ vi.mock("@/components/prep/QuestionBankTab", () => ({
     return <div data-testid="question-bank" />;
   },
 }));
-vi.mock("@/components/v2/recruitment/ManualSearchPanel", () => ({
-  ManualSearchPanel: (props: unknown) => {
-    spies.panel(props);
-    return <div data-testid="manual-search-panel" />;
-  },
-}));
-
 vi.mock("@/components/v2/jobs/files/JobFilesPanel", () => ({
   JobFilesPanel: (props: unknown) => {
     spies.files(props);
@@ -24,7 +17,6 @@ vi.mock("@/components/v2/jobs/files/JobFilesPanel", () => ({
 }));
 
 import { JobFilesSlideOver } from "../JobFilesSlideOver";
-import { ManualSearchSlideOver } from "../ManualSearchSlideOver";
 import { QuestionBankSlideOver } from "../QuestionBankSlideOver";
 import { renderWithQuery } from "./test-utils";
 
@@ -60,32 +52,5 @@ describe("JobFilesSlideOver", () => {
   it("tryb tylko do odczytu strony wyłącza dodawanie i usuwanie", () => {
     renderWithQuery(<JobFilesSlideOver open onOpenChange={vi.fn()} jobId={7} readOnly />);
     expect(spies.files).toHaveBeenLastCalledWith(expect.objectContaining({ editable: false }));
-  });
-});
-
-describe("ManualSearchSlideOver", () => {
-  const job = { id: 7, title: "Java Developer" };
-
-  it("zamknięte nie montuje wyszukiwarki", () => {
-    renderWithQuery(
-      <ManualSearchSlideOver open={false} onOpenChange={vi.fn()} jobId={7} job={job} />,
-    );
-    expect(screen.queryByTestId("manual-search-panel")).not.toBeInTheDocument();
-  });
-
-  it("otwarte: szerokie okno z tytułem i panelem zasilonym rekrutacją", () => {
-    const onBulkAdded = vi.fn();
-    renderWithQuery(
-      <ManualSearchSlideOver open onOpenChange={vi.fn()} jobId={7} job={job} onBulkAdded={onBulkAdded} />,
-    );
-    const dialog = screen.getByRole("dialog", { name: "Szukaj ręcznie" });
-    expect(dialog.className).toContain("sm:max-w-[min(1100px,92vw)]");
-    expect(spies.panel).toHaveBeenLastCalledWith({ jobId: 7, job, onBulkAdded, readOnly: false });
-  });
-
-  it("bez wczytanej rekrutacji mówi o ładowaniu zamiast montować panel", () => {
-    renderWithQuery(<ManualSearchSlideOver open onOpenChange={vi.fn()} jobId={7} job={null} />);
-    expect(screen.getByText("Ładowanie rekrutacji…")).toBeInTheDocument();
-    expect(screen.queryByTestId("manual-search-panel")).not.toBeInTheDocument();
   });
 });

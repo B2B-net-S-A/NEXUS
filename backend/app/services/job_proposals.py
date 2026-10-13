@@ -2,7 +2,10 @@
 
 Reguły, które łatwo cofnąć „przy okazji":
 
-* ``added`` nigdy się nie cofa.
+* ``added`` się nie cofa — z jednym wyjątkiem: „Cofnij” zaraz po dodaniu
+  (usunięcie osoby z rekrutacji do :data:`UNDO_ADD_WINDOW` od jej wejścia,
+  :func:`reopen_after_quick_undo`, 14.10.2026) oddaje ją na listę jako
+  ``proposed``.
 * ``expired`` (0422) — nowszy przegląd już osoby nie proponuje albo rekrutację
   zamknięto (audyt 06.10.2026, R6, :func:`expire_open_for_job`). Wiersz nie
   głosuje w statusie pary; osoba wraca jako ``proposed`` dopiero z kolejnym
@@ -71,6 +74,9 @@ EXPIRED = "expired"
 # Wygasłe propozycje tracą dowody po tylu dniach od ostatniego przeglądu, który
 # je zaproponował (``tasks/queue_retention.py``); wiersz zostaje.
 EXPIRED_EVIDENCE_RETENTION_DAYS = 30
+# „Cofnij” po „+ Dodaj” w oknie „Kandydaci do dodania” (14.10.2026): tyle
+# czasu od wejścia osoby do rekrutacji usunięcie oddaje ją do propozycji.
+UNDO_ADD_WINDOW = timedelta(minutes=15)
 
 
 def _short(value: Any) -> Optional[str]:
@@ -558,6 +564,41 @@ async def mark_added(
             JobProposal.status != "added",
         )
         .values(status="added")
+    )
+    return int(result.rowcount or 0)
+
+
+async def reopen_after_quick_undo(
+    db: AsyncSession,
+    *,
+    job_id: int,
+    candidate_id: int,
+    entered_at: Optional[datetime],
+    now: Optional[datetime] = None,
+) -> int:
+    """„Cofnij” dodania: ``added`` wraca do ``proposed``, ale tylko zaraz po nim.
+
+    Woła to usunięcie osoby z rekrutacji. Do :data:`UNDO_ADD_WINDOW` od wejścia
+    osoby (najstarszy wiersz etapu pary) to cofnięcie pomyłki z okna
+    „Kandydaci do dodania” — osoba wraca na listę propozycji tej rekrutacji.
+    Późniejsze usunięcie jest korektą procesu: propozycja zostaje ``added``.
+    ``first_seen_at`` się nie zmienia (osoba nie dostaje plakietki „nowa”).
+    Zwraca liczbę wierszy.
+    """
+    if entered_at is None:
+        return 0
+    moment = now or datetime.now(timezone.utc)
+    if moment - entered_at > UNDO_ADD_WINDOW:
+        return 0
+    result = await db.execute(
+        update(JobProposal)
+        .where(
+            JobProposal.job_id == job_id,
+            JobProposal.candidate_id == candidate_id,
+            JobProposal.status == "added",
+        )
+        .values(status="proposed")
+        .execution_options(synchronize_session=False)
     )
     return int(result.rowcount or 0)
 

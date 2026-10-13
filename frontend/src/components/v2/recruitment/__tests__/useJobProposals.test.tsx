@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   latestSnapshot: vi.fn(),
   regenerate: vi.fn(),
   pipelineScores: vi.fn(),
+  removeFromRecruitment: vi.fn(),
   toast: { showSuccess: vi.fn(), showError: vi.fn(), showToast: vi.fn(), showActionToast: vi.fn() },
   fullSearch: { current: {} as Record<string, unknown> },
 }));
@@ -42,6 +43,7 @@ vi.mock("@/lib/api", async (orig) => ({
   historicalCandidatesApi: { forJob: (...a: unknown[]) => mocks.similar(...a) },
   proposalsApi: { latest: (...a: unknown[]) => mocks.latestSnapshot(...a), regenerate: (...a: unknown[]) => mocks.regenerate(...a) },
   matchingApi: { pipelineScores: (...a: unknown[]) => mocks.pipelineScores(...a) },
+  candidatesApi: { removeFromRecruitment: (...a: unknown[]) => mocks.removeFromRecruitment(...a) },
 }));
 vi.mock("@/hooks/useFullCandidateSearch", () => ({ useFullCandidateSearch: () => mocks.fullSearch.current }));
 vi.mock("@/components/Toast", () => ({ useToast: () => mocks.toast }));
@@ -138,6 +140,65 @@ describe("useJobProposals", () => {
     for (const key of [["kanban", "42"], ["kanban", 42], ["pipeline-scores"], ["job-proposals", 42], ["jobs"], ["jobs-v2"]]) {
       expect(keys).toContain(JSON.stringify(key));
     }
+  });
+
+  it("dodanie oddaje wynik wołającemu (okno zostawia dodanych z „Cofnij”)", async () => {
+    const { result } = setup();
+    await waitFor(() => expect(result.current.rows).toHaveLength(4));
+    const onSuccess = vi.fn();
+    const onSettled = vi.fn();
+    act(() => result.current.addToJob([2], {}, { onSuccess, onSettled }));
+    await waitFor(() => expect(onSettled).toHaveBeenCalled());
+    expect(onSuccess).toHaveBeenCalledWith(expect.objectContaining({ added: [2] }));
+  });
+
+  it("dwa szybkie dodania: każde dostaje swój wynik (callbacki `mutate` dostaje tylko ostatnie)", async () => {
+    const { result } = setup();
+    await waitFor(() => expect(result.current.rows).toHaveLength(4));
+    const first = vi.fn();
+    const second = vi.fn();
+    act(() => {
+      result.current.addToJob([2], {}, { onSuccess: first });
+      result.current.addToJob([3], {}, { onSuccess: second });
+    });
+    await waitFor(() => expect(second).toHaveBeenCalled());
+    await waitFor(() => expect(first).toHaveBeenCalledWith(expect.objectContaining({ added: [2] })));
+    expect(second).toHaveBeenCalledWith(expect.objectContaining({ added: [3] }));
+  });
+
+  it("„Cofnij” dodania: usunięcie z rekrutacji, osoba wraca na listę dopiero po odświeżeniu źródeł", async () => {
+    mocks.removeFromRecruitment.mockResolvedValue({ data: {} });
+    const { result, invalidate } = setup();
+    await waitFor(() => expect(result.current.rows).toHaveLength(4));
+    act(() => result.current.addToJob([2]));
+    await waitFor(() => expect(result.current.rows.map((r) => r.candidateId)).not.toContain(2));
+
+    let undone: boolean | undefined;
+    await act(async () => {
+      undone = await result.current.undoAdd(2);
+    });
+    expect(undone).toBe(true);
+    expect(mocks.removeFromRecruitment).toHaveBeenCalledWith(2, JOB);
+    // Skrzynka znów zwraca osobę (serwer oddał propozycję) — hook jej nie chowa.
+    await waitFor(() => expect(result.current.rows.map((r) => r.candidateId)).toContain(2));
+    const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify((arg as { queryKey: unknown }).queryKey));
+    for (const key of [["kanban", "42"], ["kanban", 42], ["pipeline-scores"], ["job-proposals", 42]]) {
+      expect(keys).toContain(JSON.stringify(key));
+    }
+  });
+
+  it("nieudane „Cofnij” mówi dlaczego i zwraca `false`", async () => {
+    mocks.removeFromRecruitment.mockRejectedValue({
+      response: { status: 409, data: { detail: "Nie można usunąć — hiring manager odrzucił tę osobę." } },
+    });
+    const { result } = setup();
+    await waitFor(() => expect(result.current.rows).toHaveLength(4));
+    let undone: boolean | undefined;
+    await act(async () => {
+      undone = await result.current.undoAdd(2);
+    });
+    expect(undone).toBe(false);
+    expect(mocks.toast.showError).toHaveBeenCalledWith("Nie można usunąć — hiring manager odrzucił tę osobę.");
   });
 
   it("konflikt z klientem wraca jako ostrzeżenie w komunikacie, nie jako pominięcie", async () => {

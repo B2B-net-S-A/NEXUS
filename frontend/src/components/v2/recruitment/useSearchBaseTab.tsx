@@ -11,7 +11,11 @@
  * 13.10.2026). Każda linia mówi, co robi z listą: wycina, podnosi albo nic.
  *
  * Lista jest krótka (strony po 20, „Pokaż więcej”) i ma ten sam podgląd osoby
- * co pozostałe zakładki. Zmiana słów i filtrów = pełne „Szukaj ręcznie”.
+ * co pozostałe zakładki. Zmiana słów i filtrów = zakładka „Szukaj ręcznie”
+ * tego samego okna (14.10.2026 — zaznaczenia zostają).
+ *
+ * 14.10.2026: „+ Dodaj” w wierszu, dodana osoba zostaje na liście z „Cofnij”
+ * (usunięcie z rekrutacji), a pod faktami chipy powodu z rozbicia dopasowania.
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -24,6 +28,7 @@ import { FieldSnippets, type FieldSnippet } from "@/components/v2/MatchSnippet";
 import type { SourceTabSlots } from "@/components/v2/jobs/SimilarJobsPanel";
 import { fetchCandidateListPage } from "@/components/v2/pages/candidate-list-query";
 import { getCurrentTitle, type CandidateLite } from "@/components/v2/pages/candidate-list-helpers";
+import { candidatesApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { formatReasonCounts, summarizeBulkResult } from "@/lib/bulk-result-summary";
 import { candidateSearchApi, proposalsBulkApi } from "@/lib/candidate-search-api";
@@ -31,14 +36,24 @@ import { jobProposalsKeys, talkCheckLabel, type TalkCheck } from "@/lib/job-prop
 import { requirementLabel } from "@/lib/keyword-requirements";
 import { yearsLabel } from "@/lib/proposal-facts";
 import type { EmploymentMarker } from "@/lib/employment-marker";
+import type { MatchBreakdown } from "@/lib/match-breakdown";
 import { formatHourlyRate } from "@/lib/proposals-merge";
 import { filtersToApiParams } from "@/lib/url-filters";
 
 import { PersonPreview } from "./PersonPreview";
 import { PickList, ScoreBadge, type PickRow } from "./pick-list";
+import { breakdownReasonChips, withKeptRows } from "./reason-chips";
 import type { JobSearchSeed } from "./useJobSearchSeed";
 
 export const SEARCH_BASE_PAGE = 20;
+
+/** Wiersz dodany w tym oknie: miejsce na liście i wynik z chwili dodania. */
+interface KeptRow {
+  value: SearchCandidate;
+  index: number;
+  score: number | null;
+  breakdown: MatchBreakdown | null;
+}
 
 interface SearchCandidate extends CandidateLite {
   id: number;
@@ -90,9 +105,13 @@ export interface SearchBaseTabOptions {
   talkChecks: readonly TalkCheck[];
   /** Awaria odczytu tej listy — nie udaje „nie ma o co pytać”. */
   talkChecksError?: string | null;
+  /** Must-have zdaniem (`not_searchable_must`) — chip „? … — zapytaj” w wierszu. */
+  askLabels?: readonly string[];
+  /** Osoby już dodane w tym oknie (harness) — wiersz w stanie „Dodano · Cofnij”. */
+  initialAddedIds?: readonly number[];
   readOnly?: boolean;
   canOpenProfile: boolean;
-  /** Pełne „Szukaj ręcznie” (zmiana słów i filtrów). */
+  /** Zakładka „Szukaj ręcznie” (zmiana słów i filtrów). */
   onOpenManualSearch: () => void;
   /** Sekcja 2 Championa — tam Delivery Lead wpisuje słowa. */
   onOpenChampionSearch?: () => void;
@@ -110,6 +129,8 @@ export function useSearchBaseTab(
     seed,
     talkChecks,
     talkChecksError = null,
+    askLabels = [],
+    initialAddedIds,
     readOnly = false,
     canOpenProfile,
     onOpenManualSearch,
@@ -121,10 +142,16 @@ export function useSearchBaseTab(
   const [selected, setSelected] = useState<ReadonlySet<number>>(() => new Set());
   const [previewId, setPreviewId] = useState<number | null>(null);
   const [adding, setAdding] = useState(false);
-  // U4 (audyt 06.10.2026): dodana osoba zostaje na liście 2–4 s, zanim
-  // odświeżenie ją zdejmie — do tego czasu wiersz mówi „Dodano” i nie da się
-  // go kliknąć drugi raz (drugie kliknięcie dawało czerwony komunikat).
-  const [addedIds, setAddedIds] = useState<ReadonlySet<number>>(() => new Set());
+  // 14.10.2026: osoba dodana w tym oknie zostaje na liście („Dodano do
+  // „Nowych” · rezerwacja 12 h · Cofnij”), także gdy odświeżenie wyników już
+  // jej nie zwraca — `kept` pamięta wiersz i jego miejsce.
+  const [addedIds, setAddedIds] = useState<ReadonlySet<number>>(() => new Set(initialAddedIds ?? []));
+  const [kept, setKept] = useState<ReadonlyMap<number, KeptRow>>(() => new Map());
+  const [rowAdding, setRowAdding] = useState<ReadonlySet<number>>(() => new Set());
+  const [undoing, setUndoing] = useState<ReadonlySet<number>>(() => new Set());
+  // U4 (audyt 06.10.2026): osoba, która już jest w rekrutacji, do odświeżenia
+  // listy mówi „Dodano” i nie da się jej kliknąć drugi raz.
+  const [inJobIds, setInJobIds] = useState<ReadonlySet<number>>(() => new Set());
   const previewTrigger = useRef<HTMLElement | null>(null);
 
   const filtersKey = seed.filters ? JSON.stringify(seed.filters) : "";
@@ -146,7 +173,8 @@ export function useSearchBaseTab(
     refetchOnWindowFocus: false,
   });
   const pages = useMemo(() => list.data?.pages ?? [], [list.data]);
-  const items = useMemo(() => pages.flatMap((page) => page.items ?? []), [pages]);
+  const liveItems = useMemo(() => pages.flatMap((page) => page.items ?? []), [pages]);
+  const items = useMemo(() => withKeptRows(liveItems, kept, (c) => c.id), [liveItems, kept]);
   const total = list.isSuccess ? (pages[0]?.total ?? 0) : null;
 
   // Dopasowanie do TEJ rekrutacji — jedno zapytanie na stronę wyników (≤ 20
@@ -165,9 +193,14 @@ export function useSearchBaseTab(
     }),
   });
   const scores = new Map<number, number>();
+  // Rozbicie dopasowania (`matching_must` / `gap_must`) — chipy powodu.
+  const breakdowns = new Map<number, MatchBreakdown>();
   for (const query of scoreQueries) {
     for (const [id, value] of Object.entries(query.data?.scores ?? {})) {
       if (typeof value === "number") scores.set(Number(id), value);
+    }
+    for (const [id, value] of Object.entries(query.data?.breakdowns ?? {})) {
+      if (value) breakdowns.set(Number(id), value);
     }
   }
   const scoresPending = scoreQueries.some((q) => q.isPending && q.fetchStatus !== "idle");
@@ -175,7 +208,8 @@ export function useSearchBaseTab(
   const rows: PickRow[] = items.map((c) => ({
     candidateId: c.id,
     fullName: fullName(c),
-    fitScore: scores.get(c.id) ?? null,
+    // Dodanego odświeżenie już nie zwraca — wynik z chwili dodania.
+    fitScore: scores.get(c.id) ?? kept.get(c.id)?.score ?? null,
     rateLabel: null,
     availabilityLabel: null,
     note: null,
@@ -185,9 +219,17 @@ export function useSearchBaseTab(
         .join(" · ") || null,
     sourceLabel: null,
     employment: c.employment_marker ?? null,
-    warnings: addedIds.has(c.id)
+    warnings: inJobIds.has(c.id) && !addedIds.has(c.id)
       ? [{ key: "added", label: "Dodano do „Nowych”", blocking: true }]
       : [],
+    chips: breakdownReasonChips(breakdowns.get(c.id) ?? kept.get(c.id)?.breakdown, askLabels),
+    addState: undoing.has(c.id)
+      ? "undoing"
+      : addedIds.has(c.id)
+        ? "added"
+        : rowAdding.has(c.id)
+          ? "adding"
+          : null,
     extra: c.match_snippets?.length ? (
       <FieldSnippets snippets={c.match_snippets} className="mt-0.5" />
     ) : undefined,
@@ -214,12 +256,26 @@ export function useSearchBaseTab(
     });
 
   const count = selected.size;
-  const addSelected = async () => {
-    if (readOnly || count === 0) return;
-    setAdding(true);
+  /** Jedna droga dla „+ Dodaj” w wierszu i „Dodaj N do Nowych” w stopce. */
+  const addIds = async (ids: readonly number[], perRow: boolean) => {
+    if (readOnly || ids.length === 0) return;
+    // Miejsce wiersza na liście — dodana osoba zostaje tam z „Cofnij”.
+    const snapshot = new Map<number, KeptRow>();
+    for (const id of ids) {
+      const index = items.findIndex((c) => c.id === id);
+      if (index < 0) continue;
+      snapshot.set(id, {
+        value: items[index],
+        index,
+        score: scores.get(id) ?? null,
+        breakdown: breakdowns.get(id) ?? null,
+      });
+    }
+    if (perRow) setRowAdding((prev) => new Set([...prev, ...ids]));
+    else setAdding(true);
     try {
       const result = await proposalsBulkApi.addInChunks(jobId, {
-        candidate_ids: [...selected],
+        candidate_ids: [...ids],
         initial_stage_legacy: "new",
         source: "manual_search",
       });
@@ -233,10 +289,20 @@ export function useSearchBaseTab(
       else showError(parts.join(" "));
       // Z zaznaczenia schodzą dodani ORAZ osoby, które już są w rekrutacji.
       const gone = new Set<number>(result.added);
-      result.skipped
+      const inJob = result.skipped
         .filter((row) => row.reason === "already_in_job")
-        .forEach((row) => gone.add(row.candidate_id));
-      setAddedIds((prev) => new Set([...prev, ...gone]));
+        .map((row) => row.candidate_id);
+      inJob.forEach((id) => gone.add(id));
+      setAddedIds((prev) => new Set([...prev, ...result.added]));
+      setKept((prev) => {
+        const next = new Map(prev);
+        for (const id of result.added) {
+          const row = snapshot.get(id);
+          if (row) next.set(id, row);
+        }
+        return next;
+      });
+      setInJobIds((prev) => new Set([...prev, ...inJob]));
       setSelected((prev) => new Set([...prev].filter((id) => !gone.has(id))));
       void queryClient.invalidateQueries({ queryKey: ["job-search-base", jobId] });
       void queryClient.invalidateQueries({ queryKey: ["candidates-v2"] });
@@ -247,7 +313,39 @@ export function useSearchBaseTab(
     } catch (error) {
       showError(apiErrorMessage(error, "Nie udało się dodać kandydatów do rekrutacji."));
     } finally {
-      setAdding(false);
+      if (perRow) setRowAdding((prev) => new Set([...prev].filter((id) => !ids.includes(id))));
+      else setAdding(false);
+    }
+  };
+  const addSelected = () => addIds([...selected], false);
+
+  /**
+   * „Cofnij”: usunięcie osoby z rekrutacji. Wiersz wraca do zwykłego stanu po
+   * odświeżeniu wyników (osoba spoza rekrutacji znów jest w wynikach).
+   */
+  const undoAdd = async (candidateId: number) => {
+    if (readOnly) return;
+    setUndoing((prev) => new Set([...prev, candidateId]));
+    try {
+      await candidatesApi.removeFromRecruitment(candidateId, jobId);
+      await Promise.allSettled([
+        queryClient.invalidateQueries({ queryKey: ["job-search-base", jobId] }),
+        queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] }),
+        queryClient.invalidateQueries({ queryKey: ["kanban", jobId] }),
+        queryClient.invalidateQueries({ queryKey: jobProposalsKeys.all(jobId) }),
+      ]);
+      void queryClient.invalidateQueries({ queryKey: ["pipeline-scores"] });
+      void queryClient.invalidateQueries({ queryKey: ["candidates-v2"] });
+      setAddedIds((prev) => new Set([...prev].filter((id) => id !== candidateId)));
+      setKept((prev) => {
+        const next = new Map(prev);
+        next.delete(candidateId);
+        return next;
+      });
+    } catch (error) {
+      showError(apiErrorMessage(error, "Nie udało się cofnąć dodania."));
+    } finally {
+      setUndoing((prev) => new Set([...prev].filter((id) => id !== candidateId)));
     }
   };
 
@@ -425,6 +523,8 @@ export function useSearchBaseTab(
                   setPreviewId(row.candidateId);
                 }}
                 onClosePreview={closePreview}
+                onAdd={(row) => void addIds([row.candidateId], true)}
+                onUndo={(row) => void undoAdd(row.candidateId)}
               />
               {list.hasNextPage ? (
                 <Button
@@ -433,7 +533,7 @@ export function useSearchBaseTab(
                   onClick={() => void list.fetchNextPage()}
                   loading={list.isFetchingNextPage}
                 >
-                  Pokaż więcej ({items.length} z {total})
+                  Pokaż więcej ({liveItems.length} z {total})
                 </Button>
               ) : null}
             </>
@@ -491,10 +591,10 @@ export function useSearchBaseTab(
       canOpenProfile={canOpenProfile}
       talkChecks={talkChecks}
       selection={{
-        checked: selected.has(previewItem.id),
-        disabled: readOnly,
+        checked: selected.has(previewItem.id) && !addedIds.has(previewItem.id),
+        disabled: readOnly || addedIds.has(previewItem.id),
         onToggle: () => toggle(previewItem.id),
-        label: "Dodaj tę osobę do „Nowych”",
+        label: addedIds.has(previewItem.id) ? "Dodano do „Nowych”" : "Dodaj tę osobę do „Nowych”",
       }}
     />
   ) : undefined;

@@ -60,3 +60,111 @@ describe("PickList — znacznik „Pracuje u nas”", () => {
     expect(within(other).queryByText(/Pracuje u nas/)).toBeNull();
   });
 });
+
+describe("PickList — dopasowanie bez klikania, „+ Dodaj”, „Cofnij” i powód (14.10.2026)", () => {
+  const base = {
+    selected: new Set<number>(),
+    onToggle: vi.fn(),
+    readOnly: false,
+    emptyText: "Brak",
+    label: "Osoby",
+  };
+
+  it("bez IntersectionObserver zgłasza się pierwszych 20 wierszy, nie więcej", () => {
+    const onRowVisible = vi.fn();
+    const rows = Array.from({ length: 25 }, (_, i) =>
+      row({ candidateId: i + 1, fullName: `Osoba ${i + 1}` }),
+    );
+    render(<PickList {...base} rows={rows} onRowVisible={onRowVisible} />);
+    expect(onRowVisible).toHaveBeenCalledTimes(20);
+    expect(onRowVisible.mock.calls.map(([id]) => id)).toEqual(
+      Array.from({ length: 20 }, (_, i) => i + 1),
+    );
+  });
+
+  it("z obserwatorem zgłasza wiersz dopiero, gdy wejdzie na ekran — raz", () => {
+    const callbacks: Array<(entries: Array<{ isIntersecting: boolean }>) => void> = [];
+    const disconnect = vi.fn();
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(cb: (entries: Array<{ isIntersecting: boolean }>) => void) {
+          callbacks.push(cb);
+        }
+        observe() {}
+        disconnect = disconnect;
+      },
+    );
+    try {
+      const onRowVisible = vi.fn();
+      render(<PickList {...base} rows={[row(), row({ candidateId: 2, fullName: "Jan" })]} onRowVisible={onRowVisible} />);
+      expect(onRowVisible).not.toHaveBeenCalled();
+      callbacks[1]([{ isIntersecting: true }]);
+      expect(onRowVisible).toHaveBeenCalledWith(2);
+      expect(disconnect).toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("„+ Dodaj” dodaje tę jedną osobę; dodana ma status i „Cofnij” zamiast przycisków", () => {
+    const onAdd = vi.fn();
+    const onUndo = vi.fn();
+    render(
+      <PickList
+        {...base}
+        rows={[row(), row({ candidateId: 2, fullName: "Jan Testowy", addState: "added" })]}
+        onAdd={onAdd}
+        onUndo={onUndo}
+        onDismiss={vi.fn()}
+      />,
+    );
+    const [first, added] = screen.getAllByRole("listitem");
+    within(first).getByRole("button", { name: "Dodaj do „Nowych”: Anna Przykładowa" }).click();
+    expect(onAdd).toHaveBeenCalledWith(expect.objectContaining({ candidateId: 1 }));
+    expect(within(added).getByRole("status")).toHaveTextContent("Dodano do „Nowych” · rezerwacja 12 h");
+    expect(within(added).queryByRole("button", { name: /Dodaj do „Nowych”/ })).toBeNull();
+    expect(within(added).queryByRole("button", { name: /Pomiń:/ })).toBeNull();
+    expect(within(added).getByRole("checkbox")).toBeDisabled();
+    within(added).getByRole("button", { name: "Cofnij dodanie: Jan Testowy" }).click();
+    expect(onUndo).toHaveBeenCalledWith(expect.objectContaining({ candidateId: 2 }));
+  });
+
+  it("cofanie w toku blokuje „Cofnij”; do odczytu nie ma ani „+ Dodaj”, ani „Cofnij”", () => {
+    const { rerender } = render(
+      <PickList {...base} rows={[row({ addState: "undoing" })]} onAdd={vi.fn()} onUndo={vi.fn()} />,
+    );
+    expect(screen.getByRole("button", { name: "Cofnij dodanie: Anna Przykładowa" })).toBeDisabled();
+    rerender(
+      <PickList {...base} readOnly rows={[row(), row({ candidateId: 2, fullName: "Jan", addState: "added" })]} onAdd={vi.fn()} onUndo={vi.fn()} />,
+    );
+    expect(screen.queryByRole("button", { name: /Dodaj do „Nowych”/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Cofnij/ })).toBeNull();
+  });
+
+  it("chipy powodu w jednej linii pod faktami; powód zdaniem zostaje jedną linią", () => {
+    render(
+      <PickList
+        {...base}
+        rows={[
+          row({
+            note: "Spełnia: Java, Spring",
+            chips: [
+              { tone: "met", label: "Java" },
+              { tone: "gap", label: "Kafka" },
+              { tone: "ask", label: "Minimum 5 lat doświadczenia w projektach dla sektora finansowego" },
+            ],
+          }),
+        ]}
+      />,
+    );
+    const reasons = screen.getByRole("group", { name: "Dlaczego ta osoba" });
+    expect(reasons.className).toContain("flex-nowrap");
+    expect(within(reasons).getByText("Java")).toBeInTheDocument();
+    expect(within(reasons).getByText("Kafka").parentElement).toHaveAttribute("data-tone", "gap");
+    expect(
+      within(reasons).getByText("Minimum 5 lat doświadczenia w projektach dla sektora finansowego").className,
+    ).toContain("truncate");
+    expect(screen.getByText("Spełnia: Java, Spring").className).toContain("line-clamp-1");
+  });
+});
