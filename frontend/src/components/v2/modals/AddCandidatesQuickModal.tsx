@@ -3,12 +3,28 @@
 import { useEffect, useMemo, useState } from "react";
 import { CompetenceCategoryName } from "@/components/v2/CompetenceCategoryBadge";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Search, Loader2, UserPlus, X, AlertCircle, Check } from "lucide-react";
+import {
+  Search,
+  Loader2,
+  UserPlus,
+  X,
+  AlertCircle,
+  Check,
+  Phone,
+  Mail,
+  ExternalLink,
+  Users,
+  GitMerge,
+  RotateCcw,
+} from "lucide-react";
 import {
   candidateSearchApi,
   proposalsBulkApi,
+  type BulkClosedCard,
   type CandidateSearchItem,
   type BulkProposalsResponse,
+  type InJobMatch,
+  type SearchTextInterpretation,
 } from "@/lib/candidate-search-api";
 import { useToast } from "@/components/Toast";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
@@ -25,6 +41,25 @@ import {
   type EmployedPerson,
 } from "@/components/v2/employment/EmploymentNotice";
 import { markerCoversEligibility } from "@/lib/employment-marker";
+import { countPl } from "@/lib/plural-pl";
+import { useAuthStore } from "@/store/auth";
+import { useCapability } from "@/hooks/useCapability";
+import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
+import { canMergeCandidates } from "@/lib/api/candidateMerge";
+import { CandidateMergeDialog } from "@/components/v2/candidate-profile/CandidateMergeDialog";
+import {
+  restoreLabel,
+  restoreMovePayload,
+} from "@/components/v2/recruitment/AddToRecruitmentDialog";
+import {
+  largestHomonymGroup,
+  monthLabel,
+  phoneKey,
+  samePhoneLabel,
+  samePhoneRefs,
+  searchKindLine,
+  type SamePhoneRef,
+} from "@/components/v2/modals/add-candidates-identity";
 
 interface Props {
   open: boolean;
@@ -44,6 +79,78 @@ function avatarColorFor(seed: string): string {
   return AVATAR_COLORS[code % AVATAR_COLORS.length];
 }
 
+type ClosedInJob = InJobMatch & { closed: BulkClosedCard };
+
+interface MergePair {
+  survivor: { id: number; name: string; lastname: string; email: string | null; phone: string | null };
+  duplicateId: number;
+}
+
+/**
+ * Druga linia wiersza: po niej rekruter odróżnia imienników (13.10.2026).
+ * Pełny numer, jak w kolumnie „Telefon” listy Kandydaci; brak danych jest
+ * napisany wprost, żeby nie wyglądał na błąd ekranu.
+ */
+function ContactLine({
+  phone,
+  email,
+  location,
+  interpretation,
+}: {
+  phone: string | null | undefined;
+  email: string | null | undefined;
+  location: string | null;
+  interpretation: SearchTextInterpretation | null | undefined;
+}) {
+  const phoneHit =
+    interpretation?.kind === "phone" && phoneKey(phone) === interpretation.phone;
+  const emailHit =
+    interpretation?.kind === "email" &&
+    !!email &&
+    email.toLowerCase() === interpretation.email;
+  return (
+    <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-foreground">
+      <span className="inline-flex items-center gap-1">
+        <Phone className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+        {phone?.trim() ? (
+          <span className={cn("font-mono tabular-nums", phoneHit && "rounded-sm bg-primary/20 px-0.5")}>
+            {phone.trim()}
+          </span>
+        ) : (
+          <span className="italic text-muted-foreground">brak telefonu</span>
+        )}
+      </span>
+      <span className="inline-flex min-w-0 items-center gap-1">
+        <Mail className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+        {email?.trim() ? (
+          <span className={cn("truncate max-w-[220px]", emailHit && "rounded-sm bg-primary/20 px-0.5")}>
+            {email.trim()}
+          </span>
+        ) : (
+          <span className="italic text-muted-foreground">brak e-maila</span>
+        )}
+      </span>
+      {location && <span className="truncate max-w-[140px]">· {location}</span>}
+    </div>
+  );
+}
+
+/**
+ * „ostatnio 03.2026: Odrzucony · Rekrutacja” albo „jeszcze w żadnej rekrutacji”.
+ * Data i wynik na początku: przy obcięciu linii odpada koniec nazwy rekrutacji.
+ */
+function historyText(c: CandidateSearchItem): string | null {
+  // `undefined` = serwer nie policzył (bez kontekstu rekrutacji) — nic nie mówimy.
+  if (c.last_recruitment === undefined) return null;
+  if (c.last_recruitment === null) {
+    const added = monthLabel(c.created_at);
+    return added ? `jeszcze w żadnej rekrutacji, dodany ${added}` : "jeszcze w żadnej rekrutacji";
+  }
+  const { job_title, stage_label, moved_on } = c.last_recruitment;
+  const month = monthLabel(moved_on);
+  return `ostatnio${month ? ` ${month}` : ""}: ${stage_label} · ${job_title}`;
+}
+
 export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Props) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
@@ -54,6 +161,12 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
   // zapamiętujemy, żeby ramka nad stopką znała je także po nowym wyszukaniu.
   const [seenEmployed, setSeenEmployed] = useState<Map<number, EmployedPerson>>(new Map());
   const debouncedQuery = useDebouncedValue(query.trim(), 300);
+  const [restoringId, setRestoringId] = useState<number | null>(null);
+  const [mergePair, setMergePair] = useState<MergePair | null>(null);
+  const currentUser = useAuthStore((s) => s.user);
+  const canOpenProfile = useCapability("nav.candidates");
+  const canMerge = useCapability("candidate.write") && canMergeCandidates(currentUser);
+  const move = usePipelineMoveCore({ jobId });
 
   useEffect(() => {
     if (!open) {
@@ -61,6 +174,7 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
       setSelected(new Set());
       setAddError(null);
       setSeenEmployed(new Map());
+      setMergePair(null);
     }
   }, [open]);
 
@@ -89,7 +203,12 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
   });
 
   const items: CandidateSearchItem[] = useMemo(() => data?.items ?? [], [data]);
+  const inJob: InJobMatch[] = useMemo(() => data?.in_job_matches ?? [], [data]);
   const total = data?.total ?? 0;
+  const interpretation = data?.meta?.interpretation;
+  const kindLine = searchKindLine(interpretation);
+  const homonyms = useMemo(() => largestHomonymGroup([...items, ...inJob]), [items, inJob]);
+  const phoneRefs = useMemo(() => samePhoneRefs(items, inJob), [items, inJob]);
 
   useEffect(() => {
     setSeenEmployed((prev) => {
@@ -189,6 +308,57 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
     },
   });
 
+  // Przywrócenie zamkniętej karty to ruch karty, nie drugie dodanie — ta sama
+  // ścieżka co okno „Dodaj do rekrutacji” (anulowanie maila odmowy, ostrzeżenia).
+  const restore = async (person: ClosedInJob) => {
+    setRestoringId(person.id);
+    let restored = false;
+    try {
+      const outcome = await move.send(restoreMovePayload(person.id, jobId, person.closed), {
+        candidateName: person.closed.candidate_name,
+        eligibilitySubject: person.closed.candidate_name,
+        fallbackMessage: "Nie udało się przywrócić karty.",
+      });
+      restored = outcome.ok;
+    } finally {
+      setRestoringId(null);
+    }
+    if (!restored) return;
+    void queryClient.invalidateQueries({ queryKey: ["add-candidates-quick", jobId] });
+    void queryClient.invalidateQueries({ queryKey: ["pipeline-scores"] });
+    void queryClient.invalidateQueries({ queryKey: ["my-next-steps"] });
+  };
+
+  const personById = (id: number) =>
+    items.find((c) => c.id === id) ?? inJob.find((p) => p.id === id) ?? null;
+
+  const openMerge = (duplicateId: number, ref: SamePhoneRef) => {
+    const survivor = personById(ref.id);
+    if (!survivor) return;
+    setMergePair({
+      survivor: {
+        id: survivor.id,
+        name: survivor.name,
+        lastname: survivor.lastname,
+        email: survivor.email ?? null,
+        phone: survivor.phone ?? null,
+      },
+      duplicateId,
+    });
+  };
+
+  const statusText = (() => {
+    if (!debouncedQuery) {
+      return `Najnowsi kandydaci — wpisz frazę, by przefiltrować (${total} łącznie)`;
+    }
+    const found = kindLine
+      ? `${kindLine} · ${countPl(total, "wynik", "wyniki", "wyników")}`
+      : `Znaleziono ${countPl(total, "wynik", "wyniki", "wyników")}`;
+    return inJob.length > 0
+      ? `${found} · ${countPl(inJob.length, "osoba jest", "osoby są", "osób jest")} już w tej rekrutacji (niżej)`
+      : `${found} (już dodani do tej rekrutacji są ukryci)`;
+  })();
+
   if (!open) return null;
 
   // Rama na `Dialog` (Radix): Escape i klik w tło zamykają, fokus zostaje
@@ -232,7 +402,7 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Wpisz imię i nazwisko..."
+              placeholder="Imię i nazwisko, telefon albo e-mail…"
               className="w-full pl-9 pr-9 py-2.5 border border-border rounded-lg text-sm bg-card focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
             />
             {isFetching && (
@@ -240,11 +410,7 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
             )}
           </div>
           <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
-            <span>
-              {debouncedQuery
-                ? `Znaleziono ${total} ${total === 1 ? "wynik" : total >= 2 && total <= 4 ? "wyniki" : "wyników"} (już dodani do tej rekrutacji są ukryci)`
-                : `Najnowsi kandydaci — wpisz frazę, by przefiltrować (${total} łącznie)`}
-            </span>
+            <span>{statusText}</span>
             {selectableItems.length > 0 && (
               <button
                 onClick={toggleAllOnPage}
@@ -282,10 +448,29 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
             <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-2">
               <Search className="w-10 h-10 opacity-30" />
               <p className="text-sm">
-                {debouncedQuery
-                  ? "Brak wyników dla tej frazy"
-                  : "Wpisz imię lub nazwisko kandydata"}
+                {inJob.length > 0
+                  ? "Wszystkie pasujące osoby są już w tej rekrutacji"
+                  : debouncedQuery
+                    ? "Brak wyników dla tej frazy"
+                    : "Wpisz imię lub nazwisko kandydata"}
               </p>
+            </div>
+          )}
+
+          {homonyms && (
+            <div
+              role="status"
+              className="mx-1 mb-2 flex items-start gap-2 rounded-lg border border-info/20 bg-info-muted px-3 py-2 text-xs text-info-muted-foreground"
+              data-testid="add-candidates-homonyms"
+            >
+              <Users className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+              <span>
+                <span className="font-semibold">
+                  {countPl(homonyms.count, "osoba", "osoby", "osób")} o imieniu i nazwisku{" "}
+                  {homonyms.label}.
+                </span>{" "}
+                Porównaj telefon i e-mail, zanim zaznaczysz.
+              </span>
             </div>
           )}
 
@@ -297,82 +482,209 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
             const candidateLocation = formatCandidateLocation(c.location);
             const elig = c.eligibility;
             const assignBlocked = elig?.assignment_allowed === false;
+            const phoneRef = phoneRefs.get(c.id);
+            const history = historyText(c);
             return (
-              <button
+              <div
                 key={c.id}
-                type="button"
-                onClick={() => toggle(c.id)}
-                disabled={assignBlocked}
-                title={assignBlocked ? elig?.reason : undefined}
                 className={cn(
-                  "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors mb-1 disabled:cursor-not-allowed disabled:opacity-60",
-                  isSelected
-                    ? "bg-primary/10 ring-1 ring-primary/30"
-                    : "hover:bg-muted",
+                  "mb-1 flex items-start rounded-lg transition-colors",
+                  isSelected ? "bg-primary/10 ring-1 ring-primary/30" : "hover:bg-muted",
                 )}
-                data-testid={`add-candidate-row-${c.id}`}
               >
-                <div
-                  className={cn(
-                    "w-5 h-5 rounded border flex items-center justify-center shrink-0 transition-colors",
-                    isSelected
-                      ? "bg-primary border-primary"
-                      : "border-border bg-card",
-                  )}
+                {/* Przycisk zaznacza; „Profil” i „Scal…” stoją obok, bo
+                    w przycisku nie wolno zagnieżdżać linków ani przycisków. */}
+                <button
+                  type="button"
+                  onClick={() => toggle(c.id)}
+                  disabled={assignBlocked}
+                  title={assignBlocked ? elig?.reason : undefined}
+                  className="flex min-w-0 flex-1 items-start gap-3 rounded-lg px-3 py-2.5 text-left disabled:cursor-not-allowed disabled:opacity-60"
+                  data-testid={`add-candidate-row-${c.id}`}
                 >
-                  {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
-                </div>
-                <div
-                  className={cn(
-                    "w-9 h-9 rounded-full flex items-center justify-center text-white font-semibold text-xs shrink-0",
-                    color,
+                  <div
+                    className={cn(
+                      "mt-2 w-5 h-5 rounded border flex items-center justify-center shrink-0 transition-colors",
+                      isSelected
+                        ? "bg-primary border-primary"
+                        : "border-border bg-card",
+                    )}
+                  >
+                    {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
+                  </div>
+                  <div
+                    className={cn(
+                      "w-9 h-9 rounded-full flex items-center justify-center text-white font-semibold text-xs shrink-0",
+                      color,
+                    )}
+                  >
+                    {initials}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-sm text-foreground truncate">
+                        {fullName || "—"}
+                      </span>
+                      {c.is_champion && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-warning-muted text-warning-muted-foreground font-medium">
+                          Champion
+                        </span>
+                      )}
+                      {c.employment_marker && <EmploymentPill marker={c.employment_marker} />}
+                      {elig && !markerCoversEligibility(c.employment_marker, elig.reason_code) && (
+                        <span
+                          className={cn(
+                            "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                            eligibilityBadgeClass(elig),
+                          )}
+                          data-testid={`add-candidate-eligibility-${c.id}`}
+                        >
+                          <AlertCircle className="h-3 w-3 shrink-0" />
+                          {elig.reason}
+                        </span>
+                      )}
+                      {phoneRef && (
+                        <span
+                          className="rounded-full bg-warning-muted px-1.5 py-0.5 text-[10px] font-medium text-warning-muted-foreground"
+                          data-testid={`add-candidate-same-phone-${c.id}`}
+                        >
+                          {samePhoneLabel(phoneRef)}
+                        </span>
+                      )}
+                    </div>
+                    <ContactLine
+                      phone={c.phone}
+                      email={c.email}
+                      location={candidateLocation}
+                      interpretation={interpretation}
+                    />
+                    {/* Jedna linia: przy trzech liniach w wierszu okno 1280 × 720
+                        mieści jeszcze cztery–pięć osób bez przewijania. */}
+                    <div className="mt-0.5 flex min-w-0 items-center gap-x-2 text-xs text-muted-foreground">
+                      {c.competence_category && (
+                        <span className="max-w-[130px] shrink-0 truncate">
+                          <CompetenceCategoryName slug={c.competence_category} />
+                        </span>
+                      )}
+                      {history && (
+                        <span className="min-w-0 truncate" title={history}>
+                          {c.competence_category ? "· " : ""}
+                          {history}
+                        </span>
+                      )}
+                      {c.source && (
+                        <span className="max-w-[100px] shrink-0 truncate">· {c.source}</span>
+                      )}
+                    </div>
+                  </div>
+                </button>
+                <div className="flex shrink-0 flex-col items-end gap-1.5 py-2.5 pr-3">
+                  {canOpenProfile && (
+                    <a
+                      href={`/candidates/${c.id}?from=job&jobId=${jobId}`}
+                      target="_blank"
+                      rel="noopener"
+                      className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                      aria-label={`Profil: ${fullName || `kandydat #${c.id}`} (nowa karta)`}
+                    >
+                      Profil
+                      <ExternalLink className="h-3 w-3" aria-hidden />
+                    </a>
                   )}
-                >
-                  {initials}
+                  {canMerge && phoneRef && (
+                    <button
+                      type="button"
+                      onClick={() => openMerge(c.id, phoneRef)}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                      data-testid={`add-candidate-merge-${c.id}`}
+                    >
+                      <GitMerge className="h-3 w-3" aria-hidden />
+                      Scal…
+                    </button>
+                  )}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-medium text-sm text-foreground truncate">
-                      {fullName || "—"}
-                    </span>
-                    {c.is_champion && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-warning-muted text-warning-muted-foreground font-medium">
-                        Champion
-                      </span>
-                    )}
-                    {c.employment_marker && <EmploymentPill marker={c.employment_marker} />}
-                    {elig && !markerCoversEligibility(c.employment_marker, elig.reason_code) && (
-                      <span
-                        className={cn(
-                          "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
-                          eligibilityBadgeClass(elig),
-                        )}
-                        data-testid={`add-candidate-eligibility-${c.id}`}
-                      >
-                        <AlertCircle className="h-3 w-3 shrink-0" />
-                        {elig.reason}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap mt-0.5">
-                    {c.competence_category && (
-                      <span className="truncate max-w-[180px]">
-                        <CompetenceCategoryName slug={c.competence_category} />
-                      </span>
-                    )}
-                    {candidateLocation && (
-                      <span className="truncate max-w-[140px]">
-                        · {candidateLocation}
-                      </span>
-                    )}
-                    {c.source && (
-                      <span className="truncate max-w-[120px]">· {c.source}</span>
-                    )}
-                  </div>
-                </div>
-              </button>
+              </div>
             );
           })}
+
+          {inJob.length > 0 && (
+            <section
+              aria-label="Już w tej rekrutacji"
+              className="mt-2 border-t border-border pt-2"
+              data-testid="add-candidates-in-job"
+            >
+              <p className="px-3 pb-1 text-xs font-semibold text-muted-foreground">
+                Już w tej rekrutacji ({inJob.length})
+              </p>
+              {inJob.map((person) => {
+                const fullName = `${person.name} ${person.lastname}`.trim();
+                const closed = person.closed ?? null;
+                return (
+                  <div
+                    key={person.id}
+                    className="mb-1 flex items-start gap-3 rounded-lg px-3 py-2.5"
+                    data-testid={`add-candidate-in-job-${person.id}`}
+                  >
+                    <div className="mt-2 h-5 w-5 shrink-0 rounded border border-dashed border-border" aria-hidden />
+                    <div
+                      className={cn(
+                        "w-9 h-9 rounded-full flex items-center justify-center text-white font-semibold text-xs shrink-0 opacity-80",
+                        avatarColorFor(fullName || String(person.id)),
+                      )}
+                    >
+                      {initialsOf(person.name, person.lastname)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="truncate text-sm font-medium text-foreground">
+                          {fullName || "—"}
+                        </span>
+                        <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                          {person.card_label}
+                        </span>
+                      </div>
+                      <ContactLine
+                        phone={person.phone}
+                        email={person.email}
+                        location={formatCandidateLocation(person.location)}
+                        interpretation={interpretation}
+                      />
+                    </div>
+                    <div className="flex shrink-0 flex-col items-end gap-1.5">
+                      {canOpenProfile && (
+                        <a
+                          href={`/candidates/${person.id}?from=job&jobId=${jobId}`}
+                          target="_blank"
+                          rel="noopener"
+                          className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                          aria-label={`Profil: ${fullName || `kandydat #${person.id}`} (nowa karta)`}
+                        >
+                          Profil
+                          <ExternalLink className="h-3 w-3" aria-hidden />
+                        </a>
+                      )}
+                      {closed && (
+                        <button
+                          type="button"
+                          onClick={() => void restore({ ...person, closed })}
+                          disabled={restoringId !== null}
+                          className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+                          data-testid={`add-candidate-restore-${person.id}`}
+                        >
+                          {restoringId === person.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+                          ) : (
+                            <RotateCcw className="h-3 w-3" aria-hidden />
+                          )}
+                          {restoreLabel(closed)}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </section>
+          )}
         </div>
 
         {/* Zaznaczona osoba u nas pracuje: informacja, nie blokada. */}
@@ -418,6 +730,20 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
             </button>
           </div>
         </div>
+        {move.dialogs}
+        {mergePair && (
+          <CandidateMergeDialog
+            key={`${mergePair.survivor.id}-${mergePair.duplicateId}`}
+            open
+            onOpenChange={(next) => {
+              if (next) return;
+              setMergePair(null);
+              void queryClient.invalidateQueries({ queryKey: ["add-candidates-quick", jobId] });
+            }}
+            candidate={mergePair.survivor}
+            initialDuplicateId={mergePair.duplicateId}
+          />
+        )}
       </DialogContent>
     </Dialog>
   );

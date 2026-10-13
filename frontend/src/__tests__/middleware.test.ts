@@ -213,6 +213,7 @@ describe("linki publiczne działają bez tokenu", () => {
     "/preview/kariera",
     "/preview/career-share",
     "/preview/candidate-merge",
+    "/preview/add-candidates",
     "/preview/job-ad",
     "/preview/kpi-topbar",
     "/preview/job-portals",
