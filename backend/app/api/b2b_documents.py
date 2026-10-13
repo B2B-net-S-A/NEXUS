@@ -19,7 +19,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -28,8 +28,10 @@ from app.api.b2b_contract_generator import (
     _ascii_filename,
     _assert_generator_client_access,
     _assert_signature_client_access,
+    _generated_search_clause,
     _generator_unscoped,
     _has_signature_permission,
+    _like_needle,
     _load_legal_scoped_job,
     _require_contract_generation,
     _require_generated_contract_management,
@@ -48,6 +50,7 @@ from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.activity import Activity
 from app.models.b2b_contract_document import B2BContractDocument
+from app.models.b2b_contract_detail import B2BContractDetail
 from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.candidate import Candidate
 from app.models.client import Client
@@ -76,6 +79,7 @@ from app.services.b2b_documents.contract_versions import (
 )
 from app.services.client_access import assert_client_assignable
 from app.services.permission_denial import ensure_permission
+from app.services.polish_ilike import polish_folded_ilike
 from app.services.b2b_documents.registry import (
     REF_LABELS,
     TYPES,
@@ -113,6 +117,39 @@ class DocumentRequest(BaseModel):
     contract_id: Optional[int] = None
     #: Klient aneksu bez umowy i bez kontraktu („Bez kontraktu”).
     client_id: Optional[int] = None
+
+
+class SubjectContract(BaseModel):
+    """Kontrakt widoczny przy wyborze, dla kogo jest aneks — bez stawek."""
+
+    contract_id: int
+    status: str
+    start_date: Optional[date] = None
+
+
+class DocumentSubject(BaseModel):
+    """Pozycja wyszukiwania „Dla kogo jest aneks?”.
+
+    ``agreement`` = umowa z rejestru (z powiązanym kontraktem albo z listą
+    kontraktów do wskazania, gdy powiązania nie ma); ``contract`` = kontrakt
+    bez umowy w rejestrze (umowa spoza NEXUSA, zlecenie). Bez kwot: wybór
+    podmiotu nie jest wglądem w stawki."""
+
+    kind: str
+    parent_generated_contract_id: Optional[int] = None
+    contract_number: Optional[str] = None
+    source: Optional[str] = None
+    agreement_status: Optional[str] = None
+    contract_id: Optional[int] = None
+    contract_status: Optional[str] = None
+    contract_start_date: Optional[date] = None
+    contract_options: list[SubjectContract] = Field(default_factory=list)
+    candidate_id: Optional[int] = None
+    person_name: Optional[str] = None
+    partner_name: Optional[str] = None
+    partner_nip: Optional[str] = None
+    client_id: Optional[int] = None
+    client_name: Optional[str] = None
 
 
 class SensitiveValues(BaseModel):
@@ -823,6 +860,226 @@ async def document_types(current_user: B2BGeneratorAccess) -> dict:
         "ref_labels": REF_LABELS,
         "ref_defaults": default_refs().as_context(),
     }
+
+
+#: Ile pozycji każdego rodzaju oddaje wyszukiwanie podmiotu aneksu.
+SUBJECT_LIMIT = 20
+#: Umowy, do których wystawia się aneks (jak dotychczasowy wybór z rejestru).
+_SUBJECT_AGREEMENT_STATUSES = ("active", "in_progress")
+#: Umowa „żywa” — kontrakt z taką umową nie jest „umową spoza NEXUSA”.
+_LIVE_AGREEMENT_STATUSES = ("active", "suspended", "in_progress")
+
+
+def _full_name(name: str | None, lastname: str | None) -> str | None:
+    return f"{name or ''} {lastname or ''}".strip() or None
+
+
+def _status_value(value: Any) -> str:
+    return str(getattr(value, "value", value))
+
+
+@router.get("/documents/subjects", response_model=list[DocumentSubject])
+async def document_subjects(
+    current_user: B2BGeneratorAccess,
+    document_type: str = Query(...),
+    q: Optional[str] = Query(None, max_length=120),
+    contract_id: Optional[int] = Query(None),
+    db: AsyncSession = Depends(get_db),
+) -> list[DocumentSubject]:
+    """Dla kogo jest aneks: umowy z rejestru i kontrakty bez umowy w rejestrze.
+
+    Jedno wyszukiwanie zamiast przycisku „Umowa spoza Nexusa”: człowiek nie
+    musi wiedzieć z góry, czy umowa jest w rejestrze, i nie wybierze „spoza
+    NEXUSA” dla umowy, która w nim jest. Kontrakt osiągalny z umowy bez
+    powiązania (ta sama osoba i klient) pokazuje się POD tą umową — wybrany
+    osobno ominąłby wiersz rejestru i kolejkę „Aneks uzupełnienia danych”.
+
+    ``contract_id`` = wejście z modułu Kontrakty („Wygeneruj dokument
+    aneksu”): podmiot tego jednego kontraktu, w domenie uprawnień generatora
+    (do 13.10.2026 kreator pytał o to trasę Delivery i dawał 403 bez wglądu
+    w kontrakty)."""
+    _require_contract_generation(current_user)
+    doc_type = _type_or_422(document_type)
+    needle = (q or "").strip()
+    anchor: Contract | None = None
+    if contract_id is not None:
+        anchor = await db.get(Contract, contract_id)
+        if anchor is None:
+            return []
+        await _assert_generator_client_access(db, current_user, anchor.client_id)
+    elif len(needle) < 2:
+        return []
+
+    subjects: list[DocumentSubject] = []
+    offered_contract_ids: set[int] = set()
+
+    if doc_type.parent in ("b2b", "mandate"):
+        rows_query = await _scope_generator_query(
+            select(B2BGeneratedContract, Candidate.name, Candidate.lastname),
+            B2BGeneratedContract.client_id,
+            db,
+            current_user,
+        )
+        rows_query = rows_query.outerjoin(
+            Candidate, Candidate.id == B2BGeneratedContract.candidate_id
+        ).where(B2BGeneratedContract.contract_status.in_(_SUBJECT_AGREEMENT_STATUSES))
+        if doc_type.parent == "mandate":
+            rows_query = rows_query.where(
+                B2BGeneratedContract.contract_kind == "mandate"
+            )
+        if anchor is not None:
+            of_contract = [B2BGeneratedContract.contract_id == anchor.id]
+            if anchor.candidate_id is not None:
+                of_contract.append(
+                    and_(
+                        B2BGeneratedContract.contract_id.is_(None),
+                        B2BGeneratedContract.candidate_id == anchor.candidate_id,
+                        B2BGeneratedContract.client_id == anchor.client_id,
+                    )
+                )
+            rows_query = rows_query.where(or_(*of_contract))
+        else:
+            rows_query = rows_query.where(_generated_search_clause(needle))
+        rows = (
+            await db.execute(
+                rows_query.order_by(
+                    B2BGeneratedContract.created_at.desc(),
+                    B2BGeneratedContract.id.desc(),
+                ).limit(SUBJECT_LIMIT)
+            )
+        ).all()
+
+        options_by_row: dict[int, list[int]] = {}
+        if doc_type.family == "annex" and doc_type.parent == "b2b":
+            for row, _name, _lastname in rows:
+                if row.contract_id is None:
+                    options_by_row[
+                        row.id
+                    ] = await effects.live_contract_ids_for_unlinked_row(
+                        db,
+                        row_id=row.id,
+                        candidate_id=row.candidate_id,
+                        client_id=row.client_id,
+                        contract_type=ContractType.b2b,
+                    )
+        offered_contract_ids = {
+            row.contract_id for row, _n, _l in rows if row.contract_id is not None
+        } | {cid for ids in options_by_row.values() for cid in ids}
+        contracts_by_id: dict[int, Contract] = {}
+        if offered_contract_ids:
+            found = await db.scalars(
+                select(Contract).where(Contract.id.in_(offered_contract_ids))
+            )
+            contracts_by_id = {c.id: c for c in found.all()}
+        for row, name, lastname in rows:
+            linked = contracts_by_id.get(row.contract_id or -1)
+            subjects.append(
+                DocumentSubject(
+                    kind="agreement",
+                    parent_generated_contract_id=row.id,
+                    contract_number=row.contract_number
+                    or getattr(row, "raw_contract_number", None),
+                    source=getattr(row, "source", None),
+                    agreement_status=row.contract_status,
+                    contract_id=row.contract_id,
+                    contract_status=_status_value(linked.status) if linked else None,
+                    contract_start_date=linked.start_date if linked else None,
+                    contract_options=[
+                        SubjectContract(
+                            contract_id=cid,
+                            status=_status_value(contracts_by_id[cid].status),
+                            start_date=contracts_by_id[cid].start_date,
+                        )
+                        for cid in options_by_row.get(row.id, [])
+                        if cid in contracts_by_id
+                    ],
+                    candidate_id=row.candidate_id,
+                    person_name=_full_name(name, lastname) or row.partner_name,
+                    partner_name=row.partner_legal_name,
+                    partner_nip=row.partner_nip,
+                    client_id=row.client_id,
+                    client_name=row.client_name,
+                )
+            )
+
+    if _takes_contract(doc_type):
+        live_agreement = (
+            select(B2BGeneratedContract.id)
+            .where(
+                B2BGeneratedContract.contract_id == Contract.id,
+                B2BGeneratedContract.contract_status.in_(_LIVE_AGREEMENT_STATUSES),
+            )
+            .exists()
+        )
+        contracts_query = await _scope_generator_query(
+            select(Contract, Candidate, Client),
+            Contract.client_id,
+            db,
+            current_user,
+        )
+        contracts_query = (
+            contracts_query.join(Candidate, Candidate.id == Contract.candidate_id)
+            .outerjoin(Client, Client.id == Contract.client_id)
+            .where(
+                Contract.contract_type == _subject_contract_type(doc_type),
+                Contract.status != ContractStatus.void,
+                ~live_agreement,
+            )
+        )
+        if offered_contract_ids:
+            contracts_query = contracts_query.where(
+                Contract.id.notin_(offered_contract_ids)
+            )
+        if anchor is not None:
+            contracts_query = contracts_query.where(Contract.id == anchor.id)
+        else:
+            clauses = [
+                polish_folded_ilike(Candidate.name, needle),
+                polish_folded_ilike(Candidate.lastname, needle),
+                polish_folded_ilike(
+                    func.concat(Candidate.name, " ", Candidate.lastname), needle
+                ),
+                polish_folded_ilike(Candidate.legal_name, needle),
+                polish_folded_ilike(B2BContractDetail.contract_number, needle),
+            ]
+            nip_needle = re.sub(r"\D", "", needle)
+            if len(nip_needle) >= 5:
+                clauses.append(
+                    Candidate.nip.ilike(_like_needle(nip_needle), escape="\\")
+                )
+            contracts_query = contracts_query.outerjoin(
+                B2BContractDetail, B2BContractDetail.contract_id == Contract.id
+            ).where(or_(*clauses))
+        live_first = case(
+            (
+                Contract.status.in_([ContractStatus.active, ContractStatus.ending]),
+                0,
+            ),
+            else_=1,
+        )
+        found_contracts = (
+            await db.execute(
+                contracts_query.order_by(live_first, Contract.id.desc()).limit(
+                    SUBJECT_LIMIT
+                )
+            )
+        ).all()
+        for contract, candidate, client in found_contracts:
+            subjects.append(
+                DocumentSubject(
+                    kind="contract",
+                    contract_id=contract.id,
+                    contract_status=_status_value(contract.status),
+                    contract_start_date=contract.start_date,
+                    candidate_id=candidate.id,
+                    person_name=_full_name(candidate.name, candidate.lastname),
+                    partner_name=candidate.legal_name,
+                    partner_nip=candidate.nip,
+                    client_id=contract.client_id,
+                    client_name=_client_label(client),
+                )
+            )
+    return subjects
 
 
 @router.get("/documents/prefill")

@@ -814,3 +814,107 @@ async def test_prefill_outside_nexus_uses_ticket_paragraphs(
     }
     assert body["values"]["paragraph"] == "12"
     assert body["values"]["partner_variant"] == "sole_trader"
+
+
+# ── dla kogo jest aneks: jedno wyszukiwanie osoby ────────────────────────────
+
+
+async def _subjects(app_client, headers, **params) -> list[dict]:
+    resp = await app_client.get(
+        f"{BASE}/documents/subjects", headers=headers, params=params
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+async def _lastname(contract_id: int) -> str:
+    from app.models.candidate import Candidate
+    from app.models.contract import Contract
+
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+        return (await db.get(Candidate, contract.candidate_id)).lastname
+
+
+async def test_subjects_offer_a_contract_without_a_register_agreement(
+    app_client, app_auth_headers
+):
+    contract_id, client_id = await _seed_linked_contract()
+    lastname = await _lastname(contract_id)
+
+    found = await _subjects(
+        app_client, app_auth_headers, document_type="annex_rate_change", q=lastname
+    )
+    [subject] = [s for s in found if s["contract_id"] == contract_id]
+    assert subject["kind"] == "contract"
+    assert subject["parent_generated_contract_id"] is None
+    assert subject["client_id"] == client_id
+    assert subject["person_name"].endswith(lastname)
+    # Wybór podmiotu nie jest wglądem w stawki.
+    assert not {k for k in subject if "rate" in k or "amount" in k}
+
+    # Typ bez ścieżki „umowa spoza NEXUSA” dostaje wyłącznie umowy z rejestru.
+    only_agreements = await _subjects(
+        app_client, app_auth_headers, document_type="annex_subcontractor", q=lastname
+    )
+    assert all(s["kind"] == "agreement" for s in only_agreements)
+    # Fraza krótsza niż dwa znaki nie przeszukuje całej bazy.
+    assert (
+        await _subjects(
+            app_client, app_auth_headers, document_type="annex_rate_change", q="K"
+        )
+        == []
+    )
+
+
+async def test_subjects_show_a_linked_contract_only_under_its_agreement(
+    app_client, app_auth_headers
+):
+    rid, contract_id = await _signed_parent(app_client)
+    number = (await _row(rid)).contract_number
+    lastname = await _lastname(contract_id)
+
+    by_number = await _subjects(
+        app_client, app_auth_headers, document_type="annex_start_date", q=number
+    )
+    [agreement] = [s for s in by_number if s["parent_generated_contract_id"] == rid]
+    assert agreement["kind"] == "agreement"
+    assert agreement["contract_id"] == contract_id
+    assert agreement["contract_options"] == []
+
+    # Kontrakt z własną umową w rejestrze nie jest „umową spoza NEXUSA”.
+    by_person = await _subjects(
+        app_client, app_auth_headers, document_type="annex_start_date", q=lastname
+    )
+    assert not [
+        s
+        for s in by_person
+        if s["kind"] == "contract" and s["contract_id"] == contract_id
+    ]
+
+    # Wejście z modułu Kontrakty: podmiot tego jednego kontraktu.
+    from_contract = await _subjects(
+        app_client,
+        app_auth_headers,
+        document_type="annex_start_date",
+        contract_id=contract_id,
+    )
+    assert [s["parent_generated_contract_id"] for s in from_contract] == [rid]
+
+
+async def test_subjects_pair_an_unlinked_agreement_with_its_live_contract(
+    app_client, app_auth_headers
+):
+    contract_id, client_id = await _seed_linked_contract()
+    rid = await _unlinked_row(app_client, contract_id=contract_id, client_id=client_id)
+
+    found = await _subjects(
+        app_client,
+        app_auth_headers,
+        document_type="annex_rate_change",
+        contract_id=contract_id,
+    )
+    [agreement] = found
+    assert agreement["parent_generated_contract_id"] == rid
+    assert agreement["contract_id"] is None
+    assert [o["contract_id"] for o in agreement["contract_options"]] == [contract_id]

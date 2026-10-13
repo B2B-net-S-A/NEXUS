@@ -25,6 +25,7 @@
   "GET /api/b2b-generator/document-types": "PPPBPPDDPPPPPPPPPPP",
   "GET /api/b2b-generator/documents": "PPPBPPDDPPPPPPPPPPP",
   "GET /api/b2b-generator/documents/prefill": "PPPBPPDDPPPPPPPPPPP",
+  "GET /api/b2b-generator/documents/subjects": "PPPBPPDDPPPPPPPPPPP",
   "GET /api/b2b-generator/documents/{doc_id}/effects": "PPPBPPDDPPPPPPPPPPP",
   "GET /api/b2b-generator/documents/{doc_id}/form": "PPPBPPDDPPPPPPPPPPP",
   "POST /api/b2b-generator/documents": "PPPBPPDDPPPPPPPPPPP",

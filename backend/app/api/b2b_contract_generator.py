@@ -2203,6 +2203,44 @@ def _like_needle(raw: str) -> str:
     return f"%{escaped}%"
 
 
+def _generated_search_clause(needle: str):
+    """Warunek wyszukiwarki rejestru umów — wołający dokłada OUTER JOIN na
+    ``Candidate`` po ``B2BGeneratedContract.candidate_id``.
+
+    Wspólny dla listy rejestru i wyboru umowy przy aneksie
+    (``b2b_documents.document_subjects``): ta sama fraza ma znajdować te same
+    umowy w obu miejscach."""
+    # Pola tekstowe bez wrażliwości na polskie znaki (UAT M08-B01);
+    # `polish_folded_ilike` escapuje `%`, `_` i `\\` jak `_like_needle`.
+    clauses = [
+        polish_folded_ilike(B2BGeneratedContract.contract_number, needle),
+        polish_folded_ilike(B2BGeneratedContract.partner_name, needle),
+        # Kolumna „Partner" pokazuje NAZWĘ FIRMY, więc bez tego warunku
+        # wyszukiwarka nie znajduje tego, co użytkownik widzi na liście.
+        polish_folded_ilike(B2BGeneratedContract.partner_legal_name, needle),
+        polish_folded_ilike(B2BGeneratedContract.client_name, needle),
+        polish_folded_ilike(Candidate.name, needle),
+        polish_folded_ilike(Candidate.lastname, needle),
+        # Pełne „Imię Nazwisko" wpisane jednym ciągiem — pojedyncze
+        # kolumny wyżej same tego nie dopasują.
+        polish_folded_ilike(
+            func.concat(Candidate.name, " ", Candidate.lastname), needle
+        ),
+    ]
+    # NIP dochodzi tylko dla fraz wyglądających jak NIP. Próg 5 cyfr, bo
+    # `q="1"` dopasowałoby połowę rejestru. Kolumna trzyma same cyfry
+    # (kanonicznie, patrz `_nip_digits`), więc needle też normalizujemy —
+    # inaczej „123-456-32-18" nie znalazłoby zapisanego „1234563218".
+    nip_needle = re.sub(r"\D", "", needle)
+    if len(nip_needle) >= 5:
+        clauses.append(
+            B2BGeneratedContract.partner_nip.ilike(
+                _like_needle(nip_needle), escape="\\"
+            )
+        )
+    return or_(*clauses)
+
+
 @router.get("/generated", response_model=list[B2BGeneratedContractItem])
 async def list_generated_contracts(
     current_user: B2BGeneratorAccess,
@@ -2341,35 +2379,7 @@ async def list_generated_contracts(
         query = query.outerjoin(
             Candidate, Candidate.id == B2BGeneratedContract.candidate_id
         )
-        # Pola tekstowe bez wrażliwości na polskie znaki (UAT M08-B01);
-        # `polish_folded_ilike` escapuje `%`, `_` i `\\` jak `_like_needle`.
-        clauses = [
-            polish_folded_ilike(B2BGeneratedContract.contract_number, needle),
-            polish_folded_ilike(B2BGeneratedContract.partner_name, needle),
-            # Kolumna „Partner" pokazuje NAZWĘ FIRMY, więc bez tego warunku
-            # wyszukiwarka nie znajduje tego, co użytkownik widzi na liście.
-            polish_folded_ilike(B2BGeneratedContract.partner_legal_name, needle),
-            polish_folded_ilike(B2BGeneratedContract.client_name, needle),
-            polish_folded_ilike(Candidate.name, needle),
-            polish_folded_ilike(Candidate.lastname, needle),
-            # Pełne „Imię Nazwisko" wpisane jednym ciągiem — pojedyncze
-            # kolumny wyżej same tego nie dopasują.
-            polish_folded_ilike(
-                func.concat(Candidate.name, " ", Candidate.lastname), needle
-            ),
-        ]
-        # NIP dochodzi tylko dla fraz wyglądających jak NIP. Próg 5 cyfr, bo
-        # `q="1"` dopasowałoby połowę rejestru. Kolumna trzyma same cyfry
-        # (kanonicznie, patrz `_nip_digits`), więc needle też normalizujemy —
-        # inaczej „123-456-32-18" nie znalazłoby zapisanego „1234563218".
-        nip_needle = re.sub(r"\D", "", needle)
-        if len(nip_needle) >= 5:
-            clauses.append(
-                B2BGeneratedContract.partner_nip.ilike(
-                    _like_needle(nip_needle), escape="\\"
-                )
-            )
-        query = query.where(or_(*clauses))
+        query = query.where(_generated_search_clause(needle))
 
     if statuses:
         query = query.where(B2BGeneratedContract.contract_status.in_(statuses))
