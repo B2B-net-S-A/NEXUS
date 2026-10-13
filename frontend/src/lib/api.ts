@@ -627,6 +627,14 @@ export interface KpiResult {
   progress_pct: number;
   state: KpiState;
   deadline_hours_left: number;
+  /**
+   * Nazwa bez okresu — podpis segmentu w liczniku górnego paska. Pola dodane
+   * 13.10.2026 są opcjonalne: karta otwarta przed wdrożeniem dostaje je dopiero
+   * po odświeżeniu backendu, a licznik ma wtedy zapas (`title_pl`).
+   */
+  short_title_pl?: string;
+  /** Cel × tempo okresu „na teraz” — kreska tempa na pasku postępu. */
+  expected_count?: number;
 }
 
 /** Cel lidera — DL: portfel w kwartale, HoR / TCM: zespół. */
@@ -635,12 +643,16 @@ export interface KpiGoal {
   title_pl: string;
   period: KpiPeriod | "quarter";
   unit: "count" | "pct";
+  /** 0 przy `state: null` = celu jeszcze nie ma (DL bez zamkniętych rekrutacji). */
   target: number;
   /** null = niepoliczony (np. hit ratio bez requestów) — nigdy zero. */
   current: number | null;
   progress_pct: number | null;
   state: KpiState | null;
   note: string | null;
+  short_title_pl?: string;
+  /** Cel × tempo okresu „na teraz”; null = cel bez tempa. */
+  expected?: number | null;
 }
 
 export interface MyKpiGoals {
@@ -648,6 +660,8 @@ export interface MyKpiGoals {
   scope_label: string;
   people: number | null;
   goals: KpiGoal[];
+  /** Delivery Lead: rekrutacje zamknięte w kwartale (podstawa celu placementów). */
+  closed_requests?: number | null;
 }
 
 /** Liczniki „Moje KPI" — dzień, tydzień i miesiąc kalendarzowy. */
@@ -682,7 +696,6 @@ export interface MyKpiPanel {
   };
   target_verifications_daily: number;
   target_placements_monthly: number;
-  target_cv_added_daily: number | null;
   target_precision_pct: number;
 }
 

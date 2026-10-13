@@ -122,25 +122,6 @@ _PRAISE_HIT_PER_KPI: dict[str, tuple[MessageTemplate, ...]] = {
             emoji="🚀",
         ),
     ),
-    "daily_new_candidates": (
-        MessageTemplate(
-            title="🎯 Kandydaci dobici",
-            body="{name}, {current}/{target} nowych kandydatów dzisiaj — robota!",
-            emoji="🎯",
-        ),
-        MessageTemplate(
-            title="💪 Pełen baner kandydatów",
-            body="{name}, target nowych kandydatów HIT ({current}/{target}). "
-            "Tak się pracuje.",
-            emoji="💪",
-        ),
-        MessageTemplate(
-            title="🙌 Target daily zamknięty",
-            body="{name}, masz już {current} nowych kandydatów — minąłeś próg. "
-            "Dobra robota!",
-            emoji="🙌",
-        ),
-    ),
     "weekly_cvs_sent": (
         MessageTemplate(
             title="📨 Tygodniówka CV zamknięta!",
@@ -303,25 +284,6 @@ _REMIND_BEHIND_PER_KPI: dict[str, tuple[MessageTemplate, ...]] = {
             title="🚨 Piątek i CV nie wyrobione",
             body="{name}, last call — CV {current}/{target}, zostało {remaining}. "
             "Jeszcze jest czas, ale coraz mniej.",
-            emoji="🚨",
-        ),
-    ),
-    "daily_new_candidates": (
-        MessageTemplate(
-            title="💡 Kandydaci do dobicia",
-            body="{name}, nowi kandydaci dziś {current}/{target}. Brakuje {remaining}.",
-            emoji="💡",
-        ),
-        MessageTemplate(
-            title="⏰ Daily kandydaci",
-            body="{name}, {current}/{target} nowych dziś — jeszcze {remaining} "
-            "do targetu. Tempo!",
-            emoji="⏰",
-        ),
-        MessageTemplate(
-            title="🚨 Ostatni moment dzisiaj",
-            body="{name}, brakuje {remaining} kandydatów do targetu ({current}/{target}). "
-            "Ostatnia godzina dnia, dasz radę?",
             emoji="🚨",
         ),
     ),

@@ -8,19 +8,21 @@ kandydatów. Teraz katalog jest JEDYNYM źródłem definicji i domyślnych liczb
 panel, widget, nudge'e, wyścig miesięczny, panel zespołu i raport Power
 Calling czytają cele przez `app.services.kpi_targets`.
 
-Identyfikatory panelu (`verifications_daily`, `cv_added_daily`,
-`placements_monthly`, `precision_monthly`) są ALIASAMI — migracja 0346
-przepisała na kanoniczne id wiersze `kpi_role_defaults` / `user_kpi_targets`,
-a `get_kpi` i resolver targetów nadal rozumieją stare id (zapisane gdzieś
-w historii albo wołane przez starszy kod).
+Identyfikatory panelu (`verifications_daily`, `placements_monthly`,
+`precision_monthly`) są ALIASAMI — migracja 0346 przepisała na kanoniczne id
+wiersze `kpi_role_defaults` / `user_kpi_targets`, a `get_kpi` i resolver
+targetów nadal rozumieją stare id (zapisane gdzieś w historii albo wołane
+przez starszy kod).
 
-Liczby (decyzje Artura 22.09.2026): placementy / miesiąc = 1, nowi kandydaci /
-dzień = 5 (rekruter, sourcer, TAC); weryfikacje / dzień = 4; precision = 75%;
-rekomendacje / tydzień — rekruter 15, TAC 12 (sourcer bez celu — nie
-zdecydowano). Wiersz w `kpi_role_defaults` albo `user_kpi_targets` nadal
-NADPISUJE domyślną liczbę z katalogu (precedencja w `kpi_targets`), ale po 0346
-tabela ról jest pusta — obowiązuje katalog. Edytora targetów w aplikacji nie ma
-(audyt T5), więc zmiana liczby = zmiana tego pliku.
+Liczby (decyzje Artura 22.09.2026, od 0411 jedna rola „rekruter”): placementy /
+miesiąc = 1; weryfikacje / dzień = 4; precision = 75%; rekomendacje / tydzień
+= 15. Wiersz w `kpi_role_defaults` albo `user_kpi_targets` NADPISUJE domyślną
+liczbę z katalogu (precedencja w `kpi_targets`); zapisuje je edytor
+Ustawienia → Rekrutacja → Cele KPI (`kpi_target_editor`).
+
+Cel „Nowi kandydaci dziś” (`daily_new_candidates`, 5 dziennie) wycofany
+13.10.2026 decyzją Artura — patrz `WITHDRAWN_KPI_TITLES`. Sama liczba „CV do
+bazy” zostaje jako statystyka bez celu (`kpi_team`, `kpi_panel`).
 
 Dodawanie nowego KPI:
   1) Dopisz `KpiDef(...)` do `KPI_CATALOG`.
@@ -52,7 +54,6 @@ class KpiMetric(str, Enum):
                                COALESCE(started_at, created_at),
     - first_verifications    — pierwsze `verified` per (kandydat, job)
                                z atrybucją verifier-anchored,
-    - new_candidates         — candidates.created_by w oknie,
     - first_recommendations  — pierwsze `cv_sent` (atrybucja j.w.),
     - first_placements       — pierwsze `hired` (atrybucja j.w.),
     - precision              — rekomendacje ÷ weryfikacje w oknie kroczącym
@@ -63,7 +64,6 @@ class KpiMetric(str, Enum):
 
     completed_calls = "completed_calls"
     first_verifications = "first_verifications"
-    new_candidates = "new_candidates"
     first_recommendations = "first_recommendations"
     first_placements = "first_placements"
     precision = "precision"
@@ -76,6 +76,11 @@ class KpiDef:
     kpi_id: str
     period: KpiPeriod
     title_pl: str
+    # Nazwa bez okresu — podpis segmentu w liczniku górnego paska, gdzie okres
+    # stoi obok liczby („Weryfikacje · 2 / 4 dziś”).
+    short_title_pl: str
+    # Jedno zdanie „co się liczy” dla człowieka: pokazują je panel celów
+    # w górnym pasku i edytor celów.
     description_pl: str
     # Kanoniczne źródło licznika (patrz KpiMetric).
     metric: KpiMetric
@@ -104,7 +109,8 @@ KPI_CATALOG: tuple[KpiDef, ...] = (
         kpi_id="daily_completed_calls",
         period=KpiPeriod.day,
         title_pl="Rozmowy dziś",
-        description_pl="Zakończone rozmowy (CloudTalk)",
+        short_title_pl="Rozmowy",
+        description_pl="Liczą się zakończone rozmowy telefoniczne.",
         metric=KpiMetric.completed_calls,
         default_targets=_same_for_operators(15),
         requires_cloudtalk=True,
@@ -113,25 +119,18 @@ KPI_CATALOG: tuple[KpiDef, ...] = (
         kpi_id="daily_first_verifications",
         period=KpiPeriod.day,
         title_pl="Weryfikacje dziś",
-        description_pl="Kandydaci zweryfikowani (pierwsze przejście na verified)",
+        short_title_pl="Weryfikacje",
+        description_pl="Liczy się pierwsze przejście kandydata na „Zweryfikowany”.",
         metric=KpiMetric.first_verifications,
         default_targets=_same_for_operators(4),
         aliases=("verifications_daily",),
     ),
     KpiDef(
-        kpi_id="daily_new_candidates",
-        period=KpiPeriod.day,
-        title_pl="Nowi kandydaci dziś",
-        description_pl="Liczba nowych kandydatów dodanych w systemie",
-        metric=KpiMetric.new_candidates,
-        default_targets=_same_for_operators(5),
-        aliases=("cv_added_daily",),
-    ),
-    KpiDef(
         kpi_id="weekly_cvs_sent",
         period=KpiPeriod.week,
         title_pl="Rekomendacje w tygodniu",
-        description_pl="Pierwsze wysyłki CV do klienta (cv_sent)",
+        short_title_pl="Rekomendacje",
+        description_pl="Liczy się pierwsza wysyłka CV kandydata do klienta.",
         metric=KpiMetric.first_recommendations,
         default_targets=_same_for_operators(15),
     ),
@@ -139,7 +138,8 @@ KPI_CATALOG: tuple[KpiDef, ...] = (
         kpi_id="monthly_placements",
         period=KpiPeriod.month,
         title_pl="Placementy w tym miesiącu",
-        description_pl="Zamknięte placementy (pierwsze hired)",
+        short_title_pl="Placementy",
+        description_pl="Liczy się pierwsze zatrudnienie kandydata.",
         metric=KpiMetric.first_placements,
         default_targets=_same_for_operators(1),
         aliases=("placements_monthly",),
@@ -148,7 +148,8 @@ KPI_CATALOG: tuple[KpiDef, ...] = (
         kpi_id="monthly_precision",
         period=KpiPeriod.month,
         title_pl="Precyzja (30 dni)",
-        description_pl="Rekomendacje ÷ weryfikacje w oknie kroczącym 30 dni (%)",
+        short_title_pl="Precyzja",
+        description_pl="Rekomendacje podzielone przez weryfikacje z ostatnich 30 dni.",
         metric=KpiMetric.precision,
         default_targets=_same_for_operators(75),
         aliases=("precision_monthly",),
@@ -169,6 +170,16 @@ KPI_ID_ALIASES: dict[str, str] = {
 # Identyfikatory zasiane przez 0034 i od dawna martwe (UserActivity).
 # Migracja 0346 kasuje ich wiersze z `kpi_role_defaults`.
 RETIRED_KPI_IDS: tuple[str, ...] = ("daily_activity_count", "weekly_screenings")
+
+# Cele wycofane po 0346 (id → tytuł sprzed wycofania). Wiersze tych id zostają
+# w `kpi_role_defaults` / `user_kpi_targets` — resolver (`kpi_targets`) ich nie
+# czyta, bo pyta bazę tylko o id z katalogu; historia edytora celów bierze stąd
+# tytuł, żeby stary wpis nie pokazywał surowego id. Osobna lista, bo
+# `RETIRED_KPI_IDS` jest przypięta do zamrożonych stałych migracji 0346.
+WITHDRAWN_KPI_TITLES: dict[str, str] = {
+    # 13.10.2026, decyzja Artura: nie ma już celu dodawania kandydatów do bazy.
+    "daily_new_candidates": "Nowi kandydaci dziś",
+}
 
 
 def canonical_kpi_id(kpi_id: str) -> str:

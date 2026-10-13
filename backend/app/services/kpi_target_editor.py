@@ -30,6 +30,7 @@ from app.models.kpi_target_event import KpiTargetEvent
 from app.models.user import User, UserRole
 from app.services.kpi_catalog import (
     KPI_CATALOG,
+    WITHDRAWN_KPI_TITLES,
     KpiMetric,
     canonical_kpi_id,
     get_kpi,
@@ -328,6 +329,13 @@ async def history(db: AsyncSession, *, limit: int = 50) -> list[dict]:
         .all()
     )
     titles = {k.kpi_id: k.title_pl for k in KPI_CATALOG}
+    # Wpisy o celu, którego już nie ma w katalogu, zostają w historii z nazwą.
+    titles.update(
+        {
+            kpi_id: f"{title} (cel wycofany)"
+            for kpi_id, title in WITHDRAWN_KPI_TITLES.items()
+        }
+    )
     out = []
     for ev in rows:
         change = (ev.changes or {}).get("target_value") or {}

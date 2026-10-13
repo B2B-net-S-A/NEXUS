@@ -31,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.user import User, UserRole
 from app.services.kpi_catalog import KpiPeriod
 from app.services.kpi_engine import WARSAW, period_bounds
-from app.services.kpi_targets import resolve_kpi_targets_bulk
+from app.services.kpi_targets import KPI_BEARING_ROLES, resolve_kpi_targets_bulk
 
 # Minimalna liczba weryfikacji w oknie, by pokazać precision (mniej = szum).
 _PRECISION_MIN_DENOM = 5
@@ -53,7 +53,6 @@ _PANEL_KPI_IDS = (
     "daily_first_verifications",
     "monthly_precision",
     "monthly_placements",
-    "daily_new_candidates",
 )
 
 
@@ -351,7 +350,8 @@ _FUNNEL_SQL = text(
     """
 )
 
-# „5 CV do bazy / dzień" = nowe rekordy kandydatów utworzone przez usera.
+# „CV do bazy" = nowe rekordy kandydatów utworzone przez usera. Od 13.10.2026
+# sama liczba, bez celu (cel „Nowi kandydaci dziś” wycofany).
 # Import masowy (Traffit/TalentRadar) ma created_by NULL → nie liczy się.
 _CV_SQL = text(
     """
@@ -407,7 +407,6 @@ class PanelResult:
     precision: PrecisionResult
     target_verifications_daily: int
     target_placements_monthly: int
-    target_cv_added_daily: Optional[int]
     target_precision_pct: int
 
 
@@ -472,10 +471,10 @@ async def compute_my_panel(
         else None
     )
 
-    # CV do bazy — tylko gdy osoba ma cel (którakolwiek z jej ról).
-    cv_target = targets["daily_new_candidates"]
+    # CV do bazy — sama liczba, dla osób z rolą z celami KPI. Do 13.10.2026
+    # warunkiem był cel „Nowi kandydaci dziś” > 0, czyli ta sama grupa.
     cv_to_base: Optional[FunnelCounts] = None
-    if cv_target > 0:
+    if user.has_any_role(*KPI_BEARING_ROLES):
         cv_params = {
             "uid": user.id,
             "day_start": day_start,
@@ -511,7 +510,6 @@ async def compute_my_panel(
         ),
         target_verifications_daily=verifications_target,
         target_placements_monthly=placements_target,
-        target_cv_added_daily=(cv_target if cv_to_base is not None else None),
         target_precision_pct=precision_target,
     )
 

@@ -16,6 +16,8 @@ Reguły:
   (≈11:00 dla dnia, ~wtorek rano dla tygodnia, ~11 dnia dla miesiąca) +
   <3 istniejących remindów w tym buckecie + minimum 120 min od ostatniego
   reminda → emit. Eskalacja wariantów 0/1/2 = delikatny/stanowczy/last call.
+  Od 13.10.2026 „behind” wymaga brakującej całej sztuki (`derive_state`),
+  więc cel 1 (placement miesiąca) nie dostaje przypomnienia wcale.
 - `eod_summary`: 17:25 ≤ time ≤ 17:35, raz dziennie per user.
 
 Dedup (hard): UniqueConstraint `uq_kpi_nudge_log_dedup` na

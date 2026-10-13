@@ -33,7 +33,6 @@ from app.core.cache import (
 )
 from app.core.scheduling import is_business_day
 from app.models.call import Call, CallStatus
-from app.models.candidate import Candidate
 from app.models.user import User, UserRole
 from app.services.kpi_catalog import (
     KPI_CATALOG,
@@ -75,6 +74,10 @@ class KpiResult:
     progress_pct: float  # 0.0-100.0+ (może przekroczyć 100 przy over-hit)
     state: KpiState
     deadline_hours_left: float
+    short_title_pl: str = ""
+    # Ile powinno być zrobione „na teraz” (cel × tempo okresu) — kreska tempa
+    # na pasku postępu i zdanie „na tę godzinę wychodzą 2”.
+    expected_count: float = 0.0
 
 
 # ── Granice czasu ────────────────────────────────────────────────────────
@@ -208,6 +211,12 @@ def derive_state(*, current: int, target: int, expected_ratio: float) -> KpiStat
       wytykać).
     - w przeciwnym razie porównujemy `current` z `target * expected_ratio`
       (expected_count) z tolerancją ±20%.
+    - "behind" dopiero, gdy do tempa brakuje CAŁEJ sztuki (13.10.2026). Do tego
+      dnia wynik 0 był „poniżej tempa” od 9:01, a placement miesiąca (cel 1)
+      przez cały miesiąc — znaczek świecił się prawie zawsze i nic nie mówił.
+      Przy celu 1 oczekiwana wartość nigdy nie dochodzi do 1 przed końcem
+      okresu, więc taki cel nie ma tempa: jest "on_track", potem "hit" albo
+      "missed".
     """
     if target <= 0:
         return "hit"
@@ -222,7 +231,7 @@ def derive_state(*, current: int, target: int, expected_ratio: float) -> KpiStat
     # ±20% wokół oczekiwanej wartości — akceptowalny korytarz on_track.
     low = expected_count * 0.8
     high = expected_count * 1.2
-    if current < low:
+    if current < low and expected_count - current >= 1:
         return "behind"
     if current >= high:
         return "ahead"
@@ -262,8 +271,7 @@ async def count_canonical_metric(
     - first_*: pierwsze milestone'y z atrybucją verifier-anchored
       (``VERIFIER_ANCHORED_CTE`` — rodzina atrybucji A: zasługę dostaje
       pierwszy zaakceptowany weryfikator pary; widok
-      ``analytics_first_milestones`` jest tylko źródłem gałęzi ``legacy``),
-    - new_candidates: candidates.created_by.
+      ``analytics_first_milestones`` jest tylko źródłem gałęzi ``legacy``).
 
     UWAGA: to NIE jest ta sama atrybucja co Analytics v1 / Insights (rodzina B:
     ``analytics_first_milestones.first_moved_by`` = osoba, która kliknęła
@@ -280,18 +288,6 @@ async def count_canonical_metric(
                     Call.status == CallStatus.completed,
                     effective_at >= since,
                     effective_at < until,
-                )
-            )
-        )
-        return int(result or 0)
-
-    if metric is KpiMetric.new_candidates:
-        result = await db.scalar(
-            select(func.count(Candidate.id)).where(
-                and_(
-                    Candidate.created_by == user_id,
-                    Candidate.created_at >= since,
-                    Candidate.created_at < until,
                 )
             )
         )
@@ -506,6 +502,8 @@ async def evaluate_user_kpis(
                 progress_pct=progress,
                 state=state,
                 deadline_hours_left=hours_left,
+                short_title_pl=kpi_def.short_title_pl,
+                expected_count=target * ratio,
             )
         )
 

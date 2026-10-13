@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { Menu, Search } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { BreadcrumbV2 } from "./BreadcrumbV2";
@@ -15,6 +14,12 @@ import { MyPeopleTopbarButton } from "@/components/v2/my-people/MyPeopleLauncher
 import { KidsModeToggleButton, ThemeToggleButton } from "./ThemeControls";
 import { ChatNotificationsDropdown } from "./ChatNotificationsDropdown";
 import { InterviewNotificationsDropdown } from "./InterviewNotificationsDropdown";
+import {
+  TOPBAR_ACTIONS_CLASS,
+  TOPBAR_BREADCRUMB_CLASS,
+  TOPBAR_HEADER_CLASS,
+  TOPBAR_SEARCH_CLASS,
+} from "./topbar-layout";
 
 interface Props {
   onOpenMobileSidebar: () => void;
@@ -38,12 +43,7 @@ export function TopbarV2({
   }, []);
 
   return (
-    <header
-      className={cn(
-        "h-12 shrink-0 flex items-center gap-2 sm:gap-3 px-3 md:px-5",
-        "bg-background border-b border-border"
-      )}
-    >
+    <header className={TOPBAR_HEADER_CLASS}>
       <button
         onClick={onOpenMobileSidebar}
         aria-label="Otwórz menu"
@@ -52,21 +52,14 @@ export function TopbarV2({
         <Menu className="h-4 w-4" />
       </button>
 
-      {/* Okruszki kurczą się (`md:flex-initial`, nie `flex-none`) — na
-          tablecie nie wypychają dzwonka i „Dodaj” poza ekran. */}
-      <div className="hidden md:flex min-w-0 max-w-[360px] flex-1 md:flex-initial">
+      <div className={TOPBAR_BREADCRUMB_CLASS}>
         <BreadcrumbV2 />
       </div>
 
       <button
         onClick={onOpenCommandPalette}
         aria-label="Otwórz wyszukiwanie"
-        className={cn(
-          "flex-1 min-w-0 max-w-md mx-auto flex items-center gap-2 h-8 px-3",
-          "rounded-md border border-border",
-          "bg-muted/50 hover:bg-muted transition-colors",
-          "text-left text-sm text-muted-foreground"
-        )}
+        className={TOPBAR_SEARCH_CLASS}
       >
         <Search className="h-4 w-4 shrink-0" />
         <span className="truncate">Szukaj kandydatów, rekrutacji, klientów…</span>
@@ -76,7 +69,7 @@ export function TopbarV2({
         </div>
       </button>
 
-      <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+      <div className={TOPBAR_ACTIONS_CLASS}>
         <MyKpiWidget variant="compact" className="hidden md:block" />
         {/* Na telefonie przełączniki wyglądu są w szufladzie nawigacji. */}
         <div className="hidden sm:flex items-center gap-2">

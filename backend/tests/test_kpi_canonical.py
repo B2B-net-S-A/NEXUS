@@ -204,20 +204,6 @@ async def test_completed_calls_effective_date(seeded):
     assert count == 2
 
 
-@pytest.mark.asyncio
-async def test_new_candidates_created_by(seeded):
-    window = (T0 - timedelta(days=1), T0 + timedelta(days=1))
-    async with AsyncSessionLocal() as db:
-        a = await count_canonical_metric(
-            db,
-            user_id=seeded["user_a"],
-            metric=KpiMetric.new_candidates,
-            since=window[0],
-            until=window[1],
-        )
-    assert a >= 1
-
-
 # ── Targety (plan: 15 rozmów / 4 weryfikacje, niezależne, konfigurowalne) ───
 
 

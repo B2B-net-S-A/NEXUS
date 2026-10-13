@@ -139,3 +139,50 @@ async def test_cache_keys_do_not_grow_with_each_call(monkeypatch) -> None:
     milestone_keys = [k for k in cache_module._cache if k.startswith("kpi:milestones:")]
     assert len(milestone_keys) == 1
     assert db.execute.await_count == 4
+
+
+# ── 13.10.2026: pola dla licznika celów w górnym pasku ────────────────────
+
+
+@pytest.mark.asyncio
+async def test_results_carry_short_title_and_expected_count(monkeypatch) -> None:
+    """Panel celów rysuje kreskę tempa z `expected_count`, a segment paska
+    podpisuje `short_title_pl` (nazwa bez okresu)."""
+
+    async def _targets(_db, users, _ids):
+        goals = {
+            "daily_first_verifications": 4,
+            "weekly_cvs_sent": 15,
+            "monthly_placements": 1,
+        }
+        return {user.id: dict(goals) for user in users}
+
+    monkeypatch.setattr(kpi_engine, "resolve_kpi_targets_bulk", _targets)
+    monkeypatch.setattr(
+        kpi_engine, "kpi_available", lambda k: k.metric.value != "completed_calls"
+    )
+    # Środa 23.09.2026, 13:15 — połowa dnia roboczego (9:00–17:30).
+    now = datetime(2026, 9, 23, 13, 15, tzinfo=kpi_engine.WARSAW)
+    results = {
+        r.kpi_id: r
+        for r in await kpi_engine.evaluate_user_kpis(
+            _empty_db(), user=_user(21), now=now
+        )
+    }
+
+    daily = results["daily_first_verifications"]
+    assert daily.short_title_pl == "Weryfikacje"
+    assert daily.expected_count == pytest.approx(2.0)
+    # 0 z 4, do tempa brakuje dwóch sztuk.
+    assert daily.state == "behind"
+
+    placements = results["monthly_placements"]
+    assert placements.short_title_pl == "Placementy"
+    assert 0 < placements.expected_count < 1
+    # Cel 1 nie ma tempa: 0 z 1 w środku miesiąca to nie „poniżej tempa”.
+    assert placements.state == "on_track"
+    assert set(results) == {
+        "daily_first_verifications",
+        "weekly_cvs_sent",
+        "monthly_placements",
+    }
