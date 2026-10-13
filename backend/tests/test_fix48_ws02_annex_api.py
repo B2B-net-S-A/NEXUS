@@ -241,7 +241,9 @@ async def _assert_linked_like_the_register(rid: int, contract_id: int) -> None:
     """Numer umowy na kontrakcie, wpis na osi czasu umowy i na kontrakcie."""
     from app.models.activity import Activity
     from app.models.b2b_contract_detail import B2BContractDetail
-    from app.models.b2b_generated_contract import B2BGeneratedContractStatusEvent
+    from app.models.b2b_generated_contract_status_event import (
+        B2BGeneratedContractStatusEvent,
+    )
 
     row = await _row(rid)
     assert row.contract_id == contract_id

@@ -381,6 +381,8 @@ async def test_closed_md_line_without_its_own_date_ends_with_its_group():
             start_date=today - timedelta(days=200),
             end_date=group_end,
             status="completed",
+            # CHECK `ck_client_order_groups_closure`: zamknięta grupa ma datę zamknięcia.
+            closure_date=group_end,
             order_type="md",
             is_cost_based=False,
             is_md_budget_based=False,
