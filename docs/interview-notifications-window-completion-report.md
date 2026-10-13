@@ -81,7 +81,12 @@ Bez migracji i bez nowych typów powiadomień.
 | Dymek końca rozmowy i akcja wiersza | sprawdzone w testach i na sondzie | dymek z „Zapisz debrief” widoczny na sondzie; okna akcji w testach kontenera |
 | Przegląd kodu i przegląd bezpieczeństwa (niezależni agenci) | uwagi wprowadzone | kod: jeden błąd blokujący — zaległy debrief rozmowy starszej niż 14 dni znikał z okienka (agenda sięga 14 dni) — poprawiony testem; bezpieczeństwo: nic blokującego, dodane `https:` przed otwarciem linku spotkania i domyślne `mine = False` |
 | Dymki z gniazda na żywo | niepotwierdzone | lokalnie nie ma backendu; test haka i kontenera pokrywa drogę zdarzenia |
-| Wdrożenie, licznik dzwonka i okienko na produkcji | po scaleniu | `/api/health`, zapytania dzwonka z `exclude_interviews=true`, przeklikanie jako rekruter i Delivery Lead |
+| Wdrożenie | na produkcji | `/api/health` → `version` = `332a974643` (commit scalenia B2B-net-S-A/NEXUS#2170), 13.10.2026 |
+| Nowa trasa na produkcji | jest | bez logowania `GET /api/notifications/interviews` → 401, trasa nieistniejąca → 404 |
+| Dzwonek na produkcji (konto administratora, Chrome) | pomija kategorię | zapytanie listy z `exclude_chat` i `exclude_interviews`; 0 wierszy rozmów wśród 20 pokazanych; podpowiedź „mają teraz własne okienko” widoczna |
+| Okienko na produkcji (to samo konto) | działa | ikona między „Czatami” a dzwonkiem, licznik 9 = 1 wiersz „Czeka na Ciebie” („Debrief zaległy”, akcja „Uzupełnij”) + 8 w „Nowe”; wierszy i „Oznacz nowe” nie klikano |
+| Znalezione na produkcji | poprawione w następnym PR-ze | 8 wierszy „Nowe” to przypomnienia „Za 15 minut: …” sprzed 14 min – 23 h dla wydarzeń spoza agendy cyklu; teraz znikają po starcie wydarzenia (start z treści przypomnienia) |
+| Pasek przy 1280 px na produkcji, konto rekrutera i Delivery Leada | niepotwierdzone | okna Chrome nie dało się zwęzić (2129 px), a zalogowane było tylko konto administratora; szerokość zmierzona lokalnie (wiersz wyżej) |
 
 ## Poza zakresem
 

@@ -46,8 +46,12 @@ https://claude.ai/artifact/Nt9BUPasXNjSYpZGmEpf37, raport
   (Head of Recruitment i cudze prepy) zostaje widoczna z tytułem i treścią.
 - **Do okienka trafiają wszystkie przypomnienia kalendarza**
   (`interview_scheduled`: także screening i termin), bo należą do kategorii.
-  Przypomnienie zwija się w wiersz swojego wydarzenia, znika po jego starcie,
-  a bez wydarzenia w agendzie — po dobie.
+  Przypomnienie zwija się w wiersz swojego wydarzenia i znika po jego starcie.
+  Wydarzenie spoza agendy cyklu (screening, zwykła rozmowa, termin) nie ma
+  tu daty, więc start bierzemy z treści („Za 15 minut: …” = utworzenie + 15
+  min); bez liczby w treści wiersz żyje najwyżej dobę. Na produkcji 13.10.2026
+  w „Nowe” wisiało 8 takich przypomnień sprzed nawet 23 godzin, bo do tej
+  poprawki wszystkie żyły dobę.
 - **Gaszenie ma własną trasę:** `PUT /api/notifications/interviews/read`
   z `ids` (klik w wiersz albo akcję; także przypomnienie w zastępstwie) albo
   bez ciała (wszystkie własne, jak `read-all`). Nie rób z tego parametru
