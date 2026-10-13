@@ -25,10 +25,10 @@ osobę od Cpro per rekrutacja (0353) i kolejkę „Czeka na DZ” (0348).
   blokowało siedem i QC przeszła 1 z 8 par, bo „każde must z maila klienta
   w CV” padało w 7 z 8): brak CV firmowego (`cv_present`), umiejętności
   krytyczne (`critical_skills` — w CV i OPISANE zdaniem ≥ 6 słów, nie listą
-  technologii, w każdej roli, w której oryginał je wymienia; od 12.10.2026
-  „oryginał wymienia” czyta się z odczytu tej roli, nie z tekstu pliku — patrz
-  „QC CV: tryb doradczy, role z odczytu CV…”), nic must/nice
-  spoza oryginału i notatek (`no_unsupported`), reguły klienta (bez stawek
+  technologii, w każdej roli, w której oryginał je OPISUJE w opisie roli; od
+  13.10.2026 sama lista technologii roli to informacja — patrz „QC CV mówi
+  prawdę”), nic must/nice spoza oryginału, notatek i odpowiedzi ze screeningu
+  (`no_unsupported`), reguły klienta (bez stawek
   i kontaktu, zrzut zgody RODO). Uwagi, które NIE blokują: pozostałe must w CV
   i w rolach, pogrubienia must i nice, lata w nagłówku, daty ról, pisownia,
   tytuł, pogrubienia spoza oryginału (CV EN z oryginału PL pogrubia

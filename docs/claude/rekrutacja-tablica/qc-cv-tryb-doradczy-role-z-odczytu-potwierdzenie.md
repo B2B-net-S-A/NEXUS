@@ -68,15 +68,21 @@ kandydatów w QC nie miało opisów ról w historii profilu.
   technologii, pary wymaganie × rola mają stan `unverified`, sprawdzenie —
   status `manual` („Odczyt CV nie ma opisów ról — sprawdź role ręcznie”).
   Brak krytycznej w całym CV blokuje jak dotąd. Reguła „zdanie w każdej roli,
-  w której oryginał wymienia krytyczną” (02.10.2026) zostaje.
+  w której oryginał wymienia krytyczną” (02.10.2026) zmieniona 13.10.2026:
+  zdanie jest wymagane tylko tam, gdzie oryginał OPISUJE umiejętność w opisie
+  roli; sama lista technologii albo nazwa stanowiska to informacja
+  (`listed_only`) — patrz „QC CV mówi prawdę”.
 - **Pozycja niesie dowód:** `evidence` (zdanie z opisu roli, lista technologii
   roli albo nazwa stanowiska) i `evidence_kind`; sprawdzenie niesie `roles`
-  („rola po roli”: `described` / `missing` / `not_in_original` / `unverified`).
+  („rola po roli”: `described` / `missing` / `listed_only` / `not_in_original`
+  / `unverified`).
 - **Cytat poprawki AI** (`parse_fixes`) nie może być listą technologii ani
   pochodzić na pewno z innej roli (stoi w odczycie innej roli albo w pliku
-  najbliższa poprzedzająca go nazwa firmy to inny pracodawca). Cytat nie do
-  przypisania przechodzi. Do 12.10.2026 serwer przyjmował zdanie o Pythonie do
-  roli supportu z cytatem „Python, Java, SQL” z sekcji umiejętności.
+  najbliższa poprzedzająca go nazwa firmy to inny pracodawca). Do 12.10.2026
+  serwer przyjmował zdanie o Pythonie do roli supportu z cytatem „Python, Java,
+  SQL” z sekcji umiejętności. Od 13.10.2026 cytat musi stać w tej roli albo
+  w części pliku tej firmy, a cytat z rozmowy — w zdaniu, które nazywa firmę
+  (szczegóły w „QC CV mówi prawdę”).
 - **„Potwierdzone z kandydatem” to notatka pary**
   (`cv_qc.confirm_with_candidate`, `POST …/qc/confirm`): QC czyta notatki jako
   źródło obok oryginału, więc pozycja „spoza oryginału” znika bez zmiany
@@ -90,10 +96,13 @@ kandydatów w QC nie miało opisów ról w historii profilu.
   (`QcResponse.confirmations`), żeby Delivery Lead widział, kto co potwierdził.
 - **Zmiana reguł liczenia = podbij `cv_qc.QC_VERSION`.** Plakietka na Tablicy
   czyta zapisany przebieg; `cv_qc.recompute_outdated` (zadanie startowe
-  `tasks/cv_qc_recompute.py`) przelicza nieudane przebiegi starszej wersji par
-  sprzed wysłania i samo się wygasza. Przebieg starszej wersji dostaje nowy
+  `tasks/cv_qc_recompute.py`) przelicza nieudane przebiegi starszej wersji
+  par sprzed wysłania i samo się wygasza (zaliczonych nie — nowy wiersz
+  zerowałby czas oczekiwania w kolejce DL). Przed podbiciem
+  zmierz stary i nowy kod skryptem `backend/scripts/qc_truth_audit.py`. Przebieg starszej wersji dostaje nowy
   wiersz także przy identycznym wyniku.
 - **Poza zakresem, świadomie:** „jedna opisana rola wystarcza” (po zmianie
   dotyczyłoby 1 pary), automatyczny ponowny odczyt CV dla kandydatów bez
-  odczytu ról, luźniejsze dopasowanie zapisu w „spoza oryginału” (ryzyko
-  „Java” w „JavaScript”).
+  odczytu ról. Luźniejsze dopasowanie zapisu zrobione 13.10.2026 z wyjątkami
+  (`dz_review.found_in`: blokada „spoza oryginału” tylko ostrym trybem,
+  „Java” ≠ „JavaScript”) — patrz „QC CV mówi prawdę”.

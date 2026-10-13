@@ -20,6 +20,7 @@ import {
   ChevronDown,
   Copy,
   HelpCircle,
+  Info,
   Loader2,
   LocateFixed,
   MinusCircle,
@@ -41,10 +42,13 @@ import type {
   QcFixesResponse,
   QcItem,
   QcResult,
+  QcSearch,
 } from "@/lib/api/cvQc";
 import {
   CV_NOT_EDITABLE_MESSAGE,
+  QC_FIX_SOURCE_LABEL,
   QC_ROLE_STATE_LABEL,
+  QC_SEARCH_SOURCE_LABEL,
   QC_TASK_TAG,
   checkLevelFixes,
   companyCvRoleState,
@@ -288,6 +292,57 @@ function RoleEvidence({ item, ctx }: { item: QcItem; ctx: ActionContext }) {
   );
 }
 
+/**
+ * „Szukałem w: …” — gdzie QC szukało pozycji i co znalazło. Bez tego rekruter
+ * nie wie, czy „brak w oryginale” to prawda, czy zapis, którego QC nie zna.
+ */
+export function SearchedChips({ searched }: { searched?: QcSearch[] | null }) {
+  if (!searched?.length) return null;
+  const quotes = searched.filter((entry) => entry.found && entry.quote?.trim());
+  return (
+    <div className="space-y-1 text-xs">
+      <p className="flex flex-wrap items-center gap-1" aria-label="Gdzie QC szukało">
+        <span className="text-muted-foreground">Szukałem w:</span>
+        {searched.map((entry) => (
+          <Badge key={entry.source} variant={entry.found ? "success" : "outline"} size="sm">
+            {QC_SEARCH_SOURCE_LABEL[entry.source]} {entry.found ? "✓" : "—"}
+            <span className="sr-only">{entry.found ? "znaleziono" : "brak"}</span>
+          </Badge>
+        ))}
+      </p>
+      {quotes.map((entry) => (
+        <p key={entry.source} className="border-l-2 border-border pl-2 text-muted-foreground [overflow-wrap:anywhere]">
+          {QC_SEARCH_SOURCE_LABEL[entry.source]}: <q className="italic">{entry.quote}</q>
+        </p>
+      ))}
+    </div>
+  );
+}
+
+/** Informacje sprawdzenia — bez zadania, nie liczą się do uwag ani bramki. */
+function InfoItems({ items }: { items: QcItem[] }) {
+  if (items.length === 0) return null;
+  return (
+    <div role="group" aria-label="Informacje" className="space-y-1 text-xs">
+      <p className="font-semibold text-muted-foreground">Informacje — bez poprawki</p>
+      <ul className="space-y-1">
+        {items.map((item, i) => (
+          <li key={item.key ?? i} className="flex gap-1.5 text-muted-foreground">
+            <Info className="mt-0.5 size-3.5 shrink-0 text-info" aria-hidden />
+            <span className="min-w-0 [overflow-wrap:anywhere]">
+              {item.role ? <span className="text-foreground">{item.role} · </span> : null}
+              {item.requirement || item.term ? (
+                <span className="font-medium text-foreground">{item.requirement ?? item.term}</span>
+              ) : null}
+              {item.detail ? ` — ${item.detail}` : null}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 const CONFIRM_TEXT_MAX = 1000;
 
 /** Formularz „Potwierdzone z kandydatem” w karcie treści spoza oryginału. */
@@ -380,10 +435,13 @@ export function TaskCard({ task, ctx }: { task: QcTask; ctx: ActionContext }) {
     const term = (first.term ?? name ?? "").trim();
     // Tytuł mówi już, co jest nie tak — niżej tylko, co z tym zrobić.
     body = (
-      <p className="text-xs text-muted-foreground">
-        Oryginalne CV i notatki z rozmów o tym nie wspominają. Usuń to z CV albo potwierdź u kandydata i zapisz
-        potwierdzenie.
-      </p>
+      <>
+        <p className="text-xs text-muted-foreground">
+          Oryginalne CV, odpowiedzi ze screeningu i notatki z rozmów o tym nie wspominają. Usuń to z CV albo potwierdź
+          u kandydata i zapisz potwierdzenie.
+        </p>
+        <SearchedChips searched={first.searched} />
+      </>
     );
     actions = (
       <>
@@ -400,7 +458,14 @@ export function TaskCard({ task, ctx }: { task: QcTask; ctx: ActionContext }) {
     form = term && confirmOpen ? <ConfirmForm term={term} ctx={ctx} onClose={() => setConfirmOpen(false)} /> : null;
   } else if (first) {
     // Bez nazwy tytułem jest samo zdanie pozycji — nie powtarzamy go niżej.
-    body = name && first.detail ? <p className="text-xs text-muted-foreground">{first.detail}</p> : null;
+    const detail = name && first.detail ? <p className="text-xs text-muted-foreground">{first.detail}</p> : null;
+    body =
+      detail || first.searched?.length ? (
+        <>
+          {detail}
+          <SearchedChips searched={first.searched} />
+        </>
+      ) : null;
     const where = ctx.locate ? itemTarget(first) : null;
     const action = first.fix ? <ItemAction item={first} ctx={ctx} /> : editorButton;
     actions =
@@ -433,7 +498,9 @@ export function TaskCard({ task, ctx }: { task: QcTask; ctx: ActionContext }) {
 export function CheckRow({ check, ctx }: { check: QcCheck; ctx: ActionContext }) {
   const [open, setOpen] = useState(false);
   const roleGroups = groupRoleStates(check.roles ?? []);
-  const hasBody = check.items.length > 0 || checkLevelFixes(check).length > 0 || roleGroups.length > 0;
+  const info = check.info ?? [];
+  const hasBody =
+    check.items.length > 0 || checkLevelFixes(check).length > 0 || roleGroups.length > 0 || info.length > 0;
   // `useId`: okno QC i panel w edytorze CV bywają otwarte naraz.
   const bodyId = useId();
   const preview = check.status === "fail" || check.status === "manual" ? notePreview(check) ?? check.summary : null;
@@ -479,6 +546,7 @@ export function CheckRow({ check, ctx }: { check: QcCheck; ctx: ActionContext })
                 ) : null}
               </p>
               {item.detail ? <p className="text-xs text-muted-foreground">{item.detail}</p> : null}
+              <SearchedChips searched={item.searched} />
               {ctx.locate && itemTarget(item) ? (
                 <div className="flex flex-wrap items-center gap-2">
                   <ItemAction item={item} ctx={ctx} />
@@ -506,6 +574,7 @@ export function CheckRow({ check, ctx }: { check: QcCheck; ctx: ActionContext })
               ))}
             </div>
           ) : null}
+          <InfoItems items={info} />
           <CheckActions check={check} ctx={ctx} />
         </div>
       ) : null}
@@ -635,7 +704,7 @@ function Proposal({
         </p>
       )}
       <p className="border-l-2 border-border pl-2 text-xs text-muted-foreground">
-        Źródło: {fix.source === "notes" ? "notatka rekrutera" : "oryginalne CV"}
+        Źródło: {QC_FIX_SOURCE_LABEL[fix.source] ?? QC_FIX_SOURCE_LABEL.original}
         {fix.source_quote ? (
           <>
             {" — "}
