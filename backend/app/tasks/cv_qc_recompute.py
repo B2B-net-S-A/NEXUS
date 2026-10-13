@@ -1,8 +1,9 @@
 """Przeliczenie QC CV po zmianie reguł — raz po starcie.
 
 Plakietka QC na Tablicy czyta zapisany przebieg, a bramka ruchu liczy QC na
-żywo. Po zmianie reguł (`cv_qc.QC_VERSION`) pary sprzed wysłania z przebiegiem
-starszej wersji pokazywałyby stary stan, dopóki ktoś nie otworzy okna QC. Zadanie kończy się samo: przeliczony przebieg ma bieżącą
+żywo. Po zmianie reguł (`cv_qc.QC_VERSION`) pary sprzed wysłania z nieudanym
+przebiegiem starszej wersji pokazywałyby stare „do poprawy”, dopóki ktoś nie
+otworzy okna QC. Zadanie kończy się samo: przeliczony przebieg ma bieżącą
 wersję, więc kolejny start nic nie znajduje.
 """
 

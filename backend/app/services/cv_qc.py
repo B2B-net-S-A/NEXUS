@@ -813,6 +813,9 @@ class QcInput:
     # Czy generator pogrubiał wymagania w tym CV. ``False`` = sprawdzenia
     # pogrubień nie dotyczą (Redakcja, plik z dysku); ``None`` = nie wiadomo.
     bold_expected: Optional[bool] = None
+    # Notatki bez pól handlowych karty — WYŁĄCZNIE do cytatów w „Szukałem w”
+    # (okno QC widzi rekruter). ``None`` = notatki bez cytatu.
+    notes_quote_text: Optional[str] = None
 
 
 def critical_requirements(
@@ -1107,26 +1110,29 @@ def _searched(
     original: str,
     answers: str,
     notes: str,
+    notes_quote: Optional[str],
     mode: str = "presence",
 ) -> list[dict]:
     """Gdzie QC szukało i czy znalazło — dowód przy każdej pozycji.
 
     Bez tego rekruter nie wie, czy „brak w oryginale” to prawda, czy zapis,
-    którego QC nie zna (13.10.2026). Cytaty notatek idą z tekstu już bez pól
-    handlowych karty (`_notes_text`), więc stawka nie wycieka do okna QC.
+    którego QC nie zna (13.10.2026). Cytat notatek idzie WYŁĄCZNIE z tekstu
+    bez pól handlowych karty (``notes_quote``: stawka, red flags, motywacja —
+    `CV_HIDDEN_FIELDS`); bez niego notatka nie ma cytatu. Przegląd PR 2:
+    cytat z pełnych notatek pokazywał w oknie QC stawkę z karty.
     """
     out: list[dict] = []
-    for source, text in (
-        ("cv", cv),
-        ("original", original),
-        ("answers", answers),
-        ("notes", notes),
+    for source, text, quote_text in (
+        ("cv", cv, cv),
+        ("original", original, original),
+        ("answers", answers, answers),
+        ("notes", notes, notes_quote or ""),
     ):
         how = dz.found_in(text, req, mode=mode) if text else None
         entry: dict = {"source": source, "found": how is not None}
-        if how is not None:
-            term = match_in(text, req) or next(iter(req.terms or req.alternatives), "")
-            quote = _snippet(text, term)
+        if how is not None and quote_text:
+            term = match_in(quote_text, req)
+            quote = _snippet(quote_text, term) if term else None
             if quote:
                 entry["quote"] = quote
         out.append(entry)
@@ -1281,7 +1287,13 @@ def compute_checks(data: QcInput) -> list[dict]:
 
     def searched(req: Requirement, mode: str = "presence") -> list[dict]:
         return _searched(
-            req, cv=gen_text, original=original, answers=answers, notes=notes, mode=mode
+            req,
+            cv=gen_text,
+            original=original,
+            answers=answers,
+            notes=notes,
+            notes_quote=data.notes_quote_text,
+            mode=mode,
         )
 
     # `in_cv` dla WSZYSTKICH must — czyta je też sprawdzenie pogrubień.
@@ -1845,27 +1857,26 @@ async def _note_rows(db: AsyncSession, candidate_id: int) -> list[str]:
 def answers_text(stage: Any, job: Any) -> str:
     """Odpowiedzi kandydata ze screeningu jako źródło QC (13.10.2026).
 
-    To samo, co dostaje generator CV (`_format_candidate_answers`), ale bez
-    linii pytań i bez zdań przeczących. Do 13.10.2026 QC ich nie czytało:
-    „kSQL” potwierdzony w odpowiedzi blokował CV jako „spoza oryginału”.
+    Te same odpowiedzi, które dostaje generator CV (bez pominiętych przy
+    przepięciu i bez notatki wewnętrznej — `client_safe_screening`), ale bez
+    treści pytań, bez zdań przeczących i bez kwot. Odpowiedź czytana wprost
+    z pola, nie z linii „O:” — odpowiedź w kilku liniach (lista technologii)
+    zostaje cała. Do 13.10.2026 QC odpowiedzi nie czytało: „kSQL”
+    potwierdzony w odpowiedzi blokował CV jako „spoza oryginału”.
     """
-    from app.services.cv_generator_b2b.standalone_service import (
-        _format_candidate_answers,
-    )
+    from app.schemas.champion import client_safe_screening
+    from app.services.money_text import strip_rates_and_availability
     from app.services.must_text_evidence import drop_negative_sentences
 
-    raw = _format_candidate_answers(
-        getattr(stage, "screening_answers", None),
-        (getattr(job, "champion_profile", None) or {}).get("screening_questions"),
-    )
+    safe = client_safe_screening(getattr(stage, "screening_answers", None)) or {}
     answers = [
-        line[2:].strip()
-        for line in raw.splitlines()
-        if line.startswith("O:") and line[2:].strip()
+        drop_negative_sentences(
+            strip_rates_and_availability(str(a.get("response") or ""))
+        )
+        for a in safe.get("answers") or []
+        if isinstance(a, dict) and str(a.get("response") or "").strip()
     ]
-    return "\n".join(drop_negative_sentences(a) for a in answers if a).strip()[
-        :ANSWERS_TEXT_MAX
-    ]
+    return "\n".join(a for a in answers if a).strip()[:ANSWERS_TEXT_MAX]
 
 
 def notes_text(rows: Iterable[str], hidden: frozenset[str] = AI_HIDDEN_FIELDS) -> str:
@@ -1994,6 +2005,7 @@ def _qc_input(
     answers: str = "",
     titles: tuple[str, ...] = (),
     bold: Optional[bool] = None,
+    notes_quote: Optional[str] = None,
 ) -> QcInput:
     critical, _ = critical_requirements(src.job, src.must)
     return QcInput(
@@ -2014,6 +2026,7 @@ def _qc_input(
         answers_text=answers,
         expected_titles=titles,
         bold_expected=bold,
+        notes_quote_text=notes_quote,
     )
 
 
@@ -2195,7 +2208,8 @@ async def evaluate(
     """(źródła, sprawdzenia, tekst notatek) — bez zapisu."""
 
     src = await _load_sources(db, stage)
-    notes = await _notes_text(db, src.candidate.id)
+    rows = await _note_rows(db, src.candidate.id)
+    notes = notes_text(rows)
     consent = await _consent_state(db, src)
     payload = await _generated_payload(db, src)
     data = _qc_input(
@@ -2205,6 +2219,7 @@ async def evaluate(
         answers=answers_text(stage, src.job),
         titles=await expected_titles(db, src, payload),
         bold=bold_expected(src, payload),
+        notes_quote=notes_text(rows, CV_HIDDEN_FIELDS),
     )
     return src, compute_checks(data), notes
 
@@ -2532,16 +2547,17 @@ async def confirm_with_candidate(
 
 
 async def recompute_outdated(db: AsyncSession, *, limit: int = 300) -> int:
-    """Przelicz przebiegi policzone starszymi regułami QC.
+    """Przelicz nieudane przebiegi policzone starszymi regułami QC.
 
     Plakietka na Tablicy czyta zapisany wynik (`pair_statuses`), więc po
-    zmianie reguł pokazywałaby stary stan, dopóki ktoś nie otworzy okna. Od
-    „qc-truth-1” (13.10.2026) także przebiegi zaliczone: reguły bywają
-    ostrzejsze (krytyczna nieobecna w całym CV), nie tylko łagodniejsze.
-    Tylko pary sprzed wysłania; po przeliczeniu przebieg ma bieżącą
-    `QC_VERSION`, więc kolejne wywołanie nic nie znajduje. ``limit`` liczy
-    przeliczone pary, nie pominięte (para po wysłaniu nie zjada limitu).
-    Commit po każdej parze — awaria jednej nie cofa pozostałych.
+    zmianie reguł pokazywałaby stare „do poprawy”, dopóki ktoś nie otworzy
+    okna. Tylko nieudane: nowy przebieg zaliczonej pary dostałby dzisiejszą
+    datę, a od niej kolejka Delivery Leada liczy czas oczekiwania
+    (`dl_send_queue.readiness_of`) — przegląd PR 2, 13.10.2026. Bramka ruchu
+    i tak liczy QC na żywo. Tylko pary sprzed wysłania; po przeliczeniu
+    przebieg ma bieżącą `QC_VERSION`, więc kolejne wywołanie nic nie
+    znajduje. ``limit`` liczy przeliczone pary, nie pominięte. Commit po
+    każdej parze — awaria jednej nie cofa pozostałych.
     """
 
     from app.services import pipeline_move_rules
@@ -2567,7 +2583,10 @@ async def recompute_outdated(db: AsyncSession, *, limit: int = 300) -> int:
     pairs = (
         await db.execute(
             select(latest.c.candidate_id, latest.c.job_id)
-            .where(func.coalesce(latest.c.qc_version, "") != QC_VERSION)
+            .where(
+                latest.c.passed.is_(False),
+                func.coalesce(latest.c.qc_version, "") != QC_VERSION,
+            )
             # Pary sprzed wysłania to te najświeższe.
             .order_by(latest.c.created_at.desc())
         )
@@ -3009,16 +3028,28 @@ def _names_company(sentence: str, company: str) -> bool:
         for w in re.findall(r"[0-9a-ząćęłńóśźż]+", _norm(company))
         if len(w) >= 3 and w not in _COMPANY_FILLER
     ]
-    return bool(words) and any(re.search(rf"\b{re.escape(w)}", sentence) for w in words)
+    # Całe słowo z krótką końcówką („w ING”, „w Acme”), nie prefiks
+    # („ingestion” to nie ING, „metadata” to nie Meta).
+    return bool(words) and any(
+        re.search(rf"\b{re.escape(w)}\w{{0,3}}\b", sentence) for w in words
+    )
 
 
-def _sentence_around(text: str, quote: str) -> str:
-    at = text.find(quote)
-    if at < 0:
-        return ""
-    start = max((m.end() for m in _SENTENCE_END.finditer(text, 0, at)), default=0)
-    end_match = _SENTENCE_END.search(text, at + len(quote))
-    return text[start : end_match.start() if end_match else len(text)]
+_SENTENCE_BREAK = re.compile(r"(?<=[.!?;])\s+|\n+")
+
+
+def _sentence_around(raw: str, quote: str) -> str:
+    """Zdanie albo linia źródła (znormalizowane), w której stoi cały cytat.
+
+    Dzielone na tekście z liniami — po `_norm` linie bez kropki sklejały się
+    w jedno „zdanie” i nazwa firmy z linii obok przepuszczała cytat o innej
+    firmie (przegląd PR 2). Cytat przez granicę zdań = brak zdania.
+    """
+    for segment in _SENTENCE_BREAK.split(raw or ""):
+        normalized = _norm(segment)
+        if quote and quote in normalized:
+            return normalized
+    return ""
 
 
 def _denies(text: str) -> bool:
@@ -3052,20 +3083,39 @@ def _version(text: str) -> tuple[int, ...]:
     return tuple(int(part) for part in text.split("."))
 
 
+def _version_below(found: tuple[int, ...], minimum: tuple[int, ...]) -> bool:
+    size = max(len(found), len(minimum))
+    pad = (0,) * size
+    return (found + pad)[:size] < (minimum + pad)[:size]
+
+
+_VERSION_LIST_TAIL = (
+    r"(?:\s*(?:,|/|\bi\b|\boraz\b|\blub\b|\band\b|\bor\b)\s*\d+(?:\.\d+)*)*"
+)
+
+
 def _below_required_version(text: str, item: dict) -> bool:
     """Czy tekst podaje tylko wersje niższe niż wymaganie („Java 8” przy
-    „Java 17”). Wersja z etykiety albo surowych alternatyw wymagania."""
+    „Java 17”). Wersja z etykiety albo surowych alternatyw wymagania;
+    „OAuth2” = „OAuth 2.0”, a „Java 8, 11 i 17” zawiera 17."""
     minimums: dict[str, tuple[int, ...]] = {}
     for raw in [item.get("requirement") or "", *(item.get("terms") or [])]:
         for match in _VERSION_REQ.finditer(raw):
             term, version = match.group(1).casefold(), _version(match.group(2))
-            minimums[term] = max(minimums.get(term, version), version)
+            known = minimums.get(term)
+            if known is None or _version_below(known, version):
+                minimums[term] = version
     for term, minimum in minimums.items():
         found = [
-            _version(v)
-            for v in re.findall(rf"\b{re.escape(term)}\s*v?(\d+(?:\.\d+)*)", text, re.I)
+            _version(number)
+            for match in re.finditer(
+                rf"\b{re.escape(term)}\s*v?(\d+(?:\.\d+)*{_VERSION_LIST_TAIL})",
+                text,
+                re.I,
+            )
+            for number in re.findall(r"\d+(?:\.\d+)*", match.group(1))
         ]
-        if found and max(found) < minimum:
+        if found and all(_version_below(v, minimum) for v in found):
             return True
     return False
 
@@ -3137,7 +3187,10 @@ def parse_fixes(raw: str, material: dict, digest: str) -> list[dict]:
             )
             if source is None:
                 continue
-            sentence = _sentence_around(answers if source == "answers" else notes, nq)
+            sentence = _sentence_around(
+                str(material.get("answers" if source == "answers" else "notes") or ""),
+                nq,
+            )
             if not _names_company(sentence, _company_of(item)):
                 continue
         if _denies(sentence) or _denies(quote) or _denies(proposed):

@@ -99,3 +99,27 @@ def test_requirement_written_as_a_phrase_or_choice_counts_as_present(
 )
 def test_phrase_presence_still_needs_every_word(term: str, text: str) -> None:
     assert dz.found_in(text, _req(term), mode="presence") is None
+
+
+@pytest.mark.parametrize(
+    ("term", "text"),
+    [
+        # Przegląd PR 2: rdzeń 4 liter i słowa frazy w dowolnym miejscu
+        # przepuszczały krytyczną umiejętność, której w CV nie ma.
+        ("Spring", "Prowadził sprint planning i retrospektywy"),
+        ("Scala", "Projektował scalable services"),
+        ("Excel", "Excellent communication skills"),
+        ("React", "Reactive programming w Javie"),
+        ("Flask", "Pamięć flash w urządzeniach"),
+        ("Unity", "Pisał unit tests"),
+        ("Redux", "Reduced costs by 20%"),
+        ("Spark", "Sparse matrices"),
+        ("Teams", "Pracował w team leadership"),
+        ("Google Cloud", "Google Analytics, Oracle Cloud"),
+        ("Azure DevOps", "AWS DevOps, Azure Functions"),
+    ],
+)
+def test_presence_does_not_take_a_prefix_or_scattered_words(
+    term: str, text: str
+) -> None:
+    assert dz.found_in(text, _req(term), mode="presence") is None

@@ -397,10 +397,9 @@ _QC_TRANSLATIONS_FILE = (
     Path(__file__).resolve().parent.parent / "data" / "cv_term_translations.json"
 )
 _FOLD_WORD = re.compile(r"[0-9a-z+#]+")
-# Najkrótszy termin porównywany w formie zbitej i najkrótszy rdzeń odmiany —
-# krótsze („Go”, „R”, „SQL”) trafiałyby w przypadkowe sklejenia słów.
+# Najkrótszy termin porównywany w formie zbitej — krótsze („Go”, „R”, „SQL”)
+# trafiałyby w przypadkowe sklejenia słów.
 COMPACT_MIN = 4
-STEM_MIN_WORD = 6
 # Oboczność w miejscowniku, której końcówki `_found` nie łapią: „Kafka” →
 # „o Kafce”, „Jira” → „w Jirze”. Dokładne słowo, więc też dla blokady.
 _ALTERNATIONS = (("cha", "sze"), ("ka", "ce"), ("ga", "dze"), ("ra", "rze"))
@@ -465,7 +464,9 @@ def found_in(
     tylko dosłownie z aliasami i odmianą (`_found`), forma zbita i
     kuratorowane tłumaczenia. Luźne rdzenie i grupy wyszukiwarki przepuszczałyby
     zmyślenia. ``mode="presence"`` („czy to jest w CV / w źródłach”) dokłada
-    grupy wyszukiwarki i rdzeń długiego słowa („bankowości” ↔ „bankowość”).
+    grupy wyszukiwarki, frazę słowo po słowie w odmianie z zamkniętej listy
+    końcówek („bankowości” ↔ „bankowość”, „aplikacji webowych” ↔ „aplikacje
+    webowe”), liczbę mnogą skrótu („APIs”) i wybór „A/B”.
     """
     if not text:
         return None
@@ -497,7 +498,7 @@ def found_in(
             if _found(text, Requirement(label=other, alternatives=(other,))):
                 return "translation"
     if mode == "presence":
-        words = words if words is not None else set(_FOLD_WORD.findall(_fold(text)))
+        tokens: Optional[list[str]] = None
         for name in names:
             # „Python/Perl”, „GitLab/GitHub”: dowolna z nazw. Krótkie człony
             # („PL/SQL”, „CI/CD”, „TCP/IP”) to jedna nazwa.
@@ -508,26 +509,56 @@ def found_in(
                     for h in halves
                 ):
                     return "translation"
-            # Krótkie człony („PL” w „PL/SQL”) muszą stać dosłownie.
-            parts = [p for p in _FOLD_WORD.findall(_fold(name)) if len(p) >= 2]
-            if parts and all(_word_present(part, words) for part in parts):
+            # „APIs” ↔ „API”: liczba mnoga tylko skrótu z wielkich liter
+            # („Teams” to nie „team”).
+            bare = name.strip()
+            if len(bare) >= 3 and bare.endswith("s") and bare[:-1].isupper():
+                if _found(
+                    text, Requirement(label=bare[:-1], alternatives=(bare[:-1],))
+                ):
+                    return "translation"
+            parts = _FOLD_WORD.findall(_fold(name))
+            if not parts:
+                continue
+            tokens = tokens if tokens is not None else _FOLD_WORD.findall(_fold(text))
+            if _phrase_present(parts, tokens):
                 return "stem"
     return None
 
 
-def _word_present(part: str, words: set[str]) -> bool:
-    """Słowo w odmianie albo liczbie mnogiej: „aplikacji webowych” ↔
-    „aplikacje webowe”, „APIs” ↔ „API”, „bankowości” ↔ „bankowość”."""
-    if part in words:
-        return True
-    if len(part) < 3:
+# Końcówki odmiany po złożeniu znaków („ów” → „ow”), najdłuższe najpierw.
+# Zamknięta lista zamiast prefiksu: rdzeń „spri” łapał „sprint” dla „Spring”,
+# „exce” — „excellent” dla „Excel” (przegląd PR 2, 13.10.2026).
+_ENDINGS = ("ych", "ich", "ami", "ach", "ego", "emu", "ow", "om", "ej", "ie")
+_ENDINGS_1 = ("y", "i", "u", "a", "e", "o")
+CORE_MIN = 5
+
+
+def _core(word: str) -> str:
+    """Słowo bez jednej końcówki odmiany, gdy zostaje co najmniej 5 liter:
+    „bankowości” → „bankowosc”, „aplikacji” i „aplikacje” → „aplikacj”."""
+    for ending in (*_ENDINGS, *_ENDINGS_1):
+        if word.endswith(ending) and len(word) - len(ending) >= CORE_MIN:
+            return word[: -len(ending)]
+    return word
+
+
+def _phrase_present(parts: list[str], tokens: list[str]) -> bool:
+    """Słowa frazy obok siebie, każde w tej samej odmianie rdzenia: „aplikacji
+    webowych” ↔ „aplikacje webowe”, „monitoringu produkcji” ↔ „monitoring
+    produkcji”. Krótkie słowa (< 3 znaki) dosłownie."""
+    want = [p if len(p) < 3 else _core(p) for p in parts]
+    if all(len(p) < 3 for p in parts):
         return False
-    if len(part) >= 4 and part.endswith("s") and part[:-1] in words:
-        return True
-    if len(part) < STEM_MIN_WORD - 1:
-        return False
-    stem = part[: max(4, len(part) - 3)]
-    return any(word.startswith(stem) for word in words)
+    size = len(want)
+    for start in range(len(tokens) - size + 1):
+        window = tokens[start : start + size]
+        if all(
+            (tok == w) if len(w) < 3 else (_core(tok) == w)
+            for tok, w in zip(window, want)
+        ):
+            return True
+    return False
 
 
 def _written_names(job: Job) -> dict[str, str]:

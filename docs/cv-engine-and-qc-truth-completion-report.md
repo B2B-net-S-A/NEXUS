@@ -60,7 +60,7 @@ wklejali oryginał, notatki i Championa do ChatGPT.
 - Propozycje AI:
   - cytat z tej roli albo ze zdania z rozmowy, które nazywa firmę;
   - bez przeczeń i niższych wersji.
-- Po wdrożeniu przeliczają się wszystkie pary starszej wersji.
+- Po wdrożeniu przeliczają się nieudane pary starszej wersji (zaliczonych nie: nowy wiersz zerowałby czas oczekiwania w kolejce DL).
 
 Pomiar tym samym skryptem (`backend/scripts/qc_truth_audit.py`) na tych samych 121 parach. Kod PR 2 był wczytany jako nakładka, bez wdrożenia:
 

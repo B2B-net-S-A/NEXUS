@@ -40,7 +40,10 @@ async def main() -> None:
     errors: collections.Counter = collections.Counter()
     read_only = text("SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY")
     async with AsyncSessionLocal() as db:
+        # Ustawienie sesji działa od NASTĘPNEJ transakcji — commit zamyka
+        # bieżącą, więc każde kolejne zapytanie jest już tylko do odczytu.
         await db.execute(read_only)
+        await db.commit()
         stage_ids = (
             (
                 await db.execute(
@@ -65,6 +68,7 @@ async def main() -> None:
                 errors[type(exc).__name__] += 1
                 await db.rollback()
                 await db.execute(read_only)
+                await db.commit()
                 continue
             stats["pairs"] += 1
             passed, _blocking, _warnings = cv_qc.summarize(checks)

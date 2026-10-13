@@ -96,8 +96,9 @@ kandydatów w QC nie miało opisów ról w historii profilu.
   (`QcResponse.confirmations`), żeby Delivery Lead widział, kto co potwierdził.
 - **Zmiana reguł liczenia = podbij `cv_qc.QC_VERSION`.** Plakietka na Tablicy
   czyta zapisany przebieg; `cv_qc.recompute_outdated` (zadanie startowe
-  `tasks/cv_qc_recompute.py`) przelicza przebiegi starszej wersji par sprzed
-  wysłania (od 13.10.2026 także zaliczone) i samo się wygasza. Przed podbiciem
+  `tasks/cv_qc_recompute.py`) przelicza nieudane przebiegi starszej wersji
+  par sprzed wysłania i samo się wygasza (zaliczonych nie — nowy wiersz
+  zerowałby czas oczekiwania w kolejce DL). Przed podbiciem
   zmierz stary i nowy kod skryptem `backend/scripts/qc_truth_audit.py`. Przebieg starszej wersji dostaje nowy
   wiersz także przy identycznym wyniku.
 - **Poza zakresem, świadomie:** „jedna opisana rola wystarcza” (po zmianie

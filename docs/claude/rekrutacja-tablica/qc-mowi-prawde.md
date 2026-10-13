@@ -32,11 +32,13 @@ w żadnym źródle.
     słownik `data/cv_term_translations.json`. Nic luźniejszego —
     przepuszczałoby zmyślenia.
   - `mode="presence"` (czy jest w CV albo w źródłach; must w CV, krytyczne,
-    tytuł): dodatkowo grupy wyszukiwarki, rdzeń długiego słowa
-    („bankowości” ↔ „bankowość”), fraza słowo po słowie w odmianie
-    („aplikacji webowych” ↔ „aplikacje webowe”), liczba mnoga („APIs” ↔ „API”)
-    i wybór „A/B” z członami ≥ 4 znaków („Python/Perl”; „PL/SQL” to jedna
-    nazwa).
+    tytuł): dodatkowo grupy wyszukiwarki, fraza słowo po słowie OBOK SIEBIE
+    w odmianie z zamkniętej listy końcówek („bankowości” ↔ „bankowość”,
+    „aplikacji webowych” ↔ „aplikacje webowe”), liczba mnoga skrótu z wielkich
+    liter („APIs” ↔ „API”) i wybór „A/B” z członami ≥ 4 znaków („Python/Perl”;
+    „PL/SQL” to jedna nazwa). Nigdy prefiks: rdzeń z 4 liter przepuszczał
+    krytyczną „Spring” przy „sprint planning”, „Excel” przy „excellent”,
+    „Google Cloud” przy „Google Analytics, Oracle Cloud” (przegląd PR 2).
   - Granica słowa zostaje: Java ≠ JavaScript, Go ≠ Google.
 - **Słownik `cv_term_translations.json` prowadzi człowiek.** Tylko dokładne
   odpowiedniki, bez gwiazdek; każde słowo przechodzi `parse_keyword`
@@ -76,18 +78,26 @@ w żadnym źródle.
 - **Klucz pozycji** `item["key"] = "<sprawdzenie>|<wymaganie lub termin>|<rola
   z oryginału albo cv>"` (znormalizowany, `#n` przy duplikatach) — z pól
   pozycji, nigdy z `role_index`. Na nim stanie „To nieprawda” (PR 3).
+- **Odpowiedzi** czytane wprost z pola odpowiedzi (cała odpowiedź w kilku
+  liniach), bez kwot (`strip_rates_and_availability`) i bez zdań przeczących;
+  zdanie kończy się znakiem końca i odstępem albo linią — kropka w „.NET 8”
+  i „3.5” zdania nie dzieli.
 - **Propozycje AI** (`parse_fixes`, `FIXES_PROMPT_VERSION = cv-qc-fixes-v6`):
   - cytat z oryginału musi stać w opisie tej roli, pokrywać go w ≥ 60% słów
     albo stać w części pliku tej firmy (`_quote_in_role`);
-  - cytat z odpowiedzi (`source: "answers"`) albo notatek — tylko w zdaniu,
-    które nazywa firmę tej roli (D3);
+  - cytat z odpowiedzi (`source: "answers"`) albo notatek — tylko w zdaniu
+    albo linii, która nazywa firmę tej roli całym słowem (D3; „ingestion” to
+    nie „ING”);
   - zdanie przeczące w cytacie albo propozycji i wersja niższa niż
-    w wymaganiu („Java 8” przy „Java 17”) odpadają;
+    w wymaganiu („Java 8” przy „Java 17”) odpadają („OAuth2” = „OAuth 2.0”,
+    „Java 8, 11 i 17” zawiera 17);
   - prompt mówi, w jakim języku jest CV (`cv_language`), odpowiedzi idą
     w znaczniku `<candidate_answers>`.
-- **Zmiana reguł przelicza WSZYSTKIE pary sprzed wysłania**
-  (`recompute_outdated`), także zaliczone — reguły bywają ostrzejsze.
-  `limit` liczy przeliczone pary, nie pominięte.
+- **Zmiana reguł przelicza nieudane pary sprzed wysłania**
+  (`recompute_outdated`), zaliczonych nie. Nowy przebieg zaliczonej pary
+  dostałby dzisiejszą datę, a od niej kolejka Delivery Leada liczy czas
+  oczekiwania (`dl_send_queue.readiness_of`) — przegląd PR 2. Bramka ruchu
+  liczy QC na żywo. `limit` liczy przeliczone pary, nie pominięte.
 - **Pomiar przed podbiciem `QC_VERSION`:** `backend/scripts/qc_truth_audit.py`
   w kontenerze backendu (sesja tylko do odczytu, same liczby). Nowy kod
   można zmierzyć przed merge'em, podając go jako nakładkę w tym samym

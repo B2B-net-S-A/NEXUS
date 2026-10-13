@@ -873,6 +873,75 @@ def test_bold_check_expects_only_what_the_generator_bolds() -> None:
     assert must["summary"] == "1/2"
 
 
+def test_critical_skill_is_not_found_in_a_word_that_only_starts_like_it() -> None:
+    # Przegląd PR 2: „Spring” krytyczny przechodził przy „sprint planning”.
+    spring = _reqs("Spring")
+    html = "<p>Programista Java. Prowadził sprint planning i retrospektywy.</p>"
+    check = _by_key(qc.compute_checks(_qc_input(html, must=spring, critical=spring)))[
+        "critical_skills"
+    ]
+    assert check["status"] == "fail"
+
+
+def test_answers_keep_dotted_names_versions_and_continuation_lines() -> None:
+    stage = SimpleNamespace(
+        screening_answers={
+            "answers": [
+                {
+                    "question_id": "q1",
+                    "response": "W Acme Bank pisałem w .NET 8 i Spring Boot 3.5.\n"
+                    "Pracował z:\n- kSQL\n- Kafka Streams\nPrzez 3 lata.",
+                }
+            ]
+        }
+    )
+    job = SimpleNamespace(
+        champion_profile={"screening_questions": [{"id": "q1", "question": "Stack?"}]}
+    )
+    text = qc.answers_text(stage, job)
+    assert ".NET 8" in text and "Spring Boot 3.5" in text
+    assert "kSQL" in text and "Kafka Streams" in text
+    html = "<p>Programista <b>.NET</b> 8.</p>" + BRANDED_HTML
+    data = _qc_input(html, must=_reqs(".NET"), answers_text=text)
+    assert _by_key(qc.compute_checks(data))["no_unsupported"]["status"] == "pass"
+
+
+def test_answers_text_has_no_money() -> None:
+    stage = SimpleNamespace(
+        screening_answers={
+            "answers": [
+                {"question_id": "q1", "response": "Oczekuje 22k netto. Zna Helm."}
+            ]
+        }
+    )
+    job = SimpleNamespace(champion_profile={"screening_questions": []})
+    text = qc.answers_text(stage, job)
+    assert "22k" not in text and "Helm" in text
+
+
+def test_searched_quotes_from_notes_hide_commercial_card_fields() -> None:
+    # Przegląd PR 2: cytat w „Szukałem w” niósł stawkę i red flags z karty.
+    note = (
+        "Technologie: Helm, Terraform\nStawka: 130 zł/h netto\n"
+        "Red flags: zwolniony dyscyplinarnie\nMotywacja: konflikt w zespole"
+    )
+    data = _qc_input(
+        BRANDED_HTML,
+        must=_reqs("Java", "Helm"),
+        notes_text=qc.notes_text([note]),
+        notes_quote_text=qc.notes_text([note], qc.CV_HIDDEN_FIELDS),
+    )
+    item = next(
+        i
+        for i in _by_key(qc.compute_checks(data))["must_in_cv"]["items"]
+        if i["requirement"] == "Helm"
+    )
+    notes = next(e for e in item["searched"] if e["source"] == "notes")
+    assert notes["found"] is True
+    assert "130" not in (notes.get("quote") or "")
+    assert "dyscyplinarnie" not in (notes.get("quote") or "")
+
+
 def test_critical_skill_only_on_the_role_technology_list_is_information() -> None:
     # Decyzja 13.10.2026 (także krytyczne): zdanie w roli wymagane tylko tam,
     # gdzie oryginał opisuje umiejętność w opisie roli.
@@ -1383,6 +1452,41 @@ def test_parse_fixes_drops_an_original_quote_from_another_company_segment() -> N
         "Wdrożenia usług na **Kubernetes** w chmurze.",
     )
     assert qc.parse_fixes(raw, material, "a" * 64) == []
+
+
+def test_parse_fixes_takes_the_company_from_the_same_line_not_the_next() -> None:
+    # Przegląd PR 2: linie bez kropki sklejały się w jedno „zdanie” — cytat
+    # o Globex przechodził do roli w Acme Bank, bo Acme stało w linii obok.
+    material = _material()
+    material["notes"] = (
+        "W Globex wdrażał Kubernetes na klastrach produkcyjnych\n"
+        "W Acme Bank pisał integracje w Javie"
+    )
+    raw = _gap_fix(
+        "W Globex wdrażał Kubernetes na klastrach produkcyjnych",
+        "Wdrażał **Kubernetes** na klastrach produkcyjnych.",
+        "notes",
+    )
+    assert qc.parse_fixes(raw, material, "a" * 64) == []
+
+
+def test_company_name_is_a_word_not_a_prefix() -> None:
+    assert not qc._names_company("pipeline ingestion w spark", "ING Bank Śląski")
+    assert qc._names_company("w ing wdrażał kubernetes", "ING Bank Śląski")
+
+
+@pytest.mark.parametrize(
+    ("text", "requirement"),
+    [
+        ("wdrożył logowanie OAuth2 w Acme Bank", "OAuth 2.0"),
+        ("Java 8, 11 i 17 w Acme Bank", "Java 17"),
+    ],
+)
+def test_version_equal_or_listed_is_not_below_the_requirement(
+    text: str, requirement: str
+) -> None:
+    item = {"requirement": requirement, "terms": [requirement]}
+    assert not qc._below_required_version(text, item)
 
 
 def test_parse_fixes_drops_a_version_below_the_requirement() -> None:
@@ -3667,12 +3771,11 @@ async def test_confirmed_with_candidate_becomes_a_note_and_clears_the_item(
 
 
 @pytest.mark.asyncio
-async def test_recompute_outdated_refreshes_runs_of_older_rules(
+async def test_recompute_outdated_refreshes_failed_runs_of_older_rules(
     api_client: AsyncClient,
 ) -> None:
     """Plakietka na Tablicy czyta zapisany przebieg — po zmianie reguł QC
-    przebiegi starszej wersji liczą się od nowa, raz. Także zaliczone
-    (13.10.2026): nowe reguły bywają ostrzejsze."""
+    nieudane przebiegi starszej wersji liczą się od nowa, raz."""
     from sqlalchemy import text
 
     world = await _seed_world()
@@ -3700,7 +3803,7 @@ async def test_recompute_outdated_refreshes_runs_of_older_rules(
         async with AsyncSessionLocal() as db:
             await db.execute(
                 text(
-                    "UPDATE cv_qc_runs SET passed = true, result = "
+                    "UPDATE cv_qc_runs SET result = "
                     "jsonb_set(result, '{qc_version}', '\"old\"') "
                     "WHERE candidate_id = :cid"
                 ),
@@ -3716,6 +3819,23 @@ async def test_recompute_outdated_refreshes_runs_of_older_rules(
             async with AsyncSessionLocal() as db:
                 await qc.recompute_outdated(db)
         assert await versions() == ["old", qc.QC_VERSION]
+
+        # Zaliczony przebieg starszej wersji zostaje: nowy wiersz dostałby
+        # dzisiejszą datę, a od niej kolejka DL liczy czas oczekiwania.
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                text(
+                    "UPDATE cv_qc_runs SET passed = true, result = "
+                    "jsonb_set(result, '{qc_version}', '\"old\"') "
+                    "WHERE candidate_id = :cid"
+                ),
+                {"cid": world["candidate_id"]},
+            )
+            await db.commit()
+        with hydrated_taxonomy():
+            async with AsyncSessionLocal() as db:
+                await qc.recompute_outdated(db)
+        assert await versions() == ["old", "old"]
     finally:
         await _cleanup_qc(world, stage_id)
         await _cleanup(world, [hor_id])
