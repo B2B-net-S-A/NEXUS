@@ -237,3 +237,188 @@ def test_plan_reports_what_the_ticket_asks_for() -> None:
 def test_filip_jablonski_files_are_never_assigned() -> None:
     plan = _plan()
     assert not [r for r in plan.rows if r.kind == "assignment" and r.item_id == "g"]
+
+
+# ── Podmieniona treść dokumentu wysłanego do SharePointa ─────────────────────
+# Skan podpisanego aneksu podmienia się w miejscu (ten sam dokument kontraktu).
+# Wiersz z ``sharepoint_item_id`` nie wracał do wysyłki, więc w SharePoincie
+# zostawał stary skan (przegląd kodu 13.10.2026).
+
+
+def _sent_document(**overrides):
+    from app.models.contract_document import ContractDocument
+
+    fields = {
+        "contract_id": 1,
+        "filename": "skan.pdf",
+        "file_path": "contracts/1/skan.pdf",
+        "content_type": "application/pdf",
+        "content_sha256": "a" * 64,
+        "source": "upload",
+        "sharepoint_item_id": "up-1",
+        "sharepoint_push_status": "done",
+        "sharepoint_push_attempts": 3,
+        "sharepoint_push_error": "stary błąd",
+    }
+    return ContractDocument(**{**fields, **overrides})
+
+
+def test_replaced_content_goes_back_to_waiting_for_a_file_nexus_sent() -> None:
+    from app.services.contract_folder_docs.store import requeue_replaced_content
+
+    doc = _sent_document()
+    requeue_replaced_content(doc, content_sha256="b" * 64, filename="skan.pdf")
+    assert doc.sharepoint_item_id == "up-1"
+    assert doc.sharepoint_push_status is None
+    assert doc.sharepoint_push_attempts == 0
+    assert doc.sharepoint_push_error is None
+
+    # Ta sama treść pod tą samą nazwą — kopia w SharePoincie jest aktualna.
+    same = _sent_document()
+    requeue_replaced_content(same, content_sha256="a" * 64, filename="skan.pdf")
+    assert same.sharepoint_push_status == "done"
+    # Dokument, który nie trafił do SharePointa, zostaje przy swoim stanie.
+    skipped = _sent_document(sharepoint_item_id=None, sharepoint_push_status="skipped")
+    requeue_replaced_content(skipped, content_sha256="b" * 64, filename="skan.pdf")
+    assert skipped.sharepoint_push_status == "skipped"
+    # Plik, który przyszedł z SharePointa, nie wraca tam z NEXUSA.
+    pulled = _sent_document(source="sharepoint")
+    requeue_replaced_content(pulled, content_sha256="b" * 64, filename="skan.pdf")
+    assert pulled.sharepoint_push_status == "done"
+
+
+class _SpStateSession:
+    """Sesja na potrzeby ``sync._replace_one``: zna stan jednego pliku."""
+
+    def __init__(self, state) -> None:
+        self.state = state
+
+    async def get(self, _model, _item_id):
+        return self.state
+
+
+def _replace_setup(monkeypatch, tmp_path, *, rename_fails: bool = False):
+    from app.models.contract_doc_sharepoint import ContractDocSpItem
+    from app.services import storage_service
+    from app.services.contract_folder_docs import sync
+    from app.services.m365 import sharepoint_docs as sp
+    from app.services.m365.graph_client import GraphRequestError
+
+    stored = tmp_path / "skan"
+    stored.write_bytes(b"nowa tresc skanu")
+    monkeypatch.setattr(
+        storage_service, "get_contract_document_path", lambda _path: stored
+    )
+    calls: list[tuple] = []
+    remote = {"name": "skan.pdf"}
+
+    async def rename_file(_client, drive_id, item_id, name):
+        calls.append(("rename", item_id, name))
+        if rename_fails:
+            raise GraphRequestError(409, {})
+        remote["name"] = name
+        return sp.DriveItem(item_id, name, False, 4, "c1", drive_id)
+
+    async def replace_content(_client, drive_id, item_id, content, _content_type):
+        calls.append(("content", item_id, content))
+        return sp.DriveItem(
+            item_id, remote["name"], False, len(content), "c2", drive_id
+        )
+
+    async def upload_file(*_args):
+        raise AssertionError("podmiana nie dokłada drugiego pliku")
+
+    monkeypatch.setattr(sp, "rename_file", rename_file)
+    monkeypatch.setattr(sp, "replace_content", replace_content)
+    monkeypatch.setattr(sp, "upload_file", upload_file)
+    state = ContractDocSpItem(
+        item_id="up-1",
+        drive_id="drive",
+        file_name="skan.pdf",
+        size_bytes=4,
+        c_tag="c1",
+        status="pushed",
+    )
+    listed = {"up-1": sp.DriveItem("up-1", "skan.pdf", False, 4, "c1", "drive")}
+    return sync, state, listed, calls
+
+
+async def test_replaced_scan_overwrites_the_same_sharepoint_file(
+    monkeypatch, tmp_path
+) -> None:
+    sync, state, listed, calls = _replace_setup(monkeypatch, tmp_path)
+    doc = _sent_document(filename="poprawiony.pdf", sharepoint_push_status=None)
+    stats = sync.SyncStats()
+
+    handled = await sync._replace_one(
+        _SpStateSession(state), None, "drive", doc, listed, stats
+    )
+
+    assert handled is True
+    assert calls == [
+        ("rename", "up-1", "poprawiony.pdf"),
+        ("content", "up-1", b"nowa tresc skanu"),
+    ]
+    assert doc.sharepoint_item_id == "up-1"
+    assert doc.sharepoint_push_status == "done"
+    assert doc.sharepoint_pushed_at is not None
+    assert (state.file_name, state.size_bytes, state.c_tag) == (
+        "poprawiony.pdf",
+        len(b"nowa tresc skanu"),
+        "c2",
+    )
+    assert stats.pushed == 1
+
+
+async def test_rename_conflict_keeps_the_old_name_unless_the_file_type_changes(
+    monkeypatch, tmp_path
+) -> None:
+    from app.services.m365.graph_client import GraphRequestError
+
+    sync, state, listed, calls = _replace_setup(
+        monkeypatch, tmp_path, rename_fails=True
+    )
+    # Ten sam typ pliku: nazwa w SharePoincie zostaje, treść i tak jest nowa.
+    doc = _sent_document(filename="poprawiony.pdf", sharepoint_push_status=None)
+    assert await sync._replace_one(
+        _SpStateSession(state), None, "drive", doc, listed, sync.SyncStats()
+    )
+    assert [c[0] for c in calls] == ["rename", "content"]
+    assert doc.sharepoint_push_status == "done"
+    assert state.file_name == "skan.pdf"
+
+    # Inny typ: zdjęcie pod nazwą „.pdf” byłoby zepsutym plikiem — błąd,
+    # ponowienie w następnym biegu, treść nietknięta.
+    calls.clear()
+    picture = _sent_document(filename="poprawiony.jpg", sharepoint_push_status=None)
+    with pytest.raises(GraphRequestError):
+        await sync._replace_one(
+            _SpStateSession(state), None, "drive", picture, listed, sync.SyncStats()
+        )
+    assert [c[0] for c in calls] == ["rename"]
+
+
+@pytest.mark.parametrize("case", ["not_ours", "no_state", "gone"])
+async def test_file_nexus_did_not_send_is_never_overwritten(
+    monkeypatch, tmp_path, case
+) -> None:
+    """Plik, który leżał w folderze, zanim NEXUS go powiązał, należy do działu;
+    plik usunięty z SharePointa nie ma czego podmieniać. Dokument idzie wtedy
+    jako nowy plik (zwykła wysyłka)."""
+    sync, state, listed, calls = _replace_setup(monkeypatch, tmp_path)
+    if case == "not_ours":
+        state.status = "imported"
+    doc = _sent_document(sharepoint_push_status=None)
+
+    handled = await sync._replace_one(
+        _SpStateSession(None if case == "no_state" else state),
+        None,
+        "drive",
+        doc,
+        {} if case == "gone" else listed,
+        sync.SyncStats(),
+    )
+
+    assert handled is False
+    assert doc.sharepoint_item_id is None
+    assert calls == []

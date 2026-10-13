@@ -290,6 +290,7 @@ Generator umów B2B, cykl życia kontraktu, zakończenie i cofnięcie, synchroni
 - `kontakt-do-konsultanta-na-umowie.md` — Kontakt do konsultanta na umowie (09.2026, migracja 0320)
 - `kontrakty-i-zamowienia-lista-z-panelem.md` — Kontrakty i Zamówienia: lista z panelem (wersja B, 29.09.2026)
 - `przedluzenie-zamowienia-wskrzesza-zakonczony.md` — Przedłużenie zamówienia wskrzesza zakończony kontrakt
+- `rejestr-aneksow-i-aneks-w-kontrakcie.md` — Rejestr aneksów i aneks w kontrakcie od wygenerowania (13.10.2026) · rejestr aneksów w „Generatorze aneksów”, jeden stan aneksu, aneks do umowy spoza Nexusa zapisany przy kontrakcie, „Bez kontraktu”, wybór osoby zamiast „Umowa spoza Nexusa”, kto wiąże aneks z kontraktem (edycja kontraktów, nie samo prawo generatora), dowiązanie umowy z Excela, wiersz rejestru po „Popraw”, skan podpisanego aneksu, zakładka „Aneksy” kontraktu jako rzut dokumentu, etykieta aneksu w „Umowach bieżących”
 - `stawki-z-rekrutacji-w-zamowieniu-i-umowie.md` — Stawki z rekrutacji w zamówieniu i umowie (D7, 08.10.2026)
 - `synchronizacja-kontrakt-zamowienia.md` — Synchronizacja kontrakt ↔ zamówienia (09.2026, migracja 0304)
 - `umowa-b2b-jest-bezterminowa-dopoki-ktos-jej-recznie.md` — Umowa B2B jest bezterminowa, dopóki ktoś jej ręcznie nie zakończy (11.09.2026)

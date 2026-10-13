@@ -115,12 +115,56 @@ export interface DocumentRequestBody {
   parent_generated_contract_id?: number | null;
   candidate_id?: number | null;
   job_id?: number | null;
+  /**
+   * Kontrakt aneksu bez umowy w rejestrze (umowa spoza NEXUSA, zlecenie) albo
+   * kontrakt wskazany dla umowy z rejestru bez powiązania. Osobę i klienta
+   * dokumentu serwer bierze z kontraktu.
+   */
+  contract_id?: number | null;
+  /** Klient aneksu bez umowy i bez kontraktu („Bez kontraktu”). */
+  client_id?: number | null;
   values: DocumentValues;
   refs?: Record<string, string> | null;
 }
 
 export type DocumentStatus = "issued" | "signed" | "cancelled";
-export type DocumentStatusFilter = DocumentStatus | "unsigned";
+/** `no_contract` = aneks czekający na podpis bez kontraktu, w którym podpis coś zmieni. */
+export type DocumentStatusFilter = DocumentStatus | "unsigned" | "no_contract";
+
+/**
+ * Stan aneksu liczony przez serwer — jeden zamiast pary „status aneksu”
+ * + „status podpisu” (przy aneksie obie osie mówią to samo).
+ */
+export type AnnexState = "waiting" | "signed_pending" | "in_force" | "cancelled";
+
+export interface AnnexRateItem {
+  rate: number;
+  from: string | null;
+  to: string | null;
+  client_id?: number | null;
+  client_name?: string | null;
+}
+
+/** Skrót zmiany z aneksu. Kwoty tylko dla osób, które widzą stawki. */
+export type AnnexChange =
+  | { kind: "rate"; hidden: true }
+  | {
+      kind: "rate";
+      hidden: false;
+      currency: string;
+      items: AnnexRateItem[];
+      /** Stawki sprzed aneksu; puste, gdy nieznane albo niewidoczne. */
+      before: AnnexRateItem[];
+    }
+  | { kind: "start_date"; before: string | null; after: string | null }
+  | { kind: "party"; legal_name: string | null; nip: string | null }
+  | { kind: "delegate"; name: string | null }
+  | {
+      kind: "mandate";
+      period_from: string | null;
+      period_to: string | null;
+      rate_changed: boolean;
+    };
 
 export interface DocumentItem {
   id: number;
@@ -149,6 +193,68 @@ export interface DocumentItem {
   can_delete: boolean;
   can_confirm_signed: boolean;
   cancelled_reason: string | null;
+  // Rejestr aneksów (13.10.2026). Opcjonalne, bo starszy backend (wycofane
+  // wdrożenie jednej strony) ich nie odda — lista ma wtedy działać dalej.
+  client_id?: number | null;
+  /** Osoba z kontraktu albo umowy; inaczej imię i nazwisko z formularza. */
+  person_name?: string | null;
+  partner_legal_name?: string | null;
+  partner_nip?: string | null;
+  /** Aneks bez umowy w rejestrze (umowa spoza NEXUSA, zlecenie). */
+  external?: boolean;
+  effective_date?: string | null;
+  state?: AnnexState;
+  change?: AnnexChange | null;
+  can_restore?: boolean;
+  can_link_contract?: boolean;
+  /** Skan podpisanego aneksu w Dokumentach kontraktu. */
+  signed_scan_document_id?: number | null;
+}
+
+/** Zdarzenie z historii dokumentu (`GET /documents/{id}/history`). */
+export interface DocumentHistoryEntry {
+  action:
+    | "generated"
+    | "regenerated"
+    | "cancelled"
+    | "restored"
+    | "contract_linked"
+    | "signed_effect_applied"
+    | "signed_scan_attached"
+    | string;
+  at: string | null;
+  by_name: string | null;
+  /** Powód anulowania. */
+  note: string | null;
+}
+
+/** Kontrakt do wskazania przy umowie z rejestru bez powiązania. */
+export interface DocumentSubjectContract {
+  contract_id: number;
+  status: string;
+  start_date: string | null;
+}
+
+/**
+ * Pozycja wyszukiwania „Dla kogo jest aneks?”: umowa z rejestru albo kontrakt
+ * bez umowy w rejestrze (umowa spoza NEXUSA, zlecenie). Bez kwot.
+ */
+export interface DocumentSubject {
+  kind: "agreement" | "contract";
+  parent_generated_contract_id: number | null;
+  contract_number: string | null;
+  source: string | null;
+  agreement_status: string | null;
+  contract_id: number | null;
+  contract_status: string | null;
+  contract_start_date: string | null;
+  contract_options: DocumentSubjectContract[];
+  candidate_id: number | null;
+  person_name: string | null;
+  partner_name: string | null;
+  partner_nip: string | null;
+  client_id: number | null;
+  client_name: string | null;
 }
 
 export interface DocumentForm {
@@ -158,6 +264,11 @@ export interface DocumentForm {
   parent_generated_contract_id: number | null;
   candidate_id: number | null;
   job_id: number | null;
+  /** Aneks bez umowy w rejestrze: kontrakt i klient z zapisu. */
+  contract_id?: number | null;
+  client_id?: number | null;
+  client_name?: string | null;
+  external?: boolean;
   values: DocumentValues;
   refs: Record<string, string> | null;
   base: Partial<DocumentBaseInfo>;
@@ -175,6 +286,8 @@ export interface DocumentListParams {
   parentGeneratedContractId?: number;
   documentType?: string;
   status?: DocumentStatusFilter;
+  /** Rodziny dokumentów: rejestr aneksów pyta o `annex`, „Dokumenty” o resztę. */
+  family?: readonly DocumentFamily[];
   q?: string;
   limit?: number;
   offset?: number;
@@ -209,6 +322,7 @@ export const b2bDocumentsKeys = {
     documentType: string;
     status: string;
     q: string;
+    family?: readonly DocumentFamily[];
   }) =>
     [
       B2B_DOCUMENTS_KEY,
@@ -216,12 +330,14 @@ export const b2bDocumentsKeys = {
       filters.documentType,
       filters.status,
       filters.q,
+      (filters.family ?? []).join(","),
     ] as const,
   prefill: (
     documentType: string,
     parentId: number | null,
     candidateId: number | null,
     jobId: number | null = null,
+    contractId: number | null = null,
   ) =>
     [
       B2B_DOCUMENTS_KEY,
@@ -230,8 +346,12 @@ export const b2bDocumentsKeys = {
       parentId ?? 0,
       candidateId ?? 0,
       jobId ?? 0,
+      contractId ?? 0,
     ] as const,
   effects: (id: number) => [B2B_DOCUMENTS_KEY, "effects", id] as const,
+  history: (id: number) => [B2B_DOCUMENTS_KEY, "history", id] as const,
+  subjects: (documentType: string, q: string, contractId: number | null = null) =>
+    [B2B_DOCUMENTS_KEY, "subjects", documentType, q, contractId ?? 0] as const,
 };
 
 export const b2bDocumentsApi = {
@@ -245,6 +365,8 @@ export const b2bDocumentsApi = {
     candidateId?: number | null;
     /** Wymagane przy kandydacie bez umowy bazowej — dostęp idzie przez rekrutację. */
     jobId?: number | null;
+    /** Aneks do kontraktu bez umowy w rejestrze — dane Partnera z kontraktu. */
+    contractId?: number | null;
   }) =>
     api
       .get<DocumentPrefill>("/api/b2b-generator/documents/prefill", {
@@ -255,6 +377,25 @@ export const b2bDocumentsApi = {
             : {}),
           ...(params.candidateId ? { candidate_id: params.candidateId } : {}),
           ...(params.jobId ? { job_id: params.jobId } : {}),
+          ...(params.contractId ? { contract_id: params.contractId } : {}),
+        },
+      })
+      .then((r) => r.data),
+  /**
+   * „Dla kogo jest aneks?” — umowy z rejestru i kontrakty bez umowy w jednym
+   * wyniku. `contractId` = wejście z modułu Kontrakty (podmiot tego kontraktu).
+   */
+  subjects: (params: {
+    documentType: string;
+    q?: string;
+    contractId?: number | null;
+  }) =>
+    api
+      .get<DocumentSubject[]>("/api/b2b-generator/documents/subjects", {
+        params: {
+          document_type: params.documentType,
+          ...(params.q?.trim() ? { q: params.q.trim() } : {}),
+          ...(params.contractId ? { contract_id: params.contractId } : {}),
         },
       })
       .then((r) => r.data),
@@ -279,8 +420,12 @@ export const b2bDocumentsApi = {
             : {}),
           ...(params.documentType ? { document_type: params.documentType } : {}),
           ...(params.status ? { status: params.status } : {}),
+          ...(params.family?.length ? { family: [...params.family] } : {}),
           ...(params.q?.trim() ? { q: params.q.trim() } : {}),
         },
+        // FastAPI czyta listę wyłącznie jako powtórzony parametr; domyślne
+        // `family[]=` to po stronie serwera inna nazwa pola i filtr by przepadł.
+        paramsSerializer: { indexes: null },
       })
       .then((r) => r.data),
   form: (id: number) =>
@@ -314,6 +459,34 @@ export const b2bDocumentsApi = {
       .then((r) => r.data),
   remove: (id: number) =>
     api.delete(`/api/b2b-generator/documents/${id}`).then(() => undefined),
+  /** Anulowany dokument wraca na „czeka na podpis”. */
+  restore: (id: number) =>
+    api
+      .post<DocumentItem>(`/api/b2b-generator/documents/${id}/restore`)
+      .then((r) => r.data),
+  /** Powiąż niepodpisany aneks z kontraktem, w którym podpis ma coś zmienić. */
+  linkContract: (id: number, contractId: number) =>
+    api
+      .post<DocumentItem>(`/api/b2b-generator/documents/${id}/link-contract`, {
+        contract_id: contractId,
+      })
+      .then((r) => r.data),
+  history: (id: number) =>
+    api
+      .get<DocumentHistoryEntry[]>(`/api/b2b-generator/documents/${id}/history`)
+      .then((r) => r.data),
+  /** Skan podpisanego aneksu (PDF, JPG, PNG) → Dokumenty kontraktu. */
+  uploadSignedScan: (id: number, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api
+      .post<DocumentItem>(
+        `/api/b2b-generator/documents/${id}/signed-scan`,
+        form,
+        { headers: { "Content-Type": "multipart/form-data" } },
+      )
+      .then((r) => r.data);
+  },
   partnerNotice: (body: PartnerNoticeBody) =>
     api
       .post<PartnerNoticeResult>(
@@ -335,11 +508,6 @@ export const b2bDocumentsApi = {
         `/api/cv-generator/candidates/${candidateId}/recruitments`,
       )
       .then((r) => r.data),
-  /** Imię i nazwisko osoby z kontraktu — do znalezienia umowy w rejestrze. */
-  contractCandidateName: (contractId: number) =>
-    api
-      .get<{ candidate_name?: string | null }>(`/api/contracts/${contractId}`)
-      .then((r) => r.data.candidate_name ?? null),
 };
 
 export interface DocumentCandidateOption {

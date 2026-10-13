@@ -21,9 +21,10 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import PurePath
 from typing import Any, Optional
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import Candidate
@@ -79,6 +80,7 @@ PUSH_SKIP_UNCERTAIN = (
 )
 PUSH_SKIP_NO_PERSON = "Kontrakt bez osoby — nie wiadomo, do którego folderu."
 PUSH_SKIP_SAME_NAME = "Kilka osób o tym nazwisku pasuje do folderu w SharePoincie — przenieś plik ręcznie."
+PUSH_SKIP_NO_FILE = "Brak pliku dokumentu na serwerze NEXUSA."
 
 # Backend to jeden proces uvicorna: pętla i przycisk „Synchronizuj teraz” nie
 # mogą biec naraz (dwa biegi wysłałyby ten sam dokument dwa razy).
@@ -373,70 +375,142 @@ async def _push(
     stats: SyncStats,
     push_since: Optional[str] = None,
 ) -> None:
-    since_filter = []
-    if push_since:
-        since_filter.append(
-            ContractDocument.created_at >= datetime.fromisoformat(push_since)
-        )
     rows = (
         await db.execute(
-            select(
-                ContractDocument,
-                Candidate.name,
-                Candidate.lastname,
-                Contract.candidate_id,
-            )
-            .join(Contract, Contract.id == ContractDocument.contract_id)
-            .outerjoin(Candidate, Candidate.id == Contract.candidate_id)
-            .where(
-                ContractDocument.sharepoint_item_id.is_(None),
-                or_(
-                    ContractDocument.source.is_(None),
-                    ContractDocument.source.not_in(FROM_SHAREPOINT),
-                ),
-                ContractDocument.doc_type.not_in(_NOT_PUSHED_TYPES),
-                ContractDocument.source_order_group_id.is_(None),
-                *since_filter,
-                or_(
-                    ContractDocument.sharepoint_push_status.is_(None),
-                    (ContractDocument.sharepoint_push_status == "failed")
-                    & (ContractDocument.sharepoint_push_attempts < PUSH_MAX_ATTEMPTS),
-                ),
-            )
-            .order_by(ContractDocument.id)
-            .limit(PUSH_BATCH)
+            _push_candidates(push_since).order_by(ContractDocument.id).limit(PUSH_BATCH)
         )
     ).all()
     if not rows:
         return
     folders = [Folder.of(f.name, f.id) for f in listing.person_folders]
     files_by_folder: dict[str, list[sp.PersonFile]] = {}
+    items_by_id: dict[str, sp.DriveItem] = {f.id: f for f in listing.loose_files}
     for listed in listing.files:
         files_by_folder.setdefault(listed.folder.id, []).append(listed)
+        items_by_id[listed.item.id] = listed.item
     candidates_by_folder = folder_candidates(await load_contract_people(db), folders)
 
     for doc, first, last, candidate_id in rows:
         try:
-            await _push_one(
-                db,
-                client,
-                drive_id,
-                root_id,
-                doc,
-                first,
-                last,
-                folders,
-                files_by_folder,
-                stats,
-                candidate_id=candidate_id,
-                candidates_by_folder=candidates_by_folder,
+            replaced = doc.sharepoint_item_id is not None and await _replace_one(
+                db, client, drive_id, doc, items_by_id, stats
             )
+            if not replaced:
+                await _push_one(
+                    db,
+                    client,
+                    drive_id,
+                    root_id,
+                    doc,
+                    first,
+                    last,
+                    folders,
+                    files_by_folder,
+                    stats,
+                    candidate_id=candidate_id,
+                    candidates_by_folder=candidates_by_folder,
+                )
         except GraphRequestError as exc:
             doc.sharepoint_push_status = "failed"
             doc.sharepoint_push_attempts = (doc.sharepoint_push_attempts or 0) + 1
             doc.sharepoint_push_error = polish_error(exc)[:255]
             stats.push_failed += 1
         await db.commit()
+
+
+def _push_candidates(push_since: Optional[str]) -> Any:
+    """Dokumenty NEXUSA czekające na wysyłkę (z osobą kontraktu).
+
+    Dwa rodzaje: nigdy niewysłane, dodane po pierwszym pobraniu
+    (``push_since``), oraz wysłane wcześniej, których treść podmieniono
+    w NEXUSIE — ``store.requeue_replaced_content`` cofa im stan na „czeka”,
+    a ``sharepoint_item_id`` zostaje, żeby podmienić TEN plik."""
+    never_sent = [ContractDocument.sharepoint_item_id.is_(None)]
+    if push_since:
+        never_sent.append(
+            ContractDocument.created_at >= datetime.fromisoformat(push_since)
+        )
+    return (
+        select(
+            ContractDocument,
+            Candidate.name,
+            Candidate.lastname,
+            Contract.candidate_id,
+        )
+        .join(Contract, Contract.id == ContractDocument.contract_id)
+        .outerjoin(Candidate, Candidate.id == Contract.candidate_id)
+        .where(
+            or_(
+                and_(*never_sent),
+                ContractDocument.sharepoint_item_id.is_not(None),
+            ),
+            or_(
+                ContractDocument.source.is_(None),
+                ContractDocument.source.not_in(FROM_SHAREPOINT),
+            ),
+            ContractDocument.doc_type.not_in(_NOT_PUSHED_TYPES),
+            ContractDocument.source_order_group_id.is_(None),
+            or_(
+                ContractDocument.sharepoint_push_status.is_(None),
+                (ContractDocument.sharepoint_push_status == "failed")
+                & (ContractDocument.sharepoint_push_attempts < PUSH_MAX_ATTEMPTS),
+            ),
+        )
+    )
+
+
+async def _replace_one(
+    db: AsyncSession,
+    client: Any,
+    drive_id: str,
+    doc: ContractDocument,
+    items_by_id: dict[str, sp.DriveItem],
+    stats: SyncStats,
+) -> bool:
+    """Podmień treść pliku, który NEXUS wysłał wcześniej (skan aneksu podmieniony
+    w NEXUSIE). ``False`` = tego pliku nie podmieniamy — wołający wysyła
+    dokument jako nowy plik.
+
+    Podmieniamy wyłącznie plik wysłany przez NEXUS (stan ``pushed``) i nadal
+    obecny w folderze. Plik, który leżał tam wcześniej i został tylko powiązany
+    z dokumentem po treści, należy do działu — nadpisanie zmieniłoby cudzy plik.
+    Najpierw nazwa, potem treść: zdjęcie pod nazwą „.pdf” byłoby zepsutym
+    plikiem, więc przy zmianie typu nieudana zmiana nazwy przerywa podmianę
+    (ponowi ją następny bieg). Przy tym samym typie konflikt nazwy zostawia
+    starą nazwę — liczy się treść."""
+    state = await db.get(ContractDocSpItem, doc.sharepoint_item_id)
+    current = items_by_id.get(doc.sharepoint_item_id or "")
+    if state is None or state.status != "pushed" or current is None:
+        doc.sharepoint_item_id = None
+        return False
+    try:
+        content = storage_service.get_contract_document_path(doc.file_path).read_bytes()
+    except (FileNotFoundError, OSError):
+        doc.sharepoint_push_status = "skipped"
+        doc.sharepoint_push_error = PUSH_SKIP_NO_FILE
+        stats.push_skipped += 1
+        return True
+    if current.name != doc.filename:
+        try:
+            await sp.rename_file(client, drive_id, current.id, doc.filename)
+        except GraphRequestError:
+            if _suffix(current.name) != _suffix(doc.filename):
+                raise
+    updated = await sp.replace_content(
+        client, drive_id, current.id, content, doc.content_type
+    )
+    doc.sharepoint_push_status = "done"
+    doc.sharepoint_push_error = None
+    doc.sharepoint_pushed_at = _now()
+    state.file_name = updated.name
+    state.size_bytes = updated.size
+    state.c_tag = updated.c_tag
+    stats.pushed += 1
+    return True
+
+
+def _suffix(name: str) -> str:
+    return PurePath(name).suffix.lower()
 
 
 async def _push_one(
@@ -492,7 +566,7 @@ async def _push_one(
     try:
         content = storage_service.get_contract_document_path(doc.file_path).read_bytes()
     except (FileNotFoundError, OSError):
-        return skip("Brak pliku dokumentu na serwerze NEXUSA.")
+        return skip(PUSH_SKIP_NO_FILE)
 
     # Nazwa i rozmiar zawężają porównanie, ale dopiero treść potwierdza kopię.
     digest = sha256_hex(content)

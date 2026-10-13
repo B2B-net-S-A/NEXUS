@@ -515,6 +515,17 @@ class B2BUopCheckResponse(BaseModel):
     summary: str = ""
 
 
+class B2BRegisterAnnex(BaseModel):
+    """Najnowszy aneks do umowy — etykieta w „Umowach bieżących”. Bez kwot:
+    stawkę z aneksu niesie ``annex_rates`` pod własną bramką widoczności."""
+
+    document_id: int
+    document_type: str
+    #: ``effects.ANNEX_STATES`` bez ``cancelled`` (anulowany nie jest etykietą).
+    state: str
+    effective_date: Optional[date] = None
+
+
 class B2BGeneratedContractItem(BaseModel):
     """Pozycja listy wygenerowanych umów (zakładka „Wygenerowane umowy")."""
 
@@ -584,6 +595,16 @@ class B2BGeneratedContractItem(BaseModel):
     # Stawki z ostatniego aneksu zmiany stawki (Generator aneksów, 0401) —
     # tylko dla osób, które widzą stawki tej umowy; inaczej None.
     annex_rates: Optional[list[dict]] = None
+    # Etykieta pod nazwą Partnera (13.10.2026): najnowszy nieanulowany aneks
+    # do umowy i liczba takich aneksów. Do tej pory firma, NIP i data startu
+    # zmieniały się w wierszu po cichu przy wygenerowaniu aneksu.
+    latest_annex: Optional[B2BRegisterAnnex] = None
+    annex_count: int = 0
+    # Data rozpoczęcia sprzed aneksu zmiany daty startu i stan tego aneksu —
+    # przed podpisem wiersz pokazuje „stara → nowa”, po podpisie starą
+    # przekreśloną. ``None`` = daty startu nie zmienił żaden aktywny aneks.
+    start_date_before: Optional[date] = None
+    start_date_annex_state: Optional[str] = None
     # Stan kontraktu powiązanego z umową (``ContractStatus``) i jego data końca.
     # Rejestr nie zmienia się sam, gdy kontrakt się skończy — lista pokazuje
     # ostrzeżenie. ``None`` przy ``contract_id`` = kontraktu brak.

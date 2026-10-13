@@ -53,8 +53,64 @@ export function invalidateAfterDocumentChange(
   queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
   queryClient.invalidateQueries({ queryKey: ["contract"] });
   queryClient.invalidateQueries({ queryKey: ["contract-amendments"] });
+  // Aneks widać w kontrakcie od wygenerowania, a skan trafia do jego Dokumentów.
+  queryClient.invalidateQueries({ queryKey: ["contract-annex-documents"] });
+  queryClient.invalidateQueries({ queryKey: ["contract-documents"] });
   queryClient.invalidateQueries({ queryKey: ["contractors-v2"] });
   queryClient.invalidateQueries({ queryKey: ["contractors-stats-v2"] });
+}
+
+/** Skan podpisanego aneksu: PDF albo zdjęcie, do 20 MB (serwer sprawdza to samo). */
+export const SCAN_ACCEPT = ".pdf,.jpg,.jpeg,.png";
+const SCAN_MAX_BYTES = 20 * 1024 * 1024;
+
+/** Powód odrzucenia pliku przed wysyłką albo `null`, gdy plik się nadaje. */
+export function scanFileProblem(file: File): string | null {
+  if (!/\.(pdf|jpe?g|png)$/i.test(file.name)) {
+    return "Skan podpisanego aneksu musi być plikiem PDF, JPG albo PNG.";
+  }
+  if (file.size > SCAN_MAX_BYTES) {
+    return "Plik jest za duży — skan może mieć najwyżej 20 MB.";
+  }
+  if (file.size === 0) return "Plik jest pusty.";
+  return null;
+}
+
+/** Pole wyboru skanu — wspólne dla okna podpisu i „Dołącz skan”. */
+export function ScanFileField({
+  id,
+  file,
+  onFile,
+  disabled = false,
+}: {
+  id: string;
+  file: File | null;
+  onFile: (file: File | null) => void;
+  disabled?: boolean;
+}) {
+  const problem = file ? scanFileProblem(file) : null;
+  return (
+    <div className="space-y-1">
+      <Label htmlFor={id}>Skan podpisanego aneksu</Label>
+      <Input
+        id={id}
+        type="file"
+        accept={SCAN_ACCEPT}
+        disabled={disabled}
+        aria-invalid={problem ? true : undefined}
+        aria-describedby={`${id}-hint`}
+        onChange={(e) => onFile(e.target.files?.[0] ?? null)}
+      />
+      <p id={`${id}-hint`} className="text-xs text-muted-foreground">
+        PDF, JPG albo PNG, do 20 MB. Trafi do Dokumentów kontraktu.
+      </p>
+      {problem ? (
+        <p role="alert" className="text-xs text-destructive">
+          {problem}
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 /** Zapisz odpowiedź DOCX jako plik. */
@@ -131,10 +187,33 @@ export function ConfirmSignedDialog({
     queryFn: () => b2bDocumentsApi.effects(item.id),
     staleTime: 0,
   });
+  // Skan ma sens tylko przy aneksie z kontraktem — trafia do jego Dokumentów.
+  const takesScan = item.family === "annex" && Boolean(item.contract_id);
+  const [scan, setScan] = useState<File | null>(null);
+  const scanProblem = scan ? scanFileProblem(scan) : null;
   const confirm = useMutation({
-    mutationFn: () => b2bDocumentsApi.confirmSigned(item.id),
-    onSuccess: () => {
-      toast.showSuccess("Dokument oznaczony jako podpisany — skutki zastosowane.");
+    mutationFn: async () => {
+      await b2bDocumentsApi.confirmSigned(item.id);
+      if (!scan) return { scanError: null };
+      // Podpis jest już zapisany — nieudana wysyłka skanu go nie cofa, skan
+      // da się dołączyć z rejestru aneksów.
+      try {
+        await b2bDocumentsApi.uploadSignedScan(item.id, scan);
+        return { scanError: null };
+      } catch (error) {
+        return {
+          scanError: apiErrorMessage(error, "Nie udało się zapisać skanu."),
+        };
+      }
+    },
+    onSuccess: ({ scanError }) => {
+      if (scanError) {
+        toast.showError(
+          `Dokument oznaczony jako podpisany, ale skan nie został zapisany: ${scanError} Dołącz go z rejestru aneksów („Dołącz skan”).`,
+        );
+      } else {
+        toast.showSuccess("Dokument oznaczony jako podpisany — skutki zastosowane.");
+      }
       invalidateAfterDocumentChange(queryClient);
       onClose();
     },
@@ -166,6 +245,20 @@ export function ConfirmSignedDialog({
           ) : effects.data ? (
             <EffectsView effects={effects.data} />
           ) : null}
+          {takesScan && effects.isSuccess && !blocked ? (
+            <div className="space-y-1">
+              <ScanFileField
+                id={`b2b-doc-scan-${item.id}`}
+                file={scan}
+                onFile={setScan}
+                disabled={confirm.isPending}
+              />
+              <p className="text-xs text-muted-foreground">
+                Opcjonalnie. Bez skanu w Dokumentach kontraktu zostanie
+                wygenerowany plik bez podpisów — skan dołączysz później.
+              </p>
+            </div>
+          ) : null}
           {confirm.isError ? (
             <Alert
               variant="error"
@@ -180,7 +273,12 @@ export function ConfirmSignedDialog({
           </Button>
           <Button
             onClick={() => confirm.mutate()}
-            disabled={!effects.isSuccess || blocked || confirm.isPending}
+            disabled={
+              !effects.isSuccess ||
+              blocked ||
+              confirm.isPending ||
+              Boolean(scanProblem)
+            }
             loading={confirm.isPending}
           >
             Potwierdź podpis obu stron

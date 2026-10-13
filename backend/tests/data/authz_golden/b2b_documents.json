@@ -25,14 +25,19 @@
   "GET /api/b2b-generator/document-types": "PPPBPPDDPPPPPPPPPPP",
   "GET /api/b2b-generator/documents": "PPPBPPDDPPPPPPPPPPP",
   "GET /api/b2b-generator/documents/prefill": "PPPBPPDDPPPPPPPPPPP",
+  "GET /api/b2b-generator/documents/subjects": "PPPBPPDDPPPPPPPPPPP",
   "GET /api/b2b-generator/documents/{doc_id}/effects": "PPPBPPDDPPPPPPPPPPP",
   "GET /api/b2b-generator/documents/{doc_id}/form": "PPPBPPDDPPPPPPPPPPP",
+  "GET /api/b2b-generator/documents/{doc_id}/history": "PPPBPPDDPPPPPPPPPPP",
   "POST /api/b2b-generator/documents": "PPPBPPDDPPPPPPPPPPP",
   "POST /api/b2b-generator/documents/partner-notice": "PPPBPPDDPPPPPPPPPPP",
   "POST /api/b2b-generator/documents/preview": "PPPBPPDDPPPPPPPPPPP",
   "POST /api/b2b-generator/documents/{doc_id}/cancel": "PPPBPPDDPPPPPPPPPPP",
   "POST /api/b2b-generator/documents/{doc_id}/confirm-signed": "PPPBPPDDPPPPPPPPPPP",
   "POST /api/b2b-generator/documents/{doc_id}/docx": "PPPBPPDDPPPPPPPPPPP",
-  "POST /api/b2b-generator/documents/{doc_id}/rerender": "PPPBPPDDPPPPPPPPPPP"
+  "POST /api/b2b-generator/documents/{doc_id}/link-contract": "PPPBPPDDPPPPPPPPPPP",
+  "POST /api/b2b-generator/documents/{doc_id}/rerender": "PPPBPPDDPPPPPPPPPPP",
+  "POST /api/b2b-generator/documents/{doc_id}/restore": "PPPBPPDDPPPPPPPPPPP",
+  "POST /api/b2b-generator/documents/{doc_id}/signed-scan": "PPPBPPDDPPPPPPPPPPP"
  }
 }

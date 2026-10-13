@@ -1,12 +1,15 @@
 "use client";
 
-// Zakładka „Dokumenty” Generatora Umów B2B (`?tab=documents`): lista aneksów,
-// rozwiązań i umów przedwstępnych + kreator „Nowy dokument”. Wejście z adresu
+// Zakładka „Dokumenty” Generatora Umów B2B (`?tab=documents`): lista
+// rozwiązań, wypowiedzeń i umów przedwstępnych + kreator „Nowy dokument”.
+// Aneksy mają własny rejestr w zakładce „Generator aneksów” (13.10.2026) —
+// tu ich nie ma, żeby nie było dwóch list tego samego. Wejście z adresu
 // (`?new=<typ>&parent=<id>` albo `&contract=<id>` z modułu Kontrakty) otwiera
 // kreator; efekt działa na WARTOŚCI parametrów, bo link z wiersza rejestru to
 // miękka nawigacja na tej samej stronie.
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useUrlWriter } from "@/lib/url-selection";
 import { useInfiniteQuery, useMutation } from "@tanstack/react-query";
@@ -52,7 +55,10 @@ import {
 } from "@/lib/api/b2bDocuments";
 import {
   DOCUMENTS_INTENT_KEYS,
+  NON_ANNEX_FAMILIES,
+  annexRegisterHref,
   annexesHref,
+  createdInAnnexGenerator,
   documentStatusLabel,
   isAnnexTypeKey,
   intentOpensWizard,
@@ -156,7 +162,12 @@ export function DocumentsTabContent({
   const [search, setSearch] = useState("");
   const q = useDebouncedValue(search, 300).trim();
   const list = useInfiniteQuery({
-    queryKey: b2bDocumentsKeys.list({ documentType, status, q }),
+    queryKey: b2bDocumentsKeys.list({
+      documentType,
+      status,
+      q,
+      family: NON_ANNEX_FAMILIES,
+    }),
     initialPageParam: 0,
     getNextPageParam: (lastPage: DocumentItem[], allPages: DocumentItem[][]) =>
       lastPage.length < B2B_DOCUMENTS_PAGE_SIZE
@@ -164,6 +175,7 @@ export function DocumentsTabContent({
         : allPages.length * B2B_DOCUMENTS_PAGE_SIZE,
     queryFn: ({ pageParam }: { pageParam: number }) =>
       b2bDocumentsApi.list({
+        family: NON_ANNEX_FAMILIES,
         documentType: documentType || undefined,
         status: status || undefined,
         q,
@@ -217,10 +229,17 @@ export function DocumentsTabContent({
           <div>
             <CardTitle className="text-base">Dokumenty do umów</CardTitle>
             <CardDescription>
-              Aneksy, porozumienia i wypowiedzenia do umów z rejestru oraz
-              umowy przedwstępne. Po podpisie oznacz dokument jako podpisany —
-              NEXUS zastosuje jego skutki w kontrakcie i rejestrze. Nowy aneks
-              przygotujesz w zakładce „Generator aneksów”.
+              Porozumienia i wypowiedzenia do umów z rejestru oraz umowy
+              przedwstępne. Po podpisie oznacz dokument jako podpisany — NEXUS
+              zastosuje jego skutki w kontrakcie i rejestrze. Aneksy
+              przygotujesz i znajdziesz w zakładce{" "}
+              <Link
+                href={annexRegisterHref(null)}
+                className="font-medium text-primary hover:underline"
+              >
+                Generator aneksów
+              </Link>
+              .
             </CardDescription>
           </div>
           {canGenerate ? (
@@ -258,11 +277,13 @@ export function DocumentsTabContent({
                 onChange={(e) => setDocumentType(e.target.value)}
               >
                 <option value="">Wszystkie</option>
-                {(types.data?.types ?? []).map((t) => (
-                  <option key={t.key} value={t.key}>
-                    {t.label}
-                  </option>
-                ))}
+                {(types.data?.types ?? [])
+                  .filter((t) => !createdInAnnexGenerator(t))
+                  .map((t) => (
+                    <option key={t.key} value={t.key}>
+                      {t.label}
+                    </option>
+                  ))}
               </select>
             </div>
             <div className="space-y-1">
@@ -396,7 +417,7 @@ export function DocumentsListView({
         description={
           filtered
             ? "Zmień filtry albo wyczyść wyszukiwanie."
-            : "Aneks przygotujesz w zakładce „Generator aneksów”, porozumienie albo wypowiedzenie — przyciskiem „Nowy dokument” albo z wiersza umowy w rejestrze."
+            : "Porozumienie albo wypowiedzenie przygotujesz przyciskiem „Nowy dokument” albo z wiersza umowy w rejestrze. Aneksy są w zakładce „Generator aneksów”."
         }
       />
     );

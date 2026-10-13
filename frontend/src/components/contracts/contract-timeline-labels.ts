@@ -138,6 +138,15 @@ const DETAIL_LABELS: Record<string, string> = {
   order_ids: "Zamówienia",
   order_number: "Numer zamówienia",
   changes: "Zmiany",
+  // Aneksy podpisane w Generatorze aneksów (`b2b_documents/effects.py`).
+  legal_name: "Nazwa firmy",
+  nip: "NIP",
+  entity_type: "Forma działalności",
+  delegate_name: "Osoba skierowana",
+  start_date_mode: "Tryb daty rozpoczęcia",
+  period_from: "Okres zlecenia od",
+  period_to: "Okres zlecenia do",
+  rate_changed: "Zmieniono stawkę",
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -175,7 +184,20 @@ const SOURCE_LABELS: Record<string, string> = {
   history: "historia zmian zamówień",
 };
 
+const ENTITY_TYPE_LABELS: Record<string, string> = {
+  sole_trader: "JDG",
+  company: "spółka",
+};
+
+const START_DATE_MODE_LABELS: Record<string, string> = {
+  exact: "z dniem",
+  not_earlier: "nie wcześniej niż",
+  not_later: "nie później niż",
+};
+
 const ENUM_KEYS: Record<string, Record<string, string>> = {
+  entity_type: ENTITY_TYPE_LABELS,
+  start_date_mode: START_DATE_MODE_LABELS,
   status: STATUS_LABELS,
   from_status: STATUS_LABELS,
   to_status: STATUS_LABELS,

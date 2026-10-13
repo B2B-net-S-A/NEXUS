@@ -2325,6 +2325,7 @@ export default function ContractDetailPage() {
         <ContractAmendmentsTab
           contractId={id}
           clientId={contract.client_id}
+          personName={contract.candidate_name}
           readOnly={!canEditContract}
           extensionLocked={b2bExtensionLocked(contract)}
           // „Zakończ wcześniej" to też zakończenie kontraktu — przez to samo

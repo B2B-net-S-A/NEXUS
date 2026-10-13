@@ -49,6 +49,7 @@ from app.models.contract import (
     Contract,
     ContractStatus,
     ContractTerminationReason,
+    ContractType,
     RateUnit,
 )
 from app.models.contract_amendment import ContractAmendment, ContractAmendmentType
@@ -143,6 +144,46 @@ VOID_CONTRACT_BLOCKER = (
     "kontraktem („Powiąż z kontraktem” w rejestrze umów) i oznacz dokument "
     "ponownie."
 )
+#: Aneks bez umowy w rejestrze zna tylko własny kontrakt — „rejestr umów” nie
+#: ma tu czego powiązać, naprawa jest w rejestrze aneksów.
+VOID_DOCUMENT_CONTRACT_BLOCKER = (
+    "Kontrakt tego aneksu jest unieważniony — powiąż aneks z właściwym "
+    "kontraktem („Powiąż z kontraktem” w rejestrze aneksów) i oznacz go ponownie."
+)
+NO_CONTRACT_BLOCKER = (
+    "Aneks nie jest powiązany z kontraktem, więc podpis niczego by nie zmienił "
+    "— powiąż go („Powiąż z kontraktem” w rejestrze aneksów), a potem oznacz "
+    "jako podpisany."
+)
+
+
+def void_contract_blocker(parent: B2BGeneratedContract | None) -> str:
+    return (
+        VOID_CONTRACT_BLOCKER if parent is not None else VOID_DOCUMENT_CONTRACT_BLOCKER
+    )
+
+
+def annex_takes_contract(doc_type: DocumentType) -> bool:
+    """Aneks, który można wystawić do kontraktu bez umowy w rejestrze: trzy
+    typy „umowy spoza NEXUSA” i aneks zlecenia (zlecenia nie mają wierszy
+    w rejestrze umów B2B)."""
+    return doc_type.family == "annex" and (
+        doc_type.allows_external or doc_type.parent == "mandate"
+    )
+
+
+def is_unlinked_external_annex(
+    doc_type: DocumentType,
+    parent: B2BGeneratedContract | None,
+    contract_id: int | None,
+) -> bool:
+    """Aneks bez umowy w rejestrze zapisany bez kontraktu („Bez kontraktu”).
+
+    Nie ma ani wiersza rejestru, ani kontraktu, w którym podpis mógłby coś
+    zmienić — czeka na powiązanie (decyzja Artura 13.10.2026). Dotyczy
+    każdego typu, który wybiera kontrakt, także zlecenia: podpisany bez
+    kontraktu nie dałby się już powiązać."""
+    return parent is None and contract_id is None and annex_takes_contract(doc_type)
 
 
 @dataclass(frozen=True)
@@ -202,6 +243,57 @@ def split_rate_steps(
     mine = [s for s in steps if s.client_id in (None, contract.client_id)]
     other = [s for s in steps if s.client_id not in (None, contract.client_id)]
     return mine, other
+
+
+#: Stany aneksu — rejestr aneksów, wiersz umowy i zakładka „Aneksy” kontraktu.
+ANNEX_STATES: tuple[str, ...] = ("waiting", "signed_pending", "in_force", "cancelled")
+
+
+def annex_effective_date(
+    doc_type_key: str,
+    values: dict[str, Any],
+    document_date: date | None,
+    *,
+    contract_client_id: int | None = None,
+) -> date | None:
+    """Dzień, od którego obowiązuje zmiana z aneksu.
+
+    Jedna reguła dla rejestru aneksów, wiersza umowy i zakładki „Aneksy”: to
+    ta sama data, którą ``apply`` zapisuje w aneksie kontraktu. Aneks stawki —
+    najwcześniejszy krok klienta tego kontraktu (krok innego klienta kontraktu
+    nie zmienia); bez takiego kroku albo bez kontraktu — najwcześniejszy krok.
+    Zmiana daty startu — nowa data rozpoczęcia, nie pole „Data wejścia zmian
+    w życie” z formularza."""
+    fallback = _date(values.get("effective_date")) or document_date
+    if doc_type_key == "annex_rate_change":
+        steps = rate_steps(values, document_date)
+        mine = [
+            s
+            for s in steps
+            if contract_client_id is None or s.client_id in (None, contract_client_id)
+        ]
+        days = [s.effective for s in (mine or steps) if s.effective is not None]
+        return min(days) if days else fallback
+    if doc_type_key == "annex_start_date":
+        return _date(values.get("new_start_date")) or fallback
+    return fallback
+
+
+def annex_state(
+    *, status: str, signature_status: str, effective: date | None, today: date
+) -> str:
+    """Stan aneksu: jeden zamiast pary „status aneksu” + „status podpisu”.
+
+    Przy aneksie obie osie mówią to samo (niepodpisany = w trakcie, podpisany
+    = aktywny), a „aktywny” przed dniem wejścia w życie byłby nieprawdą —
+    stąd osobne „podpisany, wejdzie w życie” (``signed_pending``)."""
+    if status == "cancelled":
+        return "cancelled"
+    if status != "signed" and signature_status != "signed_both":
+        return "waiting"
+    if effective is not None and effective > today:
+        return "signed_pending"
+    return "in_force"
 
 
 def _pl_rate(value: Decimal) -> str:
@@ -336,7 +428,10 @@ async def describe(
         # Unieważniony kontrakt nie przyjmuje zakończenia ani aneksu — odmowa
         # czytelna zamiast 409 z maszyny stanów w połowie zapisu (runda 6
         # audytu, DOC-2).
-        plan.blockers.append(VOID_CONTRACT_BLOCKER)
+        plan.blockers.append(void_contract_blocker(parent))
+    orphan = is_unlinked_external_annex(doc_type, parent, contract_id)
+    if orphan:
+        plan.blockers.append(NO_CONTRACT_BLOCKER)
     required = contract_effect_permission(doc_type)
     delivery_write = user is None or can_write_delivery(user)
     if (
@@ -361,7 +456,8 @@ async def describe(
         steps = rate_steps(values, doc.document_date)
         currency_label = (values.get("currency") or "PLN").upper()
         if contract is None:
-            plan.warnings.append(no_contract)
+            if not orphan:
+                plan.warnings.append(no_contract)
         else:
             mine, other = split_rate_steps(steps, contract)
             for step in mine:
@@ -408,7 +504,7 @@ async def describe(
     elif key == "annex_start_date":
         new_start = _date(values.get("new_start_date"))
         plan.changes.append(f"Data rozpoczęcia usług: {_pl(new_start)}.")
-        if contract is None:
+        if contract is None and not orphan:
             plan.warnings.append(no_contract)
     elif key == "annex_party_data":
         plan.changes.append(
@@ -416,7 +512,7 @@ async def describe(
             f"NIP {values.get('new_nip') or '…'} — w profilu kandydata i rejestrze."
         )
     elif key in ("annex_subcontractor", "annex_mandate"):
-        if contract is None:
+        if contract is None and not orphan:
             plan.warnings.append(no_contract)
         else:
             plan.changes.append("Aneks pojawi się w historii kontraktu.")
@@ -618,7 +714,12 @@ async def apply(
     contract = await _load_contract(db, current_contract_id(doc, parent))
     if contract is not None and contract.status == ContractStatus.void:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=VOID_CONTRACT_BLOCKER
+            status_code=status.HTTP_409_CONFLICT,
+            detail=void_contract_blocker(parent),
+        )
+    if is_unlinked_external_annex(doc_type, parent, current_contract_id(doc, parent)):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=NO_CONTRACT_BLOCKER
         )
     if contract is not None:
         # Dokument wskazuje kontrakt, na który faktycznie zadziałał (runda 6
@@ -640,6 +741,14 @@ async def apply(
 
     key = doc_type.key
     reason = f"{doc_type.label} z dnia {_pl(doc.document_date)} (dokument #{doc.id})"
+    effective_day = annex_effective_date(
+        key,
+        values,
+        doc.document_date,
+        contract_client_id=contract.client_id if contract is not None else None,
+    )
+    if doc_type.family == "annex" and effective_day is not None:
+        summary["effective_date"] = effective_day.isoformat()
 
     if key == "annex_rate_change" and contract is not None:
         from app.schemas.contract_amendment import ContractAmendmentCreate
@@ -693,7 +802,7 @@ async def apply(
                     "start_date": new_start.isoformat(),
                     "start_date_mode": values.get("new_start_date_mode"),
                 },
-                effective=new_start,
+                effective=effective_day,
                 reason=reason,
                 document_id=stored.id if stored else None,
                 actor_id=user.id,
@@ -733,7 +842,7 @@ async def apply(
                 ContractAmendmentType.party_data_change,
                 old={},
                 new={"legal_name": legal_name, "nip": nip, "entity_type": entity},
-                effective=_date(values.get("effective_date")) or doc.document_date,
+                effective=effective_day,
                 reason=reason,
                 document_id=stored.id if stored else None,
                 actor_id=user.id,
@@ -746,7 +855,7 @@ async def apply(
             ContractAmendmentType.subcontractor_consent,
             old={},
             new={"delegate_name": values.get("delegate_name")},
-            effective=_date(values.get("effective_date")) or doc.document_date,
+            effective=effective_day,
             reason=reason,
             document_id=stored.id if stored else None,
             actor_id=user.id,
@@ -763,7 +872,7 @@ async def apply(
                 "period_to": values.get("period_to"),
                 "rate_changed": bool(values.get("change_rate")),
             },
-            effective=_date(values.get("effective_date")) or doc.document_date,
+            effective=effective_day,
             reason=reason,
             document_id=stored.id if stored else None,
             actor_id=user.id,
@@ -952,8 +1061,12 @@ async def live_contract_ids_for_unlinked_row(
     row_id: int,
     candidate_id: int | None,
     client_id: int | None,
+    contract_type: ContractType | None = None,
 ) -> list[int]:
     """Trwające kontrakty osoby u klienta umowy BEZ powiązania z kontraktem.
+
+    ``contract_type`` zawęża wynik (aneks do umowy B2B nie może dowiązać
+    kontraktu o pracę tej samej osoby); wypowiedzenie Partnera go nie podaje.
 
     Runda 10 (R10-N14-3): wypowiedzenie Partnera do takiej umowy (każdy wiersz
     z Excela działu) zmieniało tylko rejestr, a kontrakt osoby trwał dalej bez
@@ -974,17 +1087,18 @@ async def live_contract_ids_for_unlinked_row(
         )
         .exists()
     )
+    conditions = [
+        Contract.candidate_id == candidate_id,
+        Contract.client_id == client_id,
+        Contract.status.in_([ContractStatus.active, ContractStatus.ending]),
+        ~own_agreement,
+    ]
+    if contract_type is not None:
+        conditions.append(Contract.contract_type == contract_type)
     return list(
         (
             await db.scalars(
-                select(Contract.id)
-                .where(
-                    Contract.candidate_id == candidate_id,
-                    Contract.client_id == client_id,
-                    Contract.status.in_([ContractStatus.active, ContractStatus.ending]),
-                    ~own_agreement,
-                )
-                .order_by(Contract.id.asc())
+                select(Contract.id).where(*conditions).order_by(Contract.id.asc())
             )
         ).all()
     )

@@ -322,3 +322,30 @@ async def upload_file(
         content_type=content_type or "application/octet-stream",
     )
     return DriveItem.of(raw, drive_id)
+
+
+async def replace_content(
+    client: AppGraphClient,
+    drive_id: str,
+    item_id: str,
+    content: bytes,
+    content_type: str | None,
+) -> DriveItem:
+    """Nowa treść ISTNIEJĄCEGO pliku — ten sam element, bez drugiej kopii
+    (poprzednia treść zostaje w historii wersji, jeśli biblioteka ją prowadzi)."""
+    raw = await client.put_content(
+        f"/drives/{drive_id}/items/{item_id}/content",
+        content,
+        content_type=content_type or "application/octet-stream",
+    )
+    return DriveItem.of(raw, drive_id)
+
+
+async def rename_file(
+    client: AppGraphClient, drive_id: str, item_id: str, name: str
+) -> DriveItem:
+    raw = await client.patch(
+        f"/drives/{drive_id}/items/{item_id}?@microsoft.graph.conflictBehavior=rename",
+        json={"name": name},
+    )
+    return DriveItem.of(raw, drive_id)

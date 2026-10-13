@@ -38,6 +38,26 @@ FROM_SHAREPOINT = (SOURCE_IMPORT, SOURCE_SYNC)
 _LOCK_NAMESPACE = 4020402
 
 
+def requeue_replaced_content(
+    doc: ContractDocument, *, content_sha256: str, filename: str
+) -> None:
+    """Treść dokumentu podmieniono w NEXUSIE — kopia w SharePoincie jest stara.
+
+    Dokument wysłany wcześniej (``sharepoint_item_id``) wraca na „czeka na
+    wysyłkę”; synchronizacja podmieni treść TEGO pliku (``sync._replace_one``)
+    zamiast dokładać drugi. Bez tego wiersz z ``sharepoint_item_id`` nie wracał
+    do wysyłki wcale i w SharePoincie zostawał stary skan aneksu (przegląd
+    kodu 13.10.2026). Wołaj PRZED nadpisaniem pól dokumentu. Plik, który
+    przyszedł z SharePointa, nie wraca tam z NEXUSA."""
+    if doc.sharepoint_item_id is None or doc.source in FROM_SHAREPOINT:
+        return
+    if doc.content_sha256 == content_sha256 and doc.filename == filename:
+        return
+    doc.sharepoint_push_status = None
+    doc.sharepoint_push_attempts = 0
+    doc.sharepoint_push_error = None
+
+
 def sha256_hex(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 

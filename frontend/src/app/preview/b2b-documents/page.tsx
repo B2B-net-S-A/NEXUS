@@ -1,10 +1,12 @@
 "use client";
 
 /**
- * Harness wizualny generatora dokumentów pochodnych (zakładka „Dokumenty”
- * Generatora Umów B2B): lista w czterech stanach, kreator porozumienia
- * o rozwiązaniu umowy bez i ze zwolnieniem z zakazu konkurencji, wybór
- * rodzaju dokumentu i okno „Oznacz jako podpisany” (skutki i blokada).
+ * Harness wizualny generatora dokumentów pochodnych (zakładki „Dokumenty”
+ * i „Generator aneksów” Generatora Umów B2B): lista w czterech stanach,
+ * rejestr aneksów we wszystkich stanach wiersza, wybór osoby przy nowym
+ * aneksie, kreator porozumienia o rozwiązaniu umowy bez i ze zwolnieniem
+ * z zakazu konkurencji, wybór rodzaju dokumentu i okno „Oznacz jako
+ * podpisany” (skutki, blokada, skan podpisanego aneksu).
  *
  * ZERO zapytań: cache react-query jest zasiany tymi samymi funkcjami kluczy
  * co komponenty (`b2bDocumentsKeys`), z `updatedAt` w przyszłości — zapytania
@@ -19,8 +21,18 @@ import {
   type InfiniteData,
 } from "@tanstack/react-query";
 
+import { ContractAmendmentsTab } from "@/components/ContractAmendmentsTab";
 import { ToastProvider } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
+import {
+  AnnexRegister,
+  AnnexRegisterTable,
+} from "@/components/v2/b2b-generator/documents/AnnexRegister";
+import {
+  AnnexSubjectPicker,
+  EMPTY_ANNEX_CHOICE,
+  type AnnexSubjectChoice,
+} from "@/components/v2/b2b-generator/documents/AnnexSubjectPicker";
 import {
   ConfirmSignedDialog,
   EffectsView,
@@ -39,9 +51,12 @@ import {
   type DocumentFieldDef,
   type DocumentItem,
   type DocumentPrefill,
+  type DocumentSubject,
   type DocumentTypeDef,
   type DocumentTypesResponse,
 } from "@/lib/api/b2bDocuments";
+import { ANNEX_FAMILIES, NON_ANNEX_FAMILIES } from "@/lib/b2b-documents";
+import { useAuthStore } from "@/store/auth";
 
 // ── Dane fikcyjne ───────────────────────────────────────────────────────────
 
@@ -444,25 +459,9 @@ function doc(overrides: Partial<DocumentItem> = {}): DocumentItem {
   };
 }
 
+// Zakładka „Dokumenty” nie pokazuje aneksów — mają własny rejestr.
 const ROWS: DocumentItem[] = [
   doc(),
-  doc({
-    id: 2,
-    document_type: "annex_rate_change",
-    type_label: "Aneks — zmiana stawki",
-    family: "annex",
-    label: "Aneks — zmiana stawki z dnia 01.09.2026 do umowy 0987/2026",
-    document_date: "2026-09-01",
-    parent_contract_number: "0987/2026",
-    partner_name: "Piotr Testowy",
-    client_name: "Ubezpieczenia Przykład",
-    status: "signed",
-    signature_status: "signed_both",
-    signed_at: "2026-09-05T12:00:00Z",
-    can_edit: false,
-    can_delete: false,
-    can_confirm_signed: false,
-  }),
   doc({
     id: 3,
     document_type: "preliminary_cez",
@@ -489,6 +488,314 @@ const ROWS: DocumentItem[] = [
     can_confirm_signed: false,
   }),
 ];
+
+// ── Rejestr aneksów ─────────────────────────────────────────────────────────
+
+function annexRow(overrides: Partial<DocumentItem> = {}): DocumentItem {
+  return doc({
+    document_type: "annex_rate_change",
+    type_label: "Aneks — zmiana stawki",
+    family: "annex",
+    label: "Aneks — zmiana stawki z dnia 10.10.2026",
+    document_date: "2026-10-10",
+    created_at: "2026-10-10T09:40:00Z",
+    client_id: 2,
+    client_name: "Ubezpieczenia Przykład S.A.",
+    external: false,
+    state: "waiting",
+    effective_date: "2026-11-01",
+    can_restore: false,
+    can_link_contract: false,
+    signed_scan_document_id: null,
+    ...overrides,
+  });
+}
+
+const ANNEX_ROWS: DocumentItem[] = [
+  annexRow({
+    id: 21,
+    parent_generated_contract_id: null,
+    parent_contract_number: null,
+    contract_id: 651,
+    external: true,
+    partner_name: "Piotr Testowy",
+    person_name: "Piotr Testowy",
+    partner_legal_name: "TESTOWY IT Piotr Testowy",
+    partner_nip: "0000000011",
+    change: {
+      kind: "rate",
+      hidden: false,
+      currency: "PLN",
+      items: [{ rate: 150, from: null, to: null }],
+      before: [],
+    },
+  }),
+  annexRow({
+    id: 22,
+    parent_generated_contract_id: null,
+    parent_contract_number: null,
+    contract_id: null,
+    external: true,
+    partner_name: "Michał Wzorcowy",
+    person_name: "Michał Wzorcowy",
+    partner_legal_name: "WZORCOWY Consulting",
+    partner_nip: "0000000044",
+    client_name: "Telekom Przykładowy Sp. z o.o.",
+    created_by_name: "Joanna Delivery",
+    can_confirm_signed: false,
+    can_link_contract: true,
+    change: { kind: "rate", hidden: true },
+  }),
+  annexRow({
+    id: 23,
+    document_type: "annex_start_date",
+    type_label: "Aneks — zmiana daty startu",
+    label: "Aneks — zmiana daty startu z dnia 08.10.2026 do umowy 1541/2026",
+    parent_contract_number: "1541/2026",
+    contract_id: 712,
+    partner_name: "Ewa Przykładowa",
+    person_name: "Ewa Przykładowa",
+    partner_nip: "0000000066",
+    client_name: "Bank Przykładowy S.A.",
+    status: "signed",
+    signature_status: "signed_both",
+    signed_at: "2026-10-09T08:00:00Z",
+    state: "signed_pending",
+    effective_date: "2026-11-16",
+    can_edit: false,
+    can_delete: false,
+    can_confirm_signed: false,
+    change: { kind: "start_date", before: "2026-11-02", after: "2026-11-16" },
+  }),
+  annexRow({
+    id: 24,
+    document_type: "annex_party_data",
+    type_label: "Aneks — uzupełnienie danych firmy",
+    label: "Aneks — uzupełnienie danych firmy z dnia 25.09.2026 do umowy 1538/2026",
+    parent_contract_number: "1538/2026",
+    contract_id: 706,
+    partner_name: "Adam Fikcyjny",
+    person_name: "Adam Fikcyjny",
+    partner_legal_name: "FIKCYJNY DEV Adam Fikcyjny",
+    partner_nip: "0000000088",
+    client_name: "Bank Przykładowy S.A.",
+    status: "signed",
+    signature_status: "signed_both",
+    signed_at: "2026-09-28T10:00:00Z",
+    state: "in_force",
+    effective_date: "2026-10-01",
+    can_edit: false,
+    can_delete: false,
+    can_confirm_signed: false,
+    signed_scan_document_id: 900,
+    change: {
+      kind: "party",
+      legal_name: "FIKCYJNY DEV Adam Fikcyjny",
+      nip: "0000000088",
+    },
+  }),
+  annexRow({
+    id: 25,
+    document_type: "annex_subcontractor",
+    type_label: "Aneks — osoba skierowana (oddelegowanie)",
+    label: "Aneks — osoba skierowana z dnia 24.09.2026 do umowy 1502/2026",
+    parent_contract_number: "1502/2026",
+    contract_id: 688,
+    partner_name: "Karolina Wzorcowa",
+    person_name: "Karolina Wzorcowa",
+    partner_legal_name: "WZORCOWA Software Sp. z o.o.",
+    partner_nip: "0000000022",
+    status: "signed",
+    signature_status: "signed_both",
+    signed_at: "2026-09-26T10:00:00Z",
+    state: "in_force",
+    effective_date: "2026-10-01",
+    can_edit: false,
+    can_delete: false,
+    can_confirm_signed: false,
+    change: { kind: "delegate", name: "Paweł Przykładowy" },
+  }),
+  annexRow({
+    id: 26,
+    label: "Aneks — zmiana stawki z dnia 22.09.2026 do umowy 1519/2026",
+    parent_contract_number: "1519/2026",
+    contract_id: 690,
+    partner_name: "Tomasz Wzorcowy",
+    person_name: "Tomasz Wzorcowy",
+    partner_nip: "0000000077",
+    client_name: "Telekom Przykładowy Sp. z o.o.",
+    status: "cancelled",
+    state: "cancelled",
+    effective_date: "2026-10-01",
+    cancelled_reason: "Partner nie podpisał",
+    can_edit: false,
+    can_delete: false,
+    can_confirm_signed: false,
+    can_restore: true,
+    change: {
+      kind: "rate",
+      hidden: false,
+      currency: "PLN",
+      items: [{ rate: 130, from: null, to: null }],
+      before: [{ rate: 120, from: null, to: null }],
+    },
+  }),
+];
+
+// Zakładka „Aneksy” kontraktu: aneks czekający na podpis, zmiany zapisane
+// (z generatora i ręczna) oraz aneks anulowany. Bez aneksu stawki — harness
+// nie ma zalogowanej osoby, więc wierszy z kwotami zakładka by nie pokazała.
+const CONTRACT_ID = 651;
+
+const CONTRACT_ANNEX_DOCUMENTS = [
+  {
+    document_id: 31,
+    document_type: "annex_start_date",
+    type_label: "Aneks — zmiana daty startu",
+    state: "waiting",
+    effective_date: "2026-11-16",
+    change: { kind: "start_date", before: "2026-11-02", after: "2026-11-16" },
+    cancelled_reason: null,
+    created_at: "2026-10-10T09:40:00Z",
+    created_by_name: "Jan Delivery",
+  },
+  {
+    document_id: 32,
+    document_type: "annex_subcontractor",
+    type_label: "Aneks — osoba skierowana (oddelegowanie)",
+    state: "cancelled",
+    effective_date: "2026-06-15",
+    change: { kind: "delegate", name: "Paweł Przykładowy" },
+    cancelled_reason: "Partner nie podpisał",
+    created_at: "2026-06-02T08:00:00Z",
+    created_by_name: "Jan Delivery",
+  },
+];
+
+const CONTRACT_AMENDMENTS = [
+  {
+    id: 41,
+    contract_id: CONTRACT_ID,
+    amendment_type: "party_data_change",
+    old_values: {},
+    new_values: { legal_name: "TESTOWY IT Piotr Testowy", nip: "0000000011" },
+    effective_date: "2026-09-01",
+    reason: null,
+    document_id: 900,
+    created_by: 1,
+    created_by_email: null,
+    created_by_name: "Joanna Delivery",
+    created_at: "2026-08-20T10:00:00Z",
+    source: "generator",
+    b2b_document_id: 24,
+    state: "in_force",
+    document: { id: 900, filename: "Aneks dane firmy.pdf", is_signed_scan: true },
+  },
+  {
+    id: 42,
+    contract_id: CONTRACT_ID,
+    amendment_type: "scope_change",
+    old_values: { project_name: "Migracja" },
+    new_values: { project_name: "Hurtownia danych" },
+    effective_date: "2026-08-01",
+    reason: "Zmiana projektu u klienta",
+    document_id: null,
+    created_by: 1,
+    created_by_email: null,
+    created_by_name: "Jan Delivery",
+    created_at: "2026-07-28T10:00:00Z",
+    source: "manual",
+    b2b_document_id: null,
+    state: "in_force",
+    document: null,
+  },
+  {
+    id: 43,
+    contract_id: CONTRACT_ID,
+    amendment_type: "start_date_change",
+    old_values: { start_date: "2026-07-01" },
+    new_values: { start_date: "2026-07-06" },
+    effective_date: "2026-07-06",
+    reason: null,
+    document_id: 901,
+    created_by: 1,
+    created_by_email: null,
+    created_by_name: "Joanna Delivery",
+    created_at: "2026-06-28T10:00:00Z",
+    source: "generator",
+    b2b_document_id: 12,
+    state: "in_force",
+    document: { id: 901, filename: "Aneks start.docx", is_signed_scan: false },
+  },
+];
+
+const SUBJECT_QUERY = "Testowy";
+
+const SUBJECTS: DocumentSubject[] = [
+  {
+    kind: "agreement",
+    parent_generated_contract_id: PARENT_ID,
+    contract_number: "1234/2026",
+    source: "generator",
+    agreement_status: "active",
+    contract_id: 706,
+    contract_status: "active",
+    contract_start_date: "2026-10-19",
+    contract_options: [],
+    candidate_id: 7,
+    person_name: "Piotr Testowy",
+    partner_name: "TESTOWY IT Piotr Testowy",
+    partner_nip: "0000000011",
+    client_id: 1,
+    client_name: "Bank Przykładowy S.A.",
+  },
+  {
+    kind: "agreement",
+    parent_generated_contract_id: 102,
+    contract_number: "264A",
+    source: "excel",
+    agreement_status: "active",
+    contract_id: null,
+    contract_status: null,
+    contract_start_date: null,
+    contract_options: [
+      { contract_id: 512, status: "active", start_date: "2025-03-01" },
+      { contract_id: 540, status: "ending", start_date: "2025-09-01" },
+    ],
+    candidate_id: 7,
+    person_name: "Piotr Testowy",
+    partner_name: "TESTOWY IT Piotr Testowy",
+    partner_nip: "0000000011",
+    client_id: 3,
+    client_name: "Telekom Przykładowy Sp. z o.o.",
+  },
+  {
+    kind: "contract",
+    parent_generated_contract_id: null,
+    contract_number: null,
+    source: null,
+    agreement_status: null,
+    contract_id: 651,
+    contract_status: "active",
+    contract_start_date: "2026-07-06",
+    contract_options: [],
+    candidate_id: 7,
+    person_name: "Piotr Testowy",
+    partner_name: "TESTOWY IT Piotr Testowy",
+    partner_nip: "0000000011",
+    client_id: 2,
+    client_name: "Ubezpieczenia Przykład S.A.",
+  },
+];
+
+const EFFECTS_ANNEX: DocumentEffects = {
+  effect_label: "Stawki wejdą do harmonogramu stawek kontraktu.",
+  changes: [
+    "Stawka Partnera 150 PLN/h od 01.11.2026 — nowy krok w harmonogramie stawek kontraktu.",
+  ],
+  warnings: [],
+  blockers: [],
+};
 
 const EFFECTS_OK: DocumentEffects = {
   effect_label: TYPES[2].effect_label,
@@ -521,6 +828,11 @@ const ANNEX_QUEUE = [
 
 // ── Zasiew ──────────────────────────────────────────────────────────────────
 
+const CLIENTS = [
+  { id: 1, name: "Bank Przykładowy S.A." },
+  { id: 2, name: "Ubezpieczenia Przykład S.A." },
+];
+
 const FUTURE = Date.now() + 365 * 24 * 3600 * 1000;
 
 function seededClient(): QueryClient {
@@ -530,10 +842,38 @@ function seededClient(): QueryClient {
   const opts = { updatedAt: FUTURE };
   qc.setQueryData(b2bDocumentsKeys.types(), TYPES_RESPONSE, opts);
   qc.setQueryData<InfiniteData<DocumentItem[], number>>(
-    b2bDocumentsKeys.list({ documentType: "", status: "", q: "" }),
+    b2bDocumentsKeys.list({
+      documentType: "",
+      status: "",
+      q: "",
+      family: NON_ANNEX_FAMILIES,
+    }),
     { pages: [ROWS], pageParams: [0] },
     opts,
   );
+  qc.setQueryData<InfiniteData<DocumentItem[], number>>(
+    b2bDocumentsKeys.list({
+      documentType: "",
+      status: "",
+      q: "",
+      family: ANNEX_FAMILIES,
+    }),
+    { pages: [ANNEX_ROWS], pageParams: [0] },
+    opts,
+  );
+  qc.setQueryData(
+    b2bDocumentsKeys.subjects("annex_rate_change", SUBJECT_QUERY),
+    SUBJECTS,
+    opts,
+  );
+  qc.setQueryData(["b2b-annex-subject-clients"], CLIENTS, opts);
+  qc.setQueryData(["contract-amendments", CONTRACT_ID], CONTRACT_AMENDMENTS, opts);
+  qc.setQueryData(
+    ["contract-annex-documents", CONTRACT_ID],
+    CONTRACT_ANNEX_DOCUMENTS,
+    opts,
+  );
+  qc.setQueryData(b2bDocumentsKeys.effects(21), EFFECTS_ANNEX, opts);
   qc.setQueryData(
     b2bDocumentsKeys.prefill("termination_agreement", PARENT_ID, null),
     PREFILL,
@@ -549,19 +889,8 @@ function seededClient(): QueryClient {
     ANNEX_EXTERNAL_PREFILL,
     opts,
   );
-  qc.setQueryData(
-    ["b2b-annex-rate-clients"],
-    [
-      { id: 1, name: "Bank Przykładowy S.A." },
-      { id: 2, name: "Ubezpieczenia Przykład S.A." },
-    ],
-    opts,
-  );
-  qc.setQueryData(
-    ["b2b-generated", "documents-picker", "", true],
-    [],
-    opts,
-  );
+  qc.setQueryData(["b2b-annex-rate-clients"], CLIENTS, opts);
+  qc.setQueryData(["b2b-generated", "documents-picker", ""], [], opts);
   qc.setQueryData(b2bDocumentsKeys.effects(1), EFFECTS_OK, opts);
   qc.setQueryData(b2bDocumentsKeys.effects(3), EFFECTS_BLOCKED, opts);
   qc.setQueryData(BUSINESS_DATA_ANNEX_QUEUE_KEY, ANNEX_QUEUE, opts);
@@ -587,6 +916,31 @@ function useNetworkBlocked() {
   );
 }
 
+/** Fikcyjny administrator: wybór osoby pokazuje kontrakty tylko komuś, kto
+ *  je prowadzi, a zakładka kontraktu — kwoty tylko z wglądem w stawki. */
+function usePreviewAdmin() {
+  useEffect(() => {
+    const previous = useAuthStore.getState();
+    useAuthStore.setState({
+      user: {
+        id: 1,
+        email: "preview@example.com",
+        name: "Administrator Przykładowy",
+        role: "admin",
+        roles: ["admin"],
+        capabilities: ["view_finance", "manage_finance"],
+        profile_completed: true,
+        profile_completed_at: null,
+        force_password_change: false,
+      } as never,
+      token: "preview",
+    } as never);
+    return () => {
+      useAuthStore.setState({ user: previous.user, token: previous.token } as never);
+    };
+  }, []);
+}
+
 // ── Strona ──────────────────────────────────────────────────────────────────
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -602,12 +956,28 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function Harness() {
   useNetworkBlocked();
+  usePreviewAdmin();
   const [wizard, setWizard] = useState<WizardState | null>(null);
   const [signOpen, setSignOpen] = useState<DocumentItem | null>(null);
+  const [annexSearch, setAnnexSearch] = useState("");
+  const [annexChoice, setAnnexChoice] = useState<AnnexSubjectChoice>({
+    ...EMPTY_ANNEX_CHOICE,
+    parentId: 102,
+    parentLabel: "264A — Piotr Testowy",
+    needsContractPick: true,
+  });
   const typesByKey = useMemo(() => new Map(TYPES.map((t) => [t.key, t])), []);
   const noop = () => undefined;
   const stateProps = {
     typesByKey,
+    onRetry: noop,
+    onMore: noop,
+    onEdit: noop,
+    hasMore: false,
+    loadingMore: false,
+    moreFailed: false,
+  };
+  const annexStateProps = {
     onRetry: noop,
     onMore: noop,
     onEdit: noop,
@@ -650,6 +1020,49 @@ function Harness() {
         />
         <DocumentsListView {...stateProps} rows={[]} state="empty" filtered={false} />
         <DocumentsListView {...stateProps} rows={[]} state="empty" filtered />
+      </Section>
+
+      <Section title="Rejestr aneksów">
+        <AnnexRegister search={annexSearch} onSearch={setAnnexSearch} onEdit={noop} />
+      </Section>
+
+      <Section title="Rejestr aneksów — wczytywanie, błąd, 403, pustka">
+        <AnnexRegisterTable {...annexStateProps} rows={[]} state="loading" filtered={false} />
+        <AnnexRegisterTable
+          {...annexStateProps}
+          rows={[]}
+          state="error"
+          filtered={false}
+          error={{ response: { status: 500, data: { detail: "Błąd serwera." } } }}
+        />
+        <AnnexRegisterTable
+          {...annexStateProps}
+          rows={[]}
+          state="error"
+          filtered={false}
+          error={{ response: { status: 403, data: { detail: "Brak dostępu." } } }}
+        />
+        <AnnexRegisterTable {...annexStateProps} rows={[]} state="empty" filtered={false} />
+        <AnnexRegisterTable {...annexStateProps} rows={[]} state="empty" filtered />
+      </Section>
+
+      <Section title="Nowy aneks — dla kogo (umowa z rejestru, umowa z Excela z dwoma kontraktami, kontrakt bez umowy)">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <AnnexSubjectPicker
+            type={typesByKey.get("annex_rate_change")!}
+            choice={annexChoice}
+            onChoice={setAnnexChoice}
+            initialQuery={SUBJECT_QUERY}
+          />
+        </div>
+      </Section>
+
+      <Section title="Kontrakt → zakładka Aneksy (aneks czeka na podpis, zmiany zapisane, anulowany)">
+        <ContractAmendmentsTab
+          contractId={CONTRACT_ID}
+          clientId={2}
+          personName="Piotr Testowy"
+        />
       </Section>
 
       <Section title="Generator aneksów — wybór typu aneksu">
@@ -703,8 +1116,11 @@ function Harness() {
           <Button variant="outline" onClick={() => setSignOpen(ROWS[0])}>
             Otwórz okno (bez blokad)
           </Button>
-          <Button variant="outline" onClick={() => setSignOpen(ROWS[2])}>
+          <Button variant="outline" onClick={() => setSignOpen(ROWS[1])}>
             Otwórz okno (z blokadą)
+          </Button>
+          <Button variant="outline" onClick={() => setSignOpen(ANNEX_ROWS[0])}>
+            Otwórz okno (aneks ze skanem)
           </Button>
         </div>
         {signOpen ? (
