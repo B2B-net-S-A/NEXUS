@@ -1849,9 +1849,15 @@ export const notificationsApi = {
     }),
   // Dzwonek: czaty mają własne okienko („Czaty” w górnym pasku), więc lista
   // i licznik dzwonka ich nie niosą — filtr po stronie serwera, jak wyżej.
-  listForBell: (limit: number) =>
+  // `excludeInterviews`: osoba z okienkiem „Rozmowy” nie widzi w dzwonku
+  // kategorii „Rozmowy” (rozmowy u klienta, prepy, przypomnienia kalendarza).
+  listForBell: (limit: number, opts?: { excludeInterviews?: boolean }) =>
     api.get<NotificationListResponse>("/api/notifications", {
-      params: { limit, exclude_chat: true },
+      params: {
+        limit,
+        exclude_chat: true,
+        ...(opts?.excludeInterviews ? { exclude_interviews: true } : {}),
+      },
     }),
   // Widget „Moje zadania": wyłącznie zdarzenia rekrutacyjne. Sprawy klientów
   // (zamówienia, kontrakty, umowy) mają osobny panel „Moi klienci". Filtr idzie
@@ -1864,9 +1870,12 @@ export const notificationsApi = {
   markRead: (id: number) => api.patch(`/api/notifications/${id}/read`),
   markAllRead: () => api.patch("/api/notifications/read-all"),
   // „Oznacz wszystko” w dzwonku nie gasi czatów, których dzwonek nie pokazuje.
-  markAllReadForBell: () =>
+  markAllReadForBell: (opts?: { excludeInterviews?: boolean }) =>
     api.patch("/api/notifications/read-all", undefined, {
-      params: { exclude_chat: true },
+      params: {
+        exclude_chat: true,
+        ...(opts?.excludeInterviews ? { exclude_interviews: true } : {}),
+      },
     }),
 };
 

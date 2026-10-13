@@ -15,6 +15,7 @@ import {
   useNotifications,
 } from "@/hooks/useNotifications";
 import { NOTIFICATIONS_FALLBACK_POLL_MS } from "@/lib/polling";
+import { INTERVIEW_NOTIFY_EVENT } from "@/lib/interview-notifications";
 import { CHAT_NOTIFY_EVENT } from "@/types/job-chat";
 
 /**
@@ -37,13 +38,16 @@ class FakeWebSocket {
   close() {}
 }
 
-function setup() {
+function setup(options: Parameters<typeof useNotifications>[0] = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const invalidate = vi.spyOn(client, "invalidateQueries").mockResolvedValue();
   const wrapper = ({ children }: { children: React.ReactNode }) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
   );
-  const hook = renderHook(() => useNotifications(), { wrapper });
+  const hook = renderHook((props: Parameters<typeof useNotifications>[0]) => useNotifications(props), {
+    wrapper,
+    initialProps: options,
+  });
   const keys = () => invalidate.mock.calls.map((call) => JSON.stringify(call[0]?.queryKey));
   return { hook, invalidate, keys };
 }
@@ -353,6 +357,89 @@ describe("useNotifications — przydział requestów (propozycje automatu i akce
     const { hook, keys } = setup();
     deliver({ notification_type: "stage_changed", link: "/jobs/42" });
     expect(keys()).toEqual([JSON.stringify(["notifications"])]);
+    hook.unmount();
+  });
+});
+
+// 13.10.2026: rozmowy u klienta i prepy mają własne okienko w górnym pasku.
+describe("useNotifications — kategoria „Rozmowy” idzie do własnego okienka", () => {
+  beforeEach(() => {
+    FakeWebSocket.instances = [];
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  const SLOTS = {
+    type: "notification",
+    data: {
+      id: 9,
+      title: "Terminy rozmowy od klienta",
+      message: "3 terminy",
+      link: "/calendar?cycle=1-2",
+      notification_type: "interview_slots_requested",
+      created_at: "2026-10-13T08:00:00Z",
+    },
+  };
+
+  function deliver(payload: unknown) {
+    const ws = FakeWebSocket.instances[0];
+    act(() => ws.onopen?.());
+    act(() => ws.onmessage?.({ data: JSON.stringify(payload) }));
+  }
+
+  it("z okienkiem: bez licznika i dymka dzwonka, przegląd cyklu odświeżony, zdarzenie okna", () => {
+    const onNotification = vi.fn();
+    const received: unknown[] = [];
+    const listener = (event: Event) => received.push((event as CustomEvent).detail);
+    window.addEventListener(INTERVIEW_NOTIFY_EVENT, listener);
+    const { hook, invalidate } = setup({ onNotification, interviewsInWindow: true });
+
+    deliver(SLOTS);
+
+    expect(hook.result.current.unreadCount).toBe(0);
+    expect(onNotification).not.toHaveBeenCalled();
+    expect(received).toEqual([SLOTS.data]);
+    // Same zakresy przeglądu, dokładnie — bez pytań klienta, debriefów
+    // i transkryptów otwartych okien pod wspólnym prefiksem.
+    expect(invalidate.mock.calls.map((call) => call[0])).toEqual([
+      { queryKey: ["notifications"] },
+      { queryKey: ["interview-cycle", "mine"], exact: true },
+      { queryKey: ["interview-cycle", "jobs"], exact: true },
+      { queryKey: ["interview-cycle", "all"], exact: true },
+    ]);
+    window.removeEventListener(INTERVIEW_NOTIFY_EVENT, listener);
+    hook.unmount();
+  });
+
+  it("bez okienka rozmowy zostają w dzwonku, a inne typy zawsze", () => {
+    const onNotification = vi.fn();
+    const { hook, keys } = setup({ onNotification });
+    deliver(SLOTS);
+    expect(hook.result.current.unreadCount).toBe(1);
+    expect(onNotification).toHaveBeenCalledTimes(1);
+    expect(keys()).toEqual([JSON.stringify(["notifications"])]);
+    hook.unmount();
+
+    FakeWebSocket.instances = [];
+    const other = setup({ onNotification, interviewsInWindow: true });
+    deliver({ ...SLOTS, data: { ...SLOTS.data, notification_type: "stage_changed" } });
+    expect(other.hook.result.current.unreadCount).toBe(1);
+    expect(onNotification).toHaveBeenCalledTimes(2);
+    other.hook.unmount();
+  });
+
+  it("zmiana opcji nie rozłącza gniazda", () => {
+    const onNotification = vi.fn();
+    const { hook } = setup({ onNotification, interviewsInWindow: false });
+    expect(FakeWebSocket.instances).toHaveLength(1);
+
+    hook.rerender({ onNotification, interviewsInWindow: true });
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
     hook.unmount();
   });
 });

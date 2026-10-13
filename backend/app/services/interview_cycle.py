@@ -467,7 +467,15 @@ def compute_todos(
     iv = pair.interview
     req = pair.slot_request
 
-    def add(kind: str, *, due=None, event_id=None, slot_request_id=None, urgent=False):
+    def add(
+        kind: str,
+        *,
+        due=None,
+        event_id=None,
+        slot_request_id=None,
+        urgent=False,
+        owner_id: Optional[int] = None,
+    ):
         todos.append(
             {
                 "kind": kind,
@@ -479,6 +487,8 @@ def compute_todos(
                 "event_id": event_id,
                 "slot_request_id": slot_request_id,
                 "urgent": urgent,
+                # Na kogo zadanie czeka — czyta to ``todo_is_mine``.
+                "owner_id": owner_id,
             }
         )
 
@@ -486,13 +496,18 @@ def compute_todos(
         end = _interview_end(iv)
         deadline = end + timedelta(minutes=call_window_minutes)
         if end <= now <= deadline:
-            add("call_now", due=deadline, event_id=iv.id)
+            add("call_now", due=deadline, event_id=iv.id, owner_id=iv.owner_id)
         elif deadline < now:
-            add("debrief_overdue", due=deadline, event_id=iv.id)
+            add("debrief_overdue", due=deadline, event_id=iv.id, owner_id=iv.owner_id)
 
     if req is not None and req.status == SLOT_STATUS_AWAITING_RECRUITER:
         if is_dl_view or req.recruiter_id is None or req.recruiter_id in me:
-            add("slots_pick", due=req.respond_by, slot_request_id=req.id)
+            add(
+                "slots_pick",
+                due=req.respond_by,
+                slot_request_id=req.id,
+                owner_id=req.recruiter_id,
+            )
     if req is not None and req.status == SLOT_STATUS_AWAITING_DL:
         if is_dl_view or req.created_by in me:
             chosen = _chosen_slot(req)
@@ -500,6 +515,7 @@ def compute_todos(
                 "slots_confirm",
                 due=chosen["start"] if chosen else None,
                 slot_request_id=req.id,
+                owner_id=req.created_by,
             )
 
     # Prepy liczą się do rundy prepów (``for_preps``), nie do rundy czekającej
@@ -520,19 +536,39 @@ def compute_todos(
                     due=prep_iv.start,
                     event_id=prep_iv.id,
                     urgent=urgent,
+                    owner_id=prep_iv.owner_id,
                 )
         elif second is None and prep_round.late_prep(2) is None:
-            add("prep2_missing", due=prep_iv.start, event_id=prep_iv.id, urgent=urgent)
+            add(
+                "prep2_missing",
+                due=prep_iv.start,
+                event_id=prep_iv.id,
+                urgent=urgent,
+                owner_id=prep_iv.owner_id,
+            )
         for ev in prep_round.late_preps:
-            add("prep_late", due=prep_iv.start, event_id=ev.id, urgent=urgent)
+            add(
+                "prep_late",
+                due=prep_iv.start,
+                event_id=ev.id,
+                urgent=urgent,
+                owner_id=ev.owner_id,
+            )
         for ev in (first, second):
             if ev is None or ev.start > now:
                 continue
             _meta, quality = prep_quality(ev)
             if quality == "weak":
-                add("prep_weak", due=prep_iv.start, event_id=ev.id)
+                add(
+                    "prep_weak", due=prep_iv.start, event_id=ev.id, owner_id=ev.owner_id
+                )
             elif quality == "unrecorded":
-                add("prep_unrecorded", due=prep_iv.start, event_id=ev.id)
+                add(
+                    "prep_unrecorded",
+                    due=prep_iv.start,
+                    event_id=ev.id,
+                    owner_id=ev.owner_id,
+                )
 
     if (
         is_dl_view
@@ -542,6 +578,33 @@ def compute_todos(
     ):
         add("slots_missing")
     return todos
+
+
+def todo_is_mine(
+    todo: dict, acting_for: Iterable[int], *, delivery_lead_id: Optional[int] = None
+) -> bool:
+    """Czy zadanie czeka na wołającego albo osobę, którą zastępuje.
+
+    Okienko „Rozmowy” w górnym pasku (13.10.2026) pokazuje tylko takie pozycje:
+    Delivery Lead w zakresie „jobs” widzi na ekranie także sprawy rekruterów,
+    ale nie dostaje ich jako swoich. Zadanie bez wskazanej osoby nie jest
+    niczyje „moje” — adresat zapasowy (nieaktywny właściciel) dostaje
+    powiadomienie, nie zadanie.
+    """
+    me = set(acting_for)
+    kind, owner = todo["kind"], todo.get("owner_id")
+    if kind == "slots_pick":
+        # Wniosek bez rekrutera wybiera dowolny członek zespołu rekrutacji.
+        return owner is None or owner in me
+    if kind == "prep_missing":
+        # Prep 1 prowadzi Delivery Lead, a „Zaplanuj prep z kandydatem” po
+        # potwierdzeniu terminu dostaje rekruter — zadanie jest obu.
+        return delivery_lead_id in me or owner in me
+    if kind == "prep2_missing":
+        return owner in me if owner is not None else delivery_lead_id in me
+    if kind == "slots_missing":
+        return delivery_lead_id in me
+    return owner in me
 
 
 # ── Ładowanie ────────────────────────────────────────────────────────────────
@@ -951,7 +1014,7 @@ async def _labels(
     db: AsyncSession, cand_ids: list[int], job_ids: list[int]
 ) -> tuple[
     dict[int, tuple[Optional[str], Optional[str]]],
-    dict[int, tuple[str, Optional[int], Optional[str]]],
+    dict[int, tuple[str, Optional[int], Optional[str], Optional[int]]],
 ]:
     names: dict[int, tuple[Optional[str], Optional[str]]] = {}
     if cand_ids:
@@ -964,16 +1027,22 @@ async def _labels(
         ).all():
             full = " ".join(part for part in (first, last) if part) or None
             names[cid] = (full, email)
-    jobs: dict[int, tuple[str, Optional[int], Optional[str]]] = {}
+    jobs: dict[int, tuple[str, Optional[int], Optional[str], Optional[int]]] = {}
     if job_ids:
-        for jid, title, client_id, client_name in (
+        for jid, title, client_id, client_name, delivery_lead_id in (
             await db.execute(
-                select(Job.id, job_display_title_expr(), Job.client_id, Client.name)
+                select(
+                    Job.id,
+                    job_display_title_expr(),
+                    Job.client_id,
+                    Client.name,
+                    Job.delivery_lead_id,
+                )
                 .outerjoin(Client, Client.id == Job.client_id)
                 .where(Job.id.in_(job_ids))
             )
         ).all():
-            jobs[jid] = (title, client_id, client_name)
+            jobs[jid] = (title, client_id, client_name, delivery_lead_id)
     return names, jobs
 
 
@@ -1012,7 +1081,9 @@ async def load_overview(
     todos: list[dict] = []
     for key, snap in snaps.items():
         cid, jid = key
-        title, client_id, client_name = jobs.get(jid, (None, None, None))
+        title, client_id, client_name, delivery_lead_id = jobs.get(
+            jid, (None, None, None, None)
+        )
         # Nazwisko i e-mail tylko dla ról czytających kandydatów. E-mail jest
         # potrzebny do zaproszenia na prep (Teams wysyła je kandydatowi).
         name, email = (
@@ -1049,7 +1120,15 @@ async def load_overview(
             is_dl_view=is_dl_view,
             acting_for=acting_for,
         ):
-            todos.append({**t, **pair_info})
+            todos.append(
+                {
+                    **t,
+                    **pair_info,
+                    "mine": todo_is_mine(
+                        t, acting_for, delivery_lead_id=delivery_lead_id
+                    ),
+                }
+            )
 
         # Runda do debriefu i — gdy inna (runda 8, CAL2) — runda do prepów:
         # panel kandydata pokazuje obie rozmowy i prepy do następnej.
@@ -1059,13 +1138,19 @@ async def load_overview(
         # Spóźniony prep zostaje na liście „Prepy i rozmowy” pary — z linkiem
         # Teams i szczegółami, żeby dało się go przełożyć albo odwołać.
         agenda.extend(
-            _prep_agenda_entry(pair_info, prep, now, late=True)
+            {
+                **_prep_agenda_entry(pair_info, prep, now, late=True),
+                "mine": prep.owner_id in acting_for,
+            }
             for prep in snap.late_preps
             if window_start <= prep.start <= window_end
         )
         for iv, round_preps, debriefed in rounds:
             agenda.extend(
-                _prep_agenda_entry(pair_info, prep, now, late=False)
+                {
+                    **_prep_agenda_entry(pair_info, prep, now, late=False),
+                    "mine": prep.owner_id in acting_for,
+                }
                 for prep in round_preps
                 if window_start <= prep.start <= window_end
             )
@@ -1078,6 +1163,7 @@ async def load_overview(
                         "end": iv.end,
                         "event_id": iv.id,
                         "online_meeting_url": None,
+                        "mine": iv.owner_id in acting_for,
                     }
                 )
                 end = _interview_end(iv)
@@ -1090,6 +1176,7 @@ async def load_overview(
                         "event_id": iv.id,
                         "online_meeting_url": None,
                         "done": debriefed,
+                        "mine": iv.owner_id in acting_for,
                     }
                 )
         if (
@@ -1107,6 +1194,8 @@ async def load_overview(
                     "event_id": None,
                     "slot_request_id": req.id,
                     "online_meeting_url": None,
+                    "mine": req.recruiter_id in acting_for
+                    or req.created_by in acting_for,
                 }
             )
 

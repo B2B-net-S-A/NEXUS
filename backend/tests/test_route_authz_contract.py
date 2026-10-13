@@ -234,6 +234,7 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/notifications"),
     ("GET", "/api/notifications/chats"),
     ("GET", "/api/notifications/count"),
+    ("GET", "/api/notifications/interviews"),
     ("GET", "/api/notifications/preferences"),
     # /api/pipeline/overview gained an OperationalUser gate (F-07) — no longer bare.
     ("GET", "/api/procedures"),
@@ -265,6 +266,7 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     # za bramkami modułu kandydatów; test w test_champion_profile_ingest.py
     # pilnuje, że guard rolowy nie wróci na te trasy cichym refaktorem.
     ("PUT", "/api/notifications/chats/read"),
+    ("PUT", "/api/notifications/interviews/read"),
     ("PUT", "/api/notifications/preferences/{category}"),
     ("PUT", "/api/notifications/read-all"),
     ("PUT", "/api/notifications/{notification_id}/read"),

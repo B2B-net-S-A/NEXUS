@@ -332,6 +332,7 @@ Dzwonek, kategorie i wyciszenia, powiadomienia dla ról, okienko „Czaty”, ma
 - `maile-do-zespolu-poranny-skrot-kilka-maili-od-razu.md` — Maile do zespołu: poranny skrót + kilka maili od razu (07.10.2026)
 - `moje-powiadomienia-kategorie-i-wyciszenia-per-osoba.md` — Moje powiadomienia — kategorie i wyciszenia per osoba (0349, 22.09.2026)
 - `okienko-czaty-w-gornym-pasku.md` — Okienko „Czaty” w górnym pasku (09.10.2026)
+- `okienko-rozmowy-w-gornym-pasku.md` — Okienko „Rozmowy” w górnym pasku (13.10.2026) · rozmowy u klienta i prepy poza dzwonkiem, zadania z cyklu z flagą `mine`, czas liczony z agendy, zwijanie i chowanie sygnałów, gaszenie osobną trasą, dymki, pigułka telefonu
 - `powiadomienia-dla-rol-i-jeden-ekran-powiadomienia.md` — Powiadomienia dla ról i jeden ekran „Powiadomienia” (0425, 09.10.2026)
 
 ### Integracje — `docs/claude/integracje/`
