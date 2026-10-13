@@ -274,6 +274,21 @@ describe("„Nowe” — powiadomienia", () => {
     expect(w.count).toBe(3);
   });
 
+  it("debrief pokazuje wynik i warunek kandydata ze stanu pary", () => {
+    const debrief = {
+      id: 1,
+      overall_impression: 5,
+      outcome: "good" as const,
+      offer_acceptance: "likely" as const,
+      acceptance_condition: "start od grudnia",
+    };
+    const w = build(overview({ items: [item(IGOR, { debrief })] }), [
+      notif("interview_debrief_saved", cycle(IGOR)),
+    ]);
+
+    expect(w.news[0].detail).toBe("dobrze · raczej przyjmie · warunek: start od grudnia");
+  });
+
   it("chowa sygnał, gdy stan pary mówi, że sprawa jest załatwiona", () => {
     const requested = notif("interview_slots_requested", cycle(IGOR));
     const chosen = notif("interview_slot_chosen", cycle(TOMASZ));
@@ -312,8 +327,14 @@ describe("„Nowe” — powiadomienia", () => {
     });
     const w = build(overview(), [n]);
 
-    expect(w.news.map((r) => [r.title, r.context, r.status, r.href])).toEqual([
-      ["Prep 1 słaby", null, "Olga Kruk — Scrum Master: ocena prepu jest słaba.", "/calendar?cycle=70-71"],
+    expect(w.news.map((r) => [r.title, r.context, r.status, r.detail, r.href])).toEqual([
+      [
+        "Prep 1 słaby",
+        null,
+        "",
+        "Olga Kruk — Scrum Master: ocena prepu jest słaba.",
+        "/calendar?cycle=70-71",
+      ],
     ]);
   });
 
@@ -349,7 +370,7 @@ describe("„Nowe” — powiadomienia", () => {
     const old = notif("interview_scheduled", "/calendar?event=78", { created_at: at(-60 * 25) });
     const w = build(overview(), [fresh, old]);
 
-    expect(w.news.map((r) => [r.status, r.href])).toEqual([
+    expect(w.news.map((r) => [r.detail, r.href])).toEqual([
       ["Za 15 minut: Screening", "/calendar?event=77"],
     ]);
   });

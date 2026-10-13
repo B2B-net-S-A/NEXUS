@@ -47,7 +47,8 @@ export interface InterviewWindowRow {
   title: string;
   /** „Klient · stanowisko”. */
   context: string | null;
-  /** Co się dzieje albo co jest do zrobienia. */
+  /** Co się dzieje albo co jest do zrobienia; puste, gdy para jest nieznana
+   *  (wtedy `title` niesie tytuł powiadomienia, a `detail` jego treść). */
   status: string;
   detail: string | null;
   icon: WindowIcon;
@@ -412,7 +413,14 @@ export function buildInterviewWindow({
       }
       case "interview_debrief_saved":
         if (pair) status = "Debrief zapisany";
-        detail = (item?.debrief ? debriefSummaryLine(item.debrief) : "") || formatNotificationText(notif.message);
+        // Warunek kandydata (stawka, druga oferta) to najważniejsza informacja dla DL.
+        detail =
+          [
+            item?.debrief ? debriefSummaryLine(item.debrief) : "",
+            item?.debrief?.acceptance_condition ? `warunek: ${item.debrief.acceptance_condition}` : "",
+          ]
+            .filter(Boolean)
+            .join(" · ") || formatNotificationText(notif.message);
         icon = "note";
         break;
     }
@@ -421,8 +429,8 @@ export function buildInterviewWindow({
       section: "news",
       title: pair ? candidateLabel(pair) : formatNotificationText(notif.title),
       context: pair ? pairContext(pair) : null,
-      status: pair ? status : formatNotificationText(notif.message),
-      detail: pair ? detail : null,
+      status: pair ? status : "",
+      detail: pair ? detail : formatNotificationText(notif.message),
       icon,
       tone: "info",
       urgent: false,
