@@ -115,6 +115,16 @@ class CandidateDocument(Base, TimestampMixin):
     source_deleted_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # 0435: „Usuń z profilu” (admin, Head of Recruitment). Wiersz i plik
+    # zostają (CV nie kasujemy nigdy); z ekranów, generatora i QC chowa go
+    # `source_deleted_at`, ustawiane razem z tymi polami. `removed_at` mówi, że
+    # zrobił to człowiek w NEXUSIE, więc synchronizacja poczty go nie wskrzesza.
+    removed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    removed_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
 
     # Relationships
     candidate = relationship("Candidate", back_populates="documents")

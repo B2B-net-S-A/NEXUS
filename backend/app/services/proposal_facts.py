@@ -236,7 +236,7 @@ async def main_cv_uploaded_on(db: Any, candidate_ids: list[int]) -> dict[int, st
             "SELECT DISTINCT ON (candidate_id) candidate_id, uploaded_at "
             "FROM candidate_documents "
             "WHERE candidate_id = ANY(:ids) AND document_kind = 'cv' "
-            "AND outdated_at IS NULL "
+            "AND outdated_at IS NULL AND source_deleted_at IS NULL "
             "ORDER BY candidate_id, is_primary DESC, uploaded_at DESC NULLS LAST"
         ),
         {"ids": list(candidate_ids)},

@@ -4,6 +4,7 @@
 // 04.10.2026: klik w nazwę otwiera podgląd, reszta akcji (pobierz, rodzaj,
 // główne CV, nieaktualne) w menu „⋯” wiersza; CV dla klientów (pliki
 // „…B2B…” i CV z generatora) stoją osobno, zwinięte (decyzja D4).
+// 13.10.2026: „Usuń z profilu” w tym samym menu — admin i Head of Recruitment.
 // Wydzielona z `CandidateDetailV2.tsx` (plik ~4,7 tys. linii) przy dodawaniu
 // write-pathu, żeby dało się ją renderować i testować w izolacji.
 
@@ -13,6 +14,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, Loader2, MoreHorizontal, Upload } from "lucide-react";
 
 import api, { extractErrorMsg } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
 import { useCapability } from "@/hooks/useCapability";
@@ -47,6 +49,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Checkbox } from "@/components/ui/checkbox";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { cn } from "@/lib/utils";
 
 export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
@@ -58,6 +61,10 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  // HoR ZOSTAJE poza: teczkę czyta (szerszy CandidateDocumentAccess), ale
  // upload dostałby 403.
  const canEditDocuments = useCapability("candidate.document.manage");
+ // DELETE .../documents/{doc_id} stoi na węższym CandidateDocumentRemoveAccess
+ // (admin, Head of Recruitment) — rekruter wgrywa i oznacza, ale nie usuwa.
+ const canRemoveDocuments = useCapability("candidate.document.remove");
+ const { askConfirm, confirmDialog } = useConfirmV2();
  const [previewDoc, setPreviewDoc] = useState<CandidateDocument | null>(null);
  const [uploadKind, setUploadKind] =
  useState<CandidateDocument["document_kind"]>("cv");
@@ -169,6 +176,45 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  extractErrorMsg(mutationError) || "Nie udało się dodać pliku.",
  ),
  });
+
+ const removeMutation = useMutation({
+ mutationFn: (docId: number) =>
+ api.delete(`/api/candidates/${candidateId}/documents/${docId}`),
+ onSuccess: () => {
+ // `detail` też: usunięcie jedynego CV zdejmuje z profilu nazwę pliku CV.
+ for (const queryKey of [
+ candidateQueryKeys.documents(candidateId),
+ candidateQueryKeys.cvDocuments(candidateId),
+ candidateQueryKeys.quickView(candidateId),
+ candidateQueryKeys.detail(candidateId),
+ ]) {
+ void queryClient.invalidateQueries({ queryKey });
+ }
+ showToast("Plik usunięty z profilu.", "success");
+ },
+ onError: (mutationError) =>
+ showError(apiErrorMessage(mutationError, "Nie udało się usunąć pliku.")),
+ });
+
+ async function handleRemove(doc: CandidateDocument) {
+ // Główne CV też wolno usunąć. Następcy serwer nie wybiera sam (nowe główne
+ // CV odświeża profil odczytem AI), więc okno mówi, co zostaje.
+ const confirmed = await askConfirm({
+ title: "Usunąć plik z profilu?",
+ description: [
+ `„${doc.filename}” zniknie z profilu, podglądu i generatora CV. Kopie zapisane w rekrutacjach zostają.`,
+ doc.is_primary
+ ? "To główne CV — profil zostanie bez głównego CV, a dane odczytane z niego wcześniej zostają."
+ : null,
+ "W razie pomyłki wgraj plik ponownie.",
+ ]
+ .filter(Boolean)
+ .join(" "),
+ confirmLabel: "Usuń z profilu",
+ variant: "destructive",
+ });
+ if (confirmed) removeMutation.mutate(doc.id);
+ }
 
  function handleFilesPicked(event: React.ChangeEvent<HTMLInputElement>) {
  const files = Array.from(event.target.files ?? []);
@@ -317,7 +363,8 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  key={doc.id}
  doc={doc}
  canEdit={canEditDocuments}
- busy={metadataMutation.isPending}
+ canRemove={canRemoveDocuments}
+ busy={metadataMutation.isPending || removeMutation.isPending}
  onPreview={() => handlePreview(doc)}
  onDownload={() => handleDownload(doc)}
  onChangeKind={(documentKind) =>
@@ -327,6 +374,7 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  onToggleOutdated={() =>
  metadataMutation.mutate({ docId: doc.id, outdated: !doc.outdated_at })
  }
+ onRemove={() => void handleRemove(doc)}
  />
  );
 
@@ -360,6 +408,7 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  onClose={() => setPreviewDoc(null)}
  onDownload={handleDownload}
  />
+ {confirmDialog}
  </>
  );
 }
@@ -381,21 +430,25 @@ const KIND_OPTIONS: { value: CandidateDocument["document_kind"]; label: string }
 function FileRow({
  doc,
  canEdit,
+ canRemove,
  busy,
  onPreview,
  onDownload,
  onChangeKind,
  onSetPrimary,
  onToggleOutdated,
+ onRemove,
 }: {
  doc: CandidateDocument;
  canEdit: boolean;
+ canRemove: boolean;
  busy: boolean;
  onPreview: () => void;
  onDownload: () => void;
  onChangeKind: (kind: CandidateDocument["document_kind"]) => void;
  onSetPrimary: () => void;
  onToggleOutdated: () => void;
+ onRemove: () => void;
 }) {
  // Radix: akcja z menu po zamknięciu menu (issue 533 — fokus i okna).
  const later = (fn: () => void) => () => window.setTimeout(fn, 0);
@@ -499,6 +552,17 @@ function FileRow({
  : "Oznacz jako nieaktualne"}
  </DropdownMenuItem>
  ) : null}
+ </>
+ ) : null}
+ {canRemove ? (
+ <>
+ <DropdownMenuSeparator />
+ <DropdownMenuItem
+ onSelect={later(onRemove)}
+ className="text-destructive focus:text-destructive"
+ >
+ Usuń z profilu
+ </DropdownMenuItem>
  </>
  ) : null}
  </DropdownMenuContent>

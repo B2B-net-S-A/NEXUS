@@ -65,6 +65,7 @@ export type Capability =
   | "request.proposal.decide"
   // ── Teczka kandydata i fakty profilowe ─────────────────────────────────────
   | "candidate.document.manage"
+  | "candidate.document.remove"
   | "candidate.profile_fact.manage"
   | "candidate.requirement.verify"
   // ── Kuratela portfela klientów ─────────────────────────────────────────────
@@ -137,6 +138,13 @@ const JOB_PRIORITY_EXTRA_ROLES: readonly UserRole[] = ["head_of_recruitment"];
  * automatu nie rozstrzyga.
  */
 const PROPOSAL_DECIDERS: readonly UserRole[] = ["admin", "head_of_recruitment"];
+
+/**
+ * Kto usuwa plik z profilu kandydata („Usuń z profilu”, decyzja Artura
+ * 13.10.2026) — lustro `CANDIDATE_DOCUMENT_REMOVE_ROLES`
+ * (backend/app/api/candidate_access.py). Węziej niż wgrywanie plików.
+ */
+const DOCUMENT_REMOVERS: readonly UserRole[] = ["admin", "head_of_recruitment"];
 
 /**
  * KAŻDA zalogowana rola — dla powierzchni otwartych z decyzji produktowej
@@ -213,6 +221,9 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // CandidateWriteAccess = CANDIDATE_WRITE_ROLES (candidate_access.py) —
   // parytet z RecruiterPlus (od 2026-09-17 z head_of_recruitment).
   "candidate.document.manage": RECRUITER_PLUS,
+  // DELETE /api/candidates/{id}/documents/{doc_id} →
+  // CandidateDocumentRemoveAccess (candidate_access.py).
+  "candidate.document.remove": DOCUMENT_REMOVERS,
   // GET/PUT /api/candidates/{id}/languages + GET/PATCH .../profile-rate →
   // CandidateProfileFactsReadAccess i CandidateProfileFactsWriteAccess
   // (candidate_access.py); OBA = _INTERNAL_OPERATIONAL_ROLES, stąd jeden wpis
@@ -350,6 +361,7 @@ const CAPABILITY_SECTION_REQUIREMENTS: Partial<
   "invite_link.create": { section: "pipeline", required: "write" },
   "hm_feedback.record": { section: "pipeline", required: "write" },
   "candidate.document.manage": { section: "sourcing", required: "write" },
+  "candidate.document.remove": { section: "sourcing", required: "write" },
   "candidate.profile_fact.manage": { section: "sourcing", required: "write" },
   "candidate.requirement.verify": { section: "sourcing", required: "write" },
   "client.portfolio.manage": { section: "delivery", required: "write" },
@@ -386,6 +398,7 @@ export const MUTATING_CAPABILITIES: ReadonlySet<Capability> = new Set([
   "invite_link.create",
   "hm_feedback.record",
   "candidate.document.manage",
+  "candidate.document.remove",
   "candidate.profile_fact.manage",
   "candidate.requirement.verify",
   "client.portfolio.manage",

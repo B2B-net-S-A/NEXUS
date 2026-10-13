@@ -23,6 +23,7 @@
  "routes": {
   "DELETE /api/candidates/{candidate_id}": "PDDDDDDDDDDDDDDDDDD",
   "DELETE /api/candidates/{candidate_id}/competence-categories/{cc_id}": "PPPPPPDDPPPPPPPPPPP",
+  "DELETE /api/candidates/{candidate_id}/documents/{doc_id}": "PDPDDDDDDPDPDDDDDDD",
   "DELETE /api/candidates/{candidate_id}/recruitments/{job_id}": "PPPPPPDDPPPPPPPPPPP",
   "GET /api/candidates": "PPPPPPDDPPPPPPPPPPP",
   "GET /api/candidates/check-exists": "PPPPPPDDPPPPPPPPPPP",

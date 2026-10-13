@@ -37,8 +37,14 @@ _NOT_CV_KINDS = (CandidateDocumentKind.certificate, CandidateDocumentKind.cover_
 
 
 def current_cv_filters() -> tuple:
-    """Warunki „ten dokument może być bieżącym CV" (bez filtra rozszerzeń)."""
-    return (CandidateDocument.document_kind.notin_(_NOT_CV_KINDS),)
+    """Warunki „ten dokument może być bieżącym CV" (bez filtra rozszerzeń).
+
+    Plik usunięty z profilu (`source_deleted_at`, 0435) nie jest niczyim CV.
+    """
+    return (
+        CandidateDocument.document_kind.notin_(_NOT_CV_KINDS),
+        CandidateDocument.source_deleted_at.is_(None),
+    )
 
 
 def current_cv_ordering() -> tuple:

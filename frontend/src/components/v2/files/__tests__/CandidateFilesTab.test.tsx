@@ -11,7 +11,7 @@ const showError = vi.fn();
 const showToast = vi.fn();
 
 vi.mock("@/lib/api", () => ({
-  default: { get: vi.fn(), post: vi.fn(), patch: vi.fn() },
+  default: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
   extractErrorMsg: (error: unknown) =>
     (error as { message?: string })?.message ?? "",
 }));
@@ -399,6 +399,125 @@ describe("CandidateFilesTab labels (UAT M01-B10)", () => {
         outdated: true,
       }),
     );
+  });
+});
+
+describe("CandidateFilesTab — „Usuń z profilu” (13.10.2026)", () => {
+  const cv = (overrides: Record<string, unknown>) => ({
+    content_type: "application/pdf",
+    size_bytes: 1024,
+    document_kind: "cv",
+    is_primary: false,
+    uploaded_at: "2026-09-01T10:00:00Z",
+    created_at: "2026-09-01T10:00:00Z",
+    external_source: "manual",
+    ...overrides,
+  });
+
+  function mockDocuments(documents: unknown[]) {
+    vi.mocked(api.get).mockImplementation(async (url: string) =>
+      url === "/api/candidates/42/documents" ? { data: documents } : { data: [] },
+    );
+  }
+
+  async function openMenu(filename: string) {
+    const user = userEvent.setup();
+    await user.click(
+      await screen.findByRole("button", { name: `Akcje pliku ${filename}` }),
+    );
+    return { user, menu: await screen.findByRole("menu") };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    currentRole = "admin";
+    vi.mocked(api.delete).mockResolvedValue({ data: null });
+  });
+
+  it("rekruter i Delivery Lead nie mają „Usuń z profilu” — serwer odpowiedziałby 403", async () => {
+    mockDocuments([cv({ id: 1, filename: "cv.pdf", is_primary: true })]);
+    for (const role of ["recruiter", "delivery_lead", "finance"]) {
+      currentRole = role;
+      const view = renderTab();
+      const { user, menu } = await openMenu("cv.pdf");
+      expect(within(menu).getByRole("menuitem", { name: "Pobierz" })).toBeInTheDocument();
+      expect(within(menu).queryByRole("menuitem", { name: "Usuń z profilu" })).toBeNull();
+      await user.keyboard("{Escape}");
+      view.unmount();
+    }
+  });
+
+  it("Head of Recruitment usuwa plik po potwierdzeniu; „Anuluj” niczego nie wysyła", async () => {
+    currentRole = "head_of_recruitment";
+    mockDocuments([
+      cv({ id: 1, filename: "cv.pdf", is_primary: true }),
+      cv({ id: 2, filename: "certyfikat.pdf", document_kind: "certificate" }),
+    ]);
+    renderTab();
+
+    const first = await openMenu("certyfikat.pdf");
+    await first.user.click(
+      within(first.menu).getByRole("menuitem", { name: "Usuń z profilu" }),
+    );
+    const dialog = await screen.findByRole("dialog", { name: "Usunąć plik z profilu?" });
+    expect(dialog).toHaveTextContent("„certyfikat.pdf” zniknie z profilu");
+    await first.user.click(within(dialog).getByRole("button", { name: "Anuluj" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(api.delete).not.toHaveBeenCalled();
+
+    const second = await openMenu("certyfikat.pdf");
+    await second.user.click(
+      within(second.menu).getByRole("menuitem", { name: "Usuń z profilu" }),
+    );
+    await second.user.click(
+      within(
+        await screen.findByRole("dialog", { name: "Usunąć plik z profilu?" }),
+      ).getByRole("button", { name: "Usuń z profilu" }),
+    );
+    await waitFor(() =>
+      expect(api.delete).toHaveBeenCalledWith("/api/candidates/42/documents/2"),
+    );
+    await waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith("Plik usunięty z profilu.", "success"),
+    );
+  });
+
+  it("główne CV też wolno usunąć — okno mówi, że profil zostaje bez głównego CV", async () => {
+    mockDocuments([
+      cv({ id: 1, filename: "cv.pdf", is_primary: true }),
+      cv({ id: 2, filename: "Anna_B2B_Bank.docx" }),
+    ]);
+    renderTab();
+
+    const { user, menu } = await openMenu("cv.pdf");
+    await user.click(within(menu).getByRole("menuitem", { name: "Usuń z profilu" }));
+    const dialog = await screen.findByRole("dialog", { name: "Usunąć plik z profilu?" });
+    expect(dialog).toHaveTextContent("profil zostanie bez głównego CV");
+    expect(dialog).toHaveTextContent("dane odczytane z niego wcześniej zostają");
+    await user.click(within(dialog).getByRole("button", { name: "Usuń z profilu" }));
+    await waitFor(() =>
+      expect(api.delete).toHaveBeenCalledWith("/api/candidates/42/documents/1"),
+    );
+  });
+
+  it("odmowa serwera trafia do komunikatu błędu, plik zostaje na liście", async () => {
+    vi.mocked(api.delete).mockRejectedValue({
+      response: { status: 404, data: { detail: "Document not found" } },
+    });
+    mockDocuments([cv({ id: 1, filename: "cv.pdf", is_primary: true })]);
+    renderTab();
+
+    const { user, menu } = await openMenu("cv.pdf");
+    await user.click(within(menu).getByRole("menuitem", { name: "Usuń z profilu" }));
+    await user.click(
+      within(
+        await screen.findByRole("dialog", { name: "Usunąć plik z profilu?" }),
+      ).getByRole("button", { name: "Usuń z profilu" }),
+    );
+    await waitFor(() => expect(showError).toHaveBeenCalledTimes(1));
+    expect(showError.mock.calls[0][0]).toBeTruthy();
+    expect(showToast).not.toHaveBeenCalled();
+    expect(screen.getByText("cv.pdf")).toBeInTheDocument();
   });
 });
 

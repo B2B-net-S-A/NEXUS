@@ -576,6 +576,13 @@
    "home": "Pliki → „⋯” wiersza"
   },
   {
+   "id": "d.remove",
+   "opis": "Usuń plik z profilu (admin, Head of Recruitment)",
+   "file": "components/v2/files/CandidateFilesTab.tsx",
+   "marker": "Usuń z profilu",
+   "home": "Pliki → „⋯” wiersza"
+  },
+  {
    "id": "d.client_cv",
    "opis": "CV dla klientów (B2B i z generatora)",
    "file": "components/v2/files/CandidateFilesTab.tsx",

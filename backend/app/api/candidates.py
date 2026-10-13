@@ -185,6 +185,7 @@ from app.services.note_mention_render import (
 from app.api.deps import RecruiterPlus
 from app.api.candidate_access import (
     CandidateDocumentAccess,
+    CandidateDocumentRemoveAccess,
     CandidateExportAccess,
     CandidateHardDeleteAccess,
     CandidatePIIAccess,
@@ -5860,6 +5861,67 @@ async def update_candidate_document(
         )
 
     return (await _documents_with_people(db, [doc]))[0]
+
+
+@router.delete(
+    "/{candidate_id}/documents/{doc_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def remove_candidate_document(
+    candidate_id: DbIdPath,
+    doc_id: DbIdPath,
+    current_user: CandidateDocumentRemoveAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    """Usuń plik z profilu kandydata (admin, Head of Recruitment).
+
+    Plik znika z listy plików, podglądu, generatora CV i QC. Po usunięciu
+    głównego CV profil nie ma głównego CV, dopóki ktoś nie wskaże innego.
+    """
+    # Szczegóły poza publicznym `/openapi.json`: nic nie jest kasowane (decyzja
+    # 26.09.2026) — wiersz i plik w magazynie zostają, patrz
+    # `services/candidate_document_removal.py`.
+    from app.services.candidate_document_removal import (
+        remove_candidate_document as mark_document_removed,
+    )
+
+    # Ta sama blokada wiersza kandydata co przy wgraniu i wyborze głównego CV.
+    candidate = await db.scalar(
+        select(Candidate)
+        .where(Candidate.id == candidate_id)
+        .with_for_update(of=Candidate)
+    )
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    doc = await db.scalar(
+        select(CandidateDocument).where(
+            CandidateDocument.id == doc_id,
+            CandidateDocument.candidate_id == candidate_id,
+            CandidateDocument.source_deleted_at.is_(None),
+        )
+    )
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    was_primary = doc.is_primary
+    await mark_document_removed(
+        db, candidate=candidate, document=doc, actor_id=current_user.id
+    )
+
+    # Bez nazwy pliku — nazwa CV to zwykle imię i nazwisko (`details` bez PII).
+    candidate_audit.record_candidate_audit(
+        db,
+        action=candidate_audit.DOCUMENT_REMOVED,
+        user_id=current_user.id,
+        entity_id=candidate_id,
+        details={
+            "doc_id": doc_id,
+            "document_kind": doc.document_kind.value,
+            "was_primary": was_primary,
+        },
+    )
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/{candidate_id}/cv/reparse", status_code=202)

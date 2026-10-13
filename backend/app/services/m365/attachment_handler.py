@@ -434,6 +434,12 @@ async def try_parse_cv(
                 return
             document.document_kind = CandidateDocumentKind.cv
     else:
+        if document.removed_at is not None and document.candidate_id == candidate.id:
+            # 0435: ten plik ktoś usunął z profilu TEJ osoby — powrót załącznika
+            # w synchronizacji go nie przywraca. Inna osoba (rematch) dostaje
+            # plik normalnie, niżej.
+            attachment.parsed_candidate_id = candidate.id
+            return
         # A deleted, reclassified or rematched source can retain is_primary.
         # Restore it as non-primary until the identity gate has accepted it;
         # that gate flushes and must not collide with the current primary CV.
@@ -442,6 +448,8 @@ async def try_parse_cv(
         # Wskrzeszenie miękko usuniętego wpisu: skoro załącznik wrócił
         # w synchronizacji, dokument znów jest aktualny.
         document.source_deleted_at = None
+        document.removed_at = None
+        document.removed_by = None
         document.candidate_id = candidate.id
         document.content_sha256 = content_hash
 

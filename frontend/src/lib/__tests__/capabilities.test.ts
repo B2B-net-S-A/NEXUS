@@ -203,6 +203,16 @@ const EXPECTED: Record<
     recruiter: true,
     user: false,
   },
+  // CandidateDocumentRemoveAccess = admin + Head of Recruitment („Usuń
+  // z profilu”, decyzja Artura 13.10.2026). Rekruter i DL wgrywają pliki
+  // i oznaczają je jako nieaktualne, ale nie usuwają.
+  "candidate.document.remove": {
+    admin: true,
+    head_of_recruitment: true,
+    delivery_lead: false,
+    recruiter: false,
+    user: false,
+  },
   // CandidateProfileFacts{Read,Write}Access = _INTERNAL_OPERATIONAL_ROLES.
   // HoR CELOWO na true — polityka produktowa faktów globalnych.
   "candidate.profile_fact.manage": {
@@ -766,6 +776,15 @@ describe("regresja C6: teczka plików \u2260 fakty profilowe (granica po viewerz
     expect(hasCapability(mkUser("user"), "candidate.document.manage")).toBe(false);
   });
 
+  it("plik z profilu usuwa tylko admin i Head of Recruitment (13.10.2026)", () => {
+    // Węziej niż wgrywanie: rola, która wgrywa pliki, nie dostaje przez to
+    // „Usuń z profilu” — backend odpowiedziałby 403.
+    const allowed = ALL_ROLES.filter((role) =>
+      hasCapability(mkUser(role), "candidate.document.remove"),
+    );
+    expect([...allowed].sort()).toEqual(["admin", "head_of_recruitment"]);
+  });
+
   it("radar jest szerszy ni\u017c dost\u0119p do kandydat\u00f3w", () => {
     // Zapobiega powrotowi r\u0119cznej listy r\u00f3l z `app/talent-radar/page.tsx`.
     expect(hasCapability(mkUser("user"), "nav.talent_radar")).toBe(true);
@@ -1250,6 +1269,10 @@ const CAPABILITY_BACKEND_MIRROR: Record<
   "hm_feedback.record": { guards: [["deps", "RecruiterPlus"]] },
   "candidate.document.manage": {
     guards: [["candidateAccess", "CandidateWriteAccess"]],
+  },
+  // DELETE /api/candidates/{id}/documents/{doc_id}.
+  "candidate.document.remove": {
+    guards: [["candidateAccess", "CandidateDocumentRemoveAccess"]],
   },
   // Odczyt i zapis faktów mają dziś ten sam zbiór; wpis celuje w ZAPIS, bo to
   // on decyduje o widoczności kontrolki. Gdy backend je rozdzieli, rozdziel

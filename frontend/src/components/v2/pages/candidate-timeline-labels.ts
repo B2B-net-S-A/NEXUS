@@ -35,6 +35,8 @@ const ACTIVITY_ACTION_LABELS: Record<string, string> = {
   document_uploaded: "Dodano plik",
   document_downloaded: "Pobrano plik",
   document_url_issued: "Wygenerowano link do pliku",
+  // 0435: „Usuń z profilu” w zakładce „Pliki” (admin, Head of Recruitment).
+  candidate_document_removed: "Usunięto plik z profilu",
   cv_downloaded: "Pobrano CV",
   bulk_cv_downloaded: "Pobrano CV (pobieranie zbiorcze)",
   export_requested: "Wyeksportowano dane kandydata",

@@ -489,3 +489,22 @@ CandidateHardDeleteAccess = Annotated[
         )
     ),
 ]
+
+# „Usuń z profilu” przy pliku kandydata (decyzja Artura 13.10.2026): admin
+# i Head of Recruitment. Węziej niż `CandidateWriteAccess` (wgranie pliku,
+# rodzaj, „nieaktualne”), bo usunięty plik znika z profilu, generatora i QC,
+# a przywrócić go może dziś tylko administrator bazy.
+CANDIDATE_DOCUMENT_REMOVE_ROLES: tuple[UserRole, ...] = (
+    UserRole.admin,
+    UserRole.head_of_recruitment,
+)
+
+CandidateDocumentRemoveAccess = Annotated[
+    User,
+    Depends(
+        require_candidate_roles(
+            *CANDIDATE_DOCUMENT_REMOVE_ROLES,
+            required_access=SectionAccess.write,
+        )
+    ),
+]
