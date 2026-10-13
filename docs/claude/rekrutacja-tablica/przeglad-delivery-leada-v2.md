@@ -8,7 +8,8 @@ porównania z innymi osobami; „Wróć do poprawy” niosło jedno zdanie, wię
   fields: [{key, label}]}` — nie nowa kolumna (`services/screening_fix_requests.py`). Klucze: `question:<id>`,
   `field:<pole karty>`, `field:overall_fit`, `candidate_rate`, `cv`. Lista jedzie z ruchem
   (`StageMove.fix_fields`, najwyżej 30) i wolno ją wysłać WYŁĄCZNIE przy ruchu z kolumny „QC CV” na
-  „Zweryfikowany” poza Nordeą (422 `FIX_FIELDS_NOT_ALLOWED`; nieznany klucz = 422 `FIX_FIELDS_INVALID`). Prośba
+  „Zweryfikowany” (422 `FIX_FIELDS_NOT_ALLOWED`; nieznany klucz = 422 `FIX_FIELDS_INVALID`; do 13.10.2026 także
+  u Nordei — od tego dnia „QC CV” to tam przegląd DL przed kolejką Cpro). Prośba
   jest otwarta, dopóki najnowszy wiersz etapu pary to `meta.stage_id`; „poprawione” liczy porównanie migawki
   z wersją prośby (CV — `branded_updated_at` późniejsze niż prośba, z pominięciem szkicu podpiętego przez
   automat auto-CV po ruchu na „Zweryfikowany”: `cv_changed_by_person`). Zapis prośby podbija wersję formularza, więc
@@ -40,9 +41,10 @@ porównania z innymi osobami; „Wróć do poprawy” niosło jedno zdanie, wię
   `review` (całe okno, zakrywa menu), na pulpicie okno do 2000 px. Podgląd oryginału (pdf.js, docx-preview) idzie
   za `next/dynamic`.
 - **Porównanie (D10): `GET /api/dl-review/jobs/{job_id}/queue`** — osoby w kolumnie „QC CV” rekrutacji (stała
-  liczba zapytań, najwyżej 50, najdłużej czekające), u Nordei pusta lista z `cpro_client: true`. Wejścia:
+  liczba zapytań, najwyżej 50, najdłużej czekające); u Nordei `cpro_client: true` i wiersze z celem Cpro
+  (do 13.10.2026 pusta lista). Wejścia:
   „Porównaj (N)” przy grupie rekrutacji w „Czeka na Twój przegląd” i w nagłówku kolumny „QC CV” na Tablicy (DL,
-  2+ osoby, poza Nordeą). Wiersz niesie wiersz kolejki pulpitu, więc „Przejrzyj” nie robi drugiego żądania.
+  2+ osoby). Wiersz niesie wiersz kolejki pulpitu, więc „Przejrzyj” nie robi drugiego żądania.
   Od 13.10.2026 wejście z pulpitu to „porównaj” w pasie „Do wysłania do klienta” (sekcji „Czeka na Twój
   przegląd” już nie ma), a przegląd umie iść „po kolei” — `rekrutacja-tablica/do-wyslania-do-klienta-kolejka-delivery-leada.md`.
 - Harness `/preview/dl-review` (`?state=queue`, `?state=returned`, `?as=recruiter`). Wzmianki w sekcjach 0352

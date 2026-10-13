@@ -981,6 +981,22 @@
    "v3_home": "Pulpit → „Czeka na Ciebie” → Wrzucaj po kolei"
   },
   {
+   "id": "dl-review.cpro-accept",
+   "area": "przegląd DL",
+   "opis": "Nordea (13.10.2026): przegląd Delivery Leada kończy akceptacja do kolejki Cpro zamiast wysyłki do klienta — „Stawka do Cpro” (wymagana), „Akceptuj — do Cpro za …”, uwaga dla osoby od Cpro; dopiero po akceptacji osoba od Cpro dostaje dzwonek i mail",
+   "file": "components/v2/recruitment/dl-review/DecisionPanel.tsx",
+   "marker": "Akceptuj — do Cpro za",
+   "v3_home": "Tablica Nordei → karta w „QC CV” → Przejrzyj i wyślij / Pulpit → Do wysłania do klienta"
+  },
+  {
+   "id": "board.cpro-queue.acceptance",
+   "area": "pipeline",
+   "opis": "Kolejka Cpro: przy każdej osobie kto i kiedy zaakceptował ją do kolejki (Delivery Lead) i uwaga DL-a; karta włożona przez rekrutera przed 13.10.2026 ma ostrzeżenie „Bez akceptacji DL”",
+   "file": "components/v2/dashboard/CproQueueDialog.tsx",
+   "marker": "CproAcceptance",
+   "v3_home": "Pulpit → „Czeka na Ciebie” → Wrzucaj po kolei"
+  },
+  {
    "id": "board.move-next",
    "area": "pipeline",
    "opis": "„Przesuń dalej” (strzałka → na karcie): wymagania następnego etapu z serwera (`move-requirements`), każdy brak z akcją, która go usuwa, przekazanie do DL / do Cpro",
@@ -1601,6 +1617,22 @@
    "file": "components/v2/shell/DlSendTopbarButton.tsx",
    "marker": "DlSendTopbarButton",
    "v3_home": "Górny pasek → Do wysłania / Menu → Rekrutacje (licznik)"
+  },
+  {
+   "id": "league.topbar",
+   "area": "powłoka",
+   "opis": "Przycisk Ligi Mistrzów w górnym pasku przed licznikiem celów: kółko z numerem miejsca (złote, srebrne, brązowe 1–3) i punkty kwartału rekrutera, placementy Delivery Leada w lidze DL, lider ligi u osób, które nie grają; panel po kliknięciu z dystansem do podium przeliczonym na pracę, rozbiciem punktów, warunkiem udziału, sąsiadami ±2 i linkiem do Rywalizacji",
+   "file": "components/v2/league/MyLeagueWidget.tsx",
+   "marker": "MyLeagueWidget",
+   "v3_home": "Górny pasek → Liga"
+  },
+  {
+   "id": "shell.appearance-menu",
+   "area": "powłoka",
+   "opis": "Menu „Wygląd” w górnym pasku: motyw koloru, styl interfejsu, tryb gry i tryb ciemny w jednym przycisku (na telefonie te przełączniki są osobno w szufladzie nawigacji)",
+   "file": "components/v2/shell/AppearanceMenu.tsx",
+   "marker": "AppearanceMenu",
+   "v3_home": "Górny pasek → Wygląd"
   },
   {
    "id": "dl-send.board-card",

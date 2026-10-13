@@ -145,6 +145,7 @@ def test_b2b_generator_has_sourcing_section_ceiling(method: str, path: str) -> N
         ("GET", "/api/competitions/monthly-races"),
         ("GET", "/api/competitions/history"),
         ("GET", "/api/competitions/my-position"),
+        ("GET", "/api/competitions/my-league"),
         ("POST", "/api/competitions/freeze"),
     ),
 )

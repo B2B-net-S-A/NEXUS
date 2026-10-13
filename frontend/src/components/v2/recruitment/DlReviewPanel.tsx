@@ -184,6 +184,17 @@ const ACTION_TEXT: Record<PendingAction, { done: string; failed: string; anyway:
   },
 };
 
+/** Nordea (13.10.2026): „wysyłka” to akceptacja do kolejki Cpro. */
+const CPRO_SEND_TEXT = {
+  done: "zaakceptowane, osoba czeka w kolejce Cpro.",
+  failed: "Nie udało się zaakceptować do Cpro. Spróbuj ponownie.",
+  anyway: "Zaakceptuj mimo to",
+};
+
+function actionTextFor(action: PendingAction, cpro: boolean) {
+  return cpro && action === "send" ? CPRO_SEND_TEXT : ACTION_TEXT[action];
+}
+
 // ── Układ (D4, 09.10.2026) ───────────────────────────────────────────────────
 
 /** Od tej szerokości przeglądu CV i decyzja stoją obok siebie. */
@@ -322,6 +333,8 @@ export function DlReviewBody({
   const me = useAuthStore((s) => s.user);
   const roles = getUserRoles(me as never);
   const canSend = canSendToClient ?? hasPermission(me, "recruitment_manage");
+  // Nordea (13.10.2026): decyzja to akceptacja do kolejki Cpro.
+  const cpro = task.cpro === true;
   const canReject = roles.some((r) => DL_REJECT_ROLES.has(r));
 
   const [rateRaw, setRateRaw] = useState("");
@@ -514,10 +527,10 @@ export function DlReviewBody({
       const outcome = await moveCore.send(payload, {
         candidateName: task.candidate_name,
         silent: true,
-        fallbackMessage: ACTION_TEXT[action].failed,
+        fallbackMessage: actionTextFor(action, cpro).failed,
       });
       if (outcome.ok) {
-        showSuccess(`${task.candidate_name} — ${ACTION_TEXT[action].done}`);
+        showSuccess(`${task.candidate_name} — ${actionTextFor(action, cpro).done}`);
         setReturnOpen(false);
         refresh();
         if (onDecided) onDecided(action, task);
@@ -541,7 +554,7 @@ export function DlReviewBody({
         showError(refusal.message);
       }
     } catch (error) {
-      showError(apiErrorMessage(error, ACTION_TEXT[action].failed));
+      showError(apiErrorMessage(error, actionTextFor(action, cpro).failed));
     } finally {
       setBusy(null);
     }
@@ -762,12 +775,17 @@ export function DlReviewBody({
           footerNote={
             !canSend ? (
               <p className="text-xs text-muted-foreground">
-                Do klienta wysyła osoba z uprawnieniem „{permissionLabel("recruitment_manage")}” — możesz
-                przejrzeć kandydata.
+                {cpro ? "Do kolejki Cpro akceptuje" : "Do klienta wysyła"} osoba z uprawnieniem „
+                {permissionLabel("recruitment_manage")}” — możesz przejrzeć kandydata.
               </p>
             ) : task.target_stage_def_id == null ? (
               <p className="text-xs text-destructive">
-                Szablon tej rekrutacji nie ma etapu „CV wysłane” — przenieś osobę na Tablicy.
+                Szablon tej rekrutacji nie ma etapu „{cpro ? "Wysłać do Cpro" : "CV wysłane"}” — przenieś
+                osobę na Tablicy.
+              </p>
+            ) : cpro ? (
+              <p className="text-xs text-muted-foreground">
+                Po akceptacji osoba trafi do kolejki Cpro, a osoba od Cpro dostanie powiadomienie i mail.
               </p>
             ) : null
           }
@@ -811,7 +829,7 @@ export function DlReviewBody({
               <AlertTriangle className="size-4 shrink-0 text-warning" aria-hidden />
               <span className="min-w-0 flex-1">{warning.reason}</span>
               <Button size="sm" variant="outline" onClick={() => void move(warning.action, true)} disabled={busy !== null}>
-                {ACTION_TEXT[warning.action].anyway}
+                {actionTextFor(warning.action, cpro).anyway}
               </Button>
             </div>
           ) : null}
@@ -883,7 +901,7 @@ export function DlReviewBody({
 
           {canSend || canReject ? (
             <label className="block text-xs font-medium">
-              Uwagi dla rekrutera
+              {cpro ? "Uwagi dla rekrutera i osoby od Cpro" : "Uwagi dla rekrutera"}
               <textarea
                 aria-describedby="dl-review-remark-hint"
                 className="mt-1 block min-h-9 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm font-normal"
@@ -893,8 +911,9 @@ export function DlReviewBody({
                 onChange={(e) => setNote(e.target.value)}
               />
               <span id="dl-review-remark-hint" className="mt-1 block text-[11px] font-normal text-muted-foreground">
-                Uwagę rekruter dostanie w powiadomieniu i w notatkach kandydata. Stawkę do klienta wpisz tylko
-                w jej polu: rekruter jej nie widzi.
+                {cpro
+                  ? "Przy akceptacji uwagę dostanie osoba od Cpro, przy zwrocie i odrzuceniu — rekruter (w powiadomieniu i w notatkach kandydata). Stawkę do Cpro wpisz tylko w jej polu: rekruter jej nie widzi."
+                  : "Uwagę rekruter dostanie w powiadomieniu i w notatkach kandydata. Stawkę do klienta wpisz tylko w jej polu: rekruter jej nie widzi."}
               </span>
             </label>
           ) : null}

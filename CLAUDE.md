@@ -140,6 +140,7 @@ Design system i tokeny, responsywność, nazewnictwo w interfejsie, Ustawienia, 
 - `design-system-ui-zawsze-przy-pracy-nad-wygladem.md` — Design system & UI — ZAWSZE przy pracy nad wyglądem
 - `klienci-kontrakty-finanse-spokojne-tabele.md` — Klienci, Kontrakty, Finanse — spokojne tabele (02.10.2026)
 - `licznik-celow-w-gornym-pasku.md` — Licznik celów w górnym pasku (13.10.2026) · podpisane segmenty zamiast „znak + liczba”, panel po kliknięciu, ile segmentów mieści pasek, reguła „poniżej tempa”, cel Delivery Leada z 30% hit ratio, wycofany cel nowych kandydatów
+- `liga-w-gornym-pasku.md` — Liga Mistrzów w górnym pasku (13.10.2026) · przycisk ligi przed licznikiem celów (miejsce i punkty rekrutera, placementy DL, lider u osób, które nie grają), `/api/competitions/my-league` z cache paska 5 min, jedna forma przycisku, stany (bez miejsca, poza ligą, remis, awans), menu „Wygląd” zamiast trzech przełączników
 - `nazewnictwo-rekrutacja-nie-oferta-modul-jobs.md` — Nazewnictwo: „Rekrutacja", nie „Oferta" (moduł `/jobs`)
 - `parametry-adresu-natywna-historia-nie-router-replace.md` — Filtr albo zakładka w adresie: `useUrlWriter`, nie `router.replace(…, { scroll: false })` (12.10.2026) · zmiana samych parametrów adresu przez router Next przewija stronę na górę na produkcji
 - `responsywnosc-reguly-po-audycie-23-09-2026.md` — Responsywność — reguły po audycie 23.09.2026
@@ -187,6 +188,7 @@ Lista `/jobs`, Tablica, ruch kart i bramki, panel osoby, QC CV i Cpro, przegląd
 - `mail-odrzucenia-tresc-i-podglad.md` — Mail odrzucenia: treść domyślna i podgląd w oknie odrzucenia (13.10.2026) · treść domyślna w kodzie bez „Pozdrawiam”, podgląd adresata/tematu/treści przed potwierdzeniem, poprawka przy jednej osobie, kilka osób tylko do odczytu, powód braku wysyłki od razu, szablony odrzucenia z Ustawień nieużywane
 - `narzedzia-rekrutera-reguly-po-audycie-17-09-2026.md` — Narzędzia rekrutera — reguły po audycie 17.09.2026 · HoR = parytet z rekruterem, stawka do klienta, werdykt HM, kalendarz, powiadomienia z triggerów
 - `nastepna-osoba-po-odrzuceniu.md` — Po odrzuceniu z panelu osoby — od razu następna osoba (13.10.2026) · które przyciski przenoszą, kolejność „›”, przejście dopiero po odpowiedzi serwera, pasek „Odrzucono … · Pokaż”, „Wróć do kolejki”, ostatnia osoba, okno mówi kogo zamykasz i kto dalej, czego to nie obejmuje
+- `nordea-akceptacja-dl-przed-cpro.md` — Nordea: do kolejki Cpro dopiero po akceptacji Delivery Leada (13.10.2026) · „QC CV” u Nordei to przegląd DL, „Akceptuj — do Cpro” ze stawką do Cpro, rekruter nie wkłada osoby do kolejki (bramka serwera), dzwonek osoby od Cpro dopiero po akceptacji i gaśnie po wyjściu karty z kolejki, „Bez akceptacji DL” w kolejce
 - `pipeline-rekrutacji-bramka-ruchu-przekazanie-cv.md` — Pipeline rekrutacji — bramka ruchu, przekazanie CV, spójność ekranów (11.09.2026)
 - `pipeline-v4-6-kolumn-blokada-12-h-przeglad-dl.md` — Pipeline v4 — 6 kolumn, blokada 12 h, przegląd DL (0352, 23.09.2026)
 - `podobne-rekrutacje-przepiecia-i-status-requestu.md` — Podobne rekrutacje, przepięcia i status requestu (0341, 22.09.2026)

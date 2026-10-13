@@ -39,6 +39,14 @@
   --color-info-muted: hsl(var(--info-muted));
   --color-info-muted-foreground: hsl(var(--info-muted-foreground));
 
+  /* Medale Ligi Mistrzów (przycisk ligi w górnym pasku): tło kółka + numer. */
+  --color-medal-gold: hsl(var(--medal-gold));
+  --color-medal-gold-foreground: hsl(var(--medal-gold-foreground));
+  --color-medal-silver: hsl(var(--medal-silver));
+  --color-medal-silver-foreground: hsl(var(--medal-silver-foreground));
+  --color-medal-bronze: hsl(var(--medal-bronze));
+  --color-medal-bronze-foreground: hsl(var(--medal-bronze-foreground));
+
   --color-brand-linkedin: hsl(var(--brand-linkedin));
   --color-brand-linkedin-foreground: hsl(var(--brand-linkedin-foreground));
 
@@ -259,6 +267,12 @@
     --info-foreground: 0 0% 100%;
     --info-muted: 214 95% 93%;
     --info-muted-foreground: 221 83% 32%;
+    --medal-gold: 45 96% 86%;
+    --medal-gold-foreground: 36 90% 28%;
+    --medal-silver: 215 20% 90%;
+    --medal-silver-foreground: 215 19% 30%;
+    --medal-bronze: 25 85% 90%;
+    --medal-bronze-foreground: 20 70% 32%;
     --brand-linkedin: 201 100% 35%;
     --brand-linkedin-foreground: 0 0% 100%;
 
@@ -312,6 +326,12 @@
     --warning-muted-foreground: 43 90% 70%;
     --destructive-muted: 0 35% 20%;
     --destructive-muted-foreground: 0 84% 75%;
+    --medal-gold: 42 45% 20%;
+    --medal-gold-foreground: 45 90% 70%;
+    --medal-silver: 215 18% 22%;
+    --medal-silver-foreground: 215 25% 82%;
+    --medal-bronze: 22 40% 20%;
+    --medal-bronze-foreground: 24 85% 74%;
     --info: 217 91% 60%;
     --info-foreground: 222 47% 11%;
     --info-muted: 217 35% 20%;

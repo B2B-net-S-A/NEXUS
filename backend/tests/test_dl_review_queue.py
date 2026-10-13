@@ -159,9 +159,11 @@ async def test_queue_lists_people_in_qc_with_constant_queries(
 
 
 @pytest.mark.asyncio
-async def test_nordea_queue_is_empty(
+async def test_nordea_queue_lists_people_waiting_for_cpro_acceptance(
     api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """13.10.2026: u Nordei przegląd DL kończy akceptacja do kolejki Cpro —
+    porównanie osób działa jak u innych klientów (do tego dnia było puste)."""
     world = await _seed_world()
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", str(world["client_id"]))
     dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
@@ -172,13 +174,12 @@ async def test_nordea_queue_is_empty(
             f"/api/dl-review/jobs/{world['job_id']}/queue", headers=dl
         )
         assert resp.status_code == 200, resp.text
-        assert resp.json() == {
-            "job_id": world["job_id"],
-            "cpro_client": True,
-            "items": [],
-            "total": 0,
-            "limit": 50,
-        }
+        body = resp.json()
+        assert body["cpro_client"] is True
+        assert body["total"] == 2 and len(body["items"]) == 2
+        for item in body["items"]:
+            assert item["task"]["cpro"] is True
+            assert item["task"]["target_stage_def_id"] == world["defs"]["cpro"]
     finally:
         await _drop(ids)
         await _cleanup(world, [dl_id])

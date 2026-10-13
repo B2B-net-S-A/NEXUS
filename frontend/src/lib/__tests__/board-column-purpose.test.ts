@@ -19,9 +19,10 @@ describe("boardColumnPurpose — „co tu robisz” pod nazwą kolumny (v5)", ()
     expect(boardColumnPurpose("cv_qc")).not.toMatch(/→ CV do klienta/);
   });
 
-  it("Nordea: kolumna „Wysłane do Cpro” i QC przed przekazaniem do Cpro", () => {
+  it("Nordea: kolumna „Wysłane do Cpro” i QC przed akceptacją DL-a", () => {
     expect(boardColumnPurpose("cv_sent", { cproEnabled: true })).toBe("CV w Cpro — czekamy na klienta");
-    expect(boardColumnPurpose("cv_qc", { cproEnabled: true })).toBe("Popraw CV, potem przekaż do Cpro");
+    // Od 13.10.2026 do kolejki Cpro wkłada Delivery Lead po akceptacji.
+    expect(boardColumnPurpose("cv_qc", { cproEnabled: true })).toBe("Popraw CV, potem przekaż DL-owi");
   });
 
   it("obsada bez liczb mówi „—”, nie zero", () => {

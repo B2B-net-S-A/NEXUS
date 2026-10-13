@@ -16,6 +16,9 @@
 // `?state=queue` — porównanie osób w „QC CV” jednej rekrutacji (D10).
 // `?state=returned` — formularz rekrutera po „Wróć do poprawy” (baner
 // „Delivery Lead prosi o poprawki”, pola do poprawy i „Zapisz i oddaj”).
+// `?client=cpro` — klient z kolejką Cpro: akceptacja do kolejki zamiast
+// wysyłki (13.10.2026) — „Stawka do Cpro”, „Akceptuj — do Cpro za …”, uwaga
+// dla osoby od Cpro.
 
 import { useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -591,6 +594,9 @@ export default function DlReviewPreviewPage() {
       hydrated: true,
     });
     setCanSend(!recruiter);
+    if (params.get("client") === "cpro") {
+      setTask({ ...TASK, client_name: "Bank Nordycki (fikcyjny)", target_stage_def_id: 304, cpro: true });
+    }
     setClient(seededClient());
     return () => api.interceptors.request.eject(blocker);
   }, []);

@@ -147,7 +147,39 @@ def test_delivery_lead_sends_after_qc_and_with_a_client_rate() -> None:
     assert ready["primary"] == {"kind": "move", "label": "Przesuń na „CV wysłane”"}
 
 
-def test_nordea_hands_over_to_the_cpro_queue() -> None:
+def test_nordea_recruiter_hands_over_to_the_delivery_lead() -> None:
+    """13.10.2026: do kolejki Cpro wkłada Delivery Lead po akceptacji —
+    rekruter przekazuje osobę DL-owi jak u innych klientów."""
+    facts = replace(
+        VERIFIED_READY,
+        from_column="cv_qc",
+        company_cv=True,
+        qc_status="passed",
+        nordea=True,
+        cpro_stage_def_id=44,
+        qc_stage_def_id=41,
+        cpro_sender_name="Kinga Sordyl",
+    )
+    result = build_requirements(facts, "cv_sent")
+    assert result["primary"] == {
+        "kind": "hand_to_dl",
+        "label": "Przekaż Delivery Leadowi",
+        # Osoba już stoi w „QC CV” — przekazanie to sam ten stan.
+        "target_stage_def_id": None,
+    }
+    assert "dl_acceptance" in _keys(result)
+    assert "client_rate" not in _keys(result)
+    assert "Kinga Sordyl" in result["owner_note"]
+    # Ze „Zweryfikowanego” przekazanie = ruch na etap QC CV szablonu, a wynik
+    # QC (liczony dopiero w „QC CV”) nie blokuje przekazania.
+    from_verified = build_requirements(
+        replace(facts, from_column="verified", qc_status="unchecked"), "cv_sent"
+    )
+    assert from_verified["primary"]["kind"] == "hand_to_dl"
+    assert from_verified["primary"]["target_stage_def_id"] == 41
+
+
+def test_nordea_delivery_lead_accepts_to_the_cpro_queue() -> None:
     facts = replace(
         VERIFIED_READY,
         from_column="cv_qc",
@@ -156,18 +188,44 @@ def test_nordea_hands_over_to_the_cpro_queue() -> None:
         nordea=True,
         cpro_stage_def_id=44,
         cpro_sender_name="Kinga Sordyl",
+        is_client_sender=True,
     )
     result = build_requirements(facts, "cv_sent")
     assert result["primary"] == {
         "kind": "hand_to_cpro",
-        "label": "Przekaż do kolejki Cpro",
+        "label": "Przejrzyj i zaakceptuj do Cpro",
         "target_stage_def_id": 44,
     }
-    assert "client_rate" not in _keys(result)
+    rate = _item(result, "client_rate")
+    assert rate["label"] == "Stawka do Cpro" and rate["blocking"] is False
+    assert rate["action"]["kind"] == "set_client_rate"
     assert "Kinga Sordyl" in result["owner_note"]
-    # QC blokuje także przekazanie do Cpro.
+    # QC blokuje akceptację do Cpro.
     failed = build_requirements(replace(facts, qc_status="failed"), "cv_sent")
     assert failed["primary"]["kind"] == "blocked"
+
+
+def test_nordea_delivery_lead_before_qc_moves_the_card_to_qc_first() -> None:
+    """Przegląd i akceptacja do Cpro są w „QC CV” — z wcześniejszej kolumny
+    Delivery Lead dostaje ruch do „QC CV”, nie goły ruch do kolejki (przegląd
+    kodu 13.10.2026: front nie otwierał przeglądu i serwer dawał 422)."""
+    facts = replace(
+        VERIFIED_READY,
+        from_column="verified",
+        company_cv=True,
+        qc_status="passed",
+        nordea=True,
+        cpro_stage_def_id=44,
+        qc_stage_def_id=41,
+        cpro_sender_name="Kinga Sordyl",
+        is_client_sender=True,
+    )
+    result = build_requirements(facts, "cv_sent")
+    assert result["primary"] == {
+        "kind": "hand_to_dl",
+        "label": "Przenieś do „QC CV” do akceptacji",
+        "target_stage_def_id": 41,
+    }
 
 
 def test_nordea_card_already_in_the_queue_moves_only_for_the_sender() -> None:
@@ -211,8 +269,10 @@ def test_cpro_queue_upload_is_not_blocked_by_qc(qc_status: str) -> None:
         "kind": "move",
         "label": "Przesuń na „Wysłane do Cpro”",
     }
-    # Przed kolejką Cpro QC nadal blokuje przekazanie.
-    before = build_requirements(replace(facts, on_cpro_stage=False), "cv_sent")
+    # Przed kolejką Cpro QC nadal blokuje akceptację Delivery Leada.
+    before = build_requirements(
+        replace(facts, on_cpro_stage=False, is_client_sender=True), "cv_sent"
+    )
     assert _item(before, "cv_qc")["blocking"] is True
     assert before["primary"]["kind"] == "blocked"
 
