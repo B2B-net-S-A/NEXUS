@@ -1,4 +1,8 @@
-"""Read-only Traffit status shared by the authorized API and Admin Ops."""
+"""Read-only Traffit status shared by the authorized API and Admin Ops.
+
+Od 14.10.2026 Traffit jest wyłączony na stałe (``traffit_retired.py``): status
+pokazuje historię ostatnich biegów z bazy i mówi wprost, od kiedy import stoi.
+"""
 
 from datetime import datetime, timezone
 from typing import Any
@@ -7,6 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.services.traffit_retired import TRAFFIT_RETIRED_MESSAGE, TRAFFIT_RETIRED_ON
 from app.tasks.traffit_sync import annotate_freshness, sync_is_running
 
 
@@ -101,7 +106,10 @@ async def read_traffit_status(db: AsyncSession) -> dict[str, Any]:
     )
 
     return {
-        "enabled": settings.TRAFFIT_SYNC_ENABLED,
+        # Wyłączony na stałe — nie czytamy flagi, która mogłaby powiedzieć „tak”.
+        "enabled": False,
+        "retired_on": TRAFFIT_RETIRED_ON.isoformat(),
+        "retired_message": TRAFFIT_RETIRED_MESSAGE,
         "running": sync_is_running(),
         "max_row_attempts": settings.TRAFFIT_MAX_ROW_ATTEMPTS,
         "managed_in_nexus_jobs": managed_in_nexus_jobs,

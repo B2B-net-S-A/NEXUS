@@ -2,6 +2,52 @@
 
 <!-- indeks: wyłączony 12.10.2026 (zespół pracuje tylko w NEXUSIE) — co stoi, co zostało tylko w Traffit, jak zrobić ostatni import -->
 
+## Stan od 14.10.2026: Traffit wyłączony na stałe w kodzie
+
+Decyzja Artura 14.10.2026: „my już z Traffita nie korzystamy, żadne importy
+z Traffita ani sync nie powinny już działać”. Audyt 13.10 pokazał, że import
+wyłączała tylko zmienna `TRAFFIT_SYNC_ENABLED=false`, którą da się włączyć
+z powrotem, a część torów jej nie czytała (przeniesienie fal, scalenie
+bliźniaków, naprawy dat i notatek, poller kontaktów, zapis kandydata z JJIT do
+Traffita). Od 14.10 obowiązuje:
+
+- **Jeden strażnik:** `app/services/traffit_retired.py` (`refuse_traffit()`,
+  data decyzji, komunikat „Traffit jest wyłączony od 14.10.2026 — NEXUS nie
+  importuje już danych z Traffita.”). Woła go każde wejście, które czyta API
+  Traffita albo do niego pisze. Bez zmiennej środowiskowej: powrót to zmiana
+  kodu z decyzją Artura, nie przełącznik w Coolify.
+- **Trasy:** każdy `POST /api/admin/traffit/*` (sync, `notes-repair`,
+  `notes-repair/recruitments`, `file-dates-repair`, `added-dates-repair`,
+  `transfer`, `twins-merge`), także przebieg próbny, odpowiada **410**
+  z tym komunikatem — po bramce uprawnień, przed czymkolwiek innym. Trasy
+  `GET …/status` zostają: czytają historię z bazy NEXUSA; `sync/status` ma
+  `enabled: false`, `retired_on` i `retired_message`.
+- **Pętle:** `traffit_sync` i `candidate_contact_traffit` kończą się przed
+  pierwszym odczekaniem (jedna linia logu „nie startuje: …”), bez względu na
+  flagi. W `checks.background_tasks` to „wyszła czysto”, nie awaria.
+- **CLI:** `python -m app.cli.import_traffit` kończy się kodem 3 z komunikatem
+  na stderr, zanim cokolwiek połączy się z Traffitem.
+- **JJIT:** `TraffitWriter.configured` jest zawsze `False`, więc runner nie
+  szuka, nie zakłada i nie wgrywa CV w Traffit — kandydat idzie tylko do
+  NEXUSA; token, zapis i plik odmawiają przed wysłaniem żądania.
+- **Flagi:** `TRAFFIT_SYNC_ENABLED` i `CANDIDATE_CONTACT_TRAFFIT_INTAKE_ENABLED`
+  są wymuszone na `False` walidatorem ustawień (jak `AAD_GROUP_RBAC_ENABLED`),
+  bo czytają je zamrożenie wyścigów (czekałoby na `__daily__`), analityka
+  i kolejka kontaktów. Testy historii importera ustawiają je
+  `monkeypatch.setattr`, co walidator omija.
+- **Health:** `checks.traffit` = `disabled`, stała wartość bez zapytania
+  o `__daily__` i bez łączenia się z Traffitem. Kafelek „Stan systemu” pokazuje
+  „Wyłączone”, uptime-probe — ostrzeżenie, nie alarm (jak dawne `unconfigured`).
+- **Zostaje:** modele, tabele, migracje i dane z Traffita (archiwum,
+  `external_source='traffit'`, kolumny), ich odczyt w aplikacji, moduły
+  importera (historia; testy wołają ich funkcje wewnętrzne wprost).
+- **Poza kodem:** cron hosta `/root/scripts/traffit-delta-sync.sh` dalej
+  zatrzymuje plik `/root/scripts/traffit-stop`; sekrety `TRAFFIT_*` w Coolify
+  nic już nie uruchamiają.
+
+Punkt „Ostatni import przed rezygnacją” niżej jest nieaktualny: bez zmiany
+kodu się go nie zrobi.
+
 ## Stan od 12.10.2026: sync jest wyłączony
 
 Decyzja Artura 12.10.2026: zespół przeszedł na NEXUSA w całości (185 rekrutacji
@@ -24,8 +70,8 @@ ruszysz albo włączysz ponownie.
   z notatek, ewaluacja) mają własne pętle; zamrożenie wyścigów przy wyłączonym
   syncu nie czeka na znacznik `__daily__` (`competition_rules.freeze_readiness`);
   wykrywanie wykluczeń placementów biegnie przed zamrożeniem;
-  `/api/health.checks.traffit` pokazuje `unconfigured` i to jest stan
-  oczekiwany, nie awaria.
+  `/api/health.checks.traffit` pokazywał `unconfigured` (od 14.10.2026:
+  `disabled`) i to jest stan oczekiwany, nie awaria.
 - **Co zostało tylko w Traffit:** wszystko, co ktoś tam zrobił po ostatnim
   imporcie (start 12.10.2026 02:15 UTC) — notatki, pliki CV, nowi kandydaci,
   ruchy na rekrutacjach nieprzeniesionych — oraz 40 kart-duplikatów, których
@@ -33,7 +79,8 @@ ruszysz albo włączysz ponownie.
   W ostatnich 14 dniach przed wyłączeniem sync przynosił ok. 36 nowych
   kandydatów dziennie, także w soboty — jeśli jakieś ogłoszenie albo formularz
   nadal kieruje zgłoszenia do Traffita, te osoby do NEXUSA nie trafią.
-- **Ostatni import przed rezygnacją z Traffita:** `TRAFFIT_SYNC_ENABLED=true`
+- **Ostatni import przed rezygnacją z Traffita** (nieaktualne od 14.10.2026 —
+  flaga jest wymuszona na `false`, trasa odpowiada 410): `TRAFFIT_SYNC_ENABLED=true`
   → deploy → nocą `POST /api/admin/traffit/sync?mode=full` → sprawdzenie
   `/sync/status` → z powrotem `false`. Rekrutacji „Prowadzonych w NEXUSIE”
   (przeniesione i scalone kopie) import nie rusza, więc taki bieg niczego im

@@ -877,6 +877,9 @@ async def lifespan(app: FastAPI):
         # kill-switch JJIT_ENABLED przed pętlą; ręczny start przez admina.
         "jjit_import": asyncio.create_task(jjit_import_loop()),
         "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
+        # Traffit wyłączony na stałe (14.10.2026) — `traffit_sync`
+        # i `candidate_contact_traffit` kończą się przed pierwszym
+        # odczekaniem, bez względu na flagi (`services/traffit_retired.py`).
         "traffit_sync": asyncio.create_task(traffit_daily_sync_loop()),
         "order_mail_ingest": asyncio.create_task(order_mail_ingest_loop()),
         # 0370: transkrypty prepów z Teams → notatka i ocena prepu. Kończy się
@@ -2163,44 +2166,14 @@ async def api_health_check():
     else:
         checks["autenti"] = "healthy"
 
-    # Traffit daily sync — informational. Reads the persisted watermark so the
-    # check reflects whether the scheduled import is actually running, not just
-    # whether the flag is on. `unconfigured` (off) / `misconfigured` (no creds)
-    # / `degraded` (enabled but no fresh successful run) / `healthy`.
-    if not settings.TRAFFIT_SYNC_ENABLED:
-        checks["traffit"] = "unconfigured"
-    elif not (
-        os.environ.get("TRAFFIT_CLIENT_SECRET") and os.environ.get("TRAFFIT_TENANT")
-    ):
-        checks["traffit"] = "misconfigured"
-    else:
-        try:
-            from datetime import datetime as _dt
-            from datetime import timedelta as _td
-            from datetime import timezone as _tz
+    # Traffit — wyłączony na stałe od 14.10.2026 (decyzja Artura,
+    # `services/traffit_retired.py`). Stała wartość: bez zapytania o znacznik
+    # `__daily__` i bez łączenia się z Traffitem. `disabled` = „Wyłączone” na
+    # kafelku „Stan systemu” (jak dawne `unconfigured`) i ostrzeżenie, nie
+    # alarm, w uptime-probe. Do 14.10 sonda czytała świeżość `__daily__`.
+    from app.services.traffit_retired import TRAFFIT_HEALTH_VALUE
 
-            async with AsyncSessionLocal() as session:
-                row = await asyncio.wait_for(
-                    session.execute(
-                        text(
-                            "SELECT last_run_finished_at, last_status "
-                            "FROM traffit_sync_state WHERE phase = '__daily__'"
-                        )
-                    ),
-                    timeout=1.0,
-                )
-            r = row.fetchone()
-            if r is None or r[0] is None:
-                checks["traffit"] = "degraded"  # enabled, no successful run yet
-            elif (_dt.now(_tz.utc) - r[0]) > _td(hours=36) or r[1] not in (
-                "ok",
-                None,
-            ):
-                checks["traffit"] = "degraded"
-            else:
-                checks["traffit"] = "healthy"
-        except Exception:
-            checks["traffit"] = "degraded"
+    checks["traffit"] = TRAFFIT_HEALTH_VALUE
 
     # Zamówienia z maila — świeżość ostatniego biegu pobierania (0264). Ta
     # sama drabina co traffit: `unconfigured` (wyłączone) / `misconfigured`
