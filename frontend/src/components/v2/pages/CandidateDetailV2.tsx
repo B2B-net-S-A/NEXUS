@@ -747,7 +747,12 @@ export function CandidateDetailV2({
                       }
                       return;
                     }
-                    goToSection(target.section);
+                    goToSection(
+                      target.section,
+                      target.section === "activity" && target.activity
+                        ? { activity: target.activity }
+                        : {},
+                    );
                   }}
                 />
               </TabsContent>

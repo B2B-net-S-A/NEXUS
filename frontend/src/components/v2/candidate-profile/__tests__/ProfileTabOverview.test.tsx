@@ -198,6 +198,15 @@ describe("Przegląd — Ostatnia rozmowa", () => {
     expect(onNavigate).toHaveBeenCalledWith({ section: "activity", noteId: 2 });
   });
 
+  // Przegląd kodu 13.10.2026: przycisk prowadził na „Rozmowy”, gdzie prób
+  // kontaktu nie ma (osobna grupa `contact`).
+  it("„Prób kontaktu: N” otwiera filtr prób kontaktu, nie rozmów", async () => {
+    const user = userEvent.setup();
+    const { onNavigate } = renderTab();
+    await user.click(screen.getByRole("button", { name: "Prób kontaktu: 3" }));
+    expect(onNavigate).toHaveBeenCalledWith({ section: "activity", activity: "contact" });
+  });
+
   it("bez rozmów mówi to zdaniem", () => {
     renderTab({
       notes: { items: [], groupCounts: {}, isPending: false, isError: false, refetch: vi.fn() },

@@ -55,7 +55,7 @@ import { SectionError, SectionHeading, unwrapNoteContent } from "./profile-share
 export type ProfileNavigate = (
   target:
     | { section: "recruitments" }
-    | { section: "activity"; noteId?: number }
+    | { section: "activity"; noteId?: number; activity?: "contact" }
     | { section: "cv" }
     | { section: "documents" },
 ) => void;
@@ -416,7 +416,7 @@ function WithUsStrip({
         </span>
       ) : null}
       {attempts > 0 ? (
-        <button type="button" className={linkClass} onClick={() => onNavigate({ section: "activity" })}>
+        <button type="button" className={linkClass} onClick={() => onNavigate({ section: "activity", activity: "contact" })}>
           Prób kontaktu: <span className="tabular-nums">{attempts}</span>
         </button>
       ) : null}
