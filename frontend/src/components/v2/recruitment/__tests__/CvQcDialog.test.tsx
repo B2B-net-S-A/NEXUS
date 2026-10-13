@@ -852,6 +852,96 @@ describe("CvQcDialog — QC CV", () => {
     });
   });
 
+  describe("QC mówi, gdzie szukało (13.10.2026)", () => {
+    it("treść spoza oryginału pokazuje, w których źródłach QC szukało", async () => {
+      serve(
+        withCheck("no_unsupported", {
+          items: [
+            {
+              requirement: "Docker",
+              term: "Docker",
+              detail: "Jest w CV, a nie ma tego w oryginale.",
+              fix: "remove_term",
+              searched: [
+                { source: "original", found: false },
+                { source: "answers", found: false },
+                { source: "notes", found: false },
+              ],
+            },
+          ],
+        }),
+      );
+      renderDialog();
+      const { card } = await taskCard("Docker — jest w CV, a nie ma tego w oryginale");
+      const where = within(card).getByLabelText("Gdzie QC szukało");
+      expect(where).toHaveTextContent("Szukałem w:");
+      expect(where).toHaveTextContent("oryginał —");
+      expect(where).toHaveTextContent("odpowiedzi —");
+      expect(where).toHaveTextContent("notatki —");
+    });
+
+    it("cytat ze źródła, w którym QC znalazło wymaganie", async () => {
+      serve(
+        withCheck("must_bolded", {
+          items: [
+            {
+              requirement: "Kafka",
+              term: "Kafka",
+              fix: "bold_all",
+              searched: [
+                { source: "cv", found: true, quote: "Integracje na Kafce w zespole płatności" },
+                { source: "original", found: false },
+              ],
+            },
+          ],
+        }),
+      );
+      renderDialog();
+      const dialog = await screen.findByRole("dialog");
+      const notes = await within(dialog).findByRole("region", { name: "Warto poprawić — nie blokuje" });
+      await userEvent.click(within(notes).getByRole("button", { name: /Must-have są pogrubione/ }));
+      expect(within(notes).getByText("Integracje na Kafce w zespole płatności")).toBeTruthy();
+      expect(within(notes).getByLabelText("Gdzie QC szukało")).toHaveTextContent("CV firmowe ✓");
+    });
+
+    it("technologia tylko na liście roli to informacja, nie rzecz do poprawy", async () => {
+      serve(
+        withCheck(
+          "critical_skills",
+          {
+            status: "pass",
+            items: [],
+            roles: [{ requirement: "Java", role: ROLE_BETA, state: "listed_only" }],
+            info: [
+              {
+                key: "critical_skills|java|firma beta",
+                requirement: "Java",
+                role: ROLE_BETA,
+                detail: "W oryginale tylko na liście technologii tej roli — zdanie nie jest wymagane.",
+              },
+            ],
+          },
+          passed(),
+        ),
+      );
+      renderDialog();
+      const dialog = await screen.findByRole("dialog");
+      expect(within(dialog).queryByRole("region", { name: "Do poprawy przed wysłaniem" })).toBeNull();
+      const ok = await within(dialog).findByRole("region", { name: "W porządku" });
+      await userEvent.click(within(ok).getByRole("button", { name: /W porządku/ }));
+      // Pierwszy pasujący to zwinięta linia „W porządku” z listą nazw.
+      const row = within(ok).getAllByRole("button", { name: /Umiejętności krytyczne/ }).at(-1);
+      if (!row) throw new Error("brak wiersza sprawdzenia");
+      await userEvent.click(row);
+      const info = within(ok).getByRole("group", { name: "Informacje" });
+      expect(info).toHaveTextContent("Java");
+      expect(info).toHaveTextContent("zdanie nie jest wymagane");
+      expect(within(ok).getByRole("group", { name: "Rola po roli" })).toHaveTextContent(
+        "w oryginale tylko na liście technologii albo w nazwie stanowiska",
+      );
+    });
+  });
+
   describe("„Potwierdzone z kandydatem” — treść spoza oryginału", () => {
     const DOCKER = "Docker — jest w CV, a nie ma tego w oryginale";
     const FIELD = "Co powiedział kandydat? (opcjonalnie)";
@@ -861,7 +951,7 @@ describe("CvQcDialog — QC CV", () => {
       const { onChanged, keys } = renderDialog();
       const { dialog, card } = await taskCard(DOCKER);
       expect(card).toHaveTextContent(
-        "Oryginalne CV i notatki z rozmów o tym nie wspominają. Usuń to z CV albo potwierdź u kandydata i zapisz potwierdzenie.",
+        "Oryginalne CV, odpowiedzi ze screeningu i notatki z rozmów o tym nie wspominają. Usuń to z CV albo potwierdź u kandydata i zapisz potwierdzenie.",
       );
       // Formularz otwiera się dopiero po kliknięciu.
       expect(within(card).queryByLabelText(FIELD)).toBeNull();

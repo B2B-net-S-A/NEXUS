@@ -32,7 +32,17 @@ from app.services.permission_denial import ensure_permission
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
 
+class QcSearch(BaseModel):
+    """Gdzie QC szukało i czy znalazło (13.10.2026)."""
+
+    source: Literal["cv", "original", "answers", "notes"]
+    found: bool
+    quote: Optional[str] = None
+
+
 class QcItem(BaseModel):
+    # Stały klucz pozycji (sprawdzenie | wymaganie | rola) — dla pominięć.
+    key: Optional[str] = None
     requirement: Optional[str] = None
     role: Optional[str] = None
     detail: Optional[str] = None
@@ -42,12 +52,15 @@ class QcItem(BaseModel):
     # Fragment odczytu oryginału, na którym stoi „oryginał ma to w tej roli”.
     evidence: Optional[str] = None
     evidence_kind: Optional[Literal["description", "technologies", "title"]] = None
+    searched: list[QcSearch] = []
 
 
 class QcRoleState(BaseModel):
     requirement: str
     role: str
-    state: Literal["described", "missing", "not_in_original", "unverified"]
+    state: Literal[
+        "described", "missing", "listed_only", "not_in_original", "unverified"
+    ]
 
 
 class QcCheck(BaseModel):
@@ -59,6 +72,9 @@ class QcCheck(BaseModel):
     items: list[QcItem]
     # „Rola po roli” — przebiegi sprzed 12.10.2026 tego pola nie mają.
     roles: list[QcRoleState] = []
+    # Informacje bez zadania (np. technologia tylko na liście roli) — nie
+    # liczą się do uwag ani do bramki (13.10.2026).
+    info: list[QcItem] = []
 
 
 class QcRun(BaseModel):
@@ -148,7 +164,7 @@ class QcFix(BaseModel):
     cv_role_label: Optional[str] = None
     current_text: Optional[str] = None
     proposed_text: str
-    source: Literal["original", "notes"]
+    source: Literal["original", "answers", "notes"]
     source_quote: str
 
 

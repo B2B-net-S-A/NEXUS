@@ -10,10 +10,12 @@
 import type {
   QcCheck,
   QcCvBlock,
+  QcFix,
   QcFixKind,
   QcItem,
   QcRoleState,
   QcRoleStateKind,
+  QcSearchSource,
 } from "@/lib/api/cvQc";
 
 // ── Podświetlenie terminów ───────────────────────────────────────────────────
@@ -385,8 +387,22 @@ export function companyCvRoleState(item: QcItem): string {
 export const QC_ROLE_STATE_LABEL: Record<QcRoleStateKind, string> = {
   described: "opisane w CV firmowym",
   missing: "brakuje zdania w CV firmowym",
+  listed_only: "w oryginale tylko na liście technologii albo w nazwie stanowiska — zdanie nie jest wymagane",
   not_in_original: "oryginał nie pokazuje tej umiejętności w tej roli — opis nie jest wymagany",
   unverified: "odczyt CV nie ma opisu tej roli — sprawdź ręcznie",
+};
+
+export const QC_SEARCH_SOURCE_LABEL: Record<QcSearchSource, string> = {
+  cv: "CV firmowe",
+  original: "oryginał",
+  answers: "odpowiedzi",
+  notes: "notatki",
+};
+
+export const QC_FIX_SOURCE_LABEL: Record<QcFix["source"], string> = {
+  original: "oryginalne CV",
+  answers: "odpowiedź kandydata",
+  notes: "notatka rekrutera",
 };
 
 export interface RoleStateGroup {

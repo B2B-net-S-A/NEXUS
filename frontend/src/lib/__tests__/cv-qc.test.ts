@@ -341,6 +341,7 @@ describe("dowód z oryginału i „rola po roli”", () => {
     expect(QC_ROLE_STATE_LABEL).toEqual({
       described: "opisane w CV firmowym",
       missing: "brakuje zdania w CV firmowym",
+      listed_only: "w oryginale tylko na liście technologii albo w nazwie stanowiska — zdanie nie jest wymagane",
       not_in_original: "oryginał nie pokazuje tej umiejętności w tej roli — opis nie jest wymagany",
       unverified: "odczyt CV nie ma opisu tej roli — sprawdź ręcznie",
     });

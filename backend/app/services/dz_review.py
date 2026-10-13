@@ -34,6 +34,8 @@ import re
 import tempfile
 import unicodedata
 from dataclasses import dataclass, field
+from functools import lru_cache
+from pathlib import Path
 from html.parser import HTMLParser
 from typing import Any, Optional
 
@@ -129,8 +131,14 @@ class _BlockParser(HTMLParser):
         section = attrs.get("data-cv-section")
         # Generator pisze klauzulę zgody jako `<p class="rodo">` bez znacznika
         # sekcji; znacznik dokłada dopiero zapis w edytorze.
-        if not section and "rodo" in (attrs.get("class") or "").split():
+        classes = (attrs.get("class") or "").split()
+        if not section and "rodo" in classes:
             section = RODO_SECTION
+        # „Rozważany na stanowisko” generatora (`<p class="considered">`) to
+        # szablon, nie twierdzenie o kandydacie. Po zapisie w edytorze klasa
+        # znika — wtedy rozpoznaje go `_mark_rodo` po etykiecie.
+        if not section and "considered" in classes:
+            section = "considered"
         self._current = Block(
             kind=kind, section=section, level=int(tag[1]) if kind == "h" else None
         )
@@ -192,9 +200,16 @@ class _BlockParser(HTMLParser):
 RODO_SECTION = "rodo"
 
 
+_CONSIDERED_LABEL = re.compile(
+    r"^\s*(?:rozważany na stanowisko|considered for)\s*:", re.I
+)
+
+
 def _mark_rodo(block: Block) -> Block:
     if not block.section and block.kind != "h" and is_rodo_text(block.text):
         block.section = RODO_SECTION
+    if not block.section and block.kind != "h" and _CONSIDERED_LABEL.match(block.text):
+        block.section = "considered"
     return block
 
 
@@ -368,6 +383,151 @@ def _patterns(name: str) -> list[re.Pattern[str]]:
 def _found(text: str, req: Requirement) -> bool:
     names = req.terms or req.alternatives
     return any(p.search(text) for alt in names for p in _patterns(alt))
+
+
+# ── Dopasowanie QC CV (13.10.2026) ──────────────────────────────────────────
+# `_found` zostaje dosłowne: czytają je też przegląd DZ, AI w edytorze CV
+# i przegląd Delivery Leada. QC CV dostaje szersze `found_in`, bo pomiar
+# produkcji (121 par, 1 082 uwagi) pokazał, że około połowy uwag QC brała się
+# z zapisu: „EntraID” ≠ „Entra ID”, „REST-assured” ≠ „RestAssured”,
+# „bankowości” ≠ „bankowość”, „workshops” ≠ „warsztaty” (49% par ma CV
+# w innym języku niż oryginał).
+
+_QC_TRANSLATIONS_FILE = (
+    Path(__file__).resolve().parent.parent / "data" / "cv_term_translations.json"
+)
+_FOLD_WORD = re.compile(r"[0-9a-z+#]+")
+# Najkrótszy termin porównywany w formie zbitej i najkrótszy rdzeń odmiany —
+# krótsze („Go”, „R”, „SQL”) trafiałyby w przypadkowe sklejenia słów.
+COMPACT_MIN = 4
+STEM_MIN_WORD = 6
+# Oboczność w miejscowniku, której końcówki `_found` nie łapią: „Kafka” →
+# „o Kafce”, „Jira” → „w Jirze”. Dokładne słowo, więc też dla blokady.
+_ALTERNATIONS = (("cha", "sze"), ("ka", "ce"), ("ga", "dze"), ("ra", "rze"))
+
+
+def _fold(text: str) -> str:
+    nkfd = unicodedata.normalize("NFKD", (text or "").casefold().replace("ł", "l"))
+    return "".join(ch for ch in nkfd if not unicodedata.combining(ch))
+
+
+def _compact(text: str) -> str:
+    return "".join(_FOLD_WORD.findall(_fold(text)))
+
+
+def _compact_ngrams(text: str, max_words: int = 3) -> set[str]:
+    """Sklejenia 1–3 sąsiednich słów („Entra ID” → „entraid”), nigdy całego tekstu.
+
+    Słowa jednoliterowe („i”, „w”, „z”) nie wchodzą do sklejeń wielosłowowych:
+    „bankowość i” dawało „bankowosci” i udawało inny termin.
+    """
+    words = _FOLD_WORD.findall(_fold(text))
+    out = set(words)
+    for i in range(len(words)):
+        for n in range(2, max_words + 1):
+            chunk = words[i : i + n]
+            if len(chunk) == n and all(len(w) >= 2 for w in chunk):
+                out.add("".join(chunk))
+    return out
+
+
+@lru_cache(maxsize=1)
+def _translation_groups() -> tuple[tuple[str, ...], ...]:
+    data = json.loads(_QC_TRANSLATIONS_FILE.read_text(encoding="utf-8"))
+    return tuple(
+        tuple(" ".join(w.split()) for w in group if isinstance(w, str) and w.strip())
+        for group in data.get("groups") or []
+    )
+
+
+def _equivalents(name: str, *, loose: bool) -> list[str]:
+    """Inne zapisy terminu: kuratorowane tłumaczenia QC, a przy ``loose`` też
+    grupy z wyszukiwarki (z rdzeniami „bankow*”)."""
+    key = _fold(" ".join(name.split()))
+    out: list[str] = []
+    for group in _translation_groups():
+        if key in {_fold(w) for w in group}:
+            out.extend(w for w in group if _fold(w) != key)
+    if loose:
+        from app.services.keyword_suggest import equivalents_for
+
+        out.extend(equivalents_for(name))
+    return out
+
+
+def found_in(
+    text: Optional[str], req: Requirement, *, mode: str = "presence"
+) -> Optional[str]:
+    """Jak QC znajduje wymaganie w tekście: ``literal`` | ``compact`` |
+    ``translation`` | ``stem`` albo ``None``.
+
+    ``mode="support"`` (blokada „CV nie twierdzi niczego spoza oryginału”):
+    tylko dosłownie z aliasami i odmianą (`_found`), forma zbita i
+    kuratorowane tłumaczenia. Luźne rdzenie i grupy wyszukiwarki przepuszczałyby
+    zmyślenia. ``mode="presence"`` („czy to jest w CV / w źródłach”) dokłada
+    grupy wyszukiwarki i rdzeń długiego słowa („bankowości” ↔ „bankowość”).
+    """
+    if not text:
+        return None
+    if _found(text, req):
+        return "literal"
+    names = req.terms or req.alternatives
+    grams: Optional[set[str]] = None
+    for name in names:
+        compact = _compact(name)
+        if len(compact) >= COMPACT_MIN:
+            grams = grams if grams is not None else _compact_ngrams(text)
+            if compact in grams:
+                return "compact"
+    words: Optional[set[str]] = None
+    for name in names:
+        folded = _fold(name).strip()
+        if " " in folded or len(folded) < COMPACT_MIN:
+            continue
+        for ending, alternated in _ALTERNATIONS:
+            if folded.endswith(ending):
+                words = (
+                    words if words is not None else set(_FOLD_WORD.findall(_fold(text)))
+                )
+                if folded[: -len(ending)] + alternated in words:
+                    return "stem"
+                break
+    for name in names:
+        for other in _equivalents(name, loose=mode == "presence"):
+            if _found(text, Requirement(label=other, alternatives=(other,))):
+                return "translation"
+    if mode == "presence":
+        words = words if words is not None else set(_FOLD_WORD.findall(_fold(text)))
+        for name in names:
+            # „Python/Perl”, „GitLab/GitHub”: dowolna z nazw. Krótkie człony
+            # („PL/SQL”, „CI/CD”, „TCP/IP”) to jedna nazwa.
+            halves = [h.strip() for h in name.split("/")]
+            if len(halves) > 1 and all(len(h) >= 4 for h in halves):
+                if any(
+                    found_in(text, Requirement(label=h, alternatives=(h,)))
+                    for h in halves
+                ):
+                    return "translation"
+            # Krótkie człony („PL” w „PL/SQL”) muszą stać dosłownie.
+            parts = [p for p in _FOLD_WORD.findall(_fold(name)) if len(p) >= 2]
+            if parts and all(_word_present(part, words) for part in parts):
+                return "stem"
+    return None
+
+
+def _word_present(part: str, words: set[str]) -> bool:
+    """Słowo w odmianie albo liczbie mnogiej: „aplikacji webowych” ↔
+    „aplikacje webowe”, „APIs” ↔ „API”, „bankowości” ↔ „bankowość”."""
+    if part in words:
+        return True
+    if len(part) < 3:
+        return False
+    if len(part) >= 4 and part.endswith("s") and part[:-1] in words:
+        return True
+    if len(part) < STEM_MIN_WORD - 1:
+        return False
+    stem = part[: max(4, len(part) - 3)]
+    return any(word.startswith(stem) for word in words)
 
 
 def _written_names(job: Job) -> dict[str, str]:

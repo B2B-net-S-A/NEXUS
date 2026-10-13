@@ -251,6 +251,25 @@ def is_negative_answer(answer: Optional[str]) -> bool:
     return bool(answer and _NEGATIVE_ANSWER_RE.search(answer))
 
 
+_SENTENCE_RE = re.compile(r"[^.!?\n;]+[.!?;]?")
+
+
+def drop_negative_sentences(text: Optional[str]) -> str:
+    """Tekst bez ZDAŃ, które przeczą („Nie zna Apache Iceberg.”).
+
+    Całą odpowiedź ocenia ``is_negative_answer``; tu oceniamy zdania osobno,
+    bo jedna odpowiedź niesie i fakt, i przeczenie: „Używała Grafany
+    i Prometheusa. Nie zna Apache Iceberg.” ma zostać dowodem Grafany
+    (QC CV, 13.10.2026).
+    """
+    kept = [
+        sentence.strip()
+        for sentence in _SENTENCE_RE.findall(text or "")
+        if sentence.strip() and not is_negative_answer(sentence)
+    ]
+    return " ".join(kept)
+
+
 def _drop_fragment(text: str, fragment: str) -> str:
     if not fragment:
         return text
