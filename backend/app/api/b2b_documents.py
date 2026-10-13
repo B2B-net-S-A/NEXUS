@@ -21,6 +21,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.api.b2b_contract_generator import (
     _DOCX_MEDIA,
@@ -50,7 +51,7 @@ from app.models.b2b_contract_document import B2BContractDocument
 from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.candidate import Candidate
 from app.models.client import Client
-from app.models.contract import Contract
+from app.models.contract import Contract, ContractStatus, ContractType
 from app.models.user import User, UserRole
 from app.services.access_scope import resolve_delivery_lead_finance_client_ids
 from app.services.action_permissions import (
@@ -106,6 +107,12 @@ class DocumentRequest(BaseModel):
     values: dict[str, Any] = Field(default_factory=dict)
     #: Numery paragrafów, gdy wersja wzoru umowy bazowej jest nieznana.
     refs: Optional[dict[str, str]] = None
+    #: Kontrakt aneksu bez umowy w rejestrze (umowa spoza NEXUSA, zlecenie)
+    #: albo kontrakt wskazany dla umowy z rejestru, która nie ma powiązania.
+    #: Osobę, rekrutację i klienta dokumentu serwer bierze z kontraktu.
+    contract_id: Optional[int] = None
+    #: Klient aneksu bez umowy i bez kontraktu („Bez kontraktu”).
+    client_id: Optional[int] = None
 
 
 class SensitiveValues(BaseModel):
@@ -207,6 +214,29 @@ async def _authorize_parent(
         created_by=parent.created_by,
         job_id=parent.job_id,
     )
+
+
+async def _authorize_document_write(
+    db: AsyncSession,
+    user: User,
+    doc: B2BContractDocument,
+    parent: B2BGeneratedContract | None,
+) -> None:
+    """Zapis u klienta dokumentu — także gdy dokument nie ma umowy bazowej.
+
+    Do 13.10.2026 dokument bez umowy bazowej nie miał klienta (aneks do umowy
+    spoza NEXUSA nie był zapisywany), więc ponowne pobranie i poprawka pytały
+    o zapis wyłącznie przez umowę."""
+    if parent is not None:
+        await _authorize_parent(db, user, parent)
+    else:
+        await _assert_generator_client_access(db, user, doc.client_id, write=True)
+
+
+def _client_label(client: Client | None) -> str | None:
+    if client is None:
+        return None
+    return (getattr(client, "legal_name", None) or client.name or "").strip() or None
 
 
 async def _base_info(
@@ -392,6 +422,16 @@ async def _resolve_subject(
                 ),
             )
         links.update(client_id=job.client_id)
+    elif (
+        parent is None and request.contract_id is not None and _takes_contract(doc_type)
+    ):
+        contract = await _load_subject_contract(db, user, doc_type, request.contract_id)
+        links.update(
+            contract_id=contract.id,
+            candidate_id=contract.candidate_id,
+            job_id=contract.job_id,
+            client_id=contract.client_id,
+        )
     elif parent is None and (
         request.candidate_id is not None or request.job_id is not None
     ):
@@ -409,14 +449,120 @@ async def _resolve_subject(
             db, candidate_id=request.candidate_id, job_id=job.id
         )
         links.update(client_id=job.client_id)
+    if (
+        parent is None
+        and links["client_id"] is None
+        and request.client_id is not None
+        and _takes_contract(doc_type)
+    ):
+        # Aneks „Bez kontraktu”: klient z NEXUSA, żeby dokument miał zakres —
+        # bez klienta widziałby go tylko admin i Head of Recruitment.
+        client = await assert_client_assignable(db, request.client_id)
+        if client is None:
+            raise HTTPException(status_code=422, detail="Klienta nie ma w NEXUSIE.")
+        await _assert_generator_client_access(db, user, client.id, write=True)
+        links.update(client_id=client.id)
     base = _with_value_overrides(doc_type, await _base_info(db, parent), request.values)
     return parent, base, links
 
 
-def _is_external(doc_type: DocumentType, parent: B2BGeneratedContract | None) -> bool:
-    """Aneks do umowy spoza NEXUSA: dane umowy wpisane ręcznie, bez wiersza
-    rejestru — dokumentu nie zapisujemy (ticket „Generator aneksów”, pkt 7.2)."""
-    return parent is None and doc_type.allows_external and doc_type.parent == "b2b"
+def _takes_contract(doc_type: DocumentType) -> bool:
+    """Aneks, który można wystawić do kontraktu bez umowy w rejestrze: trzy
+    typy „umowy spoza NEXUSA” i aneks zlecenia (zlecenia nie mają wierszy
+    w rejestrze umów B2B)."""
+    return doc_type.family == "annex" and (
+        doc_type.allows_external or doc_type.parent == "mandate"
+    )
+
+
+def _subject_contract_type(doc_type: DocumentType) -> ContractType:
+    return ContractType.uzlecenie if doc_type.parent == "mandate" else ContractType.b2b
+
+
+async def _load_subject_contract(
+    db: AsyncSession, user: User, doc_type: DocumentType, contract_id: int
+) -> Contract:
+    """Kontrakt wskazany jako podmiot aneksu bez umowy w rejestrze.
+
+    Do 13.10.2026 aneks do umowy spoza NEXUSA nie był zapisywany wcale, więc
+    nie było go w żadnej liście i podpis nie zmieniał kontraktu. Żądanie niesie
+    samo id — osobę, rekrutację i klienta dokumentu bierze serwer z kontraktu,
+    żeby nie dało się podpiąć aneksu pod dowolną osobę albo klienta spoza
+    zakresu wołającego."""
+    contract = await db.scalar(
+        select(Contract)
+        .where(Contract.id == contract_id)
+        .options(selectinload(Contract.b2b_detail))
+    )
+    if contract is None:
+        raise HTTPException(status_code=404, detail="Kontrakt nie istnieje.")
+    await _assert_generator_client_access(db, user, contract.client_id, write=True)
+    if contract.status == ContractStatus.void:
+        raise HTTPException(
+            status_code=422,
+            detail="Ten kontrakt jest unieważniony — wybierz inny.",
+        )
+    if contract.contract_type != _subject_contract_type(doc_type):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Aneks do umowy zlecenie wymaga kontraktu zlecenie."
+                if doc_type.parent == "mandate"
+                else "Ten aneks dotyczy umowy B2B — wybierz kontrakt B2B."
+            ),
+        )
+    return contract
+
+
+async def _lock_parent_linking_contract(
+    db: AsyncSession,
+    parent: B2BGeneratedContract,
+    picked_contract_id: int | None,
+) -> tuple[B2BGeneratedContract, int | None]:
+    """Zablokuj wiersz umowy bazowej; umowę bez kontraktu dowiąż do kontraktu
+    tej osoby u tego klienta. Zwraca wiersz i id właśnie dowiązanego kontraktu.
+
+    Wiersz z Excela działu (i każdy sprzed automatyzacji podpisu) nie ma
+    ``contract_id``, więc podpis aneksu zmieniał tylko rejestr umów. Reguła
+    dopasowania jest ta sama, co przy zakończeniu współpracy
+    (``contract_termination_sync``) i wypowiedzeniu Partnera: trwający kontrakt
+    B2B tej osoby u tego klienta bez własnej umowy w rejestrze. Jeden taki
+    kontrakt dowiązujemy sami, przy kilku — tylko wskazany w żądaniu.
+    Kolejność blokad: kontrakt, potem wiersz (runda 6 audytu, LOCK-1)."""
+    target: int | None = None
+    if parent.contract_id is None:
+        live = await effects.live_contract_ids_for_unlinked_row(
+            db,
+            row_id=parent.id,
+            candidate_id=parent.candidate_id,
+            client_id=parent.client_id,
+            contract_type=ContractType.b2b,
+        )
+        if picked_contract_id is not None:
+            if picked_contract_id not in live:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Ten kontrakt nie należy do osoby i klienta tej umowy "
+                        "albo ma już własną umowę w rejestrze."
+                    ),
+                )
+            target = picked_contract_id
+        elif len(live) == 1:
+            target = live[0]
+        if target is not None:
+            await db.execute(
+                select(Contract.id).where(Contract.id == target).with_for_update()
+            )
+    elif picked_contract_id is not None and picked_contract_id != parent.contract_id:
+        raise HTTPException(
+            status_code=422, detail="Umowa jest już powiązana z innym kontraktem."
+        )
+    locked = await _load_parent(db, parent.id, lock=True)
+    if target is not None and locked.contract_id is None:
+        locked.contract_id = target
+        return locked, target
+    return locked, None
 
 
 def _with_value_overrides(
@@ -686,6 +832,7 @@ async def document_prefill(
     parent_generated_contract_id: Optional[int] = Query(None),
     candidate_id: Optional[int] = Query(None),
     job_id: Optional[int] = Query(None),
+    contract_id: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Wartości startowe formularza z umowy bazowej (albo z kandydata)."""
@@ -693,12 +840,18 @@ async def document_prefill(
     today = business_today()
     values: dict[str, Any] = {"document_date": today.isoformat()}
     parent: B2BGeneratedContract | None = None
+    contract: Contract | None = None
     if parent_generated_contract_id is not None:
         parent = await _load_parent(db, parent_generated_contract_id)
         await _authorize_parent(db, current_user, parent)
         # Kandydat umowy bazowej — nie ten z parametru, który mógłby wskazać
         # dowolną osobę obok umowy, do której wołający ma dostęp.
         candidate_id = parent.candidate_id
+    elif contract_id is not None and _takes_contract(doc_type):
+        # Aneks do kontraktu bez umowy w rejestrze: dane Partnera z profilu
+        # osoby z TEGO kontraktu (dostęp przez zapis u jego klienta).
+        contract = await _load_subject_contract(db, current_user, doc_type, contract_id)
+        candidate_id = contract.candidate_id
     elif candidate_id is not None:
         # Dane firmy kandydata (NIP, REGON, adres) tylko przez rekrutację,
         # do której wołający ma dostęp — inaczej `candidate_id` byłby
@@ -787,6 +940,17 @@ async def document_prefill(
     if doc_type.allows_external:
         paragraph_defaults = _annex_paragraph_defaults(doc_type, base)
         values = await _annex_prefill(db, doc_type, parent, base, payload, values)
+    if contract is not None:
+        # Numer i data umowy z kontraktu, jeśli ktoś je tam wpisał; stawek
+        # kontraktu NIE podpowiadamy — autor aneksu nie musi mieć do nich wglądu.
+        detail = contract.b2b_detail
+        if detail is not None and "contract_number" in field_keys:
+            if detail.contract_number and not values.get("contract_number"):
+                values["contract_number"] = detail.contract_number
+            if detail.signing_date and not values.get("contract_signing_date"):
+                values["contract_signing_date"] = detail.signing_date.isoformat()
+        if "current_start_date" in field_keys and contract.start_date:
+            values.setdefault("current_start_date", contract.start_date.isoformat())
     # Pola wrażliwe nigdy nie wracają z serwera — nawet gdyby były w payloadzie.
     values = strip_sensitive(doc_type, values)
     return {
@@ -960,19 +1124,30 @@ async def create_document(
     parent, base, links = await _resolve_subject(db, current_user, doc_type, request)
     values = await _resolve_rate_clients(db, request.values)
     _validate_values(doc_type, values, base, request.refs)
+    if parent is None and links["client_id"] is None and _takes_contract(doc_type):
+        # Tu, nie w `_resolve_subject`: podgląd dzieli tamtą funkcję i ma
+        # działać, zanim człowiek wskaże kontrakt albo klienta.
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "document_fields_missing",
+                "message": "Wybierz kontrakt albo klienta, którego dotyczy aneks.",
+                "missing": ["Klient"],
+            },
+        )
     context = _context(doc_type, values, language, base, request.refs)
     # Render przed zapisem: błąd szablonu nie zostawia wiersza bez dokumentu.
     data = await _render_bytes(doc_type, language, context)
     doc_date = _date(values.get("document_date")) or business_today()
-    if _is_external(doc_type, parent):
-        # Umowy nie ma w NEXUSIE — nie ma przy czym zapisać aneksu (ticket,
-        # pkt 7.2). Plik idzie do przeglądarki, baza zostaje nietknięta.
-        response = _docx_response(data, _filename(doc_type, values, doc_date), None)
-        response.headers["X-Document-Saved"] = "0"
-        return response
-    if parent is not None and doc_type.allows_external:
+    linked_contract_id: int | None = None
+    if parent is not None and doc_type.family == "annex" and doc_type.parent == "b2b":
         # Wiersz rejestru zmienia się teraz — blokada, żeby dwa aneksy do tej
         # samej umowy nie zapisały sobie nawzajem stanu „sprzed”.
+        parent, linked_contract_id = await _lock_parent_linking_contract(
+            db, parent, request.contract_id
+        )
+        links["contract_id"] = parent.contract_id
+    elif parent is not None and doc_type.allows_external:
         parent = await _load_parent(db, parent.id, lock=True)
     doc = B2BContractDocument(
         document_type=doc_type.key,
@@ -1003,10 +1178,21 @@ async def create_document(
             details={
                 "document_type": doc_type.key,
                 "parent_generated_contract_id": doc.parent_generated_contract_id,
+                "contract_id": doc.contract_id,
                 **({"register_fields": register_fields} if register_fields else {}),
             },
         )
     )
+    if linked_contract_id is not None and parent is not None:
+        db.add(
+            Activity(
+                entity_type="b2b_generated_contract",
+                entity_id=parent.id,
+                action="contract_linked_for_annex",
+                user_id=current_user.id,
+                details={"contract_id": linked_contract_id, "document_id": doc.id},
+            )
+        )
     await db.commit()
     return _docx_response(data, _filename(doc_type, values, doc_date), doc.id)
 
@@ -1083,6 +1269,7 @@ async def document_form(
     doc, doc_type, _parent = await _load_document(db, current_user, doc_id)
     _assert_editable(doc, current_user)
     payload = doc.render_payload or {}
+    client = await db.get(Client, doc.client_id) if doc.client_id is not None else None
     return {
         "id": doc.id,
         "document_type": doc.document_type,
@@ -1090,6 +1277,13 @@ async def document_form(
         "parent_generated_contract_id": doc.parent_generated_contract_id,
         "candidate_id": doc.candidate_id,
         "job_id": doc.job_id,
+        # Aneks bez umowy w rejestrze: „Popraw” wraca do formularza bez
+        # wyboru umowy — kontrakt i klient zostają te z zapisu.
+        "contract_id": doc.contract_id,
+        "client_id": doc.client_id,
+        "client_name": _client_label(client),
+        "external": doc.parent_generated_contract_id is None
+        and doc_type.allows_external,
         "values": _legacy_form_values(doc_type, payload.get("values") or {}),
         "refs": payload.get("refs"),
         "base": payload.get("base") or {},
@@ -1128,8 +1322,7 @@ async def redownload_document(
     (nie przechowujemy ich) — bez nich 422 z listą pól."""
     _require_contract_generation(current_user)
     doc, doc_type, parent = await _load_document(db, current_user, doc_id)
-    if parent is not None:
-        await _authorize_parent(db, current_user, parent)
+    await _authorize_document_write(db, current_user, doc, parent)
     payload = doc.render_payload or {}
     values = {**(payload.get("values") or {})}
     supplied = {k: v for k, v in body.values.items() if k in doc_type.sensitive_keys}
@@ -1172,8 +1365,7 @@ async def rerender_document(
         raise HTTPException(
             status_code=422, detail="Zmiana typu dokumentu to nowy dokument."
         )
-    if parent is not None:
-        await _authorize_parent(db, current_user, parent)
+    await _authorize_document_write(db, current_user, doc, parent)
     language = _language(doc_type, request.language)
     base = (
         await _base_info(db, parent)
