@@ -7,7 +7,7 @@ Makiety i decyzje: https://claude.ai/artifact/BZZRshjBDC4CMEGGP6m4Wr. PR 3 z 4
 
 ## Pominięcie („To nieprawda”, D5)
 
-- **Tabela `cv_finding_dismissals`** (migracja 0438 + lustro w `entrypoint.sh`,
+- **Tabela `cv_finding_dismissals`** (migracja 0439 + lustro w `entrypoint.sh`,
   `test_cv_finding_dismissals.py`). Pominięcie dotyczy pary (kandydat,
   rekrutacja), nie pliku: nowe CV tej osoby w tej rekrutacji nie wskrzesza
   uwagi. Aktywne pominięcie pary i klucza jest jedno (indeks częściowy);

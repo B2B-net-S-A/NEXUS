@@ -1,7 +1,7 @@
 """Pominięte uwagi QC CV i edytora — „To nieprawda” (13.10.2026, D5).
 
-Revision ID: 0438_cv_finding_dismissals
-Revises: 0437_candidate_source_created_at
+Revision ID: 0439_cv_finding_dismissals
+Revises: 0438_requirement_cleanup_decisions
 
 Zespół nie miał jak powiedzieć „ta uwaga QC jest nieprawdziwa”: ta sama
 fałszywa uwaga wracała przy każdym otwarciu okna i blokowała ruch karty.
@@ -21,8 +21,8 @@ Lustro w ``entrypoint.sh`` — pilnuje ``test_cv_finding_dismissals.py``.
 
 from alembic import op
 
-revision = "0438_cv_finding_dismissals"
-down_revision = "0437_candidate_source_created_at"
+revision = "0439_cv_finding_dismissals"
+down_revision = "0438_requirement_cleanup_decisions"
 branch_labels = None
 depends_on = None
 

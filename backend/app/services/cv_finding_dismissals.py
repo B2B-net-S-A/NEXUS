@@ -1,4 +1,4 @@
-"""„To nieprawda” — pominięte uwagi QC CV i edytora (0438, 13.10.2026, D5).
+"""„To nieprawda” — pominięte uwagi QC CV i edytora (0439, 13.10.2026, D5).
 
 Zespół mówił, że QC daje dużo nieprawdziwych uwag i nie da się ich odznaczyć:
 ta sama fałszywa uwaga wracała przy każdym otwarciu okna i blokowała ruch.

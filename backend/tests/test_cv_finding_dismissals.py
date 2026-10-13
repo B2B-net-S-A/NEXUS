@@ -218,7 +218,7 @@ def test_dl_sees_dismissed_blocking_findings() -> None:
 def test_migration_is_mirrored_in_entrypoint_and_model() -> None:
     root = Path(__file__).resolve().parents[1]
     entry = (root / "entrypoint.sh").read_text()
-    migration = (root / "alembic/versions/0438_cv_finding_dismissals.py").read_text()
+    migration = (root / "alembic/versions/0439_cv_finding_dismissals.py").read_text()
     squash = lambda t: re.sub(r"\s+", " ", t)  # noqa: E731
     for fragment in (
         "CREATE TABLE IF NOT EXISTS cv_finding_dismissals (",
@@ -233,7 +233,7 @@ def test_migration_is_mirrored_in_entrypoint_and_model() -> None:
     ):
         assert fragment in squash(migration), fragment
         assert fragment in squash(entry), fragment
-    assert 'down_revision = "0437_candidate_source_created_at"' in migration
+    assert 'down_revision = "0438_requirement_cleanup_decisions"' in migration
     from app.models.cv_finding_dismissal import CvFindingDismissal
 
     columns = set(CvFindingDismissal.__table__.columns.keys())

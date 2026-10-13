@@ -1,4 +1,4 @@
-"""Pominięta uwaga QC CV albo edytora — „To nieprawda” (migracja 0438).
+"""Pominięta uwaga QC CV albo edytora — „To nieprawda” (migracja 0439).
 
 Pominięcie dotyczy pary (kandydat, rekrutacja), nie jednego pliku CV: ta sama
 uwaga o tej samej osobie w tej rekrutacji zostaje pominięta także po nowym
