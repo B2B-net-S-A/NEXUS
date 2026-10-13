@@ -5708,7 +5708,7 @@ END $$""",
     "ON cv_finding_dismissals (candidate_id, job_id, source, finding_key) "
     "WHERE restored_at IS NULL",
     "CREATE INDEX IF NOT EXISTS ix_cv_finding_dismissals_created "
-    "ON cv_finding_dismissals (created_at DESC)",
+    "ON cv_finding_dismissals (created_at)",
     # 0370: prepy w Teams — spotkanie, transkrypt i ocena. Lustro 1:1 z
     # migracją — pilnuje `test_prep_meetings_schema.py`.
     """CREATE TABLE IF NOT EXISTS prep_meetings (

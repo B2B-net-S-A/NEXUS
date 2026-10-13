@@ -53,7 +53,7 @@ CREATE_ACTIVE_INDEX = (
 )
 CREATE_CREATED_INDEX = (
     "CREATE INDEX IF NOT EXISTS ix_cv_finding_dismissals_created "
-    "ON cv_finding_dismissals (created_at DESC)"
+    "ON cv_finding_dismissals (created_at)"
 )
 
 

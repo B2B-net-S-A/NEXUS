@@ -38,7 +38,7 @@ class CvFindingDismissal(Base):
             unique=True,
             postgresql_where=text("restored_at IS NULL"),
         ),
-        Index("ix_cv_finding_dismissals_created", text("created_at DESC")),
+        Index("ix_cv_finding_dismissals_created", "created_at"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)

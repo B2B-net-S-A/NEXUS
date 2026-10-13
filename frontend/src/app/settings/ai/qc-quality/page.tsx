@@ -96,7 +96,7 @@ function ChecksTable({ report }: { report: QcQualityReport }) {
   const { showSuccess, showError } = useToast();
   const savingKey = setState.isPending ? setState.variables?.key : null;
   return (
-    <div className="overflow-x-auto rounded-xl border border-border bg-card">
+    <div className="relative overflow-x-auto rounded-xl border border-border bg-card">
       <table className="w-full min-w-[720px] text-sm">
         <caption className="sr-only">Trafność sprawdzeń QC CV</caption>
         <thead>
