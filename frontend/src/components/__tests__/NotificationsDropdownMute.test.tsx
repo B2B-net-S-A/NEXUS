@@ -13,6 +13,7 @@ vi.mock("@/lib/api", () => ({
 vi.mock("@/hooks/useNotifications", () => ({
   useNotifications: () => ({ unreadCount: 0, clearUnread: vi.fn(), wsConnected: true }),
 }));
+vi.mock("@/hooks/useHasInterviewsWindow", () => ({ useHasInterviewsWindow: () => false }));
 const push = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 vi.mock("@/store/auth", () => ({

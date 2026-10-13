@@ -13,6 +13,7 @@ import { PaletteSwitcher } from "./PaletteSwitcher";
 import { MyPeopleTopbarButton } from "@/components/v2/my-people/MyPeopleLauncher";
 import { KidsModeToggleButton, ThemeToggleButton } from "./ThemeControls";
 import { ChatNotificationsDropdown } from "./ChatNotificationsDropdown";
+import { InterviewNotificationsDropdown } from "./InterviewNotificationsDropdown";
 import {
   TOPBAR_ACTIONS_CLASS,
   TOPBAR_BREADCRUMB_CLASS,
@@ -78,6 +79,7 @@ export function TopbarV2({
         </div>
         <MyPeopleTopbarButton />
         <ChatNotificationsDropdown />
+        <InterviewNotificationsDropdown />
         <NotificationsDropdown />
         <QuickActionsV2
           externalModal={pendingModal}

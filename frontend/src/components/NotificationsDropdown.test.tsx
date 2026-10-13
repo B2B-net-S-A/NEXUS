@@ -9,13 +9,24 @@ import { notificationsApi } from "@/lib/api";
 vi.mock("@/lib/api", () => ({
   notificationsApi: { listForBell: vi.fn(), markRead: vi.fn(), markAllReadForBell: vi.fn() },
 }));
-const hookState = vi.hoisted(() => ({ unreadCount: 0, clearUnread: vi.fn() }));
+const hookState = vi.hoisted(() => ({
+  unreadCount: 0,
+  clearUnread: vi.fn(),
+  options: null as { interviewsInWindow?: boolean } | null,
+  hasInterviewsWindow: false,
+}));
 vi.mock("@/hooks/useNotifications", () => ({
-  useNotifications: () => ({
-    unreadCount: hookState.unreadCount,
-    clearUnread: hookState.clearUnread,
-    wsConnected: true,
-  }),
+  useNotifications: (options: { interviewsInWindow?: boolean }) => {
+    hookState.options = options;
+    return {
+      unreadCount: hookState.unreadCount,
+      clearUnread: hookState.clearUnread,
+      wsConnected: true,
+    };
+  },
+}));
+vi.mock("@/hooks/useHasInterviewsWindow", () => ({
+  useHasInterviewsWindow: () => hookState.hasInterviewsWindow,
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -155,6 +166,72 @@ describe("NotificationsDropdown — własny klucz zapytania", () => {
     await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(2));
     expect(listNotifications).toHaveBeenCalledWith(20);
     expect(screen.queryByText("Anna Testowa: nowa wiadomość")).toBeNull();
+  });
+});
+
+// 13.10.2026: rozmowy u klienta i prepy mają własne okienko w górnym pasku.
+describe("NotificationsDropdown — kategoria „Rozmowy” w osobnym okienku", () => {
+  beforeEach(() => {
+    listNotifications.mockReset();
+    vi.mocked(notificationsApi.markAllReadForBell).mockReset();
+    vi.mocked(notificationsApi.markAllReadForBell).mockResolvedValue(
+      {} as Awaited<ReturnType<typeof notificationsApi.markAllReadForBell>>,
+    );
+    hookState.hasInterviewsWindow = true;
+    window.localStorage.clear();
+    return () => {
+      hookState.hasInterviewsWindow = false;
+    };
+  });
+
+  it("osoba z okienkiem: lista, „Oznacz wszystko” i gniazdo pomijają kategorię", async () => {
+    listNotifications.mockResolvedValue({
+      data: { items: makeItems(2), unread_count: 2, own_unread_count: 2 },
+    } as unknown as Awaited<ReturnType<typeof notificationsApi.listForBell>>);
+    const user = userEvent.setup();
+    renderDropdown();
+    await user.click(screen.getByRole("button", { name: "Powiadomienia" }));
+
+    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(2));
+    expect(listNotifications).toHaveBeenCalledWith(20, { excludeInterviews: true });
+    expect(hookState.options?.interviewsInWindow).toBe(true);
+
+    await user.click(screen.getByText("Oznacz wszystko jako przeczytane"));
+    expect(notificationsApi.markAllReadForBell).toHaveBeenCalledWith({ excludeInterviews: true });
+  });
+
+  it("osoba bez okienka widzi rozmowy w dzwonku jak dotąd", async () => {
+    hookState.hasInterviewsWindow = false;
+    mockAvailable(1);
+    const user = userEvent.setup();
+    renderDropdown();
+    await user.click(screen.getByRole("button", { name: "Powiadomienia" }));
+
+    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(1));
+    expect(listNotifications).toHaveBeenCalledWith(20);
+    expect(hookState.options?.interviewsInWindow).toBe(false);
+    expect(screen.queryByText(/mają teraz własne okienko/)).toBeNull();
+  });
+
+  it("jednorazowa podpowiedź: „Pokaż” otwiera okienko i nie wraca", async () => {
+    mockAvailable(1);
+    const opened = vi.fn();
+    window.addEventListener("nexus:open-interviews-window", opened);
+    const user = userEvent.setup();
+    const first = renderDropdown();
+    await user.click(screen.getByRole("button", { name: "Powiadomienia" }));
+    expect(await screen.findByText(/mają teraz własne okienko/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Pokaż" }));
+    expect(opened).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/mają teraz własne okienko/)).toBeNull();
+    window.removeEventListener("nexus:open-interviews-window", opened);
+    first.unmount();
+
+    renderDropdown();
+    await user.click(screen.getByRole("button", { name: "Powiadomienia" }));
+    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(1));
+    expect(screen.queryByText(/mają teraz własne okienko/)).toBeNull();
   });
 });
 

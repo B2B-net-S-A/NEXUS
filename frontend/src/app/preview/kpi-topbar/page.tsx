@@ -7,7 +7,8 @@
  * fikcyjnych. Paski na górze to repliki powłoki na całą szerokość okna: atrapa
  * menu (240 px od 1280 px, niżej szyna 60 px) i pasek z tymi samymi klasami co
  * `TopbarV2` — tak, żeby przy 1280 × 720 dało się zmierzyć, ile miejsca
- * zostaje wyszukiwarce. Sąsiedzi licznika mają prawdziwe rozmiary, a licznik
+ * zostaje wyszukiwarce. Sąsiedzi licznika mają prawdziwe rozmiary (ikony
+ * „Czaty” i „Rozmowy” to prawdziwe komponenty prezentacyjne), a licznik
  * w paskach to ten sam komponent co w aplikacji (klik otwiera panel).
  */
 
@@ -20,6 +21,7 @@ import { KpiTopbarButton } from "@/components/v2/kpi/KpiTopbarButton";
 import { KpiTopbarPopover } from "@/components/v2/kpi/MyKpiWidget";
 import { buildKpiTopbarModel, type KpiTopbarModel } from "@/components/v2/kpi/kpi-topbar-model";
 import { ChatTopbarButton } from "@/components/v2/shell/ChatNotificationsDropdown";
+import { InterviewsTopbarButton } from "@/components/v2/shell/InterviewNotificationsDropdown";
 import { PaletteSwitcher } from "@/components/v2/shell/PaletteSwitcher";
 import { KidsModeToggleButton, ThemeToggleButton } from "@/components/v2/shell/ThemeControls";
 import {
@@ -277,10 +279,13 @@ function ShellStrip({
   title,
   breadcrumb,
   model: stripModel,
+  callPill = false,
 }: {
   title: string;
   breadcrumb: string;
   model: KpiTopbarModel;
+  /** Ikona „Rozmowy” jako pigułka „zadzwoń po rozmowie” — najszerszy stan sąsiada. */
+  callPill?: boolean;
 }) {
   return (
     <section aria-label={title} data-testid="shell-strip">
@@ -316,6 +321,12 @@ function ShellStrip({
               <Users className="h-4 w-4" aria-hidden />
             </Button>
             <ChatTopbarButton unreadThreads={0} hasMention={false} open={false} />
+            <InterviewsTopbarButton
+              count={callPill ? 2 : 0}
+              urgent={callPill}
+              open={false}
+              pill={callPill ? { name: "A. Przykładowa", minutesLeft: 18 } : null}
+            />
             <span className="rounded-lg p-2 text-muted-foreground">
               <Bell className="h-5 w-5" aria-hidden />
             </span>
@@ -362,9 +373,10 @@ export default function KpiTopbarPreviewPage() {
         />
         <ShellStrip title="Head of Recruitment i TCM — zespół 12 osób" breadcrumb="Pulpit" model={HEAD} />
         <ShellStrip
-          title="Head of Recruitment — najciaśniej: długie okruszki"
+          title="Head of Recruitment — najciaśniej: długie okruszki i pigułka „Rozmowy”"
           breadcrumb="Rekrutacje › Senior Java Developer z Kafką i Springiem (Warszawa, hybryda)"
           model={HEAD}
+          callPill
         />
         <ShellStrip
           title="Delivery Lead — 10 zamkniętych rekrutacji, 2 placementy"

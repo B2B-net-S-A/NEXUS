@@ -452,6 +452,8 @@ const PUBLIC_PATHS = [
   "/preview/notification-settings",
   // Okienko „Czaty” z górnego paska: ikona i lista rozmów na danych fikcyjnych.
   "/preview/chat-notifications",
+  // Okienko „Rozmowy” z górnego paska: rozmowy u klienta i prepy, dane fikcyjne.
+  "/preview/interview-notifications",
   // Licznik celów w górnym pasku: segmenty, panel po kliknięciu, replika paska.
   "/preview/kpi-topbar",
   "/preview/calendar-cycle",
