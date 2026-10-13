@@ -22,7 +22,6 @@ vi.mock("@/lib/api", async (importOriginal) => ({
           precision: { value_pct: null, verified: 2, sent: 1, target_pct: 75, window_days: 30 },
           target_verifications_daily: 4,
           target_placements_monthly: 1,
-          target_cv_added_daily: null,
           target_precision_pct: 75,
         },
       }),

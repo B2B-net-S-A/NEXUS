@@ -80,6 +80,7 @@ const PAGES = [
   "/preview/jarvis",
   "/preview/kariera",
   "/preview/kpi-targets",
+  "/preview/kpi-topbar",
   "/preview/jobs-list-v3",
   "/preview/job-board-screening",
   "/preview/job-board-screening?state=closed",
@@ -625,6 +626,58 @@ test.describe("pulpit — filtr „Requesty i obłożenie” nie przewija strony
       Math.abs((after?.y ?? -1) - (before?.y ?? 0)),
       `pasek filtrów w oknie: przed ${before?.y}, po ${after?.y}`,
     ).toBeLessThanOrEqual(1);
+  });
+});
+
+test.describe("górny pasek — licznik celów", () => {
+  test("/preview/kpi-topbar: licznik celów nie zgniata wyszukiwarki w oknach laptopów", async ({ page }) => {
+    // 13.10.2026: trzy podpisane segmenty przy 1280 px z przypiętym menu
+    // i długimi okruszkami zostawiały wyszukiwarce 109 px. Licznik ma chować
+    // całe segmenty, a wyszukiwarka trzymać 220 px.
+    for (const size of WINDOWS_LAPTOP_WINDOWS) {
+      await page.setViewportSize(size);
+      await page.goto("/preview/kpi-topbar");
+      const strips = page.getByTestId("shell-strip");
+      await expect(strips).toHaveCount(4);
+      for (const strip of await strips.all()) {
+        const label = `${await strip.getAttribute("aria-label")} @ ${size.width}`;
+        const search = await strip.getByTestId("topbar-search").boundingBox();
+        expect(search?.width ?? 0, `wyszukiwarka: ${label}`).toBeGreaterThanOrEqual(220);
+        const bar = strip.getByTestId("topbar-replica");
+        const overflow = await bar.evaluate((el) => el.scrollWidth - el.clientWidth);
+        expect(overflow, `pasek bez przelewu: ${label}`).toBe(0);
+        // Co najmniej jeden cały segment zostaje w pierwszym (widocznym) wierszu.
+        const visible = await strip
+          .getByRole("button", { name: /^(Twoje cele|Cele zespołu|Cel portfela)/ })
+          .evaluate((button) => {
+            const top = button.getBoundingClientRect().top;
+            return [...button.querySelectorAll("[data-kpi-segment]")].filter(
+              (segment) => Math.abs(segment.getBoundingClientRect().top - top) < 4,
+            ).length;
+          });
+        expect(visible, `widoczne segmenty: ${label}`).toBeGreaterThanOrEqual(1);
+        // W grupie akcji ściska się tylko licznik: przycisk-ikona zostaje 36 px
+        // (bez tej reguły „Moi ludzie” kurczył się do 22 px).
+        const neighbour = await strip.getByRole("button", { name: "Moi ludzie (atrapa)" }).boundingBox();
+        expect(Math.round(neighbour?.width ?? 0), `sąsiedni przycisk: ${label}`).toBe(36);
+        // Tekst segmentu nie łamie się, a ukryty wiersz nie wystaje do widocznego.
+        const glitches = await strip
+          .getByRole("button", { name: /^(Twoje cele|Cele zespołu|Cel portfela)/ })
+          .evaluate((button) => {
+            const box = button.getBoundingClientRect();
+            return [...button.querySelectorAll<HTMLElement>("[data-kpi-segment]")].filter((segment) => {
+              if (getComputedStyle(segment).display === "none") return false;
+              const value = segment.lastElementChild?.getBoundingClientRect();
+              const caption = segment.firstElementChild?.getBoundingClientRect();
+              const hiddenRow = Math.abs(segment.getBoundingClientRect().top - box.top) >= 4;
+              const wrapped = (value?.height ?? 0) > 18;
+              const leaks = hiddenRow && (caption?.top ?? box.bottom) < box.bottom - 1;
+              return wrapped || leaks;
+            }).length;
+          });
+        expect(glitches, `zawinięte albo wystające segmenty: ${label}`).toBe(0);
+      }
+    }
   });
 });
 

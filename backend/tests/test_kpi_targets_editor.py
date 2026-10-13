@@ -267,3 +267,50 @@ async def test_invalid_payloads_are_refused_in_polish(
         headers=app_auth_headers,
     )
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_withdrawn_goal_keeps_its_name_in_history_and_leaves_the_editor(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    """Cel „Nowi kandydaci dziś” wycofany 13.10.2026: stary wpis historii ma
+    nazwę zamiast surowego id, a edytor nie pokazuje i nie zapisuje tego celu."""
+    marker = f"withdrawn-{uuid.uuid4().hex[:8]}"
+    async with AsyncSessionLocal() as db:
+        db.add(
+            KpiTargetEvent(
+                scope="role",
+                role="recruiter",
+                kpi_id="daily_new_candidates",
+                action="set",
+                changes={"target_value": {"from": None, "to": 5}},
+                actor_name=marker,
+            )
+        )
+        await db.commit()
+    try:
+        history = (
+            await app_client.get(f"{URL}/history", headers=app_auth_headers)
+        ).json()["items"]
+        mine = [h for h in history if h["actor_name"] == marker]
+        assert [h["kpi_title"] for h in mine] == ["Nowi kandydaci dziś (cel wycofany)"]
+
+        matrix = (await app_client.get(URL, headers=app_auth_headers)).json()
+        assert "daily_new_candidates" not in {k["kpi_id"] for k in matrix["kpis"]}
+
+        resp = await app_client.put(
+            f"{URL}/role-default",
+            json={
+                "role": "recruiter",
+                "kpi_id": "daily_new_candidates",
+                "target_value": 5,
+            },
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 422, resp.text
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(KpiTargetEvent).where(KpiTargetEvent.actor_name == marker)
+            )
+            await db.commit()

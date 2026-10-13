@@ -32,9 +32,11 @@ Reguły, które łatwo cofnąć:
   KPI" to aliasy). Precedencja: osobisty cel → dla KAŻDEJ roli osoby wiersz
   `kpi_role_defaults` albo domyślna z katalogu → MAKSIMUM z ról
   (`services/kpi_targets.py`). Po 0346 tabela ról trzyma tylko świadome
-  odstępstwa. Liczby: placementy/mc 1, nowi kandydaci/dzień 5, weryfikacje/dzień 4,
-  precyzja 75%, rekomendacje/tydzień 15 (jedna rola od 0411). Edytora w aplikacji
-  nie ma — zmiana liczby = zmiana katalogu.
+  odstępstwa. Liczby: placementy/mc 1, weryfikacje/dzień 4, precyzja 75%,
+  rekomendacje/tydzień 15 (jedna rola od 0411). Cel „nowi kandydaci/dzień 5”
+  wycofany 13.10.2026 (decyzja Artura; `WITHDRAWN_KPI_TITLES`) — resolver nie
+  czyta już jego wierszy, sama liczba „CV do bazy” zostaje. Odstępstwa od
+  katalogu zapisuje edytor Ustawienia → Rekrutacja → Cele KPI (0356).
 - **Wyścig miesięczny (1500 zł)**: weryfikacje/dzień i precyzja czytane z celów
   KPI; minimum placementów = `insights_scoring_config.monthly_race_min_placements`
   (2, świadomie wyżej niż cel).
@@ -44,7 +46,9 @@ Reguły, które łatwo cofnąć:
   historycznych powiadomień.
 - **Cele liderów**: `GET /api/kpis/me/goals` — DL: kwartalne hit ratio (30%) i
   placementy portfela liczone tą samą funkcją co liga DL
-  (`competitions.dl_portfolio_counts`); HoR/TCM: cele zespołu (suma celów ludzi).
+  (`competitions.dl_portfolio_counts`); od 13.10.2026 cel placementów to 30%
+  rekrutacji zamkniętych w kwartale, w górę, a nie stałe 3 z ligi
+  (`ui/licznik-celow-w-gornym-pasku.md`); HoR/TCM: cele zespołu (suma celów ludzi).
   Hit ratio bez rekrutacji = `null` („niepoliczony"), nigdy 0.
   `DL_HIT_RATIO_TARGET_PCT` żyje w `metric_definitions` (jedna stała).
 - DL ma `VIEW_RECRUITMENT_RANKING`; TCM nie ma już „własnych KPI".

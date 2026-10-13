@@ -371,7 +371,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
 //   `/preview/cv-generator`,
 //   `/preview/jobs-list-v3`, `/preview/calendar-cycle`, `/preview/cv-qc`, `/preview/cv-editor`,
 //   `/preview/cpro-queue`, `/preview/candidate-followup`,
-//   `/preview/kpi-targets`, `/preview/plain-brief`, `/preview/permissions`,
+//   `/preview/kpi-targets`, `/preview/kpi-topbar`, `/preview/plain-brief`, `/preview/permissions`,
 //   `/preview/b2b-documents`, `/preview/b2b-generator`, `/preview/similar-reassign`,
 //   `/preview/job-team-panel`, `/preview/champion-workspace`, `/preview/job-ad`,
 //   `/preview/candidates-list` (publiczny przez prefiks `/preview/candidates`)
@@ -452,6 +452,8 @@ const PUBLIC_PATHS = [
   "/preview/notification-settings",
   // Okienko „Czaty” z górnego paska: ikona i lista rozmów na danych fikcyjnych.
   "/preview/chat-notifications",
+  // Licznik celów w górnym pasku: segmenty, panel po kliknięciu, replika paska.
+  "/preview/kpi-topbar",
   "/preview/calendar-cycle",
   "/preview/cv-qc",
   "/preview/cv-editor",

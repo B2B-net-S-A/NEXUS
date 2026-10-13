@@ -204,7 +204,6 @@ async def test_my_panel_interview_is_client_interview(monkeypatch) -> None:
         return {
             user.id: {
                 "monthly_precision": 75,
-                "daily_new_candidates": 0,
                 "daily_first_verifications": 4,
                 "monthly_placements": 1,
             }
@@ -213,6 +212,10 @@ async def test_my_panel_interview_is_client_interview(monkeypatch) -> None:
 
     monkeypatch.setattr(kpi_panel, "resolve_kpi_targets_bulk", _targets)
     recruiter = _user(UserRole.recruiter, 11)
+    # „CV do bazy” liczy się rekruterowi zawsze (13.10.2026: sama liczba, bez
+    # celu) — drugie zapytanie panelu, czytane przez `.mappings().one()`.
+    cv_to_base = MagicMock()
+    cv_to_base.mappings.return_value.one.return_value = {"d": 1, "w": 2, "mo": 3}
     db = AsyncMock()
     db.execute.side_effect = [
         _result(
@@ -220,7 +223,8 @@ async def test_my_panel_interview_is_client_interview(monkeypatch) -> None:
                 {"stage": "interview", "d": 5, "w": 5, "mo": 5, "r30": 0},
                 {"stage": "client_interview", "d": 1, "w": 1, "mo": 2, "r30": 0},
             ]
-        )
+        ),
+        cv_to_base,
     ]
 
     panel = await kpi_panel.compute_my_panel(
@@ -228,6 +232,12 @@ async def test_my_panel_interview_is_client_interview(monkeypatch) -> None:
     )
 
     assert panel.interview_month == 2
+    assert (panel.cv_to_base.day, panel.cv_to_base.week, panel.cv_to_base.month) == (
+        1,
+        2,
+        3,
+    )
+    assert not hasattr(panel, "target_cv_added_daily")
 
 
 @pytest.mark.asyncio

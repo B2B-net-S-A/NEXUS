@@ -231,3 +231,41 @@ def test_derive_state_behind_before_workday_starts_is_neutral():
     # expected_ratio=0.0 (przed 9:00) — nie ma sensu mówić "behind".
     # 0 akcji przy 0% expected → on_track, nie behind.
     assert derive_state(current=0, target=10, expected_ratio=0.0) == "on_track"
+
+
+# „Poniżej tempa” dopiero, gdy brakuje CAŁEJ sztuki (13.10.2026). Dzień roboczy
+# ma 510 minut (9:00–17:30), więc ratio = minuty od 9:00 / 510.
+@pytest.mark.parametrize(
+    ("current", "target", "ratio", "expected"),
+    [
+        # 9:01 i 10:00, 0 z 4: oczekiwane 0,01 i 0,47 — do tempa nie brakuje sztuki.
+        (0, 4, 1 / 510, "on_track"),
+        (0, 4, 60 / 510, "on_track"),
+        # 13:14, 1 z 4: oczekiwane 1,99 — brakuje 0,99 sztuki.
+        (1, 4, 254 / 510, "on_track"),
+        # 13:15, 1 z 4: oczekiwane 2,0 — brakuje równo jednej (granica włącznie).
+        (1, 4, 0.5, "behind"),
+        # 11:07, 0 z 4: oczekiwane 1,0.
+        (0, 4, 0.25, "behind"),
+        # 17:00, 3 z 4: oczekiwane 3,76 — brakuje 0,76.
+        (3, 4, 480 / 510, "on_track"),
+        # Cel 1 (placement miesiąca) nie ma tempa: do końca okresu on_track.
+        (0, 1, 0.5, "on_track"),
+        (0, 1, 0.99, "on_track"),
+        (2, 3, 0.99, "on_track"),
+        # Duże sumy zespołu: brakuje wielu sztuk, korytarz ±20% działa jak dotąd.
+        (41, 180, 0.3, "behind"),
+        (50, 180, 0.3, "on_track"),
+    ],
+)
+def test_derive_state_behind_needs_a_whole_missing_unit(
+    current, target, ratio, expected
+):
+    assert (
+        derive_state(current=current, target=target, expected_ratio=ratio) == expected
+    )
+
+
+def test_derive_state_goal_of_one_still_ends_as_missed_or_hit():
+    assert derive_state(current=0, target=1, expected_ratio=1.0) == "missed"
+    assert derive_state(current=1, target=1, expected_ratio=0.2) == "hit"
