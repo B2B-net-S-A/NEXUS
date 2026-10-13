@@ -45,7 +45,18 @@ osobę od Cpro per rekrutacja (0353) i kolejkę „Czeka na DZ” (0348).
   wyszukiwania (`gate_requirement(label).options`): „Bazy danych (Oracle,
   PostgreSQL)” spełnia którakolwiek z nazw. Blokujące liczy KOD;
   Luna tylko proponuje zdania z cytatem źródła (serwer odrzuca propozycję bez
-  cytatu obecnego w oryginale/notatkach), rekruter klika „Zastosuj”. Poprawki
+  cytatu obecnego w oryginale/notatkach), rekruter klika „Zastosuj”.
+  **Propozycje nie przenoszą pieniędzy do CV** (13.10.2026): model dostaje
+  notatki bez pól handlowych karty rekomendacji (`CV_HIDDEN_FIELDS`: stawka,
+  red flags, motywacja — osobny odczyt w `generate_fixes`, bo sprawdzenia QC
+  czytają notatki bez samej narodowości), a `parse_fixes` odrzuca propozycję,
+  która wnosi pieniądze spoza CV kandydata (`brings_money`): zdanie albo cytat
+  ze stawką, cytat z notatek z jakąkolwiek kwotą („160 zł/h B2B” wpisane prozą
+  nie znika przy czytaniu notatek i nie ma słowa „stawka”), kwotę, której nie
+  ma w cytacie z oryginału ani w zastępowanym punkcie. Kwota z CV kandydata
+  (wynik projektu) może zostać. Kwotę poznajemy ścisłym `_MONEY`, nie `_AMOUNT`
+  z reguł klienta — ten bierze „3 europejskich” za euro. `load_fix` stosuje tę
+  samą regułę do propozycji zapamiętanych wcześniej (stara karta zna ich id). Poprawki
   edytują szkic CV firmowego pary; CV spoza NEXUSA (Word/PDF „…B2B…”) = 409
   `CV_NOT_EDITABLE`. Okno (`CvQcDialog`): „Co sprawdza QC” z nazwami krytycznych
   i ich źródłem, „Do poprawy przed wysłaniem” (karta na wymaganie z przyciskiem

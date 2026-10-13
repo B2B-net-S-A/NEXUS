@@ -40,6 +40,7 @@ from app.services import dz_review as dz
 from app.services.ai_models import model_chain_for
 from app.services.ai_quota import ai_feature
 from app.services.cv_qc import (
+    _MONEY,
     _RATE_WORD,
     SOURCE_QUOTE_MAX,
     SOURCE_QUOTE_MIN_WORDS,
@@ -107,16 +108,6 @@ _MONTHS: tuple[tuple[tuple[str, ...], re.Pattern[str], str], ...] = tuple(
 # „500 000”, „500,000”, „500.000” — ta sama liczba w trzech zapisach.
 _THOUSANDS = re.compile(r"(?<!\d)\d{1,3}(?:[ .,]\d{3})+(?!\d)")
 _YEAR = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
-# Kwota pieniędzy. Ściślej niż wzorzec kwoty w QC, który bierze „3 europejskich”
-# i „5 złożonych” za euro i złote: tam decyduje dopiero słowo „stawka” obok,
-# tu kwota sama odrzuca cytat albo propozycję.
-_MONEY = re.compile(
-    r"\d[\d\s.,]*\s*(?:(?:tys|mln)\b\.?\s*|k\s*)?(?:zł|zl|pln|euro|eur|usd|€|\$)(?!\w)"
-    r"(?:\s*/\s*(?:h|godz|md|dzie[nń]|mies)\w*)?"
-    r"|[€$]\s*\d[\d\s.,]*\d|[€$]\s*\d"
-    r"|\d[\d\s.,]*\s*/\s*(?:h|godz|md)\b",
-    re.IGNORECASE,
-)
 # Zdanie o pieniądzach kandydata także bez słowa „stawka” („150 netto na B2B”).
 _PAY_WORD = re.compile(r"\b(?:netto|brutto)\b", re.IGNORECASE)
 
