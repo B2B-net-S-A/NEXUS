@@ -90,9 +90,11 @@ export const DlSendPill = forwardRef<HTMLButtonElement, DlSendPillProps>(functio
       {...props}
     >
       <Send className="h-3.5 w-3.5" aria-hidden />
-      {/* Pełna etykieta dopiero na szerokim ekranie: przy 1280 px z przypiętym
-          menu pasek mieści już okruszki, wyszukiwarkę, KPI i pięć ikon. */}
-      <span className="hidden 2xl:inline">Do wysłania ·</span>
+      {/* Pełna etykieta dopiero od 1680 px. Zmierzone 13.10.2026 na replice
+          paska (`/preview/kpi-topbar`): przy 1536 px z przypiętym menu, długimi
+          okruszkami i pigułką „Rozmowy” etykieta przelewała pasek o 6 px. Niżej
+          zostaje ikona z liczbą. */}
+      <span className="hidden min-[1680px]:inline">Do wysłania ·</span>
       <span>{countLabel(total)}</span>
     </button>
   );
