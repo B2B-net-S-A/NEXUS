@@ -21,8 +21,9 @@ export function nameFieldErrors(error: unknown): NameFieldErrors | null {
     const loc = (item as { loc?: unknown } | null)?.loc;
     const msg = (item as { msg?: unknown } | null)?.msg;
     if (!Array.isArray(loc) || loc[0] !== "body" || typeof msg !== "string") continue;
-    const field = loc[loc.length - 1];
-    if (field === "name" || field === "lastname") out[field] = msg;
+    const field: unknown = loc[loc.length - 1];
+    if (field === "name") out.name = msg;
+    else if (field === "lastname") out.lastname = msg;
   }
   return out.name || out.lastname ? out : null;
 }
