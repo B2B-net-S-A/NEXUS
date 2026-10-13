@@ -627,3 +627,60 @@ describe("enterRequirements — każda grupa to osobny wiersz", () => {
     });
   });
 });
+
+describe("wariant A (13.10.2026): odczyt słów wiersza", () => {
+  const rows = [
+    { key: "a", words: ["Azure"], level: "must" as const },
+    { key: "b", words: ["doświadczenie w przetargach", "przetarg*"], level: "must" as const },
+  ];
+  const prose = {
+    text: "doświadczenie w przetargach",
+    kind: "prose" as const,
+    keyword: null,
+    comment: null,
+    talk: "skills" as const,
+    talk_text: "doświadczenie w przetargach",
+    suggestions: ["przetarg*"],
+    needs_decision: true,
+  };
+
+  it("rowCriticalInfo niesie odczyt słów w kolejności wierszy", async () => {
+    const { rowCriticalInfo, rowDecision, rowsNeedingDecision } = await import(
+      "@/lib/requirement-rows"
+    );
+    const info = rowCriticalInfo(rows, {
+      labels: ["Azure", "doświadczenie w przetargach"],
+      eligible: ["Azure"],
+      suggested: [],
+      stats: {},
+      readings: [[], [prose, { ...prose, text: "przetarg*", kind: "keyword", needs_decision: false }]],
+    });
+    expect(rowDecision(info.a)).toBeNull();
+    expect(rowDecision(info.b)?.text).toBe("doświadczenie w przetargach");
+    expect(rowsNeedingDecision(rows, info)).toEqual(["b"]);
+    // Bez odpowiedzi serwera nie zgadujemy.
+    expect(rowsNeedingDecision(rows, null)).toEqual([]);
+  });
+
+  it("replaceRowWord podmienia słowo, a wiersz bez słów znika", async () => {
+    const { replaceRowWord } = await import("@/lib/requirement-rows");
+    expect(replaceRowWord(rows, "b", "doświadczenie w przetargach", [])).toEqual([
+      rows[0],
+      { ...rows[1], words: ["przetarg*"] },
+    ]);
+    expect(replaceRowWord(rows, "a", "azure", [])).toEqual([rows[1]]);
+    // Podpowiedź równa słowu, które już jest, nie dubluje go.
+    expect(
+      replaceRowWord(rows, "b", "doświadczenie w przetargach", ["przetarg*"])[1].words,
+    ).toEqual(["przetarg*"]);
+  });
+
+  it("ostrzeżenie o krytycznych tylko poniżej 20 osób", async () => {
+    const { criticalReachWarning } = await import("@/lib/requirement-rows");
+    expect(criticalReachWarning(undefined)).toBeNull();
+    expect(criticalReachWarning(20)).toBeNull();
+    expect(criticalReachWarning(0)).toContain("nie zostawiają nikogo");
+    expect(criticalReachWarning(1)).toContain("1 osobę");
+    expect(criticalReachWarning(9)).toContain("9 osób");
+  });
+});

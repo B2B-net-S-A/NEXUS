@@ -3,7 +3,10 @@
 /**
  * Harness `/preview/new-job` — strona „Nowa rekrutacja” na danych fikcyjnych.
  *
- * `?state=request|noclient|resume|manual|attempted|review|gaps|offers|champion|servererror|portals|shadow|passive|off`.
+ * `?state=request|noclient|resume|manual|attempted|review|gaps|offers|champion|servererror|portals|shadow|passive|off|readings`.
+ * `readings` (13.10.2026, wariant A) = zdanie w wymaganiach czekające na decyzję
+ * („przetarg*” · „Do rozmowy”), technologia z komentarzem w nawiasie
+ * („Rozdziel teraz”) i panel „Rekruter sprawdza w rozmowie”.
  * Zero zapytań: klucze klientów, rekruterów, konfiguracji portali i słownika
  * RocketJobs są zasiane w cache (patrz `app/preview/__tests__`), kategorie,
  * wiedza o wierszach wymagań i lista rekrutacji-szablonów przychodzą w stanie
@@ -231,7 +234,83 @@ const REQUEST_FILES: NonNullable<NewJobPagePreview["files"]> = {
   ],
 };
 
+// Wariant A (13.10.2026): zdanie w wymaganiach czeka na decyzję, technologia
+// z komentarzem w nawiasie da się rozdzielić — odczyt jak z `critical-suggestion`.
+const READING_ROWS: RequirementRowForm[] = [
+  ...ROWS.filter((row) => row.level !== "nice"),
+  { key: "r-tender", words: ["doświadczenie w przetargach"], level: "must" },
+  { key: "r-sql", words: ["SQL (bardzo dobra znajomość)"], level: "must" },
+  ...ROWS.filter((row) => row.level === "nice"),
+];
+
+const READING = {
+  keyword: null,
+  comment: null,
+  talk: null,
+  talk_text: null,
+  suggestions: [],
+  needs_decision: false,
+};
+
+const READINGS_INFO: RowCriticalState = {
+  ...CRITICAL_INFO,
+  info: {
+    ...CRITICAL_INFO.info,
+    "r-tender": {
+      label: "doświadczenie w przetargach",
+      eligible: false,
+      suggested: false,
+      readings: [
+        {
+          ...READING,
+          text: "doświadczenie w przetargach",
+          kind: "prose",
+          talk: "skills",
+          talk_text: "doświadczenie w przetargach",
+          suggestions: ["przetarg*", "PZP", "SIWZ"],
+          needs_decision: true,
+        },
+      ],
+    },
+    "r-sql": {
+      label: "SQL (bardzo dobra znajomość)",
+      eligible: false,
+      suggested: false,
+      readings: [
+        {
+          ...READING,
+          text: "SQL (bardzo dobra znajomość)",
+          kind: "technology",
+          keyword: "SQL",
+          comment: "bardzo dobra znajomość",
+          talk: "skills",
+          talk_text: "SQL — bardzo dobra znajomość",
+        },
+      ],
+    },
+  },
+};
+
 const STATES: Record<string, NewJobPagePreview> = {
+  readings: {
+    client: CLIENT,
+    source: "text",
+    requestText: REQUEST,
+    form: {
+      ...FULL_FORM,
+      rows: READING_ROWS,
+      language: "polski",
+      experience: {
+        ...FULL_FORM.experience,
+        skills: [
+          { name: "komunikacja z klientem biznesowym", level: "nice", min_years: null, note: "" },
+        ],
+      },
+    },
+    evidence: EVIDENCE,
+    categories: CATEGORIES,
+    criticalInfo: READINGS_INFO,
+  },
   request: {
     step: "request",
     client: CLIENT,

@@ -20,6 +20,7 @@ import { sanitizeKeyword } from "@/lib/keyword-requirements";
 import {
   criticalDecision,
   criticalDecisionMissing,
+  rowsNeedingDecision,
   mustHeads,
   niceHeads,
   rowsFromStored,
@@ -635,6 +636,7 @@ export type MissingCode =
   | "context"
   | "questions"
   | "critical"
+  | "decision"
   | "deal_breaker"
   | "questions_review"
   | "category"
@@ -652,6 +654,7 @@ export const MISSING_LABEL: Record<MissingCode, string> = {
   context: "opis projektu",
   questions: "drugie pytanie do kandydata",
   critical: "krytyczne (albo „Brak krytycznych”)",
+  decision: "decyzja przy zdaniach: słowa do szukania czy rozmowa",
   deal_breaker: "odpowiedź, która odpada, przy każdym pytaniu",
   questions_review: "zatwierdzenie pytań",
   category: "potwierdzenie kategorii",
@@ -682,6 +685,7 @@ export const MISSING_SECTION: Record<MissingCode, FormSection> = {
   role: "name",
   must: "requirements",
   critical: "requirements",
+  decision: "requirements",
   budget: "terms",
   work_mode: "terms",
   office_days: "terms",
@@ -814,6 +818,8 @@ export function missingFor(
   if (mustOf(form).length === 0) missing.push("must");
   else if (criticalDecisionMissing(form.rows, form.noCritical, opts.criticalInfo))
     missing.push("critical");
+  // Wariant A (13.10.2026): zdanie nie zostaje słowem do szukania bez decyzji.
+  if (rowsNeedingDecision(form.rows, opts.criticalInfo).length > 0) missing.push("decision");
   if (parseBudget(form.rateBudget) == null || budgetRangeError(form) != null)
     missing.push("budget");
   if (!form.remotePolicy) {

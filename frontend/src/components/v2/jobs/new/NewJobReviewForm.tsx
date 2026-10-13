@@ -31,10 +31,10 @@ import { HiringManagerCombobox } from "@/components/jobs/HiringManagerCombobox";
 import { OfficeDaysField } from "@/components/jobs/OfficeDaysField";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { ChampionExperienceFields } from "@/components/champion/ChampionExperienceFields";
 import { RequirementRowsEditor } from "@/components/champion/RequirementRowsEditor";
-import { hasExperience } from "@/lib/champion-experience";
-import type { RowCriticalState } from "@/lib/requirement-rows";
+import { TalkChecksPanel } from "@/components/champion/TalkChecksPanel";
+import { addTalkItem, joinLanguage } from "@/lib/champion-experience";
+import type { RowCriticalState, TalkItem } from "@/lib/requirement-rows";
 import type { IntakeOffer, IntakeUnit } from "@/lib/job-intake-fill";
 import { IntakeOfferChip } from "./IntakeOfferChip";
 import {
@@ -580,6 +580,8 @@ interface NewJobReviewFormProps {
   countEnabled?: boolean;
   /** Co serwer wie o wierszach wymagań (`useRowCriticalInfo`). */
   criticalInfo: RowCriticalState;
+  /** Ile osób zostawiają krytyczne razem — „Utwórz” pyta poniżej 20 (D2). */
+  onCriticalCountChange?: (count: number | null | undefined) => void;
   /** Sekcja 6 „Kategoria i zespół” (`NewJobTeamStep`) — stoi przed „Dodatkowe”. */
   team?: ReactNode;
   /**
@@ -629,6 +631,7 @@ function ReviewSections({
   clientId,
   countEnabled = true,
   criticalInfo,
+  onCriticalCountChange,
   team,
   clientTitleError = null,
 }: ReviewSectionsProps) {
@@ -797,7 +800,26 @@ function ReviewSections({
             invalid={isMissing("must")}
             criticalMissing={isMissing("critical")}
             countEnabled={countEnabled}
+            onMoveToTalk={(item: TalkItem) =>
+              onChange((f) =>
+                item.kind === "language"
+                  ? { ...f, language: joinLanguage(f.language, item.name) }
+                  : {
+                      ...f,
+                      experience: {
+                        ...f.experience,
+                        [item.kind]: addTalkItem(f.experience[item.kind] ?? [], item.name, item.level),
+                      },
+                    },
+              )
+            }
+            onCriticalCountChange={onCriticalCountChange}
           />
+          {isMissing("decision") ? (
+            <span className="text-xs font-medium text-warning-muted-foreground">
+              Zdecyduj przy zdaniach: słowa do szukania czy „Do rozmowy”.
+            </span>
+          ) : null}
           {/* Audyt 06.10.2026 (N3): co kod zmienił w odczycie i czego nie
               zmieścił — na wierzchu, nie w zwiniętych zdaniach klienta. */}
           {form.intakeNotes.length > 0 || form.droppedRequirements.length > 0 ? (
@@ -815,6 +837,16 @@ function ReviewSections({
               ) : null}
             </ul>
           ) : null}
+          {basis("experience") ? (
+            <div className="flex justify-end">
+              <ProvenanceChip basis={basis("experience")} />
+            </div>
+          ) : null}
+          <TalkChecksPanel
+            value={form.experience}
+            onChange={(experience) => set("experience", experience, "experience")}
+            language={form.language}
+          />
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
@@ -1385,7 +1417,6 @@ function AdditionalSection({ form, onChange }: { form: IntakeForm; onChange: For
     form.targetCompanies.trim() ? "firmy docelowe" : null,
     form.disqualifiers.length > 0 ? `kogo odrzucamy od razu (${form.disqualifiers.length})` : null,
     form.askClient.length > 0 ? `do dopytania u klienta (${form.askClient.length})` : null,
-    hasExperience(form.experience) ? "dziedziny, certyfikaty i regulacje" : null,
   ].filter(Boolean);
 
   return (
@@ -1414,22 +1445,11 @@ function AdditionalSection({ form, onChange }: { form: IntakeForm; onChange: For
         <span className="text-xs text-muted-foreground">
           {summary.length > 0
             ? summary.join(" · ")
-            : "firmy docelowe · kogo odrzucamy od razu · do dopytania u klienta · certyfikaty i regulacje"}
+            : "firmy docelowe · kogo odrzucamy od razu · do dopytania u klienta"}
         </span>
       </button>
 
       <div id={ids.body} hidden={!open} className={cn(open && "flex flex-col gap-5")}>
-        <div className="flex flex-col gap-2">
-          <FieldLabel basis={basis("experience")} hint="dziedzina, certyfikaty, regulacje">
-            Doświadczenie poza słowami kluczowymi
-          </FieldLabel>
-          <ChampionExperienceFields
-            value={form.experience}
-            onChange={(experience) => set("experience", experience, "experience")}
-            showNotes={false}
-          />
-        </div>
-
         <div className="flex flex-col gap-2">
           <FieldLabel
             htmlFor={ids.companies}

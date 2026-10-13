@@ -17,11 +17,13 @@ import type {
   ExperienceLevel,
 } from "@/lib/api";
 
+// „Doświadczenie i umiejętności” na początku — to główna lista „Rekruter
+// sprawdza w rozmowie” (13.10.2026); kolejność widać też w screeningu.
 export const EXPERIENCE_KINDS: readonly ExperienceKind[] = [
+  "skills",
   "domains",
   "certifications",
   "regulations",
-  "skills",
 ];
 
 /** Rodzaje, dla których szukamy śladu w CV (plakietki w wynikach). */
@@ -113,6 +115,28 @@ export function addExperienceItems(
     next.push({ name: name.slice(0, 160), level, min_years: null, note: "" });
   }
   return next;
+}
+
+/**
+ * Jedna pozycja „do rozmowy” (zdanie z wiersza wymagań) — bez dzielenia po
+ * przecinkach: „Software Developer, Data Engineer (min. 3 lata)” to jedno zdanie.
+ */
+export function addTalkItem(
+  items: readonly ExperienceItem[],
+  name: string,
+  level: ExperienceLevel = "must",
+): ExperienceItem[] {
+  const clean = name.trim().replace(/\s+/g, " ").slice(0, 160);
+  if (!clean || items.some((i) => i.name.toLowerCase() === clean.toLowerCase())) return [...items];
+  return [...items, { name: clean, level, min_years: null, note: "" }];
+}
+
+/** Język pracy z dopisanym wymaganiem („polski” + „angielski B2”), bez powtórek. */
+export function joinLanguage(current: string, text: string): string {
+  const base = current.trim();
+  const add = text.trim();
+  if (!add || base.toLowerCase().includes(add.toLowerCase())) return base;
+  return base ? `${base}, ${add}` : add;
 }
 
 /** Plakietka z `/api/search/candidates/scores` (`breakdown.experience`). */

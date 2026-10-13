@@ -273,7 +273,7 @@ export function ChampionBriefView({
             </div>
             {experienceCount > 0 ? (
               <div className="space-y-1.5">
-                <Eyebrow>Doświadczenie poza stackiem</Eyebrow>
+                <Eyebrow>Rekruter sprawdza w rozmowie</Eyebrow>
                 <ExperienceChips experience={profile.experience} />
               </div>
             ) : null}
