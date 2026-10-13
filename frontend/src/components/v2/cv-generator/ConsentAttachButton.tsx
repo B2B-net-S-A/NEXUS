@@ -65,7 +65,6 @@ export function ConsentAttachButton({ generatedId, stageCopy, hasConsent, onAtta
         return;
       }
       void queryClient.invalidateQueries({ queryKey: ["cv-generated"] });
-      void queryClient.invalidateQueries({ queryKey: ["cv-my-list"] });
       void queryClient.invalidateQueries({ queryKey: ["cv-result"] });
       void queryClient.invalidateQueries({ queryKey: ["cv-package"] });
       toast.showSuccess(hasConsent ? "Wymieniono zrzut zgody — CV przerysowane." : "Dołączono zrzut zgody — CV można pobrać.");

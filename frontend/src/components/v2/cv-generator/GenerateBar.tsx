@@ -18,8 +18,8 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 
 export interface ClientRulesCardProps {
   clientName: string | null;
-  /** Skąd klient: z procesu albo wybrany ręcznie. */
-  clientSource: "process" | "manual" | null;
+  /** Skąd klient — od 13.10.2026 zawsze z procesu (bez „Inny klient”). */
+  clientSource: "process" | null;
   loading: boolean;
   error: boolean;
   languageLabel: string;
@@ -110,7 +110,7 @@ export interface GenerateBarProps {
   missing: readonly string[];
   pending: boolean;
   onGenerate: () => void;
-  /** Co się stanie z wynikiem (proces / lista Moje CV). */
+  /** Co się stanie z wynikiem (trafi do procesu). */
   hint: string;
   readOnly?: boolean;
 }

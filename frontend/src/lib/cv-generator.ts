@@ -269,20 +269,26 @@ export async function extractErrorDetail(err: unknown): Promise<string> {
   return messageFromBody(status, data);
 }
 
-/** Sufit `q` w `GET /api/cv-generator/candidates` (`max_length=120`). */
-export const CANDIDATE_SEARCH_MAX_LENGTH = 120;
-
 /**
- * Komunikat pola wyszukiwania kandydata albo `null`. Za długie zapytanie
- * kończyło się 422, które combobox pokazywał jako „Brak wyników" — czyli
- * jako fakt o bazie, a nie jako błąd wpisu.
+ * Dokąd prowadzi stary adres `/cv-generator`. Od 13.10.2026 CV powstaje
+ * wyłącznie w rekrutacji (decyzja Artura), więc link z osobą i rekrutacją
+ * otwiera tę osobę w rekrutacji, z samą osobą — jej profil, a każdy inny
+ * listę rekrutacji. Parametry spoza dodatnich liczb całkowitych są ignorowane.
  */
-export function candidateSearchMessage(query: string, error: unknown): string | null {
-  if (query.trim().length > CANDIDATE_SEARCH_MAX_LENGTH) {
-    return `Wpisz najwyżej ${CANDIDATE_SEARCH_MAX_LENGTH} znaków — skróć wyszukiwaną frazę.`;
-  }
-  if (!error) return null;
-  return apiErrorMessage(error, "Nie udało się wyszukać kandydatów — spróbuj ponownie.");
+export function legacyCvGeneratorHref(
+  params: Record<string, string | string[] | undefined>,
+): string {
+  const positiveId = (key: string): number | null => {
+    const raw = params[key];
+    const value = Array.isArray(raw) ? raw[0] : raw;
+    if (!value || !/^[1-9]\d*$/.test(value)) return null;
+    const id = Number(value);
+    return Number.isSafeInteger(id) ? id : null;
+  };
+  const candidateId = positiveId("candidate_id");
+  if (candidateId == null) return "/jobs";
+  const jobId = positiveId("job_id");
+  return jobId == null ? `/candidates/${candidateId}` : `/jobs/${jobId}?candidate=${candidateId}`;
 }
 
 /** Pola reguły klienta, od których zależą wymagane wejścia generacji. */
