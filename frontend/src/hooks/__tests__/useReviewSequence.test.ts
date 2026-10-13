@@ -74,6 +74,22 @@ describe("useReviewSequence — przegląd po kolei", () => {
     expect(result.current.current?.id).toBe(3);
   });
 
+  it("„Pomiń” idzie dalej jak decyzja, ale liczy pominiętych — oni dalej czekają", () => {
+    const live = rows(1, 2, 3);
+    const { result } = renderHook(() => useReviewSequence(live, idOf));
+    act(() => result.current.start(live));
+    act(() => result.current.skip());
+    expect(result.current.current?.id).toBe(2);
+    expect(result.current.skipped).toBe(1);
+    act(() => result.current.advance());
+    act(() => result.current.skip());
+    expect(result.current.current).toBeNull();
+    expect(result.current.skipped).toBe(2);
+    // Nowa kolejka zaczyna licznik od zera.
+    act(() => result.current.start(live));
+    expect(result.current.skipped).toBe(0);
+  });
+
   it("dane bieżącej osoby pochodzą z żywej listy", () => {
     let live = rows(1, 2);
     const { result, rerender } = renderHook(() => useReviewSequence(live, idOf));

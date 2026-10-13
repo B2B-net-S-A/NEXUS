@@ -22,14 +22,20 @@ export interface ReviewSequence<T> {
   total: number;
   /** Start od pierwszej osoby listy (albo od `startId`, gdy jest na liście). */
   start: (items: readonly T[], startId?: number) => void;
-  /** Bieżąca osoba załatwiona (decyzja albo „Pomiń”) — następna. */
+  /** Bieżąca osoba załatwiona decyzją — następna. */
   advance: () => void;
+  /** „Pomiń”: następna osoba, a pominięta DALEJ czeka w kolejce na serwerze —
+   *  komunikat na koniec nie może mówić, że nikt już nie czeka. */
+  skip: () => void;
+  /** Ile osób pominięto w tej kolejce. */
+  skipped: number;
   finish: () => void;
 }
 
 interface State {
   order: number[];
   done: ReadonlySet<number>;
+  skipped: number;
 }
 
 export function useReviewSequence<T>(
@@ -54,16 +60,25 @@ export function useReviewSequence<T>(
       const ids = items.map(idOf);
       const from = startId === undefined ? 0 : Math.max(ids.indexOf(startId), 0);
       // Start od wskazanej osoby; wcześniejsze idą na koniec, nie przepadają.
-      setState({ order: [...ids.slice(from), ...ids.slice(0, from)], done: new Set() });
+      setState({ order: [...ids.slice(from), ...ids.slice(0, from)], done: new Set(), skipped: 0 });
     },
     [idOf],
   );
 
   const currentId = current === null ? null : idOf(current);
-  const advance = useCallback(() => {
-    if (currentId === null) return;
-    setState((prev) => (prev ? { ...prev, done: new Set(prev.done).add(currentId) } : prev));
-  }, [currentId]);
+  const leave = useCallback(
+    (skippedNow: number) => {
+      if (currentId === null) return;
+      setState((prev) =>
+        prev
+          ? { ...prev, done: new Set(prev.done).add(currentId), skipped: prev.skipped + skippedNow }
+          : prev,
+      );
+    },
+    [currentId],
+  );
+  const advance = useCallback(() => leave(0), [leave]);
+  const skip = useCallback(() => leave(1), [leave]);
 
   const finish = useCallback(() => setState(null), []);
 
@@ -74,6 +89,8 @@ export function useReviewSequence<T>(
     total: state?.order.length ?? 0,
     start,
     advance,
+    skip,
+    skipped: state?.skipped ?? 0,
     finish,
   };
 }

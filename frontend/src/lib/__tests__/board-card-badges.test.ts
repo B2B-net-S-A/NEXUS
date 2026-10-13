@@ -6,8 +6,10 @@ import {
   cardBadges,
   cardNextStep,
   claimAction,
+  dlSendQueue,
   formatClientRate,
   hoursLeft,
+  isReadyForDlSend,
   knownForwardGap,
   qcChip,
   type CardBadgeContext,
@@ -261,6 +263,128 @@ describe("Rekrutacja v5: chip QC, znany brak i „kto ma ruch”", () => {
         viewerId: 7,
       })?.who,
     ).toBe("Delivery");
+  });
+});
+
+describe("„Do wysłania do klienta” — Delivery Lead tej rekrutacji (13.10.2026)", () => {
+  // NOW = 23.09.2026 12:00 w Warszawie (czas letni, UTC+2).
+  const action = { label: "Popraw CV / wyślij", owner: "recruiter", kind: "cv" };
+  const ready = item({ stage: "interview", days_in_stage: 1, qc: { status: "passed", blocking_failed: 0 } });
+  const owner = { column: "cv_qc" as const, cproEnabled: false, viewerOwnsDlReview: true };
+
+  it("gotowa do wysłania jest karta w „QC CV” poza Cpro, z QC zaliczonym albo przepuszczonym", () => {
+    expect(isReadyForDlSend(ready, "cv_qc", false)).toBe(true);
+    expect(isReadyForDlSend(item({ qc: { status: "overridden", blocking_failed: 2 } }), "cv_qc", false)).toBe(true);
+    expect(isReadyForDlSend(item({ qc: { status: "failed", blocking_failed: 1 } }), "cv_qc", false)).toBe(false);
+    expect(isReadyForDlSend(item({ qc: { status: "unchecked", blocking_failed: 0 } }), "cv_qc", false)).toBe(false);
+    expect(isReadyForDlSend(item({}), "cv_qc", false)).toBe(false);
+    expect(isReadyForDlSend(ready, "cv_qc", true)).toBe(false);
+    expect(isReadyForDlSend(ready, "verified", false)).toBe(false);
+    expect(isReadyForDlSend(ready, null, false)).toBe(false);
+  });
+
+  it("właściciel przeglądu ma „Twój ruch” i „Czeka na Ciebie”; pozostali dalej „DL” i „Czeka na DL”", () => {
+    expect(cardNextStep(action, ready, owner)).toEqual({
+      who: MY_MOVE_LABEL,
+      mine: true,
+      label: "Przegląd CV i wysłanie do klienta",
+    });
+    const mine = cardBadges(ready, ctx({ column: "cv_qc", viewerOwnsDlReview: true }));
+    expect(mine).toEqual([
+      {
+        key: "dl_review",
+        label: "Czeka na Ciebie · 1 dzień",
+        tone: "wait",
+        title: "Przejrzyj CV, wpisz stawkę do klienta i wyślij.",
+      },
+    ]);
+    // Inny Delivery Lead, admin i rekruter — bez zmian.
+    expect(cardNextStep(action, ready, { column: "cv_qc", cproEnabled: false })).toEqual({
+      who: "DL",
+      mine: false,
+      label: "Przegląd CV i wysłanie do klienta",
+    });
+    expect(cardNextStep(action, ready, { ...owner, viewerOwnsDlReview: false })?.who).toBe("DL");
+    expect(cardBadges(ready, ctx({ column: "cv_qc" }))).toEqual([
+      {
+        key: "dl_review",
+        label: "Czeka na DL · 1 dzień",
+        tone: "wait",
+        title: "Delivery Lead przegląda CV i wpisuje stawkę do klienta przed wysłaniem.",
+      },
+    ]);
+  });
+
+  it("własność przeglądu nie zabiera ruchu rekruterowi ani kolejce Cpro", () => {
+    const failed = item({ qc: { status: "failed", blocking_failed: 1 } });
+    expect(cardNextStep(action, failed, owner)).toMatchObject({ who: "Twój ruch", label: "Popraw CV wg QC" });
+    expect(cardNextStep(action, item({}), owner)).toMatchObject({ label: "Sprawdź QC CV" });
+    expect(cardNextStep(action, ready, { ...owner, cproEnabled: true })?.label).toBe("Przekaż do Cpro");
+    expect(labels(failed, ctx({ column: "cv_qc", viewerOwnsDlReview: true }))).toEqual([]);
+    expect(labels(ready, ctx({ column: "cv_qc", cproEnabled: true, viewerOwnsDlReview: true }))).toEqual([]);
+  });
+
+  it("dni liczą się od gotowości: późniejsze z wejścia do kolumny i zaliczenia QC", () => {
+    const waited = (extra: Partial<KanbanItem>, viewerOwnsDlReview = true) =>
+      labels(item({ stage: "interview", days_in_stage: 5, ...extra }), ctx({ column: "cv_qc", viewerOwnsDlReview }));
+    // W kolumnie od 5 dni, QC zaliczone przedwczoraj — czeka 2 dni, nie 5.
+    const lateQc = {
+      moved_at: "2026-09-18T08:00:00Z",
+      qc: { status: "passed" as const, blocking_failed: 0, ok_at: "2026-09-21T15:00:00Z" },
+    };
+    expect(waited(lateQc)).toEqual(["Czeka na Ciebie · 2 dni"]);
+    expect(waited(lateQc, false)).toEqual(["Czeka na DL · 2 dni"]);
+    // QC zaliczone wcześniej niż wejście do kolumny (karta wróciła po poprawkach).
+    expect(
+      waited({
+        moved_at: "2026-09-22T08:00:00Z",
+        qc: { status: "overridden", blocking_failed: 1, ok_at: "2026-09-19T08:00:00Z" },
+      }),
+    ).toEqual(["Czeka na Ciebie · 1 dzień"]);
+    // Dni kalendarzowe w Warszawie: 22.09 23:30 to „wczoraj”, 23.09 00:30 — „dziś”
+    // (oba zapisy mają w UTC datę 22.09).
+    expect(
+      waited({
+        moved_at: "2026-09-18T08:00:00Z",
+        qc: { status: "passed", blocking_failed: 0, ok_at: "2026-09-22T21:30:00Z" },
+      }),
+    ).toEqual(["Czeka na Ciebie · 1 dzień"]);
+    expect(
+      waited({
+        moved_at: "2026-09-18T08:00:00Z",
+        qc: { status: "passed", blocking_failed: 0, ok_at: "2026-09-22T22:30:00Z" },
+      }),
+    ).toEqual(["Czeka na Ciebie · dziś"]);
+    // Bez którejś z dat (starszy serwer) zostają dni na etapie.
+    expect(waited({ moved_at: "2026-09-18T08:00:00Z", qc: { status: "passed", blocking_failed: 0 } })).toEqual([
+      "Czeka na Ciebie · 5 dni",
+    ]);
+    expect(
+      waited({ qc: { status: "passed", blocking_failed: 0, ok_at: "2026-09-21T15:00:00Z" } }),
+    ).toEqual(["Czeka na Ciebie · 5 dni"]);
+    expect(
+      waited({ moved_at: "2026-09-18T08:00:00Z", qc: { status: "passed", blocking_failed: 0, ok_at: null } }),
+    ).toEqual(["Czeka na Ciebie · 5 dni"]);
+  });
+
+  it("kolejka „po kolei”: tylko gotowe karty, najdłużej czekające pierwsze", () => {
+    const passed = (id: number, extra: Partial<KanbanItem>) =>
+      item({ id, candidate_id: id, qc: { status: "passed", blocking_failed: 0 }, ...extra });
+    const cards = [
+      passed(1, { moved_at: "2026-09-22T08:00:00Z", qc: { status: "passed", blocking_failed: 0, ok_at: "2026-09-22T09:00:00Z" } }),
+      // W kolumnie najdłużej, ale QC zaliczone dopiero dziś — idzie na koniec.
+      passed(2, { moved_at: "2026-09-10T08:00:00Z", qc: { status: "passed", blocking_failed: 0, ok_at: "2026-09-23T08:00:00Z" } }),
+      item({ id: 3, candidate_id: 3, qc: { status: "failed", blocking_failed: 1 } }),
+      passed(4, { moved_at: "2026-09-20T08:00:00Z", qc: { status: "overridden", blocking_failed: 1, ok_at: "2026-09-20T09:00:00Z" } }),
+      // Bez dat: miejsce według dni na etapie (3 dni temu).
+      passed(5, { days_in_stage: 3 }),
+      item({ id: 6, candidate_id: 6 }),
+    ];
+    const before = cards.map((c) => c.id);
+    expect(dlSendQueue(cards, false, NOW).map((c) => c.id)).toEqual([4, 5, 1, 2]);
+    // Lista z tablicy zostaje w swojej kolejności.
+    expect(cards.map((c) => c.id)).toEqual(before);
+    expect(dlSendQueue(cards, true, NOW)).toEqual([]);
   });
 });
 

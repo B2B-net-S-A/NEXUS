@@ -118,6 +118,8 @@ import {
  type QcChipTone,
  compactCardBadge,
  cardShortName,
+ dlSendQueue,
+ isReadyForDlSend,
  shortStepLabel,
 } from "@/lib/board-card-badges";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -171,6 +173,7 @@ import {
 import { useClientPlaybook } from "@/lib/client-playbooks";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 import { useJobPipelineTemplate } from "@/hooks/useJobPipelineTemplate";
+import { useReviewSequence } from "@/hooks/useReviewSequence";
 import {
  kanbanViewToggleVisible,
  resolveKanbanViewMode,
@@ -239,6 +242,11 @@ interface KanbanBoardV2Props {
  /** Nordea (`job.cpro_enabled`): „CV wysłane" = „Wysłane do Cpro", znacznik
   *  „W kolejce Cpro" w kolumnie „QC CV". */
  cproEnabled?: boolean;
+ /** Przegląd przed wysłaniem do klienta w tej rekrutacji NALEŻY do patrzącego
+  *  (serwer: `viewer_owns_dl_review` — Delivery Lead rekrutacji, a bez niego
+  *  portfel klienta). Nie mylić z prawem wysyłki (`recruitment_manage`), które
+  *  ma admin i każdy DL: ono daje przycisk, to — „Czeka na Ciebie”. */
+ viewerOwnsDlReview?: boolean;
  /**
   * Pasek nad tablicą (02.10.2026: kafle „Kandydaci do dodania”). Dostaje
   * przełącznik widoku tablicy — widoczny tylko przy bardzo szerokim szablonie.
@@ -702,8 +710,17 @@ interface BoardV4Ctx {
  onAdvance: (item: KanbanItem) => void;
  /** Chip QC — okno QC CV. */
  onOpenQc: (item: KanbanItem) => void;
+ /** Patrzący MOŻE wysłać CV do klienta (`recruitment_manage`). */
+ canReviewAsDl: boolean;
+ /** Przegląd tej rekrutacji NALEŻY do patrzącego (serwer). */
+ viewerOwnsDlReview: boolean;
+ /** „Przejrzyj i wyślij” — przegląd przed wysłaniem do klienta. */
+ onReviewSend: (item: KanbanItem) => void;
 }
 const BoardV4Context = React.createContext<BoardV4Ctx | null>(null);
+
+/** Klucz osoby w kolejce przeglądu „po kolei” (stała funkcja — zależność haka). */
+const candidateIdOf = (item: KanbanItem): number => item.candidate_id;
 
 /** PR 6 (04.10.2026): zamiast nowej karty z kalendarzem — co zrobić w panelu. */
 export const SLOTS_BY_OTHERS_MESSAGE =
@@ -735,6 +752,7 @@ function CardV4Badges({
   viewerId: v4.viewerId,
   now: new Date(),
   stageBadge,
+  viewerOwnsDlReview: v4.viewerOwnsDlReview,
  };
  const badges = cardBadges(item, ctx);
  const action = v4.readOnly ? null : claimAction(item, ctx);
@@ -823,9 +841,15 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  const v5 = React.useContext(BoardV4Context);
  const boardKey = v5?.columnByItemId.get(item.id) ?? null;
  const nextStep = v5
- ? cardNextStep(nextAction, item, { column: boardKey, cproEnabled: v5.cproEnabled, stageBadge, viewerId: v5.viewerId })
+ ? cardNextStep(nextAction, item, { column: boardKey, cproEnabled: v5.cproEnabled, stageBadge, viewerId: v5.viewerId, viewerOwnsDlReview: v5.viewerOwnsDlReview })
  : null;
  const nextColumnLabel = v5 && !readOnly ? v5.nextColumnLabel(item) : null;
+ // „Do wysłania do klienta” (13.10.2026): kto może wysłać, dostaje na gotowej
+ // karcie przycisk przeglądu zamiast strzałki — strzałka otwierała okno
+ // „Przesuń dalej”, a dopiero z niego przegląd.
+ const reviewSend = Boolean(
+ v5 && !readOnly && v5.canReviewAsDl && isReadyForDlSend(item, boardKey, v5.cproEnabled)
+ );
  const forwardGap = nextColumnLabel ? knownForwardGap(item, boardKey) : null;
  const qc = boardKey === "cv_qc" ? qcChip(item) : null;
  const normalizedMatchScore =
@@ -1224,7 +1248,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  // (dawniej „Integracje:” dwa razy na jednej karcie, 04.10.2026).
  hideWho={Boolean(nextStep && !nextStep.mine && hasAddedByName && nextStep.who === addedByShortName)}
  advance={
- nextColumnLabel && v5 ? (
+ nextColumnLabel && v5 && !reviewSend ? (
  <button
  type="button"
  data-testid="card-advance"
@@ -1252,6 +1276,33 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  ) : null
  }
  />
+
+ {/* „Przejrzyj i wyślij” — własny wiersz pod „kto ma ruch” (jak pigułka
+ Screeningu niżej, nigdy `absolute`). Wypełniony u Delivery Leada tej
+ rekrutacji, obrysowany u pozostałych z prawem wysyłki. */}
+ {reviewSend && v5 && (
+ <div className={cn("mt-1 flex justify-end", desktopOverview && "xl:pointer-fine:hidden")}>
+ <button
+ type="button"
+ data-testid="card-review-send"
+ data-owner={v5.viewerOwnsDlReview ? "true" : "false"}
+ onClick={(e) => {
+ e.stopPropagation();
+ e.preventDefault();
+ v5.onReviewSend(item);
+ }}
+ aria-label={`Przejrzyj i wyślij: ${fullName}`}
+ className={cn(
+ "inline-flex max-w-full items-center rounded border px-1.5 text-[10px] font-semibold transition-colors pointer-coarse:min-h-8 pointer-coarse:px-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+ v5.viewerOwnsDlReview
+ ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
+ : "border-primary/40 text-primary hover:bg-primary/10"
+ )}
+ >
+ <span className="truncate">Przejrzyj i wyślij</span>
+ </button>
+ </div>
+ )}
 
  {/* Usuń z rekrutacji — akcja korekcyjna („dodano nie tego kandydata").
  Hover-revealed, żeby nie zaśmiecać karty. */}
@@ -1347,6 +1398,10 @@ interface ColProps {
  purpose?: string | null;
  /** Akcja w nagłówku kolumny (D10: „Porównaj (N)” w „QC CV” dla DL). */
  headerAction?: React.ReactNode;
+ /** Zamiast „co tu robisz” w drugiej linii nagłówka („Przejrzyj po kolei (N)”
+  *  w „QC CV” u Delivery Leada tej rekrutacji) — ta sama linia, bez dodatkowej
+  *  wysokości. */
+ purposeAction?: React.ReactNode;
 }
 
 const KanbanColumnV2 = memo(function KanbanColumnV2({
@@ -1374,6 +1429,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  step = null,
  purpose = null,
  headerAction = null,
+ purposeAction = null,
 }: ColProps) {
  const headerCount = col.count;
  // Pusta kolumna jest WĄSKA (24.09.2026): przy 1440 px osiem kolumn mieści się
@@ -1474,6 +1530,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  desktopOverview && "xl:pointer-fine:hidden"
  )}
  >
+ {purposeAction ?? (
  <span
  data-column-purpose={purpose ? "true" : undefined}
  className={cn(
@@ -1486,6 +1543,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  >
  {purpose ?? slaHint.left}
  </span>
+ )}
  {slaHint.right && (
  <span
  className={cn(
@@ -1601,7 +1659,7 @@ const MIN_COLUMN_HEIGHT = 280;
 // `p-4` obszaru treści powłoki (góra + dół) — patrz pomiar planszy na telefonie.
 const MOBILE_MAIN_PADDING_Y = 32;
 
-export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, initialDockOpensReview = false, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, renderAbove }: KanbanBoardV2Props) {
+export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, initialDockOpensReview = false, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, viewerOwnsDlReview = false, renderAbove }: KanbanBoardV2Props) {
  // Krok 04 Pipeline (flow C2, PR 3/7): globalny przełącznik —
  // świadomie nie per-job.
  const hideEmptyColumns = useUiStore((s) => s.hideEmptyKanbanColumns);
@@ -1743,6 +1801,47 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  [nextFoldByItemId, cols, openMoveNext]
  );
  const onOpenQc = useCallback((item: KanbanItem) => setQcStageId(item.id), []);
+ // Przegląd przed wysłaniem do klienta (`openDlReviewIfSending`) powstaje
+ // niżej — potrzebuje kolumn zamkniętych; karta i przeciągnięcie wołają go
+ // przez ref.
+ const openDlReviewRef = useRef<(item: KanbanItem, dst: KanbanColumn) => boolean>(() => false);
+ // Gospodarz kolumny „CV wysłane” — cel wysyłki z przeglądu.
+ const cvSentHost = useMemo(
+ () => boardFold.columns.find((f) => f.key === "cv_sent")?.host ?? null,
+ [boardFold]
+ );
+ // „Przejrzyj i wyślij” na karcie: od razu przegląd. Gdy przegląd się nie
+ // należy (np. QC zdążyło spaść) — okno „Przesuń dalej”, jak strzałka.
+ const onReviewSend = useCallback(
+ (item: KanbanItem) => {
+ if (cvSentHost && openDlReviewRef.current(item, cvSentHost)) return;
+ onAdvance(item);
+ },
+ [cvSentHost, onAdvance]
+ );
+ // „Przejrzyj po kolei” (13.10.2026): gotowe karty „QC CV”, najdłużej
+ // czekające pierwsze. Kolejka trzyma osoby po `candidate_id` — id wiersza
+ // etapu zmienia się przy każdym ruchu.
+ const dlReadyItems = useMemo(
+ () =>
+ dlSendQueue(
+ boardFold.columns.find((f) => f.key === "cv_qc")?.items ?? [],
+ cproEnabled,
+ new Date()
+ ),
+ [boardFold, cproEnabled]
+ );
+ const {
+ active: sequenceActive,
+ current: sequenceCurrent,
+ position: sequencePosition,
+ total: sequenceTotal,
+ start: startSequence,
+ advance: advanceSequence,
+ skip: skipSequence,
+ skipped: sequenceSkipped,
+ finish: finishSequence,
+ } = useReviewSequence(dlReadyItems, candidateIdOf);
  const [takingIds, setTakingIds] = useState<ReadonlySet<number>>(() => new Set());
  const takeCandidate = useCallback(
  async (item: KanbanItem) => {
@@ -1780,8 +1879,11 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  nextColumnLabel,
  onAdvance,
  onOpenQc,
+ canReviewAsDl,
+ viewerOwnsDlReview,
+ onReviewSend,
  }),
- [columnByItemId, cproEnabled, authUser?.id, readOnly, takingIds, takeCandidate, nextColumnLabel, onAdvance, onOpenQc]
+ [columnByItemId, cproEnabled, authUser?.id, readOnly, takingIds, takeCandidate, nextColumnLabel, onAdvance, onOpenQc, canReviewAsDl, viewerOwnsDlReview, onReviewSend]
  );
  const [focusedColId, setFocusedColId] = useState<string | null>(() =>
  defaultFocusColumnId(columns)
@@ -2128,9 +2230,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // o jedną kolumnę, przy znanym braku albo na „CV wysłane" (bramka QC,
  // wysyłka przez DL / kolejka Cpro) — najpierw okno „Przesuń dalej".
  // Ruchy wstecz i na etapy-znaczniki w tej samej kolumnie idą od razu.
- // Przegląd przed wysłaniem do klienta (`openDlReviewIfSending`) powstaje
- // niżej — potrzebuje kolumn zamkniętych; przeciągnięcie woła go przez ref.
- const openDlReviewRef = useRef<(item: KanbanItem, dst: KanbanColumn) => boolean>(() => false);
+ // Przegląd przed wysłaniem do klienta woła przez `openDlReviewRef` (wyżej).
  const routeMove = useCallback(
  (item: KanbanItem, srcColId: string, dst: KanbanColumn) => {
  const fromIndex = foldIndexByColId.get(srcColId);
@@ -2520,6 +2620,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // tam, skąd przegląd otwarto (karta, menu doku, okno „Przesuń dalej”).
  const reviewReturnFocusRef = useRef<HTMLElement | null>(null);
  const closeDlReview = useCallback(() => {
+ // Każde zamknięcie przeglądu (X, Esc, klik w tło, konflikt wersji) kończy
+ // też kolejkę „po kolei” — inaczej następna osoba otworzyłaby się sama.
+ finishSequence();
  setDlReviewTask(null);
  const back = reviewReturnFocusRef.current;
  reviewReturnFocusRef.current = null;
@@ -2532,7 +2635,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  : document.querySelector<HTMLElement>('[data-testid="person-panel-dock"]');
  target?.focus();
  }, 0);
- }, []);
+ }, [finishSequence]);
  // Prawo wysyłki z wiersza serwera; do jego przyjścia — ta sama reguła
  // w przeglądarce (`recruitment_manage`).
  const [dlReviewCanSend, setDlReviewCanSend] = useState<boolean | undefined>(undefined);
@@ -2603,6 +2706,35 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  useEffect(() => {
  openDlReviewRef.current = openDlReviewIfSending;
  }, [openDlReviewIfSending]);
+ // „Przejrzyj po kolei”: przegląd bieżącej osoby kolejki otwiera się sam —
+ // na starcie i po każdej decyzji albo „Pomiń”. Efekt biegnie też przy
+ // odświeżeniu tablicy; przegląd osoby, która już jest otwarta, zostaje
+ // nietknięty (wpisana stawka i uwagi).
+ const reviewCandidateId = dlReviewTask?.candidate_id ?? null;
+ useEffect(() => {
+ if (!sequenceActive) return;
+ if (sequenceCurrent === null) {
+ closeDlReview();
+ // Pominięte osoby dalej czekają — komunikat nie może mówić, że nikogo nie ma.
+ showInfo(
+ sequenceSkipped > 0
+ ? `Koniec kolejki — pominięte osoby dalej czekają: ${sequenceSkipped}.`
+ : "Kolejka przejrzana — nikt więcej nie czeka w tej rekrutacji."
+ );
+ return;
+ }
+ if (reviewCandidateId === sequenceCurrent.candidate_id) return;
+ // Fokus po całej kolejce wraca tam, skąd ją uruchomiono, nie do przycisku
+ // z przeglądu poprzedniej osoby.
+ const back = reviewReturnFocusRef.current;
+ const opened = cvSentHost !== null && openDlReviewIfSending(sequenceCurrent, cvSentHost);
+ if (back) reviewReturnFocusRef.current = back;
+ if (!opened) closeDlReview();
+ }, [sequenceActive, sequenceCurrent, sequenceSkipped, reviewCandidateId, cvSentHost, openDlReviewIfSending, closeDlReview, showInfo]);
+ const startReviewSequence = useCallback(
+ () => startSequence(dlReadyItems),
+ [startSequence, dlReadyItems]
+ );
  // D10 (08.10.2026): porównanie osób w „QC CV” tej rekrutacji — klik w osobę
  // otwiera jej przegląd z wiersza kolejki (ten sam co na pulpicie).
  const [compareOpen, setCompareOpen] = useState(false);
@@ -3276,6 +3408,21 @@ headerAction={
  </Button>
  ) : null
  }
+ // „Przejrzyj po kolei (N)” w miejscu tekstu „co tu robisz” — tylko
+ // u Delivery Leada tej rekrutacji i od dwóch gotowych osób (jedną
+ // otwiera przycisk na karcie). Nic nie dochodzi nad tablicą.
+ purposeAction={
+ boardKeyByColId.get(entry.key) === "cv_qc" && viewerOwnsDlReview && canReviewAsDl && !cproEnabled && !readOnly && dlReadyItems.length >= 2 ? (
+ <button
+ type="button"
+ onClick={startReviewSequence}
+ data-testid="dl-review-sequence-start"
+ className="min-w-0 truncate text-left font-semibold leading-snug text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+ >
+ Przejrzyj po kolei ({dlReadyItems.length})
+ </button>
+ ) : null
+ }
  purpose={boardColumnPurpose(boardKeyByColId.get(entry.key), {
  cproEnabled,
  hired: entry.col.count,
@@ -3411,6 +3558,19 @@ headerAction={
  canSendToClient={dlReviewCanSend}
  onClose={closeDlReview}
  layout="panel"
+ // Kolejka „po kolei”: po decyzji następna osoba zamiast zamknięcia;
+ // poza kolejką przegląd zamyka się jak dotąd.
+ {...(sequenceActive
+ ? {
+ onDecided: advanceSequence,
+ sequence: {
+ position: sequencePosition,
+ total: sequenceTotal,
+ onSkip: skipSequence,
+ onFinish: closeDlReview,
+ },
+ }
+ : {})}
  />
  ) : null}
  </PersonPanelShell>

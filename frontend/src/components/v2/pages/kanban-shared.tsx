@@ -210,6 +210,9 @@ export interface KanbanItem {
  qc?: {
   status: "passed" | "failed" | "overridden" | "unchecked";
   blocking_failed: number;
+  /** Kiedy QC przeszło albo ktoś je przepuścił (ISO) — od tej chwili karta
+   *  czeka na wysłanie do klienta. Brak = starszy serwer albo QC bez zaliczenia. */
+  ok_at?: string | null;
  } | null;
  // Karta rekomendacji (0413): stan karty pary i liczba notatek „nie odebrał”.
  // `card: null` = pary nie ma jeszcze w kartach.

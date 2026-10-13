@@ -958,6 +958,143 @@ async def test_screening_read_falls_back_to_the_pairs_latest_sheet(api_client):
         await _cleanup([cand_id], job_id)
 
 
+async def test_board_tells_the_delivery_lead_that_the_review_is_theirs(api_client):
+    """`viewer_owns_dl_review` — ta sama reguła co „Czeka na Ciebie” na pulpicie:
+    Delivery Lead rekrutacji, a bez aktywnego DL-a — portfel klienta. Inny DL
+    i rekruter widzą tablicę, ale przegląd nie jest ich."""
+    from app.models.team_structure import DeliveryLeadClientAssignment
+
+    rec_id, rec_email, rec_pw = await _seed_user(UserRole.recruiter)
+    dl_id, dl_email, dl_pw = await _seed_user(UserRole.delivery_lead)
+    other_id, other_email, other_pw = await _seed_user(UserRole.delivery_lead)
+    portfolio_id, portfolio_email, portfolio_pw = await _seed_user(
+        UserRole.delivery_lead
+    )
+    job_id, client_id = await _seed_job(
+        rec_id, collaborator_ids=(dl_id, other_id, portfolio_id)
+    )
+    headers = {
+        "recruiter": await _login(api_client, rec_email, rec_pw),
+        "job_dl": await _login(api_client, dl_email, dl_pw),
+        "other_dl": await _login(api_client, other_email, other_pw),
+        "portfolio_dl": await _login(api_client, portfolio_email, portfolio_pw),
+    }
+
+    async def owners() -> dict[str, bool]:
+        out: dict[str, bool] = {}
+        for who, h in headers.items():
+            board = await api_client.get(f"/api/pipeline/kanban/{job_id}", headers=h)
+            assert board.status_code == 200, board.text
+            out[who] = board.json()["viewer_owns_dl_review"]
+        return out
+
+    async def set_job_dl(user_id: int | None, *, active: bool = True) -> None:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(Job).where(Job.id == job_id).values(delivery_lead_id=user_id)
+            )
+            if user_id is not None:
+                await db.execute(
+                    update(User).where(User.id == user_id).values(is_active=active)
+                )
+            await db.commit()
+
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add(
+                DeliveryLeadClientAssignment(
+                    delivery_lead_user_id=portfolio_id, client_id=client_id
+                )
+            )
+            await db.commit()
+
+        # Rekrutacja bez DL-a: przegląd idzie do portfela klienta.
+        assert await owners() == {
+            "recruiter": False,
+            "job_dl": False,
+            "other_dl": False,
+            "portfolio_dl": True,
+        }
+
+        # DL wpisany w rekrutacji wygrywa z portfelem.
+        await set_job_dl(dl_id)
+        assert await owners() == {
+            "recruiter": False,
+            "job_dl": True,
+            "other_dl": False,
+            "portfolio_dl": False,
+        }
+
+        # Nieaktywny DL rekrutacji = brak DL-a (lustro `_LATEST_SQL`). Jego
+        # własnej tablicy nie pytamy — nieaktywne konto nie przechodzi logowania.
+        headers.pop("job_dl")
+        await set_job_dl(dl_id, active=False)
+        assert await owners() == {
+            "recruiter": False,
+            "other_dl": False,
+            "portfolio_dl": True,
+        }
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(DeliveryLeadClientAssignment).where(
+                    DeliveryLeadClientAssignment.client_id == client_id
+                )
+            )
+            await db.commit()
+        await _cleanup([], job_id)
+
+
+class _ReviewOwnerDb:
+    """Baza dla reguły „czyj przegląd”: aktywność DL-a rekrutacji i portfel."""
+
+    def __init__(self, *, dl_active: bool = True, portfolio: tuple[int, ...] = ()):
+        self.dl_active = dl_active
+        self.portfolio = portfolio
+        self.queries = 0
+
+    async def scalar(self, _stmt):
+        self.queries += 1
+        return self.dl_active
+
+    async def scalars(self, _stmt):
+        self.queries += 1
+        return SimpleNamespace(all=lambda: list(self.portfolio))
+
+
+async def test_review_ownership_rule_without_database(monkeypatch) -> None:
+    from app.api.pipeline import _viewer_owns_dl_review
+
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "77")
+    dl = User(id=5, role=UserRole.delivery_lead, is_active=True)
+    recruiter = User(id=6, role=UserRole.recruiter, is_active=True)
+    own_job = SimpleNamespace(client_id=15, delivery_lead_id=5)
+    someone_elses = SimpleNamespace(client_id=15, delivery_lead_id=9)
+    without_dl = SimpleNamespace(client_id=15, delivery_lead_id=None)
+    nordea = SimpleNamespace(client_id=77, delivery_lead_id=5)
+
+    # Bez roli Delivery Leada, bez patrzącego i u Nordei — bez zapytań.
+    quiet = _ReviewOwnerDb(portfolio=(15, 77))
+    assert await _viewer_owns_dl_review(quiet, own_job, recruiter) is False
+    assert await _viewer_owns_dl_review(quiet, own_job, None) is False
+    assert await _viewer_owns_dl_review(quiet, nordea, dl) is False
+    # Własna rekrutacja też nie potrzebuje bazy.
+    assert await _viewer_owns_dl_review(quiet, own_job, dl) is True
+    assert quiet.queries == 0
+
+    # Aktywny cudzy DL wygrywa z portfelem patrzącego.
+    in_portfolio = _ReviewOwnerDb(portfolio=(15,))
+    assert await _viewer_owns_dl_review(in_portfolio, someone_elses, dl) is False
+    # Nieaktywny cudzy DL = brak DL-a: decyduje portfel klienta.
+    inactive = _ReviewOwnerDb(dl_active=False, portfolio=(15,))
+    assert await _viewer_owns_dl_review(inactive, someone_elses, dl) is True
+    assert await _viewer_owns_dl_review(inactive, without_dl, dl) is True
+    assert (
+        await _viewer_owns_dl_review(_ReviewOwnerDb(portfolio=(16,)), without_dl, dl)
+        is False
+    )
+
+
 def test_integration_request_is_detected_by_oauth_client_state() -> None:
     from app.services import candidate_claim
 

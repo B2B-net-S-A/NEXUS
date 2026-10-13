@@ -106,11 +106,15 @@ vi.mock("@/components/v2/recruitment/DlReviewPanel", () => ({
     canSendToClient,
     onClose,
     layout,
+    onDecided,
+    sequence,
   }: {
     task: { stage_id: number; verified_by_name?: string | null; cv_stage_id?: number | null };
     canSendToClient?: boolean;
     onClose: () => void;
     layout: string;
+    onDecided?: (action: string, task: unknown) => void;
+    sequence?: { position: number; total: number; onSkip: () => void; onFinish: () => void };
   }) => (
     <div
       data-testid="dl-review-panel"
@@ -123,6 +127,23 @@ vi.mock("@/components/v2/recruitment/DlReviewPanel", () => ({
       <button type="button" onClick={onClose}>
         zamknij przegląd
       </button>
+      {/* Jak prawdziwy przegląd: po udanej decyzji `onDecided` ZAMIAST `onClose`. */}
+      <button type="button" onClick={() => (onDecided ? onDecided("send", task) : onClose())}>
+        decyzja: wyślij
+      </button>
+      {sequence ? (
+        <p data-testid="dl-review-sequence">
+          <span>
+            {sequence.position} z {sequence.total}
+          </span>
+          <button type="button" onClick={sequence.onSkip}>
+            pomiń
+          </button>
+          <button type="button" onClick={sequence.onFinish}>
+            zakończ kolejkę
+          </button>
+        </p>
+      ) : null}
     </div>
   ),
 }));
@@ -340,6 +361,7 @@ function renderBoard(
   scoreMap?: Map<number, number>,
   readOnly = false,
   cproEnabled = false,
+  viewerOwnsDlReview = false,
 ) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -353,6 +375,7 @@ function renderBoard(
           scoreMap={scoreMap}
           readOnly={readOnly}
           cproEnabled={cproEnabled}
+          viewerOwnsDlReview={viewerOwnsDlReview}
         />
       </TooltipProvider>
     </QueryClientProvider>
@@ -1813,14 +1836,19 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
   });
 
   // Test na produkcji 03.10.2026: strzałka na karcie otwierała samo okno stawki
-  // do klienta — bez karty rekomendacji, uwag i „Wróć do poprawy”.
-  it("strzałka z „QC CV” do klienta otwiera ten sam przegląd co dok", async () => {
+  // do klienta — bez karty rekomendacji, uwag i „Wróć do poprawy”. Od 13.10.2026
+  // gotowa karta ma u osoby z prawem wysyłki „Przejrzyj i wyślij” zamiast
+  // strzałki, więc okno „Przesuń dalej” otwiera tu „Przesuń dalej” z okna QC.
+  it("okno „Przesuń dalej” z „QC CV” do klienta otwiera ten sam przegląd co dok", async () => {
     useAuthStore.setState({ user: { id: 7, role: "delivery_lead", roles: ["delivery_lead"] } } as never);
+    qcResultCandidate.id = 8302;
     moveRequirements([]);
     renderBoard(qcColumns({ status: "passed", blocking_failed: 0 }) as never);
     await screen.findByTestId("pipeline-board");
     const card = document.querySelector('[data-candidate-id="8302"]') as HTMLElement;
-    await userEvent.click(within(card).getByRole("button", { name: /Przesuń Kuba Braki na następny etap/ }));
+    expect(within(card).queryByTestId("card-advance")).toBeNull();
+    await userEvent.click(within(card).getByRole("button", { name: /otwórz QC CV dla Kuba Braki/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "QC: przesuń dalej" }));
     const dialog = await screen.findByTestId("move-next-dialog");
     await userEvent.click(await within(dialog).findByRole("button", { name: /Przesuń na „CV wysłane”/ }));
 
@@ -2093,6 +2121,207 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     // w kolumnie „Zamknięci” obok tablicy.
     expect(container.querySelectorAll("[data-colid]")).toHaveLength(2);
     expect(screen.getByTestId("board-closed-column")).toBeTruthy();
+  });
+});
+
+// 13.10.2026: Delivery Lead widzi na Tablicy, kto czeka NA NIEGO. `canReviewAsDl`
+// (uprawnienie) daje przycisk „Przejrzyj i wyślij”; `viewerOwnsDlReview` (serwer:
+// DL tej rekrutacji) — wypełniony przycisk, „Twój ruch”, „Czeka na Ciebie”
+// i „Przejrzyj po kolei (N)” w nagłówku kolumny.
+describe("KanbanBoardV2 — „Do wysłania do klienta” (13.10.2026)", () => {
+  const DELIVERY_LEAD = { id: 7, role: "delivery_lead", roles: ["delivery_lead"] };
+  const QUEUE_DONE = "Kolejka przejrzana — nikt więcej nie czeka w tej rekrutacji.";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    kanban.mockResolvedValue({ data: { columns: [], off_template: null } });
+    post.mockResolvedValue({ data: {} });
+    useAuthStore.setState({ user: DELIVERY_LEAD } as never);
+    useUiStore.setState({ hideEmptyKanbanColumns: false } as never);
+  });
+
+  // „QC CV” (etap „Przepuszczony przez DZ”): Iga gotowa od wczoraj, Kuba od
+  // trzech dni (QC przepuszczone), Ola jeszcze z poprawkami po QC.
+  function readyColumns(count: 1 | 2) {
+    const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
+    const items = [
+      { id: 7301, candidate_id: 8301, stage: "new", name: "Iga", lastname: "Mazur", days_in_stage: 1, qc: { status: "passed", blocking_failed: 0 } },
+      { id: 7302, candidate_id: 8302, stage: "new", name: "Kuba", lastname: "Braki", days_in_stage: 3, qc: { status: "overridden", blocking_failed: 1 } },
+    ].slice(0, count);
+    columns[3] = {
+      ...columns[3],
+      count: items.length + 1,
+      items: [
+        ...items,
+        { id: 7303, candidate_id: 8303, stage: "new", name: "Ola", lastname: "Poprawki", days_in_stage: 2, qc: { status: "failed", blocking_failed: 2 } },
+      ],
+    };
+    return columns as never;
+  }
+
+  const cardOf = (candidateId: number) =>
+    document.querySelector(`[data-candidate-id="${candidateId}"]`) as HTMLElement;
+  const moveCalls = () => post.mock.calls.filter((c) => c[0] === "/api/pipeline/move");
+
+  it("Delivery Lead tej rekrutacji: „Przejrzyj i wyślij” na gotowej karcie otwiera przegląd, nie okno „Przesuń dalej”", async () => {
+    renderBoard(readyColumns(1), undefined, false, false, true);
+    await screen.findByTestId("pipeline-board");
+    const card = cardOf(8301);
+    const button = within(card).getByRole("button", { name: "Przejrzyj i wyślij: Iga Mazur" });
+    expect(button).toHaveAttribute("data-testid", "card-review-send");
+    expect(button).toHaveAttribute("data-owner", "true");
+    // Przycisk zastępuje strzałkę; karta mówi, że ruch jest po stronie patrzącego.
+    expect(within(card).queryByTestId("card-advance")).toBeNull();
+    expect(within(card).getByTestId("card-next-who")).toHaveTextContent("Twój ruch");
+    expect(within(card).getByTestId("card-badge-dl_review")).toHaveTextContent("Czeka na Ciebie · 1 dzień");
+    // Karta z poprawkami po QC to dalej ruch rekrutera — strzałka, bez przycisku.
+    expect(within(cardOf(8303)).queryByTestId("card-review-send")).toBeNull();
+    expect(within(cardOf(8303)).getByTestId("card-advance")).toBeInTheDocument();
+    // Jedna gotowa osoba — kolejki „po kolei” nie ma.
+    expect(screen.queryByTestId("dl-review-sequence-start")).toBeNull();
+
+    await userEvent.click(button);
+
+    expect(await screen.findByTestId("dl-review-panel")).toHaveAttribute("data-stage-id", "7301");
+    expect(screen.queryByTestId("move-next-dialog")).toBeNull();
+    // Poza kolejką przegląd jest taki jak dotąd: bez licznika, zamyka się po decyzji.
+    expect(screen.queryByTestId("dl-review-sequence")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "decyzja: wyślij" }));
+    await waitFor(() => expect(screen.queryByTestId("dl-review-panel")).toBeNull());
+    expect(toastInfo).not.toHaveBeenCalled();
+    expect(moveCalls()).toHaveLength(0);
+  });
+
+  it("dwie gotowe osoby: „Przejrzyj po kolei (2)” prowadzi przez kolejkę — najdłużej czekająca pierwsza, po decyzji następna", async () => {
+    const { container } = renderBoard(readyColumns(2), undefined, false, false, true);
+    await screen.findByTestId("pipeline-board");
+    const start = screen.getByTestId("dl-review-sequence-start");
+    // Liczy gotowe osoby (2), nie wszystkie karty kolumny (3).
+    expect(start).toHaveTextContent("Przejrzyj po kolei (2)");
+    // Stoi w drugiej linii nagłówka „QC CV”, w miejscu tekstu „co tu robisz”.
+    const purposeLine = container.querySelector('[data-column-sla="def:303"]') as HTMLElement;
+    expect(purposeLine).toContainElement(start);
+    expect(purposeLine.querySelector("[data-column-purpose]")).toBeNull();
+    // „Porównaj” w pierwszej linii zostaje.
+    expect(screen.getByTestId("dl-review-compare")).toHaveTextContent("Porównaj (3)");
+
+    await userEvent.click(start);
+
+    // Kuba czeka trzy dni, Iga jeden — Kuba pierwszy.
+    const first = await screen.findByTestId("dl-review-panel");
+    expect(first).toHaveAttribute("data-stage-id", "7302");
+    expect(within(first).getByTestId("dl-review-sequence")).toHaveTextContent("1 z 2");
+
+    await userEvent.click(within(first).getByRole("button", { name: "decyzja: wyślij" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("dl-review-panel")).toHaveAttribute("data-stage-id", "7301"),
+    );
+    expect(screen.getByTestId("dl-review-sequence")).toHaveTextContent("2 z 2");
+    expect(toastInfo).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "decyzja: wyślij" }));
+
+    await waitFor(() => expect(screen.queryByTestId("dl-review-panel")).toBeNull());
+    expect(toastInfo).toHaveBeenCalledTimes(1);
+    expect(toastInfo).toHaveBeenCalledWith(QUEUE_DONE);
+    expect(moveCalls()).toHaveLength(0);
+  });
+
+  it("„Pomiń” pokazuje następną osobę, a ręczne zamknięcie przeglądu kończy kolejkę", async () => {
+    renderBoard(readyColumns(2), undefined, false, false, true);
+    await screen.findByTestId("pipeline-board");
+    await userEvent.click(screen.getByTestId("dl-review-sequence-start"));
+    expect(await screen.findByTestId("dl-review-panel")).toHaveAttribute("data-stage-id", "7302");
+
+    await userEvent.click(screen.getByRole("button", { name: "pomiń" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("dl-review-panel")).toHaveAttribute("data-stage-id", "7301"),
+    );
+    expect(screen.getByTestId("dl-review-sequence")).toHaveTextContent("2 z 2");
+
+    await userEvent.click(screen.getByRole("button", { name: "zamknij przegląd" }));
+    await waitFor(() => expect(screen.queryByTestId("dl-review-panel")).toBeNull());
+    expect(toastInfo).not.toHaveBeenCalled();
+
+    // Kolejka skończona: przegląd z karty otwiera się już bez licznika i nie
+    // przeskakuje sam na następną osobę.
+    await userEvent.click(within(cardOf(8302)).getByTestId("card-review-send"));
+    const review = await screen.findByTestId("dl-review-panel");
+    expect(review).toHaveAttribute("data-stage-id", "7302");
+    expect(screen.queryByTestId("dl-review-sequence")).toBeNull();
+  });
+
+  it("po pominięciu kogoś koniec kolejki nie mówi, że nikt nie czeka", async () => {
+    renderBoard(readyColumns(2), undefined, false, false, true);
+    await screen.findByTestId("pipeline-board");
+    await userEvent.click(screen.getByTestId("dl-review-sequence-start"));
+    await screen.findByTestId("dl-review-panel");
+    await userEvent.click(screen.getByRole("button", { name: "pomiń" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("dl-review-panel")).toHaveAttribute("data-stage-id", "7301"),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "decyzja: wyślij" }));
+    await waitFor(() => expect(screen.queryByTestId("dl-review-panel")).toBeNull());
+    expect(toastInfo).toHaveBeenCalledTimes(1);
+    expect(toastInfo).toHaveBeenCalledWith("Koniec kolejki — pominięte osoby dalej czekają: 1.");
+  });
+
+  it("„Zakończ kolejkę” i Escape zamykają przegląd razem z kolejką", async () => {
+    renderBoard(readyColumns(2), undefined, false, false, true);
+    await screen.findByTestId("pipeline-board");
+    await userEvent.click(screen.getByTestId("dl-review-sequence-start"));
+    await screen.findByTestId("dl-review-panel");
+    await userEvent.click(screen.getByRole("button", { name: "zakończ kolejkę" }));
+    await waitFor(() => expect(screen.queryByTestId("dl-review-panel")).toBeNull());
+
+    await userEvent.click(screen.getByTestId("dl-review-sequence-start"));
+    await screen.findByTestId("dl-review-panel");
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("dl-review-panel")).toBeNull());
+    // Po chwili przegląd dalej jest zamknięty — nikt nie otworzył się sam.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByTestId("dl-review-panel")).toBeNull();
+    expect(toastInfo).not.toHaveBeenCalled();
+  });
+
+  it("rekruter nie widzi ani „Przejrzyj i wyślij”, ani „Przejrzyj po kolei”", async () => {
+    useAuthStore.setState({ user: { id: 5, role: "recruiter", roles: ["recruiter"] } } as never);
+    renderBoard(readyColumns(2));
+    await screen.findByTestId("pipeline-board");
+    expect(screen.queryByTestId("card-review-send")).toBeNull();
+    expect(screen.queryByTestId("dl-review-sequence-start")).toBeNull();
+    const card = cardOf(8301);
+    expect(within(card).getByTestId("card-advance")).toBeInTheDocument();
+    expect(within(card).getByTestId("card-next-who")).toHaveTextContent("DL");
+    expect(within(card).getByTestId("card-badge-dl_review")).toHaveTextContent("Czeka na DL · 1 dzień");
+  });
+
+  it("Delivery Lead, który może wysłać, ale przegląd nie jest jego: przycisk obrysowany, bez „Przejrzyj po kolei”", async () => {
+    renderBoard(readyColumns(2));
+    await screen.findByTestId("pipeline-board");
+    const buttons = screen.getAllByTestId("card-review-send");
+    expect(buttons).toHaveLength(2);
+    for (const button of buttons) expect(button).toHaveAttribute("data-owner", "false");
+    expect(screen.queryByTestId("dl-review-sequence-start")).toBeNull();
+    const card = cardOf(8301);
+    expect(within(card).getByTestId("card-next-who")).toHaveTextContent("DL");
+    expect(within(card).getByTestId("card-badge-dl_review")).toHaveTextContent("Czeka na DL · 1 dzień");
+    expect(within(card).queryByTestId("card-advance")).toBeNull();
+
+    await userEvent.click(within(card).getByTestId("card-review-send"));
+    expect(await screen.findByTestId("dl-review-panel")).toHaveAttribute("data-stage-id", "7301");
+    expect(screen.queryByTestId("move-next-dialog")).toBeNull();
+  });
+
+  it.each<[string, boolean, boolean]>([
+    ["tablica tylko do odczytu", true, false],
+    ["klient z kolejką Cpro", false, true],
+  ])("%s: bez przycisków przeglądu, także u Delivery Leada rekrutacji", async (_label, readOnly, cproEnabled) => {
+    renderBoard(readyColumns(2), undefined, readOnly, cproEnabled, true);
+    await screen.findByTestId("pipeline-board");
+    expect(screen.queryByTestId("card-review-send")).toBeNull();
+    expect(screen.queryByTestId("dl-review-sequence-start")).toBeNull();
   });
 });
 
