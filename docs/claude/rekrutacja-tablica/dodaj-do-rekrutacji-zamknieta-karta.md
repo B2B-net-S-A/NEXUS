@@ -53,4 +53,7 @@ rekrutacjach było wtedy 6 596 par osoba–rekrutacja z samą zamkniętą histor
 
 Czego ta zmiana nie rusza: pozostałe wejścia z regułą „jakikolwiek wiersz”
 (promocja z shortlisty, „Dodaj championa”, wtyczka LinkedIn) i filtry, które
-chowają takie osoby w wyszukiwaniu w rekrutacji.
+chowają takie osoby w wyszukiwaniu w rekrutacji. Od 13.10.2026 okno „Dodaj
+kandydatów do pipeline” pokazuje przy frazie dosłownej osoby z kartą w tej
+rekrutacji w sekcji „Już w tej rekrutacji” i przywraca zamkniętą kartą tym
+samym ruchem (`imiennicy-w-oknie-dodawania.md`); filtr wyników się nie zmienił.

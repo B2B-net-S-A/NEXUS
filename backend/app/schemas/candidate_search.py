@@ -210,6 +210,20 @@ def raise_if_range_reversed(low: Any, high: Any, message: str) -> None:
         raise PydanticCustomError("range_reversed", message)
 
 
+class LastRecruitment(BaseModel):
+    """Ostatnia rekrutacja osoby u nas poza bieżącą (okno szybkiego dodawania).
+
+    Ostatni ruch karty w innej rekrutacji, w zakresie rekrutacji widocznych
+    dla pytającego; ``moved_on`` to dzień w kalendarzu firmy.
+    """
+
+    job_id: int
+    job_title: str
+    stage_label: str
+    column: str
+    moved_on: date
+
+
 class CandidateSearchItem(BaseModel):
     id: int
     name: str
@@ -252,6 +266,29 @@ class CandidateSearchItem(BaseModel):
     # v2: które AKTYWNE filtry („location", „experience", „rate") ta osoba
     # przeszła wyłącznie dlatego, że nie mamy o niej danych — do plakietki w UI.
     unknown_fields: list[str] = Field(default_factory=list)
+    # Tylko przy ``exclude_in_job_id``: ostatnia rekrutacja osoby gdzie indziej
+    # — po niej rekruter odróżnia imienników. ``None`` = bez historii u nas.
+    last_recruitment: Optional[LastRecruitment] = None
+
+
+class InJobMatch(BaseModel):
+    """Osoba pasująca do frazy, która JUŻ ma kartę w tej rekrutacji.
+
+    Wynik okna szybkiego dodawania ją pomija (``exclude_in_job_id``), więc
+    imiennik z kartą znikał bez śladu i rekruter dodawał nie tę osobę.
+    ``closed`` ma kształt ``proposals_bulk.ClosedCardInfo`` (cel ruchu
+    „Przywróć”) i jest tylko przy karcie w „Zamkniętych”.
+    """
+
+    id: int
+    name: str
+    lastname: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    location: Optional[str] = None
+    card_label: str
+    card_column: str
+    closed: Optional[dict[str, Any]] = None
 
 
 class CompetenceCategoryFacet(BaseModel):
@@ -305,6 +342,9 @@ class CandidateSearchResponse(BaseModel):
     items: list[CandidateSearchItem]
     facets: SearchFacets = Field(default_factory=SearchFacets)
     meta: SearchMeta = Field(default_factory=SearchMeta)
+    # Tylko przy ``exclude_in_job_id`` + dosłownej frazie (imię i nazwisko,
+    # telefon, e-mail) i dostępie do rekrutacji; najwyżej 5 osób.
+    in_job_matches: list[InJobMatch] = Field(default_factory=list)
 
 
 # The scores endpoint measures canonical fit ON DEMAND (query vector + exact

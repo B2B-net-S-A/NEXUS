@@ -42,12 +42,11 @@ from app.models.recruitment_pipeline import (
 )
 from app.models.recruitment_priority import PriorityChannel
 from app.models.recruitment_process import RecruitmentProcess
-from app.models.user import User
-from app.schemas.pipeline import STAGE_LABELS
 from app.services import candidate_claim
 from app.services.process_entry_meta import auto_match_entry_meta
 from app.services.candidate_stage_cv_service import create_original_cv_snapshot
 from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
+from app.services.candidate_job_cards import latest_cards, stage_display_label
 from app.services.candidate_job_eligibility import EligibilityReason
 from app.services.pipeline_eligibility import (
     detail_for,
@@ -459,12 +458,7 @@ def _entry_source_for(source: Optional[str]) -> str:
 
 def _closed_stage_label(name: Optional[str], stage: Optional[str]) -> str:
     """Nazwa etapu z szablonu, a dla wiersza bez etapu szablonu — z kodu."""
-    if name and name.strip():
-        return name.strip()
-    try:
-        return STAGE_LABELS[PipelineStage(stage)]
-    except (KeyError, ValueError):
-        return "Zamknięty"
+    return stage_display_label(name, stage) or "Zamknięty"
 
 
 def _closed_card_label(
@@ -490,63 +484,34 @@ async def _closed_cards(
     odrzucenie sprzed tygodnia. Zatrudniony i osoba w toku tu nie trafiają:
     kolumnę liczy ta sama reguła co Tablica (``board_column_for``).
     """
-    from app.services.board_stage_badges import board_column_for  # noqa: PLC0415
+    latest = await latest_cards(db, candidate_ids=candidate_ids, job_id=job_id)
+    cards = {
+        candidate_id: _ClosedCard(
+            label=_closed_card_label(
+                card.stage_label or "Zamknięty", card.moved_at, card.moved_by_name
+            )
+        )
+        for candidate_id, card in latest.items()
+        if card.column == "closed"
+    }
+    versions = await _process_versions(db, job_id=job_id, candidate_ids=list(cards))
+    for candidate_id, card in cards.items():
+        card.state_version = versions.get(candidate_id, 0)
+    return cards
 
+
+async def _process_versions(
+    db: AsyncSession, *, job_id: int, candidate_ids: list[int]
+) -> dict[int, int]:
+    """Wersja ostatniej próby — tak jak czyta ją ruch karty (`_latest_process`)."""
     if not candidate_ids:
         return {}
-    latest = (
-        select(CandidateStage.id)
-        .where(
-            CandidateStage.job_id == job_id,
-            CandidateStage.candidate_id.in_(candidate_ids),
-        )
-        .distinct(CandidateStage.candidate_id)
-        .order_by(
-            CandidateStage.candidate_id,
-            CandidateStage.moved_at.desc(),
-            CandidateStage.id.desc(),
-        )
-    )
-    rows = (
-        await db.execute(
-            select(
-                CandidateStage.candidate_id,
-                CandidateStage.stage,
-                CandidateStage.moved_at,
-                PipelineStageDef.name,
-                PipelineStageDef.category,
-                PipelineStageDef.terminal_type,
-                User.name,
-            )
-            .outerjoin(
-                PipelineStageDef, PipelineStageDef.id == CandidateStage.stage_def_id
-            )
-            .outerjoin(User, User.id == CandidateStage.moved_by)
-            .where(CandidateStage.id.in_(latest))
-        )
-    ).all()
-    cards: dict[int, _ClosedCard] = {}
-    for candidate_id, stage, moved_at, name, category, terminal_type, by in rows:
-        code = getattr(stage, "value", stage)
-        column = board_column_for(
-            name,
-            code,
-            category=getattr(category, "value", category),
-            terminal_type=getattr(terminal_type, "value", terminal_type),
-        )
-        if column == "closed":
-            cards[candidate_id] = _ClosedCard(
-                label=_closed_card_label(_closed_stage_label(name, code), moved_at, by)
-            )
-    if not cards:
-        return cards
-    # Wersja ostatniej próby — tak jak czyta ją ruch karty (`_latest_process`).
     versions = (
         await db.execute(
             select(RecruitmentProcess.candidate_id, RecruitmentProcess.state_version)
             .where(
                 RecruitmentProcess.job_id == job_id,
-                RecruitmentProcess.candidate_id.in_(list(cards)),
+                RecruitmentProcess.candidate_id.in_(candidate_ids),
             )
             .distinct(RecruitmentProcess.candidate_id)
             .order_by(
@@ -556,9 +521,64 @@ async def _closed_cards(
             )
         )
     ).all()
-    for candidate_id, version in versions:
-        cards[candidate_id].state_version = int(version or 0)
-    return cards
+    return {candidate_id: int(version or 0) for candidate_id, version in versions}
+
+
+@dataclass(frozen=True)
+class InJobCard:
+    """Bieżąca karta osoby w tej rekrutacji — do okna szybkiego dodawania.
+
+    ``label`` mówi etap i dzień („Odrzucony 08.10.2026 (Anna Nowak)”,
+    „Screening od 08.10.2026”); ``closed`` jest tylko przy karcie
+    w „Zamkniętych” i niesie ten sam cel ruchu co ``closed_card_skip``.
+    """
+
+    label: str
+    column: str
+    closed: Optional[ClosedCardInfo] = None
+
+
+async def in_job_cards(
+    db: AsyncSession, *, job: Job, candidates: list[Candidate]
+) -> dict[int, InJobCard]:
+    """Karty osób, które już są w tej rekrutacji (w toku, zatrudnione, zamknięte).
+
+    Przywrócenie zamkniętej karty to ruch karty, nie drugie dodanie
+    (``docs/claude/rekrutacja-tablica/dodaj-do-rekrutacji-zamknieta-karta.md``),
+    więc cel ruchu liczymy tak samo jak dla ``closed_in_job``.
+    """
+    by_id = {candidate.id: candidate for candidate in candidates}
+    latest = await latest_cards(db, candidate_ids=list(by_id), job_id=job.id)
+    closed_ids = [cid for cid, card in latest.items() if card.column == "closed"]
+    versions = await _process_versions(db, job_id=job.id, candidate_ids=closed_ids)
+    stage_def: Optional[PipelineStageDef] = None
+    legacy_enum = PipelineStage.new
+    if closed_ids:
+        stage_def = await _resolve_initial_stage(db, job, None)
+        legacy_enum = _legacy_enum_for(
+            stage_def, None, has_template=job.pipeline_template_id is not None
+        )
+    out: dict[int, InJobCard] = {}
+    for candidate_id, card in latest.items():
+        day = card.moved_at.astimezone(ZoneInfo(DEFAULT_TZ)).strftime("%d.%m.%Y")
+        if card.column != "closed":
+            out[candidate_id] = InJobCard(
+                label=f"{card.stage_label or 'W toku'} od {day}", column=card.column
+            )
+            continue
+        candidate = by_id[candidate_id]
+        who = f" ({card.moved_by_name})" if card.moved_by_name else ""
+        out[candidate_id] = InJobCard(
+            label=f"{card.stage_label or 'Zamknięty'} {day}{who}",
+            column=card.column,
+            closed=ClosedCardInfo(
+                candidate_name=f"{candidate.name} {candidate.lastname}".strip(),
+                state_version=versions.get(candidate_id, 0),
+                restore_stage=legacy_enum.value,
+                restore_stage_def_id=stage_def.id if stage_def else None,
+            ),
+        )
+    return out
 
 
 def _closed_skip_row(
