@@ -71,7 +71,10 @@ import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { candidateNoteItems, useCandidateNotes } from "@/components/v2/pages/candidate-notes-query";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { PersonNotesHistory } from "@/components/v2/person/PersonNotesHistory";
-import { usePersonPreviewCollapse } from "@/components/v2/person/PersonPanelSide";
+import {
+  usePersonPanelSideSectionActive,
+  usePersonPreviewCollapse,
+} from "@/components/v2/person/PersonPanelSide";
 import { StageCvPreview } from "@/components/v2/person/StageCvPreview";
 import {
   StageCvPicker,
@@ -796,11 +799,13 @@ export function CandidatePreviewPane({
     extra: extraTab != null && sectionVisible("extra"),
   };
   // Raz pokazana część zostaje zamontowana (`hidden`): powrót, rozwinięcie
-  // i zwężenie okna nie pobierają CV drugi raz.
+  // i zwężenie okna nie pobierają CV drugi raz. Podgląd ukrytej sekcji panelu
+  // (układ jest wspólny dla sekcji) nie montuje nic nowego, dopóki nie wróci.
+  const sectionActive = usePersonPanelSideSectionActive();
   const [seen, setSeen] = useState<ReadonlySet<PreviewTab>>(() => new Set());
-  const newlySeen = PREVIEW_TABS.filter((value) => visibleNow[value] && !seen.has(value));
+  const newlySeen = sectionActive ? PREVIEW_TABS.filter((value) => visibleNow[value] && !seen.has(value)) : [];
   if (newlySeen.length > 0) setSeen(new Set([...seen, ...newlySeen]));
-  const shown = (value: PreviewTab) => seen.has(value) || visibleNow[value];
+  const shown = (value: PreviewTab) => seen.has(value) || (sectionActive && visibleNow[value]);
   // Pasek wymagań: zamiast zwiniętej kolumny, a w zakładkach nad CV (D3).
   const stripVisible = canCollapse && cvVisible && (infoCollapsed || !dual);
 
@@ -830,8 +835,14 @@ export function CandidatePreviewPane({
     changeTab("requirements");
   }, [changeTab, infoCollapsed, setLayout]);
 
-  // Historia osoby żyje w części CV — otwarta z zewnątrz („Pokaż” przed
-  // telefonem) przy zwiniętym CV najpierw je rozwija.
+  // Historia osoby żyje w części CV. Zwinięcie CV ją zamyka (w każdym
+  // podglądzie panelu — układ jest wspólny), więc „Pokaż” z zewnątrz (profil
+  // przed telefonem) zawsze ją otwiera i najpierw rozwija CV.
+  useEffect(() => {
+    if (cvCollapsed && historyOpen) changeHistoryOpen(false);
+    // Reaguje na zwinięcie CV, nie na otwieranie historii.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cvCollapsed]);
   useEffect(() => {
     if (historyOpen && cvCollapsed) expandCv();
     // Reaguje na otwarcie historii, nie na zwinięcie CV przy otwartej historii.

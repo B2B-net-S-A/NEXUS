@@ -87,7 +87,11 @@ Tylko front, bez API i migracji.
     z tym, co widać.
   - Zwinięcie chowa (`hidden`), nie odmontowuje: rozwinięcie nie pobiera CV drugi raz. Zbiór „raz pokazanych”
     części zastąpił `visited` + `everDual`; CV zwinięte od startu nie pobiera pliku wcale, dopóki ktoś go nie
-    rozwinie. „Szukaj w CV”, „Historia osoby” z listwy i historia otwarta z zewnątrz najpierw rozwijają CV.
+    rozwinie. „Szukaj w CV”, „Historia osoby” z listwy i historia otwarta z zewnątrz najpierw rozwijają CV;
+    zwinięcie CV zamyka historię w każdym podglądzie (inaczej „Pokaż” przy już otwartej historii nic nie robił).
+  - Układ jest wspólny dla sekcji panelu, a ich podglądy żyją naraz (wspólny, Screening, Rozmowy). Podgląd
+    ukrytej sekcji (`usePersonPanelSideSectionActive()`) nie montuje po zmianie układu nic nowego — bez tego
+    zwinięcie wymagań w zakładce CV pobierało CV w ukrytym podglądzie Screeningu (przegląd kodu 13.10.2026).
   - Playwright dopasowuje nazwę przycisku po fragmencie: „Zwiń” panelu w e2e tylko z `exact: true`, bo „Zwiń CV”
     i „Zwiń wymagania” też go zawierają.
 - Harnessy: `/preview/screening-form` (ramka z prawdziwą strefą), `/preview/job-detail` (replika menu `z-40`

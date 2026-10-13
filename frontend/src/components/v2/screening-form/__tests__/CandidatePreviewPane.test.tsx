@@ -125,6 +125,7 @@ import {
   PersonPanelColumn,
   PersonPanelSide,
   PersonPanelSideProvider,
+  PersonPanelSideSection,
   PersonPanelSideZone,
 } from "@/components/v2/person/PersonPanelSide";
 import { useAuthStore } from "@/store/auth";
@@ -895,5 +896,97 @@ describe("CandidatePreviewPane — zwijanie CV i wymagań", () => {
     await user.click(screen.getByRole("button", { name: "Pokaż historię osoby" }));
     expect(screen.getByRole("region", { name: "Historia osoby" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "Rozwiń CV" })).toBeNull();
+  });
+
+  it("historia otwarta z zewnątrz rozwija CV także wtedy, gdy była otwarta przed zwinięciem", async () => {
+    mocks.get.mockImplementation((url: string) =>
+      Promise.resolve({
+        data: String(url).startsWith("/api/notes")
+          ? { items: [{ id: 1, job_id: 201, content: "Umówiony telefon.", created_at: "2026-10-12T08:00:00Z", group: "talks" }] }
+          : PROFILE_DOCS,
+      }),
+    );
+    function ControlledHistory() {
+      const [open, setOpen] = useState(false);
+      return (
+        <PersonPanelSideProvider>
+          <PersonPanelSideZone />
+          <button type="button" onClick={() => setOpen(true)}>
+            Pokaż historię z profilu
+          </button>
+          <PersonPanelSide>
+            <CandidatePreviewPane
+              candidateId={101}
+              jobId={201}
+              stageId={901}
+              historyOpen={open}
+              onHistoryOpenChange={setOpen}
+              collapsible
+            />
+          </PersonPanelSide>
+        </PersonPanelSideProvider>
+      );
+    }
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ControlledHistory />
+      </QueryClientProvider>,
+    );
+    await screen.findByRole("button", { name: "Historia osoby (1)" });
+    await user.click(screen.getByRole("button", { name: "Pokaż historię z profilu" }));
+    expect(screen.getByRole("region", { name: "Historia osoby" })).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Zwiń CV" }));
+    expect(screen.getByRole("button", { name: "Rozwiń CV" })).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Pokaż historię z profilu" }));
+    expect(screen.queryByRole("button", { name: "Rozwiń CV" })).toBeNull();
+    expect(screen.getByRole("region", { name: "Historia osoby" })).toBeVisible();
+  });
+
+  it("zwinięcie w jednej zakładce panelu nie pobiera CV w ukrytym podglądzie innej zakładki", async () => {
+    function TwoSections() {
+      const [tab, setTab] = useState<PreviewTab>("cv");
+      return (
+        <PersonPanelSideProvider>
+          <PersonPanelSideZone />
+          <PersonPanelSideSection active>
+            <PersonPanelSide>
+              <CandidatePreviewPane
+                candidateId={101}
+                jobId={201}
+                stageId={901}
+                tab={tab}
+                onTabChange={setTab}
+                collapsible
+              />
+            </PersonPanelSide>
+          </PersonPanelSideSection>
+          {/* Np. podgląd Screeningu, gdy rekruter jest w zakładce CV. */}
+          <PersonPanelSideSection active={false}>
+            <PersonPanelSide>
+              <CandidatePreviewPane candidateId={101} jobId={201} stageId={901} defaultTab="requirements" collapsible />
+            </PersonPanelSide>
+          </PersonPanelSideSection>
+        </PersonPanelSideProvider>
+      );
+    }
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TwoSections />
+      </QueryClientProvider>,
+    );
+    await screen.findByTestId("file-preview");
+    expect(mocks.previewMounted).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("tab", { name: "Wymagania" }));
+    await user.click(screen.getByRole("button", { name: "Zwiń wymagania" }));
+    await act(async () => {});
+    expect(screen.getAllByTestId("file-preview")).toHaveLength(1);
+    expect(mocks.previewMounted).toHaveBeenCalledTimes(1);
   });
 });

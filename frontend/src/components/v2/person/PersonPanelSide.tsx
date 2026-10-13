@@ -135,6 +135,15 @@ export function PersonPanelSideSection({ active, children }: { active: boolean; 
   return <SideSectionActiveContext.Provider value={active}>{children}</SideSectionActiveContext.Provider>;
 }
 
+/**
+ * Czy sekcja, z której pochodzi treść, jest teraz widoczna. Układ podglądu jest
+ * wspólny dla sekcji, więc podgląd ukrytej sekcji nie montuje po zmianie układu
+ * niczego nowego (np. CV, którego nikt nie widzi) — dopiero gdy sekcja wróci.
+ */
+export function usePersonPanelSideSectionActive(): boolean {
+  return useContext(SideSectionActiveContext);
+}
+
 export interface PersonPanelSideZoneProps {
   /** Poza trybem dzielonym strefa jest ukryta, ale zamontowana. */
   hidden?: boolean;
