@@ -215,10 +215,76 @@ it("AI niedostępne: karta mówi o tym wprost, edytor działa dalej", async () =
   noNetwork();
 });
 
+it("polecenie dla całego CV: plan z pamięci, kartka czeka na decyzję, „Zastosuj” to jedna cofalna zmiana — bez sieci", async () => {
+  const dialog = await openEditor();
+  const editor = liveEditor(dialog);
+  const before = editor.getHTML();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Polecenie" }));
+  const bar = within(dialog).getByRole("form", { name: "Polecenie dla całego CV" });
+  fireEvent.click(within(bar).getByRole("button", { name: "Skróć do 2 stron" }));
+
+  const plan = await within(dialog).findByRole("region", { name: "Plan zmian" });
+  const apply = await within(plan).findByRole("button", { name: "Zastosuj zaznaczone (3)" });
+  expect(within(dialog).getByText("Podgląd zmian — nic nie jest jeszcze zapisane")).toBeInTheDocument();
+  expect(plan).toHaveTextContent("Połącz 2 punkty w jeden");
+  expect(plan).toHaveTextContent("Usuń sekcję");
+  expect(plan).toHaveTextContent("Odrzuciła 1 propozycję asystenta");
+  // Do decyzji kartka jest tylko do odczytu i pokazuje podgląd; treść bez zmian.
+  expect(editor.isEditable).toBe(false);
+  expect(editor.view.dom.querySelectorAll(".cv-plan-remove").length).toBeGreaterThan(0);
+  expect(editor.view.dom.querySelector(".cv-plan-new")).not.toBeNull();
+  expect(editor.getHTML()).toBe(before);
+  // Panel „Do poprawy” ustępuje planowi.
+  expect(within(dialog).queryByRole("complementary", { name: "Do poprawy" })).toBeNull();
+
+  fireEvent.click(apply);
+  await waitFor(() => expect(within(dialog).queryByRole("region", { name: "Plan zmian" })).toBeNull());
+  const html = editor.getHTML();
+  expect(html).not.toContain("JĘZYKI");
+  expect(html).toContain("Optymalizacja zapytań w PostgreSQL; przeglądy kodu i wdrażanie młodszych programistów.");
+  expect(dialog.querySelector(".cv-rodo-locked")).not.toBeNull();
+  expect(editor.isEditable).toBe(true);
+  act(() => {
+    editor.commands.undo();
+  });
+  expect(editor.getHTML()).toBe(before);
+  noNetwork();
+});
+
+it("polecenie: operacja, po której znika wymaganie, nie jest zaznaczona; „Odrzuć plan” niczego nie zmienia", async () => {
+  const dialog = await openEditor();
+  const editor = liveEditor(dialog);
+  const before = editor.getHTML();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Polecenie" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Usuń najstarsze role" }));
+  const plan = await within(dialog).findByRole("region", { name: "Plan zmian" });
+  expect(await within(plan).findByRole("button", { name: "Zastosuj zaznaczone (0)" })).toBeDisabled();
+  expect(plan).toHaveTextContent("Usuń stanowisko");
+  expect(plan).toHaveTextContent("znika wymaganie klienta: JUnit");
+  fireEvent.click(within(plan).getByRole("button", { name: "Odrzuć plan" }));
+  expect(within(dialog).queryByRole("region", { name: "Plan zmian" })).toBeNull();
+  expect(editor.getHTML()).toBe(before);
+  expect(editor.isEditable).toBe(true);
+  noNetwork();
+});
+
+it("polecenie przy niedostępnym asystencie: zdanie w panelu, kartka od razu do edycji", async () => {
+  const dialog = await openEditor("aidown");
+  fireEvent.click(within(dialog).getByRole("button", { name: "Polecenie" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Skróć do 2 stron" }));
+  const plan = await within(dialog).findByRole("region", { name: "Plan zmian" });
+  expect(await within(plan).findByText(/Asystent jest chwilowo niedostępny/)).toBeInTheDocument();
+  expect(within(plan).queryByRole("button", { name: /Zastosuj/ })).toBeNull();
+  expect(liveEditor(dialog).isEditable).toBe(true);
+  noNetwork();
+});
+
 it("wynik generatora bez rekrutacji nie ma AI na zaznaczeniu", async () => {
   const dialog = await openEditor("nosources");
   selectText(liveEditor(dialog), "Optymalizacja zapytań");
   expect(within(dialog).queryByRole("toolbar", { name: "Zaznaczony tekst" })).toBeNull();
+  // Polecenie dla całego CV też wymaga rekrutacji (wymagania, uprawnienia etapu).
+  expect(within(dialog).queryByRole("button", { name: "Polecenie" })).toBeNull();
   expect(within(dialog).queryByRole("button", { name: "AI na zaznaczonym tekście" })).toBeNull();
   noNetwork();
 });

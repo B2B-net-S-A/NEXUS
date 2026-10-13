@@ -66,6 +66,9 @@ import {
 import { CV_AI_CARD_ATTR } from "@/components/v2/cv-editor/CvAiProposalCard";
 import { CvEditorIssues, type CvIssueCount } from "@/components/v2/cv-editor/CvEditorIssues";
 import { CvEditorSelectionAi } from "@/components/v2/cv-editor/CvEditorSelectionAi";
+import { CvEditorCommandBar, CV_COMMAND_ATTR } from "@/components/v2/cv-editor/CvEditorCommandBar";
+import { CvEditorPlan } from "@/components/v2/cv-editor/CvEditorPlan";
+import { useCvCommandPlan } from "@/components/v2/cv-editor/useCvCommandPlan";
 import { CvEditorToolbar } from "@/components/v2/cv-editor/CvEditorToolbar";
 import { CvEditorWordPreview } from "@/components/v2/cv-editor/CvEditorWordPreview";
 import { useCvSelectionAi } from "@/components/v2/cv-editor/useCvSelectionAi";
@@ -84,6 +87,7 @@ import {
   type CVBrandedState,
 } from "@/lib/api";
 import type { CvEditorAiApi } from "@/lib/api/cvEditorAi";
+import type { CvEditorCommandApi } from "@/lib/api/cvEditorCommand";
 import type { CvEditorIssuesApi } from "@/lib/api/cvEditorIssues";
 import {
   generatedApprovalKey,
@@ -169,6 +173,8 @@ type Props = {
   issuesApi?: CvEditorIssuesApi;
   /** Harness: propozycje AI dla zaznaczenia z pamięci zamiast sieci. */
   aiApi?: CvEditorAiApi;
+  /** Harness: plan zmian dla polecenia z pamięci zamiast sieci. */
+  commandApi?: CvEditorCommandApi;
 } & ({ stageId: number; generatedId?: never } | { generatedId: number; stageId?: never });
 
 function getErrorMessage(e: unknown): string {
@@ -223,6 +229,7 @@ function CVBrandedEditContent({
   generatorWarnings,
   issuesApi,
   aiApi,
+  commandApi,
 }: Props) {
   const stageId = (generatedId ?? pipelineStageId)!;
   const isGenerated = generatedId !== undefined;
@@ -250,7 +257,9 @@ function CVBrandedEditContent({
   const [lastSide, setLastSide] = useState<"sources" | "issues">("sources");
   const sideTouched = useRef(false);
   const [issueCount, setIssueCount] = useState<CvIssueCount>(NO_ISSUES);
-  const [narrowPane, setNarrowPane] = useState<"cv" | "sources" | "issues">("cv");
+  const [narrowPane, setNarrowPane] = useState<"cv" | "sources" | "issues" | "plan">("cv");
+  // Pasek „polecenia dla całego CV” (wynik: plan zmian w panelu obok).
+  const [commandOpen, setCommandOpen] = useState(false);
   const [body, setBody] = useState<HTMLElement | null>(null);
   // Kolumna kartki: w niej stoją dymek nad zaznaczeniem i karta propozycji AI.
   const [paper, setPaper] = useState<HTMLElement | null>(null);
@@ -329,13 +338,6 @@ function CVBrandedEditContent({
     // Remote refetches must not replace locally edited content.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, data, stageId]);
-
-  useEffect(() => {
-    // Bez zgłaszania „update”: Tiptap domyślnie zgłasza je przy każdej zmianie
-    // trybu edycji, a dla okna to znaczy „treść się zmieniła”. „Zapisz” na
-    // zatwierdzonym CV bez żadnej poprawki zakładało przez to nowy szkic.
-    editor?.setEditable(!noCv && !submitting, false);
-  }, [editor, noCv, submitting]);
 
   const startNewDraft = () => {
     const session = sessionRef.current;
@@ -551,22 +553,50 @@ function CVBrandedEditContent({
 
   const language: CvLang = data?.language === "en" ? "en" : "pl";
   const hasCv = !!data && !noCv;
+  const command = useCvCommandPlan({
+    editor,
+    stageId: isGenerated ? undefined : stageId,
+    // Bez `creatingDraft` — jak przy AI na zaznaczeniu: szkic zakłada samo „Zastosuj”.
+    disabled: !hasCv || mode === "word" || submitting,
+    ensureDraft,
+    api: commandApi,
+  });
+  const planOpen = command.phase !== "idle";
+  useEffect(() => {
+    // Bez zgłaszania „update”: Tiptap domyślnie zgłasza je przy każdej zmianie
+    // trybu edycji, a dla okna to znaczy „treść się zmieniła”. „Zapisz” na
+    // zatwierdzonym CV bez żadnej poprawki zakładało przez to nowy szkic.
+    // Plan zmian odnosi się do treści z chwili zamówienia — do decyzji kartka
+    // jest tylko do odczytu.
+    editor?.setEditable(!noCv && !submitting && !command.locked, false);
+  }, [editor, noCv, submitting, command.locked]);
   const ai = useCvSelectionAi({
     editor,
     stageId: isGenerated ? undefined : stageId,
     // Bez `creatingDraft`: szkic na zatwierdzonej wersji zakłada samo „Przyjmij”,
     // a zakres czekający na propozycję przeżywa wczytanie tej samej treści.
-    disabled: !hasCv || mode === "word" || submitting,
+    disabled: !hasCv || mode === "word" || submitting || command.locked,
     ensureDraft,
     api: aiApi,
   });
   const hasIssuesPanel = hasCv && (!isGenerated || generatorWarnings !== undefined);
   const issuesSide = hasIssuesPanel && issuesOpen && (bothPanels || !sourcesOpen || lastSide === "issues");
   const sourcesSide = sourcesOpen && (bothPanels || !issuesSide);
-  const pane = narrowPane === "issues" && !hasIssuesPanel ? "cv" : narrowPane;
-  const showSources = hasCv && (sideBySide ? sourcesSide : pane === "sources");
-  const showIssues = hasIssuesPanel && (sideBySide ? issuesSide : pane === "issues");
+  const pane =
+    (narrowPane === "issues" && !hasIssuesPanel) || (narrowPane === "plan" && !planOpen) ? "cv" : narrowPane;
+  // Plan zmian zajmuje miejsce panelu „Do poprawy”; przy jednym panelu naraz także źródeł.
+  const showPlan = planOpen && (sideBySide || pane === "plan");
+  const showSources = hasCv && (sideBySide ? sourcesSide && (bothPanels || !planOpen) : pane === "sources");
+  const showIssues = hasIssuesPanel && !planOpen && (sideBySide ? issuesSide : pane === "issues");
   const showCv = sideBySide || pane === "cv" || !hasCv;
+  // Wąski ekran: plan pokazuje się od razu, a po decyzji wraca kartka.
+  useEffect(() => {
+    setNarrowPane((current) => (planOpen ? "plan" : current === "plan" ? "cv" : current));
+  }, [planOpen]);
+  const closeCommand = () => {
+    command.discard();
+    setCommandOpen(false);
+  };
   // Zlecone wyszukanie cytatu dotyczy tego pokazania źródeł: po ich schowaniu
   // wygasa, żeby ponowne otwarcie nie szukało starego cytatu od nowa.
   useEffect(() => {
@@ -625,7 +655,14 @@ function CVBrandedEditContent({
             const target = event.target;
             if (!(target instanceof HTMLElement)) return;
             // Escape w karcie propozycji AI odrzuca propozycję (robi to sama karta).
-            if (target.closest(".ProseMirror") || target.closest(`[${CV_AI_CARD_ATTR}]`)) event.preventDefault();
+            // W pasku polecenia i w planie zmian Escape też nie zamyka edytora.
+            if (
+              target.closest(".ProseMirror") ||
+              target.closest(`[${CV_AI_CARD_ATTR}]`) ||
+              target.closest(`[${CV_COMMAND_ATTR}]`)
+            ) {
+              event.preventDefault();
+            }
           }}
           // Okno zajmuje cały ekran; klik w toast (poza drzewem okna) nie może go zamknąć.
           onInteractOutside={(event) => event.preventDefault()}
@@ -661,6 +698,12 @@ function CVBrandedEditContent({
               </div>
               {data?.status === "draft" ? (
                 <Badge variant="info" size="sm">Szkic v{data?.version ?? 1}</Badge>
+              ) : null}
+              {command.phase === "plan" ? (
+                // Telefon: to samo zdanie stoi w nagłówku panelu planu, a plakietka ściskała tytuł.
+                <Badge variant="warning" size="sm" className="hidden sm:inline-flex">
+                  Podgląd zmian — nic nie jest jeszcze zapisane
+                </Badge>
               ) : null}
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -718,7 +761,7 @@ function CVBrandedEditContent({
           </p>}
           {hasCv && editor ? (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-background px-3 py-1.5">
-              <CvEditorToolbar editor={editor} language={language} disabled={mode === "word" || submitting} ai={ai} />
+              <CvEditorToolbar editor={editor} language={language} disabled={mode === "word" || submitting || command.locked} ai={ai} />
               {/* Wąski ekran: przełączniki w osobnym wierszu — pasek narzędzi nie traci na nie miejsca. */}
               <div className={cn("flex flex-wrap items-center gap-x-3 gap-y-1", sideBySide ? "flex-none" : "basis-full")}>
               <div className="flex flex-none items-center gap-1" role="group" aria-label="Widok CV">
@@ -727,6 +770,20 @@ function CVBrandedEditContent({
                   Podgląd Word
                 </ViewToggle>
               </div>
+              {!isGenerated ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  aria-pressed={commandOpen}
+                  disabled={mode === "word" || submitting}
+                  title="Polecenie własnymi słowami dla całego CV"
+                  className={cn("flex-none", commandOpen && "bg-primary/10 text-primary hover:bg-primary/10")}
+                  onClick={() => (commandOpen ? closeCommand() : setCommandOpen(true))}
+                >
+                  <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+                  Polecenie
+                </Button>
+              ) : null}
               {sideBySide ? (
                 <div className="flex flex-none items-center gap-1">
                   <Button size="sm" variant="ghost" aria-pressed={sourcesSide} onClick={toggleSources}>
@@ -748,13 +805,19 @@ function CVBrandedEditContent({
                 <div className="flex flex-none items-center gap-1" role="group" aria-label="Kolumna">
                   <ViewToggle active={pane === "cv"} onClick={() => setNarrowPane("cv")}>CV</ViewToggle>
                   <ViewToggle active={pane === "sources"} onClick={() => setNarrowPane("sources")}>Źródła</ViewToggle>
-                  {hasIssuesPanel ? (
+                  {hasIssuesPanel && !planOpen ? (
                     <ViewToggle active={pane === "issues"} onClick={() => setNarrowPane("issues")}>{issuesLabel}</ViewToggle>
+                  ) : null}
+                  {planOpen ? (
+                    <ViewToggle active={pane === "plan"} onClick={() => setNarrowPane("plan")}>Plan zmian</ViewToggle>
                   ) : null}
                 </div>
               )}
               </div>
             </div>
+          ) : null}
+          {hasCv && editor && commandOpen && mode === "edit" ? (
+            <CvEditorCommandBar controller={command} onClose={closeCommand} />
           ) : null}
 
           <div ref={setBody} className="flex min-h-0 flex-1">
@@ -837,7 +900,7 @@ function CVBrandedEditContent({
                   generatorWarnings={generatorWarnings}
                   savedRevision={data.edit_revision}
                   unsaved={saveState !== "saved" && saveState !== "finalized"}
-                  readOnly={mode === "word" || submitting || creatingDraft}
+                  readOnly={mode === "word" || submitting || creatingDraft || command.locked}
                   ensureDraft={ensureDraft}
                   onShowCv={() => {
                     setMode("edit");
@@ -846,6 +909,17 @@ function CVBrandedEditContent({
                   onCount={setIssueCount}
                   api={issuesApi}
                 />
+              </aside>
+            ) : null}
+            {showPlan ? (
+              <aside
+                aria-label="Plan zmian"
+                className={cn(
+                  "min-h-0 min-w-0 bg-card",
+                  sideBySide ? "w-[360px] flex-none border-l border-border" : "flex-1",
+                )}
+              >
+                <CvEditorPlan controller={command} onShowCv={sideBySide ? undefined : () => setNarrowPane("cv")} />
               </aside>
             ) : null}
           </div>
