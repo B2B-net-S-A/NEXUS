@@ -126,6 +126,10 @@ import { positiveIntParam } from "@/lib/client-tab";
 import { DocumentsTab } from "@/components/v2/b2b-generator/documents/DocumentsTab";
 import { RegisterNewDocumentMenu } from "@/components/v2/b2b-generator/documents/RegisterNewDocumentMenu";
 import { AnnexGeneratorTab } from "@/components/v2/b2b-generator/documents/AnnexGeneratorTab";
+import {
+  RegisterAnnexLabel,
+  RegisterStartDate,
+} from "@/components/v2/b2b-generator/RegisterAnnexLabel";
 import { RegistryCheckDialog } from "@/components/v2/b2b-generator/RegistryCheckDialog";
 import {
   needsRegistryDialog,
@@ -579,7 +583,10 @@ export function B2BContractGeneratorV2() {
   const defaultTab: GeneratorTab = canGenerate ? "generator" : "generated";
   const allowedTab = (tab: GeneratorTab | null): GeneratorTab | null => {
     if (!tab) return null;
-    if ((tab === "generator" || tab === "annexes") && !canGenerate) return null;
+    // „Generator aneksów” widzi każdy: rejestr aneksów jest tam, a aneks
+    // potwierdzają osoby bez prawa generowania (podpis, Finanse). Sam kreator
+    // w zakładce nadal wymaga uprawnienia „Generowanie”.
+    if (tab === "generator" && !canGenerate) return null;
     if (tab === "roles" && !isAdmin) return null;
     return tab;
   };
@@ -673,14 +680,12 @@ export function B2BContractGeneratorV2() {
               >
                 Zakończone umowy
               </TabsTrigger>
-              {canGenerate ? (
-                <TabsTrigger
-                  value="annexes"
-                  className="shrink-0 whitespace-nowrap"
-                >
-                  Generator aneksów
-                </TabsTrigger>
-              ) : null}
+              <TabsTrigger
+                value="annexes"
+                className="shrink-0 whitespace-nowrap"
+              >
+                Generator aneksów
+              </TabsTrigger>
               <TabsTrigger
                 value="documents"
                 className="shrink-0 whitespace-nowrap"
@@ -748,11 +753,9 @@ export function B2BContractGeneratorV2() {
                 searchParam={activeTab === "closed" ? qParam : null}
               />
             </TabsContent>
-            {canGenerate ? (
-              <TabsContent value="annexes">
-                <AnnexGeneratorTab />
-              </TabsContent>
-            ) : null}
+            <TabsContent value="annexes">
+              <AnnexGeneratorTab canGenerate={canGenerate} />
+            </TabsContent>
             <TabsContent value="documents">
               <DocumentsTab canGenerate={canGenerate} />
             </TabsContent>
@@ -2652,10 +2655,15 @@ export function GeneratedContractsTab({
                               {r.partner_secondary_line}
                             </span>
                           ) : null}
-                          {/* Stawka z aneksu zmienia się już przy wygenerowaniu
-                              aneksu (Generator aneksów); widoczna wyłącznie dla
-                              osób, które widzą stawki tej umowy. */}
-                          {annexRatesSummary(r.annex_rates) ? (
+                          {/* Aneks zmienia wiersz już przy wygenerowaniu —
+                              etykieta mówi, skąd zmiana i czy aneks jest
+                              podpisany. Stawka w etykiecie tylko dla osób,
+                              które widzą stawki tej umowy. Odpowiedź starszego
+                              backendu (bez `latest_annex`) zostaje przy samej
+                              stawce z aneksu. */}
+                          {r.latest_annex ? (
+                            <RegisterAnnexLabel row={r} />
+                          ) : annexRatesSummary(r.annex_rates) ? (
                             <span className="text-xs text-muted-foreground">
                               Stawka z aneksu: {annexRatesSummary(r.annex_rates)}
                             </span>
@@ -2668,7 +2676,7 @@ export function GeneratedContractsTab({
                       {/* Data ROZPOCZĘCIA USŁUG — surowe ISO, bez godziny (kontrast:
                           „Wygenerowano" niżej celowo pokazuje czas). */}
                       <td className="py-2 pr-4 tabular-nums">
-                        {formatIsoDatePl(r.start_date)}
+                        <RegisterStartDate row={r} />
                       </td>
                       <td className="py-2 pr-4">
                         {editing ? (

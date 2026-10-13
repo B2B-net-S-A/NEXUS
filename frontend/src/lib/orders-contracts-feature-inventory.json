@@ -205,6 +205,27 @@
    "b_home": "Panel: menu „Aneks”"
   },
   {
+   "id": "k.annex.register",
+   "opis": "Rejestr aneksów: lista, jeden status, oznaczenie podpisu, skan, powiązanie z kontraktem, historia",
+   "file": "components/v2/b2b-generator/documents/AnnexRegister.tsx",
+   "marker": "Rejestr aneksów",
+   "b_home": "Generator umów: zakładka „Generator aneksów”"
+  },
+  {
+   "id": "k.annex.subject",
+   "opis": "Nowy aneks: wybór osoby — umowa z rejestru albo kontrakt bez umowy w rejestrze",
+   "file": "components/v2/b2b-generator/documents/AnnexSubjectPicker.tsx",
+   "marker": "Dla kogo jest aneks?",
+   "b_home": "Generator umów: zakładka „Generator aneksów”"
+  },
+  {
+   "id": "k.annex.row-label",
+   "opis": "Etykieta najnowszego aneksu i data startu przed/po na wierszu umowy",
+   "file": "components/v2/b2b-generator/RegisterAnnexLabel.tsx",
+   "marker": "RegisterAnnexLabel",
+   "b_home": "Generator umów: zakładka „Umowy bieżące”"
+  },
+  {
    "id": "k.p.more",
    "opis": "Edytuj, Dodaj projekt, Generuj z szablonu, Przepnij, Usuń",
    "file": "components/contracts/ContractSidePanel.tsx",

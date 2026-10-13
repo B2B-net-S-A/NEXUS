@@ -1,7 +1,7 @@
 {
-  "entry": "35f44d918dc761e63f8037425eb0e69b476a6b055424f6c418f3d4672a3b14d5",
+  "entry": "56a4e066619ca46ae498c4a660e94ab252b9b09b67b42f9ec50c9be6f855bfa6",
   "guide": "contracts.b2b_generator",
   "sources": {
-    "frontend/src/components/v2/pages/B2BContractGeneratorV2.tsx": "ab2ebdc584cdd3f6ef6139c9aa18c7e6363da44f958095221c4085b028789e6c"
+    "frontend/src/components/v2/pages/B2BContractGeneratorV2.tsx": "219a23aaf28b9e4c954e4bb15d551532dd7b1875d66c4f71d9493c72475e366a"
   }
 }

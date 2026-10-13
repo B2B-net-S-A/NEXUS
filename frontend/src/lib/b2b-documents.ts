@@ -4,6 +4,8 @@
 // `backend/app/services/b2b_documents/registry.py` (przychodzą z API).
 
 import type {
+  AnnexChange,
+  AnnexState,
   DocumentFamily,
   DocumentFieldDef,
   DocumentFieldGroup,
@@ -15,6 +17,7 @@ import type {
   RateItemValue,
 } from "@/lib/api/b2bDocuments";
 import { messageFromApiResponse } from "@/lib/api-error";
+import { formatIsoDatePl } from "@/lib/date-pl";
 
 // ── Etykiety ────────────────────────────────────────────────────────────────
 
@@ -286,6 +289,10 @@ export interface RequestSubject {
   parentGeneratedContractId?: number | null;
   candidateId?: number | null;
   jobId?: number | null;
+  /** Kontrakt aneksu bez umowy w rejestrze albo wskazany dla umowy bez powiązania. */
+  contractId?: number | null;
+  /** Klient aneksu „Bez kontraktu”. */
+  clientId?: number | null;
 }
 
 /**
@@ -357,6 +364,9 @@ export function buildDocumentRequest(input: {
   // Umowa przedwstępna nie ma umowy bazowej — wiąże ją kandydat i rekrutacja.
   if (subject.candidateId) body.candidate_id = subject.candidateId;
   if (subject.jobId) body.job_id = subject.jobId;
+  // Aneks: kontrakt wskazany przy wyborze osoby; bez kontraktu — klient.
+  if (subject.contractId) body.contract_id = subject.contractId;
+  else if (subject.clientId) body.client_id = subject.clientId;
   // Numery paragrafów wysyłamy wyłącznie, gdy serwer o nie prosi: przy znanej
   // wersji wzoru i tak ich nie czyta, a mylące nadpisanie byłoby niewidoczne.
   const refs = input.needsRefs ? cleanRefs(input.refs) : null;
@@ -521,18 +531,150 @@ export function sensitiveFieldsOf(
   return type.fields.filter((f) => f.sensitive && wanted.has(f.key));
 }
 
-/** Umowa bazowa kontraktu: wiersz rejestru o danym `contract_id`. */
-export function findRegisterRowForContract<
-  T extends { contract_id: number | null; contract_status?: string },
->(rows: readonly T[], contractId: number): T | null {
-  const matches = rows.filter((r) => r.contract_id === contractId);
-  if (!matches.length) return null;
-  // Obowiązująca umowa wygrywa z anulowaną/zakończoną tej samej osoby.
-  return (
-    matches.find((r) => r.contract_status === "active") ??
-    matches.find((r) => r.contract_status !== "cancelled") ??
-    matches[0]
-  );
+// ── Rejestr aneksów ─────────────────────────────────────────────────────────
+
+/** Rodziny dokumentów zakładki „Dokumenty” — aneksy mają własny rejestr. */
+export const NON_ANNEX_FAMILIES: readonly DocumentFamily[] = [
+  "termination",
+  "preliminary",
+];
+export const ANNEX_FAMILIES: readonly DocumentFamily[] = ["annex"];
+
+const ANNEX_TITLES: Record<string, string> = {
+  annex_party_data: "Uzupełnienie danych firmy",
+  annex_start_date: "Zmiana daty startu",
+  annex_rate_change: "Zmiana stawki",
+  annex_subcontractor: "Osoba skierowana",
+  annex_mandate: "Aneks do umowy zlecenie",
+};
+
+/** Nazwa typu aneksu w rejestrze (bez przedrostka „Aneks —” z kreatora). */
+export function annexTitle(documentType: string): string {
+  return ANNEX_TITLES[documentType] ?? "Aneks";
+}
+
+const ANNEX_SHORT: Record<string, string> = {
+  annex_party_data: "dane firmy",
+  annex_start_date: "data startu",
+  annex_rate_change: "stawka",
+  annex_subcontractor: "osoba skierowana",
+  annex_mandate: "zlecenie",
+};
+
+/** Krótka nazwa do etykiety na wierszu umowy („Aneks: data startu · …”). */
+export function annexShortLabel(documentType: string): string {
+  return ANNEX_SHORT[documentType] ?? "aneks";
+}
+
+export type AnnexStateTone = "warning" | "info" | "success" | "neutral";
+
+const ANNEX_STATES: Record<AnnexState, { label: string; tone: AnnexStateTone }> = {
+  waiting: { label: "Czeka na podpis", tone: "warning" },
+  signed_pending: { label: "Podpisany", tone: "info" },
+  in_force: { label: "Obowiązuje", tone: "success" },
+  cancelled: { label: "Anulowany", tone: "neutral" },
+};
+
+/**
+ * Stan aneksu. Serwer liczy go sam (`state`); odpowiedź starszego backendu
+ * ma tylko parę status + podpis — wtedy podpisany aneks czytamy jako
+ * obowiązujący, bo dnia wejścia w życie nie znamy.
+ */
+export function annexStateOf(
+  item: Pick<DocumentItem, "state" | "status" | "signature_status">,
+): AnnexState {
+  if (item.state && item.state in ANNEX_STATES) return item.state;
+  if (item.status === "cancelled") return "cancelled";
+  if (item.status === "signed" || item.signature_status === "signed_both") {
+    return "in_force";
+  }
+  return "waiting";
+}
+
+export function annexStateLabel(state: AnnexState): {
+  label: string;
+  tone: AnnexStateTone;
+} {
+  return ANNEX_STATES[state];
+}
+
+function plAmount(value: number): string {
+  return value.toLocaleString("pl-PL", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function rateUnit(currency: string): string {
+  return currency === "PLN" ? "zł/h" : `${currency}/h`;
+}
+
+/**
+ * Skrót zmiany do komórki listy: „140,00 → 150,00 zł/h”, „02.11.2026 →
+ * 16.11.2026”, nazwa firmy albo osoby skierowanej. `before` tylko wtedy, gdy
+ * da się je zestawić jeden do jednego z nową wartością.
+ */
+export function annexChangeText(
+  change: AnnexChange | null | undefined,
+): { before: string | null; after: string } | null {
+  if (!change) return null;
+  if (change.kind === "rate") {
+    if (change.hidden || change.items.length === 0) return null;
+    const unit = rateUnit(change.currency);
+    if (change.items.length === 1) {
+      const [item] = change.items;
+      return {
+        before:
+          change.before.length === 1 ? plAmount(change.before[0].rate) : null,
+        after: `${plAmount(item.rate)} ${unit}`,
+      };
+    }
+    return {
+      before: null,
+      after: change.items
+        .map((item) =>
+          [
+            `${plAmount(item.rate)} ${unit}`,
+            item.from ? `od ${formatIsoDatePl(item.from)}` : "",
+            item.client_name ?? "",
+          ]
+            .filter(Boolean)
+            .join(" · "),
+        )
+        .join("; "),
+    };
+  }
+  if (change.kind === "start_date") {
+    if (!change.after) return null;
+    return {
+      before: change.before ? formatIsoDatePl(change.before) : null,
+      after: formatIsoDatePl(change.after),
+    };
+  }
+  if (change.kind === "party") {
+    const after = [change.legal_name, change.nip ? `NIP ${change.nip}` : ""]
+      .filter(Boolean)
+      .join(" · ");
+    return after ? { before: null, after } : null;
+  }
+  if (change.kind === "delegate") {
+    return change.name ? { before: null, after: change.name } : null;
+  }
+  const period = [change.period_from, change.period_to]
+    .map((day) => (day ? formatIsoDatePl(day) : ""))
+    .filter(Boolean)
+    .join(" – ");
+  const after = [period, change.rate_changed ? "zmiana stawki" : ""]
+    .filter(Boolean)
+    .join(" · ");
+  return after ? { before: null, after } : null;
+}
+
+/** Rejestr aneksów z wyszukaną frazą — cel linku z etykiety na wierszu umowy. */
+export function annexRegisterHref(q: string | null | undefined): string {
+  const params = new URLSearchParams({ tab: "annexes" });
+  if (q?.trim()) params.set("q", q.trim());
+  return `/contracts/b2b-generator?${params.toString()}`;
 }
 
 /** Czy typ wymaga wyboru umowy bazowej przed formularzem. */

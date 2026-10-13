@@ -3893,6 +3893,27 @@ export interface B2BGeneratedContractRow {
    * umowy są dla bieżącej osoby niewidoczne.
    */
   annex_rates?: B2BAnnexRate[] | null;
+  /**
+   * Najnowszy nieanulowany aneks do umowy i liczba takich aneksów — etykieta
+   * pod nazwą Partnera. Firma, NIP i data startu zmieniają się w wierszu już
+   * przy wygenerowaniu aneksu; etykieta mówi, skąd ta zmiana.
+   */
+  latest_annex?: B2BRegisterAnnex | null;
+  annex_count?: number;
+  /**
+   * Data rozpoczęcia sprzed aneksu zmiany daty startu i stan tego aneksu:
+   * przed podpisem „stara → nowa”, po podpisie stara przekreślona.
+   */
+  start_date_before?: string | null;
+  start_date_annex_state?: B2BRegisterAnnex["state"] | null;
+}
+
+/** Najnowszy aneks do umowy z rejestru — bez kwot (te niesie `annex_rates`). */
+export interface B2BRegisterAnnex {
+  document_id: number;
+  document_type: string;
+  state: "waiting" | "signed_pending" | "in_force" | "cancelled";
+  effective_date: string | null;
 }
 
 /** Pozycja stawki z aneksu w wierszu rejestru. */

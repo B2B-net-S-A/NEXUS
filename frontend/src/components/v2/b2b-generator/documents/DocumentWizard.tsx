@@ -3,8 +3,10 @@
 // Kreator „Nowy dokument”: typ → umowa bazowa (albo kandydat i rekrutacja
 // przy umowie przedwstępnej) → formularz z definicji pól → podgląd / DOCX.
 // Ten sam komponent obsługuje „Popraw” z listy (ten sam wiersz, `/rerender`)
-// i zakładkę „Generator aneksów” (`mode="annexes"`: tylko aneksy, umowa
-// z rejestru albo „Umowa spoza Nexusa” — ticket 29.09.2026).
+// i zakładkę „Generator aneksów” (`mode="annexes"`: tylko aneksy). Podmiot
+// aneksu wybiera jedno wyszukiwanie osoby (`AnnexSubjectPicker`): umowa
+// z rejestru albo kontrakt bez umowy w rejestrze — każdy aneks jest
+// zapisywany i ma kontrakt (13.10.2026).
 
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -47,7 +49,6 @@ import {
   buildDocumentRequest,
   createdInAnnexGenerator,
   fieldKeysForLabels,
-  findRegisterRowForContract,
   invalidListFields,
   invalidMoneyFields,
   missingRequired,
@@ -59,6 +60,13 @@ import {
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { cn } from "@/lib/utils";
 
+import {
+  AnnexSubjectPicker,
+  EMPTY_ANNEX_CHOICE,
+  annexChoiceReady,
+  choiceFromSubject,
+  type AnnexSubjectChoice,
+} from "./AnnexSubjectPicker";
 import { DocumentFieldsForm, DocumentRefsFields } from "./DocumentFieldsForm";
 import { saveDocx } from "./DocumentDialogs";
 
@@ -67,13 +75,10 @@ const REFS_MISSING_LABEL = "Numery paragrafów umowy bazowej";
 
 type Step = "type" | "subject" | "form";
 
-interface Subject {
-  parentId: number | null;
-  parentLabel: string | null;
+/** Podmiot dokumentu: umowa z rejestru, kontrakt aneksu albo kandydat. */
+interface Subject extends AnnexSubjectChoice {
   /** Umowa zlecenie bez wiersza w rejestrze — świadomy wybór, nie brak. */
   noParent: boolean;
-  /** Generator aneksów: umowa spoza NEXUSA, dane wpisane ręcznie. */
-  external: boolean;
   candidateId: number | null;
   candidateLabel: string | null;
   jobId: number | null;
@@ -81,20 +86,22 @@ interface Subject {
 }
 
 const EMPTY_SUBJECT: Subject = {
-  parentId: null,
-  parentLabel: null,
+  ...EMPTY_ANNEX_CHOICE,
   noParent: false,
-  external: false,
   candidateId: null,
   candidateLabel: null,
   jobId: null,
   jobLabel: null,
 };
 
+/** Aneks do umowy albo kontraktu — podmiot wybiera wyszukiwanie osoby. */
+function usesAnnexPicker(type: DocumentTypeDef): boolean {
+  return type.family === "annex" && type.parent !== "none";
+}
+
 function subjectReady(type: DocumentTypeDef, subject: Subject): boolean {
-  if (type.parent === "b2b") {
-    return subject.parentId !== null || (type.allows_external && subject.external);
-  }
+  if (usesAnnexPicker(type)) return annexChoiceReady(type, subject);
+  if (type.parent === "b2b") return subject.parentId !== null;
   if (type.parent === "mandate") return subject.parentId !== null || subject.noParent;
   return subject.candidateId !== null && subject.jobId !== null;
 }
@@ -158,30 +165,40 @@ export function DocumentWizard({
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [previewMissing, setPreviewMissing] = useState<string[]>([]);
   const [savedId, setSavedId] = useState<number | null>(editDocumentId);
-  /** Aneks do umowy spoza NEXUSA pobrany — bez wiersza w bazie. */
-  const [externalDownloaded, setExternalDownloaded] = useState(false);
 
-  // ── Umowa bazowa z kontraktu (`?contract=`) ──────────────────────────────
+  // ── Podmiot z kontraktu (`?contract=`, wejście z modułu Kontrakty) ───────
+  // Umowa tego kontraktu w rejestrze albo — dla aneksu — sam kontrakt, gdy
+  // umowy w rejestrze nie ma. Pyta trasę generatora (do 13.10.2026 kreator
+  // czytał kontrakt z modułu Kontrakty i bez wglądu w Delivery dostawał 403).
   const byContract = useQuery({
-    queryKey: ["b2b-generated", "by-contract", initialContractId ?? 0],
+    queryKey: b2bDocumentsKeys.subjects(type?.key ?? "", "", initialContractId),
     queryFn: async () => {
-      const id = initialContractId as number;
-      const name = await b2bDocumentsApi.contractCandidateName(id);
-      if (!name) return null;
-      const rows = await b2bGeneratorApi.generated(200, { q: name });
-      return findRegisterRowForContract(rows, id);
+      const subjects = await b2bDocumentsApi.subjects({
+        documentType: type!.key,
+        contractId: initialContractId,
+      });
+      return subjects[0] ?? null;
     },
-    enabled: Boolean(initialContractId) && !initialParentId && !editDocumentId,
+    enabled:
+      Boolean(initialContractId) &&
+      type !== null &&
+      type.parent !== "none" &&
+      !initialParentId &&
+      !editDocumentId,
     staleTime: 30_000,
   });
   useEffect(() => {
-    const row = byContract.data;
-    if (!row) return;
+    const found = byContract.data;
+    if (!found) return;
+    const choice = choiceFromSubject(found);
     setSubject((prev) =>
-      prev.parentId ? prev : { ...prev, parentId: row.id, parentLabel: registerRowLabel(row) },
+      prev.parentId || prev.contractId ? prev : { ...prev, ...choice },
     );
-    setStep((prev) => (prev === "subject" && type && type.parent !== "none" ? "form" : prev));
-  }, [byContract.data, type]);
+    // Kilka kontraktów do wyboru zostawia człowieka w kroku wyboru.
+    if (!choice.needsContractPick) {
+      setStep((prev) => (prev === "subject" ? "form" : prev));
+    }
+  }, [byContract.data]);
 
   // ── Zapisany dokument („Popraw”) ─────────────────────────────────────────
   const savedForm = useQuery({
@@ -194,12 +211,21 @@ export function DocumentWizard({
     const form = savedForm.data;
     if (!form) return;
     setTypeKey(form.document_type);
+    const withoutParent = form.parent_generated_contract_id === null;
     setSubject((prev) => ({
       ...prev,
       parentId: form.parent_generated_contract_id,
       parentLabel: form.base?.contract_number ?? prev.parentLabel,
-      noParent: form.parent_generated_contract_id === null,
-      external: false,
+      noParent: withoutParent,
+      // Aneks bez umowy w rejestrze: kontrakt i klient zostają te z zapisu —
+      // „Popraw” zmienia treść, nie podmiot.
+      contractId: withoutParent ? (form.contract_id ?? null) : null,
+      contractLabel:
+        withoutParent && form.contract_id ? `Kontrakt #${form.contract_id}` : null,
+      needsContractPick: false,
+      withoutContract: withoutParent && !form.contract_id,
+      clientId: form.client_id ?? null,
+      clientName: form.client_name ?? null,
       candidateId: form.candidate_id,
       jobId: form.job_id,
     }));
@@ -210,12 +236,19 @@ export function DocumentWizard({
     type !== null &&
     subjectReady(type, subject) &&
     (!editDocumentId || savedForm.isSuccess);
+  // Dane Partnera z kontraktu tylko dla aneksu bez umowy w rejestrze — umowa
+  // z rejestru niesie własne.
+  const prefillContractId =
+    type && usesAnnexPicker(type) && subject.parentId === null
+      ? subject.contractId
+      : null;
   const prefill = useQuery({
     queryKey: b2bDocumentsKeys.prefill(
       type?.key ?? "",
       subject.parentId,
       subject.candidateId,
       subject.jobId,
+      prefillContractId,
     ),
     queryFn: () =>
       b2bDocumentsApi.prefill({
@@ -223,6 +256,7 @@ export function DocumentWizard({
         parentGeneratedContractId: subject.parentId,
         candidateId: subject.candidateId,
         jobId: subject.jobId,
+        contractId: prefillContractId,
       }),
     enabled: prefillEnabled,
     staleTime: 0,
@@ -230,7 +264,7 @@ export function DocumentWizard({
 
   // Wartości startowe raz na (typ, podmiot) — kolejny odczyt prefillu nie
   // może nadpisać tego, co użytkownik już wpisał.
-  const initKey = `${type?.key}|${subject.parentId}|${subject.external}|${subject.candidateId}|${editDocumentId}`;
+  const initKey = `${type?.key}|${subject.parentId}|${prefillContractId}|${subject.withoutContract}|${subject.candidateId}|${editDocumentId}`;
   useEffect(() => {
     // Tylko w kroku formularza: wartość z cache (inny wybór umowy) nie może
     // zainicjować formularza, zanim człowiek wybierze umowę.
@@ -261,6 +295,9 @@ export function DocumentWizard({
         parentGeneratedContractId: subject.parentId,
         candidateId: type!.parent === "none" ? subject.candidateId : null,
         jobId: type!.parent === "none" ? subject.jobId : null,
+        ...(usesAnnexPicker(type!)
+          ? { contractId: subject.contractId, clientId: subject.clientId }
+          : {}),
       },
       values,
       needsRefs,
@@ -326,28 +363,27 @@ export function DocumentWizard({
         : await b2bDocumentsApi.create(body);
       saveDocx(res as { data: unknown; headers: Record<string, unknown> }, `${type!.label}.docx`);
       const headers = res.headers as Record<string, unknown>;
-      if (String(headers["x-document-saved"] ?? "") === "0") return null;
       const header = Number(headers["x-document-id"]);
       return Number.isFinite(header) && header > 0 ? header : savedId;
     },
     onSuccess: (id) => {
-      if (id === null && subject.external) {
-        setExternalDownloaded(true);
-        toast.showSuccess(
-          "Aneks pobrany. Umowy nie ma w NEXUSIE, więc aneksu nie zapisujemy.",
-        );
-        return;
-      }
       setSavedId(id ?? null);
       queryClient.invalidateQueries({ queryKey: [B2B_DOCUMENTS_KEY, "list"] });
-      if (subject.parentId && type?.allows_external) {
+      const annex = type ? usesAnnexPicker(type) : false;
+      if (annex) {
+        // Aneks widać w kontrakcie od wygenerowania („czeka na podpis”).
+        queryClient.invalidateQueries({ queryKey: ["contract-annex-documents"] });
+      }
+      if (subject.parentId && annex) {
         // Wiersz „Umów bieżących” zmienia się już przy wygenerowaniu aneksu.
         queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
       }
       toast.showSuccess(
-        type?.allows_external && subject.parentId
-          ? "Aneks zapisany przy umowie i pobrany. Rejestr umów już pokazuje zmianę."
-          : "Dokument zapisany i pobrany.",
+        !annex
+          ? "Dokument zapisany i pobrany."
+          : subject.parentId
+            ? "Aneks zapisany i pobrany. Jest w rejestrze aneksów, a rejestr umów już pokazuje zmianę."
+            : "Aneks zapisany i pobrany. Jest w rejestrze aneksów.",
       );
     },
     onError: (e) => void handleServerError(e, "Nie udało się wygenerować dokumentu."),
@@ -390,7 +426,6 @@ export function DocumentWizard({
     setTypeKey(null);
     setSubject({ ...EMPTY_SUBJECT });
     setSavedId(null);
-    setExternalDownloaded(false);
     setInitializedFor(null);
     setValues({});
     setPreviewHtml(null);
@@ -422,7 +457,12 @@ export function DocumentWizard({
           <CardDescription>
             {type ? type.label : annexMode ? "Wybierz typ aneksu." : "Wybierz rodzaj dokumentu."}
             {subject.parentLabel ? ` · umowa ${subject.parentLabel}` : ""}
-            {subject.external ? " · umowa spoza NEXUSA" : ""}
+            {!subject.parentId && subject.contractLabel
+              ? ` · ${subject.contractLabel}`
+              : ""}
+            {subject.withoutContract
+              ? ` · bez kontraktu${subject.clientName ? `, ${subject.clientName}` : ""}`
+              : ""}
           </CardDescription>
         </div>
         <Button variant="ghost" size="sm" onClick={annexMode ? restart : onClose}>
@@ -506,29 +546,17 @@ export function DocumentWizard({
               </Alert>
             ) : initializedFor === initKey ? (
               <>
-                {externalDownloaded && download.isSuccess ? (
-                  <Alert
-                    variant="success"
-                    icon={CheckCircle2}
-                    title="Aneks pobrany"
-                    description="Umowy nie ma w NEXUSIE, więc aneksu nie zapisujemy — plik jest tylko na Twoim dysku."
-                  >
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <Button size="sm" variant="ghost" onClick={restart}>
-                        Nowy aneks
-                      </Button>
-                    </div>
-                  </Alert>
-                ) : null}
                 {savedId && download.isSuccess ? (
                   <Alert
                     variant="success"
                     icon={CheckCircle2}
                     title="Dokument zapisany"
                     description={
-                      type.allows_external
-                        ? "Plik pobrany. Aneks jest przy umowie (zakładka Dokumenty — tam pobierzesz go ponownie), a wiersz w „Umowach bieżących” już pokazuje zmianę. Kontrakt zmieni się po „Oznacz jako podpisany”."
-                        : "Plik pobrany, wpis jest na liście dokumentów. Po podpisie oznacz go jako podpisany."
+                      !usesAnnexPicker(type)
+                        ? "Plik pobrany, wpis jest na liście dokumentów. Po podpisie oznacz go jako podpisany."
+                        : subject.withoutContract
+                          ? "Plik pobrany. Aneks jest w rejestrze aneksów z oznaczeniem „Bez kontraktu” — powiąż go z kontraktem, żeby dało się go oznaczyć jako podpisany."
+                          : "Plik pobrany. Aneks jest w rejestrze aneksów poniżej — tam pobierzesz go ponownie i oznaczysz jako podpisany. Kontrakt zmieni się po podpisie."
                     }
                   >
                     <div className="mt-2 flex flex-wrap gap-2">
@@ -738,10 +766,15 @@ function SubjectStep({
       ) : null}
       {type.parent === "none" ? (
         <CandidateJobPicker subject={subject} onSubject={onSubject} />
+      ) : usesAnnexPicker(type) ? (
+        <AnnexSubjectPicker
+          type={type}
+          choice={subject}
+          onChoice={(choice) => onSubject({ ...subject, ...choice })}
+        />
       ) : (
         <RegisterPicker
           optional={type.parent === "mandate"}
-          allowExternal={type.allows_external}
           subject={subject}
           onSubject={onSubject}
         />
@@ -755,38 +788,28 @@ function SubjectStep({
   );
 }
 
+/** Umowa bazowa rozwiązania albo wypowiedzenia — wybór z rejestru umów. */
 function RegisterPicker({
   optional,
-  allowExternal = false,
   subject,
   onSubject,
 }: {
   optional: boolean;
-  /** Generator aneksów: „Umowa spoza Nexusa” — dane umowy wpisuje człowiek. */
-  allowExternal?: boolean;
   subject: Subject;
   onSubject: (s: Subject) => void;
 }) {
   const [query, setQuery] = useState("");
   const debounced = useDebouncedValue(query, 300);
   const rows = useQuery({
-    queryKey: ["b2b-generated", "documents-picker", debounced.trim(), allowExternal],
-    queryFn: () =>
-      b2bGeneratorApi.generated(20, {
-        q: debounced,
-        // Generator aneksów: umowy z listy „Umowy bieżące” (bez anulowanych —
-        // umowa, która nie doszła do skutku, nie dostaje aneksu).
-        ...(allowExternal ? { contractStatus: ["active", "in_progress"] } : {}),
-      }),
+    queryKey: ["b2b-generated", "documents-picker", debounced.trim()],
+    queryFn: () => b2bGeneratorApi.generated(20, { q: debounced }),
     staleTime: 10_000,
   });
   return (
     <div className="space-y-3">
       <div className="space-y-1">
         <Label htmlFor="b2b-doc-parent-search">
-          {allowExternal
-            ? "Umowa z listy „Umowy bieżące” — numer albo imię i nazwisko Partnera"
-            : `Umowa bazowa${optional ? " (opcjonalnie)" : " *"}`}
+          {`Umowa bazowa${optional ? " (opcjonalnie)" : " *"}`}
         </Label>
         <div className="relative">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" aria-hidden="true" />
@@ -799,29 +822,6 @@ function RegisterPicker({
           />
         </div>
       </div>
-      {allowExternal ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant={subject.external ? "primary" : "outline"}
-            size="sm"
-            aria-pressed={subject.external}
-            onClick={() =>
-              onSubject({
-                ...subject,
-                parentId: null,
-                parentLabel: null,
-                noParent: false,
-                external: true,
-              })
-            }
-          >
-            Umowa spoza Nexusa
-          </Button>
-          <span className="text-xs text-muted-foreground">
-            Wpiszesz dane umowy i Partnera ręcznie. Taki aneks nie jest zapisywany.
-          </span>
-        </div>
-      ) : null}
       {optional ? (
         <Button
           variant={subject.noParent ? "primary" : "outline"}
@@ -865,7 +865,6 @@ function RegisterPicker({
                       parentId: row.id,
                       parentLabel: registerRowLabel(row),
                       noParent: false,
-                      external: false,
                     })
                   }
                   className={cn(
