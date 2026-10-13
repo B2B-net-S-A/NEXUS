@@ -15,6 +15,7 @@ niej. Te testy pilnują tego cyklu:
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -40,6 +41,7 @@ from app.services.interview_cycle import (
     compute_steps,
     compute_todos,
     current_step_key,
+    todo_is_mine,
 )
 
 NOW = datetime(2031, 6, 10, 12, 0, tzinfo=timezone.utc)
@@ -221,6 +223,107 @@ def test_dl_view_flags_client_interview_stage_without_slots():
             pair, NOW, call_window_minutes=30, user_id=22, is_dl_view=True
         )
     ] == ["slots_missing"]
+
+
+# ── Na kogo czeka zadanie (okienko „Rozmowy”, 13.10.2026) ────────────────────
+
+
+def _owned(ev: EventRef, owner_id: int) -> EventRef:
+    return replace(ev, owner_id=owner_id)
+
+
+def _todos_by_kind(
+    pair: PairSnapshot, *, user_id: int = 11, is_dl_view: bool = False
+) -> dict[str, dict]:
+    todos = compute_todos(
+        pair, NOW, call_window_minutes=30, user_id=user_id, is_dl_view=is_dl_view
+    )
+    return {t["kind"]: t for t in todos}
+
+
+def test_call_and_debrief_wait_for_the_interview_owner():
+    call = PairSnapshot(1, 2, interview=_owned(_iv(NOW - timedelta(minutes=65)), 11))
+    assert _todos_by_kind(call)["call_now"]["owner_id"] == 11
+    overdue = PairSnapshot(1, 2, interview=_owned(_iv(NOW - timedelta(hours=3)), 11))
+    assert _todos_by_kind(overdue)["debrief_overdue"]["owner_id"] == 11
+
+
+def test_slot_todos_wait_for_the_recruiter_and_the_request_author():
+    pick = PairSnapshot(1, 2, slot_request=_req("awaiting_recruiter"))
+    assert _todos_by_kind(pick)["slots_pick"]["owner_id"] == 11
+    confirm = PairSnapshot(1, 2, slot_request=_req("awaiting_dl", chosen=0))
+    assert _todos_by_kind(confirm, user_id=22)["slots_confirm"]["owner_id"] == 22
+    missing = PairSnapshot(1, 2, latest_stage="client_interview")
+    assert _todos_by_kind(missing, is_dl_view=True)["slots_missing"]["owner_id"] is None
+
+
+def test_prep_todos_wait_for_the_interview_owner_or_the_prep_organizer():
+    upcoming = _owned(_iv(NOW + timedelta(days=2)), 11)
+    assert (
+        _todos_by_kind(PairSnapshot(1, 2, interview=upcoming))["prep_missing"][
+            "owner_id"
+        ]
+        == 11
+    )
+
+    def prep(**fields) -> EventRef:
+        base = dict(id=5, start=NOW - timedelta(hours=2), end=None, title="P")
+        return EventRef(**{**base, "status": "completed", "owner_id": 33, **fields})
+
+    weak = prep(
+        prep_no=1, transcript_status="ready", review_status="ok", review_level="weak"
+    )
+    with_weak = _todos_by_kind(PairSnapshot(1, 2, preps=[weak], interview=upcoming))
+    assert with_weak["prep_weak"]["owner_id"] == 33
+    # Prep 2 planuje rekruter (właściciel rozmowy), nie organizator Prepu 1.
+    assert with_weak["prep2_missing"]["owner_id"] == 11
+
+    unrecorded = prep(prep_no=1, transcript_status="missing")
+    assert (
+        _todos_by_kind(PairSnapshot(1, 2, preps=[unrecorded], interview=upcoming))[
+            "prep_unrecorded"
+        ]["owner_id"]
+        == 33
+    )
+
+    late = prep(start=NOW + timedelta(days=3), status="scheduled", ordinal=1)
+    assert (
+        _todos_by_kind(PairSnapshot(1, 2, interview=upcoming, late_preps=[late]))[
+            "prep_late"
+        ]["owner_id"]
+        == 33
+    )
+
+
+@pytest.mark.parametrize(
+    "kind, owner_id, acting_for, delivery_lead_id, expected",
+    [
+        ("call_now", 11, {11}, None, True),
+        # Delivery Lead w „Moich rekrutacjach” widzi telefon rekrutera, nie dostaje go.
+        ("call_now", 11, {22}, 22, False),
+        ("call_now", None, {11}, 11, False),
+        # Zastępca pracuje za nieobecnego właściciela.
+        ("debrief_overdue", 11, {22, 11}, None, True),
+        ("slots_pick", None, {11}, None, True),
+        ("slots_pick", 99, {11}, None, False),
+        ("slots_confirm", 22, {22}, None, True),
+        ("slots_confirm", 22, {11}, None, False),
+        ("prep_missing", 11, {22}, 22, True),
+        ("prep_missing", 11, {11}, 22, True),
+        ("prep_missing", 11, {33}, 22, False),
+        ("prep2_missing", 11, {11}, 22, True),
+        ("prep2_missing", 11, {22}, 22, False),
+        ("prep2_missing", None, {22}, 22, True),
+        ("prep_late", 33, {33}, None, True),
+        ("prep_weak", 33, {11}, 11, False),
+        ("prep_unrecorded", 33, {33}, None, True),
+        ("slots_missing", None, {22}, 22, True),
+        ("slots_missing", None, {22}, None, False),
+    ],
+)
+def test_todo_is_mine(kind, owner_id, acting_for, delivery_lead_id, expected):
+    todo = {"kind": kind, "owner_id": owner_id}
+    assert todo_is_mine(todo, acting_for, delivery_lead_id=delivery_lead_id) is expected
 
 
 # ── Wyzwalacze po rozmowie ───────────────────────────────────────────────────
@@ -471,6 +574,38 @@ async def test_jobs_scope_includes_the_callers_own_pairs_from_other_jobs(
     # Osoba bez żadnego związku z parą nadal jej w swoim zakresie nie ma.
     other = await app_client.get("/api/interview-cycle?scope=jobs", headers=stranger_h)
     assert all(i["candidate_id"] != cand_id for i in other.json()["items"])
+
+
+async def test_overview_marks_whose_todo_it_is(app_client: AsyncClient):
+    """Okienko „Rozmowy” (13.10.2026): Delivery Lead w „Moich rekrutacjach”
+    widzi wybór terminu rekrutera, ale nie jako swoje zadanie."""
+    rec_id, rec_h = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _ = await _job_with_candidate(recruiter_id=rec_id, dl_id=dl_id)
+    created = await app_client.post(
+        "/api/interview-cycle/slots",
+        headers=dl_h,
+        json={
+            "candidate_id": cand_id,
+            "job_id": job_id,
+            "slots": [{"start": _future(4)}],
+            "recruiter_id": rec_id,
+        },
+    )
+    assert created.status_code == 201, created.text
+
+    def pick(resp) -> dict:
+        assert resp.status_code == 200, resp.text
+        return next(
+            t
+            for t in resp.json()["todos"]
+            if t["candidate_id"] == cand_id and t["kind"] == "slots_pick"
+        )
+
+    mine = await app_client.get("/api/interview-cycle?scope=mine", headers=rec_h)
+    assert pick(mine)["mine"] is True
+    jobs = await app_client.get("/api/interview-cycle?scope=jobs", headers=dl_h)
+    assert pick(jobs)["mine"] is False
 
 
 async def test_slots_require_dl_role_and_pipeline_pair(app_client: AsyncClient):
