@@ -345,7 +345,10 @@ trafia dopiero po „Przyjmij”.
   pozycja z `coordsAtPos`), nie w `body`: okno edytora jest modalne, więc
   element poza nim byłby nieklikalny. Stąd własny dymek zamiast `BubbleMenu`
   Tiptapa — bez nowych zależności. Przycisk dymka robi `preventDefault` na
-  `mousedown`, żeby nie zabrać edytorowi zaznaczenia.
+  `mousedown`, żeby nie zabrać edytorowi zaznaczenia. Karta przewija się do
+  widoku przy każdej zmianie swojego rozmiaru (`ResizeObserver`): montuje się
+  mała, a rośnie z propozycją i z polem „Doprecyzuj” — na telefonie przyciski
+  zostawały pod krawędzią okna.
 - **„Pokaż w oryginale”** przy cytacie z oryginalnego CV otwiera źródła i zleca
   „Szukaj w CV” (`CandidatePreviewPane.searchRequest` z zewnątrz) — szuka
   początku cytatu, bo wyszukiwarka PDF-a gubi się na łamaniu wierszy. Karta

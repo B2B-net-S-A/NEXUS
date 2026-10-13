@@ -76,7 +76,16 @@ function Positioned({
   const ref = useRef<HTMLDivElement>(null);
   const [left, setLeft] = useState(spot.left);
   useEffect(() => {
-    if (reveal) ref.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+    const node = ref.current;
+    if (!reveal || !node) return;
+    const show = () => node.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+    show();
+    if (typeof ResizeObserver === "undefined") return;
+    // Karta montuje się mała („AI przygotowuje…”) i rośnie z propozycją albo
+    // z polem „Doprecyzuj” — bez tego jej przyciski zostawały pod krawędzią okna.
+    const observer = new ResizeObserver(show);
+    observer.observe(node);
+    return () => observer.disconnect();
   }, [reveal, spot.top]);
   // Po narysowaniu znamy szerokość — nie wypuszczamy elementu poza kolumnę.
   useLayoutEffect(() => {

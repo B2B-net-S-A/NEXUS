@@ -53,6 +53,11 @@ Każda poprawka ma test, który przed nią padał.
 | Python | Plakietka „Zgodne ze źródłem” bez ustalonej roli; pierwsza rola o tej samej nazwie brana za własną; cytat przez granicę ról | Rola tylko jednoznaczna (firma, nazwa, lata), bez niej brak plakietki i uwaga; cytat z nazwą innego pracodawcy odrzucony |
 | Python | Znaki niewidoczne i litery innego alfabetu chowały wymaganie; NUL i połówka pary zastępczej psuły zapis i odpowiedź | `clean_markup` je wycina, `_odd_character` odrzuca |
 
+Z przeklikania w przeglądarce: przy 768 i 390 px karta montowała się mała
+(„AI przygotowuje…”), a po nadejściu propozycji rosła pod dolną krawędź okna —
+„Przyjmij / Odrzuć” były niewidoczne bez przewijania. Karta przewija się teraz
+do widoku przy każdej zmianie swojego rozmiaru (`ResizeObserver`).
+
 Drobniejsze, naniesione przy okazji: limit `previous` równy limitowi propozycji,
 akapit z dosłownymi `**` dostaje powód zamiast błędu, karta przewija się do
 widoku, `pointercancel`, odpowiedź modelu z listą zamiast tekstu to
@@ -79,13 +84,12 @@ literami niezwiązane z cytatem.
 | Dymek, karta, menu | zielone lokalnie | `CvEditorSelectionAi.test.tsx`, `CvAiProposalCard.test.tsx` (6, w tym uwaga serwera przy propozycji) |
 | Okno i źródła | zielone lokalnie | testy okna (25), `CandidatePreviewPane.test.tsx` (26, w tym wyszukanie zlecone z zewnątrz) |
 | Harness | zielone lokalnie | `cv-editor-harness.test.tsx` (10): obieg bez sieci, stan `aidown`, wynik generatora bez AI |
-| Przeglądarka | częściowo | obieg na poziomie DOM w harnessie (dymek w kolumnie kartki, karta, „Przyjmij”, cofnięcie, klauzula bez dymka) |
+| Przeglądarka | przeklikane ze zrzutami | harness `/preview/cv-editor` w Chromium (skrypt Playwright) przy 1280×720, 768×1024 i 390×844: dymek i karta w kolumnie kartki i w oknie, plakietka, „Pokaż w oryginale” (trafienie w oryginale), Escape w karcie zostawia edytor, „Przyjmij” + cofnięcie, „Przyjmij” na zatwierdzonym CV, stan `aidown`; zero błędów strony |
 
 ## Niepotwierdzone
 
-- **Wygląd i położenie dymka oraz karty** przy 1280×720, 768 i 390 px — panel
-  przeglądarki był ukryty, a Chrome niepodłączony, więc nie ma zrzutów.
-  Położenie liczy `coordsAtPos`, czego jsdom nie sprawdzi.
+- **Edytor na produkcji po zalogowaniu** — przeklikany jest harness; panel
+  przeglądarki był ukryty, a Chrome niepodłączony.
 - **Jakość propozycji prawdziwego modelu** i odsetek odmów kontroli — testy
   podmieniają model. Po wdrożeniu: wpisy `cv_selection_ai` w `activities`
   (`details->>'status'`, `details->>'reason'`).

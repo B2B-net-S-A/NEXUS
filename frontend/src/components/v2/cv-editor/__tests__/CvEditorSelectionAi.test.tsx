@@ -165,6 +165,35 @@ describe("AI na zaznaczonym fragmencie", () => {
     expect(editor.getHTML()).toContain("Rozwój usług w <strong>Java 17</strong> i Spring Boot.");
   });
 
+  it("karta przewija się do widoku także wtedy, gdy urośnie po nadejściu propozycji", async () => {
+    // Karta montuje się mała („AI przygotowuje…”), a rośnie z propozycją: przy
+    // 768 i 390 px przyciski „Przyjmij / Odrzuć” zostawały pod dolną krawędzią okna.
+    const grown: Array<() => void> = [];
+    class Observer {
+      constructor(private readonly callback: () => void) {}
+      observe() {
+        grown.push(this.callback);
+      }
+      disconnect() {
+        grown.splice(grown.indexOf(this.callback), 1);
+      }
+    }
+    vi.stubGlobal("ResizeObserver", Observer);
+    const scroll = vi.mocked(Element.prototype.scrollIntoView);
+    try {
+      const { editor } = setup();
+      select(editor, "usług w Java 17");
+      fireEvent.click(within(bubble()!).getByRole("button", { name: "Skróć" }));
+      await screen.findByRole("button", { name: "Przyjmij" });
+      expect(grown).toHaveLength(1);
+      scroll.mockClear();
+      act(() => grown[0]());
+      expect(scroll).toHaveBeenCalledWith({ block: "nearest", behavior: "smooth" });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("„Przyjmij” to jedna cofalna zmiana; szkic powstaje dopiero wtedy", async () => {
     const { editor, ensureDraft } = setup();
     const before = editor.getHTML();
