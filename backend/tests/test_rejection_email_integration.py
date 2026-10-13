@@ -864,18 +864,27 @@ async def test_dispatch_with_unknown_send_outcome_never_sends_twice(
 # ── Okno odrzucenia: podgląd i poprawiona treść (13.10.2026) ───────────────
 
 
-async def _scheduled_activity_details(db, scheduled_id: int) -> dict:
+async def _scheduled_activity_details(db, scheduled) -> dict:
+    """Wpis historii `rejection_email_scheduled` tego wiersza harmonogramu."""
     from app.models.activity import Activity
 
-    row = await db.scalar(
-        select(Activity).where(
-            Activity.action == "rejection_email_scheduled",
-            Activity.details["scheduled_rejection_email_id"].as_integer()
-            == scheduled_id,
+    await db.flush()
+    rows = (
+        await db.scalars(
+            select(Activity).where(
+                Activity.action == "rejection_email_scheduled",
+                Activity.entity_type == "candidate",
+                Activity.entity_id == scheduled.candidate_id,
+            )
         )
-    )
-    assert row is not None
-    return row.details
+    ).all()
+    matching = [
+        r.details
+        for r in rows
+        if (r.details or {}).get("scheduled_rejection_email_id") == scheduled.id
+    ]
+    assert len(matching) == 1, [r.details for r in rows]
+    return matching[0]
 
 
 @pytest.mark.asyncio
@@ -905,7 +914,7 @@ async def test_default_mail_is_the_approved_text(seeded_entities):
         assert "Niestety został wybrany inny kandydat." in scheduled.body_html
         assert "Pozdrawiam" not in scheduled.body_html
         assert scheduled.template_id is None
-        details = await _scheduled_activity_details(db, scheduled.id)
+        details = await _scheduled_activity_details(db, scheduled)
         assert details["edited"] is False
         await db.commit()
 
@@ -943,7 +952,7 @@ async def test_text_edited_in_the_window_is_sent_escaped(seeded_entities):
             "<p>Cześć Jan,</p>\n<p>Klient wstrzymał &lt;b&gt;projekt&lt;/b&gt;.</p>"
         )
         assert scheduled.template_id is None
-        details = await _scheduled_activity_details(db, scheduled.id)
+        details = await _scheduled_activity_details(db, scheduled)
         assert details["edited"] is True
         await db.commit()
 
