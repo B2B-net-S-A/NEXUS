@@ -10,11 +10,15 @@
  * z tekstem notatki do historii kandydata — robi dopiero „Zapisz”.
  *
  * Odczyt trwa do minuty: wynik liczy się tylko dla osoby, dla której ruszył.
+ *
+ * D3 (14.10.2026): notatkę może też przysłać dok osoby („Zapisz notatkę
+ * i wypełnij formularz”) — formularz czyta ją tą samą trasą, a pasek mówi, że
+ * notatka jest już w historii (zapis formularza jej nie powieli).
  */
 
 import { useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { ClipboardPaste, FileUp, Undo2, X } from "lucide-react";
+import { ClipboardPaste, FileUp, Loader2, Undo2, X } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
@@ -30,6 +34,8 @@ export interface NoteFillSummary {
   /** Ile propozycji czeka na „Użyj” (pole było już wypełnione). */
   offers: number;
   sourceName: string | null;
+  /** Notatka z doku jest już w historii (D3, 14.10.2026). */
+  noteSaved?: boolean;
 }
 
 export interface NoteFillBarProps {
@@ -40,6 +46,8 @@ export interface NoteFillBarProps {
   onProposal: (proposal: NoteProposal, source: NoteImport) => void;
   onUndo: () => void;
   disabled?: boolean;
+  /** Formularz czyta notatkę zapisaną w doku (D3, 14.10.2026). */
+  readingDockNote?: boolean;
 }
 
 type Mode = "idle" | "text" | "file";
@@ -51,6 +59,7 @@ export function NoteFillBar({
   onProposal,
   onUndo,
   disabled = false,
+  readingDockNote = false,
 }: NoteFillBarProps) {
   const { showError } = useToast();
   const [mode, setMode] = useState<Mode>("idle");
@@ -81,6 +90,19 @@ export function NoteFillBar({
     onError: (err) => showError(apiErrorMessage(err, "Nie udało się odczytać notatki. Spróbuj ponownie.")),
   });
 
+  if (readingDockNote) {
+    return (
+      <p
+        role="status"
+        data-testid="note-fill-reading"
+        className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
+      >
+        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> Czytam notatkę zapisaną w doku — wypełnię puste
+        pola formularza.
+      </p>
+    );
+  }
+
   if (applied) {
     return (
       <div
@@ -94,7 +116,10 @@ export function NoteFillBar({
           {applied.offers > 0
             ? ` · ${countPl(applied.offers, "propozycja czeka", "propozycje czekają", "propozycji czeka")} na „Użyj”`
             : ""}
-          . Notatka trafi do historii kandydata przy zapisie formularza.
+          .{" "}
+          {applied.noteSaved
+            ? "Notatka jest już w historii kandydata — zapis formularza jej nie powieli."
+            : "Notatka trafi do historii kandydata przy zapisie formularza."}
         </p>
         <Button type="button" size="sm" variant="ghost" onClick={onUndo}>
           <Undo2 className="h-3.5 w-3.5" aria-hidden /> Cofnij wypełnienie

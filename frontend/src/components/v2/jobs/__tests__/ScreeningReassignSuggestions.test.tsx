@@ -247,6 +247,65 @@ describe("wcześniejsze odpowiedzi w arkuszu screeningu", () => {
     expect(screen.queryByTestId("earlier-answer-hint")).toBeNull();
   });
 
+  it("„Użyj wszystkich odpowiedzi (N)” wpisuje naraz tylko puste i nieobsłużone, bez skoku kursora (14.10.2026)", async () => {
+    const user = userEvent.setup();
+    const Q3 = { id: "q3", question: "Ile dni w biurze?", ideal_answer: "", deal_breaker: "" };
+    getForStage.mockResolvedValue({
+      data: {
+        stage_id: 7,
+        candidate_id: 1,
+        job_id: 2,
+        champion_profile: { screening_questions: [...QUESTIONS, Q3] },
+        screening_answers: null,
+      },
+    });
+    reassignSuggestions.mockResolvedValue(
+      suggestions([
+        HINT,
+        { ...HINT, question_id: "q2", text: "Od 1 października." },
+        { ...HINT, question_id: "q3", text: "Dwa dni w biurze." },
+      ]),
+    );
+    renderHarness();
+    await waitFor(() => expect(screen.getAllByTestId("earlier-answer-hint")).toHaveLength(3));
+    const banner = screen.getByRole("region", { name: "Wcześniejsze odpowiedzi kandydata" });
+    expect(within(banner).getByRole("button", { name: "Użyj wszystkich odpowiedzi (3)" })).toBeTruthy();
+
+    // q1 — własna odpowiedź, q3 — pominięta: „Użyj wszystkich” ich nie rusza.
+    await user.type(answerField(Q1), "Własna odpowiedź");
+    await user.click(within(questionCard(/^Ile dni w biurze\?$/)).getByRole("button", { name: "Pomiń" }));
+    // Jedna podpowiedź to już „Użyj tej odpowiedzi” pod pytaniem — bez przycisku zbiorczego.
+    expect(within(banner).queryByRole("button", { name: /Użyj wszystkich odpowiedzi/ })).toBeNull();
+    // Wyczyszczone pole wraca do podpowiedzi — przycisk liczy ją znowu.
+    await user.clear(answerField(Q1));
+    expect(within(banner).getByRole("button", { name: "Użyj wszystkich odpowiedzi (2)" })).toBeTruthy();
+  });
+
+  it("„Użyj wszystkich odpowiedzi” zapisuje każdą jako przeniesioną z podpowiedzi", async () => {
+    const user = userEvent.setup();
+    reassignSuggestions.mockResolvedValue(
+      suggestions([HINT, { ...HINT, question_id: "q2", text: "Od 1 października." }]),
+    );
+    renderHarness();
+    await user.click(await screen.findByRole("button", { name: "Użyj wszystkich odpowiedzi (2)" }));
+
+    expect(answerField(Q1).value).toBe(HINT.text);
+    expect(answerField(Q2).value).toBe("Od 1 października.");
+    expect(screen.queryByTestId("earlier-answer-hint")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Użyj wszystkich odpowiedzi/ })).toBeNull();
+    // Kursor nie skacze do żadnego pola.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(document.activeElement).not.toBe(answerField(Q1));
+    expect(document.activeElement).not.toBe(answerField(Q2));
+
+    await user.click(screen.getByRole("button", { name: "Zapisz screening" }));
+    await waitFor(() => expect(submit).toHaveBeenCalled());
+    expect(submit.mock.calls[0][1].answers).toEqual([
+      expect.objectContaining({ question_id: "q1", response: HINT.text, origin: "reassign_suggested" }),
+      expect.objectContaining({ question_id: "q2", response: "Od 1 października.", origin: "reassign_suggested" }),
+    ]);
+  });
+
   it("odpowiedź sprzed ponad 30 dni dostaje „dopytaj”", async () => {
     const old = new Date(Date.now() - 49 * 86_400_000).toISOString().slice(0, 10);
     reassignSuggestions.mockResolvedValue(suggestions([{ ...HINT, source: { ...HINT.source, date: old } }]));

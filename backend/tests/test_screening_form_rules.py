@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from app.core.config import settings
 from app.models.job import JobStatus
@@ -510,6 +511,17 @@ def test_valid_save_passes(monkeypatch):
         ),
         QUESTIONS,
     )
+
+
+@pytest.mark.parametrize("note_id", [0, -3, "x"])
+def test_note_import_note_id_is_a_positive_number(note_id):
+    """D3 (14.10.2026): numer notatki z doku — tylko dodatnia liczba."""
+    with pytest.raises(ValidationError):
+        _input(note_import={"text": "Rozmowa.", "note_id": note_id})
+    assert (
+        _input(note_import={"text": "Rozmowa.", "note_id": 5}).note_import.note_id == 5
+    )
+    assert _input(note_import={"text": "Rozmowa."}).note_import.note_id is None
 
 
 def test_note_import_needs_the_switch_and_some_text(monkeypatch):

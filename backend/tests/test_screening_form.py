@@ -31,7 +31,7 @@ from app.models.candidate import Candidate, CandidateStatus
 from app.models.candidate_rate_change import CandidateRateChange
 from app.models.client import Client
 from app.models.job import Job, JobStatus
-from app.models.note import Note
+from app.models.note import Note, NoteType
 from app.models.recommendation_card import RecommendationCard
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
@@ -571,6 +571,91 @@ async def test_claimed_person_blocks_another_recruiter_but_not_the_dl(
     # Delivery Lead rozstrzyga spory o osobę — blokada go nie wiąże.
     body = await _put(app_client, w, expected=0, headers=w["dl_h"], **parts)
     assert body["saved_version"] == 1
+    # …ale jego zapis nie przejmuje cudzej blokady (14.10.2026).
+    assert (await _process(w)).claimed_by_user_id == holder_id
+    assert await _claim_entries(w) == []
+
+
+# ── Zapis bierze osobę na 12 h (P2, 14.10.2026) ─────────────────────────────
+
+
+async def _process(w: dict) -> RecruitmentProcess:
+    async with AsyncSessionLocal() as db:
+        return await db.scalar(
+            select(RecruitmentProcess).where(
+                RecruitmentProcess.candidate_id == w["cand_id"],
+                RecruitmentProcess.job_id == w["job_id"],
+            )
+        )
+
+
+async def _claim_entries(w: dict) -> list[Activity]:
+    async with AsyncSessionLocal() as db:
+        return list(
+            (
+                await db.scalars(
+                    select(Activity).where(
+                        Activity.action == "candidate_claimed",
+                        Activity.entity_type == "pipeline",
+                        Activity.entity_id == w["stage_id"],
+                    )
+                )
+            ).all()
+        )
+
+
+@pytest.mark.parametrize("stage", [PipelineStage.new, PipelineStage.screening])
+async def test_first_save_takes_the_person_like_take_does(
+    app_client: AsyncClient, stage: PipelineStage
+):
+    w = await _world(stage)
+
+    body = await _put(app_client, w, expected=0, sheet=_sheet(q1="Kafka od 3 lat"))
+
+    assert body["claim"]["user_id"] == w["rec_id"] and body["claim"]["mine"] is True
+    process = await _process(w)
+    assert process.claimed_by_user_id == w["rec_id"]
+    until = process.claimed_until
+    assert until > datetime.now(timezone.utc) + timedelta(hours=11)
+    (entry,) = await _claim_entries(w)
+    assert entry.user_id == w["rec_id"]
+    assert entry.details["candidate_id"] == w["cand_id"]
+    assert entry.details["job_id"] == w["job_id"]
+    assert entry.details["taken_over_from"] is None
+    assert entry.details["claimed_until"] == until.isoformat()
+
+    # Kolejny zapis nie przedłuża własnej blokady (jak „Biorę”).
+    await _put(app_client, w, expected=1, sheet=_sheet(q1="Kafka od 4 lat"))
+    assert (await _process(w)).claimed_until == until
+    assert len(await _claim_entries(w)) == 1
+
+
+async def test_save_without_a_change_or_after_verified_does_not_take_the_person(
+    app_client: AsyncClient,
+):
+    w = await _world(PipelineStage.new, sheet=_sheet(q1="Kafka od 3 lat"))
+    same = await _put(app_client, w, expected=0, sheet=_sheet(q1="Kafka od 3 lat"))
+    assert same["saved_version"] is None
+    assert (await _process(w)).claimed_by_user_id is None
+
+    later = await _world(PipelineStage.verified)
+    await _put(app_client, later, expected=0, sheet=_sheet(q1="Kafka od 3 lat"))
+    assert (await _process(later)).claimed_by_user_id is None
+    assert await _claim_entries(later) == []
+
+
+async def test_an_expired_claim_goes_to_the_one_who_saves(app_client: AsyncClient):
+    w = await _world(PipelineStage.new)
+    holder_id, _holder_h = await _user(UserRole.recruiter)
+    async with AsyncSessionLocal() as db:
+        process = await db.get(RecruitmentProcess, (await _process(w)).id)
+        process.claimed_by_user_id = holder_id
+        process.claimed_until = datetime.now(timezone.utc) - timedelta(minutes=5)
+        await db.commit()
+
+    await _put(app_client, w, expected=0, sheet=_sheet(q1="Kafka od 3 lat"))
+
+    assert (await _process(w)).claimed_by_user_id == w["rec_id"]
 
 
 async def test_note_import_is_a_human_note_and_marks_the_fields(
@@ -618,6 +703,151 @@ async def test_note_import_is_a_human_note_and_marks_the_fields(
     assert answer["keywords"] == "kafka 3 lata prod"
     top = (await _versions(app_client, w))["items"][0]
     assert top["source"] == "note_import" and top["note_id"] == note.id
+
+
+# ── Jedna notatka wypełnia formularz (D3, 14.10.2026) ───────────────────────
+
+# Treści, które reguła rodzajów czyta jako notatkę z rozmowy: zwykłą i z faktami.
+DOCK_NOTE = "Kafka 3 lata na produkcji, eventy płatności.\nAngielski B2, swobodnie o technologii."
+FACTS_NOTE = "Stawka 150 zł/h na B2B, dostępny od listopada, hybrydowo 2 dni."
+
+
+async def _dock_note(
+    w: dict,
+    *,
+    content: str = DOCK_NOTE,
+    author_id: Optional[int] = None,
+    candidate_id: Optional[int] = None,
+    job_id: Optional[int] = None,
+    kind: Optional[str] = None,
+) -> int:
+    async with AsyncSessionLocal() as db:
+        note = Note(
+            content=content,
+            note_type=NoteType.general,
+            candidate_id=candidate_id or w["cand_id"],
+            job_id=job_id or w["job_id"],
+            author_id=author_id or w["rec_id"],
+            kind=kind,
+        )
+        db.add(note)
+        await db.commit()
+        return note.id
+
+
+async def _note_count(w: dict) -> int:
+    async with AsyncSessionLocal() as db:
+        return await db.scalar(
+            select(func.count())
+            .select_from(Note)
+            .where(Note.candidate_id == w["cand_id"])
+        )
+
+
+@pytest.mark.parametrize("content", [DOCK_NOTE, FACTS_NOTE])
+async def test_a_note_saved_in_the_dock_is_linked_not_duplicated(
+    app_client: AsyncClient, monkeypatch, content: str
+):
+    monkeypatch.setattr(settings, "RECOMMENDATION_CARD_ASSIST_ENABLED", True)
+    w = await _world()
+    note_id = await _dock_note(w, content=content)
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(Note, note_id)).kind in form.NOTE_REUSE_KINDS
+
+    body = await _put(
+        app_client,
+        w,
+        expected=0,
+        note_import={"text": content, "note_id": note_id},
+        card={
+            "fields": {"english": "B2"},
+            "origins": {"english": {"origin": "note_ai"}},
+        },
+    )
+
+    assert body["note_id"] == note_id and body["saved_version"] == 1
+    assert await _note_count(w) == 1
+    async with AsyncSessionLocal() as db:
+        note = await db.get(Note, note_id)
+    # Notatka z doku zostaje taka, jaką rekruter zapisał.
+    assert note.content == content and note.external_source is None
+    assert body["card"]["fields"]["english"]["note_id"] == note_id
+    top = (await _versions(app_client, w))["items"][0]
+    assert top["source"] == "note_import" and top["note_id"] == note_id
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["other_author", "other_job", "other_candidate", "missing", "contact_attempt"],
+)
+async def test_a_note_from_elsewhere_is_refused(
+    app_client: AsyncClient, monkeypatch, case: str
+):
+    monkeypatch.setattr(settings, "RECOMMENDATION_CARD_ASSIST_ENABLED", True)
+    w = await _world()
+    other = await _world()
+    if case == "missing":
+        note_id = 2_000_000_000
+    else:
+        note_id = await _dock_note(
+            w,
+            author_id=w["dl_id"] if case == "other_author" else None,
+            job_id=other["job_id"] if case == "other_job" else None,
+            candidate_id=other["cand_id"] if case == "other_candidate" else None,
+            kind="contact_attempt" if case == "contact_attempt" else None,
+        )
+    notes_before = await _note_count(w)
+
+    res = await app_client.put(
+        URL,
+        headers=w["rec_h"],
+        json=_payload(
+            w,
+            expected=0,
+            token=await _token(app_client, w),
+            note_import={"text": DOCK_NOTE, "note_id": note_id},
+            sheet=_sheet(q1="Kafka od 3 lat"),
+        ),
+    )
+
+    assert res.status_code == 422, res.text
+    assert res.json()["detail"]["code"] == "SCREENING_FORM_INVALID"
+    assert await _version_count(w) == 0
+    assert await _note_count(w) == notes_before
+    # Odmowa nie zostawia też blokady 12 h.
+    assert (await _process(w)).claimed_by_user_id is None
+
+
+async def test_rate_hints_carry_the_card_text(app_client: AsyncClient):
+    w = await _world(PipelineStage.new)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            RecommendationCard(
+                candidate_id=w["cand_id"],
+                job_id=w["job_id"],
+                fields_notes={
+                    "rate": {
+                        "raw": "150 zł/h na B2B",
+                        "value": 150,
+                        "currency": "PLN",
+                        "period": "h",
+                        "at": datetime.now(timezone.utc).isoformat(),
+                    }
+                },
+            )
+        )
+        await db.commit()
+
+    body = await _state(app_client, w)
+
+    assert body["rate"]["source"] == "card"
+    assert body["rate_hints"]["card"] == {
+        "amount": 150.0,
+        "unit": "hourly",
+        "currency": "PLN",
+    }
+    assert body["rate_hints"]["card_raw"] == "150 zł/h na B2B"
+    assert (await _state(app_client, await _world()))["rate_hints"]["card_raw"] is None
 
 
 async def test_failed_score_marking_does_not_fail_the_save(

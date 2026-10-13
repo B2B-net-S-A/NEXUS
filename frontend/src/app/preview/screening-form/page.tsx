@@ -6,8 +6,13 @@
  * publiczne): Tomasz Wzorcowy, Bank Przykładowy.
  *
  * `?state=` (domyślnie `nowi`):
- * - `nowi` — osoba w „Nowych”: profil przed telefonem i CV obok,
- * - `filled` — „Screening”: wypełniony formularz i wymagania obok,
+ * - `nowi` — osoba w „Nowych”: od razu formularz (P2, 14.10.2026), nad nim
+ *   rozwinięty blok „Co już wiemy”, CV obok; stawka wpisana z cytatu
+ *   z notatki z podpisem „z notatki … · zmień” (D2),
+ * - `earlier` — „Screening” po wcześniejszych rozmowach: podpowiedzi pod
+ *   pytaniami i „Użyj wszystkich odpowiedzi (N)” (14.10.2026),
+ * - `filled` — „Screening”: wypełniony formularz („Co już wiemy” zwinięte)
+ *   i wymagania obok,
  * - `note` — formularz wypełniony z notatki (plakietki „z notatki”,
  *   propozycje „Użyj”, „Ułóż w zdanie” z gotowej listy, bez modelu),
  * - `noquestions` — rekrutacja bez pytań screeningowych (12.10.2026): pusty
@@ -38,7 +43,10 @@ import {
   PersonPanelSideProvider,
   PersonPanelSideZone,
 } from "@/components/v2/person/PersonPanelSide";
-import { reassignContextQueryKey } from "@/components/v2/jobs/ScreeningReassignSuggestions";
+import {
+  reassignContextQueryKey,
+  screeningSuggestionsQueryKey,
+} from "@/components/v2/jobs/ScreeningReassignSuggestions";
 import { candidateQueryKeys, candidateViewerScopeKey } from "@/components/v2/pages/candidate-query-keys";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { ScreeningSummarySection } from "@/components/v2/screening-form/ScreeningSummaryView";
@@ -83,6 +91,7 @@ const RECRUITER = { id: 31, name: "Marta Testowa" };
 
 type HarnessState =
   | "nowi"
+  | "earlier"
   | "filled"
   | "note"
   | "noquestions"
@@ -93,7 +102,8 @@ type HarnessState =
   | "cvconsent"
   | "cvready";
 const STATES: ReadonlyArray<{ value: HarnessState; label: string }> = [
-  { value: "nowi", label: "Nowi — przed telefonem" },
+  { value: "nowi", label: "Nowi — formularz od razu" },
+  { value: "earlier", label: "Wcześniejsze odpowiedzi" },
   { value: "filled", label: "Screening — wypełniony" },
   { value: "note", label: "Z notatki" },
   { value: "noquestions", label: "Rekrutacja bez pytań" },
@@ -369,6 +379,59 @@ const BASE_STATE: ScreeningFormState = {
   suggestions_from_notes: {},
   assist_enabled: true,
   phrase_language: "pl",
+};
+
+// D2 (14.10.2026): etap bez stawki — pole dostaje stawkę z cytatu notatki.
+const NOWI_STATE: ScreeningFormState = {
+  ...BASE_STATE,
+  suggestions_from_notes: {
+    rate: {
+      value: 150,
+      unit: "hour",
+      currency: "PLN",
+      raw: "150 netto na B2B, mniej nie zejdzie",
+      source_note_id: null,
+      noted_at: "2025-03-14",
+    },
+  },
+};
+
+// 14.10.2026: osoba po wcześniejszych rozmowach w „Screeningu”, formularz pusty.
+const EARLIER_STATE: ScreeningFormState = { ...BASE_STATE, board_column: "screening" };
+
+const EARLIER_SOURCE = {
+  job_id: 202,
+  job_title: "Java Developer — bankowość mobilna",
+  client_name: "Bank Przykładowy",
+  date: "2026-09-28",
+};
+
+const EARLIER_SUGGESTIONS = {
+  stage_id: STAGE_ID,
+  available: true,
+  message: null,
+  kind: "history",
+  source: null,
+  suggestions: [
+    {
+      question_id: "q1",
+      text: "System rozliczeń płatności odroczonych w Spring Boot 3 — sam napisał moduł limitów.",
+      source_kind: "answer",
+      source_quote: "moduł limitów",
+      confidence: "high",
+      source: EARLIER_SOURCE,
+      source_question: "Nad czym pracowałeś ostatnio?",
+    },
+    {
+      question_id: "q2",
+      text: "Kafka od trzech lat na produkcji: zdarzenia płatności, ponowienia przez kolejkę błędów.",
+      source_kind: "answer",
+      source_quote: "Kafka od trzech lat",
+      confidence: "high",
+      source: EARLIER_SOURCE,
+      source_question: null,
+    },
+  ],
 };
 
 const FILLED_STATE: ScreeningFormState = {
@@ -726,14 +789,16 @@ function seededClient(state: HarnessState): QueryClient {
   });
   const formState =
     state === "nowi"
-      ? BASE_STATE
-      : state === "readonly"
-        ? ENDED_STATE
-        : state === "noquestions"
-          ? NO_QUESTIONS_STATE
-          : state === "note" || state === "employed"
-            ? NOTE_BASE_STATE
-            : FILLED_STATE;
+      ? NOWI_STATE
+      : state === "earlier"
+        ? EARLIER_STATE
+        : state === "readonly"
+          ? ENDED_STATE
+          : state === "noquestions"
+            ? NO_QUESTIONS_STATE
+            : state === "note" || state === "employed"
+              ? NOTE_BASE_STATE
+              : FILLED_STATE;
   qc.setQueryData(screeningFormQueryKey(JOB_ID, CANDIDATE_ID), formState, SEED_FRESH);
   qc.setQueryData(screeningFormVersionsQueryKey(JOB_ID, CANDIDATE_ID), { items: VERSIONS, total: VERSIONS.length }, SEED_FRESH);
   qc.setQueryData(["job-questions", JOB_ID], [], SEED_FRESH);
@@ -743,15 +808,17 @@ function seededClient(state: HarnessState): QueryClient {
     {
       stage_id: STAGE_ID,
       candidate_id: CANDIDATE_ID,
-      available: false,
-      kind: null,
+      available: state === "earlier",
+      kind: state === "earlier" ? "history" : null,
       source: null,
-      previous_answers_count: 0,
-      earlier_conversations: 0,
-      skip_reason: state === "employed" ? "employed" : null,
+      previous_answers_count: state === "earlier" ? 2 : 0,
+      earlier_conversations: state === "earlier" ? 1 : 0,
+      skip_reason: state === "employed" ? "employed" : state === "earlier" ? "earlier_screening" : null,
     },
     SEED_FRESH,
   );
+  // Odpowiedzi Luny z wcześniejszej rozmowy — bez modelu, z pamięci.
+  qc.setQueryData(screeningSuggestionsQueryKey(STAGE_ID), EARLIER_SUGGESTIONS, SEED_FRESH);
   qc.setQueryData(candidateQueryKeys.quickView(CANDIDATE_ID), QUICK_VIEW, SEED_FRESH);
   qc.setQueryData(["cv-original", STAGE_ID], SNAPSHOT, SEED_FRESH);
   const cv = isCvState(state);
@@ -778,7 +845,7 @@ function seededClient(state: HarnessState): QueryClient {
   // tej rekrutacji) i wyniki jej wcześniejszych rekrutacji dla konta harnessu.
   qc.setQueryData(candidateQueryKeys.notes(CANDIDATE_ID), richHistoryNotes(CANDIDATE_ID), SEED_FRESH);
   qc.setQueryData(candidateQueryKeys.recruitmentOutcomes(CANDIDATE_ID, PREVIEW_VIEWER_SCOPE), RICH_HISTORY_OUTCOMES, SEED_FRESH);
-  // Profil przed telefonem i podpowiedź pod „Trybem pracy”: warunki z profilu
+  // „Co już wiemy” i podpowiedź pod „Trybem pracy”: warunki z profilu
   // i ostatnio podana stawka (klucze doku osoby i historii stawek).
   qc.setQueryData(candidateQueryKeys.detail(CANDIDATE_ID), CANDIDATE_CONDITIONS, SEED_FRESH);
   qc.setQueryData(candidateQueryKeys.rateOverview(CANDIDATE_ID), RATE_OVERVIEW, SEED_FRESH);

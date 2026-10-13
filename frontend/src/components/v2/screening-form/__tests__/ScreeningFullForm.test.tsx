@@ -1,15 +1,17 @@
 /**
  * Jeden formularz screeningu (0424): zapis tylko zmian jednym `PUT` z wersją,
  * wypełnienie z notatki (puste pola, „z notatki”, notatka idzie z zapisem),
- * tryb tylko do odczytu i konflikt wersji, który nie kasuje pracy.
+ * tryb tylko do odczytu i konflikt wersji, który nie kasuje pracy. Od
+ * 14.10.2026: stawka na start (D2), notatka z doku (D3), „przekazano dalej” (P3).
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ScreeningFormSave, ScreeningFormState } from "@/lib/api/screeningForm";
+import { createNoteFillChannel } from "@/lib/note-fill-channel";
 import {
   FORM_CANDIDATE_ID,
   FORM_JOB_ID,
@@ -685,6 +687,8 @@ describe("ScreeningFullForm — to, co już wiemy, stoi pod swoim polem (12.10.2
 
   it("dostępność z notatek jest pod polem „Dostępność”, a w bloku stawki zostaje sama stawka", async () => {
     serverState = formState({
+      // Etap ma stawkę — formularz nie wpisuje podpowiedzi, więc obie stoją jako „Użyj”.
+      rate: { amount: 150, unit: "hourly", currency: "PLN", source: "stage", at: null },
       suggestions_from_notes: {
         rate: { value: 130, unit: "hour", currency: "PLN", raw: "130/h", source_note_id: 1, noted_at: "2025-03-14" },
         availability: {
@@ -730,6 +734,302 @@ describe("ScreeningFullForm — to, co już wiemy, stoi pod swoim polem (12.10.2
     await waitFor(() => expect(mocks.candidate).toHaveBeenCalled());
     expect(field("work_mode")).not.toHaveTextContent("W profilu");
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+describe("ScreeningFullForm — stawka na start, gdy etap jej nie ma (D2, 14.10.2026)", () => {
+  const NOTE_RATE = {
+    value: 160,
+    unit: "hour" as const,
+    currency: "PLN",
+    raw: "160 na B2B, mniej nie zejdzie",
+    source_note_id: null,
+    noted_at: "2025-04-02",
+  };
+  const rateBlock = () => screen.getByTestId("screening-form-rate");
+
+  it("najnowsza stawka z notatki wpisuje się w pole, mówi skąd jest i idzie z zapisem", async () => {
+    serverState = formState({
+      suggestions_from_notes: { rate: NOTE_RATE },
+      rate_hints: { card: null, rate_from: { amount: 140, unit: "hourly", currency: "PLN" } },
+    });
+    mocks.put.mockImplementation(() => Promise.resolve({ data: formSaveResult(serverState, { changed: ["rate"] }) }));
+    const user = userEvent.setup();
+    mount();
+
+    expect(await screen.findByLabelText("Kwota")).toHaveValue(160);
+    expect(screen.getByTestId("rate-prefill-origin")).toHaveTextContent(
+      "z notatki 2.04.2025: „160 na B2B, mniej nie zejdzie” · zmień",
+    );
+    // Podpowiedź z tą samą wartością co w polu znika, inna zostaje jako „Użyj”.
+    expect(rateBlock().querySelector('[data-testid="screening-suggestions"]')).toBeNull();
+    expect(within(rateBlock()).getByRole("button", { name: "Użyj — Stawka od" })).toBeTruthy();
+    expect(screen.getByText("Niezapisane zmiany")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^Zapisz$/ }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledTimes(1));
+    expect(lastPut().rate).toEqual({ amount: 160, unit: "hourly", currency: "PLN" });
+  });
+
+  it("„zmień” stawia kursor w polu kwoty; inna kwota zdejmuje podpis", async () => {
+    serverState = formState({ suggestions_from_notes: { rate: NOTE_RATE } });
+    const user = userEvent.setup();
+    mount();
+    const amount = (await screen.findByLabelText("Kwota")) as HTMLInputElement;
+    const select = vi.spyOn(amount, "select");
+    await user.click(
+      within(screen.getByTestId("rate-prefill-origin")).getByRole("button", { name: "Zmień stawkę kandydata" }),
+    );
+    expect(amount).toHaveFocus();
+    expect(select).toHaveBeenCalled();
+
+    await user.clear(amount);
+    await user.type(amount, "170");
+    expect(screen.queryByTestId("rate-prefill-origin")).toBeNull();
+    // Notatka wraca jako zwykła podpowiedź „Użyj”.
+    expect(rateBlock().querySelector('[data-testid="screening-suggestions"]')).toHaveTextContent("160 zł/h");
+  });
+
+  it("stawka z karty w polu: podpis „z karty rekomendacji” i zapis jej nie gubi (błąd do 14.10.2026)", async () => {
+    serverState = formState({
+      rate: { amount: 150, unit: "hourly", currency: "PLN", source: "card", at: null },
+      rate_hints: { card: { amount: 150, unit: "hourly", currency: "PLN" }, card_raw: "150 zł/h", rate_from: null },
+    });
+    mocks.put.mockImplementation(() => Promise.resolve({ data: formSaveResult(serverState, { changed: ["rate"] }) }));
+    const user = userEvent.setup();
+    mount();
+    expect(await screen.findByLabelText("Kwota")).toHaveValue(150);
+    expect(screen.getByTestId("rate-prefill-origin")).toHaveTextContent("z karty rekomendacji: „150 zł/h” · zmień");
+    expect(within(rateBlock()).queryByRole("button", { name: "Użyj — Z karty" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /^Zapisz$/ }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledTimes(1));
+    expect(lastPut().rate).toEqual({ amount: 150, unit: "hourly", currency: "PLN" });
+  });
+
+  it("stawka z notatki z rozmowy zastępuje wpisaną na start, „Cofnij wypełnienie” ją przywraca", async () => {
+    serverState = formState({
+      assist_enabled: true,
+      rate_hints: { card: null, rate_from: { amount: 140, unit: "hourly", currency: "PLN" } },
+    });
+    mocks.post.mockResolvedValue({
+      data: {
+        fields: [
+          {
+            key: "rate",
+            label: "Stawka",
+            current: null,
+            current_source: null,
+            proposed: "155 zł/h",
+            quote: "155 na B2B",
+            origin: "note_rule",
+            changed: true,
+            rate: { amount: 155, unit: "hourly", currency: "PLN" },
+          },
+        ],
+        answers: [],
+        available: true,
+        message: null,
+        language: "pl",
+        rate_change_notifies: false,
+        text: "Rozmowa: 155 na B2B, od listopada.",
+      },
+    });
+    const user = userEvent.setup();
+    mount();
+    expect(await screen.findByLabelText("Kwota")).toHaveValue(140);
+
+    await user.click(screen.getByRole("button", { name: /Wklej tekst/ }));
+    await user.type(screen.getByLabelText("Notatka z rozmowy"), "Rozmowa: 155 na B2B, od listopada.");
+    await user.click(screen.getByRole("button", { name: "Odczytaj notatkę" }));
+
+    await waitFor(() => expect(screen.getByLabelText("Kwota")).toHaveValue(155));
+    expect(screen.queryByTestId("note-offer")).toBeNull();
+    expect(screen.queryByTestId("rate-prefill-origin")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /Cofnij wypełnienie/ }));
+    expect(screen.getByLabelText("Kwota")).toHaveValue(140);
+    expect(screen.getByTestId("rate-prefill-origin")).toHaveTextContent("Stawka od");
+  });
+
+  it("bez notatki i karty — „Stawka od”", async () => {
+    serverState = formState({ rate_hints: { card: null, rate_from: { amount: 140, unit: "hourly", currency: "PLN" } } });
+    mount();
+    expect(await screen.findByLabelText("Kwota")).toHaveValue(140);
+    expect(screen.getByTestId("rate-prefill-origin")).toHaveTextContent("Stawka od · najniższa z 18 mies. · zmień");
+  });
+
+  it("etap ze stawką albo brak prawa do stawek — nic się nie wpisuje", async () => {
+    serverState = formState({
+      rate: { amount: 150, unit: "hourly", currency: "PLN", source: "stage", at: null },
+      suggestions_from_notes: { rate: NOTE_RATE },
+    });
+    mount();
+    expect(await screen.findByLabelText("Kwota")).toHaveValue(150);
+    expect(screen.queryByTestId("rate-prefill-origin")).toBeNull();
+    cleanup();
+
+    serverState = formState({ can_edit_rate: false, suggestions_from_notes: { rate: NOTE_RATE } });
+    mount();
+    expect(await screen.findByLabelText("Kwota")).toHaveValue(null);
+    expect(screen.queryByTestId("rate-prefill-origin")).toBeNull();
+    expect(screen.queryByText("Niezapisane zmiany")).toBeNull();
+  });
+});
+
+describe("ScreeningFullForm — przekazano dalej (P3, 14.10.2026)", () => {
+  const forward = { stage: "verified", stageDefId: 12, label: "Zweryfikowany" };
+
+  async function fillAndForward(user: ReturnType<typeof userEvent.setup>) {
+    const answers = await screen.findAllByLabelText("Odpowiedź");
+    await user.type(answers[0], "6 lat");
+    await user.type(answers[1], "Tak, 2 lata");
+    await user.type(screen.getByLabelText("Kwota"), "150");
+    await user.click(screen.getByRole("button", { name: /Zapisz i przekaż dalej/ }));
+  }
+
+  it("po udanym ruchu woła `onForwarded`", async () => {
+    mocks.put.mockImplementation(() => Promise.resolve({ data: formSaveResult(serverState) }));
+    mocks.send.mockResolvedValue({ ok: true, data: {} });
+    const onForwarded = vi.fn();
+    const onMoved = vi.fn();
+    const user = userEvent.setup();
+    mount({ forward, onForwarded, onMoved });
+    await fillAndForward(user);
+    await waitFor(() => expect(onForwarded).toHaveBeenCalledTimes(1));
+    expect(onMoved).toHaveBeenCalled();
+  });
+
+  it.each([
+    ["konflikt wersji", { kind: "version_conflict" }],
+    ["odmowa ruchu", { kind: "other", message: "Nie" }],
+  ])("%s nie woła `onForwarded`", async (_label, refusal) => {
+    mocks.put.mockImplementation(() => Promise.resolve({ data: formSaveResult(serverState) }));
+    mocks.send.mockResolvedValue({ ok: false, refusal });
+    const onForwarded = vi.fn();
+    const user = userEvent.setup();
+    mount({ forward, onForwarded });
+    await fillAndForward(user);
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByRole("button", { name: /Zapisz i przekaż dalej/ })).toBeEnabled());
+    expect(onForwarded).not.toHaveBeenCalled();
+  });
+});
+
+describe("ScreeningFullForm — notatka zapisana w doku wypełnia formularz (D3, 14.10.2026)", () => {
+  const DOCK_TEXT = "Rozmowa: java 6 lat, dostępny od zaraz.";
+  const PROPOSAL = {
+    fields: [
+      {
+        key: "availability",
+        label: "Dostępność",
+        current: null,
+        current_source: null,
+        proposed: "od zaraz",
+        quote: "dostępny od zaraz",
+        origin: "note_ai",
+        changed: true,
+      },
+    ],
+    answers: [],
+    available: true,
+    message: null,
+    language: "pl",
+    rate_change_notifies: false,
+    text: DOCK_TEXT,
+  };
+
+  it("formularz z odczytem notatki czeka na notatkę; bez funkcji albo do odczytu — nie", async () => {
+    const channel = createNoteFillChannel();
+    serverState = formState({ assist_enabled: true });
+    mount({ noteFill: channel });
+    await screen.findAllByLabelText("Odpowiedź");
+    await waitFor(() => expect(channel.has(FORM_CANDIDATE_ID)).toBe(true));
+    cleanup();
+    expect(channel.has(FORM_CANDIDATE_ID)).toBe(false);
+
+    serverState = formState({ assist_enabled: false });
+    mount({ noteFill: channel });
+    await screen.findAllByLabelText("Odpowiedź");
+    expect(channel.has(FORM_CANDIDATE_ID)).toBe(false);
+    cleanup();
+
+    serverState = formState({ assist_enabled: true });
+    mount({ noteFill: channel, readOnly: true });
+    await screen.findByTestId("screening-form-readonly");
+    expect(channel.has(FORM_CANDIDATE_ID)).toBe(false);
+  });
+
+  it("czyta notatkę trasą „Wklej tekst”, wypełnia puste pola, a zapis odsyła jej numer", async () => {
+    const channel = createNoteFillChannel();
+    serverState = formState({ assist_enabled: true });
+    mocks.post.mockImplementation((url: string) =>
+      url === "/api/recommendation-cards/note/read"
+        ? Promise.resolve({ data: PROPOSAL })
+        : Promise.reject(new Error(url)),
+    );
+    mocks.put.mockImplementation(() =>
+      Promise.resolve({ data: formSaveResult(serverState, { changed: ["card"], note_id: 55 }) }),
+    );
+    const user = userEvent.setup();
+    mount({ noteFill: channel });
+    await waitFor(() => expect(channel.has(FORM_CANDIDATE_ID)).toBe(true));
+
+    let taken: boolean | undefined;
+    await act(async () => {
+      taken = await channel.send(FORM_CANDIDATE_ID, { noteId: 55, text: DOCK_TEXT });
+    });
+    expect(taken).toBe(true);
+    expect(mocks.post).toHaveBeenCalledWith(
+      "/api/recommendation-cards/note/read",
+      { candidate_id: FORM_CANDIDATE_ID, job_id: FORM_JOB_ID, text: DOCK_TEXT },
+      expect.anything(),
+    );
+    expect(screen.getByLabelText("Dostępność")).toHaveValue("od zaraz");
+    expect(screen.getByTestId("note-fill-summary")).toHaveTextContent("Notatka jest już w historii kandydata");
+
+    await user.click(screen.getByRole("button", { name: /^Zapisz$/ }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledTimes(1));
+    expect(lastPut().note_import).toEqual({ text: DOCK_TEXT, note_id: 55 });
+    expect(lastPut().card).toEqual({
+      fields: { availability: "od zaraz" },
+      origins: { availability: { origin: "note_ai" } },
+    });
+  });
+
+  it("awaria odczytu: komunikat z serwera, formularz bez zmian, dok dostaje odmowę", async () => {
+    const channel = createNoteFillChannel();
+    serverState = formState({ assist_enabled: true });
+    mocks.post.mockRejectedValue(httpError(503, "Luna chwilowo nie odpowiada."));
+    mount({ noteFill: channel });
+    await waitFor(() => expect(channel.has(FORM_CANDIDATE_ID)).toBe(true));
+
+    let refused: unknown = null;
+    await act(async () => {
+      await channel.send(FORM_CANDIDATE_ID, { noteId: 55, text: DOCK_TEXT }).catch((err: unknown) => {
+        refused = err;
+      });
+    });
+    expect(refused).not.toBeNull();
+    expect(mocks.showError).toHaveBeenCalledWith("Luna chwilowo nie odpowiada.");
+    expect(screen.getByLabelText("Dostępność")).toHaveValue("");
+    expect(screen.queryByTestId("note-fill-summary")).toBeNull();
+  });
+
+  it("formularz z niezapisanym wypełnieniem z innej notatki nie przyjmuje drugiej", async () => {
+    const channel = createNoteFillChannel();
+    serverState = formState({ assist_enabled: true });
+    mocks.post.mockResolvedValue({ data: PROPOSAL });
+    mount({ noteFill: channel });
+    await waitFor(() => expect(channel.has(FORM_CANDIDATE_ID)).toBe(true));
+    await act(async () => {
+      await channel.send(FORM_CANDIDATE_ID, { noteId: 55, text: DOCK_TEXT });
+    });
+
+    await expect(
+      act(() => channel.send(FORM_CANDIDATE_ID, { noteId: 56, text: "Druga notatka z rozmowy." })),
+    ).rejects.toThrow(/wypełnienie z innej notatki/);
+    expect(mocks.post).toHaveBeenCalledTimes(1);
   });
 });
 

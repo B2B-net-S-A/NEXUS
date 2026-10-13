@@ -27,6 +27,8 @@ import {
   parseRateAmount,
   rateFromValues,
   rateNotRestoredMessage,
+  ratePrefill,
+  ratePrefillCaption,
   sameRate,
   sheetFromValues,
   versionActionLabel,
@@ -183,6 +185,23 @@ describe("buildSavePayload", () => {
     expect(buildSavePayload(noRight, { ...same, rate_amount: "160" }).payload.rate).toBeNull();
   });
 
+  it("stawka z karty (etap bez stawki) idzie z zapisem — serwer porównuje tylko ze stawką etapu (14.10.2026)", () => {
+    // Do 14.10.2026 formularz porównywał pole ze stawką z karty i nic nie
+    // wysyłał, więc etap zostawał bez stawki, a „Zweryfikowany” jej żądał.
+    const state = formState({ rate: { amount: 150, unit: "hourly", currency: "PLN", source: "card", at: null } });
+    const plan = buildSavePayload(state, formDefaultsFromState(state));
+    expect(plan.payload.rate).toEqual({ amount: 150, unit: "hourly", currency: "PLN" });
+    expect(plan.hasChanges).toBe(true);
+  });
+
+  it("notatka zapisana w doku idzie z numerem — serwer jej nie dubluje (D3)", () => {
+    const state = formState();
+    const plan = buildSavePayload(state, formDefaultsFromState(state), {
+      noteImport: { text: "Rozmowa: Java 6 lat", source_name: null, note_id: 55 },
+    });
+    expect(plan.payload.note_import).toEqual({ text: "Rozmowa: Java 6 lat", note_id: 55 });
+  });
+
   it("notatka idzie razem z zapisem, także gdy pola są bez zmian", () => {
     const state = formState();
     const plan = buildSavePayload(state, formDefaultsFromState(state), {
@@ -243,6 +262,79 @@ describe("stawka", () => {
     expect(sameRate(null, null)).toBe(true);
     expect(formatFormRate({ amount: 150, unit: "hourly", currency: "PLN" })).toBe("150 zł/h");
     expect(formatFormRate({ amount: 40, unit: "hourly", currency: "eur" })).toBe("40 EUR/h");
+  });
+});
+
+describe("ratePrefill — stawka na start, gdy etap jej nie ma (D2, 14.10.2026)", () => {
+  const NOTE_RATE = {
+    value: 160,
+    unit: "hour" as const,
+    currency: "PLN",
+    raw: "160 na B2B",
+    source_note_id: null,
+    noted_at: "2025-04-02",
+  };
+  const CARD = { amount: 150, unit: "hourly" as const, currency: "PLN" };
+  const FROM = { amount: 140, unit: "hourly" as const, currency: "PLN" };
+
+  it("kolejność: notatka z cytatem, potem karta, potem „Stawka od”", () => {
+    const all = formState({
+      suggestions_from_notes: { rate: NOTE_RATE },
+      rate_hints: { card: CARD, card_raw: "150 zł/h", rate_from: FROM },
+    });
+    expect(ratePrefill(all)).toEqual({
+      rate: { amount: 160, unit: "hourly", currency: "PLN" },
+      origin: { kind: "note", quote: "160 na B2B", notedAt: "2025-04-02" },
+    });
+    const cardOnly = formState({ rate_hints: { card: CARD, card_raw: "150 zł/h", rate_from: FROM } });
+    expect(ratePrefill(cardOnly)).toEqual({ rate: CARD, origin: { kind: "card", quote: "150 zł/h" } });
+    const fromOnly = formState({ rate_hints: { card: null, rate_from: FROM } });
+    expect(ratePrefill(fromOnly)).toEqual({ rate: FROM, origin: { kind: "rate_from" } });
+    expect(ratePrefill(formState())).toBeNull();
+  });
+
+  it("notatka bez cytatu, w innej walucie albo bez jednostki nie wpisuje się — idzie następne źródło", () => {
+    const hints = { card: null, rate_from: FROM };
+    for (const rate of [
+      { ...NOTE_RATE, raw: null },
+      { ...NOTE_RATE, raw: "  " },
+      { ...NOTE_RATE, currency: "EUR" },
+      { ...NOTE_RATE, unit: null },
+    ]) {
+      expect(ratePrefill(formState({ suggestions_from_notes: { rate }, rate_hints: hints }))?.origin).toEqual({
+        kind: "rate_from",
+      });
+    }
+  });
+
+  it("etap ze stawką albo brak prawa do stawek = nic", () => {
+    const hints = { card: CARD, rate_from: FROM };
+    expect(
+      ratePrefill(
+        formState({ rate: { ...CARD, source: "stage", at: null }, rate_hints: hints, suggestions_from_notes: { rate: NOTE_RATE } }),
+      ),
+    ).toBeNull();
+    expect(ratePrefill(formState({ can_edit_rate: false, rate_hints: hints }))).toBeNull();
+  });
+
+  it("stawka z karty w polu (etap bez stawki) też ustępuje nowszej notatce", () => {
+    const state = formState({
+      rate: { ...CARD, source: "card", at: null },
+      rate_hints: { card: CARD, rate_from: null },
+      suggestions_from_notes: { rate: NOTE_RATE },
+    });
+    expect(ratePrefill(state)?.origin.kind).toBe("note");
+  });
+
+  it("podpis pod polem mówi, skąd jest stawka", () => {
+    expect(ratePrefillCaption({ kind: "note", quote: "160 na B2B", notedAt: "2025-04-02" })).toBe(
+      "z notatki 2.04.2025: „160 na B2B”",
+    );
+    expect(ratePrefillCaption({ kind: "note", quote: "160", notedAt: "2025-04" })).toBe("z notatki 04.2025: „160”");
+    expect(ratePrefillCaption({ kind: "note", quote: "160", notedAt: null })).toBe("z notatki: „160”");
+    expect(ratePrefillCaption({ kind: "card", quote: "150 zł/h" })).toBe("z karty rekomendacji: „150 zł/h”");
+    expect(ratePrefillCaption({ kind: "card", quote: null })).toBe("z karty rekomendacji");
+    expect(ratePrefillCaption({ kind: "rate_from" })).toBe("Stawka od · najniższa z 18 mies.");
   });
 });
 

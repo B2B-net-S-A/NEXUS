@@ -26,6 +26,7 @@ import {
   cardChanges,
   cardFieldLabel,
 } from "@/lib/recommendation-card";
+import { notedAtDateLabel, rateSuggestionFill, type ScreeningSuggestions } from "@/lib/screening-suggestions";
 import {
   championScreeningQuestions,
   defaultSkipNote,
@@ -192,6 +193,8 @@ export function sameRate(a: FormRate | null | undefined, b: FormRate | null | un
 export interface NoteImport {
   text: string;
   source_name?: string | null;
+  /** Notatka zapisana już w doku (D3, 14.10.2026) — zapis jej nie dubluje. */
+  note_id?: number | null;
 }
 
 export interface SavePlan {
@@ -240,15 +243,21 @@ export function buildSavePayload(
     : null;
 
   const wanted = state.can_edit_rate ? rateFromValues(values) : null;
-  const current = state.rate
-    ? { amount: state.rate.amount, unit: state.rate.unit, currency: state.rate.currency }
-    : null;
+  // Serwer porównuje tylko ze stawką ETAPU (`_same_rate(current.rate, …)`).
+  // Stawka z karty (`source: "card"`) stoi w polu, ale etap jej nie ma — do
+  // 14.10.2026 porównanie z nią gubiło zapis i etap zostawał bez stawki.
+  const current =
+    state.rate?.source === "stage"
+      ? { amount: state.rate.amount, unit: state.rate.unit, currency: state.rate.currency }
+      : null;
   const rate = wanted && !sameRate(wanted, current) ? wanted : null;
 
   const noteImport = options.noteImport?.text?.trim()
     ? {
         text: options.noteImport.text,
         ...(options.noteImport.source_name ? { source_name: options.noteImport.source_name } : {}),
+        // D3 (14.10.2026): notatka już zapisana w doku — serwer jej nie dubluje.
+        ...(options.noteImport.note_id != null ? { note_id: options.noteImport.note_id } : {}),
       }
     : null;
 
@@ -265,6 +274,62 @@ export function buildSavePayload(
     note_import: noteImport,
   };
   return { payload, hasChanges: Boolean(sheet || card || rate || noteImport) };
+}
+
+// ── Stawka na start (D2, 14.10.2026) ─────────────────────────────────────
+
+/** Skąd formularz wziął stawkę wpisaną na start — linijka pod polem. */
+export type RatePrefillOrigin =
+  | { kind: "note"; quote: string; notedAt: string | null }
+  | { kind: "card"; quote: string | null }
+  | { kind: "rate_from" };
+
+export interface RatePrefill {
+  rate: FormRate;
+  origin: RatePrefillOrigin;
+}
+
+/**
+ * Stawka do wpisania, gdy etap pary jej nie ma: najpierw najnowsza stawka
+ * z notatek z dosłownym cytatem (w PLN, ze znaną jednostką), potem stawka
+ * z karty rekomendacji, na końcu „Stawka od”. `null` = etap ma stawkę, osoba
+ * nie może zmieniać stawek albo nie ma nic pewnego. Wpis idzie jako zmiana
+ * formularza — zapisze się z „Zapisz”.
+ */
+export function ratePrefill(
+  state: Pick<ScreeningFormState, "rate" | "rate_hints" | "can_edit_rate" | "suggestions_from_notes">,
+): RatePrefill | null {
+  if (!state.can_edit_rate || state.rate?.source === "stage") return null;
+  const note = (state.suggestions_from_notes as ScreeningSuggestions | undefined)?.rate;
+  const quote = note?.raw?.trim();
+  const fill = note && quote ? rateSuggestionFill(note) : null;
+  if (note && quote && fill) {
+    return {
+      rate: { amount: Number(fill.rate), unit: fill.unit, currency: "PLN" },
+      origin: { kind: "note", quote, notedAt: note.noted_at ?? null },
+    };
+  }
+  const card = state.rate_hints?.card;
+  if (card && card.amount > 0) {
+    return { rate: card, origin: { kind: "card", quote: state.rate_hints.card_raw?.trim() || null } };
+  }
+  const from = state.rate_hints?.rate_from;
+  if (from && from.amount > 0) return { rate: from, origin: { kind: "rate_from" } };
+  return null;
+}
+
+/** „z notatki 2.04.2025: „150 na B2B”” — bez „· zmień”, które dokłada widok. */
+export function ratePrefillCaption(origin: RatePrefillOrigin): string {
+  switch (origin.kind) {
+    case "note": {
+      const date = notedAtDateLabel(origin.notedAt);
+      return `z notatki${date ? ` ${date}` : ""}: „${origin.quote}”`;
+    }
+    case "card":
+      return origin.quote ? `z karty rekomendacji: „${origin.quote}”` : "z karty rekomendacji";
+    case "rate_from":
+      return "Stawka od · najniższa z 18 mies.";
+  }
 }
 
 /** Pytania bez odpowiedzi blokujące „Zapisz i przekaż dalej” (pominięte przy przepięciu — nie). */

@@ -1,11 +1,13 @@
 /**
- * Profil przed telefonem (12.10.2026): to, co już wiemy z wcześniejszych
- * rozmów — ostatnio podana stawka, dostępność, tryb pracy, ostatnia zakończona
- * rekrutacja z wynikiem i wcześniejsze notatki z „Pokaż”. Od 09.10.2026 głowa
- * rozwiniętego panelu nie pokazuje faktów w „Nowych”, więc przed telefonem
- * rekruter nie widział ich nigdzie.
+ * „Co już wiemy” nad formularzem screeningu (P2, 14.10.2026; wcześniej profil
+ * przed telefonem, 12.10.2026): ostatnio podana stawka, dostępność, tryb pracy,
+ * ostatnia zakończona rekrutacja z wynikiem i wcześniejsze notatki z „Pokaż”.
+ * Blok rozwinięty, dopóki formularz jest pusty; po pierwszym zapisie zwinięty
+ * do jednej linii skrótu. Od 09.10.2026 głowa rozwiniętego panelu nie pokazuje
+ * faktów w „Nowych”, więc przed telefonem rekruter nie widział ich nigdzie.
  */
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -116,23 +118,62 @@ function respond({ notes = { items: [] }, history = { jobs: [] }, rates = RATES,
 
 function wrap(node: ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(<QueryClientProvider client={client}>{node}</QueryClientProvider>);
+  const view = render(<QueryClientProvider client={client}>{node}</QueryClientProvider>);
+  const rerenderWith = (next: ReactNode) =>
+    view.rerender(<QueryClientProvider client={client}>{next}</QueryClientProvider>);
+  return { ...view, rerenderWith };
 }
 
 const renderProfile = (onOpenHistory?: () => void) =>
-  wrap(
-    <BeforeCallProfile
-      item={ITEM}
-      jobId={JOB}
-      readOnly={false}
-      onStartScreening={vi.fn()}
-      onOpenHistory={onOpenHistory}
-    />,
-  );
+  wrap(<BeforeCallProfile item={ITEM} jobId={JOB} readOnly={false} onOpenHistory={onOpenHistory} />);
 
 beforeEach(() => {
   mocks.get.mockReset();
   mocks.candidate.mockReset();
+});
+
+describe("BeforeCallProfile — zwijany blok nad formularzem (P2, 14.10.2026)", () => {
+  const toggle = () => screen.getByRole("button", { name: /Co już wiemy/ });
+
+  it("pusty formularz: blok rozwinięty, w głowie „Nie odebrał”, bez „Zacznij screening” i „Biorę”", async () => {
+    respond();
+    renderProfile();
+    expect(toggle()).toHaveAttribute("aria-expanded", "true");
+    expect(await screen.findByTestId("before-call-conditions")).toBeVisible();
+    expect(screen.getByRole("button", { name: /Nie odebrał/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Zacznij screening/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Biorę/ })).toBeNull();
+    expect(screen.queryByTestId("before-call-summary")).toBeNull();
+  });
+
+  it("po zapisie formularza zwija się do jednej linii skrótu; klik rozwija", async () => {
+    respond({ history: HISTORY });
+    const view = wrap(<BeforeCallProfile item={ITEM} jobId={JOB} readOnly={false} defaultOpen />);
+    await screen.findByText("130 zł/h");
+    view.rerenderWith(<BeforeCallProfile item={ITEM} jobId={JOB} readOnly={false} defaultOpen={false} />);
+
+    expect(toggle()).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByTestId("before-call-conditions")).not.toBeVisible();
+    const summary = screen.getByTestId("before-call-summary");
+    expect(summary).toHaveTextContent("Analityk · 130 zł/h · Otwarty na oferty · wypowiedzenie 1 mies.");
+    await waitFor(() => expect(summary).toHaveTextContent("wcześniej: Odrzucony"));
+
+    await userEvent.setup().click(toggle());
+    expect(screen.getByTestId("before-call-conditions")).toBeVisible();
+    expect(screen.queryByTestId("before-call-summary")).toBeNull();
+  });
+
+  it("zwinięty blok mówi o awarii odczytu zamiast udawać komplet", async () => {
+    respond({ detail: new Error("500") });
+    wrap(<BeforeCallProfile item={ITEM} jobId={JOB} readOnly={false} defaultOpen={false} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Część danych się nie wczytała — rozwiń, żeby ponowić.");
+  });
+
+  it("tylko do odczytu: bez „Nie odebrał”", () => {
+    respond();
+    wrap(<BeforeCallProfile item={ITEM} jobId={JOB} readOnly />);
+    expect(screen.queryByRole("button", { name: /Nie odebrał/ })).toBeNull();
+  });
 });
 
 describe("BeforeCallProfile — co już wiemy przed telefonem", () => {

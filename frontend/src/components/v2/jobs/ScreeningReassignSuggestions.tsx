@@ -18,6 +18,10 @@
  * zapis to dalej „Zapisz screening”. Awaria Luny to komunikat z „Spróbuj
  * ponownie”, nie blokada: arkusz działa ręcznie jak dotąd.
  *
+ * „Użyj wszystkich odpowiedzi (N)” w bloku (14.10.2026): to samo co „Użyj tej
+ * odpowiedzi” pod każdym pytaniem naraz — tylko w pustych polach i tylko dla
+ * podpowiedzi, których rekruter nie użył ani nie pominął; kursor zostaje.
+ *
  * „Pomiń brakujące” (12.10.2026): do tej daty wyłącznie przy przepięciu
  * z panelu „Podobne rekrutacje”. Zespół przepina też ręcznie, a panel nie
  * pozwala wybrać osoby zatrudnionej w rekrutacji źródłowej — dlatego serwer
@@ -163,15 +167,21 @@ export function ScreeningReassignSuggestions({
     [result],
   );
 
-  const applyHint = (suggestion: ScreeningReassignSuggestion) => {
-    const field = `answers.${suggestion.question_id}.response` as const;
-    methods.setValue(field, suggestion.text, { shouldDirty: true, shouldValidate: true });
+  const fillAnswer = (suggestion: ScreeningReassignSuggestion) => {
+    methods.setValue(`answers.${suggestion.question_id}.response`, suggestion.text, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
     methods.setValue(`answers.${suggestion.question_id}.origin`, "reassign_suggested", {
       shouldDirty: true,
     });
+  };
+
+  const applyHint = (suggestion: ScreeningReassignSuggestion) => {
+    fillAnswer(suggestion);
     setHandled((prev) => new Set(prev).add(suggestion.question_id));
     // Kursor w polu — odpowiedź zwykle trzeba dopytać albo uzupełnić.
-    setTimeout(() => methods.setFocus(field), 0);
+    setTimeout(() => methods.setFocus(`answers.${suggestion.question_id}.response`), 0);
   };
 
   const renderQuestionExtra = (question: ScreeningQuestion): ReactNode => {
@@ -262,9 +272,14 @@ export function ScreeningReassignSuggestions({
   const conversations = context.earlier_conversations ?? 0;
   const hints = (result?.suggestions ?? []).filter((s) => questions.some((q) => q.id === s.question_id));
   // Podpowiedzi, które jeszcze stoją pod pytaniami (nieużyte, niepominięte, pole puste).
-  const openHints = hints.filter(
+  const pending = hints.filter(
     (s) => !handled.has(s.question_id) && !(methods.watch(`answers.${s.question_id}.response`) ?? "").trim(),
-  ).length;
+  );
+  const openHints = pending.length;
+  const applyAll = () => {
+    for (const suggestion of pending) fillAnswer(suggestion);
+    setHandled((prev) => new Set([...prev, ...pending.map((s) => s.question_id)]));
+  };
   const failed = suggestQuery.isError || (result != null && !result.available);
   const profileLink =
     context.candidate_id != null ? (
@@ -359,6 +374,13 @@ export function ScreeningReassignSuggestions({
             <p role="status" className="text-xs text-muted-foreground">
               {state}
             </p>
+            {!readOnly && !failed && result && openHints > 1 ? (
+              <div className="pt-1.5">
+                <Button type="button" size="sm" variant="outline" onClick={applyAll}>
+                  Użyj wszystkich odpowiedzi ({openHints})
+                </Button>
+              </div>
+            ) : null}
           </div>
         </div>
 

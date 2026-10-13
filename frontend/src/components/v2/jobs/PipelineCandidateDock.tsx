@@ -34,6 +34,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleCheck,
+  ClipboardCheck,
   Clock,
   ExternalLink,
   FileText,
@@ -82,7 +83,7 @@ import { candidateNoteItems, useCandidateNotes } from "@/components/v2/pages/can
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { DopasowanieTab } from "@/components/v2/pages/DopasowanieTab";
 import { type KanbanColumn, type KanbanItem } from "@/components/v2/pages/kanban-shared";
-import type { NoteFillChannel } from "@/lib/note-fill-channel";
+import { useNoteFillAvailable, type NoteFillChannel } from "@/lib/note-fill-channel";
 import type { NextAction } from "@/lib/pipeline-next-action";
 import { DockCallCheatsheet } from "@/components/v2/jobs/DockCallCheatsheet";
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
@@ -544,6 +545,7 @@ function DockNoteComposer({
   value,
   onChange,
   onSubmit,
+  onSubmitAndFill,
   pending,
   jobId,
   big,
@@ -552,6 +554,8 @@ function DockNoteComposer({
   value: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
+  /** D3 (14.10.2026): formularz screeningu tej osoby czeka na notatkę. */
+  onSubmitAndFill?: () => void;
   pending: boolean;
   jobId: number;
   big: boolean;
@@ -589,6 +593,13 @@ function DockNoteComposer({
     onBigChange(next);
     fieldRef.current?.focus();
   };
+
+  // D3: zwykły zapis notatki, potem formularz screeningu obok czyta ją sam.
+  const fillButton = onSubmitAndFill ? (
+    <Button size="sm" variant="outline" onClick={onSubmitAndFill} disabled={cannotSend}>
+      <ClipboardCheck className="h-3.5 w-3.5" aria-hidden="true" /> Zapisz notatkę i wypełnij formularz
+    </Button>
+  ) : null;
 
   return (
     <div
@@ -650,9 +661,12 @@ function DockNoteComposer({
             {big ? NOTE_KEYS_HINT_BIG : NOTE_KEYS_HINT}
           </p>
           {big ? (
-            <Button size="sm" onClick={onSubmit} disabled={cannotSend} loading={pending}>
-              <Send className="h-3.5 w-3.5" aria-hidden="true" /> Dodaj notatkę
-            </Button>
+            <>
+              {fillButton}
+              <Button size="sm" onClick={onSubmit} disabled={cannotSend} loading={pending}>
+                <Send className="h-3.5 w-3.5" aria-hidden="true" /> Dodaj notatkę
+              </Button>
+            </>
           ) : (
             <>
               <Button
@@ -687,12 +701,18 @@ function DockNoteComposer({
           <Send className="h-3.5 w-3.5" />
         </Button>
       )}
+      {open && !big && fillButton ? (
+        <div className="flex justify-end" onMouseDown={(e) => e.preventDefault()}>
+          {fillButton}
+        </div>
+      ) : null}
     </div>
   );
 }
 
 export function PipelineCandidateDock({
   item,
+  noteFill,
   jobId,
   currentStageLabel,
   jobTitle,
@@ -863,9 +883,12 @@ export function PipelineCandidateDock({
     () => splitPersonNotes(candidateNoteItems(notesQuery.data), jobId),
     [notesQuery.data, jobId],
   );
+  // D3 (14.10.2026): formularz screeningu tej osoby (zakładka po „Rozwiń”)
+  // przyjmie notatkę — wtedy obok „Dodaj notatkę” stoi „…i wypełnij formularz”.
+  const noteFillAvailable = useNoteFillAvailable(noteFill, item.candidate_id);
   const addNoteMutation = useMutation({
-    mutationFn: (content: string) =>
-      api.post("/api/notes", {
+    mutationFn: ({ content }: { content: string; fill: boolean }) =>
+      api.post<{ id?: number }>("/api/notes", {
         candidate_id: item.candidate_id,
         job_id: jobId,
         content,
@@ -875,7 +898,7 @@ export function PipelineCandidateDock({
     // `onSuccess` działa też po odmontowaniu doku, więc „wyślij, wyjdź, wróć”
     // oddawałoby wysłany tekst jako szkic — gotowy duplikat.
     onMutate: () => writeNoteDraft(userId, jobId, item.candidate_id, ""),
-    onSuccess: () => {
+    onSuccess: (res, vars) => {
       setNoteText("");
       setNoteBig(false);
       queryClient.invalidateQueries({
@@ -895,9 +918,10 @@ export function PipelineCandidateDock({
       queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
       queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
       queryClient.invalidateQueries({ queryKey: MOVE_REQUIREMENTS_PREFIX });
-      showSuccess("Notatka dodana.");
+      if (vars.fill) void fillScreeningForm(res.data?.id, vars.content);
+      else showSuccess("Notatka dodana.");
     },
-    onError: (e, content) => {
+    onError: (e, { content }) => {
       // Nieudany zapis oddaje szkic, o ile w międzyczasie nie powstał nowy.
       if (!readNoteDraft(userId, jobId, item.candidate_id)) {
         writeNoteDraft(userId, jobId, item.candidate_id, content);
@@ -906,10 +930,30 @@ export function PipelineCandidateDock({
     },
   });
 
-  const submitNote = () => {
+  // Formularz czyta notatkę trasą „Wklej tekst” i przy zapisie odsyła jej
+  // numer — serwer nie zakłada drugiej. Notatka jest zapisana niezależnie od
+  // tego, czy odczyt się udał (powód porażki pokazuje formularz).
+  const fillScreeningForm = async (noteId: number | undefined, text: string) => {
+    if (!noteFill || noteId == null) {
+      showSuccess("Notatka dodana.");
+      return;
+    }
+    try {
+      const taken = await noteFill.send(item.candidate_id, { noteId, text });
+      if (taken) {
+        showSuccess("Notatka dodana i przekazana do formularza screeningu — sprawdź pola i zapisz formularz.");
+      } else {
+        showError("Notatka dodana, ale formularz screeningu nie jest już otwarty — nie wypełniłem go.");
+      }
+    } catch {
+      showError("Notatka dodana i zostaje w historii, ale formularza z niej nie wypełniłem.");
+    }
+  };
+
+  const submitNote = (fill = false) => {
     const content = noteText.trim();
     if (!content || addNoteMutation.isPending) return;
-    addNoteMutation.mutate(content);
+    addNoteMutation.mutate({ content, fill });
   };
 
   // ── Profil kandydata — podtytuł nagłówka (stanowisko · firma · miasto),
@@ -1228,6 +1272,7 @@ export function PipelineCandidateDock({
       onAction={handleRequirementAction}
       canAct={canActOnRequirement}
       refreshToken={item}
+      item={item}
     />
   ) : primaryBlocked ? (
     <div className="space-y-1">
@@ -2042,7 +2087,8 @@ export function PipelineCandidateDock({
         <DockNoteComposer
           value={noteText}
           onChange={setNoteText}
-          onSubmit={submitNote}
+          onSubmit={() => submitNote()}
+          onSubmitAndFill={noteFillAvailable ? () => submitNote(true) : undefined}
           pending={addNoteMutation.isPending}
           jobId={jobId}
           big={noteBig}
