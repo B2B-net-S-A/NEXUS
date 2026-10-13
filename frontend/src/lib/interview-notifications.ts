@@ -62,6 +62,15 @@ export function parseInterviewLink(link: string | null | undefined): InterviewLi
 }
 
 /**
+ * Link spotkania (Teams) przychodzi z kalendarza Microsoft 365, czyli także
+ * z zaproszeń spoza firmy. Otwieramy go tylko, gdy jest zwykłym adresem
+ * `https:` — `window.open` nie ma osłony, którą React daje `<a href>`.
+ */
+export function safeMeetingUrl(url: string | null | undefined): string | null {
+  return url && /^https:\/\//i.test(url) ? url : null;
+}
+
+/**
  * Tekst dymka po powiadomieniu z gniazda. Terminy od klienta i przypomnienie
  * kalendarza mówią wszystko w treści („3 terminy…”, „Za 15 minut: …”),
  * pozostałe — w tytule („Kandydat wybrał termin”).

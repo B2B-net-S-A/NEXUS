@@ -7,6 +7,7 @@ import {
   INTERVIEW_NOTIFICATION_TYPES,
   isInterviewNotificationType,
   parseInterviewLink,
+  safeMeetingUrl,
 } from "@/lib/interview-notifications";
 
 // Ścieżka w cudzysłowie z `backend/`: filtr CI frontendu wylicza lustra
@@ -54,5 +55,16 @@ describe("parseInterviewLink", () => {
       pair: null,
       eventId: null,
     });
+  });
+});
+
+describe("safeMeetingUrl", () => {
+  it("przepuszcza tylko adres https", () => {
+    expect(safeMeetingUrl("https://teams.example.invalid/l/meetup")).toBe(
+      "https://teams.example.invalid/l/meetup",
+    );
+    expect(safeMeetingUrl("javascript:alert(1)")).toBeNull();
+    expect(safeMeetingUrl("http://teams.example.invalid")).toBeNull();
+    expect(safeMeetingUrl(null)).toBeNull();
   });
 });

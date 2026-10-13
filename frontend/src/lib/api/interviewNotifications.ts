@@ -12,7 +12,7 @@ export const interviewNotificationsApi = {
   list: () => api.get<InterviewNotificationList>("/api/notifications/interviews"),
   /** Bez `ids` — wszystkie własne powiadomienia kategorii. */
   markRead: (ids?: readonly number[]) =>
-    api.put("/api/notifications/interviews/read", ids?.length ? { ids } : undefined),
+    api.put("/api/notifications/interviews/read", ids ? { ids } : undefined),
 };
 
 /**
@@ -38,7 +38,9 @@ export function useInterviewNotifications({ enabled = true }: { enabled?: boolea
 export function useMarkInterviewNotificationsRead() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (ids?: readonly number[]) => interviewNotificationsApi.markRead(ids),
+    // Pusta lista to „nic do zgaszenia”, nie „zgaś wszystkie” (to mówi brak listy).
+    mutationFn: async (ids?: readonly number[]) =>
+      ids && ids.length === 0 ? null : interviewNotificationsApi.markRead(ids),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
     },

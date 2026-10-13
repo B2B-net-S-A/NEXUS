@@ -604,6 +604,8 @@ async def test_overview_marks_whose_todo_it_is(app_client: AsyncClient):
 
     mine = await app_client.get("/api/interview-cycle?scope=mine", headers=rec_h)
     assert pick(mine)["mine"] is True
+    # Wskazanie wykonawcy jest wewnętrzne — odpowiedź niesie tylko flagę.
+    assert "owner_id" not in pick(mine)
     jobs = await app_client.get("/api/interview-cycle?scope=jobs", headers=dl_h)
     assert pick(jobs)["mine"] is False
 

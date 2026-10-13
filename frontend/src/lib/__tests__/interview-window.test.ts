@@ -178,6 +178,18 @@ describe("„Teraz” liczone lokalnie z agendy", () => {
     expect(w.today).toMatchObject({ label: "Prep 1", name: "Igor Sowa" });
   });
 
+  it("link spotkania inny niż https nie daje przycisku „Dołącz”", () => {
+    const prep = agenda(TOMASZ, "prep", {
+      start: at(5),
+      end: at(35),
+      online_meeting_url: "javascript:alert(1)",
+    });
+    const w = build(overview({ agenda: [prep] }));
+
+    expect(w.now[0].joinUrl).toBeNull();
+    expect(w.now[0].detail).not.toContain("Teams");
+  });
+
   it("pokazuje tylko wydarzenia i zadania oznaczone przez serwer jako moje", () => {
     const foreign = agenda(MARTA, "call", { start: at(-12), end: at(18), mine: false });
     const legacy = agenda(TOMASZ, "prep", { start: at(5), mine: undefined });
@@ -213,6 +225,34 @@ describe("„Czeka na Ciebie”", () => {
     expect(w.waiting[1].urgent).toBe(true);
     expect(w.urgent).toBe(true);
     expect(w.count).toBe(2);
+  });
+
+  it("zaległy debrief rozmowy spoza okna agendy (ponad 14 dni) zostaje widoczny", () => {
+    // Agenda sięga 14 dni wstecz, zadanie z serwera nie ma limitu wieku.
+    const w = build(
+      overview({
+        todos: [todo(MARTA, "debrief_overdue", { event_id: 901, due: at(-60 * 24 * 20) })],
+      }),
+    );
+
+    expect(w.waiting.map((r) => [r.title, r.status, r.detail, r.todo?.event_id])).toEqual([
+      ["Marta Wilk", "Debrief zaległy", "po terminie 20 dni", 901],
+    ]);
+    expect(w.count).toBe(1);
+  });
+
+  it("zaległy debrief z agendy i z zadania serwera to jeden wiersz", () => {
+    const call = agenda(MARTA, "call", { start: at(-60 * 30.5), end: at(-60 * 30), event_id: 901 });
+    const w = build(
+      overview({
+        agenda: [call],
+        todos: [todo(MARTA, "debrief_overdue", { event_id: 901, due: call.end })],
+      }),
+    );
+
+    expect(w.waiting.map((r) => [r.status, r.detail, r.more])).toEqual([
+      ["Debrief zaległy", "po terminie 30 h", 0],
+    ]);
   });
 
   it("zadanie pary, która ma wiersz w „Teraz”, nie dostaje drugiego wiersza", () => {

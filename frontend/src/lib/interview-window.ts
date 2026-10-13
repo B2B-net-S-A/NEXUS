@@ -23,7 +23,11 @@ import {
   type TodoEntry,
   type TodoKind,
 } from "@/lib/interview-cycle";
-import { isInterviewNotificationType, parseInterviewLink } from "@/lib/interview-notifications";
+import {
+  isInterviewNotificationType,
+  parseInterviewLink,
+  safeMeetingUrl,
+} from "@/lib/interview-notifications";
 import { formatNotificationText, notificationOnBehalfLabel } from "@/lib/notification-format";
 import { countPl } from "@/lib/plural-pl";
 
@@ -105,10 +109,10 @@ const TODO_ICONS: Partial<Record<TodoKind, WindowIcon>> = {
   prep_unrecorded: "alert",
 };
 
-/** Zadania, których okienko nie pokazuje: telefon i zaległy debrief liczymy
+/** Zadania, których okienko nie bierze z serwera: telefon po rozmowie liczymy
  *  lokalnie z agendy, a brak terminów od klienta to stan do 30 dni, na który
  *  Delivery Lead nie ma ruchu — licznik na ikonie nigdy by nie gasł. */
-const SKIPPED_TODOS: ReadonlySet<TodoKind> = new Set(["call_now", "debrief_overdue", "slots_missing"]);
+const SKIPPED_TODOS: ReadonlySet<TodoKind> = new Set(["call_now", "slots_missing"]);
 
 function isStartingKind(kind: AgendaKind): kind is "prep" | "prep2" | "interview" {
   return kind === "prep" || kind === "prep2" || kind === "interview";
@@ -137,6 +141,15 @@ export function whenLabel(iso: string, now: Date): string {
     month: "2-digit",
   }).format(date);
   return `${day}, ${time}`;
+}
+
+/** „po terminie 12 min” / „po terminie 5 h” / „po terminie 20 dni”. */
+export function overdueLabel(iso: string, now: Date): string {
+  const minutes = Math.max(1, Math.ceil((now.getTime() - new Date(iso).getTime()) / 60_000));
+  if (minutes < 120) return `po terminie ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `po terminie ${hours} h`;
+  return `po terminie ${countPl(Math.floor(hours / 24), "dzień", "dni", "dni")}`;
 }
 
 /** „Marta Wilk” → „M. Wilk” (pigułka w pasku jest wąska). */
@@ -283,12 +296,12 @@ export function buildInterviewWindow({
       {
         ...baseRow("now", `event:${entry.event_id}`, entry),
         status: nowMs < start ? `${label} ${relativeLabel(entry.start, now)}` : `${label} trwa`,
-        detail: [formatTime(entry.start), entry.online_meeting_url ? "Teams" : null]
+        detail: [formatTime(entry.start), safeMeetingUrl(entry.online_meeting_url) ? "Teams" : null]
           .filter(Boolean)
           .join(", "),
         icon: entry.kind === "interview" ? "calendar" : "video",
         tone: "urgent",
-        joinUrl: entry.kind === "interview" ? null : entry.online_meeting_url,
+        joinUrl: entry.kind === "interview" ? null : safeMeetingUrl(entry.online_meeting_url),
         eventId: entry.event_id,
       },
       entry,
@@ -302,7 +315,7 @@ export function buildInterviewWindow({
       {
         ...baseRow("waiting", `debrief:${entry.event_id}`, entry),
         status: TODO_LABELS.debrief_overdue,
-        detail: countdownLabel(entry.end as string, now),
+        detail: overdueLabel(entry.end as string, now),
         icon: "phone",
         tone: "urgent",
         todo: callTodo(entry, "debrief_overdue"),
@@ -310,8 +323,27 @@ export function buildInterviewWindow({
       entry,
     );
   }
+  const agendaCallEvents = new Set(myAgenda.filter((e) => e.kind === "call").map((e) => e.event_id));
   for (const todo of myTodos) {
     if (SKIPPED_TODOS.has(todo.kind)) continue;
+    if (todo.kind === "debrief_overdue") {
+      // Policzony wyżej z agendy. Zadanie z serwera zostaje dla rozmowy
+      // starszej niż okno agendy (14 dni) — ono nie ma limitu wieku, a bez
+      // tego wiersz gasłby tak, jakby debrief zapisano.
+      if (agendaCallEvents.has(todo.event_id)) continue;
+      place(
+        {
+          ...baseRow("waiting", `debrief:${todo.event_id}`, todo),
+          status: TODO_LABELS.debrief_overdue,
+          detail: todo.due ? overdueLabel(todo.due, now) : null,
+          icon: "phone",
+          tone: "urgent",
+          todo,
+        },
+        todo,
+      );
+      continue;
+    }
     place(
       {
         ...baseRow("waiting", `todo:${todo.kind}:${pairKey(todo)}`, todo),

@@ -77,6 +77,7 @@ Bez migracji i bez nowych typów powiadomień.
 | Wygląd okienka i stanów | sprawdzone na harnessie | zrzuty przy 1280×720, 1280×960 i 360 px; przy 360 px bez poziomego przewijania |
 | Ikona i pigułka w prawdziwym pasku przy 1280 px z przypiętym menu | mieszczą się | jednorazowa strona z `TopbarV2` (usunięta): pasek 1040 px bez przelewu; wyszukiwarka 136 px z ikoną i 90 px z pigułką przy trzech pozycjach KPI i okruszkach 262 px; okienko 707–1127 px |
 | Dymek końca rozmowy i akcja wiersza | sprawdzone w testach i na sondzie | dymek z „Zapisz debrief” widoczny na sondzie; okna akcji w testach kontenera |
+| Przegląd kodu i przegląd bezpieczeństwa (niezależni agenci) | uwagi wprowadzone | kod: jeden błąd blokujący — zaległy debrief rozmowy starszej niż 14 dni znikał z okienka (agenda sięga 14 dni) — poprawiony testem; bezpieczeństwo: nic blokującego, dodane `https:` przed otwarciem linku spotkania i domyślne `mine = False` |
 | Dymki z gniazda na żywo | niepotwierdzone | lokalnie nie ma backendu; test haka i kontenera pokrywa drogę zdarzenia |
 | Wdrożenie, licznik dzwonka i okienko na produkcji | po scaleniu | `/api/health`, zapytania dzwonka z `exclude_interviews=true`, przeklikanie jako rekruter i Delivery Lead |
 

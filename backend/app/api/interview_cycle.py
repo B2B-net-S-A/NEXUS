@@ -176,7 +176,7 @@ class AgendaEntry(PairInfo):
     late: bool = False
     # Wydarzenie wołającego albo osoby, którą zastępuje (organizator prepu,
     # właściciel rozmowy) — okienko „Rozmowy” liczy z tego „Teraz”.
-    mine: bool = True
+    mine: bool = False
 
 
 class TodoEntry(PairInfo):
@@ -189,7 +189,7 @@ class TodoEntry(PairInfo):
     urgent: bool = False
     # Zadanie czeka na wołającego (``interview_cycle.todo_is_mine``); ekran
     # pokazuje wszystkie z zakresu, okienko „Rozmowy” tylko te.
-    mine: bool = True
+    mine: bool = False
 
 
 class CycleOverview(BaseModel):

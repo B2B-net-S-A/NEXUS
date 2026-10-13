@@ -27,8 +27,11 @@ https://claude.ai/artifact/Nt9BUPasXNjSYpZGmEpf37, raport
 - **Czas liczy przeglądarka z agendy, nie serwer.** Telefon po rozmowie to
   wpis `call` (koniec rozmowy … koniec + okno), zaległy debrief — ten sam wpis
   po oknie; prep i rozmowa wchodzą do „Teraz” kwadrans przed startem.
-  Zadania `call_now` i `debrief_overdue` z serwera okienko pomija — inaczej
-  telefon pojawiałby się dopiero przy następnym odpytaniu (co 5 min).
+  Zadanie `call_now` z serwera okienko pomija — inaczej telefon pojawiałby się
+  dopiero przy następnym odpytaniu (co 5 min). `debrief_overdue` z serwera
+  pomija tylko wtedy, gdy agenda ma wpis `call` tego wydarzenia: agenda sięga
+  14 dni wstecz, a zadanie nie ma limitu wieku, więc bez tego starszy zaległy
+  debrief gasłby tak, jakby go zapisano.
 - **`slots_missing` nie wchodzi do okienka.** To stan do 30 dni, na który
   Delivery Lead nie ma ruchu; licznik na ikonie nigdy by nie gasł. Zostaje na
   ekranie „Rozmowy u klienta”.
@@ -70,6 +73,9 @@ https://claude.ai/artifact/Nt9BUPasXNjSYpZGmEpf37, raport
   jest otwarte. „Rozmowa u klienta skończyła się” nie ma zdarzenia z serwera
   (pierwsze przychodzi po 15 min), więc dymek wychodzi z lokalnie policzonego
   wiersza, raz na przeglądarkę (`claimCallToast`, `localStorage`).
+- **Link spotkania otwieramy tylko jako `https:`** (`safeMeetingUrl`): adres
+  przychodzi z kalendarza Microsoft 365, także z zaproszeń spoza firmy,
+  a `window.open` nie ma osłony, którą React daje `<a href>`.
 - **Akcje otwierają istniejące okna w miejscu** (`actionForTodo` →
   `InterviewActionDialogs`, ładowane przez `next/dynamic`, bo pasek stoi na
   każdej stronie). Plików ekranu kalendarza ta zmiana nie rusza — są źródłami

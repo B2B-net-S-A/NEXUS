@@ -39,6 +39,7 @@ import {
   claimCallToast,
   interviewToastText,
   parseInterviewLink,
+  safeMeetingUrl,
 } from "@/lib/interview-notifications";
 import {
   buildInterviewWindow,
@@ -523,9 +524,11 @@ function InterviewNotificationsWindow() {
       const { eventId } = parseInterviewLink(notif.link);
       const joinUrl =
         notif.notification_type === "interview_scheduled" && eventId != null
-          ? (liveRef.current.overview?.agenda.find(
-              (entry) => entry.event_id === eventId && entry.online_meeting_url,
-            )?.online_meeting_url ?? null)
+          ? safeMeetingUrl(
+              liveRef.current.overview?.agenda.find(
+                (entry) => entry.event_id === eventId && entry.online_meeting_url,
+              )?.online_meeting_url,
+            )
           : null;
       showActionToast(formatNotificationText(interviewToastText(notif)), {
         actionLabel: joinUrl ? "Dołącz" : "Pokaż",
