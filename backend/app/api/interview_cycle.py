@@ -174,6 +174,9 @@ class AgendaEntry(PairInfo):
     prep_meta: Optional[str] = None
     # Prep zaplanowany po rozmowie u klienta, do której miał przygotować.
     late: bool = False
+    # Wydarzenie wołającego albo osoby, którą zastępuje (organizator prepu,
+    # właściciel rozmowy) — okienko „Rozmowy” liczy z tego „Teraz”.
+    mine: bool = False
 
 
 class TodoEntry(PairInfo):
@@ -184,6 +187,9 @@ class TodoEntry(PairInfo):
     slot_request_id: Optional[int] = None
     # 0370: brak prepu na dobę przed rozmową u klienta.
     urgent: bool = False
+    # Zadanie czeka na wołającego (``interview_cycle.todo_is_mine``); ekran
+    # pokazuje wszystkie z zakresu, okienko „Rozmowy” tylko te.
+    mine: bool = False
 
 
 class CycleOverview(BaseModel):
