@@ -68,7 +68,7 @@ def test_short_remark_is_one_trimmed_line() -> None:
     assert long.endswith("…")
 
 
-def test_card_moved_back_from_qc_is_a_handoff_outside_nordea(monkeypatch) -> None:
+def test_card_moved_back_from_qc_is_a_handoff(monkeypatch) -> None:
     qc, verified = _def("QC CV", "interview"), _def("Zweryfikowany", "verified")
     screening = _def("Screening", "screening")
     monkeypatch.setattr(handoff, "cpro_enabled_for_client", lambda _cid: False)
@@ -83,9 +83,13 @@ def test_card_moved_back_from_qc_is_a_handoff_outside_nordea(monkeypatch) -> Non
     # Cofnięcie między wcześniejszymi kolumnami to nie zwrot z przeglądu.
     assert handoff.handoff_kind(screening, client_id=7, previous_def=verified) is None
     assert handoff.handoff_kind(verified, client_id=7) is None
-    # U Nordei „QC CV” to praca rekrutera — jego własne cofnięcie karty.
+    # Od 13.10.2026 u Nordei „QC CV” to też przegląd DL — „Wróć do poprawy”
+    # działa tak samo.
     monkeypatch.setattr(handoff, "cpro_enabled_for_client", lambda _cid: True)
-    assert handoff.handoff_kind(verified, client_id=7, previous_def=qc) is None
+    assert (
+        handoff.handoff_kind(verified, client_id=7, previous_def=qc)
+        == handoff.REASON_QC_RETURNED
+    )
 
 
 def test_return_for_fixes_is_a_task_and_a_backward_handoff() -> None:

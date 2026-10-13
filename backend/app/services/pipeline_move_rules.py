@@ -9,10 +9,11 @@ Dwa wyjątki od „kanbanu bez bramek" (17.09.2026), oba świadome:
   punktem odniesienia dla zamówienia klienta (przychód); do umowy B2B idzie
   stawka kandydata (D7, 08.10.2026: różnica = „do sprawdzenia”, nie blokada,
   `services/recruitment_rate_check.py`). Do 23.09 była opcjonalna i zwykle
-  pusta. Nordea
-  zostaje przy swojej ścieżce QC CV → kolejka Cpro (wysyła jedna osoba od
-  Cpro na firmę, `services/cpro_sender.py`). Zatwierdzenia DZ od 24.09.2026
-  nie ma — przed wysłaniem liczy się QC CV (`services/cv_qc.py`).
+  pusta. U Nordei tym samym krokiem jest akceptacja do kolejki Cpro
+  (13.10.2026): na etap „Wysłać do Cpro” przesuwa wyłącznie osoba z tym
+  uprawnieniem i wpisuje stawkę do Cpro; dalej wrzuca jedna osoba od Cpro na
+  firmę (`services/cpro_sender.py`). Zatwierdzenia DZ od 24.09.2026 nie ma —
+  przed wysłaniem liczy się QC CV (`services/cv_qc.py`).
 * **Zamknięcie procesu mówi, kto je zakończył** — kandydat, my, Delivery Lead
   albo klient. Bez tego „odrzucony przez klienta" i „przez nas" wyglądały
   w statystykach tak samo.
@@ -33,13 +34,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
-from app.services.action_permissions import ProductAction
+from app.services.action_permissions import ProductAction, has_permission
 from app.services.board_stage_badges import (
     BOARD_COLUMN_ORDER,
     board_column_for,
     cpro_enabled_for_client,
+    is_cpro_stage,
 )
-from app.services.permission_denial import ensure_permission
+from app.services.permission_denial import ensure_permission, permission_denied
 
 # Kto może zapisać „Odrzucony przez DL".
 DL_REJECT_ROLES: tuple[UserRole, ...] = (
@@ -271,45 +273,88 @@ async def assert_debrief_before_contract(
         raise HTTPException(status_code=409, detail=missing)
 
 
-def requires_dl_client_rate(target: PipelineStage, client_id: Optional[int]) -> bool:
-    """Ruch na „CV wysłane" u klienta innego niż Nordea."""
+def requires_dl_client_rate(
+    target: PipelineStage,
+    client_id: Optional[int],
+    *,
+    stage_name: Optional[str] = None,
+) -> bool:
+    """Ruch, który wymaga uprawnienia wysyłki i stawki do klienta.
 
-    return target == PipelineStage.cv_sent and not cpro_enabled_for_client(client_id)
+    Poza Nordeą — „CV wysłane”. U Nordei — etap „Wysłać do Cpro”
+    (akceptacja Delivery Leada, 13.10.2026): do 12.10 do kolejki wkładał też
+    rekruter i osoba od Cpro dostawała zadanie bez akceptacji DL i bez
+    stawki. Etap Cpro poznajemy po nazwie (kod etapu bywa pusty albo „new”).
+    """
+
+    if cpro_enabled_for_client(client_id):
+        return is_cpro_stage(stage_name)
+    return target == PipelineStage.cv_sent
 
 
 async def arrives_from_before_client_send(
     db: AsyncSession, *, candidate_id: int, job_id: int
 ) -> bool:
-    """Czy para wchodzi na „CV wysłane” z kolumny PRZED nim.
+    """Czy para wchodzi na „CV wysłane” (u Nordei — do kolejki Cpro)
+    z kolumny PRZED wysłaniem.
 
     Wymóg DL i stawki do klienta dotyczy WYSŁANIA, nie cofnięcia karty
     z „Rozmowy u klienta” czy „Umowy” — tam osoba już jest u klienta.
     Kolumna jak przy pozostałych bramkach (``gate_stage_row``: para
     w „Zamkniętych” liczy się kolumną sprzed zamknięcia, bez wierszy — „Nowi”).
-    Runda 9 (R9-N11-6).
+    Runda 9 (R9-N11-6). Karta, która już stoi w kolejce Cpro (ponowny ruch
+    na ten sam etap, np. z osobą zapasową), została zaakceptowana wcześniej.
     """
-    _row, column = await gate_stage_row(db, candidate_id=candidate_id, job_id=job_id)
+    row, column = await gate_stage_row(db, candidate_id=candidate_id, job_id=job_id)
     if column not in BOARD_COLUMN_ORDER:
         return True
+    if row is not None and row.stage_def_id is not None:
+        name = await db.scalar(
+            select(PipelineStageDef.name).where(PipelineStageDef.id == row.stage_def_id)
+        )
+        if is_cpro_stage(name):
+            return False
     return BOARD_COLUMN_ORDER.index(column) < BOARD_COLUMN_ORDER.index("cv_sent")
 
 
-def assert_client_send_allowed(user: User, rate_value: Optional[Decimal]) -> None:
+CPRO_ACCEPT_DENIED_MESSAGE = (
+    "Do kolejki Cpro przekazuje Delivery Lead po akceptacji. "
+    "Użyj „Przekaż Delivery Leadowi”."
+)
+CPRO_RATE_REQUIRED_MESSAGE = (
+    "Wpisz stawkę do Cpro — bez niej osoba nie trafi do kolejki Cpro."
+)
+
+
+def assert_client_send_allowed(
+    user: User, rate_value: Optional[Decimal], *, cpro: bool = False
+) -> None:
     """403 z nazwą uprawnienia, gdy konto nie wysyła CV do klienta; 422 bez
     dodatniej stawki do klienta.
 
     Wysyłka do klienta to część uprawnienia „Rekrutacje: zakładanie,
     zamykanie, wysyłka CV do klienta” — kto go nie ma, przekazuje osobę do
-    przeglądu (zostaje w „QC CV”).
+    przeglądu (zostaje w „QC CV”). ``cpro`` = akceptacja do kolejki Cpro
+    u Nordei: ta sama reguła, komunikaty mówią o Cpro.
     """
 
-    ensure_permission(user, ProductAction.recruitment_manage)
+    if cpro:
+        if not has_permission(user, ProductAction.recruitment_manage):
+            denied = permission_denied(ProductAction.recruitment_manage)
+            denied.detail["message"] = CPRO_ACCEPT_DENIED_MESSAGE
+            raise denied
+    else:
+        ensure_permission(user, ProductAction.recruitment_manage)
     if rate_value is None or Decimal(rate_value) <= 0:
         raise HTTPException(
             status_code=422,
             detail=(
-                "Wpisz stawkę, za którą wysyłasz kandydata do klienta — bez niej "
-                "nie przeniesiesz na „CV wysłane”."
+                CPRO_RATE_REQUIRED_MESSAGE
+                if cpro
+                else (
+                    "Wpisz stawkę, za którą wysyłasz kandydata do klienta — bez "
+                    "niej nie przeniesiesz na „CV wysłane”."
+                )
             ),
         )
 
