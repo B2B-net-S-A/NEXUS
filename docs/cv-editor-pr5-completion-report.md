@@ -67,10 +67,10 @@ Z integracji i przeklikania:
 Znane ograniczenia (nie blokują): lista różnic nie pokazuje zmian samej
 struktury (znacznik stanowiska, punkt zamieniony na akapit, kursywa) — przy
 równych tekstach panel mówi „Treść jest taka sama.”; lista pokazuje najwyżej 60
-różnic („i jeszcze N”), a wstawienie obejmuje wszystkie; `fixStep` w panelu „Do
-poprawy” (PR 2) korzysta z tego samego kroku minimalnego i przy klauzuli bez
-znacznika może trafić na ten sam przypadek — poprawki QC nie usuwają końcowych
-akapitów, więc ryzyko jest małe, ale warto je zamknąć osobno.
+różnic („i jeszcze N”), a wstawienie obejmuje wszystkie. `fixStep` w panelu „Do
+poprawy” (PR 2) korzystał z tego samego kroku minimalnego i przy klauzuli bez
+znacznika miał ten sam błąd — potwierdzone testem i naprawione osobnym PR-em
+13.10.2026 (zabezpieczenie przeniesione do wspólnego `docStep`).
 
 ## Weryfikacja
 
