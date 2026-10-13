@@ -72,13 +72,13 @@ def test_validate_dedupes_orders_and_refuses_unknown_keys() -> None:
     assert err.value.detail["code"] == "FIX_FIELDS_INVALID"
 
 
-def test_fix_list_only_on_return_from_qc_outside_nordea(monkeypatch) -> None:
-    monkeypatch.setattr(svc, "cpro_enabled_for_client", lambda cid: cid == 7)
+def test_fix_list_only_on_return_from_qc() -> None:
     svc.assert_allowed(from_column="cv_qc", target_column="verified", client_id=1)
+    # Od 13.10.2026 także u Nordei — „QC CV” to tam przegląd DL przed Cpro.
+    svc.assert_allowed(from_column="cv_qc", target_column="verified", client_id=7)
     for kwargs in (
         dict(from_column="verified", target_column="verified", client_id=1),
         dict(from_column="cv_qc", target_column="cv_sent", client_id=1),
-        dict(from_column="cv_qc", target_column="verified", client_id=7),
     ):
         with pytest.raises(HTTPException) as err:
             svc.assert_allowed(**kwargs)
@@ -323,9 +323,11 @@ async def test_dl_returns_with_fields_and_recruiter_sees_and_hands_back(
 
 
 @pytest.mark.asyncio
-async def test_nordea_has_no_dl_review_so_no_fix_list(
+async def test_nordea_delivery_lead_returns_with_a_fix_list(
     api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """13.10.2026: u Nordei „QC CV” to przegląd DL przed kolejką Cpro, więc
+    „Wróć do poprawy” z listą pól działa jak u innych klientów."""
     world = await _seed_world()
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", str(world["client_id"]))
     rec_id, rec_creds = await _seed_user(UserRole.recruiter)
@@ -354,9 +356,20 @@ async def test_nordea_has_no_dl_review_so_no_fix_list(
                 "fix_fields": ["cv"],
             },
         )
-        assert resp.status_code == 422, resp.text
-        assert resp.json()["detail"]["code"] == "FIX_FIELDS_NOT_ALLOWED"
+        assert resp.status_code == 200, resp.text
+        fix = (await _form(api_client, rec, world))["fix_request"]
+        assert [f["key"] for f in fix["fields"]] == ["cv"]
     finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(ScreeningFormVersion).where(
+                    ScreeningFormVersion.candidate_id == world["candidate_id"]
+                )
+            )
+            await db.execute(
+                delete(Notification).where(Notification.user_id.in_([rec_id, dl_id]))
+            )
+            await db.commit()
         await _cleanup(world, [rec_id, dl_id])
 
 

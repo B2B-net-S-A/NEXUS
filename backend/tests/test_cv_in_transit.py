@@ -24,6 +24,7 @@ from app.models.user import UserRole
 from app.services import cv_in_transit as svc
 from app.services import dl_send_queue
 from tests.test_board_tasks import (
+    CPRO_RATE,
     _cleanup,
     _login,
     _move,
@@ -57,7 +58,8 @@ def _kind(**over) -> str | None:
         (dict(column="cv_sent"), svc.KIND_SENT),
         (dict(column="cv_qc", badge="qc"), svc.KIND_IN_REVIEW),
         # U Nordei „QC CV” to praca rekrutera, nie przegląd u DL.
-        (dict(column="cv_qc", badge="qc", nordea=True), None),
+        # Od 13.10.2026 „QC CV” u Nordei to też przegląd Delivery Leada.
+        (dict(column="cv_qc", badge="qc", nordea=True), svc.KIND_IN_REVIEW),
         (dict(column="cv_qc", badge="cpro", nordea=True), svc.KIND_CPRO_QUEUE),
         (dict(column="cv_qc", badge="cpro"), None),
         (
@@ -484,9 +486,11 @@ async def test_nordea_cpro_queue_and_return(
     admin_id, admin_creds = await _seed_user(UserRole.admin)
     rec_id, rec_creds = await _seed_user(UserRole.recruiter)
     sender_id, sender_creds = await _seed_user(UserRole.recruiter)
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
     admin = await _login(api_client, admin_creds)
     rec = await _login(api_client, rec_creds)
     sender = await _login(api_client, sender_creds)
+    dl = await _login(api_client, dl_creds)
     cid = world["candidate_id"]
     try:
         async with restore_cpro_sender():
@@ -500,10 +504,11 @@ async def test_nordea_cpro_queue_and_return(
 
             await _move(api_client, rec, world, "verified")
             await _move(api_client, rec, world, "qc")
-            # U Nordei QC CV to praca rekrutera — jeszcze nic nie czeka u innych.
-            assert _mine(await _transit(api_client, rec), "in_review", cid) == []
+            # Od 13.10.2026 „QC CV” u Nordei to przegląd DL (akceptacja do Cpro).
+            review = _mine(await _transit(api_client, rec), "in_review", cid)
+            assert [r["kind"] for r in review] == ["in_review"]
 
-            await _move(api_client, rec, world, "cpro")
+            await _move(api_client, dl, world, "cpro", **CPRO_RATE)
             review = _mine(await _transit(api_client, rec), "in_review", cid)
             assert [r["kind"] for r in review] == ["cpro_queue"]
             assert review[0]["holder_name"].startswith("BT recruiter")
@@ -525,7 +530,7 @@ async def test_nordea_cpro_queue_and_return(
             assert returned[0]["reason"] == "Brak numeru projektu w CV"
             assert _mine(block, "in_review", cid) == []
     finally:
-        await _cleanup(world, [admin_id, rec_id, sender_id])
+        await _cleanup(world, [admin_id, rec_id, sender_id, dl_id])
 
 
 @pytest.mark.asyncio

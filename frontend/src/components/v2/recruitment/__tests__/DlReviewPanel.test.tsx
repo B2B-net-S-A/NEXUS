@@ -343,6 +343,44 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
+  it("Nordea (13.10.2026): akceptacja do kolejki Cpro — stawka do Cpro, ruch na etap Cpro, uwaga dla osoby od Cpro", async () => {
+    mockApi();
+    const { onOpenChange } = renderPanel(task({ cpro: true, target_stage_def_id: 404 }));
+    const accept = screen.getByRole("button", { name: /Akceptuj — wpisz stawkę do Cpro/ });
+    expect(accept).toBeDisabled();
+    expect(screen.getByText(/Po akceptacji osoba trafi do kolejki Cpro/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Uwagi dla rekrutera i osoby od Cpro/)).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Stawka do Cpro"), "165");
+    expect(accept).toHaveAccessibleName(/Akceptuj — do Cpro za 165 zł\/h/);
+    await userEvent.type(
+      screen.getByLabelText(/Uwagi dla rekrutera i osoby od Cpro/),
+      "Dostępna od listopada",
+    );
+    await userEvent.click(accept);
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/pipeline/move", {
+        candidate_id: 21,
+        job_id: 31,
+        expected_state_version: 4,
+        stage_def_id: 404,
+        client_rate_value: 165,
+        client_rate_unit: "hourly",
+        client_rate_currency: "PLN",
+        recruiter_remark: "Dostępna od listopada",
+      }),
+    );
+    expect(showSuccess).toHaveBeenCalledWith(
+      "Anna Nowak — zaakceptowane, osoba czeka w kolejce Cpro.",
+    );
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("Nordea bez etapu Cpro w szablonie: akceptacja zablokowana z wyjaśnieniem", () => {
+    mockApi();
+    renderPanel(task({ cpro: true, target_stage_def_id: null }));
+    expect(screen.getByText(/nie ma etapu „Wysłać do Cpro”/)).toBeInTheDocument();
+  });
+
   // 13.10.2026: przegląd „po kolei” — po decyzji okno nie zamyka się samo,
   // wołający pokazuje następną osobę.
   it("po kolei: decyzja woła onDecided zamiast zamykać; nagłówek ma licznik, „Pomiń” i „Zakończ kolejkę”", async () => {

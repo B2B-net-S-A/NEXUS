@@ -173,8 +173,15 @@ function budgetText(budget: DlReviewContext["budget"] | undefined): string | nul
   return min != null ? `${formatHourly(min).replace("/h", "")}–${formatHourly(max)}` : `do ${formatHourly(max)}`;
 }
 
-export function acceptLabel(rateRaw: string, unit: ClientRateUnit, currency: string): string {
+/** Nordea (`cpro`, 13.10.2026): akceptacja do kolejki Cpro zamiast wysyłki. */
+export function acceptLabel(
+  rateRaw: string,
+  unit: ClientRateUnit,
+  currency: string,
+  cpro = false,
+): string {
   const text = rateText(rateRaw.replace(",", "."), unit, currency);
+  if (cpro) return text ? `Akceptuj — do Cpro za ${text}` : "Akceptuj — wpisz stawkę do Cpro";
   return text ? `Akceptuj — wysyłam za ${text}` : "Akceptuj — wpisz stawkę do klienta";
 }
 
@@ -204,6 +211,8 @@ export function DecisionPanel({
   requirementsSummary = null,
   className,
 }: DecisionPanelProps) {
+  // Nordea (13.10.2026): stawka idzie do Cpro, a decyzją jest akceptacja.
+  const clientRateLabel = task.cpro ? "Stawka do Cpro" : "Stawka do klienta";
   const candidateRate: DlReviewRate | null =
     context?.candidate_rate ??
     (task.expected_rate_value != null
@@ -263,18 +272,18 @@ export function DecisionPanel({
 
       <div className="space-y-2 rounded-lg border border-border p-3">
         <label className="block text-xs font-medium">
-          Stawka do klienta *
+          {clientRateLabel} *
           <div className="mt-1 flex flex-wrap gap-1">
             <input
               inputMode="decimal"
-              aria-label="Stawka do klienta"
+              aria-label={clientRateLabel}
               className="h-9 w-28 rounded-md border border-input bg-background px-2 text-sm tabular-nums"
               value={rateRaw}
               onChange={(e) => onRateRawChange(e.target.value)}
               disabled={!canSend}
             />
             <select
-              aria-label="Jednostka stawki do klienta"
+              aria-label={task.cpro ? "Jednostka stawki do Cpro" : "Jednostka stawki do klienta"}
               className="h-9 rounded-md border border-input bg-background px-2 text-sm"
               value={rateUnit}
               onChange={(e) => onRateUnitChange(e.target.value as ClientRateUnit)}
@@ -287,7 +296,7 @@ export function DecisionPanel({
               ))}
             </select>
             <select
-              aria-label="Waluta stawki do klienta"
+              aria-label={task.cpro ? "Waluta stawki do Cpro" : "Waluta stawki do klienta"}
               className="h-9 rounded-md border border-input bg-background px-2 text-sm"
               value={currency}
               onChange={(e) => onCurrencyChange(e.target.value)}
@@ -444,7 +453,7 @@ export function DecisionPanel({
           ) : null}
           <Button disabled={!sendReady || busy !== null} onClick={onAccept}>
             {busy === "send" ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Send className="size-4" />}
-            {acceptLabel(rateRaw, rateUnit, currency)}
+            {acceptLabel(rateRaw, rateUnit, currency, task.cpro === true)}
           </Button>
         </div>
         {footerNote}

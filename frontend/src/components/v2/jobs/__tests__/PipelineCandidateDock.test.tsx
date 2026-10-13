@@ -928,13 +928,13 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
     expect(toastSuccess).toHaveBeenCalledWith(expect.stringContaining("Delivery Leada"));
   });
 
-  it("hand_to_cpro (Nordea): przycisk wrzuca do kolejki Cpro, nie na „Wysłane do Cpro”", async () => {
+  it("hand_to_cpro (Delivery Lead Nordei): przycisk prowadzi na etap Cpro, nie na „Wysłane do Cpro”", async () => {
     routeApiGet({
       requirements: requirements({
         from_column: "cv_qc",
         to_column: "cv_sent",
         items: [{ key: "cpro_upload", label: "Wrzucenie do Cpro", status: "waiting", blocking: false }],
-        primary: { kind: "hand_to_cpro", label: "Przekaż do kolejki Cpro", target_stage_def_id: 45 },
+        primary: { kind: "hand_to_cpro", label: "Przejrzyj i zaakceptuj do Cpro", target_stage_def_id: 45 },
       }),
     });
     const user = userEvent.setup();
@@ -946,7 +946,7 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
       onMoveToStageDef,
       item: baseItem({ stage: "interview" }),
     });
-    await user.click(await screen.findByRole("button", { name: "Przekaż do kolejki Cpro" }));
+    await user.click(await screen.findByRole("button", { name: "Przejrzyj i zaakceptuj do Cpro" }));
     expect(onMoveToStageDef).toHaveBeenCalledWith(45);
     expect(onMoveTo).not.toHaveBeenCalled();
   });

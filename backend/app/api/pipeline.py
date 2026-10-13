@@ -39,13 +39,19 @@ from app.services.board_stage_badges import (
     BOARD_COLUMN_ORDER,
     _NAME_ONLY_KINDS as NAME_ONLY_STAGE_KINDS,
     board_column_for,
+    cpro_enabled_for_client,
     ensure_badge_stage_allowed,
     foreign_stage_target,
     is_cpro_stage,
     is_entry_column,
     stage_badge_kind,
 )
-from app.services import champion_view, screening_fix_requests, stage_remarks
+from app.services import (
+    champion_view,
+    screening_fix_requests,
+    stage_handoff_recipients,
+    stage_remarks,
+)
 from app.services.candidate_added_date import added_to_base
 from app.services.candidate_stage_cv_service import (
     create_original_cv_snapshot,
@@ -933,7 +939,8 @@ async def _assert_cv_qc_gate(
         return
     # U Nordei „CV wysłane" = „Wysłane do Cpro": wrzuca osoba od Cpro
     # wyznaczona dla całej firmy (albo admin / DL / HoR). Rekruter po QC
-    # przekazuje kartę do kolejki Cpro, nie wysyła jej sam.
+    # przekazuje kartę Delivery Leadowi, który akceptuje ją do kolejki Cpro
+    # (13.10.2026, `pipeline_move_rules.requires_dl_client_rate`).
     from app.services.board_stage_badges import cpro_enabled_for_client
 
     if target_column == "cv_sent" and cpro_enabled_for_client(client_id):
@@ -958,8 +965,8 @@ async def _assert_cv_qc_gate(
             raise HTTPException(
                 status_code=403,
                 detail=(
-                    f"Do Cpro wrzuca {who}. Po QC użyj „Przekaż do Cpro” — "
-                    "osoba trafi do kolejki na pulpicie."
+                    f"Do Cpro wrzuca {who}, z kolejki Cpro po akceptacji "
+                    "Delivery Leada. Po QC użyj „Przekaż Delivery Leadowi”."
                 ),
             )
     # Runda 8 (R8-N8-3): wyłącznik QC dotyczy wyłącznie kontroli CV — reguła
@@ -1346,14 +1353,18 @@ async def move_candidate(
         )
 
     # Pipeline v4 (23.09.2026): „CV wysłane" poza Nordeą wysyła Delivery Lead
-    # (uprawnienie `recruitment_manage`) i wpisuje stawkę do klienta. Stawka
+    # (uprawnienie `recruitment_manage`) i wpisuje stawkę do klienta. U Nordei
+    # tym krokiem jest akceptacja do kolejki Cpro (13.10.2026). Stawka
     # zapisana wcześniej w tej rekrutacji (powrót na etap) wystarcza — nie
     # trzeba jej przepisywać.
     client_rate_value = data.client_rate_value
     client_rate_unit = data.client_rate_unit
     client_rate_currency = (data.client_rate_currency or "PLN")[:3].upper()
+    to_cpro_queue = cpro_enabled_for_client(job.client_id)
     if pipeline_move_rules.requires_dl_client_rate(
-        legacy_enum, job.client_id
+        legacy_enum,
+        job.client_id,
+        stage_name=stage_def.name if stage_def else None,
     ) and await pipeline_move_rules.arrives_from_before_client_send(
         db, candidate_id=data.candidate_id, job_id=data.job_id
     ):
@@ -1369,7 +1380,9 @@ async def move_candidate(
                 .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
                 .limit(1)
             )
-        pipeline_move_rules.assert_client_send_allowed(current_user, known_rate)
+        pipeline_move_rules.assert_client_send_allowed(
+            current_user, known_rate, cpro=to_cpro_queue
+        )
     elif client_rate_value is not None and not await resolve_client_rate_write(
         db, current_user, job
     ):
@@ -1626,6 +1639,11 @@ async def move_candidate(
     )
     await screening_fix_requests.record(
         db, job=job, stage=stage, user=current_user, keys=fix_keys
+    )
+    await stage_handoff_recipients.close_cpro_queue_bells(
+        db,
+        previous=previous_stage_row,
+        target_name=stage_def.name if stage_def else None,
     )
     if cpro_assignee is not None:
         stage.task_assignee_id = cpro_assignee.id
@@ -2382,14 +2400,10 @@ async def _viewer_owns_dl_review(
     Ta sama reguła co „Czeka na Ciebie” na pulpicie (`board_tasks.reviews_as_dl`):
     Delivery Lead wpisany w rekrutacji, a bez niego — Delivery Lead z portfelem
     klienta. Nieaktywny DL rekrutacji liczy się jak brak DL-a (lustro
-    `_LATEST_SQL`). U klienta z kolejką Cpro przeglądu DL nie ma. Bez roli
-    Delivery Leada i u Nordei — bez zapytań.
+    `_LATEST_SQL`). U Nordei to akceptacja do kolejki Cpro (13.10.2026) —
+    ta sama reguła. Bez roli Delivery Leada — bez zapytań.
     """
     if viewer is None or not viewer.has_role(UserRole.delivery_lead):
-        return False
-    from app.services.board_stage_badges import cpro_enabled_for_client
-
-    if cpro_enabled_for_client(job.client_id):
         return False
     delivery_lead_id = job.delivery_lead_id
     if delivery_lead_id is not None and delivery_lead_id != viewer.id:
@@ -3919,11 +3933,16 @@ async def bulk_move_candidates(
                     ),
                 )
 
-    # Pipeline v4: „CV wysłane" poza Nordeą — DL + stawka (jak pojedynczy /move).
+    # Pipeline v4: „CV wysłane" poza Nordeą — DL + stawka (jak pojedynczy /move);
+    # u Nordei akceptacja do kolejki Cpro (13.10.2026) — `bulk_stage_def` bywa
+    # etapem Cpro (`_resolve_stage_def` z samego kodu etapu).
     # Runda 9 (R9-N11-6): tylko dla osób, które do klienta dopiero idą — cofnięcie
     # karty z „Rozmowy u klienta” to nie wysłanie.
     dl_send = False
-    if pipeline_move_rules.requires_dl_client_rate(data.stage, job.client_id):
+    bulk_stage_name = bulk_stage_def.name if bulk_stage_def else None
+    if pipeline_move_rules.requires_dl_client_rate(
+        data.stage, job.client_id, stage_name=bulk_stage_name
+    ):
         for cid in unique_ids:
             if await pipeline_move_rules.arrives_from_before_client_send(
                 db, candidate_id=cid, job_id=job.id
@@ -3932,7 +3951,9 @@ async def bulk_move_candidates(
                 break
     if dl_send:
         pipeline_move_rules.assert_client_send_allowed(
-            current_user, data.client_rate_value
+            current_user,
+            data.client_rate_value,
+            cpro=cpro_enabled_for_client(job.client_id),
         )
     elif data.client_rate_value is not None and not await resolve_client_rate_write(
         db, current_user, job
@@ -4097,6 +4118,9 @@ async def bulk_move_candidates(
             job_id=data.job_id,
             actor_id=current_user.id,
             restored_to=data.stage,
+        )
+        await stage_handoff_recipients.close_cpro_queue_bells(
+            db, previous=previous_row, target_name=bulk_stage_name
         )
         moved_entries.append((entry, previous_row))
         moved += 1

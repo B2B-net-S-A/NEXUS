@@ -91,13 +91,18 @@ describe("odznaki karty — Pipeline v4", () => {
     expect(labels(withRef, ctx())[0]).toBe("↻ z ZOB-1725");
   });
 
-  it("„Czeka na DL” w QC CV poza Nordeą, u Nordei nie, w Zweryfikowanym nie", () => {
+  it("„Czeka na DL” w QC CV (u Nordei — akceptacja do Cpro), w kolejce Cpro i w Zweryfikowanym nie", () => {
     const v = item({ stage: "interview", days_in_stage: 1, qc: { status: "passed", blocking_failed: 0 } });
     expect(labels(v, ctx({ column: "cv_qc" }))).toEqual(["Czeka na DL · 1 dzień"]);
     // Niesprawdzone QC: DL jeszcze na nic nie czeka.
     const unchecked = item({ stage: "interview", days_in_stage: 1 });
     expect(labels(unchecked, ctx({ column: "cv_qc" }))).toEqual([]);
-    expect(labels(v, ctx({ column: "cv_qc", cproEnabled: true }))).toEqual([]);
+    // Od 13.10.2026 u Nordei DL akceptuje osobę do kolejki Cpro.
+    const nordea = cardBadges(v, ctx({ column: "cv_qc", cproEnabled: true }));
+    expect(nordea.map((b) => b.label)).toEqual(["Czeka na DL · 1 dzień"]);
+    expect(nordea[0].title).toContain("akceptuje osobę do kolejki Cpro");
+    // Karta już w kolejce Cpro czeka na osobę od Cpro, nie na DL-a.
+    expect(labels(v, ctx({ column: "cv_qc", cproEnabled: true, stageBadge: "cpro" }))).toEqual([]);
     expect(labels(v, ctx({ column: "verified" }))).toEqual([]);
   });
 
@@ -190,7 +195,7 @@ describe("Rekrutacja v5: chip QC, znany brak i „kto ma ruch”", () => {
     expect(knownForwardGap(item({ qc: { status: "unchecked", blocking_failed: 0 } }), "cv_qc")).toBeNull();
   });
 
-  it("w QC CV ruch ma rekruter (poprawki), DL (poza Nordeą) albo osoba od Cpro", () => {
+  it("w QC CV ruch ma rekruter (poprawki), DL (wysyłka albo akceptacja do Cpro) albo osoba od Cpro", () => {
     const action = { label: "Popraw CV / wyślij", owner: "recruiter", kind: "cv" };
     const failed = item({ qc: { status: "failed", blocking_failed: 1 } });
     expect(cardNextStep(action, failed, { column: "cv_qc", cproEnabled: false })).toMatchObject({
@@ -207,9 +212,12 @@ describe("Rekrutacja v5: chip QC, znany brak i „kto ma ruch”", () => {
     expect(
       cardNextStep(action, item({}), { column: "cv_qc", cproEnabled: true, stageBadge: "cpro" })?.who,
     ).toBe("Osoba od Cpro");
-    expect(cardNextStep(action, passed, { column: "cv_qc", cproEnabled: true })?.label).toBe(
-      "Przekaż do Cpro",
-    );
+    // U Nordei gotowa karta czeka na akceptację DL-a (13.10.2026).
+    expect(cardNextStep(action, passed, { column: "cv_qc", cproEnabled: true })).toEqual({
+      who: "DL",
+      mine: false,
+      label: "Przegląd CV i akceptacja do Cpro",
+    });
     // Poza QC — lustro `nextActionFor`: klient to nie „Twój ruch”.
     expect(
       cardNextStep({ label: "Feedback klienta", owner: "client", kind: "client" }, item({}), {
@@ -278,6 +286,7 @@ describe("„Do wysłania do klienta” — Delivery Lead tej rekrutacji (13.10.
     expect(isReadyForDlSend(item({ qc: { status: "failed", blocking_failed: 1 } }), "cv_qc", false)).toBe(false);
     expect(isReadyForDlSend(item({ qc: { status: "unchecked", blocking_failed: 0 } }), "cv_qc", false)).toBe(false);
     expect(isReadyForDlSend(item({}), "cv_qc", false)).toBe(false);
+    // Karta w kolejce Cpro (znacznik w tej samej kolumnie) czeka na osobę od Cpro.
     expect(isReadyForDlSend(ready, "cv_qc", true)).toBe(false);
     expect(isReadyForDlSend(ready, "verified", false)).toBe(false);
     expect(isReadyForDlSend(ready, null, false)).toBe(false);
@@ -319,9 +328,18 @@ describe("„Do wysłania do klienta” — Delivery Lead tej rekrutacji (13.10.
     const failed = item({ qc: { status: "failed", blocking_failed: 1 } });
     expect(cardNextStep(action, failed, owner)).toMatchObject({ who: "Twój ruch", label: "Popraw CV wg QC" });
     expect(cardNextStep(action, item({}), owner)).toMatchObject({ label: "Sprawdź QC CV" });
-    expect(cardNextStep(action, ready, { ...owner, cproEnabled: true })?.label).toBe("Przekaż do Cpro");
+    expect(cardNextStep(action, ready, { ...owner, cproEnabled: true })).toEqual({
+      who: MY_MOVE_LABEL,
+      mine: true,
+      label: "Przegląd CV i akceptacja do Cpro",
+    });
+    expect(
+      cardNextStep(action, ready, { ...owner, cproEnabled: true, stageBadge: "cpro" })?.who,
+    ).toBe("Osoba od Cpro");
     expect(labels(failed, ctx({ column: "cv_qc", viewerOwnsDlReview: true }))).toEqual([]);
-    expect(labels(ready, ctx({ column: "cv_qc", cproEnabled: true, viewerOwnsDlReview: true }))).toEqual([]);
+    expect(
+      labels(ready, ctx({ column: "cv_qc", cproEnabled: true, viewerOwnsDlReview: true, stageBadge: "cpro" })),
+    ).toEqual([]);
   });
 
   it("dni liczą się od gotowości: późniejsze z wejścia do kolumny i zaliczenia QC", () => {
@@ -381,10 +399,12 @@ describe("„Do wysłania do klienta” — Delivery Lead tej rekrutacji (13.10.
       item({ id: 6, candidate_id: 6 }),
     ];
     const before = cards.map((c) => c.id);
-    expect(dlSendQueue(cards, false, NOW).map((c) => c.id)).toEqual([4, 5, 1, 2]);
+    expect(dlSendQueue(cards, () => false, NOW).map((c) => c.id)).toEqual([4, 5, 1, 2]);
     // Lista z tablicy zostaje w swojej kolejności.
     expect(cards.map((c) => c.id)).toEqual(before);
-    expect(dlSendQueue(cards, true, NOW)).toEqual([]);
+    // Karty w kolejce Cpro (u Nordei ta sama kolumna) nie czekają na DL-a.
+    expect(dlSendQueue(cards, (c) => c.id === 4 || c.id === 1, NOW).map((c) => c.id)).toEqual([5, 2]);
+    expect(dlSendQueue(cards, () => true, NOW)).toEqual([]);
   });
 });
 

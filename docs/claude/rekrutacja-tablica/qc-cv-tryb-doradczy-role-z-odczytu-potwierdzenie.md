@@ -43,8 +43,10 @@ kandydatów w QC nie miało opisów ról w historii profilu.
   do Delivery Leada rekrutacji (`stage_handoff_recipients._dl_reviewers`, typ
   `stage_changed`, tylko dzwonek, nigdy do autora). Przegląd DL pokazuje ryzyko
   `qc_overridden` i `qc_override` (kto, powód, kiedy). Cofnięcie do poprawy to
-  istniejące „Wróć do poprawy” (lista pól z `cv`). U Nordei przeglądu DL nie ma
-  — DL weryfikuje z dzwonka, kolejka Cpro pokazuje „przepuszczone mimo QC”.
+  istniejące „Wróć do poprawy” (lista pól z `cv`). U Nordei od 13.10.2026
+  też jest przegląd DL (akceptacja do kolejki Cpro,
+  `rekrutacja-tablica/nordea-akceptacja-dl-przed-cpro.md`); kolejka Cpro
+  pokazuje „przepuszczone mimo QC”.
 - **`can_override` i `advisory` liczy serwer** (`QcResponse`); front nie
   sprawdza uprawnienia lokalnie — inaczej przycisk i trasa rozjadą się przy
   przełączeniu trybu.

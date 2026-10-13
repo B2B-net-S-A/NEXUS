@@ -30,6 +30,20 @@ vi.mock("next/dynamic", () => ({
     return <div data-testid="cv-editor" />;
   },
 }));
+// Okno generatora CV — zaślepka zapisuje osobę i rekrutację, z którymi je otwarto.
+const generatorProps = vi.fn();
+vi.mock("@/components/v2/cv-generator/CvGeneratorDialog", () => ({
+  CvGeneratorDialog: (props: { onEnqueued?: (id: number) => void }) => {
+    generatorProps(props);
+    return (
+      <div data-testid="cv-generator-dialog">
+        <button type="button" onClick={() => props.onEnqueued?.(99)}>
+          Generuj (zaślepka)
+        </button>
+      </div>
+    );
+  },
+}));
 
 import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
 import type { QcCheck, QcItem, QcResult } from "@/lib/api/cvQc";
@@ -301,14 +315,46 @@ describe("CvQcDialog — QC CV", () => {
     expect(await within(dialog).findByText("Do poprawy: 1 rzecz")).toBeTruthy();
     const tasks = within(dialog).getByRole("region", { name: "Do poprawy przed wysłaniem" });
     expect(within(tasks).getByText("Nie ma jeszcze CV firmowego dla tej rekrutacji.")).toBeTruthy();
-    expect(within(tasks).getByRole("link", { name: "Wygeneruj CV" })).toHaveAttribute(
-      "href",
-      "/cv-generator?candidate_id=21&job_id=31",
+    // Generator otwiera się w oknie z osobą i rekrutacją z QC — osobnego
+    // ekranu `/cv-generator` nie ma w menu (13.10.2026).
+    expect(within(tasks).queryByRole("link", { name: "Wygeneruj CV" })).toBeNull();
+    await userEvent.click(within(tasks).getByRole("button", { name: "Wygeneruj CV" }));
+    expect(await screen.findByTestId("cv-generator-dialog")).toBeInTheDocument();
+    expect(generatorProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({ candidateId: 21, jobId: 31, candidateName: "Anna Kowalczyk" }),
     );
+    await userEvent.click(screen.getByRole("button", { name: "Generuj (zaślepka)" }));
+    expect(screen.queryByTestId("cv-generator-dialog")).toBeNull();
+    expect(showSuccess).toHaveBeenCalledWith(expect.stringContaining("CV generuje się w tle"));
     expect(within(dialog).queryByRole("region", { name: "Propozycje AI" })).toBeNull();
     // Reszty nie dało się sprawdzić — nie udajemy, że jest „w porządku”.
     expect(within(dialog).getByRole("region", { name: "Nie sprawdzono" })).toHaveTextContent("Nie sprawdzono (1)");
     expect(within(dialog).queryByRole("region", { name: "W porządku" })).toBeNull();
+  });
+
+  it("brak zrzutu zgody RODO: „otwórz generator” otwiera generator w oknie, nie osobny ekran", async () => {
+    serve(
+      result({
+        blocking_failed: 1,
+        checks: [
+          {
+            key: "client_rules",
+            label: "Reguły klienta",
+            severity: "blocking",
+            status: "fail",
+            summary: "1 do poprawy",
+            items: [{ detail: "Klient wymaga zrzutu zgody RODO pod CV — brak zrzutu.", fix: "upload_consent" }],
+          },
+        ],
+      }),
+    );
+    renderDialog();
+    const dialog = await screen.findByRole("dialog");
+    const tasks = await within(dialog).findByRole("region", { name: "Do poprawy przed wysłaniem" });
+    expect(within(tasks).queryByRole("link", { name: "otwórz generator" })).toBeNull();
+    await userEvent.click(within(tasks).getByRole("button", { name: "otwórz generator" }));
+    expect(await screen.findByTestId("cv-generator-dialog")).toBeInTheDocument();
+    expect(generatorProps).toHaveBeenLastCalledWith(expect.objectContaining({ candidateId: 21, jobId: 31 }));
   });
 
   it("rekrutacja bez umiejętności krytycznych mówi to wprost", async () => {
