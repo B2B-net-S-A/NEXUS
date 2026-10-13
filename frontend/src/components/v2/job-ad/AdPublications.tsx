@@ -23,6 +23,7 @@ import {
   AD_PORTALS,
   jobAdApi,
   jobAdQueryKey,
+  portalAdHref,
   type AdPortal,
   type AdPublication,
   type JobAdState,
@@ -74,8 +75,8 @@ export function AdPublications({
   };
 
   const mark = useMutation({
-    mutationFn: (input: { portal: AdPortal; url: string | null }) =>
-      api.markPublished(jobId, input.portal, input.url),
+    mutationFn: (input: { portal: AdPortal; url: string | null; contentUpdated?: boolean }) =>
+      api.markPublished(jobId, input.portal, input.url, input.contentUpdated ?? false),
     onSuccess: (next) => {
       apply(next);
       setLinkFor(null);
@@ -116,6 +117,7 @@ export function AdPublications({
         {AD_PORTALS.filter((item) => portals.includes(item.key)).map(({ key, label }) => {
           const last = lastPublication(state.publications, key);
           const active = last && !last.removed_at ? last : null;
+          const href = active ? portalAdHref(key, active.url) : null;
           const editingLink = linkFor === key;
           return (
             <li
@@ -137,9 +139,9 @@ export function AdPublications({
                       : "Nieoznaczone jako opublikowane"}
                   </span>
                 )}
-                {active?.url ? (
+                {href ? (
                   <a
-                    href={active.url}
+                    href={href}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 text-primary underline-offset-2 hover:underline"
@@ -166,7 +168,9 @@ export function AdPublications({
                           className="h-7 px-2.5"
                           title={blockedReason ?? undefined}
                           disabled={busy || !!blockedReason}
-                          onClick={() => mark.mutate({ portal: key, url: active.url })}
+                          onClick={() =>
+                            mark.mutate({ portal: key, url: active.url, contentUpdated: true })
+                          }
                         >
                           Zaktualizowane na portalu
                         </Button>
@@ -176,8 +180,8 @@ export function AdPublications({
                         size="sm"
                         variant="ghost"
                         className="h-7 px-2"
-                        disabled={busy || !!blockedReason || editingLink}
-                        title={blockedReason ?? undefined}
+                        // Sam link niczego nie potwierdza — wolno go zmienić zawsze.
+                        disabled={busy || editingLink}
                         onClick={() => {
                           setLink(active.url ?? "");
                           setLinkFor(key);

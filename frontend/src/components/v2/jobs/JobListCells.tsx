@@ -21,7 +21,7 @@ import {
   useCompetenceCategories,
 } from "@/components/v2/CompetenceCategoryBadge";
 import { RecruiterChips } from "@/components/v2/jobs/RecruiterChips";
-import { AD_PORTALS, type JobAdPublicationBrief } from "@/lib/api/jobAd";
+import { AD_PORTALS, portalAdHref, type JobAdPublicationBrief } from "@/lib/api/jobAd";
 import { shortenPersonName } from "@/lib/job-header-subtitle";
 import {
   pinRecruiters,
@@ -655,6 +655,7 @@ export function JobAdPublicationsCell({ job }: { job: JobListRowFields }) {
       {AD_PORTALS.map(({ key, label, short }) => {
         const item = items.find((entry) => entry.portal === key);
         if (!item) return null;
+        const href = portalAdHref(key, item.url);
         const note = closed
           ? "rekrutacja zamknięta — zdejmij ogłoszenie z portalu"
           : item.outdated
@@ -669,9 +670,9 @@ export function JobAdPublicationsCell({ job }: { job: JobListRowFields }) {
         // `title` na samym odnośniku zastąpiłby jego nazwę dostępną — stoi na opakowaniu.
         return (
           <span key={key} title={note ? `${label}: ${note}` : label}>
-            {item.url ? (
+            {href ? (
               <a
-                href={item.url}
+                href={href}
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label={`${label} — otwórz ogłoszenie${note ? ` (${note})` : ""}`}

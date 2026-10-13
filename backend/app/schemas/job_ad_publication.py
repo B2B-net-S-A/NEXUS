@@ -38,3 +38,7 @@ class AdPublishRequest(BaseModel):
 
     # Pusty = ogłoszenie wisi, linku jeszcze nie ma (np. czeka na moderację).
     url: Optional[str] = Field(default=None, max_length=URL_MAX)
+    # „Zaktualizowane na portalu”: treść na portalu jest już taka jak zapisana.
+    # Sama zmiana linku tego nie potwierdza — plakietka „do aktualizacji”
+    # zostaje, tak samo jak data i osoba pierwszego oznaczenia.
+    content_updated: bool = False

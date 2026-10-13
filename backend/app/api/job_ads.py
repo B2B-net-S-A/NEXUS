@@ -269,10 +269,11 @@ async def mark_ad_published(
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
 ) -> JobAdResponse:
-    """Ogłoszenie wisi na portalu w obecnej treści (link opcjonalny).
+    """Ogłoszenie wisi na portalu (link opcjonalny).
 
-    Ponowne wywołanie zmienia link albo potwierdza aktualizację po poprawce.
-    Przy znalezisku blokującym odmawia: takiej treści nie wolno było wkleić.
+    Pierwsze oznaczenie i ``content_updated`` potwierdzają OBECNĄ treść —
+    przy znalezisku blokującym odmowa: takiej treści nie wolno było wkleić.
+    Sama zmiana linku przy aktywnym oznaczeniu niczego nie potwierdza.
     """
     job = await _load_job(db, current_user, job_id)
     ad = await db.get(JobAd, job_id)
@@ -286,7 +287,17 @@ async def mark_ad_published(
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     mat = await _material(db, job)
-    if not (await _response(db, job, ad, mat)).can_copy:
+    try:
+        await publications.mark_published(
+            db,
+            ad,
+            portal=portal,
+            url=url,
+            user_id=current_user.id,
+            content_updated=data.content_updated,
+            blocked=not (await _response(db, job, ad, mat)).can_copy,
+        )
+    except publications.ContentBlocked as exc:
         raise HTTPException(
             status_code=409,
             detail={
@@ -296,10 +307,7 @@ async def mark_ad_published(
                     "zanim oznaczysz ogłoszenie jako opublikowane."
                 ),
             },
-        )
-    await publications.mark_published(
-        db, ad, portal=portal, url=url, user_id=current_user.id
-    )
+        ) from exc
     await db.commit()
     return await _response(db, job, ad, mat)
 

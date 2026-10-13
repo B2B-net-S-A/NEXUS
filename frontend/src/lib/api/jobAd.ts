@@ -220,13 +220,20 @@ export const jobAdApi = {
     const res = await api.put(`/api/jobs/${jobId}/portal-ad`, input);
     return normalize(res.data);
   },
-  /** „Wisi na portalu” w obecnej treści; ponowne wywołanie zmienia link albo potwierdza aktualizację. */
+  /**
+   * „Wisi na portalu”. Przy aktywnym oznaczeniu samo wywołanie zmienia tylko
+   * link; `contentUpdated` = „zaktualizowane na portalu” (gasi „do aktualizacji”).
+   */
   markPublished: async (
     jobId: number,
     portal: AdPortal,
     url: string | null,
+    contentUpdated = false,
   ): Promise<JobAdState> => {
-    const res = await api.put(`/api/jobs/${jobId}/portal-ad/publications/${portal}`, { url });
+    const res = await api.put(`/api/jobs/${jobId}/portal-ad/publications/${portal}`, {
+      url,
+      content_updated: contentUpdated,
+    });
     return normalize(res.data);
   },
   /** „Zdjęte z portalu” — wiersz zostaje jako ślad. */
@@ -270,6 +277,27 @@ export function activePublication(
   portal: AdPortal,
 ): AdPublication | null {
   return publications.find((item) => item.portal === portal && !item.removed_at) ?? null;
+}
+
+const PORTAL_DOMAINS: Record<AdPortal, string> = { pracuj: "pracuj.pl", jjit: "justjoin.it" };
+
+/**
+ * Adres ogłoszenia do odnośnika — tak, jak przeczyta go przeglądarka; `null` =
+ * odnośnika nie pokazujemy. Serwer waliduje link przy zapisie, ale to parser
+ * przeglądarki decyduje, dokąd klik prowadzi („https://obca.strona\.pracuj.pl”
+ * to dla niej obca strona), więc przy samym `href` sprawdzamy jeszcze raz.
+ */
+export function portalAdHref(portal: AdPortal, url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    const domain = PORTAL_DOMAINS[portal];
+    const onPortal = parsed.hostname === domain || parsed.hostname.endsWith(`.${domain}`);
+    const web = parsed.protocol === "https:" || parsed.protocol === "http:";
+    return web && onPortal ? parsed.href : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Lista z pola tekstowego: jedna pozycja w wierszu, bez pustych. */

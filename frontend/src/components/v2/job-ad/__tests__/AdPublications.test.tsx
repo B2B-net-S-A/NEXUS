@@ -81,7 +81,9 @@ describe("AdPublications", () => {
       within(row("Pracuj.pl")).getByRole("button", { name: "Zaktualizowane na portalu" }),
     );
 
-    await waitFor(() => expect(api.markPublished).toHaveBeenCalledWith(7, "pracuj", PRACUJ_URL));
+    await waitFor(() =>
+      expect(api.markPublished).toHaveBeenCalledWith(7, "pracuj", PRACUJ_URL, true),
+    );
     // Okno i sekcja czytają ten sam wpis cache, a lista odświeża kolumnę.
     await waitFor(() =>
       expect(client.getQueryData<JobAdState>(jobAdQueryKey(7))?.publications[0].outdated).toBe(
@@ -89,6 +91,27 @@ describe("AdPublications", () => {
       ),
     );
     expect(invalidate).toHaveBeenCalledWith({ queryKey: [JOBS_LIST_QUERY_ROOT] });
+  });
+
+  it("dopisanie linku nie potwierdza treści — nawet gdy treść ma fragment blokujący", async () => {
+    const { api } = setup({
+      ...adState({ publications: [publication({ url: null, outdated: true })] }),
+      can_copy: false,
+    });
+    // Potwierdzić treści z blokadą nie wolno…
+    expect(
+      within(row("Pracuj.pl")).getByRole("button", { name: "Zaktualizowane na portalu" }),
+    ).toBeDisabled();
+    // …ale link (np. po moderacji portalu) da się dopisać zawsze.
+    fireEvent.click(within(row("Pracuj.pl")).getByRole("button", { name: "Dodaj link" }));
+    fireEvent.change(within(row("Pracuj.pl")).getByRole("textbox"), {
+      target: { value: PRACUJ_URL },
+    });
+    fireEvent.click(within(row("Pracuj.pl")).getByRole("button", { name: "Zapisz link" }));
+
+    await waitFor(() =>
+      expect(api.markPublished).toHaveBeenCalledWith(7, "pracuj", PRACUJ_URL, false),
+    );
   });
 
   it("„Zdjęte z portalu” pyta o potwierdzenie", async () => {

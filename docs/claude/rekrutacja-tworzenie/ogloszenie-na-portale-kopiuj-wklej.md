@@ -122,18 +122,34 @@ rekrutację); front `components/v2/job-ad/`, `lib/api/jobAd.ts`, karta
   NEXUS niczego na portalu nie publikuje ani nie zdejmuje — także przy
   zamknięciu rekrutacji; wtedy sekcja i lista tylko przypominają o zdjęciu.
   - **Link przyjmujemy wyłącznie z domeny portalu** (`pracuj.pl`,
-    `justjoin.it`, http/https, bez danych logowania). Odnośnik z listy
-    rekrutacji prowadzi prosto na zewnątrz, więc dowolny adres byłby dziurą.
-    Link jest opcjonalny — ogłoszenie na Pracuj.pl bywa widoczne dopiero po
-    moderacji.
+    `justjoin.it`): http/https i sam host — bez portu, danych logowania,
+    znaków spoza ASCII i bez ukośnika wstecznego gdziekolwiek w adresie
+    (`publications.clean_url`). Odnośnik z listy rekrutacji prowadzi prosto
+    na zewnątrz, więc dowolny adres byłby dziurą. Przeglądarka czyta „\”
+    w http(s) jak „/”, a `urlsplit` nie: „https://obca.strona\.pracuj.pl/”
+    przechodziło walidację i otwierało obcą stronę (przegląd 13.10.2026).
+    Dlatego przy samym `href` adres sprawdza jeszcze parser przeglądarki
+    (`portalAdHref` w `lib/api/jobAd.ts`) — nowe miejsce pokazujące link
+    bierze go stamtąd, nie z pola `url`. Link jest opcjonalny: ogłoszenie na
+    Pracuj.pl bywa widoczne dopiero po moderacji.
   - **„Do aktualizacji” = odcisk zapisanej treści** (`content_hash`: język,
     pola, technologie) inny niż w chwili oznaczenia. Liczy się z samego
     wiersza `job_ads`, żeby lista policzyła go jednym zapytaniem na stronę
     (`publications.for_jobs`, wzór `recruiters_for_jobs`). Zmiana samej
     rekrutacji albo stałych bloków firmy plakietki nie zapala — o zmianie
     rekrutacji mówi baner „Rekrutacja zmieniła się…” w oknie.
-  - **Oznaczyć wolno tylko treść bez znalezisk blokujących** (409
-    `job_ad_blocked`): takiej treści nie wolno było wkleić.
+  - **Trzy zdarzenia, nie jedno nadpisanie wiersza** (`mark_published`):
+    pierwsze oznaczenie albo powrót po zdjęciu zapisuje link, odcisk treści
+    oraz kto i kiedy; zmiana samego linku przy aktywnym oznaczeniu zmienia
+    TYLKO link (rekruter dopisuje go po moderacji portalu — to nie
+    potwierdza treści i nie zmienia, kto opublikował); „Zaktualizowane na
+    portalu” (`content_updated`) odświeża odcisk, daty publikacji nie rusza.
+    Jedno wspólne nadpisanie gasiło „do aktualizacji” przy dopisaniu linku
+    (przegląd 13.10.2026).
+  - **Potwierdzić wolno tylko treść bez znalezisk blokujących** (409
+    `job_ad_blocked`): takiej treści nie wolno było wkleić. Dotyczy
+    pierwszego oznaczenia i „Zaktualizowane na portalu”; sam link da się
+    zmienić zawsze.
   - **„Zdjęte z portalu” zostawia wiersz** (`removed_at`); lista i szczegół
     rekrutacji niosą w `ad_publications` tylko aktywne ogłoszenia.
   - Sekcja czyta stan z tego samego zapytania co okno (`jobAdQueryKey`),

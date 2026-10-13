@@ -64,4 +64,17 @@ describe("JobAdPublicationsCell", () => {
       }),
     ).toHaveClass("bg-warning-muted");
   });
+
+  it("adres, który przeglądarka otworzyłaby poza portalem, nie staje się odnośnikiem", () => {
+    renderCell({
+      status: "published",
+      ad_publications: [
+        // Ukośnik wsteczny przeglądarka czyta jak „/”: host to „obca.example”.
+        { portal: "pracuj", url: "https://obca.example\\.pracuj.pl/oferta", outdated: false },
+        { portal: "jjit", url: "javascript:alert(1)", outdated: false },
+      ],
+    });
+    expect(screen.getByTestId("job-ad-publications-cell").textContent).toBe("PracujJJIT");
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
 });

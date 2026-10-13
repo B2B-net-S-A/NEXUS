@@ -36,6 +36,16 @@ ogłoszenie ma już nieaktualną treść i które wisi mimo zamkniętej rekrutac
 | Stan ogłoszeń w sekcji widzi rola, która przygotowuje ogłoszenia | Pozostałe role nie mają tam żadnej akcji |
 | Przewodnik Jarvisa: tylko jedno zdanie w opisie listy | Oba ekrany mają komplet zadań (5) i pułapek (4) — limit schematu |
 
+## Poprawki po przeglądzie kodu i bezpieczeństwa (przed otwarciem PR-a)
+
+| Znalezisko | Poprawka | Dowód |
+|---|---|---|
+| Link „https://obca.strona\.pracuj.pl/…” przechodził walidację: `urlsplit` widzi host z domeny portalu, przeglądarka czyta „\” jak „/” i otwiera obcą stronę | Serwer odrzuca ukośnik wsteczny, port, dane logowania i host spoza ASCII; front sprawdza adres parserem przeglądarki przy samym odnośniku (`portalAdHref`) | `test_anything_else_is_refused_in_polish` (+10 przypadków), `job-ad-portal-href.test.ts`, test komórki listy; porównanie różnicowe z parserem WHATWG: 260 460 kandydatów, 12 139 przyjętych, 0 prowadzących poza portal |
+| Błąd `urlsplit` (np. nawiasy w hoście) wracał w 422 po angielsku | Jeden komunikat po polsku | ten sam test |
+| „Dodaj link” / „Zmień link” po cichu gasiło „do aktualizacji” i nadpisywało, kto i kiedy opublikował — to samo wywołanie co „Zaktualizowane na portalu” | Zmiana linku przy aktywnym oznaczeniu zmienia tylko link; potwierdzenie treści to osobna flaga `content_updated`; data publikacji zostaje | `test_adding_a_link_does_not_confirm_the_content_or_change_who_published`, `test_blocked_content_cannot_be_confirmed_but_the_link_can_change` (CI), test „dopisanie linku nie potwierdza treści” |
+| Odpowiedź po ponownym oznaczeniu zależała od tego, czy sesja nie trzyma starego obiektu | Odczyt z `populate_existing` | testy tras (CI) |
+| Zmiana treści w oknie nie odświeżała kolumny „Ogłoszenia” (do 30 s) | Okno odświeża listę, gdy rekrutacja ma aktywne ogłoszenie | — |
+
 ## Weryfikacja
 
 | Co | Wynik |

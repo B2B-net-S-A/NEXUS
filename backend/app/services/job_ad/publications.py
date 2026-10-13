@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Iterable, Optional
@@ -39,6 +40,8 @@ _HASH_VERSION = "v1"
 # tego portalu, nie dowolną stronę.
 _PORTAL_DOMAINS = {PORTAL_PRACUJ: "pracuj.pl", PORTAL_JJIT: "justjoin.it"}
 _PORTAL_NAMES = {PORTAL_PRACUJ: "Pracuj.pl", PORTAL_JJIT: "JustJoin.IT"}
+# Cały `netloc` musi być nazwą hosta: litery ASCII, cyfry, łączniki i kropki.
+_HOST = re.compile(r"[a-z0-9-]+(?:\.[a-z0-9-]+)+")
 
 
 @dataclass(frozen=True)
@@ -67,26 +70,41 @@ def ad_hash(ad: JobAd) -> str:
 
 
 def clean_url(value: Optional[str], portal: str) -> Optional[str]:
-    """Adres ogłoszenia na portalu albo ``None``; błąd po polsku."""
+    """Adres ogłoszenia na portalu albo ``None``; błąd po polsku.
+
+    To jedyna bramka na link, który lista rekrutacji pokazuje wszystkim jako
+    odnośnik. Dlatego reguła jest wąska: schemat http(s) i sam host z domeny
+    portalu — bez portu, danych logowania i znaków spoza ASCII.
+
+    Ukośnik wsteczny odrzucamy w całym adresie: przeglądarka czyta go
+    w http(s) jak „/”, a ``urlsplit`` nie, więc „https://obca.strona\\.pracuj.pl/”
+    było dla Pythona hostem z domeny portalu, a dla przeglądarki obcą stroną.
+    """
     text = (value or "").strip()
     if not text:
         return None
-    name = _PORTAL_NAMES[portal]
-    if len(text) > URL_MAX or any(ch.isspace() or not ch.isprintable() for ch in text):
-        raise ValueError(f"To nie wygląda na link do ogłoszenia na {name}.")
-    parts = urlsplit(text)
-    host = (parts.hostname or "").lower()
+    refusal = ValueError(
+        f"Wklej adres ogłoszenia z {_PORTAL_NAMES[portal]} (zaczyna się od "
+        "https://) albo zostaw pole puste."
+    )
+    if (
+        len(text) > URL_MAX
+        or "\\" in text
+        or any(ch.isspace() or not ch.isprintable() for ch in text)
+    ):
+        raise refusal
+    try:
+        parts = urlsplit(text)
+    except ValueError:
+        raise refusal from None
+    host = parts.netloc.lower()
     domain = _PORTAL_DOMAINS[portal]
     if (
         parts.scheme not in ("http", "https")
-        or parts.username is not None
-        or parts.password is not None
+        or not _HOST.fullmatch(host)
         or not (host == domain or host.endswith("." + domain))
     ):
-        raise ValueError(
-            f"Wklej adres ogłoszenia z {name} (zaczyna się od https://) albo "
-            "zostaw pole puste."
-        )
+        raise refusal
     return text
 
 
@@ -103,6 +121,9 @@ async def for_job(
             select(JobAdPublication, User.name)
             .outerjoin(User, User.id == JobAdPublication.published_by)
             .where(JobAdPublication.job_id == job_id)
+            # Wiersz mógł chwilę wcześniej zmienić upsert poza ORM — bez tego
+            # sesja oddałaby obiekt sprzed zmiany.
+            .execution_options(populate_existing=True)
         )
     ).all()
     current = ad_hash(ad) if ad is not None else None
@@ -154,13 +175,45 @@ async def for_jobs(
     return {job_id: _sorted(items) for job_id, items in out.items()}
 
 
+class ContentBlocked(Exception):
+    """Treść ma znalezisko blokujące — nie wolno potwierdzić, że wisi na portalu."""
+
+
 async def mark_published(
-    db: AsyncSession, ad: JobAd, *, portal: str, url: Optional[str], user_id: int
+    db: AsyncSession,
+    ad: JobAd,
+    *,
+    portal: str,
+    url: Optional[str],
+    user_id: int,
+    content_updated: bool = False,
+    blocked: bool = False,
 ) -> None:
-    """Ogłoszenie wisi na portalu w OBECNEJ treści. Ponowne oznaczenie
-    (zmiana linku, aktualizacja po poprawce, powrót po zdjęciu) nadpisuje
-    wiersz — bez wyścigu o klucz przy dwóch kliknięciach naraz."""
+    """Ogłoszenie wisi na portalu.
+
+    Trzy różne zdarzenia, których nie wolno zlać w jedno nadpisanie wiersza:
+
+    * pierwsze oznaczenie albo powrót po zdjęciu — zapisuje link, odcisk
+      OBECNEJ treści oraz kto i kiedy;
+    * zmiana samego linku przy aktywnym oznaczeniu — tylko link. Ogłoszenie
+      na Pracuj.pl bywa widoczne po moderacji, więc link dopisuje się później;
+      to nie potwierdza treści i nie zmienia, kto opublikował;
+    * ``content_updated`` — „zaktualizowane na portalu”: odświeża odcisk.
+
+    Potwierdzenie treści (pierwszy i trzeci przypadek) przy znalezisku
+    blokującym kończy się ``ContentBlocked``.
+    """
     now = datetime.now(timezone.utc)
+    row = await db.get(JobAdPublication, (ad.job_id, portal), with_for_update=True)
+    active = row is not None and row.removed_at is None
+    if blocked and (content_updated or not active):
+        raise ContentBlocked
+    if active:
+        row.url = url
+        if content_updated:
+            row.content_hash = ad_hash(ad)
+        row.updated_at = now
+        return
     values = {
         "url": url,
         "content_hash": ad_hash(ad),
@@ -170,6 +223,7 @@ async def mark_published(
         "removed_by": None,
         "updated_at": now,
     }
+    # Upsert: dwa pierwsze kliknięcia naraz nie kończą się błędem klucza.
     await db.execute(
         pg_insert(JobAdPublication)
         .values(job_id=ad.job_id, portal=portal, **values)

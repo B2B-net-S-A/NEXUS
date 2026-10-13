@@ -444,7 +444,9 @@ describe("JobAdWindow — oznaczenie publikacji", () => {
     fireEvent.change(within(row).getByRole("textbox"), { target: { value: ` ${PRACUJ_URL} ` } });
     fireEvent.click(within(row).getByRole("button", { name: "Oznacz" }));
 
-    await waitFor(() => expect(api.markPublished).toHaveBeenCalledWith(7, "pracuj", PRACUJ_URL));
+    await waitFor(() =>
+      expect(api.markPublished).toHaveBeenCalledWith(7, "pracuj", PRACUJ_URL, false),
+    );
     const published = await screen.findByRole("listitem", { name: "Publikacja: Pracuj.pl" });
     expect(published).toHaveTextContent("Opublikowane");
     expect(within(published).getByRole("link", { name: /Otwórz ogłoszenie/ })).toHaveAttribute(

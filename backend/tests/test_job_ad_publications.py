@@ -68,6 +68,20 @@ def test_an_empty_link_means_no_link(value):
         ("jjit", "https://justjoin.it/job offer"),
         ("jjit", "https://justjoin.it/x\u200b"),
         ("pracuj", "https://www.pracuj.pl/" + "a" * URL_MAX),
+        # Przeglądarka czyta „\\” w adresie http(s) jak „/”, Python nie: dla
+        # `urlsplit` to host z domeny portalu, dla przeglądarki obca strona
+        # (przegląd bezpieczeństwa 13.10.2026).
+        ("pracuj", "https://obca.example\\.pracuj.pl/oferta"),
+        ("jjit", "https://a\\b.justjoin.it/x"),
+        ("jjit", "http://obca.example\\.justjoin.it/x"),
+        ("pracuj", "https://www.pracuj.pl/praca\\x"),
+        # Port, kropka na końcu, nawiasy i host spoza ASCII — portal ich nie ma.
+        ("pracuj", "https://pracuj.pl:abc/"),
+        ("pracuj", "https://www.pracuj.pl:8443/praca/x"),
+        ("pracuj", "https://www.pracuj.pl./praca/x"),
+        ("pracuj", "https://[pracuj.pl]/"),
+        ("jjit", "https://żółw.justjoin.it/x"),
+        ("jjit", "https:justjoin.it/job-offer/x"),
     ],
 )
 def test_anything_else_is_refused_in_polish(portal, url):

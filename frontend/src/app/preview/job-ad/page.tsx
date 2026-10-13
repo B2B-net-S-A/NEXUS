@@ -384,20 +384,24 @@ function memoryApi(state: HarnessState): JobAdWindowApi {
       });
       return current;
     },
-    markPublished: async (_jobId, portal, url) => {
-      current = {
-        ...current,
-        publications: [
-          ...current.publications.filter((item) => item.portal !== portal),
-          {
+    markPublished: async (_jobId, portal, url, contentUpdated = false) => {
+      const active = current.publications.find(
+        (item) => item.portal === portal && !item.removed_at,
+      );
+      const next: AdPublication = active
+        ? // Sama zmiana linku nie potwierdza treści ani nie zmienia, kto opublikował.
+          { ...active, url, outdated: contentUpdated ? false : active.outdated }
+        : {
             portal,
             url,
             outdated: false,
             published_at: "2026-10-13T09:00:00Z",
             published_by_name: "Preview Rekruter",
             removed_at: null,
-          },
-        ],
+          };
+      current = {
+        ...current,
+        publications: [...current.publications.filter((item) => item.portal !== portal), next],
       };
       return current;
     },

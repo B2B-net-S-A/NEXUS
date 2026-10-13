@@ -536,8 +536,54 @@ async def test_an_edit_after_publication_marks_it_outdated_until_marked_again(
     )
     assert _publication(edited.json(), "jjit")["outdated"] is True
 
-    again = await api.put(f"{base}/publications/jjit", json={}, headers=headers)
+    again = await api.put(
+        f"{base}/publications/jjit", json={"content_updated": True}, headers=headers
+    )
     assert _publication(again.json(), "jjit")["outdated"] is False
+
+
+async def test_adding_a_link_does_not_confirm_the_content_or_change_who_published(
+    api: AsyncClient, monkeypatch
+):
+    """Ogłoszenie na Pracuj.pl bywa widoczne po moderacji: rekruter oznacza
+    publikację bez linku, a link dopisuje później. To nie jest potwierdzenie,
+    że treść na portalu jest aktualna."""
+    _, headers, job_id = await _owner_with_job(api)
+    ad = await _generated(api, headers, job_id, monkeypatch)
+    base = f"/api/jobs/{job_id}/portal-ad"
+    first = _publication(
+        (await api.put(f"{base}/publications/jjit", json={}, headers=headers)).json(),
+        "jjit",
+    )
+    await api.put(
+        base,
+        json={
+            "content": {**ad["content"], "about": "Opis po poprawce."},
+            "tech": ad["tech"],
+        },
+        headers=headers,
+    )
+
+    link = "https://justjoin.it/job-offer/przyklad-java-developer"
+    linked = await api.put(
+        f"{base}/publications/jjit", json={"url": link}, headers=headers
+    )
+    assert linked.status_code == 200, linked.text
+    after = _publication(linked.json(), "jjit")
+    assert after["url"] == link
+    assert after["outdated"] is True
+    assert after["published_at"] == first["published_at"]
+    assert after["published_by_name"] == first["published_by_name"]
+
+    confirmed = await api.put(
+        f"{base}/publications/jjit",
+        json={"url": link, "content_updated": True},
+        headers=headers,
+    )
+    done = _publication(confirmed.json(), "jjit")
+    assert done["outdated"] is False
+    # Ogłoszenie wisi od pierwszego oznaczenia — aktualizacja tej daty nie rusza.
+    assert done["published_at"] == first["published_at"]
 
 
 async def test_removed_publication_leaves_a_trace_and_can_come_back(
@@ -593,6 +639,34 @@ async def test_publication_needs_an_ad_a_portal_link_and_clean_content(
     blocked = await api.put(f"{base}/publications/pracuj", json={}, headers=headers)
     assert blocked.status_code == 409, blocked.text
     assert blocked.json()["detail"]["code"] == "job_ad_blocked"
+
+
+async def test_blocked_content_cannot_be_confirmed_but_the_link_can_change(
+    api: AsyncClient, monkeypatch
+):
+    _, headers, job_id = await _owner_with_job(api)
+    ad = await _generated(api, headers, job_id, monkeypatch)
+    base = f"/api/jobs/{job_id}/portal-ad"
+    await api.put(f"{base}/publications/pracuj", json={}, headers=headers)
+    client_name = await _client_name(job_id)
+    await api.put(
+        base,
+        json={
+            "content": {**ad["content"], "about": f"Projekt dla {client_name}."},
+            "tech": ad["tech"],
+        },
+        headers=headers,
+    )
+
+    confirm = await api.put(
+        f"{base}/publications/pracuj", json={"content_updated": True}, headers=headers
+    )
+    assert confirm.status_code == 409, confirm.text
+    linked = await api.put(
+        f"{base}/publications/pracuj", json={"url": _PRACUJ_URL}, headers=headers
+    )
+    assert linked.status_code == 200, linked.text
+    assert _publication(linked.json(), "pracuj")["outdated"] is True
 
 
 async def test_jobs_list_and_detail_carry_only_active_publications(

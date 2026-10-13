@@ -41,7 +41,7 @@ import { cn } from "@/lib/utils";
 
 import { AdChecksPanel } from "./AdChecksPanel";
 import { AdFactsRail, TERM_KEYS, type AdTerms } from "./AdFactsRail";
-import { AdPublications } from "./AdPublications";
+import { AdPublications, JOBS_LIST_QUERY_ROOT } from "./AdPublications";
 import { JustJoinTab } from "./JustJoinTab";
 import { PracujTab } from "./PracujTab";
 import {
@@ -132,6 +132,10 @@ export function JobAdWindow({
   const applyState = (state: JobAdState) => {
     queryClient.setQueryData(queryKey, state);
     baseVersion.current = state.ad?.updated_at ?? null;
+    // Zmiana treści zapala „do aktualizacji” w kolumnie „Ogłoszenia” listy.
+    if (state.publications.some((item) => !item.removed_at)) {
+      void queryClient.invalidateQueries({ queryKey: [JOBS_LIST_QUERY_ROOT] });
+    }
     // Nowa treść = nowe teksty do skopiowania; stare „Skopiowane” już nie obowiązuje.
     setCopied(new Set());
   };
