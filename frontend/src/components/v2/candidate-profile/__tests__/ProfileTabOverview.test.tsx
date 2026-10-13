@@ -1,7 +1,9 @@
 /**
- * Zakładka „Przegląd” (04.10.2026): „Teraz” (zaległy telefon, procesy
- * w toku z tym, kto ma ruch) i „Ostatnia rozmowa”.
+ * Zakładka „Przegląd” (od 13.10.2026, decyzja E2): „W skrócie” i „Ostatnio”,
+ * główne umiejętności, „Do zrobienia” (tylko ruch po naszej stronie), pasek
+ * „Z nami” i „Ostatnia rozmowa”.
  */
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,6 +14,12 @@ vi.mock("@/lib/api/candidateFollowups", () => ({
 }));
 vi.mock("@/components/v2/followups/CandidateFollowupDialog", () => ({
   CandidateFollowupDialog: () => <div role="dialog" aria-label="Follow-up" />,
+}));
+vi.mock("@/components/v2/pages/CandidateActivitySummaryCard", () => ({
+  CandidateActivitySummaryCard: () => <section aria-label="W skrócie" />,
+}));
+vi.mock("@/lib/api", () => ({
+  skillsApi: { list: vi.fn(() => Promise.resolve({ data: { items: [] } })) },
 }));
 
 import { ProfileTab, type ProfileTabProps } from "../ProfileTab";
@@ -58,9 +66,20 @@ const NOTES = [
 
 function renderTab(overrides: Partial<ProfileTabProps> = {}) {
   const onNavigate = vi.fn();
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
+    <QueryClientProvider client={client}>
     <ProfileTab
-      candidate={{ id: 42 }}
+      candidate={{
+        id: 42,
+        created_at: "2026-05-05T10:00:00Z",
+        external_source: "traffit",
+        experience: [
+          { role: "Analityk systemowy", company: "Bank Północny", start: "2024-03", end: null },
+          { role: "Business Analyst", company: "Bank Zielony", start: "2021-01", end: "2024-02" },
+        ],
+        skills: Array.from({ length: 10 }, (_, i) => ({ name: `Skill ${i + 1}`, years: i + 1 })),
+      }}
       readOnly={false}
       recruitments={{ items: HISTORY, isPending: false, isError: false, refetch: vi.fn() }}
       notes={{
@@ -72,7 +91,8 @@ function renderTab(overrides: Partial<ProfileTabProps> = {}) {
       }}
       onNavigate={onNavigate}
       {...overrides}
-    />,
+    />
+    </QueryClientProvider>,
   );
   return { onNavigate };
 }
@@ -81,26 +101,59 @@ beforeEach(() => {
   followup.data = undefined;
 });
 
-describe("Przegląd — Teraz", () => {
-  it("pokazuje tylko procesy w toku, z etapem, właścicielem ruchu i linkiem do Tablicy", () => {
-    renderTab();
+describe("Przegląd — Do zrobienia", () => {
+  const OUR_MOVE = {
+    job_id: 12,
+    job_title: "Analityk systemowy",
+    client_name: "Kasa Krajowa",
+    job_status: "published",
+    latest_stage: "screening",
+    latest_stage_name: "Screening",
+    last_seen: new Date(Date.now() - 25 * 86_400_000).toISOString(),
+    next_action_owner: "recruiter",
+  };
+
+  it("pokazuje tylko procesy z ruchem po naszej stronie, z etapem, dniami i linkiem do Tablicy", () => {
+    renderTab({
+      recruitments: {
+        items: [...HISTORY, OUR_MOVE],
+        isPending: false,
+        isError: false,
+        refetch: vi.fn(),
+      },
+    });
     const list = screen.getByTestId("now-recruitments");
-    const row = within(list).getByText("Java Developer").closest("li")!;
-    expect(row).toHaveTextContent("Bank X");
-    expect(row).toHaveTextContent("ruch: klient · 4 dni");
+    const row = within(list).getByText("Analityk systemowy").closest("li")!;
+    expect(row).toHaveTextContent("Kasa Krajowa");
+    expect(row).toHaveTextContent("ruch: rekruter · 25 dni");
     expect(within(row).getByRole("link", { name: /Tablica/ })).toHaveAttribute(
       "href",
-      "/jobs/10?candidate=42",
+      "/jobs/12?candidate=42",
     );
+    // Ruch klienta i zakończona rekrutacja nie są „do zrobienia”.
+    expect(within(list).queryByText("Java Developer")).toBeNull();
     expect(within(list).queryByText("Stara rekrutacja")).toBeNull();
+    expect(screen.getByRole("button", { name: /Wszystkie w toku \(2\)/ })).toBeInTheDocument();
   });
 
-  it("bez procesów w toku mówi to zdaniem i prowadzi do zakończonych", async () => {
+  it("gdy ruch jest wszędzie po stronie klienta, mówi to zdaniem z linkiem do Rekrutacji", async () => {
+    const user = userEvent.setup();
+    const { onNavigate } = renderTab();
+    expect(screen.getByTestId("now-nothing-on-us")).toHaveTextContent(
+      "W 1 procesie ruch jest po stronie klienta albo kandydata.",
+    );
+    await user.click(screen.getByRole("button", { name: "Rekrutacje w toku (1)" }));
+    expect(onNavigate).toHaveBeenCalledWith({ section: "recruitments" });
+  });
+
+  it("bez procesów w toku mówi to zdaniem, z ostatnim wynikiem, i prowadzi do zakończonych", async () => {
     const user = userEvent.setup();
     const { onNavigate } = renderTab({
       recruitments: { items: [HISTORY[1]], isPending: false, isError: false, refetch: vi.fn() },
     });
-    expect(screen.getByText(/Nie jest teraz w żadnej rekrutacji/)).toBeInTheDocument();
+    expect(screen.getByText(/Nie jest teraz w żadnej rekrutacji/)).toHaveTextContent(
+      "Ostatnio: odrzucony · Stara rekrutacja",
+    );
     await user.click(screen.getByRole("button", { name: "Zakończone rekrutacje (1)" }));
     expect(onNavigate).toHaveBeenCalledWith({ section: "recruitments" });
   });
@@ -140,7 +193,7 @@ describe("Przegląd — Ostatnia rozmowa", () => {
     const card = screen.getByTestId("last-talk");
     expect(card).toHaveTextContent("Szuka projektu od listopada.");
     expect(card).toHaveTextContent("Marta Testowa");
-    expect(screen.getByText(/Prób kontaktu: 3/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Prób kontaktu: 3" })).toBeInTheDocument();
     await user.click(within(card).getByRole("button", { name: "Otwórz notatkę" }));
     expect(onNavigate).toHaveBeenCalledWith({ section: "activity", noteId: 2 });
   });
@@ -150,5 +203,29 @@ describe("Przegląd — Ostatnia rozmowa", () => {
       notes: { items: [], groupCounts: {}, isPending: false, isError: false, refetch: vi.fn() },
     });
     expect(screen.getByText("Nikt jeszcze nie zapisał rozmowy z tą osobą.")).toBeInTheDocument();
+  });
+});
+
+describe("Przegląd — kim jest", () => {
+  it("pokazuje ostatnie stanowiska i 8 umiejętności z linkiem do zakładki CV", async () => {
+    const user = userEvent.setup();
+    const { onNavigate } = renderTab();
+    const roles = screen.getByTestId("recent-roles");
+    expect(roles).toHaveTextContent("Analityk systemowy · Bank Północny");
+    expect(roles).toHaveTextContent("03.2024 – obecnie");
+    const skills = screen.getByRole("region", { name: "Główne umiejętności" });
+    // Kolejność z `displaySkills`: najdłuższy staż pierwszy.
+    expect(within(skills).getByText("Skill 10")).toBeInTheDocument();
+    expect(within(skills).queryByText("Skill 2")).toBeNull();
+    await user.click(within(skills).getByRole("button", { name: "+2 w zakładce CV" }));
+    expect(onNavigate).toHaveBeenCalledWith({ section: "cv" });
+  });
+
+  it("pasek „Z nami” liczy procesy i mówi, skąd i od kiedy osoba jest w bazie", () => {
+    renderTab();
+    const strip = screen.getByLabelText("Z nami");
+    expect(within(strip).getByRole("button", { name: "W toku: 1" })).toBeInTheDocument();
+    expect(strip).toHaveTextContent("Zakończone: 1");
+    expect(strip).toHaveTextContent("W bazie od 5.05.2026 (Traffit)");
   });
 });

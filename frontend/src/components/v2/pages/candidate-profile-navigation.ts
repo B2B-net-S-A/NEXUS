@@ -1,10 +1,12 @@
 /**
- * Adres URL profilu kandydata: pięć zakładek (Przegląd, Rekrutacje, Odpowiedzi
- * ze screeningu, Notatki i historia, CV i dokumenty) i ich filtry.
+ * Adres URL profilu kandydata: sześć zakładek (Przegląd, Rekrutacje,
+ * Screening, Notatki, CV, Dokumenty) i ich filtry.
  *
- * Klucze w adresie zostały te same, zmieniły się tylko etykiety (04.10.2026):
- * `summary` = „Przegląd”, `activity` = „Notatki i historia”, `documents` =
- * „CV i dokumenty”. Doszedł `screening` = „Odpowiedzi ze screeningu”.
+ * Klucze w adresie zostały te same, zmieniały się etykiety (04.10.2026,
+ * 13.10.2026): `summary` = „Przegląd”, `activity` = „Notatki”, `documents` =
+ * „Dokumenty” (umowy i pliki), `screening` = „Screening”. 13.10.2026 doszła
+ * `cv` = „CV” (wydzielona z dawnego „CV i dokumenty”), a filtr `calls`
+ * („Telefony”) zniknął — stare linki z nim otwierają oś czasu.
  *
  * Stare klucze MUSZĄ działać dalej — linki z powiadomień są zapisane w bazie
  * (`?tab=chat&msg=`, `?tab=activity&activity=notes&note=`), a stare zakładki
@@ -17,6 +19,7 @@ export const PROFILE_SECTIONS = [
   "recruitments",
   "screening",
   "activity",
+  "cv",
   "documents",
 ] as const;
 
@@ -30,6 +33,10 @@ export const PROFILE_SECTIONS = [
  * `notes` = „Rozmowy”, `contact` = „Próby kontaktu”, `delivery` = „Delivery
  * Lead”, `emails` = „Maile” (skrzynka M365 i maile zapisane w notatkach),
  * `automat` = „Automat”. Klucz `notes` zostaje — niosą go linki z powiadomień.
+ *
+ * `calls` („Telefony”) zostaje na liście tylko jako stary klucz wejściowy
+ * (13.10.2026: 10 połączeń w historii, CloudTalk wyłączony) — parser
+ * zamienia go na `timeline` i podmienia adres na kanoniczny.
  */
 export const ACTIVITY_VIEWS = [
   "timeline",
@@ -204,7 +211,7 @@ const LEGACY_TABS: Record<string, ViewTarget> = {
   notatki: target("activity", { activity: "notes" }),
   // Angielski alias — starsze linki z powiadomień o wzmiankach (`?tab=notes`).
   notes: target("activity", { activity: "notes" }),
-  calls: target("activity", { activity: "calls" }),
+  calls: target("activity", { activity: "timeline" }),
   // `?tab=chat&msg=` — link z powiadomienia czatu (candidate_chat.py).
   chat: target("activity", { activity: "chat" }),
   maile: target("activity", { activity: "emails" }),
@@ -229,6 +236,15 @@ export function parseCandidateProfileView(
   const rawRecruitments = params.get("recruitments");
 
   if (isOneOf(rawTab, PROFILE_SECTIONS)) {
+    // „Telefony” zdjęte 13.10.2026 — stary filtr otwiera oś czasu i adres
+    // jest podmieniany na kanoniczny (`isLegacy`).
+    if (rawTab === "activity" && rawActivity === "calls") {
+      return {
+        ...target("activity", { activity: "timeline" }),
+        isLegacy: true,
+        hasExplicitTab: true,
+      };
+    }
     return {
       section: rawTab,
       activity: isOneOf(rawActivity, ACTIVITY_VIEWS) ? rawActivity : "notes",

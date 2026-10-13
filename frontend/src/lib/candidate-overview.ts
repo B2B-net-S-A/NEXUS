@@ -57,3 +57,60 @@ export function latestTalkNote<T extends OverviewNote>(notes: readonly T[] | nul
   }
   return best;
 }
+
+/**
+ * Przegląd od 13.10.2026 (decyzja E2): „Do zrobienia” pokazuje tylko procesy,
+ * w których ruch jest po naszej stronie — rekruter, przegląd albo Delivery.
+ * Pełna lista procesów żyje w zakładce „Rekrutacje”.
+ */
+export const OUR_SIDE_OWNERS: ReadonlySet<string> = new Set(["recruiter", "review", "delivery"]);
+
+export interface OverviewRecruitment {
+  job_id?: number | null;
+  next_action_owner?: string | null;
+  last_seen?: string | null;
+}
+
+/** Procesy w toku z ruchem po naszej stronie, najdłużej czekające pierwsze. */
+export function recruitmentsAwaitingUs<T extends OverviewRecruitment>(
+  active: readonly T[],
+  now: Date = new Date(),
+): T[] {
+  return active
+    .filter((job) => job.next_action_owner != null && OUR_SIDE_OWNERS.has(job.next_action_owner))
+    .map((job) => ({ job, days: daysSince(job.last_seen, now) ?? -1 }))
+    .sort((a, b) => b.days - a.days)
+    .map(({ job }) => job);
+}
+
+export interface RecentRole {
+  role: string;
+  company: string;
+  period: string;
+}
+
+/**
+ * Ostatnie stanowiska do Przeglądu — w kolejności z CV (odczyt zapisuje
+ * najnowsze pierwsze). Pomija pusty placeholder z backfillu Traffita.
+ */
+export function recentRoles(
+  experience: unknown,
+  formatDate: (value: unknown) => string,
+  limit = 3,
+): RecentRole[] {
+  const rows = Array.isArray(experience) ? experience : [];
+  const out: RecentRole[] = [];
+  for (const entry of rows) {
+    if (!entry || typeof entry !== "object") continue;
+    const e = entry as Record<string, unknown>;
+    const role = String(e.role ?? e.title ?? "").trim();
+    const company = String(e.company ?? "").trim();
+    if (!role && !company) continue;
+    const start = formatDate(e.start ?? e.start_date ?? null);
+    const end = formatDate(e.end ?? e.end_date ?? null);
+    const period = start || end ? `${start || "?"} – ${end || "obecnie"}` : "";
+    out.push({ role, company, period });
+    if (out.length >= limit) break;
+  }
+  return out;
+}

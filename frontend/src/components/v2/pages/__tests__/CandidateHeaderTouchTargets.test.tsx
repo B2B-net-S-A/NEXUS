@@ -3,15 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import { CandidateNav } from "@/components/v2/CandidateNav";
 
-const pins = vi.hoisted(() => ({
-  getState: vi.fn().mockResolvedValue({ data: { pinned: false } }),
-  toggle: vi.fn().mockResolvedValue({ data: { pinned: true } }),
-}));
-
-vi.mock("@/lib/api", () => ({
-  candidatePinsApi: pins,
-}));
-
 function expectTouchTarget(element: HTMLElement) {
   expect(element.classList.contains("min-h-11")).toBe(true);
   expect(element.classList.contains("min-w-11")).toBe(true);

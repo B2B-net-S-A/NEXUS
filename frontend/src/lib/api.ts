@@ -3258,29 +3258,6 @@ export const savedSearchesApi = {
     ),
 };
 
-// ── Candidate Pins (Phase 4 — short-list workflow) ─────────────────────────
-
-export interface CandidatePinBrief {
-  id: number;
-  name: string | null;
-  lastname: string | null;
-  email: string | null;
-  avatar_url: string | null;
-}
-
-export interface CandidatePinRow {
-  id: number;
-  candidate_id: number;
-  note: string | null;
-  pinned_at: string;
-  candidate: CandidatePinBrief;
-}
-
-export interface CandidatePinToggleResponse {
-  pinned: boolean;
-  pin: CandidatePinRow | null;
-}
-
 // ── Generator Umów B2B ────────────────────────────────────────────────────────
 
 export interface B2BRole {
@@ -4085,18 +4062,6 @@ export interface B2BUopCheckResult {
   summary: string;
 }
 
-export const candidatePinsApi = {
-  list: () => api.get<CandidatePinRow[]>("/api/candidates/pins"),
-  getState: (candidateId: number) =>
-    api.get<CandidatePinToggleResponse>(`/api/candidates/${candidateId}/pin`),
-  toggle: (candidateId: number, note?: string) =>
-    api.post<CandidatePinToggleResponse>(
-      `/api/candidates/${candidateId}/pin`,
-      note ? { note } : {},
-    ),
-  remove: (candidateId: number) =>
-    api.delete(`/api/candidates/${candidateId}/pin`),
-};
 
 export interface MatchHistoryRow {
   id: number;

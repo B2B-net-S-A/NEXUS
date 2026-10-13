@@ -41,6 +41,7 @@ import { changedCandidateFields, tagChanges } from "@/lib/candidate-edit-diff";
 import { useClickOutside } from "@/lib/use-click-outside";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { emailFieldError } from "@/lib/email-field-error";
+import { nameFieldErrors, type NameFieldErrors } from "@/lib/name-field-error";
 import {
   CV_ACCEPT,
   CV_FIELD_LABELS,
@@ -654,6 +655,7 @@ function CandidateFormFields({
   importedTagLabels = [],
   collapseSecondary = false,
   emailError = null,
+  nameErrors = null,
   afterContact = null,
 }: {
   form: CandidateFormData;
@@ -671,6 +673,8 @@ function CandidateFormFields({
   collapseSecondary?: boolean;
   /** Runda 10 (F05): błąd e-maila z serwera — przy polu, z fokusem na nim. */
   emailError?: string | null;
+  /** 13.10.2026 (D6): odmowa dopisku w imieniu/nazwisku („[ACTIVE] Jan”) — przy polu. */
+  nameErrors?: NameFieldErrors | null;
   /** „Dodaj kandydata”: ramka pod wierszem e-mail/telefon (ten adres już jest w bazie). */
   afterContact?: React.ReactNode;
 }) {
@@ -922,10 +926,10 @@ function CandidateFormFields({
   return (
     <>
       <div className="grid grid-cols-2 gap-3">
-        <FieldGroup label="Imię" required>
+        <FieldGroup label="Imię" required error={nameErrors?.name ?? null}>
           <Input value={form.name} onChange={e => onChange("name", e.target.value)} placeholder="Jan" />
         </FieldGroup>
-        <FieldGroup label="Nazwisko" required>
+        <FieldGroup label="Nazwisko" required error={nameErrors?.lastname ?? null}>
           <Input value={form.lastname} onChange={e => onChange("lastname", e.target.value)} placeholder="Kowalski" />
         </FieldGroup>
         <FieldGroup label="Email" error={emailError}>
@@ -997,6 +1001,7 @@ export function AddCandidateModal({
   // E-mail, dla którego `existing` jest aktualne.
   const [checkedKey, setCheckedKey] = useState<string>(() => duplicateIdentityKey(EMPTY_CANDIDATE));
   const [emailError, setEmailError] = useState<string | null>(null);
+  const [nameErrors, setNameErrors] = useState<NameFieldErrors | null>(null);
   // „Wgraj CV (opcjonalnie)”: odczyt CV wypełnia puste pola, a zapis idzie
   // przez `/from-cv` z polami formularza (serwer bierze ten sam odczyt).
   const [cvFile, setCvFile] = useState<File | null>(null);
@@ -1031,6 +1036,7 @@ export function AddCandidateModal({
 
   const onChange = (k: keyof CandidateFormData, v: string) => {
     if (k === "email") setEmailError(null);
+    if (k === "name" || k === "lastname") setNameErrors(null);
     setForm(f => ({ ...f, [k]: v }));
   };
   const onToggle = (k: "champion", v: boolean) => setForm(f => ({ ...f, [k]: v }));
@@ -1211,8 +1217,11 @@ export function AddCandidateModal({
       onClose();
     } catch (err: any) {
       const emailMsg = emailFieldError(err);
+      const nameMsgs = nameFieldErrors(err);
       const conflictMatches = duplicateMatchesFromConflict(err);
-      if (emailMsg) {
+      if (nameMsgs) {
+        setNameErrors(nameMsgs);
+      } else if (emailMsg) {
         setEmailError(emailMsg);
       } else if (conflictMatches && conflictMatches.length > 0) {
         // `/from-cv` odmówił przy zapisie: ten sam plik już jest w czyimś
@@ -1382,6 +1391,7 @@ export function AddCandidateModal({
           clients={clients}
           collapseSecondary
           emailError={emailError}
+          nameErrors={nameErrors}
           afterContact={
             existingNow ? (
               <ExistingCandidateNotice
@@ -1422,6 +1432,7 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [emailError, setEmailError] = useState<string | null>(null);
+  const [nameErrors, setNameErrors] = useState<NameFieldErrors | null>(null);
 
   const { data: usersData } = useQuery({
     queryKey: ["users-list-for-candidate"],
@@ -1436,6 +1447,7 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
 
   const onChange = (k: keyof CandidateFormData, v: string) => {
     if (k === "email") setEmailError(null);
+    if (k === "name" || k === "lastname") setNameErrors(null);
     setForm(f => ({ ...f, [k]: v }));
   };
   const onToggle = (k: "champion", v: boolean) => setForm(f => ({ ...f, [k]: v }));
@@ -1452,16 +1464,26 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name || !form.lastname) { setError("Imię i nazwisko są wymagane"); return; }
-    setSaving(true); setError(""); setEmailError(null);
+    // Spacje wokół imienia nie są zmianą (przejęte z dawnej „Korekty imienia
+    // i nazwiska”, 13.10.2026) — porównujemy i wysyłamy wartości przycięte.
+    const trimmedForm = { ...form, name: form.name.trim(), lastname: form.lastname.trim() };
+    const trimmedInitial = { ...initialForm, name: initialForm.name.trim(), lastname: initialForm.lastname.trim() };
+    if (!trimmedForm.name || !trimmedForm.lastname) { setError("Imię i nazwisko są wymagane"); return; }
+    setSaving(true); setError(""); setEmailError(null); setNameErrors(null);
     try {
       const { city: _city, country: _country, tags: _tags, ...nextPayload } =
-        candidateFormToPayload(form);
+        candidateFormToPayload(trimmedForm);
       const { city: _c0, country: _k0, tags: _t0, ...initialPayload } =
-        candidateFormToPayload(initialForm);
+        candidateFormToPayload(trimmedInitial);
       // Tylko zmienione pola. Pole tożsamości wysłane „przy okazji” zamieniłoby
       // też wartość z nocnego syncu w fałszywą ręczną blokadę.
       const profilePayload = changedCandidateFields(initialPayload, nextPayload);
+      // Wyczyszczony e-mail albo telefon = jawne `null` (`undefined` znikało
+      // z JSON-a, więc adresu nie dało się usunąć — umiała to tylko dawna
+      // „Korekta imienia i nazwiska”).
+      for (const key of ["email", "phone"] as const) {
+        if (key in profilePayload && profilePayload[key] === undefined) profilePayload[key] = null;
+      }
       if (Object.keys(profilePayload).length) {
         await api.patch(`/api/candidates/${candidate.id}`, profilePayload);
       }
@@ -1496,7 +1518,9 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
       onClose();
     } catch (err: any) {
       const emailMsg = emailFieldError(err);
-      if (emailMsg) setEmailError(emailMsg);
+      const nameMsgs = nameFieldErrors(err);
+      if (nameMsgs) setNameErrors(nameMsgs);
+      else if (emailMsg) setEmailError(emailMsg);
       else setError(formErrorMsg(err, "Błąd podczas zapisywania"));
     } finally { setSaving(false); }
   };
@@ -1514,6 +1538,7 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
           clients={clients}
           importedTagLabels={structuredTagLabels(candidate.tags)}
           emailError={emailError}
+          nameErrors={nameErrors}
         />
         <div className="flex justify-end gap-3 pt-1">
           <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
