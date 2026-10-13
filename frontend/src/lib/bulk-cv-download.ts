@@ -1,3 +1,4 @@
+import { trackTransfer } from "@/lib/transfers-in-flight";
 import { getAuthenticatedRequestHeaders } from "./session";
 
 export interface BulkCvDownloadResult {
@@ -36,22 +37,27 @@ export async function downloadBulkCvs(
   }
 
   const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "";
-  const res = await fetch(`${apiBase}/api/candidates/bulk-cv-download`, {
-    method: "POST",
-    headers: getAuthenticatedRequestHeaders({
-      "Content-Type": "application/json",
-    }),
-    body: JSON.stringify({ candidate_ids: candidateIds }),
+  // Zwykły `fetch` — bez `trackTransfer` nowa wersja frontu mogła przeładować
+  // kartę w trakcie pobierania ZIP-a (audyt 13.10.2026).
+  const { blob, includedCount, skippedCount } = await trackTransfer(async () => {
+    const res = await fetch(`${apiBase}/api/candidates/bulk-cv-download`, {
+      method: "POST",
+      headers: getAuthenticatedRequestHeaders({
+        "Content-Type": "application/json",
+      }),
+      body: JSON.stringify({ candidate_ids: candidateIds }),
+    });
+
+    if (!res.ok) {
+      throw new BulkCvDownloadError(messageForStatus(res.status), res.status);
+    }
+
+    return {
+      includedCount: Number(res.headers.get("X-Included-Count") ?? "0"),
+      skippedCount: Number(res.headers.get("X-Skipped-Count") ?? "0"),
+      blob: await res.blob(),
+    };
   });
-
-  if (!res.ok) {
-    throw new BulkCvDownloadError(messageForStatus(res.status), res.status);
-  }
-
-  const includedCount = Number(res.headers.get("X-Included-Count") ?? "0");
-  const skippedCount = Number(res.headers.get("X-Skipped-Count") ?? "0");
-
-  const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const today = new Date().toISOString().slice(0, 10);
   const a = document.createElement("a");

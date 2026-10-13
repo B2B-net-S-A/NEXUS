@@ -397,3 +397,54 @@ describe("InterviewNotificationsDropdown", () => {
     expect(await screen.findByText(/Nic nie czeka w sprawie rozmów u klienta/)).toBeInTheDocument();
   });
 });
+
+// Audyt 13.10.2026: „Nic nie czeka” pokazywało się, gdy doszło tylko jedno
+// z dwóch zapytań, a „Oznacz nowe” wisiało przy powiadomieniach, których
+// okienko nie pokazuje (np. przypomnienie po starcie wydarzenia).
+describe("InterviewNotificationsDropdown — pusty stan i „Oznacz nowe”", () => {
+  it("dopóki drugie źródło się wczytuje, okienko nie mówi „Nic nie czeka”", async () => {
+    let finishNews: (value: { data: { items: NotificationResponse[] } }) => void = () => {};
+    apiMock.get.mockImplementation((url: string) =>
+      url === "/api/interview-cycle"
+        ? Promise.resolve({ data: overview() })
+        : new Promise((resolve) => {
+            finishNews = resolve;
+          }),
+    );
+    renderDropdown();
+    fireEvent.click(await findTrigger());
+    await waitFor(() =>
+      expect(apiMock.get).toHaveBeenCalledWith("/api/interview-cycle", { params: { scope: "mine" } }),
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    expect(screen.queryByText(/Nic nie czeka/)).toBeNull();
+    expect(screen.getByText("Wczytuję rozmowy…")).toBeInTheDocument();
+
+    await act(async () => {
+      finishNews({ data: { items: [] } });
+    });
+    expect(await screen.findByText(/Nic nie czeka/)).toBeInTheDocument();
+  });
+
+  it("„Oznacz nowe” tylko przy nowych, które okienko pokazuje", async () => {
+    // Przypomnienie o wydarzeniu, które już się zaczęło — okienko go nie pokazuje.
+    serve({
+      news: [
+        notif(61, "interview_scheduled", "/calendar", {
+          message: "Za 5 minut: Rozmowa",
+          created_at: at(-30),
+        }),
+      ],
+    });
+    renderDropdown();
+    fireEvent.click(await findTrigger());
+
+    expect(await screen.findByText(/Nic nie czeka/)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Oznacz nowe powiadomienia jako przeczytane" }),
+    ).toBeNull();
+  });
+});

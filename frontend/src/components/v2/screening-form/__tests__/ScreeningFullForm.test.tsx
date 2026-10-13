@@ -67,6 +67,7 @@ vi.mock("@/components/v2/modals/RejectionV2", () => ({
   RejectionV2: (props: {
     subject?: { name: string; stageLabel?: string | null } | null;
     nextPerson?: { name: string; stageLabel: string } | null;
+    pending?: boolean;
     onConfirm: (...a: unknown[]) => void;
   }) => (
     <div data-testid="rejection-stub">
@@ -76,7 +77,11 @@ vi.mock("@/components/v2/modals/RejectionV2", () => ({
       {props.nextPerson !== undefined ? (
         <p>{props.nextPerson ? `Dalej: ${props.nextPerson.name}` : "ostatnia osoba"}</p>
       ) : null}
-      <button type="button" onClick={() => props.onConfirm("", "", false, null, "Brak Azure")}>
+      <button
+        type="button"
+        disabled={props.pending}
+        onClick={() => props.onConfirm("", "", false, null, "Brak Azure")}
+      >
         potwierdź odrzucenie
       </button>
     </div>
@@ -780,5 +785,25 @@ describe("ScreeningFullForm — odrzucenie z panelu osoby", () => {
     await user.click(screen.getByRole("button", { name: "potwierdź odrzucenie" }));
     await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1));
     expect(onFollowUpMoved).not.toHaveBeenCalled();
+  });
+});
+
+// Audyt 13.10.2026: drugi klik „Potwierdź” w trakcie zapisu wysyłał drugi ruch
+// (już przy następnej osobie) — okno dostaje stan zapisu z mutacji.
+describe("ScreeningFullForm — odrzucenie w toku", () => {
+  it("w trakcie zapisu „Potwierdź” jest zablokowany i drugi klik nie wysyła drugiego ruchu", async () => {
+    mocks.send.mockReturnValue(new Promise(() => {}));
+    const user = userEvent.setup();
+    mount({
+      reject: { stage: "rejected", stageDefId: 9, previousStage: "new", previousCategory: "internal" },
+      rejectFollowUp: () => ({ stageLabel: "Nowi", next: null, onMoved: vi.fn() }),
+    });
+
+    await user.click(await screen.findByRole("button", { name: /^Odrzuć$/ }));
+    const confirm = screen.getByRole("button", { name: "potwierdź odrzucenie" });
+    await user.click(confirm);
+    await waitFor(() => expect(confirm).toBeDisabled());
+    await user.click(confirm);
+    expect(mocks.send).toHaveBeenCalledTimes(1);
   });
 });

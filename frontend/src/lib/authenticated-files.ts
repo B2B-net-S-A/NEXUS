@@ -17,6 +17,7 @@
 
 import { messageFromApiResponse } from "./api-error";
 import { getAuthenticatedRequestHeaders } from "./session";
+import { trackTransfer } from "./transfers-in-flight";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -68,11 +69,13 @@ async function responseError(res: Response): Promise<AuthenticatedFileError> {
  */
 export async function fetchAuthenticatedBlob(path: string): Promise<Blob> {
   const url = /^https?:\/\//i.test(path) ? path : `${API_BASE}${path}`;
-  const res = await fetch(url, {
-    headers: getAuthenticatedRequestHeaders(),
+  return trackTransfer(async () => {
+    const res = await fetch(url, {
+      headers: getAuthenticatedRequestHeaders(),
+    });
+    if (!res.ok) throw await responseError(res);
+    return res.blob();
   });
-  if (!res.ok) throw await responseError(res);
-  return res.blob();
 }
 
 export interface AuthenticatedDownload {
@@ -89,21 +92,23 @@ export async function postAuthenticatedDownload(
   payload: unknown,
 ): Promise<AuthenticatedDownload> {
   const url = /^https?:\/\//i.test(path) ? path : `${API_BASE}${path}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: getAuthenticatedRequestHeaders({
-      "Content-Type": "application/json",
-    }),
-    body: JSON.stringify(payload),
+  return trackTransfer(async () => {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: getAuthenticatedRequestHeaders({
+        "Content-Type": "application/json",
+      }),
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw await responseError(res);
+    const disposition = res.headers.get("Content-Disposition") ?? "";
+    const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+    const plain = disposition.match(/filename="?([^";]+)"?/i)?.[1];
+    return {
+      blob: await res.blob(),
+      filename: encoded ? decodeURIComponent(encoded) : plain ?? null,
+    };
   });
-  if (!res.ok) throw await responseError(res);
-  const disposition = res.headers.get("Content-Disposition") ?? "";
-  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
-  const plain = disposition.match(/filename="?([^";]+)"?/i)?.[1];
-  return {
-    blob: await res.blob(),
-    filename: encoded ? decodeURIComponent(encoded) : plain ?? null,
-  };
 }
 
 /** GET a protected file and return it with the server-given filename. */
@@ -111,17 +116,19 @@ export async function fetchAuthenticatedDownload(
   path: string,
 ): Promise<AuthenticatedDownload> {
   const url = /^https?:\/\//i.test(path) ? path : `${API_BASE}${path}`;
-  const res = await fetch(url, {
-    headers: getAuthenticatedRequestHeaders(),
+  return trackTransfer(async () => {
+    const res = await fetch(url, {
+      headers: getAuthenticatedRequestHeaders(),
+    });
+    if (!res.ok) throw await responseError(res);
+    const disposition = res.headers.get("Content-Disposition") ?? "";
+    const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+    const plain = disposition.match(/filename="?([^";]+)"?/i)?.[1];
+    return {
+      blob: await res.blob(),
+      filename: encoded ? decodeURIComponent(encoded) : plain ?? null,
+    };
   });
-  if (!res.ok) throw await responseError(res);
-  const disposition = res.headers.get("Content-Disposition") ?? "";
-  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
-  const plain = disposition.match(/filename="?([^";]+)"?/i)?.[1];
-  return {
-    blob: await res.blob(),
-    filename: encoded ? decodeURIComponent(encoded) : plain ?? null,
-  };
 }
 
 /** Trigger a browser download of an in-memory blob (programmatic `<a download>`). */

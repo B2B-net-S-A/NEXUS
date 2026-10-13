@@ -55,6 +55,21 @@ D1–D6 z makiet (https://claude.ai/artifact/UidzDHHjGHMDuutb4zB21L).
   otwiera `CandidateMergeDialog` z wcześniejszym wierszem jako profilem,
   który zostaje. Nic nie scala się samo — numer bywa firmowy.
 
+- **Poprawki po audycie 13.10.2026 (14.10.2026).** Audyt pokazał, że
+  „000 000 000” u dwóch różnych osób dawało „Ten sam telefon” i „Scal…”,
+  a pole z dwoma numerami porównywało tylko ostatni. Teraz:
+  zaślepka (ostatnie 9 cyfr to ta sama cyfra: „000 000 000”, „111 111 111”)
+  nie jest numerem; każdy numer z pola liczy się osobno — numery rozdziela
+  wszystko poza cyframi, spacją, „+”, „-”, „.” i nawiasami („/”, „,”, „lub”,
+  „wew.”). Reguła jest w dwóch miejscach i mówią to samo: `phoneKey` /
+  `phoneKeys` w `add-candidates-identity.ts` oraz `_normalize_phone` /
+  `_phone_keys` w `dedup_service.py` (`/check-duplicates` w oknie scalania,
+  dopasowanie rozmowy CloudTalk — telefon z zaślepki nie trafia w nikogo).
+  Podświetlenie szukanego numeru to podciąg cyfr pola (`phoneMatchesQuery`),
+  jak `phone_digits_clause`, więc świeci też przy 6–8 cyfrach. W trakcie
+  „Przywróć” okna nie da się zamknąć (Escape, tło, „Zamknij”, „Anuluj”) —
+  ruch karty może jeszcze pokazać swoje okna, jak w `AddToRecruitmentDialog`.
+
 Czego nie robimy: numer nie jest maskowany (lista Kandydaci pokazuje go tym
 samym osobom, a rekruter porównuje go cyfra po cyfrze), dodanie imiennika
 nie pyta „Czy na pewno?”. Harness: `/preview/add-candidates`.

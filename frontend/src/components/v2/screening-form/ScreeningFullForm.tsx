@@ -1365,6 +1365,7 @@ export function ScreeningFullForm({
           subject={{ name: candidateName, stageLabel: rejectSnapshot?.stageLabel ?? null }}
           nextPerson={rejectSnapshot ? rejectSnapshot.next : undefined}
           emailPreview={{ jobId, people: [{ candidateId, name: candidateName }] }}
+          pending={rejectMut.isPending}
           onConfirm={(
             reasonId,
             notes,

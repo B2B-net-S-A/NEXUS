@@ -561,12 +561,25 @@ function InterviewNotificationsWindow() {
     });
   }, [callEventId, showActionToast]);
 
+  // Pusty stan tylko z obu źródeł: z jednym wczytanym okienko mówiło „Nic nie
+  // czeka”, zanim przyszło drugie (audyt 13.10.2026). Bez wierszy czekamy, aż
+  // drugie odpowie albo padnie; wiersze z pierwszego pokazujemy od razu.
+  const cycleSettled = overview !== undefined || cycle.isError;
+  const newsSettled = news.data !== undefined || news.isError;
   const state: InterviewsPanelState =
-    overview !== undefined || news.data !== undefined
-      ? "ready"
-      : cycle.isError && news.isError
+    overview === undefined && news.data === undefined
+      ? cycle.isError && news.isError
         ? "error"
-        : "loading";
+        : "loading"
+      : view.count === 0 && !(cycleSettled && newsSettled)
+        ? "loading"
+        : "ready";
+  // „Oznacz nowe” przy własnych nowych, które okienko pokazuje — powiadomienie
+  // schowane (nieaktualne, po starcie wydarzenia) nie daje przycisku.
+  const ownUnread = new Set(notifications.filter((n) => !n.on_behalf_of_name).map((n) => n.id));
+  const canMarkNews = [...view.now, ...view.waiting, ...view.news].some((row) =>
+    row.unreadIds.some((id) => ownUnread.has(id)),
+  );
   const failed =
     state !== "ready"
       ? null
@@ -595,7 +608,7 @@ function InterviewNotificationsWindow() {
             state={state}
             view={view}
             failed={failed}
-            canMarkNews={notifications.some((n) => !n.on_behalf_of_name)}
+            canMarkNews={canMarkNews}
             markingAll={markRead.isPending}
             actionLabel={(row) => (row.todo && actionFor(row) ? TODO_ACTIONS[row.todo.kind] : null)}
             onOpenRow={openRow}

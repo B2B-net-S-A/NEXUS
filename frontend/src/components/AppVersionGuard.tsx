@@ -14,7 +14,11 @@ import {
   reloadNow,
   reloadOnceForVersion,
 } from "@/lib/app-version";
+import { transfersInFlight } from "@/lib/transfers-in-flight";
 import { useAuthStore } from "@/store/auth";
+
+// Dawny adres `trackTransfer` — moduł żyje w `lib`, żeby `lib/*` nie importował komponentu.
+export { trackTransfer } from "@/lib/transfers-in-flight";
 
 /** Jak często karta pyta serwer o wersję. */
 export const VERSION_CHECK_EVERY_MS = 60_000;
@@ -57,6 +61,9 @@ export function AppVersionGuard() {
     !isBuildSha(BUILD_SHA) || !loggedIn || (pathname ?? "").startsWith("/preview");
   // Stara karta, której nie wolno teraz przeładować — do komunikatu.
   const [waitingFor, setWaitingFor] = useState<string | null>(null);
+  // Przeładowanie dla tej wersji już było (albo nie da się go zlecić) — sama
+  // się nie wczyta, komunikat musi poprosić o „Odśwież teraz”.
+  const [manualOnly, setManualOnly] = useState(false);
   const [later, setLater] = useState<string | null>(null);
 
   const deployed = useRef<string | null>(null);
@@ -75,10 +82,11 @@ export function AppVersionGuard() {
   const settle = useCallback((moment: "fresh" | "navigated" | "quiet") => {
     const sha = deployed.current;
     if (!sha) return;
-    const busy = edited.current || modalOpen() || pendingWrites.current > 0;
+    const writing = pendingWrites.current > 0 || transfersInFlight() > 0;
+    const busy = edited.current || modalOpen() || writing;
     const safe =
       moment === "navigated"
-        ? pendingWrites.current === 0
+        ? !writing
         : moment === "fresh"
           ? !touched.current
           : !busy &&
@@ -90,6 +98,7 @@ export function AppVersionGuard() {
     }
     // Aktywna osoba na czystej stronie: komunikat niepotrzebny, karta
     // przeładuje się przy pierwszej chwili spokoju.
+    setManualOnly(stuck.current === sha);
     setWaitingFor(busy || stuck.current === sha ? sha : null);
   }, []);
 
@@ -196,7 +205,9 @@ export function AppVersionGuard() {
       className="fixed inset-x-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-[9998] mx-auto flex w-fit max-w-full flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm text-foreground shadow-lg"
     >
       <span className="min-w-0">
-        Wyszła nowa wersja NEXUSA. Wczyta się sama, gdy przejdziesz na inną stronę.
+        {manualOnly
+          ? "Wyszła nowa wersja NEXUSA, ale ta karta nie wczytała jej sama — kliknij „Odśwież teraz”."
+          : "Wyszła nowa wersja NEXUSA. Wczyta się sama, gdy przejdziesz na inną stronę."}
       </span>
       <span className="flex items-center gap-2">
         <Button type="button" size="sm" onClick={reloadNow}>

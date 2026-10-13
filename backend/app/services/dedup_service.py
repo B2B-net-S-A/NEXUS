@@ -35,12 +35,53 @@ def _normalize_email(email: Optional[str]) -> Optional[str]:
     return email.strip().lower() or None
 
 
+def _is_placeholder_phone(digits: str) -> bool:
+    """Zaślepka zamiast numeru („000 000 000”, „111 111 111”) — wpisywana, gdy
+    numeru nie było. U dwóch osób to nie jest ten sam telefon (audyt 13.10.2026);
+    ta sama reguła na froncie: `add-candidates-identity.ts`."""
+    return len(set(digits)) == 1
+
+
 def _normalize_phone(phone: Optional[str]) -> Optional[str]:
-    """Keep only digits, match by last 9 (handles +48 prefixes, spaces, dashes)."""
+    """Keep only digits, match by last 9 (handles +48 prefixes, spaces, dashes).
+
+    Zaślepka (same te same cyfry) to brak numeru — inaczej każda osoba
+    z „000 000 000” była duplikatem każdej innej.
+    """
     if not phone:
         return None
     digits = re.sub(r"[^\d]", "", phone)
-    return digits[-9:] if len(digits) >= 9 else digits or None
+    key = digits[-9:] if len(digits) >= 9 else digits
+    if not key or _is_placeholder_phone(key):
+        return None
+    return key
+
+
+# Wszystko poza cyframi, spacją, „+”, „-”, „.” i nawiasami rozdziela numery w polu.
+_PHONE_SEPARATOR_RE = re.compile(r"[^\d\s+\-.()]+")
+
+
+def _phone_keys(phone: Optional[str]) -> tuple[str, ...]:
+    """Każdy numer z pola osobno („601 204 118 / 502 333 444”, „… lub …”).
+
+    Sklejone cyfry porównywały tylko ostatni numer (audyt 13.10.2026). Pole
+    z jednym numerem daje to samo co `_normalize_phone` (także krótki zapis);
+    przy kilku numerach liczą się tylko pełne (9+ cyfr). Lustro `phoneKeys`
+    z `add-candidates-identity.ts`.
+    """
+    if not phone:
+        return ()
+    parts = [p for p in _PHONE_SEPARATOR_RE.split(phone) if re.search(r"\d", p)]
+    if len(parts) <= 1:
+        key = _normalize_phone(phone)
+        return (key,) if key else ()
+    keys: list[str] = []
+    for part in parts:
+        digits = re.sub(r"[^\d]", "", part)
+        key = _normalize_phone(part) if len(digits) >= 9 else None
+        if key and key not in keys:
+            keys.append(key)
+    return tuple(keys)
 
 
 def _normalize_name(s: Optional[str]) -> Optional[str]:
@@ -124,7 +165,7 @@ async def find_candidate_duplicates(
     Each entry: {candidate_id, name, lastname, email, match_score, match_reasons}
     """
     norm_email = _normalize_email(email)
-    norm_phone = _normalize_phone(phone)
+    phone_keys = _phone_keys(phone)
     norm_linkedin_slug = _linkedin_slug(linkedin)
     norm_name = _normalize_name(name)
     norm_lastname = _normalize_name(lastname)
@@ -132,13 +173,13 @@ async def find_candidate_duplicates(
     clauses = []
     if norm_email:
         clauses.append(func.lower(func.btrim(Candidate.email)) == norm_email)
-    if norm_phone:
-        # Compare last-9-digits of stored phone after stripping non-digits
-        clauses.append(
-            func.regexp_replace(Candidate.phone, r"[^0-9]", "", "g").ilike(
-                f"%{norm_phone}"
-            )
-        )
+    stored_digits = func.regexp_replace(Candidate.phone, r"[^0-9]", "", "g")
+    for key in phone_keys:
+        # Pełny numer może stać w polu na początku albo w środku („… / …”),
+        # więc podciąg; krótki zapis — jak dotąd końcówka. Trafienie i tak
+        # potwierdza `_phone_keys` wiersza niżej.
+        pattern = f"%{key}%" if len(key) == 9 else f"%{key}"
+        clauses.append(stored_digits.ilike(pattern))
     if norm_linkedin_slug:
         # `linkedin_slug` to kolumna generowana z indeksem częściowym (0106,
         # bez pustych) — stąd jawne `!= ''`. Bez zapasowego `ILIKE` na surowym
@@ -180,11 +221,9 @@ async def find_candidate_duplicates(
             reasons.append("email_exact")
             score = max(score, 1.0)
 
-        if norm_phone and c.phone:
-            cphone = _normalize_phone(c.phone)
-            if cphone and cphone == norm_phone:
-                reasons.append("phone_exact")
-                score = max(score, 1.0)
+        if phone_keys and c.phone and set(phone_keys) & set(_phone_keys(c.phone)):
+            reasons.append("phone_exact")
+            score = max(score, 1.0)
 
         # Powód z kolumny, którą dopasował SQL — ponowne liczenie z surowego
         # pola w Pythonie gubiłoby wiersze (np. adres mobilny `/mwlite/in/…`).

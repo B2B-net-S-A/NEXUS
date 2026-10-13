@@ -39,6 +39,16 @@ zapominali, że mają coś kliknąć”).
   w `next.config.ts`): odświeżenie, nowa karta i karta przywrócona przez
   przeglądarkę zawsze dostają aktualny dokument. Reguła omija `/_next/` i pliki
   z rozszerzeniem — plikom statycznym roczne `immutable` ma zostać.
+- **Poprawki po audycie 13.10.2026 (14.10.2026).** Pobieranie i zapis
+  zwykłym `fetch` (poza `api`) też wstrzymują przeładowanie: owijaj je
+  w `trackTransfer(() => …)` z `components/AppVersionGuard.tsx` (licznik
+  modułu, schodzi także po błędzie; blokuje i spokojną chwilę, i zmianę
+  strony). Używa go ZIP z CV (`lib/bulk-cv-download.ts`); audyt pokazał, że
+  bez tego przeładowanie mogło przerwać plik. Gdy przeładowanie dla tej wersji
+  już było (albo `sessionStorage` jest zablokowany), karta sama się nie
+  wczyta — komunikat mówi wtedy „…ta karta nie wczytała jej sama — kliknij
+  „Odśwież teraz””, a nie „Wczyta się sama…”, bo ta obietnica była fałszywa.
+
 - Czego nie robić: nie przeładowywać strony, na której ktoś pisze (kasuje
   tekst); nie przechowywać `/version.json` (pytanie idzie z `no-store`
   i parametrem czasu); nie dokładać komunikatu, który wymaga kliknięcia.

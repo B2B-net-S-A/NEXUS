@@ -449,6 +449,7 @@ export function JobInterviewsTab({
       {pendingTerminal && (
         <RejectionV2
           open
+          pending={terminalMutation.isPending}
           onOpenChange={(o) => !o && setPendingTerminal(null)}
           terminalType={pendingTerminal.terminal}
           reasons={rejectionReasons}

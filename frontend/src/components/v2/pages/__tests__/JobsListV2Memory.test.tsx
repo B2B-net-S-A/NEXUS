@@ -383,4 +383,60 @@ describe("JobsListV2 — pamięć ostatnich filtrów", () => {
     await waitFor(() => expect(latestParams().mine).toBeUndefined());
     expect(stored(7)).toBe("open=1");
   });
+
+  // Audyt 13.10.2026: zapisy adresu są dla routera Next niewidoczne, więc link
+  // na adres, który router już ma (sprzed tych zapisów), nie zmieniał
+  // `useSearchParams` — lista zostawała przy starym widoku.
+  it("link na adres sprzed natywnego zapisu też pokazuje widok z linku", async () => {
+    setAddress("stage=champion");
+    const user = userEvent.setup();
+    renderJobs();
+    await waitFor(() => expect(latestParams()).toMatchObject({ request_stage: ["champion"] }));
+    await user.click(stagePill(/Szukamy/));
+    await waitFor(() =>
+      expect(latestParams()).toMatchObject({ request_stage: ["champion", "searching"] }),
+    );
+    await waitFor(() => expect(stored()).toBe("stage=champion&stage=searching"));
+    // Router nadal zna „stage=champion” — tak, jak na produkcji po zapisie natywnym.
+    expect(navState.search).toBe("stage=champion");
+
+    render(
+      <a href="/jobs?stage=champion" onClick={(event) => event.preventDefault()}>
+        Kafel Champion
+      </a>,
+    );
+    await user.click(screen.getByRole("link", { name: "Kafel Champion" }));
+
+    await waitFor(() => expect(latestParams()).toMatchObject({ request_stage: ["champion"] }));
+    expect(stagePill(/Szukamy/)).not.toHaveAttribute("aria-pressed", "true");
+    // Link nie nadpisuje pamięci.
+    expect(stored()).toBe("stage=champion&stage=searching");
+  });
+
+  it("klik z Ctrl (nowa karta) i link na inną stronę nie ruszają widoku", async () => {
+    setAddress("stage=champion");
+    const user = userEvent.setup();
+    renderJobs();
+    await user.click(await waitFor(() => stagePill(/Szukamy/)));
+    await waitFor(() =>
+      expect(latestParams()).toMatchObject({ request_stage: ["champion", "searching"] }),
+    );
+
+    render(
+      <>
+        <a href="/jobs?stage=champion" onClick={(event) => event.preventDefault()}>
+          Nowa karta
+        </a>
+        <a href="/candidates?stage=champion" onClick={(event) => event.preventDefault()}>
+          Kandydaci
+        </a>
+      </>,
+    );
+    await user.keyboard("{Control>}");
+    await user.click(screen.getByRole("link", { name: "Nowa karta" }));
+    await user.keyboard("{/Control}");
+    await user.click(screen.getByRole("link", { name: "Kandydaci" }));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(latestParams()).toMatchObject({ request_stage: ["champion", "searching"] });
+  });
 });

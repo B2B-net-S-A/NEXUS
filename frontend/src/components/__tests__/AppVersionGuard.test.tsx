@@ -61,6 +61,7 @@ vi.mock("@/lib/app-version", async (importOriginal) => {
 
 import {
   AppVersionGuard,
+  trackTransfer,
   VERSION_CHECK_EVERY_MS,
   VERSION_IDLE_BEFORE_RELOAD_MS,
 } from "@/components/AppVersionGuard";
@@ -262,5 +263,70 @@ describe("AppVersionGuard — nowa wersja wczytuje się sama", () => {
     await flush();
     await pass(VERSION_CHECK_EVERY_MS * 2);
     expect(mocks.fetchDeployedSha).not.toHaveBeenCalled();
+  });
+});
+
+// Audyt 13.10.2026: po nieudanym przeładowaniu komunikat obiecywał „wczyta się
+// sama”, choć drugiego przeładowania dla tej wersji już nie będzie; pobieranie
+// zwykłym `fetch` (ZIP z CV, eksport XLSX) nie wstrzymywało przeładowania.
+describe("AppVersionGuard — poprawki po audycie 13.10.2026", () => {
+  it("po przeładowaniu, które nic nie dało, komunikat prosi o „Odśwież teraz” zamiast obiecywać", async () => {
+    mocks.fetchDeployedSha.mockResolvedValue(NEW);
+    mocks.reloadOnceForVersion.mockReturnValue(false);
+    render(<AppVersionGuard />);
+    await flush();
+    await pass(15_000);
+    expect(notice()).not.toBeNull();
+    expect(notice()).not.toHaveTextContent("Wczyta się sama");
+    expect(notice()).toHaveTextContent("kliknij „Odśwież teraz”");
+  });
+
+  it("zwykła blokada (wpisany tekst) zostawia komunikat „wczyta się sama”", async () => {
+    await openThenDeploy();
+    const note = screen.getByLabelText("Notatka");
+    fireEvent.keyDown(note, { key: "a" });
+    fireEvent.input(note, { target: { value: "x" } });
+    await pass(VERSION_CHECK_EVERY_MS + 1_000);
+    expect(notice()).toHaveTextContent("Wczyta się sama, gdy przejdziesz na inną stronę");
+  });
+
+  it("pobieranie zwykłym `fetch` (trackTransfer) wstrzymuje przeładowanie do końca — także przy zmianie strony", async () => {
+    const view = await openThenDeploy();
+    let finish: () => void = () => {};
+    const transfer = trackTransfer(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await pass(VERSION_CHECK_EVERY_MS + VERSION_IDLE_BEFORE_RELOAD_MS * 2);
+    expect(mocks.reloadOnceForVersion).not.toHaveBeenCalled();
+    mocks.pathname = "/candidates";
+    await act(async () => {
+      view.rerender(
+        <>
+          <AppVersionGuard />
+          <textarea aria-label="Notatka" />
+        </>,
+      );
+      await Promise.resolve();
+    });
+    expect(mocks.reloadOnceForVersion).not.toHaveBeenCalled();
+
+    await act(async () => {
+      finish();
+      await transfer;
+    });
+    await pass(15_000);
+    expect(mocks.reloadOnceForVersion).toHaveBeenCalledWith(NEW);
+  });
+
+  it("nieudane pobieranie też zwalnia blokadę", async () => {
+    await openThenDeploy();
+    await act(async () => {
+      await expect(trackTransfer(() => Promise.reject(new Error("403")))).rejects.toThrow("403");
+    });
+    await pass(VERSION_CHECK_EVERY_MS + VERSION_IDLE_BEFORE_RELOAD_MS + 1_000);
+    expect(mocks.reloadOnceForVersion).toHaveBeenCalledWith(NEW);
   });
 });

@@ -45,6 +45,16 @@ czysty start (reguła z audytu rundy 10, R10-N15-12 — odwrócona tą zmianą).
   Skutek uboczny, świadomie zostawiony: po kliknięciu „Rekrutacje” na liście
   otwartej z gołego adresu pasek adresu bywa goły do następnej zmiany filtra —
   filtry stoją na ekranie, a „Wstecz” i F5 oddają ten sam widok z pamięci.
+- **Link na adres, który router już zna (14.10.2026).** Audyt 13.10 pokazał,
+  że link z parametrami równymi adresowi sprzed naszych zapisów (router go
+  nadal pamięta) nie zmieniał `useSearchParams`, więc lista zostawała przy
+  starym widoku. `JobsListV2` łapie wtedy klik sam (nasłuch `click` na
+  `document`): zwykły klik lewym przyciskiem w `<a>` na tę samą ścieżkę,
+  z kluczem listy i zapytaniem równym temu, które zna router → widok z linku
+  (`viewOrigin = "link"`, pamięć bez zmian). Ctrl/Cmd/Shift/Alt, `target`
+  inny niż `_self`, `download`, inna ścieżka i goły `/jobs` idą jak dotąd.
+  `router.push` z kodu na taki adres nadal nic nie zmieni — nowe miejsca,
+  które prowadzą na listę z parametrami, niech będą linkami.
 - **Harness `/preview/jobs-list-v3`** podaje własny klucz (`memoryKey`), bo
   loguje fikcyjne konto o id 1. Testy plików, które klikają filtry listy,
   czyszczą `localStorage` w `beforeEach` — inaczej goły adres następnego testu

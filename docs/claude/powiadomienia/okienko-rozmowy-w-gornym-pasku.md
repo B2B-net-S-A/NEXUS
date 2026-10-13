@@ -98,3 +98,12 @@ https://claude.ai/artifact/Nt9BUPasXNjSYpZGmEpf37, raport
 - Harness `/preview/interview-notifications` (części prezentacyjne
   `InterviewsTopbarButton`, `InterviewsPanel` na prawdziwym
   `buildInterviewWindow`; zero zapytań).
+- **Pusty stan i „Oznacz nowe” (14.10.2026, po audycie 13.10).** „Nic nie
+  czeka” pokazywało się, gdy doszło tylko jedno z dwóch zapytań. Teraz bez
+  wierszy okienko pokazuje „Wczytuję rozmowy…”, dopóki drugie źródło nie
+  odpowie albo nie padnie; wiersze z pierwszego są widoczne od razu, a pusty
+  stan wychodzi tylko wtedy, gdy oba źródła mają dane (awaria jednego to pasek
+  „Nie udało się wczytać…”, nie pustka). „Oznacz nowe” stoi tylko przy
+  własnych nowych, które okienko pokazuje (`unreadIds` wierszy) —
+  powiadomienie schowane (nieaktualne, przypomnienie po starcie wydarzenia)
+  nie daje przycisku. Sama akcja dalej gasi wszystkie własne.
