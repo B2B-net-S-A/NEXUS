@@ -607,8 +607,14 @@ async def rotate_unsafe_job_slugs(
 ) -> list[tuple[str, str]]:
     """Nowy slug dla aktywnych linków rekrutacji, których adres nie przechodzi
     kontroli. Wołane przy zatwierdzeniu opisu: stary adres z nazwą klienta
-    przestaje działać (404), a lista linków pokazuje nowy."""
+    przestaje działać (404), a lista linków pokazuje nowy.
+
+    Kontrola czyta część sluga pochodzącą z tytułu (``job_slug_content``).
+    Losowa końcówka trafiała we wzorce kwot („…-zl1v” raz na ok. 1800 linków)
+    i zatwierdzenie opisu wymieniało wtedy rozesłany adres bez powodu.
+    """
     from app.models.invite_link import CandidateInviteLink
+    from app.services.career_slugs import job_slug_content
 
     rows = (
         await db.execute(
@@ -622,7 +628,7 @@ async def rotate_unsafe_job_slugs(
     ).scalars()
     changed: list[tuple[str, str]] = []
     for link in rows:
-        if not await slug_findings(db, job, link.slug):
+        if not await slug_findings(db, job, job_slug_content(link.slug)):
             continue
         old_slug = link.slug
         link.slug = await safe_job_slug(db, job, title)

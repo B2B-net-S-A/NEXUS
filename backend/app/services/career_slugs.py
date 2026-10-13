@@ -95,6 +95,15 @@ def job_slug_base(title: str | None) -> str:
     return base or "rekrutacja"
 
 
+def job_slug_content(slug: str | None) -> str:
+    """Slug linku rekrutacji bez losowej końcówki — część, która pochodzi
+    z tytułu. Tylko ją czyta kontrola treści: końcówkę dopisujemy sami i nic
+    nie znaczy, a potrafi wyglądać jak kwota („…-zl1v”, „…-1czk”)."""
+    value = slug or ""
+    head, _dash, _suffix = value.rpartition("-")
+    return head or value
+
+
 async def generate_job_slug(db: AsyncSession, title: str | None) -> str:
     """Slug linku rekrutacji, unikalny w tabeli linków."""
     base = job_slug_base(title)

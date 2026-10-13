@@ -101,7 +101,19 @@ def test_contact_and_person_names_are_found():
         "budżet projektu 2 mln PLN",
         "do 30 tys. netto",
         "180 netto/h + VAT",
+        "15 000 brutto",
         "180 ＰＬＮ",
+        # Skrót „tys.” przed wielką literą nie kończy zdania — cięcie w tym
+        # miejscu chowało najzwyklejszy zapis kwoty przed każdym wzorcem.
+        "do 30 tys. PLN",
+        "15 tys. EUR miesięcznie",
+        "30 tys. Netto",
+        "do 30 tys. Złotych miesięcznie",
+        "WYNAGRODZENIE: 15 000 ZŁOTYCH",
+        # Kropka po słowie nie jest częścią liczby.
+        "stawka ok.180 zł",
+        "5 000 brutto",
+        "2 000 netto miesięcznie",
     ],
 )
 def test_amounts_in_words_and_net_gross_are_found(text: str):
@@ -120,6 +132,7 @@ def test_amounts_in_words_and_net_gross_are_found(text: str):
         "aplikuj: https://przyklad.example/apply",
         "www.kariera.przyklad.example/oferta/17",
         "jan＠example.com",
+        "tel22 555 12 34",
     ],
 )
 def test_links_other_phone_formats_and_spelled_out_addresses_are_found(text: str):
@@ -138,6 +151,11 @@ def test_links_other_phone_formats_and_spelled_out_addresses_are_found(text: str
         ("stawka 180\u200b zł/h", "money"),
         ("tel. 600\u200b100\u200b200", "contact"),
         ("pisz: jan\u200b@example.com", "contact"),
+        # Niewidoczne, a bez kategorii „format”: łącznik grafemów, selektor
+        # wariantu, wypełniacz hangul.
+        ("Infrastruktura klienta Kwar\u034fcowy Bank.", "client_name"),
+        ("stawka 180\ufe0f zł/h", "money"),
+        ("tel. 600\u3164100\u3164200", "contact"),
     ],
 )
 def test_invisible_characters_do_not_hide_a_finding(text: str, code: str):
@@ -156,6 +174,13 @@ def test_invisible_characters_do_not_hide_a_finding(text: str, code: str):
         "Start: listopad 2026, kontrakt na 12 miesięcy",
         "Produkt opisuje strona produkt-demo.pl",
         "ISO 27001, RODO, 3 lata w bankowości",
+        # Przegląd 13.10.2026 — fałszywe alarmy pierwszej wersji wzorców:
+        "Komunikacja z zespołami w Niemczech, Austrii (AT) i Szwajcarii (CH).",
+        "Aktualizacja algorytmu płac wg przepisów 2024 brutto/netto.",
+        "Kalkulator w wersji 2 brutto/netto",
+        "Biuro: Warszawa, 00-120 Złota 59",
+        "Organizujemy 2 zloty firmowe rocznie.",
+        "10k requestów/s, dostępność 24/7, 3/4 etatu",
     ],
 )
 def test_new_rules_leave_ordinary_text_alone(text: str):
@@ -178,6 +203,66 @@ def test_job_link_slugs_do_not_trip_the_new_rules(slug: str):
     assert lint_public_texts([slug]) == [], slug
 
 
+@pytest.mark.parametrize(
+    "slug",
+    [
+        # Końcówki, które trafiały we wzorce kwot: „zl” + cyfra (od początku
+        # istnienia kontroli, raz na ok. 1800 linków) i cyfra + kod waluty.
+        "senior-java-developer-zl1v",
+        "senior-java-developer-41zl",
+        "senior-java-developer-1czk",
+        "rekrutacja-9uah",
+    ],
+)
+def test_random_suffix_of_a_job_slug_is_not_content(slug: str):
+    """Losową końcówkę dopisujemy sami. Kontrola czyta część z tytułu —
+    inaczej zatwierdzenie opisu wymieniało rozesłany adres bez powodu."""
+    assert lint_public_texts([slug]) != []
+    assert lint_public_texts([career_slugs.job_slug_content(slug)]) == []
+
+
+def test_job_slug_content_keeps_what_comes_from_the_title():
+    assert career_slugs.job_slug_content("java-developer-nordea-ab12") == (
+        "java-developer-nordea"
+    )
+    assert career_slugs.job_slug_content("rekrutacja-ab12") == "rekrutacja"
+    assert career_slugs.job_slug_content("rekrutacja") == "rekrutacja"
+    assert career_slugs.job_slug_content(None) == ""
+    # Nazwa klienta w części z tytułu nadal jest znaleziskiem.
+    content = career_slugs.job_slug_content("java-developer-nordea-ab12")
+    assert _codes(lint_public_texts([content], client_names=["Nordea"])) == [
+        "client_name"
+    ]
+
+
+def test_amount_start_guard_does_not_change_what_matches():
+    """Liczba startuje tylko od pierwszej cyfry ciągu (ochrona przed
+    kwadratowym czasem). To nie może zmienić wyniku żadnego wzorca kwoty."""
+    import random
+    import re
+
+    from app.services.public_profile_lint import CERTAIN_MONEY_PATTERNS
+
+    guard = r"(?<!\d)(?<!\d[\s.,])(?<!\d[\s.,][\s.,])"
+    pairs = [
+        (pattern, re.compile(pattern.pattern.replace(guard, ""), pattern.flags))
+        for pattern in CERTAIN_MONEY_PATTERNS
+        # Wzorzec „N netto” bez mnożnika ma własną regułę (nie rok, nie cyfra).
+        if guard in pattern.pattern and "(?!(?:(?:19|20)" not in pattern.pattern
+    ]
+    assert len(pairs) == 5
+    tokens = ["1", "20", "180", "5 000", " ", "  ", ".", ",", "zł", "PLN", "k", "tys.",
+              "mln", "/h", "/ MD", "netto", "złotych", "CZK", "x", "ok.", "wersja", "-"]  # fmt: skip
+    rng = random.Random(20261013)
+    for _ in range(20000):
+        text = "".join(rng.choice(tokens) for _ in range(rng.randint(1, 9)))
+        for guarded, plain in pairs:
+            assert bool(guarded.search(text)) == bool(plain.search(text)), (
+                text,
+                guarded.pattern,
+            )
+
+
 def test_money_patterns_stay_linear_on_long_whitespace():
     """Liczba, po której idzie długi ciąg spacji bez waluty, liczyła się
     sześciennie: 800 spacji = kilkanaście sekund na pętli zdarzeń, a opis
@@ -194,6 +279,11 @@ def test_money_patterns_stay_linear_on_long_whitespace():
                 "+1" + "  1" * 1300 + "x",  # „+” i cyfry rozdzielone dwiema spacjami
                 "12 345 67 8 " * 330,  # prawie numer stacjonarny
                 "1 " * 1990 + "nett",  # liczby bez „netto”
+                # NFKC wydłuża tekst: „⒛” to „20.”, U+1F101 to „0,” — 4000
+                # takich znaków dawało ponad 2 s, zanim liczba dostała start
+                # tylko od pierwszej cyfry ciągu.
+                "\u249b" * 4000 + "x",
+                "\U0001f101" * 4000 + "x",
             ]
         )
         == []

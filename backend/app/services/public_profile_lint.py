@@ -46,8 +46,19 @@ _RATE_UNIT = r"(?:h|godz\.?|godzin[ęy]?|md|mc|mies\.?|miesi[ąa]c|dzie[ńn]|dni
 # (sześciennie). Klasa liczby nie zawiera żadnego znaku, od którego zaczyna
 # się dalszy ciąg wzorca, więc dopasowania są te same.
 _NUMBER = r"\d[\d\s.,]*+"
+# Liczba na początku wzorca nie startuje ze ŚRODKA ciągu cyfr: gdy jeden do
+# dwóch znaków wcześniej stoi cyfra (z odstępem, kropką albo przecinkiem po
+# drodze), ta sama liczba zaczęła się już wcześniej i kończy w tym samym
+# miejscu — wynik jest ten sam. Bez tego długi ciąg cyfr i kropek liczył się
+# kwadratowo, a NFKC go wydłuża („⒛” to po normalizacji „20.”): 4000 takich
+# znaków dawało sekundy na pętli zdarzeń. Kropka po słowie („ok.180 zł”) nie
+# należy do liczby, więc startu nie blokuje.
+_RUN_START = r"(?<!\d)(?<!\d[\s.,])(?<!\d[\s.,][\s.,])"
+_AMOUNT = rf"{_RUN_START}{_NUMBER}"
 _MULTIPLIER = r"(?:k|tys\.?|tysi[ęe]cy|mln|mld)"
-_CURRENCY_WORD = r"(?:z[łl]ot\w*|dolar\w*|funt\w*|czk|nok|dkk|huf|uah)"
+# Tylko formy, w których „złoty” jest walutą. „00-120 Złota 59” to adres,
+# a „zlot” bez „ł” to także zjazd („2 zloty firmowe rocznie”).
+_CURRENCY_WORD = r"(?:złot(?:ych|ego|ówk\w*|e|y)|dolar\w*|funt\w*|czk|nok|dkk|huf|uah)"
 
 # Kwota „na pewno”: liczba z walutą albo ze stawką za jednostkę czasu.
 # Ogłoszenie na portale (`job_ad.lint`) blokuje kopiowanie tylko przy nich,
@@ -55,24 +66,31 @@ _CURRENCY_WORD = r"(?:z[łl]ot\w*|dolar\w*|funt\w*|czk|nok|dkk|huf|uah)"
 CERTAIN_MONEY_PATTERNS = (
     # „180 zł", „25 000 PLN", „20k PLN", „15 tys. zł"
     re.compile(
-        rf"{_NUMBER}\s*(?:k|tys\.?|tysi[ęe]cy)?\s*{_CURRENCY}(?![a-ząćęłńóśźż])",
+        rf"{_AMOUNT}\s*(?:k|tys\.?|tysi[ęe]cy)?\s*{_CURRENCY}(?![a-ząćęłńóśźż])",
         re.IGNORECASE,
     ),
     # „PLN 180", „zł 150"
     re.compile(rf"(?<![a-ząćęłńóśźż]){_CURRENCY}\s*{_NUMBER}", re.IGNORECASE),
     # „180/h", „25k/mc", „1200 / MD", „k/h"
-    re.compile(rf"(?:{_NUMBER}\s*k?|\bk)\s*/\s*{_RATE_UNIT}\b", re.IGNORECASE),
+    re.compile(rf"(?:{_AMOUNT}\s*k?|\bk)\s*/\s*{_RATE_UNIT}\b", re.IGNORECASE),
     # „200 złotych", „20 tysięcy złotych", „150 dolarów", „3000 CZK"
     re.compile(
-        rf"{_NUMBER}\s*{_MULTIPLIER}?\s*{_CURRENCY_WORD}(?![a-ząćęłńóśźż])",
+        rf"{_AMOUNT}\s*{_MULTIPLIER}?\s*{_CURRENCY_WORD}(?![a-ząćęłńóśźż])",
         re.IGNORECASE,
     ),
     # „2 mln PLN"
     re.compile(
-        rf"{_NUMBER}\s*(?:mln|mld)\s*{_CURRENCY}(?![a-ząćęłńóśźż])", re.IGNORECASE
+        rf"{_AMOUNT}\s*(?:mln|mld)\s*{_CURRENCY}(?![a-ząćęłńóśźż])", re.IGNORECASE
     ),
-    # „30 tys. netto", „25k brutto", „180 netto/h"
-    re.compile(rf"{_NUMBER}\s*{_MULTIPLIER}?\s*(?:netto|brutto)\b", re.IGNORECASE),
+    # „30 tys. netto", „25k brutto"
+    re.compile(rf"{_AMOUNT}\s*{_MULTIPLIER}\s*(?:netto|brutto)\b", re.IGNORECASE),
+    # „180 netto/h", „15 000 brutto" — ale nie sam rok ani pojedyncza cyfra:
+    # „przepisy 2024 brutto/netto” i „wersja 2 brutto/netto” to nie kwoty.
+    re.compile(
+        rf"{_RUN_START}(?!(?:(?:19|20)\d\d|\d)\s*(?:netto|brutto)){_NUMBER}"
+        r"(?:netto|brutto)\b",
+        re.IGNORECASE,
+    ),
 )
 _MONEY_PATTERNS = (
     *CERTAIN_MONEY_PATTERNS,
@@ -93,17 +111,17 @@ _PHONE = re.compile(r"(?<!\d)(?:\+\d{2}[\s-]?)?\d{3}[\s-]?\d{3}[\s-]?\d{3}(?!\d)
 # „.net”, „.io”, „.js” to nazwy technologii (ASP.NET, socket.io, Node.js).
 _LINK = re.compile(r"\bhttps?://\S+|\bwww\.\S+", re.IGNORECASE)
 # „jan [at] firma", „jan(at)firma(dot)pl". Start tylko na początku ciągu
-# znaków adresu i kwantyfikator zaborczy — jak w ``_EMAIL``.
+# znaków adresu i kwantyfikator zaborczy — jak w ``_EMAIL``. Tylko małymi
+# literami: „Austria (AT) i Szwajcaria (CH)” to kody krajów.
 _SPELLED_EMAIL = re.compile(
-    r"(?<![\w.+-])[\w.+-]++\s*[\[(]\s*(?:at|ma[łl]pa)\s*[\])]\s*[\w-]+",
-    re.IGNORECASE,
+    r"(?<![\w.+-])[\w.+-]++\s*[\[(]\s*(?:at|ma[łl]pa)\s*[\])]\s*[\w-]+"
 )
 # „+48 22 555 12 34", „+49 170 1234567"
 _PHONE_INTL = re.compile(r"\+\d{1,3}[\s-]?\d(?:[\s-]?\d){7,11}(?!\d)")
-# „22 555 12 34", „(22) 555-12-34". Nie w środku ciągu z łącznikami: slug linku
-# rekrutacji też przechodzi kontrolę, a nietrafiony adres jest wymieniany.
+# „22 555 12 34", „(22) 555-12-34". Nie po cyfrze ani łączniku: slug linku
+# rekrutacji też przechodzi kontrolę („tester-22-555-12-34-…”).
 _PHONE_LANDLINE = re.compile(
-    r"(?<![\w-])\(?\d{2}\)?[\s-]\d{3}[\s-]\d{2}[\s-]\d{2}(?!\d)"
+    r"(?<![\d-])\(?\d{2}\)?[\s-]\d{3}[\s-]\d{2}[\s-]\d{2}(?!\d)"
 )
 _CONTACT_PATTERNS = (
     _EMAIL,
@@ -114,8 +132,12 @@ _CONTACT_PATTERNS = (
     _PHONE_LANDLINE,
 )
 # Zdanie kończy się kropką, po której zaczyna się wielka litera — skróty
-# („tys. zł", „godz.") nie tną zdania w pół kwoty.
-_SEGMENT_SPLIT = re.compile(r"(?<=[.!?;])\s+(?=[A-ZĄĆĘŁŃÓŚŹŻ0-9])|\n+")
+# („tys. zł", „godz.") nie tną zdania w pół kwoty. „tys.”, „godz.” i „mies.”
+# nie kończą zdania nawet przed wielką literą: „30 tys. PLN” to najzwyklejszy
+# zapis kwoty, a cięcie po „tys.” chowało go przed każdym wzorcem.
+_SEGMENT_SPLIT = re.compile(
+    r"(?<=[.!?;])(?<!\btys\.)(?<!\bgodz\.)(?<!\bmies\.)\s+(?=[A-ZĄĆĘŁŃÓŚŹŻ0-9])|\n+"
+)
 
 
 @dataclass(frozen=True)
@@ -128,8 +150,18 @@ class Finding:
         return asdict(self)
 
 
+# Znaki, których nie widać, a nie mają kategorii „format”: wypełniacze hangul,
+# pusty znak Braille'a i dwa znaki khmerskie. W środku słowa rozcinają nazwę
+# klienta albo kwotę tak samo jak miękki łącznik.
+_INVISIBLE = frozenset("\u115f\u1160\u3164\uffa0\u2800\u17b4\u17b5")
+# Cf — znaki formatujące (miękki łącznik, spacja zerowej szerokości, BOM);
+# Mn i Me — znaki łączące, które zostały PO złożeniu NFKC (selektory wariantu,
+# U+034F): polskie litery są wtedy pojedynczymi znakami i nic nie tracą.
+_DROPPED_CATEGORIES = frozenset({"Cf", "Mn", "Me"})
+
+
 def for_lint(text: str) -> str:
-    """Tekst do porównań: NFKC i bez znaków formatujących (kategoria Cf).
+    """Tekst do porównań: NFKC i bez znaków, których nie widać.
 
     Tekst wklejony z Worda albo PDF-a niesie miękkie łączniki (U+00AD)
     i spacje zerowej szerokości (U+200B). Człowiek ich nie widzi, a nazwa
@@ -140,7 +172,7 @@ def for_lint(text: str) -> str:
     return "".join(
         ch
         for ch in unicodedata.normalize("NFKC", text)
-        if unicodedata.category(ch) != "Cf"
+        if ch not in _INVISIBLE and unicodedata.category(ch) not in _DROPPED_CATEGORIES
     )
 
 
