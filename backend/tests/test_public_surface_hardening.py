@@ -60,7 +60,7 @@ _RATE_LIMITED_MODULES = (
     "api/recommendation_card_assist.py",
     # Pliki rekrutacji (0428): upload do 20 MB na żądanie.
     "api/job_files.py",
-    # AI na zaznaczeniu w edytorze CV (0432): każde wywołanie to płatny model.
+    # AI na zaznaczeniu w edytorze CV (0433): każde wywołanie to płatny model.
     "api/cv_editor_ai.py",
 )
 

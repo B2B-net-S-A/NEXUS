@@ -18,7 +18,7 @@ decyzji. Reguły: `docs/claude/generator-cv/edytor-cv-pelny-ekran.md`, sekcja
 | Gdy AI nie działa | Karta mówi „chwilowo niedostępna”, edytor działa dalej |
 
 Backend: trasa `POST /api/pipeline/stages/{id}/cv-ai/selection`, klucz AI
-`cv_selection_edit` (F30), migracja `0432_cv_selection_edit_ai_key` z lustrem
+`cv_selection_edit` (F30), migracja `0433_cv_selection_edit_ai_key` z lustrem
 w `entrypoint.sh` (sama wartość enumu i wiersz ustawień — bez zmian tabel).
 
 ## Decyzje przyjęte domyślnie (do wiadomości Artura)

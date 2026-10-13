@@ -1,7 +1,7 @@
 """Klucz AI „AI na zaznaczonym fragmencie” w edytorze CV (13.10.2026).
 
-Revision ID: 0432_cv_selection_edit_ai_key
-Revises: 0431_consultant_elsewhere_notif
+Revision ID: 0433_cv_selection_edit_ai_key
+Revises: 0432_job_ad_publications
 
 Edytor CV 2, PR 3: ``cv_selection_edit`` — skróć, rozwiń z oryginału,
 przeredaguj, popraw język, na angielski. Trasa niczego nie zapisuje w szkicu
@@ -10,8 +10,8 @@ CV, więc schemat się nie zmienia. Lustro w ``entrypoint.sh``.
 
 from alembic import op
 
-revision = "0432_cv_selection_edit_ai_key"
-down_revision = "0431_consultant_elsewhere_notif"
+revision = "0433_cv_selection_edit_ai_key"
+down_revision = "0432_job_ad_publications"
 branch_labels = None
 depends_on = None
 
@@ -36,7 +36,7 @@ BEGIN
     IF EXISTS (
         SELECT 1 FROM ai_usage_log WHERE feature::text = '{_KEY}'
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0432 odmawia: ai_usage_log ma wpisy AI na zaznaczeniu w edytorze CV, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0433 odmawia: ai_usage_log ma wpisy AI na zaznaczeniu w edytorze CV, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 
