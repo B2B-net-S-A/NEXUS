@@ -31,7 +31,11 @@ z tych informacji ma swoje pole.
   odmowy): `/from-linkedin`, `/bulk-import` (przed walidacją), imię z odczytu CV
   (`/from-cv`, `/cv/preview`, uzupełnianie z CV), import CSV, załączniki M365,
   strona kariery i link zgłoszeń, zgłoszenia, poczta zamówień, scalanie, mapper
-  Traffita. Pole, które było samym dopiskiem, zostaje bez zmian (puste imię
+  Traffita, import Talent Radar. Testy: `test_candidate_name_marker_paths.py`
+  (nowa ścieżka zakładająca kandydata z danych z zewnątrz → dopisz ją tam).
+- **Wartości dłuższej niż 200 znaków reguła nie skanuje**
+  (`MAX_SCANNED_NAME_LENGTH`): wzorce są kwadratowe na długim ciągu spacji,
+  a import zbiorczy i CSV wołają regułę przed walidacją długości pola (100). Pole, które było samym dopiskiem, zostaje bez zmian (puste imię
   jest gorsze); mapper i korekta 0436 wpisują wtedy „?”.
 - **Mapper Traffita używa tej samej funkcji** — import nie przywróci tego, co
   zdjęła korekta. Zdjęty dopisek idzie do `cv_extracted_data.traffit_name_marker`
