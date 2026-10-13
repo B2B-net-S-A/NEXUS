@@ -66,7 +66,11 @@ from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus, ContractType
 from app.models.user import User, UserRole
-from app.services.access_scope import resolve_delivery_lead_finance_client_ids
+from app.services.access_scope import (
+    assert_delivery_lead_client_visible,
+    resolve_delivery_lead_client_ids,
+    resolve_delivery_lead_finance_client_ids,
+)
 from app.services.action_permissions import (
     ActionAccess,
     ProductAction,
@@ -313,6 +317,33 @@ async def _authorize_document_write(
         await _assert_generator_client_access(db, user, doc.client_id, write=True)
 
 
+def _binds_contracts(user: User) -> bool:
+    """Kto wiąże aneks z kontraktem: wybiera kontrakt bez umowy w rejestrze,
+    dowiązuje do niego wiersz rejestru albo aneks „Bez kontraktu”.
+
+    Generator stoi za sekcją Sourcing i jest otwarty dla każdej roli
+    operacyjnej, a kontrakt to dane Delivery. Bez tej bramki rekruter widział
+    w wyszukiwarce cudze kontrakty i wiązał z nimi aneksy samym ``contract_id``
+    (przegląd bezpieczeństwa 13.10.2026). Para jak przy trasie ``/amendments``
+    modułu Kontrakty i przy skutku podpisu
+    (``effects.contract_effect_permission`` + ``can_write_delivery``)."""
+    return has_permission(
+        user, ProductAction.contracts_orders_edit
+    ) and effects.can_write_delivery(user)
+
+
+def _require_contract_binding(user: User) -> None:
+    ensure_permission(user, ProductAction.contracts_orders_edit)
+    if not effects.can_write_delivery(user):
+        raise HTTPException(status_code=403, detail=effects.DELIVERY_WRITE_BLOCKER)
+
+
+def _in_delivery_scope(client_id: int | None, allowed: frozenset[int] | None) -> bool:
+    """``allowed`` z ``resolve_delivery_lead_client_ids``: ``None`` = konto bez
+    granicy portfela Delivery Leada."""
+    return allowed is None or (client_id is not None and client_id in allowed)
+
+
 def _client_label(client: Client | None) -> str | None:
     if client is None:
         return None
@@ -547,12 +578,7 @@ async def _resolve_subject(
 
 
 def _takes_contract(doc_type: DocumentType) -> bool:
-    """Aneks, który można wystawić do kontraktu bez umowy w rejestrze: trzy
-    typy „umowy spoza NEXUSA” i aneks zlecenia (zlecenia nie mają wierszy
-    w rejestrze umów B2B)."""
-    return doc_type.family == "annex" and (
-        doc_type.allows_external or doc_type.parent == "mandate"
-    )
+    return effects.annex_takes_contract(doc_type)
 
 
 def _subject_contract_type(doc_type: DocumentType) -> ContractType:
@@ -568,7 +594,9 @@ async def _load_subject_contract(
     nie było go w żadnej liście i podpis nie zmieniał kontraktu. Żądanie niesie
     samo id — osobę, rekrutację i klienta dokumentu bierze serwer z kontraktu,
     żeby nie dało się podpiąć aneksu pod dowolną osobę albo klienta spoza
-    zakresu wołającego."""
+    zakresu wołającego. Prawo edycji kontraktów sprawdzamy PRZED odczytem —
+    odmowa nie zdradza, czy kontrakt o tym id istnieje."""
+    _require_contract_binding(user)
     contract = await db.scalar(
         select(Contract)
         .where(Contract.id == contract_id)
@@ -576,6 +604,11 @@ async def _load_subject_contract(
     )
     if contract is None:
         raise HTTPException(status_code=404, detail="Kontrakt nie istnieje.")
+    # Portfel Delivery Leada jak w module Kontrakty (`_assert_contract`),
+    # potem zapis u klienta w domenie generatora.
+    assert_delivery_lead_client_visible(
+        contract.client_id, await resolve_delivery_lead_client_ids(user, db)
+    )
     await _assert_generator_client_access(db, user, contract.client_id, write=True)
     if contract.status == ContractStatus.void:
         raise HTTPException(
@@ -598,6 +631,8 @@ async def _lock_parent_linking_contract(
     db: AsyncSession,
     parent: B2BGeneratedContract,
     picked_contract_id: int | None,
+    *,
+    may_link: bool,
 ) -> tuple[B2BGeneratedContract, int | None]:
     """Zablokuj wiersz umowy bazowej; umowę bez kontraktu dowiąż do kontraktu
     tej osoby u tego klienta. Zwraca wiersz i id właśnie dowiązanego kontraktu.
@@ -608,9 +643,23 @@ async def _lock_parent_linking_contract(
     (``contract_termination_sync``) i wypowiedzeniu Partnera: trwający kontrakt
     B2B tej osoby u tego klienta bez własnej umowy w rejestrze. Jeden taki
     kontrakt dowiązujemy sami, przy kilku — tylko wskazany w żądaniu.
-    Kolejność blokad: kontrakt, potem wiersz (runda 6 audytu, LOCK-1)."""
+    Kolejność blokad: kontrakt, potem wiersz (runda 6 audytu, LOCK-1).
+
+    ``may_link`` = wołający prowadzi kontrakty tego klienta
+    (``_binds_contracts`` + portfel). Bez tego aneks powstaje, a wiersz zostaje
+    bez kontraktu — dowiązanie jest zapisem w Delivery, nie skutkiem ubocznym
+    wygenerowania dokumentu przez dowolnego użytkownika generatora."""
     target: int | None = None
-    if parent.contract_id is None:
+    if parent.contract_id is None and not may_link:
+        if picked_contract_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "Powiązanie umowy z kontraktem wymaga prawa edycji "
+                    "kontraktów tego klienta."
+                ),
+            )
+    elif parent.contract_id is None:
         live = await effects.live_contract_ids_for_unlinked_row(
             db,
             row_id=parent.id,
@@ -738,6 +787,8 @@ async def _serialize(
         can_manage = True
     except HTTPException:
         can_manage = False
+    binds = _binds_contracts(user)
+    delivery_boundary = await resolve_delivery_lead_client_ids(user, db)
     # Pola rejestru aneksów — jedno zapytanie na rodzaj danych, nie na wiersz.
     people: dict[int, str | None] = {}
     candidate_ids = {r.candidate_id for r in rows if r.candidate_id}
@@ -817,6 +868,8 @@ async def _serialize(
         can_link = (
             is_annex
             and can_manage
+            and binds
+            and _in_delivery_scope(row.client_id, delivery_boundary)
             and open_unsigned
             and (contract_id is None or contract_id in void_contracts)
             and (
@@ -1055,16 +1108,28 @@ async def document_subjects(
     osobno ominąłby wiersz rejestru i kolejkę „Aneks uzupełnienia danych”.
 
     ``contract_id`` = wejście z modułu Kontrakty („Wygeneruj dokument
-    aneksu”): podmiot tego jednego kontraktu, w domenie uprawnień generatora
-    (do 13.10.2026 kreator pytał o to trasę Delivery i dawał 403 bez wglądu
-    w kontrakty)."""
+    aneksu”): podmiot tego jednego kontraktu.
+
+    Umowy z rejestru widzi każdy, kto generuje dokumenty (jak ``GET
+    /generated``). Kontrakt to dane Delivery: wiersze ``kind="contract"``
+    i kontrakty pod umową bez powiązania dostaje tylko osoba, która może je
+    powiązać (``_binds_contracts``), a wejście przez ``contract_id`` — tylko
+    z podglądem Delivery; w obu przypadkach Delivery Lead w granicy portfela.
+    Odmowa to pusta lista, nie 403 — odpowiedź nie zdradza, czy kontrakt
+    istnieje."""
     _require_contract_generation(current_user)
     doc_type = _type_or_422(document_type)
     needle = (q or "").strip()
+    binds = _binds_contracts(current_user)
+    delivery_boundary = await resolve_delivery_lead_client_ids(current_user, db)
     anchor: Contract | None = None
     if contract_id is not None:
+        if not has_permission(current_user, ProductAction.delivery_view):
+            return []
         anchor = await db.get(Contract, contract_id)
-        if anchor is None:
+        if anchor is None or not _in_delivery_scope(
+            anchor.client_id, delivery_boundary
+        ):
             return []
         await _assert_generator_client_access(db, current_user, anchor.client_id)
     elif len(needle) < 2:
@@ -1087,32 +1152,54 @@ async def document_subjects(
             rows_query = rows_query.where(
                 B2BGeneratedContract.contract_kind == "mandate"
             )
-        if anchor is not None:
-            of_contract = [B2BGeneratedContract.contract_id == anchor.id]
-            if anchor.candidate_id is not None:
-                of_contract.append(
-                    and_(
-                        B2BGeneratedContract.contract_id.is_(None),
-                        B2BGeneratedContract.candidate_id == anchor.candidate_id,
-                        B2BGeneratedContract.client_id == anchor.client_id,
-                    )
+        newest_first = (
+            B2BGeneratedContract.created_at.desc(),
+            B2BGeneratedContract.id.desc(),
+        )
+        if anchor is None:
+            rows = (
+                await db.execute(
+                    rows_query.where(_generated_search_clause(needle))
+                    .order_by(*newest_first)
+                    .limit(SUBJECT_LIMIT)
                 )
-            rows_query = rows_query.where(or_(*of_contract))
+            ).all()
         else:
-            rows_query = rows_query.where(_generated_search_clause(needle))
-        rows = (
-            await db.execute(
-                rows_query.order_by(
-                    B2BGeneratedContract.created_at.desc(),
-                    B2BGeneratedContract.id.desc(),
-                ).limit(SUBJECT_LIMIT)
-            )
-        ).all()
+            # Umowa powiązana z kontraktem wygrywa. Kreator bierze pierwszy
+            # wynik bez pytania, a nowsza umowa tej osoby bez powiązania
+            # (wiersz z Excela ma datę importu) wypierała właściwą — dokument
+            # cytował wtedy nie tę umowę (przegląd kodu 13.10.2026).
+            rows = (
+                await db.execute(
+                    rows_query.where(B2BGeneratedContract.contract_id == anchor.id)
+                    .order_by(*newest_first)
+                    .limit(SUBJECT_LIMIT)
+                )
+            ).all()
+            if not rows and doc_type.family == "annex" and anchor.candidate_id:
+                # Umowa bez powiązania (ta sama osoba i klient) tylko dla
+                # aneksu — dowiąże wiersz do tego kontraktu — i tylko gdy jest
+                # jedna: przy kilku nie zgadujemy, człowiek wybiera w wyszukiwarce.
+                rows = (
+                    await db.execute(
+                        rows_query.where(
+                            B2BGeneratedContract.contract_id.is_(None),
+                            B2BGeneratedContract.candidate_id == anchor.candidate_id,
+                            B2BGeneratedContract.client_id == anchor.client_id,
+                        ).limit(2)
+                    )
+                ).all()
+                if len(rows) > 1:
+                    return []
 
         options_by_row: dict[int, list[int]] = {}
         if doc_type.family == "annex" and doc_type.parent == "b2b":
             for row, _name, _lastname in rows:
-                if row.contract_id is None:
+                if (
+                    row.contract_id is None
+                    and binds
+                    and _in_delivery_scope(row.client_id, delivery_boundary)
+                ):
                     options_by_row[
                         row.id
                     ] = await effects.live_contract_ids_for_unlinked_row(
@@ -1142,8 +1229,16 @@ async def document_subjects(
                     source=getattr(row, "source", None),
                     agreement_status=row.contract_status,
                     contract_id=row.contract_id,
+                    # Status powiązanego kontraktu niesie już wiersz „Umów
+                    # bieżących”; data startu kontraktu to dane Delivery.
                     contract_status=_status_value(linked.status) if linked else None,
-                    contract_start_date=linked.start_date if linked else None,
+                    contract_start_date=(
+                        linked.start_date
+                        if linked
+                        and binds
+                        and _in_delivery_scope(linked.client_id, delivery_boundary)
+                        else None
+                    ),
                     contract_options=[
                         SubjectContract(
                             contract_id=cid,
@@ -1162,7 +1257,7 @@ async def document_subjects(
                 )
             )
 
-    if _takes_contract(doc_type):
+    if _takes_contract(doc_type) and binds:
         live_agreement = (
             select(B2BGeneratedContract.id)
             .where(
@@ -1186,6 +1281,10 @@ async def document_subjects(
                 ~live_agreement,
             )
         )
+        if delivery_boundary is not None:
+            contracts_query = contracts_query.where(
+                Contract.client_id.in_(delivery_boundary)
+            )
         if offered_contract_ids:
             contracts_query = contracts_query.where(
                 Contract.id.notin_(offered_contract_ids)
@@ -1561,7 +1660,14 @@ async def create_document(
         # Wiersz rejestru zmienia się teraz — blokada, żeby dwa aneksy do tej
         # samej umowy nie zapisały sobie nawzajem stanu „sprzed”.
         parent, linked_contract_id = await _lock_parent_linking_contract(
-            db, parent, request.contract_id
+            db,
+            parent,
+            request.contract_id,
+            may_link=_binds_contracts(current_user)
+            and _in_delivery_scope(
+                parent.client_id,
+                await resolve_delivery_lead_client_ids(current_user, db),
+            ),
         )
         links["contract_id"] = parent.contract_id
     elif parent is not None and doc_type.allows_external:
@@ -1867,9 +1973,7 @@ async def rerender_document(
         "refs": request.refs,
         "base": _base_snapshot(base),
     }
-    if "register_before" in previous:
-        # Stan wiersza sprzed PIERWSZEGO wygenerowania — poprawka go nie zmienia.
-        payload["register_before"] = previous["register_before"]
+    payload.update(annex_register.carried(previous))
     doc.render_payload = payload
     if parent is not None and doc_type.allows_external:
         await annex_register.apply(db, doc, parent, values)
@@ -2147,6 +2251,8 @@ async def link_document_contract(
     LOCK-1). Dotychczasowego kontraktu nie blokujemy — podpis trzyma go
     i czeka na dokument, więc blokada w odwrotnej kolejności by się zakleszczyła."""
     _require_generated_contract_management(current_user)
+    # Powiązanie to zapis w Delivery — prawo generatora nie wystarcza.
+    _require_contract_binding(current_user)
     await db.execute(
         select(Contract.id).where(Contract.id == body.contract_id).with_for_update()
     )
@@ -2174,6 +2280,12 @@ async def link_document_contract(
                 ),
             )
         await _authorize_parent(db, current_user, parent)
+        # Kontrakt z listy dopasowań jest u klienta umowy — portfel Delivery
+        # Leada sprawdzamy na nim.
+        assert_delivery_lead_client_visible(
+            parent.client_id,
+            await resolve_delivery_lead_client_ids(current_user, db),
+        )
         live = await effects.live_contract_ids_for_unlinked_row(
             db,
             row_id=parent.id,

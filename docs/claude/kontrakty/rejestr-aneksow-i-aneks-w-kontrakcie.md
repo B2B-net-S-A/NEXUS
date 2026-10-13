@@ -1,6 +1,6 @@
 # Rejestr aneksów i aneks w kontrakcie od wygenerowania (13.10.2026)
 
-<!-- indeks: rejestr aneksów w „Generatorze aneksów”, jeden stan aneksu, aneks do umowy spoza Nexusa zapisany przy kontrakcie, „Bez kontraktu”, wybór osoby zamiast „Umowa spoza Nexusa”, dowiązanie umowy z Excela, skan podpisanego aneksu, zakładka „Aneksy” kontraktu jako rzut dokumentu, etykieta aneksu w „Umowach bieżących” -->
+<!-- indeks: rejestr aneksów w „Generatorze aneksów”, jeden stan aneksu, aneks do umowy spoza Nexusa zapisany przy kontrakcie, „Bez kontraktu”, wybór osoby zamiast „Umowa spoza Nexusa”, kto wiąże aneks z kontraktem (edycja kontraktów, nie samo prawo generatora), dowiązanie umowy z Excela, wiersz rejestru po „Popraw”, skan podpisanego aneksu, zakładka „Aneksy” kontraktu jako rzut dokumentu, etykieta aneksu w „Umowach bieżących” -->
 
 Ticket działu („Generator aneksów + zakładka Aneksy”) po przeglądzie z Arturem
 13.10.2026: połowa opisanych braków już działała (`b2b_contract_documents`,
@@ -15,7 +15,24 @@ spoza Nexusa — nie był zapisywany wcale. Raport:
   ma kontraktu w NEXUSIE — aneks zapisuje się przy kliencie (`client_id`
   wymagane, inaczej Delivery Lead by go nie widział), a podpis jest
   zablokowany do powiązania (`effects.NO_CONTRACT_BLOCKER`,
-  `POST /documents/{id}/link-contract`). Nie przywracaj „pobierz bez zapisu”.
+  `POST /documents/{id}/link-contract`) — przy KAŻDYM typie, który wybiera
+  kontrakt (`effects.annex_takes_contract`), także przy zleceniu: podpisany
+  bez kontraktu nie dałby się już powiązać. Nie przywracaj „pobierz bez
+  zapisu”.
+- **Kontrakt to dane Delivery — wiąże go osoba, która prowadzi kontrakty**
+  (`_binds_contracts`: „Kontrakty i zamówienia: tworzenie i edycja” + zapis
+  w sekcji Delivery, Delivery Lead w granicy portfela
+  `resolve_delivery_lead_client_ids`). Generator jest otwarty dla każdej roli
+  operacyjnej, a `_assert_generator_client_access` przepuszcza wszystkich poza
+  Delivery Leadem, więc samo prawo generatora pozwalało rekruterowi zobaczyć
+  w wyszukiwarce cudze kontrakty i powiązać z nimi aneks (przegląd
+  bezpieczeństwa 13.10.2026). Bramka stoi w czterech miejscach: wybór kontraktu
+  (`_load_subject_contract` — także `prefill`), dowiązanie wiersza przy
+  generowaniu (`may_link`; bez prawa aneks powstaje, wiersz zostaje bez
+  kontraktu), `link-contract` i pole `can_link_contract`. Pozostali
+  przygotowują aneks do umowy z rejestru albo „Bez kontraktu”. Powiązania NIE
+  ograniczamy do autora: aneks „Bez kontraktu” przygotowany przez rekrutera
+  wiąże Delivery.
 - **Jedno źródło powiązania.** Dokument z umową bazową bierze kontrakt
   z wiersza rejestru (`effects.current_contract_id`), dokument bez umowy —
   z własnej kolumny. Aneks do umowy bez kontraktu (wiersz z Excela działu)
@@ -43,7 +60,17 @@ spoza Nexusa — nie był zapisywany wcale. Raport:
   z umowy bez powiązania pokazuje się POD tą umową, nie osobno (osobny wybór
   ominąłby wiersz rejestru i kolejkę „Aneks uzupełnienia danych”). Odpowiedź
   nie niesie kwot. Trasa jest GET — POST w routerze generatora wymaga zapisu
-  Sourcingu.
+  Sourcingu. Umowy z rejestru widzi każdy, kto generuje (jak `GET /generated`);
+  wiersze `kind="contract"`, kontrakty pod umową bez powiązania i datę startu
+  kontraktu — tylko osoba z `_binds_contracts`. Odmowa to pusta lista, nie 403
+  (bez zgadywania, czy kontrakt istnieje); front dobiera teksty tym samym
+  warunkiem (`canManageOrderLifecycle`), żeby nie twierdzić „tej osoby nie ma
+  w kontraktach” komuś, kto kontraktów nie widzi.
+- **Wejście z kontraktu (`?contract_id=`)** wymaga podglądu Delivery tego
+  kontraktu. Kreator bierze pierwszy wynik bez pytania, więc umowa POWIĄZANA
+  z kontraktem wygrywa; umowa tej osoby bez powiązania wchodzi tylko dla
+  aneksu i tylko gdy jest jedna (przy kilku pusta lista — człowiek wybiera).
+  Rozwiązanie i wypowiedzenie nie zgadują umowy po osobie.
 - **Kwoty tylko pod bramką stawek.** Skrót zmiany (`annex_summary.annex_change`)
   oddaje kwoty wyłącznie przy `_RateVisibility.visible`; bez niej lista mówi
   tylko „Zmiana stawki”. Nie zapisujemy migawki stawki kontraktu „przed”:
@@ -54,6 +81,12 @@ spoza Nexusa — nie był zapisywany wcale. Raport:
   przeliczenie wiersza rejestru (`annex_register.restore`), NIE `apply`:
   aneks sprzed 29.09.2026 nie ma zapisu „sprzed” i `apply` wziąłby za niego
   wartość późniejszego aneksu. Późniejszy aktywny aneks nadal wygrywa.
+- **„Popraw” przenosi `register_applied`** (`annex_register.carried`,
+  `superseded` w `_recompute`). Bez tego wiersz po poprawce trzymał starą
+  wartość na zawsze: nie było jej już w żadnym aneksie, więc wyglądała na
+  zmianę spoza generatora i przestawały ją ruszać anulowanie, przywrócenie
+  i kolejne aneksy (błąd sprzed tej zmiany; wierszy zamrożonych wcześniej
+  kod sam nie rozpozna).
   Historia („kto, kiedy”) czyta istniejące wpisy `Activity` — nie ma osobnej
   tabeli statusów aneksu.
 - **Skan podpisanego aneksu** (`services/b2b_documents/signed_scan.py`): PDF,

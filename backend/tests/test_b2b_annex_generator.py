@@ -300,6 +300,70 @@ async def test_delivery_lead_cannot_attach_an_annex_outside_the_portfolio(
     assert allowed.status_code == 200, allowed.text
 
 
+async def test_recruiter_cannot_bind_an_annex_to_a_contract(
+    app_client, app_auth_headers
+):
+    """Generator jest otwarty dla każdej roli operacyjnej, kontrakt to dane
+    Delivery: wybór kontraktu i powiązanie wymagają prawa edycji kontraktów
+    (przegląd bezpieczeństwa 13.10.2026 — rekruter wiązał aneks z kontraktem
+    u dowolnego klienta samym ``contract_id`` w żądaniu)."""
+    from sqlalchemy import func
+
+    from app.models.b2b_contract_document import B2BContractDocument
+    from tests.test_b2b_generator_rate_visibility import _seed_user
+
+    contract_id, client_id = await _seed_linked_contract()
+    recruiter_headers, _ = await _seed_user(app_client, "recruiter")
+
+    refused = await _external(
+        app_client,
+        recruiter_headers,
+        "annex_start_date",
+        contract_id=contract_id,
+        values={"new_start_date": "2026-11-16"},
+    )
+    assert refused.status_code == 403, refused.text
+    async with AsyncSessionLocal() as db:
+        saved = await db.scalar(
+            select(func.count())
+            .select_from(B2BContractDocument)
+            .where(B2BContractDocument.contract_id == contract_id)
+        )
+    assert saved == 0
+    prefill = await app_client.get(
+        f"{BASE}/documents/prefill",
+        headers=recruiter_headers,
+        params={"document_type": "annex_start_date", "contract_id": contract_id},
+    )
+    assert prefill.status_code == 403, prefill.text
+
+    # Aneks „Bez kontraktu” rekruter nadal przygotuje; wiąże go osoba
+    # prowadząca kontrakty.
+    number = f"BIND-{contract_id}/2025"
+    drafted = await _external(
+        app_client,
+        recruiter_headers,
+        "annex_start_date",
+        client_id=client_id,
+        values={"contract_number": number, "new_start_date": "2026-11-16"},
+    )
+    assert drafted.status_code == 200, drafted.text
+    doc_id = int(drafted.headers["X-Document-Id"])
+    item = await _listed(app_client, recruiter_headers, doc_id, q=number)
+    assert item is not None
+    assert item["can_link_contract"] is False
+    linked = await app_client.post(
+        f"{BASE}/documents/{doc_id}/link-contract",
+        headers=recruiter_headers,
+        json={"contract_id": contract_id},
+    )
+    assert linked.status_code == 403, linked.text
+    assert (await _document(doc_id)).contract_id is None
+
+    by_admin = await _listed(app_client, app_auth_headers, doc_id, q=number)
+    assert by_admin["can_link_contract"] is True
+
+
 async def _unlinked_row(app_client, *, contract_id: int, client_id: int) -> int:
     """Umowa w rejestrze BEZ kontraktu (jak wiersz z Excela działu), ale
     z osobą i klientem kontraktu."""
@@ -334,6 +398,49 @@ async def test_annex_links_an_unlinked_register_row_to_the_only_live_contract(
     )
     assert (await _row(rid)).contract_id == contract_id
     assert (await _document(doc_id)).contract_id == contract_id
+
+
+async def test_annex_by_a_recruiter_does_not_link_the_register_row(
+    app_client, app_auth_headers
+):
+    """Dowiązanie wiersza do kontraktu to zapis w Delivery: aneks rekrutera
+    powstaje, ale wiersz zostaje bez kontraktu, a wskazanie kontraktu wprost
+    kończy się odmową."""
+    from tests.test_b2b_generator_rate_visibility import _seed_user
+
+    contract_id, client_id = await _seed_linked_contract()
+    rid = await _unlinked_row(app_client, contract_id=contract_id, client_id=client_id)
+    recruiter_headers, _ = await _seed_user(app_client, "recruiter")
+
+    doc_id = await _create(
+        app_client,
+        recruiter_headers,
+        "annex_start_date",
+        rid,
+        new_start_date="2026-11-15",
+    )
+    assert (await _row(rid)).contract_id is None
+    assert (await _document(doc_id)).contract_id is None
+
+    picked = await app_client.post(
+        f"{BASE}/documents",
+        headers=recruiter_headers,
+        json={
+            "document_type": "annex_start_date",
+            "language": "pl",
+            "parent_generated_contract_id": rid,
+            "contract_id": contract_id,
+            "values": _values(new_start_date="2026-11-20"),
+        },
+    )
+    assert picked.status_code == 403, picked.text
+    linked = await app_client.post(
+        f"{BASE}/documents/{doc_id}/link-contract",
+        headers=recruiter_headers,
+        json={"contract_id": contract_id},
+    )
+    assert linked.status_code == 403, linked.text
+    assert (await _row(rid)).contract_id is None
 
 
 async def test_unlinked_row_with_several_live_contracts_links_only_the_picked_one(
@@ -934,6 +1041,204 @@ async def test_subjects_pair_an_unlinked_agreement_with_its_live_contract(
     assert agreement["parent_generated_contract_id"] == rid
     assert agreement["contract_id"] is None
     assert [o["contract_id"] for o in agreement["contract_options"]] == [contract_id]
+
+
+async def test_subjects_from_a_contract_prefer_its_own_agreement(
+    app_client, app_auth_headers
+):
+    """Wejście z kontraktu bierze pierwszy wynik bez pytania: umowa powiązana
+    z kontraktem wygrywa z nowszą umową tej osoby bez powiązania, a kilka umów
+    bez powiązania nie daje żadnego podmiotu (człowiek wybiera sam)."""
+    from app.models.contract import Contract
+
+    rid, contract_id = await _signed_parent(app_client)
+    async with AsyncSessionLocal() as db:
+        client_id = (await db.get(Contract, contract_id)).client_id
+    await _unlinked_row(app_client, contract_id=contract_id, client_id=client_id)
+
+    async def of_contract(doc_type: str, anchor: int) -> list[int | None]:
+        found = await _subjects(
+            app_client, app_auth_headers, document_type=doc_type, contract_id=anchor
+        )
+        return [s["parent_generated_contract_id"] for s in found]
+
+    for doc_type in ("termination_agreement", "annex_start_date"):
+        assert await of_contract(doc_type, contract_id) == [rid]
+
+    lone_contract, lone_client = await _seed_linked_contract()
+    only = await _unlinked_row(
+        app_client, contract_id=lone_contract, client_id=lone_client
+    )
+    assert await of_contract("annex_start_date", lone_contract) == [only]
+    # Rozwiązanie umowy nie zgaduje umowy po osobie — jak dotąd.
+    assert await of_contract("termination_agreement", lone_contract) == []
+    await _unlinked_row(app_client, contract_id=lone_contract, client_id=lone_client)
+    assert await of_contract("annex_start_date", lone_contract) == []
+
+
+async def test_subjects_keep_contracts_inside_delivery_access(
+    app_client, app_auth_headers
+):
+    """Kontrakt bez umowy w rejestrze to dane Delivery: wyszukiwarka pokazuje
+    go tylko osobie, która prowadzi kontrakty, a Delivery Leadowi — tylko
+    u klienta z portfela (przegląd bezpieczeństwa 13.10.2026)."""
+    from app.models.team_structure import DeliveryLeadClientAssignment
+    from tests.test_b2b_generator_rate_visibility import _seed_user
+
+    own_contract, own_client = await _seed_linked_contract()
+    other_contract, other_client = await _seed_linked_contract()
+    own_lastname = await _lastname(own_contract)
+    other_lastname = await _lastname(other_contract)
+    rid = await _unlinked_row(
+        app_client, contract_id=other_contract, client_id=other_client
+    )
+    number = (await _row(rid)).contract_number
+
+    def contracts(found: list[dict]) -> set[int]:
+        return {s["contract_id"] for s in found if s["kind"] == "contract"}
+
+    recruiter_headers, _ = await _seed_user(app_client, "recruiter")
+    for lastname in (own_lastname, other_lastname):
+        found = await _subjects(
+            app_client, recruiter_headers, document_type="annex_rate_change", q=lastname
+        )
+        assert contracts(found) == set()
+    # Umowę z rejestru rekruter widzi jak dotąd — bez kontraktów osoby pod nią.
+    [agreement] = [
+        s
+        for s in await _subjects(
+            app_client, recruiter_headers, document_type="annex_rate_change", q=number
+        )
+        if s["parent_generated_contract_id"] == rid
+    ]
+    assert agreement["contract_options"] == []
+    for contract_id in (own_contract, other_contract):
+        assert (
+            await _subjects(
+                app_client,
+                recruiter_headers,
+                document_type="annex_rate_change",
+                contract_id=contract_id,
+            )
+            == []
+        )
+
+    dl_headers, dl_id = await _seed_user(app_client, "delivery_lead")
+    async with AsyncSessionLocal() as db:
+        db.add(
+            DeliveryLeadClientAssignment(
+                delivery_lead_user_id=dl_id, client_id=own_client
+            )
+        )
+        await db.commit()
+    assert own_contract in contracts(
+        await _subjects(
+            app_client, dl_headers, document_type="annex_rate_change", q=own_lastname
+        )
+    )
+    assert (
+        contracts(
+            await _subjects(
+                app_client,
+                dl_headers,
+                document_type="annex_rate_change",
+                q=other_lastname,
+            )
+        )
+        == set()
+    )
+    assert (
+        await _subjects(
+            app_client,
+            dl_headers,
+            document_type="annex_rate_change",
+            contract_id=other_contract,
+        )
+        == []
+    )
+    [outside] = [
+        s
+        for s in await _subjects(
+            app_client, dl_headers, document_type="annex_rate_change", q=number
+        )
+        if s["parent_generated_contract_id"] == rid
+    ]
+    assert outside["contract_options"] == []
+
+
+async def test_mandate_annex_without_contract_waits_for_linking(
+    app_client, app_auth_headers
+):
+    """Aneks zlecenia „Bez kontraktu” dawał się oznaczyć jako podpisany bez
+    żadnego skutku, a potem nie dało się go już powiązać z kontraktem."""
+    _, client_id = await _seed_linked_contract()
+    saved = await _external(
+        app_client,
+        app_auth_headers,
+        "annex_mandate",
+        client_id=client_id,
+        values={
+            "partner_home_address": "ul. Testowa 1, 00-001 Warszawa",
+            "pesel": "90010112345",
+            "base_signing_date": "2025-05-06",
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    doc_id = int(saved.headers["X-Document-Id"])
+
+    item = await _listed(
+        app_client,
+        app_auth_headers,
+        doc_id,
+        status="no_contract",
+        document_type="annex_mandate",
+    )
+    assert item is not None
+    assert item["can_confirm_signed"] is False
+    assert item["can_link_contract"] is True
+    signed = await app_client.post(
+        f"{BASE}/documents/{doc_id}/confirm-signed", headers=app_auth_headers
+    )
+    assert signed.status_code == 409, signed.text
+    assert (await _document(doc_id)).signature_status == "unsigned"
+
+
+async def test_correcting_an_annex_moves_the_register_row(app_client, app_auth_headers):
+    """„Popraw” jedynego aneksu zostawiał w wierszu wartość sprzed poprawki —
+    na zawsze: nie ruszało jej już anulowanie ani kolejny aneks."""
+    rid, _ = await _signed_parent(app_client)
+    before = (await _row(rid)).start_date
+    doc_id = await _create(
+        app_client,
+        app_auth_headers,
+        "annex_start_date",
+        rid,
+        new_start_date="2026-11-15",
+    )
+    fixed = await app_client.post(
+        f"{BASE}/documents/{doc_id}/rerender",
+        headers=app_auth_headers,
+        json={
+            "document_type": "annex_start_date",
+            "parent_generated_contract_id": rid,
+            "values": _values(new_start_date="2026-11-20"),
+        },
+    )
+    assert fixed.status_code == 200, fixed.text
+    assert (await _row(rid)).start_date == date(2026, 11, 20)
+
+    cancelled = await app_client.post(
+        f"{BASE}/documents/{doc_id}/cancel",
+        headers=app_auth_headers,
+        json={"reason": "Pomyłka"},
+    )
+    assert cancelled.status_code == 200, cancelled.text
+    assert (await _row(rid)).start_date == before
+    restored = await app_client.post(
+        f"{BASE}/documents/{doc_id}/restore", headers=app_auth_headers
+    )
+    assert restored.status_code == 200, restored.text
+    assert (await _row(rid)).start_date == date(2026, 11, 20)
 
 
 # ── rejestr aneksów: lista, przywrócenie, powiązanie, historia ───────────────

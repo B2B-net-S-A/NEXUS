@@ -609,7 +609,7 @@
       },
       {
         "q": "Jak przygotować aneks?",
-        "a": "W „Generatorze aneksów” wybierz typ, wpisz nazwisko osoby i wskaż jej umowę albo kontrakt (gdy umowy nie ma w rejestrze), potem pobierz DOCX. Aneks trafia do rejestru aneksów pod kreatorem. Po podpisie kliknij tam „Oznacz jako podpisany” i dołącz skan — dopiero wtedy zmienia się kontrakt.",
+        "a": "W „Generatorze aneksów” wybierz typ, wpisz nazwisko osoby i wskaż jej umowę. Kontrakt bez umowy w rejestrze widzi osoba prowadząca kontrakty; pozostali zapisują aneks „Bez kontraktu”. Pobierz DOCX — aneks trafia do rejestru pod kreatorem. Po podpisie kliknij tam „Oznacz jako podpisany” i dołącz skan — dopiero wtedy zmienia się kontrakt.",
         "anchor": "contracts.b2b_generator.tabs"
       }
     ],

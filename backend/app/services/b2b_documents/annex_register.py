@@ -118,12 +118,28 @@ def _applied(doc: B2BContractDocument) -> dict[str, Any]:
     return applied if isinstance(applied, dict) else {}
 
 
+#: Zapis aneksu w wierszu, który „Popraw” przenosi do nowej treści dokumentu.
+_CARRIED_KEYS = ("register_before", "register_applied")
+
+
+def carried(previous: dict[str, Any] | None) -> dict[str, Any]:
+    """Część ``render_payload``, która przeżywa poprawkę dokumentu.
+
+    ``register_before`` to stan wiersza sprzed PIERWSZEGO wygenerowania —
+    poprawka go nie zmienia. ``register_applied`` musi dotrwać do ``apply``:
+    to po nim przeliczenie poznaje, że wiersz trzyma wartość tego aneksu
+    sprzed poprawki, a nie zmianę spoza generatora."""
+    previous = previous or {}
+    return {key: previous[key] for key in _CARRIED_KEYS if key in previous}
+
+
 async def _recompute(
     db: AsyncSession,
     row: B2BGeneratedContract,
     doc_type_key: str,
     *,
     exclude_id: int | None = None,
+    superseded: dict[str, Any] | None = None,
 ) -> list[str]:
     """Ustaw pola wiersza na wartość z NAJNOWSZEGO aktywnego aneksu tego typu
     (kolejność wystawienia), a bez aktywnych — na stan sprzed pierwszego.
@@ -132,7 +148,13 @@ async def _recompute(
     aneksu A po wystawieniu B, a potem B, wracało do wartości A — aneksu, który
     nie doszedł do skutku; „Popraw” starszego aneksu nadpisywał nowszy. Pole,
     którego wartość nie pochodzi z żadnego aneksu (zmiana spoza generatora,
-    np. import z Excela), zostaje nietknięte."""
+    np. import z Excela), zostaje nietknięte.
+
+    ``superseded`` = to, co poprawiany właśnie aneks wpisał PRZED poprawką.
+    Bez tego wiersz po „Popraw” trzymał starą wartość na zawsze: nie było jej
+    już w żadnym dokumencie, więc wyglądała na zmianę spoza generatora
+    i przestawały go ruszać anulowanie, przywrócenie i kolejne aneksy
+    (przegląd kodu 13.10.2026)."""
     fields = REGISTER_FIELDS.get(doc_type_key, ())
     if not fields:
         return []
@@ -161,6 +183,8 @@ async def _recompute(
         if current == target:
             continue
         known = [baseline, *(_applied(d)[field] for d in touching)]
+        if superseded and field in superseded:
+            known.append(superseded[field])
         if current not in known:
             continue
         setattr(row, field, _from_json(field, target))
@@ -182,6 +206,7 @@ async def apply(
     if not fields:
         return
     payload = dict(doc.render_payload or {})
+    superseded = _applied(doc)
     changes = planned(doc.document_type, values, document_id=doc.id)
     before = payload.get("register_before")
     if not isinstance(before, dict):
@@ -197,7 +222,7 @@ async def apply(
     payload["register_applied"] = applied
     doc.render_payload = payload
     await db.flush()
-    await _recompute(db, row, doc.document_type)
+    await _recompute(db, row, doc.document_type, superseded=superseded)
 
 
 async def revert(

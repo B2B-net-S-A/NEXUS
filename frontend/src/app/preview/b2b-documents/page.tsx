@@ -56,6 +56,7 @@ import {
   type DocumentTypesResponse,
 } from "@/lib/api/b2bDocuments";
 import { ANNEX_FAMILIES, NON_ANNEX_FAMILIES } from "@/lib/b2b-documents";
+import { useAuthStore } from "@/store/auth";
 
 // ── Dane fikcyjne ───────────────────────────────────────────────────────────
 
@@ -915,6 +916,31 @@ function useNetworkBlocked() {
   );
 }
 
+/** Fikcyjny administrator: wybór osoby pokazuje kontrakty tylko komuś, kto
+ *  je prowadzi, a zakładka kontraktu — kwoty tylko z wglądem w stawki. */
+function usePreviewAdmin() {
+  useEffect(() => {
+    const previous = useAuthStore.getState();
+    useAuthStore.setState({
+      user: {
+        id: 1,
+        email: "preview@example.com",
+        name: "Administrator Przykładowy",
+        role: "admin",
+        roles: ["admin"],
+        capabilities: ["view_finance", "manage_finance"],
+        profile_completed: true,
+        profile_completed_at: null,
+        force_password_change: false,
+      } as never,
+      token: "preview",
+    } as never);
+    return () => {
+      useAuthStore.setState({ user: previous.user, token: previous.token } as never);
+    };
+  }, []);
+}
+
 // ── Strona ──────────────────────────────────────────────────────────────────
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -930,6 +956,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function Harness() {
   useNetworkBlocked();
+  usePreviewAdmin();
   const [wizard, setWizard] = useState<WizardState | null>(null);
   const [signOpen, setSignOpen] = useState<DocumentItem | null>(null);
   const [annexSearch, setAnnexSearch] = useState("");

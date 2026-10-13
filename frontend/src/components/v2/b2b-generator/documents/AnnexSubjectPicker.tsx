@@ -6,6 +6,9 @@
 // w NEXUSIE, i nie wybierze „spoza Nexusa” dla umowy, która w nim jest.
 // Każdy aneks ma kontrakt; wyjątek („Tej osoby nie ma w kontraktach NEXUSA”)
 // zapisuje aneks przy kliencie i odkłada podpis do powiązania.
+// Kontrakty to dane Delivery: serwer pokazuje je tylko osobie z prawem edycji
+// kontraktów. Reszta wybiera umowę z rejestru albo zapisuje aneks „Bez
+// kontraktu” — i teksty nie twierdzą wtedy, że kontraktu nie ma.
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -27,6 +30,7 @@ import {
 } from "@/lib/api/b2bDocuments";
 import { formatIsoDatePl } from "@/lib/date-pl";
 import { contractStatusLabel } from "@/lib/status-labels";
+import { canManageOrderLifecycle, useAuthStore } from "@/store/auth";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { cn } from "@/lib/utils";
 
@@ -144,6 +148,9 @@ export function AnnexSubjectPicker({
     staleTime: 10_000,
   });
   const canGoWithoutContract = takesContract(type);
+  // Lustro bramki serwera (`_binds_contracts`): edycja kontraktów + zapis
+  // w sekcji Delivery.
+  const seesContracts = canManageOrderLifecycle(useAuthStore((s) => s.user));
 
   return (
     <div className="space-y-3">
@@ -166,7 +173,9 @@ export function AnnexSubjectPicker({
 
       {!enabled ? (
         <p className="text-sm text-muted-foreground">
-          Wpisz co najmniej dwa znaki — pokażemy umowy i kontrakty tej osoby.
+          {seesContracts
+            ? "Wpisz co najmniej dwa znaki — pokażemy umowy i kontrakty tej osoby."
+            : "Wpisz co najmniej dwa znaki — pokażemy umowy tej osoby z rejestru."}
         </p>
       ) : found.isPending ? (
         <p className="text-sm text-muted-foreground">Szukam…</p>
@@ -187,7 +196,9 @@ export function AnnexSubjectPicker({
         </Alert>
       ) : found.isSuccess && found.data.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          Nie znaleźliśmy umowy ani kontraktu pasującego do wyszukiwania.
+          {seesContracts
+            ? "Nie znaleźliśmy umowy ani kontraktu pasującego do wyszukiwania."
+            : "Nie znaleźliśmy umowy pasującej do wyszukiwania."}
         </p>
       ) : (
         <ul className="max-h-80 space-y-2 overflow-y-auto">
@@ -220,12 +231,14 @@ export function AnnexSubjectPicker({
               onChoice({ ...EMPTY_ANNEX_CHOICE, withoutContract: true })
             }
           >
-            Tej osoby nie ma w kontraktach NEXUSA
+            {seesContracts
+              ? "Tej osoby nie ma w kontraktach NEXUSA"
+              : "Umowy tej osoby nie ma w rejestrze"}
           </Button>
           <p className="text-xs text-muted-foreground">
-            Aneks trafi do rejestru z oznaczeniem „Bez kontraktu”. Powiążesz go,
-            gdy kontrakt powstanie — do tego czasu nie da się go oznaczyć jako
-            podpisany.
+            {seesContracts
+              ? "Aneks trafi do rejestru z oznaczeniem „Bez kontraktu”. Powiążesz go, gdy kontrakt powstanie — do tego czasu nie da się go oznaczyć jako podpisany."
+              : "Aneks trafi do rejestru z oznaczeniem „Bez kontraktu”. Z kontraktem powiąże go osoba prowadząca kontrakty — do tego czasu nie da się go oznaczyć jako podpisany."}
           </p>
           {choice.withoutContract ? (
             <div className="max-w-sm space-y-1">
@@ -309,7 +322,7 @@ function SubjectOption({
               ? `${contractLine(options[0])} — zostanie powiązany z umową`
               : options.length > 1
                 ? "Kilka trwających kontraktów — wskaż właściwy"
-                : "Bez kontraktu w NEXUSIE — podpis zmieni tylko rejestr umów"}
+                : "Umowa bez powiązanego kontraktu — podpis zmieni tylko rejestr umów"}
         </span>
       </button>
       {chosen && options.length > 1 ? (

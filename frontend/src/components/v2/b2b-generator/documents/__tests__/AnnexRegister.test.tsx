@@ -19,7 +19,13 @@ const mocks = vi.hoisted(() => ({
   subjects: vi.fn(),
   history: vi.fn(),
   clients: vi.fn(),
+  seesContracts: vi.fn(),
 }));
+
+vi.mock("@/store/auth", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/store/auth")>();
+  return { ...actual, canManageOrderLifecycle: () => mocks.seesContracts() };
+});
 
 vi.mock("@/lib/api", () => ({
   __esModule: true,
@@ -174,6 +180,7 @@ function register() {
 beforeEach(() => {
   Object.values(mocks).forEach((m) => m.mockReset());
   mocks.types.mockResolvedValue({ types: [RATE_TYPE], ref_labels: {}, ref_defaults: {} });
+  mocks.seesContracts.mockReturnValue(true);
 });
 
 describe("Rejestr aneksów", () => {
@@ -382,6 +389,45 @@ describe("Dla kogo jest aneks", () => {
     );
     expect(
       screen.getByRole("button", { name: "Tej osoby nie ma w kontraktach NEXUSA" }),
+    ).toBeInTheDocument();
+  });
+
+  it("bez prawa edycji kontraktów wybór nie twierdzi, że osoby nie ma w kontraktach", async () => {
+    // Serwer nie pokazuje takiej osobie kontraktów — „nie ma w kontraktach
+    // NEXUSA” byłoby zgadywaniem, a powiązać aneks musi ktoś inny.
+    mocks.seesContracts.mockReturnValue(false);
+    mocks.subjects.mockResolvedValue([
+      subject({
+        kind: "agreement",
+        parent_generated_contract_id: 12,
+        contract_number: "1700/2026",
+        contract_id: null,
+        contract_status: null,
+        contract_start_date: null,
+      }),
+    ]);
+    renderWith(
+      <AnnexSubjectPicker
+        type={RATE_TYPE}
+        choice={EMPTY_ANNEX_CHOICE}
+        onChoice={() => {}}
+      />,
+    );
+    expect(screen.getByText(/pokażemy umowy tej osoby z rejestru/)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Tej osoby nie ma w kontraktach NEXUSA" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Umowy tej osoby nie ma w rejestrze" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/powiąże go osoba prowadząca kontrakty/),
+    ).toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText("Dla kogo jest aneks?"), "1700");
+    const option = await screen.findByRole("button", { name: /Umowa 1700\/2026/ });
+    expect(
+      within(option).getByText(/Umowa bez powiązanego kontraktu/),
     ).toBeInTheDocument();
   });
 

@@ -163,16 +163,27 @@ def void_contract_blocker(parent: B2BGeneratedContract | None) -> str:
     )
 
 
+def annex_takes_contract(doc_type: DocumentType) -> bool:
+    """Aneks, który można wystawić do kontraktu bez umowy w rejestrze: trzy
+    typy „umowy spoza NEXUSA” i aneks zlecenia (zlecenia nie mają wierszy
+    w rejestrze umów B2B)."""
+    return doc_type.family == "annex" and (
+        doc_type.allows_external or doc_type.parent == "mandate"
+    )
+
+
 def is_unlinked_external_annex(
     doc_type: DocumentType,
     parent: B2BGeneratedContract | None,
     contract_id: int | None,
 ) -> bool:
-    """Aneks do umowy spoza NEXUSA zapisany bez kontraktu („Bez kontraktu”).
+    """Aneks bez umowy w rejestrze zapisany bez kontraktu („Bez kontraktu”).
 
     Nie ma ani wiersza rejestru, ani kontraktu, w którym podpis mógłby coś
-    zmienić — czeka na powiązanie (decyzja Artura 13.10.2026)."""
-    return parent is None and contract_id is None and doc_type.allows_external
+    zmienić — czeka na powiązanie (decyzja Artura 13.10.2026). Dotyczy
+    każdego typu, który wybiera kontrakt, także zlecenia: podpisany bez
+    kontraktu nie dałby się już powiązać."""
+    return parent is None and contract_id is None and annex_takes_contract(doc_type)
 
 
 @dataclass(frozen=True)
@@ -501,7 +512,7 @@ async def describe(
             f"NIP {values.get('new_nip') or '…'} — w profilu kandydata i rejestrze."
         )
     elif key in ("annex_subcontractor", "annex_mandate"):
-        if contract is None:
+        if contract is None and not orphan:
             plan.warnings.append(no_contract)
         else:
             plan.changes.append("Aneks pojawi się w historii kontraktu.")
