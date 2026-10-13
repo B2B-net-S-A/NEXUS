@@ -343,6 +343,59 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
+  // 13.10.2026: przegląd „po kolei” — po decyzji okno nie zamyka się samo,
+  // wołający pokazuje następną osobę.
+  it("po kolei: decyzja woła onDecided zamiast zamykać; nagłówek ma licznik, „Pomiń” i „Zakończ kolejkę”", async () => {
+    mockApi();
+    const onOpenChange = vi.fn();
+    const onDecided = vi.fn();
+    const onSkip = vi.fn();
+    const onFinish = vi.fn();
+    const row = task();
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <DlReviewPanel
+          task={row}
+          open
+          onOpenChange={onOpenChange}
+          onDecided={onDecided}
+          sequence={{ position: 2, total: 5, onSkip, onFinish }}
+        />
+      </QueryClientProvider>,
+    );
+    const strip = screen.getByTestId("dl-review-sequence");
+    expect(strip).toHaveTextContent("2 z 5");
+    await userEvent.click(within(strip).getByRole("button", { name: "Pomiń" }));
+    expect(onSkip).toHaveBeenCalledTimes(1);
+    await userEvent.click(within(strip).getByRole("button", { name: "Zakończ kolejkę" }));
+    expect(onFinish).toHaveBeenCalledTimes(1);
+
+    await userEvent.type(screen.getByLabelText("Stawka do klienta"), "180");
+    await userEvent.click(screen.getByRole("button", { name: /Akceptuj/ }));
+    await waitFor(() => expect(onDecided).toHaveBeenCalledWith("send", row));
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+  });
+
+  it("po kolei: przy ostatniej osobie nie ma „Pomiń”", () => {
+    mockApi();
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <DlReviewPanel
+          task={task()}
+          open
+          onOpenChange={vi.fn()}
+          sequence={{ position: 3, total: 3, onSkip: vi.fn(), onFinish: vi.fn() }}
+        />
+      </QueryClientProvider>,
+    );
+    const strip = screen.getByTestId("dl-review-sequence");
+    expect(strip).toHaveTextContent("3 z 3");
+    expect(within(strip).queryByRole("button", { name: "Pomiń" })).toBeNull();
+    expect(within(strip).getByRole("button", { name: "Zakończ kolejkę" })).toBeTruthy();
+  });
+
   it("„Odrzuć (DL)” wymaga powodu i zapisuje ended_by delivery_lead", async () => {
     mockApi();
     renderPanel();

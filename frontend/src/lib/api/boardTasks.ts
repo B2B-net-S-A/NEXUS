@@ -64,6 +64,89 @@ export interface BoardTaskRow {
   /** Przegląd DL: stan karty rekomendacji; `null` = para nie ma karty. */
   card_status?: "complete" | "partial" | "empty" | null;
   card_missing?: number | null;
+  // „Do wysłania do klienta” (13.10.2026) — tylko przegląd DL. Starszy serwer
+  // pól nie oddaje (`undefined`) — wiersz liczy się wtedy jak dotąd.
+  /** QC zdane albo przepuszczone: ruch ma Delivery Lead. `false` = karta jest
+   *  jeszcze u rekrutera (QC do poprawy albo niesprawdzone). */
+  ready?: boolean;
+  /** Od kiedy gotowe: wejście do „QC CV” albo zaliczenie QC, co później. */
+  ready_since?: string | null;
+  waiting_workdays?: number;
+  urgency?: DlSendUrgency | null;
+  /** Etap z importu Traffita, którego nikt nie ruszył w NEXUSIE — poza
+   *  licznikami i przypomnieniami. */
+  imported?: boolean;
+  handed_over_by_name?: string | null;
+  budget_min_hourly?: number | null;
+  budget_max_hourly?: number | null;
+  deadline?: string | null;
+}
+
+/** Pilność w dniach roboczych od gotowości: 0 / 1 / 2 i więcej. */
+export type DlSendUrgency = "fresh" | "due" | "late";
+
+/** Wiersz, który budzi licznik i przypomnienia Delivery Leada — lustro
+ *  `dl_send_queue.counts_for_reviewer`. Starszy serwer (bez `ready`): każdy
+ *  wiersz przeglądu, jak przed 13.10.2026. */
+export function countsForDlSend(row: BoardTaskRow): boolean {
+  return row.ready !== false && row.imported !== true;
+}
+
+/** Podział kolejki przeglądu na grupy pasa „Do wysłania do klienta”. Gotowe —
+ *  najdłużej czekające pierwsze (od `ready_since`). */
+export function splitDlSendRows(rows: readonly BoardTaskRow[]): {
+  ready: BoardTaskRow[];
+  notReady: BoardTaskRow[];
+  imported: BoardTaskRow[];
+} {
+  const since = (row: BoardTaskRow) => row.ready_since ?? row.since;
+  return {
+    ready: rows.filter(countsForDlSend).sort((a, b) => since(a).localeCompare(since(b))),
+    notReady: rows.filter((row) => row.ready === false && row.imported !== true),
+    imported: rows.filter((row) => row.imported === true),
+  };
+}
+
+/** Okienko „Do wysłania” w górnym pasku — wąski wiersz, celowo BEZ pól
+ *  przeglądu (wersja procesu, etapy ruchu). Przegląd otwiera się z pełnego
+ *  wiersza (`fetchDlReviewRow`), nie z tego. */
+export interface DlSendRow {
+  stage_id: number;
+  candidate_id: number;
+  candidate_name: string;
+  job_id: number;
+  job_title: string;
+  job_working_title?: string | null;
+  client_name: string | null;
+  ready_since: string;
+  waiting_workdays: number;
+  urgency: DlSendUrgency;
+  handed_over_by_name?: string | null;
+}
+
+export interface DlSendQueueResponse {
+  ready: DlSendRow[];
+  ready_total: number;
+  not_ready_total: number;
+  imported_total: number;
+  worst_urgency: DlSendUrgency | null;
+}
+
+/** Pod prefiksem `["board-tasks"]` — każdy ruch karty, wynik QC i zdarzenie
+ *  `pipeline_changed` odświeża licznik razem z kolejką pulpitu. */
+export const DL_SEND_QUEUE_QUERY_KEY = ["board-tasks", "dl-send"] as const;
+
+/** „Do wysłania do klienta” patrzącego — licznik górnego paska i menu.
+ *  Liczy stan kolejki, nie zdarzenia. `enabled` = konto z rolą Delivery Leada
+ *  (inne dostałyby zera). */
+export function useDlSendQueue(enabled: boolean) {
+  return useQuery<DlSendQueueResponse>({
+    queryKey: DL_SEND_QUEUE_QUERY_KEY,
+    queryFn: () => api.get<DlSendQueueResponse>("/api/board-tasks/dl-send").then((r) => r.data),
+    enabled,
+    refetchInterval: enabled ? WS_BACKED_SAFETY_POLL_MS : false,
+    staleTime: 30_000,
+  });
 }
 
 /** 0370: prep przed rozmową u klienta, który wymaga uwagi. Widzi go
