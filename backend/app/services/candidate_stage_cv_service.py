@@ -242,12 +242,18 @@ async def refresh_original_cv_snapshot(
     stage_id: int,
     *,
     user_id: Optional[int],
+    source: str = "manual_refresh",
 ) -> CandidateStageCV:
     """Manual refresh przez rekrutera (button "Aktualizuj snapshot z bieżącego").
 
     Nadpisuje `original_*` aktualną zawartością `Candidate.cv_*`. Loguje stary
     filename/timestamp w `Activity.details` — audit trail dla "co było w
     snapshot przed odświeżeniem".
+
+    ``source`` trafia do `original_snapshot_source`: `manual_refresh` to kopia
+    głównego CV z profilu („Użyj w tej rekrutacji”), `manual_upload` — plik
+    wgrany z rekrutacji (`POST …/cv/original/upload`), który chwilę wcześniej
+    został głównym CV.
 
     Raises:
       LookupError — gdy CandidateStageCV dla stage_id nie istnieje.
@@ -284,7 +290,7 @@ async def refresh_original_cv_snapshot(
     csv_row.original_cv_sha256 = digest
     csv_row.original_cv_language = current.language
     csv_row.original_snapshot_at = datetime.now(tz=timezone.utc)
-    csv_row.original_snapshot_source = "manual_refresh"
+    csv_row.original_snapshot_source = source
     await db.flush()
 
     db.add(
@@ -297,6 +303,7 @@ async def refresh_original_cv_snapshot(
                 "old_filename": old_filename,
                 "new_filename": current.filename,
                 "cv_source": current.source,
+                "snapshot_source": source,
                 "old_at": old_at.isoformat() if old_at else None,
             },
             user_id=user_id,
@@ -311,6 +318,82 @@ async def refresh_original_cv_snapshot(
         current.source,
     )
     return csv_row
+
+
+async def restore_stage_copies_after_quarantine(
+    db: AsyncSession,
+    *,
+    candidate: Candidate,
+    quarantined_sha256: Optional[str],
+) -> int:
+    """Kopie CV etapu z pliku, który bramka tożsamości uznała za CV innej osoby.
+
+    Woła je kwarantanna PO oddaniu głównego CV poprzedniemu plikowi: kopia
+    dostaje bieżące CV osoby (`get_current_cv`), a gdy go nie ma albo bieżące
+    to wciąż ten sam plik — zostaje bez pliku (panel pokazuje wtedy CV
+    z profilu). Plik w profilu i w magazynie zostaje („nie kasujemy CV”).
+    Zwraca liczbę poprawionych kopii.
+    """
+    if not quarantined_sha256:
+        return 0
+    rows = list(
+        (
+            await db.scalars(
+                select(CandidateStageCV).where(
+                    CandidateStageCV.candidate_id == candidate.id,
+                    CandidateStageCV.original_cv_sha256 == quarantined_sha256,
+                )
+            )
+        ).all()
+    )
+    if not rows:
+        return 0
+    current = await get_current_cv(db, candidate)
+    if (
+        current is not None
+        and hashlib.sha256(current.content).hexdigest() == quarantined_sha256
+    ):
+        current = None
+    for csv_row in rows:
+        old_filename = csv_row.original_cv_filename
+        if current is None:
+            storage_key, digest = None, None
+            csv_row.original_cv_filename = None
+            csv_row.original_cv_content = None
+            csv_row.original_cv_language = None
+        else:
+            storage_key, digest = await _store_snapshot(
+                candidate.id, current.content, current.filename
+            )
+            csv_row.original_cv_filename = current.filename
+            csv_row.original_cv_content = (
+                current.content if storage_key is None else None
+            )
+            csv_row.original_cv_language = current.language
+        csv_row.original_cv_storage_key = storage_key
+        csv_row.original_cv_sha256 = digest
+        csv_row.original_snapshot_at = datetime.now(tz=timezone.utc)
+        csv_row.original_snapshot_source = "quarantine_restore"
+        db.add(
+            Activity(
+                entity_type="candidate_stage_cv",
+                entity_id=csv_row.id,
+                action="snapshot_quarantine_restored",
+                details={
+                    "candidate_stage_id": csv_row.candidate_stage_id,
+                    "old_filename": old_filename,
+                    "new_filename": csv_row.original_cv_filename,
+                },
+            )
+        )
+    await db.flush()
+    logger.info(
+        "Kopie CV etapu po kwarantannie candidate=%s rows=%s restored=%s",
+        candidate.id,
+        len(rows),
+        current is not None,
+    )
+    return len(rows)
 
 
 # ── Zatwierdzenie brandowanego CV etapu (wyjęte z handlera, generator v3) ────

@@ -1111,6 +1111,9 @@ const CLOSE_WARNING = {
   columns: { new: 3, screening: 2 },
 };
 
+/** Kopie CV etapu po „Wgraj nowe CV” w tej karcie przeglądarki (bez sieci). */
+const harnessStageCopies = new Map<number, Record<string, unknown>>();
+
 function JobDetailHarness() {
   const params = useSearchParams();
   const showEmpty = params.get("empty") === "1";
@@ -1161,6 +1164,31 @@ function JobDetailHarness() {
           });
         };
         return config;
+      }
+      // „Wgraj nowe CV” i „Użyj w tej rekrutacji” (13.10.2026): kopia CV etapu
+      // w pamięci strony, żeby po wgraniu panel pokazał nowy stan.
+      const stageCv = config.url?.match(/^\/api\/candidates\/stages\/(\d+)\/cv\/original(\/upload|\/refresh)?$/);
+      if (stageCv) {
+        const stageId = Number(stageCv[1]);
+        if (stageCv[2]) {
+          const file = config.data instanceof FormData ? config.data.get("file") : null;
+          harnessStageCopies.set(stageId, {
+            candidate_stage_id: stageId,
+            candidate_id: 0,
+            job_id: JOB_ID,
+            has_snapshot: true,
+            original_cv_filename: file instanceof File ? file.name : "CV_z_profilu.pdf",
+            original_cv_language: "pl",
+            original_snapshot_at: new Date().toISOString(),
+            original_snapshot_source: stageCv[2] === "/upload" ? "manual_upload" : "manual_refresh",
+            download_url: null,
+          });
+        }
+        const copy = harnessStageCopies.get(stageId);
+        if (copy) {
+          config.adapter = async () => ({ data: copy, status: 200, statusText: "OK", headers: {}, config });
+          return config;
+        }
       }
       return Promise.reject(new AxiosError("preview: sieć wyłączona", "ECONNABORTED", config));
     });

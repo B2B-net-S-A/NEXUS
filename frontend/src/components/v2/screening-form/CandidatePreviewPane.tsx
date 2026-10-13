@@ -37,7 +37,7 @@
  * nie pobiera pliku wcale, dopóki ktoś go nie rozwinie.
  */
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -51,6 +51,7 @@ import {
   PanelRightOpen,
   Pencil,
   Replace,
+  Upload,
   type LucideIcon,
 } from "lucide-react";
 
@@ -76,6 +77,14 @@ import {
   usePersonPreviewCollapse,
 } from "@/components/v2/person/PersonPanelSide";
 import { StageCvPreview } from "@/components/v2/person/StageCvPreview";
+import {
+  CvFileDropTarget,
+  STAGE_CV_ACCEPT,
+  StageCvUploadTile,
+  cvFileProblem,
+  useStageCvUpload,
+  type PreviewCvUpload,
+} from "@/components/v2/person/StageCvUpload";
 import {
   StageCvPicker,
   useChooseStageCv,
@@ -169,6 +178,7 @@ interface CvTabProps {
   /** Które źródła pokazać w przełączniku (przegląd DL ma CV firmowe osobno). */
   sources?: ReadonlyArray<PreviewCvSource>;
   cvActions?: PreviewCvActions;
+  cvUpload?: PreviewCvUpload;
   loadStageCvFile?: typeof fetchStageCvFile;
   /**
    * „Historia osoby” obok źródeł CV. To nie czwarte źródło: CV zostaje
@@ -198,6 +208,7 @@ function CvTab({
   loadOriginalBlob,
   sources,
   cvActions,
+  cvUpload,
   loadStageCvFile,
   history,
   onCollapse,
@@ -210,6 +221,19 @@ function CvTab({
   const { showError } = useToast();
   const queryClient = useQueryClient();
   const { askConfirm, confirmDialog } = useConfirmV2();
+  // „Wgraj CV”: plik staje się głównym CV i kopią CV tej rekrutacji; po
+  // wgraniu podgląd pokazuje „CV oryginalne”, czyli właśnie ten plik.
+  const canUpload = cvUpload != null && stageId != null;
+  const upload = useStageCvUpload({
+    candidateId,
+    stageId: stageId ?? 0,
+    jobId,
+    onUploaded: () => {
+      history?.onOpenChange(false);
+      onSourceChange("original");
+    },
+  });
+  const uploadInputRef = useRef<HTMLInputElement>(null);
   // Te same klucze co dok osoby i karta CV na profilu — odpowiedź jest wspólna.
   const snapshotQuery = useQuery<CVOriginalSnapshot>({
     queryKey: ["cv-original", stageId],
@@ -340,7 +364,12 @@ function CvTab({
         />
       );
     } else if (original.kind === "none") {
-      body = (
+      body = canUpload ? (
+        <div className="flex min-h-40 flex-1 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-muted/20 px-4 py-6 text-center text-xs text-muted-foreground">
+          <p>Kandydat nie ma CV ani w zgłoszeniu, ani w profilu.</p>
+          <StageCvUploadTile upload={upload} label="Wgraj CV" className="w-full max-w-sm text-left" />
+        </div>
+      ) : (
         <Notice>
           <p>Kandydat nie ma CV ani w zgłoszeniu, ani w profilu.</p>
           <Link href={profileHref} target="_blank" rel="noopener" className="font-medium text-primary hover:underline">
@@ -507,7 +536,12 @@ function CvTab({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-2">
+    <CvFileDropTarget
+      enabled={canUpload}
+      upload={upload}
+      title={[cvUpload?.candidateName, cvUpload?.jobTitle].filter(Boolean).join(" · ")}
+      className="flex min-h-0 flex-1 flex-col gap-2"
+    >
       <div className="flex flex-wrap items-center gap-2">
         <div role="group" aria-label="Które CV pokazać" className="inline-flex w-fit flex-wrap rounded-md border border-border bg-muted/30 p-0.5">
           {SOURCES.filter((option) => !sources || sources.includes(option.value)).map((option) => (
@@ -549,6 +583,38 @@ function CvTab({
             Historia osoby{history.count > 0 ? ` (${history.count})` : ""}
           </button>
         ) : null}
+        {canUpload ? (
+          <>
+            <input
+              ref={uploadInputRef}
+              type="file"
+              accept={STAGE_CV_ACCEPT}
+              className="sr-only"
+              tabIndex={-1}
+              aria-hidden
+              data-testid="preview-cv-upload-input"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                // Reset od razu — ten sam plik po błędzie musi dać się wybrać ponownie.
+                event.target.value = "";
+                if (!file) return;
+                const problem = cvFileProblem(file);
+                if (problem) showError(problem);
+                else upload.upload(file);
+              }}
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              loading={upload.isPending}
+              onClick={() => uploadInputRef.current?.click()}
+            >
+              <Upload className="h-3.5 w-3.5" aria-hidden />
+              Wgraj CV
+            </Button>
+          </>
+        ) : null}
         {onCollapse ? (
           <Button type="button" size="sm" variant="ghost" className="ml-auto" onClick={onCollapse}>
             <PanelLeftClose className="h-3.5 w-3.5" aria-hidden />
@@ -584,7 +650,7 @@ function CvTab({
           candidateName={cvActions.candidateName}
         />
       ) : null}
-    </div>
+    </CvFileDropTarget>
   );
 }
 
@@ -649,6 +715,8 @@ export interface CandidatePreviewPaneProps {
   budgetHourly?: number | null;
   /** Screening: wybór gotowego CV z profilu, zmiana i edycja CV firmowego. */
   cvActions?: PreviewCvActions;
+  /** „Wgraj CV” w pasku źródeł, upuszczanie pliku na podgląd i kafelek przy braku CV. */
+  cvUpload?: PreviewCvUpload;
   /**
    * Które źródła CV pokazać w przełączniku. Edytor CV podaje oryginał i pliki:
    * CV firmowe to dokument, który właśnie edytuje.
@@ -729,6 +797,7 @@ export function CandidatePreviewPane({
   extraTab,
   budgetHourly = null,
   cvActions,
+  cvUpload,
   cvSources,
   showHistory = true,
   historyOpen: controlledHistoryOpen,
@@ -942,6 +1011,7 @@ export function CandidatePreviewPane({
               loadOriginalBlob={loadOriginalBlob}
               sources={cvSources}
               cvActions={cvActions}
+              cvUpload={cvUpload}
               loadStageCvFile={loadStageCvFile}
               history={history}
               onCollapse={canCollapse ? () => setLayout?.({ cvCollapsed: true }) : undefined}

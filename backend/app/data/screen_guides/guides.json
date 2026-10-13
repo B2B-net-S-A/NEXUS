@@ -172,7 +172,7 @@
       },
       {
         "q": "Jak przygotować CV do klienta?",
-        "a": "Sekcja „CV” mówi o CV firmowym (brak, szkic, zatwierdzone) i o oryginale. „Generuj CV” otwiera generator, a gdy CV już jest — „Edytuj CV”. Na „Zweryfikowanym” „Otwórz QC” pokazuje, co poprawić przed przekazaniem. „Rozwiń” pokazuje CV duże, po lewej stronie panelu. U PKO BP pobranie czeka na zrzut zgody RODO."
+        "a": "Sekcja „CV” mówi o CV firmowym i o oryginale. Nowe CV od kandydata wgrasz kafelkiem „Wgraj nowe CV” albo upuszczając plik na panel — stanie się głównym CV w profilu i CV tej rekrutacji. „Generuj CV” otwiera generator, a gdy CV już jest — „Edytuj CV”. Na „Zweryfikowanym” „Otwórz QC” pokazuje, co poprawić. U PKO BP pobranie czeka na zgodę RODO."
       },
       {
         "q": "Gdzie są rozmowa u klienta i umowa?",

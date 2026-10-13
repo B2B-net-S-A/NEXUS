@@ -94,6 +94,9 @@ Tylko front, bez API i migracji.
     zwinięcie wymagań w zakładce CV pobierało CV w ukrytym podglądzie Screeningu (przegląd kodu 13.10.2026).
   - Playwright dopasowuje nazwę przycisku po fragmencie: „Zwiń” panelu w e2e tylko z `exact: true`, bo „Zwiń CV”
     i „Zwiń wymagania” też go zawierają.
+- **„Wgraj CV” w podglądzie (13.10.2026):** prop `cvUpload` (wspólny podgląd i Screening, tylko z prawem
+  zapisu i `candidate.document.manage`) daje przycisk w pasku źródeł, upuszczenie pliku na podgląd i kafelek
+  w pustym stanie; po wgraniu podgląd przechodzi na „CV oryginalne”. Reguła: `nowe-cv-w-rekrutacji.md`.
 - Harnessy: `/preview/screening-form` (ramka z prawdziwą strefą), `/preview/job-detail` (replika menu `z-40`
   i `animate-fadeIn`), `/preview/dl-review?layout=panel`. Każdą zmianę panelu sprawdź przy 1280 × 720: strona CV
   ma tam ok. 700–750 px szerokości.

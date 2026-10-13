@@ -25,9 +25,11 @@ interface ClosedCardRestoreProps {
   job: { id: number; title: string };
   row: ClosedRow;
   onRestored: () => void;
+  /** Zdanie nad kartą; domyślnie „Nie przypisano do …” („Przypisz do rekrutacji”). */
+  headline?: string;
 }
 
-export function ClosedCardRestore({ job, row, onRestored }: ClosedCardRestoreProps) {
+export function ClosedCardRestore({ job, row, onRestored, headline }: ClosedCardRestoreProps) {
   const move = usePipelineMoveCore({ jobId: job.id });
   const [restoring, setRestoring] = useState(false);
   // Ekran pokazuje panel nad listą rekrutacji, a „Przypisz” bywa kliknięte
@@ -56,7 +58,7 @@ export function ClosedCardRestore({ job, row, onRestored }: ClosedCardRestorePro
   return (
     <div ref={panel}>
       <AddToRecruitmentOutcome
-        headline={`Nie przypisano do „${job.title}”.`}
+        headline={headline ?? `Nie przypisano do „${job.title}”.`}
         closedRows={[row]}
         otherText={null}
         restoredIds={NONE}

@@ -1209,6 +1209,79 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
     expect(screen.queryByTestId("dock-early-qc")).toBeNull();
     expect(apiGet).not.toHaveBeenCalledWith("/api/pipeline/stages/501/qc");
   });
+
+  // 13.10.2026 (zgłoszenie rekruterki): wgrywanie CV „na wierzchu” — w sekcji
+  // CV panelu osoby, bez przechodzenia do profilu.
+  describe("Wgraj nowe CV", () => {
+    afterEach(() => {
+      useAuthStore.setState({ user: null } as never);
+    });
+
+    it("osoba bez CV: kafelek „Wgraj CV” zamiast linku do profilu", async () => {
+      useAuthStore.setState({ user: { id: 7, role: "recruiter", roles: ["recruiter"] } } as never);
+      routeApiGet({ profileDocs: [] });
+      const user = userEvent.setup();
+      renderDock();
+      await user.click(screen.getByRole("button", { name: /^CV/ }));
+
+      await screen.findByText("Oryginał CV: brak pliku — ani w zgłoszeniu, ani w profilu kandydata");
+      expect(screen.getByLabelText(/^Wgraj CV/)).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /Dodaj CV w profilu kandydata/ })).toBeNull();
+    });
+
+    it("osoba z CV: kafelek „Wgraj nowe CV” obok kopii ze zgłoszenia", async () => {
+      useAuthStore.setState({ user: { id: 7, role: "recruiter", roles: ["recruiter"] } } as never);
+      routeApiGet({});
+      originalGet.mockResolvedValue({
+        data: { has_snapshot: true, original_snapshot_at: "2026-08-20T08:00:00Z", original_cv_filename: "a.pdf" },
+      });
+      const user = userEvent.setup();
+      renderDock();
+      await user.click(screen.getByRole("button", { name: /^CV/ }));
+
+      await screen.findByText(/Oryginał CV: dołączony do zgłoszenia · 20\.08\.2026/);
+      expect(screen.getByLabelText(/^Wgraj nowe CV/)).toBeInTheDocument();
+    });
+
+    it("tylko do odczytu: bez kafelka, zostaje link do profilu", async () => {
+      useAuthStore.setState({ user: { id: 7, role: "recruiter", roles: ["recruiter"] } } as never);
+      routeApiGet({ profileDocs: [] });
+      const user = userEvent.setup();
+      renderDock({ readOnly: true });
+      await user.click(screen.getByRole("button", { name: /^CV/ }));
+
+      expect(await screen.findByRole("link", { name: /Dodaj CV w profilu kandydata/ })).toBeInTheDocument();
+      expect(screen.queryByLabelText(/Wgraj/)).toBeNull();
+    });
+
+    it("nowsze CV w profilu niż kopia ze zgłoszenia: ramka „Użyj w tej rekrutacji”", async () => {
+      useAuthStore.setState({ user: { id: 7, role: "recruiter", roles: ["recruiter"] } } as never);
+      routeApiGet({
+        profileDocs: [
+          {
+            id: 9,
+            filename: "Anna_CV_2026.pdf",
+            is_primary: true,
+            uploaded_at: "2026-10-13T09:00:00Z",
+            created_at: "2026-10-13T09:00:00Z",
+            content_type: "application/pdf",
+            size_bytes: 10,
+            document_kind: "cv",
+            external_source: "m365",
+          },
+        ],
+      });
+      originalGet.mockResolvedValue({
+        data: { has_snapshot: true, original_snapshot_at: "2026-08-20T08:00:00Z", original_cv_filename: "a.pdf" },
+      });
+      const user = userEvent.setup();
+      renderDock();
+      await user.click(screen.getByRole("button", { name: /^CV/ }));
+
+      expect(await screen.findByText("W profilu jest nowsze CV")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Użyj w tej rekrutacji/ })).toBeInTheDocument();
+    });
+  });
 });
 
 // Runda 10 (R10-N15-3): awaria odczytu w doku to komunikat z „Ponów”, nie

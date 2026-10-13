@@ -15,13 +15,18 @@
  */
 
 import type { MoveRequirementItem } from "@/lib/api/moveRequirements";
-import { stageCvStatus, type StageBrandedSummary } from "@/lib/cv-to-client";
+import { stageCvStatus, type StageBrandedSummary, type StageGeneratedCvRow } from "@/lib/cv-to-client";
 import { formatDate } from "@/lib/utils";
 
 export interface DockSnapshotInput {
   has_snapshot: boolean;
   original_snapshot_at?: string | null;
   original_cv_filename?: string | null;
+  /**
+   * `manual_upload` = wgrane z rekrutacji, `manual_refresh` = podmienione z profilu,
+   * `quarantine_restore` = wróciło CV osoby, bo wgrane było CV kogoś innego.
+   */
+  original_snapshot_source?: string | null;
 }
 
 export interface DockProfileCvDoc {
@@ -34,7 +39,7 @@ export interface DockProfileCvDoc {
 
 export type DockOriginalCv =
   | { kind: "loading" }
-  | { kind: "snapshot"; date: string | null; filename: string | null }
+  | { kind: "snapshot"; date: string | null; filename: string | null; source: string | null }
   | { kind: "profile"; date: string | null; doc: DockProfileCvDoc }
   | { kind: "none" }
   /** Etap bez kopii, a profilu nie udało się sprawdzić. */
@@ -66,6 +71,7 @@ export function dockOriginalCv(input: {
       kind: "snapshot",
       date: input.snapshot.original_snapshot_at ?? null,
       filename: input.snapshot.original_cv_filename ?? null,
+      source: input.snapshot.original_snapshot_source ?? null,
     };
   }
   if (input.snapshotLoading) return { kind: "loading" };
@@ -82,8 +88,20 @@ export function originalCvSentence(state: DockOriginalCv): string {
   switch (state.kind) {
     case "loading":
       return "Oryginał CV: sprawdzamy…";
-    case "snapshot":
-      return `Oryginał CV: dołączony do zgłoszenia${state.date ? ` · ${formatDate(state.date)}` : ""}`;
+    case "snapshot": {
+      const when = state.date ? ` · ${formatDate(state.date)}` : "";
+      if (state.source === "manual_upload") {
+        return `Oryginał CV: wgrane w rekrutacji${state.filename ? ` · ${state.filename}` : ""}${when}`;
+      }
+      if (state.source === "manual_refresh") {
+        return `Oryginał CV: z profilu${state.filename ? ` · ${state.filename}` : ""} · podmienione${state.date ? ` ${formatDate(state.date)}` : ""}`;
+      }
+      if (state.source === "quarantine_restore") {
+        // Bramka tożsamości: wgrane CV nie pasowało do osoby, kopia wróciła do jej CV.
+        return `Oryginał CV: poprzednie CV${state.filename ? ` · ${state.filename}` : ""} — wgrane nie pasowało do tej osoby`;
+      }
+      return `Oryginał CV: dołączony do zgłoszenia${when}`;
+    }
     case "profile":
       return `Oryginał CV: z profilu${state.date ? ` (${formatDate(state.date)})` : ""} — do zgłoszenia nie dołączono pliku`;
     case "none":
@@ -173,4 +191,76 @@ export function companyCvSentence(
   }
   const when = branded?.updated_at ?? null;
   return { text: `CV firmowe: szkic${when ? ` · zmienione ${formatDate(when)}` : ""}`, tone: "info" };
+}
+
+/** Kopię z uploadu zapisujemy po dokumencie — margines na zegar i kolejność zapisów. */
+const NEWER_MARGIN_MS = 60_000;
+
+/**
+ * Plik, który serwer skopiuje jako CV rekrutacji (`get_current_cv`): tylko
+ * PDF, DOC i DOCX, najpierw główne, potem najnowsze. Główne CV w TXT czy ODT
+ * nie trafia do kopii — przegląd kodu 13.10.2026: ramka obiecywała plik,
+ * którego „Użyj w tej rekrutacji” nie kopiowało.
+ */
+export function stageCopySource<T extends DockProfileCvDoc>(docs: readonly T[]): T | null {
+  const usable = docs.filter((d) => /\.(pdf|docx?)$/i.test(d.filename));
+  const at = (d: T) => Date.parse(d.uploaded_at ?? d.created_at) || 0;
+  return [...usable].sort((a, b) => Number(b.is_primary) - Number(a.is_primary) || at(b) - at(a))[0] ?? null;
+}
+
+/**
+ * CV z profilu nowsze niż kopia CV tej rekrutacji (D4, 13.10.2026): CV wpadło
+ * mailem albo ktoś wgrał je w profilu lub w innej rekrutacji osoby. Liczy się
+ * plik, który „Użyj w tej rekrutacji” naprawdę skopiuje (`stageCopySource`).
+ * Po wgraniu z tej rekrutacji kopia powstaje po dokumencie, więc ramka się
+ * nie pokazuje. `null` = nie ma nowszego albo nie da się porównać.
+ */
+export function newerProfileCv<T extends DockProfileCvDoc>(
+  original: DockOriginalCv,
+  docs: readonly T[] | undefined,
+): T | null {
+  if (original.kind !== "snapshot" || !original.date || !docs) return null;
+  const primary = stageCopySource(docs);
+  if (!primary) return null;
+  const primaryAt = Date.parse(primary.uploaded_at ?? primary.created_at);
+  const snapshotAt = Date.parse(original.date);
+  if (!Number.isFinite(primaryAt) || !Number.isFinite(snapshotAt)) return null;
+  return primaryAt - snapshotAt >= NEWER_MARGIN_MS ? primary : null;
+}
+
+/**
+ * Od kiedy jest obecny szkic CV firmowego: dokument generatora → wybór
+ * gotowego CV (kopia, plik Word) → ostatnia zmiana. `updated_at` rośnie przy
+ * każdej poprawce, więc jest tylko zapasem.
+ */
+export function companyDraftSince(
+  branded: (StageBrandedSummary & { updated_at?: string | null }) | null | undefined,
+  rows: readonly Pick<StageGeneratedCvRow, "id" | "created_at">[] | undefined,
+): string | null {
+  if (!branded) return null;
+  const attached = branded.generated_document_id;
+  if (attached != null) {
+    const row = rows?.find((r) => r.id === attached);
+    if (row?.created_at) return row.created_at;
+  }
+  return branded.origin?.selected_at ?? branded.updated_at ?? null;
+}
+
+/**
+ * Szkic CV firmowego starszy niż CV podmienione w tej rekrutacji (D3) —
+ * powstał z poprzedniego pliku. Tylko szkic: zatwierdzonego CV i wysłanych
+ * linków nowe CV nie zmienia. Tylko kopia podmieniona ręcznie (upload albo
+ * „Użyj w tej rekrutacji”): kopia z chwili zgłoszenia jest z definicji źródłem
+ * szkicu.
+ */
+export function companyCvStale(input: {
+  brandedStatus: string | null | undefined;
+  original: DockOriginalCv;
+  draftSince: string | null;
+}): boolean {
+  const { brandedStatus, original, draftSince } = input;
+  if (brandedStatus !== "draft" || original.kind !== "snapshot") return false;
+  if (original.source !== "manual_upload" && original.source !== "manual_refresh") return false;
+  if (!original.date || !draftSince) return false;
+  return Date.parse(original.date) > Date.parse(draftSince);
 }

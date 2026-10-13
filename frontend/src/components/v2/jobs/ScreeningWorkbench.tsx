@@ -55,6 +55,7 @@ import type { RejectFollowUp } from "@/lib/reject-follow-up";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
+import { useCapability } from "@/hooks/useCapability";
 
 function PreviewLoading() {
   return <Skeleton className="h-64 w-full rounded-xl" />;
@@ -128,6 +129,8 @@ export function ScreeningWorkbench({
   const candidateId = found?.item.candidate_id ?? -1;
   const formQuery = useScreeningFormState(candidateId, jobId, found != null);
   const state = formQuery.data;
+  // „Wgraj CV” w podglądzie — ta sama bramka co kafelek w doku osoby.
+  const canManageDocuments = useCapability("candidate.document.manage");
 
   // Pytania przypięte do rekrutacji (zakładka „Baza pytań”).
   const pinnedQuery = useQuery({
@@ -373,6 +376,7 @@ export function ScreeningWorkbench({
           onHistoryOpenChange={setHistoryOpen}
           budgetHourly={jobBudgetHourly}
           cvActions={readOnly || ended ? undefined : { candidateName: name }}
+          cvUpload={readOnly || !canManageDocuments ? undefined : { candidateName: name }}
           collapsible
           className="flex-1"
           {...previewLoaders}

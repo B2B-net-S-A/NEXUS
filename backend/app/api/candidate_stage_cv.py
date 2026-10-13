@@ -4,6 +4,8 @@ Faza 2 (PR1) — `original` snapshot:
   GET    /api/candidates/stages/{stage_id}/cv/original
   GET    /api/candidates/stages/{stage_id}/cv/original/download
   POST   /api/candidates/stages/{stage_id}/cv/original/refresh
+  POST   /api/candidates/stages/{stage_id}/cv/original/upload
+         (nowe CV z rekrutacji: główne CV profilu + kopia etapu, 13.10.2026)
 
 Faza 3 (PR2) — `branded` draft + finalize (mirror Contract Draft). Od
 generatora v3 (23.09.2026) szkic pochodzi wyłącznie z generatora; stary
@@ -57,6 +59,7 @@ from typing import Optional
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     File,
     Form,
@@ -98,6 +101,7 @@ from app.services.cv_document_versions import (
 # same CandidateDocumentAccess capability as the canonical document routes.
 from app.api.candidate_access import CandidateDocumentAccess, CandidateWriteAccess
 from app.api.recruitment_access import ensure_job_membership, ensure_job_read_access
+from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.candidate import Candidate
@@ -196,24 +200,6 @@ def _build_original_response(csv: CandidateStageCV) -> CVOriginalSnapshotRespons
             else None
         ),
     )
-
-
-async def _ensure_stage_membership(db: AsyncSession, stage_id: int, user: User) -> None:
-    """Resource scope dla tras adresujących etap, które NIE ładują CV przez
-    ``_load_csv_for_stage``.
-
-    Dziś jedna taka trasa: ``refresh_original_cv`` buduje snapshot od zera
-    (``refresh_original_cv_snapshot``), więc nigdy nie przechodziła przez
-    choke point — i jako jedyna w tym routerze nadpisywała CV cudzej
-    rekrutacji bez żadnego sprawdzenia. Wyłapane przez
-    ``tests/test_job_scope_contract.py``, nie przez czytanie kodu.
-    """
-    job_id = await db.scalar(
-        select(CandidateStage.job_id).where(CandidateStage.id == stage_id)
-    )
-    if job_id is None:
-        raise HTTPException(status_code=404, detail="Stage nie znaleziony")
-    await ensure_job_membership(db, user, job_id)
 
 
 async def _load_csv_for_stage(
@@ -409,17 +395,113 @@ async def refresh_original_cv(
 
     Idempotent w tym sensie, że można wołać wielokrotnie — każdorazowo nadpisuje.
     Jeśli kandydat aktualnie nie ma CV → 422 (nie ma czego skopiować).
+
+    Etap bez wiersza CV (import Traffita) dostaje wiersz — do 13.10.2026
+    dostawał 404, więc „Użyj w tej rekrutacji” w panelu osoby nie działało
+    na większości kart z „Nowych” i „Screeningu”.
     """
-    await _ensure_stage_membership(db, stage_id, current_user)
+    await _load_csv_for_stage(db, stage_id, current_user, create_missing=True)
     try:
         csv = await refresh_original_cv_snapshot(db, stage_id, user_id=current_user.id)
-    except LookupError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=422,
+            detail="Kandydat nie ma w profilu CV w formacie PDF, DOC ani DOCX — nie ma czego skopiować do tej rekrutacji.",
+        ) from exc
 
     await db.commit()
     await db.refresh(csv)
+    return _build_original_response(csv)
+
+
+# Formaty, które `get_current_cv` widzi jako CV — kopia etapu bierze się
+# z głównego CV, więc ODT/RTF/TXT dałyby kopię ze starszego pliku.
+_STAGE_UPLOAD_CV_EXT = frozenset({".pdf", ".doc", ".docx"})
+
+
+@router.post(
+    "/candidates/stages/{stage_id}/cv/original/upload",
+    response_model=CVOriginalSnapshotResponse,
+    dependencies=SOURCING_SECTION_DEPENDENCIES,
+)
+async def upload_original_cv(
+    stage_id: int,
+    current_user: CandidateWriteAccess,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(..., description="Nowe CV kandydata (PDF, DOC, DOCX)"),
+    db: AsyncSession = Depends(get_db),
+) -> CVOriginalSnapshotResponse:
+    """Nowe CV z rekrutacji: główne CV profilu i kopia CV etapu naraz (13.10.2026).
+
+    Kafelek „Wgraj nowe CV” w panelu osoby i okno „Dodaj z CV”. Plik idzie tą
+    samą ścieżką co `POST /api/candidates/{id}/documents` z `is_primary`
+    (deduplikacja po SHA, odczyt AI i bramka tożsamości w tle), a kopia etapu
+    powstaje z niego w tej samej transakcji — dwa żądania z przeglądarki mogły
+    zostawić CV w profilu bez kopii w rekrutacji. Bramka sekcji Sourcing jak
+    przy `/documents`, bo trasa ustawia główne CV profilu.
+
+    Wszystkie odmowy padają PRZED zapisem pliku na dysk (`_ingest_candidate_cv_file`),
+    którego rollback nie cofa.
+    """
+    import os
+
+    from app.api.candidates import (
+        _DOCUMENT_CONTENT_TYPES,
+        _after_cv_commit,
+        _ingest_candidate_cv_file,
+        _primary_cv_before_change,
+        _read_upload_bounded,
+        _sanitize_upload_filename,
+    )
+
+    csv_row = await _load_csv_for_stage(db, stage_id, current_user, create_missing=True)
+    candidate = await db.scalar(
+        select(Candidate).where(Candidate.id == csv_row.candidate_id)
+    )
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Kandydat nie znaleziony")
+
+    content = await _read_upload_bounded(file, label="Plik CV")
+    safe_filename = _sanitize_upload_filename(file.filename, fallback="CV")
+    ext = os.path.splitext(safe_filename.lower())[1]
+    if ext not in _STAGE_UPLOAD_CV_EXT:
+        raise HTTPException(
+            status_code=415,
+            detail="W rekrutacji wgraj CV jako PDF, DOC albo DOCX. Inne formaty dodaj w profilu kandydata.",
+        )
+
+    replaced_primary = await _primary_cv_before_change(db, candidate.id)
+    document = await _ingest_candidate_cv_file(
+        db,
+        candidate=candidate,
+        content=content,
+        safe_filename=safe_filename,
+        content_type=_DOCUMENT_CONTENT_TYPES[ext],
+        user_id=current_user.id,
+    )
+    try:
+        csv = await refresh_original_cv_snapshot(
+            db, stage_id, user_id=current_user.id, source="manual_upload"
+        )
+    except ValueError as exc:
+        # Plik zapisany przed chwilą nie dał się odczytać jako CV — rollback
+        # cofa dokument i kopię (plik na dysku i w magazynie zostaje sierotą).
+        raise HTTPException(
+            status_code=422,
+            detail="Nie udało się odczytać wgranego pliku jako CV. Sprawdź plik i spróbuj ponownie.",
+        ) from exc
+    await db.commit()
+    await db.refresh(candidate)
+    await db.refresh(document)
+    await db.refresh(csv)
+    await _after_cv_commit(
+        db,
+        background_tasks,
+        candidate=candidate,
+        document=document,
+        actor_user_id=current_user.id,
+        replaced_primary=replaced_primary,
+    )
     return _build_original_response(csv)
 
 

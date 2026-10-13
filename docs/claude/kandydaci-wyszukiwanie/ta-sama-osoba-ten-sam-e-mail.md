@@ -42,8 +42,12 @@ więc ostrzeżenie „podobny kandydat” trafiało bardzo często i nic nie zna
   wtedy CV do tego profilu), z `force` zostaje zdanie „Kandydat z tym adresem
   e-mail już istnieje.” Adres z formularza wygrywa z nagłówkiem pliku także
   w sicie (`form_email`; wyczyszczone pole = brak kroku e-mail).
-- Okna: `ExistingCandidateNotice` w „Dodaj kandydata” (`AppShell.tsx`)
-  i w „Dodaj z CV” rekrutacji. Okno pyta `/check-duplicates` tylko o e-mail.
+- Okna: `ExistingCandidateNotice` w „Dodaj kandydata” (`AppShell.tsx`).
+  Okno pyta `/check-duplicates` tylko o e-mail. „Dodaj z CV” w rekrutacji ma
+  od 13.10.2026 własny widok osoby z bazy: „Dodaj do rekrutacji z tym CV”
+  (CV na górę profilu i „Nowi”), „Podmień CV w tej rekrutacji” przy osobie
+  w toku, „Przywróć” przy zamkniętej karcie, a przy identycznym pliku drugi
+  profil tylko z linku — `rekrutacja-tablica/nowe-cv-w-rekrutacji.md`.
 
 ## Czego nie przywracać
 
@@ -58,7 +62,8 @@ więc ostrzeżenie „podobny kandydat” trafiało bardzo często i nic nie zna
 - Serwer czyta CV modelem i odświeża profil tylko wtedy, gdy plik jest
   **głównym CV** (`POST /api/candidates/{id}/documents` z `is_primary=true`,
   odczyt w tle, `CvWritePolicy.REFRESH`). Zwykły plik CV tylko leży w Plikach.
-- „Dodaj to CV do profilu” w oknach wysyła plik od razu jako główne CV
+- „Dodaj to CV do profilu” (okno „Dodaj kandydata”) i „Dodaj do rekrutacji
+  z tym CV” (okno „Dodaj z CV”) wysyłają plik od razu jako główne CV
   (`attachCvFormData`). W zakładce Pliki pole „Ustaw jako główne CV (AI odświeży
   profil)” jest domyślnie zaznaczone; przy kilku plikach głównym zostaje ostatni,
   bo każde główne CV to osobny płatny odczyt.

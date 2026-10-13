@@ -3019,6 +3019,8 @@ export interface CandidatePipelineRow {
   stage_name: string | null;
   stage_category: string | null;
   is_terminal: boolean;
+  /** Kolumna Tablicy (`board_column_for`): „closed” obejmuje listę rezerwową, „hired” osobno. */
+  board_column?: string;
   moved_at: string | null;
   days_in_stage: number;
   rating: number | null;
@@ -6306,6 +6308,16 @@ export const candidateStageCvApi = {
       api.post<CVOriginalSnapshot>(
         `/api/candidates/stages/${stageId}/cv/original/refresh`,
       ),
+    /** Nowe CV z rekrutacji: główne CV profilu i kopia CV etapu naraz. */
+    upload: (stageId: number, file: File) => {
+      const form = new FormData();
+      form.append("file", file);
+      return api.post<CVOriginalSnapshot>(
+        `/api/candidates/stages/${stageId}/cv/original/upload`,
+        form,
+        { headers: { "Content-Type": "multipart/form-data" }, timeout: SLOW_ENDPOINT_TIMEOUT_MS },
+      );
+    },
   },
   branded: {
     selectGenerated: (stageId: number, generated_document_id: number, expected_revision: number, document_version_id?: number) =>
