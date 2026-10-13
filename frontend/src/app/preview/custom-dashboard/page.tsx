@@ -616,7 +616,7 @@ const REQUIREMENT_PROPOSAL: RequirementProposalResponse = {
         { words: ["Kafka", "RabbitMQ"], level: "nice" },
         { words: ["Docker"], level: "nice" },
       ],
-      critical: null,
+      critical: [],
       talk: [
         { name: "Praca z klientem z sektora finansowego", kind: "domains", level: "must" },
         { name: "Komunikatywność i samodzielność", kind: "skills", level: "nice" },

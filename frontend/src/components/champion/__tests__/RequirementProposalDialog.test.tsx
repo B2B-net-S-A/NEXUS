@@ -121,6 +121,8 @@ describe("RequirementProposalDialog", () => {
     expect(within(after).getByTestId("proposal-overflow")).toHaveTextContent(
       "Nie mieści się w wierszach, trafi do opisu wymagań: Oracle, DB2",
     );
+    // Wszystkie krytyczne schodzą do „musi mieć” — decyzja to „brak”, nie „nie wybrano”.
+    expect(within(after).getByTestId("proposal-no-critical")).toHaveTextContent("Krytyczne: brak");
   });
 
   it("bez słów do szukania „Zatwierdź” jest wyłączone i prowadzi do Profilu Championa", async () => {
