@@ -295,6 +295,24 @@ def test_checking_the_largest_allowed_input_is_cheap() -> None:
     assert time.process_time() - started < 5.0
 
 
+def test_source_without_sentence_ends_does_not_blow_up_the_pay_check() -> None:
+    """Oryginał z samych liczb i odstępów, bez kropek: zdanie wokół cytatu ma
+    granicę, inaczej wzorzec kwoty cofa się po całym pliku przy każdym cytacie."""
+    quote = "Zdanie o pracy w banku i systemach płatności"
+    grounds = ai.Grounds(
+        original="Stawka " + "1 2 3 4 5 6 7 8 9 " * 40_000 + quote + " 1 2 3" * 40_000
+    )
+    started = time.process_time()
+    out = ai.check(
+        "expand",
+        FRAGMENT,
+        answer(FRAGMENT.rstrip(".") + ", w banku i systemach płatności.", quote),
+        grounds,
+    )
+    assert time.process_time() - started < 2.0
+    assert out["status"] == "ok", out
+
+
 # ── propose(): model poza transakcją, awaria = „niedostępne”, nigdy wyjątek ──
 
 
@@ -653,3 +671,312 @@ def test_link_already_in_the_fragment_may_stay() -> None:
         "shorten", "Projekt opisany na https://przyklad.example/cv.", fragment=fragment
     )
     assert out["status"] == "ok", out
+
+
+# ── przegląd Pythona 13.10.2026: stawki, tłumaczenie, rola, znaki niewidoczne ──
+
+
+def _grounds(**overrides) -> ai.Grounds:
+    base = {
+        "requirements": GROUNDS.requirements,
+        "original": ORIGINAL,
+        "notes": NOTES,
+        "role": ROLE,
+    }
+    return ai.Grounds(**{**base, **overrides})
+
+
+@pytest.mark.parametrize(
+    ("notes", "quote"),
+    [
+        # cytat ucięty za słowem „Stawka” — samo zdanie nadal jest o stawce
+        ("Stawka 200 zł/h netto B2B oczekiwana.", "200 zł/h netto B2B oczekiwana"),
+        # kwota bez słowa „stawka”
+        (
+            "Oczekiwania finansowe: 25 000 PLN netto B2B miesięcznie.",
+            "Oczekiwania finansowe: 25 000 PLN netto B2B miesięcznie.",
+        ),
+        # liczba bez waluty, ale przy „netto”
+        ("Oczekuje 150 netto na umowie B2B.", "Oczekuje 150 netto na umowie B2B"),
+    ],
+)
+def test_pay_sentence_is_never_a_source_for_the_cv(notes: str, quote: str) -> None:
+    out = ai.check(
+        "expand",
+        FRAGMENT,
+        answer(FRAGMENT.rstrip(".") + f" — {quote}.", quote),
+        _grounds(notes=notes),
+    )
+    assert (out["status"], out["reason"]) == ("rejected", "no_quote"), out
+
+
+def test_number_before_a_word_that_starts_like_a_currency_is_not_money() -> None:
+    """„3 europejskich”, „5 złożonych”, „4 zleceń” — to nie euro ani złote."""
+    sentence = (
+        "Wdrażała system rozliczeń w 3 europejskich bankach i 5 złożonych integracjach."
+    )
+    out = ai.check(
+        "expand",
+        FRAGMENT,
+        answer(
+            FRAGMENT.rstrip(".")
+            + "; system rozliczeń w 3 europejskich bankach i 5 złożonych integracjach.",
+            sentence,
+        ),
+        _grounds(original=ORIGINAL.split("\n")[0] + "\n" + sentence, role=None),
+    )
+    assert out["status"] == "ok", out
+    # Prawdziwa kwota — także z „tys.” i walutą przed liczbą — nadal nie przechodzi.
+    for amount in ("25 tys. zł", "$4000", "300 euro"):
+        notes = f"Kandydat oczekuje {amount} za miesiąc pracy w projekcie."
+        money = ai.check(
+            "expand",
+            FRAGMENT,
+            answer(FRAGMENT.rstrip(".") + f" za {amount}.", notes),
+            _grounds(notes=notes),
+        )
+        assert money["reason"] == "no_quote", (amount, money)
+
+
+def test_sentence_next_to_a_pay_sentence_is_still_a_source() -> None:
+    """Cytat z kropką na końcu: zdanie o stawce stoi tuż za nim, ale to inne zdanie."""
+    out = check(
+        "expand",
+        FRAGMENT.rstrip(".") + ", w tym **Kafka** przez około 3 lata.",
+        "Screening: Kafka w projekcie płatności przez około 3 lata.",
+    )
+    assert out["status"] == "ok", out
+
+
+def test_expand_cannot_add_an_amount_of_money() -> None:
+    """Liczba jest we fragmencie („Java 17”), cytat prawdziwy — kwota i tak nie wchodzi."""
+    out = check(
+        "expand",
+        FRAGMENT.rstrip(".") + " dla 2 mln klientów, za 17 zł/h.",
+        QUOTE,
+    )
+    assert (out["status"], out["reason"]) == ("rejected", "amount"), out
+    assert out["problem"] == "17 zł/h" and "17 zł/h" in out["message"]
+
+
+@pytest.mark.parametrize(
+    ("fragment", "translated"),
+    [
+        (
+            "Obsługa 500 000 transakcji dziennie.",
+            "Handled 500,000 transactions daily.",
+        ),
+        ("Migracja 10 000 kont klientów.", "Migrated 10,000 customer accounts."),
+        (
+            "Odpowiedzialność za główne projekty banku.",
+            "Responsible for major projects of the bank.",
+        ),
+    ],
+)
+def test_ordinary_translation_is_not_a_new_fact(fragment: str, translated: str) -> None:
+    out = check("translate", translated, fragment=fragment)
+    assert out["status"] == "ok", out
+
+
+def test_requirement_named_in_translation_is_a_caution() -> None:
+    """„mikroserwisów” → „microservices”: wymaganie rekrutacji zapisane po angielsku
+    nie jest nowym faktem — rekruter dostaje je do sprawdzenia."""
+    grounds = _grounds(requirements=reqs("Microservices", "Kafka"))
+    out = ai.check(
+        "translate",
+        "Rozwój mikroserwisów płatności.",
+        answer("Development of payment microservices."),
+        grounds,
+    )
+    assert out["status"] == "ok", out
+    assert out["cautions"] == ["Microservices"]
+    # Zapisane jak nazwa, której nie było w zaznaczeniu — to dopisana technologia,
+    # także wtedy, gdy nazwę dzieli ukośnik.
+    grounds = _grounds(requirements=reqs("CI/CD"))
+    named = ai.check(
+        "translate",
+        "Utrzymanie procesu wdrożeń aplikacji.",
+        answer("Maintaining the CI/CD deployment process."),
+        grounds,
+    )
+    assert (named["reason"], named["problem"]) == ("new_fact", "CI/CD"), named
+
+
+def test_thousands_separator_is_not_a_new_number() -> None:
+    out = check(
+        "proofread",
+        "Obsługa 500 000 transakcji dziennie.",
+        fragment="Obsługa 500000 transakcji dziennie.",
+    )
+    assert out["status"] == "ok", out
+    # …ale sklejenie dwóch liczb fragmentu w jedną — tak.
+    glued = check(
+        "rephrase",
+        "Zespół 12 500 serwerów i osób.",
+        fragment="Zespół 12 osób i 500 serwerów.",
+    )
+    assert (glued["reason"], glued["problem"]) == ("new_fact", "12500")
+
+
+def test_words_that_only_start_like_a_month_are_not_dates() -> None:
+    out = check(
+        "rephrase",
+        "Zespoły mają własne czerwone środowiska testowe.",
+        fragment="Zespoły posiadają własne czerwone środowiska do testów.",
+    )
+    assert out["status"] == "ok", out
+    added = check(
+        "rephrase",
+        "Od maja zespoły mają własne środowiska testowe.",
+        fragment="Zespoły posiadają własne środowiska do testów.",
+    )
+    assert (added["reason"], added["problem"]) == ("new_fact", "maja")
+
+
+def test_quote_reaching_into_the_next_employer_is_another_role() -> None:
+    quote = (
+        "przelewy natychmiastowe dla 2 mln klientów. Software House Przykład, "
+        "01.2017 – 02.2021 Usługi REST w Javie 11"
+    )
+    out = check("expand", EXPANDED, quote)
+    assert (out["status"], out["reason"]) == ("rejected", "quote_other_role"), out
+
+
+def test_unresolved_role_is_shown_without_the_verified_badge() -> None:
+    """Fragment stoi w stanowisku, ale nie wiemy, w którym z oryginału: cytat
+    z oryginalnego CV może być z innej roli, więc nie ma plakietki."""
+    grounds = _grounds(role=None, role_bound=True)
+    out = ai.check("expand", FRAGMENT, answer(EXPANDED, QUOTE), grounds)
+    assert out["status"] == "ok" and out["verified"] is False
+    assert out["sources"] and "stanowisk" in out["message"]
+    # Notatka nie jest przypisana do roli — cytat z niej wystarcza.
+    notes = ai.check(
+        "expand",
+        FRAGMENT,
+        answer(
+            FRAGMENT.rstrip(".") + ", w tym **Kafka** przez około 3 lata.",
+            "Kafka w projekcie płatności przez około 3 lata",
+        ),
+        grounds,
+    )
+    assert notes["verified"] is True and notes["message"] is None
+
+
+def _candidate(*entries: dict):
+    return type(
+        "Candidate", (), {"experience": list(entries), "cv_extracted_data": None}
+    )()
+
+
+def test_role_with_a_repeated_title_is_picked_by_its_dates() -> None:
+    """CV „blind”: firma zamieniona na opis branży, dwa stanowiska o tej samej nazwie."""
+    candidate = _candidate(
+        {
+            "company": "Pierwsza Firma Sp. z o.o.",
+            "role": "Java Developer",
+            "description": "Moduł płatności.",
+            "start_date": "2018-03",
+            "end_date": "2020-01",
+        },
+        {
+            "company": "Druga Firma S.A.",
+            "role": "Java Developer",
+            "description": "Obsługa zgłoszeń.",
+            "start_date": "2020-02",
+            "end_date": "2022-06",
+        },
+    )
+    blind = "Firma z branży finansowej"
+    dated = ai.resolve_role(
+        candidate, "", {"employer": blind, "title": "Java Developer 02.2020 – 06.2022"}
+    )
+    assert dated is not None and dated["company"] == "Druga Firma S.A."
+    # Bez dat w nagłówku nie zgadujemy — pierwsza z listy bywa cudzą rolą.
+    assert (
+        ai.resolve_role(candidate, "", {"employer": blind, "title": "Java Developer"})
+        is None
+    )
+
+
+def test_two_positions_at_one_employer_are_told_apart_by_title() -> None:
+    candidate = _candidate(
+        {"company": "Jedna Firma S.A.", "role": "Tester", "description": "Testy."},
+        {"company": "Jedna Firma S.A.", "role": "Analityk", "description": "Analizy."},
+    )
+    own = ai.resolve_role(
+        candidate, "", {"employer": "Jedna Firma S.A.", "title": "Analityk 2021 – 2023"}
+    )
+    assert own is not None and own["original_role"].startswith("Analityk")
+
+
+@pytest.mark.parametrize("hidden", ["kuber​netes", "kuber­netes", "kuber⁠netes"])
+def test_invisible_characters_do_not_hide_a_requirement(hidden: str) -> None:
+    out = check(
+        "proofread",
+        f"Rozwój mikroserwisów płatności w Java 17 i Spring Boot na {hidden}.",
+    )
+    assert (out["reason"], out["problem"]) == ("new_fact", "Kubernetes"), out
+
+
+def test_letters_of_another_alphabet_are_not_added() -> None:
+    # „е” w „kubеrnetes” to cyrylica — wygląda jak łacińskie „e”.
+    out = check(
+        "proofread",
+        "Rozwój mikroserwisów płatności w Java 17 i Spring Boot na kubеrnetes.",
+    )
+    assert (out["status"], out["reason"]) == ("rejected", "new_fact"), out
+    assert "kub" in out["problem"]
+    # Nazwa zapisana cyrylicą już we fragmencie może zostać.
+    fragment = "Wdrożenie systemu rozliczeń dla firmy Приклад w Kijowie."
+    kept = check(
+        "shorten", "Wdrożenie systemu rozliczeń dla Приклад.", fragment=fragment
+    )
+    assert kept["status"] == "ok", kept
+
+
+def test_control_characters_and_surrogates_never_reach_the_editor() -> None:
+    out = check(
+        "shorten", "Mikroserwisy\u0000 płatności w Java 17 i Spring Boot\ud800."
+    )
+    assert out["status"] == "ok", out
+    assert out["proposed_text"] == "Mikroserwisy płatności w Java 17 i Spring Boot."
+    json.dumps(out, ensure_ascii=False).encode("utf-8")
+
+
+def test_text_that_is_not_a_string_is_a_broken_answer() -> None:
+    raw = json.dumps({"text": ["Zdanie jeden.", "Zdanie dwa."], "quotes": []})
+    with pytest.raises(ValueError):
+        ai.check("rephrase", FRAGMENT, raw, GROUNDS)
+
+
+def test_expand_with_nothing_to_add_says_so() -> None:
+    assert check("expand", FRAGMENT)["reason"] == "no_quote"
+
+
+def test_long_answer_keeps_balanced_bold() -> None:
+    long = "Słowo " * 265 + "**pogrubione zakończenie tekstu propozycji**"
+    cleaned = ai.clean_markup(long)
+    assert len(cleaned) <= ai.PROPOSED_MAX and cleaned.count("**") % 2 == 0
+
+
+@pytest.mark.asyncio
+async def test_fragment_in_a_role_the_read_does_not_know_is_not_verified(
+    wired, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db, _calls, state = wired
+    candidate = _candidate()
+    candidate.id = 3
+
+    async def sources(_db, _stage):
+        return type(
+            "Src", (), {"candidate": candidate, "original": {"text": ORIGINAL}}
+        )()
+
+    async def notes(_db, _candidate_id, *_hidden):
+        return NOTES
+
+    monkeypatch.setattr(ai.cv_qc, "_load_sources", sources)
+    monkeypatch.setattr(ai.cv_qc, "_notes_text", notes)
+    state["answer"] = answer(EXPANDED, QUOTE)
+    out = await _propose(db, action="expand")
+    assert out["status"] == "ok" and out["verified"] is False and out["message"]

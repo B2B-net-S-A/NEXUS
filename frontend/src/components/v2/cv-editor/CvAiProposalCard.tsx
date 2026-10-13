@@ -152,6 +152,7 @@ export function CvAiProposalCard({
               ) : null}
             </p>
           ))}
+          {response?.message ? <p className="text-xs text-warning-muted-foreground">{response.message}</p> : null}
           {response?.cautions.length ? (
             <p className="text-xs text-warning-muted-foreground">
               Sprawdź nazwy, których nie było w zaznaczonym tekście: {response.cautions.join(", ")}.

@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -38,7 +40,6 @@ from app.services import dz_review as dz
 from app.services.ai_models import model_chain_for
 from app.services.ai_quota import ai_feature
 from app.services.cv_qc import (
-    _AMOUNT,
     _RATE_WORD,
     SOURCE_QUOTE_MAX,
     SOURCE_QUOTE_MIN_WORDS,
@@ -76,23 +77,48 @@ MAX_CAUTIONS = 5
 # (mnożnik długości fragmentu, stały zapas znaków).
 _GROWTH = {"rephrase": (1.5, 40), "proofread": (1.3, 20), "translate": (2.0, 80)}
 
-# Polski rdzeń miesiąca → angielska nazwa. Tłumaczenie „stycznia 2020” na
-# „January 2020” nie jest nowym faktem; „March” bez marca w źródle — jest.
-_MONTHS_PL_EN = (
-    ("stycz", "january"),
-    ("lut", "february"),
-    ("marz", "march"),
-    ("marc", "march"),
-    ("kwie", "april"),
-    ("maj", "may"),
-    ("czerw", "june"),
-    ("lip", "july"),
-    ("sierp", "august"),
-    ("wrze", "september"),
-    ("pazdz", "october"),
-    ("listop", "november"),
-    ("grud", "december"),
+# Miesiąc: rdzenie, po których poznajemy go w ŹRÓDLE (łagodnie, po złożeniu
+# znaków), dokładne formy, po których poznajemy go w PROPOZYCJI, i nazwa
+# angielska. Tłumaczenie „stycznia 2020” na „January 2020” nie jest nowym
+# faktem; „March” bez marca w źródle — jest. Same rdzenie łapały w propozycji
+# „mają”, „czerwone” i „major” (przegląd 13.10.2026), stąd dokładne formy.
+_MONTHS: tuple[tuple[tuple[str, ...], re.Pattern[str], str], ...] = tuple(
+    (
+        stems,
+        re.compile(rf"\b(?:(?i:{polish})|{english})\b"),
+        english,
+    )
+    for stems, polish, english in (
+        (("stycz",), r"stycze[nń]|styczni(?:a|u|em)", "January"),
+        (("lut",), r"lut(?:y|ego|ym|emu)", "February"),
+        (("marz", "marc"), r"marzec|marc(?:a|u|em)", "March"),
+        (("kwie",), r"kwiecie[nń]|kwietni(?:a|u|em)", "April"),
+        (("maj",), r"maj(?:a|u|em)?", "May"),
+        (("czerw",), r"czerw(?:iec|ca|cu|cem)", "June"),
+        (("lip",), r"lip(?:iec|ca|cu|cem)", "July"),
+        (("sierp",), r"sierpie[nń]|sierpni(?:a|u|em)", "August"),
+        (("wrze",), r"wrzesie[nń]|wrze[sś]ni(?:a|u|em)", "September"),
+        (("pazdz",), r"pa[zź]dziernik(?:a|u|iem)?", "October"),
+        (("listop",), r"listopad(?:a|em|zie)?", "November"),
+        (("grud",), r"grudzie[nń]|grudni(?:a|u|em)", "December"),
+    )
 )
+
+# „500 000”, „500,000”, „500.000” — ta sama liczba w trzech zapisach.
+_THOUSANDS = re.compile(r"(?<!\d)\d{1,3}(?:[ .,]\d{3})+(?!\d)")
+_YEAR = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
+# Kwota pieniędzy. Ściślej niż wzorzec kwoty w QC, który bierze „3 europejskich”
+# i „5 złożonych” za euro i złote: tam decyduje dopiero słowo „stawka” obok,
+# tu kwota sama odrzuca cytat albo propozycję.
+_MONEY = re.compile(
+    r"\d[\d\s.,]*\s*(?:(?:tys|mln)\b\.?\s*|k\s*)?(?:zł|zl|pln|euro|eur|usd|€|\$)(?!\w)"
+    r"(?:\s*/\s*(?:h|godz|md|dzie[nń]|mies)\w*)?"
+    r"|[€$]\s*\d[\d\s.,]*\d|[€$]\s*\d"
+    r"|\d[\d\s.,]*\s*/\s*(?:h|godz|md)\b",
+    re.IGNORECASE,
+)
+# Zdanie o pieniądzach kandydata także bez słowa „stawka” („150 netto na B2B”).
+_PAY_WORD = re.compile(r"\b(?:netto|brutto)\b", re.IGNORECASE)
 
 # Odnośnik, adres e-mail albo domena. Pisane małą literą przechodzą kontrolę
 # nazw własnych, a to typowa treść wstrzyknięta w tekst CV kandydata.
@@ -115,6 +141,10 @@ _MESSAGES = {
         "Zdanie, na które powołało się AI, dotyczy innego stanowiska w oryginalnym CV."
     ),
 }
+MSG_ROLE_UNKNOWN = (
+    "Nie udało się ustalić, którego stanowiska w oryginalnym CV dotyczy ten "
+    "fragment — sprawdź, czy cytat jest z tej samej roli."
+)
 
 
 @dataclass(frozen=True)
@@ -130,6 +160,10 @@ class Grounds:
     # Rola oryginału, w której leży fragment (kształt jak pozycja materiału
     # `cv_qc.fixes_material`); ``None`` = nie ustalono, bez kontroli „inna rola”.
     role: Optional[dict] = None
+    # Fragment stoi w stanowisku CV. Gdy roli oryginału nie ustalono, cytat
+    # z oryginalnego CV może pochodzić z innej roli — propozycja wraca bez
+    # plakietki „Zgodne ze źródłem”.
+    role_bound: bool = False
 
 
 def plain(text: str) -> str:
@@ -137,15 +171,30 @@ def plain(text: str) -> str:
 
 
 def clean_markup(text: Any) -> str:
-    """Tekst modelu w zapisie edytora: bez punktora, z domkniętym ``**``."""
-    body = " ".join(str(text or "").split())
-    body = re.sub(r"^[-•*]\s+", "", body)
+    """Tekst modelu w zapisie edytora: bez punktora, z domkniętym ``**``.
+
+    Znaki sterujące, niewidoczne (zero-width, miękki łącznik) i połówki par
+    zastępczych wypadają: ukrywały wymaganie przed kontrolą (znak zerowej szerokości w środku słowa),
+    NUL odrzucał autozapis szkicu, a samotna połówka pary kończyła odpowiedź
+    błędem 500.
+    """
+    body = unicodedata.normalize("NFC", str(text or ""))
+    body = "".join(
+        ch for ch in body if ch.isspace() or unicodedata.category(ch)[0] != "C"
+    )
+    body = " ".join(body.split())
+    body = re.sub(r"^[-•*]\s+", "", body)[:PROPOSED_MAX]
     if body.count("**") % 2:
         # Niedomknięte pogrubienie: zdejmij ostatni znacznik zamiast pogrubiać resztę.
         at = body.rfind("**")
         body = body[:at] + body[at + 2 :]
     body = body.replace("****", "")
-    return body.strip()[:PROPOSED_MAX]
+    return body.strip()
+
+
+def _for_check(text: str) -> str:
+    """Tekst do kontroli: bez ``**`` i ze znakami zgodności w zwykłej postaci."""
+    return unicodedata.normalize("NFKC", plain(text))
 
 
 def _rejected(
@@ -158,6 +207,11 @@ def _rejected(
             else "w zaznaczonym tekście"
         )
         message = f"Propozycja dodawała „{problem}”, czego nie ma {where}. Spróbuj jeszcze raz."
+    elif reason == "amount":
+        message = (
+            f"Propozycja dodawała kwotę „{problem}”. Kwot AI nie dopisuje do CV — "
+            "jeśli ma w nim być, wpisz ją ręcznie."
+        )
     else:
         message = _MESSAGES[reason]
     return {
@@ -182,13 +236,102 @@ def _new_address(text: str, *sources: str) -> Optional[str]:
     return None
 
 
-def _new_requirement(text: str, grounds: Grounds, *sources: str) -> Optional[str]:
-    """Wymaganie rekrutacji obecne w propozycji, a nieobecne w źródłach."""
+def _new_requirements(
+    text: str, grounds: Grounds, *sources: str
+) -> Iterator[Requirement]:
+    """Wymagania rekrutacji obecne w propozycji, a nieobecne w źródłach."""
     known = " ".join(sources)
     for requirement in grounds.requirements:
         if dz._found(text, requirement) and not dz._found(known, requirement):
-            return requirement.label
+            yield requirement
+
+
+def _odd_character(text: str, *sources: str) -> Optional[str]:
+    """Słowo propozycji ze znakiem spoza źródeł, który nie jest zwykłym pismem.
+
+    Litera innego alfabetu wygląda jak łacińska („kubеrnetes” z cyrylicą),
+    a znak łączący bywa niewidoczny — jedno i drugie chowa słowo przed kontrolą.
+    """
+    known = set("".join(sources))
+    for word in text.split():
+        for ch in word:
+            if ch < "\u0250" or ch in known:
+                continue
+            kind = unicodedata.category(ch)[0]
+            if kind == "M" or (
+                kind == "L" and not unicodedata.name(ch, "").startswith("LATIN")
+            ):
+                return word.strip(".,;:")
     return None
+
+
+def _without(text: str, words: list[str]) -> str:
+    """Tekst bez podanych słów (całych)."""
+    for word in words:
+        text = re.sub(rf"(?<!\w){re.escape(word)}(?!\w)", " ", text)
+    return text
+
+
+def _join_thousands(text: str) -> str:
+    return _THOUSANDS.sub(lambda m: re.sub(r"\D", "", m.group(0)), text)
+
+
+def _facts(text: str, *sources: str) -> Iterator[tuple[str, str]]:
+    """Fakty propozycji spoza źródeł (bez miesięcy — te liczy `_new_month`)."""
+    joined = [_join_thousands(source) for source in sources]
+    for kind, fact in unsupported_facts(_join_thousands(text), *sources, *joined):
+        if kind != "month":
+            yield kind, fact
+
+
+def _new_month(text: str, *sources: str) -> Optional[str]:
+    """Miesiąc nazwany w propozycji, którego nie ma w źródłach."""
+    folded = _fold(" ".join(sources))
+    for stems, pattern, english in _MONTHS:
+        match = pattern.search(text)
+        if match and not any(
+            re.search(rf"\b{stem}", folded) for stem in (*stems, english.lower())
+        ):
+            return match.group(0)
+    return None
+
+
+def _new_amount(text: str, fragment: str) -> Optional[str]:
+    """Kwota w propozycji, której nie było w zaznaczonym tekście."""
+    known = _norm(fragment)
+    for match in _MONEY.finditer(text):
+        amount = match.group(0).strip(" .,")
+        if _norm(amount) not in known:
+            return amount
+    return None
+
+
+def _about_pay(sentence: str) -> bool:
+    return bool(
+        (_RATE_WORD.search(sentence) and _MONEY.search(sentence))
+        or (_PAY_WORD.search(sentence) and re.search(r"\d", sentence))
+    )
+
+
+# Jak daleko od cytatu szukamy granicy zdania. Bez granicy plik bez kropek był
+# jednym „zdaniem”, a wzorzec kwoty cofał się po nim kwadratowo.
+_SENTENCE_REACH = 300
+
+
+def _sentence_around(haystack: str, at: int, length: int) -> str:
+    """Zdanie źródła, z którego wycięto cytat stojący na pozycji ``at``."""
+    low = max(0, at - _SENTENCE_REACH)
+    high = min(len(haystack), at + length + _SENTENCE_REACH)
+    dot = haystack.rfind(". ", low, at)
+    # Od ostatniego znaku cytatu: jego własna kropka kończy zdanie.
+    end = haystack.find(". ", at + length - 1, high)
+    return haystack[dot + 1 if dot >= 0 else low : end if end >= 0 else high]
+
+
+def _names_other_company(quote: str, role: dict) -> bool:
+    """Cytat sięga w nagłówek innego pracodawcy — zaczyna się w tej roli, kończy w cudzej."""
+    names = (_norm(company) for company in role.get("other_companies") or [])
+    return any(len(name) >= 3 and name in quote for name in names)
 
 
 def verify_quotes(quotes: Any, grounds: Grounds) -> tuple[list[dict], bool]:
@@ -197,6 +340,9 @@ def verify_quotes(quotes: Any, grounds: Grounds) -> tuple[list[dict], bool]:
     Reguły jak w `cv_qc.parse_fixes`: zdanie (co najmniej
     ``SOURCE_QUOTE_MIN_WORDS`` słów, nie lista technologii), dosłownie
     w oryginale albo w notatkach, nie z innego stanowiska i bez stawki.
+    Ostrzej niż QC w dwóch miejscach: cytat z kwotą nie jest źródłem wcale,
+    a o tym, czy zdanie mówi o pieniądzach, decyduje całe zdanie źródła, nie
+    wycięty z niego kawałek („200 zł/h netto” ze zdania „Stawka 200 zł/h netto”).
     """
     original = _norm(grounds.original)
     notes = _norm(grounds.notes)
@@ -211,18 +357,27 @@ def verify_quotes(quotes: Any, grounds: Grounds) -> tuple[list[dict], bool]:
         seen.add(key)
         if len(quote.split()) < SOURCE_QUOTE_MIN_WORDS or is_tech_list(quote):
             continue
-        if _RATE_WORD.search(quote) and _AMOUNT.search(quote):
+        if _MONEY.search(quote):
             continue
-        if key in original:
-            if grounds.role is not None and _quote_from_other_role(
-                key, grounds.role, original
-            ):
-                other_role = True
-                continue
-            kind = "original"
-        elif key in notes:
-            kind = "notes"
+        at = original.find(key)
+        if at >= 0:
+            kind, where = "original", original
         else:
+            at = notes.find(key)
+            if at < 0:
+                continue
+            kind, where = "notes", notes
+        if _about_pay(_sentence_around(where, at, len(key))):
+            continue
+        if (
+            kind == "original"
+            and grounds.role is not None
+            and (
+                _quote_from_other_role(key, grounds.role, original)
+                or _names_other_company(key, grounds.role)
+            )
+        ):
+            other_role = True
             continue
         verified.append({"kind": kind, "quote": quote[:SOURCE_QUOTE_MAX]})
         if len(verified) >= MAX_SOURCES:
@@ -233,7 +388,11 @@ def verify_quotes(quotes: Any, grounds: Grounds) -> tuple[list[dict], bool]:
 def _translation_source(fragment: str) -> str:
     """Fragment z angielskimi nazwami miesięcy, które w nim występują."""
     folded = _fold(fragment)
-    months = [en for pl, en in _MONTHS_PL_EN if re.search(rf"\b{pl}", folded)]
+    months = [
+        english
+        for stems, _pattern, english in _MONTHS
+        if any(re.search(rf"\b{stem}", folded) for stem in stems)
+    ]
     return " ".join([fragment, *months])
 
 
@@ -247,15 +406,20 @@ def check(action: str, fragment: str, raw: str, grounds: Grounds) -> dict:
     if action not in ACTIONS:
         raise ValueError(f"unknown action: {action}")
     data = _json_object(raw)
-    proposed = clean_markup(data.get("text"))
-    text = plain(proposed)
-    source = plain(fragment)
+    answer = data.get("text")
+    if answer is not None and not isinstance(answer, str):
+        # Lista albo obiekt zamiast tekstu wróciłyby do CV jako zapis Pythona.
+        raise ValueError("model text is not a string")
+    proposed = clean_markup(answer)
+    text = _for_check(proposed)
+    source = _for_check(fragment)
     if not text.strip():
         return _rejected("empty")
     # Dokładnie, nie przez `_norm`: sama zmiana wielkości liter („github” →
     # „GitHub”) to poprawka, o którą proszono.
     if " ".join(proposed.split()) == " ".join((fragment or "").split()):
-        return _rejected("unchanged")
+        # Rozwinięcie bez zmian = źródła nie mówią nic więcej o tym fragmencie.
+        return _rejected("no_quote" if action == "expand" else "unchanged")
     if action == "shorten" and len(text) >= len(source):
         return _rejected("not_shorter")
     if action in _GROWTH:
@@ -265,52 +429,64 @@ def check(action: str, fragment: str, raw: str, grounds: Grounds) -> dict:
 
     sources: list[dict] = []
     cautions: list[str] = []
+    known = [source]
     if action == "expand":
         sources, other_role = verify_quotes(data.get("quotes"), grounds)
         if not sources:
             return _rejected("quote_other_role" if other_role else "no_quote")
-        quotes = [item["quote"] for item in sources]
-        problem = (
-            _new_address(text, source, *quotes)
-            or next(
-                (fact for _, fact in unsupported_facts(text, source, *quotes)), None
-            )
-            or _new_requirement(text, grounds, source, *quotes)
-        )
-        if problem:
-            return _rejected("new_fact", problem, expand=True)
+        amount = _new_amount(text, source)
+        if amount:
+            return _rejected("amount", amount)
+        known += [_for_check(item["quote"]) for item in sources]
     elif action == "translate":
-        known = _translation_source(source)
-        address = _new_address(text, source)
-        if address:
-            return _rejected("new_fact", address)
-        for kind, fact in unsupported_facts(text, known):
-            if kind != "capital":
-                return _rejected("new_fact", fact)
+        known = [_translation_source(source)]
+
+    def caution(name: str) -> None:
+        seen = {item.casefold() for item in cautions}
+        if name.casefold() not in seen and len(cautions) < MAX_CAUTIONS:
+            cautions.append(name)
+
+    expand = action == "expand"
+    problem = (
+        _odd_character(text, *known)
+        or _new_address(text, *known)
+        or _new_month(text, *known)
+    )
+    if problem:
+        return _rejected("new_fact", problem, expand=expand)
+    names: list[str] = []
+    for kind, fact in _facts(text, *known):
+        if action == "translate" and kind == "capital":
             # Angielski pisze wielką literą więcej niż polski („Project Manager”)
             # — to uwaga dla rekrutera, nie dowód nowego faktu.
-            if fact not in cautions and len(cautions) < MAX_CAUTIONS:
-                cautions.append(fact)
-        problem = _new_requirement(text, grounds, source)
-        if problem:
-            return _rejected("new_fact", problem)
-    else:
-        problem = (
-            _new_address(text, source)
-            or next((fact for _, fact in unsupported_facts(text, source)), None)
-            or _new_requirement(text, grounds, source)
-        )
-        if problem:
-            return _rejected("new_fact", problem)
+            names.append(fact)
+            continue
+        return _rejected("new_fact", fact, expand=expand)
+    for requirement in _new_requirements(text, grounds, *known):
+        # W tłumaczeniu wymaganie zapisane zwykłym słowem („mikroserwisów” →
+        # „microservices”) to przekład, nie nowy fakt. Zapisane jak nazwa,
+        # której nie było („…and Kafka”), jest dopisaną technologią.
+        if action != "translate" or not dz._found(_without(text, names), requirement):
+            return _rejected("new_fact", requirement.label, expand=expand)
+        caution(requirement.label)
+    for name in names:
+        caution(name)
+    # Fragment stoi w stanowisku, którego nie umiemy wskazać w oryginale: cytat
+    # z oryginalnego CV może być z innej roli, więc nie dostaje plakietki.
+    unattributed = (
+        grounds.role_bound
+        and grounds.role is None
+        and any(item["kind"] == "original" for item in sources)
+    )
     return {
         "status": "ok",
         "proposed_text": proposed,
-        "verified": bool(sources),
+        "verified": bool(sources) and not unattributed,
         "sources": sources,
         "cautions": cautions,
         "reason": None,
         "problem": None,
-        "message": None,
+        "message": MSG_ROLE_UNKNOWN if unattributed else None,
     }
 
 
@@ -363,23 +539,46 @@ def _unavailable(
     }
 
 
+def _entry_years(entry: dict) -> set[str]:
+    """Lata początku i końca roli z odczytu CV (klucze jak `cv_qc.experience_years`)."""
+    keys = ("start", "start_date", "from", "end", "end_date", "to")
+    return set(_YEAR.findall(" ".join(str(entry.get(key) or "") for key in keys)))
+
+
 def resolve_role(candidate: Any, original: str, role: Optional[dict]) -> Optional[dict]:
     """Rola oryginału, do której należy zaznaczony fragment — po firmie albo stanowisku.
 
     Zwraca pozycję w kształcie `cv_qc.fixes_material` (do odrzucenia cytatu
-    z innej roli) albo ``None``, gdy roli nie da się wskazać. Nazwy przychodzą
-    od klienta, więc służą wyłącznie do WYBORU roli z odczytu oryginału.
+    z innej roli) albo ``None``, gdy roli nie da się wskazać JEDNOZNACZNIE:
+    dwa stanowiska u jednego pracodawcy rozróżnia nazwa, a dwa o tej samej
+    nazwie (CV „blind” bez nazw firm) — lata z nagłówka. Pierwsza pasująca
+    z listy bywała cudzą rolą: jej cytaty dostawały plakietkę, a własne
+    odpadały jako „inne stanowisko”. Nazwy przychodzą od klienta, więc służą
+    wyłącznie do WYBORU roli z odczytu oryginału.
     """
     if not role:
         return None
     employer = str(role.get("employer") or "").split(" · ")[0].strip()
     title = str(role.get("title") or "").strip()
-    roles = dz.original_roles(dz.role_entries(candidate, original))
-    own = next((r for r in roles if dz._same_company(r.company, employer)), None)
-    if own is None:
-        own = next((r for r in roles if dz._same_title(r.title, title)), None)
-    if own is None:
+    entries = dz.role_entries(candidate, original)
+    roles = dz.original_roles(entries)
+    found = [r for r in roles if dz._same_company(r.company, employer)]
+    titled = [r for r in found or roles if dz._same_title(r.title, title)]
+    if titled or not found:
+        found = titled
+    if len(found) > 1:
+        years = set(_YEAR.findall(title))
+        dated = [
+            r
+            for r, entry in zip(roles, entries)
+            if any(r is f for f in found)
+            and (own_years := _entry_years(entry))
+            and own_years <= years
+        ]
+        found = dated
+    if len(found) != 1:
         return None
+    own = found[0]
     return {
         "original_role": own.text[: cv_qc.PROMPT_ROLE_MAX],
         "company": own.company,
@@ -455,7 +654,8 @@ def _call_model(system: str, prompt: str, chain: tuple[str, ...]) -> str:
     return call_claude_text(
         model=chain[0],
         fallback_models=chain[1:] or None,
-        max_tokens=700,
+        # Propozycja do 1600 znaków + trzy cytaty po 300: 700 tokenów ucinało JSON.
+        max_tokens=1500,
         thinking={"type": "disabled"},
         # Krócej niż domyślne 90 s × 3: rekruter czeka z otwartą kartą.
         timeout=20,
@@ -524,7 +724,8 @@ async def propose(
     try:
         job = await db.get(Job, stage.job_id)
         must, nice = dz.job_requirements(job) if job is not None else ([], [])
-        grounds = Grounds(requirements=(*must, *nice))
+        role_bound = payload.get("section") == "experience" or bool(payload.get("role"))
+        grounds = Grounds(requirements=(*must, *nice), role_bound=role_bound)
         if action == "expand":
             src = await cv_qc._load_sources(db, stage)
             original = src.original.get("text") or ""
@@ -541,6 +742,7 @@ async def propose(
                 original=original,
                 notes=notes,
                 role=resolve_role(src.candidate, original, payload.get("role")),
+                role_bound=role_bound,
             )
         prompt = build_prompt(payload, grounds)
         system = CV_SELECTION_EDIT.system_prompt or ""

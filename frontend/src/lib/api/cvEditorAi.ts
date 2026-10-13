@@ -60,7 +60,7 @@ export interface CvAiResponse {
   cautions: string[];
   reason: string | null;
   problem: string | null;
-  /** Zdanie dla rekrutera, gdy propozycji nie ma. */
+  /** Zdanie dla rekrutera: powód, gdy propozycji nie ma, albo uwaga do propozycji. */
   message: string | null;
 }
 

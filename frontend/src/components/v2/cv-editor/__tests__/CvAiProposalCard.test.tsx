@@ -49,6 +49,23 @@ describe("karta propozycji AI", () => {
     expect(screen.queryByText("Zgodne ze źródłem")).toBeNull();
   });
 
+  it("propozycja z uwagą serwera: cytat bez plakietki i zdanie, co sprawdzić", () => {
+    const message = "Nie udało się ustalić, którego stanowiska w oryginalnym CV dotyczy ten fragment.";
+    card({
+      response: {
+        ...RESPONSE,
+        action: "expand",
+        sources: [{ kind: "original", quote: "obsługa przelewów natychmiastowych w banku" }],
+        message,
+      },
+    });
+    const dialog = screen.getByRole("dialog", { name: "Propozycja AI" });
+    expect(dialog).toHaveTextContent(message);
+    expect(dialog).toHaveTextContent("obsługa przelewów natychmiastowych w banku");
+    expect(screen.queryByText("Zgodne ze źródłem")).toBeNull();
+    expect(screen.getByRole("button", { name: "Przyjmij" })).toBeEnabled();
+  });
+
   it("w trakcie liczenia jest tylko „Anuluj”", () => {
     const props = card({ state: "loading", response: null });
     expect(screen.getByRole("status")).toHaveTextContent("AI przygotowuje propozycję");

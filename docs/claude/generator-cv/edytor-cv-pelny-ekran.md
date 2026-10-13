@@ -277,11 +277,37 @@ trafia dopiero po „Przyjmij”.
   cytat nie wystarcza — model mógłby zacytować cztery słowa i dopisać cokolwiek.
   Propozycja, która nie przeszła, nie wraca do edytora: wraca powód i zapis,
   o który poszło (`status: "rejected"`).
+- **Czego kontrola pilnuje poza nazwami i liczbami** (przeglądy 13.10.2026):
+  odnośnika, adresu e-mail i domeny spoza źródeł (`_new_address` — pisane małą
+  literą przechodziły kontrolę nazw); znaków niewidocznych i sterujących, które
+  `clean_markup` wycina, zanim cokolwiek sprawdzimy (znak zerowej szerokości
+  w środku słowa chował wymaganie, NUL odrzucał autozapis, połówka pary
+  zastępczej dawała 500); słowa z literą innego alfabetu albo znakiem łączącym
+  spoza źródeł (`_odd_character` — cyrylickie „е” wygląda jak łacińskie).
+  Liczby porównujemy też po sklejeniu separatora tysięcy („500 000” =
+  „500,000”), a miesiąc w propozycji poznajemy po dokładnych formach
+  (`_MONTHS`), nie po rdzeniu — rdzeń łapał „mają”, „czerwone” i „major”.
+- **Rozwinięcie nie przenosi pieniędzy do CV.** Notatki idą do modelu bez pól
+  handlowych karty rekomendacji (`CV_HIDDEN_FIELDS`: stawka, red flags,
+  motywacja — jak w generatorze CV). Cytat z kwotą nie jest źródłem; o tym, czy
+  zdanie mówi o pieniądzach, decyduje całe zdanie źródła, nie wycięty z niego
+  kawałek (`_about_pay`, także „150 netto” bez waluty); propozycja nie może
+  dodać kwoty, której nie było w zaznaczeniu (`reason: "amount"`).
+- **Rozwinięcie a stanowisko.** `resolve_role` wskazuje rolę oryginału tylko
+  jednoznacznie: firma, przy dwóch stanowiskach u jednego pracodawcy nazwa,
+  przy dwóch o tej samej nazwie (CV „blind”) lata z nagłówka. Cytat sięgający
+  w nagłówek innego pracodawcy to inna rola. Gdy fragment stoi w stanowisku,
+  a roli nie da się wskazać, propozycja z cytatem z oryginalnego CV wraca BEZ
+  plakietki „Zgodne ze źródłem”, z uwagą na karcie (`message` przy
+  `status: "ok"`); cytat z notatek nie jest przypisany do roli.
 - **Tłumaczenie:** liczby, tokeny z cyfrą i miesiące (tabela PL→EN) muszą się
   zgadzać; nowe wyrazy z wielkiej litery to `cautions` na karcie, nie odmowa —
-  angielski pisze wielką literą więcej („Project Manager”). „Na angielski”
-  w polskim CV zostawia polskie etykiety szablonu i klauzulę; karta to mówi.
-  Przeniesienie całego CV PL→EN to PR 4.
+  angielski pisze wielką literą więcej („Project Manager”). Wymaganie
+  rekrutacji zapisane w tłumaczeniu zwykłym słowem („mikroserwisów” →
+  „microservices”) też jest uwagą, bo to przekład; zapisane jak nazwa, której
+  nie było w zaznaczeniu („…and Kafka”), jest dopisaną technologią i odmową.
+  „Na angielski” w polskim CV zostawia polskie etykiety szablonu i klauzulę;
+  karta to mówi. Przeniesienie całego CV PL→EN to PR 4.
 - **Trasa jest bezstanowa:** `POST /api/pipeline/stages/{id}/cv-ai/selection`
   (`api/cv_editor_ai.py`, bez `from __future__`). Klient wysyła TEKST — fragment
   (`**pogrubienie**`), jego akapit i opis stanowiska z `cvOutline` — nigdy HTML
@@ -310,6 +336,11 @@ trafia dopiero po „Przyjmij”.
   `closeHistory`); pogrubienie z zapisu `**x**`, inne znaczniki obejmujące cały
   fragment zostają. Szkic na zatwierdzonej wersji powstaje dopiero przy
   „Przyjmij” — zamówienie i odrzucenie propozycji niczego w CV nie zmieniają.
+  Kontroler nie zeruje się w trakcie przyjmowania (`busy`): założenie szkicu
+  przeładowuje treść, a bez tego propozycja znikała, zanim została nałożona.
+- **Escape w karcie odrzuca propozycję, nie zamyka edytora.** Radix słucha
+  Escape na `document`, więc `stopPropagation` w karcie nie wystarcza — okno
+  poznaje kartę po znaczniku `data-cv-ai-card` (`CV_AI_CARD_ATTR`).
 - **Dymek i karta stoją w kolumnie kartki** (`createPortal` do `.cv-paper`,
   pozycja z `coordsAtPos`), nie w `body`: okno edytora jest modalne, więc
   element poza nim byłby nieklikalny. Stąd własny dymek zamiast `BubbleMenu`
