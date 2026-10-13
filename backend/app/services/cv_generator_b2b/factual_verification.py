@@ -274,13 +274,14 @@ def verify_final_cv(
             reviews.append({"path": item.path, "evidence": citations})
     # Protocol failures above abort immediately (the batch cannot be trusted at
     # all); per-claim verdicts are reported for the WHOLE document at once.
-    if invalid_evidence:
+    # Rejected claims and claims with a bad citation travel TOGETHER: until
+    # 13.10.2026 one bad citation raised first and the recruiter never saw the
+    # reviewer's real objections (86 of 759 CVs in 30 days).
+    if rejected or invalid_evidence:
         raise FactualVerificationError(
-            invalid_evidence, reason="invalid_evidence", statuses=statuses
-        )
-    if rejected:
-        raise FactualVerificationError(
-            rejected, reason="semantic_rejection", statuses=statuses
+            rejected + invalid_evidence,
+            reason="semantic_rejection" if rejected else "invalid_evidence",
+            statuses=statuses,
         )
     serialized = json.dumps(projection, sort_keys=True, ensure_ascii=False)
     return {

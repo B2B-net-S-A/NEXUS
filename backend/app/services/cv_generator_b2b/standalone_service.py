@@ -47,6 +47,7 @@ from app.services import object_storage
 from app.services import champion_view
 from app.services import note_kinds
 from app.services import recommendation_cards
+from app.services.money_text import strip_rates_and_availability
 from app.services.recommendation_card_parser import CV_HIDDEN_FIELDS, redact_card_text
 from app.services.cv_generator_b2b.provider import (
     CVGeneratorAIError,
@@ -2208,6 +2209,11 @@ async def list_recruitments_with_readiness(
     return result
 
 
+# Rodzaje materiału dla modelu generatora CV (13.10.2026). Przełączniki w karcie
+# „CV do klienta” (PR 4) nadpisują te wartości dla jednej generacji.
+AI_SOURCE_DEFAULTS: dict[str, bool] = {"transcripts": False, "prep": False}
+
+
 async def collect_screening_notes_text(
     db: AsyncSession,
     *,
@@ -2216,8 +2222,16 @@ async def collect_screening_notes_text(
     job: Job,
     warnings: list[str] | None = None,
     language: Language = "pl",
+    sources: dict[str, bool] | None = None,
 ) -> str:
     """Materiały o kandydacie dopuszczone do modelu dla tej rekrutacji.
+
+    ``sources`` wybiera rodzaje materiału (``AI_SOURCE_DEFAULTS``). Od
+    13.10.2026 transkrypty rozmów i podsumowania prepu są domyślnie wyłączone:
+    rozmowa nie ma pola rekrutacji, więc wchodziły też rozmowy o innych
+    procesach, a prep niesie ocenę rekrutera i listę tematów „na następny
+    prep”, nie fakty o kandydacie. Stawki i dostępność są wycinane z wolnych
+    notatek (``money_text``) — to ustalenia handlowe, nie treść CV.
 
     Strukturalne oceny handlowe są pomijane. Podsumowanie AI bez transkryptu
     nie jest źródłem faktów; opcjonalna lista warnings informuje o pominięciu.
@@ -2260,8 +2274,11 @@ async def collect_screening_notes_text(
             f"[Odpowiedzi kandydata na pytania screeningowe]\n{answers_text}"
         )
 
-    if stage.notes and stage.notes.strip():
-        screening_parts.append(f"[Notatka z procesu]\n{stage.notes.strip()}")
+    chosen = {**AI_SOURCE_DEFAULTS, **(sources or {})}
+
+    stage_notes = strip_rates_and_availability(stage.notes)
+    if stage_notes:
+        screening_parts.append(f"[Notatka z procesu]\n{stage_notes}")
 
     notes_q = (
         select(Note)
@@ -2273,11 +2290,16 @@ async def collect_screening_notes_text(
         .order_by(Note.created_at.desc())
         .limit(20)
     )
+    if not chosen["prep"]:
+        notes_q = notes_q.where(Note.kind.is_distinct_from(note_kinds.PREP_SUMMARY))
     notes = (await db.scalars(notes_q)).all()
     for note in notes:
         # 0413: karta rekomendacji w notatce niesie ustalenia handlowe
         # (stawka, red flags, motywacja) i narodowość — to nie jest treść CV.
-        body = redact_card_text(note.content, CV_HIDDEN_FIELDS).strip()
+        # Stawka wpisana prozą („150 PLN/h + VAT”) i dostępność też nie.
+        body = strip_rates_and_availability(
+            redact_card_text(note.content, CV_HIDDEN_FIELDS)
+        ).strip()
         if body:
             screening_parts.append(f"[Notatka kandydata]\n{body}")
 
@@ -2287,8 +2309,8 @@ async def collect_screening_notes_text(
         db, candidate_id=candidate_id, job_id=job.id
     )
     manual = (card.fields_manual or {}).get("recommendation") if card else None
-    recommendation = redact_card_text(
-        str((manual or {}).get("raw") or ""), CV_HIDDEN_FIELDS
+    recommendation = strip_rates_and_availability(
+        redact_card_text(str((manual or {}).get("raw") or ""), CV_HIDDEN_FIELDS)
     ).strip()
     if recommendation:
         # Wpis sprzed bieżącej próby procesu jest tylko podpowiedzią na karcie
@@ -2302,6 +2324,9 @@ async def collect_screening_notes_text(
             manual, recommendation_cards.attempt_started(process)
         ):
             screening_parts.append(f"[Rekomendacja rekrutera]\n{recommendation}")
+
+    if not chosen["transcripts"]:
+        return "\n\n".join(screening_parts)
 
     first_moved = await db.scalar(
         select(func.min(CandidateStage.moved_at)).where(
@@ -2325,7 +2350,7 @@ async def collect_screening_notes_text(
     calls = (await db.scalars(calls_q)).all()
     omitted_summaries = 0
     for call in calls:
-        body = (call.transcript or "").strip()
+        body = strip_rates_and_availability(call.transcript).strip()
         if body:
             screening_parts.append(f"[Transkrypt rozmowy]\n{body}")
         elif (call.summary or "").strip():
@@ -2666,6 +2691,18 @@ async def load_candidate_generation_source(
     position_override = (
         position if position and position.casefold() != job_title.casefold() else ""
     )
+    # D2 (13.10.2026): do nagłówka CV idzie nazwa roli od klienta bez jego
+    # nazwy, numerów zapytania, kodów i lokalizacji — bez tłumaczenia.
+    header_title = ""
+    if job is not None and job_title:
+        from app.services.job_public_profile import _client_names
+        from app.services.job_working_title import cv_role_title
+
+        header_title = cv_role_title(
+            job_title,
+            getattr(job, "client_reference", None),
+            await _client_names(db, job.client_id),
+        )
     return CandidateGenerationSource(
         cv_bytes=bytes(cv_bytes),
         cv_filename=cv_doc.filename or "cv.pdf",
@@ -2675,7 +2712,7 @@ async def load_candidate_generation_source(
         source_warnings=tuple(source_warnings),
         fallback_name=f"{candidate.name} {candidate.lastname}".strip() or None,
         job_id=job.id if job is not None else None,
-        job_title=position or (job.title if job is not None else ""),
+        job_title=position or header_title,
         client_content_mode_cap=getattr(client, "cv_content_mode_cap", None),
         candidate_id=candidate_id,
         stage_id=stage_id,

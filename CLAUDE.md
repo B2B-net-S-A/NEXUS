@@ -258,6 +258,7 @@ Generator CV, reguły CV klienta, zgoda RODO, interaktywne CV, automaty rekrutac
 - `generator-cv-v3-jeden-ekran-od-osoby.md` — Generator CV v3 — jeden ekran od osoby (23.09.2026)
 - `interaktywne-cv-publiczny-link-do-wygenerowanego-cv.md` — Interaktywne CV (publiczny link do wygenerowanego CV)
 - `reguly-cv-per-klient-pelna-recepta-delivery-leada.md` — Reguły CV per klient — pełna recepta Delivery Leada
+- `silnik-cv-bez-wypelniacza.md` — Silnik CV bez wypełniacza (13.10.2026, D1–D3) · punkt „Posiada kluczowe technologie…” usunięty, pytanie screeningu ≠ fakt, strażnik terminów z pytań i wymagań, branża tylko ze źródła, nagłówek = nazwa roli od klienta bez tłumaczenia (`cv_role_title`), lata bez nadpisywania stażem całej kariery, notatki bez stawek, dostępności, transkryptów i prepów, kontrola AI nie chowa zastrzeżeń
 - `zrzut-zgody-rodo-na-koncu-cv-wymog-pko-bp.md` — Zrzut zgody RODO na końcu CV (wymóg PKO BP)
 
 ### AI i Jarvis — `docs/claude/ai-jarvis/`

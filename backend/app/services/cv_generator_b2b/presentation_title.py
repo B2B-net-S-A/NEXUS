@@ -2,28 +2,26 @@
 
 
 def instructions(language: str) -> str:
+    """Instrukcja nagłówka CV dla polityki centralnej.
+
+    D2 (decyzja Artura 13.10.2026): nagłówek to nazwa roli od klienta, bez
+    tłumaczenia — „Data Platform Developer” nie staje się „Programistą platformy
+    danych”. Rolę czyści i wpisuje kod (`job_working_title.cv_role_title`);
+    model dostaje ją jako dane i przepisuje bez zmian.
+    """
     target = "English (en)" if language == "en" else "Polish (pl)"
-    examples = (
-        "For example, 'Programistka Python' becomes 'Python Developer'. "
-        if language == "en"
-        else "Translate occupational nouns into Polish even when English IT titles are "
-        "common in Poland: 'Python Developer' becomes 'Programista Python', "
-        "'Business Analyst' becomes 'Analityk biznesowy', 'Data Platform Developer' "
-        "becomes 'Programista platformy danych', 'QA Engineer' becomes 'Inżynier QA'. "
-    )
     return (
         "\nCentral CV standard: preserve all employment history, facts and seniority. "
         "Use at most four evidence-backed summary points, fewer if warranted; never pad. "
         f"The output document language is {target}. Extend the output JSON object with "
-        f"the REQUIRED string field presentation_position, written in {target}. "
-        "Translate the provided presentation role; do not merely copy it in its input "
-        f"language. {examples}Preserve technology "
-        "names and seniority exactly; never add qualifications. This field is the document "
-        "heading and filename role, not an employment-history entry. Keep the source-backed "
-        "candidate position and historical roles separate and unchanged. If no presentation "
-        "role was provided, use the candidate's source-supported position in the output "
-        "language. Do not write General CV, CV ogólne, Considered for or equivalent labels "
-        "in any document content; workflow status is displayed only in the application."
+        "the REQUIRED string field presentation_position. Copy the provided presentation "
+        "role into it EXACTLY as given — do not translate it, do not rephrase it, do not "
+        "add or remove seniority. This field is the document heading and filename role, "
+        "not an employment-history entry. Keep the source-backed candidate position and "
+        "historical roles separate and unchanged. If no presentation role was provided, "
+        f"use the candidate's source-supported position in {target}. Do not write General "
+        "CV, CV ogólne, Considered for or equivalent labels in any document content; "
+        "workflow status is displayed only in the application."
     )
 
 

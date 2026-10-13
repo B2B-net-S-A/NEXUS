@@ -158,6 +158,95 @@ def _strip_reference(title: str, reference: Optional[str]) -> str:
     return _EMPTY_BRACKETS.sub("", out)
 
 
+# Dopiski z nazw rekrutacji od klienta, których nie ma w CV (D2, 13.10.2026):
+# zmierzone na tytułach produkcji. Każdy wzorzec zdejmuje kawałek z brzegu
+# tytułu albo kod; rdzeń roli zostaje bez tłumaczenia.
+_CV_TITLE_TRAILING = (
+    # „… (51234)”, „… (ZOB-2949)”, „… (ITVM-5894)”: kod z co najmniej trzema
+    # cyframi. „(K8s)” i „(Senior)” zostają — to część roli.
+    re.compile(r"\s*[\(\[]\s*(?:[A-Z]{1,6}[-_ ]?)?\d{3,}\s*[\)\]]\s*$"),
+    # „… RITM0864052”, „…, Pep: 1234”
+    re.compile(r"[\s,;:\-–—|/]*\b(?:RITM|REQ)\d+\s*$", re.I),
+    re.compile(r"[\s,;]*\bPep\s*:?\s*\d+\s*$", re.I),
+    # „…Power BI_PKN500023226”, „…NIS2_EITERFP2026016”
+    re.compile(r"[_\s]+[A-Z]{2,}[A-Z0-9]*\d{5,}\s*$"),
+    # „… - 3.iteracja”, „… – 2 tura”
+    re.compile(r"\s*[-–—,]\s*\d+\s*\.?\s*(?:iteracja|iteration|tura|edycja)\s*$", re.I),
+    # „… x1 CZII Zamówienie 18”: od znacznika liczby osób do końca
+    re.compile(r"\s+x\d+\b.*$", re.I),
+    re.compile(r"\s*\b(?:zamówienie|zamowienie|order)\s*(?:nr\.?\s*)?\d+\s*$", re.I),
+    # „… - MVB project”: nazwa projektu klienta po roli
+    re.compile(r"\s*[-–—]\s*[^-–—]{1,40}?\b(?:project|projekt)\s*$", re.I),
+    # „(dodatkowy profil)”, „(pilne)”: dopisek procesu, nie rola
+    re.compile(
+        r"\s*\((?:dodatkowy profil|additional profile|pilne|urgent)\)\s*$", re.I
+    ),
+)
+_CV_TITLE_LEADING = (
+    # „Poland - Warsaw/Gdansk/Gdynia IT Analyst”
+    re.compile(
+        r"^(?:Poland|Polska)\s*[-–—]\s*[\wąćęłńóśźżĄĆĘŁŃÓŚŹŻ]+"
+        r"(?:\s*/\s*[\wąćęłńóśźżĄĆĘŁŃÓŚŹŻ]+)*\s+"
+    ),
+    # „SP1 …” (cyfry przyklejone) albo „PRJ 4412 - …”, „PEP 4986/ 4987 - …”
+    # (cyfry po spacji tylko z separatorem — „ISO 27001 Auditor” zostaje).
+    re.compile(
+        r"^(?:[A-Z]{2,}\d+\b\s*(?:[-–—:]\s*)?"
+        r"|[A-Z]{2,}\s\d+(?:\s*/\s*\d+)*\s*[-–—:]\s*)"
+    ),
+    # „BCCM RRP: …” — skrót projektu wielkimi literami z dwukropkiem
+    re.compile(r"^(?:[A-Z0-9]{2,}\s+)*[A-Z0-9]{2,}:\s*"),
+    # „PL-EBSD-IT Analyst” (co najmniej dwa kody), „RFX-wsparcie…” (kod przed
+    # małą literą). „UI-UX Designer” i „SAP-ABAP Developer” zostają.
+    re.compile(r"^(?:(?:[A-Z]{2,5}-){2,}(?=[A-Z])|[A-Z]{2,5}-(?=[a-ząćęłńóśźż]))"),
+)
+
+
+def cv_role_title(
+    title: Optional[str],
+    client_reference: Optional[str] = None,
+    client_names: Iterable[str] = (),
+) -> str:
+    """Nazwa roli od klienta do nagłówka CV i nazwy pliku (D2, 13.10.2026).
+
+    ``jobs.title`` bez prefiksu klienta, numerów zapytania, kodów projektu,
+    lokalizacji i dopisków procesu — bez tłumaczenia i bez zmiany seniority.
+    Kody zdejmujemy tylko wtedy, gdy zostaje rola z co najmniej dwóch słów
+    albo jednego słowa z co najmniej 4 literami. Nigdy pusty napis, gdy tytuł
+    był niepusty. QC CV porównuje nagłówek z tą samą wartością.
+    """
+    # Tylko prefiks klienta ze strony kariery: jej usuwanie nawiasów z cyfrą
+    # zjadało „(K8s)” z nazwy roli.
+    from app.services.job_public_profile import _strip_client_prefix
+
+    raw = _clean(title)
+    if not raw:
+        return ""
+    names = list(client_names)
+    base = _clean(_strip_reference(raw, client_reference)) or raw
+    text = _clean(_strip_client_prefix(base, names)) or base
+    while True:
+        before = text
+        for pattern in _CV_TITLE_TRAILING:
+            text = pattern.sub("", text).strip(" -–—,/")
+        for pattern in _CV_TITLE_LEADING:
+            candidate = pattern.sub("", text, count=1).strip(" -–—,/:")
+            if _is_role(candidate):
+                text = candidate
+        text = _clean(_strip_client_prefix(text, names)) or text
+        if text == before:
+            break
+    text = _clean(text)
+    if text and text[0].islower():
+        text = text[0].upper() + text[1:]
+    return text or base
+
+
+def _is_role(text: str) -> bool:
+    words = text.split()
+    return len(words) >= 2 or (len(words) == 1 and len(words[0]) >= 4)
+
+
 def working_title_for_job(job: Any, client_names: Iterable[str] = ()) -> Optional[str]:
     """Tytuł dla rekrutera z Championa, a bez niego z kolumn rekrutacji."""
     from app.services.job_public_profile import default_public_title

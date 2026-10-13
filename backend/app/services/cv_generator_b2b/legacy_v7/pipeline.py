@@ -55,6 +55,8 @@ from app.services.cv_generator_b2b.legacy_v7._helpers import (
     _fix_experience_years,
     _fix_scoped_years,
     _normalize_candidate_data,
+    screening_text_without_questions,
+    strip_unsupported_terms,
 )
 from app.services.cv_generator_b2b.legacy_v7.champion import build_champion_section
 from app.services.cv_generator_b2b.legacy_v7.client_rules import (
@@ -85,12 +87,15 @@ from app.services.cv_generator_b2b.standalone_service import (
     _loads_cv_json,
     normalize_content_mode,
 )
+from app.services.job_working_title import cv_role_title
 from app.core.scheduling import business_today
 
 logger = logging.getLogger(__name__)
 
 PIPELINE_ID = "legacy_v7"
-PROMPT_VERSION = 7
+# 8 (13.10.2026): bez punktu „Posiada kluczowe technologie…”, pytania ≠ fakty,
+# branża tylko ze źródła, nagłówek bez tłumaczenia.
+PROMPT_VERSION = 8
 
 
 def build_generation_date_block(language: Language, today: date) -> str:
@@ -173,6 +178,12 @@ def run_legacy_generation(
         cv_text = prepared_source_facts.cv_text
     else:
         cv_text = extract_cv_text(cv_bytes, cv_filename)
+
+    # D2 (13.10.2026): nagłówek to nazwa roli od klienta bez kodów i dopisków,
+    # bez tłumaczenia. Wołający czyści ją z nazwą klienta; tu domykamy wzorce
+    # dla ścieżek bez bazy (upload).
+    job_title = cv_role_title(job_title)
+    position_fallback = cv_role_title(position_fallback)
 
     # ── 2. Build prompt (system = instructions, user = data in tags) ─────
     mode = normalize_content_mode(content_mode)
@@ -301,11 +312,28 @@ def run_legacy_generation(
     # Not part of 2bc6b14f: role/company-bound figures recomputed from dates.
     _fix_scoped_years(candidate_data, language)
 
+    # Pozycje wzięte z pytań rekrutera albo wymagań klienta, a nie od kandydata,
+    # znikają, zanim zobaczą je bezpieczniki, kontrola AI i dokument.
+    requirements = (
+        list(champion_dto.must_have) + list(champion_dto.nice_to_have)
+        if champion_dto
+        else []
+    )
+    question_notes = strip_unsupported_terms(
+        candidate_data,
+        cv_text=cv_text,
+        screening_notes_text=screening_notes_text,
+        requirements=requirements,
+        language=language,
+    )
+
     role_title = (job_title or "").strip()
     explicit_position = (position_ref or "").strip()
     if client_rule and client_rule.managed_policy:
+        # Nazwa roli od klienta wygrywa z tym, co napisał model (D2).
         role_title = str(
             explicit_position
+            or role_title
             or raw_data.get("presentation_position")
             or candidate_data.get("position")
             or position_fallback
@@ -322,8 +350,11 @@ def run_legacy_generation(
             candidate_data["presentation_position"] = explicit_position
 
     # ── 4. Anti-fabrication seatbelt + date sanity (warnings only) ───────
-    source_text = f"{cv_text}\n{screening_notes_text}"
-    guard_warnings = _fabrication_warnings(candidate_data, source_text, language)
+    # Linie pytań rekrutera nie są dowodem (13.10.2026).
+    answers_text = screening_text_without_questions(screening_notes_text)
+    source_text = f"{cv_text}\n{answers_text}"
+    guard_warnings = list(question_notes)
+    guard_warnings.extend(_fabrication_warnings(candidate_data, source_text, language))
     guard_warnings.extend(_date_overlap_warnings(candidate_data, language))
     guard_warnings.extend(_champion_parse_warnings(champion_dto))
     guard_warnings.extend(champion_cap_warnings)
@@ -342,7 +373,7 @@ def run_legacy_generation(
         candidate_data["factual_verification"], review_warnings = run_final_review(
             candidate_data,
             cv_text=cv_text,
-            screening_notes=screening_notes_text,
+            screening_notes=answers_text,
             identity=fallback_name or "",
             request_id=request_id,
             language=language,

@@ -399,6 +399,11 @@ def test_champion_does_not_prioritize_trimmed_technologies_below_tailored(
     }
     monkeypatch.setattr(svc, "analyze_with_ai", lambda *a, **k: json.dumps(payload))
     monkeypatch.setattr(legacy, "analyze_with_ai", lambda *a, **k: json.dumps(payload))
+    # Kubernetes musi stać w CV: technologia tylko z wymagań klienta znika
+    # z roli (strażnik z 13.10.2026), a ten test sprawdza samo przycinanie.
+    cv_text = _CV_TEXT + "Technologie projektu: " + ", ".join(technologies) + ".\n"
+    monkeypatch.setattr(legacy, "extract_text_from_file", lambda *a, **k: cv_text)
+    monkeypatch.setattr(svc, "extract_text_from_file", lambda *a, **k: cv_text)
     result, _ = _run(mode, captured_prompt)
     selected = result.render_payload["experience"][0]["technologies"]
     assert len(selected) == 12

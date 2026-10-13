@@ -57,8 +57,11 @@ technologii w każdym trybie i końcowa kontrola AI. Zespół zgłosił, że CV
   słownik klienta (także wpisy sprzed #1445) trafia do promptu i podmienia
   tekst we wszystkich polach; długie punkty są skracane z „…”; w trybie
   `polished`/`basic` nie ma pogrubień (tylko `tailored` pogrubia MUST/NICE
-  Championa); brak branży w blind = „IT”; nagłówek lat zaokrągla sumę
-  przedziałów; strony PDF będące samym obrazem są pomijane zamiast blokować.
+  Championa); nagłówek lat zaokrągla sumę przedziałów; strony PDF będące
+  samym obrazem są pomijane zamiast blokować. Od 13.10.2026 (D1–D3) brak
+  branży to pusty string zamiast „IT”, punkt „Posiada kluczowe
+  technologie…” jest zakazany, a lata, nagłówek i notatki działają jak
+  w `silnik-cv-bez-wypelniacza.md`.
   Ustawienia „wyróżnień” w regułach CV (0284) są w tym trybie nieaktywne.
 - **Testy:** `conftest` przypina `v10` + ścisłe dowody dla dotychczasowych
   testów; domyślne zachowanie produkcyjne pilnuje
