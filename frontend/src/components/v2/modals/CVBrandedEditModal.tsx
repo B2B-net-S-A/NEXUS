@@ -858,10 +858,20 @@ function CVBrandedEditContent({
                     {sourcesSide ? "Ukryj źródła" : "Pokaż źródła"}
                   </Button>
                   {hasIssuesPanel ? (
-                    <Button size="sm" variant="ghost" aria-pressed={issuesSide} onClick={toggleIssues}
+                    // Włączony tylko, gdy panel faktycznie widać: plan zmian i historia
+                    // zajmują jego miejsce. Klik przy otwartej historii zamyka ją
+                    // i pokazuje uwagi (planu nie — ten czeka na decyzję).
+                    <Button size="sm" variant="ghost" aria-pressed={issuesSide && !takeover}
+                      onClick={() => {
+                        if (!historyOpen) return toggleIssues();
+                        history.close();
+                        sideTouched.current = true;
+                        setIssuesOpen(true);
+                        setLastSide("issues");
+                      }}
                       className={cn(
-                        issuesSide && "bg-primary/10 text-primary hover:bg-primary/10",
-                        !issuesSide && issueCount.blocking > 0 && "text-destructive",
+                        issuesSide && !takeover && "bg-primary/10 text-primary hover:bg-primary/10",
+                        !(issuesSide && !takeover) && issueCount.blocking > 0 && "text-destructive",
                       )}>
                       <ListChecks className="h-3.5 w-3.5 mr-1.5" />
                       {issuesLabel}

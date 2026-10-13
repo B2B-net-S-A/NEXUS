@@ -301,6 +301,20 @@ it("laptop 1280: „Historia” staje po prawej zamiast „Do poprawy” i źró
   expect(panel()).not.toHaveAttribute("hidden");
 });
 
+it("przy otwartej historii „Do poprawy” nie udaje aktywnego; klik w nie zamyka historię i pokazuje uwagi", async () => {
+  await open();
+  await waitFor(() => expect(panel()).not.toHaveAttribute("hidden"));
+  const issuesButton = () => screen.getByRole("button", { name: /^Do poprawy/ });
+  expect(issuesButton()).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(historyButton());
+  // Panel „Do poprawy” jest schowany, więc jego przycisk nie wygląda na włączony.
+  expect(issuesButton()).toHaveAttribute("aria-pressed", "false");
+  fireEvent.click(issuesButton());
+  expect(historyShown()).toBe(false);
+  expect(panel()).not.toHaveAttribute("hidden");
+  expect(issuesButton()).toHaveAttribute("aria-pressed", "true");
+});
+
 it("szeroki ekran (1540+): źródła zostają obok historii", async () => {
   state.width = 1600;
   await open();
