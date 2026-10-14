@@ -52,6 +52,8 @@ _RATE_LIMITED_MODULES = (
     "api/screening_reassign.py",
     # QC CV: każde wywołanie liczy QC (pobranie i odczyt CV), poprawki = model.
     "api/cv_qc.py",
+    # Strony CV jako PDF (Edytor CV 3): każda zamiana to LibreOffice na serwerze.
+    "api/cv_pdf_preview.py",
     # Konto JustJoin.IT/RocketJobs (0381): callback OAuth bez sesji NEXUSA.
     "api/job_board_connection.py",
     # „Champion po ludzku” (0403): odświeżenie = płatny model i research w internecie.
@@ -64,7 +66,6 @@ _RATE_LIMITED_MODULES = (
     "api/cv_editor_ai.py",
     # Podgląd importu Worda w edytorze CV: upload do 10 MB i konwersja na żądanie.
     "api/cv_editor_import.py",
-    "api/cv_pdf_preview.py",
 )
 
 # Moduły, których docstringi tras trafiają do publicznego /openapi.json.
