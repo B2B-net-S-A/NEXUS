@@ -118,7 +118,8 @@ function taskRow(
 }
 
 // Rekrutacja „nordycka” (fikcyjna): od 13.10.2026 przegląd kończy tu
-// akceptacja do kolejki Cpro — wiersz z dopiskiem „→ Cpro”.
+// akceptacja do kolejki Cpro — wiersz z plakietką „do Cpro” i przyciskiem
+// „Przejrzyj → Cpro” (14.10.2026).
 const DATA_ROW: Partial<BoardTaskRow> = {
   job_id: DATA_JOB,
   job_title: "Analityk danych (ZOB-0002)",
@@ -653,14 +654,16 @@ const TOPBAR_QUEUE: DlSendQueueResponse = {
       stage_id: 9103,
       candidate_id: 8103,
       candidate_name: "Adam Fikcyjny",
-      job_id: 7102,
-      job_title: "Analityk danych",
-      job_working_title: null,
-      client_name: "Telko Przykładowe",
+      job_id: 7103,
+      job_title: "Analityk danych (ZOB-0002)",
+      job_working_title: "Analityk danych · SQL, Power BI",
+      client_name: "Bank Nordycki",
       ready_since: hoursAgo(2),
       waiting_workdays: 0,
       urgency: "fresh",
       handed_over_by_name: "Ola Rekruterska",
+      // Klient z kolejką Cpro: plakietka „do Cpro” przy nazwisku (14.10.2026).
+      cpro: true,
     },
   ],
   ready_total: 3,

@@ -90,7 +90,7 @@ import {
  MOVE_REQUIREMENTS_PREFIX,
  type MoveRequirementAction,
 } from "@/lib/api/moveRequirements";
-import { fetchDlReviewRow, type BoardTaskRow } from "@/lib/api/boardTasks";
+import { CPRO_REVIEW_LABEL, fetchDlReviewRow, type BoardTaskRow } from "@/lib/api/boardTasks";
 import type { PairInfo } from "@/lib/interview-cycle";
 import {
  SETTABLE_BADGES,
@@ -1329,7 +1329,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  e.preventDefault();
  v5.onReviewSend(item);
  }}
- aria-label={`Przejrzyj i wyślij: ${fullName}`}
+ aria-label={`${v5.cproEnabled ? "Przejrzyj i zaakceptuj do Cpro" : "Przejrzyj i wyślij"}: ${fullName}`}
  className={cn(
  "inline-flex max-w-full items-center rounded border px-1.5 text-[10px] font-semibold transition-colors pointer-coarse:min-h-8 pointer-coarse:px-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
  v5.viewerOwnsDlReview
@@ -1337,7 +1337,9 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  : "border-primary/40 text-primary hover:bg-primary/10"
  )}
  >
- <span className="truncate">Przejrzyj i wyślij</span>
+ {/* Nordea (14.10.2026): nic nie idzie do klienta — przegląd kończy
+ akceptacja do kolejki Cpro. */}
+ <span className="truncate">{v5.cproEnabled ? CPRO_REVIEW_LABEL : "Przejrzyj i wyślij"}</span>
  </button>
  </div>
  )}

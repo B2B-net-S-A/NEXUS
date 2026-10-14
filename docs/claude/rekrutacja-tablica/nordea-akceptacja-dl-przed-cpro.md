@@ -15,7 +15,16 @@ Makiety i decyzje D1–D6: https://claude.ai/artifact/Si7j1pcC3cXxUKYMNVGWa1.
   dzwonek i mail „CV do przeglądu” idą do DL-a rekrutacji, bez niego do DL-i
   z portfelem Nordei (`stage_handoff_recipients._dl_reviewers`). Osoba trafia
   do pasa „Do wysłania do klienta”, okienka w pasku, „Przejrzyj po kolei”
-  i „Porównaj” — z dopiskiem „→ Cpro” (`BoardTask.cpro`).
+  i „Porównaj” (`BoardTask.cpro`).
+- **Wiersz Nordei mówi „Cpro” tam, gdzie się nie ucina (14.10.2026).**
+  W pasie plakietka „do Cpro” stoi w drugiej linii komórki „Rekrutacja”,
+  w okienku paska — przy nazwisku (`CPRO_ROW_BADGE` w `lib/api/boardTasks.ts`).
+  Dopisek „· → Cpro” na końcu linii rekrutacji znikał za wielokropkiem przy
+  1280 px — nie wracaj do niego. Przycisk przeglądu u Nordei to „Przejrzyj
+  → Cpro” (pas i karta Tablicy, `CPRO_REVIEW_LABEL`), nie „Przejrzyj
+  i wyślij”: nic nie idzie do klienta. Etykieta jest krótka z pomiaru: przy
+  1280 px z przypiętym menu kolumna przycisku w pasie ma 131 px treści,
+  a „Przejrzyj i zaakceptuj” ma 150 px. Bez prawa wysyłki zostaje „Przejrzyj”.
 - **Akceptacja = ruch na etap „Wysłać do Cpro” z przeglądu.** Cel wiersza
   przeglądu to `stages.cpro_id` (`dl_send_queue.load_rows`), przycisk
   „Akceptuj — do Cpro za …”, pole „Stawka do Cpro” (wymagane), uwaga dla
@@ -58,4 +67,4 @@ Makiety i decyzje D1–D6: https://claude.ai/artifact/Si7j1pcC3cXxUKYMNVGWa1.
   (`isReadyForDlSend(item, column, inCproQueue)`).
 - Harnessy: `/preview/dl-review?client=cpro`, `/preview/cpro-queue`
   (wiersz zaakceptowany i „Bez akceptacji DL”), `/preview/dl-send` (wiersze
-  „→ Cpro”).
+  z plakietką „do Cpro”).

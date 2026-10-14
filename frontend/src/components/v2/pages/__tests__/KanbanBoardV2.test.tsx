@@ -2417,8 +2417,12 @@ describe("KanbanBoardV2 — „Do wysłania do klienta” (13.10.2026)", () => {
     expect(within(card).getByTestId("card-badge-dl_review")).toHaveTextContent("Czeka na Ciebie · 1 dzień");
     expect(screen.getByTestId("dl-review-sequence-start")).toHaveTextContent("Przejrzyj po kolei (2)");
     expect(screen.getByTestId("dl-review-compare")).toBeInTheDocument();
+    // 14.10.2026: u Nordei nic nie idzie do klienta — przycisk mówi o akceptacji.
+    const review = within(card).getByRole("button", { name: "Przejrzyj i zaakceptuj do Cpro: Iga Mazur" });
+    expect(review).toHaveTextContent("Przejrzyj → Cpro");
+    expect(review).not.toHaveTextContent("wyślij");
 
-    await userEvent.click(within(card).getByTestId("card-review-send"));
+    await userEvent.click(review);
 
     const panel = await screen.findByTestId("dl-review-panel");
     expect(panel).toHaveAttribute("data-stage-id", "7301");
