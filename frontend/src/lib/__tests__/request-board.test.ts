@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import cases from "@/lib/__fixtures__/request-work-state-cases.json"
-import type { BoardRequest, RequestBoard } from "@/lib/api/requestAllocation"
+import type { BoardRequest, LoadPerson, RequestBoard } from "@/lib/api/requestAllocation"
 import {
   EMPTY_FILTERS,
   boardPeople,
@@ -17,6 +17,7 @@ import {
   orderLoad,
   orderRequests,
   pendingProposalCount,
+  recruiterPickOptions,
   requestWord,
   unstaffedCount,
 } from "@/lib/request-board"
@@ -287,5 +288,69 @@ describe("zakres kafelka i daily", () => {
     expect(changesSinceLabel("2026-12-01T13:05:00Z")).toBe("od wtorku 14:05")
     expect(changesSinceLabel(null)).toBeNull()
     expect(changesSinceLabel("nie-data")).toBeNull()
+  })
+})
+
+describe("lista wyboru rekrutera (kolumna „Rekruter” listy)", () => {
+  const directory = [
+    { id: 1, name: "Zofia Przykładowa", role: "recruiter", roles: ["recruiter"] },
+    { id: 2, name: "Michał Testowy", role: "recruiter", roles: ["recruiter"] },
+    { id: 3, name: "Anna Wzorcowa", role: "recruiter", roles: ["recruiter"] },
+    // Delivery Lead bez roli rekrutera — serwer odmówi (409), więc go nie ma.
+    { id: 4, name: "Damian Lider", role: "delivery_lead", roles: ["delivery_lead"] },
+    // Rola rekrutera jako dodatkowa wystarcza.
+    { id: 5, name: "Celina Dodatkowa", role: "delivery_lead", roles: ["delivery_lead", "recruiter"] },
+    { id: 6, name: "Bartek Nieaktywny", role: "recruiter", roles: ["recruiter"], is_active: false },
+  ]
+  const load: LoadPerson[] = [
+    { user_id: 1, name: "Zofia Przykładowa", count: 0, proposed: 1, leave_until: null, requests: [] },
+    { user_id: 2, name: "Michał Testowy", count: 3, leave_until: null, requests: [] },
+    { user_id: 3, name: "Anna Wzorcowa", count: 1, leave_until: "2026-10-20", requests: [] },
+  ]
+
+  it("od najmniej obłożonej, urlop na końcu, osoby spoza obłożenia za nimi alfabetycznie", () => {
+    const options = recruiterPickOptions(directory, load, [], "")
+    expect(options.map((o) => o.user_id)).toEqual([1, 2, 3, 5])
+    expect(options[0]).toEqual({
+      user_id: 1,
+      name: "Zofia Przykładowa",
+      count: 0,
+      proposed: 1,
+      leave_until: null,
+    })
+    // Spoza puli automatu: liczby nie znamy, więc jej nie zgadujemy.
+    expect(options[3]).toMatchObject({ user_id: 5, count: null, proposed: 0 })
+  })
+
+  it("pomija osoby, które już pracują, bez roli rekrutera i nieaktywne", () => {
+    const ids = recruiterPickOptions(directory, load, [2], "").map((o) => o.user_id)
+    expect(ids).not.toContain(2)
+    expect(ids).not.toContain(4)
+    expect(ids).not.toContain(6)
+  })
+
+  it("szuka bez polskich znaków i wielkości liter", () => {
+    expect(recruiterPickOptions(directory, load, [], "michal").map((o) => o.user_id)).toEqual([2])
+    expect(recruiterPickOptions(directory, load, [], "  PRZYKŁAD ").map((o) => o.user_id)).toEqual([1])
+  })
+
+  it("bez obłożenia (awaria pulpitu) zostaje sama lista alfabetycznie", () => {
+    const options = recruiterPickOptions(directory, null, [], "")
+    expect(options.map((o) => o.name)).toEqual([
+      "Anna Wzorcowa",
+      "Celina Dodatkowa",
+      "Michał Testowy",
+      "Zofia Przykładowa",
+    ])
+    expect(options.every((o) => o.count === null)).toBe(true)
+  })
+})
+
+describe("boardPeople na osobach z wiersza listy", () => {
+  it("przyjmuje osoby z `recruiters` rekrutacji (bez pola `source`)", () => {
+    const working = { user_id: 1, name: "A", proposed: false, via: "owner" as const, assigned_by_name: null }
+    const proposal = { user_id: 2, name: "B", proposed: true, via: "assignment" as const, assigned_by_name: null }
+    expect(boardPeople({ people: [working, proposal] })).toEqual([working])
+    expect(boardPeople({ people: [proposal] })).toEqual([proposal])
   })
 })

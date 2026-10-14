@@ -688,6 +688,26 @@ describe("JobOwnershipPanel — zapisy", () => {
     );
   });
 
+  it("rekruter bez prawa przydziału dopisuje osobę do pustej rekrutacji jako kolejną, nie jako pierwszego rekrutera", async () => {
+    // Pierwszego rekrutera ustawia tylko rola przydzielająca (`/owner` = 403
+    // dla rekrutera) — wspólny hook zapisów musi dostać `canStaff` z panelu.
+    const user = userEvent.setup();
+    renderPanel(JOBS.empty, { as: recruiter });
+
+    await user.click(screen.getByRole("button", { name: "+ Dodaj osobę" }));
+    await user.click(await screen.findByRole("option", { name: /Darek Makietowy/ }));
+
+    await waitFor(() =>
+      expect(apiMock.post).toHaveBeenCalledWith(`/api/jobs/${JOB_ID}/collaborators`, {
+        user_id: 34,
+      }),
+    );
+    expect(apiMock.post).not.toHaveBeenCalledWith(
+      `/api/jobs/${JOB_ID}/owner`,
+      expect.anything(),
+    );
+  });
+
   it("awaria listy osób to błąd z „Ponów”, nie „nikogo nie ma”", async () => {
     apiMock.get.mockRejectedValue({ response: { status: 500, data: {} } });
     const user = userEvent.setup();
