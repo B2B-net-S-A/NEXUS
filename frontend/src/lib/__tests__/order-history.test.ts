@@ -37,9 +37,9 @@ function entry(overrides: Partial<OrderHistoryEntry>): OrderHistoryEntry {
 
 const ENTRIES = [
   entry({ key: "created" }),
-  entry({ key: "added", category: "consultants", person_names: ["Konrad Teper"] }),
-  entry({ key: "import", category: "consumption", person_names: ["Konrad Teper", "Paweł Łaski"] }),
-  entry({ key: "edit", category: "edits", person_names: ["Paweł Łaski"] }),
+  entry({ key: "added", category: "consultants", person_names: ["Konrad Tester"] }),
+  entry({ key: "import", category: "consumption", person_names: ["Konrad Tester", "Paweł Łęgowy"] }),
+  entry({ key: "edit", category: "edits", person_names: ["Paweł Łęgowy"] }),
 ];
 
 describe("filterOrderHistory", () => {
@@ -62,13 +62,13 @@ describe("filterOrderHistory", () => {
 
   it("osoba: wpisy tej osoby, także import obejmujący kilka osób; wpis bez osoby odpada", () => {
     expect(
-      filterOrderHistory(ENTRIES, { category: "all", person: "Paweł Łaski" }).map((e) => e.key),
+      filterOrderHistory(ENTRIES, { category: "all", person: "Paweł Łęgowy" }).map((e) => e.key),
     ).toEqual(["import", "edit"]);
   });
 
   it("oba filtry naraz", () => {
     expect(
-      filterOrderHistory(ENTRIES, { category: "consultants", person: "Paweł Łaski" }),
+      filterOrderHistory(ENTRIES, { category: "consultants", person: "Paweł Łęgowy" }),
     ).toEqual([]);
   });
 });

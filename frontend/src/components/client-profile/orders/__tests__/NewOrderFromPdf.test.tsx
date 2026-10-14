@@ -31,7 +31,7 @@ function contract(overrides: Partial<OrderPlanContract> = {}): OrderPlanContract
   return {
     contract_id: 11,
     candidate_id: 101,
-    contractor_name: "Krzysztof Suwała",
+    contractor_name: "Krzysztof Próbała",
     status: "active",
     start_date: "2025-06-01",
     end_date: null,
@@ -47,7 +47,7 @@ function contract(overrides: Partial<OrderPlanContract> = {}): OrderPlanContract
 function line(overrides: Partial<OrderPlanLine> = {}): OrderPlanLine {
   return {
     ordinal: 1,
-    document_name: "Krzysztof Suwała",
+    document_name: "Krzysztof Próbała",
     position_label: "10",
     rate_revenue: 1080,
     rate_revenue_unit: "day",
@@ -83,7 +83,7 @@ const BIK_PLAN: OrderGroupExtraction = {
     line(),
     line({
       ordinal: 2,
-      document_name: "Paweł Łaski",
+      document_name: "Paweł Łęgowy",
       position_label: "20",
       rate_revenue: 1280,
       md_total: 42,
@@ -93,7 +93,7 @@ const BIK_PLAN: OrderGroupExtraction = {
       contract: contract({
         contract_id: 12,
         candidate_id: 102,
-        contractor_name: "Active Pawel Laski",
+        contractor_name: "Active Pawel Legowy",
         rate_cost: 160,
       }),
     }),
@@ -183,18 +183,18 @@ describe("Nowe zamówienie z PDF-a — jedno okno", () => {
     );
     expect(screen.getByLabelText(/Obowiązuje od/)).toHaveValue("2026-09-03");
 
-    const suwala = screen.getByRole("article", {
-      name: "Konsultant: Krzysztof Suwała",
+    const probala = screen.getByRole("article", {
+      name: "Konsultant: Krzysztof Próbała",
     });
-    expect(within(suwala).getByText("Dopasowano automatycznie")).toBeInTheDocument();
-    expect(within(suwala).getByLabelText("Stawka kosztowa")).toHaveValue("148.750");
-    expect(within(suwala).getByText("z kontraktu")).toBeInTheDocument();
-    expect(within(suwala).getByLabelText("Liczba MD")).toHaveValue("35");
-    expect(within(suwala).getAllByText("z PDF, poz. 10")).toHaveLength(2);
+    expect(within(probala).getByText("Dopasowano automatycznie")).toBeInTheDocument();
+    expect(within(probala).getByLabelText("Stawka kosztowa")).toHaveValue("148.750");
+    expect(within(probala).getByText("z kontraktu")).toBeInTheDocument();
+    expect(within(probala).getByLabelText("Liczba MD")).toHaveValue("35");
+    expect(within(probala).getAllByText("z PDF, poz. 10")).toHaveLength(2);
 
-    const laski = screen.getByRole("article", { name: "Konsultant: Paweł Łaski" });
-    expect(within(laski).getByText("Dopasowano — potwierdź")).toBeInTheDocument();
-    expect(within(laski).getByText(/„Active Pawel Laski”/)).toBeInTheDocument();
+    const legowy = screen.getByRole("article", { name: "Konsultant: Paweł Łęgowy" });
+    expect(within(legowy).getByText("Dopasowano — potwierdź")).toBeInTheDocument();
+    expect(within(legowy).getByText(/„Active Pawel Legowy”/)).toBeInTheDocument();
     expect(screen.getByText("1 z 2 pozycji gotowe do zapisania")).toBeInTheDocument();
     expect(screen.getByText(/91\s560,00\s*zł łącznej wartości/)).toBeInTheDocument();
   });
@@ -238,7 +238,7 @@ describe("Nowe zamówienie z PDF-a — jedno okno", () => {
         input_value: 35,
         start_date: "2026-09-03",
         end_date: null,
-        document_name: "Krzysztof Suwała",
+        document_name: "Krzysztof Próbała",
       },
       {
         contract_id: 12,
@@ -250,7 +250,7 @@ describe("Nowe zamówienie z PDF-a — jedno okno", () => {
         input_value: 42,
         start_date: "2026-09-03",
         end_date: null,
-        document_name: "Paweł Łaski",
+        document_name: "Paweł Łęgowy",
       },
     ]);
   });
@@ -278,7 +278,7 @@ describe("Nowe zamówienie z PDF-a — jedno okno", () => {
 
     await readPdf(user);
     const card = await screen.findByRole("article", {
-      name: "Konsultant: Krzysztof Suwała",
+      name: "Konsultant: Krzysztof Próbała",
     });
     expect(within(card).getByText("Kilka osób — wybierz ręcznie")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Utwórz zamówienie" })).toBeDisabled();
@@ -330,7 +330,7 @@ describe("Nowe zamówienie z PDF-a — jedno okno", () => {
 
     await readPdf(user);
     const card = await screen.findByRole("article", {
-      name: "Konsultant: Krzysztof Suwała",
+      name: "Konsultant: Krzysztof Próbała",
     });
     const mdInput = within(card).getByLabelText("Liczba MD");
     await user.clear(mdInput);
@@ -349,7 +349,7 @@ describe("Nowe zamówienie z PDF-a — jedno okno", () => {
 
     await readPdf(user);
     expect(
-      await screen.findByRole("article", { name: "Konsultant: Krzysztof Suwała" }),
+      await screen.findByRole("article", { name: "Konsultant: Krzysztof Próbała" }),
     ).toBeInTheDocument();
 
     await user.upload(
@@ -357,7 +357,7 @@ describe("Nowe zamówienie z PDF-a — jedno okno", () => {
       new File(["%PDF-1.7"], "inne.pdf", { type: "application/pdf" }),
     );
     expect(
-      screen.queryByRole("article", { name: "Konsultant: Krzysztof Suwała" }),
+      screen.queryByRole("article", { name: "Konsultant: Krzysztof Próbała" }),
     ).not.toBeInTheDocument();
   });
 
@@ -385,7 +385,7 @@ describe("Nowe zamówienie z PDF-a — jedno okno", () => {
     );
 
     await readPdf(user);
-    await screen.findByRole("article", { name: "Konsultant: Krzysztof Suwała" });
+    await screen.findByRole("article", { name: "Konsultant: Krzysztof Próbała" });
     expect(screen.getByLabelText(/Budżet całkowity/)).toHaveValue("");
   });
 
@@ -399,7 +399,7 @@ describe("Nowe zamówienie z PDF-a — jedno okno", () => {
     renderCost();
 
     await readPdf(user);
-    await screen.findByRole("article", { name: "Konsultant: Krzysztof Suwała" });
+    await screen.findByRole("article", { name: "Konsultant: Krzysztof Próbała" });
     expect(screen.getByLabelText(/Budżet całkowity/)).toHaveValue("107000");
 
     await readPdf(user);
@@ -490,7 +490,7 @@ describe("Nowe zamówienie z PDF-a — jedno okno", () => {
     renderModal();
 
     await readPdf(user);
-    await screen.findByRole("article", { name: "Konsultant: Krzysztof Suwała" });
+    await screen.findByRole("article", { name: "Konsultant: Krzysztof Próbała" });
     expect(screen.getByRole("checkbox", { name: /Budżet MD na całe zamówienie/ })).toBeChecked();
     expect(screen.getByText(/jedną liczbę MD na całe zamówienie/)).toBeInTheDocument();
   });
