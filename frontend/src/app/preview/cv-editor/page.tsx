@@ -10,11 +10,12 @@
 // zmiana zakłada szkic), `conflict` (szkic łamie regułę klienta), `nosources`
 // (wynik generatora bez rekrutacji — panel źródeł mówi, czemu jest pusty,
 // a „Do poprawy” ma same uwagi generatora), `clean` (CV bez uwag), `qcdown`
-// (QC nie odpowiada — panel nie udaje, że uwag nie ma), `aidown` (AI na
-// zaznaczeniu niedostępne — edytor działa dalej).
+// (QC nie odpowiada — panel nie udaje, że uwag nie ma), `aidown` (asystent
+// niedostępny — edytor działa dalej).
 //
-// „AI na zaznaczeniu” dostaje propozycje z `ai-fixture.ts` (proste
-// przekształcenia tekstu, bez modelu).
+// Asystent (Edytor CV 3, PR 4) dostaje odpowiedzi z `command-fixture.ts`:
+// „dopisz terraform” pyta o źródło, „pogrub …” pogrubia, „stanowisko: X”
+// zmienia „Rozważany na stanowisko”, „Skróć do 2 stron” usuwa i łączy.
 //
 // Panel „Do poprawy” dostaje QC, uwagi i poprawki z `issues-fixture.ts`:
 // lista liczy się z ostatnio zapisanej treści, więc widać cały obieg
@@ -55,7 +56,6 @@ import { plainBriefQueryKey, type PlainBrief } from "@/lib/api/plainKnowledge";
 import { stageBrandedQueryKey } from "@/lib/cv-to-client";
 import { useAuthStore } from "@/store/auth";
 
-import { memoryAiApi } from "./ai-fixture";
 import { memoryCommandApi } from "./command-fixture";
 import { memoryHistoryApi } from "./history-fixture";
 import { GENERATOR_ONLY_WARNINGS, memoryIssuesApi, withoutBlocking, withoutIssues } from "./issues-fixture";
@@ -363,7 +363,6 @@ export default function CvEditorPreviewPage() {
     return {
       editorApi: editor.api,
       issuesApi: memoryIssuesApi(editor.savedHtml, variant),
-      aiApi: memoryAiApi(state === "aidown"),
       commandApi: memoryCommandApi(state === "aidown"),
       historyApi: memoryHistoryApi(initial.content_html ?? ""),
       handoff: HANDOFF_STATES.has(state)
@@ -443,7 +442,6 @@ export default function CvEditorPreviewPage() {
           sourceContext={state === "nosources" ? null : undefined}
           editorApi={backend.editorApi}
           issuesApi={backend.issuesApi}
-          aiApi={backend.aiApi}
           commandApi={backend.commandApi}
           historyApi={backend.historyApi}
           handoff={backend.handoff}

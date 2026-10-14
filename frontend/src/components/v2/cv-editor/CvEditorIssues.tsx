@@ -35,7 +35,7 @@
  * Ta sama liczba stoi na karcie „CV do klienta” (`cvChecksBeforeSending`).
  */
 
-import { useEffect, useId, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
+import { useEffect, useId, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Editor } from "@tiptap/core";
 import { CheckCircle2, ChevronRight, Loader2, LocateFixed, RefreshCw, Undo2, Wand2 } from "lucide-react";
@@ -139,6 +139,13 @@ export interface CvEditorIssuesProps {
   api?: CvEditorIssuesApi;
   /** „Pogrub wymagania (N)” z nagłówka edytora woła poprawkę tego panelu. */
   ref?: Ref<CvEditorIssuesHandle>;
+  /**
+   * Nagłówek zamiast tytułu i plakietki blokad — przycisk zwijania, gdy panel
+   * dzieli kolumnę z asystentem (Edytor CV 3, PR 4). Jeden nagłówek, nie dwa.
+   */
+  heading?: ReactNode;
+  /** Zwinięty: zostaje nagłówek, lista się chowa (panel dalej liczy znaczniki). */
+  collapsed?: boolean;
 }
 
 /** Polecenia panelu dla nagłówka edytora (Edytor CV 3, PR 3). */
@@ -377,6 +384,8 @@ export function CvEditorIssues({
   onCount,
   api = networkIssuesApi,
   ref,
+  heading,
+  collapsed = false,
 }: CvEditorIssuesProps) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
@@ -777,10 +786,10 @@ export function CvEditorIssues({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="space-y-1 border-b border-border px-3 py-2">
+      <header className={cn("space-y-1 border-b border-border px-3", heading ? "py-1" : "py-2")}>
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-sm font-semibold">Do poprawy</h2>
-          {ctx ? (
+          {heading ?? <h2 className="text-sm font-semibold">Do poprawy</h2>}
+          {ctx && !heading ? (
             blocking > 0 ? (
               <Badge variant="danger" size="sm">
                 Blokuje wysyłkę: {blocking}
@@ -809,14 +818,14 @@ export function CvEditorIssues({
             )}
           </Button>
         </div>
-        {status ? (
+        {status && !collapsed ? (
           <p role="status" className="text-xs text-muted-foreground">
             {status}
           </p>
         ) : null}
       </header>
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+      <div hidden={collapsed} className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
         {qcQuery.isLoading ? (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" aria-hidden />

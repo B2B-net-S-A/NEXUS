@@ -7,11 +7,14 @@
  * Tutaj:
  *
  * - `cvLines` — wiersze dokumentu z pozycjami, po których plan da się nałożyć,
- * - `planMarks` — co pokazać na kartce, zanim rekruter cokolwiek zatwierdzi,
  * - `applyPlan` — wybrane operacje jako JEDNA transakcja i jeden krok historii.
  *
  * Plan odnosi się do zrzutu dokumentu z chwili zamówienia. Kartka jest wtedy
  * tylko do odczytu, a `applyPlan` i tak sprawdza, że wiersze się nie zmieniły.
+ *
+ * Edytor CV 3, PR 4 (asystent): `applyChanges` nakłada też nowe operacje
+ * (`add`, `bold`, `unbold`, `considered_for`) i zwraca zakresy zmienionej
+ * treści — `CvAssistantHighlight` pokazuje je na kartce na zielono.
  *
  * Moduł nie importuje `@tiptap/react`.
  */
@@ -25,6 +28,7 @@ import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import type { CvCommandLine, CvLineKind, CvPlanOperation } from "@/lib/api/cvEditorCommand";
 import { rangeMarkup } from "@/lib/cv-editor-ai";
 import { cvOutline, isRodoNode, type CvSectionKey } from "@/lib/cv-editor-blocks";
+import { termRanges } from "@/lib/cv-editor-issues";
 import { parseBoldMarkup } from "@/lib/cv-qc";
 
 /** Granice jak w schemacie trasy (`backend/app/api/cv_editor_ai.py`). */
@@ -155,125 +159,6 @@ export function commandBlocker(lines: readonly CvLine[]): string | null {
   return null;
 }
 
-// ── Podgląd planu na kartce ──────────────────────────────────────────────────
-
-export type PlanTone = "remove" | "change" | "move";
-
-export interface PlanMark {
-  operation: number;
-  tone: PlanTone;
-  /** Węzeł wiersza (dekoracja węzła). */
-  from: number;
-  to: number;
-  /** Nowa treść pokazywana pod wierszem (`change`); `**x**` = pogrubienie. */
-  text?: string;
-  /** Koniec treści wiersza — tu staje podgląd nowej treści. */
-  at?: number;
-  /** Nowe miejsce punktu na liście (`move`), od 1. */
-  order?: number;
-}
-
-/** Co wybrane operacje zrobią z kartką — do dekoracji, zanim cokolwiek się zmieni. */
-export function planMarks(
-  lines: readonly CvLine[],
-  operations: readonly CvPlanOperation[],
-  selected: ReadonlySet<number>,
-): PlanMark[] {
-  const byId = new Map(lines.map((line) => [line.id, line]));
-  const marks: PlanMark[] = [];
-  for (const operation of operations) {
-    if (!selected.has(operation.id)) continue;
-    const rows = operation.lines.map((id) => byId.get(id)).filter((line): line is CvLine => line != null);
-    rows.forEach((line, index) => {
-      const base = { operation: operation.id, from: line.from, to: line.to };
-      if (operation.type === "reorder") {
-        marks.push({ ...base, tone: "move", order: index + 1 });
-      } else if ((operation.type === "replace" || operation.type === "merge") && index === 0) {
-        marks.push({ ...base, tone: "change", text: operation.text ?? "", at: line.innerTo });
-      } else {
-        marks.push({ ...base, tone: "remove" });
-      }
-    });
-  }
-  return marks;
-}
-
-/** Długość treści CV teraz i po wybranych operacjach (znaki, bez znaczników). */
-export function planEffect(
-  lines: readonly CvLine[],
-  operations: readonly CvPlanOperation[],
-  selected: ReadonlySet<number>,
-): { before: number; after: number } {
-  const size = (text: string) => text.replace(/\*\*/g, "").length;
-  const byId = new Map(lines.map((line) => [line.id, line]));
-  const before = lines.reduce((sum, line) => sum + size(line.text), 0);
-  let after = before;
-  for (const operation of operations) {
-    if (!selected.has(operation.id) || operation.type === "reorder") continue;
-    for (const id of operation.lines) after -= size(byId.get(id)?.text ?? "");
-    if (operation.type === "replace" || operation.type === "merge") after += size(operation.text ?? "");
-  }
-  return { before, after: Math.max(0, after) };
-}
-
-const planKey = new PluginKey<DecorationSet>("cvEditorPlanPreview");
-
-function newTextWidget(text: string): HTMLElement {
-  const dom = document.createElement("span");
-  dom.className = "cv-plan-new";
-  dom.setAttribute("contenteditable", "false");
-  for (const run of parseBoldMarkup(text)) {
-    const part = document.createElement(run.b ? "strong" : "span");
-    part.textContent = run.t;
-    dom.appendChild(part);
-  }
-  return dom;
-}
-
-/** Dekoracje podglądu planu: przekreślone, zmieniane i przestawiane wiersze. */
-export const CvEditorPlanPreview = Extension.create({
-  name: "cvEditorPlanPreview",
-  addProseMirrorPlugins() {
-    return [
-      new Plugin<DecorationSet>({
-        key: planKey,
-        state: {
-          init: () => DecorationSet.empty,
-          apply(transaction, current) {
-            const marks = transaction.getMeta(planKey) as PlanMark[] | undefined;
-            if (!marks) return transaction.docChanged ? DecorationSet.empty : current;
-            const decorations: Decoration[] = [];
-            for (const mark of marks) {
-              decorations.push(
-                Decoration.node(mark.from, mark.to, {
-                  class: `cv-plan-${mark.tone}`,
-                  "data-cv-plan": String(mark.operation),
-                  ...(mark.order != null ? { "data-cv-plan-order": String(mark.order) } : {}),
-                }),
-              );
-              if (mark.tone === "change" && mark.at != null && mark.text) {
-                const text = mark.text;
-                decorations.push(Decoration.widget(mark.at, () => newTextWidget(text), { side: 1, key: `plan-${mark.operation}` }));
-              }
-            }
-            return DecorationSet.create(transaction.doc, decorations);
-          },
-        },
-        props: { decorations: (state) => planKey.getState(state) },
-      }),
-    ];
-  },
-});
-
-export function setPlanMarks(editor: Editor, marks: readonly PlanMark[]): void {
-  if (editor.isDestroyed) return;
-  editor.view.dispatch(editor.state.tr.setMeta(planKey, [...marks]).setMeta("addToHistory", false));
-}
-
-export function planMarkCount(state: EditorState): number {
-  return planKey.getState(state)?.find().length ?? 0;
-}
-
 // ── Zastosowanie planu ───────────────────────────────────────────────────────
 
 interface Edit {
@@ -296,6 +181,7 @@ function inlineNodes(state: EditorState, markup: string): Fragment {
  * widzi punkty stanowiska, nie listy dokumentu).
  */
 export function canApply(operation: CvPlanOperation, lines: readonly CvLine[]): boolean {
+  if (operation.type === "bold" || operation.type === "unbold") return (operation.terms ?? []).length > 0;
   const rows = operation.lines.map((id) => lines[id]);
   if (rows.length === 0 || rows.some((row) => row == null)) return false;
   if (operation.type !== "reorder") return true;
@@ -306,11 +192,51 @@ function sameLine(a: CvLine | undefined, b: CvLine): boolean {
   return a != null && a.kind === b.kind && a.text === b.text && a.from === b.from && a.to === b.to;
 }
 
+/** Zmieniona treść po nałożeniu planu — do podświetlenia na kartce. */
+export interface ChangedRange {
+  from: number;
+  to: number;
+}
+
 /**
  * Wybrane operacje jako jedna transakcja; `null`, gdy dokument zmienił się od
  * zamówienia planu albo nie zostało nic do zrobienia.
  */
 export function applyPlan(state: EditorState, lines: readonly CvLine[], operations: readonly CvPlanOperation[]): Transaction | null {
+  return applyChanges(state, lines, operations)?.transaction ?? null;
+}
+
+/** Nowy punkt listy albo akapit — ten sam rodzaj co wiersz, za którym staje. */
+function newBlock(state: EditorState, after: CvLine, markup: string): PMNode | null {
+  const { listItem, paragraph } = state.schema.nodes;
+  const content = inlineNodes(state, markup);
+  if (content.size === 0 || !paragraph) return null;
+  const block = paragraph.create(null, content);
+  if (after.kind === "bullet") return listItem ? listItem.create(null, block) : null;
+  return block;
+}
+
+/** Wystąpienia terminu poza tytułem i nagłówkami sekcji (tam pogrubienie nie służy). */
+function termsInContent(doc: PMNode, terms: readonly string[]): ChangedRange[] {
+  const ranges: ChangedRange[] = [];
+  for (const term of terms) {
+    for (const range of termRanges(doc, term)) {
+      if (doc.resolve(range.from).parent.type.name === "heading") continue;
+      ranges.push({ from: range.from, to: range.to });
+    }
+  }
+  return ranges;
+}
+
+/**
+ * Jak `applyPlan`, a do tego zakresy zmienionej treści w dokumencie po
+ * zmianie (nowe i przeredagowane wiersze, pogrubione terminy).
+ */
+export function applyChanges(
+  state: EditorState,
+  lines: readonly CvLine[],
+  operations: readonly CvPlanOperation[],
+): { transaction: Transaction; changed: ChangedRange[] } | null {
   const current = cvLines(state.doc);
   const byId = new Map(lines.map((line) => [line.id, line]));
   const touched = operations.flatMap((operation) => operation.lines);
@@ -322,10 +248,15 @@ export function applyPlan(state: EditorState, lines: readonly CvLine[], operatio
   const removals: CvLine[] = [];
   for (const operation of operations) {
     const rows = operation.lines.map((id) => byId.get(id)!);
+    if (operation.type === "bold" || operation.type === "unbold") continue;
     if (rows.length === 0) continue;
     if (operation.type === "remove") {
       removals.push(...rows);
-    } else if (operation.type === "replace" || operation.type === "merge") {
+    } else if (operation.type === "add") {
+      const node = newBlock(state, rows[0], operation.text ?? "");
+      if (!node) continue;
+      edits.push({ from: rows[0].to, to: rows[0].to, content: Fragment.from(node) });
+    } else if (operation.type === "replace" || operation.type === "merge" || operation.type === "considered_for") {
       const content = inlineNodes(state, operation.text ?? "");
       if (content.size === 0) continue;
       edits.push({ from: rows[0].innerFrom, to: rows[0].innerTo, content });
@@ -365,16 +296,87 @@ export function applyPlan(state: EditorState, lines: readonly CvLine[], operatio
     if (rows.length === rows[0].siblings) edits.push({ from: rows[0].blockFrom, to: rows[0].blockTo, content: Fragment.empty });
     else for (const row of rows) edits.push({ from: row.from, to: row.to, content: Fragment.empty });
   }
-  if (edits.length === 0) return null;
+  const formatting = operations.filter((operation) => operation.type === "bold" || operation.type === "unbold");
+  if (edits.length === 0 && formatting.length === 0) return null;
 
   // Od końca dokumentu: wcześniejsze pozycje zostają ważne.
   edits.sort((a, b) => b.from - a.from);
   const transaction = state.tr;
+  const inserted: Array<{ range: ChangedRange; afterStep: number }> = [];
   for (const edit of edits) {
     if (edit.content.size === 0) transaction.delete(edit.from, edit.to);
-    else transaction.replaceWith(edit.from, edit.to, edit.content);
+    else {
+      transaction.replaceWith(edit.from, edit.to, edit.content);
+      inserted.push({ range: { from: edit.from, to: edit.from + edit.content.size }, afterStep: transaction.steps.length });
+    }
   }
-  const first = Math.min(edits[edits.length - 1].from, transaction.doc.content.size);
-  transaction.setSelection(TextSelection.near(transaction.doc.resolve(first)));
-  return closeHistory(transaction);
+  // Nowa treść w dokumencie po wszystkich krokach (wcześniejsze edycje przesuwają ją).
+  const changed: ChangedRange[] = inserted.map(({ range, afterStep }) => {
+    const later = transaction.mapping.slice(afterStep);
+    return { from: later.map(range.from, 1), to: later.map(range.to, -1) };
+  });
+  // Pogrubienie na treści po zmianach — także na właśnie dopisanych wierszach.
+  const bold = state.schema.marks.bold;
+  if (bold) {
+    for (const operation of formatting) {
+      for (const range of termsInContent(transaction.doc, operation.terms ?? [])) {
+        const has = transaction.doc.rangeHasMark(range.from, range.to, bold);
+        if (operation.type === "bold" && !has) transaction.addMark(range.from, range.to, bold.create());
+        else if (operation.type === "unbold" && has) transaction.removeMark(range.from, range.to, bold);
+        else continue;
+        changed.push(range);
+      }
+    }
+  }
+  if (!transaction.docChanged) return null;
+  if (edits.length > 0) {
+    const first = Math.min(transaction.mapping.map(edits[edits.length - 1].from), transaction.doc.content.size);
+    transaction.setSelection(TextSelection.near(transaction.doc.resolve(first)));
+  }
+  return { transaction: closeHistory(transaction), changed: changed.filter((range) => range.to > range.from) };
+}
+
+// ── Podświetlenie zmian asystenta (Edytor CV 3, PR 4) ───────────────────────
+
+const highlightKey = new PluginKey<DecorationSet>("cvAssistantHighlight");
+
+/**
+ * Zielone tło na treści, którą asystent właśnie zmienił. Dekoracja widoku —
+ * nie trafia do `getHTML()`, przesuwa się razem z pisaniem i znika przy
+ * następnej wiadomości (albo po „Cofnij”).
+ */
+export const CvAssistantHighlight = Extension.create({
+  name: "cvAssistantHighlight",
+  addProseMirrorPlugins() {
+    return [
+      new Plugin<DecorationSet>({
+        key: highlightKey,
+        state: {
+          init: () => DecorationSet.empty,
+          apply(transaction, current) {
+            const ranges = transaction.getMeta(highlightKey) as ChangedRange[] | undefined;
+            if (ranges) {
+              return DecorationSet.create(
+                transaction.doc,
+                ranges
+                  .filter((range) => range.to > range.from && range.to <= transaction.doc.content.size)
+                  .map((range) => Decoration.inline(range.from, range.to, { class: "cv-assistant-new" })),
+              );
+            }
+            return current.map(transaction.mapping, transaction.doc);
+          },
+        },
+        props: { decorations: (state) => highlightKey.getState(state) },
+      }),
+    ];
+  },
+});
+
+export function setAssistantHighlight(editor: Editor, ranges: readonly ChangedRange[]): void {
+  if (editor.isDestroyed) return;
+  editor.view.dispatch(editor.state.tr.setMeta(highlightKey, [...ranges]).setMeta("addToHistory", false));
+}
+
+export function assistantHighlightCount(state: EditorState): number {
+  return highlightKey.getState(state)?.find().length ?? 0;
 }

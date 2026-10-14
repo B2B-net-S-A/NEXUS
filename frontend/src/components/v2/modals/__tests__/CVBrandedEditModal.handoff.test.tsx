@@ -62,12 +62,21 @@ vi.mock("@/lib/cv-editor-structure", () => ({
 }));
 vi.mock("@/components/v2/cv-editor/CvEditorToolbar", () => ({ CvEditorToolbar: () => null }));
 vi.mock("@/components/v2/cv-editor/CvEditorSources", () => ({ CvEditorSources: () => null }));
-vi.mock("@/components/v2/cv-editor/CvEditorSelectionAi", () => ({ CvEditorSelectionAi: () => null }));
-vi.mock("@/components/v2/cv-editor/useCvCommandPlan", () => ({
-  useCvCommandPlan: () => ({ enabled: false, phase: "idle", locked: false, discard: () => undefined }),
+// Asystent pracuje na prawdziwym edytorze — ma własne testy (harness edytora);
+// atrapa edytora tego okna nie ma widoku ProseMirror.
+vi.mock("@/components/v2/cv-editor/CvEditorAssistant", () => ({
+  CvEditorAssistant: () => <section aria-label="Asystent CV" />,
 }));
-vi.mock("@/components/v2/cv-editor/useCvSelectionAi", () => ({
-  useCvSelectionAi: () => ({ enabled: false, selection: { ok: false, reason: null, hidden: true }, phase: "idle" }),
+vi.mock("@/components/v2/cv-editor/useCvAssistant", () => ({
+  useCvAssistant: () => ({
+    enabled: false,
+    messages: [],
+    busy: false,
+    locked: false,
+    send: () => undefined,
+    answer: async () => undefined,
+    undo: () => undefined,
+  }),
 }));
 vi.mock("@/components/v2/cv-editor/useCvHistory", () => ({
   useCvHistory: () => ({ enabled: false, open: false, busy: false, show: () => undefined, close: () => undefined }),

@@ -5,6 +5,11 @@
  * numerach wierszy, które przeszły kontrolę serwera. Niczego nie zapisuje —
  * wybrane operacje nakłada edytor, a utrwala je zwykły autozapis. Edytor wysyła
  * TEKST wierszy (pogrubienie jako `**x**`), nigdy HTML ani pozycji.
+ *
+ * Edytor CV 3, PR 4 (asystent w kolumnie): żądanie niesie kilka ostatnich
+ * wiadomości rozmowy i wiersze zaznaczone w edytorze; operacja z faktem spoza
+ * CV i źródeł wraca z `ask: "source"`, a „Tak, dopisz” zapisuje go notatką
+ * pary (`…/cv-ai/confirm-fact`), zanim edytor nałoży zmianę.
  */
 
 import api from "@/lib/api";
@@ -20,23 +25,52 @@ export interface CvCommandLine {
   role?: number;
 }
 
-export type CvCommandPreset = "shorten" | "drop_old_roles" | "order_by_requirements" | "unify_sentences";
+export type CvCommandPreset =
+  | "shorten"
+  | "drop_old_roles"
+  | "order_by_requirements"
+  | "unify_sentences"
+  | "more_requirements"
+  | "proofread";
 
 /** Gotowe polecenia — treść trzyma serwer, tu są nazwy dla rekrutera. */
 export const CV_COMMAND_PRESETS: ReadonlyArray<{ preset: CvCommandPreset; label: string }> = [
   { preset: "shorten", label: "Skróć do 2 stron" },
+  { preset: "more_requirements", label: "Więcej o wymaganiach klienta" },
+  { preset: "proofread", label: "Popraw język i styl" },
   { preset: "drop_old_roles", label: "Usuń najstarsze role" },
-  { preset: "order_by_requirements", label: "Ułóż punkty według wymagań klienta" },
-  { preset: "unify_sentences", label: "Ujednolić formę zdań" },
 ];
+
+/** Wiadomość rozmowy z asystentem wysyłana jako kontekst (najwyżej 6). */
+export interface CvCommandMessage {
+  role: "user" | "assistant";
+  text: string;
+}
+
+export const CV_COMMAND_HISTORY_MAX = 6;
+export const CV_COMMAND_HISTORY_TEXT_MAX = 500;
+export const CV_COMMAND_FOCUS_MAX = 60;
 
 export interface CvCommandRequest {
   preset?: CvCommandPreset;
   command?: string;
   lines: CvCommandLine[];
+  history?: CvCommandMessage[];
+  /** Numery wierszy zaznaczonych w edytorze. */
+  focus?: number[];
 }
 
-export type CvPlanOperationType = "remove" | "replace" | "merge" | "reorder" | "remove_role" | "remove_section";
+export type CvPlanOperationType =
+  | "remove"
+  | "replace"
+  | "merge"
+  | "reorder"
+  | "remove_role"
+  | "remove_section"
+  | "add"
+  | "bold"
+  | "unbold"
+  | "considered_for";
 
 export interface CvPlanOperation {
   id: number;
@@ -55,6 +89,14 @@ export interface CvPlanOperation {
    * taka operacja nie jest zaznaczona z góry.
    */
   new_words: string[];
+  /**
+   * Pytanie przed nałożeniem: `source` — fakt spoza CV i źródeł (`problem`),
+   * `loses` — znika jedyne miejsce z wymaganiem klienta.
+   */
+  ask?: "source" | "loses" | null;
+  problem?: string | null;
+  /** `bold` / `unbold`: terminy, które stoją w CV. */
+  terms?: string[];
 }
 
 export interface CvPlanDropped {
@@ -73,6 +115,8 @@ export interface CvCommandResponse {
 
 export interface CvEditorCommandApi {
   plan: (stageId: number, body: CvCommandRequest) => Promise<CvCommandResponse>;
+  /** „Tak, dopisz”: fakt z rozmowy z kandydatem jako notatka pary (autor, data). */
+  confirmFact: (stageId: number, body: { term: string; text: string }) => Promise<void>;
 }
 
 export const networkCommandApi: CvEditorCommandApi = {
@@ -84,4 +128,6 @@ export const networkCommandApi: CvEditorCommandApi = {
         timeout: SLOW_ENDPOINT_TIMEOUT_MS,
       })
       .then((response) => response.data),
+  confirmFact: (stageId, body) =>
+    api.post(`/api/pipeline/stages/${stageId}/cv-ai/confirm-fact`, body).then(() => undefined),
 };

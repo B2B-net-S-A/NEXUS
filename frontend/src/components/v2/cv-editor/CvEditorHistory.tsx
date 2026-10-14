@@ -21,8 +21,7 @@ import type { CvVersionSummary } from "@/lib/api/cvEditorHistory";
 import { CV_DIFF_LINES_MAX, type CvDiffItem } from "@/lib/cv-editor-diff";
 import { countForm } from "@/lib/cv-qc";
 
-import { Marked } from "./CvAiProposalCard";
-import { CV_COMMAND_ATTR } from "./CvEditorCommandBar";
+import { CV_PANEL_ATTR, Marked } from "./Marked";
 import type { CvHistoryComparison, CvHistoryController, CvHistorySource } from "./useCvHistory";
 
 /** Tyle różnic pokazuje lista; reszta to „i jeszcze N”. */
@@ -272,7 +271,7 @@ export function CvEditorHistory({ controller }: CvEditorHistoryProps) {
       ref={root}
       tabIndex={-1}
       // Ten sam znacznik co pasek polecenia i plan zmian: Escape w panelu nie zamyka edytora.
-      {...{ [CV_COMMAND_ATTR]: "" }}
+      {...{ [CV_PANEL_ATTR]: "" }}
       aria-label="Historia wersji"
       className="flex h-full min-h-0 flex-col outline-none"
       onKeyDown={(event) => {
