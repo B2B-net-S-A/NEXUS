@@ -19,7 +19,7 @@
  * braków, błąd i „Generuj” są widoczne zawsze.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -52,6 +52,11 @@ export interface CvGeneratePanelProps {
   replaces: boolean;
   onEnqueued: (generatedId: number) => void;
   onCancel: () => void;
+  /**
+   * „Napisz od nowa” (Edytor CV 3, PR 5): uwaga rekrutera (może być pusta).
+   * Panel rusza sam, gdy nic nie czeka na decyzję — jedno kliknięcie w karcie.
+   */
+  rewrite?: string;
 }
 
 const PANEL_CLASS = "space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-3";
@@ -116,12 +121,14 @@ function CvGeneratePanelForm({
   replaces,
   onEnqueued,
   onCancel,
+  rewrite,
 }: CvGeneratePanelProps) {
   const g = useCvGenerator({
     prefillCandidateId: candidateId,
     prefillCandidateName: candidateName,
     prefillJobId: jobId,
     onEnqueued,
+    instruction: rewrite,
   });
   const { setSourceChoice } = g;
   const originalId = g.aiSourcesQuery.data?.original_cv?.document_id ?? null;
@@ -169,6 +176,16 @@ function CvGeneratePanelForm({
     if (attention) setExpanded(true);
   }, [attention]);
   const open = expanded || attention;
+
+  // „Napisz od nowa” rusza samo, gdy dane się ustaliły i nic nie czeka na
+  // rekrutera (braki, zgoda RODO, błąd) — inaczej panel zostaje otwarty.
+  const { submit } = g;
+  const started = useRef(false);
+  useEffect(() => {
+    if (rewrite === undefined || started.current || !settled || attention || !ready) return;
+    started.current = true;
+    submit();
+  }, [rewrite, settled, attention, ready, submit]);
 
   const sourcesRows = (
     <AiSourcesRows
@@ -295,14 +312,21 @@ function CvGeneratePanelForm({
           {g.lastError}
         </p>
       ) : null}
+      {rewrite !== undefined ? (
+        <p className="text-xs text-foreground [overflow-wrap:anywhere]" data-testid="cv-rewrite-instruction">
+          {rewrite.trim() ? <>Napisz od nowa: „{rewrite.trim()}”</> : "Napisz od nowa"}
+        </p>
+      ) : null}
       <p className="text-[11px] text-muted-foreground">
-        {replaces
-          ? "Ok. 40 s. Nowa wersja zastąpi bieżący szkic, gdy będzie gotowa — zatwierdzone wersje zostają."
-          : "Ok. 40 s. Gotowe CV pojawi się tutaj jako CV do klienta."}
+        {rewrite !== undefined
+          ? "Ok. 40 s. Ręcznie poprawione części zostaną, a poprzednią wersję przywrócisz jednym kliknięciem."
+          : replaces
+            ? "Ok. 40 s. Nowa wersja zastąpi bieżący szkic, gdy będzie gotowa — zatwierdzone wersje zostają."
+            : "Ok. 40 s. Gotowe CV pojawi się tutaj jako CV do klienta."}
       </p>
       <div className="flex flex-wrap gap-1.5">
         <Button size="sm" onClick={g.submit} disabled={!ready} loading={g.generating}>
-          <Sparkles className="h-3.5 w-3.5" aria-hidden /> Generuj
+          <Sparkles className="h-3.5 w-3.5" aria-hidden /> {rewrite !== undefined ? "Napisz od nowa" : "Generuj"}
         </Button>
         <Button size="sm" variant="ghost" onClick={onCancel} disabled={g.generating}>
           Anuluj

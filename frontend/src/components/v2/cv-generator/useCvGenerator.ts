@@ -69,6 +69,12 @@ export interface UseCvGeneratorOptions {
   prefillCandidateName?: string;
   prefillJobId?: number | null;
   onEnqueued?: (generatedId: number) => void;
+  /**
+   * „Napisz od nowa” (Edytor CV 3, PR 5): uwaga rekrutera. Przed generacją
+   * zapisuje się w notatkach rekrutacji (fakty z tego zdania stają się
+   * źródłem), a model dostaje ją jako życzenie co do formy.
+   */
+  instruction?: string;
 }
 
 export interface CvGenerationResult {
@@ -86,6 +92,7 @@ export function useCvGenerator({
   prefillCandidateName,
   prefillJobId,
   onEnqueued,
+  instruction = "",
 }: UseCvGeneratorOptions) {
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -345,6 +352,14 @@ export function useCvGenerator({
         setNoteDraft("");
         void queryClient.invalidateQueries({ queryKey: ["cv-gen-recruitments", candidate.id] });
       }
+      if (instruction.trim()) {
+        await api.post("/api/notes", {
+          content: `Uwaga do CV: ${instruction.trim()}`,
+          note_type: "general",
+          candidate_id: candidate.id,
+          job_id: recruitment.job_id,
+        });
+      }
       const payload = buildGeneratePayload({
         candidateId: candidate.id,
         recruitment,
@@ -357,6 +372,7 @@ export function useCvGenerator({
         championProfile: championOverride?.profile ?? null,
         consentToken,
         sources: aiSources,
+        instruction,
       });
       return (await withCvGenerationRequest("/api/cv-generator/generate", payload, (key) =>
         api.post<CvGenerateEnqueued>("/api/cv-generator/generate", payload, {

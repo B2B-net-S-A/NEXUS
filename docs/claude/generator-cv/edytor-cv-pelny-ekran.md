@@ -925,3 +925,54 @@ planu. Rekruter pisze jak do czatu („rolę w Logistyce skróć do 3 punktów�
 - Harness `/preview/cv-editor`: `command-fixture.ts` odpowiada bez sieci
   (skrócenie, „terraform” z pytaniem o źródło, „stanowisko: …”, pogrubienie,
   „Usuń najstarsze role” z pytaniem o wymaganie).
+
+## „Napisz od nowa” (Edytor CV 3, PR 5, 14.10.2026)
+
+Makieta „Ekran 4” i „Ekran 5”: nowa wersja CV z uwagą rekrutera, ręcznie
+poprawione części zostają, „Wróć do poprzedniej” jednym kliknięciem.
+
+- **Wejścia**: pole „Co poprawić?” + „Napisz od nowa” w karcie „CV do
+  klienta” (pusta uwaga też działa) i zdanie „napisz od nowa: …” w asystencie
+  edytora (podpowiedź „Napisz od nowa…” zamiast „Usuń najstarsze role”,
+  które wpisuje się słowami). Asystent zapisuje szkic (`closeEditor`),
+  zamyka edytor i oddaje uwagę karcie — **nowa wersja pojawia się w karcie,
+  nie na otwartej kartce** (świadoma różnica względem makiety: podmiana treści
+  pod otwartym edytorem z autozapisem to wyścig). „Wygeneruj ponownie” w „⋯”
+  zostaje (pełny panel ustawień).
+- **Panel generacji w trybie „Napisz od nowa”** (`CvGeneratePanel` z
+  `rewrite`) rusza sam, gdy dane się ustaliły i nic nie czeka na rekrutera
+  (braki, zgoda RODO, błąd) — inaczej zostaje otwarty jak zwykły panel.
+- **Uwaga rekrutera**: najpierw notatka pary „Uwaga do CV: …” (fakty z tego
+  zdania stają się źródłem, generator czyta notatki pary), potem
+  `GenerateRequest.instruction` (≤ 300 znaków). Serwer wycina stawki
+  (`recruiter_instruction` → `strip_rates_and_availability`), zamraża ją
+  w źródle zadania (`CandidateGenerationSource.instruction`, domyślna `""`,
+  stare zadania dekodują się bez niej) i w promptach legacy_v7 wkłada jako
+  ogrodzone `<recruiter_instruction>` z regułą „forma i akcenty, nigdy źródło
+  faktów” — w treści użytkownika, prompt systemowy zostaje bajt w bajt (cache).
+  Pipeline v10 uwagi nie czyta.
+- **Ręczne poprawki zostają** (`services/cv_rewrite_merge.py`,
+  `select-generated` z `keep_edits`): szkic porównany z generacją, z której
+  powstał (`csv.generated_document_id`, HTML z `render_interactive_html`).
+  Części: nagłówek CV, sekcje (`data-cv-section`), stanowiska po firmie
+  i datach. Sam tekst — pogrubienie i wyrównanie to nie poprawka. Część
+  zmieniona zostaje w wersji rekrutera, usunięta nie wraca, dopisana stoi tam,
+  gdzie stała; klauzula RODO zawsze z nowej wersji. Gdy nie da się rozpoznać
+  (szkic nie z generatora, brak sekcji, ≥ 3 części z treścią i wszystkie
+  inne) — cała nowa wersja i zdanie „Ręcznych poprawek nie dało się
+  rozpoznać”. Pochodzenie (`capture_editor_origin`) liczone z czystej
+  generacji. Karta podpina „Napisz od nowa” z BIEŻĄCĄ wersją szkicu i dopiero
+  po zamknięciu edytora.
+- **Migawka szkicu przed każdą podmianą** w `select-generated`
+  (`cv_stage_draft_snapshots`, migracja 0444 + lustro w entrypoint):
+  niezatwierdzony szkic nie znika już bez śladu. `POST
+  …/cv/branded/restore-previous` (bramka jak `select-generated`) wraca do
+  najnowszej migawki `replaced`, której nie przywrócono; bieżący szkic idzie
+  do migawki `restore` — nic nie ginie. Treść, pochodzenie i metadane z
+  migawki, szablon i zgoda zostają bieżące.
+- **Pasek w karcie** „Nowa wersja CV. „X” zostało w Twojej wersji.” z „Wróć do
+  poprzedniej” — tylko w odpowiedzi na podmianę z `keep_edits`; znika, gdy
+  szkic dostanie kolejny zapis.
+- Harness `/preview/cv-to-client`: osoba „„Napisz od nowa” — Twoje poprawki
+  zostają” — notatka, generacja, podmiana i powrót odpowiadają z pamięci.
+

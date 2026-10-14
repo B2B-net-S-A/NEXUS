@@ -355,6 +355,8 @@ export default function CvEditorPreviewPage() {
   const [state, setState] = useState<HarnessState>("draft");
   // Ruch karty z pamięci: co „przeszło” i z jaką uwagą — strona to wypisuje.
   const [handedOff, setHandedOff] = useState<string | null>(null);
+  // „Napisz od nowa: …” z asystenta — w aplikacji zleca nową generację w karcie.
+  const [rewrite, setRewrite] = useState<string | null>(null);
   const queryClient = useMemo(() => seededClient(state), [state]);
   const backend = useMemo(() => {
     const initial = brandedState(state);
@@ -427,6 +429,11 @@ export default function CvEditorPreviewPage() {
               Otwórz edytor
             </Button>
           </div>
+          {rewrite !== null ? (
+            <p role="status" data-testid="harness-rewrite" className="text-sm text-muted-foreground">
+              Karta pisze CV od nowa{rewrite ? ` z uwagą: „${rewrite}”` : ""}.
+            </p>
+          ) : null}
           {handedOff !== null ? (
             <p role="status" data-testid="harness-handed-off" className="text-sm text-muted-foreground">
               Karta przeszła do „QC CV”{handedOff ? ` z uwagą: „${handedOff}”` : " bez uwagi"}.
@@ -445,6 +452,7 @@ export default function CvEditorPreviewPage() {
           commandApi={backend.commandApi}
           historyApi={backend.historyApi}
           handoff={backend.handoff}
+          onRewrite={state === "nosources" ? undefined : setRewrite}
           generatorWarnings={state === "nosources" ? GENERATOR_ONLY_WARNINGS : undefined}
           editorFiles={MEMORY_FILES}
           sourceLoaders={SOURCE_LOADERS}

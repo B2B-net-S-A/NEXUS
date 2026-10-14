@@ -196,6 +196,8 @@ export interface GeneratePayloadInput {
   consentToken: string | null;
   /** Przełączniki „Z czego powstało”; `null` = serwer bierze domyślne. */
   sources?: CvAiSourceToggles | null;
+  /** „Napisz od nowa” (PR 5): uwaga rekrutera dla modelu. */
+  instruction?: string;
 }
 
 /**
@@ -218,6 +220,7 @@ export function buildGeneratePayload(input: GeneratePayloadInput): CvGeneratePay
   if (input.championProfile) payload.champion_profile = input.championProfile;
   if (input.consentToken) payload.consent_screenshot_token = input.consentToken;
   if (input.sources) payload.sources = { ...input.sources };
+  if (input.instruction?.trim()) payload.instruction = input.instruction.trim();
   return payload;
 }
 

@@ -27,11 +27,14 @@ export interface CvEditorAssistantProps {
   editor: Editor;
 }
 
+const REWRITE_PREFIX = "Napisz od nowa: ";
+
 const EXAMPLES = "Np. „rolę w Logistyce skróć do 3 punktów”, „pogrub Kafkę i Spring Boot”, „stanowisko: Senior Java Engineer”.";
 
 export function CvEditorAssistant({ controller, editor }: CvEditorAssistantProps) {
   const [text, setText] = useState("");
   const log = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
   const view = useEditorState({
     editor,
     selector: ({ editor: current }) => {
@@ -43,6 +46,11 @@ export function CvEditorAssistant({ controller, editor }: CvEditorAssistantProps
     },
   });
   const disabled = !controller.enabled || controller.busy;
+  // Z „Napisz od nowa…” mieszczą się cztery podpowiedzi, jak na makiecie —
+  // „Usuń najstarsze role” wpisuje się wtedy słowami.
+  const chips = controller.canRewrite
+    ? CV_COMMAND_PRESETS.filter((item) => item.preset !== "drop_old_roles")
+    : CV_COMMAND_PRESETS;
   // Nowa odpowiedź albo pytanie ląduje na dole rozmowy — pokaż ją bez przewijania ręką.
   useEffect(() => {
     const node = log.current;
@@ -87,7 +95,7 @@ export function CvEditorAssistant({ controller, editor }: CvEditorAssistantProps
       </div>
       <div className="space-y-1.5 border-t border-border p-2">
         <div className="flex flex-wrap gap-1" role="group" aria-label="Podpowiedzi">
-          {CV_COMMAND_PRESETS.map((item) => (
+          {chips.map((item) => (
             <Button
               key={item.preset}
               type="button"
@@ -100,6 +108,22 @@ export function CvEditorAssistant({ controller, editor }: CvEditorAssistantProps
               {item.label}
             </Button>
           ))}
+          {controller.canRewrite ? (
+            // Makieta „Ekran 1”: czwarta podpowiedź wpisuje początek zdania.
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 px-2 text-xs"
+              disabled={disabled}
+              onClick={() => {
+                setText(REWRITE_PREFIX);
+                input.current?.focus();
+              }}
+            >
+              Napisz od nowa…
+            </Button>
+          ) : null}
         </div>
         {view.selection ? (
           <p className="truncate text-[11px] text-muted-foreground" data-testid="cv-assistant-selection">
@@ -108,6 +132,7 @@ export function CvEditorAssistant({ controller, editor }: CvEditorAssistantProps
         ) : null}
         <form className="flex items-end gap-1.5" onSubmit={submit}>
           <textarea
+            ref={input}
             aria-label="Napisz, co zmienić"
             placeholder="Napisz, co zmienić…"
             rows={2}

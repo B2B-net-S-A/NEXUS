@@ -73,10 +73,13 @@ import {
   RefreshCcw,
   Repeat2,
   Sparkles,
+  Undo2,
+  X,
 } from "lucide-react";
 
 import {
   candidateStageCvApi,
+  type CVBrandedRewrite,
   type CVOriginalSnapshot,
 } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -342,6 +345,24 @@ const noPagesWithoutConsent = () => Promise.reject(new Error("consent_required")
 /** Radix oddaje fokus PO `onSelect` — okno otwarte w tym samym ticku zamknęłoby się. */
 const afterMenuCloses = (action: () => void) => () => window.setTimeout(action, 0);
 
+/** Długość uwagi „Napisz od nowa” — jak limit serwera (`GenerateRequest.instruction`). */
+const REWRITE_MAX = 300;
+
+function quoteList(items: readonly string[]): string {
+  const quoted = items.map((item) => `„${item}”`);
+  if (quoted.length <= 1) return quoted[0] ?? "";
+  return `${quoted.slice(0, -1).join(", ")} i ${quoted[quoted.length - 1]}`;
+}
+
+/** Zdanie po „Napisz od nowa”: co zostało w wersji rekrutera (makieta „Ekran 4”). */
+function rewriteSentence(result: CVBrandedRewrite): string {
+  if (!result.recognized) {
+    return "Nowa wersja CV. Ręcznych poprawek nie dało się rozpoznać — to cała nowa wersja.";
+  }
+  if (result.kept.length === 0) return "Nowa wersja CV.";
+  return `Nowa wersja CV. ${quoteList(result.kept)} ${result.kept.length === 1 ? "zostało" : "zostały"} w Twojej wersji.`;
+}
+
 export function CvToClientCard({
   stageId,
   candidateId,
@@ -385,7 +406,16 @@ export function CvToClientCard({
     replace: boolean;
     stageId: number;
     revision: number;
+    // „Napisz od nowa” (PR 5): ręcznie poprawione części szkicu zostają.
+    keepEdits: boolean;
   } | null>(null);
+  // „Napisz od nowa” (Edytor CV 3, PR 5): uwaga dla panelu generacji
+  // (`undefined` = zwykły panel), pole w karcie i wynik podmiany.
+  const [rewrite, setRewrite] = useState<string | undefined>(undefined);
+  const [rewriteText, setRewriteText] = useState("");
+  const [rewriteResult, setRewriteResult] = useState<
+    (CVBrandedRewrite & { stageId: number; revision: number }) | null
+  >(null);
   const pendingId = pending?.id ?? null;
   useEffect(() => {
     if (pendingId == null) return;
@@ -524,11 +554,20 @@ export function CvToClientCard({
   };
 
   const attachVersionMut = useMutation({
-    mutationFn: (target: { stageId: number; generatedId: number; revision: number }) =>
-      candidateStageCvApi.branded.selectGenerated(target.stageId, target.generatedId, target.revision),
+    mutationFn: (target: { stageId: number; generatedId: number; revision: number; keepEdits?: boolean }) =>
+      target.keepEdits
+        ? candidateStageCvApi.branded.selectGenerated(target.stageId, target.generatedId, target.revision, undefined, {
+            keepEdits: true,
+          })
+        : candidateStageCvApi.branded.selectGenerated(target.stageId, target.generatedId, target.revision),
     onSuccess: (response, target) => {
       queryClient.setQueryData(stageBrandedQueryKey(target.stageId), response.data);
       void queryClient.invalidateQueries({ queryKey: cvToClientRowsQueryKey(candidateId, jobId) });
+      const rewritten = response.data.rewrite;
+      if (rewritten) {
+        setRewriteResult({ ...rewritten, stageId: target.stageId, revision: response.data.edit_revision ?? 0 });
+        return;
+      }
       showSuccess("CV podpięte do tej rekrutacji.");
     },
     onError: (error) =>
@@ -538,6 +577,19 @@ export function CvToClientCard({
           "Nie udało się podpiąć CV — szkic mógł zmienić się w innym oknie. Odśwież i spróbuj ponownie.",
         ),
       ),
+  });
+
+  const restorePreviousMut = useMutation({
+    mutationFn: (target: { stageId: number; revision: number }) =>
+      candidateStageCvApi.branded.restorePrevious(target.stageId, target.revision),
+    onSuccess: (response, target) => {
+      queryClient.setQueryData(stageBrandedQueryKey(target.stageId), response.data);
+      setRewriteResult(null);
+      refresh();
+      showSuccess("Przywrócono poprzednią wersję CV.");
+    },
+    onError: (error) =>
+      showError(apiErrorMessage(error, "Nie udało się przywrócić poprzedniej wersji. Odśwież i spróbuj ponownie.")),
   });
 
   /** „Użyj nowej wersji” — wersja szkicu z chwili kliknięcia. */
@@ -618,6 +670,7 @@ export function CvToClientCard({
   const attachVersion = attachVersionMut.mutate;
   const attachedId = branded?.generated_document_id ?? null;
   const pendingStatus = pendingRow?.status ?? null;
+  const currentRevision = branded?.edit_revision ?? null;
   useEffect(() => {
     if (!pending?.replace) return;
     if (attachedId === pending.id) {
@@ -625,16 +678,33 @@ export function CvToClientCard({
       return;
     }
     if (pendingStatus !== "ready" || replaceTried.current === pending.id) return;
+    // „Napisz od nowa” scala z BIEŻĄCYM szkicem (poprawki z czasu generacji
+    // też zostają), ale nie pod otwartym edytorem — po jego zamknięciu.
+    if (pending.keepEdits && editorOpen) return;
     replaceTried.current = pending.id;
     attachVersion(
-      { stageId: pending.stageId, generatedId: pending.id, revision: pending.revision },
+      {
+        stageId: pending.stageId,
+        generatedId: pending.id,
+        revision: pending.keepEdits ? (currentRevision ?? pending.revision) : pending.revision,
+        keepEdits: pending.keepEdits,
+      },
       { onSettled: () => setPending(null) },
     );
-  }, [pending, attachedId, pendingStatus, attachVersion]);
+  }, [pending, attachedId, pendingStatus, attachVersion, editorOpen, currentRevision]);
   const replacing = pending?.replace === true && pendingStatus === "ready";
   const replaceFailed = pending?.replace === true && pendingStatus === "failed" ? pendingRow : null;
 
   const openGenerator = () => {
+    setRewrite(undefined);
+    setEditorOpen(false);
+    setGenerateOpen(true);
+  };
+  /** „Napisz od nowa” z karty albo z asystenta w edytorze (edytor zamknął się sam). */
+  const startRewrite = (instruction: string) => {
+    setRewrite(instruction.trim());
+    setRewriteText("");
+    setRewriteResult(null);
     setEditorOpen(false);
     setGenerateOpen(true);
   };
@@ -652,7 +722,9 @@ export function CvToClientCard({
       replace: replacesDraft,
       stageId: cvStageId,
       revision: branded?.edit_revision ?? 0,
+      keepEdits: rewrite !== undefined && replacesDraft,
     });
+    setRewrite(undefined);
     setGenerateOpen(false);
     void queryClient.invalidateQueries({ queryKey: cvToClientRowsQueryKey(candidateId, jobId) });
   };
@@ -865,6 +937,65 @@ export function CvToClientCard({
             )}
           </div>
         ) : null}
+        {rewriteResult && rewriteResult.stageId === cvStageId && rewriteResult.revision === branded.edit_revision ? (
+          // Pasek znika sam, gdy rekruter zapisze dalsze poprawki (makieta „Ekran 4”).
+          <div
+            role="status"
+            data-testid="cv-rewrite-result"
+            className="flex flex-wrap items-center gap-2 rounded-md border border-success/25 bg-success-muted px-2.5 py-1.5 text-xs text-success-muted-foreground"
+          >
+            <span className="min-w-0 flex-1">{rewriteSentence(rewriteResult)}</span>
+            {rewriteResult.can_restore && !readOnly ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 px-2"
+                loading={restorePreviousMut.isPending}
+                onClick={() =>
+                  restorePreviousMut.mutate({ stageId: cvStageId, revision: branded.edit_revision ?? 0 })
+                }
+              >
+                <Undo2 className="h-3.5 w-3.5" aria-hidden /> Wróć do poprzedniej
+              </Button>
+            ) : null}
+            <button
+              type="button"
+              aria-label="Zamknij informację o nowej wersji"
+              className="rounded p-0.5 hover:bg-success/10"
+              onClick={() => setRewriteResult(null)}
+            >
+              <X className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          </div>
+        ) : null}
+        {!readOnly && replacesDraft && !generateOpen && !pending && !replacing ? (
+          <form
+            aria-label="Napisz od nowa"
+            className="space-y-1 border-t border-border pt-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              startRewrite(rewriteText);
+            }}
+          >
+            <div className="flex items-center gap-1.5">
+              <input
+                aria-label="Co poprawić?"
+                placeholder="Co poprawić?"
+                value={rewriteText}
+                maxLength={REWRITE_MAX}
+                onChange={(event) => setRewriteText(event.target.value)}
+                className="h-8 w-0 min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 text-sm placeholder:text-muted-foreground"
+              />
+              <Button type="submit" size="sm" variant="outline">
+                <Sparkles className="h-3.5 w-3.5" aria-hidden /> Napisz od nowa
+              </Button>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Np. „krócej, więcej o Kafce”. Twoje ręczne poprawki zostaną, a fakty z tego zdania zapiszą się w
+              notatkach.
+            </p>
+          </form>
+        ) : null}
         {state.generating ? (
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Loader2 className="size-3 animate-spin" aria-hidden /> Generuje się nowa wersja…
@@ -1047,7 +1178,11 @@ export function CvToClientCard({
           jobId={jobId}
           replaces={replacesDraft}
           onEnqueued={onEnqueued}
-          onCancel={() => setGenerateOpen(false)}
+          onCancel={() => {
+            setGenerateOpen(false);
+            setRewrite(undefined);
+          }}
+          rewrite={rewrite}
         />
       ) : null}
       <div className="flex flex-wrap items-center gap-2 border-t border-border pt-2 text-[11px] text-muted-foreground">
@@ -1083,6 +1218,7 @@ export function CvToClientCard({
             if (!open) refresh();
           }}
           onRegenerate={openGenerator}
+          onRewrite={!readOnly && replacesDraft ? startRewrite : undefined}
           initialPanel={editorPanel}
           stageId={cvStageId}
           jobTitle={jobLabel}
