@@ -254,15 +254,42 @@ describe("DlSendQueueBand — „Do wysłania do klienta” nad pulpitem", () =>
     expect(within(region).queryByRole("button", { name: /Przejrzyj po kolei/ })).toBeNull();
   });
 
-  it("Nordea (13.10.2026): wiersz akceptacji do kolejki Cpro ma dopisek „→ Cpro”", async () => {
+  it("Nordea (14.10.2026): wiersz akceptacji do Cpro ma plakietkę „do Cpro” poza ucinaną linią i „Przejrzyj → Cpro”", async () => {
     mockQueue({
       dl_review: [
         row({ client_name: "Nordea Przykładowa", cpro: true, target_stage_def_id: 404 }),
+        row({ stage_id: 12, candidate_id: 22, candidate_name: "Piotr Drugi" }),
       ],
     });
     renderBand();
     const region = await band();
-    expect(within(region).getByText("Java Developer · Nordea Przykładowa · → Cpro")).toBeTruthy();
+    const [nordea, other] = ["Anna Nowak", "Piotr Drugi"].map(
+      (name) => within(region).getAllByTestId("dl-send-row").find((tr) => tr.textContent?.includes(name))!,
+    );
+    // Linia rekrutacji ucina się wielokropkiem przy 1280 px — znacznik Cpro nie
+    // może w niej stać, bo wtedy go nie widać (pomiar na `/preview/dl-send`).
+    expect(within(nordea).getByText("Java Developer · Nordea Przykładowa")).toHaveClass("truncate");
+    const badge = within(nordea).getByText("do Cpro");
+    expect(badge.closest(".truncate")).toBeNull();
+    expect(within(nordea).getByRole("button", { name: "Przejrzyj: Anna Nowak" })).toHaveTextContent(
+      "Przejrzyj → Cpro",
+    );
+
+    expect(within(other).queryByText("do Cpro")).toBeNull();
+    expect(within(other).getByRole("button", { name: "Przejrzyj: Piotr Drugi" })).toHaveTextContent(
+      "Przejrzyj i wyślij",
+    );
+  });
+
+  it("Nordea bez prawa wysyłki: zostaje sam „Przejrzyj”, plakietka „do Cpro” dalej stoi", async () => {
+    mockQueue({
+      can_send_to_client: false,
+      dl_review: [row({ client_name: "Nordea Przykładowa", cpro: true, target_stage_def_id: 404 })],
+    });
+    renderBand();
+    const region = await band();
+    expect(within(region).getByRole("button", { name: "Przejrzyj: Anna Nowak" })).toHaveTextContent(/^Przejrzyj$/);
+    expect(within(region).getByText("do Cpro")).toBeTruthy();
   });
 
   it("sami „u rekrutera”: „0 gotowych”, bez tabeli gotowych", async () => {
