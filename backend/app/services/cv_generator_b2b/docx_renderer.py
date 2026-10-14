@@ -26,6 +26,7 @@ from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
 from lxml import etree
 
+from app.services.cv_text_align import cv_text_align
 from app.services.skill_normalize import is_taxonomy_technology, tech_alias_forms
 
 logger = logging.getLogger(__name__)
@@ -1293,6 +1294,7 @@ def add_bullet_point(
     punctuation: str = "",
     highlight_keywords: list[str] | None = None,
     patterns: list[re.Pattern[str]] | None = None,
+    alignment: Any = None,
 ) -> Any:
     """Add a Word numbered bullet point with optional keyword bolding."""
     text = text.rstrip(".,;")
@@ -1316,6 +1318,8 @@ def add_bullet_point(
     para.paragraph_format.space_before = Pt(1)
     para.paragraph_format.space_after = Pt(1)
     para.paragraph_format.line_spacing = 1.5
+    if alignment is not None:
+        para.paragraph_format.alignment = alignment
     return para
 
 
@@ -1324,12 +1328,20 @@ def add_bullet_list(
     items: list[str],
     highlight_keywords: list[str] | None = None,
     patterns: list[re.Pattern[str]] | None = None,
+    alignment: Any = None,
 ) -> None:
     """Add a bullet list with commas between items and a period at the end."""
     for i, item in enumerate(items):
         is_last = i == len(items) - 1
         punctuation = "." if is_last else ","
-        add_bullet_point(doc, item, punctuation, highlight_keywords, patterns=patterns)
+        add_bullet_point(
+            doc,
+            item,
+            punctuation,
+            highlight_keywords,
+            patterns=patterns,
+            alignment=alignment,
+        )
 
 
 def add_education_table(doc: Any, row_count: int, t: dict[str, str]) -> Any:
@@ -1536,6 +1548,14 @@ def render_cv_to_bytes(
         blind_cv,
     )
 
+    # Treść (punkty, umiejętności, technologie) wyrównana wg reguły klienta
+    # zamrożonej w payloadzie; tytuł, nagłówki sekcji i tabela edukacji — nie.
+    body_align = (
+        WD_ALIGN_PARAGRAPH.JUSTIFY
+        if cv_text_align(candidate_data) == "justify"
+        else None
+    )
+
     doc = Document(template_path)
     normalize_letterhead_layout(doc)
 
@@ -1601,7 +1621,11 @@ def render_cv_to_bytes(
     patterns = compile_keyword_patterns(highlight_keywords)
 
     add_bullet_list(
-        doc, candidate_data.get("why_points", []), highlight_keywords, patterns=patterns
+        doc,
+        candidate_data.get("why_points", []),
+        highlight_keywords,
+        patterns=patterns,
+        alignment=body_align,
     )
 
     # === EDUKACJA / EDUCATION ===
@@ -1670,6 +1694,8 @@ def render_cv_to_bytes(
         para.paragraph_format.space_before = Pt(1)
         para.paragraph_format.space_after = Pt(1)
         para.paragraph_format.line_spacing = 1.5
+        if body_align is not None:
+            para.paragraph_format.alignment = body_align
 
     # === CERTYFIKATY / CERTIFICATIONS ===
     if candidate_data.get("certifications"):
@@ -1679,6 +1705,7 @@ def render_cv_to_bytes(
             candidate_data.get("certifications", []),
             highlight_keywords,
             patterns=patterns,
+            alignment=body_align,
         )
 
     # === JĘZYKI / LANGUAGES ===
@@ -1689,6 +1716,7 @@ def render_cv_to_bytes(
             candidate_data.get("languages", []),
             highlight_keywords,
             patterns=patterns,
+            alignment=body_align,
         )
 
     # === DOŚWIADCZENIE / EXPERIENCE ===
@@ -1748,7 +1776,11 @@ def render_cv_to_bytes(
         para.paragraph_format.space_after = Pt(1)
 
         add_bullet_list(
-            doc, job.get("responsibilities", []), highlight_keywords, patterns=patterns
+            doc,
+            job.get("responsibilities", []),
+            highlight_keywords,
+            patterns=patterns,
+            alignment=body_align,
         )
 
         if job.get("technologies"):
@@ -1767,6 +1799,8 @@ def render_cv_to_bytes(
             )
             para.paragraph_format.space_before = Pt(4)
             para.paragraph_format.space_after = Pt(2)
+            if body_align is not None:
+                para.paragraph_format.alignment = body_align
 
     # === KLAUZULA RODO / GDPR ===
     # The consent clause is always justified and always pinned to the foot of the

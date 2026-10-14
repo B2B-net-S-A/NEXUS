@@ -22,6 +22,7 @@
 import { useState } from "react";
 import {
   AlertTriangle,
+  AlignJustify,
   CheckCircle2,
   ChevronRight,
   FileText,
@@ -336,6 +337,17 @@ export function CvRuleSettingsTab({
             className="w-full rounded-md border px-3 py-2 text-sm" placeholder={"Python\nPostgreSQL"} />
         </div> : null}
         <p className="text-xs text-muted-foreground">Wyróżnienie nie dopisuje umiejętności. Pozycje bez pokrycia w źródłach są pomijane; podgląd pokaże ostrzeżenie. Nagłówki sekcji zachowują swój styl.</p>
+      </Group>
+
+      <Group icon={AlignJustify} title="Wyrównanie tekstu w CV" subtitle="Punkty i akapity w pliku Word dla klienta." always>
+        <label className="block text-xs font-medium" htmlFor="cvrule-text-align">Wyrównanie</label>
+        <select id="cvrule-text-align" value={form.cv_text_align}
+          onChange={(event) => set("cv_text_align", event.target.value as CvRuleForm["cv_text_align"])}
+          className="w-full rounded-md border px-3 py-2 text-sm">
+          <option value="justify">Wyjustowane (domyślnie)</option>
+          <option value="left">Do lewej</option>
+        </select>
+        <p className="text-xs text-muted-foreground">Dotyczy nowych CV tego klienta. Rekruter może zmienić wyrównanie wybranego akapitu w edytorze. Nagłówki i tabela edukacji zostają do lewej.</p>
       </Group>
 
       {/* ── GRUPA 2: Wskazówki dla generatora ── */}

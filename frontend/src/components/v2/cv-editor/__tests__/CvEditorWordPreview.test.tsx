@@ -47,3 +47,16 @@ it("odmowę serwera (brak zgody RODO) pokazuje jego słowami i daje ponowić", a
   await waitFor(() => expect(mocks.renderDocx).toHaveBeenCalledOnce());
   expect(load).toHaveBeenCalledTimes(2);
 });
+
+it("gdy pliku nie da się pokazać, pod komunikatem stoi zapas (treść CV), a po udanym „Ponów” znika", async () => {
+  const load = vi
+    .fn()
+    .mockRejectedValueOnce({ response: { status: 403, data: { detail: "Brak dostępu." } } })
+    .mockResolvedValueOnce(new Blob(["docx"]));
+  mocks.renderDocx.mockResolvedValue(undefined);
+  render(<CvEditorWordPreview load={load} fallback={<p>Treść CV w układzie kartki</p>} />);
+  expect(await screen.findByText("Brak dostępu.")).toBeInTheDocument();
+  expect(screen.getByText("Treść CV w układzie kartki")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Ponów" }));
+  await waitFor(() => expect(screen.queryByText("Treść CV w układzie kartki")).toBeNull());
+});

@@ -18,6 +18,7 @@ from app.services.cv_approved_docx import (
     render_approved_docx,
     ApprovedDocxError,
     RENDERER_VERSION,
+    cv_text_align,
 )
 from app.services.cv_generator_b2b.public_view import build_public_payload
 from app.services.cv_generator_b2b.html_export import render_interactive_html
@@ -101,6 +102,7 @@ def state(draft):
         "presentation_review": editor_rule_feedback(
             draft.branded_draft_html, draft.branded_render_metadata
         ),
+        "text_align": cv_text_align(draft.branded_render_metadata),
         "docx_available": draft.branded_status == "finalized",
         "docx_filename": draft.branded_docx_filename,
         "updated_at": None,
@@ -154,6 +156,7 @@ async def render(draft, html):
             draft.branded_template_content,
             consent=draft.branded_consent_content,
             language=draft.branded_language,
+            text_align=cv_text_align(draft.branded_render_metadata),
         )
     except ApprovedDocxError as exc:
         raise HTTPException(422, str(exc)) from exc

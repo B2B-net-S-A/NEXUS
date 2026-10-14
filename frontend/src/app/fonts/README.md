@@ -74,8 +74,11 @@ Fredoka miała `300..700`, ale najniższa waga i tak nie była używana.
   więc licencja jest jedna)
 - `ofl/poppins/Poppins-{Regular,Medium,SemiBold,Bold,ExtraBold}.ttf` + `ofl/poppins/OFL.txt` → `Poppins-OFL.txt`
 - `ofl/baloo2/Baloo2[wght].ttf` + `ofl/baloo2/OFL.txt` → `Baloo2-OFL.txt`
+- `ofl/montserrat/Montserrat[wght].ttf` + `ofl/montserrat/OFL.txt` → `Montserrat-OFL.txt`
+  (14.10.2026: `Montserrat-Variable.woff2` oraz stałe grubości `Montserrat-200/500/600.woff2`
+  wycięte instancerem; latin + latin-ext, ten sam przepis co niżej)
 
-Wszystkie trzy: **SIL Open Font License 1.1** (potwierdzone w `METADATA.pb`:
+Wszystkie (także Montserrat, niżej): **SIL Open Font License 1.1** (potwierdzone w `METADATA.pb`:
 `license: "OFL"` oraz w nagłówkach dołączonych plików `*-OFL.txt`). OFL 1.1
 pozwala na redystrybucję plików fontów — także zmodyfikowanych (subset) — pod
 warunkiem dołączenia treści licencji i noty o prawach autorskich, i zabrania
@@ -191,3 +194,21 @@ for w, style in [(400, "Regular"), (500, "Medium"), (700, "Bold")]:
 build("JetBrainsMono-Italic.woff2",  "JetBrainsMono-400-Italic.woff2")
 build("JetBrainsMono-Regular.woff2", "JetBrainsMono-400.ttf", flavor=None)
 ```
+
+## Montserrat — czcionka plików CV (14.10.2026)
+
+Pliki CV w Wordzie (szablon firmowy, `backend/app/services/cv_approved_docx.py`,
+`cv_generator_b2b/docx_renderer.py`) piszą nazwy „Montserrat”, „Montserrat
+Medium”, „Montserrat SemiBold” i „Montserrat ExtraLight”. Podgląd pliku
+(`docx-preview`) wstawia te nazwy dosłownie, bez zapasu, więc bez czcionki
+w aplikacji CV rysowało się w Times New Roman — stąd skargi „podgląd wygląda
+okropnie, a po pobraniu normalnie” (Word ma w pliku zamiennik Calibri).
+
+Dlatego Montserrat jest zadeklarowana zwykłym `@font-face` w `globals.css`,
+a nie przez `next/font/local` (ten nadaje rodzinie własną, haszowaną nazwę).
+Zmienna `Montserrat-Variable.woff2` obsługuje rodzinę „Montserrat” we
+wszystkich grubościach; odmiany nazwane osobno dostały stałe instancje
+(`instancer.instantiateVariableFont(font, {"wght": 200|500|600})`) i są
+zadeklarowane z `font-weight: 400`, żeby pogrubienie w nich dorysowała
+przeglądarka, tak jak robi to Word. Licencja: SIL OFL 1.1, bez Reserved Font
+Name, `Montserrat-OFL.txt` obok plików.

@@ -43,6 +43,10 @@ def test_any_change_of_the_saved_ad_changes_the_hash(lang, content, tech):
         ("pracuj", "https://pracuj.pl/praca/x"),
         ("jjit", "https://justjoin.it/job-offer/firma-java-developer-warszawa"),
         ("jjit", "http://justjoin.it/job-offer/x"),
+        # RocketJobs połączył się z JustJoin.IT — to samo ogłoszenie wisi
+        # pod adresem rocketjobs.pl (zgłoszenie 14.10.2026).
+        ("jjit", "https://rocketjobs.pl/job-offer/firma-junior-ds-badan-i-ankiet"),
+        ("jjit", "https://www.rocketjobs.pl/job-offer/x"),
     ],
 )
 def test_a_link_to_the_portal_is_kept_as_typed(portal, url):
@@ -62,6 +66,10 @@ def test_an_empty_link_means_no_link(value):
         ("pracuj", "https://zlypracuj.pl/oferta"),
         ("pracuj", "https://justjoin.it/job-offer/x"),
         ("jjit", "https://www.pracuj.pl/praca/x"),
+        ("pracuj", "https://rocketjobs.pl/job-offer/x"),
+        ("jjit", "https://rocketjobs.pl.przyklad.example/job-offer/x"),
+        ("jjit", "https://zlyrocketjobs.pl/job-offer/x"),
+        ("jjit", "https://obca.example\\.rocketjobs.pl/x"),
         ("jjit", "javascript:alert(1)"),
         ("jjit", "justjoin.it/job-offer/x"),
         ("jjit", "https://ktos:haslo@justjoin.it/job-offer/x"),

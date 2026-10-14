@@ -35,10 +35,15 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(navState.search),
 }));
 
+// Prawo przydziału rekruterów — przełączane w testach kolumny „Rekruter”.
+const caps = vi.hoisted(() => ({ staff: false }));
+
 vi.mock("@/hooks/useCapability", () => ({
   useCapabilities: () => ({
     "job.create": false,
     "invite_link.create": false,
+    "job.recruiter.assign": caps.staff,
+    "request.proposal.decide": false,
   }),
 }));
 
@@ -150,6 +155,7 @@ function setAddress(search: string) {
 beforeEach(() => {
   // Lista pamięta ostatni widok osoby (localStorage) — nie między testami.
   window.localStorage.clear();
+  caps.staff = false;
   signInAs("recruiter");
   getMock.mockReset();
   quickCountsMock.mockReset();
@@ -435,6 +441,35 @@ describe("JobsListV2 — kolumna „Rekruter” i priorytet w wierszu", () => {
     expect(pill).toHaveTextContent("Bez rekrutera");
     expect(pill).toHaveClass("bg-warning-muted", "text-warning-muted-foreground");
     expect(screen.queryByText("Nieprzypisany")).not.toBeInTheDocument();
+  });
+
+  it("rola przydzielająca zmienia Rekrutera z komórki; zamknięta rekrutacja zostaje do odczytu", async () => {
+    caps.staff = true;
+    mockJobsResponse([
+      jobRow({ id: 1, title: "Otwarta", recruiters: [person(3, "Anna Nowak")] }),
+      jobRow({ id: 2, title: "Bez nikogo", recruiters: [] }),
+      jobRow({ id: 3, title: "Zamknięta", status: "closed", recruiters: [person(3, "Anna Nowak")] }),
+    ]);
+    renderJobs();
+    await screen.findByText("Otwarta");
+
+    expect(
+      screen.getByRole("button", { name: "Zmień rekrutera: Otwarta — Rekruter: Anna Nowak" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Zmień rekrutera: Bez nikogo — Bez rekrutera" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Zmień rekrutera: Zamknięta/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("bez prawa przydziału (rekruter) komórka jest tylko do odczytu", async () => {
+    mockJobsResponse([jobRow({ id: 1, title: "Otwarta", recruiters: [person(3, "Anna Nowak")] })]);
+    renderJobs();
+    await screen.findByText("Otwarta");
+
+    expect(screen.queryByRole("button", { name: /Zmień rekrutera/ })).not.toBeInTheDocument();
   });
 
   it("Delivery Lead stoi drobnym drukiem pod osobami — bez osobnej kolumny", async () => {

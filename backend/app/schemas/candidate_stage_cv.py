@@ -152,6 +152,9 @@ class CVEditorDismissRequest(BaseModel):
 
 class CVBrandedResponse(BaseModel):
     presentation_review: dict | None = None
+    # Domyślne wyrównanie treści w pliku Word (reguła klienta zamrożona przy
+    # generacji, `cv_text_align.py`). Akapit z jawnym `text-align` wygrywa.
+    text_align: Literal["justify", "left"] = "justify"
     docx_available: bool = False
     docx_filename: str | None = None
     generated_document_id: int | None = None

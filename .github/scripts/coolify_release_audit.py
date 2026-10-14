@@ -32,6 +32,17 @@ def summarize(application, envs):
         "revision_is_pinned": bool(
             re.fullmatch(r"[0-9a-f]{40}", str(application.get("git_commit_sha", "")))
         ),
+        # Okno wdrożeń 19:00–07:00 (14.10.2026) pilnuje deploy.yml — działa
+        # tylko, gdy Coolify nie buduje sam po pushu na main. Same flagi,
+        # nigdy wartość sekretu webhooka.
+        "auto_deploy_enabled": (
+            settings["is_auto_deploy_enabled"] is True
+            if "is_auto_deploy_enabled" in settings
+            else None
+        ),
+        "github_push_webhook_secret_set": bool(
+            application.get("manual_webhook_secret_github")
+        ),
         "envs": [],
     }
     for item in envs:
@@ -66,6 +77,15 @@ def summarize(application, envs):
             )
         result["envs"].append(row)
     return result
+
+
+def deploy_window_violations(result):
+    """Powody, dla których okno wdrożeń z GitHuba może nie trzymać."""
+    if result.get("auto_deploy_enabled") is None:
+        return ["auto_deploy_setting_missing"]
+    if result["auto_deploy_enabled"]:
+        return ["auto_deploy_enabled"]
+    return []
 
 
 def main():
@@ -103,6 +123,15 @@ def main():
             )
         }
         print(json.dumps(result, sort_keys=True))
+        violations = deploy_window_violations(result)
+        if violations:
+            print(
+                "::error::Okno wdrożeń 19:00–07:00 może nie trzymać: "
+                + ", ".join(violations)
+                + " — wyłącz Auto Deploy aplikacji w Coolify (Advanced).",
+                file=sys.stderr,
+            )
+            return 1
     except urllib.error.HTTPError as error:
         print(
             "Release configuration read failed: HTTP " + str(error.code),

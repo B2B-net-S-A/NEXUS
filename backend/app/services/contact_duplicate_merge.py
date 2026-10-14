@@ -85,6 +85,12 @@ async def load_traffit_contact_aliases(db: AsyncSession) -> dict[str, int]:
 
 
 async def _add_alias(db: AsyncSession, external_id: str, survivor_id: int) -> None:
+    # Sesja ma `autoflush=False`, a `get(..., with_for_update=True)` pyta bazę
+    # z pominięciem mapy tożsamości. Bez flusha druga para w tym samym biegu
+    # nie widziała wiersza aliasów dodanego przez pierwszą i dodawała drugi
+    # z tym samym kluczem — korekta z 25.09 padała na `app_settings_pkey`
+    # przy każdym starcie i nie zapisała się do 14.10.2026.
+    await db.flush()
     setting = await db.get(AppSetting, ALIASES_KEY, with_for_update=True)
     if setting is None:
         db.add(

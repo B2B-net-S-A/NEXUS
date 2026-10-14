@@ -10,12 +10,19 @@ describe("portalAdHref", () => {
     expect(portalAdHref("jjit", "https://justjoin.it/job-offer/x")).toBe(
       "https://justjoin.it/job-offer/x",
     );
+    // RocketJobs połączył się z JustJoin.IT — ogłoszenie wisi też pod rocketjobs.pl.
+    expect(portalAdHref("jjit", "https://rocketjobs.pl/job-offer/x")).toBe(
+      "https://rocketjobs.pl/job-offer/x",
+    );
   });
 
   it.each([
     ["pracuj", "https://obca.example\\.pracuj.pl/oferta"],
     ["pracuj", "https://pracuj.pl.obca.example/oferta"],
     ["pracuj", "https://justjoin.it/job-offer/x"],
+    ["pracuj", "https://rocketjobs.pl/job-offer/x"],
+    ["jjit", "https://rocketjobs.pl.obca.example/x"],
+    ["jjit", "https://zlyrocketjobs.pl/x"],
     ["jjit", "https://obca.example\\@justjoin.it/x"],
     ["jjit", "javascript:alert(1)"],
     ["jjit", "data:text/html,x"],

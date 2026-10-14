@@ -17,6 +17,7 @@ from app.core.database import AsyncSessionLocal
 from app.models.client import Client
 from app.models.contact import Contact
 from app.models.job import Job, JobStatus
+from app.services import contact_duplicate_merge
 from app.services.contact_duplicate_merge import (
     MergePair,
     load_traffit_contact_aliases,
@@ -94,6 +95,37 @@ async def test_merge_keeps_the_lower_id_fills_blanks_and_repoints():
         assert (
             await run_contact_duplicate_merge(db, targets=[pair], marker=marker)
         ) is None
+
+
+@pytest.mark.asyncio
+async def test_several_pairs_in_one_run_share_one_alias_row(monkeypatch):
+    """Produkcja scalała trzy pary w jednym biegu, a klucza aliasów jeszcze nie było.
+
+    Sesja ma ``autoflush=False``: druga para nie widziała niezapisanego wiersza
+    aliasów z pierwszej i dodawała drugi z tym samym kluczem. Flush padał na
+    ``app_settings_pkey`` przy każdym starcie od 25.09 do 14.10.2026, więc
+    korekta nigdy się nie zapisała. Własny klucz aliasów, bo wspólna baza
+    testowa ma już wiersz z innych testów i błąd by się nie pokazał.
+    """
+    first, second = await _seed(), await _seed()
+    monkeypatch.setattr(
+        contact_duplicate_merge, "ALIASES_KEY", f"test_contact_aliases_{first['tag']}"
+    )
+    async with AsyncSessionLocal() as db:
+        summary = await run_contact_duplicate_merge(
+            db,
+            targets=[first["pair"], second["pair"]],
+            marker=f"test_contact_merge_{first['tag']}",
+        )
+        await db.commit()
+    assert summary["merged"] == 2
+
+    async with AsyncSessionLocal() as db:
+        aliases = await load_traffit_contact_aliases(db)
+    assert aliases == {
+        first["pair"].duplicate_external_id: first["pair"].survivor_id,
+        second["pair"].duplicate_external_id: second["pair"].survivor_id,
+    }
 
 
 @pytest.mark.asyncio

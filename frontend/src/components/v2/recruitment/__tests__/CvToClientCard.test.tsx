@@ -40,6 +40,7 @@ const mocks = vi.hoisted(() => ({
   showError: vi.fn(),
   editorProps: null as null | Record<string, unknown>,
   consentProps: null as null | Record<string, unknown>,
+  previewLoad: null as null | (() => Promise<Blob>),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -91,6 +92,13 @@ vi.mock("@/components/v2/recruitment/UseOtherCvDialog", () => ({
 }));
 vi.mock("@/components/v2/modals/CVOriginalPreviewModal", () => ({
   CVOriginalPreviewModal: () => <div data-testid="original-preview" />,
+}));
+// Podgląd pliku (docx-preview) — atrapa trzyma loader i pokazuje zapas.
+vi.mock("@/components/v2/cv-editor/CvEditorWordPreview", () => ({
+  CvEditorWordPreview: (props: { load: () => Promise<Blob>; fallback?: React.ReactNode }) => {
+    mocks.previewLoad = props.load;
+    return <div data-testid="word-preview">{props.fallback}</div>;
+  },
 }));
 
 import { CvToClientCard } from "@/components/v2/recruitment/CvToClientCard";
@@ -901,5 +909,36 @@ describe("CvToClientCard — po „Zapisz i przekaż dalej” (14.10.2026)", () 
     renderCard();
     await userEvent.click(await screen.findByRole("button", { name: /Edytuj/ }));
     expect(mocks.editorProps?.handoff).toBeUndefined();
+  });
+});
+
+describe("CvToClientCard — podgląd = plik dla klienta (Edytor CV 3, 14.10.2026)", () => {
+  it("„Podgląd” pokazuje plik CV etapu bez intencji pobrania, a treść w układzie kartki jako zapas", async () => {
+    setUser();
+    mocks.brandedGet.mockResolvedValue({
+      data: {
+        status: "draft",
+        from_generator: true,
+        edit_revision: 3,
+        version: 1,
+        language: "pl",
+        text_align: "left",
+        content_html: "<p>Treść CV po poprawkach</p>",
+      },
+    });
+    const blob = new Blob(["docx"]);
+    const loadStageCvFile = vi.fn().mockResolvedValue({ blob });
+    renderCard({ loadStageCvFile });
+    await userEvent.click(await screen.findByRole("button", { name: /Podgląd/ }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Tak zobaczy to klient: ten sam plik co „Pobierz”.")).toBeInTheDocument();
+    await expect(mocks.previewLoad?.()).resolves.toBe(blob);
+    expect(loadStageCvFile).toHaveBeenCalledWith(21);
+    // Zapas (gdy pliku nie da się pokazać): kartka edytora, nie surowy tekst.
+    const paper = await within(dialog).findByTestId("cv-paper-html");
+    expect(paper).toHaveTextContent("Treść CV po poprawkach");
+    expect(paper.parentElement).toHaveAttribute("data-cv-align", "left");
+    expect(mocks.postAuthenticatedDownload).not.toHaveBeenCalled();
   });
 });

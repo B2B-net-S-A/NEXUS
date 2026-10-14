@@ -211,7 +211,8 @@ async function staticFile(path: string): Promise<Blob> {
   return response.blob();
 }
 
-const WORD_FILE = "/preview/cv-search/cv.docx";
+// To samo fikcyjne CV w szablonie firmowym (Montserrat, wyjustowana treść).
+const WORD_FILE = "/preview/cv-to-client/cv-firmowe-przyklad.docx";
 const PDF_FILE = "/preview/cv-search/cv-tekst.pdf";
 
 // Statyczny plik zamiast renderu z treści: w harnessie nie ma serwera, który

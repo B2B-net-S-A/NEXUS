@@ -106,16 +106,29 @@ on:
         description: "Pełna przebudowa bez cache Coolify (np. po zmianie zmiennej build-time)"
         type: boolean
         default: false
-  # PROD-04 (audyt 22.09.2026): poranny przebieg wdraża zmiany odroczone przez
-  # okno ciszy nocnej (DEPLOY_FREEZE_WINDOW). Od 26.09.2026 okno jest domyślnie
-  # WYŁĄCZONE (decyzja Artura: każdy merge wdraża się od razu, bo cron GitHuba
-  # przychodził z kilkugodzinnym opóźnieniem albo wcale) — ten przebieg zostaje
-  # tylko jako siatka bezpieczeństwa, gdy ktoś włączy okno zmienną repo.
-  # Dwie godziny UTC, bo okno liczy się w czasie warszawskim: 05:15Z to 07:15
-  # latem, ale 06:15 zimą (jeszcze w oknie) — wtedy wdraża przebieg 06:15Z.
+      # Okno wdrożeń 19:00–07:00 (decyzja Artura 14.10.2026) obowiązuje też
+      # ręczny bieg. `emergency` je omija — WYŁĄCZNIE na polecenie Artura.
+      # Wdraża cały HEAD maina, czyli wszystko scalone w ciągu dnia.
+      emergency:
+        description: "AWARYJNIE: wdróż mimo okna 19:00–07:00 (tylko na polecenie Artura)"
+        type: boolean
+        default: false
+      reason:
+        description: "Powód awaryjnego wdrożenia (wymagany przy emergency)"
+        type: string
+        default: ""
+  # Okno wdrożeń (decyzja Artura 14.10.2026): produkcja przebudowuje się tylko
+  # 19:00–07:00 czasu warszawskiego — w dzień wszyscy pracują w systemie,
+  # a deploy to ~2 min przerwy. Merge'e z dnia odracza `select`
+  # (`night_freeze`), a wdrażają je te przebiegi. Kilka slotów, bo cron GitHuba
+  # potrafi przyjść z kilkugodzinnym opóźnieniem albo wcale (26.09.2026):
+  # 17:23Z = 19:23 latem (zimą 18:23 — jeszcze okno, wdraża slot 18:23Z),
+  # kolejne godziny to zapas, 04:23Z (06:23 latem, 05:23 zimą) to ostatnia
+  # szansa przed 07:00, już po nocnym przeglądzie bazy i kopii 02:30Z.
   # Przebieg, który trafi na wdrożoną już wersję, kończy się na koalescencji.
   schedule:
-    - cron: "15 5,6 * * *"
+    - cron: "23 17,18,19,20,21 * * *"
+    - cron: "23 4 * * *"
 
 permissions:
   contents: read
@@ -151,7 +164,7 @@ jobs:
     runs-on: ubuntu-latest
     # 15 min grupowania (niżej) + wybór wydania.
     timeout-minutes: 20
-    # OPS-N05: ręczny i poranny bieg wyłącznie z maina — wersja tego pliku
+    # OPS-N05: ręczny i planowy (wieczorny) bieg wyłącznie z maina — wersja tego pliku
     # z innej gałęzi nie może dostać sekretów COOLIFY_*.
     if: ${{ ((github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && github.ref == 'refs/heads/main') || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
     permissions:
@@ -185,11 +198,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           QUIET: ${{ vars.DEPLOY_QUIET_SECONDS || '0' }}
-          FREEZE_WINDOW: ${{ vars.DEPLOY_FREEZE_WINDOW || 'off' }}
+          FREEZE_WINDOW: ${{ vars.DEPLOY_FREEZE_WINDOW || '7-19' }}
         run: |
           set -u
           # PROD-04: w oknie ciszy wybór wydania i tak odroczy deploy — nie
-          # płacimy za 5–15 min czekania runnera w nocy.
+          # płacimy za 5–15 min czekania runnera w ciągu dnia.
           if python3 .github/scripts/select_release_sha.py in-freeze --freeze-window "$FREEZE_WINDOW"; then
             echo "Okno ciszy deployu ($FREEZE_WINDOW, czas warszawski) — bez czekania."
             exit 0
@@ -220,16 +233,31 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TARGET_UNVERIFIED: ${{ github.event_name == 'workflow_dispatch' && '--target-unverified' || '' }}
           SCHEDULED: ${{ github.event_name == 'schedule' && '--scheduled' || '' }}
-          # PROD-04: okno ciszy tylko dla deployów automatycznych. `off` w
-          # zmiennej repo albo jej brak = brak okna; np. `0-7` je włącza.
-          FREEZE_WINDOW: ${{ github.event_name != 'workflow_dispatch' && (vars.DEPLOY_FREEZE_WINDOW || 'off') || '' }}
+          # Okno wdrożeń 19:00–07:00 (14.10.2026): `7-19` = cisza 07:00–18:59
+          # czasu warszawskiego, dla KAŻDEGO zdarzenia, także ręcznego biegu.
+          # Zmienna repo nadpisuje wartość (`off` = brak okna).
+          FREEZE_WINDOW: ${{ vars.DEPLOY_FREEZE_WINDOW || '7-19' }}
+          EMERGENCY: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency && '--emergency' || '' }}
+          # Tekst od człowieka tylko przez `env:` — interpolacja `${{ }}` w `run`
+          # wkleiłaby go do skryptu powłoki.
+          DEPLOY_REASON: ${{ inputs.reason }}
         run: |
           # Pusta flaga ma zniknąć, nie być "" — stąd brak cudzysłowu.
           # shellcheck disable=SC2086
           python3 .github/scripts/select_release_sha.py select \
             --repo "${{ github.repository }}" --branch main \
             --target "$TARGET_SHA" --freeze-window "$FREEZE_WINDOW" \
-            $TARGET_UNVERIFIED $SCHEDULED
+            --reason "$DEPLOY_REASON" \
+            $TARGET_UNVERIFIED $SCHEDULED $EMERGENCY
+          if [ -n "$EMERGENCY" ]; then
+            {
+              echo "### ⚠️ Awaryjne wdrożenie poza oknem 19:00–07:00"
+              echo
+              echo "Uruchomił: \`${GITHUB_ACTOR}\`"
+              echo
+              echo "Powód: ${DEPLOY_REASON}"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Alarm — deploy wstrzymany
         if: ${{ steps.release_select.outputs.hold_alert != '' }}
         env:

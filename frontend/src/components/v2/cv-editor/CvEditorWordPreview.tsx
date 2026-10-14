@@ -7,7 +7,7 @@
  * plik dostaje klient.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -19,9 +19,15 @@ import { renderDocxSafely } from "@/lib/docx-preview-safe";
 export interface CvEditorWordPreviewProps {
   /** Plik Word z bieżącej treści; wołany przy otwarciu podglądu i po „Ponów”. */
   load: () => Promise<Blob>;
+  /**
+   * Co pokazać pod komunikatem, gdy pliku nie da się pokazać (np. 409 bez
+   * zgody RODO, 403 przy prawie tylko do odczytu) — zwykle treść CV w układzie
+   * kartki edytora, żeby podgląd nigdy nie był pusty.
+   */
+  fallback?: ReactNode;
 }
 
-export function CvEditorWordPreview({ load }: CvEditorWordPreviewProps) {
+export function CvEditorWordPreview({ load, fallback }: CvEditorWordPreviewProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [message, setMessage] = useState("");
@@ -76,11 +82,14 @@ export function CvEditorWordPreview({ load }: CvEditorWordPreviewProps) {
         </p>
       ) : null}
       {state === "error" ? (
-        <div className="mx-auto max-w-md space-y-3 py-10 text-center text-sm">
-          <p className="text-foreground">{message}</p>
-          <Button type="button" variant="outline" size="sm" onClick={() => setAttempt((n) => n + 1)}>
-            Ponów
-          </Button>
+        <div className="min-h-0 flex-1 overflow-auto">
+          <div className="mx-auto max-w-md space-y-3 py-6 text-center text-sm">
+            <p className="text-foreground">{message}</p>
+            <Button type="button" variant="outline" size="sm" onClick={() => setAttempt((n) => n + 1)}>
+              Ponów
+            </Button>
+          </div>
+          {fallback}
         </div>
       ) : null}
       <div
