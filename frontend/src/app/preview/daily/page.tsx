@@ -58,25 +58,19 @@ const BOARD: RequestBoard = {
     { job_id: 42, title: "Test Lead", client_name: "Klient Gamma", category_id: 4, deadline: "2026-10-12", sent: 1, champion: false, priority_level: "p2", delivery_lead: leads.henryk, opened_effective_at: "2026-09-29T08:00:00Z", people: [{ ...people.celina, proposed: false, source: "manual", via: "assignment", assigned_by_name: "Gosia Delivery" }] },
     { job_id: 51, title: "Product Owner", client_name: "Klient Gamma", category_id: 5, deadline: "2026-10-19", sent: 2, champion: false, priority_level: "p2", delivery_lead: leads.henryk, opened_effective_at: "2026-09-20T08:00:00Z", people: [{ ...people.ewa, proposed: false, source: "manual", via: "assignment", assigned_by_name: "Gosia Delivery" }] },
   ],
+  // Obłożenie = rekrutacje P1 (14.10.2026); reszta jako `outside_p1`.
   load: [
     { ...people.anna, count: 1, proposed: 1, leave_until: null, requests: [
       { job_id: 21, title: "Senior Java Developer", client_name: "Klient Gamma", deadline: "2026-10-07", proposed: false },
       { job_id: 11, title: "DevOps Engineer (Azure)", client_name: "Klient Alfa", deadline: "2026-10-09", proposed: true },
     ] },
-    { ...people.bartek, count: 1, proposed: 0, leave_until: null, requests: [
-      { job_id: 12, title: "Data Engineer", client_name: "Klient Beta", deadline: "2026-10-02", proposed: false },
-    ] },
-    { ...people.celina, count: 2, proposed: 0, leave_until: null, requests: [
+    { ...people.bartek, count: 0, proposed: 0, outside_p1: 1, leave_until: null, requests: [] },
+    { ...people.celina, count: 1, proposed: 0, outside_p1: 1, leave_until: null, requests: [
       { job_id: 21, title: "Senior Java Developer", client_name: "Klient Gamma", deadline: "2026-10-07", proposed: false },
-      { job_id: 42, title: "Test Lead", client_name: "Klient Gamma", deadline: "2026-10-12", proposed: false },
     ] },
-    { ...people.darek, count: 1, proposed: 0, leave_until: null, requests: [
-      { job_id: 22, title: "Kotlin Developer", client_name: "Klient Delta", deadline: "2026-10-16", proposed: false },
-    ] },
-    // Urlop: obłożenie zostaje widoczne, ktoś przejmie requesty.
-    { ...people.ewa, count: 1, proposed: 0, leave_until: "2026-10-09", requests: [
-      { job_id: 51, title: "Product Owner", client_name: "Klient Gamma", deadline: "2026-10-19", proposed: false },
-    ] },
+    { ...people.darek, count: 0, proposed: 0, outside_p1: 1, leave_until: null, requests: [] },
+    // Urlop: obłożenie zostaje widoczne, ktoś przejmie rekrutacje.
+    { ...people.ewa, count: 0, proposed: 0, outside_p1: 1, leave_until: "2026-10-09", requests: [] },
   ],
   changes: [
     { at: "2026-10-05T06:30:00Z", kind: "assigned", job_id: 11, title: "DevOps Engineer (Azure)", client_name: "Klient Alfa", user_name: people.anna.name, reason: "propozycja automatu" },

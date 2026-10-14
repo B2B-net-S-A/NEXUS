@@ -126,8 +126,9 @@ miejsce, nie zbiór funkcji.
   - **Osoby w okienku = `boardPeople`**: propozycja tylko przy rekrutacji, nad
     którą nikt nie pracuje — przy obsadzonej „Akceptuj” kończyłoby się 409.
   - **Lista wyboru** (`recruiterPickOptions` w `lib/request-board.ts`): osoby
-    z rolą rekrutera bez pracujących, obłożenie z pulpitu (`useRequestBoard`,
-    wczytywane dopiero po otwarciu), od najmniej obłożonej; osoby spoza puli
+    z rolą rekrutera bez pracujących, obłożenie P1 z pulpitu („N P1”,
+    `useRequestBoard`, wczytywane dopiero po otwarciu), od najmniej obłożonej;
+    osoby spoza puli
     automatu bez liczby na końcu. Lista wisi na katalogu `/api/users` (jego
     awaria = błąd); awaria obłożenia nie blokuje przypisania. Urlopy pokaże
     dopiero `COMPASS_AVAILABILITY_ENABLED` — do tego czasu stopka „Brak danych

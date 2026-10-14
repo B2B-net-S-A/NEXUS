@@ -8,7 +8,9 @@ przeglądarka — requestów w pracy jest kilkadziesiąt, nie tysiące.
 Kto pracuje nad requestem, mówi jedna reguła (``services/job_team``):
 prowadzący, aktywne przypisanie albo ręcznie dopisany współpracownik.
 Propozycja automatu to jeszcze nie praca — pulpit pokazuje ją osobno i nie
-wlicza do obłożenia (decyzja Artura 02.10.2026).
+wlicza do obłożenia (decyzja Artura 02.10.2026). Obłożenie liczy tylko
+requesty P1 (decyzja Artura 14.10.2026); pozostałe osoby mają jako
+``outside_p1``.
 
 Czyta każda rola z odczytem sekcji Rekrutacje. Ręczne dodanie i zdjęcie
 osoby: uprawnienie do prowadzenia rekrutacji albo Head of Recruitment
@@ -124,10 +126,13 @@ class LoadRequest(BaseModel):
 class LoadPerson(BaseModel):
     user_id: int
     name: str
-    # Requesty, nad którymi osoba pracuje. Propozycje automatu liczą się
-    # osobno (``proposed``) — do akceptacji to jeszcze nie praca.
+    # Requesty P1, nad którymi osoba pracuje (prośba Head of Recruitment,
+    # decyzja Artura 14.10.2026). Propozycje automatu liczą się osobno
+    # (``proposed``) — do akceptacji to jeszcze nie praca.
     count: int
     proposed: int = 0
+    # Requesty bez priorytetu i „Przyjmujemy” — poza obłożeniem, tylko liczba.
+    outside_p1: int = 0
     leave_until: Optional[date]
     requests: list[LoadRequest]
 
@@ -356,6 +361,13 @@ async def get_request_board(
                     requests=[],
                 ),
             )
+            # Obłożenie to tylko P1. Osoba z samymi requestami spoza P1 zostaje
+            # na liście z zerem — z tej listy biorą się filtr „Rekruter”
+            # i okienka wyboru osoby.
+            if request.priority_level != "p1":
+                if not person.proposed:
+                    entry.outside_p1 += 1
+                continue
             if person.proposed:
                 entry.proposed += 1
             else:
@@ -619,6 +631,9 @@ async def add_person(
         await _notify_assigned(
             db, job=job, client_name=clients.get(job.client_id), user_id=person.id
         )
+    await new_job_leads.record_team_decision(
+        db, job_id=job_id, actor=current_user, via="team_change"
+    )
     await db.commit()
     return {"ok": True}
 
@@ -677,6 +692,9 @@ async def remove_person(
         # Zdjęcie z requestu zabiera też propozycję — inaczej osoba wracałaby
         # na pulpit jako „propozycja automatu”.
         await reject_proposal(db, job_id=job_id, user_id=user_id)
+    await new_job_leads.record_team_decision(
+        db, job_id=job_id, actor=current_user, via="team_change"
+    )
     await db.commit()
     return {"removed": removed}
 
@@ -737,12 +755,10 @@ async def decide_proposal(
         else None,
     )
     if assigned_user_id is not None:
-        new_job_leads.record_confirmation(
-            db,
-            job_id=job_id,
-            lead_user_id=assigned_user_id,
-            actor_id=current_user.id,
-            via="proposal",
+        # Potwierdzenie osoby, która PO decyzji prowadzi — przy rekrutacji
+        # z prowadzącym zaakceptowana osoba dochodzi jako druga.
+        await new_job_leads.record_team_decision(
+            db, job_id=job_id, actor=current_user, via="proposal"
         )
         clients = await _client_names(db, [job])
         await _notify_assigned(
@@ -844,12 +860,8 @@ async def accept_proposals(
                 actor_id=current_user.id,
                 decision="accept",
             )
-            new_job_leads.record_confirmation(
-                db,
-                job_id=job_id,
-                lead_user_id=user_id,
-                actor_id=current_user.id,
-                via="proposal",
+            await new_job_leads.record_team_decision(
+                db, job_id=job_id, actor=current_user, via="proposal"
             )
             await _notify_assigned(
                 db, job=job, client_name=clients.get(job.client_id), user_id=user_id

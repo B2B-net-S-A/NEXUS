@@ -17,8 +17,8 @@ import {
 } from "@/lib/job-team";
 import {
   boardPeople,
+  p1LoadLabel,
   recruiterPickOptions,
-  requestWord,
   type DirectoryPerson,
   type RecruiterPickOption,
 } from "@/lib/request-board";
@@ -287,7 +287,7 @@ function EditorContent({
                   {option.count !== null ? (
                     <span className="shrink-0 text-right text-xs tabular-nums text-muted-foreground">
                       <span className="block">
-                        {option.count} {requestWord(option.count)}
+                        {p1LoadLabel(option.count)}
                       </span>
                       {option.proposed > 0 ? (
                         <span className="block">+ {option.proposed} do akceptacji</span>

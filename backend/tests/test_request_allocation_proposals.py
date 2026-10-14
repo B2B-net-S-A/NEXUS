@@ -567,7 +567,9 @@ async def test_pending_list_describes_the_proposal_and_hides_it_when_staffed() -
     await _give_category(person, category)
     lead_id, _ = await _user(UserRole.delivery_lead)
     colleague, _ = await _user(UserRole.recruiter)
-    # Proponowana osoba prowadzi już jeden request „Szukamy” — to jej obłożenie.
+    # Proponowana osoba prowadzi już jeden request P1 „Szukamy” — to jej
+    # obłożenie. Request bez priorytetu się nie liczy (14.10.2026).
+    await _job(recruiter_id=person, priority=JobPriority.urgent)
     await _job(recruiter_id=person)
     job_id = await _job(
         title="ZOB-0000",
@@ -688,14 +690,17 @@ async def test_planner_sees_people_who_work_without_an_assignment_row() -> None:
     # Prowadzący z aktywnym wierszem jest widoczny dla planera jako wiersz.
     adopted_job = await _job(recruiter_id=adopted)
     empty_job = await _job()
+    # Request bez priorytetu: pokryty, ale bez obłożenia (14.10.2026).
+    standard_job = await _job()
     async with AsyncSessionLocal() as db:
-        db.add(
-            JobCollaborator(
-                job_id=collaborator_job,
-                user_id=collaborator,
-                source=JobCollaboratorSource.manual,
+        for job_id in (collaborator_job, standard_job):
+            db.add(
+                JobCollaborator(
+                    job_id=job_id,
+                    user_id=collaborator,
+                    source=JobCollaboratorSource.manual,
+                )
             )
-        )
         db.add(
             JobWorkAssignment(
                 job_id=adopted_job,
@@ -717,8 +722,9 @@ async def test_planner_sees_people_who_work_without_an_assignment_row() -> None:
             sent=0,
             deadline=None,
             base_matches=None,
+            priority_rank=0 if job_id in jobs else 1,
         )
-        for job_id in jobs
+        for job_id in (*jobs, standard_job)
     ]
     live = [
         LiveAssignment(proposed_owner_job, owner, "recruiter", "auto", "proposed"),
@@ -726,7 +732,7 @@ async def test_planner_sees_people_who_work_without_an_assignment_row() -> None:
     ]
     async with AsyncSessionLocal() as db:
         staffed, extra_load = await _unseen_workers(db, requests, live)
-    assert staffed == frozenset({proposed_owner_job, collaborator_job})
+    assert staffed == frozenset({proposed_owner_job, collaborator_job, standard_job})
     assert extra_load == {owner: 1, collaborator: 1}
 
 

@@ -46,7 +46,7 @@ const board: RequestBoard = {
       { job_id: 12, title: "DevOps Engineer", client_name: "Klient Alfa", deadline: "2026-09-30", proposed: false },
       { job_id: 1, title: "Senior Java Developer", client_name: "Klient Gamma", deadline: "2026-09-23", proposed: true },
     ] },
-    { ...celina, count: 1, proposed: 0, leave_until: null, requests: [{ job_id: 4, title: "Kotlin Developer", client_name: "Klient Delta", deadline: "2026-10-07", proposed: false }] },
+    { ...celina, count: 1, proposed: 0, outside_p1: 2, leave_until: null, requests: [{ job_id: 4, title: "Kotlin Developer", client_name: "Klient Delta", deadline: "2026-10-07", proposed: false }] },
   ],
   changes: [],
 }
@@ -349,7 +349,7 @@ describe("RequestBoardView", () => {
     expect(screen.getByText("Pokazuję 1 z 4")).toBeInTheDocument()
   })
 
-  it("obłożenie: „2 + 1” = requesty w pracy + propozycja, kolejność po requestach w pracy", async () => {
+  it("obłożenie P1: „2 + 1” = rekrutacje P1 w pracy + propozycja, kolejność po pracy, pasek od najbardziej obłożonej", async () => {
     const user = userEvent.setup()
     render(<Board />)
     const panel = screen.getByRole("region", { name: "Obłożenie" })
@@ -362,13 +362,25 @@ describe("RequestBoardView", () => {
     ])
     const annaRow = within(panel).getByRole("button", { name: /Anna Przykładowa/ })
     expect(within(annaRow).getByText("2 + 1")).toHaveAttribute("aria-hidden", "true")
-    expect(annaRow).toHaveAccessibleName("Anna Przykładowa, 2 requesty · 1 propozycja do akceptacji")
+    expect(annaRow).toHaveAccessibleName(
+      "Anna Przykładowa, 2 rekrutacje P1 · 1 propozycja do akceptacji",
+    )
     expect(annaRow.querySelector("[data-load-proposed]")).not.toBeNull()
     const celinaRow = within(panel).getByRole("button", { name: /Celina Wzorcowa/ })
-    expect(celinaRow).toHaveAccessibleName("Celina Wzorcowa, 1 request")
+    expect(celinaRow).toHaveAccessibleName("Celina Wzorcowa, 1 rekrutacja P1")
     expect(within(panel).getByRole("button", { name: /Bartek Testowy/ })).toHaveAccessibleName(
-      "Bartek Testowy, urlop do 29.09.2026, 1 request",
+      "Bartek Testowy, urlop do 29.09.2026, 1 rekrutacja P1",
     )
+    // Pasek: Anna (2 + 1) ma pełny, 1 rekrutacja to jedna trzecia — nie stała 5.
+    expect((annaRow.querySelector(".bg-primary") as HTMLElement).style.width).toMatch(/^66\.6/)
+    expect((celinaRow.querySelector(".bg-primary") as HTMLElement).style.width).toMatch(/^33\.3/)
+    expect(within(panel).getByText("Obłożenie").parentElement).toHaveTextContent("ObłożenieP1")
+    expect(
+      within(panel).getByText("Ile rekrutacji P1 w stanie „Szukamy” ma każda osoba w roli „Rekruter”."),
+    ).toBeInTheDocument()
+    expect(
+      within(panel).getByText(/Nie liczą się rekrutacje bez priorytetu, „Przyjmujemy” i z championem\./),
+    ).toBeInTheDocument()
     expect(celinaRow.querySelector("[data-load-proposed]")).toBeNull()
     expect(within(panel).getByText("urlop do 29.09")).toHaveAttribute("title", "Urlop do 29.09.2026")
     expect(within(panel).getByText(/„\+ 1” to propozycja automatu czekająca na akceptację/)).toBeInTheDocument()
@@ -377,6 +389,16 @@ describe("RequestBoardView", () => {
     await user.click(annaRow)
     expect(annaRow).toHaveAttribute("aria-expanded", "true")
     expect(within(panel).getByText(/Senior Java Developer · Klient Gamma \(propozycja\)/)).toBeInTheDocument()
+    // Anna nie ma nic poza P1 — linii nie ma.
+    expect(within(panel).queryByTestId("load-outside-p1")).not.toBeInTheDocument()
+
+    // Rekrutacje spoza P1 nie znikają bez śladu: liczba i link do listy.
+    await user.click(celinaRow)
+    const outside = within(panel).getByTestId("load-outside-p1")
+    expect(outside).toHaveTextContent("Poza P1: 2 rekrutacje — nie liczą się do obłożenia.")
+    const link = within(outside).getByRole("link", { name: "Pokaż na liście rekrutacji" })
+    expect(link.getAttribute("href")).toContain(`who=${celina.user_id}`)
+    expect(link.getAttribute("href")).toContain("prio=p2%2Caccepting")
   })
 
   it("role przydzielające dodają osobę — także tę, którą automat dopiero proponuje", async () => {

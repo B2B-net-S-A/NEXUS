@@ -207,7 +207,7 @@ class AllocationProposalRow(BaseModel):
 
 
 class NewJobLeadRow(BaseModel):
-    """Rekrutacja przekazana do searchu w ostatnich dniach i jej prowadzący.
+    """Rekrutacja P1 z cyklem z ostatnich dni i jej prowadzący.
 
     Kształt = ``new_job_leads.NewJobLead``.
     """
@@ -222,7 +222,10 @@ class NewJobLeadRow(BaseModel):
     participants: int
     priority_level: Literal["p1", "p2", "accepting"]
     delivery_lead_name: Optional[str] = None
+    # Początek bieżącego cyklu listy i co go zaczęło: przekazanie do searchu,
+    # ponowne otwarcie albo wejście na P1 (14.10.2026).
     handed_off_at: datetime
+    since_reason: Literal["handoff", "reopen", "p1"] = "handoff"
     lead_user_id: Optional[int] = None
     lead_name: Optional[str] = None
     lead_role: Optional[Literal["recruiter"]] = None
@@ -239,6 +242,10 @@ class NewJobLeadRow(BaseModel):
     pending_reason: Optional[
         Literal["assigning", "passive", "none", "not_handed_off"]
     ] = None
+    # Wiersz wrócił: w tym cyklu Head of Recruitment zdecydował o innej osobie
+    # (albo nikt już nie prowadzi) — kto to był.
+    returned_from_user_id: Optional[int] = None
+    returned_from_name: Optional[str] = None
 
 
 class PendingJobRow(BaseModel):

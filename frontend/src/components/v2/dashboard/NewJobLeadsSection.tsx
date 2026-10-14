@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * „Nowe rekrutacje — kto prowadzi” na pulpicie Head of Recruitment i admina.
+ * „Nowe rekrutacje P1 — kto prowadzi” na pulpicie Head of Recruitment i admina.
  *
  * Każda rekrutacja ma JEDNEGO rekrutera prowadzącego: przydziela go automat
  * zaraz po przekazaniu do searchu albo wskazuje Delivery Lead. Uczestnikami są
@@ -12,7 +12,14 @@
  *
  * Lista ma koniec (decyzja Artura 07.10.2026): „Potwierdź” albo „Zmień”
  * zdejmuje rekrutację z listy — serwer pamięta potwierdzoną osobę i pokaże
- * wiersz znowu tylko wtedy, gdy prowadzący zmieni się później.
+ * wiersz znowu tylko wtedy, gdy prowadzący zmieni się później; wtedy wiersz
+ * mówi, kto był wcześniej (`returned_from_name`).
+ *
+ * Od 14.10.2026 (uwagi Head of Recruitment, decyzje Artura D1–D3) lista jest
+ * tylko dla P1 bez championa, a zespół ustawiony przez Head of Recruitment albo
+ * admina na DOWOLNYM ekranie liczy się jak „Potwierdź” (serwer:
+ * `services/new_job_leads.py`). „Przekazano …” mówi, co zaczęło bieżący cykl:
+ * przekazanie, ponowne otwarcie albo wejście na P1 (`since_reason`).
  *
  * Wiersze przychodzą z `GET /api/board-tasks` (`new_job_leads`) wyłącznie dla
  * admina i Head of Recruitment; pozostali dostają pustą listę i sekcji nie ma.
@@ -61,6 +68,7 @@ import {
   BOARD_TASKS_QUERY_KEY,
   type BoardTasksResponse,
   type NewJobLeadRow,
+  type NewJobLeadSinceReason,
 } from "@/lib/api/boardTasks";
 import {
   confirmJobLead,
@@ -74,11 +82,11 @@ import { formatDeadlineShort, shortenPersonName } from "@/lib/job-header-subtitl
 import { addRecruiter } from "@/lib/job-team";
 import { invalidateJobTeam } from "@/lib/job-team-cache";
 import { countPl } from "@/lib/plural-pl";
-import { requestWord } from "@/lib/request-board";
+import { p1LoadLabel } from "@/lib/request-board";
 import { isPriorityLevel } from "@/lib/request-priority";
 import { cn } from "@/lib/utils";
 
-export const NEW_JOB_LEADS_TITLE = "Nowe rekrutacje — kto prowadzi";
+export const NEW_JOB_LEADS_TITLE = "Nowe rekrutacje P1 — kto prowadzi";
 
 /** Tyle rekrutacji widać, zanim trzeba kliknąć „Pokaż wszystkie”. */
 export const NEW_JOB_LEADS_ROWS = 6;
@@ -97,6 +105,27 @@ export function handoffWhen(iso: string, now: Date = new Date()): string {
   if (Number.isNaN(new Date(iso).getTime())) return "";
   const day = transitAgo(iso, now);
   return day === "dziś" || day === "wczoraj" ? `${day}, ${formatTime(iso)}` : day;
+}
+
+const SINCE_VERB: Record<NewJobLeadSinceReason, string> = {
+  handoff: "przekazano",
+  reopen: "otwarta ponownie",
+  p1: "podniesiona na P1",
+};
+
+/** „przekazano dziś, 10:42”, „otwarta ponownie 2 dni temu”, „podniesiona na P1 wczoraj, 16:05”. */
+export function cycleStartLabel(row: Pick<NewJobLeadRow, "handed_off_at" | "since_reason">): string {
+  const when = handoffWhen(row.handed_off_at);
+  if (!when) return "";
+  return `${SINCE_VERB[row.since_reason ?? "handoff"] ?? SINCE_VERB.handoff} ${when}`;
+}
+
+/** Wiersz wrócił po decyzji Head of Recruitment — kto prowadził wtedy. */
+export function returnedNote(row: Pick<NewJobLeadRow, "returned_from_name">): string | null {
+  const name = row.returned_from_name?.trim();
+  return name
+    ? `Wraca, bo prowadzący zmienił się po decyzji Head of Recruitment: było ${name}.`
+    : null;
 }
 
 export interface LeadState {
@@ -233,7 +262,7 @@ function LeadPicker({
                       )}
                     </span>
                     <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                      {person.count} {requestWord(person.count)}
+                      {p1LoadLabel(person.count)}
                     </span>
                   </CommandItem>
                 );
@@ -341,8 +370,8 @@ export function NewJobLeadsSection({ rows, standalone = false }: NewJobLeadsSect
         </span>
       </header>
       <p className="mb-2 text-xs text-muted-foreground">
-        Uczestnikami każdej rekrutacji są wszyscy z jej kategorii. Potwierdź prowadzącego
-        albo go zmień — rekrutacja zniknie z listy.
+        Rekrutacje P1 z ostatnich 7 dni, o których prowadzącym nikt z Head of Recruitment
+        jeszcze nie zdecydował. Zespół ustawiony na dowolnym ekranie liczy się jak „Potwierdź”.
         {canAct ? "" : " W tym widoku nie możesz zmieniać rekrutera prowadzącego."}
       </p>
       <LeadFiltersBar state={filter} />
@@ -359,10 +388,11 @@ export function NewJobLeadsSection({ rows, standalone = false }: NewJobLeadsSect
             ? (competenceShortLabel(row.category_slug) ?? row.category_name)
             : null;
           const notHandedOff = row.pending_reason === "not_handed_off";
-          const when = notHandedOff ? "" : handoffWhen(row.handed_off_at);
+          const when = notHandedOff ? "" : cycleStartLabel(row);
+          const returned = returnedNote(row);
           const meta: { key: string; node: ReactNode }[] = [];
           if (row.client_name) meta.push({ key: "client", node: row.client_name });
-          if (when) meta.push({ key: "when", node: `przekazano ${when}` });
+          if (when) meta.push({ key: "when", node: when });
           // Bez przekazania `handed_off_at` niesie datę założenia rekrutacji.
           if (notHandedOff && row.handed_off_at) {
             meta.push({ key: "created", node: `założona ${shortDate(row.handed_off_at)}` });
@@ -484,6 +514,14 @@ export function NewJobLeadsSection({ rows, standalone = false }: NewJobLeadsSect
                     onPick={(person) => void assign(row, person)}
                   />
                 </div>
+              ) : null}
+              {returned ? (
+                <p
+                  data-testid="lead-returned"
+                  className="rounded-md bg-warning-muted px-2.5 py-1.5 text-xs text-warning-muted-foreground @min-[780px]/leads:col-span-4"
+                >
+                  {returned}
+                </p>
               ) : null}
             </li>
           );
