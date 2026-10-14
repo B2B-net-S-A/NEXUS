@@ -19,6 +19,7 @@ from docxtpl import DocxTemplate
 from jinja2 import Environment, StrictUndefined
 from jinja2.sandbox import SandboxedEnvironment
 
+from app.core.docx_metadata import clear_app_properties, clear_author_metadata
 from app.services.b2b_contract_generator.formatting import pl_date
 
 TEMPLATE_DIR = Path(__file__).resolve().parents[2] / "templates" / "documents"
@@ -64,9 +65,11 @@ def _html_env() -> SandboxedEnvironment:
 def render_docx(key: str, context: dict) -> bytes:
     tpl = DocxTemplate(str(docx_path(key)))
     tpl.render(context, jinja_env=_docx_env())
+    # Plik idzie do Partnera: bez autora i kancelarii z szablonu.
+    clear_author_metadata(tpl.docx)
     buf = io.BytesIO()
     tpl.save(buf)
-    return buf.getvalue()
+    return clear_app_properties(buf.getvalue())
 
 
 def render_html(key: str, context: dict) -> str:
