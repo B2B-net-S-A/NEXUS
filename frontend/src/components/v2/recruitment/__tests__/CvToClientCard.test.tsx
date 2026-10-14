@@ -1158,4 +1158,29 @@ describe("CvToClientCard — miniatura i menu „⋯” (Edytor CV 3, „Ekran 5
     const items = await screen.findAllByRole("menuitem");
     expect(items.map((item) => item.textContent?.trim())).toEqual(["Pobierz PDF"]);
   });
+
+  // D3 (14.10.2026): osoba już u klienta — karta zamiast widoku tylko do odczytu,
+  // ale bez podmiany CV, które klient ma w ręku.
+  it("po „CV wysłane”: w „⋯” tylko „Pobierz PDF” i „Historia wersji”, poprawki dalej w edytorze", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: READY });
+    rows = [{ id: 5, status: "ready" }];
+    renderCard({ lockedAfterSend: true });
+    await screen.findByTestId("cv-ready-facts");
+    expect(screen.getByTestId("cv-locked-after-send")).toHaveTextContent("CV jest już u klienta");
+    expect(screen.getByRole("button", { name: /Otwórz i popraw/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Pobierz Word/ })).toBeEnabled();
+    await userEvent.click(screen.getByRole("button", { name: "Więcej akcji CV" }));
+    const items = await screen.findAllByRole("menuitem");
+    expect(items.map((item) => item.textContent?.trim())).toEqual(["Pobierz PDF", "Historia wersji"]);
+  });
+
+  it("po „CV wysłane” bez CV firmowego: zdanie zamiast generowania i wyboru gotowego CV", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: { status: "none", edit_revision: 0, version: 0 } });
+    rows = [];
+    renderCard({ lockedAfterSend: true });
+    expect(await screen.findByText("CV firmowego nie ma w tej rekrutacji.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Generuj CV/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Użyj gotowego CV/ })).toBeNull();
+    expect(screen.queryByTestId("cv-locked-after-send")).toBeNull();
+  });
 });

@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 ACTION = "cv_file_downloaded"
 # Lustro `CvDownloadSurface` z frontendu; wszystko inne zapisujemy jako „other”.
-SURFACES = frozenset({"editor", "card", "preview", "cpro", "result", "files"})
+SURFACES = frozenset({"editor", "card", "dock", "preview", "cpro", "result", "files"})
 
 
 async def log_cv_download(

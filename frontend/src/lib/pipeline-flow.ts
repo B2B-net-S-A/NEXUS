@@ -156,6 +156,19 @@ export function selectVerifiedQueue(columns: KanbanColumn[]): FlowQueueEntry[] {
   return entriesForStage(columns, VERIFIED_STAGE);
 }
 
+/** Karta osoby na Tablicy w dowolnej kolumnie (także zamkniętej); `null` = brak. */
+export function findPersonEntry(
+  columns: KanbanColumn[],
+  candidateId: number | null,
+): FlowQueueEntry | null {
+  if (candidateId == null) return null;
+  for (const col of columns) {
+    const item = col.items.find((i) => i.candidate_id === candidateId);
+    if (item) return { item, col, colId: colId(col) };
+  }
+  return null;
+}
+
 /** Ilu kandydatów jest już u klienta — „CV Wysłane" i dalsze etapy zewnętrzne. */
 export function countAtClient(columns: KanbanColumn[]): number {
   return columns.reduce((sum, col) => {

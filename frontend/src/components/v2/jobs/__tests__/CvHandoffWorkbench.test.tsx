@@ -277,16 +277,36 @@ describe("CvHandoffWorkbench", () => {
     expect(screen.queryByTestId("saved-cv-view")).toBeNull();
   });
 
-  it("po „CV wysłane” zostaje podgląd tylko do odczytu, nie karta", () => {
+  it("po „CV wysłane” ta sama karta CV, ale bez podmiany CV — zamiast widoku tylko do odczytu (D3, 14.10.2026)", () => {
     renderWorkbench({
       columns: columns([]),
       focusCandidateId: 131,
       panelFallback: <div data-testid="saved-cv-view" />,
     });
 
-    expect(screen.getByTestId("saved-cv-view")).toBeInTheDocument();
-    expect(screen.queryByTestId("cv-to-client-card-stub")).toBeNull();
+    expect(screen.getByTestId("cv-to-client-card-stub").textContent).toBe("card:31/131/7/rw");
+    expect(card.props).toMatchObject({ lockedAfterSend: true });
+    expect(card.props).not.toHaveProperty("handoff");
+    expect(screen.getByTestId("cv-later-stage-note")).toHaveTextContent("Ta osoba jest na etapie „CV Wysłane”.");
+    expect(screen.queryByTestId("saved-cv-view")).toBeNull();
     expect(screen.queryByTestId("cv-send-later-note")).toBeNull();
+    expect(screen.queryByRole("region", { name: "Wysyłka do klienta" })).toBeNull();
+  });
+
+  it("w „QC CV” karta CV bez blokady — Delivery Lead może jeszcze prosić o poprawki", () => {
+    const qc: KanbanColumn = {
+      stage: "interview",
+      name: "QC CV",
+      category: "internal",
+      stage_def_id: 9,
+      count: 1,
+      items: [item({ id: 41, candidate_id: 141, stage: "interview" })],
+    };
+    renderWorkbench({ columns: [...columns([]), qc], focusCandidateId: 141 });
+
+    expect(screen.getByTestId("cv-to-client-card-stub").textContent).toBe("card:41/141/7/rw");
+    expect(card.props).toMatchObject({ lockedAfterSend: false });
+    expect(screen.getByTestId("cv-later-stage-note")).toHaveTextContent("„QC CV”");
   });
 
   it("sekwencja idzie: ruch ze stawką (Pipeline v4) → link na etapie SPRZED ruchu", async () => {
@@ -697,8 +717,8 @@ describe("CvHandoffWorkbench — layout=\"panel\" (rekrutacja v3)", () => {
     expect(screen.queryByText("Grzegorz Żebrowski")).toBeNull();
   });
 
-  it("osoba spoza etapu „Zweryfikowany” dostaje zdanie o etapie, nie pustkę ani błąd", () => {
-    renderWorkbench({ layout: "panel", focusCandidateId: 131 });
+  it("osoby nie ma na Tablicy: zdanie o etapie, nie pustka ani błąd", () => {
+    renderWorkbench({ layout: "panel", focusCandidateId: 999 });
     expect(
       screen.getByText(/Przekazanie CV klientowi jest dostępne na etapie „Zweryfikowany”/),
     ).toBeTruthy();
