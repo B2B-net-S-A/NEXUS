@@ -244,6 +244,9 @@ export type NewJobLeadSource = "auto" | "manual";
  */
 export type NewJobLeadPendingReason = "assigning" | "passive" | "none" | "not_handed_off";
 
+/** Co zaczęło bieżący cykl listy „Nowe rekrutacje P1 — kto prowadzi”. */
+export type NewJobLeadSinceReason = "handoff" | "reopen" | "p1";
+
 /**
  * „Nowe rekrutacje — kto prowadzi”: rekrutacje świeżo przekazane do searchu
  * z rekruterem prowadzącym. Lista informacyjna — w trybie „auto” automat
@@ -262,8 +265,12 @@ export interface NewJobLeadRow {
   /** `PriorityLevel`; nieznaną wartość traktujemy jak brak plakietki. */
   priority_level: string;
   delivery_lead_name: string | null;
-  /** Kiedy rekrutację przekazano do searchu (ISO). */
+  /**
+   * Początek bieżącego cyklu listy (ISO): przekazanie do searchu, ponowne
+   * otwarcie albo wejście na P1 — co, mówi `since_reason`.
+   */
   handed_off_at: string;
+  since_reason?: NewJobLeadSinceReason;
   lead_user_id: number | null;
   lead_name: string | null;
   lead_role: string | null;
@@ -273,6 +280,12 @@ export interface NewJobLeadRow {
   /** Prowadzący to propozycja automatu czekająca na akceptację („shadow”). */
   proposed: boolean;
   pending_reason: NewJobLeadPendingReason | null;
+  /**
+   * Wiersz wrócił: w tym cyklu Head of Recruitment zdecydował o innej osobie —
+   * kto to był.
+   */
+  returned_from_user_id?: number | null;
+  returned_from_name?: string | null;
 }
 
 /** „Twoje CV w drodze” — lustro `services/cv_in_transit.py`. */

@@ -33,7 +33,7 @@ export type DashboardPanelKey = (typeof DASHBOARD_PANEL_KEYS)[number]
 export const PANEL_LABELS: Record<DashboardPanelKey, string> = {
   cv_in_transit: "Twoje CV w drodze",
   allocation_proposals: "Propozycje automatu do akceptacji",
-  new_job_leads: "Nowe rekrutacje — kto prowadzi",
+  new_job_leads: "Nowe rekrutacje P1 — kto prowadzi",
   team_load: "Obłożenie",
   pending_jobs: "Rekrutacje do dokończenia albo zamknięcia",
   requirement_fixes: "Wymagania do poprawy",

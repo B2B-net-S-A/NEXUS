@@ -265,11 +265,16 @@ describe("RecruiterCellEditor — zapisy", () => {
     await user.click(screen.getByRole("button", { name: "Zdejmij Bartek Testowy" }));
 
     const question = await screen.findByText("Zdjąć Bartek Testowy z tej rekrutacji?");
-    // Okno potwierdzenia leży niżej niż okienko — okienko znika na ten czas.
-    expect(popover).toHaveClass("invisible");
+    const confirm = question.closest("[role='dialog']") as HTMLElement;
+    // Okno potwierdzenia stoi na warstwie okienka i otwiera się później,
+    // więc leży nad nim (do 14.10.2026 miało z-50 i chowało się pod spód).
+    expect(popover).toHaveClass("z-110");
+    expect(confirm).toHaveClass("z-110");
+    expect(
+      popover.compareDocumentPosition(confirm) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(apiMock.delete).not.toHaveBeenCalled();
 
-    const confirm = question.closest("[role='dialog']") as HTMLElement;
     await user.click(within(confirm).getByRole("button", { name: "Zdejmij" }));
 
     await waitFor(() =>
@@ -277,7 +282,6 @@ describe("RecruiterCellEditor — zapisy", () => {
         `/api/request-board/jobs/${JOB_ID}/people/${owner.user_id}`,
       ),
     );
-    await waitFor(() => expect(popover).not.toHaveClass("invisible"));
     expect(rowSpy).not.toHaveBeenCalled();
   });
 
@@ -345,9 +349,9 @@ describe("RecruiterCellEditor — lista wyboru", () => {
       expect.stringContaining("Michał Makietowy"),
       "Ula Spozapuli",
     ]);
-    expect(options[1]).toContain("1 request");
+    expect(options[1]).toContain("1 P1");
     expect(options[1]).toContain("+ 2 do akceptacji");
-    expect(options[2]).toContain("3 requesty");
+    expect(options[2]).toContain("3 P1");
     expect(screen.getByText("Brak danych o urlopach — lista ich nie uwzględnia.")).toBeInTheDocument();
   });
 

@@ -5,6 +5,8 @@
 // 04.10.2026: klik w nazwę otwiera podgląd, reszta akcji (pobierz, rodzaj,
 // główne CV, nieaktualne) w menu „⋯” wiersza.
 // 13.10.2026: „Usuń z profilu” w tym samym menu — admin i Head of Recruitment.
+// 14.10.2026: CV z generatora też otwiera podgląd kliknięciem w nazwę — wcześniej
+// miało tylko „Pobierz” i każde CV wysłane klientowi trzeba było ściągać na dysk.
 // 13.10.2026 (E5): pliki w trzech grupach — „CV kandydata”, „CV wysłane
 // klientom” (pliki „…B2B…”, pliki z kodem rekrutacji osoby i CV
 // z generatora), „Załączniki i formularze” (`groupCandidateFiles`).
@@ -43,6 +45,7 @@ import {
 } from "@/lib/candidate-files";
 import type { GeneratedCvItem } from "@/lib/api";
 import { downloadGeneratedCv } from "@/components/v2/cv-generator/cv-generated-files";
+import { GeneratedCvPreviewModal } from "@/components/v2/cv-generator/GeneratedCvPreviewModal";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -683,7 +686,8 @@ function FileGroup({
 /**
  * „CV wysłane klientom” (D4 z 04.10.2026, grupa od 13.10.2026): pliki
  * „…B2B…” i pliki z kodem rekrutacji osoby z teczki oraz CV wygenerowane
- * w NEXUSIE. Awaria listy z generatora nie chowa plików z teczki.
+ * w NEXUSIE. Awaria listy z generatora nie chowa plików z teczki. Nazwa CV
+ * z generatora otwiera podgląd tego samego pliku, który daje „Pobierz”.
  */
 function ClientCvGroup({
  candidateId,
@@ -695,6 +699,7 @@ function ClientCvGroup({
  renderRow: (doc: CandidateDocument) => React.ReactNode;
 }) {
  const { showError } = useToast();
+ const [previewItem, setPreviewItem] = useState<GeneratedCvItem | null>(null);
  const generatedQuery = useQuery<GeneratedCvItem[]>({
  queryKey: ["candidate-generated-cvs", candidateId],
  queryFn: () =>
@@ -709,12 +714,27 @@ function ClientCvGroup({
  });
  const generated = (generatedQuery.data ?? []).filter((item) => item.status === "ready");
  if (generatedQuery.isPending && files.length === 0) return null;
+ async function download(item: GeneratedCvItem) {
+ const problem = await downloadGeneratedCv(item, "docx", "files");
+ if (problem) showError(problem);
+ }
  const rows = [
  ...files.map(renderRow),
  ...generated.map((item) => (
  <div key={`generated-${item.id}`} className="flex items-center gap-3 px-3 py-2.5 text-sm">
  <div className="min-w-0 flex-1">
+ {item.can_download ? (
+ <button
+ type="button"
+ onClick={() => setPreviewItem(item)}
+ title="Otwórz podgląd pliku"
+ className="block max-w-full truncate text-left font-medium text-foreground hover:text-primary hover:underline"
+ >
+ {item.filename}
+ </button>
+ ) : (
  <p className="truncate font-medium text-foreground">{item.filename}</p>
+ )}
  <p className="text-xs text-muted-foreground">
  {[
  "z generatora",
@@ -728,14 +748,7 @@ function ClientCvGroup({
  </p>
  </div>
  {item.can_download ? (
- <Button
- size="sm"
- variant="outline"
- onClick={async () => {
- const problem = await downloadGeneratedCv(item, "docx", "files");
- if (problem) showError(problem);
- }}
- >
+ <Button size="sm" variant="outline" onClick={() => void download(item)}>
  Pobierz
  </Button>
  ) : null}
@@ -745,6 +758,7 @@ function ClientCvGroup({
  if (rows.length === 0 && !generatedQuery.isError) return null;
 
  return (
+ <>
  <FileGroup
  id="candidate-client-cv-heading"
  title="CV wysłane klientom"
@@ -765,5 +779,11 @@ function ClientCvGroup({
  ) : null
  }
  />
+ <GeneratedCvPreviewModal
+ item={previewItem}
+ onClose={() => setPreviewItem(null)}
+ onDownload={(item) => void download(item)}
+ />
+ </>
  );
 }

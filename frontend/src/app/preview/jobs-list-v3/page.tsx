@@ -420,7 +420,7 @@ const DIRECTORY = [
   { id: 75, name: "Damian Liderowy", role: "delivery_lead", roles: ["delivery_lead"] },
 ];
 
-/** Obłożenie z pulpitu „Requesty i obłożenie” — liczby przy osobach w okienku. */
+/** Obłożenie P1 z pulpitu „Requesty i obłożenie” — liczby „N P1” przy osobach w okienku. */
 const REQUEST_BOARD: RequestBoard = {
   mode: "shadow",
   // Jak na produkcji bez Compassa: okienko mówi, że urlopów nie zna.

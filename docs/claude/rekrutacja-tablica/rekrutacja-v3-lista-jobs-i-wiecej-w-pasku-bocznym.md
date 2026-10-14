@@ -126,8 +126,9 @@ miejsce, nie zbiór funkcji.
   - **Osoby w okienku = `boardPeople`**: propozycja tylko przy rekrutacji, nad
     którą nikt nie pracuje — przy obsadzonej „Akceptuj” kończyłoby się 409.
   - **Lista wyboru** (`recruiterPickOptions` w `lib/request-board.ts`): osoby
-    z rolą rekrutera bez pracujących, obłożenie z pulpitu (`useRequestBoard`,
-    wczytywane dopiero po otwarciu), od najmniej obłożonej; osoby spoza puli
+    z rolą rekrutera bez pracujących, obłożenie P1 z pulpitu („N P1”,
+    `useRequestBoard`, wczytywane dopiero po otwarciu), od najmniej obłożonej;
+    osoby spoza puli
     automatu bez liczby na końcu. Lista wisi na katalogu `/api/users` (jego
     awaria = błąd); awaria obłożenia nie blokuje przypisania. Urlopy pokaże
     dopiero `COMPASS_AVAILABILITY_ENABLED` — do tego czasu stopka „Brak danych
@@ -135,8 +136,8 @@ miejsce, nie zbiór funkcji.
   - **Okienko jest `modal`** (klik obok tylko zamyka, nie otwiera wiersza),
     a korzeń edytora zatrzymuje kliknięcia — zdarzenia React z portali idą do
     `<tr>`. Fokus po otwarciu w polu szukania, nie na „×”. Okno potwierdzenia
-    (`ConfirmV2`, z-50) leży pod okienkiem (z-110), więc na czas potwierdzenia
-    okienko dostaje `invisible`.
+    leży nad okienkiem, bo okna dialogowe stoją na warstwie list wyboru
+    (reguła „Warstwy” w `ui/design-system-ui-zawsze-przy-pracy-nad-wygladem.md`).
   - **Akcje stoją, dopóki lista się odświeża** (`useIsFetching(["jobs-v2"])`):
     wiersz sprzed zapisu kazałby po „×” prowadzącego dopisać kolejną osobę
     jako współpracownika zamiast prowadzącego. Przy filtrze „Bez rekrutera”

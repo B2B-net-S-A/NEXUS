@@ -11,11 +11,15 @@ import {
   groupRequests,
   hasActiveFilters,
   leadOptions,
+  loadBarScale,
   loadSummary,
   matchesFilters,
   needsRecruiter,
   orderLoad,
   orderRequests,
+  outsideP1Href,
+  p1LoadLabel,
+  p1Word,
   pendingProposalCount,
   recruiterPickOptions,
   requestWord,
@@ -198,19 +202,47 @@ describe("obłożenie", () => {
     expect(load.map((p) => p.name)).toEqual(["Zofia", "Adam", "Bogna"])
   })
 
-  it("„2 + 1” i to samo słowami", () => {
+  it("„2 + 1” i to samo słowami — obłożenie to rekrutacje P1 (14.10.2026)", () => {
     expect(loadSummary(person(1, "A", 2, 1))).toEqual({
       label: "2 + 1",
-      spoken: "2 requesty · 1 propozycja do akceptacji",
+      spoken: "2 rekrutacje P1 · 1 propozycja do akceptacji",
     })
     expect(loadSummary(person(1, "A", 0, 2))).toEqual({
       label: "0 + 2",
-      spoken: "0 requestów · 2 propozycje do akceptacji",
+      spoken: "0 rekrutacji P1 · 2 propozycje do akceptacji",
     })
-    expect(loadSummary(person(1, "A", 5, 5)).spoken).toBe("5 requestów · 5 propozycji do akceptacji")
+    expect(loadSummary(person(1, "A", 5, 5)).spoken).toBe(
+      "5 rekrutacji P1 · 5 propozycji do akceptacji",
+    )
     // Starszy backend nie oddaje `proposed` — sama liczba.
-    expect(loadSummary(person(1, "A", 1))).toEqual({ label: "1", spoken: "1 request" })
-    expect(loadSummary(person(1, "A", 3, 0))).toEqual({ label: "3", spoken: "3 requesty" })
+    expect(loadSummary(person(1, "A", 1))).toEqual({ label: "1", spoken: "1 rekrutacja P1" })
+    expect(loadSummary(person(1, "A", 3, 0))).toEqual({ label: "3", spoken: "3 rekrutacje P1" })
+  })
+
+  it("„N P1” w okienkach wyboru i odmiana „rekrutacja P1”", () => {
+    expect([0, 1, 4].map(p1LoadLabel)).toEqual(["0 P1", "1 P1", "4 P1"])
+    expect([1, 2, 5, 22].map(p1Word)).toEqual([
+      "rekrutacja P1",
+      "rekrutacje P1",
+      "rekrutacji P1",
+      "rekrutacje P1",
+    ])
+  })
+
+  it("pasek: najbardziej obłożona osoba (z propozycjami) ma pełny pasek, pusta lista nie dzieli przez zero", () => {
+    expect(loadBarScale([person(1, "A", 8), person(2, "B", 6, 3), person(3, "C", 0)])).toBe(9)
+    expect(loadBarScale([person(1, "A", 0)])).toBe(1)
+    expect(loadBarScale([])).toBe(1)
+  })
+
+  it("„Pokaż na liście rekrutacji”: otwarte, „Szukamy”, osoba, bez P1", () => {
+    const href = outsideP1Href(7)
+    expect(href.startsWith("/jobs?")).toBe(true)
+    const params = new URLSearchParams(href.slice("/jobs?".length))
+    expect(params.get("open")).toBe("1")
+    expect(params.getAll("stage")).toEqual(["searching"])
+    expect(params.getAll("who")).toEqual(["7"])
+    expect(params.get("prio")).toBe("p2,accepting")
   })
 })
 

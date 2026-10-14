@@ -237,8 +237,9 @@ const ALLOCATION_PROPOSALS: AllocationProposalRow[] = [
   proposal({ job_id: 303, title: "Tester automatyzujący · Python, Robot Framework", category_id: 4, category_name: "QA", category_slug: "security_quality", sent: 1, user_id: 43, user_name: "Tomasz Makietowy", fit: "other", load: 4, leave_until: "2026-10-09" }),
 ];
 
-// „Nowe rekrutacje — kto prowadzi” (dane fikcyjne): po jednym wierszu na każdy
-// stan prowadzącego. Lista informacyjna — nie dokłada nic do „Czeka na Ciebie”.
+// „Nowe rekrutacje P1 — kto prowadzi” (dane fikcyjne): po jednym wierszu na
+// każdy stan prowadzącego i początek cyklu, jeden wiersz, który wrócił. Tylko
+// P1 (14.10.2026). Lista informacyjna — nie dokłada nic do „Czeka na Ciebie”.
 const jobLead = (over: Partial<NewJobLeadRow>): NewJobLeadRow => ({
   job_id: 1,
   title: "Rekrutacja",
@@ -247,9 +248,10 @@ const jobLead = (over: Partial<NewJobLeadRow>): NewJobLeadRow => ({
   category_name: "Development",
   category_slug: "software_development",
   participants: 6,
-  priority_level: "p2",
+  priority_level: "p1",
   delivery_lead_name: "Marta Kowalczyk",
   handed_off_at: daysAgo(0),
+  since_reason: "handoff",
   lead_user_id: null,
   lead_name: null,
   lead_role: null,
@@ -260,12 +262,13 @@ const jobLead = (over: Partial<NewJobLeadRow>): NewJobLeadRow => ({
   ...over,
 });
 const NEW_JOB_LEADS: NewJobLeadRow[] = [
-  jobLead({ job_id: 311, title: "Backend Developer · Kotlin, Spring", priority_level: "p1", lead_user_id: 45, lead_name: "Julia Testowa", lead_role: "recruiter", lead_source: "auto" }),
-  jobLead({ job_id: 312, title: "Inżynier danych · Spark, Airflow", client_name: "Fundusz Przykładowy", category_id: 1, category_name: "Infra & Operations & Security / Data & AI", category_slug: "infrastructure_operations", participants: 4, delivery_lead_name: "Piotr Zieliński", lead_user_id: 44, lead_name: "Kinga Przykładowa", lead_role: "recruiter", lead_source: "manual", assigned_by_name: "Piotr Zieliński", handed_off_at: daysAgo(1) }),
-  jobLead({ job_id: 301, title: "Full Stack Java Developer · Spring Boot", priority_level: "p1", lead_user_id: 41, lead_name: "Marek Wzorcowy", lead_role: "recruiter", lead_source: "auto", proposed: true, handed_off_at: daysAgo(1) }),
+  jobLead({ job_id: 311, title: "Backend Developer · Kotlin, Spring", lead_user_id: 45, lead_name: "Julia Testowa", lead_role: "recruiter", lead_source: "auto" }),
+  jobLead({ job_id: 312, title: "Inżynier danych · Spark, Airflow", client_name: "Fundusz Przykładowy", category_id: 1, category_name: "Infra & Operations & Security / Data & AI", category_slug: "infrastructure_operations", participants: 4, delivery_lead_name: "Piotr Zieliński", lead_user_id: 44, lead_name: "Kinga Przykładowa", lead_role: "recruiter", lead_source: "manual", assigned_by_name: "Piotr Zieliński", handed_off_at: daysAgo(1), since_reason: "reopen" }),
+  jobLead({ job_id: 301, title: "Full Stack Java Developer · Spring Boot", lead_user_id: 41, lead_name: "Marek Wzorcowy", lead_role: "recruiter", lead_source: "auto", proposed: true, handed_off_at: daysAgo(1) }),
   jobLead({ job_id: 313, title: "Analityk biznesowy · bankowość", client_name: "Bank Kappa", category_id: 5, category_name: "Management & Delivery (PM & BA)", category_slug: "management_delivery", participants: 3, pending_reason: "assigning" }),
-  jobLead({ job_id: 314, title: "Tester manualny · aplikacje mobilne", client_name: "Ubezpieczenia Wzorcowe", category_id: 4, category_name: "QA", category_slug: "security_quality", participants: 1, priority_level: "accepting", pending_reason: "passive", handed_off_at: daysAgo(2) }),
-  jobLead({ job_id: 315, title: "Administrator sieci · Cisco", client_name: "Energetyka Wzorcowa", category_id: null, category_name: null, category_slug: null, participants: 0, pending_reason: "none", handed_off_at: daysAgo(3) }),
+  // Wrócił: Head of Recruitment potwierdził Kingę, potem automat dał Maję.
+  jobLead({ job_id: 314, title: "Tester manualny · aplikacje mobilne", client_name: "Ubezpieczenia Wzorcowe", category_id: 4, category_name: "QA", category_slug: "security_quality", participants: 1, lead_user_id: 46, lead_name: "Maja Próbna", lead_role: "recruiter", lead_source: "auto", returned_from_user_id: 44, returned_from_name: "Kinga Przykładowa", handed_off_at: daysAgo(2) }),
+  jobLead({ job_id: 315, title: "Administrator sieci · Cisco", client_name: "Energetyka Wzorcowa", category_id: null, category_name: null, category_slug: null, participants: 0, pending_reason: "none", handed_off_at: daysAgo(3), since_reason: "p1" }),
   jobLead({ job_id: 316, title: "Projektant UX · aplikacje webowe", client_name: "Bank Kappa", category_id: 2, category_name: "Development", category_slug: "software_development", participants: 0, pending_reason: "not_handed_off", handed_off_at: daysAgo(5) }),
 ];
 
@@ -287,6 +290,7 @@ const REQUEST_BOARD: RequestBoard = {
       user_id: 44,
       name: "Kinga Przykładowa",
       count: 4,
+      outside_p1: 2,
       requests: [
         { job_id: 311, title: "Java Developer · Spring Boot", client_name: "Bank Północny", deadline: "2026-10-14", proposed: false },
         { job_id: 312, title: "Tester automatyzujący · Python", client_name: "Fundusz Przykładowy", deadline: "2026-10-16", proposed: false },
@@ -299,10 +303,10 @@ const REQUEST_BOARD: RequestBoard = {
     loadPerson({ user_id: 45, name: "Julia Testowa", count: 1 }),
     loadPerson({ user_id: 42, name: "Ewa Fikcyjna", count: 0, proposed: 1 }),
     loadPerson({ user_id: 46, name: "Maja Próbna", count: 0 }),
-    loadPerson({ user_id: 47, name: "Olga Wymyślona", count: 3 }),
+    loadPerson({ user_id: 47, name: "Olga Wymyślona", count: 3, outside_p1: 5 }),
     loadPerson({ user_id: 48, name: "Paweł Zmyślony", count: 3, leave_until: "2026-10-15" }),
     loadPerson({ user_id: 49, name: "Renata Makietowa-Przykładowska", count: 2 }),
-    loadPerson({ user_id: 50, name: "Szymon Fikcyjny", count: 1 }),
+    loadPerson({ user_id: 50, name: "Szymon Fikcyjny", count: 1, outside_p1: 1 }),
   ],
   changes: [],
 };

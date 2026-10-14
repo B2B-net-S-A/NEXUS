@@ -17,12 +17,11 @@ import {
 } from "@/lib/job-team";
 import {
   boardPeople,
+  p1LoadLabel,
   recruiterPickOptions,
-  requestWord,
   type DirectoryPerson,
   type RecruiterPickOption,
 } from "@/lib/request-board";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -176,12 +175,7 @@ function EditorContent({
         align="start"
         // Kolumna stoi przy prawej krawędzi — okienko nie przykleja się do niej.
         collisionPadding={8}
-        className={cn(
-          "w-[min(340px,calc(100vw-2rem))] p-0",
-          // Okno potwierdzenia ma niższą warstwę niż okienko — na czas
-          // potwierdzenia okienko znika, żeby go nie zasłaniać.
-          actions.confirming && "invisible",
-        )}
+        className="w-[min(340px,calc(100vw-2rem))] p-0"
         onOpenAutoFocus={(event) => {
           // Fokus w polu szukania, nie na pierwszym „×” albo „Akceptuj” —
           // Enter zaraz po otwarciu nie może nikogo zdjąć. Na dotyku bez
@@ -293,7 +287,7 @@ function EditorContent({
                   {option.count !== null ? (
                     <span className="shrink-0 text-right text-xs tabular-nums text-muted-foreground">
                       <span className="block">
-                        {option.count} {requestWord(option.count)}
+                        {p1LoadLabel(option.count)}
                       </span>
                       {option.proposed > 0 ? (
                         <span className="block">+ {option.proposed} do akceptacji</span>

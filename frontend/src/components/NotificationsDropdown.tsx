@@ -199,6 +199,12 @@ const TYPE_CONFIG: Record<
     color: "text-primary",
     bgColor: "bg-primary/10",
   },
+  // 14.10.2026: ktoś dodał osobę do Twojej rekrutacji z „Pasuje też do”.
+  also_fits_added: {
+    icon: <UserPlus className="w-3.5 h-3.5" />,
+    color: "text-primary",
+    bgColor: "bg-primary/10",
+  },
   // Targ kandydatów — nowy projekt dopasował się do kandydata w puli marketplace
   marketplace_match: {
     icon: <Store className="w-3.5 h-3.5" />,

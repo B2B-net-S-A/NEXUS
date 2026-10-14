@@ -10,4 +10,19 @@ Firmowy design system jest na tokenach (slate+indygo, 7 palet, dark/soft/kids) �
 - **Tokeny:** `frontend/src/app/globals.css` + `frontend/tailwind.config.ts`. `--accent` = subtelny neutral (hover), **NIE** brand → emfaza zawsze przez `--primary`.
 - **Workflow + cheatsheet color→token: `frontend/docs/ds/ADDING-BLOCKS.md` + `frontend/scripts/add-block.sh` — PRZECZYTAJ przed dodaniem jakiegokolwiek bloku/prymitywu.**
 - **Gotchas:** (1) NIE `npx shadcn add` — przeformatowuje `tailwind.config`, remapuje `--sidebar`→`--sidebar-background`, bumpuje deps; pobieraj pliki z rejestru bezpośrednio (`add-block.sh`). (2) Jeśli bump radix wywali type-check na `@hello-pangea/dnd` „`--radix-${string}`" → `"overrides": {"@radix-ui/react-primitive":"2.1.4"}` + **pełny** `rm -rf node_modules package-lock.json && npm install`. (3) **NIE** odpalaj `build` równolegle z `dev`/`start` (oba piszą `.next` → korupcja: unstyled/500).
+- **Warstwy (14.10.2026):** `Dialog` (więc i `ConfirmV2`), `Popover`,
+  `DropdownMenu`, `Select` i `Tooltip` z `components/ui/` stoją na JEDNEJ
+  warstwie `z-110`, nad oknem `Modal` z AppShell (`z-100`). Otwierają się
+  nawzajem w obie strony (lista wyboru w oknie, potwierdzenie z okienka
+  listy), a stała różnica warstw zawsze psuje jeden kierunek — wyżej leży to,
+  co otwarto później (portal dopisywany na koniec `<body>`). Do 14.10.2026
+  `Dialog` miał `z-50` i potwierdzenie „Zdejmij” z okienka kolumny „Rekruter”
+  chowało się pod nim. Nie nadpisuj warstwy klasą w miejscu użycia, a okna
+  potwierdzenia nie obchodź `invisible` — leży nad okienkiem samo; pilnuje
+  `components/ui/__tests__/floating-layers.test.ts`. `Sheet` został niżej
+  (`z-40`/`z-50`): lista i okno otwarte z panelu leżą nad nim, a 14.10.2026
+  żaden panel nie otwierał się z okna dialogowego. Okienko, z którego
+  otwiera się panel boczny, chowa się na ten czas (fakt „Rekruter” w nagłówku
+  rekrutacji: „Zmień rekrutera” → `ReassignOwnerV2`, `onLayerOpenChange`
+  w `JobOwnershipPanel`); przeniesienie `Sheet` na `z-110` zdjęłoby i to.
 - **Weryfikacja:** type-check/lint/build zielone + screenshot przez Chrome MCP. Publiczne ekrany (login) renderują się lokalnie; authed → harness `/preview/*` z mock danymi (middleware waliduje JWT, fake-auth nie przejdzie). Od rundy 10: na produkcji `/preview/*` wymaga logowania (publiczne tylko poza `NODE_ENV=production` albo z `NEXT_PUBLIC_PREVIEW_PUBLIC=1`, flaga tylko w stacku E2E), harnessy mają WYŁĄCZNIE fikcyjne dane (strażnik `harness-fictional-data.test.ts`) i nie mogą wysyłać zapisów (`app/preview/layout.tsx`).

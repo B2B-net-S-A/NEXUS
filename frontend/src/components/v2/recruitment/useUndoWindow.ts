@@ -12,16 +12,19 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 export const UNDO_ADD_WINDOW_MS = 15 * 60 * 1000;
 
-export interface UndoWindow {
+/** Klucz osoby (`number`) albo pary osoba × rekrutacja (`string`, „Pasuje też do”). */
+export interface UndoWindow<K extends number | string = number> {
   /** Dodano osobę — od teraz liczy się okno „Cofnij”. */
-  start: (ids: readonly number[]) => void;
+  start: (ids: readonly K[]) => void;
   /** Osoby, którym okno już minęło. */
-  expired: ReadonlySet<number>;
+  expired: ReadonlySet<K>;
 }
 
-export function useUndoWindow(windowMs: number = UNDO_ADD_WINDOW_MS): UndoWindow {
-  const [expired, setExpired] = useState<ReadonlySet<number>>(() => new Set());
-  const timers = useRef(new Map<number, ReturnType<typeof setTimeout>>());
+export function useUndoWindow<K extends number | string = number>(
+  windowMs: number = UNDO_ADD_WINDOW_MS,
+): UndoWindow<K> {
+  const [expired, setExpired] = useState<ReadonlySet<K>>(() => new Set());
+  const timers = useRef(new Map<K, ReturnType<typeof setTimeout>>());
 
   useEffect(() => {
     const pending = timers.current;
@@ -32,7 +35,7 @@ export function useUndoWindow(windowMs: number = UNDO_ADD_WINDOW_MS): UndoWindow
   }, []);
 
   const start = useCallback(
-    (ids: readonly number[]) => {
+    (ids: readonly K[]) => {
       for (const id of ids) {
         const previous = timers.current.get(id);
         if (previous) clearTimeout(previous);

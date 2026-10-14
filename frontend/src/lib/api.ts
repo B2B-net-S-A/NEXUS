@@ -6215,7 +6215,17 @@ export interface StageCvSourceItem {
   consent_carried?: boolean;
 }
 
+/** Wynik „Napisz od nowa” (PR 5) — tylko w odpowiedzi na podmianę z `keep_edits`. */
+export interface CVBrandedRewrite {
+  /** Części zostawione w wersji rekrutera, np. „Logistyka 24”. */
+  kept: string[];
+  /** `false` = ręcznych poprawek nie dało się rozpoznać — wzięta cała nowa wersja. */
+  recognized: boolean;
+  can_restore: boolean;
+}
+
 export interface CVBrandedState {
+  rewrite?: CVBrandedRewrite | null;
   presentation_review?: { status: string; message?: string; manual_fields?: string[]; checked_fields?: string[]; reason?: string } | null;
   /** Domyślne wyrównanie treści w pliku Word (reguła klienta, decyzja J1 14.10.2026). */
   text_align?: "justify" | "left";
@@ -6337,9 +6347,24 @@ export const candidateStageCvApi = {
     },
   },
   branded: {
-    selectGenerated: (stageId: number, generated_document_id: number, expected_revision: number, document_version_id?: number) =>
+    selectGenerated: (
+      stageId: number,
+      generated_document_id: number,
+      expected_revision: number,
+      document_version_id?: number,
+      options?: { keepEdits?: boolean },
+    ) =>
       api.post<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded/select-generated`, {
-        generated_document_id, expected_revision, ...(document_version_id ? { document_version_id } : {}),
+        generated_document_id,
+        expected_revision,
+        ...(document_version_id ? { document_version_id } : {}),
+        // „Napisz od nowa” (PR 5): ręcznie poprawione części szkicu zostają.
+        ...(options?.keepEdits ? { keep_edits: true } : {}),
+      }),
+    /** „Wróć do poprzedniej” — szkic sprzed ostatniej podmiany nową generacją. */
+    restorePrevious: (stageId: number, expected_revision: number) =>
+      api.post<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded/restore-previous`, {
+        expected_revision,
       }),
     /** Plik Word z profilu kandydata → szkic CV firmowego (bez AI). */
     selectDocument: (stageId: number, document_id: number, expected_revision: number) =>
@@ -6532,6 +6557,8 @@ export interface CvGeneratePayload {
   screening_notes?: string;
   /** „Z czego powstało” (D4): rodzaje materiału dla modelu — tylko z etapem. */
   sources?: { answers: boolean; notes: boolean; transcripts: boolean; prep: boolean };
+  /** „Napisz od nowa: krócej, więcej o Kafce” — forma i akcenty, nie fakty (PR 5). */
+  instruction?: string;
 }
 
 export const cvGeneratorApi = {

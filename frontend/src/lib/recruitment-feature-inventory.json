@@ -1577,7 +1577,7 @@
   {
    "id": "dashboard.new-job-leads",
    "area": "pulpit",
-   "opis": "„Nowe rekrutacje — kto prowadzi”: lista dla Head of Recruitment i admina z rekruterem prowadzącym (automat / wskazany ręcznie), kategorią, liczbą uczestników i „Zmień”; filtry: klient, kategoria, Delivery Lead, prowadzący, priorytet",
+   "opis": "„Nowe rekrutacje P1 — kto prowadzi”: lista dla Head of Recruitment i admina — rekrutacje P1 bez championa, o których prowadzącym HoR jeszcze nie zdecydował (zespół ustawiony na dowolnym ekranie = „Potwierdź”), z rekruterem prowadzącym (automat / wskazany ręcznie), kategorią, liczbą uczestników, „Potwierdź”, „Zmień” i powodem powrotu („Wraca… było X”); filtry: klient, kategoria, Delivery Lead, prowadzący",
    "file": "components/v2/dashboard/BoardTasksPanel.tsx",
    "marker": "NewJobLeadsSection",
    "v3_home": "Pulpit → Czeka na Ciebie"
@@ -2142,6 +2142,30 @@
    "v3_home": "karta „CV do klienta” → Otwórz i popraw → kolumna „Asystent CV”"
   },
   {
+   "id": "cv.card-rewrite",
+   "area": "cv",
+   "opis": "„Napisz od nowa” w karcie: pole „Co poprawić?” — uwaga trafia do notatek rekrutacji (fakty z tego zdania), generacja rusza sama, a gotowa wersja zastępuje szkic z zachowaniem części poprawionych ręcznie",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "Twoje ręczne poprawki zostaną, a fakty z tego zdania",
+   "v3_home": "karta „CV do klienta” → pole „Co poprawić?” → „Napisz od nowa”"
+  },
+  {
+   "id": "cv.card-rewrite-restore",
+   "area": "cv",
+   "opis": "Po „Napisz od nowa” pasek „Nowa wersja CV. „X” zostało w Twojej wersji.” z „Wróć do poprzedniej” — szkic sprzed podmiany wraca z migawki jednym kliknięciem",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "Wróć do poprzedniej",
+   "v3_home": "karta „CV do klienta” → pasek po nowej wersji"
+  },
+  {
+   "id": "cv.editor-assistant-rewrite",
+   "area": "cv",
+   "opis": "„Napisz od nowa: …” w asystencie edytora (podpowiedź „Napisz od nowa…”): edytor zapisuje szkic, zamyka się i oddaje uwagę karcie",
+   "file": "components/v2/cv-editor/CvEditorAssistant.tsx",
+   "marker": "Napisz od nowa…",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → kolumna „Asystent CV” → „Napisz od nowa…”"
+  },
+  {
    "id": "cv.editor-plan",
    "area": "cv",
    "opis": "Plan zmian: operacje sprawdzone przez serwer z polami wyboru, podgląd na kartce (co znika, co się zmienia), ostrzeżenie o znikającym wymaganiu klienta, „Zastosuj zaznaczone” jedną cofalną zmianą i „Odrzuć plan”",
@@ -2565,6 +2589,22 @@
    "file": "components/v2/recruitment/pick-list.tsx",
    "marker": "Cofnij dodanie: ",
    "v3_home": "okno „Kandydaci do dodania” → wiersz po dodaniu"
+  },
+  {
+   "id": "board.sources-row-also-fits",
+   "area": "pozyskiwanie",
+   "opis": "„Pasuje też do N innych rekrutacji” pod osobą dodaną z wiersza: do 3 rekrutacji w pracy (bramka krytycznych, dopasowanie ≥ 70), „+ Dodaj” / „Dodaj do wszystkich” / „Cofnij” (14.10.2026)",
+   "file": "components/v2/recruitment/also-fits-block.tsx",
+   "marker": "Pasuje też do ",
+   "v3_home": "okno „Kandydaci do dodania” → wiersz po dodaniu"
+  },
+  {
+   "id": "board.card-other-jobs",
+   "area": "tablica",
+   "opis": "„+N rekrutacja” na karcie w Nowych/Screeningu: osoba czeka też w innej rekrutacji — okienko z listą i „Otwórz kartę” (14.10.2026)",
+   "file": "components/v2/pages/kanban-other-jobs-chip.tsx",
+   "marker": "card-other-jobs-chip",
+   "v3_home": "Tablica → karta w „Nowych”/„Screeningu”"
   },
   {
    "id": "board.sources-row-reasons",

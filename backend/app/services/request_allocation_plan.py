@@ -24,10 +24,13 @@ zapisu to ``services/request_allocation``. Reguły:
   Propozycja to nie praca: pokrywa request i liczy się do obłożenia tylko
   wtedy, gdy nikt przy nim nie pracuje.
 * **Kto:** 1. priorytet kategorii requestu → 2. priorytet → pozostali.
-  W grupie najmniej requestów, potem ten, kto najdawniej coś dostał. Do
+  W grupie najmniej requestów P1, potem ten, kto najdawniej coś dostał. Do
   następnej grupy przechodzimy, gdy grupa jest pusta albo jej najmniej
   obłożona osoba ma o więcej niż 1 request więcej niż najmniej obłożona
   osoba w całym zespole — to jest „przelew” między kategoriami.
+  **Obłożenie liczy tylko P1** (decyzja Artura 14.10.2026, ta sama liczba co
+  „Obłożenie” na pulpicie): request bez priorytetu i „Przyjmujemy” nie czyni
+  osoby zajętą.
 * **Stabilność:** planer NIE przerzuca działających przypisań, żeby wyrównać
   liczby. Zwalnia tylko wtedy, gdy request wyszedł z puli albo osoba (z
   przypisaniem automatu) przestała być dostępna — i nawet wtedy nie, jeśli ma
@@ -172,7 +175,7 @@ class PlanInput:
     # przypisania (np. ręcznie dopisany współpracownik) — pokryte, bez nowej
     # propozycji.
     staffed: frozenset[int] = frozenset()
-    # Ile takich requestów ma każda osoba — dolicza się do obłożenia.
+    # Ile takich requestów P1 ma każda osoba — dolicza się do obłożenia.
     extra_load: dict[int, int] = field(default_factory=dict)
 
 
@@ -347,7 +350,10 @@ def plan_assignments(data: PlanInput) -> list[Change]:
         ):
             changes.append(Change("activate", row.job_id, row.user_id, row.role, ""))
         covered.add(row.job_id)
-        load[row.user_id] = load.get(row.user_id, 0) + 1
+        # Obłożenie = requesty P1, jak na pulpicie (14.10.2026): osoba
+        # z requestami spoza P1 nie jest przez nie „zajęta” dla automatu.
+        if pool[row.job_id].automat_assigns:
+            load[row.user_id] = load.get(row.user_id, 0) + 1
 
     if data.mode == "auto" and data.leave_blocks_auto:
         return changes

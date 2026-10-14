@@ -128,6 +128,8 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.consultant_in_other_recruitment: ProductSection.delivery,
     # 0440: link prowadzi do panelu osoby na Tablicy rekrutacji (sekcja CV).
     NotificationType.cv_ready: ProductSection.pipeline,
+    # 0444: link prowadzi do panelu osoby na Tablicy rekrutacji, do której dodano.
+    NotificationType.also_fits_added: ProductSection.pipeline,
 }
 
 CONTEXTUAL_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(

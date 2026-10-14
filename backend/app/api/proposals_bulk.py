@@ -99,6 +99,9 @@ BulkAddSource = Literal[
     "recommendation",
     # 21.09.2026: panel „Moi ludzie" (lista rekrutera, zakładka rekrutacji).
     "my_people",
+    # 14.10.2026: „Pasuje też do” pod osobą właśnie dodaną do innej rekrutacji
+    # (okno „Kandydaci do dodania”). Ręczne dodanie + dzwonek do rekrutera.
+    "also_fits",
 ]
 
 # Eligibility reason → bulk-add skip reason. Reasons that block assignment.
@@ -147,6 +150,9 @@ class BulkProposalsRequest(BaseModel):
     # the candidate (`emit_pipeline_additions`). Never guessed from history.
     run_id: Optional[str] = Field(default=None, max_length=64)
     source: Optional[BulkAddSource] = None
+    # „Pasuje też do” (14.10.2026): rekrutacja, przy której padła podpowiedź —
+    # trafia do historii i do dzwonka rekrutera. Czytane tylko przy `also_fits`.
+    origin_job_id: Optional[int] = Field(default=None, gt=0)
     # 0399: wynik dopasowania od integracji (scraper JJIT/RocketJobs). Od
     # 30.09.2026 taki wynik NIE zakłada karty: osoba trafia do „Do przejrzenia”
     # jako propozycja ``job_board`` (``propose_candidates_for_job``). Serwer
@@ -1125,6 +1131,16 @@ async def bulk_add_proposals(
     if added:
         # Live kanban: the rest of the team re-reads the board (best-effort).
         await broadcast_pipeline_changed(db, job_id, actor_id)
+    if added and body.source == "also_fits" and not from_integration:
+        from app.services.also_fits import record_also_fits_added
+
+        await record_also_fits_added(
+            db,
+            job=job,
+            candidate_ids=added,
+            actor_id=actor_id,
+            origin_job_id=body.origin_job_id,
+        )
 
     # Match telemetry (no-op unless AI_MATCH_TELEMETRY_ENABLED): one
     # `add_to_pipeline` outcome per candidate that actually entered the

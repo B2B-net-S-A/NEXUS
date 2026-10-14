@@ -1579,6 +1579,7 @@ def _run_generation_pipeline(
     position_ref: str | None = None,
     prepared_source_facts: PreparedSourceFacts | None = None,
     position_fallback: str | None = None,
+    instruction: str = "",
 ) -> GenerationResult:
     """Extract CV text, call Claude and render the DOCX.
 
@@ -1618,7 +1619,10 @@ def _run_generation_pipeline(
             position_ref=position_ref,
             prepared_source_facts=prepared_source_facts,
             position_fallback=position_fallback,
+            instruction=instruction,
         )
+    # Pipeline v10 (CV_GENERATION_PIPELINE=v10) nie czyta uwagi rekrutera —
+    # „Napisz od nowa” działa na domyślnej ścieżce legacy_v7.
     if content_mode == "tailored" and champion_dto and champion_dto.intake_profile:
         from types import SimpleNamespace
         from app.services.champion_intake import enforce_operation
@@ -2498,6 +2502,16 @@ def champion_present(job: Job | None) -> bool:
 # ── Main entrypoint ────────────────────────────────────────────────────────
 
 
+INSTRUCTION_MAX = 300
+
+
+def recruiter_instruction(text: str | None) -> str:
+    """Uwaga „Napisz od nowa” dla modelu: jedna linia, bez stawek i dostępności."""
+    from app.services.money_text import strip_rates_and_availability
+
+    return " ".join(strip_rates_and_availability(text or "").split())[:INSTRUCTION_MAX]
+
+
 @dataclass(frozen=True)
 class CandidateGenerationSource:
     """Owned immutable source values, reusable across comparison variants."""
@@ -2527,6 +2541,9 @@ class CandidateGenerationSource:
     # Źródła wybrane w karcie „CV do klienta” (D4) — trafiają do migawki CV,
     # żeby karta pokazała, z czego powstała dana wersja. Puste = sprzed zmiany.
     ai_sources: tuple[tuple[str, bool], ...] = ()
+    # „Napisz od nowa: krócej, więcej o Kafce” (Edytor CV 3, PR 5): życzenie
+    # rekrutera co do formy i akcentów, nigdy źródło faktów. Bez stawek.
+    instruction: str = ""
 
     def champion(self) -> ChampionProfileForPrompt:
         # Each renderer owns a fresh DTO; mutation cannot contaminate another variant.
@@ -2577,6 +2594,7 @@ async def load_candidate_generation_source(
     champion_profile: dict | None = None,
     extra_notes: str = "",
     sources: dict[str, bool] | None = None,
+    instruction: str = "",
 ) -> CandidateGenerationSource:
     """Read the chosen file, recruitment context and notes once; no provider calls.
 
@@ -2791,6 +2809,7 @@ async def load_candidate_generation_source(
         ai_sources=(
             tuple(chosen_sources(sources).items()) if stage is not None else ()
         ),
+        instruction=recruiter_instruction(instruction),
     )
 
 
@@ -2848,6 +2867,7 @@ async def generate_cv_from_candidate_source(
             position_ref=source.position_override or None,
             prepared_source_facts=prepared_source_facts,
             position_fallback=position_fallback,
+            instruction=source.instruction,
         )
     )
     if source.source_warnings:

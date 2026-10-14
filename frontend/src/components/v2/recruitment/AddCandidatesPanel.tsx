@@ -94,10 +94,12 @@ import { useVisibleMatchScores } from "@/hooks/useVisibleMatchScores";
 import { useDismissReasonPrompt } from "./DismissReasonDialog";
 import { ManualSearchPanel } from "./ManualSearchPanel";
 import { PersonPreview } from "./PersonPreview";
+import { alsoFitsSlot } from "./also-fits-block";
 import { PickList, ScoreBadge, type PickRow } from "./pick-list";
 import { proposalReasonChips, withKeptRows } from "./reason-chips";
 import { RecruitmentSheet } from "./slideovers/RecruitmentSheet";
 import { CANDIDATE_WINDOW_TABS, PROPOSAL_SOURCE_LABEL, type CandidateWindowTab } from "./types";
+import { useAlsoFitsJobs } from "./useAlsoFitsJobs";
 import { useJobProposals } from "./useJobProposals";
 import { useJobSearchSeed } from "./useJobSearchSeed";
 import { useSearchBaseTab } from "./useSearchBaseTab";
@@ -312,6 +314,9 @@ function AddCandidatesPanelOpen({
   const [previewId, setPreviewId] = useState<number | null>(null);
   const previewTrigger = useRef<HTMLElement | null>(null);
 
+  // „Pasuje też do” (14.10.2026): inne rekrutacje dla osób dodanych w tym oknie.
+  const alsoFits = useAlsoFitsJobs({ fromJobId: jobId, addedIds, enabled: !readOnly });
+
   const proposals = useJobProposals(jobId, {
     filters: DEFAULT_PROPOSAL_FILTERS,
     budgetHourly,
@@ -452,10 +457,23 @@ function AddCandidatesPanelOpen({
               ? "adding"
               : null,
         undoable: !undoWindow.expired.has(id),
+        alsoFits: alsoFitsSlot(alsoFits, id, e.row.fullName, readOnly),
       };
     });
     return sortMode === "client_first" ? sortByClientHistory(rows, factsById) : rows;
-  }, [listEntries, factsById, sortMode, budgetHourly, askLabels, undoing, addedIds, rowAdding, undoWindow.expired]);
+  }, [
+    listEntries,
+    factsById,
+    sortMode,
+    budgetHourly,
+    askLabels,
+    undoing,
+    addedIds,
+    rowAdding,
+    undoWindow.expired,
+    alsoFits,
+    readOnly,
+  ]);
 
   // Dopasowanie bez klikania (D1, 14.10.2026) — wiersz na ekranie sam o nie
   // prosi; ta sama ścieżka co kolumna wyszukiwarki (`/api/search/candidates/

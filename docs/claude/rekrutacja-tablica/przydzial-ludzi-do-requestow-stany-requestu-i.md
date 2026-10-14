@@ -35,6 +35,8 @@ z kategorią, brak urlopów z Compassa, jednorazowa kolejka przy handoffie) —
   termin. ≥ próg pasujących w bazie (otwarte propozycje, tylko gdy był nocny
   przegląd) → sourcer, inaczej rekruter. 1. priorytet → 2. → inni; przelew do
   innej kategorii, gdy własna grupa ma o >1 więcej niż minimum zespołu.
+  Obłożenie przy wyborze osoby = requesty P1 (od 14.10.2026, ta sama liczba co
+  „Obłożenie” na pulpicie — sekcja o obłożeniu P1 niżej).
   **Nie przerzuca działających przypisań**; zwalnia tylko przy wyjściu
   requestu z puli albo niedostępności osoby (auto, bez kandydatów w toku).
   Ręczne przypisania nie są zwalniane za urlop. Tryby
@@ -102,3 +104,86 @@ z kategorią, brak urlopów z Compassa, jednorazowa kolejka przy handoffie) —
   albo później obowiązuje bez okna. Poranny skrót pomija request, o którym
   osoba dostała już dzwonek przy akceptacji (para osoba × rekrutacja
   z ostatniej doby).
+
+## „Nowe rekrutacje P1 — kto prowadzi” i obłożenie P1 (D1–D7, 14.10.2026)
+
+Uwagi Head of Recruitment z 14.10.2026: (1) rekrutacje mimo przydzielenia
+i potwierdzenia rekrutera wracały na listę „Nowe rekrutacje — kto prowadzi”,
+(2) obłożenie ma liczyć wyłącznie rekrutacje P1, w których osoba uczestniczy.
+Artur zatwierdził D1–D7 z makiet (https://claude.ai/artifact/5rs8RXokY7n8kKzQma7kVS).
+
+### Dlaczego wiersze wracały (pomiar na produkcji, 14.10.2026)
+
+- Potwierdzenie zapisywały tylko „Potwierdź”/„Zmień” na liście, pierwsza osoba
+  przez `POST /api/jobs/{id}/owner` i decyzje o propozycjach. Zespół ustawiony
+  na pulpicie „Requesty i obłożenie”, druga osoba, zdjęcie i okno „Edytuj” —
+  nie. Trzy z pięciu nierozstrzygniętych P1 miały zespół ustawiony przez Head
+  of Recruitment na innym ekranie.
+- Zmiana zespołu gdzie indziej zmieniała prowadzącego, więc wiersz wracał
+  z nową osobą (12.10 pięć rekrutacji potwierdzonych dwa razy w godzinę).
+- „Mamy championa” przesuwa `jobs.work_state_changed_at`, a lista liczyła od
+  niej cykl — potwierdzona rekrutacja wracała jako „przekazano dziś”.
+- `MAX_ROWS = 100` działało w zapytaniu, przed odrzuceniem potwierdzonych.
+  Ponowne otwarcie 185 rekrutacji 12.10 (fala z Traffita, 135 bez priorytetu)
+  wypchnęło 4 z 5 nierozstrzygniętych P1 poza listę.
+
+### Reguła listy (`services/new_job_leads.py`)
+
+- **Tylko P1 bez championa** (D3): `published`, `searching`,
+  `champion_found_at IS NULL`, priorytet poziomu `p1`. Także wiersze „bez
+  przekazania” (H7) — rekrutacja bez priorytetu i „Przyjmujemy” nie czeka na
+  decyzję o prowadzącym, bo automat jej nie obsadza.
+- **Własny początek cyklu** (D2): późniejsze z ostatniego wejścia do
+  „Szukamy” (`Activity work_state_changed`, `to=searching`, `from` różne od
+  `client_silent`) i ostatniego wejścia na P1 (`Activity priority_changed`,
+  `to=p1`). Rekrutacja bez wpisu wejścia bierze `work_state_changed_at`.
+  Okno 7 dni, potwierdzenia i „Przekazano …” liczą się od tej daty;
+  `since_reason` mówi, co ją zaczęło (`handoff` / `reopen` / `p1`), a front
+  pisze „przekazano” / „otwarta ponownie” / „podniesiona na P1”.
+  **Nie wolno** zamiast tego ruszać znaczenia `work_state_changed_at`:
+  steruje `owner_is_working_clause`, `released_owners` i blokadą ręcznych
+  zdjęć automatu (`_blocked`), a champion przesuwa ją celowo (R8-N7-5).
+- **Decyzja Head of Recruitment z każdego ekranu** (D1):
+  `new_job_leads.record_team_decision(db, job_id, actor, via)` — gdy aktor
+  ma rolę z `PROPOSAL_DECISION_ROLES`, zapisuje potwierdzenie osoby, która
+  PO zmianie prowadzi (bez prowadzącego nic). Wołają go: `POST/DELETE
+  /api/request-board/jobs/{id}/people`, decyzje o propozycjach (pojedyncza
+  i zbiorcza — przy rekrutacji z prowadzącym zaakceptowana osoba dochodzi jako
+  druga, więc potwierdzany jest prowadzący, nie ona), `POST/DELETE
+  /api/jobs/{id}/owner`, `/claim`, `POST/DELETE /api/jobs/{id}/collaborators`,
+  PATCH `recruiter_id`. Nowa ścieżka zmieniająca zespół woła ten helper.
+  Przy odczycie wiersz znika też, gdy aktywny wiersz przypisania prowadzącego
+  wpisała osoba z rolą decyzyjną w bieżącym cyklu (dane sprzed reguły
+  i ścieżki, które ktoś pominie).
+- **Powód powrotu**: `returned_from_user_id` / `returned_from_name` = osoba
+  z ostatniego potwierdzenia w cyklu, gdy prowadzi dziś ktoś inny; wiersz
+  mówi „Wraca, bo prowadzący zmienił się po decyzji Head of Recruitment:
+  było X.”.
+- `MAX_ROWS` przycina wynik, nie zapytanie.
+- Zmiana poziomu priorytetu zapisuje `priority_changed`
+  (`job_priority.record_level_change`) w PATCH rekrutacji i w kreatorze
+  onboardingu Delivery Leada; wpis `updated` niesie tylko nowe wartości, a okno
+  edycji odsyła priorytet przy każdym zapisie.
+
+### Obłożenie P1 (D4–D7)
+
+- `GET /api/request-board` → `load[].count`/`proposed`/`requests` = tylko
+  rekrutacje P1 „Szukamy” bez championa, w których osoba jest w roli
+  „Rekruter” (prowadzi, przypisana, dopisana) — nie cała kategoria
+  („uczestnicy” w znaczeniu NEXUSA). Pozostałe to `outside_p1`. Osoba z samymi
+  rekrutacjami spoza P1 zostaje na liście z zerem: z tej listy biorą się filtr
+  „Rekruter” i okienka wyboru osoby.
+- Ta sama liczba wszędzie: panel „Obłożenie” (pulpit i „Czeka na Ciebie”),
+  „Zmień” przy prowadzącym, „Zamień” i powód „ma N rekrutacji P1” przy
+  propozycji (`request_allocation_proposals.load_pending`), okienko „Rekruter”
+  na liście rekrutacji — „N P1” (`p1LoadLabel`).
+- Automat (D5): `plan_assignments` dolicza do obłożenia tylko wiersze przy
+  requestach P1, `_unseen_workers` liczy `extra_load` tylko z P1. Ludzi przy
+  requestach spoza P1 planer nadal nie rusza.
+- Po kliknięciu osoby (D6): jej rekrutacje P1 i linia „Poza P1: N rekrutacji —
+  nie liczą się do obłożenia. Pokaż na liście rekrutacji”
+  (`/jobs?open=1&stage=searching&who=<id>&prio=p2,accepting`).
+- Pasek (D7) względem najbardziej obłożonej osoby na liście (`loadBarScale`,
+  liczone z propozycjami), nie stałej 5.
+- Poza zakresem: kafel „Obciążenie zespołu” (`recruitment_allocation.load_workloads`,
+  inna miara: searche, procesy, kontakty).

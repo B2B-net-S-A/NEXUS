@@ -63,10 +63,12 @@ export interface LoadRequest {
 export interface LoadPerson {
   user_id: number
   name: string
-  /** Requesty, nad którymi osoba pracuje — bez propozycji. */
+  /** Rekrutacje P1, nad którymi osoba pracuje — bez propozycji (14.10.2026). */
   count: number
   /** Propozycje automatu czekające na akceptację. */
   proposed?: number
+  /** Rekrutacje bez priorytetu i „Przyjmujemy” — poza obłożeniem. */
+  outside_p1?: number
   leave_until: string | null
   requests: LoadRequest[]
 }

@@ -37,6 +37,7 @@ from app.schemas.onboarding import (
 )
 from app.schemas.user import UserResponse
 from app.services.access_scope import ScopeKind, resolve_dashboard_scope
+from app.services.job_priority import record_level_change
 from app.services.onboarding_access import onboarding_persona_for_user
 
 router = APIRouter()
@@ -158,10 +159,11 @@ async def _apply_dl_onboarding(
         await allocation_lock(db)
         for job_id in set(payload.priority_job_ids):
             job = scoped_jobs[job_id]
-            previous = job.priority
+            before = job.priority
             job.priority = JobPriority.high
+            record_level_change(db, job, before=before, actor_id=user.id)
             await apply_priority_transition(
-                db, job, previous_priority=previous, actor_id=user.id
+                db, job, previous_priority=before, actor_id=user.id
             )
     for job_id in set(payload.needs_sourcing_job_ids):
         scoped_jobs[job_id].needs_sourcing = True

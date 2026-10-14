@@ -99,6 +99,7 @@ from app.api.deps import CurrentUser, OperationalUser, RecruiterPlus
 from app.api.recruitment_access import (
     ensure_job_read_access,
     ensure_job_membership,
+    job_read_scope_clause,
     job_scope_clause,
     user_can_edit_rates,
     user_can_terminal_transition,
@@ -2587,6 +2588,7 @@ async def build_kanban_view(
     with_followups: bool = True,
     with_employment: bool = True,
     with_cv_state: bool = True,
+    with_other_jobs: bool = True,
     dl_review_memo: Optional[dict[Any, Any]] = None,
 ) -> KanbanView:
     """The board of ``job`` — shared by ``/kanban/{job_id}`` and ``/my-next-steps``.
@@ -2811,6 +2813,30 @@ async def build_kanban_view(
         if with_employment
         else {}
     )
+    # „+1 rekrutacja” (14.10.2026): ta sama osoba czeka też w „Nowych”/
+    # „Screeningu” innej rekrutacji — sygnał „zrób screening razem”.
+    other_open_jobs: dict[int, list[dict]] = {}
+    if with_other_jobs and candidate_ids:
+        from app.services.also_fits import (
+            SCREENING_ENTRY_STAGES,
+            other_open_jobs_for_candidates,
+        )
+
+        # Znacznik stoi tylko na kartach w „Nowych”/„Screeningu” — reszty Tablicy
+        # nie pytamy (zespół czyta Tablicę przy każdym `pipeline_changed`).
+        screening_ids = [
+            cid
+            for cid, s in seen.items()
+            if getattr(s.stage, "value", s.stage) in SCREENING_ENTRY_STAGES
+        ]
+        other_open_jobs = await other_open_jobs_for_candidates(
+            db,
+            candidate_ids=screening_ids,
+            exclude_job_id=job_id,
+            scope_clause=(
+                job_read_scope_clause(viewer, Job.id) if viewer is not None else None
+            ),
+        )
     # 0348: wytypowani do wysłania do Cpro — ta sama paczka nazwisk.
     owner_ids |= {
         s.task_assignee_id for s in seen.values() if s.task_assignee_id is not None
@@ -3018,6 +3044,7 @@ async def build_kanban_view(
             payload["order_status"] = order_statuses.get((e.candidate_id, job_id))
         payload["agreement"] = agreements.get(e.candidate_id)
         payload["employment_marker"] = employment_markers.get(e.candidate_id)
+        payload["other_open_jobs"] = other_open_jobs.get(e.candidate_id) or []
         v4 = v4_processes.get(e.candidate_id)
         if v4 is not None:
             payload["entry_source"] = v4.entry_source
@@ -3280,6 +3307,7 @@ async def my_next_steps(
                     with_followups=False,
                     with_employment=False,
                     with_cv_state=False,
+                    with_other_jobs=False,
                     dl_review_memo=dl_review_memo,
                 ),
             )

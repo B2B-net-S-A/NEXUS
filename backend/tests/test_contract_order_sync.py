@@ -1,6 +1,6 @@
 """Synchronizacja kontrakt ↔ zamówienia (ticket 09.2026).
 
-Zgłoszenie: kontrakt Bartosza Czapelki (Alior) stał jako „Szkic" ze stawką
+Zgłoszenie: kontrakt konsultanta (Alior) stał jako „Szkic" ze stawką
 kosztową 120 zł/h, bez stawki przychodowej i okresu zamówienia, choć jego
 zamówienie OIT/0189/2026/ITVM miało okres 15.09–31.12.2026 i 1340 PLN/MD.
 
@@ -155,7 +155,7 @@ def test_group_line_revenue_is_per_md():
 # ── Zamówienie → kontrakt ────────────────────────────────────────────────────
 
 
-async def test_czapelka_ticket_example_end_to_end_on_the_contract():
+async def test_ticket_example_end_to_end_on_the_contract():
     """Szkic 120 zł/h + zamówienie 1340 PLN/MD → Aktywny, zł/h, okres zamówienia."""
     contract = _contract()
     db = _FakeDb()
@@ -514,7 +514,7 @@ async def _seed_signed_contractor(
         client = Client(name=f"Alior Sync {suffix}")
         candidate = Candidate(
             name="Bartosz",
-            lastname=f"Czapelka-{suffix}",
+            lastname=f"Probny-{suffix}",
             email=f"sync-{suffix}@example.com",
         )
         db.add_all([client, candidate])

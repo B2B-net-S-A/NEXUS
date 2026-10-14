@@ -65,7 +65,7 @@ import { formatIsoDatePl } from "@/lib/date-pl";
 import { formatDeadlineShort, shortenPersonName } from "@/lib/job-header-subtitle";
 import { invalidateJobTeam } from "@/lib/job-team-cache";
 import { pluralPl } from "@/lib/plural-pl";
-import { fold, requestWord } from "@/lib/request-board";
+import { fold, p1LoadLabel, p1Word } from "@/lib/request-board";
 import { cn } from "@/lib/utils";
 
 /** Tyle propozycji przyjmuje jedno żądanie (`MAX_BULK_ACCEPT` w `request_board.py`). */
@@ -92,7 +92,7 @@ export function proposalReasons(row: AllocationProposalRow): ProposalReason[] {
   const fit = FIT_REASON[row.fit];
   if (fit) reasons.push({ text: fit, notable: row.fit === "other" });
   reasons.push({
-    text: row.load > 0 ? `ma ${row.load} ${requestWord(row.load)}` : "bez requestów",
+    text: row.load > 0 ? `ma ${row.load} ${p1Word(row.load)}` : "bez rekrutacji P1",
     notable: false,
   });
   if (row.leave_until) {
@@ -232,7 +232,7 @@ function ReplacePicker({
                     </span>
                     <span className="shrink-0 text-right text-xs tabular-nums text-muted-foreground">
                       <span className="block">
-                        {person.count} {requestWord(person.count)}
+                        {p1LoadLabel(person.count)}
                       </span>
                       {waiting > 0 && (
                         <span className="block">+ {waiting} do akceptacji</span>

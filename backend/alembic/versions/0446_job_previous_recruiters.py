@@ -1,7 +1,7 @@
 """„Poprzedni rekruter” — uśpieni rekruterzy rekrutacji i dwa typy dzwonków.
 
 Revision ID: 0446_job_previous_recruiters
-Revises: 0443_integrations_v1
+Revises: 0445_cv_stage_draft_snapshots
 
 Prośba Head of Recruitment (14.10.2026), decyzje Artura tego samego dnia:
 zamknięcie rekrutacji albo zejście z P1 przenosi zespół do „Poprzedni
@@ -29,7 +29,7 @@ Lustro w ``entrypoint.sh`` — pilnuje ``test_previous_recruiters_migration.py``
 from alembic import op
 
 revision = "0446_job_previous_recruiters"
-down_revision = "0443_integrations_v1"
+down_revision = "0445_cv_stage_draft_snapshots"
 branch_labels = None
 depends_on = None
 

@@ -370,7 +370,9 @@ export type BulkAddSource =
   // Rekrutacja v3: skrzynka „Propozycje z bazy" i karta rekomendacji.
   | "proposal_inbox"
   | "recommendation"
-  | "my_people";
+  | "my_people"
+  // 14.10.2026: „Pasuje też do” pod osobą dodaną do innej rekrutacji.
+  | "also_fits";
 
 export interface BulkProposalsRequest {
   candidate_ids: number[];
@@ -386,6 +388,8 @@ export interface BulkProposalsRequest {
    */
   run_id?: string | null;
   source?: BulkAddSource | null;
+  /** „Pasuje też do”: rekrutacja, przy której padła podpowiedź (historia i dzwonek). */
+  origin_job_id?: number | null;
 }
 
 /**

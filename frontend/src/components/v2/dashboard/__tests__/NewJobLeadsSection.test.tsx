@@ -193,7 +193,7 @@ describe("leadState — kto prowadzi i skąd", () => {
   });
 });
 
-describe("NewJobLeadsSection — „Nowe rekrutacje — kto prowadzi”", () => {
+describe("NewJobLeadsSection — „Nowe rekrutacje P1 — kto prowadzi”", () => {
   it("pusta lista nie renderuje nic", () => {
     const { container } = renderSection([]);
     expect(container).toBeEmptyDOMElement();
@@ -201,9 +201,9 @@ describe("NewJobLeadsSection — „Nowe rekrutacje — kto prowadzi”", () => 
 
   it("wiersz: link do rekrutacji, klient i czas przekazania, kategoria z uczestnikami, priorytet, prowadzący", () => {
     renderSection([lead({ priority_level: "p1", participants: 3 })]);
-    const section = screen.getByRole("region", { name: "Nowe rekrutacje — kto prowadzi" });
+    const section = screen.getByRole("region", { name: "Nowe rekrutacje P1 — kto prowadzi" });
     expect(section).toHaveTextContent(
-      "Uczestnikami każdej rekrutacji są wszyscy z jej kategorii. Potwierdź prowadzącego albo go zmień — rekrutacja zniknie z listy.",
+      "Rekrutacje P1 z ostatnich 7 dni, o których prowadzącym nikt z Head of Recruitment jeszcze nie zdecydował. Zespół ustawiony na dowolnym ekranie liczy się jak „Potwierdź”.",
     );
     const row = within(rowOf("Full Stack Java Developer"));
     expect(row.getByRole("link", { name: "Full Stack Java Developer" })).toHaveAttribute(
@@ -223,6 +223,34 @@ describe("NewJobLeadsSection — „Nowe rekrutacje — kto prowadzi”", () => 
     expect(who).toHaveTextContent("rekruter");
     expect(who).toHaveTextContent("automat");
     expect(row.getByRole("button", { name: "Zmień prowadzącego: Full Stack Java Developer" })).toBeEnabled();
+  });
+
+  it("początek cyklu: przekazanie, ponowne otwarcie, wejście na P1", () => {
+    renderSection([
+      lead({ job_id: 1, title: "Przekazana", since_reason: "handoff" }),
+      lead({ job_id: 2, title: "Otwarta", since_reason: "reopen" }),
+      lead({ job_id: 3, title: "Podniesiona", since_reason: "p1" }),
+    ]);
+    expect(within(rowOf("Przekazana")).getByTestId("lead-request-meta")).toHaveTextContent(
+      /przekazano /,
+    );
+    expect(within(rowOf("Otwarta")).getByTestId("lead-request-meta")).toHaveTextContent(
+      /otwarta ponownie /,
+    );
+    expect(within(rowOf("Podniesiona")).getByTestId("lead-request-meta")).toHaveTextContent(
+      /podniesiona na P1 /,
+    );
+  });
+
+  it("wiersz, który wrócił, mówi, kto prowadził przy decyzji Head of Recruitment", () => {
+    renderSection([
+      lead({ job_id: 1, title: "Wróciła", returned_from_user_id: 22, returned_from_name: "Maja Cis" }),
+      lead({ job_id: 2, title: "Nowa" }),
+    ]);
+    expect(within(rowOf("Wróciła")).getByTestId("lead-returned")).toHaveTextContent(
+      "Wraca, bo prowadzący zmienił się po decyzji Head of Recruitment: było Maja Cis.",
+    );
+    expect(within(rowOf("Nowa")).queryByTestId("lead-returned")).toBeNull();
   });
 
   it("stany prowadzącego: ręcznie, propozycja (bez „Zmień”), automat przydziela, bez prowadzącego", () => {
@@ -293,7 +321,7 @@ describe("NewJobLeadsSection — „Nowe rekrutacje — kto prowadzi”", () => 
 
   it("lista informacyjna: sama liczba, bez plakietki zadania", () => {
     renderSection([lead(), lead({ job_id: 12, title: "Tester" })]);
-    const section = screen.getByRole("region", { name: "Nowe rekrutacje — kto prowadzi" });
+    const section = screen.getByRole("region", { name: "Nowe rekrutacje P1 — kto prowadzi" });
     const count = within(section).getByText("2");
     expect(count).toHaveClass("text-muted-foreground");
     expect(count).not.toHaveClass("text-primary");
@@ -302,7 +330,7 @@ describe("NewJobLeadsSection — „Nowe rekrutacje — kto prowadzi”", () => 
   it("najwyżej 6 wierszy i „Pokaż wszystkie (N)”", async () => {
     const rows = Array.from({ length: 8 }, (_, i) => lead({ job_id: 100 + i, title: `Rekrutacja ${i + 1}` }));
     renderSection(rows);
-    const section = screen.getByRole("region", { name: "Nowe rekrutacje — kto prowadzi" });
+    const section = screen.getByRole("region", { name: "Nowe rekrutacje P1 — kto prowadzi" });
     expect(within(section).getAllByRole("listitem")).toHaveLength(NEW_JOB_LEADS_ROWS);
     await userEvent.click(within(section).getByRole("button", { name: "Pokaż wszystkie (8)" }));
     expect(within(section).getAllByRole("listitem")).toHaveLength(8);
@@ -453,10 +481,10 @@ describe("NewJobLeadsSection — „Nowe rekrutacje — kto prowadzi”", () => 
     expect(get).toHaveBeenCalledWith("/api/request-board");
     const options = await screen.findAllByRole("option");
     expect(options.map((o) => o.textContent)).toEqual([
-      "Marek Dąbprowadzi teraz2 requesty",
-      "Maja Cis0 requestów",
-      "Kinga Olcha4 requesty",
-      "Julia Sosnaurlop do 09.100 requestów",
+      "Marek Dąbprowadzi teraz2 P1",
+      "Maja Cis0 P1",
+      "Kinga Olcha4 P1",
+      "Julia Sosnaurlop do 09.100 P1",
     ]);
     // Obecnego prowadzącego nie da się „zmienić na niego samego”.
     expect(options[0]).toHaveAttribute("aria-disabled", "true");
@@ -563,20 +591,20 @@ describe("NewJobLeadsSection — „Nowe rekrutacje — kto prowadzi”", () => 
       realUser: { id: 1, role: "admin" },
     } as never);
     renderSection([lead()]);
-    const section = screen.getByRole("region", { name: "Nowe rekrutacje — kto prowadzi" });
+    const section = screen.getByRole("region", { name: "Nowe rekrutacje P1 — kto prowadzi" });
     expect(within(section).queryByRole("button")).toBeNull();
     expect(section).toHaveTextContent("W tym widoku nie możesz zmieniać rekrutera prowadzącego.");
   });
 
   it("samodzielnie (panel bez zadań) stoi we własnej ramce, w panelu — na całą szerokość", () => {
     const standalone = renderSection([lead()], true);
-    const alone = screen.getByRole("region", { name: "Nowe rekrutacje — kto prowadzi" });
+    const alone = screen.getByRole("region", { name: "Nowe rekrutacje P1 — kto prowadzi" });
     expect(alone).not.toHaveClass("lg:col-span-3");
     expect(alone.parentElement).toHaveClass("rounded-xl", "border", "bg-card");
     standalone.unmount();
 
     renderSection([lead()]);
-    expect(screen.getByRole("region", { name: "Nowe rekrutacje — kto prowadzi" })).toHaveClass(
+    expect(screen.getByRole("region", { name: "Nowe rekrutacje P1 — kto prowadzi" })).toHaveClass(
       "lg:col-span-3",
     );
   });

@@ -61,7 +61,7 @@ def test_normalize_keeps_per_row_period_and_document_period_apart():
         "md_total": None,
         "consultant_rows": [
             {
-                "consultant_name": "Baczewski Marcin",
+                "consultant_name": "Przykładowy Marcin",
                 "start_date": "1.07.2026",
                 "end_date": "31.08.2026",
                 "rate_client": 1400,
@@ -71,7 +71,7 @@ def test_normalize_keeps_per_row_period_and_document_period_apart():
                 "uncertain_reason": None,
             },
             {
-                "consultant_name": "Jęczeń Barbara",
+                "consultant_name": "Gęślowa Barbara",
                 "start_date": None,
                 "end_date": None,
                 "rate_client": 900,
@@ -88,8 +88,8 @@ def test_normalize_keeps_per_row_period_and_document_period_apart():
     r = m._normalize(data, source="claude")
     assert r.title == "3/07/2026/BL"
     assert [row.consultant_name for row in r.consultant_rows] == [
-        "Baczewski Marcin",
-        "Jęczeń Barbara",
+        "Przykładowy Marcin",
+        "Gęślowa Barbara",
     ]
     first, second = r.consultant_rows
     # Format dd.mm.yyyy z tabeli Velobanku jest normalizowany jak daty dokumentu.
@@ -115,7 +115,7 @@ async def test_all_rows_returns_every_person_without_choosing_one(monkeypatch):
             end_date="2026-12-31",
             consultant_rows=[
                 m.ConsultantOrderRow(
-                    consultant_name="Wiktoria Matyja",
+                    consultant_name="Wiktoria Makietowa",
                     rate_client=Decimal("1340"),
                     rate_unit="day",
                     md_total=Decimal("189"),

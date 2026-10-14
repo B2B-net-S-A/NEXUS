@@ -187,7 +187,7 @@ tylko `recruiter_id`), a Head of Recruitment nie mógł zmienić rekrutera.
   propozycji; request z osobą pracującą inną drogą
   (`staffed`, np. ręczny współpracownik) jest pokryty, a propozycja przy nim
   jest zwalniana (`superseded`); `extra_load` dolicza takie requesty do
-  obłożenia.
+  obłożenia (od 14.10.2026 tylko P1).
 - **Pulpit Head of Recruitment:** „Czeka na Ciebie” (`GET /api/board-tasks`)
   niesie `allocation_proposals` (tylko dla decydujących), `can_decide_proposals`,
   `allocation_leave_known`; źródłem jest `request_allocation_proposals.load_pending`
@@ -224,7 +224,9 @@ tylko `recruiter_id`), a Head of Recruitment nie mógł zmienić rekrutera.
   Rekruter · Kategoria · Priorytet · Termin · Data otwarcia
   (`opened_effective_at` = `COALESCE(opened_at, created_at)`, filtr
   `opened_from`/`opened_to` w dobie Europe/Warsaw). Obłożenie = liczba
-  requestów, przy których osoba jest Rekruterem; propozycje osobno („2 + 1”).
+  requestów P1, przy których osoba jest Rekruterem (od 14.10.2026; reszta
+  jako `outside_p1`, `przydzial-ludzi-do-requestow-stany-requestu-i.md`); propozycje
+  osobno („2 + 1”).
   Układ szerokości bez zmian względem #1967 (`lib/wide-table.ts`): Delivery
   Lead i priorytet nie mają własnych kolumn (priorytet = plakietka przy
   tytule, Delivery Lead = druga linia komórki „Rekruter”).

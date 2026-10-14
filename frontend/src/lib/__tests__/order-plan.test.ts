@@ -32,7 +32,7 @@ function contract(overrides: Partial<OrderPlanContract> = {}): OrderPlanContract
   return {
     contract_id: 11,
     candidate_id: 101,
-    contractor_name: "Krzysztof Suwała",
+    contractor_name: "Krzysztof Próbała",
     status: "active",
     start_date: "2025-06-01",
     end_date: null,
@@ -48,7 +48,7 @@ function contract(overrides: Partial<OrderPlanContract> = {}): OrderPlanContract
 function line(overrides: Partial<OrderPlanLine> = {}): OrderPlanLine {
   return {
     ordinal: 1,
-    document_name: "Krzysztof Suwała",
+    document_name: "Krzysztof Próbała",
     position_label: "10",
     rate_revenue: 1080,
     rate_revenue_unit: "day",
@@ -112,12 +112,12 @@ describe("karty konsultantów z odczytu PDF-a", () => {
       plan([
         line({
           match_status: "confirm",
-          contract: contract({ contractor_name: "Active Paweł Łaski" }),
+          contract: contract({ contractor_name: "Active Paweł Łęgowy" }),
         }),
       ]),
     );
 
-    expect(draft.person?.name).toBe("Active Paweł Łaski");
+    expect(draft.person?.name).toBe("Active Paweł Łęgowy");
     expect(lineIssues(draft, md)).toEqual(["potwierdź dopasowanie"]);
     expect(lineIssues({ ...draft, confirmed: true }, md)).toEqual([]);
   });
@@ -188,7 +188,7 @@ describe("karty konsultantów z odczytu PDF-a", () => {
       end_date: null,
       // Pochodzenie linii — historia zamówienia odróżnia osoby z PDF-a od
       // dopisanych ręcznie.
-      document_name: "Krzysztof Suwała",
+      document_name: "Krzysztof Próbała",
     });
   });
 

@@ -113,7 +113,6 @@ from app.services.action_permissions import ProductAction, has_permission
 from app.services.permission_denial import ensure_permission
 from app.services.client_access import assert_client_assignable
 from app.api.recruitment_access import (
-    PROPOSAL_DECISION_ROLES,
     JobEditLevel,
     JobEditUser,
     JobStaffingUser,
@@ -169,6 +168,7 @@ from app.services.job_priority import (
     level_of,
     priorities_for_levels,
     priority_rank_expr,
+    record_level_change,
 )
 from app.services.job_team import (
     WORK_ROLES,
@@ -2710,6 +2710,11 @@ async def update_job(
             owner_id=job.recruiter_id,
             actor_id=current_user.id,
         )
+    if recruiter_changed:
+        await new_job_leads.record_team_decision(
+            db, job_id=job_id, actor=current_user, via="team_change"
+        )
+    record_level_change(db, job, before=_priority_before, actor_id=current_user.id)
     # Hiring manager musi być kontaktem klienta rekrutacji. Jawnie wskazany
     # z innej firmy = 422; zmiana klienta zdejmuje HM poprzedniego klienta,
     # zamiast zostawić na rekrutacji osobę z cudzej firmy (25.09.2026).
@@ -5382,15 +5387,10 @@ async def assign_owner(
         )
     )
     # Head of Recruitment / admin wybrał osobę — rekrutacja schodzi z listy
-    # „Nowe rekrutacje — kto prowadzi” (wybór to też decyzja o prowadzącym).
-    if current_user.has_any_role(*PROPOSAL_DECISION_ROLES):
-        new_job_leads.record_confirmation(
-            db,
-            job_id=job_id,
-            lead_user_id=target.id,
-            actor_id=current_user.id,
-            via="owner_change",
-        )
+    # „Nowe rekrutacje P1 — kto prowadzi” (wybór to też decyzja o prowadzącym).
+    await new_job_leads.record_team_decision(
+        db, job_id=job_id, actor=current_user, via="owner_change"
+    )
     await db.commit()
     await db.refresh(job)
     return await get_job(job_id, current_user, db)
@@ -5418,6 +5418,9 @@ async def release_owner(
     if previous is not None:
         # Wpis `owner_released` w historii zostawia `remove_recruiter`.
         await remove_recruiter(db, job=job, user_id=previous, actor_id=current_user.id)
+        await new_job_leads.record_team_decision(
+            db, job_id=job_id, actor=current_user, via="team_change"
+        )
     # Commit także bez prowadzącego: zwalnia blokady (doradczą i wiersza).
     await db.commit()
     await db.refresh(job)
@@ -5552,6 +5555,9 @@ async def claim_job(
             user_id=current_user.id,
         )
     )
+    await new_job_leads.record_team_decision(
+        db, job_id=job_id, actor=current_user, via="team_change"
+    )
     await db.commit()
     await db.refresh(job)
     return await get_job(job_id, current_user, db)
@@ -5651,6 +5657,9 @@ async def add_collaborator(
         and job.status != JobStatus.closed
     ):
         await _notify_new_owner(db, job=job, user_id=target.id)
+    await new_job_leads.record_team_decision(
+        db, job_id=job_id, actor=current_user, via="team_change"
+    )
     await db.commit()
     return UserBrief.model_validate(target)
 
@@ -5731,6 +5740,9 @@ async def remove_collaborator(
                 await remove_recruiter(
                     db, job=locked, user_id=user_id, actor_id=current_user.id
                 )
+                await new_job_leads.record_team_decision(
+                    db, job_id=job_id, actor=current_user, via="team_change"
+                )
                 await db.commit()
                 return
         await db.delete(link)
@@ -5761,6 +5773,10 @@ async def remove_collaborator(
             },
         )
     )
+    if removed_source != "auto_cc":
+        await new_job_leads.record_team_decision(
+            db, job_id=job_id, actor=current_user, via="team_change"
+        )
     await db.commit()
 
 

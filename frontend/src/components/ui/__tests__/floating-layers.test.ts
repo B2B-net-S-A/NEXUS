@@ -21,12 +21,29 @@ describe("warstwy pływających elementów", () => {
     ...zValues(read("AppShell.tsx").match(/DialogPrimitive\.Overlay className="[^"]+"/)![0]),
   );
 
-  it.each(["ui/popover.tsx", "ui/dropdown-menu.tsx", "ui/select.tsx", "ui/tooltip.tsx"])(
-    "%s leży nad oknem AppShell",
-    (file) => {
-      const values = zValues(read(file));
-      expect(values.length).toBeGreaterThan(0);
-      for (const z of values) expect(z).toBeGreaterThan(modalZ);
-    },
-  );
+  it.each([
+    "ui/popover.tsx",
+    "ui/dropdown-menu.tsx",
+    "ui/select.tsx",
+    "ui/tooltip.tsx",
+    "ui/dialog.tsx",
+  ])("%s leży nad oknem AppShell", (file) => {
+    const values = zValues(read(file));
+    expect(values.length).toBeGreaterThan(0);
+    for (const z of values) expect(z).toBeGreaterThan(modalZ);
+  });
+
+  // Okno dialogowe (`Dialog`, `ConfirmV2`) i lista wyboru otwierają się
+  // nawzajem w obie strony: lista w oknie i potwierdzenie z okienka listy
+  // (14.10.2026: potwierdzenie „Zdejmij” z okienka kolumny „Rekruter” leżało
+  // POD okienkiem — z-50 pod z-110). Stała różnica warstw psuje zawsze jeden
+  // kierunek, więc obie stoją na jednej warstwie, a wyżej leży to, co
+  // otwarto później (portal dopisywany na koniec `<body>`).
+  it("okno dialogowe stoi na tej samej warstwie co lista wyboru", () => {
+    const layer = (file: string) => new Set(zValues(read(file)));
+    const popover = layer("ui/popover.tsx");
+    expect([...layer("ui/dialog.tsx")]).toEqual([...popover]);
+    expect([...layer("ui/dropdown-menu.tsx")]).toEqual([...popover]);
+    expect([...layer("ui/select.tsx")]).toEqual([...popover]);
+  });
 });
