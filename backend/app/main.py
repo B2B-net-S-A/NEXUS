@@ -94,6 +94,10 @@ from app.api import insights_charts
 from app.api import insights_reconciliation
 from app.api import integrations_compass
 from app.api import integrations_v1
+from app.api.integrations_v1.common import (
+    IntegrationApiError,
+    integration_error_handler,
+)
 from app.api import insights_performance_flags
 from app.api import insights_team
 from app.api import insights_team_signals
@@ -987,6 +991,9 @@ app = FastAPI(
 # Rate limiter (attach first so it wraps everything)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# API integracyjne v1: błąd trasy v1 jest WYJĄTKIEM (rollback sesji żądania),
+# a kopertę `{"error": …}` oddaje ten handler (`integrations_v1.common`).
+app.add_exception_handler(IntegrationApiError, integration_error_handler)
 
 # KOLEJNOŚĆ MA ZNACZENIE: `add_middleware` dokłada na zewnątrz, więc dodane
 # jako PIERWSZE jest najgłębiej. `UnhandledErrorMiddleware` musi być pod

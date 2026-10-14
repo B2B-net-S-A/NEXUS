@@ -37,7 +37,9 @@ pytestmark = pytest.mark.asyncio
 V1 = "/api/integrations/v1"
 
 
-async def _key(app_client: AsyncClient, headers: dict, scopes: list[str]) -> tuple[dict, str]:
+async def _key(
+    app_client: AsyncClient, headers: dict, scopes: list[str]
+) -> tuple[dict, str]:
     account, api_key, _ = await _account_with_key(app_client, headers, scopes)
     return account, api_key
 
@@ -53,7 +55,9 @@ async def _seed_order(*, tag: str) -> dict:
     u = f"{tag}-{uuid.uuid4().hex[:8]}"
     async with AsyncSessionLocal() as db:
         client = Client(name=f"V1 Client {u}")
-        cand = Candidate(name="Ola", lastname=f"Testowa-{u}", email=f"v1-{u}@example.com")
+        cand = Candidate(
+            name="Ola", lastname=f"Testowa-{u}", email=f"v1-{u}@example.com"
+        )
         db.add_all([client, cand])
         await db.flush()
         contract = Contract(
@@ -76,7 +80,11 @@ async def _seed_order(*, tag: str) -> dict:
         )
         db.add(order)
         await db.commit()
-        return {"client_id": client.id, "contract_id": contract.id, "order_id": order.id}
+        return {
+            "client_id": client.id,
+            "contract_id": contract.id,
+            "order_id": order.id,
+        }
 
 
 # ── Meta ─────────────────────────────────────────────────────────────────────
@@ -157,7 +165,9 @@ class TestReadScopes:
         resp = await app_client.get(f"{V1}{path}", headers=app_auth_headers)
         assert resp.status_code == 401, resp.text
 
-    async def test_revoked_key_is_401(self, app_client: AsyncClient, app_auth_headers: dict):
+    async def test_revoked_key_is_401(
+        self, app_client: AsyncClient, app_auth_headers: dict
+    ):
         account, api_key, key = await _account_with_key(
             app_client, app_auth_headers, ["clients:read"]
         )
@@ -176,7 +186,9 @@ class TestReadScopes:
         self, app_client: AsyncClient, app_auth_headers: dict
     ):
         _, api_key = await _key(app_client, app_auth_headers, ["clients:read"])
-        resp = await app_client.get(f"{V1}/clients", headers=_h(api_key), params={"page": 0})
+        resp = await app_client.get(
+            f"{V1}/clients", headers=_h(api_key), params={"page": 0}
+        )
         assert resp.status_code == 422
         assert resp.json()["error"]["code"] == "validation_error"
 
@@ -190,7 +202,9 @@ class TestAmountsScope:
     ):
         seeded = await _seed_order(tag="noamounts")
         _, api_key = await _key(app_client, app_auth_headers, ["orders:read"])
-        resp = await app_client.get(f"{V1}/orders/{seeded['order_id']}", headers=_h(api_key))
+        resp = await app_client.get(
+            f"{V1}/orders/{seeded['order_id']}", headers=_h(api_key)
+        )
         assert resp.status_code == 200, resp.text
         body = resp.json()
         assert body["amounts_redacted"] is True
@@ -200,8 +214,12 @@ class TestAmountsScope:
         self, app_client: AsyncClient, app_auth_headers: dict
     ):
         seeded = await _seed_order(tag="amounts")
-        _, api_key = await _key(app_client, app_auth_headers, ["orders:read", "amounts:read"])
-        resp = await app_client.get(f"{V1}/orders/{seeded['order_id']}", headers=_h(api_key))
+        _, api_key = await _key(
+            app_client, app_auth_headers, ["orders:read", "amounts:read"]
+        )
+        resp = await app_client.get(
+            f"{V1}/orders/{seeded['order_id']}", headers=_h(api_key)
+        )
         assert resp.status_code == 200, resp.text
         body = resp.json()
         assert body["amounts_redacted"] is False
@@ -242,7 +260,9 @@ class TestInvoicesWrite:
         seeded = await _seed_order(tag="inv-nokey")
         _, api_key = await _key(app_client, app_auth_headers, ["invoices:write"])
         resp = await app_client.post(
-            f"{V1}/invoices", headers=_h(api_key), json=_invoice(seeded["contract_id"], "FV/1")
+            f"{V1}/invoices",
+            headers=_h(api_key),
+            json=_invoice(seeded["contract_id"], "FV/1"),
         )
         assert resp.status_code == 400, resp.text
         assert resp.json()["error"]["code"] == "idempotency_key_required"
@@ -254,9 +274,13 @@ class TestInvoicesWrite:
         account, api_key = await _key(app_client, app_auth_headers, ["invoices:write"])
         idem = str(uuid.uuid4())
         payload = _invoice(seeded["contract_id"], f"FV/{uuid.uuid4().hex[:6]}")
-        first = await app_client.post(f"{V1}/invoices", headers=_h(api_key, idem), json=payload)
+        first = await app_client.post(
+            f"{V1}/invoices", headers=_h(api_key, idem), json=payload
+        )
         assert first.status_code == 201, first.text
-        again = await app_client.post(f"{V1}/invoices", headers=_h(api_key, idem), json=payload)
+        again = await app_client.post(
+            f"{V1}/invoices", headers=_h(api_key, idem), json=payload
+        )
         assert again.status_code == 201, again.text
         assert again.headers.get("Idempotent-Replayed") == "true"
         assert again.json()["id"] == first.json()["id"]
@@ -336,7 +360,9 @@ class TestInvoicesWrite:
         assert dup.status_code == 409, dup.text
         assert dup.json()["error"]["code"] == "duplicate_invoice"
 
-    async def test_cancel_keeps_the_record(self, app_client: AsyncClient, app_auth_headers: dict):
+    async def test_cancel_keeps_the_record(
+        self, app_client: AsyncClient, app_auth_headers: dict
+    ):
         seeded = await _seed_order(tag="inv-cancel")
         _, api_key = await _key(app_client, app_auth_headers, ["invoices:write"])
         created = await app_client.post(
@@ -353,7 +379,9 @@ class TestInvoicesWrite:
         assert resp.status_code == 200, resp.text
         assert resp.json()["status"] == "cancelled"
 
-    async def test_read_scope_cannot_write(self, app_client: AsyncClient, app_auth_headers: dict):
+    async def test_read_scope_cannot_write(
+        self, app_client: AsyncClient, app_auth_headers: dict
+    ):
         seeded = await _seed_order(tag="inv-ro")
         _, api_key = await _key(app_client, app_auth_headers, ["invoices:read"])
         resp = await app_client.post(
@@ -401,7 +429,11 @@ class TestMdImport:
         data = {"period_month": _period()}
 
         trial = await app_client.post(
-            f"{V1}/md/imports", headers=_h(api_key), params={"dry_run": "true"}, files=files, data=data
+            f"{V1}/md/imports",
+            headers=_h(api_key),
+            params={"dry_run": "true"},
+            files=files,
+            data=data,
         )
         assert trial.status_code == 200, trial.text
         assert trial.json()["dry_run"] is True
@@ -413,18 +445,26 @@ class TestMdImport:
         async with AsyncSessionLocal() as db:
             assert (
                 await db.scalar(
-                    select(MdConsumptionImport.id).where(MdConsumptionImport.file_sha256 == digest)
+                    select(MdConsumptionImport.id).where(
+                        MdConsumptionImport.file_sha256 == digest
+                    )
                 )
             ) is None
 
         real = await app_client.post(
-            f"{V1}/md/imports", headers=_h(api_key, str(uuid.uuid4())), files=files, data=data
+            f"{V1}/md/imports",
+            headers=_h(api_key, str(uuid.uuid4())),
+            files=files,
+            data=data,
         )
         assert real.status_code == 201, real.text
         assert real.json()["uploaded_by_service_account_id"] == account["id"]
 
         dup = await app_client.post(
-            f"{V1}/md/imports", headers=_h(api_key, str(uuid.uuid4())), files=files, data=data
+            f"{V1}/md/imports",
+            headers=_h(api_key, str(uuid.uuid4())),
+            files=files,
+            data=data,
         )
         assert dup.status_code == 409, dup.text
         assert dup.json()["error"]["code"] == "duplicate_import"
@@ -444,13 +484,115 @@ class TestMdImport:
 
 
 class TestFinanceChecks:
-    async def test_unknown_item_is_409(self, app_client: AsyncClient, app_auth_headers: dict):
+    async def test_check_replay_and_uncheck(
+        self, app_client: AsyncClient, app_auth_headers: dict
+    ):
+        """Ścieżka sukcesu — do przeglądu PR 2A zwracała 500 (``done`` był
+        obiektem ``OrderItemCheck``/``None``, a schemat v1 oczekiwał bool)."""
+        from app.services.order_change_audit import stamp_service_account
+
+        today = business_today()
+        u = uuid.uuid4().hex[:8]
+        async with AsyncSessionLocal() as db:
+            client = Client(name=f"V1 Check {u}")
+            cand = Candidate(
+                name="Ewa", lastname=f"Zmiana-{u}", email=f"v1c-{u}@example.com"
+            )
+            db.add_all([client, cand])
+            await db.flush()
+            contract = Contract(
+                candidate_id=cand.id,
+                client_id=client.id,
+                status=ContractStatus.active,
+                start_date=today - timedelta(days=60),
+            )
+            db.add(contract)
+            await db.flush()
+            order = ClientOrder(
+                contract_id=contract.id,
+                client_id=client.id,
+                title=f"ZAM-CHK-{u}",
+                status=ClientOrderStatus.active,
+                start_date=today - timedelta(days=30),
+                end_date=today + timedelta(days=60),
+                rate_candidate=Decimal("100.00"),
+                rate_client=Decimal("150.00"),
+            )
+            db.add(order)
+            await db.commit()
+            order_id = order.id
+        async with AsyncSessionLocal() as db:
+            stamp_service_account(db.info, 424243)
+            stamped = await db.get(ClientOrder, order_id)
+            stamped.rate_client = Decimal("155.00")
+            await db.commit()
+
+        account, api_key = await _key(app_client, app_auth_headers, ["finance:write"])
+        audit = await app_client.get(
+            f"{V1}/finance/order-changes",
+            headers=_h(api_key),
+            params={"year": today.year, "month": today.month},
+        )
+        assert audit.status_code == 200, audit.text
+        mine = [i for i in audit.json()["changes"] if i["order_id"] == order_id]
+        assert mine, "zmiana stawki nie trafiła do audytu miesiąca"
+        assert mine[0]["source"] == "integration"
+        key = mine[0]["item_key"]
+
+        idem = str(uuid.uuid4())
+        body = {"year": today.year, "month": today.month, "item_key": key, "done": True}
+        done = await app_client.post(
+            f"{V1}/finance/order-changes/checks", headers=_h(api_key, idem), json=body
+        )
+        assert done.status_code == 200, done.text
+        assert done.json()["done"] is True
+        assert done.json()["by_name"] == f"Integracja: {account['name']}"
+
+        replay = await app_client.post(
+            f"{V1}/finance/order-changes/checks", headers=_h(api_key, idem), json=body
+        )
+        assert replay.status_code == 200
+        assert replay.headers.get("Idempotent-Replayed") == "true"
+
+        undone = await app_client.post(
+            f"{V1}/finance/order-changes/checks",
+            headers=_h(api_key, str(uuid.uuid4())),
+            json={**body, "done": False},
+        )
+        assert undone.status_code == 200, undone.text
+        assert undone.json()["done"] is False
+
+    async def test_error_after_receipt_is_not_remembered(
+        self, app_client: AsyncClient, app_auth_headers: dict
+    ):
+        """4xx po rezerwacji klucza wycofuje paragon — ta sama powtórka
+        dostaje ten sam błąd, nie wieczne 409 „trwa” (przegląd PR 2A)."""
+        _, api_key = await _key(app_client, app_auth_headers, ["invoices:write"])
+        idem = str(uuid.uuid4())
+        payload = _invoice(2_000_000_000, f"FV/{uuid.uuid4().hex[:6]}")
+        first = await app_client.post(
+            f"{V1}/invoices", headers=_h(api_key, idem), json=payload
+        )
+        assert first.status_code == 404, first.text
+        again = await app_client.post(
+            f"{V1}/invoices", headers=_h(api_key, idem), json=payload
+        )
+        assert again.status_code == 404, again.text
+
+    async def test_unknown_item_is_409(
+        self, app_client: AsyncClient, app_auth_headers: dict
+    ):
         _, api_key = await _key(app_client, app_auth_headers, ["finance:write"])
         today = business_today()
         resp = await app_client.post(
             f"{V1}/finance/order-changes/checks",
             headers=_h(api_key, str(uuid.uuid4())),
-            json={"year": today.year, "month": today.month, "item_key": "chg:ev:0", "done": True},
+            json={
+                "year": today.year,
+                "month": today.month,
+                "item_key": "chg:ev:0",
+                "done": True,
+            },
         )
         assert resp.status_code == 409, resp.text
         assert resp.json()["error"]["code"] == "item_not_in_month"

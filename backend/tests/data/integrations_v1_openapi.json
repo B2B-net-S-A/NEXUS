@@ -121,7 +121,31 @@
         "type": "object"
       },
       "CheckOut": {
+        "description": "Stan pozycji po zapisie; autor i czas, gdy jest odhaczona.",
         "properties": {
+          "at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "By Name"
+          },
           "done": {
             "title": "Done",
             "type": "boolean"

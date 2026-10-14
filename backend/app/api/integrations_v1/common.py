@@ -97,6 +97,28 @@ def error_response(
     )
 
 
+class IntegrationApiError(Exception):
+    """Błąd trasy v1 niosący gotową odpowiedź w kopercie v1.
+
+    Celowo WYJĄTEK, a nie zwrócona odpowiedź: musi przejść przez stos
+    zależności żądania, żeby ``get_db`` zrobił ROLLBACK. Zwrócenie odpowiedzi
+    z wnętrza handlera trasy kończyło zależności normalnie, więc ``get_db``
+    robił COMMIT — paragon idempotencji zostawał ``pending`` na zawsze,
+    a import MD przerwany konfliktem zostawiał zatwierdzoną partię (przegląd
+    PR 2A, 14.10.2026; ``tests/test_integrations_v1_transactions.py``).
+    """
+
+    def __init__(self, response: JSONResponse) -> None:
+        super().__init__(response.status_code)
+        self.response = response
+
+
+async def integration_error_handler(_request: Request, exc: Exception) -> Response:
+    """Handler aplikacji (``main.py``) — oddaje odpowiedź z ``IntegrationApiError``."""
+    assert isinstance(exc, IntegrationApiError)
+    return exc.response
+
+
 class IntegrationRoute(APIRoute):
     """Trasa v1: każdy błąd (także z zależności i walidacji) w kopercie v1.
 
@@ -119,27 +141,35 @@ class IntegrationRoute(APIRoute):
                     }
                     for err in exc.errors()
                 ]
-                return error_response(
-                    422,
-                    {
-                        "error": "validation_error",
-                        "message": "Nieprawidłowe dane żądania.",
-                        "errors": errors,
-                    },
-                )
+                raise IntegrationApiError(
+                    error_response(
+                        422,
+                        {
+                            "error": "validation_error",
+                            "message": "Nieprawidłowe dane żądania.",
+                            "errors": errors,
+                        },
+                    )
+                ) from exc
             except RateLimitExceeded as exc:
-                return error_response(
-                    429,
-                    {
-                        "error": "rate_limited",
-                        "message": f"Za dużo zapytań ({exc.detail}). Spróbuj za minutę.",
-                    },
-                    headers={"Retry-After": "60"},
-                )
+                raise IntegrationApiError(
+                    error_response(
+                        429,
+                        {
+                            "error": "rate_limited",
+                            "message": f"Za dużo zapytań ({exc.detail}). Spróbuj za minutę.",
+                        },
+                        headers={"Retry-After": "60"},
+                    )
+                ) from exc
             except StarletteHTTPException as exc:
-                return error_response(
-                    exc.status_code, exc.detail, headers=getattr(exc, "headers", None)
-                )
+                raise IntegrationApiError(
+                    error_response(
+                        exc.status_code,
+                        exc.detail,
+                        headers=getattr(exc, "headers", None),
+                    )
+                ) from exc
 
         return handler
 

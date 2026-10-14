@@ -14,7 +14,7 @@ Moduł NIE MOŻE mieć ``from __future__ import annotations`` (slowapi #579).
 
 import asyncio
 import hashlib
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
 from fastapi import (
@@ -149,8 +149,12 @@ class CheckIn(BaseModel):
 
 
 class CheckOut(BaseModel):
+    """Stan pozycji po zapisie; autor i czas, gdy jest odhaczona."""
+
     item_key: str
     done: bool
+    by_name: Optional[str] = None
+    at: Optional[datetime] = None
 
 
 @router.post(
@@ -180,7 +184,9 @@ async def set_check(
                 },
             )
         tab, item = found
-        done = await order_change_checks.set_check(
+        # `set_check` zwraca autora i czas odhaczenia (albo None po cofnięciu);
+        # stan po zapisie to zawsze stan żądany — także gdy już taki był.
+        check = await order_change_checks.set_check(
             db,
             year=body.year,
             month=body.month,
@@ -189,7 +195,12 @@ async def set_check(
             done=body.done,
             user=integration_actor(caller),
         )
-        return 200, CheckOut(item_key=body.item_key, done=done)
+        return 200, CheckOut(
+            item_key=body.item_key,
+            done=body.done,
+            by_name=check.by_name if check is not None else None,
+            at=check.at if check is not None else None,
+        )
 
     return await idempotent_write(
         request, db, caller, payload=body.model_dump(), run=run

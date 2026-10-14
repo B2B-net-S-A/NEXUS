@@ -188,6 +188,7 @@ UUID dla każdej operacji.
 | Ten sam klucz i ta sama treść | Zapisana odpowiedź, bez ponownego zapisu; nagłówek `Idempotent-Replayed: true` |
 | Ten sam klucz i inna treść | `409 idempotency_key_reused` |
 | Operacja z tym kluczem jeszcze trwa | `409 idempotency_in_progress` — ponów za kilka sekund |
+| Operacja z tym kluczem przerwana (> 10 min bez wyniku) | `409 idempotency_outcome_unknown` — sprawdź stan odczytem; jeśli zmiany nie ma, wyślij z NOWYM kluczem |
 | Brak klucza | `400 idempotency_key_required` |
 | Błąd 4xx | Nie jest zapamiętywany — popraw żądanie i wyślij z tym samym kluczem |
 
@@ -222,7 +223,7 @@ Każdy błąd ma ten sam kształt:
 | 401 | `unauthenticated` | Brak, zły, wygasły albo odwołany klucz |
 | 403 | `insufficient_scope` | Konto nie ma scope'u (`details.missing`) |
 | 404 | `not_found` | Rekord nie istnieje |
-| 409 | `conflict`, `duplicate_import`, `duplicate_invoice`, `idempotency_key_reused`, `idempotency_in_progress`, `item_not_in_month`, `requires_screen_approval`, `conflict_retry` | Konflikt — szczegóły w `message` |
+| 409 | `conflict`, `duplicate_import`, `duplicate_invoice`, `idempotency_key_reused`, `idempotency_in_progress`, `idempotency_outcome_unknown`, `item_not_in_month`, `requires_screen_approval`, `conflict_retry` | Konflikt — szczegóły w `message` |
 | 413 | `payload_too_large` | Plik za duży (MD: 10 MB, wyniki: 15 MB) |
 | 415 | — | Zły typ pliku (tylko XLSX) |
 | 422 | `validation_error` | Złe dane (`details.errors`) |

@@ -27,7 +27,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 from uuid import UUID
 
@@ -44,6 +44,8 @@ from app.services.service_account_auth import ServicePrincipal
 
 IDEMPOTENCY_HEADER = "Idempotency-Key"
 REPLAYED_HEADER = "Idempotent-Replayed"
+# Paragon `pending` starszy niż to = operacja przerwana (nie „trwa”).
+PENDING_STALE_AFTER = timedelta(minutes=10)
 
 
 @dataclass(frozen=True)
@@ -133,6 +135,25 @@ async def begin(
                 },
             )
         if existing.state != RECEIPT_DONE:
+            created = existing.created_at
+            if created is not None and created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            if (
+                created is not None
+                and datetime.now(timezone.utc) - created > PENDING_STALE_AFTER
+            ):
+                # Proces padł między zapisem a odpowiedzią (np. wdrożenie w nocy).
+                # Zmiana mogła wejść — skasowanie paragonu i powtórka groziłyby
+                # podwójnym zapisem, więc mówimy wprost, co zrobić.
+                raise HTTPException(
+                    409,
+                    detail={
+                        "error": "idempotency_outcome_unknown",
+                        "message": "Operacja z tym Idempotency-Key została przerwana "
+                        "i jej wynik jest nieznany. Sprawdź stan odczytem i — jeśli "
+                        "zmiany nie ma — wyślij ją z NOWYM kluczem.",
+                    },
+                )
             raise HTTPException(
                 409,
                 detail={
