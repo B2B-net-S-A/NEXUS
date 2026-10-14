@@ -72,11 +72,16 @@ import {
   type RecommendationCard,
 } from "@/lib/api/recommendationCards";
 import {
+  jointContextQueryKey,
+  questionGroupsQueryKey,
   screeningFormQueryKey,
   screeningFormVersionsQueryKey,
+  type JointContext,
   type ScreeningFormState,
   type ScreeningFormVersion,
 } from "@/lib/api/screeningForm";
+import { alsoFitsKeys } from "@/lib/also-fits-api";
+import { useJointScreeningIntent } from "@/store/joint-screening";
 import { stageBrandedQueryKey, stageCvSourcesQueryKey } from "@/lib/cv-to-client";
 import { useAuthStore } from "@/store/auth";
 
@@ -100,7 +105,8 @@ type HarnessState =
   | "history"
   | "cvpick"
   | "cvconsent"
-  | "cvready";
+  | "cvready"
+  | "joint";
 const STATES: ReadonlyArray<{ value: HarnessState; label: string }> = [
   { value: "nowi", label: "Nowi — formularz od razu" },
   { value: "earlier", label: "Wcześniejsze odpowiedzi" },
@@ -113,6 +119,7 @@ const STATES: ReadonlyArray<{ value: HarnessState; label: string }> = [
   { value: "cvpick", label: "CV firmowe — wybór z profilu" },
   { value: "cvconsent", label: "CV firmowe — klient ze zgodą" },
   { value: "cvready", label: "CV firmowe — wybrane" },
+  { value: "joint", label: "Screening dla — dwie rekrutacje" },
 ];
 
 /** Stany wyboru CV z profilu (09.10.2026) — w podglądzie kliknij „CV” → „CV firmowe”. */
@@ -656,7 +663,7 @@ const ITEM: KanbanItem = {
 };
 
 function columnsFor(state: HarnessState): KanbanColumn[] {
-  const column = state === "readonly" ? "rejected" : state === "nowi" ? "new" : "screening";
+  const column = state === "readonly" ? "rejected" : state === "nowi" || state === "joint" ? "new" : "screening";
   const item = { ...ITEM, stage: column };
   const col = (stage: string, name: string, stageDefId: number, extra: Partial<KanbanColumn> = {}): KanbanColumn => ({
     stage,
@@ -783,12 +790,113 @@ const RATE_OVERVIEW = {
 const PREVIEW_VIEWER_SCOPE =
   candidateViewerScopeKey({ id: RECRUITER.id, role: "recruiter", roles: ["recruiter"] }) ?? "";
 
+// ── „Screening dla” (14.10.2026, makiety B1–B3) — dane fikcyjne ──────────
+
+const JOINT_JOB_ID = 203;
+
+/** Druga rekrutacja tej osoby w „Nowych”: dwa pytania wspólne, jedno własne. */
+const JOINT_STATE: ScreeningFormState = {
+  ...BASE_STATE,
+  job_id: JOINT_JOB_ID,
+  stage_id: 903,
+  state_token: "podglad-joint-0",
+  champion_profile: {
+    screening_questions: [
+      { id: "q1", question: "Od kiedy możesz zacząć?", ideal_answer: "Od zaraz.", deal_breaker: "" },
+      {
+        id: "q2",
+        question: "Jak używałeś Kafki w produkcji?",
+        ideal_answer: "Zdarzenia, ponowienia, monitoring opóźnień.",
+        deal_breaker: "",
+      },
+      {
+        id: "q3",
+        question: "Czy 3 dni w biurze w Gdańsku są dla Ciebie OK?",
+        ideal_answer: "Tak.",
+        deal_breaker: "Tylko zdalnie.",
+      },
+    ],
+  },
+};
+
+const JOINT_CONTEXT: JointContext = {
+  candidate_id: CANDIDATE_ID,
+  job_id: JOB_ID,
+  anchor: { job_id: JOB_ID, title: "Senior Java Developer", client_id: 1, client_name: "Bank Przykładowy", budget_hourly: 150 },
+  pairs: [
+    {
+      job_id: JOINT_JOB_ID,
+      title: "Java Developer — płatności",
+      client_id: 3,
+      client_name: "Ubezpieczenia Demo",
+      board_column: "new",
+      process_state_version: 2,
+      claim: { user_id: 31, user_name: "Marta Testowa", until: "2026-10-15T08:40:00Z", mine: true },
+      selectable: true,
+      reason: null,
+      reason_message: null,
+      budget_hourly: 130,
+      verified_stage_def_id: 402,
+    },
+    {
+      job_id: 202,
+      title: "Java Developer — bankowość mobilna",
+      client_id: 1,
+      client_name: "Bank Przykładowy",
+      board_column: "cv_sent",
+      process_state_version: 5,
+      claim: null,
+      selectable: false,
+      reason: "later_stage",
+      reason_message: "Screening tej rekrutacji jest już za nami.",
+      budget_hourly: 150,
+      verified_stage_def_id: 302,
+    },
+    {
+      job_id: 204,
+      title: "Backend Developer",
+      client_id: 4,
+      client_name: "Energetyka Demo",
+      board_column: "new",
+      process_state_version: 1,
+      claim: { user_id: 12, user_name: "Piotr Szkicowy", until: "2026-10-14T18:40:00Z", mine: false },
+      selectable: false,
+      reason: "claimed",
+      reason_message: "Tę osobę prowadzi teraz ktoś inny — po rezerwacji każdy może ją wziąć.",
+      budget_hourly: 140,
+      verified_stage_def_id: 502,
+    },
+  ],
+};
+
+const JOINT_GROUPS = {
+  groups: [
+    [
+      { job_id: JOB_ID, question_id: "q2" },
+      { job_id: JOINT_JOB_ID, question_id: "q2" },
+    ],
+    [
+      { job_id: JOB_ID, question_id: "q3" },
+      { job_id: JOINT_JOB_ID, question_id: "q1" },
+    ],
+  ],
+};
+
+const JOINT_ALSO_FITS = {
+  candidate_id: CANDIDATE_ID,
+  from_job_id: JOB_ID,
+  status: "ok" as const,
+  jobs: [
+    { job_id: 205, title: "Kafka Engineer", client_name: "Logistyka Demo", score: 74, matching_must: ["Java", "Kafka"], gap_must: [] },
+  ],
+};
+
 function seededClient(state: HarnessState): QueryClient {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity, refetchOnWindowFocus: false } },
   });
   const formState =
-    state === "nowi"
+    state === "nowi" || state === "joint"
       ? NOWI_STATE
       : state === "earlier"
         ? EARLIER_STATE
@@ -820,6 +928,20 @@ function seededClient(state: HarnessState): QueryClient {
   // Odpowiedzi Luny z wcześniejszej rozmowy — bez modelu, z pamięci.
   qc.setQueryData(screeningSuggestionsQueryKey(STAGE_ID), EARLIER_SUGGESTIONS, SEED_FRESH);
   qc.setQueryData(candidateQueryKeys.quickView(CANDIDATE_ID), QUICK_VIEW, SEED_FRESH);
+  // „Co już wiemy” pyta o INNE rekrutacje (14.10.2026) — klucz z bieżącą.
+  qc.setQueryData(
+    candidateQueryKeys.quickViewExcluding(CANDIDATE_ID, JOB_ID),
+    { ...QUICK_VIEW, current_recruitments_total: QUICK_VIEW.current_recruitments.length },
+    SEED_FRESH,
+  );
+  if (state === "joint") {
+    qc.setQueryData(jointContextQueryKey(JOB_ID, CANDIDATE_ID), JOINT_CONTEXT, SEED_FRESH);
+    qc.setQueryData(alsoFitsKeys.one(JOB_ID, CANDIDATE_ID), JOINT_ALSO_FITS, SEED_FRESH);
+    qc.setQueryData(screeningFormQueryKey(JOINT_JOB_ID, CANDIDATE_ID), JOINT_STATE, SEED_FRESH);
+    qc.setQueryData(questionGroupsQueryKey([JOB_ID, JOINT_JOB_ID]), JOINT_GROUPS, SEED_FRESH);
+    // Okienko „+1 rekrutacja” na karcie zaznacza od razu drugą rekrutację.
+    useJointScreeningIntent.getState().setIntent(CANDIDATE_ID, [JOINT_JOB_ID]);
+  }
   qc.setQueryData(["cv-original", STAGE_ID], SNAPSHOT, SEED_FRESH);
   const cv = isCvState(state);
   const documents = cv ? [...DOCUMENTS, ...CLIENT_DOCUMENTS] : DOCUMENTS;
@@ -1007,9 +1129,38 @@ function Harness() {
   const [client, setClient] = useState<QueryClient | null>(null);
 
   useEffect(() => {
-    const blocker = api.interceptors.request.use((config) =>
-      Promise.reject(new AxiosError("preview: sieć wyłączona", "ECONNABORTED", config)),
-    );
+    const blocker = api.interceptors.request.use((config) => {
+      // „Screening dla” (14.10.2026): zapis par i ruch na „Zweryfikowany” bez
+      // sieci — karta wyniku pokazuje przebieg jak na produkcji.
+      if (config.url === "/api/screening-form" && config.method === "put") {
+        const body = config.data as { job_id: number };
+        const base = body.job_id === JOINT_JOB_ID ? JOINT_STATE : NOWI_STATE;
+        config.adapter = async () => ({
+          data: {
+            ...base,
+            version: 1,
+            versions_count: 1,
+            state_token: `podglad-zapis-${body.job_id}`,
+            saved_version: 1,
+            undo_to_version: null,
+            changed: [],
+            note_id: null,
+            cache_invalidated: true,
+            process_state_version: 9,
+          },
+          status: 200,
+          statusText: "OK",
+          headers: {},
+          config,
+        });
+        return config;
+      }
+      if (config.url === "/api/pipeline/move") {
+        config.adapter = async () => ({ data: {}, status: 200, statusText: "OK", headers: {}, config });
+        return config;
+      }
+      return Promise.reject(new AxiosError("preview: sieć wyłączona", "ECONNABORTED", config));
+    });
     return () => api.interceptors.request.eject(blocker);
   }, []);
 

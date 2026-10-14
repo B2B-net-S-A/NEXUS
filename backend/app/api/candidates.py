@@ -43,6 +43,7 @@ from sqlalchemy import (
     or_,
     select,
     text,
+    true,
     update,
 )
 from sqlalchemy.exc import IntegrityError
@@ -4574,6 +4575,7 @@ async def get_candidate(
 async def get_candidate_quick_view(
     candidate_id: int,
     current_user: CandidatePIIAccess,
+    exclude_job_id: Optional[int] = Query(default=None, gt=0),
     db: AsyncSession = Depends(get_db),
 ):
     """Typed, bounded projection used by the candidate quick-view drawer.
@@ -4610,6 +4612,13 @@ async def get_candidate_quick_view(
             CandidateStage.moved_by,
         )
         .where(CandidateStage.candidate_id == candidate_id)
+        # Panel osoby w rekrutacji pyta o INNE rekrutacje (14.10.2026) — bieżąca
+        # zajmowała jedno z miejsc, więc „…i N więcej” nigdy się nie pokazało.
+        .where(
+            CandidateStage.job_id != exclude_job_id
+            if exclude_job_id is not None
+            else true()
+        )
         .distinct(CandidateStage.job_id)
         .order_by(
             CandidateStage.job_id,
@@ -4628,6 +4637,7 @@ async def get_candidate_quick_view(
                 mover.name.label("moved_by_name"),
                 PipelineStageDef.name.label("stage_def_name"),
                 PipelineStageDef.is_terminal.label("stage_def_terminal"),
+                func.count().over().label("total"),
             )
             .select_from(latest_per_job)
             .join(Job, Job.id == latest_per_job.c.job_id)
@@ -4658,9 +4668,12 @@ async def get_candidate_quick_view(
                 latest_per_job.c.moved_at.desc(),
                 latest_per_job.c.stage_id.desc(),
             )
-            .limit(3)
+            .limit(4)
         )
     ).all()
+    current_recruitments_total = (
+        int(recruitment_rows[0].total) if recruitment_rows else 0
+    )
     current_recruitments = [
         CandidateQuickViewRecruitment(
             job_id=row.job_id,
@@ -4769,6 +4782,7 @@ async def get_candidate_quick_view(
         ),
         source=CandidateQuickViewSource(**resolve_source(candidate)),
         current_recruitments=current_recruitments,
+        current_recruitments_total=current_recruitments_total,
         recent_notes=recent_notes,
         contact_attempts=contact_attempts,
         cv_highlights=CandidateCvHighlights(**resolve_cv_highlights(candidate)),

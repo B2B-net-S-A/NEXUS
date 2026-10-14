@@ -22,6 +22,8 @@
  ],
  "routes": {
   "GET /api/screening-form": "PPPPPPDDPPPPPPPPPPP",
+  "GET /api/screening-form/joint-context": "PPPPPPDDPPPPPPPPPPP",
+  "GET /api/screening-form/question-groups": "PPPPPPDDPPPPPPPPPPP",
   "GET /api/screening-form/versions": "PPPPPPDDPPPPPPPPPPP",
   "POST /api/screening-form/restore": "PPPPPPDDPPPPPPPPPPP",
   "PUT /api/screening-form": "PPPPPPDDPPPPPPPPPPP"

@@ -273,7 +273,69 @@ export const screeningFormQueryKey = (jobId: number, candidateId: number) =>
 export const screeningFormVersionsQueryKey = (jobId: number, candidateId: number) =>
   ["screening-form", jobId, candidateId, "versions"] as const;
 
+/**
+ * „Screening dla” (14.10.2026, D3): inna rekrutacja tej osoby do jednej rozmowy.
+ * `selectable: false` z powodem (`claimed`, `later_stage`) zostaje na liście.
+ */
+export interface JointContextPair {
+  job_id: number;
+  title: string;
+  client_id: number | null;
+  client_name: string | null;
+  board_column: string | null;
+  process_state_version: number | null;
+  claim: ScreeningFormClaim | null;
+  selectable: boolean;
+  reason: "claimed" | "later_stage" | null;
+  reason_message: string | null;
+  budget_hourly: number | null;
+  /** `null` = szablon bez kodu etapu — przekazanie tylko z jej Tablicy. */
+  verified_stage_def_id: number | null;
+}
+
+export interface JointContextAnchor {
+  job_id: number;
+  title: string;
+  client_id: number | null;
+  client_name: string | null;
+  budget_hourly: number | null;
+}
+
+export interface JointContext {
+  candidate_id: number;
+  job_id: number;
+  /** Rekrutacja, z której otwarto panel. */
+  anchor: JointContextAnchor;
+  pairs: JointContextPair[];
+}
+
+export interface ScreeningQuestionGroups {
+  groups: Array<Array<{ job_id: number; question_id: string }>>;
+}
+
+export const jointContextQueryKey = (jobId: number, candidateId: number) =>
+  ["screening-form", jobId, candidateId, "joint-context"] as const;
+
+export const questionGroupsQueryKey = (jobIds: readonly number[]) =>
+  ["screening-question-groups", ...jobIds] as const;
+
 export const screeningFormApi = {
+  jointContext: async (candidateId: number, jobId: number, signal?: AbortSignal) =>
+    (
+      await api.get<JointContext>("/api/screening-form/joint-context", {
+        params: { candidate_id: candidateId, job_id: jobId },
+        signal,
+      })
+    ).data,
+  questionGroups: async (jobIds: readonly number[], signal?: AbortSignal) => {
+    const params = new URLSearchParams();
+    for (const id of jobIds) params.append("job_ids", String(id));
+    return (
+      await api.get<ScreeningQuestionGroups>(`/api/screening-form/question-groups?${params.toString()}`, {
+        signal,
+      })
+    ).data;
+  },
   get: async (candidateId: number, jobId: number, signal?: AbortSignal) =>
     (
       await api.get<ScreeningFormState>("/api/screening-form", {
@@ -365,6 +427,24 @@ export function useScreeningFormState(candidateId: number, jobId: number, enable
     queryFn: ({ signal }) => screeningFormApi.get(candidateId, jobId, signal),
     enabled,
     staleTime: 15_000,
+  });
+}
+
+export function useJointContext(candidateId: number, jobId: number, enabled = true) {
+  return useQuery({
+    queryKey: jointContextQueryKey(jobId, candidateId),
+    queryFn: ({ signal }) => screeningFormApi.jointContext(candidateId, jobId, signal),
+    enabled,
+    staleTime: 30_000,
+  });
+}
+
+export function useScreeningQuestionGroups(jobIds: readonly number[], enabled = true) {
+  return useQuery({
+    queryKey: questionGroupsQueryKey(jobIds),
+    queryFn: ({ signal }) => screeningFormApi.questionGroups(jobIds, signal),
+    enabled: enabled && jobIds.length >= 2,
+    staleTime: 60_000,
   });
 }
 

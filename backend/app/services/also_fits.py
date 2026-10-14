@@ -30,6 +30,7 @@ from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+from app.services.client_identity import client_display_name_expression
 from app.services.request_work_state import IN_WORK_STATES
 
 logger = logging.getLogger(__name__)
@@ -161,7 +162,7 @@ async def also_fits_for_candidate(
 
     rows = (
         await db.execute(
-            select(Job, Client.name)
+            select(Job, client_display_name_expression())
             .outerjoin(Client, Client.id == Job.client_id)
             .where(Job.id.in_(nearest))
         )
@@ -238,7 +239,6 @@ async def other_open_jobs_for_candidates(
     """
     from app.models.pipeline_template import PipelineStageDef
     from app.services.board_stage_badges import CLAIM_COLUMNS, board_column_for
-    from app.services.client_identity import client_display_name_expression
     from app.services.job_working_title import display_title
 
     ids = sorted({int(c) for c in candidate_ids})

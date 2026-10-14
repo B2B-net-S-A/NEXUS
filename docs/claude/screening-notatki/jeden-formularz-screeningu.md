@@ -56,3 +56,57 @@ Kontrakt: `docs/screening-form-contract.md`, raport: `docs/screening-form-comple
   (`move_requirements.sheet_answered`), szczegóły w „Rekrutacja bez pytań…”.
 - Wzmianki w sekcjach 0413 i 0421 o edycji karty w jej oknie, kafelkach importu notatki i `/note/apply` opisują
   stan sprzed 0424.
+
+## Screening pod kilka rekrutacji w jednej rozmowie — „Screening dla” (14.10.2026)
+
+Decyzje Artura D3–D4 z 14.10.2026 (makiety https://claude.ai/artifact/RTUD8nEm1dRXrarnwHrE7f, B1–B3). Raport:
+`docs/joint-screening-completion-report.md`, kontrakt: `docs/screening-form-contract.md`, sekcja „Screening dla”.
+
+- **Gdzie:** nad formularzem w panelu osoby, gdy karta jest w „Nowych”/„Screeningu”, patrzący ma prawo zapisu, a para
+  nie ma prośby DL o poprawki (`ScreeningWorkbench`, `JointScreeningPicker`). Lista z `GET …/joint-context`: inne
+  rekrutacje osoby (do wyboru tylko Nowi/Screening bez cudzej blokady; dalsze etapy i cudza rezerwacja wyszarzone
+  z powodem) i podpowiedzi „Pasuje też do” z „+ Dodaj i dołącz” (`proposals/bulk`, źródło `also_fits`). „Screening
+  razem” z okienka „+N rekrutacja” na karcie Tablicy otwiera panel z zaznaczonymi rekrutacjami (`store/joint-screening`).
+  Zaznaczenie choć jednej innej rekrutacji zamienia formularz pary na formularz wspólny (`JointScreeningForm`).
+  Najwyżej 4 rekrutacje w jednej rozmowie (kotwica + 3, `JOINT_MAX_OTHERS`) — trasa grup pytań przyjmuje 2–4;
+  „Screening razem” bierze pierwsze 3 i działa też dla osoby, której panel jest już otwarty.
+- **Jeden stan, zapis per para** (`lib/joint-screening.ts`): `projectPair` rzutuje stan wspólny na wartości
+  pojedynczego formularza pary, a `buildSavePayload` z JEJ stanu buduje zwykły `PUT /api/screening-form` — wersje,
+  `state_token`, blokada 12 h i 409/423 działają jak dotąd, osobno dla każdej pary. Kotwica zapisuje się pierwsza.
+  Rzut liczy się od NAJŚWIEŻSZEGO stanu pary (tego, którego odcisk idzie w zapisie): pole nieruszone w tej rozmowie
+  bierze wartość serwera, ruszone — wartość z rozmowy, a odświeżenie w tle przerysowuje pola nieruszone
+  (`keepDirtyValues`). Do 14.10.2026 (przegląd przed PR-em) zapis po odświeżeniu w tle odsyłał wartości sprzed
+  otwarcia formularza ze świeżym odciskiem i po cichu cofał cudzą zmianę.
+- **Pola wspólne** (dostępność, tryb pracy, lokalizacja, narodowość, angielski, red flags; „Czy pracował u Klienta”
+  per klient) i odpowiedź na wspólne pytanie: ruszone w tej rozmowie → do każdej pary; nieruszone → tylko tam,
+  gdzie puste; inna zapisana wartość w parze → pod polem „W <rekrutacja>: …”. Stawka: „Ta sama stawka we
+  wszystkich” zaznaczone, gdy stawki par na start są równe albo puste; przy zaznaczonym — kwota z pola wspólnego
+  (ta, którą widać) idzie do każdej pary, gdy rekruter ruszył stawkę albo przełącznik, i do pary bez własnej
+  stawki, a nieruszona zostawia parze jej stawkę startową (`ratePrefill` jak pojedynczy formularz); osobne
+  stawki — ruszona albo startowa. Porównanie z budżetem każdej rekrutacji pod polem. „Dlaczego ten kandydat”, motywacja, ogólna ocena i pozostałe
+  pola karty — osobno, w zakładkach per rekrutacja.
+- **Pytania:** grupy z `GET …/question-groups` (reguła `screening_question_groups.py`) — wspólne zadajesz raz,
+  pozostałe w sekcjach „Tylko <rekrutacja>”; deal-breaker zaznaczasz per rekrutacja.
+- **„Zapisz i przekaż dalej w N”:** najpierw braki wszystkich par (pytania bez odpowiedzi, „Dlaczego ten kandydat”
+  bez pytań) — nic się nie zapisuje, dopóki ich nie ma; potem per para zapis i ruch na „Zweryfikowany” (`stage_def_id`
+  z `joint-context`, `expected_state_version` z wyniku zapisu tej pary, `silent` w `usePipelineMoveCore`, odświeżenie
+  Tablic innych rekrutacji). **Para z trafionym deal-breakerem nie przechodzi sama** — karta wyniku daje „Przekaż mimo
+  to” (pojedynczy formularz deal-breakera nie blokuje) i „Otwórz jej kartę”; odmowa kwalifikowalności też ma „Przekaż
+  mimo to” (z `acknowledge_eligibility`). Karta wyniku mówi per rekrutacja: przekazano / nie zapisano (komunikat
+  serwera, np. cudza rezerwacja) / zapisano bez przekazania i dlaczego. Od startu zapisu do zamknięcia karty wyniku
+  panel trzyma formularz z tym samym wyborem (`onSessionChange`), choć kotwica jest już w „Zweryfikowanym”, a lista
+  rekrutacji się odświeżyła. `onForwarded` (panel przechodzi na CV) dopiero po zamknięciu karty wyniku, gdy kotwica
+  przeszła.
+- **Notatka z rozmowy:** pasek „Uzupełnij z notatki” odczytuje notatkę dla kotwicy, a ten sam tekst dla pozostałych
+  rekrutacji (`recommendationCardsApi.readNote` per rekrutacja); wyniki trafiają tylko w puste miejsca
+  (`noteFillPatches`); „Cofnij wypełnienie” zdejmuje tylko to, co wpisała notatka (pole poprawione po wypełnieniu
+  zostaje). Notatkę zakłada zapis pierwszej pary, kolejne wskazują ją `note_id` — serwer przyjmuje notatkę
+  z innej rekrutacji tej osoby z tej samej rozmowy (`_joint_note_from_other_pair`, ≤ 60 min). Pochodzenie pól „z
+  notatki” w trybie wspólnym nie jest zapisywane (pola idą jak wpisane ręcznie).
+- **Świadomie poza trybem wspólnym** (zostają w pojedynczym formularzu): „Użyj tej odpowiedzi” z wcześniejszych
+  rozmów, „Pomiń brakujące”, „Ułóż w zdanie”.
+- **Liczenie (D4):** każda para to osobny screening i osobna weryfikacja w KPI i lidze — bez zmian.
+- **„W innych rekrutacjach”** w „Co już wiemy” pyta quick-view z `exclude_job_id` i pokazuje sumę
+  (`current_recruitments_total`) — do 14.10.2026 bieżąca rekrutacja zajmowała jedno z 3 miejsc i „…i N więcej” nigdy
+  się nie pokazywało.
+

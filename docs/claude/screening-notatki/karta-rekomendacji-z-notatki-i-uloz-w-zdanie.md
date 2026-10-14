@@ -50,9 +50,11 @@ Harness `/preview/screening-form?state=note`. Raport:
   formularzowi kanałem `lib/note-fill-channel.ts`, a formularz czyta ją trasą `/note/read` i wypełnia puste
   pola jak przy wklejeniu. Zapis formularza odsyła `note_import.note_id`: serwer wiąże wersję i pochodzenie
   pól z tą notatką i NIE zakłada drugiej (`screening_form._reused_note`). Notatkę przyjmuje tylko z tej
-  samej pary, autorstwa zapisującego, nieusuniętą u źródła i rodzaju z `NOTE_REUSE_KINDS` (`human`,
-  `screening_facts`, `card` — reguła rodzajów robi z notatki z rozmowy także te dwa; sama `human` zamykałaby
-  drogę dla „Stawka 150, od listopada…”); inaczej 422 `SCREENING_FORM_INVALID` przed jakimkolwiek zapisem.
+  samej pary, autorstwa zapisującego, nieusuniętą u źródła, bez `external_source` i rodzaju spoza
+  `NOTE_REUSE_REFUSED_KINDS` (automaty, formularz aplikacji, prep, mail, wpisy DL, kontraktor — od 14.10.2026 lista
+  odmów zamiast dawnej listy `NOTE_REUSE_KINDS`); inaczej 422 `SCREENING_FORM_INVALID` przed jakimkolwiek zapisem.
+  Wyjątek „Screening dla” (14.10.2026): notatka z INNEJ rekrutacji tej osoby z tej samej rozmowy — reguła
+  w `jeden-formularz-screeningu.md`, sekcja „Screening pod kilka rekrutacji”.
   Treść i rodzaj notatki z doku zostają, jakie były. Porażka odczytu: formularz pokazuje powód, dok mówi, że
   notatka jest zapisana, a formularza nie wypełnił. Formularz z niezapisanym wypełnieniem z innej notatki
   drugiej nie przyjmuje.

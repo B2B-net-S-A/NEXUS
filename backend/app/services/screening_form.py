@@ -57,7 +57,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.activity import Activity
 from app.models.candidate import Candidate
-from app.models.job import Job
+from app.models.job import Job, JobStatus
 from app.models.note import Note, NoteType
 from app.models.recommendation_card import RecommendationCard
 from app.models.recruitment_pipeline import CandidateStage
@@ -598,6 +598,127 @@ async def _claim_state(
         "until": claim.until.isoformat(),
         "mine": claim.user_id == user.id,
     }
+
+
+# „Screening dla” (14.10.2026, D3): najwyżej tyle innych rekrutacji osoby.
+JOINT_PAIRS_LIMIT = 8
+JOINT_REASON_MESSAGES: dict[str, str] = {
+    "claimed": "Tę osobę prowadzi teraz ktoś inny — po rezerwacji każdy może ją wziąć.",
+    "later_stage": "Screening tej rekrutacji jest już za nami.",
+}
+
+
+async def joint_anchor(db: AsyncSession, job: Job) -> dict[str, Any]:
+    """Rekrutacja, z której otwarto panel — klient i budżet do formularza wspólnego."""
+    from app.models.client import Client
+    from app.services.client_identity import client_display_name_expression
+    from app.services.dealbreaker_filters import resolve_job_budget_hourly
+    from app.services.job_working_title import display_title
+
+    client_name = (
+        await db.scalar(
+            select(client_display_name_expression()).where(Client.id == job.client_id)
+        )
+        if job.client_id is not None
+        else None
+    )
+    budget = resolve_job_budget_hourly(job)
+    return {
+        "job_id": job.id,
+        "title": display_title(job),
+        "client_id": job.client_id,
+        "client_name": client_name,
+        "budget_hourly": float(budget) if budget is not None else None,
+    }
+
+
+async def joint_pairs(
+    db: AsyncSession,
+    *,
+    user: User,
+    candidate_id: int,
+    anchor_job_id: int,
+    scope_clause: Any = None,
+) -> list[dict[str, Any]]:
+    """Inne rekrutacje osoby do „Screening dla” — screening pod kilka naraz.
+
+    Ta sama reguła edycji co formularz (``pair_edit_state``) i ta sama
+    blokada 12 h (``_claim_state``). Wybrać można tylko parę w „Nowych”/
+    „Screeningu”, otwartą i niezablokowaną przez kogoś innego (DL/HoR/admin
+    omijają cudzą blokadę jak w zapisie). Pozostałe zostają na liście
+    z powodem, żeby rekruter wiedział, czemu ich nie ma w rozmowie.
+    """
+    from app.services.dealbreaker_filters import resolve_job_budget_hourly
+    from app.services.job_working_title import display_title
+
+    stmt = (
+        select(CandidateStage.job_id, func.max(CandidateStage.moved_at).label("last"))
+        .join(Job, Job.id == CandidateStage.job_id)
+        .where(
+            CandidateStage.candidate_id == candidate_id,
+            CandidateStage.job_id != anchor_job_id,
+            Job.status != JobStatus.closed,
+        )
+        .group_by(CandidateStage.job_id)
+        .order_by(func.max(CandidateStage.moved_at).desc())
+        .limit(JOINT_PAIRS_LIMIT)
+    )
+    if scope_clause is not None:
+        stmt = stmt.where(scope_clause)
+    job_ids = [int(job_id) for job_id, _ in (await db.execute(stmt)).all()]
+    if not job_ids:
+        return []
+    from app.models.client import Client
+    from app.services.client_identity import client_display_name_expression
+
+    jobs = {
+        job.id: (job, client_name)
+        for job, client_name in (
+            await db.execute(
+                select(Job, client_display_name_expression())
+                .outerjoin(Client, Client.id == Job.client_id)
+                .where(Job.id.in_(job_ids))
+            )
+        ).all()
+    }
+    out: list[dict[str, Any]] = []
+    for job_id in job_ids:
+        if job_id not in jobs:
+            continue
+        job, client_name = jobs[job_id]
+        state = await pair_edit_state(db, job=job, candidate_id=candidate_id)
+        if state.reason is not None:
+            # Proces zamknięty, zatrudnienie, unieważnienie — nie ma czego robić.
+            continue
+        claim = await _claim_state(db, state, user)
+        reason: Optional[str] = None
+        if state.column not in candidate_claim.CLAIM_COLUMNS:
+            reason = "later_stage"
+        elif (
+            claim is not None
+            and not claim["mine"]
+            and not candidate_claim.can_override(user)
+        ):
+            reason = "claimed"
+        budget = resolve_job_budget_hourly(job)
+        out.append(
+            {
+                "job_id": job_id,
+                "title": display_title(job),
+                "client_id": job.client_id,
+                "client_name": client_name,
+                "board_column": state.column,
+                "process_state_version": (
+                    state.process.state_version if state.process is not None else None
+                ),
+                "claim": claim,
+                "selectable": reason is None,
+                "reason": reason,
+                "reason_message": JOINT_REASON_MESSAGES.get(reason or ""),
+                "budget_hourly": float(budget) if budget is not None else None,
+            }
+        )
+    return out
 
 
 async def load_state(
@@ -1342,17 +1463,60 @@ async def _reused_note(
     if (
         note is None
         or note.candidate_id != candidate_id
-        or note.job_id != job_id
         or note.author_id != user.id
-        or note.external_source is not None
         or note.kind in NOTE_REUSE_REFUSED_KINDS
         or note.source_deleted_at is not None
+        or not (
+            (note.job_id == job_id and note.external_source is None)
+            or await _joint_note_from_other_pair(
+                db, note=note, candidate_id=candidate_id, job_id=job_id
+            )
+        )
     ):
         raise _invalid(
             "Tej notatki nie da się powiązać z formularzem — wklej jej tekst "
             "w „Uzupełnij z notatki”."
         )
     return note
+
+
+# „Screening dla” (14.10.2026): jedna rozmowa, jedna notatka — zapis pierwszej
+# pary ją zakłada, kolejne pary wskazują ją `note_id`, zamiast zakładać kopie.
+JOINT_NOTE_MAX_AGE_MINUTES = 60
+
+
+async def _joint_note_from_other_pair(
+    db: AsyncSession, *, note: Note, candidate_id: int, job_id: int
+) -> bool:
+    """Notatka z rozmowy zapisana przy INNEJ rekrutacji tej osoby w tej samej sesji.
+
+    Ręczna notatka z doku albo założona przez formularz („Uzupełnij z notatki”),
+    nie starsza niż godzina, a osoba ma etap w rekrutacji notatki — rozmowa
+    dotyczyła obu rekrutacji. Autora, kandydata, rodzaj i usunięcie sprawdza
+    wołający.
+    """
+    if note.job_id is None or note.job_id == job_id:
+        return False
+    if note.external_source not in (None, note_kinds.CARD_ASSIST_SOURCE):
+        return False
+    created = note.created_at
+    if created is None:
+        return False
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    age = datetime.now(timezone.utc) - created
+    if age.total_seconds() > JOINT_NOTE_MAX_AGE_MINUTES * 60:
+        return False
+    return bool(
+        await db.scalar(
+            select(CandidateStage.id)
+            .where(
+                CandidateStage.candidate_id == candidate_id,
+                CandidateStage.job_id == note.job_id,
+            )
+            .limit(1)
+        )
+    )
 
 
 async def save(
