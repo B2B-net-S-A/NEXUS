@@ -164,6 +164,52 @@ Błędy:
   opisowymi, `note_ai`/`note_rule` bez `note_import`, kwota ≤ 0
 - 403 zmiana stawki bez `user_can_edit_rates`
 
+## „Screening dla” — jedna rozmowa pod kilka rekrutacji (14.10.2026)
+
+Formularz wspólny (`JointScreeningForm`) nie ma własnej trasy zapisu: zapisuje każdą parę osobno tym samym
+`PUT /api/screening-form` (wersja, odcisk stanu, blokada 12 h i odmowy — per para) i przenosi każdą osobno
+`POST /api/pipeline/move`. Dwie trasy tylko do odczytu:
+
+### GET /api/screening-form/joint-context?candidate_id=&job_id=
+
+Inne rekrutacje osoby do jednej rozmowy (`services/screening_form.joint_pairs`). Bez prawa zapisu — `pairs: []`.
+
+```
+{
+  candidate_id, job_id,
+  anchor: {job_id, title, client_id, client_name, budget_hourly},
+  pairs: [{
+    job_id, title, client_id, client_name,
+    board_column,                 // kolumna Tablicy najnowszego wiersza pary
+    process_state_version,
+    claim: {user_id, user_name, until, mine} | null,
+    selectable: bool,             // Nowi/Screening, proces otwarty, bez cudzej blokady (DL/HoR/admin ją omijają)
+    reason: "claimed" | "later_stage" | null,
+    reason_message: str | null,
+    budget_hourly: float | null,  // resolve_job_budget_hourly
+    verified_stage_def_id: int | null  // etap „Zweryfikowany” jak ruch z Tablicy bez stage_def_id; null = szablon bez kodu etapu
+  }]
+}
+```
+
+Na liście nie ma par z procesem zamkniętym, unieważnionym ani zamkniętych rekrutacji (`read_only_reason`), najwyżej 8
+rekrutacji (najświeższy ruch), w zakresie odczytu patrzącego.
+
+### GET /api/screening-form/question-groups?job_ids=A&job_ids=B (2–4)
+
+`{groups: [[{job_id, question_id}, …], …]}` — to samo pytanie w kilku rekrutacjach
+(`services/screening_question_groups.py`): ten sam tekst po złożeniu albo `prior_screening.questions_match` w obie
+strony (te same technologie); pytania o stawkę, dostępność, lokalizację i tryb (`has_own_layer`) tylko po tym samym
+tekście; w grupie najwyżej jedno pytanie z rekrutacji. Pytania bez grupy front dokłada sam. Odpowiedź wspólnego
+pytania trafia do arkusza każdej rekrutacji pod JEJ `question_id`.
+
+### Notatka z rozmowy między parami
+
+`note_import.note_id` może wskazać notatkę zapisaną przy INNEJ rekrutacji tej osoby (`_reused_note` →
+`_joint_note_from_other_pair`): ten sam autor i kandydat, `external_source` puste albo `card_note_import`, rodzaj spoza
+`NOTE_REUSE_REFUSED_KINDS`, nieusunięta, nie starsza niż 60 min, a osoba ma etap w rekrutacji notatki. Formularz
+wspólny wysyła notatkę z zapisem pierwszej pary (`note_import: {text}`), a kolejne pary — `{text, note_id}` z wyniku.
+
 ## GET /api/screening-form/versions?candidate_id=&job_id=
 
 ```ts

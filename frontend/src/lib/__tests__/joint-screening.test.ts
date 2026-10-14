@@ -9,6 +9,7 @@ import {
   hitKey,
   jobKey,
   jointDefaults,
+  noteFillPatches,
   projectPair,
   type JointPair,
 } from "@/lib/joint-screening";
@@ -135,5 +136,29 @@ describe("budgetVerdict", () => {
     });
     expect(budgetVerdict({ amount: 880, unit: "daily", currency: "PLN" }, 130).tone).toBe("ok");
     expect(budgetVerdict({ amount: 30, unit: "hourly", currency: "EUR" }, 130).tone).toBe("unknown");
+  });
+});
+
+describe("noteFillPatches — notatka tylko w puste miejsca", () => {
+  const groups = completeGroups([A, B], SERVER);
+
+  it("fills empty shared terms, the shared answer once and the rate, never what is already there", () => {
+    const values = jointDefaults([A, B], groups);
+    values.shared.card.work_mode = "hybrydowo";
+    const proposal = {
+      fields: [
+        { key: "availability", proposed: "od 1.11" },
+        { key: "work_mode", proposed: "zdalnie" },
+        { key: "rate", proposed: "110 zł/h", rate: { amount: 110, unit: "hourly", currency: "PLN" } },
+        { key: "recommendation", proposed: "Mocny w RxJS" },
+      ],
+      answers: [{ question_id: "q2", sentence: "Strumienie w formularzach", keywords: "rxjs" }],
+    } as never;
+    const patches = Object.fromEntries(noteFillPatches(values, B, groups, proposal));
+    expect(patches["shared.card.availability"]).toBe("od 1.11");
+    expect(patches).not.toHaveProperty("shared.card.work_mode");
+    expect(patches[`answers.${groups[0].key}`]).toBe("Strumienie w formularzach");
+    expect(patches["shared.rate_amount"] ?? patches[`jobs.${jobKey(2)}.rate_amount`]).toBe("110");
+    expect(patches[`jobs.${jobKey(2)}.card.recommendation`]).toBe("Mocny w RxJS");
   });
 });

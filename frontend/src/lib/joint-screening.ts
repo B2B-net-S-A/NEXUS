@@ -15,6 +15,7 @@
  */
 
 import type { RateUnit, ScreeningQuestion } from "@/lib/api";
+import type { NoteProposal } from "@/lib/api/recommendationCards";
 import type { FormRate, ScreeningFormState } from "@/lib/api/screeningForm";
 import {
   assessmentMissingForForward,
@@ -288,4 +289,53 @@ export function budgetVerdict(
   if (hourly <= budgetHourly + 0.005) return { tone: "ok", label: `mieści się w ${budgetHourly} zł/h` };
   const over = Math.round(((hourly - budgetHourly) / budgetHourly) * 100);
   return { tone: "over", label: `ponad budżet ${budgetHourly} zł/h (+${over}%)` };
+}
+
+/**
+ * Notatka z rozmowy (odczyt dla JEDNEJ rekrutacji) → zmiany formularza
+ * wspólnego. Jak w pojedynczym formularzu: tylko PUSTE miejsca — nic, co
+ * rekruter już wpisał, nie znika. Odpowiedź trafia do grupy pytania tej
+ * rekrutacji (wspólne pytanie wypełni się raz).
+ */
+export function noteFillPatches(
+  values: JointValues,
+  pair: JointPair,
+  groups: readonly JointGroup[],
+  proposal: Pick<NoteProposal, "fields" | "answers">,
+): Array<[string, string]> {
+  const patches: Array<[string, string]> = [];
+  const empty = (value: string | undefined) => !(value ?? "").trim();
+  const own = values.jobs[jobKey(pair.jobId)];
+  const editable = new Set(editableCardKeys(pair.state));
+  for (const field of proposal.fields ?? []) {
+    const proposed = String(field.proposed ?? "").trim();
+    if (!proposed) continue;
+    if (field.key === "rate") {
+      const rate = field.rate;
+      if (!rate || !(rate.amount > 0) || !pair.state.can_edit_rate) continue;
+      const prefix = values.shared.same_rate ? "shared" : `jobs.${jobKey(pair.jobId)}`;
+      const current = values.shared.same_rate ? values.shared.rate_amount : own?.rate_amount;
+      if (!empty(current)) continue;
+      patches.push([`${prefix}.rate_amount`, String(rate.amount)]);
+      patches.push([`${prefix}.rate_unit`, rate.unit]);
+      patches.push([`${prefix}.rate_currency`, rate.currency || "PLN"]);
+      continue;
+    }
+    if (!editable.has(field.key)) continue;
+    if (SHARED_KEYS.has(field.key)) {
+      if (empty(values.shared.card[field.key])) patches.push([`shared.card.${field.key}`, proposed]);
+    } else if (field.key === CLIENT_KEY) {
+      const key = clientKey(pair.clientId);
+      if (empty(values.clients[key])) patches.push([`clients.${key}`, proposed]);
+    } else if (own && field.key in own.card && empty(own.card[field.key])) {
+      patches.push([`jobs.${jobKey(pair.jobId)}.card.${field.key}`, proposed]);
+    }
+  }
+  for (const answer of proposal.answers ?? []) {
+    const response = (answer.sentence?.trim() || String(answer.keywords ?? "").trim());
+    if (!response) continue;
+    const group = groups.find((g) => g.members.some((m) => m.jobId === pair.jobId && m.questionId === answer.question_id));
+    if (group && empty(values.answers[group.key])) patches.push([`answers.${group.key}`, response]);
+  }
+  return patches;
 }

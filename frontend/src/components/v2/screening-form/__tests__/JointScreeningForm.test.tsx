@@ -11,7 +11,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { JointContextPair, ScreeningFormSave, ScreeningFormState } from "@/lib/api/screeningForm";
 import { formSaveResult, formState } from "@/components/v2/screening-form/__tests__/screening-form-fixtures";
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn(), send: vi.fn() }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn(), send: vi.fn(), readNote: vi.fn() }));
 
 vi.mock("@/lib/api", () => {
   const client = {
@@ -20,6 +20,26 @@ vi.mock("@/lib/api", () => {
   };
   return { __esModule: true, default: client, api: client };
 });
+vi.mock("@/lib/api/recommendationCards", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api/recommendationCards")>()),
+  recommendationCardsApi: { readNote: (...a: unknown[]) => mocks.readNote(...a) },
+}));
+// Pasek notatki ma własne testy — tu tylko oddaje odczyt kotwicy.
+vi.mock("@/components/v2/screening-form/NoteFillBar", () => ({
+  NoteFillBar: (props: { onProposal: (p: unknown, s: { text: string }) => void }) => (
+    <button
+      type="button"
+      onClick={() =>
+        props.onProposal(
+          { fields: [{ key: "availability", proposed: "od 1.11" }], answers: [], text: "Rozmowa: od 1.11", available: true },
+          { text: "Rozmowa: od 1.11" },
+        )
+      }
+    >
+      wklej notatkę
+    </button>
+  ),
+}));
 vi.mock("@/hooks/usePipelineMoveCore", () => ({
   usePipelineMoveCore: () => ({ send: (...a: unknown[]) => mocks.send(...a), dialogs: null }),
 }));
@@ -107,6 +127,28 @@ async function answerAll(user: ReturnType<typeof userEvent.setup>, { dealBreaker
 }
 
 describe("JointScreeningForm", () => {
+  it("one conversation note: read for every recruitment, created by the first save, linked by the next", async () => {
+    const user = userEvent.setup();
+    states[201] = { ...states[201], assist_enabled: true };
+    mocks.readNote.mockResolvedValue({
+      fields: [],
+      answers: [{ question_id: "q1", sentence: "Od 1.11", keywords: "od 1.11" }],
+      text: "Rozmowa: od 1.11",
+      available: true,
+    });
+    mocks.put.mockImplementation((_url: string, body: ScreeningFormSave) =>
+      Promise.resolve({ data: formSaveResult(states[body.job_id], { note_id: 777 }) }),
+    );
+    mount();
+    await user.click(await screen.findByRole("button", { name: "wklej notatkę" }));
+    await waitFor(() => expect(mocks.readNote).toHaveBeenCalledWith(CANDIDATE, 202, "Rozmowa: od 1.11"));
+    expect(await screen.findByDisplayValue("Od 1.11")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Zapisz w 2" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledTimes(2));
+    expect(putFor(201)?.note_import).toEqual({ text: "Rozmowa: od 1.11" });
+    expect(putFor(202)?.note_import).toEqual({ text: "Rozmowa: od 1.11", note_id: 777 });
+  });
+
   it("asks the shared question once and sorts the rest by recruitment", async () => {
     mount();
     expect(await screen.findByText("Wspólne · zadajesz raz")).toBeInTheDocument();

@@ -12,9 +12,12 @@
  * zapisu tej pary) i mówi w karcie wyniku, gdzie się udało. Para z trafionym
  * deal-breakerem nie przechodzi sama: „Przekaż mimo to” albo jej karta.
  *
+ * Notatka z rozmowy: odczyt dla każdej rekrutacji osobno, tylko puste pola;
+ * notatkę zakłada zapis kotwicy, kolejne pary wskazują ją `note_id`.
+ *
  * Świadomie poza trybem wspólnym (zostają w pojedynczym formularzu):
  * „Użyj tej odpowiedzi” z wcześniejszych rozmów, „Pomiń brakujące”,
- * „Ułóż w zdanie” i wypełnienie z notatki.
+ * „Ułóż w zdanie”.
  */
 
 import { useMemo, useState } from "react";
@@ -28,8 +31,10 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { FIT_OPTIONS } from "@/components/v2/screening/ScreeningForm";
+import { NoteFillBar, type NoteFillSummary } from "@/components/v2/screening-form/NoteFillBar";
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
 import { apiErrorMessage } from "@/lib/api-error";
+import { recommendationCardsApi, type NoteProposal } from "@/lib/api/recommendationCards";
 import {
   refreshScreeningFormDependents,
   screeningFormApi,
@@ -50,6 +55,7 @@ import {
   hitKey,
   jobKey,
   jointDefaults,
+  noteFillPatches,
   projectPair,
   questionOf,
   type JointDirty,
@@ -59,7 +65,14 @@ import {
 } from "@/lib/joint-screening";
 import { invalidateAfterPipelineMove } from "@/lib/pipeline-move-invalidation";
 import { VERIFIED_STAGE } from "@/lib/pipeline-flow";
-import { buildSavePayload, editableCardKeys, formDefaultsFromState, formFieldLabel, rateFromValues } from "@/lib/screening-form";
+import {
+  buildSavePayload,
+  editableCardKeys,
+  formDefaultsFromState,
+  formFieldLabel,
+  rateFromValues,
+  type NoteImport,
+} from "@/lib/screening-form";
 import { cn } from "@/lib/utils";
 
 export interface JointScreeningFormProps {
@@ -166,6 +179,35 @@ function JointFormBody({
   const [blockers, setBlockers] = useState<Array<{ title: string; items: string[] }>>([]);
   const [results, setResults] = useState<PairResult[] | null>(null);
   const [tab, setTab] = useState(anchor.jobId);
+  const [note, setNote] = useState<NoteImport | null>(null);
+  const [noteSummary, setNoteSummary] = useState<NoteFillSummary | null>(null);
+
+  // Notatka z rozmowy: odczyt kotwicy przyszedł z paska, pozostałe rekrutacje
+  // czytamy tym samym tekstem (każda ma własne pytania i wzór pól).
+  const onNoteProposal = async (proposal: NoteProposal, source: NoteImport) => {
+    const text = proposal.text || source.text;
+    const reads = await Promise.allSettled(
+      pairs
+        .filter((p) => !p.anchor)
+        .map(async (p) => ({ pair: p, proposal: await recommendationCardsApi.readNote(candidateId, p.jobId, text) })),
+    );
+    let filled = 0;
+    const apply = (pair: JointPair, read: NoteProposal) => {
+      for (const [path, value] of noteFillPatches(methods.getValues(), pair, groups, read)) {
+        methods.setValue(path as "answers", value as never, { shouldDirty: true });
+        filled += 1;
+      }
+    };
+    apply(anchor, proposal);
+    for (const r of reads) if (r.status === "fulfilled") apply(r.value.pair, r.value.proposal);
+    setNote({ ...source, text });
+    setNoteSummary({ filled, offers: 0, sourceName: source.source_name ?? null });
+  };
+  const undoNote = () => {
+    methods.reset(jointDefaults(pairs, groups));
+    setNote(null);
+    setNoteSummary(null);
+  };
 
   const shared = groups.filter((g) => g.members.length > 1);
   const ownByJob = pairs.map((p) => ({
@@ -217,16 +259,21 @@ function JointFormBody({
     }
     setBusy(forward ? "forward" : "save");
     const out: PairResult[] = [];
+    // Jedna notatka na rozmowę: zakłada ją pierwszy zapis, następne ją wskazują.
+    let noteImport: NoteImport | null = note;
     try {
       for (const { pair, projected } of plans) {
         const state = latest(pair);
-        const plan = buildSavePayload(state, projected);
+        const plan = buildSavePayload(state, projected, { noteImport });
         let version = state.process_state_version;
         if (plan.hasChanges) {
           try {
             const saved = await screeningFormApi.save(plan.payload);
             refreshScreeningFormDependents(queryClient, saved);
             version = saved.process_state_version;
+            if (noteImport && noteImport.note_id == null && saved.note_id != null) {
+              noteImport = { ...noteImport, note_id: saved.note_id };
+            }
           } catch (error) {
             out.push({ jobId: pair.jobId, title: pair.title, kind: "save_failed", message: apiErrorMessage(error, "Nie udało się zapisać.") });
             continue;
@@ -260,6 +307,10 @@ function JointFormBody({
       setBusy(null);
       onMoved?.();
     }
+    if (out.every((r) => r.kind !== "save_failed")) {
+      setNote(null);
+      setNoteSummary(null);
+    }
     setResults(out);
   };
 
@@ -289,6 +340,16 @@ function JointFormBody({
         className="space-y-5"
         onSubmit={(e) => e.preventDefault()}
       >
+        {anchor.state.assist_enabled ? (
+          <NoteFillBar
+            candidateId={candidateId}
+            jobId={anchor.jobId}
+            applied={noteSummary}
+            onProposal={(proposal, source) => void onNoteProposal(proposal, source)}
+            onUndo={undoNote}
+            disabled={busy != null}
+          />
+        ) : null}
         <TermsSection methods={methods} pairs={pairs} />
         <QuestionsSection
           methods={methods}
