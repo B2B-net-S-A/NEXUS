@@ -192,11 +192,11 @@ const JOB = {
 const HARNESS_TEAM: Record<string, JobRecruiter[]> = {
   others: [
     { user_id: 12, name: "Ewa Testowa", via: "owner", proposed: false, assigned_by_name: "Olga Wzorcowa" },
-    { user_id: 13, name: "Piotr Sowa", via: "collaborator", proposed: false, assigned_by_name: null },
+    { user_id: 13, name: "Piotr Makietowy", via: "collaborator", proposed: false, assigned_by_name: null },
   ],
   me: [
     { user_id: 7, name: "Marta Nowak", via: "owner", proposed: false, assigned_by_name: "Olga Wzorcowa" },
-    { user_id: 13, name: "Piotr Sowa", via: "collaborator", proposed: false, assigned_by_name: null },
+    { user_id: 13, name: "Piotr Makietowy", via: "collaborator", proposed: false, assigned_by_name: null },
   ],
   none: [],
   proposal: [

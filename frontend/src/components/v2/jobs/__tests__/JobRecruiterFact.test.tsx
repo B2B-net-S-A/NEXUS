@@ -43,7 +43,7 @@ const ewa: JobRecruiter = {
 };
 const piotr: JobRecruiter = {
   user_id: 13,
-  name: "Piotr Sowa",
+  name: "Piotr Makietowy",
   via: "collaborator",
   proposed: false,
   assigned_by_name: null,
@@ -139,7 +139,7 @@ describe("JobRecruiterFact", () => {
     expect(fact()).toHaveTextContent("Ewa T.");
     expect(fact()).toHaveTextContent("+1");
     expect(fact()).toHaveAccessibleName(
-      "Rekruter: Rekruterzy: Ewa Testowa, Piotr Sowa — zespół rekrutacji",
+      "Rekruter: Rekruterzy: Ewa Testowa, Piotr Makietowy — zespół rekrutacji",
     );
   });
 
@@ -170,8 +170,8 @@ describe("JobRecruiterFact", () => {
     renderFact([ewa, piotr]);
     await userEvent.click(fact());
     const popover = await screen.findByTestId("job-recruiter-popover");
-    await userEvent.click(within(popover).getByRole("button", { name: "Zdejmij Piotr Sowa" }));
-    const dialog = await screen.findByRole("dialog", { name: /Zdjąć Piotr Sowa/ });
+    await userEvent.click(within(popover).getByRole("button", { name: "Zdejmij Piotr Makietowy" }));
+    const dialog = await screen.findByRole("dialog", { name: /Zdjąć Piotr Makietowy/ });
     expect(screen.getByTestId("job-recruiter-popover").className).toMatch(/invisible/);
     await userEvent.click(within(dialog).getByRole("button", { name: "Anuluj" }));
     await waitFor(() =>
