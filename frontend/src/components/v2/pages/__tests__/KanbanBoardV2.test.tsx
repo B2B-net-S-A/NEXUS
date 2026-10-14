@@ -3738,6 +3738,32 @@ describe("KanbanBoardV2 — filtr „Kto dodał” i kolejka w kolumnie (D1–D5
     expect(within(panel).getAllByText("Cezary Mróz").length).toBeGreaterThan(0);
   });
 
+  it("ta sama osoba otwarta z nowej kolumny (po zamknięciu panelu albo z karty) przenosi tam kolejkę", async () => {
+    const { rerender } = renderFiltered(ADDED_BY_ALL, boardColumns([ADAM, BEATA, CEZARY], [FILIP]));
+    let panel = await openPerson("Beata Lis");
+    expect(within(panel).getByText("2 z 3")).toBeInTheDocument();
+    const moved = boardColumns([ADAM, CEZARY], [FILIP, { ...BEATA, id: 1942, stage: "screening" }]);
+    rerender(moved);
+    await waitFor(() => expect(within(panel).getByRole("button", { name: "Wróć do kolejki" })).toBeInTheDocument());
+
+    // Klik w kartę Beaty w Screeningu przy otwartym panelu.
+    panel = await openPerson("Beata Lis");
+    await waitFor(() => expect(within(panel).getByText("2 z 2")).toBeInTheDocument());
+    expect(within(panel).getByTestId("dock-queue-label")).toHaveTextContent("Screening");
+
+    // Wraca do „Nowych”, panel zamknięty, potem znów karta w Screeningu.
+    fireEvent.click(within(panel).getByRole("button", { name: "Następna karta" }));
+    rerender(boardColumns([ADAM, BEATA, CEZARY], [FILIP]));
+    panel = await openPerson("Beata Lis");
+    await waitFor(() => expect(within(panel).getByTestId("dock-queue-label")).toHaveTextContent("Nowi"));
+    rerender(moved);
+    fireEvent.click(within(panel).getByRole("button", { name: "Zamknij dok" }));
+    await waitFor(() => expect(screen.queryByRole("complementary", { name: "Panel osoby" })).toBeNull());
+    panel = await openPerson("Beata Lis");
+    await waitFor(() => expect(within(panel).getByText("2 z 2")).toBeInTheDocument());
+    expect(within(panel).getByTestId("dock-queue-label")).toHaveTextContent("Screening");
+  });
+
   it("filtr odznacza osoby, które schował — pasek zaznaczonych nie działa na niewidocznych", async () => {
     const { rerender } = renderFiltered(ADDED_BY_ALL);
     fireEvent.click(await screen.findByRole("checkbox", { name: "Zaznacz Adam Nowak" }));

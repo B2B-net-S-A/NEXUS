@@ -2026,6 +2026,13 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // dodatkowej synchronizacji.
  const [dockCandidateId, setDockCandidateId] = useState<number | null>(null);
  const closeDock = useCallback(() => setDockCandidateId(null), []);
+ // Kolumna kolejki strzałek „‹ N z M ›” (D1, 14.10.2026) i osoba, dla której
+ // ją ostatnio wyznaczono — liczona niżej, przy `dockOrder`. `forCandidate:
+ // null` = „wyznacz od nowa przy następnym renderze”.
+ const [queue, setQueue] = useState<{ colId: string | null; forCandidate: number | null }>({
+ colId: null,
+ forCandidate: null,
+ });
  // Pełne narzędzia osoby (dawny warsztat „Tabeli") — od 04.10.2026 to
  // rozwinięty panel osoby („Rozwiń”), nie osobne okno. `open: false` =
  // zwinięty, ale zakładki zostają zamontowane (wpisany tekst przeżywa).
@@ -2063,6 +2070,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const canSplit = Boolean(workbenchContext && kanbanQueryState);
  const openDock = useCallback(
  (item: KanbanItem) => {
+ // Klik w kartę wyznacza kolejkę od nowa: ta sama osoba, która w tym czasie
+ // przeszła do innej kolumny, ma dostać kolejkę tej kolumny (14.10.2026).
+ setQueue((q) => (q.forCandidate == null ? q : { ...q, forCandidate: null }));
  const key = columnByItemId.get(item.id);
  if (canSplit && (key === "new" || key === "screening")) {
  openWorkbench(item.candidate_id, "screening");
@@ -3287,18 +3297,17 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  }
  return m;
  }, [allDisplayCols, allOffTemplateCols]);
- const [queue, setQueue] = useState<{ colId: string | null; forCandidate: number | null }>({
- colId: null,
- forCandidate: null,
- });
  const queueCol = useMemo(
  () => [...displayCols, ...offTemplateCols].find((c) => colId(c) === queue.colId) ?? null,
  [displayCols, offTemplateCols, queue.colId]
  );
  // Kotwica liczona w renderze (stan pochodny, bez efektu — panel nie miga
  // licznikiem poprzedniej kolumny). Po ustawieniu warunek jest fałszywy,
- // więc render się nie zapętla.
- if (dockCandidateId != null) {
+ // więc render się nie zapętla. Zamknięty panel zostawia kolumnę, ale
+ // ponowne otwarcie (także tej samej osoby) wyznacza kolejkę od nowa.
+ if (dockCandidateId == null) {
+ if (queue.forCandidate != null) setQueue({ colId: queue.colId, forCandidate: null });
+ } else {
  const ownColumn = columnOfCandidate.get(dockCandidateId) ?? null;
  if (queue.forCandidate !== dockCandidateId || (queueCol == null && ownColumn != null)) {
  const nextColId = queueColumnAfterOpen(
