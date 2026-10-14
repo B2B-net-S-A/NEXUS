@@ -40,8 +40,12 @@ from app.services.cv_generator_b2b.docx_renderer import (
     TRANSLATIONS,
 )
 from app.services.cv_rodo_clause import is_rodo_node
+from app.services.cv_text_align import (  # noqa: F401 — wołający biorą stąd
+    DEFAULT_TEXT_ALIGN,
+    cv_text_align,
+)
 
-RENDERER_VERSION = "approved-html-2"
+RENDERER_VERSION = "approved-html-3"
 BLOCKS = {
     "p",
     "div",
@@ -251,6 +255,7 @@ def render_approved_docx(
     *,
     consent: bytes | None = None,
     language: str = "pl",
+    text_align: str = DEFAULT_TEXT_ALIGN,
 ) -> bytes:
     """The HTML is already sanitized. Preserve text, emphasis and order exactly.
 
@@ -272,6 +277,10 @@ def render_approved_docx(
     normal.font.size = Pt(10)
     normal.font.color.rgb = RGBColor.from_string("373535")
     normal.paragraph_format.space_after = Pt(5)
+    if text_align == "justify":
+        # Treść dziedziczy wyjustowanie po stylu; nagłówki, tabele i klauzula
+        # zgody mają wyrównanie własne (niżej i w `add_bottom_pinned_rodo`).
+        normal.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
     # Sizes follow the generator: 24 pt document title, 14 pt section titles.
     for level, size in [(1, 24), (2, 14), (3, 11)]:
         heading = doc.styles.add_style(
@@ -283,6 +292,7 @@ def render_approved_docx(
         heading.font.color.rgb = _COLOR_HEADER
         heading.font.all_caps = False
         heading.paragraph_format.keep_with_next = True
+        heading.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.LEFT
         heading.paragraph_format.space_before = Pt(10)
     root = html.fragment_fromstring(content_html or "", create_parent="div")
 
@@ -393,6 +403,10 @@ def render_approved_docx(
                 target = target.merge(table.cell(ri + height - 1, ci + width - 1))
             target.text = ""
             render_container(cell_node, target)
+            # Wąskie komórki nie są justowane (styl treści by je wyjustował).
+            for cell_paragraph in target.paragraphs:
+                if cell_paragraph.paragraph_format.alignment is None:
+                    cell_paragraph.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.LEFT
             if (
                 target.paragraphs
                 and not target.paragraphs[0].text
@@ -438,15 +452,15 @@ def render_approved_docx(
 
     # ── Lists: the template's red square bullets (Word numbering) ──────────
 
-    def bullet_paragraph(container, depth, number=None):
+    def bullet_paragraph(container, depth, number=None, style=""):
         if number is not None or not bullets_available:
             # Ordered lists keep their visible numbers; a template without the
             # bullet definition gets a typed bullet instead of an invisible one.
             prefix = f"{number}. " if number is not None else "• "
-            p = paragraph_for(container, prefix=prefix)
+            p = paragraph_for(container, style=style, prefix=prefix)
             p.paragraph_format.left_indent = Inches(0.15 * (depth + 1))
             return spaced(p, 1, 1, 1.5)
-        p = paragraph_for(container)
+        p = paragraph_for(container, style=style)
         num_pr = OxmlElement("w:numPr")
         ilvl = OxmlElement("w:ilvl")
         ilvl.set(qn("w:val"), str(min(depth, 2)))
@@ -460,7 +474,13 @@ def render_approved_docx(
     def render_list(node, container, depth=0):
         ordered = _tag(node) == "ol"
         for number, li in enumerate(node.xpath("./li"), 1):
-            p = bullet_paragraph(container, depth, number if ordered else None)
+            # Tiptap trzyma wyrównanie na akapicie w punkcie (`li > p`).
+            item_style = li.get("style", "") or next(
+                (part.get("style", "") for part in li if _tag(part) == "p"), ""
+            )
+            p = bullet_paragraph(
+                container, depth, number if ordered else None, style=item_style
+            )
             started = False  # whether `p` already holds this item's text
             text_run(p, li.text, {})
             started = bool(li.text and li.text.strip())
@@ -473,7 +493,7 @@ def render_approved_docx(
                     if p is None:
                         # Text after a nested list continues the item without
                         # a second bullet, aligned with the item's text.
-                        p = paragraph_for(container)
+                        p = paragraph_for(container, style=part.get("style", ""))
                         p.paragraph_format.left_indent = Inches(0.5 * (depth + 1))
                         spaced(p, 1, 1, 1.5)
                     elif started:
@@ -553,8 +573,8 @@ def render_approved_docx(
         doc.add_paragraph()
         education_rows.clear()
 
-    def labelled_line(label, segments, *, label_bold=False, value_bold=True):
-        p = paragraph_for(doc)
+    def labelled_line(label, segments, *, label_bold=False, value_bold=True, style=""):
+        p = paragraph_for(doc, style=style)
         text_run(p, label + " ", {"bold": label_bold})
         emit(p, _trim(segments), {"bold": True} if value_bold else None)
         return spaced(p, 0, 0)
@@ -588,18 +608,21 @@ def render_approved_docx(
         if state["jobs"]:
             add_horizontal_line(doc)
         state["jobs"] += 1
+        style = node.get("style", "")
         if _plain(dates).strip():
-            p = paragraph_for(doc)
+            p = paragraph_for(doc, style=style)
             emit(p, _trim(dates), {"bold": True})
             spaced(p, 1, 0)
         if employer is not None:
             render_employer(employer)
-        labelled_line(t["position"], lead)
+        labelled_line(t["position"], lead, style=style)
         return True
 
     def render_employer(node):
         try:
-            labelled_line(t["company_name"], _segments(node))
+            labelled_line(
+                t["company_name"], _segments(node), style=node.get("style", "")
+            )
         except _HasImage:
             generic(node)
 
@@ -609,7 +632,7 @@ def render_approved_docx(
         except _HasImage:
             generic(node)
             return
-        p = paragraph_for(doc)
+        p = paragraph_for(doc, style=node.get("style", ""))
         plain = _plain(segments)
         label = next((lab for lab in _TECH_LABELS if plain.startswith(lab)), "")
         remaining = len(label)
@@ -627,7 +650,7 @@ def render_approved_docx(
         except _HasImage:
             generic(node)
             return
-        emit(bullet_paragraph(doc, 0), segments)
+        emit(bullet_paragraph(doc, 0, style=node.get("style", "")), segments)
 
     def render_languages(node):
         try:
@@ -635,12 +658,13 @@ def render_approved_docx(
         except _HasImage:
             generic(node)
             return
+        style = node.get("style", "")
         if not _formatted(segments):
             for item in _plain(segments).split(" · "):
                 if item.strip():
-                    text_run(bullet_paragraph(doc, 0), item.strip(), {})
+                    text_run(bullet_paragraph(doc, 0, style=style), item.strip(), {})
         else:
-            emit(bullet_paragraph(doc, 0), segments)
+            emit(bullet_paragraph(doc, 0, style=style), segments)
 
     def title(node):
         p = paragraph_for(doc, "h1", node.get("style", ""))
@@ -716,7 +740,7 @@ def render_approved_docx(
                 except _HasImage:
                     generic(node)
                     return 1
-                p = paragraph_for(doc)
+                p = paragraph_for(doc, style=node.get("style", ""))
                 emit(p, segments, {"underline": True})
                 spaced(p, 0, 1)
                 return 1

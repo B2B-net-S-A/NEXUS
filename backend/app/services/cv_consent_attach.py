@@ -268,7 +268,7 @@ async def _refresh_generated_drafts(
     db, row, *, image: bytes, user_id: int, previous_docx_sha: Optional[str]
 ) -> list[int]:
     """Szkic edytora generatora + ponowne zatwierdzenie jego wersji."""
-    from app.services.cv_approved_docx import render_approved_docx
+    from app.services.cv_approved_docx import cv_text_align, render_approved_docx
 
     draft = await db.scalar(
         select(CvGeneratedDraft)
@@ -302,6 +302,7 @@ async def _refresh_generated_drafts(
             latest.template_content,
             consent=image,
             language=latest.language or "pl",
+            text_align=cv_text_align(latest.render_metadata),
         )
     metadata = _with_consent_digest(latest.render_metadata, image)
     metadata["content_review"] = _reapproval_review(latest.render_metadata)

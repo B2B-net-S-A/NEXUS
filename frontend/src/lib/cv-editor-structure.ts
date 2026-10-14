@@ -22,6 +22,7 @@ import type { Node as PMNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, type EditorState, type Transaction } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import StarterKit from "@tiptap/starter-kit";
+import TextAlign from "@tiptap/extension-text-align";
 
 import { CV_TEMPLATE_LABELS, cvContext, cvOutline, isRodoNode } from "./cv-editor-blocks";
 import { CvEditorAiPending } from "./cv-editor-ai";
@@ -189,9 +190,29 @@ export const CvEditorStructure = Extension.create({
   },
 });
 
+/**
+ * Wyrównanie akapitu (`style="text-align: …"`), które serwer przenosi do Worda
+ * (`cv_approved_docx`). Tylko akapity: nagłówki zostają do lewej. Bez skrótów
+ * klawiszowych rozszerzenia — wyrównanie zmienia `setCvAlign`
+ * (`lib/cv-editor-align.ts`), który omija klauzulę zgody.
+ */
+const CvTextAlign = TextAlign.extend({
+  addKeyboardShortcuts() {
+    return {};
+  },
+}).configure({ types: ["paragraph"], alignments: ["left", "justify"], defaultAlignment: null });
+
 /** Rozszerzenia edytora CV — jedna lista dla okna, harnessu i testów. */
 export function cvEditorExtensions(): Extensions {
-  return [StarterKit, CvEditorSection, CvEditorStructure, CvEditorIssueMarks, CvEditorAiPending, CvEditorPlanPreview];
+  return [
+    StarterKit,
+    CvTextAlign,
+    CvEditorSection,
+    CvEditorStructure,
+    CvEditorIssueMarks,
+    CvEditorAiPending,
+    CvEditorPlanPreview,
+  ];
 }
 
 /**

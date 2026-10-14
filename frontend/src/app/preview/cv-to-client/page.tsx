@@ -43,6 +43,16 @@ import { BACKGROUND_EVENTS_STEP, jobBackgroundEventsQueryKey } from "@/lib/job-b
 import { useAuthStore } from "@/store/auth";
 
 const JOB_ID = 88;
+
+// „Podgląd” karty pokazuje plik Word. W harnessie nie ma serwera, który
+// złożyłby go z treści, a POST-y są blokowane — przykładowy plik w szablonie
+// firmowym z fikcyjnym CV (wygenerowany kodem `cv_approved_docx`).
+const PREVIEW_FILE = "/preview/cv-to-client/cv-firmowe-przyklad.docx";
+async function loadPreviewFile(): Promise<{ blob: Blob }> {
+  const response = await fetch(PREVIEW_FILE);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return { blob: await response.blob() };
+}
 const CLIENT_ID = 7;
 const REVISION = 2;
 const FRESH = { updatedAt: Date.now() + 86_400_000 };
@@ -332,6 +342,7 @@ function Harness() {
               forwarded={FORWARDED.has(person.variant)}
               nextInScreening={person.variant === "forwarded" ? NEXT_IN_SCREENING : null}
               onOpenPerson={() => setOpened(NEXT_IN_SCREENING.name)}
+              loadStageCvFile={loadPreviewFile}
             />
           </section>
         ))}

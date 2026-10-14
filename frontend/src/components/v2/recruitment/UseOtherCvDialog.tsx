@@ -34,7 +34,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { CvHtmlPreviewDialog } from "@/components/v2/recruitment/CvHtmlPreviewDialog";
+import { CvFilePreviewDialog } from "@/components/v2/cv/CvFilePreviewDialog";
+import { normalizeCvAlign } from "@/lib/cv-editor-align";
+import { fetchStageCvFile } from "@/lib/stage-cv-file";
 import type { ReadyCvChoice } from "@/components/v2/recruitment/useReadyCvChoice";
 import { StageCvPicker } from "@/components/v2/screening-form/StageCvPicker";
 
@@ -196,15 +198,17 @@ export function UseOtherCvDialog({
           }
         />
       ) : null}
-      {previewStage ? (
-        <CvHtmlPreviewDialog
+      {previewStage && previewStageId != null ? (
+        <CvFilePreviewDialog
           open
           onOpenChange={(next) => {
             if (!next) setPreviewStage(null);
           }}
-          html={stagePreviewQuery.isSuccess ? (stagePreviewQuery.data.content_html ?? null) : undefined}
-          failed={stagePreviewQuery.isError}
           title={`${previewStage.title} — ${candidateName}`}
+          load={() => fetchStageCvFile(previewStageId).then((file) => file.blob)}
+          fallbackHtml={stagePreviewQuery.isSuccess ? (stagePreviewQuery.data.content_html ?? null) : null}
+          language={stagePreviewQuery.data?.language === "en" ? "en" : "pl"}
+          textAlign={normalizeCvAlign(stagePreviewQuery.data?.text_align)}
         />
       ) : null}
     </>

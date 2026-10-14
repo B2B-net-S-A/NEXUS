@@ -548,6 +548,7 @@ def _build_branded_response(
     rendered_from_default: bool = False,
 ) -> CVBrandedResponse:
     from app.services.cv_editor_rules import editor_rule_feedback
+    from app.services.cv_text_align import cv_text_align
 
     metadata = csv.branded_render_metadata or {}
     origin = metadata.get("origin")
@@ -557,6 +558,7 @@ def _build_branded_response(
         presentation_review=editor_rule_feedback(
             csv.branded_draft_html, csv.branded_render_metadata
         ),
+        text_align=cv_text_align(metadata),
         candidate_stage_id=csv.candidate_stage_id,
         generated_document_id=csv.generated_document_id,
         from_generator=bool(csv.branded_from_generator),

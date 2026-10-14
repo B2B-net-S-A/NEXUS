@@ -15,6 +15,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   brandedGet: vi.fn(),
   showError: vi.fn(),
+  fetchStageCvFile: vi.fn(),
+  previewLoad: null as null | (() => Promise<Blob>),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -24,6 +26,16 @@ vi.mock("@/lib/api", () => ({
 }));
 vi.mock("@/components/Toast", () => ({
   useToast: () => ({ showSuccess: vi.fn(), showError: mocks.showError }),
+}));
+vi.mock("@/lib/stage-cv-file", () => ({
+  fetchStageCvFile: (...a: unknown[]) => mocks.fetchStageCvFile(...a),
+}));
+// Podgląd pliku CV etapu (docx-preview) — atrapa trzyma loader i pokazuje zapas.
+vi.mock("@/components/v2/cv-editor/CvEditorWordPreview", () => ({
+  CvEditorWordPreview: (props: { load: () => Promise<Blob>; fallback?: React.ReactNode }) => {
+    mocks.previewLoad = props.load;
+    return <div data-testid="word-preview">{props.fallback}</div>;
+  },
 }));
 // Podgląd pliku (pdf.js, docx-preview) siedzi za `dynamic()`.
 vi.mock("next/dynamic", () => ({
@@ -164,15 +176,22 @@ describe("UseOtherCvDialog", () => {
     expect(screen.getByRole("button", { name: /Użyj tego pliku/ })).toBeDisabled();
   });
 
-  it("podgląd CV z innej rekrutacji czyta jego treść spod wiersza etapu źródła", async () => {
+  it("podgląd CV z innej rekrutacji pokazuje plik spod wiersza etapu źródła", async () => {
     mocks.brandedGet.mockResolvedValue({
       data: { status: "finalized", content_html: "<p>Treść po poprawkach rekrutera</p>" },
     });
+    const blob = new Blob(["docx"]);
+    mocks.fetchStageCvFile.mockResolvedValue({ blob, filename: "CV.docx" });
     renderDialog(choice());
 
     await userEvent.click(screen.getByRole("button", { name: "Podgląd: DevOps Engineer" }));
 
+    expect(await screen.findByTestId("word-preview")).toBeInTheDocument();
+    await expect(mocks.previewLoad?.()).resolves.toBe(blob);
+    // Bez intencji pobrania — podgląd nie jest pobraniem.
+    expect(mocks.fetchStageCvFile).toHaveBeenCalledWith(31);
     await waitFor(() => expect(mocks.brandedGet).toHaveBeenCalledWith(31));
+    // Zapas, gdy pliku nie da się pokazać: ta sama treść w układzie kartki.
     expect(await screen.findByText("Treść po poprawkach rekrutera")).toBeInTheDocument();
   });
 
