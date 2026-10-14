@@ -1,5 +1,6 @@
 import enum
 import logging
+import unicodedata
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Any, Literal, Optional
 
@@ -32,7 +33,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased
 
 from app.services.job_portals.service import (
     close_live_postings,
@@ -46,8 +46,13 @@ from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.candidate import Candidate
 from app.models.candidate_conflict import CandidateConflict, ConflictType
-from app.models.contract import Contract, ContractStatus
-from app.services.pipeline_latest import latest_stage_ids
+from app.models.contract import Contract
+from app.services.current_employment import LIVE_CONTRACT_STATUSES
+from app.services.employment_marker import (
+    hire_closed_by_contract_clause,
+    job_client_family,
+)
+from app.services.pipeline_latest import current_hired_stage_clause, latest_stage_ids
 from app.services.access_scope import DL_CLIENT_OUT_OF_SCOPE_DETAIL
 from app.models.competence_category import UserCompetenceCategory
 from app.models.job import Job, JobStatus
@@ -4003,34 +4008,42 @@ async def champion_consultant_suggestions(
     current_user: RecruitmentHistoryReadUser,
     db: AsyncSession = Depends(get_db),
 ) -> list[dict]:
-    """Our consultants currently working at this job's client.
+    """Nasi konsultanci, którzy dziś pracują u klienta tej rekrutacji.
 
-    Source signals, mirroring the `employment=at_client` filter but scoped to
-    one client: latest pipeline stage `hired` (no later move for that job),
-    an active Contract, or an active `current_employment` conflict. Used to
-    pre-fill the consultant picker in the verification checklist.
+    Ta sama reguła co znacznik „Pracuje u nas” (``services/employment_marker``):
+    żywa umowa (także wypowiedziana), aktywny konflikt ``current_employment``
+    albo bieżący etap „Zatrudniony”, którego nie zamknęła umowa — u klienta
+    rekrutacji razem z jego scalonymi rekordami. Do 14.10.2026 lista brała
+    najwyżej 30 osób z każdego źródła (umowy w przypadkowej kolejności), tylko
+    umowy ``active``, jeden rekord klienta i każdego, kto kiedykolwiek był
+    „Zatrudniony” — Delivery Lead dostawał byłych konsultantów, a tego,
+    z którym rozmawiał, nie znajdował. Kolejność alfabetyczna, bo okno
+    szuka po imieniu i nazwisku.
     """
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     await ensure_champion_job_read_visible(job, current_user, db)
 
-    later_stage = aliased(CandidateStage)
-    no_later_move = ~(
-        select(1)
-        .where(
-            later_stage.candidate_id == CandidateStage.candidate_id,
-            later_stage.job_id == CandidateStage.job_id,
-            or_(
-                later_stage.moved_at > CandidateStage.moved_at,
-                and_(
-                    later_stage.moved_at == CandidateStage.moved_at,
-                    later_stage.id > CandidateStage.id,
-                ),
-            ),
+    family = await job_client_family(db, job.client_id) or {job.client_id}
+    contract_rows = (
+        await db.execute(
+            select(
+                Candidate.id,
+                Candidate.name,
+                Candidate.lastname,
+                Job.title,
+                Contract.start_date,
+            )
+            .join(Contract, Contract.candidate_id == Candidate.id)
+            .outerjoin(Job, Job.id == Contract.job_id)
+            .where(
+                Contract.client_id.in_(family),
+                Contract.status.in_(LIVE_CONTRACT_STATUSES),
+            )
+            .order_by(Contract.start_date.desc().nulls_last(), Contract.id.desc())
         )
-        .exists()
-    )
+    ).all()
     hired_rows = (
         await db.execute(
             select(
@@ -4043,67 +4056,55 @@ async def champion_consultant_suggestions(
             .join(CandidateStage, CandidateStage.candidate_id == Candidate.id)
             .join(Job, Job.id == CandidateStage.job_id)
             .where(
-                Job.client_id == job.client_id,
-                CandidateStage.stage == PipelineStage.hired,
-                no_later_move,
+                Job.client_id.in_(family),
+                current_hired_stage_clause(),
+                ~hire_closed_by_contract_clause(),
             )
             .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
-            .limit(30)
         )
     ).all()
-
-    contract_rows = (
-        await db.execute(
-            select(Candidate.id, Candidate.name, Candidate.lastname)
-            .join(Contract, Contract.candidate_id == Candidate.id)
-            .where(
-                Contract.client_id == job.client_id,
-                Contract.status == ContractStatus.active,
-            )
-            .limit(30)
-        )
-    ).all()
-
     conflict_rows = (
         await db.execute(
             select(Candidate.id, Candidate.name, Candidate.lastname)
             .join(CandidateConflict, CandidateConflict.candidate_id == Candidate.id)
             .where(
-                CandidateConflict.client_id == job.client_id,
+                CandidateConflict.client_id.in_(family),
                 CandidateConflict.type == ConflictType.current_employment,
                 CandidateConflict.active.is_(True),
             )
-            .limit(30)
         )
     ).all()
 
-    out: list[dict] = []
-    seen: set[int] = set()
-    for cid, first, last, title, moved_at in hired_rows:
-        if cid in seen:
-            continue
-        seen.add(cid)
-        out.append(
+    people: dict[int, dict] = {}
+    for cid, first, last, title, since in [*contract_rows, *hired_rows]:
+        people.setdefault(
+            cid,
             {
                 "candidate_id": cid,
                 "name": f"{first or ''} {last or ''}".strip(),
                 "job_title": title,
-                "since": moved_at.isoformat() if moved_at else None,
-            }
+                "since": since.isoformat() if since else None,
+            },
         )
-    for cid, first, last in [*contract_rows, *conflict_rows]:
-        if cid in seen:
-            continue
-        seen.add(cid)
-        out.append(
+    for cid, first, last in conflict_rows:
+        people.setdefault(
+            cid,
             {
                 "candidate_id": cid,
                 "name": f"{first or ''} {last or ''}".strip(),
                 "job_title": None,
                 "since": None,
-            }
+            },
         )
-    return out
+    return sorted(
+        people.values(), key=lambda p: (_name_sort_key(p["name"]), p["candidate_id"])
+    )
+
+
+def _name_sort_key(name: str) -> str:
+    """Bez polskich znaków — inaczej „Łukasz” i „Świątek” lądują za „Z”."""
+    folded = unicodedata.normalize("NFKD", name.casefold().replace("ł", "l"))
+    return "".join(ch for ch in folded if not unicodedata.combining(ch))
 
 
 # ── Champion Profile briefing (breakout session DL → rekruterzy) ────────────

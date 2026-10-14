@@ -79,6 +79,17 @@ https://claude.ai/artifact/QekWy3zx3pXNEKDKQmikf6, raport:
 - **Tablica rysuje ostrzeżenia pary**, które serwer wysyłał w `warnings`
   (NDA, czarna lista klienta, konkurent…) — jedna mapa etykiet
   `lib/eligibility-reason-labels.ts`, na karcie i w wierszu tabeli.
+- **Weryfikacja Profilu Championa → „Rozmowa z naszym konsultantem”**
+  (14.10.2026): lista „Nasi konsultanci u tego klienta”
+  (`GET /api/jobs/{id}/champion-profile/consultant-suggestions`) liczy tą samą
+  regułą — żywe umowy (także `ending`), konflikt `current_employment`,
+  „Zatrudniony” bez `hire_closed_by_contract_clause` — u klienta rekrutacji
+  ze scalonymi rekordami (`job_client_family`), bez limitu, alfabetycznie.
+  Wcześniej własne wyliczenie (30 osób na źródło, umowy w przypadkowej
+  kolejności, same `active`, każdy dawny „Zatrudniony”) zasłoniło Delivery
+  Leadowi konsultanta, z którym rozmawiał. Okno (`champion/ConsultantPicker`)
+  szuka też w całej bazie i zapisuje osobę spoza NEXUSA z wpisanego imienia
+  i nazwiska — serwer przyjmuje dowolnego kandydata, lista to podpowiedź.
 - **„Moi ludzie”:** osobę z grupy „Pracują” można dodać do rekrutacji (D5);
   grupa i pigułka idą z jednego wyniku. Automat dopasowań i narzędzia Jarvisa
   dalej pomijają pracujących.

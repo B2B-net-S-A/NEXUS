@@ -168,6 +168,33 @@ describe("ChampionVerificationChecklist — wariant „rows”", () => {
     });
   });
 
+  it("konsultanta spoza listy klienta zapisuje z wpisanego imienia i nazwiska", async () => {
+    const user = userEvent.setup();
+    consultantSuggestionsMock.mockResolvedValue({
+      data: [{ candidate_id: 9, name: "Piotr Przykładowy", job_title: null, since: null }],
+    });
+    renderRows();
+
+    await user.click(screen.getByTestId("consultant-verification-toggle"));
+    await screen.findByTestId("consultant-picker-option");
+    await user.type(screen.getByTestId("consultant-picker-search"), "Jan Zewnętrzny");
+    await user.click(screen.getByTestId("consultant-picker-manual"));
+    await user.type(
+      screen.getByTestId("consultant-verification-insights"),
+      "Code review restrykcyjne, standupy po angielsku.",
+    );
+    await user.click(screen.getByTestId("consultant-verification-submit"));
+
+    expect(verifyMock).toHaveBeenCalledWith(501, {
+      side: "consultant",
+      consultant: {
+        consultant_candidate_id: null,
+        consultant_name: "Jan Zewnętrzny",
+        insights: "Code review restrykcyjne, standupy po angielsku.",
+      },
+    });
+  });
+
   it("bez prawa edycji wiersze zostają, ale akcji nie ma (odczyt nie jest wyłączony)", () => {
     renderRows(PENDING, { status: "pending" }, false);
     expect(screen.getByTestId("readiness-row-briefing")).toBeInTheDocument();
