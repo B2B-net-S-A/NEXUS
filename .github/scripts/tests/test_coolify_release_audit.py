@@ -39,6 +39,33 @@ class ReleaseAuditTests(unittest.TestCase):
             )["source_commit_setting_exposed"]
         )
 
+    def test_auto_deploy_and_push_webhook_are_reported_as_flags_only(self):
+        # Okno wdrożeń 19:00–07:00 trzyma tylko wtedy, gdy Coolify nie wdraża
+        # sam po pushu na main (14.10.2026).
+        secret = "whsec-private-value"
+        result = audit.summarize(
+            {
+                "settings": {"is_auto_deploy_enabled": True},
+                "manual_webhook_secret_github": secret,
+            },
+            [],
+        )
+        self.assertNotIn(secret, json.dumps(result))
+        self.assertTrue(result["auto_deploy_enabled"])
+        self.assertTrue(result["github_push_webhook_secret_set"])
+        self.assertEqual(audit.deploy_window_violations(result), ["auto_deploy_enabled"])
+
+        off = audit.summarize({"settings": {"is_auto_deploy_enabled": False}}, [])
+        self.assertFalse(off["auto_deploy_enabled"])
+        self.assertFalse(off["github_push_webhook_secret_set"])
+        self.assertEqual(audit.deploy_window_violations(off), [])
+        # Brak pola w API to „nie wiem”, nie „wyłączone”.
+        self.assertIsNone(audit.summarize({}, [])["auto_deploy_enabled"])
+        self.assertEqual(
+            audit.deploy_window_violations(audit.summarize({}, [])),
+            ["auto_deploy_setting_missing"],
+        )
+
     def test_only_known_complete_references_are_identified(self):
         rows = audit.summarize(
             {},
