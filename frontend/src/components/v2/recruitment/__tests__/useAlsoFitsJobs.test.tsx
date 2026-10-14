@@ -87,6 +87,23 @@ describe("useAlsoFitsJobs", () => {
     await waitFor(() => expect(result.current.forCandidate(7)?.status).toBe("error"));
   });
 
+  it("checks only the last few people added at once and the rest on request", async () => {
+    mocks.get.mockImplementation((id: number) =>
+      Promise.resolve({ candidate_id: id, from_job_id: 10, status: "ok", jobs: [] }),
+    );
+    const added = new Set([1, 2, 3, 4, 5]);
+    const { result } = renderHook(
+      () => useAlsoFitsJobs({ fromJobId: 10, addedIds: added, enabled: true }),
+      { wrapper: wrapper() },
+    );
+    await waitFor(() => expect(result.current.forCandidate(5)?.status).toBe("ok"));
+    expect(mocks.get.mock.calls.map((c) => c[0]).sort()).toEqual([3, 4, 5]);
+    expect(result.current.forCandidate(1)?.status).toBe("idle");
+    act(() => result.current.request(1));
+    await waitFor(() => expect(result.current.forCandidate(1)?.status).toBe("ok"));
+    expect(mocks.get).toHaveBeenCalledWith(1, 10);
+  });
+
   it("does not ask at all for a read-only viewer", () => {
     const { result } = renderHook(
       () => useAlsoFitsJobs({ fromJobId: 10, addedIds: new Set([7]), enabled: false }),

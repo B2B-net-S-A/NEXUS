@@ -134,17 +134,21 @@ w profilu („Pasujące rekrutacje”, starszy wzór, bez bramki i progu). Rapor
 - **Gdzie (A1):** blok pod osobą dodaną w oknie „Kandydaci do dodania” — zakładki propozycji
   i „Szukaj w bazie” (`useAlsoFitsJobs` w `AddCandidatesPanel`/`useSearchBaseTab`, prezentacja
   `also-fits-block.tsx`, pole `PickRow.alsoFits`; `PickList` sam nic nie pobiera). Pusty wynik =
-  nic. „Szukaj ręcznie” bloku nie ma (tam nie ma też „Cofnij”).
+  nic. Okno pyta samo tylko o 3 ostatnio dodane osoby (`ALSO_FITS_AUTO_CHECK`) — stopka dodaje do
+  100 naraz, a każde zapytanie to kilka pełnych ocen na serwerze; przy reszcie jest „Sprawdź, gdzie
+  jeszcze pasuje”. „Szukaj ręcznie” bloku nie ma (tam nie ma też „Cofnij”).
 - **„+ Dodaj” do B (D2)** = zwykłe `POST /api/jobs/{B}/proposals/bulk` ze źródłem `also_fits`
   i `origin_job_id`: „Nowi”, `entry_source="added_manual"`, rezerwacja 12 h dla dodającego, „Cofnij”
   przez 15 min (`DELETE …?quick_undo=true`). Odmowy (zamknięta karta, weto) mówią słowami serwera pod
   rekrutacją. Po zapisie `record_also_fits_added`: wpis `Activity(candidate, also_fits_added,
   {job_id, from_job_id})` i dzwonek `also_fits_added` (kategoria „Kandydaci”, sekcja pipeline,
-  migracja 0443 + lustro w `entrypoint.sh`) do rekruterów B (`job_team.recruiters_for_jobs` +
-  `working`) — bez osoby, która dodała. Dzwonek nigdy nie cofa dodania. Nowe źródło dodania żyje
+  migracja 0444 + lustro w `entrypoint.sh`) do rekruterów B (`job_team.recruiters_for_jobs` +
+  `working`) — bez osoby, która dodała; encja dzwonka to nowy wiersz etapu pary w B (dedup dzienny
+  po osobie zjadałby drugi dzwonek przy „Dodaj do wszystkich”). Dzwonek nigdy nie cofa dodania. Nowe źródło dodania żyje
   w trzech miejscach: `BulkAddSource`, `PIPELINE_ADD_SOURCES`, `BulkAddSource` na froncie.
 - **„+N rekrutacja” na karcie (A2):** `other_open_jobs` karty Tablicy (`build_kanban_view`, jedno
-  zapytanie na Tablicę, `with_other_jobs=False` w „Moich następnych krokach”) = inne niezamknięte
+  zapytanie na Tablicę tylko o osoby z kart w „Nowych”/„Screeningu”, same tytuły rekrutacji, filtr
+  etapów w SQL; `with_other_jobs=False` w „Moich następnych krokach”) = inne niezamknięte
   rekrutacje, w których najnowszy wiersz etapu osoby jest w „Nowych”/„Screeningu” (`board_column_for`),
   najwyżej 5. Chip tylko na kartach w tych kolumnach (`kanban-other-jobs-chip.tsx`); okienko
   wymienia rekrutacje i prowadzi do karty („Otwórz kartę”). „Screening razem” dochodzi w PR 2.

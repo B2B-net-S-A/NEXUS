@@ -28,8 +28,11 @@ import { useUndoWindow } from "./useUndoWindow";
 export type ElsewhereState = "adding" | "added" | "undoing";
 
 export interface AlsoFitsRowModel {
-  /** `unavailable` = serwer nie mógł sprawdzić (awaria wyszukiwania). */
-  status: "loading" | "error" | "unavailable" | "ok";
+  /**
+   * `idle` = nie pytaliśmy sam (dodano wiele osób naraz) — blok daje
+   * „Sprawdź, gdzie jeszcze pasuje”; `unavailable` = serwer nie mógł sprawdzić.
+   */
+  status: "idle" | "loading" | "error" | "unavailable" | "ok";
   jobs: AlsoFitsJob[];
   stateOf: (jobId: number) => ElsewhereState | undefined;
   /** Odmowa serwera przy dodaniu do tej rekrutacji (zamknięta karta, weto…). */
@@ -43,9 +46,17 @@ export interface AlsoFits {
   add: (candidateId: number, jobIds: readonly number[]) => void;
   undo: (candidateId: number, jobId: number) => void;
   retry: (candidateId: number) => void;
+  /** Sprawdź osobę, o którą nie pytaliśmy sami (`status: "idle"`). */
+  request: (candidateId: number) => void;
 }
 
 const STALE_MS = 5 * 60 * 1000;
+/**
+ * Każde zapytanie to zawężenie wektorowe i pełna ocena kilku rekrutacji na
+ * serwerze. Sami pytamy tylko o ostatnio dodane osoby — stopka „Dodaj N do
+ * Nowych” dodaje do 100 naraz; o resztę rekruter prosi przyciskiem.
+ */
+export const ALSO_FITS_AUTO_CHECK = 3;
 
 const pairKey = (candidateId: number, jobId: number) => `${candidateId}:${jobId}`;
 
@@ -77,7 +88,13 @@ export function useAlsoFitsJobs({
   enabled: boolean;
 }): AlsoFits {
   const queryClient = useQueryClient();
-  const ids = useMemo(() => [...addedIds].sort((a, b) => a - b), [addedIds]);
+  const [requested, setRequested] = useState<ReadonlySet<number>>(() => new Set());
+  // Kolejność dodania (Set ją zachowuje): ostatnie ALSO_FITS_AUTO_CHECK osób.
+  const ids = useMemo(() => {
+    const added = [...addedIds];
+    const auto = added.slice(-ALSO_FITS_AUTO_CHECK);
+    return added.filter((id) => auto.includes(id) || requested.has(id)).sort((a, b) => a - b);
+  }, [addedIds, requested]);
   const results = useQueries({
     queries: ids.map((candidateId) => ({
       queryKey: alsoFitsKeys.one(fromJobId, candidateId),
@@ -186,10 +203,23 @@ export function useAlsoFitsJobs({
     [queryClient, fromJobId],
   );
 
+  const request = useCallback((candidateId: number) => {
+    setRequested((prev) => (prev.has(candidateId) ? prev : new Set([...prev, candidateId])));
+  }, []);
+
   const forCandidate = useCallback(
     (candidateId: number): AlsoFitsRowModel | null => {
+      if (!enabled || !addedIds.has(candidateId)) return null;
       const index = ids.indexOf(candidateId);
-      if (index < 0 || !enabled) return null;
+      if (index < 0) {
+        return {
+          status: "idle",
+          jobs: [],
+          stateOf: () => undefined,
+          errorOf: () => undefined,
+          undoable: () => false,
+        };
+      }
       const query = results[index];
       const status: AlsoFitsRowModel["status"] = query.isError
         ? "error"
@@ -206,8 +236,8 @@ export function useAlsoFitsJobs({
         undoable: (jobId) => !undoWindow.expired.has(pairKey(candidateId, jobId)),
       };
     },
-    [ids, enabled, results, states, errors, undoWindow.expired],
+    [ids, enabled, addedIds, results, states, errors, undoWindow.expired],
   );
 
-  return { forCandidate, add, undo, retry };
+  return { forCandidate, add, undo, retry, request };
 }

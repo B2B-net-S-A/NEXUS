@@ -2817,11 +2817,21 @@ async def build_kanban_view(
     # „Screeningu” innej rekrutacji — sygnał „zrób screening razem”.
     other_open_jobs: dict[int, list[dict]] = {}
     if with_other_jobs and candidate_ids:
-        from app.services.also_fits import other_open_jobs_for_candidates
+        from app.services.also_fits import (
+            SCREENING_ENTRY_STAGES,
+            other_open_jobs_for_candidates,
+        )
 
+        # Znacznik stoi tylko na kartach w „Nowych”/„Screeningu” — reszty Tablicy
+        # nie pytamy (zespół czyta Tablicę przy każdym `pipeline_changed`).
+        screening_ids = [
+            cid
+            for cid, s in seen.items()
+            if getattr(s.stage, "value", s.stage) in SCREENING_ENTRY_STAGES
+        ]
         other_open_jobs = await other_open_jobs_for_candidates(
             db,
-            candidate_ids=candidate_ids,
+            candidate_ids=screening_ids,
             exclude_job_id=job_id,
             scope_clause=(
                 job_read_scope_clause(viewer, Job.id) if viewer is not None else None

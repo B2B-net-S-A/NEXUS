@@ -153,38 +153,46 @@ async def test_add_from_also_fits_rings_job_recruiter_not_the_actor(app_client):
         cand = await _candidate(db)
         origin = await _in_work(db, recruiter=actor)
         target = await _in_work(db, recruiter=owner)
+        # „Dodaj do wszystkich”: druga rekrutacja tego samego rekrutera tego dnia.
+        second = await _in_work(db, recruiter=owner)
         await _stage(db, cand=cand, job=origin, stage="new", by=actor, at=T0)
         await db.commit()
         actor_id, owner_id, cid = actor.id, owner.id, cand.id
-        origin_id, target_id = origin.id, target.id
+        origin_id, target_id, second_id = origin.id, target.id, second.id
 
     headers = {
         "Authorization": f"Bearer {create_access_token(subject=actor_id, role='recruiter')}"
     }
-    resp = await app_client.post(
-        f"/api/jobs/{target_id}/proposals/bulk",
-        json={
-            "candidate_ids": [cid],
-            "initial_stage_legacy": "new",
-            "source": "also_fits",
-            "origin_job_id": origin_id,
-        },
-        headers=headers,
-    )
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["added"] == [cid]
+    for job_id in (target_id, second_id):
+        resp = await app_client.post(
+            f"/api/jobs/{job_id}/proposals/bulk",
+            json={
+                "candidate_ids": [cid],
+                "initial_stage_legacy": "new",
+                "source": "also_fits",
+                "origin_job_id": origin_id,
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["added"] == [cid]
 
     async with AsyncSessionLocal() as db:
         bells = (
             await db.scalars(
                 select(Notification).where(
                     Notification.notification_type == NotificationType.also_fits_added,
-                    Notification.related_entity_id == cid,
+                    Notification.user_id.in_([owner_id, actor_id]),
+                    Notification.link.like(f"%candidate={cid}"),
                 )
             )
         ).all()
+        # Jeden dzwonek na rekrutację — dedup dzienny nie zjada drugiego.
         assert {b.user_id for b in bells} == {owner_id}
-        assert bells[0].link == f"/jobs/{target_id}?candidate={cid}"
+        assert sorted(b.link for b in bells) == sorted(
+            [f"/jobs/{target_id}?candidate={cid}", f"/jobs/{second_id}?candidate={cid}"]
+        )
+        assert {b.related_entity_type for b in bells} == {"candidate_stage"}
         trail = (
             await db.scalars(
                 select(Activity).where(
@@ -194,9 +202,10 @@ async def test_add_from_also_fits_rings_job_recruiter_not_the_actor(app_client):
                 )
             )
         ).all()
-        assert [t.details for t in trail] == [
-            {"job_id": target_id, "from_job_id": origin_id}
-        ]
+        assert sorted(t.details["job_id"] for t in trail) == sorted(
+            [target_id, second_id]
+        )
+        assert {t.details["from_job_id"] for t in trail} == {origin_id}
         process = await db.scalar(
             select(RecruitmentProcess).where(
                 RecruitmentProcess.candidate_id == cid,

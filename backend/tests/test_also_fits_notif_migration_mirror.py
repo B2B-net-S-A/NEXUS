@@ -1,4 +1,4 @@
-"""0443: typ dzwonka „osoba dodana z Pasuje też do” (``also_fits_added``) ma
+"""0444: typ dzwonka „osoba dodana z Pasuje też do” (``also_fits_added``) ma
 lustro w entrypoincie (prod alembic bywa osierocony), a downgrade odmawia,
 zanim stary kod trafi na wpis, którego nie odczyta."""
 
@@ -10,11 +10,11 @@ from pathlib import Path
 from app.models.notification import NotificationType
 
 BACKEND = Path(__file__).resolve().parents[1]
-MIGRATION = BACKEND / "alembic" / "versions" / "0443_also_fits_added_notification.py"
+MIGRATION = BACKEND / "alembic" / "versions" / "0444_also_fits_added_notification.py"
 
 
 def _migration_module():
-    spec = importlib.util.spec_from_file_location("m0443", MIGRATION)
+    spec = importlib.util.spec_from_file_location("m0444", MIGRATION)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
@@ -23,7 +23,7 @@ def _migration_module():
 
 def test_migration_has_a_parent_and_its_own_revision() -> None:
     module = _migration_module()
-    assert module.revision == "0443_also_fits_added_notification"
+    assert module.revision == "0444_also_fits_added_notification"
     assert module.down_revision and module.down_revision != module.revision
 
 
@@ -50,6 +50,6 @@ def test_downgrade_only_refuses_when_such_notifications_exist(monkeypatch) -> No
     module.downgrade()
     assert executed == [module.REFUSE_WITH_LIVE_ROWS]
     guard = executed[0]
-    assert "RAISE EXCEPTION 'Downgrade 0443 odmawia" in guard
+    assert "RAISE EXCEPTION 'Downgrade 0444 odmawia" in guard
     assert "notification_type::text = 'also_fits_added'" in guard
     assert "DROP" not in guard and "DELETE" not in guard

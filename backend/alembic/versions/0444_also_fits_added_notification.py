@@ -1,7 +1,7 @@
 """notificationtype: ``also_fits_added`` — ktoś dodał osobę do Twojej rekrutacji z „Pasuje też do”.
 
-Revision ID: 0443_also_fits_added_notification
-Revises: 0442_work_mode_rejection_reason
+Revision ID: 0444_also_fits_added_notification
+Revises: 0443_integrations_v1
 
 Decyzja Artura 14.10.2026 (D2): po „+ Dodaj” pod podpowiedzią „Pasuje też do”
 osoba trafia od razu do „Nowych” rekrutacji B, a rekruterzy B dostają dzwonek:
@@ -14,8 +14,8 @@ Sama zmiana nie wymaga DDL poza wartością enuma. Lustro w ``entrypoint.sh``
 
 from alembic import op
 
-revision = "0443_also_fits_added_notification"
-down_revision = "0442_work_mode_rejection_reason"
+revision = "0444_also_fits_added_notification"
+down_revision = "0443_integrations_v1"
 branch_labels = None
 depends_on = None
 
@@ -32,7 +32,7 @@ BEGIN
         SELECT 1 FROM notifications
         WHERE notification_type::text = 'also_fits_added'
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0443 odmawia: notifications ma wpisy also_fits_added, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0444 odmawia: notifications ma wpisy also_fits_added, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 

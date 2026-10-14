@@ -38,7 +38,7 @@ function model(overrides: Partial<AlsoFitsRowModel> = {}, states: Record<number,
 }
 
 function mount(m: AlsoFitsRowModel, readOnly = false) {
-  const handlers = { onAdd: vi.fn(), onUndo: vi.fn(), onRetry: vi.fn() };
+  const handlers = { onAdd: vi.fn(), onUndo: vi.fn(), onRetry: vi.fn(), onRequest: vi.fn() };
   render(<AlsoFitsBlock model={m} candidateName="Oskar Wzorcowy" readOnly={readOnly} {...handlers} />);
   return handlers;
 }
@@ -90,6 +90,7 @@ describe("AlsoFitsBlock — „Pasuje też do” (A1)", () => {
         onAdd={vi.fn()}
         onUndo={vi.fn()}
         onRetry={vi.fn()}
+        onRequest={vi.fn()}
       />,
     );
     expect(screen.getByTestId("also-fits-loading")).toHaveTextContent("Sprawdzam inne rekrutacje…");
@@ -98,6 +99,12 @@ describe("AlsoFitsBlock — „Pasuje też do” (A1)", () => {
     expect(screen.getByTestId("also-fits-error")).toHaveTextContent("Nie udało się sprawdzić innych rekrutacji");
     fireEvent.click(screen.getByRole("button", { name: "Ponów" }));
     expect(h.onRetry).toHaveBeenCalled();
+  });
+
+  it("asks on demand when the window did not check by itself", () => {
+    const h = mount(model({ status: "idle", jobs: [] }));
+    fireEvent.click(screen.getByRole("button", { name: "Sprawdź, gdzie jeszcze pasuje" }));
+    expect(h.onRequest).toHaveBeenCalled();
   });
 
   it("renders nothing when nothing else fits", () => {
@@ -109,6 +116,7 @@ describe("AlsoFitsBlock — „Pasuje też do” (A1)", () => {
         onAdd={vi.fn()}
         onUndo={vi.fn()}
         onRetry={vi.fn()}
+        onRequest={vi.fn()}
       />,
     );
     expect(container).toBeEmptyDOMElement();

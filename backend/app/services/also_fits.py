@@ -19,16 +19,17 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Iterable, Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.job import Job, JobStatus
-from app.models.recruitment_pipeline import CandidateStage
+from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.services.request_work_state import IN_WORK_STATES
 
 logger = logging.getLogger(__name__)
@@ -215,6 +216,10 @@ async def also_fits_for_candidate(
 
 
 OTHER_OPEN_JOBS_LIMIT = 5
+# Etapy (legacy enum), które Tablica kładzie w „Nowych”/„Screeningu”
+# (`board_stage_badges._COLUMN_BY_ENUM`; odznaki z nazwy nigdy tam nie trafiają).
+# Zawężenie w SQL — dokładną kolumnę liczy potem `board_column_for`.
+SCREENING_ENTRY_STAGES = ("posting", "new", "prep_call", "screening")
 
 
 async def other_open_jobs_for_candidates(
@@ -266,7 +271,8 @@ async def other_open_jobs_for_candidates(
             latest.c.job_id,
             latest.c.stage,
             latest.c.moved_at,
-            Job,
+            Job.title,
+            Job.working_title,
             client_display_name_expression().label("client_name"),
             PipelineStageDef.name,
             PipelineStageDef.category,
@@ -276,7 +282,10 @@ async def other_open_jobs_for_candidates(
         .join(Job, Job.id == latest.c.job_id)
         .outerjoin(Client, Client.id == Job.client_id)
         .outerjoin(PipelineStageDef, PipelineStageDef.id == latest.c.stage_def_id)
-        .where(Job.status != JobStatus.closed)
+        .where(
+            Job.status != JobStatus.closed,
+            latest.c.stage.in_([PipelineStage(v) for v in SCREENING_ENTRY_STAGES]),
+        )
     )
     if scope_clause is not None:
         stmt = stmt.where(scope_clause)
@@ -288,7 +297,8 @@ async def other_open_jobs_for_candidates(
         job_id,
         stage,
         moved_at,
-        job,
+        title,
+        working_title,
         client_name,
         name,
         category,
@@ -307,7 +317,9 @@ async def other_open_jobs_for_candidates(
                 moved_at,
                 {
                     "job_id": int(job_id),
-                    "title": display_title(job),
+                    "title": display_title(
+                        SimpleNamespace(title=title, working_title=working_title)
+                    ),
                     "client_name": client_name,
                     "column": column,
                 },
@@ -379,6 +391,22 @@ async def record_also_fits_added(
                 )
             ).all()
         }
+        # Klucz dzwonka = nowy wiersz etapu pary w B: indeks `ix_notif_dedup_daily`
+        # (user, typ, encja, dzień) zjadałby drugi dzwonek, gdyby kluczem była
+        # osoba dodana tego samego dnia do dwóch rekrutacji jednego rekrutera.
+        stage_ids = {
+            int(cid): int(stage_id)
+            for cid, stage_id in (
+                await db.execute(
+                    select(CandidateStage.candidate_id, func.max(CandidateStage.id))
+                    .where(
+                        CandidateStage.job_id == job_id,
+                        CandidateStage.candidate_id.in_(sorted(names)),
+                    )
+                    .group_by(CandidateStage.candidate_id)
+                )
+            ).all()
+        }
         recipients = sorted(
             {
                 p.user_id
@@ -412,8 +440,10 @@ async def record_also_fits_added(
                                 origin_title=origin_title,
                             ),
                             ntype=NotificationType.also_fits_added,
-                            related_entity_type="candidate",
-                            related_entity_id=cid,
+                            related_entity_type=(
+                                "candidate_stage" if cid in stage_ids else "candidate"
+                            ),
+                            related_entity_id=stage_ids.get(cid, cid),
                             link=f"/jobs/{job_id}?candidate={cid}",
                         )
                     sent += int(created is not None)

@@ -32,6 +32,7 @@ export function alsoFitsSlot(
       onAdd={(jobIds) => alsoFits.add(candidateId, jobIds)}
       onUndo={(jobId) => alsoFits.undo(candidateId, jobId)}
       onRetry={() => alsoFits.retry(candidateId)}
+      onRequest={() => alsoFits.request(candidateId)}
     />
   );
 }
@@ -43,6 +44,7 @@ export interface AlsoFitsBlockProps {
   onAdd: (jobIds: number[]) => void;
   onUndo: (jobId: number) => void;
   onRetry: () => void;
+  onRequest: () => void;
 }
 
 function heading(count: number): string {
@@ -58,7 +60,17 @@ export function AlsoFitsBlock({
   onAdd,
   onUndo,
   onRetry,
+  onRequest,
 }: AlsoFitsBlockProps) {
+  if (model.status === "idle") {
+    return (
+      <p className="mt-1 text-xs text-muted-foreground" data-testid="also-fits-idle">
+        <button type="button" onClick={onRequest} className="font-semibold text-primary hover:underline">
+          Sprawdź, gdzie jeszcze pasuje
+        </button>
+      </p>
+    );
+  }
   if (model.status === "loading") {
     return (
       <p role="status" className="mt-1 text-xs text-muted-foreground" data-testid="also-fits-loading">
