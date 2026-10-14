@@ -73,7 +73,7 @@ EVENT_TYPE_LABELS: dict[str, str] = {
     "job.delete": "Usunięcie rekrutacji",
     "notifications.role_mutes": "Zmiana powiadomień roli",
     "notifications.email_policy": "Zmiana maili automatycznych",
-    # 0442: zapisy faktur przez API integracyjne v1 (autor = konto serwisowe).
+    # 0443: zapisy faktur przez API integracyjne v1 (autor = konto serwisowe).
     "invoice.create": "Wystawienie faktury (integracja)",
     "invoice.update": "Zmiana faktury (integracja)",
     "invoice.cancel": "Anulowanie faktury (integracja)",

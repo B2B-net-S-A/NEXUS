@@ -1,4 +1,4 @@
-"""Wspólne elementy API integracyjnego v1 (``/api/integrations/v1``, 0442).
+"""Wspólne elementy API integracyjnego v1 (``/api/integrations/v1``, 0443).
 
 Decyzja Artura 14.10.2026: procesy firmy (na start rozliczanie klientów)
 podpinane pod NEXUSA przez stabilne, udokumentowane API dla automatyzacji.

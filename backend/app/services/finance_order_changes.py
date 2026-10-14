@@ -699,7 +699,7 @@ async def _changes(
         if author_ids
         else {}
     )
-    # 0442: zmiana zapisana kluczem API (`source='integration'`) — autorem jest
+    # 0443: zmiana zapisana kluczem API (`source='integration'`) — autorem jest
     # konto serwisowe, pokazywane jako „Integracja: <nazwa>”.
     integration_ids = sorted(
         {

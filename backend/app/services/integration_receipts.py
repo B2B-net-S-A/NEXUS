@@ -1,4 +1,4 @@
-"""Idempotencja zapisów API integracyjnego v1 (``Idempotency-Key``, 0442).
+"""Idempotencja zapisów API integracyjnego v1 (``Idempotency-Key``, 0443).
 
 Automatyzacja ponawia żądanie, gdy nie dostała odpowiedzi — a odpowiedź ginie
 właśnie wtedy, gdy NEXUS się wdraża (~2 min przerwy w oknie 19:00–07:00) albo

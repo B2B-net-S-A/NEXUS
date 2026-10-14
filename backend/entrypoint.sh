@@ -6017,7 +6017,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0415: rekrutacja bez szkiców — „Klient nie podał” przy HM i terminie.
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS hiring_manager_not_provided BOOLEAN NOT NULL DEFAULT false",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS deadline_not_provided BOOLEAN NOT NULL DEFAULT false",
-    # 0442: API integracyjne v1 — paragony zapisów (idempotencja + rejestr
+    # 0443: API integracyjne v1 — paragony zapisów (idempotencja + rejestr
     # „co zapisała automatyzacja”). Bez tabeli każdy zapis v1 pada na
     # UndefinedTable. CHECK źródła „integration” w `_CONSTRAINT_STATEMENTS`.
     """CREATE TABLE IF NOT EXISTS integration_write_receipts (
@@ -6041,7 +6041,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     )""",
     "CREATE INDEX IF NOT EXISTS ix_integration_write_receipts_account_created "
     "ON integration_write_receipts (service_account_id, created_at)",
-    # 0442: listener `order_change_audit` zapisuje autora-konto przy KAŻDEJ
+    # 0443: listener `order_change_audit` zapisuje autora-konto przy KAŻDEJ
     # zmianie zamówienia kluczem — bez kolumny pada zapis zamówienia.
     "ALTER TABLE order_change_events "
     "ADD COLUMN IF NOT EXISTS created_by_service_account_id INTEGER",
@@ -8146,7 +8146,7 @@ SELECT 'job', id, 'archived',
 # Bez tego jedna zabłąkana wartość zablokowałaby start kontenera. VALIDATE
 # CONSTRAINT można uruchomić później, świadomie, po policzeniu sierot.
 _CONSTRAINT_STATEMENTS = [
-    # 0442: źródło „integration” (zapis kluczem API v1). Poszerzenie domeny =
+    # 0443: źródło „integration” (zapis kluczem API v1). Poszerzenie domeny =
     # jawny DROP+ADD w jednym bloku; JEDYNA definicja poza CREATE TABLE —
     # pilnuje `tests/test_entrypoint_order_change_source_mirror.py`.
     """DO $$ BEGIN

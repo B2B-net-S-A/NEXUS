@@ -856,7 +856,7 @@ async def _authenticate_service_key(
     # Zachowanie jest przypięte testem (`test_scope_denied_still_stamps_usage`),
     # żeby nie zmieniło się po cichu przy refaktorze.
     await stamp_key_usage(db, key.key_id, client_ip)
-    # Autor zapisów tej sesji = konto serwisowe (0442): dziennik zmian zamówień,
+    # Autor zapisów tej sesji = konto serwisowe (0443): dziennik zmian zamówień,
     # `details.via` na `Activity`, log `http_outcome` (`request.state`).
     stamp_integration(db.info, principal)
     request.state.service_principal = principal

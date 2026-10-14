@@ -1005,7 +1005,7 @@ async def run_md_import(
     """Cały import raportu MD BEZ commita — zatwierdza wołający.
 
     Wspólna droga ekranu (``POST /api/md-consumption/imports``) i API
-    integracyjnego v1 (``POST /api/integrations/v1/md/imports``, 0442). Brak
+    integracyjnego v1 (``POST /api/integrations/v1/md/imports``, 0443). Brak
     commita w środku to warunek ``dry_run`` w v1: przebieg liczy się w całości,
     odpowiedź powstaje przed ``rollback`` i nic nie zostaje w bazie. Zwraca
     partię (po ``flush`` i przeliczeniu liczników) oraz sparsowany arkusz.

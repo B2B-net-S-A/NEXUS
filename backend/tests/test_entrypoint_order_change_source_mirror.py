@@ -1,6 +1,6 @@
 """Każda definicja ``ck_order_change_events_source`` w safety-necie zna źródła z modelu.
 
-0442 (API integracyjne v1) poszerza domenę o ``integration``. Lekcja z
+0443 (API integracyjne v1) poszerza domenę o ``integration``. Lekcja z
 ``ck_dl_alerts_type`` (03.09.2026): starsza, węższa definicja wykonywana PO
 nowszej zwężała więz przy każdym deployu, a zielone testy tego nie widziały —
 baza testowa dostaje więz z alembica, nie z entrypointu. Tu wąski więz

@@ -91,7 +91,7 @@ class RequestCorrelationMiddleware:
                 }
                 slug = _service_slug(scope)
                 if slug:
-                    # API integracyjne v1 (0442): które konto serwisowe wołało.
+                    # API integracyjne v1 (0443): które konto serwisowe wołało.
                     extra["actor"] = f"service_account:{slug}"
                 logging.getLogger(__name__).info("http_outcome", extra=extra)
 

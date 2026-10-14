@@ -17,7 +17,7 @@ się pod NEXUSA przez stabilne API dla automatyzacji. Dokumentacja dla integrato
 | Kwoty tylko z `amounts:read` (zamówienia, kontrakty, wiersze importu MD) | gotowe | `TestAmountsScope`, `test_md_import_rows_hide_invoice_amounts_without_amounts_read` |
 | Ekran „Ustawienia → Klucze API” | gotowe | `frontend/src/app/settings/api-keys/`, harness `/preview/api-keys`; vitest 431 passed |
 | OAuth: mapa tras zależna od metody (+5 tras scraperów) | gotowe | `services/oauth_route_scopes.py`; `tests/test_oauth_route_scopes_methods.py` |
-| Migracja 0442 + lustro `entrypoint.sh` | gotowe | `tests/test_entrypoint_order_change_source_mirror.py` |
+| Migracja 0443 + lustro `entrypoint.sh` | gotowe | `tests/test_entrypoint_order_change_source_mirror.py` |
 | Pełne CI na gałęzi (Postgres) | zielone | runy 38569736633, 38571649108 |
 
 Przeglądy przed PR-em (code review + security review) znalazły i naprawiono:

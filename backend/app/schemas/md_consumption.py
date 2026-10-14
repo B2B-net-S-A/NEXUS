@@ -89,7 +89,7 @@ class ImportSummary(BaseModel):
     rows_cost_applied: int = 0
     rows_cost_unmatched: int = 0
     uploaded_by_user_id: Optional[int] = None
-    #: 0442: import z API integracyjnego v1 — autorem jest konto serwisowe.
+    #: 0443: import z API integracyjnego v1 — autorem jest konto serwisowe.
     uploaded_by_service_account_id: Optional[int] = None
     created_at: datetime
 

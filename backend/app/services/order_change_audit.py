@@ -102,7 +102,7 @@ def stamp_service_account(session_info: dict, account_id: Optional[int]) -> None
     """Zapamiętaj konto serwisowe (klucz API v1) dla zdarzeń tej sesji.
 
     Bez tego zmiana stawki albo daty końca zapisana kluczem trafiała do
-    „Zmian w zamówieniach” jako „system” bez autora (0442).
+    „Zmian w zamówieniach” jako „system” bez autora (0443).
     """
 
     if account_id is not None:

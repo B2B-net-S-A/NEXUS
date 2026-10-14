@@ -1553,7 +1553,7 @@ app.include_router(
     prefix="/api/integrations/compass",
     tags=["integrations"],
 )
-# API integracyjne v1 (0442, decyzja Artura 14.10.2026): automatyzacje
+# API integracyjne v1 (0443, decyzja Artura 14.10.2026): automatyzacje
 # procesów firmy (na start rozliczanie klientów) na kluczach `X-API-Key`.
 # Osobna warstwa obok tras ekranów — te dla klucza nadal są 401.
 for _integrations_v1_router in integrations_v1.ROUTERS:

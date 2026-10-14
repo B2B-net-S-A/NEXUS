@@ -539,7 +539,7 @@ async def order_history(
         if authors_ids
         else {}
     )
-    # 0442: zmiana zapisana kluczem API — autorem konto serwisowe.
+    # 0443: zmiana zapisana kluczem API — autorem konto serwisowe.
     integration_ids = {
         e.created_by_service_account_id
         for e in events
