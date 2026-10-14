@@ -47,13 +47,38 @@ def is_rodo_text(text: str) -> bool:
     return _norm((text or "")[:_PROBE_CHARS]).startswith(rodo_openings())
 
 
-def is_rodo_node(node) -> bool:
-    """Akapit klauzuli: znacznik edytora, klasa generatora albo słowa szablonu."""
-    return (
+def _leading_text(node) -> str:
+    """Początek tekstu węzła — tyle, ile czyta `is_rodo_text`.
+
+    Bez sklejania całego poddrzewa: opakowanie z tysiącami akapitów sprawdzane
+    przy każdym z nich dawało koszt kwadratowy (audyt 13.10.2026).
+    """
+    parts: list[str] = []
+    size = 0
+    for piece in node.itertext():
+        parts.append(piece)
+        size += len(piece)
+        if size >= _PROBE_CHARS:
+            break
+    return "".join(parts)
+
+
+def is_rodo_node(node, seen: Optional[dict] = None) -> bool:
+    """Akapit klauzuli: znacznik edytora, klasa generatora albo słowa szablonu.
+
+    ``seen`` — wyniki z tego samego przebiegu: przodek wspólny dla tysięcy
+    akapitów jest wtedy sprawdzany raz, nie przy każdym z nich.
+    """
+    if seen is not None and node in seen:
+        return seen[node]
+    result = (
         node.get("data-cv-section") == "rodo"
         or "rodo" in node.get("class", "").split()
-        or is_rodo_text("".join(node.itertext()))
+        or is_rodo_text(_leading_text(node))
     )
+    if seen is not None:
+        seen[node] = result
+    return result
 
 
 def _wrap_loose_clause_text(root) -> None:
@@ -90,7 +115,7 @@ def _wrap_loose_clause_text(root) -> None:
     walk(root)
 
 
-def _clause_like(root) -> list:
+def _clause_like(root, seen: Optional[dict] = None) -> list:
     # Bloki, które generator Worda bierze za akapit: `p` albo `div` bez bloków
     # w środku — gdziekolwiek stoją. Punkt listy cytujący klauzulę to treść CV.
     from app.services.cv_approved_docx import BLOCKS
@@ -100,12 +125,12 @@ def _clause_like(root) -> list:
         for node in root.iter("p", "div")
         if node is not root
         and not any(child.tag in BLOCKS for child in node)
-        and is_rodo_node(node)
+        and is_rodo_node(node, seen)
         and not any(parent.tag in ("ul", "ol") for parent in node.iterancestors())
     ]
 
 
-def _pinned_by_word(node, root) -> bool:
+def _pinned_by_word(node, root, seen: Optional[dict] = None) -> bool:
     """Czy generator Worda przypnie ten akapit na dole strony jako klauzulę.
 
     Lustro `cv_approved_docx.flatten` i `paragraph_block`: akapit musi stać na
@@ -124,7 +149,7 @@ def _pinned_by_word(node, root) -> bool:
             parent.tag not in _WRAPPERS
             or parent.get("data-cv-section")
             or (parent.text or "").strip()
-            or is_rodo_node(parent)
+            or is_rodo_node(parent, seen)
         ):
             return False
     return False
@@ -164,12 +189,15 @@ def _restore(kept, incoming_html: str) -> str:
             422,
             "Nie udało się odczytać treści CV. Usuń nietypowe znaki i zapisz ponownie.",
         ) from error
-    nodes = _clause_like(root)
+    # Wyniki `is_rodo_node` w obrębie tego drzewa — wspólne opakowanie
+    # sprawdzane raz (koszt liniowy, audyt 13.10.2026).
+    seen: dict = {}
+    nodes = _clause_like(root, seen)
     keeper = next(
         (
             node
             for node in nodes
-            if _pinned_by_word(node, root) and _same_text(node, kept)
+            if _pinned_by_word(node, root, seen) and _same_text(node, kept)
         ),
         None,
     )
@@ -223,8 +251,11 @@ def keep_rodo_clause(previous_html: Optional[str], incoming_html: str) -> str:
             "[cv_rodo] zapisane CV nie daje się odczytać — klauzula bez ochrony"
         )
         return incoming_html
+    seen: dict = {}
     saved = [
-        node for node in _clause_like(saved_root) if _pinned_by_word(node, saved_root)
+        node
+        for node in _clause_like(saved_root, seen)
+        if _pinned_by_word(node, saved_root, seen)
     ]
     if not saved:
         return incoming_html
