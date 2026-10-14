@@ -8,7 +8,6 @@ import {
   newerProfileCv,
   originalCvSentence,
   pairCompanyCv,
-  pairCvOnOtherStage,
   primaryProfileCv,
 } from "@/lib/dock-cv-summary";
 import { summarizeRequirements, type MoveRequirementItem } from "@/lib/api/moveRequirements";
@@ -89,7 +88,7 @@ describe("companyCvSentence", () => {
     ]);
     expect(pairOk).toBe(true);
     const s = companyCvSentence(null, { pairHasCompanyCv: pairOk });
-    expect(s.text).toBe("CV firmowe: gotowe (nie podpięte do tego etapu)");
+    expect(s.text).toBe("CV firmowe: gotowe (w plikach kandydata)");
     expect(s.tone).toBe("success");
   });
 
@@ -145,41 +144,20 @@ describe("nextStageHeading", () => {
   });
 });
 
-describe("CV firmowe pary na innym etapie (runda 10, F23)", () => {
-  const pair = {
-    status: "finalized",
-    stage_id: 11,
-    stage_name: "QC CV",
-    finalized_at: "2026-09-26T10:00:00Z",
-  };
-
-  it("etap bez CV, para ma zatwierdzone CV na innym etapie — nie „brak”", () => {
-    const elsewhere = pairCvOnOtherStage(null, pair, 12);
-    expect(elsewhere).toEqual(pair);
-    const sentence = companyCvSentence(null, { pairBranded: elsewhere });
-    expect(sentence.tone).toBe("success");
-    expect(sentence.text).toBe(
-      "CV firmowe: zatwierdzone 26.09.2026 — z etapu „QC CV”, nie podpięte do bieżącego etapu",
-    );
-  });
-
-  it("para bez CV albo CV na bieżącym etapie — brak podpowiedzi", () => {
-    expect(pairCvOnOtherStage(null, { ...pair, status: "none", stage_id: null }, 12)).toBeNull();
-    expect(pairCvOnOtherStage(null, pair, 11)).toBeNull();
-    expect(
-      pairCvOnOtherStage({ status: "draft", from_generator: true }, pair, 12),
-    ).toBeNull();
-    expect(companyCvSentence(null, { pairBranded: null }).text).toBe("CV firmowe: brak");
-  });
-
-  it("szkic na innym etapie mówi „szkic”", () => {
-    const sentence = companyCvSentence(null, {
-      pairBranded: { ...pair, status: "draft", finalized_at: null },
+describe("CV firmowe pary na innym etapie (D2, 14.10.2026)", () => {
+  // Dok podaje stan CV z wiersza, na którym CV leży (`pair_source_stage_id`),
+  // więc zdanie jest takie samo jak przy CV bieżącego etapu — bez dopisku
+  // „nie podpięte do bieżącego etapu”, który Delivery Lead czytał jak „brak CV”.
+  it("zatwierdzone i szkic z wiersza pary mówią o CV, nie o etapach", () => {
+    const finalized = companyCvSentence({
+      status: "finalized",
+      from_generator: true,
+      finalized_at: "2026-09-26T10:00:00Z",
     });
-    expect(sentence).toEqual({
-      text: "CV firmowe: szkic — z etapu „QC CV”, nie podpięte do bieżącego etapu",
-      tone: "info",
-    });
+    expect(finalized).toEqual({ text: "CV firmowe: zatwierdzone 26.09.2026", tone: "success" });
+    const draft = companyCvSentence({ status: "draft", from_generator: true, updated_at: "2026-10-14T09:00:00Z" });
+    expect(draft).toEqual({ text: "CV firmowe: szkic · zmienione 14.10.2026", tone: "info" });
+    expect(`${finalized.text} ${draft.text}`).not.toMatch(/podpięte|z etapu/);
   });
 });
 

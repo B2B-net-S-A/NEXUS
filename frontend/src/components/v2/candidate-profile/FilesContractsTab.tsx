@@ -97,7 +97,7 @@ export interface FilesContractsTabProps {
   candidateName: string;
   readOnly: boolean;
   focus: CandidateDocumentView;
-  /** Rekrutacje osoby z `/history` — kody z tytułów rozpoznają CV wysłane klientom. */
+  /** Rekrutacje osoby z `/history` — kody z tytułów rozpoznają CV dla klientów. */
   recruitments?: readonly RecruitmentCodeSource[];
   /**
    * `contracts[]` z `/history` — pokazywane kontu bez `delivery_view`.

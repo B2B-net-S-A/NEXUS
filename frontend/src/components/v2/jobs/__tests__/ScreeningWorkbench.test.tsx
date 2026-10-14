@@ -8,7 +8,7 @@
  * screening”: formularz stoi od razu także w „Nowych”.
  */
 
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ComponentProps } from "react";
@@ -91,7 +91,27 @@ vi.mock("@/components/v2/screening-form/ScreeningFormHistory", () => ({
   ),
 }));
 
+vi.mock("@/components/v2/screening-form/JointScreeningPicker", () => ({
+  JointScreeningPicker: (props: { pairs: unknown[]; selected: ReadonlySet<number> }) =>
+    props.pairs.length ? <div data-testid="joint-picker">wybrane: {[...props.selected].join(",")}</div> : null,
+}));
+
+vi.mock("@/components/v2/screening-form/JointScreeningForm", () => ({
+  JointScreeningForm: (props: { others: Array<{ job_id: number }>; onSessionChange?: (active: boolean) => void }) => (
+    <div data-testid="joint-form">
+      wspólny z: {props.others.map((p) => p.job_id).join(",")}
+      <button type="button" onClick={() => props.onSessionChange?.(true)}>
+        zapis ruszył
+      </button>
+      <button type="button" onClick={() => props.onSessionChange?.(false)}>
+        zamknij wynik
+      </button>
+    </div>
+  ),
+}));
+
 import { ScreeningWorkbench } from "@/components/v2/jobs/ScreeningWorkbench";
+import { useJointScreeningIntent } from "@/store/joint-screening";
 import { createNoteFillChannel } from "@/lib/note-fill-channel";
 import { PersonPanelSideProvider, PersonPanelSideZone } from "@/components/v2/person/PersonPanelSide";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
@@ -433,3 +453,94 @@ describe("ScreeningWorkbench — stany i nagłówek", () => {
     }
   });
 });
+
+describe("ScreeningWorkbench — „Screening dla” (14.10.2026)", () => {
+  const contextPair = (job_id: number) => ({
+    job_id,
+    title: `Rekrutacja ${job_id}`,
+    client_id: 1,
+    client_name: null,
+    board_column: "new",
+    process_state_version: 1,
+    claim: null,
+    selectable: true,
+    reason: null,
+    reason_message: null,
+    budget_hourly: null,
+    verified_stage_def_id: 5,
+  });
+
+  beforeEach(() => {
+    useJointScreeningIntent.setState({ intent: null });
+    mocks.get.mockImplementation((url: string, config: { params: { candidate_id: number } }) => {
+      if (url === "/api/screening-form/joint-context") {
+        return Promise.resolve({
+          data: {
+            candidate_id: 111,
+            job_id: 7,
+            anchor: { job_id: 7, title: "Kotwica", client_id: 1, client_name: null, budget_hourly: null },
+            pairs: [201, 202, 203, 204, 205].map(contextPair),
+          },
+        });
+      }
+      if (url.includes("/also-fits")) return Promise.resolve({ data: { status: "ok", jobs: [] } });
+      return Promise.resolve({ data: states.get(config.params.candidate_id) });
+    });
+  });
+
+  function renderJoint() {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const ui = (columns: KanbanColumn[]) => (
+      <QueryClientProvider client={client}>
+        <ScreeningWorkbench
+          jobId={7}
+          jobBudgetHourly={100}
+          columns={columns}
+          isLoading={false}
+          isError={false}
+          error={null}
+          isSuccess
+          onRetry={vi.fn()}
+          onMoved={vi.fn()}
+          readOnly={false}
+          onTabChange={vi.fn()}
+          onTake={vi.fn()}
+          focusCandidateId={111}
+        />
+      </QueryClientProvider>
+    );
+    const view = render(ui(board()));
+    return { rerender: (columns: KanbanColumn[]) => view.rerender(ui(columns)) };
+  }
+
+  it("„Screening razem” for the person already open selects at most three other recruitments", async () => {
+    renderJoint();
+    await screen.findByTestId("joint-picker");
+    expect(screen.getByTestId("full-form")).toBeInTheDocument();
+    act(() => useJointScreeningIntent.getState().setIntent(111, [201, 202, 203, 204, 205]));
+    expect(await screen.findByTestId("joint-form")).toHaveTextContent("wspólny z: 201,202,203");
+    // Wybór dalej można zmieniać.
+    expect(screen.getByTestId("joint-picker")).toHaveTextContent("wybrane: 201,202,203");
+  });
+
+  it("keeps the joint form and its result after the anchor has moved on, until the result is closed", async () => {
+    const user = userEvent.setup();
+    useJointScreeningIntent.getState().setIntent(111, [201]);
+    const { rerender } = renderJoint();
+    await user.click(await screen.findByRole("button", { name: "zapis ruszył" }));
+    // Kotwica przeszła na „Zweryfikowany” — Tablica odświeżona.
+    rerender(
+      board().map((col) =>
+        col.stage === "new"
+          ? { ...col, items: [], count: 0 }
+          : col.stage === "verified"
+            ? { ...col, items: [item({ stage: "verified" })], count: 1 }
+            : col,
+      ),
+    );
+    expect(screen.getByTestId("joint-form")).toHaveTextContent("wspólny z: 201");
+    await user.click(screen.getByRole("button", { name: "zamknij wynik" }));
+    await waitFor(() => expect(screen.queryByTestId("joint-form")).toBeNull());
+  });
+});
+

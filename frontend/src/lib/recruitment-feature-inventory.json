@@ -610,9 +610,9 @@
   {
    "id": "panel.saved-cv",
    "area": "cv",
-   "opis": "CV oryginalne, stan CV firmowego i linki dla klienta tylko do odczytu dla osoby na późniejszym etapie",
-   "file": "components/v2/recruitment/PanelSavedViews.tsx",
-   "marker": "SavedCvView",
+   "opis": "CV osoby na późniejszym etapie (QC CV, CV wysłane i dalej): ta sama karta „CV do klienta” z podglądem, pobraniem Word/PDF i edytorem; od „CV wysłane” bez podmiany CV (D3, 14.10.2026 — do tej daty widok tylko do odczytu bez pobierania)",
+   "file": "components/v2/jobs/CvHandoffWorkbench.tsx",
+   "marker": "lockedAfterSend={isAtClientColumn(laterColumn)}",
    "v3_home": "panel → CV"
   },
   {
@@ -717,7 +717,8 @@
    "opis": "Podgląd CV tylko do odczytu: linki dla klienta ze WSZYSTKICH etapów pary (link leży na etapie sprzed „CV Wysłane”)",
    "file": "components/v2/recruitment/PanelSavedViews.tsx",
    "marker": "listForRecruitment",
-   "v3_home": "panel → CV (tylko odczyt)"
+   "v3_home": "panel → CV (tylko odczyt)",
+   "removed_reason": "Decyzja Artura 14.10.2026 (D3, prośba Delivery Leada o pobieranie CV z panelu): widok tylko do odczytu zastąpiła karta „CV do klienta” na każdym etapie. Lista linków dla klienta była w nim i tak schowana flagą CV_CLIENT_LINKS_UI_ENABLED=false (linki wyłączone od 21.09.2026)."
   },
   {
    "id": "views.carry-person",
@@ -1063,7 +1064,7 @@
   {
    "id": "cv.to-client-card",
    "area": "cv",
-   "opis": "Karta „CV do klienta” w panelu osoby (generator CV v3): gotowe / generuje się / brak („Generuj CV” rozwija w karcie panel „Z czego powstało” — od 13.10.2026 bez okna generatora) / stary szablon tylko do odczytu; jedna liczba rzeczy do sprawdzenia przed wysłaniem; plik CV kandydata z podglądem oryginału; od 14.10.2026 (Edytor CV 3) gotowe CV to miniatura prawdziwej pierwszej strony z liczbą stron, „Otwórz i popraw”, „Pobierz Word” i menu „⋯” (Pobierz PDF, Użyj innego CV, Historia wersji, Wygeneruj ponownie)",
+   "opis": "Karta „CV do klienta” w panelu osoby (generator CV v3): gotowe / generuje się / brak („Generuj CV” rozwija w karcie panel „Z czego powstało” — od 13.10.2026 bez okna generatora) / stary szablon tylko do odczytu; jedna liczba rzeczy do sprawdzenia przed wysłaniem; plik CV kandydata z podglądem oryginału; od 14.10.2026 (Edytor CV 3) gotowe CV to miniatura prawdziwej pierwszej strony z liczbą stron, „Otwórz i popraw”, „Pobierz Word” i menu „⋯” (Pobierz PDF, Użyj innego CV, Historia wersji, Wygeneruj ponownie); od 14.10.2026 (D3) także dla osoby za „Zweryfikowanym”, a od „CV wysłane” (`lockedAfterSend`) bez „Użyj innego CV” i generowania",
    "file": "components/v2/recruitment/CvToClientCard.tsx",
    "marker": "export function CvToClientCard",
    "v3_home": "panel → CV"
@@ -1899,6 +1900,22 @@
    "v3_home": "panel osoby → formularz screeningu → stopka"
   },
   {
+   "id": "screening-form.joint-picker",
+   "area": "formularz screeningu",
+   "opis": "„Screening dla” nad formularzem: inne rekrutacje osoby z Nowych/Screeningu do zaznaczenia, wyszarzone z powodem (po screeningu, cudza rezerwacja), „+ Dodaj i dołącz” z „Pasuje też do” (14.10.2026)",
+   "file": "components/v2/screening-form/JointScreeningPicker.tsx",
+   "marker": "+ Dodaj i dołącz",
+   "v3_home": "panel osoby → Nowi/Screening → nad formularzem"
+  },
+  {
+   "id": "screening-form.joint",
+   "area": "formularz screeningu",
+   "opis": "Formularz wspólny dla kilku rekrutacji: warunki i stawka raz, pytania wspólne raz, ocena per rekrutacja, zapis i „Zapisz i przekaż dalej” per para z kartą wyniku i „Przekaż mimo to” (14.10.2026)",
+   "file": "components/v2/screening-form/JointScreeningForm.tsx",
+   "marker": "Wspólne · zadajesz raz",
+   "v3_home": "panel osoby → „Screening dla” z zaznaczoną drugą rekrutacją"
+  },
+  {
    "id": "screening-form.note-fill",
    "area": "formularz screeningu",
    "opis": "„Uzupełnij z notatki”: wklej tekst albo wgraj plik, puste pola wypełniają się z plakietką, przy wpisanych propozycja „Użyj”, „Cofnij wypełnienie”; notatka idzie do historii przy zapisie",
@@ -2471,6 +2488,14 @@
    "v3_home": "Tablica → panel osoby → sekcja CV"
   },
   {
+   "id": "dock.cv-download",
+   "area": "panel",
+   "opis": "„Pobierz Word” i „PDF” przy CV firmowym w sekcji CV panelu osoby — ten sam plik co karta „CV do klienta”, z wiersza etapu, na którym CV leży; bez zgody RODO wyłączone z powodem (D1, 14.10.2026)",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "download: \"dock\"",
+   "v3_home": "Tablica → panel osoby → sekcja CV"
+  },
+  {
    "id": "dock.cv-newer-in-profile",
    "area": "panel",
    "opis": "„W profilu jest nowsze CV” z „Użyj w tej rekrutacji” i ostrzeżenie, gdy wgrane CV nie pasuje do osoby",
@@ -2577,7 +2602,7 @@
   {
    "id": "board.card-other-jobs",
    "area": "tablica",
-   "opis": "„+N rekrutacja” na karcie w Nowych/Screeningu: osoba czeka też w innej rekrutacji — okienko z listą i „Otwórz kartę” (14.10.2026)",
+   "opis": "„+N rekrutacja” na karcie w Nowych/Screeningu: osoba czeka też w innej rekrutacji — okienko z listą, „Otwórz kartę” i „Screening razem” (14.10.2026)",
    "file": "components/v2/pages/kanban-other-jobs-chip.tsx",
    "marker": "card-other-jobs-chip",
    "v3_home": "Tablica → karta w „Nowych”/„Screeningu”"

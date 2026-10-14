@@ -917,6 +917,9 @@ class CandidateQuickViewResponse(BaseModel):
     current_recruitments: list[CandidateQuickViewRecruitment] = Field(
         default_factory=list
     )
+    # Ile jest wszystkich rekrutacji „w procesie” (lista niesie najwyżej 4) —
+    # „…i N więcej” w „Co już wiemy” (14.10.2026).
+    current_recruitments_total: int = 0
     recent_notes: list[CandidateQuickViewNote] = Field(default_factory=list)
     # Ile razy zapisano „nie odebrał” — podgląd mówi to obok ostatniej rozmowy.
     contact_attempts: int = 0

@@ -36,7 +36,9 @@ import {
   CircleCheck,
   ClipboardCheck,
   Clock,
+  Download,
   ExternalLink,
+  FileDown,
   FileText,
   HelpCircle,
   Loader2,
@@ -46,6 +48,7 @@ import {
   Minimize,
   Minimize2,
   MoreHorizontal,
+  Pencil,
   PhoneOff,
   Send,
   Sparkles,
@@ -59,10 +62,12 @@ import api, {
   candidateStageCvApi,
   extractErrorMsg,
   type ChampionProfile,
-  type CVBrandedState,
   type CVOriginalSnapshot,
-  type CVShareTokensForRecruitment,
 } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
+import { downloadBlob } from "@/lib/authenticated-files";
+import { fetchStageCvFile, fetchStageCvPdf } from "@/lib/stage-cv-file";
+import { useStageBrandedCv } from "@/hooks/useStageBrandedCv";
 import { useToast } from "@/components/Toast";
 import { MentionTextarea } from "@/components/v2/forms/MentionTextarea";
 import { Badge } from "@/components/ui/badge";
@@ -111,7 +116,6 @@ import {
   companyCvSentence,
   dockOriginalCv,
   pairCompanyCv,
-  pairCvOnOtherStage,
   originalCvSentence,
   type DockProfileCvDoc,
 } from "@/lib/dock-cv-summary";
@@ -923,13 +927,18 @@ export function PipelineCandidateDock({
     queryFn: () => candidateStageCvApi.original.get(item.id).then((r) => r.data),
     enabled: isOpen("cv"),
   });
-  const cvBrandedQuery = useQuery<CVBrandedState>({
-    queryKey: ["cv-branded", item.id],
-    queryFn: () => candidateStageCvApi.branded.get(item.id).then((r) => r.data),
+  // CV firmowe PARY: wiersz bieżącego etapu, a gdy jest pusty — wiersz
+  // wskazany przez serwer (`pair_source_stage_id`; ruch na kolejną kolumnę
+  // zakłada nowy wiersz bez CV, runda 10, F23). Ten sam hook i klucze co karta
+  // „CV do klienta”: edycja, pobranie i ramka idą na `cvStageId`.
+  const stageBranded = useStageBrandedCv(item.id, {
     enabled: isOpen("cv") || openBranded || openShare,
   });
+  const cvBrandedQuery = stageBranded.ownQuery;
+  const companyBrandedQuery = stageBranded.query;
+  const companyBranded = companyBrandedQuery.data;
   const brandedStatus = cvBrandedQuery.data?.status ?? "none";
-  const stageCv = stageCvStatus(cvBrandedQuery.data);
+  const stageCv = stageCvStatus(companyBranded);
   // Oryginał z profilu — pytamy tylko, gdy etap nie ma kopii ze zgłoszenia.
   // Klucz wspólny z kartą CV na profilu kandydata.
   const snapshotMissing = cvOriginalQuery.isSuccess && !cvOriginalQuery.data?.has_snapshot;
@@ -1055,35 +1064,18 @@ export function PipelineCandidateDock({
     profileDocsFailed: profileCvQuery.isError,
     cvFilename: candidate?.cv_filename ?? null,
   });
-  // 404 z `…/cv/branded` = etap nie ma własnego CV (brak wiersza CV etapu),
-  // nie awaria. Czy PARA ma CV firmowe, mówi lista wymagań ramki „Następny
-  // etap” — czytana z cache (`enabled: false`), bez drugiego żądania.
+  // Czy PARA ma CV firmowe poza CV etapu (gotowe CV z generatora, plik
+  // „…B2B…”), mówi lista wymagań ramki „Następny etap” — czytana z cache
+  // (`enabled: false`), bez drugiego żądania.
   // Obserwator MUSI mieć ten sam `queryFn` co ramka (`useMoveRequirements`):
   // react-query bierze opcje zapytania z ostatniego `setOptions`, a efekty
   // rodzica biegną po efektach dziecka — atrapa `queryFn: () => null`
   // (#1789) zerowała ramkę przy każdym `invalidateQueries` (audyt 24.09.2026).
-  const brandedMissingOnStage =
-    cvBrandedQuery.isError &&
-    (cvBrandedQuery.error as { response?: { status?: number } } | null)?.response?.status === 404;
-  const brandedFailed = cvBrandedQuery.isError && !brandedMissingOnStage;
-  // Runda 10 (F23): ruch na kolejną kolumnę zakłada nowy wiersz etapu bez CV,
-  // a CV firmowe zostaje na etapie, na którym powstało. Stan PARY (ten sam
-  // klucz co podgląd w panelu osoby) odróżnia „brak dokumentu” od „dokument
-  // na innym etapie” — i prowadzi do edycji tego dokumentu zamiast generacji.
-  const stageHasNoCv =
-    brandedMissingOnStage || (cvBrandedQuery.isSuccess && stageCv === "none");
-  const pairCvQuery = useQuery<CVShareTokensForRecruitment>({
-    queryKey: ["cv-share-tokens-recruitment", item.candidate_id, jobId],
-    queryFn: () =>
-      candidateStageCvApi.share
-        .listForRecruitment(item.candidate_id, jobId)
-        .then((r) => r.data),
-    enabled: isOpen("cv") && stageHasNoCv,
-  });
-  const pairCvElsewhere = stageHasNoCv
-    ? pairCvOnOtherStage(null, pairCvQuery.data?.branded_cv, item.id)
-    : null;
-  const editStageId = pairCvElsewhere?.stage_id ?? item.id;
+  // 404 z `…/cv/branded` pada od 12.10.2026 tylko dla nieistniejącego etapu —
+  // brak wiersza CV to stan „none” z `pair_source_stage_id`, więc błąd odczytu
+  // to zawsze awaria, nigdy „brak CV”.
+  const brandedFailed = cvBrandedQuery.isError || companyBrandedQuery.isError;
+  const editStageId = stageBranded.cvStageId;
   const nextStageRequirements = useMoveRequirements(
     {
       candidateId: item.candidate_id,
@@ -1092,10 +1084,37 @@ export function PipelineCandidateDock({
     },
     false,
   );
-  const companyCv = companyCvSentence(brandedMissingOnStage ? null : cvBrandedQuery.data, {
+  const companyCv = companyCvSentence(companyBranded, {
     pairHasCompanyCv: pairCompanyCv(nextStageRequirements.data?.items),
-    pairBranded: pairCvElsewhere,
   });
+  // D1 (14.10.2026): „Pobierz Word / PDF” przy CV firmowym — ten sam plik co
+  // w karcie „CV do klienta” (szkic z bieżącej treści albo zatwierdzona
+  // wersja), z wiersza, na którym CV leży. Zgoda RODO: serwer odmawia 409
+  // `consent_required`, dok mówi to od razu (`consent_missing`).
+  const canDownloadCompanyCv = companyBrandedQuery.isSuccess && stageCv === "ready";
+  const companyConsentMissing = canDownloadCompanyCv && companyBranded?.consent_missing === true;
+  const [downloadingCv, setDownloadingCv] = useState<"docx" | "pdf" | null>(null);
+  const downloadCompanyCv = async (format: "docx" | "pdf") => {
+    setDownloadingCv(format);
+    try {
+      const file =
+        format === "docx"
+          ? await fetchStageCvFile(editStageId, { download: "dock" })
+          : await fetchStageCvPdf(editStageId, { download: "dock" });
+      downloadBlob(file.blob, file.filename || (format === "docx" ? "CV.docx" : "CV.pdf"));
+    } catch (error) {
+      showError(
+        apiErrorMessage(
+          error,
+          format === "pdf"
+            ? "Nie udało się pobrać PDF. Spróbuj za chwilę albo pobierz plik Word."
+            : "Nie udało się pobrać CV.",
+        ),
+      );
+    } finally {
+      setDownloadingCv(null);
+    }
+  };
   // QC CV wcześniej (PR 4): na „Zweryfikowanym” z CV firmowym pary dok liczy
   // QC tak jak bramka „CV wysłane” — rekruter poprawia przed przekazaniem.
   const earlyQc =
@@ -1980,47 +1999,149 @@ export function PipelineCandidateDock({
         <DockSection
           id="cv"
           label={DOCK_SECTION_LABEL.cv}
-          summary={cvBrandedQuery.isSuccess || brandedMissingOnStage ? companyCv.text : "Oryginał i CV firmowe"}
+          summary={companyBrandedQuery.isSuccess ? companyCv.text : "Oryginał i CV firmowe"}
           isNow={nowSection === "cv"}
           open={isOpen("cv")}
           onToggle={() => toggleSection("cv")}
         >
           <div className="space-y-3">
-            {/* Dwa dokumenty, dwa zdania: CV firmowe etapu i oryginał — ze
-                zgłoszenia albo z profilu. Brak kopii w zgłoszeniu to nie
-                „brak CV”, jeśli profil je ma. */}
-            <ul className="space-y-1 text-xs" data-testid="dock-cv-state">
-              <li className="flex items-start gap-1.5">
-                {cvBrandedQuery.isLoading ? (
-                  <Loader2 className="mt-0.5 h-3 w-3 animate-spin text-muted-foreground" aria-hidden="true" />
-                ) : (
+            {/* Dwa dokumenty, dwa zdania, a pod każdym jego akcje (D1, 14.10.2026):
+                CV firmowe pary i oryginał — ze zgłoszenia albo z profilu. Brak
+                kopii w zgłoszeniu to nie „brak CV”, jeśli profil je ma. */}
+            <ul className="space-y-2.5 text-xs" data-testid="dock-cv-state">
+              <li className="space-y-1.5" data-testid="dock-company-cv">
+                <div className="flex items-start gap-1.5">
+                  {companyBrandedQuery.isLoading ? (
+                    <Loader2 className="mt-0.5 h-3 w-3 animate-spin text-muted-foreground" aria-hidden="true" />
+                  ) : (
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        "mt-1 h-2 w-2 shrink-0 rounded-full",
+                        brandedFailed
+                          ? "bg-muted-foreground"
+                          : companyCv.tone === "success"
+                            ? "bg-success"
+                            : companyCv.tone === "info"
+                              ? "bg-info"
+                              : companyCv.tone === "warning"
+                                ? "bg-warning"
+                                : "bg-muted-foreground",
+                      )}
+                    />
+                  )}
+                  <span className="min-w-0 flex-1 text-foreground">
+                    {brandedFailed ? (
+                      <>
+                        CV firmowe: nie udało się sprawdzić ·{" "}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void cvBrandedQuery.refetch();
+                            if (stageBranded.pairStageId != null) void companyBrandedQuery.refetch();
+                          }}
+                          className="font-medium text-primary hover:underline"
+                        >
+                          Ponów
+                        </button>
+                      </>
+                    ) : (
+                      companyCv.text
+                    )}
+                  </span>
+                </div>
+                {/* Awaria odczytu nie udaje braku CV: bez pobierania i bez „Generuj CV”. */}
+                {!brandedFailed && (canDownloadCompanyCv || !readOnly) ? (
+                  <div className="flex flex-wrap gap-1.5 pl-3.5">
+                    {canDownloadCompanyCv ? (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void downloadCompanyCv("docx")}
+                          disabled={downloadingCv != null || companyConsentMissing}
+                          loading={downloadingCv === "docx"}
+                        >
+                          <Download className="h-3.5 w-3.5" aria-hidden /> Pobierz Word
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          aria-label="Pobierz PDF"
+                          onClick={() => void downloadCompanyCv("pdf")}
+                          disabled={downloadingCv != null || companyConsentMissing}
+                          loading={downloadingCv === "pdf"}
+                        >
+                          <FileDown className="h-3.5 w-3.5" aria-hidden /> PDF
+                        </Button>
+                      </>
+                    ) : null}
+                    {!readOnly ? (
+                      stageCv === "ready" ? (
+                        <Button size="sm" variant="outline" onClick={() => setOpenBranded(true)}>
+                          <Pencil className="h-3.5 w-3.5" aria-hidden /> Edytuj CV
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setOpenGenerator(true)}
+                          disabled={companyBrandedQuery.isLoading}
+                        >
+                          <Sparkles className="h-3.5 w-3.5" aria-hidden /> Generuj CV
+                        </Button>
+                      )
+                    ) : null}
+                  </div>
+                ) : null}
+                {companyConsentMissing ? (
+                  <p className="pl-3.5 text-muted-foreground" data-testid="dock-company-cv-consent">
+                    Bez zrzutu zgody RODO nie pobierzesz CV.{" "}
+                    {onOpenWorkbench ? (
+                      <WorkbenchLink onClick={() => onOpenWorkbench("cv")}>
+                        Dołącz go w karcie „CV do klienta”
+                      </WorkbenchLink>
+                    ) : (
+                      "Dołącz go w karcie „CV do klienta”."
+                    )}
+                  </p>
+                ) : null}
+              </li>
+              <li className="space-y-1.5">
+                <div className="flex items-start gap-1.5">
                   <span
                     aria-hidden="true"
                     className={cn(
                       "mt-1 h-2 w-2 shrink-0 rounded-full",
-                      companyCv.tone === "success"
-                        ? "bg-success"
-                        : companyCv.tone === "info"
-                          ? "bg-primary"
-                          : companyCv.tone === "warning"
-                            ? "bg-warning"
-                            : "bg-muted-foreground",
+                      originalCv.kind === "none" ? "bg-warning" : originalCv.kind === "loading" ? "bg-border" : "bg-success",
                     )}
                   />
-                )}
-                <span className="text-foreground">
-                  {brandedFailed ? "CV firmowe: nie udało się sprawdzić" : companyCv.text}
-                </span>
-              </li>
-              <li className="flex items-start gap-1.5">
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    "mt-1 h-2 w-2 shrink-0 rounded-full",
-                    originalCv.kind === "none" ? "bg-warning" : originalCv.kind === "loading" ? "bg-border" : "bg-success",
-                  )}
-                />
-                <span className="text-foreground">{originalCvSentence(originalCv)}</span>
+                  <span className="min-w-0 flex-1 text-foreground">{originalCvSentence(originalCv)}</span>
+                </div>
+                {originalCv.kind === "snapshot" || originalCv.kind === "unknown" ? (
+                  <div className="pl-3.5">
+                    <Button size="sm" variant="outline" onClick={() => setOpenOriginal(true)}>
+                      <FileText className="h-3.5 w-3.5" aria-hidden /> Pokaż CV oryginalne
+                    </Button>
+                  </div>
+                ) : originalCv.kind === "profile" ? (
+                  <div className="pl-3.5">
+                    <Button size="sm" variant="outline" onClick={() => setProfileCvPreviewId(originalCv.doc.id)}>
+                      <FileText className="h-3.5 w-3.5" aria-hidden /> Pokaż CV z profilu
+                    </Button>
+                  </div>
+                ) : originalCv.kind === "none" && !canUploadCv ? (
+                  <div className="pl-3.5">
+                    <Link
+                      href={`${profileHref}&tab=documents`}
+                      target="_blank"
+                      rel="noopener"
+                      className="text-xs font-medium text-primary hover:underline"
+                    >
+                      Dodaj CV w profilu kandydata ↗
+                    </Link>
+                  </div>
+                ) : null}
               </li>
               {earlyQc && (
                 <li className="flex items-start gap-1.5" data-testid="dock-early-qc">
@@ -2066,7 +2187,8 @@ export function PipelineCandidateDock({
                 />
                 {/* Szkic CV firmowego bywa na poprzednim wierszu etapu pary
                     (ruch karty) — ramka czyta go tam (audyt 13.10.2026). */}
-                {stageCv === "ready" || pairCvElsewhere?.status === "draft" ? (
+                {stageCvStatus(cvBrandedQuery.data) === "ready" ||
+                (stageBranded.pairStageId != null && companyBranded?.status === "draft") ? (
                   <CompanyCvStaleNotice
                     stageId={item.id}
                     cvStageId={editStageId}
@@ -2083,82 +2205,28 @@ export function PipelineCandidateDock({
                 />
               </>
             ) : null}
-            <div className="flex flex-col gap-1.5">
-              {originalCv.kind === "snapshot" || originalCv.kind === "unknown" ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setOpenOriginal(true)}
-                  className="justify-start"
-                >
-                  <FileText className="h-3.5 w-3.5" /> Pokaż CV oryginalne
-                </Button>
-              ) : originalCv.kind === "profile" ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setProfileCvPreviewId(originalCv.doc.id)}
-                  className="justify-start"
-                >
-                  <FileText className="h-3.5 w-3.5" /> Pokaż CV z profilu
-                </Button>
-              ) : originalCv.kind === "none" && !canUploadCv ? (
-                <Link
-                  href={`${profileHref}&tab=documents`}
-                  target="_blank"
-                  rel="noopener"
-                  className="text-xs font-medium text-primary hover:underline"
-                >
-                  Dodaj CV w profilu kandydata ↗
-                </Link>
-              ) : null}
-              {!readOnly && (
-                <>
-                  {stageCv === "ready" || pairCvElsewhere ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setOpenBranded(true)}
-                      className="justify-start"
-                    >
-                      <FileText className="h-3.5 w-3.5" />{" "}
-                      {pairCvElsewhere?.stage_name
-                        ? `Edytuj CV (etap „${pairCvElsewhere.stage_name}”)`
-                        : "Edytuj CV"}
-                    </Button>
-                  ) : (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setOpenGenerator(true)}
-                      disabled={cvBrandedQuery.isLoading}
-                      className="justify-start"
-                    >
-                      <Sparkles className="h-3.5 w-3.5" /> Generuj CV
-                    </Button>
-                  )}
-                  {CV_CLIENT_LINKS_UI_ENABLED && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={brandedStatus !== "finalized"}
-                    onClick={() => setOpenShare(true)}
-                    title={
-                      brandedStatus !== "finalized"
-                        ? "Najpierw zapisz CV do klienta w edytorze"
-                        : undefined
-                    }
-                    className="justify-start"
-                  >
-                    <Send className="h-3.5 w-3.5" /> Wyślij klientowi
-                  </Button>
-                  )}
-                </>
-              )}
-            </div>
+            {CV_CLIENT_LINKS_UI_ENABLED && !readOnly && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={brandedStatus !== "finalized"}
+                onClick={() => setOpenShare(true)}
+                title={
+                  brandedStatus !== "finalized"
+                    ? "Najpierw zapisz CV do klienta w edytorze"
+                    : undefined
+                }
+                className="justify-start"
+              >
+                <Send className="h-3.5 w-3.5" /> Wyślij klientowi
+              </Button>
+            )}
             {onOpenWorkbench ? (
               <WorkbenchLink onClick={() => onOpenWorkbench("cv")}>
-                Wysyłka CV do klienta (stawka, wersje)
+                {/* Stawka i „Oznacz CV wysłane” są w karcie tylko na „Zweryfikowanym” (D3). */}
+                {item.stage === "verified"
+                  ? "Wysyłka CV do klienta (stawka, wersje)"
+                  : "CV do klienta: strony i wersje"}
               </WorkbenchLink>
             ) : null}
           </div>

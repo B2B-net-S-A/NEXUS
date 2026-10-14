@@ -22,7 +22,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const formGet = vi.fn();
 const originalGet = vi.fn();
 const brandedGet = vi.fn();
-const pairCvGet = vi.fn();
 const candidatesGet = vi.fn();
 const apiGet = vi.fn();
 const apiPost = vi.fn();
@@ -45,7 +44,6 @@ vi.mock("@/lib/api", () => ({
   candidateStageCvApi: {
     original: { get: (...a: unknown[]) => originalGet(...a) },
     branded: { get: (...a: unknown[]) => brandedGet(...a) },
-    share: { listForRecruitment: (...a: unknown[]) => pairCvGet(...a) },
   },
   extractErrorMsg: (e: unknown) => (e instanceof Error ? e.message : "Błąd"),
 }));
@@ -102,6 +100,19 @@ vi.mock("@/components/v2/recruitment/CvQcDialog", () => ({
 }));
 vi.mock("@/components/v2/recruitment/DebriefRequiredDialog", () => ({
   DebriefRequiredDialog: () => <div data-testid="debrief-dialog" />,
+}));
+
+// „Pobierz Word / PDF” w sekcji CV (D1, 14.10.2026) — plik CV etapu i zapis na dysk.
+const stageCvFile = vi.fn();
+const stageCvPdf = vi.fn();
+vi.mock("@/lib/stage-cv-file", () => ({
+  fetchStageCvFile: (...a: unknown[]) => stageCvFile(...a),
+  fetchStageCvPdf: (...a: unknown[]) => stageCvPdf(...a),
+}));
+const savedFiles = vi.fn();
+vi.mock("@/lib/authenticated-files", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/authenticated-files")>()),
+  downloadBlob: (...a: unknown[]) => savedFiles(...a),
 }));
 
 import { PipelineCandidateDock, nowSectionForStage } from "@/components/v2/jobs/PipelineCandidateDock";
@@ -182,9 +193,6 @@ function renderDock(overrides: Partial<DockProps> = {}) {
 describe("PipelineCandidateDock", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    pairCvGet.mockResolvedValue({
-      data: { items: [], branded_cv: { status: "none", stage_id: null, stage_name: null, finalized_at: null } },
-    });
     formGet.mockResolvedValue({ data: dockForm() });
     originalGet.mockResolvedValue({
       data: {
@@ -482,6 +490,16 @@ describe("PipelineCandidateDock", () => {
     expect(onOpenWorkbench).toHaveBeenLastCalledWith("contract");
   });
 
+  it("poza „Zweryfikowanym” link do karty CV nie obiecuje stawki i wysyłki (D3)", async () => {
+    const user = userEvent.setup();
+    const onOpenWorkbench = vi.fn();
+    renderDock({ onOpenWorkbench, item: baseItem({ stage: "cv_sent" }) });
+    await user.click(screen.getByRole("button", { name: /^CV/ }));
+    await user.click(await screen.findByRole("button", { name: /CV do klienta: strony i wersje/ }));
+    expect(onOpenWorkbench).toHaveBeenLastCalledWith("cv");
+    expect(screen.queryByRole("button", { name: /Wysyłka CV do klienta/ })).toBeNull();
+  });
+
   it("bez kontekstu warsztatów dok nie pokazuje ich przycisków", async () => {
     renderDock({ item: { ...baseItem(), stage: "verified" } });
     await screen.findByText(/Oryginał CV:/);
@@ -494,9 +512,6 @@ describe("PipelineCandidateDock", () => {
 describe("PipelineCandidateDock — nawigator, oś czasu i główna akcja", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    pairCvGet.mockResolvedValue({
-      data: { items: [], branded_cv: { status: "none", stage_id: null, stage_name: null, finalized_at: null } },
-    });
     formGet.mockResolvedValue({ data: dockForm() });
     originalGet.mockResolvedValue({ data: { has_snapshot: false } });
     brandedGet.mockResolvedValue({ data: { status: "none" } });
@@ -899,9 +914,6 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    pairCvGet.mockResolvedValue({
-      data: { items: [], branded_cv: { status: "none", stage_id: null, stage_name: null, finalized_at: null } },
-    });
     formGet.mockResolvedValue({ data: dockForm() });
     originalGet.mockResolvedValue({ data: { has_snapshot: false } });
     brandedGet.mockResolvedValue({ data: { status: "none" } });
@@ -1030,10 +1042,11 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
     expect(screen.getByText("Arkusz screeningu")).toBeInTheDocument();
   });
 
-  it("etap bez własnego CV (404) przy CV firmowym pary: bez „nie udało się sprawdzić” i bez „brak”", async () => {
-    // Produkcja 24.09.2026: `…/cv/branded` → 404 (etap bez wiersza CV),
-    // a ramka „Następny etap” mówiła ✓ „CV firmowe” — dok przeczył sam sobie.
-    brandedGet.mockRejectedValue({ response: { status: 404 } });
+  it("etap bez CV etapu, a lista wymagań liczy CV firmowe z plików: „gotowe”, nie „brak”", async () => {
+    // Produkcja 24.09.2026: ramka „Następny etap” mówiła ✓ „CV firmowe”, a dok
+    // „brak” — dok przeczył sam sobie. CV z generatora albo plik „…B2B…” leży
+    // w plikach kandydata, więc zdanie to mówi (D2, 14.10.2026).
+    brandedGet.mockResolvedValue({ data: { status: "none" } });
     routeApiGet({
       requirements: requirements({
         to_column: "cv_qc",
@@ -1049,28 +1062,28 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
     const cvToggle = screen.getByRole("button", { name: /^CV/ });
     if (cvToggle.getAttribute("aria-expanded") !== "true") await user.click(cvToggle);
     await waitFor(() =>
-      expect(screen.getAllByText("CV firmowe: gotowe (nie podpięte do tego etapu)").length).toBeGreaterThanOrEqual(1),
+      expect(screen.getAllByText("CV firmowe: gotowe (w plikach kandydata)").length).toBeGreaterThanOrEqual(1),
     );
-    expect(screen.queryByText("CV firmowe: nie udało się sprawdzić")).toBeNull();
     expect(screen.queryByText("CV firmowe: brak")).toBeNull();
+    // Nie ma CV etapu, więc nie ma czego pobrać z rekrutacji.
+    expect(screen.queryByRole("button", { name: /Pobierz Word/ })).toBeNull();
   });
 
-  it("po ruchu dalej: CV firmowe pary z innego etapu zamiast „brak / Generuj CV” (runda 10, F23)", async () => {
-    // Produkcja 26.09.2026: po zwykłym przejściu na „CV wysłane” dok mówił
-    // „CV firmowe: brak” i proponował generację, choć zatwierdzone CV leżało
-    // na etapie „QC CV” (ruch zakłada nowy wiersz etapu bez CV).
-    brandedGet.mockRejectedValue({ response: { status: 404 } });
-    pairCvGet.mockResolvedValue({
-      data: {
-        items: [],
-        branded_cv: {
-          status: "finalized",
-          stage_id: 777,
-          stage_name: "QC CV",
-          finalized_at: "2026-09-26T10:00:00Z",
-        },
-      },
-    });
+  it("po ruchu dalej: CV firmowe pary z poprzedniego etapu — zdanie bez „nie podpięte”, pobranie i edycja tamtego wiersza", async () => {
+    // Produkcja 26.09.2026: po przejściu na „CV wysłane” dok mówił „CV firmowe:
+    // brak”, choć zatwierdzone CV leżało na „QC CV” (ruch zakłada nowy wiersz
+    // etapu bez CV). Serwer wskazuje tamten wiersz (`pair_source_stage_id`).
+    brandedGet.mockImplementation((stageId: number) =>
+      Promise.resolve({
+        data:
+          stageId === 777
+            ? { status: "finalized", from_generator: true, finalized_at: "2026-09-26T10:00:00Z", version: 2 }
+            : { status: "none", pair_source_stage_id: 777, pair_source_status: "finalized" },
+      }),
+    );
+    const blob = new Blob(["docx"]);
+    stageCvFile.mockResolvedValue({ blob, filename: "CV_Anna_Kowalska.docx" });
+    stageCvPdf.mockResolvedValue({ blob, filename: "CV_Anna_Kowalska.pdf" });
     routeApiGet({ requirements: requirements({ to_column: "client_interview", items: [] }) });
     const user = userEvent.setup();
     renderDock({
@@ -1079,16 +1092,68 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
     });
     const cvToggle = await screen.findByRole("button", { name: /^CV/ });
     if (cvToggle.getAttribute("aria-expanded") !== "true") await user.click(cvToggle);
-    await waitFor(() =>
-      expect(
-        screen.getAllByText(
-          "CV firmowe: zatwierdzone 26.09.2026 — z etapu „QC CV”, nie podpięte do bieżącego etapu",
-        ).length,
-      ).toBeGreaterThanOrEqual(1),
+    const section = await screen.findByTestId("dock-company-cv");
+    await waitFor(() => expect(section).toHaveTextContent("CV firmowe: zatwierdzone 26.09.2026"));
+    expect(section).not.toHaveTextContent(/podpięte|z etapu/);
+    expect(within(section).getByRole("button", { name: "Edytuj CV" })).toBeInTheDocument();
+    expect(within(section).queryByRole("button", { name: /Generuj CV/ })).toBeNull();
+
+    await user.click(within(section).getByRole("button", { name: /Pobierz Word/ }));
+    await waitFor(() => expect(savedFiles).toHaveBeenCalledWith(blob, "CV_Anna_Kowalska.docx"));
+    expect(stageCvFile).toHaveBeenCalledWith(777, { download: "dock" });
+
+    await user.click(within(section).getByRole("button", { name: "Pobierz PDF" }));
+    await waitFor(() => expect(savedFiles).toHaveBeenLastCalledWith(blob, "CV_Anna_Kowalska.pdf"));
+    expect(stageCvPdf).toHaveBeenCalledWith(777, { download: "dock" });
+  });
+
+  it("bez zrzutu zgody RODO pobieranie jest wyłączone i dok mówi dlaczego", async () => {
+    brandedGet.mockResolvedValue({
+      data: { status: "draft", from_generator: true, edit_revision: 1, version: 1, consent_missing: true },
+    });
+    const onOpenWorkbench = vi.fn();
+    const user = userEvent.setup();
+    renderDock({ onOpenWorkbench });
+    await user.click(screen.getByRole("button", { name: /^CV/ }));
+    const section = await screen.findByTestId("dock-company-cv");
+    await waitFor(() => expect(within(section).getByRole("button", { name: /Pobierz Word/ })).toBeDisabled());
+    expect(within(section).getByRole("button", { name: "Pobierz PDF" })).toBeDisabled();
+    expect(screen.getByTestId("dock-company-cv-consent")).toHaveTextContent(
+      "Bez zrzutu zgody RODO nie pobierzesz CV.",
     );
-    expect(screen.queryByText("CV firmowe: brak")).toBeNull();
-    expect(screen.getByRole("button", { name: /Edytuj CV \(etap „QC CV”\)/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Generuj CV/ })).toBeNull();
+    await user.click(screen.getByRole("button", { name: /Dołącz go w karcie „CV do klienta”/ }));
+    expect(onOpenWorkbench).toHaveBeenLastCalledWith("cv");
+    expect(stageCvFile).not.toHaveBeenCalled();
+  });
+
+  it("nieudane pobranie: komunikat serwera w toaście", async () => {
+    brandedGet.mockResolvedValue({ data: { status: "draft", from_generator: true, edit_revision: 1, version: 1 } });
+    stageCvFile.mockRejectedValue(
+      Object.assign(new Error("x"), {
+        response: { status: 503, data: { detail: "Plik CV jest chwilowo niedostępny." } },
+      }),
+    );
+    const user = userEvent.setup();
+    renderDock();
+    await user.click(screen.getByRole("button", { name: /^CV/ }));
+    await user.click(await screen.findByRole("button", { name: /Pobierz Word/ }));
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(String(toastError.mock.calls.at(-1)?.[0])).toMatch(/chwilowo niedostępny/);
+    expect(savedFiles).not.toHaveBeenCalled();
+  });
+
+  it("awaria odczytu CV firmowego nie udaje braku: bez pobierania i bez „Generuj CV”, z „Ponów”", async () => {
+    brandedGet.mockRejectedValue({ response: { status: 500 } });
+    const user = userEvent.setup();
+    renderDock();
+    await user.click(screen.getByRole("button", { name: /^CV/ }));
+    const section = await screen.findByTestId("dock-company-cv");
+    await waitFor(() => expect(section).toHaveTextContent("CV firmowe: nie udało się sprawdzić"));
+    expect(within(section).queryByRole("button", { name: /Pobierz Word/ })).toBeNull();
+    expect(within(section).queryByRole("button", { name: /Generuj CV/ })).toBeNull();
+    brandedGet.mockResolvedValue({ data: { status: "none" } });
+    await user.click(within(section).getByRole("button", { name: "Ponów" }));
+    await waitFor(() => expect(section).toHaveTextContent("CV firmowe: brak"));
   });
 
   it("brak pilnowany przez serwer (QC CV) jest nazwany wprost", async () => {
@@ -1552,9 +1617,6 @@ describe("PipelineCandidateDock — rozwinięty panel i dane kontaktowe (09.10.2
 
   beforeEach(() => {
     vi.clearAllMocks();
-    pairCvGet.mockResolvedValue({
-      data: { items: [], branded_cv: { status: "none", stage_id: null, stage_name: null, finalized_at: null } },
-    });
     formGet.mockResolvedValue({ data: dockForm() });
     originalGet.mockResolvedValue({ data: { has_snapshot: false } });
     brandedGet.mockResolvedValue({ data: { status: "none" } });
@@ -1756,9 +1818,6 @@ describe("PipelineCandidateDock — pole notatki: duże okno i szkic (12.10.2026
     vi.clearAllMocks();
     sessionStorage.clear();
     useAuthStore.setState({ user: { id: 7, role: "recruiter", roles: ["recruiter"] } } as never);
-    pairCvGet.mockResolvedValue({
-      data: { items: [], branded_cv: { status: "none", stage_id: null, stage_name: null, finalized_at: null } },
-    });
     formGet.mockResolvedValue({ data: dockForm() });
     originalGet.mockResolvedValue({ data: { has_snapshot: false } });
     brandedGet.mockResolvedValue({ data: { status: "none" } });

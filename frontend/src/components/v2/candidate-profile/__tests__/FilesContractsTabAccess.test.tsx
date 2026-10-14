@@ -279,7 +279,7 @@ describe("Dokumenty — układ", () => {
     expect(screen.queryByRole("button", { name: /Dane do umowy/ })).toBeNull();
   });
 
-  it("plik z kodem rekrutacji osoby trafia do „CV wysłane klientom”", async () => {
+  it("plik z kodem rekrutacji osoby trafia do „CV dla klientów”", async () => {
     setUser({ role: "recruiter" });
     apiGet.mockImplementation(async (url: string) =>
       url === "/api/candidates/42/documents"
@@ -315,7 +315,7 @@ describe("Dokumenty — układ", () => {
       recruitments: [{ job_title: "Analityk (42700)" }, { job_title: "Java Developer" }],
     });
 
-    const client = await screen.findByRole("region", { name: /CV wysłane klientom/ });
+    const client = await screen.findByRole("region", { name: /CV dla klientów/ });
     expect(within(client).getByText("42700_Jan_Kowalski.docx")).toBeInTheDocument();
   });
 

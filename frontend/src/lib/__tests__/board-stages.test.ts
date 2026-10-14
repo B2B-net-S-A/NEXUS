@@ -6,6 +6,7 @@ import {
   foldBoardColumns,
   SETTABLE_BADGES,
   boardColumnStep,
+  isAtClientColumn,
   isCproStageName,
   impliedBadges,
   isQcStageName,
@@ -194,5 +195,18 @@ describe("znaczniki ustawiane z panelu", () => {
     expect(SETTABLE_BADGES).toEqual(["contract_signed"]);
     expect(impliedBadges("cpro")).toEqual(["cpro"]);
     expect(impliedBadges(null)).toEqual([]);
+  });
+});
+
+describe("isAtClientColumn (D3, 14.10.2026)", () => {
+  it("od „CV wysłane” w prawo — osoba jest już u klienta", () => {
+    expect(["cv_sent", "client_interview", "contract", "hired"].every((key) => isAtClientColumn(key as never))).toBe(true);
+  });
+
+  it("przed wysyłką i zamknięci — nie (z kolumny „Zamknięci” nie wynika, czy CV wyszło)", () => {
+    for (const key of ["new", "screening", "verified", "cv_qc", "closed"]) {
+      expect(isAtClientColumn(key as never)).toBe(false);
+    }
+    expect(isAtClientColumn(null)).toBe(false);
   });
 });

@@ -325,6 +325,13 @@ export interface CvToClientCardProps {
   /** Otwiera wskazaną osobę w panelu (jak „›”); bez niego przycisku nie ma. */
   onOpenPerson?: (candidateId: number) => void;
   /**
+   * Osoba jest już u klienta („CV wysłane” i dalej, D3 14.10.2026): klient ma
+   * plik, więc karta nie podmienia CV na inne i nie generuje go od nowa.
+   * Zostają podgląd, „Otwórz i popraw” (edytor zapisuje historię wersji),
+   * pobieranie i dołączenie zgody RODO.
+   */
+  lockedAfterSend?: boolean;
+  /**
    * Plik CV do „Podglądu” (bez intencji pobrania). Harness `/preview/cv-to-client`
    * podaje plik z pamięci — w `/preview/*` zapytania POST są blokowane.
    */
@@ -375,12 +382,15 @@ export function CvToClientCard({
   forwarded = false,
   nextInScreening = null,
   onOpenPerson,
+  lockedAfterSend = false,
   loadStageCvFile = fetchStageCvFile,
   loadStageCvPdf = fetchStageCvPdf,
 }: CvToClientCardProps) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
   const jobLabel = jobTitle?.trim() || `Rekrutacja #${jobId}`;
+  // Podmiana CV (inne CV, generacja, nowa wersja z generatora) — nie po wysyłce.
+  const canReplace = !readOnly && !lockedAfterSend;
 
   // Panel „Z czego powstało” (generacja w karcie, bez okna generatora).
   const [generateOpen, setGenerateOpen] = useState(initialGenerateOpen);
@@ -451,7 +461,7 @@ export function CvToClientCard({
   // Dopiero po wczytaniu stanu karty: w trakcie ładowania „brak CV” jest
   // tylko brakiem danych i pytalibyśmy o gotowe CV przy każdym otwarciu.
   const hintWanted =
-    !readOnly &&
+    canReplace &&
     brandedQuery.isSuccess &&
     rowsQuery.isSuccess &&
     (state.kind === "none" || (state.kind === "ready" && state.needsReview));
@@ -462,7 +472,7 @@ export function CvToClientCard({
     targetStageId: cvStageId,
     revision: branded?.edit_revision ?? 0,
     replaces: hasCv,
-    enabled: !readOnly && (hintWanted || otherOpen),
+    enabled: canReplace && (hintWanted || otherOpen),
     onChosen: () => {
       setOtherOpen(false);
       // Wybrane CV kończy czekanie na generację zleconą z tej karty.
@@ -479,7 +489,7 @@ export function CvToClientCard({
       onShowAll={() => setOtherOpen(true)}
     />
   ) : null;
-  const useOtherButton = !readOnly ? (
+  const useOtherButton = canReplace ? (
     <Button size="sm" variant="outline" onClick={() => setOtherOpen(true)}>
       <Repeat2 className="h-3.5 w-3.5" aria-hidden />{" "}
       {hasCv ? "Użyj innego CV" : "Użyj gotowego CV"}
@@ -717,7 +727,8 @@ export function CvToClientCard({
   // serwer podepnie nową wersję do niego sam — szkicu tamtego wiersza nie ruszamy.
   const replacesDraft = hasCv && pairStageId == null;
   // „Napisz od nowa” tylko, gdy nic innego nie podmienia szkicu tej karty.
-  const rewriteAvailable = !readOnly && replacesDraft && !generateOpen && !pending && !replacing;
+  // Po „CV wysłane” (`lockedAfterSend`) CV u klienta nie jest pisane od nowa (D3).
+  const rewriteAvailable = canReplace && replacesDraft && !generateOpen && !pending && !replacing;
   const onEnqueued = (generatedId: number) => {
     setPending({
       id: generatedId,
@@ -885,7 +896,7 @@ export function CvToClientCard({
                   >
                     <FileDown className="h-3.5 w-3.5" aria-hidden /> Pobierz PDF
                   </DropdownMenuItem>
-                  {!readOnly ? (
+                  {canReplace ? (
                     <DropdownMenuItem onSelect={afterMenuCloses(() => setOtherOpen(true))}>
                       <Repeat2 className="h-3.5 w-3.5" aria-hidden /> Użyj innego CV
                     </DropdownMenuItem>
@@ -895,7 +906,7 @@ export function CvToClientCard({
                       <History className="h-3.5 w-3.5" aria-hidden /> Historia wersji
                     </DropdownMenuItem>
                   ) : null}
-                  {!readOnly && !generateOpen ? (
+                  {canReplace && !generateOpen ? (
                     <DropdownMenuItem onSelect={afterMenuCloses(openGenerator)}>
                       <RefreshCcw className="h-3.5 w-3.5" aria-hidden /> Wygeneruj ponownie
                     </DropdownMenuItem>
@@ -1020,10 +1031,10 @@ export function CvToClientCard({
               {replaceFailed.error_message ? `: ${replaceFailed.error_message}` : "."} Bieżące CV zostaje.
             </p>
             {/* Ponowienie po awarii stoi przy komunikacie, nie tylko w „⋯”. */}
-            {!readOnly ? generateButton(regenerateLabel, false, "refresh") : null}
+            {canReplace ? generateButton(regenerateLabel, false, "refresh") : null}
           </div>
         ) : null}
-        {state.candidate && !readOnly && !replacing ? (
+        {state.candidate && canReplace && !replacing ? (
           <div className="flex flex-wrap items-center gap-2 rounded-md border border-info/25 bg-info-muted px-2.5 py-1.5 text-xs text-info-muted-foreground">
             <span className="min-w-0 flex-1">
               Jest nowsza wersja z generatora
@@ -1070,7 +1081,7 @@ export function CvToClientCard({
             Jest gotowe CV z generatora, ale ta rekrutacja jeszcze go nie używa.
           </p>
         )}
-        {!readOnly ? (
+        {canReplace ? (
           <div className="flex flex-wrap gap-1.5">
             <Button
               size="sm"
@@ -1093,7 +1104,7 @@ export function CvToClientCard({
           Generowanie CV nie powiodło się
           {state.failed?.error_message ? `: ${state.failed.error_message}` : "."}
         </p>
-        {!readOnly ? (
+        {canReplace ? (
           <div className="flex flex-wrap gap-1.5">
             {generateButton("Spróbuj ponownie", true, "sparkles")}
             {useOtherButton}
@@ -1115,7 +1126,7 @@ export function CvToClientCard({
           <Button size="sm" variant="outline" onClick={() => setPreviewOpen(true)}>
             <Eye className="h-3.5 w-3.5" aria-hidden /> Podgląd
           </Button>
-          {!readOnly && state.candidate ? (
+          {canReplace && state.candidate ? (
             <Button
               size="sm"
               variant="outline"
@@ -1126,11 +1137,13 @@ export function CvToClientCard({
               Użyj wygenerowanego CV
             </Button>
           ) : null}
-          {!readOnly ? generateButton("Wygeneruj CV", true, "sparkles") : null}
+          {canReplace ? generateButton("Wygeneruj CV", true, "sparkles") : null}
           {useOtherButton}
         </div>
       </div>
     );
+  } else if (lockedAfterSend) {
+    body = <p className="text-sm text-foreground">CV firmowego nie ma w tej rekrutacji.</p>;
   } else {
     body = (
       <div className="space-y-2">
@@ -1173,8 +1186,14 @@ export function CvToClientCard({
       {progress ? (
         <ForwardProgressBlock {...progress} next={nextInScreening} onOpenPerson={onOpenPerson} />
       ) : null}
+      {lockedAfterSend && state.kind !== "none" ? (
+        <p className="text-xs text-muted-foreground" data-testid="cv-locked-after-send">
+          CV jest już u klienta: nie podmienisz go i nie wygenerujesz od nowa. Poprawki zapisze
+          edytor w historii wersji.
+        </p>
+      ) : null}
       {body}
-      {generateOpen && !readOnly ? (
+      {generateOpen && canReplace ? (
         <CvGeneratePanel
           candidateId={candidateId}
           candidateName={candidateName}
@@ -1220,7 +1239,7 @@ export function CvToClientCard({
             setEditorOpen(open);
             if (!open) refresh();
           }}
-          onRegenerate={openGenerator}
+          onRegenerate={lockedAfterSend ? undefined : openGenerator}
           // W trakcie generacji drugiej nie zlecamy — wynik pierwszej by przepadł.
           onRewrite={rewriteAvailable ? startRewrite : undefined}
           initialPanel={editorPanel}
@@ -1231,7 +1250,7 @@ export function CvToClientCard({
         />
       ) : null}
       {choice.confirmDialog}
-      {otherOpen && !readOnly ? (
+      {otherOpen && canReplace ? (
         <UseOtherCvDialog
           open
           onOpenChange={setOtherOpen}

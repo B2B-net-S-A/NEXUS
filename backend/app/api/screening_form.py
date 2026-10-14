@@ -178,6 +178,92 @@ async def get_screening_form(
     )
 
 
+@router.get("/screening-form/joint-context")
+async def get_joint_screening_context(
+    user: CandidatePIIAccess,
+    candidate_id: int = Query(gt=0),
+    job_id: int = Query(gt=0),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """„Screening dla” (14.10.2026, D3): inne rekrutacje osoby do jednej rozmowy.
+
+    Każda para mówi, czy można ją wybrać (Nowi/Screening, otwarta, bez cudzej
+    blokady) i z jakim etapem „Zweryfikowany” przekazać ją dalej — ta sama
+    reguła co ruch z Tablicy bez ``stage_def_id`` (szablon klonowany bez kodu
+    etapu = ``None``: przekazanie tylko z jej Tablicy). Bez prawa zapisu —
+    pusta lista.
+    """
+    from app.api.pipeline import _resolve_stage_def  # noqa: PLC0415
+    from app.api.recruitment_access import job_read_scope_clause  # noqa: PLC0415
+    from app.models.recruitment_pipeline import PipelineStage  # noqa: PLC0415
+
+    _, anchor_job = await _pair(db, candidate_id, job_id)
+    await ensure_job_read_access(db, user, job_id)
+    anchor = await form.joint_anchor(db, anchor_job)
+    if not _can_write(user):
+        return {
+            "candidate_id": candidate_id,
+            "job_id": job_id,
+            "anchor": anchor,
+            "pairs": [],
+        }
+    pairs = await form.joint_pairs(
+        db,
+        user=user,
+        candidate_id=candidate_id,
+        anchor_job_id=job_id,
+        scope_clause=job_read_scope_clause(user, Job.id),
+    )
+    out = []
+    for pair in pairs:
+        if not await _is_member(db, user, pair["job_id"]):
+            continue
+        other = await db.get(Job, pair["job_id"])
+        verified = await _resolve_stage_def(
+            db, other, legacy_stage=PipelineStage.verified
+        )
+        out.append({**pair, "verified_stage_def_id": verified.id if verified else None})
+    return {
+        "candidate_id": candidate_id,
+        "job_id": job_id,
+        "anchor": anchor,
+        "pairs": out,
+    }
+
+
+@router.get("/screening-form/question-groups")
+async def get_screening_question_groups(
+    user: CandidatePIIAccess,
+    job_ids: list[int] = Query(min_length=2, max_length=4),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Pytania kilku rekrutacji złożone w grupy „to samo pytanie” (D3).
+
+    Tylko identyfikatory — teksty, „Idealnie” i deal-breakery formularz ma ze
+    stanu każdej pary (``GET /screening-form``).
+    """
+    from app.services import screening_sheets  # noqa: PLC0415
+    from app.services.screening_question_groups import (  # noqa: PLC0415
+        group_questions,
+    )
+
+    order = list(dict.fromkeys(int(j) for j in job_ids if int(j) > 0))
+    questions: dict[int, dict[str, str]] = {}
+    for jid in order:
+        job = await db.get(Job, jid)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje.")
+        await ensure_job_read_access(db, user, jid)
+        questions[jid] = screening_sheets.question_texts(job.champion_profile)
+    groups = group_questions(questions, order)
+    return {
+        "groups": [
+            [{"job_id": m.job_id, "question_id": m.question_id} for m in group]
+            for group in groups
+        ]
+    }
+
+
 @router.put("/screening-form")
 @limiter.limit("30/minute", key_func=user_or_ip_key)
 async def save_screening_form(

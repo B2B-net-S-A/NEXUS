@@ -17,6 +17,7 @@
 
 import * as React from "react";
 import { useRef, useState } from "react";
+import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, MoreHorizontal, Upload } from "lucide-react";
 
@@ -44,6 +45,8 @@ import {
   sortCandidateFiles,
 } from "@/lib/candidate-files";
 import type { GeneratedCvItem } from "@/lib/api";
+import { downloadBlob } from "@/lib/authenticated-files";
+import { fetchStageCvFile, fetchStageCvPdf } from "@/lib/stage-cv-file";
 import { downloadGeneratedCv } from "@/components/v2/cv-generator/cv-generated-files";
 import { GeneratedCvPreviewModal } from "@/components/v2/cv-generator/GeneratedCvPreviewModal";
 import { Button } from "@/components/ui/button";
@@ -683,11 +686,44 @@ function FileGroup({
  );
 }
 
+/** Radix oddaje fokus PO `onSelect` — pobranie odpalamy po zamknięciu menu. */
+const afterMenuCloses = (fn: () => void) => () => window.setTimeout(fn, 0);
+
 /**
- * „CV wysłane klientom” (D4 z 04.10.2026, grupa od 13.10.2026): pliki
- * „…B2B…” i pliki z kodem rekrutacji osoby z teczki oraz CV wygenerowane
- * w NEXUSIE. Awaria listy z generatora nie chowa plików z teczki. Nazwa CV
- * z generatora otwiera podgląd tego samego pliku, który daje „Pobierz”.
+ * Podpis wiersza CV z generatora. CV podpięte w rekrutacji mówi o CV etapu
+ * (stan i data), reszta — „z generatora”, a dokument z rekrutacją, którego nikt
+ * w niej nie użył, dostaje „nieużyte w rekrutacji” (D4, 14.10.2026).
+ */
+function generatedCvRowLabel(item: GeneratedCvItem): string {
+ const where = item.job_title ?? item.client_name ?? null;
+ if (item.stage_cv_stage_id != null) {
+ const state =
+ item.stage_cv_status === "finalized"
+ ? ["zatwierdzone", formatFileDate(item.stage_cv_finalized_at)].filter(Boolean).join(" ")
+ : ["szkic", formatFileDate(item.stage_cv_updated_at)].filter(Boolean).join(", zmienione ");
+ return [where ? `CV rekrutacji ${where}` : "CV rekrutacji", state, item.language?.toUpperCase() ?? null]
+ .filter(Boolean)
+ .join(" · ");
+ }
+ return [
+ "z generatora",
+ where,
+ item.language?.toUpperCase() ?? null,
+ formatFileDate(item.created_at ?? null),
+ item.created_by_name ?? null,
+ item.job_id != null ? "nieużyte w rekrutacji" : null,
+ ]
+ .filter(Boolean)
+ .join(" · ");
+}
+
+/**
+ * „CV dla klientów” (D4 z 04.10.2026, grupa od 13.10.2026, nazwa od 14.10.2026
+ * — lista zawiera też CV, które nie wyszły do klienta): pliki „…B2B…” i pliki
+ * z kodem rekrutacji osoby z teczki oraz CV wygenerowane w NEXUSIE. Awaria
+ * listy z generatora nie chowa plików z teczki. Nazwa CV z generatora otwiera
+ * podgląd tego samego pliku, który daje „Pobierz” — przy CV podpiętym
+ * w rekrutacji to CV etapu z poprawkami (D4, 14.10.2026).
  */
 function ClientCvGroup({
  candidateId,
@@ -714,16 +750,43 @@ function ClientCvGroup({
  });
  const generated = (generatedQuery.data ?? []).filter((item) => item.status === "ready");
  if (generatedQuery.isPending && files.length === 0) return null;
- async function download(item: GeneratedCvItem) {
+ // D4 (14.10.2026): CV podpięte w rekrutacji pobiera się z CV etapu — z
+ // poprawkami z edytora i po QC, tak jak w panelu osoby. Surowy plik
+ // generatora zostaje w „⋯”. Szkic etapu wymaga prawa zapisu (podgląd DOCX
+ // z bieżącej treści) — odmowę mówi komunikat serwera.
+ async function downloadRaw(item: GeneratedCvItem) {
  const problem = await downloadGeneratedCv(item, "docx", "files");
  if (problem) showError(problem);
  }
+ async function download(item: GeneratedCvItem, format: "docx" | "pdf" = "docx") {
+ const stageId = item.stage_cv_stage_id;
+ if (stageId == null) return downloadRaw(item);
+ try {
+ const file =
+ format === "docx"
+ ? await fetchStageCvFile(stageId, { download: "files" })
+ : await fetchStageCvPdf(stageId, { download: "files" });
+ downloadBlob(file.blob, file.filename || item.filename);
+ } catch (error) {
+ showError(
+ apiErrorMessage(
+ error,
+ format === "pdf"
+ ? "Nie udało się pobrać PDF. Spróbuj za chwilę albo pobierz plik Word."
+ : "Nie udało się pobrać CV.",
+ ),
+ );
+ }
+ }
  const rows = [
  ...files.map(renderRow),
- ...generated.map((item) => (
+ ...generated.map((item) => {
+ const inRecruitment = item.stage_cv_stage_id != null;
+ const downloadable = inRecruitment || item.can_download;
+ return (
  <div key={`generated-${item.id}`} className="flex items-center gap-3 px-3 py-2.5 text-sm">
  <div className="min-w-0 flex-1">
- {item.can_download ? (
+ {downloadable ? (
  <button
  type="button"
  onClick={() => setPreviewItem(item)}
@@ -735,25 +798,40 @@ function ClientCvGroup({
  ) : (
  <p className="truncate font-medium text-foreground">{item.filename}</p>
  )}
- <p className="text-xs text-muted-foreground">
- {[
- "z generatora",
- item.job_title ?? item.client_name ?? null,
- item.language?.toUpperCase() ?? null,
- formatFileDate(item.created_at ?? null),
- item.created_by_name ?? null,
- ]
- .filter(Boolean)
- .join(" · ")}
- </p>
+ <p className="text-xs text-muted-foreground">{generatedCvRowLabel(item)}</p>
  </div>
- {item.can_download ? (
+ {downloadable ? (
  <Button size="sm" variant="outline" onClick={() => void download(item)}>
  Pobierz
  </Button>
  ) : null}
+ {inRecruitment ? (
+ <DropdownMenu modal={false}>
+ <DropdownMenuTrigger asChild>
+ <Button size="icon" variant="ghost" aria-label={`Akcje CV ${item.filename}`}>
+ <MoreHorizontal className="size-4" />
+ </Button>
+ </DropdownMenuTrigger>
+ <DropdownMenuContent align="end" className="w-64">
+ <DropdownMenuItem onSelect={afterMenuCloses(() => void download(item, "pdf"))}>
+ Pobierz PDF
+ </DropdownMenuItem>
+ {item.can_download ? (
+ <DropdownMenuItem onSelect={afterMenuCloses(() => void downloadRaw(item))}>
+ Plik z generatora (bez poprawek)
+ </DropdownMenuItem>
+ ) : null}
+ {item.job_id != null ? (
+ <DropdownMenuItem asChild>
+ <Link href={`/jobs/${item.job_id}?candidate=${candidateId}`}>Otwórz w rekrutacji</Link>
+ </DropdownMenuItem>
+ ) : null}
+ </DropdownMenuContent>
+ </DropdownMenu>
+ ) : null}
  </div>
- )),
+ );
+ }),
  ];
  if (rows.length === 0 && !generatedQuery.isError) return null;
 
@@ -761,7 +839,7 @@ function ClientCvGroup({
  <>
  <FileGroup
  id="candidate-client-cv-heading"
- title="CV wysłane klientom"
+ title="CV dla klientów"
  rows={rows}
  limit={GROUP_PREVIEW}
  notice={
@@ -783,6 +861,11 @@ function ClientCvGroup({
  item={previewItem}
  onClose={() => setPreviewItem(null)}
  onDownload={(item) => void download(item)}
+ loadDocx={
+ previewItem?.stage_cv_stage_id != null
+ ? (item) => fetchStageCvFile(item.stage_cv_stage_id as number).then((file) => file.blob)
+ : undefined
+ }
  />
  </>
  );

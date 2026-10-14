@@ -93,6 +93,10 @@ async def test_route_returns_scored_jobs_for_a_recruiter(app_client, monkeypatch
         fits_job = await _in_work(db)
         weak_job = await _in_work(db)
         await _stage(db, cand=cand, job=origin, stage="new", by=me, at=T0)
+        from app.models.client import Client
+
+        client = await db.get(Client, fits_job.client_id)
+        client.display_name = "Nazwa z NEXUSA"
         await db.commit()
         uid, cid, origin_id = me.id, cand.id, origin.id
         fits_id, weak_id = fits_job.id, weak_job.id
@@ -129,6 +133,8 @@ async def test_route_returns_scored_jobs_for_a_recruiter(app_client, monkeypatch
     assert [j["job_id"] for j in body["jobs"]] == [fits_id]
     assert body["jobs"][0]["score"] == 84
     assert body["jobs"][0]["matching_must"] == ["Angular"]
+    # Nazwa klienta jak wszędzie w aplikacji (display_name przed nazwą źródłową).
+    assert body["jobs"][0]["client_name"] == "Nazwa z NEXUSA"
 
 
 @needs_db

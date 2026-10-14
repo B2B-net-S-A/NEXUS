@@ -40,6 +40,10 @@ export const candidateQueryKeys = {
   detail: (id: number | string) => ["candidate", candidateId(id)] as const,
   quickView: (id: number | string) =>
     ["candidate-quick-view", candidateId(id)] as const,
+  // „Co już wiemy” w panelu rekrutacji pyta o INNE rekrutacje osoby (14.10.2026)
+  // — pod `quickView`, więc łapie je każde unieważnienie podglądu osoby.
+  quickViewExcluding: (id: number | string, excludeJobId: number) =>
+    ["candidate-quick-view", candidateId(id), { excludeJobId }] as const,
   risk: (id: number | string) => ["candidate-risk", candidateId(id)] as const,
   history: (id: number | string, viewerScope: string) =>
     ["candidate-history", candidateId(id), { viewerScope }] as const,

@@ -110,7 +110,7 @@ describe("groupCandidateFiles (E5, 13.10.2026)", () => {
     ...extra,
   });
 
-  it("dzieli na CV kandydata, CV wysłane klientom i załączniki", () => {
+  it("dzieli na CV kandydata, CV dla klientów i załączniki", () => {
     const groups = groupCandidateFiles(
       [
         file(1, "cv.pdf", { is_primary: true }),
