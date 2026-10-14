@@ -4579,7 +4579,7 @@ async def apply_contract_status(
     contract = result.scalar_one_or_none()
     if contract is None:
         raise HTTPException(status_code=404, detail="Contract not found")
-    await policy.assert_contract_visible(contract)
+    await policy.assert_contract_status_writable(contract)
 
     previous_status = contract.status
     await _apply_contract_status_change(

@@ -400,3 +400,34 @@ def test_screen_validators_surface_as_v1_422() -> None:
     assert exc.value.status_code == 422
     assert exc.value.detail["error"] == "validation_error"
     assert exc.value.detail["errors"]
+
+
+async def test_status_only_key_can_change_contract_status(no_person_gates) -> None:
+    """Przegląd PR 2B: zmiana statusu sprawdzała „widoczność kontraktu”
+    wymaganiem ``contracts:write`` — klucz z samym ``contracts:status`` (osobne
+    uprawnienie, jak „Status kontraktu” u ludzi) dostawał 403."""
+    contract = SimpleNamespace(client_id=5)
+    status_only = IntegrationWritePolicy(_principal("contracts:status"), object())  # type: ignore[arg-type]
+    await status_only.assert_contract_status_writable(contract)  # type: ignore[arg-type]
+
+    write_only = IntegrationWritePolicy(_principal("contracts:write"), object())  # type: ignore[arg-type]
+    with pytest.raises(HTTPException) as exc:
+        await write_only.assert_contract_status_writable(contract)  # type: ignore[arg-type]
+    assert _denied(exc)["missing"] == ["contracts:status"]
+
+
+async def test_user_status_gate_is_the_delivery_lead_visibility(monkeypatch) -> None:
+    """Ekran: zmiana statusu pyta o to samo co dotąd — portfel Delivery Leada."""
+    calls: list[tuple] = []
+
+    async def fake_visible(contract, user, db):
+        calls.append((contract, user, db))
+
+    monkeypatch.setattr(
+        contracts, "_ensure_delivery_lead_contract_visible", fake_visible
+    )
+    user = SimpleNamespace(id=3)
+    db = object()
+    contract = SimpleNamespace(client_id=5)
+    await UserWritePolicy(user, db).assert_contract_status_writable(contract)  # type: ignore[arg-type]
+    assert calls == [(contract, user, db)]

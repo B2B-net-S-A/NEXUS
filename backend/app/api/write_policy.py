@@ -86,6 +86,9 @@ class WritePolicy(Protocol):
     async def assert_contract_visible(self, contract: Contract) -> None:
         """Kontrakt w zakresie autora (portfel Delivery Leada)."""
 
+    async def assert_contract_status_writable(self, contract: Contract) -> None:
+        """Zmiana statusu kontraktu (trasa ``/status``) — zakres autora."""
+
     async def assert_contract_amounts_writable(
         self, supplied_fields: Iterable[str], *, client_id: Optional[int]
     ) -> None:
@@ -173,6 +176,11 @@ class UserWritePolicy:
         await routes._ensure_delivery_lead_contract_visible(
             contract, self.user, self.db
         )
+
+    async def assert_contract_status_writable(self, contract: Contract) -> None:
+        # Ekran: uprawnienie „Status kontraktu” sprawdza zależność trasy
+        # (`ContractStatusUser`); w ciele zostaje portfel Delivery Leada.
+        await self.assert_contract_visible(contract)
 
     async def assert_contract_amounts_writable(
         self, supplied_fields: Iterable[str], *, client_id: Optional[int]
@@ -284,6 +292,14 @@ class IntegrationWritePolicy:
     async def assert_contract_visible(self, contract: Contract) -> None:
         self._require(
             ServiceScope.contracts_write, "Zapis kontraktu wymaga contracts:write."
+        )
+
+    async def assert_contract_status_writable(self, contract: Contract) -> None:
+        # Osobny scope jak uprawnienie „Status kontraktu” — bez ``contracts:write``
+        # (przegląd PR 2B: klucz z samym statusem dostawał 403).
+        self._require(
+            ServiceScope.contracts_status,
+            "Zmiana statusu kontraktu wymaga scope'u contracts:status.",
         )
 
     async def assert_contract_amounts_writable(
