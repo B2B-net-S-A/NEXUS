@@ -13,11 +13,12 @@ test_list_marker_exists_exactly_when_employment_says_employed`` (CI).
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from sqlalchemy import literal_column
 
+from app.core.scheduling import business_today
 from app.models.contract import ContractStatus
 from app.models.recruitment_pipeline import PipelineStage
 from app.schemas.candidate import EmploymentState
@@ -102,11 +103,20 @@ def test_open_hire_wins_over_a_newer_hire_closed_by_its_contract():
     """Nowszy „Zatrudniony” u banku jest historią — pracuje w telekomie."""
     from app.api.candidates import _derive_employment
 
+    # Daty od dziś: zatrudnienie bez umowy starsze niż 12 miesięcy to już
+    # historia (`STALE_HIRE_DAYS`, 14.10.2026), a ten test dotyczy reguły umów.
+    now = datetime.now(timezone.utc)
     candidate = _candidate(
-        contracts=[_contract(10, ContractStatus.ended, end_date=date(2024, 6, 30))],
+        contracts=[
+            _contract(
+                10,
+                ContractStatus.ended,
+                end_date=business_today() - timedelta(days=10),
+            )
+        ],
         stages=[
-            _hire(1, 40, BANK, datetime(2023, 3, 1, 9, tzinfo=timezone.utc)),
-            _hire(2, 41, TELEKOM, datetime(2022, 3, 1, 9, tzinfo=timezone.utc)),
+            _hire(1, 40, BANK, now - timedelta(days=30)),
+            _hire(2, 41, TELEKOM, now - timedelta(days=60)),
         ],
     )
 
