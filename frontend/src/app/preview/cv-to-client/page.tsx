@@ -66,7 +66,7 @@ const CLIENT_ID = 7;
 const REVISION = 2;
 const FRESH = { updatedAt: Date.now() + 86_400_000 };
 
-type Variant = "sources" | "regenerate" | "counter" | "clean" | "qcdown" | "forwarded" | "skipped";
+type Variant = "sources" | "regenerate" | "counter" | "clean" | "qcdown" | "forwarded" | "skipped" | "sent";
 
 interface Person {
   stageId: number;
@@ -84,6 +84,8 @@ const PEOPLE: readonly Person[] = [
   { stageId: 705, candidateId: 35, name: "Tomasz Wzorcowy", label: "QC nie odpowiada", variant: "qcdown" },
   { stageId: 706, candidateId: 36, name: "Ewa Testowa", label: "Po przekazaniu — CV się generuje", variant: "forwarded" },
   { stageId: 707, candidateId: 37, name: "Olga Wzorcowa", label: "Po przekazaniu — automat pominął osobę", variant: "skipped" },
+  // D3 (14.10.2026): osoba już u klienta — karta bez podmiany CV.
+  { stageId: 708, candidateId: 39, name: "Karol Przykładowy", label: "Po „CV wysłane” — bez podmiany CV", variant: "sent" },
 ];
 
 /** Bez gotowego CV na starcie: brak, przekazanie w toku, pominięcie automatu. */
@@ -352,6 +354,7 @@ function Harness() {
               forwarded={FORWARDED.has(person.variant)}
               nextInScreening={person.variant === "forwarded" ? NEXT_IN_SCREENING : null}
               onOpenPerson={() => setOpened(NEXT_IN_SCREENING.name)}
+              lockedAfterSend={person.variant === "sent"}
               loadStageCvFile={loadPreviewFile}
               loadStageCvPdf={loadPreviewPages}
             />

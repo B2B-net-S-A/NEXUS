@@ -939,6 +939,30 @@ function seedCardPanel(qc: QueryClient, item: KanbanItem, columnName: string): v
     snapshot_filename: null,
     rendered_from_default: false,
   });
+  // D1–D3 (14.10.2026): „Karol” jest u klienta, a zatwierdzone CV firmowe leży
+  // na wierszu etapu sprzed ruchu — dok pokazuje „Pobierz Word / PDF” tego CV.
+  if (fromNotes) {
+    const pairStageId = 9000 + item.id;
+    seedFresh(qc, stageBrandedQueryKey(item.id), {
+      edit_revision: 0,
+      version: 0,
+      candidate_stage_id: item.id,
+      status: "none",
+      pair_source_stage_id: pairStageId,
+      pair_source_status: "finalized",
+    });
+    seedFresh(qc, stageBrandedQueryKey(pairStageId), {
+      edit_revision: 3,
+      version: 1,
+      candidate_stage_id: pairStageId,
+      status: "finalized",
+      from_generator: true,
+      content_html: "<p>CV</p>",
+      updated_at: "2026-10-13T15:00:00Z",
+      finalized_at: "2026-10-13T15:00:00Z",
+      consent_missing: false,
+    });
+  }
 }
 
 function seededClient(): QueryClient {

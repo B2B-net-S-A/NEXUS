@@ -15,6 +15,12 @@ export interface GeneratedCvPreviewModalProps {
   item: GeneratedCvItem | null;
   onClose: () => void;
   onDownload: (item: GeneratedCvItem) => void;
+  /**
+   * Plik do podglądu zamiast pliku generatora — profil podaje CV etapu, gdy
+   * dokument jest podpięty w rekrutacji (D4, 14.10.2026), żeby podgląd
+   * pokazywał to samo co „Pobierz”. Zgodę RODO sprawdza wtedy serwer.
+   */
+  loadDocx?: (item: GeneratedCvItem) => Promise<Blob>;
 }
 
 /**
@@ -23,11 +29,15 @@ export interface GeneratedCvPreviewModalProps {
  * jest). Gdy brakuje wymaganej zgody RODO, DOCX się nie pobierze (409) —
  * wtedy pokazujemy treść z edytora, w piaskownicy iframe, bez skryptów.
  */
-export function GeneratedCvPreviewModal({ item, onClose, onDownload }: GeneratedCvPreviewModalProps) {
+export function GeneratedCvPreviewModal({ item, onClose, onDownload, loadDocx }: GeneratedCvPreviewModalProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [html, setHtml] = useState<string | null>(null);
-  const viaEditor = !!item?.consent_missing;
+  const viaEditor = !loadDocx && !!item?.consent_missing;
+  // Wołający podaje funkcję inline — z ref efekt nie renderuje podglądu od nowa
+  // przy każdym przerysowaniu rodzica.
+  const loadDocxRef = useRef(loadDocx);
+  loadDocxRef.current = loadDocx;
 
   useEffect(() => {
     if (!item) return;
@@ -44,11 +54,14 @@ export function GeneratedCvPreviewModal({ item, onClose, onDownload }: Generated
           return;
         }
         // Bez `intent=download` — podgląd to nie pobranie (`cv_file_downloaded`).
-        const res = await api.get(generatedCvFileUrl(item, "docx"), { responseType: "blob" });
+        const load = loadDocxRef.current;
+        const blob = load
+          ? await load(item)
+          : ((await api.get(generatedCvFileUrl(item, "docx"), { responseType: "blob" })).data as Blob);
         const host = hostRef.current;
         if (cancelled || !host) return;
         host.innerHTML = "";
-        await renderDocxSafely(res.data as Blob, host, {
+        await renderDocxSafely(blob, host, {
           className: "docx",
           inWrapper: true,
           breakPages: true,

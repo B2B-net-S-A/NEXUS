@@ -594,10 +594,10 @@
   },
   {
    "id": "d.client_cv",
-   "opis": "CV wysłane klientom (B2B, z kodem rekrutacji w nazwie, z generatora)",
+   "opis": "CV dla klientów (B2B, z kodem rekrutacji w nazwie, z generatora; CV podpięte w rekrutacji pobiera się z CV etapu z poprawkami — D4/D5, 14.10.2026, wcześniej „CV wysłane klientom”)",
    "file": "components/v2/files/CandidateFilesTab.tsx",
-   "marker": "CV wysłane klientom",
-   "home": "Dokumenty → Pliki → CV wysłane klientom"
+   "marker": "title=\"CV dla klientów\"",
+   "home": "Dokumenty → Pliki → CV dla klientów"
   },
   {
    "id": "d.orders",
