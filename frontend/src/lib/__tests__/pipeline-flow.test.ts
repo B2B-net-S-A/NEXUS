@@ -20,6 +20,7 @@ import {
   countInterviewStages,
   countStage,
   countStalled,
+  findPersonEntry,
   findStageColumn,
   groupKanbanColumns,
   groupKeyForColumn,
@@ -800,5 +801,22 @@ describe("bulkMoveSkipReason — weto HM po kolumnie", () => {
     expect(
       bulkMoveSkipReason({ item: item({ hm_veto: veto }), readOnly: false, targetStage: "cv_sent" }),
     ).toMatch(/hiring manager/);
+  });
+});
+
+describe("findPersonEntry (D3, 14.10.2026)", () => {
+  it("znajduje kartę osoby w dowolnej kolumnie, także zamkniętej", () => {
+    const columns = [
+      col({ stage: "verified", items: [item({ id: 1, candidate_id: 10 })] }),
+      col({ stage: "rejected", category: "terminal", items: [item({ id: 2, candidate_id: 20 })] }),
+    ];
+    expect(findPersonEntry(columns, 20)?.item.id).toBe(2);
+    expect(findPersonEntry(columns, 20)?.col.stage).toBe("rejected");
+  });
+
+  it("brak osoby albo brak wskazania — null", () => {
+    const columns = [col({ items: [item({ id: 1, candidate_id: 10 })] })];
+    expect(findPersonEntry(columns, 99)).toBeNull();
+    expect(findPersonEntry(columns, null)).toBeNull();
   });
 });

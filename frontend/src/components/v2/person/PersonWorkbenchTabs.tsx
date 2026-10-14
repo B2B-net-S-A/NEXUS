@@ -36,7 +36,6 @@ import { DopasowanieTab } from "@/components/v2/pages/DopasowanieTab";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { MoveLogList, pairMovesQueryKey, type JobMoveLogPage } from "@/components/v2/recruitment/JobMoveLog";
 import { CvHandoffWorkbench, ScreeningWorkbench } from "@/components/v2/recruitment/panel-workbenches";
-import { SavedCvView } from "@/components/v2/recruitment/PanelSavedViews";
 import { ScreeningSummarySection } from "@/components/v2/screening-form/ScreeningSummaryView";
 import {
   buildProcessRows,
@@ -434,7 +433,8 @@ export function PersonWorkbenchTabs({
         return (
           <>
             {/* Karta „CV do klienta” (gotowe / generuje się / brak / powód
-                pominięcia auto-CV) jest w warsztacie; po wysyłce — podgląd.
+                pominięcia auto-CV) jest w warsztacie na każdym etapie; od
+                „CV wysłane” bez podmiany CV (D3, 14.10.2026).
                 Duży podgląd po lewej jest wspólny (`SHARED_PREVIEW_SECTIONS`). */}
             <CvHandoffWorkbench
               layout="panel"
@@ -456,15 +456,6 @@ export function PersonWorkbenchTabs({
               forwarded={ctx.forwardedCandidateId === candidateId}
               nextInColumn={ctx.nextInColumn}
               openPerson={ctx.openPerson}
-              panelFallback={
-                <SavedCvView
-                  item={item}
-                  stageLabel={row.stageLabel}
-                  candidateName={row.fullName}
-                  jobTitle={jobLabel}
-                  jobId={jobId}
-                />
-              }
             />
           </>
         );

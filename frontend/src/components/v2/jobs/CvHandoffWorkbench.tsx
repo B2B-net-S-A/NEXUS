@@ -72,6 +72,7 @@ import { RATE_UNIT_LABELS } from "@/lib/verified-rate-gate";
 import {
   CV_SENT_STAGE,
   countAtClient,
+  findPersonEntry,
   findStageColumn,
   formatExpectedRate,
   itemFullName,
@@ -88,7 +89,7 @@ import {
   type CvHandoffPlan,
 } from "@/lib/cv-handoff";
 import { expectedStateVersionOf } from "@/lib/pipeline-version-conflict";
-import { placeStage } from "@/lib/board-stages";
+import { BOARD_COLUMN_LABEL, isAtClientColumn, placeStage } from "@/lib/board-stages";
 import type { CvEditorHandoff } from "@/lib/cv-editor-handoff";
 import { MoveRefusedError } from "@/lib/pipeline-move-core";
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
@@ -222,6 +223,15 @@ export function CvHandoffWorkbench({
           ) ?? null),
     [columns, focusCandidateId, selected],
   );
+  // D3 (14.10.2026): osoba za „Zweryfikowanym” (QC CV, CV wysłane, rozmowy,
+  // umowa, zamknięta karta) dostaje tę samą kartę „CV do klienta” — do tej
+  // daty panel pokazywał widok tylko do odczytu, który nie dawał pobrać CV
+  // i odsyłał do profilu kandydata. Od „CV wysłane” karta nie podmienia CV.
+  const later = useMemo(
+    () => (selected || early ? null : findPersonEntry(columns, focusCandidateId)),
+    [columns, focusCandidateId, selected, early],
+  );
+  const laterColumn = later ? placeStage(later.col).column : null;
   const jobLabel = jobTitle?.trim() || `Rekrutacja #${jobId}`;
 
   // `canWriteClientRate` przychodzi z odpowiedzi `GET /api/jobs/{id}` — ta
@@ -1019,6 +1029,21 @@ export function CvHandoffWorkbench({
             Wysyłka do klienta (stawka i „Oznacz CV Wysłane”) będzie dostępna na etapie
             „Zweryfikowany”. CV możesz przygotować już teraz.
           </p>
+        </>
+      ) : !selected && later && laterColumn ? (
+        <>
+          <p data-testid="cv-later-stage-note" className="text-xs text-muted-foreground">
+            Ta osoba jest na etapie „{later.col.name?.trim() || BOARD_COLUMN_LABEL[laterColumn]}”.
+          </p>
+          <CvToClientCard
+            stageId={later.item.id}
+            candidateId={later.item.candidate_id}
+            candidateName={itemFullName(later.item)}
+            jobId={jobId}
+            jobTitle={jobTitle}
+            readOnly={readOnly}
+            lockedAfterSend={isAtClientColumn(laterColumn)}
+          />
         </>
       ) : !selected && panelFallback != null ? (
         panelFallback

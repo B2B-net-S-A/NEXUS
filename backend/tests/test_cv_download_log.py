@@ -76,6 +76,14 @@ async def test_unknown_surface_is_stored_as_other(surface):
     assert db.add.call_args.args[0].details["surface"] == "other"
 
 
+@pytest.mark.parametrize("surface", ["card", "dock", "files"])
+async def test_known_surface_is_stored_as_is(surface):
+    # `dock` — „Pobierz Word / PDF” w sekcji „CV” panelu osoby (14.10.2026).
+    db = _session()
+    await _log(db, surface=surface)
+    assert db.add.call_args.args[0].details["surface"] == surface
+
+
 async def test_preview_does_not_even_look_at_the_user():
     # Testy tras wołają handlery wprost z atrapą użytkownika bez `id`.
     db = _session()

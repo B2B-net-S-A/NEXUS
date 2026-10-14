@@ -27,6 +27,19 @@ vi.mock("@/components/Toast", () => ({
   useToast: () => ({ showError, showToast }),
 }));
 
+// CV podpięte w rekrutacji pobiera się z CV etapu (D4, 14.10.2026).
+const stageCvFile = vi.fn();
+const stageCvPdf = vi.fn();
+vi.mock("@/lib/stage-cv-file", () => ({
+  fetchStageCvFile: (...a: unknown[]) => stageCvFile(...a),
+  fetchStageCvPdf: (...a: unknown[]) => stageCvPdf(...a),
+}));
+const savedFiles = vi.fn();
+vi.mock("@/lib/authenticated-files", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/authenticated-files")>()),
+  downloadBlob: (...a: unknown[]) => savedFiles(...a),
+}));
+
 vi.mock("@/components/v2/files/FilePreviewModal", async () => {
   const actual = await vi.importActual<
     typeof import("@/components/v2/files/FilePreviewModal")
@@ -574,7 +587,7 @@ describe("CandidateFilesTab — grupy plików (E5, 13.10.2026)", () => {
     currentRole = "recruiter";
   });
 
-  it("CV kandydata, CV wysłane klientom (B2B, kod rekrutacji, generator) i załączniki — z licznikami", async () => {
+  it("CV kandydata, CV dla klientów (B2B, kod rekrutacji, generator) i załączniki — z licznikami", async () => {
     mockApi(
       [
         file(1, "cv.pdf", { is_primary: true }),
@@ -601,7 +614,7 @@ describe("CandidateFilesTab — grupy plików (E5, 13.10.2026)", () => {
     );
     renderTab(["42700"]);
 
-    expect(await screen.findByRole("heading", { name: "CV wysłane klientom · 3" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "CV dla klientów · 3" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "CV kandydata · 2" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Załączniki i formularze · 2" })).toBeInTheDocument();
 
@@ -610,7 +623,7 @@ describe("CandidateFilesTab — grupy plików (E5, 13.10.2026)", () => {
     expect(within(own).getByText("cv-en.pdf")).toBeInTheDocument();
     expect(within(own).getByText("główne CV")).toBeInTheDocument();
 
-    const client = group(/CV wysłane klientom/);
+    const client = group(/CV dla klientów/);
     expect(within(client).getByText("Jan_Kowalski_B2B_PKO.docx")).toBeInTheDocument();
     expect(within(client).getByText("42700_Jan_Kowalski.docx")).toBeInTheDocument();
     expect(within(client).getByText("Kowalski_CV_PL.docx")).toBeInTheDocument();
@@ -640,7 +653,7 @@ describe("CandidateFilesTab — grupy plików (E5, 13.10.2026)", () => {
     const user = userEvent.setup();
     renderTab();
 
-    const client = await screen.findByRole("region", { name: /CV wysłane klientom/ });
+    const client = await screen.findByRole("region", { name: /CV dla klientów/ });
     await user.click(within(client).getByRole("button", { name: "Kowalski_CV_PL.docx" }));
 
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
@@ -662,7 +675,7 @@ describe("CandidateFilesTab — grupy plików (E5, 13.10.2026)", () => {
     const user = userEvent.setup();
     renderTab();
 
-    const client = await screen.findByRole("region", { name: /CV wysłane klientom/ });
+    const client = await screen.findByRole("region", { name: /CV dla klientów/ });
     await user.click(within(client).getByRole("button", { name: "Kowalski_CV_PL.docx" }));
 
     await waitFor(() =>
@@ -672,11 +685,93 @@ describe("CandidateFilesTab — grupy plików (E5, 13.10.2026)", () => {
     );
   });
 
+  describe("CV podpięte w rekrutacji (D4, 14.10.2026)", () => {
+    const inRecruitment = generatedCv({
+      job_id: 7,
+      stage_cv_stage_id: 55,
+      stage_cv_status: "draft",
+      stage_cv_updated_at: "2026-10-14T09:30:00Z",
+    });
+
+    it("„Pobierz” daje CV etapu z poprawkami, nie plik generatora", async () => {
+      const blob = new Blob(["docx"]);
+      stageCvFile.mockResolvedValue({ blob, filename: "CV_Jan_Kowalski.docx" });
+      mockApi([file(1, "cv.pdf", { is_primary: true })], [inRecruitment]);
+      const user = userEvent.setup();
+      renderTab();
+
+      const client = await screen.findByRole("region", { name: /CV dla klientów/ });
+      expect(
+        within(client).getByText("CV rekrutacji Java Developer · szkic, zmienione 14.10.2026 · PL"),
+      ).toBeInTheDocument();
+      await user.click(within(client).getByRole("button", { name: "Pobierz" }));
+
+      await waitFor(() => expect(savedFiles).toHaveBeenCalledWith(blob, "CV_Jan_Kowalski.docx"));
+      expect(stageCvFile).toHaveBeenCalledWith(55, { download: "files" });
+      expect(
+        vi.mocked(api.get).mock.calls.some(([url]) => String(url).includes("/api/cv-generator/generated/70/")),
+      ).toBe(false);
+    });
+
+    it("„⋯”: PDF etapu, surowy plik generatora i przejście do rekrutacji", async () => {
+      stageCvPdf.mockResolvedValue({ blob: new Blob(["pdf"]), filename: "CV.pdf" });
+      mockApi([file(1, "cv.pdf", { is_primary: true })], [inRecruitment]);
+      const user = userEvent.setup();
+      renderTab();
+
+      const client = await screen.findByRole("region", { name: /CV dla klientów/ });
+      await user.click(within(client).getByRole("button", { name: "Akcje CV Kowalski_CV_PL.docx" }));
+      const menu = await screen.findByRole("menu");
+      expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent?.trim())).toEqual([
+        "Pobierz PDF",
+        "Plik z generatora (bez poprawek)",
+        "Otwórz w rekrutacji",
+      ]);
+      expect(within(menu).getByRole("menuitem", { name: "Otwórz w rekrutacji" })).toHaveAttribute(
+        "href",
+        "/jobs/7?candidate=42",
+      );
+      await user.click(within(menu).getByRole("menuitem", { name: "Pobierz PDF" }));
+      await waitFor(() => expect(stageCvPdf).toHaveBeenCalledWith(55, { download: "files" }));
+
+      await user.click(within(client).getByRole("button", { name: "Akcje CV Kowalski_CV_PL.docx" }));
+      await user.click(await screen.findByRole("menuitem", { name: "Plik z generatora (bez poprawek)" }));
+      await waitFor(() =>
+        expect(
+          vi.mocked(api.get).mock.calls.some(([url]) =>
+            String(url).startsWith("/api/cv-generator/generated/70/docx?intent=download&surface=files"),
+          ),
+        ).toBe(true),
+      );
+    });
+
+    it("podgląd pokazuje CV etapu — ten sam plik co „Pobierz”, bez wpisu pobrania", async () => {
+      stageCvFile.mockResolvedValue({ blob: new Blob(["docx"]), filename: "CV.docx" });
+      mockApi([file(1, "cv.pdf", { is_primary: true })], [inRecruitment]);
+      const user = userEvent.setup();
+      renderTab();
+
+      const client = await screen.findByRole("region", { name: /CV dla klientów/ });
+      await user.click(within(client).getByRole("button", { name: "Kowalski_CV_PL.docx" }));
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+      await waitFor(() => expect(stageCvFile).toHaveBeenCalledWith(55));
+    });
+
+    it("CV z rekrutacją, którego nikt w niej nie użył: „nieużyte w rekrutacji”, pobranie z generatora", async () => {
+      mockApi([file(1, "cv.pdf", { is_primary: true })], [generatedCv({ job_id: 7 })]);
+      renderTab();
+
+      const client = await screen.findByRole("region", { name: /CV dla klientów/ });
+      expect(within(client).getByText(/z generatora · Java Developer · PL · .*nieużyte w rekrutacji/)).toBeInTheDocument();
+      expect(within(client).queryByRole("button", { name: /Akcje CV/ })).toBeNull();
+    });
+  });
+
   it("CV z generatora, którego nie da się pobrać, nie udaje podglądu", async () => {
     mockApi([file(1, "cv.pdf", { is_primary: true })], [generatedCv({ can_download: false })]);
     renderTab();
 
-    const client = await screen.findByRole("region", { name: /CV wysłane klientom/ });
+    const client = await screen.findByRole("region", { name: /CV dla klientów/ });
     expect(within(client).getByText("Kowalski_CV_PL.docx")).toBeInTheDocument();
     expect(within(client).queryByRole("button", { name: "Kowalski_CV_PL.docx" })).toBeNull();
     expect(within(client).queryByRole("button", { name: "Pobierz" })).toBeNull();
@@ -687,7 +782,7 @@ describe("CandidateFilesTab — grupy plików (E5, 13.10.2026)", () => {
     const user = userEvent.setup();
     renderTab(["ZOB-2962"]);
 
-    const client = await screen.findByRole("region", { name: /CV wysłane klientom/ });
+    const client = await screen.findByRole("region", { name: /CV dla klientów/ });
     await user.click(within(client).getByRole("button", { name: "Akcje pliku ZOB-2962_cv.docx" }));
     const menu = await screen.findByRole("menu");
     for (const action of ["Podgląd", "Pobierz", "Ustaw jako główne CV", "Oznacz jako nieaktualne"]) {

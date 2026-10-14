@@ -335,6 +335,16 @@ class GeneratedCvItem(BaseModel):
     # ... a dokument go nie ma — pobranie jest zablokowane (409
     # `consent_required`), dopóki ktoś nie dołączy zgody.
     consent_missing: bool = False
+    # Tytuł rekrutacji dokumentu — podpis wiersza w plikach kandydata.
+    job_title: Optional[str] = None
+    # CV etapu rekrutacji, do którego podpięto ten dokument (D4, 14.10.2026):
+    # profil pobiera wtedy plik etapu z poprawkami z edytora i po QC, a nie
+    # surowy plik generatora. Nie `stage_id` — to pole mówi, na którym etapie
+    # automat zakolejkował dokument.
+    stage_cv_stage_id: Optional[int] = None
+    stage_cv_status: Optional[Literal["draft", "finalized"]] = None
+    stage_cv_updated_at: Optional[str] = None
+    stage_cv_finalized_at: Optional[str] = None
 
 
 class GenerateEnqueuedResponse(BaseModel):
@@ -3215,6 +3225,7 @@ async def list_generated_cvs(
                     func.nullif(func.trim(Client.display_name), ""), Client.name
                 ),
                 needs_review.label("needs_review"),
+                Job.title,
             )
             .options(
                 defer(CvGeneratedDocument.docx_content),
@@ -3223,6 +3234,7 @@ async def list_generated_cvs(
             )
             .outerjoin(User, User.id == CvGeneratedDocument.created_by)
             .outerjoin(Client, Client.id == CvGeneratedDocument.client_id)
+            .outerjoin(Job, Job.id == CvGeneratedDocument.job_id)
             .where(*filters)
             .order_by(
                 *([pinned.desc()] if pinned is not None and before_id is None else []),
@@ -3252,6 +3264,7 @@ async def list_generated_cvs(
         for document_id in (job.generated_id, job.second_generated_id)
         if document_id
     }
+    stage_cvs = await _stage_cvs_for_documents(db, document_ids)
     return [
         GeneratedCvItem(
             central_policy=r.central_policy,
@@ -3286,9 +3299,69 @@ async def list_generated_cvs(
             and job_status not in {"queued", "running"},
             consent_required=consent_gate.consent_required(r),
             consent_missing=consent_gate.consent_missing(r),
+            job_title=job_title,
+            **_stage_cv_fields(stage_cvs.get(r.id)),
         )
-        for r, creator_name, job_status, client_name, row_needs_review in rows
+        for r, creator_name, job_status, client_name, row_needs_review, job_title in rows
     ]
+
+
+async def _stage_cvs_for_documents(db: AsyncSession, document_ids: list[int]) -> dict:
+    """CV etapu, do którego podpięto każdy z dokumentów — jednym zapytaniem.
+
+    Kilka wierszy etapu może wskazywać ten sam dokument (ruch karty, przepięcie).
+    Kolejność jak ``_branded_cv_summary_for_pair`` w ``candidate_stage_cv``:
+    zatwierdzone przed szkicem, potem najnowszy etap. Same kolumny — bez treści
+    szkicu i plików, które wiersz CV etapu też trzyma.
+    """
+    if not document_ids:
+        return {}
+    from app.models.candidate_stage_cv import CandidateStageCV
+
+    found: dict = {}
+    rows = (
+        await db.execute(
+            select(
+                CandidateStageCV.generated_document_id,
+                CandidateStageCV.candidate_stage_id,
+                CandidateStageCV.branded_status,
+                CandidateStageCV.branded_updated_at,
+                CandidateStageCV.branded_finalized_at,
+            )
+            .join(
+                CandidateStage, CandidateStage.id == CandidateStageCV.candidate_stage_id
+            )
+            .where(
+                CandidateStageCV.generated_document_id.in_(document_ids),
+                CandidateStageCV.branded_status.in_(("draft", "finalized")),
+            )
+            .order_by(
+                (CandidateStageCV.branded_status == "finalized").desc(),
+                CandidateStage.moved_at.desc(),
+                CandidateStage.id.desc(),
+            )
+        )
+    ).all()
+    for row in rows:
+        found.setdefault(row.generated_document_id, row)
+    return found
+
+
+def _stage_cv_fields(row) -> dict:
+    if row is None:
+        return {}
+    return {
+        "stage_cv_stage_id": row.candidate_stage_id,
+        "stage_cv_status": row.branded_status,
+        "stage_cv_updated_at": row.branded_updated_at.isoformat()
+        if row.branded_updated_at
+        else None,
+        "stage_cv_finalized_at": (
+            row.branded_finalized_at.isoformat()
+            if row.branded_status == "finalized" and row.branded_finalized_at
+            else None
+        ),
+    }
 
 
 async def _log_generated_download(
