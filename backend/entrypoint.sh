@@ -717,7 +717,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'cv_ready'",
     # 0444: osoba dodana do rekrutacji z „Pasuje też do” (do rekruterów tej rekrutacji).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'also_fits_added'",
-    # 0446: „Poprzedni rekruter” — zespół uśpiony przy zejściu z P1 / przywrócony.
+    # 0447: „Poprzedni rekruter” — zespół uśpiony przy zejściu z P1 / przywrócony.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_parked'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_restored'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
@@ -5759,7 +5759,7 @@ END $$""",
     "WHERE restored_at IS NULL",
     "CREATE INDEX IF NOT EXISTS ix_cv_finding_dismissals_created "
     "ON cv_finding_dismissals (created_at)",
-    # 0446: „Poprzedni rekruter” (14.10.2026). Lustro 1:1 z migracją —
+    # 0447: „Poprzedni rekruter” (14.10.2026). Lustro 1:1 z migracją —
     # pilnuje `test_previous_recruiters_migration.py`.
     """CREATE TABLE IF NOT EXISTS job_previous_recruiters (
     id SERIAL PRIMARY KEY,

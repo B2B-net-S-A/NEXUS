@@ -122,7 +122,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     # Ktoś przydzielił Ci request (akceptacja propozycji automatu, poranne
     # „Od dziś: …”) — imienne zadanie, więc nie da się go wyciszyć.
     _T.request_assignment_changed: _C.mentions,
-    # 0446: „Poprzedni rekruter” — rekrutacja zeszła z P1 / wróciła na P1
+    # 0447: „Poprzedni rekruter” — rekrutacja zeszła z P1 / wróciła na P1
     # i osoba znowu nad nią pracuje. Zmiana Twojego przydziału, jak wyżej.
     _T.recruiter_parked: _C.mentions,
     _T.recruiter_restored: _C.mentions,

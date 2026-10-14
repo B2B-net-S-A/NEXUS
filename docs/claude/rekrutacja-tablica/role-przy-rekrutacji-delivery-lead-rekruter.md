@@ -281,7 +281,7 @@ priorytetu” (51 z zespołem, 57 osób), 7 „Przyjmujemy kandydatów”.
 nich dostęp (`job_membership.is_member_of_job`, `candidate_membership`),
 kreator metryk („me” przez `jobs_mine_clause`, grupowanie po
 `recruiter_id`), rejestr umów B2B i dzwonki o własnych kandydatach.
-„Poprzedni” to otwarty wiersz `job_previous_recruiters` (migracja 0446,
+„Poprzedni” to otwarty wiersz `job_previous_recruiters` (migracja 0447,
 jeden na parę; `cleared_reason`: `restored` | `dismissed` | `readded` |
 `removed` | `skipped`). Serwis: `services/job_previous_recruiters.py`.
 

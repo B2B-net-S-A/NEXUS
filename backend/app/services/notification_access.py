@@ -118,7 +118,7 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.candidate_rate_change: ProductSection.pipeline,
     NotificationType.candidate_rate_change_task: ProductSection.pipeline,
     NotificationType.request_assignment_changed: ProductSection.pipeline,
-    # 0446: link prowadzi do rekrutacji (panel „Zespół”).
+    # 0447: link prowadzi do rekrutacji (panel „Zespół”).
     NotificationType.recruiter_parked: ProductSection.pipeline,
     NotificationType.recruiter_restored: ProductSection.pipeline,
     NotificationType.request_review_needed: ProductSection.pipeline,

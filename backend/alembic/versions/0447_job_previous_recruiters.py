@@ -1,7 +1,7 @@
 """„Poprzedni rekruter” — uśpieni rekruterzy rekrutacji i dwa typy dzwonków.
 
-Revision ID: 0446_job_previous_recruiters
-Revises: 0445_cv_stage_draft_snapshots
+Revision ID: 0447_job_previous_recruiters
+Revises: 0446_automation_role
 
 Prośba Head of Recruitment (14.10.2026), decyzje Artura tego samego dnia:
 zamknięcie rekrutacji albo zejście z P1 przenosi zespół do „Poprzedni
@@ -28,8 +28,8 @@ Lustro w ``entrypoint.sh`` — pilnuje ``test_previous_recruiters_migration.py``
 
 from alembic import op
 
-revision = "0446_job_previous_recruiters"
-down_revision = "0445_cv_stage_draft_snapshots"
+revision = "0447_job_previous_recruiters"
+down_revision = "0446_automation_role"
 branch_labels = None
 depends_on = None
 
@@ -83,7 +83,7 @@ BEGIN
         SELECT 1 FROM notifications
         WHERE notification_type::text IN ('recruiter_parked', 'recruiter_restored')
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0446 odmawia: notifications ma wpisy recruiter_parked/recruiter_restored, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0447 odmawia: notifications ma wpisy recruiter_parked/recruiter_restored, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 
