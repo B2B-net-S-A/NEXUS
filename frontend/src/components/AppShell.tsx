@@ -2090,10 +2090,16 @@ export function EditJobModal({
         rate_budget_hourly: form.rate_budget_hourly ? Number(form.rate_budget_hourly) : null,
         rate_budget_hourly_min: form.rate_budget_hourly_min ? Number(form.rate_budget_hourly_min) : null,
         deadline: form.deadline || undefined,
-        // „— bez rekrutera —” = jawny `null`: serwer zdejmuje wtedy rekrutera
-        // jak „Zdejmij”. Do 14.10.2026 szło `undefined`, pole wypadało z PATCH-a
-        // i rekruter wracał po odświeżeniu.
-        recruiter_id: form.recruiter_id ? Number(form.recruiter_id) : null,
+        // „— bez rekrutera —” przy rekrutacji, która miała rekrutera = jawny
+        // `null`: serwer zdejmuje go jak „Zdejmij”. Do 14.10.2026 szło
+        // `undefined`, pole wypadało z PATCH-a i rekruter wracał po odświeżeniu.
+        // Pole puste od otwarcia nie jedzie wcale — formularz powstaje raz,
+        // a w tym czasie rekrutera mógł wpisać automat albo pulpit.
+        recruiter_id: form.recruiter_id
+          ? Number(form.recruiter_id)
+          : job.recruiter_id
+            ? null
+            : undefined,
         // Pola usunięte z formularza 22.09.2026 (TAC, typ, widełki, priorytet,
         // szablon, kategoria, Program/Train) NIE są wysyłane — PATCH czyta
         // `model_fields_set`, więc wartości w bazie zostają nietknięte.

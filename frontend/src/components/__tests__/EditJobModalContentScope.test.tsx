@@ -225,6 +225,29 @@ describe("EditJobModal — edycja treści przez rekrutera (22.09.2026)", () => {
     const [, body] = vi.mocked(api.patch).mock.calls[0];
     expect(body).toHaveProperty("recruiter_id", null);
   });
+
+  it("rekrutacja bez rekrutera: zapis bez ruszania pola nie wysyła `recruiter_id`", async () => {
+    // Formularz powstaje raz, przy otwarciu okna. Jeśli w tym czasie automat
+    // albo pulpit wpisze rekrutera, `null` z nieruszanego pola zdjąłby osobę,
+    // której nikt nie zdejmował (i zablokował ją dla automatu).
+    vi.mocked(phase5Api.clientsLookup).mockResolvedValue({ data: [] } as never);
+    const user = userEvent.setup();
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <EditJobModal
+          job={{ ...job, recruiter_id: null }}
+          onClose={() => {}}
+          onSuccess={() => {}}
+        />
+      </QueryClientProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
+    const [, body] = vi.mocked(api.patch).mock.calls[0];
+    // Ciało żądania po serializacji — `undefined` wypada, `null` zostaje.
+    expect(JSON.parse(JSON.stringify(body))).not.toHaveProperty("recruiter_id");
+  });
 });
 
 describe("EditJobModal — status bez szkiców (04.10.2026)", () => {

@@ -46,8 +46,12 @@ tylko `recruiter_id`), a Head of Recruitment nie mógł zmienić rekrutera.
   `undefined`, klucz wypadał z PATCH-a i rekruter wracał po odświeżeniu (od
   pierwszej wersji repo); a gdyby nawet doszedł `null`, zwolnienie
   `owner_changed` nie blokowało automatu, który w trybie `auto` mógł wpisać
-  tę samą osobę z powrotem. Pilnuje `test_recruiter_cleared_in_the_edit_window_works_like_release`
-  i test okna w `EditJobModalContentScope.test.tsx`. Prowadzący jest zdejmowany PRZED przypisaniem: `manual_remove`
+  tę samą osobę z powrotem. Okno wysyła `null` tylko wtedy, gdy otworzyło się
+  z rekruterem; pole puste od otwarcia nie jedzie wcale — formularz powstaje
+  raz, a w tym czasie rekrutera mógł wpisać automat albo pulpit, więc `null`
+  zdjąłby (i zablokował dla automatu) osobę, której nikt nie zdejmował.
+  Pilnuje `test_recruiter_cleared_in_the_edit_window_works_like_release`
+  i dwa testy okna w `EditJobModalContentScope.test.tsx`. Prowadzący jest zdejmowany PRZED przypisaniem: `manual_remove`
   czyści `recruiter_id` UPDATE-em, który sesja odbija na obiekcie `job`.
   Prowadzący bez wiersza przypisania (rekrutacja prowadzona przed włączeniem
   automatu) zostawia przy zdjęciu ślad `remember_manual_release`: wiersz
