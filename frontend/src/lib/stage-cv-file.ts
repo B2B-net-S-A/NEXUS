@@ -41,3 +41,29 @@ export async function fetchStageCvFile(
   );
   return { blob: file.blob, filename: file.filename || "SZKIC_CV.docx" };
 }
+
+/**
+ * Strony CV jako PDF z TEGO SAMEGO pliku Word (Edytor CV 3, J2): wersja
+ * zatwierdzona → `…/versions/{n}/pdf`, szkic → `…/preview-pdf` z bieżącej
+ * treści. 503 = PDF chwilowo niedostępny, podgląd wraca wtedy do pliku Word.
+ */
+export async function fetchStageCvPdf(
+  stageId: number,
+  opts?: { download?: CvDownloadSurface },
+): Promise<AuthenticatedDownload> {
+  const url = (path: string) => (opts?.download ? withDownloadIntent(path, opts.download) : path);
+  const { data: branded } = await api.get<CVBrandedState>(
+    `/api/candidates/stages/${stageId}/cv/branded`,
+  );
+  if (branded.status === "finalized") {
+    const file = await fetchAuthenticatedDownload(
+      url(`/api/candidates/stages/${stageId}/cv/branded/versions/${branded.version}/pdf`),
+    );
+    return { blob: file.blob, filename: file.filename || "CV.pdf" };
+  }
+  const file = await postAuthenticatedDownload(
+    url(`/api/candidates/stages/${stageId}/cv/branded/preview-pdf`),
+    { content_html: branded.content_html ?? "", expected_revision: branded.edit_revision },
+  );
+  return { blob: file.blob, filename: file.filename || "SZKIC_CV.pdf" };
+}

@@ -16,15 +16,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { CvPagesPreview } from "@/components/v2/cv/CvPagesPreview";
 import { CvPaperHtml } from "@/components/v2/cv/CvPaperHtml";
-import { CvEditorWordPreview } from "@/components/v2/cv-editor/CvEditorWordPreview";
+import { keepDialogOpenOnDocumentSearchEscape } from "@/components/v2/files/DocumentSearchBar";
 import type { CvAlign } from "@/lib/cv-editor-align";
 
 export interface CvFilePreviewDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
-  /** Plik Word CV — bez intencji pobrania (podgląd nie jest pobraniem). */
+  /** Strony CV (PDF z pliku Word) — bez intencji pobrania. */
+  loadPdf: () => Promise<Blob>;
+  /** Plik Word CV — zapas, gdy PDF nie powstanie; bez intencji pobrania. */
   load: () => Promise<Blob>;
   /** Treść z edytora na wypadek, gdy pliku nie da się pokazać. */
   fallbackHtml?: string | null;
@@ -36,6 +39,7 @@ export function CvFilePreviewDialog({
   open,
   onOpenChange,
   title,
+  loadPdf,
   load,
   fallbackHtml,
   language,
@@ -43,15 +47,21 @@ export function CvFilePreviewDialog({
 }: CvFilePreviewDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="xl" className="flex h-[92dvh] flex-col gap-0 p-0">
+      <DialogContent
+        size="xl"
+        className="flex h-[92dvh] flex-col gap-0 p-0"
+        // Esc w „Szukaj w CV” czyści zapytanie, nie zamyka okna.
+        onEscapeKeyDown={keepDialogOpenOnDocumentSearchEscape}
+      >
         <DialogHeader className="border-b border-border px-5 py-3">
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>Tak zobaczy to klient: ten sam plik co „Pobierz”.</DialogDescription>
         </DialogHeader>
         <div className="flex min-h-0 flex-1 flex-col bg-muted/40">
           {open ? (
-            <CvEditorWordPreview
-              load={load}
+            <CvPagesPreview
+              loadPdf={loadPdf}
+              loadDocx={load}
               fallback={
                 fallbackHtml ? (
                   <>

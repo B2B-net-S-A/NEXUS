@@ -42,6 +42,8 @@ _SCOPED_MODULES = {
     "app.api.candidate_stage_cv",  # CV snapshot + branded CV + share tokens
     # Podgląd importu Worda w edytorze CV etapu (trasa z limitem → osobny moduł).
     "app.api.cv_editor_import",
+    # Strony PDF CV etapu i edytora wyniku generatora (Edytor CV 3, J2).
+    "app.api.cv_pdf_preview",
     # AI w edytorze CV etapu (zaznaczenie, polecenie): CV pary i płatny model.
     # Poza listą do 14.10.2026 — trasy miały bramkę, ale nowa przeszłaby bez niej.
     "app.api.cv_editor_ai",
@@ -90,6 +92,9 @@ _SCOPE_MARKERS = (
     "ensure_optional_job_read_access",
     "job_read_scope_clause",
     "_load_csv_for_stage",
+    # Wynik generatora: autor albo `ensure_job_read_access` rekrutacji dokumentu
+    # (`cv_generator_b2b._load_generated_document`).
+    "_load_generated_editor",
     "ensure_delivery_lead_job_visible",
     "_load_scoped_suggestion",
 )

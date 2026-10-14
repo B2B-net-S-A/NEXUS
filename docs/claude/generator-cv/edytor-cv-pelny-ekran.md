@@ -691,3 +691,65 @@ J1–J3 Artura). Obowiązuje:
 - Harnessy `/preview/cv-to-client` i `/preview/cv-editor` pokazują fikcyjne CV
   w szablonie firmowym (`public/preview/cv-to-client/cv-firmowe-przyklad.docx`,
   wygenerowany `render_approved_docx`); karta przyjmuje `loadStageCvFile`.
+
+## Strony jak u klienta: PDF z pliku Word (Edytor CV 3, PR 2, 14.10.2026)
+
+Decyzja J2 Artura: podgląd CV ma pokazywać prawdziwe strony A4, tak samo na
+każdym komputerze. docx-preview nie dzieli dokumentu na strony i nie przypina
+klauzuli zgody do dołu ostatniej strony. Obowiązuje:
+
+- **Strony = PDF z TEGO SAMEGO pliku Word** co „Pobierz Word”
+  (`services/cv_pdf_preview.docx_to_pdf`, LibreOffice headless w kontenerze
+  backendu). Plik Word zostaje jedynym źródłem; nie składaj PDF-a inną drogą
+  (HTML → PDF, przeglądarka), bo znów rozjedzie się z plikiem klienta.
+- **Trasy** (`api/cv_pdf_preview.py`, osobny moduł bez
+  `from __future__ import annotations`, limit `20/minute`) mają te same bramki
+  co ich odpowiedniki DOCX: `POST …/stages/{id}/cv/branded/preview-pdf` (szkic,
+  prawo zapisu, bez blokady wiersza, żeby nie wstrzymać autozapisu),
+  `GET …/versions/{n}/pdf` (wersja zatwierdzona, prawo do dokumentów),
+  `POST /api/cv-generator/generated/{id}/editor/preview-pdf`. Zgoda RODO
+  (`cv_consent_gate`) jak przy DOCX; `intent=download` zapisuje wpis
+  `cv_file_downloaded` z formatem `pdf`, podgląd nie zapisuje nic. Moduł jest
+  w `_SCOPED_MODULES` kontraktu zakresu, wzorzec bramek:
+  `tests/data/authz_golden/cv_pdf_preview.json` (te same litery co DOCX).
+- **Awaria = 503 z polskim komunikatem, a przeglądarka pokazuje plik Word**
+  (`components/v2/cv/CvPagesPreview.tsx` → `CvEditorWordPreview` → treść
+  w układzie kartki). Brak LibreOffice (lokalnie, w CI), limit czasu (45 s),
+  zajęte miejsce (czeka 30 s), wynik, który nie jest PDF-em, i PDF bez
+  Montserrat przy CV pisanym Montserrat to ta sama ścieżka zapasu — PDF
+  w zastępczej czcionce nie może udawać pliku klienta.
+- **Jedna zamiana naraz, kolejka w pętli zdarzeń** (`pdf_from_docx`):
+  czekający nie trzymają wątków wspólnej puli (40 na proces — zajęte blokują
+  każdą trasę synchroniczną), czeka najwyżej `MAX_WAITING` (4), następny od
+  razu dostaje 503 i zapas. Wątek tylko na samą zamianę. Nie wołaj
+  `docx_to_pdf` z trasy przez `run_in_threadpool` — to wraca problem.
+- **Przed zamianą trasa kończy transakcję** (`_pdf` → `db.commit()`): edytor
+  wyniku generatora czyta szkic z `FOR UPDATE`, a blokada trzymana przez
+  zamianę wstrzymałaby autozapis; połączenie z bazą też wraca do puli. Wpis
+  pobrania idzie po zamianie w nowej transakcji.
+- Własny profil LibreOffice na zamianę (`-env:UserInstallation`), osobna grupa
+  procesów zabijana w całości, środowisko procesu tylko z `PATH`, `LANG`,
+  `LC_*`, `FONTCONFIG_*` (bez sekretów aplikacji), `OSError` przy starcie = 503.
+  Pamięć procesu po SHA-256 CZĘŚCI pliku Word (nie bajtów ZIP-a — szkic
+  składany od nowa z tej samej treści różni się tylko czasem zapisu), 32 pozycje,
+  30 min.
+- **Czcionki w obrazie**: `backend/app/assets/fonts/montserrat/` (statyczne
+  wagi z nazwami rodzin jak w pliku: „Montserrat”, „Montserrat Medium”,
+  „Montserrat SemiBold”, „Montserrat ExtraLight”; licencja OFL) kopiowane
+  w `Dockerfile` do `/usr/share/fonts/truetype/montserrat/` + `fc-cache`.
+  Czcionki są w repo, a nie z pakietu systemu, bo szablon potrzebuje rodzin
+  o dokładnie tych nazwach. Sprawdzenie na serwerze: `fc-list | grep Montserrat`.
+- **Front**: `CvPagesPreview` w oknie „Podgląd” karty i „Użyj innego CV”
+  (`fetchStageCvPdf`, potem `fetchStageCvFile` jako zapas — oba bez intencji
+  pobrania) oraz w edytorze: przełącznik „Edycja | Jak u klienta”
+  (`CvEditorFiles.draftPdf` / `previewApprovedPdf`; edytor wyniku generatora
+  nie ma PDF-u wersji — pokazuje plik Word). W kartce edytora pudełko stron
+  dostaje `absolute inset-0` — kartka jest blokiem z przewijaniem, więc
+  `flex-1` dałby 0 px.
+- **Poza zakresem świadomie**: panel osoby i przegląd DL (`StageCvPreview`)
+  zostają na docx-preview — otwierają się przy każdej osobie, a zamiana
+  kosztuje ok. 2 s procesora serwera. Szkice nie są zapamiętywane między
+  zmianami treści.
+- Harnessy pokazują strony z `public/preview/cv-to-client/cv-firmowe-przyklad.pdf`
+  (fikcyjne CV z pliku Word harnessu, LibreOffice z Montserrat, metadane bez
+  autora). Po zmianie tego pliku Word wygeneruj PDF ponownie.

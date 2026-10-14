@@ -150,6 +150,10 @@ def _routes(world: dict) -> list[tuple[str, str, dict]]:
         ("GET", f"/api/candidates/stages/{s}/cv/branded/versions/1/docx", {}),
         ("POST", f"/api/candidates/stages/{s}/cv/branded/preview-docx", editor),
         ("GET", f"/api/candidates/stages/{s}/cv/branded/render-pdf", {}),
+        # Edytor CV 3 (J2): strony PDF z tego samego pliku Word — te same bramki.
+        ("POST", f"/api/cv-generator/generated/{g}/editor/preview-pdf", editor),
+        ("GET", f"/api/candidates/stages/{s}/cv/branded/versions/1/pdf", {}),
+        ("POST", f"/api/candidates/stages/{s}/cv/branded/preview-pdf", editor),
     ]
 
 
@@ -164,6 +168,9 @@ ROUTE_NAMES = [
     "stage-version-docx",
     "stage-preview-docx",
     "stage-print",
+    "editor-preview-pdf",
+    "stage-version-pdf",
+    "stage-preview-pdf",
 ]
 
 
@@ -259,9 +266,19 @@ async def test_deleting_the_generated_cv_keeps_the_stage_copy_gated(
         )
         assert csv.generated_document_id is None
         assert csv.branded_render_metadata.get("consent_required") is True
-    for name in ("stage-version-docx", "stage-preview-docx", "stage-print"):
+    for name in (
+        "stage-version-docx",
+        "stage-preview-docx",
+        "stage-print",
+        "stage-version-pdf",
+        "stage-preview-pdf",
+    ):
         response = await _call(pv_client, world, ROUTE_NAMES.index(name))
-        assert _is_consent_refusal(response), (name, response.status_code, response.text)
+        assert _is_consent_refusal(response), (
+            name,
+            response.status_code,
+            response.text,
+        )
 
 
 @pytest.mark.asyncio
