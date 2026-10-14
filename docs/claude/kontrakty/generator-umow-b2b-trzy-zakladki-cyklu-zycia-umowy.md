@@ -431,7 +431,10 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
     `requested`, `hired_unsigned` (karta „Zatrudniony” przy umowie „W trakcie”
     — D5: sprawa, nie automat), `closed_unsigned`, `closed_signed_active`; tylko
     dla posiadaczy „Podpis B2B” w ich zakresie; prośby autora w
-    `waiting_on_others`.
+    `waiting_on_others`. Przy `closed_signed_active` przycisk to „Sprawdź”
+    (link do kontraktu), nie „Zakończ współpracę” — decyzja Artura
+    14.10.2026: karta bywa zamknięta błędnie (np. ruch z Traffita), a osoba
+    pracuje i ma zamówienie, więc kafelek pyta, która strona ma rację.
   - **Ręczne „Zatrudniony” z UoP albo zleceniem zakłada kontrakt tego typu**
     (do 04.10 zawsze B2B). Stawki do klienta z etapu NIE wpisujemy do szkicu
     zamówienia z podpisu: start + stawka spełnia `complete_order_clause`, więc
